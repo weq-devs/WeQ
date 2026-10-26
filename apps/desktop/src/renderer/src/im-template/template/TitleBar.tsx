@@ -6,6 +6,7 @@ import { OnlineStatus } from '../../components/OnlineStatus';
 import { VipBadge } from '../../components/VipBadge';
 import { RestrictedModeIndicator } from '../../components/RestrictedMode';
 import '../../styles/self-profile.css';
+import '../../styles/titlebar-search.css';
 import { Avatar } from './primitives';
 import type { User } from './types';
 import { displayUserName } from './user';
@@ -15,7 +16,6 @@ import { DesktopOnly, IS_MAC } from '../../lib/target';
 
 function ProfileAvatar({ user }: { user: User }) {
   const [open, setOpen] = useState(false);
-  const titleId = useId();
   return (
     <>
       <button
@@ -29,32 +29,37 @@ function ProfileAvatar({ user }: { user: User }) {
       >
         <Avatar name={displayUserName(user)} avatarUrl={user.avatarUrl} seed={user.identityValue} />
       </button>
-      {open && (
-        <Modal
-          onClose={() => setOpen(false)}
-          labelledBy={titleId}
-          width={560}
-          className="weq-self-profile-dialog"
-          centered
-        >
-          <header className="weq-self-profile-header">
-            <h2 id={titleId}>QQ 资料与状态</h2>
-            <button
-              type="button"
-              className="weq-set-iconbtn"
-              aria-label="关闭资料编辑"
-              title="关闭"
-              onClick={() => setOpen(false)}
-            >
-              <X size={18} />
-            </button>
-          </header>
-          <div className="weq-self-profile-body">
-            <SelfQQControls />
-          </div>
-        </Modal>
-      )}
+      {open && <SelfProfileDialog onClose={() => setOpen(false)} />}
     </>
+  );
+}
+
+export function SelfProfileDialog({ onClose }: { onClose: () => void }) {
+  const titleId = useId();
+  return (
+    <Modal
+      onClose={onClose}
+      labelledBy={titleId}
+      width={560}
+      className="weq-self-profile-dialog"
+      centered
+    >
+      <header className="weq-self-profile-header">
+        <h2 id={titleId}>QQ 资料与状态</h2>
+        <button
+          type="button"
+          className="weq-set-iconbtn"
+          aria-label="关闭资料编辑"
+          title="关闭"
+          onClick={onClose}
+        >
+          <X size={18} />
+        </button>
+      </header>
+      <div className="weq-self-profile-body">
+        <SelfQQControls />
+      </div>
+    </Modal>
   );
 }
 
@@ -91,7 +96,6 @@ export function TitleBar({
       >
         <img src={logoUrl} className="app-title-bar-logo" alt="主页" />
       </button>
-      {search}
       <div className="app-title-bar-user">
         <ProfileAvatar key={`${user.id}:${user.identityValue}`} user={user} />
         <span className="app-title-bar-nick">{displayUserName(user)}</span>
@@ -105,10 +109,19 @@ export function TitleBar({
             refetchInterval={15_000}
           />
         )}
-        {user.signature && <span className="app-title-bar-signature">{user.signature}</span>}
+        {user.signature && (
+          <span className="app-title-bar-signature" title={user.signature}>
+            {user.signature}
+          </span>
+        )}
       </div>
       <div className="app-title-bar-drag" />
-      <RestrictedModeIndicator />
+      {search}
+      <div className="weq-titlebar-restriction">
+        <div>
+          <RestrictedModeIndicator persistent />
+        </div>
+      </div>
       {/* macOS 有原生红黄绿三键，自绘的 最小化/最大化/关闭 会重复，隐藏掉。 */}
       {!IS_MAC && (
         <DesktopOnly>

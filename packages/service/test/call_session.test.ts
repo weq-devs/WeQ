@@ -9,6 +9,8 @@ import {
 } from '../src/account/call_session';
 import {
   AUDIO_STX,
+  AUDIO_HEADER_LEN,
+  AudioSubType,
   CallEvent,
   GcsBodyType,
   buildAudioFrame,
@@ -17,7 +19,11 @@ import {
   encodeVarint,
   pbBytes,
   pbVarint,
+  parseAudioFrame,
+  parseFecContainer,
   parseGcsPacket,
+  rsDecode,
+  rsEncode,
 } from '@weq/protocol';
 
 // ─────────────────────────── 测试替身 ───────────────────────────
@@ -201,7 +207,7 @@ function authRspPacket(sessionTs = 999): Uint8Array {
 // ─────────────────────────── 用例 ───────────────────────────
 
 describe('通话会话状态机', () => {
-  it('发起后先发认证、中继注册与编码器初始化', async () => {
+  it('发起后先发认证与编码器初始化，认证成功后再注册中继', async () => {
     const { session, transport } = makeSession();
     await session.start();
 
@@ -209,6 +215,9 @@ describe('通话会话状态机', () => {
     expect(transport.sent.length).toBeGreaterThan(0);
     // 认证包发两次
     expect(transport.gcs(GcsBodyType.authReq)).toHaveLength(2);
+    // 中继注册要等认证成功，不能抢跑
+    expect(transport.sent.some((s) => s.data[0] === 0x02)).toBe(false);
+    transport.deliver(authRspPacket());
     // 中继注册（首字节 0x02）
     expect(transport.sent.some((s) => s.data[0] === 0x02)).toBe(true);
     // 编码器初始化帧（0x5b, subType=1, seq=0）
@@ -241,6 +250,45 @@ describe('通话会话状态机', () => {
     expect(states).toEqual(['calling', 'ringing', 'connecting', 'connected']);
   });
 
+  it('四帧均参与 FEC 校验，下一组冗余可恢复第 4 帧', async () => {
+    const { session, transport, timers } = makeSession();
+    await session.start();
+    const initialAudioCount = transport.sent.filter(
+      ({ data }) => data[0] === AUDIO_STX && data[3] === AudioSubType.audio,
+    ).length;
+
+    transport.deliver(notifyPacket(CallEvent.dataChange));
+    for (let n = 1; n <= 6; n++) session.pushAudio(new Uint8Array(640).fill(n));
+    timers.advance(100);
+    // encode() 是异步的；等待当前拍次的编解码进入 fake transport。
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const audioPackets = transport.sent
+      .filter(({ data }) => data[0] === AUDIO_STX && data[3] === AudioSubType.audio)
+      .slice(initialAudioCount)
+      .map(({ data }) => data);
+    expect(audioPackets.length).toBeGreaterThanOrEqual(5);
+
+    const frames = audioPackets.slice(0, 4).map((packet) => {
+      const parsed = parseAudioFrame(packet);
+      expect(parsed?.payload.length).toBe(8);
+      // 用发出包的原始 rsfec 切片重建 RS 输入，排除 FEC 容器。
+      return packet.subarray(AUDIO_HEADER_LEN, AUDIO_HEADER_LEN + 13 + parsed!.payload.length + 2);
+    });
+    const fec = parseFecContainer(audioPackets[4]!);
+    expect(fec).not.toBeNull();
+    const expected = rsEncode(frames, Math.max(...frames.map((frame) => frame.length)));
+    expect(fec!.parity).toEqual(expected[0]);
+
+    const recovered = rsDecode(
+      [frames[0]!, frames[1]!, frames[2]!, null],
+      [{ row: fec!.rowIndex, data: fec!.parity }],
+      fec!.paySize,
+    );
+    expect(recovered).not.toBeNull();
+    expect(recovered![3]).toEqual(frames[3]);
+  });
+
   it('对端挂断会走完收尾（GCS 登出 5 次 + MSF 登出）', async () => {
     const { session, transport, codec, signaling } = makeSession();
     await session.start();
@@ -266,6 +314,56 @@ describe('通话会话状态机', () => {
     await session.hangup();
     expect(session.snapshot().state).toBe('ended');
     expect(session.snapshot().endReason).toBe('hangup');
+  });
+
+  it('主动挂断期间迟到的接通事件不会重启通话', async () => {
+    const { session, transport, timers, signaling, states } = makeSession();
+    let finishSignaling: () => void = () => {};
+    signaling.end = () =>
+      new Promise<void>((resolve) => {
+        finishSignaling = resolve;
+      });
+    await session.start();
+    transport.deliver(notifyPacket(CallEvent.dataChange));
+
+    const hangup = session.hangup();
+    expect(session.snapshot().state).toBe('ending');
+    transport.deliver(notifyPacket(CallEvent.dataChange));
+    expect(session.snapshot().state).toBe('ending');
+
+    finishSignaling();
+    await hangup;
+    expect(session.snapshot().state).toBe('ended');
+    expect(states.filter((state) => state === 'connected')).toHaveLength(1);
+    const sentBefore = transport.sent.length;
+    timers.advance(200);
+    expect(transport.sent).toHaveLength(sentBefore);
+  });
+
+  it('对端挂断收尾只执行一次，迟到事件不覆盖挂断原因', async () => {
+    const { session, transport, signaling } = makeSession();
+    let finishSignaling: () => void = () => {};
+    let endCalls = 0;
+    signaling.end = () => {
+      endCalls++;
+      return new Promise<void>((resolve) => {
+        finishSignaling = resolve;
+      });
+    };
+    await session.start();
+
+    transport.deliver(notifyPacket(CallEvent.logout));
+    transport.deliver(notifyPacket(CallEvent.timeout));
+    transport.deliver(notifyPacket(CallEvent.dataChange));
+    expect(session.snapshot().state).toBe('ending');
+    expect(session.snapshot().endReason).toBe('peer_hangup');
+    expect(endCalls).toBe(1);
+    expect(transport.gcs(GcsBodyType.logout)).toHaveLength(5);
+
+    finishSignaling();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(session.snapshot().state).toBe('ended');
+    expect(session.snapshot().endReason).toBe('peer_hangup');
   });
 
   /**

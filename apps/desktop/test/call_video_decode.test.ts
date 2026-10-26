@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * 通话视频解码的纯逻辑：**参数集必须内联，不能走 `description`**。
  *
@@ -18,6 +19,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  acceptsFrame,
   annexB,
   concatBytes,
   payloadForDecoder,
@@ -162,5 +164,79 @@ describe('toBytes（tRPC 序列化形态）', () => {
     expect(toBytes(null)).toBeNull();
     expect(toBytes('not-bytes')).toBeNull();
     expect(toBytes({})).toBeNull();
+  });
+});
+
+/**
+ * 帧序号连续性检查 —— 「Windows 前 15 秒整屏纯绿」的修复。
+ *
+ * 真实场景（2026-10-26 真机日志 + 码流 dump 对齐）：订阅建立时补发缓存的关键帧
+ * （帧 0），紧接着喂的是实时帧（帧 29），中间 1~28 缺失。Chromium 硬解在拒绝这些
+ * 无参考帧的 delta 后内部状态被污染，输出错乱的 YUV（中心 RGB [0,88,0]，R/B 恒 0），
+ * 直到下一个关键帧（帧 257）才恢复 —— 正好约 15 秒。
+ *
+ * 离线验证（tmp/verify_fix.cjs，同一份对端码流）：不检查时绿帧 228 帧，
+ * 加上本检查后 0 帧。
+ */
+describe('acceptsFrame（帧序号连续性）', () => {
+  it('关键帧永远可以起解 —— 它是参考链的起点', () => {
+    expect(acceptsFrame(null, 0, true)).toBe(true);
+    expect(acceptsFrame(28, 257, true)).toBe(true);
+    expect(acceptsFrame(0, 100, true)).toBe(true);
+  });
+
+  it('还没有基准时放行，交给调用方的「未配置」逻辑判断', () => {
+    expect(acceptsFrame(null, 29, false)).toBe(true);
+  });
+
+  it('序号连续（+1）时接受', () => {
+    expect(acceptsFrame(0, 1, false)).toBe(true);
+    expect(acceptsFrame(28, 29, false)).toBe(true);
+  });
+
+  it('序号跳跃时拒绝 —— 这正是绿屏的成因', () => {
+    // 真实场景：关键帧 0 之后直接来帧 29
+    expect(acceptsFrame(0, 29, false)).toBe(false);
+    expect(acceptsFrame(29, 33, false)).toBe(false);
+    // 乱序（倒退）同样拒绝
+    expect(acceptsFrame(30, 10, false)).toBe(false);
+  });
+
+  it('16 位序号正常递增（255 → 256 → 257，不是回绕）', () => {
+    expect(acceptsFrame(254, 255, false)).toBe(true);
+    expect(acceptsFrame(255, 256, false)).toBe(true);
+    expect(acceptsFrame(256, 257, false)).toBe(true);
+  });
+
+  it('16 位序号真正回绕（65535 → 0）时仍然连续', () => {
+    expect(acceptsFrame(65534, 65535, false)).toBe(true);
+    expect(acceptsFrame(65535, 0, false)).toBe(true);
+    expect(acceptsFrame(0, 1, false)).toBe(true);
+  });
+
+  it('回绕边界上的跳跃照样拒绝', () => {
+    expect(acceptsFrame(65535, 2, false)).toBe(false);
+    // 255 → 0 是倒退，不是回绕
+    expect(acceptsFrame(255, 0, false)).toBe(false);
+  });
+
+  it('真实绿屏序列：0 → 29 全部丢弃，直到关键帧 257 才恢复', () => {
+    // 复刻 tmp/verify_fix.cjs 的 feed：补发关键帧 0，然后从 29 开始
+    const feed = [0, ...Array.from({ length: 271 }, (_, i) => 29 + i)];
+    let last: number | null = null;
+    let fed = 0;
+    let dropped = 0;
+    for (const index of feed) {
+      const keyframe = index === 0 || index === 257;
+      if (!acceptsFrame(last, index, keyframe)) {
+        dropped++;
+        continue;
+      }
+      last = index;
+      fed++;
+    }
+    // 0（关键帧）→ 之后 29..256 全丢（228 帧）→ 257（关键帧）起恢复
+    expect(dropped).toBe(228);
+    expect(fed).toBe(44); // 0 + 257..299
   });
 });

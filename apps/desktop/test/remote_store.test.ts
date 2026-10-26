@@ -1,10 +1,26 @@
 // @vitest-environment node
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { RemoteStore } from '../src/main/remote/store';
 import { RemotePairing, tokenHash } from '../src/main/remote/pairing';
+
+it('旧 Tailscale 模式保留专用节点启用意图，明确关闭后不因旧模式再次开启', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'weq-remote-legacy-'));
+  try {
+    writeFileSync(
+      join(dir, 'devices.json'),
+      JSON.stringify({ enabled: true, mode: 'tailscale', claims: [] }),
+    );
+    const store = new RemoteStore(dir);
+    expect(store.read().tailscaleEnabled).toBe(true);
+    store.save({ tailscaleEnabled: false });
+    expect(new RemoteStore(dir).read().tailscaleEnabled).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 it('重启与关闭连接保留设备，删除后重启仍拒绝旧凭据；磁盘没有明文令牌或邀请', () => {
   const dir = mkdtempSync(join(tmpdir(), 'weq-remote-store-'));

@@ -6,14 +6,47 @@
 
 import { app, dialog, shell, nativeImage, net } from 'electron';
 import { spawn } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { HostBridge, SaveTarget, StorageRoot } from '@weq/service';
 import { clearStorageAfterExit, storageCleanupResult } from './storage_cleanup';
 import { DialogLocations } from './dialog_locations';
+import { AppAutostart } from './autostart';
+import { manualRestartArgs } from './startup_window';
+import { skipNextQuitConfirmation } from './app_quit_confirmation';
+import { prepareDevelopmentRestart } from './development_restart';
+
+let startup: AppAutostart | null = null;
+function appAutostart(): AppAutostart {
+  startup ??= new AppAutostart({
+    platform: process.platform,
+    home: homedir(),
+    env: process.env,
+    configDir: app.getPath('userData'),
+    exePath: process.env.APPIMAGE || app.getPath('exe'),
+    supported: app.isPackaged,
+    native: {
+      get: (options) => app.getLoginItemSettings(options),
+      set: (options) => app.setLoginItemSettings(options),
+    },
+  });
+  return startup;
+}
+
+export function migrateLegacyAutostart(): Promise<void> {
+  return appAutostart().migrateLegacy();
+}
 
 export function dialogLocations(): DialogLocations {
   return new DialogLocations(join(app.getPath('userData'), 'dialog-locations.json'));
+}
+
+async function defaultSaveDirectory(selected?: string): Promise<string> {
+  if (selected) return selected;
+  const { getAppContext } = await import('./context/app_context');
+  return (
+    getAppContext().bootstrap?.userConfig.getSettings().defaultExportDir || app.getPath('desktop')
+  );
 }
 
 /**
@@ -103,8 +136,18 @@ export const electronHost: HostBridge = {
   clearStorageAfterExit,
   storageCleanupResult,
   restartApplication: async () => {
-    app.relaunch();
-    setTimeout(() => app.quit(), 200);
+    if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
+      await prepareDevelopmentRestart(app, {
+        appPath: app.getAppPath(),
+        argv: process.argv,
+        nodePath: process.env.npm_node_execpath,
+        logPath: join(app.getPath('logs'), 'development-restart.log'),
+      });
+    } else app.relaunch({ args: manualRestartArgs(process.argv) });
+    setTimeout(() => {
+      skipNextQuitConfirmation();
+      app.quit();
+    }, 200);
   },
   fetchMedia: (url, opts) => net.fetch(url, { signal: opts?.signal }),
   async validateImageBuffer(bytes) {
@@ -117,10 +160,12 @@ export const electronHost: HostBridge = {
   canReveal: true,
 
   async pickDirectory(opts) {
-    const key = `directory:${opts?.title ?? 'default'}`;
+    const key = `directory:${opts?.locationKey ?? opts?.title ?? 'default'}`;
     const result = await dialog.showOpenDialog({
       title: opts?.title,
-      defaultPath: dialogLocations().directory(key),
+      defaultPath:
+        dialogLocations().directory(key) ??
+        (opts?.locationKey ? await defaultSaveDirectory(opts.defaultDirectory) : undefined),
       properties: ['openDirectory', 'createDirectory'],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
@@ -143,10 +188,18 @@ export const electronHost: HostBridge = {
     return result.filePaths[0] ?? null;
   },
 
-  async pickSaveTarget({ defaultName, extension, locationKey }): Promise<SaveTarget | null> {
+  async pickSaveTarget({
+    defaultName,
+    extension,
+    locationKey,
+    defaultDirectory,
+  }): Promise<SaveTarget | null> {
     const key = `save:${locationKey ?? extension ?? 'default'}`;
     const result = await dialog.showSaveDialog({
-      defaultPath: dialogLocations().savePath(key, defaultName),
+      defaultPath: join(
+        dialogLocations().directory(key) ?? (await defaultSaveDirectory(defaultDirectory)),
+        basename(defaultName),
+      ),
       filters: extension ? [{ name: 'File', extensions: [extension] }] : undefined,
     });
     if (result.canceled || !result.filePath) return null;
@@ -195,10 +248,10 @@ export const electronHost: HostBridge = {
 
   appVersion: () => app.getVersion(),
   isPackaged: () => app.isPackaged,
-  // 「开机拉起 WeQ」的意图交给守护进程记着（GUI 自己不注册任何原生自启）：
-  // pnpm dev 拉起的 electron 没有安装、没有固定路径语义，让它开机起是错的 ——
-  // 只允许打包版开启。
+  // 系统直接启动安装版 WeQ；开发态没有稳定的安装路径。
   canAutostart: app.isPackaged,
+  getAutostart: () => appAutostart().status(),
+  setAutostart: (enabled) => appAutostart().set(enabled),
   currentExePath: () => {
     // AppImage 下 `app.getPath('exe')` 是本次运行的临时挂载点
     // （`/tmp/.mount_<name>.<rand>/…`），重启后必然不存在 —— 必须用 $APPIMAGE

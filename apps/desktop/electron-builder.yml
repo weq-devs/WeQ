@@ -4,8 +4,13 @@ copyright: Copyright © 2026 weQ contributors
 directories:
   output: release/${version}
   buildResources: build
+beforePack: ../../scripts/package-remote-network.mjs
+afterPack: ../../scripts/trim-desktop-package.mjs
+afterSign: ../../scripts/verify-desktop-authorization.mjs
 files:
   - "out/**/*"
+  - "!out/types-*/**"
+  - "!out/**/*.d.{ts,cts,mts}"
   # Bare "package.json" was being resolved as a glob in this monorepo and
   # matched `../../packages/<name>/package.json` etc., which electron-builder
   # rejects ("must be under <appDir>"). Pin to the desktop app's own manifest.
@@ -15,6 +20,10 @@ files:
   # Workspace packages are removed from the release manifest before packaging.
   - "node_modules/**/*"
   - "!node_modules/@weq/**/*"
+  # 前端依赖仅用于构建；运行依赖也不携带源码映射和 ExcelJS 的浏览器整包。
+  - "!node_modules/**/*.map"
+  - "!node_modules/**/*.d.{ts,cts,mts}"
+  - "!node_modules/exceljs/dist/**"
   # onnxruntime-node 是原生模块：留在 asar 里会被 electron-builder 的 smartUnpack
   # **整包**解出一份到 app.asar.unpacked/（288 MB 的包体，2.0.5 的 Windows 安装包
   # 因此直接翻倍）。运行时真正加载的是下面 extraResources 拷到 <resources>/node_modules/
@@ -32,7 +41,7 @@ extraResources:
     to: out/main/chunks
   - from: ../web/dist/public
     to: remote-web
-  - from: ../../tools/remote-network
+  - from: ../../tools/remote-network/build/${os}/${arch}
     to: remote-network
     filter:
       - weq-remote-network
@@ -58,9 +67,7 @@ extraResources:
       - "**/*"
       - "!assistant/fonts/**"
       - "!brand/banner.png"
-
-  - from: node_modules/sherpa-onnx-node
-    to: node_modules/sherpa-onnx-node
+      - "!daemon/**"
 
   - from: out/main/transcribeWorker.mjs
     to: out/main/transcribeWorker.mjs
@@ -77,10 +84,7 @@ extraResources:
   # 意图感知本地引擎（Laya ONNX）在 fork 的子进程里 require 这些包。
   - from: node_modules/@receptron/laya
     to: node_modules/@receptron/laya
-  - from: node_modules/adm-zip
-    to: node_modules/adm-zip
-  - from: node_modules/global-agent
-    to: node_modules/global-agent
+  # adm-zip / global-agent 仅供 ONNX 的安装脚本使用，不是推理运行依赖。
   - from: node_modules/@huggingface/tokenizers
     to: node_modules/@huggingface/tokenizers
 
@@ -90,15 +94,11 @@ extraResources:
     to: node_modules/onnxruntime-common
 
 asarUnpack:
+  # 转写 Node 子进程从实体目录加载 JS 包，平台原生绑定由 smartUnpack 放在同级。
+  - "**/node_modules/sherpa-onnx-node/**/*"
   - node_modules/sharp/**/*
   - node_modules/@img/**/*
-  # @resvg/resvg-js loads a platform .node binding (used by the WeQ 助手 cover
-  # renderer in the main process). Native addons can't be loaded from inside the
-  # asar, so unpack the resvg packages (base + per-platform binding). The
-  # darwin bindings (x64 + arm64) are declared as direct deps of the desktop
-  # app and both get unpacked here; js-binding.js picks whichever matches
-  # process.arch at runtime, so the packaging no longer depends on the build
-  # runner's own architecture.
+  # resvg 原生绑定在 asar 外加载；afterPack 移除非目标 Darwin 架构。
   - node_modules/@resvg/**/*
   # # The voice-transcription worker is forked as a child process (can't run from
   # # inside the asar) and loads the native sherpa-onnx binding from node_modules.
@@ -139,8 +139,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   artifactName: ${productName}-${version}-setup.${ext}
   # 卸载钩子在 buildResources/installer.nsh（electron-builder 按约定自动 include，
-  # 不要同时用 nsis.include 指一遍 —— 那样宏会重复定义）。那里负责停掉 weq-daemon、
-  # 删掉它的开机自启任务与数据目录：electron 的卸载器不认识 %LOCALAPPDATA%\weq-daemon。
+  # 不要同时用 nsis.include 指一遍 —— 那样宏会重复定义）。它清理当前登录项及旧后台残留。
 
 # Linux 目标：AppImage（单文件免安装，最通用）+ tar.gz（解压即用）。
 # 架构由命令行决定：CI 里每个 runner 只打自己那一种（linux-x64 → --x64，
@@ -150,8 +149,7 @@ nsis:
 # ⚠️ 不要给 target 加 `arch: [x64, arm64]`：electron-builder 的 target.arch 会
 # 覆盖 CLI 的 --x64 / --arm64（app-builder-lib computeArchToTargetNamesMap），
 # 一次构建就会把两种架构都打出来；而 pnpm 装的 native binding
-# （@resvg/resvg-js-linux-*-gnu、sherpa-onnx-linux-*）和 cargo 编出来的
-# resources/daemon/<platform>-<arch> 全是**构建机架构**的，于是非构建机架构的
+# （@resvg/resvg-js-linux-*-gnu、sherpa-onnx-linux-*）全是**构建机架构**的，于是非构建机架构的
 # 包会带着错误架构的原生模块出厂：v1.0.0 的 weQ-1.0.0-linux-x86_64.AppImage
 # 就是这么坏的 —— 在 arm64 runner 上打出来，包里是 aarch64 binding，启动即
 # Cannot find module '@resvg/resvg-js-linux-x64-gnu'。
@@ -203,11 +201,14 @@ linux:
 # 扫码走纯协议，不再需要任何注入或沙箱容器文件。
 # 未配置证书时补完整的 ad-hoc 签名并验证资源封装；它不是 Developer ID 或公证，
 # 首次仍需按「隐私与安全性 → 仍要打开」放行。配置证书时保留真实签名身份。
+# ad-hoc 构建的跨版本更新使用官方 Release 哈希验证和退出后安装助手，不交给 Squirrel。
 mac:
   icon: ../../resources/brand/logo.png
   sign: ../../scripts/sign-macos.mjs
   # 打包字体（见顶部 extraResources 的说明）：macOS 的候选全是 .ttc，satori 读不了。
   extraResources:
+    - from: out/main/macUpdateWorker.mjs
+      to: out/main/macUpdateWorker.mjs
     - from: ../../LICENSE
       to: LICENSE
     - from: ../../native/darwin/${arch}

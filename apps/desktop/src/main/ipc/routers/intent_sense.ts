@@ -14,6 +14,7 @@
  */
 
 import { z } from 'zod';
+import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';
 import { observable } from '@trpc/server/observable';
 import {
   getActiveIntentSenseLocalEngine,
@@ -57,6 +58,8 @@ const configPatch = z.object({
   suggestionCount: tuning('suggestionCount'),
   suggestionTargetChars: tuning('suggestionTargetChars'),
   profileTemperature: tuning('profileTemperature'),
+  profileApiTimeoutSeconds: tuning('profileApiTimeoutSeconds'),
+  profileApiCooldownSeconds: tuning('profileApiCooldownSeconds'),
   profileDecayDays: tuning('profileDecayDays'),
   profileModelTopics: tuning('profileModelTopics'),
   profileCacheSeconds: tuning('profileCacheSeconds'),
@@ -74,22 +77,14 @@ const configPatch = z.object({
   profileGapMinutes: tuning('profileGapMinutes'),
   profileTrendDays: tuning('profileTrendDays'),
   profileTopicLimit: tuning('profileTopicLimit'),
-  profileEngine: z.enum(['follow', 'api', 'local', 'heuristic']).optional(),
+  profileEngine: z.enum(['api', 'local', 'heuristic']).optional(),
+  profileLocalModelId: z.enum(['auto', 'laya-multilingual', 'QWeQ-NineBird-v1']).optional(),
   profileEnabled: z.boolean().optional(),
-  profileProviderRef: z
-    .object({ providerId: z.string().min(1), model: z.string().min(1) })
-    .nullable()
-    .optional(),
+  profileProviderRef: agentLabModelSelectionSchema.nullable().optional(),
   enabled: z.boolean().optional(),
   engine: z.enum(['api', 'local']).optional(),
-  providerRef: z
-    .object({ providerId: z.string().min(1), model: z.string().min(1) })
-    .nullable()
-    .optional(),
-  suggestionProviderRef: z
-    .object({ providerId: z.string().min(1), model: z.string().min(1) })
-    .nullable()
-    .optional(),
+  providerRef: agentLabModelSelectionSchema.nullable().optional(),
+  suggestionProviderRef: agentLabModelSelectionSchema.nullable().optional(),
   suggestionsEnabled: z.boolean().optional(),
   analyzeAfterSelf: z.boolean().optional(),
   persistentDisplay: z.boolean().optional(),
@@ -182,7 +177,9 @@ const intentSenseFeatureProcedures = {
 
   /** 对方互动画像；无可分析对方消息时为 null。仅私聊有语义。 */
   getProfile: procedure
-    .input(z.object({ peerUid: z.string().min(1) }))
+    .input(
+      z.object({ peerUid: z.string().min(1), revision: z.number().int().nonnegative().optional() }),
+    )
     .query(({ input }) => requireServices().intentSense.getProfile(input.peerUid)),
 
   /** 候选回复（当前引擎可用且 suggestionsEnabled）。 */
@@ -235,7 +232,12 @@ export const intentSenseModelProcedures = {
    * 运行中重复调用直接返回，不打断在途下载。
    */
   downloadLocalModel: procedure
-    .input(z.object({ mirror: z.boolean() }))
+    .input(
+      z.object({
+        mirror: z.boolean(),
+        modelId: z.enum(['auto', 'laya-multilingual', 'QWeQ-NineBird-v1']).optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
       const engine = getActiveIntentSenseLocalEngine();
       if (!engine) return { ok: false, error: '本地引擎仅桌面版可用', alreadyRunning: false };
@@ -259,7 +261,7 @@ export const intentSenseModelProcedures = {
         done: false,
       });
       try {
-        await engine.download({ mirror: input.mirror, onProgress: notify });
+        await engine.download({ modelId: input.modelId, mirror: input.mirror, onProgress: notify });
         return { ok: true, alreadyRunning: false };
       } catch (error) {
         return { ok: false, error: String(error), alreadyRunning: false };

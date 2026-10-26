@@ -366,6 +366,7 @@ button.composer-single-thumb {
 /* ── 语音面板 ─────────────────────────────────────────────────────────────── */
 
 .voice-panel {
+  container-type: inline-size;
   position: absolute;
   bottom: calc(100% - 1px);
   left: 12px;
@@ -393,10 +394,77 @@ button.composer-single-thumb {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
+.voice-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px;
+}
+
+.voice-panel-tabs {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.voice-panel-tabs button,
+.voice-ai-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+html[data-theme='dark'] .voice-panel-tabs button.active {
+  background: var(--weq-bg-surface);
+  color: var(--weq-accent-effective);
+  box-shadow: none;
+}
+
+.voice-panel-tabs button:disabled,
+.voice-ai-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .voice-panel-body {
   display: grid;
   gap: 8px;
   padding: 10px;
+}
+
+@container (min-width: 640px) {
+  .composer > .voice-panel .voice-tts {
+    grid-template-columns: minmax(0, 1fr) minmax(150px, 24%) minmax(150px, 24%);
+  }
+
+  .composer > .voice-panel .voice-tts-input {
+    grid-row: 2 / span 2;
+    min-height: 60px;
+  }
+
+  .composer > .voice-panel .voice-tts-row {
+    grid-row: 2;
+  }
+
+  .composer > .voice-panel .voice-tts-row + .voice-tts-row {
+    grid-column: 3;
+  }
+
+  .composer > .voice-panel .voice-tts > .voice-review-actions {
+    grid-column: 2 / -1;
+    grid-row: 3;
+  }
 }
 
 /* ── 录音舞台：环形声纹 + 圆形录音键（QQ 原生那套）────────────────────────
@@ -1262,6 +1330,34 @@ html[data-theme='dark'] .link-card-preview-card {
 
   .voice-panel-body > .voice-stage {
     align-self: center;
+  }
+
+  .voice-panel-body:has(> .voice-tts) {
+    display: block;
+  }
+
+  .voice-panel .voice-tts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 32%);
+    gap: 6px 12px;
+  }
+
+  .voice-panel .voice-tts-note,
+  .voice-panel .voice-tts > .voice-error {
+    grid-column: 1 / -1;
+  }
+
+  .voice-panel .voice-tts-input {
+    grid-column: 1;
+    grid-row: 2 / span 3;
+    height: 100%;
+    min-height: 80px;
+    resize: none;
+  }
+
+  .voice-panel .voice-tts-row,
+  .voice-panel .voice-tts > .voice-review-actions {
+    grid-column: 2;
   }
 
   /* 引用条占正文上面那一行：正文让出一行，整条输入区高度不变（不推挤消息列表）。 */

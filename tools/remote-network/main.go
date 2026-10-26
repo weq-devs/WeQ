@@ -147,7 +147,7 @@ func run() error {
 							cancel()
 						}
 					}()
-					if *mode == "both" {
+					if *mode == "both" || *mode == "tailscale" {
 						cert, err := lanCertificate(*lanState)
 						if err != nil {
 							return err

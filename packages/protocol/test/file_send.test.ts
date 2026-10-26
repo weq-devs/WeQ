@@ -273,6 +273,31 @@ describe('sendGroupFile', () => {
 });
 
 describe('sendPrivateFile', () => {
+  it('私聊文件申请后身份失效，不继续 finalize 或发送消息', async () => {
+    let current = true;
+    const native = makeNative({
+      oidb: () => {
+        current = false;
+        return encode(OIDB_PRIVATE_FILE_UPLOAD_RESP, {
+          upload: { retCode: 0, uuid: 'fixture-uuid', boolFileExist: true },
+        });
+      },
+      packet: () => encode(SEND_MESSAGE_RESPONSE, { result: 0 }),
+    });
+    await expect(
+      sendPrivateFile(native, 7, {
+        userUid: 'u_TEST',
+        selfUid: 'u_SELF',
+        selfUin: 10001,
+        filePath,
+        beforeSend: () => {
+          if (!current) throw new Error('运行时改变');
+        },
+      }),
+    ).rejects.toThrow('运行时改变');
+    expect(native.oidbCalls).toHaveLength(1);
+    expect(native.packetCalls).toHaveLength(0);
+  });
   it('申请 0xE37_1700 → finalize 0xE37_800 → PbSendMsg（trans0x211 + msgContent）', async () => {
     const native = makeNative({
       oidb: (call) => {

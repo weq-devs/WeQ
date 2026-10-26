@@ -9,7 +9,7 @@
  *   - {@link sendText}     文本（可带 @ 与引用回复）；
  *   - {@link sendMedia}    图片 / 语音 / 视频（先上传 NTV2，见 @weq/protocol 的 highway）；
  *   - {@link sendElements} 逃生舱：直接给元素数组（表情 / 商城表情 / markdown / xml /
- *                          ark 卡片 / 合并转发 / 窗口抖动 / raw …）。
+ *                          ark 卡片 / 合并转发 / 互动表情 / raw …）。
  *
  * 目标 `targetId` 的三种写法都收：
  *   - 群聊：群号；
@@ -152,11 +152,6 @@ export interface SendTextParams {
   replyToMsgTime?: number;
 }
 
-export interface SendWindowShakeParams {
-  /** 私聊对端：QQ 号或 uid（窗口抖动不支持群聊 / 群临时会话）。 */
-  targetId: string | number;
-}
-
 /**
  * AI 声聊（TTS）发送参数。
  *
@@ -190,11 +185,6 @@ export interface SendAiVoiceOutcome {
   fileSize?: number;
   hint?: string;
 }
-
-/**
- * 窗口抖动的 `POKE_EXTRA.type`。真机抓包与 SnowLuma / Napcat 一致，恒为 1。
- */
-const WINDOW_SHAKE_SUB_TYPE = 1;
 
 export interface SendMediaParams {
   peerType: SendPeerType;
@@ -236,6 +226,8 @@ export interface SendElementsParams {
   elements: SendElement[];
   /** 随这条消息一起带出的装扮；⚠️ 服务端不收，见 SendDress。缺省不带。 */
   dress?: SendDress;
+  /** 发送前已解析的字体快照；null 表示本次不带字体，避免预览与请求二次解析漂移。 */
+  preparedChatFont?: { fontId: number; fontId2Raw: number } | null;
 }
 
 // ───────────────────────────── Ark 卡片 ─────────────────────────────
@@ -495,7 +487,60 @@ export class MessageSendService {
      * 不猜字体类型高位，也不允许用历史中另一款字体覆盖当前选择。
      */
     private readonly currentChatFontId?: () => number | undefined,
+    private readonly sendWithQqFont: () => boolean = () => true,
+    private readonly currentChatBubbleId?: () => number | undefined,
   ) {}
+
+  /** 回读前按账号配置预览气泡，不把预览 ID 写入发送请求。 */
+  async prepareChatDecoration(
+    params: Pick<SendElementsParams, 'peerType' | 'targetId' | 'tempGroupCode'> & {
+      hasText: boolean;
+    },
+  ) {
+    const pid = this.resolvePid();
+    const font = params.hasText ? await this.prepareChatFont(params) : null;
+    if (this.resolvePid() !== pid) throw new Error('QQ 会话已变化，请重新发送。');
+    return { bubbleId: this.readCurrentBubbleId(), font };
+  }
+
+  private readCurrentBubbleId(): number {
+    const id = this.currentChatBubbleId?.();
+    return id !== undefined && Number.isSafeInteger(id) && id > 0 && id <= 0xffff_ffff ? id : 0;
+  }
+
+  /** 只读准备阶段，供发送中的气泡与实际请求共用同一份字体原值。 */
+  async prepareChatFont(
+    params: Pick<SendElementsParams, 'peerType' | 'targetId' | 'tempGroupCode'>,
+  ) {
+    const pid = this.resolvePid();
+    const temp =
+      params.tempGroupCode === undefined
+        ? null
+        : this.resolveGroupTempTarget(params.targetId, params.tempGroupCode);
+    const target: ResolvedSendTarget = temp
+      ? {
+          peerType: 'c2c',
+          scene: 'group-temp',
+          uin: temp.uin,
+          uid: temp.toUid,
+          targetId: temp.targetId,
+        }
+      : this.resolveTarget(params.targetId, params.peerType, false);
+    const fontId = this.sendWithQqFont() ? this.readCurrentFontId() : undefined;
+    const raw = fontId === undefined ? undefined : await this.currentFontWire(fontId, target);
+    if (this.resolvePid() !== pid) throw new Error('QQ 会话已变化，请重新发送。');
+    return fontId !== undefined && raw !== undefined ? { fontId, fontId2Raw: raw } : null;
+  }
+
+  private readCurrentFontId(): number | undefined {
+    try {
+      const id = this.currentChatFontId?.();
+      if (id !== undefined && Number.isSafeInteger(id) && id > 0 && id <= 0xffff_ffff) return id;
+    } catch {
+      logger.debug('current chat font unavailable', { event: 'send-font-current-unavailable' });
+    }
+    return undefined;
+  }
 
   /** 原值保留类型／魔法字体高位；只在当前账号内做有界读取，并合并同款的并发查询。 */
   private async currentFontWire(
@@ -695,22 +740,6 @@ export class MessageSendService {
   }
 
   /**
-   * 窗口抖动（私聊消息里的 `commonElem serviceType=2`）。
-   *
-   * 与「戳一戳」（OIDB 0xED3_1，见 InteractionService）不是一回事：这条是
-   * `MessageSvc.PbSendMsg` 里的一条**私聊消息**，服务端只接受私聊场景，且这个元素
-   * 必须独占一条消息 —— 所以这里把 peerType 固定成 c2c、元素固定成单枚 poke，
-   * 调用方不可能拼出「群聊抖动」或「抖动 + 正文」这种必被服务端拒绝的组合。
-   */
-  async sendWindowShake(params: SendWindowShakeParams): Promise<SendMessageOutcome> {
-    return this.sendElements({
-      peerType: 'c2c',
-      targetId: params.targetId,
-      elements: [{ kind: 'poke', subType: WINDOW_SHAKE_SUB_TYPE }],
-    });
-  }
-
-  /**
    * AI 声聊（TTS）：`0x929b_0` 把「文字 + 声线」交给服务端合成，**合成即发送**到群里，
    * 不需要第二步（见 {@link SendAiVoiceParams}）。只支持群聊。
    *
@@ -844,6 +873,7 @@ export class MessageSendService {
       selfUin,
       ...(fileName ? { fileName } : {}),
       log,
+      beforeSend: params.beforeSend,
     });
     logger.info(
       result.fastUpload
@@ -917,34 +947,32 @@ export class MessageSendService {
         }
       : this.resolveTarget(params.targetId, params.peerType, needUpload);
     const pid = this.resolvePid();
+    const previewBubbleId = this.readCurrentBubbleId();
     // 商城表情：把空 encryptKey 用包密钥补上（同包只查一次）。
     const elements = await this.fillMarketFaceKeys(params.elements);
 
-    let currentFontId: number | undefined;
-    if (elements.some((element) => element.kind === 'text' || element.kind === 'at')) {
-      try {
-        const fontId = this.currentChatFontId?.();
-        if (
-          fontId !== undefined &&
-          Number.isSafeInteger(fontId) &&
-          fontId > 0 &&
-          fontId <= 0xffff_ffff
-        ) {
-          currentFontId = fontId;
-        }
-      } catch {
-        logger.debug('current chat font unavailable', {
-          event: 'send-font-current-unavailable',
-        });
-      }
-    }
-
+    const useFont =
+      params.preparedChatFont !== undefined
+        ? params.preparedChatFont !== null
+        : this.sendWithQqFont();
+    const hasText = elements.some((element) => element.kind === 'text' || element.kind === 'at');
+    const prepared = params.preparedChatFont;
+    const currentFontId =
+      useFont && hasText
+        ? prepared !== undefined
+          ? prepared?.fontId
+          : this.readCurrentFontId()
+        : undefined;
     const fontRaw =
-      currentFontId === undefined ? undefined : await this.currentFontWire(currentFontId, target);
+      currentFontId === undefined
+        ? undefined
+        : prepared !== undefined
+          ? prepared?.fontId2Raw
+          : await this.currentFontWire(currentFontId, target);
     if (currentFontId !== undefined && this.resolvePid() !== pid)
       throw new Error('QQ 会话已变化，请重新发送。');
     const dress =
-      currentFontId === undefined
+      useFont && prepared === undefined && currentFontId === undefined
         ? params.dress
         : {
             ...(params.dress?.bubbleId !== undefined ? { bubbleId: params.dress.bubbleId } : {}),
@@ -1037,12 +1065,16 @@ export class MessageSendService {
         if (message.elements.length < elements.length) return outcome;
         await this.retainSent({
           ...message,
-          ...(currentFontId !== undefined && fontRaw !== undefined
+          ...(previewBubbleId || (currentFontId !== undefined && fontRaw !== undefined)
             ? {
                 decoration: {
-                  bubbleId: message.decoration?.bubbleId ?? 0,
+                  ...message.decoration,
+                  bubbleId: previewBubbleId || (message.decoration?.bubbleId ?? 0),
                   widgetId: message.decoration?.widgetId ?? 0,
-                  fontId: currentFontId,
+                  fontId:
+                    currentFontId !== undefined && fontRaw !== undefined
+                      ? currentFontId
+                      : (message.decoration?.fontId ?? 0),
                 },
               }
             : {}),
@@ -1508,7 +1540,7 @@ export function toOutcome(
       : {
           hint:
             `服务端拒绝了下发（result=${receipt.result}）${receipt.errMsg ? `：${receipt.errMsg}` : '。'}` +
-            '常见 result：79 = 场景/参数不符（如把窗口抖动发进群、库没开），0 = 正常。',
+            '常见 result：79 = 场景/参数不符（如目标或会话类型不符），0 = 正常。',
         }),
   };
 }

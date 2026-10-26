@@ -1,12 +1,12 @@
 /**
  * 设置整页。
  *
- * 左侧是分类导航，右侧是分类内容。外观能力单独收敛到“个性显示”页：
- * 基础模式、主题色（色相条 + 预设 + Hex）、界面背景、组件风格（占位）。
+ * 左侧一级分类，右侧二级页；旧页面与条目入口统一解析到规范位置。
  */
 
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -22,11 +22,11 @@ import {
   BrainCircuit,
   Check,
   ChevronRight,
-  CloudDownload,
   DatabaseZap,
   Globe,
   HardDrive,
   HelpCircle,
+  House,
   Lock,
   LockKeyhole,
   Mail,
@@ -41,19 +41,20 @@ import {
   Settings2,
   ScanSearch,
   ScrollText,
-  ShieldCheck,
   Sun,
   User,
   Users,
   X,
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
+import { HomeSettingsSection } from './settings/HomeSettingsSection';
 import { HelpSection } from './settings/HelpSection';
 import { VersionSection } from './settings/VersionSection';
 import { QzoneSettingsSection } from './settings/QzoneSettingsSection';
 import { CallRecordingSection } from './settings/CallRecordingSection';
 import { MailSettingsSection } from './settings/MailSettingsSection';
-import { AppLockSection } from './settings/AppLockSection';
+import { PrivacySection } from './settings/PrivacySection';
+import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
@@ -66,24 +67,36 @@ import { RemoteSection } from './settings/RemoteSection';
 import { BackupSection } from './settings/BackupSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
-import { DaemonSection } from './settings/DaemonSection';
-import { DatabaseToleranceSection } from './settings/DatabaseToleranceSection';
+import { AssistantSection } from './settings/AssistantSection';
+import { StartupSection } from './settings/StartupSection';
+import { DatabaseSettingsSection } from './settings/DatabaseSettingsSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
-import { SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
+import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
+import { ResourceManagementSection } from './settings/ResourceManagementSection';
+import { ChatImageCacheSettings } from './settings/ChatImageCacheSettings';
+import { Card, Row, SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
 import { AntiRecallDialog } from './AntiRecallDialog';
 import { WorkspacePage } from './WorkspacePages';
+import { LoginAccountPanel } from './LoginAccountPanel';
+import { ReverseTool } from './ReverseTool';
 import { IS_WEB } from '../lib/target';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
 import '../styles/settings-navigation.css';
+import '../styles/app-search.css';
+import type { SettingsSearchTarget } from './settings/searchTarget';
+import { RetainedTabs, TabActivity, useTabActive } from './RetainedTabs';
+import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
+import { useAppLock } from '../state/lock';
 import {
   SETTINGS_GROUPS,
+  resolveSettingsTarget,
   settingsGroupFor,
   settingsScopeFor,
-  settingsSectionFor,
   type SectionId,
+  type SettingsPageId,
 } from './settings/navigation';
 export type { SectionId } from './settings/navigation';
 import {
@@ -92,10 +105,11 @@ import {
   type ThemeComponentStyle,
   type ThemePreference,
 } from '../state/theme';
+import { useUpdateStore } from '../state/update';
 
 /** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
 interface SettingsSection {
-  id: SectionId;
+  id: SettingsPageId;
   label: string;
   icon: ReactElement;
   render: (
@@ -105,15 +119,16 @@ interface SettingsSection {
 }
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
+  { id: 'home', label: '主页', icon: <House size={16} />, render: () => <HomeSettingsSection /> },
   {
     id: 'backup',
-    label: '备份与恢复',
+    label: '配置备份与恢复',
     icon: <HardDrive size={16} />,
     render: () => <BackupSection />,
   },
   {
     id: 'global',
-    label: '窗口行为',
+    label: '提醒与窗口',
     icon: <Settings2 size={16} strokeWidth={1.8} />,
     render: () => <GlobalSettingsSection />,
   },
@@ -130,39 +145,42 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <AppearanceSection page="theme" />,
   },
   {
-    id: 'applock',
-    label: '应用锁',
+    id: 'privacy',
+    label: '隐私',
     icon: <LockKeyhole size={16} strokeWidth={1.8} />,
-    render: () => <AppLockSection />,
+    render: () => <PrivacySection />,
   },
   {
     id: 'account',
-    label: '接入与监听',
+    label: '监听与读取',
     icon: <User size={16} strokeWidth={1.8} />,
     render: () => <AccountBasicsSection />,
   },
   {
     id: 'accounts',
-    label: '账号管理',
+    label: 'WeQ 账号管理',
     icon: <User size={16} />,
-    render: (onOpen) => (
+    render: () => (
       <>
         <GlobalSettingsSection section="accounts" />
-        <button
-          type="button"
-          className="weq-maintenance-entry"
-          onClick={() => onOpen('login-accounts')}
-        >
-          <User size={18} />
-          <span>QQ 登录账号管理</span>
-        </button>
+        <AccountBasicsSection page="media" heading={false} />
       </>
     ),
   },
-  { id: 'anti-recall', label: '防撤回', icon: <ShieldCheck size={16} />, render: () => null },
+  {
+    id: 'qq-accounts',
+    label: 'QQ 账号管理',
+    icon: <Users size={16} />,
+    render: () => (
+      <div className="weq-set" data-setting-id="qq-accounts">
+        <SectionHeader title="QQ 账号管理" icon={<Users size={16} strokeWidth={1.8} />} />
+        <LoginAccountPanel />
+      </div>
+    ),
+  },
   {
     id: 'call-recording',
-    label: '通话与录音',
+    label: '通话录音',
     icon: <PhoneCall size={16} strokeWidth={1.8} />,
     render: () => <CallRecordingSection />,
   },
@@ -179,22 +197,28 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <MailSettingsSection />,
   },
   {
-    id: 'database',
-    label: '损坏处理与容错',
+    id: 'database-repair',
+    label: '损坏与修复',
     icon: <DatabaseZap size={16} strokeWidth={1.8} />,
-    render: () => <DatabaseToleranceSection />,
+    render: (onOpen) => <DatabaseSettingsSection page="repair" onOpen={onOpen} />,
   },
   {
-    id: 'maintenance',
-    label: '维护工具',
+    id: 'database-management',
+    label: '数据库管理',
     icon: <HardDrive size={16} strokeWidth={1.8} />,
-    render: (onOpen) => <DataMaintenanceSection onOpen={onOpen} />,
+    render: () => <DatabaseManagementSection />,
   },
   {
-    id: 'database-status',
-    label: '容错记录',
+    id: 'database-tolerance',
+    label: '数据库宽容',
     icon: <DatabaseZap size={16} />,
-    render: () => <DatabaseToleranceSection page="status" />,
+    render: (onOpen) => <DatabaseSettingsSection page="tolerance" onOpen={onOpen} />,
+  },
+  {
+    id: 'qq-storage',
+    label: '资源目录管理',
+    icon: <HardDrive size={16} />,
+    render: () => <ResourceManagementSection />,
   },
   {
     id: 'voice',
@@ -203,24 +227,33 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <VoiceTranscribeSection />,
   },
   {
+    id: 'resource-loading',
+    label: '资源加载',
+    icon: <Globe size={16} />,
+    render: () => <GlobalSettingsSection section="network" />,
+  },
+  {
     id: 'diagnostics',
-    label: '高级诊断',
+    label: '诊断工具',
     icon: <ScanSearch size={16} />,
     render: (onOpen) => (
       <div className="weq-set">
-        <SectionHeader title="高级诊断" />
+        <SectionHeader title="诊断工具" icon={<ScanSearch size={16} strokeWidth={1.8} />} />
         <div className="weq-maintenance-list">
-          <button type="button" className="weq-maintenance-entry" onClick={() => onOpen('capture')}>
+          <button
+            type="button"
+            className="weq-maintenance-entry"
+            data-setting-id="qqnt-capture"
+            onClick={() => onOpen('capture')}
+          >
             <Radio size={18} aria-hidden />
-            <span>ntqq 抓包</span>
-            <ChevronRight size={16} aria-hidden />
-          </button>
-          <button type="button" className="weq-maintenance-entry" onClick={() => onOpen('reverse')}>
-            <ScanSearch size={18} aria-hidden />
-            <span>Protobuf / JCE 逆向</span>
+            <span>QQNT 抓包</span>
             <ChevronRight size={16} aria-hidden />
           </button>
         </div>
+        <Card title="Protobuf / JCE 逆向" settingId="reverse-tool">
+          <ReverseTool />
+        </Card>
       </div>
     ),
   },
@@ -288,22 +321,16 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <RemoteSection />,
   },
   {
-    id: 'rkey',
-    label: '外部 RKEY',
-    icon: <CloudDownload size={16} strokeWidth={1.8} />,
-    render: () => <ExternalRkeySection />,
+    id: 'assistant',
+    label: 'QQ 公众号推送',
+    icon: <Radio size={16} />,
+    render: () => <AssistantSection />,
   },
   {
     id: 'sse',
     label: 'SSE 推送',
     icon: <Radio size={16} strokeWidth={1.8} />,
     render: () => <SsePushSection />,
-  },
-  {
-    id: 'daemon',
-    label: '后台服务',
-    icon: <Activity size={16} strokeWidth={1.8} />,
-    render: () => <DaemonSection />,
   },
   {
     id: 'faq',
@@ -318,8 +345,8 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <HelpSection page="feedback" />,
   },
   {
-    id: 'message-display',
-    label: '消息显示',
+    id: 'chat-messages',
+    label: '聊天消息',
     icon: <Monitor size={16} />,
     render: () => <AppearanceSection page="messages" />,
   },
@@ -327,31 +354,39 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'startup',
     label: '开机启动',
     icon: <Monitor size={16} />,
-    render: () => <DaemonSection panel="startup" />,
+    render: () => <StartupSection />,
   },
   {
-    id: 'saving',
-    label: '默认保存',
+    id: 'weq-storage',
+    label: 'WeQ 存储管理',
     icon: <HardDrive size={16} />,
-    render: () => <GlobalSettingsSection section="saving" />,
-  },
-  {
-    id: 'storage',
-    label: '存储与网络',
-    icon: <HardDrive size={16} />,
-    render: () => <GlobalSettingsSection section="storage" />,
-  },
-  {
-    id: 'media',
-    label: '媒体来源',
-    icon: <HardDrive size={16} />,
-    render: () => <AccountBasicsSection page="media" />,
+    render: () => (
+      <>
+        <div className="weq-set">
+          <SectionHeader title="WeQ 存储管理" icon={<HardDrive size={16} strokeWidth={1.8} />} />
+        </div>
+        <GlobalSettingsSection section="saving" heading={false} />
+        <GlobalSettingsSection section="storage" heading={false} />
+      </>
+    ),
   },
   {
     id: 'credentials',
-    label: '账号凭据',
+    label: '凭据管理',
     icon: <Lock size={16} />,
-    render: () => <AccountBasicsSection page="credentials" />,
+    render: (onOpen) => (
+      <>
+        <AccountBasicsSection page="credentials" />
+        <DataMaintenanceSection
+          title={null}
+          onOpen={onOpen}
+          tools={['key-scan', 'other-device-key']}
+        />
+        <div data-setting-id="external-rkey">
+          <ExternalRkeySection />
+        </div>
+      </>
+    ),
   },
   {
     id: 'logs',
@@ -378,8 +413,12 @@ export function SettingsDialog({
   open,
   onClose,
   initialSection,
+  searchTarget,
   onOpenMaintenance,
   onOpenRecalls,
+  recallDetails,
+  onCloseRecalls,
+  isCurrentSource,
   onCreateClone,
 }: {
   open: boolean;
@@ -389,24 +428,34 @@ export function SettingsDialog({
    * 否则"先关掉、再从损坏弹窗点进来"会停在用户上次看的那个分区上。
    */
   initialSection?: SectionId;
+  searchTarget?: SettingsSearchTarget | null;
   onOpenMaintenance: (tool: MaintenanceTool) => void;
   onOpenRecalls: (kind: 'c2c' | 'group', conv: string) => void;
+  recallDetails?: ReactNode;
+  onCloseRecalls?: () => void;
+  isCurrentSource?: () => boolean;
   onCreateClone?: () => void;
 }): ReactElement | null {
-  const [activeId, setActiveId] = useState<SectionId>(() =>
-    settingsSectionFor(initialSection ?? 'global'),
+  const target = useMemo(
+    () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'appearance' }),
+    [initialSection, searchTarget],
   );
+  const [activeId, setActiveId] = useState<SettingsPageId>(() => target.section);
+  const updateAvailable = useUpdateStore((state) => state.available);
+  const locked = useAppLock((state) => state.locked);
   const navRef = useRef<HTMLElement | null>(null);
-  const [mobileCategoryOpen, setMobileCategoryOpen] = useState(Boolean(initialSection));
+  const [mobileCategoryOpen, setMobileCategoryOpen] = useState(
+    Boolean(initialSection || searchTarget),
+  );
   const subnavRef = useRef<HTMLElement | null>(null);
   const sections = SETTINGS_SECTIONS;
   const group = settingsGroupFor(activeId);
   const groupSections = group.sections.map((id) => sections.find((section) => section.id === id)!);
 
   useEffect(() => {
-    if (open && initialSection) setActiveId(settingsSectionFor(initialSection));
-    if (open) setMobileCategoryOpen(Boolean(initialSection));
-  }, [open, initialSection]);
+    if (open) setActiveId(target.section);
+    if (open) setMobileCategoryOpen(Boolean(initialSection || searchTarget));
+  }, [open, initialSection, searchTarget, target]);
 
   useEffect(() => {
     if (open) {
@@ -473,7 +522,12 @@ export function SettingsDialog({
                   <span className="weq-settings-nav-icon">
                     {sections.find((section) => section.id === s.sections[0])!.icon}
                   </span>
-                  <span>{s.label}</span>
+                  <span className="weq-settings-nav-label">
+                    {s.label}
+                    {updateAvailable && s.sections.includes('version') ? (
+                      <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
+                    ) : null}
+                  </span>
                   {IS_WEB && <ChevronRight className="weq-mobile-settings-chevron" size={18} />}
                 </button>
               </li>
@@ -490,25 +544,52 @@ export function SettingsDialog({
                 aria-current={section.id === activeId ? 'page' : undefined}
                 onClick={() => setActiveId(section.id)}
               >
-                {section.label}
+                <span className="weq-settings-subnav-icon" aria-hidden="true">
+                  {section.icon}
+                </span>
+                <span className="weq-settings-subnav-label">{section.label}</span>
+                {updateAvailable && section.id === 'version' ? (
+                  <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
+                ) : null}
               </button>
             ))}
           </nav>
-          <div className="weq-settings-body" key={active.id}>
-            <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
-              {active.id === 'anti-recall' ? (
-                <AntiRecallDialog
-                  embedded
-                  onClose={onClose}
-                  onOpenRecalls={(kind, conv) => {
-                    onClose();
-                    onOpenRecalls(kind, conv);
-                  }}
-                />
-              ) : (
-                active.render(onOpenMaintenance, onCreateClone)
-              )}
-            </SettingsScopeContext.Provider>
+          <div className="weq-settings-pages">
+            <TabActivity active={!locked}>
+              <RetainedTabs activeKey={active.id}>
+                <RetainedSettingsPage pageId={active.id} target={target}>
+                  <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
+                    {active.id === 'chat-messages' ? (
+                      <>
+                        <div className="weq-set">
+                          <SectionHeader
+                            title="聊天消息"
+                            icon={<Monitor size={16} strokeWidth={1.8} />}
+                          />
+                        </div>
+                        <AccountBasicsSection page="read" heading={false} />
+                        <TypingStatusSettingsCard />
+                        <div>
+                          <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
+                            <AntiRecallDialog
+                              embedded
+                              onClose={() => {}}
+                              onOpenRecalls={onOpenRecalls}
+                              recallDetails={recallDetails}
+                              onCloseRecalls={onCloseRecalls}
+                              isCurrentSource={isCurrentSource}
+                            />
+                          </SettingsScopeContext.Provider>
+                        </div>
+                        <AppearanceSection page="messages" heading={false} />
+                      </>
+                    ) : (
+                      active.render(onOpenMaintenance, onCreateClone)
+                    )}
+                  </SettingsScopeContext.Provider>
+                </RetainedSettingsPage>
+              </RetainedTabs>
+            </TabActivity>
           </div>
         </div>
       </section>
@@ -517,11 +598,12 @@ export function SettingsDialog({
 }
 
 function ModelUsageSection(): ReactElement {
-  const personas = trpc.account.listAgentLabPersonas.useQuery();
+  const active = useTabActive();
+  const personas = trpc.account.listAgentLabPersonas.useQuery(undefined, { enabled: active });
   const names = new Map((personas.data ?? []).map((persona) => [persona.id, persona.name]));
   return (
     <div className="weq-settings-model-usage">
-      <SectionHeader title="API 用量" />
+      <SectionHeader title="API 用量" icon={<Activity size={16} strokeWidth={1.8} />} />
       <UsagePanel
         personaCount={names.size}
         resolveName={(id) => names.get(id) ?? '已删除的克隆'}
@@ -531,7 +613,14 @@ function ModelUsageSection(): ReactElement {
   );
 }
 
-function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactElement {
+function AppearanceSection({
+  page,
+  heading = true,
+}: {
+  page: 'theme' | 'messages';
+  heading?: boolean;
+}): ReactElement {
+  const active = useTabActive();
   const preference = useThemeStore((state) => state.preference);
   const accent = useThemeStore((state) => state.accent);
   const background = useThemeStore((state) => state.background);
@@ -544,6 +633,7 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
   // 「纯文本消息渲染 Markdown」——不像主题那样存 localStorage，而是走 AppSettings
   // （config.json）：渲染层要通过 App.tsx 的 TextMarkdownContext 广播给每条气泡。
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -551,12 +641,16 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
   const setRenderTextMarkdown = trpc.bootstrap.setRenderTextMarkdown.useMutation();
   const setShowAvatarPendant = trpc.bootstrap.setShowAvatarPendant.useMutation();
   const setLinkPreview = trpc.bootstrap.setLinkPreview.useMutation();
-  const setShowMsgDecoration = trpc.bootstrap.setShowMsgDecoration.useMutation();
+  const setShowMessageBubble = trpc.bootstrap.setShowMessageBubble.useMutation();
+  const setShowMessageFont = trpc.bootstrap.setShowMessageFont.useMutation();
   const setShowMessageSeq = trpc.bootstrap.setShowMessageSeq.useMutation();
   const setShowMessageTime = trpc.bootstrap.setShowMessageTime.useMutation();
   const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
+  const setShowContactUnreadCount = trpc.bootstrap.setShowContactUnreadCount.useMutation();
   const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
   const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
+  const setShowScrollToBottomButton = trpc.bootstrap.setShowScrollToBottomButton.useMutation();
+  const setSendWithQqFont = trpc.bootstrap.setSendWithQqFont.useMutation();
   const setShowGroupAssistantMessageCount =
     trpc.bootstrap.setShowGroupAssistantMessageCount.useMutation();
   const utils = trpc.useUtils();
@@ -564,8 +658,6 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
   const [readingError, setReadingError] = useState<string | null>(null);
   const [seqError, setSeqError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(true);
-  const [pendant, setPendant] = useState(true);
-  const [msgDecoration, setMsgDecoration] = useState(true);
   const [linkCard, setLinkCard] = useState(true);
   const [linkShot, setLinkShot] = useState(false);
 
@@ -573,16 +665,6 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
     const enabled = settings.data?.renderTextMarkdown;
     if (typeof enabled === 'boolean') setTextMarkdown(enabled);
   }, [settings.data?.renderTextMarkdown]);
-
-  useEffect(() => {
-    const enabled = settings.data?.showAvatarPendant;
-    if (typeof enabled === 'boolean') setPendant(enabled);
-  }, [settings.data?.showAvatarPendant]);
-
-  useEffect(() => {
-    const enabled = settings.data?.showMsgDecoration;
-    if (typeof enabled === 'boolean') setMsgDecoration(enabled);
-  }, [settings.data?.showMsgDecoration]);
 
   useEffect(() => {
     const cfg = settings.data?.linkPreview;
@@ -598,28 +680,6 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
       await setRenderTextMarkdown.mutateAsync({ enabled: next });
     } catch {
       setTextMarkdown(prev);
-    }
-    await settings.refetch();
-  }
-
-  async function onSetPendant(next: boolean): Promise<void> {
-    const prev = pendant;
-    setPendant(next);
-    try {
-      await setShowAvatarPendant.mutateAsync({ enabled: next });
-    } catch {
-      setPendant(prev);
-    }
-    await settings.refetch();
-  }
-
-  async function onSetMsgDecoration(next: boolean): Promise<void> {
-    const prev = msgDecoration;
-    setMsgDecoration(next);
-    try {
-      await setShowMsgDecoration.mutateAsync({ enabled: next });
-    } catch {
-      setMsgDecoration(prev);
     }
     await settings.refetch();
   }
@@ -648,10 +708,12 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
 
   return (
     <section className="weq-settings-section">
-      <SectionHeader
-        icon={<Palette size={16} strokeWidth={1.8} />}
-        title={page === 'theme' ? '主题与背景' : '消息显示'}
-      />
+      {heading && (
+        <SectionHeader
+          icon={<Palette size={16} strokeWidth={1.8} />}
+          title={page === 'theme' ? '主题与背景' : '聊天消息'}
+        />
+      )}
 
       {page === 'theme' && (
         <>
@@ -698,29 +760,79 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
       )}
       {page === 'messages' && (
         <>
+          <div className="weq-settings-appearance-card" data-setting-id="message-unread-badge">
+            <div className="weq-settings-appearance-head">
+              <strong>在消息图标上显示红点</strong>
+              <Toggle
+                checked={settings.data?.showMessageUnreadBadge ?? true}
+                disabled={!settings.data || setShowMessageUnreadBadge.isLoading}
+                onChange={(enabled) => {
+                  setBadgeError(null);
+                  setShowMessageUnreadBadge.mutate(
+                    { enabled },
+                    {
+                      onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
+                      onError: (error) => setBadgeError(error.message),
+                    },
+                  );
+                }}
+                label="在消息图标上显示红点"
+              />
+            </div>
+            {badgeError ? <p role="alert">{badgeError}</p> : null}
+          </div>
           {[
             {
+              key: 'showContactUnreadCount' as const,
+              settingId: 'contact-unread-count',
+              label: '在联系人界面显示未读消息数',
+              fallback: false,
+              mutation: setShowContactUnreadCount,
+            },
+            {
+              key: 'showGroupAssistantMessageCount' as const,
+              settingId: 'group-assistant-count',
+              label: '群助手显示总消息数',
+              fallback: false,
+              mutation: setShowGroupAssistantMessageCount,
+            },
+            {
               key: 'readFromFirstUnread' as const,
+              settingId: 'read-first-unread',
               label: '从第一条新消息开始阅读',
               fallback: false,
               mutation: setReadFromFirstUnread,
             },
             {
               key: 'jumpToLatestAfterSend' as const,
+              settingId: 'jump-latest-after-send',
               label: '发送消息后定位到最新消息',
               fallback: true,
               mutation: setJumpToLatestAfterSend,
             },
             {
-              key: 'showGroupAssistantMessageCount' as const,
-              label: '群助手显示总消息数',
-              fallback: false,
-              mutation: setShowGroupAssistantMessageCount,
+              key: 'showScrollToBottomButton' as const,
+              settingId: 'scroll-to-bottom-button',
+              label: '向下滚动时显示定位到底部按钮',
+              fallback: true,
+              mutation: setShowScrollToBottomButton,
             },
-          ].map(({ key, label, fallback, mutation }) => (
-            <div className="weq-settings-appearance-card" key={key}>
+            {
+              key: 'sendWithQqFont' as const,
+              settingId: 'send-with-qq-font',
+              label: '使用 QQ 账号设置的个性字体发送消息',
+              fallback: true,
+              mutation: setSendWithQqFont,
+            },
+          ].map(({ key, settingId, label, fallback, mutation }) => (
+            <div className="weq-settings-appearance-card" key={key} data-setting-id={settingId}>
               <div className="weq-settings-appearance-head">
-                <strong>{label}</strong>
+                <div>
+                  <strong>{label}</strong>
+                  {key === 'readFromFirstUnread' ? (
+                    <span>可能提高阅读过的会话的加载速度</span>
+                  ) : null}
+                </div>
                 <Toggle
                   checked={settings.data?.[key] ?? fallback}
                   disabled={!settings.data || mutation.isLoading}
@@ -740,158 +852,159 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
             </div>
           ))}
           {readingError ? <p role="alert">{readingError}</p> : null}
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <strong>显示消息汇总红点</strong>
-              <Toggle
-                checked={settings.data?.showMessageUnreadBadge ?? true}
-                disabled={!settings.data || setShowMessageUnreadBadge.isLoading}
-                onChange={(enabled) => {
-                  setBadgeError(null);
-                  setShowMessageUnreadBadge.mutate(
-                    { enabled },
-                    {
-                      onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                      onError: (error) => setBadgeError(error.message),
-                    },
-                  );
-                }}
-                label="显示消息汇总红点"
+          <ChatImageCacheSettings />
+          <Card title="自定义消息显示" settingId="custom-message-display">
+            <Row
+              settingId="message-seq"
+              label="显示消息序号（seq）"
+              control={
+                <Toggle
+                  checked={settings.data?.showMessageSeq ?? false}
+                  disabled={!settings.data || setShowMessageSeq.isLoading}
+                  onChange={(enabled) => {
+                    setSeqError(null);
+                    setShowMessageSeq.mutate(
+                      { enabled },
+                      {
+                        onSuccess: () => {
+                          void settings.refetch();
+                        },
+                        onError: (error) => setSeqError(error.message),
+                      },
+                    );
+                  }}
+                  label="显示消息序号（seq）"
+                />
+              }
+            />
+            {seqError ? <p role="alert">{seqError}</p> : null}
+            <Row
+              settingId="message-time"
+              label="显示发送时间（精确到秒）"
+              control={
+                <Toggle
+                  checked={settings.data?.showMessageTime ?? false}
+                  disabled={!settings.data || setShowMessageTime.isLoading}
+                  onChange={(enabled) => {
+                    setSeqError(null);
+                    setShowMessageTime.mutate(
+                      { enabled },
+                      {
+                        onSuccess: () => {
+                          void settings.refetch();
+                        },
+                        onError: (error) => setSeqError(error.message),
+                      },
+                    );
+                  }}
+                  label="显示发送时间（精确到秒）"
+                />
+              }
+            />
+            {[
+              {
+                key: 'showAvatarPendant' as const,
+                settingId: 'avatar-pendant',
+                label: '聊天头像挂件',
+                mutation: setShowAvatarPendant,
+              },
+              {
+                key: 'showMessageBubble' as const,
+                settingId: 'message-bubble',
+                label: '消息气泡',
+                mutation: setShowMessageBubble,
+              },
+              {
+                key: 'showMessageFont' as const,
+                settingId: 'message-font',
+                label: '消息字体',
+                mutation: setShowMessageFont,
+              },
+            ].map(({ key, settingId, label, mutation }) => (
+              <Row
+                key={key}
+                settingId={settingId}
+                label={label}
+                control={
+                  <Toggle
+                    checked={
+                      settings.data?.[key] ??
+                      (key === 'showAvatarPendant'
+                        ? true
+                        : (settings.data?.showMsgDecoration ?? true))
+                    }
+                    disabled={!settings.data || mutation.isLoading}
+                    onChange={(enabled) => {
+                      setSeqError(null);
+                      mutation.mutate(
+                        { enabled },
+                        {
+                          onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
+                          onError: (error) => setSeqError(error.message),
+                        },
+                      );
+                    }}
+                    label={label}
+                  />
+                }
               />
-            </div>
-            {badgeError ? <p role="alert">{badgeError}</p> : null}
-          </div>
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>纯文本消息渲染 Markdown</strong>
-                <span>
+            ))}
+            <Row
+              settingId="text-markdown"
+              label="纯文本消息渲染 Markdown"
+              desc={
+                <>
                   把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
                   自己的功能——QQ 只把专门的 Markdown 消息当富文本，关掉后纯文本原样显示 （QQ 原生
                   Markdown 消息不受影响）。
-                </span>
-              </div>
-              <Toggle
-                checked={textMarkdown}
-                disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
-                onChange={(next) => void onSetTextMarkdown(next)}
-                label="纯文本消息渲染 Markdown"
-              />
-            </div>
-          </div>
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>聊天头像挂件</strong>
-                <span>
-                  把 QQ 里正在用的挂件叠在聊天页头像的外圈。只作用于自己的头像——别人的挂件
-                  要逐个联网查，想看请在资料卡里打开「个性主页」。
-                </span>
-              </div>
-              <Toggle
-                checked={pendant}
-                disabled={settings.isLoading || setShowAvatarPendant.isLoading}
-                onChange={(next) => void onSetPendant(next)}
-                label="聊天头像挂件"
-              />
-            </div>
-          </div>
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>显示消息序号（seq）</strong>
-              </div>
-              <Toggle
-                checked={settings.data?.showMessageSeq ?? false}
-                disabled={!settings.data || setShowMessageSeq.isLoading}
-                onChange={(enabled) => {
-                  setSeqError(null);
-                  setShowMessageSeq.mutate(
-                    { enabled },
-                    {
-                      onSuccess: () => {
-                        void settings.refetch();
-                      },
-                      onError: (error) => setSeqError(error.message),
-                    },
-                  );
-                }}
-                label="显示消息序号（seq）"
-              />
-            </div>
-            {seqError ? <p role="alert">{seqError}</p> : null}
-            <div className="weq-settings-appearance-head">
-              <strong>显示发送时间（精确到秒）</strong>
-              <Toggle
-                checked={settings.data?.showMessageTime ?? false}
-                disabled={!settings.data || setShowMessageTime.isLoading}
-                onChange={(enabled) => {
-                  setSeqError(null);
-                  setShowMessageTime.mutate(
-                    { enabled },
-                    {
-                      onSuccess: () => {
-                        void settings.refetch();
-                      },
-                      onError: (error) => setSeqError(error.message),
-                    },
-                  );
-                }}
-                label="显示发送时间（精确到秒）"
-              />
-            </div>
-          </div>
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>消息装扮（气泡/字体/挂件）</strong>
-                <span>
-                  渲染每条消息里的气泡皮肤、聊天字体与挂件（来自消息 DB 列 40801）。关掉后
-                  统一使用全局装扮设置，不做逐条渲染。
-                </span>
-              </div>
-              <Toggle
-                checked={msgDecoration}
-                disabled={settings.isLoading || setShowMsgDecoration.isLoading}
-                onChange={(next) => void onSetMsgDecoration(next)}
-                label="消息装扮"
-              />
-            </div>
-          </div>
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>链接预览卡片</strong>
-                <span>
+                </>
+              }
+              control={
+                <Toggle
+                  checked={textMarkdown}
+                  disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
+                  onChange={(next) => void onSetTextMarkdown(next)}
+                  label="纯文本消息渲染 Markdown"
+                />
+              }
+            />
+            <Row
+              settingId="link-preview"
+              label="链接预览卡片"
+              desc={
+                <>
                   一条消息只有一个链接时，抓取网页标题、简介和封面渲染成卡片。会按链接访问
                   对应网页（结果本地缓存），关掉后链接仍标蓝可点，但完全不出网。
-                </span>
-              </div>
-              <Toggle
-                checked={linkCard}
-                disabled={settings.isLoading || setLinkPreview.isLoading}
-                onChange={(next) => void onSetLinkCard(next)}
-                label="链接预览卡片"
-              />
-            </div>
-          </div>
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>无封面时网页截图</strong>
-                <span>
+                </>
+              }
+              control={
+                <Toggle
+                  checked={linkCard}
+                  disabled={settings.isLoading || setLinkPreview.isLoading}
+                  onChange={(next) => void onSetLinkCard(next)}
+                  label="链接预览卡片"
+                />
+              }
+            />
+            <Row
+              settingId="link-screenshot"
+              label="无封面时网页截图"
+              desc={
+                <>
                   网页没提供封面图时，在一个隔离的后台窗口里把它打开并截取首屏当封面。这会
                   真正运行对方页面的脚本（沙盒内、不落盘、退出即清），默认关闭。
-                </span>
-              </div>
-              <Toggle
-                checked={linkShot}
-                disabled={!linkCard || settings.isLoading || setLinkPreview.isLoading}
-                onChange={(next) => void onSetLinkShot(next)}
-                label="无封面时网页截图"
-              />
-            </div>
-          </div>
+                </>
+              }
+              control={
+                <Toggle
+                  checked={linkShot}
+                  disabled={!linkCard || settings.isLoading || setLinkPreview.isLoading}
+                  onChange={(next) => void onSetLinkShot(next)}
+                  label="无封面时网页截图"
+                />
+              }
+            />
+          </Card>
         </>
       )}
     </section>

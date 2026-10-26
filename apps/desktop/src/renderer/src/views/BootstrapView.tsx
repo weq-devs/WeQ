@@ -9,7 +9,7 @@
  *   3. Auto-enter — on first load, if a global auto-enter target exists,
  *      silently test its key and enter; on failure drop to the home screen
  *      with an error dialog.
- *   4. Stage routing — booting → splash, home → landing, select → two-pane.
+ *   4. 启动探测完成后直接进入账号工作区。
  */
 
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
@@ -18,7 +18,6 @@ import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useDialog } from '../components/Dialog';
 import { useToast } from '../components/Toast';
-import { HomeScreen } from './bootstrap/HomeScreen';
 import { SelectScreen } from './bootstrap/SelectScreen';
 import { WarmupSplash } from '../components/WarmupSplash';
 import { NativeExpiredDialog } from '../components/NativeExpiredDialog';
@@ -35,7 +34,6 @@ function errMsg(e: unknown): string {
 export function BootstrapView(): ReactElement {
   const homeStage = useViewState((s) => s.homeStage);
   const setHomeStage = useViewState((s) => s.setHomeStage);
-  const enterSelect = useViewState((s) => s.enterSelect);
   const goTo = useViewState((s) => s.goTo);
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
   const showError = useDialog((s) => s.showError);
@@ -71,10 +69,13 @@ export function BootstrapView(): ReactElement {
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const autoTarget = trpc.bootstrap.getAutoEnter.useQuery(undefined, {
-    enabled: needsStartup,
-    refetchOnWindowFocus: false,
-  });
+  const autoTarget = trpc.bootstrap.getAutoEnter.useQuery(
+    { startup: !IS_WEB },
+    {
+      enabled: needsStartup,
+      refetchOnWindowFocus: false,
+    },
+  );
 
   // 过期弹窗要显示构建/过期时间。注意这个 query 不看 nativeOk：构建过期时它照样能
   // 读出来（`readNativeBuildInfo` 绕过了初始化校验）。
@@ -258,28 +259,17 @@ export function BootstrapView(): ReactElement {
     );
   }
 
-  if (homeStage === 'select') {
-    if (!install.data) {
-      return (
-        <Shell>
-          <Splash />
-        </Shell>
-      );
-    }
+  if (!install.data) {
     return (
       <Shell>
-        <SelectScreen install={install.data} />
+        <Splash />
       </Shell>
     );
   }
 
   return (
     <Shell>
-      <HomeScreen
-        hasConfigs={(configs.data?.length ?? 0) > 0}
-        onExisting={() => enterSelect('existing')}
-        onNew={() => enterSelect('new')}
-      />
+      <SelectScreen install={install.data} />
     </Shell>
   );
 }

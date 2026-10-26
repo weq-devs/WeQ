@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { exportViewerRouter } from '../src/main/ipc/routers/export_viewer';
 import {

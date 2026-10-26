@@ -17,7 +17,11 @@ import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactL
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
-import { allSelectionIdsSelected, toggleAllSelectionIds } from '../../lib/multiSelection';
+import {
+  allSelectionIdsSelected,
+  toggleAllSelectionIds,
+  invertSelectionIds,
+} from '../../lib/multiSelection';
 import { cn } from './classNames';
 import { Avatar } from './primitives';
 import type { ContactTab, MainView, User } from './types';
@@ -29,8 +33,6 @@ export function SidebarHeader({
   view,
   query,
   onQueryChange,
-  onQuickInvite,
-  onCreateGroup,
   onOpenProfile,
   onOpenFriendNotices,
   onOpenGroupNotices,
@@ -49,8 +51,6 @@ export function SidebarHeader({
   view: MainView;
   query: string;
   onQueryChange: (query: string) => void;
-  onQuickInvite: () => void;
-  onCreateGroup: () => void;
   onOpenProfile: () => void;
   onOpenFriendNotices: () => void;
   onOpenGroupNotices: () => void;
@@ -107,24 +107,14 @@ export function SidebarHeader({
     };
   }, [addOpen]);
 
-  function handleQuickInvite() {
-    setAddOpen(false);
-    onQuickInvite();
-  }
-
-  function handleCreateGroup() {
-    setAddOpen(false);
-    onCreateGroup();
-  }
-
   function renderAddMenu() {
     return (
       <div className={cn('sidebar-add-wrap')}>
         <button
           type="button"
           className={cn('sidebar-add', addOpen && 'active')}
-          title="添加"
-          aria-label="添加好友或群聊"
+          title="搜索 QQ 号或群号"
+          aria-label="搜索 QQ 号或群号"
           aria-expanded={addOpen}
           onClick={() => setAddOpen((open) => !open)}
         >
@@ -151,15 +141,6 @@ export function SidebarHeader({
             >
               <UsersRound size={18} />
               <span>群号搜索</span>
-            </button>
-            <button type="button" onClick={handleCreateGroup}>
-              <UsersRound size={18} />
-              <span>创建群聊</span>
-            </button>
-            <button type="button" onClick={handleQuickInvite}>
-              <UserPlus size={18} />
-              <span className="desktop-add-friend-label">添加好友/群聊</span>
-              <span className="mobile-add-friend-label">加好友/群</span>
             </button>
           </div>
         ) : null}
@@ -236,6 +217,11 @@ export function SidebarHeader({
                 toggleAllSelectionIds(directory?.ids ?? [], selection.selectedIds),
               )
             }
+            onInvert={() =>
+              selection.setSelectedIds(
+                invertSelectionIds(directory?.ids ?? [], selection.selectedIds),
+              )
+            }
           >
             {requestExport && (
               <button
@@ -264,12 +250,7 @@ export function SidebarHeader({
                 <RefreshCw size={15} className={refreshingContacts ? 'spin' : undefined} />
               </button>
             ) : null}
-            <FriendGroupCreateMenu
-              showGroup={contactTab === 'friends'}
-              onLookup={setLookupOpen}
-              onCreateGroup={handleCreateGroup}
-              onQuickInvite={handleQuickInvite}
-            />
+            <FriendGroupCreateMenu showGroup={contactTab === 'friends'} onLookup={setLookupOpen} />
           </DirectoryToolbar>
           {exportMenu && requestExport && (
             <ConversationActionsMenu

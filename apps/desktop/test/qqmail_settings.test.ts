@@ -56,13 +56,13 @@ describe('QQ 邮箱设置', () => {
   it('回显原有偏好，两个开关独立写入当前账号并刷新共享配置', async () => {
     const view = mount();
     try {
-      expect(view.toggle('显示未读邮件数').getAttribute('aria-checked')).toBe('false');
-      expect(view.toggle('新邮件提醒').getAttribute('aria-checked')).toBe('true');
-      await act(async () => view.toggle('显示未读邮件数').click());
+      expect(view.toggle('在邮箱图标上显示红点').getAttribute('aria-checked')).toBe('false');
+      expect(view.toggle('收到新邮件时横幅提醒').getAttribute('aria-checked')).toBe('true');
+      await act(async () => view.toggle('在邮箱图标上显示红点').click());
       expect(mocks.showUnread).toHaveBeenCalledWith({ selfUin: '12345678', enabled: true });
       expect(mocks.notifications).not.toHaveBeenCalled();
       expect(mocks.invalidate).toHaveBeenCalledWith({ selfUin: '12345678' });
-      await act(async () => view.toggle('新邮件提醒').click());
+      await act(async () => view.toggle('收到新邮件时横幅提醒').click());
       expect(mocks.notifications).toHaveBeenCalledWith({
         selfUin: '12345678',
         enabled: false,
@@ -76,9 +76,9 @@ describe('QQ 邮箱设置', () => {
     mocks.showUnread.mockRejectedValueOnce(new Error('合成保存失败'));
     const view = mount();
     try {
-      await act(async () => view.toggle('显示未读邮件数').click());
+      await act(async () => view.toggle('在邮箱图标上显示红点').click());
       expect(view.host.querySelector('[role="alert"]')?.textContent).toBe('合成保存失败');
-      expect(view.toggle('显示未读邮件数').getAttribute('aria-checked')).toBe('false');
+      expect(view.toggle('在邮箱图标上显示红点').getAttribute('aria-checked')).toBe('false');
       expect(mocks.invalidate).toHaveBeenCalledOnce();
     } finally {
       view.close();
@@ -88,8 +88,8 @@ describe('QQ 邮箱设置', () => {
     useViewState.setState({ openedUin: null });
     const view = mount();
     try {
-      expect(view.toggle('显示未读邮件数').disabled).toBe(true);
-      expect(view.toggle('新邮件提醒').disabled).toBe(true);
+      expect(view.toggle('在邮箱图标上显示红点').disabled).toBe(true);
+      expect(view.toggle('收到新邮件时横幅提醒').disabled).toBe(true);
     } finally {
       view.close();
     }

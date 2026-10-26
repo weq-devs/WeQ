@@ -116,6 +116,50 @@ function type(editor: HTMLElement, text: string) {
 }
 
 describe('输入区发送交接', () => {
+  it('上一条仍在等回执时可继续提交下一条', async () => {
+    const f = mount();
+    try {
+      await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+      type(f.editor(), '第二条');
+      await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+      expect(f.onSend.mock.calls.map(([body]) => body)).toEqual(['第一条', '第二条']);
+      expect(serializeComposer(f.editor())).toBe('');
+      await act(async () => f.finish());
+    } finally {
+      f.close();
+    }
+  });
+
+  it.each(['queued', 'failed'])('%s 悬停提示动作，单击立即发送而不改草稿', async (status) => {
+    const f = mount();
+    const start = vi.fn();
+    try {
+      const message = {
+        id: 'optimistic-test',
+        conversationId: f.props.conversation.id,
+        senderId: f.props.user.id,
+        body: '待发内容',
+        createdAt: '2026-10-25T01:00:00Z',
+        optimistic: status,
+      };
+      f.render({ messages: [message], onStartOutgoingMessage: start });
+      const action = status === 'queued' ? '立即发送' : '重试发送';
+      const marker = f.host.querySelector<HTMLButtonElement>(`button[aria-label="${action}"]`)!;
+      expect(marker.textContent).toContain(status === 'queued' ? '排队中' : '发送失败');
+      expect(marker.closest('.message-bubble')).not.toBeNull();
+      expect(marker.classList.contains('weq-msg-optimistic-tag')).toBe(true);
+      expect(f.host.querySelector('.message-line > .weq-outgoing-start')).toBeNull();
+      act(() => marker.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+      expect(marker.textContent).toContain(action);
+      act(() => marker.click());
+      expect(start).toHaveBeenCalledOnce();
+      expect(start).toHaveBeenCalledWith(message);
+      expect(serializeComposer(f.editor())).toBe('第一条');
+      expect(f.onSend).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
   it.each([true, false])(
     '已经加载最新窗口但在阅读上方历史时，发送后按设置滚到底部：%s',
     async (enabled) => {
@@ -145,7 +189,7 @@ describe('输入区发送交接', () => {
     try {
       f.render({ atLatest: false, onJumpToLatest: jump });
       await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
-      expect(jump).not.toHaveBeenCalled();
+      expect(jump).toHaveBeenCalledTimes(enabled === false ? 0 : 1);
       await act(async () => f.finish());
       expect(jump).toHaveBeenCalledTimes(enabled === false ? 0 : 1);
     } finally {
@@ -153,7 +197,7 @@ describe('输入区发送交接', () => {
     }
   });
 
-  it('发送失败或回执前切走会话时不定位', async () => {
+  it('发送失败或回执前切走会话时不再次定位', async () => {
     for (const switchConversation of [false, true]) {
       const f = mount();
       const jump = vi.fn().mockResolvedValue(true);
@@ -164,7 +208,7 @@ describe('输入区发送交接', () => {
           f.render({ conversation: { ...f.props.conversation, id: 'other-conversation' } });
           await act(async () => f.finish());
         } else await act(async () => f.fail());
-        expect(jump).not.toHaveBeenCalled();
+        expect(jump).toHaveBeenCalledTimes(1);
       } finally {
         f.close();
       }
@@ -212,6 +256,57 @@ describe('输入区发送交接', () => {
         f.render({ messages: [] });
       }
       expect([...live.values()].reduce((sum, bytes) => sum + bytes, 0)).toBe(0);
+    } finally {
+      f.close();
+    }
+  });
+
+  it('成功回执先于消息同步时保留图片预览，真实消息接管后再释放', async () => {
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pending-sync');
+    vi.stubGlobal(
+      'Image',
+      class {
+        naturalWidth = 1;
+        naturalHeight = 1;
+        onload: (() => void) | null = null;
+        set src(_value: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
+    const f = mount();
+    try {
+      type(f.editor(), '');
+      const input = f.host.querySelector<HTMLInputElement>('input[type="file"][accept="image/*"]')!;
+      await act(async () => {
+        Object.defineProperty(input, 'files', {
+          configurable: true,
+          value: [new File(['fixture'], 'image.png', { type: 'image/png' })],
+        });
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+      const [body, locals] = f.onSend.mock.calls[0]!;
+      f.render({
+        messages: [
+          {
+            id: 'optimistic-pending-image',
+            conversationId: f.props.conversation.id,
+            senderId: f.props.user.id,
+            body: '[图片]',
+            createdAt: '2026-10-25T01:00:00Z',
+            optimistic: 'sent',
+            composerDraft: { body, locals },
+            qqElements: buildOptimisticRender({ body, locals: locals!, superStickers: new Map() })
+              .elements,
+          },
+        ],
+      });
+      await act(async () => f.finish());
+      expect(revoke).not.toHaveBeenCalledWith('blob:pending-sync');
+      f.render({ messages: [] });
+      expect(revoke.mock.calls).toEqual([['blob:pending-sync']]);
     } finally {
       f.close();
     }
@@ -522,9 +617,6 @@ describe('输入区发送交接', () => {
         expect(f.editor().getAttribute('contenteditable')).toBe('true');
         expect(document.activeElement).toBe(f.editor());
         type(f.editor(), '第二条草稿');
-        act(() =>
-          f.editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
-        );
         expect(f.onSend).toHaveBeenCalledOnce();
         await act(async () => f.finish());
         expect(serializeComposer(f.editor())).toBe('第二条草稿');
@@ -548,8 +640,8 @@ describe('输入区发送交接', () => {
     }
   });
 
-  it.each(['failed', 'recalled', 'rejected'])(
-    '%s 标志分两次点击，空输入框直接重新编辑，不自动发送',
+  it.each(['recalled', 'deleted'])(
+    '%s 标志悬停显示重新编辑，单击恢复原文而不自动发送',
     async (status) => {
       const f = mount();
       try {
@@ -564,16 +656,13 @@ describe('输入区发送交接', () => {
               createdAt: '2026-10-18T12:00:00Z',
               ...(status === 'recalled'
                 ? { recall: { revokeUid: f.props.user.id, sameSender: true, recallTs: 1 } }
-                : {
-                    optimistic: status === 'failed' ? 'failed' : 'sent',
-                    optimisticRejected: status === 'rejected',
-                  }),
+                : { deletedKind: 'qq' }),
             },
           ],
         });
         const marker = f.host.querySelector<HTMLButtonElement>('button.weq-msg-reedit-trigger')!;
         expect(marker).not.toBeNull();
-        act(() => marker.click());
+        act(() => marker.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
         expect(marker.textContent).toContain('重新编辑');
         expect(serializeComposer(f.editor())).toBe('');
         await act(async () => marker.click());
@@ -596,20 +685,17 @@ describe('输入区发送交接', () => {
           senderId: f.props.user.id,
           body: '未发原文',
           createdAt: '2026-10-18T12:00:00Z',
-          optimistic: 'failed',
+          recall: { revokeUid: f.props.user.id, sameSender: true, recallTs: 1 },
         },
       ];
       f.render({ messages });
       const marker = f.host.querySelector<HTMLButtonElement>('button.weq-msg-reedit-trigger')!;
-      act(() => marker.click());
-      expect(confirm).not.toHaveBeenCalled();
       await act(async () => marker.click());
       expect(confirm).toHaveBeenCalledOnce();
       expect(serializeComposer(f.editor())).toBe('第一条');
       confirm.mockResolvedValueOnce(true);
       await act(async () => marker.click());
       expect(serializeComposer(f.editor())).toBe('未发原文');
-      act(() => marker.click());
       let answer!: (value: boolean) => void;
       confirm.mockImplementationOnce(
         () =>
@@ -652,13 +738,12 @@ describe('输入区发送交接', () => {
             senderId: f.props.user.id,
             body: '摘要不能重发',
             createdAt: '2026-10-18T12:00:00Z',
-            optimistic: 'failed',
+            recall: { revokeUid: f.props.user.id, sameSender: true, recallTs: 1 },
             composerDraft: { body: draft, locals },
           },
         ],
       });
       const marker = f.host.querySelector<HTMLButtonElement>('button.weq-msg-reedit-trigger')!;
-      act(() => marker.click());
       await act(async () => marker.click());
       const restored = serializeComposer(f.editor());
       const { composerTextToElements } = await import(

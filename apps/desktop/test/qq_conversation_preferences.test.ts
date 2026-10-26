@@ -213,10 +213,8 @@ function fixture(kind: 'c2c' | 'group') {
 }
 it('群消息策略保存后自动核对读回，保留群号、策略和账号绑定', async () => {
   const host = fixture('group');
-  const select = host.querySelector<HTMLSelectElement>('[aria-label="消息接收"]')!;
   await act(async () => {
-    select.value = '4';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
+    host.querySelectorAll<HTMLButtonElement>('[aria-label="消息接收"] button')[1]!.click();
   });
   expect(host.querySelector('[aria-label="保存消息接收"]')).toBeNull();
   expect(mock.mutate).toHaveBeenCalledWith({
@@ -231,27 +229,30 @@ it('群消息策略保存后自动核对读回，保留群号、策略和账号�
 it('服务端为屏蔽而本机仍为正常提醒时，编辑器显示服务端值并说明缓存未同步', () => {
   mock.serverPolicy = 3;
   const host = fixture('group');
-  expect(host.querySelector<HTMLSelectElement>('[aria-label="消息接收"]')!.value).toBe('3');
+  expect(host.querySelector('[aria-label="消息接收"] [aria-checked="true"]')?.textContent).toBe(
+    '屏蔽消息',
+  );
   expect(host.textContent).toContain('服务端与本机消息策略尚未同步');
 });
 it('未知服务端策略保留原始编号，不回落为正常提醒', () => {
   mock.serverPolicy = 99;
   const host = fixture('group');
-  const select = host.querySelector<HTMLSelectElement>('[aria-label="消息接收"]')!;
-  expect(select.value).toBe('99');
-  expect(select.selectedOptions[0].textContent).toBe('未识别 (99)');
+  expect(host.querySelector('[aria-label="消息接收"] [aria-checked="true"]')).toBeNull();
+  expect(host.textContent).toContain('未识别 (99)');
 });
 it('同号切换数据源后不保留另一来源的策略请求值', async () => {
   const host = fixture('group');
-  const select = host.querySelector<HTMLSelectElement>('[aria-label="消息接收"]')!;
   await act(async () => {
-    select.value = '4';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
+    host.querySelectorAll<HTMLButtonElement>('[aria-label="消息接收"] button')[1]!.click();
   });
-  expect(select.value).toBe('4');
+  expect(host.querySelector('[aria-label="消息接收"] [aria-checked="true"]')?.textContent).toBe(
+    '接收但不提醒',
+  );
   mock.configId = 'source-b';
   host.render();
-  expect(host.querySelector<HTMLSelectElement>('[aria-label="消息接收"]')!.value).toBe('1');
+  expect(host.querySelector('[aria-label="消息接收"] [aria-checked="true"]')?.textContent).toBe(
+    '正常提醒',
+  );
 });
 it.each([0, 1, 2, 3, 4, 99])('好友提醒级别 %s 不能冒充免打扰的权威开关状态', (level) => {
   mock.notifyLevel = level;

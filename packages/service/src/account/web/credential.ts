@@ -11,6 +11,7 @@
 
 import type { NtHelperBinding } from '@weq/native';
 import { getLogger, logErrorContext } from '../../common/logger';
+import { createNativeSingleFlight } from '../../common/native_single_flight';
 
 /**
  * djb2 hash → 31-bit `bkn` (a.k.a. `g_tk` / csrf token), QQ-web style.
@@ -63,6 +64,16 @@ export function cookieHeader(cred: WebCredential): string {
 /** Minimal native surface the web layer needs. */
 export type WebNative = Pick<NtHelperBinding, 'ptFetchCredentials'>;
 
+const credentialReads =
+  createNativeSingleFlight<Awaited<ReturnType<WebNative['ptFetchCredentials']>>>();
+const credentialKey = (pid: number, uin: string, domain: string) =>
+  JSON.stringify([pid, uin, domain]);
+function fetchCredentials(nt: WebNative, pid: number, uin: string, domain: string) {
+  return credentialReads.run(nt, credentialKey(pid, uin, domain), () =>
+    nt.ptFetchCredentials(pid, uin, domain),
+  );
+}
+
 /** 窗口自动登录用的一次性 skey / p_skey。OIDB / clientKey jump 为主，本地 pt_login 兜底。 */
 export interface WebTokens {
   skey: string;
@@ -88,7 +99,7 @@ export async function fetchWebTokens(
 ): Promise<WebTokens> {
   let error: string | undefined;
   try {
-    const res = await nt.ptFetchCredentials(pid, uin, domain);
+    const res = await fetchCredentials(nt, pid, uin, domain);
     if (res.success && res.pskey) {
       return { skey: opts.needSkey ? res.skey : '', pskey: res.pskey };
     }
@@ -122,6 +133,8 @@ export class WebCredentialProvider {
   private readonly pskeyByDomain = new Map<string, string>();
   private readonly cookieByDomain = new Map<string, string>();
   private readonly seededDomains = new Set<string>();
+  private readonly generations = new Map<string, number>();
+  private lastPid: number | undefined;
   private readonly logger;
 
   constructor(
@@ -149,6 +162,8 @@ export class WebCredentialProvider {
   seedPskey(byDomain: Record<string, string>): void {
     for (const [domain, pskey] of Object.entries(byDomain)) {
       if (pskey) {
+        this.invalidateRead(domain);
+        this.cookieByDomain.delete(domain);
         this.pskeyByDomain.set(domain, pskey);
         this.seededDomains.add(domain);
       }
@@ -171,6 +186,7 @@ export class WebCredentialProvider {
    * 白失败一轮。
    */
   invalidate(domain: string): void {
+    this.invalidateRead(domain);
     const wasSeeded = this.seededDomains.has(domain);
     this.logger.info('invalidating cached web credential', {
       event: 'invalidate-web-credential',
@@ -182,6 +198,12 @@ export class WebCredentialProvider {
     this.cookieByDomain.delete(domain);
     this.seededDomains.delete(domain);
     if (wasSeeded) this.dropSeededPskey(domain);
+  }
+
+  private invalidateRead(domain: string): void {
+    this.generations.set(domain, (this.generations.get(domain) ?? 0) + 1);
+    if (this.lastPid !== undefined)
+      credentialReads.forget(this.nt, credentialKey(this.lastPid, this.uin, domain));
   }
 
   /**
@@ -204,6 +226,17 @@ export class WebCredentialProvider {
   /** Credential bundle for `domain` (e.g. 'qun.qq.com', 'qzone.qq.com'). */
   async forDomain(domain: string): Promise<WebCredential> {
     const pid = this.resolvePid();
+    if (this.lastPid !== undefined && this.lastPid !== pid) {
+      for (const key of this.generations.keys()) this.invalidateRead(key);
+      for (const key of this.pskeyByDomain.keys()) {
+        if (!this.seededDomains.has(key)) this.pskeyByDomain.delete(key);
+      }
+      this.cookieByDomain.clear();
+      this.skey = null;
+    }
+    this.lastPid = pid;
+    const generation = this.generations.get(domain) ?? 0;
+    this.generations.set(domain, generation);
     this.logger.info('resolving web credential', {
       event: 'resolve-web-credential',
       pid,
@@ -221,7 +254,10 @@ export class WebCredentialProvider {
       // 已有 p_skey（live 或登录时 seed）时不再要求 skey：离线只剩 seed 票据
       // 的场景仍能用 p_skey 算 g_tk，四字段 Cookie 也足够多数 cgi 使用。
       if (!pskey) {
-        const res = await this.nt.ptFetchCredentials(pid, this.uin, domain);
+        const res = await fetchCredentials(this.nt, pid, this.uin, domain);
+        if (this.resolvePid() !== pid) throw new Error('在线来源已变化，已丢弃旧 Web 凭据');
+        if (this.generations.get(domain) !== generation)
+          throw new Error('Web 凭据已失效，请重新获取。');
         if (!res.success || !res.pskey) throw new Error(res.msg || '获取 Web 凭据失败');
         skey = res.skey;
         pskey = res.pskey;

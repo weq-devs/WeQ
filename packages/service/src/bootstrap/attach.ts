@@ -13,24 +13,26 @@
  * 离线算，见 `readDeviceGuid`）。
  *
  * 调用方（`AccountMonitorService`、bootstrap 路由）只依赖这个接口，因此不带任何
- * 按平台的分支。幂等由 hook 自己负责：`ensure` 对已经读过的 pid 是空操作；`reset`
+ * 按平台的分支。幂等由 hook 自己负责：`ensure` 复用同一账号与 pid 的完整物料；`reset`
  * 忘掉某个 pid，好让失败后的下一次 `ensure` 重新读一遍（QQ 重启 / 换账号都会让
  * 上一轮的物料失效）。
  *
- * ⚠️ 自动 attach 关闭时（设置 → 账号基础）禁止读内存。所有会触发 attach 的调用方
- * 必须在调用前检查 `userConfig.getSettings().autoAttachQq`（或调用 app_context 的
- * `requireAttachEnabled`）。唯一豁免：登录时的数据库密钥提取（bootstrap 的
+ * 所有会触发 attach 的调用方必须先检查宿主当前来源的有效完整功能状态（例如
+ * app_context 的 `requireAttachEnabled`）；自动偏好关闭时，显式手动请求仍可放行。
+ * 不能直接用 `userConfig.getSettings().autoAttachQq` 代替来源/会话门控。
+ * 独立入口：登录时的数据库密钥提取（bootstrap 的
  * `fetchKeyFromInstance` / `prepareInstanceAttach`）—— 那是打开账号的前提。
  */
 
 import type { NtHelperBinding, SessionMaterial } from '@weq/native';
 import { getLogger } from '../common/logger';
+import { isCompleteSessionMaterial } from '../common/session_material';
 
 export interface AttachHook {
   /**
    * 读 `pid` 的内存并返回该会话物料。平台差异（是否提权）由实现自己决定；
    * `uin` 只用于日志与归属，读取本身不需要它。
-   * 幂等 —— 同一个 pid 已经读过就直接返回缓存。
+   * 幂等 —— 同一账号和 pid 已读到完整凭据时直接返回缓存，部分结果允许重读。
    */
   attach(pid: number, uin: string, signal?: AbortSignal): Promise<SessionMaterial>;
   /**
@@ -139,7 +141,8 @@ export function createCachedAttachHook(
       controller.signal.throwIfAborted();
       if ((generations.get(pid) ?? 0) !== generation)
         throw new Error('QQ 会话读取已失效，请重新读取。');
-      cached.set(pid, { uin, generation, material });
+      // 扫描成功也可能只拿到部分字段，不能让暂缺凭据一直命中缓存。
+      if (isCompleteSessionMaterial(material)) cached.set(pid, { uin, generation, material });
       return material;
     });
     const entry: ReadEntry = { generation, task, controller, users: 0 };
@@ -160,10 +163,21 @@ export function createCachedAttachHook(
   return { attach: ensure, ensure, reset };
 }
 
-export function createDirectAttachHook(nt: NtHelperBinding): AttachHook {
+export function createDirectAttachHook(
+  nt: NtHelperBinding,
+  fallback?: (pid: number, signal?: AbortSignal) => Promise<SessionMaterial | null>,
+): AttachHook {
   const logger = getLogger().child({ scope: 'attach' });
-  return createCachedAttachHook(async (pid, uin) => {
-    const material = await nt.scanSessionMaterial(pid);
+  return createCachedAttachHook(async (pid, uin, signal) => {
+    let material: SessionMaterial;
+    try {
+      material = await nt.scanSessionMaterial(pid);
+    } catch (error) {
+      signal.throwIfAborted();
+      const recovered = await fallback?.(pid, signal);
+      if (!recovered) throw error;
+      material = recovered;
+    }
     logger.info('attached to qq process', {
       event: 'attach',
       pid,

@@ -18,6 +18,7 @@ import type {
   SqlValue,
   DatabaseAlgorithms,
 } from '@weq/native';
+import { scheduleDatabase } from './query_schedule';
 import {
   iterateSalvageWindows,
   runSalvageScan,
@@ -64,10 +65,14 @@ export class QqDb {
    * static column list and prefer named access.
    */
   query(sql: string, params?: SqlValue[]): Promise<SqlRow[]> {
-    if (this.encrypted) {
-      return this.nt.executeSqlWithKey(this.dbPath, sql, this.key!, this.algo!, params ?? null);
-    }
-    return this.nt.executeSql(this.dbPath, sql, params ?? null);
+    return scheduleDatabase(
+      this.dbPath,
+      () =>
+        this.encrypted
+          ? this.nt.executeSqlWithKey(this.dbPath, sql, this.key!, this.algo!, params ?? null)
+          : this.nt.executeSql(this.dbPath, sql, params ?? null),
+      this.nt,
+    );
   }
 
   /** 可选功能表按实际 schema 判断，不把查询错误或损坏吞成“没有数据”。 */
@@ -170,20 +175,26 @@ export class QqDb {
    * re-open + re-decrypt on the next query is a non-issue.
    */
   async write(sql: string, params?: SqlValue[]): Promise<number> {
-    try {
-      if (this.encrypted) {
-        return await this.nt.executeSqlWriteWithKey(
-          this.dbPath,
-          sql,
-          this.key!,
-          this.algo!,
-          params ?? null,
-        );
-      }
-      return await this.nt.executeSqlWrite(this.dbPath, sql, params ?? null);
-    } finally {
-      this.nt.closeDb(this.dbPath);
-    }
+    return scheduleDatabase(
+      this.dbPath,
+      async () => {
+        try {
+          if (this.encrypted) {
+            return await this.nt.executeSqlWriteWithKey(
+              this.dbPath,
+              sql,
+              this.key!,
+              this.algo!,
+              params ?? null,
+            );
+          }
+          return await this.nt.executeSqlWrite(this.dbPath, sql, params ?? null);
+        } finally {
+          this.nt.closeDb(this.dbPath);
+        }
+      },
+      this.nt,
+    );
   }
 
   /** Drop both the read and write cached native connections for this database. */

@@ -31,24 +31,22 @@ export function ExportSaveControl({
       <legend>保存位置</legend>
       <label>
         <span>保存方式</span>
-        <select
-          aria-label="保存方式"
+        <SegmentedControl
+          label="保存方式"
           value={value.mode}
-          onChange={(event) => {
-            const mode = event.target.value;
-            if (mode === 'preset' || mode === 'before' || mode === 'after')
-              onChange({
-                mode,
-                ...(mode === 'preset' && value.mode === 'preset' && value.directory
-                  ? { directory: value.directory }
-                  : {}),
-              });
+          onChange={(mode) => {
+            onChange({
+              mode,
+              ...(mode === 'preset' && value.mode === 'preset' && value.directory
+                ? { directory: value.directory }
+                : {}),
+            });
           }}
-        >
-          <option value="preset">使用预设目录</option>
-          <option value="before">开始前选择</option>
-          <option value="after">完成后选择</option>
-        </select>
+          options={[
+            { value: 'preset', label: '使用预设目录' },
+            { value: 'before', label: '开始前选择' },
+          ]}
+        />
       </label>
       {value.mode === 'preset' ? (
         <div className="weq-export-save-location">
@@ -111,3 +109,4 @@ export function ExportSaveControl({
     </fieldset>
   );
 }
+import { SegmentedControl } from '../../components/SegmentedControl';

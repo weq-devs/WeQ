@@ -71,6 +71,13 @@ export interface GroupDirectoryEntry {
   memberCount: number;
 }
 
+export interface GroupIdentity {
+  groupCode: string;
+  name: string;
+  remark: string;
+  inDirectory: boolean;
+}
+
 export interface GroupDetailDbOptions {
   dbPath: string;
   key?: string;
@@ -134,6 +141,32 @@ export class GroupDetailDb {
         memberCount: Number(row[5] ?? 0),
       }),
     );
+  }
+
+  /** 通讯录与历史群资料取并集；不从缓存缺席推断退群、解散或删除。 */
+  async searchIdentities(keyword: string): Promise<GroupIdentity[]> {
+    const needle = keyword.trim();
+    if (!needle) return [];
+    const like = `%${needle.replace(/[\\%_]/g, (part) => `\\${part}`)}%`;
+    const rows = await this.qq.query(
+      `WITH groups AS (
+        SELECT d."60001" AS code, d."60007" AS name, d."60026" AS remark,
+          EXISTS(SELECT 1 FROM group_list g WHERE g."60001" = d."60001") AS current
+        FROM group_detail_info_ver1 d
+        UNION ALL
+        SELECT g."60001", '', '', 1 FROM group_list g
+        WHERE NOT EXISTS (SELECT 1 FROM group_detail_info_ver1 d WHERE d."60001" = g."60001")
+      ) SELECT code, name, remark, current FROM groups
+      WHERE CAST(code AS TEXT) LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\'
+        OR remark LIKE ? ESCAPE '\\' ORDER BY code`,
+      [like, like, like],
+    );
+    return rows.map((row) => ({
+      groupCode: String(row[0] ?? ''),
+      name: String(row[1] ?? ''),
+      remark: String(row[2] ?? ''),
+      inDirectory: Number(row[3]) === 1,
+    }));
   }
 
   /**

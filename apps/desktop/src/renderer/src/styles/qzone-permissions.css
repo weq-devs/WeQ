@@ -1,6 +1,8 @@
 .weq-qzone-permissions {
-  padding: 16px 0;
-  border-top: 1px solid var(--weq-border-subtle);
+  padding: 14px 16px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 8px;
+  background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);
 }
 .weq-qzone-permissions > header {
@@ -8,7 +10,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
 .weq-qzone-permissions h4 {
   margin: 0;
@@ -49,11 +51,31 @@
   min-width: 0;
   font-size: 12px;
 }
-.weq-qzone-permission-users > li > span:not(.weq-avatar-fallback) {
+.weq-qzone-permission-profile {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.weq-qzone-permission-profile > span:not(.weq-avatar-fallback) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 180px;
+}
+.weq-qzone-permission-profile:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+}
+.weq-qzone-permissions .weq-qzone-permission-profile:disabled {
+  opacity: 1;
 }
 .weq-qzone-permissions img,
 .weq-qzone-permissions .weq-avatar-fallback {

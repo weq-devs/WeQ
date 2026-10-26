@@ -34,6 +34,7 @@ import { useState, type ReactElement } from 'react';
 import {
   AlertTriangle,
   ChevronDown,
+  ChevronRight,
   DatabaseZap,
   FlaskConical,
   Info,
@@ -128,21 +129,30 @@ function shortTime(iso: string): string {
 
 export function DatabaseToleranceSection({
   page = 'policy',
+  onOpenRecords,
 }: {
-  page?: 'policy' | 'status';
+  page?: 'policy' | 'status' | 'damage';
+  onOpenRecords?: () => void;
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
   const autoRefresh = useQQAutoRefresh(true);
   const utils = trpc.useUtils();
-  const tolerance = trpc.account.getDbTolerance.useQuery(undefined, autoRefresh);
+  const tolerance = trpc.account.getDbTolerance.useQuery(undefined, {
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && page !== 'damage',
+  });
   const setLevel = trpc.account.setDbToleranceLevel.useMutation();
-  const quarantine = trpc.account.listSalvageQuarantine.useQuery(undefined, autoRefresh);
+  const quarantine = trpc.account.listSalvageQuarantine.useQuery(undefined, {
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && page !== 'damage',
+  });
   const clearQuarantine = trpc.account.clearSalvageQuarantine.useMutation();
 
   /** 正在等用户确认的**那个**级别；确认条就渲染在这一行里面。 */
   const [pendingLossy, setPendingLossy] = useState<number | null>(null);
   // 弹窗提醒开关。它存在 AppSettings 里（不是宽容级别那一套），所以单独查一次。
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: autoRefresh.enabled && page === 'damage',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -233,16 +243,18 @@ export function DatabaseToleranceSection({
   return (
     <div className="weq-set">
       <SectionHeader
-        title={page === 'policy' ? '损坏处理与容错' : '容错记录'}
+        title={page === 'policy' ? '数据库宽容' : page === 'damage' ? '损坏与修复' : '容错记录'}
         icon={<DatabaseZap size={16} strokeWidth={1.9} />}
         desc={
-          <>
-            <span className="weq-set-exp-badge" title={SALVAGE_EXPERIMENTAL_NOTE}>
-              <FlaskConical size={11} strokeWidth={2.2} aria-hidden />
-              {SALVAGE_EXPERIMENTAL_TAG}
-            </span>
-            QQ 数据库损坏时默认直接报错；也可以按需开启宽容级别，接受「少读一点也能用」的代价。
-          </>
+          page === 'damage' ? undefined : (
+            <>
+              <span className="weq-set-exp-badge" title={SALVAGE_EXPERIMENTAL_NOTE}>
+                <FlaskConical size={11} strokeWidth={2.2} aria-hidden />
+                {SALVAGE_EXPERIMENTAL_TAG}
+              </span>
+              QQ 数据库损坏时默认直接报错；也可以按需开启宽容级别，接受「少读一点也能用」的代价。
+            </>
+          )
         }
       />
 
@@ -267,23 +279,6 @@ export function DatabaseToleranceSection({
               </p>
             </div>
           </details>
-
-          {/* 提醒是弹窗那条路的总开关：关掉之后，损坏只会进日志与检查报告，不会找人。
-          放在这里是因为它和宽容级别回答的是同一个问题（"库坏了之后会怎样"）。 */}
-          <Card title="损坏提醒">
-            <Row
-              label="数据库异常时弹窗提醒"
-              desc="健康检查确认损坏后会显示提示，可点击「尝试修复」，或从设置 → 数据维护 → 维护工具 → 数据库修复进入。关闭提示后仍会记录日志并生成检查报告，也可以随时重新开启。"
-              control={
-                <Toggle
-                  checked={remindOnDamage}
-                  disabled={!settings.data || setReminder.isPending}
-                  onChange={(next) => void changeReminder(next)}
-                  label="数据库异常时弹窗提醒"
-                />
-              }
-            />
-          </Card>
 
           <Card
             title="宽容级别"
@@ -401,6 +396,44 @@ export function DatabaseToleranceSection({
           </Card>
         </>
       )}
+      {page === 'damage' && (
+        <Card title="损坏提醒" settingId="damage-reminder">
+          <Row
+            label="数据库异常时弹窗提醒"
+            desc="健康检查确认损坏后会显示提示，可点击「尝试修复」，或从设置 → 数据库与资源 → 损坏与修复进入。关闭提示后仍会记录日志并生成检查报告。"
+            control={
+              <Toggle
+                checked={remindOnDamage}
+                disabled={!settings.data || setReminder.isPending}
+                onChange={(next) => void changeReminder(next)}
+                label="数据库异常时弹窗提醒"
+              />
+            }
+          />
+        </Card>
+      )}
+      {page === 'policy' && onOpenRecords && (
+        <Card
+          title="容错记录"
+          settingId="tolerance-records"
+          action={
+            <button type="button" className="weq-set-btn" onClick={onOpenRecords}>
+              查看记录
+              <ChevronRight size={14} aria-hidden />
+            </button>
+          }
+        >
+          <p className="weq-set-desc" role="status">
+            {summary
+              ? `共 ${summary.total} 次降级记录；${quarantine.data ? `${quarantined.length} 张表正在隔离中。` : quarantine.error ? '隔离状态读取失败。' : '隔离状态读取中。'}`
+              : tolerance.error
+                ? '暂时无法读取容错记录，可打开记录查看详情并重试。'
+                : tolerance.isLoading
+                  ? '正在读取容错记录…'
+                  : '暂无容错记录。'}
+          </p>
+        </Card>
+      )}
       {page === 'status' && (
         <Card
           title="降级账本"
@@ -492,6 +525,7 @@ export function DatabaseToleranceSection({
               disabled={clearQuarantine.isPending}
               onClick={() => void retryQuarantine()}
             >
+              <RefreshCw size={13} aria-hidden="true" />
               全部再试一次
             </button>
           }
@@ -527,6 +561,7 @@ export function DatabaseToleranceSection({
                     disabled={clearQuarantine.isPending}
                     onClick={() => void retryQuarantine(baseName(entry.dbPath), entry.table)}
                   >
+                    <RefreshCw size={13} aria-hidden="true" />
                     再试一次
                   </button>
                 </span>

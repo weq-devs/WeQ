@@ -12,3 +12,13 @@ export function toggleAllSelectionIds<K>(ids: readonly K[], selected: ReadonlySe
   }
   return next;
 }
+
+/** 反选当前结果，不改变筛选外的选择。 */
+export function invertSelectionIds<K>(ids: readonly K[], selected: ReadonlySet<K>): Set<K> {
+  const next = new Set(selected);
+  for (const id of new Set(ids)) {
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+  }
+  return next;
+}

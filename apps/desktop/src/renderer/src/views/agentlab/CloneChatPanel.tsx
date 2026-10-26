@@ -5,6 +5,7 @@
  *    期间组件不重挂载、流式不中断（navKey 由父组件维持）。
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import type { AgentLabModelSelection } from '@weq/agentlab';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
 import { ArrowLeft, Send, Settings, Trash2 } from 'lucide-react';
@@ -25,7 +26,7 @@ export interface ClonePersonaLite {
   sourceId: string;
   sourceTitle: string;
   systemFaces?: string[] | null;
-  models?: { chat?: { providerId?: string; model?: string } | null } | null;
+  models?: { chat?: AgentLabModelSelection | null } | null;
   corpusMessageCount?: number;
 }
 

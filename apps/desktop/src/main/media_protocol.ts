@@ -40,6 +40,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { viewerMedia } from './export_viewer';
 import { fileResponse as streamFile } from './file_response';
 import { decorationImageResponse } from './decoration_image_response';
+import { chatImageResponse } from './chat_image_response';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -54,6 +55,7 @@ import {
   type MediaElement,
 } from '@weq/service';
 import { getAppContext } from './context/app_context';
+import { fullModeAllowed } from './context/full_mode';
 import { resolveResource } from './resource';
 import { resourceSkinCover } from './redpack_catalog';
 import { decodeSilkToWav, isSilkFile } from './voice';
@@ -226,7 +228,7 @@ async function onlineRedbagCover(skinId: string): Promise<string | null> {
   const ctx = getAppContext();
   const services = ctx.services;
   if (!services) return null;
-  if (ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false) return null;
+  if (!fullModeAllowed(ctx)) return null;
   const record = services.accountConfig.getRecord();
   if (!record?.qqOnline || !record.qqPid) return null;
   try {
@@ -624,16 +626,20 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           );
           mediaBinding.getStore()?.();
           const path = wantThumb ? (thumb ?? source) : (source ?? thumb);
-          if (path) return fileResponse(path);
+          const respond = (path: string) =>
+            wantThumb && picType !== 'emoji'
+              ? chatImageResponse(path, currentRequest.getStore(), mediaBinding.getStore())
+              : fileResponse(path);
+          if (path) return respond(path);
           // 本地 miss → 外部安卓 chatpic 备份兜底（按 md5 寻址），再不行才走 CDN。
           const chatpicFile = resolveChatpicFallback(q.get('md5') ?? '');
-          if (chatpicFile) return fileResponse(chatpicFile);
+          if (chatpicFile) return respond(chatpicFile);
           // Missing on disk → CDN: digit token → originalUrl (no rkey); else rkey.
           const dl = await services.mediaDownload.download(token, {
             originalUrl: q.get('orig') ?? '',
           });
           mediaBinding.getStore()?.();
-          return dl ? fileResponse(dl) : notFound('pic not found');
+          return dl ? respond(dl) : notFound('pic not found');
         }
         case 'video': {
           // ?v=thumb → cover image (rkey is fine for covers); otherwise →

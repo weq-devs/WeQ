@@ -10,6 +10,7 @@ export interface TimelineRow {
   msgSeq: string;
   source?: 'roaming';
   ntSeqVerified?: boolean;
+  recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
 }
 
 export function timelineSeq(value: string): bigint | null {
@@ -51,13 +52,27 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
   cached: T[],
   options: { descending?: boolean; limit?: number; min?: bigint; max?: bigint } = {},
 ): T[] {
-  const result = local.filter((row) => row.source !== 'roaming');
-  const localSeqs = new Set(result.map((row) => row.msgSeq));
-  const localIds = new Set(result.map((row) => row.msgId));
   const identity = (row: T): string | null =>
     row.msgRandom && row.msgRandom !== '0' && row.senderUid
       ? `${row.msgSeq}:${row.msgRandom}:${row.senderUid}`
       : null;
+  const protectedRows = [...local, ...cached].filter((row) => {
+    const seq = timelineSeq(row.msgSeq);
+    return (
+      row.localSent &&
+      row.recall &&
+      seq !== null &&
+      (kind !== 'c2c' || row.ntSeqVerified === true) &&
+      (options.min === undefined || seq >= options.min) &&
+      (options.max === undefined || seq <= options.max)
+    );
+  });
+  const protectedKeys = new Set(protectedRows.map(identity).filter(Boolean));
+  const result = local.filter(
+    (row) => row.source !== 'roaming' && !protectedKeys.has(identity(row)),
+  );
+  const localSeqs = new Set(result.map((row) => row.msgSeq));
+  const localIds = new Set(result.map((row) => row.msgId));
   const localIdentities = new Set(result.map(identity).filter(Boolean));
   const nativeRandoms = new Set(
     [...local, ...cached]
@@ -65,7 +80,11 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
       .map((row) => `${row.msgSeq}:${row.msgRandom}:${row.senderUid ?? ''}`),
   );
   const added = new Set<string>();
-  const candidates = [...local.filter((item) => item.source === 'roaming'), ...cached];
+  const candidates = [
+    ...protectedRows,
+    ...local.filter((item) => item.source === 'roaming'),
+    ...cached,
+  ].filter((row) => (row.localSent && row.recall) || !protectedKeys.has(identity(row)));
   const syncedIdentities = new Set(
     candidates
       .filter((row) => !row.localSent)

@@ -179,27 +179,40 @@ export const callRouter = router({
       hevc: Uint8Array;
       timestamp: number;
       keyframe: boolean;
+      /** 16 位帧序号；渲染层据此判断喂入是否连续（见 useCallVideo）。 */
+      frameIndex: number;
       info: VideoStreamInfo | null;
     }>((emit) => {
       const manager = findCallManager();
       if (!manager) return () => {};
-      // 先补最近的关键帧：订阅是在「对端开始发视频」之后才建立的，首个关键帧
-      // 往往已经过去，没有它解码器起不来（后续 delta 帧会全被丢弃）。
-      const kf = manager.latestKeyframe();
-      if (kf?.hevc) {
+      // 补发「关键帧 + 其后的连续帧」：订阅是在「对端开始发视频」之后才建立的，
+      // 首个关键帧往往已经过去。
+      //
+      // ⚠️ **不能只补关键帧。** 只补关键帧的话，渲染层喂完它之后紧接着收到的是
+      // 实时帧，中间缺一大段；HEVC 的 P 帧依赖前序参考帧，硬解会输出错乱的 YUV
+      // （整屏纯绿，约 15 秒后才被下一个关键帧纠正）。整段补发让渲染层从头连续
+      // 解码，代价是订阅瞬间多传几十帧。
+      const replay = manager.replayFrames();
+      for (const frame of replay) {
+        if (!frame.hevc) continue;
         emit.next({
-          hevc: kf.hevc,
-          timestamp: kf.timestamp,
-          keyframe: true,
-          info: kf.info,
+          hevc: frame.hevc,
+          timestamp: frame.timestamp,
+          keyframe: frame.isKeyframe,
+          frameIndex: frame.frameIndex,
+          info: frame.info,
         });
       }
+      // 补发期间实时帧可能已经往前走了，两者会重叠（补发到帧 N，实时流已从帧 M
+      // 开始）。重叠与跳帧由渲染层的 `acceptsFrame` 统一处理：连续的照常解，
+      // 不连续的就丢弃等关键帧 —— 这里不做额外过滤，避免两处逻辑各自为政。
       const handler = (event: CallEvent) => {
         if (event.type !== 'video') return;
         emit.next({
           hevc: event.hevc,
           timestamp: event.timestamp,
           keyframe: event.keyframe,
+          frameIndex: event.frameIndex,
           info: event.info,
         });
       };

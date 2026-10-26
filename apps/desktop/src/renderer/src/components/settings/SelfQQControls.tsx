@@ -255,6 +255,7 @@ export function SelfQQControls() {
             />
             <QQWriteSelectRow
               label="性别"
+              segmented
               autoSave
               icon={<PersonStanding size={14} strokeWidth={1.8} />}
               initial={ownProfile?.gender ?? null}

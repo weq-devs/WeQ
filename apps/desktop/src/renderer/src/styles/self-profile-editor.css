@@ -106,6 +106,31 @@ html[data-theme='dark'] .weq-self-profile-avatar-action {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;
   }
+  html[data-theme] :is(.weq-self-profile-basics, .weq-self-profile-signature) .weq-set-row-main {
+    flex: 0 0 auto;
+  }
+  html[data-theme] :is(.weq-self-profile-basics, .weq-self-profile-signature) .weq-set-row-ctrl {
+    margin-left: 0;
+    width: 100%;
+  }
+  html[data-theme] .weq-self-profile-dialog .weq-set-card {
+    padding: 12px 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  .weq-self-profile-dialog :is(input, select, textarea) {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .weq-self-profile-dialog .weq-set-iconbtn {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+  }
+  html[data-theme='dark'] .weq-self-profile-dialog .weq-set-card {
+    background: transparent;
+  }
 }
 .weq-profile-region-editor {
   display: flex;

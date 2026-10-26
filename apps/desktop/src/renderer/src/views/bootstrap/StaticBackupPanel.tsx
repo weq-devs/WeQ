@@ -5,12 +5,15 @@ import { ArrowRight, Database, FolderSearch, KeyRound, Loader2, Smartphone, X } 
 import { client } from '../../trpc/client';
 import { Modal, useDialog } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
+import { FolderScanStatus } from '../../components/FolderScanStatus';
 import { KEY_LEN_HINT } from './KeyField';
 import qqLogoUrl from '@resources/img/QQ.png';
 import '../../styles/static-backup-scan.css';
 
-type ScanResult = Awaited<ReturnType<typeof client.bootstrap.scanStaticDirs.mutate>>;
-type Candidate = ScanResult['candidates'][number];
+import type {
+  BackupScanCandidate as Candidate,
+  BackupScanEvent,
+} from '../../../../main/static_backup';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -36,8 +39,10 @@ type Stage = 'picking' | 'probing' | 'entering' | 'done';
 
 export function StaticBackupPanel({
   onEntered,
+  onBusyChange,
 }: {
   onEntered: (uin: string) => void;
+  onBusyChange?: (busy: boolean) => void;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
@@ -50,17 +55,29 @@ export function StaticBackupPanel({
   const [notice, setNotice] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [draftPath, setDraftPath] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const scanId = useRef(0);
+  const scanSub = useRef<{ unsubscribe(): void } | null>(null);
+  const scanReject = useRef<((error: Error) => void) | null>(null);
   const pickerTitleId = useId();
   const busy = stage === 'probing' || stage === 'entering';
+  useEffect(() => {
+    onBusyChange?.(busy);
+    return () => onBusyChange?.(false);
+  }, [busy, onBusyChange]);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      scanId.current++;
+      scanSub.current?.unsubscribe();
+      scanReject.current?.(new Error('扫描已取消'));
     };
   }, []);
 
   function selectCandidate(candidate: Candidate) {
+    if (!candidate.probe) return;
     setDirPath(candidate.dirPath);
     setKey('');
     const r = candidate.probe;
@@ -90,58 +107,123 @@ export function StaticBackupPanel({
 
   function confirmDirectory() {
     const candidate = candidates.find((item) => item.dirPath === draftPath);
-    if (!candidate || busy) return;
+    if (!candidate?.probe) return;
+    stopScan();
     selectCandidate(candidate);
     setPickerOpen(false);
   }
 
+  function stopScan() {
+    scanId.current++;
+    scanSub.current?.unsubscribe();
+    scanSub.current = null;
+    scanReject.current?.(new Error('扫描已取消'));
+    scanReject.current = null;
+    setScanning(false);
+    setStage(probe.kind === 'ready' ? 'done' : 'picking');
+  }
+
+  function closePicker() {
+    if (scanning) stopScan();
+    setPickerOpen(false);
+  }
+
+  function scan(
+    dirPath: string,
+    recursive: boolean,
+    id: number,
+  ): Promise<{ candidates: Candidate[]; truncated: boolean; unreadable: number }> {
+    const found = new Map<string, Candidate>();
+    return new Promise((resolve, reject) => {
+      scanReject.current = reject;
+      scanSub.current = client.bootstrap.scanStaticDirsProgress.subscribe(
+        { dirPath, recursive },
+        {
+          onData(event: BackupScanEvent) {
+            if (!mounted.current || id !== scanId.current) return;
+            if (event.kind === 'candidate') {
+              found.set(event.candidate.dirPath, event.candidate);
+              setCandidates([...found.values()]);
+              setDraftPath((current) => current || event.candidate.dirPath);
+              setPickerOpen(true);
+            } else {
+              scanSub.current?.unsubscribe();
+              scanSub.current = null;
+              scanReject.current = null;
+              resolve({
+                candidates: [...found.values()],
+                truncated: event.truncated,
+                unreadable: event.unreadable,
+              });
+            }
+          },
+          onError(error) {
+            if (!mounted.current || id !== scanId.current) return;
+            scanReject.current = null;
+            reject(error);
+          },
+        },
+      );
+    });
+  }
+
   async function pickDir(): Promise<void> {
     setStage('probing');
+    const id = ++scanId.current;
     try {
       const picked = await client.bootstrap.pickStaticDbDir.mutate();
       if (!picked || !mounted.current) return;
-      setDirPath('');
-      setKey('');
       setCandidates([]);
       setPickerOpen(false);
       setDraftPath('');
       setNotice('');
-      setProbe({ kind: 'probing' });
-      let result = await client.bootstrap.scanStaticDirs.mutate({ dirPath: picked });
-      if (!mounted.current) return;
+      setScanning(true);
+      let result = await scan(picked, false, id);
+      if (!mounted.current || id !== scanId.current) return;
       if (!result.candidates.length) {
         const recursive = await confirm(
           '递归扫描账号目录？',
           '当前文件夹及下一级未找到 QQ 数据库，是否扫描所有子文件夹？大目录可能需要较长时间。',
           { okLabel: '递归扫描', cancelLabel: '取消' },
         );
-        if (!mounted.current) return;
+        if (!mounted.current || id !== scanId.current) return;
         if (!recursive) {
-          setProbe({ kind: 'idle' });
+          if (!dirPath) setProbe({ kind: 'idle' });
           return;
         }
-        result = await client.bootstrap.scanStaticDirs.mutate({ dirPath: picked, recursive: true });
+        result = await scan(picked, true, id);
       }
-      if (!mounted.current) return;
+      if (!mounted.current || id !== scanId.current) return;
+      setScanning(false);
       setCandidates(result.candidates);
       if (result.truncated || result.unreadable)
         setNotice('部分目录未扫描，请选择更具体的文件夹。');
-      if (result.candidates.length === 1) selectCandidate(result.candidates[0]!);
-      else {
-        setProbe(
-          result.candidates.length
-            ? { kind: 'idle' }
-            : { kind: 'badDb', error: '没有找到 QQ 数据库目录。' },
-        );
+      if (result.candidates.length === 1) {
+        selectCandidate(result.candidates[0]!);
+        setPickerOpen(false);
+      } else {
+        if (!dirPath)
+          setProbe(
+            result.candidates.length
+              ? { kind: 'idle' }
+              : { kind: 'badDb', error: '没有找到 QQ 数据库目录。' },
+          );
+        if (!result.candidates.length) setNotice('没有找到 QQ 数据库目录。');
         if (result.candidates.length) {
-          setDraftPath(result.candidates[0]!.dirPath);
+          setDraftPath((current) => current || result.candidates[0]!.dirPath);
           setPickerOpen(true);
         }
       }
     } catch (e) {
-      if (mounted.current) setProbe({ kind: 'badDb', error: errMsg(e) });
+      if (mounted.current && id === scanId.current) {
+        setNotice(`扫描未完成：${errMsg(e)}`);
+        if (!dirPath) setProbe({ kind: 'badDb', error: errMsg(e) });
+      }
     } finally {
-      if (mounted.current) setStage((s) => (s === 'probing' ? 'picking' : s));
+      if (mounted.current && id === scanId.current) {
+        setScanning(false);
+        setStage((s) => (s === 'probing' ? 'picking' : s));
+      }
     }
   }
 
@@ -229,7 +311,10 @@ export function StaticBackupPanel({
                 )}
               </span>
             </span>
-            <div className="weq-static-backup-title">
+            <div
+              className="weq-static-backup-title"
+              title={probe.preview.displayName || probe.preview.uin}
+            >
               {probe.preview.displayName || probe.preview.uin}
             </div>
           </>
@@ -271,10 +356,15 @@ export function StaticBackupPanel({
         </span>
       </label>
 
-      {stage === 'probing' && (
-        <div role="status" className="weq-static-hint">
-          正在扫描与验证…
-        </div>
+      {scanning && !pickerOpen ? (
+        <FolderScanStatus count={candidates.length} unit="个账号目录" />
+      ) : (
+        stage === 'probing' &&
+        !scanning && (
+          <div role="status" className="weq-static-hint">
+            正在扫描与验证…
+          </div>
+        )
       )}
       {candidates.length > 0 && (
         <button
@@ -289,7 +379,7 @@ export function StaticBackupPanel({
       )}
       {pickerOpen && (
         <Modal
-          onClose={() => setPickerOpen(false)}
+          onClose={closePicker}
           centered
           dismissOnOutside={false}
           labelledBy={pickerTitleId}
@@ -306,16 +396,17 @@ export function StaticBackupPanel({
               className="weq-dialog-x"
               aria-label="关闭账号目录"
               title="关闭"
-              onClick={() => setPickerOpen(false)}
+              onClick={closePicker}
             >
               <X size={18} aria-hidden />
             </button>
           </div>
+          {scanning && <FolderScanStatus count={candidates.length} unit="个账号目录" />}
           <div className="weq-backup-picker-list">
-            <fieldset className="weq-backup-candidates" disabled={busy} aria-label="备份账号目录">
+            <fieldset className="weq-backup-candidates" aria-label="备份账号目录">
               {candidates.map((candidate) => {
                 const preview =
-                  candidate.probe.ok && !candidate.probe.needKey ? candidate.probe.preview : null;
+                  candidate.probe?.ok && !candidate.probe.needKey ? candidate.probe.preview : null;
                 return (
                   <label
                     key={candidate.dirPath}
@@ -335,15 +426,27 @@ export function StaticBackupPanel({
                       <strong>
                         {preview
                           ? `${preview.displayName || preview.uin} · ${preview.uin}`
-                          : '加密账号（待验证）'}
+                          : !candidate.probe
+                            ? '账号目录（正在识别）'
+                            : '加密账号（待验证）'}
                       </strong>
                       <span className="weq-backup-path">{candidate.dirPath}</span>
                       <span>
-                        {candidate.databaseCount} 个数据库 ·{' '}
-                        {(candidate.databaseBytes / 1024 / 1024).toFixed(1)} MB ·{' '}
-                        {candidate.mediaDir ? '含本地媒体' : '未找到媒体目录'}
+                        {candidate.databaseCount === null
+                          ? '正在读取数据库数量'
+                          : `${candidate.databaseCount} 个数据库`}{' '}
+                        ·{' '}
+                        {candidate.databaseBytes === null
+                          ? candidate.sizePending
+                            ? '大小统计中'
+                            : '大小未能读取'
+                          : `${candidate.sizePending ? '已统计 ' : ''}${(candidate.databaseBytes / 1024 / 1024).toFixed(1)} MB`}{' '}
+                        · {candidate.mediaDir ? '含本地媒体' : '未找到媒体目录'}
                       </span>
-                      {!candidate.probe.ok && (
+                      {candidate.sizeError && (
+                        <span className="weq-backup-candidate-error">{candidate.sizeError}</span>
+                      )}
+                      {candidate.probe && !candidate.probe.ok && (
                         <span className="weq-backup-candidate-error">{candidate.probe.error}</span>
                       )}
                     </span>
@@ -354,13 +457,13 @@ export function StaticBackupPanel({
             {notice && <div className="weq-backup-picker-notice">{notice}</div>}
           </div>
           <div className="weq-dialog-foot weq-backup-picker-foot">
-            <button type="button" className="weq-action-soft" onClick={() => setPickerOpen(false)}>
-              取消
+            <button type="button" className="weq-action-soft" onClick={closePicker}>
+              {scanning ? '停止扫描' : '取消'}
             </button>
             <button
               type="button"
               className="weq-action-primary"
-              disabled={busy || !draftPath}
+              disabled={!candidates.find((item) => item.dirPath === draftPath)?.probe}
               onClick={confirmDirectory}
             >
               <ArrowRight size={15} aria-hidden />

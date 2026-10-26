@@ -108,7 +108,32 @@ export const antiRecallRouter = router({
    * 有撤回记录的会话目录（计数 + 最近一次撤回时间，最新活动在前）——「更多 →
    * 防撤回」里那一页按会话浏览撤回记录的入口。只读本地记录表，不依赖 QQ 在线。
    */
-  listRecallConversations: procedure.query(() => {
-    return requireServices().antiRecall.listRecallConversations();
+  listRecallConversations: procedure.query(async () => {
+    const { antiRecall, gapHistory } = requireServices();
+    const summaries = await antiRecall.listRecallConversations();
+    const byConv = new Map(summaries.map((row) => [`${row.kind}:${row.conv}`, { ...row }]));
+    const knownSeqs = new Map<string, Set<string>>();
+    for (const message of await gapHistory.cachedRecalls()) {
+      const key = `${message.kind}:${message.conv}`;
+      let seqs = knownSeqs.get(key);
+      if (!seqs) {
+        seqs = new Set(
+          (await antiRecall.listRecalls(message.kind, message.conv)).map((row) => row.origSeq),
+        );
+        knownSeqs.set(key, seqs);
+      }
+      if (seqs.has(message.msgSeq)) continue;
+      seqs.add(message.msgSeq);
+      const summary = byConv.get(key) ?? {
+        kind: message.kind,
+        conv: message.conv,
+        count: 0,
+        lastTs: 0,
+      };
+      summary.count++;
+      summary.lastTs = Math.max(summary.lastTs, message.recall?.recallTs ?? 0);
+      byConv.set(key, summary);
+    }
+    return [...byConv.values()].sort((a, b) => b.lastTs - a.lastTs);
   }),
 });

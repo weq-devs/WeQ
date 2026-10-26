@@ -1,3 +1,4 @@
+import { withExportSaveDirectory } from './support/export_save_fixture';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -56,7 +57,11 @@ describe('联系人精确条目导出', () => {
   it('单文件任务另存后记录真实路径，后续另存失败保留已生成结果和上次保存位置', async () => {
     const { deps } = fixture(),
       cache = dirname(output());
-    const manager = new ExportTaskManager({} as MsgService, cache, { contacts: deps });
+    const manager = new ExportTaskManager(
+      {} as MsgService,
+      cache,
+      withExportSaveDirectory(cache, { contacts: deps }),
+    );
     const id = await manager.startTask({
       kind: 'c2c',
       conv: '',
@@ -65,7 +70,7 @@ describe('联系人精确条目导出', () => {
       total: 0,
       contacts: { scope: 'friends', uids: ['b'] },
     });
-    await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
+    await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
     const target = join(cache, '用户选择.json');
     expect(await manager.saveTaskOutput(id, undefined, target)).toBe(realpathSync(target));
     expect(manager.getTask(id)?.save).toMatchObject({
@@ -126,7 +131,11 @@ describe('联系人精确条目导出', () => {
   it('写入阶段通知触发取消时，不再启动文件写入', async () => {
     const { deps } = fixture();
     const cache = dirname(output());
-    const manager = new ExportTaskManager({} as MsgService, cache, { contacts: deps });
+    const manager = new ExportTaskManager(
+      {} as MsgService,
+      cache,
+      withExportSaveDirectory(cache, { contacts: deps }),
+    );
     manager.on('progress', (progress) => {
       if (progress.message.startsWith('正在写入')) manager.cancelTask(progress.taskId);
     });
@@ -149,7 +158,11 @@ describe('联系人精确条目导出', () => {
   });
   it('群成员 vCard 回退后的任务、产物与报告格式一致，保留所属群号', async () => {
     const { deps } = fixture();
-    const manager = new ExportTaskManager({} as MsgService, dirname(output()), { contacts: deps });
+    const manager = new ExportTaskManager(
+      {} as MsgService,
+      dirname(output()),
+      withExportSaveDirectory(dirname(output()), { contacts: deps }),
+    );
     const id = await manager.startTask({
       kind: 'c2c',
       conv: '10001',
@@ -180,7 +193,11 @@ describe('联系人精确条目导出', () => {
       .mockResolvedValue([{ uid: 'a', uin: '10001', qid: '', categoryId: 1 }]);
     deps.listBuddies = list;
     const cache = dirname(output());
-    const manager = new ExportTaskManager({} as MsgService, cache, { contacts: deps });
+    const manager = new ExportTaskManager(
+      {} as MsgService,
+      cache,
+      withExportSaveDirectory(cache, { contacts: deps }),
+    );
     const id = await manager.startTask({
       kind: 'c2c',
       conv: '',
@@ -216,7 +233,11 @@ describe('联系人精确条目导出', () => {
       }
       return [{ uid: 'b', uin: '10002', qid: '', categoryId: 1 }];
     };
-    const manager = new ExportTaskManager({} as MsgService, cache, { contacts: deps });
+    const manager = new ExportTaskManager(
+      {} as MsgService,
+      cache,
+      withExportSaveDirectory(cache, { contacts: deps }),
+    );
     const id = await manager.startTask({
       kind: 'c2c',
       conv: '',
@@ -230,7 +251,11 @@ describe('联系人精确条目导出', () => {
     release();
     await (manager as unknown as { queue: Promise<void> }).queue;
     expect(manager.getTask(id)?.status).toBe('paused');
-    const restored = new ExportTaskManager({} as MsgService, cache, { contacts: deps });
+    const restored = new ExportTaskManager(
+      {} as MsgService,
+      cache,
+      withExportSaveDirectory(cache, { contacts: deps }),
+    );
     expect(restored.listTasks()[0]).toMatchObject({ canResume: true, resumeMode: 'restart' });
     expect(restored.resumeTask(id)).toBe(true);
     await (restored as unknown as { queue: Promise<void> }).queue;
@@ -244,7 +269,11 @@ describe('联系人精确条目导出', () => {
   it('相同名称的联系人任务各自保留产物，不覆盖先前文件', async () => {
     const { deps } = fixture();
     const cache = dirname(output());
-    const manager = new ExportTaskManager({} as MsgService, cache, { contacts: deps });
+    const manager = new ExportTaskManager(
+      {} as MsgService,
+      cache,
+      withExportSaveDirectory(cache, { contacts: deps }),
+    );
     const first = await manager.startTask({
       kind: 'c2c',
       conv: '',
@@ -291,7 +320,11 @@ describe('联系人精确条目导出', () => {
         });
         return [{ uid: 'b', uin: '10002', qid: '', categoryId: 1 }];
       };
-      const manager = new ExportTaskManager({} as MsgService, cache, { contacts: deps });
+      const manager = new ExportTaskManager(
+        {} as MsgService,
+        cache,
+        withExportSaveDirectory(cache, { contacts: deps }),
+      );
       const id = await manager.startTask({
         kind: 'c2c',
         conv: '',
@@ -316,7 +349,11 @@ describe('联系人精确条目导出', () => {
   it('任务快照与重启后记录保留精确 UID，创建后的调用方修改不影响产物', async () => {
     const { deps } = fixture();
     const cache = dirname(output());
-    const manager = new ExportTaskManager({} as MsgService, cache, { contacts: deps });
+    const manager = new ExportTaskManager(
+      {} as MsgService,
+      cache,
+      withExportSaveDirectory(cache, { contacts: deps }),
+    );
     const target = { scope: 'friends' as const, uids: ['b'] };
     const formats: Array<'json' | 'txt'> = ['json'];
     const id = await manager.startTask({
@@ -346,9 +383,11 @@ describe('联系人精确条目导出', () => {
       scope: 'friends',
       uids: ['b'],
     });
-    expect(new ExportTaskManager({} as MsgService, cache).getTask(id)?.contacts?.uids).toEqual([
-      'b',
-    ]);
+    expect(
+      new ExportTaskManager({} as MsgService, cache, withExportSaveDirectory(cache)).getTask(id)
+        ?.contacts?.uids,
+    ).toEqual(['b']);
+    await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
     expect(manager.deleteTask(id)).toBe(true);
     expect(existsSync(task.filePath!)).toBe(false);
     expect(existsSync(task.reportPath!)).toBe(false);

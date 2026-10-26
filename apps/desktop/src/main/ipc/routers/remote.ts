@@ -34,6 +34,12 @@ export const remoteRouter = router({
   setMode: local
     .input(z.object({ mode: remoteConnectionMode }))
     .mutation(async ({ input }) => remoteRuntime.setMode(input.mode)),
+  setTailscaleEnabled: local
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      await remoteRuntime.setTailscaleEnabled(input.enabled);
+      return remoteRuntime.status();
+    }),
   changeNetwork: local.mutation(() => remoteRuntime.changeNetwork()),
   refreshNetwork: local.mutation(() => remoteRuntime.refreshNetwork()),
   openLogin: local.mutation(async () => {

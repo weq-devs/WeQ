@@ -45,10 +45,12 @@ import {
   type AgentLabEndpoint,
   type AgentLabExpression,
   type AgentLabMessage,
-  type AgentLabModelRef,
+  type AgentLabModelSelection,
   type AgentLabModels,
   type AgentLabGenerationConfig,
   normalizeCloneGeneration,
+  isDefaultModelSelection,
+  assertEmbeddingModelIdentity,
   type AgentLabPersona,
   type AgentLabPersonaDeepProfile,
   type AgentLabPersonaNotes,
@@ -100,7 +102,10 @@ import { getLogger } from '../common/logger';
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** 把 (providerId, model) 解析成可调用端点；由 bootstrap 的 AgentLabConfigService 提供。 */
-export type EndpointResolver = (ref: AgentLabModelRef) => AgentLabEndpoint;
+export type EndpointResolver = (
+  ref: AgentLabModelSelection,
+  capability?: 'chat' | 'embedding' | 'vision',
+) => AgentLabEndpoint;
 
 /**
  * 蒸馏期需要的「媒体 / 语音」能力（来自应用层）。全部可选——缺失即降级：
@@ -324,6 +329,7 @@ export class AgentLabService extends EventEmitter {
   private readonly logger = getLogger().child({ scope: 'agentlab' });
   /** 运行时对话引擎（下沉自本类，桌面与导出 bot 共用）。 */
   private readonly runtime: AgentRuntime;
+  private readonly buildingPersonas = new Set<string>();
 
   constructor(
     private readonly session: AccountSession,
@@ -851,6 +857,7 @@ export class AgentLabService extends EventEmitter {
       const embeddingEndpoint = persona.models.embedding
         ? this.resolveWithUsage(persona.models.embedding, 'embedding', ctx)
         : null;
+      assertEmbeddingModelIdentity(persona, embeddingEndpoint);
       // 历史 = 触发消息之前的群消息（触发消息作为 input 单独传）。
       const idx = roundBase.findIndex((m) => m.id === trigger.id);
       const prior = idx >= 0 ? roundBase.slice(0, idx) : roundBase;
@@ -999,11 +1006,11 @@ export class AgentLabService extends EventEmitter {
 
   /** 解析端点并挂上 token 记账回调（按任务类型 + 归属 persona/场景）。 */
   private resolveWithUsage(
-    ref: AgentLabModelRef,
+    ref: AgentLabModelSelection,
     kind: 'chat' | 'embedding' | 'vision',
     ctx: { personaId?: string; scope: 'build' | 'chat' | 'assistant' },
   ): AgentLabEndpoint {
-    const ep = this.resolveEndpoint(ref);
+    const ep = this.resolveEndpoint(ref, kind);
     return {
       ...ep,
       kind,
@@ -1189,7 +1196,7 @@ export class AgentLabService extends EventEmitter {
     personaId: string,
     patch: {
       name?: string;
-      chatModel?: AgentLabModelRef;
+      chatModel?: AgentLabModelSelection;
       generation?: Partial<AgentLabGenerationConfig>;
       customPrompt?: string;
       voiceCloneEnabled?: boolean;
@@ -1504,7 +1511,7 @@ export class AgentLabService extends EventEmitter {
   /** Top 高频表情包 → 本地缓存 + （有 vision 时）解读内容/场景。 */
   private async buildStickerRefs(
     accums: StickerAccum[],
-    visionRef: AgentLabModelRef | undefined,
+    visionRef: AgentLabModelSelection | undefined,
     chatFriendName: string,
     personaId: string,
   ): Promise<AgentLabStickerRef[]> {
@@ -1693,8 +1700,38 @@ export class AgentLabService extends EventEmitter {
 
   /** Public entry: runs the build, emitting build-progress events throughout. */
   async buildFromC2c(input: BuildFromC2cInput): Promise<AgentLabPersona> {
+    return this.executeBuild(input);
+  }
+
+  /** 原位重训，只替换训练产物，保留用户配置和独立存储的聊天、记忆及群聊关系。 */
+  async refreshFromC2c(personaId: string): Promise<AgentLabPersona> {
+    const previous = this.store.getPersona(personaId)?.persona;
+    if (!previous) throw new Error('克隆体已不存在');
+    if (previous.sourceKind !== 'c2c') throw new Error('仅支持更新好友克隆');
+    return this.executeBuild(
+      {
+        personaId,
+        targetUid: previous.sourceId,
+        title: previous.sourceTitle,
+        name: previous.name,
+        models: previous.models,
+        customPrompt: previous.customPrompt,
+        autoName: previous.training?.autoName,
+        limit: previous.training?.limit,
+        mode: previous.training?.mode ?? 'private',
+      },
+      previous,
+    );
+  }
+
+  private async executeBuild(
+    input: BuildFromC2cInput,
+    previous?: AgentLabPersona,
+  ): Promise<AgentLabPersona> {
+    if (this.buildingPersonas.has(input.personaId)) throw new Error('该克隆体正在创建或更新中');
+    this.buildingPersonas.add(input.personaId);
     try {
-      const persona = await this.runBuild(input);
+      const persona = await this.runBuild(input, previous);
       this.emitProgress(input.personaId, '完成', 100, { done: true });
       return persona;
     } catch (error) {
@@ -1702,10 +1739,15 @@ export class AgentLabService extends EventEmitter {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
+    } finally {
+      this.buildingPersonas.delete(input.personaId);
     }
   }
 
-  private async runBuild(input: BuildFromC2cInput): Promise<AgentLabPersona> {
+  private async runBuild(
+    input: BuildFromC2cInput,
+    previous?: AgentLabPersona,
+  ): Promise<AgentLabPersona> {
     this.emitProgress(input.personaId, '准备中', 2);
     const usageCtx = { personaId: input.personaId, scope: 'build' as const };
     const chatEndpoint = this.resolveWithUsage(input.models.chat, 'chat', usageCtx);
@@ -1852,6 +1894,7 @@ export class AgentLabService extends EventEmitter {
         expressions = exprs;
         styleVariants = variants;
       } catch (error) {
+        if (previous) throw new Error('画像提炼失败，旧克隆体已保留', { cause: error });
         profile = {
           ...artifacts.profile,
           extractError: error instanceof Error ? error.message : String(error),
@@ -1877,7 +1920,8 @@ export class AgentLabService extends EventEmitter {
         pairs.forEach((pair, index) => {
           pair.embedding = vectors[index];
         });
-      } catch {
+      } catch (error) {
+        if (previous) throw new Error('向量索引更新失败，旧克隆体已保留', { cause: error });
         // Embedding failures should not block persona creation.
       }
     }
@@ -1919,7 +1963,7 @@ export class AgentLabService extends EventEmitter {
     }
 
     const now = Date.now();
-    const persona: AgentLabPersona = {
+    let persona: AgentLabPersona = {
       id: input.personaId,
       ownerId: selfUin,
       name: displayName,
@@ -1927,6 +1971,12 @@ export class AgentLabService extends EventEmitter {
       sourceId: input.targetUid,
       sourceTitle: sample.title,
       models: input.models,
+      training: { mode, autoName: input.autoName ?? false, limit: input.limit },
+      ...(isDefaultModelSelection(input.models.embedding) && embeddingEndpoint
+        ? {
+            embeddingModelIdentity: embeddingEndpoint.modelIdentity ?? embeddingEndpoint.model,
+          }
+        : {}),
       customPrompt: input.customPrompt?.trim() || undefined,
       profile,
       fewShots,
@@ -1943,6 +1993,33 @@ export class AgentLabService extends EventEmitter {
     };
 
     this.emitProgress(input.personaId, '保存克隆体', 96);
+    if (previous) {
+      const latest = this.store.getPersona(input.personaId)?.persona;
+      if (
+        !latest ||
+        latest.createdAt !== previous.createdAt ||
+        latest.sourceKind !== previous.sourceKind ||
+        latest.sourceId !== previous.sourceId
+      )
+        throw new Error('原克隆体已删除或替换，更新结果未保存');
+      // 只更新训练产物，训练期间保存的名称、模型和其他配置以最新记录为准。
+      persona = {
+        ...latest,
+        training: persona.training,
+        profile: persona.profile,
+        fewShots: persona.fewShots,
+        expressions: persona.expressions,
+        styleVariants: persona.styleVariants,
+        stickers: persona.stickers,
+        systemFaces: persona.systemFaces,
+        voiceProfile: persona.voiceProfile,
+        stats: persona.stats,
+        corpusMessageCount: persona.corpusMessageCount,
+        pairCount: persona.pairCount,
+        embeddingModelIdentity: persona.embeddingModelIdentity,
+        updatedAt: now,
+      };
+    }
     this.store.savePersona({ persona, pairs });
     return persona;
   }

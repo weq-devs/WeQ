@@ -580,11 +580,7 @@ export class ExportTaskManager extends EventEmitter {
     this.loadTasks();
     queueMicrotask(() => {
       for (const task of this.tasks.values()) {
-        if (
-          task.status === 'completed' &&
-          task.save?.status === 'pending' &&
-          task.save.policy.mode !== 'after'
-        )
+        if (task.status === 'completed' && task.save?.status === 'pending')
           void this.saveTaskOutput(task.id).catch(() => undefined);
       }
     });
@@ -600,6 +596,15 @@ export class ExportTaskManager extends EventEmitter {
       if (!raw) return;
       const data = JSON.parse(raw) as ExportTask[];
       for (const t of data) {
+        // 旧任务只保留产物，不延续已经移除的保存策略或自动写入未知位置。
+        if (t.save && !['before', 'preset'].includes(t.save.policy.mode)) {
+          t.save = {
+            ...t.save,
+            policy: { mode: 'before' },
+            status: t.save.status === 'saved' ? 'saved' : 'interrupted',
+            error: t.save.status === 'saved' ? undefined : '请重新选择保存位置。',
+          };
+        }
         if (t.status === 'running' || t.status === 'pending') {
           t.status = 'paused'; // crashed or queued tasks require explicit continuation
           if (t.resource)
@@ -715,22 +720,14 @@ export class ExportTaskManager extends EventEmitter {
   override emit(event: 'progress', data: TaskProgress): boolean {
     const emitted = super.emit(event, data);
     const task = this.tasks.get(data.taskId);
-    if (
-      data.status === 'completed' &&
-      task?.save?.status === 'pending' &&
-      task.save.policy.mode !== 'after'
-    )
+    if (data.status === 'completed' && task?.save?.status === 'pending')
       void this.saveTaskOutput(task.id).catch(() => undefined);
     return emitted;
   }
 
   private registerTask(task: ExportTask, policy?: ExportSavePolicy): void {
-    const preferred = policy ?? this.deps.exportSavePolicy?.() ?? { mode: 'after' as const };
-    // 后台任务没有系统选择器；未显式准备过的位置保留为稍后保存，不改写全局偏好。
     const resolved = copyExportSavePolicy(
-      !policy && preferred.mode === 'before' && !preferred.directory && !preferred.filePath
-        ? { mode: 'after' }
-        : preferred,
+      policy ?? this.deps.exportSavePolicy?.() ?? { mode: 'before' },
     );
     const kind = task.contacts
       ? 'contacts'

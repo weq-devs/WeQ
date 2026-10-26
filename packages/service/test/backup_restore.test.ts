@@ -27,7 +27,8 @@ import { AssistantService } from '../src/account/assistant';
 import { snapshotWeqClones } from '../src/bootstrap/backup_clones';
 import { buildWeqBackup, type WeqBackupFile } from '../src/bootstrap/backup_bundle';
 import { DEFAULT_APP_SETTINGS } from '../src/bootstrap/user_config';
-import { snapshotWeqApiSettings } from '../src/bootstrap/backup_settings';
+import { WEQ_MENU_CAPTURE_PRIVACY_KEY } from '../src/common/backup_client';
+import { snapshotWeqApiSettings, snapshotWeqSettings } from '../src/bootstrap/backup_settings';
 import { bootstrapWeqBackupFiles } from '../src/bootstrap/backup_startup';
 import {
   stageWeqBackupRestore,
@@ -155,6 +156,114 @@ it('暂存不会修改运行数据；冷启动只恢复所选偏好并保留锁�
   expect(applyPendingWeqBackupRestore(f.root, f.cache)).toBeNull();
 });
 
+it.each(
+  [false, true].flatMap((automatic) =>
+    [false, true].flatMap((banner) =>
+      [false, true].map((manual) => ({ automatic, banner, manual })),
+    ),
+  ),
+)('新增设置真实恢复往返并保留本机目录/锁密钥：%j', ({ automatic, banner, manual }) => {
+  const f = fixture();
+  const local = {
+    ...f.initial,
+    settings: {
+      ...f.initial.settings,
+      defaultExportDir: '/synthetic/local/export',
+      externalChatpic: { dir: '/synthetic/local/chatpic', enabled: true },
+    },
+  };
+  write(join(f.root, 'config.json'), local);
+  const incoming = {
+    autoAttachQq: automatic,
+    restrictedModeBannerEnabled: banner,
+    reportReadEnabled: !manual,
+    manualReadReportEnabled: manual,
+    defaultExportDir: '/synthetic/foreign/export',
+    externalChatpic: { dir: '/synthetic/foreign/chatpic', enabled: false },
+  };
+  stageWeqBackupRestore(
+    f.root,
+    buildWeqBackup([
+      file('settings/app.json', incoming),
+      file('settings/client.json', { [WEQ_MENU_CAPTURE_PRIVACY_KEY]: '1' }),
+    ]),
+    { parts: ['settings'], conflict: 'overwrite' },
+  );
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  const { defaultExportDir: _dir, externalChatpic: _chatpic, ...flags } = incoming;
+  expect(read(join(f.root, 'config.json'))).toMatchObject({
+    totpSecret: local.totpSecret,
+    cacheDirOverride: local.cacheDirOverride,
+    tencentFilesRootOverride: local.tencentFilesRootOverride,
+    settings: {
+      ...flags,
+      defaultExportDir: local.settings.defaultExportDir,
+      externalChatpic: { dir: local.settings.externalChatpic.dir },
+      mcp: local.settings.mcp,
+    },
+  });
+  expect(pendingWeqClientSettings(f.root)?.values).toEqual({ [WEQ_MENU_CAPTURE_PRIVACY_KEY]: '1' });
+});
+
+it('旧备份不含新增策略字段时，真实恢复保留本机偏好和已读混合值', () => {
+  const f = fixture();
+  const local = {
+    ...f.initial,
+    settings: {
+      ...f.initial.settings,
+      autoAttachQq: true,
+      restrictedModeBannerEnabled: false,
+      reportReadEnabled: false,
+      manualReadReportEnabled: true,
+    },
+  };
+  write(join(f.root, 'config.json'), local);
+  stageWeqBackupRestore(
+    f.root,
+    buildWeqBackup([file('settings/app.json', { renderTextMarkdown: false })]),
+    { parts: ['settings'], conflict: 'overwrite' },
+  );
+  applyPendingWeqBackupRestore(f.root, f.cache);
+  expect(read(join(f.root, 'config.json'))).toMatchObject({
+    settings: {
+      autoAttachQq: true,
+      restrictedModeBannerEnabled: false,
+      reportReadEnabled: false,
+      manualReadReportEnabled: true,
+      renderTextMarkdown: false,
+    },
+  });
+});
+
+it('完整默认快照仍重置新增与旧字段，不影响 API、原始目录或锁密钥', () => {
+  const f = fixture();
+  write(join(f.root, 'config.json'), {
+    ...f.initial,
+    settings: {
+      ...f.initial.settings,
+      autoAttachQq: true,
+      restrictedModeBannerEnabled: false,
+      reportReadEnabled: true,
+      manualReadReportEnabled: true,
+      defaultExportDir: '/synthetic/local/export',
+    },
+  });
+  const defaults = snapshotWeqSettings(DEFAULT_APP_SETTINGS);
+  stageWeqBackupRestore(
+    f.root,
+    buildWeqBackup([file('settings/app.json', defaults), file('settings/client.json', {})]),
+    { parts: ['settings'], conflict: 'overwrite', keepLocalPaths: false },
+  );
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  expect(read(join(f.root, 'config.json'))).toMatchObject({
+    totpSecret: f.initial.totpSecret,
+    cacheDirOverride: f.cache,
+    tencentFilesRootOverride: f.initial.tencentFilesRootOverride,
+    settings: { ...defaults, mcp: f.initial.settings.mcp },
+  });
+  expect(pendingWeqClientSettings(f.root)?.values).toEqual({});
+});
+
 it.each(['skip', 'overwrite'] as const)('账号冲突采用 %s，原 QQ 文件不被复制或改写', (conflict) => {
   const f = fixture();
   const original = account('10001', '本机账号');
@@ -205,6 +314,42 @@ it('替换自动进入目标的账号配置时清除旧自动进入，不自动�
 });
 
 it.each(['skip', 'overwrite'] as const)(
+  '默认模型恢复兼容旧备份、明确清空及本机冲突（%s）',
+  (conflict) => {
+    const localRef = { providerId: 'local', model: 'local-chat' };
+    const importedRef = { providerId: 'imported', model: 'imported-chat' };
+    for (const local of [undefined, null, localRef]) {
+      for (const incoming of [undefined, null, importedRef]) {
+        const f = fixture();
+        write(join(f.root, 'config.json'), {
+          ...f.initial,
+          settings: {
+            ...f.initial.settings,
+            agentLab: { providers: [], ...(local !== undefined ? { defaultModel: local } : {}) },
+          },
+        });
+        const archive = buildWeqBackup([
+          file('api/settings.json', {
+            agentLab: {
+              providers: [],
+              ...(incoming !== undefined ? { defaultModel: incoming } : {}),
+            },
+          }),
+        ]);
+        stageWeqBackupRestore(f.root, archive, { parts: ['api'], conflict });
+        expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+        const config = read(join(f.root, 'config.json')) as {
+          settings: { agentLab: { defaultModel?: unknown } };
+        };
+        const expected =
+          incoming === undefined || (conflict === 'skip' && local !== undefined) ? local : incoming;
+        expect(config.settings.agentLab.defaultModel).toEqual(expected);
+      }
+    }
+  },
+);
+
+it.each(['skip', 'overwrite'] as const)(
   'API 按稳定 ID %s 合并，同名不同 ID 不覆盖，TTS 位于真实设置字段',
   (conflict) => {
     const f = fixture();
@@ -220,13 +365,20 @@ it.each(['skip', 'overwrite'] as const)(
     };
     write(join(f.root, 'config.json'), {
       ...f.initial,
-      settings: { ...f.initial.settings, agentLab: { providers: [existing] } },
+      settings: {
+        ...f.initial.settings,
+        agentLab: {
+          providers: [existing],
+          defaultModel: { providerId: 'shared-id', model: 'model' },
+        },
+      },
     });
     const value = structuredClone(DEFAULT_APP_SETTINGS);
     value.agentLab.providers = [
       { ...existing, apiKey: 'synthetic-imported-key' },
       { ...existing, id: 'new-id' },
     ];
+    value.agentLab.defaultModel = { providerId: 'new-id', model: 'model' };
     value.voiceTranscribe.ttsProviders = [
       {
         id: 'voice',
@@ -250,6 +402,10 @@ it.each(['skip', 'overwrite'] as const)(
       totpSecret: string;
     };
     expect(config.settings.agentLab.providers).toHaveLength(2);
+    expect(config.settings.agentLab.defaultModel).toEqual({
+      providerId: conflict === 'skip' ? 'shared-id' : 'new-id',
+      model: 'model',
+    });
     expect(config.settings.agentLab.providers.find((row) => row.id === 'shared-id')?.apiKey).toBe(
       conflict === 'skip' ? existing.apiKey : 'synthetic-imported-key',
     );

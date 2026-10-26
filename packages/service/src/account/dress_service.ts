@@ -357,7 +357,7 @@ export class DressService {
   }
 
   /**
-   * 同步 QQ 正在用的装扮（bootstrap 时调用一次）。
+   * 准备 QQ 正在用的装扮资源，不自动启用本地覆盖或背景。
    */
   async syncFromQq(own: {
     bubbleId?: number;
@@ -373,43 +373,32 @@ export class DressService {
   }): Promise<void> {
     const cfg = this.config.read();
 
-    // 气泡：只在用户从没自己选过时才同步。
-    if (own.bubbleId && cfg.activeBubble === 0) {
+    if (own.bubbleId && !cfg.installedBubbles.includes(own.bubbleId)) {
       try {
         await this.installBubble(own.bubbleId, {
           name: own.bubbleName,
           previewUrl: own.bubblePreviewUrl,
         });
-        this.config.setActive('bubble', own.bubbleId);
       } catch {
         // 静默失败，不打断启动。
       }
     }
 
-    // 字体：只在用户从没自己选过时才同步。
-    if (own.fontId && this.config.read().activeFont === 0) {
+    if (own.fontId && !cfg.installedFonts.includes(own.fontId)) {
       try {
         await this.installFont(own.fontId, own.fontName ?? '', own.fontPreviewUrl);
-        this.config.setActive('font', own.fontId);
       } catch {
         // 静默失败，不打断启动。
       }
     }
 
-    // 挂件：只在用户从没自己选过时才同步（下载失败静默 —— 头像仍会叠 QQ 的
-    // 静态挂件预览图，见 SelfPendantContext，只是没有逐帧动画）。
-    if (own.widgetId && this.config.read().activeWidget === 0) {
+    // 挂件只补未安装资源，不改变当前选择；下载失败不打断启动。
+    if (own.widgetId && !cfg.installedWidgets.includes(own.widgetId)) {
       try {
         await this.installWidget(own.widgetId, own.widgetName ?? '', own.widgetPreviewUrl);
-        this.config.setActive('widget', own.widgetId);
       } catch {
         // 静默失败，不打断启动。
       }
-    }
-
-    // 背景：只在用户从没自己选过时才切到「QQ 同款」。
-    if (own.chatBgUrl && this.config.read().background === 'none') {
-      this.config.setBackground('qq');
     }
   }
 

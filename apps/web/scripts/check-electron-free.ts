@@ -22,7 +22,7 @@ const DESKTOP_MAIN = join(REPO_ROOT, 'apps/desktop/src/main');
 /** The entry points `apps/web/src/server` imports from the desktop app. */
 const ENTRIES = [
   'context/app_context.ts',
-  'daemon/runtime.ts',
+  'weq_assistant/server.ts',
   'ipc/router.ts',
   'media_protocol.ts',
   'avatar_protocol.ts',

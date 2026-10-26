@@ -24,9 +24,9 @@ export function applicationToolPopupOptions(
         sandbox: true,
       },
     };
-  if (url === 'about:blank' && frameName === 'weq-db-repair')
+  if (url === 'about:blank' && (frameName === 'weq-db-repair' || frameName === 'weq-capture'))
     return {
-      title: 'WeQ · 数据库修复',
+      title: frameName === 'weq-capture' ? 'WeQ · QQNT 抓包' : 'WeQ · 数据库修复',
       width: 1060,
       height: 780,
       minWidth: 640,

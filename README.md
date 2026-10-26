@@ -42,7 +42,7 @@
 
 ## 使用方法
 
-1. 前往 [Releases](../../releases) 下载最新版本
+1. 前往 [Releases](https://github.com/weq-devs/WeQ/releases) 下载最新版本
 2. 按照引导操作获取数据库密钥 
 3. 打开对应账号即可开始使用
 
@@ -56,7 +56,7 @@
 
 ### web版
 
-除桌面版外还提供 **WeQ Web** —— 同一套界面与功能，跑在浏览器里。适合无桌面环境的机器
+除桌面版外还提供 **WeQ Web**，复用桌面版的业务界面与后端，原生外壳能力存在差异。适合无桌面环境的机器
 （NAS / 服务器 / WSL），或想从别的设备访问。
 
 下载 `weq-web-<版本>-<平台>.tar.gz`（每个平台一个包，**需自备 Node ≥ 22**），
@@ -70,6 +70,9 @@ start.bat         # Windows
 终端会打印地址和访问令牌，浏览器打开即可。默认只监听本机；
 **对外暴露前请先读 [apps/web/README.md](./apps/web/README.md)**。
 
+已运行桌面版时，也可从「设置 → WeQ 服务 → Web 与 Remote」开启内置 Web，复用当前账号，
+无需再启动独立 Node 服务。手机连接与两种 Web 宿主的能力边界见[Web 服务与手机连接](./docs/guide/remote-web.md)。
+
 #### 开发者指南
 
 开始运行：
@@ -77,25 +80,27 @@ start.bat         # Windows
 ```bash
 git clone https://github.com/weq-devs/WeQ   # 克隆仓库代码
 cd WeQ
+git switch dev             # 开发基于 dev，main 为发布分支
 
 pnpm i                     # 安装依赖（electron可能需要单独处理）
 pnpm native:fetch          # 取 nt_helper 原生产物（nt_helper.node + 装扮资源，不入库）
-pnpm run build:bot         # 构建bot代码
-pnpm run build:daemon      # 构建守护进程代码
+pnpm run build:bot         # 构建机器人运行时（使用机器人功能时需要）
 
 pnpm dev                   # 启动开发服务器
 ```
 
+源码开发需要 Node.js ≥ 22.12.0，并使用根 `package.json` 锁定的 `pnpm@12.8.1`。
+
 > `native/**/nt_helper.node` 与 `resources/dress/*.dat` 不在仓库里（历史太大），
 > 由 [nt_helper_release](https://github.com/weq-devs/nt_helper_release) 分发，
-> 隔一段时间重新 `pnpm native:fetch` 一次即可 —— 细节见
+> 默认取 `native/pinned.json` 锚定的版本；锚点过期时需验证并升级锚点，反复获取同一 tag 不会延长有效期。细节见
 > [原生二进制与装扮资源的分发](./docs/develop/native-artifacts.md)。
 
 打包发布：
 
 ```bash
-pnpm run build                  # = build:bot + build:ninebird + 桌面版构建 + electron-builder（安装包）
-pnpm --filter @weq/web build    # 浏览器版（先跑 pnpm run build:daemon 保证随包二进制齐全）
+pnpm run build                 # = build:bot + 桌面版构建 + electron-builder（安装包）
+pnpm --filter @weq/web build    # 浏览器版（助手资源服务随 Web 进程运行）
 ```
 
 > 贡献代码请先阅读 [贡献指南](./CONTRIBUTING.md)  作为参考

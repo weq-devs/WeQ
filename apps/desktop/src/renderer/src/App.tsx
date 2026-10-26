@@ -14,11 +14,13 @@ import { RemoteRequests } from './components/RemoteRequests';
 import { HoverTooltip } from './components/HoverTooltip';
 import { ToastHost, useToast } from './components/Toast';
 import { DbRepairWindowHost } from './components/DbRepairWindow';
+import { CaptureWindowHost } from './components/CaptureWindow';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { JoinGroupDialog } from './components/JoinGroupDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
 import { RestrictedModeHost } from './components/RestrictedMode';
-import { DesktopOnly } from './lib/target';
+import { DesktopOnly, IS_WEB } from './lib/target';
+import { WebConnectionStatus } from './components/WebConnectionStatus';
 import { ImageLightbox } from './components/ImageLightbox';
 import { VideoLightbox } from './components/VideoLightbox';
 import { RedBagDetailHost } from './components/RedBagDetailDialog';
@@ -31,7 +33,7 @@ import {
   LinkPreviewContext,
   MsgDecorationEnabledContext,
 } from './components/QqMessageContent';
-import { SelfPendantContext } from './hooks/useSelfPendant';
+import { SelfBubbleContext, SelfPendantContext } from './hooks/useSelfPendant';
 import { ActiveWidgetProvider } from './hooks/useActiveWidget';
 import { CdnContext, setPreferCdnFlag } from './lib/cdn';
 import { WarmupSplash } from './components/WarmupSplash';
@@ -43,6 +45,8 @@ import { usePrivacyStore } from './state/privacy';
 import { useAccountSwitch } from './state/accountSwitch';
 import { ShowMessageSeqContext, ShowMessageTimeContext } from './components/MessageProvenance';
 import { ContentSelectionProvider } from './state/contentSelection';
+import { ChatImageCacheProvider } from './components/ChatImageCacheProvider';
+import { DEFAULT_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 
 /**
  * 把两个「气泡渲染」开关广播给所有消息气泡：纯文本 Markdown、链接预览卡片。
@@ -52,11 +56,21 @@ import { ContentSelectionProvider } from './state/contentSelection';
  * 复用 QqMessageContent）。`?? true` 与 DEFAULT_APP_SETTINGS 一致，settings 还在加载时
  * 不会先闪成关再跳开。
  */
-function TextMarkdownProvider({ children }: { children: ReactNode }): ReactElement {
+function TextMarkdownProvider({
+  children,
+  cacheScope,
+}: {
+  children: ReactNode;
+  cacheScope: string;
+}): ReactElement {
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
+  const bubble = settings.data?.showMessageBubble ?? settings.data?.showMsgDecoration ?? true;
+  const font = settings.data?.showMessageFont ?? settings.data?.showMsgDecoration ?? true;
+  const widget = settings.data?.showAvatarPendant ?? true;
+  const messageDecoration = useMemo(() => ({ bubble, font, widget }), [bubble, font, widget]);
   useEffect(() => {
     if (settings.data?.toastDurations)
       useToast.getState().setDurations(settings.data.toastDurations);
@@ -64,10 +78,15 @@ function TextMarkdownProvider({ children }: { children: ReactNode }): ReactEleme
   return (
     <TextMarkdownContext.Provider value={settings.data?.renderTextMarkdown ?? true}>
       <LinkPreviewContext.Provider value={settings.data?.linkPreview?.enabled ?? true}>
-        <MsgDecorationEnabledContext.Provider value={settings.data?.showMsgDecoration ?? true}>
+        <MsgDecorationEnabledContext.Provider value={messageDecoration}>
           <ShowMessageSeqContext.Provider value={settings.data?.showMessageSeq ?? false}>
             <ShowMessageTimeContext.Provider value={settings.data?.showMessageTime ?? false}>
-              {children}
+              <ChatImageCacheProvider
+                scope={cacheScope}
+                budgetMiB={settings.data?.chatImageCacheMiB ?? DEFAULT_CHAT_IMAGE_CACHE_MIB}
+              >
+                {children}
+              </ChatImageCacheProvider>
             </ShowMessageTimeContext.Provider>
           </ShowMessageSeqContext.Provider>
         </MsgDecorationEnabledContext.Provider>
@@ -77,7 +96,7 @@ function TextMarkdownProvider({ children }: { children: ReactNode }): ReactEleme
 }
 
 /**
- * 把「自己头像的挂件」广播给所有气泡。理由同上——每条消息一个 Avatar，不能各自订阅。
+ * 广播自己的静态头像挂件与待发送气泡的账号配置。每条消息不能各自订阅。
  *
  * `accountOpen` 为假时不查 getHomeDress：那个 procedure 要求已打开账号，在首页
  * （bootstrap 视图）调用会抛错。
@@ -100,7 +119,11 @@ function SelfPendantProvider({
   });
   const enabled = settings.data?.showAvatarPendant ?? true;
   const url = enabled ? dressUrl(dress.data?.widgetUrl ?? '') : '';
-  return <SelfPendantContext.Provider value={url}>{children}</SelfPendantContext.Provider>;
+  return (
+    <SelfBubbleContext.Provider value={dress.data?.bubbleId ?? 0}>
+      <SelfPendantContext.Provider value={url}>{children}</SelfPendantContext.Provider>
+    </SelfBubbleContext.Provider>
+  );
 }
 
 /**
@@ -168,7 +191,7 @@ export default function App(): ReactElement {
   // 全打在已关闭的账号上）。
   return (
     <CdnProvider accountOpen={view === 'main' && !switching}>
-      <TextMarkdownProvider>
+      <TextMarkdownProvider cacheScope={view === 'main' && !switching ? (openedUin ?? '') : ''}>
         <SelfPendantProvider accountOpen={view === 'main' && !switching}>
           {/* 生效挂件与自己的静态挂件同层级广播,也必须盖住转发窗口。 */}
           <ActiveWidgetProvider>
@@ -191,8 +214,10 @@ export default function App(): ReactElement {
             <DialogHost />
             <RemoteRequests />
             <ToastHost />
+            {IS_WEB && <WebConnectionStatus />}
             <HoverTooltip />
             <DbRepairWindowHost />
+            <CaptureWindowHost />
             <DesktopOnly>
               <CloseConfirmDialog />
             </DesktopOnly>

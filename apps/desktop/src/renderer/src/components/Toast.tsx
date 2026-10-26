@@ -50,6 +50,8 @@ export type ToastDurationKind = 'success' | 'failure' | 'long';
 
 interface Toast {
   id: number;
+  /** 同一状态或操作的稳定标识，用于替换旧横幅及恢复后清理。 */
+  key?: string;
   tone: ToastTone;
   /** 计时分类与视觉 tone 独立，long 沿用长期任务原有时长。 */
   durationKind: ToastDurationKind;
@@ -82,8 +84,9 @@ interface ToastStore {
   /** 正在播放退场动画的 toast id，动画结束后才真正移除 */
   leaving: number[];
   seq: number;
-  /** 推一条 toast，返回它的 id（之后可用 `update` 就地推进状态）。 */
+  /** 推一条 toast；相同 key 原地替换，返回 id 供 `update` 推进状态。 */
   push(input: {
+    key?: string;
     tone?: ToastTone;
     durationKind?: ToastDurationKind;
     loading?: boolean;
@@ -106,6 +109,8 @@ interface ToastStore {
   update(id: number, patch: ToastPatch): void;
   /** 触发退场动画（自动过期 / 点击关闭） */
   dismiss(id: number): void;
+  /** 对应问题已解决，不受失败通知停留时长或悬停暂停影响。 */
+  resolve(key: string): void;
   /** 退场动画结束后真正移除 */
   remove(id: number): void;
 }
@@ -150,29 +155,44 @@ export const useToast = create<ToastStore>((set, get) => ({
   toasts: [],
   leaving: [],
   seq: 0,
-  push({ tone = 'info', durationKind, loading, title, message, detail, ttl, dismissible, action }) {
-    const id = get().seq + 1;
+  push({
+    key,
+    tone = 'info',
+    durationKind,
+    loading,
+    title,
+    message,
+    detail,
+    ttl,
+    dismissible,
+    action,
+  }) {
+    const state = get();
+    const existing = key === undefined ? undefined : state.toasts.find((item) => item.key === key);
+    const id = existing?.id ?? state.seq + 1;
     // 兼容旧调用点：只传一个内容时它就是标题；传了 title 时旧 message 变成详情
     const actualTitle = title ?? message ?? '';
     const actualDetail = detail ?? (title != null ? message : undefined);
     const kind = durationKind ?? defaultDurationKind(tone, ttl);
+    const toast: Toast = {
+      id,
+      key,
+      tone,
+      durationKind: kind,
+      loading,
+      title: actualTitle,
+      detail: actualDetail,
+      ttl: toastTtl({ durationKind: kind, loading, dismissible, ttl }, state.durations),
+      timerRevision: existing ? existing.timerRevision + 1 : 0,
+      dismissible,
+      action,
+    };
     set({
-      seq: id,
-      toasts: [
-        ...get().toasts,
-        {
-          id,
-          tone,
-          durationKind: kind,
-          loading,
-          title: actualTitle,
-          detail: actualDetail,
-          ttl: toastTtl({ durationKind: kind, loading, dismissible, ttl }, get().durations),
-          timerRevision: 0,
-          dismissible,
-          action,
-        },
-      ],
+      seq: Math.max(state.seq, id),
+      toasts: existing
+        ? state.toasts.map((item) => (item.id === id ? toast : item))
+        : [...state.toasts, toast],
+      leaving: existing ? state.leaving.filter((item) => item !== id) : state.leaving,
     });
     return id;
   },
@@ -202,6 +222,13 @@ export const useToast = create<ToastStore>((set, get) => ({
   dismiss(id) {
     if (get().leaving.includes(id)) return;
     set({ leaving: [...get().leaving, id] });
+  },
+  resolve(key) {
+    const state = get();
+    const ids = state.toasts
+      .filter((toast) => toast.key === key && !state.leaving.includes(toast.id))
+      .map((toast) => toast.id);
+    if (ids.length) set({ leaving: [...state.leaving, ...ids] });
   },
   remove(id) {
     set({

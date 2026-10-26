@@ -28,3 +28,58 @@
   margin-right: 7px;
   vertical-align: -2px;
 }
+html[data-theme] .weq-settings-dialog :is(.weq-help-faq, .weq-help-bug) {
+  gap: 16px;
+}
+
+html[data-theme] .weq-settings-dialog .weq-help-bug-card-head {
+  font-size: 13px;
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme] .weq-settings-dialog .weq-help-bug-actions {
+  gap: 0;
+}
+
+html[data-theme] .weq-settings-dialog .weq-help-bug-action {
+  padding: 12px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+html[data-theme] .weq-settings-dialog .weq-help-bug-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+html[data-theme] .weq-settings-dialog :is(.weq-help-bug-editor, .weq-help-bug-title) {
+  border-color: var(--weq-border-strong);
+  border-radius: 8px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme]
+  .weq-settings-dialog
+  :is(.weq-help-bug-action strong, .weq-help-md, .weq-help-bug-textarea) {
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme] .weq-settings-dialog :is(.weq-help-bug-sub, .weq-help-bug-action small) {
+  color: var(--weq-fg-secondary);
+}
+
+@media (max-width: 650px) {
+  .weq-settings-dialog .weq-help-bug-title-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .weq-settings-dialog .weq-help-bug-title-row > button {
+    justify-self: start;
+    white-space: nowrap;
+  }
+}

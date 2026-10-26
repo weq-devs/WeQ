@@ -1,11 +1,12 @@
 {
   "name": "@weq/agentlab",
-  "version": "2.2.2",
+  "version": "2.3.0",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./generation": "./src/generation.ts"
+    "./generation": "./src/generation.ts",
+    "./model-selection": "./src/model_selection.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

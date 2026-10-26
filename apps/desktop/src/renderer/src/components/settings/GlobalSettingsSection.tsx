@@ -35,8 +35,8 @@ import { useToast } from '../Toast';
 import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+import { useTabActive } from '../RetainedTabs';
 import { ToastSettingsCard } from './ToastSettingsCard';
-import { TypingStatusSettingsCard } from './TypingStatusSettingsCard';
 import { DesktopOnly, IS_WEB } from '../../lib/target';
 import { groupRetainedStorage } from '../../lib/storage-groups';
 import '../../styles/save-preferences.css';
@@ -79,9 +79,12 @@ const LOG_RETENTION_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
 
 export function GlobalSettingsSection({
   section = 'general',
+  heading = true,
 }: {
-  section?: 'general' | 'accounts' | 'storage' | 'saving' | 'logs';
+  section?: 'general' | 'accounts' | 'storage' | 'saving' | 'logs' | 'network';
+  heading?: boolean;
 }): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
   const pushToast = useToast((s) => s.push);
@@ -92,12 +95,13 @@ export function GlobalSettingsSection({
   const [logRetentionDays, setLogRetentionDays] = useState(7);
 
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const accounts = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
-    enabled: section === 'accounts',
+    enabled: active && section === 'accounts',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -105,18 +109,18 @@ export function GlobalSettingsSection({
   // 「当前账号」要按 configId 认：同一个 QQ 号可能同时有在线账号和静态账号，
   // 只比 uin 会给两条记录都打上「当前账号」。
   const currentConfig = trpc.account.getAccountConfig.useQuery(undefined, {
-    enabled: section === 'accounts',
+    enabled: active && section === 'accounts',
     refetchOnWindowFocus: false,
     staleTime: 0,
   });
   const autoEnter = trpc.bootstrap.getAutoEnter.useQuery(undefined, {
-    enabled: section === 'accounts',
+    enabled: active && section === 'accounts',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const cacheDir = trpc.bootstrap.getCacheDir.useQuery(undefined, {
-    enabled: section === 'storage',
+    enabled: active && section === 'storage',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -137,7 +141,7 @@ export function GlobalSettingsSection({
 
   // 存储统计包含持久数据，选择与清理只针对后端明确标记的可清理项。
   const cacheUsage = trpc.bootstrap.listStorageUsage.useQuery(undefined, {
-    enabled: section === 'storage',
+    enabled: active && section === 'storage',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -145,7 +149,7 @@ export function GlobalSettingsSection({
   const clearWeqCache = trpc.bootstrap.clearWeqCache.useMutation();
   const clearStorageData = trpc.bootstrap.clearStorageData.useMutation();
   const cleanupResult = trpc.bootstrap.storageCleanupResult.useQuery(undefined, {
-    enabled: section === 'storage',
+    enabled: active && section === 'storage',
   });
   const cleanupBusy = clearWeqCache.isLoading || clearStorageData.isLoading;
   const [pickedCats, setPickedCats] = useState<Set<string>>(new Set());
@@ -228,7 +232,7 @@ export function GlobalSettingsSection({
     }
   }
 
-  async function onChangeExportMode(mode: 'before' | 'preset' | 'after'): Promise<void> {
+  async function onChangeExportMode(mode: 'before' | 'preset'): Promise<void> {
     try {
       if (mode === 'preset' && !settings.data?.defaultExportDir) {
         const picked = await pickExportDir.mutateAsync();
@@ -405,24 +409,26 @@ export function GlobalSettingsSection({
 
   return (
     <div className={`weq-set${section === 'storage' ? ' weq-storage-settings' : ''}`}>
-      <SectionHeader
-        icon={<Settings2 size={16} strokeWidth={1.8} />}
-        title={
-          {
-            general: '窗口行为',
-            accounts: '账号管理',
-            storage: '存储与网络',
-            saving: '默认保存',
-            logs: '日志',
-          }[section]
-        }
-      />
+      {heading && (
+        <SectionHeader
+          icon={<Settings2 size={16} strokeWidth={1.8} />}
+          title={
+            {
+              general: '提醒与窗口',
+              accounts: 'WeQ 账号管理',
+              storage: 'WeQ 存储管理',
+              saving: '默认保存目录',
+              logs: '日志',
+              network: '资源加载',
+            }[section]
+          }
+        />
+      )}
 
       {/* Window close behavior */}
       {section === 'general' && (
         <>
           <ToastSettingsCard />
-          <TypingStatusSettingsCard />
           <DesktopOnly>
             <Card title="窗口">
               <Row
@@ -487,7 +493,7 @@ export function GlobalSettingsSection({
                     <QqAvatar uin={acc.uin} size={40} className="weq-set-account-avatar" />
                     <div className="weq-set-account-info">
                       <span className="weq-set-account-name">
-                        {acc.displayName || acc.uin}
+                        <span data-privacy-sensitive>{acc.displayName || acc.uin}</span>
                         {acc.static ? (
                           <span className="weq-set-badge">
                             {acc.mobile ? '手机备份' : '静态账号'}
@@ -567,33 +573,33 @@ export function GlobalSettingsSection({
         </Card>
       )}
 
+      {section === 'network' && (
+        <Card title="加载来源" settingId="prefer-cdn">
+          <Row
+            label={
+              <span className="weq-set-row-icon">
+                <Cloud size={15} strokeWidth={1.8} aria-hidden />
+                优先使用 CDN
+              </span>
+            }
+            desc={`桌面端与 Web 共用。${
+              preferCdn
+                ? '头像与聊天图片、视频封面由界面直接向 QQ 服务器获取，不经 WeQ 中转。本地已存的头像和媒体缓存会被绕过（离线时看不到），获取失败会自动回退到原来的方式。'
+                : '默认由 WeQ 读取本地文件、缺失时代取并缓存——离线可用，但浏览器访问模式下所有图片都要占用服务器带宽。开启后改由界面直连，服务器零流量。语音、视频原片与文件不受影响。'
+            }`}
+            control={
+              <Toggle
+                checked={preferCdn}
+                disabled={settings.isLoading || setPreferCdnMut.isLoading}
+                onChange={(next) => void onSetPreferCdn(next)}
+                label="优先使用 CDN"
+              />
+            }
+          />
+        </Card>
+      )}
       {section === 'storage' && (
         <>
-          {/* Prefer CDN */}
-          <Card title="网络">
-            <Row
-              label={
-                <span className="weq-set-row-icon">
-                  <Cloud size={15} strokeWidth={1.8} aria-hidden />
-                  优先使用 CDN
-                </span>
-              }
-              desc={
-                preferCdn
-                  ? '头像与聊天图片、视频封面由界面直接向 QQ 服务器获取，不经 WeQ 中转。本地已存的头像和媒体缓存会被绕过（离线时看不到），获取失败会自动回退到原来的方式。'
-                  : '默认由 WeQ 读取本地文件、缺失时代取并缓存——离线可用，但浏览器访问模式下所有图片都要占用服务器带宽。开启后改由界面直连，服务器零流量。语音、视频原片与文件不受影响。'
-              }
-              control={
-                <Toggle
-                  checked={preferCdn}
-                  disabled={settings.isLoading || setPreferCdnMut.isLoading}
-                  onChange={(next) => void onSetPreferCdn(next)}
-                  label="优先使用 CDN"
-                />
-              }
-            />
-          </Card>
-
           {/* Cache directory */}
           <Card title="缓存目录">
             <Row
@@ -639,28 +645,22 @@ export function GlobalSettingsSection({
       {/* Default export save directory */}
       {section === 'saving' && (
         <div className="weq-save-preferences">
-          <Card title="保存位置">
+          <Card title="默认保存目录" settingId="default-save">
             <Row
               label="默认保存方式"
               control={
-                <select
-                  aria-label="默认导出保存方式"
+                <SegmentedControl
+                  label="默认导出保存方式"
                   value={settings.data?.exportSaveMode ?? 'before'}
                   disabled={
                     settings.isLoading || setExportMode.isLoading || pickExportDir.isLoading
                   }
-                  onChange={(event) => {
-                    const mode = event.target.value;
-                    if (mode !== 'before' && mode !== 'preset' && mode !== 'after') return;
-                    void onChangeExportMode(mode);
-                  }}
-                >
-                  <option value="before">每次询问保存位置</option>
-                  <option value="preset">自动保存到默认文件夹</option>
-                  {settings.data?.exportSaveMode === 'after' && (
-                    <option value="after">先生成，稍后保存（旧偏好）</option>
-                  )}
-                </select>
+                  onChange={(mode) => void onChangeExportMode(mode)}
+                  options={[
+                    { value: 'before', label: '每次询问' },
+                    { value: 'preset', label: '自动保存' },
+                  ]}
+                />
               }
             />
             <Row
@@ -702,7 +702,7 @@ export function GlobalSettingsSection({
 
       {/* WeQ 存储管理 */}
       {section === 'storage' && (
-        <Card title="WeQ 存储管理">
+        <Card title="空间清理" settingId="weq-space-cleanup">
           <div className="weq-set-actions weq-storage-toolbar">
             <span className="weq-set-cache-total">
               合计占用 <strong className="weq-number">{formatBytes(totalCacheBytes)}</strong>
@@ -883,3 +883,4 @@ export function GlobalSettingsSection({
     </div>
   );
 }
+import { SegmentedControl } from '../SegmentedControl';

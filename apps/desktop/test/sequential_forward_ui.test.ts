@@ -158,11 +158,9 @@ it('未选目标就显示时分秒预估，多个并行目标不增加预估，�
       ),
     );
     expect(document.querySelector('.weq-forward-estimate')?.textContent).toContain('预计用时 0 秒');
-    const mode = document.querySelector<HTMLSelectElement>('.weq-forward-options select')!;
-    act(() => {
-      mode.value = 'original';
-      mode.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    act(() =>
+      document.querySelectorAll<HTMLButtonElement>('[aria-label="间隔方式"] button')[2]!.click(),
+    );
     expect(document.querySelector('.weq-forward-estimate')?.textContent).toContain(
       '1 小时 1 分 1 秒',
     );
@@ -171,9 +169,9 @@ it('未选目标就显示时分秒预估，多个并行目标不增加预估，�
       labels.find((label) => label.textContent?.includes('最大间隔'))?.querySelector('input')
         ?.value,
     ).toBe('-1');
-    expect(
-      labels.find((label) => label.textContent?.includes('失败后'))?.querySelector('select')?.value,
-    ).toBe('skip');
+    expect(document.querySelector('[aria-label="失败后"] [aria-checked="true"]')?.textContent).toBe(
+      '忽略并继续',
+    );
     expect(document.querySelector('.weq-forward-options')?.textContent).not.toContain('毫秒');
     act(() =>
       document.querySelectorAll<HTMLButtonElement>('.weq-mf-target').forEach((button) => {
@@ -367,11 +365,9 @@ it('先展示预估，卸载配置窗仍转发，等待与完成时均可点击�
   try {
     act(() => root.render(createElement(App)));
     act(() => document.querySelector<HTMLButtonElement>('.weq-mf-target')!.click());
-    const mode = document.querySelector<HTMLSelectElement>('.weq-forward-options select')!;
-    act(() => {
-      mode.value = 'text';
-      mode.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    act(() =>
+      document.querySelectorAll<HTMLButtonElement>('[aria-label="间隔方式"] button')[1]!.click(),
+    );
     const labels = [...document.querySelectorAll('label')];
     expect(
       labels.find((label) => label.textContent?.includes('每字'))?.querySelector('input')?.value,

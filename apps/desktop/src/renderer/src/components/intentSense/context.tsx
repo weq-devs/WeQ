@@ -21,6 +21,7 @@ import {
   type ReactNode,
 } from 'react';
 import { trpc, client } from '../../trpc/client';
+import { modelSelectionKey } from '@weq/agentlab/model-selection';
 
 /** 与后端 IntentSenseResult 对齐（superjson 直传的形状）。 */
 export interface IntentAnalysis {
@@ -117,6 +118,13 @@ export function IntentSenseProvider({
   const engineOk =
     statusData?.engine === 'local' ? !!statusData.localReady : !!statusData?.apiConfigured;
   const effective = !!statusData?.enabled && overridden !== false && engineOk;
+  useEffect(() => {
+    if (kind !== 'c2c' || !statusData?.profileEnabled) return;
+    const timer = setTimeout(() => {
+      void utils.account.intentSense.getProfile.invalidate({ peerUid: conv });
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [kind, conv, analysisMessageId, roamingMessageKey, statusData?.profileEnabled, utils]);
   const autoAnalysisAllowed =
     latestPeerMsgId !== null || !analysisMessageId || statusData?.analyzeAfterSelf !== false;
 
@@ -134,7 +142,7 @@ export function IntentSenseProvider({
     [bump],
   );
 
-  const engineKey = `${statusData?.engine ?? ''}::${statusData?.providerRef?.providerId ?? ''}::${statusData?.providerRef?.model ?? ''}::${statusData?.analysisContextMessages ?? ''}::${statusData?.analysisRevision ?? 0}::${statusData?.analyzeAfterSelf !== false}`;
+  const engineKey = `${statusData?.engine ?? ''}::${modelSelectionKey(statusData?.providerRef)}::${statusData?.analysisContextMessages ?? ''}::${statusData?.analysisRevision ?? 0}::${statusData?.analyzeAfterSelf !== false}`;
   // 会话切换或引擎切换时同步清空内存态（放在拉取缓存之前，避免清理掉刚拉回的同轮结果）。
   const prevConvKeyRef = useRef(`${kind}:${conv}:${engineKey}`);
   if (prevConvKeyRef.current !== `${kind}:${conv}:${engineKey}`) {
@@ -249,13 +257,6 @@ export function IntentSenseProvider({
           extra = (await requestAnalysis(analysisMessageId)) === true;
         }
         if (disposed || prevConvKeyRef.current !== expected) return;
-        const extraPeer =
-          extra && analysisMessageId && analysesRef.current.get(analysisMessageId)?.mine === false;
-        if ((stats?.peerAnalyzed ?? stats?.analyzed ?? 0) > 0 || extraPeer) {
-          if (kind === 'c2c') {
-            void utils.account.intentSense.getProfile.invalidate({ peerUid: conv });
-          }
-        }
         if (
           (peerTarget.current || suggestAfterSelf.current) &&
           ((stats?.analyzed ?? 0) > 0 || extra)

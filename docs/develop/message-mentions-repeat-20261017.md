@@ -14,4 +14,4 @@
 - 保留表情子类型、贴纸包/GUID、媒体指纹和提及目标。无等价适配、身份或资源时明确失败，不降级为占位文字。
 - 红包、交易及系统内容不参与等价重发；服务端接受不代表收端已展示。
 
-源码：`lib/mentionClipboard.ts`、`lib/mentionIdentity.ts`、`lib/messageRepeat.ts`、`ChatPane` 及现有发送服务。回归：`mentions_reply.test.ts`、`message_repeat.test.ts`、`composer_identity_ui.test.ts`；合成发送不等于真实 QQ 收端验收。
+源码：`lib/mentionClipboard.ts`、`lib/mentionIdentity.ts`、`lib/messageRepeat.ts`、`ChatPane` 及现有发送服务。回归：`mentions_reply.test.ts`、`composer_elements.test.ts`、`composer_identity_ui.test.ts`；合成发送不等于真实 QQ 收端验收。

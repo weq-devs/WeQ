@@ -15,6 +15,7 @@
 
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
+import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { isToastDuration } from '@weq/service/toast-settings';
 import {
   copyExportSavePolicy,
@@ -22,6 +23,7 @@ import {
   describeExportOutput,
   selectStorageCleanupTargets,
   type StorageRoot,
+  type AppAutostartStatus,
   createOtherDeviceKeyContext,
 } from '@weq/service';
 import {
@@ -35,27 +37,17 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
-import { getDaemonHealth } from '../../daemon/health';
-import { resolveDaemonBinary } from '../../daemon/runtime';
-import {
-  daemonReleaseWatchStart,
-  daemonReleaseWatchStop,
-  daemonReleaseWatchStatus,
-  daemonAutostartSet,
-  daemonAutostartStatus,
-} from '@weq/service';
+import { assistantResourceServer } from '../../weq_assistant/server';
 import {
   installMcpAgents as installMcpAgentConfigs,
   listMcpAgentTargets,
 } from '../../mcp/agent_installer';
-import { daemonHttpStatus } from '@weq/service';
 import {
   accountEventBus,
   getAppContext,
   requireBootstrap,
   requirePlatform,
   emitDressChanged,
-  getActiveIntentSenseLocalEngine,
   rememberAccountUid,
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
@@ -63,6 +55,7 @@ import { runLogRetentionSweep } from '../../log_retention';
 import { takePendingConversationJump, takePendingGroupJump } from '../../group_keyword_bus';
 import { readNativeBuildInfo } from '@weq/native';
 import { procedure, router } from '../trpc';
+import { fullModeAllowed } from '../../context/full_mode';
 import { backupProcedures } from './backup';
 import {
   accountConfigId,
@@ -84,10 +77,16 @@ import {
   localOcrBlocker,
 } from '@weq/service';
 import { runBackupProbe } from '../../backup_probe';
-import { discoverBackups, probeBackup, resolveBackupDirectory } from '../../static_backup';
+import {
+  scanBackupCandidates,
+  probeBackup,
+  resolveBackupDirectory,
+  type BackupScanEvent,
+} from '../../static_backup';
 import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
 import { isDbRepairBusy } from './db_repair';
+import { launchQq } from '../../qq_launch';
 
 /** Result of the QQ data-directory picker. */
 export interface PickRootResult {
@@ -103,6 +102,25 @@ const algoSchema = z.object({
   pageHmacAlgorithm: z.string(),
   kdfHmacAlgorithm: z.string(),
 });
+
+function backupScanContext() {
+  const boot = requireBootstrap();
+  const configs = boot.userConfig.listAccountConfigs();
+  for (const config of configs) if (config.uid) rememberAccountUid(config.uin, config.uid);
+  let online: ReturnType<typeof import('../../capture_session').resolveOnlineInstances> | undefined;
+  return {
+    configs,
+    options: {
+      allowOnline: fullModeAllowed(getAppContext()),
+      attachHook: boot.attachHook,
+      keyContext: createOtherDeviceKeyContext(),
+      resolveOnline: () =>
+        (online ??= import('../../capture_session').then(({ resolveOnlineInstances }) =>
+          resolveOnlineInstances(boot, requirePlatform()),
+        )),
+    },
+  };
+}
 
 /** 导出灯箱选项快照（与渲染层 ExportOptions 一一对应）。 */
 const exportPresetOptionsSchema = z.object({
@@ -221,8 +239,7 @@ export const bootstrapRouter = router({
         }
         if (boot.userConfig.getLocalModelId('intent') === input.modelId) return true;
         if (isIntentModelDownloading()) throw new Error('模型下载期间不能切换资源');
-        // 切换资源前释放旧 worker，不能让新引用继续使用旧模型。
-        await getActiveIntentSenseLocalEngine()?.stop();
+        // 端口按模型目录路由；保留画像可能正在使用的旧资源，不中断其在途推断。
       } else if (input.modelId) {
         const model =
           input.kind === 'voice'
@@ -313,6 +330,12 @@ export const bootstrapRouter = router({
   /** Force a fresh install probe (e.g. after the user changes the data dir). */
   refreshInstall: procedure.mutation(() => {
     return requireBootstrap().globalConfig.refresh();
+  }),
+
+  /** 启动宿主上已安装的 QQ，不自动登录或更改在线功能设置。 */
+  launchQq: procedure.mutation(async () => {
+    await launchQq(requirePlatform());
+    return true;
   }),
 
   listAccounts: procedure.query(() => {
@@ -423,9 +446,12 @@ export const bootstrapRouter = router({
 
   // ---- auto-enter target ----
 
-  getAutoEnter: procedure.query(() => {
-    return requireBootstrap().userConfig.getAutoEnter();
-  }),
+  getAutoEnter: procedure
+    .input(z.object({ startup: z.boolean() }).optional())
+    .query(({ input }) => {
+      const config = requireBootstrap().userConfig;
+      return input?.startup ? config.getStartupAutoEnter() : config.getAutoEnter();
+    }),
 
   setAutoEnter: procedure
     .input(z.object({ uin: z.string(), dataDir: z.string().optional() }))
@@ -478,8 +504,22 @@ export const bootstrapRouter = router({
     return requireBootstrap().userConfig.getSettings();
   }),
 
+  setHomeSettings: procedure
+    .input(
+      z.object({
+        showTags: z.boolean().optional(),
+        showGreeting: z.boolean().optional(),
+        showHitokoto: z.boolean().optional(),
+        blockedWords: z.array(z.string().trim().min(1).max(200)).max(1000).optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const config = requireBootstrap().userConfig;
+      return config.setSettings({ home: { ...config.getSettings().home, ...input } }).home;
+    }),
+
   setExportSaveMode: procedure
-    .input(z.object({ mode: z.enum(['preset', 'before', 'after']) }))
+    .input(z.object({ mode: z.enum(['preset', 'before']) }))
     .mutation(({ input }) => {
       return requireBootstrap().userConfig.setSettings({ exportSaveMode: input.mode })
         .exportSaveMode;
@@ -518,7 +558,6 @@ export const bootstrapRouter = router({
           services: context.services,
         };
       });
-      if (input.mode === 'after') return { mode: 'after' as const };
       const host = getHost();
       const settings = requireBootstrap().userConfig.getSettings();
       const manager = getAppContext().services?.exportManager;
@@ -611,19 +650,22 @@ export const bootstrapRouter = router({
     return true;
   }),
 
-  /**
-   * Toggle 自动读取 QQ 内存（完整功能总闸）. Persists, and the account monitor reads
-   * it live on its next poll so attach / harvesting starts or stops
-   * immediately (no re-open needed). 关闭 = 完全离线模式。
-   *
-   * 三端都允许开启：macOS 也能读内存（需 root 且关闭 SIP），门槛交给用户自己
-   * 决定 —— 真正读取失败时由 attach 链给出提权 / SIP 提示，不在这里预先拒绝。
-   */
+  /** 各窗口与 Web 客户端读取同一宿主的有效运行态。 */
+  getFullModeState: procedure.query(() => ({ allowed: fullModeAllowed(getAppContext()) })),
+
+  setRestrictedModeBannerEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }).strict())
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ restrictedModeBannerEnabled: input.enabled });
+      return true;
+    }),
+
+  /** 只保存自动进入策略；真实授权仍由 attach 链处理，不撤销本来源手动请求。 */
   setAutoAttachQq: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(async ({ input }) => {
       requireBootstrap().userConfig.setSettings({ autoAttachQq: input.enabled });
-      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
+      getAppContext().applyFullModePolicy();
       return true;
     }),
 
@@ -631,6 +673,17 @@ export const bootstrapRouter = router({
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ reportReadEnabled: input.enabled });
+      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
+      return true;
+    }),
+
+  setReadSyncEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }).strict())
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({
+        reportReadEnabled: input.enabled,
+        manualReadReportEnabled: input.enabled,
+      });
       if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
       return true;
     }),
@@ -711,7 +764,7 @@ export const bootstrapRouter = router({
     }),
 
   /**
-   * 头像挂件是否叠在聊天页自己的头像上。渲染层通过 App.tsx 的 SelfPendantContext
+   * 头像挂件是否叠在聊天页头像上。渲染层通过 App.tsx 的共享 Context
    * 读取——纯持久化，无需主进程侧应用。
    */
   setShowAvatarPendant: procedure
@@ -824,12 +877,38 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setShowContactUnreadCount: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showContactUnreadCount: input.enabled });
+      return true;
+    }),
+
   setJumpToLatestAfterSend: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ jumpToLatestAfterSend: input.enabled });
       return true;
     }),
+
+  setShowScrollToBottomButton: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showScrollToBottomButton: input.enabled });
+      return true;
+    }),
+
+  setChatImageCacheMiB: procedure
+    .input(z.object({ miB: z.number().int().min(0).max(MAX_CHAT_IMAGE_CACHE_MIB) }))
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({ chatImageCacheMiB: input.miB })
+        .chatImageCacheMiB;
+    }),
+
+  setSendWithQqFont: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ sendWithQqFont: input.enabled });
+    return true;
+  }),
 
   setShowGroupAssistantMessageCount: procedure
     .input(z.object({ enabled: z.boolean() }))
@@ -838,7 +917,19 @@ export const bootstrapRouter = router({
       return true;
     }),
 
-  /** 是否渲染每条消息里的装扮（气泡/字体/挂件）。纯持久化。 */
+  setShowMessageBubble: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showMessageBubble: input.enabled });
+      return true;
+    }),
+
+  setShowMessageFont: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ showMessageFont: input.enabled });
+    return true;
+  }),
+
+  /** 兼容旧客户端的合并开关，同时更新气泡与字体。 */
   setShowMsgDecoration: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {
@@ -1218,16 +1309,16 @@ export const bootstrapRouter = router({
 
   // ---- WeQ 助手 (account-bound; renders inside QQ itself) ----
 
-  /** Current WeQ 助手 config + live state (from the weq-daemon control pipe). */
+  /** 助手配置与当前宿主进程中的资源服务状态。 */
   getWeqAssistantStatus: procedure.query(async () => {
     const weq = requireBootstrap().userConfig.getSettings().weqAssistant;
-    const status = await daemonHttpStatus();
+    const status = assistantResourceServer.status();
     return {
       enabled: weq.enabled,
       port: weq.port,
       host: '127.0.0.1',
       url: `http://127.0.0.1:${weq.port}`,
-      running: status?.running ?? false,
+      running: status.running,
     };
   }),
 
@@ -1260,73 +1351,32 @@ export const bootstrapRouter = router({
       return userConfig.getSettings().weqAssistant;
     }),
 
-  // ---- 守护进程（weq-daemon）：健康 / release 监控 / 开机自启 ----
-  // 设置 → 守护进程 页的数据面。守护进程本体（Rust）负责 GitHub 轮询与
-  // **自身**的开机自启注册；这里只是把查询与下发暴露给渲染层。
-
-  /** 聚合健康快照：探活 + 版本 + HTTP + release 轮询 + 自启动注册。 */
-  getDaemonHealth: procedure.query(() => {
-    return getDaemonHealth();
+  // ---- 系统直接启动 WeQ，不依赖后台服务 ----
+  getAutostartStatus: procedure.query(async (): Promise<AppAutostartStatus> => {
+    const host = getHost();
+    return (
+      host.getAutostart?.() ?? {
+        supported: false,
+        enabled: false,
+        registered: false,
+        requiresApproval: false,
+      }
+    );
   }),
 
-  /**
-   * 守护进程二进制是否随包就位（缺失提示先 pnpm build:daemon）。
-   * 启动时会被 stage 到数据目录的稳定路径（原生自启注册只能指向那里）。
-   */
-  getDaemonBinaryStatus: procedure.query(() => {
-    return { available: resolveDaemonBinary() !== null };
+  setAutostart: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    const host = getHost();
+    if (!host.canAutostart || !host.setAutostart) {
+      throw new Error('当前环境不支持登录自启，请使用打包安装版；Web 服务由部署方管理。');
+    }
+    return host.setAutostart(input.enabled);
   }),
 
-  /**
-   * 开启 / 关闭 release 轮询（守护进程侧 Rust 轮询器）。开启时以当前应用
-   * 版本当 current_version，轮询间隔固定 1 小时（大陆网络差也够用）。
-   * GUI 提醒循环（系统通知）始终随应用启动挂着 —— 它只读守护进程的
-   * 状态，watching=false 时不会产生任何提醒。
-   */
-  setDaemonReleaseWatch: procedure
+  setShowWindowOnAutostart: procedure
     .input(z.object({ enabled: z.boolean() }))
-    .mutation(async ({ input }) => {
-      if (!input.enabled) {
-        await daemonReleaseWatchStop();
-      } else {
-        const started = await daemonReleaseWatchStart({
-          api_base: 'https://api.github.com',
-          repo: 'weq-devs/WeQ',
-          interval_secs: 3600,
-          current_version: getHost().appVersion(),
-        });
-        if (started === null) {
-          throw new Error(
-            '守护进程未运行，无法开启 Release 监控。WeQ 启动时会自动拉起，请稍后重试。',
-          );
-        }
-      }
-      return daemonReleaseWatchStatus();
-    }),
-
-  /**
-   * 开关「开机自动启动 WeQ」—— 按约定 **GUI 不注册任何原生自启**：这里只把
-   * 意图 + 当前 exe 路径交给守护进程落记忆，开机后由守护进程读记忆拉起 WeQ。
-   * 需要守护进程在跑，不在则抛错由前端提示。
-   */
-  setDaemonAutostart: procedure
-    .input(z.object({ enabled: z.boolean() }))
-    .mutation(async ({ input }) => {
-      // 浏览器版 / pnpm dev：守护进程开机时要拉起一个裸可执行文件，而 web 的
-      // node server.mjs（需要参数 + 工作目录）和开发态 Electron 都不具备
-      // 「被裸拉起就能工作」的形态 —— 直接拒绝。
-      if (!getHost().canAutostart) {
-        throw new Error(
-          '当前环境不支持开机自启：请使用打包安装版（浏览器版请用 systemd / 计划任务管理）。',
-        );
-      }
-      const guiExe = getHost().currentExePath();
-      const result = await daemonAutostartSet({ enabled: input.enabled, gui_exe: guiExe });
-      if (result === null) {
-        throw new Error('守护进程未运行，无法设置开机自启。WeQ 启动时会自动拉起，请稍后重试。');
-      }
-      if (!result.ok) throw new Error(result.message);
-      return daemonAutostartStatus();
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showWindowOnAutostart: input.enabled });
+      return input.enabled;
     }),
 
   // ---- first-run onboarding (欢迎使用) ----
@@ -1495,6 +1545,23 @@ export const bootstrapRouter = router({
   listAgentLabProviders: procedure.query(() => {
     return requireBootstrap().agentLabConfig.listProviders();
   }),
+
+  getAgentLabDefaultModel: procedure.query(() =>
+    requireBootstrap().agentLabConfig.getDefaultModelStatus(),
+  ),
+
+  setAgentLabDefaultModel: procedure
+    .input(
+      z
+        .object({
+          ref: z
+            .object({ providerId: z.string().trim().min(1), model: z.string().trim().min(1) })
+            .strict()
+            .nullable(),
+        })
+        .strict(),
+    )
+    .mutation(({ input }) => requireBootstrap().agentLabConfig.setDefaultModel(input.ref)),
 
   /** 按填入的 base_url (+ api_key) 拉取厂商可用模型列表（OpenAI 兼容 GET /models）。 */
   fetchAgentLabModels: procedure
@@ -1790,30 +1857,40 @@ export const bootstrapRouter = router({
   scanStaticDirs: procedure
     .input(z.object({ dirPath: z.string().min(1), recursive: z.boolean().default(false) }))
     .mutation(async ({ input }) => {
-      const boot = requireBootstrap();
-      const configs = boot.userConfig.listAccountConfigs();
-      for (const config of configs) if (config.uid) rememberAccountUid(config.uin, config.uid);
-      const result = await discoverBackups(input.dirPath, input.recursive);
-      const candidates = [];
-      const keyContext = createOtherDeviceKeyContext();
-      let online:
-        | ReturnType<typeof import('../../capture_session').resolveOnlineInstances>
-        | undefined;
-      const resolveOnline = () =>
-        (online ??= import('../../capture_session').then(({ resolveOnlineInstances }) =>
-          resolveOnlineInstances(boot, requirePlatform()),
-        ));
-      for (const info of result.candidates) {
-        const probe = await probeBackup(requirePlatform(), configs, info.dirPath, {
-          allowOnline: boot.userConfig.getSettings().autoAttachQq !== false,
-          attachHook: boot.attachHook,
-          keyContext,
-          resolveOnline,
-        });
-        candidates.push({ ...info, probe });
-      }
-      return { ...result, candidates };
+      const { configs, options } = backupScanContext();
+      return scanBackupCandidates(
+        requirePlatform(),
+        configs,
+        input.dirPath,
+        input.recursive,
+        options,
+      );
     }),
+  scanStaticDirsProgress: procedure
+    .input(z.object({ dirPath: z.string().min(1), recursive: z.boolean().default(false) }))
+    .subscription(({ input }) =>
+      observable<BackupScanEvent>((emit) => {
+        const controller = new AbortController();
+        void (async () => {
+          const { configs, options } = backupScanContext();
+          await scanBackupCandidates(
+            requirePlatform(),
+            configs,
+            input.dirPath,
+            input.recursive,
+            options,
+            (event) => {
+              if (!controller.signal.aborted) emit.next(event);
+            },
+            controller.signal,
+          );
+          if (!controller.signal.aborted) emit.complete();
+        })().catch((error: unknown) => {
+          if (!controller.signal.aborted) emit.error(error);
+        });
+        return () => controller.abort();
+      }),
+    ),
 
   // ---- key correctness probe ----
 
@@ -2190,8 +2267,7 @@ export const bootstrapRouter = router({
           void fetchHomeDress(platform.native.ntHelper, session, 0, input.pskey)
             .then(async (dress) => {
               services.accountConfig.setHomeDress(dress);
-              // 顺手把手机 QQ 正在用的气泡/字体装上并切过去。只在用户从没自己选过时
-              // 动手，内部逐项静默失败（见 syncFromQq）。
+              // 准备 QQ 同款装扮资源，只加入已装，不自动使用；失败不阻断登录。
               await services.dressInstall.syncFromQq(dress);
               emitDressChanged();
             })
@@ -2207,8 +2283,9 @@ export const bootstrapRouter = router({
       return ctx.account!.context;
     }),
 
-  closeAccount: procedure.mutation(() => {
+  closeAccount: procedure.mutation(async () => {
     logger.info('router closing account', { event: 'router-close-account' });
+    await getAppContext().services?.unreadInfo.dispose();
     getAppContext().clearAccount();
     return true;
   }),
@@ -2242,7 +2319,7 @@ export const bootstrapRouter = router({
       for (const config of configs) if (config.uid) rememberAccountUid(config.uin, config.uid);
       return probeBackup(requirePlatform(), configs, dbDir, {
         dbKey: input.dbKey,
-        allowOnline: boot.userConfig.getSettings().autoAttachQq !== false,
+        allowOnline: fullModeAllowed(getAppContext()),
         attachHook: boot.attachHook,
         resolveOnline: () =>
           import('../../capture_session').then(({ resolveOnlineInstances }) =>

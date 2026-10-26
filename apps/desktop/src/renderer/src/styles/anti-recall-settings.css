@@ -1,0 +1,79 @@
+.weq-ar-settings {
+  min-width: 0;
+}
+
+.weq-ar-tool {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.weq-ar-tool-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.weq-ar-tool-body.is-records {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.weq-ar-directory,
+.weq-ar-details {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.weq-ar-details {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.weq-ar-directory[hidden] {
+  display: none;
+}
+
+.weq-ar-picker {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.weq-ar-tool .weq-recalled.is-embedded {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  background: transparent;
+}
+
+.weq-ar-tool .weq-recalled .weq-deleted-scroll {
+  height: auto;
+  overflow-y: auto;
+}
+
+.weq-recalled-subtitle {
+  flex-shrink: 0;
+  margin: 0 0 12px;
+  overflow-wrap: anywhere;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+}
+
+html[data-theme='dark'] .weq-ar-tool {
+  color: var(--weq-fg-primary);
+}
+
+@media (max-width: 650px) {
+  .weq-ar-tool-body {
+    padding: 12px;
+  }
+}

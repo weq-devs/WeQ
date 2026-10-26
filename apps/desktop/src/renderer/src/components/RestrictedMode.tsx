@@ -1,11 +1,14 @@
-import { useEffect, useId, useRef, useState } from 'react';
-import { KeyRound, RefreshCw, ShieldAlert, X } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, X } from 'lucide-react';
+import { LongTermAuthorizationLink } from './LongTermAuthorizationLink';
 import { client, trpc } from '../trpc/client';
 import { restrictionReasons } from '../lib/restrictedMode';
 import { useRestrictedMode, type AuthorizationRequest } from '../state/restrictedMode';
 import { useViewState } from '../state/view';
 import { useToast } from './Toast';
 import '../styles/restricted-mode.css';
+
+const NOTICE_KEY = 'restricted-mode';
 
 function ipc() {
   return window.electron?.ipcRenderer;
@@ -54,22 +57,42 @@ function useAuthorizationBridge() {
   }, []);
 }
 
-export function RestrictedModeIndicator({ startup = false }: { startup?: boolean }) {
+export function RestrictedModeIndicator({
+  startup = false,
+  persistent = false,
+}: {
+  startup?: boolean;
+  persistent?: boolean;
+}) {
   const reasons = useRestrictedMode((s) => s.reasons);
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
-  if (!reasons.length && !requests.length) return null;
+  const entering = useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0);
+  const awaitingAuthorization = requests.length > 0;
+  const title = awaitingAuthorization ? '待提权' : entering ? '正在启用完整功能' : '受限模式';
+  const visible = Boolean(reasons.length || requests.length || entering);
+  if (!visible && !persistent) return null;
   return (
     <button
       type="button"
-      className={`weq-restricted-indicator${startup ? ' is-startup' : ''}`}
-      title="受限模式"
+      className={`weq-restricted-indicator${startup ? ' is-startup' : ''}${entering ? ' is-entering' : ''}`}
+      title={title}
       aria-haspopup="dialog"
       aria-expanded={open}
+      aria-busy={entering}
+      aria-hidden={!visible || undefined}
+      disabled={!visible}
+      tabIndex={visible ? undefined : -1}
       onClick={() => useRestrictedMode.getState().setOpen(!open)}
     >
-      <ShieldAlert size={15} aria-hidden />
-      受限模式
+      {awaitingAuthorization ? (
+        <KeyRound size={15} aria-hidden />
+      ) : entering ? (
+        <LoaderCircle size={15} className="weq-restricted-progress-icon" aria-hidden />
+      ) : (
+        <ShieldAlert size={15} aria-hidden />
+      )}
+      <span>{title}</span>
     </button>
   );
 }
@@ -81,10 +104,29 @@ export function cancelAuthorizationRequest(request: AuthorizationRequest): void 
   useRestrictedMode.getState().remove(request.kind, request.token);
 }
 
-export function AuthorizationForm({ request }: { request: AuthorizationRequest }) {
+export function AuthorizationForm({
+  request,
+  onOpenLongTermAuthorization,
+  actions,
+}: {
+  request: AuthorizationRequest;
+  onOpenLongTermAuthorization?: () => void;
+  actions?: ReactNode;
+}) {
   const [password, setPassword] = useState('');
   const id = useId();
   function respond(cancel = false, retry = false) {
+    if (
+      !useRestrictedMode
+        .getState()
+        .requests.some((item) => item.kind === request.kind && item.token === request.token)
+    ) {
+      setPassword('');
+      return;
+    }
+    const view = useViewState.getState();
+    if (!cancel && view.view === 'main' && view.openedUin)
+      useRestrictedMode.getState().beginEntering();
     if (request.kind === 'password')
       ipc()?.send('elev:respond-password', {
         token: request.token,
@@ -128,9 +170,16 @@ export function AuthorizationForm({ request }: { request: AuthorizationRequest }
             重试免密读取
           </button>
         )}
-        <button type="button" className="weq-set-btn" onClick={() => respond(true)}>
-          取消本次授权
-        </button>
+        {!request.title.includes('长期授权') && (
+          <LongTermAuthorizationLink
+            beforeNavigate={() => {
+              respond(true);
+              useRestrictedMode.getState().setOpen(false);
+              onOpenLongTermAuthorization?.();
+            }}
+          />
+        )}
+        {actions}
       </div>
     </form>
   );
@@ -142,16 +191,30 @@ export function RestrictedModeHost() {
   const view = useViewState((s) => s.view);
   const active = view === 'main' && Boolean(uin);
   const reasons = useRestrictedMode((s) => s.reasons);
+  const reasonSource = useRestrictedMode((s) => s.reasonSource);
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
+  const enteringSince = useRestrictedMode((s) => s.enteringSince);
+  const awaitingAuthorization = requests.length > 0;
+  const entering = enteringSince !== null && !awaitingAuthorization;
+  const previousUin = useRef(uin);
   const panel = useRef<HTMLElement>(null);
   const previous = useRef('');
   const recoveryPending = useRef(false);
-  const notice = useRef<number | undefined>(undefined);
   const titleId = useId();
   const [busy, setBusy] = useState(false);
+  const [launching, setLaunching] = useState(false);
   const [error, setError] = useState('');
+  const operation = useRef(0);
+  const operationBusy = useRef(false);
+  const launchOperation = useRef(0);
+  const launchPending = useRef(false);
   const utils = trpc.useUtils();
+  const globalSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  });
+  const passiveBanner = globalSettings.data?.restrictedModeBannerEnabled !== false;
   useEffect(() => {
     if (!active) return;
     const subscription = client.account.onOnlineCredentialsReady.subscribe(undefined, {
@@ -168,6 +231,40 @@ export function RestrictedModeHost() {
     staleTime: 4000,
     refetchOnWindowFocus: true,
   });
+  const accessSource = access.data?.source;
+  const accessMatches = !accessSource || accessSource.expectedAccountUin === uin;
+  const sourceKey = JSON.stringify([
+    active,
+    uin,
+    accessSource?.expectedAccountUin,
+    accessSource?.expectedAccountConfigId,
+  ]);
+  const currentSource = useRef(sourceKey);
+  const previousSource = useRef(sourceKey);
+  currentSource.current = sourceKey;
+  useEffect(() => {
+    if (previousSource.current === sourceKey) return;
+    previousSource.current = sourceKey;
+    operation.current += 1;
+    launchOperation.current += 1;
+    operationBusy.current = false;
+    launchPending.current = false;
+    setBusy(false);
+    setLaunching(false);
+    setError('');
+    previous.current = '';
+    recoveryPending.current = false;
+    useToast.getState().resolve(NOTICE_KEY);
+    useRestrictedMode.getState().setOpen(false);
+    useRestrictedMode.getState().endEntering();
+  }, [sourceKey]);
+  useEffect(
+    () => () => {
+      operation.current += 1;
+      launchOperation.current += 1;
+    },
+    [],
+  );
   // 由运行 QQ 的宿主判断系统；Web 客户端的操作系统不能代表宿主。
   const sip = trpc.bootstrap.sipEnabled.useQuery(undefined, { staleTime: 60_000 });
   const online = trpc.bootstrap.probeOnline.useQuery(undefined, {
@@ -176,7 +273,11 @@ export function RestrictedModeHost() {
   });
   useEffect(() => {
     const next = active
-      ? restrictionReasons({ access: access.data, sipEnabled: sip.data, failed: access.isError })
+      ? restrictionReasons({
+          access: accessMatches ? access.data : undefined,
+          sipEnabled: sip.data,
+          failed: access.isError || !accessMatches,
+        })
       : restrictionReasons({
           access:
             online.data?.count === 0
@@ -191,51 +292,124 @@ export function RestrictedModeHost() {
               : undefined,
           failed: online.isError,
         });
-    useRestrictedMode.getState().setReasons(next);
-  }, [active, uin, access.data, access.isError, sip.data, online.data, online.isError]);
-  const signature = [
-    ...reasons.map((r) => r.code),
-    ...(requests.length ? ['authorization'] : []),
-  ].join(',');
+    useRestrictedMode.getState().setReasons(next, sourceKey);
+  }, [
+    active,
+    uin,
+    access.data,
+    access.isError,
+    accessMatches,
+    sip.data,
+    online.data,
+    online.isError,
+    sourceKey,
+  ]);
   const fullModeConfirmed = active
     ? Boolean(
-        access.data &&
+        accessMatches &&
+          access.data &&
           !access.isError &&
           restrictionReasons({ access: access.data, sipEnabled: sip.data }).length === 0,
       )
-    : Boolean(online.data && !online.isError && online.data.count > 0);
+    : false;
   useEffect(() => {
+    if (!active) return;
+    const blocked =
+      !accessMatches ||
+      !access.data?.qqOnline ||
+      !access.data.attachEnabled ||
+      access.isError ||
+      restrictionReasons({ access: access.data, sipEnabled: sip.data }).some(
+        (reason) => reason.code === 'sip',
+      );
+    if (access.data?.credentialsPending && !fullModeConfirmed && !blocked) {
+      if (enteringSince === null && !requests.length) useRestrictedMode.getState().beginEntering();
+      return;
+    }
+    // 提交授权后必须拿到新查询结果，不能用之前缓存的完整状态提前结束。
+    const checkedAt = Math.max(access.dataUpdatedAt, access.errorUpdatedAt ?? 0);
+    if (enteringSince !== null && !busy && !requests.length && checkedAt > enteringSince)
+      useRestrictedMode.getState().endEntering();
+  }, [
+    active,
+    accessMatches,
+    access.data,
+    access.isError,
+    access.dataUpdatedAt,
+    access.errorUpdatedAt,
+    sip.data,
+    fullModeConfirmed,
+    enteringSince,
+    busy,
+    requests.length,
+  ]);
+  useEffect(() => {
+    if (active && enteringSince !== null) void utils.account.getGroupAlbumAccessState.invalidate();
+  }, [active, uin, enteringSince, utils]);
+  const signature = [
+    ...reasons.map((r) => r.code),
+    ...(requests.length ? ['authorization'] : []),
+    ...(entering ? ['entering'] : []),
+  ].join(',');
+  useEffect(() => {
+    if (reasonSource !== sourceKey) return;
+    const activeNotice = entering || awaitingAuthorization;
+    if (globalSettings.isLoading && !activeNotice) return;
+    if (!activeNotice && !passiveBanner) useToast.getState().resolve(NOTICE_KEY);
     if (signature) recoveryPending.current = true;
-    if (signature && signature !== previous.current) {
+    if (signature && signature !== previous.current && (activeNotice || passiveBanner)) {
       const toast = useToast.getState();
-      if (notice.current !== undefined) toast.dismiss(notice.current);
-      notice.current = toast.push({
-        tone: 'warning',
-        title: `已进入受限模式：${requests.length ? '待提权' : reasons.map((r) => r.title).join('、')}`,
+      const message: Parameters<typeof toast.push>[0] = {
+        key: NOTICE_KEY,
+        tone: entering ? 'info' : 'warning',
+        title: awaitingAuthorization
+          ? '待提权：请完成管理员授权'
+          : entering
+            ? '正在启用完整功能'
+            : `已进入受限模式：${reasons.map((r) => r.title).join('、')}`,
+        loading: entering,
+        durationKind: entering ? 'long' : 'failure',
+        ...(entering ? { ttl: 0 } : {}),
         action: {
-          label: '查看受限模式详情',
+          label: entering ? '查看进入进度' : '查看受限模式详情',
           run: () => {
             if (
               useRestrictedMode.getState().reasons.length ||
-              useRestrictedMode.getState().requests.length
+              useRestrictedMode.getState().requests.length ||
+              useRestrictedMode.getState().enteringSince !== null
             )
               useRestrictedMode.getState().setOpen(true);
           },
         },
-      });
+      };
+      toast.push(message);
     }
     if (!signature) {
       useRestrictedMode.getState().setOpen(false);
-      if (notice.current !== undefined) useToast.getState().dismiss(notice.current);
-      notice.current = undefined;
+      useToast.getState().resolve(NOTICE_KEY);
       if (recoveryPending.current && fullModeConfirmed) {
-        useToast.getState().push({ tone: 'success', title: '已恢复完整模式' });
+        useToast.getState().push({ tone: 'success', title: '已启用完整功能' });
         recoveryPending.current = false;
       }
     }
     previous.current = signature;
-  }, [signature, reasons, requests, fullModeConfirmed]);
+  }, [
+    signature,
+    reasons,
+    requests,
+    fullModeConfirmed,
+    entering,
+    awaitingAuthorization,
+    passiveBanner,
+    globalSettings.isLoading,
+    reasonSource,
+    sourceKey,
+  ]);
   useEffect(() => {
+    if (previousUin.current !== uin) {
+      previousUin.current = uin;
+      useRestrictedMode.getState().endEntering();
+    }
     setError('');
     useRestrictedMode.getState().setOpen(false);
   }, [uin]);
@@ -262,22 +436,105 @@ export function RestrictedModeHost() {
       if (before instanceof HTMLElement && before.isConnected) before.focus();
     };
   }, [open]);
-  async function refresh(enable = false) {
-    setBusy(true);
+  async function startQq() {
+    if (launchPending.current) return;
+    launchPending.current = true;
+    const id = ++launchOperation.current,
+      binding = sourceKey;
+    const current = () => launchOperation.current === id && currentSource.current === binding;
+    setLaunching(true);
     setError('');
     try {
-      if (enable) await client.bootstrap.setAutoAttachQq.mutate({ enabled: true });
-      if (active && (enable || (access.data?.qqOnline && access.data.attachEnabled))) {
-        const refreshed = await client.account.refreshRkeys.mutate();
+      await client.bootstrap.launchQq.mutate();
+      if (!current()) return;
+      await (active ? access.refetch() : online.refetch());
+    } catch (e) {
+      if (current()) setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      if (current()) {
+        launchPending.current = false;
+        setLaunching(false);
+      }
+    }
+  }
+  async function refresh(enable = false) {
+    if (operationBusy.current) return;
+    const source = access.data?.source ? { ...access.data.source } : undefined;
+    if (enable && (!active || !source || source.expectedAccountUin !== uin)) {
+      setError('当前来源尚未确认，请重新检查后再启用完整功能。');
+      return;
+    }
+    operationBusy.current = true;
+    const id = ++operation.current;
+    const binding = sourceKey;
+    const current = () => operation.current === id && currentSource.current === binding;
+    setBusy(true);
+    setError('');
+    if (active) useRestrictedMode.getState().beginEntering();
+    try {
+      if (enable && source) await client.account.requestFullMode.mutate(source);
+      if (!current()) return;
+      if (
+        active &&
+        accessMatches &&
+        (enable || (access.data?.qqOnline && access.data.attachEnabled))
+      ) {
+        const refreshed = await client.account.refreshRkeys.mutate(source);
+        if (!current()) return;
         if (!refreshed) setError('尚未恢复完整功能，请检查 QQ 登录状态及授权请求后重试。');
       }
       await Promise.all([active ? access.refetch() : online.refetch(), sip.refetch()]);
     } catch (e) {
+      if (!current()) return;
       setError(e instanceof Error ? e.message : String(e));
+      useRestrictedMode.getState().endEntering();
     } finally {
-      setBusy(false);
+      if (current()) {
+        operationBusy.current = false;
+        setBusy(false);
+      }
     }
   }
+  const actions = (
+    <>
+      {reasons.some((reason) => reason.code === 'offline') && (
+        <button
+          type="button"
+          className="weq-set-btn"
+          disabled={busy || launching}
+          aria-busy={launching}
+          onClick={() => void startQq()}
+        >
+          {launching ? (
+            <LoaderCircle size={14} className="weq-restricted-progress-icon" />
+          ) : (
+            <Play size={14} />
+          )}
+          {launching ? '正在启动 QQ' : '启动 QQ'}
+        </button>
+      )}
+      <button
+        type="button"
+        className="weq-set-btn"
+        disabled={busy || launching}
+        onClick={() => void refresh()}
+      >
+        <RefreshCw size={14} />
+        {busy ? '正在检查' : '重新检查'}
+      </button>
+      {reasons.some((r) => r.code === 'disabled') && (
+        <button
+          type="button"
+          className="weq-set-btn"
+          disabled={busy || launching}
+          onClick={() => void refresh(true)}
+        >
+          <KeyRound size={14} />
+          启用完整功能
+        </button>
+      )}
+    </>
+  );
   return (
     <>
       {!active && <RestrictedModeIndicator startup />}
@@ -287,12 +544,18 @@ export function RestrictedModeHost() {
           role="dialog"
           aria-modal="false"
           aria-labelledby={titleId}
-          className="weq-restricted-panel"
+          className={`weq-restricted-panel${entering ? ' is-entering' : ''}`}
         >
           <header>
             <h2 id={titleId}>
-              <ShieldAlert size={18} />
-              受限模式
+              {awaitingAuthorization ? (
+                <KeyRound size={18} />
+              ) : entering ? (
+                <LoaderCircle size={18} className="weq-restricted-progress-icon" />
+              ) : (
+                <ShieldAlert size={18} />
+              )}
+              {awaitingAuthorization ? '待提权' : entering ? '正在启用完整功能' : '受限模式'}
             </h2>
             <button
               type="button"
@@ -305,38 +568,24 @@ export function RestrictedModeHost() {
             </button>
           </header>
           <div className="weq-restricted-body">
-            {reasons.map((reason) => (
-              <div className="weq-restricted-reason" key={reason.code}>
-                <h3>{reason.title}</h3>
-                <p>{reason.guidance}</p>
-              </div>
-            ))}
-            {requests.map((request) => (
-              <AuthorizationForm key={`${request.kind}:${request.token}`} request={request} />
+            {entering && <p role="status">正在准备在线会话，请稍候。</p>}
+            {reasons
+              .filter((reason) => !awaitingAuthorization || reason.code !== 'credentials')
+              .map((reason) => (
+                <div className="weq-restricted-reason" key={reason.code}>
+                  <h3>{reason.title}</h3>
+                  <p>{reason.guidance}</p>
+                </div>
+              ))}
+            {requests.map((request, index) => (
+              <AuthorizationForm
+                key={`${request.kind}:${request.token}`}
+                request={request}
+                actions={index === requests.length - 1 ? actions : undefined}
+              />
             ))}
             {error && <p role="alert">{error}</p>}
-            <div className="weq-restricted-actions">
-              <button
-                type="button"
-                className="weq-set-btn"
-                disabled={busy}
-                onClick={() => void refresh()}
-              >
-                <RefreshCw size={14} />
-                {busy ? '正在检查' : '重新检查'}
-              </button>
-              {reasons.some((r) => r.code === 'disabled') && (
-                <button
-                  type="button"
-                  className="weq-set-btn"
-                  disabled={busy}
-                  onClick={() => void refresh(true)}
-                >
-                  <KeyRound size={14} />
-                  启用完整功能
-                </button>
-              )}
-            </div>
+            {!awaitingAuthorization && <div className="weq-restricted-actions">{actions}</div>}
           </div>
         </section>
       )}

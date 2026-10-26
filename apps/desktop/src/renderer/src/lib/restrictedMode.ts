@@ -1,10 +1,15 @@
 export interface OnlineAccess {
+  source?: { expectedAccountUin: string; expectedAccountConfigId: string };
   qqOnline: boolean;
   attachEnabled: boolean;
   hasA2: boolean;
   hasD2: boolean;
   hasD2Key: boolean;
   hasGuid: boolean;
+  hasUid?: boolean;
+  needsMemoryRead?: boolean;
+  ssoReady?: boolean;
+  credentialsPending?: boolean;
 }
 
 export interface Restriction {
@@ -34,11 +39,13 @@ export function restrictionReasons(input: {
   if (!access.attachEnabled)
     reasons.push({
       code: 'disabled',
-      title: '完全离线模式',
-      guidance: '自动读取 QQ 内存已关闭。可启用完整功能后重新读取。',
+      title: '本次运行未启用完整功能',
+      guidance: '可为当前来源启用完整功能；不会改变自动启用偏好，下次启动仍按原偏好运行。',
     });
-  const sessionReady = access.hasA2 && access.hasD2 && access.hasD2Key;
-  const ready = sessionReady && access.hasGuid;
+  const sessionReady =
+    access.hasA2 && access.hasD2 && access.hasD2Key && access.needsMemoryRead !== true;
+  const ready =
+    sessionReady && access.hasGuid && access.hasUid !== false && access.ssoReady !== false;
   if (access.qqOnline && access.attachEnabled && !ready) {
     if (input.sipEnabled === true && !sessionReady)
       reasons.push({
@@ -52,7 +59,7 @@ export function restrictionReasons(input: {
         code: 'credentials',
         title: '会话凭据不完整',
         guidance:
-          '在线功能所需的会话凭据或设备身份尚未就绪。请确认 QQ 已登录后重新读取，或使用扫码登录。',
+          '在线功能所需的会话凭据或设备身份尚未就绪，后台会自动重试。请保持 QQ 登录；也可重新检查或使用扫码登录。',
       });
   }
   if (input.failed)

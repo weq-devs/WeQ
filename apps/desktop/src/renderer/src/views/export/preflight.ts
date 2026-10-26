@@ -70,8 +70,11 @@ export async function preflightExportEstimate(
  */
 export async function preflightMediaCompletion(dialog: AppDialogApi): Promise<boolean> {
   let online = false;
+  let source: Awaited<ReturnType<typeof client.account.getGroupAlbumAccessState.query>>['source'];
   try {
-    online = (await client.account.getGroupAlbumAccessState.query()).qqOnline;
+    const access = await client.account.getGroupAlbumAccessState.query();
+    online = access.qqOnline;
+    source = access.source ? { ...access.source } : undefined;
   } catch (e) {
     dialog.error('检查在线状态失败', e instanceof Error ? e.message : String(e));
     return false;
@@ -94,23 +97,24 @@ export async function preflightMediaCompletion(dialog: AppDialogApi): Promise<bo
       return false;
     }
   }
-  let attachOn = true;
+  let attachOn = false;
   try {
-    attachOn = (await client.bootstrap.getSettings.query()).autoAttachQq;
+    attachOn = (await client.bootstrap.getFullModeState.query()).allowed;
   } catch {
-    /* treat as on; the forced harvest below still runs */
+    /* 未确认宿主运行态时不能尝试采集凭据。 */
   }
   if (!attachOn) {
     const ok = await dialog.confirm(
-      '完全离线模式已开启',
-      '「自动读取 QQ 内存（完整功能）」已关闭（完全离线模式），缺失的图片 / 表情无法从云端补全。是否仍要继续导出？',
+      '本次运行未启用完整功能',
+      '当前来源未启用完整功能或状态尚未确认，缺失的图片 / 表情无法从云端补全。是否仅使用本地资源继续导出？',
       { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
     );
     if (!ok) return false;
+    return true;
   }
   // Explicit one-shot rkey refresh right before exporting.
   try {
-    await client.account.refreshRkeys.mutate();
+    await client.account.refreshRkeys.mutate(source);
   } catch {
     /* best-effort; export proceeds with whatever rkeys exist */
   }

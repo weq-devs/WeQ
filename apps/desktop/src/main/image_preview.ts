@@ -6,7 +6,9 @@ const MAX_INPUT_BYTES = 32 * 1024 * 1024;
 const MAX_CACHE_BYTES = 16 * 1024 * 1024;
 
 /** 在读取原图前排队；缓存按内容共享，不能用 CSS 缩放代替像素限制。 */
-export function createImagePreviewer(options: { maxPending?: number; maxPixels?: number } = {}) {
+export function createImagePreviewer(
+  options: { maxPending?: number; maxPixels?: number; preserveAnimation?: boolean } = {},
+) {
   const waiting: (() => void)[] = [];
   const cache = new Map<string, Buffer>();
   let cacheBytes = 0;
@@ -20,6 +22,10 @@ export function createImagePreviewer(options: { maxPending?: number; maxPixels?:
       const input = await load();
       if (input.byteLength === 0 || input.byteLength > MAX_INPUT_BYTES)
         throw new Error('preview input size');
+      if (options.preserveAnimation) {
+        const metadata = await sharp(input).metadata();
+        if ((metadata.pages ?? 1) > 1) throw new Error('animated preview');
+      }
       const key = createHash('sha256').update(input).digest('hex');
       const hit = cache.get(key);
       if (hit) {

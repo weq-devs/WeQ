@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   AlertCircle,
   Check,
+  CheckCheck,
   ClipboardCopy,
   Copy,
   Download,
@@ -30,8 +31,11 @@ import {
   Plug,
   RefreshCw,
   RotateCcw,
+  Save,
+  Square,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
@@ -53,15 +57,21 @@ interface AgentTarget {
 }
 
 export function McpServerSection(): ReactElement {
+  const active = useTabActive();
+  const activity = useRef(active);
+  activity.current = active;
+  const copyTimer = useRef<number | null>(null);
   const showError = useDialog((s) => s.showError);
   const pushToast = useToast((s) => s.push);
 
   const status = trpc.bootstrap.getMcpStatus.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const clientConfig = trpc.bootstrap.getMcpClientConfig.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -74,6 +84,7 @@ export function McpServerSection(): ReactElement {
 
   const data = status.data;
   const agentTargets = trpc.bootstrap.listMcpAgentTargets.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -81,10 +92,14 @@ export function McpServerSection(): ReactElement {
   const installToAgents = trpc.bootstrap.installMcpToAgents.useMutation();
   const token = data?.token ?? '';
   const [reveal, setReveal] = useState(false);
+  useEffect(() => {
+    if (!active) setReveal(false);
+  }, [active]);
   const [copiedToken, setCopiedToken] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedConfig, setCopiedConfig] = useState(false);
   const [portDraft, setPortDraft] = useState('');
+  const previousPort = useRef<string | null>(null);
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
   const hydratedAgents = useRef(false);
 
@@ -130,8 +145,22 @@ export function McpServerSection(): ReactElement {
 
   // Sync the port input whenever the server reports a (possibly changed) port.
   useEffect(() => {
-    if (data?.port != null) setPortDraft(String(data.port));
+    if (data?.port == null) return;
+    const previous = previousPort.current;
+    const next = String(data.port);
+    setPortDraft((draft) => (draft === (previous ?? '') ? next : draft));
+    previousPort.current = next;
   }, [data?.port]);
+  useEffect(() => {
+    if (!active) {
+      setCopiedToken(false);
+      setCopiedUrl(false);
+      setCopiedConfig(false);
+    }
+    return () => {
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
+    };
+  }, [active]);
 
   const maskedToken = token ? '•'.repeat(Math.min(token.length, 48)) : '';
 
@@ -139,12 +168,15 @@ export function McpServerSection(): ReactElement {
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
+      if (!activity.current) return;
       onOk?.();
       pushToast({ tone: 'success', title: '已复制到剪贴板' });
-      window.setTimeout(() => {
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
+      copyTimer.current = window.setTimeout(() => {
         setCopiedToken(false);
         setCopiedUrl(false);
         setCopiedConfig(false);
+        copyTimer.current = null;
       }, 1500);
     } catch (e) {
       showError('复制失败', errMsg(e));
@@ -360,6 +392,7 @@ export function McpServerSection(): ReactElement {
                 disabled={busy || status.isLoading || !data}
                 onClick={() => void onSavePort()}
               >
+                <Save size={13} aria-hidden="true" />
                 保存
               </button>
             </div>
@@ -530,6 +563,11 @@ export function McpServerSection(): ReactElement {
               )
             }
           >
+            {selectedAgents.size === actionableTargets.length ? (
+              <Square size={13} aria-hidden="true" />
+            ) : (
+              <CheckCheck size={13} aria-hidden="true" />
+            )}
             {selectedAgents.size === actionableTargets.length ? '清空选择' : '全选'}
           </button>
         ) : null}

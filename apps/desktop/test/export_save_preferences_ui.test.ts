@@ -60,27 +60,23 @@ function mount() {
     host.remove();
   });
   render();
-  const select = () => host.querySelector<HTMLSelectElement>('[aria-label="默认导出保存方式"]')!;
+  const select = () => host.querySelector<HTMLElement>('[aria-label="默认导出保存方式"]')!;
   return { host, render, select };
 }
-async function change(select: HTMLSelectElement, mode: string) {
+async function change(select: HTMLElement, mode: string) {
   await act(async () => {
-    select.value = mode;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
+    select.querySelectorAll<HTMLButtonElement>('button')[mode === 'preset' ? 1 : 0]!.click();
   });
 }
 describe('默认保存偏好', () => {
-  it('常用模式只有询问与默认文件夹，旧完成后选择只在当前旧偏好时展示', () => {
+  it('只提供询问与自动保存两个互斥分段，不再展示稍后保存', () => {
     const f = mount();
-    expect([...f.select().options].map((option) => option.value)).toEqual(['before', 'preset']);
-    state.settings.exportSaveMode = 'after';
-    f.render();
-    expect(f.select().value).toBe('after');
-    expect([...f.select().options].map((option) => option.value)).toEqual([
-      'before',
-      'preset',
-      'after',
+    expect(f.select().getAttribute('role')).toBe('radiogroup');
+    expect([...f.select().querySelectorAll('button')].map((button) => button.textContent)).toEqual([
+      '每次询问',
+      '自动保存',
     ]);
+    expect(f.host.textContent).not.toContain('稍后保存');
   });
   it('没有默认文件夹时先选择，取消不启用自动保存', async () => {
     const f = mount();

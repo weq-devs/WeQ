@@ -1,0 +1,55 @@
+/* 本页内容（DbExplorer）自己撑满高度，不需要外层内边距；留白由页头负责，
+ * 与普通设置页的 20px 对齐。必须带 html[data-theme] 才压得过
+ * page-chrome.css 里 `html[data-theme] .weq-workspace-page .weq-settings-body`
+ * 的 padding（那一条权重更高，否则这里会被打回 20px，顶部留白翻倍）。 */
+html[data-theme] .weq-settings-page.weq-settings-body[data-settings-page='database-management'] {
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+}
+.weq-settings-database {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  color: var(--weq-fg-primary);
+}
+.weq-settings-database > .weq-set-head {
+  flex-shrink: 0;
+  /* 外层内边距已清零，留白全在这里给；与普通设置页的 20px 对齐。 */
+  padding: 20px 20px 12px;
+}
+.weq-settings-database > .weq-settings-query-error {
+  flex-shrink: 0;
+  margin: 0 20px 12px;
+}
+.weq-settings-database > .weq-cache-db {
+  min-width: 0;
+  overflow: hidden;
+}
+.weq-settings-database .weq-cache-panel {
+  min-width: 0;
+}
+.weq-settings-database .weq-cache-panel-head {
+  height: auto;
+  min-height: 44px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+html[data-theme='dark'] .weq-settings-database {
+  color: var(--weq-fg-primary);
+}
+@media (max-width: 600px) {
+  .weq-settings-database > .weq-set-head {
+    padding: 16px;
+  }
+  .weq-settings-database .weq-cache-db:not(.is-tree-collapsed) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(80px, 30%) minmax(0, 1fr);
+  }
+  .weq-settings-database .weq-cache-tree {
+    border-right: 0;
+    border-bottom: 1px solid var(--weq-border-subtle);
+  }
+}

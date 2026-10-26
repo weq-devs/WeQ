@@ -185,6 +185,7 @@ export {
 } from './account/web/dress_mall';
 export type { DressMallItem } from './account/web/dress_mall';
 export { AccountMonitorService } from './account/monitor';
+export { isCompleteSessionMaterial } from './common/session_material';
 export {
   attachAndRegisterSsoSession,
   registerSsoSession,
@@ -441,6 +442,8 @@ export type {
 export { GENERATED_EXPORT_FORMATS } from './account/export/generated_export';
 export type {
   SearchCategory,
+  ContactSearchHit,
+  GroupSearchHit,
   FtsSource,
   ConversationSearchHit,
   FriendSearchHit,
@@ -454,6 +457,7 @@ export type {
   MoreSearchResult,
 } from './account/unified_search';
 export { UnreadInfoService } from './account/unread_info';
+export { waitForUnreadWrites } from './account/local_unread';
 export { DbDecryptService, isLoginDb, LOGIN_DB_KEY } from './account/db_decrypt';
 export { LoginAccountToolService, resolveLoginAccountDir } from './account/login_account_tool';
 export type {
@@ -794,6 +798,14 @@ export type {
   SendGroupJoinRequestServiceParams,
 } from './account/interaction';
 export { GroupModerationService } from './account/group_moderation';
+export { LocationShareService } from './account/lbs_share';
+export type {
+  LocationShareTarget,
+  StartLocationShareServiceParams,
+  ReportLocationServiceParams,
+  QueryLocationServiceParams,
+  SendShareCardParams,
+} from './account/lbs_share';
 export { AccountWriteService } from './account/account_write';
 export type { AccountWriteIdentity, AccountWriteOutcome } from './account/account_write';
 export type {
@@ -853,6 +865,7 @@ export type {
   FlashSelection,
   FlashDownloadFile,
   FlashDownloadTask,
+  FlashDownloadBatch,
   FlashTaskStatus,
 } from './account/flashtransfer';
 export type { PeerStats } from './account/peer_stats';
@@ -988,7 +1001,7 @@ export type {
   StageProgress,
 } from './account/export';
 
-// ---- daemon (weq-daemon 伴生守护进程的统一管道客户端) ----
+// ---- 旧 daemon 协议兼容：仅用于升级退役，不再拉起独立服务 ----
 export {
   DAEMON_PIPE_NAME,
   DAEMON_MAX_FRAME,
@@ -1073,7 +1086,7 @@ export {
 export type { LogFileCandidate } from './common/logger';
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
 export { getHost, setHost, withHost } from './common/host';
-export type { HostBridge, SaveTarget } from './common/host';
+export type { AppAutostartStatus, HostBridge, SaveTarget } from './common/host';
 export { JsonStore, readJsonFile, writeJsonFileAtomic } from './common/json_store';
 export {
   GROUP_WPA_SUBCMD,

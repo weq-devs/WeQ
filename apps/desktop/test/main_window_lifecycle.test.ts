@@ -41,13 +41,15 @@ function fixture() {
   let enabled = true;
   const created: FakeWindow[] = [];
   const attached: FakeWindow[] = [];
+  const initialVisibility: boolean[] = [];
   const lifecycle = createMainWindowLifecycle({
     canOpen: () => enabled,
     getWindow: () => current,
     setWindow: (window) => {
       current = window;
     },
-    createWindow: () => {
+    createWindow: (showInitially) => {
+      initialVisibility.push(showInitially);
       const window = new FakeWindow();
       created.push(window);
       return window;
@@ -58,12 +60,30 @@ function fixture() {
     lifecycle,
     created,
     attached,
+    initialVisibility,
     current: () => current,
     disable: () => {
       enabled = false;
     },
   };
 }
+
+test('隐藏自启只创建并关联窗口，手动唤出后仍复用同一个窗口', () => {
+  const { lifecycle, created, attached, initialVisibility } = fixture();
+  const window = lifecycle.open({ show: false })!;
+  assert.deepEqual(initialVisibility, [false]);
+  assert.equal(window.visible, false);
+  assert.equal(window.focused, false);
+  assert.equal(lifecycle.open({ show: false }), window);
+  assert.equal(window.visible, false);
+  assert.equal(lifecycle.open(), window);
+  assert.equal(window.visible, true);
+  assert.equal(window.focused, true);
+  assert.equal(created.length, 1);
+  assert.deepEqual(attached, [window]);
+  lifecycle.open({ show: false });
+  assert.equal(window.visible, true);
+});
 
 test('Dock activation reveals a hidden main window even when auxiliary windows exist', () => {
   const { lifecycle, created, attached } = fixture();

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import {
   SETTINGS_GROUPS,
@@ -6,8 +7,14 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置的两级导航', () => {
-  it('帮助与关于只有四个目标页，旧帮助和更新提醒深链归到新页面', () => {
-    expect(settingsGroupFor('version').sections).toEqual(['version', 'faq', 'logs', 'feedback']);
+  it('关于包含版本后的配置备份，旧帮助和更新提醒深链归到新页面', () => {
+    expect(settingsGroupFor('version').sections).toEqual([
+      'version',
+      'backup',
+      'faq',
+      'logs',
+      'feedback',
+    ]);
     expect(settingsSectionFor('help')).toBe('faq');
     expect(settingsSectionFor('updates')).toBe('version');
     for (const id of ['version', 'faq', 'logs', 'feedback', 'help', 'updates'] as const) {
@@ -17,17 +24,12 @@ describe('设置的两级导航', () => {
   it('模型保留单个一级分类，识别、克隆与画像分别归位', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
-      '个性显示',
-      '隐私与安全',
-      '账号与消息',
-      '空间与邮箱',
-      '存储与媒体',
-      '备份与恢复',
-      '数据维护',
-      '模型与识别',
-      '服务与集成',
-      '高级与诊断',
-      '帮助与关于',
+      '基础功能',
+      'AI 功能',
+      '凭据与账号',
+      '数据库与资源',
+      'WeQ 服务',
+      '关于 WeQ',
     ]);
     expect(settingsGroupFor('model-usage').sections).toEqual([
       'agentlab',
@@ -44,38 +46,48 @@ describe('设置的两级导航', () => {
     expect(settingsSectionFor('local-models')).toBe('voice');
     expect(settingsSectionFor('intent-models')).toBe('intent-sense');
     expect(settingsSectionFor('tts')).toBe('agentlab');
-    expect(settingsGroupFor('credentials').id).toBe('advanced');
+    expect(settingsGroupFor('credentials').id).toBe('account');
     expect(settingsGroupFor('startup').id).toBe('general');
     expect(settingsGroupFor('database').id).toBe('data');
-    expect(settingsGroupFor('mail').sections).toEqual(['qzone', 'mail']);
-    expect(settingsGroupFor('qzone').id).toBe('space-mail');
+    expect(settingsGroupFor('mail').sections).toEqual([
+      'chat-messages',
+      'call-recording',
+      'qzone',
+      'mail',
+    ]);
+    expect(settingsGroupFor('qzone').id).toBe('basic');
     expect(settingsGroupFor('account').sections).not.toContain('qzone');
   });
 
   it('存储、备份和维护按用途拆分，原页面入口定位到各自分类', () => {
-    for (const id of ['storage', 'media'] as const) {
-      expect(settingsGroupFor(id)).toEqual({
-        id: 'storage',
-        label: '存储与媒体',
-        sections: ['storage', 'media'],
-      });
-    }
+    expect(settingsGroupFor('storage').sections).toContain('weq-storage');
+    expect(settingsGroupFor('media').sections).toContain('accounts');
     expect(settingsGroupFor('backup')).toEqual({
-      id: 'backup',
-      label: '备份与恢复',
-      sections: ['backup'],
+      id: 'help',
+      label: '关于 WeQ',
+      sections: ['version', 'backup', 'faq', 'logs', 'feedback'],
     });
     for (const id of ['database', 'database-status', 'maintenance'] as const) {
       expect(settingsGroupFor(id)).toEqual({
         id: 'data',
-        label: '数据维护',
-        sections: ['database', 'database-status', 'maintenance'],
+        label: '数据库与资源',
+        sections: [
+          'database-repair',
+          'database-tolerance',
+          'database-management',
+          'qq-storage',
+          'resource-loading',
+        ],
       });
     }
   });
 
   it('保留原分区深链，每个二级页只归属一个分类', () => {
     const ids = SETTINGS_GROUPS.flatMap((group) => group.sections);
+    expect(SETTINGS_GROUPS).toHaveLength(7);
+    expect(ids).toHaveLength(37);
+    expect(settingsSectionFor('applock')).toBe('privacy');
+    expect(settingsGroupFor('privacy').id).toBe('general');
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of [
       'maintenance',

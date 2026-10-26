@@ -59,6 +59,7 @@ export class VipBadgeService {
      */
     onCredentialsReady: (handler: () => void) => () => void,
     private readonly onChanged: VipChangedHandler,
+    private readonly allowOnline: () => boolean = () => true,
   ) {
     this.logger = getLogger().child({ scope: 'vip-badge', accountUin: uin });
     this.unsubscribe = onCredentialsReady(() => {
@@ -83,7 +84,7 @@ export class VipBadgeService {
 
   /** 刷新一次；最小间隔挡住短时间内重复触发，同一时刻只跑一个。 */
   private refresh(reason: string): Promise<void> {
-    if (this.stopped) return Promise.resolve();
+    if (this.stopped || !this.allowOnline()) return Promise.resolve();
     if (this.inflight) return this.inflight;
     if (Date.now() - this.lastAttemptAt < MIN_REFRESH_GAP_MS) return Promise.resolve();
 
@@ -116,9 +117,13 @@ export class VipBadgeService {
         uin: this.uin,
         pid,
         seedPskey: seed ? { [VIP_PSKEY_DOMAIN]: seed } : undefined,
+        beforeRequest: () => {
+          if (this.stopped || !this.allowOnline()) throw new Error('当前来源未启用完整功能');
+        },
         onSeedInvalidated: (domain) => this.accountConfig.clearLoginPskey(domain),
       });
     } catch (error) {
+      if (this.stopped || !this.allowOnline()) return;
       // 票据被服务端判失效时，落盘那份一并作废：否则下次开账号还会先白失败一轮。
       // `fetchAccountVipInfo` 在离线分支不会触发失效回调（换不出新票），这里补一刀；
       // 在线分支它自己会调，重复删是同值幂等操作。
@@ -140,7 +145,7 @@ export class VipBadgeService {
       return;
     }
 
-    if (this.stopped) return;
+    if (this.stopped || !this.allowOnline()) return;
     this.accountConfig.setVipInfo(vip);
     this.logger.info('refreshed account vip info', {
       event: 'vip-fetched',

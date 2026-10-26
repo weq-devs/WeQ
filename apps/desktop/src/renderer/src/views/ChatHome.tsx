@@ -10,21 +10,25 @@
  *   ③ 头像：挂件 PNG（实测是 APNG，浏览器自己会动）覆在头像外圈；没有挂件时退回原来的
  *     波浪环。
  *   ④ 个性标签：半透明圆片，入场时与头像完全重叠，随后展开到四周较远处并持续浮动；
- *     一个标签都没有时退回一言打字机。
+ *     标签、问候语与一言按全局主页偏好独立显示。
  *
  * 有背景时整页文字改用亮色 + 阴影（名片多是深色照片），故 `.is-onphoto` 一档。
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { DEFAULT_HOME_SETTINGS } from '@weq/service/home-settings';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from '../components/dressPieces';
 import { dressUrl } from '../lib/resourceUrl';
 import { useThemeStore } from '../state/theme';
 import { trpc } from '../trpc/client';
+import '../styles/home-layout.css';
 
 interface Verse {
   text: string;
   from: string;
 }
+
+const EMPTY_VERSES: Verse[] = [];
 
 /** 按当前时刻给英文问候语。 */
 function greetWord(): string {
@@ -38,22 +42,25 @@ function greetWord(): string {
 }
 
 /**
- * 一言打字机（无个性标签时的降级）。取随机一句逐字打出，打完即定格——光标继续闪烁、
+ * 一言打字机。取随机一句逐字打出，打完即定格——光标继续闪烁、
  * 句子不再切换。随机性来自后端每次进首页重新洗牌（verses[0] 即随机）。
  */
-function HitokotoTicker({ verses }: { verses: Verse[] }) {
+function HitokotoTicker({ verse }: { verse: Verse }) {
   const [display, setDisplay] = useState('');
   const [from, setFrom] = useState('');
   const [showFrom, setShowFrom] = useState(false);
 
   useEffect(() => {
-    if (verses.length === 0) return undefined;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
 
-    const verse = verses[0]!;
     const chars = [...verse.text];
     setFrom(verse.from);
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      setDisplay(verse.text);
+      setShowFrom(true);
+      return undefined;
+    }
     setShowFrom(false);
     setDisplay('');
     let i = 0;
@@ -74,7 +81,7 @@ function HitokotoTicker({ verses }: { verses: Verse[] }) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [verses]);
+  }, [verse.text, verse.from]);
 
   return (
     <div className="weq-chathome-hitokoto">
@@ -98,22 +105,31 @@ export function ChatHome({
 }) {
   // 订阅深浅色:被拦截的会员广告占位图按主题换图,主题切换时 URL 要重建重拉。
   useThemeStore((s) => s.resolved);
+  const settings = trpc.bootstrap.getSettings.useQuery(undefined, { refetchOnWindowFocus: false });
+  const home = settings.data?.home ?? DEFAULT_HOME_SETTINGS;
   const dressQuery = trpc.account.getHomeDress.useQuery(undefined, {
     refetchOnWindowFocus: false,
     // 首次进入时 fetchHomeDress 可能还在后台写入，轮询直到拿到数据
     refetchInterval: (data) => (data ? false : 2000),
   });
   const dress = dressQuery.data;
-  const tags = dress?.tags ?? [];
+  const tags = home.showTags ? (dress?.tags ?? []) : [];
 
-  // 有个性标签就不再显示一言（两者占同一块视觉区域）。
-  const wantHitokoto = tags.length === 0;
+  const wantHitokoto = home.showHitokoto && !!settings.data?.home;
   const hitokoto = trpc.account.sampleHitokoto.useQuery(
     { count: 40 },
     { enabled: wantHitokoto, refetchOnMount: 'always', refetchOnWindowFocus: false },
   );
 
-  const verses = (hitokoto.data ?? []) as Verse[];
+  // 配置刚变更而新抽样尚未返回时，也不能短暂展示已屏蔽的缓存句子。
+  const verses = hitokoto.data ?? EMPTY_VERSES;
+  const visibleVerses = useMemo(() => {
+    const blocked = home.blockedWords.map((word) => word.toLowerCase());
+    return verses.filter(
+      (verse) =>
+        !blocked.some((word) => `${verse.text}\n${verse.from}`.toLowerCase().includes(word)),
+    );
+  }, [verses, home.blockedWords]);
   const name = nickname?.trim() || 'there';
 
   const widgetUrl = dressUrl(dress?.widgetUrl ?? '');
@@ -126,7 +142,7 @@ export function ChatHome({
     <section
       className={`weq-chathome weq-anim-fade${hasBackdrop ? ' is-onphoto' : ''}${
         tags.length === 0 ? ' is-notags' : ''
-      }`}
+      }${!home.showGreeting ? ' is-nogreeting' : ''}`}
     >
       <CardBackdrop imageUrl={cardUrl} videoUrl={cardVideoUrl} />
       {screenUrl && <ScreenRain src={screenUrl} />}
@@ -140,15 +156,22 @@ export function ChatHome({
               widgetUrl={widgetUrl}
               refreshOnFocus
             />
-            <TagRing tags={tags} />
+            <TagRing tags={tags} radiusPad={32} contained />
           </div>
-          <h1 className="weq-chathome-greet">
-            <span className="weq-chathome-greet-hi">{greetWord()},</span>
-            <span className="weq-chathome-greet-name">{name}</span>
-          </h1>
+          {home.showGreeting && (
+            <h1 className="weq-chathome-greet">
+              <span className="weq-chathome-greet-hi">{greetWord()},</span>
+              <span className="weq-chathome-greet-name">{name}</span>
+            </h1>
+          )}
         </div>
 
-        {wantHitokoto && verses.length > 0 && <HitokotoTicker verses={verses} />}
+        {wantHitokoto && visibleVerses[0] && (
+          <HitokotoTicker
+            key={`${visibleVerses[0].text}\n${visibleVerses[0].from}`}
+            verse={visibleVerses[0]}
+          />
+        )}
       </div>
     </section>
   );

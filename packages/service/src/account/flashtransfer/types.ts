@@ -70,6 +70,9 @@ export type FlashTaskStatus =
 
 export interface FlashDownloadTask {
   id: string;
+  /** 同一次下载操作共享的任务 id；旧记录未提供时独立展示。 */
+  batchId?: string;
+  resolutionErrors?: string[];
   filesetId: string;
   filesetName: string;
   name: string;
@@ -84,4 +87,8 @@ export interface FlashDownloadTask {
   error?: string;
   createdAt: number;
   finishedAt?: number;
+}
+
+export interface FlashDownloadBatch extends FlashDownloadTask {
+  files: FlashDownloadTask[];
 }

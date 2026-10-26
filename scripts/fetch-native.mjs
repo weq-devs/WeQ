@@ -35,6 +35,8 @@
  *   pnpm native:fetch --no-dress           # 只要 .node
  *   pnpm native:fetch --check              # 只比对，不改文件（缺失 / 落后 / 过期 → 退出码 1）
  *   pnpm native:fetch --require-fresh      # CI 用：剩余有效期不足 1/5 直接失败
+ *   pnpm native:fetch --require-authorization # 桌面 release：必须包含有效的原生权限助手
+ *   pnpm native:fetch --no-authorization   # Web：不下载仅供桌面使用的权限助手
  *   pnpm native:fetch --verify             # 装完在宿主机 require 一次并跑 getInitStatus()
  *   pnpm native:fetch --from-dir ./dist    # 从本地目录装（需含 manifest.json + 各资产；离线 / 镜像）
  *   pnpm native:fetch --dry-run            # 只打印将要写入的文件
@@ -49,17 +51,32 @@
 
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { Readable, Transform } from 'node:stream';
+import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { connect as tlsConnect } from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import { isStale, manifestValidity, validityText } from '../packages/native/validity.mjs';
+import {
+  authorizationArtifact,
+  validateNativeBuildInfo,
+} from '../packages/native/authorization.mjs';
+import { verifyAuthorizationHelper } from './check-authorization-helper.mjs';
 
 // ─────────────────────────── 常量 ───────────────────────────
 
@@ -121,6 +138,8 @@ const doVerify = has('--verify');
 const dressOnly = has('--dress-only');
 const withDress = !has('--no-dress');
 const requireFresh = has('--require-fresh');
+const requireAuthorization = has('--require-authorization');
+const withAuthorization = !has('--no-authorization');
 const wantLatest = has('--latest');
 const writePin = has('--write-pin');
 const explicitVersion = opt('--version') ?? process.env.NT_HELPER_VERSION;
@@ -379,23 +398,27 @@ async function readBody(res) {
 }
 
 async function download(url, dest, { label, size } = {}) {
-  const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok || !res.body) {
-    throw new Error(`下载失败 ${res.status} ${res.statusText}：${url}`);
+  // 必须走 httpGet 而不是内置 fetch：内置 fetch 不认 HTTP(S)_PROXY，
+  // 在只挂本地代理（如 Clash 7897）的环境里会直连超时，只报一句 `fetch failed`。
+  const res = await httpGet(url);
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    res.resume();
+    throw new Error(`下载失败 ${res.statusCode} ${res.statusMessage ?? ''}：${url}`);
   }
-  const contentLength = Number(res.headers.get('content-length')) || 0;
+  const contentLength = Number(res.headers['content-length']) || 0;
   const total = size || contentLength;
   const progress = quiet ? undefined : new Progress(label ?? url);
   let done = 0;
   const counter = new Transform({
     transform(chunk, _enc, cb) {
       done += chunk.length;
+      if (size && done > size) return cb(new Error('下载内容超过清单声明的体积'));
       progress?.render(done, total);
       cb(null, chunk);
     },
   });
   try {
-    await pipeline(Readable.fromWeb(res.body), counter, createWriteStream(dest));
+    await pipeline(res, counter, createWriteStream(dest));
   } catch (err) {
     if (progress && IS_TTY) process.stdout.write('\n');
     throw err;
@@ -499,6 +522,10 @@ function planFiles(manifest, platforms) {
       sha256: meta.sha256,
       size: meta.size,
     });
+    const authorization = withAuthorization
+      ? authorizationArtifact(manifest, name, spec.dir, { required: requireAuthorization })
+      : null;
+    if (authorization) files.push(authorization);
   }
   if (withDress) {
     for (const part of DRESS_PARTS) {
@@ -535,6 +562,8 @@ async function install(manifest, files, localDir) {
       if (localDir) {
         const source = join(localDir, entry.asset);
         if (!existsSync(source)) throw new Error(`本地缺资产：${source}`);
+        if (entry.size != null && (await stat(source)).size !== entry.size)
+          throw new Error(`${entry.asset} 体积不匹配；已中止，本地文件未改动`);
         await copyFile(source, staged);
       } else {
         await download(`${baseUrl}/download/${manifest.tag}/${entry.asset}`, staged, {
@@ -551,15 +580,24 @@ async function install(manifest, files, localDir) {
           );
         }
       }
+      if (entry.size != null) {
+        const { size } = await stat(staged);
+        if (size !== entry.size)
+          throw new Error(`${entry.asset} 体积不匹配；已中止，本地文件未改动`);
+      }
+    }
 
+    for (const entry of files) {
+      if (dryRun) continue;
+      const staged = join(staging, entry.asset);
       // 先在同目录落到临时名再 rename：中途失败不会留下半个二进制。
       const dest = join(root, entry.path);
       await mkdir(dirname(dest), { recursive: true });
       const incoming = `${dest}.incoming-${process.pid}`;
       await copyFile(staged, incoming);
-      await chmod(incoming, 0o644);
+      await chmod(incoming, entry.executable ? 0o755 : 0o644);
       await rename(incoming, dest);
-      log(`  ${step} ${entry.label.padEnd(16)} → ${entry.path} (${mb(entry.size)})`);
+      log(`  ${entry.label.padEnd(16)} → ${entry.path} (${mb(entry.size)})`);
     }
 
     if (!dryRun) await writeMarker(manifest, files);
@@ -585,7 +623,9 @@ async function writeMarker(manifest, files) {
     tag: manifest.tag,
     commit: manifest.commit,
     builtAt: validity.buildAt ?? manifest.builtAt,
+    buildTime: validity.buildAt ?? manifest.buildTime,
     ...(validity.expireAt ? { expiresAt: validity.expireAt } : {}),
+    ...(manifest.authorization ? { authorization: manifest.authorization } : {}),
     fetchedAt: new Date().toISOString(),
     files: [...merged.values()],
   };
@@ -606,7 +646,7 @@ async function readMarker() {
 
 // ─────────────────────────── 校验 ───────────────────────────
 
-async function check(manifest, pin) {
+async function check(manifest, pin, files) {
   const validity = manifestValidity(manifest);
   log(
     `远端：${manifest.tag}（commit ${String(manifest.commit ?? '').slice(0, 7)}，` +
@@ -620,6 +660,14 @@ async function check(manifest, pin) {
   }
 
   const problems = [];
+  for (const expected of files) {
+    if (
+      !(marker.files ?? []).some(
+        (entry) => entry.path === expected.path && entry.sha256 === expected.sha256,
+      )
+    )
+      problems.push(`安装记录缺少或不匹配：${expected.path}`);
+  }
   if (pin && pin.tag !== manifest.tag) {
     problems.push(`版本锚 ${PIN} 锚定 ${pin.tag}，与本次比对的 ${manifest.tag} 不一致`);
   }
@@ -646,7 +694,7 @@ async function check(manifest, pin) {
     if (isStale(validity)) {
       log(`提醒：这份构建${validityText(validity)}，建议重新 fetch`);
     }
-    const latestTag = await fetchLatestTag();
+    const latestTag = fromDir ? undefined : await fetchLatestTag();
     if (latestTag && latestTag !== manifest.tag) {
       log(
         `提醒：上游有更新的构建 ${latestTag}（本地锚定 ${manifest.tag}）。` +
@@ -709,9 +757,12 @@ function readHostBuildInfo() {
  * 平台错配）的检查，release 流程拿它当门禁。返回值 `{ code, buildInfo }`：
  * `code` 非 0 即失败（与退出码语义一致）。
  */
-async function verifyHost(files) {
+async function verifyHost(files, manifest) {
   const spec = PLATFORMS[hostTag];
-  if (!spec || !files.some((entry) => entry.path.startsWith(spec.dir))) {
+  if (
+    !spec ||
+    !files.some((entry) => resolve(root, entry.path) === resolve(root, spec.dir, 'nt_helper.node'))
+  ) {
     log(`跳过 --verify：本次没装宿主平台（${hostTag}）的 .node`);
     return { code: 0, buildInfo: undefined };
   }
@@ -728,8 +779,25 @@ async function verifyHost(files) {
     return { code: 1, buildInfo };
   }
   const validity = manifestValidity(undefined, buildInfo);
+  if (requireAuthorization || requireFresh) {
+    validateNativeBuildInfo(buildInfo, { production: true });
+    if (
+      Date.parse(manifest.buildTime) / 1000 !== buildInfo.buildTime ||
+      Date.parse(manifest.expiresAt) / 1000 !== buildInfo.expireTime
+    )
+      throw new Error('普通原生模块的实际有效期与发布清单不一致');
+  }
   const tail = validityText(validity) ? `，${validityText(validity)}` : '';
   log(`--verify ✔ ${spec.dir}/nt_helper.node 可用（getInitStatus() = 0${tail}）`);
+  const helper = files.find((entry) => entry.label === `authorization/${hostTag}`);
+  if (helper) {
+    const helperInfo = verifyAuthorizationHelper(join(root, helper.path), hostTag, {
+      production: requireAuthorization || requireFresh,
+      expected: manifest.authorization[hostTag],
+    });
+    validateNativeBuildInfo(buildInfo, { expected: helperInfo });
+    log('--verify ✔ 权限助手构建信息与发布清单一致（未安装服务）');
+  }
   return { code: 0, buildInfo };
 }
 
@@ -740,6 +808,8 @@ async function main() {
   if (platforms.length === 0 && !withDress) {
     throw new Error('没有任何要装的目标（--dress-only 不能和 --no-dress 一起用）');
   }
+  if (requireAuthorization && (!withAuthorization || platforms.length === 0))
+    throw new Error('--require-authorization 不能禁用助手或仅选择装扮资源');
 
   if (explicitVersion && wantLatest) {
     throw new Error('--version 与 --latest 不能一起用：指定了 tag 就已经不是"取最新"的意思了');
@@ -769,9 +839,12 @@ async function main() {
     );
   }
 
-  if (checkOnly) return check(manifest, pin);
-
   const files = planFiles(manifest, platforms);
+  if (checkOnly) {
+    const checked = await check(manifest, pin, files);
+    if (checked !== 0 || !doVerify) return checked;
+    return (await verifyHost(files, manifest)).code;
+  }
   log(`来源：${localDir ?? `${releaseRepo}@${manifest.tag}`}`);
   log(`写入：${root}`);
   await install(manifest, files, localDir);
@@ -779,13 +852,16 @@ async function main() {
   // 装完从刚落到本地的 .node 里问出构建信息，再写锚文件（日期以二进制为准）。
   const hostBuildInfo = dryRun ? undefined : readHostBuildInfo();
   const validity = manifestValidity(manifest, hostBuildInfo);
+  if (doVerify && !dryRun) {
+    const verified = await verifyHost(files, manifest);
+    if (verified.code !== 0) return verified.code;
+  }
   if (writePin && !dryRun) await writePinFile(manifest, pin, hostBuildInfo);
 
   if (!dryRun && isStale(validity)) {
     const text = validityText(validity) ?? '有效期未知';
     log(`提醒：这份构建${text}，建议重新 fetch；CI 的 --require-fresh 会在剩余不足 1/5 时失败`);
   }
-  if (doVerify && !dryRun) return (await verifyHost(files)).code;
   return 0;
 }
 

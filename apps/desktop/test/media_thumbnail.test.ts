@@ -6,11 +6,16 @@ import { QqImage } from '../src/renderer/src/components/QqMedia';
 const state = vi.hoisted(() => ({ open: vi.fn() }));
 vi.mock('../src/renderer/src/components/ImageLightbox', () => ({ openLightbox: state.open }));
 const roots: ReturnType<typeof createRoot>[] = [];
-beforeEach(() => vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true));
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('IntersectionObserver', undefined);
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+});
 afterEach(async () => {
   for (const root of roots.splice(0)) await act(async () => root.unmount());
   document.body.innerHTML = '';
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 async function render(data: Record<string, unknown>) {
@@ -47,7 +52,7 @@ it('动画表情不切换成静态缩略图，也不打开原图灯箱', async (
 });
 it('编辑器本地预览仍优先使用本地资源', async () => {
   const host = await render({ localPath: '/synthetic/image.png', localPreviewUrl: 'blob:fixture' });
-  expect(host.querySelector('img')!.src).toContain('localfile');
+  expect(host.querySelector('img')!.src).toBe('blob:fixture');
 });
 
 it('缩略图损坏时回退原图，不直接显示缺图', async () => {

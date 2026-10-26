@@ -8,6 +8,7 @@ import { protectMailHtml } from './html';
 import { decodeMailSocketFrame, MailNoticeCursor } from './notifications';
 import {
   MailFailure,
+  MAIL_VERIFICATION_REQUIRED,
   type MailAction,
   type MailAttachment,
   type MailAddress,
@@ -64,6 +65,7 @@ export class QQMailService {
   private reconnectAttempt = 0;
   private cursor = new MailNoticeCursor();
   private noticeQueryPrimed = false;
+  private noticeSyncVersion = 0;
   private sending = false;
   private readonly totals = new Map<string, number>();
   private readonly transfers = new Set<AbortController>();
@@ -72,6 +74,8 @@ export class QQMailService {
   private backgroundStopped = false;
   private backgroundConnect: Promise<void> | null = null;
   private pendingCredentials = false;
+  private verificationBlocked = false;
+  private readonly allowOnline: () => boolean;
 
   constructor(
     nt: Pick<NtHelperBinding, 'ptFetchMailSession'>,
@@ -82,9 +86,11 @@ export class QQMailService {
       notificationsEnabled?: boolean;
       onNotice?: (notice: MailNotice) => void;
       socketFactory?: (options: WebSocket.ClientOptions) => MailSocket;
+      allowOnline?: () => boolean;
     } = {},
   ) {
     this.makeAuth = options.authFactory ?? (() => new MailAuth(nt, uin, onlinePid));
+    this.allowOnline = options.allowOnline ?? (() => true);
     this.auth = this.makeAuth();
     this.state.notifications = options.notificationsEnabled ?? false;
     this.onNotice = options.onNotice;
@@ -105,7 +111,13 @@ export class QQMailService {
   }
 
   private get backgroundEnabled(): boolean {
-    return !this.closed && !this.backgroundStopped && (this.showUnread || this.state.notifications);
+    return (
+      !this.closed &&
+      this.allowOnline() &&
+      !this.verificationBlocked &&
+      !this.backgroundStopped &&
+      (this.showUnread || this.state.notifications)
+    );
   }
 
   /** QQ 凭据刚就绪时立即连接，不必等离线重试计时器。 */
@@ -149,10 +161,26 @@ export class QQMailService {
   }
 
   private async scoped<T>(run: (auth: MailAuth) => Promise<T>, writeResult = false): Promise<T> {
+    if (!this.allowOnline()) throw new MailFailure('auth', '本次运行尚未启用完整功能。');
     if (this.closed) throw new MailFailure('auth', '邮箱会话已关闭。');
     const auth = this.auth;
-    const result = await run(auth);
-    if (this.closed || this.auth !== auth)
+    let result: T;
+    try {
+      result = await run(auth);
+    } catch (error) {
+      if (
+        auth === this.auth &&
+        error instanceof MailFailure &&
+        error.businessCode === MAIL_VERIFICATION_REQUIRED
+      ) {
+        this.verificationBlocked = true;
+        this.pendingCredentials = false;
+        this.stopNotifications();
+        this.update({ state: 'error', error: error.message });
+      }
+      throw error;
+    }
+    if (this.closed || !this.allowOnline() || this.auth !== auth)
       throw new MailFailure(
         writeResult ? 'unknown-send' : 'auth',
         writeResult
@@ -163,6 +191,9 @@ export class QQMailService {
   }
 
   async connect(signal?: AbortSignal): Promise<MailStatus> {
+    if (!this.allowOnline()) throw new MailFailure('auth', '本次运行尚未启用完整功能。');
+    // 明确验证提示后只由手动连接恢复；后台入口已由 backgroundEnabled 拦住。
+    this.verificationBlocked = false;
     if (this.auth.ready && this.state.state === 'ready') return this.status();
     this.update({ state: 'connecting', error: null });
     const auth = this.auth;
@@ -191,9 +222,13 @@ export class QQMailService {
   }
 
   async folders(signal?: AbortSignal): Promise<MailFolder[]> {
-    return this.scoped(async (auth) => {
+    const folders = await this.scoped(async (auth) => {
       const body = await auth.cgi('/list/folderlist', {}, { signal });
       return mailFolders(body.list);
+    });
+    return this.scoped(async () => {
+      await this.refreshUnread(signal);
+      return folders;
     });
   }
 
@@ -427,7 +462,10 @@ export class QQMailService {
   }
 
   private async syncNotice(prime: boolean, signal?: AbortSignal): Promise<void> {
+    const version = ++this.noticeSyncVersion;
     const body = await this.scoped((auth) => auth.notificationQuery(signal));
+    // 页面刷新、推送和后台轮询可能重叠，旧响应不能覆盖较新的已读状态。
+    if (version !== this.noticeSyncVersion) return;
     const notices = items(body.newmaillist).map((value) => {
       const entry = object(value);
       const sender = object(entry.senderinfo ?? entry.sender_info);
@@ -445,7 +483,10 @@ export class QQMailService {
     this.update({ state: 'ready', error: null, unread: count(body.unread), lastSync: Date.now() });
     if (this.backgroundEnabled) {
       if (this.pollTimer) clearTimeout(this.pollTimer);
-      const seconds = Math.min(3600, Math.max(60, count(body.next_sync_time_interval_sec) || 900));
+      const seconds =
+        this.state.unread > 0
+          ? 60
+          : Math.min(3600, Math.max(60, count(body.next_sync_time_interval_sec) || 900));
       this.pollTimer = setTimeout(() => {
         this.pollTimer = null;
         void this.syncNotice(false).catch(() => this.scheduleNoticeRecovery());
@@ -495,7 +536,11 @@ export class QQMailService {
           }
           this.cursor.sequence = event.sequence;
           if (!this.cursor.primed) this.cursor.prime([]);
-        } else if (event.sequence === 0 || event.sequence > this.cursor.sequence) {
+        } else if (
+          event.kind === 'changed' ||
+          event.sequence === 0 ||
+          event.sequence > this.cursor.sequence
+        ) {
           this.cursor.sequence = Math.max(this.cursor.sequence, event.sequence);
           if (event.kind === 'mail' && this.cursor.accept(event.notice.id))
             this.announce(event.notice);
@@ -533,6 +578,17 @@ export class QQMailService {
       socket.on('error', () => {});
       socket.terminate();
     }
+  }
+
+  /** 运行态失活只释放网络会话，不改变用户的提醒/后台偏好。 */
+  suspendOnline(): void {
+    if (this.closed) return;
+    this.pendingCredentials = false;
+    this.stopNotifications();
+    for (const transfer of this.transfers) transfer.abort();
+    this.auth.dispose();
+    this.auth = this.makeAuth();
+    this.update({ state: 'disconnected', error: null });
   }
 
   disconnect(): void {

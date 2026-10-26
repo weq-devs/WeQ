@@ -17,7 +17,7 @@
  * stored avatarUrl — that URL can be a stale/expired signed link that 502s.
  */
 
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import {
   Check,
   CheckCheck,
@@ -37,9 +37,11 @@ import {
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
+import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+import { LongTermAuthorizationSection } from './LongTermAuthorizationSection';
 
 /** rkey `type_` → human label. Mirrors media_download.ts scene constants. */
 const RKEY_TYPE_LABEL: Record<number, string> = {
@@ -72,15 +74,22 @@ function KeyValueRow({
   value: string | null | undefined;
   secret?: boolean;
 }): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setRevealed(false);
+      setCopied(false);
+    }
+  }, [active]);
 
   useEffect(() => {
-    if (!copied) return undefined;
+    if (!active || !copied) return undefined;
     const t = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(t);
-  }, [copied]);
+  }, [copied, active]);
 
   const hasValue = Boolean(value);
   const shown = !value ? '未获取' : secret && !revealed ? maskSecret(value) : value;
@@ -143,10 +152,14 @@ function formatExpiry(createTime: number, ttlSeconds: number): { text: string; e
 
 export function AccountBasicsSection({
   page = 'account',
+  heading = true,
 }: {
-  page?: 'account' | 'credentials' | 'media';
+  page?: 'account' | 'credentials' | 'media' | 'read';
+  heading?: boolean;
 }): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
+  const confirm = useDialog((s) => s.confirm);
   const autoRefresh = useQQAutoRefresh(true);
 
   const profile = trpc.account.getSelfProfile.useQuery(undefined, {
@@ -155,6 +168,7 @@ export function AccountBasicsSection({
   });
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
     ...autoRefresh,
+    enabled: autoRefresh.enabled && page !== 'read',
     // rkeys/clientkey are harvested in the background by the monitor; poll so a
     // fresh one shows up (and the expiry countdown re-renders) without reopening.
     refetchInterval: autoRefresh.enabled && page === 'credentials' ? 10_000 : false,
@@ -163,6 +177,10 @@ export function AccountBasicsSection({
     ...autoRefresh,
     enabled: autoRefresh.enabled && page !== 'credentials',
   });
+  const fullMode = trpc.bootstrap.getFullModeState.useQuery(undefined, {
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && page === 'credentials',
+  });
   const systemInfo = trpc.bootstrap.systemInfo.useQuery(undefined, {
     ...autoRefresh,
     enabled: autoRefresh.enabled && page === 'account',
@@ -170,20 +188,39 @@ export function AccountBasicsSection({
 
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
   const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
-  const setReportReadEnabled = trpc.bootstrap.setReportReadEnabled.useMutation();
-  const setManualReadReportEnabled = trpc.bootstrap.setManualReadReportEnabled.useMutation();
+  const setRestrictedModeBanner = trpc.bootstrap.setRestrictedModeBannerEnabled.useMutation();
+  const setReadSyncEnabled = trpc.bootstrap.setReadSyncEnabled.useMutation();
   const setNativeMediaEnabled = trpc.account.setNativeMediaEnabled.useMutation();
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
 
   const [revealKey, setRevealKey] = useState(false);
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setRevealKey(false);
+      setCopied(false);
+    }
+  }, [active]);
 
   // Local mirror for snappy toggles; re-seeded whenever server data changes.
   const [realtime, setRealtimeLocal] = useState(true);
   const [autoAttach, setAutoAttach] = useState(true);
+  const [restrictedBanner, setRestrictedBanner] = useState(true);
+  const [savingBanner, setSavingBanner] = useState(false);
+  const bannerPending = useRef(false);
   const [reportRead, setReportRead] = useState(false);
   const [manualReadReport, setManualReadReport] = useState(false);
+  const [savingReadSync, setSavingReadSync] = useState(false);
+  const readSyncPending = useRef(false);
+  const readSyncActive = useRef(active);
+  readSyncActive.current = active;
+  useEffect(() => {
+    readSyncActive.current = active;
+    return () => {
+      readSyncActive.current = false;
+    };
+  }, [active]);
   // 静态账号的原生媒体绑定存在**账号**配置里（不是全局设置），所以单独镜像一份。
   const [nativeMedia, setNativeMedia] = useState(true);
   const [savingNativeMedia, setSavingNativeMedia] = useState(false);
@@ -197,6 +234,7 @@ export function AccountBasicsSection({
     if (!d) return;
     setRealtimeLocal(d.realtimeEnabled);
     setAutoAttach(d.autoAttachQq);
+    setRestrictedBanner(d.restrictedModeBannerEnabled);
     setReportRead(d.reportReadEnabled);
     setManualReadReport(d.manualReadReportEnabled);
   }, [settings.data]);
@@ -209,16 +247,16 @@ export function AccountBasicsSection({
 
   useEffect(() => {
     const d = settings.data;
-    if (!d) return;
+    if (page !== 'media' || !d) return;
     setExternalChatpicDir(d.externalChatpic.dir);
     setExternalChatpicEnabled(d.externalChatpic.enabled);
-  }, [settings.data]);
+  }, [settings.data, page]);
 
   useEffect(() => {
-    if (!copied) return undefined;
+    if (!active || !copied) return undefined;
     const t = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(t);
-  }, [copied]);
+  }, [copied, active]);
 
   const p = profile.data;
   const cfg = config.data;
@@ -227,6 +265,7 @@ export function AccountBasicsSection({
   const rkeys = cfg?.rkeys ?? [];
   const clientKey = cfg?.clientKey;
   const settingsLoading = settings.isLoading;
+  const attachAllowed = fullMode.data?.allowed === true;
   const isStatic = cfg?.static ?? false;
   const nativeMediaDir = cfg?.nativeMediaDir ?? null;
   // macOS 现在也能读内存（需 root 且关闭 SIP），开关不再置灰 —— 只在文案里提示门槛。
@@ -256,29 +295,59 @@ export function AccountBasicsSection({
   }
 
   async function toggleReportRead(enabled: boolean): Promise<void> {
-    const previous = reportRead;
-    setReportRead(enabled);
+    if (readSyncPending.current || !active || !settings.data || settings.error) return;
+    readSyncPending.current = true;
+    setSavingReadSync(true);
     try {
-      await setReportReadEnabled.mutateAsync({ enabled });
+      if (
+        enabled &&
+        !(await confirm(
+          '同步已读状态到 QQ',
+          '开启后，自动阅读与手动标记已读都会同步到 QQ，可能清除其他客户端的未读提醒。标为未读不能恢复已清除的提醒。',
+          { okLabel: '开启同步' },
+        ))
+      )
+        return;
+      if (!readSyncActive.current) return;
+      await setReadSyncEnabled.mutateAsync({ enabled });
+      if (!readSyncActive.current) return;
+      setReportRead(enabled);
+      setManualReadReport(enabled);
+      await settings.refetch();
     } catch (error) {
-      setReportRead(previous);
-      showError('保存失败', errMsg(error));
-      return;
+      try {
+        const actual = await settings.refetch();
+        if (actual?.data && readSyncActive.current) {
+          setReportRead(actual.data.reportReadEnabled);
+          setManualReadReport(actual.data.manualReadReportEnabled);
+        }
+      } catch {
+        // 回读也失败时保留最后已知组合，不将保存失败误报为成功。
+      } finally {
+        if (readSyncActive.current) showError('保存失败', errMsg(error));
+      }
+    } finally {
+      readSyncPending.current = false;
+      setSavingReadSync(false);
     }
-    void settings.refetch();
   }
 
-  async function toggleManualReadReport(enabled: boolean): Promise<void> {
-    const previous = manualReadReport;
-    setManualReadReport(enabled);
+  async function toggleRestrictedBanner(enabled: boolean): Promise<void> {
+    if (bannerPending.current) return;
+    bannerPending.current = true;
+    setSavingBanner(true);
+    const previous = restrictedBanner;
+    setRestrictedBanner(enabled);
     try {
-      await setManualReadReportEnabled.mutateAsync({ enabled });
+      await setRestrictedModeBanner.mutateAsync({ enabled });
+      await settings.refetch();
     } catch (error) {
-      setManualReadReport(previous);
+      setRestrictedBanner(previous);
       showError('保存失败', errMsg(error));
-      return;
+    } finally {
+      bannerPending.current = false;
+      setSavingBanner(false);
     }
-    void settings.refetch();
   }
 
   // 原生媒体绑定存在账号配置里，所以刷的是 config 而不是 settings。主进程侧
@@ -329,17 +398,23 @@ export function AccountBasicsSection({
 
   return (
     <div className="weq-set">
-      <SectionHeader
-        icon={<User size={16} strokeWidth={1.8} />}
-        title={{ account: '账号接入与消息', credentials: '账号凭据', media: '媒体来源' }[page]}
-        desc={
-          page === 'account'
-            ? '当前账号资料；数据库监听与 QQ 内存读取开关为全局设置。'
-            : page === 'credentials'
-              ? '当前账号的敏感凭据，默认隐藏。'
-              : '本机媒体关联仅影响当前账号；外部安卓缓存为全局配置。'
-        }
-      />
+      {heading && (
+        <SectionHeader
+          icon={<User size={16} strokeWidth={1.8} />}
+          title={
+            { account: '监听与读取', credentials: '凭据管理', media: '资源目录', read: '已读同步' }[
+              page
+            ]
+          }
+          desc={
+            page === 'account'
+              ? '当前账号资料；数据库监听与 QQ 内存读取开关为全局设置。'
+              : page === 'credentials'
+                ? '当前账号的敏感凭据，默认隐藏。'
+                : '本机媒体关联仅影响当前账号；外部安卓缓存为全局配置。'
+          }
+        />
+      )}
 
       {/* Self profile hero */}
       {page === 'account' && (
@@ -418,8 +493,9 @@ export function AccountBasicsSection({
               <KeyValueRow label="guid" value={cfg?.guid} />
             </div>
             <p className="weq-set-note">
-              a1 来自 login.db，a2 / d2 / d2key 由在线 QQ 进程内存采集（需开启「自动读取 QQ
-              内存」）；guid 是本机设备标识。账号下线后会话物料会被清空。
+              a1 来自 login.db，a2 / d2 / d2key 由在线 QQ
+              进程内存采集（需为当前来源启用完整功能）；guid
+              是本机设备标识。账号下线后会话物料会被清空。
             </p>
           </Card>
 
@@ -445,10 +521,10 @@ export function AccountBasicsSection({
                 {config.isLoading
                   ? '读取中…'
                   : cfg?.qqOnline
-                    ? autoAttach
+                    ? attachAllowed
                       ? '在线实例已连接，正在等待获取 rKey…'
-                      : '完全离线模式已开启（自动读取 QQ 内存 已关闭），不会获取 rKey。'
-                    : '未获取到 rKey（需要登录中的 QQ 在线，且开启「自动读取 QQ 内存（完整功能）」）。'}
+                      : '本次运行尚未启用完整功能，不会获取 rKey。'
+                    : '未获取到 rKey（需要登录中的 QQ 在线，并为当前来源启用完整功能）。'}
               </div>
             ) : (
               <ul className="weq-set-rkey-list">
@@ -509,10 +585,10 @@ export function AccountBasicsSection({
                 {config.isLoading
                   ? '读取中…'
                   : cfg?.qqOnline
-                    ? autoAttach
+                    ? attachAllowed
                       ? '在线实例已连接，正在等待获取 ClientKey…'
-                      : '完全离线模式已开启（自动读取 QQ 内存 已关闭），不会获取 ClientKey。'
-                    : '未获取到 ClientKey（需要登录中的 QQ 在线，且开启「自动读取 QQ 内存（完整功能）」）。'}
+                      : '本次运行尚未启用完整功能，不会获取 ClientKey。'
+                    : '未获取到 ClientKey（需要登录中的 QQ 在线，并为当前来源启用完整功能）。'}
               </div>
             ) : (
               <div className="weq-set-rkey-item">
@@ -549,12 +625,12 @@ export function AccountBasicsSection({
       )}
       {/* 静态账号：关联本机原生目录读媒体 */}
       {page === 'media' && isStatic && (
-        <Card>
+        <Card title="关联资源目录" settingId="linked-resources">
           <Row
             label={
               <span className="weq-set-row-icon">
                 <FolderSearch size={15} strokeWidth={1.8} aria-hidden />
-                关联本机媒体目录
+                关联资源目录
               </span>
             }
             desc={
@@ -567,87 +643,100 @@ export function AccountBasicsSection({
                 checked={Boolean(nativeMediaDir) && nativeMedia}
                 disabled={!nativeMediaDir || savingNativeMedia}
                 onChange={(v) => void toggleNativeMedia(v)}
-                label="关联本机媒体目录"
+                label="关联资源目录"
               />
             }
           />
         </Card>
       )}
+      {page === 'media' && (!cfg || !isStatic) && (
+        <Card title="关联资源目录" settingId="linked-resources">
+          <p className="weq-set-desc" role="status">
+            {!cfg
+              ? config.error
+                ? '暂时无法读取当前账号的资源关联状态，请重试。'
+                : '正在读取资源关联状态…'
+              : '仅静态账号需要关联本机资源目录，当前账号使用自己的 QQ 资源目录。'}
+          </p>
+        </Card>
+      )}
 
       {/* Realtime / db watch */}
       {page === 'account' && (
+        <Card>
+          <Row
+            label={
+              <span className="weq-set-row-icon">
+                <Database size={15} strokeWidth={1.8} aria-hidden />
+                启用数据库监听
+              </span>
+            }
+            desc="监听 QQ 数据库变化以实时显示新消息、撤回与表情回应。"
+            control={
+              <Toggle
+                checked={realtime}
+                disabled={settingsLoading}
+                onChange={(v) =>
+                  void persist(
+                    () => setRealtimeLocal(v),
+                    () => setRealtime.mutateAsync({ enabled: v }),
+                  )
+                }
+                label="启用数据库监听"
+              />
+            }
+          />
+        </Card>
+      )}
+      {page === 'read' && (
+        <Card settingId="read-sync">
+          <Row
+            label={
+              <span className="weq-set-row-icon">
+                <CheckCheck size={15} strokeWidth={1.8} aria-hidden />
+                同步已读状态到 QQ
+              </span>
+            }
+            desc="向 QQ 上报在 WeQ 阅读和手动标记的位置，可能清除其他端的未读提醒。默认关闭，仅在线完整模式生效；标为未读只在本地生效，不能恢复其他端已清除的提醒。"
+            control={
+              <Toggle
+                checked={reportRead || manualReadReport}
+                disabled={
+                  settingsLoading ||
+                  !settings.data ||
+                  Boolean(settings.error) ||
+                  savingReadSync ||
+                  setReadSyncEnabled.isPending
+                }
+                onChange={(v) => void toggleReportRead(v)}
+                label="同步已读状态到 QQ"
+              />
+            }
+          />
+          {reportRead !== manualReadReport ? (
+            <p className="weq-set-note">
+              {reportRead ? '仅自动阅读同步，沿用原设置' : '仅手动标记同步，沿用原设置'}
+            </p>
+          ) : null}
+        </Card>
+      )}
+      {page === 'account' && (
         <>
+          {/* 自动进入策略与本来源运行请求分离 */}
+          <LongTermAuthorizationSection />
           <Card>
             <Row
-              label={
-                <span className="weq-set-row-icon">
-                  <Database size={15} strokeWidth={1.8} aria-hidden />
-                  启用数据库监听
-                </span>
-              }
-              desc="监听 QQ 数据库变化以实时显示新消息、撤回与表情回应。"
-              control={
-                <Toggle
-                  checked={realtime}
-                  disabled={settingsLoading}
-                  onChange={(v) =>
-                    void persist(
-                      () => setRealtimeLocal(v),
-                      () => setRealtime.mutateAsync({ enabled: v }),
-                    )
-                  }
-                  label="启用数据库监听"
-                />
-              }
-            />
-          </Card>
-
-          {/* 完全离线总闸：自动读取 QQ 内存（完整功能） */}
-          <Card>
-            <Row
-              label={
-                <span className="weq-set-row-icon">
-                  <CheckCheck size={15} strokeWidth={1.8} aria-hidden />
-                  同步已读状态到 QQ
-                </span>
-              }
-              desc="向 QQ 上报在 WeQ 阅读的位置，可能清除其他端的未读提醒。默认关闭，仅在线模式生效；手动标记使用下方独立开关。"
-              control={
-                <Toggle
-                  checked={reportRead}
-                  disabled={settingsLoading || setReportReadEnabled.isPending}
-                  onChange={(v) => void toggleReportRead(v)}
-                  label="同步已读状态到 QQ"
-                />
-              }
-            />
-            <Row
-              label="手动标记时上报已读位置"
-              desc="默认关闭。开启后，手动标为已读及撤销中推进已读的位置会同步到 QQ；标为未读只写本地库，不能恢复其他端已清除的提醒。"
-              control={
-                <Toggle
-                  checked={manualReadReport}
-                  disabled={settingsLoading || setManualReadReportEnabled.isPending}
-                  onChange={(v) => void toggleManualReadReport(v)}
-                  label="手动标记时上报已读位置"
-                />
-              }
-            />
-          </Card>
-
-          {/* 完全离线总闸：自动读取 QQ 内存（完整功能） */}
-          <Card>
-            <Row
+              settingId="auto-full-mode"
               label={
                 <span className="weq-set-row-icon">
                   <Plug size={15} strokeWidth={1.8} aria-hidden />
-                  自动读取 QQ 内存（完整功能）
+                  自动启用完整功能
                 </span>
               }
               desc={
                 isMac
-                  ? 'macOS 读取 QQ 内存需要管理员权限，且目标未开启强化运行时保护（QQ 已开启，因此需要先关闭 SIP）。开启后后台会以管理员权限读取登录中的 QQ 进程内存，采集 rKey / ClientKey 等凭证。'
-                  : '默认开启：后台自动读取登录中的 QQ 进程内存，采集 rKey / ClientKey 等凭证，启用媒体补全、群相册、装扮等在线功能。关闭后进入完全离线模式——不再读取 QQ 内存、不再联网换取任何凭证，仅使用本地数据与本地文件。'
+                  ? 'macOS 读取 QQ 内存需要管理员权限，且目标未开启强化运行时保护（QQ 已开启，因此需要先关闭 SIP）。开启后自动尝试采集 rKey / ClientKey 等凭证；关闭后仍可为当前来源手动启用，手动请求仅在本次运行有效。'
+                  : '开启后自动尝试读取登录中的 QQ 进程内存，采集 rKey / ClientKey 等凭证并启用在线能力。关闭后不再自动尝试，仍可在受限模式详情中为当前来源手动启用；手动请求仅在本次运行有效。'
               }
               control={
                 <Toggle
@@ -659,7 +748,22 @@ export function AccountBasicsSection({
                       () => setAutoAttachQq.mutateAsync({ enabled: v }),
                     )
                   }
-                  label="自动读取 QQ 内存（完整功能）"
+                  label="自动启用完整功能"
+                />
+              }
+            />
+            <Row
+              settingId="restricted-mode-banner"
+              label="进入受限模式时横幅提醒"
+              desc="仅控制被动提醒，状态详情、管理员授权请求、主动操作错误和进入进度仍会显示。"
+              control={
+                <Toggle
+                  checked={restrictedBanner}
+                  disabled={
+                    settingsLoading || !settings.data || Boolean(settings.error) || savingBanner
+                  }
+                  onChange={(value) => void toggleRestrictedBanner(value)}
+                  label="进入受限模式时横幅提醒"
                 />
               }
             />
@@ -668,7 +772,7 @@ export function AccountBasicsSection({
       )}
       {/* 外部安卓图片缓存（放最下面，带引导文案） */}
       {page === 'media' && (
-        <Card title="外部安卓图片缓存">
+        <Card title="外部安卓图片缓存" settingId="external-chatpic">
           <Row
             label={
               <span className="weq-set-row-icon">

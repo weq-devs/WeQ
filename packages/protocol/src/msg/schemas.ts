@@ -568,9 +568,55 @@ export const INLINE_KEYBOARD_GROUP: ProtoMessage = message([
 
 /** commonElem(serviceType=46).pbElem 顶层。 */
 export const INLINE_KEYBOARD_PB: ProtoMessage = message([f('group', 1, INLINE_KEYBOARD_GROUP)]);
+/**
+ * generalFlags(37).font —— 名字沿用最早观测到的字体语义（15/56 确实是字体 id），
+ * 但**这一格实际还承载别的东西**：位置共享消息的 generalFlags.19 里塞的是一组
+ * 业务参数（19.4 / 19.51 / 19.66 / 19.79 / 19.107 …），跟字体无关。
+ *
+ * 这里把观测到的 tag 全部声明出来（加法，不影响既有解码路径）—— 发送侧
+ * `encode()` 只按 `field.name` 取值，**没声明的 tag 会被静默丢弃**，群聊的
+ * 位置共享卡片因此发不出去（实测：缺这些字段时卡片不可点）。
+ */
 export const FONT_INFO: ProtoMessage = message([
+  f('flag1', 1, 'uint32'),
+  f('flag4', 4, 'uint32'),
   f('fontId2', 15, 'uint32'),
+  f('flag20', 20, 'uint32'),
+  f('flag25', 25, 'uint32'),
+  f('flag30', 30, 'uint32'),
+  f('flag31', 31, 'uint32'),
+  f('flag34', 34, 'uint32'),
+  f('flag51', 51, 'uint32'),
+  f('flag52', 52, 'uint32'),
+  f('flag54', 54, 'uint32'),
   f('fontId1', 56, 'uint32'),
+  f('flag58', 58, 'uint32'),
+  f('flag61', 61, 'uint32'),
+  f('nested65', 65, message([f('flag2', 2, 'uint32')])),
+  f('flag66', 66, 'uint64'),
+  f('flag71', 71, 'uint32'),
+  f('flag72', 72, 'uint32'),
+  f('nested73', 73, message([f('flag2', 2, 'uint32'), f('flag6', 6, 'uint32')])),
+  f('flag79', 79, 'uint32'),
+  f('flag81', 81, 'uint32'),
+  f(
+    'nested102',
+    102,
+    message([
+      f(
+        'inner',
+        1,
+        message([
+          f('a', 1, 'uint32'),
+          f('b', 2, 'uint32'),
+          f('c', 3, 'uint32'),
+          f('d', 4, 'uint32'),
+        ]),
+      ),
+    ]),
+  ),
+  f('flag107', 107, 'uint32'),
+  f('token116', 116, 'uint64'),
 ]);
 
 export const GENERAL_FLAGS: ProtoMessage = message([
@@ -579,6 +625,9 @@ export const GENERAL_FLAGS: ProtoMessage = message([
   f('uin', 3, 'uint64'),
   f('longTextFlag', 6, 'int32'),
   f('longTextResId', 7, 'string'),
+  f('flag10', 10, 'int32'),
+  f('flag12', 12, 'int32'),
+  f('flag13', 13, 'int32'),
   f('widgetId', 17, 'uint32'),
   f('font', 19, FONT_INFO),
 ]);

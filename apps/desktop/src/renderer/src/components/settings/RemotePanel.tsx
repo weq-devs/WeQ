@@ -1,17 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useTabActive } from '../RetainedTabs';
 import {
   Check,
   Copy,
   ExternalLink,
   MonitorSmartphone,
+  Play,
   QrCode,
   RefreshCw,
-  ShieldCheck,
+  Square,
   Smartphone,
   Trash2,
   X,
 } from 'lucide-react';
-import { Row, SectionHeader, Toggle } from './controls';
+import { Card, Row, Toggle } from './controls';
+import { Modal } from '../Dialog';
+import { useModalBackground } from '../../lib/modalBackground';
 import '../../styles/remote.css';
 import {
   remoteAuthKeySchema,
@@ -23,6 +27,7 @@ export interface RemoteStatus {
   available: boolean;
   helperInstalled: boolean;
   enabled: boolean;
+  tailscaleEnabled?: boolean;
   mode?: RemoteConnectionMode;
   network: {
     state: 'starting' | 'login' | 'online' | 'offline' | 'error';
@@ -49,9 +54,8 @@ export function RemotePanel({
   error,
   onToggle,
   onLogin,
-  onMode,
+  onTailscale,
   onChangeNetwork,
-  onRefresh,
   onInvite,
   onDecide,
   onRevoke,
@@ -63,106 +67,66 @@ export function RemotePanel({
   error: string | null;
   onToggle: (enabled: boolean) => void;
   onLogin: () => void;
-  onMode?: (mode: RemoteConnectionMode) => void;
+  onTailscale?: (enabled: boolean) => void;
   onChangeNetwork?: () => void;
-  onRefresh?: () => void;
   onInvite: (bootstrap?: { authKey: string } | { endpoint: string }) => void;
   onDecide: (id: string, approve: boolean) => void;
   onRevoke: (id: string) => void;
   onCopy?: () => void;
 }) {
+  const active = useTabActive();
   const [now, setNow] = useState(Date.now());
   const [authKey, setAuthKey] = useState('');
-  const [endpoint, setEndpoint] = useState('');
-  const tailscale = data?.mode === 'tailscale';
-  const existing = data?.mode === 'existing';
-  const networkMode = existing || tailscale;
-  const [phoneMode, setPhoneMode] = useState<'existing' | 'tailscale'>(
-    existing ? 'existing' : 'tailscale',
-  );
-  useEffect(() => {
-    if (data?.mode === 'existing' || data?.mode === 'tailscale') setPhoneMode(data.mode);
-  }, [data?.mode]);
-  const addresses = remoteDirectAddresses(
-    data?.network.addresses ?? [],
-    existing ? 'existing' : 'lan',
-  );
+  const [embedKey, setEmbedKey] = useState(false);
+  const [keyPrompt, setKeyPrompt] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const keyForm = useRef<HTMLFormElement>(null);
+  const generateButton = useRef<HTMLButtonElement>(null);
+  const restorePairFocus = useRef(false);
+  useModalBackground(keyForm, active && keyPrompt);
+  useLayoutEffect(() => {
+    if (!keyPrompt && restorePairFocus.current) {
+      restorePairFocus.current = false;
+      const button = generateButton.current;
+      if (active && button && !button.closest('[hidden], [inert]'))
+        button.focus({ preventScroll: true });
+    }
+  }, [active, keyPrompt]);
+  const tailscale = data?.tailscaleEnabled ?? false;
+  const tailscaleRunning =
+    tailscale && data?.enabled && ['starting', 'login', 'online'].includes(data.network.state);
+  const addresses = remoteDirectAddresses(data?.network.addresses ?? [], 'lan');
+  const tailscaleAddress =
+    tailscale && data?.network.state === 'online' ? data.network.address : undefined;
+  const closePrompt = () => {
+    restorePairFocus.current = true;
+    setKeyPrompt(false);
+    setAuthKey('');
+    setKeyError(null);
+  };
   useEffect(() => {
     setAuthKey('');
-    setEndpoint('');
-  }, [data?.enabled, data?.mode]);
+    setKeyPrompt(false);
+    setKeyError(null);
+  }, [data?.enabled, tailscale, active]);
   useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, []);
-  const online =
-    data?.enabled &&
-    (tailscale
-      ? data.network.state === 'online'
-      : data.network.addresses
-        ? addresses.length > 0
-        : !existing && data.network.state === 'online');
+  }, [active]);
+  const online = data?.enabled && (addresses.length > 0 || !!tailscaleAddress);
   const activeQr = online && qr && data.invitationExpiresAt === qr.expiresAt && qr.expiresAt > now;
   const states = {
-    starting: '正在连接网络',
-    login: '等待网络登录',
-    online: '网络已连接',
+    starting: '正在启动',
+    login: '等待登录',
+    online: '已连接',
     offline: '已停止',
     error: '连接失败',
   };
   return (
     <div className="weq-set weq-remote">
-      <SectionHeader icon={<MonitorSmartphone size={17} />} title="WeQ Remote" />
-      <section className="weq-remote-band">
-        <div className="weq-remote-modes" role="group" aria-label="连接方式">
-          <button
-            type="button"
-            aria-pressed={!networkMode}
-            disabled={busy}
-            onClick={() => onMode?.('lan')}
-          >
-            局域网
-          </button>
-          <button
-            type="button"
-            aria-pressed={networkMode}
-            disabled={busy}
-            onClick={() => onMode?.(phoneMode)}
-          >
-            Tailscale
-          </button>
-        </div>
-        {networkMode ? (
-          <div className="weq-remote-phone-choice">
-            <Row
-              label="手机上"
-              control={
-                <div
-                  className="weq-remote-phone-modes"
-                  role="group"
-                  aria-label="手机上的 Tailscale"
-                >
-                  <button
-                    type="button"
-                    aria-pressed={existing}
-                    disabled={busy}
-                    onClick={() => onMode?.('existing')}
-                  >
-                    已有 Tailscale
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={tailscale}
-                    disabled={busy}
-                    onClick={() => onMode?.('tailscale')}
-                  >
-                    没有 Tailscale
-                  </button>
-                </div>
-              }
-            />
-          </div>
-        ) : null}
+      <Card icon={<MonitorSmartphone size={17} />} title="WeQ Remote">
         <Row
           label="允许远程连接"
           desc="首次连接在电脑批准，之后自动重连"
@@ -175,227 +139,283 @@ export function RemotePanel({
             />
           }
         />
-        <div className="weq-remote-state" role="status">
-          <ShieldCheck size={17} />
-          <div>
-            <strong>
-              {data
-                ? !data.available
-                  ? '仅桌面端可用'
-                  : !data.helperInstalled
-                    ? '网络辅助程序未安装'
-                    : !tailscale && online
-                      ? existing
-                        ? 'Tailscale 地址已就绪'
-                        : '局域网已就绪'
-                      : existing && data.enabled
-                        ? '未检测到 Tailscale 地址'
-                        : states[data.network.state]
-                : '正在读取状态'}
-            </strong>
-            {online && (tailscale ? data?.network.address : addresses[0]) ? (
-              <code>{tailscale ? data?.network.address : addresses[0]}</code>
-            ) : null}
-          </div>
-          {data?.enabled && networkMode ? (
-            <>
-              {data.network.state === 'login' ? (
-                <button type="button" className="weq-set-btn" disabled={busy} onClick={onLogin}>
-                  <ExternalLink size={14} />
-                  验证 Tailscale
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                disabled={busy}
-                onClick={onChangeNetwork}
-              >
-                <RefreshCw size={14} />
-                更换网络
-              </button>
-            </>
-          ) : null}
-          {existing && data?.enabled ? (
-            <button
-              type="button"
-              className="weq-set-iconbtn"
-              title="刷新连接地址"
-              aria-label="刷新连接地址"
-              disabled={busy}
-              onClick={onRefresh}
-            >
-              <RefreshCw size={16} />
-            </button>
-          ) : null}
-        </div>
-        {error || data?.network.error ? (
-          <p className="weq-remote-error" role="alert">
-            {error || data?.network.error}
-          </p>
-        ) : null}
-      </section>
-      <section className="weq-remote-band">
-        <div className="weq-remote-heading">
-          <h4>配对手机</h4>
-          <button
-            type="button"
-            className="weq-set-btn"
-            disabled={
-              !online ||
-              busy ||
-              (tailscale && !remoteAuthKeySchema.safeParse(authKey.trim()).success)
+        <section className="weq-remote-band weq-remote-address-band">
+          <Row
+            label="局域网 IP"
+            control={
+              <div className="weq-remote-addresses">
+                {addresses.length ? (
+                  addresses.map((address) => <code key={address}>{new URL(address).hostname}</code>)
+                ) : (
+                  <span>{data?.enabled ? '暂无可用地址' : '服务未开启'}</span>
+                )}
+              </div>
             }
-            onClick={() => {
-              const bootstrap = tailscale
-                ? { authKey: authKey.trim() }
-                : endpoint && addresses.includes(endpoint)
-                  ? { endpoint }
-                  : undefined;
-              setAuthKey('');
-              onInvite(bootstrap);
-            }}
-          >
-            {qr ? <RefreshCw size={14} /> : <QrCode size={14} />}
-            {qr ? '重新生成' : '生成配对码'}
-          </button>
-        </div>
-        {!tailscale && addresses.length > 1 ? (
-          <label className="weq-remote-bootstrap">
-            电脑地址
-            <select
-              value={addresses.includes(endpoint) ? endpoint : addresses[0]}
-              onChange={(event) => setEndpoint(event.target.value)}
+          />
+          <Row
+            label="Tailscale IP"
+            desc="WeQ 专用 Tailscale 服务"
+            control={
+              <div className="weq-remote-network-controls">
+                <code role="status">
+                  {tailscaleAddress
+                    ? new URL(tailscaleAddress).hostname
+                    : !data?.enabled || !tailscale
+                      ? '未启动'
+                      : states[data.network.state]}
+                </code>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft"
+                  disabled={busy || !data?.enabled}
+                  onClick={() => onTailscale?.(!tailscaleRunning)}
+                >
+                  {tailscaleRunning ? <Square size={14} /> : <Play size={14} />}
+                  {tailscaleRunning ? '停止服务' : '启动服务'}
+                </button>
+                {tailscale && data?.network.state === 'login' ? (
+                  <button type="button" className="weq-set-btn" disabled={busy} onClick={onLogin}>
+                    <ExternalLink size={14} />
+                    登录 Tailscale
+                  </button>
+                ) : null}
+                {tailscale ? (
+                  <button
+                    type="button"
+                    className="weq-set-iconbtn"
+                    title="更换 WeQ 专用 Tailscale 网络"
+                    aria-label="更换 WeQ 专用 Tailscale 网络"
+                    disabled={busy || !data?.enabled}
+                    onClick={onChangeNetwork}
+                  >
+                    <RefreshCw size={15} />
+                  </button>
+                ) : null}
+              </div>
+            }
+          />
+          {data && (!data.available || !data.helperInstalled) ? (
+            <p className="weq-remote-muted">
+              {!data.available ? '仅桌面端可用' : '网络辅助程序未安装'}
+            </p>
+          ) : null}
+          {error || data?.network.error ? (
+            <p className="weq-remote-error" role="alert">
+              {error || data?.network.error}
+            </p>
+          ) : null}
+        </section>
+        <section className="weq-remote-band">
+          <div className="weq-remote-heading">
+            <h4>配对手机</h4>
+          </div>
+          <div className="weq-remote-pair-actions">
+            <button
+              ref={generateButton}
+              type="button"
+              className="weq-set-btn"
+              disabled={!online || busy || (embedKey && !tailscaleAddress)}
+              onClick={() => {
+                if (embedKey) setKeyPrompt(true);
+                else onInvite(undefined);
+              }}
             >
-              {addresses.map((address) => (
-                <option key={address} value={address}>
-                  {address}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        {tailscale ? (
+              {qr ? <RefreshCw size={14} /> : <QrCode size={14} />}
+              生成配对码
+            </button>
+            <label className="weq-remote-consent">
+              <input
+                type="checkbox"
+                checked={embedKey}
+                disabled={busy}
+                onChange={(event) => setEmbedKey(event.target.checked)}
+              />
+              嵌入 Tailscale Key
+            </label>
+          </div>
           <div className="weq-remote-bootstrap">
-            <label htmlFor="weq-remote-auth-key">一次性 Auth Key</label>
-            <input
-              id="weq-remote-auth-key"
-              type="password"
-              value={authKey}
-              maxLength={211}
-              autoComplete="off"
-              spellCheck={false}
-              disabled={busy}
-              placeholder="tskey-auth-…"
-              onChange={(event) => setAuthKey(event.target.value)}
-            />
+            <h4>通过 Tailscale 跨网络连接</h4>
             <p>
-              创建 Key 时关闭 Reusable 和 Ephemeral，手机只需入网一次。二维码含密钥，请勿分享；删除
-              WeQ 设备不会撤销入网密钥，网络设备需在 Tailscale 管理台移除。
+              Tailscale 提供内网穿透，让手机和电脑不在同一个 Wi-Fi 下时，也能连接 WeQ，无需公网 IP
+              或手动配置端口转发。
+            </p>
+            <p>
+              WeQ Remote App 已内置 Tailscale，无需另外安装客户端。勾选「嵌入 Tailscale
+              Key」后，扫码时 App 会使用 Key 加入电脑所在的 Tailscale
+              网络，完成跨网络连接所需的配置。
             </p>
             <a
               href="https://login.tailscale.com/admin/settings/keys"
               target="_blank"
               rel="noreferrer"
             >
-              生成 Auth Key <ExternalLink size={12} />
+              创建 Tailscale Key <ExternalLink size={12} />
             </a>
+            {embedKey && !tailscaleAddress ? (
+              <p>请先启动并登录上方的 WeQ 专用 Tailscale 服务。</p>
+            ) : null}
           </div>
-        ) : null}
-        {activeQr ? (
-          <div className="weq-remote-pair">
-            <img src={qr.qr} width={240} height={240} alt="WeQ Remote 一次性配对二维码" />
-            <div>
-              <h4>等待手机扫码</h4>
-              <p>有效期剩余 {Math.max(0, Math.ceil((qr.expiresAt - now) / 1000))} 秒</p>
-              <p>
-                {qr.pairingURL && new URL(qr.pairingURL).searchParams.get('v') === '2'
-                  ? '含一次性入网密钥 · 请勿分享'
-                  : '扫码后将在此电脑确认设备。'}
-              </p>
-              {qr.pairingURL && onCopy ? (
-                <button type="button" className="weq-set-btn" disabled={busy} onClick={onCopy}>
-                  <Copy size={14} />
-                  复制配对链接
-                </button>
-              ) : null}
+          {keyPrompt && active ? (
+            <Modal
+              title="输入 Tailscale Key"
+              labelledBy="weq-remote-key-title"
+              onClose={closePrompt}
+              centered
+              width={420}
+              dismissOnOutside={false}
+            >
+              <form
+                ref={keyForm}
+                className="weq-remote-key-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const result = remoteAuthKeySchema.safeParse(authKey.trim());
+                  if (!result.success) {
+                    setKeyError('请输入有效的 Tailscale Auth Key。');
+                    return;
+                  }
+                  const key = result.data;
+                  closePrompt();
+                  onInvite({ authKey: key });
+                }}
+              >
+                <h3 id="weq-remote-key-title">输入 Tailscale Key</h3>
+                <div className="weq-remote-bootstrap">
+                  <label htmlFor="weq-remote-auth-key">Tailscale Auth Key</label>
+                  <input
+                    id="weq-remote-auth-key"
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    maxLength={211}
+                    value={authKey}
+                    onChange={(event) => setAuthKey(event.target.value)}
+                    placeholder="tskey-auth-…"
+                  />
+                  <a
+                    href="https://login.tailscale.com/admin/settings/keys"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    创建 Tailscale Key <ExternalLink size={12} />
+                  </a>
+                </div>
+                {keyError ? (
+                  <p className="weq-remote-error" role="alert">
+                    {keyError}
+                  </p>
+                ) : null}
+                <div className="weq-remote-pair-actions">
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft"
+                    onClick={closePrompt}
+                  >
+                    取消
+                  </button>
+                  <button type="submit" className="weq-set-btn" disabled={!authKey.trim() || busy}>
+                    <QrCode size={14} />
+                    生成配对码
+                  </button>
+                </div>
+              </form>
+            </Modal>
+          ) : null}
+          {activeQr ? (
+            <div className="weq-remote-pair">
+              <img src={qr.qr} width={240} height={240} alt="WeQ Remote 一次性配对二维码" />
+              <div>
+                <h4>等待手机扫码</h4>
+                <p>有效期剩余 {Math.max(0, Math.ceil((qr.expiresAt - now) / 1000))} 秒</p>
+                <p>
+                  {qr.pairingURL && new URL(qr.pairingURL).searchParams.has('authKey')
+                    ? '含一次性入网密钥 · 请勿分享'
+                    : '扫码后将在此电脑确认设备。'}
+                </p>
+                {qr.pairingURL && onCopy ? (
+                  <button type="button" className="weq-set-btn" disabled={busy} onClick={onCopy}>
+                    <Copy size={14} />
+                    复制配对链接
+                  </button>
+                ) : null}
+              </div>
             </div>
-          </div>
-        ) : qr ? (
-          <div className="weq-remote-empty">
-            <QrCode size={32} strokeWidth={1.3} />
-            <span>
-              {data?.pending.length
-                ? '等待确认设备'
-                : qr && online
-                  ? '配对码已失效'
-                  : '暂无有效配对码'}
-            </span>
-          </div>
-        ) : null}
-        {data?.pending.map((request) => (
-          <div className="weq-remote-request" key={request.id}>
-            <Smartphone size={22} />
-            <div className="weq-remote-device-main">
-              <strong>{request.name}</strong>
+          ) : qr ? (
+            <div className="weq-remote-empty">
+              <QrCode size={32} strokeWidth={1.3} />
               <span>
-                {request.scope === 'web:access'
-                  ? '核对校验码 · 允许访问完整 WeQ Web（含聊天记录与操作）'
-                  : '核对手机上的校验码 · 仅在线状态'}
+                {data?.pending.length
+                  ? '等待确认设备'
+                  : qr && online
+                    ? '配对码已失效'
+                    : '暂无有效配对码'}
               </span>
-              <code className="weq-remote-code">{request.code}</code>
             </div>
-            <button
-              type="button"
-              className="weq-set-iconbtn"
-              title="拒绝配对"
-              aria-label={`拒绝 ${request.name}`}
-              disabled={busy}
-              onClick={() => onDecide(request.id, false)}
-            >
-              <X size={17} />
-            </button>
-            <button
-              type="button"
-              className="weq-set-btn"
-              disabled={busy}
-              onClick={() => onDecide(request.id, true)}
-            >
-              <Check size={15} />
-              允许配对
-            </button>
-          </div>
-        ))}
-      </section>
-      <section className="weq-remote-band">
-        <div className="weq-remote-heading">
-          <h4>已配对设备</h4>
-          <span>{data?.devices.length ?? 0} 台</span>
-        </div>
-        {!data?.devices.length ? (
-          <p className="weq-remote-muted">暂无已配对设备</p>
-        ) : (
-          data.devices.map((device) => (
-            <div className="weq-remote-device" key={device.id}>
+          ) : null}
+          {data?.pending.map((request) => (
+            <div className="weq-remote-request" key={request.id}>
               <Smartphone size={22} />
               <div className="weq-remote-device-main">
-                <strong>{device.name}</strong>
-                <span>{device.scope === 'web:access' ? 'WeQ Web 访问' : '仅在线状态'}</span>
+                <strong>{request.name}</strong>
+                <span>
+                  {request.scope === 'web:access'
+                    ? '核对校验码 · 允许访问完整 WeQ Web（含聊天记录与操作）'
+                    : '核对手机上的校验码 · 仅在线状态'}
+                </span>
+                <code className="weq-remote-code">{request.code}</code>
               </div>
               <button
                 type="button"
                 className="weq-set-iconbtn"
-                title="撤销设备授权"
-                aria-label={`撤销 ${device.name}`}
+                title="拒绝配对"
+                aria-label={`拒绝 ${request.name}`}
                 disabled={busy}
-                onClick={() => onRevoke(device.id)}
+                onClick={() => onDecide(request.id, false)}
               >
-                <Trash2 size={16} />
+                <X size={17} />
+              </button>
+              <button
+                type="button"
+                className="weq-set-btn"
+                disabled={busy}
+                onClick={() => onDecide(request.id, true)}
+              >
+                <Check size={15} />
+                允许配对
               </button>
             </div>
-          ))
-        )}
-      </section>
+          ))}
+        </section>
+        <section className="weq-remote-band">
+          <div className="weq-remote-heading">
+            <h4>已配对设备</h4>
+            <span>{data?.devices.length ?? 0} 台</span>
+          </div>
+          {!data?.devices.length ? (
+            <p className="weq-remote-muted">暂无已配对设备</p>
+          ) : (
+            data.devices.map((device) => (
+              <div className="weq-remote-device" key={device.id}>
+                <Smartphone size={22} />
+                <div className="weq-remote-device-main">
+                  <strong>{device.name}</strong>
+                  <span>{device.scope === 'web:access' ? 'WeQ Web 访问' : '仅在线状态'}</span>
+                </div>
+                <button
+                  type="button"
+                  className="weq-set-iconbtn"
+                  title="撤销设备授权"
+                  aria-label={`撤销 ${device.name}`}
+                  disabled={busy}
+                  onClick={() => onRevoke(device.id)}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))
+          )}
+        </section>
+      </Card>
     </div>
   );
 }

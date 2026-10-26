@@ -27,18 +27,20 @@ export function GroupInfoDetailDialog({
   onClose: () => void;
 }) {
   const group = conversation.group;
-  const profileRows = [
-    ['群名称', group.name],
-    [group.identityLabel, group.identityValue],
-    group.description ? ['群简介', group.description] : null,
-    group.remark ? ['群备注', group.remark] : null,
-    group.createTime ? ['创建时间', formatShortDate(group.createTime)] : null,
-    group.maxMemberCount ? ['群容量', `${group.memberCount}/${group.maxMemberCount}`] : null,
-    group.labels ? ['标签', group.labels] : null,
-    group.customLabels?.length ? ['自定义标签', group.customLabels.join('、')] : null,
-    group.addressName ? ['群地点', group.addressName] : null,
-    group.entranceQ ? ['入群问题', group.entranceQ] : null,
-  ].filter(Boolean) as string[][];
+  const profileRows = (
+    [
+      ['群名称', group.name],
+      [group.identityLabel, group.identityValue],
+      group.description ? ['群简介', group.description] : null,
+      group.remark ? ['群备注', group.remark] : null,
+      group.createTime ? ['创建时间', formatShortDate(group.createTime)] : null,
+      group.maxMemberCount ? ['群容量', `${group.memberCount}/${group.maxMemberCount}`] : null,
+      group.labels ? ['标签', group.labels] : null,
+      group.customLabels?.length ? ['自定义标签', group.customLabels.join('、')] : null,
+      group.addressName ? ['群地点', group.addressName] : null,
+      group.entranceQ ? ['入群问题', group.entranceQ] : null,
+    ] satisfies ([string, string] | null)[]
+  ).filter((row) => row !== null);
 
   return (
     <OverlayLayer
@@ -56,7 +58,7 @@ export function GroupInfoDetailDialog({
         <header>
           <div>
             <strong>{groupInfoDetailTitle(detail)}</strong>
-            <span>{group.name}</span>
+            <span data-privacy-sensitive>{group.name}</span>
           </div>
           <button className={cn('icon-button')} type="button" title="关闭" onClick={onClose}>
             <X size={18} />
@@ -69,7 +71,13 @@ export function GroupInfoDetailDialog({
               {profileRows.map(([label, value]) => (
                 <div className={cn('group-info-detail-row')} key={label}>
                   <span>{label}</span>
-                  <strong>{value}</strong>
+                  <strong
+                    data-privacy-sensitive={
+                      !['创建时间', '群容量', '标签'].includes(label) || undefined
+                    }
+                  >
+                    {value}
+                  </strong>
                 </div>
               ))}
             </div>

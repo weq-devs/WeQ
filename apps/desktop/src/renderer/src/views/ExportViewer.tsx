@@ -8,16 +8,19 @@ import {
   RefreshCw,
   Search,
   X,
+  Loader2,
 } from 'lucide-react';
-import type { ExportViewerMessage, ExportViewerPart, ExportViewerSource } from '@weq/service';
+import type { ExportViewerMessage, ExportViewerPart } from '@weq/service';
 import { client, trpc } from '../trpc/client';
 import { useTabActive } from '../components/RetainedTabs';
 import { openLightbox } from '../components/ImageLightbox';
 import { mediaUrl } from '../lib/resourceUrl';
 import { useDialog } from '../components/Dialog';
+import { FolderScanStatus } from '../components/FolderScanStatus';
 import '../styles/export-viewer.css';
+import type { ViewerScanEvent } from '../../../main/ipc/routers/export_viewer';
 
-type Source = ExportViewerSource & { id: string };
+type Source = Extract<ViewerScanEvent, { kind: 'source' }>['source'];
 const time = (seconds: number) =>
   seconds
     ? new Date(seconds * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
@@ -44,9 +47,13 @@ function Part({
         ))}
       </details>
     );
-  if (part.type === 'text') return <span>{part.text}</span>;
+  if (part.type === 'text') return <span data-privacy-sensitive>{part.text}</span>;
   if (!part.path || failed)
-    return <span className="weq-ev-unavailable">{part.text} · 媒体不可用</span>;
+    return (
+      <span className="weq-ev-unavailable">
+        <span data-privacy-sensitive>{part.text}</span> · 媒体不可用
+      </span>
+    );
   const src = mediaUrl('exportviewer', { id, path: part.path });
   if (part.type === 'image')
     return (
@@ -57,7 +64,13 @@ function Part({
         aria-label="查看原图"
         onClick={() => openLightbox(src, part.text)}
       >
-        <img src={src} alt={part.text} loading="lazy" onError={() => setFailed(true)} />
+        <img
+          data-privacy-sensitive
+          src={src}
+          alt={part.text}
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
       </button>
     );
   if (part.type === 'audio')
@@ -68,7 +81,13 @@ function Part({
     );
   if (part.type === 'video')
     return (
-      <video controls preload="none" src={src} onError={() => setFailed(true)}>
+      <video
+        data-privacy-sensitive
+        controls
+        preload="none"
+        src={src}
+        onError={() => setFailed(true)}
+      >
         <track kind="captions" />
       </video>
     );
@@ -82,7 +101,7 @@ function Part({
       }}
     >
       <FolderOpen size={15} />
-      {part.text}
+      <span data-privacy-sensitive>{part.text}</span>
     </button>
   );
 }
@@ -133,6 +152,8 @@ export function ExportViewer({
   const [sources, setSources] = useState<Source[]>([]);
   const [selected, setSelected] = useState('');
   const [picking, setPicking] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanCount, setScanCount] = useState(0);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
@@ -140,6 +161,9 @@ export function ExportViewer({
   const [date, setDate] = useState('');
   const [offset, setOffset] = useState(0);
   const owned = useRef<string[]>([]);
+  const scanSub = useRef<{ unsubscribe(): void } | null>(null);
+  const scanReject = useRef<((error: Error) => void) | null>(null);
+  const scanId = useRef(0);
   const mounted = useRef(true);
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -148,6 +172,9 @@ export function ExportViewer({
     mounted.current = true;
     return () => {
       mounted.current = false;
+      scanId.current++;
+      scanSub.current?.unsubscribe();
+      scanReject.current?.(new Error('扫描已取消'));
       if (owned.current.length)
         void client.exportViewer.close.mutate({ ids: owned.current }).catch(() => {});
     };
@@ -185,12 +212,79 @@ export function ExportViewer({
         : previous,
     );
   }, [page.data, query, date, selected]);
+
+  function scanDirectory(token: string, recursive: boolean, id: number) {
+    const found: Source[] = [];
+    setScanning(true);
+    setScanCount(0);
+    return new Promise<{
+      sources: Source[];
+      truncated: boolean;
+      unreadable: number;
+      scanToken: string | null;
+    }>((resolve, reject) => {
+      scanReject.current = reject;
+      scanSub.current = client.exportViewer.scanProgress.subscribe(
+        { token, recursive },
+        {
+          onData(event: ViewerScanEvent) {
+            if (!mounted.current || id !== scanId.current) return;
+            if (event.kind === 'source') {
+              if (found.some((source) => source.id === event.source.id)) return;
+              if (!found.length) {
+                if (owned.current.length)
+                  void client.exportViewer.close.mutate({ ids: owned.current }).catch(() => {});
+                owned.current = [];
+                setSelected(event.source.id);
+                setOffset(0);
+                setSearch('');
+                setQuery('');
+                setDate('');
+              }
+              found.push(event.source);
+              owned.current.push(event.source.id);
+              setSources([...found]);
+              setScanCount(found.length);
+            } else {
+              scanReject.current = null;
+              scanSub.current?.unsubscribe();
+              scanSub.current = null;
+              resolve({ sources: found, ...event });
+            }
+          },
+          onError(error) {
+            if (mounted.current && id === scanId.current) {
+              scanReject.current = null;
+              reject(error);
+            }
+          },
+        },
+      );
+    });
+  }
+
   const pick = async (directory: boolean) => {
+    const id = ++scanId.current;
     setPicking(true);
     setError('');
     setNotice('');
     try {
-      let result = await client.exportViewer.pick.mutate({ directory });
+      let result = await client.exportViewer.pick.mutate({
+        directory,
+        ...(directory ? { deferScan: true } : {}),
+      });
+      if (!mounted.current || !activeRef.current || id !== scanId.current) {
+        if (result?.sources.length)
+          await client.exportViewer.close.mutate({ ids: result.sources.map((s) => s.id) });
+        if (result?.scanToken)
+          await client.exportViewer.scan.mutate({ token: result.scanToken, recursive: false });
+        return;
+      }
+      let streamed = false;
+      if (result?.scanToken) {
+        streamed = true;
+        result = await scanDirectory(result.scanToken, false, id);
+      }
       if (result?.scanToken) {
         const recursive =
           mounted.current &&
@@ -202,11 +296,21 @@ export function ExportViewer({
               '当前文件夹及下一级未找到导出，是否继续扫描所有子文件夹？大目录可能需要较长时间。',
               { okLabel: '递归扫描', cancelLabel: '取消' },
             ));
-        result = await client.exportViewer.scan.mutate({ token: result.scanToken, recursive });
+        if (recursive) result = await scanDirectory(result.scanToken, true, id);
+        else {
+          await client.exportViewer.scan.mutate({ token: result.scanToken, recursive: false });
+          return;
+        }
       }
       if (!result) return;
-      if (!mounted.current || !activeRef.current) {
+      if (!mounted.current || id !== scanId.current) {
         await client.exportViewer.close.mutate({ ids: result.sources.map((s) => s.id) });
+        return;
+      }
+      if (streamed) {
+        if (!result.sources.length) setNotice('未找到可查看的导出。');
+        else if (result.truncated || result.unreadable)
+          setNotice('部分目录未扫描或无法读取，当前列表可能不完整。');
         return;
       }
       const old = owned.current;
@@ -222,9 +326,13 @@ export function ExportViewer({
       else if (result.unreadable)
         setNotice(`有 ${result.unreadable} 个子目录无法读取，列表可能不完整。`);
     } catch (e) {
-      if (mounted.current) setError(e instanceof Error ? e.message : String(e));
+      if (mounted.current && id === scanId.current)
+        setError(e instanceof Error ? e.message : String(e));
     } finally {
-      if (mounted.current) setPicking(false);
+      if (mounted.current && id === scanId.current) {
+        setPicking(false);
+        setScanning(false);
+      }
     }
   };
   const jump = async (msgId?: string) => {
@@ -253,13 +361,29 @@ export function ExportViewer({
           <FileJson size={16} />
           打开 JSON / JSONL
         </button>
-        {picking ? <span role="status">正在读取…</span> : null}
+        {picking ? (
+          scanning ? (
+            <FolderScanStatus count={scanCount} unit="个导出" />
+          ) : (
+            <span role="status">
+              <Loader2 size={15} className="weq-spin" aria-hidden />
+              正在读取…
+            </span>
+          )
+        ) : null}
         {sources.length ? (
           <button
             type="button"
             title="关闭导出"
             aria-label="关闭导出"
             onClick={() => {
+              scanId.current++;
+              scanSub.current?.unsubscribe();
+              scanSub.current = null;
+              scanReject.current?.(new Error('扫描已取消'));
+              scanReject.current = null;
+              setPicking(false);
+              setScanning(false);
               void client.exportViewer.close.mutate({ ids: owned.current }).catch(() => {});
               owned.current = [];
               setSources([]);

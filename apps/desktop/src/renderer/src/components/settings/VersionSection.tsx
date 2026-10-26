@@ -17,7 +17,6 @@ import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { Card, SectionHeader } from './controls';
 import { UpdateCard } from './UpdateCard';
-import { DaemonSection } from './DaemonSection';
 import { DesktopOnly } from '../../lib/target';
 import logoUrl from '@resources/brand/logo.png';
 
@@ -114,7 +113,7 @@ export function VersionSection(): ReactElement {
       </Card>
 
       {/* Built-in native component */}
-      <Card title="内置组件">
+      <Card title="内置组件" settingId="builtin-components">
         <div className="weq-set-hero">
           <Boxes size={28} strokeWidth={1.6} aria-hidden style={{ flexShrink: 0 }} />
           <div className="weq-set-hero-info">
@@ -153,7 +152,6 @@ export function VersionSection(): ReactElement {
       <DesktopOnly>
         <UpdateCard />
       </DesktopOnly>
-      <DaemonSection panel="updates" />
     </div>
   );
 }

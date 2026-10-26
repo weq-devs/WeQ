@@ -14,9 +14,17 @@ import {
   groupFileSelectedKeys,
   resolveGroupFileSelection,
 } from '../../lib/groupFileSelection';
-import { ArrowLeft, Check, ChevronRight, Loader2, Minus, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  CheckCheck,
+  ChevronRight,
+  FlipHorizontal2,
+  Loader2,
+  Minus,
+  X,
+} from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
-import { ExportSaveActions } from '../../components/ExportSaveActions';
 import '../../styles/resource-export.css';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
 import { client } from '../../trpc/client';
@@ -290,6 +298,7 @@ export function GroupFileExportLightbox({
               }
               onClick={selectAllVisible}
             >
+              <CheckCheck size={14} aria-hidden="true" />
               全选当前目录
             </button>
             <button
@@ -304,6 +313,7 @@ export function GroupFileExportLightbox({
               }
               onClick={invertVisible}
             >
+              <FlipHorizontal2 size={14} aria-hidden="true" />
               反选当前目录
             </button>
             <button
@@ -312,6 +322,7 @@ export function GroupFileExportLightbox({
               disabled={selection.size === 0 || submitting || selecting}
               onClick={() => void applySelection(new Set())}
             >
+              <X size={14} aria-hidden="true" />
               清空已选
             </button>
             <span className="weq-exp-tools-spacer" />
@@ -451,12 +462,6 @@ export function GroupFileExportLightbox({
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             开始导出
           </button>
-          <ExportSaveActions
-            disabled={
-              submitting || selecting || loading || Boolean(error) || selectedFiles.length === 0
-            }
-            onSelect={(saveIntent) => onConfirm({ selectedFiles, saveIntent })}
-          />
         </footer>
       </section>
     </div>

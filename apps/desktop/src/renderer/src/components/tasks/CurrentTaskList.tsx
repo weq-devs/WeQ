@@ -1,6 +1,16 @@
-import { Fragment, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
+import { useTabActive } from '../RetainedTabs';
+import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import { CloudDownload, Download, FolderOpen, Square, Trash2, Users } from 'lucide-react';
-import { trpc } from '../../trpc/client';
+import { client, trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { useDialog } from '../Dialog';
@@ -13,6 +23,7 @@ import {
 } from '../../views/agentlab/cloneTaskStore';
 import { taskIcon, taskPct, taskTypeLabel, type UiTask } from '../../views/export/TaskList';
 import { LongTaskRow, orderLongTasks, type LongTaskItem } from './LongTaskRow';
+import '../../styles/flash-transfer.css';
 
 export function CurrentTaskList({
   exports,
@@ -22,6 +33,9 @@ export function CurrentTaskList({
   onOpenClone,
   onSaveAll,
   autoSelectId,
+  layout = 'inline',
+  onOpenDetail,
+  cleanupBinding,
 }: {
   exports: UiTask[];
   exportError?: string;
@@ -30,11 +44,27 @@ export function CurrentTaskList({
   onOpenClone?: (id: string) => void;
   onSaveAll: () => void;
   autoSelectId?: string | null;
+  layout?: 'inline' | 'compact' | 'split';
+  onOpenDetail?: () => void;
+  cleanupBinding?: { expectedAccountUin: string; expectedAccountConfigId: string } | null;
 }) {
   const { enabled: active } = useQQReadActivity(true, { onlineOnly: false });
   const accountId = useViewState((state) => state.openedUin);
   const utils = trpc.useUtils();
   const showError = useDialog((state) => state.showError);
+  const confirm = useDialog((state) => state.confirm);
+  const showInfo = useDialog((state) => state.showInfo);
+  const [clearing, setClearing] = useState(false);
+  const clearingRef = useRef(false);
+  const bindingRef = useRef(cleanupBinding);
+  bindingRef.current = cleanupBinding;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const clones = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
   const roaming = trpc.account.roamingBackfill.list.useQuery(undefined, {
     enabled: active,
@@ -182,15 +212,39 @@ export function CurrentTaskList({
           : task.fileSize > 0
             ? (task.downloadedBytes / task.fileSize) * 100
             : undefined,
-      note: `${formatSize(task.downloadedBytes)} / ${formatSize(task.fileSize)}`,
+      note: `${task.files?.length ?? 1} 个文件 · ${formatSize(task.downloadedBytes)} / ${formatSize(task.fileSize)}`,
       icon: <Download size={16} />,
       detail: (
         <div>
           <p>
-            {task.filesetName} · {task.relativePath}
+            {task.filesetName} · 已完成{' '}
+            {task.files?.filter((file) => file.status === 'done').length ??
+              (task.status === 'done' ? 1 : 0)}{' '}
+            / {task.files?.length ?? 1} 个文件
           </p>
-          <p>{task.targetPath}</p>
+          {(task.files?.length ?? 1) === 1 ? <p>{task.targetPath}</p> : null}
           {task.error ? <p role="alert">{task.error}</p> : null}
+          <ul className="weq-flash-task-files" aria-label="下载文件">
+            {(task.files ?? [task]).map((file) => (
+              <li key={file.id}>
+                <span title={file.targetPath}>{file.relativePath}</span>
+                <span>
+                  {
+                    {
+                      pending: '等待中',
+                      resolving: '获取链接',
+                      downloading: '下载中',
+                      done: '已完成',
+                      failed: '失败',
+                      cancelled: '已取消',
+                    }[file.status]
+                  }{' '}
+                  · {formatSize(file.downloadedBytes)} / {formatSize(file.fileSize)}
+                </span>
+                {file.error ? <p role="alert">{file.error}</p> : null}
+              </li>
+            ))}
+          </ul>
           <div className="weq-long-task-actions">
             <button
               type="button"
@@ -218,6 +272,10 @@ export function CurrentTaskList({
     });
   }
   const ordered = orderLongTasks(items);
+  useEffect(() => {
+    if (selected !== null && !ordered.some((task) => task.id === selected) && ordered[0])
+      setSelected(ordered[0].id);
+  }, [selected, ordered]);
   const selectedId =
     selected === null
       ? null
@@ -226,19 +284,99 @@ export function CurrentTaskList({
         : ordered[0]?.id;
   const running = items.filter((task) => task.status === 'running').length;
   const loading = loadingExports || roaming.isLoading || flash.isLoading;
+  const visible = useTabActive();
+  const unreadResults = useWorkspaceMenu((state) => state.finished);
+  const readTasks = useWorkspaceMenu((state) => state.readTasks);
+  useLayoutEffect(() => {
+    if (visible && active && !loading && unreadResults > 0) readTasks();
+  }, [visible, active, loading, unreadResults, readTasks]);
   const hasError = exportError || roaming.error || flash.error;
+  const completed = items.filter((task) => task.status === 'completed');
+  const clearCompleted = async (): Promise<void> => {
+    if (clearingRef.current || !cleanupBinding || !completed.length) return;
+    clearingRef.current = true;
+    setClearing(true);
+    const binding = { ...cleanupBinding };
+    const current = () =>
+      mounted.current &&
+      bindingRef.current?.expectedAccountUin === binding.expectedAccountUin &&
+      bindingRef.current?.expectedAccountConfigId === binding.expectedAccountConfigId;
+    const ids = new Set(completed.map((task) => task.id));
+    const unsaved = exports.filter(
+      (task) => ids.has(`export:${task.id}`) && task.save?.status !== 'saved',
+    ).length;
+    const cloneSelection = clones.filter(
+      (task) => task.accountId === accountId && ids.has(`clone:${task.personaId}`),
+    );
+    try {
+      const ok = await confirm(
+        '清除已完成任务',
+        `确定清除 ${completed.length} 项已完成任务？只移除任务记录和导出缓存，不删除已保存的文件、克隆体或聊天记录。${unsaved ? `其中 ${unsaved} 项导出尚未保存，清除后将无法从任务列表取回结果。` : ''}`,
+        { okLabel: `清除 ${completed.length} 项`, cancelLabel: '保留' },
+      );
+      if (!ok || !current()) return;
+      const result = await client.account.clearCompletedTasks.mutate({
+        ...binding,
+        exports: exports.filter((task) => ids.has(`export:${task.id}`)).map((task) => task.id),
+        roaming: (roaming.data?.jobs ?? [])
+          .filter((job) => ids.has(`roaming:${job.id}`))
+          .map((job) => job.id),
+        flash: (flash.data ?? [])
+          .filter((task) => ids.has(`flash:${task.id}`))
+          .map((task) => task.id),
+      });
+      let removed = result.removed;
+      for (const task of cloneSelection) {
+        // 同一克隆体可能已重新构建；只移除确认时的那次完成记录。
+        if (getCloneTasks().includes(task) && task.status === 'done') {
+          dismissCloneTask(task.personaId);
+          removed += 1;
+        }
+      }
+      await Promise.all([
+        utils.account.listExportTasks.invalidate(),
+        utils.account.getExportOutputReceipt.invalidate(),
+        utils.account.roamingBackfill.list.invalidate(),
+        utils.account.flashListDownloadTasks.invalidate(),
+      ]);
+      if (current()) {
+        const summary = `已清除 ${removed} 项任务。${completed.length - removed > 0 ? `其余 ${completed.length - removed} 项未清除，请查看最新任务状态。` : ''}`;
+        if (result.errors.length)
+          showError('部分任务未清除', `${summary}\n${result.errors.join('\n')}`);
+        else showInfo('清除完成', summary);
+      }
+    } catch (error) {
+      if (current()) showError('清除失败', error instanceof Error ? error.message : String(error));
+    } finally {
+      clearingRef.current = false;
+      if (mounted.current) setClearing(false);
+    }
+  };
   return (
-    <section className="weq-current-tasks" aria-label="当前任务列表">
+    <section className={`weq-current-tasks is-${layout}`} aria-label="当前任务列表">
       <header className="weq-current-tasks-head">
         <span>
           {items.length} 项任务{running ? ` · ${running} 项进行中` : ''}
         </span>
-        {exports.some((task) => task.status === 'completed') ? (
-          <button type="button" className="weq-set-btn" onClick={onSaveAll}>
-            <Download size={14} />
-            全部保存
+        <div className="weq-current-tasks-actions">
+          {exports.some((task) => task.status === 'completed') ? (
+            <button type="button" className="weq-set-btn" onClick={onSaveAll}>
+              <Download size={14} />
+              全部保存
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="weq-set-btn"
+            title="清除已完成任务"
+            aria-label="清除已完成任务"
+            disabled={clearing || loading || !cleanupBinding || !completed.length}
+            onClick={() => void clearCompleted()}
+          >
+            <Trash2 size={14} />
+            清除已完成
           </button>
-        ) : null}
+        </div>
       </header>
       {exportError ? (
         <p role="alert" className="weq-current-tasks-notice">
@@ -258,18 +396,32 @@ export function CurrentTaskList({
       {!items.length && !hasError ? (
         <p className="weq-current-tasks-empty">{loading ? '读取任务中…' : '暂无任务'}</p>
       ) : null}
-      {ordered.map((task) => (
-        <Fragment key={task.id}>
-          <LongTaskRow
-            task={task}
-            active={task.id === selectedId}
-            onSelect={() => setSelected(task.id === selectedId ? null : task.id)}
-          />
-          {task.id === selectedId ? (
-            <div className="weq-long-task-detail">{task.detail}</div>
-          ) : null}
-        </Fragment>
-      ))}
+      <div className="weq-current-task-columns">
+        <div className="weq-current-task-list">
+          {ordered.map((task) => (
+            <Fragment key={task.id}>
+              <LongTaskRow
+                task={task}
+                active={task.id === selectedId}
+                onSelect={() => {
+                  setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
+                  if (layout === 'compact') onOpenDetail?.();
+                }}
+              />
+              {layout === 'inline' && task.id === selectedId ? (
+                <div className="weq-long-task-detail">{task.detail}</div>
+              ) : null}
+            </Fragment>
+          ))}
+        </div>
+        {layout === 'split' ? (
+          <div className="weq-current-task-details" aria-label="任务步骤详情">
+            {ordered.find((task) => task.id === selectedId)?.detail ?? (
+              <p className="weq-workspace-empty">请选择任务</p>
+            )}
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }

@@ -5,7 +5,7 @@
  *
  * 为什么要有这一层：主面板画一条消息其实是三层组装，而不是「一个消息体组件」——
  *
- *   chatPane        → 灰条分流（撤回 / 戳一戳 / 群提示 / 群通话结束 / QQ动态 / 窗口抖动）
+ *   chatPane        → 灰条分流（撤回 / 戳一戳 / 群提示 / 群通话结束 / QQ动态）
  *   MessageBubble   → 气泡外壳（头像 / 昵称 / 徽章 / 贴表情 / 精华 / 撤回标签 / 删除面纱）
  *   qqMessageRenderer → QqMessageContent（消息体：文本 / 媒体 / 卡片 / 合并转发…）
  *
@@ -18,6 +18,8 @@
  */
 
 import type { ReactElement, ReactNode, MouseEvent as ReactMouseEvent } from 'react';
+import { memo, useMemo } from 'react';
+import { recordMessageCounter } from '../../lib/messagePerformance';
 import { Check } from 'lucide-react';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { MessageBubble } from './messageBubble';
@@ -42,10 +44,6 @@ import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
  *
  * 群通话 / 群课堂的「已结束」（CALL 元素，subType 16/25/29）也算：那条消息的发送者
  * 是空的，套气泡会凭空多出一个发送者，所以走灰条；发起那条有正常发送人，仍走气泡。
- *
- * 不在内：乐观渲染的窗口抖动（windowShake）不是灰条 —— 它是自己发出的一条消息，
- * 由 `QqMessageContent` 在 `sticker-only` 容器里画成那枚「戳一戳」超级表情，落在
- * 自己那一侧（见 `WindowShakeMessage`）。在这里拦下来会让那条分支永远走不到。
  */
 export const GRAY_TIP_KINDS: string[] = [
   'grayTipPoke',
@@ -169,7 +167,7 @@ export function GrayTipLine({
  * 宿主差异全部走 props（右键菜单 / 多选 / 删除恢复 / 头像点击），所以聊天区传全套，
  * 转发窗口只传消息本身也能得到和主面板一致的画法。
  */
-export function MessageRow({
+export const MessageRow = memo(function MessageRow({
   message,
   conversation,
   user,
@@ -186,12 +184,16 @@ export function MessageRow({
   onAction,
   onReedit,
   onDismissUnsent,
+  onStartOutgoing,
   onAvatarClick,
   onAvatarContextMenu,
   selectionMode = false,
   selected = false,
   onToggleSelect,
   reactionInteraction,
+  onReactionChange,
+  reactionBlockedReason,
+  reactionBusy,
   repeatAction,
   pendingAction,
   /** 灰条外层的 class（聊天区靠它对齐，转发窗口用窄一点的边距）。 */
@@ -216,16 +218,32 @@ export function MessageRow({
   onReedit?: (message: Message) => Promise<boolean>;
   /** 「可能未送达」占位的移除（见 MessageBubble 的同名 prop）。 */
   onDismissUnsent?: (message: Message) => void;
+  onStartOutgoing?: (message: Message) => void;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
   onAvatarContextMenu?: (event: unknown, sender: User) => void;
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
   reactionInteraction?: ReactionInteraction;
+  onReactionChange?: (message: Message, code: string, isSet: boolean) => void;
+  reactionBlockedReason?: string | null;
+  reactionBusy?: boolean;
   repeatAction?: ReactNode;
   pendingAction?: ReactNode;
   grayTipClassName?: string;
 }): ReactElement {
+  recordMessageCounter('rowRenders');
+  const reactions = useMemo(
+    () =>
+      onReactionChange
+        ? {
+            onChange: (code: string, isSet: boolean) => onReactionChange(message, code, isSet),
+            blockedReason: reactionBlockedReason,
+            busy: reactionBusy,
+          }
+        : reactionInteraction,
+    [onReactionChange, message, reactionBlockedReason, reactionBusy, reactionInteraction],
+  );
   const gt = grayTipOf(message);
   if (gt) {
     return (
@@ -292,17 +310,18 @@ export function MessageRow({
       onAction={onAction}
       onReedit={onReedit}
       onDismissUnsent={onDismissUnsent}
+      onStartOutgoing={onStartOutgoing}
       onAvatarClick={onAvatarClick}
       onAvatarContextMenu={onAvatarContextMenu}
       selectionMode={selectionMode}
       selected={selected}
       onToggleSelect={onToggleSelect}
-      reactionInteraction={reactionInteraction}
+      reactionInteraction={reactions}
       repeatAction={repeatAction}
       pendingAction={pendingAction}
     />
   );
-}
+});
 
 function displayNameOf(user: User): string {
   return user.displayName || user.username || '';

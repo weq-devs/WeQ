@@ -1,3 +1,4 @@
+import { withExportSaveDirectory } from './support/export_save_fixture';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -105,7 +106,11 @@ it('实际生成内容任务写多格式、自动保存和恢复快照，不读 
     { kind: 'assistant', ownerId: 'assistant', sessionId: 's' },
     ['m1', 'm3'],
   );
-  const manager = new ExportTaskManager({} as MsgService, join(root, 'cache'));
+  const manager = new ExportTaskManager(
+    {} as MsgService,
+    join(root, 'cache'),
+    withExportSaveDirectory(join(root, 'cache')),
+  );
   mkdirSync(join(root, 'saved'));
   const id = await manager.startTask({
     kind: 'c2c',
@@ -136,7 +141,11 @@ it('实际生成内容任务写多格式、自动保存和恢复快照，不读 
   expect(json.origin).toBe('local-generated');
   expect(json.messages.map((row: { id: string }) => row.id)).toEqual(['m1', 'm3']);
   expect(json.messages[0].text).toBe('fixture-1');
-  const restored = new ExportTaskManager({} as MsgService, join(root, 'cache')).getTask(id)!;
+  const restored = new ExportTaskManager(
+    {} as MsgService,
+    join(root, 'cache'),
+    withExportSaveDirectory(join(root, 'cache')),
+  ).getTask(id)!;
   expect(restored.generated?.selectedIds).toEqual(['m1', 'm3']);
   expect(manager.listTasks()[0]?.generated?.messageCount).toBe(2);
   expect(manager.listTasks()[0]?.generated).not.toHaveProperty('messages');
@@ -149,7 +158,7 @@ it('暂停后可在新管理器按同一份快照重新执行，不重新读取�
   const f = fixture();
   const root = mkdtempSync(join(tmpdir(), 'weq-generated-resume-'));
   roots.push(root);
-  const manager = new ExportTaskManager({} as MsgService, root);
+  const manager = new ExportTaskManager({} as MsgService, root, withExportSaveDirectory(root));
   let paused = false;
   manager.on('progress', (event) => {
     if (!paused && event.status === 'running') {
@@ -175,7 +184,7 @@ it('暂停后可在新管理器按同一份快照重新执行，不重新读取�
   expect(manager.getTask(id)?.status).toBe('paused');
   expect(manager.listTasks()[0]?.resumeMode).toBe('restart');
   f.messages.length = 0;
-  const restored = new ExportTaskManager({} as MsgService, root);
+  const restored = new ExportTaskManager({} as MsgService, root, withExportSaveDirectory(root));
   expect(restored.resumeTask(id)).toBe(true);
   for (let i = 0; i < 400 && !['completed', 'failed'].includes(restored.getTask(id)!.status); i++)
     await new Promise((resolve) => setTimeout(resolve, 10));

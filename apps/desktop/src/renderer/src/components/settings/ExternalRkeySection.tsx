@@ -16,7 +16,7 @@
  *   - testExternalRkeyServer    — 只探测连通性，不写缓存
  */
 
-import { useState, type FormEvent, type ReactElement } from 'react';
+import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
 import {
   CheckCircle2,
   ChevronDown,
@@ -28,11 +28,13 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Save,
   Server,
   Trash2,
   X,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
@@ -69,10 +71,12 @@ function formatCacheExpiry(expiredTime: number | undefined): { text: string; exp
 }
 
 export function ExternalRkeySection(): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const pushToast = useToast((s) => s.push);
 
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -83,6 +87,9 @@ export function ExternalRkeySection(): ReactElement {
 
   const [form, setForm] = useState<ServerForm | null>(null);
   const [revealToken, setRevealToken] = useState(false);
+  useEffect(() => {
+    if (!active) setRevealToken(false);
+  }, [active]);
   const [draftId, setDraftId] = useState(() => crypto.randomUUID());
   const runningTests = useConnectionTestTasks((state) => state.running);
   const testKey = connectionTestKey('rkey', form?.id || draftId);
@@ -202,7 +209,7 @@ export function ExternalRkeySection(): ReactElement {
     <div className="weq-set weq-service-settings">
       <SectionHeader
         icon={<CloudDownload size={18} strokeWidth={1.8} />}
-        title="外部 RKEY 服务器"
+        title="外部 rKey"
         desc="通过外部 rkey 服务器为本机补全缺失的聊天图片/表情。全局配置，一次设置所有账号通用。"
       />
 
@@ -420,6 +427,7 @@ export function ExternalRkeySection(): ReactElement {
                 测试连接
               </button>
               <button type="submit" className="weq-set-btn" disabled={busy}>
+                <Save size={13} aria-hidden="true" />
                 保存
               </button>
             </div>

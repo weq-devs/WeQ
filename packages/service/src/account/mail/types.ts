@@ -109,6 +109,8 @@ export type MailAction = 'read' | 'unread' | 'star' | 'unstar' | 'trash';
 
 export type MailFailureKind = 'auth' | 'offline' | 'network' | 'business' | 'unknown-send';
 
+export const MAIL_VERIFICATION_REQUIRED = 'verification-required';
+
 /** 不携带请求地址、票据、原始响应或收件人，允许安全跨 IPC 返回。 */
 export class MailFailure extends Error {
   constructor(

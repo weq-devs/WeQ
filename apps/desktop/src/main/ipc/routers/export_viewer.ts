@@ -1,6 +1,7 @@
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { observable } from '@trpc/server/observable';
 import { classifyChatType } from '@weq/codec';
 import { describeViewerFile, discoverViewerSources, getHost, readViewerPage } from '@weq/service';
 import { getAppContext } from '../../context/app_context';
@@ -16,6 +17,17 @@ import { pushConversationJump } from '../../group_keyword_bus';
 import { procedure, router } from '../trpc';
 
 const pendingScans = new Map<string, { path: string; expires: number }>();
+function scanToken(path: string) {
+  for (const [token, scan] of pendingScans)
+    if (scan.expires < Date.now()) pendingScans.delete(token);
+  if (pendingScans.size >= 16) pendingScans.delete(pendingScans.keys().next().value!);
+  const token = randomUUID();
+  pendingScans.set(token, { path, expires: Date.now() + 10 * 60_000 });
+  return token;
+}
+export type ViewerScanEvent =
+  | { kind: 'source'; source: ReturnType<typeof registerViewerSource> }
+  | { kind: 'done'; truncated: boolean; unreadable: number; scanToken: string | null };
 function registerExports(result: Awaited<ReturnType<typeof discoverExportDirectories>>) {
   const registered: string[] = [];
   try {
@@ -53,43 +65,44 @@ async function local(id: string) {
   return targets.size === 1 ? { kind: conv.kind, conv: [...targets][0]!, uin, configId } : null;
 }
 export const exportViewerRouter = router({
-  pick: procedure.input(z.object({ directory: z.boolean() })).mutation(async ({ input }) => {
-    const path = input.directory
-      ? await getHost().pickDirectory({ title: '选择 WeQ 导出文件夹' })
-      : await getHost().pickFile({ title: '选择聊天 JSON / JSONL', extensions: ['json', 'jsonl'] });
-    if (!path) return null;
-    if (input.directory) {
-      const result = await discoverExportDirectories(path);
-      if (!result.sources.length) {
-        for (const [token, scan] of pendingScans) {
-          if (scan.expires < Date.now()) pendingScans.delete(token);
+  pick: procedure
+    .input(z.object({ directory: z.boolean(), deferScan: z.boolean().optional() }))
+    .mutation(async ({ input }) => {
+      const path = input.directory
+        ? await getHost().pickDirectory({ title: '选择 WeQ 导出文件夹' })
+        : await getHost().pickFile({
+            title: '选择聊天 JSON / JSONL',
+            extensions: ['json', 'jsonl'],
+          });
+      if (!path) return null;
+      if (input.directory) {
+        if (input.deferScan)
+          return { sources: [], truncated: false, unreadable: 0, scanToken: scanToken(path) };
+        const result = await discoverExportDirectories(path);
+        if (!result.sources.length) {
+          return { ...registerExports(result), scanToken: scanToken(path) };
         }
-        if (pendingScans.size >= 16) pendingScans.delete(pendingScans.keys().next().value!);
-        const scanToken = randomUUID();
-        pendingScans.set(scanToken, { path, expires: Date.now() + 10 * 60_000 });
-        return { ...registerExports(result), scanToken };
+        return registerExports(result);
       }
-      return registerExports(result);
-    }
-    const source = await describeViewerFile(path);
-    // 配套基线必须唯一且会话一致，不能仅凭文件名或最新时间猜测。
-    const catalog = await discoverViewerSources(dirname(source.path)).catch(() => null);
-    const matches =
-      catalog?.sources.filter(
-        (s) =>
-          s.baselineDirectory &&
-          s.conversation?.kind === source.conversation?.kind &&
-          s.conversation?.conv === source.conversation?.conv,
-      ) ?? [];
-    if (!catalog?.truncated && matches.length === 1)
-      source.baselineDirectory = matches[0]?.baselineDirectory;
-    return {
-      sources: [registerViewerSource(source)],
-      truncated: false,
-      scanToken: null,
-      unreadable: 0,
-    };
-  }),
+      const source = await describeViewerFile(path);
+      // 配套基线必须唯一且会话一致，不能仅凭文件名或最新时间猜测。
+      const catalog = await discoverViewerSources(dirname(source.path)).catch(() => null);
+      const matches =
+        catalog?.sources.filter(
+          (s) =>
+            s.baselineDirectory &&
+            s.conversation?.kind === source.conversation?.kind &&
+            s.conversation?.conv === source.conversation?.conv,
+        ) ?? [];
+      if (!catalog?.truncated && matches.length === 1)
+        source.baselineDirectory = matches[0]?.baselineDirectory;
+      return {
+        sources: [registerViewerSource(source)],
+        truncated: false,
+        scanToken: null,
+        unreadable: 0,
+      };
+    }),
   scan: procedure
     .input(z.object({ token: z.string().uuid(), recursive: z.boolean() }))
     .mutation(async ({ input }) => {
@@ -101,6 +114,50 @@ export const exportViewerRouter = router({
       if (!result.sources.length) throw new Error('递归扫描未找到可查看的导出。');
       return registerExports(result);
     }),
+  scanProgress: procedure
+    .input(z.object({ token: z.string().uuid(), recursive: z.boolean() }))
+    .subscription(({ input }) =>
+      observable<ViewerScanEvent>((emit) => {
+        const controller = new AbortController(),
+          registered: string[] = [];
+        let finished = false;
+        const pending = pendingScans.get(input.token);
+        pendingScans.delete(input.token);
+        void (async () => {
+          if (!pending || pending.expires < Date.now())
+            throw new Error('目录选择已过期，请重新选择。');
+          const result = await discoverExportDirectories(pending.path, input.recursive, {
+            signal: controller.signal,
+            onSource: (source) => {
+              controller.signal.throwIfAborted();
+              const item = registerViewerSource(source);
+              registered.push(item.id);
+              emit.next({ kind: 'source', source: item });
+            },
+          });
+          controller.signal.throwIfAborted();
+          let token: string | null = null;
+          if (!registered.length && !input.recursive) token = scanToken(pending.path);
+          finished = true;
+          emit.next({
+            kind: 'done',
+            truncated: result.truncated,
+            unreadable: result.unreadable,
+            scanToken: token,
+          });
+          emit.complete();
+        })().catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          // 已发给界面的部分来源继续可读，界面负责关闭；异常不冒称扫描完成。
+          finished = true;
+          emit.error(error);
+        });
+        return () => {
+          controller.abort();
+          if (!finished) closeViewerSources(registered);
+        };
+      }),
+    ),
   page: procedure
     .input(
       z.object({

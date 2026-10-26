@@ -22,8 +22,20 @@ export function GroupMessageBadge({ member }: { member: GroupBadgeMember }) {
   const tone = role || (customTitle ? 'custom-title' : 'neutral');
   const text = level && title && level !== title ? `${level} · ${title}` : title || level;
   return (
-    <small className={`member-badge ${tone}`} title={text}>
-      {text}
+    <small
+      className={`member-badge ${tone}`}
+      title={text}
+      data-privacy-title={Boolean(customTitle) || undefined}
+    >
+      {level && title && level !== title ? (
+        <>
+          {level}
+          {' · '}
+          <span data-privacy-sensitive={Boolean(customTitle) || undefined}>{title}</span>
+        </>
+      ) : (
+        <span data-privacy-sensitive={Boolean(customTitle) || undefined}>{text}</span>
+      )}
     </small>
   );
 }

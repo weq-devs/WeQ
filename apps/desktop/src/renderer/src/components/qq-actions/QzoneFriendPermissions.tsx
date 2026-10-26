@@ -1,11 +1,44 @@
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import { trpc } from '../../trpc/client';
 import { QQWriteToggleRow } from '../QQWriteControls';
 import { ActionFeedback, ActionIcon, useQQAction, withQQAccountScope } from './shared';
 import { QueryError } from '../settings/controls';
 import { QqAvatar } from '../QqAvatar';
+import { ProfileNavigationContext, profileTargetUser } from '../../lib/profileNavigation';
+import { useTabActive } from '../RetainedTabs';
 import { Plus, RefreshCw, Search, X } from 'lucide-react';
 import '../../styles/qzone-permissions.css';
+
+function PermissionProfile({ uin, name }: { uin: string; name: string }) {
+  const active = useTabActive();
+  const navigate = useContext(ProfileNavigationContext);
+  const providedName = name.trim() !== uin ? name.trim() : '';
+  const profile = trpc.account.getProfileByUin.useQuery(
+    { uin },
+    {
+      enabled: active && !providedName,
+      staleTime: 60_000,
+      refetchOnWindowFocus: false,
+    },
+  );
+  const nickname = providedName || profile.data?.nick || '昵称未获取';
+  return (
+    <button
+      type="button"
+      className="weq-qzone-permission-profile"
+      title={`${nickname}（${uin}）`}
+      aria-label={`查看${nickname}的名片`}
+      disabled={!navigate}
+      onClick={(event) => {
+        const user = profileTargetUser({ identity: profile.data?.uid || uin, uin, name: nickname });
+        if (user) navigate?.(user, { x: event.clientX, y: event.clientY });
+      }}
+    >
+      <QqAvatar uin={uin} size={24} />
+      <span>{nickname}</span>
+    </button>
+  );
+}
 
 function PermissionKind({
   targetUin,
@@ -79,7 +112,7 @@ function PermissionKind({
     }
   };
   return (
-    <section className="weq-qzone-permissions" aria-label={label}>
+    <section className="weq-qzone-permissions weq-set-card" aria-label={label}>
       <header>
         <h4>{label}</h4>
         {!lists.error && lists.data && (
@@ -110,8 +143,7 @@ function PermissionKind({
       <ul className="weq-qzone-permission-users">
         {lists.data?.map((row) => (
           <li key={row.uin}>
-            <QqAvatar uin={row.uin} size={24} />
-            <span title={`${row.name || row.uin}（${row.uin}）`}>{row.name || row.uin}</span>
+            <PermissionProfile uin={row.uin} name={row.name} />
             <ActionIcon
               label={`从${label}移除 ${row.name || row.uin}（${row.uin}）`}
               disabled={disabled}

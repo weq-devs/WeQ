@@ -42,6 +42,8 @@ export interface WidgetMeta {
 
 /** 装扮配置（账号级）。 */
 export interface DressConfig {
+  /** 本地覆盖选择版本；旧版自动启用的装扮不沿用。 */
+  localAppearanceVersion: number;
   /** 已装气泡 itemId 列表。 */
   installedBubbles: number[];
   /** 已装字体 itemId 列表。 */
@@ -99,16 +101,18 @@ export class DressConfigService {
 
     try {
       const raw = JSON.parse(readFileSync(this.configPath, 'utf-8')) as Partial<DressConfig>;
+      const explicitLocalAppearance = raw.localAppearanceVersion === 1;
       return {
+        localAppearanceVersion: 1,
         installedBubbles: Array.isArray(raw.installedBubbles) ? raw.installedBubbles : [],
         installedFonts: Array.isArray(raw.installedFonts) ? raw.installedFonts : [],
         installedWidgets: Array.isArray(raw.installedWidgets) ? raw.installedWidgets : [],
         bubbleMeta: raw.bubbleMeta && typeof raw.bubbleMeta === 'object' ? raw.bubbleMeta : {},
         fontMeta: raw.fontMeta && typeof raw.fontMeta === 'object' ? raw.fontMeta : {},
         widgetMeta: raw.widgetMeta && typeof raw.widgetMeta === 'object' ? raw.widgetMeta : {},
-        activeBubble: Number(raw.activeBubble ?? 0),
-        activeFont: Number(raw.activeFont ?? 0),
-        activeWidget: Number(raw.activeWidget ?? 0),
+        activeBubble: explicitLocalAppearance ? Number(raw.activeBubble ?? 0) : 0,
+        activeFont: explicitLocalAppearance ? Number(raw.activeFont ?? 0) : 0,
+        activeWidget: explicitLocalAppearance ? Number(raw.activeWidget ?? 0) : 0,
         scope: raw.scope === 'all' ? 'all' : 'mine',
         background: ['none', 'qq', 'custom'].includes(raw.background as string)
           ? (raw.background as DressBackgroundSource)
@@ -251,6 +255,7 @@ export class DressConfigService {
 
   private emptyConfig(): DressConfig {
     return {
+      localAppearanceVersion: 1,
       installedBubbles: [],
       installedFonts: [],
       installedWidgets: [],

@@ -29,14 +29,19 @@ import {
   apiErrorMessage,
   pickMessageText,
   type AgentLabEndpoint,
-  type AgentLabModelRef,
+  type AgentLabModelSelection,
+  normalizeModelSelection,
   type AgentLabUsage,
 } from '@weq/agentlab';
 import type { TokenUsageStore } from './agentlab_usage';
 import type { ConversationStore, ConversationTurn } from './agentlab_conversation';
 import { JsonStore } from '../common/json_store';
+import { assistantCapabilityGuidance } from './assistant_capabilities';
 
-export type EndpointResolver = (ref: AgentLabModelRef) => AgentLabEndpoint;
+export type EndpointResolver = (
+  ref: AgentLabModelSelection,
+  capability?: 'chat' | 'embedding' | 'vision',
+) => AgentLabEndpoint;
 
 /** OpenAI function 规格（由应用层从 AI_TOOLS / 外部 MCP 转换后注入）。 */
 export interface AssistantToolSpec {
@@ -46,8 +51,15 @@ export interface AssistantToolSpec {
 
 export interface AssistantTools {
   /** 内置 + 外部 MCP 工具的合并规格（外部列举是异步的，故允许 Promise）。 */
-  specs: () => AssistantToolSpec[] | Promise<AssistantToolSpec[]>;
-  run: (name: string, args: Record<string, unknown>) => Promise<unknown>;
+  specs: (options?: {
+    permissionMode?: 'sandbox' | 'unrestricted';
+    signal?: AbortSignal;
+  }) => AssistantToolSpec[] | Promise<AssistantToolSpec[]>;
+  run: (
+    name: string,
+    args: Record<string, unknown>,
+    options?: { permissionMode?: 'sandbox' | 'unrestricted'; signal?: AbortSignal },
+  ) => Promise<unknown>;
   /** 配置变更时把外部 MCP 服务器原始配置同步给应用层的 Hub（可选）。 */
   syncExternalMcp?: (raw: string | undefined) => void;
   /**
@@ -62,7 +74,8 @@ export interface AssistantTools {
 export type AssistantReasoningEffort = 'off' | 'low' | 'medium' | 'high';
 
 export interface AssistantConfig {
-  model?: AgentLabModelRef;
+  permissionMode?: 'sandbox' | 'unrestricted';
+  model?: AgentLabModelSelection;
   customPrompt?: string;
   /** 思考等级（见 {@link AssistantReasoningEffort}）：非 `off` 时以 `reasoning_effort` 传给模型。 */
   reasoningEffort?: AssistantReasoningEffort;
@@ -398,16 +411,12 @@ interface StreamChunk {
 export class AssistantService {
   private readonly configPath: string;
   private readonly sessionsPath: string;
-  /** 配置 / 会话列表的整文件存储（save() 原子落盘，失败静默）。 */
+  /** 配置严格原子保存；会话列表保留既有宽容读取，但损坏原件不覆盖。 */
   private readonly configStore: JsonStore<AssistantConfig>;
   private readonly sessionsStore: JsonStore<AssistantSession[]>;
 
   private get config(): AssistantConfig {
     return this.configStore.data;
-  }
-
-  private set config(next: AssistantConfig) {
-    this.configStore.data = next;
   }
 
   private get sessions(): AssistantSession[] {
@@ -417,8 +426,9 @@ export class AssistantService {
   private set sessions(next: AssistantSession[]) {
     this.sessionsStore.data = next;
   }
-  /** provider 若不认 `reasoning_effort`（首次 400）就置真，本进程后续调用不再带该参数。 */
-  private reasoningUnsupported = false;
+  /** 按实际模型记住不支持 reasoning_effort 的端点，不影响切换后的其他模型。 */
+  private readonly reasoningUnsupported = new Set<string>();
+  private readonly permissionRuns = new Set<AbortController>();
 
   constructor(
     private readonly rootDir: string,
@@ -430,8 +440,18 @@ export class AssistantService {
     this.configPath = join(rootDir, 'assistant.json');
     this.sessionsPath = join(rootDir, 'assistant_sessions.json');
     this.configStore = new JsonStore(this.configPath, () => ({}), {
+      strict: true,
       pretty: true,
-      normalize: (raw) => (raw && typeof raw === 'object' ? (raw as AssistantConfig) : {}),
+      normalize: (raw) => {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+          throw new Error('助手配置必须是 JSON 对象');
+        const config = raw as AssistantConfig;
+        return {
+          ...config,
+          permissionMode: config.permissionMode === 'unrestricted' ? 'unrestricted' : 'sandbox',
+          model: normalizeModelSelection(config.model) ?? undefined,
+        };
+      },
     });
     this.sessionsStore = new JsonStore(this.sessionsPath, () => [], {
       normalize: (raw) =>
@@ -445,19 +465,34 @@ export class AssistantService {
   }
 
   getConfig(): AssistantConfig {
-    return this.config;
+    return { ...this.config, permissionMode: this.config.permissionMode ?? 'sandbox' };
   }
 
-  setConfig(patch: AssistantConfig): AssistantConfig {
-    this.config = {
-      model: patch.model ?? this.config.model,
+  setConfig(patch: AssistantConfig & { confirmUnrestricted?: boolean }): AssistantConfig {
+    if (
+      patch.permissionMode === 'unrestricted' &&
+      this.config.permissionMode !== 'unrestricted' &&
+      patch.confirmUnrestricted !== true
+    ) {
+      throw new Error(
+        '开启任意权限前必须确认风险：助手可执行任意操作，包括删除 WeQ 目录之外的文件。',
+      );
+    }
+    const next: AssistantConfig = {
+      permissionMode: patch.permissionMode ?? this.config.permissionMode ?? 'sandbox',
+      model:
+        patch.model === undefined
+          ? this.config.model
+          : (normalizeModelSelection(patch.model) ?? undefined),
       customPrompt:
         patch.customPrompt !== undefined ? patch.customPrompt : this.config.customPrompt,
       reasoningEffort:
         patch.reasoningEffort !== undefined ? patch.reasoningEffort : this.config.reasoningEffort,
       mcpServers: patch.mcpServers !== undefined ? patch.mcpServers : this.config.mcpServers,
     };
-    this.persistConfig();
+    const modeChanged = next.permissionMode !== (this.config.permissionMode ?? 'sandbox');
+    this.configStore.replace(next);
+    if (modeChanged) for (const controller of this.permissionRuns) controller.abort();
     if (patch.mcpServers !== undefined) this.tools?.syncExternalMcp?.(this.config.mcpServers);
     return this.config;
   }
@@ -870,13 +905,14 @@ export class AssistantService {
     // write_report 是 service 内置工具（需要 rootDir、要顺手 emit artifact）；
     // update_investigation_plan / update_work_notes 是调查过程的内置记忆工具；
     // 其余来自应用层注入的内置 AI_TOOLS + 外部 MCP。
-    const specs = [WRITE_REPORT_SPEC, ...WORKSPACE_SPECS, ...((await this.tools?.specs()) ?? [])];
+    const permissionMode = this.config.permissionMode ?? 'sandbox';
 
     // 组合取消源：把「外部 signal（用户点停止）」与「整轮总超时」合流到一个内部 controller。
     // 全程只把 ac.signal 传给下游（LLM 请求 / throwIfAborted）——任一触发都能尽早收尾。
     // timedOut 标记用于把总超时与用户主动取消区分开：超时转成普通 Error 走 chat() 的 error 分支
     // （给可读提示），用户取消则保持 AbortError 走 aborted 分支（留半截答复）。
     const ac = new AbortController();
+    this.permissionRuns.add(ac);
     let timedOut = false;
     const onExternalAbort = (): void => ac.abort();
     if (signal) {
@@ -889,11 +925,28 @@ export class AssistantService {
     }, RUN_TIMEOUT_MS);
 
     try {
+      const available = await withTimeout(
+        Promise.resolve(this.tools?.specs({ permissionMode, signal: ac.signal })),
+        TOOL_TIMEOUT_MS,
+        '工具列表载入',
+        ac.signal,
+      );
+      const specs = [
+        WRITE_REPORT_SPEC,
+        ...WORKSPACE_SPECS,
+        ...(available ?? []).filter(
+          (spec) => permissionMode === 'unrestricted' || !spec.function.name.startsWith('mcp__'),
+        ),
+      ];
+      const capabilityGuidance = assistantCapabilityGuidance(
+        specs.map((spec) => spec.function.name),
+        permissionMode,
+      );
       for (let loop = 0; loop < TOOL_LOOP_LIMIT; loop += 1) {
         throwIfAborted(ac.signal);
         // 每轮发送前先做上下文压缩（长会话/多工具循环的 token 预算管理）。
         await this.compressIfNeeded(state, endpoint, emit, ac.signal);
-        const roundMessages = this.buildRoundMessages(state);
+        const roundMessages = this.buildRoundMessages(state, capabilityGuidance);
         // 最后一轮强制关闭工具，逼模型给出文字结论，避免"用尽轮数"硬中断。
         const allowTools = specs.length > 0 && loop < TOOL_LOOP_LIMIT - 1;
         const { content, toolCalls } = await this.callApiStream(
@@ -965,17 +1018,25 @@ export class AssistantService {
 
             let result: unknown;
             let ok = true;
+            let outcomeUnknown = false;
             try {
               if (!this.tools) throw new Error(`未知工具：${call.function.name}`);
-              // 单工具超时：到点抛可读错误落进下面 catch → ok:false 回灌模型继续，不拖死整轮。
+              // 单工具超时不能证明未执行；标明未知终态并停止本轮，不自动重复副作用。
               result = await withTimeout(
-                this.tools.run(call.function.name, args),
+                this.tools.run(call.function.name, args, { permissionMode, signal: ac.signal }),
                 TOOL_TIMEOUT_MS,
                 `工具 ${call.function.name} 执行`,
+                ac.signal,
               );
+              outcomeUnknown = hasUnknownToolOutcome(result);
+              if (outcomeUnknown) ok = false;
             } catch (error) {
               ok = false;
-              result = { error: error instanceof Error ? error.message : String(error) };
+              outcomeUnknown = error instanceof ToolOutcomeUnknownError;
+              result = {
+                error: error instanceof Error ? error.message : String(error),
+                ...(outcomeUnknown ? { status: 'unknown', operationId: call.id } : {}),
+              };
             }
             const serialized = safeStringify(result);
             emit({
@@ -997,6 +1058,19 @@ export class AssistantService {
               content: capToolResult(result),
             });
             state.toolCallCount += 1;
+            if (outcomeUnknown) {
+              ac.abort();
+              // 补齐同一批尚未执行的 tool 响应，恢复时不重放副作用。
+              const index = toolCalls.indexOf(call);
+              for (const skipped of toolCalls.slice(index + 1))
+                state.messages.push({
+                  role: 'tool',
+                  tool_call_id: skipped.id,
+                  content: '{"error":"前序操作终态未知，未执行本操作"}',
+                });
+              this.persistRun(sessionId, state, 'running');
+              return '工具操作的最终结果尚未确认，可能仍会完成。本轮已停止，未自动重试；请先核对文件、消息或服务中的实际结果，再决定是否继续。';
+            }
           }
           // 一批工具调用全部完成、消息数组处于一致状态 → 落盘断点快照。
           this.persistRun(sessionId, state, 'running');
@@ -1016,14 +1090,15 @@ export class AssistantService {
       }
       throw error;
     } finally {
+      this.permissionRuns.delete(ac);
       clearTimeout(runTimer);
       signal?.removeEventListener('abort', onExternalAbort);
     }
   }
 
   /** 每轮发送前的消息组装：把动态注入段（摘要 + 调查计划/工作笔记）拼进 system。 */
-  private buildRoundMessages(state: AssistantRunState): ApiMessage[] {
-    const blocks: string[] = [];
+  private buildRoundMessages(state: AssistantRunState, capabilityGuidance = ''): ApiMessage[] {
+    const blocks: string[] = capabilityGuidance ? [capabilityGuidance] : [];
     if (state.summary) blocks.push(summaryBlock(state.summary));
     const ws = workspaceBlock(state.workspace);
     if (ws) blocks.push(ws);
@@ -1222,7 +1297,7 @@ export class AssistantService {
       ? verses.map((v, i) => `  ${i + 1}. ${v.text}${v.from ? `　—— ${v.from}` : ''}`).join('\n')
       : '';
     return [
-      '你是 WeQ 助手，运行在用户的 QQ 客户端里，是一个**任务执行者**：你的职责是亲自把用户的问题查清楚、把任务做完，而不是告诉用户"你可以自己去搜索/查看"。',
+      '你是 WeQ 助手，运行在 WeQ 应用里，是一个**任务执行者**：你的职责是亲自把用户的问题查清楚、把授权范围内的任务做完，而不是告诉用户"你可以自己去搜索/查看"。',
       `今天是 ${dateStr}。涉及"哪天/什么时候"等时间问题时，结合聊天记录里的日期与今天推算。`,
       // 证据追问命中：置顶一条硬规则，强制本轮重新取证，压住"复述旧结论/嘴硬辩护"的倾向。
       evidenceFollowUp
@@ -1235,21 +1310,21 @@ export class AssistantService {
       '',
       '【工作方式】',
       '- 把用户的每个问题都当成一个需要主动完成的任务，需要数据就调用工具，能查就查，别把活儿甩回给用户。',
-      '- 提到某个人名/群名（如"小枳壳"）时，先用 find_contact 把名字解析成会话（私聊对方 uid 或群号），再用 get_messages / search_messages 在该会话里查；不要把人名本身当关键词去全文搜索。',
+      '- 提到某个人名/群名（如"小枳壳"）时，先用 find_contact 把名字解析成会话（私聊对方 uid 或群号），再用 get_messages / search_in_conversation 在该会话里查；不要把人名本身当关键词去全文搜索。',
       '- search_messages 一次没命中，要换同义词/更短的关键词/不同 scope 多试几次；也可以直接 get_messages 把相关会话最近的消息读出来自己判断。',
       '- 群里找某个人的发言：先 find_contact 或 list_group_members 把昵称解析成 uid，再定位。',
       '- 多轮推进：每一步先想清楚下一步查什么，再调用工具；拿到结果后据此决定继续查还是作答。',
-      '- **需要自己算的活用 run_js**：要批量遍历后再筛选/聚合/汇总（例如「把上百个群逐个核对身份」「按角色筛人」「把几份结果 join 起来统计」），别一个个工具硬调：用 run_js 写一段 JS，在里面 await callTool("工具名", {...}) 取数据，自己循环、过滤、计数，最后 return 一个精简结论。单个工具一次就能查到的，不要用沙箱包一层。',
-      '- **别动不动就写 SQL（重要）**：直接查数据库（execute_sql / query_sqlite_file / decode_db_blob 等）是**万不得已的最后手段**，非常低效——得先猜表结构和列号、返回一堆难读的原始行，还容易查错库、甚至改坏数据。先把上层专用工具用尽：联系人/会话用 find_contact，消息用 get_messages / search_messages / get_messages_by_date，线索沿时间线用 inspect_timeline，统计排行用 rank_* / get_period_overview / get_group_activity 等。只有这些确实覆盖不到（某个字段/聚合没有对应工具）时，才先 list_databases + list_db_tables + list_db_columns 摸清结构，再写**只读 SELECT** 直查，且一次查准、别反复试。**写操作（INSERT / UPDATE / DELETE / DDL）几乎永远不要用**，除非用户明确要求改库。',
+      '- 优先使用现成的聚合、排行和日期工具，一次专用查询能回答的问题，不逐个遍历所有会话；跨工具计算可使用本轮可用的计算工具，宿主操作能力以本轮权限指引为准。复杂任务可用调查计划和工作笔记记录待办、范围与证据，简单问题直接查询作答。',
+      '- **数据库是最后手段**：优先使用联系人、消息、时间线和统计等专用工具。只有它们确实不覆盖所需字段时，才按本轮工具定义列库、表、列确认结构，再执行只读查询；不猜库名和列号，不擅自写库。',
       '- 只有在合理地尝试过多种方式仍查不到时，才如实说明"没找到"，并简要说明你已经查过的范围，给出可能的下一步建议。绝不编造不存在的信息。',
-      '- **发消息是不可逆的真实动作（重要）**：send_text_message / send_media_message / send_rich_message 会**真的把消息发出去**，本工具集没有撤回。所以只在用户明确要求"发一条/回他/转发"时才调用，内容照用户的意思写（别自己润色加工）；发到群聊、@ 人或引用回复这类会影响多人的动作，先和用户确认目标与措辞。ok=false 就是**没发出去**（按 result / hint 说明原因），不要回答成"已发送"。',
+      '- **真实动作与查询分开**：发送工具会真的把消息发出去，本工具集没有消息撤回工具。只在用户明确要求时执行；用户给定原文就原样发送，要求代拟则按其意图撰写。目标与措辞已明确的群聊、@ 和引用不重复确认。检查业务返回的 ok / success / error / hint，失败不说成成功。',
       '',
       '【调查方法论】（关系/人物/结论类问题必须遵守，避免"看几句话就下判断"）',
       '- **引用 vs 推断分离**：工具返回的原话只能证明它字面直接支持的事实；任何关系亲疏、态度、动机、情绪的判断都属于你的推断，要另起一句标成"我的推断是……"，并说明依据与不确定性，别把推断当既定事实陈述。',
       '- **原话必须真实**：引用的每一句都必须严格来自某次工具返回的内容，标清是谁、大概何时说的；字段缺失就写"未知"，绝不凭印象补造原话，也不得声称看过工具没返回的消息。',
-      '- **工具结果只是线索，不是结论**：rank_friends_by_activity / rank_my_groups_by_activity / get_period_overview / list_* 这类排行与聚合只提供"从哪查"的候选和方向，不能代替原文；要坐实一个具体结论，必须再用 inspect_timeline + get_messages / search_messages 读到真实原话核验。',
+      '- **统计事实与关系判断分开**：排行、聚合足以回答其范围内的消息量、名次和变化，无需为纯统计问题额外读取聊天原文；但不能由此判断关系亲疏、态度或具体话题，这类结论必须再读时间线和真实原话核验。',
       '- **累计消息量 ≠ 关系最好**：消息条数多只代表历史互动体量大。判断"最亲密/最重要/最疏远/谁在升温降温"要综合最近是否仍活跃、90 天变化、最后联系时间、谁更常主动、沉默前后的真实内容，别拿单一排行下断言。多人里选情感候选时，至少对 2-3 个不同候选分别跑 inspect_timeline 并读到原文再比较，别用同一人反复调用冒充多方核对。',
-      '- **信息不足就继续查**：每次拿到工具结果先看它的 range / coverage / hasMore / hint——覆盖不全或还有下一页就换关键词、翻页、换时间段或换工具补查，直到足以可靠回答；确实到头仍不完整，就在结论里明确降低强度、说清局限，而不是硬下定论。',
+      '- **按问题需要补查**：每次看工具的 range / coverage / hasMore / hint / nextBefore 等覆盖信息；需要完整名单或指定范围尚未覆盖时再翻页、换词或补查。只问最近几条或统计已足够时不穷尽全库；仍不完整就明确范围和局限，不硬下定论。',
       '- **面对追问（真的假的 / 有证据吗 / 原话呢 / 为什么这么说）**：这一轮必须重新调工具查证再答，禁止复述或为上一段结论辩护；从上一结论里挑姓名/事件/日期/关键词去检索，别拿"真的假的"这类追问原句当搜索词。已经展示过的原话不算本轮新证据；查不到支持内容就直说"这轮没查到能支持该说法的原话"，并撤回或降级上一结论，绝不坚称它存在。',
       '- **认错要分清责任**：被质疑判断错时，区分是"工具确实返回错了"、"工具覆盖范围有限没查全"、还是"我自己取证不足/权重判断错了"。除非工具输出与事实矛盾，别把锅甩给工具；指出当时漏看的时间尺度或候选，本轮重新核验后再修正结论。',
       '',
@@ -1392,7 +1467,10 @@ export class AssistantService {
     signal?: AbortSignal,
   ): Promise<{ content: string; reasoning: string; toolCalls: ApiMessage['tool_calls'] }> {
     const effort = this.config.reasoningEffort;
-    const withReasoning = !!effort && effort !== 'off' && !this.reasoningUnsupported;
+    const modelIdentity =
+      endpoint.modelIdentity ?? JSON.stringify([endpoint.baseUrl, endpoint.model]);
+    const withReasoning =
+      !!effort && effort !== 'off' && !this.reasoningUnsupported.has(modelIdentity);
     let temperatureOmitted = false;
     let lastReasoning = withReasoning;
 
@@ -1446,7 +1524,7 @@ export class AssistantService {
         // provider 不识别 reasoning_effort → 400：去掉重试一次，并记住本进程内别再带。
         if (!response.ok && response.status === 400 && reasoning && !reasoningRetried) {
           reasoningRetried = true;
-          this.reasoningUnsupported = true;
+          this.reasoningUnsupported.add(modelIdentity);
           await rejectResponse(response);
           response = await post(false);
         }
@@ -1584,10 +1662,6 @@ export class AssistantService {
       .filter((c) => c.function.name);
 
     return { content, reasoning, toolCalls: toolCalls.length ? toolCalls : undefined };
-  }
-
-  private persistConfig(): void {
-    this.configStore.save();
   }
 
   private persistSessions(): void {
@@ -1729,21 +1803,54 @@ function throwIfAborted(signal?: AbortSignal): void {
 
 /**
  * 给一个 promise 套超时：到点抛可读的普通 Error（name≠AbortError，故不会被 chat() 误判为用户取消）。
- * 底层工作（DB 查询等）无法真正中断，这里只保证 loop 不被卡住、能带着「失败」结论继续推进。
+ * 可取消下游由调用者传递 signal；无法确认终态的操作停止本轮，不能当普通失败继续重试。
  */
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+class ToolOutcomeUnknownError extends Error {}
+
+function hasUnknownToolOutcome(result: unknown): boolean {
+  if (!result || typeof result !== 'object' || !('calls' in result) || !Array.isArray(result.calls))
+    return false;
+  return result.calls.some(
+    (call: unknown) =>
+      !!call && typeof call === 'object' && 'state' in call && call.state === 'unknown',
+  );
+}
+
+function withTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  label: string,
+  signal?: AbortSignal,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`${label}超时（${Math.round(ms / 1000)}s）`)),
-      ms,
-    );
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      reject(
+        new ToolOutcomeUnknownError(
+          `${label}已停止；已发出的操作可能仍会完成，请先核对实际结果，不要自动重试。`,
+        ),
+      );
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      reject(
+        new ToolOutcomeUnknownError(
+          `${label}超时（${Math.round(ms / 1000)}s），终态未知；已发出的操作可能仍会完成，不要自动重试。`,
+        ),
+      );
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
     p.then(
       (v) => {
         clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
         resolve(v);
       },
       (e) => {
         clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
         reject(e);
       },
     );

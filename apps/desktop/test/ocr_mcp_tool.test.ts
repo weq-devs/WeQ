@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * MCP 侧的图片文字识别工具（`ocr_image_text` / `get_ocr_status`）。
  *

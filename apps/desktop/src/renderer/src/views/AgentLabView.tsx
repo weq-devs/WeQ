@@ -18,6 +18,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import { trpc } from '../trpc/client';
+import { isDefaultModelSelection } from '@weq/agentlab/model-selection';
+import { useModelSelectionLabel } from '../components/settings/useModelSelectionLabel';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useAppDialog } from '../lib/dialogUtils';
 import { QqAvatar } from '../components/QqAvatar';
@@ -621,16 +623,6 @@ export function AgentLabView({
     }
   }, [sel, personas.data, personaList]);
 
-  // 进度订阅由 cloneTaskStore 在模块级维护（脱离本组件，切视图不中断）。
-  // 这里只负责：有任务构建完成时刷新克隆体列表（同时覆盖「构建期切走、回来才看到完成」的情况）。
-  const doneTaskIds = cloneTasks
-    .filter((t) => t.status === 'done')
-    .map((t) => t.personaId)
-    .join(',');
-  useEffect(() => {
-    if (doneTaskIds) void utils.account.listAgentLabPersonas.invalidate();
-  }, [doneTaskIds, utils]);
-
   /** 点克隆体 → 开一个新草稿会话（列表默认展示克隆体本身，点它即开启新会话）。 */
   function selectPersona(id: string): void {
     setSettingsOpen(false);
@@ -719,7 +711,7 @@ export function AgentLabView({
   }
 
   // 由配置弹窗发起构建：交给模块级 store 登记任务 + 后台跑构建 → 关弹窗 → 打开进度灯箱。
-  // 构建脱离本组件，切走再回来任务态仍在（bug2）。完成后由上面的 doneTaskIds effect 刷新列表。
+  // 构建脱离本组件，切走再回来任务态仍在。完成后由主界面刷新共享克隆体列表。
   function startClone(args: StartCloneArgs): void {
     setCloneOpen(false);
     setViewTaskId(args.params.personaId);
@@ -820,12 +812,17 @@ export function AgentLabView({
   }
 
   // 克隆体头部副标题：provider · 模型 · 样本 N 条。
+  const selectionLabel = useModelSelectionLabel();
   const personaModelLabel = useMemo(() => {
     if (!activePersona) return '加载中…';
-    const p = (providers.data ?? []).find((pr) => pr.id === activePersona.models?.chat?.providerId);
-    const modelText = activePersona.models?.chat?.model ?? '旧版克隆，请重建';
+    const ref = activePersona.models?.chat;
+    const p =
+      ref && !isDefaultModelSelection(ref)
+        ? (providers.data ?? []).find((pr) => pr.id === ref.providerId)
+        : undefined;
+    const modelText = selectionLabel(ref, '旧版克隆，请重建');
     return `${p ? `${p.name} · ` : ''}${modelText} · 样本 ${activePersona.corpusMessageCount} 条`;
-  }, [activePersona, providers.data]);
+  }, [activePersona, providers.data, selectionLabel]);
 
   return (
     <div

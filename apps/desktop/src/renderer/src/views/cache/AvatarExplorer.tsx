@@ -22,6 +22,7 @@ import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton, InlineSkeleton } from './CacheSkeleton';
+import { useTabActive } from '../../components/RetainedTabs';
 
 const SCOPE_META: Record<AvatarScope, { label: string; icon: ReactElement }> = {
   user: { label: '好友头像', icon: <Users size={14} /> },
@@ -35,7 +36,8 @@ function avatarSrc(scope: AvatarScope, hash: string, variant: 'big' | 'small'): 
 }
 
 export function AvatarExplorer(): ReactElement {
-  const scopes = trpc.account.avatarResource.listScopes.useQuery();
+  const visible = useTabActive();
+  const scopes = trpc.account.avatarResource.listScopes.useQuery(undefined, { enabled: visible });
   const scopeList = useMemo<AvatarScopeInfo[]>(
     () => (scopes.data ?? []) as AvatarScopeInfo[],
     [scopes.data],

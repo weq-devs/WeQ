@@ -1,4 +1,5 @@
 import type { AccountSession } from '@weq/account';
+import { recordMessageWork } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import { ReportRead, type ReadReportParams } from '@weq/protocol';
 import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
@@ -71,7 +72,7 @@ export class UnreadInfoService {
   }
 
   /** 仅接数据库实时差分；漫游缓存事件不走这里，旧消息导入不增加未读。 */
-  observeNewMessages(change: NewMessages): void {
+  async observeNewMessages(change: NewMessages): Promise<void> {
     if (this.disposed || this.localOptions?.readOnly) return;
     const observedAt = change.file.at / 1000;
     const live = (time: bigint) =>
@@ -101,7 +102,7 @@ export class UnreadInfoService {
       )
         this.local.recordLive(msg.chatType, msg.targetUid, String(msg.msgSeq));
     }
-    this.local.flush();
+    await this.local.flush();
   }
 
   getReadReportStatus(): ReadReportStatus {
@@ -110,10 +111,11 @@ export class UnreadInfoService {
       : { state: 'disabled' };
   }
 
-  dispose(): void {
+  async dispose(): Promise<void> {
     this.disposed = true;
     this.cancelReports();
     this.readHistory.clear();
+    await this.local.flush();
   }
 
   cancelReports(): void {
@@ -127,11 +129,32 @@ export class UnreadInfoService {
     return this.session.unreadInfo.getUnreadInfo(chatType, uid);
   }
 
-  async getUnreadInfos(targets: UnreadInfoTarget[]): Promise<ResolvedUnreadInfo[]> {
-    const snapshots = await this.readSnapshots(targets);
+  async getUnreadInfos(
+    targets: UnreadInfoTarget[],
+    watermarksOnly = false,
+  ): Promise<ResolvedUnreadInfo[]> {
+    const began = performance.now();
+    const snapshots = watermarksOnly
+      ? await this.session.unreadInfo.getUnreadInfos(targets)
+      : await this.readSnapshots(targets);
+    recordMessageWork(this.session.msgDbPath, 'watermarks', performance.now() - began);
     if (this.disposed) return snapshots.map((row) => ({ ...row, readError: true }));
-    const rows = snapshots.map((row) => this.local.resolve(row));
-    this.local.flush();
+    const rows = snapshots.map((row): ResolvedUnreadInfo => {
+      if (
+        watermarksOnly &&
+        !row.readError &&
+        row.msgSeq !== undefined &&
+        row.latestSeq !== null &&
+        /^\d+$/.test(row.latestSeq) &&
+        BigInt(row.latestSeq) > BigInt(row.msgSeq) &&
+        classifyChatType(row.chatType) !== 'dataline'
+      )
+        return { ...row, countPending: true };
+      return this.local.resolve(row);
+    });
+    const saving = performance.now();
+    await this.local.flush();
+    recordMessageWork(this.session.msgDbPath, 'unreadPersistence', performance.now() - saving);
     return rows;
   }
 
@@ -149,7 +172,7 @@ export class UnreadInfoService {
     const sequence = latestSeq ?? snapshot?.latestSeq;
     if (sequence === undefined || sequence === null) return false;
     const changed = this.local.markRead(chatType, uid, sequence);
-    this.local.flush();
+    await this.local.flush();
     return changed;
   }
 
@@ -187,7 +210,7 @@ export class UnreadInfoService {
           );
         }
       }
-      this.local.flush();
+      await this.local.flush();
     } catch (error) {
       let rollbackFailed = false;
       for (const row of [...changes].reverse()) {
@@ -257,7 +280,7 @@ export class UnreadInfoService {
       }
     }
     try {
-      this.local.flush();
+      await this.local.flush();
     } catch (error) {
       if (restored.some((row) => row.database)) {
         this.readHistory.delete(undoToken);

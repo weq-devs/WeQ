@@ -1,3 +1,4 @@
+import { withExportSaveDirectory } from './support/export_save_fixture';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -63,7 +64,11 @@ it.each([{ ids: ['9007199254740993', '5'] }, { ids: [] as string[] }])(
       countMessages: async () => rows.length,
     } as unknown as GuildDirectService;
     const deps = { guildDirect: guild };
-    const manager = new ExportTaskManager({} as MsgService, root, deps);
+    const manager = new ExportTaskManager(
+      {} as MsgService,
+      root,
+      withExportSaveDirectory(root, deps),
+    );
     const expected = [...ids];
     const id = await manager.startTask({
       kind: 'c2c',
@@ -89,7 +94,11 @@ it.each([{ ids: ['9007199254740993', '5'] }, { ids: [] as string[] }])(
     const text = readFileSync(task.filePath!, 'utf8');
     expect(text).not.toContain('fixture-2');
     for (const selected of expected) expect(text).toContain(`fixture-${selected}`);
-    const restored = new ExportTaskManager({} as MsgService, root, deps).getTask(id)!;
+    const restored = new ExportTaskManager(
+      {} as MsgService,
+      root,
+      withExportSaveDirectory(root, deps),
+    ).getTask(id)!;
     expect(restored.filter?.messageIds).toEqual(expected);
     expect(restored.guild?.nodeId).toBe(meta.nodeId);
   },

@@ -56,17 +56,19 @@ function mount() {
       !selected &&
         h(SearchDropdown, {
           keyword,
-          categories: ['conversation'],
+          categories: ['group'],
           onCategoriesChange: vi.fn(),
           quick: {
-            conversations: [
+            conversations: [],
+            groups: [
               {
-                category: 'conversation',
-                targetUid: folded.id,
-                targetUin: folded.id,
-                chatType: 2,
+                category: 'group',
+                groupCode: folded.id,
                 name: folded.group.name,
-                typeLabel: '群聊',
+                remark: '',
+                inDirectory: true,
+                hasConversation: true,
+                aliases: [],
               },
             ],
             friends: [],
@@ -76,7 +78,7 @@ function mount() {
           slow: null,
           slowLoading: false,
           onSelect: (hit) => {
-            if (hit.category === 'conversation') setSelected(hit.targetUid);
+            if (hit.category === 'group') setSelected(hit.groupCode);
           },
           onMore: vi.fn(),
         }),

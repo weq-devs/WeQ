@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * 克隆群合成头像的铺格规则。
  *

@@ -4,7 +4,7 @@ import { forwardResIdOf } from '../components/mergeForward/model';
 export interface LocalOutgoingRecord {
   id: string;
   convId: string;
-  state: 'sending' | 'sent' | 'failed';
+  state: 'queued' | 'sending' | 'sent' | 'failed';
   seq?: string;
   afterSeq?: string;
   cid?: string;

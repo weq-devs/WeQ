@@ -25,6 +25,36 @@ function fixture() {
 }
 
 describe('会话分阶段打开', () => {
+  it('普通模式立即显示最新窗口缓存，校准只读最新页，不等待未读水位', async () => {
+    const f = fixture();
+    let release!: (rows: Row[]) => void;
+    f.latest.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    const resolveReadSeq = vi.fn(async () => '10');
+    const window = cached([row('9'), row('10')]);
+    const task = loadConversationEntry({
+      ...f,
+      cached: window,
+      dirty: true,
+      readFromFirstUnread: false,
+      resolveReadSeq,
+    });
+    expect(f.show).toHaveBeenCalledWith(window, true);
+    expect(resolveReadSeq).not.toHaveBeenCalled();
+    release([row('12'), row('11')]);
+    await task;
+    expect(f.show).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        rows: [row('11'), row('12')],
+        anchored: true,
+      }),
+      false,
+    );
+    expect(f.after).not.toHaveBeenCalled();
+  });
   it.each([false, undefined])('关闭或缺省阅读偏好时忽略旧位置和历史缓存：%s', async (enabled) => {
     const f = fixture();
     await loadConversationEntry({
@@ -154,5 +184,120 @@ describe('会话分阶段打开', () => {
     );
     expect(f.show).toHaveBeenCalledOnce();
     expect(f.show.mock.calls[0]![0].hasNewer).toBe(true);
+  });
+
+  it('首屏结果因窗口变化被丢弃时，同一会话仍结束加载', async () => {
+    const f = fixture();
+    let loading = true;
+    const settled = vi.fn(() => {
+      loading = false;
+    });
+    f.latest.mockImplementation(async () => {
+      f.current.mockReturnValue(false);
+      return [row('12')];
+    });
+    await loadConversationEntry({ ...f, active: () => true, settled });
+    expect(f.show).not.toHaveBeenCalled();
+    expect(settled).toHaveBeenCalledOnce();
+    expect(loading).toBe(false);
+  });
+
+  it('切换账号或会话后，旧请求不能结束新会话的加载', async () => {
+    const f = fixture();
+    let active = true;
+    const settled = vi.fn();
+    f.latest.mockImplementation(async () => {
+      active = false;
+      f.current.mockReturnValue(false);
+      return [row('12')];
+    });
+    await loadConversationEntry({ ...f, active: () => active, settled });
+    expect(f.show).not.toHaveBeenCalled();
+    expect(settled).not.toHaveBeenCalled();
+  });
+
+  it('首屏读取失败也结束加载，但不将失败伪装成空消息页', async () => {
+    const f = fixture();
+    const settled = vi.fn();
+    f.latest.mockRejectedValue(new Error('synthetic failure'));
+    await expect(loadConversationEntry({ ...f, active: () => true, settled })).rejects.toThrow(
+      'synthetic failure',
+    );
+    expect(settled).toHaveBeenCalledOnce();
+    expect(f.show).not.toHaveBeenCalled();
+  });
+
+  it('未读快照返回时窗口已变化，不再查询消息，但仍结束本会话加载', async () => {
+    const f = fixture();
+    const settled = vi.fn();
+    const resolveReadSeq = vi.fn(async () => {
+      f.current.mockReturnValue(false);
+      return '10';
+    });
+    await loadConversationEntry({ ...f, active: () => true, settled, resolveReadSeq });
+    expect(resolveReadSeq).toHaveBeenCalledOnce();
+    expect(f.before).not.toHaveBeenCalled();
+    expect(f.latest).not.toHaveBeenCalled();
+    expect(f.show).not.toHaveBeenCalled();
+    expect(settled).toHaveBeenCalledOnce();
+  });
+
+  it('正常返回消息时只收尾一次，不影响首次和后续两阶段显示', async () => {
+    const f = fixture();
+    const settled = vi.fn();
+    const resolveReadSeq = vi.fn(async () => '10');
+    await loadConversationEntry({ ...f, active: () => true, settled, resolveReadSeq });
+    expect(f.before).toHaveBeenCalledWith('11', f.limit);
+    expect(f.after).toHaveBeenCalledWith('10', f.limit);
+    expect(f.show).toHaveBeenCalledTimes(2);
+    expect(settled).toHaveBeenCalledOnce();
+  });
+
+  it.each(['before', 'after'] as const)(
+    '%s 阶段失败都能收尾，并向调用方保留错误',
+    async (phase) => {
+      const f = fixture();
+      const settled = vi.fn();
+      f[phase].mockRejectedValue(new Error('synthetic failure'));
+      await expect(
+        loadConversationEntry({ ...f, readSeq: '10', active: () => true, settled }),
+      ).rejects.toThrow('synthetic failure');
+      expect(settled).toHaveBeenCalledOnce();
+      expect(f.show).toHaveBeenCalledTimes(phase === 'before' ? 0 : 1);
+    },
+  );
+
+  it('旧请求切走后才失败，不结束新会话的加载', async () => {
+    const f = fixture();
+    const settled = vi.fn();
+    let active = true;
+    f.latest.mockImplementation(async () => {
+      active = false;
+      f.current.mockReturnValue(false);
+      throw new Error('synthetic failure');
+    });
+    await expect(loadConversationEntry({ ...f, active: () => active, settled })).rejects.toThrow(
+      'synthetic failure',
+    );
+    expect(f.show).not.toHaveBeenCalled();
+    expect(settled).not.toHaveBeenCalled();
+  });
+
+  it('关闭阅读偏好时不读取未读快照', async () => {
+    const f = fixture();
+    const resolveReadSeq = vi.fn(async () => '10');
+    await loadConversationEntry({ ...f, readFromFirstUnread: false, resolveReadSeq });
+    expect(resolveReadSeq).not.toHaveBeenCalled();
+    expect(f.latest).toHaveBeenCalledOnce();
+  });
+
+  it('已有缓存或已存阅读位置时不重复读取未读快照', async () => {
+    for (const entry of [{ cached: cached([row('10')]) }, { readSeq: '10' }]) {
+      const f = fixture();
+      const resolveReadSeq = vi.fn(async () => '20');
+      await loadConversationEntry({ ...f, ...entry, resolveReadSeq });
+      expect(resolveReadSeq).not.toHaveBeenCalled();
+      expect(f.after).toHaveBeenCalledWith('10', f.limit);
+    }
   });
 });

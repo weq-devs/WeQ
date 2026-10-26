@@ -4,7 +4,7 @@
  * 迁移策略：
  *  1. 读取旧 manifest.json（如果存在）。
  *  2. 气泡/字体的资源文件（PNG/TTF）移动到 cache/dress_shared/。
- *  3. 账号配置（activeBubble/activeFont/scope）写入 config/accounts/{configId}/dress.json。
+ *  3. 迁移已装资源、范围和背景配置，不恢复旧版消息覆盖选择。
  *  4. 迁移完成后删除旧 manifest.json，但保留目录（里面可能有 background/）。
  *
  * 兼容性：
@@ -181,8 +181,7 @@ export function migrateDressData(
     config.installedFonts = manifest.fonts.map((f) => f.itemId);
     config.bubbleMeta = bubbleMeta;
     config.fontMeta = fontMeta;
-    config.activeBubble = manifest.activeBubble;
-    config.activeFont = manifest.activeFont;
+    // 旧清单不能区分自动启用与手动选择，仅迁移资源，不恢复消息覆盖。
     config.scope = manifest.scope;
     config.background = manifest.background;
     config.widgetId = manifest.widgetId;

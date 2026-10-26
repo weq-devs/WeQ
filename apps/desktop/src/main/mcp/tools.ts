@@ -17,6 +17,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../context/app_context';
+import { fullModeAllowed } from '../context/full_mode';
 import { assertAccountToolScope } from './account_scope';
 import {
   classifyChatType,
@@ -119,7 +120,7 @@ function onlinePid(): number {
   if (!record?.qqOnline || !record.qqPid) {
     throw new Error('需要先登录该账号的 QQ 客户端（本工具要走在线实例）。');
   }
-  if (ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false) {
+  if (!fullModeAllowed(ctx)) {
     throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），本工具不可用。');
   }
   return record.qqPid;
@@ -144,7 +145,7 @@ function currentUin(): string {
 function ocrOnlineBlocker(): string | null {
   const record = services().accountConfig.getRecord();
   if (!record?.qqOnline || !record.qqPid) return '该账号的 QQ 未在线，走不了在线识别。';
-  if (toolContext().bootstrap?.userConfig.getSettings().autoAttachQq === false) {
+  if (!fullModeAllowed(toolContext())) {
     return '已开启完全离线模式（自动读取 QQ 内存 已关闭），在线识别不可用。';
   }
   const session = record.session;
@@ -246,6 +247,9 @@ interface AiMsgLine {
   /** 稳定消息标识（仅 includeIds 时附上，供 get_message_details 回查）。 */
   msgId?: string;
   msgSeq?: string;
+  /** 原始 Unix 秒与稳定发送者，供只读消费者使用，不依赖 SQL 工具。 */
+  sendTime?: string;
+  senderUid?: string;
   /**
    * 发送方本地 client sequence（列 40005，仅私聊有值，仅 includeIds 时附上）——
    * 私聊引用回复要把它当 `replyToClientSeq` 传回去，只用 msgSeq 定位不到原消息。
@@ -945,7 +949,7 @@ export const AI_TOOLS: AiTool[] = [
       '读取某个会话的消息，按时间正序（旧→新）返回，方便顺读。默认取最新一页。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。会话标识可来自 list_conversations / list_groups。' +
       '每条为精简形：time 时间、sender 发送者昵称、mine 是否本人发送、text 文本；间隔较大时附 gap（距上一条多久）。' +
-      '想要拿到某条消息的 msgId/msgSeq 以便回查详情或媒体，把 includeIds 设为 true。' +
+      '想要拿到某条消息的 msgId/msgSeq 以便回查详情或媒体，把 includeIds 设为 true，同时返回原始 Unix 秒 sendTime 和稳定发送者 senderUid。' +
       '\n【翻页】返回带 hasMore / nextBefore：还想往更早读，就把 nextBefore 原样传回 before 参数取上一页；' +
       '一次别把 limit 开太大，顺着翻更省 token 也更聚焦。',
     input: z.object({
@@ -997,7 +1001,9 @@ export const AI_TOOLS: AiTool[] = [
           sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
           mine: r.senderUin === selfUin,
           text: flattenElements(r.elements),
-          ...(includeIds ? msgIdsOf(r) : {}),
+          ...(includeIds
+            ? { ...msgIdsOf(r), sendTime: String(r.sendTime), senderUid: r.senderUid }
+            : {}),
         };
         // 与上一条（更早那条）的间隔：只在 ≥30 分钟时标注，给「聊天有没有断档」的时间感又不刷屏。
         if (i > 0) {
@@ -2533,6 +2539,7 @@ export const AI_TOOLS: AiTool[] = [
         conv,
         msgId: String(row.msgId),
         msgSeq: String(row.msgSeq),
+        sendTime: String(row.sendTime),
         time: fmtTime(row.sendTime),
         sender,
         mine,
@@ -3999,8 +4006,7 @@ export const AI_TOOLS: AiTool[] = [
   // 四个粒度：文本 / 媒体 / 文件 / 元素数组逃生舱。都走 services().messageSend，
   // 业务逻辑（uid 解析、上传、回执归一化）在 @weq/service 里只写一遍。
   //
-  // 真机联调期：这四个工具**临时开放给外部 MCP 面板**（原本标 assistantOnly，被
-  // server.ts 过滤掉）。联调结束后应恢复该标记，让外部面板回到严格只读。
+  // 发送工具仅限明确授权的内置助手；外部 MCP 的显式只读清单不会注册它们。
 
   // 三个发送工具共用的「带装扮」入参 —— 注意这是**未通过真机验证**的实验开关：
   // 服务端不采信客户端自报的装扮（实测落库全 0），详见 @weq/protocol 的 SendDress。
@@ -4244,7 +4250,7 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'send_rich_message',
     description:
-      '给群聊或私聊发送【任意元素组合】的消息（表情/商城表情/引用/@/markdown/XML 卡片/JSON(Ark) 卡片/合并转发卡片/窗口抖动）。' +
+      '给群聊或私聊发送【任意元素组合】的消息（表情/商城表情/引用/@/markdown/XML 卡片/JSON(Ark) 卡片/合并转发卡片/互动表情）。' +
       '文本、图片、语音、视频用更省事的 send_text_message / send_media_message，本工具是其余类型的入口。' +
       '⚠️ 真实发送，不能撤回；需要 QQ 在线。' +
       '\n【elements 写法】JSON 数组文本，每项必须有 kind：' +
@@ -4257,8 +4263,7 @@ export const AI_TOOLS: AiTool[] = [
       '　⚠️ 引用指针 origMsgSeq 群聊填群内 seq、**私聊填被引用消息的 clientSeq**（列 40005，' +
       'get_messages 开 includeIds=true 会给）；私聊填会话级 msgSeq 会定位不到原消息' +
       '\n  {"kind":"markdown","markdownContent":"**加粗**"}　{"kind":"xml","xmlContent":"<msg ...>"}　{"kind":"ark","arkData":"{...}"}' +
-      '\n  {"kind":"forward","resId":"<已有长消息的 resid>"}　{"kind":"poke","subType":1}（窗口抖动，只能私聊且必须独占一条；' +
-      '可选 "combo":0~3 = 连击次数，缺省 0）' +
+      '\n  {"kind":"forward","resId":"<已有长消息的 resid>"}' +
       '\n  {"kind":"pokeEmoji","pokeId":3,"combo":1}（戳一戳互动表情：pokeId 0~6、combo 0~3，群聊/私聊都能发）' +
       '\n  {"kind":"emojiBounce","faceId":182,"count":10,"name":"笑哭"}（表情弹射：表情「弹进」聊天窗口；' +
       'faceId 是小黄脸 id，count 是弹射个数，name 不带斜杠。真机验证可用）' +
@@ -4310,8 +4315,7 @@ export const AI_TOOLS: AiTool[] = [
   }),
 
   // ── 轻互动（真实副作用）：戳一戳 / 贴表情回应 ────────────────────────
-  // 都是 OIDB 包（不是消息），和上面四个发送工具同属「真机联调期临时开放」，
-  // 联调结束后同样应恢复 assistantOnly（见本节开头的说明）。
+  // 都是 OIDB 包（不是消息），与发送工具一样受宿主的任意权限检查保护。
 
   tool({
     name: 'send_forward_message',
@@ -4380,9 +4384,8 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '【戳一戳】（OIDB 0xED3_1）—— 群聊里戳某个成员，或私聊戳对方，会在会话里留下一条「戳一戳」灰条。' +
       '⚠️ 真实发送，不能撤回；需要该账号 QQ 在线。' +
-      '\n【和窗口抖动的区别】窗口抖动是**私聊消息**里的一个元素（只能私聊、必须独占一条），' +
-      '用 send_rich_message 发 {"kind":"poke","subType":1}；' +
-      '本工具是聊天窗口里那个「戳一戳」，群聊/私聊都能用，收端显示成灰条而不是抖动。' +
+      '\n【和互动表情的区别】互动表情用 send_rich_message 发 {"kind":"pokeEmoji","pokeId":1}；' +
+      '本工具发送的是「戳一戳」灰条，不是表情消息。' +
       '\n【目标怎么写】peerType=group 时 targetId 传群号，targetUin 传被戳成员 QQ 号（不传 = 戳群）；' +
       'peerType=c2c 时 targetId 传对方 QQ 号或 uid（不传 targetUin = 戳对方）。' +
       '\n【结果怎么看】成功没有回执内容（服务端回空 ack）；失败会抛错误。' +
@@ -4962,9 +4965,7 @@ export const AI_TOOLS: AiTool[] = [
   // 现场派生（协议实现与推导见 @weq/protocol 的 redbag 与 docs/develop/redbag.md）。
   // 所以喂给 decode_blob 只会得到乱码，必须先走这一层。
   //
-  // 真机联调期：pack_red_bag **临时开放给外部 MCP 面板**（原本标 assistantOnly，会被
-  // server.ts 过滤掉）。它会在服务端建一个红包订单，属于有副作用的工具；
-  // 联调结束后应恢复该标记，让外部面板回到严格只读（与上面那批 send_* 同理）。
+  // pack_red_bag 会在服务端建订单，只在助手的任意权限模式开放。
 
   tool({
     name: 'decode_redbag_packet',
@@ -5147,9 +5148,7 @@ export const AI_TOOLS: AiTool[] = [
   // 与 pack_red_bag 一样，两个都要「在线且已注入」的 QQ：红包包走 hook 上的
   // sendPacket，tenpay.com 的 p_skey 只是请求体里的一个字段。
   //
-  // 真机联调期：grab_red_bag **临时开放给外部 MCP 面板**（它真的会记一笔领取 /
-  // 扣钱，本应标 assistantOnly，被 server.ts 挡在公开面板外）。联调结束后应恢复
-  // 该标记；get_red_bag_detail 是纯查询，可以长期对外开放。
+  // grab_red_bag 是真实领取，只在助手任意权限模式开放；get_red_bag_detail 是只读查询。
 
   tool({
     name: 'get_red_bag_detail',
@@ -5233,17 +5232,16 @@ export const AI_TOOLS: AiTool[] = [
   // 硬调，既慢又容易在参数上反复试错。run_js 把这类活交给一段脚本，它是助手唯一的
   // 「自己算」入口。
   //
-  // assistantOnly: true —— 沙箱里的 callTool 能调到 execute_sql 这类可写工具，
-  // 对外只读的 MCP 面板不能开这个口子（server.ts 会过滤掉 assistantOnly）。
+  // 脚本仅供内置助手；callTool 仍检查本轮权限快照和当前设置，外部 MCP 不注册。
   tool({
     name: 'run_js',
     assistantOnly: true,
     description:
-      '在本地**受限 JS 沙箱**里跑一段 JavaScript，用来把「需要自己算」的活一次做完：批量遍历 + 筛选 + 聚合 + 多份结果 join（例如把上百个群逐个核对身份、按角色筛人、把几份统计汇总）。这类活一个个工具零散调用既慢又容易在参数上反复试错，写一段脚本更快更准。' +
-      '\n【沙箱里有什么】① `callTool(name, args)`：**异步**调用任意其他工具（内置工具和你接入的外部 MCP 工具都可以，参数与直接调用那个工具时完全一致），返回它解析后的结果；② `console.log/info/warn/error`：会被收进返回值的 logs；③ `sleep(ms)`。' +
+      '按本轮权限模式执行 JavaScript，用来把「需要自己算」的活一次做完：批量遍历 + 筛选 + 聚合 + 多份结果 join（例如把上百个群逐个核对身份、按角色筛人、把几份统计汇总）。这类活一个个工具零散调用既慢又容易在参数上反复试错，写一段脚本更快更准。' +
+      '\n【脚本里有什么】① `callTool(name, args)`：**异步**调用本轮权限允许的工具（外部 MCP 仅在任意权限开放，参数与直接调用那个工具时一致），返回它解析后的结果；② `console.log/info/warn/error`：会被收进返回值的 logs；③ `sleep(ms)`。' +
       '\n【怎么用我】代码支持顶层 await，**必须用 `return` 把结果交出来**；若你习惯先写 `async function main() { … }`，那要写成 `return main()`。脚本在还有调用没 await 完时就结束会被**判失败**（否则会变成一个「看似没查到」的假结果）。写循环批量补查时自己控量：**单个脚本最多调 40 次工具**，超了会当场报错，那就把活拆成多轮对话。' +
       '\n【失败了怎么看】返回值里的 `calls[]` 是每次调用的轨迹，失败那条带 `error` 字段（写明为什么失败，比如参数不合法）；`notes[]` 是给你的提醒。照着 error 改参数重试，别直接放弃或改用别的工具硬堆。' +
-      '\n【限制】沙箱里没有 require / import / fs / fetch / process，拿不到 Node 能力也上不了网，数据只能经 callTool 进来；eval / new Function 被禁用。报错会带上你代码的行号，超时（默认 ' +
+      '\n【权限】默认沙箱使用 QuickJS/WASM：没有 require / fs / fetch / process，数据只能经 callTool 进来，工具必须通过宿主权限检查。若用户在助手设置中明确启用任意权限，脚本改为 Node 执行，可使用 require / process / fetch，能读写删除外部文件、执行命令及联网，不再具有隔离。超时不等于已发出的宿主操作已回滚，不要自动重试未知终态操作。超时（默认 ' +
       `${JS_SANDBOX_DEFAULT_TIMEOUT_MS / 1000}s，上限 ${JS_SANDBOX_MAX_TIMEOUT_MS / 1000}s）会被硬中止。` +
       '\n【结果不能代表什么】result 是脚本的返回值、logs 是脚本自己的输出，两者都不等于工具原文；脚本报错只说明这段代码有问题，不代表数据不存在——先看 error 与 calls 再改代码重试。单个工具一次就能查到的，别用沙箱包一层。',
     input: z.object({
@@ -5264,7 +5262,14 @@ export const AI_TOOLS: AiTool[] = [
     run: async ({ code, timeoutMs }) => {
       // 动态 import：执行入口在 openai_tools.ts，静态引入会与 AI_TOOLS 绕成一个环。
       const { runAssistantTool } = await import('./openai_tools');
-      return runJsSandbox(code, runAssistantTool, timeoutMs);
+      const { toolExecutionOptions } = await import('./account_scope');
+      const options = toolExecutionOptions();
+      return runJsSandbox(
+        code,
+        (name, args, signal) => runAssistantTool(name, args, { ...options, signal }),
+        timeoutMs,
+        options,
+      );
     },
   }),
 ];

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { ImagePlus, Save } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import {
   useQQWriteSession,
   type QQWriteBinding,
@@ -15,9 +16,10 @@ import '../../styles/qq-actions.css';
 /** 同号切换数据源也销毁草稿，不能仅以 QQ 号判断编辑器身份。 */
 export function withQQAccountScope<P extends object>(Component: ComponentType<P>) {
   return function QQAccountScopedAction(props: P) {
+    const active = useTabActive();
     const uin = useViewState((s) => s.openedUin);
     const config = trpc.account.getAccountConfig.useQuery(undefined, {
-      enabled: Boolean(uin),
+      enabled: active && Boolean(uin),
       refetchOnMount: false,
     });
     const id = config.data?.uin === uin ? config.data.configId : '';

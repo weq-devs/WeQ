@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { useRef, type CSSProperties, type ReactNode } from 'react';
+import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useMobileWebViewport } from '../../hooks/useMobileWebViewport';
 import { TitleBarSearch } from '../../components/TitleBarSearch';
 import {
@@ -10,9 +10,10 @@ import {
 import { cn } from './classNames';
 import { AppRail } from './rail';
 import { SidebarHeader, SidebarResizeHandle } from './sidebar';
-import { TitleBar } from './TitleBar';
+import { SelfProfileDialog, TitleBar } from './TitleBar';
 import { IS_MAC, IS_WEB } from '../../lib/target';
 import { MobileWebNavigation } from '../../components/MobileWebNavigation';
+import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
 import type { ContactNoticeView, ContactTab, MainView, SettingsTab, User } from './types';
 
 export function ChatShell({
@@ -49,8 +50,6 @@ export function ChatShell({
   onOpenDbRepair,
   onOpenQzoneAlbum,
   onQueryChange,
-  onQuickInvite,
-  onCreateGroup,
   onOpenFriendNotices,
   onOpenGroupNotices,
   onContactTabChange,
@@ -94,8 +93,6 @@ export function ChatShell({
   onOpenDbRepair: () => void;
   onOpenQzoneAlbum: () => void;
   onQueryChange: (query: string) => void;
-  onQuickInvite: () => void;
-  onCreateGroup: () => void;
   onOpenFriendNotices: () => void;
   onOpenGroupNotices: () => void;
   onContactTabChange: (tab: ContactTab) => void;
@@ -106,6 +103,8 @@ export function ChatShell({
   activeRailItem?: 'settings' | 'dressup';
 }) {
   const pageOpen = useWorkspacePageOpen();
+  const [selfProfileOpen, setSelfProfileOpen] = useState(false);
+  const [lookupOpen, setLookupOpen] = useState<QQExactLookupKind | null>(null);
   const root = useRef<HTMLDivElement>(null);
   useMobileWebViewport(root, IS_WEB);
   const mainPageOpen = useWorkspaceMainPageOpen();
@@ -123,6 +122,7 @@ export function ChatShell({
       className={cn('app-shell-root', IS_MAC && 'is-mac', IS_WEB && 'weq-web-shell')}
       data-mobile-detail={mobileDetail || undefined}
       data-mobile-workspace={mobileWorkspace || undefined}
+      data-weq-diagnostic-view={import.meta.env.DEV ? view : undefined}
     >
       {IS_WEB && (
         <MobileWebNavigation
@@ -142,6 +142,11 @@ export function ChatShell({
           onOpenSettings={onOpenSettings}
           onOpenDressUp={onOpenDressUp}
           onOpenCollection={onOpenCollection}
+          onOpenProfile={() => setSelfProfileOpen(true)}
+          onLookupUser={() => setLookupOpen('user')}
+          onLookupGroup={() => setLookupOpen('group')}
+          onOpenFriendNotices={onOpenFriendNotices}
+          onOpenGroupNotices={onOpenGroupNotices}
           accountControls={
             typeof railFooterContent === 'function' ? railFooterContent(null) : railFooterContent
           }
@@ -153,6 +158,7 @@ export function ChatShell({
         onGoHome={onGoHome}
         search={
           <TitleBarSearch
+            persistent
             query={query}
             onQueryChange={onQueryChange}
             onSearchFocus={onSearchFocus}
@@ -203,8 +209,6 @@ export function ChatShell({
             view={view}
             query={query}
             onQueryChange={onQueryChange}
-            onQuickInvite={onQuickInvite}
-            onCreateGroup={onCreateGroup}
             onOpenProfile={onOpenProfile}
             onOpenFriendNotices={onOpenFriendNotices}
             onOpenGroupNotices={onOpenGroupNotices}
@@ -230,6 +234,15 @@ export function ChatShell({
         </main>
       </div>
       {children}
+      {lookupOpen && (
+        <QQExactLookup key={lookupOpen} kind={lookupOpen} onClose={() => setLookupOpen(null)} />
+      )}
+      {selfProfileOpen && (
+        <SelfProfileDialog
+          key={`${user.id}:${user.identityValue}`}
+          onClose={() => setSelfProfileOpen(false)}
+        />
+      )}
     </div>
   );
 }

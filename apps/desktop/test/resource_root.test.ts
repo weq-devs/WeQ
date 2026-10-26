@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * `resources/` 根目录探测（`src/main/resource.ts`）的离线单测。
  *

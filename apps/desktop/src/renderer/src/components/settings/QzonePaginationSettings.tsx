@@ -1,12 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
-import { Card, Row } from './controls';
+import { Card } from './controls';
+import '../../styles/settings-qzone.css';
 
 export function QzonePaginationSettings() {
+  const active = useTabActive();
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -17,10 +21,15 @@ export function QzonePaginationSettings() {
   const saved = settings.data?.qzonePagination;
   const [seconds, setSeconds] = useState(() => String(saved?.windowSeconds ?? 10));
   const [pages, setPages] = useState(() => String(saved?.maxPages ?? 5));
+  const previous = useRef(saved);
   useEffect(() => {
     if (!saved) return;
-    setSeconds(String(saved.windowSeconds));
-    setPages(String(saved.maxPages));
+    const before = previous.current;
+    setSeconds((draft) =>
+      draft === String(before?.windowSeconds ?? 10) ? String(saved.windowSeconds) : draft,
+    );
+    setPages((draft) => (draft === String(before?.maxPages ?? 5) ? String(saved.maxPages) : draft));
+    previous.current = saved;
   }, [saved]);
   const windowSeconds = Number(seconds);
   const maxPages = Number(pages);
@@ -33,13 +42,15 @@ export function QzonePaginationSettings() {
     maxPages <= 1000;
   const unavailable = !settings.isLoading && !saved;
   return (
-    <Card title="在线翻页限速">
+    <Card title="在线翻页限速" settingId="qzone-pagination">
       {unavailable ? (
         <p className="weq-set-row-desc" role="alert">
           {settings.error?.message || '当前主进程未加载限速设置'}
         </p>
       ) : null}
       <form
+        className="weq-qzone-pagination-form"
+        aria-label="在线翻页限速"
         onSubmit={(event) => {
           event.preventDefault();
           if (!valid || !saved || save.isLoading) return;
@@ -54,61 +65,37 @@ export function QzonePaginationSettings() {
             );
         }}
       >
-        <Row
-          label="时间窗口（秒）"
-          control={
-            <input
-              type="number"
-              className="weq-set-input"
-              aria-label="翻页时间窗口（秒）"
-              min={1}
-              max={3600}
-              step={1}
-              required
-              value={seconds}
-              disabled={!saved || save.isLoading}
-              onChange={(event) => setSeconds(event.target.value)}
-              style={{ width: 96 }}
-            />
-          }
+        <span>每</span>
+        <input
+          type="number"
+          className="weq-set-input"
+          aria-label="翻页时间窗口（秒）"
+          min={1}
+          max={3600}
+          step={1}
+          required
+          value={seconds}
+          disabled={!saved || save.isLoading}
+          onChange={(event) => setSeconds(event.target.value)}
         />
-        <Row
-          label="最多页数"
-          control={
-            <input
-              type="number"
-              className="weq-set-input"
-              aria-label="时间窗口内最多翻页数"
-              min={1}
-              max={1000}
-              step={1}
-              required
-              value={pages}
-              disabled={!saved || save.isLoading}
-              onChange={(event) => setPages(event.target.value)}
-              style={{ width: 96 }}
-            />
-          }
+        <span>秒最多</span>
+        <input
+          type="number"
+          className="weq-set-input"
+          aria-label="时间窗口内最多翻页数"
+          min={1}
+          max={1000}
+          step={1}
+          required
+          value={pages}
+          disabled={!saved || save.isLoading}
+          onChange={(event) => setPages(event.target.value)}
         />
-        <Row
-          label={
-            saved
-              ? `每 ${saved.windowSeconds} 秒最多 ${saved.maxPages} 页`
-              : unavailable
-                ? '设置不可用'
-                : '读取中…'
-          }
-          control={
-            <button
-              type="submit"
-              className="weq-set-btn"
-              disabled={!saved || !valid || save.isLoading}
-            >
-              {save.isLoading ? <Loader2 size={14} className="weq-spin" /> : <Save size={14} />}
-              保存
-            </button>
-          }
-        />
+        <span>页</span>
+        <button type="submit" className="weq-set-btn" disabled={!saved || !valid || save.isLoading}>
+          {save.isLoading ? <Loader2 size={14} className="weq-spin" /> : <Save size={14} />}
+          保存
+        </button>
       </form>
     </Card>
   );

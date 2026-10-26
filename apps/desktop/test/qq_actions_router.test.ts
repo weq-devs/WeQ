@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { mkdtemp, rm, writeFile, readFile, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -99,9 +100,9 @@ function fixture() {
       listBuddyRequests: vi.fn(async () => [
         {
           peerUid: 'u_friend',
-          isAccepted: 1,
-          initiator: 1,
-          status: 3,
+          isAccepted: 0,
+          initiator: 0,
+          status: 1,
           nick: '申请人',
           verifyMsg: '你好',
         },
@@ -338,26 +339,32 @@ describe('收藏包导入路由', () => {
 });
 
 describe('收藏包导出任务', () => {
-  it('保存位置未准备时不入队，稍后保存沿用单文件 ZIP 任务', async () => {
+  it('保存位置未准备时不入队，明确位置沿用单文件 ZIP 任务', async () => {
     const f = fixture();
     await expect(
       f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'before' } }),
     ).rejects.toThrow('位置');
     expect(f.s.exportManager.startResourceExport).not.toHaveBeenCalled();
-    expect(await f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'after' } })).toBe(
-      'resource-favorite',
-    );
+    expect(
+      await f.caller.favoriteExport({
+        ...binding,
+        savePolicy: { mode: 'before', directory: '/fixture/export' },
+      }),
+    ).toBe('resource-favorite');
     expect(f.s.exportManager.startResourceExport.mock.calls[0]?.[0]).toMatchObject({
       kind: 'favorite-emoji',
       output: { kind: 'file', extension: 'zip' },
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: '/fixture/export' },
     });
   });
   it('缺原图仍写出可核对的包，失败数量供公共任务列表展示', async () => {
     const f = fixture();
     const emojiId = (await f.s.emoji.fetchOnlineFavoriteIds())[0]!;
     f.s.emoji.fetchOnlineFavoriteDetails.mockResolvedValue([{ emojiId, desc: '合成备注' }]);
-    await f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'after' } });
+    await f.caller.favoriteExport({
+      ...binding,
+      savePolicy: { mode: 'before', directory: '/fixture/export' },
+    });
     const run = f.s.exportManager.startResourceExport.mock.calls[0]![0].run;
     const directory = await mkdtemp(join(tmpdir(), 'weq-favorite-export-'));
     try {
@@ -383,7 +390,10 @@ describe('收藏包导出任务', () => {
   });
   it('排队后 QQ PID 改变时不再导出旧账号资源', async () => {
     const f = fixture();
-    await f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'after' } });
+    await f.caller.favoriteExport({
+      ...binding,
+      savePolicy: { mode: 'before', directory: '/fixture/export' },
+    });
     f.record.qqPid++;
     const run = f.s.exportManager.startResourceExport.mock.calls[0]![0].run;
     await expect(
@@ -795,12 +805,14 @@ describe('主动操作的账号与参数边界', () => {
     const [pending] = await f.s.profile.listBuddyRequests();
     f.s.profile.listBuddyRequests.mockResolvedValue([
       pending!,
-      { ...pending!, peerUid: 'u_accepted', isAccepted: 0 },
-      { ...pending!, peerUid: 'u_outgoing', initiator: 0 },
+      { ...pending!, peerUid: 'u_accepted', initiator: 1, status: 3 },
+      { ...pending!, peerUid: 'u_outgoing', isAccepted: 1, status: 13 },
+      { ...pending!, peerUid: 'u_processed', initiator: 1 },
+      { ...pending!, peerUid: 'u_unknown', status: 99 },
     ]);
     const rows = await f.caller.requests({ ...binding, kind: 'friend' });
     expect(rows.map((row) => row.token)).toEqual(['u_friend']);
-    for (const token of ['u_accepted', 'u_outgoing']) {
+    for (const token of ['u_accepted', 'u_outgoing', 'u_processed', 'u_unknown']) {
       await expect(
         f.caller.request({ ...binding, kind: 'friend', token, approve: true }),
       ).rejects.toThrow('变化');

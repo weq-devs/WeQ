@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IntentProfile } from '@weq/service';
 import { IntentProfileDialog } from '../src/renderer/src/components/intentSense/IntentProfileDialog';
 import { AffinityPill } from '../src/renderer/src/components/intentSense/AffinityPill';
+import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 
 const fixture = vi.hoisted(() => ({
   query: {
@@ -18,7 +19,13 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 }));
 vi.mock('../src/renderer/src/components/intentSense/context', () => ({
   useIntentSenseStatus: () => ({
-    data: { profileEnabled: true, profileAvailable: true, profileCacheSeconds: 60 },
+    data: {
+      enabled: false,
+      conversationOverrides: { 'c2c:u_synthetic': false },
+      profileEnabled: true,
+      profileAvailable: true,
+      profileCacheSeconds: 60,
+    },
   }),
 }));
 
@@ -52,6 +59,24 @@ async function dialog() {
 }
 
 describe('无证据的互动画像', () => {
+  it('联系人画像采用内嵌区域，不生成关闭按钮或模态浮层', async () => {
+    await act(async () =>
+      root.render(
+        createElement(IntentProfileDialog, {
+          peerUid: 'u_synthetic',
+          peerName: '合成用户',
+          embedded: true,
+          onClose: vi.fn(),
+        }),
+      ),
+    );
+    expect(
+      document.querySelector('[role="region"][aria-label="互动画像：合成用户"]'),
+    ).not.toBeNull();
+    expect(document.querySelector('.weq-overlay-layer')).toBeNull();
+    expect(document.querySelector('[aria-label="关闭"]')).toBeNull();
+    expect(document.body.textContent).toContain('暂无可分析的对方消息');
+  });
   it('画像返回空时显示空状态，而非加载、评分、人格或雷达', async () => {
     await dialog();
     expect(document.body.textContent).toContain('暂无可分析的对方消息');
@@ -104,5 +129,42 @@ describe('无证据的互动画像', () => {
     expect(document.body.textContent).toContain('暂无可分析的对方消息');
     expect(document.body.textContent).not.toContain('ENFP');
     expect(document.querySelector('.weq-int-affinity-num')).toBeNull();
+  });
+
+  it('纯统计画像不显示默认好感度，仍有独立入口', async () => {
+    fixture.query.data = {
+      affinity: null,
+      tier: null,
+      trend: [],
+      mbti: { letters: 'ENFP', dims: [], heuristic: true },
+      radar: [],
+      topics: [],
+      sampled: 8,
+      analyzedSamples: 0,
+      engine: 'heuristic',
+      computedAt: 1000,
+    };
+    await dialog();
+    expect(document.querySelector('.weq-int-affinity-num')?.textContent).toBe('未分析');
+    const open = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(
+          ContactWorkspaceNavigationContext.Provider,
+          { value: open },
+          createElement(AffinityPill, { peerUid: 'u_synthetic' }),
+        ),
+      ),
+    );
+    expect(document.querySelector('.weq-affinity-pill')?.textContent).toBe('互动画像');
+    act(() => document.querySelector<HTMLButtonElement>('.weq-affinity-pill')!.click());
+    expect(open).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'person',
+        tab: 'portrait',
+        contact: expect.objectContaining({ id: 'u_synthetic' }),
+      }),
+    );
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 });

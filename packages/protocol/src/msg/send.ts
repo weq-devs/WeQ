@@ -76,7 +76,7 @@ export interface SendMessageParams {
    * （`syncCookie`，field 6）带；群聊不带。
    */
   msgFlag?: number;
-  /** 发送场景覆盖（窗口抖动等场景受限元素会用到）；缺省按 routing 推导。 */
+  /** 发送场景覆盖；缺省按 routing 推导。 */
   scene?: SendScene;
   /**
    * 装扮参数。业务层跟随当前字体时会提供 fontId2Raw，原样写入扩展 tag 15。
@@ -317,7 +317,7 @@ function assembleRequest(
 /**
  * 拼装一条 PbSendMsg 请求（纯函数，不发包）。
  *
- * 元素校验（含场景限制，比如窗口抖动只能私聊）在打包阶段先跑完，再编码。
+ * 元素校验在打包阶段先跑完，再编码。
  * **媒体元素走不了这里**（要先上传），用 {@link buildSendRequestWithMedia} 或
  * {@link sendMessage}。
  */

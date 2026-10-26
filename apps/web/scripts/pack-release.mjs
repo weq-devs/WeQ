@@ -4,7 +4,7 @@
  * Separate from `build-server.mjs` so a normal `pnpm build` doesn't pay the
  * compression cost — only the release workflow calls this.
  *
- * One archive per platform/arch: `native/` and `resources/daemon/` carry only
+ * One archive per platform/arch: `native/` carries only
  * the packaging target's binaries (each release runner builds its own web
  * tarball). `node_modules` is shipped pre-installed (see
  * `install-runtime-deps.mjs`) so an offline server can start straight out of
@@ -17,7 +17,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { currentTarget, daemonExe, LABELS, nativeRel } from './platform.mjs';
+import { currentTarget, LABELS, nativeRel } from './platform.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, '..');
@@ -52,15 +52,10 @@ const name = `weq-web-${version}-${target}.tar.gz`;
 const archive = join(outDir, name);
 
 // The archive is single-platform: it must contain this machine's native addons
-// and daemon binary or it would ship a package that cannot start QQ-side work.
-for (const required of [
-  join(dist, 'native', nativeRel(target)),
-  join(dist, 'resources', 'daemon', target, daemonExe(target)),
-]) {
+// or it would ship a package that cannot start QQ-side work.
+for (const required of [join(dist, 'native', nativeRel(target))]) {
   if (existsSync(required)) continue;
-  console.error(
-    `\n${required} missing — run \`pnpm run build:daemon && pnpm --filter @weq/web build\` first`,
-  );
+  console.error(`\n${required} missing — run \`pnpm --filter @weq/web build\` first`);
   process.exit(1);
 }
 
@@ -84,6 +79,9 @@ const res = spawnSync(
     // node_modules IS shipped (pre-installed), but npm's own metadata isn't.
     '--exclude=./node_modules/.package-lock.json',
     '--exclude=./node_modules/.bin',
+    // 权限助手由桌面端管理，Web 包不携带本机提权可执行文件。
+    '--exclude=./native/*/*/weq-authorization-helper',
+    '--exclude=./native/*/*/weq-authorization-helper.exe',
     '-czf',
     '-',
     '-C',

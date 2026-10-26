@@ -1,10 +1,9 @@
 import { useRef, useState } from 'react';
-import { Download, Loader2, Save } from 'lucide-react';
+import { Loader2, Save } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import { client } from '../trpc/client';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { IS_WEB } from '../lib/target';
-import { ExportSaveActions } from './ExportSaveActions';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast';
 import '../styles/decoration-save.css';
@@ -39,7 +38,7 @@ export function useDecorationSave() {
         ? undefined
         : IS_WEB
           ? await save.prepareSave(intent, { kind: 'bundle', name: '装扮资源' })
-          : (intent ?? save.policy);
+          : save.policy;
       if ((!browser && !policy) || !save.isCurrent()) return;
       const result = await client.account.dressup.saveMsgDecoration.mutate({
         ...selected,
@@ -83,7 +82,7 @@ export function useDecorationSave() {
 
 export function DecorationSaveControls({
   className,
-  label = '另存为',
+  label = '保存',
   title,
   busy,
   disabled,
@@ -109,19 +108,6 @@ export function DecorationSaveControls({
         {busy ? <Loader2 size={13} className="weq-spin" /> : <Save size={13} />}
         {IS_WEB ? null : <span>{label}</span>}
       </button>
-      <ExportSaveActions disabled={disabled} onSelect={onSave} />
-      {IS_WEB && (
-        <button
-          type="button"
-          className={className}
-          title="下载到浏览器"
-          aria-label="下载到浏览器"
-          disabled={disabled}
-          onClick={() => onSave(undefined, true)}
-        >
-          <Download size={13} />
-        </button>
-      )}
     </div>
   );
 }

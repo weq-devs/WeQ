@@ -401,12 +401,13 @@ describe('生成内容搜索定位', () => {
               chatRecords: [],
               files: [],
               cloneMessages: [hit],
+              messageHits: [hit],
               assistantMessages: [],
               collections: [],
               indexStatus: 'disabled',
             },
             slowLoading: false,
-            categories: ['cloneMessage'],
+            categories: ['chatRecord'],
             onCategoriesChange: vi.fn(),
             onSelect: select,
             onMore: vi.fn(),
@@ -522,6 +523,8 @@ describe('生成内容搜索定位', () => {
       act(() =>
         f.root.render(
           createElement(WorkspaceTools, {
+            accountScope: '10000/fixture-config',
+            footerControls: null,
             onOpenAnalysis: vi.fn(),
             assistantSearchTarget: target('assistant'),
           }),
@@ -530,10 +533,18 @@ describe('生成内容搜索定位', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(50);
       });
-      expect(document.querySelector('#weq-tools-title')?.textContent).toBe('WeQ 助手');
-      expect(document.querySelector('.weq-tools-modal .is-search-hit')?.textContent).toContain(
+      const workspace = document.querySelector('.weq-workspace-menu');
+      expect(workspace?.querySelector('#weq-workspace-menu-title')?.textContent).toBe('WeQ 助手');
+      expect(workspace?.getAttribute('aria-modal')).toBe('true');
+      expect(workspace?.closest('[hidden], [inert]')).toBeNull();
+      expect(workspace?.querySelector('.weq-menu-assistant .is-search-hit')?.textContent).toContain(
         '合成搜索命中',
       );
+      expect(fixture.query).toHaveBeenCalledWith(
+        'getAssistantConversation',
+        expect.objectContaining({ sessionId: target('assistant').sessionId }),
+      );
+      expect(fixture.mutate).not.toHaveBeenCalled();
     } finally {
       f.close();
     }

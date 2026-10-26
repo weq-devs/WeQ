@@ -94,16 +94,22 @@ export class AnnualReportIndexDb {
   }
 
   /**
-   * 缺哪个建哪个。已存在的索引是零重建的 no-op（`IF NOT EXISTS` 不会重扫表），
-   * 所以可以在每次开账号时无脑调用一次。
+   * 缺哪个建哪个；宿主可在每条不可抢占的 DDL 前等待空闲或取消。
+   * 已存在的索引不重复提交写入，也不关闭共享的读侧连接。
    */
-  async ensure(): Promise<AnnualReportIndexInfo[]> {
+  async ensure(
+    options: { beforeCreate?: () => Promise<boolean> } = {},
+  ): Promise<AnnualReportIndexInfo[]> {
+    const installed = await this.status();
     for (const index of ANNUAL_INDEXES) {
+      if (installed.some((present) => present.name === index.name)) continue;
+      if (options.beforeCreate && !(await options.beforeCreate())) return installed;
       await this.qq.write(
         `CREATE INDEX IF NOT EXISTS ${index.name} ON ${index.table}(${INDEX_COLUMNS})`,
       );
+      installed.push({ ...index });
     }
-    return this.status();
+    return installed.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /** 释放本库的缓存连接（与 AntiRecallDb 同款收尾）。 */

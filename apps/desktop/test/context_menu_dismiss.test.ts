@@ -146,11 +146,9 @@ describe('右键菜单外部点击', () => {
         }),
       );
     });
-    press(host.querySelector('.weq-acct-switch')!);
     act(() => {
-      // 账号列表挂在 OverlayLayer 里，而它 portal 到 document.body —— 不在 host 下。
       document
-        .querySelector('.weq-acct-row')!
+        .querySelector('.weq-account-select')!
         .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
     });
     expect(document.querySelector('.weq-acct-ctx-menu')).not.toBeNull();

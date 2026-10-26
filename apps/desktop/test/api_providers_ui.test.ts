@@ -51,12 +51,24 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     },
     trpc: {
       useUtils: () => ({
+        account: { intentSense: { getStatus: { invalidate: vi.fn(async () => undefined) } } },
         bootstrap: {
           listAgentLabProviders: { invalidate: vi.fn(async () => undefined) },
           listTtsProviders: { invalidate: vi.fn(async () => undefined) },
+          getAgentLabDefaultModel: { invalidate: vi.fn(async () => undefined), setData: vi.fn() },
+          getSettings: { invalidate: vi.fn(async () => undefined) },
         },
       }),
       bootstrap: {
+        getAgentLabDefaultModel: {
+          useQuery: () => ({
+            data: { ref: null, available: false, error: null },
+            refetch: state.refetch,
+          }),
+        },
+        setAgentLabDefaultModel: {
+          useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }),
+        },
         getAgentLabCatalog: {
           useQuery: () => ({
             data: state.catalogError ? undefined : catalog,
@@ -233,9 +245,11 @@ describe('多 API provider 配置', () => {
     expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('合成模板读取失败');
     act(() => f.host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
     expect(state.refetch).toHaveBeenCalledOnce();
-    expect(f.host.querySelector<HTMLSelectElement>('select')!.value).toBe(
-      tts ? 'cosyvoice' : 'siliconflow',
-    );
+    expect(
+      f.host.querySelector<HTMLSelectElement>(
+        `[aria-label="${tts ? 'TTS 厂商模板' : 'API 厂商模板'}"]`,
+      )!.value,
+    ).toBe(tts ? 'cosyvoice' : 'siliconflow');
     expect(f.host.querySelector<HTMLInputElement>('input[type="password"]')!.value).toBe(
       tts ? 'synthetic-voice-first' : 'synthetic-first-key',
     );

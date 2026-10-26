@@ -1,0 +1,21 @@
+.weq-home-words {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+.weq-home-words textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+}
+.weq-home-words button {
+  justify-self: end;
+}
+html[data-theme='dark'] .weq-home-words textarea {
+  background: var(--background);
+  border-color: var(--weq-border-strong);
+}

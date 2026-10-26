@@ -9,6 +9,52 @@ html[data-theme]
   grid-template-columns: minmax(0, 1fr);
 }
 
+html[data-theme='light'] .weq-settings-dialog :is(.weq-set-card, .weq-settings-appearance-card),
+html[data-theme='dark'] .weq-settings-dialog :is(.weq-set-card, .weq-settings-appearance-card) {
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-bg-surface) 96%, transparent);
+  box-shadow: none;
+}
+
+html[data-theme] .weq-settings-dialog .weq-settings-appearance-head {
+  align-items: center;
+  gap: 16px;
+}
+
+html[data-theme]
+  .weq-settings-dialog
+  :is(
+    .weq-set-title,
+    .weq-set-card-title,
+    .weq-set-row-label,
+    .weq-settings-appearance-head strong
+  ) {
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-settings-dialog
+  [data-setting-id='reverse-tool']
+  :is(.weq-wtools-rv-input, .weq-wtools-rv-result, .weq-wtools-rv-empty) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.weq-settings-dialog [data-setting-id='reverse-tool'] .weq-wtools-rv-input {
+  padding: 0;
+}
+.weq-settings-dialog [data-setting-id='reverse-tool'] .weq-wtools-rv-empty {
+  border-top: 1px solid var(--weq-border-subtle);
+  padding-inline: 0;
+}
+
 .weq-set-row-ctrl :is(input, select, textarea) {
   min-width: 0;
   max-width: 100%;

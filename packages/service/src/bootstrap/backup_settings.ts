@@ -144,8 +144,26 @@ function shape(value: unknown, template: unknown, path: string): void {
 export function validateWeqAppSettings(value: unknown): asserts value is WeqAppBackupPatch {
   const input = record(value, 'settings');
   // 默认空数组无法描述元素结构，输入状态单独校验，避免被当作普通对象。
-  const { typingStatus, ...scalarSettings } = input;
+  const { typingStatus, home, ...scalarSettings } = input;
   shape(scalarSettings, snapshotWeqSettings(DEFAULT_APP_SETTINGS), 'settings');
+  if (Object.hasOwn(input, 'home')) {
+    const page = fields(
+      home,
+      'settings.home',
+      [],
+      ['showTags', 'showGreeting', 'showHitokoto', 'blockedWords'],
+    );
+    for (const key of ['showTags', 'showGreeting', 'showHitokoto'])
+      if (page[key] !== undefined && typeof page[key] !== 'boolean') fail(`settings.home.${key}`);
+    if (Object.hasOwn(page, 'blockedWords')) {
+      if (!Array.isArray(page.blockedWords) || page.blockedWords.length > 1000)
+        fail('settings.home.blockedWords');
+      for (const word of page.blockedWords) {
+        string(word, 'settings.home.blockedWords', true);
+        if (word.length > 200) fail('settings.home.blockedWords');
+      }
+    }
+  }
   if (Object.hasOwn(input, 'typingStatus')) {
     const typing = fields(
       typingStatus,
@@ -176,7 +194,7 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
   }
   if (
     input.exportSaveMode !== undefined &&
-    !['before', 'after', 'preset'].includes(String(input.exportSaveMode))
+    !['before', 'preset'].includes(String(input.exportSaveMode))
   )
     fail('settings.exportSaveMode');
   if (
@@ -288,7 +306,12 @@ export function validateWeqApiSettings(
     ['agentLab', 'ttsProviders', 'mcp', 'externalRkey', 'ssePush'],
   );
   if (api.agentLab !== undefined) {
-    const agent = fields(api.agentLab, 'api.agentLab', ['providers']);
+    const agent = fields(api.agentLab, 'api.agentLab', ['providers'], ['defaultModel']);
+    if (agent.defaultModel !== undefined && agent.defaultModel !== null) {
+      const ref = fields(agent.defaultModel, 'api.agentLab.defaultModel', ['providerId', 'model']);
+      string(ref.providerId, 'api.agentLab.defaultModel.providerId', true);
+      string(ref.model, 'api.agentLab.defaultModel.model', true);
+    }
     list(agent.providers, 'api.agentLab.providers', (row, path) => {
       fields(row, path, [
         'id',

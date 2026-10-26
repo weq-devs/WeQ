@@ -2,18 +2,18 @@
  * 顶层视图状态。
  *
  * 两个活动视图：首页（密钥获取）与主界面。首页内部还有自己的阶段
- * （booting / home / select）与模式（existing / new），见下方字段。
+ * （booting / home / select）与子页面（existing / new / backup），见下方字段。
  */
 
 import { create } from 'zustand';
 
 export type View = 'bootstrap' | 'main';
 
-/** 首页阶段：启动自动进入探测 → 主页（logo+两按钮）→ 账号/密钥选择页。 */
+/** 启动探测后直接展示账号工作区；select 保留显式入口的路由状态。 */
 export type HomeStage = 'booting' | 'home' | 'select';
 
-/** 选择页模式：现有配置 / 新的开始。 */
-export type SelectMode = 'existing' | 'new';
+/** 账号工作区：最近账号 / 添加账号 / 导入备份。 */
+export type SelectMode = 'existing' | 'new' | 'backup';
 
 interface ViewState {
   view: View;
@@ -36,10 +36,10 @@ export const useViewState = create<ViewState>((set) => ({
   view: 'bootstrap',
   openedUin: null,
   homeStage: 'booting',
-  selectMode: 'new',
+  selectMode: 'existing',
   goTo: (view) => set({ view }),
   setOpenedUin: (openedUin) => set({ openedUin }),
   setHomeStage: (homeStage) => set({ homeStage }),
   enterSelect: (selectMode) => set({ selectMode, homeStage: 'select' }),
-  backHome: () => set({ homeStage: 'home' }),
+  backHome: () => set({ homeStage: 'home', selectMode: 'existing' }),
 }));

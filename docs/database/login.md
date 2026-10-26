@@ -8,7 +8,8 @@ QQ 在这台机器上登录过的所有账号的快照列表，是 WeQ 列出本
 | 文件 | 职责 |
 | ---- | ---- |
 | `packages/native`（Rust `nt_helper`） | `decryptLoginDb`：解密 + 解析出行 |
-| `packages/service/src/account/db_decrypt.ts` | `LOGIN_DB_KEY` 固定密钥 + `isLoginDb` 判定 |
+| `packages/service/src/bootstrap/login_db.ts` | `LOGIN_DB_KEY` 固定密钥、逐库探测和按 uin 合并 |
+| `packages/service/src/account/db_decrypt.ts` | `isLoginDb` 判定与解密导出 |
 | `packages/service/src/bootstrap/win32_detect.ts` | 多路径合并的账号列表装配 |
 
 ---
@@ -23,14 +24,15 @@ QQ 在这台机器上登录过的所有账号的快照列表，是 WeQ 列出本
      `<root>/global/nt_db/login.db`（主，较大）+ `<root>/nt_qq/global/nt_db/login.db`
      （辅，较小），WeQ 按优先级合并去重（`findLoginDbs`）；
 2. **SQLCipher 密钥是写死的常量**，不随账号变：
-   `LOGIN_DB_KEY = 'BD156D6710D54D8782F4'`（`db_decrypt.ts`）。
+   `LOGIN_DB_KEY` 定义在 `bootstrap/login_db.ts`，解密导出复用该常量。
    加密参数（pageHmac/kdfHmac 算法）仍需 `testDatabaseKey` 探测；
 3. **解析在 native 层**：走 Rust 的 `decryptLoginDb(path, algo)` 直接返回行对象，
    不是像其它库那样拿 SQL 句柄自己查 —— 解析逻辑写在
    `nt_helper/src/detect/login_db.rs`。通用 SQL 工具（`executeSqlWithKey`）也能开它。
 
-解密失败的兜底：WeQ 还有两条不依赖 login.db 的账号发现路径
-（ninebird 快速登录列表的缓存 + 端口探测），login.db 挂了账号列表也不至于为空。
+自动发现只读取 `login.db`，没有 NineBird 快速登录列表或端口探测兜底。
+各候选库按优先级解密并合并；全部缺失或解密失败时返回空列表，不会为了枚举账号启动 QQ。
+这不表示已保存的 WeQ 账号配置或手动导入的静态来源会被删除。
 
 ## 二、行结构（`LoginAccount`）
 
@@ -45,8 +47,7 @@ QQ 在这台机器上登录过的所有账号的快照列表，是 WeQ 列出本
 | `a1Key` | string | A1 凭据缓存（可能为空串） |
 | `lastLoginAt` | number | 最后登录时间，unix 秒；从没登录成功过为 0 |
 
-> `a1Key` 只有 native 的 `LoginAccount` 才可能带；ninebird 的快速登录列表
-> 没有它，这是两条数据源的主要字段差异。
+> `a1Key` 可能为空或过期；读到账号行不等于快速登录凭据可用，不在日志或反馈中附上它。
 
 ## 三、WeQ 的用法
 

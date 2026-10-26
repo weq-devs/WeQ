@@ -78,7 +78,10 @@ function fixture(total = 3000, deps: MediaDeps = {}) {
     source,
     msgs,
     rows,
-    manager: new ExportTaskManager(msgs, join(root, 'exports'), deps),
+    manager: new ExportTaskManager(msgs, join(root, 'exports'), {
+      exportSavePolicy: () => ({ mode: 'before', directory: root }),
+      ...deps,
+    }),
   };
 }
 
@@ -149,23 +152,24 @@ it('后台按预设自动保存且不依赖渲染界面，保留原结果与持�
   );
 });
 
-it('新的询问偏好不阻断无选择器的后台任务，也不改写全局策略', async () => {
+it('无交互后台任务未确定位置时拒绝启动，不回退稍后保存或改写全局策略', async () => {
   const preference = { mode: 'before' as const };
   const f = fixture(2, { exportSavePolicy: () => preference });
-  const id = await f.manager.startTask({
-    kind: 'group',
-    conv: '777',
-    name: '后台生成',
-    format: 'txt',
-    total: 2,
-  });
-  await wait(() => f.manager.getTask(id)?.status === 'completed');
-  expect(f.manager.getTask(id)?.save).toEqual({ policy: { mode: 'after' }, status: 'pending' });
+  await expect(
+    f.manager.startTask({
+      kind: 'group',
+      conv: '777',
+      name: '后台生成',
+      format: 'txt',
+      total: 2,
+    }),
+  ).rejects.toThrow('保存目录');
+  expect(f.manager.listTasks()).toEqual([]);
   expect(preference).toEqual({ mode: 'before' });
 });
 
 it('开始前没有位置不建任务，单次覆盖保存策略不修改默认配置', async () => {
-  const f = fixture(2, { exportSavePolicy: () => ({ mode: 'after' }) });
+  const f = fixture(2, { exportSavePolicy: () => ({ mode: 'before' }) });
   await expect(
     f.manager.startTask({
       kind: 'group',
@@ -188,15 +192,16 @@ it('开始前没有位置不建任务，单次覆盖保存策略不修改默认�
     savePolicy: policy,
   });
   await wait(() => f.manager.getTask(id)?.save?.status === 'saved');
-  const later = await f.manager.startTask({
-    kind: 'group',
-    conv: '777',
-    name: '默认',
-    format: 'txt',
-    total: 2,
-  });
-  await wait(() => f.manager.getTask(later)?.status === 'completed');
-  expect(f.manager.getTask(later)?.save).toEqual({ policy: { mode: 'after' }, status: 'pending' });
+  await expect(
+    f.manager.startTask({
+      kind: 'group',
+      conv: '777',
+      name: '默认',
+      format: 'txt',
+      total: 2,
+    }),
+  ).rejects.toThrow('保存目录');
+  expect(f.manager.listTasks()).toHaveLength(1);
 });
 
 it('保存失败不改写导出成功，可重新选位置；重复在途保存只复制一次', async () => {
@@ -558,6 +563,7 @@ it('选择基线文件夹在新任务中合并归档，不依赖原任务索引�
   f.rows[0]!.elements = [{ type: 'text', data: { textContent: '来源内容已改变' } }];
   f.rows.push({ ...removed, msgId: 4n, msgSeq: 4n });
   const manager = new ExportTaskManager(f.msgs, join(f.root, 'new-exports'), {
+    exportSavePolicy: () => ({ mode: 'before', directory: f.root }),
     exportAccountUin: '10002',
   });
   const next = await manager.startTask({
@@ -579,6 +585,7 @@ it('选择基线文件夹在新任务中合并归档，不依赖原任务索引�
   expect(manager.getTask(next)?.mergeWarnings?.conflictingMessages).toBe(1);
   expect(readFileSync(f.manager.getTask(id)!.filePath!)).toEqual(original);
   const other = new ExportTaskManager(f.msgs, join(f.root, 'other-account'), {
+    exportSavePolicy: () => ({ mode: 'before', directory: f.root }),
     exportAccountUin: '10002',
   });
   const bad = await other.startTask({

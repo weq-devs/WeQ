@@ -11,7 +11,10 @@ const state = vi.hoisted(() => ({
   mutate: vi.fn(async (_input: unknown) => 'mail-task'),
   preview: vi.fn<(input: unknown) => Promise<MailSummary[]>>(),
   cancel: vi.fn(async (_input: unknown) => null),
-  prepare: vi.fn(async (..._args: unknown[]) => ({ mode: 'after' as const })),
+  prepare: vi.fn(async (..._args: unknown[]) => ({
+    mode: 'before' as const,
+    directory: '/fixture/export',
+  })),
   started: vi.fn(),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
@@ -130,7 +133,7 @@ it('先按北京时间和文本条件查询列表数量，确认后只导出预�
       expectedAccountConfigId: 'source-a',
       ids: ['preview-one'],
       expandThreads: false,
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: '/fixture/export' },
     });
     expect(state.started).toHaveBeenCalledTimes(1);
   } finally {
@@ -146,7 +149,9 @@ it('所选邮件可切到所有邮件，错误日期不入队，切源后不提�
     await f.query();
     expect(state.preview).toHaveBeenLastCalledWith(expect.objectContaining({ ids: ['one'] }));
     await f.submit();
-    await act(async () => f.host.querySelector<HTMLInputElement>('input[type="radio"]')!.click());
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="邮件范围"] button')!.click(),
+    );
     await f.submit();
     expect(state.mutate).toHaveBeenCalledTimes(1);
     await f.query();

@@ -66,6 +66,15 @@ export interface RecentContactSeq {
   sendTime: bigint;
 }
 
+export interface ConversationIdentity {
+  targetUid: string;
+  targetUin: string;
+  chatType: number;
+  name: string;
+  remark: string;
+  groupNick: string;
+}
+
 /**
  * `41136` 的置顶高位。排序键把「已置顶」编码成 bit 47，一次比较就能把置顶组
  * 整体提前、组内仍按同一时间轴排。见
@@ -209,6 +218,29 @@ export class RecentContactDb {
       items: rows.map(rowToRecentContact),
       total: Number(countRows[0]?.[0] ?? 0),
     };
+  }
+
+  /** 对象搜索只读身份与别名，不解码消息预览，也不在合并去重前截断。 */
+  async searchIdentities(keyword: string): Promise<ConversationIdentity[]> {
+    const needle = keyword.trim();
+    if (!needle) return [];
+    const like = `%${needle.replace(/[\\%_]/g, (part) => `\\${part}`)}%`;
+    const rows = await this.qq.query(
+      `SELECT "40021","40030","40010","40094","41135","41148"
+       FROM recent_contact_v3_table WHERE "40021" LIKE ? ESCAPE '\\'
+         OR CAST("40030" AS TEXT) LIKE ? ESCAPE '\\' OR "40094" LIKE ? ESCAPE '\\'
+         OR "41135" LIKE ? ESCAPE '\\' OR "41148" LIKE ? ESCAPE '\\'
+       ORDER BY "40050" DESC, "40021", "40010"`,
+      [like, like, like, like, like],
+    );
+    return rows.map((row) => ({
+      targetUid: toStr(row[0]),
+      targetUin: toStr(row[1]),
+      chatType: toNum(row[2]),
+      name: toStr(row[3]),
+      remark: toStr(row[4]),
+      groupNick: toStr(row[5]),
+    }));
   }
 
   /**

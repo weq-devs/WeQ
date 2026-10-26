@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * 红包皮肤离线目录（`redpack_catalog.ts`）的离线单测。
  *

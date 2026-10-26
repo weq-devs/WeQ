@@ -1,3 +1,4 @@
+// @vitest-environment node
 import {
   mkdirSync,
   mkdtempSync,
@@ -24,6 +25,7 @@ import { QZONE_ALBUM_PAGE_SIZE } from '../src/shared/qzone_album_export';
 const state = vi.hoisted(() => ({
   uin: '10001',
   configId: 'fixture-source',
+  automatic: true,
   failedDatabasePath: '',
   nativePath: '',
   nativeDirectory: '',
@@ -39,7 +41,16 @@ const state = vi.hoisted(() => ({
   })),
 }));
 vi.mock('../src/main/context/app_context', () => ({
-  getAppContext: () => ({ account: { context: { uin: state.uin } }, services: state.services }),
+  getAppContext: () => ({
+    account: { context: { uin: state.uin } },
+    services: state.services,
+    bootstrap: {
+      userConfig: {
+        getSettings: () => ({ autoAttachQq: state.automatic }),
+        getLocalModelId: () => null,
+      },
+    },
+  }),
 }));
 vi.mock('@weq/service', async (original) => ({
   ...(await original<typeof import('@weq/service')>()),
@@ -62,6 +73,7 @@ const roots: string[] = [];
 const artifacts = new Map<string, string>();
 let manager: ExportTaskManager;
 let databaseFiles: AccountDbFile[] = [];
+const listDatabases = vi.fn(async () => databaseFiles);
 const decrypt = vi.fn(async (opts: DbDecryptOptions): Promise<DbDecryptResult[]> => {
   opts.signal?.throwIfAborted();
   return opts.items.map((item, index) => {
@@ -108,6 +120,7 @@ const qzonePhotos = vi.fn(
   }> => ({ photos: [], totalInAlbum: 0 }),
 );
 beforeEach(() => {
+  listDatabases.mockReset().mockImplementation(async () => databaseFiles);
   qzoneVideo.mockReset().mockResolvedValue('https://synthetic.invalid/movie.mp4');
   qzonePhotos.mockReset().mockResolvedValue({ photos: [], totalInAlbum: 0 });
   artifacts.clear();
@@ -117,6 +130,7 @@ beforeEach(() => {
   manager = new ExportTaskManager({} as MsgService, join(root, 'cache'));
   state.uin = '10001';
   state.configId = 'fixture-source';
+  state.automatic = true;
   const reportPath = join(root, 'report.html');
   writeFileSync(reportPath, '<h1>synthetic-report</h1>');
   artifacts.set('report.html', reportPath);
@@ -145,7 +159,7 @@ beforeEach(() => {
     groupAlbumMedia: { getMediaList: albums },
     webQuery: { getQzoneAlbumVideoUrl: qzoneVideo, getQzoneAlbumPhotos: qzonePhotos },
     dbDecrypt: {
-      listDatabases: async () => databaseFiles,
+      listDatabases,
       decryptDatabases: decrypt,
       isQqLoggedIn: () => true,
     },
@@ -175,7 +189,7 @@ it('助手报告只复制既有句柄产物，不调用模型；回执只返回�
     ...binding,
     id: 'report.html',
     name: '合成报告.html',
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: roots[0]! },
   });
   await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
   const task = manager.getTask(id)!;
@@ -202,7 +216,7 @@ it('助手报告句柄、回执和保存均受数据源绑定约束', async () =
       ...binding,
       id: 'missing',
       name: 'missing.html',
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: roots[0]! },
     }),
   ).rejects.toThrow('报告文件不存在');
   state.configId = 'other-source';
@@ -211,7 +225,7 @@ it('助手报告句柄、回执和保存均受数据源绑定约束', async () =
       ...binding,
       id: 'report.html',
       name: '报告.html',
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: roots[0]! },
     }),
   ).rejects.toThrow('账号数据源已切换');
   await expect(api.getExportOutputReceipt({ ...binding, taskId: 'missing' })).rejects.toThrow(
@@ -252,9 +266,9 @@ it('旧报告另存与任务另存拒绝覆盖已有内容，并沿用统一单�
     ...binding,
     id: 'report.html',
     name: '合成报告.html',
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: roots[0]! },
   });
-  await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
+  await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
   await expect(api.saveAssistantExport({ ...binding, taskId: id })).rejects.toThrow(/同名/);
   state.nativePath = join(roots[0]!, 'legacy-task.html');
   expect(
@@ -280,7 +294,7 @@ it('旧整包另存不合并同名目录，选择器取消或换来源不复制'
   const id = await manager.startResourceExport({
     kind: 'group-files',
     name: '同名目录',
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: roots[0]! },
     run: async ({ directory }) => {
       writeFileSync(join(directory, 'file.bin'), 'synthetic');
       return { total: 1, ok: 1, failed: [] };
@@ -334,7 +348,7 @@ it('多库保留成功产物和失败清单，但不把失败解密的残留文�
     ...binding,
     dbPaths: databaseFiles.map((db) => db.path),
     mode: 'fast',
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: roots[0]! },
   });
   await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
   const task = manager.getTask(id)!;
@@ -347,7 +361,7 @@ it('多库保留成功产物和失败清单，但不把失败解密的残留文�
     ...binding,
     dbPaths: [state.failedDatabasePath],
     mode: 'safe',
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: roots[0]! },
   });
   await vi.waitFor(() => expect(manager.getTask(failed)?.status).toBe('failed'));
   expect(manager.getTask(failed)?.filePath).toBeUndefined();
@@ -370,6 +384,62 @@ it('明文任务与在线检查拒绝同号配置切换，范围外库不建任�
   expect(manager.listTasks()).toEqual([]);
   expect(decrypt).not.toHaveBeenCalled();
 });
+it.each(['account', 'source'] as const)(
+  '异步读取库清单期间切换 %s，不创建或解密旧目标',
+  async (change) => {
+    listDatabases.mockImplementationOnce(async () => {
+      if (change === 'account') state.uin = '10002';
+      else state.configId = 'other-source';
+      return databaseFiles;
+    });
+    await expect(
+      accountRouter.createCaller({}).startDatabasePlainExport({
+        ...binding,
+        dbPaths: [databaseFiles[0]!.path],
+        mode: 'safe',
+      }),
+    ).rejects.toThrow(/切换/);
+    expect(manager.listTasks()).toEqual([]);
+    expect(decrypt).not.toHaveBeenCalled();
+  },
+);
+it('明确空数据库目标被拒绝，不能解释成导出全部库', async () => {
+  await expect(
+    accountRouter.createCaller({}).startDatabasePlainExport({
+      ...binding,
+      dbPaths: [],
+      mode: 'safe',
+    }),
+  ).rejects.toThrow();
+  expect(manager.listTasks()).toEqual([]);
+  expect(decrypt).not.toHaveBeenCalled();
+});
+it('重复库路径只执行一次，失败重试仍生成独立单库任务而不发布失败残留', async () => {
+  const api = accountRouter.createCaller({}),
+    database = databaseFiles[0]!;
+  state.failedDatabasePath = database.path;
+  const failed = await api.startDatabasePlainExport({
+    ...binding,
+    dbPaths: [database.path, database.path],
+    mode: 'safe',
+    savePolicy: { mode: 'before', directory: roots[0]! },
+  });
+  await vi.waitFor(() => expect(manager.getTask(failed)?.status).toBe('failed'));
+  expect(decrypt.mock.calls[0]![0].items).toHaveLength(1);
+  expect(manager.getTask(failed)?.filePath).toBeUndefined();
+  state.failedDatabasePath = '';
+  const output = join(roots[0]!, 'retry-result.db');
+  const retry = await api.startDatabasePlainExport({
+    ...binding,
+    dbPaths: [database.path],
+    mode: 'safe',
+    savePolicy: { mode: 'before', filePath: output },
+  });
+  expect(retry).not.toBe(failed);
+  await vi.waitFor(() => expect(manager.getTask(retry)?.save?.status).toBe('saved'));
+  expect(readFileSync(output, 'utf8')).toBe('synthetic-plain-database');
+  expect(readFileSync(database.path, 'utf8')).toBe('synthetic-encrypted');
+});
 it('群文件入口固定精确选择，在任务私有缓存下载并保留部分失败，不递归扩大范围', async () => {
   const files = [
     { fileId: 'one', fileName: 'export-report.json', path: ['folder'] },
@@ -380,7 +450,7 @@ it('群文件入口固定精确选择，在任务私有缓存下载并保留部�
     groupCode: '123',
     name: '合成群文件',
     files,
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: roots[0]! },
   });
   files[0]!.fileName = 'changed.txt';
   await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
@@ -393,6 +463,21 @@ it('群文件入口固定精确选择，在任务私有缓存下载并保留部�
   expect(state.download).toHaveBeenCalledTimes(2);
   expect(state.download.mock.calls.every(([, path]) => path.includes('.partial'))).toBe(true);
 });
+it('完整功能未启用时不因缓存在线信息创建群文件任务', async () => {
+  state.automatic = false;
+  await expect(
+    accountRouter.createCaller({}).startGroupFileExport({
+      ...binding,
+      groupCode: '123',
+      name: '合成群文件',
+      files: [{ fileId: 'one', fileName: 'file.txt', path: [] }],
+      savePolicy: { mode: 'before', directory: roots[0]! },
+    }),
+  ).rejects.toThrow(/离线|完整功能/);
+  expect(manager.listTasks()).toEqual([]);
+  expect(fileUrl).not.toHaveBeenCalled();
+  expect(state.download).not.toHaveBeenCalled();
+});
 it('相册入口接入后台任务；明确空文件集合不扩大到全群', async () => {
   const api = accountRouter.createCaller({});
   const id = await api.startGroupAlbumExport({
@@ -400,7 +485,7 @@ it('相册入口接入后台任务；明确空文件集合不扩大到全群', a
     groupCode: '123',
     name: '合成相册',
     albums: [{ id: 'a', title: '同名' }],
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: roots[0]! },
   });
   await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
   expect(albums).toHaveBeenCalledWith('123', 'a', '');
@@ -409,7 +494,7 @@ it('相册入口接入后台任务；明确空文件集合不扩大到全群', a
     groupCode: '123',
     name: '合成空集合',
     files: [],
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: roots[0]! },
   });
   await vi.waitFor(() => expect(manager.getTask(empty)?.status).toBe('completed'));
   expect(manager.getTask(empty)?.total).toBe(0);
@@ -421,7 +506,7 @@ it('账号或同号来源变化时不建资源任务', async () => {
     groupCode: '123',
     name: '合成文件',
     files: [],
-    savePolicy: { mode: 'after' as const },
+    savePolicy: { mode: 'before' as const, directory: roots[0]! },
   };
   state.configId = 'another-source';
   await expect(accountRouter.createCaller({}).startGroupFileExport(input)).rejects.toThrow(
@@ -464,7 +549,7 @@ it('同名相册各自保留目录，不因名称相同覆盖其他相册文件'
       { id: 'a', title: '同名' },
       { id: 'b', title: '同名' },
     ],
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: roots[0]! },
   });
   await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
   const directory = join(manager.getTask(id)!.bundleDir!, 'files');
@@ -493,7 +578,7 @@ it('取消并发下载等待所有在途写入结束后才清理任务暂存区'
       { fileId: 'fast', fileName: 'fast.bin' },
       { fileId: 'slow', fileName: 'slow.bin' },
     ],
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: roots[0]! },
   });
   await vi.waitFor(() => expect(state.download).toHaveBeenCalledTimes(2));
   manager.cancelTask(id);
@@ -534,7 +619,7 @@ it.each([true, false])('单个视频按实际本体／封面选择后缀，本�
   const id = await accountRouter.createCaller({}).startQzoneAlbumMediaExport({
     ...selectedQzone,
     items: [{ ...selectedQzone.items[0]!, isVideo: true, picKey: 'video-key' }],
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: roots[0]! },
   });
   await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('completed'));
   expect(manager.getTask(id!)?.resource?.output?.extension).toBe(available ? 'mp4' : 'jpg');
@@ -549,9 +634,11 @@ it('多项空间媒体固定精确范围，重复占位 id 不合并，部分失
     { ...selectedQzone.items[0]!, url: 'https://synthetic.invalid/second.jpg' },
     { id: 'missing', name: 'missing.jpg', url: 'https://synthetic.invalid/missing' },
   ];
-  const id = await accountRouter
-    .createCaller({})
-    .startQzoneAlbumMediaExport({ ...selectedQzone, items, savePolicy: { mode: 'after' } });
+  const id = await accountRouter.createCaller({}).startQzoneAlbumMediaExport({
+    ...selectedQzone,
+    items,
+    savePolicy: { mode: 'before', directory: roots[0]! },
+  });
   items[0] = { ...items[0]!, name: 'changed.jpg' };
   await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('completed'));
   const task = manager.getTask(id!)!;
@@ -592,7 +679,7 @@ it('整本空间相册仅遍历已选相册，分页重复作为明确失败保�
     hostUin: '20002',
     name: '合成相册',
     albums: [{ id: 'selected', title: '选中' }],
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: roots[0]! },
   });
   await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('completed'));
   expect(qzonePhotos.mock.calls).toEqual([
@@ -616,7 +703,7 @@ it('整本空间相册取页后来源变化，不继续旧相册的下载', asyn
     hostUin: '20002',
     name: '合成相册',
     albums: [{ id: 'selected' }],
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: roots[0]! },
   });
   await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('failed'));
   expect(manager.getTask(id!)?.bundleDir).toBeUndefined();
@@ -652,7 +739,7 @@ it('空间媒体任务取消会中止所有在途下载，半成品不发布', a
       selectedQzone.items[0]!,
       { ...selectedQzone.items[0]!, url: 'https://synthetic.invalid/second.jpg' },
     ],
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: roots[0]! },
   });
   await vi.waitFor(() => expect(state.download).toHaveBeenCalledTimes(2));
   manager.cancelTask(id!);

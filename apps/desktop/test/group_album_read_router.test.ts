@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 const rpc = vi.hoisted(() => ({
@@ -22,7 +23,12 @@ vi.mock('../src/main/context/app_context', () => {
     getAppContext: () => ({
       account: { context: { uin: rpc.uin } },
       services,
-      bootstrap: null,
+      bootstrap: {
+        userConfig: {
+          getSettings: () => ({ autoAttachQq: true }),
+          getLocalModelId: () => null,
+        },
+      },
       platform: null,
     }),
   };

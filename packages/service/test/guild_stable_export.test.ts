@@ -1,3 +1,4 @@
+import { withExportSaveDirectory } from './support/export_save_fixture';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -74,9 +75,13 @@ it('真实 SQLite 的同 seq 与 NULL seq 进入频道搜索、上下文和精�
   expect(ids).toEqual(['-5', '1', '2']);
   expect((await svc.search('合成', 10)).total).toBe(3);
   expect((await svc.aroundMessage('100', '-5')).found).toBe(true);
-  const manager = new ExportTaskManager({} as MsgService, join(root, 'exports'), {
-    guildDirect: svc,
-  });
+  const manager = new ExportTaskManager(
+    {} as MsgService,
+    join(root, 'exports'),
+    withExportSaveDirectory(join(root, 'exports'), {
+      guildDirect: svc,
+    }),
+  );
   const id = await manager.startTask({
     kind: 'c2c',
     conv: '2',

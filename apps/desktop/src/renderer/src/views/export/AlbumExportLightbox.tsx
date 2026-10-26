@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { Check, Image, Loader2, X } from 'lucide-react';
+import { Check, CheckCheck, FlipHorizontal2, Image, Loader2, X } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
-import { ExportSaveActions } from '../../components/ExportSaveActions';
 import '../../styles/resource-export.css';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
 import { client } from '../../trpc/client';
@@ -103,6 +102,7 @@ export function AlbumExportLightbox({
               disabled={loadingAlbums || albums.length === 0 || submitting}
               onClick={() => setSelection(new Set(albums.map((album) => album.id)))}
             >
+              <CheckCheck size={14} aria-hidden="true" />
               全选
             </button>
             <button
@@ -118,6 +118,7 @@ export function AlbumExportLightbox({
                 )
               }
             >
+              <FlipHorizontal2 size={14} aria-hidden="true" />
               反选
             </button>
             <span className="weq-exp-tools-spacer" />
@@ -172,12 +173,6 @@ export function AlbumExportLightbox({
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             开始导出
           </button>
-          <ExportSaveActions
-            disabled={
-              submitting || loadingAlbums || Boolean(albumError) || selectedAlbums.length === 0
-            }
-            onSelect={(saveIntent) => onConfirm({ selectedAlbums, saveIntent })}
-          />
         </footer>
       </section>
     </div>

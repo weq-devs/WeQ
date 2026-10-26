@@ -8,6 +8,7 @@
 
 import { openSync, readSync, closeSync } from 'node:fs';
 import type { NtHelperBinding } from '@weq/native';
+import { createNativeSingleFlight } from '../common/native_single_flight';
 import {
   FetchDownloadRkeys,
   RequestDecryptKey,
@@ -24,8 +25,19 @@ export type OnlineTicketClientKeyNt = Pick<NtHelperBinding, 'ptFetchClientKey'>;
 /** 兼容旧的组合类型：同时具备 OIDB 与 clientKey 能力的 native 绑定。 */
 export type OnlineTicketNt = OnlineTicketOidbNt & OnlineTicketClientKeyNt;
 
-/** Fetch the account clientKey via native (ptlogin2 first, OIDB fallback). */
-export async function fetchClientKey(
+const clientKeyReads = createNativeSingleFlight<ClientKeyInfo>();
+const rkeyReads = createNativeSingleFlight<DownloadRkey[]>();
+
+/** 经 native 取 clientKey；同账号进程的并发调用共享本轮读取。 */
+export function fetchClientKey(
+  nt: OnlineTicketClientKeyNt,
+  pid: number,
+  uin: string,
+): Promise<ClientKeyInfo> {
+  return clientKeyReads.run(nt, JSON.stringify([pid, uin]), () => readClientKey(nt, pid, uin));
+}
+
+async function readClientKey(
   nt: OnlineTicketClientKeyNt,
   pid: number,
   uin: string,
@@ -51,8 +63,12 @@ export function fetchDownloadRkeys(
   nt: OnlineTicketOidbNt,
   pid: number,
   types?: number[],
+  uin?: string,
 ): Promise<DownloadRkey[]> {
-  return FetchDownloadRkeys.invoke(nt, pid, types ? { types } : {});
+  const requested = types ? [...types] : undefined;
+  const read = () => FetchDownloadRkeys.invoke(nt, pid, requested ? { types: requested } : {});
+  // 无账号归属的兼容调用不共享，避免同进程换账号时混用在途票据。
+  return uin ? rkeyReads.run(nt, JSON.stringify([pid, uin, requested]), read) : read();
 }
 
 /**

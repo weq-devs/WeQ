@@ -1,0 +1,574 @@
+/**
+ * 位置共享面板（发消息框内的浮层）。
+ *
+ * 形态与其余 composer 面板一致：贴在输入区上沿、左对齐、绝对定位；移动端改成
+ * 内联（grid-row 3）。配色全部走主题变量，深色用 `html[data-theme='dark']` 覆盖。
+ */
+
+.lbs-panel {
+  position: absolute;
+  bottom: calc(100% - 1px);
+  left: 12px;
+  z-index: 30;
+  display: grid;
+  width: min(460px, calc(100% - 28px));
+  max-height: min(560px, calc(100dvh - 180px));
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
+  border-radius: 12px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+  animation: lbs-in 150ms ease-out;
+}
+
+@keyframes lbs-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.lbs-panel.is-active {
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+
+/* ── 头部 ─────────────────────────────────────────────────────────────── */
+
+.lbs-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px 9px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.lbs-back {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-secondary, #666666);
+  cursor: pointer;
+}
+
+.lbs-back:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary, #111111) 7%, transparent);
+  color: var(--weq-fg-primary, #111111);
+}
+
+.lbs-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-primary, #111111);
+}
+
+.lbs-title strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.lbs-subtitle {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lbs-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 未开始 ───────────────────────────────────────────────────────────── */
+
+.lbs-idle {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 28px 22px 24px;
+}
+
+.lbs-idle-art {
+  position: relative;
+  display: grid;
+  width: 66px;
+  height: 66px;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 10%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.lbs-idle-ping {
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid color-mix(in srgb, var(--weq-accent-effective, #0099ff) 45%, transparent);
+  border-radius: 50%;
+  animation: lbs-ping 2.2s ease-out infinite;
+}
+
+@keyframes lbs-ping {
+  0% {
+    opacity: 0.75;
+    transform: scale(0.85);
+  }
+
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.45);
+  }
+}
+
+.lbs-idle-text {
+  margin: 0;
+  max-width: 260px;
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.lbs-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--weq-accent-solid, var(--weq-accent-effective, #0099ff));
+  color: var(--weq-accent-solid-foreground, #ffffff);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+
+.lbs-primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.lbs-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.lbs-hint,
+.lbs-error {
+  max-width: 300px;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11.5px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.lbs-error {
+  color: var(--weq-danger-solid-background, #a91727);
+}
+
+/* ── 地图 ─────────────────────────────────────────────────────────────── */
+
+.lbs-map-wrap {
+  position: relative;
+  min-height: 0;
+  padding: 8px 8px 0;
+}
+
+.lbs-map {
+  position: relative;
+  height: 100%;
+  min-height: 190px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 8%, transparent);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.lbs-map:active {
+  cursor: grabbing;
+}
+
+.lbs-map.is-pickable {
+  cursor: crosshair;
+  box-shadow: inset 0 0 0 2px var(--weq-accent-effective, #0099ff);
+}
+
+.lbs-map-tiles {
+  position: absolute;
+  inset: 0;
+}
+
+.lbs-map-tile {
+  position: absolute;
+  width: 256px;
+  height: 256px;
+  max-width: none;
+  pointer-events: none;
+}
+
+/* 高德没有暗色栅格瓦片 —— 用滤镜把亮色底图翻成暗色（与选点地图同一套做法）。 */
+html[data-theme='dark'] .lbs-map-tile {
+  filter: invert(1) hue-rotate(180deg) brightness(0.86) contrast(0.92) saturate(0.72);
+}
+
+html[data-theme='dark'] .lbs-map {
+  background: #1b1e22;
+}
+
+/* ── 地图标记 ─────────────────────────────────────────────────────────── */
+
+.lbs-map-member {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.lbs-map-avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  overflow: hidden;
+  border: 2px solid var(--popover, #ffffff);
+  border-radius: 50%;
+  background: var(--weq-bg-surface, #ffffff);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
+}
+
+.lbs-map-avatar .avatar {
+  width: 100%;
+  height: 100%;
+  font-size: 12px;
+}
+
+.lbs-map-member.is-self .lbs-map-avatar {
+  border-color: var(--weq-accent-effective, #0099ff);
+}
+
+.lbs-map-member.is-stale .lbs-map-avatar {
+  opacity: 0.55;
+  filter: grayscale(0.5);
+}
+
+.lbs-map-self-ring {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  border: 1.5px solid color-mix(in srgb, var(--weq-accent-effective, #0099ff) 55%, transparent);
+  border-radius: 50%;
+  animation: lbs-ping 2.4s ease-out infinite;
+}
+
+.lbs-map-actions {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 5;
+  display: grid;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--popover, #ffffff) 92%, transparent);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+}
+
+.lbs-map-action {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary, #666666);
+  cursor: pointer;
+}
+
+.lbs-map-action:hover {
+  color: var(--weq-fg-primary, #111111);
+}
+
+.lbs-map-action.is-on {
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 16%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.lbs-map-zoom {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 5;
+  display: grid;
+  gap: 1px;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+}
+
+.lbs-map-zoom button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: color-mix(in srgb, var(--popover, #ffffff) 94%, transparent);
+  color: var(--weq-fg-secondary, #666666);
+  cursor: pointer;
+}
+
+.lbs-map-zoom button:hover:not(:disabled) {
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.lbs-map-zoom button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.lbs-map-credit {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  padding: 2px 6px;
+  border-top-left-radius: 6px;
+  background: color-mix(in srgb, var(--popover, #ffffff) 82%, transparent);
+  color: var(--weq-fg-muted, #858585);
+  font-size: 9.5px;
+  pointer-events: none;
+}
+
+/* ── 摇杆 + 速度 ──────────────────────────────────────────────────────── */
+
+.lbs-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px 12px;
+}
+
+.lbs-joystick {
+  position: relative;
+  display: grid;
+  width: 84px;
+  height: 84px;
+  flex: none;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 7%, transparent);
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+
+.lbs-joystick:active {
+  cursor: grabbing;
+}
+
+.lbs-joystick:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 45%, transparent);
+}
+
+.lbs-joystick.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.lbs-joystick-ring {
+  position: absolute;
+  inset: 12px;
+  border: 1px dashed color-mix(in srgb, var(--weq-fg-muted, #858585) 32%, transparent);
+  border-radius: 50%;
+}
+
+.lbs-joystick-thumb {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--weq-accent-solid, var(--weq-accent-effective, #0099ff));
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.24);
+  transform: translate(-50%, -50%);
+  transition:
+    left 60ms linear,
+    top 60ms linear;
+}
+
+.lbs-speed {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lbs-speed-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary, #666666);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.lbs-speed-chip:hover {
+  color: var(--weq-fg-primary, #111111);
+}
+
+.lbs-speed-chip.is-on {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+/* ── 底部 ─────────────────────────────────────────────────────────────── */
+
+.lbs-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 12px;
+}
+
+.lbs-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lbs-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2fbf71;
+  box-shadow: 0 0 0 0 rgba(47, 191, 113, 0.55);
+  animation: lbs-live 1.8s ease-out infinite;
+}
+
+@keyframes lbs-live {
+  70% {
+    box-shadow: 0 0 0 5px rgba(47, 191, 113, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(47, 191, 113, 0);
+  }
+}
+
+.lbs-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 5px 12px;
+  border: 1px solid color-mix(in srgb, var(--weq-danger-solid-background, #a91727) 32%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-danger-solid-background, #a91727);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.lbs-stop:hover {
+  background: color-mix(in srgb, var(--weq-danger-solid-background, #a91727) 9%, transparent);
+}
+
+/* ── 深色 ─────────────────────────────────────────────────────────────── */
+
+html[data-theme='dark'] .lbs-panel {
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+}
+
+html[data-theme='dark'] .lbs-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .lbs-map-avatar {
+  border-color: #1b1e22;
+}
+
+html[data-theme='dark'] .lbs-joystick,
+html[data-theme='dark'] .lbs-speed-chip {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* ── 移动端：内联进输入区（与其余面板同一套规则） ──────────────────────── */
+
+@media (max-width: 760px) {
+  .lbs-panel {
+    position: static;
+    width: 100%;
+    max-height: none;
+    border: 0;
+    border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+    border-radius: 0;
+    background: #f8f8f9;
+    box-shadow: none;
+    animation: none;
+  }
+
+  .lbs-panel.is-active {
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+  }
+
+  .lbs-map-wrap {
+    padding: 6px 6px 0;
+  }
+
+  .lbs-map {
+    min-height: 180px;
+  }
+
+  .lbs-controls {
+    padding: 8px 12px 10px;
+  }
+
+  .lbs-joystick {
+    width: 76px;
+    height: 76px;
+  }
+
+  html[data-theme='dark'] .lbs-panel {
+    background: #1b1b1c;
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+}

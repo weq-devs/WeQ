@@ -14,11 +14,13 @@ import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCar
 import type { FlashSendPayload } from './flashComposer';
 import type { RedPacketDraft } from './redPacketPanel';
 import { ToolDetailPane } from './toolsPane';
+import { RetainedTabs, TabActivity } from '../../components/RetainedTabs';
 import type { ComposerActionRegistry } from './composerActions';
 import type { ConversationDetailActionRegistry } from './conversationDetailActions';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
 import type { MessageRenderer } from './messageRenderers';
 import type { ProfileActionRegistry } from './profileActions';
+import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
 import type { ToolPaneGroup, ToolPaneItem } from './toolRegistry';
 import type {
   Contact,
@@ -42,8 +44,14 @@ export function ChatMainContent({
   view,
   contactTab,
   relationGraphSlot,
+  contactOverviewOpen = true,
   selectedContact,
+  onPreviewContactChat,
+  contactPreviewContent,
+  contactWorkspaceTab,
+  onContactWorkspaceTabChange,
   selectedGroupConversation,
+  contactGroupDetails,
   activeConversation,
   messages,
   composerActions,
@@ -77,7 +85,6 @@ export function ChatMainContent({
   onRepeatMessage,
   onResolveMentions,
   onSearchMentionMembers,
-  onSendWindowShake,
   onStartCall,
   onSendArk,
   arkLocation,
@@ -92,6 +99,7 @@ export function ChatMainContent({
   onEditRaw,
   onDeleteMessage,
   onDismissUnsentMessage,
+  onStartOutgoingMessage,
   onOpenGroupAlbums,
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
@@ -130,8 +138,14 @@ export function ChatMainContent({
   contactTab?: ContactTab;
   /** App-provided content for the contacts main area (the relation graph). */
   relationGraphSlot?: React.ReactNode;
+  contactOverviewOpen?: boolean;
   selectedContact?: Contact;
+  onPreviewContactChat?: (contact: Contact) => void;
+  contactPreviewContent?: React.ReactNode;
+  contactWorkspaceTab?: ContactWorkspaceTab;
+  onContactWorkspaceTabChange?: (tab: ContactWorkspaceTab) => void;
   selectedGroupConversation?: GroupConversation;
+  contactGroupDetails?: React.ReactNode;
   activeConversation?: Conversation;
   messages: Message[];
   composerActions?: Partial<ComposerActionRegistry>;
@@ -174,8 +188,6 @@ export function ChatMainContent({
     conversation: Conversation,
   ) => Promise<RepeatElement[]>;
   onSearchMentionMembers?: (query: string, conversation: Conversation) => Promise<GroupMember[]>;
-  /** 私聊「窗口抖动」；群聊不传（按钮整个不渲染）。 */
-  onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
   /** 发起语音通话（仅私聊）。 */
   onStartCall?: (
     conversation: Extract<Conversation, { type: 'direct' }>,
@@ -205,6 +217,7 @@ export function ChatMainContent({
   ) => void | Promise<void>;
   /** 「可能未送达」占位的一键移除（见 MessageBubble 的同名 prop）。 */
   onDismissUnsentMessage?: (message: Message) => void;
+  onStartOutgoingMessage?: (message: Message) => void;
   onOpenGroupAlbums?: (conversation: GroupConversation) => void;
   onOpenGroupFiles?: (conversation: GroupConversation) => void;
   onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
@@ -268,10 +281,40 @@ export function ChatMainContent({
   if (view === 'contacts') {
     return (
       <>
-        {relationGraphSlot ??
-          (contactTab === 'groups' ? <GroupProfilePane /> : <ContactProfilePane />)}
-        <ContactProfileDialog contact={selectedContact} onClose={onBackContact} />
-        <GroupProfileDialog conversation={selectedGroupConversation} onClose={onBackGroup} />
+        <div
+          className="weq-contact-overview"
+          hidden={Boolean(selectedContact || selectedGroupConversation)}
+        >
+          <TabActivity active={!selectedContact && !selectedGroupConversation}>
+            <RetainedTabs activeKey={contactOverviewOpen ? 'graph' : 'empty'}>
+              {contactOverviewOpen && relationGraphSlot ? (
+                relationGraphSlot
+              ) : contactTab === 'groups' ? (
+                <GroupProfilePane onOpenOverview={onBackGroup} />
+              ) : (
+                <ContactProfilePane onOpenOverview={onBackContact} />
+              )}
+            </RetainedTabs>
+          </TabActivity>
+        </div>
+        {selectedContact ? (
+          <ContactProfileDialog
+            embedded
+            contact={selectedContact}
+            onClose={onBackContact}
+            tab={contactWorkspaceTab}
+            onTabChange={onContactWorkspaceTabChange}
+            onPreviewChat={onPreviewContactChat}
+            previewContent={contactPreviewContent}
+          />
+        ) : selectedGroupConversation ? (
+          <GroupProfileDialog
+            embedded
+            details={contactGroupDetails}
+            conversation={selectedGroupConversation}
+            onClose={onBackGroup}
+          />
+        ) : null}
       </>
     );
   }
@@ -317,7 +360,6 @@ export function ChatMainContent({
       onRepeatMessage={onRepeatMessage}
       onResolveMentions={onResolveMentions}
       onSearchMentionMembers={onSearchMentionMembers}
-      onSendWindowShake={onSendWindowShake}
       onStartCall={onStartCall}
       onSendArk={onSendArk}
       arkLocation={arkLocation}
@@ -332,6 +374,7 @@ export function ChatMainContent({
       onEditRaw={onEditRaw}
       onDeleteMessage={onDeleteMessage}
       onDismissUnsentMessage={onDismissUnsentMessage}
+      onStartOutgoingMessage={onStartOutgoingMessage}
       onOpenGroupAlbums={onOpenGroupAlbums}
       onOpenGroupFiles={onOpenGroupFiles}
       onOpenGroupAnnouncements={onOpenGroupAnnouncements}

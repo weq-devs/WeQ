@@ -38,11 +38,11 @@ import { QqCall } from './QqCall';
 import { QqShareLocation } from './QqShareLocation';
 import { QqDynamic, qqDynamicElementProps } from './QqDynamic';
 import { QqEmojiBounce } from './QqEmojiBounce';
-import { WindowShakeMessage } from './WindowShakeMessage';
 import { QqLinkCard } from './QqLinkCard';
 import { QqInlineKeyboard, type KeyboardButton } from './QqInlineKeyboard';
 import { splitLinks, soleLink, openLink } from '../lib/linkify';
 import { parseFlashShareCode } from '../lib/flashShare';
+import { ProfileNavigationContext, profileTargetUser } from '../lib/profileNavigation';
 import { cn } from '@renderer/lib/utils';
 
 /**
@@ -141,10 +141,14 @@ export const TextMarkdownContext = createContext<boolean>(true);
 export const LinkPreviewContext = createContext<boolean>(true);
 
 /**
- * 「渲染消息里的每条装扮（气泡/字体/挂件）」开关（AppSettings.showMsgDecoration）。
+ * 消息气泡、字体与头像挂件的独立显示偏好。
  * 同上，走 context 是为了避免每条消息各自订阅 getSettings。默认 true。
  */
-export const MsgDecorationEnabledContext = createContext<boolean>(true);
+export const MsgDecorationEnabledContext = createContext({
+  bubble: true,
+  font: true,
+  widget: true,
+});
 
 /** Element kinds that render as standalone, borderless media (no bubble). */
 const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface', 'bubbleVideo']);
@@ -361,6 +365,60 @@ function trimBoundaryNewline(element: RenderElement, side: 'start' | 'end'): Ren
   return { ...element, data: { ...(element.data ?? {}), textContent: trimmed } };
 }
 
+function MentionNode({ data = {} }: { data?: Record<string, unknown> }) {
+  const open = useContext(ProfileNavigationContext);
+  const conv = useContext(ConvContext);
+  const kind = useContext(ForwardKindContext);
+  const text = String(data.textContent ?? '');
+  const uid = typeof data.atTargetUid === 'string' ? data.atTargetUid.trim() : '';
+  // 本地 codec 的 45103 与发送回显的 atTargetUin 都是明确的目标 QQ 号。
+  const uin = String(data.atTargetUin ?? data.textEncodingFlag ?? '');
+  const user =
+    uid === 'all' || data.all === true
+      ? null
+      : profileTargetUser({ identity: uid || uin, uin, name: text.trim().replace(/^@/, '') });
+  const clickable = Boolean(open && user);
+
+  function openProfile(
+    event: ReactMouseEvent<HTMLSpanElement> | ReactKeyboardEvent<HTMLSpanElement>,
+  ) {
+    if (!open || !user) return;
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    open(
+      user,
+      'key' in event || event.detail === 0
+        ? { x: rect.right, y: rect.bottom }
+        : { x: event.clientX, y: event.clientY },
+      kind === 'group' && /^[1-9]\d*$/.test(conv) ? { code: conv, name: '' } : undefined,
+    );
+  }
+
+  return (
+    <span
+      className={cn('qq-at-element', clickable && 'cursor-pointer hover:underline')}
+      data-weq-at-uid={uid || undefined}
+      data-weq-at-uin={uin || undefined}
+      title={`UID: ${uid || 'unknown'}`}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-label={clickable ? `查看 ${user?.displayName} 的名片` : undefined}
+      onClick={clickable ? openProfile : undefined}
+      onKeyDown={
+        clickable
+          ? (event) => {
+              if (event.key !== 'Enter' && event.key !== ' ') return;
+              event.preventDefault();
+              openProfile(event);
+            }
+          : undefined
+      }
+    >
+      {text}
+    </span>
+  );
+}
+
 /** Render one element inline (media component, face, @-mention or text). */
 function ElementNode({
   element,
@@ -383,19 +441,7 @@ function ElementNode({
     return <FaceNode data={element.data ?? {}} size={INLINE_SIZE} isSender={isSender} />;
   }
   if (element.type === 'at') {
-    const text = String(element.data?.textContent ?? '');
-    return (
-      <span
-        className="qq-at-element cursor-pointer hover:underline"
-        data-weq-at-uid={String(element.data?.atTargetUid ?? '') || undefined}
-        data-weq-at-uin={
-          element.data?.atTargetUin != null ? String(element.data.atTargetUin) : undefined
-        }
-        title={`UID: ${element.data?.atTargetUid || 'unknown'}`}
-      >
-        {text}
-      </span>
-    );
+    return <MentionNode data={element.data} />;
   }
   if (element.type === 'markdown') {
     // QQ 原生 markdownElement。闪传卡片（带 flashTransferInfo）在 QqMessageContent
@@ -599,15 +645,7 @@ function ReplyPreviewNode({
     );
   }
   if (element.type === 'at') {
-    const text = String(element.data?.textContent ?? '');
-    return (
-      <span
-        className="qq-at-element"
-        data-weq-at-uid={String(element.data?.atTargetUid ?? '') || undefined}
-      >
-        {text}
-      </span>
-    );
+    return <MentionNode data={element.data} />;
   }
   if (element.type && REPLY_MEDIA_LABEL[element.type]) {
     const name = inlineLabel(element);
@@ -688,6 +726,7 @@ function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendT
   const canJump = isUsable(seq) || isUsable(index) || isUsable(clientSeq);
 
   function handleJump(event: ReactMouseEvent | ReactKeyboardEvent): void {
+    event.preventDefault();
     event.stopPropagation();
     if (canJump)
       jumpToSeq({
@@ -705,9 +744,23 @@ function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendT
       role={canJump ? 'button' : undefined}
       tabIndex={canJump ? 0 : undefined}
       title={canJump ? '跳转到原消息' : undefined}
+      onClickCapture={(event) => {
+        // 引用缩略图只负责定位，不启动正文图片灯箱或视频播放器。
+        if (
+          canJump &&
+          event.target instanceof Element &&
+          event.target.closest('.qq-reply-preview-media')
+        )
+          handleJump(event);
+      }}
       onClick={canJump ? handleJump : undefined}
       onKeyDown={(event) => {
-        if (canJump && (event.key === 'Enter' || event.key === ' ')) handleJump(event);
+        if (
+          canJump &&
+          event.target === event.currentTarget &&
+          (event.key === 'Enter' || event.key === ' ')
+        )
+          handleJump(event);
       }}
     >
       <div className="qq-reply-quote-stack">
@@ -908,19 +961,6 @@ export function QqMessageContent({
           textSummary={d.emojiBounceTextSummary as string | undefined}
           pcText={d.emojiBouncePcText as string | undefined}
         />
-      </div>
-    );
-  }
-
-  // 私聊「窗口抖动」的**乐观渲染**（`windowShake` 元素）：不是灰条 —— 它是**自己发出
-  // 的一条消息**，画面就是那枚「戳一戳」超级表情（会轻轻晃动）。收端 QQ 会丢弃
-  // serviceType=2 的窗口抖动，所以这一下只有发送方看得见。走 sticker-only：表情本身
-  // 不带气泡底板，与真实超级表情一致，位置也落在自己那一侧（见 WindowShakeMessage）。
-  const windowShakeElement = elements.find((element) => element.type === 'windowShake');
-  if (windowShakeElement) {
-    return (
-      <div className={cn('message-content', 'sticker-only')}>
-        <WindowShakeMessage />
       </div>
     );
   }
@@ -1150,7 +1190,6 @@ const HANDLED_KINDS = new Set([
   'shareLocation',
   'qqDynamic',
   'emojiBounce',
-  'windowShake',
 ]);
 
 /**

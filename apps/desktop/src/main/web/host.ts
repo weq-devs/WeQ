@@ -17,6 +17,8 @@ export interface WebHostOptions {
   /** Directory that receives exports/saves. Created if missing. */
   exportDir: string;
   version: string;
+  /** 内置 Web 只借用电脑的离屏渲染，不借用文件框或系统管理权限。 */
+  renderer?: Pick<HostBridge, 'renderHtmlToPdf' | 'renderHtmlToSlidesPng' | 'renderHtmlToLongPng'>;
 }
 
 /** Pending downloads, keyed by the id handed to the client. */
@@ -48,7 +50,7 @@ export function lookupDownload(id: string) {
   return entry;
 }
 
-export function createWebHost({ exportDir, version }: WebHostOptions): HostBridge {
+export function createWebHost({ exportDir, version, renderer }: WebHostOptions): HostBridge {
   mkdirSync(exportDir, { recursive: true });
 
   return {
@@ -57,10 +59,7 @@ export function createWebHost({ exportDir, version }: WebHostOptions): HostBridg
       return { url: `/_download/${registerDownload(path, name, kind)}` };
     },
     canReveal: false,
-    // 浏览器版：整个服务由部署方用 systemd / 计划任务托管，自启动一律不参与
-    // —— 既不注册 GUI（web 入口是 `node server.mjs`，需要参数 + 工作目录），
-    // 也让守护进程跳过自身注册，避免和部署方的 unit 抢同一份生命周期
-    // （见 apps/web/README）。
+    // Web 的进程生命周期由部署方管理，不注册桌面登录项。
     canAutostart: false,
 
     async pickDirectory() {
@@ -108,16 +107,19 @@ export function createWebHost({ exportDir, version }: WebHostOptions): HostBridg
       return { url: `/_download/${id}` };
     },
 
-    async renderHtmlToPdf() {
+    async renderHtmlToPdf(html) {
+      if (renderer) return renderer.renderHtmlToPdf(html);
       // 服务端没有 Electron 渲染引擎；年度报告 PDF 导出只在桌面版提供。
       throw new Error('web 环境不支持 PDF 渲染，请使用桌面版');
     },
 
-    async renderHtmlToSlidesPng() {
+    async renderHtmlToSlidesPng(html, opts) {
+      if (renderer) return renderer.renderHtmlToSlidesPng(html, opts);
       throw new Error('web 环境不支持图片渲染，请使用桌面版');
     },
 
-    async renderHtmlToLongPng() {
+    async renderHtmlToLongPng(html) {
+      if (renderer) return renderer.renderHtmlToLongPng(html);
       throw new Error('web 环境不支持图片渲染，请使用桌面版');
     },
 

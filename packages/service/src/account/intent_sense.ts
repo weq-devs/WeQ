@@ -1,6 +1,5 @@
 /**
- * IntentSenseService — 意图感知：逐条分析聊天消息的意图/情绪，并聚合出
- * 对方的互动画像（好感度 / MBTI 倾向 / 互动风格雷达 / 常见话题）。
+ * IntentSenseService — 逐条意图/情绪分析、推荐回复及兼容旧 IPC 的配置门面。
  *
  * 三层结构：
  *   • 配置（per account，JsonStore）：总开关、引擎选择（api | local）、API provider
@@ -13,9 +12,8 @@
  *     （桌面版 utilityProcess 里的 Laya ONNX worker；web 版没有，保持 null）。
  *     API 引擎生成回复建议；本地或 API 不可用时使用本地意图候选，Laya 不生成自由文本。
  *
- * 画像聚合（getProfile）以本地统计为主（消息节奏 / 发起比 / 回复延迟 / 分词话题，
- * 思路同 BuddyAnalyticsService），引擎结果（逐条情绪、MBTI 维度提示）作增强；
- * 引擎不可用时全部退化为启发式估算，UI 需标注「仅供娱乐参考」。
+ * 画像委派给 InteractionProfileService：独立模型、情绪输入与运行状态，
+ * 不读取这里的逐条分析缓存；共享配置文件和消息读取以兼容旧 IPC 与持久化格式。
  *
  * Renderer 驱动：intentSense tRPC router（getStatus / setConfig / ensureAnalysis /
  * getMessageAnalyses / analyzeMessage / getProfile / getSuggestions / onAnalyzed）。
@@ -30,12 +28,16 @@ import { mergeRoamingTimeline, timelineRowKey, type TimelineRow } from '../commo
 import {
   pickMessageText,
   requestApiJson,
+  normalizeModelSelection,
+  modelSelectionKey,
+  isDefaultModelSelection,
   type AgentLabEndpoint,
-  type AgentLabModelRef,
+  type AgentLabModelSelection,
 } from '@weq/agentlab';
 import type { EndpointResolver } from './assistant';
 import { JsonStore } from '../common/json_store';
-import { segmentWords } from './text_segment';
+import { InteractionProfileService } from './interaction_profile';
+import { extractJsonBlock } from './intent_json';
 import { analyzePragmatics, calibrateIntentSense, type IntentContextTurn } from './intent_corpus';
 import { getLogger, logErrorContext } from '../common/logger';
 import {
@@ -125,18 +127,19 @@ export interface IntentSenseResult {
 // ── 配置 ────────────────────────────────────────────────────────────────────
 
 export interface IntentSenseConfig extends IntentTuning {
-  featureSettingsVersion: 1;
+  featureSettingsVersion: 2;
   profileEnabled: boolean;
   /** 意图感知开关，与推荐回复、互动画像分别保存。 */
   enabled: boolean;
   /** 引擎：api（OpenAI 兼容）| local（Laya ONNX worker）。 */
   engine: 'api' | 'local';
   /** api 引擎用的 provider 引用（与 agentlab provider 目录同一套）。 */
-  providerRef: AgentLabModelRef | null;
+  providerRef: AgentLabModelSelection | null;
   /** 推荐回复独立使用的 API 模型，不跟随分析引擎或本地模型。 */
-  suggestionProviderRef: AgentLabModelRef | null;
-  profileEngine: 'follow' | 'api' | 'local' | 'heuristic';
-  profileProviderRef: AgentLabModelRef | null;
+  suggestionProviderRef: AgentLabModelSelection | null;
+  profileEngine: 'api' | 'local' | 'heuristic';
+  profileProviderRef: AgentLabModelSelection | null;
+  profileLocalModelId: 'auto' | 'laya-multilingual' | 'QWeQ-NineBird-v1';
   /** 回复建议开关；生成式回复使用 API，失败时保留规则候选兜底。 */
   suggestionsEnabled: boolean;
   /** 最新消息为自己发送时是否自动分析，旧配置默认开启。 */
@@ -160,6 +163,7 @@ export interface IntentSenseConfig extends IntentTuning {
 export interface IntentSenseStatus extends IntentSenseConfig {
   analysisRevision: number;
   suggestionRevision: number;
+  profileRevision: number;
   /** resolveEndpoint + providerRef 都就绪，api 引擎可用。 */
   apiConfigured: boolean;
   suggestionApiConfigured: boolean;
@@ -175,14 +179,15 @@ export interface IntentSenseStatus extends IntentSenseConfig {
 
 const DEFAULT_CONFIG: IntentSenseConfig = {
   ...DEFAULT_INTENT_TUNING,
-  featureSettingsVersion: 1,
+  featureSettingsVersion: 2,
   profileEnabled: false,
   enabled: false,
   engine: 'api',
   providerRef: null,
   suggestionProviderRef: null,
-  profileEngine: 'follow',
+  profileEngine: 'heuristic',
   profileProviderRef: null,
+  profileLocalModelId: 'auto',
   suggestionsEnabled: false,
   analyzeAfterSelf: true,
   persistentDisplay: true,
@@ -204,9 +209,9 @@ export interface MbtiDim {
 
 export interface IntentProfile {
   /** 好感度 0-100（启发式综合，非客观事实）。 */
-  affinity: number;
+  affinity: number | null;
   /** 好感度档位 0-4（初识/熟络/亲近/挚友/羁绊）。 */
-  tier: number;
+  tier: number | null;
   /** 近期逐日好感度走势（活跃日）。 */
   trend: Array<{ date: string; score: number }>;
   mbti: { letters: string; dims: MbtiDim[]; heuristic: boolean };
@@ -228,6 +233,7 @@ export interface ProfileHints {
   mbti?: MbtiDim[];
   radar?: Array<{ axis: string; value: number }>;
   topics?: string[];
+  emotions?: Array<{ index: number; sentiment: number; intensity: number }>;
 }
 
 /** 回复建议（api 引擎生成）。 */
@@ -253,6 +259,8 @@ export interface IntentLocalAnalyzeOptions {
  * 这个接口；service 层只依赖它，不感知 Electron。web 版不注入（null）。
  */
 export interface IntentLocalEnginePort {
+  /** 按资源选择独立端口；相同资源可复用同一 worker。 */
+  forModel?(modelId: string): IntentLocalEnginePort;
   /** worker 存活且模型已加载。 */
   readonly ready: boolean;
   /** 单条文本（可选附加上下文与语用提示） → 意图/情绪（Laya choice + score）。 */
@@ -281,15 +289,6 @@ export interface IntentAnalyzedEvent {
 
 /** 缓存 schema 版本：升级语料库/分类体系后自动淘汰旧版无上下文缓存。 */
 const CACHE_SCHEMA_VERSION = 5;
-
-const MBTI_AXIS_LABELS: Record<MbtiDim['key'], [string, string]> = {
-  EI: ['外向 E', '内向 I'],
-  SN: ['实感 S', '直觉 N'],
-  TF: ['思考 T', '情感 F'],
-  JP: ['判断 J', '感知 P'],
-};
-
-const RADAR_AXES = ['主动性', '回应速度', '情绪外露', '话题广度', '正式度'] as const;
 
 function conversationKey(kind: IntentConversationKind, id: string): string {
   return `${kind}:${id}`;
@@ -327,24 +326,6 @@ function normalizeIntent(v: unknown): IntentKind {
 
 function normalizeEmotion(v: unknown): EmotionKind {
   return typeof v === 'string' && v in EMOTION_LABELS ? (v as EmotionKind) : 'neutral';
-}
-
-/** 从模型回复里抠出第一段 JSON（容忍 ```json 围栏与前后闲话）。 */
-function extractJsonBlock(text: string): unknown {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const raw: string = fenced?.[1] ?? text;
-  const starts = [raw.indexOf('['), raw.indexOf('{')].filter((i) => i >= 0);
-  if (starts.length === 0) return null;
-  const start = Math.min(...starts);
-  const open = raw[start] as '[' | '{';
-  const close = open === '[' ? ']' : '}';
-  const end = raw.lastIndexOf(close);
-  if (end <= start) return null;
-  try {
-    return JSON.parse(raw.slice(start, end + 1));
-  } catch {
-    return null;
-  }
 }
 
 /** 按配置提取目标之前的紧邻上文，严格遵守时效性窗口。 */
@@ -399,13 +380,27 @@ function extractContextBefore(
 interface CacheFile {
   version?: number;
   contextMessages?: number;
+  modelIdentity?: string;
   results: IntentSenseResult[];
 }
 
-function normalizeCacheFile(raw: unknown, contextMessages: number): CacheFile {
-  const obj = raw as { version?: unknown; results?: unknown; contextMessages?: unknown } | null;
-  const empty = { version: CACHE_SCHEMA_VERSION, contextMessages, results: [] };
-  if (obj?.version !== CACHE_SCHEMA_VERSION || obj.contextMessages !== contextMessages)
+function normalizeCacheFile(
+  raw: unknown,
+  contextMessages: number,
+  modelIdentity?: string,
+): CacheFile {
+  const obj = raw as {
+    version?: unknown;
+    results?: unknown;
+    contextMessages?: unknown;
+    modelIdentity?: unknown;
+  } | null;
+  const empty = { version: CACHE_SCHEMA_VERSION, contextMessages, modelIdentity, results: [] };
+  if (
+    obj?.version !== CACHE_SCHEMA_VERSION ||
+    obj.contextMessages !== contextMessages ||
+    (modelIdentity !== undefined && obj.modelIdentity !== modelIdentity)
+  )
     return empty;
   const list = obj?.results;
   if (!Array.isArray(list)) return empty;
@@ -427,10 +422,12 @@ function normalizeCacheFile(raw: unknown, contextMessages: number): CacheFile {
       analyzedAt: Number(r.analyzedAt ?? 0) || 0,
     });
   }
-  return { version: CACHE_SCHEMA_VERSION, contextMessages, results };
+  return { version: CACHE_SCHEMA_VERSION, contextMessages, modelIdentity, results };
 }
 
 export interface IntentSenseOptions {
+  /** 旧画像跟随本地意图资源时，一次性固化当前选择。 */
+  legacyLocalModelId?: string;
   /** api 引擎端点解析（与 AssistantService 同源的注入）。 */
   resolveEndpoint?: EndpointResolver;
   /** local 引擎端口（桌面版 utilityProcess 桥；web 版缺省 null）。 */
@@ -455,6 +452,7 @@ export class IntentSenseService {
   private analysisRevision = 0;
   private suggestionRevision = 0;
   private profileRevision = 0;
+  private readonly profileService: InteractionProfileService;
   private readonly configStore: JsonStore<IntentSenseConfig>;
   private readonly analysisStores = new Map<string, JsonStore<CacheFile>>();
   /** 每会话在途 ensureAnalysis（去重并发）。 */
@@ -471,7 +469,7 @@ export class IntentSenseService {
   private lastApiError: string | null = null;
   private suggestionApiCooldownUntil = 0;
   private lastSuggestionApiError: string | null = null;
-  private profileApiCooldownUntil = 0;
+  private readonly defaultIdentities = new Map<string, string>();
 
   constructor(
     private readonly session: AccountSession,
@@ -480,11 +478,14 @@ export class IntentSenseService {
   ) {
     let migrateSuggestionRef = false;
     let migrateFeatures = false;
+    let migrateProfile = false;
     this.configStore = new JsonStore(`${storeDir}/config.json`, () => ({ ...DEFAULT_CONFIG }), {
       normalize: (raw) => {
         const p = (raw ?? {}) as Partial<IntentSenseConfig>;
-        const ref = p.providerRef as AgentLabModelRef | null | undefined;
-        migrateFeatures = p.featureSettingsVersion !== 1;
+        const ref = p.providerRef as AgentLabModelSelection | null | undefined;
+        migrateFeatures = p.featureSettingsVersion === undefined;
+        migrateProfile = p.featureSettingsVersion !== 2;
+        const follows = !p.profileEngine || (p.profileEngine as string) === 'follow';
         migrateSuggestionRef = p.suggestionProviderRef === undefined;
         // 旧本地引擎从不调用推荐 API，不能把历史分析 API 引用变成新联网授权。
         const suggestionRef = migrateSuggestionRef
@@ -493,21 +494,17 @@ export class IntentSenseService {
             : ref
           : p.suggestionProviderRef;
         return {
-          ...normalizeIntentTuning(p),
-          featureSettingsVersion: 1,
+          ...normalizeIntentTuning({
+            ...p,
+            profileApiTimeoutSeconds: p.profileApiTimeoutSeconds ?? p.apiTimeoutSeconds,
+            profileApiCooldownSeconds: p.profileApiCooldownSeconds ?? p.apiCooldownSeconds,
+          }),
+          featureSettingsVersion: 2,
           profileEnabled: migrateFeatures ? p.enabled === true : p.profileEnabled === true,
           enabled: p.enabled === true,
           engine: p.engine === 'local' ? 'local' : 'api',
-          providerRef:
-            ref && typeof ref.providerId === 'string' && typeof ref.model === 'string'
-              ? { providerId: ref.providerId, model: ref.model }
-              : null,
-          suggestionProviderRef:
-            suggestionRef &&
-            typeof suggestionRef.providerId === 'string' &&
-            typeof suggestionRef.model === 'string'
-              ? { providerId: suggestionRef.providerId, model: suggestionRef.model }
-              : null,
+          providerRef: normalizeModelSelection(ref),
+          suggestionProviderRef: normalizeModelSelection(suggestionRef),
           suggestionsEnabled:
             p.suggestionsEnabled === true && (!migrateFeatures || p.enabled === true),
           profileEngine:
@@ -515,11 +512,23 @@ export class IntentSenseService {
             p.profileEngine === 'local' ||
             p.profileEngine === 'heuristic'
               ? p.profileEngine
-              : 'follow',
+              : p.engine === 'local'
+                ? 'local'
+                : 'api',
           profileProviderRef:
-            p.profileProviderRef?.providerId && p.profileProviderRef.model
-              ? { ...p.profileProviderRef }
-              : null,
+            migrateProfile && follows
+              ? normalizeModelSelection(ref)
+              : normalizeModelSelection(p.profileProviderRef),
+          profileLocalModelId:
+            p.profileLocalModelId === 'laya-multilingual' ||
+            p.profileLocalModelId === 'QWeQ-NineBird-v1'
+              ? p.profileLocalModelId
+              : migrateProfile &&
+                  (follows || p.profileEngine === 'local') &&
+                  (this.opts.legacyLocalModelId === 'laya-multilingual' ||
+                    this.opts.legacyLocalModelId === 'QWeQ-NineBird-v1')
+                ? this.opts.legacyLocalModelId
+                : 'auto',
           analyzeAfterSelf: p.analyzeAfterSelf !== false,
           persistentDisplay: p.persistentDisplay !== false,
           hoverDisplay: p.hoverDisplay !== false,
@@ -542,7 +551,13 @@ export class IntentSenseService {
         };
       },
     });
-    if (migrateSuggestionRef || migrateFeatures) this.configStore.save();
+    if (migrateSuggestionRef || migrateFeatures || migrateProfile) this.configStore.save();
+    this.profileService = new InteractionProfileService(
+      () => this.config,
+      (kind, peerUid, limit) => this.loadMessages(kind, peerUid, limit),
+      (ref) => this.endpoint(ref),
+      { localEngine: this.opts.localEngine },
+    );
   }
 
   // ── 配置与状态 ───────────────────────────────────────────────────────────
@@ -551,20 +566,71 @@ export class IntentSenseService {
     return this.configStore.data;
   }
 
+  private apiRefAvailable(ref: AgentLabModelSelection | null): boolean {
+    return (
+      !!this.opts.resolveEndpoint &&
+      !!ref &&
+      (!isDefaultModelSelection(ref) || !!this.endpoint(ref))
+    );
+  }
+
+  private defaultIdentity(ref: AgentLabModelSelection | null): string {
+    const endpoint = this.endpoint(ref);
+    return endpoint?.modelIdentity ?? endpoint?.model ?? 'unavailable';
+  }
+
+  private analysisModelIdentity(): string | undefined {
+    return this.config.engine === 'api' && isDefaultModelSelection(this.config.providerRef)
+      ? this.defaultIdentity(this.config.providerRef)
+      : undefined;
+  }
+
+  private syncDefaultModels(): void {
+    const bindings: Array<[string, AgentLabModelSelection | null]> = [
+      ['analysis', this.config.engine === 'api' ? this.config.providerRef : null],
+      ['suggestion', this.config.suggestionProviderRef],
+      ['profile', this.config.profileEngine === 'api' ? this.config.profileProviderRef : null],
+    ];
+    for (const [kind, ref] of bindings) {
+      if (!isDefaultModelSelection(ref)) {
+        this.defaultIdentities.delete(kind);
+        continue;
+      }
+      const identity = this.defaultIdentity(ref);
+      const previous = this.defaultIdentities.get(kind);
+      this.defaultIdentities.set(kind, identity);
+      if (previous === undefined || previous === identity) continue;
+      if (kind === 'analysis') this.clearCache();
+      if (kind === 'suggestion') {
+        this.suggestionRevision++;
+        this.suggestionCache.clear();
+        this.suggestionApiCooldownUntil = 0;
+        this.lastSuggestionApiError = null;
+      }
+      if (kind === 'profile') {
+        this.profileRevision++;
+        this.profileService.invalidate();
+      }
+    }
+  }
+
   getStatus(): IntentSenseStatus {
+    this.syncDefaultModels();
     return {
       ...this.config,
       analysisRevision: this.analysisRevision,
       suggestionRevision: this.suggestionRevision,
-      apiConfigured: !!this.opts.resolveEndpoint && !!this.config.providerRef,
-      suggestionApiConfigured: !!this.opts.resolveEndpoint && !!this.config.suggestionProviderRef,
+      profileRevision: this.profileRevision,
+      apiConfigured: this.apiRefAvailable(this.config.providerRef),
+      suggestionApiConfigured: this.apiRefAvailable(this.config.suggestionProviderRef),
       profileAvailable:
         this.config.profileEngine === 'heuristic' ||
         (this.config.profileEngine === 'api'
-          ? !!this.opts.resolveEndpoint && !!this.config.profileProviderRef
-          : this.config.profileEngine === 'local' || this.config.engine === 'local'
-            ? !!this.opts.localEngine?.ready
-            : !!this.opts.resolveEndpoint && !!this.config.providerRef),
+          ? this.apiRefAvailable(this.config.profileProviderRef)
+          : !!(
+              this.opts.localEngine?.forModel?.(this.config.profileLocalModelId) ??
+              this.opts.localEngine
+            )?.ready),
       lastSuggestionApiError: this.lastSuggestionApiError,
       localAvailable: !!this.opts.localEngine,
       localReady: !!this.opts.localEngine?.ready,
@@ -575,6 +641,7 @@ export class IntentSenseService {
   async setConfig(
     patch: Partial<Omit<IntentSenseConfig, 'conversationOverrides'>>,
   ): Promise<IntentSenseStatus> {
+    const previous = this.config;
     const next: IntentSenseConfig = { ...this.config };
     for (const key of INTENT_TUNING_KEYS) {
       const value = patch[key];
@@ -588,8 +655,10 @@ export class IntentSenseService {
       next[key] = value;
     }
     if (patch.profileEngine !== undefined) next.profileEngine = patch.profileEngine;
+    if (patch.profileLocalModelId !== undefined)
+      next.profileLocalModelId = patch.profileLocalModelId;
     if (patch.profileProviderRef !== undefined)
-      next.profileProviderRef = patch.profileProviderRef ? { ...patch.profileProviderRef } : null;
+      next.profileProviderRef = normalizeModelSelection(patch.profileProviderRef);
     if (
       next.profileSamples > next.profileMessages ||
       next.profileMinSamples > next.profileSamples
@@ -600,14 +669,10 @@ export class IntentSenseService {
     if (typeof patch.profileEnabled === 'boolean') next.profileEnabled = patch.profileEnabled;
     if (patch.engine === 'api' || patch.engine === 'local') next.engine = patch.engine;
     if (patch.providerRef !== undefined) {
-      next.providerRef =
-        patch.providerRef?.providerId && patch.providerRef.model ? { ...patch.providerRef } : null;
+      next.providerRef = normalizeModelSelection(patch.providerRef);
     }
     if (patch.suggestionProviderRef !== undefined) {
-      next.suggestionProviderRef =
-        patch.suggestionProviderRef?.providerId && patch.suggestionProviderRef.model
-          ? { ...patch.suggestionProviderRef }
-          : null;
+      next.suggestionProviderRef = normalizeModelSelection(patch.suggestionProviderRef);
     }
     if (typeof patch.suggestionsEnabled === 'boolean') {
       next.suggestionsEnabled = patch.suggestionsEnabled;
@@ -621,8 +686,7 @@ export class IntentSenseService {
     const analysisChanged =
       next.analysisTemperature !== this.config.analysisTemperature ||
       next.engine !== this.config.engine ||
-      next.providerRef?.providerId !== this.config.providerRef?.providerId ||
-      next.providerRef?.model !== this.config.providerRef?.model ||
+      modelSelectionKey(next.providerRef) !== modelSelectionKey(this.config.providerRef) ||
       next.contextGapMinutes !== this.config.contextGapMinutes ||
       next.contextSpanMinutes !== this.config.contextSpanMinutes ||
       next.analysisContextMessages !== this.config.analysisContextMessages ||
@@ -638,8 +702,8 @@ export class IntentSenseService {
     if (
       analysisChanged ||
       next.suggestionsEnabled !== this.config.suggestionsEnabled ||
-      next.suggestionProviderRef?.providerId !== this.config.suggestionProviderRef?.providerId ||
-      next.suggestionProviderRef?.model !== this.config.suggestionProviderRef?.model ||
+      modelSelectionKey(next.suggestionProviderRef) !==
+        modelSelectionKey(this.config.suggestionProviderRef) ||
       next.suggestionContextMessages !== this.config.suggestionContextMessages ||
       next.suggestAfterSelf !== this.config.suggestAfterSelf ||
       next.suggestionTemperature !== this.config.suggestionTemperature ||
@@ -650,10 +714,21 @@ export class IntentSenseService {
       this.suggestionRevision++;
       this.suggestionCache.clear();
     }
-    this.apiCooldownUntil = 0;
-    this.lastApiError = null;
-    this.suggestionApiCooldownUntil = 0;
-    this.lastSuggestionApiError = null;
+    if (analysisChanged || next.enabled !== previous.enabled) {
+      this.apiCooldownUntil = 0;
+      this.lastApiError = null;
+    }
+    if (
+      Object.keys(next).some(
+        (key) =>
+          key.startsWith('suggest') &&
+          JSON.stringify(next[key as keyof IntentSenseConfig]) !==
+            JSON.stringify(previous[key as keyof IntentSenseConfig]),
+      )
+    ) {
+      this.suggestionApiCooldownUntil = 0;
+      this.lastSuggestionApiError = null;
+    }
     this.configStore.data = next;
     for (const store of this.analysisStores.values()) {
       if (store.data.results.length <= next.cacheEntries) continue;
@@ -665,8 +740,16 @@ export class IntentSenseService {
       };
       store.save();
     }
-    this.profileRevision++;
-    this.profileApiCooldownUntil = 0;
+    const profileChanged = Object.keys(next).some(
+      (key) =>
+        key.startsWith('profile') &&
+        JSON.stringify(next[key as keyof IntentSenseConfig]) !==
+          JSON.stringify(previous[key as keyof IntentSenseConfig]),
+    );
+    if (profileChanged) {
+      this.profileRevision++;
+      this.profileService.invalidate();
+    }
     this.configStore.save();
     return this.getStatus();
   }
@@ -680,6 +763,7 @@ export class IntentSenseService {
       store.data = {
         version: CACHE_SCHEMA_VERSION,
         contextMessages: this.config.analysisContextMessages,
+        modelIdentity: this.analysisModelIdentity(),
         results: [],
       };
       store.save();
@@ -727,11 +811,12 @@ export class IntentSenseService {
 
   /** 该会话当前是否生效（总开关 && 覆盖未关 && 引擎可用）。 */
   effectiveFor(kind: IntentConversationKind, id: string): boolean {
+    this.syncDefaultModels();
     if (!this.config.enabled) return false;
     const override = this.config.conversationOverrides[conversationKey(kind, id)];
     if (override === false) return false;
     if (this.config.engine === 'local') return !!this.opts.localEngine?.ready;
-    return !!this.opts.resolveEndpoint && !!this.config.providerRef;
+    return this.apiRefAvailable(this.config.providerRef);
   }
 
   // ── 事件 ─────────────────────────────────────────────────────────────────
@@ -839,6 +924,7 @@ export class IntentSenseService {
     }
     if (!row?.text) return null;
     if (row.mine && !this.config.analyzeAfterSelf) return null;
+    this.syncDefaultModels();
     if (revision !== this.analysisRevision) return null;
 
     let result: IntentSenseResult | null = null;
@@ -846,6 +932,7 @@ export class IntentSenseService {
       result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text, context);
     } else {
       const batchOut = await this.analyzeBatchViaApi([{ ...row, context }]);
+      this.syncDefaultModels();
       if (revision !== this.analysisRevision) return null;
       if (batchOut !== null) {
         result = batchOut[0] ?? null;
@@ -853,6 +940,8 @@ export class IntentSenseService {
         result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text, context);
       }
     }
+    if (revision !== this.analysisRevision) return null;
+    this.syncDefaultModels();
     if (revision !== this.analysisRevision) return null;
     if (result) {
       this.storeResults(kind, conv, [result]);
@@ -883,7 +972,10 @@ export class IntentSenseService {
     revision: number,
   ): Promise<EnsureStats> {
     const contextMessages = this.config.analysisContextMessages;
-    const current = () => revision === this.analysisRevision;
+    const current = () => {
+      this.syncDefaultModels();
+      return revision === this.analysisRevision;
+    };
     const cache = this.cacheFor(kind, conv);
     // 当用户切换到 api 引擎且未处于熔断期时，之前由 local 引擎产生的缓存不视为最终命中，允许升级重算为 api 结果
     const known = new Set(
@@ -1051,7 +1143,7 @@ export class IntentSenseService {
   // ── API 引擎 ─────────────────────────────────────────────────────────────
 
   private endpoint(
-    ref: AgentLabModelRef | null = this.config.providerRef,
+    ref: AgentLabModelSelection | null = this.config.providerRef,
   ): AgentLabEndpoint | null {
     if (!this.opts.resolveEndpoint || !ref) return null;
     try {
@@ -1172,318 +1264,15 @@ export class IntentSenseService {
     }
   }
 
-  /** 引擎侧画像提示（api：一次结构化推断；local：inferMbti）。 */
-  private async inferHints(peerTexts: string[]): Promise<ProfileHints | null> {
-    if (!this.config.profileEnabled) return null;
-    const mode =
-      this.config.profileEngine === 'follow' ? this.config.engine : this.config.profileEngine;
-    if (mode === 'heuristic') return null;
-    if (peerTexts.length === 0) return null;
-    const tryLocalHints = async (): Promise<ProfileHints | null> => {
-      const port = this.opts.localEngine;
-      if (!port?.ready) return null;
-      try {
-        const dims = await port.inferMbti(peerTexts.slice(-this.config.profileSamples));
-        return dims ? { mbti: dims, engine: 'local' } : null;
-      } catch {
-        return null;
-      }
-    };
-    if (mode === 'local') {
-      return tryLocalHints();
-    }
-    const endpoint = this.endpoint(
-      this.config.profileEngine === 'follow'
-        ? this.config.providerRef
-        : this.config.profileProviderRef,
-    );
-    if (!endpoint || Date.now() < this.profileApiCooldownUntil) {
-      return this.config.profileEngine === 'follow' ? tryLocalHints() : null;
-    }
-    const baseUrl = endpoint.baseUrl.replace(/\/+$/, '');
-    const sample = peerTexts
-      .slice(-this.config.profileSamples)
-      .map((t, i) => `${i}. ${t}`)
-      .join('\n');
-    const system =
-      '以下是一个人在私聊里的消息样本。基于这些消息推断其互动风格。只输出 JSON：' +
-      '{"mbti":[{"key":"EI","leftPct":50},{"key":"SN","leftPct":50},{"key":"TF","leftPct":50},{"key":"JP","leftPct":50}],' +
-      '"radar":[{"axis":"主动性","value":50},{"axis":"回应速度","value":50},{"axis":"情绪外露","value":50},{"axis":"话题广度","value":50},{"axis":"正式度","value":50}],' +
-      `"topics":["话题词"]}（topics 最多 ${this.config.profileModelTopics} 个）。` +
-      'leftPct 是左侧极（E/S/T/J）占比 0-100；radar value 0-100。不要输出其它内容。';
-    try {
-      const body = await requestApiJson<{
-        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-      }>({ ...endpoint, baseUrl, feature: 'intent-profile' }, '/chat/completions', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
-        body: JSON.stringify({
-          model: endpoint.model,
-          temperature: this.config.profileTemperature,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: sample },
-          ],
-        }),
-        signal: AbortSignal.timeout(this.config.apiTimeoutSeconds * 1000),
-      });
-      const parsed = extractJsonBlock(
-        pickMessageText(body.choices?.[0]?.message),
-      ) as ProfileHints | null;
-      if (!parsed || typeof parsed !== 'object') return null;
-      const hints: ProfileHints = {};
-      if (Array.isArray(parsed.mbti)) {
-        hints.mbti = parsed.mbti
-          .filter(
-            (d): d is MbtiDim =>
-              !!d &&
-              typeof d === 'object' &&
-              (d as MbtiDim).key in MBTI_AXIS_LABELS &&
-              typeof (d as MbtiDim).leftPct === 'number',
-          )
-          .map((d) => ({ key: d.key, leftPct: clamp(d.leftPct, 0, 100) }));
-      }
-      if (Array.isArray(parsed.radar)) {
-        hints.radar = parsed.radar
-          .filter(
-            (r): r is { axis: string; value: number } =>
-              !!r &&
-              typeof r === 'object' &&
-              typeof (r as { axis?: unknown }).axis === 'string' &&
-              typeof (r as { value?: unknown }).value === 'number',
-          )
-          .map((r) => ({ axis: r.axis, value: clamp(r.value, 0, 100) }));
-      }
-      if (Array.isArray(parsed.topics)) {
-        hints.topics = parsed.topics.filter((t): t is string => typeof t === 'string' && !!t);
-      }
-      return { ...hints, engine: 'api' };
-    } catch {
-      this.profileApiCooldownUntil = Date.now() + this.config.apiCooldownSeconds * 1000;
-      return this.config.profileEngine === 'follow' ? tryLocalHints() : null;
-    }
-  }
-
-  // ── 画像聚合 ─────────────────────────────────────────────────────────────
-
-  /**
-   * 对方互动画像（仅私聊有意义，group 会话没有「对方」概念，UI 不提供入口）。
-   * 本地统计为主、引擎提示增强；无引擎结果时全部走启发式（heuristic 标记）。
-   * 当前统计范围内没有可分析的对方文本时返回 null，不用默认分数生成画像。
-   */
-  async getProfile(peerUid: string): Promise<IntentProfile | null> {
+  /** 兼容旧 IPC 入口；运行状态与计算由独立画像服务持有。 */
+  getProfile(peerUid: string): Promise<IntentProfile | null> {
+    this.syncDefaultModels();
     const revision = this.profileRevision;
-    const rows = await this.loadMessages('c2c', peerUid, this.config.profileMessages);
-    if (revision !== this.profileRevision) throw new Error('互动画像设置已更改，请重新读取');
-    if (!rows.some((row) => !row.mine && row.text)) return null;
-    const cache = this.cacheFor('c2c', peerUid);
-    const byMsgId = new Map(cache.data.results.map((r) => [r.msgId, r]));
-
-    let peerMsgs = 0;
-    let selfMsgs = 0;
-    let peerChars = 0;
-    let emojiCount = 0;
-    const peerTexts: string[] = [];
-    const topicCounts = new Map<string, number>();
-    const dayActivity = new Map<string, number>();
-    const daySentiment = new Map<string, { sum: number; n: number }>();
-    let analyzedPeer = 0;
-    let sentimentWeighted = 0;
-    let sentimentWeightSum = 0;
-    let intensitySum = 0;
-    const peerMsgLens: number[] = [];
-    let initiatedByPeer = 0;
-    let conversations = 0;
-    let lastTime = 0;
-    const GAP = this.config.profileGapMinutes * 60;
-
-    for (const row of rows) {
-      if (row.sendTime - lastTime > GAP) {
-        conversations++;
-        if (!row.mine) initiatedByPeer++;
-      }
-      lastTime = row.sendTime;
-
-      const date = new Date(row.sendTime * 1000);
-      const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      if (!row.mine) {
-        dayActivity.set(dateKey, (dayActivity.get(dateKey) ?? 0) + 1);
-        peerMsgs++;
-        if (row.text) {
-          peerTexts.push(row.text);
-          peerChars += row.text.length;
-          peerMsgLens.push(row.text.length);
-          for (const word of segmentWords(row.text)) {
-            topicCounts.set(word, (topicCounts.get(word) ?? 0) + 1);
-          }
-          for (const el of row.elementsRaw) {
-            if (el.kind === 'face' || el.kind === 'mface') emojiCount++;
-          }
-        }
-      } else {
-        selfMsgs++;
-      }
-      const r = byMsgId.get(row.msgId);
-      if (r && !r.mine) {
-        analyzedPeer++;
-        // 两周半衰期量级的时间衰减：老消息对「当前好感度」影响小。
-        const w = Math.exp(
-          -((Date.now() / 1000 - r.sendTime) / (this.config.profileDecayDays * 86400)),
-        );
-        sentimentWeighted += r.sentiment * w;
-        sentimentWeightSum += w;
-        intensitySum += r.intensity;
-        const bucket = daySentiment.get(dateKey) ?? { sum: 0, n: 0 };
-        bucket.sum += r.sentiment;
-        bucket.n++;
-        daySentiment.set(dateKey, bucket);
-      }
-    }
-
-    // 回复延迟：对方接自己话的间隔（6h 内才算「在回话」）。
-    const peerReplyLags: number[] = [];
-    let prevSelfTime: number | null = null;
-    for (const row of rows) {
-      if (row.mine) {
-        prevSelfTime = row.sendTime;
-      } else if (prevSelfTime !== null && row.text) {
-        const lag = row.sendTime - prevSelfTime;
-        if (lag > 0 && lag < 6 * 3600) peerReplyLags.push(lag);
-        prevSelfTime = null;
-      }
-    }
-
-    // ---- 评分 -------------------------------------------------------------
-    const sentimentAvg = sentimentWeightSum > 0 ? sentimentWeighted / sentimentWeightSum : 0;
-    const avgIntensity = analyzedPeer > 0 ? intensitySum / analyzedPeer : 40;
-    const avgLag =
-      peerReplyLags.length > 0
-        ? peerReplyLags.reduce((a, b) => a + b, 0) / peerReplyLags.length
-        : 1800;
-    // 30s → ~100 分，2h → ~0 分（对数刻度）。
-    const lagScore = clamp(100 - (Math.log2(avgLag / 30 + 1) / Math.log2(7200 / 30)) * 100, 0, 100);
-    const initiationScore =
-      conversations > 0 ? clamp((initiatedByPeer / conversations) * 140, 0, 100) : 50;
-    const densityScore = clamp((peerMsgs / Math.max(1, dayActivity.size)) * 12, 0, 100);
-    const sentimentScore = clamp((sentimentAvg + 100) / 2, 0, 100);
-    const affinity = clamp(
-      Math.round(
-        sentimentScore * 0.35 +
-          lagScore * 0.2 +
-          initiationScore * 0.2 +
-          densityScore * 0.15 +
-          Math.min(100, avgIntensity) * 0.1,
-      ),
-      0,
-      100,
-    );
-    const tier =
-      affinity >= 80 ? 4 : affinity >= 60 ? 3 : affinity >= 40 ? 2 : affinity >= 20 ? 1 : 0;
-
-    // 走势：活跃日的当日情绪均分（7 成）+ 当日消息量（3 成）。
-    const trend = [...daySentiment.entries()]
-      .map(([date, b]) => ({
-        date,
-        score: clamp(
-          Math.round(
-            ((b.sum / b.n + 100) / 2) * 0.7 +
-              Math.min(100, (dayActivity.get(date) ?? 0) * 10) * 0.3,
-          ),
-          0,
-          100,
-        ),
-      }))
-      .sort((a, b) => (a.date < b.date ? -1 : 1))
-      .slice(-this.config.profileTrendDays);
-
-    // 启发式 MBTI / 雷达（引擎提示可用时覆盖）。
-    const avgLen = peerMsgLens.length > 0 ? peerChars / peerMsgLens.length : 0;
-    const lenVar = peerMsgLens.length > 1 ? variance(peerMsgLens) : 0;
-    const lagVar = peerReplyLags.length > 1 ? variance(peerReplyLags) : 0;
-    const emojiRatio = peerMsgs > 0 ? emojiCount / peerMsgs : 0;
-    const uniqueWords = topicCounts.size;
-    const heuristicMbti: MbtiDim[] = [
-      {
-        key: 'EI',
-        leftPct: clamp(
-          Math.round(50 + (initiationScore - 50) * 0.4 + (emojiRatio - 0.15) * 80),
-          0,
-          100,
-        ),
-      },
-      { key: 'SN', leftPct: clamp(Math.round(62 - Math.min(40, uniqueWords / 12)), 0, 100) },
-      {
-        key: 'TF',
-        leftPct: clamp(Math.round(55 - (avgIntensity - 40) * 0.35 - emojiRatio * 60), 0, 100),
-      },
-      {
-        key: 'JP',
-        leftPct: clamp(
-          Math.round(50 - normalizeVar(lagVar, avgLag) * 30 - normalizeVar(lenVar, avgLen) * 20),
-          0,
-          100,
-        ),
-      },
-    ];
-    const heuristicRadar: Array<{ axis: string; value: number }> = [
-      { axis: RADAR_AXES[0] as string, value: Math.round(initiationScore) },
-      { axis: RADAR_AXES[1] as string, value: Math.round(lagScore) },
-      {
-        axis: RADAR_AXES[2] as string,
-        value: Math.round(clamp(avgIntensity * 0.7 + emojiRatio * 150, 0, 100)),
-      },
-      { axis: RADAR_AXES[3] as string, value: Math.round(clamp(uniqueWords * 2.2, 0, 100)) },
-      { axis: RADAR_AXES[4] as string, value: Math.round(clamp(avgLen * 2.4, 0, 100)) },
-    ];
-
-    let mbtiDims = heuristicMbti;
-    let radar = heuristicRadar;
-    let engine: IntentProfile['engine'] = 'heuristic';
-    let hintTopics: string[] | null = null;
-    if (
-      (this.config.profileEngine === 'follow' ? analyzedPeer : peerTexts.length) >=
-      this.config.profileMinSamples
-    ) {
-      const hints = await this.inferHints(peerTexts);
-      if (hints) {
-        engine =
-          hints.engine ??
-          (this.config.profileEngine === 'follow' ? this.config.engine : this.config.profileEngine);
-        if (hints.mbti && hints.mbti.length === 4) mbtiDims = hints.mbti;
-        if (hints.radar && hints.radar.length >= 3) radar = mergeRadar(heuristicRadar, hints.radar);
-        hintTopics = hints.topics ?? null;
-      }
-    }
-
-    const topics = (
-      hintTopics
-        ? hintTopics
-            .slice(0, this.config.profileTopicLimit)
-            .map((t) => ({ topic: t, count: topicCounts.get(t) ?? 0 }))
-        : [...topicCounts.entries()]
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, this.config.profileTopicLimit)
-            .map(([topic, count]) => ({ topic, count }))
-    ).filter((t) => t.count > 0 || hintTopics !== null);
-
-    const letters = [...mbtiDims]
-      .sort((a, b) => orderKey(a.key) - orderKey(b.key))
-      .map((d) => (d.leftPct >= 50 ? d.key[0] : d.key[1]))
-      .join('');
-
-    if (revision !== this.profileRevision) throw new Error('互动画像设置已更改，请重新读取');
-    return {
-      affinity,
-      tier,
-      trend,
-      mbti: { letters, dims: mbtiDims, heuristic: engine === 'heuristic' },
-      radar,
-      topics,
-      sampled: peerMsgs + selfMsgs,
-      analyzedSamples: analyzedPeer,
-      engine,
-      computedAt: Date.now(),
-    };
+    return this.profileService.getProfile(peerUid).then((result) => {
+      this.syncDefaultModels();
+      if (revision !== this.profileRevision) throw new Error('默认画像模型已更改，请重新读取');
+      return result;
+    });
   }
 
   // ── 回复建议（API 引擎优先 + 本地意图候选兜底）─────────────────────────────
@@ -1493,6 +1282,7 @@ export class IntentSenseService {
     conv: string,
     options: { refresh?: boolean } = {},
   ): Promise<ReplySuggestion[]> {
+    this.syncDefaultModels();
     if (
       this.config.conversationOverrides[conversationKey(kind, conv)] === false ||
       !this.config.suggestionsEnabled
@@ -1502,10 +1292,14 @@ export class IntentSenseService {
     const manualRefresh = options.refresh === true;
     const contextMessages = this.config.suggestionContextMessages;
     const key = conversationKey(kind, conv);
-    const current = () =>
-      revision === this.suggestionRevision &&
-      this.config.suggestionsEnabled &&
-      this.config.conversationOverrides[key] !== false;
+    const current = () => {
+      this.syncDefaultModels();
+      return (
+        revision === this.suggestionRevision &&
+        this.config.suggestionsEnabled &&
+        this.config.conversationOverrides[key] !== false
+      );
+    };
     const rows = await this.loadMessages(kind, conv, contextMessages + 1);
     if (!current()) return [];
     if (rows.length === 0) return [];
@@ -1804,6 +1598,8 @@ export class IntentSenseService {
   }
 
   private cacheFor(kind: IntentConversationKind, conv: string): JsonStore<CacheFile> {
+    this.syncDefaultModels();
+    const modelIdentity = this.analysisModelIdentity();
     const key = conversationKey(kind, conv);
     const existing = this.analysisStores.get(key);
     if (existing) return existing;
@@ -1812,11 +1608,12 @@ export class IntentSenseService {
       () => ({
         version: CACHE_SCHEMA_VERSION,
         contextMessages: this.config.analysisContextMessages,
+        modelIdentity,
         results: [],
       }),
       {
         normalize: (raw) => {
-          const file = normalizeCacheFile(raw, this.config.analysisContextMessages);
+          const file = normalizeCacheFile(raw, this.config.analysisContextMessages, modelIdentity);
           return { ...file, results: file.results.slice(-this.config.cacheEntries) };
         },
       },
@@ -1843,6 +1640,7 @@ export class IntentSenseService {
     store.data = {
       version: CACHE_SCHEMA_VERSION,
       contextMessages: this.config.analysisContextMessages,
+      modelIdentity: this.analysisModelIdentity(),
       results: all,
     };
     store.save();
@@ -1857,33 +1655,6 @@ interface SenseTimelineRow extends TimelineRow {
 }
 
 // ── 小工具 ──────────────────────────────────────────────────────────────────
-
-function variance(values: number[]): number {
-  const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  return values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
-}
-
-/** 变异系数 0..1（离散程度归一，供 J/P 的「节奏稳定性」打分）。 */
-function normalizeVar(vari: number, mean: number): number {
-  if (mean <= 0) return 0.5;
-  return clamp(Math.sqrt(vari) / mean / 2, 0, 1);
-}
-
-function orderKey(key: MbtiDim['key']): number {
-  return ['EI', 'SN', 'TF', 'JP'].indexOf(key);
-}
-
-/** 引擎雷达值与启发式雷达值折中（引擎 0.65 / 启发式 0.35，缺轴补启发式）。 */
-function mergeRadar(
-  heuristic: Array<{ axis: string; value: number }>,
-  hints: Array<{ axis: string; value: number }>,
-): Array<{ axis: string; value: number }> {
-  const byAxis = new Map(hints.map((r) => [r.axis, r.value]));
-  return heuristic.map((h) => {
-    const v = byAxis.get(h.axis);
-    return v === undefined ? h : { axis: h.axis, value: Math.round(h.value * 0.35 + v * 0.65) };
-  });
-}
 
 /**
  * 基于最新对方消息的意图与情绪（本地模型分析结果或语料库预分析）生成 3 条差异化回复候选。

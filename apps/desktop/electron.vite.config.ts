@@ -16,6 +16,7 @@ const EXCLUDE_FROM_EXTERNAL = [
   '@weq/codec',
   '@weq/db',
   '@weq/native',
+  '@weq/native/authorization.mjs',
   '@weq/platform',
   '@weq/protocol',
   '@weq/service',
@@ -86,6 +87,7 @@ export default defineConfig({
           keyScanWorker: resolve(__dirname, 'src/main/key_scan_worker.ts'),
           storageCleanupWorker: resolve(__dirname, 'src/main/storage_cleanup_worker.ts'),
           backupProbeWorker: resolve(__dirname, 'src/main/backup_probe_worker.ts'),
+          macUpdateWorker: resolve(__dirname, 'src/main/update/mac_worker.ts'),
           // 意图感知本地引擎：Laya ONNX 推理跑在 fork 的子进程（同 transcribeWorker
           // 的打包/寻址约定，主进程经 intent_sense/bridge.ts 持有）。
           intentSenseWorker: resolve(__dirname, 'src/main/intent_sense/worker.ts'),
@@ -99,6 +101,7 @@ export default defineConfig({
             chunk.name === 'keyScanWorker' ||
             chunk.name === 'storageCleanupWorker' ||
             chunk.name === 'backupProbeWorker' ||
+            chunk.name === 'macUpdateWorker' ||
             chunk.name === 'intentSenseWorker'
               ? `${chunk.name}.mjs`
               : '[name].js',

@@ -18,7 +18,10 @@
   color: var(--weq-fg-secondary);
 }
 
-.weq-current-tasks-head > button {
+.weq-current-tasks-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-left: auto;
 }
 

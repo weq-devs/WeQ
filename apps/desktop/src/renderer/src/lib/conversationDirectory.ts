@@ -1,6 +1,8 @@
 import { createContext } from 'react';
-import type { Conversation, User } from '../im-template/template/types';
+import type { Conversation, ConversationPreferences, User } from '../im-template/template/types';
 import type { RoamingTarget } from '@weq/service';
+import type { ConversationScope } from '@weq/service/search-policy';
+import { previewNodes, previewNodesToText } from './conversationPreview';
 
 export interface VirtualConversation {
   id: string;
@@ -22,9 +24,14 @@ export interface VirtualConversation {
 export const ConversationDirectoryContext = createContext<{
   virtual: VirtualConversation[];
   real?: Conversation[];
+  guild?: Conversation[];
+  scope?: ConversationScope;
+  onScopeChange?: (scope: ConversationScope) => void;
+  preferences?: ConversationPreferences;
   /** 主会话列表始终排除这些群，完整目录搜索也不能绕过归属。 */
   groupAssistantIds?: ReadonlySet<string>;
   showGroupAssistantMessageCount?: boolean;
+  showContactUnreadCount?: boolean;
   locate?: { id: string; revision: number } | null;
   onVirtual: (item: VirtualConversation) => void;
   /** 新建好友克隆（支持批量：一次性把多个好友交给 AgentLab）。 */
@@ -46,6 +53,44 @@ export const ContactDirectoryContext = createContext<{
   onQuery: (value: string) => void;
   ids: string[];
 } | null>(null);
+
+export interface GuildConversationSession {
+  nodeId: string;
+  lastTime: string;
+  lastSeq: string;
+  peerTinyId: string;
+  peerNick: string;
+  peerAvatarUrl: string | null;
+  preview: unknown;
+}
+
+export function guildConversationRow(session: GuildConversationSession): Conversation {
+  const id = `guild:${session.nodeId}`;
+  const updatedAt = new Date(Number(session.lastTime) * 1000).toISOString();
+  return {
+    id,
+    type: 'direct',
+    otherUser: {
+      id,
+      identityLabel: '频道',
+      identityValue: session.peerTinyId,
+      username: session.peerNick || session.peerTinyId,
+      displayName: session.peerNick || session.peerTinyId,
+      avatarUrl: session.peerAvatarUrl,
+    },
+    group: null,
+    members: [],
+    updatedAt,
+    preference: { pinned: false, muted: false, blocked: false },
+    unreadCount: 0,
+    lastMessage: {
+      id: `${id}:${session.lastSeq}`,
+      senderId: null,
+      body: previewNodesToText(previewNodes(session.preview ?? null)),
+      createdAt: updatedAt,
+    },
+  };
+}
 
 /**
  * 克隆体的列表时间（unix 秒）：优先最后一条消息；没有消息时退回画像更新时间。

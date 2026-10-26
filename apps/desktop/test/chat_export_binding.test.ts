@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, expect, it, vi } from 'vitest';
 import { startChatExportTasks } from '../src/renderer/src/views/export/chatExport';
 import { DEFAULT_OPTIONS, type ExportFormat } from '../src/renderer/src/views/export/types';

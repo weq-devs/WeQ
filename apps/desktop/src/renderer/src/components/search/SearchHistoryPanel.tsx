@@ -72,7 +72,18 @@ function HistoryRow({
         <span className="weq-search-row-top">
           <span className="weq-search-name">{title}</span>
         </span>
-        {detail ? <span className="weq-search-snippet">{detail}</span> : null}
+        {detail ? (
+          <span className="weq-search-snippet">
+            {item.kind === 'file' ? (
+              <>
+                <span data-privacy-sensitive>{item.groupName ? `来自${item.groupName}` : ''}</span>
+                {item.fileSize > 0 ? ` · ${formatSize(item.fileSize)}` : ''}
+              </>
+            ) : (
+              <span data-privacy-sensitive>{detail}</span>
+            )}
+          </span>
+        ) : null}
       </span>
     </button>
   );

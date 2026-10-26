@@ -4,7 +4,7 @@
  * 一次提问 = 一个任务：后端多轮推进，过程（思考/工具调用/工具结果）经
  * `account.onAssistantEvent` 订阅实时流式推送，前端逐步展示（可折叠），最终答复
  * 用 Markdown 渲染。模型与思考等级在输入框上方就近切换（即改即存）；顶部设置
- * 弹窗配置：额外提示 / 外部 MCP 服务器。空会话展示预设问题，点击直接发送。
+ * 弹窗配置：权限模式 / 额外提示 / 外部 MCP 服务器。空会话展示预设问题，点击直接发送。
  *
  * 流式部分见下面两处：事件按动画帧合并 flush（`flush`），正文段的归档时机由 `applySteps`
  * 的 `handoffIndex` 控制——工具轮次之间不再把气泡清空，细节见两处注释。
@@ -20,7 +20,15 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import type { AgentLabModelSelection } from '@weq/agentlab/model-selection';
+import {
+  isDefaultModelSelection,
+  DEFAULT_MODEL_SELECTION_KEY,
+} from '@weq/agentlab/model-selection';
+import { useModelSelectionLabel } from '../../components/settings/useModelSelectionLabel';
 import { useOverlayLayer } from '../../lib/overlayStack';
+import { useOverlayAnchor } from '../../lib/overlayAnchor';
+import '../../styles/assistant-model-selection.css';
 import {
   ArrowLeft,
   Brain,
@@ -28,10 +36,13 @@ import {
   ChevronDown,
   Cpu,
   Loader2,
+  Play,
+  Save,
   Send,
   Settings,
   Sparkles,
   Square,
+  Trash2,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -52,6 +63,9 @@ import type { FlatModels } from './NewCloneModal';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
 import { useGeneratedSelection } from './useGeneratedSelection';
+import { readAssistantDraft, rememberAssistantDraft } from '../../lib/assistantWorkspace';
+import type { AssistantActivity } from '../../lib/workspaceIndicators';
+import { assistantResultVersion } from '../../lib/workspaceReadState';
 
 interface Turn {
   id?: string;
@@ -143,9 +157,10 @@ function applySteps(turn: Turn, batch: AssistantStep[]): Turn {
   return next;
 }
 
-function parseSel(key: string): { providerId: string; model: string } | undefined {
-  const [providerId, model] = key.split('::');
-  return providerId && model ? { providerId, model } : undefined;
+function parseSel(key: string, models: FlatModels['chat']): AgentLabModelSelection | undefined {
+  if (key === DEFAULT_MODEL_SELECTION_KEY) return { useDefault: true };
+  const option = models.find((model) => model.key === key);
+  return option ? { providerId: option.providerId, model: option.model } : undefined;
 }
 
 /** 下拉里的分组：一个 provider 一组，组内多个模型选项。 */
@@ -204,24 +219,12 @@ function ComposerSelect({
   const layer = useOverlayLayer(open);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState<{ left: number; bottom: number; minWidth: number } | null>(null);
+  const menuLayerRef = useRef<HTMLDivElement | null>(null);
+  const placement = useOverlayAnchor(menuLayerRef, open, open, triggerRef.current, 'above');
 
   const flat = groups.flatMap((g) => g.options);
   const current = flat.find((o) => o.value === value);
   const hasGroups = groups.length > 1 || (groups[0]?.label ?? '') !== '';
-
-  // 打开时按触发器位置把 popover 贴到其正上方；随后点外部 / 滚动 / Esc 关闭。
-  useLayoutEffect(() => {
-    if (!open) return;
-    const el = triggerRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    setPos({
-      left: r.left,
-      bottom: window.innerHeight - r.top + 6,
-      minWidth: r.width,
-    });
-  }, [open]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -259,40 +262,55 @@ function ComposerSelect({
         </span>
         <ChevronDown size={13} className="weq-asst-select-caret" aria-hidden />
       </button>
-      {open && pos
+      {open
         ? createPortal(
             <div
-              ref={popRef}
-              className="weq-asst-select-pop"
-              role="listbox"
-              style={{ left: pos.left, bottom: pos.bottom, minWidth: pos.minWidth, zIndex: layer }}
+              className="weq-assistant-select-layer"
+              ref={menuLayerRef}
+              style={placement.position}
             >
-              {groups.map((g, gi) => (
-                <div key={g.label || `g-${gi}`} className="weq-asst-select-group">
-                  {hasGroups && g.label ? (
-                    <div className="weq-asst-select-group-label">{g.label}</div>
-                  ) : null}
-                  {g.options.map((o) => {
-                    const active = o.value === value;
-                    return (
-                      <button
-                        key={o.value}
-                        type="button"
-                        role="option"
-                        aria-selected={active}
-                        className={`weq-asst-select-opt${active ? ' is-active' : ''}`}
-                        onClick={() => {
-                          onChange(o.value);
-                          setOpen(false);
-                        }}
-                      >
-                        <span className="weq-asst-select-opt-label">{o.label}</span>
-                        {active ? <Check size={14} aria-hidden /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+              <div
+                ref={popRef}
+                className="weq-asst-select-pop"
+                role="listbox"
+                style={{
+                  left: 'var(--weq-popover-left, 8px)',
+                  top: 'var(--weq-popover-top, 8px)',
+                  minWidth: Math.min(
+                    triggerRef.current?.offsetWidth ?? 0,
+                    Math.max(0, window.innerWidth - 16),
+                  ),
+                  zIndex: layer,
+                }}
+              >
+                {groups.map((g, gi) => (
+                  <div key={g.label || `g-${gi}`} className="weq-asst-select-group">
+                    {hasGroups && g.label ? (
+                      <div className="weq-asst-select-group-label">{g.label}</div>
+                    ) : null}
+                    {g.options.map((o) => {
+                      const active = o.value === value;
+                      return (
+                        <button
+                          key={o.value}
+                          type="button"
+                          role="option"
+                          title={o.label}
+                          aria-selected={active}
+                          className={`weq-asst-select-opt${active ? ' is-active' : ''}`}
+                          onClick={() => {
+                            onChange(o.value);
+                            setOpen(false);
+                          }}
+                        >
+                          <span className="weq-asst-select-opt-label">{o.label}</span>
+                          {active ? <Check size={14} aria-hidden /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
             </div>,
             document.body,
           )
@@ -319,28 +337,47 @@ const PRESET_QUESTIONS = [
   '找找最近有谁跟我约过「吃饭」',
 ];
 
-function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
+export function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const config = trpc.account.getAssistantConfig.useQuery();
   const save = trpc.account.setAssistantConfig.useMutation();
   const [prompt, setPrompt] = useState('');
   const [mcp, setMcp] = useState('');
-  const guard = useDraftClose(onClose, { prompt, mcp }, save.isLoading);
+  const [permissionMode, setPermissionMode] = useState<'sandbox' | 'unrestricted'>('sandbox');
+  const guard = useDraftClose(onClose, { prompt, mcp, permissionMode }, save.isLoading);
 
   useEffect(() => {
     const c = config.data;
     if (!c) return;
     setPrompt(c.customPrompt ?? '');
     setMcp(c.mcpServers ?? '');
-    guard.reset({ prompt: c.customPrompt ?? '', mcp: c.mcpServers ?? '' });
+    setPermissionMode(c.permissionMode ?? 'sandbox');
+    guard.reset({
+      prompt: c.customPrompt ?? '',
+      mcp: c.mcpServers ?? '',
+      permissionMode: c.permissionMode ?? 'sandbox',
+    });
   }, [config.data, guard.reset]);
 
   async function onSave(): Promise<void> {
     try {
+      const enablingUnrestricted =
+        permissionMode === 'unrestricted' && config.data?.permissionMode !== 'unrestricted';
+      if (
+        enablingUnrestricted &&
+        !(await dialog.confirm(
+          '开启任意权限？',
+          '助手将以当前系统用户的权限执行任意代码和操作，包括读取、修改或删除 WeQ 目录之外的文件，运行命令、联网以及使用外部 MCP 工具。聊天内容或模型错误也可能诱发这些操作，删除可能无法恢复。此模式不是沙箱，也不会逐项再次询问。',
+          { okLabel: '我了解风险，开启任意权限', cancelLabel: '保留沙箱模式', tone: 'warning' },
+        ))
+      )
+        return;
       await save.mutateAsync({
         customPrompt: prompt,
         mcpServers: mcp,
+        permissionMode,
+        confirmUnrestricted: enablingUnrestricted,
       });
       await utils.account.getAssistantConfig.invalidate();
       dialog.success('已保存', '助手设置已更新');
@@ -358,6 +395,26 @@ function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
           <strong>WeQ 助手设置</strong>
         </header>
         <div className="weq-clone-config">
+          <label className="weq-agentlab-field">
+            <span>权限模式</span>
+            <select
+              aria-label="权限模式"
+              value={permissionMode}
+              onChange={(event) =>
+                setPermissionMode(
+                  event.target.value === 'unrestricted' ? 'unrestricted' : 'sandbox',
+                )
+              }
+            >
+              <option value="sandbox">沙箱模式</option>
+              <option value="unrestricted">任意权限</option>
+            </select>
+          </label>
+          <div className="weq-asst-set-hint">
+            {permissionMode === 'sandbox'
+              ? '仅开放审核过的查询、隔离脚本和受控报告生成；禁止宿主文件操作、发送消息、写库及外部 MCP 工具。'
+              : '任意权限可操作当前用户有权访问的文件，包括删除外部文件；不提供系统级隔离，也不自动提权。'}
+          </div>
           <label className="weq-agentlab-field">
             <span>额外提示（可选）</span>
             <textarea
@@ -381,7 +438,7 @@ function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
             />
           </label>
           <div className="weq-asst-set-hint">
-            外部工具会在对话中自动合并进可用工具（命名空间 <code>mcp__服务器__工具</code>
+            外部工具仅在任意权限模式下合并进可用工具（命名空间 <code>mcp__服务器__工具</code>
             ），连接在首次使用时建立； 某个服务器不可用不会影响内置工具。
           </div>
           <div className="weq-clone-actions">
@@ -389,6 +446,7 @@ function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
               取消
             </button>
             <button className="weq-set-btn" disabled={save.isLoading} onClick={() => void onSave()}>
+              <Save size={14} aria-hidden="true" />
               保存
             </button>
           </div>
@@ -466,6 +524,10 @@ export function AssistantPanel({
   chatModels,
   onBack,
   onSessionCreated,
+  compact = false,
+  draftAccount,
+  workspaceTitle,
+  onActivityChange,
 }: {
   /** 真实会话 id；`null` 表示草稿会话——用户真正发第一条消息时才落库。 */
   sessionId: string | null;
@@ -474,18 +536,23 @@ export function AssistantPanel({
   onBack: () => void;
   /** 草稿会话首次发送、后端建好真会话后回调（父组件据此刷新列表 + 更新选中态）。 */
   onSessionCreated: (sessionId: string) => void;
+  compact?: boolean;
+  draftAccount?: string;
+  workspaceTitle?: string;
+  onActivityChange?: (activity: AssistantActivity, result?: string) => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   // 挂载时快照初始 id：草稿(null) 与既有会话在本组件生命周期内身份固定，
   // 后续父组件把草稿升级成真会话（sessionId 由 null 变真）不重新拉历史，避免闪断。
   const initialSessionId = useRef(sessionId).current;
+  const conversationSessionId = searchTarget?.sessionId ?? initialSessionId;
   // 可变的当前会话 id：草稿首次发送时被写成真 id，之后所有读写都走它。
   const sessionIdRef = useRef<string | null>(sessionId);
   const conversation = trpc.account.getAssistantConversation.useQuery(
-    { sessionId: initialSessionId ?? '' },
+    { sessionId: conversationSessionId ?? '' },
     {
-      enabled: !!initialSessionId,
+      enabled: !!conversationSessionId,
       ...(searchTarget ? { staleTime: 0, refetchOnMount: 'always' as const } : {}),
     },
   );
@@ -499,12 +566,18 @@ export function AssistantPanel({
   const saveConfig = trpc.account.setAssistantConfig.useMutation();
 
   const [turns, setTurns] = useState<Turn[]>([]);
-  const [input, setInput] = useState('');
+  const [requestFailed, setRequestFailed] = useState(false);
+  const [input, setInput] = useState(() =>
+    draftAccount ? readAssistantDraft(draftAccount, sessionId) : '',
+  );
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 已请求停止、正在等后端收尾（在途 LLM 请求要等它返回/被 signal 掐断才 emit aborted）。
   const [stopping, setStopping] = useState(false);
   // 当前真实会话 id（草稿升级后跟随更新；resume 查询依赖它，不能用挂载时的快照）。
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
+  useEffect(() => {
+    if (draftAccount) rememberAssistantDraft(draftAccount, currentSessionId, input);
+  }, [draftAccount, currentSessionId, input]);
   const seeded = useRef(false);
   const lastPersisted = useRef(conversation.data);
   const runIdRef = useRef<string | null>(null);
@@ -513,6 +586,12 @@ export function AssistantPanel({
   /** 是否贴底跟随：用户往上翻阅历史时不抢滚动条，回到底部附近才恢复。 */
   const stickRef = useRef(true);
   const [searchMessageId, setSearchMessageId] = useState(searchTarget?.messageId ?? null);
+  useEffect(() => {
+    if (!searchTarget) return;
+    setSearchMessageId(searchTarget.messageId);
+    if (conversationSessionId)
+      void utils.account.getAssistantConversation.invalidate({ sessionId: conversationSessionId });
+  }, [searchTarget, conversationSessionId, utils]);
   const missingSearch = useGeneratedSearchJump(
     transcriptRef,
     searchMessageId,
@@ -527,6 +606,16 @@ export function AssistantPanel({
   );
 
   const busy = turns.some((t) => t.running);
+  const activity = busy
+    ? 'running'
+    : requestFailed || turns.some((turn) => turn.role === 'assistant')
+      ? 'finished'
+      : 'idle';
+  const resultVersion = activity === 'finished' ? assistantResultVersion(turns) : undefined;
+  useEffect(() => {
+    if (activity === 'finished') onActivityChange?.(activity, resultVersion);
+    else onActivityChange?.(activity);
+  }, [activity, resultVersion, onActivityChange]);
   const selection = useGeneratedSelection(
     { kind: 'assistant', ownerId: 'assistant', sessionId: currentSessionId },
     turns,
@@ -538,11 +627,38 @@ export function AssistantPanel({
   useEffect(() => {
     if (!busy) setStopping(false);
   }, [busy]);
-  const modelSel = assistantConfig.data?.model
-    ? `${assistantConfig.data.model.providerId}::${assistantConfig.data.model.model}`
+  const modelLabel = useModelSelectionLabel();
+  const modelRef = assistantConfig.data?.model;
+  const inheritedModel = isDefaultModelSelection(modelRef);
+  const currentModel =
+    modelRef && !isDefaultModelSelection(modelRef)
+      ? chatModels.find(
+          (model) => model.providerId === modelRef.providerId && model.model === modelRef.model,
+        )
+      : undefined;
+  const modelSel = modelRef
+    ? inheritedModel
+      ? DEFAULT_MODEL_SELECTION_KEY
+      : (currentModel?.key ?? JSON.stringify([modelRef.providerId, modelRef.model]))
     : '';
   const effort: EffortValue = assistantConfig.data?.reasoningEffort ?? 'medium';
-  const modelGroups = buildModelGroups(chatModels);
+  const modelGroups = [
+    {
+      label: '',
+      options: [{ value: DEFAULT_MODEL_SELECTION_KEY, label: modelLabel({ useDefault: true }) }],
+    },
+    ...buildModelGroups(chatModels),
+    ...(modelRef && !inheritedModel && !currentModel
+      ? [
+          {
+            label: '已保存',
+            options: [{ value: modelSel, label: `已保存但不可用：${modelLabel(modelRef)}` }],
+          },
+        ]
+      : []),
+  ];
+  const modelTitle = currentModel?.label ?? modelLabel(modelRef);
+  const modelName = currentModel?.label.split(' · ').slice(1).join(' · ') || modelLabel(modelRef);
 
   /** 让当前会话的持久化对话缓存失效（会话 id 走 ref，草稿升级后仍指向真会话）。 */
   function invalidateConversation(): void {
@@ -552,12 +668,15 @@ export function AssistantPanel({
   // 事件订阅只该建一次，所以通过 ref 拿最新实现，而不是把它当依赖。
   const invalidateConversationRef = useRef(invalidateConversation);
   invalidateConversationRef.current = invalidateConversation;
+  // useAppDialog 每次渲染返回新对象；订阅若依赖它，重渲会取消尚未 flush 的增量。
+  const reportErrorRef = useRef(dialog.error);
+  reportErrorRef.current = dialog.error;
 
   /** 输入框旁的快捷设置：改了立即落库（与设置弹窗共用同一份配置）。 */
   async function onQuickConfig(patch: { modelKey?: string; effort?: EffortValue }): Promise<void> {
     try {
       await saveConfig.mutateAsync({
-        ...(patch.modelKey !== undefined ? { model: parseSel(patch.modelKey) } : {}),
+        ...(patch.modelKey !== undefined ? { model: parseSel(patch.modelKey, chatModels) } : {}),
         ...(patch.effort !== undefined ? { reasoningEffort: patch.effort } : {}),
       });
       await utils.account.getAssistantConfig.invalidate();
@@ -613,7 +732,7 @@ export function AssistantPanel({
       );
       if (failed) {
         runIdRef.current = null;
-        dialog.error('助手出错', failed.message);
+        reportErrorRef.current('助手出错', failed.message);
         return;
       }
       if (batch.some((s) => s.kind === 'final' || s.kind === 'aborted')) {
@@ -641,7 +760,7 @@ export function AssistantPanel({
       sub.unsubscribe();
     };
     // 订阅只按 runIdRef 匹配，会话 id 走 ref，不必因 id 变化重订阅。
-  }, [utils, dialog]);
+  }, [utils]);
 
   // 新内容时滚到底部（仅当用户本就贴着底部）。
   useEffect(() => {
@@ -653,6 +772,16 @@ export function AssistantPanel({
     const el = transcriptRef.current;
     if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
   }
+  useLayoutEffect(() => {
+    const element = transcriptRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      if (element.clientHeight > 0 && stickRef.current && !searchMessageId)
+        element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [searchMessageId]);
 
   async function onSend(preset?: string): Promise<void> {
     setSearchMessageId(null);
@@ -663,14 +792,17 @@ export function AssistantPanel({
     if (!assistantConfig.data?.model) {
       await dialog.confirm(
         '还没配置聊天模型',
-        chatModels.length === 0
-          ? '请先在 AgentLab 里添加一个带「聊天」能力的模型，再回到助手这里选择它。'
-          : '请先在输入框上方选择一个聊天模型。',
+        compact
+          ? '请先展开助手面板配置并选择聊天模型。'
+          : chatModels.length === 0
+            ? '请先在 AgentLab 里添加一个带「聊天」能力的模型，再回到助手这里选择它。'
+            : '请先在输入框上方选择一个聊天模型。',
         { okLabel: '知道了', tone: 'warning' },
       );
       return;
     }
     const text = raw.trim();
+    setRequestFailed(false);
     if (!preset) {
       setInput('');
       if (inputRef.current) inputRef.current.style.height = 'auto';
@@ -701,6 +833,7 @@ export function AssistantPanel({
       runIdRef.current = runId;
     } catch (e) {
       dialog.error('发送失败', e instanceof Error ? e.message : String(e));
+      setRequestFailed(true);
       // 回滚刚加入的两条。
       setTurns((prev) => prev.slice(0, -2));
       if (!preset) setInput(text);
@@ -723,6 +856,7 @@ export function AssistantPanel({
       void utils.account.getAssistantResumeState.invalidate({ sessionId: id });
     }
     setTurns([]);
+    setRequestFailed(false);
     stickRef.current = true;
     runIdRef.current = null;
   }
@@ -751,6 +885,7 @@ export function AssistantPanel({
   async function onResume(): Promise<void> {
     const id = sessionIdRef.current;
     if (!id || busy) return;
+    setRequestFailed(false);
     setTurns((prev) => {
       const next = [...prev];
       const last = next[next.length - 1];
@@ -783,40 +918,62 @@ export function AssistantPanel({
   }
 
   return (
-    <div className="weq-agentlab-chat">
+    <div className={`weq-agentlab-chat${compact ? ' is-menu-compact' : ''}`}>
       <header className="weq-agentlab-head">
         <div className="weq-agentlab-head-left">
-          <button
-            type="button"
-            className="weq-set-iconbtn"
-            onClick={onBack}
-            aria-label="返回主页"
-            title="返回"
-          >
-            <ArrowLeft size={16} />
-          </button>
-          <div>
-            <strong>WeQ 助手</strong>
-            <span>把问题交给它：会自己查聊天记录、找联系人、多轮推进直到给出结论。</span>
-          </div>
+          {draftAccount ? (
+            <strong>{workspaceTitle ?? '新会话'}</strong>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="weq-set-iconbtn"
+                onClick={onBack}
+                aria-label="返回主页"
+                title="返回"
+              >
+                <ArrowLeft size={16} />
+              </button>
+              <div>
+                <strong>WeQ 助手</strong>
+                <span>把问题交给它：会自己查聊天记录、找联系人、多轮推进直到给出结论。</span>
+              </div>
+            </>
+          )}
         </div>
         <div className="weq-agentlab-head-actions">
           {selection.control}
           <button
-            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            className={
+              draftAccount ? 'weq-set-iconbtn' : 'weq-set-btn weq-set-btn-soft weq-set-btn-sm'
+            }
+            title="助手设置"
+            aria-label="助手设置"
             onClick={() => setSettingsOpen(true)}
           >
-            <Settings size={12} /> 设置
+            <Settings size={draftAccount ? 16 : 12} /> {draftAccount ? null : '设置'}
           </button>
           <button
-            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            className={
+              draftAccount ? 'weq-set-iconbtn' : 'weq-set-btn weq-set-btn-soft weq-set-btn-sm'
+            }
+            title="清空当前对话"
+            aria-label="清空当前对话"
             disabled={busy}
             onClick={() => void onClear()}
           >
-            清空
+            {draftAccount ? <Trash2 size={16} /> : '清空'}
           </button>
         </div>
       </header>
+
+      {compact ? (
+        <div className="weq-asst-menu-meta" aria-label="当前助手会话信息">
+          <span title={workspaceTitle ?? '新会话'}>{workspaceTitle ?? '新会话'}</span>
+          <span title={modelTitle}>{modelName}</span>
+          <span>{EFFORT_OPTIONS.find((option) => option.value === effort)?.label ?? effort}</span>
+        </div>
+      ) : null}
 
       {resumable ? (
         <div className="weq-asst-resume-bar">
@@ -831,6 +988,7 @@ export function AssistantPanel({
             disabled={resumeRun.isLoading}
             onClick={() => void onResume()}
           >
+            <Play size={13} aria-hidden="true" />
             {resumeRun.isLoading ? '继续中…' : '继续回答'}
           </button>
         </div>
@@ -852,26 +1010,28 @@ export function AssistantPanel({
         {searchMessageId && conversation.isFetching ? (
           <div className="weq-agentlab-empty">加载记录中…</div>
         ) : turns.length === 0 ? (
-          <div className="weq-agentlab-empty weq-asst-empty">
-            <span className="weq-asst-empty-icon">
-              <Sparkles size={26} strokeWidth={1.6} />
-            </span>
-            <strong>把任务交给 WeQ 助手</strong>
-            <span>它会自己查聊天记录、找联系人、多轮推进直到给出结论。试试：</span>
-            <div className="weq-asst-presets">
-              {PRESET_QUESTIONS.map((q) => (
-                <button
-                  key={q}
-                  type="button"
-                  className="weq-asst-preset"
-                  disabled={busy}
-                  onClick={() => void onSend(q)}
-                >
-                  {q}
-                </button>
-              ))}
+          compact ? null : (
+            <div className="weq-agentlab-empty weq-asst-empty">
+              <span className="weq-asst-empty-icon">
+                <Sparkles size={26} strokeWidth={1.6} />
+              </span>
+              <strong>把任务交给 WeQ 助手</strong>
+              <span>它会自己查聊天记录、找联系人、多轮推进直到给出结论。试试：</span>
+              <div className="weq-asst-presets">
+                {PRESET_QUESTIONS.map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    className="weq-asst-preset"
+                    disabled={busy}
+                    onClick={() => void onSend(q)}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )
         ) : (
           turns.map((t, i) => (
             <div
@@ -891,31 +1051,33 @@ export function AssistantPanel({
       </div>
 
       <div className="weq-asst-composer">
-        <div className="weq-asst-composer-tools">
-          <ComposerSelect
-            icon={<Cpu size={13} />}
-            title="聊天模型"
-            placeholder="选择模型…"
-            value={modelSel}
-            groups={modelGroups}
-            disabled={busy || saveConfig.isLoading}
-            onChange={(v) => void onQuickConfig({ modelKey: v })}
-          />
-          <ComposerSelect
-            icon={<Brain size={13} />}
-            title="思考等级"
-            placeholder="思考等级"
-            value={effort}
-            groups={[
-              {
-                label: '',
-                options: EFFORT_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
-              },
-            ]}
-            disabled={busy || saveConfig.isLoading}
-            onChange={(v) => void onQuickConfig({ effort: v as EffortValue })}
-          />
-        </div>
+        {!compact ? (
+          <div className="weq-asst-composer-tools">
+            <ComposerSelect
+              icon={<Cpu size={13} />}
+              title="聊天模型"
+              placeholder="选择模型…"
+              value={modelSel}
+              groups={modelGroups}
+              disabled={busy || saveConfig.isLoading}
+              onChange={(v) => void onQuickConfig({ modelKey: v })}
+            />
+            <ComposerSelect
+              icon={<Brain size={13} />}
+              title="思考等级"
+              placeholder="思考等级"
+              value={effort}
+              groups={[
+                {
+                  label: '',
+                  options: EFFORT_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+                },
+              ]}
+              disabled={busy || saveConfig.isLoading}
+              onChange={(v) => void onQuickConfig({ effort: v as EffortValue })}
+            />
+          </div>
+        ) : null}
         <div className="weq-agentlab-composer weq-asst-composer-row">
           <textarea
             ref={inputRef}
@@ -931,7 +1093,9 @@ export function AssistantPanel({
                 void onSend();
               }
             }}
-            placeholder="把任务交给 WeQ 助手（Enter 发送，Shift+Enter 换行）"
+            placeholder={
+              compact ? '发送消息…' : '把任务交给 WeQ 助手（Enter 发送，Shift+Enter 换行）'
+            }
             disabled={busy}
           />
           {busy ? (
@@ -953,8 +1117,14 @@ export function AssistantPanel({
               )}
             </button>
           ) : (
-            <button className="weq-set-btn" onClick={() => void onSend()} disabled={!input.trim()}>
-              <Send size={14} /> 发送
+            <button
+              className="weq-set-btn"
+              title="发送消息"
+              aria-label="发送消息"
+              onClick={() => void onSend()}
+              disabled={!input.trim()}
+            >
+              <Send size={14} /> {compact ? null : '发送'}
             </button>
           )}
         </div>

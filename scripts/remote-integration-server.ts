@@ -46,7 +46,7 @@ function testNetwork(): { endpoint: string; control: string } | null {
 const fixture = createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/test/contract') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify({ fixture: 1, protocol: 1, invitationVersions: [1, 2, 3] }));
+    res.end(JSON.stringify({ fixture: 1, protocol: 1, invitationVersions: [1, 2, 3, 4] }));
     return;
   }
   if (req.method === 'GET' && req.url === '/test/devices') {

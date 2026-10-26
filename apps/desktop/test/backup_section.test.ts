@@ -58,7 +58,9 @@ async function mount(api: typeof backupApi) {
     host.remove();
   });
   const button = (text: string) =>
-    [...host.querySelectorAll('button')].find((node) => node.textContent === text)!;
+    [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (node) => node.textContent === text,
+    )!;
   const click = async (text: string) => {
     await act(async () => button(text).click());
   };
@@ -71,10 +73,8 @@ it('读取文件不直接写入，明确预览并确认后才暂存；改选使�
   expect(f.api.stage).not.toHaveBeenCalled();
   await ui.click('预览恢复');
   expect(ui.host.textContent).toContain('确认恢复范围');
-  const select = ui.host.querySelector<HTMLSelectElement>('[aria-label="同名数据处理"]')!;
   await act(async () => {
-    select.value = 'overwrite';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
+    ui.host.querySelectorAll<HTMLButtonElement>('[aria-label="同名数据处理"] button')[1]!.click();
   });
   expect(ui.host.textContent).not.toContain('确认恢复范围');
   await ui.click('预览恢复');
@@ -87,27 +87,27 @@ it('恢复默认需二次确认，未变化的命令仍可再次主动执行', a
   expect(ui.button('恢复默认设置').disabled).toBe(false);
   await ui.click('恢复默认设置');
   expect(f.api.defaults).not.toHaveBeenCalled();
-  await ui.click('确认');
+  await ui.click('确认恢复默认');
   expect(f.api.defaults).toHaveBeenCalledTimes(1);
   expect(ui.button('恢复默认设置').disabled).toBe(false);
   await ui.click('恢复默认设置');
-  await ui.click('确认');
+  await ui.click('确认恢复默认');
   expect(f.api.defaults).toHaveBeenCalledTimes(2);
 });
-it('恢复默认确认区紧随下方按钮，取消不提交恢复', async () => {
+it('恢复默认使用居中模态确认，焦点落在取消，取消不提交恢复', async () => {
   const f = fixture(),
     ui = await mount(f.api);
   await ui.click('恢复默认设置');
-  const trigger = ui.button('恢复默认设置');
-  const confirmation = ui.host.querySelector('[aria-label="确认操作"]');
+  const confirmation = document.querySelector('[role="dialog"][aria-modal="true"]');
   expect(confirmation).not.toBeNull();
-  expect(trigger.closest('section')?.nextElementSibling).toBe(confirmation);
-  expect(confirmation?.textContent).toContain('确认恢复默认设置');
-  await ui.click('返回');
-  expect(ui.host.querySelector('[aria-label="确认操作"]')).toBeNull();
+  expect(ui.host.contains(confirmation)).toBe(false);
+  expect(confirmation?.textContent).toContain('恢复默认设置？');
+  expect(document.activeElement).toBe(ui.button('取消'));
+  await ui.click('取消');
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(f.api.defaults).not.toHaveBeenCalled();
 });
-it('默认恢复暂存后的重启提示与重启确认都位于页面下方', async () => {
+it('默认恢复暂存后原操作区显示重启状态，重启仍需弹窗确认', async () => {
   const f = fixture();
   const staged = await f.api.defaults();
   f.api.defaults.mockClear();
@@ -130,18 +130,46 @@ it('默认恢复暂存后的重启提示与重启确认都位于页面下方', a
   };
   const ui = await mount(api);
   await ui.click('恢复默认设置');
-  await ui.click('确认');
-  const defaultsSection = ui.button('恢复默认设置').closest('section');
+  await ui.click('确认恢复默认');
   const restartSection = ui.button('重启 WeQ').closest('section');
-  expect(defaultsSection?.nextElementSibling).toBe(restartSection);
   expect(restartSection?.textContent).toContain('已暂存，等待重启');
+  expect(ui.button('恢复默认设置')).toBeUndefined();
   expect(api.restart).not.toHaveBeenCalled();
   await ui.click('重启 WeQ');
-  const confirmation = ui.host.querySelector('[aria-label="确认操作"]');
-  expect(restartSection?.nextElementSibling).toBe(confirmation);
-  expect(confirmation?.textContent).toContain('确认重启 WeQ');
-  await ui.click('确认');
+  const confirmation = document.querySelector('[role="dialog"]');
+  expect(confirmation?.textContent).toContain('重启 WeQ？');
+  await act(async () => {
+    confirmation?.querySelectorAll<HTMLButtonElement>('button')[1]?.click();
+  });
   expect(api.restart).toHaveBeenCalledTimes(1);
+});
+
+it('Esc 可取消确认，提交中不能重复或关闭，失败留在弹窗且可重试', async () => {
+  const f = fixture();
+  let reject: (error: Error) => void = () => {};
+  f.api.defaults.mockImplementationOnce(
+    () =>
+      new Promise((_, fail) => {
+        reject = fail;
+      }),
+  );
+  const ui = await mount(f.api);
+  await ui.click('恢复默认设置');
+  await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  await ui.click('恢复默认设置');
+  await ui.click('确认恢复默认');
+  expect(ui.button('正在暂存…').disabled).toBe(true);
+  expect(ui.button('取消').disabled).toBe(true);
+  await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  await act(async () => reject(new Error('合成暂存失败')));
+  expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
+    '合成暂存失败',
+  );
+  await ui.click('确认恢复默认');
+  expect(f.api.defaults).toHaveBeenCalledTimes(2);
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
 it('组件关闭后迟到文件被释放，不把旧选择留作可确认输入', async () => {
   const f = fixture();

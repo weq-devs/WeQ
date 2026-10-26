@@ -103,10 +103,6 @@
   font-size: 12px;
 }
 
-html[data-privacy] .weq-mail-export-row {
-  filter: blur(5px);
-}
-
 html[data-theme='dark'] .weq-mail-export-filters input {
   color-scheme: dark;
   border-color: var(--weq-border-strong);

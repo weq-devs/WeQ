@@ -20,6 +20,7 @@ import {
   type ReactElement,
 } from 'react';
 import { Check, Copy, Eraser, Play } from 'lucide-react';
+import { useDraftProtection } from '../lib/draftClose';
 import { lookupTag } from '@weq/codec/dictionary';
 import {
   bytesToBase64,
@@ -168,6 +169,7 @@ export function ReverseTool(): ReactElement {
   const [copied, setCopied] = useState(false);
   const [parseSeq, setParseSeq] = useState(0);
   const [detail, setDetail] = useState(false);
+  useDraftProtection({ input, encoding, format });
 
   const runParse = useCallback((text: string, enc: RvEncoding, fmt: ParseFormat) => {
     try {

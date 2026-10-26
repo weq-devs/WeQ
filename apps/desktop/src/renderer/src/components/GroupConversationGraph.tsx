@@ -12,6 +12,7 @@
  * 交互参考联系人关系网：拖节点、滚轮缩放、悬停高亮这个人的圈子和连线。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePrivacyStore } from '../state/privacy';
 import { useTabActive } from './RetainedTabs';
 import { useThemeStore } from '../state/theme';
 import { usePrefersReducedMotion } from '../views/annual-report/Odometer';
@@ -266,6 +267,7 @@ export function GroupConversationGraph({
   instant?: boolean;
 }) {
   const tabActive = useTabActive();
+  const privacy = usePrivacyStore((state) => state.effective);
   const reduce = usePrefersReducedMotion();
   const instant = forceInstant || reduce;
   const theme = useThemeStore((state) => state.resolved);
@@ -499,7 +501,7 @@ export function GroupConversationGraph({
       ctx.fillStyle = n.avatarUrl ? color : colorMixForGlyph(color);
       ctx.fill();
 
-      const img = n.avatarUrl ? getImage(n.avatarUrl) : null;
+      const img = !privacy && n.avatarUrl ? getImage(n.avatarUrl) : null;
       if (img) {
         ctx.save();
         ctx.beginPath();
@@ -521,7 +523,7 @@ export function GroupConversationGraph({
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
       ctx.stroke();
 
-      if (!dim && (isFocus || focusNeighbours.has(n.id) || r >= 20 || v.scale >= 1.1)) {
+      if (!privacy && !dim && (isFocus || focusNeighbours.has(n.id) || r >= 20 || v.scale >= 1.1)) {
         ctx.globalAlpha = 1;
         const fontPx = Math.max(10, 11 / v.scale);
         ctx.font = `500 ${fontPx}px ${styles.fontFamily}`;
@@ -536,6 +538,10 @@ export function GroupConversationGraph({
     ctx.globalAlpha = 1;
   }
   drawRef.current = draw;
+
+  useEffect(() => {
+    drawRef.current();
+  }, [privacy]);
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     const rect = wrapRef.current!.getBoundingClientRect();
@@ -648,7 +654,7 @@ export function GroupConversationGraph({
         >
           {hoverNode ? (
             <>
-              <strong>{hoverNode.label}</strong>
+              <strong data-privacy-sensitive>{hoverNode.label}</strong>
               <span>
                 {formatNumber(hoverNode.messageCount)} 条发言 · 参与 {hoverNode.conversationCount}{' '}
                 段对话

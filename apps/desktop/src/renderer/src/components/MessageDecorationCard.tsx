@@ -237,8 +237,8 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
           {hasDecoration ? (
             <DecorationSaveControls
               className="weq-decoration-card-save-all"
-              title="把这条消息用到的装扮资源打包另存"
-              label="另存全部"
+              title="保存这条消息用到的全部装扮资源"
+              label="保存全部"
               busy={save.savingKey === 'all'}
               disabled={save.disabled}
               onSave={(intent, browser) => {
@@ -260,7 +260,7 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
                 <DecorationItem type={item.type} id={item.id} label={item.label} icon={item.icon} />
                 <DecorationSaveControls
                   className="weq-decoration-card-save"
-                  title={`把${item.label}资源另存为文件`}
+                  title={`保存${item.label}资源`}
                   busy={save.savingKey === item.type}
                   disabled={save.disabled}
                   onSave={(intent, browser) => {

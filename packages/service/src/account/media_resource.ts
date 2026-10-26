@@ -33,6 +33,7 @@ import { join, resolve, sep, extname } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { clampLimit, parseBucketCursor, walkBuckets } from './resource_paging';
+import { walkResourceTree } from './resource_tree_walk';
 
 /** Which media tree to browse. */
 export type MediaResourceKind = 'photoWall' | 'qzone' | 'pic' | 'video' | 'ptt';
@@ -143,6 +144,9 @@ export interface ResourceBucket {
 
 /** Aggregate stats for one scanned resource tree. */
 export interface ResourceStat {
+  complete?: boolean;
+  errors?: number;
+  truncated?: boolean;
   key: ResourceTreeKey;
   /** False when the tree's directory doesn't exist for this account. */
   present: boolean;
@@ -322,6 +326,7 @@ export class MediaResourceService {
   async analyzeTree(key: ResourceTreeKey): Promise<ResourceStat> {
     const agg: ResourceStat = {
       key,
+      complete: true,
       present: false,
       files: 0,
       bytes: 0,
@@ -336,53 +341,25 @@ export class MediaResourceService {
     const root = join(dataDir, RESOURCE_TREE_DIRS[key]);
     const base = resolve(root);
 
-    // Iterative DFS over a stack of dirs — bounds concurrency to one dir's
-    // fan-out (Promise.all over its files) instead of the whole tree at once.
-    const stack: string[] = [base];
-    let sawDir = false;
-    while (stack.length > 0) {
-      const dir = stack.pop()!;
-      let dirents: import('node:fs').Dirent[];
-      try {
-        dirents = await readdir(dir, { withFileTypes: true });
-        sawDir = true;
-      } catch {
-        continue; // vanished / unreadable
-      }
-      const files: string[] = [];
-      for (const ent of dirents) {
-        if (ent.isDirectory()) stack.push(join(dir, ent.name));
-        else if (ent.isFile()) files.push(join(dir, ent.name));
-      }
-      await Promise.all(
-        files.map(async (abs) => {
-          let st: import('node:fs').Stats;
-          try {
-            st = await stat(abs);
-          } catch {
-            return; // vanished between readdir and stat
-          }
-          agg.files += 1;
-          agg.bytes += st.size;
+    const status = await walkResourceTree(base, (abs, st) => {
+      agg.files += 1;
+      agg.bytes += st.size;
 
-          const bucket = variantBucket(abs.slice(base.length));
-          const target = agg[bucket];
-          target.files += 1;
-          target.bytes += st.size;
+      const bucket = variantBucket(abs.slice(base.length));
+      const target = agg[bucket];
+      target.files += 1;
+      target.bytes += st.size;
 
-          const month = monthKey(st.mtimeMs);
-          let m = agg.byMonth[month];
-          if (!m) {
-            m = { files: 0, bytes: 0 };
-            agg.byMonth[month] = m;
-          }
-          m.files += 1;
-          m.bytes += st.size;
-        }),
-      );
-    }
-    agg.present = sawDir;
-    return agg;
+      const month = monthKey(st.mtimeMs);
+      let m = agg.byMonth[month];
+      if (!m) {
+        m = { files: 0, bytes: 0 };
+        agg.byMonth[month] = m;
+      }
+      m.files += 1;
+      m.bytes += st.size;
+    });
+    return { ...agg, ...status };
   }
 
   // ── media protocol resolution ────────────────────────────────────────────────

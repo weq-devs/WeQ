@@ -6,7 +6,7 @@ import react from '@vitejs/plugin-react';
  * 桌面端离线单测（`apps/desktop/test/*.test.ts`）。
  *
  * 渲染进程的投影器（`lib/qzone.ts` 等）直接吃 `DOMParser`，所以默认环境给
- * happy-dom；主进程的纯逻辑单测不依赖 DOM，在 happy-dom 下同样能跑。
+ * happy-dom；不依赖 DOM 的测试通过文件头显式使用 node 环境。
  */
 export default defineConfig({
   plugins: [react()],
@@ -21,6 +21,9 @@ export default defineConfig({
     },
   },
   test: {
+    pool: 'threads',
+    maxWorkers: 2,
+    minWorkers: 1,
     environment: 'happy-dom',
     include: ['test/**/*.test.ts'],
   },

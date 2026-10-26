@@ -212,6 +212,120 @@ it('缺失偏好也作为默认值备份，覆盖时可恢复真正的默认账�
   for (const file of snapshot.files) expect(JSON.parse(file.data.toString())).toEqual({});
 });
 
+it('默认引用的恢复预览使用实际默认配置，失效能力会警告，已配置时不误报', async () => {
+  const f = fixture();
+  const intent = new IntentSenseService(
+    {} as AccountSession,
+    join(f.cache, 'intent_sense', f.source),
+  );
+  await intent.setConfig({ providerRef: { useDefault: true } });
+  const provider = {
+    id: 'synthetic',
+    name: '合成提供方',
+    vendor: 'custom',
+    baseUrl: 'https://synthetic.invalid',
+    apiKey: 'synthetic',
+    models: [{ id: 'chat', capabilities: ['chat' as const] }],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  f.config.setSettings({
+    agentLab: { providers: [provider], defaultModel: { providerId: provider.id, model: 'chat' } },
+  });
+  const snapshot = f.service.snapshot({ parts: ['accounts'], accountConfigIds: [f.source] }, {});
+  const source = f.service.inspect(snapshot.archive, 'synthetic.zip');
+  expect(
+    f.service.prepare(source.id, { parts: ['accounts'], conflict: 'overwrite' }).warnings.join(' '),
+  ).not.toContain('意图／画像／推荐回复');
+  f.config.setSettings({
+    agentLab: {
+      providers: [{ ...provider, models: [{ id: 'chat', capabilities: ['embedding'] }] }],
+    },
+  });
+  expect(
+    f.service.prepare(source.id, { parts: ['accounts'], conflict: 'overwrite' }).warnings.join(' '),
+  ).toContain('意图／画像／推荐回复');
+});
+
+it('意图与克隆体的显式默认引用可备份恢复，不将关闭状态改为开启', async () => {
+  const f = fixture();
+  const intent = new IntentSenseService(
+    {} as AccountSession,
+    join(f.cache, 'intent_sense', f.source),
+  );
+  await intent.setConfig({
+    enabled: false,
+    profileEnabled: false,
+    suggestionsEnabled: false,
+    providerRef: { useDefault: true },
+    profileProviderRef: { useDefault: true },
+    suggestionProviderRef: { useDefault: true },
+  });
+  const persona = makeBackupPersona();
+  persona.models = {
+    chat: { useDefault: true },
+    embedding: { useDefault: true },
+    vision: { useDefault: true },
+  };
+  persona.embeddingModelIdentity = 'synthetic-index-model';
+  new AgentLabStore(join(f.cache, 'agentlab', f.source)).savePersona({ persona, pairs: [] });
+  const snapshot = f.service.snapshot(
+    { parts: ['accounts', 'clones'], accountConfigIds: [f.source], cloneConfigIds: [f.source] },
+    {},
+  );
+  const src = f.service.inspect(snapshot.archive, 'synthetic.zip');
+  const preview = f.service.prepare(src.id, {
+    parts: ['accounts', 'clones'],
+    conflict: 'overwrite',
+    scopeMap: { [f.source]: f.local },
+  });
+  f.service.stage(preview.id);
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  const restored = new IntentSenseService(
+    {} as AccountSession,
+    join(f.cache, 'intent_sense', f.local),
+  );
+  expect(restored.getStatus()).toMatchObject({
+    enabled: false,
+    profileEnabled: false,
+    suggestionsEnabled: false,
+    providerRef: { useDefault: true },
+    profileProviderRef: { useDefault: true },
+    suggestionProviderRef: { useDefault: true },
+    apiConfigured: false,
+  });
+  expect(
+    new AgentLabStore(join(f.cache, 'agentlab', f.local)).getPersona(persona.id)?.persona,
+  ).toEqual(persona);
+  expect(() =>
+    validateWeqAccountPreference('intent.json', {
+      providerRef: { useDefault: true, providerId: 'ambiguous', model: 'chat' },
+    }),
+  ).toThrow();
+});
+
+it.each([undefined, 1, 2])('意图配置版本 %s 可备份，保留独立画像和推荐回复配置', (version) => {
+  const f = fixture();
+  const config = {
+    ...(version === undefined ? {} : { featureSettingsVersion: version }),
+    enabled: false,
+    profileEnabled: true,
+    suggestionsEnabled: true,
+    profileEngine: version === 2 ? 'api' : 'follow',
+    profileProviderRef: { providerId: 'synthetic-profile', model: 'synthetic-model' },
+  };
+  write(weqAccountSettingPath(f.root, f.cache, f.source, 'intent.json'), config);
+  const snapshot = snapshotWeqAccountPreferences(f.root, f.cache, f.source);
+  const intent = snapshot.files.find((file) => file.path.endsWith('/intent.json'))!;
+  expect(JSON.parse(intent.data.toString())).toEqual(config);
+});
+
+it.each([0, 3, '2', null])('未知或非法意图配置版本 %s 仍在备份前拒绝', (version) => {
+  expect(() =>
+    validateWeqAccountPreference('intent.json', { featureSettingsVersion: version }),
+  ).toThrow('intent.json');
+});
+
 it('克隆数据域映射后实际本机账号能读取导入 persona，原域与 QQ 原件不动', () => {
   const f = fixture(),
     persona = makeBackupPersona();
@@ -298,7 +412,7 @@ it('普通导入默认保留本机保存位置和图片目录，明确选择后�
         data: Buffer.from(
           JSON.stringify({
             defaultExportDir: '/synthetic/source-exports',
-            exportSaveMode: 'after',
+            exportSaveMode: 'before',
             externalChatpic: { dir: '/synthetic/source-pictures', enabled: true },
           }),
         ),
@@ -314,7 +428,7 @@ it('普通导入默认保留本机保存位置和图片目录，明确选择后�
       new UserConfigService({ appDataRoot: () => f.root } as Platform).getSettings(),
     ).toMatchObject({
       defaultExportDir: keepLocalPaths ? '/synthetic/local-exports' : '/synthetic/source-exports',
-      exportSaveMode: keepLocalPaths ? 'preset' : 'after',
+      exportSaveMode: keepLocalPaths ? 'preset' : 'before',
       externalChatpic: {
         dir: keepLocalPaths ? '/synthetic/local-pictures' : '/synthetic/source-pictures',
         enabled: true,

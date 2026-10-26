@@ -1,0 +1,24 @@
+.weq-folder-scan-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.weq-folder-scan-status > svg {
+  flex-shrink: 0;
+  color: var(--weq-accent-ink);
+}
+.weq-backup-picker > .weq-folder-scan-status {
+  flex-shrink: 0;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-folder-scan-status > svg {
+    animation: none;
+  }
+}

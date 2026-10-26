@@ -10,6 +10,7 @@
     calc(100dvh - var(--chat-header-height, 74px) - var(--composer-height, 190px) - 28px)
   );
   min-height: 260px;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) 46px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
@@ -19,11 +20,44 @@
 }
 
 .emoji-panel-body {
+  min-width: 0;
   min-height: 0;
   padding: 14px 14px 12px;
   overflow: auto;
   scrollbar-color: color-mix(in srgb, var(--weq-fg-muted, #858585) 34%, transparent) transparent;
   scrollbar-width: thin;
+}
+
+/* 特殊表情复用原有内容，布局和滚动统一交给表情面板。 */
+.emoji-panel .emoji-panel-body > :is(.bounce-panel, .poke-panel) {
+  position: static;
+  width: 100%;
+  min-width: 0;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: none;
+  overflow: visible;
+}
+
+.emoji-panel-body:has(> :is(.bounce-panel, .poke-panel)) {
+  padding: 0;
+}
+
+.emoji-panel .emoji-panel-body :is(.bounce-body, .poke-body) {
+  overflow: visible;
+}
+
+.emoji-panel .poke-combo-btn {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.emoji-panel .poke-combo-btn img {
+  max-width: 100%;
+  object-fit: contain;
 }
 
 .emoji-panel-body::-webkit-scrollbar {

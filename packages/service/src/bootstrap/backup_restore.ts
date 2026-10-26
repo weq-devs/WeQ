@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { isDefaultModelSelection } from '@weq/agentlab';
 import {
   existsSync,
   lstatSync,
@@ -507,7 +508,8 @@ function configPlan(
   let settings = record(current.settings) ? structuredClone(current.settings) : {};
   if (app) {
     settings = merge(
-      merge(settings, snapshotWeqSettings(DEFAULT_APP_SETTINGS)),
+      // 旧备份缺字段时保留本机值；恢复默认提交完整默认快照，仍会显式覆盖。
+      merge(snapshotWeqSettings(DEFAULT_APP_SETTINGS), settings),
       parseWeqBackupJson(app.data) as Record<string, unknown>,
     );
     if (choice.keepLocalPaths !== false) {
@@ -530,16 +532,25 @@ function configPlan(
     const value = parseWeqBackupJson(api.data) as Record<string, unknown>;
     const base = structuredClone(settings);
     settings = merge(settings, value);
-    if (record(value.agentLab))
+    if (record(value.agentLab)) {
+      const previous = record(base.agentLab) ? base.agentLab : {};
+      const preserveDefault =
+        value.agentLab.defaultModel === undefined ||
+        (choice.conflict === 'skip' && previous.defaultModel !== undefined);
+      const defaultModel = preserveDefault ? previous.defaultModel : value.agentLab.defaultModel;
       settings.agentLab = {
         providers: mergeRows(
-          record(base.agentLab) ? base.agentLab.providers : [],
+          previous.providers,
           value.agentLab.providers,
           choice.conflict,
           skipped,
           'api:llm',
         ),
+        ...(defaultModel !== undefined ? { defaultModel } : {}),
       };
+      if (value.agentLab.defaultModel !== undefined && preserveDefault)
+        skipped.push('api:llm-default');
+    }
     if (value.ttsProviders !== undefined) {
       settings.voiceTranscribe = merge(base.voiceTranscribe, {
         ttsProviders: mergeRows(
@@ -736,16 +747,36 @@ function prepare(
     const settings = record(existingConfig?.settings) ? existingConfig.settings : {};
     const agent = record(settings.agentLab) ? settings.agentLab : {};
     const voice = record(settings.voiceTranscribe) ? settings.voiceTranscribe : {};
-    const providerIds = new Set(
-      Array.isArray(agent.providers)
-        ? agent.providers.filter(record).map((provider) => provider.id)
-        : [],
-    );
+    const providers = Array.isArray(agent.providers) ? agent.providers.filter(record) : [];
+    const providerIds = new Set(providers.map((provider) => provider.id));
     const ttsIds = new Set(
       Array.isArray(voice.ttsProviders)
         ? voice.ttsProviders.filter(record).map((provider) => provider.id)
         : [],
     );
+    const missingModel = (selection: unknown, capability = 'chat') => {
+      const inherited = isDefaultModelSelection(selection);
+      const ref = inherited ? agent.defaultModel : selection;
+      if (
+        !record(ref) ||
+        !providerIds.has(ref.providerId) ||
+        typeof ref.model !== 'string' ||
+        !ref.model.trim()
+      )
+        return true;
+      if (!inherited) return false;
+      const provider = providers.find((provider) => provider.id === ref.providerId);
+      return (
+        !Array.isArray(provider?.models) ||
+        !provider.models.some(
+          (model) =>
+            record(model) &&
+            model.id === ref.model &&
+            (!Array.isArray(model.capabilities) ||
+              (model.capabilities.includes('chat') && model.capabilities.includes(capability))),
+        )
+      );
+    };
     for (const plan of plans.filter((plan) => plan.operation.kind === 'account-setting')) {
       const setting = plan.operation.setting;
       if (setting !== 'intent.json' && setting !== 'dress.json') continue;
@@ -755,10 +786,7 @@ function prepare(
         setting === 'intent.json' &&
         ['providerRef', 'profileProviderRef', 'suggestionProviderRef'].some((key) => {
           const ref = value[key];
-          return (
-            record(ref) &&
-            (!providerIds.has(ref.providerId) || typeof ref.model !== 'string' || !ref.model.trim())
-          );
+          return record(ref) && missingModel(ref);
         })
       )
         result.warnings.push(
@@ -786,18 +814,15 @@ function prepare(
       const persona = record(value.persona) ? value.persona : null;
       const models =
         persona && record(persona.models)
-          ? Object.values(persona.models)
+          ? Object.entries(persona.models)
           : file.path.endsWith('/assistant.json') && record(value.model)
-            ? [value.model]
+            ? [['chat', value.model]]
             : [];
       if (
         models.some(
-          (ref) =>
+          ([purpose, ref]) =>
             record(ref) &&
-            (!ref.providerId ||
-              !providerIds.has(ref.providerId) ||
-              typeof ref.model !== 'string' ||
-              !ref.model.trim()),
+            missingModel(ref, purpose === 'embedding' || purpose === 'vision' ? purpose : 'chat'),
         )
       )
         result.warnings.push(`${file.path} 有未配置的模型引用，未自动替换提供方。`);

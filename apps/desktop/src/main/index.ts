@@ -15,10 +15,12 @@ import {
   net,
   protocol,
   shell,
+  screen,
   Tray,
   type IpcMainEvent,
 } from 'electron';
 import fs from 'node:fs';
+import { WINDOW_LAYOUTS, applyWindowLayout, type WindowLayout } from './window_layout';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -47,13 +49,12 @@ import { getAppContext } from './context/app_context';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
-import { checkForUpdate, installUpdateActions } from './update/updater';
+import { checkForUpdate, installUpdateActions, isInstallingUpdate } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { remoteRuntime } from './remote/runtime';
 import { desktopWebRuntime } from './web/runtime';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
-import { startReleaseMonitor } from './daemon/release_monitor';
-import { ensureDaemonRunning, syncGuiAutostartIntent } from './daemon/runtime';
+import { assistantResourceServer } from './weq_assistant/server';
 import { disposeExternalMcp } from './mcp/external';
 import { disposeElevatedCaptures } from './ipc/routers/wonderful_tools';
 import { registerAnalyticsExportIpc } from './analytics_export';
@@ -62,13 +63,26 @@ import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
-import { registerAppQuitPreparation } from './app_quit_lifecycle';
+import {
+  AUTOSTART_ARG,
+  installStartupWindowReveal,
+  isAutostartLaunch,
+  shouldShowStartupWindow,
+} from './startup_window';
+import {
+  registerAppQuitCleanup,
+  registerAppQuitPreparation,
+  registerWindowUnloadConfirmation,
+} from './app_quit_lifecycle';
+import { registerAppQuitConfirmation, type QuitChoice } from './app_quit_confirmation';
 import { createRendererRecovery } from './renderer_recovery';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
 import { macApplicationMenu, nativeMenuLabels } from './application_menu';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
+import { registerCallVideoIpc } from './call_video_ipc';
 import { registerAttachHintIpc } from './attach_hint_ipc';
 import { registerElevationIpc } from './elevation_ipc';
+import { registerLongTermAuthorizationIpc } from './authorization/ipc';
 import {
   getLogDir,
   getLogger,
@@ -76,7 +90,7 @@ import {
   type ExportSavePolicy,
   type WindowCloseBehavior,
 } from '@weq/service';
-import { electronHost } from './host';
+import { electronHost, migrateLegacyAutostart } from './host';
 import { mediaSaveRouter } from './ipc/routers/media_save';
 import { systemAuthService } from './system_auth';
 import { totpAuthService } from './totp_auth';
@@ -114,18 +128,6 @@ const { createIPCHandler } = requireFromHere(
   'electron-trpc/main',
 ) as typeof import('electron-trpc/main');
 
-/**
- * Per-view window sizes. The home/bootstrap screen is compact; the chat view
- * gets a bit more room. Switching views resizes the window (see the
- * `window:set-layout` IPC), keeping the top-left corner fixed.
- */
-const WINDOW_LAYOUTS = {
-  home: { width: 1120, height: 580 },
-  chat: { width: 1180, height: 760 },
-} as const;
-
-type WindowLayout = keyof typeof WINDOW_LAYOUTS;
-
 const logger = getLogger().child({ scope: 'desktop-main' });
 
 /** Created once; reopening attaches a window without registering IPC again. */
@@ -137,6 +139,7 @@ let tray: Tray | null = null;
  *  and lets the window actually close (托盘退出 / 确认框「完全退出」/ before-quit). */
 let isQuitting = false;
 let stopRendererDiagnostics: (() => void) | null = null;
+let mainWindowRequested = false;
 
 const mainWindowLifecycle = createMainWindowLifecycle({
   canOpen: () => mainIpcHandler !== null && !isQuitting,
@@ -147,6 +150,7 @@ const mainWindowLifecycle = createMainWindowLifecycle({
 });
 
 function openMainWindow(): void {
+  mainWindowRequested = true;
   mainWindowLifecycle.open();
 }
 
@@ -192,7 +196,6 @@ function buildTray(): void {
         {
           label: labels.quit,
           click: () => {
-            isQuitting = true;
             app.quit();
           },
         },
@@ -216,12 +219,8 @@ function registerWindowLayoutIpc(): void {
   });
   ipcMain.handle('window:set-layout', (event, layout: WindowLayout) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    const size = WINDOW_LAYOUTS[layout] ?? WINDOW_LAYOUTS.home;
-    // Don't fight a user who maximized/fullscreened the window.
-    if (!win || win.isMaximized() || win.isFullScreen()) return;
-    const [w, h] = win.getContentSize();
-    if (w === size.width && h === size.height) return;
-    win.setContentSize(size.width, size.height, true);
+    if (!win) return;
+    applyWindowLayout(win, layout, screen.getDisplayMatching(win.getBounds()).workArea);
   });
 
   ipcMain.on('window-minimize', (event) => {
@@ -248,7 +247,6 @@ function registerWindowLayoutIpc(): void {
     if (action === 'tray') {
       getMainWindow()?.hide();
     } else if (action === 'quit') {
-      isQuitting = true;
       app.quit();
     }
   });
@@ -430,11 +428,30 @@ function registerLogIpc(): void {
     return true;
   });
 
-  // 守护进程设置页「打开 docroot」——只在路径确实指向磁盘上已存在的目录时放行。
-  ipcMain.handle('daemon:reveal-path', async (_event, path?: string) => {
-    if (typeof path !== 'string' || !path || !fs.existsSync(path)) return false;
-    await electronHost.revealPath(path);
-    return true;
+  /**
+   * 渲染层 → 主进程日志文件（`weq.debugLog`）。
+   *
+   * 通话视频的解码全在渲染层，而渲染层的 `console.*` **不会**进日志文件 ——
+   * 「等待对方画面」这类问题因此一直只能盲猜。这个通道只接受结构化字段，
+   * 走同一个 `getLogger()`，落进同一天的日志里，便于和主进程的 `scope=call`
+   * 行按时间对齐。
+   *
+   * 刻意**不**转发 `console` 全量：主进程 `console-message` 会把整个渲染层的
+   * 噪声（React 警告、第三方库日志）都灌进文件。调用方显式调用才记。
+   */
+  ipcMain.on('logs:renderer', (_event, payload: unknown) => {
+    if (!payload || typeof payload !== 'object') return;
+    const record = payload as { level?: unknown; message?: unknown; context?: unknown };
+    if (typeof record.message !== 'string' || record.message.length > 2000) return;
+    const level =
+      record.level === 'warn' || record.level === 'error' || record.level === 'debug'
+        ? record.level
+        : 'info';
+    const context =
+      record.context && typeof record.context === 'object'
+        ? (record.context as Record<string, unknown>)
+        : {};
+    logger[level](record.message, { scope: 'renderer', ...context });
   });
 }
 
@@ -499,7 +516,7 @@ function resolveWindowIcon(): Electron.NativeImage | undefined {
   return img.isEmpty() ? undefined : img;
 }
 
-function createWindow(): BrowserWindow {
+function createWindow(showInitially = true): BrowserWindow {
   const icon = resolveWindowIcon();
   // On tiling Wayland WMs (Hyprland/sway) new toplevels tile by default. Ask
   // the WM to float us by advertising a non-'normal' window type — 'toolbar'
@@ -507,11 +524,8 @@ function createWindow(): BrowserWindow {
   // 'splash', it keeps the taskbar entry). Opt-out with WEQ_WINDOW_TYPE=normal
   // (or override to another value) so this can be disabled per-environment.
   const win = new BrowserWindow({
-    width: 1120,
-    height: 580,
-    minWidth: 940,
-    minHeight: 520,
-    show: true,
+    ...WINDOW_LAYOUTS.home,
+    show: showInitially,
     title: 'WeQ Desktop',
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
@@ -547,7 +561,6 @@ function createWindow(): BrowserWindow {
     },
     reload: () => win.webContents.reload(),
     quit: () => {
-      isQuitting = true;
       app.quit();
     },
     record: (event, details) =>
@@ -561,24 +574,7 @@ function createWindow(): BrowserWindow {
   win.webContents.on('did-finish-load', () => recovery.loaded());
   win.once('closed', () => recovery.dispose());
 
-  const reveal = () => {
-    if (win.isDestroyed()) return;
-    win.show();
-    win.restore();
-    win.focus();
-    try {
-      win.setAlwaysOnTop(true);
-      win.setAlwaysOnTop(false);
-    } catch {
-      /* ignore */
-    }
-  };
-
-  win.on('ready-to-show', reveal);
-  // Fallback: in some environments `ready-to-show` can be delayed or missed
-  // (e.g. compositor/driver quirks). Guarantee visibility once content loads.
-  win.webContents.on('did-finish-load', reveal);
-  setTimeout(reveal, 1000);
+  installStartupWindowReveal(win, showInitially);
 
   // Apply the user-configured close action (设置 → 全局设置 → 关闭按钮):
   //   'quit' → quit the app on every platform;
@@ -593,7 +589,7 @@ function createWindow(): BrowserWindow {
     }
     const behavior = resolveCloseBehavior();
     if (behavior === 'quit') {
-      isQuitting = true;
+      e.preventDefault();
       app.quit();
       return;
     }
@@ -656,7 +652,13 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  app.on('second-instance', openMainWindow);
+  app.on('second-instance', (_event, argv) => {
+    if (
+      !argv.includes(AUTOSTART_ARG) ||
+      (mainIpcHandler && getAppContext().bootstrap?.userConfig.getSettings().showWindowOnAutostart)
+    )
+      openMainWindow();
+  });
 }
 
 void app.whenReady().then(async () => {
@@ -685,6 +687,13 @@ void app.whenReady().then(async () => {
         console.error('远程连接恢复失败', error instanceof Error ? error.message : '未知错误'),
       );
   if (!hasSingleInstanceLock) return;
+  const autostart =
+    app.isPackaged &&
+    isAutostartLaunch(
+      process.argv,
+      process.platform,
+      process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin,
+    );
   electronApp.setAppUserModelId('app.weq.desktop');
 
   // win32: resolve QQ's tencent:// handler (timwp.exe) before building the
@@ -693,19 +702,38 @@ void app.whenReady().then(async () => {
   if (process.platform !== 'linux') {
     await probeQqProtocolHandler();
   }
+  if (isQuitting) return;
 
   // Order matters: AppContext (loads native + platform) before IPC handler.
   // The host bridge must be installed before any router runs.
   setHost(electronHost);
+  await migrateLegacyAutostart().catch((error: unknown) => {
+    logger.warn('legacy daemon migration failed', {
+      event: 'legacy-daemon-migration-failed',
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+  if (isQuitting) return;
   installUpdateActions();
   initAppContext();
   const userConfig = getAppContext().bootstrap?.userConfig;
+  if (userConfig?.getSettings().weqAssistant.enabled) {
+    void getAppContext()
+      .applyWeqAssistant(userConfig.getSettings().weqAssistant)
+      .catch((error: unknown) => {
+        logger.warn('assistant resource startup failed', {
+          event: 'assistant-resource-startup-failed',
+          error: String(error),
+        });
+      });
+  }
   if (userConfig) {
     desktopWebRuntime.configure({
       publicDir: app.isPackaged
         ? join(process.resourcesPath, 'remote-web')
         : join(app.getAppPath(), '../web/dist/public'),
       exportDir: join(app.getPath('userData'), 'web-exports'),
+      renderer: electronHost,
       version: app.getVersion(),
       router: appRouter,
       pairing: remoteRuntime.pairing,
@@ -766,10 +794,28 @@ void app.whenReady().then(async () => {
   registerWeqAssistantIpc();
   registerAttachHintIpc();
   registerElevationIpc();
+  registerLongTermAuthorizationIpc();
   registerEditUndoIpc();
+  registerCallVideoIpc();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);
+    registerWindowUnloadConfirmation(win.webContents, {
+      confirmDiscard: () =>
+        dialog.showMessageBoxSync(win, {
+          type: 'warning',
+          title: '存在未保存的更改',
+          message: '放弃此窗口中未保存的更改？',
+          buttons: ['继续编辑', '放弃更改'],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        }) === 1,
+      cancelled: () => {
+        isQuitting = false;
+        resetQuitPreparation();
+      },
+    });
   });
 
   mainIpcHandler = createIPCHandler({
@@ -781,9 +827,16 @@ void app.whenReady().then(async () => {
       return {};
     },
   });
-  openMainWindow();
-  logger.info('main window created', { event: 'create-window' });
   buildTray();
+  mainWindowLifecycle.open({
+    show: shouldShowStartupWindow({
+      autostart,
+      showWindowOnAutostart: userConfig?.getSettings().showWindowOnAutostart ?? false,
+      trayAvailable: tray !== null,
+      manualRequested: mainWindowRequested,
+    }),
+  });
+  logger.info('main window created', { event: 'create-window', autostart });
   if (process.platform === 'darwin') {
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(
@@ -804,25 +857,6 @@ void app.whenReady().then(async () => {
     setTimeout(() => void checkForUpdate(true).catch(() => {}), 3000);
   }
 
-  // 守护进程 release 提醒循环（发现新版本弹系统通知）：始终挂着，每 30s 读一次
-  // 守护进程状态；守护进程侧轮询未开启 / 不在时自然为 no-op。推文由打包版
-  // 应用内更新检查（update_tweet）统一负责，不在这里重复写。
-  startReleaseMonitor();
-
-  // 守护进程默认拉起：应用启动即检查 / 拉起 weq-daemon（含版本对齐与稳定落位），
-  // 不再等「WeQ 助手」开关。best-effort：二进制缺失 / 拉起失败只记日志，不阻塞
-  // 启动；设置页展示实时状态。
-  void ensureDaemonRunning()
-    // 起来之后，再把「开机拉起 WeQ」的意图 + 当前 exe 路径刷进守护进程记忆。
-    // GUI 自己不注册任何原生自启 —— 全机唯一的自启注册是守护进程那一份。
-    .then(() => syncGuiAutostartIntent())
-    .catch((error) => {
-      logger.warn('failed to ensure weq-daemon on startup', {
-        event: 'daemon-startup-failed',
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
-    });
-
   app.on('activate', openMainWindow);
 });
 
@@ -834,9 +868,80 @@ app.on('window-all-closed', () => {
 });
 
 // A real quit is underway (tray「退出」/ 确认框「完全退出」/ Cmd+Q / OS shutdown):
-// flip the flag so the `close` handler stops intercepting, and drop the tray.
-registerAppQuitPreparation(app, autoUpdater, () => {
+// 只放行窗口关闭；未保存内容仍可能取消退出，暂不停止服务或销毁托盘。
+const resetQuitPreparation = registerAppQuitPreparation(app, autoUpdater, () => {
   isQuitting = true;
+});
+
+// 助手资源随应用结束；次实例退出不能关闭主实例拥有的服务。
+if (hasSingleInstanceLock) {
+  registerAppQuitConfirmation(app, autoUpdater, {
+    needsConfirmation: () => {
+      try {
+        return getAppContext().bootstrap?.userConfig.getSettings().weqAssistant.enabled ?? false;
+      } catch {
+        return false;
+      }
+    },
+    bypass: () => isInstallingUpdate(),
+    showDialog: async (): Promise<QuitChoice> => {
+      const options: Electron.MessageBoxOptions = {
+        type: 'warning',
+        title: '确认退出 WeQ',
+        message: 'WeQ 助手已启用，仍要完全退出吗？',
+        detail:
+          '完全退出后，QQ 中的助手卡片将无法加载本机封面和页面。只关闭窗口会保留 WeQ 与助手服务运行。',
+        buttons: ['取消', '只关闭窗口', '确认退出'],
+        defaultId: 1,
+        cancelId: 0,
+        noLink: true,
+      };
+      const window = getMainWindow();
+      const result =
+        window && !window.isDestroyed() && window.isVisible()
+          ? await dialog.showMessageBox(window, options)
+          : await dialog.showMessageBox(options);
+      return result.response === 2 ? 'quit' : result.response === 1 ? 'window' : 'cancel';
+    },
+    hideWindow: () => getMainWindow()?.hide(),
+    failed: (error) =>
+      logger.warn('quit confirmation failed', {
+        event: 'quit-confirmation-failed',
+        error: String(error),
+      }),
+  });
+  registerAppQuitCleanup(
+    app,
+    async () => {
+      await Promise.all([
+        assistantResourceServer.shutdown(),
+        getAppContext().services?.unreadInfo.dispose(),
+      ]);
+    },
+    (error) => {
+      logger.warn('failed to stop assistant resources on quit', {
+        event: 'assistant-resource-quit-failed',
+        error: String(error),
+      });
+    },
+    autoUpdater,
+  );
+}
+
+// 账号没有显式关闭时，也释放本轮 Web、Remote、MCP 与提权辅助进程。
+app.on('will-quit', (event) => {
+  if (event.defaultPrevented) return;
+  if (hasSingleInstanceLock) {
+    try {
+      const ctx = getAppContext();
+      ctx.bootstrap?.userConfig.setSkipAutoEnterOnce(!ctx.account);
+    } catch (error) {
+      logger.warn('failed to save login exit state', {
+        event: 'login-exit-state-failed',
+        error: String(error),
+      });
+    }
+  }
   stopRendererDiagnostics?.();
   stopRendererDiagnostics = null;
   try {
@@ -855,14 +960,7 @@ registerAppQuitPreparation(app, autoUpdater, () => {
     }
     tray = null;
   }
-});
-
-// Best-effort: stop the account-bound MCP server on quit even if the account
-// was never explicitly closed (clearAccount also stops it). The weq-daemon
-// companion process is deliberately NOT touched on quit — its lifecycle
-// belongs to autostart / the user, and it keeps serving the QQ cards after
-// WeQ is gone.
-app.on('will-quit', () => {
+  void assistantResourceServer.shutdown();
   remoteRuntime.stop();
   desktopWebRuntime.stop();
   void stopMcpServer();

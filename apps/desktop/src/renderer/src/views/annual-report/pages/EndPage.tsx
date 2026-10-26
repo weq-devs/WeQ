@@ -10,7 +10,6 @@ import { buildReportHtml, preloadReportAssets } from '../exportHtml';
 import { QzoneShareLightbox } from '../QzoneShareLightbox';
 import type { AnalysisScope } from '../../analysis/model';
 import { useExportSavePolicy } from '../../../hooks/useExportSavePolicy';
-import { ExportSaveActions } from '../../../components/ExportSaveActions';
 import { ServerSavePrompt } from '../../../components/ServerSavePrompt';
 import { IS_WEB } from '../../../lib/target';
 import { annualReportExportOutput } from '../../../../../shared/annual_report_export';
@@ -230,12 +229,6 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
                       {IS_WEB ? '保存到服务器' : option.hint}
                     </span>
                   </button>
-                  <ExportSaveActions
-                    disabled={busy != null || !scopeMatches || save.settings.isLoading}
-                    onSelect={(intent) => void runExport(option.kind, intent)}
-                    label={`${option.label} 本次保存选项`}
-                    portalTarget={overlayHostRef.current}
-                  />
                 </div>
               );
             })}

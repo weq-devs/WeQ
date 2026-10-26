@@ -20,3 +20,8 @@
 html[data-theme='dark'] .weq-model-advanced > summary {
   border-color: var(--weq-border-strong);
 }
+.weq-intent-tuning-form {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}

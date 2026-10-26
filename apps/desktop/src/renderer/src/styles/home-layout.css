@@ -1,0 +1,77 @@
+html .weq-chathome {
+  container-type: size;
+  justify-content: safe center;
+  overflow-y: auto;
+  padding: 16px;
+}
+html .weq-chathome-inner {
+  --weq-orb-size: min(200px, 42cqw, 32cqh);
+  /* 与首页 TagRing 的 radiusPad 保持一致，不改变个性主页卡片。 */
+  --weq-tag-radius: calc(var(--weq-orb-size) * 0.52 + 32px);
+  --weq-home-tag-size: clamp(36px, min(12cqw, 10cqh), 54px);
+  --weq-home-tag-overhang: calc(
+    var(--weq-tag-radius) +
+    var(--weq-home-tag-size) /
+    2 -
+    var(--weq-orb-size) /
+    2
+  );
+  flex-shrink: 0;
+  min-width: 0;
+  gap: clamp(12px, 3cqh, 24px);
+}
+html .weq-chathome-hero {
+  width: 100%;
+  min-width: 0;
+  gap: calc(var(--weq-home-tag-overhang) + 16px);
+}
+html .weq-chathome.is-notags .weq-chathome-hero {
+  gap: 16px;
+}
+html .weq-chathome:not(.is-notags) .weq-chathome-stage {
+  margin-top: calc(var(--weq-home-tag-overhang) + 8px);
+}
+html .weq-chathome.is-nogreeting:not(.is-notags) .weq-chathome-stage {
+  margin-bottom: calc(var(--weq-home-tag-overhang) + 8px);
+}
+html .weq-chathome .weq-tag {
+  width: var(--weq-home-tag-size);
+  height: var(--weq-home-tag-size);
+  margin-left: calc(var(--weq-home-tag-size) / -2);
+  margin-top: calc(var(--weq-home-tag-size) / -2);
+}
+html .weq-chathome-greet {
+  max-width: 100%;
+  font-size: 32px;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+html .weq-chathome-verse,
+html .weq-chathome-from {
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  html .weq-chathome-caret {
+    animation: none;
+  }
+}
+@container (max-width: 420px) or (max-height: 420px) {
+  html .weq-chathome-greet {
+    font-size: 26px;
+  }
+}
+@container (max-height: 360px) {
+  html .weq-chathome-inner {
+    --weq-orb-size: min(160px, 42cqw, 22cqh);
+    gap: 10px;
+  }
+  html .weq-chathome-hero {
+    gap: calc(var(--weq-home-tag-overhang) + 10px);
+  }
+  html .weq-chathome:not(.is-notags) .weq-chathome-stage {
+    margin-top: calc(var(--weq-home-tag-overhang) + 4px);
+  }
+  html .weq-chathome-hitokoto {
+    min-height: 0;
+  }
+}

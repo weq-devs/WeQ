@@ -5,10 +5,16 @@ import { describe, expect, it } from 'vitest';
 
 describe('好友克隆设置的浏览器依赖', () => {
   it('开发模式加载设置页时不引入 Node 后端模块', async () => {
+    const entryPoints = [
+      '../src/renderer/src/components/settings/CloneSettingsSection.tsx',
+      '../src/renderer/src/components/settings/ApiModelSelect.tsx',
+      '../src/renderer/src/components/settings/IntentSenseSection.tsx',
+      '../src/renderer/src/views/agentlab/NewCloneModal.tsx',
+      '../src/renderer/src/views/agentlab/AssistantPanel.tsx',
+    ].map((path) => resolve(__dirname, path));
     const result = await build({
-      entryPoints: [
-        resolve(__dirname, '../src/renderer/src/components/settings/CloneSettingsSection.tsx'),
-      ],
+      entryPoints,
+      outdir: 'out/browser-contract',
       bundle: true,
       platform: 'browser',
       format: 'esm',
@@ -30,7 +36,7 @@ describe('好友克隆设置的浏览器依赖', () => {
         },
       ],
     });
-    expect(result.outputFiles).toHaveLength(1);
-    expect(result.outputFiles[0]?.text).not.toContain('node:fs');
+    expect(result.outputFiles).toHaveLength(entryPoints.length);
+    for (const file of result.outputFiles) expect(file.text).not.toContain('node:fs');
   });
 });

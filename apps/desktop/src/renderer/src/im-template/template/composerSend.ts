@@ -55,7 +55,10 @@ export type SuperStickerEntry = {
 
 export type ComposerSendPlan =
   | { kind: 'elements'; elements: unknown[] }
-  | { kind: 'file'; path: string; fileName: string }
+  | ({ kind: 'file'; fileName: string } & (
+      | { path: string; bytes?: never }
+      | { bytes: Uint8Array; path?: never }
+    ))
   | { kind: 'aiVoice'; text: string; voiceId: string }
   | {
       kind: 'voice';
@@ -256,14 +259,14 @@ function mapWireElement(
     case 'file': {
       const key = localKeyOf(element);
       const local = key ? localByKey.get(key) : undefined;
-      if (!local?.path) {
-        throw new Error(
-          `发送文件「${String(element.fileName ?? '')}」需要本机绝对路径，但拿不到（剪贴板 / 网盘来源暂不支持）。`,
-        );
+      if (!local?.path && !local?.bytes?.length) {
+        throw new Error(`找不到文件「${String(element.fileName ?? '')}」的本地数据，请重新选择。`);
       }
       const fileName =
         typeof element.fileName === 'string' && element.fileName ? element.fileName : local.name;
-      return { kind: 'file', path: local.path, fileName };
+      return local.path
+        ? { kind: 'file', path: local.path, fileName }
+        : { kind: 'file', bytes: local.bytes!, fileName };
     }
     default:
       throw new Error(`不支持的发送元素：${String(element.kind)}`);
@@ -422,6 +425,14 @@ function encodePcmWav(samples: Float32Array, sampleRate: number): Uint8Array {
 
 /** 一条乐观消息的渲染内容：元素数组 + 纯文本预览。 */
 export type OptimisticRender = { elements: unknown[]; body: string };
+
+/** 开发时渲染层可能先热更新，新增主进程接口尚未加载；不降级成错误字体发送。 */
+export function composerSendError(error: unknown): string {
+  const reason = error instanceof Error ? error.message : String(error);
+  return /No "query"-procedure on path "account\.prepareChat(?:Font|Decoration)"/.test(reason)
+    ? '主进程尚未加载新的字体发送接口，请重启 WeQ 开发进程后重试；本条消息尚未发送。'
+    : reason;
+}
 
 function previewOf(element: Record<string, unknown>, localByKey: Map<string, LocalMediaRef>) {
   const key = localKeyOf(element);

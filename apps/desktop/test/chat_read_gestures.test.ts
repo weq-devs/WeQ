@@ -6,23 +6,105 @@ import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
-  const proxy = (): unknown =>
-    new Proxy(() => proxy(), {
+  const proxy = (path: string[] = []): unknown =>
+    new Proxy(() => proxy(path), {
       get: (_target, key) =>
         key === 'useQuery'
-          ? () => ({ data: undefined, isLoading: false })
+          ? () => ({
+              data: path.at(-1) === 'getSettings' ? settings.value : undefined,
+              isLoading: false,
+            })
           : key === 'useMutation'
             ? () => ({ mutate: vi.fn(), isLoading: false })
-            : proxy(),
+            : proxy([...path, String(key)]),
     });
   return { trpc: proxy(), client: proxy() };
 });
+const settings = vi.hoisted(() => ({ value: {} as { showScrollToBottomButton?: boolean } }));
 afterEach(() => {
+  settings.value = {};
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe('新消息按钮已读行为', () => {
+  it.each(['direct', 'group'])(
+    '%s 向下浏览复用底部按钮及预览，反向、到达底部和切换会话时收起，开关不影响新消息提醒',
+    (kind) => {
+      vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+      vi.stubGlobal('localStorage', new Storage());
+      const demo = createTemplateDemoData();
+      const conversation = demo.conversations.find((item) => item.type === kind)!;
+      const read = vi.fn();
+      const preview = vi.fn();
+      const host = document.createElement('div');
+      document.body.append(host);
+      const root = createRoot(host);
+      const first = { ...demo.messages[0]!, id: 'first', conversationId: conversation.id };
+      const props = {
+        user: demo.user,
+        conversation,
+        messages: [first],
+        initialReadingPosition: { scrollTop: 500 },
+        onPreviewLatest: preview,
+        onReadCurrentConversation: read,
+        draft: '',
+      };
+      const render = (next = {}) =>
+        act(() => root.render(createElement(ChatPane, { ...props, ...next })));
+      try {
+        render();
+        const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+        Object.defineProperties(scroll, {
+          scrollHeight: { configurable: true, value: 2000 },
+          clientHeight: { configurable: true, value: 400 },
+        });
+        const move = (top: number) =>
+          act(() => {
+            scroll.scrollTop = top;
+            scroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+          });
+        const pill = () => host.querySelector('.new-message-pill');
+        expect(pill()).toBeNull();
+        move(400);
+        expect(pill()).toBeNull();
+        move(600);
+        expect(pill()).not.toBeNull();
+        expect(pill()?.textContent).not.toContain('新消息');
+        act(() => host.querySelector<HTMLButtonElement>('[aria-label="预览最新消息"]')!.click());
+        expect(preview).toHaveBeenCalledWith(conversation);
+        expect(scroll.scrollTop).toBe(600);
+        expect(read).not.toHaveBeenCalled();
+        move(550);
+        expect(pill()).toBeNull();
+        move(700);
+        settings.value = { showScrollToBottomButton: false };
+        render();
+        expect(pill()).toBeNull();
+        settings.value = { showScrollToBottomButton: true };
+        render();
+        expect(pill()).not.toBeNull();
+        move(1600);
+        expect(pill()).toBeNull();
+        move(500);
+        move(600);
+        act(() => host.querySelector<HTMLButtonElement>('.new-message-bottom')!.click());
+        expect(pill()).toBeNull();
+        expect(read).toHaveBeenCalledWith(conversation);
+        move(500);
+        settings.value = { showScrollToBottomButton: false };
+        render({ messages: [first, { ...first, id: 'new' }] });
+        expect(pill()?.textContent).toContain('1条新消息');
+        move(400);
+        expect(pill()?.textContent).toContain('1条新消息');
+        render({ conversation: { ...conversation, id: 'other' } });
+        expect(pill()).toBeNull();
+      } finally {
+        act(() => root.unmount());
+        host.remove();
+      }
+    },
+  );
   it('已排队的贴底补偿不能覆盖用户刚刚向上滚动的位置', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
@@ -184,7 +266,7 @@ describe('新消息按钮已读行为', () => {
       act(() => root.render(createElement(ChatPane, { ...props, messages: [first, next] })));
       const button = host.querySelector<HTMLButtonElement>('.new-message-bottom');
       if (!atLatest) {
-        expect(button).toBeNull();
+        expect(button?.textContent).not.toContain('条新消息');
         expect(read).not.toHaveBeenCalled();
         return;
       }
@@ -291,6 +373,22 @@ describe('新消息按钮已读行为', () => {
         root.render(createElement(ChatPane, { ...props, latestMessageSeq: '9007199254740993' })),
       );
       expect(host.querySelector('.new-message-pill')).toBeNull();
+      const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+      Object.defineProperties(scroll, {
+        scrollHeight: { configurable: true, value: 1200 },
+        clientHeight: { configurable: true, value: 400 },
+      });
+      act(() => {
+        scroll.scrollTop = 800;
+        scroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+      });
+      // 历史页末尾仍不是会话底部；没有新消息时也能回最新窗口，失败保留入口。
+      expect(host.querySelector('.new-message-bottom')).not.toBeNull();
+      await act(async () => host.querySelector<HTMLButtonElement>('.new-message-bottom')!.click());
+      expect(jump).toHaveBeenCalledOnce();
+      expect(host.querySelector('.new-message-bottom')).not.toBeNull();
+      expect(read).not.toHaveBeenCalled();
+      jump.mockClear();
       act(() =>
         root.render(createElement(ChatPane, { ...props, latestMessageSeq: '9007199254740995' })),
       );

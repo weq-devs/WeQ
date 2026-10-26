@@ -24,6 +24,7 @@ import { displayUserName } from './user';
 import { cn } from './classNames';
 import { formatShortDate } from './format';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
+import { useTabActive } from '../../components/RetainedTabs';
 import '../../styles/conversation-actions.css';
 import '../../styles/group-sidebar-sections.css';
 
@@ -35,6 +36,7 @@ export function GroupInfoPanel({
   onLoadMoreMembers,
   loadingMoreMembers,
   loadingError,
+  onRetryMembers,
   memberSearch,
   onMemberSearchChange,
   onLoadMoreSearch,
@@ -56,6 +58,7 @@ export function GroupInfoPanel({
   onLoadMoreMembers?: () => void;
   loadingMoreMembers?: boolean;
   loadingError?: string | null;
+  onRetryMembers?: () => void;
   /**
    * 群内成员搜索状态（服务端搜全群，见 useGroupMemberSearch）。为空时退化为
    * 只在已加载的成员分页里过滤。
@@ -89,6 +92,7 @@ export function GroupInfoPanel({
   onOpenSign?: () => void;
   onClose?: () => void;
 }) {
+  const active = useTabActive();
   const memberListRef = useRef<HTMLDivElement | null>(null);
   const group = conversation.group;
   const announcement =
@@ -125,7 +129,7 @@ export function GroupInfoPanel({
   const fetchingMore = searching ? Boolean(memberSearch?.loadingMore) : Boolean(loadingMoreMembers);
 
   const requestMoreNearBottom = useCallback(() => {
-    if (hidden) return;
+    if (hidden || !active) return;
     const list = memberListRef.current;
     if (!list) return;
     const distanceToBottom = list.scrollHeight - list.clientHeight - list.scrollTop;
@@ -135,16 +139,16 @@ export function GroupInfoPanel({
       return;
     }
     onLoadMoreMembers?.();
-  }, [hidden, searching, memberSearch?.hasMore, onLoadMoreSearch, onLoadMoreMembers]);
+  }, [hidden, active, searching, memberSearch?.hasMore, onLoadMoreSearch, onLoadMoreMembers]);
 
   // 列表比容器短时没有滚动事件，只能渲染后自己探一次底部；搜索把列表变短
   // （甚至空）时同样要重跑，否则「加载更多」永远不会被触发。
   useEffect(() => {
     const list = memberListRef.current;
-    if (!list || hidden) return undefined;
+    if (!list || hidden || !active) return undefined;
     const frame = window.requestAnimationFrame(requestMoreNearBottom);
     return () => window.cancelAnimationFrame(frame);
-  }, [hidden, rows.length, searching, requestMoreNearBottom]);
+  }, [hidden, active, rows.length, searching, requestMoreNearBottom]);
 
   return (
     <aside
@@ -190,7 +194,14 @@ export function GroupInfoPanel({
                 onClick={() => onOpenDetail?.('profile')}
               >
                 <span>{label}</span>
-                <strong>{value}</strong>
+                <strong
+                  data-privacy-sensitive={
+                    ['群名称', '群号', '群简介', '群备注', '群地点', '入群问题'].includes(label) ||
+                    undefined
+                  }
+                >
+                  {value}
+                </strong>
               </button>
             ))
           ) : profileLoading ? (
@@ -209,7 +220,11 @@ export function GroupInfoPanel({
               <ChevronRight size={14} />
             </span>
           </button>
-          <p tabIndex={0} aria-label="公告内容">
+          <p
+            tabIndex={0}
+            aria-label="公告内容"
+            data-privacy-sensitive={Boolean(announcement) || undefined}
+          >
             {announcement || '暂无群公告'}
           </p>
         </section>
@@ -360,7 +375,14 @@ export function GroupInfoPanel({
             </div>
           ) : null}
           {activeError ? (
-            <div className={cn('group-info-member-error')}>加载失败：{activeError}</div>
+            <div className={cn('group-info-member-error')}>
+              加载失败：{activeError}
+              {!searching && onRetryMembers ? (
+                <button type="button" disabled={fetching} onClick={onRetryMembers}>
+                  重新加载
+                </button>
+              ) : null}
+            </div>
           ) : fetching && rows.length === 0 ? (
             <GroupMembersSkeleton rows={8} />
           ) : fetchingMore ? (

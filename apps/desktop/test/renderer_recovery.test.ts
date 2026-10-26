@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import { createRendererRecovery } from '../src/main/renderer_recovery';
 

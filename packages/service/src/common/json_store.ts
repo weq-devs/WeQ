@@ -4,10 +4,9 @@
  * `existsSync → readFileSync → JSON.parse → try/catch 回落`）。
  *
  * 统一约定（与既有各 store 的行为逐一对齐）：
- *  - 缺失 / 损坏 / 结构不符 → 回落到 `makeInitial()` 或 `normalize` 后的形状；读失败
- *    永远不抛。
+ *  - 缺失 → `makeInitial()`；损坏/读取失败默认回落但阻止覆盖原件，strict 模式抛错。
  *  - 写用原子写（.tmp + rename，见 {@link writeFileAtomicSync}），写完永远是一个完整
- *    文件；写失败静默 —— 持久化失败不应影响业务主流程。
+ *    文件；缓存默认宽容写失败，strict 权威数据则必须抛错阻断业务。
  *
  * 用法：
  *   - 整文件「记住一个东西」的 store：new JsonStore(filePath, makeInitial, opts)，
@@ -20,6 +19,8 @@ import { writeFileAtomicSync } from './atomic_write';
 
 /** {@link JsonStore} 的构造选项。 */
 export interface JsonStoreOptions<T> {
+  /** 权威数据：读取损坏或写盘失败必须抛错。 */
+  strict?: boolean;
   /** 读入的原始值 → 期望形状。缺省 = 原样透传（依赖调用方会校验的类型）。 */
   normalize?: (raw: unknown) => T;
   /** 落盘时 pretty-print（`JSON.stringify(data, null, 2)`）。缺省紧凑。 */
@@ -50,6 +51,7 @@ export function writeJsonFileAtomic(path: string, data: unknown, pretty = false)
  * `data` 公开可变 —— 调用方按自己的业务方法改它，改完调用 {@link save}。
  */
 export class JsonStore<T> {
+  private loadError: unknown;
   /** 当前内存态（构造时由 {@link load} 填充）。 */
   data: T;
 
@@ -61,18 +63,46 @@ export class JsonStore<T> {
     this.data = this.load();
   }
 
-  /** 原子写盘；失败静默（调用方无需 try/catch）。 */
+  /** 原子写盘；strict 模式失败抛错，损坏原件不会被覆盖。 */
   save(): void {
-    writeJsonFileAtomic(this.filePath, this.data, this.opts.pretty);
+    this.write(this.data);
+  }
+
+  /** 先持久化再发布内存态，失败不暴露未保存的变更。 */
+  replace(next: T): void {
+    this.write(next);
+    this.data = next;
+  }
+
+  private write(next: T): void {
+    if (this.loadError) {
+      if (this.opts.strict) throw this.loadError;
+      return; // 坏文件保留原件，宽容缓存也不静默覆盖。
+    }
+    if (this.opts.strict)
+      writeFileAtomicSync(
+        this.filePath,
+        this.opts.pretty ? JSON.stringify(next, null, 2) : JSON.stringify(next),
+      );
+    else writeJsonFileAtomic(this.filePath, next, this.opts.pretty);
   }
 
   private load(): T {
     const fallback = (): T => this.makeInitial();
-    const raw = readJsonFile(this.filePath);
-    if (raw === null) return fallback();
     try {
+      let raw: unknown;
+      try {
+        raw = JSON.parse(readFileSync(this.filePath, 'utf-8'));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return fallback();
+        throw error;
+      }
+      if (raw === null) throw new Error('JSON 存储内容不能为 null');
       return this.opts.normalize ? this.opts.normalize(raw) : (raw as T);
-    } catch {
+    } catch (error) {
+      this.loadError = error;
+      if (this.opts.strict)
+        throw new Error(`读取 JSON 存储失败，原件已保留：${this.filePath}`, { cause: error });
       return fallback();
     }
   }

@@ -1,11 +1,13 @@
 import type { ElectronAPI } from '@electron-toolkit/preload';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
 import type { EditUndoBridge } from '../shared/edit_menu';
+import type { LongTermAuthorizationBridge } from '../shared/long_term_authorization';
 
 declare global {
   interface Window {
     electron: ElectronAPI;
     weq: {
+      authorization: LongTermAuthorizationBridge;
       editUndo: EditUndoBridge;
       openLogDir(): Promise<boolean>;
       /** 用户选 / 拖 / 粘贴文件的绝对路径（Electron webUtils）；拿不到返回 ''。 */
@@ -56,6 +58,8 @@ declare global {
       capture: {
         window(): Promise<{ ok: boolean; error?: string }>;
       };
+      /** 通话视频上行（二进制 IPC，不经 superjson）。 */
+      callVideo: import('../shared/call_video_ipc').CallVideoBridge;
       analyticsShot: {
         /** 主进程在隐藏窗口里渲染同一张卡片、抓图、弹保存框（用户窗口全程不动）。 */
         render(payload: AnalyticsExportPayload): Promise<AnalyticsExportResult>;

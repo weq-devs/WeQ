@@ -26,6 +26,7 @@ import {
 import { requirePlatform } from './context/app_context';
 import {
   startAccountCapture,
+  isAccountCaptureCurrent,
   stopAccountCapture,
   takeAccountFrames,
   type AccountCaptureHandle,
@@ -65,7 +66,7 @@ export class OnlineVoiceTranscriber {
    * d2key → 起抓包并排空存量帧。同一个账号重复 arm 会先 disarm 旧的。
    */
   async arm(uin: string): Promise<{ pid: number; elevated: boolean; hasD2Key: boolean }> {
-    if (this.armed && this.armed.uin === uin) {
+    if (this.armed && this.armed.uin === uin && isAccountCaptureCurrent(this.armed.handle)) {
       return {
         pid: this.armed.handle.pid,
         elevated: this.armed.handle.elevated,
@@ -76,13 +77,13 @@ export class OnlineVoiceTranscriber {
     const handle = await startAccountCapture(uin);
     if (!handle.hasD2Key) {
       // 没有 d2key 就解不开 push 的密文 —— 直接停掉并报错，别让导出空等。
-      await stopAccountCapture(handle.pid);
+      await stopAccountCapture(handle.pid, handle.sessionId);
       throw new Error('未能获取该账号的会话密钥（d2key），无法解密在线转写结果');
     }
     // 排空 arm 之前网卡上已有的帧，把游标推到当前末尾。
     let cursor = 0;
     try {
-      const batch = await takeAccountFrames(handle.pid, { waitMs: 0 });
+      const batch = await takeAccountFrames(handle.pid, { waitMs: 0, sessionId: handle.sessionId });
       cursor = batch.nextCursor;
     } catch {
       cursor = 0;
@@ -103,7 +104,7 @@ export class OnlineVoiceTranscriber {
     this.armed = null;
     if (!armed) return;
     try {
-      await stopAccountCapture(armed.handle.pid);
+      await stopAccountCapture(armed.handle.pid, armed.handle.sessionId);
     } catch {
       /* best-effort */
     }
@@ -185,6 +186,7 @@ export class OnlineVoiceTranscriber {
       let batch: Awaited<ReturnType<typeof takeAccountFrames>>;
       try {
         batch = await takeAccountFrames(armed.handle.pid, {
+          sessionId: armed.handle.sessionId,
           cursor,
           waitMs: Math.min(POLL_WINDOW_MS, Math.max(0, deadline - Date.now())),
         });

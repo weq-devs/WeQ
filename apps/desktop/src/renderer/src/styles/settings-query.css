@@ -40,6 +40,24 @@
   max-width: 100%;
 }
 
+.weq-set-row:has(.weq-api-model-field) {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr);
+  align-items: center;
+}
+
+.weq-set-row:has(.weq-api-model-field) > .weq-set-row-ctrl {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+@media (max-width: 600px) {
+  .weq-set-row:has(.weq-api-model-field) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 html[data-theme='dark'] .weq-settings-query-error button {
   background: var(--weq-bg-elevated);
 }

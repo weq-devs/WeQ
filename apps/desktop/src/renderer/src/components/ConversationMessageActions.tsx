@@ -1,15 +1,24 @@
 import {
+  BarChart3,
   CirclePlus,
   CloudDownload,
-  History,
+  Download,
   ListRestart,
   ListX,
   Loader2,
+  MessageSquareText,
   Pause,
+  Users,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import type { Conversation } from '../im-template/template/types';
-import { conversationRoamingTarget } from '../lib/conversationActions';
+import {
+  conversationAnalysisTarget,
+  conversationExportSelection,
+  conversationRoamingTarget,
+} from '../lib/conversationActions';
+import { ConversationDirectoryContext } from '../lib/conversationDirectory';
+import { useRequestContentExport } from '../state/contentSelection';
 import { useTabActive } from './RetainedTabs';
 import { trpc } from '../trpc/client';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
@@ -28,6 +37,9 @@ export function ConversationMessageActions({
   onRecalled?: (conversation: Conversation) => void;
   onAdd?: (conversation: Conversation) => void;
 }) {
+  const directory = useContext(ConversationDirectoryContext);
+  const requestExport = useRequestContentExport();
+  const exportSelection = conversationExportSelection(conversation);
   const target = conversationRoamingTarget(conversation);
   const active = useTabActive();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -63,6 +75,37 @@ export function ConversationMessageActions({
           ? '已暂停'
           : undefined;
   const actions = [
+    ...(directory?.onAnalyze && conversationAnalysisTarget(conversation)
+      ? [
+          {
+            label: '分析',
+            icon: <BarChart3 size={16} />,
+            action: () => directory.onAnalyze?.(conversation),
+          },
+        ]
+      : []),
+    ...(requestExport && exportSelection
+      ? [
+          {
+            label: '导出',
+            icon: <Download size={16} />,
+            action: () => requestExport(exportSelection),
+          },
+        ]
+      : []),
+    ...(requestExport && conversation.type === 'group' && target
+      ? [
+          {
+            label: '导出名单',
+            icon: <Users size={16} />,
+            action: () =>
+              requestExport({
+                owner: { kind: 'contacts', container: `group:${conversation.group.id}` },
+                scope: { type: 'all' },
+              }),
+          },
+        ]
+      : []),
     ...(target && onRoaming
       ? [
           {
@@ -119,7 +162,7 @@ export function ConversationMessageActions({
           }
         }}
       >
-        {running ? <Loader2 size={18} /> : <History size={18} />}
+        {running ? <Loader2 size={18} /> : <MessageSquareText size={18} />}
         {job?.status === 'paused' || job?.status === 'pausing' ? (
           <span className="weq-roaming-paused-indicator" aria-hidden="true">
             <Pause size={9} strokeWidth={3} />

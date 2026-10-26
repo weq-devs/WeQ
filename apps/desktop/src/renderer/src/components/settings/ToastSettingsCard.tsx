@@ -8,10 +8,13 @@ import {
 import { trpc } from '../../trpc/client';
 import { useToast } from '../Toast';
 import { Card, Row } from './controls';
+import { useTabActive } from '../RetainedTabs';
 import '../../styles/notification-settings.css';
 
 export function ToastSettingsCard() {
+  const active = useTabActive();
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     staleTime: 0,
     refetchOnMount: 'always',
   });
@@ -19,7 +22,7 @@ export function ToastSettingsCard() {
   const utils = trpc.useUtils();
   const saved = settings.data?.toastDurations ?? DEFAULT_TOAST_DURATIONS;
   return (
-    <Card title="通知" icon={<Bell size={15} />}>
+    <Card title="应用内横幅提醒" icon={<Bell size={15} />}>
       <DurationRow
         key="success"
         kind="success"

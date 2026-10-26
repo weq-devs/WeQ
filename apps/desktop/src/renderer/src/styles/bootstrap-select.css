@@ -385,3 +385,656 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
     transition: none;
   }
 }
+
+/* 账号工作区：账号与打开动作是主区域，环境信息按需展开。 */
+.weq-select.weq-account-workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  letter-spacing: 0;
+  overflow: hidden;
+}
+.weq-account-workspace .weq-account-head {
+  gap: 18px;
+  padding: 36px 24px 14px;
+}
+.weq-account-workspace .weq-account-head h1 {
+  font-size: 17px;
+}
+.weq-account-workspace .weq-account-content {
+  flex: 0 1 auto;
+  width: min(100%, 460px);
+  padding: 12px 24px 20px;
+  gap: 16px;
+}
+.weq-account-workspace[data-mode='new'] .weq-account-content,
+.weq-account-workspace[data-mode='backup'] .weq-account-content {
+  flex: 1;
+}
+.weq-account-workspace .weq-account-tabs {
+  gap: 0;
+  justify-content: space-between;
+}
+.weq-account-workspace .weq-account-tabs button {
+  font-size: 13px;
+  gap: 5px;
+}
+.weq-account-workspace .weq-account-grid {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 0;
+  gap: 20px;
+}
+.weq-account-workspace .weq-account-detail {
+  order: -1;
+  border: none;
+  padding: 8px 0 0;
+}
+.weq-account-workspace .weq-login-panel {
+  max-width: none;
+  gap: 12px;
+}
+.weq-account-workspace .weq-open-identity {
+  flex-direction: column;
+  gap: 10px;
+  text-align: center;
+}
+.weq-account-workspace .weq-open-identity > :is(img, .weq-avatar-fallback) {
+  width: 76px !important;
+  height: 76px !important;
+}
+.weq-account-workspace .weq-open-identity h2 {
+  margin-bottom: 4px;
+  font-size: 19px;
+}
+.weq-account-workspace .weq-open-state {
+  display: none;
+}
+.weq-account-workspace .weq-open-path {
+  max-height: 40px;
+  overflow-y: auto;
+  text-align: center;
+}
+.weq-account-workspace .weq-account-accounts {
+  padding: 12px 0 0;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-account-workspace .weq-account-section-head {
+  padding: 0 0 8px 4px;
+}
+.weq-account-workspace .weq-account-list {
+  max-height: 152px;
+}
+.weq-account-workspace .weq-account-select {
+  padding: 10px 8px;
+  gap: 10px;
+}
+.weq-account-workspace .weq-account-time {
+  font-size: 11px;
+}
+.weq-account-workspace .weq-account-empty {
+  min-height: 100px;
+}
+.weq-account-workspace .weq-account-detail-empty {
+  min-height: 160px;
+}
+.weq-account-workspace .weq-key-details summary {
+  padding-block: 10px;
+}
+.weq-account-workspace .weq-account-import {
+  padding-top: 12px;
+}
+@media (min-width: 681px) {
+  .weq-account-workspace .weq-account-head {
+    padding-left: max(24px, calc((100vw - 412px) / 2));
+  }
+}
+.weq-account-head {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 24px;
+  width: 100%;
+  padding: 28px 100px 20px 32px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  -webkit-app-region: drag;
+}
+.weq-account-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--weq-fg-primary);
+  font-size: 21px;
+  font-weight: 650;
+}
+.weq-account-brand img {
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.weq-account-head h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.weq-account-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 24px;
+  width: min(100%, 1040px);
+  margin: 0 auto;
+  padding: 20px 32px 24px;
+  min-height: 0;
+}
+.weq-account-tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 24px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-account-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 2px 12px;
+  border-bottom: 2px solid transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 14px;
+  white-space: nowrap;
+}
+.weq-account-tabs button[aria-selected='true'] {
+  color: var(--weq-accent-ink);
+  border-bottom-color: var(--weq-accent-ink);
+}
+.weq-account-tabs button:hover:not(:disabled) {
+  color: var(--weq-fg-primary);
+}
+.weq-account-tabs svg {
+  flex-shrink: 0;
+}
+.weq-account-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  flex: 1;
+  min-height: 280px;
+}
+.weq-account-accounts {
+  min-width: 0;
+  padding-right: 28px;
+}
+.weq-account-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 0 12px 12px;
+}
+.weq-account-section-head h2 {
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+.weq-account-accounts .weq-account-list {
+  max-height: max(280px, calc(100dvh - 260px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px;
+}
+.weq-account-detail {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 18px 0 18px 32px;
+  border-left: 1px solid var(--weq-border-subtle);
+}
+.weq-account-workspace .weq-login-panel {
+  flex: 1;
+  min-width: 0;
+  max-width: 380px;
+  justify-content: flex-start;
+  gap: 18px;
+  margin: 0 auto;
+}
+.weq-open-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+.weq-open-identity > :is(img, .weq-avatar-fallback) {
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+.weq-open-identity > div {
+  min-width: 0;
+}
+.weq-open-identity h2 {
+  margin: 0 0 6px;
+  color: var(--weq-fg-primary);
+  font-size: 20px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.weq-open-identity span {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-open-path {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.weq-open-state {
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+}
+.weq-account-workspace .weq-login-status {
+  align-self: flex-start;
+  line-height: 1.6;
+  color: var(--weq-accent-ink);
+}
+html[data-theme] .weq-select.weq-account-workspace .weq-action-primary {
+  color: var(--weq-accent-solid-foreground);
+  background: var(--weq-accent-solid);
+  border-color: var(--weq-accent-solid);
+}
+html[data-theme] .weq-select.weq-account-workspace .weq-action-primary:hover:not(:disabled) {
+  color: var(--weq-accent-solid-foreground);
+  background: var(--weq-accent-solid-hover);
+  border-color: var(--weq-accent-solid-hover);
+}
+html[data-theme] .weq-select.weq-account-workspace .weq-action-primary:disabled {
+  color: var(--weq-fg-secondary);
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+.weq-open-primary {
+  width: 100%;
+  min-height: 44px;
+  font-size: 14px;
+  border-radius: 6px;
+}
+.weq-account-workspace .weq-auto-enter {
+  padding: 0;
+  min-height: 24px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  line-height: 1.5;
+}
+.weq-account-workspace .weq-auto-enter:hover,
+.weq-account-workspace .weq-auto-enter:has(input:checked) {
+  color: var(--weq-fg-primary);
+  background: transparent;
+}
+.weq-account-workspace .weq-auto-enter input:checked {
+  background: var(--weq-accent-solid);
+  border-color: var(--weq-accent-solid);
+}
+.weq-account-workspace .weq-auto-enter input:checked::after {
+  border-color: var(--weq-accent-solid-foreground);
+}
+.weq-key-details {
+  min-width: 0;
+  border-top: 1px solid var(--weq-border-subtle);
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-key-details summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.weq-key-details summary::-webkit-details-marker {
+  display: none;
+}
+.weq-key-details summary > span {
+  flex: 1;
+}
+.weq-key-details[open] summary > svg:last-child {
+  transform: rotate(180deg);
+}
+.weq-key-details > .weq-keyfield {
+  display: block;
+  margin-bottom: 12px;
+}
+.weq-key-details > button {
+  margin-bottom: 12px;
+}
+.weq-open-qr {
+  width: 100%;
+  min-height: 38px;
+}
+.weq-open-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  color: var(--weq-list-alert-ink);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.weq-account-empty,
+.weq-account-detail-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-height: 220px;
+  width: 100%;
+  padding: 16px;
+  color: var(--weq-fg-secondary);
+  text-align: center;
+  font-size: 13px;
+}
+.weq-account-empty h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.weq-account-detail-empty img {
+  object-fit: contain;
+}
+.weq-account-import {
+  flex: 1;
+  width: min(100%, 620px);
+  margin: 0 auto;
+}
+.weq-account-workspace .weq-static-backup {
+  gap: 20px;
+  overflow: visible;
+}
+.weq-account-workspace .weq-static-backup-head {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 16px;
+  padding: 0;
+}
+.weq-account-workspace .weq-static-backup-head :is(img, .weq-static-backup-avatar-wrap > img) {
+  width: 56px !important;
+  height: 56px !important;
+  padding: 0;
+  border: none;
+  box-shadow: none;
+}
+.weq-account-workspace .weq-static-backup-title {
+  font-size: 18px;
+  max-height: 72px;
+  overflow-y: auto;
+}
+.weq-account-workspace .weq-static-badge.is-lg {
+  width: 22px;
+  height: 22px;
+  right: -3px;
+  bottom: -3px;
+}
+.weq-account-workspace .weq-static-input {
+  border-radius: 6px;
+}
+.weq-account-diagnostics {
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+}
+.weq-select.weq-account-diagnostics {
+  padding: 0;
+}
+.weq-account-diagnostics .weq-dialog-head,
+.weq-key-recovery .weq-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+}
+.weq-login-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.weq-account-workspace .weq-login-options .weq-auto-enter {
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.weq-account-workspace .weq-login-options input {
+  flex-shrink: 0;
+}
+.weq-account-workspace .weq-account-grid {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+.weq-account-workspace .weq-account-detail {
+  flex-shrink: 0;
+}
+.weq-account-workspace .weq-account-accounts {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.weq-account-workspace .weq-account-section-head,
+.weq-account-workspace .weq-account-actions {
+  flex-shrink: 0;
+}
+.weq-account-workspace .weq-account-list {
+  min-height: 0;
+}
+.weq-account-workspace .weq-account-import {
+  min-height: 0;
+  overflow-y: auto;
+}
+.weq-diagnostics-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  width: 100%;
+  padding: 12px 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  text-align: left;
+}
+.weq-diagnostics-trigger span {
+  flex: 1;
+}
+.weq-diagnostics-trigger[aria-expanded='true'] > svg:last-child {
+  transform: rotate(180deg);
+}
+.weq-account-diagnostics .weq-stats {
+  height: auto;
+  overflow: visible;
+  padding: 0 20px 20px;
+}
+.weq-account-diagnostics .weq-stats-head {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0 0 8px;
+}
+.weq-account-diagnostics .weq-stats-version {
+  font-size: 18px;
+}
+.weq-account-diagnostics .weq-stats-logo {
+  width: 36px;
+  height: 36px;
+}
+.weq-account-diagnostics .weq-bignum {
+  border-radius: 6px;
+  box-shadow: none;
+}
+.weq-account-diagnostics .weq-bignum-v {
+  font-size: 20px;
+}
+.weq-account-diagnostics .weq-chart {
+  border: none;
+  border-radius: 0;
+  padding: 8px 0;
+  background: transparent;
+  box-shadow: none;
+}
+.weq-account-workspace :is(button, summary, input):focus-visible {
+  outline: 2px solid var(--weq-accent-ink);
+  outline-offset: 2px;
+}
+.weq-account-workspace button:disabled {
+  cursor: default;
+}
+.weq-account-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-account-return {
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: auto;
+}
+.weq-account-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+}
+.weq-account-actions button:hover:not(:disabled) {
+  color: var(--weq-accent-ink);
+}
+.weq-account-workspace .weq-login-panel {
+  gap: 12px;
+}
+.weq-select.weq-account-workspace .weq-account-head {
+  padding-top: 32px;
+  padding-bottom: 8px;
+}
+.weq-select.weq-account-workspace .weq-account-content {
+  gap: 12px;
+  padding-bottom: 12px;
+}
+.weq-select.weq-account-workspace .weq-account-list {
+  max-height: none;
+}
+.weq-select.weq-account-workspace .weq-account-grid {
+  gap: 16px;
+}
+.weq-open-identity {
+  position: relative;
+}
+.weq-open-key-button {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+.weq-key-recovery-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 20px 20px;
+}
+.weq-key-recovery .weq-keyfield {
+  display: block;
+}
+.weq-key-recovery .weq-keyfield-input {
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-elevated);
+  border-color: var(--weq-border-strong);
+}
+.weq-key-recovery .weq-keyfield-text {
+  color: var(--weq-fg-primary);
+}
+.weq-key-recovery .weq-keyfield-text::placeholder {
+  color: var(--weq-fg-secondary);
+}
+.weq-key-recovery .weq-keyfield-icon,
+.weq-key-recovery .weq-keyfield-lead {
+  color: var(--weq-fg-secondary);
+}
+.weq-key-recovery .weq-keyfield-icon:hover:not(:disabled) {
+  color: var(--weq-accent-ink);
+}
+html[data-theme='dark'] .weq-account-workspace .weq-keyfield-input {
+  background: var(--weq-bg-elevated);
+}
+html[data-theme='dark'] .weq-account-workspace .weq-account-diagnostics .weq-stats-head {
+  background: transparent;
+}
+@media (max-width: 680px) {
+  .weq-account-head {
+    gap: 18px;
+    padding: 52px 20px 16px;
+  }
+  .weq-account-head h1 {
+    font-size: 18px;
+  }
+  .weq-account-content {
+    padding: 12px 16px 20px;
+    gap: 20px;
+  }
+  .weq-account-tabs {
+    gap: 0;
+    justify-content: space-between;
+  }
+  .weq-account-tabs button {
+    font-size: 13px;
+    gap: 5px;
+  }
+  .weq-account-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .weq-account-accounts {
+    padding: 0 0 20px;
+  }
+  .weq-account-accounts .weq-account-list {
+    max-height: 264px;
+  }
+  .weq-account-detail {
+    padding: 24px 4px 4px;
+    border-left: none;
+    border-top: 1px solid var(--weq-border-subtle);
+  }
+  .weq-account-detail-empty {
+    min-height: 160px;
+  }
+  .weq-account-workspace .weq-login-panel {
+    flex: 1;
+  }
+}
+
+@media (max-height: 560px) {
+  .weq-account-workspace .weq-open-identity > :is(img, .weq-avatar-fallback) {
+    width: 48px !important;
+    height: 48px !important;
+  }
+  .weq-account-workspace .weq-open-identity {
+    flex-direction: row;
+    gap: 12px;
+    padding-right: 40px;
+    text-align: left;
+  }
+  .weq-account-workspace .weq-open-identity h2 {
+    font-size: 17px;
+  }
+  .weq-account-workspace .weq-login-panel {
+    gap: 8px;
+  }
+}

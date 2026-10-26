@@ -12,11 +12,20 @@ interface Upload {
   expires: number;
   busy: boolean;
 }
-/** Web 本地文件分段暂存；大小只受实际磁盘空间约束，不把整个视频放进内存。 */
-export class AlbumVideoStaging {
+/** Web 本地文件分段暂存；保留调用方大小限制并逐段核实磁盘空间。 */
+export class FileUploadStaging {
   private uploads = new Map<string, Upload>();
   private timer: ReturnType<typeof setTimeout> | null = null;
-  constructor(private readonly ttlMs = 30 * 60000) {}
+  constructor(
+    private readonly ttlMs = 30 * 60000,
+    private readonly options = {
+      label: '视频',
+      minBytes: 16,
+      maxBytes: Number.MAX_SAFE_INTEGER,
+      prefix: 'weq-album-video-',
+      fileName: 'video.mp4',
+    },
+  ) {}
   private schedule() {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
@@ -35,14 +44,15 @@ export class AlbumVideoStaging {
     this.timer.unref?.();
   }
   async start(owner: object, size: number) {
-    if (!Number.isSafeInteger(size) || size < 16) throw new Error('视频文件大小无效');
+    if (!Number.isSafeInteger(size) || size < this.options.minBytes || size > this.options.maxBytes)
+      throw new Error(`${this.options.label}文件大小无效`);
     await this.cleanup();
-    if (this.uploads.size >= 16) throw new Error('请先完成或取消现有的视频上传');
+    if (this.uploads.size >= 16) throw new Error(`请先完成或取消现有的${this.options.label}上传`);
     const space = await statfs(tmpdir(), { bigint: true });
     if (BigInt(size) + 64n * 1024n * 1024n >= space.bavail * space.bsize)
-      throw new Error('宿主临时卷可用空间不足，无法暂存此视频');
-    const directory = await mkdtemp(join(tmpdir(), 'weq-album-video-'));
-    const path = join(directory, 'video.mp4');
+      throw new Error(`宿主临时卷可用空间不足，无法暂存${this.options.label}`);
+    const directory = await mkdtemp(join(tmpdir(), this.options.prefix));
+    const path = join(directory, this.options.fileName);
     try {
       const handle = await open(path, 'wx', 0o600);
       await handle.close();
@@ -66,8 +76,8 @@ export class AlbumVideoStaging {
   private entry(owner: object, id: string) {
     const entry = this.uploads.get(id);
     if (!entry || entry.owner !== owner || entry.expires < Date.now())
-      throw new Error('视频暂存会话已失效，请重新选择');
-    if (entry.busy) throw new Error('视频暂存正在处理，请勿重复提交');
+      throw new Error(`${this.options.label}暂存会话已失效，请重新选择`);
+    if (entry.busy) throw new Error(`${this.options.label}暂存正在处理，请勿重复提交`);
     return entry;
   }
   async append(owner: object, id: string, offset: number, bytes: Uint8Array) {
@@ -78,7 +88,7 @@ export class AlbumVideoStaging {
       bytes.length > 1024 * 1024 ||
       offset + bytes.length > entry.size
     )
-      throw new Error('视频分段偏移或长度不匹配');
+      throw new Error(`${this.options.label}分段偏移或长度不匹配`);
     entry.busy = true;
     try {
       const space = await statfs(entry.directory, { bigint: true });
@@ -94,7 +104,7 @@ export class AlbumVideoStaging {
             bytes.length - written,
             offset + written,
           );
-          if (!result.bytesWritten) throw new Error('视频暂存写入中断');
+          if (!result.bytesWritten) throw new Error(`${this.options.label}暂存写入中断`);
           written += result.bytesWritten;
         }
       } finally {
@@ -110,7 +120,7 @@ export class AlbumVideoStaging {
   }
   acquire(owner: object, id: string) {
     const entry = this.entry(owner, id);
-    if (entry.offset !== entry.size) throw new Error('视频文件尚未传输完整');
+    if (entry.offset !== entry.size) throw new Error(`${this.options.label}文件尚未传输完整`);
     entry.busy = true;
     this.schedule();
     return entry.path;
@@ -118,7 +128,7 @@ export class AlbumVideoStaging {
   async discard(owner: object, id: string, acquired = false) {
     const entry = this.uploads.get(id);
     if (!entry || entry.owner !== owner) return;
-    if (entry.busy && !acquired) throw new Error('视频正在上传，暂不能删除');
+    if (entry.busy && !acquired) throw new Error(`${this.options.label}正在上传，暂不能删除`);
     entry.busy = true;
     try {
       await rm(entry.directory, { recursive: true, force: true });
@@ -134,3 +144,5 @@ export class AlbumVideoStaging {
     this.schedule();
   }
 }
+
+export { FileUploadStaging as AlbumVideoStaging };

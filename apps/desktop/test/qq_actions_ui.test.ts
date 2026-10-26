@@ -210,6 +210,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         getAccountConfig: {
           useQuery: () => ({ data: { uin: '10001', configId: state.configId } }),
         },
+        getProfile: { useQuery: () => ({ data: null }) },
         qqActions: Object.fromEntries(
           reads.map((name) => [
             name,
@@ -684,8 +685,6 @@ describe('QQ 主动操作的实际界面', () => {
         view: 'contacts',
         query: '',
         onQueryChange: vi.fn(),
-        onQuickInvite: vi.fn(),
-        onCreateGroup: vi.fn(),
         onOpenProfile: vi.fn(),
         onOpenFriendNotices: vi.fn(),
         onOpenGroupNotices: vi.fn(),

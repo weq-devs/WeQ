@@ -7,7 +7,6 @@ import {
   Pin,
   MailOpen,
   Mail,
-  ListChecks,
   EyeOff,
   MessageSquare,
   Users,
@@ -40,6 +39,9 @@ import {
 } from 'react';
 import { conversationPinned } from '@weq/service/conversation-order';
 import { sortConversationRows } from '../../lib/conversationListOrder';
+import { formatConversationTime } from '../../lib/conversationTime';
+export { formatConversationTime } from '../../lib/conversationTime';
+import { useConversationClickTarget } from '../../hooks/useConversationClickTarget';
 import {
   ConversationDirectoryContext,
   ContactDirectoryContext,
@@ -54,13 +56,17 @@ import {
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { sidebarConversationsWithoutAssistant } from '../../lib/groupAssistant';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
-import { ConversationSelectionToolbar } from '../../components/ConversationSelectionToolbar';
+import { ConversationBatchToolbar } from '../../components/ConversationBatchToolbar';
 import { useConversationBatchActions } from '../../components/useConversationBatchActions';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { FriendConversationActionsMenu } from '../../components/FriendConversationActionsMenu';
 import { useFriendDirectory } from '../../components/FriendDirectoryControls';
 import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
-import { allSelectionIdsSelected, toggleAllSelectionIds } from '../../lib/multiSelection';
+import {
+  allSelectionIdsSelected,
+  toggleAllSelectionIds,
+  invertSelectionIds,
+} from '../../lib/multiSelection';
 import { WindowedList } from '../../components/WindowedList';
 import '../../styles/conversation-directory.css';
 import { cn } from './classNames';
@@ -187,11 +193,14 @@ export function ConversationList({
     y: number;
   } | null>(null);
   const [keyword, setKeyword] = useState('');
-  const [scope, setScope] = useState<ConversationScope>('all');
+  const [localScope, setLocalScope] = useState<ConversationScope>('all');
+  const scope = directory?.scope ?? localScope;
+  const setScope = directory?.onScopeChange ?? setLocalScope;
   const [scopeOpen, setScopeOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [lookupOpen, setLookupOpen] = useState<QQExactLookupKind | null>(null);
   const [selectingAll, setSelectingAll] = useState(false);
+  const invertFrom = useRef<Set<string> | null>(null);
   const createMenuRef = useRef<HTMLDivElement>(null);
   const createTriggerRef = useRef<HTMLButtonElement>(null);
   const { selectionMode, selectedIds, setSelectedIds, setSelectionMode, anchorRef } =
@@ -214,7 +223,7 @@ export function ConversationList({
     const isGuild = (row: Conversation) =>
       row.type === 'merged' && row.mergedKind === 'guildDirect';
     const realRows = real.filter((row) => !isGuild(row));
-    const guildRows = real.filter(isGuild);
+    const guildRows = scope === 'guild' ? (directory?.guild ?? []) : real.filter(isGuild);
     const virtualRows = (directory?.virtual ?? []).map(virtualConversationRow);
     const rows = [
       ...(scope === 'all' || scope === 'real' ? realRows : []),
@@ -238,9 +247,22 @@ export function ConversationList({
     directory?.virtual,
     directory?.real,
     directory?.groupAssistantIds,
+    directory?.guild,
     keyword,
     scope,
   ]);
+  const selectConversation = (id: string, event: React.MouseEvent) => {
+    if (!filtered.some((row) => row.id === id)) return;
+    const virtual = directory?.virtual.find((item) => item.id === id);
+    if (virtual) directory.onVirtual(virtual);
+    else onSelect(id, event);
+  };
+  const clickTargetProps = useConversationClickTarget({
+    rows: filtered,
+    enabled: !selectionMode,
+    resetKey: `${scope}:${keyword}`,
+    onSelect: selectConversation,
+  });
   const assistantIds = useMemo(
     () =>
       (directory?.real ?? conversations)
@@ -263,6 +285,7 @@ export function ConversationList({
   if (assistantSelected) rowSelectedIds.add('merged:group-assistant');
   const allSelected = allSelectionIdsSelected(filteredIds, selectedIds);
   const toggleAll = () => {
+    invertFrom.current = null;
     if (selectingAll) {
       setSelectingAll(false);
       return;
@@ -278,11 +301,18 @@ export function ConversationList({
   useEffect(() => {
     if (!selectingAll) return;
     if (!selectionMode || directory?.loadingError) {
+      invertFrom.current = null;
       setSelectingAll(false);
       return;
     }
     if (!hasMore && !loadingMore && !loading) {
-      setSelectedIds((current) => new Set([...current, ...filteredIds]));
+      const original = invertFrom.current;
+      setSelectedIds((current) =>
+        original
+          ? invertSelectionIds(filteredIds, original)
+          : new Set([...current, ...filteredIds]),
+      );
+      invertFrom.current = null;
       setSelectingAll(false);
     } else if (hasMore && !loadingMore) onLoadMore?.();
   }, [
@@ -301,6 +331,7 @@ export function ConversationList({
     ids: filtered.map((item) => item.id),
     selected: rowSelectedIds,
     onChange: (ids) => {
+      invertFrom.current = null;
       if ((hasMore || loading) && filtered.every((row) => ids.has(row.id))) {
         setSelectingAll(true);
         onLoadMore?.();
@@ -317,29 +348,6 @@ export function ConversationList({
     onStart: () => setSelectionMode(true),
     onExit: () => setSelectionMode(false),
   });
-  const exportReason = selectingAll
-    ? '正在补齐全选'
-    : !selectedIds.size
-      ? '请先选择会话'
-      : !requestExport
-        ? '当前无法导出会话'
-        : undefined;
-  const roamingReason = selectingAll
-    ? '正在补齐全选'
-    : !selectedIds.size
-      ? '请先选择会话'
-      : !directory?.onRoaming
-        ? '当前无法拉取漫游消息'
-        : undefined;
-  const readStateReason = selectingAll
-    ? '正在补齐全选'
-    : directory?.readStateBusy
-      ? '正在更新标记'
-      : !selectedIds.size
-        ? '请先选择会话'
-        : selectedIds.size > 4096
-          ? '一次最多标记 4096 个会话'
-          : undefined;
 
   const locateId = directory?.locate?.id;
   const locateRevision = directory?.locate?.revision;
@@ -347,7 +355,7 @@ export function ConversationList({
     if (!locateId) return;
     setKeyword('');
     setScope('all');
-  }, [locateId, locateRevision]);
+  }, [locateId, locateRevision, setScope]);
   useLayoutEffect(() => {
     const measure = () => {
       if (!viewportRef.current) return;
@@ -410,11 +418,18 @@ export function ConversationList({
         query={keyword}
         onQuery={setKeyword}
         selecting={selectionMode}
-        separateSelectionBar
         onSelecting={setSelectionMode}
         count={selectedIds.size}
         allSelected={allSelected}
         onSelectAll={toggleAll}
+        selectingAll={selectingAll}
+        onInvert={() => {
+          if (hasMore || loading) {
+            invertFrom.current = new Set(selectedIds);
+            setSelectingAll(true);
+            onLoadMore?.();
+          } else setSelectedIds(invertSelectionIds(filteredIds, selectedIds));
+        }}
       >
         <div className="weq-directory-scope" ref={menuRef}>
           <button
@@ -556,7 +571,7 @@ export function ConversationList({
       {!loading && !filtered.length ? (
         <EmptyState title="暂无会话" body="" icon={<MessageSquare />} />
       ) : null}
-      <div className="weq-conversation-viewport" ref={viewportRef}>
+      <div className="weq-conversation-viewport" ref={viewportRef} {...clickTargetProps}>
         <WindowedList
           items={filtered}
           rowHeight={rowHeight}
@@ -658,11 +673,7 @@ export function ConversationList({
                     y: rect.top + 20,
                   });
                 }}
-                onClick={(e) => {
-                  const virtual = directory?.virtual.find((item) => item.id === conversation.id);
-                  if (virtual) directory.onVirtual(virtual);
-                  else onSelect(conversation.id, e);
-                }}
+                onClick={(e) => selectConversation(conversation.id, e)}
               >
                 {conversation.type === 'merged' ? (
                   <span className={cn('avatar', 'has-default', 'merged-avatar')}>
@@ -792,31 +803,10 @@ export function ConversationList({
       </div>
       {hasMore ? <ConversationListLoadMore loading={loadingMore} onLoadMore={onLoadMore} /> : null}
       {selectionMode ? (
-        <ConversationSelectionToolbar
-          count={selectedIds.size}
-          selectingAll={selectingAll}
-          assistantCount={
-            [...selectedIds].filter((id) => directory?.groupAssistantIds?.has(id)).length
-          }
-          allSelected={allSelected}
-          exportReason={exportReason}
-          roamingReason={roamingReason}
-          onSelectAll={toggleAll}
-          onExport={() => {
-            if (!exportReason) batch.runExport([...selectedIds]);
-          }}
-          onRoaming={() => {
-            if (!roamingReason) batch.runRoaming([...selectedIds]);
-          }}
-          onExit={() => setSelectionMode(false)}
-          readStateReason={readStateReason}
-          onReadState={
-            directory?.onReadState
-              ? (unread) => {
-                  if (!readStateReason) batch.runReadState([...selectedIds], unread);
-                }
-              : undefined
-          }
+        <ConversationBatchToolbar
+          conversations={conversations}
+          ids={[...selectedIds]}
+          busy={selectingAll}
         />
       ) : null}
       {actionMenu ? (
@@ -832,26 +822,17 @@ export function ConversationList({
           y={actionMenu.y}
           onClose={() => setActionMenu(null)}
           actions={(() => {
-            const markUnread = !batch.hasUnread(actionMenu.ids);
             return [
               ...(directory?.onReadState
                 ? [
-                    {
-                      label: markUnread ? '标为未读' : '标为已读',
-                      icon: markUnread ? <Mail size={16} /> : <MailOpen size={16} />,
+                    ...[false, true].map((unread) => ({
+                      label: unread ? '标为未读' : '标为已读',
+                      icon: unread ? <Mail size={16} /> : <MailOpen size={16} />,
                       disabled: directory.readStateBusy || actionMenu.ids.length > 4096,
-                      action: () => batch.runReadState(actionMenu.ids, markUnread),
-                    },
+                      action: () => batch.runReadState(actionMenu.ids, unread),
+                    })),
                   ]
                 : []),
-              {
-                label: '多选',
-                icon: <ListChecks size={16} />,
-                action: () => {
-                  setSelectionMode(true);
-                  setSelectedIds(new Set(actionMenu.ids));
-                },
-              },
               ...(directory?.onPin &&
               (actionMenu.ids.length === 1 || actionMenu.conversation.type === 'merged')
                 ? [
@@ -947,6 +928,14 @@ export function GroupList({
   loading?: boolean;
 }) {
   const directory = useContext(ContactDirectoryContext);
+  const conversationDirectory = useContext(ConversationDirectoryContext);
+  const batch = useConversationBatchActions(conversations);
+  const [actionMenu, setActionMenu] = useState<{
+    conversation: Conversation;
+    ids: string[];
+    x: number;
+    y: number;
+  } | null>(null);
   const needle = directory?.query.trim().toLocaleLowerCase() ?? '';
   const searchable = useMemo(
     () =>
@@ -1076,48 +1065,120 @@ export function GroupList({
   if (!categories.some((category) => category.items.length) && !historicalCategory.items.length)
     return <EmptyState title="暂无群聊" body="" icon={<Users />} />;
   return (
-    <div className={cn('list-stack', 'contact-cat-list')} {...multi.rootProps}>
-      <label className="weq-group-list-basis">
-        分组依据
-        <select
-          value={basis ?? 'notify'}
-          onChange={(event) => {
-            setBasis(event.target.value);
-            try {
-              localStorage.setItem('weq.groups.grouping', event.target.value);
-            } catch {
-              /* UI choice is optional. */
-            }
-          }}
-        >
-          <option value="notify">按消息提醒方式</option>
-          <option value="identity">按我的身份</option>
-          <option value="size">按群人数</option>
-        </select>
-      </label>
-      {categories.map((category) => (
+    <div className="weq-contact-directory" {...multi.rootProps}>
+      <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
+        <label className="weq-group-list-basis">
+          分组依据
+          <select
+            value={basis ?? 'notify'}
+            onChange={(event) => {
+              setBasis(event.target.value);
+              try {
+                localStorage.setItem('weq.groups.grouping', event.target.value);
+              } catch {
+                /* UI choice is optional. */
+              }
+            }}
+          >
+            <option value="notify">按消息提醒方式</option>
+            <option value="identity">按我的身份</option>
+            <option value="size">按群人数</option>
+          </select>
+        </label>
+        {categories.map((category) => (
+          <GroupNotificationSection
+            key={category.mode}
+            category={category}
+            activeConversationId={activeConversationId}
+            onSelect={onSelect}
+            selection={groupSelection}
+            multi={multi}
+            onMenu={setActionMenu}
+          />
+        ))}
         <GroupNotificationSection
-          key={category.mode}
-          category={category}
+          category={historicalCategory}
           activeConversationId={activeConversationId}
           onSelect={onSelect}
           selection={groupSelection}
           multi={multi}
+          onMenu={setActionMenu}
         />
-      ))}
-      <GroupNotificationSection
-        category={historicalCategory}
-        activeConversationId={activeConversationId}
-        onSelect={onSelect}
-        selection={groupSelection}
-        multi={multi}
-      />
+      </div>
+      {groupSelection.selectionMode ? (
+        <ConversationBatchToolbar
+          conversations={conversations}
+          ids={[...groupSelection.selectedIds]}
+        />
+      ) : null}
+      {actionMenu ? (
+        <ConversationActionsMenu
+          x={actionMenu.x}
+          y={actionMenu.y}
+          onClose={() => setActionMenu(null)}
+          actions={[
+            ...(conversationDirectory?.onReadState
+              ? [false, true].map((unread) => ({
+                  label: unread ? '标为未读' : '标为已读',
+                  icon: unread ? <Mail size={16} /> : <MailOpen size={16} />,
+                  disabled: conversationDirectory.readStateBusy || actionMenu.ids.length > 4096,
+                  action: () => batch.runReadState(actionMenu.ids, unread),
+                }))
+              : []),
+            ...(actionMenu.ids.length === 1 && conversationDirectory?.onAnalyze
+              ? [
+                  {
+                    label: '分析',
+                    icon: <BarChart3 size={16} />,
+                    action: () => conversationDirectory.onAnalyze(actionMenu.conversation),
+                  },
+                ]
+              : []),
+            ...(actionMenu.ids.length === 1 && conversationDirectory?.onEditRemark
+              ? [
+                  {
+                    label: '修改群备注',
+                    icon: <PenLine size={16} />,
+                    action: () => conversationDirectory.onEditRemark(actionMenu.conversation),
+                  },
+                ]
+              : []),
+            {
+              label: '拉取漫游消息',
+              icon: <CloudDownload size={16} />,
+              disabled: !batch.roamingAvailable,
+              action: () => batch.runRoaming(actionMenu.ids),
+            },
+            {
+              label: '导出',
+              icon: <Download size={16} />,
+              disabled: !batch.exportAvailable,
+              action: () => batch.runExport(actionMenu.ids),
+            },
+            {
+              label: '导出群成员名单',
+              icon: <Users size={16} />,
+              disabled: !batch.exportAvailable || !batch.rosterIds(actionMenu.ids).length,
+              action: () => batch.runRoster(actionMenu.ids),
+            },
+          ]}
+        />
+      ) : null}
+      {batch.confirmation}
     </div>
   );
 }
 
-function GroupNotificationSection({ category, activeConversationId, onSelect, selection, multi }) {
+function GroupNotificationSection({
+  category,
+  activeConversationId,
+  onSelect,
+  selection,
+  multi,
+  onMenu,
+}) {
   const directory = useContext(ContactDirectoryContext);
+  const conversationDirectory = useContext(ConversationDirectoryContext);
   const containsActive = category.items.some(
     (conversation) => conversation.id === activeConversationId,
   );
@@ -1159,6 +1220,32 @@ function GroupNotificationSection({ category, activeConversationId, onSelect, se
                 selection.selectionMode ? selection.selectedIds.has(conversation.id) : undefined
               }
               {...multi.itemProps(conversation.id)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                onMenu({
+                  conversation,
+                  ids:
+                    selection.selectionMode && selection.selectedIds.has(conversation.id)
+                      ? [...selection.selectedIds]
+                      : [conversation.id],
+                  x: event.clientX,
+                  y: event.clientY,
+                });
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+                event.preventDefault();
+                const rect = event.currentTarget.getBoundingClientRect();
+                onMenu({
+                  conversation,
+                  ids:
+                    selection.selectionMode && selection.selectedIds.has(conversation.id)
+                      ? [...selection.selectedIds]
+                      : [conversation.id],
+                  x: rect.left + 20,
+                  y: rect.top + 20,
+                });
+              }}
               onClick={(event) => onSelect(conversation.id, event)}
             >
               <Avatar
@@ -1178,6 +1265,19 @@ function GroupNotificationSection({ category, activeConversationId, onSelect, se
                       : '人数未读取'}
                 </span>
               </span>
+              {conversationDirectory?.showContactUnreadCount &&
+              (conversation.unreadCount ?? 0) > 0 ? (
+                <span
+                  className={unreadClass(
+                    Boolean(
+                      conversationDirectory?.preferences?.[conversation.id]?.muted ??
+                        conversation.preference?.muted,
+                    ),
+                  )}
+                >
+                  {formatBadgeCount(conversation.unreadCount)}
+                </span>
+              ) : null}
             </button>
           ))
         : null}
@@ -1227,23 +1327,37 @@ export function ContactList({
     position: 'before' | 'after' | 'inside';
   } | null>(null);
   const dragging = useRef<{ category?: number; uids?: string[] } | null>(null);
-  const conversationRows = useMemo(
+  const conversationRows = useMemo(() => {
+    const byUserId = new Map(
+      (conversationDirectory?.real ?? [])
+        .filter((row) => row.type === 'direct')
+        .map((row) => [row.otherUser.id, row]),
+    );
+    return [
+      ...contacts,
+      ...specialSections.flatMap((section) => section.items),
+      ...trailingSections.flatMap((section) => section.items),
+    ].map(
+      (contact): Conversation =>
+        byUserId.get(contact.id) ?? {
+          id: contact.id,
+          type: 'direct',
+          otherUser: contact,
+          group: null,
+          members: [],
+          updatedAt: '',
+          lastMessage: null,
+        },
+    );
+  }, [contacts, specialSections, trailingSections, conversationDirectory?.real]);
+  const conversationByContact = useMemo(
     () =>
-      contacts.map(
-        (contact): Conversation =>
-          conversationDirectory?.real?.find(
-            (row) => row.type === 'direct' && row.otherUser.id === contact.id,
-          ) ?? {
-            id: contact.id,
-            type: 'direct',
-            otherUser: contact,
-            group: null,
-            members: [],
-            updatedAt: '',
-            lastMessage: null,
-          },
+      new Map(
+        conversationRows
+          .filter((row) => row.type === 'direct')
+          .map((row) => [row.otherUser.id, row]),
       ),
-    [contacts, conversationDirectory?.real],
+    [conversationRows],
   );
   const batch = useConversationBatchActions(conversationRows);
   const selection = useContentMultiSelect({ kind: 'contacts', container: 'friends' });
@@ -1326,273 +1440,312 @@ export function ContactList({
   }
 
   return (
-    <div className={cn('list-stack', 'contact-cat-list')} {...multi.rootProps}>
-      {friendDirectory?.error && (
-        <div className="contact-cat-description" role="alert">
-          <small>好友分组读取失败：{friendDirectory.error}</small>
-          <button
-            type="button"
-            title="重新读取好友分组"
-            aria-label="重新读取好友分组"
-            onClick={friendDirectory.retry}
-          >
-            <RefreshCw size={14} />
-          </button>
-        </div>
-      )}
-      {categories.map((category) => {
-        const open = Boolean(expanded[category.id]) || Boolean(needle);
-        return (
-          <div
-            className={cn(
-              'contact-cat',
-              dragTarget?.id === category.id &&
-                dragTarget.position === 'inside' &&
-                'is-contact-drop-target',
-            )}
-            key={category.id}
-            data-drop-position={
-              dragTarget?.id === category.id && dragTarget.position !== 'inside'
-                ? dragTarget.position
-                : undefined
-            }
-            onDragOver={(event) => {
-              const source = dragging.current;
-              if (
-                typeof category.id !== 'number' ||
-                !source ||
-                !friendDirectory?.available ||
-                friendDirectory.busy ||
-                source.category === category.id
-              ) {
-                setDragTarget(null);
-                return;
-              }
-              event.preventDefault();
-              event.dataTransfer.dropEffect = 'move';
-              const rect = event.currentTarget.getBoundingClientRect();
-              setDragTarget({
-                id: category.id,
-                position:
-                  source.category === undefined
-                    ? 'inside'
-                    : event.clientY < rect.top + rect.height / 2
-                      ? 'before'
-                      : 'after',
-              });
-            }}
-            onDragLeave={(event) => {
-              if (
-                event.relatedTarget instanceof Node &&
-                event.currentTarget.contains(event.relatedTarget)
-              )
-                return;
-              setDragTarget(null);
-            }}
-            onDrop={(event) => {
-              event.preventDefault();
-              setDragTarget(null);
-              const source = dragging.current;
-              dragging.current = null;
-              if (
-                typeof category.id !== 'number' ||
-                !source ||
-                !friendDirectory?.available ||
-                friendDirectory.busy
-              )
-                return;
-              if (source.category !== undefined && source.category !== category.id) {
-                const rect = event.currentTarget.getBoundingClientRect();
-                friendDirectory.sort(
-                  source.category,
-                  category.id,
-                  event.clientY < rect.top + rect.height / 2 ? 'before' : 'after',
-                );
-              } else if (source.uids?.length) friendDirectory.move(source.uids, category.id);
-            }}
-          >
+    <div className="weq-contact-directory" {...multi.rootProps}>
+      <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
+        {friendDirectory?.error && (
+          <div className="contact-cat-description" role="alert">
+            <small>好友分组读取失败：{friendDirectory.error}</small>
             <button
               type="button"
-              className={cn('contact-cat-header')}
-              draggable={
-                typeof category.id === 'number' &&
-                friendDirectory?.available &&
-                !friendDirectory.busy
+              title="重新读取好友分组"
+              aria-label="重新读取好友分组"
+              onClick={friendDirectory.retry}
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
+        )}
+        {categories.map((category) => {
+          const open = Boolean(expanded[category.id]) || Boolean(needle);
+          return (
+            <div
+              className={cn(
+                'contact-cat',
+                dragTarget?.id === category.id &&
+                  dragTarget.position === 'inside' &&
+                  'is-contact-drop-target',
+              )}
+              key={category.id}
+              data-drop-position={
+                dragTarget?.id === category.id && dragTarget.position !== 'inside'
+                  ? dragTarget.position
+                  : undefined
               }
-              onDragStart={(event) => {
-                if (typeof category.id !== 'number') return;
-                dragging.current = { category: category.id };
-                event.dataTransfer.effectAllowed = 'move';
-                event.dataTransfer.setData('text/plain', String(category.id));
-              }}
-              onDragEnd={() => {
-                dragging.current = null;
-                setDragTarget(null);
-              }}
-              onContextMenu={(event) => {
-                if (typeof category.id !== 'number') return;
-                event.preventDefault();
-                setActionMenu(null);
-                setCategoryMenu({ x: event.clientX, y: event.clientY, id: category.id });
-              }}
-              onKeyDown={(event) => {
+              onDragOver={(event) => {
+                const source = dragging.current;
                 if (
                   typeof category.id !== 'number' ||
-                  (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                  !source ||
+                  !friendDirectory?.available ||
+                  friendDirectory.busy ||
+                  source.category === category.id
+                ) {
+                  setDragTarget(null);
+                  return;
+                }
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                const rect = event.currentTarget.getBoundingClientRect();
+                setDragTarget({
+                  id: category.id,
+                  position:
+                    source.category === undefined
+                      ? 'inside'
+                      : event.clientY < rect.top + rect.height / 2
+                        ? 'before'
+                        : 'after',
+                });
+              }}
+              onDragLeave={(event) => {
+                if (
+                  event.relatedTarget instanceof Node &&
+                  event.currentTarget.contains(event.relatedTarget)
                 )
                   return;
-                event.preventDefault();
-                const rect = event.currentTarget.getBoundingClientRect();
-                setActionMenu(null);
-                setCategoryMenu({ x: rect.left, y: rect.bottom, id: category.id });
+                setDragTarget(null);
               }}
-              aria-expanded={open}
-              onClick={() =>
-                setExpanded((current) => ({
-                  ...current,
-                  [category.id]: !current[category.id],
-                }))
-              }
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragTarget(null);
+                const source = dragging.current;
+                dragging.current = null;
+                if (
+                  typeof category.id !== 'number' ||
+                  !source ||
+                  !friendDirectory?.available ||
+                  friendDirectory.busy
+                )
+                  return;
+                if (source.category !== undefined && source.category !== category.id) {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  friendDirectory.sort(
+                    source.category,
+                    category.id,
+                    event.clientY < rect.top + rect.height / 2 ? 'before' : 'after',
+                  );
+                } else if (source.uids?.length) friendDirectory.move(source.uids, category.id);
+              }}
             >
-              <ChevronRight className={cn('contact-cat-caret', open && 'is-open')} size={15} />
-              <span className={cn('contact-cat-name')}>{category.name}</span>
-              <span className={cn('contact-cat-count')}>
-                {category.count === null ? '-' : (category.count ?? category.items.length)}
-              </span>
-            </button>
-            {open && category.description ? (
-              <div className={cn('contact-cat-description')} role="status">
-                <small>{category.description}</small>
-                {category.onRetry ? (
-                  <button
-                    type="button"
-                    onClick={category.onRetry}
-                    title="重新读取特别关心"
-                    aria-label="重新读取特别关心"
-                  >
-                    <RefreshCw size={12} />
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-            {open
-              ? category.items.map((contact) => {
-                  const relation = intimateRelationOf(contact);
-                  return (
+              <button
+                type="button"
+                className={cn('contact-cat-header')}
+                draggable={
+                  typeof category.id === 'number' &&
+                  friendDirectory?.available &&
+                  !friendDirectory.busy
+                }
+                onDragStart={(event) => {
+                  if (typeof category.id !== 'number') return;
+                  dragging.current = { category: category.id };
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData('text/plain', String(category.id));
+                }}
+                onDragEnd={() => {
+                  dragging.current = null;
+                  setDragTarget(null);
+                }}
+                onContextMenu={(event) => {
+                  if (typeof category.id !== 'number') return;
+                  event.preventDefault();
+                  setActionMenu(null);
+                  setCategoryMenu({ x: event.clientX, y: event.clientY, id: category.id });
+                }}
+                onKeyDown={(event) => {
+                  if (
+                    typeof category.id !== 'number' ||
+                    (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                  )
+                    return;
+                  event.preventDefault();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setActionMenu(null);
+                  setCategoryMenu({ x: rect.left, y: rect.bottom, id: category.id });
+                }}
+                aria-expanded={open}
+                onClick={() =>
+                  setExpanded((current) => ({
+                    ...current,
+                    [category.id]: !current[category.id],
+                  }))
+                }
+              >
+                <ChevronRight className={cn('contact-cat-caret', open && 'is-open')} size={15} />
+                <span
+                  className={cn('contact-cat-name')}
+                  data-privacy-sensitive={
+                    (typeof category.id === 'number' && category.id !== 0) || undefined
+                  }
+                >
+                  {category.name}
+                </span>
+                <span className={cn('contact-cat-count')}>
+                  {category.count === null ? '-' : (category.count ?? category.items.length)}
+                </span>
+              </button>
+              {open && category.description ? (
+                <div className={cn('contact-cat-description')} role="status">
+                  <small>{category.description}</small>
+                  {category.onRetry ? (
                     <button
-                      key={contact.id}
-                      className={cn(
-                        listRowClass(
-                          !selection.selectionMode && contact.id === activeContactId,
-                          'contact-row',
-                        ),
-                        'contact-cat-row',
-                        selection.selectionMode &&
-                          selection.selectedIds.has(contact.id) &&
-                          'is-multiselected',
-                      )}
-                      aria-pressed={
-                        selection.selectionMode ? selection.selectedIds.has(contact.id) : undefined
-                      }
-                      {...multi.itemProps(contact.id)}
-                      draggable={
-                        contacts.some((row) => row.id === contact.id) &&
-                        friendDirectory?.available &&
-                        !friendDirectory.busy
-                      }
-                      onDragStart={(event) => {
-                        const ids =
-                          selection.selectionMode && selection.selectedIds.has(contact.id)
-                            ? [...selection.selectedIds]
-                            : [contact.id];
-                        const uids = ids.filter((id) => contacts.some((row) => row.id === id));
-                        if (uids.length !== ids.length || !uids.length) {
-                          event.preventDefault();
-                          return;
+                      type="button"
+                      onClick={category.onRetry}
+                      title="重新读取特别关心"
+                      aria-label="重新读取特别关心"
+                    >
+                      <RefreshCw size={12} />
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+              {open
+                ? category.items.map((contact) => {
+                    const conversation = conversationByContact.get(contact.id);
+                    const relation = intimateRelationOf(contact);
+                    return (
+                      <button
+                        key={contact.id}
+                        className={cn(
+                          listRowClass(
+                            !selection.selectionMode && contact.id === activeContactId,
+                            'contact-row',
+                          ),
+                          'contact-cat-row',
+                          selection.selectionMode &&
+                            selection.selectedIds.has(contact.id) &&
+                            'is-multiselected',
+                        )}
+                        aria-pressed={
+                          selection.selectionMode
+                            ? selection.selectedIds.has(contact.id)
+                            : undefined
                         }
-                        dragging.current = { uids };
-                        event.dataTransfer.effectAllowed = 'move';
-                        event.dataTransfer.setData('text/plain', uids.join(','));
-                      }}
-                      onDragEnd={() => {
-                        dragging.current = null;
-                        setDragTarget(null);
-                      }}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        setCategoryMenu(null);
-                        setActionMenu({
-                          x: event.clientX,
-                          y: event.clientY,
-                          contact,
-                          ids:
+                        {...multi.itemProps(contact.id)}
+                        draggable={
+                          contacts.some((row) => row.id === contact.id) &&
+                          friendDirectory?.available &&
+                          !friendDirectory.busy
+                        }
+                        onDragStart={(event) => {
+                          const ids =
                             selection.selectionMode && selection.selectedIds.has(contact.id)
                               ? [...selection.selectedIds]
-                              : [contact.id],
-                        });
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
-                          return;
-                        event.preventDefault();
-                        const rect = event.currentTarget.getBoundingClientRect();
-                        setActionMenu({ x: rect.left, y: rect.bottom, contact, ids: [contact.id] });
-                      }}
-                      onClick={() => {
-                        if (!selection.selectionMode) onSelect(contact);
-                      }}
-                    >
-                      <span className="contact-relation-avatar">
-                        <Avatar
-                          name={displayUserName(contact)}
-                          avatarUrl={contact.avatarUrl}
-                          seed={contact.identityValue}
-                        />
-                        {relation ? (
+                              : [contact.id];
+                          const uids = ids.filter((id) => contacts.some((row) => row.id === id));
+                          if (uids.length !== ids.length || !uids.length) {
+                            event.preventDefault();
+                            return;
+                          }
+                          dragging.current = { uids };
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData('text/plain', uids.join(','));
+                        }}
+                        onDragEnd={() => {
+                          dragging.current = null;
+                          setDragTarget(null);
+                        }}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          setCategoryMenu(null);
+                          setActionMenu({
+                            x: event.clientX,
+                            y: event.clientY,
+                            contact,
+                            ids:
+                              selection.selectionMode && selection.selectedIds.has(contact.id)
+                                ? [...selection.selectedIds]
+                                : [contact.id],
+                          });
+                        }}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key !== 'ContextMenu' &&
+                            !(event.shiftKey && event.key === 'F10')
+                          )
+                            return;
+                          event.preventDefault();
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          setActionMenu({
+                            x: rect.left,
+                            y: rect.bottom,
+                            contact,
+                            ids: [contact.id],
+                          });
+                        }}
+                        onClick={() => {
+                          if (!selection.selectionMode) onSelect(contact);
+                        }}
+                      >
+                        <span className="contact-relation-avatar">
+                          <Avatar
+                            name={displayUserName(contact)}
+                            avatarUrl={contact.avatarUrl}
+                            seed={contact.identityValue}
+                          />
+                          {relation ? (
+                            <span
+                              className="contact-relation-mark"
+                              role="img"
+                              aria-label={`亲密关系：${relation.label}`}
+                              title={relation.label}
+                            >
+                              <relation.Icon size={13} aria-hidden="true" />
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className={cn('row-main', 'contact-card-main')}>
+                          <span className={cn('contact-card-nickname')}>
+                            {displayUserName(contact)}
+                            {contact.kind === 'bot' ? (
+                              <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
+                                <Bot size={12} strokeWidth={2.4} />
+                              </small>
+                            ) : null}
+                          </span>
+                          <span className={cn('contact-card-bottom')}>
+                            {contact.onlineStatusObj &&
+                            contact.onlineStatusObj.typeName !== '未知' ? (
+                              <span className={cn('contact-card-status')}>
+                                <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
+                                <span>[{contact.onlineStatusObj.displayStatus}]</span>
+                              </span>
+                            ) : null}
+                            {contact.kind !== 'bot' &&
+                            contact.identityLabel !== '设备' &&
+                            category.id !== 'special:devices' &&
+                            category.id !== 'special:bots' ? (
+                              <span className={cn('contact-card-signature')}>
+                                {contact.signature || '这个人很懒，什么都没留下'}
+                              </span>
+                            ) : null}
+                          </span>
+                        </span>
+                        {conversationDirectory?.showContactUnreadCount &&
+                        (conversation?.unreadCount ?? 0) > 0 ? (
                           <span
-                            className="contact-relation-mark"
-                            role="img"
-                            aria-label={`亲密关系：${relation.label}`}
-                            title={relation.label}
+                            className={unreadClass(
+                              Boolean(
+                                conversationDirectory?.preferences?.[conversation.id]?.muted ??
+                                  conversation.preference?.muted,
+                              ),
+                            )}
                           >
-                            <relation.Icon size={13} aria-hidden="true" />
+                            {formatBadgeCount(conversation.unreadCount)}
                           </span>
                         ) : null}
-                      </span>
-                      <span className={cn('row-main', 'contact-card-main')}>
-                        <span className={cn('contact-card-nickname')}>
-                          {displayUserName(contact)}
-                          {contact.kind === 'bot' ? (
-                            <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
-                              <Bot size={12} strokeWidth={2.4} />
-                            </small>
-                          ) : null}
-                        </span>
-                        <span className={cn('contact-card-bottom')}>
-                          {contact.onlineStatusObj &&
-                          contact.onlineStatusObj.typeName !== '未知' ? (
-                            <span className={cn('contact-card-status')}>
-                              <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
-                              <span>[{contact.onlineStatusObj.displayStatus}]</span>
-                            </span>
-                          ) : null}
-                          {contact.kind !== 'bot' &&
-                          contact.identityLabel !== '设备' &&
-                          category.id !== 'special:devices' &&
-                          category.id !== 'special:bots' ? (
-                            <span className={cn('contact-card-signature')}>
-                              {contact.signature || '这个人很懒，什么都没留下'}
-                            </span>
-                          ) : null}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })
-              : null}
-          </div>
-        );
-      })}
+                      </button>
+                    );
+                  })
+                : null}
+            </div>
+          );
+        })}
+      </div>
+      {selection.selectionMode ? (
+        <ConversationBatchToolbar
+          conversations={conversationRows}
+          ids={[...selection.selectedIds]}
+        />
+      ) : null}
       {actionMenu && (
         <FriendConversationActionsMenu
           x={actionMenu.x}
@@ -1605,14 +1758,14 @@ export function ContactList({
               : undefined
           }
           actions={[
-            {
-              label: '多选',
-              icon: <ListChecks size={16} />,
-              action: () => {
-                selection.setSelectionMode(true);
-                selection.setSelectedIds(new Set(actionMenu.ids));
-              },
-            },
+            ...(conversationDirectory?.onReadState
+              ? [false, true].map((unread) => ({
+                  label: unread ? '标为未读' : '标为已读',
+                  icon: unread ? <Mail size={16} /> : <MailOpen size={16} />,
+                  disabled: conversationDirectory.readStateBusy || actionMenu.ids.length > 4096,
+                  action: () => batch.runReadState(actionMenu.ids, unread),
+                }))
+              : []),
             ...(actionMenu.ids.length === 1 &&
             conversationDirectory?.onAnalyze &&
             conversationAnalysisTarget(
@@ -1846,36 +1999,6 @@ function PreviewNodes({ nodes }: { nodes: PreviewNode[] }) {
   );
 }
 
-/** 会话列表时间：今天显示时分，昨天显示"昨天"，一周内显示星期，更早显示年月日。 */
-export function formatConversationTime(value: string | undefined) {
-  if (!value) {
-    return '';
-  }
-
-  const date = new Date(value);
-  const now = new Date();
-  const todayStart = startOfDay(now).getTime();
-  const dateStart = startOfDay(date).getTime();
-  const dayDiff = Math.floor((todayStart - dateStart) / 86400000);
-
-  if (dayDiff <= 0) {
-    return new Intl.DateTimeFormat('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(date);
-  }
-
-  if (dayDiff === 1) {
-    return '昨天';
-  }
-
-  if (dayDiff < 7) {
-    return ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][date.getDay()];
-  }
-
-  return `${date.getFullYear()}/${padDatePart(date.getMonth() + 1)}/${padDatePart(date.getDate())}`;
-}
-
 function formatDraftPreview(value: string | undefined) {
   if (!value) {
     return '';
@@ -1886,14 +2009,6 @@ function formatDraftPreview(value: string | undefined) {
     .replace(/\[[^\]\n]{1,32}\]/g, '[表情]')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-function startOfDay(value: Date) {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
-}
-
-function padDatePart(value: number) {
-  return value.toString().padStart(2, '0');
 }
 
 function formatBadgeCount(value: number) {

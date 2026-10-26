@@ -6,7 +6,6 @@ import { GroupFileDialog } from '../src/renderer/src/components/GroupFileDialog'
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
 import { useViewState } from '../src/renderer/src/state/view';
 import {
-  CONTENT_CATEGORY_ORDER,
   contentCoverageText,
   isContentSearchHit,
   type ContentSearchHit,
@@ -234,7 +233,7 @@ it('新增结果真实渲染并交出稳定目标，来源覆盖不是“全部�
           qzonePost: { scope: 'observed-cache', records: 1, limited: true, updatedAt: 1 },
         },
       },
-      categories: CONTENT_CATEGORY_ORDER,
+      categories: ['qzone'],
       onCategoriesChange: vi.fn(),
       onSelect: select,
       onMore: vi.fn(),

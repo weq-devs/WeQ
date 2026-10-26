@@ -68,7 +68,9 @@ export class NativeVideoEncoder implements CallVideoEncoder {
     this.width = options.width ?? 640;
     this.height = options.height ?? 360;
     this.fps = options.fps ?? 15;
-    this.bitrateKbps = options.bitrateKbps ?? 400;
+    // 30 kbps：与 QQ 本体对齐（实测静态 6 kbps、运动峰值 26 kbps）。
+    // 旧的 400 kbps 会让每帧涨到 3KB+、拆成 3~28 个 UDP 包，丢一片整帧报废。
+    this.bitrateKbps = options.bitrateKbps ?? 30;
   }
 
   private readonly fps: number;
@@ -150,12 +152,21 @@ export class NativeVideoEncoder implements CallVideoEncoder {
     );
     // 编码器还在 lookahead 里攒帧时是 null，下一拍再取。
     if (!result) return null;
-    this.dumpAnnexB(new Uint8Array(result.data));
-    return new Uint8Array(result.data);
+    const out = new Uint8Array(result.data);
+    this.dumpAnnexB(out);
+    return out;
   }
 
   info(): VideoStreamInfo {
-    return { width: this.width, height: this.height, profile: 1, codec: 'hevc' };
+    return {
+      width: this.width,
+      height: this.height,
+      profile: 1,
+      codec: 'hevc',
+      // `bt=77` 视频参数公告要用：对端按这里声明的规格准备解码。
+      fps: this.fps,
+      bitrateKbps: this.bitrateKbps,
+    };
   }
 
   close(): void {

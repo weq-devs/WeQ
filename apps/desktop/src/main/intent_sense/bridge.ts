@@ -34,7 +34,11 @@ export interface IntentSenseLocalEngine extends IntentLocalEnginePort {
   /** 模型 bundle 落盘目录（weq 用户数据目录下）。 */
   modelDir(): string;
   isModelDownloaded(): boolean;
-  download(options: { mirror: boolean; onProgress?: (p: BundleProgress) => void }): Promise<void>;
+  download(options: {
+    modelId?: string;
+    mirror: boolean;
+    onProgress?: (p: BundleProgress) => void;
+  }): Promise<void>;
   start(): Promise<void>;
   stop(): Promise<void>;
 }
@@ -75,8 +79,9 @@ export function qweqModelCandidates(): string[] {
 }
 
 /** 探测优先可用的本地模型目录：优先使用自研微调模型 QWeQ-NineBird-v1，未就绪则回落到 Laya。 */
-export function findAvailableModelDir(): string {
-  const selected = getAppContext().bootstrap?.userConfig.getLocalModelId('intent') ?? 'auto';
+export function findAvailableModelDir(
+  selected = getAppContext().bootstrap?.userConfig.getLocalModelId('intent') ?? 'auto',
+): string {
   if (selected === 'laya-multilingual') return layaModelDir();
   for (const dir of qweqModelCandidates()) {
     if (existsSync(join(dir, 'model.onnx')) && existsSync(join(dir, 'model_config.json'))) {
@@ -117,12 +122,25 @@ const REQUEST_TIMEOUT_MS = 120_000;
 const LOAD_TIMEOUT_MS = 120_000;
 
 class LocalEngineBridge implements IntentLocalEnginePort {
+  constructor(private readonly modelDir: string) {}
   private worker: ReturnType<typeof fork> | null = null;
   private readyFlag = false;
   private starting: Promise<void> | null = null;
   private startFailed = false;
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** 多资源可共存；空闲后释放 worker，模型文件仍复用。 */
+  private touch(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null;
+      if (this.pending.size || this.starting) this.touch();
+      else void this.stop();
+    }, 5 * 60_000);
+    this.idleTimer.unref?.();
+  }
 
   /**
    * 对 service 层暴露的就绪态：worker 已就绪，或本地模型文件齐全且未发生启动失败（调用 analyze 时按需拉起 worker）。
@@ -130,7 +148,7 @@ class LocalEngineBridge implements IntentLocalEnginePort {
   get ready(): boolean {
     if (this.readyFlag && this.worker !== null) return true;
     if (this.startFailed) return false;
-    return isAnyModelReady(findAvailableModelDir());
+    return isAnyModelReady(this.modelDir);
   }
 
   get workerRunning(): boolean {
@@ -138,6 +156,7 @@ class LocalEngineBridge implements IntentLocalEnginePort {
   }
 
   async start(modelDir: string): Promise<void> {
+    this.touch();
     if (this.workerRunning) return;
     if (this.starting) return this.starting;
     this.startFailed = false;
@@ -150,13 +169,14 @@ class LocalEngineBridge implements IntentLocalEnginePort {
         this.starting = null;
       });
     this.starting = task;
-    return task;
+    await task;
+    this.touch();
   }
 
   private async ensureWorkerStarted(): Promise<boolean> {
     if (this.workerRunning) return true;
     if (this.startFailed) return false;
-    const dir = findAvailableModelDir();
+    const dir = this.modelDir;
     if (!isAnyModelReady(dir)) return false;
     try {
       await this.start(dir);
@@ -190,11 +210,13 @@ class LocalEngineBridge implements IntentLocalEnginePort {
     let exited = false;
     worker.on('exit', (code) => {
       exited = true;
+      if (this.worker !== worker) return;
       this.worker = null;
       this.readyFlag = false;
       this.failAll(new Error(`意图感知本地引擎已退出 (code ${code ?? '?'})`));
     });
     worker.on('error', (error) => {
+      if (this.worker !== worker) return;
       this.readyFlag = false;
       this.failAll(error);
     });
@@ -226,6 +248,8 @@ class LocalEngineBridge implements IntentLocalEnginePort {
   }
 
   async stop(): Promise<void> {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
     const worker = this.worker;
     this.worker = null;
     this.readyFlag = false;
@@ -247,6 +271,7 @@ class LocalEngineBridge implements IntentLocalEnginePort {
     sentiment: number;
     confidence: number;
   } | null> {
+    this.touch();
     if (!(await this.ensureWorkerStarted())) return null;
     try {
       const msg = (await this.request({
@@ -270,6 +295,7 @@ class LocalEngineBridge implements IntentLocalEnginePort {
   }
 
   async inferMbti(samples: string[]): Promise<MbtiDim[] | null> {
+    this.touch();
     if (samples.length === 0 || !(await this.ensureWorkerStarted())) return null;
     try {
       const msg = (await this.request({ type: 'mbti', samples })) as WorkerMessage;
@@ -386,10 +412,14 @@ function normalizeEmotion(v: unknown): EmotionKind {
 
 // ── 单例门面（electron 入口 index.ts 注入给 app_context；web 永不注入）──
 
-let bridge: LocalEngineBridge | null = null;
+const bridges = new Map<string, LocalEngineBridge>();
 
-function ensureBridge(): LocalEngineBridge {
-  if (!bridge) bridge = new LocalEngineBridge();
+function ensureBridge(dir = findAvailableModelDir()): LocalEngineBridge {
+  let bridge = bridges.get(dir);
+  if (!bridge) {
+    bridge = new LocalEngineBridge(dir);
+    bridges.set(dir, bridge);
+  }
   return bridge;
 }
 
@@ -400,13 +430,14 @@ function ensureBridge(): LocalEngineBridge {
  * 不能进 router / app_context 的（web 共享的）模块图。
  */
 export function getIntentSenseLocalEngine(): IntentSenseLocalEngine {
-  const impl = ensureBridge();
   return {
     get ready() {
-      return impl.ready;
+      return ensureBridge().ready;
     },
-    analyze: (text: string, options?: IntentLocalAnalyzeOptions) => impl.analyze(text, options),
-    inferMbti: (samples: string[]) => impl.inferMbti(samples),
+    forModel: (modelId) => ensureBridge(findAvailableModelDir(modelId)),
+    analyze: (text: string, options?: IntentLocalAnalyzeOptions) =>
+      ensureBridge().analyze(text, options),
+    inferMbti: (samples: string[]) => ensureBridge().inferMbti(samples),
     modelDir: () => findAvailableModelDir(),
     listModels: () => [
       {
@@ -438,7 +469,10 @@ export function getIntentSenseLocalEngine(): IntentSenseLocalEngine {
     ],
     isModelDownloaded: () => isAnyModelReady(findAvailableModelDir()),
     download: (options) => {
-      const selected = getAppContext().bootstrap?.userConfig.getLocalModelId('intent') ?? 'auto';
+      const selected =
+        options.modelId ??
+        getAppContext().bootstrap?.userConfig.getLocalModelId('intent') ??
+        'auto';
       if (selected === 'QWeQ-NineBird-v1')
         throw new Error('自研模型由安装包或已有模型目录提供，暂不支持在线下载');
       return downloadLayaBundle({
@@ -452,8 +486,10 @@ export function getIntentSenseLocalEngine(): IntentSenseLocalEngine {
       if (!isAnyModelReady(dir)) {
         throw new Error('本地模型尚未就绪');
       }
-      await impl.start(dir);
+      await ensureBridge(dir).start(dir);
     },
-    stop: () => impl.stop(),
+    stop: async () => {
+      await Promise.all([...bridges.values()].map((bridge) => bridge.stop()));
+    },
   };
 }

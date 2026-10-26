@@ -7,10 +7,11 @@ import { useRestrictedMode } from '../../state/restrictedMode';
 import type { OnlineAccess } from '../../lib/restrictedMode';
 import type { ExportOptions } from './types';
 import { useToast } from '../../components/Toast';
+import { LongTermAuthorizationLink } from '../../components/LongTermAuthorizationLink';
 
 export interface ExportAuthorizationState {
   access: OnlineAccess & { needsMemoryRead?: boolean };
-  capture: { available: boolean; elevated: boolean; hint?: string };
+  capture: { available: boolean; elevated: boolean; hint?: string; longTermAuthorized?: boolean };
   armed: boolean;
 }
 export type ExportAuthorizationIndicatorState = { needed: boolean; request: () => void };
@@ -27,7 +28,10 @@ export function exportAuthorizationPlan(options: ExportOptions, state: ExportAut
     unready &&
     options.exportMedia &&
     (options.completeMedia || options.downloadVideo || options.downloadFile || options.downloadPtt);
-  const elevate = (capture || (memory && (roaming || ocr || media))) && !state.capture.elevated;
+  const elevate =
+    (capture || (memory && (roaming || ocr || media))) &&
+    !state.capture.elevated &&
+    !state.capture.longTermAuthorized;
   return { capture, roaming, ocr, media, elevate, needed: capture || roaming || ocr || media };
 }
 
@@ -253,10 +257,20 @@ export function useExportAuthorization(options: ExportOptions, enabled: boolean)
               {requests
                 .filter(() => busy)
                 .map((request) => (
-                  <AuthorizationForm key={`${request.kind}:${request.token}`} request={request} />
+                  <AuthorizationForm
+                    key={`${request.kind}:${request.token}`}
+                    request={request}
+                    onOpenLongTermAuthorization={() => settle(null)}
+                  />
                 ))}
               {error ? <p role="alert">{error}</p> : null}
               <footer>
+                {pendingPlan.elevate && !busy && (
+                  <LongTermAuthorizationLink
+                    className="weq-exp-btn"
+                    beforeNavigate={() => settle(null)}
+                  />
+                )}
                 <button
                   type="button"
                   className="weq-exp-btn"

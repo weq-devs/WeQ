@@ -5,7 +5,7 @@
  * 验证器绑定（二维码 + 密钥 + 6 位码确认，在独立弹窗中完成）、空闲自动锁定。
  */
 
-import { useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
@@ -22,6 +22,7 @@ import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+import { useTabActive } from '../RetainedTabs';
 import { shellBridge } from '../../lib/target';
 import {
   fetchSystemAuthStatus,
@@ -44,13 +45,15 @@ const AUTO_LOCK_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
   { value: 30, label: '30 分钟' },
 ];
 
-export function AppLockSection(): ReactElement {
+export function AppLockSection({ heading = true }: { heading?: boolean }): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
   const pushToast = useToast((s) => s.push);
   const queryClient = useQueryClient();
 
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -61,6 +64,7 @@ export function AppLockSection(): ReactElement {
 
   // 与左栏上锁按钮、锁屏遮罩共用同一查询；绑定 / 解绑后 invalidate 即时同步。
   const systemAuthQuery = useQuery({
+    enabled: active,
     queryKey: SYSTEM_AUTH_STATUS_QUERY_KEY,
     queryFn: fetchSystemAuthStatus,
     staleTime: 0,
@@ -68,6 +72,7 @@ export function AppLockSection(): ReactElement {
     refetchOnWindowFocus: false,
   });
   const totpQuery = useQuery({
+    enabled: active,
     queryKey: TOTP_STATUS_QUERY_KEY,
     queryFn: fetchTotpStatus,
     staleTime: 0,
@@ -75,6 +80,9 @@ export function AppLockSection(): ReactElement {
     refetchOnWindowFocus: false,
   });
   const [bindOpen, setBindOpen] = useState(false);
+  useEffect(() => {
+    if (!active) setBindOpen(false);
+  }, [active]);
 
   const appLock = settings.data?.appLock;
   const enabled = appLock?.enabled ?? true;
@@ -160,18 +168,20 @@ export function AppLockSection(): ReactElement {
 
   return (
     <div className="weq-set">
-      <SectionHeader
-        title="应用锁"
-        desc="上锁后需要验证才能继续访问当前账号数据，左栏头像上方可随时手动上锁。"
-        icon={<LockKeyhole size={16} strokeWidth={1.8} />}
-      />
+      {heading && (
+        <SectionHeader
+          title="应用锁"
+          desc="上锁后需要验证才能继续访问当前账号数据。"
+          icon={<LockKeyhole size={16} strokeWidth={1.8} />}
+        />
+      )}
 
-      <Card title="应用锁">
+      <Card title="应用锁" settingId="app-lock">
         <Row
           label="启用应用锁"
           desc={
             enabled
-              ? '开启后可在左栏头像上方手动上锁，空闲超时也会自动上锁。'
+              ? '开启后可手动上锁，空闲超时也会自动上锁。'
               : '关闭后手动上锁与空闲自动上锁都不生效。'
           }
           control={
@@ -191,7 +201,7 @@ export function AppLockSection(): ReactElement {
         ) : null}
       </Card>
 
-      <Card title="解锁方式">
+      <Card title="解锁方式" settingId="unlock-method">
         <div className="weq-applock-methods" role="radiogroup" aria-label="解锁方式">
           <button
             type="button"
@@ -305,9 +315,9 @@ export function AppLockSection(): ReactElement {
         />
       ) : null}
 
-      <Card title="空闲自动锁定">
+      <Card title="空闲自动锁定" settingId="auto-lock">
         <Row
-          label="无操作自动上锁"
+          label="空闲自动锁定"
           desc={
             canAutoLock
               ? '超过所选时长无操作后自动锁定，解锁需用当前解锁方式验证。'

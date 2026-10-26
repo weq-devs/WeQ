@@ -52,7 +52,9 @@ import { bubblePreviewCss } from '../lib/dressSkin';
 import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
 import { fontFaces } from '../lib/fontFaces';
 import { acquireDecorationStyle } from '../lib/decorationResources';
-import { DecorationSaveControls, useDecorationSave } from './DecorationSaveControls';
+import { useDecorationSave } from './DecorationSaveControls';
+import { useMediaSave } from './MediaSaveControls';
+import { IS_WEB } from '../lib/target';
 import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
 import { WorkspacePage } from './WorkspacePages';
 import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
@@ -199,6 +201,7 @@ export function DressUpDialog({
 }): ReactElement {
   const dialog = useAppDialog();
   const decorationSave = useDecorationSave();
+  const mediaSave = useMediaSave();
   const utils = trpc.useUtils();
 
   const [kind, setKind] = useState<DressKind>(initialKind);
@@ -574,6 +577,17 @@ export function DressUpDialog({
   ): ReactElement {
     const isActive = item.itemId === activeId;
     const busy = busyId === item.itemId;
+    const backgroundUrl = isCallBg(mallKind)
+      ? item.videoUrl || item.previewLargeUrl || item.previewUrl
+      : '';
+    const backgroundSource = {
+      kind: 'url' as const,
+      url: backgroundUrl,
+      name: item.name || `通话背景 ${item.itemId}`,
+    };
+    const downloading = isCallBg(mallKind)
+      ? mediaSave.isBusy(backgroundSource)
+      : decorationSave.savingKey === `${mallKind}:${item.itemId}`;
     // 安装不再按 qqOnline 禁用:资源先走本地离线 bundle(QQ 自带那批装扮资源,
     // 见 nt_helper 的 queryDressResourceUrl),只有本地没有时才需要在线实例去换外链,
     // 那一步的失败由后端在点击时如实报错。离线也能装的款不再被按钮拦住。
@@ -599,6 +613,7 @@ export function DressUpDialog({
           <button
             type="button"
             className="weq-dress-use"
+            title="仅影响 WeQ 本地显示，不影响实际发送"
             disabled={busy || isActive || applying}
             onClick={() => void use(item, nameForManifest ?? item.name)}
           >
@@ -607,29 +622,44 @@ export function DressUpDialog({
             ) : isActive ? (
               <Check size={14} />
             ) : (
-              <Download size={14} />
+              <Sparkles size={14} />
             )}
             <span>{isActive ? '使用中' : busy ? '装扮中' : '使用'}</span>
           </button>
-          <DecorationSaveControls
+          <button
+            type="button"
             className="weq-dress-save"
-            title={`另存为 ${item.name || item.itemId}`}
-            busy={decorationSave.savingKey === `${mallKind}:${item.itemId}`}
-            disabled={applying || decorationSave.disabled}
-            onSave={(intent, browser) =>
+            title={IS_WEB ? '下载到浏览器' : '下载到所选位置'}
+            aria-label={`下载 ${item.name || item.itemId}`}
+            disabled={
+              applying ||
+              (isCallBg(mallKind) ? mediaSave.disabled || !backgroundUrl : decorationSave.disabled)
+            }
+            onClick={() => {
+              if (mallKind === 'callbg') {
+                void mediaSave.run(backgroundSource, undefined, IS_WEB);
+                return;
+              }
               void decorationSave.run(
                 {
                   bubbleId: mallKind === 'bubble' ? item.itemId : 0,
                   fontId: mallKind === 'font' ? item.itemId : 0,
                   widgetId: mallKind === 'widget' ? item.itemId : 0,
-                  kind: mallKind as Exclude<MallKind, 'callbg'>,
+                  kind: mallKind,
                 },
                 `${mallKind}:${item.itemId}`,
-                intent,
-                browser,
-              )
-            }
-          />
+                undefined,
+                IS_WEB,
+              );
+            }}
+          >
+            {downloading ? (
+              <Loader2 size={14} className="weq-dress-spin" />
+            ) : (
+              <Download size={14} />
+            )}
+            <span>下载</span>
+          </button>
         </div>
       </div>
     );
@@ -825,6 +855,9 @@ export function DressUpDialog({
                 // 「气泡 <id>」+ 空预览(「QQ 正在用的那款」点使用时正好走这条)。
                 previewUrl: m.previewUrl,
                 previewLargeUrl: '',
+                ...(mallKind === 'callbg'
+                  ? { videoUrl: state.data?.own.callBgVideoUrl || undefined }
+                  : {}),
                 labels: m.installed ? [] : ['QQ 同款'],
                 price: 0,
                 mallName: '',
@@ -887,6 +920,7 @@ export function DressUpDialog({
   return (
     <WorkspacePage title="个性装扮" onClose={onClose} standalone>
       {decorationSave.prompt}
+      {mediaSave.prompt}
       <div className="weq-dress-dialog" role="region" aria-labelledby="weq-dress-title">
         <button className="weq-dress-close" onClick={onClose} title="关闭" type="button">
           <X size={18} strokeWidth={2} />
@@ -1016,6 +1050,14 @@ export function DressUpDialog({
                 </button>
               ) : null}
             </div>
+          </div>
+        ) : null}
+
+        {isMall ? (
+          <div className="weq-dress-notice is-info">
+            <span>
+              “使用”仅影响 WeQ 本地显示，不影响实际发送。默认不覆盖消息装扮，按消息记录还原。
+            </span>
           </div>
         ) : null}
 

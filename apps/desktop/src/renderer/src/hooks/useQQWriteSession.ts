@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTabActive } from '../components/RetainedTabs';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { publishQQPeerUpdate } from '../lib/qqPeerUpdates';
@@ -24,17 +25,18 @@ export function qqWriteOutcomeText(result: QQWriteOutcome): string {
 
 /** 每次操作固定账号及数据源；迟到的结果不更新另一个会话。 */
 export function useQQWriteSession(scope: string) {
+  const active = useTabActive();
   const uin = useViewState((s) => s.openedUin);
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
-    enabled: Boolean(uin),
+    enabled: active && Boolean(uin),
     refetchOnMount: 'always',
     staleTime: 0,
   });
   const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, {
-    enabled: Boolean(uin),
+    enabled: active && Boolean(uin),
     refetchOnMount: 'always',
     staleTime: 0,
-    refetchInterval: 5000,
+    refetchInterval: active ? 5000 : false,
   });
   const binding: QQWriteBinding | null =
     config.data?.uin === uin && config.data?.configId
@@ -55,7 +57,8 @@ export function useQQWriteSession(scope: string) {
   }, []);
   const state = access.data;
   const available = Boolean(
-    binding &&
+    active &&
+      binding &&
       state?.qqOnline &&
       state.attachEnabled &&
       state.hasA2 &&

@@ -209,6 +209,15 @@ it('勾选在线项目不启动抓包，直接导出弹提权框，可跳过后�
   }
 });
 
+it('长期授权已连接时仍准备在线功能，但不再提示重复提权', () => {
+  const plan = exportAuthorizationPlan(options(), {
+    access: { ...f.access },
+    capture: { available: true, elevated: false, longTermAuthorized: true },
+    armed: false,
+  });
+  expect(plan).toMatchObject({ capture: true, needed: true, elevate: false });
+});
+
 it('提权请求在当前弹窗显示，跳过取消本次密码请求但保留已有请求', async () => {
   useRestrictedMode
     .getState()

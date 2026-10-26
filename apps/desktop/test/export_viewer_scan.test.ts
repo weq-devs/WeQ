@@ -1,10 +1,11 @@
+// @vitest-environment node
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
 import { setHost, type HostBridge } from '@weq/service';
 import { exportViewerRouter } from '../src/main/ipc/routers/export_viewer';
-import { closeViewerSources } from '../src/main/export_viewer';
+import { closeViewerSources, viewerSource } from '../src/main/export_viewer';
 
 vi.mock('../src/main/context/app_context', () => ({ getAppContext: () => ({ services: null }) }));
 const roots: string[] = [],
@@ -63,4 +64,50 @@ it('取消递归撤销授权，不读取深层文件', async () => {
   const result = await caller.pick({ directory: true });
   expect(await caller.scan({ token: result!.scanToken!, recursive: false })).toBeNull();
   await expect(caller.scan({ token: result!.scanToken!, recursive: true })).rejects.toThrow('过期');
+});
+it('文件夹选择先返回授权，订阅逐项发送可读来源并最后报告完成', async () => {
+  const root = fixture();
+  oldChat(join(root, 'first'));
+  oldChat(join(root, 'second'));
+  const picked = await caller.pick({ directory: true, deferScan: true });
+  expect(picked?.sources).toHaveLength(0);
+  expect(picked?.scanToken).toBeTruthy();
+  const events: string[] = [];
+  const stream = await caller.scanProgress({ token: picked!.scanToken!, recursive: false });
+  await new Promise<void>((resolve, reject) =>
+    stream.subscribe({
+      next(event) {
+        events.push(event.kind);
+        if (event.kind === 'source') {
+          ids.push(event.source.id);
+          expect(viewerSource(event.source.id).path).toBe(event.source.path);
+        }
+      },
+      error: reject,
+      complete: resolve,
+    }),
+  );
+  expect(events).toEqual(['source', 'source', 'done']);
+  await expect(caller.scan({ token: picked!.scanToken!, recursive: true })).rejects.toThrow('过期');
+});
+it('关闭未完成的进度订阅会撤销这次扫描的媒体访问能力', async () => {
+  const root = fixture();
+  oldChat(join(root, 'first'));
+  oldChat(join(root, 'second'));
+  const picked = await caller.pick({ directory: true, deferScan: true });
+  const stream = await caller.scanProgress({ token: picked!.scanToken!, recursive: false });
+  let subscription: { unsubscribe(): void } | undefined,
+    id = '';
+  await new Promise<void>((resolve, reject) => {
+    subscription = stream.subscribe({
+      next(event) {
+        if (event.kind !== 'source') return;
+        id = event.source.id;
+        subscription?.unsubscribe();
+        resolve();
+      },
+      error: reject,
+    });
+  });
+  expect(() => viewerSource(id)).toThrow('关闭');
 });

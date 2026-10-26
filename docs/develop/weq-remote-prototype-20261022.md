@@ -4,7 +4,7 @@
 
 ## 0.1.0 初版范围与入口
 
-设置 → 服务与集成 → WeQ Remote。默认关闭，不改变系统 VPN，不修改现有 Tailscale。
+当前入口：设置 → WeQ 服务 → Web 与 Remote。默认关闭，不改变系统 VPN，不修改现有 Tailscale。本文保留原型阶段设计，当前无模式选择的双路地址与 v4 多入口配对以[用户文档](../guide/remote-web.md)及[重构回执](settings-restructure-plan-20261025.md)为准。
 
 已实现：独立 tsnet 节点、网络登录入口、真实一次性二维码、电脑确认、设备凭据认证与撤销。
 远程 API 只提供在线状态；没有挂载现有 tRPC router，不开放聊天记录、文件、QQ 操作或管理功能。

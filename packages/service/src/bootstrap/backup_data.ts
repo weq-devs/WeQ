@@ -11,7 +11,11 @@ import {
   WEQ_ACCOUNT_SETTING_FILES,
   type WeqAccountSettingFile,
 } from '../common/backup_account_paths';
-import { normalizeCloneGeneration, CLONE_GENERATION_KEYS } from '@weq/agentlab';
+import {
+  normalizeCloneGeneration,
+  CLONE_GENERATION_KEYS,
+  isDefaultModelSelection,
+} from '@weq/agentlab';
 
 function invalid(path: string): never {
   throw new Error(`备份数据结构无效：${path}`);
@@ -35,6 +39,8 @@ function strings(value: unknown, path: string): void {
 }
 function ref(value: unknown, path: string): void {
   const entry = row(value, path);
+  if (isDefaultModelSelection(entry)) return;
+  if ('useDefault' in entry) invalid(path);
   text(entry.providerId, path);
   text(entry.model, path);
 }
@@ -155,6 +161,19 @@ function persona(value: unknown, path: string, id: string): void {
   for (const key of ['id', 'ownerId', 'name', 'sourceId', 'sourceTitle'])
     text(item[key], `${path}.${key}`);
   if (item.customPrompt !== undefined) text(item.customPrompt, `${path}.customPrompt`);
+  if (item.training !== undefined) {
+    const training = row(item.training, `${path}.training`);
+    if (training.mode !== 'private' && training.mode !== 'group') invalid(`${path}.training.mode`);
+    if (typeof training.autoName !== 'boolean') invalid(`${path}.training.autoName`);
+    if (
+      training.limit !== undefined &&
+      (typeof training.limit !== 'number' ||
+        !Number.isInteger(training.limit) ||
+        training.limit < 20 ||
+        training.limit > 20000)
+    )
+      invalid(`${path}.training.limit`);
+  }
   if (item.voiceCloneEnabled !== undefined && typeof item.voiceCloneEnabled !== 'boolean')
     invalid(`${path}.voiceCloneEnabled`);
   if (item.generation !== undefined) {
@@ -187,6 +206,8 @@ function persona(value: unknown, path: string, id: string): void {
     number(item[key], `${path}.${key}`);
   const models = row(item.models, `${path}.models`);
   ref(models.chat, `${path}.models.chat`);
+  if (item.embeddingModelIdentity !== undefined)
+    text(item.embeddingModelIdentity, `${path}.embeddingModelIdentity`);
   for (const key of ['embedding', 'vision', 'voiceClone'])
     if (models[key] !== undefined) ref(models[key], `${path}.models.${key}`);
   const profile = row(item.profile, `${path}.profile`);

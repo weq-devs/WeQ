@@ -17,6 +17,22 @@
 .weq-restricted-indicator:hover {
   background: color-mix(in srgb, var(--destructive) 10%, transparent);
 }
+.weq-restricted-indicator.is-entering {
+  color: var(--weq-fg-primary);
+}
+.weq-restricted-indicator.is-entering:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+.weq-restricted-progress-icon {
+  flex-shrink: 0;
+  color: var(--weq-accent-effective);
+  animation: weq-restricted-progress 1s linear infinite;
+}
+@keyframes weq-restricted-progress {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .weq-restricted-indicator.is-startup {
   position: fixed;
   top: 16px;
@@ -54,6 +70,9 @@
   font-size: 14px;
   font-weight: 600;
   margin: 0;
+}
+.weq-restricted-panel.is-entering h2 {
+  color: var(--weq-fg-primary);
 }
 .weq-restricted-body {
   padding: 16px;
@@ -106,4 +125,12 @@
 html[data-theme='dark'] .weq-restricted-panel {
   background: var(--weq-bg-elevated);
   border-color: var(--weq-border-strong);
+}
+html[data-theme='dark'] .weq-restricted-indicator.is-entering {
+  color: var(--weq-fg-primary);
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-restricted-progress-icon {
+    animation: none;
+  }
 }

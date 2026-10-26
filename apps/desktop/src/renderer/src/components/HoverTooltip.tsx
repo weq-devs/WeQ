@@ -5,6 +5,7 @@ import { useRenderDocument } from '../lib/renderDocument';
 import { useRestrictedMode } from '../state/restrictedMode';
 import { restrictedActionTitle } from '../lib/restrictedMode';
 import { shouldDismissHoverHint } from '../lib/hoverHint';
+import { usePrivacyStore } from '../state/privacy';
 
 // Half Chromium's 500 ms default; native title timing itself is not configurable.
 const HOVER_DELAY_MS = 250;
@@ -35,8 +36,18 @@ export function HoverTooltip() {
     let visible = false;
     let suppliedLabel: string | null = null;
     let observer: MutationObserver;
-    const hint = (element: Element) => {
-      const title = element.getAttribute('title') ?? '';
+    const hint = (element: Element, original?: string) => {
+      const title = original ?? element.getAttribute('title') ?? '';
+      if (usePrivacyStore.getState().effective) {
+        const sensitive = (node: Element) =>
+          window.getComputedStyle(node).getPropertyValue('--weq-privacy-sensitive').trim() === '1';
+        if (
+          element.hasAttribute('data-privacy-title') ||
+          sensitive(element) ||
+          Array.from(element.querySelectorAll('*')).some(sensitive)
+        )
+          return '内容已隐藏';
+      }
       const restriction = useRestrictedMode.getState();
       if (
         element.matches(':disabled, [aria-disabled="true"]') &&
@@ -179,6 +190,12 @@ export function HoverTooltip() {
     const keydown = (event: KeyboardEvent): void => {
       if (shouldDismissHoverHint(event)) clear();
     };
+    const unsubscribePrivacy = usePrivacyStore.subscribe((state, previous) => {
+      if (state.effective === previous.effective || !owner) return;
+      text = hint(owner, originalTitle);
+      supplyAccessibleName();
+      if (visible) setTooltip({ text, ...point });
+    });
     document.addEventListener('pointerover', over, true);
     document.addEventListener('pointerout', out, true);
     document.addEventListener('pointerleave', leave);
@@ -190,6 +207,7 @@ export function HoverTooltip() {
     window.addEventListener('blur', clear);
     window.addEventListener('resize', clear);
     return () => {
+      unsubscribePrivacy();
       clear();
       document.removeEventListener('pointerover', over, true);
       document.removeEventListener('pointerout', out, true);

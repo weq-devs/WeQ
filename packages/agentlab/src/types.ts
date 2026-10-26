@@ -41,13 +41,20 @@ export interface AgentLabModelRef {
   model: string;
 }
 
+/** 显式继承全局默认模型；缺失或 null 仍表示未选择。 */
+export interface AgentLabDefaultModelRef {
+  useDefault: true;
+}
+
+export type AgentLabModelSelection = AgentLabModelRef | AgentLabDefaultModelRef;
+
 /** 一个克隆体每个任务各自选的模型。 */
 export interface AgentLabModels {
-  chat: AgentLabModelRef;
-  embedding?: AgentLabModelRef;
-  vision?: AgentLabModelRef;
+  chat: AgentLabModelSelection;
+  embedding?: AgentLabModelSelection;
+  vision?: AgentLabModelSelection;
   /** 未来：语音克隆（应用层用），这里只存绑定 */
-  voiceClone?: AgentLabModelRef;
+  voiceClone?: AgentLabModelSelection;
 }
 
 /** 一次 LLM 调用的 token 用量（OpenAI 兼容响应的 usage 字段）。 */
@@ -70,6 +77,8 @@ export interface AgentLabEndpoint {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** 实际 provider/model 的无凭据身份，用于模型切换与向量索引一致性检查。 */
+  modelIdentity?: string;
   /** 这个端点解析时对应的任务类型（用于 token 记账分类）。 */
   kind?: AgentLabUsage['kind'];
   feature?: string;
@@ -278,6 +287,10 @@ export interface AgentLabPersona {
   sourceTitle: string;
   /** 每个任务选用的 provider+model */
   models: AgentLabModels;
+  /** 重训沿用的语料范围；旧记录缺省时仅使用私聊。 */
+  training?: { mode: 'private' | 'group'; autoName: boolean; limit?: number };
+  /** 使用默认向量模型训练时固定的索引身份；默认改变后须重新训练。 */
+  embeddingModelIdentity?: string;
   generation?: import('./generation').AgentLabGenerationConfig;
   /** 用户自定义提示，拼进 system prompt */
   customPrompt?: string;

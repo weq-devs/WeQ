@@ -11,6 +11,9 @@ import {
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { useMediaSave } from '../../components/MediaSaveControls';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
+import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
+import { useStableCallback } from '../../hooks/useStableCallback';
+import { timelineViewport } from '../../lib/timelineViewport';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
 import { GroupProfileDialog } from './profilePanes';
@@ -28,7 +31,6 @@ import { useAtAllMention } from '../../hooks/useAtAllMention';
 import { nextMentionIndex, type AtAllMentionState } from '../../lib/atAllMention';
 import '../../styles/at-all-mention.css';
 import {
-  AudioLines,
   BarChart3,
   Bot,
   ChevronDown,
@@ -47,14 +49,13 @@ import {
   FolderOpen,
   UsersRound,
   Bug,
-  Hand,
   Image as ImageIcon,
   Link2,
+  MapPin,
   ClipboardCopy,
   MessageSquareText,
   Mic,
   PhoneCall,
-  Rocket,
   Video,
   SendHorizontal,
   Settings2,
@@ -65,7 +66,6 @@ import {
   Loader2,
   Smile,
   Sparkles,
-  Vibrate,
   X,
 } from 'lucide-react';
 import { AiOutlineRedEnvelope } from 'react-icons/ai';
@@ -92,9 +92,11 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ReplyJumpContext } from '../../components/QqMessageContent';
+import { ReplyJumpContext, type ReplyJumpTarget } from '../../components/QqMessageContent';
 import { openLightbox } from '../../components/ImageLightbox';
+import { releaseObjectUrl } from '../../lib/objectUrl';
 import '../../styles/composer-image-preview.css';
+import '../../styles/composer-grouped-actions.css';
 import { ChatBackdrop } from '../../components/ChatBackdrop';
 import { useChatBackdrop } from '../../hooks/useDressSkin';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
@@ -147,10 +149,10 @@ import {
 import { ArkPanel } from './arkPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
-import { BounceEmojiPanel, bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
+import { bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
 import { RedPacketPanel, type RedPacketDraft } from './redPacketPanel';
+import { LocationSharePanel } from './locationSharePanel';
 import {
-  PokeEmojiPanel,
   pokeEmojiToken,
   randomFaceToken,
   type PokeEmojiDraft,
@@ -236,10 +238,10 @@ import type {
   User,
 } from './types';
 import { dockStopLabel, dockStopTone } from './unreadDock';
-import { displayUserName } from './user';
+import { displayGroupName, displayUserName } from './user';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
-import { trpc } from '../../trpc/client';
+import { client, trpc } from '../../trpc/client';
 import { useToast } from '../../components/Toast';
 
 const composerHeightStorageKey = 'chat-template.layout.composerHeight';
@@ -437,7 +439,6 @@ export function ChatPane({
   onRepeatMessage,
   onResolveMentions,
   onSearchMentionMembers,
-  onSendWindowShake,
   onStartCall,
   onSendArk,
   onSendFlash,
@@ -453,6 +454,7 @@ export function ChatPane({
   onEditRaw,
   onDeleteMessage,
   onDismissUnsentMessage,
+  onStartOutgoingMessage,
   onOpenGroupAlbums,
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
@@ -525,11 +527,6 @@ export function ChatPane({
   ) => Promise<RepeatElement[]>;
   onSearchMentionMembers?: (query: string, conversation: Conversation) => Promise<GroupMember[]>;
   /**
-   * 私聊「窗口抖动」（只做私聊）—— 点一下发一条独立消息，不动输入框里的正文 / 草稿。
-   * 群聊没有这个能力，所以按钮只在 `conversation.type === 'direct'` 时渲染。
-   */
-  onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
-  /**
    * 发起通话（语音 / 视频）。只支持私聊 —— 群通话要先进房间再邀请，协议路径不同。
    * 应用层负责拿 peerUin / 头像，这里只把会话与媒体类型透上去。
    */
@@ -539,7 +536,7 @@ export function ChatPane({
   ) => Promise<void>;
   /**
    * Ark 卡片面板「发送」—— 面板只收输入、不知道发到哪，所以把**当前会话**一起交回
-   * 应用层，由它补 peerType / targetId 再走 IPC（与 onSendWindowShake 同）。
+   * 应用层，由它补 peerType / targetId 再走 IPC。
    * 抛出即失败：面板会显示原因并保留已填内容。
    */
   onSendArk?: (conversation: Conversation, payload: ArkPayload) => Promise<void>;
@@ -576,6 +573,7 @@ export function ChatPane({
    * 末尾，气泡状态条旁给一枚一次点击的「移除」按钮（不影响对方是否收到）。
    */
   onDismissUnsentMessage?: (message: Message) => void;
+  onStartOutgoingMessage?: (message: Message) => void;
   onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupFiles?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
@@ -658,7 +656,7 @@ export function ChatPane({
   const theme = useThemeStore((s) => s.resolved);
   const mediaSave = useMediaSave();
   // 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
-  const jumpToSeq = useContext(ReplyJumpContext);
+  const parentJumpToSeq = useContext(ReplyJumpContext);
   const backdrop = useChatBackdrop();
   const tabActive = useTabActive();
   const directory = useContext(ConversationDirectoryContext);
@@ -702,38 +700,34 @@ export function ChatPane({
   // 桌面端可把整条输入区收起来（只留底边一个把手），和群资料栏同一套交互。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [composerMenu, setComposerMenu] = useState<{
+    kind: 'file';
+    x: number;
+    y: number;
+  } | null>(null);
+  const [aiVoiceInitialTab, setAiVoiceInitialTab] = useState<'ai' | 'tts'>('tts');
   const [toolsOpen, setToolsOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
   // 「链接卡片」面板：填标题 / 描述 / 图标 / 跳转链接，summary 固定 [分享]。
   const [arkOpen, setArkOpen] = useState(false);
   // 「AI 声聊」面板：输入文字 + 选声线 + 试听，合成后**单独发送**（仅群聊）。
   const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
-  // 「弹射表情」面板：选一枚系统表情 + 填个数，发射后**单独发送**。
-  const [bounceOpen, setBounceOpen] = useState(false);
-  // 「戳一戳」面板：选互动表情 + 连击次数，戳出去**单独发送**。
-  const [pokeOpen, setPokeOpen] = useState(false);
   // 「闪传」文件框：拖文件 / 选文件夹 → 灯箱确认封面 → 走 fileset 发送。
   // 它内联占掉输入框正文那一行（需求就是「输入框变成文件框」），所以与其余面板互斥。
   const [flashOpen, setFlashOpen] = useState(false);
   // 「红包」面板：群聊三档（普通 / 拼手气 / 口令），私聊两档（普通 / 拼手气）；
   // 下单出码后由应用层弹二维码灯箱。
   const [redPacketOpen, setRedPacketOpen] = useState(false);
+  // 「位置共享」面板：发起 / 心跳上报 / 看所有人在地图上的位置。房间靠上报续命，
+  // 停上报约 60 秒后服务端自动结束 —— 没有单独的退出命令。
+  const [locationShareOpen, setLocationShareOpen] = useState(false);
 
   // 闪传文件框占着输入框正文那一行：别的面板一打开就把它收起来，避免两套东西打架。
   useEffect(() => {
-    if (
-      emojiOpen ||
-      toolsOpen ||
-      voiceOpen ||
-      arkOpen ||
-      aiVoiceOpen ||
-      bounceOpen ||
-      pokeOpen ||
-      redPacketOpen
-    ) {
+    if (emojiOpen || toolsOpen || voiceOpen || arkOpen || aiVoiceOpen || redPacketOpen) {
       setFlashOpen(false);
     }
-  }, [emojiOpen, toolsOpen, voiceOpen, arkOpen, aiVoiceOpen, bounceOpen, pokeOpen, redPacketOpen]);
+  }, [emojiOpen, toolsOpen, voiceOpen, arkOpen, aiVoiceOpen, redPacketOpen]);
   // 图片内联进输入框（见 insertInlineImage），所以待发送的「卡片」只有视频 / 文件
   // 和超级表情，而且一次只挂一个 —— 它们只能单独发，发送键不带走输入框里的文字。
   // 两者共用同一个槽位：挂上新的就把旧的卸掉。
@@ -779,10 +773,10 @@ export function ChatPane({
   const recallMessage = trpc.account.recallMessage.useMutation();
   const muteGroupMember = trpc.account.muteGroupMember.useMutation();
   const setGroupAdmin = trpc.account.setGroupAdmin.useMutation();
-  // 「随机表情」（骰子 / 包剪锤 / 活动表情）目录：打开戳一戳面板时才拉 —— 来源是
+  // 「随机表情」（骰子 / 包剪锤 / 活动表情）目录：打开表情面板时才拉 —— 来源是
   // 本机资源目录，不内置 faceId 白名单。结果片段变了（QQ 更新）刷新即得。
   const randomFacesQuery = trpc.account.sysEmoji.randomFaces.useQuery(undefined, {
-    enabled: pokeOpen,
+    enabled: emojiOpen,
     staleTime: 5 * 60_000,
   });
   // 口令候选池：只在红包面板打开、且 QQ 在线时拉一次。
@@ -792,7 +786,7 @@ export function ChatPane({
   });
   const pushToast = useToast((state) => state.push);
   // 语音 / TTS 能力由「设置 → 语音配置」决定：没配转录模型就没有转文字，没配 TTS
-  // 服务商就没有文字转语音那一栏。
+  // 服务商时文字转语音显示未配置状态。
   const mediaSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
@@ -902,6 +896,8 @@ export function ChatPane({
   // Count of newly-arrived (live) messages while the user is reading history.
   // Surfaces the floating "jump to bottom" pill; cleared once at the bottom.
   const [newMessagePill, setNewMessagePill] = useState(0);
+  const [showBottomJump, setShowBottomJump] = useState(false);
+  const lastScrollTopRef = useRef(0);
   const latestSeqRef = useRef<{ conversationId: string | undefined; seq: string | undefined }>({
     conversationId: undefined,
     seq: undefined,
@@ -912,6 +908,9 @@ export function ChatPane({
   const [mobileComposerEditorHeight, setMobileComposerEditorHeight] = useState(42);
   const [mobileComposerLong, setMobileComposerLong] = useState(false);
   const [mobileComposerExpanded, setMobileComposerExpanded] = useState(false);
+  useEffect(() => {
+    setComposerMenu(null);
+  }, [tabActive, mobileComposerExpanded, composerCollapsed]);
   const emojiPanelRef = useRef<HTMLDivElement | null>(null);
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
   const expandedEmojiButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -950,15 +949,12 @@ export function ChatPane({
   const arkPanelRef = useRef<HTMLDivElement | null>(null);
   const arkButtonRef = useRef<HTMLButtonElement | null>(null);
   const aiVoicePanelRef = useRef<HTMLDivElement | null>(null);
-  const aiVoiceButtonRef = useRef<HTMLButtonElement | null>(null);
-  const bouncePanelRef = useRef<HTMLDivElement | null>(null);
-  const bounceButtonRef = useRef<HTMLButtonElement | null>(null);
-  const pokePanelRef = useRef<HTMLDivElement | null>(null);
-  const pokeButtonRef = useRef<HTMLButtonElement | null>(null);
   const redPacketPanelRef = useRef<HTMLDivElement | null>(null);
   const redPacketButtonRef = useRef<HTMLButtonElement | null>(null);
   const flashPanelRef = useRef<HTMLDivElement | null>(null);
   const flashButtonRef = useRef<HTMLButtonElement | null>(null);
+  const locationSharePanelRef = useRef<HTMLDivElement | null>(null);
+  const locationShareButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mentionMenuRef = useRef<HTMLDivElement | null>(null);
@@ -972,6 +968,15 @@ export function ChatPane({
   const atBottomRef = useRef(true);
   const readingPositionApplied = useRef(false);
   const readGestureUntil = useRef(0);
+  const jumpToSeq = useCallback(
+    (target: ReplyJumpTarget) => {
+      // 滚动事件晚于消息刷新提交；先退出贴底，避免原消息刚定位就被刷新拉回末尾。
+      atBottomRef.current = false;
+      readGestureUntil.current = 0;
+      return parentJumpToSeq(target);
+    },
+    [parentJumpToSeq],
+  );
   const lastReadSignal = useRef({ key: '', at: 0 });
   const readContextRef = useRef({
     tabActive,
@@ -1017,6 +1022,14 @@ export function ChatPane({
       ),
     [messages, hiddenMessageIds, hiddenDeletedKeys],
   );
+  const gapPredecessors = useMemo(() => {
+    let previous: Message | undefined;
+    return visibleMessages.map((message) => {
+      const before = previous;
+      if (!isUnpositionedFailure(message)) previous = message;
+      return before;
+    });
+  }, [visibleMessages]);
   const hasHiddenDeletionBetween = useMemo(
     () => hiddenDeletionLookup(messages, hiddenDeletedIds ?? new Set()),
     [messages, hiddenDeletedIds],
@@ -1063,6 +1076,29 @@ export function ChatPane({
   });
   selectionCancelRef.current = selectionFlow.cancel;
   const selectionOrder = selectionFlow.order;
+  const timelineIds = useMemo(
+    () => visibleMessages.map((message) => message.id),
+    [visibleMessages],
+  );
+  const timeline = useVirtualTimeline({
+    ids: timelineIds,
+    orderedIds: selectionOrder,
+    scrollRef: messageScrollRef,
+    // 数据源切换由宿主 ChatMainContent 的 messageScope key 重新挂载；不绑定按需加载的撤回资料。
+    scope: `${user.id}:${conversation?.id}`,
+    active: tabActive,
+  });
+  const rowRestore = useStableCallback(onRestoreMessage);
+  const rowContext = useStableCallback(openMessageMenu);
+  const rowLongPress = useStableCallback(openMobileMessageMenu);
+  const rowAction = useStableCallback(onMessageAction);
+  const rowReedit = useStableCallback(reeditMessage);
+  const rowDismiss = useStableCallback(onDismissUnsentMessage);
+  const rowStart = useStableCallback(onStartOutgoingMessage);
+  const rowToggle = useStableCallback(toggleSelectMessage);
+  const rowReaction = useStableCallback(changeMessageReaction);
+  const rowAvatar = useStableCallback(onOpenGroupMember);
+  const rowAvatarMenu = useStableCallback(openAvatarMenu);
   const actionScope = useMemo(() => ({}), [conversation?.id, user.id, tabActive]);
   const actionScopeRef = useRef<object | null>(actionScope);
   actionScopeRef.current = actionScope;
@@ -1201,6 +1237,13 @@ export function ChatPane({
     anchorRef: selectionAnchor,
     beforeSelect: selectionFlow.beforeSelect,
   });
+  useLayoutEffect(() => {
+    if (multi.focusRequest && messageScrollRef.current)
+      timelineViewport(messageScrollRef.current)?.scrollTo(multi.focusRequest.id, {
+        align: 'center',
+        focus: true,
+      });
+  }, [multi.focusRequest]);
   const marquee = useMessageMarquee({
     conversationKey: conversation?.id,
     enabled:
@@ -1357,9 +1400,12 @@ export function ChatPane({
       readingPositionApplied.current = false;
       atBottomRef.current = !initialReadingPosition;
       setNewMessagePill(0);
+      setShowBottomJump(false);
+      lastScrollTopRef.current = 0;
       if (initialReadingPosition || loading) {
         if (!loading && messageScrollRef.current && initialReadingPosition) {
           restoreReadingPosition(messageScrollRef.current, initialReadingPosition);
+          lastScrollTopRef.current = messageScrollRef.current.scrollTop;
           readingPositionApplied.current = true;
         }
         return;
@@ -1385,6 +1431,7 @@ export function ChatPane({
       messageScrollRef.current
     ) {
       restoreReadingPosition(messageScrollRef.current, initialReadingPosition);
+      lastScrollTopRef.current = messageScrollRef.current.scrollTop;
       readingPositionApplied.current = true;
       atBottomRef.current = false;
       lastMessageIdRef.current = newestId;
@@ -1491,6 +1538,8 @@ export function ChatPane({
   useEffect(() => {
     setEmojiOpen(false);
     setToolsOpen(false);
+    // 切会话就关掉位置共享 —— 面板卸载会停心跳，等价于「退出上一场共享」。
+    setLocationShareOpen(false);
     setContextMenu(null);
     setMentionMenu(null);
     setClearMessagesConfirmOpen(false);
@@ -1613,7 +1662,7 @@ export function ChatPane({
           const idSelector = current.message.id.replace(/["\\]/g, '\\$&');
           const el = container.querySelector<HTMLElement>(`[data-message-id="${idSelector}"]`);
           if (!el) {
-            return current;
+            return null;
           }
           const rect = el.getBoundingClientRect();
           const bounds = container.getBoundingClientRect();
@@ -1826,7 +1875,7 @@ export function ChatPane({
       }
       if (
         aiVoicePanelRef.current?.contains(target) ||
-        aiVoiceButtonRef.current?.contains(target) ||
+        voiceButtonRef.current?.contains(target) ||
         emojiButtonRef.current?.contains(target) ||
         toolsButtonRef.current?.contains(target)
       ) {
@@ -1848,78 +1897,6 @@ export function ChatPane({
       document.removeEventListener('keydown', closeAiVoiceOnEscape);
     };
   }, [tabActive, aiVoiceOpen]);
-
-  useLayoutEffect(() => {
-    if (!tabActive || !bounceOpen) {
-      return;
-    }
-
-    function closeBounceFromOutside(event: globalThis.MouseEvent) {
-      const target = event.target;
-      if (!(target instanceof Node)) {
-        return;
-      }
-      if (
-        bouncePanelRef.current?.contains(target) ||
-        bounceButtonRef.current?.contains(target) ||
-        emojiButtonRef.current?.contains(target) ||
-        toolsButtonRef.current?.contains(target)
-      ) {
-        return;
-      }
-      setBounceOpen(false);
-      setPokeOpen(false);
-    }
-
-    function closeBounceOnEscape(event: globalThis.KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setBounceOpen(false);
-      }
-    }
-
-    document.addEventListener('mousedown', closeBounceFromOutside);
-    document.addEventListener('keydown', closeBounceOnEscape);
-    return () => {
-      document.removeEventListener('mousedown', closeBounceFromOutside);
-      document.removeEventListener('keydown', closeBounceOnEscape);
-    };
-  }, [tabActive, bounceOpen]);
-
-  useLayoutEffect(() => {
-    if (!tabActive || !pokeOpen) {
-      return;
-    }
-
-    function closePokeFromOutside(event: globalThis.MouseEvent) {
-      const target = event.target;
-      if (!(target instanceof Node)) {
-        return;
-      }
-      if (
-        pokePanelRef.current?.contains(target) ||
-        pokeButtonRef.current?.contains(target) ||
-        emojiButtonRef.current?.contains(target) ||
-        toolsButtonRef.current?.contains(target) ||
-        bounceButtonRef.current?.contains(target)
-      ) {
-        return;
-      }
-      setPokeOpen(false);
-    }
-
-    function closePokeOnEscape(event: globalThis.KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setPokeOpen(false);
-      }
-    }
-
-    document.addEventListener('mousedown', closePokeFromOutside);
-    document.addEventListener('keydown', closePokeOnEscape);
-    return () => {
-      document.removeEventListener('mousedown', closePokeFromOutside);
-      document.removeEventListener('keydown', closePokeOnEscape);
-    };
-  }, [tabActive, pokeOpen]);
 
   useLayoutEffect(() => {
     if (!tabActive || !redPacketOpen) {
@@ -1954,6 +1931,40 @@ export function ChatPane({
     };
   }, [tabActive, redPacketOpen]);
 
+  // 位置共享面板：点外面 / Esc 关闭。模态（灯箱等）开着时不抢 Esc。
+  useLayoutEffect(() => {
+    if (!tabActive || !locationShareOpen) {
+      return;
+    }
+
+    function closeLocationShareFromOutside(event: globalThis.MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (
+        locationSharePanelRef.current?.contains(target) ||
+        locationShareButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setLocationShareOpen(false);
+    }
+
+    function closeLocationShareOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape' && !hasActiveModal()) {
+        setLocationShareOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', closeLocationShareFromOutside);
+    document.addEventListener('keydown', closeLocationShareOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeLocationShareFromOutside);
+      document.removeEventListener('keydown', closeLocationShareOnEscape);
+    };
+  }, [tabActive, locationShareOpen]);
+
   // 附件跟着会话走：切会话时清掉上一条会话的待发送素材（预览地址一并释放）。
   const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
   mediaAttachmentRef.current = mediaAttachment;
@@ -1967,7 +1978,7 @@ export function ChatPane({
   const releaseInlineImages = useCallback(() => {
     for (const item of inlineImagesRef.current) releaseAttachment(item);
     inlineImagesRef.current = [];
-    for (const url of reeditObjectUrlsRef.current) URL.revokeObjectURL(url);
+    for (const url of reeditObjectUrlsRef.current) releaseObjectUrl(url);
     reeditObjectUrlsRef.current = [];
   }, []);
   useEffect(() => {
@@ -1979,7 +1990,7 @@ export function ChatPane({
     );
     for (const url of retainedSendUrlsRef.current) {
       if (referenced.has(url)) continue;
-      URL.revokeObjectURL(url);
+      releaseObjectUrl(url);
       retainedSendUrlsRef.current.delete(url);
     }
   }, [messages, sending]);
@@ -2000,9 +2011,8 @@ export function ChatPane({
     // 引用也跟着会话走：换了会话就不能再引用上一条会话里的消息了。
     setPendingQuote(null);
     // AI 声聊 / 弹射表情面板同理：换会话不能把上一会话的面板留在屏幕上。
+    setComposerMenu(null);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setAttachmentError(null);
     setDropActive(false);
   }, [conversation?.id, releaseInlineImages]);
@@ -2010,7 +2020,7 @@ export function ChatPane({
   useLayoutEffect(
     () => () => {
       releaseInlineImages();
-      for (const url of retainedSendUrlsRef.current) URL.revokeObjectURL(url);
+      for (const url of retainedSendUrlsRef.current) releaseObjectUrl(url);
       retainedSendUrlsRef.current.clear();
       if (mediaAttachmentRef.current) releaseAttachment(mediaAttachmentRef.current);
     },
@@ -2836,8 +2846,6 @@ export function ChatPane({
     setVoiceOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
@@ -2936,7 +2944,6 @@ export function ChatPane({
     const clearsBody = !singleToken && !options.keepBody;
     const sentImages = clearsBody ? [...inlineImagesRef.current] : [];
     const sentReeditUrls = clearsBody ? [...reeditObjectUrlsRef.current] : [];
-    let failed = false;
     const initialFocus = document.activeElement;
     const isCurrentComposer = () =>
       mentionConversation.current === request.conversationId &&
@@ -2959,6 +2966,9 @@ export function ChatPane({
     if (readAfterSend) requestReadAtBottom();
     readGestureUntil.current = 0;
     setSending(true);
+    void jumpAfterSuccessfulSend(conversation).catch((error) => {
+      console.error('[composer] jump to latest failed:', error);
+    });
     try {
       // 先捕获媒体句柄；清空后它们归本次发送所有，不能释放仍在读取的预览。
       const localMedia = planNeedsLocalMedia(payloadBody)
@@ -2984,38 +2994,33 @@ export function ChatPane({
       restoreSendFocus();
       window.requestAnimationFrame(restoreSendFocus);
       const locals = localMedia ? await localMedia : undefined;
-      await onSend(payloadBody, locals);
-      if (!isCurrentComposer()) return;
-      if (mediaSettings.data?.jumpToLatestAfterSend !== false)
-        await jumpAfterSuccessfulSend(conversation);
-      else if (readAfterSend) requestReadAtBottom();
-
-      // 独立卡片不带走正文；普通发送的正文已交接，回执不能清掉下一条草稿。
+      // 内容交接后即允许下一条输入；不能让迟到回执清掉下一张附件或下一条草稿。
       if (singleToken) {
+        if (mediaAttachment?.url) retainedSendUrlsRef.current.add(mediaAttachment.url);
         setMediaAttachment((current) => {
           if (current !== mediaAttachment) return current;
-          if (current) releaseAttachment(current);
           return null;
         });
         setPendingSuperEmoji((current) => (current === pendingSuperEmoji ? null : current));
       }
       setVoiceOpen(false);
       setAiVoiceOpen(false);
-      setBounceOpen(false);
-      setPokeOpen(false);
       if (singleToken || options.keepBody) window.requestAnimationFrame(restoreSendFocus);
+      const sent = onSend(payloadBody, locals);
+      composerSendRef.current = null;
+      setSending(false);
+      await sent;
+      if (isCurrentComposer() && readAfterSend) requestReadAtBottom();
     } catch (error) {
-      failed = true;
-      // 失败只保留消息上的重新编辑入口，不回填或覆盖下一条草稿。
+      // 失败通过原消息重试，不回填或覆盖下一条草稿。
+      console.error('[composer] send failed:', error);
+    } finally {
+      // 回执不等于真实消息已接管；占位或灯箱仍引用的地址不能随发送结束撤销。
       for (const url of [...sentImages.map((image) => image.url), ...sentReeditUrls]) {
         if (!url) continue;
         if (composerEditorRef.current) retainedSendUrlsRef.current.add(url);
-        else URL.revokeObjectURL(url);
+        else releaseObjectUrl(url);
       }
-      console.error('[composer] send failed:', error);
-    } finally {
-      if (!failed) for (const image of sentImages) releaseAttachment(image);
-      if (!failed) for (const url of sentReeditUrls) URL.revokeObjectURL(url);
       if (composerSendRef.current === request) {
         composerSendRef.current = null;
         setSending(false);
@@ -3069,7 +3074,7 @@ export function ChatPane({
       await sendVoiceClip(clip);
     } finally {
       // 乐观预览的 blob 要留到发送完成后再释放。
-      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      window.setTimeout(() => releaseObjectUrl(url), 30_000);
     }
   }
 
@@ -3132,6 +3137,29 @@ export function ChatPane({
   }
 
   /**
+   * 位置共享的「发起了位置共享」卡片。
+   *
+   * 真实客户端由服务端推送这条消息，但 WeQ 的 SSO 是「发一包就断」，服务端判定
+   * 发起方不在线就不投递 —— 所以自己发。元素由协议层构造（私聊只需灰条 + 文本；
+   * 群聊必须额外带 `generalFlags(37)`，否则能显示但点不了）。
+   *
+   * 卡片是独立一条消息，不带输入框里的文字 / 引用。
+   */
+  async function sendLocationShareCard(): Promise<void> {
+    if (!conversation || conversation.type === 'merged') return;
+    // 元素在主进程构造：渲染层不能 import `@weq/protocol`（远程 Web 端复用这份
+    // 代码，而 protocol 里有 `node:crypto` 的红包签名，浏览器端打不出来）。
+    await client.account.sendLocationShareCard.mutate({
+      expectedAccountUin: user.identityValue,
+      scene: conversation.type === 'group' ? 'group' : 'c2c',
+      targetId:
+        conversation.type === 'group'
+          ? conversation.group.id
+          : conversation.otherUser.identityValue,
+    });
+  }
+
+  /**
    * AI 声聊面板「合成并发送」：这条语音**只能单独发** —— 不带输入框里的文字、
    * 也不带挂着的引用（跟视频 / 文件那套「单独发」同一套互斥）。
    *
@@ -3159,8 +3187,7 @@ export function ChatPane({
    * 输入框里的内容不会丢）。
    */
   async function sendBounceEmoji(draft: BounceEmojiDraft) {
-    setBounceOpen(false);
-    setPokeOpen(false);
+    setEmojiOpen(false);
     setPendingQuote(null);
     // 跟普通表情一样写回 QQ 的「最近使用」表（失败不影响发送）。
     recordRecentEmoji.mutate({ faceId: draft.faceId, unicode: false, sourceType: 0 });
@@ -3180,8 +3207,7 @@ export function ChatPane({
    * 只做前端：这里不碰任何协议，真正下发由上层 `onSend` 决定。
    */
   async function sendPokeEmoji(draft: PokeEmojiDraft) {
-    setPokeOpen(false);
-    setBounceOpen(false);
+    setEmojiOpen(false);
     setPendingQuote(null);
     await submitMessage({
       extraTokens: [pokeEmojiToken(draft)],
@@ -3197,8 +3223,7 @@ export function ChatPane({
    * 收端/乐观渲染都会播 `lottie/<faceId>_<innerId>.json` 那个结果片段。
    */
   async function sendRandomFace(draft: RandomFaceDraft) {
-    setPokeOpen(false);
-    setBounceOpen(false);
+    setEmojiOpen(false);
     setPendingQuote(null);
     await submitMessage({
       extraTokens: [randomFaceToken(draft)],
@@ -3209,12 +3234,7 @@ export function ChatPane({
   }
 
   /**
-   * 私聊「窗口抖动」：点一下直接发一条独立消息，输入框里的正文、草稿、挂着的引用
-   * 都不动。真正的下发走 `onSendWindowShake`（应用层直接接 protocol 的
-   * `commonElem serviceType=2`），这里只负责置忙态、失败时报错。
-   */
-  /**
-   * 发起语音通话：与窗口抖动一样是「点一下就走」的独立动作，不动输入框内容。
+   * 发起语音通话：独立动作，不动输入框内容。
    * 群聊暂不支持（协议侧要先进群房间，见 `@weq/protocol` 的 group 信令）。
    */
   async function startCall(media: 'audio' | 'video') {
@@ -3224,23 +3244,6 @@ export function ChatPane({
       await onStartCall(conversation, media);
     } catch (error) {
       console.error('[composer] start call failed:', error);
-    }
-  }
-
-  async function sendWindowShake() {
-    if (conversation?.type !== 'direct' || !onSendWindowShake) return;
-    if (!sendAvailable || currentPreference.blocked || sending) return;
-
-    setSending(true);
-    try {
-      await onSendWindowShake(conversation);
-      await jumpAfterSuccessfulSend(conversation);
-    } catch (error) {
-      // 应用层已经弹过提示，这里只留一条控制台记录（与 submitMessage 的失败路径一致）。
-      console.error('[composer] window shake failed:', error);
-    } finally {
-      setSending(false);
-      window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
     }
   }
 
@@ -3492,8 +3495,6 @@ export function ChatPane({
     // 同上：视频 / 文件顶掉引用；也顺手收掉 AI 声聊 / 弹射面板（同样占「单独发」槽位）。
     setPendingQuote(null);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
   }
 
   function removeMediaAttachment() {
@@ -3505,7 +3506,7 @@ export function ChatPane({
     window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
-  async function addFiles(files: File[]) {
+  async function addFiles(files: File[], sendAs?: 'file') {
     if (files.length === 0 || currentPreference.blocked || sending) {
       return;
     }
@@ -3523,8 +3524,8 @@ export function ChatPane({
       return;
     }
 
-    const images = usable.filter(isImageFile);
-    const media = usable.filter((file) => !isImageFile(file));
+    const images = sendAs === 'file' ? [] : usable.filter(isImageFile);
+    const media = sendAs === 'file' ? usable : usable.filter((file) => !isImageFile(file));
 
     if (media.length === 0 && (mediaAttachment || pendingSuperEmoji)) {
       setAttachmentError(
@@ -3537,14 +3538,12 @@ export function ChatPane({
 
     if (media.length > 0) {
       // 视频 / 文件只能单独发：优先挂上它，同一批里的图片这次就不收了。
-      setMedia(await createAttachment(media[0]));
+      setMedia(await createAttachment(media[0], sendAs));
       // 表情 / 语音 / 更多 / 链接面板跟卡片互斥，一并收起来。
       setEmojiOpen(false);
       setToolsOpen(false);
       setVoiceOpen(false);
       setArkOpen(false);
-      setBounceOpen(false);
-      setPokeOpen(false);
       setAttachmentError(
         media.length > 1
           ? '视频 / 文件只能单独发送，只保留了第一个'
@@ -3588,7 +3587,7 @@ export function ChatPane({
     const files = collectFiles(event.target.files);
     // 清空 value：同一个文件再选一次也要能触发 change。
     event.target.value = '';
-    void addFiles(files);
+    void addFiles(files, event.target === fileInputRef.current ? 'file' : undefined);
   }
 
   // ── 拖拽投递 ──────────────────────────────────────────────────────────────
@@ -3873,12 +3872,12 @@ export function ChatPane({
       return false;
     }
     if (controller.signal.aborted || !unchanged()) {
-      for (const url of prepared.objectUrls) URL.revokeObjectURL(url);
+      for (const url of prepared.objectUrls) releaseObjectUrl(url);
       return false;
     }
     const text = prepared.body;
     if (!text) {
-      for (const url of prepared.objectUrls) URL.revokeObjectURL(url);
+      for (const url of prepared.objectUrls) releaseObjectUrl(url);
       return false;
     }
     releaseInlineImages();
@@ -3900,8 +3899,6 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     scheduleMobileComposerMeasure();
     window.requestAnimationFrame(() => {
       if (mentionConversation.current === sourceConversation && composerTabActive.current)
@@ -3975,52 +3972,50 @@ export function ChatPane({
     setEmojiOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setMobileComposerExpanded(true);
   }
 
   function toggleEmojiPanel() {
+    if (voiceBusyRef.current) return;
+    setComposerMenu(null);
     setContextMenu(null);
+    setLocationShareOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setEmojiOpen((open) => (toolsOpen ? true : !open));
   }
 
   function toggleToolsPanel() {
     setContextMenu(null);
+    setLocationShareOpen(false);
     setEmojiOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setToolsOpen((open) => (emojiOpen ? true : !open));
   }
 
   function toggleVoicePanel() {
+    if (voiceBusyRef.current) return;
+    setComposerMenu(null);
     setContextMenu(null);
+    setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setVoiceOpen((open) => !open);
   }
 
   function toggleArkPanel() {
     setContextMenu(null);
+    setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setFlashOpen(false);
     setArkOpen((open) => !open);
   }
@@ -4030,63 +4025,53 @@ export function ChatPane({
    */
   function toggleFlashPanel() {
     setContextMenu(null);
+    setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setFlashOpen((open) => !open);
   }
 
   /** AI 声聊面板（仅群聊）：和其余面板互斥，同一时刻只开一个。 */
   function toggleAiVoicePanel() {
     setContextMenu(null);
+    setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setAiVoiceOpen((open) => !open);
-  }
-
-  /** 弹射表情面板：和其余面板互斥；「只做面板」，发射走既有元素通路。 */
-  function toggleBouncePanel() {
-    setContextMenu(null);
-    setEmojiOpen(false);
-    setToolsOpen(false);
-    setVoiceOpen(false);
-    setArkOpen(false);
-    setAiVoiceOpen(false);
-    setPokeOpen(false);
-    setBounceOpen((open) => !open);
-  }
-
-  /** 戳一戳面板：和其余面板互斥；「只做面板」，戳出去走既有元素通路。 */
-  function togglePokePanel() {
-    setContextMenu(null);
-    setEmojiOpen(false);
-    setToolsOpen(false);
-    setVoiceOpen(false);
-    setArkOpen(false);
-    setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen((open) => !open);
   }
 
   /** 红包面板：和其余面板互斥；下单出码在应用层，成功后弹二维码灯箱。 */
   function toggleRedPacketPanel() {
     setContextMenu(null);
+    setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setRedPacketOpen((open) => !open);
+  }
+
+  /**
+   * 位置共享面板：和其余面板互斥。
+   *
+   * 面板内部自己管心跳（打开才开始上报，关掉/切会话即停）—— 这里只负责显隐，
+   * 不把「是否在共享」提到 chatPane 层，避免关面板后还在后台偷偷上报位置。
+   */
+  function toggleLocationSharePanel() {
+    setContextMenu(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setArkOpen(false);
+    setAiVoiceOpen(false);
+    setRedPacketOpen(false);
+    setLocationShareOpen((open) => !open);
   }
 
   const handleVoiceBusyChange = useCallback((busy: boolean) => {
@@ -4117,8 +4102,12 @@ export function ChatPane({
       return;
     }
     readGestureUntil.current = 0;
-    scroll.scrollTop = scroll.scrollHeight;
+    const viewport = timelineViewport(scroll);
+    if (viewport) viewport.bottom();
+    else scroll.scrollTop = scroll.scrollHeight;
     atBottomRef.current = true;
+    lastScrollTopRef.current = scroll.scrollTop;
+    setShowBottomJump(false);
     setNewMessagePill(0);
   }
   scrollMessagesToBottomRef.current = scrollMessagesToBottom;
@@ -4200,7 +4189,14 @@ export function ChatPane({
   }
 
   function handleMessageScroll() {
+    if (!readContextRef.current.tabActive || document.visibilityState === 'hidden') return;
+    const scroll = messageScrollRef.current;
+    if (!scroll) return;
     const bottom = isScrolledToBottom();
+    const delta = scroll.scrollTop - lastScrollTopRef.current;
+    lastScrollTopRef.current = scroll.scrollTop;
+    if (bottom && atLatest) setShowBottomJump(false);
+    else if (Math.abs(delta) > 1) setShowBottomJump(delta > 0);
     if (!bottom || !initialReadingPosition || readGestureUntil.current > performance.now()) {
       atBottomRef.current = bottom;
     }
@@ -4226,13 +4222,18 @@ export function ChatPane({
     }
 
     const firstUnread = unreadMessageElements(unreadJump)[0];
-    if (!firstUnread) {
+    const unreadId = visibleMessages[Math.max(0, visibleMessages.length - unreadJump.total)]?.id;
+    const virtualOffset = unreadId ? timelineViewport(scroll)?.offset(unreadId) : undefined;
+    if (!firstUnread && virtualOffset === undefined) {
       setUnreadJump(null);
       return;
     }
 
     const scrollRect = scroll.getBoundingClientRect();
-    const firstUnreadTop = firstUnread.getBoundingClientRect().top;
+    const firstUnreadTop =
+      virtualOffset !== undefined
+        ? scrollRect.top + virtualOffset - scroll.scrollTop
+        : firstUnread.getBoundingClientRect().top;
     const targetScrollTop =
       unreadJump.targetScrollTop ??
       Math.max(0, scroll.scrollTop + firstUnreadTop - scrollRect.top - 12);
@@ -4278,6 +4279,13 @@ export function ChatPane({
   }
 
   function jumpToFirstUnreadMessage() {
+    const scroll = messageScrollRef.current;
+    const id =
+      unreadJump && visibleMessages[Math.max(0, visibleMessages.length - unreadJump.total)]?.id;
+    if (scroll && id && timelineViewport(scroll)?.scrollTo(id, { align: 'start' })) {
+      setUnreadJump(null);
+      return;
+    }
     const firstUnread = unreadMessageElements()[0];
     if (!firstUnread) {
       setUnreadJump(null);
@@ -4497,16 +4505,19 @@ export function ChatPane({
   // 面板开着时正文那一行让位。
   const canUseAiVoice = conversation.type === 'group' || conversation.type === 'direct';
   const aiVoicePanelActive = canUseAiVoice && aiVoiceOpen && !mobileComposerExpanded;
-  // 窗口抖动**只支持私聊**（`commonElem serviceType=2`，服务端不认群聊场景），
-  // 所以按钮只在 direct 会话渲染 —— 群聊（含群临时会话）下整枚不出现。
-  const canUseWindowShake = conversation.type === 'direct' && Boolean(onSendWindowShake);
-  // 弹射表情：私聊 / 群聊都能发（协议上 serviceType 23 不分场景）。面板跟链接卡片 /
-  // AI 声聊一样是从输入框上沿弹出的浮层，不占正文那一行，选表情时还能照常打字。
-  const bouncePanelActive = bounceOpen && !mobileComposerExpanded;
-  // 戳一戳：群聊 / 私聊都能发（协议上 serviceType 2 的互动表情不分场景）。
-  const pokePanelActive = pokeOpen && !mobileComposerExpanded;
   // 红包面板：群聊 / 私聊都能发，浮层形态（不占正文那一行）。
   const redPacketPanelActive = redPacketOpen && !mobileComposerExpanded;
+  // 位置共享面板：私聊 / 群聊都能发起，浮层形态。
+  const locationSharePanelActive = locationShareOpen && !mobileComposerExpanded;
+  /**
+   * 位置共享的会话键：私聊是对端 QQ 号，群聊是群号。
+   * 临时会话（来源群号）不参与 —— 位置共享协议没有 grpTmp 路由，直接按 c2c 走。
+   */
+  const locationSharePeer =
+    conversation.type === 'group'
+      ? Number(conversation.group.id)
+      : Number(conversation.otherUser.identityValue);
+  const locationShareSelfUin = Number(user.identityValue);
   const mediaSendDisabled = Boolean(sendGateReason);
   const repeatMessage = repeatTarget(messages, atLatest);
   function messageCanRepeat(message: Message) {
@@ -4554,8 +4565,6 @@ export function ChatPane({
       setVoiceOpen(false);
       setArkOpen(false);
       setAiVoiceOpen(false);
-      setBounceOpen(false);
-      setPokeOpen(false);
       setRedPacketOpen(false);
     },
   };
@@ -4573,6 +4582,46 @@ export function ChatPane({
   } as CSSProperties;
   const hasPlusActions = composerActionRegistry.plusPanel.length > 0;
 
+  function openComposerMenu(kind: 'file', event: ReactMouseEvent<HTMLButtonElement>) {
+    if (voiceBusyRef.current) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    composerActionContext.closePanels();
+    setFlashOpen(false);
+    setComposerMenu((current) =>
+      current?.kind === kind ? null : { kind, x: rect.left, y: rect.top - 144 },
+    );
+  }
+
+  function openSpeechPanel(tab: 'ai' | 'tts') {
+    setAiVoiceInitialTab(tab);
+    toggleAiVoicePanel();
+  }
+
+  const specialEmojiProps = {
+    disabled: mediaSendDisabled,
+    disabledHint: sendTitle,
+    onSendBounce: (draft: BounceEmojiDraft) => void sendBounceEmoji(draft),
+    onSendPoke: (draft: PokeEmojiDraft) => void sendPokeEmoji(draft),
+    randomFaces: randomFacesQuery.data?.items ?? [],
+    onSendRandom: (draft: RandomFaceDraft) => void sendRandomFace(draft),
+  };
+
+  const composerMenuActions = [
+    {
+      label: '发送图片',
+      icon: <ImageIcon size={16} />,
+      action: () => openMediaPicker('image'),
+      disabled: hasSingleSend,
+      reason: hasSingleSend ? singleSendHint : undefined,
+    },
+    {
+      label: '发送文件',
+      icon: <FolderOpen size={16} />,
+      action: () => openMediaPicker('file'),
+    },
+    { label: 'QQ闪传', icon: <Zap size={16} />, action: toggleFlashPanel },
+  ];
+
   function runComposerAction(action: ComposerButtonAction) {
     if (isComposerActionDisabled(action, composerActionContext)) {
       return;
@@ -4582,7 +4631,7 @@ export function ChatPane({
     void action.onClick?.(composerActionContext);
   }
 
-  return (
+  const pane = (
     <section
       {...multi.rootProps}
       className={cn(
@@ -4645,10 +4694,19 @@ export function ChatPane({
                   }
                 }}
               >
-                {chatHeaderTitle(conversation)}
+                {conversation.type === 'group' ? (
+                  <>
+                    <span data-privacy-sensitive>{displayGroupName(conversation.group)}</span>
+                    {` (${conversation.group.memberCount})`}
+                  </>
+                ) : (
+                  <span data-privacy-sensitive>{chatHeaderTitle(conversation)}</span>
+                )}
               </button>
             ) : (
-              <span className={cn('chat-title-text')}>{chatHeaderTitle(conversation)}</span>
+              <span className={cn('chat-title-text')}>
+                <span data-privacy-sensitive>{chatHeaderTitle(conversation)}</span>
+              </span>
             )}
             {isBotConversation(conversation) ? (
               <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
@@ -4757,7 +4815,11 @@ export function ChatPane({
         roamingMessageKey={roamingMessageKey}
       >
         <div
-          className={cn('message-scroll', marquee.dragging && 'is-marquee-selecting')}
+          className={cn(
+            'message-scroll',
+            timeline.enabled && 'is-virtualized',
+            marquee.dragging && 'is-marquee-selecting',
+          )}
           ref={messageScrollRef}
           onScroll={handleMessageScroll}
           {...marquee.handlers}
@@ -4774,14 +4836,16 @@ export function ChatPane({
               // 灰条分流 + 气泡组装统一走 messageRow 的 MessageRow —— 转发窗口与合成转发
               // 预览用的是同一份实现，所以三处的画法不会再各写一套。
               const out = [];
-              let previousForGap: Message | undefined;
-              visibleMessages.forEach((message, index) => {
+              timeline.items.forEach((virtualRow) => {
+                const index = virtualRow.index;
+                const message = visibleMessages[index];
+                const blockStart = out.length;
                 // A hole in the seq run means QQ has messages here that were
                 // never synced locally. Checked for every row (gray tips
                 // included — they occupy a seq too) and emitted before the row
                 // that follows the hole.
                 const previous = visibleMessages[index - 1];
-                const gapPrevious = previousForGap;
+                const gapPrevious = gapPredecessors[index];
                 const deletedGap =
                   gapPrevious && hasHiddenDeletionBetween(gapPrevious.msgSeq, message.msgSeq);
                 const gap = messageGapCount(
@@ -4789,7 +4853,6 @@ export function ChatPane({
                   message,
                   selectionMode || Boolean(deletedGap),
                 );
-                if (!isUnpositionedFailure(message)) previousForGap = message;
                 // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
                 // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
                 // 永远有可点击的拉取入口。跳空 >1 时交给上面的自然缺口条，不重复。
@@ -4896,12 +4959,15 @@ export function ChatPane({
                       deleted={deletedKeys.has(deletionIdentity(message.id))}
                       deletedKind={message.deletedKind}
                       recallRevokerName={message.recallRevokerName}
-                      onRestore={onRestoreMessage}
-                      onContextMenu={openMessageMenu}
-                      onLongPress={openMobileMessageMenu}
-                      onAction={onMessageAction}
-                      onReedit={reeditMessage}
-                      onDismissUnsent={onDismissUnsentMessage}
+                      onRestore={rowRestore}
+                      onContextMenu={rowContext}
+                      onLongPress={rowLongPress}
+                      onAction={rowAction}
+                      onReedit={rowReedit}
+                      onDismissUnsent={rowDismiss}
+                      onStartOutgoing={
+                        !sendAvailable || currentPreference.blocked ? undefined : rowStart
+                      }
                       repeatAction={
                         !selectionMode &&
                         onRepeatMessage &&
@@ -4932,12 +4998,10 @@ export function ChatPane({
                         (selectionMode || Boolean(marquee.previewIds)) &&
                         displayedSelectedIds.has(message.id)
                       }
-                      onToggleSelect={toggleSelectMessage}
-                      reactionInteraction={{
-                        onChange: (code, isSet) => changeMessageReaction(message, code, isSet),
-                        blockedReason: messageReactionBlockedReason(message),
-                        busy: setMessageReaction.isLoading,
-                      }}
+                      onToggleSelect={rowToggle}
+                      onReactionChange={rowReaction}
+                      reactionBlockedReason={messageReactionBlockedReason(message)}
+                      reactionBusy={setMessageReaction.isLoading}
                       pendingAction={
                         pendingActions[message.id] ? (
                           <span
@@ -4954,15 +5018,44 @@ export function ChatPane({
                         !selectionMode &&
                         (conversation.type === 'group' || conversation.type === 'direct') &&
                         onOpenGroupMember
-                          ? onOpenGroupMember
+                          ? rowAvatar
                           : undefined
                       }
-                      onAvatarContextMenu={!selectionMode ? openAvatarMenu : undefined}
+                      onAvatarContextMenu={!selectionMode ? rowAvatarMenu : undefined}
                     />
                   </Fragment>,
                 );
+                {
+                  const children = out.splice(blockStart);
+                  out.push(
+                    <div
+                      className="weq-virtual-timeline-row"
+                      role="listitem"
+                      aria-posinset={index + 1}
+                      aria-setsize={visibleMessages.length}
+                      key={message.id}
+                      data-index={index}
+                      ref={timeline.measure}
+                      style={
+                        timeline.enabled ? { top: virtualRow.start - timeline.margin } : undefined
+                      }
+                    >
+                      {children}
+                    </div>,
+                  );
+                }
               });
-              return out;
+              return (
+                <div
+                  className={cn('weq-virtual-timeline', timeline.enabled && 'is-windowed')}
+                  role="list"
+                  aria-label="聊天消息"
+                  data-total-items={visibleMessages.length}
+                  style={timeline.enabled ? { height: timeline.totalSize } : undefined}
+                >
+                  {out}
+                </div>
+              );
             })()
           )}
           {loadingNewer ? (
@@ -4981,14 +5074,19 @@ export function ChatPane({
         </div>
       </IntentSenseProvider>
 
-      {newMessagePill > 0 ? (
-        <div className="new-message-pill" role="group" aria-label="新消息">
+      {newMessagePill > 0 ||
+      (showBottomJump && mediaSettings.data?.showScrollToBottomButton !== false) ? (
+        <div
+          className="new-message-pill"
+          role="group"
+          aria-label={newMessagePill > 0 ? '新消息' : '定位到底部'}
+        >
           {onPreviewLatest ? (
             <button
               className="new-message-preview"
               type="button"
-              title="预览新消息"
-              aria-label="预览新消息"
+              title={newMessagePill > 0 ? '预览新消息' : '预览最新消息'}
+              aria-label={newMessagePill > 0 ? '预览新消息' : '预览最新消息'}
               onClick={() => onPreviewLatest(conversation)}
             >
               <Eye size={15} />
@@ -5003,7 +5101,9 @@ export function ChatPane({
             onClick={() => void jumpToBottomAndRead()}
           >
             {jumpingToLatest ? <Loader2 size={14} /> : <ChevronDown size={14} strokeWidth={2.8} />}
-            <span>{formatUnreadJumpCount(newMessagePill)}条新消息</span>
+            {newMessagePill > 0 ? (
+              <span>{formatUnreadJumpCount(newMessagePill)}条新消息</span>
+            ) : null}
           </button>
         </div>
       ) : null}
@@ -5331,37 +5431,26 @@ export function ChatPane({
               onClick={runComposerAction}
             />
           ))}
+          {/* 位置共享（手机端）：与桌面端同一个面板，只是工具栏样式不同。 */}
+          <button
+            type="button"
+            className={cn('composer-tool', 'composer-mobile-tool', locationShareOpen && 'active')}
+            title="位置共享"
+            disabled={currentPreference.blocked || sending}
+            onClick={toggleLocationSharePanel}
+          >
+            <MapPin size={21} strokeWidth={1.5} />
+          </button>
           <button
             ref={emojiButtonRef}
             type="button"
             className={cn('composer-tool', emojiOpen && 'active')}
             title={hasSingleSend ? singleSendHint : '表情'}
+            aria-expanded={emojiOpen}
             disabled={currentPreference.blocked || hasSingleSend}
             onClick={toggleEmojiPanel}
           >
             <Smile size={21} strokeWidth={1.5} />
-          </button>
-          {/* 弹射表情：选一枚系统表情 + 个数，发射成一条独立消息。 */}
-          <button
-            ref={bounceButtonRef}
-            type="button"
-            className={cn('composer-tool', bounceOpen && 'active')}
-            title={hasSingleSend ? singleSendHint : '弹射表情'}
-            disabled={currentPreference.blocked || hasSingleSend}
-            onClick={toggleBouncePanel}
-          >
-            <Rocket size={21} strokeWidth={1.5} />
-          </button>
-          {/* 戳一戳互动表情：选一枚 + 连击次数，戳成一条独立消息（群聊 / 私聊都可）。 */}
-          <button
-            ref={pokeButtonRef}
-            type="button"
-            className={cn('composer-tool', pokeOpen && 'active')}
-            title={hasSingleSend ? singleSendHint : '互动表情'}
-            disabled={currentPreference.blocked || hasSingleSend}
-            onClick={togglePokePanel}
-          >
-            <Hand size={21} strokeWidth={1.5} />
           </button>
           {/* 红包：群聊三档类型 / 私聊两档，下单后弹二维码灯箱。 */}
           <button
@@ -5374,18 +5463,6 @@ export function ChatPane({
           >
             <AiOutlineRedEnvelope size={21} />
           </button>
-          {/* 窗口抖动仅私聊可见 —— 群聊（含群临时会话）下这枚按钮整个不渲染。 */}
-          {canUseWindowShake ? (
-            <button
-              type="button"
-              className={cn('composer-tool')}
-              title="窗口抖动"
-              disabled={!sendAvailable || currentPreference.blocked || sending}
-              onClick={() => void sendWindowShake()}
-            >
-              <Vibrate size={21} strokeWidth={1.5} />
-            </button>
-          ) : null}
           {/* 通话：仅私聊。群通话要先进群房间再邀请，协议路径不同，暂不做。 */}
           {conversation?.type === 'direct' && onStartCall ? (
             <button
@@ -5405,28 +5482,31 @@ export function ChatPane({
           <button
             ref={voiceButtonRef}
             type="button"
-            className={cn('composer-tool', 'composer-desktop-tool', voiceOpen && 'active')}
+            className={cn(
+              'composer-tool',
+              'composer-desktop-tool',
+              (voiceOpen || aiVoiceOpen) && 'active',
+            )}
             title={hasSingleSend ? singleSendHint : '语音'}
+            aria-expanded={voiceOpen || aiVoiceOpen}
             disabled={currentPreference.blocked || hasSingleSend}
             onClick={toggleVoicePanel}
           >
             <Mic size={21} strokeWidth={1.5} />
           </button>
           <button
+            ref={flashButtonRef}
             type="button"
-            className={cn('composer-tool', 'composer-desktop-tool')}
-            title={hasSingleSend ? singleSendHint : '发送图片'}
-            disabled={currentPreference.blocked || sending || hasSingleSend}
-            onClick={() => openMediaPicker('image')}
-          >
-            <ImageIcon size={21} strokeWidth={1.5} />
-          </button>
-          <button
-            type="button"
-            className={cn('composer-tool', 'composer-desktop-tool')}
-            title="发送文件或视频"
+            className={cn(
+              'composer-tool',
+              'composer-desktop-tool',
+              (flashOpen || composerMenu?.kind === 'file') && 'active',
+            )}
+            title="发送图片或文件"
+            aria-haspopup="menu"
+            aria-expanded={composerMenu?.kind === 'file'}
             disabled={currentPreference.blocked || sending}
-            onClick={() => openMediaPicker('file')}
+            onClick={(event) => openComposerMenu('file', event)}
           >
             <FolderOpen size={21} strokeWidth={1.5} />
           </button>
@@ -5440,29 +5520,17 @@ export function ChatPane({
           >
             <Link2 size={21} strokeWidth={1.5} />
           </button>
+          {/* 位置共享：发起 / 看所有人在哪 / 摇杆挪位置。房间靠上报续命，停上报即退出。 */}
           <button
-            ref={flashButtonRef}
+            ref={locationShareButtonRef}
             type="button"
-            className={cn('composer-tool', 'composer-desktop-tool', flashOpen && 'active')}
-            title="QQ闪传"
+            className={cn('composer-tool', 'composer-desktop-tool', locationShareOpen && 'active')}
+            title={hasSingleSend ? singleSendHint : '位置共享'}
             disabled={currentPreference.blocked || sending}
-            onClick={toggleFlashPanel}
+            onClick={toggleLocationSharePanel}
           >
-            <Zap size={21} strokeWidth={1.5} />
+            <MapPin size={21} strokeWidth={1.5} />
           </button>
-          {/* AI 声聊 / 文字转语音：私聊与群聊都显示这枚按钮。 */}
-          {canUseAiVoice ? (
-            <button
-              ref={aiVoiceButtonRef}
-              type="button"
-              className={cn('composer-tool', 'composer-desktop-tool', aiVoiceOpen && 'active')}
-              title={hasSingleSend ? singleSendHint : 'AI 声聊 / 文字转语音（单独发送）'}
-              disabled={currentPreference.blocked || sending || hasSingleSend}
-              onClick={toggleAiVoicePanel}
-            >
-              <AudioLines size={21} strokeWidth={1.5} />
-            </button>
-          ) : null}
           {composerActionRegistry.desktopToolbar.map((action) => (
             <ComposerToolbarActionButton
               key={action.id}
@@ -5495,6 +5563,15 @@ export function ChatPane({
             />
           )}
         </div>
+        {composerMenu && tabActive ? (
+          <ConversationActionsMenu
+            label="发送图片或文件"
+            x={composerMenu.x}
+            y={composerMenu.y}
+            actions={composerMenuActions}
+            onClose={() => setComposerMenu(null)}
+          />
+        ) : null}
         {mediaAttachment ? (
           <ComposerMediaStage attachment={mediaAttachment} onRemove={removeMediaAttachment} />
         ) : pendingSuperEmoji ? (
@@ -5506,6 +5583,7 @@ export function ChatPane({
             panelRef={emojiPanelRef}
             onSelect={insertEmoji}
             onSelectSuper={stageSuperEmoji}
+            {...specialEmojiProps}
           />
         ) : null}
         {voicePanelActive ? (
@@ -5518,6 +5596,9 @@ export function ChatPane({
             onSendTranscript={(text) => void sendTranscriptText(text)}
             onSendAudioFile={(bytes, fileName) => void sendAudioFile(bytes, fileName)}
             onBusyChange={handleVoiceBusyChange}
+            ttsProviders={ttsProviders}
+            onSynthesizeSpeech={synthesizeSpeech}
+            onOpenAiVoice={conversation.type === 'group' ? () => openSpeechPanel('ai') : undefined}
           />
         ) : null}
         {flashPanelActive ? (
@@ -5543,6 +5624,7 @@ export function ChatPane({
         ) : null}
         {aiVoicePanelActive ? (
           <AiVoicePanel
+            initialTab={aiVoiceInitialTab}
             panelRef={aiVoicePanelRef}
             disabled={mediaSendDisabled}
             disabledHint={sendTitle}
@@ -5560,26 +5642,6 @@ export function ChatPane({
             onClose={() => setAiVoiceOpen(false)}
           />
         ) : null}
-        {bouncePanelActive ? (
-          <BounceEmojiPanel
-            panelRef={bouncePanelRef}
-            disabled={mediaSendDisabled}
-            disabledHint={sendTitle}
-            onSend={(draft) => void sendBounceEmoji(draft)}
-            onClose={() => setBounceOpen(false)}
-          />
-        ) : null}
-        {pokePanelActive ? (
-          <PokeEmojiPanel
-            panelRef={pokePanelRef}
-            disabled={mediaSendDisabled}
-            disabledHint={sendTitle}
-            onSend={(draft) => void sendPokeEmoji(draft)}
-            randomFaces={randomFacesQuery.data?.items ?? []}
-            onSendRandom={(draft) => void sendRandomFace(draft)}
-            onClose={() => setPokeOpen(false)}
-          />
-        ) : null}
         {redPacketPanelActive ? (
           <RedPacketPanel
             panelRef={redPacketPanelRef}
@@ -5591,6 +5653,23 @@ export function ChatPane({
             onReloadPasswords={() => void redbagPasswordsQuery.refetch()}
             onSend={(draft) => sendRedPacket(draft)}
             onClose={() => setRedPacketOpen(false)}
+          />
+        ) : null}
+        {locationSharePanelActive ? (
+          <LocationSharePanel
+            panelRef={locationSharePanelRef}
+            scene={conversation.type === 'group' ? 'group' : 'c2c'}
+            peer={locationSharePeer}
+            selfUin={locationShareSelfUin}
+            selfName={user.displayName || user.username}
+            selfAvatarUrl={user.avatarUrl}
+            selfUid={user.uid}
+            conversationName={conversation.name}
+            members={conversation.type === 'group' ? conversation.members : undefined}
+            disabled={mediaSendDisabled}
+            disabledHint={sendTitle}
+            onSendCard={sendLocationShareCard}
+            onClose={() => setLocationShareOpen(false)}
           />
         ) : null}
         <input
@@ -5743,29 +5822,12 @@ export function ChatPane({
                 ref={expandedEmojiButtonRef}
                 type="button"
                 title="表情"
+                aria-expanded={emojiOpen}
                 className={cn(emojiOpen && 'active')}
                 disabled={currentPreference.blocked}
                 onClick={toggleEmojiPanel}
               >
                 <Smile size={22} strokeWidth={1.5} />
-              </button>
-              <button
-                type="button"
-                title="弹射表情"
-                className={cn(bounceOpen && 'active')}
-                disabled={currentPreference.blocked}
-                onClick={toggleBouncePanel}
-              >
-                <Rocket size={22} strokeWidth={1.5} />
-              </button>
-              <button
-                type="button"
-                title="互动表情"
-                className={cn(pokeOpen && 'active')}
-                disabled={currentPreference.blocked}
-                onClick={togglePokePanel}
-              >
-                <Hand size={22} strokeWidth={1.5} />
               </button>
               <button
                 type="button"
@@ -5776,16 +5838,6 @@ export function ChatPane({
               >
                 <AiOutlineRedEnvelope size={22} />
               </button>
-              {canUseWindowShake ? (
-                <button
-                  type="button"
-                  title="窗口抖动"
-                  disabled={!sendAvailable || currentPreference.blocked || sending}
-                  onClick={() => void sendWindowShake()}
-                >
-                  <Vibrate size={22} strokeWidth={1.5} />
-                </button>
-              ) : null}
               <span />
               <button
                 type="button"
@@ -5804,26 +5856,7 @@ export function ChatPane({
                 panelRef={emojiPanelRef}
                 onSelect={insertEmoji}
                 onSelectSuper={stageSuperEmoji}
-              />
-            ) : null}
-            {bounceOpen ? (
-              <BounceEmojiPanel
-                panelRef={bouncePanelRef}
-                disabled={mediaSendDisabled}
-                disabledHint={sendTitle}
-                onSend={(draft) => void sendBounceEmoji(draft)}
-                onClose={() => setBounceOpen(false)}
-              />
-            ) : null}
-            {pokeOpen ? (
-              <PokeEmojiPanel
-                panelRef={pokePanelRef}
-                disabled={mediaSendDisabled}
-                disabledHint={sendTitle}
-                onSend={(draft) => void sendPokeEmoji(draft)}
-                randomFaces={randomFacesQuery.data?.items ?? []}
-                onSendRandom={(draft) => void sendRandomFace(draft)}
-                onClose={() => setPokeOpen(false)}
+                {...specialEmojiProps}
               />
             ) : null}
             {redPacketOpen ? (
@@ -6031,6 +6064,7 @@ export function ChatPane({
       ) : null}
     </section>
   );
+  return <ReplyJumpContext.Provider value={jumpToSeq}>{pane}</ReplyJumpContext.Provider>;
 }
 
 function ConfirmDialog({

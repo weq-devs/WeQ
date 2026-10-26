@@ -1,5 +1,7 @@
-import type { AgentLabModelRef } from '@weq/agentlab';
+import type { AgentLabModelSelection } from '@weq/agentlab/model-selection';
+import { isDefaultModelSelection, modelSelectionKey } from '@weq/agentlab/model-selection';
 import { trpc } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
 import { QueryError } from './controls';
 
@@ -11,16 +13,24 @@ export function ApiModelSelect({
   capability = 'chat',
   emptyLabel = '未选择',
   required = false,
+  allowDefault = false,
 }: {
-  value: AgentLabModelRef | null;
-  onChange: (value: AgentLabModelRef | null) => void;
+  value: AgentLabModelSelection | null;
+  onChange: (value: AgentLabModelSelection | null) => void;
   label: string;
   disabled?: boolean;
   capability?: 'chat' | 'embedding' | 'vision';
   emptyLabel?: string;
   required?: boolean;
+  allowDefault?: boolean;
 }) {
+  const active = useTabActive();
   const providers = trpc.bootstrap.listAgentLabProviders.useQuery(undefined, {
+    enabled: active,
+    refetchOnWindowFocus: false,
+  });
+  const defaultModel = trpc.bootstrap.getAgentLabDefaultModel.useQuery(undefined, {
+    enabled: active && allowDefault,
     refetchOnWindowFocus: false,
   });
   const groups = (providers.data ?? [])
@@ -29,26 +39,47 @@ export function ApiModelSelect({
       models: provider.models.filter((model) => model.capabilities?.includes(capability) !== false),
     }))
     .filter((provider) => provider.models.length > 0);
-  const key = (ref: AgentLabModelRef) => JSON.stringify([ref.providerId, ref.model]);
+  const key = modelSelectionKey;
   const groupLabels = providerDisplayLabels(providers.data ?? []);
   const options = groups.flatMap((provider) =>
     provider.models.map((model) => ({ providerId: provider.id, model: model.id })),
   );
-  const missing = value && !options.some((option) => key(option) === key(value));
+  const inherited = isDefaultModelSelection(value);
+  const missing = value && !inherited && !options.some((option) => key(option) === key(value));
+  const defaultRef = defaultModel.data?.ref;
+  const defaultLabel = defaultModel.error
+    ? '读取失败'
+    : !defaultRef
+      ? '未配置'
+      : `${defaultRef.model}${defaultModel.data?.available && options.some((option) => key(option) === key(defaultRef)) ? '' : '（不可用）'}`;
   return (
     <div className="weq-api-model-field">
       <select
         className="weq-set-input"
         aria-label={label}
-        value={value ? key(value) : ''}
+        title={
+          inherited
+            ? `默认：${defaultLabel}`
+            : value && !isDefaultModelSelection(value)
+              ? value.model
+              : emptyLabel
+        }
+        value={key(value)}
         disabled={disabled || providers.isLoading}
         onChange={(event) =>
-          onChange(options.find((option) => key(option) === event.target.value) ?? null)
+          onChange(
+            allowDefault && event.target.value === key({ useDefault: true })
+              ? { useDefault: true }
+              : (options.find((option) => key(option) === event.target.value) ?? null),
+          )
         }
       >
         <option value="" disabled={required}>
           {emptyLabel}
         </option>
+        {allowDefault || inherited ? (
+          <option value={key({ useDefault: true })}>默认：{defaultLabel}</option>
+        ) : null}
         {missing && value ? (
           <option value={key(value)}>
             {providers.isLoading || providers.error ? '已保存' : '已保存但不可用'}：
@@ -72,6 +103,14 @@ export function ApiModelSelect({
           retryLabel="重新读取模型列表"
           retrying={providers.isFetching}
           onRetry={() => void providers.refetch()}
+        />
+      ) : null}
+      {allowDefault && defaultModel.error ? (
+        <QueryError
+          message={`默认模型读取失败：${defaultModel.error.message}`}
+          retryLabel="重新读取默认模型"
+          retrying={defaultModel.isFetching}
+          onRetry={() => void defaultModel.refetch()}
         />
       ) : null}
     </div>

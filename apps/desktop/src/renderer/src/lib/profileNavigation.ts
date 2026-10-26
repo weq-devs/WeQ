@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import type { User } from '../im-template/template/types';
+import type { Contact, GroupConversation, User } from '../im-template/template/types';
 import { avatarFromUin } from './avatarResolver';
 
 export type ProfileGroup = { code: string; name: string };
@@ -29,4 +29,14 @@ export function profileTargetUser(target: ProfileTarget): User | null {
 
 export const ProfileNavigationContext = createContext<
   ((user: User, anchor: { x: number; y: number }, group?: ProfileGroup) => void) | null
+>(null);
+
+export type ContactWorkspaceTab = 'profile' | 'personality' | 'marks' | 'portrait';
+export type ContactWorkspaceTarget =
+  | { kind: 'person'; contact: Contact; tab?: ContactWorkspaceTab }
+  | { kind: 'group'; conversation: GroupConversation };
+
+/** 小名片展开到联系人详情，不向好友或群目录写入临时对象。 */
+export const ContactWorkspaceNavigationContext = createContext<
+  ((target: ContactWorkspaceTarget) => void) | null
 >(null);

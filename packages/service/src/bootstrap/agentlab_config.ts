@@ -5,8 +5,13 @@ import {
   resolveEndpoint,
   testChatEndpoint,
   validateProviderConfig,
+  isDefaultModelSelection,
+  modelEndpointIdentity,
   type AgentLabEndpoint,
   type AgentLabModelRef,
+  type AgentLabModelSelection,
+  type AgentLabModels,
+  type AgentLabModelCapability,
   type AgentLabProviderCatalogEntry,
   type AgentLabProviderConfig,
   type AgentLabProviderModel,
@@ -34,6 +39,52 @@ export class AgentLabConfigService {
     return this.listProviders().find((item) => item.id === providerId) ?? null;
   }
 
+  getDefaultModel(): AgentLabModelRef | null {
+    return this.userConfig.getSettings().agentLab.defaultModel;
+  }
+
+  getDefaultModelStatus() {
+    const ref = this.getDefaultModel();
+    if (!ref) return { ref: null, available: false, error: null };
+    try {
+      this.resolveDefaultEndpoint(ref);
+      return { ref, available: true, error: null };
+    } catch (error) {
+      return {
+        ref,
+        available: false,
+        error: error instanceof Error ? error.message : '默认模型不可用',
+      };
+    }
+  }
+
+  setDefaultModel(ref: AgentLabModelRef | null) {
+    const next = ref ? { providerId: ref.providerId.trim(), model: ref.model.trim() } : null;
+    if (next && (next.providerId.includes('\0') || next.model.includes('\0')))
+      throw new Error('默认模型引用无效');
+    if (next) this.resolveDefaultEndpoint(next);
+    this.userConfig.setSettings({ agentLab: { defaultModel: next } });
+    return this.getDefaultModelStatus();
+  }
+
+  resolveDefaultEndpoint(
+    ref = this.getDefaultModel(),
+    capability: AgentLabModelCapability = 'chat',
+  ): AgentLabEndpoint {
+    if (!ref) throw new Error('未设置默认模型');
+    const provider = this.getProvider(ref.providerId);
+    if (!provider) throw new Error(`默认模型的 provider 不可用：${ref.providerId}`);
+    const model = provider.models.find(
+      (item) =>
+        item.id === ref.model &&
+        item.capabilities?.includes('chat') !== false &&
+        item.capabilities?.includes(capability) !== false,
+    );
+    if (!model) throw new Error(`默认模型不存在或不支持 ${capability}：${ref.model}`);
+    validateProviderConfig(provider);
+    return this.resolveEndpoint(ref);
+  }
+
   /** 按 id 取 TTS provider 配置（供导出 bot 打包语音配置）。 */
   getTtsProvider(providerId: string): TtsProviderConfig | null {
     return (
@@ -43,11 +94,40 @@ export class AgentLabConfigService {
   }
 
   /** 把 agent 里的「某任务用哪个 provider 的哪个 model」解析成可调用端点。 */
-  resolveEndpoint(ref: AgentLabModelRef): AgentLabEndpoint {
+  resolveModelRef(
+    ref: AgentLabModelSelection,
+    capability: AgentLabModelCapability = 'chat',
+  ): AgentLabModelRef {
+    if (!isDefaultModelSelection(ref)) return { ...ref };
+    const current = this.getDefaultModel();
+    this.resolveDefaultEndpoint(current, capability);
+    if (!current) throw new Error('未设置默认模型');
+    return { ...current };
+  }
+
+  resolveModels(models: AgentLabModels) {
+    return {
+      chat: this.resolveModelRef(models.chat),
+      ...(models.embedding
+        ? { embedding: this.resolveModelRef(models.embedding, 'embedding') }
+        : {}),
+      ...(models.vision ? { vision: this.resolveModelRef(models.vision, 'vision') } : {}),
+      ...(models.voiceClone ? { voiceClone: this.resolveModelRef(models.voiceClone) } : {}),
+    };
+  }
+
+  resolveEndpoint(
+    ref: AgentLabModelSelection,
+    capability: AgentLabModelCapability = 'chat',
+  ): AgentLabEndpoint {
+    if (isDefaultModelSelection(ref)) return this.resolveDefaultEndpoint(undefined, capability);
     const provider = this.getProvider(ref.providerId);
     if (!provider) throw new Error(`找不到 AgentLab provider: ${ref.providerId}`);
     if (!ref.model?.trim()) throw new Error('未选择模型');
-    return resolveEndpoint(provider, ref);
+    return {
+      ...resolveEndpoint(provider, ref),
+      modelIdentity: modelEndpointIdentity(ref, provider.baseUrl),
+    };
   }
 
   listCatalog(): AgentLabProviderCatalogEntry[] {

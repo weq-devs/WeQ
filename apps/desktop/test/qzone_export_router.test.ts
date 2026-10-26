@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 const fixture = vi.hoisted(() => ({
@@ -8,6 +9,12 @@ const fixture = vi.hoisted(() => ({
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({
     account: { context: { uin: fixture.uin } },
+    bootstrap: {
+      userConfig: {
+        getSettings: () => ({ autoAttachQq: true }),
+        getLocalModelId: () => null,
+      },
+    },
     services: {
       accountConfig: {
         getRecord: () => ({ configId: fixture.configId, qqOnline: true, qqPid: 1 }),

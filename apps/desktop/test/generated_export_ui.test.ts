@@ -73,7 +73,7 @@ afterEach(() => {
 });
 function mount(
   ids: string[] = ['a', 'c'],
-  prepareSave = async () => ({ mode: 'after' as const }),
+  prepareSave = async () => ({ mode: 'before' as const, directory: '/fixture/export' }),
   isCurrent = () => true,
 ) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -110,7 +110,7 @@ function mount(
 }
 
 it('会话列表与对话气泡都显示克隆体源好友头像，不再回落成默认小人', async () => {
-  const f = mount(['a'], async () => ({ mode: 'after' as const }));
+  const f = mount(['a'], async () => ({ mode: 'before' as const, directory: '/fixture/export' }));
   try {
     await act(async () => {});
     // 会话列表行：每个 clone 会话一个头像，且用的是源好友的 QQ 号。
@@ -131,18 +131,19 @@ it('会话列表与对话气泡都显示克隆体源好友头像，不再回落�
     f.close();
   }
 });
-it('生成对话的本次菜单沿用同一提交管线，先生成意图不写全局偏好', async () => {
-  const prepare = vi.fn(async () => ({ mode: 'after' as const }));
+it('生成对话只提供单个保存动作，遵循全局偏好', async () => {
+  const prepare = vi.fn(async () => ({ mode: 'before' as const, directory: '/fixture/export' }));
   const f = mount(['a'], prepare);
   try {
-    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click());
-    const button = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
-      (node) => node.textContent === '先生成，稍后保存',
-    )!;
+    expect(f.host.querySelector('.weq-save-options')).toBeNull();
+    const button = f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!;
     await act(async () => button.click());
-    expect(prepare).toHaveBeenCalledWith({ mode: 'after' }, { kind: 'bundle', name: '生成对话' });
+    expect(prepare).toHaveBeenCalledWith(undefined, { kind: 'bundle', name: '生成对话' });
     expect(fixture.start).toHaveBeenCalledWith(
-      expect.objectContaining({ savePolicy: { mode: 'after' }, messageIds: ['a'] }),
+      expect.objectContaining({
+        savePolicy: { mode: 'before', directory: '/fixture/export' },
+        messageIds: ['a'],
+      }),
     );
   } finally {
     f.close();
@@ -176,7 +177,7 @@ it('生成目标用结构化身份区分同名会话、旧记录与助手，不�
   ).toBeNull();
 });
 it('精确选择按原身份交给任务，等待保存时来源选择的外部变化不改写确认目标', async () => {
-  let release!: (value: { mode: 'after' }) => void;
+  let release!: (value: { mode: 'before'; directory: '/fixture/export' }) => void;
   const f = mount(
     ['a', 'c'],
     () =>
@@ -189,7 +190,7 @@ it('精确选择按原身份交给任务，等待保存时来源选择的外部�
     await act(async () => f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click());
     f.selection.scope.ids.push('b');
     expect(fixture.start).not.toHaveBeenCalled();
-    await act(async () => release({ mode: 'after' }));
+    await act(async () => release({ mode: 'before', directory: '/fixture/export' }));
     expect(fixture.start).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedAccountUin: '10001',
@@ -218,7 +219,7 @@ it.each([{ ids: [] as string[] }, { ids: ['missing'] }])(
 it('切号后停止旧准备；各对话的精确草稿独立保留', async () => {
   const f = mount(
     ['a'],
-    async () => ({ mode: 'after' }),
+    async () => ({ mode: 'before', directory: '/fixture/export' }),
     () => false,
   );
   try {

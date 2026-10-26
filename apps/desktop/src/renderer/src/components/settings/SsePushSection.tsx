@@ -15,7 +15,7 @@
  *   - testSsePushServer    发一条 ping 事件探测连通性
  */
 
-import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactElement } from 'react';
 import {
   Check,
   ChevronRight,
@@ -27,10 +27,12 @@ import {
   Plus,
   Radio,
   RefreshCw,
+  Save,
   Trash2,
   X,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
@@ -55,10 +57,12 @@ function errMsg(e: unknown): string {
 }
 
 export function SsePushSection(): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const pushToast = useToast((s) => s.push);
 
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -70,11 +74,16 @@ export function SsePushSection(): ReactElement {
 
   const [form, setForm] = useState<PushForm | null>(null);
   const [revealToken, setRevealToken] = useState(false);
+  useEffect(() => {
+    if (!active) setRevealToken(false);
+  }, [active]);
   const [draftId, setDraftId] = useState(() => crypto.randomUUID());
   const testKey = connectionTestKey('sse', form?.id || draftId);
   const testing = useConnectionTestTasks((state) => state.running.has(testKey));
   const [debounceDraft, setDebounceDraft] = useState('2000');
   const [thresholdDraft, setThresholdDraft] = useState('50');
+  const previousDebounce = useRef('2000');
+  const previousThreshold = useRef('50');
 
   const sse = settings.data?.ssePush;
   const servers = sse?.servers ?? [];
@@ -83,10 +92,18 @@ export function SsePushSection(): ReactElement {
 
   // 普通重读不清空草稿，只同步发生变化的服务端数值。
   useEffect(() => {
-    if (sse?.debounceMs != null) setDebounceDraft(String(sse.debounceMs));
+    if (sse?.debounceMs == null) return;
+    const previous = previousDebounce.current;
+    const next = String(sse.debounceMs);
+    setDebounceDraft((draft) => (draft === previous ? next : draft));
+    previousDebounce.current = next;
   }, [sse?.debounceMs]);
   useEffect(() => {
-    if (sse?.massThreshold != null) setThresholdDraft(String(sse.massThreshold));
+    if (sse?.massThreshold == null) return;
+    const previous = previousThreshold.current;
+    const next = String(sse.massThreshold);
+    setThresholdDraft((draft) => (draft === previous ? next : draft));
+    previousThreshold.current = next;
   }, [sse?.massThreshold]);
 
   async function refetch(): Promise<void> {
@@ -199,7 +216,7 @@ export function SsePushSection(): ReactElement {
     <div className="weq-set weq-service-settings">
       <SectionHeader
         icon={<Radio size={18} strokeWidth={1.8} />}
-        title="SSE 消息推送"
+        title="SSE 推送"
         desc="把 QQ 新消息实时推送到你指定的地址（HTTP POST，可选 Bearer access_token）。监听实现与 tools:db-watch-listen 一致：防抖合并 + seq 跳变阈值，QQ 刚启动大量写表时只推一条 mass 事件预览最新一条。"
       />
 
@@ -373,6 +390,7 @@ export function SsePushSection(): ReactElement {
                   测试连接
                 </button>
                 <button type="submit" className="weq-set-btn" disabled={busy}>
+                  <Save size={13} aria-hidden="true" />
                   保存
                 </button>
               </div>

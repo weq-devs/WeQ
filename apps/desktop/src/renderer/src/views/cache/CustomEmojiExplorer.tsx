@@ -30,7 +30,7 @@ import { ShimmerImage } from '../../components/ShimmerImage';
 import { BlobDialog, CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton, InlineSkeleton } from './CacheSkeleton';
 import { FavoriteActions } from '../../components/qq-actions/FavoriteActions';
-import { TabActivity } from '../../components/RetainedTabs';
+import { TabActivity, useTabActive } from '../../components/RetainedTabs';
 
 const SCOPE_META: Record<CustomEmojiScope, { label: string; icon: ReactElement }> = {
   recv: { label: '收到的表情', icon: <Search size={14} /> },
@@ -56,7 +56,8 @@ function cemojiSrc(
 }
 
 export function CustomEmojiExplorer(): ReactElement {
-  const scopes = trpc.account.customEmoji.listScopes.useQuery();
+  const visible = useTabActive();
+  const scopes = trpc.account.customEmoji.listScopes.useQuery(undefined, { enabled: visible });
   const scopeList = useMemo<CustomEmojiScopeInfo[]>(
     () => (scopes.data ?? []) as CustomEmojiScopeInfo[],
     [scopes.data],

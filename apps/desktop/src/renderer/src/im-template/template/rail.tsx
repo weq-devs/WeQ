@@ -8,6 +8,7 @@ import {
   Palette,
   Mail,
   Sparkles,
+  UsersRound,
 } from 'lucide-react';
 import { SiQzone } from 'react-icons/si';
 import { useEffect, useRef, useState } from 'react';
@@ -18,7 +19,6 @@ import type { MainView, SettingsTab, User } from './types';
 import { displayUserName } from './user';
 import { useUpdateStore } from '../../state/update';
 import '../../styles/rail-navigation.css';
-import '../../styles/rail-utility-dock.css';
 import { useWorkspaceActiveTitle } from '../../components/WorkspacePages';
 
 export function AppRail({
@@ -87,7 +87,7 @@ export function AppRail({
       title={updateAvailable ? '设置 · 有新版本可更新' : '设置'}
       type="button"
     >
-      <Settings size={mobile ? 22 : 18} strokeWidth={mobile ? 1.5 : 2} aria-hidden />
+      <Settings size={22} strokeWidth={1.75} aria-hidden />
       {mobile ? <span className="rail-label">设置</span> : null}
       {updateAvailable ? (
         <span className="rail-badge rail-badge-dot" aria-label="有新版本可更新" />
@@ -213,7 +213,7 @@ export function AppRail({
             aria-current={activeView === 'contacts' ? 'page' : undefined}
           >
             <span className={cn('rail-tab-icon')}>
-              <ContactRailIcon />
+              <UsersRound size={22} strokeWidth={1.75} aria-hidden />
             </span>
             <span className={cn('rail-label')}>联系人</span>
             {contactBadgeCount > 0 ? (
@@ -336,18 +336,7 @@ function formatBadgeCount(value: number) {
 }
 
 function railButtonClass(active: boolean) {
-  return cn(active && 'active');
-}
-
-function ContactRailIcon() {
-  return (
-    <svg className="rail-contact-icon" viewBox="0 0 28 28" aria-hidden="true">
-      <circle className="rail-contact-head" cx="14" cy="7.8" r="4.5" />
-      <path className="rail-contact-body-fill" d="M4.5 24.5a9.5 7.5 0 0 1 19 0H4.5Z" />
-      <path className="rail-contact-collar" d="M11.2 17.5h5.6L14 21Z" />
-      <path className="rail-contact-body-line" d="M4.5 24.5a9.5 7.5 0 0 1 19 0" />
-    </svg>
-  );
+  return cn('weq-rail-button', active && 'active');
 }
 
 function ProfilePopover({

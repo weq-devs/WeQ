@@ -1,0 +1,179 @@
+.weq-resources-settings,
+.weq-resource-management,
+.weq-resource-panel {
+  min-width: 0;
+}
+.weq-resource-management > .weq-segmented {
+  margin-bottom: 12px;
+}
+.weq-resource-management .weq-segmented button > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.weq-resource-status {
+  margin: 8px 0 16px;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+}
+.weq-resource-management .weq-ra-dialog {
+  width: 100%;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  animation: none;
+}
+.weq-resource-management .weq-ra-head {
+  padding: 10px 0;
+  background: transparent;
+}
+.weq-resource-management .weq-ra-body {
+  padding: 16px 0;
+  overflow: visible;
+}
+.weq-resource-management .weq-ra-card {
+  border-radius: 6px;
+  box-shadow: none;
+  background: color-mix(in srgb, var(--weq-bg-surface) 65%, transparent);
+}
+.weq-resource-management .weq-ra-tile,
+.weq-resource-management .weq-clean-mode,
+.weq-resource-management .weq-clean-target,
+.weq-resource-management .weq-clean-summary {
+  border-radius: 6px;
+  background: transparent;
+}
+.weq-resource-management .weq-ra-tile-icon {
+  border-radius: 0;
+  background: transparent;
+}
+.weq-resource-management .weq-ra-tile-value {
+  font-size: 22px;
+}
+.weq-resource-management .weq-clean-mode:hover:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+.weq-resource-management .weq-ra-error,
+.weq-resource-management .weq-clean-phrase b {
+  color: var(--destructive);
+}
+.weq-resource-management .weq-clean-mode.is-danger,
+.weq-resource-management .weq-clean-summary.is-danger {
+  border-color: color-mix(in srgb, var(--destructive) 40%, var(--weq-border-subtle));
+}
+.weq-resource-management .weq-clean-mode.is-danger .weq-clean-mode-icon,
+.weq-resource-management .weq-clean-summary.is-danger .weq-clean-summary-icon {
+  color: var(--destructive);
+  background: color-mix(in srgb, var(--destructive) 12%, transparent);
+}
+.weq-resource-management .weq-clean-go.is-danger {
+  background: color-mix(in srgb, var(--destructive) 85%, var(--foreground));
+  color: var(--destructive-foreground);
+}
+.weq-resource-management .weq-clean-phrase input {
+  border-color: color-mix(in srgb, var(--destructive) 45%, var(--weq-border-subtle));
+}
+.weq-resource-management .weq-clean-phrase input:focus {
+  outline: 2px solid var(--destructive);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.weq-resource-management .weq-clean-review-label small {
+  display: block;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.weq-resource-management .weq-clean-review {
+  border-radius: 6px;
+}
+.weq-resource-management .weq-clean-done-title {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.weq-resource-management .weq-clean-review-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-resource-management .weq-clean-review-variant,
+.weq-resource-management .weq-clean-review-size {
+  flex: none;
+  white-space: nowrap;
+}
+.weq-resource-management .weq-clean-summary > div,
+.weq-resource-management .weq-clean-mode-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-resource-mapping {
+  padding: 16px 0;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-resource-mapping h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.weq-resource-map-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  font-size: 13px;
+}
+.weq-resource-map-row > span,
+.weq-resource-mapping p {
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.weq-resource-browser {
+  display: flex;
+  height: max(520px, calc(100dvh - 300px));
+  max-height: 950px;
+  min-width: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.weq-resource-browser > .weq-cache {
+  min-width: 0;
+}
+html[data-theme='dark'] .weq-resource-management .weq-ra-head {
+  background: transparent;
+}
+html[data-theme='dark'] .weq-resource-management .weq-clean-go.is-danger {
+  color: var(--background);
+}
+@media (max-width: 600px) {
+  .weq-resource-management .weq-ra-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .weq-resource-management .weq-ra-head {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .weq-resource-map-row {
+    grid-template-columns: 60px minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+  .weq-resource-browser {
+    height: max(720px, calc(100dvh - 240px));
+  }
+  .weq-resource-browser .weq-cache:not(.is-cats-collapsed) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 180px minmax(0, 1fr);
+  }
+  .weq-resource-browser .weq-cache-cats {
+    border-right: 0;
+    border-bottom: 1px solid var(--weq-border-subtle);
+  }
+}
