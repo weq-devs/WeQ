@@ -8,6 +8,7 @@ import { protectMailHtml } from './html';
 import { decodeMailSocketFrame, MailNoticeCursor } from './notifications';
 import {
   MailFailure,
+  MAIL_VERIFICATION_REQUIRED,
   type MailAction,
   type MailAttachment,
   type MailAddress,
@@ -73,6 +74,7 @@ export class QQMailService {
   private backgroundStopped = false;
   private backgroundConnect: Promise<void> | null = null;
   private pendingCredentials = false;
+  private verificationBlocked = false;
   private readonly allowOnline: () => boolean;
 
   constructor(
@@ -112,6 +114,7 @@ export class QQMailService {
     return (
       !this.closed &&
       this.allowOnline() &&
+      !this.verificationBlocked &&
       !this.backgroundStopped &&
       (this.showUnread || this.state.notifications)
     );
@@ -161,7 +164,22 @@ export class QQMailService {
     if (!this.allowOnline()) throw new MailFailure('auth', '本次运行尚未启用完整功能。');
     if (this.closed) throw new MailFailure('auth', '邮箱会话已关闭。');
     const auth = this.auth;
-    const result = await run(auth);
+    let result: T;
+    try {
+      result = await run(auth);
+    } catch (error) {
+      if (
+        auth === this.auth &&
+        error instanceof MailFailure &&
+        error.businessCode === MAIL_VERIFICATION_REQUIRED
+      ) {
+        this.verificationBlocked = true;
+        this.pendingCredentials = false;
+        this.stopNotifications();
+        this.update({ state: 'error', error: error.message });
+      }
+      throw error;
+    }
     if (this.closed || !this.allowOnline() || this.auth !== auth)
       throw new MailFailure(
         writeResult ? 'unknown-send' : 'auth',
@@ -174,6 +192,8 @@ export class QQMailService {
 
   async connect(signal?: AbortSignal): Promise<MailStatus> {
     if (!this.allowOnline()) throw new MailFailure('auth', '本次运行尚未启用完整功能。');
+    // 明确验证提示后只由手动连接恢复；后台入口已由 backgroundEnabled 拦住。
+    this.verificationBlocked = false;
     if (this.auth.ready && this.state.state === 'ready') return this.status();
     this.update({ state: 'connecting', error: null });
     const auth = this.auth;

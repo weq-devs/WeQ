@@ -1,7 +1,7 @@
 import type { NtHelperBinding } from '@weq/native';
 import { Cookie } from 'tough-cookie';
 import { MailHttp, type MailResponse, type MailTransport } from './http';
-import { MailFailure } from './types';
+import { MailFailure, MAIL_VERIFICATION_REQUIRED } from './types';
 import { MAIL_ORIGIN, mailEnvelope, text, type MailObject } from './wire';
 
 type MailNative = Pick<NtHelperBinding, 'ptFetchMailSession'>;
@@ -58,11 +58,18 @@ export class MailAuth {
     signal?.throwIfAborted();
     if (this.disposed || this.onlinePid() !== pid)
       throw new MailFailure('auth', 'QQ 账号状态已变化，请重新连接邮箱。');
-    if (!result.success || !result.sid)
+    if (!result.success || !result.sid) {
+      // 当前 native 将这两类明确安全拒绝归为 auth；不要将普通网络错误一并停试。
+      const verificationRequired =
+        result.errorKind === MAIL_VERIFICATION_REQUIRED ||
+        result.msg.startsWith('邮箱需要二次验证') ||
+        result.msg.startsWith('邮箱拒绝了当前登录环境');
       throw new MailFailure(
         result.errorKind === 'offline' ? 'offline' : 'auth',
         result.msg || '邮箱登录失败，请重试。',
+        verificationRequired ? MAIL_VERIFICATION_REQUIRED : undefined,
       );
+    }
     this.sid = result.sid;
     // 网页登录会删除 p_skey，但 QQ 面板提醒仍以它认证，不能依赖会话 CookieJar。
     this.panelPskey = result.panelPskey;
