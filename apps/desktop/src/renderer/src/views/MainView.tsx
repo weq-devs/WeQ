@@ -62,7 +62,7 @@ import {
   ContactWorkspaceNavigationContext,
   ProfileNavigationContext,
 } from '../lib/profileNavigation';
-import { buddyRequestState } from '@weq/service/buddy-request';
+import { buddyRequestDirection, buddyRequestState } from '@weq/service/buddy-request';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { avatarFromGroupCode, avatarFromUin, resolveAvatar } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
@@ -1029,7 +1029,7 @@ function buddyRequestToContactRequest(
 
   return {
     id: `buddy-request:${request.peerUid}:${request.timestamp}`,
-    direction: request.initiator === 1 ? 'incoming' : 'outgoing',
+    direction: buddyRequestDirection(request),
     status: buddyRequestState(request),
     message: request.verifyMsg || null,
     createdAt: contact.createdAt,
