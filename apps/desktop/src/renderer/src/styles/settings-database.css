@@ -1,36 +1,49 @@
-.weq-settings-database {
-  min-width: 0;
-}
-.weq-settings-database-browser {
+.weq-settings-page.weq-settings-body[data-settings-page='database-management'] {
   display: flex;
-  min-width: 0;
-  height: max(420px, calc(100dvh - 260px));
-  max-height: 900px;
+  padding: 0;
   overflow: hidden;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 6px;
 }
-.weq-settings-database-browser > .weq-cache-db {
+.weq-settings-database {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  color: var(--weq-fg-primary);
+}
+.weq-settings-database > .weq-set-head {
+  flex-shrink: 0;
+  padding: 20px 24px 12px;
+}
+.weq-settings-database > .weq-settings-query-error {
+  flex-shrink: 0;
+  margin: 0 24px 12px;
+}
+.weq-settings-database > .weq-cache-db {
+  min-width: 0;
+  overflow: hidden;
+}
+.weq-settings-database .weq-cache-panel {
   min-width: 0;
 }
-.weq-settings-database-browser .weq-cache-panel-head {
+.weq-settings-database .weq-cache-panel-head {
   height: auto;
   min-height: 44px;
   flex-wrap: wrap;
   gap: 8px;
 }
-html[data-theme='dark'] .weq-settings-database-browser {
-  border-color: var(--weq-border-subtle);
+html[data-theme='dark'] .weq-settings-database {
+  color: var(--weq-fg-primary);
 }
 @media (max-width: 600px) {
-  .weq-settings-database-browser {
-    height: max(620px, calc(100dvh - 220px));
+  .weq-settings-database > .weq-set-head {
+    padding: 16px;
   }
-  .weq-settings-database-browser .weq-cache-db:not(.is-tree-collapsed) {
+  .weq-settings-database .weq-cache-db:not(.is-tree-collapsed) {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 160px minmax(0, 1fr);
+    grid-template-rows: minmax(80px, 30%) minmax(0, 1fr);
   }
-  .weq-settings-database-browser .weq-cache-tree {
+  .weq-settings-database .weq-cache-tree {
     border-right: 0;
     border-bottom: 1px solid var(--weq-border-subtle);
   }

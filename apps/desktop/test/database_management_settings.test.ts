@@ -103,6 +103,8 @@ it('设置直接显示浏览器、表、SQL 和编辑模式；公共导出关闭
   const page = mount();
   expect(page.host.querySelector('[data-grid]')?.textContent).toContain('synthetic_table');
   expect(page.host.querySelector('.weq-maintenance-entry')).toBeNull();
+  expect(page.host.querySelector('.weq-settings-database-browser')).toBeNull();
+  expect(page.host.querySelector('.weq-settings-database > .weq-cache-db')).not.toBeNull();
   const browser = page.host.querySelector('.weq-cache-db');
   act(() => page.host.querySelector<HTMLInputElement>('.weq-cache-editmode input')!.click());
   expect(page.host.querySelector('[data-grid]')?.getAttribute('data-editable')).toBe('true');

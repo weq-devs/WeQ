@@ -40,7 +40,7 @@ export function DatabaseManagementSection() {
   }, [identity, active]);
 
   return (
-    <div className="weq-set weq-settings-database" data-setting-id="database-manager">
+    <div className="weq-settings-database" data-setting-id="database-manager">
       <SectionHeader title="数据库管理" />
       {config.error ? (
         <QueryError
@@ -49,16 +49,14 @@ export function DatabaseManagementSection() {
           onRetry={() => void config.refetch()}
         />
       ) : null}
-      <div className="weq-settings-database-browser">
-        <DbExplorer
-          key={identity}
-          exportDisabled={!source || config.isFetching || Boolean(config.error)}
-          onExport={(database) => {
-            if (!active || !source || latest.current !== identity) return;
-            setTarget(createDatabaseExportTarget(source, [database.path]));
-          }}
-        />
-      </div>
+      <DbExplorer
+        key={identity}
+        exportDisabled={!source || config.isFetching || Boolean(config.error)}
+        onExport={(database) => {
+          if (!active || !source || latest.current !== identity) return;
+          setTarget(createDatabaseExportTarget(source, [database.path]));
+        }}
+      />
       {active && target && databaseExportTargetMatches(target, source) ? (
         <ToolSurface title="导出明文数据库" presentation="modal" onClose={() => setTarget(null)}>
           {(requestClose) => (

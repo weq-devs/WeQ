@@ -47,6 +47,7 @@ export function DatabasePlainExport({
   });
   const appliedTarget = useRef<DatabaseExportTarget | null>(null);
   useEffect(() => {
+    appliedTarget.current = null;
     refreshOnResume.current = false;
     setSelected(new Set());
     setError('');

@@ -1,4 +1,4 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -14,6 +14,8 @@ import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 const state = vi.hoisted(() => ({
   uin: '10001',
   configId: 'fixture-source',
+  sourceReady: true,
+  databasesReady: true,
   online: false,
   prepare: vi.fn(
     async (
@@ -34,7 +36,9 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => {
     const configId = state.configId;
     return {
-      binding: { expectedAccountUin: state.uin, expectedAccountConfigId: configId },
+      binding: state.sourceReady
+        ? { expectedAccountUin: state.uin, expectedAccountConfigId: configId }
+        : null,
       prepareSave: state.prepare,
       isCurrent: () => configId === state.configId,
     };
@@ -45,11 +49,13 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       listDatabases: {
         useQuery: () => ({
-          data: [
-            { name: 'msg.db', path: '/synthetic/msg.db', bytes: 1024, kind: 'account' },
-            { name: 'login.db', path: '/synthetic/login.db', bytes: 512, kind: 'login' },
-          ],
-          isLoading: false,
+          data: state.databasesReady
+            ? [
+                { name: 'msg.db', path: '/synthetic/msg.db', bytes: 1024, kind: 'account' },
+                { name: 'login.db', path: '/synthetic/login.db', bytes: 512, kind: 'login' },
+              ]
+            : undefined,
+          isLoading: !state.databasesReady,
           isError: false,
         }),
       },
@@ -67,6 +73,8 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.uin = '10001';
   state.configId = 'fixture-source';
+  state.sourceReady = true;
+  state.databasesReady = true;
   state.online = false;
   state.prepare.mockReset().mockResolvedValue({ mode: 'before', directory: '/fixture/export' });
   state.start.mockClear();
@@ -88,9 +96,13 @@ async function mount(target?: DatabaseExportTarget) {
     return await act(async () =>
       root.render(
         h(
-          TabActivity,
-          { active },
-          h(DatabasePlainExport, { accountUin: '10001', onStarted: started, target }),
+          StrictMode,
+          null,
+          h(
+            TabActivity,
+            { active },
+            h(DatabasePlainExport, { accountUin: '10001', onStarted: started, target }),
+          ),
         ),
       ),
     );
@@ -135,6 +147,23 @@ function scopedTarget() {
     ['/synthetic/login.db'],
   );
 }
+it.each(['source', 'databases'] as const)(
+  '等待%s就绪后勾选当前库，手动取消后刷新不重新勾选',
+  async (waiting) => {
+    if (waiting === 'source') state.sourceReady = false;
+    else state.databasesReady = false;
+    const f = await mount(scopedTarget());
+    expect(f.host.querySelectorAll('.weq-db-card.is-on')).toHaveLength(0);
+    state.sourceReady = true;
+    state.databasesReady = true;
+    await f.render();
+    expect(f.host.querySelectorAll('.weq-db-card.is-on')).toHaveLength(1);
+    expect(f.host.querySelector('.weq-db-card.is-on')?.textContent).toContain('login.db');
+    select(f.host, 1);
+    await f.render();
+    expect(f.host.querySelectorAll('.weq-db-card.is-on')).toHaveLength(0);
+  },
+);
 it('同源扩选使用完整选择快照，多库沿用公共整包保存，不修改初始目标', async () => {
   const target = scopedTarget(),
     f = await mount(target);
