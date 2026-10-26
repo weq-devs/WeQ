@@ -23,10 +23,11 @@ import {
   User,
   Users,
   Wand2,
+  Waypoints,
   X,
 } from 'lucide-react';
 import { useContext, useEffect, useState } from 'react';
-import { OverlayLayer } from '../../components/OverlayLayer';
+import { OverlayLayer, type OverlayLayerProps } from '../../components/OverlayLayer';
 import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
 import { openLightbox } from '../../components/ImageLightbox';
@@ -43,6 +44,7 @@ import type { Contact, Conversation, ProfileExtInfo } from './types';
 import { displayUserName } from './user';
 import { relationMeta } from '../../lib/profileRelations';
 import '../../styles/group-profile.css';
+import '../../styles/contact-profile.css';
 
 export { relationMeta } from '../../lib/profileRelations';
 
@@ -201,16 +203,37 @@ export function GroupProfilePane() {
   );
 }
 
-/**
- * 好友资料灯箱。点击联系人弹出，居中小卡，沿用 weq 设计（#0099ff 主题、细描边、
- * 小圆角）。密友关系用主题渐变 pill 重点渲染，搭子关系用柔和描边 pill。
- */
+/** 联系人页内嵌资料；其他入口保留原有浮层与关闭行为。 */
+function ProfileSurface({
+  embedded,
+  title,
+  children,
+  ...overlayProps
+}: OverlayLayerProps & { embedded: boolean; title: string }) {
+  if (!embedded) return <OverlayLayer {...overlayProps}>{children}</OverlayLayer>;
+  return (
+    <div className="weq-contact-profile">
+      <header className="weq-contact-profile-toolbar">
+        <strong>{title}</strong>
+        <button type="button" onClick={overlayProps.onClose}>
+          <Waypoints size={15} />
+          群交集
+        </button>
+      </header>
+      {children}
+    </div>
+  );
+}
+
+/** 好友资料默认以浮层名片展示，联系人页使用内嵌模式。 */
 export function ContactProfileDialog({
   contact,
   onClose,
+  embedded = false,
 }: {
   contact: Contact | undefined;
   onClose: () => void;
+  embedded?: boolean;
 }) {
   const openSpace = useContext(QzoneNavigationContext);
   const openChat = useContext(ChatNavigationContext);
@@ -272,23 +295,34 @@ export function ContactProfileDialog({
   }
 
   return (
-    <OverlayLayer className="weq-profile-layer" onClose={onClose}>
+    <ProfileSurface
+      embedded={embedded}
+      title="好友资料"
+      className="weq-profile-layer"
+      onClose={onClose}
+    >
       <section
-        className="weq-profile-dialog weq-anim-pop"
-        role="dialog"
-        aria-modal="true"
+        className={
+          embedded
+            ? 'weq-profile-dialog weq-contact-profile-content'
+            : 'weq-profile-dialog weq-anim-pop'
+        }
+        role={embedded ? 'region' : 'dialog'}
+        aria-modal={embedded ? undefined : 'true'}
         aria-label="好友资料"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button
-          className="weq-profile-close"
-          type="button"
-          title="关闭"
-          aria-label="关闭"
-          onClick={onClose}
-        >
-          <X size={16} />
-        </button>
+        {!embedded ? (
+          <button
+            className="weq-profile-close"
+            type="button"
+            title="关闭"
+            aria-label="关闭"
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        ) : null}
 
         <div className="weq-profile-hero">
           <span className="weq-profile-avatar">
@@ -543,7 +577,7 @@ export function ContactProfileDialog({
           onClose={() => setMarkOpen(false)}
         />
       ) : null}
-    </OverlayLayer>
+    </ProfileSurface>
   );
 }
 
@@ -555,10 +589,12 @@ export function GroupProfileDialog({
   conversation,
   onClose,
   detailsKnown = true,
+  embedded = false,
 }: {
   conversation: Extract<Conversation, { type: 'group' }> | undefined;
   onClose: () => void;
   detailsKnown?: boolean;
+  embedded?: boolean;
 }) {
   const openChat = useContext(ChatNavigationContext);
   const [copied, setCopied] = useState(false);
@@ -582,26 +618,34 @@ export function GroupProfileDialog({
   }
 
   return (
-    <OverlayLayer
+    <ProfileSurface
+      embedded={embedded}
+      title="群资料"
       presentation="popover"
       className="weq-profile-layer weq-group-profile-layer"
       onClose={onClose}
     >
       <section
-        className="weq-profile-dialog weq-anim-pop"
-        role="dialog"
+        className={
+          embedded
+            ? 'weq-profile-dialog weq-contact-profile-content'
+            : 'weq-profile-dialog weq-anim-pop'
+        }
+        role={embedded ? 'region' : 'dialog'}
         aria-label="群资料"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button
-          className="weq-profile-close"
-          type="button"
-          title="关闭"
-          aria-label="关闭"
-          onClick={onClose}
-        >
-          <X size={16} />
-        </button>
+        {!embedded ? (
+          <button
+            className="weq-profile-close"
+            type="button"
+            title="关闭"
+            aria-label="关闭"
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        ) : null}
 
         <div className="weq-profile-hero">
           <span className="weq-profile-avatar">
@@ -712,7 +756,7 @@ export function GroupProfileDialog({
           </div>
         ) : null}
       </section>
-    </OverlayLayer>
+    </ProfileSurface>
   );
 }
 

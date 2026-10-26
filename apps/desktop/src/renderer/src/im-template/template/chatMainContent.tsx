@@ -270,10 +270,22 @@ export function ChatMainContent({
   if (view === 'contacts') {
     return (
       <>
-        {relationGraphSlot ??
-          (contactTab === 'groups' ? <GroupProfilePane /> : <ContactProfilePane />)}
-        <ContactProfileDialog contact={selectedContact} onClose={onBackContact} />
-        <GroupProfileDialog conversation={selectedGroupConversation} onClose={onBackGroup} />
+        <div
+          className="weq-contact-overview"
+          hidden={Boolean(selectedContact || selectedGroupConversation)}
+        >
+          {relationGraphSlot ??
+            (contactTab === 'groups' ? <GroupProfilePane /> : <ContactProfilePane />)}
+        </div>
+        {selectedContact ? (
+          <ContactProfileDialog embedded contact={selectedContact} onClose={onBackContact} />
+        ) : selectedGroupConversation ? (
+          <GroupProfileDialog
+            embedded
+            conversation={selectedGroupConversation}
+            onClose={onBackGroup}
+          />
+        ) : null}
       </>
     );
   }

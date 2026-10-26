@@ -1,0 +1,80 @@
+.weq-contact-overview {
+  height: 100%;
+}
+
+.weq-contact-profile {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--weq-fg-primary);
+  background: var(--weq-chat-bg, var(--chat-surface));
+}
+
+.weq-contact-profile-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  font-size: 14px;
+}
+
+.weq-contact-profile-toolbar button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.weq-contact-profile-toolbar button:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-contact-profile-toolbar button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-contact-profile > .weq-contact-profile-content,
+html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  max-height: none;
+  padding: 28px 24px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  scrollbar-gutter: stable;
+}
+
+.weq-contact-profile-content > * {
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+@media (max-width: 600px) {
+  .weq-contact-profile-toolbar {
+    padding-inline: 12px;
+  }
+
+  .weq-contact-profile > .weq-contact-profile-content,
+  html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
+    padding: 20px 16px;
+  }
+}
