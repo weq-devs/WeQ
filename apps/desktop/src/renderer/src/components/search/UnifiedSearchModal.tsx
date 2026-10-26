@@ -225,7 +225,10 @@ export function UnifiedSearchModal({
           autoFocus
         />
         {data?.coverage ? (
-          <div className="weq-search-index-hint">{contentCoverageText(data.coverage)}</div>
+          <div className="weq-search-index-hint">
+            {category === 'file' ? '群文件目录 · ' : ''}
+            {contentCoverageText(data.coverage)}
+          </div>
         ) : null}
         <div className="weq-search-more-body" ref={scrollRef} onScroll={onScroll}>
           {error === 'initial' ? (

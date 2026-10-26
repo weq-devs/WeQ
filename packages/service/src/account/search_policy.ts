@@ -1,4 +1,5 @@
-import type { SearchCategory } from './unified_search';
+import type { FileSearchHit, SearchCategory } from './unified_search';
+import type { ContentSearchHit } from './content_search';
 
 /** 默认只搜账号真实资料，公共目录与生成内容由用户显式加入。 */
 export const DEFAULT_SEARCH_CATEGORIES: readonly SearchCategory[] = [
@@ -12,7 +13,6 @@ export const DEFAULT_SEARCH_CATEGORIES: readonly SearchCategory[] = [
   'qzoneAlbum',
   'otherQzonePost',
   'otherQzoneAlbum',
-  'groupFile',
   'groupAlbum',
   'mailMessage',
   'guildMessage',
@@ -31,4 +31,22 @@ export function searchNameRank(keyword: string, ...names: string[]): number {
     );
   }
   return rank;
+}
+
+/** 消息附件与目录文件统一排名，保留各自身份，不按同名合并。 */
+export function rankFileSearchHits<T extends FileSearchHit | ContentSearchHit>(
+  keyword: string,
+  hits: readonly T[],
+): T[] {
+  const name = (hit: T) => (hit.category === 'file' ? hit.fileName : hit.title);
+  const time = (hit: T) => (hit.category === 'file' ? Number(hit.sendTime) : hit.time);
+  const observed = (hit: T) => (hit.category === 'file' ? 0 : hit.observedAt);
+  const key = (hit: T) => (hit.category === 'file' ? `${hit.source}:${hit.msgId}` : hit.id);
+  return [...hits].sort(
+    (a, b) =>
+      searchNameRank(keyword, name(b)) - searchNameRank(keyword, name(a)) ||
+      time(b) - time(a) ||
+      observed(b) - observed(a) ||
+      key(a).localeCompare(key(b)),
+  );
 }

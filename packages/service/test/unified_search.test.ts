@@ -2,6 +2,7 @@ import type { AccountSession } from '@weq/account';
 import type { BuddyMsgFtsHit } from '@weq/db';
 import { describe, expect, it, vi } from 'vitest';
 import { UnifiedSearchService, type SearchCategory } from '../src/account/unified_search';
+import type { ContentSearchHit } from '../src/account/content_search';
 
 function fixture() {
   const emptyPage = () => Promise.resolve({ items: [], total: 0 });
@@ -42,6 +43,142 @@ function fixture() {
 }
 
 describe('全局搜索范围', () => {
+  it('文件范围同时检索消息附件和群文件缓存，按名称及时间统一分页', async () => {
+    const f = fixture();
+    f.groupFiles.mockResolvedValue({
+      items: [
+        {
+          msgId: 1n,
+          msgSeq: 1n,
+          targetUid: '10001',
+          senderUid: '',
+          chatType: 2,
+          fileName: '报告',
+          content: '',
+          sendTime: 20n,
+        },
+        {
+          msgId: 2n,
+          msgSeq: 2n,
+          targetUid: '10001',
+          senderUid: '',
+          chatType: 2,
+          fileName: '报告-消息',
+          content: '',
+          sendTime: 40n,
+        },
+      ],
+      total: 2,
+    });
+    const cached: ContentSearchHit[] = [
+      {
+        category: 'groupFile',
+        id: 'cached-exact',
+        target: { kind: 'groupFile', groupCode: '10001', folderId: '/nested', fileId: 'exact' },
+        title: '报告',
+        content: '',
+        sourceName: '合成群目录',
+        time: 30,
+        observedAt: 10,
+      },
+      {
+        category: 'groupFile',
+        id: 'cached-prefix',
+        target: { kind: 'groupFile', groupCode: '10001', folderId: '/', fileId: 'prefix' },
+        title: '报告-目录',
+        content: '',
+        sourceName: '合成群目录',
+        time: 50,
+        observedAt: 10,
+      },
+    ];
+    const coverage = { scope: 'observed-cache' as const, records: 2, limited: true, updatedAt: 10 };
+    const searchContent = vi.fn(
+      (_category: string, _keyword: string, limit: number, offset: number) => ({
+        items: cached.slice(offset, offset + limit),
+        total: cached.length,
+        coverage,
+      }),
+    );
+    const service = new UnifiedSearchService(f.session, { searchContent });
+    const preview = await service.slowSearch('报告', 3, ['file']);
+    expect(preview.contentHits).toEqual(cached);
+    expect(searchContent).toHaveBeenCalledWith('groupFile', '报告', 3, 0);
+    const pages = await Promise.all([
+      service.moreSearch('file', '报告', 0, 2),
+      service.moreSearch('file', '报告', 2, 2),
+    ]);
+    expect(pages.map((page) => [page.total, page.hasMore, page.limited])).toEqual([
+      [4, true, false],
+      [4, false, false],
+    ]);
+    expect(
+      pages.flatMap((page) =>
+        page.items.map((hit) => ('id' in hit ? hit.id : 'msgId' in hit ? hit.msgId : '')),
+      ),
+    ).toEqual(['cached-exact', '1', 'cached-prefix', '2']);
+    expect(pages[0]?.coverage).toEqual(coverage);
+    expect(pages[0]?.items[0]).toEqual(cached[0]);
+    searchContent.mockClear();
+    await service.slowSearch('报告', 3, []);
+    expect(searchContent).not.toHaveBeenCalled();
+  });
+
+  it('文件来源单独失败时保留另一来源结果，并标明失败来源', async () => {
+    const f = fixture();
+    f.groupFiles.mockResolvedValue({
+      items: [
+        {
+          msgId: 1n,
+          msgSeq: 1n,
+          targetUid: '10001',
+          senderUid: '',
+          chatType: 2,
+          fileName: '报告',
+          content: '',
+          sendTime: 20n,
+        },
+      ],
+      total: 1,
+    });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const service = new UnifiedSearchService(f.session, {
+        searchContent: () => {
+          throw new Error('合成目录失败');
+        },
+      });
+      const result = await service.slowSearch('报告', 3, ['file']);
+      expect(result.failedCategories).toEqual(['groupFile']);
+      expect(result.files).toHaveLength(1);
+      expect(result.files[0]?.msgId).toBe('1');
+      await expect(service.moreSearch('file', '报告', 0, 2)).rejects.toThrow('合成目录失败');
+      f.groupFiles.mockRejectedValue(new Error('合成消息索引失败'));
+      const cached: ContentSearchHit = {
+        category: 'groupFile',
+        id: 'cached-only',
+        target: { kind: 'groupFile', groupCode: '10001', folderId: '/', fileId: 'target' },
+        title: '报告',
+        content: '',
+        sourceName: '合成群目录',
+        time: 30,
+        observedAt: 10,
+      };
+      const directoryOnly = new UnifiedSearchService(f.session, {
+        searchContent: () => ({
+          items: [cached],
+          total: 1,
+          coverage: { scope: 'observed-cache', records: 1, limited: false, updatedAt: 10 },
+        }),
+      });
+      const fallback = await directoryOnly.slowSearch('报告', 3, ['file']);
+      expect(fallback.failedCategories).toEqual(['file']);
+      expect(fallback.contentHits).toEqual([cached]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('文件精确名称优先于较新的包含命中，同档仍按时间排序', async () => {
     const f = fixture();
     f.groupFiles.mockResolvedValue({

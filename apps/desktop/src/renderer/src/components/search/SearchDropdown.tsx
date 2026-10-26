@@ -24,6 +24,7 @@ import { useMultiSelection } from '../../hooks/useMultiSelection';
 import '../../styles/search-scope.css';
 import { SearchResultCard } from './SearchResultCard';
 import { SearchSectionSkeleton } from './SearchSkeleton';
+import { rankFileSearchHits } from '@weq/service/search-policy';
 import { AppSearchResults } from './AppSearchResults';
 import type { AppSearchEntry } from './appSearchCatalog';
 import { restoreSearchPosition, type SearchPosition } from './searchPosition';
@@ -160,7 +161,15 @@ export function SearchDropdown({
     hits: slow ? slow.chatRecords : null,
     loading: slowLoading && !slow,
   });
-  sections.set('file', { hits: slow ? slow.files : null, loading: slowLoading && !slow });
+  sections.set('file', {
+    hits: slow
+      ? rankFileSearchHits(keyword, [
+          ...slow.files,
+          ...(slow.contentHits ?? []).filter((hit) => hit.category === 'groupFile'),
+        ]).slice(0, 3)
+      : null,
+    loading: slowLoading && !slow,
+  });
   sections.set('collection', {
     hits: slow ? slow.collections : null,
     loading: slowLoading && !slow,
@@ -197,7 +206,9 @@ export function SearchDropdown({
   });
   const failedFor = (category: SearchCategory) =>
     isSlowSearchCategory(category)
-      ? slowError || Boolean(slow?.failedCategories?.includes(category))
+      ? slowError ||
+        Boolean(slow?.failedCategories?.includes(category)) ||
+        (category === 'file' && Boolean(slow?.failedCategories?.includes('groupFile')))
       : quickError;
   const weight = (category: SearchCategory) =>
     sections.get(category)?.hits?.length
@@ -292,9 +303,12 @@ export function SearchDropdown({
             {orderedCategories.map((category) => {
               const section = sections.get(category)!;
               const hits = section.hits;
-              const coverage = isContentSearchCategory(category)
-                ? slow?.contentCoverage?.[category]
-                : undefined;
+              const coverage =
+                category === 'file'
+                  ? slow?.contentCoverage?.groupFile
+                  : isContentSearchCategory(category)
+                    ? slow?.contentCoverage?.[category]
+                    : undefined;
               const failed = failedFor(category);
               return (
                 <div className="weq-search-section" key={category}>
@@ -315,7 +329,10 @@ export function SearchDropdown({
                     ) : null}
                   </div>
                   {coverage ? (
-                    <div className="weq-search-index-hint">{contentCoverageText(coverage)}</div>
+                    <div className="weq-search-index-hint">
+                      {category === 'file' ? '群文件目录 · ' : ''}
+                      {contentCoverageText(coverage)}
+                    </div>
                   ) : null}
                   {failed ? (
                     <div className="weq-search-failure" role="status">
@@ -329,10 +346,13 @@ export function SearchDropdown({
                         <RotateCw size={14} />
                       </button>
                     </div>
-                  ) : section.loading ? (
+                  ) : null}
+                  {section.loading ? (
                     <SearchSectionSkeleton />
                   ) : !hits || hits.length === 0 ? (
-                    <div className="weq-search-empty">无结果</div>
+                    failed ? null : (
+                      <div className="weq-search-empty">无结果</div>
+                    )
                   ) : (
                     hits.map((hit) => (
                       <SearchResultCard
