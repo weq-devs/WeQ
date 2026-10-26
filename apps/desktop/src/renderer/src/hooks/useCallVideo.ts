@@ -52,11 +52,13 @@ const HEVC_CODEC_CANDIDATES = [
 ] as const;
 
 /**
- * 把渲染层的解码进度写进主进程日志文件。
+ * 把渲染层的解码**错误与关键状态**写进主进程日志文件。
  *
- * 通话视频的解码全在这一层，而渲染层的 `console.*` 不落盘 —— 「一直等对方
- * 画面」这种问题因此完全不可观测。`weq.debugLog` 由 preload 提供；web 构建
- * 没有这个桥，退回 `console`（至少开发时能看到）。
+ * 通话视频的解码全在这一层，而渲染层的 `console.*` 不落盘 —— 解码失败时用户
+ * 只看到「等待对方画面」，日志里却什么都没有。`weq.debugLog` 由 preload 提供；
+ * web 构建没有这个桥，退回 `console`。
+ *
+ * 只记错误、断帧和首帧里程碑，不逐帧记录（一通通话上千帧，会淹没日志）。
  */
 function trace(
   level: 'debug' | 'info' | 'warn' | 'error',
@@ -72,40 +74,6 @@ function trace(
   if (level === 'error') console.error(line, context);
   else if (level === 'warn') console.warn(line, context);
   else console.info(line, context);
-}
-
-/**
- * 取画面中心区域的平均 RGB（0-255）。
- *
- * 「偏绿」在数字上就是 G 通道显著高于 R/B —— 比肉眼描述精确得多。只采中心
- * 一小块（约 4×4 像素），一次 `getImageData` 开销可忽略；采样点固定，通话里
- * 对着镜头的人脸/背景变化不大时，数值有可比性。
- */
-function sampleCenterRgb(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-): [number, number, number] | null {
-  try {
-    const w = Math.max(4, Math.min(8, Math.floor(width / 8)));
-    const h = Math.max(4, Math.min(8, Math.floor(height / 8)));
-    const x = Math.floor((width - w) / 2);
-    const y = Math.floor((height - h) / 2);
-    const data = ctx.getImageData(x, y, w, h).data;
-    let r = 0;
-    let g = 0;
-    let b = 0;
-    const count = w * h;
-    for (let i = 0; i < data.length; i += 4) {
-      r += data[i]!;
-      g += data[i + 1]!;
-      b += data[i + 2]!;
-    }
-    return [Math.round(r / count), Math.round(g / count), Math.round(b / count)];
-  } catch {
-    // 画布被跨域污染等极端情况：采样失败不影响解码。
-    return null;
-  }
 }
 
 export interface CallVideoState {
@@ -160,14 +128,8 @@ export function useCallVideo(options: {
   const needsParamSets = useRef(false);
   /** 丢帧计数：连续解不动时重建解码器。 */
   const decodeFailures = useRef(0);
-  /** 收到的帧数（只用于前几帧的排查日志）。 */
-  const frameCount = useRef(0);
-  /** 解出的帧数（`output` 回调计数，只用于里程碑日志）。 */
+  /** 解出的帧数（只用于第一帧的里程碑日志）。 */
   const decodedFrames = useRef(0);
-  /** 上一帧的色彩空间，用于检测「解码中途色彩元数据变了」。 */
-  const lastColorSpace = useRef<VideoFrame['colorSpace'] | null>(null);
-  /** 上一条采样的画面均色，用于检测「画面突然整体偏色 / 恢复」。 */
-  const lastSampledRgb = useRef<[number, number, number] | null>(null);
   /**
    * 上一个喂进解码器的帧序号。
    *
@@ -230,27 +192,14 @@ export function useCallVideo(options: {
         }));
         return null;
       }
-      trace('info', '解码器配置就绪', { codec: config.codec, width, height, tried });
-
       decoderRef.current?.close();
       const decoder = new VideoDecoder({
         output: (frame) => {
-          // ⚠️ **所有尺寸都要在 `frame.close()` 之前读。** close() 会把 VideoFrame
-          // 的所有属性重置为 0 —— 在它之后读 `displayWidth` 拿到的是 0，看起来像
-          // 「解出画面但尺寸为 0」。日志和 setState 都依赖这两个值。
+          // ⚠️ **尺寸要在 `frame.close()` 之前读。** close() 会把 VideoFrame 的
+          // 所有属性重置为 0 —— 在它之后读 `displayWidth` 拿到的是 0。
           const width = frame.displayWidth;
           const height = frame.displayHeight;
-          // 色彩空间也要在 close() 之前读。码流的 VUI 里没写色彩信息时，解码器
-          // 会自己推一个默认值；Windows 上「前 15 秒偏绿、之后恢复」如果对应
-          // 这里某个字段变化，就说明是色彩推断/切换的问题，而不是码流损坏。
-          const colorSpace = frame.colorSpace;
           const canvas = canvasRef.current;
-          // 均色采样：在 close() 之前、drawImage 之后从画布取。
-          //
-          // 「前 15 秒偏绿然后恢复」靠肉眼只能说出个大概时间；把画面中心的平均
-          // RGB 记下来，日志里就能看到精确的切换帧号和色偏方向（绿 = G 通道
-          // 显著高于 R/B）。center 采样避开画面四角的黑边 / UI 遮挡。
-          let rgb: [number, number, number] | null = null;
           if (canvas) {
             // 按帧尺寸调整画布，避免拉伸。
             if (canvas.width !== width || canvas.height !== height) {
@@ -258,77 +207,26 @@ export function useCallVideo(options: {
               canvas.height = height;
             }
             const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.drawImage(frame, 0, 0);
-              rgb = sampleCenterRgb(ctx, width, height);
-            }
+            ctx?.drawImage(frame, 0, 0);
           }
           frame.close();
           decodeFailures.current = 0;
-          // 第一帧解出来是整条链路唯一的关键里程碑：有它才说明「等待对方画面」
-          // 会消失。之后的帧只按 100 帧记一次，避免刷屏。
           decodedFrames.current++;
-          const previous = lastColorSpace.current;
-          const changed =
-            previous !== null &&
-            (previous.matrix !== colorSpace?.matrix ||
-              previous.primaries !== colorSpace?.primaries ||
-              previous.transfer !== colorSpace?.transfer ||
-              previous.range !== colorSpace?.range);
-          lastColorSpace.current = colorSpace ?? null;
-          // RGB 均值突变检测：色彩空间元数据没变但画面突然整体偏色（或恢复），
-          // 说明问题在转换矩阵/合成层而不是元数据。阈值取 25 —— 偏绿恢复那种
-          // 级别的跳变远超它，而正常画面运动抖动到不了。
-          const lastRgb = lastSampledRgb.current;
-          let rgbJump: { from: [number, number, number] } | null = null;
-          if (rgb && lastRgb) {
-            const delta =
-              Math.abs(rgb[0] - lastRgb[0]) +
-              Math.abs(rgb[1] - lastRgb[1]) +
-              Math.abs(rgb[2] - lastRgb[2]);
-            if (delta >= 75) rgbJump = { from: lastRgb };
-          }
-          if (rgb) lastSampledRgb.current = rgb;
-          if (
-            decodedFrames.current === 1 ||
-            decodedFrames.current % 100 === 0 ||
-            changed ||
-            rgbJump
-          ) {
-            const event = changed ? '帧色彩空间发生变化' : rgbJump ? '画面均色突变' : '解出画面';
-            const level = changed || rgbJump ? 'warn' : 'info';
-            trace(level, event, {
-              n: decodedFrames.current,
-              width,
-              height,
-              rgb,
-              ...(rgbJump ? { previousRgb: rgbJump.from } : {}),
-              colorSpace: colorSpace
-                ? {
-                    matrix: colorSpace.matrix,
-                    primaries: colorSpace.primaries,
-                    transfer: colorSpace.transfer,
-                    range: colorSpace.range,
-                  }
-                : null,
-              ...(changed ? { previous } : {}),
-            });
+          // 第一帧解出来是整条链路唯一的关键里程碑（有它才说明「等待对方画面」
+          // 会消失），只记这一次，不逐帧刷屏。
+          if (decodedFrames.current === 1) {
+            trace('info', '解出画面', { width, height });
           }
           setState((prev) => (prev.active ? prev : { ...prev, active: true, width, height }));
         },
         error: (error) => {
-          trace('error', '解码器错误', {
-            error: String(error),
-            frames: frameCount.current,
-            decoded: decodedFrames.current,
-          });
+          trace('error', '解码器错误', { error: String(error) });
           setState((prev) => ({ ...prev, error: String(error) }));
         },
       });
       decoder.configure(config);
       decoderRef.current = decoder;
       configured.current = false;
-      trace('info', '解码器已建立', { codec: config.codec, width, height });
       return decoder;
     },
     [canvasRef],
@@ -341,8 +239,6 @@ export function useCallVideo(options: {
       configured.current = false;
       paramSets.current = [];
       needsParamSets.current = false;
-      lastColorSpace.current = null;
-      lastSampledRgb.current = null;
       lastFrameIndex.current = null;
       awaitingKeyframe.current = false;
       setState({ supported: true, active: false, width: 0, height: 0, error: null });
@@ -353,17 +249,6 @@ export function useCallVideo(options: {
   trpc.call.onCallVideo.useSubscription(undefined, {
     enabled,
     onData: (frame) => {
-      frameCount.current++;
-      // 前几帧逐帧记：订阅建得晚 / 首帧不是关键帧 / 帧全被丢掉，这三种情况在
-      // 界面上长得一模一样（都是「等待对方画面」），只有这里能区分。
-      if (frameCount.current <= 5) {
-        trace('info', '收到待解码帧', {
-          n: frameCount.current,
-          bytes: frame.hevc?.length ?? null,
-          keyframe: frame.keyframe,
-          info: frame.info,
-        });
-      }
       void (async () => {
         // 先拆 NAL 再判断关键帧。
         //
@@ -372,47 +257,28 @@ export function useCallVideo(options: {
         // 判断会导致 `!configured && !keyframe` 永远成立，解码器根本建不起来。
         // 改用自己从 NAL 类型判出来的结果：只要这一帧里真的带了 IRAP 就能起解。
         const au = toAccessUnit(frame.hevc);
-        if (!au.data) {
-          trace('warn', '拆不出 access unit，丢帧', {
-            n: frameCount.current,
-            bytes: frame.hevc?.length ?? null,
-          });
-          return;
-        }
+        if (!au.data) return;
         // 见到参数集就记下来：解码器重建后要拿它补在最前面（见 paramSets 的注释）。
         if (au.params.length > 0) paramSets.current = au.params;
-        if (!configured.current && !au.keyframe) {
-          if (frameCount.current <= 5) {
-            trace('warn', '未配置且非关键帧，丢弃（等关键帧起解）', {
-              n: frameCount.current,
-              params: paramSets.current.length,
-            });
-          }
-          return;
-        }
+        if (!configured.current && !au.keyframe) return;
 
         // ⚠️ **连续性检查：关键帧之后，帧序号必须连续。**
         //
-        // 2026-10-26 真机复现（Windows）：渲染层订阅比主进程收帧晚约 1.9 秒。
-        // 订阅时补发缓存的关键帧（gidx=0），但紧接着喂的是**实时帧**（帧 29），
-        // 中间 1~28 全部缺失。HEVC 的 P 帧依赖前序参考帧，Chromium 硬解在
-        // 拒绝这些「无参考帧」的 delta 后内部状态被污染，**继续输出错乱的 YUV**：
-        // 整屏纯绿（实测 RGB [0,88,0]，R/B 恒为 0），直到下一个关键帧
-        // （第 257 帧，约 15 秒后）才重新同步。
+        // HEVC 的 P 帧依赖前序参考帧。跳帧后继续喂 delta，Chromium 硬解会拒绝
+        // 这些「无参考帧」的帧，但**内部状态被污染**，继续输出错乱的 YUV ——
+        // 2026-10-26 实测整屏纯绿（RGB `[0,88,0]`，R/B 恒为 0），直到下一个
+        // 关键帧（约 15 秒后）才重新同步。
         //
-        // 离线复现（tmp/repro_green_fix.cjs，同一份对端码流）：
-        //   连续喂       → 绿帧 0
-        //   跳帧喂       → 绿帧 228（#1..#228），与真机日志逐帧吻合
-        //   丢弃到关键帧 → 绿帧 0
+        // 主进程侧已经改为「整段补发连续帧」（见 `CallManager.replayBuffer`），
+        // 正常情况下这里不会触发。它保留作为**安全网**：网络丢包、补发与实时流
+        // 的衔接缝隙、对端中途重启编码，都可能造成序号断裂。
         //
-        // 所以：序号不连续且本帧不是关键帧 → 直接丢弃，等下一个关键帧。
-        // 代价是画面「冻」到下一个关键帧才动，好过整屏绿 15 秒。
+        // 触发时丢弃本帧并等下一个关键帧 —— 会短暂冻画面，但好过整屏绿。
         const previousIndex = lastFrameIndex.current;
         if (!acceptsFrame(previousIndex, frame.frameIndex, au.keyframe)) {
           if (!awaitingKeyframe.current) {
             awaitingKeyframe.current = true;
             trace('warn', '帧序号不连续，丢弃直到下一个关键帧', {
-              n: frameCount.current,
               previous: previousIndex,
               current: frame.frameIndex,
               gap: ((frame.frameIndex - (previousIndex ?? 0) + 65536) % 65536) >>> 0,
@@ -439,10 +305,7 @@ export function useCallVideo(options: {
           // 丢掉 —— 表现就是「解出第一帧，画面永久停住」。
           //
           // 用一个在建标记挡住并发重建：谁先拿到谁建，其余帧直接返回等下一帧。
-          if (buildingDecoder.current) {
-            trace('warn', '解码器正在建立，本帧丢弃', { n: frameCount.current });
-            return;
-          }
+          if (buildingDecoder.current) return;
           buildingDecoder.current = true;
           try {
             decoder = await ensureDecoder(frame.info?.width ?? 640, frame.info?.height ?? 360);
@@ -455,13 +318,7 @@ export function useCallVideo(options: {
           // 的「未配置跳过 delta」丢掉，标记得留着给下一个关键帧用。
           needsParamSets.current = true;
         }
-        if (decoder?.state !== 'configured') {
-          trace('warn', '解码器状态不是 configured，丢帧', {
-            n: frameCount.current,
-            state: decoder?.state ?? 'null',
-          });
-          return;
-        }
+        if (decoder?.state !== 'configured') return;
 
         if (au.keyframe) configured.current = true;
         if (!configured.current) return;
@@ -480,18 +337,9 @@ export function useCallVideo(options: {
               data: payload,
             }),
           );
-          if (frameCount.current <= 5) {
-            trace('info', '已喂入解码器', {
-              n: frameCount.current,
-              key: au.keyframe,
-              bytes: payload.length,
-              params: paramSets.current.length,
-            });
-          }
         } catch (error) {
           decodeFailures.current++;
           trace('warn', 'decode() 抛错', {
-            n: frameCount.current,
             failures: decodeFailures.current,
             error: String(error),
           });
@@ -509,7 +357,6 @@ export function useCallVideo(options: {
       trace('error', '视频订阅出错', { error: String(error) });
       setState((prev) => ({ ...prev, error: String(error) }));
     },
-    onStarted: () => trace('info', '视频订阅已建立'),
   });
 
   useEffect(() => {

@@ -17,7 +17,6 @@
  */
 
 import dgram from 'node:dgram';
-import { closeSync, openSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import type { NtHelperBinding } from '@weq/native';
@@ -289,12 +288,6 @@ export class CallManager extends EventEmitter {
    * 链已经断了，补发也没用）。
    */
   private replayBuffer: VideoFramePayload[] = [];
-  /** 已推给渲染层的对端视频帧数（只用于前几帧的排查日志）。 */
-  private videoPushCount = 0;
-  /** 对端码流落盘的输出句柄（只在 `WEQ_CALL_PEER_DUMP` 打开时非 null）。 */
-  private peerDump: { write(chunk: Buffer): void; end(): void } | null = null;
-  /** 对端码流是否已尝试过打开（避免每帧都碰文件系统）。 */
-  private peerDumpTried = false;
   /** 当前这通电话的录音设置（发起时取一次，通话中改设置不影响进行中的录音）。 */
   private recordingConfig: CallRecordingConfig = { mode: 'mixed', systemAudio: false, dir: null };
   private recorder: CallRecorder | null = null;
@@ -409,18 +402,6 @@ export class CallManager extends EventEmitter {
       // 真机日志里 `g=249/f=1 → g=43/f=2` 的序号连续性就是证据。
       if (!frame.hevc) return;
       this.rememberForReplay(frame);
-      this.dumpPeerFrame(frame);
-      // 前几帧记一笔：主进程侧「收到了并推给渲染层」是排查「等待对方画面」的
-      // 分界线 —— 这里没有、渲染层也没有，说明问题在收包/组帧；这里有、渲染层
-      // 没有，说明订阅没建立或 IPC 序列化失败。
-      this.videoPushCount++;
-      if (this.videoPushCount <= 5 || this.videoPushCount % 300 === 0) {
-        logger.info('推送对端视频帧给渲染层', {
-          n: this.videoPushCount,
-          bytes: frame.hevc.length,
-          keyframe: frame.isKeyframe,
-        });
-      }
       this.emit('event', {
         type: 'video',
         hevc: frame.hevc,
@@ -724,14 +705,6 @@ export class CallManager extends EventEmitter {
     this.videoEncoder?.close();
     this.videoEncoder = null;
     this.replayBuffer = [];
-    this.videoPushCount = 0;
-    try {
-      this.peerDump?.end();
-    } catch {
-      // 收尾失败不影响挂断。
-    }
-    this.peerDump = null;
-    this.peerDumpTried = false;
     this.session = null;
     this.transport = null;
     this.info = null;
@@ -766,42 +739,6 @@ export class CallManager extends EventEmitter {
     // 17 秒，缓存峰值 255 帧 × 平均 2 KB ≈ 500 KB，完全可以一直留着。
     // 上限只是防止异常码流（关键帧间隔极大）把内存吃爆。
     if (this.replayBuffer.length > REPLAY_FRAMES) this.replayBuffer = [];
-  }
-
-  /**
-   * 把对端码流原样追加到一个 Annex B 文件（排查色彩 / 花屏用）。
-   *
-   * ```bash
-   * WEQ_CALL_PEER_DUMP=/tmp/peer.h265 pnpm --filter @weq/desktop dev
-   * # 通话后：
-   * ffplay /tmp/peer.h265            # 看对端到底发的是什么
-   * npx tsx tmp_hevc_vui.ts /tmp/peer.h265   # 看 SPS/VUI 色彩声明
-   * ```
-   *
-   * **只有开了环境变量才落盘。** 15 fps 的裸流一通几十 MB，默认写盘会拖慢
-   * 实时链路，也会在用户不知情时占用磁盘。
-   */
-  private dumpPeerFrame(frame: VideoFramePayload): void {
-    const dir = process.env.WEQ_CALL_PEER_DUMP;
-    if (!dir || !frame.hevc) return;
-    if (!this.peerDump && !this.peerDumpTried) {
-      this.peerDumpTried = true;
-      try {
-        const fd = openSync(dir, 'a');
-        this.peerDump = {
-          write: (chunk) => writeSync(fd, chunk),
-          end: () => closeSync(fd),
-        };
-        logger.info('对端码流开始落盘', { path: dir });
-      } catch (error) {
-        logger.warn('对端码流落盘失败', { path: dir, error });
-      }
-    }
-    try {
-      this.peerDump?.write(Buffer.from(frame.hevc));
-    } catch (error) {
-      logger.warn('写对端码流失败', { error });
-    }
   }
 
   /**
