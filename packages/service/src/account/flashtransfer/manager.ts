@@ -19,7 +19,13 @@ import { getLogger, logErrorContext } from '../../common/logger';
 import { safeRelSegments, sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import { FlashTransferClient } from './client';
 import { FlashTransferResolver } from './resolver';
-import type { FlashDownloadTask, FlashSelection, FlashTaskStatus } from './types';
+import { groupFlashDownloads } from './batches';
+import type {
+  FlashDownloadBatch,
+  FlashDownloadTask,
+  FlashSelection,
+  FlashTaskStatus,
+} from './types';
 
 const logger = getLogger().child({ scope: 'flash-transfer-download' });
 
@@ -99,6 +105,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
   private readonly aborts = new Map<string, AbortController>();
   private readonly running = new Set<string>();
   private pumping = false;
+  private loading: Promise<void> | undefined;
   private readonly client: FlashTransferClient;
   private readonly resolver: FlashTransferResolver;
 
@@ -123,7 +130,16 @@ export class FlashTransferDownloadManager extends EventEmitter {
     return this.baseDir;
   }
 
-  async load(): Promise<void> {
+  load(): Promise<void> {
+    if (this.loading) return this.loading;
+    const loading = this.readTasks().finally(() => {
+      if (this.loading === loading) this.loading = undefined;
+    });
+    this.loading = loading;
+    return loading;
+  }
+
+  private async readTasks(): Promise<void> {
     try {
       const raw = await readFile(this.tasksPath, 'utf8');
       const parsed = JSON.parse(raw) as FlashDownloadTask[];
@@ -150,21 +166,23 @@ export class FlashTransferDownloadManager extends EventEmitter {
     this.emit('task', task);
   }
 
-  /** 当前全部任务，新的在前。 */
-  list(): FlashDownloadTask[] {
-    return [...this.tasks].sort((a, b) => b.createdAt - a.createdAt);
+  /** 按下载操作归并，文件明细保留在 files 中，新的在前。 */
+  list(): FlashDownloadBatch[] {
+    return groupFlashDownloads(this.tasks).sort((a, b) => b.createdAt - a.createdAt);
   }
 
   /**
-   * 解析选择 → 建任务落盘 → 后台并发下载。返回本次新建的任务数和解析期错误。
-   * 解析（目录递归）在调用内完成，方便前端一次性拿到“已加入 N 个任务”。
+   * 解析选择 → 记录操作归属 → 后台并发下载。返回文件数、操作 id 和解析期错误。
+   * 目录递归在调用内完成，一次操作只在常规任务列表占一项。
    */
   async start(
     filesetName: string,
     filesetId: string,
     selections: FlashSelection[],
-  ): Promise<{ started: number; errors: string[] }> {
+  ): Promise<{ started: number; errors: string[]; taskId?: string }> {
+    await this.loading;
     const { files, errors } = await this.resolver.resolveDownloads(selections);
+    const batchId = randomUUID();
     const now = Date.now();
     const usedByDir = new Map<string, Set<string>>();
 
@@ -180,6 +198,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       const fileName = uniqueName(segments.at(-1) ?? 'file', used);
       return {
         id: randomUUID(),
+        batchId,
         filesetId: f.filesetId || filesetId,
         filesetName: filesetName || '闪传下载',
         name: f.name,
@@ -192,43 +211,56 @@ export class FlashTransferDownloadManager extends EventEmitter {
         createdAt: now,
       };
     });
+    if (newTasks[0] && errors.length) newTasks[0].resolutionErrors = errors;
 
     this.tasks.push(...newTasks);
     await this.persist();
     for (const task of newTasks) this.emitTask(task);
     void this.pump();
-    return { started: newTasks.length, errors };
+    return { started: newTasks.length, errors, taskId: newTasks.length ? batchId : undefined };
   }
 
-  /** 取消单个任务（进行中的会中断下载）。 */
+  /** 取消整次下载操作，已完成的文件保留。 */
   async cancel(taskId: string): Promise<boolean> {
-    const task = this.tasks.find((t) => t.id === taskId);
-    if (!task) return false;
-    if (task.status === 'pending' || task.status === 'resolving' || task.status === 'downloading') {
+    await this.loading;
+    const tasks = this.tasks.filter((t) => (t.batchId ?? t.id) === taskId);
+    if (!tasks.length) return false;
+    for (const task of tasks) {
+      if (task.status !== 'pending' && task.status !== 'resolving' && task.status !== 'downloading')
+        continue;
       this.aborts.get(task.id)?.abort();
       task.status = 'cancelled';
       task.finishedAt = Date.now();
       this.emitTask(task);
-      await this.persist();
     }
+    await this.persist();
     return true;
   }
 
   /** 清掉已结束（完成/失败/取消）的任务；进行中的保留。 */
   async clearFinished(): Promise<number> {
-    const before = this.tasks.length;
-    this.tasks = this.tasks.filter(
-      (t) => t.status === 'pending' || t.status === 'resolving' || t.status === 'downloading',
+    await this.loading;
+    const finished = new Set(
+      this.list()
+        .filter((t) => t.status === 'done' || t.status === 'failed' || t.status === 'cancelled')
+        .map((t) => t.id),
     );
-    const removed = before - this.tasks.length;
+    this.tasks = this.tasks.filter((task) => !finished.has(task.batchId ?? task.id));
+    const removed = finished.size;
     if (removed > 0) await this.persist();
     return removed;
   }
 
   /** 统一任务入口仅清除已确认的成功记录，不删除下载文件。 */
   async clearCompleted(taskIds: string[]): Promise<number> {
+    await this.loading;
     const ids = new Set(taskIds);
-    const removed = this.tasks.filter((task) => ids.has(task.id) && task.status === 'done');
+    const completed = new Set(
+      this.list()
+        .filter((task) => ids.has(task.id) && task.status === 'done')
+        .map((task) => task.id),
+    );
+    const removed = this.tasks.filter((task) => completed.has(task.batchId ?? task.id));
     if (!removed.length) return 0;
     const removedIds = new Set(removed.map((task) => task.id));
     this.tasks = this.tasks.filter((task) => !removedIds.has(task.id));
@@ -238,7 +270,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       this.tasks.push(...removed);
       throw error;
     }
-    return removed.length;
+    return completed.size;
   }
 
   // ---- 后台调度 ----------------------------------------------------------
@@ -283,6 +315,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
         task.downloadedBytes = received;
         this.emitTask(task);
       });
+      if (abort.signal.aborted) return;
 
       task.status = 'done';
       task.downloadedBytes = task.fileSize || task.downloadedBytes;

@@ -3,17 +3,28 @@
  *
  * 卡片点击后直接打开这个竖屏弹窗，用 qfile 匿名 HTTP2RPC 拉文件列表，
  * 支持展开文件夹 / 压缩包、多选下载到 WeQ 本地缓存目录。顶部提供「分享」
- * （换 sharelink 后仍走原来的 webview 弹窗）和「下载任务」入口。
+ * （换 sharelink 后仍走原来的 webview 弹窗）和常规任务入口。
  *
- * 布局：竖屏弹窗（同原 webview 尺寸比例），文件用横排小卡片按宽度自适应列数。
+ * 布局：紧凑文件列表，单次下载操作作为一个任务进入常规任务列表。
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { ArrowLeft, Check, Download, FolderOpen, Loader2, Share2, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import {
+  ArrowLeft,
+  ChevronRight,
+  Check,
+  Download,
+  FolderOpen,
+  ListTodo,
+  Loader2,
+  RefreshCw,
+  Share2,
+  X,
+} from 'lucide-react';
 import { Modal } from './Dialog';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { pruneNestedSelection } from '../lib/fileSelection';
 import { FlashShareDialog } from './FlashShareDialog';
-import { FlashTransferTasksDialog } from './FlashTransferTasksDialog';
+import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { client } from '../trpc/client';
 import { fileIconUrl } from '../lib/resourceUrl';
 import { useToast } from './Toast';
@@ -140,9 +151,12 @@ export function FlashTransferViewer({
   const [selected, setSelected] = useState<Map<string, FlashEntry>>(new Map());
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
-  const [tasksOpen, setTasksOpen] = useState(false);
-  const taskAnchor = useRef<HTMLButtonElement>(null);
+  const openTasks = useWorkspaceMenu((state) => state.openTasks);
   const [starting, setStarting] = useState(false);
+  const showTasks = (): void => {
+    openTasks();
+    onClose();
+  };
 
   const current = crumbs[crumbs.length - 1] ?? crumbs[0]!;
 
@@ -230,7 +244,7 @@ export function FlashTransferViewer({
     `${file.isZipContent ? 'zip:' : 'dir:'}${file.fileId}`;
 
   const toggleSelect = (file: FlashEntry): void => {
-    if (!isReady(file) || isAncestorSelected(file.path)) return;
+    if (starting || !isReady(file) || isAncestorSelected(file.path)) return;
     multi.toggle(selectKey(file));
   };
   const multi = useMultiSelection({
@@ -324,11 +338,15 @@ export function FlashTransferViewer({
         })),
       });
       setSelected(new Map());
-      pushToast({ tone: 'success', message: `已加入下载队列（${res.started} 个文件）` });
+      if (res.started > 0) {
+        pushToast({ tone: 'success', message: `已创建下载任务 · ${res.started} 个文件` });
+        showTasks();
+      } else {
+        pushToast({ tone: 'warning', message: '没有可下载的文件' });
+      }
       if (res.errors.length > 0) {
         pushToast({ tone: 'warning', message: '部分文件无法解析', detail: res.errors[0] });
       }
-      setTasksOpen(true);
     } catch (e) {
       pushToast({
         tone: 'error',
@@ -362,12 +380,11 @@ export function FlashTransferViewer({
               <button
                 type="button"
                 className="weq-ft-btn"
-                onClick={() => setTasksOpen(true)}
-                title="下载任务"
-                ref={taskAnchor}
+                onClick={showTasks}
+                title="打开任务列表"
+                aria-label="打开任务列表"
               >
-                <Download size={15} strokeWidth={1.9} aria-hidden />
-                <span>下载任务</span>
+                <ListTodo size={16} strokeWidth={1.9} aria-hidden />
               </button>
               <button
                 type="button"
@@ -375,13 +392,13 @@ export function FlashTransferViewer({
                 onClick={() => void handleShare()}
                 disabled={sharing}
                 title="分享"
+                aria-label="分享"
               >
                 {sharing ? (
                   <Loader2 size={15} strokeWidth={1.9} className="weq-spin" aria-hidden />
                 ) : (
                   <Share2 size={15} strokeWidth={1.9} aria-hidden />
                 )}
-                <span>分享</span>
               </button>
               <button
                 type="button"
@@ -396,10 +413,25 @@ export function FlashTransferViewer({
           </header>
 
           <nav className="weq-ft-crumbs">
+            <button
+              type="button"
+              className="weq-ft-close"
+              disabled={crumbs.length < 2 || loading}
+              onClick={() => navTo(crumbs.length - 2)}
+              title="返回上一级"
+              aria-label="返回上一级"
+            >
+              <ArrowLeft size={16} aria-hidden />
+            </button>
             {crumbs.map((crumb, i) => (
               <span key={`${crumb.zipFileId}::${crumb.id}::${crumb.name}`} className="weq-ft-crumb">
                 {i > 0 ? (
-                  <ArrowLeft size={12} strokeWidth={2} className="weq-ft-crumb-sep" aria-hidden />
+                  <ChevronRight
+                    size={12}
+                    strokeWidth={2}
+                    className="weq-ft-crumb-sep"
+                    aria-hidden
+                  />
                 ) : null}
                 <button
                   type="button"
@@ -423,6 +455,7 @@ export function FlashTransferViewer({
               />
               <span>全选</span>
             </label>
+            <span className="weq-ft-count">{loading ? '读取中' : `${entries.length} 项`}</span>
             {current.zipFileId ? (
               <span className="weq-ft-toolbar-hint">正在浏览压缩包内容</span>
             ) : null}
@@ -436,6 +469,14 @@ export function FlashTransferViewer({
             ) : error ? (
               <div className="weq-ft-error">
                 <p>加载失败：{error}</p>
+                <button
+                  type="button"
+                  className="weq-ft-btn"
+                  onClick={() => void fetchList(crumbs, current.id, current.zipFileId)}
+                >
+                  <RefreshCw size={14} aria-hidden />
+                  重试
+                </button>
               </div>
             ) : entries.length === 0 ? (
               <div className="weq-ft-empty">
@@ -493,7 +534,8 @@ export function FlashTransferViewer({
                         <input
                           type="checkbox"
                           checked={checked}
-                          disabled={!ready || isAncestorSelected(file.path)}
+                          disabled={starting || !ready || isAncestorSelected(file.path)}
+                          aria-label={`选择 ${file.name}`}
                           readOnly
                         />
                         <Check
@@ -503,6 +545,11 @@ export function FlashTransferViewer({
                           aria-hidden
                         />
                       </label>
+                      {file.isDir || (ZIP_RE.test(file.name) && !current.zipFileId && ready) ? (
+                        <ChevronRight size={15} className="weq-ft-card-arrow" aria-hidden />
+                      ) : (
+                        <span className="weq-ft-card-arrow" />
+                      )}
                     </div>
                   );
                 })}
@@ -514,7 +561,7 @@ export function FlashTransferViewer({
             <span className="weq-ft-foot-summary">
               {selectedCount > 0
                 ? `已选 ${selectedCount} 项 · ${formatSize(selectedSize)}`
-                : '勾选文件后下载到本地缓存'}
+                : '未选择文件'}
             </span>
             <button
               type="button"
@@ -539,9 +586,6 @@ export function FlashTransferViewer({
           url={shareUrl}
           onClose={() => setShareUrl(null)}
         />
-      ) : null}
-      {tasksOpen ? (
-        <FlashTransferTasksDialog anchor={taskAnchor.current} onClose={() => setTasksOpen(false)} />
       ) : null}
     </>
   );

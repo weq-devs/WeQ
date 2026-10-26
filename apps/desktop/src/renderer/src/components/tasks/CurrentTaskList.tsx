@@ -212,15 +212,39 @@ export function CurrentTaskList({
           : task.fileSize > 0
             ? (task.downloadedBytes / task.fileSize) * 100
             : undefined,
-      note: `${formatSize(task.downloadedBytes)} / ${formatSize(task.fileSize)}`,
+      note: `${task.files?.length ?? 1} 个文件 · ${formatSize(task.downloadedBytes)} / ${formatSize(task.fileSize)}`,
       icon: <Download size={16} />,
       detail: (
         <div>
           <p>
-            {task.filesetName} · {task.relativePath}
+            {task.filesetName} · 已完成{' '}
+            {task.files?.filter((file) => file.status === 'done').length ??
+              (task.status === 'done' ? 1 : 0)}{' '}
+            / {task.files?.length ?? 1} 个文件
           </p>
-          <p>{task.targetPath}</p>
+          {(task.files?.length ?? 1) === 1 ? <p>{task.targetPath}</p> : null}
           {task.error ? <p role="alert">{task.error}</p> : null}
+          <ul className="weq-flash-task-files" aria-label="下载文件">
+            {(task.files ?? [task]).map((file) => (
+              <li key={file.id}>
+                <span title={file.targetPath}>{file.relativePath}</span>
+                <span>
+                  {
+                    {
+                      pending: '等待中',
+                      resolving: '获取链接',
+                      downloading: '下载中',
+                      done: '已完成',
+                      failed: '失败',
+                      cancelled: '已取消',
+                    }[file.status]
+                  }{' '}
+                  · {formatSize(file.downloadedBytes)} / {formatSize(file.fileSize)}
+                </span>
+                {file.error ? <p role="alert">{file.error}</p> : null}
+              </li>
+            ))}
+          </ul>
           <div className="weq-long-task-actions">
             <button
               type="button"

@@ -8,5 +8,6 @@ export type {
   FlashSelection,
   FlashDownloadFile,
   FlashDownloadTask,
+  FlashDownloadBatch,
   FlashTaskStatus,
 } from './types';

@@ -857,6 +857,7 @@ export type {
   FlashSelection,
   FlashDownloadFile,
   FlashDownloadTask,
+  FlashDownloadBatch,
   FlashTaskStatus,
 } from './account/flashtransfer';
 export type { PeerStats } from './account/peer_stats';
