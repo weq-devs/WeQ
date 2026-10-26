@@ -207,7 +207,7 @@ function authRspPacket(sessionTs = 999): Uint8Array {
 // ─────────────────────────── 用例 ───────────────────────────
 
 describe('通话会话状态机', () => {
-  it('发起后先发认证、中继注册与编码器初始化', async () => {
+  it('发起后先发认证与编码器初始化，认证成功后再注册中继', async () => {
     const { session, transport } = makeSession();
     await session.start();
 
@@ -215,6 +215,9 @@ describe('通话会话状态机', () => {
     expect(transport.sent.length).toBeGreaterThan(0);
     // 认证包发两次
     expect(transport.gcs(GcsBodyType.authReq)).toHaveLength(2);
+    // 中继注册要等认证成功，不能抢跑
+    expect(transport.sent.some((s) => s.data[0] === 0x02)).toBe(false);
+    transport.deliver(authRspPacket());
     // 中继注册（首字节 0x02）
     expect(transport.sent.some((s) => s.data[0] === 0x02)).toBe(true);
     // 编码器初始化帧（0x5b, subType=1, seq=0）

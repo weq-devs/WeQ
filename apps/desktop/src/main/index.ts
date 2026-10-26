@@ -79,6 +79,7 @@ import { createRendererRecovery } from './renderer_recovery';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
 import { macApplicationMenu, nativeMenuLabels } from './application_menu';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
+import { registerCallVideoIpc } from './call_video_ipc';
 import { registerAttachHintIpc } from './attach_hint_ipc';
 import { registerElevationIpc } from './elevation_ipc';
 import { registerLongTermAuthorizationIpc } from './authorization/ipc';
@@ -426,6 +427,32 @@ function registerLogIpc(): void {
     await electronHost.revealPath(dir);
     return true;
   });
+
+  /**
+   * 渲染层 → 主进程日志文件（`weq.debugLog`）。
+   *
+   * 通话视频的解码全在渲染层，而渲染层的 `console.*` **不会**进日志文件 ——
+   * 「等待对方画面」这类问题因此一直只能盲猜。这个通道只接受结构化字段，
+   * 走同一个 `getLogger()`，落进同一天的日志里，便于和主进程的 `scope=call`
+   * 行按时间对齐。
+   *
+   * 刻意**不**转发 `console` 全量：主进程 `console-message` 会把整个渲染层的
+   * 噪声（React 警告、第三方库日志）都灌进文件。调用方显式调用才记。
+   */
+  ipcMain.on('logs:renderer', (_event, payload: unknown) => {
+    if (!payload || typeof payload !== 'object') return;
+    const record = payload as { level?: unknown; message?: unknown; context?: unknown };
+    if (typeof record.message !== 'string' || record.message.length > 2000) return;
+    const level =
+      record.level === 'warn' || record.level === 'error' || record.level === 'debug'
+        ? record.level
+        : 'info';
+    const context =
+      record.context && typeof record.context === 'object'
+        ? (record.context as Record<string, unknown>)
+        : {};
+    logger[level](record.message, { scope: 'renderer', ...context });
+  });
 }
 
 function registerSystemAuthIpc(): void {
@@ -769,6 +796,7 @@ void app.whenReady().then(async () => {
   registerElevationIpc();
   registerLongTermAuthorizationIpc();
   registerEditUndoIpc();
+  registerCallVideoIpc();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);

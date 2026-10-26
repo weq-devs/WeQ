@@ -11,7 +11,17 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import ts from 'typescript';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// `trimDesktopPackage` 在签名前会校验包内的 remote-network 辅助程序（发布期
+// 门禁）。这个用例只关心 resvg Darwin 绑定的裁剪，临时目录里没有那个二进制，
+// 所以把校验桩掉 —— 它自己的行为由 `scripts/package-remote-network.test.mjs`
+// 和 `authorization_package_hooks.test.ts` 覆盖。
+vi.mock('../../../scripts/package-remote-network.mjs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../scripts/package-remote-network.mjs')>()),
+  verifyPackagedRemoteNetwork: vi.fn(),
+}));
+
 import { trimDesktopPackage } from '../../../scripts/trim-desktop-package.mjs';
 
 const desktop = resolve(__dirname, '..');

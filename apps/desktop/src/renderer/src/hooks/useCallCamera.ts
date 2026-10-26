@@ -156,6 +156,15 @@ export function useCallCamera(options: { enabled: boolean }): CallCameraState {
       const rgba = ctx.getImageData(0, 0, ENCODE_WIDTH, ENCODE_HEIGHT).data;
       const { y, u, v } = rgbaToI420(rgba, ENCODE_WIDTH, ENCODE_HEIGHT);
       pushCount.current++;
+      // Electron 走二进制 IPC（结构化克隆，一帧 ~0.2 ms）；tRPC + superjson 会把
+      // 345 KB 的 Uint8Array 展开成 1.2 MB 十进制文本（实测 30 ms/帧），15 fps
+      // 下渲染层主线程被吃满 —— 采集、解码、绘制全都跟着卡。
+      // web 构建（apps/web 复用同一份 renderer）没有这个桥，回退到 tRPC。
+      const bridge = window.weq?.callVideo;
+      if (bridge) {
+        bridge.pushFrame({ y, u, v });
+        return;
+      }
       // 只在首批帧失败时报错：持续失败会刷屏，但完全静默又没法排查。
       pushRef.current.mutate(
         { y, u, v },

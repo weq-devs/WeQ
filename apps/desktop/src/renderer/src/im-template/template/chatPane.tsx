@@ -51,6 +51,7 @@ import {
   Bug,
   Image as ImageIcon,
   Link2,
+  MapPin,
   ClipboardCopy,
   MessageSquareText,
   Mic,
@@ -150,6 +151,7 @@ import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCar
 import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
 import { bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
 import { RedPacketPanel, type RedPacketDraft } from './redPacketPanel';
+import { LocationSharePanel } from './locationSharePanel';
 import {
   pokeEmojiToken,
   randomFaceToken,
@@ -167,7 +169,11 @@ import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
 import { chatHeaderTitle, isBotConversation, resolveMessageSender } from './conversationDisplay';
 import { createEmojiToken, parseMessageParts } from './emojiPacks';
 import type { EmojiItem } from './emojiPacks';
-import { elementToToken, elementsToComposerText, tokenToElement } from './draftElements';
+import {
+  elementToToken,
+  elementsToComposerText,
+  tokenToElement,
+} from './draftElements';
 import { planNeedsLocalMedia, type LocalMediaRef } from './composerSend';
 import { prepareReeditDraft } from './composerReedit';
 import {
@@ -239,7 +245,7 @@ import { dockStopLabel, dockStopTone } from './unreadDock';
 import { displayGroupName, displayUserName } from './user';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
-import { trpc } from '../../trpc/client';
+import { client, trpc } from '../../trpc/client';
 import { useToast } from '../../components/Toast';
 
 const composerHeightStorageKey = 'chat-template.layout.composerHeight';
@@ -716,6 +722,9 @@ export function ChatPane({
   // 「红包」面板：群聊三档（普通 / 拼手气 / 口令），私聊两档（普通 / 拼手气）；
   // 下单出码后由应用层弹二维码灯箱。
   const [redPacketOpen, setRedPacketOpen] = useState(false);
+  // 「位置共享」面板：发起 / 心跳上报 / 看所有人在地图上的位置。房间靠上报续命，
+  // 停上报约 60 秒后服务端自动结束 —— 没有单独的退出命令。
+  const [locationShareOpen, setLocationShareOpen] = useState(false);
 
   // 闪传文件框占着输入框正文那一行：别的面板一打开就把它收起来，避免两套东西打架。
   useEffect(() => {
@@ -948,6 +957,8 @@ export function ChatPane({
   const redPacketButtonRef = useRef<HTMLButtonElement | null>(null);
   const flashPanelRef = useRef<HTMLDivElement | null>(null);
   const flashButtonRef = useRef<HTMLButtonElement | null>(null);
+  const locationSharePanelRef = useRef<HTMLDivElement | null>(null);
+  const locationShareButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mentionMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1531,6 +1542,8 @@ export function ChatPane({
   useEffect(() => {
     setEmojiOpen(false);
     setToolsOpen(false);
+    // 切会话就关掉位置共享 —— 面板卸载会停心跳，等价于「退出上一场共享」。
+    setLocationShareOpen(false);
     setContextMenu(null);
     setMentionMenu(null);
     setClearMessagesConfirmOpen(false);
@@ -1921,6 +1934,40 @@ export function ChatPane({
       document.removeEventListener('keydown', closeRedPacketOnEscape);
     };
   }, [tabActive, redPacketOpen]);
+
+  // 位置共享面板：点外面 / Esc 关闭。模态（灯箱等）开着时不抢 Esc。
+  useLayoutEffect(() => {
+    if (!tabActive || !locationShareOpen) {
+      return;
+    }
+
+    function closeLocationShareFromOutside(event: globalThis.MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (
+        locationSharePanelRef.current?.contains(target) ||
+        locationShareButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setLocationShareOpen(false);
+    }
+
+    function closeLocationShareOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape' && !hasActiveModal()) {
+        setLocationShareOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', closeLocationShareFromOutside);
+    document.addEventListener('keydown', closeLocationShareOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeLocationShareFromOutside);
+      document.removeEventListener('keydown', closeLocationShareOnEscape);
+    };
+  }, [tabActive, locationShareOpen]);
 
   // 附件跟着会话走：切会话时清掉上一条会话的待发送素材（预览地址一并释放）。
   const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
@@ -3094,6 +3141,29 @@ export function ChatPane({
   }
 
   /**
+   * 位置共享的「发起了位置共享」卡片。
+   *
+   * 真实客户端由服务端推送这条消息，但 WeQ 的 SSO 是「发一包就断」，服务端判定
+   * 发起方不在线就不投递 —— 所以自己发。元素由协议层构造（私聊只需灰条 + 文本；
+   * 群聊必须额外带 `generalFlags(37)`，否则能显示但点不了）。
+   *
+   * 卡片是独立一条消息，不带输入框里的文字 / 引用。
+   */
+  async function sendLocationShareCard(): Promise<void> {
+    if (!conversation || conversation.type === 'merged') return;
+    // 元素在主进程构造：渲染层不能 import `@weq/protocol`（远程 Web 端复用这份
+    // 代码，而 protocol 里有 `node:crypto` 的红包签名，浏览器端打不出来）。
+    await client.account.sendLocationShareCard.mutate({
+      expectedAccountUin: user.identityValue,
+      scene: conversation.type === 'group' ? 'group' : 'c2c',
+      targetId:
+        conversation.type === 'group'
+          ? conversation.group.id
+          : conversation.otherUser.identityValue,
+    });
+  }
+
+  /**
    * AI 声聊面板「合成并发送」：这条语音**只能单独发** —— 不带输入框里的文字、
    * 也不带挂着的引用（跟视频 / 文件那套「单独发」同一套互斥）。
    *
@@ -3913,6 +3983,7 @@ export function ChatPane({
     if (voiceBusyRef.current) return;
     setComposerMenu(null);
     setContextMenu(null);
+    setLocationShareOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
@@ -3922,6 +3993,7 @@ export function ChatPane({
 
   function toggleToolsPanel() {
     setContextMenu(null);
+    setLocationShareOpen(false);
     setEmojiOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
@@ -3933,6 +4005,7 @@ export function ChatPane({
     if (voiceBusyRef.current) return;
     setComposerMenu(null);
     setContextMenu(null);
+    setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
     setArkOpen(false);
@@ -3942,6 +4015,7 @@ export function ChatPane({
 
   function toggleArkPanel() {
     setContextMenu(null);
+    setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
@@ -3955,6 +4029,7 @@ export function ChatPane({
    */
   function toggleFlashPanel() {
     setContextMenu(null);
+    setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
@@ -3966,6 +4041,7 @@ export function ChatPane({
   /** AI 声聊面板（仅群聊）：和其余面板互斥，同一时刻只开一个。 */
   function toggleAiVoicePanel() {
     setContextMenu(null);
+    setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
@@ -3976,12 +4052,30 @@ export function ChatPane({
   /** 红包面板：和其余面板互斥；下单出码在应用层，成功后弹二维码灯箱。 */
   function toggleRedPacketPanel() {
     setContextMenu(null);
+    setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
     setRedPacketOpen((open) => !open);
+  }
+
+  /**
+   * 位置共享面板：和其余面板互斥。
+   *
+   * 面板内部自己管心跳（打开才开始上报，关掉/切会话即停）—— 这里只负责显隐，
+   * 不把「是否在共享」提到 chatPane 层，避免关面板后还在后台偷偷上报位置。
+   */
+  function toggleLocationSharePanel() {
+    setContextMenu(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setArkOpen(false);
+    setAiVoiceOpen(false);
+    setRedPacketOpen(false);
+    setLocationShareOpen((open) => !open);
   }
 
   const handleVoiceBusyChange = useCallback((busy: boolean) => {
@@ -4417,6 +4511,17 @@ export function ChatPane({
   const aiVoicePanelActive = canUseAiVoice && aiVoiceOpen && !mobileComposerExpanded;
   // 红包面板：群聊 / 私聊都能发，浮层形态（不占正文那一行）。
   const redPacketPanelActive = redPacketOpen && !mobileComposerExpanded;
+  // 位置共享面板：私聊 / 群聊都能发起，浮层形态。
+  const locationSharePanelActive = locationShareOpen && !mobileComposerExpanded;
+  /**
+   * 位置共享的会话键：私聊是对端 QQ 号，群聊是群号。
+   * 临时会话（来源群号）不参与 —— 位置共享协议没有 grpTmp 路由，直接按 c2c 走。
+   */
+  const locationSharePeer =
+    conversation.type === 'group'
+      ? Number(conversation.group.id)
+      : Number(conversation.otherUser.identityValue);
+  const locationShareSelfUin = Number(user.identityValue);
   const mediaSendDisabled = Boolean(sendGateReason);
   const repeatMessage = repeatTarget(messages, atLatest);
   function messageCanRepeat(message: Message) {
@@ -5330,6 +5435,16 @@ export function ChatPane({
               onClick={runComposerAction}
             />
           ))}
+          {/* 位置共享（手机端）：与桌面端同一个面板，只是工具栏样式不同。 */}
+          <button
+            type="button"
+            className={cn('composer-tool', 'composer-mobile-tool', locationShareOpen && 'active')}
+            title="位置共享"
+            disabled={currentPreference.blocked || sending}
+            onClick={toggleLocationSharePanel}
+          >
+            <MapPin size={21} strokeWidth={1.5} />
+          </button>
           <button
             ref={emojiButtonRef}
             type="button"
@@ -5408,6 +5523,17 @@ export function ChatPane({
             onClick={toggleArkPanel}
           >
             <Link2 size={21} strokeWidth={1.5} />
+          </button>
+          {/* 位置共享：发起 / 看所有人在哪 / 摇杆挪位置。房间靠上报续命，停上报即退出。 */}
+          <button
+            ref={locationShareButtonRef}
+            type="button"
+            className={cn('composer-tool', 'composer-desktop-tool', locationShareOpen && 'active')}
+            title={hasSingleSend ? singleSendHint : '位置共享'}
+            disabled={currentPreference.blocked || sending}
+            onClick={toggleLocationSharePanel}
+          >
+            <MapPin size={21} strokeWidth={1.5} />
           </button>
           {composerActionRegistry.desktopToolbar.map((action) => (
             <ComposerToolbarActionButton
@@ -5531,6 +5657,23 @@ export function ChatPane({
             onReloadPasswords={() => void redbagPasswordsQuery.refetch()}
             onSend={(draft) => sendRedPacket(draft)}
             onClose={() => setRedPacketOpen(false)}
+          />
+        ) : null}
+        {locationSharePanelActive ? (
+          <LocationSharePanel
+            panelRef={locationSharePanelRef}
+            scene={conversation.type === 'group' ? 'group' : 'c2c'}
+            peer={locationSharePeer}
+            selfUin={locationShareSelfUin}
+            selfName={user.displayName || user.username}
+            selfAvatarUrl={user.avatarUrl}
+            selfUid={user.uid}
+            conversationName={conversation.name}
+            members={conversation.type === 'group' ? conversation.members : undefined}
+            disabled={mediaSendDisabled}
+            disabledHint={sendTitle}
+            onSendCard={sendLocationShareCard}
+            onClose={() => setLocationShareOpen(false)}
           />
         ) : null}
         <input

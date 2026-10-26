@@ -6,6 +6,8 @@ interface Window {
     authorization?: import('../../shared/long_term_authorization').LongTermAuthorizationBridge;
     editUndo?: import('../../shared/edit_menu').EditUndoBridge;
     openLogDir(): Promise<boolean>;
+    /** 往主进程日志文件写一条结构化记录；web 构建下为 undefined。 */
+    debugLog?(level: 'debug' | 'info' | 'warn' | 'error', message: string, context?: object): void;
     /** 用户选 / 拖 / 粘贴文件的绝对路径（Electron webUtils）；拿不到返回 ''。 */
     pathForFile?(file: File): string;
     channel: {
@@ -54,6 +56,13 @@ interface Window {
     capture: {
       window(): Promise<{ ok: boolean; error?: string }>;
     };
+    /**
+     * 通话视频上行（二进制 IPC）。
+     *
+     * 只用于 Electron；web 构建下为 undefined，调用方要回退到 tRPC 的
+     * `pushVideoFrame`。
+     */
+    callVideo?: import('../../shared/call_video_ipc').CallVideoBridge;
     analyticsShot: {
       /** 主进程在隐藏窗口里渲染同一张卡片、抓成长图、弹保存框（用户窗口全程不动）。 */
       render(

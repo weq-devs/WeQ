@@ -28,7 +28,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { payloadForDecoder, toAccessUnit } from '../lib/callVideo';
+import { acceptsFrame, payloadForDecoder, toAccessUnit } from '../lib/callVideo';
 import { trpc } from '../trpc/client';
 
 /** HEVC 的 codec string：Main profile、level 1.5（实测 640×360@10fps 用这档）。 */
@@ -50,6 +50,31 @@ const HEVC_CODEC_CANDIDATES = [
   'hev1.1.6.L63.B0',
   'hev1.1.6.L93.B0',
 ] as const;
+
+/**
+ * 把渲染层的解码**错误与关键状态**写进主进程日志文件。
+ *
+ * 通话视频的解码全在这一层，而渲染层的 `console.*` 不落盘 —— 解码失败时用户
+ * 只看到「等待对方画面」，日志里却什么都没有。`weq.debugLog` 由 preload 提供；
+ * web 构建没有这个桥，退回 `console`。
+ *
+ * 只记错误、断帧和首帧里程碑，不逐帧记录（一通通话上千帧，会淹没日志）。
+ */
+function trace(
+  level: 'debug' | 'info' | 'warn' | 'error',
+  message: string,
+  context?: Record<string, unknown>,
+): void {
+  const bridge = window.weq?.debugLog;
+  if (bridge) {
+    bridge(level, message, { scope: 'call-video', ...context });
+    return;
+  }
+  const line = `[call-video] ${message}`;
+  if (level === 'error') console.error(line, context);
+  else if (level === 'warn') console.warn(line, context);
+  else console.info(line, context);
+}
 
 export interface CallVideoState {
   /** 解码器可用。false 时界面应提示「当前环境不支持视频解码」。 */
@@ -103,8 +128,25 @@ export function useCallVideo(options: {
   const needsParamSets = useRef(false);
   /** 丢帧计数：连续解不动时重建解码器。 */
   const decodeFailures = useRef(0);
-  /** 收到的帧数（只用于前几帧的排查日志）。 */
-  const frameCount = useRef(0);
+  /** 解出的帧数（只用于第一帧的里程碑日志）。 */
+  const decodedFrames = useRef(0);
+  /**
+   * 上一个喂进解码器的帧序号。
+   *
+   * HEVC 的 P 帧依赖前序参考帧：跳帧后继续喂 delta 会让硬解输出错乱（整屏纯绿），
+   * 要等到下一个关键帧才恢复。见 onData 里的连续性检查。
+   */
+  const lastFrameIndex = useRef<number | null>(null);
+  /** 已经因为断帧而进入「等关键帧」状态（只用于日志去重）。 */
+  const awaitingKeyframe = useRef(false);
+  /**
+   * 是否正在异步建解码器。
+   *
+   * `ensureDecoder` 里有 `await VideoDecoder.isConfigSupported`，期间后续帧的
+   * `onData` 会并发进来并重复触发重建 —— 第二次重建会 `close()` 掉第一次刚建
+   * 好的解码器，导致「只解出第一帧」。见 `onData` 里的详细说明。
+   */
+  const buildingDecoder = useRef(false);
 
   /** 建 / 重建解码器。 */
   const ensureDecoder = useCallback(
@@ -142,7 +184,7 @@ export function useCallVideo(options: {
       }
       if (!config) {
         // 把试过的候选连同报错一起抛给界面：只说「不支持」没法排查。
-        console.error('[call-video] 所有 HEVC 候选都不支持', tried, { width, height });
+        trace('error', '所有 HEVC 候选都不支持', { tried, width, height });
         setState((prev) => ({
           ...prev,
           supported: false,
@@ -150,30 +192,35 @@ export function useCallVideo(options: {
         }));
         return null;
       }
-
       decoderRef.current?.close();
       const decoder = new VideoDecoder({
         output: (frame) => {
+          // ⚠️ **尺寸要在 `frame.close()` 之前读。** close() 会把 VideoFrame 的
+          // 所有属性重置为 0 —— 在它之后读 `displayWidth` 拿到的是 0。
+          const width = frame.displayWidth;
+          const height = frame.displayHeight;
           const canvas = canvasRef.current;
           if (canvas) {
             // 按帧尺寸调整画布，避免拉伸。
-            if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
-              canvas.width = frame.displayWidth;
-              canvas.height = frame.displayHeight;
+            if (canvas.width !== width || canvas.height !== height) {
+              canvas.width = width;
+              canvas.height = height;
             }
             const ctx = canvas.getContext('2d');
             ctx?.drawImage(frame, 0, 0);
           }
           frame.close();
           decodeFailures.current = 0;
-          setState((prev) =>
-            prev.active
-              ? prev
-              : { ...prev, active: true, width: frame.displayWidth, height: frame.displayHeight },
-          );
+          decodedFrames.current++;
+          // 第一帧解出来是整条链路唯一的关键里程碑（有它才说明「等待对方画面」
+          // 会消失），只记这一次，不逐帧刷屏。
+          if (decodedFrames.current === 1) {
+            trace('info', '解出画面', { width, height });
+          }
+          setState((prev) => (prev.active ? prev : { ...prev, active: true, width, height }));
         },
         error: (error) => {
-          console.error('[call-video] 解码器错误', error);
+          trace('error', '解码器错误', { error: String(error) });
           setState((prev) => ({ ...prev, error: String(error) }));
         },
       });
@@ -192,6 +239,8 @@ export function useCallVideo(options: {
       configured.current = false;
       paramSets.current = [];
       needsParamSets.current = false;
+      lastFrameIndex.current = null;
+      awaitingKeyframe.current = false;
       setState({ supported: true, active: false, width: 0, height: 0, error: null });
       return;
     }
@@ -200,7 +249,6 @@ export function useCallVideo(options: {
   trpc.call.onCallVideo.useSubscription(undefined, {
     enabled,
     onData: (frame) => {
-      frameCount.current++;
       void (async () => {
         // 先拆 NAL 再判断关键帧。
         //
@@ -214,11 +262,56 @@ export function useCallVideo(options: {
         if (au.params.length > 0) paramSets.current = au.params;
         if (!configured.current && !au.keyframe) return;
 
+        // ⚠️ **连续性检查：关键帧之后，帧序号必须连续。**
+        //
+        // HEVC 的 P 帧依赖前序参考帧。跳帧后继续喂 delta，Chromium 硬解会拒绝
+        // 这些「无参考帧」的帧，但**内部状态被污染**，继续输出错乱的 YUV ——
+        // 2026-10-26 实测整屏纯绿（RGB `[0,88,0]`，R/B 恒为 0），直到下一个
+        // 关键帧（约 15 秒后）才重新同步。
+        //
+        // 主进程侧已经改为「整段补发连续帧」（见 `CallManager.replayBuffer`），
+        // 正常情况下这里不会触发。它保留作为**安全网**：网络丢包、补发与实时流
+        // 的衔接缝隙、对端中途重启编码，都可能造成序号断裂。
+        //
+        // 触发时丢弃本帧并等下一个关键帧 —— 会短暂冻画面，但好过整屏绿。
+        const previousIndex = lastFrameIndex.current;
+        if (!acceptsFrame(previousIndex, frame.frameIndex, au.keyframe)) {
+          if (!awaitingKeyframe.current) {
+            awaitingKeyframe.current = true;
+            trace('warn', '帧序号不连续，丢弃直到下一个关键帧', {
+              previous: previousIndex,
+              current: frame.frameIndex,
+              gap: ((frame.frameIndex - (previousIndex ?? 0) + 65536) % 65536) >>> 0,
+            });
+          }
+          return;
+        }
+        if (au.keyframe) awaitingKeyframe.current = false;
+        lastFrameIndex.current = frame.frameIndex;
+
         const existing = decoderRef.current;
         const rebuilt = !existing || existing.state === 'closed';
         let decoder = existing;
         if (rebuilt) {
-          decoder = await ensureDecoder(frame.info?.width ?? 640, frame.info?.height ?? 360);
+          // ⚠️ **必须互斥。** `onData` 是同步回调，但这里是 async 函数 —— 帧 N
+          // 在 `await ensureDecoder()` 期间，帧 N+1 的 `onData` 已经进来了，
+          // 它看到的 `decoderRef.current` 仍是 null，于是也走 `rebuilt` 分支，
+          // 再次 `await ensureDecoder()`。而 `ensureDecoder` 第一件事就是
+          // `decoderRef.current?.close()` —— **它会把帧 N 刚建好的解码器关掉**。
+          //
+          // 结果：帧 N 的 `decode()` 落到一个已关闭的解码器上（或被丢弃），
+          // 帧 N+1 建的新解码器又没收到关键帧（`configured=false` + 后续全是
+          // delta 帧），此后每一帧都在 `if (!configured.current) return` 处被
+          // 丢掉 —— 表现就是「解出第一帧，画面永久停住」。
+          //
+          // 用一个在建标记挡住并发重建：谁先拿到谁建，其余帧直接返回等下一帧。
+          if (buildingDecoder.current) return;
+          buildingDecoder.current = true;
+          try {
+            decoder = await ensureDecoder(frame.info?.width ?? 640, frame.info?.height ?? 360);
+          } finally {
+            buildingDecoder.current = false;
+          }
           if (!decoder) return;
           configured.current = false;
           // 一直挂到真的喂出一帧为止 —— 重建点落在 delta 帧上时，那帧会被下面
@@ -246,6 +339,10 @@ export function useCallVideo(options: {
           );
         } catch (error) {
           decodeFailures.current++;
+          trace('warn', 'decode() 抛错', {
+            failures: decodeFailures.current,
+            error: String(error),
+          });
           setState((prev) => ({ ...prev, error: String(error) }));
           if (decodeFailures.current > 3) {
             decoder.close();
@@ -256,7 +353,10 @@ export function useCallVideo(options: {
         }
       })();
     },
-    onError: (error) => setState((prev) => ({ ...prev, error: String(error) })),
+    onError: (error) => {
+      trace('error', '视频订阅出错', { error: String(error) });
+      setState((prev) => ({ ...prev, error: String(error) }));
+    },
   });
 
   useEffect(() => {
