@@ -335,7 +335,9 @@ export function useChatShellController({
     backGroup,
     changeContactTab,
     contactNotice,
-    contactOverviewOpen,
+    // 空标签或已失效的详情选择回落到群交集首页，不再要求额外点击占位入口。
+    contactOverviewOpen:
+      contactOverviewOpen || (!selectedContact && !selectedGroupConversation && !contactNotice),
     contactTab,
     contactWorkspaceTab,
     setContactWorkspaceTab,

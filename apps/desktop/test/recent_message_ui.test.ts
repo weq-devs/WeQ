@@ -655,8 +655,6 @@ describe('新增消息交互', () => {
             contactTab: 'friends',
             query: '',
             onQueryChange: vi.fn(),
-            onQuickInvite: vi.fn(),
-            onCreateGroup: vi.fn(),
             onOpenProfile: vi.fn(),
             onOpenFriendNotices: vi.fn(),
             onOpenGroupNotices: vi.fn(),

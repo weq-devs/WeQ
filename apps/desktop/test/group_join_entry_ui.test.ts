@@ -27,8 +27,6 @@ function mount(contactTab: 'friends' | 'groups', showSearch: boolean) {
           showSearch,
           query: '',
           onQueryChange: noop,
-          onQuickInvite: noop,
-          onCreateGroup: noop,
           onOpenProfile: noop,
           onOpenFriendNotices: noop,
           onOpenGroupNotices: noop,
@@ -51,7 +49,7 @@ it.each([
   ['friends', false],
   ['groups', false],
 ] as const)(
-  '%s showSearch=%s 的所有添加入口移除通用加群，其余菜单继续保留',
+  '%s showSearch=%s 的搜索菜单不再展示未实现的添加好友和建群入口',
   (contactTab, showSearch) => {
     const host = mount(contactTab, showSearch);
     expect(host.querySelector('.weq-contact-join-entry')).toBeNull();
@@ -61,6 +59,12 @@ it.each([
     expect(host.textContent).not.toContain('申请加入 QQ 群');
     expect(host.textContent).toContain('QQ 号搜索');
     expect(host.textContent).toContain('群号搜索');
+    for (const menu of host.querySelectorAll('.sidebar-add-menu')) {
+      expect([...menu.querySelectorAll('button')].map((button) => button.textContent)).toEqual([
+        'QQ 号搜索',
+        '群号搜索',
+      ]);
+    }
     act(() =>
       host
         .querySelector<HTMLButtonElement>('.weq-directory-toolbar [aria-label="添加联系人或分组"]')!
@@ -70,8 +74,8 @@ it.each([
     expect(menu.textContent).not.toContain('申请加入 QQ 群');
     expect(menu.textContent).toContain('QQ 号搜索');
     expect(menu.textContent).toContain('群号搜索');
-    expect(menu.textContent).toContain('创建群聊');
-    expect(menu.textContent).toContain('添加好友/群聊');
+    expect(menu.textContent).not.toContain('创建群聊');
+    expect(menu.textContent).not.toContain('添加好友/群聊');
     expect(menu.textContent?.includes('新建分组')).toBe(contactTab === 'friends');
     expect(document.querySelector('[aria-label="QQ 群分享链接"]')).toBeNull();
   },

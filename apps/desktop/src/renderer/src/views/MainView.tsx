@@ -133,6 +133,7 @@ import {
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { useProfileResolver } from '../hooks/useProfileResolver';
+import { useCloneTaskRefresh } from '../hooks/useCloneTaskRefresh';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
 import { useDressSkin } from '../hooks/useDressSkin';
@@ -9142,6 +9143,7 @@ export function MainView(): ReactElement {
     shell.view === 'channel' ||
     shell.view === 'annual';
   const directoryPersonas = trpc.account.listAgentLabPersonas.useQuery();
+  useCloneTaskRefresh();
   const directoryGroups = trpc.account.listAgentLabGroups.useQuery();
   const virtualRows = useMemo(
     () => [
@@ -9696,8 +9698,6 @@ export function MainView(): ReactElement {
                 />
               ) : null
             }
-            onQuickInvite={noopAsync}
-            onCreateGroup={noopAsync}
             onOpenFriendNotices={() => shell.openContactNotice('friend')}
             onOpenGroupNotices={() => shell.openContactNotice('group')}
             onContactTabChange={shell.changeContactTab}

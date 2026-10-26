@@ -91,6 +91,10 @@ describe('诊断采样生命周期', () => {
         runningAnimations: 2,
         documentVisible: true,
         title: 'secret',
+        mainView: 'export',
+        sampleDurationMs: 2.5,
+        surfaces: { export: { mounted: 1, title: 'secret' }, secret: { mounted: 9 } },
+        animationDetails: { byKind: { shimmer: { count: 2, running: 2 }, secret: { count: 1 } } },
       },
     });
     expect(readdirSync(dir)).toEqual(['dev-memory-monitor']);
@@ -102,6 +106,10 @@ describe('诊断采样生命周期', () => {
         animations: 3,
         runningAnimations: 2,
         documentVisible: true,
+        mainView: 'export',
+        sampleDurationMs: 2.5,
+        surfaces: { export: { mounted: 1 } },
+        animationDetails: { byKind: { shimmer: { count: 2, running: 2 } } },
       },
     });
     vi.advanceTimersByTime(DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS - 1);

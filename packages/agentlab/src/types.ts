@@ -287,6 +287,8 @@ export interface AgentLabPersona {
   sourceTitle: string;
   /** 每个任务选用的 provider+model */
   models: AgentLabModels;
+  /** 重训沿用的语料范围；旧记录缺省时仅使用私聊。 */
+  training?: { mode: 'private' | 'group'; autoName: boolean; limit?: number };
   /** 使用默认向量模型训练时固定的索引身份；默认改变后须重新训练。 */
   embeddingModelIdentity?: string;
   generation?: import('./generation').AgentLabGenerationConfig;

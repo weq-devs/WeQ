@@ -31,7 +31,6 @@ import { useAtAllMention } from '../../hooks/useAtAllMention';
 import { nextMentionIndex, type AtAllMentionState } from '../../lib/atAllMention';
 import '../../styles/at-all-mention.css';
 import {
-  AudioLines,
   BarChart3,
   Bot,
   ChevronDown,
@@ -50,7 +49,6 @@ import {
   FolderOpen,
   UsersRound,
   Bug,
-  Hand,
   Image as ImageIcon,
   Link2,
   MapPin,
@@ -58,7 +56,6 @@ import {
   MessageSquareText,
   Mic,
   PhoneCall,
-  Rocket,
   Video,
   SendHorizontal,
   Settings2,
@@ -152,11 +149,10 @@ import {
 import { ArkPanel } from './arkPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
-import { BounceEmojiPanel, bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
+import { bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
 import { RedPacketPanel, type RedPacketDraft } from './redPacketPanel';
 import { LocationSharePanel } from './locationSharePanel';
 import {
-  PokeEmojiPanel,
   pokeEmojiToken,
   randomFaceToken,
   type PokeEmojiDraft,
@@ -710,7 +706,7 @@ export function ChatPane({
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [composerMenu, setComposerMenu] = useState<{
-    kind: 'emoji' | 'voice' | 'file';
+    kind: 'file';
     x: number;
     y: number;
   } | null>(null);
@@ -721,10 +717,6 @@ export function ChatPane({
   const [arkOpen, setArkOpen] = useState(false);
   // 「AI 声聊」面板：输入文字 + 选声线 + 试听，合成后**单独发送**（仅群聊）。
   const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
-  // 「弹射表情」面板：选一枚系统表情 + 填个数，发射后**单独发送**。
-  const [bounceOpen, setBounceOpen] = useState(false);
-  // 「戳一戳」面板：选互动表情 + 连击次数，戳出去**单独发送**。
-  const [pokeOpen, setPokeOpen] = useState(false);
   // 「闪传」文件框：拖文件 / 选文件夹 → 灯箱确认封面 → 走 fileset 发送。
   // 它内联占掉输入框正文那一行（需求就是「输入框变成文件框」），所以与其余面板互斥。
   const [flashOpen, setFlashOpen] = useState(false);
@@ -737,19 +729,10 @@ export function ChatPane({
 
   // 闪传文件框占着输入框正文那一行：别的面板一打开就把它收起来，避免两套东西打架。
   useEffect(() => {
-    if (
-      emojiOpen ||
-      toolsOpen ||
-      voiceOpen ||
-      arkOpen ||
-      aiVoiceOpen ||
-      bounceOpen ||
-      pokeOpen ||
-      redPacketOpen
-    ) {
+    if (emojiOpen || toolsOpen || voiceOpen || arkOpen || aiVoiceOpen || redPacketOpen) {
       setFlashOpen(false);
     }
-  }, [emojiOpen, toolsOpen, voiceOpen, arkOpen, aiVoiceOpen, bounceOpen, pokeOpen, redPacketOpen]);
+  }, [emojiOpen, toolsOpen, voiceOpen, arkOpen, aiVoiceOpen, redPacketOpen]);
   // 图片内联进输入框（见 insertInlineImage），所以待发送的「卡片」只有视频 / 文件
   // 和超级表情，而且一次只挂一个 —— 它们只能单独发，发送键不带走输入框里的文字。
   // 两者共用同一个槽位：挂上新的就把旧的卸掉。
@@ -795,10 +778,10 @@ export function ChatPane({
   const recallMessage = trpc.account.recallMessage.useMutation();
   const muteGroupMember = trpc.account.muteGroupMember.useMutation();
   const setGroupAdmin = trpc.account.setGroupAdmin.useMutation();
-  // 「随机表情」（骰子 / 包剪锤 / 活动表情）目录：打开戳一戳面板时才拉 —— 来源是
+  // 「随机表情」（骰子 / 包剪锤 / 活动表情）目录：打开表情面板时才拉 —— 来源是
   // 本机资源目录，不内置 faceId 白名单。结果片段变了（QQ 更新）刷新即得。
   const randomFacesQuery = trpc.account.sysEmoji.randomFaces.useQuery(undefined, {
-    enabled: pokeOpen,
+    enabled: emojiOpen,
     staleTime: 5 * 60_000,
   });
   // 口令候选池：只在红包面板打开、且 QQ 在线时拉一次。
@@ -808,7 +791,7 @@ export function ChatPane({
   });
   const pushToast = useToast((state) => state.push);
   // 语音 / TTS 能力由「设置 → 语音配置」决定：没配转录模型就没有转文字，没配 TTS
-  // 服务商就没有文字转语音那一栏。
+  // 服务商时文字转语音显示未配置状态。
   const mediaSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
@@ -971,8 +954,6 @@ export function ChatPane({
   const arkPanelRef = useRef<HTMLDivElement | null>(null);
   const arkButtonRef = useRef<HTMLButtonElement | null>(null);
   const aiVoicePanelRef = useRef<HTMLDivElement | null>(null);
-  const bouncePanelRef = useRef<HTMLDivElement | null>(null);
-  const pokePanelRef = useRef<HTMLDivElement | null>(null);
   const redPacketPanelRef = useRef<HTMLDivElement | null>(null);
   const redPacketButtonRef = useRef<HTMLButtonElement | null>(null);
   const flashPanelRef = useRef<HTMLDivElement | null>(null);
@@ -1923,75 +1904,6 @@ export function ChatPane({
   }, [tabActive, aiVoiceOpen]);
 
   useLayoutEffect(() => {
-    if (!tabActive || !bounceOpen) {
-      return;
-    }
-
-    function closeBounceFromOutside(event: globalThis.MouseEvent) {
-      const target = event.target;
-      if (!(target instanceof Node)) {
-        return;
-      }
-      if (
-        bouncePanelRef.current?.contains(target) ||
-        emojiButtonRef.current?.contains(target) ||
-        toolsButtonRef.current?.contains(target)
-      ) {
-        return;
-      }
-      setBounceOpen(false);
-      setPokeOpen(false);
-    }
-
-    function closeBounceOnEscape(event: globalThis.KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setBounceOpen(false);
-      }
-    }
-
-    document.addEventListener('mousedown', closeBounceFromOutside);
-    document.addEventListener('keydown', closeBounceOnEscape);
-    return () => {
-      document.removeEventListener('mousedown', closeBounceFromOutside);
-      document.removeEventListener('keydown', closeBounceOnEscape);
-    };
-  }, [tabActive, bounceOpen]);
-
-  useLayoutEffect(() => {
-    if (!tabActive || !pokeOpen) {
-      return;
-    }
-
-    function closePokeFromOutside(event: globalThis.MouseEvent) {
-      const target = event.target;
-      if (!(target instanceof Node)) {
-        return;
-      }
-      if (
-        pokePanelRef.current?.contains(target) ||
-        emojiButtonRef.current?.contains(target) ||
-        toolsButtonRef.current?.contains(target)
-      ) {
-        return;
-      }
-      setPokeOpen(false);
-    }
-
-    function closePokeOnEscape(event: globalThis.KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setPokeOpen(false);
-      }
-    }
-
-    document.addEventListener('mousedown', closePokeFromOutside);
-    document.addEventListener('keydown', closePokeOnEscape);
-    return () => {
-      document.removeEventListener('mousedown', closePokeFromOutside);
-      document.removeEventListener('keydown', closePokeOnEscape);
-    };
-  }, [tabActive, pokeOpen]);
-
-  useLayoutEffect(() => {
     if (!tabActive || !redPacketOpen) {
       return;
     }
@@ -2106,8 +2018,6 @@ export function ChatPane({
     // AI 声聊 / 弹射表情面板同理：换会话不能把上一会话的面板留在屏幕上。
     setComposerMenu(null);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setAttachmentError(null);
     setDropActive(false);
   }, [conversation?.id, releaseInlineImages]);
@@ -2941,8 +2851,6 @@ export function ChatPane({
     setVoiceOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
@@ -3102,8 +3010,6 @@ export function ChatPane({
       }
       setVoiceOpen(false);
       setAiVoiceOpen(false);
-      setBounceOpen(false);
-      setPokeOpen(false);
       if (singleToken || options.keepBody) window.requestAnimationFrame(restoreSendFocus);
       const sent = onSend(payloadBody, locals);
       composerSendRef.current = null;
@@ -3286,8 +3192,7 @@ export function ChatPane({
    * 输入框里的内容不会丢）。
    */
   async function sendBounceEmoji(draft: BounceEmojiDraft) {
-    setBounceOpen(false);
-    setPokeOpen(false);
+    setEmojiOpen(false);
     setPendingQuote(null);
     // 跟普通表情一样写回 QQ 的「最近使用」表（失败不影响发送）。
     recordRecentEmoji.mutate({ faceId: draft.faceId, unicode: false, sourceType: 0 });
@@ -3307,8 +3212,7 @@ export function ChatPane({
    * 只做前端：这里不碰任何协议，真正下发由上层 `onSend` 决定。
    */
   async function sendPokeEmoji(draft: PokeEmojiDraft) {
-    setPokeOpen(false);
-    setBounceOpen(false);
+    setEmojiOpen(false);
     setPendingQuote(null);
     await submitMessage({
       extraTokens: [pokeEmojiToken(draft)],
@@ -3324,8 +3228,7 @@ export function ChatPane({
    * 收端/乐观渲染都会播 `lottie/<faceId>_<innerId>.json` 那个结果片段。
    */
   async function sendRandomFace(draft: RandomFaceDraft) {
-    setPokeOpen(false);
-    setBounceOpen(false);
+    setEmojiOpen(false);
     setPendingQuote(null);
     await submitMessage({
       extraTokens: [randomFaceToken(draft)],
@@ -3597,8 +3500,6 @@ export function ChatPane({
     // 同上：视频 / 文件顶掉引用；也顺手收掉 AI 声聊 / 弹射面板（同样占「单独发」槽位）。
     setPendingQuote(null);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
   }
 
   function removeMediaAttachment() {
@@ -3648,8 +3549,6 @@ export function ChatPane({
       setToolsOpen(false);
       setVoiceOpen(false);
       setArkOpen(false);
-      setBounceOpen(false);
-      setPokeOpen(false);
       setAttachmentError(
         media.length > 1
           ? '视频 / 文件只能单独发送，只保留了第一个'
@@ -4005,8 +3904,6 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     scheduleMobileComposerMeasure();
     window.requestAnimationFrame(() => {
       if (mentionConversation.current === sourceConversation && composerTabActive.current)
@@ -4080,20 +3977,18 @@ export function ChatPane({
     setEmojiOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setMobileComposerExpanded(true);
   }
 
   function toggleEmojiPanel() {
+    if (voiceBusyRef.current) return;
+    setComposerMenu(null);
     setContextMenu(null);
     setLocationShareOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setEmojiOpen((open) => (toolsOpen ? true : !open));
   }
 
@@ -4104,20 +3999,18 @@ export function ChatPane({
     setVoiceOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setToolsOpen((open) => (emojiOpen ? true : !open));
   }
 
   function toggleVoicePanel() {
+    if (voiceBusyRef.current) return;
+    setComposerMenu(null);
     setContextMenu(null);
     setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setVoiceOpen((open) => !open);
   }
 
@@ -4128,8 +4021,6 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setFlashOpen(false);
     setArkOpen((open) => !open);
   }
@@ -4145,8 +4036,6 @@ export function ChatPane({
     setVoiceOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setFlashOpen((open) => !open);
   }
 
@@ -4158,35 +4047,7 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setAiVoiceOpen((open) => !open);
-  }
-
-  /** 弹射表情面板：和其余面板互斥；「只做面板」，发射走既有元素通路。 */
-  function toggleBouncePanel() {
-    setContextMenu(null);
-    setLocationShareOpen(false);
-    setEmojiOpen(false);
-    setToolsOpen(false);
-    setVoiceOpen(false);
-    setArkOpen(false);
-    setAiVoiceOpen(false);
-    setPokeOpen(false);
-    setBounceOpen((open) => !open);
-  }
-
-  /** 戳一戳面板：和其余面板互斥；「只做面板」，戳出去走既有元素通路。 */
-  function togglePokePanel() {
-    setContextMenu(null);
-    setLocationShareOpen(false);
-    setEmojiOpen(false);
-    setToolsOpen(false);
-    setVoiceOpen(false);
-    setArkOpen(false);
-    setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen((open) => !open);
   }
 
   /** 红包面板：和其余面板互斥；下单出码在应用层，成功后弹二维码灯箱。 */
@@ -4198,8 +4059,6 @@ export function ChatPane({
     setVoiceOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setRedPacketOpen((open) => !open);
   }
 
@@ -4216,8 +4075,6 @@ export function ChatPane({
     setVoiceOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
     setRedPacketOpen(false);
     setLocationShareOpen((open) => !open);
   }
@@ -4653,11 +4510,6 @@ export function ChatPane({
   // 面板开着时正文那一行让位。
   const canUseAiVoice = conversation.type === 'group' || conversation.type === 'direct';
   const aiVoicePanelActive = canUseAiVoice && aiVoiceOpen && !mobileComposerExpanded;
-  // 弹射表情：私聊 / 群聊都能发（协议上 serviceType 23 不分场景）。面板跟链接卡片 /
-  // AI 声聊一样是从输入框上沿弹出的浮层，不占正文那一行，选表情时还能照常打字。
-  const bouncePanelActive = bounceOpen && !mobileComposerExpanded;
-  // 戳一戳：群聊 / 私聊都能发（协议上 serviceType 2 的互动表情不分场景）。
-  const pokePanelActive = pokeOpen && !mobileComposerExpanded;
   // 红包面板：群聊 / 私聊都能发，浮层形态（不占正文那一行）。
   const redPacketPanelActive = redPacketOpen && !mobileComposerExpanded;
   // 位置共享面板：私聊 / 群聊都能发起，浮层形态。
@@ -4718,8 +4570,6 @@ export function ChatPane({
       setVoiceOpen(false);
       setArkOpen(false);
       setAiVoiceOpen(false);
-      setBounceOpen(false);
-      setPokeOpen(false);
       setRedPacketOpen(false);
     },
   };
@@ -4737,10 +4587,7 @@ export function ChatPane({
   } as CSSProperties;
   const hasPlusActions = composerActionRegistry.plusPanel.length > 0;
 
-  function openComposerMenu(
-    kind: 'emoji' | 'voice' | 'file',
-    event: ReactMouseEvent<HTMLButtonElement>,
-  ) {
+  function openComposerMenu(kind: 'file', event: ReactMouseEvent<HTMLButtonElement>) {
     if (voiceBusyRef.current) return;
     const rect = event.currentTarget.getBoundingClientRect();
     composerActionContext.closePanels();
@@ -4755,46 +4602,30 @@ export function ChatPane({
     toggleAiVoicePanel();
   }
 
-  const composerMenuActions =
-    composerMenu?.kind === 'emoji'
-      ? [
-          { label: '表情', icon: <Smile size={16} />, action: toggleEmojiPanel },
-          { label: '弹射表情', icon: <Rocket size={16} />, action: toggleBouncePanel },
-          { label: '互动表情', icon: <Hand size={16} />, action: togglePokePanel },
-        ]
-      : composerMenu?.kind === 'voice'
-        ? [
-            { label: '录音', icon: <Mic size={16} />, action: toggleVoicePanel },
-            {
-              label: '文字转语音',
-              icon: <AudioLines size={16} />,
-              action: () => openSpeechPanel('tts'),
-            },
-            ...(conversation.type === 'group'
-              ? [
-                  {
-                    label: 'AI 声聊',
-                    icon: <Sparkles size={16} />,
-                    action: () => openSpeechPanel('ai'),
-                  },
-                ]
-              : []),
-          ]
-        : [
-            {
-              label: '发送图片',
-              icon: <ImageIcon size={16} />,
-              action: () => openMediaPicker('image'),
-              disabled: hasSingleSend,
-              reason: hasSingleSend ? singleSendHint : undefined,
-            },
-            {
-              label: '发送文件',
-              icon: <FolderOpen size={16} />,
-              action: () => openMediaPicker('file'),
-            },
-            { label: 'QQ闪传', icon: <Zap size={16} />, action: toggleFlashPanel },
-          ];
+  const specialEmojiProps = {
+    disabled: mediaSendDisabled,
+    disabledHint: sendTitle,
+    onSendBounce: (draft: BounceEmojiDraft) => void sendBounceEmoji(draft),
+    onSendPoke: (draft: PokeEmojiDraft) => void sendPokeEmoji(draft),
+    randomFaces: randomFacesQuery.data?.items ?? [],
+    onSendRandom: (draft: RandomFaceDraft) => void sendRandomFace(draft),
+  };
+
+  const composerMenuActions = [
+    {
+      label: '发送图片',
+      icon: <ImageIcon size={16} />,
+      action: () => openMediaPicker('image'),
+      disabled: hasSingleSend,
+      reason: hasSingleSend ? singleSendHint : undefined,
+    },
+    {
+      label: '发送文件',
+      icon: <FolderOpen size={16} />,
+      action: () => openMediaPicker('file'),
+    },
+    { label: 'QQ闪传', icon: <Zap size={16} />, action: toggleFlashPanel },
+  ];
 
   function runComposerAction(action: ComposerButtonAction) {
     if (isComposerActionDisabled(action, composerActionContext)) {
@@ -5618,15 +5449,11 @@ export function ChatPane({
           <button
             ref={emojiButtonRef}
             type="button"
-            className={cn(
-              'composer-tool',
-              (emojiOpen || bounceOpen || pokeOpen || composerMenu?.kind === 'emoji') && 'active',
-            )}
+            className={cn('composer-tool', emojiOpen && 'active')}
             title={hasSingleSend ? singleSendHint : '表情'}
-            aria-haspopup="menu"
-            aria-expanded={composerMenu?.kind === 'emoji'}
+            aria-expanded={emojiOpen}
             disabled={currentPreference.blocked || hasSingleSend}
-            onClick={(event) => openComposerMenu('emoji', event)}
+            onClick={toggleEmojiPanel}
           >
             <Smile size={21} strokeWidth={1.5} />
           </button>
@@ -5663,13 +5490,12 @@ export function ChatPane({
             className={cn(
               'composer-tool',
               'composer-desktop-tool',
-              (voiceOpen || aiVoiceOpen || composerMenu?.kind === 'voice') && 'active',
+              (voiceOpen || aiVoiceOpen) && 'active',
             )}
             title={hasSingleSend ? singleSendHint : '语音'}
-            aria-haspopup="menu"
-            aria-expanded={composerMenu?.kind === 'voice'}
+            aria-expanded={voiceOpen || aiVoiceOpen}
             disabled={currentPreference.blocked || hasSingleSend}
-            onClick={(event) => openComposerMenu('voice', event)}
+            onClick={toggleVoicePanel}
           >
             <Mic size={21} strokeWidth={1.5} />
           </button>
@@ -5744,13 +5570,7 @@ export function ChatPane({
         </div>
         {composerMenu && tabActive ? (
           <ConversationActionsMenu
-            label={
-              composerMenu.kind === 'emoji'
-                ? '表情'
-                : composerMenu.kind === 'voice'
-                  ? '语音'
-                  : '发送图片或文件'
-            }
+            label="发送图片或文件"
             x={composerMenu.x}
             y={composerMenu.y}
             actions={composerMenuActions}
@@ -5768,6 +5588,7 @@ export function ChatPane({
             panelRef={emojiPanelRef}
             onSelect={insertEmoji}
             onSelectSuper={stageSuperEmoji}
+            {...specialEmojiProps}
           />
         ) : null}
         {voicePanelActive ? (
@@ -5780,6 +5601,9 @@ export function ChatPane({
             onSendTranscript={(text) => void sendTranscriptText(text)}
             onSendAudioFile={(bytes, fileName) => void sendAudioFile(bytes, fileName)}
             onBusyChange={handleVoiceBusyChange}
+            ttsProviders={ttsProviders}
+            onSynthesizeSpeech={synthesizeSpeech}
+            onOpenAiVoice={conversation.type === 'group' ? () => openSpeechPanel('ai') : undefined}
           />
         ) : null}
         {flashPanelActive ? (
@@ -5821,26 +5645,6 @@ export function ChatPane({
             onSynthesizeSpeech={synthesizeSpeech}
             onSend={(draft) => void sendAiVoice(draft)}
             onClose={() => setAiVoiceOpen(false)}
-          />
-        ) : null}
-        {bouncePanelActive ? (
-          <BounceEmojiPanel
-            panelRef={bouncePanelRef}
-            disabled={mediaSendDisabled}
-            disabledHint={sendTitle}
-            onSend={(draft) => void sendBounceEmoji(draft)}
-            onClose={() => setBounceOpen(false)}
-          />
-        ) : null}
-        {pokePanelActive ? (
-          <PokeEmojiPanel
-            panelRef={pokePanelRef}
-            disabled={mediaSendDisabled}
-            disabledHint={sendTitle}
-            onSend={(draft) => void sendPokeEmoji(draft)}
-            randomFaces={randomFacesQuery.data?.items ?? []}
-            onSendRandom={(draft) => void sendRandomFace(draft)}
-            onClose={() => setPokeOpen(false)}
           />
         ) : null}
         {redPacketPanelActive ? (
@@ -6023,14 +5827,10 @@ export function ChatPane({
                 ref={expandedEmojiButtonRef}
                 type="button"
                 title="表情"
-                aria-haspopup="menu"
-                aria-expanded={composerMenu?.kind === 'emoji'}
-                className={cn(
-                  (emojiOpen || bounceOpen || pokeOpen || composerMenu?.kind === 'emoji') &&
-                    'active',
-                )}
+                aria-expanded={emojiOpen}
+                className={cn(emojiOpen && 'active')}
                 disabled={currentPreference.blocked}
-                onClick={(event) => openComposerMenu('emoji', event)}
+                onClick={toggleEmojiPanel}
               >
                 <Smile size={22} strokeWidth={1.5} />
               </button>
@@ -6061,26 +5861,7 @@ export function ChatPane({
                 panelRef={emojiPanelRef}
                 onSelect={insertEmoji}
                 onSelectSuper={stageSuperEmoji}
-              />
-            ) : null}
-            {bounceOpen ? (
-              <BounceEmojiPanel
-                panelRef={bouncePanelRef}
-                disabled={mediaSendDisabled}
-                disabledHint={sendTitle}
-                onSend={(draft) => void sendBounceEmoji(draft)}
-                onClose={() => setBounceOpen(false)}
-              />
-            ) : null}
-            {pokeOpen ? (
-              <PokeEmojiPanel
-                panelRef={pokePanelRef}
-                disabled={mediaSendDisabled}
-                disabledHint={sendTitle}
-                onSend={(draft) => void sendPokeEmoji(draft)}
-                randomFaces={randomFacesQuery.data?.items ?? []}
-                onSendRandom={(draft) => void sendRandomFace(draft)}
-                onClose={() => setPokeOpen(false)}
+                {...specialEmojiProps}
               />
             ) : null}
             {redPacketOpen ? (

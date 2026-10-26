@@ -335,6 +335,17 @@ export function WorkspaceTools({
   const selectRef = useRef(select);
   selectRef.current = select;
   const handledSearchRequest = useRef<typeof searchRequest>(null);
+  const taskOpenRequest = useWorkspaceMenu((state) => state.taskOpenRequest);
+  const handledTaskOpenRequest = useRef(taskOpenRequest);
+  useEffect(() => {
+    if (taskOpenRequest === handledTaskOpenRequest.current) return;
+    handledTaskOpenRequest.current = taskOpenRequest;
+    setOpen(false);
+    closeMenu();
+    setPanel('tasks');
+    setExpanded(true);
+    setAssistantSettings(false);
+  }, [taskOpenRequest, closeMenu]);
   useEffect(() => {
     if (
       !searchRequest ||

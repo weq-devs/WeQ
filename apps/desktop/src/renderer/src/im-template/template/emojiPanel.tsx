@@ -25,10 +25,12 @@ import {
   ArrowLeft,
   Clock,
   Heart,
+  Hand,
   Image as ImageIcon,
   MessageSquareQuote,
   Plus,
   Search,
+  Rocket,
   Smile,
   Sparkles,
   Store,
@@ -39,6 +41,8 @@ import type { RefObject } from 'react';
 import { trpc } from '../../trpc/client';
 import { useOverlayLayer } from '../../lib/overlayStack';
 import { cn } from './classNames';
+import { BounceEmojiPanel, type BounceEmojiDraft } from './bounceEmojiPanel';
+import { PokeEmojiPanel, type PokeEmojiDraft, type RandomFaceDraft } from './pokeEmojiPanel';
 import {
   favEmojiItem,
   marketFaceItem,
@@ -48,12 +52,24 @@ import {
   type EmojiItem,
 } from './emojiPacks';
 
-type TabId = 'recent' | 'face' | 'super' | 'unicode' | 'market' | 'fav' | 'gif' | 'kaomoji';
+type TabId =
+  | 'recent'
+  | 'face'
+  | 'super'
+  | 'unicode'
+  | 'market'
+  | 'fav'
+  | 'gif'
+  | 'kaomoji'
+  | 'bounce'
+  | 'poke';
 
 const TABS: Array<{ id: TabId; label: string; icon: typeof Smile }> = [
   { id: 'recent', label: '最近', icon: Clock },
   { id: 'face', label: '表情', icon: Smile },
   { id: 'super', label: '超级表情', icon: Sparkles },
+  { id: 'bounce', label: '弹射表情', icon: Rocket },
+  { id: 'poke', label: '互动表情', icon: Hand },
   { id: 'unicode', label: '字符表情', icon: Type },
   { id: 'market', label: '商城表情', icon: Store },
   { id: 'fav', label: '收藏', icon: Heart },
@@ -95,12 +111,24 @@ export function EmojiPanel({
   panelRef,
   onSelect,
   onSelectSuper,
+  disabled,
+  disabledHint,
+  onSendBounce,
+  onSendPoke,
+  randomFaces,
+  onSendRandom,
 }: {
   panelRef: RefObject<HTMLDivElement | null>;
   /** 普通表情：插进输入框，可以和文字合成一条消息。 */
   onSelect: (item: EmojiItem) => void;
   /** 超级表情：只能单独发，交给宿主挂成待发送卡片（缺省时退化成 onSelect）。 */
   onSelectSuper?: (item: EmojiItem) => void;
+  disabled?: boolean;
+  disabledHint?: string;
+  onSendBounce?: (draft: BounceEmojiDraft) => void;
+  onSendPoke?: (draft: PokeEmojiDraft) => void;
+  randomFaces?: React.ComponentProps<typeof PokeEmojiPanel>['randomFaces'];
+  onSendRandom?: (draft: RandomFaceDraft) => void;
 }) {
   const [tab, setTab] = useState<TabId>('face');
   const [marketPackId, setMarketPackId] = useState<string | null>(null);
@@ -136,7 +164,23 @@ export function EmojiPanel({
         />
       )}
       <div className={cn('emoji-panel-body')}>
-        {tab === 'recent' ? (
+        {tab === 'bounce' ? (
+          <BounceEmojiPanel
+            disabled={disabled}
+            disabledHint={disabledHint}
+            onSend={onSendBounce}
+            onClose={() => setTab('face')}
+          />
+        ) : tab === 'poke' ? (
+          <PokeEmojiPanel
+            disabled={disabled}
+            disabledHint={disabledHint}
+            onSend={onSendPoke}
+            randomFaces={randomFaces}
+            onSendRandom={onSendRandom}
+            onClose={() => setTab('face')}
+          />
+        ) : tab === 'recent' ? (
           <FaceGrid
             empty={recent.length === 0}
             emptyText="还没有使用记录"
@@ -226,13 +270,16 @@ export function EmojiPanel({
       </div>
 
       <div className={cn('emoji-tabs')}>
-        {TABS.map(({ id, label, icon: Icon }) => (
+        {TABS.filter(({ id }) =>
+          id === 'bounce' ? Boolean(onSendBounce) : id === 'poke' ? Boolean(onSendPoke) : true,
+        ).map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"
             className={cn(id === tab ? 'active' : '')}
             title={label}
             aria-label={label}
+            aria-pressed={id === tab}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => setTab(id)}
           >

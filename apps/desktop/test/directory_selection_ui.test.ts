@@ -262,8 +262,6 @@ it.each(['friends', 'groups'] as const)(
               contactTab: tab,
               query: '',
               onQueryChange: vi.fn(),
-              onQuickInvite: vi.fn(),
-              onCreateGroup: vi.fn(),
               onOpenProfile: vi.fn(),
               onOpenFriendNotices: vi.fn(),
               onOpenGroupNotices: vi.fn(),

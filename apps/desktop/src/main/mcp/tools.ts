@@ -247,6 +247,9 @@ interface AiMsgLine {
   /** 稳定消息标识（仅 includeIds 时附上，供 get_message_details 回查）。 */
   msgId?: string;
   msgSeq?: string;
+  /** 原始 Unix 秒与稳定发送者，供只读消费者使用，不依赖 SQL 工具。 */
+  sendTime?: string;
+  senderUid?: string;
   /**
    * 发送方本地 client sequence（列 40005，仅私聊有值，仅 includeIds 时附上）——
    * 私聊引用回复要把它当 `replyToClientSeq` 传回去，只用 msgSeq 定位不到原消息。
@@ -946,7 +949,7 @@ export const AI_TOOLS: AiTool[] = [
       '读取某个会话的消息，按时间正序（旧→新）返回，方便顺读。默认取最新一页。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。会话标识可来自 list_conversations / list_groups。' +
       '每条为精简形：time 时间、sender 发送者昵称、mine 是否本人发送、text 文本；间隔较大时附 gap（距上一条多久）。' +
-      '想要拿到某条消息的 msgId/msgSeq 以便回查详情或媒体，把 includeIds 设为 true。' +
+      '想要拿到某条消息的 msgId/msgSeq 以便回查详情或媒体，把 includeIds 设为 true，同时返回原始 Unix 秒 sendTime 和稳定发送者 senderUid。' +
       '\n【翻页】返回带 hasMore / nextBefore：还想往更早读，就把 nextBefore 原样传回 before 参数取上一页；' +
       '一次别把 limit 开太大，顺着翻更省 token 也更聚焦。',
     input: z.object({
@@ -998,7 +1001,9 @@ export const AI_TOOLS: AiTool[] = [
           sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
           mine: r.senderUin === selfUin,
           text: flattenElements(r.elements),
-          ...(includeIds ? msgIdsOf(r) : {}),
+          ...(includeIds
+            ? { ...msgIdsOf(r), sendTime: String(r.sendTime), senderUid: r.senderUid }
+            : {}),
         };
         // 与上一条（更早那条）的间隔：只在 ≥30 分钟时标注，给「聊天有没有断档」的时间感又不刷屏。
         if (i > 0) {
@@ -2534,6 +2539,7 @@ export const AI_TOOLS: AiTool[] = [
         conv,
         msgId: String(row.msgId),
         msgSeq: String(row.msgSeq),
+        sendTime: String(row.sendTime),
         time: fmtTime(row.sendTime),
         sender,
         mine,

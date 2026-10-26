@@ -203,7 +203,7 @@ export class AccountMonitorService {
       await this.ensureAttached(pid, generation);
       this.assertCurrent(generation, pid);
       credentialsReady = true;
-      const rkeys = imageRkeys(await fetchDownloadRkeys(this.nt, pid));
+      const rkeys = imageRkeys(await fetchDownloadRkeys(this.nt, pid, undefined, this.uin));
       this.assertCurrent(generation, pid);
       if (rkeys.length === 0) return false;
       this.accountConfig.setRkeys(rkeys);
@@ -578,7 +578,7 @@ export class AccountMonitorService {
       await this.ensureAttached(pid, generation);
       this.assertCurrent(generation, pid);
       credentialsReady = true;
-      const rkeys = imageRkeys(await fetchDownloadRkeys(this.nt, pid));
+      const rkeys = imageRkeys(await fetchDownloadRkeys(this.nt, pid, undefined, this.uin));
       this.assertCurrent(generation, pid);
       if (rkeys.length > 0) this.accountConfig.setRkeys(rkeys);
       if (rkeys.length > 0) {

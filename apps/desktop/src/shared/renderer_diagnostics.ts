@@ -3,6 +3,145 @@ export const DIAGNOSTIC_SAMPLE_RESPONSE = 'diagnostics:sample-response';
 export const RESOURCE_DIAGNOSTIC_REQUEST = 'weq:resource-diagnostic-request';
 export const RESOURCE_DIAGNOSTIC_ID = 'weq-resource-diagnostics';
 export const DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS = 10_000;
+export const DEVELOPMENT_DIAGNOSTIC_VERSION = 2;
+export const DEVELOPMENT_MAIN_VIEWS = [
+  'home',
+  'messages',
+  'contacts',
+  'collections',
+  'guild-direct',
+  'export',
+  'agentlab',
+  'cache',
+  'tools',
+  'qzone',
+  'mail',
+  'channel',
+  'annual',
+] as const;
+export const DEVELOPMENT_SURFACES = [
+  'bootstrap',
+  'chat',
+  'export',
+  'exportViewer',
+  'collections',
+  'qzone',
+  'mail',
+  'annual',
+  'settings',
+  'dressup',
+  'cache',
+  'agentlab',
+  'other',
+] as const;
+export const DEVELOPMENT_COMPONENTS = [
+  'messageRows',
+  'forwardRows',
+  'exportCards',
+  'exportLogs',
+  'collectionItems',
+  'qzonePosts',
+  'shimmers',
+  'widgets',
+  'retainedPanels',
+  'workspacePages',
+] as const;
+export const DEVELOPMENT_ANIMATION_KINDS = [
+  'bubbleFrames',
+  'widgetFrames',
+  'fontFrames',
+  'shimmer',
+  'spinner',
+  'other',
+] as const;
+
+function diagnosticFields<const Fields extends readonly string[]>(value: unknown, fields: Fields) {
+  const data = diagnosticObject(value);
+  return Object.fromEntries(fields.map((field) => [field, diagnosticNumber(data[field])])) as {
+    [Field in Fields[number]]: number | null;
+  };
+}
+
+/** 固定页面与类别名称；原始类名、动画名、属性和资源地址均不接受。 */
+export function normalizeDevelopmentDetails(value: unknown) {
+  const data = diagnosticObject(value);
+  const surfaces = diagnosticObject(data.surfaces);
+  const components = diagnosticObject(data.components);
+  const animations = diagnosticObject(data.animationDetails);
+  const byKind = diagnosticObject(animations.byKind);
+  const bySurface = diagnosticObject(animations.bySurface);
+  return {
+    schemaVersion: diagnosticNumber(data.schemaVersion),
+    mainView: DEVELOPMENT_MAIN_VIEWS.find((view) => view === data.mainView) ?? null,
+    sampleDurationMs: diagnosticNumber(data.sampleDurationMs),
+    surfaces: Object.fromEntries(
+      DEVELOPMENT_SURFACES.map((key) => [
+        key,
+        diagnosticFields(surfaces[key], [
+          'mounted',
+          'sampled',
+          'rendered',
+          'descendantElements',
+          'omitted',
+        ]),
+      ]),
+    ),
+    components: Object.fromEntries(
+      DEVELOPMENT_COMPONENTS.map((key) => [
+        key,
+        diagnosticFields(components[key], ['count', 'sampled', 'hiddenByAttribute', 'omitted']),
+      ]),
+    ),
+    media: diagnosticFields(data.media, [
+      'images',
+      'sampledImages',
+      'omittedImages',
+      'completeImages',
+      'pendingImages',
+      'emptyCompleteImages',
+      'naturalPixels',
+      'maxNaturalPixels',
+      'videos',
+      'sampledVideos',
+      'playingVideos',
+      'omittedVideos',
+      'canvases',
+      'sampledCanvases',
+      'canvasPixels',
+      'omittedCanvases',
+      'frames',
+    ]),
+    animationDetails: {
+      ...diagnosticFields(animations, [
+        'sampled',
+        'omitted',
+        'hiddenTargets',
+        'detachedTargets',
+        'unknownTargets',
+        'pseudoTargets',
+      ]),
+      states: diagnosticFields(animations.states, [
+        'running',
+        'paused',
+        'finished',
+        'idle',
+        'other',
+      ]),
+      byKind: Object.fromEntries(
+        DEVELOPMENT_ANIMATION_KINDS.map((key) => [
+          key,
+          diagnosticFields(byKind[key], ['count', 'running']),
+        ]),
+      ),
+      bySurface: Object.fromEntries(
+        DEVELOPMENT_SURFACES.map((key) => [
+          key,
+          diagnosticFields(bySurface[key], ['count', 'running']),
+        ]),
+      ),
+    },
+  };
+}
 
 const CACHE_CATEGORIES = [
   'images',
@@ -34,6 +173,7 @@ export function normalizeDevelopmentSample(value: unknown) {
     animations: diagnosticNumber(data.animations),
     runningAnimations: diagnosticNumber(data.runningAnimations),
     documentVisible: typeof data.documentVisible === 'boolean' ? data.documentVisible : null,
+    ...normalizeDevelopmentDetails(data),
   };
 }
 

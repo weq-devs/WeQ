@@ -85,6 +85,28 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('统一竖向工作菜单', () => {
+  it('闪传入口直接打开常规任务完整面板，重复打开仍然有效', () => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          h(WorkspaceTools, {
+            accountScope: 'flash-entry',
+            footerControls: null,
+            onOpenAnalysis: vi.fn(),
+          }),
+        ),
+      );
+      act(() => useWorkspaceMenu.getState().openTasks());
+      expect(document.querySelector('[data-task-layout="split"]')).not.toBeNull();
+      act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭完整面板"]')!.click());
+      act(() => useWorkspaceMenu.getState().openTasks());
+      expect(document.querySelector('[data-task-layout="split"]')).not.toBeNull();
+    } finally {
+      act(() => root.unmount());
+    }
+  });
   it('菜单汇总蓝红点，切换按钮只显示另一侧状态，版本更新不串到切换按钮', () => {
     const host = document.createElement('div');
     document.body.append(host);

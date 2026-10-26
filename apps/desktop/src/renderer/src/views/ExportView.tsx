@@ -2302,6 +2302,7 @@ export function ExportTool({
               </div>
             ) : (
               <CurrentTaskList
+                cleanupBinding={saveBinding}
                 layout={taskLayout}
                 onOpenDetail={() => {
                   setTaskTab('tasks');

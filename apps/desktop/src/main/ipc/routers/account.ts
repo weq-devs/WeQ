@@ -12,6 +12,7 @@
  */
 
 import { z } from 'zod';
+import { clearCompletedTasks } from './clear_completed_tasks';
 import { FileUploadStaging } from './album_video_staging';
 import {
   BROWSER_FILE_CHUNK_BYTES,
@@ -1825,6 +1826,12 @@ export const accountRouter = router({
         autoName: input.autoName,
       });
     }),
+
+  refreshAgentLabFromC2c: procedure
+    .input(z.object({ personaId: agentLabPersonaId, expectedAccountUin: z.string().min(1) }))
+    .mutation(({ input }) =>
+      requireExpectedAccount(input.expectedAccountUin).agentLab.refreshFromC2c(input.personaId),
+    ),
 
   /** Subscribe to AgentLab clone-build progress (drives the build progress bar). */
   onAgentLabBuildProgress: procedure.subscription(() => {
@@ -7253,6 +7260,22 @@ export const accountRouter = router({
     .mutation(({ input }) => {
       return requireServices().exportManager.cancelTask(input.taskId);
     }),
+
+  /** 清除确认范围内的已完成任务，绑定账号及配置来源。 */
+  clearCompletedTasks: procedure
+    .input(
+      generatedAccountInput.extend({
+        exports: z.array(z.string().min(1)),
+        roaming: z.array(z.string().uuid()),
+        flash: z.array(z.string().min(1)),
+      }),
+    )
+    .mutation(({ input }) =>
+      clearCompletedTasks(
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+        input,
+      ),
+    ),
 
   /** Delete a task. */
   deleteExportTask: procedure

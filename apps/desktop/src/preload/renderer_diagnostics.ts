@@ -5,6 +5,11 @@ import {
   RESOURCE_DIAGNOSTIC_ID,
   RESOURCE_DIAGNOSTIC_REQUEST,
 } from '../shared/renderer_diagnostics';
+import {
+  collectDevelopmentDetails,
+  type DevelopmentDiagnosticDocument,
+  type DiagnosticAnimation,
+} from './development_diagnostics';
 
 /** 只响应主进程采样，不暴露网页调用入口或读取正文。 */
 export function installRendererDiagnosticSampling(): void {
@@ -24,7 +29,8 @@ export function installRendererDiagnosticSampling(): void {
             dispatchEvent(event: Event): boolean;
             getElementById(id: string): { getAttribute(name: string): string | null } | null;
             getElementsByTagName(name: '*'): { length: number };
-            getAnimations?(): { playState: string }[];
+            getAnimations?(): DiagnosticAnimation[];
+            querySelectorAll?: DevelopmentDiagnosticDocument['querySelectorAll'];
             visibilityState?: string;
           };
         }
@@ -43,8 +49,9 @@ export function installRendererDiagnosticSampling(): void {
       }
       let developmentSample: object | undefined;
       if (development === true) {
+        const started = performance.now();
         let caches: Electron.ResourceUsage | null = null;
-        let animations: { playState: string }[] | undefined;
+        let animations: DiagnosticAnimation[] | undefined;
         try {
           caches = webFrame.getResourceUsage();
         } catch {
@@ -56,6 +63,12 @@ export function installRendererDiagnosticSampling(): void {
           // 导航或销毁期间动画统计可能不可用。
         }
         developmentSample = {
+          ...collectDevelopmentDetails(
+            preloadDocument?.querySelectorAll
+              ? { querySelectorAll: (selector) => preloadDocument.querySelectorAll!(selector) }
+              : undefined,
+            animations,
+          ),
           caches,
           animations: animations?.length,
           runningAnimations: animations?.filter((animation) => animation.playState === 'running')
@@ -64,6 +77,7 @@ export function installRendererDiagnosticSampling(): void {
             typeof preloadDocument?.visibilityState === 'string'
               ? preloadDocument.visibilityState === 'visible'
               : null,
+          sampleDurationMs: performance.now() - started,
         };
       }
       ipcRenderer.send(DIAGNOSTIC_SAMPLE_RESPONSE, sequence, {

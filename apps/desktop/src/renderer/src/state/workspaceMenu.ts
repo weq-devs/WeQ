@@ -9,6 +9,8 @@ interface WorkspaceMenuState {
   finished: number;
   assistant: AssistantActivity;
   assistantUnread: boolean;
+  taskOpenRequest: number;
+  openTasks: () => void;
   taskScope: string | null;
   taskItems: WorkspaceTaskIndicator[];
   readTaskResults: Record<string, string>;
@@ -28,6 +30,8 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
   finished: 0,
   assistant: 'idle',
   assistantUnread: false,
+  taskOpenRequest: 0,
+  openTasks: () => set((state) => ({ taskOpenRequest: state.taskOpenRequest + 1 })),
   taskScope: null,
   taskItems: [],
   readTaskResults: {},

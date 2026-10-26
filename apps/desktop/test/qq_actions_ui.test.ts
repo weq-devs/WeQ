@@ -685,8 +685,6 @@ describe('QQ 主动操作的实际界面', () => {
         view: 'contacts',
         query: '',
         onQueryChange: vi.fn(),
-        onQuickInvite: vi.fn(),
-        onCreateGroup: vi.fn(),
         onOpenProfile: vi.fn(),
         onOpenFriendNotices: vi.fn(),
         onOpenGroupNotices: vi.fn(),

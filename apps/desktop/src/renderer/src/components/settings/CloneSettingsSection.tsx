@@ -14,6 +14,7 @@ import { Card, Row, SectionHeader, Toggle } from './controls';
 import { ApiModelSelect } from './ApiModelSelect';
 import { useModelSelectionLabel } from './useModelSelectionLabel';
 import { PersonaSettingsModal } from '../../views/agentlab/PersonaSettingsModal';
+import { CloneUpdateButton } from '../../views/agentlab/CloneUpdateButton';
 import { useDraftProtection } from '../../lib/draftClose';
 import { useDialog } from '../Dialog';
 import '../../styles/model-settings.css';
@@ -237,6 +238,12 @@ export function CloneSettingsSection({ onCreate }: { onCreate?: () => void }) {
                 </button>
               }
             />
+            {persona?.sourceKind === 'c2c' ? (
+              <Row
+                label="最新聊天画像"
+                control={<CloneUpdateButton key={persona.id} persona={persona} />}
+              />
+            ) : null}
           </>
         )}
       </Card>

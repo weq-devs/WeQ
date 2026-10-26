@@ -43,19 +43,25 @@ export class AgentLabStore {
       if (!AGENTLAB_PERSONA_ID_PATTERN.test(id)) continue;
       // 列表不跟随链接；真实读取仍会显式诊断坏文件。
       if (!lstatSync(join(this.root, file)).isFile()) continue;
-      const record = this.getPersona(id);
-      // 旧版/损坏文件可能解析出没有 persona 字段的记录，跳过以免前端拿到 undefined。
+      const record = this.readPersona(id, true);
       if (record?.persona) out.push(record.persona);
     }
     return out.sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   getPersona(personaId: string): StoredPersonaRecord | null {
+    return this.readPersona(personaId, false);
+  }
+
+  private readPersona(personaId: string, listing: boolean): StoredPersonaRecord | null {
     const path = this.recordPath(personaId);
     let fd: number | undefined;
     try {
       fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
       const record = JSON.parse(readFileSync(fd, 'utf-8')) as StoredPersonaRecord;
+      // 同目录还存会话、记忆、助手配置等 JSON；枚举时不能把它们当作损坏的克隆体。
+      if (listing && (!record || typeof record !== 'object' || !Object.hasOwn(record, 'persona')))
+        return null;
       if (!record?.persona || record.persona.id !== personaId || !Array.isArray(record.pairs))
         throw new Error('记录结构或 ID 不匹配');
       return record;
