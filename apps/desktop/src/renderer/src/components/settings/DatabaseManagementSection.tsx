@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { HardDrive } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
 import { useTabActive } from '../RetainedTabs';
@@ -41,7 +42,7 @@ export function DatabaseManagementSection() {
 
   return (
     <div className="weq-settings-database" data-setting-id="database-manager">
-      <SectionHeader title="数据库管理" />
+      <SectionHeader title="数据库管理" icon={<HardDrive size={16} strokeWidth={1.8} />} />
       {config.error ? (
         <QueryError
           message={config.error.message}

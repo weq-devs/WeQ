@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, Save } from 'lucide-react';
+import { House, Loader2, Save } from 'lucide-react';
 import {
   DEFAULT_HOME_SETTINGS,
   normalizeHomeSettings,
@@ -56,7 +56,7 @@ export function HomeSettingsSection() {
 
   return (
     <div className="weq-set">
-      <SectionHeader title="主页" />
+      <SectionHeader title="主页" icon={<House size={16} strokeWidth={1.8} />} />
       {settings.isError && <p role="alert">{settings.error.message}</p>}
       <Card title="主页显示">
         {(

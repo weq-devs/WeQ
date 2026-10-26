@@ -5,14 +5,14 @@ import { useTabActive } from '../RetainedTabs';
 import { Card, Row, Toggle, SectionHeader } from './controls';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
-import { Check, Copy, ExternalLink, Globe } from 'lucide-react';
+import { Check, Copy, ExternalLink, Globe, Monitor } from 'lucide-react';
 import { IS_WEB } from '../../lib/target';
 import { copyTextToClipboard } from '../../im-template/template/clipboard';
 
 export function RemoteSection() {
   return IS_WEB ? (
     <div className="weq-set">
-      <SectionHeader title="Web 与 Remote" />
+      <SectionHeader title="Web 与 Remote" icon={<Monitor size={16} strokeWidth={1.8} />} />
       <p className="weq-remote-muted">请在电脑客户端管理 Web 服务与远程连接。</p>
     </div>
   ) : (
@@ -122,7 +122,7 @@ function DesktopRemoteSection() {
   }
   return (
     <div className="weq-set weq-remote-settings">
-      <SectionHeader title="Web 与 Remote" />
+      <SectionHeader title="Web 与 Remote" icon={<Monitor size={16} strokeWidth={1.8} />} />
       <section className="weq-remote-web" aria-label="WeQ Web 服务">
         <Card icon={<Globe size={17} />} title="WeQ Web 服务">
           <div className="weq-remote-web-controls">
