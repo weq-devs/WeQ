@@ -652,6 +652,13 @@ export const bootstrapRouter = router({
   /** 各窗口与 Web 客户端读取同一宿主的有效运行态。 */
   getFullModeState: procedure.query(() => ({ allowed: fullModeAllowed(getAppContext()) })),
 
+  setRestrictedModeBannerEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }).strict())
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ restrictedModeBannerEnabled: input.enabled });
+      return true;
+    }),
+
   /** 只保存自动进入策略；真实授权仍由 attach 链处理，不撤销本来源手动请求。 */
   setAutoAttachQq: procedure
     .input(z.object({ enabled: z.boolean() }))

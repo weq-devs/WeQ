@@ -25,6 +25,8 @@ const mock = vi.hoisted(() => ({
   sip: null as boolean | null,
   onlineCount: 1,
   onlineFailed: false,
+  banner: true,
+  settingsLoading: false,
   launchQq: vi.fn(async () => true),
   requestFull: vi.fn(),
   refreshRkeys: vi.fn(),
@@ -62,6 +64,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     },
     bootstrap: {
+      getSettings: {
+        useQuery: () => ({
+          data: { restrictedModeBannerEnabled: mock.banner },
+          isLoading: mock.settingsLoading,
+        }),
+      },
       sipEnabled: { useQuery: () => ({ data: mock.sip, refetch: mock.refetch }) },
       probeOnline: {
         useQuery: () => ({
@@ -132,6 +140,8 @@ beforeEach(() => {
   mock.sip = null;
   mock.onlineCount = 1;
   mock.onlineFailed = false;
+  mock.banner = true;
+  mock.settingsLoading = false;
   mock.launchQq.mockReset().mockResolvedValue(true);
   mock.requestFull.mockReset().mockResolvedValue({ requested: true });
   mock.refreshRkeys.mockReset().mockResolvedValue(false);
@@ -232,6 +242,47 @@ it('同号切源丢弃手动请求的迟到结果，不在新来源继续采集'
   await act(async () => finish({ requested: true }));
   expect(mock.refreshRkeys).not.toHaveBeenCalled();
   expect(f.host.textContent).not.toContain('尚未恢复完整功能');
+});
+
+it('关闭被动提醒仍保留状态入口，更新去重基线，重新开启不补发旧事件', () => {
+  mock.banner = false;
+  mock.access = { ...ready, attachEnabled: false };
+  const f = fixture(true);
+  expect(f.host.querySelector('.weq-restricted-indicator')).not.toBeNull();
+  expect(useToast.getState().toasts).toHaveLength(0);
+  mock.access = { ...ready, qqOnline: false, attachEnabled: false };
+  f.render();
+  expect(useToast.getState().toasts).toHaveLength(0);
+  mock.banner = true;
+  f.render();
+  expect(useToast.getState().toasts).toHaveLength(0);
+  mock.access = { ...ready, attachEnabled: false };
+  f.render();
+  expect(useToast.getState().toasts.some((toast) => toast.key === 'restricted-mode')).toBe(true);
+  mock.banner = false;
+  f.render();
+  const state = useToast.getState();
+  expect(
+    state.toasts.some(
+      (toast) => toast.key === 'restricted-mode' && !state.leaving.includes(toast.id),
+    ),
+  ).toBe(false);
+});
+it('关闭被动提醒不隐藏真实授权、进入进度或恢复成功回执', () => {
+  mock.banner = false;
+  mock.access = { ...ready, hasD2: false };
+  const f = fixture(true);
+  event('elev:request-password', { token: 91, title: '合成授权' });
+  expect(useToast.getState().toasts.some((toast) => toast.title.includes('待提权'))).toBe(true);
+  act(() => {
+    useRestrictedMode.getState().remove('password', 91);
+    useRestrictedMode.getState().beginEntering();
+  });
+  expect(useToast.getState().toasts.some((toast) => toast.title === '正在启用完整功能')).toBe(true);
+  mock.access = { ...ready };
+  mock.updatedAt = Date.now() + 1000;
+  f.render();
+  expect(useToast.getState().toasts.some((toast) => toast.title === '已启用完整功能')).toBe(true);
 });
 function submitAuthorization(form: HTMLFormElement) {
   act(() => {

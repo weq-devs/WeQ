@@ -9,6 +9,7 @@ const fixture = vi.hoisted(() => ({
     manualReadReportEnabled: false,
     realtimeEnabled: true,
     autoAttachQq: true,
+    restrictedModeBannerEnabled: true,
     externalChatpic: { dir: '', enabled: false },
   },
   state: 'disabled',
@@ -65,6 +66,7 @@ beforeEach(() => {
     manualReadReportEnabled: false,
     realtimeEnabled: true,
     autoAttachQq: true,
+    restrictedModeBannerEnabled: true,
     externalChatpic: { dir: '', enabled: false },
   };
   fixture.state = 'disabled';
@@ -80,12 +82,11 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function mount() {
+function mount(page: 'read' | 'account' = 'read') {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = () =>
-    act(() => root.render(createElement(AccountBasicsSection, { page: 'read' })));
+  const render = () => act(() => root.render(createElement(AccountBasicsSection, { page })));
   render();
   return {
     host,
@@ -100,6 +101,26 @@ function mount() {
 }
 
 describe('设置中的已读上报开关', () => {
+  it('受限横幅偏好可独立保存，保存失败恢复原开关', async () => {
+    fixture.mutate.mockImplementation(async ({ enabled }: { enabled: boolean }) => {
+      fixture.settings = { ...fixture.settings, restrictedModeBannerEnabled: enabled };
+    });
+    const f = mount('account');
+    const toggle = () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="进入受限模式时横幅提醒"]')!;
+    try {
+      expect(toggle().getAttribute('aria-checked')).toBe('true');
+      await act(async () => toggle().click());
+      expect(toggle().getAttribute('aria-checked')).toBe('false');
+      expect(fixture.mutations).toContain('bootstrap.setRestrictedModeBannerEnabled');
+      fixture.mutate.mockRejectedValueOnce(new Error('合成保存失败'));
+      await act(async () => toggle().click());
+      expect(toggle().getAttribute('aria-checked')).toBe('false');
+      expect(fixture.error).toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
   it('默认关闭，实际点击保存，重新打开恢复偏好', async () => {
     let f = mount();
     try {

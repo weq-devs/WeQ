@@ -299,6 +299,12 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
     from: ['account', 'chat-messages'],
   },
   {
+    id: 'restricted-mode-banner',
+    section: 'account',
+    label: '进入受限模式时横幅提醒',
+    from: ['account'],
+  },
+  {
     id: 'anti-recall',
     section: 'chat-messages',
     label: '防撤回',

@@ -187,6 +187,7 @@ export function AccountBasicsSection({
 
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
   const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
+  const setRestrictedModeBanner = trpc.bootstrap.setRestrictedModeBannerEnabled.useMutation();
   const setReadSyncEnabled = trpc.bootstrap.setReadSyncEnabled.useMutation();
   const setNativeMediaEnabled = trpc.account.setNativeMediaEnabled.useMutation();
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
@@ -204,6 +205,9 @@ export function AccountBasicsSection({
   // Local mirror for snappy toggles; re-seeded whenever server data changes.
   const [realtime, setRealtimeLocal] = useState(true);
   const [autoAttach, setAutoAttach] = useState(true);
+  const [restrictedBanner, setRestrictedBanner] = useState(true);
+  const [savingBanner, setSavingBanner] = useState(false);
+  const bannerPending = useRef(false);
   const [reportRead, setReportRead] = useState(false);
   const [manualReadReport, setManualReadReport] = useState(false);
   const [savingReadSync, setSavingReadSync] = useState(false);
@@ -229,6 +233,7 @@ export function AccountBasicsSection({
     if (!d) return;
     setRealtimeLocal(d.realtimeEnabled);
     setAutoAttach(d.autoAttachQq);
+    setRestrictedBanner(d.restrictedModeBannerEnabled);
     setReportRead(d.reportReadEnabled);
     setManualReadReport(d.manualReadReportEnabled);
   }, [settings.data]);
@@ -323,6 +328,24 @@ export function AccountBasicsSection({
     } finally {
       readSyncPending.current = false;
       setSavingReadSync(false);
+    }
+  }
+
+  async function toggleRestrictedBanner(enabled: boolean): Promise<void> {
+    if (bannerPending.current) return;
+    bannerPending.current = true;
+    setSavingBanner(true);
+    const previous = restrictedBanner;
+    setRestrictedBanner(enabled);
+    try {
+      await setRestrictedModeBanner.mutateAsync({ enabled });
+      await settings.refetch();
+    } catch (error) {
+      setRestrictedBanner(previous);
+      showError('保存失败', errMsg(error));
+    } finally {
+      bannerPending.current = false;
+      setSavingBanner(false);
     }
   }
 
@@ -723,6 +746,21 @@ export function AccountBasicsSection({
                     )
                   }
                   label="自动启用完整功能"
+                />
+              }
+            />
+            <Row
+              settingId="restricted-mode-banner"
+              label="进入受限模式时横幅提醒"
+              desc="仅控制被动提醒，状态详情、管理员授权请求、主动操作错误和进入进度仍会显示。"
+              control={
+                <Toggle
+                  checked={restrictedBanner}
+                  disabled={
+                    settingsLoading || !settings.data || Boolean(settings.error) || savingBanner
+                  }
+                  onChange={(value) => void toggleRestrictedBanner(value)}
+                  label="进入受限模式时横幅提醒"
                 />
               }
             />

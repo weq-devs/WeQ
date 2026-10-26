@@ -4,6 +4,23 @@ import { snapshotWeqSettings, validateWeqAppSettings } from '../src/bootstrap/ba
 import { configFixture as fixture } from './support/user_config';
 
 describe('聊天阅读偏好', () => {
+  it('受限横幅默认开启，旧配置兼容，持久化与备份恢复保留独立偏好', () => {
+    const f = fixture();
+    expect(f.open().getSettings().restrictedModeBannerEnabled).toBe(true);
+    f.service.setSettings({ restrictedModeBannerEnabled: false });
+    expect(f.open().getSettings().restrictedModeBannerEnabled).toBe(false);
+    const snapshot = snapshotWeqSettings(f.open().getSettings());
+    expect(snapshot.restrictedModeBannerEnabled).toBe(false);
+    expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
+    const { restrictedModeBannerEnabled: _banner, ...legacy } = snapshot;
+    expect(() => validateWeqAppSettings(legacy)).not.toThrow();
+    expect(() => validateWeqAppSettings({ restrictedModeBannerEnabled: 'false' })).toThrow();
+    f.service.setSettings({ showMessageTime: true });
+    expect(f.open().getSettings().restrictedModeBannerEnabled).toBe(false);
+    const restored = fixture();
+    restored.service.setSettings(snapshot);
+    expect(restored.open().getSettings().restrictedModeBannerEnabled).toBe(false);
+  });
   describe('已读上报偏好', () => {
     it.each([
       [false, false],

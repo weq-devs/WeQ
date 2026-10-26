@@ -500,6 +500,8 @@ export interface AppSettings {
    * 数据库与本地文件。唯一豁免：登录时的数据库密钥提取。
    */
   autoAttachQq: boolean;
+  /** 进入受限状态的被动横幅；不隐藏真实授权请求或主动错误。 */
+  restrictedModeBannerEnabled: boolean;
   /** 仅桌面客户端启动时启用本机 Web 服务；默认关闭。 */
   webServiceAutoStart: boolean;
   /** 系统登录自启时显示主窗口，默认关闭；手动打开不受影响。 */
@@ -825,6 +827,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // 默认关闭：是否扫描 QQ 内存由首次运行欢迎框征得同意后再打开，见
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
+  restrictedModeBannerEnabled: true,
   webServiceAutoStart: false,
   showWindowOnAutostart: false,
   reportReadEnabled: false,
@@ -1358,6 +1361,7 @@ export class UserConfigService {
           ? s.exportSaveMode
           : d.exportSaveMode,
       autoAttachQq,
+      restrictedModeBannerEnabled: s?.restrictedModeBannerEnabled !== false,
       webServiceAutoStart: s?.webServiceAutoStart === true,
       showWindowOnAutostart: s?.showWindowOnAutostart === true,
       reportReadEnabled: s?.reportReadEnabled === true,
@@ -1470,6 +1474,8 @@ export class UserConfigService {
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
+      restrictedModeBannerEnabled:
+        patch.restrictedModeBannerEnabled ?? current.restrictedModeBannerEnabled,
       webServiceAutoStart: patch.webServiceAutoStart ?? current.webServiceAutoStart,
       showWindowOnAutostart: patch.showWindowOnAutostart ?? current.showWindowOnAutostart,
       reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,

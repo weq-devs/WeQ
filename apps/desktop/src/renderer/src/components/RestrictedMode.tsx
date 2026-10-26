@@ -183,6 +183,11 @@ export function RestrictedModeHost() {
   const operation = useRef(0);
   const operationBusy = useRef(false);
   const utils = trpc.useUtils();
+  const globalSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  });
+  const passiveBanner = globalSettings.data?.restrictedModeBannerEnabled !== false;
   useEffect(() => {
     if (!active) return;
     const subscription = client.account.onOnlineCredentialsReady.subscribe(undefined, {
@@ -288,8 +293,11 @@ export function RestrictedModeHost() {
     ...(entering ? ['entering'] : []),
   ].join(',');
   useEffect(() => {
+    if (globalSettings.isLoading) return;
+    const activeNotice = entering || awaitingAuthorization;
+    if (!activeNotice && !passiveBanner) useToast.getState().resolve(NOTICE_KEY);
     if (signature) recoveryPending.current = true;
-    if (signature && signature !== previous.current) {
+    if (signature && signature !== previous.current && (activeNotice || passiveBanner)) {
       const toast = useToast.getState();
       const message: Parameters<typeof toast.push>[0] = {
         key: NOTICE_KEY,
@@ -325,7 +333,16 @@ export function RestrictedModeHost() {
       }
     }
     previous.current = signature;
-  }, [signature, reasons, requests, fullModeConfirmed, entering, awaitingAuthorization]);
+  }, [
+    signature,
+    reasons,
+    requests,
+    fullModeConfirmed,
+    entering,
+    awaitingAuthorization,
+    passiveBanner,
+    globalSettings.isLoading,
+  ]);
   useEffect(() => {
     if (previousUin.current !== uin) {
       previousUin.current = uin;
