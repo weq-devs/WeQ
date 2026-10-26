@@ -50,7 +50,7 @@ function makeService(nt: ReturnType<typeof fakeNative>) {
 }
 
 describe('LocationShareService', () => {
-  it('start(c2c) 走 room_operation，不签名，会话键 {scene:2, peer, selfUin}', async () => {
+  it('start(c2c) 走 room_operation，不签名，会话键按 uin 升序', async () => {
     const nt = fakeNative();
     await makeService(nt).start({
       scene: 'c2c',
@@ -67,11 +67,40 @@ describe('LocationShareService', () => {
     expect(call.needSign).toBe(false);
 
     const body = decode(StartLocationShare.reqSchema, call.body);
-    expect(body.session).toEqual({ scene: 2, peer: BigInt(PEER), selfUin: BigInt(SELF) });
+    // 私聊会话键按 uin 升序（小号在前），不是「对端/自己」。
+    expect(body.session).toEqual({ scene: 2, uinA: BigInt(PEER), uinB: BigInt(SELF) });
     expect(body.op).toBe(1);
     expect(body.interval).toBe(2);
     expect(body.longitude).toBeCloseTo(LNG, 6);
     expect(body.latitude).toBeCloseTo(LAT, 6);
+  });
+
+  it('c2c 反方向发包产生完全相同的 wire（服务端只认规范顺序）', async () => {
+    // 回归：早期实现把「对端」写 field2、「自己」写 field3，于是「自己是大号」
+    // 时碰巧正确、「自己是小号」时服务端回 10001 param error。同一对号的两个方向
+    // 必须逐字节相同 —— 安卓抓包里两个账号各自发包，请求体完全一致。
+    const forward = fakeNative();
+    await makeService(forward).start({
+      scene: 'c2c',
+      peer: PEER,
+      selfUin: SELF,
+      longitude: LNG,
+      latitude: LAT,
+    });
+    const backward = fakeNative();
+    await makeService(backward).start({
+      scene: 'c2c',
+      peer: SELF,
+      selfUin: PEER,
+      longitude: LNG,
+      latitude: LAT,
+    });
+
+    expect(Buffer.from(backward.trpc[0]!.body).equals(Buffer.from(forward.trpc[0]!.body))).toBe(
+      true,
+    );
+    const body = decode(StartLocationShare.reqSchema, backward.trpc[0]!.body);
+    expect(body.session).toEqual({ scene: 2, uinA: BigInt(PEER), uinB: BigInt(SELF) });
   });
 
   it('start(group) 会话键是 {scene:1, peer:群号, selfUin:0}', async () => {
@@ -85,7 +114,7 @@ describe('LocationShareService', () => {
     });
 
     const body = decode(StartLocationShare.reqSchema, nt.trpc[0]!.body);
-    expect(body.session).toEqual({ scene: 1, peer: BigInt(GROUP) });
+    expect(body.session).toEqual({ scene: 1, uinA: BigInt(GROUP) });
   });
 
   it('report(group) 的会话键仍是 {scene:2, peer:群号, selfUin}', async () => {
@@ -101,7 +130,7 @@ describe('LocationShareService', () => {
 
     expect(nt.trpc[0]!.cmd).toBe('QQLBSShareSvc.report_location');
     const body = decode(ReportLocation.reqSchema, nt.trpc[0]!.body);
-    expect(body.session).toEqual({ scene: 2, peer: BigInt(GROUP), selfUin: BigInt(SELF) });
+    expect(body.session).toEqual({ scene: 2, uinA: BigInt(GROUP), uinB: BigInt(SELF) });
     // extra 缺省 0 → proto3 省略，解码回来自然没有这个字段。
     expect(body.extra).toBeUndefined();
   });
@@ -127,7 +156,7 @@ describe('LocationShareService', () => {
 
     expect(nt.trpc[0]!.cmd).toBe('QQLBSShareSvc.room_query');
     const body = decode(QueryLocation.reqSchema, nt.trpc[0]!.body);
-    expect(body.session).toEqual({ scene: 1, peer: BigInt(GROUP) });
+    expect(body.session).toEqual({ scene: 1, uinA: BigInt(GROUP) });
     expect(body.mode).toBe(1);
   });
 

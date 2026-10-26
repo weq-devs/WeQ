@@ -11,11 +11,16 @@
  *
  * `room_operation` 与查询用**场景键**：
  *
- *   私聊 `{ 1: 2(scene C2C), 2: peerUin,   3: selfUin }`
+ *   私聊 `{ 1: 2(scene C2C), 2: 小号, 3: 大号 }`   ← 两个参与者按 uin 升序，不是「对端/自己」
  *   群聊 `{ 1: 1(scene 群),  2: groupCode, 3: 0 }`
  *
- * `report_location` 例外 —— 抓包里两种场景的 `1.1` 都是 `2`、`1.3` 都是
- * `selfUin`，只有 `1.2` 换成群号。所以它单独用 {@link buildReportKey}。
+ * ⚠️ 私聊这一对**必须按规范顺序**（见 {@link canonicalPair}）：服务端不认语义
+ * 位置，同一对号无论谁发包，`1.2` / `1.3` 都得是小号在前、大号在后。写反了
+ * 服务端直接回 `10001 param error`（实测 1707889225↔2863253201 双向验证）。
+ * 早期实现按「peer / selfUin」写，只有在「自己恰好是大号」时才碰巧正确。
+ *
+ * `report_location` 的 `1.1` 恒为 `2`；私聊同样按规范顺序，群聊 `1.2` 换成群号。
+ * 所以它单独用 {@link reportKey}。
  *
  * ## 房间不是服务端分配的
  *
@@ -48,18 +53,23 @@ import type { SendElement } from './send-elements';
 
 // ───────────────────────── 公共 schema ─────────────────────────
 
-/** 会话键（`room_operation` / 查询用）。 */
+/**
+ * 会话键（`room_operation` / 查询用）。
+ *
+ * ⚠️ 私聊的 tag 2 / tag 3 **不是「对端 / 自己」**，而是两个参与者的**规范顺序**
+ * （小号在前，见 {@link canonicalPair}）。群聊的 tag 2 是群号、tag 3 恒 0。
+ */
 const SESSION_KEY = message([
   { name: 'scene', tag: 1, type: 'uint32' },
-  { name: 'peer', tag: 2, type: 'uint64' },
-  { name: 'selfUin', tag: 3, type: 'uint64' },
+  { name: 'uinA', tag: 2, type: 'uint64' },
+  { name: 'uinB', tag: 3, type: 'uint64' },
 ]);
 
-/** 上报用的会话键（`1.1` 恒为 2，`1.3` 恒为 selfUin）。 */
+/** 上报用的会话键（`1.1` 恒为 2；私聊同样按规范顺序，群聊 `1.2` 是群号）。 */
 const REPORT_KEY = message([
   { name: 'scene', tag: 1, type: 'uint32' },
-  { name: 'peer', tag: 2, type: 'uint64' },
-  { name: 'selfUin', tag: 3, type: 'uint64' },
+  { name: 'uinA', tag: 2, type: 'uint64' },
+  { name: 'uinB', tag: 3, type: 'uint64' },
 ]);
 
 /** 统一的 `{ code, message }` 结果块。 */
@@ -95,26 +105,49 @@ export interface LbsSession {
   selfUin?: number;
 }
 
+/**
+ * 私聊会话键的两个参与者：**小号在前**。
+ *
+ * 服务端不认「对端 / 自己」的语义顺序，只认这个规范顺序 —— 同一对号的两个方向
+ * 发出的包必须逐字节相同。实测（两账号分别发包 + 安卓抓包三方互证）：
+ *
+ *   field2 = 1707889225, field3 = 2863253201  → ok
+ *   field2 = 2863253201, field3 = 1707889225  → `10001 param error`
+ *
+ * 与「谁发包」无关，所以绝不能按 `peer` / `selfUin` 的位置直接写 wire。
+ */
+function canonicalPair(a: number, b: number): { uinA: number; uinB: number } {
+  return a < b ? { uinA: a, uinB: b } : { uinA: b, uinB: a };
+}
+
+/** 校验并收窄 `selfUin`（`LbsSession.selfUin` 是 optional，`Number.isSafeInteger` 不收窄）。 */
+function requireSelfUin(s: LbsSession, what: string): number {
+  const selfUin = s.selfUin;
+  if (!Number.isSafeInteger(selfUin) || (selfUin ?? 0) <= 0) {
+    throw new Error(`${what} 必须给 selfUin（自己的 QQ 号）`);
+  }
+  return selfUin as number;
+}
+
 /** 把 {@link LbsSession} 归一成 wire 上的会话键。 */
 function sessionKey(s: LbsSession): Record<string, unknown> {
   if (!Number.isSafeInteger(s.peer) || s.peer <= 0) {
     throw new Error(`peer 必须是正整数，收到 ${String(s.peer)}`);
   }
   if (s.scene === 'group') {
-    return { scene: LBS_SCENE_GROUP, peer: s.peer, selfUin: 0 };
+    return { scene: LBS_SCENE_GROUP, uinA: s.peer, uinB: 0 };
   }
-  if (!Number.isSafeInteger(s.selfUin) || (s.selfUin ?? 0) <= 0) {
-    throw new Error('私聊位置共享必须给 selfUin（自己的 QQ 号）');
-  }
-  return { scene: LBS_SCENE_C2C, peer: s.peer, selfUin: s.selfUin };
+  const selfUin = requireSelfUin(s, '私聊位置共享');
+  return { scene: LBS_SCENE_C2C, ...canonicalPair(selfUin, s.peer) };
 }
 
-/** 上报用的会话键：`1.1` 恒为 2、`1.3` 恒为自己。 */
+/** 上报用的会话键：`1.1` 恒为 2；私聊同样按规范顺序，群聊 `1.2` 是群号。 */
 function reportKey(s: LbsSession): Record<string, unknown> {
-  if (!Number.isSafeInteger(s.selfUin) || (s.selfUin ?? 0) <= 0) {
-    throw new Error('report_location 必须给 selfUin（自己的 QQ 号）');
+  const selfUin = requireSelfUin(s, 'report_location');
+  if (s.scene === 'group') {
+    return { scene: LBS_SCENE_C2C, uinA: s.peer, uinB: selfUin };
   }
-  return { scene: LBS_SCENE_C2C, peer: s.peer, selfUin: s.selfUin };
+  return { scene: LBS_SCENE_C2C, ...canonicalPair(selfUin, s.peer) };
 }
 
 // ───────────────────────── 发起 ─────────────────────────
