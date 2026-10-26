@@ -228,6 +228,7 @@ import {
 } from '../components/search/types';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { useSearchReturn } from '../hooks/useSearchReturn';
+import { useSearchDismissal } from '../hooks/useSearchDismissal';
 import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/model';
 import type { RoamingTarget } from '@weq/service';
 import { conversationAnalysisTarget, conversationRoamingTarget } from '../lib/conversationActions';
@@ -7721,47 +7722,7 @@ export function MainView(): ReactElement {
     return () => window.cancelAnimationFrame(frame);
   }, [messagesTabActive, selectedConversation?.id, templateMessages.length]);
 
-  useEffect(() => {
-    if (!searchQuery && !searchFocused) return undefined;
-    function onKey(event: KeyboardEvent): void {
-      if (
-        event.key === 'Escape' &&
-        !event.defaultPrevented &&
-        document.activeElement?.closest(
-          '.weq-titlebar-search, .weq-search-dropdown, .weq-search-history',
-        )
-      ) {
-        setSearchDismissed(true);
-        setSearchFocused(false);
-      }
-    }
-    function onMouseDown(event: MouseEvent): void {
-      const target = event.target;
-      if (target instanceof Element) {
-        // Click inside the search box → restore the dropdown.
-        if (target.closest('.search-box')) {
-          setSearchDismissed(false);
-          setSearchFocused(true);
-          return;
-        }
-        // Click inside the dropdown itself → let them pick a result.
-        if (target.closest('.weq-search-dropdown')) {
-          return;
-        }
-      }
-      // Click anywhere else in the sidebar body → temporarily hide the
-      // dropdown so the user can reach the contact/group list underneath.
-      setSearchDismissed(true);
-      // 点开搜索框但什么都没输入时显示的是「最近搜索」，同样点外面就收起。
-      setSearchFocused(false);
-    }
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('mousedown', onMouseDown);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('mousedown', onMouseDown);
-    };
-  }, [searchQuery, searchFocused]);
+  useSearchDismissal(searchQuery, searchFocused, setSearchDismissed, setSearchFocused);
 
   function updateConversationPreference(
     conversationId: string,
