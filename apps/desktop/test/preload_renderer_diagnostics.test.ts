@@ -20,11 +20,13 @@ afterEach(() => {
 describe('开发采样 preload', () => {
   it('普通采样不读取 Chromium 缓存或动画，也不接受非布尔开关', () => {
     const animations = vi.fn(() => []);
+    const query = vi.fn(() => []);
     vi.stubGlobal('document', {
       dispatchEvent: vi.fn(),
       getElementById: () => null,
       getElementsByTagName: () => ({ length: 0 }),
       getAnimations: animations,
+      querySelectorAll: query,
     });
     installRendererDiagnosticSampling();
     for (const flag of [undefined, false, 'true', 1]) {
@@ -32,10 +34,37 @@ describe('开发采样 preload', () => {
     }
     expect(webFrame.getResourceUsage).not.toHaveBeenCalled();
     expect(animations).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
     expect(ipcRenderer.send).toHaveBeenCalledTimes(4);
     for (const call of vi.mocked(ipcRenderer.send).mock.calls) {
       expect(call[2]).not.toHaveProperty('development');
     }
+  });
+
+  it('开发采样附带固定页面与组件细节，异常动画 API 不丢失 DOM 统计', () => {
+    const ownerDocument = document;
+    ownerDocument.body.innerHTML =
+      '<div class="weq-export-tool"><div class="weq-exp-card"></div></div>';
+    vi.stubGlobal('document', {
+      dispatchEvent: ownerDocument.dispatchEvent.bind(ownerDocument),
+      getElementById: ownerDocument.getElementById.bind(ownerDocument),
+      getElementsByTagName: ownerDocument.getElementsByTagName.bind(ownerDocument),
+      querySelectorAll: ownerDocument.querySelectorAll.bind(ownerDocument),
+      getAnimations() {
+        throw new Error('unavailable');
+      },
+    });
+    installRendererDiagnosticSampling();
+    ipcRenderer.emit(DIAGNOSTIC_SAMPLE_REQUEST, {}, 1, true);
+    expect(vi.mocked(ipcRenderer.send).mock.calls.at(-1)?.[2]).toMatchObject({
+      development: {
+        surfaces: { export: { mounted: 1 } },
+        components: { exportCards: { count: 1 } },
+        animationDetails: null,
+        sampleDurationMs: expect.any(Number),
+      },
+    });
+    ownerDocument.body.replaceChildren();
   });
 
   it('开发采样读取缓存与动画计数；缓存 API 失败仍保留其它指标', () => {

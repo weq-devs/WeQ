@@ -122,6 +122,7 @@ export function ChatShell({
       className={cn('app-shell-root', IS_MAC && 'is-mac', IS_WEB && 'weq-web-shell')}
       data-mobile-detail={mobileDetail || undefined}
       data-mobile-workspace={mobileWorkspace || undefined}
+      data-weq-diagnostic-view={import.meta.env.DEV ? view : undefined}
     >
       {IS_WEB && (
         <MobileWebNavigation
