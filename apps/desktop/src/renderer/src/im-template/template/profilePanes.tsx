@@ -568,7 +568,10 @@ export function ContactProfileDialog({
       <section
         className={
           embedded
-            ? 'weq-profile-dialog weq-contact-profile-content'
+            ? cn(
+                'weq-profile-dialog weq-contact-profile-content',
+                previewContent && 'is-previewing-chat',
+              )
             : 'weq-profile-dialog weq-anim-pop'
         }
         role={embedded ? 'region' : 'dialog'}

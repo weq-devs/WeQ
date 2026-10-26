@@ -385,9 +385,11 @@ it('联系人好友操作可在原位预览私聊并返回资料，不触发聊�
     expect(preview).toHaveBeenCalledWith(contactFixture);
     render(h('section', { 'aria-label': '合成私聊预览' }, '合成消息'));
     expect(host.querySelector('[aria-label="合成私聊预览"]')).not.toBeNull();
+    expect(host.querySelector('.weq-contact-profile-content.is-previewing-chat')).not.toBeNull();
     expect(host.querySelector('.weq-contact-workspace')).toBeNull();
     expect(document.querySelector('.weq-overlay-layer')).toBeNull();
     render();
+    expect(host.querySelector('.weq-contact-profile-content.is-previewing-chat')).toBeNull();
     expect(host.querySelector('.weq-contact-workspace')).not.toBeNull();
     expect(close).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();
