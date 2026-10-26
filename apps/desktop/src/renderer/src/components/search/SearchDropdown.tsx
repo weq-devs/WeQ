@@ -24,7 +24,12 @@ import { useMultiSelection } from '../../hooks/useMultiSelection';
 import '../../styles/search-scope.css';
 import { SearchResultCard } from './SearchResultCard';
 import { SearchSectionSkeleton } from './SearchSkeleton';
-import { rankFileSearchHits } from '@weq/service/search-policy';
+import {
+  isQzoneSearchCategory,
+  qzoneSearchCoverage,
+  rankContentSearchHits,
+  rankFileSearchHits,
+} from '@weq/service/search-policy';
 import { AppSearchResults } from './AppSearchResults';
 import type { AppSearchEntry } from './appSearchCatalog';
 import { restoreSearchPosition, type SearchPosition } from './searchPosition';
@@ -51,6 +56,7 @@ const scopeIcons: Record<SearchCategory, LucideIcon> = {
   groupMember: UsersRound,
   chatRecord: MessageSquare,
   file: File,
+  qzone: Globe,
   collection: Bookmark,
   qzonePost: Globe,
   qzoneAlbum: Globe,
@@ -65,27 +71,12 @@ const scopeIcons: Record<SearchCategory, LucideIcon> = {
   marketEmoji: Smile,
 };
 
-const scopeOptions = SEARCH_CATEGORY_ORDER.flatMap((category) => {
-  if (category === 'qzoneAlbum' || category === 'otherQzoneAlbum') return [];
-  return [
-    {
-      id: category,
-      Icon: scopeIcons[category],
-      label:
-        category === 'qzonePost'
-          ? '个人空间'
-          : category === 'otherQzonePost'
-            ? '他人空间'
-            : CATEGORY_META[category].label,
-      categories:
-        category === 'qzonePost'
-          ? (['qzonePost', 'qzoneAlbum'] as SearchCategory[])
-          : category === 'otherQzonePost'
-            ? (['otherQzonePost', 'otherQzoneAlbum'] as SearchCategory[])
-            : [category],
-    },
-  ];
-});
+const scopeOptions = SEARCH_CATEGORY_ORDER.map((category) => ({
+  id: category,
+  Icon: scopeIcons[category],
+  label: CATEGORY_META[category].label,
+  categories: [category],
+}));
 
 export function SearchDropdown({
   keyword,
@@ -197,6 +188,15 @@ export function SearchDropdown({
       hits: slow ? (slow.contentHits ?? []).filter((hit) => hit.category === category) : null,
       loading: slowLoading && !slow,
     });
+  sections.set('qzone', {
+    hits: slow
+      ? rankContentSearchHits(
+          keyword,
+          (slow.contentHits ?? []).filter((hit) => isQzoneSearchCategory(hit.category)),
+        ).slice(0, 3)
+      : null,
+    loading: slowLoading && !slow,
+  });
 
   const indexBuilding =
     categories.some((c) => c === 'chatRecord' || c === 'file') &&
@@ -218,7 +218,8 @@ export function SearchDropdown({
     isSlowSearchCategory(category)
       ? slowError ||
         Boolean(slow?.failedCategories?.includes(category)) ||
-        (category === 'file' && Boolean(slow?.failedCategories?.includes('groupFile')))
+        (category === 'file' && Boolean(slow?.failedCategories?.includes('groupFile'))) ||
+        (category === 'qzone' && Boolean(slow?.failedCategories?.some(isQzoneSearchCategory)))
       : quickError;
   const weight = (category: SearchCategory) =>
     sections.get(category)?.hits?.length
@@ -316,9 +317,11 @@ export function SearchDropdown({
               const coverage =
                 category === 'file'
                   ? slow?.contentCoverage?.groupFile
-                  : isContentSearchCategory(category)
-                    ? slow?.contentCoverage?.[category]
-                    : undefined;
+                  : category === 'qzone'
+                    ? qzoneSearchCoverage(slow?.contentCoverage ?? {})
+                    : isContentSearchCategory(category)
+                      ? slow?.contentCoverage?.[category]
+                      : undefined;
               const failed = failedFor(category);
               return (
                 <div className="weq-search-section" key={category}>

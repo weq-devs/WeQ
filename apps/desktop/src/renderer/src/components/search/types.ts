@@ -154,6 +154,7 @@ export const CATEGORY_META: Record<SearchCategory, { label: string; plural: stri
   groupMember: { label: '群友', plural: '群友' },
   chatRecord: { label: '聊天记录', plural: '聊天记录' },
   file: { label: '文件', plural: '文件' },
+  qzone: { label: '空间', plural: '空间' },
   collection: { label: '收藏', plural: '收藏' },
   cloneMessage: { label: '克隆消息', plural: '克隆消息' },
   assistantMessage: { label: '助手对话', plural: '助手对话' },

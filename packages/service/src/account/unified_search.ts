@@ -17,7 +17,15 @@ import { toRenderElements, type RenderElement } from './msg_view';
 import { elementsToText } from './export/element_text';
 import type { NtHelperBinding } from '@weq/native';
 import type { CollectionSearchHit } from './collection_search';
-import { DEFAULT_SEARCH_CATEGORIES, rankFileSearchHits, searchNameRank } from './search_policy';
+import {
+  DEFAULT_SEARCH_CATEGORIES,
+  QZONE_SEARCH_CATEGORIES,
+  isQzoneSearchCategory,
+  qzoneSearchCoverage,
+  rankContentSearchHits,
+  rankFileSearchHits,
+  searchNameRank,
+} from './search_policy';
 import {
   searchContacts,
   searchGroups,
@@ -68,6 +76,7 @@ export const SEARCH_CATEGORIES = [
   'groupMember',
   'chatRecord',
   'file',
+  'qzone',
   'collection',
   'cloneMessage',
   'assistantMessage',
@@ -459,7 +468,9 @@ export class UnifiedSearchService {
         needle &&
           ((categories ?? DEFAULT_SEARCH_CATEGORIES).includes(category) ||
             (category === 'groupFile' &&
-              (categories ?? DEFAULT_SEARCH_CATEGORIES).includes('file'))),
+              (categories ?? DEFAULT_SEARCH_CATEGORIES).includes('file')) ||
+            (isQzoneSearchCategory(category) &&
+              (categories ?? DEFAULT_SEARCH_CATEGORIES).includes('qzone'))),
       );
     const failures = new Set<SearchCategory>();
     const read = async <T>(
@@ -528,6 +539,31 @@ export class UnifiedSearchService {
     const page = Math.max(1, limit);
 
     switch (category) {
+      case 'qzone': {
+        const sources = await Promise.all(
+          QZONE_SEARCH_CATEGORIES.map(async (source) => ({
+            source,
+            page: await this.options.searchContent?.(source, needle, offset + page, 0),
+          })),
+        );
+        const ranked = rankContentSearchHits(
+          needle,
+          sources.flatMap((source) => source.page?.items ?? []),
+        );
+        const items = ranked.slice(offset, offset + page);
+        const total = sources.reduce((sum, source) => sum + (source.page?.total ?? 0), 0);
+        return {
+          category,
+          items,
+          total,
+          hasMore: offset + items.length < total,
+          coverage: qzoneSearchCoverage(
+            Object.fromEntries(
+              sources.flatMap(({ source, page }) => (page ? [[source, page.coverage]] : [])),
+            ),
+          ),
+        };
+      }
       case 'contact':
       case 'group': {
         const ranked = await (category === 'contact'

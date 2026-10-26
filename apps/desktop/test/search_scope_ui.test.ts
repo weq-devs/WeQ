@@ -93,7 +93,7 @@ describe('搜索范围选择工具栏', () => {
     const f = mount();
     try {
       const buttons = [...f.scope().querySelectorAll<HTMLButtonElement>('button')];
-      expect(buttons).toHaveLength(SEARCH_CATEGORY_ORDER.length);
+      expect(buttons).toHaveLength(SEARCH_CATEGORY_ORDER.length + 2);
       for (const button of buttons) {
         expect(button.textContent?.trim()).not.toBe('');
         expect(button.querySelector('svg[aria-hidden="true"]')).not.toBeNull();

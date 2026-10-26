@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { writeFileAtomicSync } from '../common/atomic_write';
-import { searchNameRank } from './search_policy';
+import { rankContentSearchHits } from './search_policy';
 
 export const CONTENT_SEARCH_CATEGORIES = [
   'qzonePost',
@@ -289,17 +289,12 @@ export class ContentSearchStore {
     );
     const needle = keyword.trim().toLocaleLowerCase();
     const ranked = needle
-      ? pool
-          .filter((row) =>
+      ? rankContentSearchHits(
+          needle,
+          pool.filter((row) =>
             `${row.title}\n${row.sourceName}\n${row.content}`.toLocaleLowerCase().includes(needle),
-          )
-          .sort(
-            (a, b) =>
-              searchNameRank(needle, b.title) - searchNameRank(needle, a.title) ||
-              b.time - a.time ||
-              b.observedAt - a.observedAt ||
-              a.id.localeCompare(b.id),
-          )
+          ),
+        )
       : [];
     return {
       items: ranked.slice(offset, offset + limit).map((row) => ({

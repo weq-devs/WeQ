@@ -1,5 +1,20 @@
 import type { FileSearchHit, SearchCategory } from './unified_search';
-import type { ContentSearchHit } from './content_search';
+import type {
+  ContentSearchCategory,
+  ContentSearchCoverage,
+  ContentSearchHit,
+} from './content_search';
+
+export const QZONE_SEARCH_CATEGORIES = [
+  'qzonePost',
+  'qzoneAlbum',
+  'otherQzonePost',
+  'otherQzoneAlbum',
+] as const satisfies readonly ContentSearchCategory[];
+
+export function isQzoneSearchCategory(category: string): boolean {
+  return QZONE_SEARCH_CATEGORIES.some((item) => item === category);
+}
 
 /** 默认只搜账号真实资料，公共目录与生成内容由用户显式加入。 */
 export const DEFAULT_SEARCH_CATEGORIES: readonly SearchCategory[] = [
@@ -8,10 +23,7 @@ export const DEFAULT_SEARCH_CATEGORIES: readonly SearchCategory[] = [
   'chatRecord',
   'file',
   'collection',
-  'qzonePost',
-  'qzoneAlbum',
-  'otherQzonePost',
-  'otherQzoneAlbum',
+  'qzone',
   'groupAlbum',
   'mailMessage',
   'guildMessage',
@@ -30,6 +42,40 @@ export function searchNameRank(keyword: string, ...names: string[]): number {
     );
   }
   return rank;
+}
+
+export function rankContentSearchHits(
+  keyword: string,
+  hits: readonly ContentSearchHit[],
+): ContentSearchHit[] {
+  return [...hits].sort(
+    (a, b) =>
+      searchNameRank(keyword, b.title) - searchNameRank(keyword, a.title) ||
+      b.time - a.time ||
+      b.observedAt - a.observedAt ||
+      a.id.localeCompare(b.id),
+  );
+}
+
+/** 四个空间来源互不重叠，合并覆盖时保留任一来源的回收及保存失败提示。 */
+export function qzoneSearchCoverage(
+  coverage: Partial<Record<ContentSearchCategory, ContentSearchCoverage>>,
+): ContentSearchCoverage | undefined {
+  const sources = QZONE_SEARCH_CATEGORIES.flatMap((category) =>
+    coverage[category] ? [coverage[category]] : [],
+  );
+  if (!sources.length) return undefined;
+  const updated = sources.flatMap((source) =>
+    source.updatedAt === null ? [] : [source.updatedAt],
+  );
+  return {
+    scope: 'observed-cache',
+    records: sources.reduce((total, source) => total + source.records, 0),
+    limited: sources.some((source) => source.limited),
+    updatedAt: updated.length ? Math.max(...updated) : null,
+    available: sources.some((source) => source.available !== false),
+    ...(sources.some((source) => source.persistenceFailed) ? { persistenceFailed: true } : {}),
+  };
 }
 
 /** 消息附件与目录文件统一排名，保留各自身份，不按同名合并。 */

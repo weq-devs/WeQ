@@ -257,7 +257,7 @@ describe('搜索范围与失败界面', () => {
     );
   });
 
-  it('个人空间和他人空间各有独立选项，默认同时选择，每次切换包含说说与相册', () => {
+  it('空间默认勾选，统一包含个人与他人的说说和相册来源', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     const root = createRoot(host);
@@ -279,17 +279,15 @@ describe('搜索范围与失败界面', () => {
         ),
       );
       const buttons = [...host.querySelectorAll<HTMLButtonElement>('.weq-search-scope button')];
-      for (const name of ['个人空间', '他人空间']) {
-        expect(
-          buttons.find((node) => node.textContent === name)?.getAttribute('aria-pressed'),
-        ).toBe('true');
-      }
-      act(() => buttons.find((node) => node.textContent === '他人空间')!.click());
+      expect(
+        buttons.find((node) => node.textContent === '空间')?.getAttribute('aria-pressed'),
+      ).toBe('true');
+      expect(buttons.some((node) => ['个人空间', '他人空间'].includes(node.textContent!))).toBe(
+        false,
+      );
+      act(() => buttons.find((node) => node.textContent === '空间')!.click());
       const selected = change.mock.lastCall![0] as SearchCategory[];
-      expect(selected).toContain('qzonePost');
-      expect(selected).toContain('qzoneAlbum');
-      expect(selected).not.toContain('otherQzonePost');
-      expect(selected).not.toContain('otherQzoneAlbum');
+      expect(selected).not.toContain('qzone');
     } finally {
       act(() => root.unmount());
     }
