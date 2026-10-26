@@ -208,6 +208,7 @@ export function AiVoicePanel({
   disabled,
   disabledHint,
   allowAiVoice = true,
+  initialTab,
   canSend = true,
   sendHint = '',
   ttsProviders = [],
@@ -225,6 +226,7 @@ export function AiVoicePanel({
    * 私聊 false —— 协议目标字段是群号，私聊只有「文字转语音」一个页签。
    */
   allowAiVoice?: boolean;
+  initialTab?: 'ai' | 'tts';
   /** TTS 合成等服务商能力是否能发送（QQ 在线且允许注入）。 */
   canSend?: boolean;
   sendHint?: string;
@@ -236,7 +238,7 @@ export function AiVoicePanel({
   onSynthesizeSpeech?: (request: TtsSpeechRequest) => Promise<TtsSpeechResult>;
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<'ai' | 'tts'>(allowAiVoice ? 'ai' : 'tts');
+  const [tab, setTab] = useState<'ai' | 'tts'>(allowAiVoice ? (initialTab ?? 'ai') : 'tts');
   const [text, setText] = useState('');
   const [voiceId, setVoiceId] = useState(AI_VOICE_CATALOG[0]?.id ?? '');
   const [playingId, setPlayingId] = useState<string | null>(null);

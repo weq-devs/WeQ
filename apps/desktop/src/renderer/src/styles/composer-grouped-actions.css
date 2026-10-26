@@ -1,0 +1,13 @@
+@media (max-width: 760px) {
+  .composer:has(> .bounce-panel),
+  .composer:has(> .poke-panel) {
+    overflow: visible;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bounce-panel,
+  .poke-panel {
+    animation: none;
+  }
+}

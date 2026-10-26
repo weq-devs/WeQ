@@ -68,7 +68,6 @@ import {
   Loader2,
   Smile,
   Sparkles,
-  Vibrate,
   X,
 } from 'lucide-react';
 import { AiOutlineRedEnvelope } from 'react-icons/ai';
@@ -99,6 +98,7 @@ import { ReplyJumpContext, type ReplyJumpTarget } from '../../components/QqMessa
 import { openLightbox } from '../../components/ImageLightbox';
 import { releaseObjectUrl } from '../../lib/objectUrl';
 import '../../styles/composer-image-preview.css';
+import '../../styles/composer-grouped-actions.css';
 import { ChatBackdrop } from '../../components/ChatBackdrop';
 import { useChatBackdrop } from '../../hooks/useDressSkin';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
@@ -708,6 +708,12 @@ export function ChatPane({
   // 桌面端可把整条输入区收起来（只留底边一个把手），和群资料栏同一套交互。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [composerMenu, setComposerMenu] = useState<{
+    kind: 'emoji' | 'voice' | 'file';
+    x: number;
+    y: number;
+  } | null>(null);
+  const [aiVoiceInitialTab, setAiVoiceInitialTab] = useState<'ai' | 'tts'>('tts');
   const [toolsOpen, setToolsOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
   // 「链接卡片」面板：填标题 / 描述 / 图标 / 跳转链接，summary 固定 [分享]。
@@ -918,6 +924,9 @@ export function ChatPane({
   const [mobileComposerEditorHeight, setMobileComposerEditorHeight] = useState(42);
   const [mobileComposerLong, setMobileComposerLong] = useState(false);
   const [mobileComposerExpanded, setMobileComposerExpanded] = useState(false);
+  useEffect(() => {
+    setComposerMenu(null);
+  }, [tabActive, mobileComposerExpanded, composerCollapsed]);
   const emojiPanelRef = useRef<HTMLDivElement | null>(null);
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
   const expandedEmojiButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -956,11 +965,8 @@ export function ChatPane({
   const arkPanelRef = useRef<HTMLDivElement | null>(null);
   const arkButtonRef = useRef<HTMLButtonElement | null>(null);
   const aiVoicePanelRef = useRef<HTMLDivElement | null>(null);
-  const aiVoiceButtonRef = useRef<HTMLButtonElement | null>(null);
   const bouncePanelRef = useRef<HTMLDivElement | null>(null);
-  const bounceButtonRef = useRef<HTMLButtonElement | null>(null);
   const pokePanelRef = useRef<HTMLDivElement | null>(null);
-  const pokeButtonRef = useRef<HTMLButtonElement | null>(null);
   const redPacketPanelRef = useRef<HTMLDivElement | null>(null);
   const redPacketButtonRef = useRef<HTMLButtonElement | null>(null);
   const flashPanelRef = useRef<HTMLDivElement | null>(null);
@@ -1879,7 +1885,7 @@ export function ChatPane({
       }
       if (
         aiVoicePanelRef.current?.contains(target) ||
-        aiVoiceButtonRef.current?.contains(target) ||
+        voiceButtonRef.current?.contains(target) ||
         emojiButtonRef.current?.contains(target) ||
         toolsButtonRef.current?.contains(target)
       ) {
@@ -1914,7 +1920,6 @@ export function ChatPane({
       }
       if (
         bouncePanelRef.current?.contains(target) ||
-        bounceButtonRef.current?.contains(target) ||
         emojiButtonRef.current?.contains(target) ||
         toolsButtonRef.current?.contains(target)
       ) {
@@ -1950,10 +1955,8 @@ export function ChatPane({
       }
       if (
         pokePanelRef.current?.contains(target) ||
-        pokeButtonRef.current?.contains(target) ||
         emojiButtonRef.current?.contains(target) ||
-        toolsButtonRef.current?.contains(target) ||
-        bounceButtonRef.current?.contains(target)
+        toolsButtonRef.current?.contains(target)
       ) {
         return;
       }
@@ -2053,6 +2056,7 @@ export function ChatPane({
     // 引用也跟着会话走：换了会话就不能再引用上一条会话里的消息了。
     setPendingQuote(null);
     // AI 声聊 / 弹射表情面板同理：换会话不能把上一会话的面板留在屏幕上。
+    setComposerMenu(null);
     setAiVoiceOpen(false);
     setBounceOpen(false);
     setPokeOpen(false);
@@ -3557,7 +3561,7 @@ export function ChatPane({
     window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
-  async function addFiles(files: File[]) {
+  async function addFiles(files: File[], sendAs?: 'file') {
     if (files.length === 0 || currentPreference.blocked || sending) {
       return;
     }
@@ -3575,8 +3579,8 @@ export function ChatPane({
       return;
     }
 
-    const images = usable.filter(isImageFile);
-    const media = usable.filter((file) => !isImageFile(file));
+    const images = sendAs === 'file' ? [] : usable.filter(isImageFile);
+    const media = sendAs === 'file' ? usable : usable.filter((file) => !isImageFile(file));
 
     if (media.length === 0 && (mediaAttachment || pendingSuperEmoji)) {
       setAttachmentError(
@@ -3589,7 +3593,7 @@ export function ChatPane({
 
     if (media.length > 0) {
       // 视频 / 文件只能单独发：优先挂上它，同一批里的图片这次就不收了。
-      setMedia(await createAttachment(media[0]));
+      setMedia(await createAttachment(media[0], sendAs));
       // 表情 / 语音 / 更多 / 链接面板跟卡片互斥，一并收起来。
       setEmojiOpen(false);
       setToolsOpen(false);
@@ -3640,7 +3644,7 @@ export function ChatPane({
     const files = collectFiles(event.target.files);
     // 清空 value：同一个文件再选一次也要能触发 change。
     event.target.value = '';
-    void addFiles(files);
+    void addFiles(files, event.target === fileInputRef.current ? 'file' : undefined);
   }
 
   // ── 拖拽投递 ──────────────────────────────────────────────────────────────
@@ -4640,6 +4644,65 @@ export function ChatPane({
   } as CSSProperties;
   const hasPlusActions = composerActionRegistry.plusPanel.length > 0;
 
+  function openComposerMenu(
+    kind: 'emoji' | 'voice' | 'file',
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ) {
+    if (voiceBusyRef.current) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    composerActionContext.closePanels();
+    setFlashOpen(false);
+    setComposerMenu((current) =>
+      current?.kind === kind ? null : { kind, x: rect.left, y: rect.top - 144 },
+    );
+  }
+
+  function openSpeechPanel(tab: 'ai' | 'tts') {
+    setAiVoiceInitialTab(tab);
+    toggleAiVoicePanel();
+  }
+
+  const composerMenuActions =
+    composerMenu?.kind === 'emoji'
+      ? [
+          { label: '表情', icon: <Smile size={16} />, action: toggleEmojiPanel },
+          { label: '弹射表情', icon: <Rocket size={16} />, action: toggleBouncePanel },
+          { label: '互动表情', icon: <Hand size={16} />, action: togglePokePanel },
+        ]
+      : composerMenu?.kind === 'voice'
+        ? [
+            { label: '录音', icon: <Mic size={16} />, action: toggleVoicePanel },
+            {
+              label: '文字转语音',
+              icon: <AudioLines size={16} />,
+              action: () => openSpeechPanel('tts'),
+            },
+            ...(conversation.type === 'group'
+              ? [
+                  {
+                    label: 'AI 声聊',
+                    icon: <Sparkles size={16} />,
+                    action: () => openSpeechPanel('ai'),
+                  },
+                ]
+              : []),
+          ]
+        : [
+            {
+              label: '发送图片',
+              icon: <ImageIcon size={16} />,
+              action: () => openMediaPicker('image'),
+              disabled: hasSingleSend,
+              reason: hasSingleSend ? singleSendHint : undefined,
+            },
+            {
+              label: '发送文件',
+              icon: <FolderOpen size={16} />,
+              action: () => openMediaPicker('file'),
+            },
+            { label: 'QQ闪传', icon: <Zap size={16} />, action: toggleFlashPanel },
+          ];
+
   function runComposerAction(action: ComposerButtonAction) {
     if (isComposerActionDisabled(action, composerActionContext)) {
       return;
@@ -5445,34 +5508,17 @@ export function ChatPane({
           <button
             ref={emojiButtonRef}
             type="button"
-            className={cn('composer-tool', emojiOpen && 'active')}
+            className={cn(
+              'composer-tool',
+              (emojiOpen || bounceOpen || pokeOpen || composerMenu?.kind === 'emoji') && 'active',
+            )}
             title={hasSingleSend ? singleSendHint : '表情'}
+            aria-haspopup="menu"
+            aria-expanded={composerMenu?.kind === 'emoji'}
             disabled={currentPreference.blocked || hasSingleSend}
-            onClick={toggleEmojiPanel}
+            onClick={(event) => openComposerMenu('emoji', event)}
           >
             <Smile size={21} strokeWidth={1.5} />
-          </button>
-          {/* 弹射表情：选一枚系统表情 + 个数，发射成一条独立消息。 */}
-          <button
-            ref={bounceButtonRef}
-            type="button"
-            className={cn('composer-tool', bounceOpen && 'active')}
-            title={hasSingleSend ? singleSendHint : '弹射表情'}
-            disabled={currentPreference.blocked || hasSingleSend}
-            onClick={toggleBouncePanel}
-          >
-            <Rocket size={21} strokeWidth={1.5} />
-          </button>
-          {/* 戳一戳互动表情：选一枚 + 连击次数，戳成一条独立消息（群聊 / 私聊都可）。 */}
-          <button
-            ref={pokeButtonRef}
-            type="button"
-            className={cn('composer-tool', pokeOpen && 'active')}
-            title={hasSingleSend ? singleSendHint : '互动表情'}
-            disabled={currentPreference.blocked || hasSingleSend}
-            onClick={togglePokePanel}
-          >
-            <Hand size={21} strokeWidth={1.5} />
           </button>
           {/* 红包：群聊三档类型 / 私聊两档，下单后弹二维码灯箱。 */}
           <button
@@ -5485,18 +5531,6 @@ export function ChatPane({
           >
             <AiOutlineRedEnvelope size={21} />
           </button>
-          {/* 窗口抖动仅私聊可见 —— 群聊（含群临时会话）下这枚按钮整个不渲染。 */}
-          {canUseWindowShake ? (
-            <button
-              type="button"
-              className={cn('composer-tool')}
-              title="窗口抖动"
-              disabled={!sendAvailable || currentPreference.blocked || sending}
-              onClick={() => void sendWindowShake()}
-            >
-              <Vibrate size={21} strokeWidth={1.5} />
-            </button>
-          ) : null}
           {/* 通话：仅私聊。群通话要先进群房间再邀请，协议路径不同，暂不做。 */}
           {conversation?.type === 'direct' && onStartCall ? (
             <button
@@ -5516,28 +5550,32 @@ export function ChatPane({
           <button
             ref={voiceButtonRef}
             type="button"
-            className={cn('composer-tool', 'composer-desktop-tool', voiceOpen && 'active')}
+            className={cn(
+              'composer-tool',
+              'composer-desktop-tool',
+              (voiceOpen || aiVoiceOpen || composerMenu?.kind === 'voice') && 'active',
+            )}
             title={hasSingleSend ? singleSendHint : '语音'}
+            aria-haspopup="menu"
+            aria-expanded={composerMenu?.kind === 'voice'}
             disabled={currentPreference.blocked || hasSingleSend}
-            onClick={toggleVoicePanel}
+            onClick={(event) => openComposerMenu('voice', event)}
           >
             <Mic size={21} strokeWidth={1.5} />
           </button>
           <button
+            ref={flashButtonRef}
             type="button"
-            className={cn('composer-tool', 'composer-desktop-tool')}
-            title={hasSingleSend ? singleSendHint : '发送图片'}
-            disabled={currentPreference.blocked || sending || hasSingleSend}
-            onClick={() => openMediaPicker('image')}
-          >
-            <ImageIcon size={21} strokeWidth={1.5} />
-          </button>
-          <button
-            type="button"
-            className={cn('composer-tool', 'composer-desktop-tool')}
-            title="发送文件或视频"
+            className={cn(
+              'composer-tool',
+              'composer-desktop-tool',
+              (flashOpen || composerMenu?.kind === 'file') && 'active',
+            )}
+            title="发送图片或文件"
+            aria-haspopup="menu"
+            aria-expanded={composerMenu?.kind === 'file'}
             disabled={currentPreference.blocked || sending}
-            onClick={() => openMediaPicker('file')}
+            onClick={(event) => openComposerMenu('file', event)}
           >
             <FolderOpen size={21} strokeWidth={1.5} />
           </button>
@@ -5551,29 +5589,6 @@ export function ChatPane({
           >
             <Link2 size={21} strokeWidth={1.5} />
           </button>
-          <button
-            ref={flashButtonRef}
-            type="button"
-            className={cn('composer-tool', 'composer-desktop-tool', flashOpen && 'active')}
-            title="QQ闪传"
-            disabled={currentPreference.blocked || sending}
-            onClick={toggleFlashPanel}
-          >
-            <Zap size={21} strokeWidth={1.5} />
-          </button>
-          {/* AI 声聊 / 文字转语音：私聊与群聊都显示这枚按钮。 */}
-          {canUseAiVoice ? (
-            <button
-              ref={aiVoiceButtonRef}
-              type="button"
-              className={cn('composer-tool', 'composer-desktop-tool', aiVoiceOpen && 'active')}
-              title={hasSingleSend ? singleSendHint : 'AI 声聊 / 文字转语音（单独发送）'}
-              disabled={currentPreference.blocked || sending || hasSingleSend}
-              onClick={toggleAiVoicePanel}
-            >
-              <AudioLines size={21} strokeWidth={1.5} />
-            </button>
-          ) : null}
           {composerActionRegistry.desktopToolbar.map((action) => (
             <ComposerToolbarActionButton
               key={action.id}
@@ -5606,6 +5621,21 @@ export function ChatPane({
             />
           )}
         </div>
+        {composerMenu && tabActive ? (
+          <ConversationActionsMenu
+            label={
+              composerMenu.kind === 'emoji'
+                ? '表情'
+                : composerMenu.kind === 'voice'
+                  ? '语音'
+                  : '发送图片或文件'
+            }
+            x={composerMenu.x}
+            y={composerMenu.y}
+            actions={composerMenuActions}
+            onClose={() => setComposerMenu(null)}
+          />
+        ) : null}
         {mediaAttachment ? (
           <ComposerMediaStage attachment={mediaAttachment} onRemove={removeMediaAttachment} />
         ) : pendingSuperEmoji ? (
@@ -5654,6 +5684,7 @@ export function ChatPane({
         ) : null}
         {aiVoicePanelActive ? (
           <AiVoicePanel
+            initialTab={aiVoiceInitialTab}
             panelRef={aiVoicePanelRef}
             disabled={mediaSendDisabled}
             disabledHint={sendTitle}
@@ -5688,6 +5719,7 @@ export function ChatPane({
             onSend={(draft) => void sendPokeEmoji(draft)}
             randomFaces={randomFacesQuery.data?.items ?? []}
             onSendRandom={(draft) => void sendRandomFace(draft)}
+            onWindowShake={canUseWindowShake ? () => void sendWindowShake() : undefined}
             onClose={() => setPokeOpen(false)}
           />
         ) : null}
@@ -5854,29 +5886,16 @@ export function ChatPane({
                 ref={expandedEmojiButtonRef}
                 type="button"
                 title="表情"
-                className={cn(emojiOpen && 'active')}
+                aria-haspopup="menu"
+                aria-expanded={composerMenu?.kind === 'emoji'}
+                className={cn(
+                  (emojiOpen || bounceOpen || pokeOpen || composerMenu?.kind === 'emoji') &&
+                    'active',
+                )}
                 disabled={currentPreference.blocked}
-                onClick={toggleEmojiPanel}
+                onClick={(event) => openComposerMenu('emoji', event)}
               >
                 <Smile size={22} strokeWidth={1.5} />
-              </button>
-              <button
-                type="button"
-                title="弹射表情"
-                className={cn(bounceOpen && 'active')}
-                disabled={currentPreference.blocked}
-                onClick={toggleBouncePanel}
-              >
-                <Rocket size={22} strokeWidth={1.5} />
-              </button>
-              <button
-                type="button"
-                title="互动表情"
-                className={cn(pokeOpen && 'active')}
-                disabled={currentPreference.blocked}
-                onClick={togglePokePanel}
-              >
-                <Hand size={22} strokeWidth={1.5} />
               </button>
               <button
                 type="button"
@@ -5887,16 +5906,6 @@ export function ChatPane({
               >
                 <AiOutlineRedEnvelope size={22} />
               </button>
-              {canUseWindowShake ? (
-                <button
-                  type="button"
-                  title="窗口抖动"
-                  disabled={!sendAvailable || currentPreference.blocked || sending}
-                  onClick={() => void sendWindowShake()}
-                >
-                  <Vibrate size={22} strokeWidth={1.5} />
-                </button>
-              ) : null}
               <span />
               <button
                 type="button"
@@ -5934,6 +5943,7 @@ export function ChatPane({
                 onSend={(draft) => void sendPokeEmoji(draft)}
                 randomFaces={randomFacesQuery.data?.items ?? []}
                 onSendRandom={(draft) => void sendRandomFace(draft)}
+                onWindowShake={canUseWindowShake ? () => void sendWindowShake() : undefined}
                 onClose={() => setPokeOpen(false)}
               />
             ) : null}
