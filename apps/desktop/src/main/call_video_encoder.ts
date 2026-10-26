@@ -68,7 +68,9 @@ export class NativeVideoEncoder implements CallVideoEncoder {
     this.width = options.width ?? 640;
     this.height = options.height ?? 360;
     this.fps = options.fps ?? 15;
-    this.bitrateKbps = options.bitrateKbps ?? 400;
+    // 30 kbps：与 QQ 本体对齐（实测静态 6 kbps、运动峰值 26 kbps）。
+    // 旧的 400 kbps 会让每帧涨到 3KB+、拆成 3~28 个 UDP 包，丢一片整帧报废。
+    this.bitrateKbps = options.bitrateKbps ?? 30;
   }
 
   private readonly fps: number;

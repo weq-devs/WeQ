@@ -104,6 +104,7 @@ export {
   RELAY_CAPABILITY_TRIPLE,
   RelayCmd,
   buildRelayGetIn,
+  buildRelayPacket,
   buildRelayKeepalive,
   PEER_PACKET_LEN,
   PeerProbeCmd,

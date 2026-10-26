@@ -105,6 +105,14 @@ export function useCallVideo(options: {
   const decodeFailures = useRef(0);
   /** 收到的帧数（只用于前几帧的排查日志）。 */
   const frameCount = useRef(0);
+  /**
+   * 是否正在异步建解码器。
+   *
+   * `ensureDecoder` 里有 `await VideoDecoder.isConfigSupported`，期间后续帧的
+   * `onData` 会并发进来并重复触发重建 —— 第二次重建会 `close()` 掉第一次刚建
+   * 好的解码器，导致「只解出第一帧」。见 `onData` 里的详细说明。
+   */
+  const buildingDecoder = useRef(false);
 
   /** 建 / 重建解码器。 */
   const ensureDecoder = useCallback(
@@ -218,7 +226,25 @@ export function useCallVideo(options: {
         const rebuilt = !existing || existing.state === 'closed';
         let decoder = existing;
         if (rebuilt) {
-          decoder = await ensureDecoder(frame.info?.width ?? 640, frame.info?.height ?? 360);
+          // ⚠️ **必须互斥。** `onData` 是同步回调，但这里是 async 函数 —— 帧 N
+          // 在 `await ensureDecoder()` 期间，帧 N+1 的 `onData` 已经进来了，
+          // 它看到的 `decoderRef.current` 仍是 null，于是也走 `rebuilt` 分支，
+          // 再次 `await ensureDecoder()`。而 `ensureDecoder` 第一件事就是
+          // `decoderRef.current?.close()` —— **它会把帧 N 刚建好的解码器关掉**。
+          //
+          // 结果：帧 N 的 `decode()` 落到一个已关闭的解码器上（或被丢弃），
+          // 帧 N+1 建的新解码器又没收到关键帧（`configured=false` + 后续全是
+          // delta 帧），此后每一帧都在 `if (!configured.current) return` 处被
+          // 丢掉 —— 表现就是「解出第一帧，画面永久停住」。
+          //
+          // 用一个在建标记挡住并发重建：谁先拿到谁建，其余帧直接返回等下一帧。
+          if (buildingDecoder.current) return;
+          buildingDecoder.current = true;
+          try {
+            decoder = await ensureDecoder(frame.info?.width ?? 640, frame.info?.height ?? 360);
+          } finally {
+            buildingDecoder.current = false;
+          }
           if (!decoder) return;
           configured.current = false;
           // 一直挂到真的喂出一帧为止 —— 重建点落在 delta 帧上时，那帧会被下面

@@ -51,6 +51,7 @@ import {
   buildQfbResponse,
   buildRelayGetIn,
   buildRelayKeepalive,
+  buildRelayPacket,
   buildStatusReport,
   buildVideoControl,
   buildVideoKeepalive,
@@ -316,10 +317,33 @@ const VIDEO_KEEPALIVE_MS = 2000;
  * 房间级心跳，停发会被对端当成关摄像头。
  */
 const VIDEO_PARAM_PUSH_MS = 2000;
-/** 编码帧率缺省值（与 t265 默认配置一致）。 */
+/**
+ * 编码帧率缺省值。
+ *
+ * 2026-10-26 抓包实测 QQ 本体：上行 11.8 fps、下行 14.9 fps。取 15 与下行一致
+ * （对端按这个节奏发，我们跟上就不会显得卡）。
+ */
 const DEFAULT_VIDEO_FPS = 15;
-/** 编码码率缺省值（kbps）。 */
-const DEFAULT_VIDEO_BITRATE_KBPS = 400;
+/**
+ * 编码码率缺省值（kbps）。
+ *
+ * ⚠️ **这是「卡顿」和「对端收不到画面」的主因之一。**
+ *
+ * 2026-10-26 同一通通话对比（都是 320×184）：
+ *
+ * | | QQ 本体 | WeQ（旧值 400） |
+ * | --- | --- | --- |
+ * | 上行码率 | 6–26 kbps（静态 6、运动峰值 26） | **351 kbps** |
+ * | 每帧字节 p50 | 73 B | **3368 B** |
+ * | 每帧分片 | 1.0 | 3.4（最大 28） |
+ *
+ * QQ 的实际策略是「低码率 + 按需涨」：静止画面 6 kbps，有运动才到 26 kbps。
+ * 我们写死 400 kbps，编码器会把这个预算全部用掉 —— 一帧 3KB 拆成 3~28 个 UDP
+ * 包，任何一片丢失整帧报废，中继路径上尤其明显。
+ *
+ * 取 30 kbps 对齐 QQ 的运动峰值；ABR 在静止画面下会自动降得更低。
+ */
+const DEFAULT_VIDEO_BITRATE_KBPS = 30;
 /** 同一拍里第二条保活包相对第一条的延迟（实测 40–90 ms）。 */
 const VIDEO_KEEPALIVE_SECOND_MS = 60;
 /** 视频发送轮询间隔：比最慢的帧间隔（10 fps）小一个量级。 */
@@ -600,14 +624,27 @@ export class CallSession {
    * 媒体走哪条路。
    *
    * 真实客户端不是双发，而是**先纯中继、后硬切 P2P**（实测 0–7.9 秒只发服务端，
-   * 之后只发对端直连，服务端一个包都收不到）。我们沿用这个顺序，但把切换点
-   * 放在「真的学到对端端口」之后，中间留一小段双发探测期兜底。
+   * 之后只发对端直连，服务端一个包都收不到）。我们沿用这个顺序，但切换点必须
+   * 由**回程证据**决定，不能由「拿到了一个地址」决定 —— 见
+   * {@link confirmPeerPath} 与 {@link applyPeerEndpoint}。
    */
   private mediaPath: MediaPath = 'server';
   /** 进入 `probing` 的时刻（毫秒）。 */
   private probeSince = 0;
   /** 最近一次收到对端媒体包的时刻（毫秒），直连回落用。 */
   private lastPeerMediaAt = 0;
+  /** 已见过的媒体子类型（每个只记一次日志，避免逐包刷屏）。 */
+  private readonly seenMediaSubTypes = new Set<number>();
+  /** 视频参数是否已用 info 记过一次（后续周期公告降到 debug）。 */
+  private videoParamAnnounced = false;
+  /**
+   * 进入 `probing` 的时刻，用于「探测期满仍无回程」的强制回落。
+   *
+   * 与 {@link probeSince} 分开：`probeSince` 决定什么时候从 probing 推进，
+   * 这里只用来兜底判死。两者同源但语义不同，合在一起会让「重置探测期」
+   * 把兜底计时也一起清掉。
+   */
+  private probeDeadlineAt = 0;
   /** 媒体路径看门狗。 */
   private mediaWatchdogTimer: unknown = null;
   /** 已发出的视频帧数。 */
@@ -911,9 +948,41 @@ export class CallSession {
 
     // probing → direct 的推进放在这里惰性做：音频 20 ms 一帧、保活 2 秒一条都会
     // 走到这条路径，摄像头关着也不会卡在 probing。
+    //
+    // ⚠️ **探测期满不等于直连可用。** 旧实现到期就无条件切 `direct`，只要拿到
+    // 一个「看起来像对端」的地址（中继下发的、bt=9 的 IPv4 近似值……）就切，
+    // 切完服务端一个包都收不到，而那个地址可能根本不回包 —— 2026-10-26 实测
+    // 三个候选（中继:19341 / 11.149.189.80:8889 / 中继:19338）全是零回程，
+    // 对端于是完全收不到我们的流，报「对方网络质量不佳」。
+    //
+    // 现在的判据是**回程证据**（{@link confirmPeerPath} 置位）：
+    // 探测期满仍无回程 → 直接放弃这一轮，退回 `server` 并清掉端口等重新学习。
     if (this.mediaPath === 'probing' && this.timers.now() - this.probeSince >= MEDIA_PROBE_MS) {
-      this.mediaPath = hasPeer ? 'direct' : 'server';
-      this.log?.info('媒体路径切换', { path: this.mediaPath });
+      if (hasPeer && this.peerProbeAnswered) {
+        this.mediaPath = 'direct';
+        this.log?.info('媒体路径切换', { path: this.mediaPath });
+      } else {
+        this.log?.warn('探测期满无直连回程，保持中继', {
+          address: peer?.address,
+          port: peer?.port,
+          answered: this.peerProbeAnswered,
+        });
+        this.mediaPath = 'server';
+        this.probeDeadlineAt = 0;
+        // 端口归零、地址留着：等对端下次真的发包过来再重新学。
+        if (this.peerDirect) this.peerDirect = { address: this.peerDirect.address, port: 0 };
+        this.lastPeerFrom = null;
+      }
+    }
+    // 兜底：探测期被反复重置（对端零星发包）时，超过 3 倍探测期仍无回程也判死。
+    if (this.mediaPath === 'probing' && this.probeDeadlineAt > 0) {
+      if (this.timers.now() - this.probeDeadlineAt >= MEDIA_PROBE_MS * 3 && !this.peerProbeAnswered) {
+        this.log?.warn('直连探测超时，放弃本轮 P2P', { address: peer?.address });
+        this.mediaPath = 'server';
+        this.probeDeadlineAt = 0;
+        if (this.peerDirect) this.peerDirect = { address: this.peerDirect.address, port: 0 };
+        this.lastPeerFrom = null;
+      }
     }
 
     const wantServer = this.mediaPath !== 'direct';
@@ -1379,7 +1448,15 @@ export class CallSession {
     const announced = best.ipv6 ? this.peerAnnouncedPort : null;
     const port = learned > 0 ? learned : (announced ?? best.port);
     this.log?.info('拿到对端候选端点', { address: best.address, port, candidates });
-    this.applyPeerEndpoint(best.address, port);
+    // 可信度分级：
+    //   - 端口是从真实流量里学到的（learned）→ 对端确实从这儿发过包，可信；
+    //   - IPv6 + bt=27 的权威端口 → 可信；
+    //   - 其余（尤其 IPv4 的 f5/f6 近似值）→ 只是候选，必须等回程。
+    //
+    // 2026-10-26 实测：IPv4 候选 `11.149.189.80:8889` 发了 515 个媒体包，
+    // **零回包**，旧实现却因为「拿到地址」就切了 direct，媒体从此离开 GCS。
+    const trustworthy = learned > 0 || (best.ipv6 && announced !== null);
+    this.applyPeerEndpoint(best.address, port, { provisional: !trustworthy });
   }
 
   /**
@@ -1405,28 +1482,45 @@ export class CallSession {
    *
    * 这是「知道对端在哪」到「真的把路打通」之间的一步：探索包一发，对端就会回
    * `0x02` 应答，两端几乎同时切到直连（实测 QQ 从拿到地址到媒体直连 <200 ms）。
+   *
+   * **拿到地址 ≠ 直连可用。** 这里的两种来源可信度差很多：
+   *
+   * - `bt=27` 给的端口是服务端确认过的对端 P2P 端口，可以直接进 `probing`；
+   * - 中继路径下发（`cmd=3`）、`bt=9` 的 IPv4 `f5/f6` 只是「候选」，
+   *   2026-10-26 实测这些地址可能根本是黑洞（发出去 515 包、0 回包）。
+   *
+   * 所以 `provisional` 的候选**不改变 `mediaPath`**，只用来发打洞探测包；
+   * 只有真收到回程（{@link confirmPeerPath}）或 `bt=27` 才允许进 `probing`。
    */
-  private applyPeerEndpoint(address: string, port: number): void {
+  private applyPeerEndpoint(
+    address: string,
+    port: number,
+    opts: { provisional?: boolean } = {},
+  ): void {
     const normalizedPort = port > 0 && port < 65536 ? port : 0;
     if (this.peerDirect?.address === address && this.peerDirect.port === normalizedPort) return;
     this.peerDirect = { address, port: normalizedPort };
     if (normalizedPort === 0) return;
-    if (this.mediaPath === 'server') {
+    if (!opts.provisional && this.mediaPath === 'server') {
       this.mediaPath = 'probing';
       this.probeSince = this.timers.now();
+      this.probeDeadlineAt = this.probeSince;
+      this.peerProbeAnswered = false;
       this.log?.info('媒体路径切换', { path: 'probing' });
     }
+    // 无论可信与否，都去打洞探测 —— 这是拿到回程证据的唯一途径。
     this.startPeerProbeLoop();
   }
 
   /**
    * 公告本端 P2P 端点（`bt=25`）。
    *
-   * 不发这条，服务端就不知道我们的 P2P 端口，对端也就永远拿不到我们的端点 ——
-   * 这正是「对端等很久才收到 WeQ 画面」+「全程中继」的根因（2026-10-26 抓包：
-   * QQ 发了 `bt=25`/`bt=27`，WeQ 一条都没有）。
-   *
    * 最多发 `max` 条：接通时一条，对端进房（收到 `bt=9`）后再补一条。
+   *
+   * ⚠️ **不要靠重发 `bt=25` 去催 `bt=27`。** 2026-10-26 Linux QQ 抓包实测：
+   * `bt=27` 在 `bt=25` 之前 2.7ms 就到了（服务端主动推），两者是同一次协商的
+   * 两个方向，不是「发了 25 才有 27」。拿不到 `bt=27` 是网络/服务端判定问题，
+   * 重发只会制造噪音。
    */
   private sendPeerJoinReport(max = 1): void {
     if (!this.room || !['calling', 'ringing', 'connecting', 'connected'].includes(this.state)) {
@@ -1453,6 +1547,7 @@ export class CallSession {
     );
     this.log?.info('公告本端 P2P 端点', { port: this.localPort });
   }
+
 
   /** 下一个控制包序号（中继 GET_IN 与 P2P 握手共用）。 */
   private nextPeerSeq(): number {
@@ -1519,9 +1614,17 @@ export class CallSession {
     }
   }
 
-  /** 直连已双向确认：媒体立刻切到 P2P（不等探测期跑完）。 */
+  /**
+   * 直连已双向确认：媒体立刻切到 P2P（不等探测期跑完）。
+   *
+   * 这是**唯一**能让 `mediaPath` 变成 `direct` 的路径之一（另一处是 `bt=27`
+   * 给的权威端口 + 探测期）。没有这一步，任何「拿到地址就切」都会把媒体推进
+   * 黑洞 —— 见 {@link mediaTargets} 的注释。
+   */
   private confirmPeerPath(): void {
     this.lastPeerMediaAt = this.timers.now();
+    this.peerProbeAnswered = true;
+    this.probeDeadlineAt = 0;
     if (this.mediaPath === 'direct') return;
     if (!this.peerDirect || this.peerDirect.port <= 0) return;
     this.mediaPath = 'direct';
@@ -1547,9 +1650,16 @@ export class CallSession {
     // 回包被当成「对端直连地址」，媒体路径切到 direct，实际仍发往服务器（同 IP
     // 同端口），于是全程走中继、`bt=9` 也永远拿不到对端的 f7（IPv6），表现为
     // 两端画面都极卡。
+    //
+    // ⚠️ **中继节点也必须排除**。经中继转发的媒体包，源地址是中继自己，不是
+    // 对端 —— 旧实现只排除了 GCS，于是中继的包既刷新了「直连还活着」的时间戳
+    // （看门狗因此永远不回落），又把 `peerDirect` 改写成中继地址。2026-10-26
+    // WeQ 抓包：整通 `sent 2478 / received 2389` 全在一条中继通道上，看门狗
+    // 一次都没触发。
     const isServer =
-      this.gcs !== null && sameHost(this.gcs.ip, from.address) && this.gcs.port === from.port;
-    // 只有绕过服务端的包才刷新「直连还活着」的时间戳 —— 被中继的包说明直连不通。
+      (this.gcs !== null && sameHost(this.gcs.ip, from.address) && this.gcs.port === from.port) ||
+      this.relays.some((r) => sameHost(r.ip, from.address) && r.port === from.port);
+    // 只有绕过服务端（和中继）的包才算「直连还活着」。
     if (!isServer) this.lastPeerMediaAt = this.timers.now();
     if (this.lastPeerFrom?.address === from.address && this.lastPeerFrom?.port === from.port)
       return;
@@ -1558,9 +1668,12 @@ export class CallSession {
     this.peerDirect = { address: from.address, port: from.port };
     this.log?.info('学到对端直连地址', { address: from.address, port: from.port });
     // 首次学到端口：进入双发探测期。已经是 direct 时不动（回落由看门狗管）。
+    // 这里的端口是**对端真的从这个地址发过包**得来的，可信，可以直接进 probing。
     if (this.mediaPath === 'server') {
       this.mediaPath = 'probing';
       this.probeSince = this.timers.now();
+      this.probeDeadlineAt = this.probeSince;
+      this.peerProbeAnswered = false;
       this.log?.info('媒体路径切换', { path: 'probing' });
     }
     // 对端已经在打我们了，我们也要跟上（否则对方收不到回程应答，不敢切直连）。
@@ -1693,9 +1806,11 @@ export class CallSession {
     const header = parseAudioHeader(data);
     if (!header) return;
     this.lastPeerTick = header.tick;
-    // 0x5b 的每个子类型都记一笔：排查「对端到底发没发」时这是唯一线索。
-    if (header.subType !== AudioSubType.audio) {
-      this.log?.info('收到非音频媒体包', {
+    // 每个子类型**首次**出现时记一笔就够了：排查「对端到底发没发」时这是唯一
+    // 线索，但逐包记录会刷屏（一通视频通话上千条，实测 1014 条/通）。
+    if (header.subType !== AudioSubType.audio && !this.seenMediaSubTypes.has(header.subType)) {
+      this.seenMediaSubTypes.add(header.subType);
+      this.log?.info('收到媒体包子类型', {
         subType: `0x${header.subType.toString(16)}`,
         len: data.length,
         from: 'peer',
@@ -1891,7 +2006,13 @@ export class CallSession {
       bitrateKbps,
     });
     this.send(packet);
-    this.log?.info('公告视频参数', { width, height, fps, bitrateKbps });
+    // 每 2 秒一条的周期心跳，只在第一次用 info 记下来，其余降到 debug。
+    if (!this.videoParamAnnounced) {
+      this.videoParamAnnounced = true;
+      this.log?.info('公告视频参数', { width, height, fps, bitrateKbps });
+    } else {
+      this.log?.debug('公告视频参数', { width, height, fps, bitrateKbps });
+    }
   }
 
   /**
@@ -1913,6 +2034,8 @@ export class CallSession {
       // 地址留着（bt=9 给的是对的），端口归零，等对端下次发包重新学。
       if (this.peerDirect) this.peerDirect = { address: this.peerDirect.address, port: 0 };
       this.lastPeerFrom = null;
+      this.peerProbeAnswered = false;
+      this.probeDeadlineAt = 0;
     }, 1000);
   }
 
@@ -2139,10 +2262,56 @@ export class CallSession {
         const primaryPort = (body[6]! << 8) | body[7]!;
         const directPort = (body[22]! << 8) | body[23]!;
         const port = directPort > 0 ? directPort : primaryPort;
-        this.log?.info('中继下发对端路径', { address, primaryPort, directPort });
-        if (port > 0) this.applyPeerEndpoint(address, port);
+        // 回 ACK（cmd=4）。真实客户端收到路径下发就应答，不回的话中继会每秒重发
+        // 同一条（2026-10-26 WeQ 抓包：cmd=3 从 64 秒一直刷到挂断，cmd=4 一条
+        // 都没有）。应答走「来的那个中继节点」原路返回。
+        this.sendRelayPeerPathAck(from);
+        // ⚠️ **这条下发的是「对端在哪条中继通道上」，不是对端直连地址。**
+        // 旧实现直接 `applyPeerEndpoint(address, port)`，把中继节点自己当成了
+        // 对端：媒体从 GCS 挪到中继、`mediaPath` 变成 `direct`，于是「以为直连
+        // 了，其实还在中继」—— 和文档 §7.1.2 第 2 个坑同构，只是这次来源是
+        // 中继推送而不是服务器回包。
+        //
+        // 判据：地址若是中继节点自己（或就是 GCS），一律只记日志。
+        this.log?.info('中继下发对端路径', { address, primaryPort, directPort, from: from.address });
+        const isRelaySelf =
+          (this.gcs !== null && sameHost(this.gcs.ip, address) && this.gcs.port === port) ||
+          this.relays.some((r) => sameHost(r.ip, address) && r.port === port) ||
+          this.relays.some((r) => sameHost(r.ip, address) && r.port === primaryPort) ||
+          sameHost(from.address, address);
+        if (isRelaySelf) {
+          this.log?.info('中继路径是节点自身，不当作对端端点', { address, port });
+          return;
+        }
+        // 即便不是节点自身，中继下发的也只是「中继侧入口」，仍然要等回程证据
+        // 才允许切直连 —— 所以这里只把它作为候选交给探测，不改变 mediaPath。
+        if (port > 0) this.applyPeerEndpoint(address, port, { provisional: true });
       }
     }
+  }
+
+  /**
+   * 回 `cmd=4`：确认收到中继的对端路径下发。
+   *
+   * body 全 0（16 字节），和 `cmd=3` 的 24 字节 body 不同 —— 见 2026-10-26
+   * QQ 本体抓包：`cmd=3` 84 字节、`cmd=4` 56 字节，差值正好是 body 长度。
+   */
+  private sendRelayPeerPathAck(to: { address: string; port: number }): void {
+    if (!this.room) return;
+    this.opts.transport.send(
+      buildRelayPacket({
+        roomId: this.room.roomId,
+        selfUin: Number(this.opts.selfUin),
+        peerUin: Number(this.opts.peerUin),
+        seq: this.relaySeq,
+        token: this.authToken,
+        channel: RELAY_CHANNEL.server,
+        cmd: RelayCmd.peerPathAck,
+        body: new Uint8Array(16),
+      }),
+      to.port,
+      to.address,
+    );
   }
 
   // ── 超时 ──

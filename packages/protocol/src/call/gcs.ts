@@ -693,6 +693,14 @@ export const RelayCmd = {
   getIn: 1,
   getInAck: 2,
   peerPathInfo: 3,
+  /**
+   * `cmd=3`（对端路径下发）的应答。
+   *
+   * 2026-10-26 QQ 本体抓包：收到 `cmd=3` 立刻回一条 `cmd=4`（56 字节，
+   * body 16 字节全 0）。WeQ 之前从不回，中继就把 `cmd=3` 每秒重发一遍，
+   * 一直到挂断 —— 表现为「中继协商永远没完成」。
+   */
+  peerPathAck: 4,
   keepalive: 0x0b,
 } as const;
 
@@ -705,7 +713,7 @@ export const RelayCmd = {
  */
 export const RELAY_CAPABILITY_TRIPLE = Uint8Array.from([0x02, 0x0f, 0x27, 0x4f]);
 
-function buildRelayPacket(params: {
+export function buildRelayPacket(params: {
   roomId: bigint;
   selfUin: number;
   /** 本端的控制包序号（中继通道内恒定，P2P 探测从它往后递增）。 */
