@@ -167,6 +167,7 @@ import {
 } from '../state/qqEssence';
 import { ContactNoticeDialog, GroupNoticeDialog } from '../components/ContactNoticeDialogs';
 import { GroupInfoDetailDialog } from '../components/GroupInfoDetailDialog';
+import { GroupInfoPanel } from '../im-template/template/groupInfoPanel';
 import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import { QQRemarkDialog } from '../components/QQRemarkDialog';
@@ -4980,36 +4981,44 @@ export function MainView(): ReactElement {
     };
   }, [loaded, selectedUid, isDirect, isGroup, messageScope]);
 
-  // 群资料灯箱：拉取所选群在 group_member3 里的前若干名成员，用于头像横排展示。
-  const groupDetailCode = shell.selectedGroupConversationId ?? '';
-  const groupDetailMembers = trpc.account.listGroupMembers.useQuery(
-    { groupCode: groupDetailCode, limit: 14, offset: 0 },
+  // 联系人群详情使用独立目标，复用成员分页缓存，不借用聊天页当前群的成员或搜索。
+  const groupDetailCode =
+    shell.view === 'contacts' ? (shell.selectedGroupConversationId ?? '') : '';
+  const contactGroupProfile = trpc.account.getGroupDetail.useQuery(
+    { groupCode: groupDetailCode },
     { enabled: Boolean(groupDetailCode) },
+  );
+  const mapContactGroupMember = useCallback(
+    (member: GroupMemberWire) =>
+      groupMemberWireToMember(member, {
+        ownerUid: contactGroupProfile.data?.ownerUid,
+        levelConfigs: [],
+        botUids,
+        profileByUid,
+      }),
+    [contactGroupProfile.data?.ownerUid, botUids, profileByUid],
+  );
+  const [contactMemberKeyword, setContactMemberKeyword] = useState('');
+  useEffect(() => setContactMemberKeyword(''), [groupDetailCode]);
+  const contactMemberSearch = useGroupMemberSearch<GroupMemberWire>(
+    groupDetailCode || undefined,
+    contactMemberKeyword,
+    mapContactGroupMember,
   );
   const selectedGroupConversationForDetail = useMemo(() => {
     const conv = shell.selectedGroupConversation;
     if (!conv) return conv;
-    const members = ((groupDetailMembers.data ?? []) as GroupMemberWire[]).map((m) => ({
-      id: m.uid,
-      identityLabel: m.uin && m.uin !== '0' ? 'QQ' : 'UID',
-      identityValue: m.uin && m.uin !== '0' ? m.uin : m.uid,
-      username: m.uid,
-      card: m.card,
-      remark: profileByUid.get(m.uid)?.remark,
-      nick: m.nick || profileByUid.get(m.uid)?.nick,
-      displayName: displayGroupMemberName(
-        m.card,
-        profileByUid.get(m.uid)?.remark,
-        m.nick || profileByUid.get(m.uid)?.nick,
-        m.uin || m.uid || 'Member',
-      ),
-      avatarUrl: senderAvatarSrc(m.uin),
-      kind: botUids.has(m.uid) ? ('bot' as const) : ('human' as const),
-      role: 'member' as const,
-      joinedAt: new Date(0).toISOString(),
-    }));
-    return { ...conv, members };
-  }, [shell.selectedGroupConversation, groupDetailMembers.data, botUids, profileByUid]);
+    const detail = contactGroupProfile.data;
+    const resolved = detail ? groupDetailToConversation(detail, conv, user) : conv;
+    if (resolved.type !== 'group') return conv;
+    return { ...resolved, members: (groupMemberPages[conv.id] ?? []).map(mapContactGroupMember) };
+  }, [
+    shell.selectedGroupConversation,
+    contactGroupProfile.data,
+    groupMemberPages,
+    mapContactGroupMember,
+    user,
+  ]);
 
   useEffect(() => {
     const buddyList = ((buddies.data ?? []) as BuddyWire[]).slice(0, 300);
@@ -9805,6 +9814,71 @@ export function MainView(): ReactElement {
                           }
                           selectedContact={shell.selectedContact}
                           selectedGroupConversation={selectedGroupConversationForDetail}
+                          contactGroupDetails={
+                            selectedGroupConversationForDetail ? (
+                              <GroupInfoPanel
+                                conversation={selectedGroupConversationForDetail}
+                                profileLoading={contactGroupProfile.isLoading}
+                                loadingMoreMembers={Boolean(groupMemberLoading[groupDetailCode])}
+                                loadingError={groupMemberError[groupDetailCode] || null}
+                                onRetryMembers={() => {
+                                  if (groupDetailCode)
+                                    void loadGroupMembersPage(
+                                      groupDetailCode,
+                                      groupMemberPages[groupDetailCode]?.length ?? 0,
+                                    );
+                                }}
+                                onLoadMoreMembers={() => {
+                                  if (
+                                    !groupDetailCode ||
+                                    groupMemberError[groupDetailCode] ||
+                                    groupMemberHasMore[groupDetailCode] === false
+                                  )
+                                    return;
+                                  void loadGroupMembersPage(
+                                    groupDetailCode,
+                                    groupMemberPages[groupDetailCode]?.length ?? 0,
+                                  );
+                                }}
+                                memberSearch={contactMemberSearch.view}
+                                onMemberSearchChange={setContactMemberKeyword}
+                                onLoadMoreSearch={contactMemberSearch.loadMore}
+                                onOpenDetail={(detail) =>
+                                  handleOpenGroupInfoDetail(
+                                    selectedGroupConversationForDetail,
+                                    detail,
+                                  )
+                                }
+                                onOpenAnnouncements={() =>
+                                  handleOpenGroupAnnouncements(selectedGroupConversationForDetail)
+                                }
+                                onOpenAlbums={() =>
+                                  handleOpenGroupAlbums(selectedGroupConversationForDetail)
+                                }
+                                onOpenFiles={() =>
+                                  handleOpenGroupFiles(selectedGroupConversationForDetail)
+                                }
+                                onOpenEssence={() =>
+                                  handleOpenGroupEssence(selectedGroupConversationForDetail)
+                                }
+                                onOpenMember={(member, anchor) =>
+                                  handleOpenGraphMember(
+                                    {
+                                      uid: member.id,
+                                      uin: member.uin ?? '',
+                                      nick: member.nick,
+                                      card: member.card,
+                                    },
+                                    anchor,
+                                    {
+                                      code: groupDetailCode,
+                                      name: selectedGroupConversationForDetail.group.name,
+                                    },
+                                  )
+                                }
+                              />
+                            ) : undefined
+                          }
                           activeConversation={activeConversation}
                           messages={templateMessages}
                           messageRenderers={messageRenderers}

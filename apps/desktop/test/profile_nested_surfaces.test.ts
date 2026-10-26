@@ -6,6 +6,9 @@ import {
   GroupProfileDialog,
 } from '../src/renderer/src/im-template/template/profilePanes';
 import type { Contact, GroupConversation } from '../src/renderer/src/im-template/template/types';
+import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
+import { ChatNavigationContext } from '../src/renderer/src/lib/chatNavigation';
+import { QzoneNavigationContext } from '../src/renderer/src/lib/qzoneNavigation';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -64,11 +67,39 @@ afterEach(() => {
 const contactFixture: Contact = {
   id: 'fixture',
   identityLabel: 'QQ',
-  identityValue: '10001',
+  identityValue: '10003',
   username: 'fixture',
   displayName: '合成好友',
-  createdAt: new Date(0).toISOString(),
-  signature: '合成的好友签名',
+  avatarUrl: null,
+  createdAt: '2024-03-05T08:00:00+08:00',
+  signature: '合成的好友签名。保持好奇，也认真生活。',
+  nick: '合成昵称',
+  categoryName: '同学',
+  qid: 'fixture-qid',
+  age: 21,
+  gender: 1,
+  birthMonth: 6,
+  birthDay: 15,
+  intimacy: 120,
+  onlineStatus: '在线',
+  extInfo: {
+    interactMarks: [],
+    privileges: [
+      { bizId: 1, opened: true, level: 3, iconUrl: 'https://fixture.invalid/privilege.png' },
+    ],
+    school: '合成大学',
+    city: '合成城市',
+    interests: ['摄影', '音乐', '阅读'],
+    album: [
+      {
+        photoId: 'fixture-photo',
+        urls: [
+          { size: 3, url: 'https://fixture.invalid/photo.png' },
+          { size: 2, url: 'https://fixture.invalid/photo-full.png' },
+        ],
+      },
+    ],
+  },
 };
 const groupFixture = {
   id: 'group-fixture',
@@ -82,10 +113,24 @@ const groupFixture = {
     avatarUrl: null,
     announcement: '合成群公告',
     description: '合成群简介',
-    memberCount: 12,
+    memberCount: 28,
+    maxMemberCount: 200,
+    createTime: '2024-03-05T08:00:00+08:00',
+    labels: '学习交流',
+    entranceQ: '合成的入群问题',
     role: 'member',
   },
-  members: [],
+  members: Array.from({ length: 14 }, (_, index) => ({
+    id: `u_fixture_${index}`,
+    uin: String(20000 + index),
+    identityLabel: 'QQ',
+    identityValue: String(20000 + index),
+    username: `fixture_${index}`,
+    displayName: `合成成员 ${index + 1}`,
+    avatarUrl: null,
+    role: index === 0 ? 'owner' : 'member',
+    joinedAt: new Date(0).toISOString(),
+  })),
 } as GroupConversation;
 
 it.each(['friend', 'group'] as const)(
@@ -99,9 +144,32 @@ it.each(['friend', 'group'] as const)(
     try {
       act(() =>
         root.render(
-          kind === 'friend'
-            ? h(ContactProfileDialog, { contact: contactFixture, embedded: true, onClose: close })
-            : h(GroupProfileDialog, { conversation: groupFixture, embedded: true, onClose: close }),
+          h(
+            ChatNavigationContext.Provider,
+            { value: vi.fn() },
+            h(
+              QzoneNavigationContext.Provider,
+              { value: vi.fn() },
+              kind === 'friend'
+                ? h(ContactProfileDialog, {
+                    contact: contactFixture,
+                    embedded: true,
+                    onClose: close,
+                  })
+                : h(GroupProfileDialog, {
+                    conversation: groupFixture,
+                    embedded: true,
+                    onClose: close,
+                    details: h(GroupInfoPanel, {
+                      conversation: groupFixture,
+                      onOpenAnnouncements: vi.fn(),
+                      onOpenAlbums: vi.fn(),
+                      onOpenFiles: vi.fn(),
+                      onOpenEssence: vi.fn(),
+                    }),
+                  }),
+            ),
+          ),
         ),
       );
       expect(host.querySelector('[role="region"]')?.getAttribute('aria-label')).toBe(
@@ -110,6 +178,19 @@ it.each(['friend', 'group'] as const)(
       expect(document.querySelector('.weq-overlay-layer')).toBeNull();
       expect(host.querySelector('[role="dialog"]')).toBeNull();
       expect(host.querySelector('.weq-profile-close')).toBeNull();
+      expect(host.querySelector('.weq-contact-identity .weq-profile-hero')).not.toBeNull();
+      if (kind === 'friend') {
+        expect(host.querySelector('.weq-contact-primary')?.textContent).toContain('个人资料');
+        expect(host.querySelector('.weq-contact-secondary')?.textContent).toContain('好友关系');
+        expect(host.querySelector('.weq-contact-primary')?.textContent).not.toContain('亲密度');
+        expect(host.querySelector('.weq-contact-secondary')?.textContent).toContain('亲密度');
+        expect(host.querySelector('.weq-contact-primary .weq-profile-album img')).not.toBeNull();
+        expect(host.querySelector('.weq-contact-secondary')?.textContent).toContain('已开通特权');
+      } else {
+        expect(host.querySelectorAll('.group-info-member-row')).toHaveLength(14);
+        expect(host.querySelector('[aria-label="搜索群成员"]')).not.toBeNull();
+        expect(host.querySelector('[aria-label="群内容"]')?.textContent).toContain('文件');
+      }
       const entry = host.querySelector<HTMLButtonElement>('.weq-contact-profile-toolbar button')!;
       expect(entry.textContent).toContain('群交集');
       act(() => entry.click());
@@ -130,7 +211,14 @@ it.each(['friend', 'group'] as const)(
           .join('\n');
         const styles =
           templateStyles +
-          ['index.css', 'contact-profile.css']
+          [
+            'index.css',
+            'appearance.css',
+            'conversation-actions.css',
+            'group-sidebar-sections.css',
+            'group-message-badge.css',
+            'contact-profile.css',
+          ]
             .map((file) => readFileSync(resolve('src/renderer/src/styles', file), 'utf8'))
             .join('\n');
         writeFileSync(
@@ -145,6 +233,37 @@ it.each(['friend', 'group'] as const)(
   },
 );
 
+it.each([false, true])('好友资料的私聊操作使用当前对象，内嵌=%s', (embedded) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const open = vi.fn();
+  const close = vi.fn();
+  try {
+    act(() =>
+      root.render(
+        h(
+          ChatNavigationContext.Provider,
+          { value: open },
+          h(ContactProfileDialog, { contact: contactFixture, embedded, onClose: close }),
+        ),
+      ),
+    );
+    const entry = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+      button.textContent?.includes('查看私聊'),
+    )!;
+    expect(entry).toBeDefined();
+    act(() => entry.click());
+    expect(open).toHaveBeenCalledWith({ kind: 'direct', user: contactFixture });
+    expect(close).toHaveBeenCalledOnce();
+    expect(document.querySelector('.weq-contact-columns') !== null).toBe(embedded);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it('其他页面的群名片默认仍为浮层', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -157,6 +276,41 @@ it('其他页面的群名片默认仍为浮层', () => {
       document.querySelector('[role="dialog"][aria-label="群资料"]')?.closest('.weq-overlay-layer'),
     ).not.toBeNull();
     expect(document.querySelector('.weq-profile-close')).not.toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('资料稀疏时不渲染空的兴趣、照片与关系分栏', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(ContactProfileDialog, {
+          embedded: true,
+          onClose: vi.fn(),
+          contact: {
+            id: 'fixture-bot',
+            kind: 'bot',
+            identityLabel: 'UID',
+            identityValue: 'fixture-bot',
+            username: 'fixture-bot',
+            displayName: '合成机器人',
+            avatarUrl: null,
+            createdAt: new Date(0).toISOString(),
+          },
+        }),
+      ),
+    );
+    expect(host.querySelector('.weq-contact-columns.is-single')).not.toBeNull();
+    expect(host.querySelector('.weq-contact-secondary')).toBeNull();
+    expect(host.querySelector('.weq-profile-album')).toBeNull();
+    expect(host.querySelector('.weq-profile-interests')).toBeNull();
+    expect(host.querySelector('[aria-label="个性签名"]')).toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();

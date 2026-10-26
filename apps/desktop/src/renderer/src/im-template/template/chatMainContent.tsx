@@ -44,6 +44,7 @@ export function ChatMainContent({
   relationGraphSlot,
   selectedContact,
   selectedGroupConversation,
+  contactGroupDetails,
   activeConversation,
   messages,
   composerActions,
@@ -133,6 +134,7 @@ export function ChatMainContent({
   relationGraphSlot?: React.ReactNode;
   selectedContact?: Contact;
   selectedGroupConversation?: GroupConversation;
+  contactGroupDetails?: React.ReactNode;
   activeConversation?: Conversation;
   messages: Message[];
   composerActions?: Partial<ComposerActionRegistry>;
@@ -282,6 +284,7 @@ export function ChatMainContent({
         ) : selectedGroupConversation ? (
           <GroupProfileDialog
             embedded
+            details={contactGroupDetails}
             conversation={selectedGroupConversation}
             onClose={onBackGroup}
           />

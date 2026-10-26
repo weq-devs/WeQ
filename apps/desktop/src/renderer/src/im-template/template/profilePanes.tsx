@@ -26,7 +26,7 @@ import {
   Waypoints,
   X,
 } from 'lucide-react';
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { OverlayLayer, type OverlayLayerProps } from '../../components/OverlayLayer';
 import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
@@ -225,6 +225,19 @@ function ProfileSurface({
   );
 }
 
+function ProfileSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="weq-contact-section" aria-label={title}>
+      <h2>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function ProfileIdentity({ embedded, children }: { embedded: boolean; children: ReactNode }) {
+  return embedded ? <header className="weq-contact-identity">{children}</header> : children;
+}
+
 /** 好友资料默认以浮层名片展示，联系人页使用内嵌模式。 */
 export function ContactProfileDialog({
   contact,
@@ -294,6 +307,255 @@ export function ContactProfileDialog({
     }
   }
 
+  const identity = (
+    <div className="weq-profile-hero">
+      <span className="weq-profile-avatar">
+        <Avatar
+          name={displayUserName(profile)}
+          avatarUrl={profile.avatarUrl}
+          seed={profile.identityValue}
+        />
+      </span>
+      <strong className="weq-profile-name">{displayUserName(profile)}</strong>
+      {nickDiffers ? <span className="weq-profile-nick">昵称 {profile.nick}</span> : null}
+      <button className="weq-profile-id" type="button" onClick={copyIdentity} title="点击复制">
+        <span>{profile.identityLabel}</span>
+        <span className="weq-number">{profile.identityValue}</span>
+        {copied ? <Check size={12} /> : <Copy size={12} />}
+      </button>
+
+      {headline || genderAge || zodiac ? (
+        <div className="weq-profile-chips">
+          {headline ? (
+            <span className={cn('weq-profile-rel', headline.intimate && 'is-intimate')}>
+              <headline.Icon size={13} strokeWidth={2.2} />
+              {headline.intimate ? `密友 · ${headline.label}` : headline.label}
+            </span>
+          ) : null}
+          {genderAge ? <span className="weq-profile-chip">{genderAge}</span> : null}
+          {zodiac ? (
+            <span className="weq-profile-chip">
+              <Sparkles size={12} />
+              {zodiac}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!embedded && tags.length ? (
+        <div className="weq-profile-tags">
+          {tags.map((tag) => (
+            <span key={tag.id} className="weq-profile-tag">
+              <tag.Icon size={12} />
+              {tag.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {!embedded && openedPrivileges.length ? (
+        <div className="weq-profile-privileges">
+          {openedPrivileges.map((item, index) => (
+            <img
+              // biome-ignore lint/suspicious/noArrayIndexKey: 同一 bizId 可能出现多条,只有位置是稳定键
+              key={`${item.bizId ?? '?'}:${index}`}
+              className="weq-profile-privilege"
+              src={collectionImageUrl(item.iconUrl as string)}
+              alt={privilegeName(item.bizId)}
+              title={
+                item.level
+                  ? `${privilegeName(item.bizId)} · ${item.level} 级`
+                  : privilegeName(item.bizId)
+              }
+              loading="lazy"
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {!embedded && profile.signature ? (
+        <p className="weq-profile-sign">{profile.signature}</p>
+      ) : null}
+      {embedded && statusText ? (
+        <span
+          className="weq-contact-group-summary"
+          data-privacy-sensitive={Boolean(profile.customStatus) || undefined}
+        >
+          {statusText}
+        </span>
+      ) : null}
+    </div>
+  );
+
+  const interestSection = interests.length ? (
+    <div className="weq-profile-section">
+      <div className="weq-profile-section-head">
+        <Tags size={13} />
+        个性标签
+        <span className="weq-number">{interests.length}</span>
+      </div>
+      <div className="weq-profile-interests">
+        {interests.map((tag, index) => (
+          <span
+            // biome-ignore lint/suspicious/noArrayIndexKey: 标签可含零宽字符重复,位置才是稳定键
+            key={`${tag}:${index}`}
+            className="weq-profile-interest"
+          >
+            {tag}
+          </span>
+        ))}
+      </div>
+    </div>
+  ) : null;
+
+  const albumSection = album.length ? (
+    <div className="weq-profile-section">
+      <div className="weq-profile-section-head">
+        <Images size={13} />
+        精选图片
+        <span className="weq-number">{album.length}</span>
+      </div>
+      <div className="weq-profile-album">
+        {album.map((photo, index) => {
+          const thumb = albumUrl(photo, [3, 4, 2]);
+          const full = albumUrl(photo, [2, 1, 3]);
+          if (!thumb) {
+            return null;
+          }
+          return (
+            <button
+              // biome-ignore lint/suspicious/noArrayIndexKey: photoId 可能缺失,按位置兜底
+              key={`${photo.photoId ?? '?'}:${index}`}
+              type="button"
+              className="weq-profile-photo"
+              title={photo.time ? formatProfileDate(photo.time) : '精选图片'}
+              onClick={() => full && openLightbox(albumMediaUrl(full), '精选图片')}
+            >
+              <img src={albumMediaUrl(thumb)} alt="" loading="lazy" />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  ) : null;
+
+  const personalRows = (
+    <>
+      <ProfileRow
+        sensitive
+        icon={<User size={13} />}
+        label="用户名"
+        value={profile.username}
+        mono
+      />
+      {profile.qid ? (
+        <ProfileRow
+          sensitive
+          icon={<Fingerprint size={13} />}
+          label="QID"
+          value={profile.qid}
+          mono
+        />
+      ) : null}
+      {profile.categoryName ? (
+        <ProfileRow
+          icon={<FolderClosed size={13} />}
+          label="分组"
+          sensitive
+          value={profile.categoryName}
+        />
+      ) : null}
+      {statusText ? (
+        <ProfileRow
+          sensitive={Boolean(profile.customStatus)}
+          icon={<Activity size={13} />}
+          label="状态"
+          value={statusText}
+        />
+      ) : null}
+      {region ? (
+        <ProfileRow sensitive icon={<MapPin size={13} />} label="所在地" value={region} />
+      ) : null}
+      {education ? (
+        <ProfileRow
+          sensitive
+          icon={<GraduationCap size={13} />}
+          label="教育经历"
+          value={education}
+        />
+      ) : null}
+      {birthday ? (
+        <ProfileRow sensitive icon={<Cake size={13} />} label="生日" value={birthday} />
+      ) : null}
+    </>
+  );
+  const commonRows =
+    profile.identityLabel === 'QQ' && profile.kind !== 'bot' ? (
+      <CommonRelationships uin={profile.identityValue} />
+    ) : null;
+  const hasRelationDetails = Boolean(commonRows || intimacy || createdAt);
+  const hasSecondary = Boolean(hasRelationDetails || tags.length || openedPrivileges.length);
+  const relationRows = (
+    <>
+      {intimacy ? (
+        <ProfileRow icon={<Heart size={13} />} label="亲密度" value={intimacy} mono accent />
+      ) : null}
+      {profile.kind !== 'bot' && profile.identityLabel === 'QQ' ? (
+        <ProfileLikesRow
+          uid={profile.id}
+          uin={profile.identityValue}
+          name={displayUserName(profile)}
+        />
+      ) : null}
+      {createdAt ? (
+        <ProfileRow icon={<CalendarDays size={13} />} label="成为好友" value={createdAt} />
+      ) : null}
+    </>
+  );
+
+  const chatAction = openChat ? (
+    <div className="weq-profile-actions">
+      <button
+        className="weq-profile-perhome"
+        type="button"
+        onClick={() => {
+          onClose();
+          openChat({ kind: 'direct', user: profile });
+        }}
+      >
+        <MessageSquare size={13} />
+        查看私聊
+      </button>
+    </div>
+  ) : null;
+  // 个性主页 / 互动标识只向有 QQ 号的联系人提供。
+  const otherActions =
+    profile.identityLabel === 'QQ' ? (
+      <div className="weq-profile-actions">
+        {openSpace ? (
+          <button
+            className="weq-profile-perhome"
+            type="button"
+            onClick={() => {
+              onClose();
+              openSpace(profile.identityValue, profile.nick || displayUserName(profile));
+            }}
+          >
+            <Star size={13} />
+            查看空间
+          </button>
+        ) : null}
+        <button className="weq-profile-perhome" type="button" onClick={() => setHomeOpen(true)}>
+          <Wand2 size={13} />
+          个性主页
+        </button>
+        <button className="weq-profile-perhome" type="button" onClick={() => setMarkOpen(true)}>
+          <Award size={13} />
+          查看互动标识
+        </button>
+      </div>
+    ) : null;
+
   return (
     <ProfileSurface
       embedded={embedded}
@@ -312,244 +574,96 @@ export function ContactProfileDialog({
         aria-label="好友资料"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        {!embedded ? (
-          <button
-            className="weq-profile-close"
-            type="button"
-            title="关闭"
-            aria-label="关闭"
-            onClick={onClose}
-          >
-            <X size={16} />
-          </button>
-        ) : null}
-
-        <div className="weq-profile-hero">
-          <span className="weq-profile-avatar">
-            <Avatar
-              name={displayUserName(profile)}
-              avatarUrl={profile.avatarUrl}
-              seed={profile.identityValue}
-            />
-          </span>
-          <strong className="weq-profile-name">{displayUserName(profile)}</strong>
-          {nickDiffers ? <span className="weq-profile-nick">昵称 {profile.nick}</span> : null}
-          <button className="weq-profile-id" type="button" onClick={copyIdentity} title="点击复制">
-            <span>{profile.identityLabel}</span>
-            <span className="weq-number">{profile.identityValue}</span>
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-          </button>
-
-          {headline || genderAge || zodiac ? (
-            <div className="weq-profile-chips">
-              {headline ? (
-                <span className={cn('weq-profile-rel', headline.intimate && 'is-intimate')}>
-                  <headline.Icon size={13} strokeWidth={2.2} />
-                  {headline.intimate ? `密友 · ${headline.label}` : headline.label}
-                </span>
+        {embedded ? (
+          <>
+            <header className="weq-contact-identity">
+              {identity}
+              <nav className="weq-contact-identity-actions" aria-label="好友操作">
+                {chatAction}
+                {otherActions}
+              </nav>
+            </header>
+            <div className={cn('weq-contact-columns', !hasSecondary && 'is-single')}>
+              <div className="weq-contact-primary">
+                {profile.signature ? (
+                  <ProfileSection title="个性签名">
+                    <p className="weq-contact-text" data-privacy-sensitive>
+                      {profile.signature}
+                    </p>
+                  </ProfileSection>
+                ) : null}
+                <ProfileSection title="个人资料">
+                  <div className="weq-profile-list">{personalRows}</div>
+                </ProfileSection>
+                {interestSection}
+                {albumSection}
+              </div>
+              {hasSecondary ? (
+                <aside className="weq-contact-secondary">
+                  {hasRelationDetails ? (
+                    <ProfileSection title="好友关系">
+                      <div className="weq-profile-list">
+                        {commonRows}
+                        {relationRows}
+                      </div>
+                    </ProfileSection>
+                  ) : null}
+                  {tags.length ? (
+                    <ProfileSection title="关系标识">
+                      <div className="weq-profile-tags">
+                        {tags.map((tag) => (
+                          <span key={tag.id} className="weq-profile-tag">
+                            <tag.Icon size={12} />
+                            {tag.label}
+                          </span>
+                        ))}
+                      </div>
+                    </ProfileSection>
+                  ) : null}
+                  {openedPrivileges.length ? (
+                    <ProfileSection title="已开通特权">
+                      <div className="weq-contact-privileges">
+                        {openedPrivileges.map((item) => (
+                          <span key={`${item.bizId ?? '?'}:${item.iconUrl}:${item.level ?? 0}`}>
+                            <img
+                              src={collectionImageUrl(item.iconUrl as string)}
+                              alt=""
+                              loading="lazy"
+                            />
+                            {privilegeName(item.bizId)}
+                            {item.level ? ` · ${item.level} 级` : ''}
+                          </span>
+                        ))}
+                      </div>
+                    </ProfileSection>
+                  ) : null}
+                </aside>
               ) : null}
-              {genderAge ? <span className="weq-profile-chip">{genderAge}</span> : null}
-              {zodiac ? (
-                <span className="weq-profile-chip">
-                  <Sparkles size={12} />
-                  {zodiac}
-                </span>
-              ) : null}
             </div>
-          ) : null}
-
-          {tags.length ? (
-            <div className="weq-profile-tags">
-              {tags.map((tag) => (
-                <span key={tag.id} className="weq-profile-tag">
-                  <tag.Icon size={12} />
-                  {tag.label}
-                </span>
-              ))}
-            </div>
-          ) : null}
-
-          {openedPrivileges.length ? (
-            <div className="weq-profile-privileges">
-              {openedPrivileges.map((item, index) => (
-                <img
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 同一 bizId 可能出现多条,只有位置是稳定键
-                  key={`${item.bizId ?? '?'}:${index}`}
-                  className="weq-profile-privilege"
-                  src={collectionImageUrl(item.iconUrl as string)}
-                  alt={privilegeName(item.bizId)}
-                  title={
-                    item.level
-                      ? `${privilegeName(item.bizId)} · ${item.level} 级`
-                      : privilegeName(item.bizId)
-                  }
-                  loading="lazy"
-                />
-              ))}
-            </div>
-          ) : null}
-
-          {profile.signature ? <p className="weq-profile-sign">{profile.signature}</p> : null}
-        </div>
-
-        {interests.length ? (
-          <div className="weq-profile-section">
-            <div className="weq-profile-section-head">
-              <Tags size={13} />
-              个性标签
-              <span className="weq-number">{interests.length}</span>
-            </div>
-            <div className="weq-profile-interests">
-              {interests.map((tag, index) => (
-                <span
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 标签可含零宽字符重复,位置才是稳定键
-                  key={`${tag}:${index}`}
-                  className="weq-profile-interest"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {album.length ? (
-          <div className="weq-profile-section">
-            <div className="weq-profile-section-head">
-              <Images size={13} />
-              精选图片
-              <span className="weq-number">{album.length}</span>
-            </div>
-            <div className="weq-profile-album">
-              {album.map((photo, index) => {
-                const thumb = albumUrl(photo, [3, 4, 2]);
-                const full = albumUrl(photo, [2, 1, 3]);
-                if (!thumb) {
-                  return null;
-                }
-                return (
-                  <button
-                    // biome-ignore lint/suspicious/noArrayIndexKey: photoId 可能缺失,按位置兜底
-                    key={`${photo.photoId ?? '?'}:${index}`}
-                    type="button"
-                    className="weq-profile-photo"
-                    title={photo.time ? formatProfileDate(photo.time) : '精选图片'}
-                    onClick={() => full && openLightbox(albumMediaUrl(full), '精选图片')}
-                  >
-                    <img src={albumMediaUrl(thumb)} alt="" loading="lazy" />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
-
-        <div className="weq-profile-list">
-          {profile.identityLabel === 'QQ' && profile.kind !== 'bot' && (
-            <CommonRelationships uin={profile.identityValue} />
-          )}
-          <ProfileRow
-            sensitive
-            icon={<User size={13} />}
-            label="用户名"
-            value={profile.username}
-            mono
-          />
-          {profile.qid ? (
-            <ProfileRow
-              sensitive
-              icon={<Fingerprint size={13} />}
-              label="QID"
-              value={profile.qid}
-              mono
-            />
-          ) : null}
-          {profile.categoryName ? (
-            <ProfileRow
-              icon={<FolderClosed size={13} />}
-              label="分组"
-              sensitive
-              value={profile.categoryName}
-            />
-          ) : null}
-          {statusText ? (
-            <ProfileRow
-              sensitive={Boolean(profile.customStatus)}
-              icon={<Activity size={13} />}
-              label="状态"
-              value={statusText}
-            />
-          ) : null}
-          {region ? (
-            <ProfileRow sensitive icon={<MapPin size={13} />} label="所在地" value={region} />
-          ) : null}
-          {education ? (
-            <ProfileRow
-              sensitive
-              icon={<GraduationCap size={13} />}
-              label="教育经历"
-              value={education}
-            />
-          ) : null}
-          {birthday ? (
-            <ProfileRow sensitive icon={<Cake size={13} />} label="生日" value={birthday} />
-          ) : null}
-          {intimacy ? (
-            <ProfileRow icon={<Heart size={13} />} label="亲密度" value={intimacy} mono accent />
-          ) : null}
-          {profile.kind !== 'bot' && profile.identityLabel === 'QQ' ? (
-            <ProfileLikesRow
-              uid={profile.id}
-              uin={profile.identityValue}
-              name={displayUserName(profile)}
-            />
-          ) : null}
-          {createdAt ? (
-            <ProfileRow icon={<CalendarDays size={13} />} label="成为好友" value={createdAt} />
-          ) : null}
-        </div>
-
-        {openChat ? (
-          <div className="weq-profile-actions">
+          </>
+        ) : (
+          <>
             <button
-              className="weq-profile-perhome"
+              className="weq-profile-close"
               type="button"
-              onClick={() => {
-                onClose();
-                openChat({ kind: 'direct', user: profile });
-              }}
+              title="关闭"
+              aria-label="关闭"
+              onClick={onClose}
             >
-              <MessageSquare size={13} />
-              查看私聊
+              <X size={16} />
             </button>
-          </div>
-        ) : null}
-        {/* 个性主页 / 互动标识都要拿 QQ 号去查——只有 uin 的联系人才给入口。 */}
-        {profile.identityLabel === 'QQ' ? (
-          <div className="weq-profile-actions">
-            {openSpace ? (
-              <button
-                className="weq-profile-perhome"
-                type="button"
-                onClick={() => {
-                  onClose();
-                  openSpace(profile.identityValue, profile.nick || displayUserName(profile));
-                }}
-              >
-                <Star size={13} />
-                查看空间
-              </button>
-            ) : null}
-            <button className="weq-profile-perhome" type="button" onClick={() => setHomeOpen(true)}>
-              <Wand2 size={13} />
-              个性主页
-            </button>
-            <button className="weq-profile-perhome" type="button" onClick={() => setMarkOpen(true)}>
-              <Award size={13} />
-              查看互动标识
-            </button>
-          </div>
-        ) : null}
+            {identity}
+            {interestSection}
+            {albumSection}
+            <div className="weq-profile-list">
+              {commonRows}
+              {personalRows}
+              {relationRows}
+            </div>
+            {chatAction}
+            {otherActions}
+          </>
+        )}
       </section>
 
       {homeOpen ? (
@@ -590,11 +704,13 @@ export function GroupProfileDialog({
   onClose,
   detailsKnown = true,
   embedded = false,
+  details,
 }: {
   conversation: Extract<Conversation, { type: 'group' }> | undefined;
   onClose: () => void;
   detailsKnown?: boolean;
   embedded?: boolean;
+  details?: ReactNode;
 }) {
   const openChat = useContext(ChatNavigationContext);
   const [copied, setCopied] = useState(false);
@@ -647,114 +763,130 @@ export function GroupProfileDialog({
           </button>
         ) : null}
 
-        <div className="weq-profile-hero">
-          <span className="weq-profile-avatar">
-            <Avatar name={group.name} avatarUrl={group.avatarUrl} seed={group.identityValue} />
-          </span>
-          <strong className="weq-profile-name">{group.name}</strong>
-          <button className="weq-profile-id" type="button" onClick={copyCode} title="点击复制">
-            <span>群号</span>
-            <span className="weq-number">{group.identityValue}</span>
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-          </button>
-        </div>
-
-        {openChat ? (
-          <div className="weq-profile-actions">
-            <button
-              className="weq-profile-perhome"
-              type="button"
-              onClick={() => {
-                onClose();
-                openChat({ kind: 'group', conversation });
-              }}
-            >
-              <MessageSquare size={13} />
-              查看群聊消息
+        <ProfileIdentity embedded={embedded}>
+          <div className="weq-profile-hero">
+            <span className="weq-profile-avatar">
+              <Avatar name={group.name} avatarUrl={group.avatarUrl} seed={group.identityValue} />
+            </span>
+            <strong className="weq-profile-name">{group.name}</strong>
+            <button className="weq-profile-id" type="button" onClick={copyCode} title="点击复制">
+              <span>群号</span>
+              <span className="weq-number">{group.identityValue}</span>
+              {copied ? <Check size={12} /> : <Copy size={12} />}
             </button>
+            {embedded && detailsKnown ? (
+              <span className="weq-contact-group-summary">
+                {group.memberCount} 位成员
+                {group.roleKnown !== false
+                  ? ` · ${group.role === 'owner' ? '群主' : group.role === 'admin' ? '管理员' : '群成员'}`
+                  : ''}
+              </span>
+            ) : null}
           </div>
-        ) : null}
-        {detailsKnown ? (
-          <div className="weq-profile-members">
-            <div className="weq-profile-members-head">
-              <Users size={13} />
-              <span>群成员</span>
-              <strong className="weq-number">{group.memberCount}</strong>
-              <span>人</span>
+
+          {openChat ? (
+            <div className="weq-profile-actions">
+              <button
+                className="weq-profile-perhome"
+                type="button"
+                onClick={() => {
+                  onClose();
+                  openChat({ kind: 'group', conversation });
+                }}
+              >
+                <MessageSquare size={13} />
+                查看群聊消息
+              </button>
             </div>
-            {members.length ? (
-              <div className="weq-profile-members-row">
-                {members.map((member) => (
-                  <span
-                    key={member.id}
-                    className="weq-profile-member"
-                    title={displayUserName(member)}
-                  >
-                    <Avatar
-                      name={displayUserName(member)}
-                      avatarUrl={member.avatarUrl}
-                      seed={member.identityValue}
-                    />
-                  </span>
-                ))}
+          ) : null}
+        </ProfileIdentity>
+        {embedded && details ? (
+          details
+        ) : (
+          <>
+            {detailsKnown ? (
+              <div className="weq-profile-members">
+                <div className="weq-profile-members-head">
+                  <Users size={13} />
+                  <span>群成员</span>
+                  <strong className="weq-number">{group.memberCount}</strong>
+                  <span>人</span>
+                </div>
+                {members.length ? (
+                  <div className="weq-profile-members-row">
+                    {members.map((member) => (
+                      <span
+                        key={member.id}
+                        className="weq-profile-member"
+                        title={displayUserName(member)}
+                      >
+                        <Avatar
+                          name={displayUserName(member)}
+                          avatarUrl={member.avatarUrl}
+                          seed={member.identityValue}
+                        />
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : null}
-          </div>
-        ) : null}
 
-        {detailsKnown ? (
-          <div className="weq-profile-list">
-            <ProfileRow
-              icon={<Megaphone size={13} />}
-              label="群公告"
-              sensitive
-              value={group.announcement?.trim() || '未设置'}
-              multiline
-            />
-            {group.description ? (
-              <ProfileRow
-                icon={<Info size={13} />}
-                label="群简介"
-                sensitive
-                value={group.description}
-                multiline
-              />
+            {detailsKnown ? (
+              <div className="weq-profile-list">
+                <ProfileRow
+                  icon={<Megaphone size={13} />}
+                  label="群公告"
+                  sensitive
+                  value={group.announcement?.trim() || '未设置'}
+                  multiline
+                />
+                {group.description ? (
+                  <ProfileRow
+                    icon={<Info size={13} />}
+                    label="群简介"
+                    sensitive
+                    value={group.description}
+                    multiline
+                  />
+                ) : null}
+                {group.remark ? (
+                  <ProfileRow
+                    icon={<Bookmark size={13} />}
+                    label="群备注"
+                    sensitive
+                    value={group.remark}
+                    multiline
+                  />
+                ) : null}
+                {group.createTime ? (
+                  <ProfileRow
+                    icon={<CalendarDays size={13} />}
+                    label="创建时间"
+                    value={formatProfileDate(group.createTime)}
+                  />
+                ) : null}
+                {group.maxMemberCount ? (
+                  <ProfileRow
+                    icon={<Users size={13} />}
+                    label="群容量"
+                    value={`${group.memberCount}/${group.maxMemberCount}`}
+                    mono
+                  />
+                ) : null}
+                {group.entranceQ ? (
+                  <ProfileRow
+                    icon={<HelpCircle size={13} />}
+                    label="入群问题"
+                    sensitive
+                    value={group.entranceQ}
+                    multiline
+                  />
+                ) : null}
+              </div>
             ) : null}
-            {group.remark ? (
-              <ProfileRow
-                icon={<Bookmark size={13} />}
-                label="群备注"
-                sensitive
-                value={group.remark}
-                multiline
-              />
-            ) : null}
-            {group.createTime ? (
-              <ProfileRow
-                icon={<CalendarDays size={13} />}
-                label="创建时间"
-                value={formatProfileDate(group.createTime)}
-              />
-            ) : null}
-            {group.maxMemberCount ? (
-              <ProfileRow
-                icon={<Users size={13} />}
-                label="群容量"
-                value={`${group.memberCount}/${group.maxMemberCount}`}
-                mono
-              />
-            ) : null}
-            {group.entranceQ ? (
-              <ProfileRow
-                icon={<HelpCircle size={13} />}
-                label="入群问题"
-                sensitive
-                value={group.entranceQ}
-                multiline
-              />
-            ) : null}
-          </div>
-        ) : null}
+          </>
+        )}
       </section>
     </ProfileSurface>
   );
