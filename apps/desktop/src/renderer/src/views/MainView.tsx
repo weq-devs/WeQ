@@ -9696,8 +9696,6 @@ export function MainView(): ReactElement {
                 />
               ) : null
             }
-            onQuickInvite={noopAsync}
-            onCreateGroup={noopAsync}
             onOpenFriendNotices={() => shell.openContactNotice('friend')}
             onOpenGroupNotices={() => shell.openContactNotice('group')}
             onContactTabChange={shell.changeContactTab}

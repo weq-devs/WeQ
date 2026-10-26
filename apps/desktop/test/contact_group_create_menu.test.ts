@@ -46,8 +46,6 @@ describe('联系人分组添加入口位置', () => {
                   query: '',
                   showSearch,
                   onQueryChange: noop,
-                  onQuickInvite: noop,
-                  onCreateGroup: noop,
                   onOpenProfile: noop,
                   onOpenFriendNotices: noop,
                   onOpenGroupNotices: noop,
@@ -74,8 +72,6 @@ describe('联系人分组添加入口位置', () => {
           'QQ 号搜索',
           '群号搜索',
           '新建分组',
-          '创建群聊',
-          '添加好友/群聊',
         ]);
         const item = items.find((item) => item.textContent === '新建分组');
         expect(item?.textContent).toBe('新建分组');

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Search, UserPlus, UsersRound } from 'lucide-react';
+import { Plus, Search, UsersRound } from 'lucide-react';
 import { useFriendDirectory } from './FriendDirectoryControls';
 import { useRenderDocument } from '../lib/renderDocument';
 import type { QQExactLookupKind } from './QQExactLookup';
@@ -7,13 +7,9 @@ import type { QQExactLookupKind } from './QQExactLookup';
 /** 与会话列表共用目录工具栏的按钮尺寸、菜单定位和交互。 */
 export function FriendGroupCreateMenu({
   onLookup,
-  onCreateGroup,
-  onQuickInvite,
   showGroup = true,
 }: {
   onLookup: (kind: QQExactLookupKind) => void;
-  onCreateGroup: () => void;
-  onQuickInvite: () => void;
   showGroup?: boolean;
 }) {
   const directory = useFriendDirectory();
@@ -124,28 +120,6 @@ export function FriendGroupCreateMenu({
               新建分组
             </button>
           )}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onCreateGroup();
-            }}
-          >
-            <UsersRound size={16} />
-            创建群聊
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onQuickInvite();
-            }}
-          >
-            <UserPlus size={16} />
-            添加好友/群聊
-          </button>
         </div>
       )}
     </div>

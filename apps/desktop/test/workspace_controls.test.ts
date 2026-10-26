@@ -303,8 +303,6 @@ describe('搜索移入标题栏后的侧栏布局', () => {
         showSearch: false,
         query: '',
         onQueryChange: noop,
-        onQuickInvite: noop,
-        onCreateGroup: noop,
         onOpenProfile: noop,
         onOpenFriendNotices: noop,
         onOpenGroupNotices: noop,

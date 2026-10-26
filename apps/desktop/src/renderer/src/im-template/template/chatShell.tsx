@@ -50,8 +50,6 @@ export function ChatShell({
   onOpenDbRepair,
   onOpenQzoneAlbum,
   onQueryChange,
-  onQuickInvite,
-  onCreateGroup,
   onOpenFriendNotices,
   onOpenGroupNotices,
   onContactTabChange,
@@ -95,8 +93,6 @@ export function ChatShell({
   onOpenDbRepair: () => void;
   onOpenQzoneAlbum: () => void;
   onQueryChange: (query: string) => void;
-  onQuickInvite: () => void;
-  onCreateGroup: () => void;
   onOpenFriendNotices: () => void;
   onOpenGroupNotices: () => void;
   onContactTabChange: (tab: ContactTab) => void;
@@ -212,8 +208,6 @@ export function ChatShell({
             view={view}
             query={query}
             onQueryChange={onQueryChange}
-            onQuickInvite={onQuickInvite}
-            onCreateGroup={onCreateGroup}
             onOpenProfile={onOpenProfile}
             onOpenFriendNotices={onOpenFriendNotices}
             onOpenGroupNotices={onOpenGroupNotices}

@@ -36,8 +36,6 @@ describe('联系人页面名单导出入口', () => {
               view: 'contacts',
               query: '',
               onQueryChange: noop,
-              onQuickInvite: noop,
-              onCreateGroup: noop,
               onOpenProfile: noop,
               onOpenFriendNotices: noop,
               onOpenGroupNotices: noop,
