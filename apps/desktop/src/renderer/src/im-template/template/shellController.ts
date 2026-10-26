@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { loadLayoutNumber, saveLayoutNumber } from './layoutStorage';
 import { defaultConversationPreference } from './preferences';
+import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
 import type {
   Contact,
   ContactNoticeView,
@@ -65,6 +66,9 @@ export function useChatShellController({
   const [contactTab, setContactTab] = useState<ContactTab>('friends');
   const [contactNotice, setContactNotice] = useState<ContactNoticeView | null>(null);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [expandedContact, setExpandedContact] = useState<Contact | undefined>();
+  const [expandedGroup, setExpandedGroup] = useState<GroupConversation | undefined>();
+  const [contactWorkspaceTab, setContactWorkspaceTab] = useState<ContactWorkspaceTab>('profile');
   const [selectedGroupConversationId, setSelectedGroupConversationId] = useState<string | null>(
     null,
   );
@@ -152,16 +156,18 @@ export function useChatShellController({
     [activeConversationId, conversations],
   );
   const selectedContact = useMemo(
-    () => contacts.find((contact) => contact.id === selectedContactId),
-    [contacts, selectedContactId],
+    () =>
+      contacts.find((contact) => contact.id === selectedContactId) ??
+      (expandedContact?.id === selectedContactId ? expandedContact : undefined),
+    [contacts, selectedContactId, expandedContact],
   );
   const selectedGroupConversation = useMemo(
     () =>
       conversations.find(
         (conversation): conversation is GroupConversation =>
           conversation.type === 'group' && conversation.id === selectedGroupConversationId,
-      ),
-    [conversations, selectedGroupConversationId],
+      ) ?? (expandedGroup?.id === selectedGroupConversationId ? expandedGroup : undefined),
+    [conversations, selectedGroupConversationId, expandedGroup],
   );
   const messageUnreadCount = useMemo(
     () => countVisibleUnreadConversations(conversations, conversationPrefs),
@@ -193,6 +199,9 @@ export function useChatShellController({
     setContactNotice(null);
     setSelectedContactId(null);
     setSelectedGroupConversationId(null);
+    setExpandedContact(undefined);
+    setExpandedGroup(undefined);
+    setContactWorkspaceTab('profile');
   }, []);
 
   const openContactNotice = useCallback(
@@ -228,6 +237,8 @@ export function useChatShellController({
       history.pushShellDetail();
       setContactNotice(null);
       setSelectedContactId(contact.id);
+      setSelectedGroupConversationId(null);
+      setContactWorkspaceTab('profile');
     },
     [history],
   );
@@ -238,6 +249,38 @@ export function useChatShellController({
       setContactNotice(null);
       setSelectedContactId(null);
       setSelectedGroupConversationId(conversationId);
+    },
+    [history],
+  );
+
+  const openContactDetails = useCallback(
+    (contact: Contact, tab: ContactWorkspaceTab = 'profile') => {
+      history.pushShellDetail();
+      setView('contacts');
+      setContactTab('friends');
+      setContactNotice(null);
+      setQuery('');
+      setSelectedGroupConversationId(null);
+      setExpandedGroup(undefined);
+      setExpandedContact(contact);
+      setSelectedContactId(contact.id);
+      setContactWorkspaceTab(tab);
+    },
+    [history],
+  );
+
+  const openGroupDetails = useCallback(
+    (conversation: GroupConversation) => {
+      history.pushShellDetail();
+      setView('contacts');
+      setContactTab('groups');
+      setContactNotice(null);
+      setQuery('');
+      setSelectedContactId(null);
+      setExpandedContact(undefined);
+      setExpandedGroup(conversation);
+      setSelectedGroupConversationId(conversation.id);
+      setContactWorkspaceTab('profile');
     },
     [history],
   );
@@ -291,10 +334,14 @@ export function useChatShellController({
     changeContactTab,
     contactNotice,
     contactTab,
+    contactWorkspaceTab,
+    setContactWorkspaceTab,
     mainOpen,
     messageUnreadCount,
     openContactNotice,
     openConversation,
+    openContactDetails,
+    openGroupDetails,
     query,
     selectContact,
     selectConversation,

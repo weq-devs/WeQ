@@ -19,6 +19,7 @@ import type { ConversationDetailActionRegistry } from './conversationDetailActio
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
 import type { MessageRenderer } from './messageRenderers';
 import type { ProfileActionRegistry } from './profileActions';
+import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
 import type { ToolPaneGroup, ToolPaneItem } from './toolRegistry';
 import type {
   Contact,
@@ -43,6 +44,8 @@ export function ChatMainContent({
   contactTab,
   relationGraphSlot,
   selectedContact,
+  contactWorkspaceTab,
+  onContactWorkspaceTabChange,
   selectedGroupConversation,
   contactGroupDetails,
   activeConversation,
@@ -133,6 +136,8 @@ export function ChatMainContent({
   /** App-provided content for the contacts main area (the relation graph). */
   relationGraphSlot?: React.ReactNode;
   selectedContact?: Contact;
+  contactWorkspaceTab?: ContactWorkspaceTab;
+  onContactWorkspaceTabChange?: (tab: ContactWorkspaceTab) => void;
   selectedGroupConversation?: GroupConversation;
   contactGroupDetails?: React.ReactNode;
   activeConversation?: Conversation;
@@ -280,7 +285,13 @@ export function ChatMainContent({
             (contactTab === 'groups' ? <GroupProfilePane /> : <ContactProfilePane />)}
         </div>
         {selectedContact ? (
-          <ContactProfileDialog embedded contact={selectedContact} onClose={onBackContact} />
+          <ContactProfileDialog
+            embedded
+            contact={selectedContact}
+            onClose={onBackContact}
+            tab={contactWorkspaceTab}
+            onTabChange={onContactWorkspaceTabChange}
+          />
         ) : selectedGroupConversation ? (
           <GroupProfileDialog
             embedded

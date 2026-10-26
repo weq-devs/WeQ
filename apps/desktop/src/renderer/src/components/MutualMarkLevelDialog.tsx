@@ -25,9 +25,11 @@ function levelIconUrl(format: string, level: number, style: number): string {
 export function MutualMarkLevelDialog({
   mark,
   onClose,
+  anchor,
 }: {
   mark: FriendMark;
   onClose: () => void;
+  anchor?: HTMLElement;
 }) {
   const rows = mark.levels.length
     ? mark.levels.map((lv) => ({
@@ -43,6 +45,7 @@ export function MutualMarkLevelDialog({
   return (
     <OverlayLayer
       presentation="popover"
+      anchor={anchor}
       className="weq-profile-layer weq-mutual-layer"
       onClose={onClose}
     >

@@ -59,11 +59,13 @@ vi.mock('@renderer/components/QQGroupMemberControls', () => ({
 
 import { MemberProfileCard } from '@renderer/components/MemberProfileCard';
 import { MemberAnalyticsDialog } from '@renderer/components/MemberAnalyticsDialog';
-import { PersonalityHomeDialog } from '@renderer/components/PersonalityHomeDialog';
 import type { User } from '@renderer/im-template/template/types';
 import { cachedAvatarUrl } from '@renderer/lib/avatarCache';
 import { avatarFromUin } from '@renderer/lib/avatarResolver';
-import { profileTargetUser } from '@renderer/lib/profileNavigation';
+import {
+  ContactWorkspaceNavigationContext,
+  profileTargetUser,
+} from '@renderer/lib/profileNavigation';
 import { client } from '@renderer/trpc/client';
 
 declare global {
@@ -76,6 +78,7 @@ const STATIC_CSS_CEILING = 1200;
 
 const roots: Root[] = [];
 const hosts: HTMLDivElement[] = [];
+const expandContact = vi.fn();
 
 const MEMBER = {
   id: 'uid-1',
@@ -97,12 +100,16 @@ async function mountCard(
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      createElement(MemberProfileCard, {
-        member,
-        anchor,
-        onClose,
-        groupCode,
-      }),
+      createElement(
+        ContactWorkspaceNavigationContext.Provider,
+        { value: expandContact },
+        createElement(MemberProfileCard, {
+          member,
+          anchor,
+          onClose,
+          groupCode,
+        }),
+      ),
     );
   });
   roots.push(root);
@@ -173,7 +180,7 @@ describe('群成员资料卡浮层', () => {
     );
   });
 
-  it.each(['个性主页', '查看聊天分析'])('从名片进入%s沿用补全后的头像', async (entry) => {
+  it.each(['展开联系人详情', '查看聊天分析'])('从名片进入%s沿用补全后的头像', async (entry) => {
     vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
       uid: 'u_peer',
       uin: '10009',
@@ -184,12 +191,19 @@ describe('群成员资料卡浮层', () => {
       profileTargetUser({ identity: 'u_peer', name: '成员' })!,
       '12345',
     );
-    const button = [...layer().querySelectorAll('button')].find((el) => el.textContent === entry);
+    const button = [...layer().querySelectorAll('button')].find(
+      (el) => (el.getAttribute('aria-label') || el.textContent) === entry,
+    );
     expect(button).toBeDefined();
     act(() => button!.click());
     const avatarUrl = avatarFromUin('10009');
-    if (entry === '个性主页') {
-      expect(vi.mocked(PersonalityHomeDialog).mock.lastCall?.[0].profile.avatarUrl).toBe(avatarUrl);
+    if (entry === '展开联系人详情') {
+      expect(expandContact).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          kind: 'person',
+          contact: expect.objectContaining({ avatarUrl }),
+        }),
+      );
     } else {
       expect(vi.mocked(MemberAnalyticsDialog).mock.lastCall?.[0].member.avatarUrl).toBe(avatarUrl);
     }

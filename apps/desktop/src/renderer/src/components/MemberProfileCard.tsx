@@ -8,7 +8,8 @@
  * 「陌生人资料」字段异步走 account.getProfile(uid) 从 profile_info_v6 补全。
  * 视觉沿用好友资料灯箱（weq-profile-*）的设计语言，只是把居中灯箱换成贴光标的浮层。
  *
- * 卡片底部是与「个性主页 / 互动标识」并列的入口行；从群成员列表进来时（带 groupCode）
+ * 个性主页、互动标识与互动画像统一在联系人页查看；右上角展开按钮可直达。
+ * 从群成员列表进来时（带 groupCode）
  * 多一枚「查看聊天分析」，点开 {@link ./MemberAnalyticsDialog} —— 某人在**这个群**里的
  * 发言量 / 时段 / 常用语与表情。
  *
@@ -21,7 +22,6 @@ import {
   Award,
   BarChart3,
   Bot,
-  BrainCircuit,
   Cake,
   CalendarDays,
   Check,
@@ -40,7 +40,7 @@ import {
   Sparkles,
   Star,
   User as UserIcon,
-  Wand2,
+  Expand,
   Eye,
   X,
 } from 'lucide-react';
@@ -49,15 +49,12 @@ import type { User } from '../im-template/template/types';
 import { resolveAvatar } from '../lib/avatarResolver';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
-import { PersonalityHomeDialog } from './PersonalityHomeDialog';
 import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
 import { CommonRelationships } from './qq-actions/CommonRelationships';
 import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
-import { IntentProfileDialog } from './intentSense/IntentProfileDialog';
-import { useIntentSenseStatus } from './intentSense/context';
+import { ContactWorkspaceNavigationContext } from '../lib/profileNavigation';
 import type { AnalysisTarget } from '../views/analysis/model';
 import { OverlayLayer } from './OverlayLayer';
-import { MutualMarkDialog } from './MutualMarkDialog';
 import { QQGroupMemberControls } from './QQGroupMemberControls';
 import { Avatar } from '../im-template/template/primitives';
 import { cn } from '../im-template/template/classNames';
@@ -68,7 +65,6 @@ import {
   birthdayText,
   constellationOf,
   genderLabel,
-  toPersonalityProfile,
 } from '../im-template/template/profilePanes';
 
 /** ISO 字符串 → zh-CN 年月日；无效 / 空 / epoch 返回 null。 */
@@ -110,20 +106,14 @@ export function MemberProfileCard({
   onAnalyze?: (target: AnalysisTarget) => void;
 }) {
   const openSpace = useContext(QzoneNavigationContext);
+  const openWorkspace = useContext(ContactWorkspaceNavigationContext);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [uidCopied, setUidCopied] = useState(false);
-  const [homeOpen, setHomeOpen] = useState(false);
-  const [markOpen, setMarkOpen] = useState(false);
   // 「聊天分析」灯箱。只有从群成员列表进来时才有 groupCode —— 私聊里的资料卡不显示这个入口。
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
-  // 「互动画像」灯箱（意图感知）：与个性主页 / 互动标识并列，仅私聊对方可看。
-  const [portraitOpen, setPortraitOpen] = useState(false);
-  const intentStatus = useIntentSenseStatus();
-  const intentData = intentStatus.data;
-  const canPortrait = !!intentData?.profileEnabled;
-  // 打开个性主页 / 互动标识后，卡片本体要自动收起，只留新的弹层。
+  // 打开聊天分析后收起卡片本体，只保留分析页面。
   const [dismissed, setDismissed] = useState(false);
   // 机器人档案（profile_info_adelie）。QQ 只在客户端打开过该机器人资料卡后才
   // 写这张表，所以经常是 null —— 那时只展示 v6 那份普通资料。
@@ -290,6 +280,34 @@ export function MemberProfileCard({
         aria-label="用户资料"
         onMouseDown={(event) => event.stopPropagation()}
       >
+        {openWorkspace ? (
+          <button
+            className="weq-profile-expand"
+            type="button"
+            title="展开联系人详情"
+            aria-label="展开联系人详情"
+            onClick={() => {
+              onClose();
+              openWorkspace({
+                kind: 'person',
+                contact: {
+                  ...member,
+                  ...profile,
+                  id: uid || member.id || `uin:${uin}`,
+                  uid: uid || undefined,
+                  identityLabel: uin ? 'QQ' : member.identityLabel,
+                  identityValue: uin || member.identityValue,
+                  username: uid || member.username,
+                  displayName: name,
+                  avatarUrl,
+                  createdAt: 'createdAt' in member ? member.createdAt : new Date(0).toISOString(),
+                },
+              });
+            }}
+          >
+            <Expand size={16} />
+          </button>
+        ) : null}
         <button
           className="weq-profile-close"
           type="button"
@@ -457,8 +475,7 @@ export function MemberProfileCard({
               </div>
             ) : null}
 
-            {/* 个性主页 / 互动标识都要拿 QQ 号去查——profile 还没到或没 uin 时不给入口。
-            聊天分析看的是「这个人在这个群里」的发言，只认 uid + groupCode。 */}
+            {/* 聊天分析看的是「这个人在这个群里」的发言，只认 uid + groupCode。 */}
             {uin || canAnalyze ? (
               <div className="weq-profile-actions">
                 {onOpenChat ? (
@@ -486,56 +503,17 @@ export function MemberProfileCard({
                     预览私聊
                   </button>
                 ) : null}
-                {uin ? (
-                  <>
-                    {openSpace ? (
-                      <button
-                        className="weq-profile-perhome"
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          openSpace(uin, profile?.nick || name);
-                        }}
-                      >
-                        <Star size={13} />
-                        查看空间
-                      </button>
-                    ) : null}
-                    <button
-                      className="weq-profile-perhome"
-                      type="button"
-                      onClick={() => {
-                        setDismissed(true);
-                        setHomeOpen(true);
-                      }}
-                    >
-                      <Wand2 size={13} />
-                      个性主页
-                    </button>
-                    <button
-                      className="weq-profile-perhome"
-                      type="button"
-                      onClick={() => {
-                        setDismissed(true);
-                        setMarkOpen(true);
-                      }}
-                    >
-                      <Award size={13} />
-                      查看互动标识
-                    </button>
-                  </>
-                ) : null}
-                {canPortrait ? (
+                {uin && openSpace ? (
                   <button
                     className="weq-profile-perhome"
                     type="button"
                     onClick={() => {
-                      setDismissed(true);
-                      setPortraitOpen(true);
+                      onClose();
+                      openSpace(uin, profile?.nick || name);
                     }}
                   >
-                    <BrainCircuit size={13} />
-                    互动画像
+                    <Star size={13} />
+                    查看空间
                   </button>
                 ) : null}
                 {canAnalyze ? (
@@ -573,47 +551,6 @@ export function MemberProfileCard({
         )}
       </section>
 
-      {homeOpen ? (
-        <PersonalityHomeDialog
-          uin={uin}
-          spaceNickname={profile?.nick || name}
-          onOpenChat={onOpenChat}
-          uid={member.id}
-          isBot={member.kind === 'bot'}
-          profile={toPersonalityProfile(
-            {
-              name,
-              avatarUrl,
-              signature: profile?.signature,
-            },
-            profile?.extInfo,
-          )}
-          onClose={() => {
-            setHomeOpen(false);
-            onClose();
-          }}
-        />
-      ) : null}
-      {markOpen && uin ? (
-        <MutualMarkDialog
-          uin={uin}
-          name={name}
-          onClose={() => {
-            setMarkOpen(false);
-            onClose();
-          }}
-        />
-      ) : null}
-      {portraitOpen && canPortrait ? (
-        <IntentProfileDialog
-          peerUid={member.id}
-          peerName={name}
-          onClose={() => {
-            setPortraitOpen(false);
-            onClose();
-          }}
-        />
-      ) : null}
       {analyticsOpen && canAnalyze ? (
         <MemberAnalyticsDialog
           groupCode={groupCode}

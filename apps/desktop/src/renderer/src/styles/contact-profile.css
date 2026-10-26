@@ -2,6 +2,145 @@
   height: 100%;
 }
 
+.weq-profile-expand {
+  position: absolute;
+  top: 10px;
+  right: 44px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-profile-expand:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-profile-expand:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-contact-workspace {
+  min-width: 0;
+}
+
+.weq-contact-workspace-tabs {
+  position: sticky;
+  top: -28px;
+  z-index: 5;
+  padding-block: 16px;
+  background: var(--weq-bar-surface);
+  backdrop-filter: blur(12px);
+}
+
+.weq-contact-workspace-tabs .weq-segmented > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.weq-contact-tab-panel {
+  min-width: 0;
+  min-height: 360px;
+}
+
+.weq-contact-tab-panel > .weq-contact-columns {
+  padding-top: 8px;
+}
+
+.weq-contact-feature-state {
+  padding-block: 24px;
+  color: var(--weq-fg-secondary);
+  font-size: 14px;
+}
+
+.weq-contact-tab-panel > .weq-contact-personality,
+.weq-contact-tab-panel > .weq-contact-marks,
+.weq-contact-tab-panel > .weq-contact-portrait,
+html[data-theme='dark'] .weq-contact-tab-panel > .weq-contact-personality,
+html[data-theme='dark'] .weq-contact-tab-panel > .weq-contact-marks,
+html[data-theme='dark'] .weq-contact-tab-panel > .weq-contact-portrait {
+  width: 100%;
+  max-width: none;
+  height: auto;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.weq-contact-personality {
+  min-height: 560px;
+}
+
+.weq-contact-personality .weq-perhome-inner {
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  padding-block: 48px 24px;
+  overflow: visible;
+}
+
+.weq-contact-personality .weq-perhome-stage {
+  max-width: 100%;
+}
+
+.weq-contact-marks .weq-mutual-head,
+.weq-contact-marks .weq-mutual-summary {
+  text-align: left;
+}
+
+.weq-contact-marks .weq-mutual-body {
+  overflow: visible;
+}
+
+.weq-contact-marks .weq-mutual-grid {
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.weq-contact-marks .weq-mutual-cell {
+  border-radius: 8px;
+}
+
+.weq-contact-portrait > header,
+.weq-contact-portrait > .group-keyword-body {
+  padding-inline: 0;
+}
+
+.weq-contact-portrait .weq-int-profile {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 24px;
+}
+
+.weq-contact-portrait .weq-int-profile > .weq-int-note {
+  grid-column: 1 / -1;
+}
+
+@container (max-width: 760px) {
+  .weq-contact-portrait .weq-int-profile {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .weq-contact-workspace-tabs {
+    top: -20px;
+  }
+}
+
 .weq-contact-profile {
   container-type: inline-size;
   display: flex;

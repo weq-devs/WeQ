@@ -1,12 +1,12 @@
 /**
- * 好友/群友「互动标识」灯箱 —— 从资料卡底部「查看互动标识」打开。
+ * 好友/群友「互动标识」内容 —— 联系人详情内嵌展示，兼容独立浮层。
  *
  * 数据走 `account.mutualMark.get`（ti.qq.com 互动标识聚合页，需在线 QQ 发包），
  * 按分类（任务标识 / 惊喜标识 / 限定标识 / 幸运字符）分组展示，每行三枚大图标。
  * 图标是 QQ CDN 直链，点亮态与灰态由服务端给的 URL 区分（`…_0_0_big.png` 点亮、
  * `…_0_1_big.png` 未点亮），未点亮时再压一点透明度让灰态更明显。
  *
- * 在入口附近展开，层级由共用浮层机制保证始终高于资料卡。
+ * 单个标识的等级浮层显式绑定图标按钮，内嵌模式也能正确定位。
  */
 import { useState } from 'react';
 import { Award, Loader2, WifiOff, X } from 'lucide-react';
@@ -15,9 +15,16 @@ import { MutualMarkLevelDialog } from './MutualMarkLevelDialog';
 import { trpc } from '../trpc/client';
 import { cn } from '../im-template/template/classNames';
 import { OverlayLayer } from './OverlayLayer';
+import { useTabActive } from './RetainedTabs';
 
 /** 单个标识单元：大图标（点击看全部等级）+ 名称 + 点亮/累计天数 + 状态。 */
-function MarkCell({ mark, onOpen }: { mark: FriendMark; onOpen: (mark: FriendMark) => void }) {
+function MarkCell({
+  mark,
+  onOpen,
+}: {
+  mark: FriendMark;
+  onOpen: (mark: FriendMark, anchor: HTMLButtonElement) => void;
+}) {
   const chips: string[] = [];
   if (mark.isLightup) {
     if (mark.level > 0) chips.push(`Lv.${mark.level}`);
@@ -42,7 +49,7 @@ function MarkCell({ mark, onOpen }: { mark: FriendMark; onOpen: (mark: FriendMar
         className="weq-mutual-icon"
         title="查看全部等级"
         aria-label={`查看 ${mark.name} 的全部等级`}
-        onClick={() => onOpen(mark)}
+        onClick={(event) => onOpen(mark, event.currentTarget)}
       >
         {mark.iconUrl ? (
           <img src={mark.iconUrl} alt={mark.name} loading="lazy" />
@@ -63,36 +70,40 @@ export function MutualMarkDialog({
   uin,
   name,
   onClose,
+  embedded = false,
 }: {
   /** 目标 QQ 号（互动标识接口只认 uin）。 */
   uin: string;
   /** 对方昵称/备注，用于标题。 */
   name: string;
   onClose: () => void;
+  embedded?: boolean;
 }) {
-  const [levelMark, setLevelMark] = useState<FriendMark | null>(null);
+  const active = useTabActive();
+  const [levelMark, setLevelMark] = useState<{
+    mark: FriendMark;
+    anchor: HTMLButtonElement;
+  } | null>(null);
 
   const query = trpc.account.mutualMark.get.useQuery(
     { uin },
     // 票据失败多半是离线/风控而不是抖动，重试只会让用户多等一轮。
-    { retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
+    { enabled: active, retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
   );
 
   const data = query.data;
   const categories = (data?.categories ?? []).filter((cat) => cat.marks.length > 0);
 
-  return (
-    <OverlayLayer
-      presentation="popover"
-      className="weq-profile-layer weq-mutual-layer"
-      onClose={onClose}
+  const content = (
+    <section
+      className={
+        embedded ? 'weq-mutual-dialog weq-contact-marks' : 'weq-mutual-dialog weq-anim-pop'
+      }
+      role={embedded ? 'region' : 'dialog'}
+      aria-label={`${name} 的互动标识`}
+      onMouseDown={(event) => event.stopPropagation()}
     >
-      <section
-        className="weq-mutual-dialog weq-anim-pop"
-        role="dialog"
-        aria-label={`${name} 的互动标识`}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
+      {!embedded ? (
         <button
           className="weq-profile-close"
           type="button"
@@ -102,53 +113,72 @@ export function MutualMarkDialog({
         >
           <X size={16} />
         </button>
+      ) : null}
 
-        <header className="weq-mutual-head">
-          <h2>互动标识</h2>
-          <p>
-            {name} <span className="weq-number">{uin}</span>
-          </p>
-        </header>
+      <header className="weq-mutual-head">
+        <h2>互动标识</h2>
+        <p>
+          {name} <span className="weq-number">{uin}</span>
+        </p>
+      </header>
 
-        {query.isLoading ? (
-          <div className="weq-mutual-status">
-            <Loader2 size={16} className="weq-spin" />
-            正在获取互动标识…
-          </div>
-        ) : query.error || !data ? (
-          <div className="weq-mutual-status is-error">
-            <WifiOff size={15} />
-            {query.error?.message ?? '获取失败，请稍后再试。'}
-          </div>
-        ) : (
-          <div className="weq-mutual-body">
-            {data.totalNum > 0 ? (
-              <p className="weq-mutual-summary">
-                共 {data.totalNum} 个标识 · 已点亮 {data.lightUpNum} · 稀有 {data.rarityNum}
-              </p>
-            ) : null}
-            {categories.map((cat) => (
-              <section key={cat.id || cat.name} className="weq-mutual-cat">
-                <h3>
-                  {cat.name}
-                  <span className="weq-mutual-cat-count">
-                    {cat.lightUpNum}/{cat.totalNum}
-                  </span>
-                </h3>
-                <div className="weq-mutual-grid">
-                  {cat.marks.map((mark) => (
-                    <MarkCell key={mark.id || mark.name} mark={mark} onOpen={setLevelMark} />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
+      {query.isLoading ? (
+        <div className="weq-mutual-status">
+          <Loader2 size={16} className="weq-spin" />
+          正在获取互动标识…
+        </div>
+      ) : query.error || !data ? (
+        <div className="weq-mutual-status is-error">
+          <WifiOff size={15} />
+          {query.error?.message ?? '获取失败，请稍后再试。'}
+        </div>
+      ) : (
+        <div className="weq-mutual-body">
+          {data.totalNum > 0 ? (
+            <p className="weq-mutual-summary">
+              共 {data.totalNum} 个标识 · 已点亮 {data.lightUpNum} · 稀有 {data.rarityNum}
+            </p>
+          ) : null}
+          {categories.map((cat) => (
+            <section key={cat.id || cat.name} className="weq-mutual-cat">
+              <h3>
+                {cat.name}
+                <span className="weq-mutual-cat-count">
+                  {cat.lightUpNum}/{cat.totalNum}
+                </span>
+              </h3>
+              <div className="weq-mutual-grid">
+                {cat.marks.map((mark) => (
+                  <MarkCell
+                    key={mark.id || mark.name}
+                    mark={mark}
+                    onOpen={(mark, anchor) => setLevelMark({ mark, anchor })}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
 
-        {levelMark ? (
-          <MutualMarkLevelDialog mark={levelMark} onClose={() => setLevelMark(null)} />
-        ) : null}
-      </section>
+      {levelMark ? (
+        <MutualMarkLevelDialog
+          mark={levelMark.mark}
+          anchor={levelMark.anchor}
+          onClose={() => setLevelMark(null)}
+        />
+      ) : null}
+    </section>
+  );
+  return embedded ? (
+    content
+  ) : (
+    <OverlayLayer
+      presentation="popover"
+      className="weq-profile-layer weq-mutual-layer"
+      onClose={onClose}
+    >
+      {content}
     </OverlayLayer>
   );
 }

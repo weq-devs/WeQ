@@ -9,6 +9,7 @@ import type { Contact, GroupConversation } from '../src/renderer/src/im-template
 import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
 import { ChatNavigationContext } from '../src/renderer/src/lib/chatNavigation';
 import { QzoneNavigationContext } from '../src/renderer/src/lib/qzoneNavigation';
+import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -16,6 +17,32 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({ invalidate: async () => undefined }),
     account: {
+      intentSense: {
+        getStatus: { useQuery: () => ({ data: { profileEnabled: true } }) },
+        getProfile: {
+          useQuery: () => ({
+            data: {
+              affinity: 70,
+              tier: 3,
+              trend: [],
+              mbti: { letters: 'ENFP', dims: [], heuristic: true },
+              radar: [
+                { axis: '主动', value: 50 },
+                { axis: '回应', value: 70 },
+                { axis: '表达', value: 65 },
+                { axis: '倾听', value: 60 },
+                { axis: '分享', value: 80 },
+              ],
+              topics: [{ topic: '学习', count: 5 }],
+              sampled: 8,
+              analyzedSamples: 2,
+              engine: 'heuristic',
+            },
+            isLoading: false,
+            refetch: vi.fn(),
+          }),
+        },
+      },
       // `withQQAccountScope` 要拿到当前数据源才渲染资料卡上的 QQ 操作入口。
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }) },
       getGroupAlbumAccessState: {
@@ -26,7 +53,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
           useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }),
         },
       },
-      dressup: { peerStats: { useQuery: () => ({ data: undefined, isLoading: false }) } },
+      dressup: {
+        peerStats: { useQuery: () => ({ data: undefined, isLoading: false }) },
+        peerHome: { useQuery: () => ({ data: undefined, isLoading: false }) },
+        peerQqShow: { useQuery: () => ({ data: undefined, isLoading: false }) },
+      },
       mutualMark: {
         get: {
           useQuery: () => ({
@@ -56,16 +87,13 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
 }));
-vi.mock('../src/renderer/src/components/PersonalityHomeDialog', () => ({
-  PersonalityHomeDialog: () => null,
-}));
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 const contactFixture: Contact = {
-  id: 'fixture',
+  id: 'u_fixture',
   identityLabel: 'QQ',
   identityValue: '10003',
   username: 'fixture',
@@ -217,6 +245,8 @@ it.each(['friend', 'group'] as const)(
             'conversation-actions.css',
             'group-sidebar-sections.css',
             'group-message-badge.css',
+            'segmented-control.css',
+            'intent-sense.css',
             'contact-profile.css',
           ]
             .map((file) => readFileSync(resolve('src/renderer/src/styles', file), 'utf8'))
@@ -225,6 +255,23 @@ it.each(['friend', 'group'] as const)(
           resolve(output, `${kind}.html`),
           `<!doctype html><html data-theme="light"><meta charset="utf-8"><style>${styles}</style><style>*,*::before,*::after{box-sizing:border-box}html,body{margin:0;height:100%;font-family:system-ui}#fixture{height:100%;width:100%;background:var(--weq-chat-bg);}</style><body><main id="fixture">${host.innerHTML}</main></body></html>`,
         );
+        if (kind === 'friend') {
+          for (const [tab, label] of [
+            ['personality', '个性主页'],
+            ['marks', '互动标识'],
+            ['portrait', '互动画像'],
+          ]) {
+            const entry = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+              (button) => button.textContent?.includes(label!),
+            )!;
+            act(() => entry.click());
+            expect(document.querySelector('.weq-overlay-layer')).toBeNull();
+            writeFileSync(
+              resolve(output, `friend-${tab}.html`),
+              `<!doctype html><html data-theme="light"><meta charset="utf-8"><style>${styles}</style><style>*,*::before,*::after{box-sizing:border-box}html,body{margin:0;height:100%;font-family:system-ui}#fixture{height:100%;width:100%;background:var(--weq-chat-bg);}</style><body><main id="fixture">${host.innerHTML}</main></body></html>`,
+            );
+          }
+        }
       }
     } finally {
       act(() => root.unmount());
@@ -264,6 +311,40 @@ it.each([false, true])('好友资料的私聊操作使用当前对象，内嵌=%
   }
 });
 
+it.each(['friend', 'group'] as const)('小名片 %s 移除互动入口并可展开对应对象', (kind) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const open = vi.fn();
+  const close = vi.fn();
+  try {
+    act(() =>
+      root.render(
+        h(
+          ContactWorkspaceNavigationContext.Provider,
+          { value: open },
+          kind === 'friend'
+            ? h(ContactProfileDialog, { contact: contactFixture, onClose: close })
+            : h(GroupProfileDialog, { conversation: groupFixture, onClose: close }),
+        ),
+      ),
+    );
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).not.toMatch(/个性主页|互动标识|互动画像/);
+    act(() => dialog.querySelector<HTMLButtonElement>('.weq-profile-expand')!.click());
+    expect(close).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenCalledWith(
+      kind === 'friend'
+        ? { kind: 'person', contact: contactFixture }
+        : { kind: 'group', conversation: groupFixture },
+    );
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it('其他页面的群名片默认仍为浮层', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -276,6 +357,65 @@ it('其他页面的群名片默认仍为浮层', () => {
       document.querySelector('[role="dialog"][aria-label="群资料"]')?.closest('.weq-overlay-layer'),
     ).not.toBeNull();
     expect(document.querySelector('.weq-profile-close')).not.toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('个性主页、互动标识与互动画像均在联系人正文内切换，不生成资料浮层', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(ContactProfileDialog, { contact: contactFixture, embedded: true, onClose: vi.fn() }),
+      ),
+    );
+    for (const [label, selector] of [
+      ['个性主页', '.weq-contact-personality'],
+      ['互动标识', '.weq-contact-marks'],
+      ['互动画像', '.weq-contact-portrait'],
+    ] as const) {
+      const entry = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) =>
+        button.textContent?.includes(label),
+      )!;
+      act(() => entry.click());
+      expect(host.querySelector(selector)).not.toBeNull();
+      expect(document.querySelector('.weq-overlay-layer')).toBeNull();
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    }
+    expect(host.textContent).toContain('仅供娱乐参考');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('UID 与 QQ 号分开判定，只有 UID 的对象仍可查看互动画像', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(ContactProfileDialog, {
+          embedded: true,
+          contact: { ...contactFixture, identityLabel: 'UID', identityValue: 'u_fixture' },
+          onClose: vi.fn(),
+        }),
+      ),
+    );
+    const options = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
+    expect(options.find((button) => button.textContent?.includes('个性主页'))?.disabled).toBe(true);
+    expect(options.find((button) => button.textContent?.includes('互动标识'))?.disabled).toBe(true);
+    const portrait = options.find((button) => button.textContent?.includes('互动画像'))!;
+    expect(portrait.disabled).toBe(false);
+    act(() => portrait.click());
+    expect(host.querySelector('.weq-contact-portrait')).not.toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();
@@ -317,7 +457,7 @@ it('资料稀疏时不渲染空的兴趣、照片与关系分栏', () => {
   }
 });
 
-it('好友资料、互动标识和等级三层依次在入口旁展开，Escape 只关闭等级', () => {
+it('联系人互动标识内可打开等级浮层，Escape 只关闭等级', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
     new DOMRect(120, 120, 240, 120),
@@ -335,24 +475,20 @@ it('好友资料、互动标识和等级三层依次在入口旁展开，Escape 
     createdAt: new Date(0).toISOString(),
   };
   try {
-    act(() => root.render(h(ContactProfileDialog, { contact, onClose: close })));
+    act(() => root.render(h(ContactProfileDialog, { contact, embedded: true, onClose: close })));
     const open = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-      button.textContent?.includes('查看互动标识'),
+      button.textContent?.includes('互动标识'),
     )!;
     act(() => open.click());
     act(() =>
       document.querySelector<HTMLButtonElement>('[aria-label="查看 测试标识 的全部等级"]')!.click(),
     );
-    const layers = ['好友资料', '合成好友 的互动标识', '测试标识 的等级'].map(
-      (name) =>
-        document
-          .querySelector(`[aria-label="${name}"]`)!
-          .closest<HTMLElement>('.weq-overlay-layer')!,
-    );
-    expect(Number(layers[1]!.style.zIndex)).toBeGreaterThan(Number(layers[0]!.style.zIndex));
-    expect(Number(layers[2]!.style.zIndex)).toBeGreaterThan(Number(layers[1]!.style.zIndex));
-    expect(layers[1]!.classList.contains('is-anchored-popover')).toBe(true);
-    expect(layers[2]!.classList.contains('is-anchored-popover')).toBe(true);
+    expect(host.querySelector('[aria-label="合成好友 的互动标识"]')).not.toBeNull();
+    const layer = document
+      .querySelector('[aria-label="测试标识 的等级"]')!
+      .closest('.weq-overlay-layer')!;
+    expect(layer.classList.contains('is-anchored-popover')).toBe(true);
+    expect(document.querySelectorAll('.weq-overlay-layer')).toHaveLength(1);
     act(() =>
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
     );
