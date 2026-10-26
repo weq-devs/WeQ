@@ -74,6 +74,40 @@ function trace(
   else console.info(line, context);
 }
 
+/**
+ * 取画面中心区域的平均 RGB（0-255）。
+ *
+ * 「偏绿」在数字上就是 G 通道显著高于 R/B —— 比肉眼描述精确得多。只采中心
+ * 一小块（约 4×4 像素），一次 `getImageData` 开销可忽略；采样点固定，通话里
+ * 对着镜头的人脸/背景变化不大时，数值有可比性。
+ */
+function sampleCenterRgb(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): [number, number, number] | null {
+  try {
+    const w = Math.max(4, Math.min(8, Math.floor(width / 8)));
+    const h = Math.max(4, Math.min(8, Math.floor(height / 8)));
+    const x = Math.floor((width - w) / 2);
+    const y = Math.floor((height - h) / 2);
+    const data = ctx.getImageData(x, y, w, h).data;
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    const count = w * h;
+    for (let i = 0; i < data.length; i += 4) {
+      r += data[i]!;
+      g += data[i + 1]!;
+      b += data[i + 2]!;
+    }
+    return [Math.round(r / count), Math.round(g / count), Math.round(b / count)];
+  } catch {
+    // 画布被跨域污染等极端情况：采样失败不影响解码。
+    return null;
+  }
+}
+
 export interface CallVideoState {
   /** 解码器可用。false 时界面应提示「当前环境不支持视频解码」。 */
   supported: boolean;
@@ -130,6 +164,10 @@ export function useCallVideo(options: {
   const frameCount = useRef(0);
   /** 解出的帧数（`output` 回调计数，只用于里程碑日志）。 */
   const decodedFrames = useRef(0);
+  /** 上一帧的色彩空间，用于检测「解码中途色彩元数据变了」。 */
+  const lastColorSpace = useRef<VideoFrame['colorSpace'] | null>(null);
+  /** 上一条采样的画面均色，用于检测「画面突然整体偏色 / 恢复」。 */
+  const lastSampledRgb = useRef<[number, number, number] | null>(null);
   /**
    * 是否正在异步建解码器。
    *
@@ -193,7 +231,17 @@ export function useCallVideo(options: {
           // 「解出画面但尺寸为 0」。日志和 setState 都依赖这两个值。
           const width = frame.displayWidth;
           const height = frame.displayHeight;
+          // 色彩空间也要在 close() 之前读。码流的 VUI 里没写色彩信息时，解码器
+          // 会自己推一个默认值；Windows 上「前 15 秒偏绿、之后恢复」如果对应
+          // 这里某个字段变化，就说明是色彩推断/切换的问题，而不是码流损坏。
+          const colorSpace = frame.colorSpace;
           const canvas = canvasRef.current;
+          // 均色采样：在 close() 之前、drawImage 之后从画布取。
+          //
+          // 「前 15 秒偏绿然后恢复」靠肉眼只能说出个大概时间；把画面中心的平均
+          // RGB 记下来，日志里就能看到精确的切换帧号和色偏方向（绿 = G 通道
+          // 显著高于 R/B）。center 采样避开画面四角的黑边 / UI 遮挡。
+          let rgb: [number, number, number] | null = null;
           if (canvas) {
             // 按帧尺寸调整画布，避免拉伸。
             if (canvas.width !== width || canvas.height !== height) {
@@ -201,15 +249,61 @@ export function useCallVideo(options: {
               canvas.height = height;
             }
             const ctx = canvas.getContext('2d');
-            ctx?.drawImage(frame, 0, 0);
+            if (ctx) {
+              ctx.drawImage(frame, 0, 0);
+              rgb = sampleCenterRgb(ctx, width, height);
+            }
           }
           frame.close();
           decodeFailures.current = 0;
           // 第一帧解出来是整条链路唯一的关键里程碑：有它才说明「等待对方画面」
           // 会消失。之后的帧只按 100 帧记一次，避免刷屏。
           decodedFrames.current++;
-          if (decodedFrames.current === 1 || decodedFrames.current % 100 === 0) {
-            trace('info', '解出画面', { n: decodedFrames.current, width, height });
+          const previous = lastColorSpace.current;
+          const changed =
+            previous !== null &&
+            (previous.matrix !== colorSpace?.matrix ||
+              previous.primaries !== colorSpace?.primaries ||
+              previous.transfer !== colorSpace?.transfer ||
+              previous.range !== colorSpace?.range);
+          lastColorSpace.current = colorSpace ?? null;
+          // RGB 均值突变检测：色彩空间元数据没变但画面突然整体偏色（或恢复），
+          // 说明问题在转换矩阵/合成层而不是元数据。阈值取 25 —— 偏绿恢复那种
+          // 级别的跳变远超它，而正常画面运动抖动到不了。
+          const lastRgb = lastSampledRgb.current;
+          let rgbJump: { from: [number, number, number] } | null = null;
+          if (rgb && lastRgb) {
+            const delta =
+              Math.abs(rgb[0] - lastRgb[0]) +
+              Math.abs(rgb[1] - lastRgb[1]) +
+              Math.abs(rgb[2] - lastRgb[2]);
+            if (delta >= 75) rgbJump = { from: lastRgb };
+          }
+          if (rgb) lastSampledRgb.current = rgb;
+          if (
+            decodedFrames.current === 1 ||
+            decodedFrames.current % 100 === 0 ||
+            changed ||
+            rgbJump
+          ) {
+            const event = changed ? '帧色彩空间发生变化' : rgbJump ? '画面均色突变' : '解出画面';
+            const level = changed || rgbJump ? 'warn' : 'info';
+            trace(level, event, {
+              n: decodedFrames.current,
+              width,
+              height,
+              rgb,
+              ...(rgbJump ? { previousRgb: rgbJump.from } : {}),
+              colorSpace: colorSpace
+                ? {
+                    matrix: colorSpace.matrix,
+                    primaries: colorSpace.primaries,
+                    transfer: colorSpace.transfer,
+                    range: colorSpace.range,
+                  }
+                : null,
+              ...(changed ? { previous } : {}),
+            });
           }
           setState((prev) => (prev.active ? prev : { ...prev, active: true, width, height }));
         },
@@ -238,6 +332,8 @@ export function useCallVideo(options: {
       configured.current = false;
       paramSets.current = [];
       needsParamSets.current = false;
+      lastColorSpace.current = null;
+      lastSampledRgb.current = null;
       setState({ supported: true, active: false, width: 0, height: 0, error: null });
       return;
     }
