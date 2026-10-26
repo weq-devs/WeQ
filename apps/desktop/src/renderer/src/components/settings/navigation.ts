@@ -373,22 +373,22 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
   {
     id: 'qq-storage-analysis',
     section: 'qq-storage',
-    label: '占用分析',
-    aliases: ['存储占用'],
+    label: '占用概览',
+    aliases: ['占用分析', '存储占用'],
     from: ['maintenance', 'qq-storage'],
   },
   {
     id: 'qq-storage-cleanup',
     section: 'qq-storage',
-    label: '缓存清理',
-    aliases: ['清理缓存'],
+    label: '资源清理',
+    aliases: ['缓存清理', '清理缓存'],
     from: ['maintenance', 'qq-storage'],
   },
   {
     id: 'resource-viewer',
     section: 'qq-storage',
-    label: '资源查看',
-    aliases: ['本地缓存'],
+    label: '资源浏览',
+    aliases: ['资源查看', '本地缓存'],
     from: ['maintenance', 'qq-storage'],
   },
   {

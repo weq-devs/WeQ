@@ -557,6 +557,9 @@ describe('设置归位后的实际页面', () => {
         'Web 与 Remote',
       );
       expect(f.body().querySelector('.weq-remote-settings')).not.toBeNull();
+      expect(f.body().querySelector('.weq-set-title')?.textContent).toBe('Web 与 Remote');
+      f.render('sse');
+      expect(f.body().querySelector('.weq-set-title')?.textContent).toBe('SSE 推送');
     } finally {
       f.close();
     }

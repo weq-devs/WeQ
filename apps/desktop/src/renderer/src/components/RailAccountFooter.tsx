@@ -132,14 +132,14 @@ export function RailAccountFooter({
 
   /** 按钮禁用时的提示原因；null = 当前可上锁。 */
   function lockBlockReason(): string | null {
-    if (appLock?.enabled === false) return '应用锁已关闭，请在 设置 → 应用锁 中开启。';
+    if (appLock?.enabled === false) return '应用锁已关闭，请在 设置 → 常规 → 隐私 中开启。';
     if (lockMethod === 'system') {
       return systemAuthQuery.data?.available === false
         ? (systemAuthQuery.data?.error ?? '当前设备系统认证不可用。')
         : null;
     }
     return totpQuery.data?.configured === false
-      ? '验证器未绑定，请先在 设置 → 应用锁 中完成绑定。'
+      ? '验证器未绑定，请先在 设置 → 常规 → 隐私 中完成绑定。'
       : null;
   }
 
@@ -149,7 +149,7 @@ export function RailAccountFooter({
       const fresh = await lockSettings.refetch();
       const cfg = fresh.data?.appLock;
       if (cfg?.enabled === false) {
-        showError('无法上锁', '应用锁已关闭，请在 设置 → 应用锁 中开启。');
+        showError('无法上锁', '应用锁已关闭，请在 设置 → 常规 → 隐私 中开启。');
         return;
       }
       const method = cfg?.method ?? 'totp';
@@ -164,7 +164,7 @@ export function RailAccountFooter({
         const bridge = shellBridge();
         const status = bridge ? await bridge.totp.getStatus() : null;
         if (!status?.configured) {
-          showError('无法上锁', '验证器未绑定，请先在 设置 → 应用锁 中完成绑定。');
+          showError('无法上锁', '验证器未绑定，请先在 设置 → 常规 → 隐私 中完成绑定。');
           return;
         }
       }

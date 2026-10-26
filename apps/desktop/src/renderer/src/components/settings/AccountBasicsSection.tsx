@@ -492,8 +492,9 @@ export function AccountBasicsSection({
               <KeyValueRow label="guid" value={cfg?.guid} />
             </div>
             <p className="weq-set-note">
-              a1 来自 login.db，a2 / d2 / d2key 由在线 QQ 进程内存采集（需开启「自动读取 QQ
-              内存」）；guid 是本机设备标识。账号下线后会话物料会被清空。
+              a1 来自 login.db，a2 / d2 / d2key 由在线 QQ
+              进程内存采集（需为当前来源启用完整功能）；guid
+              是本机设备标识。账号下线后会话物料会被清空。
             </p>
           </Card>
 
@@ -720,7 +721,7 @@ export function AccountBasicsSection({
       )}
       {page === 'account' && (
         <>
-          {/* 完全离线总闸：自动读取 QQ 内存（完整功能） */}
+          {/* 自动进入策略与本来源运行请求分离 */}
           <Card>
             <Row
               settingId="auto-full-mode"

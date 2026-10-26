@@ -48,6 +48,7 @@ const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
   privacy: ['隐私与应用锁', '应用锁', '隐私模式', 'applock'],
   'resource-loading': ['资源下载网络', '网络', 'CDN'],
   assistant: ['公众号推送', 'QQ 公众号'],
+  sse: ['SSE 消息推送'],
   backup: ['设置备份', '备份与恢复'],
 };
 

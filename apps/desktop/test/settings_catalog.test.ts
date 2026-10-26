@@ -53,6 +53,25 @@ describe('feature_search', () => {
       expect(searchAppEntries('导出')[0]?.title).toBe('导出');
       expect(searchAppEntries('  oCr  ').some((entry) => entry.title === '图片识别')).toBe(true);
     });
+    it('SSE 旧正文名称保留为搜索别名，统一定位最终页面名', () => {
+      const entry = searchAppEntries('SSE 消息推送')[0]!;
+      expect(entry.title).toBe('SSE 推送');
+      expect(entry.target).toEqual({ kind: 'setting', section: 'sse' });
+    });
+    it.each([
+      ['存储占用', '占用概览', 'qq-storage-analysis'],
+      ['清理缓存', '资源清理', 'qq-storage-cleanup'],
+      ['本地缓存', '资源浏览', 'resource-viewer'],
+    ])('%s 的搜索展示采用资源融合后的名称 %s', (keyword, title, id) => {
+      expect(
+        searchAppEntries(keyword).some(
+          (entry) =>
+            entry.title === title &&
+            entry.target.kind === 'setting' &&
+            entry.target.settingId === id,
+        ),
+      ).toBe(true);
+    });
 
     it('功能指向真实入口，设置别名指向具体控件而不是执行配置变更', () => {
       expect(searchAppEntries('年度报告')[0]?.target).toEqual({ kind: 'view', view: 'annual' });
