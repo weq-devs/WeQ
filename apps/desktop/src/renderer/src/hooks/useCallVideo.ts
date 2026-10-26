@@ -28,7 +28,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { payloadForDecoder, toAccessUnit } from '../lib/callVideo';
+import { acceptsFrame, payloadForDecoder, toAccessUnit } from '../lib/callVideo';
 import { trpc } from '../trpc/client';
 
 /** HEVC 的 codec string：Main profile、level 1.5（实测 640×360@10fps 用这档）。 */
@@ -168,6 +168,15 @@ export function useCallVideo(options: {
   const lastColorSpace = useRef<VideoFrame['colorSpace'] | null>(null);
   /** 上一条采样的画面均色，用于检测「画面突然整体偏色 / 恢复」。 */
   const lastSampledRgb = useRef<[number, number, number] | null>(null);
+  /**
+   * 上一个喂进解码器的帧序号。
+   *
+   * HEVC 的 P 帧依赖前序参考帧：跳帧后继续喂 delta 会让硬解输出错乱（整屏纯绿），
+   * 要等到下一个关键帧才恢复。见 onData 里的连续性检查。
+   */
+  const lastFrameIndex = useRef<number | null>(null);
+  /** 已经因为断帧而进入「等关键帧」状态（只用于日志去重）。 */
+  const awaitingKeyframe = useRef(false);
   /**
    * 是否正在异步建解码器。
    *
@@ -334,6 +343,8 @@ export function useCallVideo(options: {
       needsParamSets.current = false;
       lastColorSpace.current = null;
       lastSampledRgb.current = null;
+      lastFrameIndex.current = null;
+      awaitingKeyframe.current = false;
       setState({ supported: true, active: false, width: 0, height: 0, error: null });
       return;
     }
@@ -379,6 +390,38 @@ export function useCallVideo(options: {
           }
           return;
         }
+
+        // ⚠️ **连续性检查：关键帧之后，帧序号必须连续。**
+        //
+        // 2026-10-26 真机复现（Windows）：渲染层订阅比主进程收帧晚约 1.9 秒。
+        // 订阅时补发缓存的关键帧（gidx=0），但紧接着喂的是**实时帧**（帧 29），
+        // 中间 1~28 全部缺失。HEVC 的 P 帧依赖前序参考帧，Chromium 硬解在
+        // 拒绝这些「无参考帧」的 delta 后内部状态被污染，**继续输出错乱的 YUV**：
+        // 整屏纯绿（实测 RGB [0,88,0]，R/B 恒为 0），直到下一个关键帧
+        // （第 257 帧，约 15 秒后）才重新同步。
+        //
+        // 离线复现（tmp/repro_green_fix.cjs，同一份对端码流）：
+        //   连续喂       → 绿帧 0
+        //   跳帧喂       → 绿帧 228（#1..#228），与真机日志逐帧吻合
+        //   丢弃到关键帧 → 绿帧 0
+        //
+        // 所以：序号不连续且本帧不是关键帧 → 直接丢弃，等下一个关键帧。
+        // 代价是画面「冻」到下一个关键帧才动，好过整屏绿 15 秒。
+        const previousIndex = lastFrameIndex.current;
+        if (!acceptsFrame(previousIndex, frame.frameIndex, au.keyframe)) {
+          if (!awaitingKeyframe.current) {
+            awaitingKeyframe.current = true;
+            trace('warn', '帧序号不连续，丢弃直到下一个关键帧', {
+              n: frameCount.current,
+              previous: previousIndex,
+              current: frame.frameIndex,
+              gap: ((frame.frameIndex - (previousIndex ?? 0) + 65536) % 65536) >>> 0,
+            });
+          }
+          return;
+        }
+        if (au.keyframe) awaitingKeyframe.current = false;
+        lastFrameIndex.current = frame.frameIndex;
 
         const existing = decoderRef.current;
         const rebuilt = !existing || existing.state === 'closed';

@@ -179,6 +179,8 @@ export const callRouter = router({
       hevc: Uint8Array;
       timestamp: number;
       keyframe: boolean;
+      /** 16 位帧序号；渲染层据此判断喂入是否连续（见 useCallVideo）。 */
+      frameIndex: number;
       info: VideoStreamInfo | null;
     }>((emit) => {
       const manager = findCallManager();
@@ -191,6 +193,7 @@ export const callRouter = router({
           hevc: kf.hevc,
           timestamp: kf.timestamp,
           keyframe: true,
+          frameIndex: kf.frameIndex,
           info: kf.info,
         });
       }
@@ -200,6 +203,7 @@ export const callRouter = router({
           hevc: event.hevc,
           timestamp: event.timestamp,
           keyframe: event.keyframe,
+          frameIndex: event.frameIndex,
           info: event.info,
         });
       };

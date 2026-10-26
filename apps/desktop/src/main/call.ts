@@ -237,6 +237,14 @@ export type CallEvent =
       hevc: Uint8Array;
       timestamp: number;
       keyframe: boolean;
+      /**
+       * 16 位帧序号 `((fidx - 1) << 8) | gidx`。
+       *
+       * 渲染层要靠它判断「喂给解码器的帧是否连续」—— HEVC 的 P 帧依赖前序参考
+       * 帧，跳过若干帧后继续喂 delta 帧会让硬解输出错乱的 YUV（表现为整屏纯绿），
+       * 且要等到下一个关键帧才恢复。见 useCallVideo 的 continuity 检查。
+       */
+      frameIndex: number;
       info: VideoStreamInfo | null;
     }
   /** 录音收尾完成（含内部收尾：对端挂断 / 被踢 / 崩溃）。 */
@@ -399,6 +407,7 @@ export class CallManager extends EventEmitter {
         hevc: frame.hevc,
         timestamp: frame.timestamp,
         keyframe: frame.isKeyframe,
+        frameIndex: frame.frameIndex,
         info: frame.info,
       } satisfies CallEvent);
     });

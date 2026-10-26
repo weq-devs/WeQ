@@ -139,6 +139,41 @@ export function toAccessUnit(input: unknown): HevcAccessUnit {
 }
 
 /**
+ * 判断这一帧能否喂给解码器：帧序号必须与上一帧连续，或者本帧是关键帧。
+ *
+ * ## 为什么必须做这个检查
+ *
+ * 2026-10-26 Windows 真机复现：渲染层订阅比主进程收帧晚约 1.9 秒。订阅时补发
+ * 缓存的关键帧（帧 0），但紧接着喂的是**实时帧**（帧 29），中间 1~28 全部缺失。
+ *
+ * HEVC 的 P 帧依赖前序参考帧。Chromium 硬解在拒绝这些「无参考帧」的 delta 后
+ * **内部状态被污染**，继续输出错乱的 YUV —— 实测整屏纯绿（中心 RGB `[0,88,0]`，
+ * R/B 恒为 0），直到下一个关键帧（帧 257，约 15 秒后）才重新同步。
+ *
+ * 离线复现（`tmp/verify_fix.cjs`，同一份对端码流）：
+ *
+ * | 喂入方式 | 绿帧数 |
+ * | --- | --- |
+ * | 连续喂 0,1,2,… | 0 |
+ * | 跳帧喂 0,29,30,…（修复前） | 228（#1..#228） |
+ * | 跳帧喂 + 本检查（修复后） | 0（丢弃 228 帧，等关键帧） |
+ *
+ * 代价是画面「冻」到下一个关键帧才动 —— 好过整屏绿 15 秒。
+ *
+ * @param previous 上一个**喂进解码器**的帧序号；null 表示还没有（刚起解）
+ * @param current 本帧的 16 位帧序号
+ * @param keyframe 本帧是否含 IRAP
+ */
+export function acceptsFrame(previous: number | null, current: number, keyframe: boolean): boolean {
+  // 关键帧永远可以起解 —— 它是参考链的起点。
+  if (keyframe) return true;
+  // 还没有基准：交给调用方的「未配置」逻辑处理。
+  if (previous === null) return true;
+  // 16 位序号会回绕（65535 → 0）。先按模取「前进了多少」，再判断是否为 1。
+  return (current - previous + 65536) % 65536 === 1;
+}
+
+/**
  * 给「新建 / 重建的解码器」准备首个 chunk 的载荷。
  *
  * 解码器 `close()` 重建后，**必须**在下一个关键帧前面补回参数集：实测不补 ->
