@@ -4577,89 +4577,6 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   font-size: 13px;
 }
 
-/* 网页版的 QQ 空间 / 频道入口：一张居中的「开新标签」卡片。 */
-.weq-extsite {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  padding: 24px;
-}
-
-.weq-extsite-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  max-width: 380px;
-  padding: 36px 32px 30px;
-  text-align: center;
-  border: 1px solid var(--weq-border, rgba(0, 153, 255, 0.16));
-  border-radius: 16px;
-  background: var(--weq-surface, rgba(255, 255, 255, 0.6));
-  backdrop-filter: blur(10px);
-}
-
-.weq-extsite-icon {
-  display: grid;
-  place-items: center;
-  width: 56px;
-  height: 56px;
-  margin-bottom: 4px;
-  border-radius: 16px;
-  color: var(--weq-accent, #0099ff);
-  background: color-mix(in srgb, var(--weq-accent, #0099ff) 12%, transparent);
-}
-
-.weq-extsite-title {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--weq-fg-primary, #142235);
-}
-
-.weq-extsite-desc {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.65;
-  color: var(--weq-text-muted, #8a94a6);
-}
-
-.weq-extsite-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 10px;
-  padding: 9px 18px;
-  font-size: 13.5px;
-  font-weight: 500;
-  color: #fff;
-  background: var(--weq-accent, #0099ff);
-  border: 0;
-  border-radius: 9px;
-  cursor: pointer;
-  transition:
-    transform 140ms ease,
-    filter 140ms ease;
-}
-
-.weq-extsite-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-  filter: brightness(1.06);
-}
-
-.weq-extsite-btn:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
-.weq-extsite-hint {
-  margin: 6px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--weq-text-muted, #8a94a6);
-}
-
 .weq-readonly-chat .message-scroll {
   grid-row: 2;
   background: var(--chat-surface) !important;
@@ -14712,7 +14629,7 @@ html[data-theme='dark'] .weq-provider-modal {
 }
 .weq-deleted-empty small {
   font-size: 12px;
-  color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+  color: var(--weq-fg-muted, var(--weq-fg-secondary));
   max-width: 20rem;
 }
 /* 缺失消息弹窗 (GapMessagesModal) 仍是逐条 .weq-deleted-row 的朴素列表；卡片式的
@@ -20274,10 +20191,10 @@ html[data-theme='dark'] .weq-graytip-band {
 }
 /* Names / actors — theme accent instead of the old hard-coded tailwind blue. */
 .weq-graytip-accent {
-  color: var(--weq-accent-effective);
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
 }
 .weq-graytip-muted {
-  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+  color: var(--weq-fg-muted, var(--weq-fg-secondary));
 }
 
 /* 私聊窗口抖动的乐观渲染：自己发出的一条消息，画面是会轻轻晃动的戳一戳超级表情
@@ -20376,12 +20293,12 @@ html[data-theme='dark'] .weq-graytip-band {
  * 失败重试 / 已到底），哨兵触发时把更旧的一页 prepend 到头部。 */
 .weq-deleted-empty.weq-gap-loading {
   font-size: 12px;
-  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+  color: var(--weq-fg-muted, var(--weq-fg-secondary));
 }
 /* 缺失消息弹窗：空结果文案（“没有可拉取的消息”）字号收紧。 */
 .weq-deleted-empty .weq-gap-empty-hint {
   font-size: 12px;
-  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+  color: var(--weq-fg-muted, var(--weq-fg-secondary));
 }
 .weq-gap-footer {
   display: flex;
@@ -20391,7 +20308,7 @@ html[data-theme='dark'] .weq-graytip-band {
   padding: 14px 12px 8px;
   font-size: 11px;
   line-height: 1.6;
-  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+  color: var(--weq-fg-muted, var(--weq-fg-secondary));
   text-align: center;
 }
 .weq-gap-footer-spin {
@@ -20493,7 +20410,7 @@ html[data-theme='dark'] .weq-graytip-band {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--weq-fg-tertiary, #94a3b8);
+  color: var(--weq-fg-muted, #94a3b8);
   cursor: pointer;
   transition: all 0.12s ease;
 }
@@ -20668,7 +20585,7 @@ html[data-theme='dark'] .weq-ark-feed-back:hover {
   padding: 48px 16px;
   text-align: center;
   font-size: 14px;
-  color: var(--weq-fg-tertiary, #94a3b8);
+  color: var(--weq-fg-muted, #94a3b8);
 }
 
 .weq-ark-feed-item {
@@ -20680,7 +20597,7 @@ html[data-theme='dark'] .weq-ark-feed-back:hover {
 .weq-ark-feed-time {
   text-align: center;
   font-size: 12px;
-  color: var(--weq-fg-tertiary, #94a3b8);
+  color: var(--weq-fg-muted, #94a3b8);
 }
 
 .essence-text {
@@ -20731,7 +20648,7 @@ html[data-theme='dark'] .essence-image {
   padding: 8px 12px;
   font-size: 13px;
   color: var(--weq-fg-secondary, oklch(0.4 0 0));
-  background: var(--weq-bg-tertiary, oklch(0.96 0 0));
+  background: var(--weq-bg-surface, oklch(0.96 0 0));
   border: 1px solid var(--border, oklch(0.91 0 0));
   border-radius: 6px;
   max-width: fit-content;
@@ -20739,7 +20656,7 @@ html[data-theme='dark'] .essence-image {
 
 html[data-theme='dark'] .essence-file {
   color: var(--weq-fg-secondary, oklch(0.7 0 0));
-  background: var(--weq-bg-tertiary, oklch(0.2 0 0));
+  background: var(--weq-bg-surface, oklch(0.2 0 0));
   border-color: var(--border, oklch(0.3 0 0));
 }
 
@@ -20747,15 +20664,15 @@ html[data-theme='dark'] .essence-file {
   display: inline-block;
   padding: 4px 8px;
   font-size: 12px;
-  color: var(--weq-fg-tertiary, oklch(0.5 0 0));
-  background: var(--weq-bg-tertiary, oklch(0.96 0 0));
+  color: var(--weq-fg-muted, oklch(0.5 0 0));
+  background: var(--weq-bg-surface, oklch(0.96 0 0));
   border-radius: 4px;
   font-style: italic;
 }
 
 html[data-theme='dark'] .essence-unknown {
-  color: var(--weq-fg-tertiary, oklch(0.6 0 0));
-  background: var(--weq-bg-tertiary, oklch(0.2 0 0));
+  color: var(--weq-fg-muted, oklch(0.6 0 0));
+  background: var(--weq-bg-surface, oklch(0.2 0 0));
 }
 
 /* ==================== 群成员管理弹窗（改昵称 / 踢人） ==================== */
@@ -20951,7 +20868,7 @@ html[data-theme='dark'] .essence-unknown {
   align-items: center;
   justify-content: center;
   min-height: 200px;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   font-size: 14px;
 }
 
@@ -20960,14 +20877,14 @@ html[data-theme='dark'] .essence-unknown {
   padding: 12px 14px;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 10px;
-  background: var(--weq-bg-secondary);
+  background: var(--weq-bg-elevated);
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
 .group-bulletin-item.is-current {
-  background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-secondary));
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-elevated));
   border-color: color-mix(in srgb, var(--weq-accent-effective) 25%, var(--weq-border-subtle));
 }
 
@@ -21005,7 +20922,7 @@ html[data-theme='dark'] .essence-unknown {
 
 .group-bulletin-date {
   font-size: 11px;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
 }
 
 .group-bulletin-content {
@@ -21035,7 +20952,7 @@ html[data-theme='dark'] .essence-unknown {
   height: auto;
   border-radius: 8px;
   border: 1px solid var(--weq-border-subtle);
-  background: var(--weq-bg-tertiary);
+  background: var(--weq-bg-surface);
   object-fit: contain;
 }
 
@@ -21063,7 +20980,7 @@ html[data-theme='dark'] .essence-unknown {
   -webkit-app-region: no-drag;
 }
 
-.group-essence-dialog header {
+.group-essence-dialog > header {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -21073,19 +20990,19 @@ html[data-theme='dark'] .essence-unknown {
   border-bottom: 1px solid var(--weq-border-subtle);
 }
 
-.group-essence-dialog header div {
+.group-essence-dialog > header div {
   display: grid;
   min-width: 0;
   gap: 4px;
 }
 
-.group-essence-dialog header strong {
+.group-essence-dialog > header strong {
   color: var(--weq-fg-primary);
   font-size: 17px;
   font-weight: 600;
 }
 
-.group-essence-dialog header span {
+.group-essence-dialog > header span {
   overflow: hidden;
   color: var(--weq-fg-muted);
   font-size: 12px;
@@ -21108,12 +21025,12 @@ html[data-theme='dark'] .essence-unknown {
   min-height: 200px;
   padding: 2rem 1.5rem;
   text-align: center;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   font-size: 13px;
 }
 
 .group-essence-empty svg {
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
 }
 
 .group-essence-empty span {
@@ -21123,7 +21040,7 @@ html[data-theme='dark'] .essence-unknown {
 
 .group-essence-empty small {
   max-width: 22rem;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   font-size: 12px;
 }
 
@@ -21142,7 +21059,7 @@ html[data-theme='dark'] .essence-unknown {
   padding: 12px 14px;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 10px;
-  background: var(--weq-bg-secondary);
+  background: var(--weq-bg-elevated);
   text-align: left;
   cursor: default;
   transition: all 0.15s;
@@ -21154,7 +21071,7 @@ html[data-theme='dark'] .essence-unknown {
 
 .group-essence-item.is-clickable:hover {
   border-color: var(--weq-accent-effective);
-  background: color-mix(in srgb, var(--weq-accent-effective) 5%, var(--weq-bg-secondary));
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, var(--weq-bg-elevated));
   box-shadow: 0 2px 8px color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
 }
 
@@ -21178,7 +21095,7 @@ html[data-theme='dark'] .essence-unknown {
 
 .group-essence-meta {
   font-size: 11px;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   white-space: nowrap;
 }
 
@@ -21215,13 +21132,13 @@ html[data-theme='dark'] .essence-unknown {
 .group-essence-element .essence-file {
   padding: 8px 10px;
   border-radius: 6px;
-  background: var(--weq-bg-tertiary);
+  background: var(--weq-bg-surface);
   color: var(--weq-fg-secondary);
   font-size: 12px;
 }
 
 .group-essence-element .essence-unknown {
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   font-size: 11px;
   font-style: italic;
 }
@@ -21230,7 +21147,7 @@ html[data-theme='dark'] .essence-unknown {
   margin: 0;
   padding: 8px 0;
   font-size: 12px;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   font-style: italic;
 }
 
@@ -23620,7 +23537,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
 .weq-guild-direct-item-time {
   flex: 0 0 auto;
   font-size: 11px;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
 }
 
 .weq-guild-direct-item-guild {
@@ -23708,7 +23625,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   user-select: none;
 }
 
@@ -23741,7 +23658,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   max-width: 340px;
   font-size: 11px;
   line-height: 1.6;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   overflow-wrap: anywhere;
 }
 
@@ -23832,7 +23749,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   max-width: 400px;
   font-size: 12px;
   line-height: 1.7;
-  color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+  color: var(--weq-fg-muted, var(--weq-fg-secondary));
   overflow-wrap: anywhere;
 }
 
@@ -23899,7 +23816,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   width: 100%;
   height: 100%;
   place-items: center;
-  color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+  color: var(--weq-fg-muted, var(--weq-fg-secondary));
 }
 
 .weq-qzal-album-meta {
@@ -23927,7 +23844,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   overflow-y: hidden;
   scrollbar-width: thin;
   font-size: 11px;
-  color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+  color: var(--weq-fg-muted, var(--weq-fg-secondary));
   white-space: nowrap;
 }
 
@@ -23988,7 +23905,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   max-width: 400px;
   font-size: 12px;
   line-height: 1.7;
-  color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+  color: var(--weq-fg-muted, var(--weq-fg-secondary));
   overflow-wrap: anywhere;
 }
 
@@ -24124,7 +24041,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
 .weq-qzal-media-caption time {
   flex: 0 0 auto;
   font-size: 10px;
-  color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+  color: var(--weq-fg-muted, var(--weq-fg-secondary));
 }
 
 .weq-qzal-selectbar {
@@ -24215,7 +24132,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+  color: var(--weq-fg-muted, var(--weq-fg-secondary));
 }
 
 .weq-qzal-retry {
@@ -24238,7 +24155,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   padding: 4px 0 2px;
   text-align: center;
   font-size: 11px;
-  color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+  color: var(--weq-fg-muted, var(--weq-fg-secondary));
 }
 
 /* ---- skeleton / shimmer（与导出中心同款动画） ---- */
@@ -26647,7 +26564,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
 
 .group-keyword-desc {
   overflow: hidden;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -26658,7 +26575,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
   width: 100%;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 9px;
-  background: var(--weq-bg-secondary);
+  background: var(--weq-bg-elevated);
   color: var(--weq-fg-primary);
   font-size: 13.5px;
   outline: none;
@@ -26681,8 +26598,8 @@ html[data-theme='dark'] .weq-mf-mall-card {
   padding: 18px 16px;
   border: 1px dashed var(--weq-border-subtle);
   border-radius: 12px;
-  background: var(--weq-bg-secondary);
-  color: var(--weq-fg-tertiary);
+  background: var(--weq-bg-elevated);
+  color: var(--weq-fg-muted);
   font-size: 13px;
   text-align: center;
 }
@@ -26703,7 +26620,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
   padding: 12px 12px 12px 14px;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 12px;
-  background: var(--weq-bg-secondary);
+  background: var(--weq-bg-elevated);
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
@@ -26763,7 +26680,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   cursor: pointer;
   transition:
     background 0.15s ease,
@@ -26797,12 +26714,12 @@ html[data-theme='dark'] .weq-mf-mall-card {
   align-items: center;
   align-self: center;
   padding: 4px 8px;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   font-size: 12px;
 }
 
 .group-keyword-scope-hint {
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -26838,7 +26755,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
   padding: 6px 12px;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 8px;
-  background: var(--weq-bg-secondary);
+  background: var(--weq-bg-elevated);
   color: var(--weq-fg-primary);
   font-size: 12.5px;
   font-weight: 500;
@@ -26850,7 +26767,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
 
 .group-keyword-quick-btn:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
-  background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-secondary));
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-elevated));
 }
 
 .group-keyword-quick-btn:disabled {
@@ -26875,7 +26792,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
   padding: 4px 8px 4px 4px;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 999px;
-  background: var(--weq-bg-secondary);
+  background: var(--weq-bg-elevated);
   color: var(--weq-fg-primary);
   font-size: 12.5px;
 }
@@ -26897,7 +26814,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
   position: relative;
   display: flex;
   align-items: center;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
 }
 
 .group-keyword-search > svg {
@@ -26917,7 +26834,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
   overflow: auto;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 10px;
-  background: var(--weq-bg-secondary);
+  background: var(--weq-bg-elevated);
 }
 
 .group-keyword-result {
@@ -26954,7 +26871,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
 
 .group-keyword-empty {
   padding: 10px 2px;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   font-size: 12.5px;
 }
 
@@ -26969,7 +26886,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
 
 .group-keyword-save-state {
   margin-right: auto;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   font-size: 12px;
 }
 
@@ -27271,7 +27188,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
 
 .weq-cvs-body-state {
   margin-left: auto;
-  color: var(--weq-fg-tertiary);
+  color: var(--weq-fg-muted);
   font-size: 12px;
 }
 

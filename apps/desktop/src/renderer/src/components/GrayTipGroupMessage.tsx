@@ -41,7 +41,7 @@ function formatMuteDuration(seconds: number): string {
 
 /** 灰条外壳，所有分支共用同一套居中样式。 */
 function Tip({ children }: { children: React.ReactNode }) {
-  return <div className="weq-graytip text-center text-gray-500 text-xs py-2">{children}</div>;
+  return <div className="weq-graytip text-center text-xs py-2">{children}</div>;
 }
 
 function Name({ children }: { children: React.ReactNode }) {
