@@ -3,6 +3,8 @@ import { MessageSquarePlus, MessagesSquare, RefreshCw, Trash2 } from 'lucide-rea
 import { trpc } from '../../trpc/client';
 import { AssistantPanel } from './AssistantPanel';
 import { RetainedTabs, useTabActive } from '../../components/RetainedTabs';
+import { useWorkspaceMenu } from '../../state/workspaceMenu';
+import type { AssistantActivity } from '../../lib/workspaceIndicators';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { useAppDialog } from '../../lib/dialogUtils';
 import '../../styles/agentlab-workspace.css';
@@ -39,6 +41,13 @@ export function AssistantMenuWorkspace({
   const sequence = useRef(0);
   const currentSelection = useRef(selection);
   currentSelection.current = selection;
+  const [activities, setActivities] = useState<Record<string, AssistantActivity>>({});
+  const setAssistant = useWorkspaceMenu((state) => state.setAssistant);
+  const activity = activities[selection.key] ?? 'idle';
+  useEffect(() => {
+    setAssistant(activity);
+  }, [activity, setAssistant]);
+  useEffect(() => () => setAssistant('idle'), [setAssistant]);
   const keys = useRef(new Map<string, string>());
   const appliedSearch = useRef<GeneratedSearchHit | null | undefined>(undefined);
   const models = useMemo(
@@ -181,6 +190,13 @@ export function AssistantMenuWorkspace({
                 sessions.data.find((session) => session.id === selection.sessionId)?.title ??
                 '新会话'
               }
+              onActivityChange={(next) => {
+                setActivities((previous) =>
+                  previous[selection.key] === next
+                    ? previous
+                    : { ...previous, [selection.key]: next },
+                );
+              }}
               onBack={newSession}
               onSessionCreated={(id) => {
                 keys.current.set(id, selection.key);

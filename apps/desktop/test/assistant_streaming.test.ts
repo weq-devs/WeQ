@@ -12,6 +12,7 @@ const fixture = vi.hoisted(() => ({
   subscribe: vi.fn(),
   unsubscribe: vi.fn(),
   error: vi.fn(),
+  sendError: false,
   utils: {
     account: {
       getAssistantConversation: { invalidate: vi.fn() },
@@ -41,7 +42,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
               isSuccess: true,
             }),
             useMutation: () => ({
-              mutateAsync: async () => ({ runId: 'synthetic-run' }),
+              mutateAsync: async () => {
+                if (path === 'chatWithAssistant' && fixture.sendError)
+                  throw new Error('合成发送错误');
+                return { runId: 'synthetic-run' };
+              },
               isLoading: false,
             }),
           };
@@ -77,6 +82,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   frames.clear();
   fixture.listener = null;
+  fixture.sendError = false;
   fixture.subscribe.mockImplementation(
     (_input: unknown, observer: { onData: NonNullable<typeof fixture.listener> }) => {
       fixture.listener = observer.onData;
@@ -120,12 +126,15 @@ it('流式重渲不重建订阅，尚未刷新的增量在父组件重渲后仍�
     compact: true,
     onBack: vi.fn(),
     onSessionCreated: vi.fn(),
+    onActivityChange: vi.fn(),
   };
   try {
     act(() => root.render(h(AssistantPanel, props)));
+    expect(props.onActivityChange).toHaveBeenLastCalledWith('idle');
     await act(async () => {
       host.querySelector<HTMLButtonElement>('[aria-label="发送消息"]')!.click();
     });
+    expect(props.onActivityChange).toHaveBeenLastCalledWith('running');
     emit({ kind: 'text_delta', text: '第一段' });
     flushFrame();
     expect(host.querySelector('.stream-body')?.textContent).toBe('第一段');
@@ -137,12 +146,14 @@ it('流式重渲不重建订阅，尚未刷新的增量在父组件重渲后仍�
     emit({ kind: 'text_delta', text: '最后一段' });
     flushFrame();
     expect(host.querySelector('.stream-body')?.textContent).toBe('第一段不能丢最后一段');
+    expect(props.onActivityChange).toHaveBeenLastCalledWith('running');
     expect(fixture.subscribe).toHaveBeenCalledOnce();
     expect(fixture.unsubscribe).not.toHaveBeenCalled();
     emit({ kind: 'final', text: '第一段不能丢最后一段' });
     act(() => root.render(h(AssistantPanel, props)));
     flushFrame();
     expect(host.querySelector('.stream-body')?.textContent).toBe('第一段不能丢最后一段');
+    expect(props.onActivityChange).toHaveBeenLastCalledWith('finished');
     expect(fixture.utils.account.getAssistantConversation.invalidate).toHaveBeenCalledWith({
       sessionId: props.sessionId,
     });
@@ -152,3 +163,42 @@ it('流式重渲不重建订阅，尚未刷新的增量在父组件重渲后仍�
   expect(fixture.unsubscribe).toHaveBeenCalledOnce();
   expect(frames.size).toBe(0);
 });
+
+it.each(['stream-error', 'send-error', 'aborted'] as const)(
+  '助手 %s 从在途转为结束提醒',
+  async (kind) => {
+    fixture.sendError = kind === 'send-error';
+    rememberAssistantDraft('activity-errors', 'session', '合成问题');
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const activity = vi.fn();
+    try {
+      act(() =>
+        root.render(
+          h(AssistantPanel, {
+            sessionId: 'session',
+            draftAccount: 'activity-errors',
+            chatModels: [],
+            compact: true,
+            onBack: vi.fn(),
+            onSessionCreated: vi.fn(),
+            onActivityChange: activity,
+          }),
+        ),
+      );
+      await act(async () =>
+        host.querySelector<HTMLButtonElement>('[aria-label="发送消息"]')!.click(),
+      );
+      expect(activity).toHaveBeenCalledWith('running');
+      if (kind !== 'send-error') {
+        emit(
+          kind === 'stream-error' ? { kind: 'error', message: '合成流错误' } : { kind: 'aborted' },
+        );
+        flushFrame();
+      }
+      expect(activity).toHaveBeenLastCalledWith('finished');
+    } finally {
+      act(() => root.unmount());
+    }
+  },
+);

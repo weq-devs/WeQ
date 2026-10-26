@@ -1,6 +1,8 @@
 import { act, createElement as h, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceTools } from '../src/renderer/src/components/WorkspaceTools';
 import {
@@ -10,7 +12,11 @@ import {
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import { useUpdateStore } from '../src/renderer/src/state/update';
 
-const fixture = vi.hoisted(() => ({ mounts: 0, clones: [] }));
+const fixture = vi.hoisted(() => ({
+  mounts: 0,
+  clones: [],
+  exports: [] as { status: 'running' | 'completed' | 'failed' }[],
+}));
 vi.mock('../src/renderer/src/views/agentlab/cloneTaskStore', () => ({
   getCloneTasks: () => fixture.clones,
   subscribeCloneTasks: () => () => {},
@@ -31,7 +37,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({}),
     account: {
-      listExportTasks: { useQuery: () => ({ data: [] }) },
+      listExportTasks: { useQuery: () => ({ data: fixture.exports }) },
       roamingBackfill: { list: { useQuery: () => ({ data: { jobs: [] } }) } },
       flashListDownloadTasks: { useQuery: () => ({ data: [] }) },
     },
@@ -61,12 +67,86 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   fixture.mounts = 0;
-  useWorkspaceMenu.setState({ anchor: null, running: 0, failed: 0 });
+  fixture.exports = [];
+  useWorkspaceMenu.setState({
+    anchor: null,
+    running: 0,
+    failed: 0,
+    finished: 0,
+    assistant: 'idle',
+  });
   useUpdateStore.setState({ available: false });
 });
 afterEach(() => vi.unstubAllGlobals());
 
 describe('统一竖向工作菜单', () => {
+  it('菜单汇总蓝红点，切换按钮只显示另一侧状态，版本更新不串到切换按钮', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = () =>
+      act(() =>
+        root.render(
+          h(
+            'div',
+            null,
+            h(WorkspaceMenuButton),
+            h(WorkspaceTools, {
+              accountScope: 'indicators',
+              footerControls: null,
+              onOpenAnalysis: vi.fn(),
+            }),
+          ),
+        ),
+      );
+    const trigger = () => host.querySelector<HTMLButtonElement>('.weq-workspace-menu-trigger')!;
+    const switchButton = () =>
+      document.querySelector<HTMLButtonElement>(
+        '.weq-workspace-menu-head-actions button[aria-label^="切换到"]',
+      )!;
+    try {
+      render();
+      act(() => trigger().click());
+      act(() => useUpdateStore.setState({ available: true }));
+      expect(trigger().querySelector('.is-finished')).not.toBeNull();
+      expect(switchButton().querySelector('.weq-workspace-dot')).toBeNull();
+      act(() => useWorkspaceMenu.getState().setAssistant('running'));
+      expect(trigger().querySelector('.is-running')).not.toBeNull();
+      expect(switchButton().querySelector('.is-running')).not.toBeNull();
+      const output = process.env.WEQ_WORKSPACE_LAYOUT_DIR;
+      if (output) {
+        mkdirSync(output, { recursive: true });
+        const styles = ['index.css', 'workspace-menu.css', 'rail-navigation.css']
+          .map((file) => readFileSync(resolve('src/renderer/src/styles', file), 'utf8'))
+          .join('\n');
+        writeFileSync(
+          resolve(output, 'workspace-indicators.html'),
+          `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${styles}</style><style>body{margin:20px;font-family:system-ui;background:var(--background);color:var(--foreground)}*,*::before,*::after{box-sizing:border-box}.weq-workspace-menu{width:320px}</style><body>${host.innerHTML}${document.querySelector('.weq-workspace-menu')!.outerHTML}</body></html>`,
+        );
+      }
+      act(() => useWorkspaceMenu.getState().setAssistant('finished'));
+      expect(switchButton().querySelector('.is-finished')).not.toBeNull();
+      fixture.exports = [{ status: 'running' }, { status: 'completed' }, { status: 'failed' }];
+      render();
+      expect(useWorkspaceMenu.getState()).toMatchObject({ running: 1, finished: 2, failed: 1 });
+      expect(trigger().querySelector('.is-running')).not.toBeNull();
+      expect(switchButton().querySelector('.is-finished')).not.toBeNull();
+      act(() => switchButton().click());
+      expect(switchButton().querySelector('.is-running')).not.toBeNull();
+      fixture.exports = [{ status: 'completed' }, { status: 'completed' }, { status: 'failed' }];
+      render();
+      expect(switchButton().querySelector('.is-finished')).not.toBeNull();
+      expect(trigger().querySelector('.is-finished')).not.toBeNull();
+      fixture.exports = [];
+      render();
+      expect(switchButton().querySelector('.weq-workspace-dot')).toBeNull();
+      expect(trigger().querySelector('.is-finished')).not.toBeNull();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+
   it('点击打开，四个工具顺序固定，任务与助手展开收起保持同一子树', () => {
     const host = document.createElement('div');
     document.body.append(host);

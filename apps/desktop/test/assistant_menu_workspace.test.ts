@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantMenuWorkspace } from '../src/renderer/src/views/agentlab/AssistantMenuWorkspace';
+import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
+import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
+import type { AssistantActivity } from '../src/renderer/src/lib/workspaceIndicators';
 import {
   readAssistantDraft,
   readAssistantSession,
@@ -17,6 +20,7 @@ const fixture = vi.hoisted(() => ({
   ],
   mounts: 0,
   created: null as null | (() => void),
+  activity: new Map<string, (activity: AssistantActivity) => void>(),
 }));
 vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
   useAppDialog: () => ({ confirm: async () => true, error: vi.fn() }),
@@ -39,15 +43,18 @@ vi.mock('../src/renderer/src/views/agentlab/AssistantPanel', () => ({
   AssistantPanel: ({
     sessionId,
     onSessionCreated,
+    onActivityChange,
   }: {
     sessionId: string | null;
     onSessionCreated: (id: string) => void;
+    onActivityChange: (activity: AssistantActivity) => void;
   }) => {
     const [draft, setDraft] = useState('');
     useEffect(() => {
       fixture.mounts++;
     }, []);
     if (!sessionId) fixture.created = () => onSessionCreated('created');
+    fixture.activity.set(sessionId ?? 'new', onActivityChange);
     return h(
       'div',
       { 'data-session': sessionId ?? 'new' },
@@ -60,6 +67,8 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', new Storage());
   fixture.mounts = 0;
   fixture.created = null;
+  fixture.activity.clear();
+  useWorkspaceMenu.getState().setAssistant('idle');
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 });
 afterEach(() => {
@@ -68,6 +77,50 @@ afterEach(() => {
 });
 
 describe('菜单助手会话', () => {
+  it('只统计当前选中的会话，菜单隐藏后仍更新，回到旧会话恢复对应状态', () => {
+    rememberAssistantSession('activity', 'chosen');
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const render = (active: boolean) =>
+      act(() =>
+        root.render(
+          h(
+            TabActivity,
+            { active },
+            h(AssistantMenuWorkspace, { accountScope: 'activity', compact: false }),
+          ),
+        ),
+      );
+    try {
+      render(true);
+      act(() => fixture.activity.get('chosen')!('running'));
+      expect(useWorkspaceMenu.getState().assistant).toBe('running');
+      render(false);
+      act(() => fixture.activity.get('chosen')!('finished'));
+      expect(useWorkspaceMenu.getState().assistant).toBe('finished');
+      render(true);
+      act(() =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '后台更新的会话')!
+          .click(),
+      );
+      expect(useWorkspaceMenu.getState().assistant).toBe('idle');
+      act(() => fixture.activity.get('chosen')!('running'));
+      expect(useWorkspaceMenu.getState().assistant).toBe('idle');
+      act(() => fixture.activity.get('background')!('finished'));
+      expect(useWorkspaceMenu.getState().assistant).toBe('finished');
+      act(() =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '主动选择的会话')!
+          .click(),
+      );
+      expect(useWorkspaceMenu.getState().assistant).toBe('running');
+    } finally {
+      act(() => root.unmount());
+    }
+    expect(useWorkspaceMenu.getState().assistant).toBe('idle');
+  });
+
   it('账号分别记忆，后台排序不改变主动选择，展开收起不重挂会话', () => {
     rememberAssistantSession('account-a/config-a', 'chosen');
     rememberAssistantSession('account-a/config-b', 'background');

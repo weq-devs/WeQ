@@ -3,6 +3,14 @@
   position: relative;
 }
 
+:root {
+  --weq-workspace-running-dot: #2478df;
+}
+
+html[data-theme='dark'] {
+  --weq-workspace-running-dot: #69b1ff;
+}
+
 .weq-workspace-dot {
   position: absolute;
   top: 5px;
@@ -11,6 +19,10 @@
   height: 6px;
   border-radius: 50%;
   background: var(--destructive);
+}
+
+.weq-workspace-dot.is-running {
+  background: var(--weq-workspace-running-dot);
 }
 
 .weq-workspace-count {

@@ -62,6 +62,7 @@ import type { GeneratedSearchHit } from '../../components/search/types';
 import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
 import { useGeneratedSelection } from './useGeneratedSelection';
 import { readAssistantDraft, rememberAssistantDraft } from '../../lib/assistantWorkspace';
+import type { AssistantActivity } from '../../lib/workspaceIndicators';
 
 interface Turn {
   id?: string;
@@ -483,6 +484,7 @@ export function AssistantPanel({
   compact = false,
   draftAccount,
   workspaceTitle,
+  onActivityChange,
 }: {
   /** 真实会话 id；`null` 表示草稿会话——用户真正发第一条消息时才落库。 */
   sessionId: string | null;
@@ -494,6 +496,7 @@ export function AssistantPanel({
   compact?: boolean;
   draftAccount?: string;
   workspaceTitle?: string;
+  onActivityChange?: (activity: AssistantActivity) => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
@@ -520,6 +523,7 @@ export function AssistantPanel({
   const saveConfig = trpc.account.setAssistantConfig.useMutation();
 
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [requestFailed, setRequestFailed] = useState(false);
   const [input, setInput] = useState(() =>
     draftAccount ? readAssistantDraft(draftAccount, sessionId) : '',
   );
@@ -559,6 +563,14 @@ export function AssistantPanel({
   );
 
   const busy = turns.some((t) => t.running);
+  const activity = busy
+    ? 'running'
+    : requestFailed || turns.some((turn) => turn.role === 'assistant')
+      ? 'finished'
+      : 'idle';
+  useEffect(() => {
+    onActivityChange?.(activity);
+  }, [activity, onActivityChange]);
   const selection = useGeneratedSelection(
     { kind: 'assistant', ownerId: 'assistant', sessionId: currentSessionId },
     turns,
@@ -745,6 +757,7 @@ export function AssistantPanel({
       return;
     }
     const text = raw.trim();
+    setRequestFailed(false);
     if (!preset) {
       setInput('');
       if (inputRef.current) inputRef.current.style.height = 'auto';
@@ -775,6 +788,7 @@ export function AssistantPanel({
       runIdRef.current = runId;
     } catch (e) {
       dialog.error('发送失败', e instanceof Error ? e.message : String(e));
+      setRequestFailed(true);
       // 回滚刚加入的两条。
       setTurns((prev) => prev.slice(0, -2));
       if (!preset) setInput(text);
@@ -797,6 +811,7 @@ export function AssistantPanel({
       void utils.account.getAssistantResumeState.invalidate({ sessionId: id });
     }
     setTurns([]);
+    setRequestFailed(false);
     stickRef.current = true;
     runIdRef.current = null;
   }
@@ -825,6 +840,7 @@ export function AssistantPanel({
   async function onResume(): Promise<void> {
     const id = sessionIdRef.current;
     if (!id || busy) return;
+    setRequestFailed(false);
     setTurns((prev) => {
       const next = [...prev];
       const last = next[next.length - 1];
