@@ -15,6 +15,7 @@
 
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
+import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { isToastDuration } from '@weq/service/toast-settings';
 import {
   copyExportSavePolicy,
@@ -54,6 +55,7 @@ import { runLogRetentionSweep } from '../../log_retention';
 import { takePendingConversationJump, takePendingGroupJump } from '../../group_keyword_bus';
 import { readNativeBuildInfo } from '@weq/native';
 import { procedure, router } from '../trpc';
+import { fullModeAllowed } from '../../context/full_mode';
 import { backupProcedures } from './backup';
 import {
   accountConfigId,
@@ -109,7 +111,7 @@ function backupScanContext() {
   return {
     configs,
     options: {
-      allowOnline: boot.userConfig.getSettings().autoAttachQq !== false,
+      allowOnline: fullModeAllowed(getAppContext()),
       attachHook: boot.attachHook,
       keyContext: createOtherDeviceKeyContext(),
       resolveOnline: () =>
@@ -648,19 +650,22 @@ export const bootstrapRouter = router({
     return true;
   }),
 
-  /**
-   * Toggle 自动读取 QQ 内存（完整功能总闸）. Persists, and the account monitor reads
-   * it live on its next poll so attach / harvesting starts or stops
-   * immediately (no re-open needed). 关闭 = 完全离线模式。
-   *
-   * 三端都允许开启：macOS 也能读内存（需 root 且关闭 SIP），门槛交给用户自己
-   * 决定 —— 真正读取失败时由 attach 链给出提权 / SIP 提示，不在这里预先拒绝。
-   */
+  /** 各窗口与 Web 客户端读取同一宿主的有效运行态。 */
+  getFullModeState: procedure.query(() => ({ allowed: fullModeAllowed(getAppContext()) })),
+
+  setRestrictedModeBannerEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }).strict())
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ restrictedModeBannerEnabled: input.enabled });
+      return true;
+    }),
+
+  /** 只保存自动进入策略；真实授权仍由 attach 链处理，不撤销本来源手动请求。 */
   setAutoAttachQq: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(async ({ input }) => {
       requireBootstrap().userConfig.setSettings({ autoAttachQq: input.enabled });
-      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
+      getAppContext().applyFullModePolicy();
       return true;
     }),
 
@@ -668,6 +673,17 @@ export const bootstrapRouter = router({
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ reportReadEnabled: input.enabled });
+      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
+      return true;
+    }),
+
+  setReadSyncEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }).strict())
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({
+        reportReadEnabled: input.enabled,
+        manualReadReportEnabled: input.enabled,
+      });
       if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
       return true;
     }),
@@ -861,11 +877,32 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setShowContactUnreadCount: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showContactUnreadCount: input.enabled });
+      return true;
+    }),
+
   setJumpToLatestAfterSend: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ jumpToLatestAfterSend: input.enabled });
       return true;
+    }),
+
+  setShowScrollToBottomButton: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showScrollToBottomButton: input.enabled });
+      return true;
+    }),
+
+  setChatImageCacheMiB: procedure
+    .input(z.object({ miB: z.number().int().min(0).max(MAX_CHAT_IMAGE_CACHE_MIB) }))
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({ chatImageCacheMiB: input.miB })
+        .chatImageCacheMiB;
     }),
 
   setSendWithQqFont: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
@@ -2282,7 +2319,7 @@ export const bootstrapRouter = router({
       for (const config of configs) if (config.uid) rememberAccountUid(config.uin, config.uid);
       return probeBackup(requirePlatform(), configs, dbDir, {
         dbKey: input.dbKey,
-        allowOnline: boot.userConfig.getSettings().autoAttachQq !== false,
+        allowOnline: fullModeAllowed(getAppContext()),
         attachHook: boot.attachHook,
         resolveOnline: () =>
           import('../../capture_session').then(({ resolveOnlineInstances }) =>

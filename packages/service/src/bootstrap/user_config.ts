@@ -16,14 +16,7 @@
  * track those files — TTL / pruning belongs in whoever wrote them.
  */
 
-import {
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-  readdirSync,
-  unlinkSync,
-  existsSync,
-} from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, unlinkSync, existsSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
@@ -36,7 +29,12 @@ import {
   type HomeSettings,
 } from '../common/home_settings';
 import type { ExportFormat } from '../account/export/types';
+import {
+  DEFAULT_CHAT_IMAGE_CACHE_MIB,
+  normalizeChatImageCacheMiB,
+} from '../common/chat_image_cache';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
+import { writeFileAtomicSync } from '../common/atomic_write';
 import { getLogger, logErrorContext } from '../common/logger';
 import {
   listStorageUsage,
@@ -489,17 +487,20 @@ export interface AppSettings {
   exportSaveMode: import('../account/export/save_output').ExportSaveMode;
   realtimeEnabled: boolean;
   /**
-   * 完全离线总闸（设置 → 账号基础 → 自动读取 QQ 内存）。
+   * 自动启用完整功能策略（设置 → 凭据与账号 → 监听与读取）。
    *
    * 默认**关闭**：是否读取登录中的 QQ 进程内存，由用户在**首次运行欢迎框**里
    * 自己选择（见 {@link WELCOME_POLICY_VERSION}）。开启后后台自动读进程内存，
    * 采集 a2 / d2 / d2key 与 rKey / ClientKey / 装扮快照等凭证，驱动漫游消息、
    * 媒体补全、发送消息 / 群操作 / 群管理、一键反馈 bug、群相册、Web 凭证
    * （skey/pskey）等在线功能。
-   * 关闭进入完全离线模式：不再读内存、不再采集、不再联网换取凭证，仅使用本地
-   * 数据库与本地文件。唯一豁免：登录时的数据库密钥提取。
+   * 关闭只停止自动尝试，宿主仍可持有本来源的手动请求；在线消费点检查宿主的
+   * 有效运行态与真实凭据，不直接拿本偏好作总闸。手动请求不持久化或进入备份。
+   * 登录时的数据库密钥提取仍独立于此策略。
    */
   autoAttachQq: boolean;
+  /** 进入受限状态的被动横幅；不隐藏真实授权请求或主动错误。 */
+  restrictedModeBannerEnabled: boolean;
   /** 仅桌面客户端启动时启用本机 Web 服务；默认关闭。 */
   webServiceAutoStart: boolean;
   /** 系统登录自启时显示主窗口，默认关闭；手动打开不受影响。 */
@@ -562,10 +563,16 @@ export interface AppSettings {
   showMessageTime: boolean;
   /** 左栏「消息」入口显示汇总未读角标，不改变阅读状态。 */
   showMessageUnreadBadge: boolean;
+  /** 联系人界面的好友与群聊显示未读消息数，不改变阅读状态。 */
+  showContactUnreadCount: boolean;
   /** 进入会话时恢复阅读位置，从第一条新消息继续阅读。 */
   readFromFirstUnread: boolean;
   /** 发送成功后定位到当前会话的最新消息。 */
   jumpToLatestAfterSend: boolean;
+  /** 向下浏览消息时显示定位到底部按钮，不影响新消息提醒。 */
+  showScrollToBottomButton: boolean;
+  /** 每个渲染窗口的聊天图片与表情预览保留预算（MiB，按解码像素估算）。 */
+  chatImageCacheMiB: number;
   /** 发送文本时显式携带 QQ 账号当前的个性字体。 */
   sendWithQqFont: boolean;
   /** 群助手入口显示汇总未读消息数，而不是仅显示圆点。 */
@@ -825,6 +832,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // 默认关闭：是否扫描 QQ 内存由首次运行欢迎框征得同意后再打开，见
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
+  restrictedModeBannerEnabled: true,
   webServiceAutoStart: false,
   showWindowOnAutostart: false,
   reportReadEnabled: false,
@@ -854,8 +862,11 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showMessageSeq: false,
   showMessageTime: false,
   showMessageUnreadBadge: true,
+  showContactUnreadCount: false,
   readFromFirstUnread: false,
   jumpToLatestAfterSend: true,
+  showScrollToBottomButton: true,
+  chatImageCacheMiB: DEFAULT_CHAT_IMAGE_CACHE_MIB,
   sendWithQqFont: true,
   showGroupAssistantMessageCount: false,
   externalChatpic: { dir: '', enabled: false },
@@ -940,6 +951,7 @@ export class UserConfigService {
   private readonly root: string;
   private readonly configPath: string;
   private cached: UserConfig | undefined;
+  private readFailure: unknown;
   private skipAutoEnterThisStartup: boolean | undefined;
   private readonly logger = getLogger().child({ scope: 'user-config' });
 
@@ -1032,7 +1044,10 @@ export class UserConfigService {
           if (raw.groupKeyword !== undefined) continue; // 已经按账号配过了，不动它
           const config = normalizeAccountConfig(raw);
           if (!config.configId) config.configId = basename(file, '.json');
-          writeFileSync(filePath, JSON.stringify({ ...config, groupKeyword: rules }, null, 2));
+          writeFileAtomicSync(
+            filePath,
+            JSON.stringify({ ...config, groupKeyword: rules }, null, 2),
+          );
           written++;
         } catch (error) {
           this.logger.warn('skipped account config during group keyword migration', {
@@ -1083,7 +1098,7 @@ export class UserConfigService {
         if (raw.uin !== uin || raw.uid === uid) continue;
         const config = normalizeAccountConfig(raw);
         if (!config.configId) config.configId = basename(file, '.json');
-        writeFileSync(filePath, JSON.stringify({ ...config, uid }, null, 2), 'utf-8');
+        writeFileAtomicSync(filePath, JSON.stringify({ ...config, uid }, null, 2));
         updated++;
       } catch (error) {
         this.logger.warn('skipped account config while storing uid', {
@@ -1133,7 +1148,7 @@ export class UserConfigService {
         if (!config.configId) config.configId = basename(file, '.json');
         // 按旧 guid 解出来的 A1 payload 已经失效：删掉，让下次开会话重解。
         const { a1Payload: _stale, ...rest } = config;
-        writeFileSync(filePath, JSON.stringify({ ...rest, guid }, null, 2), 'utf-8');
+        writeFileAtomicSync(filePath, JSON.stringify({ ...rest, guid }, null, 2));
         updated++;
       } catch (error) {
         this.logger.warn('skipped account config while rotating guid', {
@@ -1174,7 +1189,7 @@ export class UserConfigService {
         const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as AccountConfig;
         if (raw.uin !== uin || raw.a1Payload === undefined) continue;
         const { a1Payload: _dropped, ...rest } = raw;
-        writeFileSync(filePath, JSON.stringify(rest, null, 2), 'utf-8');
+        writeFileAtomicSync(filePath, JSON.stringify(rest, null, 2));
         updated++;
       } catch (error) {
         this.logger.warn('skipped account config while clearing a1 payload', {
@@ -1275,13 +1290,17 @@ export class UserConfigService {
     let raw: string;
     try {
       raw = readFileSync(this.configPath, 'utf-8');
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.readFailure = error;
       this.cached = {};
       return this.cached;
     }
     try {
       this.cached = JSON.parse(raw) as UserConfig;
+      if (!this.cached || typeof this.cached !== 'object' || Array.isArray(this.cached))
+        throw new Error('配置必须是 JSON 对象');
     } catch (error) {
+      this.readFailure = error;
       this.logger.warn('failed to parse config.json; using empty config', {
         event: 'config-parse-failed',
         configPath: this.configPath,
@@ -1294,14 +1313,19 @@ export class UserConfigService {
 
   reload(): void {
     this.cached = undefined;
+    this.readFailure = undefined;
   }
 
   write(patch: Partial<UserConfig>): UserConfig {
     const current = this.read();
+    if (this.readFailure)
+      throw new Error('配置文件读取失败，已保留原件并阻止覆盖；请修复文件后重新加载。', {
+        cause: this.readFailure,
+      });
     const next: UserConfig = { ...current, ...patch };
     mkdirSync(this.root, { recursive: true });
     try {
-      writeFileSync(this.configPath, JSON.stringify(next, null, 2), 'utf-8');
+      writeFileAtomicSync(this.configPath, JSON.stringify(next, null, 2));
     } catch (error) {
       this.logger.error('failed to write user config', {
         event: 'config-write-failed',
@@ -1358,6 +1382,7 @@ export class UserConfigService {
           ? s.exportSaveMode
           : d.exportSaveMode,
       autoAttachQq,
+      restrictedModeBannerEnabled: s?.restrictedModeBannerEnabled !== false,
       webServiceAutoStart: s?.webServiceAutoStart === true,
       showWindowOnAutostart: s?.showWindowOnAutostart === true,
       reportReadEnabled: s?.reportReadEnabled === true,
@@ -1380,8 +1405,11 @@ export class UserConfigService {
       showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
       showMessageTime: s?.showMessageTime ?? d.showMessageTime,
       showMessageUnreadBadge: s?.showMessageUnreadBadge ?? d.showMessageUnreadBadge,
+      showContactUnreadCount: s?.showContactUnreadCount ?? d.showContactUnreadCount,
       readFromFirstUnread: s?.readFromFirstUnread ?? d.readFromFirstUnread,
       jumpToLatestAfterSend: s?.jumpToLatestAfterSend ?? d.jumpToLatestAfterSend,
+      showScrollToBottomButton: s?.showScrollToBottomButton ?? d.showScrollToBottomButton,
+      chatImageCacheMiB: normalizeChatImageCacheMiB(s?.chatImageCacheMiB),
       sendWithQqFont: s?.sendWithQqFont ?? d.sendWithQqFont,
       showGroupAssistantMessageCount:
         s?.showGroupAssistantMessageCount ?? d.showGroupAssistantMessageCount,
@@ -1470,6 +1498,8 @@ export class UserConfigService {
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
+      restrictedModeBannerEnabled:
+        patch.restrictedModeBannerEnabled ?? current.restrictedModeBannerEnabled,
       webServiceAutoStart: patch.webServiceAutoStart ?? current.webServiceAutoStart,
       showWindowOnAutostart: patch.showWindowOnAutostart ?? current.showWindowOnAutostart,
       reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,
@@ -1493,8 +1523,13 @@ export class UserConfigService {
       showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
       showMessageTime: patch.showMessageTime ?? current.showMessageTime,
       showMessageUnreadBadge: patch.showMessageUnreadBadge ?? current.showMessageUnreadBadge,
+      showContactUnreadCount: patch.showContactUnreadCount ?? current.showContactUnreadCount,
       readFromFirstUnread: patch.readFromFirstUnread ?? current.readFromFirstUnread,
       jumpToLatestAfterSend: patch.jumpToLatestAfterSend ?? current.jumpToLatestAfterSend,
+      showScrollToBottomButton: patch.showScrollToBottomButton ?? current.showScrollToBottomButton,
+      chatImageCacheMiB: normalizeChatImageCacheMiB(
+        patch.chatImageCacheMiB ?? current.chatImageCacheMiB,
+      ),
       sendWithQqFont: patch.sendWithQqFont ?? current.sendWithQqFont,
       showGroupAssistantMessageCount:
         patch.showGroupAssistantMessageCount ?? current.showGroupAssistantMessageCount,
@@ -1672,7 +1707,7 @@ export class UserConfigService {
   /**
    * 确认首次运行欢迎框，并记录用户在框里对「扫描 QQ 内存」的选择。
    *
-   * `allowMemoryScan` 直接落到 `autoAttachQq`（完整功能总闸）—— 欢迎框就是它的征询入口。
+   * `allowMemoryScan` 保存为 `autoAttachQq` 自动策略；欢迎框不创建本来源的手动请求。
    * 确认时一并写入当前策略版本，之后不再重复弹出。
    */
   acknowledgeWelcome(options: { allowMemoryScan: boolean }): void {

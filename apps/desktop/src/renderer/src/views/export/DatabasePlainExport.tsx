@@ -10,26 +10,45 @@ import { DatabasePicker } from './DatabasePicker';
 import { fmtBytes } from './types';
 import '../../styles/database-plain-export.css';
 import '../../styles/export.css';
+import { useTabActive } from '../../components/RetainedTabs';
+import {
+  databaseExportTargetMatches,
+  type DatabaseExportTarget,
+} from '../../../../shared/database_export_target';
 
 type Mode = 'safe' | 'fast';
 
 export function DatabasePlainExport({
   accountUin,
   onStarted,
+  target,
 }: {
   accountUin: string;
   onStarted?: () => void;
+  target?: DatabaseExportTarget;
 }) {
-  const databases = trpc.account.listDatabases.useQuery(undefined, { refetchOnMount: 'always' });
+  const tabActive = useTabActive();
+  const tabActiveRef = useRef(tabActive);
+  tabActiveRef.current = tabActive;
   const dialog = useAppDialog();
   const [selected, setSelected] = useState(new Set<string>());
   const [busy, setBusy] = useState<Mode | null>(null);
   const [error, setError] = useState('');
   const active = useRef(true);
   const pending = useRef(false);
+  const refreshOnResume = useRef(false);
   const { binding, prepareSave, isCurrent, serverLocation, chooseServerLocation } =
     useExportSavePolicy();
+  const matchesSource = !target || databaseExportTargetMatches(target, binding);
+  const databases = trpc.account.listDatabases.useQuery(undefined, {
+    enabled: tabActive && matchesSource,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  });
+  const appliedTarget = useRef<DatabaseExportTarget | null>(null);
   useEffect(() => {
+    appliedTarget.current = null;
+    refreshOnResume.current = false;
     setSelected(new Set());
     setError('');
     setBusy(null);
@@ -40,11 +59,24 @@ export function DatabasePlainExport({
       active.current = false;
     };
   }, []);
-  const current = () =>
+  const sameSource = () =>
     active.current &&
     useViewState.getState().openedUin === accountUin &&
     binding?.expectedAccountUin === accountUin &&
+    matchesSource &&
     isCurrent();
+  const current = () => tabActiveRef.current && sameSource();
+  useEffect(() => {
+    if (!tabActive || !refreshOnResume.current) return;
+    refreshOnResume.current = false;
+    if (
+      active.current &&
+      matchesSource &&
+      useViewState.getState().openedUin === accountUin &&
+      isCurrent()
+    )
+      onStarted?.();
+  }, [tabActive, matchesSource, accountUin, isCurrent, onStarted]);
   const items = useMemo(
     () =>
       (databases.data ?? []).map((database) => ({
@@ -56,9 +88,27 @@ export function DatabasePlainExport({
     [databases.data],
   );
   const chosen = items.filter((item) => selected.has(item.path));
+  useEffect(() => {
+    if (!target || !matchesSource || !databases.data || appliedTarget.current === target) return;
+    appliedTarget.current = target;
+    setSelected(new Set(target.dbPaths.filter((path) => items.some((item) => item.path === path))));
+  }, [target, matchesSource, databases.data, items]);
+  const missingTargets =
+    target && databases.data && matchesSource
+      ? target.dbPaths.filter((path) => !items.some((item) => item.path === path))
+      : [];
 
   async function run(mode: Mode, intent?: ExportSavePolicy) {
-    if (pending.current || !chosen.length || !binding || !current()) return;
+    if (
+      pending.current ||
+      !chosen.length ||
+      !binding ||
+      !current() ||
+      databases.isError ||
+      databases.isLoading ||
+      databases.isFetching
+    )
+      return;
     const targets = chosen.map((item) => ({ ...item }));
     const expected = { ...binding };
     pending.current = true;
@@ -87,22 +137,40 @@ export function DatabasePlainExport({
         savePolicy,
         dbPaths: targets.map((item) => item.path),
       });
-      if (!current()) return;
+      if (!sameSource()) return;
       setSelected(new Set());
-      onStarted?.();
+      if (tabActiveRef.current) onStarted?.();
+      else refreshOnResume.current = true;
     } catch (cause) {
       if (current()) setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       pending.current = false;
-      if (current()) setBusy(null);
+      if (sameSource()) setBusy(null);
     }
   }
 
   const totalBytes = chosen.reduce((sum, database) => sum + database.bytes, 0);
-  const ready = Boolean(binding) && chosen.length > 0 && !busy;
+  const ready =
+    Boolean(binding) &&
+    matchesSource &&
+    tabActive &&
+    chosen.length > 0 &&
+    !busy &&
+    !databases.isError &&
+    !databases.isLoading &&
+    !databases.isFetching;
 
   return (
     <div className="weq-database-plain-export">
+      {!matchesSource ? (
+        <p className="weq-db-cards-error" role="alert">
+          数据库导出来源已变化，请从当前数据库管理页重新打开。
+        </p>
+      ) : missingTargets.length > 0 ? (
+        <p className="weq-db-cards-error" role="alert">
+          原选数据库在当前来源中已不存在，请重新选择，不会自动改为全部数据库。
+        </p>
+      ) : null}
       {serverLocation && (
         <ServerSavePrompt name={serverLocation.name} onChoose={chooseServerLocation} />
       )}
@@ -122,7 +190,7 @@ export function DatabasePlainExport({
         onChange={(next) => {
           if (!busy) setSelected(next);
         }}
-        disabled={Boolean(busy)}
+        disabled={Boolean(busy) || !matchesSource || !tabActive}
       />
 
       <div className="weq-db-actionbar">

@@ -18,6 +18,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import { trpc } from '../trpc/client';
+import { isDefaultModelSelection } from '@weq/agentlab/model-selection';
+import { useModelSelectionLabel } from '../components/settings/useModelSelectionLabel';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useAppDialog } from '../lib/dialogUtils';
 import { QqAvatar } from '../components/QqAvatar';
@@ -820,12 +822,17 @@ export function AgentLabView({
   }
 
   // 克隆体头部副标题：provider · 模型 · 样本 N 条。
+  const selectionLabel = useModelSelectionLabel();
   const personaModelLabel = useMemo(() => {
     if (!activePersona) return '加载中…';
-    const p = (providers.data ?? []).find((pr) => pr.id === activePersona.models?.chat?.providerId);
-    const modelText = activePersona.models?.chat?.model ?? '旧版克隆，请重建';
+    const ref = activePersona.models?.chat;
+    const p =
+      ref && !isDefaultModelSelection(ref)
+        ? (providers.data ?? []).find((pr) => pr.id === ref.providerId)
+        : undefined;
+    const modelText = selectionLabel(ref, '旧版克隆，请重建');
     return `${p ? `${p.name} · ` : ''}${modelText} · 样本 ${activePersona.corpusMessageCount} 条`;
-  }, [activePersona, providers.data]);
+  }, [activePersona, providers.data, selectionLabel]);
 
   return (
     <div

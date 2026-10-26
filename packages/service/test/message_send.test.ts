@@ -1005,10 +1005,14 @@ describe('MessageSendService.sendText（离线集成）', () => {
     expect(native.calls).toHaveLength(0);
   });
 
-  it('窗口抖动：私聊路由 + 独占一枚 commonElem(serviceType=2, businessType=1)', async () => {
+  it('默认戳一戳互动表情保留私聊路由及 commonElem(serviceType=2, businessType=1)', async () => {
     const native = fakeNative();
     const svc = new MessageSendService(native as never, fakeSession(), () => 1);
-    const outcome = await svc.sendWindowShake({ targetId: 'u_friend' });
+    const outcome = await svc.sendElements({
+      peerType: 'c2c',
+      targetId: 'u_friend',
+      elements: [{ kind: 'pokeEmoji', pokeId: 1 }],
+    });
 
     expect(outcome.ok).toBe(true);
     expect(outcome.peerType).toBe('c2c');
@@ -1018,13 +1022,13 @@ describe('MessageSendService.sendText（离线集成）', () => {
       routingHead?: { c2c?: { uin?: number; uid?: string }; grp?: unknown };
       messageBody?: { richText?: { elems?: Record<string, unknown>[] } };
     };
-    // 一律走私聊路由：群聊没有「窗口抖动」这个能力。
+    // 私聊目标仍补齐 QQ 号和 UID。
     expect(body.routingHead?.c2c?.uin).toBe(20002);
     expect(body.routingHead?.c2c?.uid).toBe('u_friend');
     expect(body.routingHead?.grp).toBeUndefined();
 
     const elems = body.messageBody?.richText?.elems ?? [];
-    // 必须独占一条：多带一个元素服务端就会拒绝。
+    // 单枚互动表情不附加其他正文元素。
     expect(elems).toHaveLength(1);
     const common = elems[0]!.commonElem as {
       serviceType: number;
@@ -1117,6 +1121,22 @@ describe('MessageSendService.sendText（离线集成）', () => {
 });
 
 describe('sendFile（群文件 / 私聊文件）', () => {
+  it('私聊文件透传发送前身份检查，失效时不进入网络请求', async () => {
+    const filePath = path.join(dir, 'private-guard.txt');
+    await fsp.writeFile(filePath, 'synthetic');
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    await expect(
+      svc.sendFile({
+        peerType: 'c2c',
+        targetId: 'u_friend',
+        path: filePath,
+        beforeSend: () => {
+          throw new Error('合成账号已切换');
+        },
+      }),
+    ).rejects.toThrow('合成账号已切换');
+  });
   /** 群文件管线用的记账 native：0x6D6_0 回「秒传命中 + fileId」，0x6D9_4 回空。 */
   function groupFileNative() {
     const calls: { command: number; subCommand: number }[] = [];

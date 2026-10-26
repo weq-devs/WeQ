@@ -210,6 +210,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         getAccountConfig: {
           useQuery: () => ({ data: { uin: '10001', configId: state.configId } }),
         },
+        getProfile: { useQuery: () => ({ data: null }) },
         qqActions: Object.fromEntries(
           reads.map((name) => [
             name,

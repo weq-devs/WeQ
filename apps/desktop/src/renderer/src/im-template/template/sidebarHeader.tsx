@@ -17,7 +17,11 @@ import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactL
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
-import { allSelectionIdsSelected, toggleAllSelectionIds } from '../../lib/multiSelection';
+import {
+  allSelectionIdsSelected,
+  toggleAllSelectionIds,
+  invertSelectionIds,
+} from '../../lib/multiSelection';
 import { cn } from './classNames';
 import { Avatar } from './primitives';
 import type { ContactTab, MainView, User } from './types';
@@ -234,6 +238,11 @@ export function SidebarHeader({
             onSelectAll={() =>
               selection.setSelectedIds(
                 toggleAllSelectionIds(directory?.ids ?? [], selection.selectedIds),
+              )
+            }
+            onInvert={() =>
+              selection.setSelectedIds(
+                invertSelectionIds(directory?.ids ?? [], selection.selectedIds),
               )
             }
           >

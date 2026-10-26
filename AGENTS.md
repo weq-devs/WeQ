@@ -11,7 +11,7 @@ WeQ 是 QQ NT 本地聊天记录的解密 / 导出 / 查看 / 年度报告工具
 | 路径 | 是什么 |
 | --- | --- |
 | `apps/desktop` | Electron 桌面端（主进程 / 渲染进程 / 预加载） |
-| `apps/web` | 机器人 WebUI |
+| `apps/web` | 浏览器版 WeQ，复用桌面业务界面与后端 |
 | `packages/*` | protocol、db、codec、service、bot、native、testkit 等库 |
 | `native` | nt_helper 原生产物与 pinned 清单（二进制不入库） |
 | `docs/` | 文档中心：`guide` 用户向、`develop` 开发向、`principles` 原理、`database` 表结构 |
@@ -94,7 +94,7 @@ pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
 
 - **颜色一律走 design token，不写死。** token 定义在 `apps/desktop/src/renderer/src/styles/index.css`：一套 shadcn 风格的基础色（`--background`、`--foreground`、`--card`、`--muted`、`--border`、`--primary`、`--ring`、`--radius`），一套 WeQ 语义色（`--weq-bg-surface`、`--weq-fg-primary` / `--weq-fg-secondary` / `--weq-fg-muted`、`--weq-border-subtle` / `--weq-border-strong`、`--weq-shadow-soft` / `--weq-shadow-card`）。
   Tailwind 里直接用 `bg-background`、`text-foreground`、`text-muted-foreground`、`border-border`、`bg-primary` 这类工具类。
-- **主题色用 `--weq-accent-effective`**（用户在「设置 → 个性显示 → 主题色」里挑的自定义色优先，没挑就回落到预设 `--weq-accent`）。强调色、描边、高亮、图表取色都用它；要淡一点、要半透明就用 `color-mix(in srgb, var(--weq-accent-effective) 15%, transparent)`，**不要**写死 `#0099ff` 或自己另挑一支蓝。
+- **主题色用 `--weq-accent-effective`**（用户在「设置 → 常规 → 主题与背景 → 主题色」里挑的自定义色优先，没挑就回落到预设 `--weq-accent`）。强调色、描边、高亮、图表取色都用它；要淡一点、要半透明就用 `color-mix(in srgb, var(--weq-accent-effective) 15%, transparent)`，**不要**写死 `#0099ff` 或自己另挑一支蓝。
 - **深色模式的差异要显式写覆盖**，它是独立一套值而不是浅色取反。主题钩在 `html[data-theme="dark"]` 上（`state/theme.ts` 同时 toggle `.dark` 类，两个都认），所以写 `html[data-theme="dark"] .your-class { ... }`。
 - **别用 Tailwind 的 `dark:` 工具类。** 本项目的暗色钩子是 `data-theme`，`dark:` variant 只被桥接给 streamdown 用过（见 `styles/index.css` 里 `@custom-variant dark` 的注释），别处一律不生效。
 - 顺带检查那些「浅色下没事、深色下就废」的写法：`rgba(255, 255, 255, …)` 遮罩、白底渐变、写死的浅灰描边、`--weq-bar-surface` 这类半透明玻璃质感栏。
@@ -148,7 +148,7 @@ pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
 ## 10. 收工前自检
 
 - [ ] 落点正确（提 PR 走特性分支、直接 push 落 `dev`），改动聚焦单一主题
-- [ ] 跑过和改动相关的检查项（`pnpm lint` / `pnpm typecheck` / 相关包单测 / cargo 三项）；不要求 push 前跑全量 `pnpm ci:local`，最终以 CI 为准
+- [ ] 跑过和改动相关的检查项（`pnpm lint` / `pnpm typecheck` / 相关包单测）；不要求 push 前跑全量 `pnpm ci:local`，最终以 CI 为准
 - [ ] 新功能 / bug 修复已写进 `CHANGELOG.md` 的 `## Unreleased - 进行中`（没有这一节就先补上）
 - [ ] 该加的单测加了，且没碰真 QQ 数据 / 网络
 - [ ] 动过 UI 的话：浅色 / 深色 / 换主题色都看过一眼

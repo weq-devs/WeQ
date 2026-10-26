@@ -32,6 +32,7 @@ import type { KeyScanProgress, KeyScanResult } from '@weq/native';
 import { getLogger } from '@weq/service';
 import { installInvisibleToRoot } from './attach_elevation';
 import { requestSudoPassword } from './sudo_prompt';
+import { tryLongTermKeyScan } from './authorization/client';
 
 const logger = getLogger().child({ scope: 'key-scan-elevation' });
 
@@ -220,6 +221,13 @@ export interface ElevatedKeyScanOptions {
  */
 export async function scanKeyElevated(options: ElevatedKeyScanOptions): Promise<KeyScanResult> {
   const { dbPath, pid, runInProcess, onProgress } = options;
+
+  try {
+    const result = await tryLongTermKeyScan(dbPath, pid, onProgress);
+    if (result) return result;
+  } catch {
+    // 长期授权不可用时继续原来的临时授权，不将其当作扫描成功。
+  }
 
   let password = '';
   if (!(await sudoCredentialsCached())) {

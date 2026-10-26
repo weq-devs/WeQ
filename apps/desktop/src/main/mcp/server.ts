@@ -10,8 +10,7 @@
  *   - stops on account switch / logout / app quit.
  *
  * Security: bound to loopback only, every request must carry
- * `Authorization: Bearer <token>`. Most tools are read-only; the deliberately
- * advanced `execute_sql` / `decrypt_database` tools may write (see tools.ts).
+ * `Authorization: Bearer <token>`；仅注册显式审核过的只读工具。
  *
  * Transport is stateless — a fresh `McpServer` + transport per request — which
  * is the simplest correct shape for a single local client and avoids any
@@ -23,6 +22,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { getLogger, logErrorContext } from '@weq/service';
 import { AI_TOOLS } from './tools';
+import { isReadOnlyTool } from './tool_permissions';
 
 const logger = getLogger().child({ scope: 'mcp-server' });
 
@@ -52,7 +52,7 @@ function buildMcpServer(): McpServer {
   const server = new McpServer({ name: 'weq', version: '0.1.0' });
   for (const t of AI_TOOLS) {
     // 外部 MCP 面板保持严格只读：带副作用的工具（assistantOnly）只给内置助手用。
-    if (t.assistantOnly) continue;
+    if (t.assistantOnly || !isReadOnlyTool(t.name)) continue;
     server.registerTool(
       t.name,
       { description: t.description, inputSchema: t.input.shape },

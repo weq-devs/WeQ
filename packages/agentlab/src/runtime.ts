@@ -26,7 +26,7 @@ import type {
   AgentLabPersona,
   AgentLabStoredPair,
   AgentLabChatTurn,
-  AgentLabModelRef,
+  AgentLabModelSelection,
   AgentLabEndpoint,
   AgentLabMemoryItem,
   AgentLabPersonaNotes,
@@ -36,6 +36,7 @@ import type {
   AgentLabUsage,
 } from './types';
 import { isStickerUsable } from './sticker';
+import { assertEmbeddingModelIdentity } from './model_selection';
 
 /**
  * persona.typo → 传给 runPersonaChat 的 typoIntensity。
@@ -54,7 +55,10 @@ function resolveTypoIntensity(cfg: AgentLabTypoConfig | undefined): number | und
 // 通过 TS 结构类型天然满足这些接口；bot 侧可提供自己的实现（JSON 落盘 / 其它后端）。
 
 /** LLM 端点解析：把 persona 里的 { providerId, model } 引用解析成可直接 fetch 的 endpoint。 */
-export type EndpointResolver = (ref: AgentLabModelRef) => AgentLabEndpoint;
+export type EndpointResolver = (
+  ref: AgentLabModelSelection,
+  capability?: 'chat' | 'embedding' | 'vision',
+) => AgentLabEndpoint;
 
 /** token 记账落点（TokenUsageStore 满足）。 */
 export interface UsageSink {
@@ -192,11 +196,11 @@ export class AgentRuntime {
 
   /** 解析 endpoint 并挂上 token 记账回调。 */
   private resolveWithUsage(
-    ref: AgentLabModelRef,
+    ref: AgentLabModelSelection,
     kind: 'chat' | 'embedding' | 'vision',
     ctx: { personaId?: string; scope: 'build' | 'chat' | 'assistant' },
   ): AgentLabEndpoint {
-    const ep = this.endpoints(ref);
+    const ep = this.endpoints(ref, kind);
     return {
       ...ep,
       kind,
@@ -443,6 +447,7 @@ export class AgentRuntime {
     const embeddingEndpoint = record.persona.models.embedding
       ? this.resolveWithUsage(record.persona.models.embedding, 'embedding', ctx)
       : null;
+    assertEmbeddingModelIdentity(record.persona, embeddingEndpoint);
     const bucket = this.conversationBucket(input.personaId, input.sessionId);
 
     // 发言意愿对私聊生效（可选）：意愿闸没过就保持沉默，只记下用户这条，不回。

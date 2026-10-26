@@ -7,7 +7,16 @@
  * the cursor hook + footer + lightbox + `fmtBytes`).
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import {
   Files,
   Image as ImageIcon,
@@ -26,6 +35,10 @@ import {
 } from 'lucide-react';
 import type { FileCategory, FileSortKey, FileSortOrder } from '@weq/service';
 import { FooterSkeleton } from './CacheSkeleton';
+import { useTabActive } from '../../components/RetainedTabs';
+
+/** 重扫完成后重读资源数据，分类和筛选控件本身不重建。 */
+export const ResourceRevisionContext = createContext(0);
 
 /** `all` (the landing tab) plus the real categories. */
 export type CategoryTab = FileCategory | 'all';
@@ -207,6 +220,11 @@ export function usePagedList<T>(
   fetchPage: (offset: number, limit: number) => Promise<{ entries: T[]; total: number }>,
   filterKey: string,
 ): PagedResult<T> {
+  const active = useTabActive(),
+    revision = useContext(ResourceRevisionContext);
+  const activeRef = useRef(active),
+    needed = useRef(true);
+  activeRef.current = active;
   const [entries, setEntries] = useState<T[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -224,14 +242,15 @@ export function usePagedList<T>(
   fetchRef.current = fetchPage;
 
   const loadMore = useCallback(async (): Promise<void> => {
-    if (loadingRef.current || doneRef.current) return;
+    if (!activeRef.current || loadingRef.current || doneRef.current) return;
+    needed.current = false;
     loadingRef.current = true;
     setLoading(true);
     setError(null);
     const gen = genRef.current;
     try {
       const page = await fetchRef.current(offsetRef.current, PAGE);
-      if (gen !== genRef.current) return; // filter changed mid-flight — drop
+      if (gen !== genRef.current || !activeRef.current) return;
       setTotal(page.total);
       setEntries((prev) => [...prev, ...page.entries]);
       offsetRef.current += page.entries.length;
@@ -262,13 +281,30 @@ export function usePagedList<T>(
     setTotal(0);
     setDone(false);
     setError(null);
+    needed.current = true;
     void loadMore();
-  }, [filterKey, loadMore]);
+  }, [filterKey, revision, loadMore]);
+  useEffect(() => {
+    if (active) {
+      if (needed.current) void loadMore();
+    } else {
+      if (loadingRef.current) needed.current = true;
+      genRef.current += 1;
+      loadingRef.current = false;
+      setLoading(false);
+    }
+  }, [active, loadMore]);
+  useEffect(
+    () => () => {
+      genRef.current += 1;
+    },
+    [],
+  );
 
   // Auto-load the next page as the sentinel scrolls into view.
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || done) return undefined;
+    if (!active || !el || done) return undefined;
     const io = new IntersectionObserver(
       (obs) => {
         if (obs.some((o) => o.isIntersecting)) void loadMore();
@@ -277,7 +313,7 @@ export function usePagedList<T>(
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [loadMore, done, entries.length]);
+  }, [active, loadMore, done, entries.length]);
 
   return { entries, total, loading, error, done, sentinelRef };
 }
@@ -350,6 +386,11 @@ export interface CursorPagedResult<T> {
 export function useCursorPaged<T>(
   fetchPage: (cursor: string | null) => Promise<CursorPage<T>>,
 ): CursorPagedResult<T> {
+  const active = useTabActive(),
+    revision = useContext(ResourceRevisionContext);
+  const activeRef = useRef(active),
+    needed = useRef(true);
+  activeRef.current = active;
   const [entries, setEntries] = useState<T[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -367,14 +408,15 @@ export function useCursorPaged<T>(
   const genRef = useRef(0);
 
   const loadMore = useCallback(async (): Promise<void> => {
-    if (loadingRef.current || doneRef.current) return;
+    if (!activeRef.current || loadingRef.current || doneRef.current) return;
+    needed.current = false;
     loadingRef.current = true;
     setLoading(true);
     setError(null);
     const gen = genRef.current;
     try {
       const page = await fetchRef.current(cursorRef.current);
-      if (gen !== genRef.current) return; // reload happened mid-flight — drop
+      if (gen !== genRef.current || !activeRef.current) return;
       setEntries((prev) => [...prev, ...page.entries]);
       if (typeof page.total === 'number') setTotal(page.total);
       cursorRef.current = page.nextCursor;
@@ -396,16 +438,10 @@ export function useCursorPaged<T>(
     }
   }, []);
 
-  // First page on mount (the sentinel can't fire before there's content, so
-  // prime the list here). loadMore 稳定，可作 effect 依赖。
-  useEffect(() => {
-    void loadMore();
-  }, [loadMore]);
-
   // Auto-load the next page as the sentinel scrolls into view.
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || done) return undefined;
+    if (!active || !el || done) return undefined;
     const io = new IntersectionObserver(
       (obs) => {
         if (obs.some((o) => o.isIntersecting)) void loadMore();
@@ -414,7 +450,7 @@ export function useCursorPaged<T>(
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [loadMore, done, entries.length]);
+  }, [active, loadMore, done, entries.length]);
 
   // Imperative reset: drop everything and refetch page 1.
   const reload = useCallback(async (): Promise<void> => {
@@ -426,8 +462,28 @@ export function useCursorPaged<T>(
     setTotal(null);
     setDone(false);
     setError(null);
+    needed.current = true;
     await loadMore();
   }, [loadMore]);
+  useEffect(() => {
+    void reload();
+  }, [reload, revision]);
+  useEffect(() => {
+    if (active) {
+      if (needed.current) void loadMore();
+    } else {
+      if (loadingRef.current) needed.current = true;
+      genRef.current += 1;
+      loadingRef.current = false;
+      setLoading(false);
+    }
+  }, [active, loadMore]);
+  useEffect(
+    () => () => {
+      genRef.current += 1;
+    },
+    [],
+  );
 
   return { entries, total, loading, error, done, sentinelRef, reload };
 }

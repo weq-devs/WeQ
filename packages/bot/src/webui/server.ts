@@ -83,9 +83,10 @@ function buildOverview(deps: WebUiDeps): OverviewPayload {
       avgFriendMsgChars: Math.round(p.stats?.avgFriendMsgChars ?? 0),
     },
     models: {
-      chat: p.models?.chat?.model ?? '',
-      embedding: p.models?.embedding?.model,
-      vision: p.models?.vision?.model,
+      chat: p.models?.chat && 'model' in p.models.chat ? p.models.chat.model : '',
+      embedding:
+        p.models?.embedding && 'model' in p.models.embedding ? p.models.embedding.model : undefined,
+      vision: p.models?.vision && 'model' in p.models.vision ? p.models.vision.model : undefined,
     },
     willing: {
       level: p.willing?.level ?? 50,

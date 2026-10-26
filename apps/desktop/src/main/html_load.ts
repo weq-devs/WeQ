@@ -26,12 +26,29 @@ import type { BrowserWindow } from 'electron';
 let seq = 0;
 
 /** 把自包含 HTML 落盘成临时文件，用 file:// 装进 win；返回加载完成的 Promise。 */
-export async function loadIsolatedHtml(win: BrowserWindow, html: string): Promise<void> {
+export async function loadIsolatedHtml(
+  win: BrowserWindow,
+  html: string,
+  options?: { offline?: boolean },
+): Promise<void> {
   seq += 1;
   const file = join(
     tmpdir(),
     `weq-html-${process.pid}-${seq}-${randomBytes(8).toString('hex')}.html`,
   );
+  const url = pathToFileURL(file).href;
+  if (options?.offline) {
+    // 捕获窗口使用独立的内存 session；不让远程 HTML 读取宿主文件、网络或设备权限。
+    win.webContents.session.webRequest.onBeforeRequest((details, callback) => {
+      callback({ cancel: details.url !== url && !details.url.startsWith('data:') });
+    });
+    win.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) =>
+      callback(false),
+    );
+    win.webContents.session.setPermissionCheckHandler(() => false);
+    win.webContents.on('will-navigate', (event) => event.preventDefault());
+    win.webContents.on('will-redirect', (event) => event.preventDefault());
+  }
   await writeFile(file, html, 'utf8');
   const cleanup = (): void => {
     void rm(file, { force: true }).catch(() => {});
@@ -39,7 +56,7 @@ export async function loadIsolatedHtml(win: BrowserWindow, html: string): Promis
   // 页面活着时不能删（还要重排 / 重绘）；窗口关闭即回收。
   win.once('closed', cleanup);
   try {
-    await win.loadURL(pathToFileURL(file).href);
+    await win.loadURL(url);
   } catch (error) {
     cleanup();
     throw error;

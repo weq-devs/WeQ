@@ -37,9 +37,9 @@ export function GrayTipTempSessionMessage({ element }: GrayTipTempSessionMessage
   const label = (group as { groupName?: string } | undefined)?.groupName || tempSessionGroupCode;
 
   return (
-    <div className="weq-graytip text-center text-gray-500 text-xs py-2">
+    <div className="weq-graytip text-center text-xs py-2">
       <span>该用户通过 </span>
-      <span className="text-blue-500">{label}</span>
+      <span className="weq-graytip-accent">{label}</span>
       <span className="px-1">群聊向你发起临时会话</span>
     </div>
   );

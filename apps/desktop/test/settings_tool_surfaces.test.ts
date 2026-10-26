@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsDialog, type SectionId } from '../src/renderer/src/components/SettingsDialog';
 import { useSettingsMaintenance } from '../src/renderer/src/hooks/useSettingsMaintenance';
 import { useAppLock } from '../src/renderer/src/state/lock';
+import { useCaptureWindow } from '../src/renderer/src/state/captureWindow';
 import { useUpdateStore } from '../src/renderer/src/state/update';
 import {
   DataMaintenanceDialog,
@@ -39,7 +40,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 thumb: { files: 0, bytes: 0 },
                 other: { files: 0, bytes: 0 },
               };
-            return { autoAttachQq: false };
+            return { allowed: false };
           });
         return proxy([...path, String(key)]);
       },
@@ -57,6 +58,7 @@ vi.mock('../src/renderer/src/components/settings/LogViewerPanel', () => ({
 }));
 
 afterEach(() => {
+  useCaptureWindow.getState().dismiss();
   useAppLock.setState({ locked: false });
   useUpdateStore.setState({ available: false });
   vi.unstubAllGlobals();
@@ -85,6 +87,7 @@ function fixture(initialSection: SectionId = 'global') {
       }),
       h(DataMaintenanceDialog, {
         key: source,
+        source,
         tool,
         account: { uin: '10001', name: '合成账号', avatarUrl: '' },
         onClose: () => setTool(null),

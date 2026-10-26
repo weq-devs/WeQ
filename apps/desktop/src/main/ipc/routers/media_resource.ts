@@ -13,6 +13,11 @@ import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import type { TranscribeResult } from '../../transcribe/engine';
 import { procedure, router } from '../trpc';
+import {
+  resourceSourceInput,
+  requireResourceSource,
+  assertResourceSource,
+} from './resource_source';
 
 function requireServices(): AccountServices {
   const ctx = getAppContext();
@@ -61,9 +66,14 @@ export const mediaResourceRouter = router({
    * the slow, per-file `stat` walk can show progress). Returns count/bytes,
    * a by-month breakdown, and an original-vs-thumbnail split.
    */
-  analyzeTree: procedure.input(z.object({ key: treeKey })).query(({ input }) => {
-    return requireServices().mediaResource.analyzeTree(input.key);
-  }),
+  analyzeTree: procedure
+    .input(resourceSourceInput.extend({ key: treeKey }))
+    .query(async ({ input }) => {
+      const services = requireResourceSource(input);
+      const stat = await services.mediaResource.analyzeTree(input.key);
+      assertResourceSource(services, input);
+      return stat;
+    }),
 
   /**
    * Resolve ONE message media element to its on-disk file.

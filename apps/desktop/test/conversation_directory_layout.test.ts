@@ -48,3 +48,16 @@ test('.list-stack 仍是纯 grid 声明（冲突点已知且被高特异性规�
   assert.ok(rule, '缺少 .list-stack 规则');
   assert.match(rule[1]!, /display:\s*grid/);
 });
+
+test('联系人角标只覆盖布局，配色和尺寸复用消息列表，不覆盖免打扰灰色', () => {
+  const css = readFileSync(DIRECTORY_CSS, 'utf8');
+  const rule = /\.weq-contact-directory \.row-unread\s*\{([^}]*)\}/.exec(css);
+  assert.ok(rule);
+  assert.match(rule[1]!, /position:\s*static/);
+  assert.doesNotMatch(rule[1]!, /(?:background|color|font-size|height|min-width):/);
+  const shared = readFileSync('src/renderer/src/styles/index.css', 'utf8');
+  assert.match(
+    shared,
+    /\.app-shell \.conversation-row \.row-unread,\s*\.app-shell \.weq-contact-directory \.row-unread\s*\{/,
+  );
+});

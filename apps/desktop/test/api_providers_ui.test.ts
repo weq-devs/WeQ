@@ -51,6 +51,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     },
     trpc: {
       useUtils: () => ({
+        account: { intentSense: { getStatus: { invalidate: vi.fn(async () => undefined) } } },
         bootstrap: {
           listAgentLabProviders: { invalidate: vi.fn(async () => undefined) },
           listTtsProviders: { invalidate: vi.fn(async () => undefined) },

@@ -1,7 +1,9 @@
-import { act, createElement } from 'react';
+import { act, createElement, type ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DefaultApiModelRow } from '../src/renderer/src/components/settings/DefaultApiModelRow';
+import { ApiModelSelect } from '../src/renderer/src/components/settings/ApiModelSelect';
+import { DEFAULT_MODEL_SELECTION_KEY } from '@weq/agentlab/model-selection';
 
 const f = vi.hoisted(() => ({
   status: {
@@ -17,6 +19,7 @@ const f = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({
+      account: { intentSense: { getStatus: { invalidate: f.invalidate } } },
       bootstrap: {
         getAgentLabDefaultModel: {
           setData: (_: undefined, value: typeof f.status) => {
@@ -60,10 +63,10 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function mount() {
+function mount(content: () => ReactElement = () => createElement(DefaultApiModelRow)) {
   const host = document.createElement('div');
   const root = createRoot(host);
-  const render = () => act(() => root.render(createElement(DefaultApiModelRow)));
+  const render = () => act(() => root.render(content()));
   render();
   return {
     host,
@@ -74,6 +77,55 @@ function mount() {
 }
 
 describe('LLM 默认模型设置', () => {
+  it('消费入口显式提供默认选项，空值不自动继承，选择时提交独立标记', () => {
+    f.status = { ref: { providerId: 'synthetic', model: 'chat' }, available: true, error: null };
+    const change = vi.fn();
+    const page = mount(() =>
+      createElement(ApiModelSelect, {
+        allowDefault: true,
+        label: '使用模型',
+        value: null,
+        onChange: change,
+      }),
+    );
+    try {
+      expect(page.select().value).toBe('');
+      expect(page.host.textContent).toContain('默认：chat');
+      expect(change).not.toHaveBeenCalled();
+      act(() => {
+        page.select().value = DEFAULT_MODEL_SELECTION_KEY;
+        page.select().dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      expect(change).toHaveBeenLastCalledWith({ useDefault: true });
+    } finally {
+      page.close();
+    }
+  });
+
+  it('继承引用在默认清空或读取失败时仍保留，失败可重试', () => {
+    const change = vi.fn();
+    const page = mount(() =>
+      createElement(ApiModelSelect, {
+        allowDefault: true,
+        label: '使用模型',
+        value: { useDefault: true },
+        onChange: change,
+      }),
+    );
+    try {
+      expect(page.select().value).toBe(DEFAULT_MODEL_SELECTION_KEY);
+      expect(page.host.textContent).toContain('默认：未配置');
+      f.queryError = new Error('合成读取失败');
+      page.render();
+      expect(page.select().value).toBe(DEFAULT_MODEL_SELECTION_KEY);
+      expect(page.host.textContent).toContain('默认：读取失败');
+      act(() => page.host.querySelector<HTMLButtonElement>('button')!.click());
+      expect(f.refetch).toHaveBeenCalled();
+      expect(change).not.toHaveBeenCalled();
+    } finally {
+      page.close();
+    }
+  });
   it('不自动选择首项，只列聊天模型；显式选择及清空提交真实引用', async () => {
     const page = mount();
     try {

@@ -267,7 +267,7 @@ export function GroupConversationGraph({
   instant?: boolean;
 }) {
   const tabActive = useTabActive();
-  const privacy = usePrivacyStore((state) => state.enabled);
+  const privacy = usePrivacyStore((state) => state.effective);
   const reduce = usePrefersReducedMotion();
   const instant = forceInstant || reduce;
   const theme = useThemeStore((state) => state.resolved);

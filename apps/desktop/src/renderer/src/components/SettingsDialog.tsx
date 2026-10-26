@@ -71,6 +71,9 @@ import { AssistantSection } from './settings/AssistantSection';
 import { StartupSection } from './settings/StartupSection';
 import { DatabaseSettingsSection } from './settings/DatabaseSettingsSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
+import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
+import { ResourceManagementSection } from './settings/ResourceManagementSection';
+import { ChatImageCacheSettings } from './settings/ChatImageCacheSettings';
 import { Card, Row, SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
@@ -203,13 +206,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'database-management',
     label: '数据库管理',
     icon: <HardDrive size={16} strokeWidth={1.8} />,
-    render: (onOpen) => (
-      <DataMaintenanceSection
-        title="数据库管理"
-        onOpen={onOpen}
-        tools={['database', 'db-decrypt']}
-      />
-    ),
+    render: () => <DatabaseManagementSection />,
   },
   {
     id: 'database-tolerance',
@@ -221,13 +218,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'qq-storage',
     label: '资源目录管理',
     icon: <HardDrive size={16} />,
-    render: (onOpen) => (
-      <DataMaintenanceSection
-        title="资源目录管理"
-        onOpen={onOpen}
-        tools={['storage', 'cleanup', 'cache']}
-      />
-    ),
+    render: () => <ResourceManagementSection />,
   },
   {
     id: 'voice',
@@ -553,7 +544,10 @@ export function SettingsDialog({
                 aria-current={section.id === activeId ? 'page' : undefined}
                 onClick={() => setActiveId(section.id)}
               >
-                {section.label}
+                <span className="weq-settings-subnav-icon" aria-hidden="true">
+                  {section.icon}
+                </span>
+                <span className="weq-settings-subnav-label">{section.label}</span>
                 {updateAvailable && section.id === 'version' ? (
                   <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
                 ) : null}
@@ -649,8 +643,10 @@ function AppearanceSection({
   const setShowMessageSeq = trpc.bootstrap.setShowMessageSeq.useMutation();
   const setShowMessageTime = trpc.bootstrap.setShowMessageTime.useMutation();
   const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
+  const setShowContactUnreadCount = trpc.bootstrap.setShowContactUnreadCount.useMutation();
   const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
   const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
+  const setShowScrollToBottomButton = trpc.bootstrap.setShowScrollToBottomButton.useMutation();
   const setSendWithQqFont = trpc.bootstrap.setSendWithQqFont.useMutation();
   const setShowGroupAssistantMessageCount =
     trpc.bootstrap.setShowGroupAssistantMessageCount.useMutation();
@@ -784,6 +780,13 @@ function AppearanceSection({
           </div>
           {[
             {
+              key: 'showContactUnreadCount' as const,
+              settingId: 'contact-unread-count',
+              label: '在联系人界面显示未读消息数',
+              fallback: false,
+              mutation: setShowContactUnreadCount,
+            },
+            {
               key: 'showGroupAssistantMessageCount' as const,
               settingId: 'group-assistant-count',
               label: '群助手显示总消息数',
@@ -803,6 +806,13 @@ function AppearanceSection({
               label: '发送消息后定位到最新消息',
               fallback: true,
               mutation: setJumpToLatestAfterSend,
+            },
+            {
+              key: 'showScrollToBottomButton' as const,
+              settingId: 'scroll-to-bottom-button',
+              label: '向下滚动时显示定位到底部按钮',
+              fallback: true,
+              mutation: setShowScrollToBottomButton,
             },
             {
               key: 'sendWithQqFont' as const,
@@ -839,6 +849,7 @@ function AppearanceSection({
             </div>
           ))}
           {readingError ? <p role="alert">{readingError}</p> : null}
+          <ChatImageCacheSettings />
           <Card title="自定义消息显示" settingId="custom-message-display">
             <Row
               settingId="message-seq"

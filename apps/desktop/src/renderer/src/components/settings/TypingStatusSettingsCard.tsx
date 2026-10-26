@@ -1,11 +1,44 @@
 import { Keyboard, RotateCcw, Trash2 } from 'lucide-react';
 import { useTypingStatusSettings } from '../../hooks/useTypingStatusSettings';
+import { useTabActive } from '../RetainedTabs';
+import { ProfileAvatar } from '../ProfileAvatar';
+import { QqAvatar } from '../QqAvatar';
+import { trpc } from '../../trpc/client';
+import { resolveAvatar } from '../../lib/avatarResolver';
+import type { TypingStatusOverride } from '@weq/service';
 import { Card, Row, Toggle } from './controls';
 import '../../styles/typing-status-settings.css';
+
+function OverrideContact({ item, current }: { item: TypingStatusOverride; current: boolean }) {
+  const active = useTabActive();
+  const profile = trpc.account.getProfile.useQuery(
+    { uid: item.uid },
+    { enabled: active && current, staleTime: 60_000 },
+  );
+  const person = current ? profile.data : null;
+  const name = person?.nick || item.name || item.uid;
+  const avatarUrl = resolveAvatar({ uin: person?.uin, profileAvatarUrl: person?.avatarUrl });
+  return (
+    <span
+      className="weq-typing-settings-contact"
+      title={current ? undefined : '切换到对应账号与数据源后查看名片'}
+    >
+      <ProfileAvatar
+        target={{ identity: item.uid, uin: person?.uin, name, avatarUrl }}
+        enabled={current}
+      >
+        <QqAvatar url={avatarUrl} size={32} />
+        <span className="weq-typing-settings-name">{name}</span>
+      </ProfileAvatar>
+    </span>
+  );
+}
 
 export function TypingStatusSettingsCard() {
   const preferences = useTypingStatusSettings();
   const { query, disabled } = preferences;
+  const active = useTabActive();
+  const account = trpc.account.getAccountConfig.useQuery(undefined, { enabled: active });
   return (
     <div className="weq-typing-settings">
       <Card title="向对方展示输入状态" settingId="typing-status" icon={<Keyboard size={15} />}>
@@ -44,7 +77,15 @@ export function TypingStatusSettingsCard() {
         {query.data?.overrides.map((item) => (
           <Row
             key={JSON.stringify([item.accountUin, item.accountConfigId, item.uid])}
-            label={item.name || item.uid}
+            label={
+              <OverrideContact
+                item={item}
+                current={
+                  account.data?.uin === item.accountUin &&
+                  account.data?.configId === item.accountConfigId
+                }
+              />
+            }
             desc={`QQ ${item.accountUin} · ${item.accountConfigId} · ${item.uid}`}
             control={
               <div className="weq-set-btn-group">

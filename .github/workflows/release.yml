@@ -15,6 +15,9 @@ on:
 permissions:
   contents: write # 创建 / 上传 Release
 
+env:
+  WEQ_REQUIRE_AUTHORIZATION_HELPER: '1'
+
 jobs:
   # ========================= QQ 通知门禁 =========================
   # 只有「最后一次 commit」以 Release: / chore(release): 开头时才发 QQ 群通知；
@@ -55,6 +58,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Setup Go for Remote helper
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/remote-network/go.mod
+          cache-dependency-path: tools/remote-network/go.sum
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -69,7 +78,7 @@ jobs:
       # 不能混版本）。--require-fresh 卡住 30 天有效期，--verify 当场 require 一次
       # 跑 getInitStatus()，二进制有问题在这里就炸，而不是出厂后才发现。
       - name: Fetch nt_helper native artifacts
-        run: node scripts/fetch-native.mjs --require-fresh --verify
+        run: node scripts/fetch-native.mjs --require-fresh --require-authorization --verify
 
       # 把 tag 里的版本号（v1.2.3 -> 1.2.3）写进 package.json，
       # 让 electron-builder 命名产物、app.getVersion() 也能读到。
@@ -161,6 +170,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Setup Go for Remote helper
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/remote-network/go.mod
+          cache-dependency-path: tools/remote-network/go.sum
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -173,7 +188,7 @@ jobs:
 
       # 同 windows：先取 nt_helper 原生产物，再开始打包。
       - name: Fetch nt_helper native artifacts
-        run: node scripts/fetch-native.mjs --require-fresh --verify
+        run: node scripts/fetch-native.mjs --require-fresh --require-authorization --verify
 
       # 打包前先把「架构对不对」验掉：resvg / sherpa 的 .node binding 和 cargo
       # 编出来的守护进程都取自构建机。与 macOS 两个 job 同款把关 —— v1.0.0 的
@@ -250,6 +265,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Setup Go for Remote helper
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/remote-network/go.mod
+          cache-dependency-path: tools/remote-network/go.sum
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -262,7 +283,7 @@ jobs:
 
       # 同 windows：先取 nt_helper 原生产物，再开始打包。
       - name: Fetch nt_helper native artifacts
-        run: node scripts/fetch-native.mjs --require-fresh --verify
+        run: node scripts/fetch-native.mjs --require-fresh --require-authorization --verify
 
       # 同 linux-x64：构建机架构必须就是目标架构，否则 resvg / sherpa binding
       # 与守护进程都会是另一个架构的。
@@ -337,6 +358,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Setup Go for Remote helper
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/remote-network/go.mod
+          cache-dependency-path: tools/remote-network/go.sum
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -349,7 +376,7 @@ jobs:
 
       # 同 windows：先取 nt_helper 原生产物，再开始打包。
       - name: Fetch nt_helper native artifacts
-        run: node scripts/fetch-native.mjs --require-fresh --verify
+        run: node scripts/fetch-native.mjs --require-fresh --require-authorization --verify
 
       # 打包前先确认 Node 架构符合目标，避免再打出「arm64 壳 + x64 binding」
       # 的坏包（v0.4.4 已踩过一次）。
@@ -423,6 +450,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Setup Go for Remote helper
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/remote-network/go.mod
+          cache-dependency-path: tools/remote-network/go.sum
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -440,7 +473,7 @@ jobs:
 
       # 同 windows：先取 nt_helper 原生产物，再开始打包。
       - name: Fetch nt_helper native artifacts
-        run: node scripts/fetch-native.mjs --require-fresh --verify
+        run: node scripts/fetch-native.mjs --require-fresh --require-authorization --verify
 
       # 同上：装完依赖后校验 Node 架构，并确认 arm64 binding 真的进包。
       - name: Verify Node architecture
@@ -587,7 +620,7 @@ jobs:
       # 浏览器版同样带 native/ 与 resources/（含装扮资源），所以也要取一份；
       # 每个 matrix runner 取的正是它自己平台那一份。
       - name: Fetch nt_helper native artifacts
-        run: node scripts/fetch-native.mjs --require-fresh --verify
+        run: node scripts/fetch-native.mjs --require-fresh --no-authorization --verify
 
       # 与桌面版各平台 job 同款校验：避免 Rosetta / 架构错配导致打包出
       # 「arm64 壳 + x64 binding」的坏包。

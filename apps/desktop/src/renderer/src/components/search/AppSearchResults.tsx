@@ -8,13 +8,14 @@ export function AppSearchResults({
   onSelect,
   expanded = false,
   onExpand,
+  entries = searchAppEntries(keyword),
 }: {
   keyword: string;
   onSelect: (entry: AppSearchEntry) => void;
   expanded?: boolean;
   onExpand: () => void;
+  entries?: AppSearchEntry[];
 }) {
-  const entries = searchAppEntries(keyword);
   return (
     <div className="weq-search-section weq-app-search">
       <div className="weq-search-section-header">

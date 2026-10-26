@@ -975,17 +975,14 @@ describe('buildSendElemsWithMedia', () => {
     expect(native.oidbCalls).toHaveLength(0);
   });
 
-  it('场景限制（群里的窗口抖动）依然先被拦下', async () => {
+  it('已移除的窗口抖动别名在媒体上传前被拒绝', async () => {
     const native = sendNative();
     await expect(
       buildSendElemsWithMedia(
-        [
-          { kind: 'image', source: TINY_PNG },
-          { kind: 'poke', subType: 1 },
-        ],
+        [{ kind: 'image', source: TINY_PNG }, { kind: 'poke', subType: 1 } as never],
         { nt: native, pid: 1, uin: '10001', scene: 'group', groupId: 1 },
       ),
-    ).rejects.toThrow(/窗口抖动/);
+    ).rejects.toThrow(/不支持发送的元素类型: poke/);
     expect(native.oidbCalls).toHaveLength(0);
   });
 

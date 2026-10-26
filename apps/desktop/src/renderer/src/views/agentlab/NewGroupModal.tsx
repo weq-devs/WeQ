@@ -3,7 +3,7 @@
  * 创建后「我」会自动作为成员加入（后端 createGroup 处理）。
  */
 import { useState, type ReactElement } from 'react';
-import { Users, Check, X } from 'lucide-react';
+import { Users, Check, Plus, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
@@ -113,6 +113,7 @@ export function NewGroupModal({
               disabled={!canCreate}
               onClick={() => onCreate({ name: name.trim(), personaIds: selected })}
             >
+              <Plus size={14} aria-hidden="true" />
               创建群聊
             </button>
           </div>

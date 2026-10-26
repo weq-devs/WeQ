@@ -1,11 +1,15 @@
 export const AUTOSTART_ARG = '--weq-autostart';
+export const MANUAL_RESTART_ARG = '--weq-manual-restart';
 
 export function isAutostartLaunch(
   argv: readonly string[],
   platform: NodeJS.Platform,
   wasOpenedAtLogin = false,
 ): boolean {
-  return argv.includes(AUTOSTART_ARG) || (platform === 'darwin' && wasOpenedAtLogin);
+  return (
+    !argv.includes(MANUAL_RESTART_ARG) &&
+    (argv.includes(AUTOSTART_ARG) || (platform === 'darwin' && wasOpenedAtLogin))
+  );
 }
 
 export function shouldShowStartupWindow(input: {
@@ -21,7 +25,10 @@ export function shouldShowStartupWindow(input: {
 
 /** 用户主动重启不继承“系统自启”身份；自动切换窗口后端的重启则保留原参数。 */
 export function manualRestartArgs(argv: readonly string[]): string[] {
-  return argv.slice(1).filter((arg) => arg !== AUTOSTART_ARG);
+  return [
+    ...argv.slice(1).filter((arg) => arg !== AUTOSTART_ARG && arg !== MANUAL_RESTART_ARG),
+    MANUAL_RESTART_ARG,
+  ];
 }
 
 interface StartupWindow {

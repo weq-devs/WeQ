@@ -79,6 +79,9 @@ const res = spawnSync(
     // node_modules IS shipped (pre-installed), but npm's own metadata isn't.
     '--exclude=./node_modules/.package-lock.json',
     '--exclude=./node_modules/.bin',
+    // 权限助手由桌面端管理，Web 包不携带本机提权可执行文件。
+    '--exclude=./native/*/*/weq-authorization-helper',
+    '--exclude=./native/*/*/weq-authorization-helper.exe',
     '-czf',
     '-',
     '-C',

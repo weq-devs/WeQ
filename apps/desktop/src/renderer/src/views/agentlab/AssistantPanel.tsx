@@ -4,7 +4,7 @@
  * 一次提问 = 一个任务：后端多轮推进，过程（思考/工具调用/工具结果）经
  * `account.onAssistantEvent` 订阅实时流式推送，前端逐步展示（可折叠），最终答复
  * 用 Markdown 渲染。模型与思考等级在输入框上方就近切换（即改即存）；顶部设置
- * 弹窗配置：额外提示 / 外部 MCP 服务器。空会话展示预设问题，点击直接发送。
+ * 弹窗配置：权限模式 / 额外提示 / 外部 MCP 服务器。空会话展示预设问题，点击直接发送。
  *
  * 流式部分见下面两处：事件按动画帧合并 flush（`flush`），正文段的归档时机由 `applySteps`
  * 的 `handoffIndex` 控制——工具轮次之间不再把气泡清空，细节见两处注释。
@@ -20,7 +20,15 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import type { AgentLabModelSelection } from '@weq/agentlab/model-selection';
+import {
+  isDefaultModelSelection,
+  DEFAULT_MODEL_SELECTION_KEY,
+} from '@weq/agentlab/model-selection';
+import { useModelSelectionLabel } from '../../components/settings/useModelSelectionLabel';
 import { useOverlayLayer } from '../../lib/overlayStack';
+import { useOverlayAnchor } from '../../lib/overlayAnchor';
+import '../../styles/assistant-model-selection.css';
 import {
   ArrowLeft,
   Brain,
@@ -28,6 +36,8 @@ import {
   ChevronDown,
   Cpu,
   Loader2,
+  Play,
+  Save,
   Send,
   Settings,
   Sparkles,
@@ -54,6 +64,8 @@ import type { GeneratedSearchHit } from '../../components/search/types';
 import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
 import { useGeneratedSelection } from './useGeneratedSelection';
 import { readAssistantDraft, rememberAssistantDraft } from '../../lib/assistantWorkspace';
+import type { AssistantActivity } from '../../lib/workspaceIndicators';
+import { assistantResultVersion } from '../../lib/workspaceReadState';
 
 interface Turn {
   id?: string;
@@ -145,9 +157,10 @@ function applySteps(turn: Turn, batch: AssistantStep[]): Turn {
   return next;
 }
 
-function parseSel(key: string): { providerId: string; model: string } | undefined {
-  const [providerId, model] = key.split('::');
-  return providerId && model ? { providerId, model } : undefined;
+function parseSel(key: string, models: FlatModels['chat']): AgentLabModelSelection | undefined {
+  if (key === DEFAULT_MODEL_SELECTION_KEY) return { useDefault: true };
+  const option = models.find((model) => model.key === key);
+  return option ? { providerId: option.providerId, model: option.model } : undefined;
 }
 
 /** 下拉里的分组：一个 provider 一组，组内多个模型选项。 */
@@ -206,24 +219,12 @@ function ComposerSelect({
   const layer = useOverlayLayer(open);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState<{ left: number; bottom: number; minWidth: number } | null>(null);
+  const menuLayerRef = useRef<HTMLDivElement | null>(null);
+  const placement = useOverlayAnchor(menuLayerRef, open, open, triggerRef.current, 'above');
 
   const flat = groups.flatMap((g) => g.options);
   const current = flat.find((o) => o.value === value);
   const hasGroups = groups.length > 1 || (groups[0]?.label ?? '') !== '';
-
-  // 打开时按触发器位置把 popover 贴到其正上方；随后点外部 / 滚动 / Esc 关闭。
-  useLayoutEffect(() => {
-    if (!open) return;
-    const el = triggerRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    setPos({
-      left: r.left,
-      bottom: window.innerHeight - r.top + 6,
-      minWidth: r.width,
-    });
-  }, [open]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -261,40 +262,55 @@ function ComposerSelect({
         </span>
         <ChevronDown size={13} className="weq-asst-select-caret" aria-hidden />
       </button>
-      {open && pos
+      {open
         ? createPortal(
             <div
-              ref={popRef}
-              className="weq-asst-select-pop"
-              role="listbox"
-              style={{ left: pos.left, bottom: pos.bottom, minWidth: pos.minWidth, zIndex: layer }}
+              className="weq-assistant-select-layer"
+              ref={menuLayerRef}
+              style={placement.position}
             >
-              {groups.map((g, gi) => (
-                <div key={g.label || `g-${gi}`} className="weq-asst-select-group">
-                  {hasGroups && g.label ? (
-                    <div className="weq-asst-select-group-label">{g.label}</div>
-                  ) : null}
-                  {g.options.map((o) => {
-                    const active = o.value === value;
-                    return (
-                      <button
-                        key={o.value}
-                        type="button"
-                        role="option"
-                        aria-selected={active}
-                        className={`weq-asst-select-opt${active ? ' is-active' : ''}`}
-                        onClick={() => {
-                          onChange(o.value);
-                          setOpen(false);
-                        }}
-                      >
-                        <span className="weq-asst-select-opt-label">{o.label}</span>
-                        {active ? <Check size={14} aria-hidden /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+              <div
+                ref={popRef}
+                className="weq-asst-select-pop"
+                role="listbox"
+                style={{
+                  left: 'var(--weq-popover-left, 8px)',
+                  top: 'var(--weq-popover-top, 8px)',
+                  minWidth: Math.min(
+                    triggerRef.current?.offsetWidth ?? 0,
+                    Math.max(0, window.innerWidth - 16),
+                  ),
+                  zIndex: layer,
+                }}
+              >
+                {groups.map((g, gi) => (
+                  <div key={g.label || `g-${gi}`} className="weq-asst-select-group">
+                    {hasGroups && g.label ? (
+                      <div className="weq-asst-select-group-label">{g.label}</div>
+                    ) : null}
+                    {g.options.map((o) => {
+                      const active = o.value === value;
+                      return (
+                        <button
+                          key={o.value}
+                          type="button"
+                          role="option"
+                          title={o.label}
+                          aria-selected={active}
+                          className={`weq-asst-select-opt${active ? ' is-active' : ''}`}
+                          onClick={() => {
+                            onChange(o.value);
+                            setOpen(false);
+                          }}
+                        >
+                          <span className="weq-asst-select-opt-label">{o.label}</span>
+                          {active ? <Check size={14} aria-hidden /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
             </div>,
             document.body,
           )
@@ -321,28 +337,47 @@ const PRESET_QUESTIONS = [
   '找找最近有谁跟我约过「吃饭」',
 ];
 
-function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
+export function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const config = trpc.account.getAssistantConfig.useQuery();
   const save = trpc.account.setAssistantConfig.useMutation();
   const [prompt, setPrompt] = useState('');
   const [mcp, setMcp] = useState('');
-  const guard = useDraftClose(onClose, { prompt, mcp }, save.isLoading);
+  const [permissionMode, setPermissionMode] = useState<'sandbox' | 'unrestricted'>('sandbox');
+  const guard = useDraftClose(onClose, { prompt, mcp, permissionMode }, save.isLoading);
 
   useEffect(() => {
     const c = config.data;
     if (!c) return;
     setPrompt(c.customPrompt ?? '');
     setMcp(c.mcpServers ?? '');
-    guard.reset({ prompt: c.customPrompt ?? '', mcp: c.mcpServers ?? '' });
+    setPermissionMode(c.permissionMode ?? 'sandbox');
+    guard.reset({
+      prompt: c.customPrompt ?? '',
+      mcp: c.mcpServers ?? '',
+      permissionMode: c.permissionMode ?? 'sandbox',
+    });
   }, [config.data, guard.reset]);
 
   async function onSave(): Promise<void> {
     try {
+      const enablingUnrestricted =
+        permissionMode === 'unrestricted' && config.data?.permissionMode !== 'unrestricted';
+      if (
+        enablingUnrestricted &&
+        !(await dialog.confirm(
+          '开启任意权限？',
+          '助手将以当前系统用户的权限执行任意代码和操作，包括读取、修改或删除 WeQ 目录之外的文件，运行命令、联网以及使用外部 MCP 工具。聊天内容或模型错误也可能诱发这些操作，删除可能无法恢复。此模式不是沙箱，也不会逐项再次询问。',
+          { okLabel: '我了解风险，开启任意权限', cancelLabel: '保留沙箱模式', tone: 'warning' },
+        ))
+      )
+        return;
       await save.mutateAsync({
         customPrompt: prompt,
         mcpServers: mcp,
+        permissionMode,
+        confirmUnrestricted: enablingUnrestricted,
       });
       await utils.account.getAssistantConfig.invalidate();
       dialog.success('已保存', '助手设置已更新');
@@ -360,6 +395,26 @@ function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
           <strong>WeQ 助手设置</strong>
         </header>
         <div className="weq-clone-config">
+          <label className="weq-agentlab-field">
+            <span>权限模式</span>
+            <select
+              aria-label="权限模式"
+              value={permissionMode}
+              onChange={(event) =>
+                setPermissionMode(
+                  event.target.value === 'unrestricted' ? 'unrestricted' : 'sandbox',
+                )
+              }
+            >
+              <option value="sandbox">沙箱模式</option>
+              <option value="unrestricted">任意权限</option>
+            </select>
+          </label>
+          <div className="weq-asst-set-hint">
+            {permissionMode === 'sandbox'
+              ? '仅开放审核过的查询、隔离脚本和受控报告生成；禁止宿主文件操作、发送消息、写库及外部 MCP 工具。'
+              : '任意权限可操作当前用户有权访问的文件，包括删除外部文件；不提供系统级隔离，也不自动提权。'}
+          </div>
           <label className="weq-agentlab-field">
             <span>额外提示（可选）</span>
             <textarea
@@ -383,7 +438,7 @@ function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
             />
           </label>
           <div className="weq-asst-set-hint">
-            外部工具会在对话中自动合并进可用工具（命名空间 <code>mcp__服务器__工具</code>
+            外部工具仅在任意权限模式下合并进可用工具（命名空间 <code>mcp__服务器__工具</code>
             ），连接在首次使用时建立； 某个服务器不可用不会影响内置工具。
           </div>
           <div className="weq-clone-actions">
@@ -391,6 +446,7 @@ function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
               取消
             </button>
             <button className="weq-set-btn" disabled={save.isLoading} onClick={() => void onSave()}>
+              <Save size={14} aria-hidden="true" />
               保存
             </button>
           </div>
@@ -471,6 +527,7 @@ export function AssistantPanel({
   compact = false,
   draftAccount,
   workspaceTitle,
+  onActivityChange,
 }: {
   /** 真实会话 id；`null` 表示草稿会话——用户真正发第一条消息时才落库。 */
   sessionId: string | null;
@@ -482,6 +539,7 @@ export function AssistantPanel({
   compact?: boolean;
   draftAccount?: string;
   workspaceTitle?: string;
+  onActivityChange?: (activity: AssistantActivity, result?: string) => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
@@ -508,6 +566,7 @@ export function AssistantPanel({
   const saveConfig = trpc.account.setAssistantConfig.useMutation();
 
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [requestFailed, setRequestFailed] = useState(false);
   const [input, setInput] = useState(() =>
     draftAccount ? readAssistantDraft(draftAccount, sessionId) : '',
   );
@@ -547,6 +606,16 @@ export function AssistantPanel({
   );
 
   const busy = turns.some((t) => t.running);
+  const activity = busy
+    ? 'running'
+    : requestFailed || turns.some((turn) => turn.role === 'assistant')
+      ? 'finished'
+      : 'idle';
+  const resultVersion = activity === 'finished' ? assistantResultVersion(turns) : undefined;
+  useEffect(() => {
+    if (activity === 'finished') onActivityChange?.(activity, resultVersion);
+    else onActivityChange?.(activity);
+  }, [activity, resultVersion, onActivityChange]);
   const selection = useGeneratedSelection(
     { kind: 'assistant', ownerId: 'assistant', sessionId: currentSessionId },
     turns,
@@ -558,17 +627,38 @@ export function AssistantPanel({
   useEffect(() => {
     if (!busy) setStopping(false);
   }, [busy]);
-  const modelSel = assistantConfig.data?.model
-    ? `${assistantConfig.data.model.providerId}::${assistantConfig.data.model.model}`
+  const modelLabel = useModelSelectionLabel();
+  const modelRef = assistantConfig.data?.model;
+  const inheritedModel = isDefaultModelSelection(modelRef);
+  const currentModel =
+    modelRef && !isDefaultModelSelection(modelRef)
+      ? chatModels.find(
+          (model) => model.providerId === modelRef.providerId && model.model === modelRef.model,
+        )
+      : undefined;
+  const modelSel = modelRef
+    ? inheritedModel
+      ? DEFAULT_MODEL_SELECTION_KEY
+      : (currentModel?.key ?? JSON.stringify([modelRef.providerId, modelRef.model]))
     : '';
   const effort: EffortValue = assistantConfig.data?.reasoningEffort ?? 'medium';
-  const modelGroups = buildModelGroups(chatModels);
-  const currentModel = chatModels.find((model) => model.key === modelSel);
-  const modelTitle = currentModel?.label ?? assistantConfig.data?.model?.model ?? '未选择模型';
-  const modelName =
-    currentModel?.label.split(' · ').slice(1).join(' · ') ||
-    assistantConfig.data?.model?.model ||
-    '未选择模型';
+  const modelGroups = [
+    {
+      label: '',
+      options: [{ value: DEFAULT_MODEL_SELECTION_KEY, label: modelLabel({ useDefault: true }) }],
+    },
+    ...buildModelGroups(chatModels),
+    ...(modelRef && !inheritedModel && !currentModel
+      ? [
+          {
+            label: '已保存',
+            options: [{ value: modelSel, label: `已保存但不可用：${modelLabel(modelRef)}` }],
+          },
+        ]
+      : []),
+  ];
+  const modelTitle = currentModel?.label ?? modelLabel(modelRef);
+  const modelName = currentModel?.label.split(' · ').slice(1).join(' · ') || modelLabel(modelRef);
 
   /** 让当前会话的持久化对话缓存失效（会话 id 走 ref，草稿升级后仍指向真会话）。 */
   function invalidateConversation(): void {
@@ -586,7 +676,7 @@ export function AssistantPanel({
   async function onQuickConfig(patch: { modelKey?: string; effort?: EffortValue }): Promise<void> {
     try {
       await saveConfig.mutateAsync({
-        ...(patch.modelKey !== undefined ? { model: parseSel(patch.modelKey) } : {}),
+        ...(patch.modelKey !== undefined ? { model: parseSel(patch.modelKey, chatModels) } : {}),
         ...(patch.effort !== undefined ? { reasoningEffort: patch.effort } : {}),
       });
       await utils.account.getAssistantConfig.invalidate();
@@ -712,6 +802,7 @@ export function AssistantPanel({
       return;
     }
     const text = raw.trim();
+    setRequestFailed(false);
     if (!preset) {
       setInput('');
       if (inputRef.current) inputRef.current.style.height = 'auto';
@@ -742,6 +833,7 @@ export function AssistantPanel({
       runIdRef.current = runId;
     } catch (e) {
       dialog.error('发送失败', e instanceof Error ? e.message : String(e));
+      setRequestFailed(true);
       // 回滚刚加入的两条。
       setTurns((prev) => prev.slice(0, -2));
       if (!preset) setInput(text);
@@ -764,6 +856,7 @@ export function AssistantPanel({
       void utils.account.getAssistantResumeState.invalidate({ sessionId: id });
     }
     setTurns([]);
+    setRequestFailed(false);
     stickRef.current = true;
     runIdRef.current = null;
   }
@@ -792,6 +885,7 @@ export function AssistantPanel({
   async function onResume(): Promise<void> {
     const id = sessionIdRef.current;
     if (!id || busy) return;
+    setRequestFailed(false);
     setTurns((prev) => {
       const next = [...prev];
       const last = next[next.length - 1];
@@ -894,6 +988,7 @@ export function AssistantPanel({
             disabled={resumeRun.isLoading}
             onClick={() => void onResume()}
           >
+            <Play size={13} aria-hidden="true" />
             {resumeRun.isLoading ? '继续中…' : '继续回答'}
           </button>
         </div>

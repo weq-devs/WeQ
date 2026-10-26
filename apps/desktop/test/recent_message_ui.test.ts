@@ -405,7 +405,14 @@ describe('新增消息交互', () => {
       fixture.render(
         h(
           ConversationDirectoryContext.Provider,
-          { value: { virtual: [virtual], onVirtual: vi.fn(), onCreate: vi.fn() } },
+          {
+            value: {
+              virtual: [virtual],
+              guild: [{ ...demo.conversations[0]!, id: 'guild:fixture' }],
+              onVirtual: vi.fn(),
+              onCreate: vi.fn(),
+            },
+          },
           h(ConversationList, {
             conversations: [...demo.conversations.slice(0, 2), guild],
             activeConversationId: null,
@@ -419,7 +426,7 @@ describe('新增消息交互', () => {
       expect(fixture.host.querySelectorAll('.conversation-row')).toHaveLength(4);
       pick('仅频道私聊');
       const rows = [...fixture.host.querySelectorAll<HTMLElement>('[data-conversation-id]')];
-      expect(rows.map((row) => row.dataset.conversationId)).toEqual(['merged:guild-direct']);
+      expect(rows.map((row) => row.dataset.conversationId)).toEqual(['guild:fixture']);
       pick('仅克隆会话');
       expect(
         fixture.host.querySelector('[data-conversation-id="virtual:persona:test"]'),

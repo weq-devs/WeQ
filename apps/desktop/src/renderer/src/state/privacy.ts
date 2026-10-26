@@ -10,46 +10,76 @@
  */
 
 import { create } from 'zustand';
+import { WEQ_MENU_CAPTURE_PRIVACY_KEY as CAPTURE_PRIVACY_STORAGE_KEY } from '@weq/service/backup-client';
+export { CAPTURE_PRIVACY_STORAGE_KEY };
 
-const STORAGE_KEY = 'weq.privacy-mode';
+export const PRIVACY_STORAGE_KEY = 'weq.privacy-mode';
 
 type PrivacyState = {
   enabled: boolean;
+  effective: boolean;
+  capturePrivacy: boolean;
+  setCapturePrivacy: (enabled: boolean) => void;
+  beginTemporary: () => () => void;
   set: (enabled: boolean) => void;
   toggle: () => void;
   hydrate: () => void;
 };
 
-/** 把状态落到根属性 + localStorage。SSR/测试无 document 时安全跳过。 */
+/** 临时覆盖只改绘制属性，不写永久偏好。 */
 function apply(enabled: boolean): void {
   try {
     document.documentElement.toggleAttribute('data-privacy', enabled);
   } catch {}
-  try {
-    window.localStorage.setItem(STORAGE_KEY, enabled ? '1' : '0');
-  } catch {}
 }
 
-function read(): boolean {
+function read(key: string): boolean {
   try {
-    return window.localStorage.getItem(STORAGE_KEY) === '1';
+    return window.localStorage.getItem(key) === '1';
   } catch {
     return false;
   }
 }
 
-export const usePrivacyStore = create<PrivacyState>((set, get) => ({
-  enabled: false,
-  set: (enabled) => {
-    apply(enabled);
-    set({ enabled });
-  },
-  toggle: () => {
-    get().set(!get().enabled);
-  },
-  hydrate: () => {
-    const enabled = read();
-    apply(enabled);
-    set({ enabled });
-  },
-}));
+function persist(key: string, enabled: boolean): void {
+  try {
+    window.localStorage.setItem(key, enabled ? '1' : '0');
+  } catch {}
+}
+
+export const usePrivacyStore = create<PrivacyState>((set, get) => {
+  const owners = new Set<symbol>();
+  const sync = (enabled = get().enabled) => {
+    const effective = enabled || owners.size > 0;
+    apply(effective);
+    set({ enabled, effective });
+  };
+  return {
+    enabled: false,
+    effective: false,
+    capturePrivacy: false,
+    setCapturePrivacy: (capturePrivacy) => {
+      persist(CAPTURE_PRIVACY_STORAGE_KEY, capturePrivacy);
+      set({ capturePrivacy });
+    },
+    beginTemporary: () => {
+      const owner = Symbol('capture-privacy');
+      owners.add(owner);
+      sync();
+      return () => {
+        if (owners.delete(owner)) sync();
+      };
+    },
+    set: (enabled) => {
+      persist(PRIVACY_STORAGE_KEY, enabled);
+      sync(enabled);
+    },
+    toggle: () => {
+      get().set(!get().enabled);
+    },
+    hydrate: () => {
+      sync(read(PRIVACY_STORAGE_KEY));
+      set({ capturePrivacy: read(CAPTURE_PRIVACY_STORAGE_KEY) });
+    },
+  };
+});

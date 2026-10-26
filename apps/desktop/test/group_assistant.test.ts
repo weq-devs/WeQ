@@ -54,7 +54,63 @@ function groups(): Conversation[] {
 }
 
 describe('群助手', () => {
-  it('主列表全选展开助手内会话并注明数量，两处共享选区且右键可进入多选', () => {
+  it('会话时间与外层列表一致：今天、昨天、周内、更早和跨年', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 26, 12));
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const dates = [
+      new Date(2026, 9, 26, 9, 5),
+      new Date(2026, 9, 25, 23, 59),
+      new Date(2026, 9, 20, 9),
+      new Date(2026, 9, 19, 9),
+      new Date(2025, 11, 31, 9),
+    ];
+    const rows = dates.map((date, index) => ({
+      ...groups()[0],
+      id: `time-${index}`,
+      updatedAt: date.toISOString(),
+    }));
+    try {
+      act(() =>
+        root.render(
+          h(
+            ContentSelectionProvider,
+            null,
+            h(ConversationList, {
+              conversations: rows,
+              activeConversationId: null,
+              preferences: {},
+              drafts: {},
+              onSelect: vi.fn(),
+            }),
+            h(MergedSessionPanel, {
+              kind: 'groupAssistant',
+              conversations: rows,
+              groupAssistantIds: new Set(rows.map((row) => row.id)),
+              anchorX: 0,
+              anchorY: 0,
+              onBack: vi.fn(),
+              onSelectConversation: vi.fn(),
+            }),
+          ),
+        ),
+      );
+      const times = (selector: string) =>
+        Array.from(host.querySelectorAll(selector), (node) => node.textContent);
+      const expected = ['09:05', '昨天', '星期二', '2026/10/19', '2025/12/31'];
+      expect(times('.row-time-line')).toEqual(expected);
+      expect(times('.weq-merged-popover-item-time')).toEqual(expected);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      vi.useRealTimers();
+    }
+  });
+
+  it('主列表全选展开助手内会话，两处共享选区且从顶部进入多选', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const host = document.createElement('div');
@@ -126,7 +182,7 @@ describe('群助手', () => {
       const selection = () =>
         JSON.parse(host.querySelector('output')!.textContent!).scope.ids as string[];
       expect(selection().sort()).toEqual(['10001', '10002', '10003']);
-      expect(main.textContent).toContain('已选 3（含群助手 2）');
+      expect(main.textContent).toContain('已选 3');
       expect(host.querySelectorAll('.weq-merged-popover-row.is-multiselected')).toHaveLength(2);
       act(() => host.querySelector<HTMLButtonElement>('.weq-merged-popover-item')!.click());
       expect(selection()).toHaveLength(2);
@@ -138,13 +194,18 @@ describe('群助手', () => {
           .querySelector('.weq-merged-popover-item')!
           .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
       );
+      expect(
+        [...document.querySelectorAll('[role="menuitem"]')].some(
+          (node) => node.textContent === '多选',
+        ),
+      ).toBe(false);
       act(() =>
-        [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-          .find((node) => node.textContent === '多选')!
-          .click(),
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
       );
+      act(() => host.querySelector<HTMLButtonElement>('[aria-label="多选群助手会话"]')!.click());
+      act(() => host.querySelector<HTMLButtonElement>('.weq-merged-popover-item')!.click());
       expect(selection()).toHaveLength(1);
-      expect(main.textContent).toContain('已选 1（含群助手 1）');
+      expect(main.textContent).toContain('已选 1');
       const ordinary = main.querySelector<HTMLElement>('[data-conversation-id="10003"]')!;
       act(() =>
         ordinary.dispatchEvent(

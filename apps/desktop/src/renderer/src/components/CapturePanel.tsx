@@ -48,9 +48,14 @@ import {
 } from 'lucide-react';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { client } from '../trpc/client';
-import { useDialog } from './Dialog';
+import { Modal } from './Dialog';
+import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
+import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
+import { IS_WEB } from '../lib/target';
+import { useTabActive } from './RetainedTabs';
 import { decodeAnyBytes, RvTree } from './ReverseTool';
 import { useToast } from './Toast';
+import '../styles/capture-window.css';
 
 /** 后端传回的帧（hex 形态）。与主进程 `CaptureFrameWire` 保持一致。 */
 interface CaptureFrameWire {
@@ -76,6 +81,7 @@ interface CaptureSupportWire {
 
 interface CaptureSessionState {
   pid: number;
+  sessionId: string;
   iface: string;
   port: string;
   linktype: number;
@@ -101,6 +107,10 @@ const MAX_FRAMES = 4000;
 const HEX_PREVIEW_BYTES = 2048;
 /** 列表栏默认宽度占比（可拖动分隔条调整）。 */
 const DEFAULT_SPLIT = 0.46;
+const SPLIT_MIN = 0.24;
+const SPLIT_MAX = 0.78;
+export const CAPTURE_SPLIT_STEP = 0.05;
+const STACKED_MEDIA_QUERY = '(max-width: 600px)';
 /** 原包小于该字节数的一律当噪声丢掉（TCP ack / 心跳之流）。 */
 const MIN_RAW_BYTES = 75;
 
@@ -209,7 +219,18 @@ function HexDump({ bytes, copyText }: { bytes: Uint8Array; copyText: string }): 
 
 /** 复制 hex 文本的小按钮（带 1.4s 的已复制反馈）。 */
 function CopyHex({ text, disabled }: { text: string; disabled?: boolean }): ReactElement {
+  const document = useRenderDocument();
+  const view = useMemo(() => document.defaultView ?? window, [document]);
+  const timer = useRef<number | null>(null);
+  const alive = useRef(false);
   const [done, setDone] = useState(false);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      if (timer.current !== null) view.clearTimeout(timer.current);
+    };
+  }, [view]);
   return (
     <button
       type="button"
@@ -217,10 +238,28 @@ function CopyHex({ text, disabled }: { text: string; disabled?: boolean }): Reac
       title="复制 hex"
       disabled={disabled}
       onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
-          setDone(true);
-          window.setTimeout(() => setDone(false), 1400);
-        });
+        const clipboard = view.navigator.clipboard;
+        if (!clipboard) {
+          useToast
+            .getState()
+            .push({ tone: 'error', title: '复制失败', detail: '当前窗口不支持剪贴板' });
+          return;
+        }
+        void clipboard
+          .writeText(text)
+          .then(() => {
+            if (!alive.current || view.closed) return;
+            setDone(true);
+            if (timer.current !== null) view.clearTimeout(timer.current);
+            timer.current = view.setTimeout(() => {
+              timer.current = null;
+              setDone(false);
+            }, 1400);
+          })
+          .catch((error) => {
+            if (alive.current && !view.closed)
+              useToast.getState().push({ tone: 'error', title: '复制失败', detail: errMsg(error) });
+          });
       }}
     >
       {done ? <Check size={12} /> : <Copy size={12} />}
@@ -412,11 +451,15 @@ function ExportMenu({
   onPick: (format: 'json' | 'jsonl') => void;
   onClose: () => void;
 }): ReactElement | null {
+  const document = useRenderDocument();
+  const view = document.defaultView ?? window;
+  const active = useTabActive();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-  const layer = useOverlayLayer(true);
+  const layer = useOverlayLayer(active);
 
   useEffect(() => {
+    if (!active) return;
     const margin = 6;
     const gap = 4;
     const el = menuRef.current;
@@ -424,18 +467,19 @@ function ExportMenu({
     const width = el?.offsetWidth ?? 190;
     const height = el?.offsetHeight ?? 110;
     let top = rect ? rect.bottom + gap : margin;
-    if (top + height > window.innerHeight - margin) {
+    if (top + height > view.innerHeight - margin) {
       top = rect ? Math.max(margin, rect.top - height - gap) : margin;
     }
     let left = rect ? rect.right - width : margin;
     if (left < margin) left = margin;
-    if (left + width > window.innerWidth - margin) {
-      left = Math.max(margin, window.innerWidth - width - margin);
+    if (left + width > view.innerWidth - margin) {
+      left = Math.max(margin, view.innerWidth - width - margin);
     }
     setPos({ left, top });
-  }, [anchor]);
+  }, [anchor, view, active]);
 
   useEffect(() => {
+    if (!active) return;
     const onDown = (e: PointerEvent): void => {
       const t = e.target as Node;
       if (menuRef.current?.contains(t) || anchor?.contains(t)) return;
@@ -450,58 +494,71 @@ function ExportMenu({
       document.removeEventListener('pointerdown', onDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [anchor, onClose]);
+  }, [anchor, onClose, document, active]);
 
-  return createPortal(
-    <div
-      ref={menuRef}
-      className="weq-cap-menu"
-      role="menu"
-      aria-label="导出格式"
-      style={{
-        left: pos?.left ?? 0,
-        top: pos?.top ?? 0,
-        zIndex: layer,
-        visibility: pos ? 'visible' : 'hidden',
-      }}
-    >
-      <button
-        type="button"
-        role="menuitem"
-        disabled={busy}
-        onClick={() => onPick('json')}
-        title="一份自包含的文档（meta + frames），适合直接看或发给别人"
-      >
-        <FileJson size={14} />
-        <span>
-          JSON
-          <em>自包含文档，含解析树</em>
-        </span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        disabled={busy}
-        onClick={() => onPick('jsonl')}
-        title="每行一帧，方便用 jq / grep 流式筛"
-      >
-        <FileText size={14} />
-        <span>
-          JSONL
-          <em>每行一帧，便于流式处理</em>
-        </span>
-      </button>
-    </div>,
-    document.body,
-  );
+  return active
+    ? createPortal(
+        <div
+          ref={menuRef}
+          className="weq-cap-menu"
+          role="menu"
+          aria-label="导出格式"
+          style={{
+            left: pos?.left ?? 0,
+            top: pos?.top ?? 0,
+            zIndex: layer,
+            visibility: pos ? 'visible' : 'hidden',
+          }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            disabled={busy}
+            onClick={() => onPick('json')}
+            title="一份自包含的文档（meta + frames），适合直接看或发给别人"
+          >
+            <FileJson size={14} />
+            <span>
+              JSON
+              <em>自包含文档，含解析树</em>
+            </span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={busy}
+            onClick={() => onPick('jsonl')}
+            title="每行一帧，方便用 jq / grep 流式筛"
+          >
+            <FileText size={14} />
+            <span>
+              JSONL
+              <em>每行一帧，便于流式处理</em>
+            </span>
+          </button>
+        </div>,
+        document.body,
+      )
+    : null;
 }
 
 export function CapturePanel({
   accounts,
+  initialUin,
 }: {
   accounts: { uin: string; name: string; avatarUrl: string; pid: number | null }[];
+  initialUin?: string;
 }): ReactElement {
-  const dialog = useDialog();
+  const document = useRenderDocument();
+  const view = useMemo(() => document.defaultView ?? window, [document]);
+  const { enabled: active, revision: activityRevision } = useQQReadActivity(true, {
+    onlineOnly: IS_WEB,
+  });
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const alive = useRef(false);
+  const ownedSession = useRef<CaptureSessionState | null>(null);
+  const busyRef = useRef(false);
   const onlineAccounts = accounts.filter((a) => a.pid !== null);
 
   const [support, setSupport] = useState<CaptureSupportWire | null>(null);
@@ -513,12 +570,14 @@ export function CapturePanel({
   const [dropped, setDropped] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [diagnosing, setDiagnosing] = useState(false);
+  const [installGuide, setInstallGuide] = useState(false);
   /** 过滤：方向 + 关键字（命令字 / seq）。 */
   const [dirFilter, setDirFilter] = useState<'all' | 'c2s' | 's2c'>('all');
   const [query, setQuery] = useState('');
   /** 选中的组；null = 跟随最新一组。 */
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [split, setSplit] = useState(DEFAULT_SPLIT);
+  const [stacked, setStacked] = useState(() => view.matchMedia(STACKED_MEDIA_QUERY).matches);
   const [dragging, setDragging] = useState(false);
   /** 导出：按钮处于导出中 / 下拉菜单挂在哪个按钮上（null = 收起）。 */
   const [exporting, setExporting] = useState(false);
@@ -531,32 +590,76 @@ export function CapturePanel({
   const followRef = useRef(true);
   const dragRef = useRef(false);
 
+  useEffect(() => {
+    alive.current = true;
+    const release = () => {
+      alive.current = false;
+      const owned = ownedSession.current;
+      ownedSession.current = null;
+      if (owned)
+        void client.wonderfulTools.captureStop
+          .mutate({ pid: owned.pid, sessionId: owned.sessionId })
+          .catch(() => undefined);
+    };
+    view.addEventListener('unload', release);
+    return () => {
+      view.removeEventListener('unload', release);
+      release();
+    };
+  }, [view]);
+
+  useEffect(() => {
+    const query = view.matchMedia(STACKED_MEDIA_QUERY);
+    const update = () => {
+      if (!alive.current || view.closed) return;
+      dragRef.current = false;
+      setDragging(false);
+      setStacked(query.matches);
+    };
+    query.addEventListener('change', update);
+    update();
+    return () => query.removeEventListener('change', update);
+  }, [view]);
+
+  useEffect(() => {
+    if (!active) {
+      setExportAnchor(null);
+      setInstallGuide(false);
+    }
+  }, [active]);
+
   // 默认选中第一个在线账号。
   useEffect(() => {
-    if (!selectedUin && onlineAccounts.length > 0) setSelectedUin(onlineAccounts[0]!.uin);
-  }, [onlineAccounts, selectedUin]);
+    if (!selectedUin && onlineAccounts.length > 0)
+      setSelectedUin(
+        onlineAccounts.find((account) => account.uin === initialUin)?.uin ?? onlineAccounts[0]!.uin,
+      );
+  }, [onlineAccounts, selectedUin, initialUin]);
 
   const refreshSupport = useCallback(async (): Promise<void> => {
+    if (!alive.current || !activeRef.current || view.closed) return;
     try {
-      setSupport(await client.wonderfulTools.captureSupport.query());
+      const next = await client.wonderfulTools.captureSupport.query();
+      if (alive.current && activeRef.current && !view.closed) setSupport(next);
     } catch (e) {
-      setError(errMsg(e));
+      if (alive.current && activeRef.current && !view.closed) setError(errMsg(e));
     }
-  }, []);
+  }, [view]);
 
   useEffect(() => {
-    void refreshSupport();
-  }, [refreshSupport]);
+    if (active) void refreshSupport();
+  }, [active, activityRevision, refreshSupport]);
 
   // 轮询新帧（长轮询：每次最多等 waitMs）。暂停即退出循环，native 会话仍 armed。
   useEffect(() => {
-    if (!running || !session) return undefined;
+    if (!active || !running || !session) return undefined;
     let cancelled = false;
     const tick = async (): Promise<void> => {
       while (!cancelled) {
         try {
           const res = await client.wonderfulTools.capturePoll.query({
             pid: session.pid,
+            sessionId: session.sessionId,
             cursor: cursorRef.current,
             waitMs: 1000,
           });
@@ -583,11 +686,11 @@ export function CapturePanel({
     return () => {
       cancelled = true;
     };
-  }, [running, session]);
+  }, [active, running, session]);
 
   /** 开始抓包（无会话时）或继续（已有会话时）。 */
   const startOrResume = useCallback(async (): Promise<void> => {
-    if (busy) return;
+    if (!alive.current || !activeRef.current || view.closed || busyRef.current) return;
     setError(null);
     if (session) {
       setRunning(true);
@@ -598,51 +701,51 @@ export function CapturePanel({
       return;
     }
     setBusy(true);
+    busyRef.current = true;
     try {
       // 后端不可用时按平台给引导：只有 Windows 才可能「缺后端 = 缺 Npcap」，
       // 其它情况（Linux 装了旧产物没带抓包接口等）照 hint 说，别一律甩 Npcap 安装页。
       const sup = support ?? (await client.wonderfulTools.captureSupport.query());
+      if (!alive.current || !activeRef.current || view.closed) return;
       setSupport(sup);
       if (!sup.available) {
         if (sup.platform === 'win32') {
-          const openSite = await dialog.confirm(
-            '需要 Npcap',
-            <>
-              Windows 抓包依赖 <strong>Npcap</strong>
-              （安装时勾选 WinPcap API-compatible Mode），当前未检测到。是否前往官网下载？
-            </>,
-            { okLabel: '打开官网', cancelLabel: '取消', tone: 'warning' },
-          );
-          if (openSite) {
-            await client.help.openExternal
-              .mutate({ url: 'https://npcap.com/#download' })
-              .catch(() => undefined);
-          }
+          if (activeRef.current) setInstallGuide(true);
         } else {
-          dialog.showError('抓包后端不可用', sup.hint || '当前平台的抓包后端不可用。');
+          setError(sup.hint || '当前平台的抓包后端不可用。');
         }
         return;
       }
       const s = await client.wonderfulTools.captureStart.mutate({ uin: selectedUin });
+      if (!alive.current || view.closed) {
+        await client.wonderfulTools.captureStop
+          .mutate({ pid: s.pid, sessionId: s.sessionId })
+          .catch(() => undefined);
+        return;
+      }
       cursorRef.current = undefined;
       setFrames([]);
       setDropped(0);
       setSelectedKey(null);
-      setSession({
+      const nextSession = {
         pid: s.pid,
+        sessionId: s.sessionId,
         iface: s.iface,
         port: s.port,
         linktype: s.linktype,
         elevated: s.elevated,
         hasD2Key: s.hasD2Key,
-      });
+      };
+      ownedSession.current = nextSession;
+      setSession(nextSession);
       setRunning(true);
     } catch (e) {
-      setError(errMsg(e));
+      if (alive.current && !view.closed) setError(errMsg(e));
     } finally {
-      setBusy(false);
+      busyRef.current = false;
+      if (alive.current && !view.closed) setBusy(false);
     }
-  }, [busy, session, selectedUin, support, dialog]);
+  }, [session, selectedUin, support, view]);
 
   const pause = useCallback((): void => {
     setRunning(false);
@@ -650,21 +753,26 @@ export function CapturePanel({
 
   /** 停止并释放 native 会话，清空列表。 */
   const stopAndClear = useCallback(async (): Promise<void> => {
+    if (!alive.current || view.closed) return;
     setRunning(false);
-    const pid = session?.pid;
+    const owned = ownedSession.current;
+    ownedSession.current = null;
     setSession(null);
     cursorRef.current = undefined;
     setFrames([]);
     setDropped(0);
     setSelectedKey(null);
-    if (pid) {
+    if (owned) {
       try {
-        await client.wonderfulTools.captureStop.mutate({ pid });
+        await client.wonderfulTools.captureStop.mutate({
+          pid: owned.pid,
+          sessionId: owned.sessionId,
+        });
       } catch {
         // 幂等停止：会话已释放也无所谓。
       }
     }
-  }, [session]);
+  }, [view]);
 
   /** 清空列表但不停会话。 */
   const clearList = useCallback((): void => {
@@ -675,27 +783,34 @@ export function CapturePanel({
 
   /** 重新读一次后端能力（提权状态 / Npcap）——排查「抓不到 / 解不开」时用。 */
   const rediagnose = useCallback(async (): Promise<void> => {
+    if (!alive.current || !activeRef.current || view.closed) return;
+    const target = ownedSession.current;
+    const current = () =>
+      alive.current && activeRef.current && !view.closed && ownedSession.current === target;
     setDiagnosing(true);
     setError(null);
     try {
       const sup = await client.wonderfulTools.captureSupport.query();
+      if (!current()) return;
       setSupport(sup);
       // 会话在跑：顺手让 native 再回一次统计（帧数 / 丢包），确认读循环还活着。
-      if (session) {
+      if (target) {
         const batch = await client.wonderfulTools.capturePoll.query({
-          pid: session.pid,
+          pid: target.pid,
+          sessionId: target.sessionId,
           cursor: cursorRef.current,
           waitMs: 0,
         });
+        if (!current()) return;
         cursorRef.current = batch.nextCursor;
         setDropped(batch.dropped);
       }
     } catch (e) {
-      setError(errMsg(e));
+      if (current()) setError(errMsg(e));
     } finally {
-      setDiagnosing(false);
+      if (alive.current && !view.closed) setDiagnosing(false);
     }
-  }, [session]);
+  }, [view]);
 
   const groups = useMemo<CaptureGroup[]>(() => {
     // 同一个 seq 的 c2s / s2c 合成一组；seq 被复用时（两侧都占满）另起一组，
@@ -745,6 +860,7 @@ export function CapturePanel({
    */
   const runExport = useCallback(
     async (format: 'json' | 'jsonl'): Promise<void> => {
+      if (!alive.current || !activeRef.current || view.closed) return;
       setExportAnchor(null);
       if (exporting) return;
       const exportFrames: CaptureFrameWire[] = [];
@@ -781,12 +897,13 @@ export function CapturePanel({
           format,
           frames: exportFrames,
         });
+        const canPresent = alive.current && activeRef.current && !view.closed;
         if (result.saved) {
           const sizeLabel = result.bytes ? fmtBytes(result.bytes) : '';
-          if (result.downloadId) {
+          if (result.downloadId && canPresent) {
             // Web 端：把文件从服务端拉下来（浏览器直接下载）。
             const a = document.createElement('a');
-            a.href = `/_download/${result.downloadId}`;
+            a.href = resourceForRenderDocument(`/_download/${result.downloadId}`, document);
             a.download = result.path ? result.path.split(/[\\/]/).pop() || '' : '';
             document.body.appendChild(a);
             a.click();
@@ -797,7 +914,7 @@ export function CapturePanel({
             title: `已导出 ${result.frames ?? exportFrames.length} 帧${
               sizeLabel ? `（${sizeLabel}）` : ''
             }`,
-            detail: result.downloadId ? '已开始下载' : result.path,
+            detail: canPresent ? (result.downloadId ? '已开始下载' : result.path) : undefined,
             ttl: 8000,
           });
         } else if (result.canceled) {
@@ -806,17 +923,22 @@ export function CapturePanel({
           toast.update(toastId, {
             tone: 'error',
             title: '导出失败',
-            detail: result.error ?? '未知错误',
+            detail: canPresent ? (result.error ?? '未知错误') : undefined,
             ttl: 8000,
           });
         }
       } catch (e) {
-        toast.update(toastId, { tone: 'error', title: '导出失败', detail: errMsg(e), ttl: 8000 });
+        toast.update(toastId, {
+          tone: 'error',
+          title: '导出失败',
+          detail: alive.current && activeRef.current && !view.closed ? errMsg(e) : undefined,
+          ttl: 8000,
+        });
       } finally {
-        setExporting(false);
+        if (alive.current && !view.closed) setExporting(false);
       }
     },
-    [accounts, exporting, selectedUin, session, visible],
+    [accounts, exporting, selectedUin, session, visible, document, view],
   );
 
   const frameStats = useMemo(() => {
@@ -834,36 +956,42 @@ export function CapturePanel({
 
   // 新帧到达且处于跟随状态时自动滚到底部。
   useEffect(() => {
-    if (!followRef.current) return;
+    if (!active || !followRef.current) return;
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [visible.length]);
+  }, [visible.length, active]);
 
   // 拖动分隔条：按下后跟着指针走，夹在 24%–78% 之间。
   useEffect(() => {
+    if (!active) {
+      dragRef.current = false;
+      setDragging(false);
+      return;
+    }
     const onMove = (e: PointerEvent): void => {
       if (!dragRef.current) return;
       const el = splitRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      if (rect.width <= 0) return;
-      const ratio = (e.clientX - rect.left) / rect.width;
-      setSplit(Math.min(0.78, Math.max(0.24, ratio)));
+      const size = stacked ? rect.height : rect.width;
+      if (size <= 0) return;
+      const ratio = stacked ? (e.clientY - rect.top) / size : (e.clientX - rect.left) / size;
+      setSplit(Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, ratio)));
     };
     const onUp = (): void => {
       if (!dragRef.current) return;
       dragRef.current = false;
       setDragging(false);
     };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
+    view.addEventListener('pointermove', onMove);
+    view.addEventListener('pointerup', onUp);
+    view.addEventListener('pointercancel', onUp);
     return () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
+      view.removeEventListener('pointermove', onMove);
+      view.removeEventListener('pointerup', onUp);
+      view.removeEventListener('pointercancel', onUp);
     };
-  }, []);
+  }, [active, view, stacked]);
 
   const onScroll = (): void => {
     const el = scrollRef.current;
@@ -926,7 +1054,7 @@ export function CapturePanel({
           <span>账号</span>
           <select
             value={selectedUin}
-            disabled={Boolean(session) || onlineAccounts.length === 0}
+            disabled={busy || Boolean(session) || onlineAccounts.length === 0}
             onChange={(e) => setSelectedUin(e.target.value)}
           >
             {onlineAccounts.length === 0 ? (
@@ -1050,9 +1178,16 @@ export function CapturePanel({
 
       {/* 主体：左表 + 右详情 */}
       <div
-        className={`weq-cap-split${dragging ? ' is-dragging' : ''}`}
+        className={`weq-cap-split${dragging ? ' is-dragging' : ''}${stacked ? ' is-stacked' : ''}`}
         ref={splitRef}
-        style={{ gridTemplateColumns: `${split}fr 7px ${1 - split}fr` }}
+        style={
+          stacked
+            ? {
+                gridTemplateColumns: 'minmax(0, 1fr)',
+                gridTemplateRows: `minmax(160px, ${split}fr) 7px minmax(160px, ${1 - split}fr)`,
+              }
+            : { gridTemplateColumns: `minmax(0, ${split}fr) 7px minmax(0, ${1 - split}fr)` }
+        }
       >
         <section className="weq-cap-list">
           <div className="weq-cap-filter">
@@ -1158,12 +1293,41 @@ export function CapturePanel({
         <div
           className="weq-cap-grip"
           role="separator"
-          aria-orientation="vertical"
-          aria-label="调整列表宽度"
+          aria-orientation={stacked ? 'horizontal' : 'vertical'}
+          aria-label={stacked ? '调整列表高度' : '调整列表宽度'}
+          aria-valuemin={Math.round(SPLIT_MIN * 100)}
+          aria-valuemax={Math.round(SPLIT_MAX * 100)}
+          aria-valuenow={Math.round(split * 100)}
+          tabIndex={0}
+          onKeyDown={(event) => {
+            const decrease = stacked ? 'ArrowUp' : 'ArrowLeft',
+              increase = stacked ? 'ArrowDown' : 'ArrowRight';
+            if (![decrease, increase, 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            setSplit((current) =>
+              event.key === 'Home'
+                ? SPLIT_MIN
+                : event.key === 'End'
+                  ? SPLIT_MAX
+                  : Math.min(
+                      SPLIT_MAX,
+                      Math.max(
+                        SPLIT_MIN,
+                        current +
+                          (event.key === decrease ? -CAPTURE_SPLIT_STEP : CAPTURE_SPLIT_STEP),
+                      ),
+                    ),
+            );
+          }}
           onPointerDown={(e) => {
             e.preventDefault();
             dragRef.current = true;
+            e.currentTarget.setPointerCapture?.(e.pointerId);
             setDragging(true);
+          }}
+          onLostPointerCapture={() => {
+            dragRef.current = false;
+            if (alive.current) setDragging(false);
           }}
         />
 
@@ -1185,6 +1349,41 @@ export function CapturePanel({
           onPick={(format) => void runExport(format)}
           onClose={() => setExportAnchor(null)}
         />
+      ) : null}
+      {installGuide ? (
+        <Modal centered width={368} onClose={() => setInstallGuide(false)}>
+          <div className="weq-capture-install-guide">
+            <h3>需要 Npcap</h3>
+            <p>
+              Windows 抓包依赖 <strong>Npcap</strong>（安装时勾选 WinPcap API-compatible
+              Mode），当前未检测到。
+            </p>
+            <div className="weq-capture-install-actions">
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                onClick={() => setInstallGuide(false)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="weq-set-btn"
+                onClick={() => {
+                  setInstallGuide(false);
+                  void client.help.openExternal
+                    .mutate({ url: 'https://npcap.com/#download' })
+                    .catch((error) => {
+                      if (alive.current && !view.closed) setError(errMsg(error));
+                    });
+                }}
+              >
+                <Download size={14} />
+                打开官网
+              </button>
+            </div>
+          </div>
+        </Modal>
       ) : null}
     </div>
   );

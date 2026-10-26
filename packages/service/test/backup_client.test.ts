@@ -4,6 +4,7 @@ import {
   snapshotWeqClientSettings,
   validateWeqClientSettings,
   WEQ_CLIENT_RESTORE_RECEIPT,
+  WEQ_MENU_CAPTURE_PRIVACY_KEY,
 } from '../src/common/backup_client';
 
 function storage(initial: Record<string, string> = {}) {
@@ -24,6 +25,24 @@ function storage(initial: Record<string, string> = {}) {
   };
   return { value, values };
 }
+
+it('菜单截图临时隐私只备份设备偏好，恢复/默认重置不引入运行覆盖', () => {
+  const source = storage({
+    [WEQ_MENU_CAPTURE_PRIVACY_KEY]: '1',
+    'weq.privacy-mode': '0',
+    'weq.manual-full-mode': '1',
+  });
+  const snapshot = snapshotWeqClientSettings(source.value);
+  expect(snapshot[WEQ_MENU_CAPTURE_PRIVACY_KEY]).toBe('1');
+  expect(snapshot).not.toHaveProperty('weq.manual-full-mode');
+  for (const value of ['true', 'false', '2', ''])
+    expect(() => validateWeqClientSettings({ [WEQ_MENU_CAPTURE_PRIVACY_KEY]: value })).toThrow();
+  const target = storage();
+  applyWeqClientSettings(target.value, snapshot);
+  expect(target.value.getItem(WEQ_MENU_CAPTURE_PRIVACY_KEY)).toBe('1');
+  applyWeqClientSettings(target.value, {});
+  expect(target.value.getItem(WEQ_MENU_CAPTURE_PRIVACY_KEY)).toBeNull();
+});
 
 it('恢复回执与偏好一起提交，回执写入失败时回滚偏好与旧回执', () => {
   const source = storage({

@@ -188,7 +188,7 @@ export const QFACE_EXTRA: ProtoMessage = message([
 ]);
 
 /**
- * 戳一戳互动表情 / 私聊窗口抖动（commonElem serviceType=2）的 pbElem。
+ * 戳一戳互动表情（commonElem serviceType=2）的 pbElem。
  *
  * 安卓真机抓包（2026-10-01）解出 10 个字段，与本机库 FACE 元素的 `47611..47620`
  * 段**逐字段对应**（类型一致：2/5/6 是 string，其余 uint）—— 见

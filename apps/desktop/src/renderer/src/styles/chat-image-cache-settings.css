@@ -1,0 +1,44 @@
+.weq-image-cache-setting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-image-cache-setting input {
+  width: 84px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  background: var(--background);
+  color: var(--weq-fg-primary);
+}
+
+.weq-image-cache-setting button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  color: var(--weq-accent-effective);
+  background: var(--background);
+}
+
+.weq-image-cache-setting button:disabled {
+  color: var(--weq-fg-muted);
+  opacity: 0.6;
+}
+
+.weq-image-cache-setting :focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+html[data-theme='dark'] .weq-image-cache-setting input,
+html[data-theme='dark'] .weq-image-cache-setting button {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}

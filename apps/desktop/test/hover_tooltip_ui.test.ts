@@ -8,12 +8,47 @@ import { Window as HappyWindow } from 'happy-dom';
 import { RenderDocumentContext } from '../src/renderer/src/lib/renderDocument';
 import { CompositionButton } from '../src/renderer/src/components/mergeForward/CompositionButton';
 import { useRestrictedMode } from '../src/renderer/src/state/restrictedMode';
+import { usePrivacyStore } from '../src/renderer/src/state/privacy';
 
 afterEach(() => {
   useRestrictedMode.setState({ reasons: [], requests: [], open: false });
   vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+it('临时截图覆盖也隐藏已打开的敏感悬浮提示，释放后按永久偏好恢复', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.useFakeTimers();
+  const host = document.createElement('div'),
+    button = document.createElement('button');
+  button.title = '合成敏感资料';
+  button.setAttribute('data-privacy-title', '');
+  document.body.append(host, button);
+  const root = createRoot(host);
+  let release = () => {};
+  try {
+    act(() => root.render(createElement(HoverTooltip)));
+    await act(async () => {
+      button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+      vi.advanceTimersByTime(300);
+    });
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('合成敏感资料');
+    act(() => {
+      release = usePrivacyStore.getState().beginTemporary();
+    });
+    expect(usePrivacyStore.getState().enabled).toBe(false);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('内容已隐藏');
+    act(() => release());
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('合成敏感资料');
+  } finally {
+    act(() => {
+      release();
+      root.unmount();
+    });
+    host.remove();
+    button.remove();
+  }
 });
 
 it.each(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph'])(

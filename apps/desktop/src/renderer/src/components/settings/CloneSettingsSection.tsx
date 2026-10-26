@@ -12,6 +12,7 @@ import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { ApiModelSelect } from './ApiModelSelect';
+import { useModelSelectionLabel } from './useModelSelectionLabel';
 import { PersonaSettingsModal } from '../../views/agentlab/PersonaSettingsModal';
 import { useDraftProtection } from '../../lib/draftClose';
 import { useDialog } from '../Dialog';
@@ -25,6 +26,7 @@ function CloneGenerationPanel({
   onSaved: () => void;
 }) {
   const current = normalizeCloneGeneration(persona.generation);
+  const modelLabel = useModelSelectionLabel();
   const [model, setModel] = useState(persona.models?.chat ?? null);
   const [draft, setDraft] = useState(() =>
     Object.fromEntries(CLONE_GENERATION_KEYS.map((key) => [key, String(current[key])])),
@@ -73,6 +75,7 @@ function CloneGenerationPanel({
         desc="生成回复时会将本轮消息、所选历史与参考语料发送至该服务商。"
         control={
           <ApiModelSelect
+            allowDefault
             required
             label="克隆聊天 API 模型"
             value={model}
@@ -87,11 +90,11 @@ function CloneGenerationPanel({
         <summary>高级设置</summary>
         <Row
           label="训练检索模型"
-          control={<span>{persona.models?.embedding?.model ?? '未使用'}</span>}
+          control={<span>{modelLabel(persona.models?.embedding, '未使用')}</span>}
         />
         <Row
           label="训练视觉模型"
-          control={<span>{persona.models?.vision?.model ?? '未使用'}</span>}
+          control={<span>{modelLabel(persona.models?.vision, '未使用')}</span>}
         />
         {CLONE_GENERATION_KEYS.map((key) => (
           <Row

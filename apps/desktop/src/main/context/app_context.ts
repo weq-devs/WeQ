@@ -21,12 +21,13 @@
 import { EventEmitter } from 'node:events';
 import { createDbChangeNotification } from '../db_change_notification';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
+import { clearFullMode, fullModeAllowed } from './full_mode';
 import { resolveBackupLocation, backupMediaRoots } from '../static_backup';
 import { VipBadgeService } from '../vip_badge';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
-import { AnnualReportIndexDb } from '@weq/db';
+import { AnnualReportIndexDb, withDatabasePriority, waitForDatabaseQuiet } from '@weq/db';
 import { QQMailService, type MailNotice } from '@weq/service/mail';
 import {
   createWin32Platform,
@@ -43,7 +44,7 @@ import { publishWeqAssistantDocroot } from '../weq_assistant/publish';
 import { createReportQzoneCapability } from '../report_qzone';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
 import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
-import { aiToolSpecs, runAssistantTool } from '../mcp/openai_tools';
+import { assistantToolSpecs, runAssistantTool } from '../mcp/openai_tools';
 import { bindAccountTools, invalidateAccountTools } from '../mcp/account_scope';
 import { cancelAssistantRuns } from '../mcp/assistant_bus';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
@@ -56,6 +57,7 @@ import type { IntentLocalEnginePort } from '@weq/service';
 import { resolveLocalOcrFilterModel, runLocalOcrFile, runLocalOcrFilterFile } from '../ocr/local';
 import { OnlineImageOcr } from '../ocr/online';
 import { createLinuxAttachHook } from '../attach_elevation';
+import { tryLongTermAttach } from '../authorization/client';
 import {
   accountConfigId,
   AnnualReportService,
@@ -140,6 +142,7 @@ import {
   ChatImageOcrService,
   InteractionService,
   GroupModerationService,
+  LocationShareService,
   AccountWriteService,
   DbWatchService,
   checkAccountDatabaseHealth,
@@ -364,8 +367,15 @@ const dbHealthFailureAt = new WeakMap<AccountSession, number>();
  * 再在后台把索引补上。已经建好的库上这个调用是 ~9ms 的 no-op。
  */
 let annualIndexWarmup: ReturnType<typeof setTimeout> | null = null;
+let annualIndexController: AbortController | null = null;
 /** 延迟多久开始建索引 —— 避开开账号瞬间那一批首屏查询。 */
 const ANNUAL_INDEX_WARMUP_DELAY_MS = 3000;
+function cancelAnnualReportWarmup(): void {
+  if (annualIndexWarmup) clearTimeout(annualIndexWarmup);
+  annualIndexWarmup = null;
+  annualIndexController?.abort();
+  annualIndexController = null;
+}
 
 /**
  * Mount the nt_msg.db watcher for `session` (idempotent — no-op if already
@@ -492,7 +502,7 @@ async function createRoamingBackfill(
     checkOnline: () => {
       const record = accountConfig.getRecord();
       if (
-        userConfig.getSettings().autoAttachQq === false ||
+        !fullModeAllowed(getAppContext(), session) ||
         !record?.qqOnline ||
         !record.qqPid ||
         record.uin !== session.context.uin
@@ -549,19 +559,18 @@ export function closeSalvageConnections(ctx: AppContext): number {
  * 的后台，用户还没走到报告页，这次建索引就是「白捡」的。
  *
  * 三个刻意的选择：
- *   • **延迟 {@link ANNUAL_INDEX_WARMUP_DELAY_MS}**：避开开账号瞬间那一批首屏查询
- *     （会话列表 / 未读 / 联系人），别让建索引跟它们抢连接。
+ *   • 延迟仅是首次检查；缺失索引逐个等待数据库队列为空且交互安静五秒，
+ *     再以后台优先级创建，不能将定时器到点当作空闲。已执行的 DDL 不可抢占。
  *   • **best-effort**：静态快照、只读目录、无写权限都会抛错，一律只记日志 ——
  *     报告不该因为装不上索引就打不开，只是慢一点。
- *   • **幂等**：已建好的库上是 ~9ms 的 no-op，所以每次开账号都可以无脑跑一次。
+ *   • **幂等**：先检查已有索引，不重复提交 DDL；两个缺失索引之间再次让出。
  *
  * 返回前会核对 session 仍是当前账号 —— 期间用户切了账号就整个丢弃。
  */
 function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platform: Platform): void {
-  if (annualIndexWarmup) {
-    clearTimeout(annualIndexWarmup);
-    annualIndexWarmup = null;
-  }
+  cancelAnnualReportWarmup();
+  const controller = new AbortController();
+  annualIndexController = controller;
   const logger = getLogger().child({ scope: 'annual-report-index' });
   annualIndexWarmup = setTimeout(() => {
     annualIndexWarmup = null;
@@ -573,23 +582,37 @@ function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platfor
         key: session.context.dbKey,
         algo: algoFor(session.context, session.msgDbPath),
       });
-      try {
-        const installed = await db.ensure();
-        logger.info('annual report indexes ready', {
-          event: 'annual-index-ready',
-          accountUin: session.context.uin,
-          indexes: installed.map((index) => index.name),
-        });
-      } finally {
-        db.close();
-      }
-    })().catch((error) => {
-      logger.warn('failed to build annual report indexes (report still works, just slower)', {
-        event: 'annual-index-failed',
+      const installed = await withDatabasePriority(
+        'background',
+        () =>
+          db.ensure({
+            beforeCreate: () =>
+              waitForDatabaseQuiet(
+                session.msgDbPath,
+                () => ctx.account === session && !controller.signal.aborted,
+              ),
+          }),
+        controller.signal,
+      );
+      if (ctx.account !== session) return;
+      logger.info('annual report indexes ready', {
+        event: 'annual-index-ready',
         accountUin: session.context.uin,
-        ...logErrorContext(error),
+        indexes: installed.map((index) => index.name),
       });
-    });
+      // 读侧复用账号连接；写侧 QqDb.write 已在每条 DDL 结束后释放锁。
+    })()
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        logger.warn('failed to build annual report indexes (report still works, just slower)', {
+          event: 'annual-index-failed',
+          accountUin: session.context.uin,
+          ...logErrorContext(error),
+        });
+      })
+      .finally(() => {
+        if (annualIndexController === controller) annualIndexController = null;
+      });
   }, ANNUAL_INDEX_WARMUP_DELAY_MS);
 }
 
@@ -834,6 +857,8 @@ export interface AccountServices {
   interaction: InteractionService;
   /** 会话治理：撤回 + 群管理（改群名片 / 踢人 / 禁言 / 设撤管理员，需在线 QQ 发包）。 */
   groupModeration: GroupModerationService;
+  /** 位置共享（QQLBSShareSvc 发起 / 上报 / 查询，需在线 QQ 发包）。 */
+  locationShare: LocationShareService;
   accountWrite: AccountWriteService;
   /** 闪传浏览 / 下载（匿名 HTTP2RPC，不需 QQ 在线）。 */
   flashTransferFiles: FlashTransferFilesService;
@@ -950,6 +975,8 @@ export interface AppContext {
    * takes effect immediately. No-op when no account is open.
    */
   applyRealtime(enabled: boolean): void;
+  /** 自动策略失效时取消旧采集，保留仍有效的本来源手动请求。 */
+  applyFullModePolicy(): void;
 
   /**
    * Apply the SSE 消息推送 config to the open account (start / stop / retarget
@@ -1016,6 +1043,7 @@ function unavailableContext(nativeError: NativeInitError | null, reason: string)
     applyRealtime(): void {
       /* no account to watch */
     },
+    applyFullModePolicy(): void {},
     applySsePush(): Promise<void> {
       /* no account — nothing to push */
       return Promise.resolve();
@@ -1143,7 +1171,7 @@ export function initAppContext(fileRoot?: string): AppContext {
   const attachHook: AttachHook =
     process.platform === 'linux' || process.platform === 'darwin'
       ? createLinuxAttachHook(platform.native.ntHelper, userConfig)
-      : createDirectAttachHook(platform.native.ntHelper);
+      : createDirectAttachHook(platform.native.ntHelper, tryLongTermAttach);
 
   const linkPreview = new LinkPreviewService(userConfig);
   const apiUsage = new TokenUsageStore(join(userConfig.cacheDir('api_usage'), 'global.json'));
@@ -1231,9 +1259,11 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountCtx: AccountContext,
       metadata: AccountConfigMetadata = {},
     ): Promise<void> {
+      clearFullMode(this);
       const base = this.platform;
       if (!base) throw new Error('原生组件尚未就绪');
       const platform = base;
+      cancelAnnualReportWarmup();
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       this.scheduler?.stop();
@@ -1254,6 +1284,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.roamingBackfill.dispose();
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
+      this.services?.annualReport.dispose();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
       this.account?.dispose();
@@ -1306,6 +1337,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Keyed by the same (uin, dataDir) id the account record uses.
       const exportConfigId = accountConfigId(session.context.uin, metadata.dataDir);
       const resolveOnlinePid = (): number => {
+        if (!fullModeAllowed(this, session)) throw new Error('本次运行尚未启用完整功能。');
         const record = accountConfig.getRecord();
         if (!record?.qqOnline || !record.qqPid) {
           throw new Error('QQ account is not online.');
@@ -1321,6 +1353,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         userConfig.cacheDir('media'),
         // 本机 rkey 不可用（无在线 QQ / 已过期）时回退到外部 rkey 服务器。
         bootstrap.externalRkey,
+        () => fullModeAllowed(this, session),
       );
       // 识别结果缓存（内容寻址，`<缓存根>/ocr/`）：灯箱 / MCP / 导出共用同一份实例。
       // 刻意不进「清理缓存」白名单 —— 过期图片的结果清掉就再也拿不回来了（见
@@ -1401,8 +1434,11 @@ export function initAppContext(fileRoot?: string): AppContext {
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
       const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
-      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) => ({
-        ...bootstrap.agentLabConfig.resolveEndpoint(ref),
+      const resolveAgentEndpoint = (
+        ref: import('@weq/agentlab').AgentLabModelSelection,
+        capability?: import('@weq/agentlab').AgentLabModelCapability,
+      ) => ({
+        ...bootstrap.agentLabConfig.resolveEndpoint(ref, capability),
         onUsage: (u: import('@weq/agentlab').AgentLabUsage) =>
           tokenUsage.record({
             ...u,
@@ -1446,7 +1482,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         platform.native.ntHelper,
         session,
         () => {
-          if (userConfig.getSettings().autoAttachQq === false)
+          if (!fullModeAllowed(this, session))
             throw new Error('完全离线模式已开启，已停止漫游请求。');
           return resolveOnlinePid();
         },
@@ -1489,7 +1525,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               if (
                 this.account !== session ||
                 this.accountIsStatic ||
-                userConfig.getSettings().autoAttachQq === false
+                !fullModeAllowed(this, session)
               )
                 return null;
               const record = accountConfig.getRecord();
@@ -1522,7 +1558,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           resolveDressNames: createDressNameResolver(dressInstall),
           qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
             const record = accountConfig.getRecord();
-            return Boolean(record?.qqOnline && record.qqPid);
+            return fullModeAllowed(this, session) && Boolean(record?.qqOnline && record.qqPid);
           }),
           resolveEmojiNames: async (ids) => {
             const entries = await emojiService.listSystemFaces();
@@ -1600,7 +1636,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           conversations,
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
-            specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
+            specs: assistantToolSpecs,
             // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
             run: bindAccountTools(session, () => this.account, runAssistantTool),
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
@@ -1789,21 +1825,19 @@ export function initAppContext(fileRoot?: string): AppContext {
             // 收藏导出：翻页拉本地收藏并拍平为可序列化行（复用 IPC 的 wire 投影）。
             collection: {
               listCollections: async (limit, offset) => {
-                const page =
-                  userConfig.getSettings().autoAttachQq === false
-                    ? await collectionSvc.listCollectionsFromDb(limit, offset)
-                    : await collectionSvc.listCollections(limit, offset);
+                const page = !fullModeAllowed(this, session)
+                  ? await collectionSvc.listCollectionsFromDb(limit, offset)
+                  : await collectionSvc.listCollections(limit, offset);
                 return page.items.map(collectionItemToWire);
               },
               syncHistory: (signal) =>
-                userConfig.getSettings().autoAttachQq === false
+                !fullModeAllowed(this, session)
                   ? Promise.reject(new Error('完全离线模式，不同步云端收藏历史。'))
                   : collectionSvc.syncNetworkHistory(signal),
               canFetchDetails: () =>
-                userConfig.getSettings().autoAttachQq !== false &&
-                accountConfig.getRecord()?.qqOnline === true,
+                fullModeAllowed(this, session) && accountConfig.getRecord()?.qqOnline === true,
               fetchDetails: async (cids, signal) => {
-                if (userConfig.getSettings().autoAttachQq === false)
+                if (!fullModeAllowed(this, session))
                   throw new Error('完全离线模式，不请求云端收藏详情。');
                 const details = await collectionSvc.fetchDetails(cids, { signal });
                 return details.map((detail) => collectionDetailToWire(detail.cid, detail.content));
@@ -1812,10 +1846,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
               writeDetailSnapshot: (path) => collectionSvc.writeCollectionDetailSnapshot(path),
               downloadOriginalFiles: (cid, signal) => {
-                if (
-                  userConfig.getSettings().autoAttachQq === false ||
-                  accountConfig.getRecord()?.qqOnline !== true
-                )
+                if (!fullModeAllowed(this, session) || accountConfig.getRecord()?.qqOnline !== true)
                   throw new Error('离线时不请求收藏附件。');
                 return collectionSvc.downloadExportMedia(cid, signal);
               },
@@ -1892,10 +1923,13 @@ export function initAppContext(fileRoot?: string): AppContext {
           String(session.context.uin),
           () => {
             const record = accountConfig.getRecord();
-            return record?.qqOnline ? (record.qqPid ?? null) : null;
+            return fullModeAllowed(this, session) && record?.qqOnline
+              ? (record.qqPid ?? null)
+              : null;
           },
           {
             notificationsEnabled: accountConfig.getRecord()?.mailNotifications ?? false,
+            allowOnline: () => fullModeAllowed(this, session),
             onNotice: (notice) => mailNotifier?.(String(session.context.uin), notice),
           },
         ),
@@ -1938,6 +1972,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, resolveOnlinePid),
+        locationShare: new LocationShareService(platform.native.ntHelper, resolveOnlinePid),
         accountWrite: new AccountWriteService(
           platform.native.ntHelper,
           {
@@ -1975,7 +2010,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           taskManager: exportManager,
           isOnline: () => {
             const r = accountConfig.getRecord();
-            return Boolean(r?.qqOnline && r?.qqPid);
+            return fullModeAllowed(this, session) && Boolean(r?.qqOnline && r?.qqPid);
           },
         },
       );
@@ -1989,15 +2024,13 @@ export function initAppContext(fileRoot?: string): AppContext {
         showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
       });
 
-      // Start the background login/pid monitor for this account. Injection +
-      // harvesting (rkey / clientkey / 装扮快照) inside it is gated live by the
-      // 自动读取 QQ 内存 master switch (完全离线模式), so toggling that setting takes
-      // effect on the next poll without a re-open.
+      // 后台登录/pid 监视器实时检查本来源有效运行态，包含自动策略和显式手动请求；
+      // 凭据采集在下次轮询生效，不用重新打开账号，也不能复用已失活的会话。
       accountMonitor = new AccountMonitorService(
         session,
         platform,
         accountConfig,
-        () => userConfig.getSettings().autoAttachQq,
+        () => fullModeAllowed(this, session),
         bootstrap.attachHook,
         // 首次抓到快照时准备 QQ 同款装扮资源，只加入已装，不自动使用。
         async (dress) => {
@@ -2024,6 +2057,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           return () => accountEventBus.off('onlineCredentialsReady', handler);
         },
         () => accountEventBus.emit('vipChanged', { at: Date.now() }),
+        () => fullModeAllowed(this, session),
       );
       vipBadge.start();
 
@@ -2120,7 +2154,9 @@ export function initAppContext(fileRoot?: string): AppContext {
     ): Promise<void> {
       const backup = await resolveBackupLocation(dirPath);
       if (!backup) throw new Error('未找到 QQ 账号数据库目录');
+      clearFullMode(this);
       dirPath = backup.dbDir;
+      cancelAnnualReportWarmup();
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       logger.info('opening static account session', {
@@ -2139,6 +2175,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.roamingBackfill.dispose();
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
+      this.services?.annualReport.dispose();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
       this.account?.dispose();
@@ -2214,6 +2251,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // elsewhere. The monitor (started at the end) records its pid, so this
       // resolves lazily per call — going online mid-session needs no reopen.
       const livePid = (): number => {
+        if (!fullModeAllowed(this, session)) throw new Error('本次运行尚未启用完整功能。');
         const pid = accountConfig.getRecord()?.qqPid;
         if (!pid) {
           throw new Error('QQ 未在线（静态账号需登录同一账号的 QQ 客户端后才能使用在线功能）。');
@@ -2225,6 +2263,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         accountConfig,
         userConfig.cacheDir('media'),
         bootstrap.externalRkey,
+        () => fullModeAllowed(this, session),
       );
       /** 识别结果缓存（同上：与灯箱 / MCP 共用一份，见 `common/ocr_cache.ts`）。 */
       const ocrCache = ocrCacheFor(userConfig.cacheDir('ocr'));
@@ -2277,8 +2316,11 @@ export function initAppContext(fileRoot?: string): AppContext {
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
       const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
-      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) => ({
-        ...bootstrap.agentLabConfig.resolveEndpoint(ref),
+      const resolveAgentEndpoint = (
+        ref: import('@weq/agentlab').AgentLabModelSelection,
+        capability?: import('@weq/agentlab').AgentLabModelCapability,
+      ) => ({
+        ...bootstrap.agentLabConfig.resolveEndpoint(ref, capability),
         onUsage: (u: import('@weq/agentlab').AgentLabUsage) =>
           tokenUsage.record({
             ...u,
@@ -2317,7 +2359,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         platform.native.ntHelper,
         session,
         () => {
-          if (userConfig.getSettings().autoAttachQq === false)
+          if (!fullModeAllowed(this, session))
             throw new Error('完全离线模式已开启，已停止漫游请求。');
           return livePid();
         },
@@ -2365,7 +2407,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           resolveDressNames: createDressNameResolver(dressInstall),
           qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
             const record = accountConfig.getRecord();
-            return Boolean(record?.qqOnline && record.qqPid);
+            return fullModeAllowed(this, session) && Boolean(record?.qqOnline && record.qqPid);
           }),
           resolveEmojiNames: async (ids) => {
             const entries = await emojiService.listSystemFaces();
@@ -2442,7 +2484,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           conversations,
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
-            specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
+            specs: assistantToolSpecs,
             // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
             run: bindAccountTools(session, () => this.account, runAssistantTool),
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
@@ -2551,21 +2593,19 @@ export function initAppContext(fileRoot?: string): AppContext {
             // 收藏导出：静态账号同样有本地收藏库，可离线导出。
             collection: {
               listCollections: async (limit, offset) => {
-                const page =
-                  userConfig.getSettings().autoAttachQq === false
-                    ? await collectionSvc.listCollectionsFromDb(limit, offset)
-                    : await collectionSvc.listCollections(limit, offset);
+                const page = !fullModeAllowed(this, session)
+                  ? await collectionSvc.listCollectionsFromDb(limit, offset)
+                  : await collectionSvc.listCollections(limit, offset);
                 return page.items.map(collectionItemToWire);
               },
               syncHistory: (signal) =>
-                userConfig.getSettings().autoAttachQq === false
+                !fullModeAllowed(this, session)
                   ? Promise.reject(new Error('完全离线模式，不同步云端收藏历史。'))
                   : collectionSvc.syncNetworkHistory(signal),
               canFetchDetails: () =>
-                userConfig.getSettings().autoAttachQq !== false &&
-                accountConfig.getRecord()?.qqOnline === true,
+                fullModeAllowed(this, session) && accountConfig.getRecord()?.qqOnline === true,
               fetchDetails: async (cids, signal) => {
-                if (userConfig.getSettings().autoAttachQq === false)
+                if (!fullModeAllowed(this, session))
                   throw new Error('完全离线模式，不请求云端收藏详情。');
                 const details = await collectionSvc.fetchDetails(cids, { signal });
                 return details.map((detail) => collectionDetailToWire(detail.cid, detail.content));
@@ -2574,10 +2614,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
               writeDetailSnapshot: (path) => collectionSvc.writeCollectionDetailSnapshot(path),
               downloadOriginalFiles: (cid, signal) => {
-                if (
-                  userConfig.getSettings().autoAttachQq === false ||
-                  accountConfig.getRecord()?.qqOnline !== true
-                )
+                if (!fullModeAllowed(this, session) || accountConfig.getRecord()?.qqOnline !== true)
                   throw new Error('离线时不请求收藏附件。');
                 return collectionSvc.downloadExportMedia(cid, signal);
               },
@@ -2640,10 +2677,13 @@ export function initAppContext(fileRoot?: string): AppContext {
           String(session.context.uin),
           () => {
             const record = accountConfig.getRecord();
-            return record?.qqOnline ? (record.qqPid ?? null) : null;
+            return fullModeAllowed(this, session) && record?.qqOnline
+              ? (record.qqPid ?? null)
+              : null;
           },
           {
             notificationsEnabled: accountConfig.getRecord()?.mailNotifications ?? false,
+            allowOnline: () => fullModeAllowed(this, session),
             onNotice: (notice) => mailNotifier?.(String(session.context.uin), notice),
           },
         ),
@@ -2677,6 +2717,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, livePid),
+        locationShare: new LocationShareService(platform.native.ntHelper, livePid),
         accountWrite: new AccountWriteService(
           platform.native.ntHelper,
           {
@@ -2744,7 +2785,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         session,
         platform,
         accountConfig,
-        () => userConfig.getSettings().autoAttachQq,
+        () => fullModeAllowed(this, session),
         bootstrap.attachHook,
         undefined,
         () => {
@@ -2765,6 +2806,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           return () => accountEventBus.off('onlineCredentialsReady', handler);
         },
         () => accountEventBus.emit('vipChanged', { at: Date.now() }),
+        () => fullModeAllowed(this, session),
       );
       vipBadge.start();
 
@@ -2798,6 +2840,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Still no anti-recall triggers, no health check and no scheduler.
     },
     clearAccount(): void {
+      clearFullMode(this);
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       logger.info('clearing account session', {
@@ -2820,10 +2863,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // 取消还没触发的索引预热：索引属于刚关掉的那个会话，别在关账号后
       // 还去写它的库（此刻 this.account 已改成 null，定时器里的守卫也会兜住，
       // 这里显式清掉只是不留悬挂的定时器）。
-      if (annualIndexWarmup) {
-        clearTimeout(annualIndexWarmup);
-        annualIndexWarmup = null;
-      }
+      cancelAnnualReportWarmup();
       unmountDbWatch();
       ssePush?.stop();
       ssePush = null;
@@ -2832,6 +2872,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.roamingBackfill.dispose();
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
+      this.services?.annualReport.dispose();
       void this.services?.unreadInfo.dispose().catch((error) => {
         console.error('[unread] 关闭账号时保存本地阅读状态失败', error);
       });
@@ -3025,6 +3066,14 @@ export function initAppContext(fileRoot?: string): AppContext {
     onlineCredentialsPending(): boolean {
       return accountMonitor?.credentialsPending ?? false;
     },
+    applyFullModePolicy(): void {
+      if (fullModeAllowed(this)) return;
+      this.services?.unreadInfo.cancelReports();
+      this.services?.mail.suspendOnline();
+      // stop 的 generation/AbortSignal 隔离尚在等待授权的旧读取；监视在线状态继续运行。
+      accountMonitor?.stop();
+      accountMonitor?.start();
+    },
   };
 
   cached = ctx;
@@ -3043,14 +3092,14 @@ export function getAppContext(): AppContext {
 }
 
 /**
- * 完全离线模式提示。所有会触发 hook 注入 / 读取在线凭证的功能入口都应先调用
- * {@link requireAttachEnabled}，避免在「自动读取 QQ 内存」关闭时仍悄悄注入。
+ * 所有会触发 hook 注入 / 读取在线凭证的功能入口都应先调用
+ * {@link requireAttachEnabled}，检查本来源有效运行态，不用自动偏好推测授权。
  * 唯一豁免：登录时的数据库密钥提取（bootstrap 登录流程）——那是打开账号的前提。
  */
 export function requireAttachEnabled(): void {
   const ctx = getAppContext();
-  if (ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false) {
-    throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），该功能需要在线 QQ 实例。');
+  if (!fullModeAllowed(ctx)) {
+    throw new Error('本次运行尚未启用完整功能，请在受限模式详情中启用后重试。');
   }
 }
 

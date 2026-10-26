@@ -29,6 +29,7 @@ import { openVideoLightbox } from '../../components/VideoLightbox';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton } from './CacheSkeleton';
+import { useTabActive } from '../../components/RetainedTabs';
 
 type FlatKind = 'photoWall' | 'qzone';
 type MonthKind = 'pic' | 'video';
@@ -239,8 +240,10 @@ export function VoiceExplorer(): ReactElement {
   );
   const { entries, loading, error, done, sentinelRef } = useCursorPaged<VoiceMediaEntry>(fetchPage);
 
+  const visible = useTabActive();
   // 转文字 only shows when a transcription model is selected in the settings.
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: visible,
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });

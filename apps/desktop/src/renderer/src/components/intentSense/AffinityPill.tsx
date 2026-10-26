@@ -2,16 +2,15 @@
  * 好感度胶囊 —— 私聊会话头部右上角常驻（chat-actions 首位）。
  *
  * 数据走 intentSense.getProfile（与画像 Dialog 同源），档位变化时图标与配色
- * 一起切换并重放 bump 动画（key=tier 触发 remount）。点击就地打开画像 Dialog
- * （OverlayLayer 会 portal 到 body，挂在 header 里不影响布局，也不用把开关
- * 一路透传到 MainView）。群聊 / 功能未开启时由挂载方（chatPane）负责不渲染。
+ * 一起切换并重放 bump 动画（key=tier 触发 remount）。点击直达联系人页的互动画像
+ * 分区，复用详情导航。群聊 / 功能未开启时由挂载方（chatPane）负责不渲染。
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { Heart, Sparkles, Star, Zap, Flame } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useIntentSenseStatus } from './context';
-import { IntentProfileDialog } from './IntentProfileDialog';
+import { ContactWorkspaceNavigationContext } from '../../lib/profileNavigation';
 import '../../styles/intent-sense.css';
 
 const TIERS = [
@@ -30,6 +29,7 @@ export function AffinityPill({
   /** 画像 Dialog 标题里显示的名字（缺省回落到「TA」）。 */
   peerName?: string;
 }) {
+  const openWorkspace = useContext(ContactWorkspaceNavigationContext);
   const status = useIntentSenseStatus();
   const statusData = status.data;
   const active = !!statusData?.profileEnabled;
@@ -43,7 +43,6 @@ export function AffinityPill({
     },
   );
   const [bumped, setBumped] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
   const prevTier = useRef<number | null>(null);
 
   const tier = profile.data?.tier == null ? null : Math.max(0, Math.min(4, profile.data.tier));
@@ -61,14 +60,6 @@ export function AffinityPill({
 
   if (!active) return null;
 
-  const dialog = profileOpen ? (
-    <IntentProfileDialog
-      peerUid={peerUid}
-      peerName={peerName?.trim() || 'TA'}
-      onClose={() => setProfileOpen(false)}
-    />
-  ) : null;
-
   if (profile.isLoading) {
     // 加载中：低调的灰胶囊占位，避免 header 宽度跳动。
     return (
@@ -84,28 +75,38 @@ export function AffinityPill({
     );
   }
 
-  if (!profile.data) return dialog;
+  if (!profile.data) return null;
 
   return (
-    <>
-      <button
-        type="button"
-        key={tier}
-        className={`weq-affinity-pill tier-${tier}${bumped ? ' is-bumped' : ''}`}
-        title={
-          tier === null
-            ? '互动画像（情绪未分析）'
-            : `好感度 ${profile.data.affinity} · ${meta.label}（仅供娱乐参考）`
-        }
-        aria-label={
-          tier === null ? '对方互动画像' : `对方互动画像：好感度 ${profile.data.affinity}`
-        }
-        onClick={() => setProfileOpen(true)}
-      >
-        <Icon size={13} strokeWidth={2.2} />
-        <span>{tier === null ? '互动画像' : `${meta.label} ${profile.data.affinity}`}</span>
-      </button>
-      {dialog}
-    </>
+    <button
+      type="button"
+      key={tier}
+      className={`weq-affinity-pill tier-${tier}${bumped ? ' is-bumped' : ''}`}
+      title={
+        tier === null
+          ? '互动画像（情绪未分析）'
+          : `好感度 ${profile.data.affinity} · ${meta.label}（仅供娱乐参考）`
+      }
+      aria-label={tier === null ? '对方互动画像' : `对方互动画像：好感度 ${profile.data.affinity}`}
+      disabled={!openWorkspace}
+      onClick={() =>
+        openWorkspace?.({
+          kind: 'person',
+          tab: 'portrait',
+          contact: {
+            id: peerUid,
+            identityLabel: 'UID',
+            identityValue: peerUid,
+            username: peerUid,
+            displayName: peerName?.trim() || 'TA',
+            avatarUrl: null,
+            createdAt: new Date(0).toISOString(),
+          },
+        })
+      }
+    >
+      <Icon size={13} strokeWidth={2.2} />
+      <span>{tier === null ? '互动画像' : `${meta.label} ${profile.data.affinity}`}</span>
+    </button>
   );
 }

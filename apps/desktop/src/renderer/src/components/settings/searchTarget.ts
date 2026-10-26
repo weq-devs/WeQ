@@ -37,7 +37,8 @@ export function revealSetting(
   { navigate = true, onLocated }: { navigate?: boolean; onLocated?: () => void } = {},
 ): () => void {
   let highlighted: HTMLElement | null = null;
-  let previousTabIndex: string | null = null;
+  let focused: HTMLElement | null = null;
+  let addedTabIndex = false;
   const locate = () => {
     const element = findSettingElement(root, target);
     if (!element) return;
@@ -49,12 +50,23 @@ export function revealSetting(
       if (parent instanceof HTMLDetailsElement) parent.open = true;
     }
     highlighted = element;
-    previousTabIndex = element.getAttribute('tabindex');
     element.setAttribute('data-search-highlight', 'true');
-    element.setAttribute('tabindex', '-1');
+    const owner =
+      element.closest<HTMLElement>('button, input, select, textarea, a[href], summary') ?? element;
+    focused = owner.matches(':disabled')
+      ? (owner.closest<HTMLElement>('.weq-set-row, .weq-set-card, .weq-settings-appearance-card') ??
+        owner.parentElement)
+      : owner;
+    if (
+      focused &&
+      !focused.matches('button, input, select, textarea, a[href], summary, [tabindex]')
+    ) {
+      focused.setAttribute('tabindex', '-1');
+      addedTabIndex = true;
+    }
     if (navigate) {
       element.scrollIntoView?.({ block: 'center', behavior: 'instant' });
-      element.focus({ preventScroll: true });
+      focused?.focus({ preventScroll: true });
     }
     onLocated?.();
     observer.disconnect();
@@ -72,7 +84,7 @@ export function revealSetting(
     observer.disconnect();
     if (!highlighted) return;
     highlighted.removeAttribute('data-search-highlight');
-    if (previousTabIndex === null) highlighted.removeAttribute('tabindex');
-    else highlighted.setAttribute('tabindex', previousTabIndex);
+    if (addedTabIndex && focused?.getAttribute('tabindex') === '-1')
+      focused.removeAttribute('tabindex');
   };
 }

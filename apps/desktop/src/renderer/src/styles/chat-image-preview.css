@@ -1,0 +1,50 @@
+.weq-image-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+  color: var(--weq-fg-muted);
+  pointer-events: none;
+}
+
+.weq-image-placeholder > svg {
+  position: relative;
+  max-width: 50%;
+  max-height: 50%;
+}
+
+.weq-image-placeholder > .weq-shimmer-block {
+  background: linear-gradient(
+    90deg,
+    transparent 25%,
+    color-mix(in srgb, var(--weq-fg-muted) 12%, transparent) 50%,
+    transparent 75%
+  );
+  background-size: 200% 100%;
+}
+
+html[data-theme='dark'] .weq-image-placeholder {
+  background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+  color: var(--weq-fg-secondary);
+}
+
+.qq-media-missing[role='img'] {
+  background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+  border-color: var(--weq-border-subtle);
+  color: var(--weq-fg-muted);
+}
+
+html[data-theme='dark'] .qq-media-missing[role='img'] {
+  background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+  border-color: var(--weq-border-strong);
+  color: var(--weq-fg-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-image-placeholder > .weq-shimmer-block {
+    animation: none;
+  }
+}

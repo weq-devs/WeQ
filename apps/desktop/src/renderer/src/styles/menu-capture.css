@@ -1,0 +1,19 @@
+.weq-dialog-layer[data-menu-capture] {
+  visibility: hidden;
+}
+
+.weq-dialog-layer[data-menu-capture='preview'] .weq-menu-capture-button {
+  visibility: visible;
+  opacity: 0.5;
+  background: color-mix(in srgb, var(--weq-bg-surface) 70%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme='dark'] .weq-dialog-layer[data-menu-capture='preview'] .weq-menu-capture-button {
+  background: color-mix(in srgb, var(--weq-bg-surface) 80%, transparent);
+}
+
+.weq-dialog-layer[data-menu-capture='capturing'] .weq-menu-capture-button {
+  visibility: visible;
+  opacity: 0;
+}

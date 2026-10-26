@@ -13,7 +13,7 @@
  * scoped to one conversation). One JSON file per account, keyed by msgId.
  *
  * Modeled on the AgentLab JSON stores (load on construct, persist after each
- * mutation, silent on I/O error).
+ * mutation)。恢复记录属于权威数据，落盘失败必须阻断消息删除。
  *
  * sent-cache 来源与键保留历史命名，现在覆盖全部漫游缓存；hidden 仅控制隐藏，
  * 不丢弃可恢复内容。同一消息跨缓存格式共用删除身份。
@@ -40,8 +40,32 @@ export class DeletedMsgStore {
 
   constructor(filePath: string) {
     this.store = new JsonStore(filePath, () => ({}), {
-      normalize: (raw) =>
-        raw && typeof raw === 'object' ? (raw as Record<string, DeletedMsgRecord>) : {},
+      strict: true,
+      normalize: (raw) => {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+          throw new Error('删除恢复记录结构无效');
+        for (const entry of Object.values(raw as Record<string, unknown>)) {
+          if (!entry || typeof entry !== 'object') throw new Error('删除恢复记录条目无效');
+          const value = entry as Record<string, unknown>;
+          if (
+            (value.kind !== 'c2c' && value.kind !== 'group') ||
+            typeof value.conv !== 'string' ||
+            typeof value.deletedAt !== 'number'
+          )
+            throw new Error('删除恢复记录条目无效');
+          if (value.source === 'sent-cache') {
+            if (typeof value.messageId !== 'string') throw new Error('缓存删除身份无效');
+          } else if (
+            (value.source !== undefined && value.source !== 'qq') ||
+            typeof value.origMsgType !== 'string' ||
+            !/^-?\d+$/.test(value.origMsgType) ||
+            typeof value.origSubType !== 'string' ||
+            !/^-?\d+$/.test(value.origSubType)
+          )
+            throw new Error('删除恢复原始类型无效');
+        }
+        return raw as Record<string, DeletedMsgRecord>;
+      },
     });
   }
 
@@ -52,11 +76,12 @@ export class DeletedMsgStore {
 
   /** Remember a delete (original type columns + conversation). Persists. */
   add(msgId: string, rec: DeletedMsgRecord): void {
+    const next = { ...this.store.data };
     if (rec.source === 'sent-cache') {
       const match = /^roaming:(?:(?:native|protocol):)?([1-9]\d*):(-?\d+)$/.exec(rec.messageId);
       if (match)
         for (const format of ['', 'native:', 'protocol:']) {
-          delete this.store.data[
+          delete next[
             DeletedMsgStore.cachedKey(
               rec.kind,
               rec.conv,
@@ -65,15 +90,16 @@ export class DeletedMsgStore {
           ];
         }
     }
-    this.store.data[msgId] = rec;
-    this.store.save();
+    next[msgId] = rec;
+    this.store.replace(next);
   }
 
   /** Forget a delete (on restore). Persists. No-op if absent. */
   remove(msgId: string): void {
     if (this.store.data[msgId] === undefined) return;
-    delete this.store.data[msgId];
-    this.store.save();
+    const next = { ...this.store.data };
+    delete next[msgId];
+    this.store.replace(next);
   }
 
   /** msgIds WeQ deleted in one conversation (matched by kind + conv). */
@@ -105,15 +131,16 @@ export class DeletedMsgStore {
       messages.map((row) => JSON.stringify([row.kind, row.conv, row.msgSeq, row.msgId])),
     );
     let changed = false;
+    const next = { ...this.store.data };
     for (const [key, record] of Object.entries(this.store.data)) {
       if (record.source !== 'sent-cache' || !record.hidden) continue;
       const match = /^roaming:(?:(?:native|protocol):)?(\d+):(-?\d+)$/.exec(record.messageId);
       if (match && received.has(JSON.stringify([record.kind, record.conv, match[1], match[2]]))) {
-        delete this.store.data[key];
+        delete next[key];
         changed = true;
       }
     }
-    if (changed) this.store.save();
+    if (changed) this.store.replace(next);
   }
 
   isHiddenCached(message: GapFetchedMessage): boolean {

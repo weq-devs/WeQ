@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { AgentLabEndpoint } from '@weq/agentlab';
+import type { AgentLabEndpoint, AgentLabModelSelection } from '@weq/agentlab';
 import { AssistantService } from '../src/account/assistant';
 import { ConversationStore } from '../src/account/agentlab_conversation';
 import { TokenUsageStore } from '../src/account/agentlab_usage';
@@ -12,7 +12,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
-function fixture() {
+function fixture(resolve?: (ref: AgentLabModelSelection) => AgentLabEndpoint) {
   const dir = mkdtempSync(join(tmpdir(), 'weq-assistant-usage-'));
   dirs.push(dir);
   const usage = new TokenUsageStore(join(dir, 'usage.json'));
@@ -24,7 +24,7 @@ function fixture() {
   };
   const service = new AssistantService(
     dir,
-    () => endpoint,
+    resolve ?? (() => endpoint),
     usage,
     new ConversationStore(join(dir, 'conversations.json')),
   );
@@ -43,10 +43,70 @@ function fixture() {
     ): Promise<unknown>;
     generateTitle(user: string, reply: string): Promise<string>;
   };
-  return { usage, endpoint, api };
+  return { usage, endpoint, api, service, dir };
 }
 const usageEvent =
   'data: {"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}\n\n';
+
+it('助手默认引用持久化并在调用时解析，模型变更无需重写账号配置', async () => {
+  let model = 'first';
+  const resolve = (ref: AgentLabModelSelection): AgentLabEndpoint => ({
+    baseUrl: 'https://synthetic.invalid',
+    apiKey: 'synthetic',
+    model: 'useDefault' in ref ? model : ref.model,
+  });
+  const f = fixture(resolve);
+  f.service.setConfig({ model: { useDefault: true } });
+  const calls: string[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: unknown, input?: RequestInit) => {
+      calls.push(JSON.parse(String(input?.body)).model);
+      return new Response(JSON.stringify({ choices: [{ message: { content: '合成标题' } }] }));
+    }),
+  );
+  await f.api.generateTitle('合成问题', '合成回复');
+  model = 'second';
+  await f.api.generateTitle('合成问题', '合成回复');
+  expect(calls).toEqual(['first', 'second']);
+  const reopened = new AssistantService(
+    f.dir,
+    resolve,
+    f.usage,
+    new ConversationStore(join(f.dir, 'conversations.json')),
+  );
+  expect(reopened.getConfig().model).toEqual({ useDefault: true });
+  const empty = new AssistantService(
+    join(f.dir, 'empty'),
+    resolve,
+    f.usage,
+    new ConversationStore(join(f.dir, 'empty-conversations.json')),
+  );
+  expect(empty.getConfig().model).toBeUndefined();
+});
+
+it('助手不支持思考参数的记忆按实际模型隔离，切换默认模型后重新尝试', async () => {
+  const f = fixture();
+  const bodies: Record<string, unknown>[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: unknown, input?: RequestInit) => {
+      bodies.push(JSON.parse(String(input?.body)));
+      return bodies.length === 1
+        ? new Response('unsupported', { status: 400 })
+        : new Response('data: [DONE]\n\n');
+    }),
+  );
+  await f.api.callApiStream(f.endpoint, [], [], () => {});
+  await f.api.callApiStream({ ...f.endpoint, model: 'another' }, [], [], () => {});
+  await f.api.callApiStream(f.endpoint, [], [], () => {});
+  expect(bodies.map((body) => body.reasoning_effort)).toEqual([
+    'medium',
+    undefined,
+    'medium',
+    undefined,
+  ]);
+});
 
 it('助手流式重复 usage 不重复计数，400／429 的真实重试独立留账', async () => {
   const f = fixture();

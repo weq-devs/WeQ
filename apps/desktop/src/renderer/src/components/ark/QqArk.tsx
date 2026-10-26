@@ -358,7 +358,7 @@ function ArkMail({ p }: { p: ArkPayload }): ReactElement {
         </div>
       ) : null}
       {content ? (
-        <div className="weq-ark-desc" style={{ color: '#8c8c8c' }}>
+        <div className="weq-ark-desc" style={{ color: 'var(--weq-fg-secondary)' }}>
           {content}
         </div>
       ) : null}
@@ -438,12 +438,12 @@ function ArkPlainText({ p }: { p: ArkPayload }): ReactElement {
 
         {/* 底部操作按钮 */}
         {operationItems.length > 0 ? (
-          <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
+          <div style={{ borderTop: '1px solid var(--weq-border-subtle)', paddingTop: 8 }}>
             {operationItems.map((op, idx) => (
               <div
                 key={`${op.label}-${op.url}`}
                 style={{
-                  color: '#1677ff',
+                  color: 'var(--weq-accent-ink, var(--weq-fg-primary))',
                   fontSize: 14,
                   cursor: 'pointer',
                   marginBottom: idx < operationItems.length - 1 ? 6 : 0,
@@ -525,7 +525,9 @@ function ArkSubscribeMessage({ p }: { p: ArkPayload }): ReactElement {
           {infoItems.map((item) => (
             <div key={`${item.label}-${item.value}`} style={{ marginBottom: 8 }}>
               {item.label ? (
-                <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2 }}>{item.label}</div>
+                <div style={{ fontSize: 12, color: 'var(--weq-fg-secondary)', marginBottom: 2 }}>
+                  {item.label}
+                </div>
               ) : null}
               {item.value ? (
                 <div style={{ fontSize: 14, color: 'var(--weq-fg-primary)', fontWeight: 500 }}>
@@ -539,7 +541,7 @@ function ArkSubscribeMessage({ p }: { p: ArkPayload }): ReactElement {
 
       {/* 底部操作按钮 */}
       {operations.length > 0 ? (
-        <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
+        <div style={{ borderTop: '1px solid var(--weq-border-subtle)', paddingTop: 8 }}>
           {operations.map((op, idx) => (
             <div
               key={`${op.label}-${op.url}`}
@@ -547,7 +549,7 @@ function ArkSubscribeMessage({ p }: { p: ArkPayload }): ReactElement {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
-                color: '#1677ff',
+                color: 'var(--weq-accent-ink, var(--weq-fg-primary))',
                 fontSize: 14,
                 cursor: 'pointer',
                 marginBottom: idx < operations.length - 1 ? 6 : 0,
@@ -641,15 +643,14 @@ function ArkSecurityMessage({ p }: { p: ArkPayload }): ReactElement {
   const links = (p.links as Array<Record<string, unknown>> | undefined) || [];
 
   // 收集所有有效的详情字段（detail_title1/content1, detail_title2/content2, ...）
-  const detailItems: Array<{ title: string; content: string; color?: string }> = [];
+  const detailItems: Array<{ title: string; content: string }> = [];
   for (const detail of details) {
     // 尝试 detail_title1/content1, detail_title2/content2, ... 直到找不到
     for (let i = 1; i <= 7; i++) {
       const detailTitle = s(detail, `detail_title${i}`);
       const detailContent = s(detail, `detail_content${i}`);
-      const detailColor = s(detail, `detail_color${i}`) || undefined;
       if (detailTitle || detailContent) {
-        detailItems.push({ title: detailTitle, content: detailContent, color: detailColor });
+        detailItems.push({ title: detailTitle, content: detailContent });
       }
     }
   }
@@ -692,12 +693,13 @@ function ArkSecurityMessage({ p }: { p: ArkPayload }): ReactElement {
             {detailItems.map((item) => (
               <div key={`${item.title}-${item.content}`} style={{ marginBottom: 8 }}>
                 {item.title ? (
-                  <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2 }}>
+                  <div style={{ fontSize: 12, color: 'var(--weq-fg-secondary)', marginBottom: 2 }}>
                     {item.title}
                   </div>
                 ) : null}
+                {/* QQ 下发的浅底文字色不直接用于正文，避免深色主题下失去对比。 */}
                 {item.content ? (
-                  <div style={{ fontSize: 14, color: item.color || '#000', fontWeight: 500 }}>
+                  <div style={{ fontSize: 14, color: 'var(--weq-fg-primary)', fontWeight: 500 }}>
                     {item.content}
                   </div>
                 ) : null}
@@ -708,12 +710,12 @@ function ArkSecurityMessage({ p }: { p: ArkPayload }): ReactElement {
 
         {/* 底部链接 */}
         {linkItems.length > 0 ? (
-          <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
+          <div style={{ borderTop: '1px solid var(--weq-border-subtle)', paddingTop: 8 }}>
             {linkItems.map((link, idx) => (
               <div
                 key={`${link.title}-${link.url}`}
                 style={{
-                  color: '#1677ff',
+                  color: 'var(--weq-accent-ink, var(--weq-fg-primary))',
                   fontSize: 14,
                   cursor: 'pointer',
                   marginBottom: idx < linkItems.length - 1 ? 6 : 0,
@@ -752,7 +754,7 @@ function ArkQianBaoMessage({ p }: { p: ArkPayload }): ReactElement {
         </div>
       ) : null}
       {informationList.length > 0 ? (
-        <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
+        <div style={{ borderTop: '1px solid var(--weq-border-subtle)', paddingTop: 8 }}>
           {informationList.map((item) => {
             const label = s(item, 'label');
             const text = s(item, 'text');
@@ -762,7 +764,7 @@ function ArkQianBaoMessage({ p }: { p: ArkPayload }): ReactElement {
                 key={`${label}-${text}`}
                 style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}
               >
-                <span style={{ fontSize: 13, color: '#8c8c8c' }}>{label}</span>
+                <span style={{ fontSize: 13, color: 'var(--weq-fg-secondary)' }}>{label}</span>
                 <span style={{ fontSize: 13, color: 'var(--weq-fg-primary)' }}>{text}</span>
               </div>
             );
@@ -881,7 +883,10 @@ function ArkLocation({
       <div className="weq-ark-content">
         {name ? <div className="weq-ark-title">{name}</div> : null}
         {address ? (
-          <div className="weq-ark-desc" style={{ color: '#8c8c8c', marginBottom: 8 }}>
+          <div
+            className="weq-ark-desc"
+            style={{ color: 'var(--weq-fg-secondary)', marginBottom: 8 }}
+          >
             {address}
           </div>
         ) : null}

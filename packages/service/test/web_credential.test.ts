@@ -6,7 +6,7 @@
  * 公式和几个金标准值。
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   computeBkn,
   cookieHeader,
@@ -54,6 +54,30 @@ describe('computeBkn', () => {
       expect(v).toBeLessThanOrEqual(0x7fffffff);
     }
   });
+});
+
+it('在线凭据异步返回后重新核对运行态，不缓存失活来源的迟到票据', async () => {
+  let allowed = true;
+  const native = {
+    ptFetchCredentials: vi.fn(async () => {
+      allowed = false;
+      return { success: true, skey: 'synthetic-s', pskey: 'synthetic-p', cookie: '' };
+    }),
+  };
+  const provider = new WebCredentialProvider(native, '10001', () => {
+    if (!allowed) throw new Error('合成运行态失活');
+    return 42;
+  });
+  await expect(provider.forDomain('qzone.qq.com')).rejects.toThrow('运行态失活');
+  allowed = true;
+  native.ptFetchCredentials.mockImplementationOnce(async () => ({
+    success: true,
+    skey: 'new-s',
+    pskey: 'new-p',
+    cookie: '',
+  }));
+  expect(await provider.forDomain('qzone.qq.com')).toMatchObject({ pskey: 'new-p' });
+  expect(native.ptFetchCredentials).toHaveBeenCalledTimes(2);
 });
 
 describe('cookieHeader', () => {

@@ -36,6 +36,12 @@ vi.mock('../src/main/context/app_context', async () => {
     getAppContext: () => ({
       account: fixture.switched ? null : account,
       services,
+      bootstrap: {
+        userConfig: {
+          getSettings: () => ({ autoAttachQq: true }),
+          getLocalModelId: () => null,
+        },
+      },
     }),
   };
 });

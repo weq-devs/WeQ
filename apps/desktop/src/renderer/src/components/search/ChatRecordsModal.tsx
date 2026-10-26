@@ -107,10 +107,18 @@ export function ChatRecordsModal({
     setConvLoading(true);
     const timer = window.setTimeout(() => {
       void client.account.searchMore
-        .query({ category: 'chatRecord', keyword: trimmed, offset: 0, limit: 100 })
+        .query({
+          category: 'chatRecord',
+          keyword: trimmed,
+          offset: 0,
+          limit: 100,
+          conversationScope: 'real',
+        })
         .then((result) => {
           if (run !== convRunRef.current) return;
-          const items = ((result as MoreSearchResult).items ?? []) as ChatRecordSearchHit[];
+          const items = (result as MoreSearchResult).items.filter(
+            (hit): hit is ChatRecordSearchHit => hit.category === 'chatRecord',
+          );
           setConversations(items);
           // Keep the selection valid: prefer the previously selected conversation.
           setSelected((prev) =>
@@ -284,7 +292,7 @@ export function ChatRecordsModal({
         <div className="weq-chatrecords-head" data-window-drag-handle>
           <div className="weq-chatrecords-title-wrap">
             <h3 id="weq-chatrecords-title" className="weq-search-more-title">
-              聊天记录
+              消息
             </h3>
             {fixed ? (
               <span className="weq-chatrecords-fixed-conv" title={initialHit.name}>
@@ -316,7 +324,7 @@ export function ChatRecordsModal({
           className="weq-search-more-input"
           value={keyword}
           onChange={(event) => setKeyword(event.target.value)}
-          placeholder={fixed ? `搜索「${initialHit.name}」的聊天记录` : '搜索聊天记录'}
+          placeholder={fixed ? `搜索「${initialHit.name}」的消息` : '搜索消息'}
           autoFocus
         />
         <div className="weq-record-calendar-actions">

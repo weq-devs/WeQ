@@ -7,7 +7,9 @@
  *   ⑤ 导出好友（占位，依赖 AI tool 导出能力）
  */
 
-import { useEffect, useState, useMemo, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import type { AgentLabModelSelection } from '@weq/agentlab';
+import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
 import { TabActivity, useTabActive } from '../../components/RetainedTabs';
 import { DraftCloseContext, useDraftClose, useDraftProtection } from '../../lib/draftClose';
 import {
@@ -16,6 +18,8 @@ import {
   FileText,
   Mic,
   Settings,
+  Save,
+  Trash2,
   Brain,
   Gauge,
   X,
@@ -97,6 +101,7 @@ function MemoryTab({ personaId }: { personaId: string }): ReactElement {
             className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
             onClick={() => void onClear()}
           >
+            <Trash2 size={13} aria-hidden="true" />
             清空全部记忆
           </button>
         </div>
@@ -228,6 +233,7 @@ function WillingTab({
 
       <div className="weq-clone-actions">
         <button className="weq-set-btn" disabled={saving} onClick={() => void save()}>
+          <Save size={14} aria-hidden="true" />
           保存
         </button>
       </div>
@@ -394,6 +400,7 @@ function VoiceTab({
           ) : null}
           <div className="weq-clone-actions">
             <button className="weq-set-btn" disabled={saving} onClick={() => void save(true)}>
+              <Save size={14} aria-hidden="true" />
               保存语音设置
             </button>
           </div>
@@ -488,6 +495,7 @@ function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement |
             disabled={openMut.isLoading}
             onClick={() => void openConsole(urlInput)}
           >
+            <Plug size={13} aria-hidden="true" />
             连接
           </button>
         </div>
@@ -511,11 +519,9 @@ function ExportTab({
 }: {
   persona: { id: string; name: string; voiceCloneEnabled?: boolean };
 }): ReactElement {
-  const active = useTabActive();
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const exportMut = trpc.account.exportAgentLabPersona.useMutation();
-  const providers = trpc.bootstrap.listAgentLabProviders.useQuery(undefined, { enabled: active });
   const canVoice = !!persona.voiceCloneEnabled;
   const [introOpen, setIntroOpen] = useState(false);
   const [adapterType, setAdapterType] = useState<'napcat' | 'snowluma'>('napcat');
@@ -528,21 +534,7 @@ function ExportTab({
   const [webuiPort, setWebuiPort] = useState('8090');
   // 图像模型（可选）：写进导出 persona 的 models.vision，供 bot 解析「WebUI 上传的新表情」。
   // 留「（不设置）」则沿用克隆时的 vision（若有）。
-  const visionOptions = useMemo(
-    () =>
-      (providers.data ?? []).flatMap((p) =>
-        p.models
-          .filter((m) => m.capabilities.includes('vision'))
-          .map((m) => ({
-            key: `${p.id}::${m.id}`,
-            providerId: p.id,
-            model: m.id,
-            label: `${p.name} · ${m.label ?? m.id}`,
-          })),
-      ),
-    [providers.data],
-  );
-  const [visionKey, setVisionKey] = useState('');
+  const [visionModel, setVisionModel] = useState<AgentLabModelSelection | null>(null);
   const exportDraft = {
     adapterType,
     wsUrl,
@@ -552,7 +544,7 @@ function ExportTab({
     groupChat,
     groupReplyMode,
     webuiPort,
-    visionKey,
+    visionModel,
   };
   const guard = useDraftProtection(exportDraft, exportMut.isLoading);
 
@@ -571,7 +563,6 @@ function ExportTab({
       return;
     }
     try {
-      const vision = visionOptions.find((o) => o.key === visionKey);
       const r = await exportMut.mutateAsync({
         personaId: persona.id,
         adapterType,
@@ -582,7 +573,7 @@ function ExportTab({
         groupChat,
         groupReplyMode,
         webuiPort: portNum,
-        visionModel: vision ? { providerId: vision.providerId, model: vision.model } : undefined,
+        visionModel: visionModel ?? undefined,
       });
       if (r.canceled) return;
       guard.reset(exportDraft);
@@ -680,14 +671,14 @@ function ExportTab({
         <span>
           <ImageIcon size={13} /> 图像模型（可选，解析上传的新表情）
         </span>
-        <select value={visionKey} onChange={(e) => setVisionKey(e.target.value)}>
-          <option value="">（不设置 · 沿用克隆时的图像模型）</option>
-          {visionOptions.map((o) => (
-            <option key={o.key} value={o.key}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        <ApiModelSelect
+          allowDefault
+          label="导出图像模型"
+          capability="vision"
+          value={visionModel}
+          onChange={setVisionModel}
+          emptyLabel="（不设置 · 沿用克隆时的图像模型）"
+        />
       </label>
 
       <label className={`weq-clone-check${canVoice ? '' : ' is-disabled'}`}>
@@ -737,6 +728,7 @@ function ExportTab({
           disabled={exportMut.isLoading}
           onClick={() => void doExport()}
         >
+          <Download size={14} aria-hidden="true" />
           {exportMut.isLoading ? '导出中…' : '导出机器人'}
         </button>
       </div>
@@ -833,6 +825,7 @@ export function PersonaSettingsModal({
                             disabled={update.isLoading}
                             onClick={() => void savePrompt()}
                           >
+                            <Save size={14} aria-hidden="true" />
                             保存
                           </button>
                         </div>

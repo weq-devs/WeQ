@@ -138,7 +138,7 @@ async function boot(
   const visionRef = persona.models?.vision;
   const visionDescribe = visionRef
     ? async (imageDataUrl: string): Promise<{ description: string; scenario: string }> => {
-        const ep = resolver({ providerId: visionRef.providerId, model: visionRef.model });
+        const ep = resolver(visionRef, 'vision');
         return describeSticker(
           { ...ep, kind: 'vision' },
           persona.sourceTitle || persona.name,

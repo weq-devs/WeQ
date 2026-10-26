@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { TitleBarSearch } from '../src/renderer/src/components/TitleBarSearch';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
+import { contactSearchHit } from './support/search-fixtures';
 import {
   UnifiedSearchModal,
   type SearchMoreSnapshot,
@@ -24,12 +25,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 }));
 
 function hit(uid: string): SearchHit {
-  return { category: 'friend', uid, uin: '', nick: uid, remark: '', avatarUrl: null };
+  return contactSearchHit({ uid, nick: uid });
 }
 
 function Harness({ account }: { account: string }) {
   const [query, setQuery] = useState('合成');
-  const [categories, setCategories] = useState<SearchCategory[]>(['friend']);
+  const [categories, setCategories] = useState<SearchCategory[]>(['contact']);
   const [dismissed, setDismissed] = useState(false);
   const [view, setView] = useState('原页面');
   const [more, setMore] = useState<{
@@ -41,7 +42,7 @@ function Harness({ account }: { account: string }) {
   const back = useSearchReturn(account, query, categories);
   const select = (value: SearchHit) => {
     setDismissed(true);
-    setView(value.category === 'friend' ? value.uid : '命中内容');
+    setView(value.category === 'contact' ? value.uid : '命中内容');
   };
   return createElement(
     WorkspacePages,
@@ -133,7 +134,8 @@ it('下拉跳转保留查询与范围，返回恢复滚动和焦点，不重新�
   vi.useFakeTimers();
   rpc.quick.mockResolvedValue({
     conversations: [],
-    friends: [hit('a'), hit('b'), hit('c')],
+    friends: [],
+    contacts: [hit('a'), hit('b'), hit('c')],
     groupMembers: [],
   });
   const f = mount();
@@ -151,7 +153,9 @@ it('下拉跳转保留查询与范围，返回恢复滚动和焦点，不重新�
     expect(restored.scrollTop).toBe(91);
     expect(document.activeElement?.textContent).toContain('b');
     expect(rpc.quick).toHaveBeenCalledOnce();
-    expect(restored.querySelectorAll('input:checked')).toHaveLength(1);
+    expect(restored.querySelectorAll('.weq-search-scope button[aria-pressed="true"]')).toHaveLength(
+      1,
+    );
     f.render('10002');
     expect(f.host.querySelector('[aria-label="返回搜索结果"]')).toBeNull();
     f.render('10001');
@@ -165,11 +169,12 @@ it('真实工作区返回更多页保留分页与焦点，StrictMode 不重新�
   vi.useFakeTimers();
   rpc.quick.mockResolvedValue({
     conversations: [],
-    friends: [hit('a'), hit('b'), hit('c')],
+    friends: [],
+    contacts: [hit('a'), hit('b'), hit('c')],
     groupMembers: [],
   });
   rpc.more.mockResolvedValueOnce({
-    category: 'friend',
+    category: 'contact',
     items: [hit('a'), hit('b')],
     total: 2,
     hasMore: false,

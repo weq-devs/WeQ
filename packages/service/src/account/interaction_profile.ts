@@ -1,7 +1,7 @@
 import {
   pickMessageText,
   requestApiJson,
-  type AgentLabModelRef,
+  type AgentLabModelSelection,
   type AgentLabEndpoint,
 } from '@weq/agentlab';
 import type {
@@ -37,7 +37,7 @@ export class InteractionProfileService {
       peerUid: string,
       limit: number,
     ) => Promise<SuggestionMessage[]>,
-    private readonly endpoint: (ref: AgentLabModelRef | null) => AgentLabEndpoint | null,
+    private readonly endpoint: (ref: AgentLabModelSelection | null) => AgentLabEndpoint | null,
     private readonly opts: { localEngine?: IntentLocalEnginePort | null },
   ) {}
   private get config() {

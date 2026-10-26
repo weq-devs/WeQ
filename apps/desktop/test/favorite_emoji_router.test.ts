@@ -29,6 +29,7 @@ vi.mock('../src/main/context/app_context', () => {
     getAppContext: () => ({
       account: { context: { uin: '10001' } },
       services: f.switched ? { ...services } : services,
+      bootstrap: { userConfig: { getSettings: () => ({ autoAttachQq: true }) } },
     }),
   };
 });

@@ -6,9 +6,8 @@
  * 与 PeerStatsService 同构：注入发生在账号 bootstrap，这里只负责在在线 pid 上
  * 发包 + 目标解析，离线 / 风控失败原样上抛。
  *
- * 注意与「窗口抖动」区分：窗口抖动是私聊消息里的 `commonElem serviceType=2`
- * 元素，走 `MessageSendService.sendElements`（MCP 的 send_rich_message，元素
- * `{"kind":"poke"}`）；本服务的 sendPoke 是聊天窗口里那个「戳一戳」灰条。
+ * 注意与戳一戳互动表情区分：互动表情走 `MessageSendService.sendElements` 的
+ * `pokeEmoji` 消息元素；本服务的 sendPoke 生成「戳一戳」灰条。
  */
 import { createHash } from 'node:crypto';
 import type { AccountSession } from '@weq/account';

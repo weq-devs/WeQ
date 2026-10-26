@@ -82,6 +82,7 @@ import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './e
 import { registerCallVideoIpc } from './call_video_ipc';
 import { registerAttachHintIpc } from './attach_hint_ipc';
 import { registerElevationIpc } from './elevation_ipc';
+import { registerLongTermAuthorizationIpc } from './authorization/ipc';
 import {
   getLogDir,
   getLogger,
@@ -732,6 +733,7 @@ void app.whenReady().then(async () => {
         ? join(process.resourcesPath, 'remote-web')
         : join(app.getAppPath(), '../web/dist/public'),
       exportDir: join(app.getPath('userData'), 'web-exports'),
+      renderer: electronHost,
       version: app.getVersion(),
       router: appRouter,
       pairing: remoteRuntime.pairing,
@@ -792,6 +794,7 @@ void app.whenReady().then(async () => {
   registerWeqAssistantIpc();
   registerAttachHintIpc();
   registerElevationIpc();
+  registerLongTermAuthorizationIpc();
   registerEditUndoIpc();
   registerCallVideoIpc();
 

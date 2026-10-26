@@ -1,0 +1,58 @@
+.weq-renderer-recovery {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: 32px 24px;
+  box-sizing: border-box;
+  background: var(--background);
+  color: var(--foreground);
+  -webkit-app-region: drag;
+}
+
+.weq-renderer-recovery section {
+  width: min(100%, 440px);
+  -webkit-app-region: no-drag;
+}
+
+.weq-renderer-recovery h1 {
+  margin: 16px 0;
+  font-size: 22px;
+  line-height: 1.4;
+}
+
+.weq-renderer-recovery p {
+  margin: 8px 0;
+  color: var(--weq-fg-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.weq-renderer-recovery button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  max-width: 100%;
+  margin-top: 20px;
+  padding: 8px 14px;
+  border: 1px solid var(--weq-accent-effective);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.weq-renderer-recovery button:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--background));
+}
+
+.weq-renderer-recovery button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+}
+
+html[data-theme='dark'] .weq-renderer-recovery button {
+  background: var(--weq-bg-surface);
+}

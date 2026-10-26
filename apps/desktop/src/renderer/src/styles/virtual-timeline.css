@@ -1,0 +1,29 @@
+.message-scroll.is-virtualized {
+  overflow-anchor: none;
+}
+
+.weq-virtual-timeline {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.weq-virtual-timeline.is-windowed {
+  display: block;
+  overflow-anchor: none;
+}
+.weq-virtual-timeline-row {
+  position: relative;
+  flex: 0 0 auto;
+  left: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-sizing: border-box;
+}
+.weq-virtual-timeline.is-windowed > .weq-virtual-timeline-row {
+  position: absolute;
+}

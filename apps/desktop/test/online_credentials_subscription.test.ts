@@ -6,11 +6,18 @@ import { accountEventBus } from '../src/main/context/app_context';
 const fixture = vi.hoisted(() => ({
   services: {} as object | null,
   hasSsoSession: vi.fn(async (_pid: number) => true),
+  automatic: true,
 }));
 vi.mock('../src/main/context/app_context', async () => {
   const { EventEmitter } = await import('node:events');
   return {
     getAppContext: () => ({
+      bootstrap: {
+        userConfig: {
+          getSettings: () => ({ autoAttachQq: fixture.automatic }),
+          getLocalModelId: () => null,
+        },
+      },
       services: fixture.services,
       platform: { native: { ntHelper: { hasSsoSession: fixture.hasSsoSession } } },
       onlineCredentialsPending: () => false,
@@ -21,6 +28,7 @@ vi.mock('../src/main/context/app_context', async () => {
 
 beforeEach(() => {
   fixture.services = {};
+  fixture.automatic = true;
   fixture.hasSsoSession.mockReset().mockResolvedValue(true);
   accountEventBus.removeAllListeners();
 });
@@ -101,6 +109,17 @@ it.each([false, true])('凭据写盘后仍核对实际原生登记状态：%j', 
   expect(state.ssoReady).toBe(registered);
   expect(state.credentialsPending).toBe(false);
   expect(fixture.hasSsoSession).toHaveBeenCalledWith(42);
+});
+it('原生状态查询途中关闭自动策略时，不返回旧的完整模式', async () => {
+  completeCredentials();
+  fixture.hasSsoSession.mockImplementationOnce(async () => {
+    fixture.automatic = false;
+    return true;
+  });
+  expect(await accountRouter.createCaller({}).getGroupAlbumAccessState()).toMatchObject({
+    attachEnabled: false,
+    ssoReady: false,
+  });
 });
 
 it('查询原生登记期间切换账号，不返回旧账号的完整模式状态', async () => {

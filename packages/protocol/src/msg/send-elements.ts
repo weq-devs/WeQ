@@ -15,7 +15,7 @@
  * 覆盖的类型：
  *   - 纯打包（同步 {@link buildSendElems}）：text / at / face（含 svc33 小黄脸、
  *     svc37 超级表情）/ mface / reply / ark（json 卡片）/ xml / markdown /
- *     poke / forward（合并转发卡片）/ raw；
+ *     pokeEmoji / forward（合并转发卡片）/ raw；
  *   - 需要先上传（异步 {@link buildSendElemsWithMedia}）：image / record / video ——
  *     先把文件传进 NTV2 拿到 msgInfo，再拼成 `commonElem { serviceType: 48 }`。
  *
@@ -50,7 +50,7 @@ import {
   QSMALL_FACE_EXTRA,
 } from './send-schemas';
 
-/** 发送场景 —— 少数元素受场景限制（比如窗口抖动只能私聊）。 */
+/** 发送场景，用于选择路由及媒体上传参数。 */
 export type SendScene = 'group' | 'c2c' | 'group-temp';
 
 /** 纯文本（等价收侧 `{ kind: 'text', textContent }`）。 */
@@ -177,22 +177,7 @@ export interface SendMarkdownElement {
 }
 
 /**
- * 戳一戳互动表情 / 窗口抖动（只有私聊、且必须独占一条消息）。
- *
- * `combo` 是**连击次数**（wire 上 pbElem field 7，本机库 FACE 的 `47617`）：单戳为
- * 0，双击 / 三击是 1 / 2（QQ 一般最多三连击）。缺省 0。
- */
-export interface SendPokeElement {
-  kind: 'poke';
-  subType: number;
-  /** 连击次数（0~3；缺省 0）。抓包：0 连击写 `38 00`、1 连击写 `38 01`。 */
-  combo?: number;
-}
-
-/**
- * 戳一戳**互动表情**（`commonElem serviceType=2`）—— 与 {@link SendPokeElement}
- * （窗口抖动）共用同一条 wire，但是**独立的一条路**，不要混：窗口抖动是历史功能、
- * 服务端只收直接私聊；互动表情群聊 / 私聊都能发（2026-10-01 抓到群聊样本）。
+ * 戳一戳互动表情（`commonElem serviceType=2`），群聊 / 私聊共用消息元素。
  *
  * wire 布局（安卓抓包）：
  *   commonElem.serviceType = 2
@@ -488,7 +473,6 @@ export type SendElement =
   | SendArkElement
   | SendXmlElement
   | SendMarkdownElement
-  | SendPokeElement
   | SendPokeEmojiElement
   | SendEmojiBounceElement
   | SendForwardElement
@@ -723,7 +707,7 @@ function buildMfaceElem(element: SendMfaceElement): Record<string, unknown> {
  */
 function buildEmojiBounceElem(element: SendEmojiBounceElement): Record<string, unknown> {
   const faceId = requireNonNegativeInt(element.faceId, 'faceId', 'emojiBounce');
-  // 真机样本没有「数量 0」这种形态；缺省按 1（弹一个），与 poke 的宽松度一致。
+  // 真机样本没有「数量 0」这种形态；缺省按 1（弹一个），与 pokeEmoji 的宽松度一致。
   const count =
     element.count === undefined ? 1 : requireNonNegativeInt(element.count, 'count', 'emojiBounce');
   // 名字缺省留空：服务端/收端都按 faceId 渲染，名字只是给人看的冗余。
@@ -859,20 +843,7 @@ function buildSendElem(element: SendElement): Record<string, unknown> {
           businessType: 1,
         },
       };
-    case 'poke': {
-      const type = requireNonNegativeInt(element.subType, 'subType', 'poke');
-      const combo =
-        element.combo === undefined ? 0 : requireNonNegativeInt(element.combo, 'combo', 'poke');
-      return {
-        commonElem: {
-          serviceType: 2,
-          pbElem: encode(POKE_EXTRA, { type, combo }),
-          businessType: type,
-        },
-      };
-    }
     case 'pokeEmoji': {
-      // 与窗口抖动共用 pbElem，只是表情编号走 pokeId（群聊 / 私聊都不受限）。
       const pokeId = requireNonNegativeInt(element.pokeId, 'pokeId', 'pokeEmoji');
       const combo =
         element.combo === undefined
@@ -968,18 +939,6 @@ function buildSendElemList(element: SendElement): Record<string, unknown>[] {
   return [buildSendElem(element)];
 }
 
-/** 场景限制校验（窗口抖动只能私聊、且必须独占一条消息）。 */
-function assertScenePolicy(elements: readonly SendElement[], scene: SendScene | undefined): void {
-  const pokeCount = elements.filter((e) => e.kind === 'poke').length;
-  if (pokeCount === 0) return;
-  if (scene !== undefined && scene !== 'c2c') {
-    throw new Error('poke（窗口抖动）只能在直接私聊里发送');
-  }
-  if (pokeCount !== 1 || elements.length !== 1) {
-    throw new Error('poke（窗口抖动）必须独占一条消息');
-  }
-}
-
 /**
  * 装扮 id 校验：缺省 / 0 视为「不带」，其余必须是非负安全整数。
  * 负数的成因基本是调用方拿错了值（比如把 -1 当成「用默认款」），所以直接报错。
@@ -1059,7 +1018,6 @@ export function buildSendElems(
   if (!Array.isArray(elements) || elements.length === 0) {
     throw new Error('消息不能为空');
   }
-  assertScenePolicy(elements, options.scene);
   // 装扮先校验、先打包：坏 id 要在打包任何元素之前就报错。
   const dressElems = buildDressElems(options.dress);
   return [...dressElems, ...elements.flatMap((element) => buildSendElemList(element))];
@@ -1156,7 +1114,6 @@ export async function buildSendElemsWithMedia(
   ctx: MediaSendContext,
 ): Promise<Record<string, unknown>[]> {
   if (!Array.isArray(elements) || elements.length === 0) throw new Error('消息不能为空');
-  assertScenePolicy(elements, ctx.scene);
 
   // 装扮与媒体无关，但顺序要和同步版本一致（装扮在最前）——先校验、先打包。
   const dressElems = buildDressElems(ctx.dress);

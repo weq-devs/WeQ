@@ -456,7 +456,7 @@ describe('元素打包', () => {
     expect(JSON.parse(fallback.extra as string)).toEqual({ filename: detail.uniseq, tsum: 1 });
   });
 
-  it('markdown / poke 走 commonElem', () => {
+  it('markdown / pokeEmoji 走 commonElem', () => {
     const markdown = roundTrip({
       kind: 'markdown',
       markdownContent: '# 标题',
@@ -469,7 +469,7 @@ describe('元素打包', () => {
       markdownTextSummary: '标题',
     });
 
-    const poke = roundTrip({ kind: 'poke', subType: 1 }, 'c2c').commonElem as {
+    const poke = roundTrip({ kind: 'pokeEmoji', pokeId: 1 }, 'c2c').commonElem as {
       serviceType: number;
       pbElem: Uint8Array;
       businessType: number;
@@ -481,7 +481,7 @@ describe('元素打包', () => {
     expect(hexOf(poke.pbElem)).toBe('0801');
 
     // 连击次数 = wire 上 pbElem 的 field 7（tag 0x38）。1 连击按真机抓包写 `38 01`。
-    const combo = roundTrip({ kind: 'poke', subType: 1, combo: 1 }, 'c2c').commonElem as {
+    const combo = roundTrip({ kind: 'pokeEmoji', pokeId: 1, combo: 1 }, 'c2c').commonElem as {
       serviceType: number;
       businessType: number;
       pbElem: Uint8Array;
@@ -503,7 +503,7 @@ describe('元素打包', () => {
     expect(emoji.businessType).toBe(6);
     expect(hexOf(emoji.pbElem)).toBe('0806');
 
-    // combo 还是 field 7（tag 0x38）；与窗口抖动的「群聊拒绝」无关。
+    // combo 还是 field 7（tag 0x38）。
     const withCombo = roundTrip({ kind: 'pokeEmoji', pokeId: 2, combo: 3 }, 'group').commonElem as {
       pbElem: Uint8Array;
       businessType: number;
@@ -775,18 +775,13 @@ describe('校验失败', () => {
     ['空文本', { groupId: 1, elements: [text('')], random: 1 }, /缺少 textContent/],
     ['@ 没有目标', { groupId: 1, elements: [{ kind: 'at' }], random: 1 }, /需要 atTargetUin/],
     [
-      '群聊发抖动',
-      { groupId: 1, elements: [{ kind: 'poke', subType: 1 }], random: 1 },
-      /只能在直接私聊里发送/,
-    ],
-    [
-      '抖动不独占',
-      { userUin: 2, elements: [{ kind: 'poke', subType: 1 }, text('x')], random: 1 },
-      /必须独占一条消息/,
+      '已移除的窗口抖动别名',
+      { userUin: 2, elements: [{ kind: 'poke', subType: 1 }], random: 1 },
+      /不支持发送的元素类型: poke/,
     ],
     [
       '连击次数为负',
-      { userUin: 2, elements: [{ kind: 'poke', subType: 1, combo: -1 }], random: 1 },
+      { userUin: 2, elements: [{ kind: 'pokeEmoji', pokeId: 1, combo: -1 }], random: 1 },
       /combo 必须是非负整数/,
     ],
     [

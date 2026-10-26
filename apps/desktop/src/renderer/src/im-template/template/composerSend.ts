@@ -55,7 +55,10 @@ export type SuperStickerEntry = {
 
 export type ComposerSendPlan =
   | { kind: 'elements'; elements: unknown[] }
-  | { kind: 'file'; path: string; fileName: string }
+  | ({ kind: 'file'; fileName: string } & (
+      | { path: string; bytes?: never }
+      | { bytes: Uint8Array; path?: never }
+    ))
   | { kind: 'aiVoice'; text: string; voiceId: string }
   | {
       kind: 'voice';
@@ -256,14 +259,14 @@ function mapWireElement(
     case 'file': {
       const key = localKeyOf(element);
       const local = key ? localByKey.get(key) : undefined;
-      if (!local?.path) {
-        throw new Error(
-          `发送文件「${String(element.fileName ?? '')}」需要本机绝对路径，但拿不到（剪贴板 / 网盘来源暂不支持）。`,
-        );
+      if (!local?.path && !local?.bytes?.length) {
+        throw new Error(`找不到文件「${String(element.fileName ?? '')}」的本地数据，请重新选择。`);
       }
       const fileName =
         typeof element.fileName === 'string' && element.fileName ? element.fileName : local.name;
-      return { kind: 'file', path: local.path, fileName };
+      return local.path
+        ? { kind: 'file', path: local.path, fileName }
+        : { kind: 'file', bytes: local.bytes!, fileName };
     }
     default:
       throw new Error(`不支持的发送元素：${String(element.kind)}`);

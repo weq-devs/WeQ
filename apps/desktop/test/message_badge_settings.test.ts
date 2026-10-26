@@ -89,8 +89,10 @@ function mount() {
 
 const toggles = [
   ['在消息图标上显示红点', 'showMessageUnreadBadge', true],
+  ['在联系人界面显示未读消息数', 'showContactUnreadCount', false],
   ['从第一条新消息开始阅读', 'readFromFirstUnread', false],
   ['发送消息后定位到最新消息', 'jumpToLatestAfterSend', true],
+  ['向下滚动时显示定位到底部按钮', 'showScrollToBottomButton', true],
   ['使用 QQ 账号设置的个性字体发送消息', 'sendWithQqFont', true],
   ['群助手显示总消息数', 'showGroupAssistantMessageCount', false],
   ['消息气泡', 'showMessageBubble', true],

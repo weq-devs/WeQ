@@ -16,12 +16,14 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   Bookmark,
+  CheckCheck,
   ChevronLeft,
   ChevronRight,
   Download,
   ExternalLink,
   FileText,
   Film,
+  FolderOpen,
   Image as ImageIcon,
   Layers,
   Link2,
@@ -32,6 +34,7 @@ import {
   Play,
   RefreshCw,
   Search,
+  Save,
   Square,
   X,
 } from 'lucide-react';
@@ -1038,6 +1041,7 @@ export function CollectionDialog({
                     multiSelect.setSelectedIds(new Set(filtered.map((item) => item.cid)))
                   }
                 >
+                  <CheckCheck size={14} aria-hidden="true" />
                   全选筛选结果
                 </button>
               </>
@@ -1268,6 +1272,7 @@ export function CollectionDialog({
                         className="weq-col-detail-open"
                         onClick={() => void client.account.revealCollectionMedia.mutate()}
                       >
+                        <FolderOpen size={13} aria-hidden="true" />
                         打开文件夹
                       </button>
                     ) : null}
@@ -1281,6 +1286,7 @@ export function CollectionDialog({
                           className="weq-col-detail-open"
                           onClick={() => void saveAttachment(result.id)}
                         >
+                          <Save size={13} aria-hidden="true" />
                           另存为
                         </button>
                       ) : null}

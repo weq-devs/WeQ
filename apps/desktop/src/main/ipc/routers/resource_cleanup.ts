@@ -8,21 +8,21 @@
  */
 
 import { z } from 'zod';
-import { getAppContext, type AccountServices } from '../../context/app_context';
+import { getAppContext } from '../../context/app_context';
 import { procedure, router } from '../trpc';
-
-function requireServices(): AccountServices {
-  const ctx = getAppContext();
-  if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
-  }
-  return ctx.services;
-}
+import {
+  resourceSourceInput,
+  requireResourceSource,
+  assertResourceSource,
+} from './resource_source';
 
 export const resourceCleanupRouter = router({
   /** Per-target on-disk size (files/bytes + ori/thumb split). Slow — stats every file. */
-  listTargets: procedure.query(() => {
-    return requireServices().resourceCleanup.listTargets();
+  listTargets: procedure.input(resourceSourceInput.optional()).query(async ({ input }) => {
+    const services = requireResourceSource(input);
+    const targets = await services.resourceCleanup.listTargets();
+    assertResourceSource(services, input);
+    return targets;
   }),
 
   /**
@@ -32,7 +32,7 @@ export const resourceCleanupRouter = router({
    */
   cleanup: procedure
     .input(
-      z.object({
+      resourceSourceInput.extend({
         instructions: z.array(
           z.object({
             id: z.string().min(1),
@@ -41,7 +41,7 @@ export const resourceCleanupRouter = router({
         ),
       }),
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       // Never delete from a static account. Its uin may match an account that
       // IS installed locally, in which case these paths resolve to that other
       // account's files — deleting them would destroy data the user never
@@ -50,6 +50,9 @@ export const resourceCleanupRouter = router({
       if (getAppContext().accountIsStatic) {
         throw new Error('静态账号不提供本地资源清理：这些资源不属于导入的数据库快照。');
       }
-      return requireServices().resourceCleanup.cleanup(input.instructions);
+      const services = requireResourceSource(input);
+      const result = await services.resourceCleanup.cleanup(input.instructions);
+      assertResourceSource(services, input);
+      return result;
     }),
 });

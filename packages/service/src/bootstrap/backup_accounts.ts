@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isDefaultModelSelection } from '@weq/agentlab';
 import { existsSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { sniffImageExt } from '../account/export/emoji_export';
@@ -99,6 +100,8 @@ export function validateWeqAccountPreference(name: WeqAccountSettingFile, value:
     for (const key of ['providerRef', 'profileProviderRef', 'suggestionProviderRef'])
       if (input[key] !== undefined && input[key] !== null) {
         const ref = record(input[key], `${name}.${key}`);
+        if (isDefaultModelSelection(ref)) continue;
+        if ('useDefault' in ref) fail(`${name}.${key}`);
         if (typeof ref.providerId !== 'string' || typeof ref.model !== 'string')
           fail(`${name}.${key}`);
       }

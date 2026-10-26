@@ -38,7 +38,6 @@ export type {
   SendArkElement,
   SendXmlElement,
   SendMarkdownElement,
-  SendPokeElement,
   SendPokeEmojiElement,
   SendEmojiBounceElement,
   SendForwardElement,
@@ -134,6 +133,28 @@ export {
 
 export { RecallGroup, RecallPrivate } from './recall';
 export type { RecallGroupParams, RecallPrivateParams } from './recall';
+
+export {
+  StartLocationShare,
+  ReportLocation,
+  QueryLocation,
+  buildShareLocationElements,
+  LBS_SCENE_GROUP,
+  LBS_SCENE_C2C,
+  LbsRoomStatus,
+  SHARE_LOCATION_TEXT,
+} from './lbs-share';
+export type {
+  LbsScene,
+  LbsSession,
+  StartLocationShareParams,
+  LocationShareStartResult,
+  ReportLocationParams,
+  LocationReportResult,
+  QueryLocationParams,
+  LocationRoom,
+  LocationRoomMember,
+} from './lbs-share';
 
 export { dumpProto, walkProto, extractPath, protoToJson } from './dump';
 export type {

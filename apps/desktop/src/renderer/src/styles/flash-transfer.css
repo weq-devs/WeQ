@@ -271,12 +271,12 @@
   transition: all 0.12s ease;
 }
 .weq-ft-check input:checked {
-  background: var(--weq-accent-effective, #0099ff);
-  border-color: var(--weq-accent-effective, #0099ff);
+  background: var(--weq-accent-solid);
+  border-color: var(--weq-accent-ink);
 }
 .weq-ft-check .weq-ft-check-mark {
   position: absolute;
-  color: #fff;
+  color: var(--weq-accent-solid-foreground);
   pointer-events: none;
   opacity: 0;
 }

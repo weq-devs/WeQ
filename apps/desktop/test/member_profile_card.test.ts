@@ -44,17 +44,28 @@ vi.mock('@renderer/trpc/client', () => ({
 // 卡片底部的三个「从卡片里再打开」的灯箱与本次断言无关，换成空壳避免把
 // 个性主页 / 聊天分析那一整条依赖链拖进单测。
 vi.mock('@renderer/components/PersonalityHomeDialog', () => ({
-  PersonalityHomeDialog: () => null,
+  PersonalityHomeDialog: vi.fn(() => null),
 }));
 vi.mock('@renderer/components/MutualMarkDialog', () => ({ MutualMarkDialog: () => null }));
 vi.mock('@renderer/components/MemberAnalyticsDialog', () => ({
-  MemberAnalyticsDialog: () => null,
+  MemberAnalyticsDialog: vi.fn(() => null),
 }));
 vi.mock('@renderer/components/qq-actions/CommonRelationships', () => ({
   CommonRelationships: () => null,
 }));
+vi.mock('@renderer/components/QQGroupMemberControls', () => ({
+  QQGroupMemberControls: () => null,
+}));
 
 import { MemberProfileCard } from '@renderer/components/MemberProfileCard';
+import { MemberAnalyticsDialog } from '@renderer/components/MemberAnalyticsDialog';
+import type { User } from '@renderer/im-template/template/types';
+import { cachedAvatarUrl } from '@renderer/lib/avatarCache';
+import { avatarFromUin } from '@renderer/lib/avatarResolver';
+import {
+  ContactWorkspaceNavigationContext,
+  profileTargetUser,
+} from '@renderer/lib/profileNavigation';
 import { client } from '@renderer/trpc/client';
 
 declare global {
@@ -67,6 +78,7 @@ const STATIC_CSS_CEILING = 1200;
 
 const roots: Root[] = [];
 const hosts: HTMLDivElement[] = [];
+const expandContact = vi.fn();
 
 const MEMBER = {
   id: 'uid-1',
@@ -80,18 +92,24 @@ const MEMBER = {
 async function mountCard(
   onClose: () => void,
   anchor = { x: 120, y: 120 },
-  member = MEMBER,
+  member: User = MEMBER,
+  groupCode?: string,
 ): Promise<void> {
   const host = document.createElement('div');
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      createElement(MemberProfileCard, {
-        member,
-        anchor,
-        onClose,
-      }),
+      createElement(
+        ContactWorkspaceNavigationContext.Provider,
+        { value: expandContact },
+        createElement(MemberProfileCard, {
+          member,
+          anchor,
+          onClose,
+          groupCode,
+        }),
+      ),
     );
   });
   roots.push(root);
@@ -106,6 +124,107 @@ function layer(): HTMLElement {
 }
 
 describe('群成员资料卡浮层', () => {
+  it('仅有 UID 的 @ 等入口在资料补全后显示 QQ 头像', async () => {
+    let finish!: (
+      profile: NonNullable<Awaited<ReturnType<typeof client.account.getProfile.query>>>,
+    ) => void;
+    const byUid = vi.spyOn(client.account.getProfile, 'query').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const member = profileTargetUser({ identity: 'u_mentioned', name: '被提及的人' })!;
+    await mountCard(() => {}, undefined, member);
+    expect(layer().querySelector('.weq-profile-avatar img')).toBeNull();
+    await act(async () =>
+      finish({ uid: member.id, uin: '10009', avatarUrl: '' } as NonNullable<
+        Awaited<ReturnType<typeof client.account.getProfile.query>>
+      >),
+    );
+    expect(byUid).toHaveBeenCalledWith({ uid: member.id });
+    expect(layer().querySelector('.weq-profile-avatar img')?.getAttribute('src')).toBe(
+      cachedAvatarUrl(avatarFromUin('10009')),
+    );
+  });
+
+  it('资料只有头像地址、没有有效 QQ 号时也显示头像并修复空尺寸参数', async () => {
+    const avatarUrl = 'http://qh.qlogo.cn/g?b=qq&ek=synthetic&s=';
+    vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
+      uid: 'u_peer',
+      uin: '0',
+      avatarUrl,
+    } as NonNullable<Awaited<ReturnType<typeof client.account.getProfile.query>>>);
+    await mountCard(() => {}, undefined, profileTargetUser({ identity: 'u_peer', name: '成员' })!);
+    expect(layer().querySelector('.weq-profile-avatar img')?.getAttribute('src')).toBe(
+      cachedAvatarUrl(avatarUrl.replace('s=', 's=0')),
+    );
+  });
+
+  it('消息头像、成员列表等入口已有头像时保留原头像', async () => {
+    vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
+      uin: '10009',
+      avatarUrl: 'https://qh.qlogo.cn/g?b=qq&ek=other&s=0',
+    } as NonNullable<Awaited<ReturnType<typeof client.account.getProfile.query>>>);
+    const avatarUrl = avatarFromUin('10001')!;
+    await mountCard(() => {}, undefined, { ...MEMBER, avatarUrl });
+    expect(layer().querySelector('.weq-profile-avatar img')?.getAttribute('src')).toBe(
+      cachedAvatarUrl(avatarUrl),
+    );
+  });
+
+  it('QQ 号入口未传头像且资料未缓存时仍可生成头像', async () => {
+    await mountCard(() => {}, undefined, { ...MEMBER, id: '' });
+    expect(layer().querySelector('.weq-profile-avatar img')?.getAttribute('src')).toBe(
+      cachedAvatarUrl(avatarFromUin(MEMBER.identityValue)),
+    );
+  });
+
+  it.each(['展开联系人详情', '查看聊天分析'])('从名片进入%s沿用补全后的头像', async (entry) => {
+    vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
+      uid: 'u_peer',
+      uin: '10009',
+    } as NonNullable<Awaited<ReturnType<typeof client.account.getProfile.query>>>);
+    await mountCard(
+      () => {},
+      undefined,
+      profileTargetUser({ identity: 'u_peer', name: '成员' })!,
+      '12345',
+    );
+    const button = [...layer().querySelectorAll('button')].find(
+      (el) => (el.getAttribute('aria-label') || el.textContent) === entry,
+    );
+    expect(button).toBeDefined();
+    act(() => button!.click());
+    const avatarUrl = avatarFromUin('10009');
+    if (entry === '展开联系人详情') {
+      expect(expandContact).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          kind: 'person',
+          contact: expect.objectContaining({ avatarUrl }),
+        }),
+      );
+    } else {
+      expect(vi.mocked(MemberAnalyticsDialog).mock.lastCall?.[0].member.avatarUrl).toBe(avatarUrl);
+    }
+  });
+
+  it.each(['missing', 'failed'])(
+    '仅有 UID 且资料 %s 时保留默认头像，不把 UID 当 QQ 号',
+    async (result) => {
+      const byUid = vi.spyOn(client.account.getProfile, 'query');
+      if (result === 'failed') byUid.mockRejectedValueOnce(new Error('合成读取失败'));
+      else byUid.mockResolvedValueOnce(null);
+      await mountCard(
+        () => {},
+        undefined,
+        profileTargetUser({ identity: 'u_unknown', name: '成员' })!,
+      );
+      expect(layer().querySelector('.weq-profile-avatar img')).toBeNull();
+      expect(layer().querySelector('.weq-profile-avatar .has-default')).not.toBeNull();
+    },
+  );
+
   it('自己的本地身份不是 QQ UID 时按 QQ 号补资料，不把 self 前缀发给 UID 查询', async () => {
     await mountCard(() => {}, { x: 120, y: 120 }, { ...MEMBER, id: 'self:10001' });
     expect(client.account.getProfileByUin.query).toHaveBeenCalledWith({ uin: '10001' });

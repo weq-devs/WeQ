@@ -58,13 +58,14 @@ interface DialogStore {
     message: ReactNode,
     opts?: { okLabel?: string; cancelLabel?: string; placeholder?: string },
   ): Promise<string | null>;
-  close(): void;
+  close(id?: number): void;
 }
 
 export const useDialog = create<DialogStore>((set, get) => ({
   current: null,
   seq: 0,
   showError(title, message, opts) {
+    get().close();
     const id = get().seq + 1;
     set({
       seq: id,
@@ -72,10 +73,12 @@ export const useDialog = create<DialogStore>((set, get) => ({
     });
   },
   showInfo(title, message) {
+    get().close();
     const id = get().seq + 1;
     set({ seq: id, current: { id, tone: 'info', title, message, dismissible: true } });
   },
   confirm(title, message, opts) {
+    get().close();
     return new Promise<boolean>((resolve) => {
       const id = get().seq + 1;
       set({
@@ -96,6 +99,7 @@ export const useDialog = create<DialogStore>((set, get) => ({
     });
   },
   promptPassword(title, message, opts) {
+    get().close();
     return new Promise<string | null>((resolve) => {
       const id = get().seq + 1;
       set({
@@ -116,8 +120,12 @@ export const useDialog = create<DialogStore>((set, get) => ({
       });
     });
   },
-  close() {
+  close(id) {
+    const current = get().current;
+    if (!current || (id !== undefined && current.id !== id)) return;
     set({ current: null });
+    current.confirm?.resolve(false);
+    current.password?.resolve(null);
   },
 }));
 
@@ -260,6 +268,8 @@ export function DialogHost(): ReactElement | null {
   const current = useDialog((s) => s.current);
   const close = useDialog((s) => s.close);
 
+  useEffect(() => () => useDialog.getState().close(), []);
+
   if (!current) return null;
 
   const isPasswordPrompt = Boolean(current?.password);
@@ -268,7 +278,7 @@ export function DialogHost(): ReactElement | null {
     ? () => {
         current.confirm?.resolve(false);
         current.password?.resolve(null);
-        close();
+        close(current.id);
       }
     : undefined;
 
@@ -312,7 +322,7 @@ export function DialogHost(): ReactElement | null {
             request={current}
             onResolve={(value) => {
               current.password?.resolve(value);
-              close();
+              close(current.id);
             }}
           />
         ) : (
@@ -325,7 +335,7 @@ export function DialogHost(): ReactElement | null {
                     className="weq-action-soft"
                     onClick={() => {
                       current.confirm?.resolve(false);
-                      close();
+                      close(current.id);
                     }}
                   >
                     {current.confirm.cancelLabel}
@@ -334,7 +344,7 @@ export function DialogHost(): ReactElement | null {
                     className="weq-action-primary"
                     onClick={() => {
                       current.confirm?.resolve(true);
-                      close();
+                      close(current.id);
                     }}
                   >
                     {current.confirm.okLabel}

@@ -6,6 +6,7 @@ import { useRestrictedMode } from '../src/renderer/src/state/restrictedMode';
 import {
   RestrictedModeHost,
   RestrictedModeIndicator,
+  AuthorizationForm,
 } from '../src/renderer/src/components/RestrictedMode';
 import { useViewState } from '../src/renderer/src/state/view';
 import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
@@ -25,7 +26,11 @@ const mock = vi.hoisted(() => ({
   sip: null as boolean | null,
   onlineCount: 1,
   onlineFailed: false,
+  banner: true,
+  settingsLoading: false,
   launchQq: vi.fn(async () => true),
+  requestFull: vi.fn(),
+  refreshRkeys: vi.fn(),
   refetch: vi.fn(async () => ({})),
   send: vi.fn(),
   listeners: new Map<string, (...args: unknown[]) => void>(),
@@ -37,6 +42,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     bootstrap: { launchQq: { mutate: mock.launchQq } },
     account: {
+      requestFullMode: { mutate: mock.requestFull },
+      refreshRkeys: { mutate: mock.refreshRkeys },
       onOnlineCredentialsReady: {
         subscribe: (_input: undefined, handlers: { onData: () => void }) => {
           mock.credentialsReady = handlers.onData;
@@ -58,6 +65,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     },
     bootstrap: {
+      getSettings: {
+        useQuery: () => ({
+          data: { restrictedModeBannerEnabled: mock.banner },
+          isLoading: mock.settingsLoading,
+        }),
+      },
       sipEnabled: { useQuery: () => ({ data: mock.sip, refetch: mock.refetch }) },
       probeOnline: {
         useQuery: () => ({
@@ -128,7 +141,11 @@ beforeEach(() => {
   mock.sip = null;
   mock.onlineCount = 1;
   mock.onlineFailed = false;
+  mock.banner = true;
+  mock.settingsLoading = false;
   mock.launchQq.mockReset().mockResolvedValue(true);
+  mock.requestFull.mockReset().mockResolvedValue({ requested: true });
+  mock.refreshRkeys.mockReset().mockResolvedValue(false);
   mock.refetch.mockClear();
   mock.send.mockClear();
   mock.listeners.clear();
@@ -136,7 +153,13 @@ beforeEach(() => {
   mock.unsubscribe.mockClear();
   mock.invalidateAccess.mockReset();
   useViewState.setState({ view: 'main', openedUin: '10001' });
-  useRestrictedMode.setState({ reasons: [], requests: [], open: false, enteringSince: null });
+  useRestrictedMode.setState({
+    reasons: [],
+    reasonSource: null,
+    requests: [],
+    open: false,
+    enteringSince: null,
+  });
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
 });
 afterEach(() => {
@@ -177,6 +200,173 @@ function fixture(showToasts = false) {
 function event(channel: string, payload: unknown) {
   act(() => mock.listeners.get(channel)?.({}, payload));
 }
+
+it('手动启用提交完整来源，不修改自动偏好；普通重新检查不升级为手动请求', async () => {
+  const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-live' };
+  mock.access = { ...ready, attachEnabled: false, source };
+  const f = fixture();
+  act(() => useRestrictedMode.getState().setOpen(true));
+  await act(async () =>
+    [...f.host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === '重新检查')!
+      .click(),
+  );
+  expect(mock.requestFull).not.toHaveBeenCalled();
+  expect(mock.refreshRkeys).not.toHaveBeenCalled();
+  await act(async () =>
+    [...f.host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === '启用完整功能')!
+      .click(),
+  );
+  expect(mock.requestFull).toHaveBeenCalledOnce();
+  expect(mock.requestFull).toHaveBeenCalledWith(source);
+  expect(mock.refreshRkeys).toHaveBeenCalledOnce();
+  expect(f.host.textContent).toContain('尚未恢复完整功能');
+  expect(useToast.getState().toasts.some((toast) => toast.title === '已启用完整功能')).toBe(false);
+});
+it('同号切源丢弃手动请求的迟到结果，不在新来源继续采集', async () => {
+  const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-live' };
+  mock.access = { ...ready, attachEnabled: false, source };
+  let finish!: (value: { requested: boolean }) => void;
+  mock.requestFull.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const f = fixture();
+  act(() => useRestrictedMode.getState().setOpen(true));
+  act(() =>
+    [...f.host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === '启用完整功能')!
+      .click(),
+  );
+  mock.access = {
+    ...mock.access,
+    source: { ...source, expectedAccountConfigId: 'synthetic-backup' },
+  };
+  f.render();
+  await act(async () => finish({ requested: true }));
+  expect(mock.refreshRkeys).not.toHaveBeenCalled();
+  expect(f.host.textContent).not.toContain('尚未恢复完整功能');
+});
+it('切到已完整的新来源不继承旧来源的恢复成功通知', () => {
+  const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-a' };
+  mock.access = { ...ready, attachEnabled: false, source };
+  const f = fixture(true);
+  mock.access = { ...ready, source: { ...source, expectedAccountConfigId: 'synthetic-b' } };
+  f.render();
+  expect(useToast.getState().toasts.some((toast) => toast.title === '已启用完整功能')).toBe(false);
+});
+it('启动页仅检测 QQ 在线不能冒称已启用完整功能', () => {
+  useViewState.setState({ view: 'bootstrap', openedUin: null });
+  mock.onlineCount = 0;
+  const f = fixture(true);
+  mock.onlineCount = 1;
+  f.render();
+  expect(useToast.getState().toasts.some((toast) => toast.title === '已启用完整功能')).toBe(false);
+});
+it('启动 QQ 的旧来源迟到错误不显示到同号新来源', async () => {
+  const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-a' };
+  mock.access = { ...ready, qqOnline: false, source };
+  let fail!: (error: Error) => void;
+  mock.launchQq.mockImplementationOnce(
+    () =>
+      new Promise<boolean>((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  const f = fixture();
+  act(() => useRestrictedMode.getState().setOpen(true));
+  act(() =>
+    [...f.host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === '启动 QQ')!
+      .click(),
+  );
+  mock.access = { ...mock.access, source: { ...source, expectedAccountConfigId: 'synthetic-b' } };
+  f.render();
+  await act(async () => fail(new Error('合成旧来源启动失败')));
+  act(() => useRestrictedMode.getState().setOpen(true));
+  expect(f.host.textContent).not.toContain('合成旧来源启动失败');
+});
+it('失效授权表单不转发旧 token 或把新来源标记成进入中', () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  cleanup = () => {
+    act(() => root.unmount());
+    host.remove();
+  };
+  act(() =>
+    root.render(
+      h(AuthorizationForm, {
+        request: { kind: 'password', token: 999, title: '合成过期授权', message: '合成请求' },
+      }),
+    ),
+  );
+  act(() => {
+    const input = host.querySelector('input')!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      input,
+      'synthetic-password',
+    );
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  act(() =>
+    host
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+  );
+  expect(mock.send).not.toHaveBeenCalled();
+  expect(useRestrictedMode.getState().enteringSince).toBeNull();
+});
+
+it('关闭被动提醒仍保留状态入口，更新去重基线，重新开启不补发旧事件', () => {
+  mock.banner = false;
+  mock.access = { ...ready, attachEnabled: false };
+  const f = fixture(true);
+  expect(f.host.querySelector('.weq-restricted-indicator')).not.toBeNull();
+  expect(useToast.getState().toasts).toHaveLength(0);
+  mock.access = { ...ready, qqOnline: false, attachEnabled: false };
+  f.render();
+  expect(useToast.getState().toasts).toHaveLength(0);
+  mock.banner = true;
+  f.render();
+  expect(useToast.getState().toasts).toHaveLength(0);
+  mock.access = { ...ready, attachEnabled: false };
+  f.render();
+  expect(useToast.getState().toasts.some((toast) => toast.key === 'restricted-mode')).toBe(true);
+  mock.banner = false;
+  f.render();
+  const state = useToast.getState();
+  expect(
+    state.toasts.some(
+      (toast) => toast.key === 'restricted-mode' && !state.leaving.includes(toast.id),
+    ),
+  ).toBe(false);
+});
+it('关闭被动提醒不隐藏真实授权、进入进度或恢复成功回执', () => {
+  mock.banner = false;
+  mock.access = { ...ready, hasD2: false };
+  const f = fixture(true);
+  event('elev:request-password', { token: 91, title: '合成授权' });
+  expect(useToast.getState().toasts.some((toast) => toast.title.includes('待提权'))).toBe(true);
+  act(() => {
+    useRestrictedMode.getState().remove('password', 91);
+    useRestrictedMode.getState().beginEntering();
+  });
+  expect(useToast.getState().toasts.some((toast) => toast.title === '正在启用完整功能')).toBe(true);
+  mock.access = { ...ready };
+  mock.updatedAt = Date.now() + 1000;
+  f.render();
+  expect(useToast.getState().toasts.some((toast) => toast.title === '已启用完整功能')).toBe(true);
+});
+it('偏好还在读取时也不隐藏真实授权提醒', () => {
+  mock.settingsLoading = true;
+  fixture(true);
+  event('elev:request-password', { token: 101, title: '合成真实请求' });
+  expect(useToast.getState().toasts.some((toast) => toast.title.includes('待提权'))).toBe(true);
+});
 function submitAuthorization(form: HTMLFormElement) {
   act(() => {
     const input = form.querySelector('input')!;
@@ -254,11 +444,45 @@ describe('受限模式启动 QQ', () => {
     mock.access = { ...ready, attachEnabled: false };
     f.render();
     expect(launchButton(f.host)).toBeUndefined();
-    expect(f.host.textContent).toContain('完全离线模式');
+    expect(f.host.textContent).toContain('本次运行未启用完整功能');
   });
 });
 
 describe('非阻塞提权入口', () => {
+  it('重新检查与提权共用一行操作区，多项授权时只显示一次且不提交表单', async () => {
+    const f = fixture();
+    event('elev:request-password', { token: 41 });
+    event('attach:confirm-hint', { token: 42 });
+    act(() => useRestrictedMode.getState().setOpen(true));
+    const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('button')].filter(
+      (button) => button.textContent === '重新检查',
+    );
+    expect(buttons).toHaveLength(1);
+    const row = buttons[0]!.closest('.weq-restricted-actions')!;
+    expect(row.querySelector('[type="submit"]')?.textContent).toBe('提权');
+    expect(row.closest('form')).not.toBeNull();
+    await act(async () => buttons[0]!.click());
+    expect(mock.refetch).toHaveBeenCalled();
+    expect(mock.send).not.toHaveBeenCalled();
+    expect(useRestrictedMode.getState().requests).toHaveLength(2);
+  });
+  it.each(['elev:request-password', 'attach:confirm-hint'])(
+    '授权表单不显示取消按钮，仍可提交密码或免密重试：%s',
+    (channel) => {
+      const f = fixture();
+      event(channel, { token: 41 });
+      act(() => useRestrictedMode.getState().setOpen(true));
+      const form = f.host.querySelector('form')!;
+      const buttons = [...form.querySelectorAll('button')];
+      expect(buttons.some((button) => button.textContent === '取消本次授权')).toBe(false);
+      expect(form.querySelector<HTMLButtonElement>('[type="submit"]')?.disabled).toBe(true);
+      expect(buttons.some((button) => button.textContent === '重试免密读取')).toBe(
+        channel === 'attach:confirm-hint',
+      );
+      expect(useRestrictedMode.getState().requests).toHaveLength(1);
+      expect(mock.send).not.toHaveBeenCalled();
+    },
+  );
   it.each(['elev:request-password', 'attach:confirm-hint'])(
     '右下角已解决横幅在宿主重建后也自动消失，不清理其他错误：%s',
     async (channel) => {

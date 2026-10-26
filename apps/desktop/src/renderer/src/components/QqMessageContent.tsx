@@ -38,7 +38,6 @@ import { QqCall } from './QqCall';
 import { QqShareLocation } from './QqShareLocation';
 import { QqDynamic, qqDynamicElementProps } from './QqDynamic';
 import { QqEmojiBounce } from './QqEmojiBounce';
-import { WindowShakeMessage } from './WindowShakeMessage';
 import { QqLinkCard } from './QqLinkCard';
 import { QqInlineKeyboard, type KeyboardButton } from './QqInlineKeyboard';
 import { splitLinks, soleLink, openLink } from '../lib/linkify';
@@ -727,6 +726,7 @@ function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendT
   const canJump = isUsable(seq) || isUsable(index) || isUsable(clientSeq);
 
   function handleJump(event: ReactMouseEvent | ReactKeyboardEvent): void {
+    event.preventDefault();
     event.stopPropagation();
     if (canJump)
       jumpToSeq({
@@ -744,9 +744,23 @@ function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendT
       role={canJump ? 'button' : undefined}
       tabIndex={canJump ? 0 : undefined}
       title={canJump ? '跳转到原消息' : undefined}
+      onClickCapture={(event) => {
+        // 引用缩略图只负责定位，不启动正文图片灯箱或视频播放器。
+        if (
+          canJump &&
+          event.target instanceof Element &&
+          event.target.closest('.qq-reply-preview-media')
+        )
+          handleJump(event);
+      }}
       onClick={canJump ? handleJump : undefined}
       onKeyDown={(event) => {
-        if (canJump && (event.key === 'Enter' || event.key === ' ')) handleJump(event);
+        if (
+          canJump &&
+          event.target === event.currentTarget &&
+          (event.key === 'Enter' || event.key === ' ')
+        )
+          handleJump(event);
       }}
     >
       <div className="qq-reply-quote-stack">
@@ -947,19 +961,6 @@ export function QqMessageContent({
           textSummary={d.emojiBounceTextSummary as string | undefined}
           pcText={d.emojiBouncePcText as string | undefined}
         />
-      </div>
-    );
-  }
-
-  // 私聊「窗口抖动」的**乐观渲染**（`windowShake` 元素）：不是灰条 —— 它是**自己发出
-  // 的一条消息**，画面就是那枚「戳一戳」超级表情（会轻轻晃动）。收端 QQ 会丢弃
-  // serviceType=2 的窗口抖动，所以这一下只有发送方看得见。走 sticker-only：表情本身
-  // 不带气泡底板，与真实超级表情一致，位置也落在自己那一侧（见 WindowShakeMessage）。
-  const windowShakeElement = elements.find((element) => element.type === 'windowShake');
-  if (windowShakeElement) {
-    return (
-      <div className={cn('message-content', 'sticker-only')}>
-        <WindowShakeMessage />
       </div>
     );
   }
@@ -1189,7 +1190,6 @@ const HANDLED_KINDS = new Set([
   'shareLocation',
   'qqDynamic',
   'emojiBounce',
-  'windowShake',
 ]);
 
 /**

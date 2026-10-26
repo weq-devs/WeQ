@@ -26,9 +26,11 @@ function extract(raw, version) {
       if (heading && (heading[1] ?? '') === version) inSection = true;
       continue;
     }
-    if (inSection && trimmed) section.push(trimmed);
+    // 保留行首缩进：CHANGELOG 里 `- 父项` 下面缩进的 `- 子项` 是嵌套列表，
+    // 剥掉缩进会让子项在 Release 说明 / QQ 通知里变成平级条目。
+    if (inSection && trimmed) section.push(line.replace(/\s+$/, ''));
   }
-  return section.filter((l) => !/^#/.test(l)).join('\n');
+  return section.filter((l) => !/^\s*#/.test(l)).join('\n');
 }
 
 try {

@@ -4,7 +4,50 @@ import { snapshotWeqSettings, validateWeqAppSettings } from '../src/bootstrap/ba
 import { configFixture as fixture } from './support/user_config';
 
 describe('聊天阅读偏好', () => {
+  it('受限横幅默认开启，旧配置兼容，持久化与备份恢复保留独立偏好', () => {
+    const f = fixture();
+    expect(f.open().getSettings().restrictedModeBannerEnabled).toBe(true);
+    f.service.setSettings({ restrictedModeBannerEnabled: false });
+    expect(f.open().getSettings().restrictedModeBannerEnabled).toBe(false);
+    const snapshot = snapshotWeqSettings(f.open().getSettings());
+    expect(snapshot.restrictedModeBannerEnabled).toBe(false);
+    expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
+    const { restrictedModeBannerEnabled: _banner, ...legacy } = snapshot;
+    expect(() => validateWeqAppSettings(legacy)).not.toThrow();
+    expect(() => validateWeqAppSettings({ restrictedModeBannerEnabled: 'false' })).toThrow();
+    f.service.setSettings({ showMessageTime: true });
+    expect(f.open().getSettings().restrictedModeBannerEnabled).toBe(false);
+    const restored = fixture();
+    restored.service.setSettings(snapshot);
+    expect(restored.open().getSettings().restrictedModeBannerEnabled).toBe(false);
+  });
   describe('已读上报偏好', () => {
+    it.each([
+      [false, false],
+      [true, true],
+      [true, false],
+      [false, true],
+    ])('旧组合 %s/%s 读取与备份往返不自动统一，显式总开关一次保存两字段', (automatic, manual) => {
+      const f = fixture({
+        settings: { reportReadEnabled: automatic, manualReadReportEnabled: manual },
+      });
+      const snapshot = snapshotWeqSettings(f.service.getSettings());
+      expect(snapshot).toMatchObject({
+        reportReadEnabled: automatic,
+        manualReadReportEnabled: manual,
+      });
+      expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
+      f.service.setSettings(snapshot);
+      expect(f.open().getSettings()).toMatchObject({
+        reportReadEnabled: automatic,
+        manualReadReportEnabled: manual,
+      });
+      f.service.setSettings({ reportReadEnabled: false, manualReadReportEnabled: false });
+      expect(f.open().getSettings()).toMatchObject({
+        reportReadEnabled: false,
+        manualReadReportEnabled: false,
+      });
+    });
     it('默认关闭，保存和重开后保留，与在线模式及其它设置独立', () => {
       const { platform, service } = fixture();
       expect(service.getSettings().reportReadEnabled).toBe(false);
@@ -27,6 +70,21 @@ describe('聊天阅读偏好', () => {
 });
 
 describe('消息汇总红点', () => {
+  it('联系人未读数默认关闭，独立持久保存，不改变原有红点和已读上报设置', () => {
+    const { platform, service } = fixture({ settings: { reportReadEnabled: false } });
+    expect(service.getSettings().showContactUnreadCount).toBe(
+      DEFAULT_APP_SETTINGS.showContactUnreadCount,
+    );
+    expect(DEFAULT_APP_SETTINGS.showContactUnreadCount).toBe(false);
+    service.setSettings({ showContactUnreadCount: true });
+    expect(new UserConfigService(platform).getSettings()).toMatchObject({
+      showContactUnreadCount: true,
+      showMessageUnreadBadge: true,
+      reportReadEnabled: false,
+    });
+    service.setSettings({ showContactUnreadCount: false });
+    expect(new UserConfigService(platform).getSettings().showContactUnreadCount).toBe(false);
+  });
   it('汇总红点默认开启，旧配置兼容，关闭后重启保留且不改变未读同步或实时监听', () => {
     const { platform, service } = fixture({
       settings: { realtimeEnabled: true, reportReadEnabled: false },
@@ -55,6 +113,7 @@ describe('阅读与群助手', () => {
     const defaults = {
       readFromFirstUnread: false,
       jumpToLatestAfterSend: true,
+      showScrollToBottomButton: true,
       sendWithQqFont: true,
       showGroupAssistantMessageCount: false,
     };
@@ -62,12 +121,14 @@ describe('阅读与群助手', () => {
     expect(config.getSettings()).toMatchObject({ ...defaults, showMessageTime: true });
     config.setSettings({ readFromFirstUnread: true });
     config.setSettings({ jumpToLatestAfterSend: false });
+    config.setSettings({ showScrollToBottomButton: false });
     config.setSettings({ sendWithQqFont: false });
     config.setSettings({ showGroupAssistantMessageCount: true });
     config.setSettings({ showMessageTime: false });
     expect(new UserConfigService(platform).getSettings()).toMatchObject({
       readFromFirstUnread: true,
       jumpToLatestAfterSend: false,
+      showScrollToBottomButton: false,
       sendWithQqFont: false,
       showGroupAssistantMessageCount: true,
       showMessageTime: false,

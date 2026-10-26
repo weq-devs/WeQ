@@ -1,14 +1,13 @@
 /**
- * 本地缓存资源中心（维护工具 → 本地缓存）。
+ * 本地缓存浏览器（资源目录管理 → 资源浏览，其他来源仍可独立承载）。
  *
  * 布局：左侧竖向分类列表（按 表情 / 头像 / 图片与视频 / 文件 / 语音 / 空间
  * 分组）+ 右侧当前分类内容区，用于查看 nt_data 下的本地缓存。
  *
- * 数据库不在这里 —— 维护工具里已有独立的「数据库管理」入口；整体分析与批量
- * 清理也在维护工具里另有入口，这里不再重复放按钮。
+ * 数据库不在这里；分析与批量清理由外层融合流程承载，不在内部重复放按钮。
  */
 
-import { useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import {
   Image as ImageIcon,
   Images,
@@ -35,6 +34,7 @@ import { FileDirExplorer } from './FileDirExplorer';
 import { DownloadFileExplorer } from './DownloadFileExplorer';
 import { FlatMediaExplorer, MonthMediaExplorer, VoiceExplorer } from './MediaResourceExplorers';
 import '../../styles/cache.css';
+import { ResourceRevisionContext } from './CacheShared';
 
 /** 一个缓存资源分类。`ready` 为 false 时右侧渲染占位空状态。 */
 interface CacheCategory {
@@ -158,8 +158,21 @@ const CATEGORIES: CacheCategory[] = [
   },
 ];
 
-export function CacheView(): ReactElement {
-  const [active, setActive] = useState<string>(CATEGORIES[0]!.id);
+export function CacheView({
+  selection,
+  revision = 0,
+}: {
+  selection?: { category: string };
+  revision?: number;
+} = {}): ReactElement {
+  const [active, setActive] = useState<string>(
+    () =>
+      CATEGORIES.find((category) => category.id === selection?.category)?.id ?? CATEGORIES[0]!.id,
+  );
+  useEffect(() => {
+    if (selection && CATEGORIES.some((category) => category.id === selection.category))
+      setActive(selection.category);
+  }, [selection]);
   // 资源选择列可收起，收起后腾出空间给右侧内容区。
   const [catsCollapsed, setCatsCollapsed] = useState(false);
   // 静态账号在维护工具入口就被禁用（nt_data 属于本机在线账号，不属于快照），
@@ -177,91 +190,93 @@ export function CacheView(): ReactElement {
   );
 
   return (
-    <div className={`weq-cache${catsCollapsed ? ' is-cats-collapsed' : ''}`}>
-      {/* 左侧分类栏（可收起） */}
-      {catsCollapsed ? (
-        <div className="weq-cache-cats-rail">
-          <button
-            type="button"
-            className="weq-cache-collapse-btn"
-            onClick={() => setCatsCollapsed(false)}
-            title="展开资源列表"
-            aria-label="展开资源列表"
-          >
-            <PanelLeftOpen size={16} />
-          </button>
-        </div>
-      ) : (
-        <nav className="weq-cache-cats" aria-label="缓存资源分类">
-          <div className="weq-cache-cats-head">
-            <span className="weq-cache-cats-title">资源</span>
+    <ResourceRevisionContext.Provider value={revision}>
+      <div className={`weq-cache${catsCollapsed ? ' is-cats-collapsed' : ''}`}>
+        {/* 左侧分类栏（可收起） */}
+        {catsCollapsed ? (
+          <div className="weq-cache-cats-rail">
             <button
               type="button"
               className="weq-cache-collapse-btn"
-              onClick={() => setCatsCollapsed(true)}
-              title="收起资源列表"
-              aria-label="收起资源列表"
+              onClick={() => setCatsCollapsed(false)}
+              title="展开资源列表"
+              aria-label="展开资源列表"
             >
-              <PanelLeftClose size={16} />
+              <PanelLeftOpen size={16} />
             </button>
           </div>
-          <div className="weq-cache-cats-body">
-            {groups.map((group) => (
-              <div className="weq-cache-cat-group" key={group.name}>
-                <span className="weq-cache-cat-group-label">{group.name}</span>
-                {group.items.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={`weq-cache-cat${c.id === active ? ' is-active' : ''}`}
-                    onClick={() => setActive(c.id)}
-                  >
-                    <span className="weq-cache-cat-icon">{c.icon}</span>
-                    <span className="weq-cache-cat-text">
-                      <strong>{c.label}</strong>
-                      <small>{c.desc}</small>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ))}
-          </div>
-        </nav>
-      )}
-
-      {/* 右侧内容区 */}
-      <section className="weq-cache-pane">
-        {activeCategory.id === 'avatar' ? (
-          <AvatarExplorer />
-        ) : activeCategory.id === 'sysEmoji' ? (
-          <SysEmojiExplorer />
-        ) : activeCategory.id === 'marketEmoji' ? (
-          <MarketEmojiExplorer />
-        ) : activeCategory.id === 'marketPack' ? (
-          <MarketPackExplorer />
-        ) : activeCategory.id === 'customEmoji' ? (
-          <CustomEmojiExplorer />
-        ) : activeCategory.id === 'relatedEmoji' ? (
-          <RelatedEmojiExplorer />
-        ) : activeCategory.id === 'fileDir' ? (
-          <FileDirExplorer />
-        ) : activeCategory.id === 'downloadFile' ? (
-          <DownloadFileExplorer />
-        ) : activeCategory.id === 'album' ? (
-          <FlatMediaExplorer key="album" kind="photoWall" />
-        ) : activeCategory.id === 'qzone' ? (
-          <FlatMediaExplorer key="qzone" kind="qzone" />
-        ) : activeCategory.id === 'image' ? (
-          <MonthMediaExplorer key="image" kind="pic" />
-        ) : activeCategory.id === 'video' ? (
-          <MonthMediaExplorer key="video" kind="video" />
-        ) : activeCategory.id === 'voice' ? (
-          <VoiceExplorer key="voice" />
         ) : (
-          <CachePlaceholder label={activeCategory.label} />
+          <nav className="weq-cache-cats" aria-label="缓存资源分类">
+            <div className="weq-cache-cats-head">
+              <span className="weq-cache-cats-title">资源</span>
+              <button
+                type="button"
+                className="weq-cache-collapse-btn"
+                onClick={() => setCatsCollapsed(true)}
+                title="收起资源列表"
+                aria-label="收起资源列表"
+              >
+                <PanelLeftClose size={16} />
+              </button>
+            </div>
+            <div className="weq-cache-cats-body">
+              {groups.map((group) => (
+                <div className="weq-cache-cat-group" key={group.name}>
+                  <span className="weq-cache-cat-group-label">{group.name}</span>
+                  {group.items.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className={`weq-cache-cat${c.id === active ? ' is-active' : ''}`}
+                      onClick={() => setActive(c.id)}
+                    >
+                      <span className="weq-cache-cat-icon">{c.icon}</span>
+                      <span className="weq-cache-cat-text">
+                        <strong>{c.label}</strong>
+                        <small>{c.desc}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </nav>
         )}
-      </section>
-    </div>
+
+        {/* 右侧内容区 */}
+        <section className="weq-cache-pane">
+          {activeCategory.id === 'avatar' ? (
+            <AvatarExplorer />
+          ) : activeCategory.id === 'sysEmoji' ? (
+            <SysEmojiExplorer />
+          ) : activeCategory.id === 'marketEmoji' ? (
+            <MarketEmojiExplorer />
+          ) : activeCategory.id === 'marketPack' ? (
+            <MarketPackExplorer />
+          ) : activeCategory.id === 'customEmoji' ? (
+            <CustomEmojiExplorer />
+          ) : activeCategory.id === 'relatedEmoji' ? (
+            <RelatedEmojiExplorer />
+          ) : activeCategory.id === 'fileDir' ? (
+            <FileDirExplorer />
+          ) : activeCategory.id === 'downloadFile' ? (
+            <DownloadFileExplorer />
+          ) : activeCategory.id === 'album' ? (
+            <FlatMediaExplorer key="album" kind="photoWall" />
+          ) : activeCategory.id === 'qzone' ? (
+            <FlatMediaExplorer key="qzone" kind="qzone" />
+          ) : activeCategory.id === 'image' ? (
+            <MonthMediaExplorer key="image" kind="pic" />
+          ) : activeCategory.id === 'video' ? (
+            <MonthMediaExplorer key="video" kind="video" />
+          ) : activeCategory.id === 'voice' ? (
+            <VoiceExplorer key="voice" />
+          ) : (
+            <CachePlaceholder label={activeCategory.label} />
+          )}
+        </section>
+      </div>
+    </ResourceRevisionContext.Provider>
   );
 }
 

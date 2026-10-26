@@ -10,9 +10,8 @@
 // `ext` 是 QQ-NT 的「双击 / 抖动」子类型，SnowLuma 固定发 0，这里照搬。
 // 字段号注意：friendUin 在 5、ext 在 6（不是 3/4），写错服务端读不到。
 //
-// 与「窗口抖动」的区别：窗口抖动是私聊消息里的 `commonElem serviceType=2`
-// 元素（见 `../msg/send-elements.ts` 的 poke 元素），走 MessageSvc.PbSendMsg；
-// 这里这条 OIDB 才是聊天窗口里那个「戳一戳」灰条，群聊/私聊都能发。
+// 与戳一戳互动表情区分：`pokeEmoji` 消息元素走 MessageSvc.PbSendMsg；
+// 这里这条 OIDB 生成「戳一戳」灰条，群聊/私聊都能发。
 
 import { message } from '../../protobuf';
 import { invokeOidb, type OidbSpec } from '../invoke';

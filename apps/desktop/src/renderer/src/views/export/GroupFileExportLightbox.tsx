@@ -14,7 +14,16 @@ import {
   groupFileSelectedKeys,
   resolveGroupFileSelection,
 } from '../../lib/groupFileSelection';
-import { ArrowLeft, Check, ChevronRight, Loader2, Minus, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  CheckCheck,
+  ChevronRight,
+  FlipHorizontal2,
+  Loader2,
+  Minus,
+  X,
+} from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import '../../styles/resource-export.css';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
@@ -289,6 +298,7 @@ export function GroupFileExportLightbox({
               }
               onClick={selectAllVisible}
             >
+              <CheckCheck size={14} aria-hidden="true" />
               全选当前目录
             </button>
             <button
@@ -303,6 +313,7 @@ export function GroupFileExportLightbox({
               }
               onClick={invertVisible}
             >
+              <FlipHorizontal2 size={14} aria-hidden="true" />
               反选当前目录
             </button>
             <button
@@ -311,6 +322,7 @@ export function GroupFileExportLightbox({
               disabled={selection.size === 0 || submitting || selecting}
               onClick={() => void applySelection(new Set())}
             >
+              <X size={14} aria-hidden="true" />
               清空已选
             </button>
             <span className="weq-exp-tools-spacer" />
