@@ -49,6 +49,15 @@ import {
 
 const logger = getLogger().child({ scope: 'call' });
 
+/**
+ * 补发缓存上限（帧）。
+ *
+ * 实测对端关键帧间隔约 17 秒（15 fps ≈ 255 帧），所以 600 帧足够覆盖一整段。
+ * 平均每帧 2 KB 时峰值约 1.2 MB —— 只为「订阅晚到」这一种情况准备，值得。
+ * 超出说明码流异常（关键帧间隔极大），整段作废、等下一个关键帧。
+ */
+const REPLAY_FRAMES = 600;
+
 // ─────────────────────────── UDP ───────────────────────────
 
 /** `node:dgram` 的 udp4 套接字适配成 `CallSession` 要的形状。 */
@@ -267,8 +276,19 @@ export class CallManager extends EventEmitter {
 
   /** 视频编码器（只有视频通话才非 null）。 */
   private videoEncoder: NativeVideoEncoder | null = null;
-  /** 最近收到的一个关键帧（新订阅者补发时用）。 */
-  private lastKeyframe: VideoFramePayload | null = null;
+  /**
+   * 从**最近一个关键帧**开始的一段连续帧（新订阅者补发用）。
+   *
+   * ⚠️ **只补关键帧是不够的。** 2026-10-26 实测：渲染层订阅比收帧晚约 1.9 秒，
+   * 补发关键帧（帧 0）之后紧接着喂实时帧（帧 29），中间 1~28 缺失。HEVC 的 P 帧
+   * 依赖前序参考帧，硬解拒绝这些 delta 后内部状态被污染，输出错乱的 YUV ——
+   * 整屏纯绿，直到下一个关键帧（约 15 秒）才恢复。
+   *
+   * 所以这里缓存「关键帧 + 其后所有帧」的连续片段，订阅时整段补发，渲染层就能
+   * 从头连续解码。上限 {@link REPLAY_FRAMES} 帧，超出就丢最旧的（那些帧的参考
+   * 链已经断了，补发也没用）。
+   */
+  private replayBuffer: VideoFramePayload[] = [];
   /** 已推给渲染层的对端视频帧数（只用于前几帧的排查日志）。 */
   private videoPushCount = 0;
   /** 对端码流落盘的输出句柄（只在 `WEQ_CALL_PEER_DUMP` 打开时非 null）。 */
@@ -301,14 +321,16 @@ export class CallManager extends EventEmitter {
   }
 
   /**
-   * 取最近的关键帧，供**新建立**的渲染层订阅补发。
+   * 取一段**从关键帧开始、帧序号连续**的帧，供新建立的渲染层订阅补发。
    *
    * 渲染层是在「对端开始发视频」的状态推送之后才订阅 `onCallVideo` 的，而首个
-   * 关键帧通常已经过去。没有关键帧起解，后面的 delta 帧全解不出来 —— 所以
-   * 订阅时先补这一帧。
+   * 关键帧通常已经过去。**只补关键帧不够**：跳帧会让硬解输出错乱（整屏纯绿），
+   * 必须把关键帧之后的帧一并补上，让渲染层从头连续解码。详见 `replayBuffer`。
+   *
+   * 返回空数组表示还没有可用的起点（还没收到过关键帧）。
    */
-  latestKeyframe(): VideoFramePayload | null {
-    return this.lastKeyframe;
+  replayFrames(): VideoFramePayload[] {
+    return this.replayBuffer;
   }
 
   /** 发起一路通话。已有通话在跑时直接报错，由界面提示先挂断。 */
@@ -386,10 +408,7 @@ export class CallManager extends EventEmitter {
       // 而标记又停在 true 且不再更新 —— 后续每一帧都被静默丢掉，画面永久冻结。
       // 真机日志里 `g=249/f=1 → g=43/f=2` 的序号连续性就是证据。
       if (!frame.hevc) return;
-      // 缓存最近一个关键帧：渲染层的解码订阅是在「对端开始发视频」的状态推送
-      // **之后**才建立的，而首个关键帧往往已经过去 —— 后面的 delta 帧没有
-      // 关键帧起解，画面永远出不来。新订阅先用这份补一帧。
-      if (frame.isKeyframe) this.lastKeyframe = frame;
+      this.rememberForReplay(frame);
       this.dumpPeerFrame(frame);
       // 前几帧记一笔：主进程侧「收到了并推给渲染层」是排查「等待对方画面」的
       // 分界线 —— 这里没有、渲染层也没有，说明问题在收包/组帧；这里有、渲染层
@@ -704,7 +723,7 @@ export class CallManager extends EventEmitter {
     this.transport?.close();
     this.videoEncoder?.close();
     this.videoEncoder = null;
-    this.lastKeyframe = null;
+    this.replayBuffer = [];
     this.videoPushCount = 0;
     try {
       this.peerDump?.end();
@@ -716,6 +735,37 @@ export class CallManager extends EventEmitter {
     this.session = null;
     this.transport = null;
     this.info = null;
+  }
+
+  /**
+   * 维护「从关键帧开始的一段连续帧」缓存，供新订阅补发。
+   *
+   * 见 {@link replayBuffer} 的注释：只补关键帧会让渲染层跳帧喂入，硬解输出
+   * 错乱（整屏纯绿）。所以：
+   *
+   * - 遇到关键帧 → 清空重来（这是新的参考链起点）；
+   * - 帧序号不连续 → 同样清空（参考链已断，之前的帧补发也没用）；
+   * - 其余帧追加，超过上限丢最旧的。
+   */
+  private rememberForReplay(frame: VideoFramePayload): void {
+    const last = this.replayBuffer[this.replayBuffer.length - 1];
+    if (frame.isKeyframe) {
+      this.replayBuffer = [frame];
+      return;
+    }
+    if (!last) return; // 还没见过关键帧，先不缓存
+    // 16 位序号会回绕，按模判断是否正好 +1。
+    const continuous = (frame.frameIndex - last.frameIndex + 65536) % 65536 === 1;
+    if (!continuous) {
+      this.replayBuffer = [];
+      return;
+    }
+    this.replayBuffer.push(frame);
+    // 超出上限时丢**最旧的 delta**、保留关键帧？不行 —— 关键帧之后的帧必须
+    // 连续才有意义。这里改为整段作废等下一个关键帧：对端关键帧间隔实测约
+    // 17 秒，缓存峰值 255 帧 × 平均 2 KB ≈ 500 KB，完全可以一直留着。
+    // 上限只是防止异常码流（关键帧间隔极大）把内存吃爆。
+    if (this.replayBuffer.length > REPLAY_FRAMES) this.replayBuffer = [];
   }
 
   /**
