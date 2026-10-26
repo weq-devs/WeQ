@@ -9,6 +9,8 @@ import {
 } from '../src/renderer/src/components/tasks/LongTaskRow';
 import type { UiTask } from '../src/renderer/src/views/export/TaskList';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
+import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 
 const fixture = vi.hoisted(() => ({ accountId: 'fixture-account' }));
 vi.mock('../src/renderer/src/state/view', () => ({
@@ -88,6 +90,53 @@ afterEach(() => {
 });
 
 describe('统一当前任务', () => {
+  it('隐藏或尚未加载的任务列表不清红点，查看列表后清除红点但保留蓝点', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const items = [
+      { id: 'export:done', activity: 'finished' as const, result: 'completed', failed: false },
+      { id: 'clone:running', activity: 'running' as const, result: 'running', failed: false },
+    ];
+    const store = useWorkspaceMenu.getState();
+    store.syncTasks('read-fixture', items);
+    const render = (active: boolean, loadingExports = false) =>
+      act(() =>
+        root.render(
+          h(
+            TabActivity,
+            { active },
+            h(CurrentTaskList, {
+              exports: [],
+              loadingExports,
+              renderExport: () => null,
+              onSaveAll: vi.fn(),
+            }),
+          ),
+        ),
+      );
+    try {
+      render(false);
+      expect(useWorkspaceMenu.getState()).toMatchObject({ finished: 1, running: 1 });
+      render(true, true);
+      expect(useWorkspaceMenu.getState().finished).toBe(1);
+      render(true);
+      expect(useWorkspaceMenu.getState()).toMatchObject({ finished: 0, running: 1 });
+      render(false);
+      act(() =>
+        store.syncTasks('read-fixture', [
+          ...items,
+          { id: 'flash:new', activity: 'finished', result: 'done', failed: false },
+        ]),
+      );
+      expect(useWorkspaceMenu.getState().finished).toBe(1);
+      render(true);
+      expect(useWorkspaceMenu.getState()).toMatchObject({ finished: 0, running: 1 });
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   it('菜单只显示列表，点击任务展开同一个选中项，完整面板右侧呈现详情', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');

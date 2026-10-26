@@ -12,6 +12,7 @@ export function WorkspaceMenuButton() {
   const failed = useWorkspaceMenu((state) => state.failed);
   const finished = useWorkspaceMenu((state) => state.finished);
   const assistant = useWorkspaceMenu((state) => state.assistant);
+  const assistantUnread = useWorkspaceMenu((state) => state.assistantUnread);
   const update = useUpdateStore((state) => state.available);
   const label = `菜单${running ? `，${running} 项任务进行中` : ''}${finished ? `，${finished} 项任务已结束` : ''}${failed ? `，${failed} 项任务失败` : ''}${assistant === 'running' ? '，助手回答中' : assistant === 'finished' ? '，助手回答已结束' : ''}${update ? '，有新版本' : ''}`;
   return (
@@ -27,9 +28,8 @@ export function WorkspaceMenuButton() {
       <Menu size={22} strokeWidth={1.75} aria-hidden />
       <WorkspaceStatusDot
         running={running + Number(assistant === 'running')}
-        finished={finished + Number(assistant === 'finished') + Number(update)}
+        finished={finished + Number(assistantUnread) + Number(update)}
       />
-      {running > 0 ? <small className="weq-workspace-count">{running}</small> : null}
     </button>
   );
 }
@@ -48,7 +48,7 @@ export function WorkspaceSettingsButton({ onClick }: { onClick: () => void }) {
       }}
     >
       <Settings size={18} aria-hidden />
-      {update ? <span className="weq-workspace-dot" /> : null}
+      <WorkspaceStatusDot running={0} finished={Number(update)} />
     </button>
   );
 }

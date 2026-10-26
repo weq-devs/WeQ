@@ -5,6 +5,7 @@ import { AssistantPanel } from './AssistantPanel';
 import { RetainedTabs, useTabActive } from '../../components/RetainedTabs';
 import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import type { AssistantActivity } from '../../lib/workspaceIndicators';
+import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { useAppDialog } from '../../lib/dialogUtils';
 import '../../styles/agentlab-workspace.css';
@@ -24,6 +25,7 @@ export function AssistantMenuWorkspace({
   searchTarget?: GeneratedSearchHit | null;
 }) {
   const active = useTabActive();
+  const { enabled: resultVisible } = useQQReadActivity(true, { onlineOnly: false });
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const sessions = trpc.account.listAssistantSessions.useQuery(undefined, {
@@ -41,12 +43,18 @@ export function AssistantMenuWorkspace({
   const sequence = useRef(0);
   const currentSelection = useRef(selection);
   currentSelection.current = selection;
-  const [activities, setActivities] = useState<Record<string, AssistantActivity>>({});
+  const [activities, setActivities] = useState<
+    Record<string, { activity: AssistantActivity; unread: boolean }>
+  >({});
   const setAssistant = useWorkspaceMenu((state) => state.setAssistant);
-  const activity = activities[selection.key] ?? 'idle';
+  const activity = activities[selection.key]?.activity ?? 'idle';
+  const unread = activities[selection.key]?.unread ?? false;
   useEffect(() => {
-    setAssistant(activity);
-  }, [activity, setAssistant]);
+    setAssistant(activity, unread && !resultVisible);
+    if (resultVisible && unread) {
+      setActivities((previous) => ({ ...previous, [selection.key]: { activity, unread: false } }));
+    }
+  }, [activity, unread, resultVisible, selection.key, setAssistant]);
   useEffect(() => () => setAssistant('idle'), [setAssistant]);
   const keys = useRef(new Map<string, string>());
   const appliedSearch = useRef<GeneratedSearchHit | null | undefined>(undefined);
@@ -192,9 +200,12 @@ export function AssistantMenuWorkspace({
               }
               onActivityChange={(next) => {
                 setActivities((previous) =>
-                  previous[selection.key] === next
+                  previous[selection.key]?.activity === next
                     ? previous
-                    : { ...previous, [selection.key]: next },
+                    : {
+                        ...previous,
+                        [selection.key]: { activity: next, unread: next === 'finished' },
+                      },
                 );
               }}
               onBack={newSession}

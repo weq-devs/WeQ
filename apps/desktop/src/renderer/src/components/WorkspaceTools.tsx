@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import type { ExportAuthorizationIndicatorState } from '../views/export/authorization';
 import { Modal } from './Dialog';
-import { RetainedTabs } from './RetainedTabs';
+import { RetainedTabs, TabActivity } from './RetainedTabs';
 import { ExportTool } from '../views/ExportView';
 import { ExportViewer } from '../views/ExportViewer';
 import { AssistantMenuWorkspace } from '../views/agentlab/AssistantMenuWorkspace';
@@ -103,7 +103,10 @@ export function WorkspaceTools({
   const anchor = useWorkspaceMenu((state) => state.anchor);
   const closeMenu = useWorkspaceMenu((state) => state.close);
   const setTaskSummary = useWorkspaceMenu((state) => state.setTasks);
+  const syncTasks = useWorkspaceMenu((state) => state.syncTasks);
+  const finished = useWorkspaceMenu((state) => state.finished);
   const assistantActivity = useWorkspaceMenu((state) => state.assistant);
+  const assistantUnread = useWorkspaceMenu((state) => state.assistantUnread);
   const [expanded, setExpanded] = useState(false);
   const lastAnchor = useRef<HTMLElement | null>(null);
   if (anchor) lastAnchor.current = anchor;
@@ -221,7 +224,13 @@ export function WorkspaceTools({
   const roamingTasks = trpc.account.roamingBackfill.list.useQuery(undefined, taskQueryOptions);
   const flashTasks = trpc.account.flashListDownloadTasks.useQuery(undefined, taskQueryOptions);
   const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
-  const { running, finished, failed } = summarizeWorkspaceTasks({
+  const taskDataReady =
+    tasks.data !== undefined && roamingTasks.data !== undefined && flashTasks.data !== undefined;
+  const {
+    running,
+    failed,
+    items: taskItems,
+  } = summarizeWorkspaceTasks({
     exports: tasks.data,
     clones: cloneTasks.filter((task) => task.accountId === accountKey),
     roaming: roamingTasks.data?.jobs,
@@ -229,8 +238,8 @@ export function WorkspaceTools({
     flash: flashTasks.data,
   });
   useEffect(() => {
-    setTaskSummary(running, failed, finished);
-  }, [running, failed, finished, setTaskSummary]);
+    if (taskDataReady) syncTasks(accountScope, taskItems);
+  }, [accountScope, taskItems, taskDataReady, syncTasks]);
   useEffect(
     () => () => {
       closeMenu();
@@ -441,12 +450,9 @@ export function WorkspaceTools({
               }}
             >
               {panel === 'tasks' ? <AssistantIcon size={18} /> : <ListTodo size={18} />}
-              {panel === 'assistant' && running ? <small>{running}</small> : null}
               <WorkspaceStatusDot
                 running={panel === 'assistant' ? running : Number(assistantActivity === 'running')}
-                finished={
-                  panel === 'assistant' ? finished : Number(assistantActivity === 'finished')
-                }
+                finished={panel === 'assistant' ? finished : Number(assistantUnread)}
               />
             </button>
             {expanded ? (
@@ -470,11 +476,13 @@ export function WorkspaceTools({
               ) : (
                 <>
                   <div className="weq-menu-assistant" hidden={assistantSettings && expanded}>
-                    <AssistantMenuWorkspace
-                      accountScope={accountScope}
-                      compact={!expanded}
-                      searchTarget={assistantSearchTarget}
-                    />
+                    <TabActivity active={!assistantSettings || !expanded}>
+                      <AssistantMenuWorkspace
+                        accountScope={accountScope}
+                        compact={!expanded}
+                        searchTarget={assistantSearchTarget}
+                      />
+                    </TabActivity>
                   </div>
                   {assistantSettings && expanded ? (
                     <div className="weq-assistant-service-settings">

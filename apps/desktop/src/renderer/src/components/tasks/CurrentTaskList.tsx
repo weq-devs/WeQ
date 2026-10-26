@@ -1,4 +1,13 @@
-import { Fragment, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
+import { useTabActive } from '../RetainedTabs';
+import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import { CloudDownload, Download, FolderOpen, Square, Trash2, Users } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
@@ -234,6 +243,12 @@ export function CurrentTaskList({
         : ordered[0]?.id;
   const running = items.filter((task) => task.status === 'running').length;
   const loading = loadingExports || roaming.isLoading || flash.isLoading;
+  const visible = useTabActive();
+  const unreadResults = useWorkspaceMenu((state) => state.finished);
+  const readTasks = useWorkspaceMenu((state) => state.readTasks);
+  useLayoutEffect(() => {
+    if (visible && active && !loading && unreadResults > 0) readTasks();
+  }, [visible, active, loading, unreadResults, readTasks]);
   const hasError = exportError || roaming.error || flash.error;
   return (
     <section className={`weq-current-tasks is-${layout}`} aria-label="当前任务列表">

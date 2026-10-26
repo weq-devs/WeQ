@@ -15,7 +15,7 @@ import { useUpdateStore } from '../src/renderer/src/state/update';
 const fixture = vi.hoisted(() => ({
   mounts: 0,
   clones: [],
-  exports: [] as { status: 'running' | 'completed' | 'failed' }[],
+  exports: [] as { id: string; status: 'running' | 'completed' | 'failed' }[],
 }));
 vi.mock('../src/renderer/src/views/agentlab/cloneTaskStore', () => ({
   getCloneTasks: () => fixture.clones,
@@ -74,6 +74,11 @@ beforeEach(() => {
     failed: 0,
     finished: 0,
     assistant: 'idle',
+    assistantUnread: false,
+    taskScope: null,
+    taskItems: [],
+    readTaskResults: {},
+    readTaskResultsByScope: {},
   });
   useUpdateStore.setState({ available: false });
 });
@@ -109,9 +114,11 @@ describe('统一竖向工作菜单', () => {
       act(() => trigger().click());
       act(() => useUpdateStore.setState({ available: true }));
       expect(trigger().querySelector('.is-finished')).not.toBeNull();
+      expect(trigger().querySelector('.is-finished')?.textContent).toBe('1');
       expect(switchButton().querySelector('.weq-workspace-dot')).toBeNull();
       act(() => useWorkspaceMenu.getState().setAssistant('running'));
       expect(trigger().querySelector('.is-running')).not.toBeNull();
+      expect(trigger().querySelector('.is-running')?.textContent).toBe('1');
       expect(switchButton().querySelector('.is-running')).not.toBeNull();
       const output = process.env.WEQ_WORKSPACE_LAYOUT_DIR;
       if (output) {
@@ -126,17 +133,30 @@ describe('统一竖向工作菜单', () => {
       }
       act(() => useWorkspaceMenu.getState().setAssistant('finished'));
       expect(switchButton().querySelector('.is-finished')).not.toBeNull();
-      fixture.exports = [{ status: 'running' }, { status: 'completed' }, { status: 'failed' }];
+      fixture.exports = [
+        { id: 'a', status: 'running' },
+        { id: 'b', status: 'completed' },
+        { id: 'c', status: 'failed' },
+      ];
       render();
       expect(useWorkspaceMenu.getState()).toMatchObject({ running: 1, finished: 2, failed: 1 });
       expect(trigger().querySelector('.is-running')).not.toBeNull();
       expect(switchButton().querySelector('.is-finished')).not.toBeNull();
       act(() => switchButton().click());
       expect(switchButton().querySelector('.is-running')).not.toBeNull();
-      fixture.exports = [{ status: 'completed' }, { status: 'completed' }, { status: 'failed' }];
+      fixture.exports = [
+        { id: 'a', status: 'completed' },
+        { id: 'b', status: 'completed' },
+        { id: 'c', status: 'failed' },
+      ];
       render();
       expect(switchButton().querySelector('.is-finished')).not.toBeNull();
       expect(trigger().querySelector('.is-finished')).not.toBeNull();
+      expect(switchButton().querySelector('.is-finished')?.textContent).toBe('3');
+      expect(trigger().querySelector('.is-finished')?.textContent).toBe('5');
+      act(() => useWorkspaceMenu.getState().readTasks());
+      expect(switchButton().querySelector('.weq-workspace-dot')).toBeNull();
+      expect(trigger().querySelector('.is-finished')?.textContent).toBe('2');
       fixture.exports = [];
       render();
       expect(switchButton().querySelector('.weq-workspace-dot')).toBeNull();

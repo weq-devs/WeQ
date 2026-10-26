@@ -77,6 +77,45 @@ afterEach(() => {
 });
 
 describe('菜单助手会话', () => {
+  it('窗口隐藏期间完成不算已读，回来查看后清红点，下一轮仍保留蓝点', () => {
+    let hidden = false;
+    const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => (hidden ? 'hidden' : 'visible'),
+    });
+    rememberAssistantSession('window-activity', 'chosen');
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(h(AssistantMenuWorkspace, { accountScope: 'window-activity', compact: true })),
+      );
+      act(() => fixture.activity.get('chosen')!('running'));
+      expect(useWorkspaceMenu.getState().assistant).toBe('running');
+      act(() => {
+        hidden = true;
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      act(() => fixture.activity.get('chosen')!('finished'));
+      expect(useWorkspaceMenu.getState().assistantUnread).toBe(true);
+      act(() => {
+        hidden = false;
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(useWorkspaceMenu.getState().assistantUnread).toBe(false);
+      act(() => fixture.activity.get('chosen')!('running'));
+      expect(useWorkspaceMenu.getState()).toMatchObject({
+        assistant: 'running',
+        assistantUnread: false,
+      });
+    } finally {
+      act(() => root.unmount());
+      if (visibility) Object.defineProperty(document, 'visibilityState', visibility);
+      else Reflect.deleteProperty(document, 'visibilityState');
+    }
+  });
+
   it('只统计当前选中的会话，菜单隐藏后仍更新，回到旧会话恢复对应状态', () => {
     rememberAssistantSession('activity', 'chosen');
     const host = document.createElement('div');
@@ -95,9 +134,15 @@ describe('菜单助手会话', () => {
       render(true);
       act(() => fixture.activity.get('chosen')!('running'));
       expect(useWorkspaceMenu.getState().assistant).toBe('running');
+      expect(useWorkspaceMenu.getState().assistantUnread).toBe(false);
       render(false);
       act(() => fixture.activity.get('chosen')!('finished'));
       expect(useWorkspaceMenu.getState().assistant).toBe('finished');
+      expect(useWorkspaceMenu.getState().assistantUnread).toBe(true);
+      render(true);
+      expect(useWorkspaceMenu.getState().assistantUnread).toBe(false);
+      render(false);
+      expect(useWorkspaceMenu.getState().assistantUnread).toBe(false);
       render(true);
       act(() =>
         [...host.querySelectorAll<HTMLButtonElement>('button')]
@@ -109,6 +154,7 @@ describe('菜单助手会话', () => {
       expect(useWorkspaceMenu.getState().assistant).toBe('idle');
       act(() => fixture.activity.get('background')!('finished'));
       expect(useWorkspaceMenu.getState().assistant).toBe('finished');
+      expect(useWorkspaceMenu.getState().assistantUnread).toBe(false);
       act(() =>
         [...host.querySelectorAll<HTMLButtonElement>('button')]
           .find((button) => button.textContent === '主动选择的会话')!
