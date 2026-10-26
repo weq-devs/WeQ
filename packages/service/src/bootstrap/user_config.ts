@@ -489,15 +489,16 @@ export interface AppSettings {
   exportSaveMode: import('../account/export/save_output').ExportSaveMode;
   realtimeEnabled: boolean;
   /**
-   * 完全离线总闸（设置 → 账号基础 → 自动读取 QQ 内存）。
+   * 自动启用完整功能策略（设置 → 凭据与账号 → 监听与读取）。
    *
    * 默认**关闭**：是否读取登录中的 QQ 进程内存，由用户在**首次运行欢迎框**里
    * 自己选择（见 {@link WELCOME_POLICY_VERSION}）。开启后后台自动读进程内存，
    * 采集 a2 / d2 / d2key 与 rKey / ClientKey / 装扮快照等凭证，驱动漫游消息、
    * 媒体补全、发送消息 / 群操作 / 群管理、一键反馈 bug、群相册、Web 凭证
    * （skey/pskey）等在线功能。
-   * 关闭进入完全离线模式：不再读内存、不再采集、不再联网换取凭证，仅使用本地
-   * 数据库与本地文件。唯一豁免：登录时的数据库密钥提取。
+   * 关闭只停止自动尝试，宿主仍可持有本来源的手动请求；在线消费点检查宿主的
+   * 有效运行态与真实凭据，不直接拿本偏好作总闸。手动请求不持久化或进入备份。
+   * 登录时的数据库密钥提取仍独立于此策略。
    */
   autoAttachQq: boolean;
   /** 进入受限状态的被动横幅；不隐藏真实授权请求或主动错误。 */
@@ -1683,7 +1684,7 @@ export class UserConfigService {
   /**
    * 确认首次运行欢迎框，并记录用户在框里对「扫描 QQ 内存」的选择。
    *
-   * `allowMemoryScan` 直接落到 `autoAttachQq`（完整功能总闸）—— 欢迎框就是它的征询入口。
+   * `allowMemoryScan` 保存为 `autoAttachQq` 自动策略；欢迎框不创建本来源的手动请求。
    * 确认时一并写入当前策略版本，之后不再重复弹出。
    */
   acknowledgeWelcome(options: { allowMemoryScan: boolean }): void {

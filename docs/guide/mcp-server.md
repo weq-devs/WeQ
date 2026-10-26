@@ -3,7 +3,7 @@
 WeQ 内置一个 **MCP（Model Context Protocol）服务器**，让外部 AI 客户端（Claude Desktop 等）
 通过本地 HTTP 接口读取**当前账号**的聊天数据。
 
-打开位置：**设置 → 服务与集成 → MCP 服务器**。
+打开位置：**设置 → WeQ 服务 → MCP 服务器**。
 
 ## 1. 服务开关
 

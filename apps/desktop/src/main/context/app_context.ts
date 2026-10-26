@@ -2020,10 +2020,8 @@ export function initAppContext(fileRoot?: string): AppContext {
         showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
       });
 
-      // Start the background login/pid monitor for this account. Injection +
-      // harvesting (rkey / clientkey / 装扮快照) inside it is gated live by the
-      // 自动读取 QQ 内存 master switch (完全离线模式), so toggling that setting takes
-      // effect on the next poll without a re-open.
+      // 后台登录/pid 监视器实时检查本来源有效运行态，包含自动策略和显式手动请求；
+      // 凭据采集在下次轮询生效，不用重新打开账号，也不能复用已失活的会话。
       accountMonitor = new AccountMonitorService(
         session,
         platform,
@@ -3089,8 +3087,8 @@ export function getAppContext(): AppContext {
 }
 
 /**
- * 完全离线模式提示。所有会触发 hook 注入 / 读取在线凭证的功能入口都应先调用
- * {@link requireAttachEnabled}，避免在「自动读取 QQ 内存」关闭时仍悄悄注入。
+ * 所有会触发 hook 注入 / 读取在线凭证的功能入口都应先调用
+ * {@link requireAttachEnabled}，检查本来源有效运行态，不用自动偏好推测授权。
  * 唯一豁免：登录时的数据库密钥提取（bootstrap 登录流程）——那是打开账号的前提。
  */
 export function requireAttachEnabled(): void {

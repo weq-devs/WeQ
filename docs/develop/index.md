@@ -70,7 +70,7 @@ pnpm dev
 - [AI 声聊](./ai-voice.md) — 声线目录（OIDB 0x929d_0：分组 / 中文名 / 样音）与语音合成（0x929b_0），样音不入库
 - [群报名 / 群收集表](./group-signup.md) — OIDB 0x921b_0 的字段布局、图片直链处理与已知缺口
 - [发消息](./send-message.md) — `MessageSvc.PbSendMsg` + 富媒体上传（NTV2/highway）+ 文件（群/私聊，老 OIDB + highway）、元素类型表、MCP 工具与已知缺口
-- [本地文字识别模型](./ocr-models.md)：模型选型背景；当前识别与筛图配置见[设置](../guide/settings.md#模型与识别)。
+- [本地文字识别模型](./ocr-models.md)：模型选型背景；当前识别与筛图配置见[设置](../guide/settings.md#ai-功能)。
 - [图片识别缓存原设计](./ocr-cache-plan-20261016.md)：历史方案，缓存已接入；当前实现查 `packages/service/src/common/ocr_cache.ts` 及 `account/ocr_image.ts`，不按旧“待实施”措辞重复开发。
 - [词云 / 常用语的中文分词](./jieba-word-segmentation-20261017.md) — 接入 QQ 自带结巴词典与随包词典兜底，按词性过滤实词
 - [主动操作类协议能力](./protocol-actions-20261019.md) — 群管理 / 群文件 / 群相册 / 群待办 / 收藏表情 / 请求处理 / 在线状态的命令、分层与签名判定
