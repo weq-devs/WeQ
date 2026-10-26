@@ -61,6 +61,19 @@ const weqBridge = {
   },
   openLogDir: (): Promise<boolean> => ipcRenderer.invoke('logs:open-dir') as Promise<boolean>,
   /**
+   * 往主进程日志文件里写一条结构化记录（fire-and-forget）。
+   *
+   * 渲染层的 `console.*` 不会落盘，通话视频解码这类纯渲染层的链路出了问题就
+   * 完全看不见。调用方显式调用才记，别拿来替代 `console`。
+   */
+  debugLog: (level: 'debug' | 'info' | 'warn' | 'error', message: string, context?: object) => {
+    try {
+      ipcRenderer.send('logs:renderer', { level, message, context });
+    } catch {
+      // 日志永远不能影响业务流程。
+    }
+  },
+  /**
    * 用户选 / 拖 / 粘贴进来的文件的**本机绝对路径**（Electron 32+ 的 `webUtils`）。
    *
    * 发消息时优先按路径把媒体 / 文件交给主进程（省内存、大文件/视频最稳）；剪贴板

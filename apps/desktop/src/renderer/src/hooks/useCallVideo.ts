@@ -51,6 +51,29 @@ const HEVC_CODEC_CANDIDATES = [
   'hev1.1.6.L93.B0',
 ] as const;
 
+/**
+ * 把渲染层的解码进度写进主进程日志文件。
+ *
+ * 通话视频的解码全在这一层，而渲染层的 `console.*` 不落盘 —— 「一直等对方
+ * 画面」这种问题因此完全不可观测。`weq.debugLog` 由 preload 提供；web 构建
+ * 没有这个桥，退回 `console`（至少开发时能看到）。
+ */
+function trace(
+  level: 'debug' | 'info' | 'warn' | 'error',
+  message: string,
+  context?: Record<string, unknown>,
+): void {
+  const bridge = window.weq?.debugLog;
+  if (bridge) {
+    bridge(level, message, { scope: 'call-video', ...context });
+    return;
+  }
+  const line = `[call-video] ${message}`;
+  if (level === 'error') console.error(line, context);
+  else if (level === 'warn') console.warn(line, context);
+  else console.info(line, context);
+}
+
 export interface CallVideoState {
   /** 解码器可用。false 时界面应提示「当前环境不支持视频解码」。 */
   supported: boolean;
@@ -105,6 +128,8 @@ export function useCallVideo(options: {
   const decodeFailures = useRef(0);
   /** 收到的帧数（只用于前几帧的排查日志）。 */
   const frameCount = useRef(0);
+  /** 解出的帧数（`output` 回调计数，只用于里程碑日志）。 */
+  const decodedFrames = useRef(0);
   /**
    * 是否正在异步建解码器。
    *
@@ -150,7 +175,7 @@ export function useCallVideo(options: {
       }
       if (!config) {
         // 把试过的候选连同报错一起抛给界面：只说「不支持」没法排查。
-        console.error('[call-video] 所有 HEVC 候选都不支持', tried, { width, height });
+        trace('error', '所有 HEVC 候选都不支持', { tried, width, height });
         setState((prev) => ({
           ...prev,
           supported: false,
@@ -158,36 +183,49 @@ export function useCallVideo(options: {
         }));
         return null;
       }
+      trace('info', '解码器配置就绪', { codec: config.codec, width, height, tried });
 
       decoderRef.current?.close();
       const decoder = new VideoDecoder({
         output: (frame) => {
+          // ⚠️ **所有尺寸都要在 `frame.close()` 之前读。** close() 会把 VideoFrame
+          // 的所有属性重置为 0 —— 在它之后读 `displayWidth` 拿到的是 0，看起来像
+          // 「解出画面但尺寸为 0」。日志和 setState 都依赖这两个值。
+          const width = frame.displayWidth;
+          const height = frame.displayHeight;
           const canvas = canvasRef.current;
           if (canvas) {
             // 按帧尺寸调整画布，避免拉伸。
-            if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
-              canvas.width = frame.displayWidth;
-              canvas.height = frame.displayHeight;
+            if (canvas.width !== width || canvas.height !== height) {
+              canvas.width = width;
+              canvas.height = height;
             }
             const ctx = canvas.getContext('2d');
             ctx?.drawImage(frame, 0, 0);
           }
           frame.close();
           decodeFailures.current = 0;
-          setState((prev) =>
-            prev.active
-              ? prev
-              : { ...prev, active: true, width: frame.displayWidth, height: frame.displayHeight },
-          );
+          // 第一帧解出来是整条链路唯一的关键里程碑：有它才说明「等待对方画面」
+          // 会消失。之后的帧只按 100 帧记一次，避免刷屏。
+          decodedFrames.current++;
+          if (decodedFrames.current === 1 || decodedFrames.current % 100 === 0) {
+            trace('info', '解出画面', { n: decodedFrames.current, width, height });
+          }
+          setState((prev) => (prev.active ? prev : { ...prev, active: true, width, height }));
         },
         error: (error) => {
-          console.error('[call-video] 解码器错误', error);
+          trace('error', '解码器错误', {
+            error: String(error),
+            frames: frameCount.current,
+            decoded: decodedFrames.current,
+          });
           setState((prev) => ({ ...prev, error: String(error) }));
         },
       });
       decoder.configure(config);
       decoderRef.current = decoder;
       configured.current = false;
+      trace('info', '解码器已建立', { codec: config.codec, width, height });
       return decoder;
     },
     [canvasRef],
@@ -209,6 +247,16 @@ export function useCallVideo(options: {
     enabled,
     onData: (frame) => {
       frameCount.current++;
+      // 前几帧逐帧记：订阅建得晚 / 首帧不是关键帧 / 帧全被丢掉，这三种情况在
+      // 界面上长得一模一样（都是「等待对方画面」），只有这里能区分。
+      if (frameCount.current <= 5) {
+        trace('info', '收到待解码帧', {
+          n: frameCount.current,
+          bytes: frame.hevc?.length ?? null,
+          keyframe: frame.keyframe,
+          info: frame.info,
+        });
+      }
       void (async () => {
         // 先拆 NAL 再判断关键帧。
         //
@@ -217,10 +265,24 @@ export function useCallVideo(options: {
         // 判断会导致 `!configured && !keyframe` 永远成立，解码器根本建不起来。
         // 改用自己从 NAL 类型判出来的结果：只要这一帧里真的带了 IRAP 就能起解。
         const au = toAccessUnit(frame.hevc);
-        if (!au.data) return;
+        if (!au.data) {
+          trace('warn', '拆不出 access unit，丢帧', {
+            n: frameCount.current,
+            bytes: frame.hevc?.length ?? null,
+          });
+          return;
+        }
         // 见到参数集就记下来：解码器重建后要拿它补在最前面（见 paramSets 的注释）。
         if (au.params.length > 0) paramSets.current = au.params;
-        if (!configured.current && !au.keyframe) return;
+        if (!configured.current && !au.keyframe) {
+          if (frameCount.current <= 5) {
+            trace('warn', '未配置且非关键帧，丢弃（等关键帧起解）', {
+              n: frameCount.current,
+              params: paramSets.current.length,
+            });
+          }
+          return;
+        }
 
         const existing = decoderRef.current;
         const rebuilt = !existing || existing.state === 'closed';
@@ -238,7 +300,10 @@ export function useCallVideo(options: {
           // 丢掉 —— 表现就是「解出第一帧，画面永久停住」。
           //
           // 用一个在建标记挡住并发重建：谁先拿到谁建，其余帧直接返回等下一帧。
-          if (buildingDecoder.current) return;
+          if (buildingDecoder.current) {
+            trace('warn', '解码器正在建立，本帧丢弃', { n: frameCount.current });
+            return;
+          }
           buildingDecoder.current = true;
           try {
             decoder = await ensureDecoder(frame.info?.width ?? 640, frame.info?.height ?? 360);
@@ -251,7 +316,13 @@ export function useCallVideo(options: {
           // 的「未配置跳过 delta」丢掉，标记得留着给下一个关键帧用。
           needsParamSets.current = true;
         }
-        if (decoder?.state !== 'configured') return;
+        if (decoder?.state !== 'configured') {
+          trace('warn', '解码器状态不是 configured，丢帧', {
+            n: frameCount.current,
+            state: decoder?.state ?? 'null',
+          });
+          return;
+        }
 
         if (au.keyframe) configured.current = true;
         if (!configured.current) return;
@@ -270,8 +341,21 @@ export function useCallVideo(options: {
               data: payload,
             }),
           );
+          if (frameCount.current <= 5) {
+            trace('info', '已喂入解码器', {
+              n: frameCount.current,
+              key: au.keyframe,
+              bytes: payload.length,
+              params: paramSets.current.length,
+            });
+          }
         } catch (error) {
           decodeFailures.current++;
+          trace('warn', 'decode() 抛错', {
+            n: frameCount.current,
+            failures: decodeFailures.current,
+            error: String(error),
+          });
           setState((prev) => ({ ...prev, error: String(error) }));
           if (decodeFailures.current > 3) {
             decoder.close();
@@ -282,7 +366,11 @@ export function useCallVideo(options: {
         }
       })();
     },
-    onError: (error) => setState((prev) => ({ ...prev, error: String(error) })),
+    onError: (error) => {
+      trace('error', '视频订阅出错', { error: String(error) });
+      setState((prev) => ({ ...prev, error: String(error) }));
+    },
+    onStarted: () => trace('info', '视频订阅已建立'),
   });
 
   useEffect(() => {

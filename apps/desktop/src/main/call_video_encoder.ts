@@ -25,6 +25,37 @@ import { getLogger } from '@weq/service';
 const logger = getLogger().child({ scope: 'call-video-encoder' });
 
 /**
+ * 扫一遍 Annex B 裸流里每个 NAL 的类型（只看起始码后的首字节）。
+ *
+ * 编码器侧只需要知道「这帧里有没有 IRAP」，不值得为此引协议层的完整解析器 ——
+ * 那边是值导入 `@weq/protocol`，主进程没问题，但这里二十行就够。
+ */
+function splitAnnexBNalTypes(data: Uint8Array): number[] {
+  const types: number[] = [];
+  let i = 0;
+  let start = -1;
+  while (i < data.length) {
+    const four =
+      i + 4 <= data.length &&
+      data[i] === 0 &&
+      data[i + 1] === 0 &&
+      data[i + 2] === 0 &&
+      data[i + 3] === 1;
+    const three =
+      !four && i + 3 <= data.length && data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 1;
+    if (four || three) {
+      if (start >= 0 && i > start) types.push((data[start]! >> 1) & 0x3f);
+      start = i + (four ? 4 : 3);
+      i = start;
+      continue;
+    }
+    i++;
+  }
+  if (start >= 0 && start < data.length) types.push((data[start]! >> 1) & 0x3f);
+  return types;
+}
+
+/**
  * 调试开关：把送进编码器的 I420 和编码结果落盘。
  *
  * ```bash
@@ -152,9 +183,43 @@ export class NativeVideoEncoder implements CallVideoEncoder {
     );
     // 编码器还在 lookahead 里攒帧时是 null，下一拍再取。
     if (!result) return null;
-    this.dumpAnnexB(new Uint8Array(result.data));
-    return new Uint8Array(result.data);
+    const out = new Uint8Array(result.data);
+    this.dumpAnnexB(out);
+    this.noteEncoded(out);
+    return out;
   }
+
+  /**
+   * 记编码输出的尺寸分布（每 30 帧一条）。
+   *
+   * 「把码率从 400 调到 30 kbps」这类改动到底生效没有，只能看实际帧大小 ——
+   * 配置值写对了但 native 侧没采纳，日志里仍然全是 3KB 帧。同时统计关键帧数：
+   * 30 kbps 下若关键帧仍然频繁，瞬时码率尖峰会把整帧拆成很多 UDP 片。
+   */
+  private noteEncoded(data: Uint8Array): void {
+    this.encodedFrames++;
+    const nals = splitAnnexBNalTypes(data);
+    const key = nals.some((t) => t >= 16 && t <= 21);
+    if (key) this.encodedKeyframes++;
+    this.encodedBytes += data.length;
+    this.encodedMax = Math.max(this.encodedMax, data.length);
+    if (this.encodedFrames <= 5 || this.encodedFrames % 30 === 0) {
+      logger.info('编码帧统计', {
+        n: this.encodedFrames,
+        bytes: data.length,
+        keyframes: this.encodedKeyframes,
+        avgBytes: Math.round(this.encodedBytes / this.encodedFrames),
+        maxBytes: this.encodedMax,
+        bitrateKbps: this.bitrateKbps,
+        fps: this.fps,
+      });
+    }
+  }
+
+  private encodedFrames = 0;
+  private encodedKeyframes = 0;
+  private encodedBytes = 0;
+  private encodedMax = 0;
 
   info(): VideoStreamInfo {
     return {
@@ -172,6 +237,16 @@ export class NativeVideoEncoder implements CallVideoEncoder {
     if (!this.opened) return;
     this.opened = false;
     this.queue.length = 0;
+    if (this.encodedFrames > 0) {
+      logger.info('编码会话汇总', {
+        frames: this.encodedFrames,
+        keyframes: this.encodedKeyframes,
+        avgBytes: Math.round(this.encodedBytes / this.encodedFrames),
+        maxBytes: this.encodedMax,
+        bitrateKbps: this.bitrateKbps,
+        fps: this.fps,
+      });
+    }
     try {
       this.nt.closeVideoEncoder();
     } catch (error) {

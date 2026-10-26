@@ -260,6 +260,8 @@ export class CallManager extends EventEmitter {
   private videoEncoder: NativeVideoEncoder | null = null;
   /** 最近收到的一个关键帧（新订阅者补发用）。 */
   private lastKeyframe: VideoFramePayload | null = null;
+  /** 已推给渲染层的对端视频帧数（只用于前几帧的排查日志）。 */
+  private videoPushCount = 0;
   /** 当前这通电话的录音设置（发起时取一次，通话中改设置不影响进行中的录音）。 */
   private recordingConfig: CallRecordingConfig = { mode: 'mixed', systemAudio: false, dir: null };
   private recorder: CallRecorder | null = null;
@@ -375,6 +377,17 @@ export class CallManager extends EventEmitter {
       // **之后**才建立的，而首个关键帧往往已经过去 —— 后面的 delta 帧没有
       // 关键帧起解，画面永远出不来。新订阅先用这份补一帧。
       if (frame.isKeyframe) this.lastKeyframe = frame;
+      // 前几帧记一笔：主进程侧「收到了并推给渲染层」是排查「等待对方画面」的
+      // 分界线 —— 这里没有、渲染层也没有，说明问题在收包/组帧；这里有、渲染层
+      // 没有，说明订阅没建立或 IPC 序列化失败。
+      this.videoPushCount++;
+      if (this.videoPushCount <= 5 || this.videoPushCount % 300 === 0) {
+        logger.info('推送对端视频帧给渲染层', {
+          n: this.videoPushCount,
+          bytes: frame.hevc.length,
+          keyframe: frame.isKeyframe,
+        });
+      }
       this.emit('event', {
         type: 'video',
         hevc: frame.hevc,
@@ -677,6 +690,7 @@ export class CallManager extends EventEmitter {
     this.videoEncoder?.close();
     this.videoEncoder = null;
     this.lastKeyframe = null;
+    this.videoPushCount = 0;
     this.session = null;
     this.transport = null;
     this.info = null;
