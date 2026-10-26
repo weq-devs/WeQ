@@ -9,6 +9,7 @@ import {
   dismissCloneTask,
   getCloneTasks,
   startCloneTask,
+  startCloneUpdate,
 } from '../src/renderer/src/views/agentlab/cloneTaskStore';
 import type { StartCloneArgs } from '../src/renderer/src/views/agentlab/NewCloneModal';
 import { NewGroupModal } from '../src/renderer/src/views/agentlab/NewGroupModal';
@@ -22,14 +23,22 @@ vi.mock('../src/renderer/src/lib/draftClose', () => ({
 
 const mocks = vi.hoisted(() => ({
   build: vi.fn<() => Promise<void>>(),
+  refresh: vi.fn<() => Promise<void>>(),
   invalidate: vi.fn<() => Promise<void>>(),
-  utils: { account: { listAgentLabPersonas: { invalidate: () => mocks.invalidate() } } },
+  utils: {
+    account: {
+      listAgentLabPersonas: { invalidate: () => mocks.invalidate() },
+      getAgentLabPersona: { invalidate: vi.fn() },
+      getAgentLabPersonaDetail: { invalidate: vi.fn() },
+    },
+  },
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: { useUtils: () => mocks.utils },
   client: {
     account: {
       buildAgentLabFromC2c: { mutate: mocks.build },
+      refreshAgentLabFromC2c: { mutate: mocks.refresh },
       onAgentLabBuildProgress: { subscribe: () => ({ unsubscribe: vi.fn() }) },
     },
   },
@@ -156,4 +165,15 @@ it('构建失败不按成功任务刷新，离开主界面时取消订阅', asyn
   expect(mocks.invalidate).not.toHaveBeenCalled();
   await mount();
   expect(mocks.invalidate).toHaveBeenCalledOnce();
+});
+
+it('同一克隆体多次更新成功均刷新目录、画像详情与运行时缓存', async () => {
+  await mount();
+  mocks.refresh.mockResolvedValue(undefined);
+  for (let index = 1; index <= 2; index++) {
+    await act(async () => startCloneUpdate({ personaId: 'synthetic-clone', name: '合成克隆' }));
+    expect(mocks.invalidate).toHaveBeenCalledTimes(index);
+    expect(mocks.utils.account.getAgentLabPersona.invalidate).toHaveBeenCalledTimes(index);
+    expect(mocks.utils.account.getAgentLabPersonaDetail.invalidate).toHaveBeenCalledTimes(index);
+  }
 });

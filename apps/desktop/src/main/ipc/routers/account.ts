@@ -1827,6 +1827,12 @@ export const accountRouter = router({
       });
     }),
 
+  refreshAgentLabFromC2c: procedure
+    .input(z.object({ personaId: agentLabPersonaId, expectedAccountUin: z.string().min(1) }))
+    .mutation(({ input }) =>
+      requireExpectedAccount(input.expectedAccountUin).agentLab.refreshFromC2c(input.personaId),
+    ),
+
   /** Subscribe to AgentLab clone-build progress (drives the build progress bar). */
   onAgentLabBuildProgress: procedure.subscription(() => {
     return observable<import('@weq/service').AgentLabBuildProgress>((emit) => {

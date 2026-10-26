@@ -29,8 +29,13 @@ export function CloneProgressModal({
   onDismiss: (personaId: string) => void;
 }): ReactElement {
   const running = task.status === 'running';
+  const action = task.operation === 'update' ? '更新' : '克隆';
   const title =
-    task.status === 'done' ? '克隆完成' : task.status === 'error' ? '克隆失败' : '正在克隆…';
+    task.status === 'done'
+      ? `${action}完成`
+      : task.status === 'error'
+        ? `${action}失败`
+        : `正在${action}…`;
 
   return (
     <Modal presentation="popover" onClose={onHide} width={460}>
@@ -74,7 +79,9 @@ export function CloneProgressModal({
                 : '正在分析你和 TA 的私聊记录，可隐藏到任务列表继续等待…'
               : task.status === 'done'
                 ? 'TA 的克隆体已经准备好啦~'
-                : '可关闭后重新发起克隆。'}
+                : task.operation === 'update'
+                  ? '旧克隆体已保留，可关闭后重试更新。'
+                  : '可关闭后重新发起克隆。'}
           </p>
           <div className="weq-clone-actions">
             {running ? (

@@ -16,6 +16,8 @@ import { useViewState } from '../../state/view';
 export type CloneTaskStatus = 'running' | 'done' | 'error';
 
 export interface CloneTask {
+  revision?: number;
+  operation?: 'update';
   accountId: string | null;
   personaId: string;
   /** 展示名（克隆体名称或好友昵称）。 */
@@ -30,6 +32,7 @@ export interface CloneTask {
 }
 
 let tasks: CloneTask[] = [];
+let revision = 0;
 const listeners = new Set<() => void>();
 let progressUnsub: (() => void) | null = null;
 
@@ -84,11 +87,49 @@ function maybeStopProgressSub(): void {
  * 同一 personaId 再发起会替换旧任务。
  */
 export async function startCloneTask(args: StartCloneArgs): Promise<void> {
-  const { params, meta } = args;
-  setTasks([
-    ...tasks.filter((t) => t.personaId !== params.personaId),
+  return runCloneTask(args, () => client.account.buildAgentLabFromC2c.mutate(args.params));
+}
+
+export async function startCloneUpdate(args: {
+  personaId: string;
+  name: string;
+  uin?: string;
+  mode?: CloneMode;
+}): Promise<void> {
+  const expectedAccountUin = useViewState.getState().openedUin;
+  if (!expectedAccountUin) return;
+  return runCloneTask(
     {
-      accountId: useViewState.getState().openedUin,
+      params: { personaId: args.personaId },
+      meta: { name: args.name, uin: args.uin ?? '', mode: args.mode ?? 'private' },
+    },
+    () =>
+      client.account.refreshAgentLabFromC2c.mutate({
+        personaId: args.personaId,
+        expectedAccountUin,
+      }),
+    'update',
+  );
+}
+
+async function runCloneTask(
+  args: { params: { personaId: string }; meta: StartCloneArgs['meta'] },
+  run: () => Promise<unknown>,
+  operation?: 'update',
+): Promise<void> {
+  const { params, meta } = args;
+  const accountId = useViewState.getState().openedUin;
+  const matchesOwner = (task: CloneTask) =>
+    task.accountId === accountId && task.personaId === params.personaId;
+  if (tasks.some((task) => matchesOwner(task) && task.status === 'running')) return;
+  const taskRevision = ++revision;
+  const matchesRun = (task: CloneTask) => matchesOwner(task) && task.revision === taskRevision;
+  setTasks([
+    ...tasks.filter((t) => !matchesOwner(t)),
+    {
+      accountId,
+      revision: taskRevision,
+      operation,
       personaId: params.personaId,
       name: meta.name,
       uin: meta.uin,
@@ -100,21 +141,13 @@ export async function startCloneTask(args: StartCloneArgs): Promise<void> {
   ]);
   ensureProgressSub();
   try {
-    await client.account.buildAgentLabFromC2c.mutate(params);
+    await run();
     setTasks(
-      tasks.map((t) =>
-        t.personaId === params.personaId
-          ? { ...t, status: 'done', phase: '完成', percent: 100 }
-          : t,
-      ),
+      tasks.map((t) => (matchesRun(t) ? { ...t, status: 'done', phase: '完成', percent: 100 } : t)),
     );
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    setTasks(
-      tasks.map((t) =>
-        t.personaId === params.personaId ? { ...t, status: 'error', error: msg } : t,
-      ),
-    );
+    setTasks(tasks.map((t) => (matchesRun(t) ? { ...t, status: 'error', error: msg } : t)));
   } finally {
     maybeStopProgressSub();
   }

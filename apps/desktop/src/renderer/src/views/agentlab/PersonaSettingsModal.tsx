@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { CloneUpdateButton } from './CloneUpdateButton';
 import type { AgentLabModelSelection } from '@weq/agentlab';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
 import { TabActivity, useTabActive } from '../../components/RetainedTabs';
@@ -746,6 +747,9 @@ export function PersonaSettingsModal({
   persona: {
     id: string;
     name: string;
+    sourceKind?: 'c2c' | 'group';
+    sourceUin?: string;
+    training?: { mode: 'private' | 'group' };
     customPrompt?: string;
     voiceCloneEnabled?: boolean;
     voice?: VoiceBinding;
@@ -807,7 +811,14 @@ export function PersonaSettingsModal({
                 <TabActivity key={page} active={tab === page}>
                   <div hidden={tab !== page} inert={tab !== page}>
                     {page === 'params' ? (
-                      paramsContent
+                      <>
+                        {paramsContent}
+                        {persona.sourceKind === 'c2c' ? (
+                          <div className="weq-clone-actions">
+                            <CloneUpdateButton key={persona.id} persona={persona} />
+                          </div>
+                        ) : null}
+                      </>
                     ) : page === 'prompt' ? (
                       <div className="weq-persona-form">
                         <label className="weq-agentlab-field">

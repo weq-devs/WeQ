@@ -11,10 +11,14 @@ export function useCloneTaskRefresh(): void {
     JSON.stringify(
       getCloneTasks()
         .filter((task) => task.accountId === accountId && task.status === 'done')
-        .map((task) => task.personaId),
+        .map((task) => [task.personaId, task.revision]),
     ),
   );
   useEffect(() => {
-    if (accountId && doneTaskIds !== '[]') void utils.account.listAgentLabPersonas.invalidate();
+    if (accountId && doneTaskIds !== '[]') {
+      void utils.account.listAgentLabPersonas.invalidate();
+      void utils.account.getAgentLabPersonaDetail.invalidate();
+      void utils.account.getAgentLabPersona.invalidate();
+    }
   }, [accountId, doneTaskIds, utils]);
 }
