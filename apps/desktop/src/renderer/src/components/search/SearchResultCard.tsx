@@ -170,13 +170,17 @@ export function SearchResultCard({
       title = hit.remark || hit.nick || hit.uin || hit.uid;
       subtitle = (
         <span className="weq-search-muted">
-          {hit.isFriend
-            ? '好友'
-            : hit.temporary
-              ? '临时会话'
-              : hit.hasConversation
-                ? '本地会话'
-                : '本地资料'}
+          {hit.target?.kind === 'persona'
+            ? '克隆体'
+            : hit.target?.kind === 'guild'
+              ? '频道私聊'
+              : hit.isFriend
+                ? '好友'
+                : hit.temporary
+                  ? '临时会话'
+                  : hit.hasConversation
+                    ? '本地会话'
+                    : '本地资料'}
           {' · '}
           <span data-privacy-sensitive>{highlightText(hit.uin || hit.uid, keyword)}</span>
           {hit.nick && hit.nick !== title ? (
@@ -205,12 +209,21 @@ export function SearchResultCard({
             alias !== hit.remark,
         );
       media = (
-        <SearchAvatar url={groupAvatarSrc(hit.groupCode)} fallbackText={hit.name.slice(0, 1)} />
+        <SearchAvatar
+          url={hit.target ? null : groupAvatarSrc(hit.groupCode)}
+          fallbackText={hit.name.slice(0, 1)}
+        />
       );
       title = hit.remark || hit.name || hit.groupCode;
       subtitle = (
         <span className="weq-search-muted">
-          {hit.inDirectory ? '通讯录群聊' : hit.hasConversation ? '本地群会话' : '本地群资料'}
+          {hit.target
+            ? '克隆体群聊'
+            : hit.inDirectory
+              ? '通讯录群聊'
+              : hit.hasConversation
+                ? '本地群会话'
+                : '本地群资料'}
           {' · '}
           <span data-privacy-sensitive>{highlightText(hit.groupCode, keyword)}</span>
           {hit.name && hit.name !== title ? (
@@ -361,7 +374,7 @@ export function SearchResultCard({
       subtitle = (
         <span className="weq-search-muted">
           查到<strong className="weq-search-strong">{hit.count}</strong>条包含
-          <span data-privacy-sensitive>{highlightText(keyword, keyword)}</span>的聊天记录
+          <span data-privacy-sensitive>{highlightText(keyword, keyword)}</span>的消息
         </span>
       );
       break;

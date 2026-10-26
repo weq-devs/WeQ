@@ -16,6 +16,7 @@ function fixture() {
     async (): Promise<{ items: BuddyMsgFtsHit[]; total: number }> => ({ items: [], total: 0 }),
   );
   const session = {
+    guildDirectNodes: { listSessions: async () => [] },
     recentContacts: { searchByName: recent },
     profileInfo: { searchFriends: friends },
     groupMembers: { searchMembers: members },
@@ -43,6 +44,68 @@ function fixture() {
 }
 
 describe('全局搜索范围', () => {
+  it('频道联系人按频道节点独立保留，快速和更多采用相同筛选', async () => {
+    const f = fixture();
+    f.session.guildDirectNodes.listSessions = async () =>
+      [7n, 8n].map((nodeId) => ({
+        nodeId,
+        directGid: '',
+        lastTime: 1n,
+        lastSeq: 1n,
+        peerTinyId: 99n,
+        guildId: nodeId,
+        guildName: '合成频道',
+        nickChannel: '合成联系人',
+        nickGlobal: '',
+        preview: null,
+      }));
+    f.session.guildCommonProfiles = {
+      listByTinyIds: async () => [],
+    } as unknown as AccountSession['guildCommonProfiles'];
+    f.session.guildDirectMsgs = {
+      countAllByNode: async () => [],
+    } as unknown as AccountSession['guildDirectMsgs'];
+    const quick = await f.service.quickSearch('合成', 3, ['contact', 'group'], 'guild');
+    expect(quick.contacts?.map((hit) => hit.target)).toEqual([
+      { kind: 'guild', nodeId: '7' },
+      { kind: 'guild', nodeId: '8' },
+    ]);
+    expect(quick.groups).toEqual([]);
+    expect((await f.service.moreSearch('contact', '合成', 0, 3, 'guild')).items).toEqual(
+      quick.contacts,
+    );
+    expect(f.recent).not.toHaveBeenCalled();
+  });
+  it('仅频道范围将联系人与消息并入原分类，预览与更多不读取真实或克隆消息', async () => {
+    const f = fixture();
+    const guildHit: ContentSearchHit = {
+      category: 'guildMessage',
+      id: 'guild-hit',
+      target: { kind: 'guildMessage', nodeId: '7', msgId: '8', msgSeq: '9' },
+      title: '合成频道联系人',
+      content: '合成消息',
+      sourceName: '合成频道',
+      time: 1,
+      observedAt: 1,
+    };
+    const searchContent = vi.fn(() => ({
+      items: [guildHit],
+      total: 1,
+      coverage: { scope: 'local-database' as const, records: 1, limited: false, updatedAt: null },
+    }));
+    const service = new UnifiedSearchService(f.session, { searchContent });
+    const preview = await service.slowSearch('合成', 3, ['chatRecord'], 'guild');
+    expect(preview.messageHits).toEqual([guildHit]);
+    const page = await service.moreSearch('chatRecord', '合成', 0, 3, 'guild');
+    expect(page.items).toEqual([guildHit]);
+    expect(f.buddyRecords).not.toHaveBeenCalled();
+    expect(f.groupRecords).not.toHaveBeenCalled();
+    expect(searchContent).toHaveBeenCalledWith('guildMessage', '合成', 3, 0);
+    expect(await service.moreSearch('group', '合成', 0, 3, 'guild')).toMatchObject({
+      items: [],
+      total: 0,
+    });
+  });
   it('文件范围同时检索消息附件和群文件缓存，按名称及时间统一分页', async () => {
     const f = fixture();
     f.groupFiles.mockResolvedValue({
@@ -209,7 +272,7 @@ describe('全局搜索范围', () => {
     const result = await f.service.moreSearch('file', '报告', 0, 10);
     expect(result.items.map((hit) => ('msgId' in hit ? hit.msgId : ''))).toEqual(['2', '1']);
   });
-  it('默认不扫描公共商城和生成对话，显式选择仍可检索', async () => {
+  it('默认包含助手和随会话范围合并的克隆消息，不扫描公共商城', async () => {
     const searchContent = vi.fn(
       async (_category: string, _keyword: string, _limit: number, _offset: number) => ({
         items: [],
@@ -230,7 +293,8 @@ describe('全局搜索范围', () => {
     });
     await service.slowSearch('needle');
     expect(searchContent.mock.calls.some(([category]) => category === 'marketEmoji')).toBe(false);
-    expect(generatedSources).not.toHaveBeenCalled();
+    expect(generatedSources).toHaveBeenCalled();
+    generatedSources.mockClear();
     await service.slowSearch('needle', 3, ['marketEmoji', 'cloneMessage']);
     expect(searchContent).toHaveBeenLastCalledWith('marketEmoji', 'needle', 3, 0);
     expect(generatedSources).toHaveBeenCalledOnce();

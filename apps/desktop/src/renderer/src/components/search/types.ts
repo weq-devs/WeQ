@@ -101,6 +101,8 @@ export interface QuickSearchResult {
 }
 
 export interface SlowSearchResult {
+  messageCoverage?: ContentSearchCoverage;
+  messageHits?: SearchHit[];
   contentHits?: ContentSearchHit[];
   contentCoverage?: Partial<Record<ContentSearchCategory, ContentSearchCoverage>>;
   collections: CollectionSearchHit[];
@@ -152,12 +154,12 @@ export const CATEGORY_META: Record<SearchCategory, { label: string; plural: stri
   conversation: { label: '会话', plural: '会话' },
   friend: { label: '好友', plural: '好友' },
   groupMember: { label: '群友', plural: '群友' },
-  chatRecord: { label: '聊天记录', plural: '聊天记录' },
+  chatRecord: { label: '消息', plural: '消息' },
   file: { label: '文件', plural: '文件' },
   qzone: { label: '空间', plural: '空间' },
   collection: { label: '收藏', plural: '收藏' },
   cloneMessage: { label: '克隆消息', plural: '克隆消息' },
-  assistantMessage: { label: '助手对话', plural: '助手对话' },
+  assistantMessage: { label: '助手会话', plural: '助手会话' },
   qzonePost: { label: '个人空间说说', plural: '个人空间说说' },
   qzoneAlbum: { label: '个人空间相册', plural: '个人空间相册' },
   otherQzonePost: { label: '他人空间说说', plural: '他人空间说说' },
@@ -181,12 +183,7 @@ export const CONTENT_CATEGORY_ORDER: ContentSearchCategory[] = [
   'guildMessage',
 ];
 
-export const SEARCH_CATEGORY_ORDER: SearchCategory[] = [
-  ...DEFAULT_SEARCH_CATEGORIES,
-  'cloneMessage',
-  'assistantMessage',
-  'marketEmoji',
-];
+export const SEARCH_CATEGORY_ORDER: SearchCategory[] = [...DEFAULT_SEARCH_CATEGORIES];
 
 export function searchHitNameRank(hit: SearchHit, keyword: string): number {
   switch (hit.category) {
@@ -217,8 +214,10 @@ export function isSlowSearchCategory(category: SearchCategory): boolean {
 export function searchHitKey(hit: SearchHit): string {
   switch (hit.category) {
     case 'contact':
+      if (hit.target) return `contact:${JSON.stringify(hit.target)}`;
       return `contact:${hit.uin || hit.uid}`;
     case 'group':
+      if (hit.target) return `group:${hit.target.ownerId}`;
       return `group:${hit.groupCode}`;
     case 'conversation':
       return `conversation:${hit.targetUid}`;

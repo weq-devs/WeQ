@@ -16,17 +16,19 @@ export function isQzoneSearchCategory(category: string): boolean {
   return QZONE_SEARCH_CATEGORIES.some((item) => item === category);
 }
 
-/** 默认只搜账号真实资料，公共目录与生成内容由用户显式加入。 */
+export type ConversationScope = 'all' | 'real' | 'virtual' | 'guild';
+
+/** 可见范围默认全选，克隆和频道来源随会话显示范围并入对象分类。 */
 export const DEFAULT_SEARCH_CATEGORIES: readonly SearchCategory[] = [
   'contact',
   'group',
   'chatRecord',
   'file',
+  'groupAlbum',
   'collection',
   'qzone',
-  'groupAlbum',
   'mailMessage',
-  'guildMessage',
+  'assistantMessage',
 ];
 
 /** 名称完全匹配、前缀、包含、仅正文匹配依次递减；同档再按来源时间排序。 */

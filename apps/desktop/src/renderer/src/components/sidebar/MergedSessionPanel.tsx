@@ -19,9 +19,11 @@ import type { Conversation, MergedKind } from '../../im-template/template/types'
 import { trpc } from '../../trpc/client';
 import { resolveAvatar, avatarFromGroupCode } from '../../lib/avatarResolver';
 import { isAssistantPinned, type GroupAssistantPins } from '../../lib/groupAssistant';
-import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
+import {
+  ConversationDirectoryContext,
+  guildConversationRow,
+} from '../../lib/conversationDirectory';
 import { conversationAnalysisTarget } from '../../lib/conversationActions';
-import { previewNodes, previewNodesToText } from '../../lib/conversationPreview';
 import { useContentMultiSelect } from '../../state/contentSelection';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import {
@@ -247,29 +249,7 @@ export function MergedSessionPanel({
 
   const filtered = useMemo<Conversation[]>(() => {
     if (kind === 'guildDirect') {
-      return ((guildSessions.data ?? []) as GuildDirectSessionWire[]).map((session) => ({
-        id: `guild:${session.nodeId}`,
-        type: 'direct',
-        otherUser: {
-          id: `guild:${session.nodeId}`,
-          identityLabel: '频道',
-          identityValue: session.peerTinyId,
-          username: session.peerNick || session.peerTinyId,
-          displayName: session.peerNick || session.peerTinyId,
-          avatarUrl: session.peerAvatarUrl,
-        },
-        group: null,
-        members: [],
-        updatedAt: new Date(Number(session.lastTime) * 1000).toISOString(),
-        preference: { pinned: false, muted: false, blocked: false },
-        unreadCount: 0,
-        lastMessage: {
-          id: `guild:${session.nodeId}:${session.lastSeq}`,
-          senderId: null,
-          body: previewNodesToText(previewNodes(session.preview ?? null)),
-          createdAt: new Date(Number(session.lastTime) * 1000).toISOString(),
-        },
-      }));
+      return ((guildSessions.data ?? []) as GuildDirectSessionWire[]).map(guildConversationRow);
     }
     if (kind === 'groupAssistant')
       return _conversations.filter(

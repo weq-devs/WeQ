@@ -94,6 +94,19 @@ describe('搜索范围选择工具栏', () => {
     try {
       const buttons = [...f.scope().querySelectorAll<HTMLButtonElement>('button')];
       expect(buttons).toHaveLength(SEARCH_CATEGORY_ORDER.length + 2);
+      expect(buttons.map((button) => button.textContent)).toEqual([
+        '全部',
+        '功能与设置',
+        '联系人',
+        '群聊',
+        '消息',
+        '文件',
+        '群相册',
+        '收藏',
+        '空间',
+        '邮件',
+        '助手会话',
+      ]);
       for (const button of buttons) {
         expect(button.textContent?.trim()).not.toBe('');
         expect(button.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
@@ -117,8 +130,6 @@ describe('搜索范围选择工具栏', () => {
     const f = mount();
     try {
       const all = f.scope().querySelector<HTMLButtonElement>('[aria-label="全部范围"]')!;
-      expect(all.getAttribute('aria-pressed')).toBe('mixed');
-      act(() => all.click());
       expect(all.getAttribute('aria-pressed')).toBe('true');
       act(() => all.click());
       expect(all.getAttribute('aria-pressed')).toBe('false');
@@ -126,6 +137,8 @@ describe('搜索范围选择工具栏', () => {
       f.render('合成');
       expect(document.querySelector('.weq-search-empty')?.textContent).toBe('未选择搜索范围');
       expect(document.querySelector('.weq-app-search')).toBeNull();
+      act(() => all.click());
+      expect(all.getAttribute('aria-pressed')).toBe('true');
     } finally {
       f.close();
     }

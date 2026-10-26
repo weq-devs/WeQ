@@ -183,6 +183,7 @@ it('空间更多页保留作者和相册目标及分页返回现场', async () =
       await vi.advanceTimersByTimeAsync(250);
     });
     expect(rpc.query).toHaveBeenCalledWith({
+      conversationScope: 'all',
       category: 'qzone',
       keyword: 'needle',
       offset: 0,

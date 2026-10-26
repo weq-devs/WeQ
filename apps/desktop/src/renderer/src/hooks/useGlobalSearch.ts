@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { client } from '../trpc/client';
+import type { ConversationScope } from '@weq/service/search-policy';
 import { isSlowSearchCategory } from '../components/search/types';
 import type {
   QuickSearchResult,
@@ -33,10 +34,11 @@ export function useGlobalSearch(
   keyword: string,
   categories: readonly SearchCategory[],
   accountKey: string | null,
+  conversationScope: ConversationScope = 'all',
 ) {
   const query = keyword.trim();
   const [revision, setRevision] = useState(0);
-  const key = JSON.stringify([accountKey, query, categories, revision]);
+  const key = JSON.stringify([accountKey, query, categories, conversationScope, revision]);
   const hasQuick = Boolean(
     accountKey &&
       query &&
@@ -61,7 +63,7 @@ export function useGlobalSearch(
     update(emptyState(key, hasQuick, hasSlow));
     if (!hasQuick && !hasSlow) return undefined;
     const timer = window.setTimeout(() => {
-      const input = { keyword: query, limit: 3, categories: [...categories] };
+      const input = { keyword: query, limit: 3, categories: [...categories], conversationScope };
       if (hasQuick) {
         void client.account.searchQuick.query(input).then(
           (quick) => update({ quick, quickLoading: false }),
@@ -79,7 +81,7 @@ export function useGlobalSearch(
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [key, query, categories, hasQuick, hasSlow]);
+  }, [key, query, categories, conversationScope, hasQuick, hasSlow]);
 
   // 渲染新关键词/范围的第一帧就隐藏旧结果，不等 effect 才清空。
   return {

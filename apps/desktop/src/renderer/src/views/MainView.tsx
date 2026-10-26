@@ -221,12 +221,10 @@ import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal
 import { RecalledMessagesModal } from '../components/compose/RecalledMessagesModal';
 import { GapMessagesModal } from '../components/compose/GapMessagesModal';
 import { SearchDropdown } from '../components/search/SearchDropdown';
-import {
-  DEFAULT_SEARCH_CATEGORIES,
-  isGeneratedSearchHit,
-  isContentSearchHit,
-} from '../components/search/types';
+import { isGeneratedSearchHit, isContentSearchHit } from '../components/search/types';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
+import { useSearchPreferences } from '../hooks/useSearchPreferences';
+import type { ConversationScope } from '@weq/service/search-policy';
 import { useSearchReturn } from '../hooks/useSearchReturn';
 import { useSearchDismissal } from '../hooks/useSearchDismissal';
 import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/model';
@@ -249,6 +247,7 @@ import { SequentialForwardDialog } from '../components/SequentialForwardDialog';
 import {
   ConversationDirectoryContext,
   ContactDirectoryContext,
+  guildConversationRow,
 } from '../lib/conversationDirectory';
 import { displayUserName } from '../im-template/template/user';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
@@ -2454,6 +2453,10 @@ export function MainView(): ReactElement {
   const serviceAccounts = trpc.account.listServiceAccounts.useQuery();
   // 频道私聊聚合入口：与公众号一样只取「有没有 / 最新一条」，详情在展开面板里拉。
   const guildDirectSessions = trpc.account.guildDirectListSessions.useQuery();
+  const guildConversationRows = useMemo(
+    () => (guildDirectSessions.data ?? []).map(guildConversationRow),
+    [guildDirectSessions.data],
+  );
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const displaySettings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -2825,7 +2828,13 @@ export function MainView(): ReactElement {
     null,
   );
   const [toolSearchRequest, setToolSearchRequest] = useState<ToolSearchRequest | null>(null);
-  const [appSearchEnabled, setAppSearchEnabled] = useState(true);
+  const {
+    categories: searchCategories,
+    setCategories: setSearchCategories,
+    appEnabled: appSearchEnabled,
+    setAppEnabled: setAppSearchEnabled,
+  } = useSearchPreferences();
+  const [conversationScope, setConversationScope] = useState<ConversationScope>('all');
   useEffect(() => {
     if (!settingsOpen) setSettingsSearchTarget(null);
   }, [settingsOpen]);
@@ -3626,9 +3635,6 @@ export function MainView(): ReactElement {
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
 
-  const [searchCategories, setSearchCategories] = useState<SearchCategory[]>(() => [
-    ...DEFAULT_SEARCH_CATEGORIES,
-  ]);
   const [analysisReports, setAnalysisReports] = useState<AnalysisReportRequest[]>([]);
   const [analysisRequest, setAnalysisRequest] = useState<AnalysisToolRequest | null>(null);
   const [roamingRequest, setRoamingRequest] = useState<{
@@ -4988,6 +4994,17 @@ export function MainView(): ReactElement {
 
   const handleSelectConversation = useCallback(
     (conversationId: string, event?: React.MouseEvent) => {
+      if (conversationId.startsWith('guild:')) {
+        setGuildSearchTarget({
+          kind: 'guildMessage',
+          nodeId: conversationId.slice(6),
+          msgId: '',
+          msgSeq: '',
+          revision: crypto.randomUUID(),
+        });
+        shell.switchView('channel');
+        return;
+      }
       const conv = conversations.find((c) => c.id === conversationId);
       if (conv?.type === 'merged') {
         // 只是打开会话选择器面板，当前页面（包括正在看的 ARK Feed）先保持不动——
@@ -7172,8 +7189,8 @@ export function MainView(): ReactElement {
   );
 
   const searchQuery = shell.query.trim();
-  const globalSearch = useGlobalSearch(searchQuery, searchCategories, openedUin);
-  const searchReturn = useSearchReturn(openedUin, searchQuery, searchCategories);
+  const globalSearch = useGlobalSearch(searchQuery, searchCategories, openedUin, conversationScope);
+  const searchReturn = useSearchReturn(openedUin, searchQuery, searchCategories, conversationScope);
   useEffect(() => {
     if (searchQuery) setSearchDismissed(false);
   }, [searchQuery]);
@@ -7217,6 +7234,23 @@ export function MainView(): ReactElement {
     (hit: SearchHit): void => {
       setSearchDismissed(true);
       setSearchFocused(false);
+      if ((hit.category === 'contact' || hit.category === 'group') && hit.target) {
+        if (hit.target.kind === 'guild') {
+          setGuildSearchTarget({
+            kind: 'guildMessage',
+            nodeId: hit.target.nodeId,
+            msgId: '',
+            msgSeq: '',
+            revision: crypto.randomUUID(),
+          });
+          shell.switchView('channel');
+        } else {
+          setCloneSearchTarget(null);
+          setVirtualOpen({ kind: hit.target.kind, id: hit.target.ownerId, revision: Date.now() });
+          shell.switchView('agentlab');
+        }
+        return;
+      }
       if (isContentSearchHit(hit)) {
         setSearchDismissed(true);
         const target = hit.target;
@@ -10654,6 +10688,7 @@ export function MainView(): ReactElement {
           ))}
           {searchMore ? (
             <UnifiedSearchModal
+              conversationScope={conversationScope}
               category={searchMore.category}
               initialKeyword={searchMore.keyword}
               initialSnapshot={searchMore.snapshot}
@@ -10781,6 +10816,9 @@ export function MainView(): ReactElement {
                 <ConversationDirectoryContext.Provider
                   value={{
                     real: conversations,
+                    guild: guildConversationRows,
+                    scope: conversationScope,
+                    onScopeChange: setConversationScope,
                     preferences: conversationPrefs,
                     showContactUnreadCount: displaySettings.data?.showContactUnreadCount ?? false,
                     groupAssistantIds,

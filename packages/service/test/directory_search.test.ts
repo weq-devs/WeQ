@@ -14,6 +14,7 @@ function fixture() {
   const buddies = vi.fn(async () => []);
   const directory = vi.fn(async () => []);
   const session = {
+    guildDirectNodes: { listSessions: async () => [] },
     profileInfo: { searchContacts: cached, profilesByUids: profiles },
     recentContacts: { searchIdentities: recent },
     groupMembers: { searchMembers: members },

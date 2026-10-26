@@ -163,6 +163,7 @@ it('文件更多页承接混合结果，选中目录文件时保留分页返回�
       await vi.advanceTimersByTimeAsync(250);
     });
     expect(rpc.query).toHaveBeenCalledWith({
+      conversationScope: 'all',
       category: 'file',
       keyword: '报告',
       offset: 0,

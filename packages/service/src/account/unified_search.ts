@@ -15,6 +15,8 @@ import { algoFor, type AccountSession } from '@weq/account';
 import { MsgSearchIndexDb, type BuddyMsgFtsHit, type C2cMsg, type GroupMsg } from '@weq/db';
 import { toRenderElements, type RenderElement } from './msg_view';
 import { elementsToText } from './export/element_text';
+import { GuildDirectService } from './guild_direct';
+import type { ConversationScope } from './search_policy';
 import type { NtHelperBinding } from '@weq/native';
 import type { CollectionSearchHit } from './collection_search';
 import {
@@ -213,6 +215,8 @@ export interface SearchHistoryHit {
 }
 
 export interface SlowSearchResult {
+  messageCoverage?: ContentSearchCoverage;
+  messageHits?: Array<ChatRecordSearchHit | GeneratedSearchHit | ContentSearchHit>;
   contentHits?: ContentSearchHit[];
   contentCoverage?: Partial<Record<ContentSearchCategory, ContentSearchCoverage>>;
   collections: CollectionSearchHit[];
@@ -385,6 +389,7 @@ export class UnifiedSearchService {
     keyword: string,
     limit = 3,
     categories?: readonly SearchCategory[],
+    scope: ConversationScope = 'all',
   ): Promise<QuickSearchResult> {
     const needle = keyword.trim();
     if (!needle) return { conversations: [], friends: [], groupMembers: [] };
@@ -398,14 +403,26 @@ export class UnifiedSearchService {
       categories === undefined || categories.includes('groupMember')
         ? this.session.groupMembers.searchMembers(needle, limit, 0)
         : { items: [] },
-      categories?.includes('contact') ? searchContacts(this.session, needle) : undefined,
-      categories?.includes('group') ? searchGroups(this.session, needle) : undefined,
+      categories?.includes('contact') ? this.directorySearch('contact', needle, scope) : undefined,
+      categories?.includes('group') ? this.directorySearch('group', needle, scope) : undefined,
     ]);
 
     const memberHits = await this.decorateMembers(memberPage.items, needle);
     return {
-      ...(contacts ? { contacts: contacts.slice(0, limit) } : {}),
-      ...(groups ? { groups: groups.slice(0, limit) } : {}),
+      ...(contacts
+        ? {
+            contacts: contacts
+              .filter((hit): hit is ContactSearchHit => hit.category === 'contact')
+              .slice(0, limit),
+          }
+        : {}),
+      ...(groups
+        ? {
+            groups: groups
+              .filter((hit): hit is GroupSearchHit => hit.category === 'group')
+              .slice(0, limit),
+          }
+        : {}),
       conversations: convPage.items.map((c) => ({
         category: 'conversation' as const,
         targetUid: c.targetUid,
@@ -461,6 +478,7 @@ export class UnifiedSearchService {
     keyword: string,
     limit = 3,
     categories?: readonly SearchCategory[],
+    scope: ConversationScope = 'all',
   ): Promise<SlowSearchResult> {
     const needle = keyword.trim();
     const enabled = (category: SearchCategory) =>
@@ -486,7 +504,8 @@ export class UnifiedSearchService {
         return [];
       }
     };
-    if (enabled('chatRecord') || enabled('file')) void this.ensureIndexes();
+    if ((enabled('chatRecord') && (scope === 'all' || scope === 'real')) || enabled('file'))
+      void this.ensureIndexes();
     const generated = (category: 'cloneMessage' | 'assistantMessage') => {
       const sources = this.options.generatedSources?.();
       return sources ? searchGeneratedMessages(sources, category, needle).slice(0, limit) : [];
@@ -501,8 +520,16 @@ export class UnifiedSearchService {
         }),
       ),
     );
-    const [chatRecords, files, collections, cloneMessages, assistantMessages] = await Promise.all([
-      read('chatRecord', () => this.topChatRecordConversations(needle, limit)),
+    let messageCoverage: ContentSearchCoverage | undefined;
+    const [messageHits, files, collections, cloneMessages, assistantMessages] = await Promise.all([
+      read('chatRecord', async () => {
+        const page = await this.messageSearch(needle, 0, limit, scope, (category, error) => {
+          failures.add(category);
+          console.error(`[unified-search] ${category} failed:`, error);
+        });
+        messageCoverage = page.coverage;
+        return page.items;
+      }),
       read('file', () => this.topFiles(needle, limit)),
       read<CollectionSearchHit>(
         'collection',
@@ -515,7 +542,11 @@ export class UnifiedSearchService {
       ...(this.options.searchContent
         ? { contentHits: (await content).flat(), contentCoverage }
         : {}),
-      chatRecords,
+      messageHits,
+      messageCoverage,
+      chatRecords: messageHits.filter(
+        (hit): hit is ChatRecordSearchHit => hit.category === 'chatRecord',
+      ),
       files,
       collections,
       cloneMessages,
@@ -531,6 +562,7 @@ export class UnifiedSearchService {
     keyword: string,
     offset: number,
     limit: number,
+    scope: ConversationScope = 'all',
   ): Promise<MoreSearchResult> {
     const needle = keyword.trim();
     if (!needle) {
@@ -566,9 +598,7 @@ export class UnifiedSearchService {
       }
       case 'contact':
       case 'group': {
-        const ranked = await (category === 'contact'
-          ? searchContacts(this.session, needle)
-          : searchGroups(this.session, needle));
+        const ranked = await this.directorySearch(category, needle, scope);
         const items = ranked.slice(offset, offset + page);
         return {
           category,
@@ -656,16 +686,7 @@ export class UnifiedSearchService {
         };
       }
       case 'chatRecord': {
-        // Ranked list is bounded (~hundreds), computed once per keyword + cached.
-        const ranked = await this.cachedChatRecordRanking(needle);
-        const items = ranked.slice(offset, offset + page);
-        return {
-          category,
-          items,
-          total: ranked.length,
-          hasMore: offset + items.length < ranked.length,
-          limited: this.chatRecordCache.get(needle)?.limited ?? false,
-        };
+        return { category, ...(await this.messageSearch(needle, offset, page, scope)) };
       }
       case 'file': {
         // 合并前各取足够的前缀，避免先分页再合并导致跨来源漏项或顺序漂移。
@@ -847,13 +868,135 @@ export class UnifiedSearchService {
     return d?.groupName || d?.remark || groupCode.toString();
   }
 
-  /** Top conversations by match count across buddy + group FTS. */
-  private async topChatRecordConversations(
+  private async directorySearch(
+    category: 'contact' | 'group',
     keyword: string,
+    scope: ConversationScope,
+  ): Promise<Array<ContactSearchHit | GroupSearchHit>> {
+    const hits: Array<ContactSearchHit | GroupSearchHit> =
+      scope === 'all' || scope === 'real'
+        ? await (category === 'contact'
+            ? searchContacts(this.session, keyword)
+            : searchGroups(this.session, keyword))
+        : [];
+    if (scope === 'all' || scope === 'virtual') {
+      const lab = this.options.generatedSources?.()?.agentLab;
+      if (lab) {
+        for (const row of category === 'contact' ? lab.listPersonas() : lab.listGroups()) {
+          if (!searchNameRank(keyword, row.name, row.id)) continue;
+          hits.push(
+            category === 'contact'
+              ? {
+                  category,
+                  target: { kind: 'persona', ownerId: row.id },
+                  uid: row.id,
+                  uin: '',
+                  nick: row.name,
+                  remark: '',
+                  avatarUrl: null,
+                  isFriend: false,
+                  hasConversation: true,
+                  temporary: false,
+                  aliases: [row.name, row.id],
+                  groups: [],
+                }
+              : {
+                  category,
+                  target: { kind: 'group', ownerId: row.id },
+                  groupCode: row.id,
+                  name: row.name,
+                  remark: '',
+                  inDirectory: false,
+                  hasConversation: true,
+                  aliases: [row.name, row.id],
+                },
+          );
+        }
+      }
+    }
+    if (category === 'contact' && (scope === 'all' || scope === 'guild')) {
+      const rows = await new GuildDirectService(this.session).listSessions();
+      for (const row of rows) {
+        if (!searchNameRank(keyword, row.peerNick, row.peerTinyId)) continue;
+        hits.push({
+          category,
+          target: { kind: 'guild', nodeId: row.nodeId },
+          uid: row.peerTinyId,
+          uin: '',
+          nick: row.peerNick,
+          remark: '',
+          avatarUrl: row.peerAvatarUrl,
+          isFriend: false,
+          hasConversation: true,
+          temporary: false,
+          aliases: [row.peerNick, row.peerTinyId],
+          groups: [],
+        });
+      }
+    }
+    const rank = (hit: ContactSearchHit | GroupSearchHit) =>
+      hit.category === 'contact'
+        ? searchNameRank(keyword, hit.uid, hit.uin, ...hit.aliases)
+        : searchNameRank(keyword, hit.groupCode, ...hit.aliases);
+    return hits.sort((a, b) => rank(b) - rank(a));
+  }
+
+  private async messageSearch(
+    keyword: string,
+    offset: number,
     limit: number,
-  ): Promise<ChatRecordSearchHit[]> {
-    const ranked = await this.cachedChatRecordRanking(keyword);
-    return ranked.slice(0, limit);
+    scope: ConversationScope,
+    onFailure?: (category: SearchCategory, error: unknown) => void,
+  ) {
+    // 各来源采用相同的名称相关度顺序，取足够前缀后再合并分页。
+    const read = async <T>(
+      category: SearchCategory,
+      query: () => T | Promise<T>,
+      fallback: T,
+    ): Promise<T> => {
+      try {
+        return await query();
+      } catch (error) {
+        if (!onFailure) throw error;
+        onFailure(category, error);
+        return fallback;
+      }
+    };
+    const [real, guild] = await Promise.all([
+      scope === 'all' || scope === 'real'
+        ? read('chatRecord', () => this.cachedChatRecordRanking(keyword), [])
+        : [],
+      scope === 'all' || scope === 'guild'
+        ? read(
+            'guildMessage',
+            () => this.options.searchContent?.('guildMessage', keyword, offset + limit, 0),
+            undefined,
+          )
+        : undefined,
+    ]);
+    const clones =
+      scope === 'all' || scope === 'virtual'
+        ? await read('cloneMessage', () => {
+            const sources = this.options.generatedSources?.();
+            return sources ? searchGeneratedMessages(sources, 'cloneMessage', keyword) : [];
+          }, [])
+        : [];
+    const name = (hit: ChatRecordSearchHit | GeneratedSearchHit | ContentSearchHit) =>
+      hit.category === 'chatRecord' ? hit.name : hit.title;
+    const ranked = [...real, ...clones, ...(guild?.items ?? [])].sort(
+      (a, b) => searchNameRank(keyword, name(b)) - searchNameRank(keyword, name(a)),
+    );
+    const items = ranked.slice(offset, offset + limit);
+    const total = real.length + clones.length + (guild?.total ?? 0);
+    return {
+      items,
+      total,
+      hasMore: offset + items.length < total,
+      limited:
+        (scope === 'all' || scope === 'real') &&
+        (this.chatRecordCache.get(keyword)?.limited ?? false),
+      ...(guild ? { coverage: guild.coverage } : {}),
+    };
   }
 
   private async cachedChatRecordRanking(keyword: string): Promise<ChatRecordSearchHit[]> {

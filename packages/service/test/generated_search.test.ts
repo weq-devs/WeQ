@@ -81,6 +81,72 @@ function sources(): GeneratedSearchSources {
 }
 
 describe('当前账号生成内容搜索', () => {
+  it('全部范围合并真实、克隆、频道并统一分页，仅真实范围排除其余来源', async () => {
+    const session = {
+      buddyMsgFts: { topConversationsByKeyword: async () => [] },
+      groupMsgFts: { topConversationsByKeyword: async () => [{ partition: 10001n, count: 2 }] },
+      groupDetail: { detailsByGroupCodes: async () => [] },
+    } as unknown as AccountSession;
+    const guild = {
+      category: 'guildMessage' as const,
+      id: 'guild-1',
+      target: { kind: 'guildMessage' as const, nodeId: '7', msgId: '8', msgSeq: '9' },
+      title: '频道',
+      content: 'hello',
+      sourceName: '频道',
+      time: 1,
+      observedAt: 1,
+    };
+    const searchContent = vi.fn(() => ({
+      items: [guild],
+      total: 1,
+      coverage: { scope: 'local-database' as const, records: 1, limited: false, updatedAt: null },
+    }));
+    const service = new UnifiedSearchService(session, { generatedSources: sources, searchContent });
+    const full = await service.moreSearch('chatRecord', 'hello', 0, 20, 'all');
+    expect(full.total).toBe(6);
+    expect(new Set(full.items.map((hit) => hit.category))).toEqual(
+      new Set(['chatRecord', 'cloneMessage', 'guildMessage']),
+    );
+    const pages = await Promise.all(
+      [0, 2, 4].map((offset) => service.moreSearch('chatRecord', 'hello', offset, 2, 'all')),
+    );
+    expect(pages.flatMap((page) => page.items)).toEqual(full.items);
+    searchContent.mockClear();
+    const real = await service.slowSearch('hello', 3, ['chatRecord'], 'real');
+    expect(real.messageHits).toHaveLength(1);
+    expect(real.messageHits?.[0]?.category).toBe('chatRecord');
+    expect(searchContent).not.toHaveBeenCalled();
+  });
+  it('仅克隆范围将身份并入联系人和群聊，消息合并分页且不访问真实或频道来源', async () => {
+    const searchContent = vi.fn();
+    const service = new UnifiedSearchService({} as AccountSession, {
+      generatedSources: sources,
+      searchContent,
+    });
+    const quick = await service.quickSearch('合成', 3, ['contact', 'group'], 'virtual');
+    expect(quick.contacts).toMatchObject([
+      { target: { kind: 'persona', ownerId: 'p' }, nick: '合成克隆' },
+    ]);
+    expect(quick.groups).toMatchObject([
+      { target: { kind: 'group', ownerId: 'g' }, name: '合成群' },
+    ]);
+    expect((await service.moreSearch('contact', '合成', 0, 3, 'virtual')).items).toEqual(
+      quick.contacts,
+    );
+    expect((await service.moreSearch('group', '合成', 0, 3, 'virtual')).items).toEqual(
+      quick.groups,
+    );
+    const preview = await service.slowSearch('hello', 3, ['chatRecord'], 'virtual');
+    const first = await service.moreSearch('chatRecord', 'hello', 0, 2, 'virtual');
+    const second = await service.moreSearch('chatRecord', 'hello', 2, 2, 'virtual');
+    expect(first).toMatchObject({ total: 4, hasMore: true });
+    expect(second).toMatchObject({ total: 4, hasMore: false });
+    const all = [...first.items, ...second.items];
+    expect(preview.messageHits).toEqual(all.slice(0, 3));
+    expect(all.map((hit) => hit.category)).toEqual(Array(4).fill('cloneMessage'));
+    expect(searchContent).not.toHaveBeenCalled();
+  });
   it('私聊、群聊与旧版记录均返回可定位身份，助手不混入克隆类别', () => {
     const data = sources();
     expect(

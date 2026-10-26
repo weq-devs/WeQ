@@ -4,6 +4,7 @@ import { searchNameRank } from './search_policy';
 
 export interface ContactSearchHit {
   category: 'contact';
+  target?: { kind: 'guild'; nodeId: string } | { kind: 'persona'; ownerId: string };
   uid: string;
   uin: string;
   nick: string;
@@ -18,6 +19,7 @@ export interface ContactSearchHit {
 
 export interface GroupSearchHit {
   category: 'group';
+  target?: { kind: 'group'; ownerId: string };
   groupCode: string;
   name: string;
   remark: string;

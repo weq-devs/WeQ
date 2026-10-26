@@ -23,6 +23,7 @@ import {
 import { client } from '../../trpc/client';
 import { SearchPositionRestore, type SearchPosition } from './searchPosition';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
+import type { ConversationScope } from '@weq/service/search-policy';
 
 export interface SearchMoreSnapshot extends SearchPosition {
   category: SearchCategory;
@@ -40,6 +41,7 @@ export function UnifiedSearchModal({
   onOpenChatRecords,
   initialSnapshot,
   onNavigate,
+  conversationScope = 'all',
 }: {
   category: SearchCategory;
   initialKeyword: string;
@@ -48,6 +50,7 @@ export function UnifiedSearchModal({
   onOpenChatRecords: (hit: SearchHit) => void;
   initialSnapshot?: SearchMoreSnapshot;
   onNavigate?: (snapshot: SearchMoreSnapshot) => void;
+  conversationScope?: ConversationScope;
 }): ReactElement {
   const activity = useQQReadActivity(true);
   const readEnabled = useRef(activity.enabled);
@@ -66,7 +69,9 @@ export function UnifiedSearchModal({
   const nextOffset = useRef(restored.current?.nextOffset ?? 0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const restoredRequest = useRef(
-    restored.current ? JSON.stringify([category, restored.current.keyword]) : null,
+    restored.current
+      ? JSON.stringify([category, restored.current.keyword, conversationScope])
+      : null,
   );
 
   const fetchPage = useCallback(
@@ -83,6 +88,7 @@ export function UnifiedSearchModal({
           keyword: pageKeyword,
           offset,
           limit: 30,
+          conversationScope,
         })) as MoreSearchResult;
         if (run !== runRef.current) return;
         nextOffset.current = offset + result.items.length;
@@ -112,12 +118,12 @@ export function UnifiedSearchModal({
         }
       }
     },
-    [category],
+    [category, conversationScope],
   );
 
   // Reset + fetch first page when the keyword settles.
   useLayoutEffect(() => {
-    if (restoredRequest.current === JSON.stringify([category, keyword])) {
+    if (restoredRequest.current === JSON.stringify([category, keyword, conversationScope])) {
       return () => {
         ++runRef.current;
       };
@@ -143,7 +149,7 @@ export function UnifiedSearchModal({
       pending.current = false;
       window.clearTimeout(timer);
     };
-  }, [keyword, fetchPage, category]);
+  }, [keyword, fetchPage, category, conversationScope]);
 
   const previousActivity = useRef(activity);
   const currentData = useRef(data);
@@ -226,7 +232,7 @@ export function UnifiedSearchModal({
         />
         {data?.coverage ? (
           <div className="weq-search-index-hint">
-            {category === 'file' ? '群文件目录 · ' : ''}
+            {category === 'file' ? '群文件目录 · ' : category === 'chatRecord' ? '频道私聊 · ' : ''}
             {contentCoverageText(data.coverage)}
           </div>
         ) : null}

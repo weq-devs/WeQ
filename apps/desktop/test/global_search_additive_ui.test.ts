@@ -121,7 +121,7 @@ describe('全局搜索增量接入不替换原功能', () => {
       const panel = document.querySelector<HTMLElement>('.weq-titlebar-search-results')!;
       expect(panel.querySelector('[aria-label="搜索范围"]')).not.toBeNull();
       expect(panel.textContent).toContain('合成好友1');
-      expect(panel.textContent).toContain('聊天记录');
+      expect(panel.textContent).toContain('消息');
       expect(panel.querySelector('.weq-cloud-lookup-entry')).not.toBeNull();
       const output = process.env.WEQ_ENTRY_LAYOUT_DIR;
       if (output) {

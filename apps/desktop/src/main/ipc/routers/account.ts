@@ -3960,6 +3960,7 @@ export const accountRouter = router({
         keyword: z.string().trim().min(1),
         limit: z.number().int().min(1).max(20).default(3),
         categories: z.array(z.enum(SEARCH_CATEGORIES)).optional(),
+        conversationScope: z.enum(['all', 'real', 'virtual', 'guild']).default('all'),
       }),
     )
     .query(async ({ input }) => {
@@ -3967,6 +3968,7 @@ export const accountRouter = router({
         input.keyword,
         input.limit,
         input.categories,
+        input.conversationScope,
       );
     }),
 
@@ -3977,6 +3979,7 @@ export const accountRouter = router({
         keyword: z.string().trim().min(1),
         limit: z.number().int().min(1).max(20).default(3),
         categories: z.array(z.enum(SEARCH_CATEGORIES)).optional(),
+        conversationScope: z.enum(['all', 'real', 'virtual', 'guild']).default('all'),
       }),
     )
     .query(async ({ input }) => {
@@ -3984,6 +3987,7 @@ export const accountRouter = router({
         input.keyword,
         input.limit,
         input.categories,
+        input.conversationScope,
       );
     }),
 
@@ -4002,6 +4006,7 @@ export const accountRouter = router({
     .input(
       z.object({
         category: z.enum(SEARCH_CATEGORIES),
+        conversationScope: z.enum(['all', 'real', 'virtual', 'guild']).default('all'),
         keyword: z.string().trim().min(1),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
@@ -4013,6 +4018,7 @@ export const accountRouter = router({
         input.keyword,
         input.offset,
         input.limit,
+        input.conversationScope,
       );
     }),
 

@@ -213,6 +213,49 @@ it('频道检索全量分页而不是只读最新页，64 位身份可精确分�
   expect((await guild.search('needle', 3, 2499)).items).toHaveLength(2);
   expect(read).toHaveBeenCalledTimes(3);
 });
+it('频道先按联系人名称相关度排序，分页不会把较老的精确命中插回已读页', async () => {
+  const guild = new GuildDirectService({
+    guildDirectNodes: {
+      listSessions: async () => [
+        {
+          nodeId: 1n,
+          lastSeq: 1n,
+          lastTime: 30n,
+          peerTinyId: 10n,
+          nickChannel: 'prefix needle',
+          nickGlobal: '',
+          guildName: '',
+        },
+        {
+          nodeId: 2n,
+          lastSeq: 1n,
+          lastTime: 10n,
+          peerTinyId: 20n,
+          nickChannel: 'needle',
+          nickGlobal: '',
+          guildName: '',
+        },
+      ],
+    },
+  } as unknown as AccountSession);
+  vi.spyOn(guild, 'getStablePage').mockImplementation(async (node) => ({
+    items: [
+      {
+        msgId: BigInt(node),
+        msgSeq: 1n,
+        sendTime: node === '1' ? 30n : 10n,
+        elements: [{ type: 'text', data: { textContent: 'needle' } }],
+      },
+    ] as RenderGuildDirectMsg[],
+    cursor: null,
+  }));
+  const first = await guild.search('needle', 1, 0);
+  const second = await guild.search('needle', 1, 1);
+  expect(first.items.map((hit) => hit.title)).toEqual(['needle']);
+  expect(second.items.map((hit) => hit.title)).toEqual(['prefix needle']);
+  expect(first.total).toBe(2);
+});
+
 it('没有频道库明确声明来源不可用，不把缺库伪装成完整零条历史', async () => {
   const f = fixture();
   const list = vi.fn();

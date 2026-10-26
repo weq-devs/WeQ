@@ -193,7 +193,9 @@ export function ConversationList({
     y: number;
   } | null>(null);
   const [keyword, setKeyword] = useState('');
-  const [scope, setScope] = useState<ConversationScope>('all');
+  const [localScope, setLocalScope] = useState<ConversationScope>('all');
+  const scope = directory?.scope ?? localScope;
+  const setScope = directory?.onScopeChange ?? setLocalScope;
   const [scopeOpen, setScopeOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [lookupOpen, setLookupOpen] = useState<QQExactLookupKind | null>(null);
@@ -221,7 +223,7 @@ export function ConversationList({
     const isGuild = (row: Conversation) =>
       row.type === 'merged' && row.mergedKind === 'guildDirect';
     const realRows = real.filter((row) => !isGuild(row));
-    const guildRows = real.filter(isGuild);
+    const guildRows = scope === 'guild' ? (directory?.guild ?? []) : real.filter(isGuild);
     const virtualRows = (directory?.virtual ?? []).map(virtualConversationRow);
     const rows = [
       ...(scope === 'all' || scope === 'real' ? realRows : []),
@@ -245,6 +247,7 @@ export function ConversationList({
     directory?.virtual,
     directory?.real,
     directory?.groupAssistantIds,
+    directory?.guild,
     keyword,
     scope,
   ]);
@@ -352,7 +355,7 @@ export function ConversationList({
     if (!locateId) return;
     setKeyword('');
     setScope('all');
-  }, [locateId, locateRevision]);
+  }, [locateId, locateRevision, setScope]);
   useLayoutEffect(() => {
     const measure = () => {
       if (!viewportRef.current) return;

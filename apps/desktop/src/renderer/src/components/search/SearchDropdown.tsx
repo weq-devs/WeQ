@@ -40,7 +40,6 @@ import {
   contentCoverageText,
   SEARCH_CATEGORY_ORDER,
   searchHitKey,
-  searchHitNameRank,
   isSlowSearchCategory,
   type SearchCategory,
   type SearchHit,
@@ -159,7 +158,7 @@ export function SearchDropdown({
     loading: quickLoading && !quick,
   });
   sections.set('chatRecord', {
-    hits: slow ? slow.chatRecords : null,
+    hits: slow ? (slow.messageHits ?? slow.chatRecords) : null,
     loading: slowLoading && !slow,
   });
   sections.set('file', {
@@ -218,30 +217,17 @@ export function SearchDropdown({
     isSlowSearchCategory(category)
       ? slowError ||
         Boolean(slow?.failedCategories?.includes(category)) ||
+        (category === 'chatRecord' &&
+          Boolean(
+            slow?.failedCategories?.some(
+              (source) => source === 'guildMessage' || source === 'cloneMessage',
+            ),
+          )) ||
         (category === 'file' && Boolean(slow?.failedCategories?.includes('groupFile'))) ||
         (category === 'qzone' && Boolean(slow?.failedCategories?.some(isQzoneSearchCategory)))
       : quickError;
-  const weight = (category: SearchCategory) =>
-    sections.get(category)?.hits?.length
-      ? 3
-      : failedFor(category)
-        ? 2
-        : sections.get(category)?.loading
-          ? 1
-          : 0;
   const orderedCategories = SEARCH_CATEGORY_ORDER.filter((category) =>
     categories.includes(category),
-  ).sort(
-    (left, right) =>
-      weight(right) - weight(left) ||
-      Math.max(
-        0,
-        ...(sections.get(right)?.hits ?? []).map((hit) => searchHitNameRank(hit, keyword)),
-      ) -
-        Math.max(
-          0,
-          ...(sections.get(left)?.hits ?? []).map((hit) => searchHitNameRank(hit, keyword)),
-        ),
   );
 
   return (
@@ -293,7 +279,7 @@ export function SearchDropdown({
           </div>
           {indexBuilding ? (
             <div className="weq-search-index-hint">
-              正在建立本地搜索索引，聊天记录/文件首次查询较慢…
+              正在建立本地搜索索引，消息/文件首次查询较慢…
             </div>
           ) : null}
           <div role="listbox" aria-label="搜索结果" aria-busy={quickLoading || slowLoading}>
@@ -315,13 +301,15 @@ export function SearchDropdown({
               const section = sections.get(category)!;
               const hits = section.hits;
               const coverage =
-                category === 'file'
-                  ? slow?.contentCoverage?.groupFile
-                  : category === 'qzone'
-                    ? qzoneSearchCoverage(slow?.contentCoverage ?? {})
-                    : isContentSearchCategory(category)
-                      ? slow?.contentCoverage?.[category]
-                      : undefined;
+                category === 'chatRecord'
+                  ? slow?.messageCoverage
+                  : category === 'file'
+                    ? slow?.contentCoverage?.groupFile
+                    : category === 'qzone'
+                      ? qzoneSearchCoverage(slow?.contentCoverage ?? {})
+                      : isContentSearchCategory(category)
+                        ? slow?.contentCoverage?.[category]
+                        : undefined;
               const failed = failedFor(category);
               return (
                 <div className="weq-search-section" key={category}>
@@ -343,7 +331,11 @@ export function SearchDropdown({
                   </div>
                   {coverage ? (
                     <div className="weq-search-index-hint">
-                      {category === 'file' ? '群文件目录 · ' : ''}
+                      {category === 'file'
+                        ? '群文件目录 · '
+                        : category === 'chatRecord'
+                          ? '频道私聊 · '
+                          : ''}
                       {contentCoverageText(coverage)}
                     </div>
                   ) : null}
