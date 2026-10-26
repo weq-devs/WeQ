@@ -71,7 +71,7 @@ Windows PowerShell 先设置 `$env:WEQ_AUTHORIZATION_HELPER_PATH = 'C:\absolute\
 1. 合入既有发布仓的工具/工作流，再使私有 native 的助手与诊断入口在远端可构建；不发布或记录不存在的 tag。
 2. 对明确的 native commit 运行 `preflight_only=true`。该模式没有 draft、资产上传或 latest 更新；五平台实际编译结果与本地合成检查分开记录。
 3. 正常 native 发布生成完整且校验通过的 tag 后，在 WeQ 对同一个明确 tag 执行 `pnpm native:fetch --version <tag> --require-fresh --require-authorization --verify`。
-4. 确认后再对同一 tag 增加 `--write-pin`，提交真实锚点。随后才进行 WeQ 桌面 release；当前旧锚点会被新增门禁明确拒绝，不伪装准备完成即已发布。
+4. 确认后再对同一 tag 增加 `--write-pin`，提交真实锚点。随后才进行 WeQ 桌面 release；缺助手的旧锚点会被新增门禁明确拒绝，不伪装准备完成即已发布。
 
 三平台系统安装验收应分别记录：首次管理员批准、当前用户就绪、重启/应用更新后复用、撤销中断、其他已授权用户不受误删、最后用户卸载。另核对 macOS SIP 限制仍生效、Windows Npcap 缺失不报可抓包、Linux 无 systemd 保持临时回退，以及 AppImage/FUSE 安装暂存。此清单不自动执行这些有副作用的操作。
 
@@ -79,4 +79,14 @@ Windows PowerShell 先设置 `$env:WEQ_AUTHORIZATION_HELPER_PATH = 'C:\absolute\
 
 已完成 macOS arm64 的原生构建与合成测试、桌面端 node/renderer 类型检查，以及客户端、设置、提权、导出、服务回退和资产清单的针对性测试。实际组件在隔离浏览器中检查了深浅主题、两种主题色、1100/390 像素视口与减少动态效果，无横向溢出；启用和撤销使用合成桥接，不代表系统安装验收。
 
-Windows / Linux 的源码路径已实现，工作流已准备对应构建与测试门禁，但尚未触发远端执行或完成真机安装。当前 pinned tag 尚不包含助手，保持不变。未进行真实 QQ 内存读取、抓包或系统服务安装；隔离最小打包只验证 native 目录映射、签名与钩子，不替代完整桌面发布验收。
+发布准备阶段，Windows / Linux 的源码路径和工作流已实现，但当时尚未触发远端执行或完成真机安装，旧 pinned tag 也不包含助手。未进行真实 QQ 内存读取、抓包或系统服务安装；隔离最小打包只验证 native 目录映射、签名与钩子，不替代完整桌面发布验收。
+
+## 正式产物发布
+
+北京时间 2026-10-26 17:51，已发布 [nt-helper-20261026-bb174b2](https://github.com/weq-devs/nt_helper_release/releases/tag/nt-helper-20261026-bb174b2)，并核对其已成为 native Latest。源码为 `bb174b25b88b5de0c572a88e6a83c9d451f4688d`，已合入既有私有仓 `main`，包含 2.2.2 上游修复及权限助手。发布仓仍使用既有 `weq-devs/nt_helper_release`。
+
+- [无发布预检](https://github.com/weq-devs/nt_helper_release/actions/runs/40297751500)与[正式发布](https://github.com/weq-devs/nt_helper_release/actions/runs/40300491299)均通过五平台原生构建、助手合成测试、真实双产物诊断和运行依赖检查。
+- 最终 15 项资产包含 5 份 `.node`、5 份权限助手、3 份装扮资源、`manifest.json` 和 `SHA256SUMS`；无助手中转片段。发布后再次比对 13 份产物的大小和 SHA-256 与 GitHub 资产元数据，并核对清单自身摘要。
+- 产物构建时间为北京时间 2026-10-26 17:33:51，有效期至 2026-11-25 17:33:51；清单原始字段保留 UTC。
+- 本机使用既有 fetch 脚本的隔离 `--root`，对明确 tag 执行 `--require-fresh --require-authorization --verify --write-pin`，核对 macOS arm64 的 `.node` 可用、助手与清单一致，再更新本仓 `native/pinned.json`。没有替换当前开发环境的组件或装扮资源。
+- 本次仅发布 native 产物并更新本地 WeQ 锚点，未发布 WeQ 2.3.0，未安装或启用系统服务，未完成三平台管理员安装、重启复用、撤销及真实 QQ 业务验收。五平台 runner 成功不替代这些系统级验收。
