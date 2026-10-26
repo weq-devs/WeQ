@@ -4470,7 +4470,8 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   line-height: 1.1;
 }
 
-.app-shell .conversation-row .row-unread {
+.app-shell .conversation-row .row-unread,
+.app-shell .weq-contact-directory .row-unread {
   right: 13px;
   bottom: 10px;
   min-width: 15px;

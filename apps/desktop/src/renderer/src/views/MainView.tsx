@@ -10592,6 +10592,7 @@ export function MainView(): ReactElement {
               <ConversationDirectoryContext.Provider
                 value={{
                   real: conversations,
+                  preferences: conversationPrefs,
                   showContactUnreadCount: displaySettings.data?.showContactUnreadCount ?? false,
                   groupAssistantIds,
                   showGroupAssistantMessageCount:

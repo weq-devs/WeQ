@@ -28,6 +28,107 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+it.each(['friends', 'groups'] as const)(
+  '%s 未读角标遵循消息列表的免打扰规则，含本地覆盖与取消覆盖',
+  (tab) => {
+    const demo = createTemplateDemoData();
+    const base = demo.conversations.find(
+      (row) => row.type === (tab === 'friends' ? 'direct' : 'group'),
+    )!;
+    const row =
+      tab === 'friends'
+        ? {
+            ...base,
+            id: 'u_fixture',
+            unreadCount: 3,
+            otherUser: { ...base.otherUser!, id: 'u_fixture' },
+          }
+        : {
+            ...base,
+            id: '10001',
+            unreadCount: 3,
+            group: { ...base.group!, id: '10001', listed: true },
+          };
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      for (const [databaseMuted, localMuted, expected] of [
+        [false, undefined, false],
+        [true, undefined, true],
+        [false, true, true],
+        [true, false, false],
+      ] as const) {
+        const conversation = {
+          ...row,
+          preference: { pinned: false, blocked: false, muted: databaseMuted },
+        };
+        const preferences =
+          localMuted === undefined
+            ? {}
+            : { [row.id]: { pinned: false, blocked: false, muted: localMuted } };
+        act(() =>
+          root.render(
+            h(
+              ContentSelectionProvider,
+              null,
+              h(
+                ConversationDirectoryContext.Provider,
+                {
+                  value: {
+                    real: [conversation],
+                    virtual: [],
+                    preferences,
+                    showContactUnreadCount: true,
+                    onVirtual: vi.fn(),
+                    onCreate: vi.fn(),
+                  },
+                },
+                h(
+                  'section',
+                  { 'data-source': 'messages' },
+                  h(ConversationList, {
+                    conversations: [conversation],
+                    preferences,
+                    drafts: {},
+                    activeConversationId: null,
+                    onSelect: vi.fn(),
+                  }),
+                ),
+                h(
+                  'section',
+                  { 'data-source': 'contacts' },
+                  tab === 'friends'
+                    ? h(ContactList, {
+                        contacts: [conversation.otherUser!],
+                        activeContactId: null,
+                        onSelect: vi.fn(),
+                      })
+                    : h(GroupList, {
+                        conversations: [conversation],
+                        activeConversationId: null,
+                        onSelect: vi.fn(),
+                      }),
+                ),
+              ),
+            ),
+          ),
+        );
+        const category = host.querySelector<HTMLButtonElement>('.contact-cat-header')!;
+        if (category.getAttribute('aria-expanded') === 'false') act(() => category.click());
+        const messageBadge = host.querySelector('[data-source="messages"] .row-unread')!;
+        const contactBadge = host.querySelector('[data-source="contacts"] .row-unread')!;
+        expect(contactBadge.textContent).toBe(messageBadge.textContent);
+        expect(contactBadge.classList.contains('muted')).toBe(expected);
+        expect(contactBadge.className).toBe(messageBadge.className);
+      }
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  },
+);
+
 it('会话混选多个群、好友和虚拟会话时，名单仅带入所选真实群且使用群号', () => {
   const demo = createTemplateDemoData();
   const base = demo.conversations.find((row) => row.type === 'group')!;

@@ -1264,7 +1264,16 @@ function GroupNotificationSection({
               </span>
               {conversationDirectory?.showContactUnreadCount &&
               (conversation.unreadCount ?? 0) > 0 ? (
-                <span className="row-unread">{formatBadgeCount(conversation.unreadCount)}</span>
+                <span
+                  className={unreadClass(
+                    Boolean(
+                      conversationDirectory?.preferences?.[conversation.id]?.muted ??
+                        conversation.preference?.muted,
+                    ),
+                  )}
+                >
+                  {formatBadgeCount(conversation.unreadCount)}
+                </span>
               ) : null}
             </button>
           ))
@@ -1338,12 +1347,12 @@ export function ContactList({
         },
     );
   }, [contacts, specialSections, trailingSections, conversationDirectory?.real]);
-  const unreadByContact = useMemo(
+  const conversationByContact = useMemo(
     () =>
       new Map(
         conversationRows
           .filter((row) => row.type === 'direct')
-          .map((row) => [row.otherUser.id, row.unreadCount ?? 0]),
+          .map((row) => [row.otherUser.id, row]),
       ),
     [conversationRows],
   );
@@ -1587,6 +1596,7 @@ export function ContactList({
               ) : null}
               {open
                 ? category.items.map((contact) => {
+                    const conversation = conversationByContact.get(contact.id);
                     const relation = intimateRelationOf(contact);
                     return (
                       <button
@@ -1707,9 +1717,16 @@ export function ContactList({
                           </span>
                         </span>
                         {conversationDirectory?.showContactUnreadCount &&
-                        (unreadByContact.get(contact.id) ?? 0) > 0 ? (
-                          <span className="row-unread">
-                            {formatBadgeCount(unreadByContact.get(contact.id))}
+                        (conversation?.unreadCount ?? 0) > 0 ? (
+                          <span
+                            className={unreadClass(
+                              Boolean(
+                                conversationDirectory?.preferences?.[conversation.id]?.muted ??
+                                  conversation.preference?.muted,
+                              ),
+                            )}
+                          >
+                            {formatBadgeCount(conversation.unreadCount)}
                           </span>
                         ) : null}
                       </button>

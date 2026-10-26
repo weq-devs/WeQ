@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import type { Conversation, User } from '../im-template/template/types';
+import type { Conversation, ConversationPreferences, User } from '../im-template/template/types';
 import type { RoamingTarget } from '@weq/service';
 
 export interface VirtualConversation {
@@ -22,6 +22,7 @@ export interface VirtualConversation {
 export const ConversationDirectoryContext = createContext<{
   virtual: VirtualConversation[];
   real?: Conversation[];
+  preferences?: ConversationPreferences;
   /** 主会话列表始终排除这些群，完整目录搜索也不能绕过归属。 */
   groupAssistantIds?: ReadonlySet<string>;
   showGroupAssistantMessageCount?: boolean;
