@@ -6,7 +6,11 @@ import {
   PRIVACY_STORAGE_KEY,
   CAPTURE_PRIVACY_STORAGE_KEY,
 } from '../src/renderer/src/state/privacy';
-import { snapshotWeqClientSettings, validateWeqClientSettings } from '@weq/service/backup-client';
+import {
+  applyWeqClientSettings,
+  snapshotWeqClientSettings,
+  validateWeqClientSettings,
+} from '@weq/service/backup-client';
 
 let frames: Map<number, FrameRequestCallback>;
 let nextFrame: number;
@@ -45,6 +49,24 @@ async function twoPaints() {
   await paint();
 }
 const masked = () => document.documentElement.hasAttribute('data-privacy');
+
+it('界面备份 hydrate 不解除在途覆盖，释放后采用恢复得到的永久偏好', () => {
+  usePrivacyStore.getState().set(true);
+  const release = usePrivacyStore.getState().beginTemporary();
+  try {
+    applyWeqClientSettings(localStorage, {
+      [PRIVACY_STORAGE_KEY]: '0',
+      [CAPTURE_PRIVACY_STORAGE_KEY]: '1',
+    });
+    usePrivacyStore.getState().hydrate();
+    expect(usePrivacyStore.getState().enabled).toBe(false);
+    expect(usePrivacyStore.getState().capturePrivacy).toBe(true);
+    expect(masked()).toBe(true);
+  } finally {
+    release();
+  }
+  expect(masked()).toBe(false);
+});
 
 it('默认关闭，启用偏好持久化且纳入设备备份，临时状态不写入存储', async () => {
   expect(usePrivacyStore.getState().capturePrivacy).toBe(false);

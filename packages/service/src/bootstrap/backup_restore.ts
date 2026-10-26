@@ -508,7 +508,8 @@ function configPlan(
   let settings = record(current.settings) ? structuredClone(current.settings) : {};
   if (app) {
     settings = merge(
-      merge(settings, snapshotWeqSettings(DEFAULT_APP_SETTINGS)),
+      // 旧备份缺字段时保留本机值；恢复默认提交完整默认快照，仍会显式覆盖。
+      merge(snapshotWeqSettings(DEFAULT_APP_SETTINGS), settings),
       parseWeqBackupJson(app.data) as Record<string, unknown>,
     );
     if (choice.keepLocalPaths !== false) {
