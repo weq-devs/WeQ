@@ -106,6 +106,10 @@ PP-OCR 的「检测（DBNet）+ 方向分类 + 识别（CRNN/SVTR）」三段式
    ——渲染层把灯箱正在显示的 `src` 递进来，等价于主进程自己发一次同一个「虚拟请求」，
    本地落盘 → chatpic 备份 → CDN → OIDB 补下 的优先级白拿。
 
+`FailedOperation.DownLoadError` 只代表服务端本次下载图片失败，不能据此认定链接已过期。
+`ChatImageOcrService` 会刷新对应场景的 rkey 并重试一次（包括导出传入缓存 rkey 的调用）；
+重试仍失败才交由上层回退本地模型。其它识别错误不会触发这次下载重试。
+
 返回值带 `source`（`oidb` / `local`），灯箱据此在结果面板上标「在线 / 本地模型」。
 **按钮门禁**：`getGroupAlbumAccessState` 多返回一个 `ocrLocalModelId`，渲染层按
 「在线可用 或 本地模型下好了」决定能不能点；两条腿都没有才置灰并说明原因。
