@@ -536,22 +536,44 @@ AbortError: Invalid capture constraints
 | `{ width:{ideal:960}, height:{ideal:540}, frameRate:{ideal:15} }` | ✅ 960×540@15 |
 | `{ width:{exact:960}, height:{exact:540} }` | ❌ `TypeError: exact constraints are not supported` |
 
-真正的 bug 在 `call_display_media.ts` 的判断条件：
+真正的 bug 在**「按窗口身份拦截调用方」这个思路本身**。前后试过两种判断，都错：
 
-```ts
-const frameName = request.frame?.name ?? '';
-if (frameName !== CALL_WINDOW_NAME) { callback(null); return; }
+| 写法 | 结果 |
+| --- | --- |
+| `request.frame.name === 'weq-call'` | ❌ 实测恒为空串（取的是 `<iframe>` name，不是窗口名） |
+| `owner.id !== 主窗口 id` | ❌ 请求本来就来自主窗口 |
+
+真机诊断日志（这是定位的关键）：
+
+```text
+ownerId: 1, mainId: 1, frameName: "",
+frameUrl: "http://localhost:5173/", frameParent: "top",
+windowIds: [2, 1]
 ```
 
-**`request.frame.name` 实测是空串。** 它取的是 `<iframe>` 的 name，不是
-`window.open(url, 'weq-call')` 传的窗口名。于是每次共享都走 deny 分支。
+`frameUrl` 是**主窗口**的 dev server 地址，不是通话窗的 `about:blank`。原因：
 
-改成按 `webContents` 身份判断（`webContents.fromFrame(request.frame)`），
-只拒绝**登记过的主窗口**：主界面不该有共享需求，缩小攻击面；工具窗的识别不依赖
-任何字符串匹配，窗口改名也不会静默坏掉。
+**`CallWindow` 用 `createPortal` 把 DOM 渲染进 `popup.document` —— DOM 在子窗口
+里，但 JS 执行上下文仍属于主窗口。** 所以 `useCallScreen` 里的
+`navigator.mediaDevices` 是主窗口那一份，`getDisplayMedia` 只能从主窗口发出。
 
-> 排查口诀：看到 `Invalid capture constraints` 先看主进程日志里有没有
-> `屏幕共享请求来自不允许的窗口`，没有再去动渲染层的约束。
+结论：**不要按窗口身份拦截**。能走到这个 handler 的，一定是本应用注册了 preload
+的渲染进程。现在直接放行。
+
+> 排查口诀：看到 `Invalid capture constraints`，先确认 handler 是不是回了
+> `callback(null)` —— 不要被错误名带偏去改分辨率 / 帧率约束。
+
+### 8.6.2 `getSources` 在 Linux 上就是那个 portal 弹窗
+
+`desktopCapturer.getSources({types:['screen']})` 会**阻塞到用户在系统选择器里选完
+为止**（本机实测无交互时 33 秒才返回）。它不是「拿到一个已经选好的源」，而是
+弹窗本身。
+
+所以：
+
+- handler 里**不要**在它之前做任何耗时的事；
+- 必须给它超时兜底（当前 120 秒），否则弹窗被窗口管理器吞掉时这里会永远挂着，
+  界面一直转圈且再也发不出新请求。
 
 ### 8.7 掉帧复盘：分辨率与采集节拍（2026-10-28）
 

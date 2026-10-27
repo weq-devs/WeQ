@@ -19,8 +19,9 @@
  * | macOS 15+ | `useSystemPicker: true`，由 ScreenCaptureKit 的系统选择器处理 |
  * | macOS <15 / Windows | 这里用 `desktopCapturer` 拿主显示器 |
  *
- * 也就是说这个 handler 在 Linux 上只是「把 portal 已经选好的那个源交回去」，
- * 不会再有第二次弹窗。
+ * ⚠️ **Linux 上 `desktopCapturer.getSources` 本身就是那个 portal 弹窗** —— 它会
+ * 阻塞到用户在系统窗口里选完为止（本机实测无交互时卡 33 秒才返回）。所以这个
+ * handler 千万别在放行前做耗时的事，否则用户看到的是「点了共享一直没反应」。
  *
  * ## ⚠️ `callback(null)` 会被报成「Invalid capture constraints」
  *
@@ -51,20 +52,37 @@ import { getLogger } from '@weq/service';
 const logger = getLogger().child({ scope: 'call-display-media' });
 
 /**
- * 主窗口的 webContents id：来自主窗口的共享请求一律拒绝。
+ * 等用户从系统选择器里挑源的超时。
  *
- * 由 `main/index.ts` 在装 handler 时登记（那时主窗口还不一定建好，所以是可变的）。
+ * Linux 的 `desktopCapturer.getSources` 会阻塞到 portal 弹窗被处理为止。正常情况
+ * 用户几秒内就会点；但弹窗被窗口管理器吞掉 / 用户在别的工作区时，不设超时会让
+ * 共享请求永远挂着（界面一直转圈，且再也发不出新请求）。
+ *
+ * 给 2 分钟：足够慢的用户从容选择，又不至于挂到天荒地老。
  */
-let mainWebContentsId: number | null = null;
+const SOURCE_PICK_TIMEOUT_MS = 120_000;
 
-/** 登记主窗口（`createMainWindow` 建好之后调用）。 */
-export function setDisplayMediaMainWebContents(id: number | null): void {
-  mainWebContentsId = id;
-}
-
-/** 当前主窗口 id（测试 / 诊断用）。 */
-export function displayMediaMainWebContentsId(): number | null {
-  return mainWebContentsId;
+/** 给 promise 加超时，超时返回 null（不抛）。 */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      logger.warn('等待屏幕源选择超时', { ms });
+      resolve(null);
+    }, ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        logger.warn('获取屏幕源失败', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        resolve(null);
+      },
+    );
+  });
 }
 
 /**
@@ -87,18 +105,34 @@ export function installCallDisplayMediaHandler(target: Session = session.default
         return;
       }
 
-      // ⚠️ 不要用 `frame.name`：实测它是空串（取的是 iframe name，不是窗口名），
-      // 用它做判断会让每次共享都静默失败。改用 webContents 身份。
+      // ⚠️ **请求永远来自主窗口**，不要按「哪个窗口在调」去判断。
+      //
+      // 2026-10-28 真机诊断（这是花了三轮才定位的点）：
+      //
+      // ```text
+      // ownerId: 1, mainId: 1, frameName: "",
+      // frameUrl: "http://localhost:5173/", frameParent: "top",
+      // windowIds: [2, 1]
+      // ```
+      //
+      // `frameUrl` 是**主窗口**的 dev server 地址，不是通话窗的 `about:blank`。
+      // 原因是 `CallWindow` 用 `createPortal` 把 DOM 渲染进 `popup.document`：DOM 在
+      // 子窗口里，但**JS 执行上下文仍属于主窗口**。所以 `useCallScreen` 里的
+      // `navigator.mediaDevices` 是主窗口那一份，请求自然从主窗口发出。
+      //
+      // 早先按 `frame.name === 'weq-call'` 判断（实测恒为空串），后来又改成
+      // 「拒绝主窗口」——两种写法都把唯一可能的调用方拒掉了，屏幕上显示的就是
+      // 那个极具误导性的 `AbortError: Invalid capture constraints`。
+      //
+      // 所以这里**不再按窗口身份拦截**：能走到这个 handler 的，一定是本应用注册
+      // 了 preload 的渲染进程。
       const owner = webContents.fromFrame(frame);
-      if (!owner || owner.id === mainWebContentsId) {
-        logger.warn('屏幕共享请求来自不允许的窗口', {
-          webContentsId: owner?.id ?? null,
-          mainId: mainWebContentsId,
-          frameName: frame.name,
-        });
-        callback(null);
-        return;
-      }
+      logger.info('屏幕共享请求', {
+        ownerId: owner?.id ?? null,
+        frameUrl: frame.url,
+        video: request.videoRequested,
+        audio: request.audioRequested,
+      });
 
       try {
         if (!request.videoRequested && !request.audioRequested) {
@@ -106,14 +140,22 @@ export function installCallDisplayMediaHandler(target: Session = session.default
           return;
         }
         // 屏幕共享要一条 screen 源。音频只有 Windows 能走 loopback。
-        const sources = await desktopCapturer.getSources({
-          types: ['screen'],
-          // 共享时缩略图没用（用户看到的是真实画面），拉最小尺寸省时间。
-          thumbnailSize: { width: 0, height: 0 },
-        });
-        const source = sources[0];
+        //
+        // ⚠️ Linux 下这条 `getSources` **就是**那个 XDG Portal 选择窗口 —— 它会
+        // 一直阻塞到用户在系统弹窗里选完（本机实测无交互时 33 秒才返回）。这是预期
+        // 行为，不是卡死：用户点完就立刻返回。但**必须**给它超时兜底，否则弹窗被
+        // 窗口管理器吞掉时这里会永远挂着，界面一直转圈。
+        const sources = await withTimeout(
+          desktopCapturer.getSources({
+            types: ['screen'],
+            // 共享时缩略图没用（用户看到的是真实画面），拉最小尺寸省时间。
+            thumbnailSize: { width: 0, height: 0 },
+          }),
+          SOURCE_PICK_TIMEOUT_MS,
+        );
+        const source = sources?.[0];
         if (!source) {
-          logger.warn('屏幕共享没有可用源');
+          logger.warn('屏幕共享没有可用源（或选择超时）');
           callback(null);
           return;
         }
