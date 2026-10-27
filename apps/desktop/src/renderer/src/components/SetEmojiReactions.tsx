@@ -66,6 +66,7 @@ export function SetEmojiReactions({
   interaction?: ReactionInteraction;
 }) {
   const [open, setOpen] = useState<OpenState | null>(null);
+  const reactionsRef = useRef<HTMLDivElement | null>(null);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -129,7 +130,7 @@ export function SetEmojiReactions({
 
   return (
     <>
-      <div className={cn('msg-reactions')}>
+      <div ref={reactionsRef} className={cn('msg-reactions')}>
         {displayItems.map((item) => {
           const loading = pending?.code === item.emojiId;
           const loadingLabel = `${pending?.isSet ? '正在贴表情' : '正在撤回表情回应'} ${item.emojiId}`;
@@ -212,6 +213,7 @@ export function SetEmojiReactions({
       {open && canQuery && groupId ? (
         <ReactionLikersPanel
           anchor={{ x: open.x, y: open.y }}
+          anchorElement={reactionsRef.current}
           groupId={String(groupId)}
           sequence={Number(sequence)}
           emojiId={open.emojiId}
