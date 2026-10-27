@@ -141,7 +141,7 @@ beforeEach(() => {
 });
 
 describe('工作菜单与内容工具范围', () => {
-  it('会话入口固定范围后，全局图标恢复完整选择界面且保留当前位置预选', () => {
+  it('会话入口固定范围后，菜单分析沿用当前对象且不再显示选择器', () => {
     const previousAccount = useViewState.getState().openedUin;
     useViewState.setState({ openedUin: '10002' });
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -189,13 +189,54 @@ describe('工作菜单与内容工具范围', () => {
       expect(document.querySelector('[data-fixed-scope="false"]')).not.toBeNull();
       act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
       openTool('分析与报告');
-      const types = document.querySelector<HTMLSelectElement>('[aria-label="报告类型"]');
-      expect(types?.value).toBe('group');
-      // 年度报告已挪到侧栏独立入口，工具里只剩群聊 / 好友 / 群成员。
-      expect(types?.options.length).toBe(3);
-      expect(document.querySelector('[aria-label="搜索分析对象"]')).not.toBeNull();
+      expect(document.querySelector('[aria-label="报告类型"]')).toBeNull();
+      expect(document.querySelector('[aria-label="搜索分析对象"]')).toBeNull();
+      expect(document.querySelector('[aria-label="分析时间范围"]')).not.toBeNull();
     } finally {
       fixture.exportRequest = null;
+      act(() => root.unmount());
+      host.remove();
+      useViewState.setState({ openedUin: previousAccount });
+      vi.unstubAllGlobals();
+    }
+  });
+  it('联系人页确定好友后跳过对象选择，离开后重新打开恢复完整选择器', () => {
+    const previousAccount = useViewState.getState().openedUin;
+    useViewState.setState({ openedUin: '10002' });
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          workspaceTools({
+            workspace: {
+              view: 'contacts',
+              contact: {
+                id: 'u_fixture',
+                username: '10003',
+                displayName: '合成好友',
+                identityLabel: 'QQ',
+                identityValue: '10003',
+                avatarUrl: null,
+                createdAt: '',
+              },
+            },
+          }),
+        ),
+      );
+      openTool('分析与报告');
+      expect(document.querySelector('[aria-label="报告类型"]')).toBeNull();
+      expect(document.querySelector('[aria-label="搜索分析对象"]')).toBeNull();
+      expect(document.querySelector('[aria-label="分析时间范围"]')).not.toBeNull();
+      act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
+      act(() => root.render(workspaceTools({ workspace: { view: 'settings' } })));
+      openTool('分析与报告');
+      expect(document.querySelector('[aria-label="报告类型"]')).not.toBeNull();
+      expect(document.querySelector('[aria-label="搜索分析对象"]')).not.toBeNull();
+    } finally {
       act(() => root.unmount());
       host.remove();
       useViewState.setState({ openedUin: previousAccount });
