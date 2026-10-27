@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { CloneChatPanel } from '../../src/renderer/src/views/agentlab/CloneChatPanel';
 import { GroupChatPanel } from '../../src/renderer/src/views/agentlab/GroupChatPanel';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
+import { ConversationDirectoryContext } from '../../src/renderer/src/lib/conversationDirectory';
+import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { contrastRatio } from '../../src/shared/theme_colors';
 import { PersonaSettingsModal } from '../../src/renderer/src/views/agentlab/PersonaSettingsModal';
 import { CloneGenerationPanel } from '../../src/renderer/src/components/settings/CloneGenerationPanel';
@@ -52,42 +54,51 @@ const group = new URLSearchParams(location.search).has('group');
 function Fixture() {
   const [settings, setSettings] = useState(false);
   return (
-    <ContentSelectionProvider>
-      <style>{`html,body,#root{height:100%;margin:0}#root{display:flex;min-width:0}`}</style>
-      {group ? (
-        <GroupChatPanel
-          {...shared}
-          groupId="g"
-          personaList={[
-            persona,
-            { ...persona, id: 'p2', name: '合成新成员', sourceId: 'u_new', sourceUin: '20002' },
-          ]}
-          profileByUid={new Map()}
-          faceDescToId={new Map()}
-          onDeleted={noop}
-          onOpenPersonaSettings={() => setSettings(true)}
-          personaSettingsOpen={settings}
-        />
-      ) : (
-        <CloneChatPanel
-          {...shared}
-          personaId="p"
-          persona={persona}
-          clonedUin="20001"
-          modelLabel="合成模型"
-          onOpenSettings={() => setSettings(true)}
-        />
-      )}
-      {settings ? (
-        <PersonaSettingsModal
-          persona={persona}
-          fromGroup={group}
-          replyContent={<CloneGenerationPanel persona={persona} onSaved={noop} />}
-          onClose={() => setSettings(false)}
-          onSaved={noop}
-        />
-      ) : null}
-    </ContentSelectionProvider>
+    <ConversationDirectoryContext.Provider
+      value={{
+        virtual: [{ id: 'virtual:persona:p', kind: 'persona', ownerId: 'p', name: persona.name }],
+        onVirtual: noop,
+        onCreate: noop,
+      }}
+    >
+      <ContentSelectionProvider>
+        <DialogHost />
+        <style>{`html,body,#root{height:100%;margin:0}#root{display:flex;min-width:0}`}</style>
+        {group ? (
+          <GroupChatPanel
+            {...shared}
+            groupId="g"
+            personaList={[
+              persona,
+              { ...persona, id: 'p2', name: '合成新成员', sourceId: 'u_new', sourceUin: '20002' },
+            ]}
+            profileByUid={new Map()}
+            faceDescToId={new Map()}
+            onDeleted={noop}
+            onOpenPersonaSettings={() => setSettings(true)}
+            personaSettingsOpen={settings}
+          />
+        ) : (
+          <CloneChatPanel
+            {...shared}
+            personaId="p"
+            persona={persona}
+            clonedUin="20001"
+            modelLabel="合成模型"
+            onOpenSettings={() => setSettings(true)}
+          />
+        )}
+        {settings ? (
+          <PersonaSettingsModal
+            persona={persona}
+            fromGroup={group}
+            replyContent={<CloneGenerationPanel persona={persona} onSaved={noop} />}
+            onClose={() => setSettings(false)}
+            onSaved={noop}
+          />
+        ) : null}
+      </ContentSelectionProvider>
+    </ConversationDirectoryContext.Provider>
   );
 }
 createRoot(document.getElementById('root')!).render(

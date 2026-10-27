@@ -45,6 +45,13 @@ html[data-theme='dark'] .weq-virtual-avatar-badge {
   border-color: var(--weq-bg-surface);
 }
 
+.weq-clone-profile-avatar,
+.weq-clone-member-avatar,
+.weq-group-profile-member-button,
+.message-avatar-button:has(> .weq-virtual-avatar-badge) {
+  position: relative;
+}
+
 /* 列表里的虚拟会话标签：与「机器人」徽标区分（克隆群用方圆角块 + 群聊图标）。 */
 .weq-conversation-virtual.is-group {
   border-radius: 4px;

@@ -1,6 +1,7 @@
 import type { GroupChatStreamEvent } from '../../src/main/mcp/agentlab_group_bus';
 
 export const cloneRequests: Array<{ name: string; input: unknown }> = [];
+export const cloneQueries: Array<{ name: string; input: unknown }> = [];
 const listeners = new Set<(event: GroupChatStreamEvent) => void>();
 let messageSerial = 2;
 const ts = new Date('2026-10-27T12:00:00+08:00').getTime();
@@ -50,7 +51,10 @@ const proxy = (path: string[] = []): unknown =>
           isSuccess: true,
         });
       if (key === 'query')
-        return async () => null;
+        return async (input: unknown) => {
+          cloneQueries.push({ name: path.at(-1)!, input });
+          return null;
+        };
       if (key === 'useMutation')
         return () => ({
           mutate: (input: unknown) => cloneRequests.push({ name: path.at(-1)!, input }),

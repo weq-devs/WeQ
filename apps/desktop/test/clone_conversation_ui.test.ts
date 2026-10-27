@@ -82,10 +82,10 @@ it('克隆直接使用普通 ChatPane 的编辑器、时间线、菜单与多选
     expect(f.host.querySelector('.composer-resize')).not.toBeNull();
     expect(f.host.querySelector('.weq-virtual-timeline')).not.toBeNull();
     expect(f.host.querySelector('.weq-clone-conversation')).toBeNull();
-    expect(f.host.querySelector('.message-avatar-wrap .avatar img')?.getAttribute('src')).toContain(
-      '20001',
-    );
-    expect(f.host.querySelector('.message-avatar-wrap [aria-label="克隆体"]')).not.toBeNull();
+    expect(
+      f.host.querySelector('.message-avatar-button .avatar img')?.getAttribute('src'),
+    ).toContain('20001');
+    expect(f.host.querySelector('.message-avatar-button [aria-label="克隆体"]')).not.toBeNull();
     act(() =>
       f.host
         .querySelector('.message-bubble')!

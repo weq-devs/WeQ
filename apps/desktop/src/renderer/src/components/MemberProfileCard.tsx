@@ -57,6 +57,7 @@ import type { AnalysisTarget } from '../views/analysis/model';
 import { OverlayLayer } from './OverlayLayer';
 import { QQGroupMemberControls } from './QQGroupMemberControls';
 import { Avatar } from '../im-template/template/primitives';
+import { VirtualConversationBadge } from './VirtualConversationAvatar';
 import { cn } from '../im-template/template/classNames';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
 import { displayUserName, displayGroupMemberName } from '../im-template/template/user';
@@ -94,6 +95,7 @@ export function MemberProfileCard({
   onPreviewChat,
   previewContent,
   onAnalyze,
+  localClone = Boolean(member.clone),
 }: {
   member: User;
   anchor: { x: number; y: number };
@@ -104,10 +106,13 @@ export function MemberProfileCard({
   onPreviewChat?: () => void;
   previewContent?: ReactNode;
   onAnalyze?: (target: AnalysisTarget) => void;
+  /** 本地会话名片不读取源好友资料，不开放真实 QQ 操作或联系人跳转。 */
+  localClone?: boolean;
 }) {
   const openSpace = useContext(QzoneNavigationContext);
   const openWorkspace = useContext(ContactWorkspaceNavigationContext);
-  const [profile, setProfile] = useState(null);
+  const [loadedProfile, setProfile] = useState(null);
+  const profile = localClone ? null : loadedProfile;
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [uidCopied, setUidCopied] = useState(false);
@@ -117,20 +122,31 @@ export function MemberProfileCard({
   const [dismissed, setDismissed] = useState(false);
   // 机器人档案（profile_info_adelie）。QQ 只在客户端打开过该机器人资料卡后才
   // 写这张表，所以经常是 null —— 那时只展示 v6 那份普通资料。
-  const [botProfile, setBotProfile] = useState(null);
+  const [loadedBotProfile, setBotProfile] = useState(null);
+  const botProfile = localClone ? null : loadedBotProfile;
   const cardRef = useRef(null);
   const [pos, setPos] = useState({ left: anchor.x + 14, top: anchor.y + 8, ready: false });
 
   // 自己的本地 id 可能是 self:<uin>；优先真实 uid，缺失时先按 QQ 号补资料。
-  const lookupUid = member.uid || (member.id.startsWith('self:') ? '' : member.id);
+  const lookupUid = localClone
+    ? ''
+    : member.uid || (member.id.startsWith('self:') ? '' : member.id);
   const uid = lookupUid || profile?.uid || '';
-  const canAnalyze = Boolean(groupCode && uid);
+  const canAnalyze = !localClone && Boolean(groupCode && uid);
 
   // 补全陌生人资料字段。
   useEffect(() => {
     let alive = true;
     setLoading(true);
     setProfile(null);
+    if (localClone) {
+      setLoading(false);
+      return;
+    }
+    if (!lookupUid && !/^\d+$/.test(member.identityValue)) {
+      setLoading(false);
+      return;
+    }
     // 查询身份只来自点击对象，补全得到的 UID 不应重新触发清空与读取。
     const pending = lookupUid
       ? client.account.getProfile.query({ uid: lookupUid })
@@ -148,11 +164,11 @@ export function MemberProfileCard({
     return () => {
       alive = false;
     };
-  }, [lookupUid, member.identityValue]);
+  }, [lookupUid, member.identityValue, localClone]);
 
   // 机器人才去查 adelie 表；member.kind 来自 MainView 里的 botUids 集合。
   useEffect(() => {
-    if (member.kind !== 'bot') {
+    if (localClone || member.kind !== 'bot') {
       setBotProfile(null);
       return undefined;
     }
@@ -166,7 +182,7 @@ export function MemberProfileCard({
     return () => {
       alive = false;
     };
-  }, [uid, member.kind]);
+  }, [uid, member.kind, localClone]);
 
   // 测量真实尺寸后把卡片夹在视口内：默认落在光标右下，右 / 下溢出则翻向左 / 上。
   useLayoutEffect(() => {
@@ -201,7 +217,7 @@ export function MemberProfileCard({
   }, [anchor.x, anchor.y, loading, profile, botProfile, previewContent]);
 
   const name =
-    'card' in member
+    !localClone && 'card' in member
       ? displayGroupMemberName(
           member.card,
           profile?.remark || member.remark,
@@ -210,8 +226,9 @@ export function MemberProfileCard({
         )
       : displayUserName(member);
   const role = ROLE_META[member.role];
-  const uin =
-    profile?.uin && profile.uin !== '0'
+  const uin = localClone
+    ? null
+    : profile?.uin && profile.uin !== '0'
       ? profile.uin
       : member.identityLabel === 'QQ'
         ? member.identityValue
@@ -242,6 +259,14 @@ export function MemberProfileCard({
     : member.levelName || null;
   const joinedAt = shortDate(member.joinedAt);
   const lastSpeak = shortDate(member.lastSpeakAt);
+  const localId = member.id.startsWith('virtual:') ? member.id.slice('virtual:'.length) : member.id;
+
+  async function copyLocalId() {
+    if (await copyTextToClipboard(localId)) {
+      setUidCopied(true);
+      window.setTimeout(() => setUidCopied(false), 1500);
+    }
+  }
 
   async function copyUin() {
     if (!uin) return;
@@ -280,7 +305,7 @@ export function MemberProfileCard({
         aria-label="用户资料"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        {openWorkspace ? (
+        {openWorkspace && !localClone ? (
           <button
             className="weq-profile-expand"
             type="button"
@@ -323,8 +348,11 @@ export function MemberProfileCard({
         ) : (
           <>
             <div className="weq-profile-hero">
-              <span className="weq-profile-avatar">
-                <Avatar name={name} avatarUrl={avatarUrl} seed={uid} />
+              <span
+                className={cn('weq-profile-avatar', member.clone && 'weq-clone-profile-avatar')}
+              >
+                <Avatar name={name} avatarUrl={avatarUrl} seed={localClone ? member.id : uid} />
+                {member.clone ? <VirtualConversationBadge /> : null}
               </span>
               <strong className="weq-profile-name">{name}</strong>
               {nickDiffers ? <span className="weq-profile-nick">昵称 {profile.nick}</span> : null}
@@ -337,7 +365,7 @@ export function MemberProfileCard({
                 </button>
               ) : null}
 
-              {member.kind === 'bot' || role || genderAge || zodiac ? (
+              {!localClone && (member.kind === 'bot' || role || genderAge || zodiac) ? (
                 <div className="weq-profile-chips">
                   {member.kind === 'bot' ? (
                     <span className="weq-profile-rel is-bot">
@@ -367,7 +395,26 @@ export function MemberProfileCard({
             </div>
 
             <div className="weq-profile-list">
-              {groupCode && uid ? (
+              {localClone && member.clone ? (
+                <ProfileRow
+                  icon={<Hash size={13} />}
+                  label="ID"
+                  value={localId}
+                  mono
+                  action={
+                    <button
+                      className="weq-profile-row-copy"
+                      type="button"
+                      title="复制 ID"
+                      aria-label="复制 ID"
+                      onClick={copyLocalId}
+                    >
+                      {uidCopied ? <Check size={12} /> : <Copy size={12} />}
+                    </button>
+                  }
+                />
+              ) : null}
+              {!localClone && groupCode && uid ? (
                 <QQGroupMemberControls
                   key={`${groupCode}:${uid}`}
                   groupCode={groupCode}
@@ -390,7 +437,7 @@ export function MemberProfileCard({
                   accent
                 />
               ) : null}
-              {member.kind !== 'bot' && uin ? (
+              {!localClone && member.kind !== 'bot' && uin ? (
                 <>
                   <ProfileLikesRow uid={uid} uin={uin} name={displayUserName(member)} />
                   <CommonRelationships uin={uin} />
@@ -419,24 +466,26 @@ export function MemberProfileCard({
                   mono
                 />
               ) : null}
-              <ProfileRow
-                icon={<Hash size={13} />}
-                label="UID"
-                sensitive
-                value={uid}
-                mono
-                action={
-                  <button
-                    className="weq-profile-row-copy"
-                    type="button"
-                    title="复制 UID"
-                    aria-label="复制 UID"
-                    onClick={copyUid}
-                  >
-                    {uidCopied ? <Check size={12} /> : <Copy size={12} />}
-                  </button>
-                }
-              />
+              {uid ? (
+                <ProfileRow
+                  icon={<Hash size={13} />}
+                  label="UID"
+                  sensitive
+                  value={uid}
+                  mono
+                  action={
+                    <button
+                      className="weq-profile-row-copy"
+                      type="button"
+                      title="复制 UID"
+                      aria-label="复制 UID"
+                      onClick={copyUid}
+                    >
+                      {uidCopied ? <Check size={12} /> : <Copy size={12} />}
+                    </button>
+                  }
+                />
+              ) : null}
               {botProfile?.wakeCommand ? (
                 <ProfileRow
                   icon={<Terminal size={13} />}
@@ -476,7 +525,7 @@ export function MemberProfileCard({
             ) : null}
 
             {/* 聊天分析看的是「这个人在这个群里」的发言，只认 uid + groupCode。 */}
-            {uin || canAnalyze ? (
+            {uin || canAnalyze || onOpenChat || onPreviewChat ? (
               <div className="weq-profile-actions">
                 {onOpenChat ? (
                   <button
@@ -503,7 +552,7 @@ export function MemberProfileCard({
                     预览私聊
                   </button>
                 ) : null}
-                {uin && openSpace ? (
+                {!localClone && uin && openSpace ? (
                   <button
                     className="weq-profile-perhome"
                     type="button"

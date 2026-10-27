@@ -474,7 +474,28 @@ export function MessageBubble({
           {showSenderName ? (
             <span className={cn('message-name')}>
               {conversation.type === 'group' ? <GroupMessageBadge member={sender} /> : null}
-              <span data-privacy-sensitive>{senderName}</span>
+              {onAvatarClick && conversation.generated ? (
+                <button
+                  type="button"
+                  className="weq-message-name-profile"
+                  title="查看资料"
+                  aria-label={`查看 ${senderName} 的名片`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    onAvatarClick(
+                      sender,
+                      event.detail === 0
+                        ? { x: rect.right, y: rect.bottom }
+                        : { x: event.clientX, y: event.clientY },
+                    );
+                  }}
+                >
+                  <span data-privacy-sensitive>{senderName}</span>
+                </button>
+              ) : (
+                <span data-privacy-sensitive>{senderName}</span>
+              )}
               {senderKind === 'bot' ? (
                 <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
                   <Bot size={12} strokeWidth={2.4} />

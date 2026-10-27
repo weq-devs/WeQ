@@ -108,9 +108,11 @@ export function GroupChatPanel({
   const [candidateKeyword, setCandidateKeyword] = useState('');
   const [pendingMemberId, setPendingMemberId] = useState<string | null>(null);
   const addingMember = useRef(false);
+  const removingMember = useRef(false);
   const [settingsSection, setSettingsSection] = useState<'members' | 'management'>('members');
   const seenIds = useRef<Set<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
+  const [memberSearchKeyword, setMemberSearchKeyword] = useState('');
   const [jumpRequest, setJumpRequest] = useState(
     searchTarget ? { messageId: searchTarget.messageId, revision: 0 } : undefined,
   );
@@ -280,11 +282,28 @@ export function GroupChatPanel({
   }
 
   async function onKickMember(memberId: string): Promise<void> {
+    if (busy || removingMember.current) return;
+    const member = members.find((item) => item.kind === 'persona' && item.memberId === memberId);
+    if (!member) return;
+    removingMember.current = true;
     try {
+      if (
+        !(await dialog.confirm(
+          '移除成员',
+          `将 ${member.displayName} 移出当前群聊？不会删除克隆体或私聊记录。`,
+          { okLabel: '移除', tone: 'warning' },
+        ))
+      )
+        return;
       await removeMember.mutateAsync({ groupId, memberId });
-      await utils.account.getAgentLabGroupDetail.invalidate({ groupId });
+      await Promise.all([
+        utils.account.getAgentLabGroupDetail.invalidate({ groupId }),
+        utils.account.listAgentLabGroups.invalidate(),
+      ]);
     } catch (e) {
       dialog.error('移除失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      removingMember.current = false;
     }
   }
 
@@ -316,23 +335,71 @@ export function GroupChatPanel({
   }
 
   const groupName = detail.data?.group.name ?? '群聊';
-  const chatConversation = useMemo(
-    () =>
-      cloneChatConversation({
-        target: { kind: 'group', ownerId: groupId, sessionId: legacy ? null : currentSessionId },
-        viewId,
-        name: groupName,
-        peer: user,
-        members: [
-          user,
-          ...personaMembers.map((member) => {
-            const meta = metaFor(member.memberId, 'persona', member.displayName);
-            return cloneChatUser(member.memberId, meta.name, meta.uin, true);
-          }),
-        ],
-      }),
-    [groupId, legacy, currentSessionId, viewId, groupName, user, personaMembers, metaFor],
-  );
+  const chatConversation = useMemo(() => {
+    const projected = cloneChatConversation({
+      target: { kind: 'group', ownerId: groupId, sessionId: legacy ? null : currentSessionId },
+      viewId,
+      name: groupName,
+      peer: user,
+      members: [
+        user,
+        ...personaMembers.map((member) => {
+          const meta = metaFor(member.memberId, 'persona', member.displayName);
+          return cloneChatUser(member.memberId, meta.name, meta.uin, true);
+        }),
+      ],
+    });
+    if (projected.type === 'group') {
+      const createdAt = detail.data?.group.createdAt;
+      projected.group.createTime = createdAt ? new Date(createdAt).toISOString() : null;
+      projected.members = projected.members.map((member) => {
+        const source = members.find(
+          (item) =>
+            `virtual:${item.memberId}` === member.id ||
+            (item.kind === 'user' && member.id === user.id),
+        );
+        return {
+          ...member,
+          joinedAt: source?.joinedAt ? new Date(source.joinedAt).toISOString() : '',
+        };
+      });
+    }
+    return projected;
+  }, [
+    groupId,
+    legacy,
+    currentSessionId,
+    viewId,
+    groupName,
+    user,
+    personaMembers,
+    metaFor,
+    detail.data?.group.createdAt,
+    members,
+  ]);
+  const memberSearch = useMemo(() => {
+    const keyword = memberSearchKeyword.trim().toLocaleLowerCase();
+    const matches = chatConversation.members.filter((member) =>
+      [
+        member.displayName,
+        member.username,
+        member.nick,
+        member.card,
+        member.remark,
+        member.uin,
+        member.identityValue,
+      ].some((value) => value?.toLocaleLowerCase().includes(keyword)),
+    );
+    return {
+      keyword: memberSearchKeyword,
+      members: matches,
+      total: matches.length,
+      loading: false,
+      loadingMore: false,
+      hasMore: false,
+      error: null,
+    };
+  }, [chatConversation.members, memberSearchKeyword]);
   const messages = useMemo(
     () =>
       cloneChatMessages(history, viewId, (index) => {
@@ -375,6 +442,16 @@ export function GroupChatPanel({
         loadError={conversation.isError ? '记录加载失败' : undefined}
         user={user}
         conversation={chatConversation}
+        onKickGroupMember={(_conversation, sender) => {
+          const member = members.find(
+            (item) => item.kind === 'persona' && `virtual:${item.memberId}` === sender.id,
+          );
+          if (member) void onKickMember(member.memberId);
+        }}
+        groupMemberSearch={memberSearch}
+        onGroupMemberSearchChange={setMemberSearchKeyword}
+        profileLoading={detail.isLoading}
+        groupMembersError={detail.isError ? '群成员加载失败' : undefined}
         onAddGroupMember={() => {
           setSettingsSection('members');
           setAddingMembers(true);
@@ -498,7 +575,7 @@ export function GroupChatPanel({
                   </button>
                 </div>
                 <p className="weq-persona-note">
-                  成员增删立即生效；成员配置由该克隆体的所有私聊和群聊共用。
+                  成员变更确认后生效；成员配置由该克隆体的所有私聊和群聊共用。
                 </p>
                 {addingMembers ? (
                   <section className="weq-clone-member-candidates" aria-label="可添加的克隆体">

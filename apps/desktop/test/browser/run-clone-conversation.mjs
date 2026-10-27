@@ -101,12 +101,119 @@ try {
           avatar:
             !document.querySelector('.weq-asst-avatar') &&
             document.querySelector('.message-line.theirs .avatar img')?.src.includes('20001'),
-          cloneBadge: Boolean(document.querySelector('.message-avatar-wrap [aria-label="克隆体"]')),
+          cloneBadge: [
+            ...document.querySelectorAll('.message-avatar-button > .weq-virtual-avatar-badge'),
+          ].every((badge) => {
+            const rect = badge.getBoundingClientRect();
+            const avatar = badge.parentElement.getBoundingClientRect();
+            return (
+              rect.width > 0 &&
+              rect.left >= avatar.left &&
+              rect.right <= avatar.right + 4 &&
+              rect.bottom <= avatar.bottom + 4
+            );
+          }),
           compactTime: bounds('.message-time-divider').width < 200,
         };
       });
       if (Object.values(checks).some((value) => !value))
         throw new Error(JSON.stringify({ kind, theme, width, checks }));
+      for (const selector of [
+        '.message-line.theirs .message-avatar-button',
+        ...(kind === 'group' ? ['.message-line.theirs .weq-message-name-profile'] : []),
+        '.weq-conversation-title-profile',
+      ]) {
+        await page.locator(selector).first().click();
+        const card = page.getByRole('dialog', {
+          name:
+            selector === '.weq-conversation-title-profile' && kind === 'group'
+              ? '群资料'
+              : '用户资料',
+          exact: true,
+        });
+        await card.waitFor();
+        if (await card.locator('.weq-profile-expand').count())
+          throw new Error('克隆名片仍有联系人展开入口');
+        const groupCard = selector === '.weq-conversation-title-profile' && kind === 'group';
+        if (!(await card.locator(`[aria-label="${groupCard ? '克隆群聊' : '克隆体'}"]`).count()))
+          throw new Error('名片缺少克隆身份');
+        if ((await card.textContent()).includes('克隆体'))
+          throw new Error('仍显示多余克隆文字标签');
+        if (!groupCard && /QQ|u_fixture|20001/.test(await card.textContent()))
+          throw new Error('克隆名片仍展示源好友身份');
+        const fits = await card.evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return (
+            rect.left >= 0 &&
+            rect.top >= 0 &&
+            rect.right <= innerWidth &&
+            rect.bottom <= innerHeight
+          );
+        });
+        if (!fits) throw new Error('克隆名片溢出视口');
+        if (output)
+          await page.screenshot({
+            path: resolve(
+              output,
+              `${kind}-${theme}-${width}-${selector === '.weq-conversation-title-profile' ? 'title-profile' : 'member-profile'}.png`,
+            ),
+          });
+        if (!groupCard) {
+          await card.getByRole('button', { name: '查看私聊', exact: true }).waitFor();
+          await card.getByRole('button', { name: '预览私聊', exact: true }).click();
+          await card.locator('.weq-private-preview-inline .message-line').first().waitFor();
+          const previewFits = await card.evaluate((node) => {
+            const rect = node.getBoundingClientRect();
+            return (
+              rect.left >= 0 &&
+              rect.top >= 0 &&
+              rect.right <= innerWidth &&
+              rect.bottom <= innerHeight
+            );
+          });
+          if (!previewFits) throw new Error('名片内私聊预览溢出');
+          if (output)
+            await page.screenshot({
+              path: resolve(output, `${kind}-${theme}-${width}-private-preview.png`),
+            });
+          await card.getByRole('button', { name: '返回资料', exact: true }).click();
+        } else {
+          await card.getByRole('button', { name: '查看群聊消息', exact: true }).waitFor();
+        }
+        await card.getByRole('button', { name: '关闭', exact: true }).click();
+      }
+      if (kind === 'group') {
+        if (width <= 760) await page.locator('.weq-mobile-group-info-trigger').click();
+        await page.locator('.group-info-panel').waitFor({ state: 'visible' });
+        const cloneRow = page.locator('.group-info-member-row').filter({ hasText: '合成好友' });
+        if (
+          !(await cloneRow.locator('[aria-label="克隆体"]').count()) ||
+          (await cloneRow.textContent()).includes('克隆体')
+        )
+          throw new Error('群成员列表缺少克隆身份');
+        await cloneRow.click({ button: 'right' });
+        const memberMenu = page.locator('.avatar-context-menu');
+        await memberMenu.getByRole('button', { name: '@Ta', exact: true }).waitFor();
+        if (!(await memberMenu.getByRole('button', { name: '戳一戳', exact: true }).isDisabled()))
+          throw new Error('克隆菜单开放了真实QQ操作');
+        await memberMenu.getByRole('button', { name: '踢出群聊', exact: true }).waitFor();
+        if (output)
+          await page.screenshot({
+            path: resolve(output, `${kind}-${theme}-${width}-member-menu.png`),
+          });
+        await page.keyboard.press('Escape');
+        await page.locator('.group-info-member-row').filter({ hasText: '合成好友' }).click();
+        await page.getByRole('dialog', { name: '用户资料', exact: true }).waitFor();
+        await page
+          .getByRole('dialog', { name: '用户资料', exact: true })
+          .getByRole('button', { name: '关闭', exact: true })
+          .click();
+        if (width <= 760) await page.locator('.weq-mobile-group-info-trigger').click();
+      }
+      if (process.env.WEQ_PROFILE_ONLY) {
+        results.push({ kind, theme, width, checks });
+        continue;
+      }
       await page.getByRole('button', { name: '切换会话', exact: true }).click();
       await page.getByRole('menu', { name: '会话列表' }).waitFor();
       const sessionLayer = await page.getByRole('menu', { name: '会话列表' }).evaluate((menu) => {
@@ -208,6 +315,7 @@ try {
           });
         await page.locator('.weq-cvs-close').click();
         await page
+        await page.getByRole('button', { name: '移除', exact: true }).click();
           .locator('.weq-cvs-nav-head strong')
           .filter({ hasText: '克隆群聊设置' })
           .waitFor();

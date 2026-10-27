@@ -19,6 +19,7 @@ import { timelineViewport } from '../../lib/timelineViewport';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
 import { GroupProfileDialog } from './profilePanes';
+import { CloneMemberProfileCard } from '../../views/agentlab/CloneMemberProfileCard';
 import { ConversationMessageActions } from '../../components/ConversationMessageActions';
 import { QQMessageEssenceAction } from '../../components/QQMessageEssenceAction';
 import { MessageTodoAction, TypingStatus } from '../../components/qq-actions/ChatActions';
@@ -935,6 +936,19 @@ export function ChatPane({
   const [jumpingToLatest, setJumpingToLatest] = useState(false);
   const [clearMessagesConfirmOpen, setClearMessagesConfirmOpen] = useState(false);
   const [titleProfileGroupId, setTitleProfileGroupId] = useState<string | null>(null);
+  const [cloneMemberProfile, setCloneMemberProfile] = useState<{
+    member: User;
+    anchor: { x: number; y: number };
+  } | null>(null);
+  const clonePrivateTarget =
+    cloneMemberProfile &&
+    directory?.virtual.find(
+      (item) =>
+        item.kind === 'persona' && `virtual:${item.ownerId}` === cloneMemberProfile.member.id,
+    );
+  const effectiveOpenGroupMember = generated
+    ? (member: User, anchor: { x: number; y: number }) => setCloneMemberProfile({ member, anchor })
+    : onOpenGroupMember;
   const [mobileComposerEditorHeight, setMobileComposerEditorHeight] = useState(42);
   const [mobileComposerLong, setMobileComposerLong] = useState(false);
   const [mobileComposerExpanded, setMobileComposerExpanded] = useState(false);
@@ -947,7 +961,11 @@ export function ChatPane({
 
   function handleOpenGroupInfoDetail(detail: GroupInfoDetail) {
     if (conversation?.type === 'group') {
-      onOpenGroupInfoDetail?.(conversation, detail);
+      if (generated && detail === 'profile') {
+        setTitleProfileGroupId(conversation.id);
+      } else {
+        onOpenGroupInfoDetail?.(conversation, detail);
+      }
     }
   }
 
@@ -955,6 +973,7 @@ export function ChatPane({
   useEffect(() => {
     setSelectionMenu(null);
     setTitleProfileGroupId(null);
+    setCloneMemberProfile(null);
   }, [conversation?.id]);
 
   // 多选模式下按 Esc 退出。
@@ -1142,7 +1161,7 @@ export function ChatPane({
   const rowStart = useStableCallback(onStartOutgoingMessage);
   const rowToggle = useStableCallback(toggleSelectMessage);
   const rowReaction = useStableCallback(changeMessageReaction);
-  const rowAvatar = useStableCallback(onOpenGroupMember);
+  const rowAvatar = useStableCallback(effectiveOpenGroupMember);
   const rowAvatarMenu = useStableCallback(openAvatarMenu);
   const actionScope = useMemo(() => ({}), [conversation?.id, user.id, tabActive]);
   const actionScopeRef = useRef<object | null>(actionScope);
@@ -1749,13 +1768,15 @@ export function ChatPane({
     }
     function closeAvatarOnEscape(event: globalThis.KeyboardEvent) {
       if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
         closeAvatarMenu();
       }
     }
-    document.addEventListener('keydown', closeAvatarOnEscape);
+    document.addEventListener('keydown', closeAvatarOnEscape, true);
     window.addEventListener('resize', closeAvatarMenu);
     return () => {
-      document.removeEventListener('keydown', closeAvatarOnEscape);
+      document.removeEventListener('keydown', closeAvatarOnEscape, true);
       window.removeEventListener('resize', closeAvatarMenu);
     };
   }, [tabActive, avatarMenuOpen]);
@@ -2841,6 +2862,11 @@ export function ChatPane({
   function startKick(sender: User) {
     setAvatarMenu(null);
     if (conversation?.type !== 'group') {
+      return;
+    }
+    if (generated) {
+      if (sender.clone && onKickGroupMember && sendAvailable)
+        onKickGroupMember(conversation, sender, sender.id);
       return;
     }
     const targetUid = groupTargetUid(sender);
@@ -4969,8 +4995,8 @@ export function ChatPane({
       {...multi.rootProps}
       className={cn(
         'chat-pane',
-        conversation.type === 'group' && !generated ? 'with-group-info' : '',
-        conversation.type === 'group' && !generated && (groupInfoCollapsed || sidecarOpen)
+        conversation.type === 'group' ? 'with-group-info' : '',
+        conversation.type === 'group' && (groupInfoCollapsed || sidecarOpen)
           ? 'group-info-collapsed'
           : '',
         mobileGroupInfoOpen && 'is-mobile-group-info-open',
@@ -5008,18 +5034,17 @@ export function ChatPane({
         title={
           <>
             {conversation.type === 'group' ||
-            (conversation.type === 'direct' && onOpenGroupMember) ? (
+            (conversation.type === 'direct' && effectiveOpenGroupMember) ? (
               <button
                 className={cn('chat-title-text', 'weq-conversation-title-profile')}
                 type="button"
-                disabled={generated}
                 title={conversation.type === 'group' ? '查看群名片' : '查看好友名片'}
                 onClick={(event) => {
                   if (conversation.type === 'group') {
                     setTitleProfileGroupId(conversation.id);
                   } else if (conversation.type === 'direct') {
                     const rect = event.currentTarget.getBoundingClientRect();
-                    onOpenGroupMember?.(conversation.otherUser, {
+                    effectiveOpenGroupMember?.(conversation.otherUser, {
                       x: rect.left,
                       y: rect.bottom,
                     });
@@ -5102,7 +5127,7 @@ export function ChatPane({
                 onRecalled={onViewRecalled}
               />
             ) : null}
-            {conversation.type === 'group' && !generated ? (
+            {conversation.type === 'group' ? (
               <>
                 {!sidecarOpen ? (
                   <button
@@ -5152,9 +5177,30 @@ export function ChatPane({
       {conversation.type === 'group' && titleProfileGroupId === conversation.id ? (
         <GroupProfileDialog
           conversation={conversation}
+          onOpenMember={generated ? effectiveOpenGroupMember : undefined}
+          onOpenChat={generated ? () => setTitleProfileGroupId(null) : undefined}
           onClose={() => setTitleProfileGroupId(null)}
         />
       ) : null}
+      {generated && cloneMemberProfile ? (
+        <CloneMemberProfileCard
+          key={cloneMemberProfile.member.id}
+          member={cloneMemberProfile.member}
+          anchor={cloneMemberProfile.anchor}
+          user={user}
+          conversation={conversation}
+          messages={messages}
+          onOpenChat={
+            conversation.type === 'direct'
+              ? () => setCloneMemberProfile(null)
+              : clonePrivateTarget && directory
+                ? () => directory.onVirtual(clonePrivateTarget)
+                : undefined
+          }
+          onClose={() => setCloneMemberProfile(null)}
+        />
+      ) : null}
+
       <IntentSenseProvider
         kind={intentKind}
         conv={intentConv}
@@ -5378,11 +5424,11 @@ export function ChatPane({
                       onAvatarClick={
                         !selectionMode &&
                         (conversation.type === 'group' || conversation.type === 'direct') &&
-                        onOpenGroupMember
+                        effectiveOpenGroupMember
                           ? rowAvatar
                           : undefined
                       }
-                      onAvatarContextMenu={!selectionMode && !generated ? rowAvatarMenu : undefined}
+                      onAvatarContextMenu={!selectionMode ? rowAvatarMenu : undefined}
                     />
                   </Fragment>,
                 );
@@ -5513,7 +5559,7 @@ export function ChatPane({
         </button>
       ) : null}
 
-      {conversation.type === 'group' && !generated ? (
+      {conversation.type === 'group' ? (
         <>
           {!sidecarOpen ? (
             <button
@@ -5543,8 +5589,8 @@ export function ChatPane({
               onOpenAlbums={onOpenGroupAlbums ? () => onOpenGroupAlbums(conversation) : undefined}
               onOpenFiles={onOpenGroupFiles ? () => onOpenGroupFiles(conversation) : undefined}
               onClose={mobileGroupInfoOpen ? () => setMobileGroupInfoOpen(false) : undefined}
-              onOpenMember={onOpenGroupMember}
-              onMemberContextMenu={!selectionMode && !generated ? openAvatarMenu : undefined}
+              onOpenMember={effectiveOpenGroupMember}
+              onMemberContextMenu={!selectionMode ? openAvatarMenu : undefined}
               onLoadMoreMembers={onLoadMoreGroupMembers}
               onAddMember={onAddGroupMember}
               loadingMoreMembers={groupMembersLoading}
@@ -6408,7 +6454,7 @@ export function ChatPane({
           onClose={() => setAvatarMenu(null)}
           state={avatarMenu}
           onAnalyze={
-            conversation?.type === 'group' && directory?.onAnalyzeMember
+            !generated && conversation?.type === 'group' && directory?.onAnalyzeMember
               ? (member) => {
                   setAvatarMenu(null);
                   directory.onAnalyzeMember(conversation, member);
@@ -6417,21 +6463,33 @@ export function ChatPane({
           }
           onMention={conversation?.type === 'group' ? mentionAvatar : undefined}
           onPoke={pokeAvatar}
-          pokeBlockedReason={pokeBlockedReason}
+          pokeBlockedReason={generated ? qqUnavailable : pokeBlockedReason}
           onChangeCard={startCardEdit}
           onChangeTitle={startTitleEdit}
           onKick={startKick}
           onMute={muteAvatar}
           onToggleAdmin={toggleAvatarAdmin}
-          showChangeCard={avatarMenuFlags?.showChangeCard ?? false}
+          showChangeCard={!generated && (avatarMenuFlags?.showChangeCard ?? false)}
           showChangeTitle={
-            Boolean(avatarMenuFlags?.showChangeTitle) && Boolean(onChangeGroupMemberTitle)
+            !generated &&
+            Boolean(avatarMenuFlags?.showChangeTitle) &&
+            Boolean(onChangeGroupMemberTitle)
           }
-          showKick={avatarMenuFlags?.showKick ?? false}
-          showMute={avatarMenuFlags?.showMute ?? false}
-          showSetAdmin={avatarMenuFlags?.showSetAdmin ?? false}
-          showUnsetAdmin={avatarMenuFlags?.showUnsetAdmin ?? false}
-          moderationBlockedReason={moderationBlockedReason}
+          showKick={
+            generated
+              ? Boolean(avatarMenu.sender.clone && onKickGroupMember)
+              : (avatarMenuFlags?.showKick ?? false)
+          }
+          showMute={!generated && (avatarMenuFlags?.showMute ?? false)}
+          showSetAdmin={!generated && (avatarMenuFlags?.showSetAdmin ?? false)}
+          showUnsetAdmin={!generated && (avatarMenuFlags?.showUnsetAdmin ?? false)}
+          moderationBlockedReason={
+            generated
+              ? !sendAvailable
+                ? sendBlockedReason || '当前无法移除成员'
+                : undefined
+              : moderationBlockedReason
+          }
         />
       ) : null}
       {reactionPicker ? (

@@ -1,4 +1,5 @@
-.weq-conversation-title-profile {
+.weq-conversation-title-profile,
+.weq-message-name-profile {
   display: block;
   padding: 0;
   border: 0;
@@ -11,11 +12,13 @@
   cursor: pointer;
 }
 
-.weq-conversation-title-profile:hover {
+.weq-conversation-title-profile:hover,
+.weq-message-name-profile:hover {
   color: var(--weq-accent-effective);
 }
 
-.weq-conversation-title-profile:focus-visible {
+.weq-conversation-title-profile:focus-visible,
+.weq-message-name-profile:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: -2px;
 }
@@ -26,4 +29,15 @@ html[data-theme='dark'] .weq-conversation-title-profile {
 
 html[data-theme='dark'] .weq-conversation-title-profile:hover {
   color: var(--weq-accent-effective);
+}
+
+.weq-group-profile-member-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-group-profile-member-button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
 }

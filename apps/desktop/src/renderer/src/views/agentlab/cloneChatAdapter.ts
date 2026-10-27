@@ -8,8 +8,8 @@ import type { GeneratedContentIdentity } from '../../../../shared/content_select
 export function cloneChatUser(id: string, name: string, uin?: string, clone = false): User {
   return {
     id: `virtual:${id}`,
-    identityLabel: '',
-    identityValue: uin || `virtual:${id}`,
+    identityLabel: clone ? '克隆体' : '',
+    identityValue: clone ? `virtual:${id}` : uin || `virtual:${id}`,
     username: name,
     displayName: name,
     avatarUrl: uin ? qqAvatarUrl(uin) : null,
