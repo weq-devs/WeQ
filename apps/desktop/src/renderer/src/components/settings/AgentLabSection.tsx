@@ -762,12 +762,11 @@ export function AgentLabSection(): ReactElement {
                       <input
                         className="weq-set-input"
                         aria-label={`模型 ${index + 1} ID`}
-                        style={{ flex: '1 1 200px' }}
                         value={model.id}
                         onChange={(e) => updateModel(index, { id: e.target.value })}
                         placeholder="模型 id，如 deepseek-ai/DeepSeek-V3"
                       />
-                      <div style={{ display: 'flex', gap: 4 }}>
+                      <div className="weq-provider-model-capabilities">
                         <CheckPillGroup
                           options={CAPABILITIES}
                           selected={model.capabilities}
@@ -776,7 +775,7 @@ export function AgentLabSection(): ReactElement {
                       </div>
                       <button
                         type="button"
-                        className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                        className="weq-set-btn weq-set-btn-soft weq-set-btn-sm weq-provider-model-detect"
                         onClick={() => void onDetectCapabilities(index)}
                         disabled={
                           detectingModel !== null || !model.id.trim() || !form.baseUrl.trim()
@@ -789,7 +788,7 @@ export function AgentLabSection(): ReactElement {
                         ) : (
                           <FlaskConical size={12} />
                         )}
-                        {detectingModel === index ? '检测中' : '自动检测能力'}
+                        <span>{detectingModel === index ? '检测中' : '自动检测能力'}</span>
                       </button>
                       <button
                         type="button"
