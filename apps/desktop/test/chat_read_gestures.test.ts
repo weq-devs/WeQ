@@ -30,6 +30,90 @@ afterEach(() => {
 });
 
 describe('新消息按钮已读行为', () => {
+  it.each(['bottom', 'history', 'saved', 'interrupted'])(
+    '异步内容增高只延续底部位置，不覆盖阅读锚点或新手势：%s',
+    (mode) => {
+      vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+      vi.stubGlobal('localStorage', new Storage());
+      const frames: FrameRequestCallback[] = [];
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+        frames.push(callback);
+        return frames.length;
+      });
+      const observers: { targets: Set<Element>; fire: () => void }[] = [];
+      vi.stubGlobal(
+        'ResizeObserver',
+        class implements ResizeObserver {
+          targets = new Set<Element>();
+          constructor(callback: ResizeObserverCallback) {
+            observers.push({ targets: this.targets, fire: () => callback([], this) });
+          }
+          observe(target: Element) {
+            this.targets.add(target);
+          }
+          unobserve(target: Element) {
+            this.targets.delete(target);
+          }
+          disconnect() {
+            this.targets.clear();
+          }
+        },
+      );
+      settings.value = { autoFollowLatestMessages: false };
+      const demo = createTemplateDemoData();
+      const conversation = demo.conversations.find((item) => item.type === 'direct')!;
+      const host = document.createElement('div');
+      document.body.append(host);
+      const root = createRoot(host);
+      try {
+        act(() =>
+          root.render(
+            createElement(ChatPane, {
+              user: demo.user,
+              conversation,
+              messages: [{ ...demo.messages[0]!, conversationId: conversation.id }],
+              draft: '',
+              initialReadingPosition: mode === 'saved' ? { scrollTop: 120 } : undefined,
+            }),
+          ),
+        );
+        const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+        let height = 1200;
+        Object.defineProperties(scroll, {
+          scrollHeight: { configurable: true, get: () => height },
+          clientHeight: { configurable: true, value: 400 },
+        });
+        const move = (top: number) => {
+          scroll.scrollTop = top;
+          scroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+        };
+        act(() => {
+          if (mode !== 'saved') move(mode === 'history' ? 100 : 800);
+          for (const callback of frames.splice(0)) callback(0);
+          if (mode === 'bottom' || mode === 'interrupted') move(800);
+        });
+        const observer = observers.find((item) =>
+          [...item.targets].some((target) => target.classList.contains('weq-virtual-timeline')),
+        )!;
+        const beforeGrowth = scroll.scrollTop;
+        act(() => {
+          height = 1400;
+          if (mode === 'bottom') move(850);
+          observer.fire();
+          if (mode === 'interrupted') {
+            // 手势先到、滚动事件尚未到时也必须取消已排队的补偿。
+            scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -100 }));
+          }
+          for (const callback of frames.splice(0)) callback(0);
+        });
+        expect(scroll.scrollTop).toBe(mode === 'bottom' ? 1400 : beforeGrowth);
+      } finally {
+        act(() => root.unmount());
+        host.remove();
+      }
+    },
+  );
+
   it.each([
     [true, true],
     [false, true],

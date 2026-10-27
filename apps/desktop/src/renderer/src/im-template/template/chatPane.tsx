@@ -992,6 +992,7 @@ export function ChatPane({
   const expandedComposerEditorRef = useRef<HTMLDivElement | null>(null);
   const composerSelectionRef = useRef<Range | null>(null);
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
+  const timelineContentRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   // Tracks whether the view is pinned to the bottom of the message list.
   // Drives auto-scroll-on-new-message vs. "new messages" pill behaviour.
@@ -1030,6 +1031,11 @@ export function ChatPane({
   const scrollConversationRef = useRef<string | null>(null);
   const bottomAfterLoadingRef = useRef(false);
   const scrollAtLatestRef = useRef(atLatest);
+  const bottomLayoutRef = useRef<{
+    height: number;
+    viewportHeight: number;
+    revision: number | undefined;
+  } | null>(null);
   const unreadSeedRef = useRef<UnreadJumpSeed | null>(null);
   const unreadConversationRef = useRef<string | null>(null);
   const unreadScrollFrameRef = useRef<number | null>(null);
@@ -1444,6 +1450,7 @@ export function ChatPane({
       scrollConversationRef.current = conversationId;
       lastMessageIdRef.current = newestId;
       readingPositionApplied.current = false;
+      bottomLayoutRef.current = null;
       bottomAfterLoadingRef.current = !initialReadingPosition && (loading || loadingNewer);
       atBottomRef.current = !initialReadingPosition;
       setNewMessagePill(0);
@@ -1556,6 +1563,40 @@ export function ChatPane({
     user.id,
     mediaSettings.data?.autoFollowLatestMessages,
   ]);
+
+  useLayoutEffect(() => {
+    const scroll = messageScrollRef.current;
+    const content = timelineContentRef.current;
+    if (!tabActive || loading || !scroll || !content) return;
+    // 意图标签、图片及建议回复异步改变内容或视口高度时，延续原来的下沿位置。
+    // 新消息是否跟随仍由上面的 effect 决定；阅读历史和恢复锚点时不接管。
+    let frame: number | undefined;
+    const observer = new ResizeObserver(() => {
+      if (frame !== undefined) return;
+      const viewport = timelineViewport(scroll);
+      const revision = viewport?.scrollRevision?.();
+      frame = window.requestAnimationFrame(() => {
+        frame = undefined;
+        const current = readContextRef.current;
+        if (
+          revision === viewport?.scrollRevision?.() &&
+          bottomLayoutRef.current?.revision === viewport?.scrollRevision?.() &&
+          atBottomRef.current &&
+          current.tabActive &&
+          current.atLatest &&
+          !current.loading &&
+          scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop > 1
+        )
+          scrollMessagesToBottomRef.current();
+      });
+    });
+    observer.observe(scroll);
+    observer.observe(content);
+    return () => {
+      observer.disconnect();
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+    };
+  }, [tabActive, loading, conversation?.id, visibleMessages.length]);
 
   // 历史窗口不追加实时消息；沿用服务端已排除自己的入站未读数，不用序号差猜条数。
   useEffect(() => {
@@ -4373,6 +4414,11 @@ export function ChatPane({
     if (viewport) viewport.bottom();
     else scroll.scrollTop = scroll.scrollHeight;
     atBottomRef.current = true;
+    bottomLayoutRef.current = {
+      height: scroll.scrollHeight,
+      viewportHeight: scroll.clientHeight,
+      revision: viewport?.scrollRevision?.(),
+    };
     lastScrollTopRef.current = scroll.scrollTop;
     setShowBottomJump(false);
     setNewMessagePill(0);
@@ -4460,13 +4506,32 @@ export function ChatPane({
     const scroll = messageScrollRef.current;
     if (!scroll) return;
     const bottom = isScrolledToBottom();
+    const layout = bottomLayoutRef.current;
+    const revision = timelineViewport(scroll)?.scrollRevision?.();
+    // 原生布局锚定也会派发 scroll；高度已变且没有新手势时，不当作用户离开底部。
+    const bottomResized =
+      atBottomRef.current &&
+      layout !== null &&
+      layout.height > 0 &&
+      layout.viewportHeight > 0 &&
+      layout.revision === revision &&
+      (layout.height !== scroll.scrollHeight || layout.viewportHeight !== scroll.clientHeight);
     const delta = scroll.scrollTop - lastScrollTopRef.current;
     lastScrollTopRef.current = scroll.scrollTop;
     if (bottom && atLatest) setShowBottomJump(false);
     else if (Math.abs(delta) > 1) setShowBottomJump(delta > 0);
-    if (!bottom || !initialReadingPosition || readGestureUntil.current > performance.now()) {
+    if (
+      !bottomResized &&
+      (!bottom || !initialReadingPosition || readGestureUntil.current > performance.now())
+    ) {
       atBottomRef.current = bottom;
     }
+    if (bottom && atLatest)
+      bottomLayoutRef.current = {
+        height: scroll.scrollHeight,
+        viewportHeight: scroll.clientHeight,
+        revision,
+      };
     if (bottom && readGestureUntil.current > performance.now()) requestReadAtBottom();
     if (bottom && atLatest && newMessagePill > 0) {
       setNewMessagePill(0);
@@ -5346,6 +5411,7 @@ export function ChatPane({
               });
               return (
                 <div
+                  ref={timelineContentRef}
                   className={cn('weq-virtual-timeline', timeline.enabled && 'is-windowed')}
                   role="list"
                   aria-label="聊天消息"

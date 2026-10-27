@@ -1,4 +1,4 @@
-import { createElement, useState } from 'react';
+import { createElement, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
@@ -20,6 +20,9 @@ import type { Message } from '../../src/renderer/src/im-template/template/types'
 import '../../src/renderer/src/styles/index.css';
 
 const demo = createTemplateDemoData();
+const params = new URLSearchParams(location.search);
+const entryCount = Number(params.get('count') ?? 3000);
+const delayedEntry = params.has('delayed');
 const avatar =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII=';
 const image = (() => {
@@ -70,18 +73,34 @@ let pendingRestore: ReturnType<typeof captureReadingPosition> | undefined;
 Object.assign(window, { timelineTest: bridge });
 
 function Fixture() {
+  const [conversationId, setConversationId] = useState(conversation.id);
   const [messages, setMessages] = useState(() =>
-    Array.from({ length: 3000 }, (_, i) => message(i + 1001)),
+    Array.from({ length: delayedEntry ? 0 : entryCount }, (_, i) => message(i + 1001)),
   );
+  const [loading, setLoading] = useState(delayedEntry);
+  useEffect(() => {
+    if (!delayedEntry) return;
+    const timer = setTimeout(() => {
+      setMessages(Array.from({ length: entryCount }, (_, i) => message(i + 1001)));
+      setLoading(false);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
   const [atLatest, setAtLatest] = useState(true);
   const [active, setActive] = useState(true);
-  const [initialPosition, setInitialPosition] = useState(true);
+  const [initialPosition, setInitialPosition] = useState(!params.has('entry'));
   const selection = useContentMultiSelect({
     kind: 'messages',
     container: `direct:${conversation.id}`,
   });
   const exportRequest = useContentExportRequest();
   Object.assign(bridge, {
+    reenter: () => {
+      setConversationId((id) => `${id}-next`);
+      setMessages(Array.from({ length: entryCount }, (_, i) => message(i + 1001)));
+      setAtLatest(true);
+      setInitialPosition(false);
+    },
     setCount: (count: number) =>
       setMessages(Array.from({ length: count }, (_, i) => message(i + 1001))),
     jump: (id: string) => revealTimelineMessage(scroll(), id, true),
@@ -155,6 +174,15 @@ function Fixture() {
       const row = scroll().querySelector<HTMLElement>(`[data-message-id="${id}"]`);
       if (row) row.style.minHeight = '650px';
     },
+    growTail: () => {
+      const row = scroll().querySelector('[role="listitem"]:last-child');
+      if (row) {
+        const analysis = document.createElement('div');
+        analysis.style.height = '100px';
+        analysis.textContent = '合成异步分析结果';
+        row.append(analysis);
+      }
+    },
   });
   return createElement(
     'div',
@@ -168,11 +196,11 @@ function Fixture() {
     },
     createElement(ChatPane, {
       user,
-      conversation,
+      conversation: { ...conversation, id: conversationId },
       messages,
       messageRenderers: [qqMessageRenderer],
       atLatest,
-      loading: false,
+      loading,
       draft: '',
       tabActive: active,
       initialReadingPosition: initialPosition ? { scrollTop: 0 } : undefined,

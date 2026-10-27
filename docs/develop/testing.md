@@ -51,6 +51,14 @@ node apps/desktop/test/browser/run-style-consistency.mjs
 `WEQ_BROWSER_EXECUTABLE` 可指定已有 Chromium 浏览器，`WEQ_STYLE_ARTIFACTS` 可指定截图目录。
 脚本结束后会关闭自己创建的浏览器和测试服务，不使用真实 QQ 数据。
 
+会话进入与下沿保持回归使用真实 ChatPane 和意图感知组件，合成延迟结果，覆盖短列表与
+虚拟长列表、深浅色、桌面与窄屏、自动跟随开关、异步增高和窗口缩小；主动向上滚动后
+必须保留阅读锚点。Playwright 与浏览器路径沿用上面的环境变量。
+
+```bash
+node apps/desktop/test/browser/run-conversation-entry.mjs
+```
+
 ## 合并与夹具
 
 - 同领域、同依赖且没有模块 mock 的小测试可合并成一个文件，各自的 `describe` 保留局部夹具和 hook 作用域，减少重复 worker 启动和依赖加载。
