@@ -884,6 +884,13 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setAutoFollowLatestMessages: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ autoFollowLatestMessages: input.enabled });
+      return true;
+    }),
+
   setJumpToLatestAfterSend: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {

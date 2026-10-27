@@ -112,6 +112,7 @@ describe('阅读与群助手', () => {
     const { platform, service: config } = fixture({ settings: { showMessageTime: true } });
     const defaults = {
       readFromFirstUnread: false,
+      autoFollowLatestMessages: true,
       jumpToLatestAfterSend: true,
       showScrollToBottomButton: true,
       sendWithQqFont: true,
@@ -120,6 +121,7 @@ describe('阅读与群助手', () => {
     expect(DEFAULT_APP_SETTINGS).toMatchObject(defaults);
     expect(config.getSettings()).toMatchObject({ ...defaults, showMessageTime: true });
     config.setSettings({ readFromFirstUnread: true });
+    config.setSettings({ autoFollowLatestMessages: false });
     config.setSettings({ jumpToLatestAfterSend: false });
     config.setSettings({ showScrollToBottomButton: false });
     config.setSettings({ sendWithQqFont: false });
@@ -127,6 +129,7 @@ describe('阅读与群助手', () => {
     config.setSettings({ showMessageTime: false });
     expect(new UserConfigService(platform).getSettings()).toMatchObject({
       readFromFirstUnread: true,
+      autoFollowLatestMessages: false,
       jumpToLatestAfterSend: false,
       showScrollToBottomButton: false,
       sendWithQqFont: false,

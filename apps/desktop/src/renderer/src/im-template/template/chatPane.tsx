@@ -1440,7 +1440,11 @@ export function ChatPane({
     // 早退就会停在第一页中间而不是底部。仍钉在底部（且是实时窗口）时就跟着贴底；
     // 用户在看历史（atBottom=false）或脱离实时窗口时不动。
     if (newestId === lastMessageIdRef.current) {
-      if (atBottomRef.current && atLatest) {
+      if (
+        atBottomRef.current &&
+        atLatest &&
+        mediaSettings.data?.autoFollowLatestMessages !== false
+      ) {
         scrollMessagesToBottomRef.current();
       }
       return;
@@ -1460,8 +1464,11 @@ export function ChatPane({
       return;
     }
 
-    // Pinned to bottom → follow the new message down, no pill.
-    if (atBottomRef.current) {
+    // 首次加载仍定位底部；后续新消息是否贴底由偏好决定。
+    if (
+      atBottomRef.current &&
+      (prevId === null || mediaSettings.data?.autoFollowLatestMessages !== false)
+    ) {
       setNewMessagePill(0);
       scrollMessagesToBottomRef.current();
       const frame = window.requestAnimationFrame(() => {
@@ -1477,7 +1484,8 @@ export function ChatPane({
       return () => window.cancelAnimationFrame(frame);
     }
 
-    // Reading history → surface the pill instead of yanking the view down.
+    // 阅读历史或关闭自动跟随时保留当前位置，仍提示他人发送的新消息。
+    atBottomRef.current = false;
     setNewMessagePill((current) => current + appended);
     return;
   }, [
@@ -1489,6 +1497,7 @@ export function ChatPane({
     atLatest,
     initialReadingPosition,
     user.id,
+    mediaSettings.data?.autoFollowLatestMessages,
   ]);
 
   // 历史窗口不追加实时消息；沿用服务端已排除自己的入站未读数，不用序号差猜条数。

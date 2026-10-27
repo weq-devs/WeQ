@@ -20,7 +20,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     });
   return { trpc: proxy(), client: proxy() };
 });
-const settings = vi.hoisted(() => ({ value: {} as { showScrollToBottomButton?: boolean } }));
+const settings = vi.hoisted(() => ({
+  value: {} as { showScrollToBottomButton?: boolean; autoFollowLatestMessages?: boolean },
+}));
 afterEach(() => {
   settings.value = {};
   vi.restoreAllMocks();
@@ -28,6 +30,81 @@ afterEach(() => {
 });
 
 describe('新消息按钮已读行为', () => {
+  it.each([undefined, true, false])(
+    '自动跟随=%s：底部追加、原尾部刷新及手动定位互不混淆',
+    (enabled) => {
+      vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+      vi.stubGlobal('localStorage', new Storage());
+      vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+      settings.value = { autoFollowLatestMessages: enabled };
+      const demo = createTemplateDemoData();
+      const conversation = demo.conversations.find((item) => item.type === 'group')!;
+      const first = {
+        ...demo.messages[0]!,
+        id: 'first',
+        conversationId: conversation.id,
+        senderId: 'peer',
+      };
+      const host = document.createElement('div');
+      document.body.append(host);
+      const root = createRoot(host);
+      const props = { user: demo.user, conversation, draft: '', atLatest: true };
+      const render = (messages: (typeof first)[], loading = false) =>
+        act(() => root.render(createElement(ChatPane, { ...props, messages, loading })));
+      try {
+        render([], true);
+        const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+        Object.defineProperties(scroll, {
+          scrollHeight: { configurable: true, value: 1200 },
+          clientHeight: { configurable: true, value: 400 },
+        });
+        render([first]);
+        expect(scroll.scrollTop).toBe(1200);
+        expect(host.querySelector('.new-message-pill')).toBeNull();
+        act(() => {
+          scroll.scrollTop = 800;
+          scroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+        });
+        // 尾部不变的补全也必须遵守开关。
+        render([{ ...first }]);
+        expect(scroll.scrollTop).toBe(enabled === false ? 800 : 1200);
+        const second = { ...first, id: 'second' };
+        render([first, second]);
+        expect(scroll.scrollTop).toBe(enabled === false ? 800 : 1200);
+        if (enabled === false) {
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+          const own = { ...first, id: 'own', senderId: demo.user.id };
+          render([first, second, own]);
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+          expect(scroll.scrollTop).toBe(800);
+          act(() => host.querySelector<HTMLButtonElement>('.new-message-bottom')!.click());
+          expect(scroll.scrollTop).toBe(1200);
+          expect(host.querySelector('.new-message-pill')).toBeNull();
+          render([first, second, own, { ...first, id: 'third' }]);
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+          // 重开跟随不打断已经保留的阅读位置，回到底部后再开始跟随。
+          settings.value = { autoFollowLatestMessages: true };
+          render([first, second, own, { ...first, id: 'third' }]);
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+          act(() => host.querySelector<HTMLButtonElement>('.new-message-bottom')!.click());
+          render([first, second, own, { ...first, id: 'fourth' }]);
+          expect(host.querySelector('.new-message-pill')).toBeNull();
+        } else {
+          expect(host.querySelector('.new-message-pill')).toBeNull();
+          act(() => {
+            scroll.scrollTop = 100;
+            scroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+          });
+          render([first, second, { ...first, id: 'third' }]);
+          expect(scroll.scrollTop).toBe(100);
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+        }
+      } finally {
+        act(() => root.unmount());
+        host.remove();
+      }
+    },
+  );
   it.each(['direct', 'group'])(
     '%s 向下浏览复用底部按钮及预览，反向、到达底部和切换会话时收起，开关不影响新消息提醒',
     (kind) => {

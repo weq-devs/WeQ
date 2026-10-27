@@ -634,6 +634,7 @@ function AppearanceSection({
   const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
   const setShowContactUnreadCount = trpc.bootstrap.setShowContactUnreadCount.useMutation();
   const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
+  const setAutoFollowLatestMessages = trpc.bootstrap.setAutoFollowLatestMessages.useMutation();
   const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
   const setShowScrollToBottomButton = trpc.bootstrap.setShowScrollToBottomButton.useMutation();
   const setSendWithQqFont = trpc.bootstrap.setSendWithQqFont.useMutation();
@@ -788,6 +789,13 @@ function AppearanceSection({
               label: '从第一条新消息开始阅读',
               fallback: false,
               mutation: setReadFromFirstUnread,
+            },
+            {
+              key: 'autoFollowLatestMessages' as const,
+              settingId: 'auto-follow-latest-messages',
+              label: '自动跟随最新消息',
+              fallback: true,
+              mutation: setAutoFollowLatestMessages,
             },
             {
               key: 'jumpToLatestAfterSend' as const,
