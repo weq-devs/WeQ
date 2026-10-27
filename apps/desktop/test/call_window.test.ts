@@ -351,6 +351,84 @@ it('只有本端开摄像头时是 self-only 布局，本端画面铺满主区�
   }
 });
 
+/**
+ * 旋转按钮：对端在发视频时才出现，点一下角度往前走一格。
+ *
+ * 自动判方向被否掉了（见 lib/callVideo.ts 里 PEER_ROTATE 的注释），所以这条按钮
+ * 是用户唯一的手段 —— 它不见了或点了没反应，就等于功能没了。
+ */
+it('对端在发视频时出现旋转按钮，点一下角度前进', async () => {
+  const { app, popups } = await mountWithState({ videoReceiving: true });
+  try {
+    const rotate = () =>
+      popups.at(-1)?.document.querySelector<HTMLButtonElement>('button[data-rotation]');
+    expect(rotate()).not.toBeNull();
+    expect(rotate()!.dataset.rotation).toBe('0');
+
+    await act(async () => {
+      rotate()!.click();
+    });
+    expect(rotate()!.dataset.rotation).toBe('90');
+
+    await act(async () => {
+      rotate()!.click();
+    });
+    expect(rotate()!.dataset.rotation).toBe('270');
+
+    await act(async () => {
+      rotate()!.click();
+    });
+    expect(rotate()!.dataset.rotation).toBe('0');
+  } finally {
+    await app.dispose();
+    for (const popup of popups) popup.close();
+  }
+});
+
+it('对端没开视频时不出现旋转按钮', async () => {
+  const { app, popups } = await mountWithState({});
+  try {
+    expect(popups.at(-1)?.document.querySelector('button[data-rotation]')).toBeNull();
+  } finally {
+    await app.dispose();
+    for (const popup of popups) popup.close();
+  }
+});
+
+/**
+ * 回归：挂断后不能再挂着「等待对方画面…」。
+ *
+ * 服务端推来的最后一次快照里 `videoReceiving` 可能仍是 true（看门狗还没把它
+ * 收敛成 false），而旧实现直接拿它决定要不要挂对端画面 —— 结果是「已挂断」下面
+ * 还挂着一块永远等不到的加载态。
+ */
+it('挂断后即使 videoReceiving 还是 true，也不显示等待画面', async () => {
+  const { app, popups, stage } = await mountWithState({ videoReceiving: true });
+  try {
+    // 先确认接通时确实是视频布局（对照组）。
+    expect(stage()?.getAttribute('data-layout')).toBe('peer');
+    expect(popups.at(-1)?.document.querySelector('.weq-call-peer-video')).not.toBeNull();
+
+    // 挂断：状态变成 ended，但 videoReceiving 仍是 true。
+    await act(async () => {
+      mocks.state?.onData({
+        ...initial,
+        state: 'ended',
+        endReason: 'peer_hangup',
+        videoReceiving: true,
+      });
+    });
+
+    expect(stage()?.getAttribute('data-layout')).not.toBe('peer');
+    expect(popups.at(-1)?.document.querySelector('.weq-call-peer-video')).toBeNull();
+    // 「等待对方画面」的文案也不该在。
+    expect(popups.at(-1)?.document.body.textContent ?? '').not.toContain('等待对方画面');
+  } finally {
+    await app.dispose();
+    for (const popup of popups) popup.close();
+  }
+});
+
 it('未接通时摄像头按钮不可点', async () => {
   const popups: HappyWindow[] = [];
   vi.spyOn(window, 'open').mockImplementation(() => {

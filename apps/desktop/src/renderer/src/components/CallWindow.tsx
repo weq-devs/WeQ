@@ -22,6 +22,7 @@ import { resourceUrl } from '../lib/resourceUrl';
 import { requestOpenSettings } from '../lib/callSettingsBridge';
 import { useToolWindow } from '../hooks/useCompositionWindow';
 import { useCallAudio } from '../hooks/useCallAudio';
+import { nextRotation } from '../lib/callVideo';
 import { useCallVideo } from '../hooks/useCallVideo';
 import { useCallCamera } from '../hooks/useCallCamera';
 import { useCallRecorder } from '../hooks/useCallRecorder';
@@ -115,15 +116,33 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   const [muted, setMuted] = useState(false);
   const [speakerOff, setSpeakerOff] = useState(false);
   const [backdropFailed, setBackdropFailed] = useState(false);
+  /**
+   * 对端画面的旋转角度（用户手动切）。
+   *
+   * 不通话时归零：下一通可能换个设备，沿用上一通的角度只会让人先看到歪的。
+   */
+  const [peerRotation, setPeerRotation] = useState<0 | 90 | 270>(0);
 
   const finished = info.state === 'ended' || info.state === 'failed';
   const live = info.state === 'connected';
+  /**
+   * 对端是否在发视频。
+   *
+   * ⚠️ **必须叠加 `live`。** 挂断后服务端的最后一次快照里 `videoReceiving` 仍可能
+   * 是 true（看门狗还没来得及把它收敛），于是界面在「已挂断」之后还挂着
+   * 「等待对方画面…」的加载态 —— 通话都结束了，等的那块画面永远不会来。
+   */
+  const peerVideoOn = live && info.videoReceiving;
   /** 对端在发视频（或本端开着摄像头）时才有必要跑解码 / 画中画。 */
-  const videoLayout = info.videoReceiving || info.videoSending;
+  const videoLayout = peerVideoOn || info.videoSending;
   const peerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const selfCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const videoEnabled = live && info.videoReceiving;
-  const video = useCallVideo({ enabled: videoEnabled, canvasRef: peerCanvasRef });
+  const videoEnabled = peerVideoOn;
+  const video = useCallVideo({
+    enabled: videoEnabled,
+    canvasRef: peerCanvasRef,
+    rotate: peerRotation,
+  });
   // 本端摄像头：开关由按钮控制，采集后转 I420 推给主进程编码。
   const camera = useCallCamera({ enabled: live && info.videoSending });
   // 采集错误要告诉用户（权限被拒 / 没有设备），否则会以为「点了没反应」。
@@ -286,6 +305,11 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     else void recorder.begin();
   }, [recorder]);
 
+  /** 旋转按钮：0° → 顺时针 90° → 逆时针 90° → 0°。 */
+  const handleRotate = useCallback(() => {
+    setPeerRotation((current) => nextRotation(current));
+  }, []);
+
   /**
    * 摄像头开关。
    *
@@ -357,9 +381,9 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
             backgroundVideoUrl={info.backgroundVideoUrl}
             backdropFailed={backdropFailed}
             onBackdropError={() => setBackdropFailed(true)}
-            peerCanvasRef={info.videoReceiving ? peerCanvasRef : undefined}
+            peerCanvasRef={peerVideoOn ? peerCanvasRef : undefined}
             peerVideoActive={video.active}
-            peerVideoOn={info.videoReceiving}
+            peerVideoOn={peerVideoOn}
             selfCanvasRef={videoLayout ? selfCanvasRef : undefined}
             selfVideoOn={info.videoSending}
             selfVideoElement={camera.video}
@@ -394,6 +418,9 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
             onToggleCamera={handleToggleCamera}
             onToggleRecording={handleToggleRecording}
             onHangup={handleHangup}
+            canRotate={peerVideoOn}
+            rotation={peerRotation}
+            onRotate={handleRotate}
           />
 
           <CallSettingsDrawer

@@ -5,7 +5,18 @@
  */
 
 import type { ReactNode } from 'react';
-import { Disc, Mic, MicOff, PhoneOff, Video, VideoOff, Volume2, VolumeX } from 'lucide-react';
+import {
+  Disc,
+  Mic,
+  MicOff,
+  PhoneOff,
+  RotateCcw,
+  RotateCw,
+  Video,
+  VideoOff,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 
 export interface CallControlsProps {
   muted: boolean;
@@ -25,6 +36,11 @@ export interface CallControlsProps {
   onToggleCamera: () => void;
   onToggleRecording: () => void;
   onHangup: () => void;
+  /** 是否显示「旋转画面」按钮（对端在发视频时才需要）。 */
+  canRotate: boolean;
+  /** 当前旋转角度。 */
+  rotation: 0 | 90 | 270;
+  onRotate: () => void;
   /** 额外按钮（未来：屏幕共享）。 */
   extra?: ReactNode;
 }
@@ -43,6 +59,9 @@ export function CallControls({
   onToggleCamera,
   onToggleRecording,
   onHangup,
+  canRotate,
+  rotation,
+  onRotate,
   extra,
 }: CallControlsProps) {
   return (
@@ -79,6 +98,22 @@ export function CallControls({
       >
         <Disc size={22} />
       </button>
+
+      {/* 画面方向只能由用户判断：码流里没有任何朝向信息（见 lib/callVideo.ts 的
+          PEER_ROTATE 注释），所以给一个按钮而不是自动转。 */}
+      {canRotate ? (
+        <button
+          type="button"
+          className={`weq-call-btn${rotation === 0 ? ' is-off' : ''}`}
+          onClick={onRotate}
+          disabled={finished}
+          title={rotation === 0 ? '旋转画面' : `再转一次（当前 ${rotation}°）`}
+          aria-label="旋转对方画面"
+          data-rotation={rotation}
+        >
+          {rotation === 270 ? <RotateCcw size={22} /> : <RotateCw size={22} />}
+        </button>
+      ) : null}
 
       {extra}
 

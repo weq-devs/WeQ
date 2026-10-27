@@ -90,6 +90,14 @@ export function CallStage({
 }: CallStageProps) {
   const live = state === 'connected';
   const ringing = state === 'calling' || state === 'ringing';
+  /**
+   * 只有接通期间才挂对端画面。
+   *
+   * 挂断后状态快照里的 `peerVideoOn` 可能还是上次的 true，直接照它渲染，界面就会
+   * 在「已挂断」之后继续显示「等待对方画面…」—— 那条画面已经不会来了。这里再兜
+   * 一次底，父组件传错也不会露出来。
+   */
+  const showPeerVideo = peerVideoOn && live;
   const hasBackdrop = !backdropFailed && Boolean(backgroundUrl || backgroundVideoUrl);
   const primary = peers[0];
   const peerLevel = primary?.level ?? 0;
@@ -114,7 +122,7 @@ export function CallStage({
    * 主画面用「对端在发视频」而不是「已有画面」：首帧到达前保持视频布局，
    * 否则会先闪一下语音形态再跳过去。
    */
-  const layout: 'audio' | 'peer' | 'self' | 'self-only' = peerVideoOn
+  const layout: 'audio' | 'peer' | 'self' | 'self-only' = showPeerVideo
     ? selfVideoOn
       ? 'self'
       : 'peer'
@@ -144,7 +152,7 @@ export function CallStage({
 
       {/* 对端画面。只有对端真的在发视频才挂载 —— 本端自己开摄像头不该让这里
           出现「等待对方画面」，那是两件独立的事。 */}
-      {peerVideoOn && peerCanvasRef ? (
+      {showPeerVideo && peerCanvasRef ? (
         <div className="weq-call-peer-video">
           <canvas ref={peerCanvasRef} className={peerVideoActive ? 'is-active' : ''} />
           {!peerVideoActive ? (
