@@ -67,18 +67,43 @@ try {
     );
     await page.getByRole('button', { name: '克隆群聊设置', exact: true }).click();
     const pane = page.locator('.weq-conversation-settings-pane');
+    const originalPosition = await pane.boundingBox();
+    if (!originalPosition) throw new Error('群设置未显示');
+    const checkSettingsPosition = async (action) => {
+      await pane.waitFor({ state: 'visible' });
+      const current = await pane.boundingBox();
+      if (
+        !current ||
+        Object.keys(originalPosition).some(
+          (key) => Math.abs(current[key] - originalPosition[key]) > 0.5,
+        )
+      )
+        throw new Error(
+          `关闭添加弹窗后群设置位置变化：${action} / ${theme} / ${width} / ${JSON.stringify({ originalPosition, current })}`,
+        );
+    };
     const open = () => pane.getByRole('button', { name: '添加成员', exact: true }).click();
     const picker = page.getByRole('dialog', { name: '添加成员', exact: true });
     await open();
-    if (await pane.count()) throw new Error('添加弹窗仍嵌套在设置内');
+    if (await picker.evaluate((node) => Boolean(node.closest('.weq-conversation-settings-pane'))))
+      throw new Error('添加弹窗仍嵌套在设置内');
     const existing = picker.getByRole('checkbox', { name: '合成好友', exact: true });
     if (!(await existing.isChecked()) || !(await existing.isDisabled()))
       throw new Error('已有成员未勾选并禁用');
     const candidate = picker.getByRole('checkbox', { name: '合成新成员', exact: true });
     await candidate.check();
     await picker.getByRole('button', { name: '取消', exact: true }).click();
+    await checkSettingsPosition('取消');
     if ((await page.evaluate(() => window.cloneRequests())).length)
       throw new Error('取消发生写操作');
+    for (const action of ['关闭', 'Escape']) {
+      await open();
+      if (action === '关闭')
+        await picker.getByRole('button', { name: '关闭添加成员', exact: true }).click();
+      else await page.keyboard.press('Escape');
+      await picker.waitFor({ state: 'hidden' });
+      await checkSettingsPosition(action);
+    }
     await open();
     if (await candidate.isChecked()) throw new Error('取消后保留了上次选择');
     await picker.getByLabel('搜索克隆体', { exact: true }).fill('合成新');
@@ -102,12 +127,18 @@ try {
       await page.screenshot({ path: resolve(output, `add-members-${theme}-${width}.png`) });
     await picker.getByRole('button', { name: '添加（1）', exact: true }).click();
     await picker.waitFor({ state: 'hidden' });
+    await checkSettingsPosition('添加成功');
     await open();
     if (!(await candidate.isChecked()) || !(await candidate.isDisabled()))
       throw new Error('成功添加后成员未锁定');
     if (!(await picker.getByRole('button', { name: '添加（0）', exact: true }).isDisabled()))
       throw new Error('没有新选择时仍可提交');
     await picker.getByRole('button', { name: '取消', exact: true }).click();
+    // 遮罩关闭会吞掉同次按下的后续点击，放在本轮最后避免干扰重新打开。
+    await open();
+    await page.mouse.click(2, 2);
+    await picker.waitFor({ state: 'hidden' });
+    await checkSettingsPosition('遮罩');
     const writes = await page.evaluate(() => window.cloneRequests());
     if (
       writes.length !== 1 ||
@@ -116,7 +147,7 @@ try {
       writes[0].input.personaId !== 'p2'
     )
       throw new Error('批量确认提交了错误成员');
-    results.push({ theme, width, fits });
+    results.push({ theme, width, fits, settingsPositionStable: true });
   }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(JSON.stringify({ results, errors }, null, 2));

@@ -567,7 +567,8 @@ export function GroupChatPanel({
           onClose={() => setAddingMembers(false)}
         />
       ) : null}
-      {membersOpen && !personaSettingsOpen && !addingMembers ? (
+      {/* 添加弹窗覆盖设置窗，保留实例以维持原锚点和滚动位置。 */}
+      {membersOpen && !personaSettingsOpen ? (
         <ConversationSettingsFrame<'members' | 'management'>
           title="克隆群聊设置"
           subtitle={groupName}

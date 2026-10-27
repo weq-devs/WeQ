@@ -275,16 +275,22 @@ it('批量部分成功后成功项变成已勾选禁用，重试只添加剩余�
   }
 });
 
-it('从成员设置进入独立弹窗，取消不修改群并返回原成员设置', () => {
+it('从成员设置进入独立弹窗，取消后沿用同一设置窗及位置，不重新挂载', () => {
   const t = fixture();
   try {
     act(() => t.button('群设置').click());
+    const pane = document.querySelector<HTMLElement>('.weq-conversation-settings-pane')!;
+    const position = pane.style.cssText;
+    const scroll = pane.querySelector<HTMLElement>('.weq-cvs-body-scroll')!;
+    scroll.scrollTop = 90;
     act(() => t.button('添加成员').click());
-    expect(document.querySelector('.weq-conversation-settings-pane')).toBeNull();
+    expect(document.querySelector('.weq-conversation-settings-pane')).toBe(pane);
     act(() => document.querySelector<HTMLInputElement>('[aria-label="待加入成员"]')!.click());
     act(() => t.button('取消').click());
     expect(f.mutate).not.toHaveBeenCalled();
-    expect(document.querySelector('.weq-conversation-settings-pane')).not.toBeNull();
+    expect(document.querySelector('.weq-conversation-settings-pane')).toBe(pane);
+    expect(pane.style.cssText).toBe(position);
+    expect(scroll.scrollTop).toBe(90);
     act(() => t.button('添加成员').click());
     expect(document.querySelector<HTMLInputElement>('[aria-label="待加入成员"]')!.checked).toBe(
       false,
