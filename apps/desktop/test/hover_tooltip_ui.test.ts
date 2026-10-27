@@ -17,6 +17,59 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it.each(['pointer', 'escape'])(
+  '鼠标打开分析后通过 %s 返回不弹头像提示，键盘导航和重新悬停仍显示提示',
+  async (dismiss) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.useFakeTimers();
+    const host = document.createElement('div');
+    const avatar = document.createElement('button');
+    const close = document.createElement('button');
+    avatar.title = '查看资料';
+    document.body.append(host, avatar, close);
+    const root = createRoot(host);
+    try {
+      act(() => root.render(createElement(HoverTooltip)));
+      await act(async () => {
+        avatar.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 2 }));
+        avatar.focus();
+        close.focus();
+        close.dispatchEvent(
+          dismiss === 'pointer'
+            ? new PointerEvent('pointerdown', { bubbles: true })
+            : new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }),
+        );
+        avatar.focus();
+        vi.advanceTimersByTime(300);
+      });
+      expect(document.activeElement).toBe(avatar);
+      expect(document.querySelector('[role="tooltip"]')).toBeNull();
+      expect(avatar.title).toBe('查看资料');
+      expect(avatar.hasAttribute('aria-describedby')).toBe(false);
+
+      await act(async () => {
+        avatar.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+        vi.advanceTimersByTime(300);
+      });
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('查看资料');
+
+      await act(async () => {
+        avatar.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }));
+        close.focus();
+        close.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' }));
+        avatar.focus();
+        vi.advanceTimersByTime(300);
+      });
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('查看资料');
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      avatar.remove();
+      close.remove();
+    }
+  },
+);
+
 it('临时截图覆盖也隐藏已打开的敏感悬浮提示，释放后按永久偏好恢复', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.useFakeTimers();
