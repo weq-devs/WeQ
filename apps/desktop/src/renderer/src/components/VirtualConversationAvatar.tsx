@@ -30,11 +30,7 @@ function AvatarImg({
   const [failed, setFailed] = useState(false);
   if (!src || failed)
     return (
-      <span
-        className={`weq-virtual-avatar-fallback ${className}`}
-        style={{ width: size, height: size }}
-        aria-hidden
-      >
+      <span className={`weq-virtual-avatar-fallback ${className}`} aria-hidden>
         <Users size={Math.round(size * 0.55)} strokeWidth={1.7} />
       </span>
     );
@@ -52,7 +48,13 @@ function AvatarImg({
 }
 
 /** 合成头像：布局交给 GroupMosaicAvatar，会话列表 / 克隆工作区 / 导出共用一套拼格。 */
-function GridAvatar({ uins, size }: { uins: readonly string[]; size: number }): ReactElement {
+function GridAvatar({
+  uins,
+  size,
+}: {
+  uins: readonly string[];
+  size: number | string;
+}): ReactElement {
   return <GroupMosaicAvatar uins={uins} size={size} />;
 }
 
@@ -75,7 +77,7 @@ export function VirtualConversationBadge({ group = false }: { group?: boolean })
 
 export function VirtualConversationAvatar({
   item,
-  size = 44,
+  size,
 }: {
   item: VirtualConversation;
   size?: number;
@@ -84,17 +86,17 @@ export function VirtualConversationAvatar({
   const memberUins = item.memberUins ?? [];
   return (
     <span
-      className={`weq-virtual-avatar is-${item.kind}`}
+      className={`avatar weq-virtual-avatar is-${item.kind}`}
       style={{ width: size, height: size }}
       aria-hidden
     >
       {isGroup && memberUins.length > 0 ? (
-        <GridAvatar uins={memberUins} size={size} />
+        <GridAvatar uins={memberUins} size={size ?? '100%'} />
       ) : item.uin ? (
-        <AvatarImg uin={item.uin} size={size} />
+        <AvatarImg uin={item.uin} size={size ?? 44} />
       ) : (
-        <span className="weq-virtual-avatar-fallback" style={{ width: size, height: size }}>
-          <Users size={Math.round(size * 0.5)} strokeWidth={1.7} />
+        <span className="weq-virtual-avatar-fallback">
+          <Users size={Math.round((size ?? 44) * 0.5)} strokeWidth={1.7} />
         </span>
       )}
       <VirtualConversationBadge group={isGroup} />
