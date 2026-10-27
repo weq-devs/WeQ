@@ -25,14 +25,12 @@ import { lookupTag } from '@weq/codec/dictionary';
 import {
   bytesToBase64,
   bytesToHex,
-  decodeJce,
-  decodeProtobuf,
   groupRvNodes,
   parseInput,
   rvIntDisplay,
   rvNodesToJson,
   rvTimestampRange,
-  tryDecodeAfterLengthPrefix,
+  tryDecodeAuto,
   tryDecodeJce,
   tryDecodeProtobuf,
   tryUtf8,
@@ -117,20 +115,14 @@ function rvItemKey(obj: object): string {
 // ---------------------------------------------------------------------------
 
 /**
- * 把一段字节解析成 `{tag: value}` 树：protobuf 优先，JCE 兜底，最后再试
- * 「自动剥离 QQ 长度前缀」。全部失败返回 null。
+ * 把一段字节解析成 `{tag: value}` 树：先自动剥离 QQ 长度前缀，再 protobuf，
+ * 最后 JCE（见 {@link tryDecodeAuto}）。全部失败返回 null。
  */
 export function decodeAnyBytes(
   bytes: Uint8Array,
 ): { nodes: RvNode[]; kind: 'protobuf' | 'jce' } | null {
-  if (bytes.length === 0) return null;
-  const proto = tryDecodeProtobuf(bytes);
-  if (proto) return { nodes: proto, kind: 'protobuf' };
-  const jce = tryDecodeJce(bytes);
-  if (jce) return { nodes: jce, kind: 'jce' };
-  const stripped = tryDecodeAfterLengthPrefix(bytes);
-  if (stripped) return { nodes: stripped.nodes, kind: stripped.kind };
-  return null;
+  const hit = tryDecodeAuto(bytes);
+  return hit ? { nodes: hit.nodes, kind: hit.kind } : null;
 }
 
 /** 解析树的缩进步长（px），可用 CSS 变量 `--rv-indent` 覆盖；抓包面板会调小。 */
@@ -181,32 +173,17 @@ export function ReverseTool(): ReactElement {
         setParseSeq((s) => s + 1);
       };
 
-      // 先按不剥前缀的常规路径解析；失败后再自动识别 QQ 数据包开头的长度前缀
-      // （如 `00 00 00 D5 …`）重试。宽度 / 字节序由数据自证，不硬编码 4 字节。
-      const direct = (): { nodes: RvNode[]; kind: ParseKind } | null => {
-        if (fmt === 'protobuf') return { nodes: decodeProtobuf(bytes), kind: 'protobuf' };
-        if (fmt === 'jce') return { nodes: decodeJce(bytes), kind: 'jce' };
-        const proto = tryDecodeProtobuf(bytes);
-        if (proto) return { nodes: proto, kind: 'protobuf' };
-        const jce = tryDecodeJce(bytes);
-        if (jce) return { nodes: jce, kind: 'jce' };
-        return null;
-      };
-
-      let parsed: { nodes: RvNode[]; kind: ParseKind } | null;
-      try {
-        parsed = direct();
-      } catch {
-        parsed = null; // 强制格式下抛出：交给前缀路径再试一次
-      }
+      // 自动识别 QQ 数据包开头的长度前缀（如 `00 00 00 D5 …`）并优先剥离：
+      // 前缀字节本身也能被当成 JCE / protobuf 字段读出来（`00 00 10 75` → 假字段
+      // tag0 + 重复 tag），所以顺序必须是「先剥前缀，再直接解析」。宽度 / 字节序
+      // 由数据自证，不硬编码 4 字节。
+      const parsed = tryDecodeAuto(bytes, fmt);
       if (parsed) {
-        accept(parsed.nodes, parsed.kind);
-        return;
-      }
-
-      const stripped = tryDecodeAfterLengthPrefix(bytes);
-      if (stripped && (fmt === 'auto' || stripped.kind === fmt)) {
-        accept(stripped.nodes, stripped.kind, describePrefix(stripped.prefix));
+        accept(
+          parsed.nodes,
+          parsed.kind,
+          parsed.prefix ? describePrefix(parsed.prefix) : undefined,
+        );
         return;
       }
 
