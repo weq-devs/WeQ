@@ -2109,7 +2109,12 @@ export function ChatPane({
   }
 
   function insertMention(member: GroupMember) {
-    if (currentPreference.blocked || sending || (member.id === 'all' && !atAllMention.selectable)) {
+    if (
+      conversation?.type !== 'group' ||
+      currentPreference.blocked ||
+      sending ||
+      (member.id === 'all' && !atAllMention.selectable)
+    ) {
       return;
     }
 
@@ -3357,7 +3362,7 @@ export function ChatPane({
     }
     event.preventDefault();
     const structured = readMentionClipboard(event.clipboardData.getData('text/html'));
-    if (structured && onResolveMentions && conversation) {
+    if (structured && onResolveMentions && conversation?.type === 'group') {
       const editor = event.currentTarget;
       const savedRange = composerSelectionRef.current?.cloneRange() ?? null;
       const currentConversation = conversation;
@@ -5904,7 +5909,7 @@ export function ChatPane({
                 }
               : undefined
           }
-          onMention={mentionAvatar}
+          onMention={conversation?.type === 'group' ? mentionAvatar : undefined}
           onPoke={pokeAvatar}
           pokeBlockedReason={pokeBlockedReason}
           onChangeCard={startCardEdit}

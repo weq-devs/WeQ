@@ -32,7 +32,7 @@ const MUTE_DURATIONS: Array<{ label: string; seconds: number }> = [
 
 /**
  * 右键消息里某个头像弹出的菜单：
- *   - 「@Ta」把 `@昵称 ` 写进输入框（纯前端编辑，不限在线状态）；
+ *   - 群聊的「@Ta」把 `@昵称 ` 写进输入框（纯前端编辑，不限在线状态）；
  *   - 「戳一戳」走 OIDB 0xED3_1 发包，需要在线且已注入的 QQ —— 不可用时置灰并说明原因；
  *   - 群管理（改群昵称 / 踢人 / 禁言 / 设撤管理员）仅在「我」是群主或管理员、且目标
  *     职权低于自己时出现，同样受发送按钮那套在线 gate 约束（`moderationBlockedReason`）。
@@ -61,7 +61,7 @@ export function AvatarContextMenu({
 }: {
   state: AvatarContextMenuState;
   onClose?: () => void;
-  onMention: (sender: User) => void;
+  onMention?: (sender: User) => void;
   onAnalyze?: (sender: User) => void;
   onPoke: (sender: User) => void;
   /** 非空 = 这条会话当前不能戳（QQ 未在线 / 完全离线模式），按钮置灰并显示原因。 */
@@ -124,10 +124,12 @@ export function AvatarContextMenu({
       onPointerDown={(event) => event.stopPropagation()}
       onTouchStart={(event) => event.stopPropagation()}
     >
-      <button type="button" title="在输入框里 @ 这个人" onClick={() => onMention(state.sender)}>
-        <AtSign size={17} />
-        <span>@Ta</span>
-      </button>
+      {onMention ? (
+        <button type="button" title="在输入框里 @ 这个人" onClick={() => onMention(state.sender)}>
+          <AtSign size={17} />
+          <span>@Ta</span>
+        </button>
+      ) : null}
       <button
         type="button"
         title={pokeBlockedReason ?? '戳一戳'}
