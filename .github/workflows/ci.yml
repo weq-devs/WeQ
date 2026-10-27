@@ -1,7 +1,8 @@
 name: CI
 
-# Lint + type-check gate for every push / PR onto the long-lived branches.
+# push/PR 与 Release 共用的 lint、类型、测试和 Web 构建门禁。
 on:
+  workflow_call:
   push:
     branches: [main, dev]
   pull_request:

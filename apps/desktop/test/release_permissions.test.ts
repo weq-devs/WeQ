@@ -10,7 +10,7 @@ const appBuilderRequire = createRequire(builderRequire.resolve('app-builder-lib/
 const { load } = appBuilderRequire('js-yaml') as { load: (source: string) => unknown };
 interface Job {
   permissions?: Record<string, string>;
-  steps: { uses?: string; with?: Record<string, unknown> }[];
+  steps?: { uses?: string; with?: Record<string, unknown> }[];
 }
 const workflow = load(
   readFileSync(resolve(__dirname, '../../../.github/workflows/release.yml'), 'utf8'),
@@ -22,6 +22,8 @@ const workflow = load(
 it('发布工作流默认只读，只有实际发布产物或说明的 job 可写', () => {
   expect(workflow.permissions).toEqual({ contents: 'read' });
   const writers = [
+    'prepare',
+    'publish',
     'windows',
     'linux-x64',
     'linux-arm64',
@@ -39,7 +41,7 @@ it('发布工作流默认只读，只有实际发布产物或说明的 job 可�
 });
 
 it('两个 QQ 通知分支均固定完整提交，保留消息、附件和显式凭据输入', () => {
-  const steps = workflow.jobs['qq-notify']!.steps.filter((step) =>
+  const steps = (workflow.jobs['qq-notify']?.steps ?? []).filter((step) =>
     step.uses?.startsWith('H3CoF6/qq-notify-action@'),
   );
   expect(steps).toHaveLength(2);

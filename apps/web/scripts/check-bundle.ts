@@ -16,7 +16,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const DIST = resolve(here, '../dist/public/assets');
+const DIST = resolve(process.env.WEQ_WEB_DIST ?? resolve(here, '../dist'), 'public/assets');
 
 /** Substrings that must never appear in a browser bundle. */
 const FORBIDDEN = [

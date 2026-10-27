@@ -28,7 +28,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: resolve(__dirname, 'dist/public'),
+    outDir: resolve(process.env.WEQ_WEB_DIST ?? resolve(__dirname, 'dist'), 'public'),
     emptyOutDir: true,
     rollupOptions: {
       input: { index: resolve(RENDERER, 'index.html') },

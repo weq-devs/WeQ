@@ -683,6 +683,21 @@ importers:
         specifier: workspace:*
         version: link:../native
 
+  packages/web-runtime:
+    dependencies:
+      '@resvg/resvg-js':
+        specifier: 2.6.2
+        version: 2.6.2
+      quickjs-emscripten:
+        specifier: 0.32.0
+        version: 0.32.0
+      sharp:
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@22.19.20)
+      ws:
+        specifier: 8.21.0
+        version: 8.21.0
+
 packages:
 
   7zip-bin@5.2.0:

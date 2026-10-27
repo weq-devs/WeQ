@@ -15,45 +15,71 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   WEQ_REQUIRE_AUTHORIZATION_HELPER: '1'
+  EP_DRAFT: 'true'
 
 jobs:
-  # ========================= QQ 通知门禁 =========================
-  # 只有「最后一次 commit」以 Release: / chore(release): 开头时才发 QQ 群通知；
-  # 不匹配时仅跳过最后的 qq-notify，构建、发布、Release 说明照常进行。
+  # ======================= 分类与通知意图 =======================
+  # 固定标签分类与提交；通知意图仍按原有最后一次 commit 前缀判断。
+  # 前缀未匹配仅跳过 QQ 通知，不跳过检查或构建。
   gate:
     runs-on: ubuntu-latest
     outputs:
       release: ${{ steps.check.outputs.release }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+      commit: ${{ steps.check.outputs.commit }}
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Check last commit subject
+      - name: Fetch release branches
+        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main +refs/heads/dev:refs/remotes/origin/dev
+
+      - name: Classify tag before uploading
         id: check
-        run: |
-          MSG=$(git log -1 --pretty=format:%s)
-          LOWER=$(printf '%s' "$MSG" | tr '[:upper:]' '[:lower:]')
-          case "$LOWER" in
-            merge*|release:*|chore\(release\):*)
-              echo "release=true"  >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "release=false" >> "$GITHUB_OUTPUT"
-              ;;
-          esac
-          echo "last subject: $MSG"
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node scripts/release-control.mjs classify
+
+  checks:
+    needs: [gate]
+    uses: ./.github/workflows/ci.yml
+
+  prepare:
+    permissions:
+      contents: write
+    needs: [gate, checks]
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.draft.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Create or validate draft
+        id: draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ needs.gate.outputs.commit }}
+          PRERELEASE: ${{ needs.gate.outputs.prerelease }}
+        run: node scripts/release-control.mjs prepare
 
   # ============================ Windows ============================
   # Win 专属 NSIS 目标 + 预编译的 native/win32/x64/*.node 都在 Windows 下，
-  # 因此在 windows-latest 上构建。此 job 负责建立 Release 并上传 latest.yml。
+  # 因此在 windows-latest 上构建。此 job 上传到 prepare 建好的草稿。
   windows:
     permissions:
       contents: write # 创建 / 上传 Release
     runs-on: windows-latest
+    needs: [prepare]
     steps:
       - uses: actions/checkout@v4
 
@@ -587,8 +613,7 @@ jobs:
   # 都是平台绑定的，所以不再做「一包通吃」的通用包，改到各自 runner 上构建，
   # 各自只带当前平台的产物。不内置 Node（要求机器上有 Node ≥22）。
   #
-  # 依赖 windows job：Release 由 electron-builder --publish 创建，这里只往
-  # 已存在的 Release 上传，不自己建。
+  # 保留 windows 之后的构建顺序；这里只上传到 prepare 建好的草稿。
   web:
     permissions:
       contents: write
@@ -680,39 +705,19 @@ jobs:
           ls -laR apps/web/dist 2>/dev/null | head -50 || echo "(no dist/)"
 
   # ======================= Release 说明（中文）=======================
-  # 等所有产物都发完（Release 已存在），用「中文说明头 + GitHub 自动
+  # 等所有产物上传到草稿后，用「中文说明头 + GitHub 自动
   # 生成的 commit/PR 变更列表」覆写 Release 正文，并标注 aarch64 未实测、
   # macOS 使用 ad-hoc 签名、未公证。
   notes:
     permissions:
       contents: write
-    needs: [windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web]
+    needs: [prepare, windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web]
     runs-on: ubuntu-latest
     steps:
-      # fetch-depth: 0：下面的 pre-release 判定要用 merge-base 追 tag 是否落在 dev 上。
+      # 只需当前标签；分类已前置，不再重复抓取完整历史。
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-
-      # tag 打在 dev 分支上时，把这份 Release 标成 pre-release；
-      # tag 打在 main（或其它分支）上时保持正式 Release，行为与之前完全一致。
-      - name: 若 tag 位于 dev 分支则标记为 pre-release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          # tag push 时 checkout 在 detached HEAD（即 tag 指向的 commit），
-          # 能到达该 commit 就说明这个 tag 是打在 dev 上的。
-          git fetch --no-tags origin +refs/heads/dev:refs/remotes/origin/dev || true
-          if git rev-parse --verify -q refs/remotes/origin/dev >/dev/null \
-             && git merge-base --is-ancestor HEAD refs/remotes/origin/dev; then
-            echo "tag ${TAG} is on dev -> pre-release"
-            gh release edit "${TAG}" --repo "${REPO}" --prerelease
-          else
-            echo "tag ${TAG} is not on dev -> normal release"
-          fi
+          fetch-depth: 1
 
       # 内置 native 的构建 / 过期时间来自 native/pinned.json —— 那是本地
       # `pnpm native:fetch` 装完 .node 后写回的（日期源头是二进制自报的
@@ -808,14 +813,32 @@ jobs:
           # 覆写 Release 正文（electron-builder 建 Release 时写的默认正文会被替换）。
           gh release edit "${TAG}" --repo "${REPO}" --notes "${NOTES}"
 
+  publish:
+    permissions:
+      contents: write
+    needs: [gate, checks, prepare, windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web, notes]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Validate all assets and publish once
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ needs.gate.outputs.commit }}
+          PRERELEASE: ${{ needs.gate.outputs.prerelease }}
+          RELEASE_ID: ${{ needs.prepare.outputs.id }}
+          RELEASE_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/release-control.mjs publish
+
   # ========================== QQ 群通知 ==========================
-  # 等所有产物和 Release 说明都完成后，发送 QQ 群通知。
-  # 消息内容取最后一次 commit 正文（用户约定在此写本次更新说明）。
+  # 最终公开成功后才发送 QQ 群通知，正文仍来自 CHANGELOG 对应章节。
   # 只发 Windows x86_64 的 desktop 安装包：先把 exe 压成压缩包，
   # 再按压缩包大小做 200 MB 检查；通过后压缩包经分块上传直传 QQ
   #（GitHub CDN 在大陆不可访问）。裸 exe 不再直发。
   qq-notify:
-    needs: [notes, gate]
+    needs: [publish, gate]
     if: needs.gate.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:

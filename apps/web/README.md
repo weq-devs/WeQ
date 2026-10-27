@@ -38,6 +38,10 @@
 依赖已随包预装，无需联网 `npm install`。启动脚本会先检查 Node 是否存在、
 版本是否 ≥ 22，缺失时给出安装指引。想手动启动就 `node server.mjs`。
 
+请保留 `package.json`、`pnpm-lock.yaml` 和 `runtime-deps.json`。若自行删除了 `node_modules`，
+启动脚本会通过 npm 自带的 npx 调用清单锁定版本的 pnpm，按冻结锁文件修复；这一步需要网络或已有工具缓存。
+正常解压启动不需要安装 pnpm，也不需要联网。不要改成无锁 `npm install`，否则不再是已验证的依赖树。
+
 终端会打印地址和访问令牌：
 
 ```
@@ -150,9 +154,10 @@ WEQ_TOKEN=$(openssl rand -hex 24) WEQ_HOST=0.0.0.0 node server.mjs
 ## 从源码构建
 
 ```bash
-pnpm i
+pnpm install --frozen-lockfile
 pnpm native:fetch --no-authorization # 取本机原生模块与配套装扮资源
 pnpm --filter @weq/web build     # 产物在 apps/web/dist/
+pnpm --filter @weq/web deps      # 从根锁文件离线部署运行依赖
 ```
 
 完整业务验证使用构建后的服务端：
@@ -178,9 +183,14 @@ pnpm --filter @weq/web test:dist   # 启动打包产物跑一遍完整流程
 
 ```bash
 pnpm --filter @weq/web build       # 构建 + 两个守卫
-pnpm --filter @weq/web deps        # 预装发布包清单中的运行依赖与当前平台 resvg binding
+pnpm --filter @weq/web deps        # 冻结离线部署并检查本平台原生模块与 WASM
 pnpm --filter @weq/web test:dist   # 冒烟
 ```
+
+外置模块清单在 `packages/web-runtime/package.json`，直接版本与桌面冻结记录一致，传递依赖由根锁文件固定。
+`deps` 不重新解析 npm 范围、不执行安装脚本；缓存缺件会明确失败，应先完成正常的冻结 workspace 安装。
+发布包包含独立完整锁文件与依赖摘要；`pack:release` 会拒绝旧锁、错平台或错版本的产物。
+验收可设置绝对路径 `WEQ_WEB_DIST` 和 `WEQ_WEB_RELEASE_DIR`，将构建、守卫、冒烟及压缩输出放在隔离目录。
 
 `check` 有两个守卫，都是为了防同一类回归 —— Electron-only 的代码悄悄混进 web 构建后，
 不会报错，只会在运行时炸成一句看不懂的 `does not provide an export named 'app'`：
