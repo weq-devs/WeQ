@@ -101,6 +101,7 @@ it('用最新真实语料路径重训并原位保存，配置、身份及所有�
   expect(result.profile.card.tone).toBe('最新语气');
   expect(result.corpusMessageCount).toBe(f.messages.length);
   expect(result.updatedAt).toBeGreaterThan(f.persona.updatedAt);
+  expect(result.trainedAt).toBe(result.updatedAt);
   expect(f.store.getPersona(f.persona.id)?.pairs.length).toBeGreaterThan(0);
   expect(sidecars.map((name) => readFileSync(join(f.root, `${name}.json`), 'utf8'))).toEqual(
     before,
@@ -214,6 +215,15 @@ it('新建克隆保存原训练方式供后续更新复用', async () => {
     autoName: false,
     limit: 1000,
   });
+  expect(result.trainedAt).toBe(result.createdAt);
+});
+
+it('保存用户配置不改变画像训练时间，旧克隆首次编辑时固定原更新时间', () => {
+  const f = fixture();
+  const edited = f.service.updatePersona(f.persona.id, { name: '改名' });
+  expect(edited?.trainedAt).toBe(f.persona.updatedAt);
+  const editedAgain = f.service.updatePersona(f.persona.id, { customPrompt: '新提示' });
+  expect(editedAgain?.trainedAt).toBe(f.persona.updatedAt);
 });
 
 it.each([

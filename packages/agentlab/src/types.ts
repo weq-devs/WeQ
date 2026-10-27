@@ -322,6 +322,8 @@ export interface AgentLabPersona {
   corpusMessageCount: number;
   pairCount: number;
   createdAt: number;
+  /** 最近一次成功训练时间；编辑用户配置不改变此值。 */
+  trainedAt?: number;
   updatedAt: number;
 }
 

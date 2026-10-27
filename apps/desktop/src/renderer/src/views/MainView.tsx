@@ -10205,7 +10205,6 @@ export function MainView(): ReactElement {
             recallDetails={recalls.origin === 'settings' ? recalledView : null}
             onCloseRecalls={closeSettingsRecalls}
             isCurrentSource={() => messageScopeRef.current === messageScope}
-            onCreateClone={handleCreateClone}
           />
           <DataMaintenanceDialog
             key={`maintenance:${messageScope}`}

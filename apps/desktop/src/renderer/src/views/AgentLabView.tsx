@@ -38,6 +38,8 @@ import {
   getCloneTasks,
 } from './agentlab/cloneTaskStore';
 import { PersonaSettingsModal } from './agentlab/PersonaSettingsModal';
+import { CloneGenerationPanel } from '../components/settings/CloneGenerationPanel';
+import { personaUpdatedAt } from './agentlab/personaUpdatedAt';
 import { AssistantPanel } from './agentlab/AssistantPanel';
 import { buildFaceMap, type FaceContext } from './agentlab/ChatBubble';
 import { CloneChatPanel } from './agentlab/CloneChatPanel';
@@ -803,7 +805,9 @@ export function AgentLabView({
     if (!ok) return;
     try {
       await deletePersona.mutateAsync({ personaId });
+      setSettingsOpen(false);
       setSel({ kind: 'home' });
+      if (embedded) onBackToDirectory?.();
       await utils.account.listAgentLabPersonas.invalidate();
       dialog.success('已删除');
     } catch (error) {
@@ -811,7 +815,7 @@ export function AgentLabView({
     }
   }
 
-  // 克隆体头部副标题：provider · 模型 · 样本 N 条。
+  // 克隆体头部副标题：provider · 模型 · 样本 N 条 · 画像更新时间。
   const selectionLabel = useModelSelectionLabel();
   const personaModelLabel = useMemo(() => {
     if (!activePersona) return '加载中…';
@@ -821,7 +825,7 @@ export function AgentLabView({
         ? (providers.data ?? []).find((pr) => pr.id === ref.providerId)
         : undefined;
     const modelText = selectionLabel(ref, '旧版克隆，请重建');
-    return `${p ? `${p.name} · ` : ''}${modelText} · 样本 ${activePersona.corpusMessageCount} 条`;
+    return `${p ? `${p.name} · ` : ''}${modelText} · 样本 ${activePersona.corpusMessageCount} 条 · 更新于 ${personaUpdatedAt(activePersona)}`;
   }, [activePersona, providers.data, selectionLabel]);
 
   return (
@@ -1058,7 +1062,6 @@ export function AgentLabView({
             onSwitchSession={(sessionId) => onSwitchPersonaSession(sel.id, sessionId)}
             onNewSession={() => onNewPersonaSession(sel.id)}
             onOpenSettings={() => setSettingsOpen(true)}
-            onDeletePersona={() => void onDeletePersona()}
           />
         ) : (
           <div className="weq-agentlab-chat">
@@ -1097,21 +1100,24 @@ export function AgentLabView({
 
       {settingsOpen && activePersona ? (
         <PersonaSettingsModal
-          persona={{
-            id: activePersona.id,
-            name: activePersona.name,
-            customPrompt: activePersona.customPrompt,
-            voiceCloneEnabled: activePersona.voiceCloneEnabled,
-            voice: activePersona.voice,
-            voiceProfile: activePersona.voiceProfile,
-            willing: activePersona.willing,
-            typo: activePersona.typo,
-          }}
+          persona={activePersona}
+          onDelete={() => void onDeletePersona()}
+          deleting={deletePersona.isLoading}
           paramsContent={
-            <PersonaParamsPanel
-              loading={personaDetail.isLoading}
-              detail={personaDetail.data ?? null}
-            />
+            <>
+              <CloneGenerationPanel
+                key={activePersona.id}
+                persona={activePersona}
+                onSaved={() => {
+                  void utils.account.listAgentLabPersonas.invalidate();
+                  void utils.account.getAgentLabPersonaDetail.invalidate();
+                }}
+              />
+              <PersonaParamsPanel
+                loading={personaDetail.isLoading}
+                detail={personaDetail.data ?? null}
+              />
+            </>
           }
           onClose={() => setSettingsOpen(false)}
           onSaved={() => void utils.account.listAgentLabPersonas.invalidate()}

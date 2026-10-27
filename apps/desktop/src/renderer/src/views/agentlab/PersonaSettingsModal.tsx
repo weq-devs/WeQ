@@ -9,6 +9,7 @@
 
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { CloneUpdateButton } from './CloneUpdateButton';
+import '../../styles/persona-settings.css';
 import type { AgentLabModelSelection } from '@weq/agentlab';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
 import { TabActivity, useTabActive } from '../../components/RetainedTabs';
@@ -743,6 +744,8 @@ export function PersonaSettingsModal({
   paramsTitle,
   onClose,
   onSaved,
+  onDelete,
+  deleting = false,
 }: {
   persona: {
     id: string;
@@ -761,6 +764,8 @@ export function PersonaSettingsModal({
   paramsTitle?: string;
   onClose: () => void;
   onSaved: () => void;
+  onDelete?: () => void;
+  deleting?: boolean;
 }): ReactElement {
   const dialog = useAppDialog();
   const update = trpc.account.updateAgentLabPersona.useMutation();
@@ -788,6 +793,22 @@ export function PersonaSettingsModal({
             <Settings size={16} />
             <strong>{persona.name} · 设置</strong>
           </header>
+          <div className="weq-persona-management">
+            {persona.sourceKind === 'c2c' ? (
+              <CloneUpdateButton key={persona.id} persona={persona} />
+            ) : null}
+            {onDelete ? (
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                disabled={deleting}
+                onClick={onDelete}
+              >
+                <Trash2 size={14} aria-hidden="true" />
+                删除克隆体
+              </button>
+            ) : null}
+          </div>
           <div className="weq-persona-modal-body">
             <nav className="weq-persona-tabs">
               {TABS.map((t) => (
@@ -811,14 +832,7 @@ export function PersonaSettingsModal({
                 <TabActivity key={page} active={tab === page}>
                   <div hidden={tab !== page} inert={tab !== page}>
                     {page === 'params' ? (
-                      <>
-                        {paramsContent}
-                        {persona.sourceKind === 'c2c' ? (
-                          <div className="weq-clone-actions">
-                            <CloneUpdateButton key={persona.id} persona={persona} />
-                          </div>
-                        ) : null}
-                      </>
+                      paramsContent
                     ) : page === 'prompt' ? (
                       <div className="weq-persona-form">
                         <label className="weq-agentlab-field">

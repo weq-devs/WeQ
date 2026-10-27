@@ -1221,6 +1221,7 @@ export class AgentLabService extends EventEmitter {
     if (patch.voice !== undefined) persona.voice = patch.voice ?? undefined;
     if (patch.willing !== undefined) persona.willing = patch.willing ?? undefined;
     if (patch.typo !== undefined) persona.typo = patch.typo ?? undefined;
+    persona.trainedAt ??= persona.updatedAt;
     persona.updatedAt = Date.now();
     this.store.savePersona(record);
     return persona;
@@ -1989,6 +1990,7 @@ export class AgentLabService extends EventEmitter {
       corpusMessageCount: artifacts.stats.sourceMessageCount,
       pairCount: artifacts.stats.pairCount,
       createdAt: now,
+      trainedAt: now,
       updatedAt: now,
     };
 
@@ -2017,6 +2019,7 @@ export class AgentLabService extends EventEmitter {
         corpusMessageCount: persona.corpusMessageCount,
         pairCount: persona.pairCount,
         embeddingModelIdentity: persona.embeddingModelIdentity,
+        trainedAt: now,
         updatedAt: now,
       };
     }

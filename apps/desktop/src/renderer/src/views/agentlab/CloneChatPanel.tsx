@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import type { AgentLabModelSelection } from '@weq/agentlab';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
-import { ArrowLeft, Send, Settings, Trash2 } from 'lucide-react';
+import { ArrowLeft, Send, Settings } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { autoGrowTextarea } from '../../lib/textareaAutoGrow';
@@ -53,7 +53,6 @@ export function CloneChatPanel({
   onSwitchSession,
   onNewSession,
   onOpenSettings,
-  onDeletePersona,
 }: {
   personaId: string;
   persona: ClonePersonaLite;
@@ -73,7 +72,6 @@ export function CloneChatPanel({
   onSwitchSession: (sessionId: string) => void;
   onNewSession: () => void;
   onOpenSettings: () => void;
-  onDeletePersona: () => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
@@ -276,14 +274,6 @@ export function CloneChatPanel({
           >
             <Settings size={12} />
             设置
-          </button>
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-            onClick={() => void onDeletePersona()}
-          >
-            <Trash2 size={12} />
-            删除
           </button>
         </div>
       </header>

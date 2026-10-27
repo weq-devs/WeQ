@@ -58,7 +58,6 @@ import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
-import { CloneSettingsSection } from './settings/CloneSettingsSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
 import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { OcrModelsSection } from './settings/OcrModelsSection';
@@ -112,10 +111,7 @@ interface SettingsSection {
   id: SettingsPageId;
   label: string;
   icon: ReactElement;
-  render: (
-    onOpenMaintenance: (tool: MaintenanceTool) => void,
-    onCreateClone?: () => void,
-  ) => ReactNode;
+  render: (onOpenMaintenance: (tool: MaintenanceTool) => void) => ReactNode;
 }
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
@@ -283,14 +279,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     ),
   },
   {
-    id: 'clone-settings',
-    label: '好友克隆',
-    icon: <Users size={16} />,
-    render: (_onOpenMaintenance, onCreateClone) => (
-      <CloneSettingsSection onCreate={onCreateClone} />
-    ),
-  },
-  {
     id: 'interaction-profile',
     label: '互动画像',
     icon: <BrainCircuit size={16} />,
@@ -419,7 +407,6 @@ export function SettingsDialog({
   recallDetails,
   onCloseRecalls,
   isCurrentSource,
-  onCreateClone,
 }: {
   open: boolean;
   onClose: () => void;
@@ -434,7 +421,6 @@ export function SettingsDialog({
   recallDetails?: ReactNode;
   onCloseRecalls?: () => void;
   isCurrentSource?: () => boolean;
-  onCreateClone?: () => void;
 }): ReactElement | null {
   const target = useMemo(
     () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'appearance' }),
@@ -584,7 +570,7 @@ export function SettingsDialog({
                         <AppearanceSection page="messages" heading={false} />
                       </>
                     ) : (
-                      active.render(onOpenMaintenance, onCreateClone)
+                      active.render(onOpenMaintenance)
                     )}
                   </SettingsScopeContext.Provider>
                 </RetainedSettingsPage>
