@@ -53,11 +53,8 @@ export function injectReportPendantCss(widget: {
     resource.append(css);
     resource.animate(
       Array.from({ length: count }, (_, i) => dressPendantFrameUrl(widget.itemId, i + 1)),
-      () => {
-        resource.append(
-          `${sel} { animation: ${name} ${duration}ms steps(1) ${iterations}; } @media (prefers-reduced-motion: reduce) { ${sel} { animation: none; } }`,
-        );
-      },
+      () =>
+        `${sel} { animation: ${name} ${duration}ms steps(1) ${iterations}; } @media (prefers-reduced-motion: reduce) { ${sel} { animation: none; } }`,
     );
   });
 }

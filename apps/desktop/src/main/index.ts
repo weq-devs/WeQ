@@ -516,6 +516,7 @@ function createWindow(showInitially = true): BrowserWindow {
   });
 
   const recovery = createRendererRecovery({
+    automatic: true,
     unavailable: () => win.isDestroyed() || win.webContents.isDestroyed(),
     quitting: () => isQuitting,
     showDialog: async () => {
@@ -524,7 +525,7 @@ function createWindow(showInitially = true): BrowserWindow {
         title: 'WeQ 界面已停止运行',
         message: '界面进程意外退出，后台进程仍在运行。',
         detail:
-          '可以重新加载界面或退出 WeQ。未保存的界面内容可能丢失；已提交操作的结果可能尚未显示，请先核对，不要直接重复提交。重新加载不会自动重发操作。',
+          '自动恢复未成功、短时间内再次退出或此类退出需要手动处理。可以重新加载界面或退出 WeQ。未保存的界面内容可能丢失；已提交操作的结果可能尚未显示，请先核对，不要直接重复提交。重新加载不会自动重发操作。',
         buttons: ['重新加载界面', '退出 WeQ', '稍后处理'],
         defaultId: 0,
         cancelId: 2,
@@ -545,6 +546,9 @@ function createWindow(showInitially = true): BrowserWindow {
   });
   win.webContents.on('render-process-gone', (_event, details) => recovery.gone(details));
   win.webContents.on('did-finish-load', () => recovery.loaded());
+  win.webContents.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
+    if (isMainFrame && code !== -3) recovery.failed();
+  });
   win.once('closed', () => recovery.dispose());
 
   installStartupWindowReveal(win, showInitially);

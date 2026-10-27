@@ -336,13 +336,13 @@ export function injectBubbleCss(skin: BubbleSkin): () => void {
       const frameUrls = Array.from({ length: skin.animationFrameCount! }, (_, i) =>
         dressBubbleFrameUrl(skin.itemId, i + 1),
       );
-      resource.animate(frameUrls, () => {
-        resource.append(
+      resource.animate(
+        frameUrls,
+        () =>
           `${overlaySel} { animation: ${frameAnim.animation}; }\n` +
-            `${theirsBubbleSel(skin.itemId, '::after')} { animation: ${frameAnim.animation}; }\n` +
-            `@media (prefers-reduced-motion: reduce) { ${overlaySel} { animation: none; } ${theirsBubbleSel(skin.itemId, '::after')} { animation: none; } }`,
-        );
-      });
+          `${theirsBubbleSel(skin.itemId, '::after')} { animation: ${frameAnim.animation}; }\n` +
+          `@media (prefers-reduced-motion: reduce) { ${overlaySel} { animation: none; } ${theirsBubbleSel(skin.itemId, '::after')} { animation: none; } }`,
+      );
     }
   });
 }
@@ -390,12 +390,10 @@ export function injectFontCss(fontId: number, font: FontDerived | null): () => v
       // 这条路径不推迟开播（见上面的说明），所以解码完立刻钉住：属性一挂上就在播，
       // 中间没有「还没开播、可以放心淘汰」的窗口。
       resource.animate(frameUrls, () =>
-        resource.append(
-          fontFxRules(fxSkin, {
-            mine: fontMineLineSel(fontId),
-            theirs: fontTheirsLineSel(fontId),
-          }),
-        ),
+        fontFxRules(fxSkin, {
+          mine: fontMineLineSel(fontId),
+          theirs: fontTheirsLineSel(fontId),
+        }),
       );
     }
   });
@@ -471,11 +469,11 @@ export function injectWidgetCss(widget: ResolvedWidget): () => void {
     const frameUrls = Array.from({ length: widget.frameCount }, (_, i) =>
       dressPendantFrameUrl(widget.itemId, i + 1),
     );
-    resource.animate(frameUrls, () => {
-      resource.append(
+    resource.animate(
+      frameUrls,
+      () =>
         `${sel} { animation: ${frameAnim.animation}; }\n` +
-          `@media (prefers-reduced-motion: reduce) { ${sel} { animation: none; } }`,
-      );
-    });
+        `@media (prefers-reduced-motion: reduce) { ${sel} { animation: none; } }`,
+    );
   });
 }

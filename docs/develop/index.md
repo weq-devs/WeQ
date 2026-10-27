@@ -66,7 +66,7 @@ pnpm dev
 - [消息同步与性能修复方案](./message-sync-performance-plan-20261025.md)及[阶段实施记录](./message-sync-performance-implementation-20261025.md)：消息到达、QQ 已读消点、会话首屏与媒体的已实施范围，以及时间线虚拟化和真实性能验收待办。
 - [消息性能修补](./message-performance-20261026.md)：后续性能实现与针对性验证范围。
 - [聊天图片预览缓存](./chat-image-preview-cache-20261026.md)：解码内存预算、可见与离屏资源边界。
-- [渲染资源生命周期](./renderer-resource-lifecycle-20261024.md)、[白屏定位](./renderer-white-screen-20261026.md)：资源释放、诊断与分阶段验证记录。
+- [渲染资源生命周期](./renderer-resource-lifecycle-20261024.md)、[白屏定位](./renderer-white-screen-20261026.md)、[后台帧释放与自动恢复](./renderer-auto-recovery-20261027.md)：资源释放、诊断与分阶段验证记录。
 - [语音 worker 的 macOS 打包](./transcribe-worker-macos-20261026.md)：子进程依赖与产物验证边界。
 - [桌面包体积优化](./desktop-package-size-20261025.md)：生产依赖分层、原生架构裁剪、真实打包匹配器和产物冒烟。
 - [QQ 数据库布局：按文件设置保留页](./db-layout-split-20261018.md) — per-Pager pending byte、锁字节与布局自动识别
