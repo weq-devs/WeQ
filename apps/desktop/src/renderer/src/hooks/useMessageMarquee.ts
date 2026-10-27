@@ -10,6 +10,11 @@ import '../styles/message-marquee.css';
 import { selectMessageIds, type SelectionModifiers } from '../lib/messageSelection';
 import { timelineViewport } from '../lib/timelineViewport';
 
+type MarqueePointerEvent = Pick<
+  PointerEvent<HTMLDivElement>,
+  'pointerId' | 'clientX' | 'clientY' | 'preventDefault'
+>;
+
 export function marqueeMessageIds(
   rows: readonly { id: string; top: number; bottom: number }[],
   start: number,
@@ -87,12 +92,14 @@ export function useMessageMarquee({
     selectionMode: boolean;
     modifiers: SelectionModifiers & { anchor?: string | null; ordered?: readonly string[] };
     rows: Map<string, { id: string; top: number; bottom: number }>;
+    cleanup: () => void;
   } | null>(null);
   const frame = useRef<number | null>(null);
   const suppressClick = useRef(false);
   const finish = useCallback(() => {
     const drag = gesture.current;
     gesture.current = null;
+    drag?.cleanup();
     if (frame.current !== null) cancelAnimationFrame(frame.current);
     frame.current = null;
     if (drag?.element.hasPointerCapture?.(drag.pointer))
@@ -175,6 +182,84 @@ export function useMessageMarquee({
     }
     if (gesture.current === drag) frame.current = requestAnimationFrame(tick);
   };
+  const move = (event: MarqueePointerEvent) => {
+    const drag = gesture.current;
+    if (!drag || drag.pointer !== event.pointerId) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.clientX, event.clientY - drag.clientY) < 5)
+      return;
+    drag.clientX = event.clientX;
+    drag.clientY = event.clientY;
+    if (!drag.moved) {
+      drag.moved = true;
+      drag.element.ownerDocument.getSelection()?.removeAllRanges();
+      suppressClick.current = true;
+      frame.current = requestAnimationFrame(tick);
+    }
+    event.preventDefault();
+    drag.dirty = true;
+  };
+  const up = (event: MarqueePointerEvent) => {
+    const drag = gesture.current;
+    if (!drag || drag.pointer !== event.pointerId) return;
+    // 快速拖拽可能没有中间 move；释放坐标仍足以确认首次框选。
+    if (
+      !drag.moved &&
+      Math.hypot(event.clientX - drag.clientX, event.clientY - drag.clientY) >= 5
+    ) {
+      drag.moved = true;
+      suppressClick.current = true;
+      drag.element.ownerDocument.getSelection()?.removeAllRanges();
+    }
+    drag.clientX = event.clientX;
+    drag.clientY = event.clientY;
+    update();
+    if (drag.moved) {
+      current.current.onStart();
+      current.current.onChange(drag.pending);
+      if (anchorRef && !drag.modifiers.shiftKey) {
+        const hits = [...drag.rows.values()]
+          .filter(
+            (row) =>
+              row.bottom >= Math.min(drag.y, drag.endY) && row.top <= Math.max(drag.y, drag.endY),
+          )
+          .sort((a, b) => a.top - b.top);
+        const first = drag.endY >= drag.y ? hits[0] : hits[hits.length - 1];
+        if (first) anchorRef.current = first.id;
+      }
+    } else if (
+      drag.selectionMode ||
+      drag.modifiers.ctrlKey ||
+      drag.modifiers.metaKey ||
+      drag.modifiers.shiftKey
+    ) {
+      const row = [...drag.element.querySelectorAll<HTMLElement>('[data-message-id]')].find(
+        (row) => {
+          const rect = row.getBoundingClientRect();
+          return rect.height > 0 && event.clientY >= rect.top && event.clientY <= rect.bottom;
+        },
+      );
+      const id = row?.dataset.messageId;
+      if (id) {
+        suppressClick.current = true;
+        drag.element.ownerDocument.getSelection()?.removeAllRanges();
+        current.current.onStart();
+        if (current.current.onSelect) current.current.onSelect(id, drag.modifiers);
+        else
+          current.current.onChange(
+            selectMessageIds(
+              drag.base,
+              [...drag.element.querySelectorAll<HTMLElement>('[data-message-id]')].map(
+                (row) => row.dataset.messageId!,
+              ),
+              id,
+              drag.modifiers.anchor ?? null,
+              drag.modifiers,
+            ),
+          );
+      }
+    }
+    finish();
+  };
   return {
     box,
     previewIds,
@@ -186,6 +271,7 @@ export function useMessageMarquee({
       onPointerDownCapture: (event: PointerEvent<HTMLDivElement>) => {
         if (
           !enabled ||
+          gesture.current ||
           event.button !== 0 ||
           event.pointerType === 'touch' ||
           !(event.target instanceof Element)
@@ -212,6 +298,10 @@ export function useMessageMarquee({
         if (event.clientX >= rect.left + element.clientWidth) return;
         event.preventDefault();
         if (selectionMode || modified) event.stopPropagation();
+        const document = element.ownerDocument;
+        const cancel = (cancelEvent: globalThis.PointerEvent) => {
+          if (gesture.current?.pointer === cancelEvent.pointerId) finish();
+        };
         gesture.current = {
           element,
           pointer: event.pointerId,
@@ -233,93 +323,20 @@ export function useMessageMarquee({
             ordered: orderedIds,
           },
           rows: new Map(),
+          cleanup: () => {
+            document.removeEventListener('pointermove', move, true);
+            document.removeEventListener('pointerup', up, true);
+            document.removeEventListener('pointercancel', cancel, true);
+            document.defaultView?.removeEventListener('blur', finish);
+          },
         };
+        // 捕获丢失不等于取消；完成手势以真实松开／取消为准，不依赖冒泡路径。
+        document.addEventListener('pointermove', move, true);
+        document.addEventListener('pointerup', up, true);
+        document.addEventListener('pointercancel', cancel, true);
+        document.defaultView?.addEventListener('blur', finish);
         element.setPointerCapture?.(event.pointerId);
       },
-      onPointerMove: (event: PointerEvent<HTMLDivElement>) => {
-        const drag = gesture.current;
-        if (!drag || drag.pointer !== event.pointerId) return;
-        if (
-          !drag.moved &&
-          Math.hypot(event.clientX - drag.clientX, event.clientY - drag.clientY) < 5
-        )
-          return;
-        drag.clientX = event.clientX;
-        drag.clientY = event.clientY;
-        if (!drag.moved) {
-          drag.moved = true;
-          drag.element.ownerDocument.getSelection()?.removeAllRanges();
-          suppressClick.current = true;
-          frame.current = requestAnimationFrame(tick);
-        }
-        event.preventDefault();
-        drag.dirty = true;
-      },
-      onPointerUp: (event: PointerEvent<HTMLDivElement>) => {
-        const drag = gesture.current;
-        if (!drag || drag.pointer !== event.pointerId) return;
-        // 快速拖拽可能没有中间 move；释放坐标仍足以确认首次框选。
-        if (
-          !drag.moved &&
-          Math.hypot(event.clientX - drag.clientX, event.clientY - drag.clientY) >= 5
-        ) {
-          drag.moved = true;
-          suppressClick.current = true;
-          drag.element.ownerDocument.getSelection()?.removeAllRanges();
-        }
-        drag.clientX = event.clientX;
-        drag.clientY = event.clientY;
-        update();
-        if (drag.moved) {
-          current.current.onStart();
-          current.current.onChange(drag.pending);
-          if (anchorRef && !drag.modifiers.shiftKey) {
-            const hits = [...drag.rows.values()]
-              .filter(
-                (row) =>
-                  row.bottom >= Math.min(drag.y, drag.endY) &&
-                  row.top <= Math.max(drag.y, drag.endY),
-              )
-              .sort((a, b) => a.top - b.top);
-            const first = drag.endY >= drag.y ? hits[0] : hits[hits.length - 1];
-            if (first) anchorRef.current = first.id;
-          }
-        } else if (
-          drag.selectionMode ||
-          drag.modifiers.ctrlKey ||
-          drag.modifiers.metaKey ||
-          drag.modifiers.shiftKey
-        ) {
-          const row = [...drag.element.querySelectorAll<HTMLElement>('[data-message-id]')].find(
-            (row) => {
-              const rect = row.getBoundingClientRect();
-              return rect.height > 0 && event.clientY >= rect.top && event.clientY <= rect.bottom;
-            },
-          );
-          const id = row?.dataset.messageId;
-          if (id) {
-            suppressClick.current = true;
-            drag.element.ownerDocument.getSelection()?.removeAllRanges();
-            current.current.onStart();
-            if (current.current.onSelect) current.current.onSelect(id, drag.modifiers);
-            else
-              current.current.onChange(
-                selectMessageIds(
-                  drag.base,
-                  [...drag.element.querySelectorAll<HTMLElement>('[data-message-id]')].map(
-                    (row) => row.dataset.messageId!,
-                  ),
-                  id,
-                  drag.modifiers.anchor ?? null,
-                  drag.modifiers,
-                ),
-              );
-          }
-        }
-        finish();
-      },
-      onPointerCancel: finish,
-      onLostPointerCapture: finish,
       onContextMenuCapture: (event: MouseEvent<HTMLDivElement>) => {
         if (enabled && event.ctrlKey) {
           event.preventDefault();

@@ -12,6 +12,77 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it.each(['inside', 'outside'])('首次框选丢失捕获后在 %s 松开仍提交，其他指针不打断', (release) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let frame: FrameRequestCallback | undefined;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frame = callback;
+    return 1;
+  });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  function View() {
+    const selection = useContentMultiSelect({ kind: 'messages', container: 'group:capture' });
+    const marquee = useMessageMarquee({
+      enabled: true,
+      selectionMode: selection.selectionMode,
+      selected: selection.selectedIds,
+      onChange: selection.setSelectedIds,
+      onStart: () => selection.setSelectionMode(true),
+    });
+    return h(
+      'div',
+      { ...marquee.handlers, 'data-scroll': true },
+      h('output', { 'data-mode': selection.selectionMode }, [...selection.selectedIds].join(',')),
+      h('div', { 'data-message-id': 'a' }),
+      marquee.box && h('div', { 'data-marquee': true }),
+    );
+  }
+  const pointer = (target: EventTarget, type: string, y: number, pointerId = 1) =>
+    act(() => {
+      target.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          pointerId,
+          clientX: 10,
+          clientY: y,
+        }),
+      );
+    });
+  try {
+    act(() => root.render(h(ContentSelectionProvider, null, h(View))));
+    const scroll = host.querySelector<HTMLElement>('[data-scroll]')!;
+    vi.spyOn(scroll, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 500, 300));
+    Object.defineProperty(scroll, 'clientWidth', { value: 500 });
+    Object.defineProperty(scroll, 'clientHeight', { value: 300 });
+    vi.spyOn(scroll.querySelector('[data-message-id]')!, 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(200, 40, 100, 40),
+    );
+    pointer(scroll, 'pointerdown', 30);
+    pointer(scroll, 'pointermove', 60);
+    act(() => frame?.(0));
+    expect(host.querySelector('[data-marquee]')).not.toBeNull();
+    pointer(scroll, 'lostpointercapture', 60);
+    pointer(scroll, 'pointercancel', 60, 2);
+    expect(host.querySelector('[data-marquee]')).not.toBeNull();
+    // 捕获丢失后，松开可能落在聊天区外，且被其他组件拦住冒泡。
+    const stop = (event: Event) => event.stopPropagation();
+    host.addEventListener('pointerup', stop);
+    pointer(release === 'inside' ? scroll : host, 'pointerup', 90);
+    expect(host.querySelector('output')?.getAttribute('data-mode')).toBe('true');
+    expect(host.querySelector('output')?.textContent).toBe('a');
+    expect(host.querySelector('[data-marquee]')).toBeNull();
+    host.removeEventListener('pointerup', stop);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it('框选只按竖直交集命中，支持反向、边界、追加及缩小范围', () => {
   const rows = [
     { id: 'a', top: 10, bottom: 40 },
@@ -201,6 +272,14 @@ it('空白框选松开后才提交多选，正文不触发，取消和切会话�
     pointer(scroll, 'pointerdown', 450, 60);
     pointer(scroll, 'pointerup', 450, 60);
     expect(host.querySelector('output')?.textContent).toBe('c,b');
+    pointer(scroll, 'pointerdown', 10, 35);
+    pointer(scroll, 'pointermove', 15, 80);
+    flushFrame();
+    act(() => window.dispatchEvent(new Event('blur')));
+    pointer(scroll, 'pointerup', 15, 80);
+    expect(host.querySelector('output')?.textContent).toBe('c,b');
+    expect(host.querySelector('[data-marquee]')).toBeNull();
+    expect(frames.size).toBe(0);
     pointer(scroll, 'pointerdown', 10, 95);
     pointer(scroll, 'pointermove', 15, 150);
     act(() => root.render(h(View, { conversationKey: 'two' })));

@@ -62,6 +62,60 @@ try {
   };
   const mounted = () => page.locator('.weq-virtual-timeline-row').count();
   assert((await mounted()) < 80, 'DOM grows with all 3000 messages');
+  for (const [loseCapture, theme, width] of [
+    [false, 'light', 1280],
+    [true, 'dark', 1280],
+    [true, 'light', 390],
+    [true, 'dark', 390],
+  ]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      window.timelineTest.jump('row-1050');
+      const scroll = document.querySelector('.message-scroll');
+      scroll.addEventListener(
+        'pointerdown',
+        (event) => {
+          window.timelinePointer = event.pointerId;
+        },
+        { once: true, capture: true },
+      );
+    }, theme);
+    await page.locator('.composer-editor[contenteditable="true"]').first().focus();
+    await page.waitForTimeout(100);
+    const firstBox = await page.locator('.message-scroll').boundingBox();
+    await page.mouse.move(firstBox.x + 4, firstBox.y + 45);
+    await page.mouse.down();
+    await page.mouse.move(firstBox.x + 30, firstBox.y + 250, { steps: 4 });
+    await page.locator('.weq-message-marquee').waitFor();
+    assert(
+      (await page.locator('.chat-pane.selection-mode').count()) === 0,
+      'Marquee entered selection mode before release',
+    );
+    if (loseCapture) {
+      await page.evaluate(() => {
+        const scroll = document.querySelector('.message-scroll');
+        scroll.releasePointerCapture(window.timelinePointer);
+        document.body.addEventListener('pointerup', (event) => event.stopPropagation(), {
+          once: true,
+        });
+      });
+      await page.mouse.move(firstBox.x + 30, firstBox.y + firstBox.height + 10);
+      assert(
+        (await page.locator('.weq-message-marquee').count()) === 1,
+        'Capture loss discarded the first marquee preview',
+      );
+    }
+    await page.mouse.up();
+    await page.locator('.chat-pane.selection-mode').waitFor();
+    assert(
+      (await page.evaluate(() => window.timelineTest.selected())).length > 0,
+      `First marquee lost its selection: ${theme}/${width}/${loseCapture}`,
+    );
+    await page.evaluate(() => window.timelineTest.exitSelection());
+    await page.locator('.composer-editor[contenteditable="true"]').first().waitFor();
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.evaluate(() => window.timelineTest.jump('row-1500'));
   await page.waitForSelector('[data-message-id="row-1500"]');
   await page.waitForTimeout(250);
@@ -380,6 +434,8 @@ try {
       await page.locator('[data-total-items]').getAttribute('data-total-items'),
     ),
     mountedRows: await mounted(),
+    firstMarquee: true,
+    captureLossRecovery: true,
     anchor,
     restored,
     draggedRows: dragged.length,
