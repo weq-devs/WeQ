@@ -22,7 +22,7 @@ import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocum
 import { openMarketFaceLightbox } from './MarketFaceLightbox';
 import { ShimmerImage } from './ShimmerImage';
 import { IS_ELECTRON } from '@renderer/lib/target';
-import { cdnImageUrl, cdnVideoCoverUrl, useCdn } from '@renderer/lib/cdn';
+import { cdnImageUrl, cdnVideoCoverUrl, flashPicUrl, useCdn } from '@renderer/lib/cdn';
 import { MediaSaveControls, MediaSourceSave, useMediaSave } from './MediaSaveControls';
 import type { MediaSaveSource } from '../../../shared/media_save';
 
@@ -143,7 +143,11 @@ export function QqImage({
   // 「优先使用 CDN」开着且拼得出直链时先试它（浏览器直连，服务端零流量）；rkey 过期 /
   // 老图片 / CDN 抽风都会 onError 落回上面这条代理路径，再失败才是「未找到」占位。
   const cdn = useCdn();
-  const cdnSrc = cdnImageUrl(cdn, conv !== '', token, orig);
+  // 闪照：`fileToken` 是老式 offpic 路径（`/uin-id-md5`），三档 URL 全空、没有
+  // rkey 可用，但 offpic 本身免 rkey。气泡显示打码的 198 预览，点开看 0 原图。
+  const flashSrc = flashPicUrl(token, 198);
+  const flashFullSrc = flashPicUrl(token, 0);
+  const cdnSrc = flashSrc ? null : cdnImageUrl(cdn, conv !== '', token, orig);
   // 合并转发编辑器里拼的图片带 `localPath`（本机绝对路径）—— 它还没上传、不在
   // Pic 缓存里，按发送时间 / 文件名找图会 404，直接从本机文件流出来预览。
   // 乐观渲染的图片还会带 `localPreviewUrl`（blob: 地址，剪贴板截图没有落盘路径）。
@@ -156,6 +160,8 @@ export function QqImage({
   const candidates: string[] = [];
   if (localPreviewUrl) candidates.push(localPreviewUrl);
   if (localPath) candidates.push(localFileUrl(localPath));
+  // 闪照优先走 offpic：本地库没有原图，代理路径（按发送时间找 nt_data）必然 miss。
+  if (flashSrc) candidates.push(flashSrc);
   if (cdnSrc) candidates.push(cdnSrc);
   if (!candidates.includes(proxySrc)) candidates.push(proxySrc);
   if (!isAnimatedEmoji && !candidates.includes(originalProxySrc)) candidates.push(originalProxySrc);
@@ -199,10 +205,25 @@ export function QqImage({
     // 外层包一层 relative 容器：ShimmerImage 的扫光占位（absolute inset 0）只
     // 覆盖图片本身，不会铺满整条消息气泡；点击仍开灯箱。
     <span
-      className={cn('qq-media-wrap', isAnimatedEmoji && 'qq-media-wrap-emoji')}
+      className={cn(
+        'qq-media-wrap',
+        isAnimatedEmoji && 'qq-media-wrap-emoji',
+        flashSrc && 'qq-media-wrap-flash',
+      )}
       onClick={
         openable
-          ? (event) =>
+          ? (event) => {
+              // 闪照：气泡里是打码的 198 预览，点开直接给 0 原图（不再往下回退到
+              // 预览档，否则点开看到的还是马赛克）。
+              if (flashFullSrc) {
+                openLightbox(
+                  flashFullSrc,
+                  name || '[闪照]',
+                  ocrContext,
+                  event.currentTarget.ownerDocument,
+                );
+                return;
+              }
               openLightbox(
                 src === proxySrc ? originalProxySrc : src,
                 name || '[图片]',
@@ -215,13 +236,17 @@ export function QqImage({
                     .map((candidate) => (candidate === proxySrc ? originalProxySrc : candidate)),
                   proxySrc,
                 ],
-              )
+              );
+            }
           : undefined
       }
     >
       <ShimmerImage
         suspendOffscreen
-        className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
+        className={cn(
+          isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image',
+          flashSrc && 'qq-media-flash',
+        )}
         style={style}
         src={src}
         alt={isAnimatedEmoji ? '[动画表情]' : name || '[图片]'}

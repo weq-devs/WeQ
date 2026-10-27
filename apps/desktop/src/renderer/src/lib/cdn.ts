@@ -15,6 +15,7 @@
  */
 
 import { createContext, useContext } from 'react';
+import { mediaUrl } from './resourceUrl';
 
 /** 一条下载 rkey，形状同 service 的 `DownloadRkey`（经 tRPC 过来）。 */
 export interface CdnRkey {
@@ -89,6 +90,27 @@ export function cdnImageUrl(
   }
   const rkey = pickRkey(state.rkeys, isGroup ? GROUP_IMAGE : PRIVATE_IMAGE);
   return rkey ? buildDownloadUrl(fileToken, isGroup ? '1407' : '1406', rkey) : null;
+}
+
+/**
+ * 闪照的图片地址 —— 走 `weq-media://flashpic` 由主进程代取。
+ *
+ * 闪照（行级 `40012 & 0x2000`）在元素层的 `fileToken` 是**老式 offpic 路径**
+ * `/对端uin-图片id-MD5`，而不是 Base64 凭据；三档 URL（thumbnail/preview/original）
+ * 与 `contentHash` / `cdnHost` 全部为空，所以既走不了 `download?fileid=` 也走不了
+ * `originalUrl`。offpic 本身不需要 rkey，但**渲染进程不能直连**：响应不带
+ * `Access-Control-Allow-Origin`，浏览器会按 CORS 拦掉。所以与群相册同一条路 ——
+ * 主进程代取并落盘缓存（见 `main/media_protocol.ts` 的 `flashpic`）。
+ *
+ * `spec` 沿用老图片口径：`0` 原图、`198` 预览、`720` 大图（实测三者都可用，
+ * 非法档位回 400）。
+ *
+ * 判定闪照只看 token 形状：`fileToken` 以 `/` 开头在实测样本里 6/6 命中闪照、
+ * 其余 266 条图片 0 命中。行级 `40012` 目前没有透传到渲染元素，这里拿不到。
+ */
+export function flashPicUrl(fileToken: string, spec: 0 | 198 | 720 = 198): string | null {
+  if (!fileToken.startsWith('/')) return null;
+  return mediaUrl('flashpic', { token: fileToken, spec });
 }
 
 /**
