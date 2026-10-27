@@ -1211,13 +1211,17 @@ export const bootstrapRouter = router({
    */
   getMcpStatus: procedure.query(() => {
     const mcp = requireBootstrap().userConfig.getSettings().mcp;
+    const running = isMcpRunning();
+    const accountOpen = Boolean(getAppContext().services);
     return {
       enabled: mcp.enabled,
       port: mcp.port,
       token: mcp.token,
       host: '127.0.0.1',
       url: `http://127.0.0.1:${mcp.port}`,
-      running: isMcpRunning(),
+      running,
+      // 没有账号时服务是「已启用但没在监听」，前端据此区分文案。
+      accountOpen,
     };
   }),
 
@@ -1301,8 +1305,11 @@ export const bootstrapRouter = router({
       if (!current.enabled || !current.token) {
         const token = current.token || randomBytes(32).toString('hex');
         userConfig.setSettings({ mcp: { enabled: true, token } });
-        await getAppContext().applyMcp(userConfig.getSettings().mcp);
       }
+      // 无论配置是否刚刚改过都应用一次：`applyMcp` 幂等（配置相同且已在监听
+      // 时是 no-op），但配置早就 enabled、服务却没起来的场景（例如刚切换到
+      // 备份账号）需要它把服务真正拉起来，否则装好的客户端连不上。
+      await getAppContext().applyMcp(userConfig.getSettings().mcp);
       const mcp = userConfig.getSettings().mcp;
       const results = installMcpAgentConfigs(input.targets, {
         url: `http://127.0.0.1:${mcp.port}`,
