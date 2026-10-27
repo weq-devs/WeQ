@@ -387,6 +387,11 @@ export class AgentLabService extends EventEmitter {
     });
   }
 
+  /** 账号切换或退出时取消运行时请求并等待后台派生数据任务。 */
+  close(): Promise<void> {
+    return this.runtime.close();
+  }
+
   /** 对话反思笔记（前端「记忆/画像」灯箱可选展示）。 */
   getNotes(personaId: string): AgentLabPersonaNotes {
     return this.notes.get(personaId);

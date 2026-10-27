@@ -1583,6 +1583,7 @@ export const bootstrapRouter = router({
         vendor: z.string().min(1),
         baseUrl: z.string().min(1),
         apiKey: z.string().min(1),
+        timeoutMs: z.number().int().min(1).max(2_147_483_647).optional(),
         models: z
           .array(
             z.object({

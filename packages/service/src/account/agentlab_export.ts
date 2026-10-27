@@ -22,6 +22,7 @@ export interface BotExportLlmProvider {
   id: string;
   baseUrl: string;
   apiKey: string;
+  timeoutMs?: number;
 }
 
 export interface BotExportInput {
@@ -198,7 +199,23 @@ function loadConfig() {
 }
 
 startBot(loadConfig(), { reloadConfig: loadConfig }).then(
-  () => console.log('克隆体 bot 已启动。Ctrl+C 退出。'),
+  (bot) => {
+    let stopping = false;
+    const stop = async () => {
+      if (stopping) return;
+      stopping = true;
+      try {
+        await bot.stop();
+        process.exit(0);
+      } catch (error) {
+        console.error('停止失败:', error);
+        process.exit(1);
+      }
+    };
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+    console.log('克隆体 bot 已启动。Ctrl+C 退出。');
+  },
   (err) => { console.error('启动失败:', err); process.exit(1); },
 );
 `;

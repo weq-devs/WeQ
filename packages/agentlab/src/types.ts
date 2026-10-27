@@ -19,6 +19,8 @@ export interface AgentLabProviderConfig {
   vendor: string;
   baseUrl: string;
   apiKey: string;
+  /** 非流式模型请求总期限，毫秒；缺省 180 秒。 */
+  timeoutMs?: number;
   models: AgentLabProviderModel[];
   createdAt: number;
   updatedAt: number;
@@ -83,6 +85,10 @@ export interface AgentLabEndpoint {
   kind?: AgentLabUsage['kind'];
   feature?: string;
   source?: 'api' | 'local';
+  /** 非流式模型请求的总期限（含正文），默认 180 秒。 */
+  timeoutMs?: number;
+  /** 调用方或运行实例生命周期；不会因兼容回退而丢失。 */
+  signal?: AbortSignal;
   /** 每次调用后回调 token 用量（service 注入，写入用量统计）。 */
   onUsage?: (usage: AgentLabUsage) => void;
 }

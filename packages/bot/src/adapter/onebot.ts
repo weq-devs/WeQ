@@ -90,6 +90,7 @@ export abstract class BaseOneBotAdapter implements OneBot11Adapter {
 
   close(): void {
     this.closed = true;
+    this.rejectAllPending('机器人已停止，未确认的发送结果不可自动重试');
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

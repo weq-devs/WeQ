@@ -173,6 +173,7 @@ export class AgentLabConfigService {
     const prev = current.find((item) => item.id === input.id);
     const next = normalizeProviderConfig({
       ...input,
+      timeoutMs: input.timeoutMs ?? prev?.timeoutMs,
       createdAt: prev?.createdAt,
     });
     validateProviderConfig(next);

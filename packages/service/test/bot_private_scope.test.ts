@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentLabStore, AgentRuntime, type RuntimeLogger } from '@weq/agentlab';
@@ -182,6 +182,42 @@ it('迟到的后台蒸馏仍只写回原对端，不跟随当前会话', async (
   f.requests.length = 0;
   await state.runtime.chat({ ...input, privatePeerId: 'peer-b', text: '近况' });
   expect(f.requests.join('\n')).not.toContain('A_PRIVATE_');
+});
+
+it('关闭运行时取消并等待迟到的蒸馏，不再保存记忆或发起后续模型请求', async () => {
+  const f = fixture();
+  const state = f.open();
+  const original = vi.mocked(fetch).getMockImplementation()!;
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let waiting = false;
+  vi.mocked(fetch).mockImplementation(async (url, init) => {
+    if (String(init?.body).includes('提炼出关于')) {
+      waiting = true;
+      await gate;
+    }
+    return original(url, init);
+  });
+  for (let i = 0; i < 6; i++)
+    await state.runtime.chat({
+      personaId: f.persona.id,
+      privatePeerId: 'peer-a',
+      text: '近况',
+      history: [],
+    });
+  expect(waiting).toBe(true);
+  const closed = state.runtime.close();
+  release();
+  await closed;
+  expect(existsSync(join(f.root, 'memories.json'))).toBe(false);
+  const calls = vi.mocked(fetch).mock.calls.length;
+  await expect(
+    state.runtime.chat({ personaId: f.persona.id, history: [], text: '关闭后的问题' }),
+  ).rejects.toThrow();
+  await expect(state.runtime.synthesizeVoice(f.persona, '关闭后的语音')).rejects.toThrow();
+  expect(fetch).toHaveBeenCalledTimes(calls);
 });
 
 it('实际编排从传输身份提供私聊和群作用域，同号群不复用私聊短期历史', async () => {

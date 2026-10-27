@@ -5,6 +5,7 @@
  * ——尤其「为什么不回」一眼可查（看意愿闸 reason/score 或是否被判为空文本）。
  */
 import type { AgentRuntime, AgentLabChatTurn } from '@weq/agentlab';
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { OneBot11Adapter } from './adapter/types';
 import { normalizeInbound, type NormalizedMessage } from './normalize/inbound';
 import { encodeTurn, type AssetResolver } from './normalize/outbound';
@@ -12,8 +13,10 @@ import { BotCapabilities } from './capabilities';
 
 const HISTORY_CAP = 40;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function limit(value: number | undefined, fallback: number): number {
+  const resolved = value ?? fallback;
+  if (!Number.isSafeInteger(resolved) || resolved < 1) throw new Error('Bot 队列限额必须是正整数');
+  return resolved;
 }
 
 /** 日志时间戳 HH:MM:SS。 */
@@ -29,6 +32,9 @@ export interface StatsSink {
 }
 
 export interface OrchestratorOptions {
+  maxConcurrentChats?: number;
+  maxQueuedMessages?: number;
+  maxQueuedPerChat?: number;
   /** 是否参与群聊（M3）。默认关：只处理私聊。 */
   groupChat?: boolean;
   /** 群聊回复意愿决策方式（默认 'llm'，与桌面模拟群聊一致；'heuristic'=纯启发式打分省 token）。 */
@@ -38,6 +44,15 @@ export interface OrchestratorOptions {
 }
 
 export class BotOrchestrator {
+  private readonly lifecycle = new AbortController();
+  private readonly queues = new Map<string, { running: boolean; messages: NormalizedMessage[] }>();
+  private readonly ready: string[] = [];
+  private readonly active = new Set<Promise<void>>();
+  private readonly maxConcurrent: number;
+  private readonly maxQueued: number;
+  private readonly maxPerChat: number;
+  private queued = 0;
+  private started = false;
   /** 按对端 id 维护的近期对话历史（喂给 AgentRuntime 作上下文）。 */
   private readonly histories = new Map<string, AgentLabChatTurn[]>();
   /** 每个群里 bot 上次开口的时间（意愿闸冷却用）。 */
@@ -53,11 +68,17 @@ export class BotOrchestrator {
     private readonly assets: AssetResolver,
     private readonly opts: OrchestratorOptions = {},
   ) {
+    this.maxConcurrent = limit(opts.maxConcurrentChats, 4);
+    this.maxQueued = limit(opts.maxQueuedMessages, 256);
+    this.maxPerChat = limit(opts.maxQueuedPerChat, 32);
     this.capabilities = new BotCapabilities(adapter);
   }
 
   /** 注册事件回调（在 adapter.connect() 之前调）。 */
   start(): void {
+    this.lifecycle.signal.throwIfAborted();
+    if (this.started) return;
+    this.started = true;
     this.adapter.onEvent((event) => {
       void this.onEvent(event).catch(() => {
         console.error(`[${ts()}] 消息处理失败，未报告为已保存或已交付`);
@@ -65,9 +86,71 @@ export class BotOrchestrator {
     });
   }
 
+  /** 取消等待和生成；不能撤销已提交给 OneBot 的发送，调用方应同时关闭 adapter。 */
+  async stop(): Promise<void> {
+    this.lifecycle.abort(new DOMException('机器人已停止', 'AbortError'));
+    if (this.queued) console.error(`[${ts()}] 机器人停止，${this.queued} 条等待消息未执行`);
+    for (const queue of this.queues.values()) queue.messages.length = 0;
+    this.queues.clear();
+    this.ready.length = 0;
+    this.queued = 0;
+    await Promise.all(this.active);
+    this.histories.clear();
+    this.lastGroupReplyAt.clear();
+  }
+
+  private enqueue(msg: NormalizedMessage): void {
+    const key = `${msg.chatType}:${msg.peerId}`;
+    let queue = this.queues.get(key);
+    if (this.queued >= this.maxQueued || (queue?.messages.length ?? 0) >= this.maxPerChat) {
+      console.error(`[${ts()}] 消息未受理：Bot 队列已满，请稍后重试`);
+      return;
+    }
+    if (!queue) {
+      queue = { running: false, messages: [] };
+      this.queues.set(key, queue);
+    }
+    queue.messages.push(msg);
+    this.queued++;
+    if (!queue.running && queue.messages.length === 1) this.ready.push(key);
+    this.pump();
+  }
+
+  private pump(): void {
+    while (
+      !this.lifecycle.signal.aborted &&
+      this.active.size < this.maxConcurrent &&
+      this.ready.length
+    ) {
+      const key = this.ready.shift()!;
+      const queue = this.queues.get(key)!;
+      const msg = queue.messages.shift()!;
+      this.queued--;
+      queue.running = true;
+      const task = Promise.resolve()
+        .then(() => {
+          this.lifecycle.signal.throwIfAborted();
+          return msg.chatType === 'private' ? this.handlePrivate(msg) : this.handleGroup(msg);
+        })
+        .catch(() => {
+          if (!this.lifecycle.signal.aborted)
+            console.error(`[${ts()}] 消息处理失败，未报告为已保存或已交付`);
+        })
+        .finally(() => {
+          this.active.delete(task);
+          queue.running = false;
+          if (queue.messages.length && !this.lifecycle.signal.aborted) this.ready.push(key);
+          else this.queues.delete(key);
+          this.pump();
+        });
+      this.active.add(task);
+    }
+  }
+
   private async onEvent(
     event: Parameters<Parameters<OneBot11Adapter['onEvent']>[0]>[0],
   ): Promise<void> {
+    if (this.lifecycle.signal.aborted) return;
     const msg = normalizeInbound(event, this.selfId);
     if (!msg) return;
     if (msg.senderId === this.selfId) return; // 不理会自己发的
@@ -84,9 +167,9 @@ export class BotOrchestrator {
     }
     this.opts.stats?.onMessageIn();
     if (msg.chatType === 'private') {
-      await this.handlePrivate(msg);
+      this.enqueue(msg);
     } else if (this.opts.groupChat) {
-      await this.handleGroup(msg);
+      this.enqueue(msg);
     } else {
       console.log(`[${ts()}] └ 跳过：群聊未开启（config.features.groupChat=false）`);
     }
@@ -102,11 +185,14 @@ export class BotOrchestrator {
         history,
         text: msg.text,
         privatePeerId: msg.peerId,
+        signal: this.lifecycle.signal,
       });
     } catch (err) {
+      if (this.lifecycle.signal.aborted) return;
       console.error(`[${ts()}] └ 生成失败:`, err instanceof Error ? err.message : err);
       return;
     }
+    this.lifecycle.signal.throwIfAborted();
     if (result.silent) {
       console.log(`[${ts()}] └ 静默（私聊意愿闸未过）`);
       return;
@@ -153,11 +239,14 @@ export class BotOrchestrator {
         selfShareRecent,
         msSinceOwnLastReply,
         mode: this.opts.groupReplyMode ?? 'llm',
+        signal: this.lifecycle.signal,
       });
     } catch (err) {
+      if (this.lifecycle.signal.aborted) return;
       console.error(`[${ts()}] └ 群聊生成失败:`, err instanceof Error ? err.message : err);
       return;
     }
+    this.lifecycle.signal.throwIfAborted();
     // 意愿闸决策日志：一眼看清「为什么回 / 为什么不回」。
     console.log(
       `[${ts()}] └ 意愿闸: ${result.reason} score=${result.score.toFixed(2)} → ${result.silent ? '不回' : '回复'}`,
@@ -187,7 +276,8 @@ export class BotOrchestrator {
     turns: string[],
     replyDelayMs: number,
   ): Promise<void> {
-    for (const turn of turns) {
+    for (const [index, turn] of turns.entries()) {
+      this.lifecycle.signal.throwIfAborted();
       const segments = encodeTurn(turn, this.assets);
       if (!segments) continue;
       try {
@@ -195,9 +285,12 @@ export class BotOrchestrator {
         this.opts.stats?.onMessageOut();
         console.log(`[${ts()}]   发送 → ${target.chatType}:${target.peerId}: ${turn}`);
       } catch (err) {
-        console.error(`[${ts()}]   发送失败:`, err instanceof Error ? err.message : err);
+        if (!this.lifecycle.signal.aborted)
+          console.error(`[${ts()}]   发送失败:`, err instanceof Error ? err.message : err);
+        throw err;
       }
-      if (replyDelayMs > 0) await sleep(replyDelayMs);
+      if (replyDelayMs > 0 && index < turns.length - 1)
+        await sleep(replyDelayMs, undefined, { signal: this.lifecycle.signal });
     }
   }
 }

@@ -39,6 +39,7 @@ export function normalizeProviderConfig(
     vendor: (input.vendor || 'openai-compatible').trim(),
     baseUrl: trimSlash(input.baseUrl.trim()),
     apiKey: input.apiKey.trim(),
+    ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
     models,
     createdAt: input.createdAt ?? now,
     updatedAt: now,
@@ -46,6 +47,13 @@ export function normalizeProviderConfig(
 }
 
 export function validateProviderConfig(input: AgentLabProviderConfig): void {
+  if (
+    input.timeoutMs !== undefined &&
+    (!Number.isSafeInteger(input.timeoutMs) ||
+      input.timeoutMs <= 0 ||
+      input.timeoutMs > 2_147_483_647)
+  )
+    throw new Error('模型请求期限必须是 1–2147483647 毫秒的整数');
   if (!input.id.trim()) throw new Error('Provider id 不能为空');
   if (!input.name.trim()) throw new Error('Provider 名称不能为空');
   if (!/^https?:\/\//i.test(input.baseUrl)) throw new Error('base_url 必须是 http/https 地址');
@@ -66,5 +74,10 @@ export function resolveEndpoint(
   provider: AgentLabProviderConfig,
   ref: AgentLabModelRef,
 ): AgentLabEndpoint {
-  return { baseUrl: provider.baseUrl, apiKey: provider.apiKey, model: ref.model };
+  return {
+    baseUrl: provider.baseUrl,
+    apiKey: provider.apiKey,
+    model: ref.model,
+    ...(provider.timeoutMs === undefined ? {} : { timeoutMs: provider.timeoutMs }),
+  };
 }

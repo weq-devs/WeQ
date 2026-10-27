@@ -6,6 +6,8 @@ import {
   withoutTemperature,
 } from './temperature_fallback';
 
+export const DEFAULT_API_TIMEOUT_MS = 180_000;
+
 export class ApiHttpError extends Error {
   constructor(
     path: string,
@@ -134,10 +136,40 @@ export async function requestApiJson<T>(
   path: string,
   init: RequestInit,
 ): Promise<T> {
+  const timeoutMs = endpoint.timeoutMs ?? DEFAULT_API_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647)
+    throw new Error('模型请求期限必须是 1–2147483647 毫秒的整数');
+  const controller = new AbortController();
+  const signals = [controller.signal];
+  if (init.signal) signals.push(init.signal);
+  if (endpoint.signal) signals.push(endpoint.signal);
+  const signal = AbortSignal.any(signals);
+  signal.throwIfAborted();
+  const timer = setTimeout(
+    () => controller.abort(new DOMException('模型请求超时', 'TimeoutError')),
+    timeoutMs,
+  );
+  timer.unref();
+  try {
+    return await requestApiJsonWithinDeadline<T>(endpoint, path, { ...init, signal });
+  } catch (error) {
+    if (signal.aborted) throw signal.reason;
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function requestApiJsonWithinDeadline<T>(
+  endpoint: AgentLabEndpoint,
+  path: string,
+  init: RequestInit,
+): Promise<T> {
   const { response, usage, temperatureOmitted } = await fetchApi(endpoint, path, init);
   try {
     if (!response.ok) {
       const text = await response.text().catch(() => '');
+      init.signal?.throwIfAborted();
       const detail = text.trim().slice(0, 300);
       try {
         usage.report(JSON.parse(text));
@@ -145,6 +177,7 @@ export async function requestApiJson<T>(
       throw new ApiHttpError(path, response.status, detail);
     }
     const data: unknown = await response.json();
+    init.signal?.throwIfAborted();
     usage.report(data);
     const temperatureRejected = isUnsupportedTemperature(data, response.status);
     const error =
@@ -153,7 +186,7 @@ export async function requestApiJson<T>(
       const fallback = temperatureOmitted ? null : withoutTemperature(path, init);
       if (fallback && temperatureRejected) {
         usage.finish('failed');
-        return await requestApiJson<T>(endpoint, path, fallback);
+        return await requestApiJsonWithinDeadline<T>(endpoint, path, fallback);
       }
       throw new Error(`模型服务错误：${error ?? '模型不支持温度参数'}`);
     }

@@ -22,6 +22,26 @@ function fixture() {
   };
 }
 describe('多 provider 持久化与调用隔离', () => {
+  it('慢模型期限跨重启生效，旧客户端编辑不清除，非法期限不覆盖配置', () => {
+    const f = fixture();
+    const provider = {
+      id: 'slow',
+      name: '合成慢模型',
+      vendor: 'custom',
+      baseUrl: 'https://synthetic.invalid',
+      apiKey: 'synthetic',
+      models: [{ id: 'model', capabilities: ['chat' as const] }],
+    };
+    f.service.saveProvider({ ...provider, timeoutMs: 600_000 });
+    const ref = { providerId: 'slow', model: 'model' };
+    expect(f.reload().resolveEndpoint(ref).timeoutMs).toBe(600_000);
+    f.service.saveProvider({ ...provider, name: '改名' });
+    expect(f.reload().resolveEndpoint(ref).timeoutMs).toBe(600_000);
+    for (const timeoutMs of [0, -1, 1.5, NaN, 2_147_483_648]) {
+      expect(() => f.service.saveProvider({ ...provider, timeoutMs })).toThrow();
+      expect(f.reload().resolveEndpoint(ref).timeoutMs).toBe(600_000);
+    }
+  });
   it('显式默认按调用时的全局选择解析，旧显式模型不跟随修改', () => {
     const f = fixture();
     f.service.saveProvider({

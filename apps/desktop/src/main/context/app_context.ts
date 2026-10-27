@@ -1282,6 +1282,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
+      await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
       this.account?.dispose();
@@ -2172,6 +2173,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
+      await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
       this.account?.dispose();
@@ -2868,6 +2870,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
+      void this.services?.agentLab.close().catch((error) => {
+        getLogger().warn('停止克隆运行时失败', { error: String(error) });
+      });
       void this.services?.unreadInfo.dispose().catch((error) => {
         console.error('[unread] 关闭账号时保存本地阅读状态失败', error);
       });

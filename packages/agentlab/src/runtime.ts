@@ -109,6 +109,7 @@ export interface NotesSink {
 
 /** TTS 合成端口（把 service 的 { service, getProvider } 抽象成 providerId 维度，解耦厂商类型）。 */
 export interface TtsSynthesisOptions {
+  signal?: AbortSignal;
   refClip?: { path: string; text: string };
   auxRefClips?: Array<{ path: string; text: string }>;
   voice?: string;
@@ -139,6 +140,7 @@ export interface RuntimeLogger {
 export type StickerAssetPort = (sticker: AgentLabStickerRef) => Promise<string | null>;
 
 export interface AgentRuntimeDeps {
+  signal?: AbortSignal;
   /** agentlab 根目录（合成语音落 <rootDir>/agentvoice/）。 */
   rootDir: string;
   store: AgentLabStore;
@@ -162,6 +164,9 @@ const REFLECT_EVERY = 8;
 const MIN_UNREFLECTED = 4;
 
 export class AgentRuntime {
+  private readonly lifecycle = new AbortController();
+  private readonly externalSignal?: AbortSignal;
+  private readonly background = new Set<Promise<void>>();
   private readonly rootDir: string;
   private readonly store: AgentLabStore;
   private readonly endpoints: EndpointResolver;
@@ -176,6 +181,7 @@ export class AgentRuntime {
   private readonly logger?: RuntimeLogger;
 
   constructor(deps: AgentRuntimeDeps) {
+    this.externalSignal = deps.signal;
     this.rootDir = deps.rootDir;
     this.store = deps.store;
     this.endpoints = deps.endpoints;
@@ -190,19 +196,42 @@ export class AgentRuntime {
     this.logger = deps.logger;
   }
 
+  async close(): Promise<void> {
+    this.lifecycle.abort(new DOMException('克隆运行时已关闭', 'AbortError'));
+    await Promise.all(this.background);
+  }
+
+  private startBackground(task: Promise<void>): void {
+    this.background.add(task);
+    void task.then(
+      () => this.background.delete(task),
+      () => this.background.delete(task),
+    );
+  }
+
   private selfMemberId(): string {
     return this.selfId;
+  }
+
+  private requestSignal(...signals: Array<AbortSignal | undefined>): AbortSignal {
+    const sources = [this.lifecycle.signal];
+    for (const signal of [this.externalSignal, ...signals]) if (signal) sources.push(signal);
+    const merged = AbortSignal.any(sources);
+    merged.throwIfAborted();
+    return merged;
   }
 
   /** 解析 endpoint 并挂上 token 记账回调。 */
   private resolveWithUsage(
     ref: AgentLabModelSelection,
     kind: 'chat' | 'embedding' | 'vision',
-    ctx: { personaId?: string; scope: 'build' | 'chat' | 'assistant' },
+    ctx: { personaId?: string; scope: 'build' | 'chat' | 'assistant'; signal?: AbortSignal },
   ): AgentLabEndpoint {
     const ep = this.endpoints(ref, kind);
+    const signal = this.requestSignal(ep.signal, ctx.signal);
     return {
       ...ep,
+      signal,
       kind,
       onUsage: (u) =>
         this.usage.record({
@@ -281,7 +310,12 @@ export class AgentRuntime {
    * 合成一条语音，写到 agentvoice/<hash>.<ext>，返回文件名（id）。失败返回 null（调用方降级文字）。
    * clone 模式用 TA 的参考音频复刻；preset 模式用预置音色（provider 默认音色由 TtsPort 实现兜底）。
    */
-  async synthesizeVoice(persona: AgentLabPersona, text: string): Promise<string | null> {
+  async synthesizeVoice(
+    persona: AgentLabPersona,
+    text: string,
+    externalSignal?: AbortSignal,
+  ): Promise<string | null> {
+    const signal = this.requestSignal(externalSignal);
     const voice = persona.voice;
     const log = this.logger?.child({ personaId: persona.id, textLen: text.length });
     if (!this.tts || !voice) {
@@ -299,7 +333,7 @@ export class AgentRuntime {
       return null;
     }
     try {
-      const opts: TtsSynthesisOptions = {};
+      const opts: TtsSynthesisOptions = { signal };
       if (voice.mode === 'clone') {
         const refClips = persona.voiceProfile?.refClips ?? [];
         const clips = refClips.filter((c) => existsSync(c.path));
@@ -318,6 +352,7 @@ export class AgentRuntime {
         opts.voice = voice.voice;
       }
       const { audio, format } = await this.tts.synthesize(voice.providerId, text, opts);
+      signal?.throwIfAborted();
       const ext = format === 'wav' ? 'wav' : 'mp3';
       const hash = createHash('sha1')
         .update(`${persona.id}|${voice.providerId}|${voice.mode}|${voice.voice ?? ''}|${text}`)
@@ -329,6 +364,7 @@ export class AgentRuntime {
       log?.info('语音合成成功', { id, mode: voice.mode, bytes: audio.length });
       return id;
     } catch (error) {
+      signal?.throwIfAborted();
       log?.error('语音合成异常，降级为文字', {
         providerId: voice.providerId,
         mode: voice.mode,
@@ -382,8 +418,18 @@ export class AgentRuntime {
       replyReason?: string;
     },
   ): Promise<{ result: Awaited<ReturnType<typeof runPersonaChat>>; renderedTurns: string[] }> {
+    const signal = this.requestSignal(opts.chatEndpoint.signal);
+    const chatEndpoint = { ...opts.chatEndpoint, signal };
+    const embeddingEndpoint = opts.embeddingEndpoint
+      ? {
+          ...opts.embeddingEndpoint,
+          signal: opts.embeddingEndpoint.signal
+            ? AbortSignal.any([signal, opts.embeddingEndpoint.signal])
+            : signal,
+        }
+      : null;
     const voiceEnabled = this.isVoiceReady(persona);
-    const result = await runPersonaChat(opts.chatEndpoint, opts.embeddingEndpoint, {
+    const result = await runPersonaChat(chatEndpoint, embeddingEndpoint, {
       persona,
       pairs,
       history: opts.history,
@@ -395,6 +441,7 @@ export class AgentRuntime {
       relationNote: opts.relationNote,
       replyReason: opts.replyReason,
     });
+    signal.throwIfAborted();
     // 命中的记忆 +access（越常被想起越不易遗忘）。
     this.memories.touch(opts.dataKey ?? persona.id, result.usedMemoryIds, opts.now);
 
@@ -404,13 +451,14 @@ export class AgentRuntime {
     // 接了则交给实现补全（CDN 重下等）。拿不到文件的表情直接丢弃——发出去只会是破图。
     const renderedTurns: string[] = [];
     for (const action of result.actions) {
+      signal.throwIfAborted();
       if (action.kind === 'text') {
         renderedTurns.push(action.text);
       } else if (action.kind === 'sticker') {
         const path = await this.resolveStickerPath(persona, action.sticker);
         if (path) renderedTurns.push(`[[sticker:${action.sticker.md5}]]`);
       } else {
-        const voiceId = await this.synthesizeVoice(persona, action.text);
+        const voiceId = await this.synthesizeVoice(persona, action.text, signal);
         renderedTurns.push(voiceId ? `[[voice:${voiceId}]]` : action.text);
       }
     }
@@ -450,12 +498,13 @@ export class AgentRuntime {
     sessionId?: string;
     /** 仅由受信任的传输层提供；Bot 必传，桌面缺省兼容旧单用户作用域。 */
     privatePeerId?: string;
+    signal?: AbortSignal;
   }) {
     const record = this.store.getPersona(input.personaId);
     if (!record) throw new Error('找不到 persona');
     if (!record.persona.models?.chat)
       throw new Error('这是旧版克隆体，模型结构已更新，请删除后重建');
-    const ctx = { personaId: input.personaId, scope: 'chat' as const };
+    const ctx = { personaId: input.personaId, scope: 'chat' as const, signal: input.signal };
     const chatEndpoint = this.resolveWithUsage(record.persona.models.chat, 'chat', ctx);
     const embeddingEndpoint = record.persona.models.embedding
       ? this.resolveWithUsage(record.persona.models.embedding, 'embedding', ctx)
@@ -512,6 +561,8 @@ export class AgentRuntime {
       },
     );
 
+    chatEndpoint.signal?.throwIfAborted();
+
     const assistantTurns: ConversationTurnLike[] = renderedTurns.map((text) => ({
       role: 'assistant',
       text,
@@ -523,14 +574,16 @@ export class AgentRuntime {
     ]);
 
     // 每隔若干轮，从最近对话蒸馏记忆 + 反思扮演效果（都不阻塞本次回复）。
-    void this.maybeDistillMemories(
-      input.personaId,
-      record.persona.name,
-      chatEndpoint,
-      dataKey,
-      input.privatePeerId,
+    this.startBackground(
+      this.maybeDistillMemories(
+        input.personaId,
+        record.persona.name,
+        chatEndpoint,
+        dataKey,
+        input.privatePeerId,
+      ),
     );
-    void this.maybeReflect(dataKey, record.persona.name, chatEndpoint);
+    this.startBackground(this.maybeReflect(dataKey, record.persona.name, chatEndpoint));
 
     return { ...result, renderedTurns, silent: false };
   }
@@ -557,6 +610,7 @@ export class AgentRuntime {
         conv.map((t) => ({ role: t.role, text: t.text })),
         known,
       );
+      chatEndpoint.signal?.throwIfAborted();
       if (fresh.length === 0) return;
       // Bot 的记忆主体是实际私聊对端；桌面保留旧标记，向量仍与画像的模型绑定。
       const persona = this.store.getPersona(personaId)?.persona;
@@ -567,9 +621,11 @@ export class AgentRuntime {
           const embEndpoint = this.resolveWithUsage(persona.models.embedding, 'embedding', {
             personaId,
             scope: 'chat',
+            signal: chatEndpoint.signal,
           });
           embeddings = await embedTexts(embEndpoint, fresh);
         } catch {
+          chatEndpoint.signal?.throwIfAborted();
           /* 嵌入失败就退化成关键词召回 */
         }
       }
@@ -581,7 +637,7 @@ export class AgentRuntime {
         embeddings,
       );
     } catch {
-      this.logger?.error('记忆蒸馏或保存失败，未报告为已记住');
+      if (!chatEndpoint.signal?.aborted) this.logger?.error('记忆蒸馏或保存失败，未报告为已记住');
     }
   }
 
@@ -606,13 +662,14 @@ export class AgentRuntime {
         peerName,
         unreflected.map((t) => ({ role: t.role, text: t.text })),
       );
+      chatEndpoint.signal?.throwIfAborted();
       if (result.corrections.length > 0 || result.summary) {
         this.notes.add(personaId, result.corrections, result.summary);
       }
       // 无论是否提炼出内容都推进水位，避免下次重复反思同一段。
       this.notes.setReflectedCount(personaId, conv.length);
     } catch {
-      this.logger?.error('反思或笔记保存失败，未报告为已保存');
+      if (!chatEndpoint.signal?.aborted) this.logger?.error('反思或笔记保存失败，未报告为已保存');
     }
   }
 
@@ -627,6 +684,7 @@ export class AgentRuntime {
     senderName: string;
     /** 真实 Bot 群号；缺省保持桌面模拟群聊兼容。 */
     groupId?: string;
+    signal?: AbortSignal;
     text: string;
     mentionsSelf: boolean;
     history: AgentLabChatTurn[];
@@ -664,7 +722,7 @@ export class AgentRuntime {
     const relation = this.relations.get(dataKey, input.senderId);
     const mode = input.mode ?? 'llm';
 
-    const ctx = { personaId: input.personaId, scope: 'chat' as const };
+    const ctx = { personaId: input.personaId, scope: 'chat' as const, signal: input.signal };
     const chatEndpoint = this.resolveWithUsage(persona.models.chat, 'chat', ctx);
     const relationNote = relation ? describeRelationTone(relation) : undefined;
 
@@ -693,6 +751,7 @@ export class AgentRuntime {
         dispositionHint: this.willingDisposition(willing?.level),
         crowdedHint: this.crowdedHintFromShare(input.selfShareRecent),
       });
+      chatEndpoint.signal?.throwIfAborted();
       if (!decision.reply) {
         return {
           renderedTurns: [],
@@ -773,20 +832,25 @@ export class AgentRuntime {
     exchange: string,
     endpoint: AgentLabEndpoint,
   ): void {
-    void (async () => {
-      try {
-        const prev = this.relations.get(personaId, objectId);
-        const nextCount = (prev?.interactionCount ?? 0) + 1;
-        const delta: { familiarity: number; affinity?: number; mood?: number } = { familiarity: 2 };
-        if (nextCount % 5 === 0) {
-          const s = await scoreInteractionSentiment(endpoint, personaName, exchange);
-          delta.affinity = s.affinityDelta;
-          delta.mood = s.moodDelta;
+    this.startBackground(
+      (async () => {
+        try {
+          const prev = this.relations.get(personaId, objectId);
+          const nextCount = (prev?.interactionCount ?? 0) + 1;
+          const delta: { familiarity: number; affinity?: number; mood?: number } = {
+            familiarity: 2,
+          };
+          if (nextCount % 5 === 0) {
+            const s = await scoreInteractionSentiment(endpoint, personaName, exchange);
+            delta.affinity = s.affinityDelta;
+            delta.mood = s.moodDelta;
+          }
+          endpoint.signal?.throwIfAborted();
+          this.relations.applyDelta(personaId, objectId, 'user', delta, Date.now());
+        } catch {
+          if (!endpoint.signal?.aborted) this.logger?.error('关系更新或保存失败，未报告为已保存');
         }
-        this.relations.applyDelta(personaId, objectId, 'user', delta, Date.now());
-      } catch {
-        this.logger?.error('关系更新或保存失败，未报告为已保存');
-      }
-    })();
+      })(),
+    );
   }
 }

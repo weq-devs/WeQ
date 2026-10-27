@@ -1987,11 +1987,16 @@ export const accountRouter = router({
       ]) {
         if (m?.providerId) llmIds.add(m.providerId);
       }
-      const llmProviders: Array<{ id: string; baseUrl: string; apiKey: string }> = [];
+      const llmProviders: import('@weq/service').BotExportInput['llmProviders'] = [];
       for (const id of llmIds) {
         const p = cfg.getProvider(id);
         if (!p) throw new Error(`缺少 LLM provider 配置：${id}（请先在设置里配置该厂商）`);
-        llmProviders.push({ id: p.id, baseUrl: p.baseUrl, apiKey: p.apiKey });
+        llmProviders.push({
+          id: p.id,
+          baseUrl: p.baseUrl,
+          apiKey: p.apiKey,
+          ...(p.timeoutMs === undefined ? {} : { timeoutMs: p.timeoutMs }),
+        });
       }
       // 抽 TTS provider（若绑了语音克隆）。
       const ttsProviders = persona.voice?.providerId

@@ -10,6 +10,7 @@
  */
 import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   AgentLabStore,
   AgentRuntime,
@@ -65,7 +66,7 @@ function buildTtsPort(config: BotConfig, stats: StatsStore): TtsPort | undefined
 
 /** 一次组装好的运行实例（可整体 stop，供重载时替换）。 */
 interface BotInstance {
-  stop: () => void;
+  stop: () => Promise<void>;
 }
 
 export interface StartBotOptions {
@@ -80,7 +81,9 @@ export interface StartBotOptions {
 async function boot(
   config: BotConfig,
   onReload: () => Promise<{ ok: boolean; message?: string }>,
+  signal: AbortSignal,
 ): Promise<BotInstance> {
+  signal.throwIfAborted();
   const store = new AgentLabStore(config.personaDir);
   const persona = store.listPersonas()[0];
   if (!persona) throw new Error(`personaDir 里没有克隆体数据: ${config.personaDir}`);
@@ -105,6 +108,7 @@ async function boot(
   const stats = new StatsStore(join(dataDir, 'stats.json'));
   const resolver = buildEndpointResolver(config.llmProviders);
   const runtime = new AgentRuntime({
+    signal,
     rootDir: config.personaDir,
     store,
     endpoints: resolver,
@@ -128,6 +132,7 @@ async function boot(
 
   const adapter = createAdapter(config.adapter);
   const orchestrator = new BotOrchestrator(adapter, runtime, persona.id, config.selfId, assets, {
+    ...config.queue,
     groupChat: config.features?.groupChat ?? false,
     groupReplyMode: config.features?.groupReplyMode ?? 'llm',
     stats,
@@ -140,7 +145,7 @@ async function boot(
     ? async (imageDataUrl: string): Promise<{ description: string; scenario: string }> => {
         const ep = resolver(visionRef, 'vision');
         return describeSticker(
-          { ...ep, kind: 'vision' },
+          { ...ep, kind: 'vision', signal },
           persona.sourceTitle || persona.name,
           imageDataUrl,
           '',
@@ -150,61 +155,108 @@ async function boot(
 
   // 本机 WebUI 控制台（默认开；仅 127.0.0.1，用导出时生成的密钥鉴权）。
   let webui: WebUiHandle | null = null;
-  if (config.webui && config.webui.enabled !== false && config.webui.key) {
-    webui = await startWebUi({
-      port: config.webui.port ?? 8090,
-      key: config.webui.key,
-      id: config.webui.id,
-      persona,
-      stats,
-      features: {
-        voice: config.features?.voice ?? false,
-        groupChat: config.features?.groupChat ?? false,
-      },
-      ttsProviders: config.ttsProviders,
-      store,
-      stickersDir: join(config.personaDir, 'stickers'),
-      visionDescribe,
-      onReload,
-      // 产物根目录的 config.json（personaDir 是产物内 ./persona，config 与它同级）。
-      // 提供后 WebUI「设置」页可读写配置并触发重载。
-      configPath: join(config.personaDir, '..', 'config.json'),
-      logger: consoleLogger,
-    });
-  }
-
-  await adapter.connect();
-  consoleLogger.info(
-    `已连接 ${config.adapter.type} @ ${config.adapter.wsUrl}，克隆体「${persona.name}」上线`,
-  );
-
-  return {
-    stop: () => {
+  let stopping: Promise<void> | undefined;
+  let rejectStartup: ((reason: unknown) => void) | undefined;
+  const stop = (): Promise<void> => {
+    stopping ??= (async () => {
+      signal.removeEventListener('abort', onAbort);
+      const foreground = orchestrator.stop();
+      const background = runtime.close();
       adapter.close();
       webui?.close();
-    },
+      try {
+        await Promise.all([foreground, background]);
+      } finally {
+        stats.close();
+      }
+    })();
+    return stopping;
   };
+  const onAbort = () => {
+    rejectStartup?.(signal.reason);
+    void stop().catch(() => consoleLogger.error('机器人停止清理失败'));
+  };
+  signal.addEventListener('abort', onAbort, { once: true });
+  try {
+    signal.throwIfAborted();
+    if (config.webui && config.webui.enabled !== false && config.webui.key) {
+      webui = await startWebUi({
+        port: config.webui.port ?? 8090,
+        key: config.webui.key,
+        id: config.webui.id,
+        persona,
+        stats,
+        features: {
+          voice: config.features?.voice ?? false,
+          groupChat: config.features?.groupChat ?? false,
+        },
+        ttsProviders: config.ttsProviders,
+        store,
+        stickersDir: join(config.personaDir, 'stickers'),
+        visionDescribe,
+        onReload,
+        // 产物根目录的 config.json（personaDir 是产物内 ./persona，config 与它同级）。
+        // 提供后 WebUI「设置」页可读写配置并触发重载。
+        configPath: join(config.personaDir, '..', 'config.json'),
+        logger: consoleLogger,
+      });
+    }
+
+    signal.throwIfAborted();
+    const aborted = new Promise<never>((_resolve, reject) => {
+      rejectStartup = reject;
+    });
+    try {
+      await Promise.race([adapter.connect(), aborted]);
+    } finally {
+      rejectStartup = undefined;
+    }
+    signal.throwIfAborted();
+    consoleLogger.info(
+      `已连接 ${config.adapter.type} @ ${config.adapter.wsUrl}，克隆体「${persona.name}」上线`,
+    );
+
+    return { stop };
+  } catch (error) {
+    webui?.close();
+    await stop();
+    throw error;
+  }
 }
 
 export async function startBot(
   config: BotConfig,
   opts: StartBotOptions = {},
-): Promise<{ stop: () => void }> {
+): Promise<{ stop: () => Promise<void> }> {
   let current: BotInstance | null = null;
   let reloading = false;
+  const lifecycle = new AbortController();
+  let pendingBoot: Promise<BotInstance> | undefined;
+  const launch = async (next: BotConfig): Promise<BotInstance> => {
+    const pending = boot(next, reload, lifecycle.signal);
+    pendingBoot = pending;
+    try {
+      return await pending;
+    } finally {
+      if (pendingBoot === pending) pendingBoot = undefined;
+    }
+  };
 
   // 完全重载：停当前实例 → 重读配置 → 重新 boot。任一步失败则保底不留半死实例。
   async function reload(): Promise<{ ok: boolean; message?: string }> {
     if (reloading) return { ok: false, message: '正在重载中，请稍候' };
+    if (lifecycle.signal.aborted) return { ok: false, message: '机器人已停止' };
     reloading = true;
     try {
       consoleLogger.info('收到重载请求，正在重启实例…');
-      current?.stop();
+      await current?.stop();
       current = null;
       // 关端口/断连需要一点时间落地，稍等避免 EADDRINUSE / ws 抢占。
-      await new Promise((r) => setTimeout(r, 300));
+      await delay(300, undefined, { signal: lifecycle.signal });
       const nextConfig = opts.reloadConfig ? await opts.reloadConfig() : config;
-      current = await boot(nextConfig, reload);
+      lifecycle.signal.throwIfAborted();
+      current = await launch(nextConfig);
+      lifecycle.signal.throwIfAborted();
       consoleLogger.info('重载完成，实例已用新配置上线。');
       return { ok: true, message: '已按新配置完全重载' };
     } catch (err) {
@@ -216,8 +268,15 @@ export async function startBot(
     }
   }
 
-  current = await boot(config, reload);
-  return { stop: () => current?.stop() };
+  current = await launch(config);
+  return {
+    stop: async () => {
+      lifecycle.abort(new DOMException('机器人已停止', 'AbortError'));
+      await pendingBoot?.catch(() => {});
+      await current?.stop();
+      current = null;
+    },
+  };
 }
 
 export { buildEndpointResolver } from './config';

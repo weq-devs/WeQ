@@ -32,6 +32,8 @@ export interface BotLlmProvider {
   id: string;
   baseUrl: string;
   apiKey: string;
+  /** 非流式模型请求总期限，毫秒；缺省 180 秒。 */
+  timeoutMs?: number;
 }
 
 /** 功能开关（扩展预留：随能力增长往这里加，默认关）。 */
@@ -61,6 +63,14 @@ export interface WebUiConfig {
 }
 
 export interface BotConfig {
+  queue?: {
+    /** 同时处理的会话数，默认 4。 */
+    maxConcurrentChats?: number;
+    /** 全部会话等待消息上限，默认 256。 */
+    maxQueuedMessages?: number;
+    /** 单会话等待消息上限，默认 32。 */
+    maxQueuedPerChat?: number;
+  };
   adapter: AdapterConfig;
   /** bot 自己的 QQ 号（= AgentRuntime.selfId；用于区分「自己发的」消息）。 */
   selfId: string;
@@ -94,6 +104,7 @@ export function buildEndpointResolver(providers: BotLlmProvider[]): EndpointReso
       apiKey: p.apiKey,
       model: ref.model,
       modelIdentity: modelEndpointIdentity(ref, p.baseUrl),
+      timeoutMs: p.timeoutMs,
     };
   };
 }
