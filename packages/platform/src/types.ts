@@ -199,7 +199,7 @@ export interface Platform {
    */
   resolveQqPid(uin: string): number | null;
 
-  /** Optional bounded, asynchronous online probe for routine account polling. */
+  /** 有界异步在线探测：null 表示未发现该账号 QQ；探测不可用时抛错，不冒充离线。 */
   resolveQqPidAsync?(uin: string): Promise<number | null>;
 
   /**

@@ -116,6 +116,77 @@ afterEach(() => {
 });
 
 describe('account monitor authorization and SSO readiness', () => {
+  it('单次未发现数据库持有者不清理凭据，连续两次未发现才下线', async () => {
+    const f = fixture(true);
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    f.setPid(null);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.record.qqOnline).toBe(true);
+    expect(f.record.session).not.toBeNull();
+    f.setPid(42);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.nt.clearSsoSession).not.toHaveBeenCalled();
+    f.setPid(null);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(f.record.qqOnline).toBe(false);
+    expect(f.record.session).toBeNull();
+    expect(f.nt.clearSsoSession).toHaveBeenCalledOnce();
+    f.monitor.stop();
+  });
+  it('探测暂时失败保留在线凭据，持续失败超过宽限后不永久沿用在线状态', async () => {
+    const f = fixture(true);
+    const probe = vi.fn(async () => 42);
+    f.platform.resolveQqPidAsync = probe;
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    probe.mockRejectedValue(new Error('探测超时'));
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.record.qqOnline).toBe(true);
+    expect(f.record.session).not.toBeNull();
+    expect(f.nt.clearSsoSession).not.toHaveBeenCalled();
+    probe.mockResolvedValue(42);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.record.qqOnline).toBe(true);
+    probe.mockRejectedValue(new Error('探测超时'));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(f.record.qqOnline).toBe(true);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.record.qqOnline).toBe(false);
+    expect(f.record.session).toBeNull();
+    f.monitor.stop();
+  });
+  it('首次探测失败不信任磁盘残留在线状态，后续成功可恢复', async () => {
+    const f = fixture(true);
+    f.platform.resolveQqPidAsync = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('探测超时'))
+      .mockResolvedValue(42);
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.record.qqOnline).toBe(false);
+    expect(f.record.session).toBeNull();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.record.qqOnline).toBe(true);
+    expect(f.record.session).toMatchObject({ ...material, pid: 42 });
+    f.monitor.stop();
+  });
+  it('空结果与探测异常交替出现也不会无限保留旧在线状态', async () => {
+    const f = fixture(true);
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    let attempts = 0;
+    f.platform.resolveQqPidAsync = async () => {
+      if (++attempts % 2 === 0) throw new Error('探测超时');
+      return null;
+    };
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(f.record.qqOnline).toBe(true);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.record.qqOnline).toBe(false);
+    expect(f.record.session).toBeNull();
+    f.monitor.stop();
+  });
   it('等待授权读取及原生登记完成后才通知，后续取票未结束也不延迟通知', async () => {
     const ready = vi.fn();
     const f = fixture(false, ready);

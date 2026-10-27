@@ -4,8 +4,9 @@ import { StringDecoder } from 'node:string_decoder';
 
 const TIMEOUT_MS = 2000;
 const MAX_OUTPUT = 256 * 1024;
+const MAX_ACTIVE_PROBES = 8;
 
-/** lsof's NUL-delimited field format; a QQ name alone never proves account ownership. */
+/** lsof 的 NUL 字段格式；只有进程名与账号数据库路径同时匹配才确认在线。 */
 export function parseQqDbHolders(output: string, dbPath: string): number | null {
   let pid: number | null = null;
   let name = '';
@@ -30,79 +31,104 @@ export function parseQqDbHolders(output: string, dbPath: string): number | null 
 
 type Spawn = (command: string, args: string[]) => ChildProcess;
 
-/** Keep a timed-out child registered until it actually exits: never pile up stuck probes. */
+/** 按账号合并探测，超时子进程真正退出前仍占用名额，避免堆积。失败抛错而非冒充离线。 */
 export function createQqOnlineProbe(
   launch: Spawn = (command, args) => spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] }),
   canonical: (path: string) => string = realpathSync,
   timeoutMs = TIMEOUT_MS,
 ) {
-  let active: { key: string; promise: Promise<number | null> } | null = null;
+  const active = new Map<string, { promise: Promise<number | null>; settled: boolean }>();
   return (dbPath: string): Promise<number | null> => {
     let target: string;
     try {
       target = canonical(dbPath);
-    } catch {
-      return Promise.resolve(null);
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
+        return Promise.resolve(null);
+      return Promise.reject(new Error('QQ 在线探测无法解析数据库路径。'));
     }
-    if (active) return active.key === target ? active.promise : Promise.resolve(null);
+    const existing = active.get(target);
+    if (existing)
+      return existing.settled
+        ? Promise.reject(new Error('QQ 在线探测子进程尚未退出。'))
+        : existing.promise;
+    if (active.size >= MAX_ACTIVE_PROBES)
+      return Promise.reject(new Error('QQ 在线探测繁忙，稍后重试。'));
     let finish: (pid: number | null) => void;
-    const promise = new Promise<number | null>((resolve) => {
+    let reject: (error: Error) => void;
+    const promise = new Promise<number | null>((resolve, fail) => {
       finish = resolve;
+      reject = fail;
     });
-    const job = { key: target, promise };
-    active = job;
+    const job = { promise, settled: false };
+    active.set(target, job);
     let child: ChildProcess | null = null;
+    let stage = 'pgrep';
     let settled = false;
     const settle = (pid: number | null) => {
       if (!settled) {
         settled = true;
+        job.settled = true;
         finish(pid);
       }
     };
+    const fail = (message: string) => {
+      if (!settled) {
+        settled = true;
+        job.settled = true;
+        reject(new Error(message));
+      }
+    };
     const clear = () => {
-      if (active === job) active = null;
+      if (active.get(target) === job) active.delete(target);
     };
     const timer = setTimeout(() => {
-      settle(null);
+      fail(`QQ 在线探测超时（${stage}，限时 ${timeoutMs}ms），尚未确认是否离线。`);
       child?.kill('SIGKILL');
     }, timeoutMs);
     timer.unref();
     const run = (command: string, args: string[], done: (output: string) => void) => {
+      stage = command.slice(command.lastIndexOf('/') + 1);
       let process: ChildProcess;
       try {
         process = launch(command, args);
         child = process;
       } catch {
         clearTimeout(timer);
-        settle(null);
+        fail('QQ 在线探测启动失败。');
         clear();
         return;
       }
       let output = '',
         bytes = 0,
-        failed = false;
+        failed = false,
+        hasStderr = false;
       const decoder = new StringDecoder('utf8');
       process.stdout?.on('data', (data: Buffer) => {
         bytes += data.length;
         if (bytes > MAX_OUTPUT) {
           failed = true;
-          settle(null);
+          fail('QQ 在线探测输出超出限制。');
           process.kill('SIGKILL');
           return;
         }
         output += decoder.write(data);
       });
-      process.stderr?.resume();
+      process.stderr?.on('data', (data: Buffer) => {
+        if (data.length) hasStderr = true;
+      });
       process.once('error', () => {
         failed = true;
-        settle(null);
+        fail('QQ 在线探测子进程运行失败。');
       });
       process.once('close', (code) => {
         output += decoder.end();
         child = null;
         if (settled || failed || code !== 0) {
           clearTimeout(timer);
-          settle(null);
+          // pgrep/lsof 查无匹配均返回 1；只有无输出、无诊断时才视为确定未发现。
+          if (!settled && !failed && code === 1 && !output && !hasStderr) settle(null);
+          else fail(`QQ 在线探测失败（${stage}，退出码 ${code}），尚未确认是否离线。`);
           clear();
           return;
         }
@@ -120,7 +146,7 @@ export function createQqOnlineProbe(
       ];
       if (!pids.length || pids.length > 64) {
         clearTimeout(timer);
-        settle(null);
+        fail('QQ 在线探测进程列表异常。');
         clear();
         return;
       }

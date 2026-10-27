@@ -81,6 +81,15 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 - `DbLockProbeResult = { success: boolean; msg: string; locked: boolean; holders: DbLockHolder[] }`
 - `DbLockHolder = { pid: number; name: string }`
 
+桌面常规轮询在 macOS 使用 `@weq/platform` 的有界异步 `pgrep` + `lsof` 探测，仍要求
+QQ 进程实际持有该账号的 `nt_msg.db`，不以进程存在或端口信息代替账号归属。
+同账号并发调用合并，不同账号独立探测，最多保留 8 个未退出的探测任务。
+探测超时、启动失败和异常退出通过拒绝 Promise 表示“未能确认”，不返回离线结果；
+正常查无持有者才返回 `null`。账号监控遇到单次空结果会在下一轮复核，连续两次未发现
+才清理在线凭据；已确认在线后遇到探测错误，最多保留 30 秒状态并暂停本轮采集，
+持续不可用则转离线，防止永久复用旧凭据。失败记录 `online-probe-failed`，下线记录
+`reason`（`no-db-holder` 或 `probe-unavailable`），便于区分真正未发现与探测故障。
+
 ### 3.1 纯协议登录（装号 / 取密钥）
 
 登录已与 QQ 进程解耦：**不读内存、不注入、不提权**，直接把 `login.db` 里缓存的 a1（扫码路径不需要）
