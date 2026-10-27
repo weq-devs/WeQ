@@ -49,6 +49,10 @@ vi.mock('../src/renderer/src/views/ExportView', () => ({
 }));
 vi.mock('../src/renderer/src/views/ExportViewer', () => ({ ExportViewer: () => null }));
 vi.mock('../src/renderer/src/views/analysis/AnalysisTool', () => ({ AnalysisTool: () => null }));
+vi.mock('../src/renderer/src/components/RoamingBackfillPanel', () => ({
+  RoamingBackfillPanel: ({ onSubmitted }: { onSubmitted?: () => void }) =>
+    h('button', { onClick: onSubmitted }, '合成漫游提交成功'),
+}));
 vi.mock('../src/renderer/src/views/agentlab/AssistantMenuWorkspace', () => ({
   AssistantMenuWorkspace: () => {
     const [text, setText] = useState('');
@@ -85,6 +89,36 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('统一竖向工作菜单', () => {
+  it('漫游提交成功后关闭配置并打开常规任务完整面板', () => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          h(WorkspaceTools, {
+            accountScope: 'roaming-entry',
+            footerControls: null,
+            onOpenAnalysis: vi.fn(),
+            roamingRequest: {
+              revision: 1,
+              targets: [{ kind: 'c2c', conv: 'u_fixture', name: '合成好友' }],
+            },
+          }),
+        ),
+      );
+      expect(document.querySelector('#weq-backfill-title')).not.toBeNull();
+      act(() =>
+        [...document.querySelectorAll('button')]
+          .find((button) => button.textContent === '合成漫游提交成功')!
+          .click(),
+      );
+      expect(document.querySelector('#weq-backfill-title')?.closest('[hidden]')).not.toBeNull();
+      expect(document.querySelector('[data-task-layout="split"]')).not.toBeNull();
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   it('闪传入口直接打开常规任务完整面板，重复打开仍然有效', () => {
     const host = document.createElement('div');
     const root = createRoot(host);

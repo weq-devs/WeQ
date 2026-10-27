@@ -633,6 +633,7 @@ export function WorkspaceTools({
               key={JSON.stringify([accountKey, roamingTargets, roamingSeed])}
               initialTargets={roamingTargets}
               targetMode="fixed"
+              onSubmitted={() => useWorkspaceMenu.getState().openTasks()}
             />
           ) : null}
         </RetainedTabs>

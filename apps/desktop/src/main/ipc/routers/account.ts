@@ -4337,6 +4337,7 @@ export const accountRouter = router({
         activeId: services.roamingBackfill.running(),
         scanning: services.roamingBackfill.scanning(),
         historyVersion: 2,
+        supportsImmediateStart: true,
         onlineAllowed: access.attachEnabled,
         online: access.qqOnline && access.attachEnabled,
       };
@@ -4362,11 +4363,13 @@ export const accountRouter = router({
             .optional(),
           beforeOldest: z.boolean().default(false),
           intervalMs: z.number().int().min(500).max(60000).default(500),
+          startImmediately: z.boolean().default(false),
         }),
       )
       .mutation(({ input }) => {
         const services = requireServices();
-        return services.roamingBackfill.plan(input);
+        const { startImmediately, ...options } = input;
+        return services.roamingBackfill.plan(options, startImmediately);
       }),
     start: procedure
       .input(z.object({ id: z.string().uuid(), retryRemaining: z.boolean().default(false) }))

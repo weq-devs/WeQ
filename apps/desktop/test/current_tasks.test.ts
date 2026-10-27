@@ -16,6 +16,7 @@ import { dismissCloneTask, getCloneTasks } from '../src/renderer/src/views/agent
 const fixture = vi.hoisted(() => ({
   accountId: 'fixture-account',
   roamingStatus: 'partial',
+  plannedSeqs: 100,
   flashStatus: 'pending',
   confirm: vi.fn(async () => false),
   clear: vi.fn(async () => ({ removed: 3, skipped: 0, errors: [] as string[] })),
@@ -79,8 +80,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                   id: 'same-id',
                   targets: [{ name: '合成漫游' }],
                   status: fixture.roamingStatus,
-                  plannedSeqs: 100,
-                  remainingSeqs: 75,
+                  plannedSeqs: fixture.plannedSeqs,
+                  remainingSeqs: fixture.plannedSeqs > 0 ? 75 : 0,
                 },
               ],
             },
@@ -112,6 +113,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 afterEach(() => {
   fixture.accountId = 'fixture-account';
   fixture.roamingStatus = 'partial';
+  fixture.plannedSeqs = 100;
   fixture.flashStatus = 'pending';
   getCloneTasks()[0]!.status = 'running';
   vi.clearAllMocks();
@@ -120,6 +122,25 @@ afterEach(() => {
 });
 
 describe('统一当前任务', () => {
+  it('没有候选缺口时只显示检查结果，不显示缺口已覆盖', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    fixture.roamingStatus = 'completed';
+    fixture.plannedSeqs = 0;
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          h(CurrentTaskList, { exports: [], onSaveAll: vi.fn(), renderExport: () => null }),
+        ),
+      );
+      expect(host.textContent).toContain('未发现可补全的缺口');
+      expect(host.textContent).not.toContain('候选缺口已覆盖');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   it('计入当前账号的完成克隆，清除失败时保留记录并恢复按钮', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     getCloneTasks()[0]!.status = 'done';

@@ -229,6 +229,75 @@ describe('exact interval algebra', () => {
 });
 
 describe('durable manual roaming jobs', () => {
+  it('一次提交自动检查并启动，保留原有覆盖统计与断点', async () => {
+    const f = setup([5n, 1n]);
+    const job = await f.manager.plan(options(), true);
+    expect(job.status).toBe('running');
+    await f.done();
+    expect(f.manager.list()[0]).toMatchObject({
+      id: job.id,
+      status: 'completed',
+      plannedSeqs: 3,
+      remainingSeqs: 0,
+      observed: 3,
+    });
+    expect(f.fetch).toHaveBeenCalledOnce();
+  });
+
+  it.each([[1n, 2n], []])('无候选区间不联网，也不宣称全部历史完整：%#', async (...seqs) => {
+    const f = setup(seqs);
+    const job = await f.manager.plan(options(), true);
+    expect(job).toMatchObject({ status: 'completed', plannedSeqs: 0, requests: 0 });
+    expect(job.note).toContain('未发现可补全的候选缺口');
+    expect(job.note).toContain('不代表全部历史完整');
+    expect(f.fetch).not.toHaveBeenCalled();
+    expect(f.deps.checkOnline).not.toHaveBeenCalled();
+  });
+
+  it('在线条件不满足时保留可继续任务，缓存优先，恢复后无需重新扫描', async () => {
+    const f = setup([5n, 1n]);
+    vi.mocked(f.deps.checkOnline).mockImplementation(() => {
+      throw new Error('合成离线状态');
+    });
+    const job = await f.manager.plan(options(), true);
+    await f.done();
+    expect(f.manager.list()[0]).toMatchObject({
+      id: job.id,
+      status: 'paused',
+      note: '合成离线状态',
+      pendingSeqs: 3,
+    });
+    expect(f.fetch).not.toHaveBeenCalled();
+    vi.mocked(f.deps.checkOnline).mockImplementation(() => {});
+    f.manager.start(job.id);
+    await f.done();
+    expect(f.manager.list()[0]?.status).toBe('completed');
+  });
+
+  it('一键拉取先用已有缓存，缓存足够时离线也能完成', async () => {
+    const f = setup([5n, 1n]);
+    await f.history.retainForBatch([message(2), message(3), message(4)]);
+    vi.mocked(f.deps.checkOnline).mockImplementation(() => {
+      throw new Error('合成离线状态');
+    });
+    await f.manager.plan(options(), true);
+    await f.done();
+    expect(f.manager.list()[0]).toMatchObject({ status: 'completed', remainingSeqs: 0 });
+    expect(f.deps.checkOnline).not.toHaveBeenCalled();
+    expect(f.fetch).not.toHaveBeenCalled();
+  });
+
+  it('检查期间关闭账号不创建任务，也不自动启动其他账号的拉取', async () => {
+    const f = setup([5n, 1n]);
+    vi.mocked(f.deps.listSeqWindow).mockImplementation(async () => {
+      f.manager.dispose();
+      return { seqs: [5n, 1n], below: null, above: null };
+    });
+    await expect(f.manager.plan(options(), true)).rejects.toThrow('账号已关闭');
+    expect(f.manager.list()).toHaveLength(0);
+    expect(f.fetch).not.toHaveBeenCalled();
+  });
+
   it('stops on a failed response without silently consuming that window', async () => {
     const f = setup();
     f.fetch.mockResolvedValue({
