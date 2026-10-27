@@ -348,7 +348,7 @@ export const LOGIN_PAGE = `<!doctype html>
         body: JSON.stringify({ token: t.value }),
       });
       if (res.ok) { location.replace('/'); return; }
-      fail(res.status === 429 ? '尝试过于频繁，请稍候再试。' : '令牌不正确。');
+      fail(res.status === 503 ? '认证服务繁忙或会话容量已满，请稍后再试。' : res.status === 429 ? '尝试过于频繁，请稍候再试。' : '令牌不正确。');
     } catch {
       fail('无法连接服务器。');
     }

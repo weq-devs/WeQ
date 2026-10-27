@@ -11,6 +11,43 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+it.each(['runtime', 'config'])(
+  '导出入口的 %s 启动错误不将私有字段或异常堆栈打印到日志',
+  async (mode) => {
+    const root = mkdtempSync(join(tmpdir(), 'weq-bot-start-log-'));
+    roots.push(root);
+    const runtime = join(root, 'runtime.mjs');
+    writeFileSync(
+      runtime,
+      'export async function startBot() { throw new Error("STARTUP_PRIVATE_MARKER"); }',
+    );
+    const outDir = join(root, 'export');
+    await buildBotExport({
+      outDir,
+      botRuntimeMjs: runtime,
+      persona: makeBackupPersona(),
+      pairs: [],
+      agentlabRoot: root,
+      llmProviders: [],
+      ttsProviders: [],
+      adapter: { type: 'napcat', wsUrl: 'ws://synthetic.invalid' },
+      selfId: 'synthetic',
+      features: { voice: false, groupChat: false },
+    });
+    if (mode === 'config')
+      writeFileSync(join(outDir, 'config.json'), '{"STARTUP_PRIVATE_MARKER": broken}');
+    const child = spawnSync(process.execPath, [join(outDir, 'index.mjs')], {
+      cwd: outDir,
+      timeout: 3000,
+      killSignal: 'SIGKILL',
+      encoding: 'utf8',
+    });
+    expect(child.status).toBe(1);
+    expect(child.stderr).toContain('启动失败');
+    expect(child.stderr + child.stdout).not.toContain('STARTUP_PRIVATE_MARKER');
+  },
+);
+
 it.each(['SIGINT', 'SIGTERM'])(
   '导出入口收到 %s 后等待 stop，提供方期限保留在产物',
   async (signal) => {

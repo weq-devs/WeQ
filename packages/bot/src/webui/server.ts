@@ -482,9 +482,9 @@ export function startWebUi(deps: WebUiDeps): Promise<WebUiHandle> {
             ref.description = d.description || '';
             ref.scenario = d.scenario || '';
           } catch (err) {
-            deps.logger?.warn(
-              `表情解析失败（将走随机发）：${err instanceof Error ? err.message : String(err)}`,
-            );
+            deps.logger?.warn('表情解析失败（将走随机发）', {
+              errorMessage: err instanceof Error ? err.message : undefined,
+            });
           }
         }
         // 落盘（保留原 pairs）。
@@ -589,8 +589,8 @@ export function startWebUi(deps: WebUiDeps): Promise<WebUiHandle> {
         }
         sendJson(res, 200, { ok: true, message: '已触发重载，稍后自动用新配置上线' });
         setTimeout(() => {
-          void deps.onReload!().catch((err) => {
-            deps.logger?.error(`重载执行失败：${err instanceof Error ? err.message : String(err)}`);
+          void deps.onReload!().catch(() => {
+            deps.logger?.error('重载执行失败');
           });
         }, 120);
         return;
@@ -604,14 +604,12 @@ export function startWebUi(deps: WebUiDeps): Promise<WebUiHandle> {
   }
 
   return new Promise((resolve) => {
-    server.on('error', (err) => {
-      log?.error(
-        `WebUI 启动失败（端口 ${deps.port}）：${err instanceof Error ? err.message : String(err)}`,
-      );
+    server.on('error', () => {
+      log?.error('WebUI 启动失败', { port: deps.port });
       resolve({ close: () => undefined, port: deps.port });
     });
     server.listen(deps.port, '127.0.0.1', () => {
-      log?.info(`WebUI 已启动：http://127.0.0.1:${deps.port} （bot 编号 ${deps.id}）`);
+      log?.info('WebUI 已启动', { port: deps.port });
       resolve({
         close: () => server.close(),
         port: deps.port,

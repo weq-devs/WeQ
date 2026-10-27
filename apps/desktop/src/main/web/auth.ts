@@ -30,7 +30,30 @@ const BACKOFF_MAX_MS = 30_000;
 /** Drop a peer's failure record after this long with no attempts. */
 const FAIL_RESET_MS = 60 * 60 * 1000;
 
+export const AUTH_RESOURCE_LIMITS = {
+  sessionTtlMs: SESSION_TTL_MS,
+  failureTtlMs: FAIL_RESET_MS,
+  maxBackoffMs: BACKOFF_MAX_MS,
+  backoffBaseMs: BACKOFF_BASE_MS,
+  sweepMs: 60_000,
+  maxSessions: 4096,
+  maxFailureRecords: 4096,
+  maxPendingLogins: 256,
+} as const;
+
+/** 资源不足不是密码错误；HTTP 层以 503 明确提示稍后重试。 */
+export class AuthUnavailableError extends Error {}
+
+function positiveLimit(value: number | undefined, fallback: number): number {
+  const limit = value ?? fallback;
+  if (!Number.isSafeInteger(limit) || limit < 1) throw new Error('认证容量必须是正整数');
+  return limit;
+}
+
 export interface AuthConfig {
+  maxSessions?: number;
+  maxFailureRecords?: number;
+  maxPendingLogins?: number;
   /** The shared secret a client must present to log in. */
   token: string;
   /** True when the server binds beyond loopback (enables Secure cookie). */
@@ -49,14 +72,55 @@ interface FailRecord {
 }
 
 export class AuthGate {
+  private readonly maxSessions: number;
+  private readonly maxFailureRecords: number;
+  private readonly maxPendingLogins: number;
+  private readonly cleanupTimer: NodeJS.Timeout;
+  private readonly lifecycle = new AbortController();
+  private closed = false;
+  private pendingLogins = 0;
+  private overflowLastAt: number | undefined;
   private readonly tokenBuf: Buffer;
   private readonly remote: boolean;
   private readonly sessions = new Map<string, Session>();
   private readonly fails = new Map<string, FailRecord>();
 
   constructor(config: AuthConfig) {
+    this.maxSessions = positiveLimit(config.maxSessions, AUTH_RESOURCE_LIMITS.maxSessions);
+    this.maxFailureRecords = positiveLimit(
+      config.maxFailureRecords,
+      AUTH_RESOURCE_LIMITS.maxFailureRecords,
+    );
+    this.maxPendingLogins = positiveLimit(
+      config.maxPendingLogins,
+      AUTH_RESOURCE_LIMITS.maxPendingLogins,
+    );
     this.tokenBuf = Buffer.from(config.token, 'utf8');
     this.remote = config.remote;
+    this.cleanupTimer = setInterval(() => this.prune(), AUTH_RESOURCE_LIMITS.sweepMs);
+    this.cleanupTimer.unref();
+  }
+
+  /** 仅返回资源数量，不暴露 sid、来源地址或凭据。 */
+  diagnostics() {
+    return {
+      sessions: this.sessions.size,
+      failureRecords: this.fails.size,
+      pendingLogins: this.pendingLogins,
+      overflowActive: this.overflowActive(),
+    };
+  }
+
+  private overflowActive(): boolean {
+    return this.overflowLastAt !== undefined && Date.now() - this.overflowLastAt <= FAIL_RESET_MS;
+  }
+
+  private prune(): void {
+    const now = Date.now();
+    for (const [sid, session] of this.sessions) if (session.expiresAt <= now) this.revoke(sid);
+    for (const [peer, rec] of this.fails)
+      if (now - rec.lastAt > FAIL_RESET_MS) this.fails.delete(peer);
+    if (!this.overflowActive()) this.overflowLastAt = undefined;
   }
 
   /**
@@ -73,17 +137,39 @@ export class AuthGate {
   /** Milliseconds to stall before answering a login from `peer`. */
   private backoffFor(peer: string): number {
     const rec = this.fails.get(peer);
-    if (!rec) return 0;
-    if (Date.now() - rec.lastAt > FAIL_RESET_MS) {
+    if (rec) {
+      if (Date.now() - rec.lastAt <= FAIL_RESET_MS)
+        return Math.min(BACKOFF_BASE_MS * 2 ** (rec.count - 1), BACKOFF_MAX_MS);
       this.fails.delete(peer);
-      return 0;
     }
-    return Math.min(BACKOFF_BASE_MS * 2 ** (rec.count - 1), BACKOFF_MAX_MS);
+    // 不淘汰仍生效的失败记录；未知来源共用保守退避，换地址不能重新获得免费尝试。
+    return this.overflowActive() || this.fails.size >= this.maxFailureRecords ? BACKOFF_MAX_MS : 0;
   }
 
   private noteFailure(peer: string): void {
     const rec = this.fails.get(peer);
-    this.fails.set(peer, { count: (rec?.count ?? 0) + 1, lastAt: Date.now() });
+    if (!rec && (this.fails.size >= this.maxFailureRecords || this.overflowActive())) {
+      this.overflowLastAt = Date.now();
+      return;
+    }
+    this.fails.set(peer, { count: Math.min((rec?.count ?? 0) + 1, 32), lastAt: Date.now() });
+  }
+
+  private waitBackoff(ms: number): Promise<void> {
+    const signal = this.lifecycle.signal;
+    signal.throwIfAborted();
+    return new Promise((resolve, reject) => {
+      const cancel = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', cancel);
+        reject(signal.reason);
+      };
+      const timer = setTimeout(() => {
+        signal.removeEventListener('abort', cancel);
+        resolve();
+      }, ms);
+      signal.addEventListener('abort', cancel, { once: true });
+    });
   }
 
   /**
@@ -92,30 +178,46 @@ export class AuthGate {
    * costs the caller real time.
    */
   async login(token: string, peer: string, res: ServerResponse): Promise<boolean> {
-    const delay = this.backoffFor(peer);
-    if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+    if (this.closed) throw new AuthUnavailableError('认证服务已关闭');
+    if (this.pendingLogins >= this.maxPendingLogins)
+      throw new AuthUnavailableError('认证服务繁忙，请稍后重试');
+    this.pendingLogins++;
+    try {
+      this.prune();
+      const delay = this.backoffFor(peer);
+      if (delay > 0) await this.waitBackoff(delay);
+      if (this.closed) throw new AuthUnavailableError('认证服务已关闭');
 
-    if (!this.tokenMatches(token)) {
-      this.noteFailure(peer);
-      return false;
+      if (!this.tokenMatches(token)) {
+        this.noteFailure(peer);
+        return false;
+      }
+
+      this.fails.delete(peer);
+      this.prune();
+      if (this.sessions.size >= this.maxSessions)
+        throw new AuthUnavailableError('登录会话容量已满，请稍后重试');
+      const sid = randomBytes(32).toString('base64url');
+      this.sessions.set(sid, { expiresAt: Date.now() + SESSION_TTL_MS });
+
+      const attrs = [
+        `${SESSION_COOKIE}=${sid}`,
+        'HttpOnly',
+        'SameSite=Strict',
+        'Path=/',
+        `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+      ];
+      // Secure would make the cookie unusable over plain http on loopback, which
+      // is the normal local case. Only set it when we're actually exposed.
+      if (this.remote) attrs.push('Secure');
+      res.setHeader('Set-Cookie', attrs.join('; '));
+      return true;
+    } catch (error) {
+      if (this.closed) throw new AuthUnavailableError('认证服务已关闭');
+      throw error;
+    } finally {
+      this.pendingLogins--;
     }
-
-    this.fails.delete(peer);
-    const sid = randomBytes(32).toString('base64url');
-    this.sessions.set(sid, { expiresAt: Date.now() + SESSION_TTL_MS });
-
-    const attrs = [
-      `${SESSION_COOKIE}=${sid}`,
-      'HttpOnly',
-      'SameSite=Strict',
-      'Path=/',
-      `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
-    ];
-    // Secure would make the cookie unusable over plain http on loopback, which
-    // is the normal local case. Only set it when we're actually exposed.
-    if (this.remote) attrs.push('Secure');
-    res.setHeader('Set-Cookie', attrs.join('; '));
-    return true;
   }
 
   /** True when the request carries a live session cookie. Refreshes its TTL. */
@@ -165,7 +267,13 @@ export class AuthGate {
     const session = this.sessions.get(sid);
     this.sessions.delete(sid);
     if (session?.timer) clearTimeout(session.timer);
-    for (const listener of session?.listeners ?? []) listener();
+    for (const listener of session?.listeners ?? []) {
+      try {
+        listener();
+      } catch {
+        console.error('Web 会话失效监听器执行失败');
+      }
+    }
     session?.listeners?.clear();
   }
 
@@ -177,8 +285,13 @@ export class AuthGate {
   }
 
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    clearInterval(this.cleanupTimer);
+    this.lifecycle.abort();
     for (const sid of this.sessions.keys()) this.revoke(sid);
     this.fails.clear();
+    this.overflowLastAt = undefined;
   }
 }
 

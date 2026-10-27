@@ -16,7 +16,6 @@ import {
   AgentRuntime,
   TtsService,
   describeSticker,
-  type RuntimeLogger,
   type TtsPort,
   type TtsProviderConfig,
 } from '@weq/agentlab';
@@ -32,13 +31,9 @@ import {
 } from './stores';
 import { StatsStore } from './stats';
 import { startWebUi, type WebUiHandle } from './webui/server';
+import { BotLogger, botErrorMetadata } from './logger';
 
-const consoleLogger: RuntimeLogger = {
-  child: () => consoleLogger,
-  info: (msg, ctx) => console.log(`[bot] ${msg}`, ctx ?? ''),
-  warn: (msg, ctx) => console.warn(`[bot] ${msg}`, ctx ?? ''),
-  error: (msg, ctx) => console.error(`[bot] ${msg}`, ctx ?? ''),
-};
+const consoleLogger = BotLogger.create();
 
 /**
  * 从 config 的 ttsProviders 构造 TtsPort（复用下沉到 @weq/agentlab 的 TtsService，纯 fetch）。
@@ -84,6 +79,7 @@ async function boot(
   signal: AbortSignal,
 ): Promise<BotInstance> {
   signal.throwIfAborted();
+  const logger = BotLogger.create(config.logging);
   const store = new AgentLabStore(config.personaDir);
   const persona = store.listPersonas()[0];
   if (!persona) throw new Error(`personaDir 里没有克隆体数据: ${config.personaDir}`);
@@ -119,7 +115,7 @@ async function boot(
     relations: new JsonRelationStore(join(dataDir, 'relations.json')),
     selfId: config.selfId,
     tts: buildTtsPort(config, stats),
-    logger: consoleLogger,
+    logger,
   });
 
   const assets: AssetResolver = {
@@ -130,12 +126,13 @@ async function boot(
     voicePath: (id) => runtime.getAgentVoicePath(id),
   };
 
-  const adapter = createAdapter(config.adapter);
+  const adapter = createAdapter(config.adapter, logger);
   const orchestrator = new BotOrchestrator(adapter, runtime, persona.id, config.selfId, assets, {
     ...config.queue,
     groupChat: config.features?.groupChat ?? false,
     groupReplyMode: config.features?.groupReplyMode ?? 'llm',
     stats,
+    logger,
   });
   orchestrator.start();
 
@@ -159,6 +156,7 @@ async function boot(
   let rejectStartup: ((reason: unknown) => void) | undefined;
   const stop = (): Promise<void> => {
     stopping ??= (async () => {
+      logger.disableContent();
       signal.removeEventListener('abort', onAbort);
       const foreground = orchestrator.stop();
       const background = runtime.close();
@@ -174,7 +172,7 @@ async function boot(
   };
   const onAbort = () => {
     rejectStartup?.(signal.reason);
-    void stop().catch(() => consoleLogger.error('机器人停止清理失败'));
+    void stop().catch(() => logger.error('机器人停止清理失败'));
   };
   signal.addEventListener('abort', onAbort, { once: true });
   try {
@@ -198,7 +196,7 @@ async function boot(
         // 产物根目录的 config.json（personaDir 是产物内 ./persona，config 与它同级）。
         // 提供后 WebUI「设置」页可读写配置并触发重载。
         configPath: join(config.personaDir, '..', 'config.json'),
-        logger: consoleLogger,
+        logger,
       });
     }
 
@@ -212,9 +210,7 @@ async function boot(
       rejectStartup = undefined;
     }
     signal.throwIfAborted();
-    consoleLogger.info(
-      `已连接 ${config.adapter.type} @ ${config.adapter.wsUrl}，克隆体「${persona.name}」上线`,
-    );
+    logger.info('机器人已连接并上线', { adapter: config.adapter.type });
 
     return { stop };
   } catch (error) {
@@ -261,7 +257,7 @@ export async function startBot(
       return { ok: true, message: '已按新配置完全重载' };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      consoleLogger.error(`重载失败：${message}`);
+      consoleLogger.error('重载失败', botErrorMetadata(err));
       return { ok: false, message };
     } finally {
       reloading = false;
@@ -294,5 +290,7 @@ export { createAdapter, NapcatAdapter, SnowLumaAdapter, BaseOneBotAdapter } from
 export type { OneBot11Adapter, OneBotSegment, IncomingEvent, SendTarget } from './adapter/types';
 export { BotOrchestrator } from './orchestrator';
 export { BotCapabilities } from './capabilities';
+export { BotLogger } from './logger';
+export type { BotLoggingConfig } from './logger';
 export { normalizeInbound, type NormalizedMessage } from './normalize/inbound';
 export { encodeTurn, type AssetResolver } from './normalize/outbound';

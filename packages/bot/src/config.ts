@@ -11,6 +11,7 @@ import type {
   TtsProviderConfig,
 } from '@weq/agentlab';
 import { isDefaultModelSelection, modelEndpointIdentity } from '@weq/agentlab';
+import type { BotLoggingConfig } from './logger';
 
 export type AdapterType = 'napcat' | 'snowluma';
 
@@ -63,6 +64,7 @@ export interface WebUiConfig {
 }
 
 export interface BotConfig {
+  logging?: BotLoggingConfig;
   queue?: {
     /** 同时处理的会话数，默认 4。 */
     maxConcurrentChats?: number;
