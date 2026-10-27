@@ -1,4 +1,4 @@
-import { timelineViewport } from './timelineViewport';
+import { timelineViewport, type TimelineViewport } from './timelineViewport';
 
 export interface ConversationReadingPosition {
   scrollTop: number;
@@ -9,9 +9,25 @@ export interface ConversationReadingPosition {
   bottomInset?: number;
 }
 
-export function captureReadingPosition(scroll: HTMLElement): ConversationReadingPosition {
-  const suspended = timelineViewport(scroll)?.capture?.();
-  if (suspended) return suspended;
+// 临时布局补偿不能越过新的滚动意图；切会话保存的位置不附带此守卫。
+const transientPositions = new WeakMap<
+  ConversationReadingPosition,
+  { viewport: TimelineViewport | undefined; revision: number | undefined }
+>();
+
+export function captureReadingPosition(
+  scroll: HTMLElement,
+  options?: { transient?: boolean },
+): ConversationReadingPosition {
+  const viewport = timelineViewport(scroll);
+  const position = viewport?.capture?.() ?? captureMountedReadingPosition(scroll);
+  if (!options?.transient) return position;
+  const pending = { ...position };
+  transientPositions.set(pending, { viewport, revision: viewport?.scrollRevision?.() });
+  return pending;
+}
+
+function captureMountedReadingPosition(scroll: HTMLElement): ConversationReadingPosition {
   const top = scroll.getBoundingClientRect().top;
   const rows = scroll.querySelectorAll<HTMLElement>(
     '.message-line[data-message-id], .weq-system-message-row[data-message-id]',
@@ -35,6 +51,13 @@ export function restoreReadingPosition(
   scroll: HTMLElement,
   position: ConversationReadingPosition,
 ): void {
+  const pending = transientPositions.get(position);
+  if (
+    pending &&
+    (pending.viewport !== timelineViewport(scroll) ||
+      pending.revision !== pending.viewport?.scrollRevision?.())
+  )
+    return;
   if (timelineViewport(scroll)?.restore(position)) return;
   const anchor = Array.from(
     scroll.querySelectorAll<HTMLElement>(

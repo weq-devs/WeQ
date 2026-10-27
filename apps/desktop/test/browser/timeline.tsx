@@ -66,6 +66,7 @@ const message = (seq: number): Message => ({
 });
 const scroll = () => document.querySelector<HTMLElement>('.message-scroll')!;
 const bridge: Record<string, unknown> = {};
+let pendingRestore: ReturnType<typeof captureReadingPosition> | undefined;
 Object.assign(window, { timelineTest: bridge });
 
 function Fixture() {
@@ -97,6 +98,7 @@ function Fixture() {
       selection.setSelectedIds(new Set(messages.map((row) => row.id)));
     },
     enterSelection: () => selection.setSelectionMode(true),
+    exitSelection: () => selection.setSelectionMode(false),
     clearSelection: () => {
       selection.setSelectedIds(new Set());
       selection.anchorRef.current = null;
@@ -127,6 +129,7 @@ function Fixture() {
     exportSelection: () => exportRequest?.selection,
     active: (value: boolean) => setActive(value),
     latestWindow: () => setAtLatest(true),
+    detachedWindow: () => setAtLatest(false),
     dropInitialPosition: () => setInitialPosition(false),
     pinPlayback: (id: string) => {
       const row = scroll().querySelector(`[data-message-id="${id}"]`);
@@ -141,6 +144,13 @@ function Fixture() {
         .querySelector(`[data-message-id="${id}"] .qq-media-voice`)
         ?.classList.remove('is-playing'),
     geometry: () => timelineViewport(scroll())?.geometry(),
+    flushRestore: () => {
+      if (pendingRestore) restoreReadingPosition(scroll(), pendingRestore);
+      pendingRestore = undefined;
+    },
+    queueRestore: () => {
+      pendingRestore = captureReadingPosition(scroll(), { transient: true });
+    },
     grow: (id: string) => {
       const row = scroll().querySelector<HTMLElement>(`[data-message-id="${id}"]`);
       if (row) row.style.minHeight = '650px';
@@ -166,7 +176,19 @@ function Fixture() {
       draft: '',
       tabActive: active,
       initialReadingPosition: initialPosition ? { scrollTop: 0 } : undefined,
-      onSend: async () => {},
+      onSend: async () => {
+        // 模拟发送期间的窗口刷新先捕获阅读位置，补偿在发送跳到底部后才提交。
+        pendingRestore = captureReadingPosition(scroll(), { transient: true });
+        setMessages((rows) => [
+          ...rows,
+          { ...message(Number(rows.at(-1)!.msgSeq) + 1), senderId: user.id },
+        ]);
+      },
+      onJumpToLatest: async () => {
+        setMessages((rows) => rows.slice(-100));
+        setAtLatest(true);
+        return true;
+      },
       onDraftChange() {},
       onDraftClear() {},
       onBack() {},

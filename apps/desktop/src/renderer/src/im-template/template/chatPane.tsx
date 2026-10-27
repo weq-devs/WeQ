@@ -359,20 +359,13 @@ function formatUnreadJumpCount(value: number) {
   return value > 99 ? '99+' : String(value);
 }
 
-/**
- * How many messages were appended at the tail since `lastId`. Falls back to
- * "1" when the previous tail can't be located (e.g. it scrolled out of the
- * loaded window) so the pill still nudges the user.
- */
-function countAppendedMessages(lastId: string | null, messages: Message[]) {
-  if (!lastId) {
-    return messages.length > 0 ? 1 : 0;
-  }
-  const index = messages.findIndex((message) => message.id === lastId);
-  if (index === -1) {
-    return 1;
-  }
-  return messages.length - 1 - index;
+/** 新消息提示只统计他人发送的追加消息，不把自己的乐观消息或落库确认计入。 */
+function countAppendedMessages(lastId: string | null, messages: Message[], selfId: string) {
+  const index = lastId ? messages.findIndex((message) => message.id === lastId) : -1;
+  let count = 0;
+  for (let i = index < 0 ? Math.max(0, messages.length - 1) : index + 1; i < messages.length; i++)
+    if (messages[i]!.senderId !== selfId) count++;
+  return count;
 }
 
 function isMobileComposerViewport() {
@@ -893,9 +886,14 @@ export function ChatPane({
   const [newMessagePill, setNewMessagePill] = useState(0);
   const [showBottomJump, setShowBottomJump] = useState(false);
   const lastScrollTopRef = useRef(0);
-  const latestSeqRef = useRef<{ conversationId: string | undefined; seq: string | undefined }>({
+  const latestSeqRef = useRef<{
+    conversationId: string | undefined;
+    seq: string | undefined;
+    unread: number;
+  }>({
     conversationId: undefined,
     seq: undefined,
+    unread: 0,
   });
   const [jumpingToLatest, setJumpingToLatest] = useState(false);
   const [clearMessagesConfirmOpen, setClearMessagesConfirmOpen] = useState(false);
@@ -1447,7 +1445,7 @@ export function ChatPane({
     // The window was swapped wholesale (reply-jump rebuild) when the previous
     // tail is no longer present — that's not a live arrival.
     const replaced = prevId !== null && !visibleMessages.some((message) => message.id === prevId);
-    const appended = countAppendedMessages(prevId, visibleMessages);
+    const appended = countAppendedMessages(prevId, visibleMessages, user.id);
     lastMessageIdRef.current = newestId;
 
     // Detached history window (reply-jump context or downward history paging):
@@ -1485,25 +1483,27 @@ export function ChatPane({
     loadingNewer,
     atLatest,
     initialReadingPosition,
+    user.id,
   ]);
 
-  // 分离的历史窗口不会追加实时消息，用会话水位识别新到记录，而非历史分页。
+  // 历史窗口不追加实时消息；沿用服务端已排除自己的入站未读数，不用序号差猜条数。
   useEffect(() => {
     const previous = latestSeqRef.current;
-    latestSeqRef.current = { conversationId: conversation?.id, seq: latestMessageSeq };
     if (
-      atLatest ||
-      previous.conversationId !== conversation?.id ||
-      !previous.seq ||
-      !latestMessageSeq ||
-      !/^\d+$/.test(previous.seq) ||
-      !/^\d+$/.test(latestMessageSeq)
+      previous.conversationId === conversation?.id &&
+      previous.seq &&
+      latestMessageSeq &&
+      /^\d+$/.test(previous.seq) &&
+      /^\d+$/.test(latestMessageSeq) &&
+      BigInt(latestMessageSeq) < BigInt(previous.seq)
     )
       return;
-    const delta = BigInt(latestMessageSeq) - BigInt(previous.seq);
-    if (delta < 0n) latestSeqRef.current = previous;
-    if (delta > 0n) setNewMessagePill((count) => count + Number(delta > 100n ? 100n : delta));
-  }, [conversation?.id, latestMessageSeq, atLatest]);
+    const unread = Math.max(0, conversation?.unreadCount ?? 0);
+    latestSeqRef.current = { conversationId: conversation?.id, seq: latestMessageSeq, unread };
+    if (atLatest || previous.conversationId !== conversation?.id) return;
+    const delta = unread - previous.unread;
+    if (delta > 0) setNewMessagePill((count) => count + Math.min(delta, 100));
+  }, [conversation?.id, conversation?.unreadCount, latestMessageSeq, atLatest]);
 
   // updateUnreadJumpRemaining 会写回 unreadJump.remaining，所以这里只认「换会话 /
   // 换未读总数」这两个稳定信号，不能整体依赖 unreadJump，否则每次滚动都要多跑一轮。

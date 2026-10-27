@@ -3,6 +3,7 @@ import {
   captureReadingPosition,
   restoreReadingPosition,
 } from '../src/renderer/src/lib/conversationReadingPosition';
+import { registerTimelineViewport } from '../src/renderer/src/lib/timelineViewport';
 
 function fixture(count: number) {
   const scroll = document.createElement('div');
@@ -23,6 +24,76 @@ function fixture(count: number) {
 }
 
 describe('阅读锚点', () => {
+  it('临时补偿不覆盖发送后跳到底部、主动定位或用户滚动，持久阅读位置仍可恢复', () => {
+    const { scroll } = fixture(20);
+    let revision = 0;
+    const restore = vi.fn(() => true);
+    const viewport = {
+      scrollRevision: () => revision,
+      scrollTo: () => true,
+      restore,
+      geometry: () => [],
+      offset: () => undefined,
+      bottom: () => revision++,
+    };
+    const release = registerTimelineViewport(scroll, viewport);
+    const saved = captureReadingPosition(scroll);
+    for (const intent of ['bottom', 'locate', 'wheel', 'touch', 'scrollbar']) {
+      const pending = captureReadingPosition(scroll, { transient: true });
+      if (intent === 'bottom') viewport.bottom();
+      else revision++;
+      restoreReadingPosition(scroll, pending);
+      expect(restore, intent).not.toHaveBeenCalled();
+    }
+    restoreReadingPosition(scroll, saved);
+    expect(restore).toHaveBeenCalledOnce();
+    release();
+  });
+  it('临时补偿可重复校准同一轮布局，但视口重新绑定后不再生效', () => {
+    const { scroll } = fixture(20);
+    const restore = vi.fn(() => true);
+    const viewport = {
+      scrollRevision: () => 0,
+      scrollTo: () => true,
+      restore,
+      geometry: () => [],
+      offset: () => undefined,
+      bottom: () => {},
+    };
+    const release = registerTimelineViewport(scroll, viewport);
+    const pending = captureReadingPosition(scroll, { transient: true });
+    restoreReadingPosition(scroll, pending);
+    restoreReadingPosition(scroll, pending);
+    expect(restore).toHaveBeenCalledTimes(2);
+    release();
+    const releaseNew = registerTimelineViewport(scroll, { ...viewport });
+    restoreReadingPosition(scroll, pending);
+    expect(restore).toHaveBeenCalledTimes(2);
+    releaseNew();
+  });
+  it('隐藏视口的临时快照不污染持久位置，恢复显示后的新意图仍能取消旧补偿', () => {
+    const { scroll } = fixture(0);
+    const suspended = { scrollTop: 500, anchorId: 'saved' };
+    let revision = 0;
+    const restore = vi.fn(() => true);
+    const release = registerTimelineViewport(scroll, {
+      capture: () => suspended,
+      scrollRevision: () => revision,
+      scrollTo: () => true,
+      restore,
+      geometry: () => [],
+      offset: () => undefined,
+      bottom: () => {},
+    });
+    const pending = captureReadingPosition(scroll, { transient: true });
+    expect(pending).not.toBe(suspended);
+    revision++;
+    restoreReadingPosition(scroll, pending);
+    expect(restore).not.toHaveBeenCalled();
+    restoreReadingPosition(scroll, suspended);
+    expect(restore).toHaveBeenCalledOnce();
+    release();
+  });
   it('记录首个可见消息和像素偏移，不逐条测量长历史', () => {
     const { scroll, reads } = fixture(10_000);
     scroll.scrollTop = 450_012;

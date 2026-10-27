@@ -27,7 +27,7 @@ import {
   type ReplyPreviewIndex,
 } from '../lib/replyPreview';
 import { createCoalescedRefresh } from '../lib/coalescedRefresh';
-import { revealTimelineMessage } from '../lib/timelineViewport';
+import { revealTimelineMessage, timelineViewport } from '../lib/timelineViewport';
 import {
   installMessagePerformanceProbe,
   measureMessagePhase,
@@ -2216,6 +2216,7 @@ function OverlayScrollbar({
     const target = targetRef.current;
     if (!target) return;
     const scrollTarget = target;
+    timelineViewport(scrollTarget)?.cancelScroll?.();
 
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -2643,8 +2644,15 @@ export function MainView(): ReactElement {
             win.minSeq === null ? PAGE_SIZE : REFRESH_CAP,
           );
           const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
-          if (scroll && scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 48) {
-            cachedScrollRef.current = { id: conv, position: captureReadingPosition(scroll) };
+          if (
+            rows !== loadedRef.current &&
+            scroll &&
+            scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 48
+          ) {
+            cachedScrollRef.current = {
+              id: conv,
+              position: captureReadingPosition(scroll, { transient: true }),
+            };
           }
           verifiedWindowRowsRef.current = rows;
           if (rows !== loadedRef.current) pendingMessageCommit.current = performance.now();
@@ -7621,7 +7629,7 @@ export function MainView(): ReactElement {
                 '.weq-readonly-chat .message-scroll',
               );
               if (scroll) {
-                const position = captureReadingPosition(scroll);
+                const position = captureReadingPosition(scroll, { transient: true });
                 if (position.anchorId) cachedScrollRef.current = { id: conv, position };
               }
             }
@@ -7713,7 +7721,7 @@ export function MainView(): ReactElement {
           // 请求期间用户仍可滚动；只在真正提交旧页前捕获此刻的可见消息。
           pendingScrollRestoreRef.current = {
             conversationId: conv,
-            position: captureReadingPosition(scroll),
+            position: captureReadingPosition(scroll, { transient: true }),
           };
           setLoaded((cur) => {
             const seen = new Set(cur.map(timelineRowKey));
@@ -9981,6 +9989,7 @@ export function MainView(): ReactElement {
                                 return false;
                               const rows = page.map(toMessageWire).reverse();
                               pendingScrollRestoreRef.current = null;
+                              cachedScrollRef.current = null;
                               windowRef.current = {
                                 minSeq: rows[0]?.msgSeq ?? null,
                                 anchored: true,

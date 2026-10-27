@@ -40,7 +40,12 @@ describe('新消息按钮已读行为', () => {
       const host = document.createElement('div');
       document.body.append(host);
       const root = createRoot(host);
-      const first = { ...demo.messages[0]!, id: 'first', conversationId: conversation.id };
+      const first = {
+        ...demo.messages[0]!,
+        id: 'first',
+        conversationId: conversation.id,
+        senderId: 'peer',
+      };
       const props = {
         user: demo.user,
         conversation,
@@ -93,7 +98,10 @@ describe('新消息按钮已读行为', () => {
         expect(read).toHaveBeenCalledWith(conversation);
         move(500);
         settings.value = { showScrollToBottomButton: false };
-        render({ messages: [first, { ...first, id: 'new' }] });
+        const own = { ...first, id: 'own', senderId: demo.user.id };
+        render({ messages: [first, own] });
+        expect(pill()).toBeNull();
+        render({ messages: [first, own, { ...first, id: 'new' }, { ...own, id: 'own-2' }] });
         expect(pill()?.textContent).toContain('1条新消息');
         move(400);
         expect(pill()?.textContent).toContain('1条新消息');
@@ -320,12 +328,16 @@ describe('新消息按钮已读行为', () => {
       });
       act(() => root.render(createElement(ChatPane, { ...props, messages: [first, next] })));
       const button = host.querySelector<HTMLButtonElement>('.new-message-preview')!;
-      expect(button.getAttribute('aria-label')).toBe('预览新消息');
+      expect(button.getAttribute('aria-label')).toBe(
+        sender === 'self' ? '预览最新消息' : '预览新消息',
+      );
       act(() => button.click());
       expect(preview).toHaveBeenCalledOnce();
       expect(preview).toHaveBeenCalledWith(conversation);
       expect(scroll.scrollTop).toBe(100);
-      expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+      const pillText = host.querySelector('.new-message-pill')?.textContent ?? '';
+      if (sender === 'self') expect(pillText).not.toContain('条新消息');
+      else expect(pillText).toContain('1条新消息');
       expect(read).not.toHaveBeenCalled();
       act(() =>
         root.render(
@@ -343,7 +355,7 @@ describe('新消息按钮已读行为', () => {
     }
   });
 
-  it('分离的历史窗口按实时水位提示新消息，窗口底部不清除提示，定位失败保留重试入口', async () => {
+  it('历史窗口只统计入站未读增量，自己发送不计数，定位失败保留重试入口', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
@@ -356,7 +368,7 @@ describe('新消息按钮已读行为', () => {
     const root = createRoot(host);
     const props = {
       user: demo.user,
-      conversation,
+      conversation: { ...conversation, unreadCount: 0 },
       messages: [{ ...demo.messages[0]!, conversationId: conversation.id }],
       loading: false,
       atLatest: false,
@@ -389,6 +401,12 @@ describe('新消息按钮已读行为', () => {
       expect(host.querySelector('.new-message-bottom')).not.toBeNull();
       expect(read).not.toHaveBeenCalled();
       jump.mockClear();
+      // 自己发送推进会话序号，但不会增加入站未读数。
+      act(() =>
+        root.render(createElement(ChatPane, { ...props, latestMessageSeq: '9007199254740994' })),
+      );
+      expect(host.querySelector('.new-message-pill')?.textContent).not.toContain('条新消息');
+      props.conversation = { ...conversation, unreadCount: 2 };
       act(() =>
         root.render(createElement(ChatPane, { ...props, latestMessageSeq: '9007199254740995' })),
       );
@@ -437,7 +455,7 @@ describe('新消息按钮已读行为', () => {
       });
       expect(pill()).toBeNull();
       expect(read).toHaveBeenCalledOnce();
-      expect(read).toHaveBeenCalledWith(conversation);
+      expect(read).toHaveBeenCalledWith(props.conversation);
     } finally {
       act(() => root.unmount());
       host.remove();
