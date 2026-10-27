@@ -218,4 +218,40 @@ describe('有界自动恢复', () => {
     f.destroy();
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it('只有自动重载完成才提供恢复通知，确认后清除，旧确认不清掉下一次事件', async () => {
+    vi.useFakeTimers();
+    const f = fixture(true);
+    f.recovery.gone({ reason: 'crashed', exitCode: 5 });
+    expect(f.recovery.notice()).toBeNull();
+    await vi.advanceTimersByTimeAsync(RENDERER_AUTO_RELOAD_DELAY_MS);
+    expect(f.recovery.notice()).toBeNull();
+    f.recovery.loaded();
+    const first = f.recovery.notice();
+    expect(first?.id).toBeTypeOf('number');
+    expect(f.recovery.notice()).toEqual(first);
+    f.recovery.acknowledgeNotice(first!.id);
+    expect(f.recovery.notice()).toBeNull();
+    await vi.advanceTimersByTimeAsync(RENDERER_AUTO_RELOAD_COOLDOWN_MS);
+    f.recovery.gone({ reason: 'oom', exitCode: 5 });
+    await vi.advanceTimersByTimeAsync(RENDERER_AUTO_RELOAD_DELAY_MS);
+    f.recovery.loaded();
+    f.recovery.acknowledgeNotice(first!.id);
+    expect(f.recovery.notice()?.id).not.toBe(first!.id);
+    f.destroy();
+  });
+
+  it('React 就绪早于文档 load 时也能领取通知，随后 load 不重复产生事件', async () => {
+    vi.useFakeTimers();
+    const f = fixture(true);
+    f.recovery.gone({ reason: 'oom', exitCode: 5 });
+    await vi.advanceTimersByTimeAsync(RENDERER_AUTO_RELOAD_DELAY_MS);
+    const notice = f.recovery.rendererReady();
+    expect(notice).not.toBeNull();
+    f.recovery.loaded();
+    expect(f.recovery.notice()).toEqual(notice);
+    f.recovery.acknowledgeNotice(notice!.id);
+    expect(f.recovery.rendererReady()).toBeNull();
+    f.destroy();
+  });
 });

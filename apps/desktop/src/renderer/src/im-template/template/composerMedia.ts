@@ -31,6 +31,8 @@ export type ComposerAttachment = {
   duration?: number;
   /** 原始文件，留在内存里等接线的发送逻辑取用。 */
   file: File;
+  /** 本机草稿素材的稳定标识；不能用跨进程失效的 object URL 代替。 */
+  draftAssetId?: string;
 };
 
 export type VoiceClip = {
@@ -202,6 +204,7 @@ export function attachmentToElement(attachment: ComposerAttachment): Record<stri
     fileName: attachment.name,
     fileSize: attachment.size,
     mimeType: attachment.mime,
+    ...(attachment.draftAssetId ? { localDraftAssetId: attachment.draftAssetId } : {}),
   };
   if (attachment.kind === 'image') {
     return {

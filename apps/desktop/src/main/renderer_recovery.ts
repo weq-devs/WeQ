@@ -43,6 +43,9 @@ export function createRendererRecovery(options: {
   let loadTimer: ReturnType<typeof setTimeout> | undefined;
   let loading = false;
   let lastAutomaticReload: number | null = null;
+  let automaticLoad = false;
+  let noticeSequence = 0;
+  let notice: { id: number } | null = null;
   const now = options.now ?? (() => performance.now());
   const available = () => !disposed && !options.unavailable() && !options.quitting();
   const clearTimers = () => {
@@ -50,6 +53,7 @@ export function createRendererRecovery(options: {
     clearTimeout(loadTimer);
     autoTimer = loadTimer = undefined;
     loading = false;
+    automaticLoad = false;
   };
   const failed = () => {
     if (!loading || !crashed || !available()) return;
@@ -63,6 +67,7 @@ export function createRendererRecovery(options: {
     if (automatic) lastAutomaticReload = now();
     options.record(automatic ? 'auto-reload' : 'reload');
     loading = true;
+    automaticLoad = automatic;
     loadTimer = setTimeout(failed, RENDERER_RELOAD_TIMEOUT_MS);
     loadTimer.unref?.();
     try {
@@ -95,13 +100,29 @@ export function createRendererRecovery(options: {
       }
     })();
   };
+  const loaded = () => {
+    if (loading && automaticLoad) notice = { id: ++noticeSequence };
+    clearTimers();
+    generation += 1;
+    crashed = false;
+  };
 
   return {
     request,
     failed,
+    notice: () => (notice ? { ...notice } : null),
+    rendererReady() {
+      // React 已挂载可能早于 did-finish-load；不等待图片等资源才交付恢复提示。
+      loaded();
+      return notice ? { ...notice } : null;
+    },
+    acknowledgeNotice(id: number) {
+      if (notice?.id === id) notice = null;
+    },
     needsRecovery: () => crashed,
     gone(details: { reason: string; exitCode: number }) {
       if (disposed) return;
+      notice = null;
       options.record('gone', {
         reason: normalizeRendererExitReason(details.reason),
         exitCode: details.exitCode,
@@ -128,12 +149,9 @@ export function createRendererRecovery(options: {
         autoTimer.unref?.();
       } else request();
     },
-    loaded() {
-      clearTimers();
-      generation += 1;
-      crashed = false;
-    },
+    loaded,
     dispose() {
+      notice = null;
       clearTimers();
       disposed = true;
       generation += 1;

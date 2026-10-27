@@ -132,6 +132,8 @@ import {
 } from '../lib/conversationReadingPosition';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
+import { composerDraftRecovery } from '../lib/composerDraftRecovery';
+import { composerAssetIds } from '../lib/composerDraftMedia';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useCloneTaskRefresh } from '../hooks/useCloneTaskRefresh';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
@@ -2813,18 +2815,36 @@ export function MainView(): ReactElement {
   const [groupAssistantPins, setGroupAssistantPins] = useState(() =>
     loadGroupAssistantPins(openedUin ?? ''),
   );
-  // 草稿直接读写 QQ 自己的 draft_storage_table_v1 —— WeQ 不再另存一份缓存。
-  // 这里的内存副本只用来即时回显（边打边显示 / 会话列表的草稿标记），真正落库
-  // 只在「离开会话 / 离开消息页 / 应用退出」时做，见 flushDrafts。
-  const [drafts, setDrafts] = useState<ConversationDrafts>({});
+  // 输入先同步保存本机恢复快照；离开时继续写 QQ 草稿，成功后再确认对应快照。
+  const [drafts, setDrafts] = useState<ConversationDrafts>(() => {
+    try {
+      return composerDraftRecovery.load(openedUin ?? '');
+    } catch {
+      return {};
+    }
+  });
   /** 本次会话里被改过、还没落库的会话 id。 */
-  const dirtyDraftsRef = useRef<Set<string>>(new Set());
+  const dirtyDraftsRef = useRef<Set<string>>(new Set(Object.keys(drafts)));
   /**
    * 还没落库的草稿正文（输入框实时值）。**刻意用 ref 而不是 state** —— 每敲一个
    * 字都 setState 会让整棵 MainView 重渲，这是之前输入卡顿的主因。它只在「切会话 /
    * 离开消息页 / 退出」时被读取并并进 state 或落库。
    */
-  const pendingDraftsRef = useRef<ConversationDrafts>({});
+  const pendingDraftsRef = useRef<ConversationDrafts>({ ...drafts });
+  const draftRecoveryFailed = useRef(false);
+  useEffect(() => {
+    try {
+      composerDraftRecovery.load(openedUin ?? '');
+    } catch {
+      pushToast({
+        key: 'composer-draft-storage',
+        tone: 'error',
+        title: '无法读取本机草稿',
+        detail: '恢复快照已保留，请勿清理应用数据；本次输入暂时只保存在内存中。',
+      });
+      draftRecoveryFailed.current = true;
+    }
+  }, [openedUin, pushToast]);
   /**
    * flushDraft 定义在下面（依赖 conversations），但 handleSelectConversation 在它
    * 之前就要用 —— 用 ref 转发拿最新实现，避免把两个 useCallback 的依赖搅在一起。
@@ -7902,20 +7922,36 @@ export function MainView(): ReactElement {
   }
 
   /**
-   * 输入框改动**只记在 ref 里**，不碰 React state —— 每敲一个字都 setState 会让
+   * 输入框改动同步写恢复快照并记在 ref 里，不碰 React state —— 每敲一个字都 setState 会让
    * 整棵 MainView（含侧边栏 + 聊天区）重渲，这正是之前输入卡顿的主因。
    * 真正的 state 更新与落库都推迟到 flushDraft（离开会话 / 离开消息页 / 退出）。
    */
-  const updateDraft = useCallback((conversationId: string, value: string): void => {
-    // 清空要**保留 key、存空串**（不是 delete）—— 规则与理由见
-    // `@weq/service/draft-edit`：`delete` 会让「清空了」和「没动过」不可区分，
-    // 落库时就会把上一次的旧正文再写回去。
-    pendingDraftsRef.current = setLocalDraft(pendingDraftsRef.current, conversationId, value);
-    dirtyDraftsRef.current.add(conversationId);
-  }, []);
+  const updateDraft = useCallback(
+    (conversationId: string, value: string): void => {
+      try {
+        composerDraftRecovery.write(openedUin ?? '', conversationId, value);
+        draftRecoveryFailed.current = false;
+      } catch {
+        if (!draftRecoveryFailed.current)
+          pushToast({
+            key: 'composer-draft-storage',
+            tone: 'error',
+            title: '草稿自动保存失败',
+            detail: '当前输入仍在界面中，但本次修改未能持久保存，请先保留内容再重启。',
+          });
+        draftRecoveryFailed.current = true;
+      }
+      // 清空要**保留 key、存空串**（不是 delete）—— 规则与理由见
+      // `@weq/service/draft-edit`：`delete` 会让「清空了」和「没动过」不可区分，
+      // 落库时就会把上一次的旧正文再写回去。
+      pendingDraftsRef.current = setLocalDraft(pendingDraftsRef.current, conversationId, value);
+      dirtyDraftsRef.current.add(conversationId);
+    },
+    [openedUin, pushToast],
+  );
 
   // 进入消息页时把 QQ 库里已有的草稿读进来（整表只有几行）。这是唯一一次读 ——
-  // 之后边打边改都只在内存，离开时才写回。
+  // 本机恢复快照优先于 QQ 旧草稿；输入时不逐字写 QQ 库。
   const draftQuery = trpc.account.listDrafts.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: Infinity,
@@ -7942,8 +7978,7 @@ export function MainView(): ReactElement {
   }, [draftQuery.data]);
 
   /**
-   * 把一个会话的草稿写回 QQ 库（或清掉）。**只在离开时调用**：产品决定不做逐字写、
-   * 也不做本地兜底 —— 写不进去就按没草稿处理。
+   * 离开时写回 QQ 库（或清掉）；失败时保留本机恢复快照与脏标记。
    */
   const flushDraft = useCallback(
     async (conversationId: string): Promise<void> => {
@@ -7972,8 +8007,7 @@ export function MainView(): ReactElement {
           elements: toIpcElements(composerTextToElements(text)),
         });
       } catch (e) {
-        // 不做兜底：写不进 QQ 库就丢掉这次草稿（按产品决定）。仍然把本地视为
-        // 未落盘，下次离开时再试一次。
+        // QQ 写入失败不能删除恢复快照，下次离开时仍可重试。
         dirtyDraftsRef.current.add(conversationId);
         console.error('[MainView] Failed to save draft:', e);
         return;
@@ -7983,6 +8017,13 @@ export function MainView(): ReactElement {
       // 写库是异步的：期间用户可能又切回这个会话接着改（pending 已变、dirty 已重置）。
       // 那种情况下这次落库的结果已经不是最新的，state 不能拿它盖掉新正文。
       if (localDraftToWrite(pendingDraftsRef.current, conversationId) !== text) return;
+      try {
+        // QQ wire 草稿不保留本机素材标识；带图片的恢复快照需保留到用户清空/发送。
+        if (!composerAssetIds(text).size)
+          composerDraftRecovery.confirm(openedUin ?? '', conversationId, text);
+      } catch {
+        /* 保留快照，不能因清理失败丢稿。 */
+      }
       setDrafts((current) => {
         const next = { ...current };
         if (text.trim()) next[conversationId] = text;
@@ -7990,7 +8031,7 @@ export function MainView(): ReactElement {
         return next;
       });
     },
-    [conversations, hiddenConversationsById, deletedConversationsById],
+    [conversations, hiddenConversationsById, deletedConversationsById, openedUin],
   );
 
   /**
@@ -8004,7 +8045,7 @@ export function MainView(): ReactElement {
     void flushDraft(conversationId);
   };
 
-  // 应用退出 / 窗口关闭：尽力写一次，写不进去就算了（产品决定不做兜底）。
+  // 退出时尽力同步 QQ；崩溃保护由输入时的同步恢复快照承担，不依赖此回调。
   useEffect(() => {
     const onUnload = (): void => {
       for (const id of [...dirtyDraftsRef.current]) {

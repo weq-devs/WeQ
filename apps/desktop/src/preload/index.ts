@@ -17,6 +17,7 @@ import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/an
 import { installRendererDiagnosticSampling } from './renderer_diagnostics';
 import type { EditMenuState } from '../shared/edit_menu';
 import type { LongTermAuthorizationBridge } from '../shared/long_term_authorization';
+import { rendererRecoveryBridge } from './renderer_recovery';
 
 // Same CJS workaround as src/main/index.ts — electron-trpc 0.7's ESM
 // build statically imports `ipcMain` from 'electron', which is not
@@ -43,6 +44,7 @@ ipcRenderer.on('edit:undo', () => {
 ipcRenderer.send('edit:undo-ready');
 
 const weqBridge = {
+  rendererRecovery: rendererRecoveryBridge,
   authorization: {
     status: () => ipcRenderer.invoke('authorization:status'),
     install: (expectedDevelopment?: boolean) =>

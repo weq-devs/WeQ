@@ -76,6 +76,7 @@ import {
 } from './app_quit_lifecycle';
 import { registerAppQuitConfirmation, type QuitChoice } from './app_quit_confirmation';
 import { createRendererRecovery } from './renderer_recovery';
+import { registerRendererRecoveryIpc } from './renderer_recovery_ipc';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
 import { macApplicationMenu, nativeMenuLabels } from './application_menu';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
@@ -139,6 +140,7 @@ let tray: Tray | null = null;
 let isQuitting = false;
 let stopRendererDiagnostics: (() => void) | null = null;
 let mainWindowRequested = false;
+const rendererRecoveries = new Map<number, ReturnType<typeof createRendererRecovery>>();
 
 const mainWindowLifecycle = createMainWindowLifecycle({
   canOpen: () => mainIpcHandler !== null && !isQuitting,
@@ -545,11 +547,16 @@ function createWindow(showInitially = true): BrowserWindow {
       }),
   });
   win.webContents.on('render-process-gone', (_event, details) => recovery.gone(details));
+  rendererRecoveries.set(win.webContents.id, recovery);
   win.webContents.on('did-finish-load', () => recovery.loaded());
   win.webContents.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
     if (isMainFrame && code !== -3) recovery.failed();
   });
-  win.once('closed', () => recovery.dispose());
+  const recoveryId = win.webContents.id;
+  win.once('closed', () => {
+    rendererRecoveries.delete(recoveryId);
+    recovery.dispose();
+  });
 
   installStartupWindowReveal(win, showInitially);
 
@@ -759,6 +766,9 @@ void app.whenReady().then(async () => {
   registerMediaIpc();
   registerMediaExportIpc();
   registerLogIpc();
+  registerRendererRecoveryIpc((sender) =>
+    sender === getMainWindow()?.webContents ? rendererRecoveries.get(sender.id) : undefined,
+  );
   registerSystemAuthIpc();
   registerTotpIpc();
   // 启动时立即在后台探测 Windows Hello 可用性，避免 UI 首次调用时卡顿。

@@ -168,6 +168,14 @@ import { chatHeaderTitle, isBotConversation, resolveMessageSender } from './conv
 import { createEmojiToken, parseMessageParts } from './emojiPacks';
 import type { EmojiItem } from './emojiPacks';
 import { elementToToken, elementsToComposerText, tokenToElement } from './draftElements';
+import {
+  composerAssetIds,
+  preserveComposerImages,
+  preserveReeditImages,
+  restoreComposerImages,
+  removeComposerImages,
+  removeUnusedComposerImages,
+} from '../../lib/composerDraftMedia';
 import { planNeedsLocalMedia, type LocalMediaRef } from './composerSend';
 import { prepareReeditDraft } from './composerReedit';
 import {
@@ -653,6 +661,11 @@ export function ChatPane({
   const tabActive = useTabActive();
   const directory = useContext(ConversationDirectoryContext);
   const [body, setBody] = useState('');
+  const draftMediaFingerprint = JSON.stringify([...composerAssetIds(body)].sort());
+  const [restoringDraftMedia, setRestoringDraftMedia] = useState(false);
+  const draftMediaRestore = useRef(0);
+  const composerEdited = useRef(false);
+  const draftIdentity = useRef('');
   const [sending, setSending] = useState(false);
   const composerSendRef = useRef<{ conversationId: string } | null>(null);
   const composerTabActive = useRef(tabActive);
@@ -1341,6 +1354,9 @@ export function ChatPane({
   draftRef.current = draft;
   const bodyRef = useRef(body);
   bodyRef.current = body;
+  const setComposerBodyRef = useRef(setComposerBody);
+  setComposerBodyRef.current = setComposerBody;
+  const draftConversationId = conversation?.id;
 
   useLayoutEffect(() => {
     const conversationId = conversation?.id ?? null;
@@ -1554,14 +1570,19 @@ export function ChatPane({
 
   useEffect(() => {
     const editor = composerEditorRef.current;
+    const identity = JSON.stringify([user.id, conversation?.id]);
+    if (identity === draftIdentity.current && composerEdited.current) return;
+    draftIdentity.current = identity;
+    composerEdited.current = false;
     const currentDraft = draftRef.current;
+    bodyRef.current = currentDraft;
     setBody(currentDraft);
     composerSelectionRef.current = null;
     if (editor) {
       restoreComposer(editor, currentDraft);
       scheduleMobileComposerMeasureRef.current(editor);
     }
-  }, [conversation?.id]);
+  }, [conversation?.id, user.id, draft]);
 
   useEffect(() => {
     if (!tabActive) return;
@@ -1940,6 +1961,7 @@ export function ChatPane({
   const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
   mediaAttachmentRef.current = mediaAttachment;
   const inlineImagesRef = useRef<ComposerAttachment[]>([]);
+  const inlineImageScope = useRef<{ account: string; conversation: string } | null>(null);
   const retainedSendUrlsRef = useRef(new Set<string>());
   const reeditObjectUrlsRef = useRef<string[]>([]);
   const reeditLocalsRef = useRef<LocalMediaRef[]>([]);
@@ -1947,6 +1969,17 @@ export function ChatPane({
   useEffect(() => () => reeditAbortRef.current?.abort(), [conversation?.id, user.id]);
   /** 释放所有内联图片的预览地址（发送成功 / 切会话 / 卸载时）。 */
   const releaseInlineImages = useCallback(() => {
+    const scope = inlineImageScope.current;
+    if (scope) {
+      const ids = inlineImagesRef.current.flatMap((image) =>
+        image.draftAssetId ? [image.draftAssetId] : [],
+      );
+      // 替换草稿会在同一轮写入新正文；清理必须读取交接后的快照。
+      queueMicrotask(() => {
+        void removeUnusedComposerImages(scope.account, scope.conversation, ids).catch(() => {});
+      });
+    }
+    inlineImageScope.current = null;
     for (const item of inlineImagesRef.current) releaseAttachment(item);
     inlineImagesRef.current = [];
     for (const url of reeditObjectUrlsRef.current) releaseObjectUrl(url);
@@ -1987,6 +2020,62 @@ export function ChatPane({
     setAttachmentError(null);
     setDropActive(false);
   }, [conversation?.id, releaseInlineImages]);
+
+  useEffect(() => {
+    const sequence = ++draftMediaRestore.current;
+    const source = bodyRef.current;
+    const ids = composerAssetIds(source);
+    if (
+      draftMediaFingerprint === '[]' ||
+      !draftConversationId ||
+      !ids.size ||
+      [...ids].every((id) => inlineImagesRef.current.some((image) => image.id === id))
+    ) {
+      setRestoringDraftMedia(false);
+      return;
+    }
+    setRestoringDraftMedia(true);
+    let active = true;
+    void restoreComposerImages(user.identityValue, draftConversationId, source)
+      .then((result) => {
+        if (!active || sequence !== draftMediaRestore.current) {
+          for (const image of result.images) releaseAttachment(image);
+          return;
+        }
+        const ids = composerAssetIds(bodyRef.current);
+        const retained = result.images.filter((image) => ids.has(image.id));
+        for (const image of result.images) if (!ids.has(image.id)) releaseAttachment(image);
+        const replaced = new Set(retained.map((image) => image.id));
+        for (const image of inlineImagesRef.current)
+          if (replaced.has(image.id)) releaseAttachment(image);
+        inlineImagesRef.current = [
+          ...inlineImagesRef.current.filter((image) => !replaced.has(image.id)),
+          ...retained,
+        ];
+        inlineImageScope.current = {
+          account: user.identityValue,
+          conversation: draftConversationId,
+        };
+        const next = result.rewrite(bodyRef.current);
+        setComposerBodyRef.current(next);
+        for (const editor of [composerEditorRef.current, expandedComposerEditorRef.current])
+          if (editor) restoreComposer(editor, next);
+        setRestoringDraftMedia(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        pushToast({
+          key: 'composer-draft-media',
+          tone: 'error',
+          title: '草稿图片恢复失败',
+          detail: '原稿与素材未清理，请暂时不要发送含未恢复图片的内容。',
+        });
+        // 不允许把缺少真实素材的图片占位当作完整消息发出。
+      });
+    return () => {
+      active = false;
+    };
+  }, [draftConversationId, user.identityValue, draft, draftMediaFingerprint, pushToast]);
 
   useLayoutEffect(
     () => () => {
@@ -2854,6 +2943,7 @@ export function ChatPane({
     if (mediaAttachment) attachments.push(mediaAttachment);
     for (const attachment of attachments) {
       const key = attachment.url ?? `${attachment.name}:${attachment.size}`;
+      if (out.some((local) => local.key === key || local.previewUrl === key)) continue;
       const path = window.weq?.pathForFile?.(attachment.file) ?? '';
       // 预览地址只给乐观渲染用（发完即丢）；拿不到就退回本地路径 / 不预览。
       const previewUrl = attachment.url ?? undefined;
@@ -2910,6 +3000,7 @@ export function ChatPane({
       !sendAvailable ||
       currentPreference.blocked ||
       sending ||
+      restoringDraftMedia ||
       composerSendRef.current
     ) {
       return;
@@ -2984,6 +3075,12 @@ export function ChatPane({
       setAiVoiceOpen(false);
       if (singleToken || options.keepBody) window.requestAnimationFrame(restoreSendFocus);
       const sent = onSend(payloadBody, locals);
+      if (clearsBody)
+        void removeUnusedComposerImages(
+          user.identityValue,
+          request.conversationId,
+          sentImages.flatMap((image) => (image.draftAssetId ? [image.draftAssetId] : [])),
+        ).catch(() => {});
       composerSendRef.current = null;
       setSending(false);
       await sent;
@@ -3329,18 +3426,35 @@ export function ChatPane({
         return;
       }
       void createAttachments(missing.map((image) => image.file))
-        .then((created) => {
+        .then(async (created) => {
+          try {
+            await preserveComposerImages(user.identityValue, conversationId, created);
+          } catch (error) {
+            for (const image of created) releaseAttachment(image);
+            void removeComposerImages(
+              user.identityValue,
+              conversationId,
+              created.map((image) => image.draftAssetId).filter(Boolean),
+            ).catch(() => {});
+            throw error;
+          }
           if (
             !editor.isConnected ||
             currentComposerEditor() !== editor ||
             attachmentConversationRef.current !== conversationId
           ) {
             for (const image of created) releaseAttachment(image);
+            void removeComposerImages(
+              user.identityValue,
+              conversationId,
+              created.map((image) => image.draftAssetId).filter(Boolean),
+            ).catch(() => {});
             return;
           }
           let next = 0;
           const images = retained.map((image) => image ?? created[next++]!);
           inlineImagesRef.current.push(...created);
+          inlineImageScope.current = { account: user.identityValue, conversation: conversationId };
           if (
             range &&
             editor.contains(range.startContainer) &&
@@ -3461,6 +3575,7 @@ export function ChatPane({
   }
 
   async function addFiles(files: File[], sendAs?: 'file') {
+    const sourceConversation = conversation?.id;
     if (files.length === 0 || currentPreference.blocked || sending) {
       return;
     }
@@ -3517,7 +3632,39 @@ export function ChatPane({
     }
 
     const created = await createAttachments(images.slice(0, room));
+    try {
+      await preserveComposerImages(user.identityValue, sourceConversation ?? '', created);
+    } catch {
+      for (const image of created) releaseAttachment(image);
+      void removeComposerImages(
+        user.identityValue,
+        sourceConversation ?? '',
+        created.map((image) => image.draftAssetId).filter(Boolean),
+      ).catch(() => {});
+      pushToast({
+        tone: 'error',
+        title: '图片草稿保存失败',
+        detail: '图片尚未插入，请保留原始文件后重试。',
+      });
+      return;
+    }
+    if (
+      !composerEditorRef.current?.isConnected ||
+      attachmentConversationRef.current !== sourceConversation
+    ) {
+      for (const image of created) releaseAttachment(image);
+      void removeComposerImages(
+        user.identityValue,
+        sourceConversation ?? '',
+        created.map((image) => image.draftAssetId).filter(Boolean),
+      ).catch(() => {});
+      return;
+    }
     inlineImagesRef.current = [...inlineImagesRef.current, ...created];
+    inlineImageScope.current = {
+      account: user.identityValue,
+      conversation: sourceConversation ?? '',
+    };
     for (const item of created) {
       insertInlineImage(item);
     }
@@ -3770,11 +3917,14 @@ export function ChatPane({
   }
 
   function setComposerBody(value: string) {
+    const nextIds = composerAssetIds(value);
+    composerEdited.current = true;
     bodyRef.current = value;
     setBody(value);
     if (conversation) {
       onDraftChange(conversation.id, value);
     }
+    if (!nextIds.size) setRestoringDraftMedia(false);
   }
 
   async function reeditMessage(message: Message): Promise<boolean> {
@@ -3814,9 +3964,19 @@ export function ChatPane({
     const controller = new AbortController();
     reeditAbortRef.current = controller;
     let prepared: Awaited<ReturnType<typeof prepareReeditDraft>>;
+    let preserved: Awaited<ReturnType<typeof preserveReeditImages>> | undefined;
     try {
       prepared = await prepareReeditDraft(message, messageElements(message), controller.signal);
+      preserved = await preserveReeditImages(
+        user.identityValue,
+        sourceConversation,
+        prepared.body,
+        prepared.locals,
+        controller.signal,
+      );
+      prepared.body = preserved.body;
     } catch (error) {
+      for (const url of prepared?.objectUrls ?? []) releaseObjectUrl(url);
       if (!controller.signal.aborted && unchanged())
         pushToast({
           tone: 'error',
@@ -3826,6 +3986,12 @@ export function ChatPane({
       return false;
     }
     if (controller.signal.aborted || !unchanged()) {
+      void removeComposerImages(
+        user.identityValue,
+        sourceConversation,
+        preserved?.images.flatMap((image) => (image.draftAssetId ? [image.draftAssetId] : [])) ??
+          [],
+      ).catch(() => {});
       for (const url of prepared.objectUrls) releaseObjectUrl(url);
       return false;
     }
@@ -3835,6 +4001,8 @@ export function ChatPane({
       return false;
     }
     releaseInlineImages();
+    inlineImagesRef.current = preserved?.images ?? [];
+    inlineImageScope.current = { account: user.identityValue, conversation: sourceConversation };
     setMediaAttachment((current) => {
       if (current) releaseAttachment(current);
       return null;
@@ -3842,7 +4010,9 @@ export function ChatPane({
     setPendingSuperEmoji(null);
     setPendingQuote(null);
     reeditLocalsRef.current = prepared.locals;
-    reeditObjectUrlsRef.current = prepared.objectUrls;
+    reeditObjectUrlsRef.current = prepared.objectUrls.filter(
+      (url) => !preserved?.images.some((image) => image.url === url),
+    );
     setComposerBody(text);
     for (const target of [composerEditorRef.current, expandedComposerEditorRef.current]) {
       if (target) restoreComposer(target, text);
@@ -4377,6 +4547,7 @@ export function ChatPane({
   // 内联图片的 token 就在正文里，所以只要正文非空（图算内容）就能发；卡片 / 引用
   // 挂着时发送键也算有内容。
   const sendDisabled =
+    restoringDraftMedia ||
     !sendAvailable ||
     currentPreference.blocked ||
     sending ||

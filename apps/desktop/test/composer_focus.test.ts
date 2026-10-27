@@ -57,6 +57,23 @@ function fixture() {
 }
 
 describe('进入会话自动聚焦', () => {
+  it('迟到的草稿可回填未编辑输入框，但不能覆盖用户刚输入的内容', () => {
+    const f = fixture();
+    try {
+      f.render({ draft: '' });
+      f.render({ draft: '从本机恢复的正文' });
+      expect(f.editor().textContent).toBe('从本机恢复的正文');
+      act(() => {
+        f.editor().textContent = '用户继续输入';
+        f.editor().dispatchEvent(new InputEvent('input', { bubbles: true }));
+      });
+      f.render({ draft: '迟到的 QQ 旧正文' });
+      expect(f.editor().textContent).toBe('用户继续输入');
+    } finally {
+      f.dispose();
+    }
+  });
+
   it('首次进入与切换会话后聚焦输入框，光标位于恢复的草稿末尾', () => {
     const f = fixture();
     try {
