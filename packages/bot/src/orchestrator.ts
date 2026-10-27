@@ -59,7 +59,9 @@ export class BotOrchestrator {
   /** 注册事件回调（在 adapter.connect() 之前调）。 */
   start(): void {
     this.adapter.onEvent((event) => {
-      void this.onEvent(event);
+      void this.onEvent(event).catch(() => {
+        console.error(`[${ts()}] 消息处理失败，未报告为已保存或已交付`);
+      });
     });
   }
 
@@ -91,10 +93,16 @@ export class BotOrchestrator {
   }
 
   private async handlePrivate(msg: NormalizedMessage): Promise<void> {
-    const history = this.histories.get(msg.peerId) ?? [];
+    const historyKey = `private:${msg.peerId}`;
+    const history = this.histories.get(historyKey) ?? [];
     let result: Awaited<ReturnType<AgentRuntime['chat']>>;
     try {
-      result = await this.runtime.chat({ personaId: this.personaId, history, text: msg.text });
+      result = await this.runtime.chat({
+        personaId: this.personaId,
+        history,
+        text: msg.text,
+        privatePeerId: msg.peerId,
+      });
     } catch (err) {
       console.error(`[${ts()}] └ 生成失败:`, err instanceof Error ? err.message : err);
       return;
@@ -118,12 +126,13 @@ export class BotOrchestrator {
       { role: 'user', text: msg.text },
       ...result.renderedTurns.map((text): AgentLabChatTurn => ({ role: 'assistant', text })),
     ];
-    this.histories.set(msg.peerId, next.slice(-HISTORY_CAP));
+    this.histories.set(historyKey, next.slice(-HISTORY_CAP));
   }
 
   /** 群聊（单 persona + 意愿闸）：过闸才回，关系/记忆按群友维护。 */
   private async handleGroup(msg: NormalizedMessage): Promise<void> {
-    const history = this.histories.get(msg.peerId) ?? [];
+    const historyKey = `group:${msg.peerId}`;
+    const history = this.histories.get(historyKey) ?? [];
     // 存在感（最近自己占比）+ 冷却（距上次开口）——喂给意愿闸压制刷屏/抢话。
     const recent = history.slice(-8);
     const selfShareRecent =
@@ -137,6 +146,7 @@ export class BotOrchestrator {
         personaId: this.personaId,
         senderId: msg.senderId,
         senderName: msg.senderName,
+        groupId: msg.peerId,
         text: msg.text,
         mentionsSelf: msg.mentionsSelf,
         history,
@@ -168,7 +178,7 @@ export class BotOrchestrator {
       for (const t of result.renderedTurns) history.push({ role: 'assistant', text: t });
       this.lastGroupReplyAt.set(msg.peerId, Date.now());
     }
-    this.histories.set(msg.peerId, history.slice(-HISTORY_CAP));
+    this.histories.set(historyKey, history.slice(-HISTORY_CAP));
   }
 
   /** 逐条把 renderedTurns 编码成 OneBot 段发出（分条之间按 replyDelayMs 拟人停顿）。 */

@@ -376,6 +376,8 @@ export class AgentRuntime {
       now: number;
       relationNote?: string;
       memories?: AgentLabMemoryItem[];
+      /** 私聊/真实群聊派生数据的可信作用域；不改变共享画像和样本。 */
+      dataKey?: string;
       /** 这次开口的动机（群聊决策层回传，注入生成层贴合「为什么接话」）。 */
       replyReason?: string;
     },
@@ -386,15 +388,15 @@ export class AgentRuntime {
       pairs,
       history: opts.history,
       input: opts.input,
-      memories: opts.memories ?? this.memories.get(persona.id),
-      notes: this.notes.get(persona.id),
+      memories: opts.memories ?? this.memories.get(opts.dataKey ?? persona.id),
+      notes: this.notes.get(opts.dataKey ?? persona.id),
       voiceEnabled,
       typoIntensity: resolveTypoIntensity(persona.typo),
       relationNote: opts.relationNote,
       replyReason: opts.replyReason,
     });
     // 命中的记忆 +access（越常被想起越不易遗忘）。
-    this.memories.touch(persona.id, result.usedMemoryIds, opts.now);
+    this.memories.touch(opts.dataKey ?? persona.id, result.usedMemoryIds, opts.now);
 
     // 按 actions 顺序转成标记文本（text / 表情 [[sticker:md5]] / 语音 [[voice:id]]）。
     // 语音合成失败则降级为文字，不丢内容。
@@ -421,6 +423,15 @@ export class AgentRuntime {
     return sessionId ? `${personaId}:${sessionId}` : personaId;
   }
 
+  /** 独立于旧 persona:session 前缀，避免旧混合数据被聚合或猜测迁移。 */
+  private scopedDataKey(personaId: string, kind: 'private' | 'group', peerId: string): string {
+    if (!peerId.trim()) throw new Error('会话对端身份不能为空');
+    const digest = createHash('sha256')
+      .update(JSON.stringify([this.selfId, personaId, kind, peerId]))
+      .digest('hex');
+    return `bot-scope-v1/${digest}`;
+  }
+
   /** 某克隆体的全部对话（旧版单桶 + 所有会话桶合并，按 ts 排序）；兜底单桶。 */
   private allConversations(personaId: string): ConversationTurnLike[] {
     if (this.conversations.getAll) return this.conversations.getAll(personaId);
@@ -437,6 +448,8 @@ export class AgentRuntime {
     history: AgentLabChatTurn[];
     text: string;
     sessionId?: string;
+    /** 仅由受信任的传输层提供；Bot 必传，桌面缺省兼容旧单用户作用域。 */
+    privatePeerId?: string;
   }) {
     const record = this.store.getPersona(input.personaId);
     if (!record) throw new Error('找不到 persona');
@@ -448,7 +461,11 @@ export class AgentRuntime {
       ? this.resolveWithUsage(record.persona.models.embedding, 'embedding', ctx)
       : null;
     assertEmbeddingModelIdentity(record.persona, embeddingEndpoint);
-    const bucket = this.conversationBucket(input.personaId, input.sessionId);
+    const dataKey =
+      input.privatePeerId !== undefined
+        ? this.scopedDataKey(input.personaId, 'private', input.privatePeerId)
+        : input.personaId;
+    const bucket = this.conversationBucket(dataKey, input.sessionId);
 
     // 发言意愿对私聊生效（可选）：意愿闸没过就保持沉默，只记下用户这条，不回。
     const willing = record.persona.willing;
@@ -458,7 +475,7 @@ export class AgentRuntime {
         personaName: record.persona.name,
         fromOwner: true,
         interestTerms: this.personaInterestTerms(record.persona),
-        relation: this.relations.get(input.personaId, this.selfMemberId()),
+        relation: this.relations.get(dataKey, input.privatePeerId ?? this.selfMemberId()),
         levelBias: willingLevelBias(willing.level),
         mustReplyOnMention: willing.mustReplyOnMention !== false,
       });
@@ -491,6 +508,7 @@ export class AgentRuntime {
         history: input.history,
         input: input.text,
         now,
+        dataKey,
       },
     );
 
@@ -505,24 +523,32 @@ export class AgentRuntime {
     ]);
 
     // 每隔若干轮，从最近对话蒸馏记忆 + 反思扮演效果（都不阻塞本次回复）。
-    void this.maybeDistillMemories(input.personaId, record.persona.name, chatEndpoint);
-    void this.maybeReflect(input.personaId, record.persona.name, chatEndpoint);
+    void this.maybeDistillMemories(
+      input.personaId,
+      record.persona.name,
+      chatEndpoint,
+      dataKey,
+      input.privatePeerId,
+    );
+    void this.maybeReflect(dataKey, record.persona.name, chatEndpoint);
 
     return { ...result, renderedTurns, silent: false };
   }
 
-  /** 每 MEMORY_DISTILL_EVERY 个用户回合蒸馏一次记忆；fire-and-forget，失败静默。 */
+  /** 每 MEMORY_DISTILL_EVERY 个用户回合蒸馏一次记忆；后台失败通过日志端口报告。 */
   private async maybeDistillMemories(
     personaId: string,
     peerName: string,
     chatEndpoint: AgentLabEndpoint,
+    dataKey = personaId,
+    privatePeerId?: string,
   ): Promise<void> {
     try {
-      const conv = this.allConversations(personaId);
+      const conv = this.allConversations(dataKey);
       const userTurns = conv.filter((t) => t.role === 'user').length;
       if (userTurns === 0 || userTurns % MEMORY_DISTILL_EVERY !== 0) return;
       const known = this.memories
-        .get(personaId)
+        .get(dataKey)
         .map((m) => m.text)
         .slice(-40);
       const fresh = await distillMemories(
@@ -532,9 +558,9 @@ export class AgentRuntime {
         known,
       );
       if (fresh.length === 0) return;
-      // 私聊记忆标记 aboutId=被克隆好友本人（对方），配了向量模型时嵌入以便语义召回。
+      // Bot 的记忆主体是实际私聊对端；桌面保留旧标记，向量仍与画像的模型绑定。
       const persona = this.store.getPersona(personaId)?.persona;
-      const aboutId = persona?.sourceId;
+      const aboutId = privatePeerId ?? persona?.sourceId;
       let embeddings: Array<number[] | undefined> | undefined;
       if (persona?.models.embedding) {
         try {
@@ -548,20 +574,20 @@ export class AgentRuntime {
         }
       }
       this.memories.add(
-        personaId,
+        dataKey,
         fresh,
         Date.now(),
         aboutId ? { aboutId, aboutKind: 'user' } : undefined,
         embeddings,
       );
     } catch {
-      /* 记忆蒸馏失败不影响聊天 */
+      this.logger?.error('记忆蒸馏或保存失败，未报告为已记住');
     }
   }
 
   /**
    * 每 REFLECT_EVERY 个用户回合反思一次扮演效果；用 reflectedCount 水位只反思新增片段，
-   * 提炼出的 corrections（必须遵守）/ summary（episode）写入 NotesSink。fire-and-forget，失败静默。
+   * 提炼出的 corrections（必须遵守）/ summary（episode）写入 NotesSink；后台失败通过日志端口报告。
    */
   private async maybeReflect(
     personaId: string,
@@ -586,7 +612,7 @@ export class AgentRuntime {
       // 无论是否提炼出内容都推进水位，避免下次重复反思同一段。
       this.notes.setReflectedCount(personaId, conv.length);
     } catch {
-      /* 对话反思失败不影响聊天 */
+      this.logger?.error('反思或笔记保存失败，未报告为已保存');
     }
   }
 
@@ -599,6 +625,8 @@ export class AgentRuntime {
     personaId: string;
     senderId: string;
     senderName: string;
+    /** 真实 Bot 群号；缺省保持桌面模拟群聊兼容。 */
+    groupId?: string;
     text: string;
     mentionsSelf: boolean;
     history: AgentLabChatTurn[];
@@ -629,7 +657,11 @@ export class AgentRuntime {
       };
     const persona = record.persona;
     const willing = persona.willing;
-    const relation = this.relations.get(input.personaId, input.senderId);
+    const dataKey =
+      input.groupId !== undefined
+        ? this.scopedDataKey(input.personaId, 'group', input.groupId)
+        : input.personaId;
+    const relation = this.relations.get(dataKey, input.senderId);
     const mode = input.mode ?? 'llm';
 
     const ctx = { personaId: input.personaId, scope: 'chat' as const };
@@ -655,7 +687,7 @@ export class AgentRuntime {
         currentText: input.text,
         relationNote,
         memories: this.memories
-          .getAbout(input.personaId, [input.senderId], true)
+          .getAbout(dataKey, [input.senderId], true)
           .slice(0, 5)
           .map((m) => m.text),
         dispositionHint: this.willingDisposition(willing?.level),
@@ -704,7 +736,7 @@ export class AgentRuntime {
       ? this.resolveWithUsage(persona.models.embedding, 'embedding', ctx)
       : null;
     // 只召回「关于这个群友」的记忆，防串人（includeUntagged=true 把旧的无标记记忆也算上）。
-    const memories = this.memories.getAbout(input.personaId, [input.senderId], true);
+    const memories = this.memories.getAbout(dataKey, [input.senderId], true);
     const now = Date.now();
     const { renderedTurns } = await this.generatePersonaTurns(persona, record.pairs, {
       chatEndpoint,
@@ -714,13 +746,14 @@ export class AgentRuntime {
       now,
       relationNote,
       memories,
+      dataKey,
       // 决策层回传的开口动机（被@ / 被点名 / 聊到感兴趣的…），让回复贴合「为什么接话」。
       replyReason: reason,
     });
 
     // 异步更新对该群友的关系（不阻塞回复）。
     this.updateGroupRelation(
-      input.personaId,
+      dataKey,
       persona.name,
       input.senderId,
       `对方(${input.senderName})：${input.text}\n你：${renderedTurns.join(' ')}`,
@@ -752,7 +785,7 @@ export class AgentRuntime {
         }
         this.relations.applyDelta(personaId, objectId, 'user', delta, Date.now());
       } catch {
-        /* 关系更新失败不影响聊天 */
+        this.logger?.error('关系更新或保存失败，未报告为已保存');
       }
     })();
   }
