@@ -34,6 +34,7 @@ export function HoverTooltip() {
     let point = { x: 0, y: 0 };
     let timer: ReturnType<typeof setTimeout> | undefined;
     let visible = false;
+    let keyboardNavigation = false;
     let suppliedLabel: string | null = null;
     let observer: MutationObserver;
     const hint = (element: Element, original?: string) => {
@@ -178,6 +179,8 @@ export function HoverTooltip() {
       if (owner && findOwner(event.relatedTarget) !== owner) clear();
     };
     const focus = (event: FocusEvent): void => {
+      // 浮层关闭会归还焦点，只有键盘导航才应因此弹出提示。
+      if (!keyboardNavigation) return;
       const next = findOwner(event.target);
       if (!next) return;
       const bounds = next.getBoundingClientRect();
@@ -188,7 +191,17 @@ export function HoverTooltip() {
       if (!event.relatedTarget) clear();
     };
     const keydown = (event: KeyboardEvent): void => {
+      if (
+        ['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(
+          event.key,
+        )
+      )
+        keyboardNavigation = true;
       if (shouldDismissHoverHint(event)) clear();
+    };
+    const pointerDown = (): void => {
+      keyboardNavigation = false;
+      clear();
     };
     const unsubscribePrivacy = usePrivacyStore.subscribe((state, previous) => {
       if (state.effective === previous.effective || !owner) return;
@@ -201,7 +214,7 @@ export function HoverTooltip() {
     document.addEventListener('pointerleave', leave);
     document.addEventListener('focusin', focus, true);
     document.addEventListener('focusout', focusOut, true);
-    document.addEventListener('pointerdown', clear, true);
+    document.addEventListener('pointerdown', pointerDown, true);
     document.addEventListener('keydown', keydown, true);
     document.addEventListener('scroll', clear, true);
     window.addEventListener('blur', clear);
@@ -214,7 +227,7 @@ export function HoverTooltip() {
       document.removeEventListener('pointerleave', leave);
       document.removeEventListener('focusin', focus, true);
       document.removeEventListener('focusout', focusOut, true);
-      document.removeEventListener('pointerdown', clear, true);
+      document.removeEventListener('pointerdown', pointerDown, true);
       document.removeEventListener('keydown', keydown, true);
       document.removeEventListener('scroll', clear, true);
       window.removeEventListener('blur', clear);

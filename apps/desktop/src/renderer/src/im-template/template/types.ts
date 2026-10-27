@@ -3,6 +3,7 @@ import type { PreviewNode } from '../../lib/conversationPreview';
 import type { SetEmojiItem } from '@weq/codec';
 import type { LocalMediaRef } from './composerSend';
 import type { RepeatElement } from '../../lib/messageRepeat';
+import type { GeneratedContentIdentity } from '../../../../shared/content_selection';
 
 export type User = {
   id: string;
@@ -20,6 +21,8 @@ export type User = {
   avatarUrl: string | null;
   signature?: string | null;
   kind?: 'human' | 'bot';
+  /** 本地克隆身份，只影响展示，不代表 QQ 机器人。 */
+  clone?: boolean;
 };
 
 /** profile_info_v6 21000 列解出的资料扩展信息（特权/互动标识/教育/所在地/兴趣/空间相册）。 */
@@ -155,6 +158,8 @@ export type UnreadDock = {
 
 type ConversationBase = {
   id: string;
+  /** 本地生成会话的实际存储身份；QQ 专属能力不得使用此身份发包。 */
+  generated?: GeneratedContentIdentity;
   updatedAt: string;
   /** 仅用于会话列表排序：已落库草稿等活动的毫秒时间，不改写消息时间。 */
   activityTime?: number;
@@ -324,6 +329,8 @@ export type MessageAction = {
 
 export type Message = {
   id: string;
+  /** 尚未取得持久身份的生成片段，只显示，不进入导出或多选。 */
+  generatedPending?: boolean;
   /** 原始消息 ID；展示 ID 可能带漫游来源前缀，用于可靠身份对账。 */
   msgId?: string;
   conversationId: string;

@@ -13,12 +13,18 @@ import type { StartCloneArgs } from '../src/renderer/src/views/agentlab/NewClone
 const mocks = vi.hoisted(() => ({
   build: vi.fn(async () => {}),
   unsubscribe: vi.fn(),
+  subscribe: vi.fn(),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
       buildAgentLabFromC2c: { mutate: mocks.build },
-      onAgentLabBuildProgress: { subscribe: () => ({ unsubscribe: mocks.unsubscribe }) },
+      onAgentLabBuildProgress: {
+        subscribe: (...args: unknown[]) => {
+          mocks.subscribe(...args);
+          return { unsubscribe: mocks.unsubscribe };
+        },
+      },
     },
   },
 }));
@@ -69,6 +75,39 @@ it('运行中任务不能移除，切换视图不影响完成，收尾后断开�
   expect(mocks.unsubscribe).toHaveBeenCalledOnce();
   dismissCloneTask('克隆甲');
   expect(getCloneTasks()).toHaveLength(0);
+});
+it('流式事件不覆盖任务阶段，收尾先刷新缓冲并保留输出供失败后查看', async () => {
+  let fail!: (error: Error) => void;
+  mocks.build.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  const pending = startCloneTask(args('stream-fixture'));
+  const handler = mocks.subscribe.mock.calls[0]![1];
+  handler.onData({ personaId: 'stream-fixture', phase: '提炼画像', percent: 62 });
+  handler.onData({
+    personaId: 'stream-fixture',
+    phase: '模型输出',
+    percent: 0,
+    output: {
+      requestId: 'r',
+      feature: '画像卡',
+      model: 'fixture',
+      status: 'running',
+      channel: 'content',
+      text: '合成片段',
+    },
+  });
+  fail(new Error('合成错误'));
+  await pending;
+  expect(getCloneTasks()[0]).toMatchObject({
+    status: 'error',
+    phase: '提炼画像',
+    percent: 62,
+    outputs: [{ requestId: 'r', content: '合成片段' }],
+  });
 });
 it('统一任务列表按账号展示克隆任务，完成后可打开克隆体或移除记录', async () => {
   await startCloneTask(args('克隆甲'));

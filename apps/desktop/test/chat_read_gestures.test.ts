@@ -20,7 +20,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     });
   return { trpc: proxy(), client: proxy() };
 });
-const settings = vi.hoisted(() => ({ value: {} as { showScrollToBottomButton?: boolean } }));
+const settings = vi.hoisted(() => ({
+  value: {} as { showScrollToBottomButton?: boolean; autoFollowLatestMessages?: boolean },
+}));
 afterEach(() => {
   settings.value = {};
   vi.restoreAllMocks();
@@ -28,6 +30,248 @@ afterEach(() => {
 });
 
 describe('新消息按钮已读行为', () => {
+  it.each(['bottom', 'history', 'saved', 'interrupted'])(
+    '异步内容增高只延续底部位置，不覆盖阅读锚点或新手势：%s',
+    (mode) => {
+      vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+      vi.stubGlobal('localStorage', new Storage());
+      const frames: FrameRequestCallback[] = [];
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+        frames.push(callback);
+        return frames.length;
+      });
+      const observers: { targets: Set<Element>; fire: () => void }[] = [];
+      vi.stubGlobal(
+        'ResizeObserver',
+        class implements ResizeObserver {
+          targets = new Set<Element>();
+          constructor(callback: ResizeObserverCallback) {
+            observers.push({ targets: this.targets, fire: () => callback([], this) });
+          }
+          observe(target: Element) {
+            this.targets.add(target);
+          }
+          unobserve(target: Element) {
+            this.targets.delete(target);
+          }
+          disconnect() {
+            this.targets.clear();
+          }
+        },
+      );
+      settings.value = { autoFollowLatestMessages: false };
+      const demo = createTemplateDemoData();
+      const conversation = demo.conversations.find((item) => item.type === 'direct')!;
+      const host = document.createElement('div');
+      document.body.append(host);
+      const root = createRoot(host);
+      try {
+        act(() =>
+          root.render(
+            createElement(ChatPane, {
+              user: demo.user,
+              conversation,
+              messages: [{ ...demo.messages[0]!, conversationId: conversation.id }],
+              draft: '',
+              initialReadingPosition: mode === 'saved' ? { scrollTop: 120 } : undefined,
+            }),
+          ),
+        );
+        const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+        let height = 1200;
+        Object.defineProperties(scroll, {
+          scrollHeight: { configurable: true, get: () => height },
+          clientHeight: { configurable: true, value: 400 },
+        });
+        const move = (top: number) => {
+          scroll.scrollTop = top;
+          scroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+        };
+        act(() => {
+          if (mode !== 'saved') move(mode === 'history' ? 100 : 800);
+          for (const callback of frames.splice(0)) callback(0);
+          if (mode === 'bottom' || mode === 'interrupted') move(800);
+        });
+        const observer = observers.find((item) =>
+          [...item.targets].some((target) => target.classList.contains('weq-virtual-timeline')),
+        )!;
+        const beforeGrowth = scroll.scrollTop;
+        act(() => {
+          height = 1400;
+          if (mode === 'bottom') move(850);
+          observer.fire();
+          if (mode === 'interrupted') {
+            // 手势先到、滚动事件尚未到时也必须取消已排队的补偿。
+            scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -100 }));
+          }
+          for (const callback of frames.splice(0)) callback(0);
+        });
+        expect(scroll.scrollTop).toBe(mode === 'bottom' ? 1400 : beforeGrowth);
+      } finally {
+        act(() => root.unmount());
+        host.remove();
+      }
+    },
+  );
+
+  it.each([
+    [true, true],
+    [false, true],
+    [false, false],
+  ])('整页校准仅在进入会话时定位底部：自动跟随=%s，原窗口为最新=%s', (enabled, initialAtLatest) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+    settings.value = { autoFollowLatestMessages: enabled };
+    const demo = createTemplateDemoData();
+    const conversation = demo.conversations.find((item) => item.type === 'group')!;
+    const first = { ...demo.messages[0]!, id: 'cached', conversationId: conversation.id };
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const props = { user: demo.user, conversation, draft: '' };
+    const render = (messages: (typeof first)[], atLatest: boolean, loadingNewer: boolean) =>
+      act(() =>
+        root.render(createElement(ChatPane, { ...props, messages, atLatest, loadingNewer })),
+      );
+    try {
+      render([first], initialAtLatest, false);
+      const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+      Object.defineProperties(scroll, {
+        scrollHeight: { configurable: true, value: 1200 },
+        clientHeight: { configurable: true, value: 400 },
+      });
+      if (!initialAtLatest) scroll.scrollTop = 800;
+      render([first], false, true);
+      render([{ ...first, id: 'latest' }], true, false);
+      expect(scroll.scrollTop).toBe(initialAtLatest ? 1200 : 800);
+      expect(host.querySelector('.new-message-pill')).toBeNull();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+
+  it.each([false, true])(
+    '带乐观尾部的首屏加载完成后定位底部，但保留用户主动滚动：%s',
+    (scrolled) => {
+      vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+      vi.stubGlobal('localStorage', new Storage());
+      vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+      settings.value = { autoFollowLatestMessages: false };
+      const demo = createTemplateDemoData();
+      const conversation = demo.conversations.find((item) => item.type === 'group')!;
+      const tail = { ...demo.messages[0]!, id: 'optimistic', conversationId: conversation.id };
+      const host = document.createElement('div');
+      document.body.append(host);
+      const root = createRoot(host);
+      const props = { user: demo.user, conversation, draft: '', atLatest: true };
+      try {
+        act(() =>
+          root.render(createElement(ChatPane, { ...props, messages: [tail], loading: true })),
+        );
+        const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+        Object.defineProperties(scroll, {
+          scrollHeight: { configurable: true, value: 1600 },
+          clientHeight: { configurable: true, value: 400 },
+        });
+        if (scrolled)
+          act(() => {
+            scroll.scrollTop = 100;
+            scroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+          });
+        act(() =>
+          root.render(
+            createElement(ChatPane, {
+              ...props,
+              messages: [{ ...tail, id: 'history' }, tail],
+              loading: false,
+            }),
+          ),
+        );
+        expect(scroll.scrollTop).toBe(scrolled ? 100 : 1600);
+      } finally {
+        act(() => root.unmount());
+        host.remove();
+      }
+    },
+  );
+
+  it.each([undefined, true, false])(
+    '自动跟随=%s：底部追加、原尾部刷新及手动定位互不混淆',
+    (enabled) => {
+      vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+      vi.stubGlobal('localStorage', new Storage());
+      vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+      settings.value = { autoFollowLatestMessages: enabled };
+      const demo = createTemplateDemoData();
+      const conversation = demo.conversations.find((item) => item.type === 'group')!;
+      const first = {
+        ...demo.messages[0]!,
+        id: 'first',
+        conversationId: conversation.id,
+        senderId: 'peer',
+      };
+      const host = document.createElement('div');
+      document.body.append(host);
+      const root = createRoot(host);
+      const props = { user: demo.user, conversation, draft: '', atLatest: true };
+      const render = (messages: (typeof first)[], loading = false) =>
+        act(() => root.render(createElement(ChatPane, { ...props, messages, loading })));
+      try {
+        render([], true);
+        const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+        Object.defineProperties(scroll, {
+          scrollHeight: { configurable: true, value: 1200 },
+          clientHeight: { configurable: true, value: 400 },
+        });
+        render([first]);
+        expect(scroll.scrollTop).toBe(1200);
+        expect(host.querySelector('.new-message-pill')).toBeNull();
+        act(() => {
+          scroll.scrollTop = 800;
+          scroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+        });
+        // 尾部不变的补全也必须遵守开关。
+        render([{ ...first }]);
+        expect(scroll.scrollTop).toBe(enabled === false ? 800 : 1200);
+        const second = { ...first, id: 'second' };
+        render([first, second]);
+        expect(scroll.scrollTop).toBe(enabled === false ? 800 : 1200);
+        if (enabled === false) {
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+          const own = { ...first, id: 'own', senderId: demo.user.id };
+          render([first, second, own]);
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+          expect(scroll.scrollTop).toBe(800);
+          act(() => host.querySelector<HTMLButtonElement>('.new-message-bottom')!.click());
+          expect(scroll.scrollTop).toBe(1200);
+          expect(host.querySelector('.new-message-pill')).toBeNull();
+          render([first, second, own, { ...first, id: 'third' }]);
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+          // 重开跟随不打断已经保留的阅读位置，回到底部后再开始跟随。
+          settings.value = { autoFollowLatestMessages: true };
+          render([first, second, own, { ...first, id: 'third' }]);
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+          act(() => host.querySelector<HTMLButtonElement>('.new-message-bottom')!.click());
+          render([first, second, own, { ...first, id: 'fourth' }]);
+          expect(host.querySelector('.new-message-pill')).toBeNull();
+        } else {
+          expect(host.querySelector('.new-message-pill')).toBeNull();
+          act(() => {
+            scroll.scrollTop = 100;
+            scroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+          });
+          render([first, second, { ...first, id: 'third' }]);
+          expect(scroll.scrollTop).toBe(100);
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+        }
+      } finally {
+        act(() => root.unmount());
+        host.remove();
+      }
+    },
+  );
   it.each(['direct', 'group'])(
     '%s 向下浏览复用底部按钮及预览，反向、到达底部和切换会话时收起，开关不影响新消息提醒',
     (kind) => {
@@ -40,7 +284,12 @@ describe('新消息按钮已读行为', () => {
       const host = document.createElement('div');
       document.body.append(host);
       const root = createRoot(host);
-      const first = { ...demo.messages[0]!, id: 'first', conversationId: conversation.id };
+      const first = {
+        ...demo.messages[0]!,
+        id: 'first',
+        conversationId: conversation.id,
+        senderId: 'peer',
+      };
       const props = {
         user: demo.user,
         conversation,
@@ -93,7 +342,10 @@ describe('新消息按钮已读行为', () => {
         expect(read).toHaveBeenCalledWith(conversation);
         move(500);
         settings.value = { showScrollToBottomButton: false };
-        render({ messages: [first, { ...first, id: 'new' }] });
+        const own = { ...first, id: 'own', senderId: demo.user.id };
+        render({ messages: [first, own] });
+        expect(pill()).toBeNull();
+        render({ messages: [first, own, { ...first, id: 'new' }, { ...own, id: 'own-2' }] });
         expect(pill()?.textContent).toContain('1条新消息');
         move(400);
         expect(pill()?.textContent).toContain('1条新消息');
@@ -320,12 +572,16 @@ describe('新消息按钮已读行为', () => {
       });
       act(() => root.render(createElement(ChatPane, { ...props, messages: [first, next] })));
       const button = host.querySelector<HTMLButtonElement>('.new-message-preview')!;
-      expect(button.getAttribute('aria-label')).toBe('预览新消息');
+      expect(button.getAttribute('aria-label')).toBe(
+        sender === 'self' ? '预览最新消息' : '预览新消息',
+      );
       act(() => button.click());
       expect(preview).toHaveBeenCalledOnce();
       expect(preview).toHaveBeenCalledWith(conversation);
       expect(scroll.scrollTop).toBe(100);
-      expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+      const pillText = host.querySelector('.new-message-pill')?.textContent ?? '';
+      if (sender === 'self') expect(pillText).not.toContain('条新消息');
+      else expect(pillText).toContain('1条新消息');
       expect(read).not.toHaveBeenCalled();
       act(() =>
         root.render(
@@ -343,7 +599,7 @@ describe('新消息按钮已读行为', () => {
     }
   });
 
-  it('分离的历史窗口按实时水位提示新消息，窗口底部不清除提示，定位失败保留重试入口', async () => {
+  it('历史窗口只统计入站未读增量，自己发送不计数，定位失败保留重试入口', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
@@ -356,7 +612,7 @@ describe('新消息按钮已读行为', () => {
     const root = createRoot(host);
     const props = {
       user: demo.user,
-      conversation,
+      conversation: { ...conversation, unreadCount: 0 },
       messages: [{ ...demo.messages[0]!, conversationId: conversation.id }],
       loading: false,
       atLatest: false,
@@ -389,6 +645,12 @@ describe('新消息按钮已读行为', () => {
       expect(host.querySelector('.new-message-bottom')).not.toBeNull();
       expect(read).not.toHaveBeenCalled();
       jump.mockClear();
+      // 自己发送推进会话序号，但不会增加入站未读数。
+      act(() =>
+        root.render(createElement(ChatPane, { ...props, latestMessageSeq: '9007199254740994' })),
+      );
+      expect(host.querySelector('.new-message-pill')?.textContent).not.toContain('条新消息');
+      props.conversation = { ...conversation, unreadCount: 2 };
       act(() =>
         root.render(createElement(ChatPane, { ...props, latestMessageSeq: '9007199254740995' })),
       );
@@ -437,7 +699,7 @@ describe('新消息按钮已读行为', () => {
       });
       expect(pill()).toBeNull();
       expect(read).toHaveBeenCalledOnce();
-      expect(read).toHaveBeenCalledWith(conversation);
+      expect(read).toHaveBeenCalledWith(props.conversation);
     } finally {
       act(() => root.unmount());
       host.remove();

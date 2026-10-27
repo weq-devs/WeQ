@@ -18,15 +18,18 @@ import { existsSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { currentTarget, LABELS, nativeRel } from './platform.mjs';
+import { validateRuntimeMetadata, readRuntimeSource } from './runtime-deps.mjs';
+import { versionInput } from '../../../scripts/version-input.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, '..');
-const dist = join(appRoot, 'dist');
-const outDir = join(appRoot, 'release');
+const dist = resolve(process.env.WEQ_WEB_DIST ?? join(appRoot, 'dist'));
+const outDir = resolve(process.env.WEQ_WEB_RELEASE_DIR ?? join(appRoot, 'release'));
 
-const version =
-  process.argv[2]?.replace(/^v/, '') ??
-  JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8')).version;
+const version = versionInput(
+  process.argv[2] ?? JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8')).version,
+);
+if (!version) throw new Error('Web 打包版本无效');
 const target = currentTarget();
 const label = LABELS[target];
 
@@ -41,11 +44,17 @@ for (const entry of [
   'resources',
   'node_modules',
   'package.json',
+  'pnpm-lock.yaml',
+  'runtime-deps.json',
 ]) {
   if (existsSync(join(dist, entry))) continue;
   console.error(`dist/${entry} missing — run \`pnpm build && pnpm deps\` first`);
   process.exit(1);
 }
+const metadata = validateRuntimeMetadata(dist, readRuntimeSource(resolve(appRoot, '../..')));
+if (metadata.target !== target) throw new Error('Web 运行依赖平台与打包平台不一致');
+if (JSON.parse(readFileSync(join(dist, 'package.json'), 'utf8')).version !== version)
+  throw new Error('Web 版本与打包版本不一致');
 
 mkdirSync(outDir, { recursive: true });
 const name = `weq-web-${version}-${target}.tar.gz`;
@@ -78,6 +87,8 @@ const res = spawnSync(
     '--exclude=./package-lock.json',
     // node_modules IS shipped (pre-installed), but npm's own metadata isn't.
     '--exclude=./node_modules/.package-lock.json',
+    '--exclude=./node_modules/.modules.yaml',
+    '--exclude=./node_modules/.pnpm-workspace-state-v1.json',
     '--exclude=./node_modules/.bin',
     // 权限助手由桌面端管理，Web 包不携带本机提权可执行文件。
     '--exclude=./native/*/*/weq-authorization-helper',

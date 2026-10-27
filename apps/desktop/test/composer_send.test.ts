@@ -3,6 +3,25 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
+// 发送生命周期使用离线持久化边界替身；真实素材往返由 composer_draft_media 单测与 Electron 验证。
+vi.mock('../src/renderer/src/lib/composerDraftMedia', async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import('../src/renderer/src/lib/composerDraftMedia')>();
+  return {
+    ...original,
+    preserveReeditImages: async (_account: string, _conversation: string, body: string) => ({
+      body,
+      images: [],
+    }),
+    preserveComposerImages: async (
+      _account: string,
+      _conversation: string,
+      images: import('../src/renderer/src/im-template/template/composerMedia').ComposerAttachment[],
+    ) => {
+      for (const image of images) image.draftAssetId = image.id;
+    },
+  };
+});
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 import {
   focusComposerEnd,

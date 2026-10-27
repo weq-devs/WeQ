@@ -15,15 +15,16 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
+import { versionInput } from './version-input.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const raw = args.find((a) => !a.startsWith('--'));
-const version = raw?.replace(/^v/i, '');
+const version = versionInput(raw);
 
-if (!version || !/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(version)) {
+if (!version) {
   console.error('用法: pnpm run version:set <x.y.z> [--dry-run]');
   process.exit(1);
 }

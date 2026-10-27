@@ -9,10 +9,10 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import { CONVERSATION_GAP_SECONDS, type BrowseCursor, type C2cPartition } from '@weq/db';
+import { CONVERSATION_GAP_SECONDS, type C2cPartition } from '@weq/db';
+import { AnalyticsMessageSource, type AnalyticsCacheSource } from './analytics_source';
 import { segmentWords } from './text_segment';
 import {
-  analyticsBrowseFilter,
   analyticsDayParts,
   validateAnalyticsRange,
   type AnalyticsRange,
@@ -136,7 +136,14 @@ function longestRun(days: number[]): { longest: number; current: number } {
 }
 
 export class BuddyAnalyticsService {
-  constructor(private readonly session: AccountSession) {}
+  private readonly analysis: AnalyticsMessageSource;
+
+  constructor(
+    private readonly session: AccountSession,
+    cache?: AnalyticsCacheSource,
+  ) {
+    this.analysis = new AnalyticsMessageSource(session, cache);
+  }
 
   private c2cPartition(peerUid: string): C2cPartition {
     const sortNo = this.session.uidMap.sortNoByUid(peerUid);
@@ -148,7 +155,7 @@ export class BuddyAnalyticsService {
       string,
       { uid: string; uin: string; name: string; source: 'directory' | 'messages' }
     >();
-    const [history, buddies, lastTimes] = await Promise.all([
+    const [history, buddies, lastTimes, cached] = await Promise.all([
       this.session.c2cMsgs.listPeerIdentities(),
       (async () => {
         const rows = [];
@@ -160,8 +167,15 @@ export class BuddyAnalyticsService {
       })(),
       // 排序口径跟导出页一致：按会话最后一条消息时间倒序，没有记录的排最后。
       this.session.c2cMsgs.lastSendTimes().catch(() => new Map<string, number>()),
+      this.analysis.cachedConversations(),
     ]);
     for (const row of history) peers.set(row.uid, { ...row, name: '', source: 'messages' });
+    for (const row of cached) {
+      if (row.kind !== 'c2c') continue;
+      if (!peers.has(row.conv))
+        peers.set(row.conv, { uid: row.conv, uin: '', name: '', source: 'messages' });
+      lastTimes.set(row.conv, Math.max(lastTimes.get(row.conv) ?? 0, row.lastMessageTime));
+    }
     for (const row of buddies) {
       if (!row.uid) continue;
       peers.set(row.uid, {
@@ -202,7 +216,6 @@ export class BuddyAnalyticsService {
     const db = this.session.c2cMsgs;
     const part = this.c2cPartition(peerUid);
     const range = validateAnalyticsRange(opts);
-    const filter = analyticsBrowseFilter({ messageIds: range.messageIds });
     const selfUin = String(this.session.context.uin ?? '');
 
     // 默认「最近一年」：以最后一条消息为基准（不是 now），否则早就不聊的
@@ -212,7 +225,9 @@ export class BuddyAnalyticsService {
     let defaulted = false;
     if (startTime === undefined && endTime === undefined) {
       const latest = opts?.recentYear ? await db.listLatest(part, 1) : [];
-      const newest = latest[0] ? Number(latest[0].sendTime) : 0;
+      const newest = opts?.recentYear
+        ? await this.analysis.latestTime('c2c', peerUid, latest[0] ? Number(latest[0].sendTime) : 0)
+        : 0;
       if (newest > 0) {
         defaulted = true;
         endTime = newest;
@@ -263,139 +278,131 @@ export class BuddyAnalyticsService {
     let prevSender: 'self' | 'peer' | null = null;
     let prevTime = 0;
 
-    let cursor: BrowseCursor | undefined;
-    while (true) {
-      const batch = await db.browse(part, filter, cursor, 500, 'newer');
-      if (batch.length === 0) break;
+    for await (const msg of this.analysis.messages('c2c', peerUid, {
+      messageIds: range.messageIds,
+    })) {
+      const isSelf = msg.senderUid !== peerUid;
+      if (!isSelf && !peerUin && msg.senderUin > 0n) peerUin = String(msg.senderUin);
+      if (!peerUin && msg.targetUin && msg.targetUin > 0n) peerUin = String(msg.targetUin);
 
-      for (const { message: msg } of batch) {
-        const isSelf = msg.senderUid !== peerUid;
-        if (!isSelf && !peerUin && msg.senderUin > 0n) peerUin = String(msg.senderUin);
-        if (!peerUin && msg.targetUin > 0n) peerUin = String(msg.targetUin);
+      const sendTime = Number(msg.sendTime);
 
-        const sendTime = Number(msg.sendTime);
+      // 全历史时间轴：不管是否落在所选区间都记 —— 绿墙 / 顶部周图看的是全史。
+      const calendar = analyticsDayParts(sendTime);
+      if (calendar) {
+        const key = calendar.day;
+        globalDaily.set(key, (globalDaily.get(key) ?? 0) + 1);
+        if (timelineFirst === null || sendTime < timelineFirst) timelineFirst = sendTime;
+        if (timelineLast === null || sendTime > timelineLast) timelineLast = sendTime;
+      }
 
-        // 全历史时间轴：不管是否落在所选区间都记 —— 绿墙 / 顶部周图看的是全史。
-        const calendar = analyticsDayParts(sendTime);
-        if (calendar) {
-          const key = calendar.day;
-          globalDaily.set(key, (globalDaily.get(key) ?? 0) + 1);
-          if (timelineFirst === null || sendTime < timelineFirst) timelineFirst = sendTime;
-          if (timelineLast === null || sendTime > timelineLast) timelineLast = sendTime;
-        }
+      if (
+        hasRange &&
+        (sendTime <= 0 ||
+          (startTime !== undefined && sendTime < startTime) ||
+          (endTime !== undefined && sendTime > endTime))
+      )
+        continue;
 
-        if (
-          hasRange &&
-          (sendTime <= 0 ||
-            (startTime !== undefined && sendTime < startTime) ||
-            (endTime !== undefined && sendTime > endTime))
-        )
-          continue;
+      stats.totalMessages++;
+      if (isSelf) stats.selfMessages++;
+      else stats.peerMessages++;
 
-        stats.totalMessages++;
-        if (isSelf) stats.selfMessages++;
-        else stats.peerMessages++;
-
-        // ---- element classification -------------------------------------
-        let hasText = false;
-        let hasImage = false;
-        let hasVoice = false;
-        let hasVideo = false;
-        let hasEmoji = false;
-        for (const el of msg.elements) {
-          switch (el.kind) {
-            case 'text':
-              hasText = true;
-              if (el.textContent) {
-                for (const word of segmentWords(String(el.textContent))) {
-                  wordCloud.set(word, (wordCloud.get(word) ?? 0) + 1);
-                  const bucket = isSelf ? phrasesSelf : phrasesPeer;
-                  bucket.set(word, (bucket.get(word) ?? 0) + 1);
-                }
+      // ---- element classification -------------------------------------
+      let hasText = false;
+      let hasImage = false;
+      let hasVoice = false;
+      let hasVideo = false;
+      let hasEmoji = false;
+      for (const el of msg.elements) {
+        switch (el.kind) {
+          case 'text':
+            hasText = true;
+            if (el.textContent) {
+              for (const word of segmentWords(String(el.textContent))) {
+                wordCloud.set(word, (wordCloud.get(word) ?? 0) + 1);
+                const bucket = isSelf ? phrasesSelf : phrasesPeer;
+                bucket.set(word, (bucket.get(word) ?? 0) + 1);
               }
-              break;
-            case 'at':
-              hasText = true;
-              break;
-            case 'pic':
-              hasImage = true;
-              break;
-            case 'ptt':
-              hasVoice = true;
-              break;
-            case 'video':
-              hasVideo = true;
-              break;
-            case 'face': {
-              hasEmoji = true;
-              const faceId = Number(el.faceId);
-              if (Number.isFinite(faceId)) {
-                bumpEmoji(
-                  isSelf ? emojisSelf : emojisPeer,
-                  faceId,
-                  el.faceText ? String(el.faceText) : '',
-                );
-              }
-              break;
             }
-            case 'mface':
-            case 'emojiBounce':
-              hasEmoji = true;
-              break;
+            break;
+          case 'at':
+            hasText = true;
+            break;
+          case 'pic':
+            hasImage = true;
+            break;
+          case 'ptt':
+            hasVoice = true;
+            break;
+          case 'video':
+            hasVideo = true;
+            break;
+          case 'face': {
+            hasEmoji = true;
+            const faceId = Number(el.faceId);
+            if (Number.isFinite(faceId)) {
+              bumpEmoji(
+                isSelf ? emojisSelf : emojisPeer,
+                faceId,
+                el.faceText ? String(el.faceText) : '',
+              );
+            }
+            break;
           }
-        }
-
-        // Mutually-exclusive type for the ratio bar (media dominates a caption).
-        if (hasImage) messageTypes.image++;
-        else if (hasVideo) messageTypes.video++;
-        else if (hasVoice) messageTypes.voice++;
-        else if (hasText) messageTypes.text++;
-        else if (hasEmoji) messageTypes.emoji++;
-        else messageTypes.other++;
-
-        // ---- time-based aggregates --------------------------------------
-        const date = analyticsDayParts(sendTime);
-        if (date) {
-          if (stats.firstMessageTime === null || sendTime < stats.firstMessageTime) {
-            stats.firstMessageTime = sendTime;
-          }
-          if (stats.lastMessageTime === null || sendTime > stats.lastMessageTime) {
-            stats.lastMessageTime = sendTime;
-          }
-          const hour = date.hour;
-          if (isSelf) hourlySelf[hour] = (hourlySelf[hour] ?? 0) + 1;
-          else hourlyPeer[hour] = (hourlyPeer[hour] ?? 0) + 1;
-
-          const key = date.day;
-          daily.set(key, (daily.get(key) ?? 0) + 1);
-          (isSelf ? selfDays : peerDays).add(date.dayIndex);
-          const week = weekStartKey(new Date(sendTime * 1000));
-          const weekMap = isSelf ? weeklySelfCounts : weeklyPeerCounts;
-          weekMap.set(week, (weekMap.get(week) ?? 0) + 1);
-
-          // ---- conversation segmentation: initiation + reply latency ----
-          const sender: 'self' | 'peer' = isSelf ? 'self' : 'peer';
-          const gap = prevSender === null ? Infinity : sendTime - prevTime;
-          if (gap > CONVERSATION_GAP_SECONDS) {
-            // New conversation — this sender initiated it.
-            initiation[sender]++;
-            initiation.total++;
-          } else if (sender !== prevSender) {
-            // A genuine within-conversation reply to the other party.
-            const agg = replyAgg[sender];
-            agg.count++;
-            agg.sum += gap;
-            if (gap < agg.fastest) agg.fastest = gap;
-            if (gap > agg.slowest) agg.slowest = gap;
-          }
-          prevSender = sender;
-          prevTime = sendTime;
+          case 'mface':
+          case 'emojiBounce':
+            hasEmoji = true;
+            break;
         }
       }
 
-      const last = batch.at(-1)!;
-      cursor = { time: last.message.sendTime, rowId: last.rowId };
-      if (batch.length < 500) break;
+      // Mutually-exclusive type for the ratio bar (media dominates a caption).
+      if (hasImage) messageTypes.image++;
+      else if (hasVideo) messageTypes.video++;
+      else if (hasVoice) messageTypes.voice++;
+      else if (hasText) messageTypes.text++;
+      else if (hasEmoji) messageTypes.emoji++;
+      else messageTypes.other++;
+
+      // ---- time-based aggregates --------------------------------------
+      const date = analyticsDayParts(sendTime);
+      if (date) {
+        if (stats.firstMessageTime === null || sendTime < stats.firstMessageTime) {
+          stats.firstMessageTime = sendTime;
+        }
+        if (stats.lastMessageTime === null || sendTime > stats.lastMessageTime) {
+          stats.lastMessageTime = sendTime;
+        }
+        const hour = date.hour;
+        if (isSelf) hourlySelf[hour] = (hourlySelf[hour] ?? 0) + 1;
+        else hourlyPeer[hour] = (hourlyPeer[hour] ?? 0) + 1;
+
+        const key = date.day;
+        daily.set(key, (daily.get(key) ?? 0) + 1);
+        (isSelf ? selfDays : peerDays).add(date.dayIndex);
+        const week = weekStartKey(new Date(sendTime * 1000));
+        const weekMap = isSelf ? weeklySelfCounts : weeklyPeerCounts;
+        weekMap.set(week, (weekMap.get(week) ?? 0) + 1);
+
+        // ---- conversation segmentation: initiation + reply latency ----
+        const sender: 'self' | 'peer' = isSelf ? 'self' : 'peer';
+        const gap = prevSender === null ? Infinity : sendTime - prevTime;
+        if (gap > CONVERSATION_GAP_SECONDS) {
+          // New conversation — this sender initiated it.
+          initiation[sender]++;
+          initiation.total++;
+        } else if (sender !== prevSender) {
+          // A genuine within-conversation reply to the other party.
+          const agg = replyAgg[sender];
+          agg.count++;
+          agg.sum += gap;
+          if (gap < agg.fastest) agg.fastest = gap;
+          if (gap > agg.slowest) agg.slowest = gap;
+        }
+        prevSender = sender;
+        prevTime = sendTime;
+      }
     }
 
     stats.activeDays = daily.size;

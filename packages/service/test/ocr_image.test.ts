@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { decode, encode, FetchDownloadRkeys, OcrImage } from '@weq/protocol';
 import type { AccountSession } from '@weq/account';
-import { ChatImageOcrService } from '../src/account/ocr_image';
+import { ChatImageOcrService, OCR_DOWNLOAD_ERROR } from '../src/account/ocr_image';
 
 const PID = 4321;
 const TOKEN = 'EhRlK1ZaR8nnN1j9Molx05YqMGIX4RiOogcg_goo0';
@@ -27,11 +27,13 @@ interface OidbCall {
 function fakeNative(reply: {
   rkeyType?: number;
   ocrStatus?: string;
+  ocrStatuses?: string[];
   rkey?: string;
   /** 直接给一帧原始回包（用于失败帧的黄金向量）。 */
   ocrFrame?: Uint8Array;
 }) {
   const calls: OidbCall[] = [];
+  let ocrAttempts = 0;
   return {
     calls,
     sendOidbPacket: async (
@@ -62,7 +64,7 @@ function fakeNative(reply: {
       }
       if (reply.ocrFrame) return Buffer.from(reply.ocrFrame);
       const bytes = encode(OcrImage.respSchema, {
-        status: reply.ocrStatus ?? 'succ',
+        status: reply.ocrStatuses?.[ocrAttempts++] ?? reply.ocrStatus ?? 'succ',
         result: {
           srcLang: 'zh',
           sessionId: 'session-1',
@@ -157,7 +159,7 @@ describe('ChatImageOcrService', () => {
     await expect(service.recognize({ ...params, peerType: 'c2c' })).rejects.toThrow(/failed/);
   });
 
-  it('服务端取不到图（直链已过期）时给出「过期」而不是「识别失败」', async () => {
+  it('服务端取不到图时保留错误码，不把下载失败断定为图片已过期', async () => {
     // 黄金向量：63 字节失败帧 —— retCode=200 / FailedOperation.DownLoadError / 服务忙,请稍后重试
     const frame = Uint8Array.from(
       (
@@ -169,10 +171,50 @@ describe('ChatImageOcrService', () => {
     const nt = fakeNative({ rkeyType: 10, ocrFrame: frame });
     const service = new ChatImageOcrService(nt, session, () => PID);
 
-    await expect(service.recognize({ ...params, peerType: 'c2c' })).rejects.toThrow(/过期/);
-    await expect(service.recognize({ ...params, peerType: 'c2c' })).rejects.toThrow(
-      /FailedOperation\.DownLoadError/,
+    const error = await service.recognize({ ...params, peerType: 'c2c' }).catch((e: Error) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain(OCR_DOWNLOAD_ERROR);
+    expect((error as Error).message).toContain('重试');
+    expect((error as Error).message).not.toContain('已经');
+    expect((error as Error).message).not.toContain('换张近期');
+    expect(nt.calls.filter((call) => call.command === 0xe07)).toHaveLength(2);
+  });
+
+  it('下载失败后刷新 rkey 并只重试一次，近期图片仍能成功识别', async () => {
+    const nt = fakeNative({ rkeyType: 20, ocrStatuses: [OCR_DOWNLOAD_ERROR, 'succ'] });
+    const service = new ChatImageOcrService(nt, session, () => PID);
+    const result = await service.recognize({ ...params, peerType: 'group' });
+    expect(result.blocks).toHaveLength(1);
+    expect(nt.calls.map((call) => call.command)).toEqual([0x9067, 0xe07, 0x9067, 0xe07]);
+  });
+
+  it('批量调用传入旧 rkey 时，下载失败也会重新签发凭据', async () => {
+    const nt = fakeNative({ rkeyType: 20, ocrStatuses: [OCR_DOWNLOAD_ERROR, 'succ'] });
+    const service = new ChatImageOcrService(nt, session, () => PID);
+    await service.recognize(
+      { ...params, peerType: 'group' },
+      {
+        type: 20,
+        rkey: '&rkey=OLD',
+        rkeyTtlSec: 3600,
+        rkeyCreateTime: 1_792_000_000,
+      },
     );
+    expect(nt.calls.map((call) => call.command)).toEqual([0xe07, 0x9067, 0xe07]);
+    const urls = nt.calls
+      .filter((call) => call.command === 0xe07)
+      .map(
+        (call) => (decode(OcrImage.reqSchema, call.body) as { image: { url: string } }).image.url,
+      );
+    expect(urls[0]).toContain('&rkey=OLD');
+    expect(urls[1]).toContain('&rkey=TESTRKEY');
+  });
+
+  it('其它识别错误不触发下载重试', async () => {
+    const nt = fakeNative({ rkeyType: 20, ocrStatus: 'failed' });
+    const service = new ChatImageOcrService(nt, session, () => PID);
+    await expect(service.recognize({ ...params, peerType: 'group' })).rejects.toThrow('failed');
+    expect(nt.calls.map((call) => call.command)).toEqual([0x9067, 0xe07]);
   });
 
   it('缺 fileToken / 缺尺寸 / QQ 未在线都不发包', async () => {

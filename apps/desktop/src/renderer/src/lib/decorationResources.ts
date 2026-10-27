@@ -37,6 +37,59 @@ export function prepareDecorationFrames(urls: string[], signal: AbortSignal) {
   return { ready, release };
 }
 
+/** 隐藏文档不预热/播放；静态规则和字体不动，避免恢复时改变消息几何。 */
+export function manageDecorationAnimation(urls: string[], activate: () => () => void) {
+  const motion =
+    typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+  let controller: AbortController | null = null;
+  let frames: ReturnType<typeof prepareDecorationFrames> | null = null;
+  let deactivate: (() => void) | null = null;
+  let disposed = false;
+  let ready = Promise.resolve(true);
+  const stop = () => {
+    controller?.abort();
+    controller = null;
+    deactivate?.();
+    deactivate = null;
+    frames?.release();
+    frames = null;
+  };
+  const update = () => {
+    if (disposed) return;
+    if (document.visibilityState === 'hidden' || motion?.matches) {
+      stop();
+      ready = Promise.resolve(true);
+      return;
+    }
+    if (controller) return;
+    const current = new AbortController();
+    controller = current;
+    frames = prepareDecorationFrames(urls, current.signal);
+    ready = frames.ready.then((ok) => {
+      if (disposed) return false;
+      if (current.signal.aborted) return true;
+      if (!ok) return false;
+      deactivate = activate();
+      return true;
+    });
+  };
+  document.addEventListener('visibilitychange', update);
+  motion?.addEventListener('change', update);
+  update();
+  return {
+    get ready() {
+      return ready;
+    },
+    release() {
+      if (disposed) return;
+      disposed = true;
+      document.removeEventListener('visibilitychange', update);
+      motion?.removeEventListener('change', update);
+      stop();
+    },
+  };
+}
+
 type Entry = { users: number; dispose(): void };
 const entries = new Map<string, Entry>();
 function nextFrame(signal: AbortSignal): Promise<void> {
@@ -60,7 +113,7 @@ export function acquireDecorationStyle(
   setup: (resource: {
     append(css: string): void;
     font(family: string, url: string): void;
-    animate(urls: string[], ready: () => void): void;
+    animate(urls: string[], css: () => string): void;
   }) => void,
 ): () => void {
   let entry = entries.get(key);
@@ -90,12 +143,13 @@ export function acquireDecorationStyle(
         font(family, url) {
           fonts.push(fontFaces.acquire(family, url));
         },
-        animate(urls, ready) {
-          const frames = prepareDecorationFrames(urls, controller.signal);
-          releases.push(frames.release);
-          void frames.ready.then((ok) => {
-            if (ok && !controller.signal.aborted) ready();
+        animate(urls, css) {
+          const frames = manageDecorationAnimation(urls, () => {
+            const text = document.createTextNode(css());
+            node.appendChild(text);
+            return () => text.remove();
           });
+          releases.push(frames.release);
         },
       });
     } catch (error) {

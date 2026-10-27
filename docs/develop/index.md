@@ -31,6 +31,7 @@ pnpm dev
 - [目录选择与本地备份导入](./directory-picker-backup-20261024.md)：分层/递归扫描、独立位置记忆、三端账号目录、备份媒体与其他设备密钥复用。
 - [联系人精确导出](./contacts-exact-export-20261018.md)：好友/群多选交接、精确 UID、完整目录与任务快照。
 - [生成内容精确导出](./generated-content-export-20261018.md)：克隆与助手的持久身份、独立快照、原始结构及账号边界。
+- [克隆会话复用普通页面](./clone-shared-chat-pane-20261028.md)：共用 ChatPane、数据身份与能力适配、原位设置和浮层层级。
 - [空间精确导出](./qzone-exact-export-20261018.md)：离散 tid、正文/互动/媒体范围、统一入口及历史隔离。
 - [全局搜索新增来源](./content-search-sources-20261018.md)：来源覆盖、账号缓存、频道全库与稳定条目跳转。
 - [全局搜索优化](./global-search-optimization-20261018.md)：当前可见分类、会话来源范围、分类并行返回、匹配度排序与尚未实施的性能优化方向。
@@ -61,10 +62,14 @@ pnpm dev
 ### 基础能力与贡献
 
 - [审计修复与权限边界](./audit-remediation-20261026.md)：助手权限模式、隔离脚本、只读 MCP、权威数据保存及尚未完成的治理项。
+- [审计第一批修复](./audit-first-batch-20261027.md)：导出 Bot 存储原件保护、私聊派生数据隔离与发布通知最小权限。
+- [审计第二批修复](./audit-second-batch-20261027.md)：消息追加原子性、Bot 会话队列、停止收尾与非流式模型请求期限。
+- [审计第三批修复](./audit-third-batch-20261027.md)：认证记录回收、链接预览内存预算与 Bot 默认日志隐私。
+- [审计第四批修复](./audit-fourth-batch-20261027.md)：发布草稿至公开门禁、Web 冻结运行依赖与本地构建验证边界。
 - [消息同步与性能修复方案](./message-sync-performance-plan-20261025.md)及[阶段实施记录](./message-sync-performance-implementation-20261025.md)：消息到达、QQ 已读消点、会话首屏与媒体的已实施范围，以及时间线虚拟化和真实性能验收待办。
 - [消息性能修补](./message-performance-20261026.md)：后续性能实现与针对性验证范围。
 - [聊天图片预览缓存](./chat-image-preview-cache-20261026.md)：解码内存预算、可见与离屏资源边界。
-- [渲染资源生命周期](./renderer-resource-lifecycle-20261024.md)、[白屏定位](./renderer-white-screen-20261026.md)：资源释放、诊断与分阶段验证记录。
+- [渲染资源生命周期](./renderer-resource-lifecycle-20261024.md)、[白屏定位](./renderer-white-screen-20261026.md)、[后台帧释放与自动恢复](./renderer-auto-recovery-20261027.md)：资源释放、诊断与分阶段验证记录。
 - [语音 worker 的 macOS 打包](./transcribe-worker-macos-20261026.md)：子进程依赖与产物验证边界。
 - [桌面包体积优化](./desktop-package-size-20261025.md)：生产依赖分层、原生架构裁剪、真实打包匹配器和产物冒烟。
 - [QQ 数据库布局：按文件设置保留页](./db-layout-split-20261018.md) — per-Pager pending byte、锁字节与布局自动识别

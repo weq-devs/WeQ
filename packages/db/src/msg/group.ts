@@ -1182,6 +1182,32 @@ export class GroupMsgDb {
     }));
   }
 
+  /** 缓存混合分析的轻量页：携带去重身份，不读取正文或装扮。 */
+  async browseAnalysisHeaders(
+    conv: string,
+    filter: BrowseFilter,
+    cursor?: BrowseCursor,
+    limit = 500,
+  ) {
+    const query = browseConditions('"40027"=?', conv, filter, cursor, 'newer');
+    const rows = await this.qq.query(
+      `SELECT rowid,"40001","40003","40020","40033",COALESCE("40050",0) FROM group_msg_table
+       WHERE ${query.clause} ORDER BY COALESCE("40050",0) ASC,rowid ASC LIMIT ?`,
+      [...query.params, BigInt(limit)],
+    );
+    return rows.map((row) => ({
+      rowId: String(row[0]),
+      message: {
+        msgId: toBigint(row[1]),
+        msgSeq: toBigint(row[2]),
+        senderUid: toStr(row[3]),
+        senderUin: toBigint(row[4]),
+        sendTime: toBigint(row[5]),
+        elements: [],
+      },
+    }));
+  }
+
   /**
    * 每个群在时间窗内**按周**的消息数 —— 年度报告「我的主场」群聊卡片的 sparkline。
    *

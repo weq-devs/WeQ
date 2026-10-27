@@ -59,3 +59,17 @@ it('bot 失败和取消保留未知／已知计数，本地推理不入 API 汇�
     cancelledCalls: 1,
   });
 });
+
+it('关闭统计会提交终态并清理防抖计时器，迟到回调不再覆盖新实例', () => {
+  const store = fixture();
+  store.record({ ...entry, status: 'cancelled' });
+  store.close();
+  expect(vi.getTimerCount()).toBe(0);
+  const reopened = new StatsStore(join(dirs.at(-1)!, 'stats.json'));
+  expect(reopened.snapshot().totals.cancelledCalls).toBe(1);
+  store.record({ ...entry, requestId: 'late', status: 'success' });
+  store.onMessageIn();
+  expect(vi.getTimerCount()).toBe(0);
+  expect(store.snapshot().totals).toEqual(reopened.snapshot().totals);
+  reopened.close();
+});

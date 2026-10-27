@@ -34,7 +34,6 @@ describe('bounded macOS account online probe', () => {
     const probe = createQqOnlineProbe(launch, (x) => x);
     const result = probe(path);
     expect(probe(path)).toBe(result);
-    expect(await probe('/different/db')).toBeNull();
     pg.stdout.write('123\n456\n');
     pg.emit('close', 0);
     expect(launch.mock.calls[0]).toEqual(['/usr/bin/pgrep', ['-x', 'QQ']]);
@@ -53,10 +52,11 @@ describe('bounded macOS account online probe', () => {
     const launch = vi.fn(() => pg);
     const probe = createQqOnlineProbe(launch, (x) => x, 100);
     const result = probe(path);
+    const timedOut = expect(result).rejects.toThrow('超时');
     await vi.advanceTimersByTimeAsync(100);
-    expect(await result).toBeNull();
+    await timedOut;
     expect(pg.kill).toHaveBeenCalledWith('SIGKILL');
-    expect(await probe(path)).toBeNull();
+    await expect(probe(path)).rejects.toThrow('尚未退出');
     expect(launch).toHaveBeenCalledTimes(1);
     pg.emit('close', null);
     const next = probe(path);
@@ -70,11 +70,16 @@ describe('bounded macOS account online probe', () => {
     });
     expect(
       await createQqOnlineProbe(launch, () => {
-        throw new Error('missing');
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' });
       })(path),
     ).toBeNull();
     expect(launch).not.toHaveBeenCalled();
-    expect(await createQqOnlineProbe(launch, (x) => x)(path)).toBeNull();
+    await expect(
+      createQqOnlineProbe(launch, () => {
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      })(path),
+    ).rejects.toThrow('路径');
+    await expect(createQqOnlineProbe(launch, (x) => x)(path)).rejects.toThrow('启动');
     const pg = child();
     const noQq = createQqOnlineProbe(
       () => pg,
@@ -89,7 +94,67 @@ describe('bounded macOS account online probe', () => {
     )(path);
     large.stdout.write(Buffer.alloc(300000));
     large.emit('close', null);
-    expect(await tooMuch).toBeNull();
+    await expect(tooMuch).rejects.toThrow('输出');
     expect(large.kill).toHaveBeenCalledWith('SIGKILL');
+  });
+  it('不同账号并发探测互不冒充离线，同时限制未退出的子进程数量', async () => {
+    const children = Array.from({ length: 8 }, child);
+    const launch = vi.fn();
+    for (const proc of children) launch.mockReturnValueOnce(proc);
+    const probe = createQqOnlineProbe(launch, (x) => x);
+    const results = children.map((_, i) => probe(`/fixture/${i}/nt_msg.db`));
+    await expect(probe('/fixture/overflow/nt_msg.db')).rejects.toThrow('繁忙');
+    expect(launch).toHaveBeenCalledTimes(children.length);
+    for (const proc of children) proc.emit('close', 1);
+    expect(await Promise.all(results)).toEqual(children.map(() => null));
+  });
+  it('并发账号各自匹配自己的数据库，不混用同一个 QQ 进程的结果', async () => {
+    const pg1 = child(),
+      pg2 = child(),
+      files1 = child(),
+      files2 = child();
+    const launch = vi
+      .fn()
+      .mockReturnValueOnce(pg1)
+      .mockReturnValueOnce(pg2)
+      .mockReturnValueOnce(files1)
+      .mockReturnValueOnce(files2);
+    const probe = createQqOnlineProbe(launch, (x) => x);
+    const first = probe(path);
+    const otherPath = '/fixture/other/nt_msg.db';
+    const second = probe(otherPath);
+    for (const proc of [pg1, pg2]) {
+      proc.stdout.write('123\n');
+      proc.emit('close', 0);
+    }
+    files1.stdout.write(`p123\0cQQ\0\nn${path}\0\n`);
+    files2.stdout.write(`p123\0cQQ\0\nn${path}\0\n`);
+    files2.emit('close', 0);
+    files1.emit('close', 0);
+    expect(await first).toBe(123);
+    expect(await second).toBeNull();
+  });
+  it('退出码 1 带诊断信息时仍视为探测失败', async () => {
+    const proc = child();
+    const result = createQqOnlineProbe(
+      () => proc,
+      (x) => x,
+    )(path);
+    proc.stderr.write('permission denied');
+    proc.emit('close', 1);
+    await expect(result).rejects.toThrow('失败');
+  });
+  it('lsof 运行错误不等同于正常查无持有者', async () => {
+    const pg = child(),
+      files = child();
+    const probe = createQqOnlineProbe(
+      vi.fn().mockReturnValueOnce(pg).mockReturnValueOnce(files),
+      (x) => x,
+    );
+    const result = probe(path);
+    pg.stdout.write('123\n');
+    pg.emit('close', 0);
+    files.emit('close', 2);
+    await expect(result).rejects.toThrow('失败');
   });
 });

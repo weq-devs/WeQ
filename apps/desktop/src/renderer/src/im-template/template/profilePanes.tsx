@@ -43,11 +43,12 @@ import { cn } from './classNames';
 import { copyTextToClipboard } from './clipboard';
 import { formatProfileDate } from './format';
 import { Avatar, EmptyState } from './primitives';
-import type { Contact, Conversation, ProfileExtInfo } from './types';
+import type { Contact, Conversation, ProfileExtInfo, User as ProfileUser } from './types';
 import { displayUserName } from './user';
 import { relationMeta } from '../../lib/profileRelations';
 import '../../styles/group-profile.css';
 import '../../styles/contact-profile.css';
+import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
 
 export { relationMeta } from '../../lib/profileRelations';
 
@@ -730,12 +731,16 @@ export function GroupProfileDialog({
   detailsKnown = true,
   embedded = false,
   details,
+  onOpenMember,
+  onOpenChat,
 }: {
   conversation: Extract<Conversation, { type: 'group' }> | undefined;
   onClose: () => void;
   detailsKnown?: boolean;
   embedded?: boolean;
   details?: ReactNode;
+  onOpenMember?: (member: ProfileUser, anchor: { x: number; y: number }) => void;
+  onOpenChat?: () => void;
 }) {
   const openChat = useContext(ChatNavigationContext);
   const openWorkspace = useContext(ContactWorkspaceNavigationContext);
@@ -750,9 +755,11 @@ export function GroupProfileDialog({
   }
   const group = conversation.group;
   const members = (conversation.members ?? []).slice(0, 14);
+  const MemberIdentity = onOpenMember ? 'button' : 'span';
+  const identityValue = conversation.generated?.ownerId ?? group.identityValue;
 
   async function copyCode() {
-    const ok = await copyTextToClipboard(group.identityValue);
+    const ok = await copyTextToClipboard(identityValue);
     if (ok) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
@@ -779,7 +786,7 @@ export function GroupProfileDialog({
       >
         {!embedded ? (
           <>
-            {openWorkspace ? (
+            {openWorkspace && !conversation.generated ? (
               <button
                 className="weq-profile-expand"
                 type="button"
@@ -807,13 +814,19 @@ export function GroupProfileDialog({
 
         <ProfileIdentity embedded={embedded}>
           <div className="weq-profile-hero">
-            <span className="weq-profile-avatar">
+            <span
+              className={cn(
+                'weq-profile-avatar',
+                conversation.generated && 'weq-clone-profile-avatar',
+              )}
+            >
               <Avatar name={group.name} avatarUrl={group.avatarUrl} seed={group.identityValue} />
+              {conversation.generated ? <VirtualConversationBadge group /> : null}
             </span>
             <strong className="weq-profile-name">{group.name}</strong>
             <button className="weq-profile-id" type="button" onClick={copyCode} title="点击复制">
-              <span>群号</span>
-              <span className="weq-number">{group.identityValue}</span>
+              <span>{conversation.generated ? 'ID' : '群号'}</span>
+              <span className="weq-number">{identityValue}</span>
               {copied ? <Check size={12} /> : <Copy size={12} />}
             </button>
             {embedded && detailsKnown ? (
@@ -826,14 +839,15 @@ export function GroupProfileDialog({
             ) : null}
           </div>
 
-          {openChat ? (
+          {onOpenChat || (openChat && !conversation.generated) ? (
             <div className="weq-profile-actions">
               <button
                 className="weq-profile-perhome"
                 type="button"
                 onClick={() => {
                   if (!embedded) onClose();
-                  openChat({ kind: 'group', conversation });
+                  if (onOpenChat) onOpenChat();
+                  else openChat?.({ kind: 'group', conversation });
                 }}
               >
                 <MessageSquare size={13} />
@@ -857,17 +871,31 @@ export function GroupProfileDialog({
                 {members.length ? (
                   <div className="weq-profile-members-row">
                     {members.map((member) => (
-                      <span
+                      <MemberIdentity
+                        type={onOpenMember ? 'button' : undefined}
                         key={member.id}
-                        className="weq-profile-member"
-                        title={displayUserName(member)}
+                        className={cn(
+                          'weq-profile-member',
+                          onOpenMember && 'weq-group-profile-member-button',
+                        )}
+                        title={`${displayUserName(member)}${member.clone ? ' · 克隆体' : ''}`}
+                        onClick={
+                          onOpenMember
+                            ? (event) => {
+                                const rect = event.currentTarget.getBoundingClientRect();
+                                onClose();
+                                onOpenMember?.(member, { x: rect.right, y: rect.bottom });
+                              }
+                            : undefined
+                        }
                       >
                         <Avatar
                           name={displayUserName(member)}
                           avatarUrl={member.avatarUrl}
                           seed={member.identityValue}
                         />
-                      </span>
+                        {member.clone ? <VirtualConversationBadge /> : null}
+                      </MemberIdentity>
                     ))}
                   </div>
                 ) : null}

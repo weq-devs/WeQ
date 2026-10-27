@@ -8,6 +8,7 @@ import {
   Search,
   Sparkles,
   UserMinus,
+  UserPlus,
   X,
 } from 'lucide-react';
 import {
@@ -24,6 +25,7 @@ import { displayUserName } from './user';
 import { cn } from './classNames';
 import { formatShortDate } from './format';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
+import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
 import { useTabActive } from '../../components/RetainedTabs';
 import '../../styles/conversation-actions.css';
 import '../../styles/group-sidebar-sections.css';
@@ -45,6 +47,7 @@ export function GroupInfoPanel({
   onOpenMember,
   onMemberContextMenu,
   onOpenLeftMembers,
+  onAddMember,
   onOpenAnnouncements,
   groupTodos,
   onOpenEssence,
@@ -80,6 +83,7 @@ export function GroupInfoPanel({
    * 模板层只递一个「用户点了我」的信号。
    */
   onOpenLeftMembers?: () => void;
+  onAddMember?: () => void;
   onMemberContextMenu?: (
     event: ReactMouseEvent,
     member: GroupConversationView['members'][number],
@@ -120,8 +124,8 @@ export function GroupInfoPanel({
   const rows = (searching ? searchMembers : conversation.members).filter(
     (member) =>
       String(member.id ?? '').trim() !== '' &&
-      String(member.uin ?? '').trim() !== '' &&
-      member.uin !== '0',
+      (Boolean(conversation.generated) ||
+        (String(member.uin ?? '').trim() !== '' && member.uin !== '0')),
   );
   // 搜索与成员分页各自有错误 / 加载态，这里归一成一份，JSX 只判一个分支。
   const activeError = searching ? (memberSearch?.error ?? null) : loadingError;
@@ -267,6 +271,17 @@ export function GroupInfoPanel({
               ? `${rows.length}/${memberSearch?.total ?? 0}`
               : conversation.group.memberCount}
           </strong>
+          {onAddMember ? (
+            <button
+              type="button"
+              className="icon-button weq-group-add-member"
+              title="添加成员"
+              aria-label="添加成员"
+              onClick={onAddMember}
+            >
+              <UserPlus size={16} />
+            </button>
+          ) : null}
           {onOpenLeftMembers ? (
             <button
               className={cn('group-info-left-members-button')}
@@ -283,7 +298,7 @@ export function GroupInfoPanel({
           <input
             type="text"
             value={memberSearch?.keyword ?? ''}
-            placeholder="搜索昵称 / 群昵称 / QQ号"
+            placeholder={conversation.generated ? '搜索成员名称' : '搜索昵称 / 群昵称 / QQ号'}
             aria-label="搜索群成员"
             spellCheck={false}
             onChange={(event) => onMemberSearchChange?.(event.target.value)}
@@ -343,12 +358,13 @@ export function GroupInfoPanel({
                   : undefined
               }
             >
-              <div className="member-avatar-wrap">
+              <div className={cn('member-avatar-wrap', member.clone && 'weq-clone-member-avatar')}>
                 <Avatar
                   name={displayUserName(member)}
                   avatarUrl={member.avatarUrl}
                   seed={member.identityValue}
                 />
+                {member.clone ? <VirtualConversationBadge /> : null}
               </div>
               <span className="member-name-text">
                 <span className="member-name-with-badge">

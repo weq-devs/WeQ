@@ -93,12 +93,12 @@ export function useVirtualTimeline({
     followOnAppend: false,
     scrollEndThreshold: 48,
     rangeExtractor,
-    useFlushSync: false,
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = enabled ? undefined : keepNativeScroll;
   const context = useRef({ ids, index, orderedIds, virtualizer, scope, active, windowed: enabled });
   context.current = { ids, index, orderedIds, virtualizer, scope, active, windowed: enabled };
   const command = useRef(0);
+  const scrollRevision = useRef(0);
   const frame = useRef<number | undefined>(undefined);
 
   useLayoutEffect(() => {
@@ -114,12 +114,17 @@ export function useVirtualTimeline({
       context.current.virtualizer.cancelScroll();
       if (frame.current !== undefined) cancelAnimationFrame(frame.current);
     };
+    const interrupt = () => {
+      scrollRevision.current++;
+      cancel();
+    };
     const keys = (event: KeyboardEvent) => {
       if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key))
-        cancel();
+        interrupt();
     };
-    scroll.addEventListener('wheel', cancel, { passive: true });
-    scroll.addEventListener('touchmove', cancel, { passive: true });
+    scroll.addEventListener('wheel', interrupt, { passive: true });
+    scroll.addEventListener('touchmove', interrupt, { passive: true });
+    scroll.addEventListener('pointerdown', interrupt, { passive: true });
     scroll.addEventListener('keydown', keys);
     const position = (
       id: string,
@@ -188,9 +193,13 @@ export function useVirtualTimeline({
       return true;
     };
     const release = registerTimelineViewport(scroll, {
+      scrollRevision: () => scrollRevision.current,
+      cancelScroll: interrupt,
       capture: () => (context.current.active ? undefined : suspendedAnchor.current),
-      scrollTo: (id, options) =>
-        position(id, options?.align ?? 'center', undefined, options?.flash, options?.focus),
+      scrollTo: (id, options) => {
+        scrollRevision.current++;
+        return position(id, options?.align ?? 'center', undefined, options?.flash, options?.focus);
+      },
       restore: (saved) => {
         if (!context.current.active) {
           suspendedAnchor.current = saved;
@@ -210,6 +219,7 @@ export function useVirtualTimeline({
       },
       bottom: () => {
         if (!context.current.active) return;
+        scrollRevision.current++;
         cancel();
         if (context.current.windowed) context.current.virtualizer.scrollToEnd({ behavior: 'auto' });
         else scroll.scrollTop = scroll.scrollHeight;
@@ -240,14 +250,16 @@ export function useVirtualTimeline({
       cancel();
       release();
       resize.disconnect();
-      scroll.removeEventListener('wheel', cancel);
-      scroll.removeEventListener('touchmove', cancel);
+      scroll.removeEventListener('wheel', interrupt);
+      scroll.removeEventListener('touchmove', interrupt);
+      scroll.removeEventListener('pointerdown', interrupt);
       scroll.removeEventListener('keydown', keys);
     };
   }, [scope, scrollRef]);
 
   useLayoutEffect(() => {
     if (!active) {
+      scrollRevision.current++;
       command.current++;
       virtualizer.cancelScroll();
       if (frame.current !== undefined) cancelAnimationFrame(frame.current);

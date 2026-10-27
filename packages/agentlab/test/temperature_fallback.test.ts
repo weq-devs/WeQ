@@ -43,7 +43,7 @@ const success = {
 };
 
 it.each([400, 422, 200])(
-  'HTTP %s 明确拒绝温度时只移除该参数，沿用原信号与其他字段并分别记账',
+  'HTTP %s 明确拒绝温度时只移除该参数，保留取消语义与其他字段并分别记账',
   async (status) => {
     const f = fixture();
     const fetch = vi
@@ -60,7 +60,10 @@ it.each([400, 422, 200])(
     expect(JSON.parse(String(retry.body))).toEqual(expected);
     expect(Object.hasOwn(JSON.parse(String(retry.body)), 'temperature')).toBe(false);
     expect(retry.headers).toBe(f.init.headers);
-    expect(retry.signal).toBe(f.init.signal);
+    expect(retry.signal).toBe(first.signal);
+    f.controller.abort();
+    expect(first.signal?.aborted).toBe(true);
+    expect(retry.signal?.aborted).toBe(true);
     expect(f.init.body).toBe(JSON.stringify(f.body));
     const finished = f.updates.filter((entry) => entry.status !== 'pending');
     expect(finished.map((entry) => entry.status)).toEqual(['failed', 'success']);

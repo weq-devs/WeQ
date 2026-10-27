@@ -19,6 +19,8 @@ export interface AgentLabProviderConfig {
   vendor: string;
   baseUrl: string;
   apiKey: string;
+  /** 模型请求总期限，毫秒；缺省 3600 秒。 */
+  timeoutMs?: number;
   models: AgentLabProviderModel[];
   createdAt: number;
   updatedAt: number;
@@ -73,6 +75,16 @@ export interface AgentLabUsage {
 }
 
 /** 解析后可直接调用的端点 = provider 的 baseUrl/apiKey + 选定 model。 */
+export interface AgentLabModelOutput {
+  requestId: string;
+  feature: string;
+  model: string;
+  status: 'running' | 'success' | 'failed' | 'cancelled';
+  channel?: 'content' | 'reasoning';
+  text?: string;
+  error?: string;
+}
+
 export interface AgentLabEndpoint {
   baseUrl: string;
   apiKey: string;
@@ -83,8 +95,14 @@ export interface AgentLabEndpoint {
   kind?: AgentLabUsage['kind'];
   feature?: string;
   source?: 'api' | 'local';
+  /** 模型请求的总期限（含流式／非流式正文），默认 3600 秒。 */
+  timeoutMs?: number;
+  /** 调用方或运行实例生命周期；不会因兼容回退而丢失。 */
+  signal?: AbortSignal;
   /** 每次调用后回调 token 用量（service 注入，写入用量统计）。 */
   onUsage?: (usage: AgentLabUsage) => void;
+  /** 提炼调用的实时输出；不含输入语料和认证信息。 */
+  onOutput?: (output: AgentLabModelOutput) => void;
 }
 
 // ── 语料 / 画像 ────────────────────────────────────────────────────────────
@@ -322,6 +340,8 @@ export interface AgentLabPersona {
   corpusMessageCount: number;
   pairCount: number;
   createdAt: number;
+  /** 最近一次成功训练时间；编辑用户配置不改变此值。 */
+  trainedAt?: number;
   updatedAt: number;
 }
 

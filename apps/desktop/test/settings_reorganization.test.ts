@@ -51,7 +51,7 @@ vi.mock('../src/renderer/src/components/settings/BugReportPanel', () => ({
 
 afterEach(() => vi.unstubAllGlobals());
 
-function mount(initialSection?: SectionId, onCreateClone?: () => void) {
+function mount(initialSection?: SectionId) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   const previousUin = useViewState.getState().openedUin;
@@ -74,7 +74,6 @@ function mount(initialSection?: SectionId, onCreateClone?: () => void) {
             onClose: vi.fn(),
             onOpenMaintenance,
             onOpenRecalls: vi.fn(),
-            onCreateClone,
           }),
         ),
       ),
@@ -185,6 +184,7 @@ describe('设置归位后的实际页面', () => {
         '在联系人界面显示未读消息数',
         '群助手显示总消息数',
         '从第一条新消息开始阅读',
+        '自动跟随最新消息',
         '发送消息后定位到最新消息',
         '向下滚动时显示定位到底部按钮',
         '使用 QQ 账号设置的个性字体发送消息',
@@ -392,17 +392,13 @@ describe('设置归位后的实际页面', () => {
       f.close();
     }
   });
-  it('好友克隆为空时仍可从设置打开已有创建流程', () => {
-    const onCreateClone = vi.fn();
-    const f = mount('clone-settings', onCreateClone);
+  it('AI 分类不再提供独立克隆页及克隆创建入口', () => {
+    const f = mount('agentlab');
     try {
-      expect(f.body().textContent).toContain('暂无好友克隆');
-      const add = f.body().querySelector<HTMLButtonElement>('[aria-label="添加好友克隆"]');
-      expect(add).not.toBeNull();
-      expect(add!.disabled).toBe(false);
-      act(() => add!.click());
-      expect(onCreateClone).toHaveBeenCalledTimes(1);
-      expect(onCreateClone).toHaveBeenCalledWith();
+      expect(
+        [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
+      ).not.toContain('好友克隆');
+      expect(f.host.querySelector('[aria-label="添加好友克隆"]')).toBeNull();
     } finally {
       f.close();
     }
@@ -515,7 +511,6 @@ describe('设置归位后的实际页面', () => {
         '意图感知',
         '互动画像',
         '推荐回复',
-        '好友克隆',
         '语音识别',
         '图片识别',
       ]);

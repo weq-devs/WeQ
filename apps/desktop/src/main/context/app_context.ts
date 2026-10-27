@@ -1285,6 +1285,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
+      await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
       this.account?.dispose();
@@ -1489,6 +1490,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
         deletedMsgs,
       );
+      groupInfo.setAnalysisCache(gapHistory);
       const guildDirect = new GuildDirectService(session);
       const msgs = new MsgService(session, deletedMsgs, antiRecall);
       const roamingBackfill = await createRoamingBackfill(
@@ -1573,7 +1575,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         }),
         forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, resolveOnlinePid),
         groupInfo,
-        buddyAnalytics: new BuddyAnalyticsService(session),
+        buddyAnalytics: new BuddyAnalyticsService(session, gapHistory),
         groupNotify: new GroupNotifyService(session, {
           nt: platform.native.ntHelper,
           resolvePid: resolveOnlinePid,
@@ -2176,6 +2178,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
+      await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
       this.account?.dispose();
@@ -2366,6 +2369,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
         deletedMsgs,
       );
+      groupInfo.setAnalysisCache(gapHistory);
       const guildDirect = new GuildDirectService(session);
       const msgs = new MsgService(session, deletedMsgs, antiRecall);
       const roamingBackfill = await createRoamingBackfill(
@@ -2422,7 +2426,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         }),
         forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, livePid),
         groupInfo,
-        buddyAnalytics: new BuddyAnalyticsService(session),
+        buddyAnalytics: new BuddyAnalyticsService(session, gapHistory),
         groupNotify: new GroupNotifyService(session, {
           nt: platform.native.ntHelper,
           resolvePid: livePid,
@@ -2873,6 +2877,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
+      void this.services?.agentLab.close().catch((error) => {
+        getLogger().warn('停止克隆运行时失败', { error: String(error) });
+      });
       void this.services?.unreadInfo.dispose().catch((error) => {
         console.error('[unread] 关闭账号时保存本地阅读状态失败', error);
       });

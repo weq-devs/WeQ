@@ -1,5 +1,5 @@
 /** 复用 im-template 的 QQ 气泡样式（chat.css 的 message-line / message-bubble）渲染一行。 */
-import { Fragment, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { Bot, Pause, Play, Sparkles } from 'lucide-react';
 import { QqAvatar } from '../../components/QqAvatar';
 import { FaceEmoji } from '../../components/FaceEmoji';
@@ -9,6 +9,11 @@ import { mediaUrl } from '../../lib/resourceUrl';
 export interface FaceContext {
   whitelist: string[];
   descToId: Map<string, number>;
+}
+
+/** 输入工具栏插入的 /表情名使用完整系统表情表，不受克隆体训练白名单限制。 */
+export function inputFaceContext(descToId: Map<string, number>): FaceContext {
+  return { whitelist: [...descToId.keys()].map((name) => `/${name}`), descToId };
 }
 
 /** 归一化 faceText / 表情外显文字：去掉 /、[]、【】、空白后比对（"/捂脸"="[捂脸]"="捂脸"）。 */
@@ -73,6 +78,12 @@ function VoiceBubble({ personaId, voiceId }: { personaId: string; voiceId: strin
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const src = mediaUrl('agentvoice', { persona: personaId, id: voiceId });
+  useEffect(
+    () => () => {
+      audioRef.current?.pause();
+    },
+    [],
+  );
   const toggle = (): void => {
     let audio = audioRef.current;
     if (!audio) {
@@ -103,6 +114,50 @@ function VoiceBubble({ personaId, voiceId }: { personaId: string; voiceId: strin
   );
 }
 
+/** 仅适配生成内容的表情和合成语音，气泡外壳与交互由普通 ChatPane 提供。 */
+export function AgentMessageContent({
+  text,
+  faces,
+  personaId,
+  onMediaLoad,
+}: {
+  text: string;
+  /** 提供后，会把文本里的系统表情 faceText 渲染成表情图（克隆体气泡用）。 */
+  faces?: FaceContext;
+  /** 克隆体 id：提供后，[[sticker:md5]] 标记会渲染成自定义表情图。 */
+  personaId?: string;
+  /** 图片类消息加载后通知父级重新贴底。 */
+  onMediaLoad?: () => void;
+}): ReactElement {
+  // 自定义表情包：整条消息就是一个表情标记时，渲染成图片。
+  const stickerMatch = personaId ? text.match(STICKER_MARKER) : null;
+  // 表情图加载失败（资源被清 / 下载失败）时降级为文字占位，别留个破图。
+  const [stickerFailed, setStickerFailed] = useState(false);
+  // 合成语音：整条消息就是一个语音标记时，渲染成语音气泡。
+  const voiceMatch = personaId ? text.match(VOICE_MARKER) : null;
+  return (
+    <div className="message-content">
+      {stickerMatch && !stickerFailed ? (
+        <img
+          className="weq-agentlab-sticker-img"
+          src={mediaUrl('sticker', { persona: personaId!, md5: stickerMatch[1] ?? '' })}
+          alt="[表情]"
+          draggable={false}
+          onLoad={onMediaLoad}
+          onError={() => setStickerFailed(true)}
+        />
+      ) : stickerMatch ? (
+        <span className="weq-agentlab-sticker-fallback">[表情]</span>
+      ) : voiceMatch ? (
+        <VoiceBubble personaId={personaId!} voiceId={voiceMatch[1] ?? ''} />
+      ) : (
+        <span data-privacy-sensitive>{faces ? renderWithFaces(text, faces) : text}</span>
+      )}
+    </div>
+  );
+}
+
+/** 助手及导出预览的轻量气泡；克隆会话页面不再使用此组件。 */
 export function ChatBubble({
   mine,
   name,
@@ -118,24 +173,15 @@ export function ChatBubble({
   uin?: string;
   text: string;
   bot?: boolean;
-  /** 提供后，会把文本里的系统表情 faceText 渲染成表情图（克隆体气泡用）。 */
   faces?: FaceContext;
-  /** 克隆体 id：提供后，[[sticker:md5]] 标记会渲染成自定义表情图。 */
   personaId?: string;
-  /** 图片类消息加载后通知父级重新贴底。 */
   onMediaLoad?: () => void;
 }): ReactElement {
-  // 自定义表情包：整条消息就是一个表情标记时，渲染成图片。
-  const stickerMatch = personaId ? text.match(STICKER_MARKER) : null;
-  // 表情图加载失败（资源被清 / 下载失败）时降级为文字占位，别留个破图。
-  const [stickerFailed, setStickerFailed] = useState(false);
-  // 合成语音：整条消息就是一个语音标记时，渲染成语音气泡。
-  const voiceMatch = personaId ? text.match(VOICE_MARKER) : null;
   // 头像统一用 uin 拼 weq-avatar:// 协议，不依赖数据库里存的外链。
   // 助手没有 QQ 号，用和助手面板一致的渐变星芒头像；给空 uin 只会回落成灰色小人。
   const avatar = (
     <span className="avatar">
-      {bot ? (
+      {bot && !uin ? (
         <span className="weq-asst-avatar is-bubble" aria-hidden>
           <Sparkles size={18} strokeWidth={1.9} />
         </span>
@@ -158,26 +204,12 @@ export function ChatBubble({
             ) : null}
           </span>
         ) : null}
-        <div className="message-content">
-          {stickerMatch && !stickerFailed ? (
-            <img
-              className="weq-agentlab-sticker-img"
-              src={mediaUrl('sticker', { persona: personaId!, md5: stickerMatch[1] ?? '' })}
-              alt="[表情]"
-              draggable={false}
-              onLoad={onMediaLoad}
-              onError={() => setStickerFailed(true)}
-            />
-          ) : stickerMatch && stickerFailed ? (
-            <span className="weq-agentlab-sticker-fallback">[表情]</span>
-          ) : voiceMatch ? (
-            <VoiceBubble personaId={personaId!} voiceId={voiceMatch[1] ?? ''} />
-          ) : faces ? (
-            <span data-privacy-sensitive>{renderWithFaces(text, faces)}</span>
-          ) : (
-            <span data-privacy-sensitive>{text}</span>
-          )}
-        </div>
+        <AgentMessageContent
+          text={text}
+          faces={faces}
+          personaId={personaId}
+          onMediaLoad={onMediaLoad}
+        />
       </div>
       {mine ? avatar : null}
     </div>

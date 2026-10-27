@@ -59,6 +59,44 @@ interface CacheEntry {
 
 const OK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FAIL_TTL_MS = 30 * 60 * 1000;
+export const LINK_PREVIEW_CACHE_LIMITS = {
+  maxEntries: 1024,
+  maxBytes: 8 * 1024 * 1024,
+  successTtlMs: OK_TTL_MS,
+  failureTtlMs: FAIL_TTL_MS,
+  sweepMs: 60_000,
+} as const;
+
+interface LinkPreviewMemoryLimits {
+  maxEntries?: number;
+  maxBytes?: number;
+}
+
+function validCacheEntry(raw: unknown): raw is CacheEntry {
+  if (
+    !raw ||
+    typeof raw !== 'object' ||
+    !('fetchedAt' in raw) ||
+    typeof raw.fetchedAt !== 'number' ||
+    !Number.isFinite(raw.fetchedAt) ||
+    !('preview' in raw)
+  )
+    return false;
+  if (raw.preview === null) return true;
+  const p = raw.preview;
+  return (
+    !!p &&
+    typeof p === 'object' &&
+    ['url', 'title', 'desc', 'siteName', 'image'].every(
+      (key) => key in p && typeof (p as Record<string, unknown>)[key] === 'string',
+    ) &&
+    'imageKind' in p &&
+    (p.imageKind === '' || p.imageKind === 'og' || p.imageKind === 'shot') &&
+    'fetchedAt' in p &&
+    typeof p.fetchedAt === 'number' &&
+    Number.isFinite(p.fetchedAt)
+  );
+}
 const HTML_LIMIT = 512 * 1024;
 const IMAGE_LIMIT = 4 * 1024 * 1024;
 const TIMEOUT_MS = 8000;
@@ -425,12 +463,66 @@ function imageExt(b: Buffer): string | null {
 // ---- 服务 ------------------------------------------------------------------
 
 export class LinkPreviewService {
-  private readonly memory = new Map<string, CacheEntry>();
+  private readonly memory = new Map<string, { value: CacheEntry; bytes: number }>();
+  private readonly maxEntries: number;
+  private readonly maxBytes: number;
+  private memoryBytes = 0;
+  private evictions = 0;
+  private lastSweep = -Infinity;
   private readonly inFlight = new Map<string, Promise<LinkPreview | null>>();
   private screenshot: ScreenshotHook | null = null;
   private readonly logger = getLogger().child({ scope: 'link-preview' });
 
-  constructor(private readonly userConfig: UserConfigService) {}
+  constructor(
+    private readonly userConfig: UserConfigService,
+    limits: LinkPreviewMemoryLimits = {},
+  ) {
+    this.maxEntries = limits.maxEntries ?? LINK_PREVIEW_CACHE_LIMITS.maxEntries;
+    this.maxBytes = limits.maxBytes ?? LINK_PREVIEW_CACHE_LIMITS.maxBytes;
+    if (![this.maxEntries, this.maxBytes].every((n) => Number.isSafeInteger(n) && n > 0))
+      throw new Error('链接预览内存容量必须是正整数');
+  }
+
+  /** 字符串体积估算，不是 V8 堆快照；不返回 URL 或聊天内容。 */
+  memoryDiagnostics() {
+    return {
+      entries: this.memory.size,
+      bytes: this.memoryBytes,
+      evictions: this.evictions,
+      inFlight: this.inFlight.size,
+    };
+  }
+
+  private fresh(entry: CacheEntry): boolean {
+    return Date.now() - entry.fetchedAt < (entry.preview ? OK_TTL_MS : FAIL_TTL_MS);
+  }
+
+  private forget(url: string): void {
+    const entry = this.memory.get(url);
+    if (!entry) return;
+    this.memory.delete(url);
+    this.memoryBytes -= entry.bytes;
+  }
+
+  private sweepMemory(): void {
+    const now = Date.now();
+    if (now >= this.lastSweep && now - this.lastSweep < LINK_PREVIEW_CACHE_LIMITS.sweepMs) return;
+    this.lastSweep = now;
+    for (const [url, entry] of this.memory) if (!this.fresh(entry.value)) this.forget(url);
+  }
+
+  private remember(url: string, value: CacheEntry): void {
+    this.forget(url);
+    // UTF-16 字符串估算；条目上限另行约束对象开销。超大项仍保留磁盘结果。
+    const bytes = 2 * (url.length + JSON.stringify(value).length);
+    if (bytes > this.maxBytes) return;
+    this.memory.set(url, { value: structuredClone(value), bytes });
+    this.memoryBytes += bytes;
+    while (this.memory.size > this.maxEntries || this.memoryBytes > this.maxBytes) {
+      this.forget(this.memory.keys().next().value!);
+      this.evictions++;
+    }
+  }
 
   /** 由 app 层注入「网页预截图」实现（Electron 离屏窗口）。 */
   setScreenshotHook(hook: ScreenshotHook | null): void {
@@ -450,19 +542,31 @@ export class LinkPreviewService {
     const url = rawUrl.trim();
     if (!url) return null;
 
-    const cached = this.memory.get(url) ?? (await this.readDisk(url));
-    if (cached) {
-      const ttl = cached.preview ? OK_TTL_MS : FAIL_TTL_MS;
-      if (Date.now() - cached.fetchedAt < ttl) {
-        this.memory.set(url, cached);
-        return cached.preview;
-      }
+    this.sweepMemory();
+    const cached = this.memory.get(url);
+    if (cached && this.fresh(cached.value)) {
+      this.memory.delete(url);
+      this.memory.set(url, cached);
+      return structuredClone(cached.value.preview);
     }
+    this.forget(url);
 
     const running = this.inFlight.get(url);
-    if (running) return running;
+    if (running) return running.then((value) => structuredClone(value));
 
-    const promise = this.fetchPreview(url)
+    const promise = this.loadPreview(url).finally(() => this.inFlight.delete(url));
+    this.inFlight.set(url, promise);
+    return promise.then((value) => structuredClone(value));
+  }
+
+  private async loadPreview(url: string): Promise<LinkPreview | null> {
+    const cached = await this.readDisk(url);
+    if (cached && this.fresh(cached)) {
+      this.remember(url, cached);
+      return cached.preview;
+    }
+
+    return this.fetchPreview(url)
       .catch((error) => {
         this.logger.debug('link preview failed', {
           event: 'link-preview-fail',
@@ -473,15 +577,10 @@ export class LinkPreviewService {
       })
       .then(async (preview) => {
         const entry: CacheEntry = { preview, fetchedAt: Date.now() };
-        this.memory.set(url, entry);
+        this.remember(url, entry);
         await this.writeDisk(url, entry);
         return preview;
-      })
-      .finally(() => {
-        this.inFlight.delete(url);
       });
-    this.inFlight.set(url, promise);
-    return promise;
   }
 
   /** 读一张已缓存的封面图（渲染层通过 weq-media://linkpreview?id=… 取）。 */
@@ -522,7 +621,8 @@ export class LinkPreviewService {
   private async readDisk(url: string): Promise<CacheEntry | null> {
     try {
       const raw = await readFile(join(this.dir(), `${this.key(url)}.json`), 'utf-8');
-      return JSON.parse(raw) as CacheEntry;
+      const entry: unknown = JSON.parse(raw);
+      return validCacheEntry(entry) ? entry : null;
     } catch {
       return null;
     }

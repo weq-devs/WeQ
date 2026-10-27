@@ -40,11 +40,12 @@ async function main(): Promise<void> {
   const bundleUrl = register(bundle, '聊天与媒体.zip', 'directory').url;
 
   let trpcHits = 0;
+  const auth = new AuthGate({ token: TOKEN, remote: false, maxSessions: 1 });
   const { server, port } = await startServer({
     port: 39871,
     host: '127.0.0.1',
     publicDir: pub,
-    auth: new AuthGate({ token: TOKEN, remote: false }),
+    auth,
     trpc: (_req, res) => {
       trpcHits++;
       res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -104,6 +105,17 @@ async function main(): Promise<void> {
     const setCookie = good.headers.get('set-cookie') ?? '';
     const cookie = setCookie.split(';')[0] ?? '';
     check(cookie.startsWith('weq_session='), 'login returns a session cookie');
+    const full = await fetch(`${base}/_auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: TOKEN }),
+    });
+    check(full.status === 503, 'session capacity → 503, not a bad-token 401');
+    check(full.headers.get('retry-after') === '60', 'capacity response includes retry guidance');
+    check(
+      full.headers.get('set-cookie') === null,
+      'capacity response never replaces the live cookie',
+    );
 
     // ---- routes open after login ----
     {
@@ -226,6 +238,7 @@ async function main(): Promise<void> {
       check(res.status === 401, 'after logout → 401 again');
     }
   } finally {
+    auth.close();
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );

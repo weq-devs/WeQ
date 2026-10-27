@@ -80,7 +80,7 @@
 
 import type { FontFx, ResolvedWidget } from '@weq/service';
 import { fontFaces, type FontLease } from './fontFaces';
-import { prepareDecorationFrames, validDecorationFrames } from './decorationResources';
+import { manageDecorationAnimation, validDecorationFrames } from './decorationResources';
 import {
   dressBubbleUrl,
   dressBubbleFrameUrl,
@@ -864,8 +864,7 @@ function bubbleFrameUrls(skin: BubbleSkinCss | null): string[] {
  * 当前生效装扮的帧持有凭据。
  * 换款先取得新款凭据再归还旧款，同款重注入不重建资源。
  */
-let appliedFrames: ReturnType<typeof prepareDecorationFrames> | null = null;
-let appliedController: AbortController | null = null;
+let appliedFrames: ReturnType<typeof manageDecorationAnimation> | null = null;
 let appliedGeneration = 0;
 let appliedKey = '';
 let appliedFailed = false;
@@ -960,15 +959,8 @@ export function applyDressSkin(
   appliedKey = key;
   appliedFailed = false;
   const generation = ++appliedGeneration;
-  const previousController = appliedController,
-    previousFrames = appliedFrames;
-  appliedController = new AbortController();
-  appliedFrames = prepareDecorationFrames(
-    appliedFrameUrls(bubble, font, widget),
-    appliedController.signal,
-  );
-  previousController?.abort();
-  previousFrames?.release();
+  const previousFrames = appliedFrames;
+  appliedFrames = null;
   // 不 await:注册完成后 document.fonts 变化会让浏览器自己重绘用到该 family 的文本,
   // 不需要我们再动 CSS。放在写 CSS 之前只是为了让下载早开始一点。
   if (font) void preloadFont(font);
@@ -977,6 +969,7 @@ export function applyDressSkin(
   const existing = document.getElementById(STYLE_ID);
 
   if (!bubble && !font && !widget) {
+    previousFrames?.release();
     existing?.remove();
     // 装扮全清了,在播的帧也要放回 LRU,否则旧款的帧会一直被钉着。
     return;
@@ -1001,12 +994,14 @@ export function applyDressSkin(
   const staticCss = css(false);
   if (node.textContent !== staticCss) node.textContent = staticCss;
 
-  // 换款/换作用范围都是整份重写,旧款的 `@keyframes` 已经不在样式表里了,旧的帧也
-  // 该放回 LRU。**先钉新的再放旧的**:同款重注入(每次 invalidate 都会走到这里)
-  // 反过来的话会先掉到 0 pin、被淘汰,再重新下载解码。
-  void appliedFrames.ready.then((ok) => {
-    if (ok && generation === appliedGeneration && node.isConnected) node.textContent = css(true);
+  appliedFrames = manageDecorationAnimation(appliedFrameUrls(bubble, font, widget), () => {
+    node.textContent = css(true);
+    return () => {
+      if (generation === appliedGeneration && node.isConnected) node.textContent = staticCss;
+    };
   });
+  // 同款交接先取得新 pin，再释放旧款；隐藏时仅移除动画，不撤销字体或静态外观。
+  previousFrames?.release();
   void Promise.all([appliedFrames.ready, registeredFace?.ready ?? true]).then((ready) => {
     if (generation === appliedGeneration) appliedFailed = !ready.every(Boolean);
   });

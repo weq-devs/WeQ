@@ -45,6 +45,10 @@ try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  await page.addInitScript(() => {
+    window.timelineWindowErrors = [];
+    window.addEventListener('error', (event) => window.timelineWindowErrors.push(event.message));
+  });
   await page.route('**/*', (route) =>
     new URL(route.request().url()).hostname === '127.0.0.1' ||
     route.request().url().startsWith('data:')
@@ -58,14 +62,90 @@ try {
   };
   const mounted = () => page.locator('.weq-virtual-timeline-row').count();
   assert((await mounted()) < 80, 'DOM grows with all 3000 messages');
+  for (const [loseCapture, theme, width] of [
+    [false, 'light', 1280],
+    [true, 'dark', 1280],
+    [true, 'light', 390],
+    [true, 'dark', 390],
+  ]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      window.timelineTest.jump('row-1050');
+      const scroll = document.querySelector('.message-scroll');
+      scroll.addEventListener(
+        'pointerdown',
+        (event) => {
+          window.timelinePointer = event.pointerId;
+        },
+        { once: true, capture: true },
+      );
+    }, theme);
+    await page.locator('.composer-editor[contenteditable="true"]').first().focus();
+    await page.waitForTimeout(100);
+    const firstBox = await page.locator('.message-scroll').boundingBox();
+    await page.mouse.move(firstBox.x + 4, firstBox.y + 45);
+    await page.mouse.down();
+    await page.mouse.move(firstBox.x + 30, firstBox.y + 250, { steps: 4 });
+    await page.locator('.weq-message-marquee').waitFor();
+    assert(
+      (await page.locator('.chat-pane.selection-mode').count()) === 0,
+      'Marquee entered selection mode before release',
+    );
+    if (loseCapture) {
+      await page.evaluate(() => {
+        const scroll = document.querySelector('.message-scroll');
+        scroll.releasePointerCapture(window.timelinePointer);
+        document.body.addEventListener('pointerup', (event) => event.stopPropagation(), {
+          once: true,
+        });
+      });
+      await page.mouse.move(firstBox.x + 30, firstBox.y + firstBox.height + 10);
+      assert(
+        (await page.locator('.weq-message-marquee').count()) === 1,
+        'Capture loss discarded the first marquee preview',
+      );
+    }
+    await page.mouse.up();
+    await page.locator('.chat-pane.selection-mode').waitFor();
+    assert(
+      (await page.evaluate(() => window.timelineTest.selected())).length > 0,
+      `First marquee lost its selection: ${theme}/${width}/${loseCapture}`,
+    );
+    await page.evaluate(() => window.timelineTest.exitSelection());
+    await page.locator('.composer-editor[contenteditable="true"]').first().waitFor();
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.evaluate(() => window.timelineTest.jump('row-1500'));
   await page.waitForSelector('[data-message-id="row-1500"]');
   await page.waitForTimeout(250);
   const anchor = await page.evaluate(() => window.timelineTest.capture());
   assert(anchor.anchorId, 'Missing reading anchor');
-  await page.evaluate(
-    (id) => window.timelineTest.grow(`row-${Number(id.slice(4)) - 1}`),
-    anchor.anchorId,
+  const resizeFrames = await page.evaluate(async (id) => {
+    const positions = [];
+    const target = `row-${Number(id.slice(4)) - 1}`;
+    // rAF 早于 ResizeObserver；在补偿回调后、绘制前检查同一帧的布局。
+    await new Promise((resolve) => {
+      const observer = new ResizeObserver(() => {
+        positions.push(window.timelineTest.capture());
+        observer.disconnect();
+        resolve();
+      });
+      observer.observe(document.querySelector(`[data-message-id="${target}"]`).parentElement);
+      window.timelineTest.grow(target);
+    });
+    for (let frame = 0; frame < 15; frame++) {
+      await new Promise(requestAnimationFrame);
+      positions.push(window.timelineTest.capture());
+    }
+    return positions;
+  }, anchor.anchorId);
+  assert(
+    resizeFrames.every(
+      (position) =>
+        position.anchorId === anchor.anchorId && Math.abs(position.offset - anchor.offset) < 3,
+    ),
+    `Resize compensation flashed a stale layout: ${JSON.stringify(resizeFrames)}`,
   );
   await page.waitForTimeout(250);
   const grown = await page.evaluate(() => window.timelineTest.capture());
@@ -227,7 +307,67 @@ try {
     `Hidden view lost reading anchor: ${JSON.stringify({ beforeHide, afterHide })}`,
   );
   await page.evaluate(() => {
+    window.timelineTest.exitSelection();
+    window.timelineTest.jump('row-2000');
+  });
+  await page.waitForTimeout(250);
+  await page.locator('.composer-editor[contenteditable="true"]').first().fill('离线发送滚动回归');
+  await page.getByRole('button', { name: '发送', exact: true }).first().click();
+  const distanceToEnd = () =>
+    page.evaluate(() => {
+      const scroll = document.querySelector('.message-scroll');
+      return scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop;
+    });
+  await page.waitForFunction(() => {
+    const scroll = document.querySelector('.message-scroll');
+    return scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 3;
+  });
+  await page.evaluate(() => window.timelineTest.flushRestore());
+  await page.waitForTimeout(250);
+  assert((await distanceToEnd()) < 3, 'Late refresh restored history after successful send');
+  await page.evaluate(() => window.timelineTest.queueRestore());
+  await page.locator('.message-scroll').hover();
+  await page.mouse.wheel(0, -900);
+  await page.waitForTimeout(250);
+  const afterWheel = await page.evaluate(() => window.timelineTest.capture());
+  await page.evaluate(() => window.timelineTest.flushRestore());
+  await page.waitForTimeout(150);
+  const afterLateRestore = await page.evaluate(() => window.timelineTest.capture());
+  assert(
+    afterLateRestore.anchorId === afterWheel.anchorId &&
+      Math.abs(afterLateRestore.offset - afterWheel.offset) < 3,
+    'Late layout compensation overrode wheel scrolling',
+  );
+  await page.evaluate(() => window.timelineTest.detachedWindow());
+  await page.locator('.composer-editor[contenteditable="true"]').first().fill('离线历史窗口发送');
+  await page.getByRole('button', { name: '发送', exact: true }).first().click();
+  await page
+    .waitForFunction(() => {
+      const scroll = document.querySelector('.message-scroll');
+      return (
+        document.querySelector('[data-total-items]')?.getAttribute('data-total-items') === '101' &&
+        scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 3
+      );
+    })
+    .catch(async (error) => {
+      console.error(
+        await page.evaluate(() => {
+          const scroll = document.querySelector('.message-scroll');
+          return {
+            count: document.querySelector('[data-total-items]')?.getAttribute('data-total-items'),
+            distance: scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop,
+            anchor: window.timelineTest.capture(),
+          };
+        }),
+      );
+      throw error;
+    });
+  await page.evaluate(() => window.timelineTest.flushRestore());
+  await page.waitForTimeout(250);
+  assert((await distanceToEnd()) < 3, 'Detached send restored history after latest-window swap');
+  await page.evaluate(() => {
     window.timelineTest.clearSelection();
+    window.timelineTest.setCount(3000);
     window.timelineTest.mixedRows();
   });
   await page.waitForTimeout(100);
@@ -290,8 +430,12 @@ try {
   }
   assert(errors.length === 0, `Browser errors: ${errors.join('; ')}`);
   const report = {
-    logicalMessages: 2997,
+    logicalMessages: Number(
+      await page.locator('[data-total-items]').getAttribute('data-total-items'),
+    ),
     mountedRows: await mounted(),
+    firstMarquee: true,
+    captureLossRecovery: true,
     anchor,
     restored,
     draggedRows: dragged.length,
@@ -302,8 +446,13 @@ try {
     copiedBoundaryMessages: true,
     playbackPinning: true,
     hideRestore: beforeHide.anchorId === afterHide.anchorId,
+    sendStayedAtLatest: true,
+    detachedSendStayedAtLatest: true,
+    wheelCancelledRestore: true,
+    resizeFrames: resizeFrames.length,
     gap: Boolean(gapId),
     screenshots,
+    windowErrors: await page.evaluate(() => window.timelineWindowErrors),
     errors,
   };
   if (output)

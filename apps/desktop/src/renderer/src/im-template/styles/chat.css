@@ -7,6 +7,8 @@
 }
 
 .chat-pane {
+  width: 100%;
+  min-width: 0;
   --chat-header-height: 40px;
   --group-info-panel-width: clamp(220px, 17vw, 248px);
   display: grid;
@@ -2784,6 +2786,11 @@ html[data-theme='dark'] .composer-send:disabled {
   border-radius: 10px;
   background: #ffffff;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.14);
+}
+/* 提及浮层必须越过消息区；移动端输入区的裁切不能吞掉可点击成员。 */
+.chat-pane > .composer:has(> .mention-menu) {
+  overflow: visible;
+  z-index: 2;
 }
 
 .mention-menu button {

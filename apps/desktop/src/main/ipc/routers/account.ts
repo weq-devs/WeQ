@@ -410,7 +410,9 @@ function essenceContentToWire(
 
 const analyticsRangeInput = z
   .object({
-    messageIds: z.array(z.string().regex(/^-?\d+$/)).optional(),
+    messageIds: z
+      .array(z.string().regex(/^(?:roaming:(?:(?:native|protocol):)?[1-9]\d*:)?-?\d+$/))
+      .optional(),
     startTime: z.number().int().safe().nonnegative().optional(),
     endTime: z.number().int().safe().nonnegative().optional(),
     expectedAccountUin: z.string().min(1).optional(),
@@ -1987,11 +1989,16 @@ export const accountRouter = router({
       ]) {
         if (m?.providerId) llmIds.add(m.providerId);
       }
-      const llmProviders: Array<{ id: string; baseUrl: string; apiKey: string }> = [];
+      const llmProviders: import('@weq/service').BotExportInput['llmProviders'] = [];
       for (const id of llmIds) {
         const p = cfg.getProvider(id);
         if (!p) throw new Error(`缺少 LLM provider 配置：${id}（请先在设置里配置该厂商）`);
-        llmProviders.push({ id: p.id, baseUrl: p.baseUrl, apiKey: p.apiKey });
+        llmProviders.push({
+          id: p.id,
+          baseUrl: p.baseUrl,
+          apiKey: p.apiKey,
+          ...(p.timeoutMs === undefined ? {} : { timeoutMs: p.timeoutMs }),
+        });
       }
       // 抽 TTS provider（若绑了语音克隆）。
       const ttsProviders = persona.voice?.providerId
@@ -4330,6 +4337,7 @@ export const accountRouter = router({
         activeId: services.roamingBackfill.running(),
         scanning: services.roamingBackfill.scanning(),
         historyVersion: 2,
+        supportsImmediateStart: true,
         onlineAllowed: access.attachEnabled,
         online: access.qqOnline && access.attachEnabled,
       };
@@ -4355,11 +4363,13 @@ export const accountRouter = router({
             .optional(),
           beforeOldest: z.boolean().default(false),
           intervalMs: z.number().int().min(500).max(60000).default(500),
+          startImmediately: z.boolean().default(false),
         }),
       )
       .mutation(({ input }) => {
         const services = requireServices();
-        return services.roamingBackfill.plan(input);
+        const { startImmediately, ...options } = input;
+        return services.roamingBackfill.plan(options, startImmediately);
       }),
     start: procedure
       .input(z.object({ id: z.string().uuid(), retryRemaining: z.boolean().default(false) }))

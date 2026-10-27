@@ -161,6 +161,7 @@ function persona(value: unknown, path: string, id: string): void {
   for (const key of ['id', 'ownerId', 'name', 'sourceId', 'sourceTitle'])
     text(item[key], `${path}.${key}`);
   if (item.customPrompt !== undefined) text(item.customPrompt, `${path}.customPrompt`);
+  if (item.trainedAt !== undefined) number(item.trainedAt, `${path}.trainedAt`);
   if (item.training !== undefined) {
     const training = row(item.training, `${path}.training`);
     if (training.mode !== 'private' && training.mode !== 'group') invalid(`${path}.training.mode`);

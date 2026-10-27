@@ -276,6 +276,11 @@ export class GapHistoryService {
     return includeHidden ? rows : rows.filter((row) => !this.deleted?.isHiddenCached(row));
   }
 
+  /** 仅枚举可见缓存会话，不联网；供即时分析目录发现缓存独有对象。 */
+  cachedConversations() {
+    return this.cache.listConversations();
+  }
+
   /** 删除入口需要读取精确缓存行，包括已隐藏记录。 */
   async cachedForDeletion(
     kind: 'c2c' | 'group',

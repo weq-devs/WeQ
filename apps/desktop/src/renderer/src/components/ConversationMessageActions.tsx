@@ -39,6 +39,8 @@ export function ConversationMessageActions({
 }) {
   const directory = useContext(ConversationDirectoryContext);
   const requestExport = useRequestContentExport();
+  const generated = Boolean(conversation.generated);
+  const unsupported = generated ? '克隆会话暂不支持此功能' : undefined;
   const exportSelection = conversationExportSelection(conversation);
   const target = conversationRoamingTarget(conversation);
   const active = useTabActive();
@@ -75,66 +77,85 @@ export function ConversationMessageActions({
           ? '已暂停'
           : undefined;
   const actions = [
-    ...(directory?.onAnalyze && conversationAnalysisTarget(conversation)
+    ...((directory?.onAnalyze && conversationAnalysisTarget(conversation)) || generated
       ? [
           {
             label: '分析',
             icon: <BarChart3 size={16} />,
-            action: () => directory.onAnalyze?.(conversation),
+            action: () => directory?.onAnalyze?.(conversation),
+            disabled: generated,
+            reason: unsupported,
           },
         ]
       : []),
-    ...(requestExport && exportSelection
+    ...((requestExport || generated) && exportSelection
       ? [
           {
             label: '导出',
             icon: <Download size={16} />,
-            action: () => requestExport(exportSelection),
+            action: () => requestExport?.(exportSelection),
+            disabled: !requestExport,
           },
         ]
       : []),
-    ...(requestExport && conversation.type === 'group' && target
+    ...((requestExport && conversation.type === 'group' && target) ||
+    (generated && conversation.type === 'group')
       ? [
           {
             label: '导出名单',
             icon: <Users size={16} />,
             action: () =>
-              requestExport({
+              requestExport?.({
                 owner: { kind: 'contacts', container: `group:${conversation.group.id}` },
                 scope: { type: 'all' },
               }),
+            disabled: generated,
+            reason: unsupported,
           },
         ]
       : []),
-    ...(target && onRoaming
+    ...((target && onRoaming) || generated
       ? [
           {
             label: '拉取漫游消息',
             icon: <CloudDownload size={16} />,
-            action: () => onRoaming(conversation),
+            action: () => onRoaming?.(conversation),
+            disabled: generated,
+            reason: unsupported,
           },
         ]
       : []),
-    ...(onRecalled
+    ...(onRecalled || generated
       ? [
           {
             label: '撤回列表',
             icon: <ListRestart size={16} />,
-            action: () => onRecalled(conversation),
+            action: () => onRecalled?.(conversation),
+            disabled: generated,
+            reason: unsupported,
           },
         ]
       : []),
-    ...(onDeleted
-      ? [{ label: '删除列表', icon: <ListX size={16} />, action: () => onDeleted(conversation) }]
+    ...(onDeleted || generated
+      ? [
+          {
+            label: '删除列表',
+            icon: <ListX size={16} />,
+            action: () => onDeleted?.(conversation),
+            disabled: generated,
+            reason: unsupported,
+          },
+        ]
       : []),
-    ...(onAdd
+    ...(onAdd || generated
       ? [
           {
             label: '添加本地消息',
             icon: <CirclePlus size={16} />,
             separatorBefore: Boolean(onRecalled || onDeleted || (target && onRoaming)),
             reason: '仅插入本地记录，不会发送给对方',
-            action: () => onAdd(conversation),
+            action: () => onAdd?.(conversation),
+            disabled: generated,
           },
         ]
       : []),

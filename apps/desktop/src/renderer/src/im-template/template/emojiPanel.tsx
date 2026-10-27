@@ -117,6 +117,7 @@ export function EmojiPanel({
   onSendPoke,
   randomFaces,
   onSendRandom,
+  textOnly = false,
 }: {
   panelRef: RefObject<HTMLDivElement | null>;
   /** 普通表情：插进输入框，可以和文字合成一条消息。 */
@@ -129,6 +130,8 @@ export function EmojiPanel({
   onSendPoke?: (draft: PokeEmojiDraft) => void;
   randomFaces?: React.ComponentProps<typeof PokeEmojiPanel>['randomFaces'];
   onSendRandom?: (draft: RandomFaceDraft) => void;
+  /** 纯文本会话不展示必须携带 QQ 媒体元素的表情来源。 */
+  textOnly?: boolean;
 }) {
   const [tab, setTab] = useState<TabId>('face');
   const [marketPackId, setMarketPackId] = useState<string | null>(null);
@@ -279,6 +282,7 @@ export function EmojiPanel({
             className={cn(id === tab ? 'active' : '')}
             title={label}
             aria-label={label}
+            disabled={textOnly && !['face', 'unicode', 'kaomoji'].includes(id)}
             aria-pressed={id === tab}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => setTab(id)}

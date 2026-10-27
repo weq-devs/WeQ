@@ -11,15 +11,17 @@
 
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { GroupMsgDb } from '@weq/db';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { GroupMsgDb, C2cMsgDb } from '@weq/db';
 import type { AppendMsgFields } from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 
 const GROUP = '777';
 /** 隔壁群，用来证明 MAX 不会跨会话串台。 */
 const OTHER_GROUP = '999';
+const sqlite = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
 let dir: string;
 let dbPath: string;
@@ -102,6 +104,114 @@ function sql() {
 }
 
 describe('appendClonedRow', () => {
+  it('入队时冻结 Buffer 正文快照，不受调用方后续修改影响', async () => {
+    createFixture();
+    const body = Buffer.from([1, 2, 3]);
+    const pending = db.appendMessage(GROUP, fields({ body }));
+    body[0] = 9;
+    const result = await pending;
+    const row = sql()
+      .prepare('SELECT "40800" FROM group_msg_table WHERE "40001" = ?')
+      .get(result!.msgId);
+    expect(Array.from(row?.['40800'] as Uint8Array)).toEqual([1, 2, 3]);
+  });
+  it('同库多个句柄并发追加时，序号唯一且返回真实落库值', async () => {
+    createFixture();
+    sql().exec('CREATE UNIQUE INDEX fixture_seq ON group_msg_table ("40027", "40003")');
+    const other = new GroupMsgDb(createSqliteStub(), { dbPath });
+    try {
+      const results = await Promise.all(
+        Array.from({ length: 12 }, (_, i) => (i % 2 ? db : other).appendMessage(GROUP, fields())),
+      );
+      expect(results.map((r) => r!.msgSeq).sort((a, b) => Number(a - b))).toEqual(
+        Array.from({ length: 12 }, (_, i) => BigInt(31 + i)),
+      );
+    } finally {
+      other.close();
+    }
+  });
+
+  it('私聊 UID 分区同样支持原子追加，不串入其他会话', async () => {
+    createFixture();
+    sql().exec(`CREATE TABLE c2c_msg_table AS SELECT * FROM group_msg_table;
+      ALTER TABLE c2c_msg_table ADD COLUMN "40021" TEXT;
+      UPDATE c2c_msg_table SET "40021" = 'synthetic-peer' WHERE "40027" = '777';`);
+    const c2c = new C2cMsgDb(createSqliteStub(), { dbPath });
+    try {
+      const results = await Promise.all([
+        c2c.appendMessage({ uid: 'synthetic-peer' }, fields()),
+        c2c.appendMessage({ uid: 'synthetic-peer' }, fields()),
+      ]);
+      expect(results.map((r) => r!.msgSeq)).toEqual([31n, 32n]);
+    } finally {
+      c2c.close();
+    }
+  });
+
+  it('序号达到 int64 上限时不写入浮点数或重复序号，失败后仍可继续', async () => {
+    createFixture();
+    sql().exec('UPDATE group_msg_table SET "40003" = 9223372036854775807 WHERE "40003" = 30');
+    await expect(db.appendMessage(GROUP, fields())).rejects.toThrow('上限');
+    expect(
+      sql().prepare('SELECT COUNT(*) AS n FROM group_msg_table WHERE "40027" = ?').get(GROUP)?.n,
+    ).toBe(3);
+    sql().exec('UPDATE group_msg_table SET "40003" = 30 WHERE "40003" = 9223372036854775807');
+    expect((await db.appendMessage(GROUP, fields()))?.msgSeq).toBe(31n);
+  });
+
+  it('模板读取后外部连接写入更高序号，追加仍从写入时的 MAX 分配', async () => {
+    createFixture();
+    const nt = createSqliteStub();
+    const write = nt.executeSqlWrite.bind(nt);
+    nt.executeSqlWrite = async (...args) => {
+      const external = new sqlite.DatabaseSync(dbPath);
+      try {
+        external
+          .prepare(
+            'UPDATE group_msg_table SET "40003" = 90, "42000" = ? WHERE "40027" = ? AND "40003" = 30',
+          )
+          .run('external', GROUP);
+      } finally {
+        external.close();
+      }
+      return write(...args);
+    };
+    const other = new GroupMsgDb(nt, { dbPath });
+    try {
+      const result = await other.appendMessage(GROUP, fields());
+      expect(result?.msgSeq).toBe(91n);
+      const row = sql()
+        .prepare('SELECT "42000" FROM group_msg_table WHERE "40001" = ?')
+        .get(result!.msgId);
+      expect(row?.['42000']).toBe('external');
+    } finally {
+      other.close();
+    }
+  });
+
+  it('写入已提交但回读失败时明确报错，不重放 INSERT，队列继续可用', async () => {
+    createFixture();
+    const nt = createSqliteStub();
+    const read = nt.executeSql.bind(nt);
+    const write = vi.spyOn(nt, 'executeSqlWrite');
+    nt.executeSql = async (...args) => {
+      if (write.mock.calls.length === 1 && args[1].includes('"40002" = ?'))
+        throw new Error('合成回读故障');
+      return read(...args);
+    };
+    const other = new GroupMsgDb(nt, { dbPath });
+    try {
+      await expect(other.appendMessage(GROUP, fields())).rejects.toThrow();
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(
+        sql().prepare('SELECT COUNT(*) AS n FROM group_msg_table WHERE "40027" = ?').get(GROUP)?.n,
+      ).toBe(4);
+      expect((await other.appendMessage(GROUP, fields()))?.msgSeq).toBe(32n);
+    } finally {
+      other.close();
+    }
+  });
+
   it('takes the new seq from MAX(40003) + 1, not from the newest row', async () => {
     createFixture();
 

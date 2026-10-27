@@ -103,6 +103,7 @@ export function MessageBubble({
   reactionInteraction,
   repeatAction,
   pendingAction,
+  avatarBadge,
 }: {
   message: Message;
   conversation: Conversation;
@@ -163,6 +164,8 @@ export function MessageBubble({
   reactionInteraction?: ReactionInteraction;
   repeatAction?: import('react').ReactNode;
   pendingAction?: import('react').ReactNode;
+  /** 本地克隆等展示标识，不改变发送者或 QQ 消息能力。 */
+  avatarBadge?: import('react').ReactNode;
 }) {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -390,6 +393,9 @@ export function MessageBubble({
         selected && 'is-selected',
       )}
       data-message-id={message.id}
+      data-generated-message-id={
+        conversation.generated && !message.generatedPending ? message.id : undefined
+      }
       data-weq-select-id={selectionMode ? message.id : undefined}
       tabIndex={selectionMode ? 0 : undefined}
       onClickCapture={
@@ -429,6 +435,7 @@ export function MessageBubble({
               seed={senderSeed}
               widget={lineWidget}
             />
+            {avatarBadge}
           </button>
         ) : (
           <span
@@ -443,6 +450,7 @@ export function MessageBubble({
               seed={senderSeed}
               widget={lineWidget}
             />
+            {avatarBadge}
           </span>
         )
       ) : null}
@@ -466,7 +474,28 @@ export function MessageBubble({
           {showSenderName ? (
             <span className={cn('message-name')}>
               {conversation.type === 'group' ? <GroupMessageBadge member={sender} /> : null}
-              <span data-privacy-sensitive>{senderName}</span>
+              {onAvatarClick && conversation.generated ? (
+                <button
+                  type="button"
+                  className="weq-message-name-profile"
+                  title="查看资料"
+                  aria-label={`查看 ${senderName} 的名片`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    onAvatarClick(
+                      sender,
+                      event.detail === 0
+                        ? { x: rect.right, y: rect.bottom }
+                        : { x: event.clientX, y: event.clientY },
+                    );
+                  }}
+                >
+                  <span data-privacy-sensitive>{senderName}</span>
+                </button>
+              ) : (
+                <span data-privacy-sensitive>{senderName}</span>
+              )}
               {senderKind === 'bot' ? (
                 <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
                   <Bot size={12} strokeWidth={2.4} />

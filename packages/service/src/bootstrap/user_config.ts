@@ -567,6 +567,8 @@ export interface AppSettings {
   showContactUnreadCount: boolean;
   /** 进入会话时恢复阅读位置，从第一条新消息继续阅读。 */
   readFromFirstUnread: boolean;
+  /** 停留在消息底部时自动跟随新消息。 */
+  autoFollowLatestMessages: boolean;
   /** 发送成功后定位到当前会话的最新消息。 */
   jumpToLatestAfterSend: boolean;
   /** 向下浏览消息时显示定位到底部按钮，不影响新消息提醒。 */
@@ -865,6 +867,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showContactUnreadCount: false,
   readFromFirstUnread: false,
   jumpToLatestAfterSend: true,
+  autoFollowLatestMessages: true,
   showScrollToBottomButton: true,
   chatImageCacheMiB: DEFAULT_CHAT_IMAGE_CACHE_MIB,
   sendWithQqFont: true,
@@ -1408,6 +1411,7 @@ export class UserConfigService {
       showContactUnreadCount: s?.showContactUnreadCount ?? d.showContactUnreadCount,
       readFromFirstUnread: s?.readFromFirstUnread ?? d.readFromFirstUnread,
       jumpToLatestAfterSend: s?.jumpToLatestAfterSend ?? d.jumpToLatestAfterSend,
+      autoFollowLatestMessages: s?.autoFollowLatestMessages ?? d.autoFollowLatestMessages,
       showScrollToBottomButton: s?.showScrollToBottomButton ?? d.showScrollToBottomButton,
       chatImageCacheMiB: normalizeChatImageCacheMiB(s?.chatImageCacheMiB),
       sendWithQqFont: s?.sendWithQqFont ?? d.sendWithQqFont,
@@ -1526,6 +1530,7 @@ export class UserConfigService {
       showContactUnreadCount: patch.showContactUnreadCount ?? current.showContactUnreadCount,
       readFromFirstUnread: patch.readFromFirstUnread ?? current.readFromFirstUnread,
       jumpToLatestAfterSend: patch.jumpToLatestAfterSend ?? current.jumpToLatestAfterSend,
+      autoFollowLatestMessages: patch.autoFollowLatestMessages ?? current.autoFollowLatestMessages,
       showScrollToBottomButton: patch.showScrollToBottomButton ?? current.showScrollToBottomButton,
       chatImageCacheMiB: normalizeChatImageCacheMiB(
         patch.chatImageCacheMiB ?? current.chatImageCacheMiB,

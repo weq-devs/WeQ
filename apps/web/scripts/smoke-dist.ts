@@ -10,20 +10,19 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { createServer } from 'node:net';
+import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { currentTarget, RESVG_BINDINGS } from './platform.mjs';
+import { validateRuntimeMetadata, readRuntimeSource } from './runtime-deps.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const dist = resolve(here, '../dist');
-
-/** Scratch dir for the run's logs/exports, so dist/ stays exactly as built. */
-const smokeScratch = mkdtempSync(join(tmpdir(), 'weq-smoke-'));
+const dist = resolve(process.env.WEQ_WEB_DIST ?? resolve(here, '../dist'));
 
 const TOKEN = 'smoke-dist-token';
-const PORT = 39955;
 
 let failed = 0;
 function check(ok: boolean, label: string): void {
@@ -50,6 +49,7 @@ for (const entry of [
 // Every platform/arch gets its own archive, built on its own runner. This run
 // only has to prove the packaging target's artifacts are present.
 const target = currentTarget();
+const runtimeSource = readRuntimeSource(resolve(here, '../../..'));
 const [platform, arch] = target.split('-');
 check(existsSync(join(dist, 'native', platform!, arch!)), `native/${platform}/${arch} shipped`);
 
@@ -57,7 +57,15 @@ check(!existsSync(join(dist, 'resources', 'daemon')), 'no independent daemon shi
 
 // The release ships node_modules pre-installed. If a local build skipped that
 // step, run it here — the server won't start without it.
-if (!existsSync(join(dist, 'node_modules'))) {
+let runtimeReady = false;
+if (existsSync(join(dist, 'node_modules'))) {
+  try {
+    runtimeReady = validateRuntimeMetadata(dist, runtimeSource).target === target;
+  } catch {
+    /* 旧构建需离线重建依赖。 */
+  }
+}
+if (!runtimeReady) {
   console.log('installing runtime deps into dist/…');
   const install = spawnSync(process.execPath, [join(here, 'install-runtime-deps.mjs')], {
     stdio: 'inherit',
@@ -67,17 +75,31 @@ if (!existsSync(join(dist, 'node_modules'))) {
     process.exit(1);
   }
 }
+check(
+  validateRuntimeMetadata(dist, runtimeSource).target === target,
+  'frozen runtime dependency manifest matches platform',
+);
 
 // resvg picks its binding by platform at require() time; the single-platform
 // archive only needs the matching one.
 const resvgBinding = RESVG_BINDINGS[target];
 check(existsSync(join(dist, 'node_modules', resvgBinding)), `${resvgBinding} shipped`);
 
+const portProbe = createServer();
+await new Promise<void>((done) => portProbe.listen(0, '127.0.0.1', done));
+const address = portProbe.address();
+if (!address || typeof address === 'string') throw new Error('冒烟端口分配失败');
+const PORT = address.port;
+await new Promise<void>((done) => portProbe.close(() => done()));
+/** 仅本轮日志与导出临时目录，进程退出后清理。 */
+const smokeScratch = mkdtempSync(join(tmpdir(), 'weq-smoke-'));
+
 const server = spawn(process.execPath, [join(dist, 'server.mjs')], {
   cwd: dist,
   env: {
     ...process.env,
     WEQ_TOKEN: TOKEN,
+    WEQ_HOST: '127.0.0.1',
     WEQ_PORT: String(PORT),
     // Keep the run's droppings out of dist/, which is about to be tarballed.
     WEQ_DATA_DIR: join(smokeScratch, 'weq-data'),
@@ -87,15 +109,25 @@ const server = spawn(process.execPath, [join(dist, 'server.mjs')], {
 });
 
 let stderr = '';
+let base = '';
+let startup = '';
 server.stderr.on('data', (c: Buffer) => {
-  stderr += c.toString();
+  stderr = (stderr + c.toString()).slice(-16384);
 });
-
-const base = `http://127.0.0.1:${PORT}`;
+server.stdout.setEncoding('utf8');
+server.stdout.on('data', (chunk: string) => {
+  startup = (startup + chunk).slice(-4096);
+  const match = /WeQ Web\s+→\s+(http:\/\/127\.0\.0\.1:\d+)/u.exec(startup);
+  if (match) base = match[1]!;
+});
 
 async function waitForServer(): Promise<boolean> {
   for (let i = 0; i < 40; i++) {
     if (server.exitCode !== null) return false;
+    if (!base) {
+      await new Promise((r) => setTimeout(r, 100));
+      continue;
+    }
     try {
       await fetch(base, { headers: { accept: 'text/html' } });
       return true;
@@ -111,7 +143,7 @@ try {
   check(up, 'packaged server boots under plain Node');
   if (!up) {
     console.error(`\nserver output:\n${stderr}`);
-    process.exit(1);
+    throw new Error('打包服务未能启动');
   }
 
   // Pre-auth: closed, but a browser navigation gets the login form.
@@ -160,8 +192,21 @@ try {
   );
 
   console.log(failed === 0 ? '\nALL PASS' : `\n${failed} FAILED`);
+} catch (error) {
+  failed++;
+  console.error(error instanceof Error ? error.message : '打包服务冒烟失败');
 } finally {
-  server.kill();
+  if (server.exitCode === null && server.signalCode === null) {
+    const exited = once(server, 'exit');
+    server.kill();
+    const force = setTimeout(() => server.kill('SIGKILL'), 2000);
+    try {
+      await exited;
+    } finally {
+      clearTimeout(force);
+    }
+  }
+  rmSync(smokeScratch, { recursive: true, force: true });
 }
 
-process.exit(failed === 0 ? 0 : 1);
+process.exitCode = failed === 0 ? 0 : 1;

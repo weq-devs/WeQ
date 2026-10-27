@@ -2,10 +2,19 @@ import type { RoamingTarget } from '@weq/service';
 import type { ContentSelection } from '../../../shared/content_selection';
 import type { Conversation } from '../im-template/template/types';
 import type { AnalysisTarget } from '../views/analysis/model';
+import { generatedContentContainer } from '../../../shared/content_selection';
 
 export function conversationExportSelection(
   conversation?: Conversation | null,
 ): ContentSelection | null {
+  if (conversation?.generated)
+    return {
+      owner: {
+        kind: conversation.generated.kind === 'assistant' ? 'assistant-messages' : 'clone-messages',
+        container: generatedContentContainer(conversation.generated),
+      },
+      scope: { type: 'all' },
+    };
   if (
     !conversation ||
     conversation.id.startsWith('virtual:') ||
@@ -21,7 +30,8 @@ export function conversationExportSelection(
 export function conversationAnalysisTarget(
   conversation?: Conversation | null,
 ): AnalysisTarget | null {
-  if (!conversation || conversation.id.startsWith('virtual:')) return null;
+  if (!conversation || conversation.generated || conversation.id.startsWith('virtual:'))
+    return null;
   if (conversation.type === 'group') return { kind: 'group', groupCode: conversation.group.id };
   if (conversation.type === 'direct' && conversation.otherUser.id.startsWith('u_'))
     return { kind: 'buddy', peerUid: conversation.otherUser.id };
@@ -31,7 +41,8 @@ export function conversationAnalysisTarget(
 export function conversationRoamingTarget(
   conversation?: Conversation | null,
 ): RoamingTarget | null {
-  if (!conversation || conversation.id.startsWith('virtual:')) return null;
+  if (!conversation || conversation.generated || conversation.id.startsWith('virtual:'))
+    return null;
   if (
     conversation.type === 'group' &&
     /^[1-9]\d*$/.test(conversation.group.id) &&

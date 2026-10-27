@@ -76,6 +76,7 @@ import {
 } from './app_quit_lifecycle';
 import { registerAppQuitConfirmation, type QuitChoice } from './app_quit_confirmation';
 import { createRendererRecovery } from './renderer_recovery';
+import { registerRendererRecoveryIpc } from './renderer_recovery_ipc';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
 import { macApplicationMenu, nativeMenuLabels } from './application_menu';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
@@ -140,6 +141,7 @@ let tray: Tray | null = null;
 let isQuitting = false;
 let stopRendererDiagnostics: (() => void) | null = null;
 let mainWindowRequested = false;
+const rendererRecoveries = new Map<number, ReturnType<typeof createRendererRecovery>>();
 
 const mainWindowLifecycle = createMainWindowLifecycle({
   canOpen: () => mainIpcHandler !== null && !isQuitting,
@@ -543,6 +545,7 @@ function createWindow(showInitially = true): BrowserWindow {
   });
 
   const recovery = createRendererRecovery({
+    automatic: true,
     unavailable: () => win.isDestroyed() || win.webContents.isDestroyed(),
     quitting: () => isQuitting,
     showDialog: async () => {
@@ -551,7 +554,7 @@ function createWindow(showInitially = true): BrowserWindow {
         title: 'WeQ 界面已停止运行',
         message: '界面进程意外退出，后台进程仍在运行。',
         detail:
-          '可以重新加载界面或退出 WeQ。未保存的界面内容可能丢失；已提交操作的结果可能尚未显示，请先核对，不要直接重复提交。重新加载不会自动重发操作。',
+          '自动恢复未成功、短时间内再次退出或此类退出需要手动处理。可以重新加载界面或退出 WeQ。未保存的界面内容可能丢失；已提交操作的结果可能尚未显示，请先核对，不要直接重复提交。重新加载不会自动重发操作。',
         buttons: ['重新加载界面', '退出 WeQ', '稍后处理'],
         defaultId: 0,
         cancelId: 2,
@@ -571,8 +574,16 @@ function createWindow(showInitially = true): BrowserWindow {
       }),
   });
   win.webContents.on('render-process-gone', (_event, details) => recovery.gone(details));
+  rendererRecoveries.set(win.webContents.id, recovery);
   win.webContents.on('did-finish-load', () => recovery.loaded());
-  win.once('closed', () => recovery.dispose());
+  win.webContents.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
+    if (isMainFrame && code !== -3) recovery.failed();
+  });
+  const recoveryId = win.webContents.id;
+  win.once('closed', () => {
+    rendererRecoveries.delete(recoveryId);
+    recovery.dispose();
+  });
 
   installStartupWindowReveal(win, showInitially);
 
@@ -782,6 +793,9 @@ void app.whenReady().then(async () => {
   registerMediaIpc();
   registerMediaExportIpc();
   registerLogIpc();
+  registerRendererRecoveryIpc((sender) =>
+    sender === getMainWindow()?.webContents ? rendererRecoveries.get(sender.id) : undefined,
+  );
   registerSystemAuthIpc();
   registerTotpIpc();
   // 启动时立即在后台探测 Windows Hello 可用性，避免 UI 首次调用时卡顿。

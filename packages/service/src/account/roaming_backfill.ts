@@ -399,7 +399,7 @@ export class RoamingBackfillManager {
       throw new Error('当前账号已有批量补全在运行或收尾。');
   }
 
-  async plan(options: RoamingJobOptions) {
+  async plan(options: RoamingJobOptions, startImmediately = false) {
     this.idle();
     if (options.transport === 'native500') throw Error('SDK 历史通道已移除，请新建纯协议任务。');
     if (options.transport === 'sso500' || options.transport === 'sso30')
@@ -424,6 +424,7 @@ export class RoamingBackfillManager {
         });
       }
       const now = Date.now();
+      const noGaps = startImmediately && targets.every((target) => target.ranges.length === 0);
       const job: RoamingJob = {
         id: randomUUID(),
         source: this.deps.source,
@@ -431,7 +432,7 @@ export class RoamingBackfillManager {
         options: copy(options),
         createdAt: now,
         updatedAt: now,
-        status: 'planned',
+        status: noGaps ? 'completed' : 'planned',
         targets,
         requests: 0,
         checkedWindows: 0,
@@ -440,7 +441,9 @@ export class RoamingBackfillManager {
         errors: 0,
         unparsedOrEmpty: 0,
         attempts: [],
-        note: '仅扫描本地锚点，未发起在线拉取。',
+        note: noGaps
+          ? '所选范围未发现可补全的候选缺口；无本地锚点的历史覆盖未知，不代表全部历史完整。'
+          : '仅扫描本地锚点，未发起在线拉取。',
       };
       if (this.jobs.length >= 10) throw new Error('最多保留 10 个任务，请先移除已结束的任务。');
       this.jobs.push(job);
@@ -449,6 +452,11 @@ export class RoamingBackfillManager {
       } catch (e) {
         this.jobs.pop();
         throw e;
+      }
+      if (startImmediately && !noGaps) {
+        // 同一次提交内交接运行锁，不依赖配置窗口继续存活。
+        this.planning = false;
+        return this.start(job.id);
       }
       return roamingJobSummary(job);
     } finally {

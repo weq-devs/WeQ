@@ -1,13 +1,8 @@
 /**
  * bot 侧的 store 实现（JSON 落盘），满足 AgentRuntime 的各 Sink 接口。
- * 数据落在产物的 data/ 目录，**重启不丢**记忆/关系/对话历史。
- *
- * TODO(技术债)：与 service 的 JSON store（agentlab_memory/notes/conversation/relation_store）逻辑重复，
- * 未来可把它们下沉到 @weq/agentlab 共用（唯一障碍：ConversationStore 的 steps 依赖 service 的 AssistantStep，需泛化）。
+ * 数据落在产物的 data/ 目录；损坏原件拒绝加载，原子保存成功后才发布内存变更。
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
 import {
   keywordsOf,
   makeBaseRelation,
@@ -23,77 +18,130 @@ import {
   type NotesSink,
   type UsageSink,
 } from '@weq/agentlab';
+import { BotJsonFile, isDictionary, isRecord, isStrings, isNumber, own } from './json_file';
 
 const MAX_TURNS = 400;
 const MAX_MEMORIES = 200;
 
-function loadJson<T>(filePath: string, fallback: T): T {
-  try {
-    if (!existsSync(filePath)) return fallback;
-    return JSON.parse(readFileSync(filePath, 'utf-8')) as T;
-  } catch {
-    return fallback;
-  }
+function isTurns(raw: unknown): raw is ConversationTurnLike[] {
+  return (
+    Array.isArray(raw) &&
+    raw.every(
+      (t) =>
+        isRecord(t) &&
+        (t.role === 'user' || t.role === 'assistant') &&
+        typeof t.text === 'string' &&
+        isNumber(t.ts),
+    )
+  );
 }
-
-function saveJson(filePath: string, data: unknown): void {
-  try {
-    mkdirSync(dirname(filePath), { recursive: true });
-    writeFileSync(filePath, JSON.stringify(data), 'utf-8');
-  } catch {
-    /* 落盘失败不阻断聊天 */
-  }
+function isMemories(raw: unknown): raw is AgentLabMemoryItem[] {
+  return (
+    Array.isArray(raw) &&
+    raw.every(
+      (m) =>
+        isRecord(m) &&
+        typeof m.id === 'string' &&
+        typeof m.text === 'string' &&
+        isStrings(m.keywords) &&
+        isNumber(m.accessCount) &&
+        isNumber(m.createdAt) &&
+        isNumber(m.lastAccessedAt) &&
+        (m.embedding === undefined ||
+          (Array.isArray(m.embedding) && m.embedding.every(isNumber))) &&
+        (m.aboutId === undefined || typeof m.aboutId === 'string') &&
+        (m.aboutKind === undefined || m.aboutKind === 'user' || m.aboutKind === 'persona'),
+    )
+  );
+}
+function isNotes(raw: unknown): raw is AgentLabPersonaNotes {
+  return isRecord(raw) && isStrings(raw.corrections) && isStrings(raw.episodes);
+}
+interface NotesData {
+  notes?: Record<string, AgentLabPersonaNotes>;
+  reflected?: Record<string, number>;
+}
+function isNotesData(raw: unknown): raw is NotesData {
+  return (
+    isRecord(raw) &&
+    Object.keys(raw).every((key) => key === 'notes' || key === 'reflected') &&
+    (raw.notes === undefined || isDictionary(raw.notes, isNotes)) &&
+    (raw.reflected === undefined ||
+      isDictionary(raw.reflected, (n): n is number => isNumber(n) && n >= 0 && Number.isInteger(n)))
+  );
+}
+function isRelation(raw: unknown): raw is AgentLabRelation {
+  return (
+    isRecord(raw) &&
+    typeof raw.subjectPersonaId === 'string' &&
+    typeof raw.objectId === 'string' &&
+    (raw.objectKind === 'user' || raw.objectKind === 'persona') &&
+    [
+      raw.affinity,
+      raw.familiarity,
+      raw.mood,
+      raw.interactionCount,
+      raw.lastInteractAt,
+      raw.updatedAt,
+    ].every(isNumber)
+  );
 }
 
 export class JsonConversationStore implements ConversationSink {
-  private readonly data: Record<string, ConversationTurnLike[]>;
-  constructor(private readonly filePath: string) {
-    this.data = loadJson<Record<string, ConversationTurnLike[]>>(filePath, {});
+  private readonly file: BotJsonFile<Record<string, ConversationTurnLike[]>>;
+  constructor(filePath: string) {
+    this.file = new BotJsonFile(
+      filePath,
+      () => ({}),
+      (raw): raw is Record<string, ConversationTurnLike[]> => isDictionary(raw, isTurns),
+    );
   }
   get(agentId: string): ConversationTurnLike[] {
-    return this.data[agentId] ?? [];
+    return structuredClone(own(this.file.data, agentId) ?? []);
   }
   getAll(prefix: string): ConversationTurnLike[] {
     const prefixWithColon = `${prefix}:`;
     const out: ConversationTurnLike[] = [];
-    for (const key of Object.keys(this.data)) {
-      if (key === prefix || key.startsWith(prefixWithColon)) out.push(...(this.data[key] ?? []));
+    for (const key of Object.keys(this.file.data)) {
+      if (key === prefix || key.startsWith(prefixWithColon)) out.push(...this.get(key));
     }
     return out.sort((a, b) => a.ts - b.ts);
   }
   append(agentId: string, turns: ConversationTurnLike[]): void {
-    const next = [...(this.data[agentId] ?? []), ...turns];
-    this.data[agentId] = next.length > MAX_TURNS ? next.slice(next.length - MAX_TURNS) : next;
-    saveJson(this.filePath, this.data);
+    const next = [...this.get(agentId), ...turns];
+    this.file.replace({ ...this.file.data, [agentId]: next.slice(-MAX_TURNS) });
   }
 }
 
 export class JsonMemoryStore implements MemorySink {
-  private readonly data: Record<string, AgentLabMemoryItem[]>;
-  constructor(private readonly filePath: string) {
-    this.data = loadJson<Record<string, AgentLabMemoryItem[]>>(filePath, {});
+  private readonly file: BotJsonFile<Record<string, AgentLabMemoryItem[]>>;
+  constructor(filePath: string) {
+    this.file = new BotJsonFile(
+      filePath,
+      () => ({}),
+      (raw): raw is Record<string, AgentLabMemoryItem[]> => isDictionary(raw, isMemories),
+    );
   }
   get(personaId: string): AgentLabMemoryItem[] {
-    return this.data[personaId] ?? [];
+    return structuredClone(own(this.file.data, personaId) ?? []);
   }
   getAbout(personaId: string, aboutIds: string[], includeUntagged = false): AgentLabMemoryItem[] {
     const ids = new Set(aboutIds);
-    return (this.data[personaId] ?? []).filter((m) =>
-      m.aboutId ? ids.has(m.aboutId) : includeUntagged,
-    );
+    return this.get(personaId).filter((m) => (m.aboutId ? ids.has(m.aboutId) : includeUntagged));
   }
   touch(personaId: string, ids: string[], now: number): void {
     if (ids.length === 0) return;
     const idSet = new Set(ids);
     let changed = false;
-    for (const m of this.data[personaId] ?? []) {
+    const next = this.get(personaId);
+    for (const m of next) {
       if (idSet.has(m.id)) {
         m.accessCount += 1;
         m.lastAccessedAt = now;
         changed = true;
       }
     }
-    if (changed) saveJson(this.filePath, this.data);
+    if (changed) this.file.replace({ ...this.file.data, [personaId]: next });
   }
   add(
     personaId: string,
@@ -102,7 +150,7 @@ export class JsonMemoryStore implements MemorySink {
     about?: { aboutId: string; aboutKind: 'user' | 'persona' },
     embeddings?: Array<number[] | undefined>,
   ): void {
-    const cur = this.data[personaId] ?? [];
+    const cur = this.get(personaId);
     const seen = new Set(cur.map((m) => `${m.aboutId ?? ''} ${m.text}`));
     let added = 0;
     texts.forEach((raw, i) => {
@@ -126,63 +174,65 @@ export class JsonMemoryStore implements MemorySink {
       });
       added += 1;
     });
-    this.data[personaId] = cur.slice(-MAX_MEMORIES);
-    if (added > 0) saveJson(this.filePath, this.data);
+    if (added > 0) this.file.replace({ ...this.file.data, [personaId]: cur.slice(-MAX_MEMORIES) });
   }
 }
 
 export class JsonNotesStore implements NotesSink {
-  private readonly notes: Record<string, AgentLabPersonaNotes>;
-  private readonly reflected: Record<string, number>;
-  constructor(private readonly filePath: string) {
-    const loaded = loadJson<{
-      notes?: Record<string, AgentLabPersonaNotes>;
-      reflected?: Record<string, number>;
-    }>(filePath, {});
-    this.notes = loaded.notes ?? {};
-    this.reflected = loaded.reflected ?? {};
+  private readonly file: BotJsonFile<NotesData>;
+  constructor(filePath: string) {
+    this.file = new BotJsonFile(filePath, () => ({}), isNotesData);
   }
   get(personaId: string): AgentLabPersonaNotes {
-    return this.notes[personaId] ?? { corrections: [], episodes: [] };
+    return structuredClone(
+      own(this.file.data.notes ?? {}, personaId) ?? { corrections: [], episodes: [] },
+    );
   }
   getReflectedCount(personaId: string): number {
-    return this.reflected[personaId] ?? 0;
+    return own(this.file.data.reflected ?? {}, personaId) ?? 0;
   }
   setReflectedCount(personaId: string, count: number): void {
-    this.reflected[personaId] = count;
-    this.persist();
+    this.file.replace({
+      ...this.file.data,
+      reflected: { ...this.file.data.reflected, [personaId]: count },
+    });
   }
   add(personaId: string, corrections: string[], episode: string): void {
     const cur = this.get(personaId);
-    this.notes[personaId] = {
+    const next = {
       corrections: Array.from(new Set([...cur.corrections, ...corrections])).slice(-20),
       episodes: (episode ? [...cur.episodes, episode] : cur.episodes).slice(-8),
     };
-    this.persist();
-  }
-  private persist(): void {
-    saveJson(this.filePath, { notes: this.notes, reflected: this.reflected });
+    this.file.replace({ ...this.file.data, notes: { ...this.file.data.notes, [personaId]: next } });
   }
 }
 
 /** 克隆体对群友的关系态（JSON 落盘，M3 群聊用，重启保持）。 */
 export class JsonRelationStore implements AgentLabRelationStore {
-  private readonly data: Record<string, AgentLabRelation>;
-  constructor(private readonly filePath: string) {
-    this.data = loadJson<Record<string, AgentLabRelation>>(filePath, {});
+  private readonly file: BotJsonFile<Record<string, AgentLabRelation>>;
+  constructor(filePath: string) {
+    this.file = new BotJsonFile(
+      filePath,
+      () => ({}),
+      (raw): raw is Record<string, AgentLabRelation> => isDictionary(raw, isRelation),
+    );
   }
   private key(subjectPersonaId: string, objectId: string): string {
     return `${subjectPersonaId} ${objectId}`;
   }
   get(subjectPersonaId: string, objectId: string): AgentLabRelation | null {
-    return this.data[this.key(subjectPersonaId, objectId)] ?? null;
+    return structuredClone(own(this.file.data, this.key(subjectPersonaId, objectId)) ?? null);
   }
   listForSubject(subjectPersonaId: string): AgentLabRelation[] {
-    return Object.values(this.data).filter((r) => r.subjectPersonaId === subjectPersonaId);
+    return structuredClone(
+      Object.values(this.file.data).filter((r) => r.subjectPersonaId === subjectPersonaId),
+    );
   }
   upsert(relation: AgentLabRelation): void {
-    this.data[this.key(relation.subjectPersonaId, relation.objectId)] = relation;
-    saveJson(this.filePath, this.data);
+    this.file.replace({
+      ...this.file.data,
+      [this.key(relation.subjectPersonaId, relation.objectId)]: relation,
+    });
   }
   applyDelta(
     subjectPersonaId: string,

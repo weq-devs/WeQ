@@ -226,6 +226,14 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+.weq-roaming-grid > .weq-roaming-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
 .weq-roaming-card {
   display: flex;
   flex-direction: column;
@@ -514,49 +522,9 @@
   min-width: 0;
 }
 
-/* 左列的任务概览：把三个决定性参数先摊开，免得半边全是空白。 */
-.weq-roaming-overview {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  margin: 0;
-  padding: 2px 10px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--weq-bg-surface) 34%, transparent);
-}
-.weq-roaming-overview > div {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 7px 0;
-  border-bottom: 1px dashed var(--weq-border-subtle);
-}
-.weq-roaming-overview > div:last-child {
-  border-bottom: 0;
-}
-.weq-roaming-overview dt {
-  flex: none;
-  color: var(--weq-fg-muted);
-  font-size: 11px;
-}
-.weq-roaming-overview dd {
-  margin: 0;
-  min-width: 0;
-  color: var(--weq-fg-primary);
-  font-size: 11.5px;
-  font-weight: 500;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
 .weq-roaming-scope-calendar {
   min-width: 0;
   padding: 8px 8px 6px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--weq-bg-surface) 36%, transparent);
 }
 
 /* 导出页日历：这里只收一下尺寸与外边距，密度色阶 / 选中态完全复用。 */
@@ -587,18 +555,24 @@
   font-size: 10.5px;
 }
 
-.weq-roaming-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.weq-roaming-advanced {
   min-width: 0;
+  border-top: 1px solid var(--weq-border-subtle);
+  padding-top: 8px;
 }
-.weq-roaming-scope.is-fixed .weq-roaming-fields {
-  flex-direction: row;
-  align-items: flex-end;
+.weq-roaming-advanced > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+  list-style: none;
 }
-.weq-roaming-scope.is-fixed .weq-roaming-fields > * {
-  flex: 1 1 0;
+.weq-roaming-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.weq-roaming-advanced > .weq-roaming-field {
+  margin-top: 10px;
 }
 .weq-roaming-field {
   display: grid;
@@ -1025,14 +999,19 @@ html[data-theme='dark'] .weq-roaming-search,
 html[data-theme='dark'] .weq-roaming-range-summary,
 html[data-theme='dark'] .weq-roaming-fixed-targets,
 html[data-theme='dark'] .weq-roaming-stats,
-html[data-theme='dark'] .weq-roaming-overview,
-html[data-theme='dark'] .weq-roaming-scope-calendar,
 html[data-theme='dark'] .weq-roaming-panel input:not([type='checkbox']) {
   border-color: var(--weq-border-strong);
   background: color-mix(in srgb, var(--weq-bg-surface) 40%, transparent);
 }
 html[data-theme='dark'] .weq-roaming-chip.is-quiet {
   color: var(--weq-fg-secondary);
+}
+html[data-theme='dark'] .weq-roaming-grid > .weq-roaming-card {
+  background: transparent;
+  box-shadow: none;
+}
+html[data-theme='dark'] .weq-roaming-advanced {
+  border-color: var(--weq-border-strong);
 }
 html[data-theme='dark'] .weq-roaming-ghostbtn,
 html[data-theme='dark'] .weq-roaming-actionbtn,
@@ -1077,9 +1056,6 @@ html[data-theme='dark'] .weq-roaming-progress {
   .weq-roaming-body {
     padding: 10px;
     gap: 10px;
-  }
-  .weq-roaming-fields {
-    grid-template-columns: minmax(0, 1fr);
   }
   .weq-roaming-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));

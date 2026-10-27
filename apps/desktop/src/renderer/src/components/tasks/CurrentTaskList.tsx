@@ -24,6 +24,7 @@ import {
 import { taskIcon, taskPct, taskTypeLabel, type UiTask } from '../../views/export/TaskList';
 import { LongTaskRow, orderLongTasks, type LongTaskItem } from './LongTaskRow';
 import '../../styles/flash-transfer.css';
+import { CloneTaskLog } from '../../views/agentlab/CloneTaskLog';
 
 export function CurrentTaskList({
   exports,
@@ -126,6 +127,7 @@ export function CurrentTaskList({
       detail: (
         <div>
           <p role={task.status === 'error' ? 'alert' : undefined}>{task.error || task.phase}</p>
+          <CloneTaskLog key={`${task.personaId}:${task.revision}`} task={task} />
           <div className="weq-long-task-actions">
             {task.status === 'done' && onOpenClone ? (
               <button
@@ -171,7 +173,9 @@ export function CurrentTaskList({
           : job.status === 'pausing'
             ? '暂停收尾中'
             : job.status === 'completed'
-              ? '候选缺口已覆盖'
+              ? job.plannedSeqs === 0
+                ? '未发现可补全的缺口'
+                : '候选缺口已覆盖'
               : undefined,
       // 进度只表示已实际覆盖的候选 seq，不把已尝试的请求当作成功。
       progress:
@@ -186,11 +190,11 @@ export function CurrentTaskList({
   if (roaming.data?.scanning) {
     items.push({
       id: 'roaming:scanning',
-      name: '扫描候选缺口',
+      name: '正在检查缺失消息',
       kind: '漫游拉取',
       status: 'running',
       icon: <CloudDownload size={16} />,
-      detail: <p>正在扫描本地锚点，扫描完成后生成补全任务。</p>,
+      detail: <p>正在检查所选范围内的本地记录与候选缺口。</p>,
     });
   }
   for (const task of flash.data ?? []) {

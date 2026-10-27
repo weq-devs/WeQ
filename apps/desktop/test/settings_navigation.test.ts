@@ -21,7 +21,7 @@ describe('设置的两级导航', () => {
       expect(settingsGroupFor(id).id).toBe('help');
     }
   });
-  it('模型保留单个一级分类，识别、克隆与画像分别归位', () => {
+  it('模型保留单个一级分类，克隆设置不再占用独立页面', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
       '基础功能',
@@ -37,7 +37,6 @@ describe('设置的两级导航', () => {
       'intent-sense',
       'interaction-profile',
       'reply-suggestions',
-      'clone-settings',
       'voice',
       'ocr',
     ]);
@@ -85,7 +84,7 @@ describe('设置的两级导航', () => {
   it('保留原分区深链，每个二级页只归属一个分类', () => {
     const ids = SETTINGS_GROUPS.flatMap((group) => group.sections);
     expect(SETTINGS_GROUPS).toHaveLength(7);
-    expect(ids).toHaveLength(37);
+    expect(ids).toHaveLength(36);
     expect(settingsSectionFor('applock')).toBe('privacy');
     expect(settingsGroupFor('privacy').id).toBe('general');
     expect(new Set(ids).size).toBe(ids.length);

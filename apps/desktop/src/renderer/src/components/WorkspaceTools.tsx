@@ -318,7 +318,7 @@ export function WorkspaceTools({
       // 由使用者在面板里挑（例如从悬浮工具进来、当前在别的页面）。
       const directTarget =
         conversationAnalysisTarget(currentConversation) ?? analysisTargetForWorkspace(ctx);
-      setAnalysisFixedTarget(false);
+      setAnalysisFixedTarget(Boolean(directTarget));
       setAnalysisTarget(directTarget ?? undefined);
       setAnalysisMessageIds(undefined);
       setAnalysisSeed((previous) => previous + 1);
@@ -633,6 +633,7 @@ export function WorkspaceTools({
               key={JSON.stringify([accountKey, roamingTargets, roamingSeed])}
               initialTargets={roamingTargets}
               targetMode="fixed"
+              onSubmitted={() => useWorkspaceMenu.getState().openTasks()}
             />
           ) : null}
         </RetainedTabs>

@@ -1,24 +1,22 @@
 /**
  * 编排层：连接 adapter，路由消息，驱动 AgentRuntime，把回复逐条发回。
  *
- * 内置详细 console 日志（收到消息 / 意愿闸决策 / 生成内容 / 发送内容），方便真机调试
- * ——尤其「为什么不回」一眼可查（看意愿闸 reason/score 或是否被判为空文本）。
+ * 默认只记录脱敏元数据；正文与自由文本错误仅在明确开启的短期调试窗口输出。
  */
 import type { AgentRuntime, AgentLabChatTurn } from '@weq/agentlab';
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { OneBot11Adapter } from './adapter/types';
 import { normalizeInbound, type NormalizedMessage } from './normalize/inbound';
 import { encodeTurn, type AssetResolver } from './normalize/outbound';
 import { BotCapabilities } from './capabilities';
+import { BotLogger, botErrorMetadata } from './logger';
 
 const HISTORY_CAP = 40;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** 日志时间戳 HH:MM:SS。 */
-function ts(): string {
-  return new Date().toISOString().slice(11, 19);
+function limit(value: number | undefined, fallback: number): number {
+  const resolved = value ?? fallback;
+  if (!Number.isSafeInteger(resolved) || resolved < 1) throw new Error('Bot 队列限额必须是正整数');
+  return resolved;
 }
 
 /** 运行统计打点端口（WebUI 统计页用；缺省则不统计）。 */
@@ -29,6 +27,10 @@ export interface StatsSink {
 }
 
 export interface OrchestratorOptions {
+  logger?: BotLogger;
+  maxConcurrentChats?: number;
+  maxQueuedMessages?: number;
+  maxQueuedPerChat?: number;
   /** 是否参与群聊（M3）。默认关：只处理私聊。 */
   groupChat?: boolean;
   /** 群聊回复意愿决策方式（默认 'llm'，与桌面模拟群聊一致；'heuristic'=纯启发式打分省 token）。 */
@@ -38,6 +40,16 @@ export interface OrchestratorOptions {
 }
 
 export class BotOrchestrator {
+  private readonly log: BotLogger;
+  private readonly lifecycle = new AbortController();
+  private readonly queues = new Map<string, { running: boolean; messages: NormalizedMessage[] }>();
+  private readonly ready: string[] = [];
+  private readonly active = new Set<Promise<void>>();
+  private readonly maxConcurrent: number;
+  private readonly maxQueued: number;
+  private readonly maxPerChat: number;
+  private queued = 0;
+  private started = false;
   /** 按对端 id 维护的近期对话历史（喂给 AgentRuntime 作上下文）。 */
   private readonly histories = new Map<string, AgentLabChatTurn[]>();
   /** 每个群里 bot 上次开口的时间（意愿闸冷却用）。 */
@@ -53,60 +65,159 @@ export class BotOrchestrator {
     private readonly assets: AssetResolver,
     private readonly opts: OrchestratorOptions = {},
   ) {
+    this.log = opts.logger ?? BotLogger.create();
+    this.maxConcurrent = limit(opts.maxConcurrentChats, 4);
+    this.maxQueued = limit(opts.maxQueuedMessages, 256);
+    this.maxPerChat = limit(opts.maxQueuedPerChat, 32);
     this.capabilities = new BotCapabilities(adapter);
   }
 
   /** 注册事件回调（在 adapter.connect() 之前调）。 */
   start(): void {
+    this.lifecycle.signal.throwIfAborted();
+    if (this.started) return;
+    this.started = true;
     this.adapter.onEvent((event) => {
-      void this.onEvent(event);
+      void this.onEvent(event).catch(() => {
+        this.log.error('消息处理失败，未报告为已保存或已交付');
+      });
     });
+  }
+
+  /** 取消等待和生成；不能撤销已提交给 OneBot 的发送，调用方应同时关闭 adapter。 */
+  async stop(): Promise<void> {
+    this.lifecycle.abort(new DOMException('机器人已停止', 'AbortError'));
+    this.log.disableContent();
+    if (this.queued) this.log.warn('机器人停止，等待消息未执行', { queued: this.queued });
+    for (const queue of this.queues.values()) queue.messages.length = 0;
+    this.queues.clear();
+    this.ready.length = 0;
+    this.queued = 0;
+    await Promise.all(this.active);
+    this.histories.clear();
+    this.lastGroupReplyAt.clear();
+  }
+
+  private enqueue(msg: NormalizedMessage): void {
+    const key = `${msg.chatType}:${msg.peerId}`;
+    let queue = this.queues.get(key);
+    if (this.queued >= this.maxQueued || (queue?.messages.length ?? 0) >= this.maxPerChat) {
+      this.log.error('消息未受理：Bot 队列已满，请稍后重试');
+      return;
+    }
+    if (!queue) {
+      queue = { running: false, messages: [] };
+      this.queues.set(key, queue);
+    }
+    queue.messages.push(msg);
+    this.queued++;
+    if (!queue.running && queue.messages.length === 1) this.ready.push(key);
+    this.pump();
+  }
+
+  private pump(): void {
+    while (
+      !this.lifecycle.signal.aborted &&
+      this.active.size < this.maxConcurrent &&
+      this.ready.length
+    ) {
+      const key = this.ready.shift()!;
+      const queue = this.queues.get(key)!;
+      const msg = queue.messages.shift()!;
+      this.queued--;
+      queue.running = true;
+      const task = Promise.resolve()
+        .then(() => {
+          this.lifecycle.signal.throwIfAborted();
+          return msg.chatType === 'private' ? this.handlePrivate(msg) : this.handleGroup(msg);
+        })
+        .catch(() => {
+          if (!this.lifecycle.signal.aborted)
+            this.log.error('消息处理失败，未报告为已保存或已交付');
+        })
+        .finally(() => {
+          this.active.delete(task);
+          queue.running = false;
+          if (queue.messages.length && !this.lifecycle.signal.aborted) this.ready.push(key);
+          else this.queues.delete(key);
+          this.pump();
+        });
+      this.active.add(task);
+    }
   }
 
   private async onEvent(
     event: Parameters<Parameters<OneBot11Adapter['onEvent']>[0]>[0],
   ): Promise<void> {
+    if (this.lifecycle.signal.aborted) return;
     const msg = normalizeInbound(event, this.selfId);
     if (!msg) return;
     if (msg.senderId === this.selfId) return; // 不理会自己发的
 
-    const where = msg.chatType === 'group' ? `群${msg.peerId}` : '私聊';
-    console.log(
-      `\n[${ts()}] 收到 <${where}> ${msg.senderName}(${msg.senderId})${msg.mentionsSelf ? ' 【@我】' : ''}: ${msg.text || '(无文本)'}`,
-    );
+    const meta = this.messageMetadata(msg);
+    this.log.info('收到消息', { ...meta, status: 'received', mentionsSelf: msg.mentionsSelf });
+    this.log.content('incoming', msg.text, meta);
 
     // @我 即使没带文字也要处理（群聊「被@必回」）；否则纯空文本消息忽略。
     if (!msg.text && !msg.mentionsSelf) {
-      console.log(`[${ts()}] └ 跳过：空文本且未@我`);
+      this.log.info('跳过：空文本且未@我', meta);
       return;
     }
     this.opts.stats?.onMessageIn();
     if (msg.chatType === 'private') {
-      await this.handlePrivate(msg);
+      this.enqueue(msg);
     } else if (this.opts.groupChat) {
-      await this.handleGroup(msg);
+      this.enqueue(msg);
     } else {
-      console.log(`[${ts()}] └ 跳过：群聊未开启（config.features.groupChat=false）`);
+      this.log.info('跳过：群聊未开启', meta);
     }
   }
 
+  private messageMetadata(msg: NormalizedMessage) {
+    return {
+      chatType: msg.chatType,
+      peerRef: this.log.ref(msg.chatType, msg.peerId),
+      textLen: msg.text.length,
+    };
+  }
+
   private async handlePrivate(msg: NormalizedMessage): Promise<void> {
-    const history = this.histories.get(msg.peerId) ?? [];
+    const started = performance.now();
+    const meta = this.messageMetadata(msg);
+    const historyKey = `private:${msg.peerId}`;
+    const history = this.histories.get(historyKey) ?? [];
     let result: Awaited<ReturnType<AgentRuntime['chat']>>;
     try {
-      result = await this.runtime.chat({ personaId: this.personaId, history, text: msg.text });
+      result = await this.runtime.chat({
+        personaId: this.personaId,
+        history,
+        text: msg.text,
+        privatePeerId: msg.peerId,
+        signal: this.lifecycle.signal,
+      });
     } catch (err) {
-      console.error(`[${ts()}] └ 生成失败:`, err instanceof Error ? err.message : err);
+      if (this.lifecycle.signal.aborted) return;
+      this.log.error('生成失败', {
+        ...meta,
+        ...botErrorMetadata(err),
+        elapsedMs: performance.now() - started,
+      });
+      this.log.errorDetail(err);
       return;
     }
+    this.lifecycle.signal.throwIfAborted();
     if (result.silent) {
-      console.log(`[${ts()}] └ 静默（私聊意愿闸未过）`);
+      this.log.info('静默：私聊意愿闸未过', { ...meta, status: 'silent' });
       return;
     }
     this.opts.stats?.onReplyGenerated();
-    console.log(
-      `[${ts()}] └ 生成 ${result.renderedTurns.length} 条: ${JSON.stringify(result.renderedTurns)}`,
-    );
+    this.log.info('生成完成', {
+      ...meta,
+      status: 'generated',
+      turnCount: result.renderedTurns.length,
+      elapsedMs: performance.now() - started,
+    });
+    for (const turn of result.renderedTurns) this.log.content('generated', turn, meta);
     await this.deliver(
       { chatType: 'private', peerId: msg.peerId },
       result.renderedTurns,
@@ -118,12 +229,15 @@ export class BotOrchestrator {
       { role: 'user', text: msg.text },
       ...result.renderedTurns.map((text): AgentLabChatTurn => ({ role: 'assistant', text })),
     ];
-    this.histories.set(msg.peerId, next.slice(-HISTORY_CAP));
+    this.histories.set(historyKey, next.slice(-HISTORY_CAP));
   }
 
   /** 群聊（单 persona + 意愿闸）：过闸才回，关系/记忆按群友维护。 */
   private async handleGroup(msg: NormalizedMessage): Promise<void> {
-    const history = this.histories.get(msg.peerId) ?? [];
+    const started = performance.now();
+    const meta = this.messageMetadata(msg);
+    const historyKey = `group:${msg.peerId}`;
+    const history = this.histories.get(historyKey) ?? [];
     // 存在感（最近自己占比）+ 冷却（距上次开口）——喂给意愿闸压制刷屏/抢话。
     const recent = history.slice(-8);
     const selfShareRecent =
@@ -137,29 +251,43 @@ export class BotOrchestrator {
         personaId: this.personaId,
         senderId: msg.senderId,
         senderName: msg.senderName,
+        groupId: msg.peerId,
         text: msg.text,
         mentionsSelf: msg.mentionsSelf,
         history,
         selfShareRecent,
         msSinceOwnLastReply,
         mode: this.opts.groupReplyMode ?? 'llm',
+        signal: this.lifecycle.signal,
       });
     } catch (err) {
-      console.error(`[${ts()}] └ 群聊生成失败:`, err instanceof Error ? err.message : err);
+      if (this.lifecycle.signal.aborted) return;
+      this.log.error('群聊生成失败', {
+        ...meta,
+        ...botErrorMetadata(err),
+        elapsedMs: performance.now() - started,
+      });
+      this.log.errorDetail(err);
       return;
     }
-    // 意愿闸决策日志：一眼看清「为什么回 / 为什么不回」。
-    console.log(
-      `[${ts()}] └ 意愿闸: ${result.reason} score=${result.score.toFixed(2)} → ${result.silent ? '不回' : '回复'}`,
-    );
+    this.lifecycle.signal.throwIfAborted();
+    this.log.info('群聊意愿闸决策', {
+      ...meta,
+      score: result.score,
+      status: result.silent ? 'silent' : 'reply',
+    });
+    this.log.content('group-decision', result.reason, meta);
 
     history.push({ role: 'user', text: `「${msg.senderName}」：${msg.text}` });
 
     if (!result.silent && result.renderedTurns.length > 0) {
       this.opts.stats?.onReplyGenerated();
-      console.log(
-        `[${ts()}]   生成 ${result.renderedTurns.length} 条: ${JSON.stringify(result.renderedTurns)}`,
-      );
+      this.log.info('群聊生成完成', {
+        ...meta,
+        turnCount: result.renderedTurns.length,
+        elapsedMs: performance.now() - started,
+      });
+      for (const turn of result.renderedTurns) this.log.content('generated', turn, meta);
       await this.deliver(
         { chatType: 'group', peerId: msg.peerId },
         result.renderedTurns,
@@ -168,7 +296,7 @@ export class BotOrchestrator {
       for (const t of result.renderedTurns) history.push({ role: 'assistant', text: t });
       this.lastGroupReplyAt.set(msg.peerId, Date.now());
     }
-    this.histories.set(msg.peerId, history.slice(-HISTORY_CAP));
+    this.histories.set(historyKey, history.slice(-HISTORY_CAP));
   }
 
   /** 逐条把 renderedTurns 编码成 OneBot 段发出（分条之间按 replyDelayMs 拟人停顿）。 */
@@ -177,17 +305,27 @@ export class BotOrchestrator {
     turns: string[],
     replyDelayMs: number,
   ): Promise<void> {
-    for (const turn of turns) {
+    const meta = {
+      chatType: target.chatType,
+      peerRef: this.log.ref(target.chatType, target.peerId),
+    };
+    for (const [index, turn] of turns.entries()) {
+      this.lifecycle.signal.throwIfAborted();
       const segments = encodeTurn(turn, this.assets);
       if (!segments) continue;
       try {
         await this.adapter.sendMessage(target, segments);
         this.opts.stats?.onMessageOut();
-        console.log(`[${ts()}]   发送 → ${target.chatType}:${target.peerId}: ${turn}`);
+        this.log.info('发送完成', { ...meta, status: 'sent', textLen: turn.length });
+        this.log.content('sent', turn, meta);
       } catch (err) {
-        console.error(`[${ts()}]   发送失败:`, err instanceof Error ? err.message : err);
+        if (!this.lifecycle.signal.aborted)
+          this.log.error('发送失败', { ...meta, ...botErrorMetadata(err) });
+        this.log.errorDetail(err);
+        throw err;
       }
-      if (replyDelayMs > 0) await sleep(replyDelayMs);
+      if (replyDelayMs > 0 && index < turns.length - 1)
+        await sleep(replyDelayMs, undefined, { signal: this.lifecycle.signal });
     }
   }
 }

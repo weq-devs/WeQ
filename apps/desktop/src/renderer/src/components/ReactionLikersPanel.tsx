@@ -35,6 +35,7 @@ const VIEWPORT_MARGIN = 8;
 
 export function ReactionLikersPanel({
   anchor,
+  anchorElement,
   groupId,
   sequence,
   emojiId,
@@ -47,6 +48,8 @@ export function ReactionLikersPanel({
 }: {
   /** 鼠标位置（client 坐标）。 */
   anchor: { x: number; y: number };
+  /** 触发表情所在的一行；点击跟贴或撤回时不能被浮层的外部点击拦截。 */
+  anchorElement?: HTMLElement | null;
   /** 群号。 */
   groupId: string;
   /** 被回应消息的 msgSeq。 */
@@ -66,7 +69,7 @@ export function ReactionLikersPanel({
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const layer = useOverlayLayer(true);
-  useSurfaceOutside(panelRef, onClose, true);
+  useSurfaceOutside(panelRef, onClose, true, { anchor: anchorElement });
   useSurfaceEscape(panelRef, onClose, true, false);
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const selfUin = selfProfile.data?.uin ? String(selfProfile.data.uin) : '';

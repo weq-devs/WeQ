@@ -46,6 +46,8 @@ function mount(props: Partial<Parameters<typeof SessionSwitcher>[0]> = {}) {
     host,
     handlers,
     trigger: () => host.querySelector<HTMLButtonElement>('[aria-label="切换会话"]')!,
+    // 菜单经 OverlayLayer portal 到 document.body，不在 host 里。
+    menu: () => document.querySelector<HTMLElement>('.weq-session-switcher-menu'),
     close: () => {
       act(() => root.unmount());
       host.remove();
@@ -58,24 +60,26 @@ it('触发器显示当前会话标题与数量，展开后能切换、新建、�
   try {
     expect(f.trigger().textContent).toContain('最近一段');
     expect(f.trigger().textContent).toContain('2');
-    expect(f.host.querySelector('[role="menu"]')).toBeNull();
+    expect(f.menu()).toBeNull();
     act(() => f.trigger().click());
-    expect(f.host.querySelector('[role="menu"]')).not.toBeNull();
+    expect(f.menu()).not.toBeNull();
     // 当前会话在列表里带勾选标记。
-    expect(f.host.querySelector('.weq-session-switcher-row.is-active')?.textContent).toContain(
+    expect(f.menu()!.querySelector('.weq-session-switcher-row.is-active')?.textContent).toContain(
       '最近一段',
     );
-    const items = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-session-switcher-open')];
+    const items = [...f.menu()!.querySelectorAll<HTMLButtonElement>('.weq-session-switcher-open')];
     expect(items).toHaveLength(2);
     act(() => items[1]!.click());
     expect(f.handlers.onSwitch).toHaveBeenCalledWith('s2');
     // 选完自动收起。
-    expect(f.host.querySelector('[role="menu"]')).toBeNull();
+    expect(f.menu()).toBeNull();
     act(() => f.trigger().click());
-    act(() => f.host.querySelector<HTMLButtonElement>('.weq-session-switcher-new')!.click());
+    act(() => f.menu()!.querySelector<HTMLButtonElement>('.weq-session-switcher-new')!.click());
     expect(f.handlers.onNew).toHaveBeenCalledOnce();
     act(() => f.trigger().click());
-    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="删除会话 更早一段"]')!.click());
+    act(() =>
+      f.menu()!.querySelector<HTMLButtonElement>('[aria-label="删除会话 更早一段"]')!.click(),
+    );
     expect(f.handlers.onDelete).toHaveBeenCalledWith('s2');
   } finally {
     f.close();
@@ -87,9 +91,9 @@ it('草稿态显示「新会话」，没有会话时给出提示，只读时禁�
   try {
     expect(f.trigger().textContent).toContain('新会话');
     act(() => f.trigger().click());
-    expect(f.host.textContent).toContain('还没有会话');
+    expect(f.menu()!.textContent).toContain('还没有会话');
     act(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
-    expect(f.host.querySelector('[role="menu"]')).toBeNull();
+    expect(f.menu()).toBeNull();
   } finally {
     f.close();
   }

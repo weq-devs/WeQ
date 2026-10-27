@@ -43,6 +43,7 @@ import {
   type AgentLabChatTurn,
   type AgentLabConversationSample,
   type AgentLabEndpoint,
+  type AgentLabModelOutput,
   type AgentLabExpression,
   type AgentLabMessage,
   type AgentLabModelSelection,
@@ -154,6 +155,7 @@ export interface AgentLabBuildProgress {
   done?: boolean;
   /** 失败收尾（携带错误信息）。 */
   error?: string;
+  output?: AgentLabModelOutput;
 }
 
 /** buildFromC2c 入参。 */
@@ -330,6 +332,9 @@ export class AgentLabService extends EventEmitter {
   /** 运行时对话引擎（下沉自本类，桌面与导出 bot 共用）。 */
   private readonly runtime: AgentRuntime;
   private readonly buildingPersonas = new Set<string>();
+  private readonly buildControllers = new Map<string, AbortController>();
+  private readonly buildPromises = new Set<Promise<AgentLabPersona>>();
+  private closed = false;
 
   constructor(
     private readonly session: AccountSession,
@@ -385,6 +390,13 @@ export class AgentLabService extends EventEmitter {
       ensureSticker: (sticker) => this.ensureStickerAsset(sticker),
       logger: this.logger,
     });
+  }
+
+  /** 账号切换或退出时取消运行时请求并等待后台派生数据任务。 */
+  async close(): Promise<void> {
+    this.closed = true;
+    for (const controller of this.buildControllers.values()) controller.abort();
+    await Promise.allSettled([...this.buildPromises, this.runtime.close()]);
   }
 
   /** 对话反思笔记（前端「记忆/画像」灯箱可选展示）。 */
@@ -1011,9 +1023,29 @@ export class AgentLabService extends EventEmitter {
     ctx: { personaId?: string; scope: 'build' | 'chat' | 'assistant' },
   ): AgentLabEndpoint {
     const ep = this.resolveEndpoint(ref, kind);
+    const buildSignal = ctx.personaId
+      ? this.buildControllers.get(ctx.personaId)?.signal
+      : undefined;
     return {
       ...ep,
       kind,
+      ...(ctx.scope === 'build' && ctx.personaId
+        ? {
+            signal: AbortSignal.any([
+              ...(ep.signal ? [ep.signal] : []),
+              ...(buildSignal ? [buildSignal] : []),
+            ]),
+            onOutput: (output: AgentLabModelOutput) => {
+              if (!ctx.personaId) return;
+              this.emit('build-progress', {
+                personaId: ctx.personaId,
+                phase: '模型输出',
+                percent: 0,
+                output,
+              } satisfies AgentLabBuildProgress);
+            },
+          }
+        : {}),
       onUsage: (u: AgentLabUsage) =>
         this.usage.record({
           ...u,
@@ -1221,6 +1253,7 @@ export class AgentLabService extends EventEmitter {
     if (patch.voice !== undefined) persona.voice = patch.voice ?? undefined;
     if (patch.willing !== undefined) persona.willing = patch.willing ?? undefined;
     if (patch.typo !== undefined) persona.typo = patch.typo ?? undefined;
+    persona.trainedAt ??= persona.updatedAt;
     persona.updatedAt = Date.now();
     this.store.savePersona(record);
     return persona;
@@ -1528,6 +1561,7 @@ export class AgentLabService extends EventEmitter {
     }
     const out: AgentLabStickerRef[] = [];
     for (const s of top) {
+      this.buildControllers.get(personaId)?.signal.throwIfAborted();
       let found = (await media.fileSearch.findFile(s.ts, s.fileName, 'emoji')).thumb;
       if (!found && s.fileToken) {
         found = await media.mediaDownload.download(s.fileToken, {
@@ -1536,6 +1570,7 @@ export class AgentLabService extends EventEmitter {
           rkeyTypes: [PRIVATE_IMAGE_RKEY_TYPE, GROUP_IMAGE_RKEY_TYPE],
         });
       }
+      this.buildControllers.get(personaId)?.signal.throwIfAborted();
       const localPath = found ? this.cacheStickerFile(found, s.md5) : undefined;
       let description = '';
       let scenario = '';
@@ -1587,20 +1622,35 @@ export class AgentLabService extends EventEmitter {
     const chunks = renderProfileChunks(turns, friendName);
     if (chunks.length === 0) return empty;
 
-    // 按索引写入保序（merge 提示依赖「越靠后越新」），并发 3 控制时延。
+    // 深层画像占一路，与表达风格、备用风格合计最多三路。
     const parts: Array<AgentLabPersonaDeepProfile | undefined> = new Array(chunks.length);
     let next = 0;
     let done = 0;
-    const CONCURRENCY = 3;
+    const CONCURRENCY = 1;
     await Promise.all(
       Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, async () => {
         while (next < chunks.length) {
+          endpoint.signal?.throwIfAborted();
           const i = next++;
           const chunk = chunks[i];
           if (chunk) {
             try {
-              parts[i] = await extractProfileChunk(endpoint, friendName, chunk);
+              parts[i] = await extractProfileChunk(
+                {
+                  ...endpoint,
+                  onOutput: endpoint.onOutput
+                    ? (output) =>
+                        endpoint.onOutput?.({
+                          ...output,
+                          feature: `深层画像 ${i + 1}/${chunks.length}`,
+                        })
+                    : undefined,
+                },
+                friendName,
+                chunk,
+              );
             } catch {
+              endpoint.signal?.throwIfAborted();
               // 单块失败跳过
             }
           }
@@ -1615,10 +1665,12 @@ export class AgentLabService extends EventEmitter {
     );
 
     const valid = parts.filter((p): p is AgentLabPersonaDeepProfile => !!p);
+    endpoint.signal?.throwIfAborted();
     if (valid.length === 0) return empty;
     try {
       return await mergeProfileParts(endpoint, friendName, valid);
     } catch {
+      endpoint.signal?.throwIfAborted();
       return valid[valid.length - 1] ?? empty;
     }
   }
@@ -1728,18 +1780,29 @@ export class AgentLabService extends EventEmitter {
     input: BuildFromC2cInput,
     previous?: AgentLabPersona,
   ): Promise<AgentLabPersona> {
+    if (this.closed) throw new Error('账号已关闭，无法创建或更新克隆体');
     if (this.buildingPersonas.has(input.personaId)) throw new Error('该克隆体正在创建或更新中');
     this.buildingPersonas.add(input.personaId);
+    const controller = new AbortController();
+    this.buildControllers.set(input.personaId, controller);
+    const pending = this.runBuild(input, previous);
+    this.buildPromises.add(pending);
     try {
-      const persona = await this.runBuild(input, previous);
+      const persona = await pending;
       this.emitProgress(input.personaId, '完成', 100, { done: true });
       return persona;
     } catch (error) {
+      controller.abort();
+      this.logger.warn('克隆构建失败', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       this.emitProgress(input.personaId, '失败', 100, {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
     } finally {
+      this.buildControllers.delete(input.personaId);
+      this.buildPromises.delete(pending);
       this.buildingPersonas.delete(input.personaId);
     }
   }
@@ -1757,6 +1820,7 @@ export class AgentLabService extends EventEmitter {
     const selfUin = this.session.context.uin;
     const selfProfile = await this.session.profileInfo.getProfileByUin(BigInt(selfUin));
     const peerProfile = await this.session.profileInfo.getProfile(input.targetUid);
+    chatEndpoint.signal?.throwIfAborted();
     const selfName = profileName(selfProfile, selfUin);
     const peerName = profileName(peerProfile, input.targetUid);
     const displayName = input.name?.trim() || peerName;
@@ -1771,11 +1835,13 @@ export class AgentLabService extends EventEmitter {
       part,
       input.limit ?? C2C_CORPUS_CAP,
     );
+    chatEndpoint.signal?.throwIfAborted();
 
     // 2) 映射成语料（顺手把语音转录成文本，并收集 TA 的干净语音做克隆参考）。
     this.emitProgress(input.personaId, '整理语料 / 转录语音', 28);
     const voiceClips: VoiceClipCandidate[] = [];
     const messages = await this.mapC2cMessages(rawMsgs, selfUin, selfName, peerName, voiceClips);
+    chatEndpoint.signal?.throwIfAborted();
 
     // 3) 表情包 + 系统表情白名单（只看好友自己的消息）。
     this.emitProgress(input.personaId, '统计表情', 42);
@@ -1874,27 +1940,48 @@ export class AgentLabService extends EventEmitter {
     let expressions: AgentLabExpression[] = [];
     let styleVariants: string[] = [];
     if (artifacts.corpusText.trim()) {
+      const extraction = new AbortController();
+      const endpoint = {
+        ...chatEndpoint,
+        signal: AbortSignal.any([
+          extraction.signal,
+          ...(chatEndpoint.signal ? [chatEndpoint.signal] : []),
+        ]),
+      };
+      let work: Promise<unknown>[] = [];
       try {
         // card / fewShots / expressions / styleVariants 用「最近优先」的 corpusText 一次性提；
         // deep 用全量历史 map-reduce（分块提取 + 合并），更全且不丢早期信息。
-        const [card, shots, exprs, variants, deep] = await Promise.all([
-          extractPersonaCard(chatEndpoint, trainingName, artifacts.stats, artifacts.corpusText),
-          extractFewShots(chatEndpoint, trainingName, artifacts.stats, artifacts.corpusText),
-          extractExpressions(chatEndpoint, trainingName, artifacts.stats, artifacts.corpusText),
-          extractStyleVariants(chatEndpoint, trainingName, artifacts.stats, artifacts.corpusText),
+        const critical = [
+          extractPersonaCard(endpoint, trainingName, artifacts.stats, artifacts.corpusText),
+          extractFewShots(endpoint, trainingName, artifacts.stats, artifacts.corpusText),
+        ] as const;
+        work = [...critical];
+        const [card, shots] = await Promise.all(critical);
+        endpoint.signal.throwIfAborted();
+        const optional = [
+          extractExpressions(endpoint, trainingName, artifacts.stats, artifacts.corpusText),
+          extractStyleVariants(endpoint, trainingName, artifacts.stats, artifacts.corpusText),
           this.extractDeepProfileMapReduce(
-            chatEndpoint,
+            endpoint,
             trainingName,
             artifacts.turns,
             input.personaId,
           ),
-        ]);
+        ] as const;
+        work = [...optional];
+        const [exprs, variants, deep] = await Promise.all(optional);
+        endpoint.signal.throwIfAborted();
         profile = { ...artifacts.profile, card, deep, extractedByLlm: true };
         fewShots = shots;
         expressions = exprs;
         styleVariants = variants;
       } catch (error) {
-        if (previous) throw new Error('画像提炼失败，旧克隆体已保留', { cause: error });
+        extraction.abort();
+        await Promise.allSettled(work);
+        chatEndpoint.signal?.throwIfAborted();
+        const detail = error instanceof Error ? error.message : String(error);
+        if (previous) throw new Error(`画像提炼失败，旧克隆体已保留：${detail}`, { cause: error });
         profile = {
           ...artifacts.profile,
           extractError: error instanceof Error ? error.message : String(error),
@@ -1921,6 +2008,7 @@ export class AgentLabService extends EventEmitter {
           pair.embedding = vectors[index];
         });
       } catch (error) {
+        chatEndpoint.signal?.throwIfAborted();
         if (previous) throw new Error('向量索引更新失败，旧克隆体已保留', { cause: error });
         // Embedding failures should not block persona creation.
       }
@@ -1989,10 +2077,12 @@ export class AgentLabService extends EventEmitter {
       corpusMessageCount: artifacts.stats.sourceMessageCount,
       pairCount: artifacts.stats.pairCount,
       createdAt: now,
+      trainedAt: now,
       updatedAt: now,
     };
 
     this.emitProgress(input.personaId, '保存克隆体', 96);
+    chatEndpoint.signal?.throwIfAborted();
     if (previous) {
       const latest = this.store.getPersona(input.personaId)?.persona;
       if (
@@ -2017,6 +2107,7 @@ export class AgentLabService extends EventEmitter {
         corpusMessageCount: persona.corpusMessageCount,
         pairCount: persona.pairCount,
         embeddingModelIdentity: persona.embeddingModelIdentity,
+        trainedAt: now,
         updatedAt: now,
       };
     }

@@ -136,6 +136,7 @@ export class StatsStore implements UsageSink {
   private readonly data: StatsData;
   private readonly startedAt: number;
   private saveTimer: NodeJS.Timeout | null = null;
+  private closed = false;
 
   constructor(
     private readonly filePath: string,
@@ -166,17 +167,32 @@ export class StatsStore implements UsageSink {
 
   /** 合并写盘（200ms 防抖，避免高频消息把磁盘打爆）。 */
   private persist(): void {
-    if (this.saveTimer) return;
+    if (this.closed || this.saveTimer) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
-      try {
-        mkdirSync(dirname(this.filePath), { recursive: true });
-        writeFileSync(this.filePath, JSON.stringify(this.data), 'utf-8');
-      } catch {
-        /* 落盘失败不阻断聊天 */
-      }
+      this.saveNow();
     }, 200);
     this.saveTimer.unref?.();
+  }
+
+  /** 关闭前提交最后的用量终态，旧实例不再延迟写盘覆盖重载后的统计。 */
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+      this.saveNow();
+    }
+  }
+
+  private saveNow(): void {
+    try {
+      mkdirSync(dirname(this.filePath), { recursive: true });
+      writeFileSync(this.filePath, JSON.stringify(this.data), 'utf-8');
+    } catch {
+      /* 落盘失败不阻断聊天 */
+    }
   }
 
   private dayBucket(ts: number): StatsDayBucket {
@@ -198,6 +214,7 @@ export class StatsStore implements UsageSink {
 
   /** UsageSink：AgentRuntime 每次 LLM 调用后回调。 */
   record(input: Parameters<UsageSink['record']>[0]): void {
+    if (this.closed) return;
     if (input.source === 'local') return;
     const previous = input.requestId ? this.usageRequests.get(input.requestId) : undefined;
     const entry = {
@@ -275,18 +292,21 @@ export class StatsStore implements UsageSink {
   }
 
   onMessageIn(ts: number = Date.now()): void {
+    if (this.closed) return;
     this.data.totals.messagesIn += 1;
     this.dayBucket(ts).messagesIn += 1;
     this.persist();
   }
 
   onMessageOut(ts: number = Date.now()): void {
+    if (this.closed) return;
     this.data.totals.messagesOut += 1;
     this.dayBucket(ts).messagesOut += 1;
     this.persist();
   }
 
   onReplyGenerated(): void {
+    if (this.closed) return;
     this.data.totals.repliesGenerated += 1;
     this.persist();
   }

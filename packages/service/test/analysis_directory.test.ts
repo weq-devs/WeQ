@@ -7,6 +7,7 @@ import { C2cMsgDb, GroupMsgDb, GroupMemberDb } from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 import { BuddyAnalyticsService } from '../src/account/buddy_analytics';
 import { GroupInfoService } from '../src/account/group_info';
+import type { AnalyticsCacheSource } from '../src/account/analytics_source';
 
 let dir = '';
 afterEach(() => {
@@ -76,6 +77,44 @@ it('私聊目录合并全部好友与消息分区，不截断末尾，不丢非�
   expect(
     (await session.c2cMsgs.listPeerIdentities()).find((row) => row.uid === 'u_conflict')?.uin,
   ).toBe('');
+});
+
+it('仅漫游缓存存在的好友、群和发言成员也能在分析目录中选择', async () => {
+  const { session } = fixture();
+  const cache: AnalyticsCacheSource = {
+    cachedConversations: async () => [
+      { kind: 'c2c', conv: 'u_cached', lastMessageTime: 500 },
+      { kind: 'group', conv: '12345', lastMessageTime: 600 },
+    ],
+    cachedForExport: async () => [
+      {
+        kind: 'group',
+        conv: '777',
+        msgId: '42',
+        msgSeq: '1',
+        sendTime: '500',
+        senderUid: 'u_cached_member',
+        senderUin: '12345',
+        elements: [],
+      },
+    ],
+  };
+  const buddy = new BuddyAnalyticsService(session, cache);
+  const group = new GroupInfoService(session);
+  group.setAnalysisCache(cache);
+  expect((await buddy.listAnalysisPeers())[0]).toMatchObject({
+    uid: 'u_cached',
+    lastMessageTime: 500,
+    source: 'messages',
+  });
+  expect((await group.listAnalysisGroups())[0]).toMatchObject({
+    groupCode: '12345',
+    lastMessageTime: 600,
+    source: 'messages',
+  });
+  expect(
+    (await group.listAnalysisMembers(777n)).find((row) => row.uid === 'u_cached_member'),
+  ).toMatchObject({ uin: '12345', source: 'messages' });
 });
 
 it('冲突身份不按相同 QQ 号猜测唯一 UID，也不扩大 UID 分析范围', async () => {

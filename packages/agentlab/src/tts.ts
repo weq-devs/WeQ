@@ -18,10 +18,12 @@
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { setTimeout as delay } from 'node:timers/promises';
 import { beginApiUsage, isApiCancellation } from './api_usage';
 import type { AgentLabEndpoint } from './types';
 
 const ttsUsage = new AsyncLocalStorage<{
+  signal?: AbortSignal;
   endpoint: AgentLabEndpoint;
   call?: ReturnType<typeof beginApiUsage>;
 }>();
@@ -71,6 +73,7 @@ export interface TtsRefClip {
 }
 
 export interface TtsSynthesizeOptions {
+  signal?: AbortSignal;
   usageFeature?: string;
   /** 覆盖默认音色（preset 模式）。 */
   voice?: string;
@@ -289,21 +292,26 @@ async function fetchWithTimeout(
   timeoutMs: number,
 ): Promise<Response> {
   const ctrl = new AbortController();
+  const context = ttsUsage.getStore();
+  const signals = [ctrl.signal];
+  if (init.signal) signals.push(init.signal);
+  if (context?.signal) signals.push(context.signal);
+  const signal = AbortSignal.any(signals);
+  signal.throwIfAborted();
   const timer = setTimeout(
     () => ctrl.abort(new DOMException('语音请求超时', 'TimeoutError')),
     timeoutMs,
   );
-  const context = ttsUsage.getStore();
   if (context && (!context.call || init.method?.toUpperCase() === 'POST')) {
     context.call?.finish('failed');
     context.call = beginApiUsage(context.endpoint);
   }
   try {
-    const response = await fetch(url, { ...init, signal: ctrl.signal });
+    const response = await fetch(url, { ...init, signal });
     if (!response.ok) context?.call?.finish('failed');
     return response;
   } catch (error) {
-    context?.call?.finish(isApiCancellation(error, ctrl.signal) ? 'cancelled' : 'failed');
+    context?.call?.finish(isApiCancellation(error, signal) ? 'cancelled' : 'failed');
     throw error;
   } finally {
     clearTimeout(timer);
@@ -385,9 +393,10 @@ const gsv2p: Backend = async (cfg, text, opts) => {
         return { audio: ensureAudio(buf, 'gsv2p'), format };
       lastErr = `HTTP ${res.status} — ${buf.toString('utf-8').slice(0, 150)}`;
     } catch (e) {
+      opts.signal?.throwIfAborted();
       lastErr = e instanceof Error ? e.message : String(e);
     }
-    if (attempt < 5) await new Promise((r) => setTimeout(r, 3000));
+    if (attempt < 5) await delay(3000, undefined, { signal: opts.signal });
   }
   throw new Error(`TTS(gsv2p) 失败（已重试 5 次）：${lastErr}`);
 };
@@ -747,6 +756,7 @@ export class TtsService {
     const backend = BACKENDS[cfg.vendor];
     if (!backend) throw new Error(`未知 TTS 厂商：${cfg.vendor}`);
     const context: NonNullable<ReturnType<typeof ttsUsage.getStore>> = {
+      signal: opts.signal,
       endpoint: {
         baseUrl: cfg.baseUrl,
         apiKey: '',
@@ -763,7 +773,7 @@ export class TtsService {
         context.call?.finish('success');
         return result;
       } catch (error) {
-        context.call?.finish(isApiCancellation(error) ? 'cancelled' : 'failed');
+        context.call?.finish(isApiCancellation(error, opts.signal) ? 'cancelled' : 'failed');
         throw error;
       }
     });

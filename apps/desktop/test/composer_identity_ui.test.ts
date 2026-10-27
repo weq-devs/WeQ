@@ -11,6 +11,7 @@ import {
 import { buildComposerSendPlan } from '../src/renderer/src/im-template/template/composerSend';
 import { resolveMentionLabels } from '../src/renderer/src/lib/mentionIdentity';
 import { mentionClipboardHtml } from '../src/renderer/src/lib/mentionClipboard';
+import type { RepeatElement } from '../src/renderer/src/lib/messageRepeat';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
@@ -77,6 +78,77 @@ function fixture(type: 'group' | 'direct' = 'group') {
 }
 
 describe('真实输入区与 +1 操作', () => {
+  it.each(['group', 'direct'] as const)('%s 头像菜单仅在群聊提供提及', async (type) => {
+    const f = fixture(type);
+    try {
+      await act(async () =>
+        f.root.render(
+          createElement(ChatPane, {
+            ...f.props,
+            messages: [
+              {
+                id: 'avatar-message',
+                conversationId: f.props.conversation.id,
+                senderId: f.props.user.id,
+                body: '正文',
+                createdAt: '2026-10-17T06:00:00Z',
+              },
+            ],
+          }),
+        ),
+      );
+      act(() => {
+        f.host
+          .querySelector('.message-avatar-button, .message-avatar-wrap')!
+          .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      });
+      const menu = document.querySelector('.avatar-context-menu')!;
+      expect(menu).not.toBeNull();
+      const mention = menu.querySelector<HTMLButtonElement>('[title="在输入框里 @ 这个人"]');
+      expect(Boolean(mention)).toBe(type === 'group');
+      expect(menu.textContent).toContain('戳一戳');
+      if (mention) {
+        act(() => mention.click());
+        expect(f.host.querySelector('.composer-editor [data-weq-at-uid]')).not.toBeNull();
+      }
+    } finally {
+      f.dispose();
+    }
+  });
+
+  it('私聊输入 @ 不展开成员列表，粘贴提及只插入普通文字', async () => {
+    const f = fixture('direct');
+    const resolve = vi.fn(async (elements: RepeatElement[]) => elements);
+    try {
+      await act(async () =>
+        f.root.render(createElement(ChatPane, { ...f.props, onResolveMentions: resolve })),
+      );
+      const editor = f.host.querySelector<HTMLElement>('.composer-editor')!;
+      act(() => {
+        editor.textContent = '@';
+        focusComposerEnd(editor);
+        editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      });
+      expect(f.host.querySelector('[role="listbox"]')).toBeNull();
+      const rich = mentionClipboardHtml([
+        { type: 'at', data: { atTargetUid: 'u_member', textContent: '@昵称' } },
+      ])!;
+      const data = new DataTransfer();
+      data.setData('text/html', rich.html);
+      data.setData('text/plain', rich.text);
+      await act(async () => {
+        editor.textContent = '';
+        focusComposerEnd(editor);
+        editor.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: data }));
+      });
+      expect(resolve).not.toHaveBeenCalled();
+      expect(editor.querySelector('[data-weq-at-uid]')).toBeNull();
+      expect(serializeComposer(editor)).toBe('@昵称');
+    } finally {
+      f.dispose();
+    }
+  });
+
   it('输入 @ 展示成员，粘贴后按 ID 重命名并发出提及 token', async () => {
     const f = fixture();
     try {

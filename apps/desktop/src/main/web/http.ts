@@ -18,7 +18,7 @@
 
 import http from 'node:http';
 import { withHost, type HostBridge } from '@weq/service';
-import { type AuthGate, peerKey } from './auth';
+import { type AuthGate, AuthUnavailableError, peerKey } from './auth';
 import { LOGIN_PAGE } from './login_page';
 import { toProtocolRequest, writeResponse } from './protocol_adapter';
 import { lookupDownload } from './host';
@@ -92,8 +92,14 @@ export async function handleRequest(
     } catch {
       return send(res, 400, 'bad request');
     }
-    const ok = await opts.auth.login(token, peerKey(req), res);
-    return send(res, ok ? 200 : 401, ok ? 'ok' : 'unauthorized');
+    try {
+      const ok = await opts.auth.login(token, peerKey(req), res);
+      return send(res, ok ? 200 : 401, ok ? 'ok' : 'unauthorized');
+    } catch (error) {
+      if (!(error instanceof AuthUnavailableError)) throw error;
+      res.setHeader('Retry-After', '60');
+      return send(res, 503, 'authentication busy; retry later');
+    }
   }
 
   const authed = opts.auth.isAuthed(req);

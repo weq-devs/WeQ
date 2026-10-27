@@ -17,6 +17,7 @@ const fixture = vi.hoisted(() => ({
   options: vi.fn(),
   mutate: vi.fn(),
   missing: false,
+  failed: false,
   fetching: false,
   sessionless: false,
   messageId: 'message-hit',
@@ -85,6 +86,13 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'useQuery')
           return (input?: { sessionId?: string }, options?: { enabled?: boolean }) => {
             const name = path.at(-1)!;
+            const failed =
+              fixture.failed &&
+              [
+                'getAgentLabPersonaSessionConversation',
+                'getAgentLabConversation',
+                'getAgentLabGroupConversation',
+              ].includes(name);
             fixture.options(name, options);
             if (options?.enabled !== false) fixture.query(name, input);
             const key = JSON.stringify([
@@ -97,11 +105,11 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             ]);
             if (!cache.has(key)) cache.set(key, data(name));
             return {
-              data: options?.enabled === false ? undefined : cache.get(key),
+              data: options?.enabled === false || failed ? undefined : cache.get(key),
               isLoading: false,
               isFetching: fixture.fetching,
-              isSuccess: options?.enabled !== false,
-              isError: false,
+              isSuccess: options?.enabled !== false && !failed,
+              isError: failed,
             };
           };
         if (key === 'useMutation')
@@ -145,6 +153,7 @@ it('生成内容按搜索类别区分，不把其它结果的 kind 字段误当�
 
 afterEach(() => {
   fixture.missing = false;
+  fixture.failed = false;
   fixture.fetching = false;
   fixture.sessionless = false;
   fixture.messageId = 'message-hit';
@@ -178,6 +187,52 @@ function mount() {
 }
 
 describe('生成内容搜索定位', () => {
+  it.each(['persona', 'group'] as const)('%s 读取失败不冒充消息已经删除', async (kind) => {
+    fixture.failed = true;
+    const f = mount();
+    try {
+      act(() =>
+        f.root.render(createElement(AgentLabView, { embedded: true, searchTarget: target(kind) })),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('记录加载失败');
+      expect(f.host.textContent).not.toContain('该条记录已不在当前会话中');
+      expect(fixture.mutate).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+  it.each(['persona', 'group'] as const)(
+    '%s 与正常会话共用聊天布局且保留克隆入口',
+    async (kind) => {
+      const f = mount();
+      try {
+        act(() =>
+          f.root.render(
+            createElement(AgentLabView, { embedded: true, searchTarget: target(kind) }),
+          ),
+        );
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(50);
+        });
+        expect(f.host.querySelector('.chat-pane > .chat-header')).not.toBeNull();
+        expect(f.host.querySelector('.chat-pane > .message-scroll')).not.toBeNull();
+        expect(f.host.querySelector('.composer .composer-editor')).not.toBeNull();
+        expect(f.host.querySelector('.composer .composer-send')).not.toBeNull();
+        expect(f.host.querySelector('[aria-label="切换会话"]')).not.toBeNull();
+        expect(f.host.querySelector('.chat-header [title="克隆会话"]')).not.toBeNull();
+        expect(f.host.querySelector('.chat-header [aria-label="搜索聊天记录"]')).not.toBeNull();
+        expect(f.host.querySelector('.chat-header [aria-label="消息管理"]')).not.toBeNull();
+        expect(f.host.querySelector('.chat-header [aria-label="多选消息"]')).toBeNull();
+        expect(f.host.textContent).not.toContain('输入一句话测试克隆效果');
+        expect(f.host.querySelector('[title="发红包"]')).toBeNull();
+      } finally {
+        f.close();
+      }
+    },
+  );
   it.each(['persona', 'assistant'] as const)(
     '%s 更新后的持久身份可用于多选，不停留在第一次的历史快照',
     async (kind) => {
@@ -230,10 +285,33 @@ describe('生成内容搜索定位', () => {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(50);
         });
-        act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="多选消息"]')!.click());
-        act(() =>
-          f.host.querySelector<HTMLElement>('[data-generated-message-id="message-hit"]')!.click(),
-        );
+        if (kind === 'assistant') {
+          act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="多选消息"]')!.click());
+          act(() =>
+            f.host.querySelector<HTMLElement>('[data-generated-message-id="message-hit"]')!.click(),
+          );
+        } else {
+          act(() =>
+            f.host
+              .querySelector('[data-generated-message-id="message-hit"] .message-bubble')!
+              .dispatchEvent(
+                new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
+              ),
+          );
+          act(() =>
+            [...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button')]
+              .find((item) => item.textContent === '多选')!
+              .click(),
+          );
+          expect(
+            f.host
+              .querySelector('.composer.selection-mode .selection-bar-info')
+              ?.getAttribute('aria-label'),
+          ).toBe('已选 1 条消息');
+          expect(f.host.querySelector('.selection-bar [aria-label="复制"]')).not.toBeNull();
+          expect(f.host.querySelector('.selection-bar [aria-label="导出所选消息"]')).not.toBeNull();
+          expect(f.host.querySelector('.selection-bar [aria-label="退出多选"]')).not.toBeNull();
+        }
         expect(JSON.parse(f.host.querySelector('output')!.textContent!)).toEqual({
           owner: {
             kind: kind === 'assistant' ? 'assistant-messages' : 'clone-messages',
@@ -241,8 +319,21 @@ describe('生成内容搜索定位', () => {
           },
           scope: { type: 'items', ids: ['message-hit'] },
         });
-        expect(f.host.querySelector('.weq-generated-message.is-selected')).not.toBeNull();
+        expect(
+          f.host.querySelector(
+            kind === 'assistant'
+              ? '.weq-generated-message.is-selected'
+              : '.message-line.is-selected',
+          ),
+        ).not.toBeNull();
         expect(fixture.mutate).not.toHaveBeenCalled();
+        if (kind !== 'assistant') {
+          const editor = f.host.querySelector('.composer-editor');
+          act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="退出多选"]')!.click());
+          expect(f.host.querySelector('.composer.selection-mode')).toBeNull();
+          expect(f.host.querySelector('.composer-editor')).toBe(editor);
+          expect(f.host.querySelector('.message-line.selection-mode')).toBeNull();
+        }
       } finally {
         f.close();
       }
@@ -264,7 +355,9 @@ describe('生成内容搜索定位', () => {
         await vi.advanceTimersByTimeAsync(50);
       });
       expect(f.host.textContent).toContain('合成搜索命中');
-      expect(f.host.querySelector<HTMLTextAreaElement>('textarea')?.disabled).toBe(true);
+      expect(f.host.querySelector('.composer-editor')?.getAttribute('contenteditable')).toBe(
+        'false',
+      );
       expect(fixture.mutate).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -286,7 +379,9 @@ describe('生成内容搜索定位', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(50);
       });
-      expect(f.host.querySelector<HTMLTextAreaElement>('textarea')?.disabled).toBe(false);
+      expect(f.host.querySelector('.composer-editor')?.getAttribute('contenteditable')).toBe(
+        'true',
+      );
     } finally {
       f.close();
     }
@@ -307,7 +402,7 @@ describe('生成内容搜索定位', () => {
         await vi.advanceTimersByTimeAsync(50);
       });
       expect(f.host.querySelector('.is-search-hit')?.textContent).toContain('合成搜索命中');
-      expect(f.host.querySelector('.weq-agentlab-head strong')?.textContent).toBe('合成克隆');
+      expect(f.host.querySelector('.chat-header strong')?.textContent).toBe('合成克隆');
     } finally {
       f.close();
     }
@@ -490,11 +585,10 @@ describe('生成内容搜索定位', () => {
           await vi.advanceTimersByTimeAsync(50);
         });
         expect(f.host.querySelector('.is-search-hit')?.textContent).toContain('合成搜索命中');
-        const composer = f.host.querySelector<HTMLTextAreaElement>(
-          '.weq-agentlab-composer textarea',
-        )!;
-        expect(composer.disabled).toBe(true);
-        expect(composer.placeholder).toContain('只读');
+        expect(f.host.querySelector('.composer-editor')?.getAttribute('contenteditable')).toBe(
+          'false',
+        );
+        expect(f.host.querySelector<HTMLButtonElement>('.composer-send')?.title).toContain('只读');
         expect(fixture.mutate).not.toHaveBeenCalled();
       } finally {
         f.close();

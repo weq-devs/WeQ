@@ -13,7 +13,6 @@ import {
   FlipHorizontal2,
   History,
   Info,
-  Layers,
   ListFilter,
   Loader2,
   Pause,
@@ -21,7 +20,7 @@ import {
   Radio,
   RefreshCw,
   RotateCcw,
-  ScanSearch,
+  Settings2,
   Search,
   Square,
   Trash2,
@@ -86,6 +85,7 @@ export function RoamingBackfillPanel({
   surface = 'all',
   targetMode = 'select',
   taskId,
+  onSubmitted,
 }: {
   initialTarget?: RoamingTarget;
   initialTargets?: RoamingTarget[];
@@ -93,6 +93,7 @@ export function RoamingBackfillPanel({
   targetMode?: 'select' | 'fixed';
   /** 统一任务列表仅展开选中任务，沿用原有续作、回执与覆盖口径。 */
   taskId?: string;
+  onSubmitted?: () => void;
 }) {
   const utils = trpc.useUtils();
   const confirm = useDialog((s) => s.confirm);
@@ -135,10 +136,15 @@ export function RoamingBackfillPanel({
     void utils.account.roamingBackfill.list.invalidate();
   };
   const onError = (e: { message: string }) => setError(e.message);
-  const staleBackend = Boolean(state.data && state.data.historyVersion !== 2);
+  const staleBackend = Boolean(
+    state.data &&
+      (state.data.historyVersion !== 2 ||
+        (surface !== 'tasks' && !state.data.supportsImmediateStart)),
+  );
   const plan = trpc.account.roamingBackfill.plan.useMutation({
     onSuccess: () => {
       refresh();
+      onSubmitted?.();
     },
     onError,
   });
@@ -268,7 +274,7 @@ export function RoamingBackfillPanel({
     setEnd(range.end);
   }
 
-  function scan() {
+  function submit() {
     if (invalidFixedTargets) return;
     setError(null);
     const range = {
@@ -281,6 +287,7 @@ export function RoamingBackfillPanel({
       beforeOldest,
       intervalMs,
       transport: 'sso',
+      startImmediately: true,
     });
   }
 
@@ -297,7 +304,7 @@ export function RoamingBackfillPanel({
         <div className="weq-roaming-statusline">
           <span
             className={`weq-roaming-chip${state.data?.online ? ' is-online' : ' is-offline'}`}
-            title={state.data?.online ? '在线拉取可用' : '离线时只扫描本地锚点与缓存'}
+            title={state.data?.online ? '在线拉取可用' : '离线时先读取缓存，需联网的区间会暂停保留'}
           >
             {state.data?.online ? <Radio size={13} /> : <WifiOff size={13} />}
             {state.data?.onlineAllowed === false
@@ -305,14 +312,10 @@ export function RoamingBackfillPanel({
               : state.data
                 ? state.data.online
                   ? 'QQ 在线'
-                  : '离线 · 仅本地锚点'
+                  : '离线 · 仅本地缓存'
                 : '读取状态中'}
           </span>
-          <span className="weq-roaming-chip is-quiet" title="每次请求最多 30 个 seq">
-            <Layers size={13} />
-            SSO · 30 seq/窗
-          </span>
-          {jobs.length ? (
+          {surface === 'tasks' && jobs.length ? (
             <span className="weq-roaming-chip is-quiet">
               <History size={13} />
               {jobs.length} 个任务
@@ -332,7 +335,7 @@ export function RoamingBackfillPanel({
         {staleBackend ? (
           <p role="alert" className="weq-roaming-notice is-error">
             <CircleAlert size={14} />
-            当前后端不包含所选历史接口，请重启开发版 WeQ。
+            当前后端不支持此拉取流程，请重启开发版 WeQ。
           </p>
         ) : null}
         {state.error || error ? (
@@ -578,21 +581,20 @@ export function RoamingBackfillPanel({
                       </button>
                     ) : null}
                   </div>
-                  <dl className="weq-roaming-overview">
-                    <div>
-                      <dt>目标会话</dt>
-                      <dd>{fixed ? fixedTargets.length : selected.size} 个</dd>
-                    </div>
-                    <div>
-                      <dt>时间范围</dt>
-                      <dd>{start && end ? `${start} → ${end}` : start || end || '不限'}</dd>
-                    </div>
-                    <div>
-                      <dt>请求方式</dt>
-                      <dd>SSO · 每窗 30 seq</dd>
-                    </div>
-                  </dl>
-                  <div className="weq-roaming-fields">
+                  <label className="weq-roaming-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={beforeOldest}
+                      onChange={(e) => setBeforeOldest(e.target.checked)}
+                    />
+                    <span>尝试找回更早的聊天记录</span>
+                  </label>
+                  <details className="weq-roaming-advanced">
+                    <summary>
+                      <Settings2 size={14} />
+                      高级设置
+                      <ChevronRight size={13} className="weq-roaming-disclosure" />
+                    </summary>
                     <label className="weq-roaming-field">
                       <span>
                         <Clock3 size={13} />
@@ -610,15 +612,7 @@ export function RoamingBackfillPanel({
                         <small>毫秒</small>
                       </span>
                     </label>
-                    <label className="weq-roaming-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={beforeOldest}
-                        onChange={(e) => setBeforeOldest(e.target.checked)}
-                      />
-                      <span>包含最早本地锚点之前的区间</span>
-                    </label>
-                  </div>
+                  </details>
                 </div>
                 <div className="weq-roaming-scope-calendar">
                   <MessageCalendar
@@ -641,6 +635,7 @@ export function RoamingBackfillPanel({
                 <button
                   type="button"
                   className="weq-roaming-primary"
+                  aria-label="开始拉取"
                   disabled={
                     (fixed ? invalidFixedTargets : !selected.size) ||
                     busy ||
@@ -649,289 +644,295 @@ export function RoamingBackfillPanel({
                     Boolean(state.error) ||
                     staleBackend
                   }
-                  onClick={scan}
+                  onClick={submit}
                 >
                   {plan.isLoading || state.data?.scanning ? (
                     <Loader2 size={15} className="weq-roaming-spin" />
                   ) : (
-                    <ScanSearch size={15} />
+                    <CloudDownload size={15} />
                   )}
-                  {plan.isLoading || state.data?.scanning ? '扫描中…' : '扫描候选缺口'}
+                  {plan.isLoading || state.data?.scanning ? '正在检查缺失消息…' : '开始拉取'}
                 </button>
               </footer>
             </section>
           </div>
         ) : null}
 
-        <section className="weq-roaming-jobs" aria-label="补全任务">
-          {!taskId ? (
-            <header className="weq-roaming-card-head is-section">
-              <span className="weq-roaming-card-icon">
-                <CloudDownload size={16} />
-              </span>
-              <span className="weq-roaming-card-text">
-                <strong>补全任务</strong>
-                <small>
-                  {jobs.length ? `${jobs.length} 个任务 · 最新在前` : '尚无批量补全任务'}
-                </small>
-              </span>
-            </header>
-          ) : null}
-          {jobs.length ? (
-            jobs.map((job) => {
-              const covered = job.plannedSeqs - job.remainingSeqs;
-              const pct =
-                job.plannedSeqs > 0
-                  ? Math.min(100, Math.max(0, (covered / job.plannedSeqs) * 100))
-                  : 0;
-              const JobGlyph = jobGlyph[job.status];
-              return (
-                <article key={job.id} className={`weq-roaming-job is-${job.status}`}>
-                  <header className="weq-roaming-job-head">
-                    <span className="weq-roaming-job-icon" aria-hidden>
-                      <JobGlyph
-                        size={16}
-                        className={
-                          job.status === 'running' || job.status === 'pausing'
-                            ? 'weq-roaming-spin'
-                            : undefined
-                        }
-                      />
-                    </span>
-                    <span className="weq-roaming-job-title">
-                      <strong>{labels[job.status]}</strong>
-                      <small>
-                        <Clock3 size={12} />
-                        {atBeijing(job.createdAt)}
-                        <Users size={12} />
-                        {job.targets.length} 个会话
-                      </small>
-                    </span>
-                    <span className="weq-roaming-job-ratio" title="已覆盖候选 / 候选总数">
-                      {format(covered)}
-                      <small>/ {format(job.plannedSeqs)}</small>
-                    </span>
-                  </header>
-                  <div
-                    className="weq-roaming-progress"
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round(pct)}
-                    aria-label="候选缺口覆盖进度"
-                  >
-                    <span style={{ width: `${pct}%` }} />
-                  </div>
-                  <div className="weq-roaming-job-targets">
-                    {job.targets.map((target) => (
-                      <span key={targetKey(target)} className="weq-roaming-tag">
-                        {target.kind === 'group' ? <Users size={12} /> : <Radio size={12} />}
-                        {target.name}
+        {surface === 'tasks' ? (
+          <section className="weq-roaming-jobs" aria-label="补全任务">
+            {!taskId ? (
+              <header className="weq-roaming-card-head is-section">
+                <span className="weq-roaming-card-icon">
+                  <CloudDownload size={16} />
+                </span>
+                <span className="weq-roaming-card-text">
+                  <strong>补全任务</strong>
+                  <small>
+                    {jobs.length ? `${jobs.length} 个任务 · 最新在前` : '尚无批量补全任务'}
+                  </small>
+                </span>
+              </header>
+            ) : null}
+            {jobs.length ? (
+              jobs.map((job) => {
+                const covered = job.plannedSeqs - job.remainingSeqs;
+                const pct =
+                  job.plannedSeqs > 0
+                    ? Math.min(100, Math.max(0, (covered / job.plannedSeqs) * 100))
+                    : 0;
+                const JobGlyph = jobGlyph[job.status];
+                return (
+                  <article key={job.id} className={`weq-roaming-job is-${job.status}`}>
+                    <header className="weq-roaming-job-head">
+                      <span className="weq-roaming-job-icon" aria-hidden>
+                        <JobGlyph
+                          size={16}
+                          className={
+                            job.status === 'running' || job.status === 'pausing'
+                              ? 'weq-roaming-spin'
+                              : undefined
+                          }
+                        />
                       </span>
-                    ))}
-                  </div>
-                  <dl className="weq-roaming-stats">
-                    {(
-                      [
-                        ['候选 seq', job.plannedSeqs],
-                        ['已覆盖', covered],
-                        ['仍未确认', job.remainingSeqs],
-                        ['尚待检查', job.pendingSeqs],
-                        ['在线请求', job.requests],
-                        ['缓存窗口', job.cacheWindows],
-                        ['失败', job.errors],
-                        ['空响应', job.unparsedOrEmpty],
-                      ] as const
-                    ).map(([label, value]) => (
-                      <div key={label}>
-                        <dt>{label}</dt>
-                        <dd>{format(value)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                  {job.note ? (
-                    <p className="weq-roaming-note">
-                      <Info size={13} />
-                      <span>{job.note}</span>
-                    </p>
-                  ) : null}
-                  {job.options.transport === 'native500' || job.options.transport === 'sso500' ? (
-                    <p role="alert" className="weq-roaming-notice is-error">
-                      <CircleAlert size={14} />
-                      {job.options.transport === 'native500' ? 'SDK 历史通道' : '500 条聚合通道'}
-                      已移除，此旧任务不能继续；任务记录与已取得缓存保留。
-                    </p>
-                  ) : null}
-                  <div className="weq-roaming-job-meta">
-                    <span className="weq-roaming-chip is-quiet">
-                      <Radio size={12} />
-                      {job.options.transport === 'native500'
-                        ? 'SDK 通道已移除（历史任务）'
-                        : job.options.transport === 'sso500'
-                          ? '聚合通道已移除（历史任务）'
-                          : `SSO · ${job.options.intervalMs} ms`}
-                    </span>
-                    <span className="weq-roaming-chip is-quiet">
-                      <History size={12} />
-                      待检查窗口 {format(job.estimatedWindows)}
-                    </span>
-                    <span className="weq-roaming-chip is-quiet">
-                      <CalendarRange size={12} />
-                      {job.options.range?.start === undefined
-                        ? '不限起始'
-                        : atBeijing(job.options.range.start * 1000)}
-                      {' → '}
-                      {job.options.range?.end === undefined
-                        ? '不限结束'
-                        : atBeijing(job.options.range.end * 1000)}
-                    </span>
-                    {job.inFlight ? (
-                      <span className="weq-roaming-chip is-pending">
-                        <Loader2 size={12} className="weq-roaming-spin" />
-                        {targetNames.get(job.inFlight.target) ??
-                          job.targets.find((target) => targetKey(target) === job.inFlight?.target)
-                            ?.name ??
-                          job.inFlight.target}{' '}
-                        · seq {job.inFlight.start}–{job.inFlight.end} 待复核
+                      <span className="weq-roaming-job-title">
+                        <strong>
+                          {job.status === 'completed' && job.plannedSeqs === 0
+                            ? '未发现可补全的缺口'
+                            : labels[job.status]}
+                        </strong>
+                        <small>
+                          <Clock3 size={12} />
+                          {atBeijing(job.createdAt)}
+                          <Users size={12} />
+                          {job.targets.length} 个会话
+                        </small>
                       </span>
-                    ) : null}
-                  </div>
-                  <div className="weq-roaming-job-actions">
-                    {['planned', 'paused', 'failed'].includes(job.status) ? (
-                      <button
-                        type="button"
-                        className="weq-roaming-actionbtn is-primary"
-                        disabled={
-                          busy ||
-                          mutating ||
-                          job.options.transport === 'native500' ||
-                          job.options.transport === 'sso500' ||
-                          staleBackend
-                        }
-                        onClick={() => {
-                          setError(null);
-                          run.mutate({ id: job.id });
-                        }}
-                      >
-                        <Play size={14} />
-                        {job.status === 'planned' ? '开始补全' : '继续'}
-                      </button>
-                    ) : null}
-                    {job.status === 'running' ? (
-                      <button
-                        type="button"
-                        className="weq-roaming-actionbtn is-primary"
-                        disabled={mutating}
-                        onClick={() => pause.mutate({ id: job.id })}
-                      >
-                        <Pause size={14} />
-                        暂停
-                      </button>
-                    ) : null}
-                    {job.status === 'partial' ? (
-                      <button
-                        type="button"
-                        className="weq-roaming-actionbtn"
-                        disabled={
-                          busy ||
-                          mutating ||
-                          job.options.transport === 'native500' ||
-                          job.options.transport === 'sso500' ||
-                          staleBackend
-                        }
-                        onClick={() => {
-                          setError(null);
-                          run.mutate({ id: job.id, retryRemaining: true });
-                        }}
-                      >
-                        <RotateCcw size={14} />
-                        重试未补区间
-                      </button>
-                    ) : null}
-                    {!['completed', 'cancelled'].includes(job.status) ? (
-                      <button
-                        type="button"
-                        className="weq-roaming-actionbtn"
-                        disabled={mutating || job.status === 'pausing'}
-                        onClick={() => cancel.mutate({ id: job.id })}
-                      >
-                        <Square size={13} />
-                        取消
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="weq-roaming-iconbtn is-danger"
-                      title="移除任务，保留已取得的消息"
-                      aria-label="移除补全任务"
-                      disabled={busy || mutating}
-                      onClick={() => {
-                        void confirm(
-                          '移除任务？',
-                          '仅移除任务与断点，已经取得的漫游消息会保留。',
-                        ).then((ok) => {
-                          if (ok) remove.mutate({ id: job.id });
-                        });
-                      }}
+                      <span className="weq-roaming-job-ratio" title="已覆盖候选 / 候选总数">
+                        {format(covered)}
+                        <small>/ {format(job.plannedSeqs)}</small>
+                      </span>
+                    </header>
+                    <div
+                      className="weq-roaming-progress"
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.round(pct)}
+                      aria-label="候选缺口覆盖进度"
                     >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                  <details className="weq-roaming-receipts">
-                    <summary>
-                      <ChevronRight size={13} className="weq-roaming-disclosure" />
-                      最近请求记录
-                      <small>最多 200 条</small>
-                    </summary>
-                    <div className="weq-roaming-receipt-list">
-                      {[...job.attempts].reverse().map((attempt) => (
-                        <div key={attempt.id} className="weq-roaming-receipt">
-                          <span className="weq-roaming-receipt-target">
-                            <span data-privacy-sensitive>
-                              {targetNames.get(attempt.target) ??
-                                job.targets.find((target) => targetKey(target) === attempt.target)
-                                  ?.name ??
-                                attempt.target}
-                            </span>
-                            <small>
-                              seq {attempt.start}–{attempt.end}
-                            </small>
-                          </span>
-                          <span
-                            className={`weq-roaming-chip is-${attempt.outcome === 'observed' ? 'online' : attempt.outcome === 'cache' ? 'quiet' : 'error'}`}
-                          >
-                            {
-                              {
-                                cache: '缓存',
-                                observed: '取得记录',
-                                empty: '空响应，缺口保留',
-                                error: '失败，缺口保留',
-                              }[attempt.outcome]
-                            }
-                            {' · '}
-                            {attempt.observed} 条
-                          </span>
-                          {attempt.detail ? <small>{attempt.detail}</small> : null}
-                        </div>
+                      <span style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="weq-roaming-job-targets">
+                      {job.targets.map((target) => (
+                        <span key={targetKey(target)} className="weq-roaming-tag">
+                          {target.kind === 'group' ? <Users size={12} /> : <Radio size={12} />}
+                          {target.name}
+                        </span>
                       ))}
                     </div>
-                  </details>
-                </article>
-              );
-            })
-          ) : (
-            <p className="weq-roaming-empty">
-              <CloudDownload size={15} />
-              尚无批量补全任务，先在上方选择会话并扫描候选缺口。
-            </p>
-          )}
-          {jobs.length ? (
-            <p className="weq-roaming-hint is-footer">
-              <Info size={13} />
-              覆盖口径：实际取得的记录；日期边界来自本地锚点，不证明全部历史完整
-            </p>
-          ) : null}
-        </section>
+                    <dl className="weq-roaming-stats">
+                      {(
+                        [
+                          ['候选 seq', job.plannedSeqs],
+                          ['已覆盖', covered],
+                          ['仍未确认', job.remainingSeqs],
+                          ['尚待检查', job.pendingSeqs],
+                          ['在线请求', job.requests],
+                          ['缓存窗口', job.cacheWindows],
+                          ['失败', job.errors],
+                          ['空响应', job.unparsedOrEmpty],
+                        ] as const
+                      ).map(([label, value]) => (
+                        <div key={label}>
+                          <dt>{label}</dt>
+                          <dd>{format(value)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    {job.note ? (
+                      <p className="weq-roaming-note">
+                        <Info size={13} />
+                        <span>{job.note}</span>
+                      </p>
+                    ) : null}
+                    {job.options.transport === 'native500' || job.options.transport === 'sso500' ? (
+                      <p role="alert" className="weq-roaming-notice is-error">
+                        <CircleAlert size={14} />
+                        {job.options.transport === 'native500' ? 'SDK 历史通道' : '500 条聚合通道'}
+                        已移除，此旧任务不能继续；任务记录与已取得缓存保留。
+                      </p>
+                    ) : null}
+                    <div className="weq-roaming-job-meta">
+                      <span className="weq-roaming-chip is-quiet">
+                        <Radio size={12} />
+                        {job.options.transport === 'native500'
+                          ? 'SDK 通道已移除（历史任务）'
+                          : job.options.transport === 'sso500'
+                            ? '聚合通道已移除（历史任务）'
+                            : `SSO · ${job.options.intervalMs} ms`}
+                      </span>
+                      <span className="weq-roaming-chip is-quiet">
+                        <History size={12} />
+                        待检查窗口 {format(job.estimatedWindows)}
+                      </span>
+                      <span className="weq-roaming-chip is-quiet">
+                        <CalendarRange size={12} />
+                        {job.options.range?.start === undefined
+                          ? '不限起始'
+                          : atBeijing(job.options.range.start * 1000)}
+                        {' → '}
+                        {job.options.range?.end === undefined
+                          ? '不限结束'
+                          : atBeijing(job.options.range.end * 1000)}
+                      </span>
+                      {job.inFlight ? (
+                        <span className="weq-roaming-chip is-pending">
+                          <Loader2 size={12} className="weq-roaming-spin" />
+                          {targetNames.get(job.inFlight.target) ??
+                            job.targets.find((target) => targetKey(target) === job.inFlight?.target)
+                              ?.name ??
+                            job.inFlight.target}{' '}
+                          · seq {job.inFlight.start}–{job.inFlight.end} 待复核
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="weq-roaming-job-actions">
+                      {['planned', 'paused', 'failed'].includes(job.status) ? (
+                        <button
+                          type="button"
+                          className="weq-roaming-actionbtn is-primary"
+                          disabled={
+                            busy ||
+                            mutating ||
+                            job.options.transport === 'native500' ||
+                            job.options.transport === 'sso500' ||
+                            staleBackend
+                          }
+                          onClick={() => {
+                            setError(null);
+                            run.mutate({ id: job.id });
+                          }}
+                        >
+                          <Play size={14} />
+                          {job.status === 'planned' ? '开始补全' : '继续'}
+                        </button>
+                      ) : null}
+                      {job.status === 'running' ? (
+                        <button
+                          type="button"
+                          className="weq-roaming-actionbtn is-primary"
+                          disabled={mutating}
+                          onClick={() => pause.mutate({ id: job.id })}
+                        >
+                          <Pause size={14} />
+                          暂停
+                        </button>
+                      ) : null}
+                      {job.status === 'partial' ? (
+                        <button
+                          type="button"
+                          className="weq-roaming-actionbtn"
+                          disabled={
+                            busy ||
+                            mutating ||
+                            job.options.transport === 'native500' ||
+                            job.options.transport === 'sso500' ||
+                            staleBackend
+                          }
+                          onClick={() => {
+                            setError(null);
+                            run.mutate({ id: job.id, retryRemaining: true });
+                          }}
+                        >
+                          <RotateCcw size={14} />
+                          重试未补区间
+                        </button>
+                      ) : null}
+                      {!['completed', 'cancelled'].includes(job.status) ? (
+                        <button
+                          type="button"
+                          className="weq-roaming-actionbtn"
+                          disabled={mutating || job.status === 'pausing'}
+                          onClick={() => cancel.mutate({ id: job.id })}
+                        >
+                          <Square size={13} />
+                          取消
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="weq-roaming-iconbtn is-danger"
+                        title="移除任务，保留已取得的消息"
+                        aria-label="移除补全任务"
+                        disabled={busy || mutating}
+                        onClick={() => {
+                          void confirm(
+                            '移除任务？',
+                            '仅移除任务与断点，已经取得的漫游消息会保留。',
+                          ).then((ok) => {
+                            if (ok) remove.mutate({ id: job.id });
+                          });
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                    <details className="weq-roaming-receipts">
+                      <summary>
+                        <ChevronRight size={13} className="weq-roaming-disclosure" />
+                        最近请求记录
+                        <small>最多 200 条</small>
+                      </summary>
+                      <div className="weq-roaming-receipt-list">
+                        {[...job.attempts].reverse().map((attempt) => (
+                          <div key={attempt.id} className="weq-roaming-receipt">
+                            <span className="weq-roaming-receipt-target">
+                              <span data-privacy-sensitive>
+                                {targetNames.get(attempt.target) ??
+                                  job.targets.find((target) => targetKey(target) === attempt.target)
+                                    ?.name ??
+                                  attempt.target}
+                              </span>
+                              <small>
+                                seq {attempt.start}–{attempt.end}
+                              </small>
+                            </span>
+                            <span
+                              className={`weq-roaming-chip is-${attempt.outcome === 'observed' ? 'online' : attempt.outcome === 'cache' ? 'quiet' : 'error'}`}
+                            >
+                              {
+                                {
+                                  cache: '缓存',
+                                  observed: '取得记录',
+                                  empty: '空响应，缺口保留',
+                                  error: '失败，缺口保留',
+                                }[attempt.outcome]
+                              }
+                              {' · '}
+                              {attempt.observed} 条
+                            </span>
+                            {attempt.detail ? <small>{attempt.detail}</small> : null}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  </article>
+                );
+              })
+            ) : (
+              <p className="weq-roaming-empty">
+                <CloudDownload size={15} />
+                尚无漫游拉取任务。
+              </p>
+            )}
+            {jobs.length ? (
+              <p className="weq-roaming-hint is-footer">
+                <Info size={13} />
+                覆盖口径：实际取得的记录；日期边界来自本地锚点，不证明全部历史完整
+              </p>
+            ) : null}
+          </section>
+        ) : null}
       </div>
     </div>
   );

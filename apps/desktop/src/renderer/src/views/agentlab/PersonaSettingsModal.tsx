@@ -1,24 +1,15 @@
-/**
- * 克隆体顶部设置灯箱：5 个分页
- *   ① 训练参数（由调用方传入已渲染好的参数面板）
- *   ② 自定义额外提示（编辑 customPrompt → updateAgentLabPersona）
- *   ③ 语音克隆开关（voiceCloneEnabled；真正的语音克隆是应用层未来能力）
- *   ④ 对自己的记忆 / 画像（占位，依赖后端记忆机制）
- *   ⑤ 导出好友（占位，依赖 AI tool 导出能力）
- */
+/** 克隆体设置：配置统一保存，即时管理操作与配置分开。 */
 
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { CloneUpdateButton } from './CloneUpdateButton';
+import '../../styles/persona-settings.css';
 import type { AgentLabModelSelection } from '@weq/agentlab';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
 import { TabActivity, useTabActive } from '../../components/RetainedTabs';
 import { DraftCloseContext, useDraftClose, useDraftProtection } from '../../lib/draftClose';
 import {
-  BarChart3,
   Download,
-  FileText,
   Mic,
-  Settings,
   Save,
   Trash2,
   Brain,
@@ -38,8 +29,14 @@ import {
   EyeOff,
   Info,
   Image as ImageIcon,
+  Settings2,
 } from 'lucide-react';
-import { Modal } from '../../components/Dialog';
+import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
+import {
+  CloneSettingsDraftContext,
+  useCloneSettingsDraft,
+  useCloneSettingsSection,
+} from './cloneSettingsDraft';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 
@@ -73,6 +70,7 @@ function MemoryTab({ personaId }: { personaId: string }): ReactElement {
     <div className="weq-persona-form">
       <p className="weq-persona-note">
         克隆体一边和你聊一边会记住关于「你」的事（近况、喜好、约定等），下次聊天自然带上。常被想起的记忆更不易遗忘。
+        遗忘和清空立即生效，不随配置保存。
       </p>
       {list.length === 0 ? (
         <div className="weq-persona-soon" style={{ padding: '24px 0' }}>
@@ -111,15 +109,15 @@ function MemoryTab({ personaId }: { personaId: string }): ReactElement {
   );
 }
 
-type Tab = 'params' | 'prompt' | 'willing' | 'voice' | 'memory' | 'export';
+type Tab = 'profile' | 'reply' | 'voice' | 'memory' | 'export' | 'management';
 
 const TABS: Array<{ id: Tab; label: string; icon: ReactElement }> = [
-  { id: 'params', label: '训练参数', icon: <BarChart3 size={15} /> },
-  { id: 'prompt', label: '额外提示', icon: <FileText size={15} /> },
-  { id: 'willing', label: '发言意愿', icon: <Gauge size={15} /> },
-  { id: 'voice', label: '语音克隆', icon: <Mic size={15} /> },
-  { id: 'memory', label: '记忆 / 画像', icon: <Brain size={15} /> },
-  { id: 'export', label: '导出好友', icon: <Download size={15} /> },
+  { id: 'profile', label: '人格与画像', icon: <UserRound size={15} /> },
+  { id: 'reply', label: '回复设置', icon: <Gauge size={15} /> },
+  { id: 'voice', label: '语音', icon: <Mic size={15} /> },
+  { id: 'memory', label: '对我的记忆', icon: <Brain size={15} /> },
+  { id: 'export', label: '导出与部署', icon: <Download size={15} /> },
+  { id: 'management', label: '克隆体管理', icon: <Settings2 size={15} /> },
 ];
 
 type WillingCfg = { gatePrivate?: boolean; level?: number; mustReplyOnMention?: boolean };
@@ -131,13 +129,9 @@ const DEFAULT_TYPO_INTENSITY = 0.1;
 /** 发言意愿：总体意愿档位 + 是否对私聊生效 + 被 @ 是否必回；顺带管错别字（人味）后处理。 */
 function WillingTab({
   persona,
-  onSaved,
 }: {
   persona: { id: string; willing?: WillingCfg; typo?: TypoCfg };
-  onSaved: () => void;
 }): ReactElement {
-  const dialog = useAppDialog();
-  const update = trpc.account.updateAgentLabPersona.useMutation();
   const [level, setLevel] = useState(persona.willing?.level ?? 50);
   const [mustReply, setMustReply] = useState(persona.willing?.mustReplyOnMention !== false);
   const [gatePrivate, setGatePrivate] = useState(!!persona.willing?.gatePrivate);
@@ -146,27 +140,11 @@ function WillingTab({
   const [typoPct, setTypoPct] = useState(
     Math.round((persona.typo?.intensity ?? DEFAULT_TYPO_INTENSITY) * 100),
   );
-  const [saving, setSaving] = useState(false);
   const willingDraft = { level, mustReply, gatePrivate, typoOn, typoPct };
-  const guard = useDraftProtection(willingDraft, saving);
-
-  async function save(): Promise<void> {
-    setSaving(true);
-    try {
-      await update.mutateAsync({
-        personaId: persona.id,
-        willing: { level, mustReplyOnMention: mustReply, gatePrivate },
-        typo: { enabled: typoOn, intensity: typoPct / 100 },
-      });
-      guard.reset(willingDraft);
-      dialog.success('已保存', '发言意愿已更新');
-      onSaved();
-    } catch (e) {
-      dialog.error('保存失败', e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
+  useCloneSettingsSection('willing', willingDraft, {
+    willing: { level, mustReplyOnMention: mustReply, gatePrivate },
+    typo: { enabled: typoOn, intensity: typoPct / 100 },
+  });
 
   const levelHint =
     level >= 70 ? '话痨，很爱接话' : level <= 30 ? '高冷，多数时候潜水' : '看心情和话题';
@@ -231,13 +209,6 @@ function WillingTab({
           />
         </label>
       ) : null}
-
-      <div className="weq-clone-actions">
-        <button className="weq-set-btn" disabled={saving} onClick={() => void save()}>
-          <Save size={14} aria-hidden="true" />
-          保存
-        </button>
-      </div>
     </div>
   );
 }
@@ -247,7 +218,6 @@ type VoiceBinding = { providerId: string; mode: 'clone' | 'preset'; voice?: stri
 /** ③ 语音克隆：门控（TA 发过语音 + 配了 TTS）+ 服务商/音色方式选择。 */
 function VoiceTab({
   persona,
-  onSaved,
 }: {
   persona: {
     id: string;
@@ -255,11 +225,8 @@ function VoiceTab({
     voice?: VoiceBinding;
     voiceProfile?: { ratio: number; refClips?: unknown[] };
   };
-  onSaved: () => void;
 }): ReactElement {
   const active = useTabActive();
-  const dialog = useAppDialog();
-  const update = trpc.account.updateAgentLabPersona.useMutation();
   const providers = trpc.bootstrap.listTtsProviders.useQuery(undefined, {
     enabled: active,
     refetchOnWindowFocus: false,
@@ -283,58 +250,39 @@ function VoiceTab({
   const [providerId, setProviderId] = useState(persona.voice?.providerId ?? '');
   const [mode, setMode] = useState<'clone' | 'preset'>(persona.voice?.mode ?? 'clone');
   const [voice, setVoice] = useState(persona.voice?.voice ?? '');
-  const [saving, setSaving] = useState(false);
   const voiceDraft = { enabled, providerId, mode, voice };
-  const guard = useDraftProtection(voiceDraft, saving);
 
   const currentProvider = providerList.find((p) => p.id === providerId) ?? providerList[0];
   const caps = catalog.data?.find((c) => c.vendor === currentProvider?.vendor)?.capabilities;
   const cloneOk = !!caps?.clone && hasRefClips;
   const effMode: 'clone' | 'preset' = mode === 'clone' && !cloneOk ? 'preset' : mode;
 
-  async function save(nextEnabled: boolean): Promise<void> {
-    setSaving(true);
-    try {
-      const binding: VoiceBinding | null =
-        nextEnabled && currentProvider
-          ? {
-              providerId: currentProvider.id,
-              mode: effMode,
-              voice: effMode === 'preset' ? voice.trim() || undefined : undefined,
-            }
-          : (persona.voice ?? null);
-      await update.mutateAsync({
-        personaId: persona.id,
-        voiceCloneEnabled: nextEnabled,
-        voice: binding,
-      });
-      guard.reset({ ...voiceDraft, enabled: nextEnabled });
-      onSaved();
-    } catch (e) {
-      dialog.error('保存失败', e instanceof Error ? e.message : String(e));
-      throw e;
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function onToggle(next: boolean): Promise<void> {
-    setEnabled(next);
-    try {
-      await save(next);
-    } catch {
-      setEnabled(!next);
-    }
-  }
+  const binding: VoiceBinding | null =
+    enabled && currentProvider
+      ? {
+          providerId: currentProvider.id,
+          mode: effMode,
+          voice: effMode === 'preset' ? voice.trim() || undefined : undefined,
+        }
+      : (persona.voice ?? null);
+  useCloneSettingsSection(
+    'voice',
+    voiceDraft,
+    {
+      voiceCloneEnabled: enabled,
+      voice: binding,
+    },
+    !enabled || canEnable,
+  );
 
   return (
     <div className="weq-persona-form">
       <label className="weq-clone-check">
         <input
           type="checkbox"
-          checked={enabled && canEnable}
-          disabled={!canEnable}
-          onChange={(e) => void onToggle(e.target.checked)}
+          checked={enabled}
+          disabled={!canEnable && !enabled}
+          onChange={(e) => setEnabled(e.target.checked)}
         />
         <span>开启语音克隆</span>
       </label>
@@ -399,12 +347,6 @@ function VoiceTab({
               />
             </label>
           ) : null}
-          <div className="weq-clone-actions">
-            <button className="weq-set-btn" disabled={saving} onClick={() => void save(true)}>
-              <Save size={14} aria-hidden="true" />
-              保存语音设置
-            </button>
-          </div>
         </>
       ) : null}
     </div>
@@ -737,12 +679,31 @@ function ExportTab({
   );
 }
 
+function ProfilePrompt({ initial }: { initial: string }) {
+  const [prompt, setPrompt] = useState(initial);
+  useCloneSettingsSection('prompt', prompt, { customPrompt: prompt });
+  return (
+    <label className="weq-agentlab-field">
+      <span>额外提示</span>
+      <textarea
+        value={prompt}
+        onChange={(event) => setPrompt(event.target.value)}
+        rows={6}
+        placeholder="例如：这个克隆体说话更毒舌一点；少用句号"
+      />
+    </label>
+  );
+}
+
 export function PersonaSettingsModal({
   persona,
-  paramsContent,
-  paramsTitle,
+  profileContent,
+  replyContent,
+  fromGroup = false,
   onClose,
   onSaved,
+  onDelete,
+  deleting = false,
 }: {
   persona: {
     id: string;
@@ -757,23 +718,28 @@ export function PersonaSettingsModal({
     willing?: WillingCfg;
     typo?: TypoCfg;
   };
-  paramsContent: ReactNode;
-  paramsTitle?: string;
+  profileContent?: ReactNode;
+  replyContent: ReactNode;
+  fromGroup?: boolean;
   onClose: () => void;
   onSaved: () => void;
+  onDelete?: () => void;
+  deleting?: boolean;
 }): ReactElement {
   const dialog = useAppDialog();
   const update = trpc.account.updateAgentLabPersona.useMutation();
-  const [tab, setTab] = useState<Tab>('params');
-  const [prompt, setPrompt] = useState(persona.customPrompt ?? '');
-  const [visited, setVisited] = useState<Tab[]>(['params']);
-  const guard = useDraftClose(onClose, { prompt }, update.isLoading);
+  const [tab, setTab] = useState<Tab>('profile');
+  const [visited, setVisited] = useState<Tab[]>(['profile']);
+  const form = useCloneSettingsDraft();
+  const guard = useDraftClose(onClose, null, update.isLoading || deleting);
 
-  async function savePrompt(): Promise<void> {
+  async function save(): Promise<void> {
+    if (!form.dirty || !form.valid || update.isLoading) return;
     try {
-      await update.mutateAsync({ personaId: persona.id, customPrompt: prompt });
-      guard.reset({ prompt });
-      dialog.success('已保存', '额外提示已更新');
+      const result = await update.mutateAsync({ personaId: persona.id, ...form.patch });
+      if (!result) throw new Error('克隆体已不存在');
+      form.markSaved();
+      dialog.success('已保存', '克隆体设置已更新');
       onSaved();
     } catch (e) {
       dialog.error('保存失败', e instanceof Error ? e.message : String(e));
@@ -781,83 +747,103 @@ export function PersonaSettingsModal({
   }
 
   return (
-    <Modal onClose={guard.requestClose} width={640}>
-      <DraftCloseContext.Provider value={guard.drafts}>
-        <div className="weq-persona-modal">
-          <header className="weq-persona-modal-head">
-            <Settings size={16} />
-            <strong>{persona.name} · 设置</strong>
-          </header>
-          <div className="weq-persona-modal-body">
-            <nav className="weq-persona-tabs">
-              {TABS.map((t) => (
-                <button
-                  key={t.id}
-                  className={`weq-persona-tab${tab === t.id ? ' is-active' : ''}`}
-                  onClick={() => {
-                    setVisited((current) =>
-                      current.includes(t.id) ? current : [...current, t.id],
-                    );
-                    setTab(t.id);
-                  }}
-                >
-                  {t.icon}
-                  {t.id === 'params' && paramsTitle ? paramsTitle : t.label}
-                </button>
-              ))}
-            </nav>
-            <div className="weq-persona-tabpane">
+    <DraftCloseContext.Provider value={guard.drafts}>
+      <CloneSettingsDraftContext.Provider
+        value={{ register: form.register, saving: update.isLoading }}
+      >
+        <ConversationSettingsFrame<Tab>
+          title="克隆体设置"
+          subtitle={persona.name}
+          value={tab}
+          onClose={guard.requestClose}
+          sections={TABS}
+          onValueChange={(id) => {
+            setVisited((current) => (current.includes(id) ? current : [...current, id]));
+            setTab(id);
+          }}
+        >
+          <div className="weq-cvs-body-head">
+            <span className="weq-cvs-body-icon">{TABS.find((item) => item.id === tab)?.icon}</span>
+            <strong>{TABS.find((item) => item.id === tab)?.label}</strong>
+          </div>
+          <div className="weq-cvs-body-scroll">
+            {fromGroup ? (
+              <p className="weq-persona-scope">
+                以下修改影响此克隆体的所有私聊和群聊，不仅限于当前群。
+              </p>
+            ) : null}
+            <fieldset
+              className="weq-persona-tabpane weq-persona-fields"
+              disabled={update.isLoading || deleting}
+            >
               {visited.map((page) => (
                 <TabActivity key={page} active={tab === page}>
                   <div hidden={tab !== page} inert={tab !== page}>
-                    {page === 'params' ? (
-                      <>
-                        {paramsContent}
-                        {persona.sourceKind === 'c2c' ? (
-                          <div className="weq-clone-actions">
-                            <CloneUpdateButton key={persona.id} persona={persona} />
-                          </div>
-                        ) : null}
-                      </>
-                    ) : page === 'prompt' ? (
+                    {page === 'profile' ? (
                       <div className="weq-persona-form">
-                        <label className="weq-agentlab-field">
-                          <span>额外提示（拼进 system prompt，优先遵守）</span>
-                          <textarea
-                            value={prompt}
-                            onChange={(e) => setPrompt(e.target.value)}
-                            rows={6}
-                            placeholder="例如：这个克隆体说话更毒舌一点；少用句号"
-                          />
-                        </label>
-                        <div className="weq-clone-actions">
-                          <button
-                            className="weq-set-btn"
-                            disabled={update.isLoading}
-                            onClick={() => void savePrompt()}
-                          >
-                            <Save size={14} aria-hidden="true" />
-                            保存
-                          </button>
-                        </div>
+                        <p className="weq-persona-note">
+                          训练范围：
+                          {persona.training?.mode === 'group' ? '私聊为主，群聊补充风格' : '仅私聊'}
+                          。更新画像立即启动后台任务，使用已保存的模型配置。
+                        </p>
+                        <ProfilePrompt initial={persona.customPrompt ?? ''} />
+                        {persona.sourceKind === 'c2c' ? (
+                          <CloneUpdateButton key={persona.id} persona={persona} />
+                        ) : null}
+                        {profileContent}
                       </div>
-                    ) : page === 'willing' ? (
-                      <WillingTab persona={persona} onSaved={onSaved} />
+                    ) : page === 'reply' ? (
+                      <div className="weq-persona-form">
+                        {replyContent}
+                        <div className="weq-persona-divider" />
+                        <WillingTab persona={persona} />
+                      </div>
                     ) : page === 'voice' ? (
-                      <VoiceTab persona={persona} onSaved={onSaved} />
+                      <VoiceTab persona={persona} />
                     ) : page === 'memory' ? (
                       <MemoryTab personaId={persona.id} />
-                    ) : (
+                    ) : page === 'export' ? (
                       <ExportTab persona={persona} />
+                    ) : (
+                      <div className="weq-persona-form">
+                        <p className="weq-persona-note">
+                          删除整个克隆体及其全部私聊历史、记忆，群聊中的既有消息会保留。此操作无法恢复。
+                        </p>
+                        {onDelete ? (
+                          <button
+                            type="button"
+                            className="weq-set-btn weq-set-btn-soft"
+                            disabled={deleting}
+                            onClick={() => void guard.confirmLeave(onDelete)}
+                          >
+                            <Trash2 size={14} />
+                            删除克隆体
+                          </button>
+                        ) : null}
+                      </div>
                     )}
                   </div>
                 </TabActivity>
               ))}
-            </div>
+            </fieldset>
           </div>
-        </div>
-      </DraftCloseContext.Provider>
-    </Modal>
+          <footer className="weq-persona-savebar">
+            <span role="status">
+              {form.dirty ? (form.valid ? '有未保存的更改' : '请检查配置值') : '配置已保存'}
+            </span>
+            <button
+              type="button"
+              className="weq-set-btn"
+              disabled={!form.dirty || !form.valid || update.isLoading || deleting}
+              onClick={() => void save()}
+            >
+              <Save size={14} />
+              {update.isLoading ? '保存中…' : '保存更改'}
+            </button>
+          </footer>
+        </ConversationSettingsFrame>
+      </CloneSettingsDraftContext.Provider>
+    </DraftCloseContext.Provider>
   );
 }
 import { SegmentedControl } from '../../components/SegmentedControl';

@@ -16,8 +16,8 @@
  *              pid + mark offline and fall back to login-polling
  *   stop()  →  ends all polling.
  *
- * All native calls are best-effort: any throw degrades to "treat as offline,
- * retry next tick" rather than tearing the loop down. Uses a single chained
+ * 探测失败在有限宽限期内保留上次确认状态；连续两次查无持有者才清理凭据。
+ * Uses a single chained
  * `setTimeout` (guarded by `running`) so only one timer is ever live.
  */
 
@@ -39,6 +39,8 @@ import { isCompleteSessionMaterial } from '../common/session_material';
 const LOGIN_POLL_MS = 5000;
 /** How often to poll the attached pid for liveness. */
 const PID_POLL_MS = 5000;
+/** 探测不可用不等于退出，但也不能无限沿用旧凭据。 */
+const PROBE_FAILURE_GRACE_MS = 30_000;
 /** Refresh rkeys this long before they expire. */
 const RKEY_REFRESH_SKEW_MS = 5 * 60 * 1000;
 /** Refresh clientkey this long before it expires. */
@@ -85,6 +87,8 @@ export class AccountMonitorService {
   /** Last online state written to config — avoids rewriting it every tick. */
   private lastOnline: boolean | null = null;
   private lastPid: number | null | undefined = undefined;
+  private unconfirmedSince: number | null = null;
+  private missingPidPolls = 0;
   /** onHomeDress 已经调过了 —— 每个会话只同步一次装扮,见构造参数说明。 */
   private homeDressSynced = false;
   private harvestRetry: {
@@ -195,7 +199,7 @@ export class AccountMonitorService {
     const generation = this.generation;
     if (!this.isCurrent(generation) || !this.shouldAutoAttach()) return false;
     const pid = this.attachedPid ?? (await this.resolvePid());
-    if (pid === null || !this.isCurrent(generation)) return false;
+    if (pid == null || !this.isCurrent(generation)) return false;
     // An explicit refresh is the user's request to retry, including after cancellation.
     this.harvestRetry = null;
     let credentialsReady = false;
@@ -243,6 +247,8 @@ export class AccountMonitorService {
     this.attachedPid = null;
     this.lastOnline = null;
     this.lastPid = undefined;
+    this.unconfirmedSince = null;
+    this.missingPidPolls = 0;
     this.homeDressSynced = false;
     this.harvestRetry = null;
     this.ssoRegistrations.clear();
@@ -279,7 +285,7 @@ export class AccountMonitorService {
     const generation = this.generation;
     const pid = await this.resolvePid();
     if (!this.isCurrent(generation)) return;
-    if (pid === null) {
+    if (pid == null) {
       this.markOffline();
       return this.scheduleLoginPoll(LOGIN_POLL_MS);
     }
@@ -297,14 +303,19 @@ export class AccountMonitorService {
    * file lock (win32 Restart Manager / linux fcntl, QQ-name filtered by the
    * platform) — the one probe that both proves the account is signed in and
    * yields the exact pid. A successful probe with no QQ holder means the
-   * account is offline. Null means "no QQ instance for this account right now".
+   * account is offline. Null means "no QQ instance for this account right now";
+   * undefined means the probe failed and cannot confirm either state.
    */
-  private async resolvePid(): Promise<number | null> {
+  private async resolvePid(): Promise<number | null | undefined> {
     try {
       if (this.platform.resolveQqPidAsync) return await this.platform.resolveQqPidAsync(this.uin);
       return this.platform.resolveQqPid(this.uin);
-    } catch {
-      return null;
+    } catch (error) {
+      this.logger.warn('QQ online probe unavailable; not a confirmed process exit', {
+        event: 'online-probe-failed',
+        ...logErrorContext(error),
+      });
+      return undefined;
     }
   }
 
@@ -319,19 +330,38 @@ export class AccountMonitorService {
 
     const pid = await this.resolvePid();
     if (!this.isCurrent(generation)) return;
-    if (pid === null) {
+    if (pid == null) this.unconfirmedSince ??= Date.now();
+    else this.unconfirmedSince = null;
+    if (pid === undefined) {
+      this.missingPidPolls = 0;
+      if (Date.now() - this.unconfirmedSince! < PROBE_FAILURE_GRACE_MS)
+        return this.schedulePidPoll(PID_POLL_MS);
+    } else {
+      if (pid === null) {
+        // 单次文件枚举空结果可能只是瞬态；下一轮再次确认后才清凭据。
+        if (
+          ++this.missingPidPolls < 2 &&
+          Date.now() - this.unconfirmedSince! < PROBE_FAILURE_GRACE_MS
+        )
+          return this.schedulePidPoll(PID_POLL_MS);
+      } else this.missingPidPolls = 0;
+    }
+    if (pid == null) {
       this.generation += 1;
       this.ssoInflight.clear();
       this.readAbort.abort();
       this.readAbort = new AbortController();
       this.attachHook.reset(attached);
       this.forgetSsoSession(attached);
-      this.logger.info('attached qq process exited; marking account offline', {
+      this.logger.info('account online probe no longer confirms QQ; marking offline', {
         event: 'account-offline',
         pid: attached,
+        reason: pid === undefined ? 'probe-unavailable' : 'no-db-holder',
       });
       this.attachedPid = null;
       this.harvestRetry = null;
+      this.unconfirmedSince = null;
+      this.missingPidPolls = 0;
       this.markOffline();
       return this.scheduleLoginPoll(LOGIN_POLL_MS);
     }

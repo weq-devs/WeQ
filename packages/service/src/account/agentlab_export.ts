@@ -22,6 +22,7 @@ export interface BotExportLlmProvider {
   id: string;
   baseUrl: string;
   apiKey: string;
+  timeoutMs?: number;
 }
 
 export interface BotExportInput {
@@ -197,10 +198,35 @@ function loadConfig() {
   return config;
 }
 
-startBot(loadConfig(), { reloadConfig: loadConfig }).then(
-  () => console.log('克隆体 bot 已启动。Ctrl+C 退出。'),
-  (err) => { console.error('启动失败:', err); process.exit(1); },
-);
+function logFailure(message, error) {
+  const errorType = error instanceof Error && ['SyntaxError', 'TypeError', 'RangeError'].includes(error.name) ? error.name : 'Error';
+  const code = error && typeof error === 'object' && ['ENOENT', 'EACCES', 'ENOSPC', 'EISDIR', 'ENOTDIR', 'EADDRINUSE', 'ECONNREFUSED'].includes(error.code) ? error.code : undefined;
+  console.error(JSON.stringify({ message, errorType, ...(code ? { code } : {}) }));
+}
+async function main() {
+  try {
+    const bot = await startBot(loadConfig(), { reloadConfig: loadConfig });
+    let stopping = false;
+    const stop = async () => {
+      if (stopping) return;
+      stopping = true;
+      try {
+        await bot.stop();
+        process.exit(0);
+      } catch (error) {
+        logFailure('机器人停止失败', error);
+        process.exit(1);
+      }
+    };
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+    console.log('克隆体 bot 已启动。Ctrl+C 退出。');
+  } catch (error) {
+    logFailure('机器人启动失败，请检查配置、存储或连接设置', error);
+    process.exit(1);
+  }
+}
+void main();
 `;
 
 function renderReadme(

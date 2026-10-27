@@ -12,6 +12,8 @@
 import { client } from '../../trpc/client';
 import type { StartCloneArgs, CloneMode } from './NewCloneModal';
 import { useViewState } from '../../state/view';
+import type { AgentLabBuildProgress } from '@weq/service';
+import { appendCloneOutput, type CloneModelLog } from './cloneTaskOutput';
 
 export type CloneTaskStatus = 'running' | 'done' | 'error';
 
@@ -29,12 +31,14 @@ export interface CloneTask {
   percent: number;
   status: CloneTaskStatus;
   error?: string;
+  outputs?: CloneModelLog[];
 }
 
 let tasks: CloneTask[] = [];
 let revision = 0;
 const listeners = new Set<() => void>();
 let progressUnsub: (() => void) | null = null;
+let flushProgress = () => {};
 
 function setTasks(next: CloneTask[]): void {
   tasks = next;
@@ -57,28 +61,51 @@ export function getCloneTasks(): CloneTask[] {
 /** 仅在有 running 任务时保持一条进度订阅；全部收尾后断开。 */
 function ensureProgressSub(): void {
   if (progressUnsub) return;
+  let pending: AgentLabBuildProgress[] = [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const flush = () => {
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+    if (!pending.length) return;
+    const events = pending;
+    pending = [];
+    setTasks(
+      tasks.map((task) => {
+        if (task.status !== 'running') return task;
+        let next = task;
+        for (const event of events) {
+          if (event.personaId !== task.personaId) continue;
+          next = event.output
+            ? { ...next, outputs: appendCloneOutput(next.outputs ?? [], event.output) }
+            : { ...next, phase: event.phase, percent: event.percent };
+        }
+        return next;
+      }),
+    );
+  };
   const sub = client.account.onAgentLabBuildProgress.subscribe(undefined, {
-    onData: (p: { personaId: string; phase: string; percent: number; error?: string }) => {
+    onData: (p: AgentLabBuildProgress) => {
       if (p.error) return;
-      setTasks(
-        tasks.map((t) =>
-          t.personaId === p.personaId && t.status === 'running'
-            ? { ...t, phase: p.phase, percent: p.percent }
-            : t,
-        ),
-      );
+      pending.push(p);
+      if (p.output?.status !== 'running') flush();
+      else timer ??= setTimeout(flush, 80);
     },
     onError: () => {
       /* 订阅断开时静默——任务收尾会重建 */
     },
   });
-  progressUnsub = () => sub.unsubscribe();
+  flushProgress = flush;
+  progressUnsub = () => {
+    flush();
+    sub.unsubscribe();
+  };
 }
 
 function maybeStopProgressSub(): void {
   if (progressUnsub && !tasks.some((t) => t.status === 'running')) {
     progressUnsub();
     progressUnsub = null;
+    flushProgress = () => {};
   }
 }
 
@@ -142,10 +169,12 @@ async function runCloneTask(
   ensureProgressSub();
   try {
     await run();
+    flushProgress();
     setTasks(
       tasks.map((t) => (matchesRun(t) ? { ...t, status: 'done', phase: '完成', percent: 100 } : t)),
     );
   } catch (error) {
+    flushProgress();
     const msg = error instanceof Error ? error.message : String(error);
     setTasks(tasks.map((t) => (matchesRun(t) ? { ...t, status: 'error', error: msg } : t)));
   } finally {

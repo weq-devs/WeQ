@@ -235,9 +235,9 @@ mac:
 
 # GitHub publish target for `electron-builder --publish always` (Release workflow).
 # Generates + uploads latest.yml / *.blockmap that the in-app updater reads.
-# releaseType: release => the Release is published (not a draft) and marked latest.
+# 只上传到草稿；全部平台及检查完成后由 release 工作流统一公开。
 publish:
   provider: github
   owner: weq-devs
   repo: WeQ
-  releaseType: release
+  releaseType: draft

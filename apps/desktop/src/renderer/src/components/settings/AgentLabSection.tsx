@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
+import type { CapabilityProbeResult } from '@weq/agentlab';
 import {
   Boxes,
   CheckCheck,
@@ -36,7 +37,12 @@ const CAPABILITIES: { value: Capability; label: string }[] = [
   { value: 'vision', label: '视觉' },
 ];
 
-type ModelForm = { id: string; label: string; capabilities: Capability[] };
+type ModelForm = {
+  id: string;
+  label: string;
+  capabilities: Capability[];
+  probe?: CapabilityProbeResult[];
+};
 type ProviderForm = {
   id: string;
   name: string;
@@ -90,6 +96,10 @@ export function AgentLabSection(): ReactElement {
   const [selectedId, setSelectedId] = useState<string>('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ProviderForm>(emptyForm);
+  const formRef = useRef(form);
+  formRef.current = form;
+  const [detectingModel, setDetectingModel] = useState<number | null>(null);
+  const detectingRef = useRef(false);
   const testKey = connectionTestKey('llm', form.id);
   const testing = useConnectionTestTasks((state) => state.running.has(testKey));
   const [fetchingModels, setFetchingModels] = useState(false);
@@ -100,7 +110,7 @@ export function AgentLabSection(): ReactElement {
   const guard = useDraftClose(
     () => setOpen(false),
     form,
-    saveProvider.isLoading || deleteProvider.isLoading || fetchingModels,
+    saveProvider.isLoading || deleteProvider.isLoading || fetchingModels || detectingModel !== null,
   );
 
   /** 上一次由模板带入的 base_url / 名称：表单值与之相同 = 用户没改过，可以跟着模板切换。 */
@@ -153,7 +163,13 @@ export function AgentLabSection(): ReactElement {
   );
 
   function update<K extends keyof ProviderForm>(key: K, value: ProviderForm[K]): void {
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => ({
+      ...current,
+      [key]: value,
+      ...(key === 'baseUrl' || key === 'apiKey'
+        ? { models: current.models.map((model) => ({ ...model, probe: undefined })) }
+        : {}),
+    }));
   }
 
   /** 点「新建」：在新开的灯箱卡片里填一个空表单（并应用默认厂商模板）。 */
@@ -307,8 +323,63 @@ export function AgentLabSection(): ReactElement {
   function updateModel(index: number, patch: Partial<ModelForm>): void {
     setForm((c) => ({
       ...c,
-      models: c.models.map((m, i) => (i === index ? { ...m, ...patch } : m)),
+      models: c.models.map((m, i) =>
+        i === index ? { ...m, ...patch, probe: patch.id === undefined ? m.probe : undefined } : m,
+      ),
     }));
+  }
+
+  async function onDetectCapabilities(index: number): Promise<void> {
+    if (detectingRef.current) return;
+    const snapshot = form;
+    const model = snapshot.models[index];
+    if (!snapshot.baseUrl.trim() || !model?.id.trim()) {
+      dialog.error('无法检测', '请先填写 Base URL 和模型 ID。');
+      return;
+    }
+    detectingRef.current = true;
+    try {
+      const confirmed = await dialog.confirm(
+        '自动检测能力',
+        `将向「${model.id}」发送少量合成文本和内置色块图片，可能产生 API 费用，不包含聊天记录。检测结果仅修改当前草稿。`,
+        { okLabel: '开始检测', cancelLabel: '取消' },
+      );
+      if (!confirmed || formRef.current !== snapshot) return;
+      setDetectingModel(index);
+      const results = await client.bootstrap.detectAgentLabModelCapabilities.mutate({
+        baseUrl: snapshot.baseUrl.trim(),
+        apiKey: snapshot.apiKey.trim(),
+        model: model.id.trim(),
+      });
+      // 表单已切换或编辑时不回填迟到的结果。
+      setForm((current) =>
+        current !== snapshot
+          ? current
+          : {
+              ...current,
+              models: current.models.map((item, i) =>
+                i !== index
+                  ? item
+                  : {
+                      ...item,
+                      capabilities: CAPABILITIES.filter(({ value }) => {
+                        const result = results.find((entry) => entry.capability === value);
+                        return (
+                          result?.status === 'supported' ||
+                          (result?.status !== 'unsupported' && item.capabilities.includes(value))
+                        );
+                      }).map(({ value }) => value),
+                      probe: results,
+                    },
+              ),
+            },
+      );
+    } catch (error) {
+      dialog.error('能力检测失败', error instanceof Error ? error.message : String(error));
+    } finally {
+      detectingRef.current = false;
+      setDetectingModel(null);
+    }
   }
   async function onSave(): Promise<void> {
     // 新建草稿有独立 ID；同名／同模板不覆盖，编辑和重复保存仍沿用原引用。
@@ -489,7 +560,10 @@ export function AgentLabSection(): ReactElement {
               </button>
             </header>
 
-            <div className="weq-provider-modal-body">
+            <fieldset
+              className="weq-provider-modal-body weq-provider-fields"
+              disabled={detectingModel !== null}
+            >
               {catalog.error ? (
                 <QueryError
                   message={`厂商模板读取失败：${catalog.error.message}`}
@@ -688,18 +762,34 @@ export function AgentLabSection(): ReactElement {
                       <input
                         className="weq-set-input"
                         aria-label={`模型 ${index + 1} ID`}
-                        style={{ flex: '1 1 200px' }}
                         value={model.id}
                         onChange={(e) => updateModel(index, { id: e.target.value })}
                         placeholder="模型 id，如 deepseek-ai/DeepSeek-V3"
                       />
-                      <div style={{ display: 'flex', gap: 4 }}>
+                      <div className="weq-provider-model-capabilities">
                         <CheckPillGroup
                           options={CAPABILITIES}
                           selected={model.capabilities}
                           onChange={(capabilities) => updateModel(index, { capabilities })}
                         />
                       </div>
+                      <button
+                        type="button"
+                        className="weq-set-btn weq-set-btn-soft weq-set-btn-sm weq-provider-model-detect"
+                        onClick={() => void onDetectCapabilities(index)}
+                        disabled={
+                          detectingModel !== null || !model.id.trim() || !form.baseUrl.trim()
+                        }
+                        aria-label={`自动检测模型 ${index + 1} 能力`}
+                        title="自动检测能力"
+                      >
+                        {detectingModel === index ? (
+                          <Loader2 size={12} className="weq-spin" />
+                        ) : (
+                          <FlaskConical size={12} />
+                        )}
+                        <span>{detectingModel === index ? '检测中' : '自动检测能力'}</span>
+                      </button>
                       <button
                         type="button"
                         className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
@@ -709,18 +799,39 @@ export function AgentLabSection(): ReactElement {
                       >
                         <X size={12} />
                       </button>
+                      {model.probe ? (
+                        <ul className="weq-provider-probe-results" aria-live="polite">
+                          {model.probe.map((result) => (
+                            <li key={result.capability}>
+                              <strong>
+                                {
+                                  CAPABILITIES.find((item) => item.value === result.capability)
+                                    ?.label
+                                }
+                                ：
+                                {result.status === 'supported'
+                                  ? '已验证'
+                                  : result.status === 'unsupported'
+                                    ? '不支持'
+                                    : '未确定'}
+                              </strong>
+                              <span>{result.detail}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </div>
                   ))
                 )}
               </div>
-            </div>
+            </fieldset>
 
             <div className="weq-provider-modal-actions">
               <button
                 type="button"
                 className="weq-set-btn"
                 onClick={() => void onSave()}
-                disabled={saveProvider.isLoading}
+                disabled={saveProvider.isLoading || detectingModel !== null}
               >
                 <Save size={14} />
                 保存 provider
@@ -729,7 +840,7 @@ export function AgentLabSection(): ReactElement {
                 type="button"
                 className="weq-set-btn weq-set-btn-soft"
                 onClick={() => void onTest()}
-                disabled={testing}
+                disabled={testing || detectingModel !== null}
               >
                 {testing ? <Loader2 size={14} className="weq-spin" /> : <FlaskConical size={14} />}
                 测试连通性
@@ -738,7 +849,7 @@ export function AgentLabSection(): ReactElement {
                 type="button"
                 className="weq-set-btn weq-set-btn-soft"
                 onClick={() => void onDelete()}
-                disabled={!selectedId || deleteProvider.isLoading}
+                disabled={!selectedId || deleteProvider.isLoading || detectingModel !== null}
               >
                 <Trash2 size={14} />
                 删除

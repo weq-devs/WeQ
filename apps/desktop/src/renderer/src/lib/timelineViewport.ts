@@ -6,6 +6,8 @@ export interface TimelineGeometry {
   bottom: number;
 }
 export interface TimelineViewport {
+  scrollRevision?(): number;
+  cancelScroll?(): void;
   capture?(): ConversationReadingPosition | undefined;
   scrollTo(
     id: string,

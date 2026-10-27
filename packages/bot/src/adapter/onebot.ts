@@ -6,6 +6,7 @@
  * 差异（仅此一处）：napcat 发消息用 send_group_msg/send_private_msg 分离；snowluma 用 send_msg + message_type。
  */
 import { WebSocket, type RawData } from 'ws';
+import type { RuntimeLogger } from '@weq/agentlab';
 import type { AdapterConfig, AdapterType } from '../config';
 import type { IncomingEvent, OneBot11Adapter, OneBotSegment, SendTarget } from './types';
 
@@ -25,7 +26,10 @@ export abstract class BaseOneBotAdapter implements OneBot11Adapter {
   private closed = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(protected readonly cfg: AdapterConfig) {}
+  constructor(
+    protected readonly cfg: AdapterConfig,
+    private readonly logger?: RuntimeLogger,
+  ) {}
 
   /**
    * 连接（含断线重连的统一入口）：只在首次 open 时 resolve，之后断线由内部
@@ -63,9 +67,11 @@ export abstract class BaseOneBotAdapter implements OneBot11Adapter {
           // 初始连接失败 / 断线统一走重连（幂等：已有定时器则不重复排）。
           if (!this.closed && !this.reconnectTimer) {
             if (!settled) {
-              console.warn(
-                `[bot] ws 连接 ${this.cfg.wsUrl} 失败，${(this.cfg.reconnectDelayMs ?? 3000) / 1000}s 后自动重试…`,
-              );
+              if (this.logger)
+                this.logger.warn('WS 连接失败，将自动重试', {
+                  retryDelayMs: this.cfg.reconnectDelayMs ?? 3000,
+                });
+              else console.warn('[bot] WS 连接失败，将自动重试');
             }
             this.reconnectTimer = setTimeout(() => {
               this.reconnectTimer = null;
@@ -90,6 +96,7 @@ export abstract class BaseOneBotAdapter implements OneBot11Adapter {
 
   close(): void {
     this.closed = true;
+    this.rejectAllPending('机器人已停止，未确认的发送结果不可自动重试');
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -203,12 +210,12 @@ export class SnowLumaAdapter extends BaseOneBotAdapter {
 }
 
 /** 按 config.adapter.type 造对应适配器。 */
-export function createAdapter(cfg: AdapterConfig): OneBot11Adapter {
+export function createAdapter(cfg: AdapterConfig, logger?: RuntimeLogger): OneBot11Adapter {
   switch (cfg.type) {
     case 'napcat':
-      return new NapcatAdapter(cfg);
+      return new NapcatAdapter(cfg, logger);
     case 'snowluma':
-      return new SnowLumaAdapter(cfg);
+      return new SnowLumaAdapter(cfg, logger);
     default:
       throw new Error(`未知 adapter 类型: ${String((cfg as AdapterConfig).type)}`);
   }

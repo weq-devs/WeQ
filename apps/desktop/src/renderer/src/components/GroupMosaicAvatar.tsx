@@ -41,7 +41,7 @@ export function GroupMosaicAvatar({
   className = '',
 }: {
   uins: readonly string[];
-  size?: number;
+  size?: number | string;
   /** 最多取几张成员头像（小尺寸头像可传 4，避免每格糊成色块）。 */
   max?: number;
   shape?: 'circle' | 'square';
@@ -55,7 +55,7 @@ export function GroupMosaicAvatar({
         style={{ width: size, height: size }}
         aria-hidden
       >
-        <Users size={Math.round(size * 0.5)} strokeWidth={1.7} />
+        <Users size={typeof size === 'number' ? Math.round(size * 0.5) : 20} strokeWidth={1.7} />
       </span>
     );
   }

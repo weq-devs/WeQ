@@ -11,7 +11,11 @@ import {
 } from '../src/renderer/src/state/contentSelection';
 import { RoamingBackfillPanel } from '../src/renderer/src/components/RoamingBackfillPanel';
 
-const fixture = vi.hoisted(() => ({ plan: vi.fn(), contacts: vi.fn() }));
+const fixture = vi.hoisted(() => ({
+  plan: vi.fn(),
+  contacts: vi.fn(),
+  planCallbacks: {} as { onSuccess?: () => void; onError?: (e: { message: string }) => void },
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({ account: { roamingBackfill: { list: { invalidate: vi.fn() } } } }),
@@ -21,8 +25,17 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       getProfilesByUids: { useQuery: () => ({ data: [] }) },
       exportCalendar: { useQuery: () => ({ data: [] }) },
       roamingBackfill: {
-        list: { useQuery: () => ({ data: { historyVersion: 2, jobs: [], online: true } }) },
-        plan: { useMutation: () => ({ mutate: fixture.plan }) },
+        list: {
+          useQuery: () => ({
+            data: { historyVersion: 2, supportsImmediateStart: true, jobs: [], online: true },
+          }),
+        },
+        plan: {
+          useMutation: (callbacks: typeof fixture.planCallbacks) => {
+            fixture.planCallbacks = callbacks;
+            return { mutate: fixture.plan };
+          },
+        },
         start: { useMutation: () => ({}) },
         pause: { useMutation: () => ({}) },
         cancel: { useMutation: () => ({}) },
@@ -369,6 +382,38 @@ describe('会话底部多选栏', () => {
 });
 
 describe('漫游目标范围', () => {
+  it('一次开始自动检查并拉取，成功后转交任务面板，配置页不重复展示任务', () => {
+    const submitted = vi.fn();
+    const f = mount(
+      h(RoamingBackfillPanel, {
+        initialTargets: [{ kind: 'c2c', conv: 'u_fixture', name: '合成好友' }],
+        targetMode: 'fixed',
+        onSubmitted: submitted,
+      }),
+    );
+    try {
+      expect(f.host.querySelector('[aria-label="补全任务"]')).toBeNull();
+      expect(f.host.querySelector('details.weq-roaming-advanced')?.hasAttribute('open')).toBe(
+        false,
+      );
+      expect(f.host.textContent).not.toContain('SSO');
+      expect(f.host.textContent).not.toContain('每窗 30 seq');
+      expect(f.host.textContent).toContain('尝试找回更早的聊天记录');
+      act(() => button(f.host, '开始拉取').click());
+      expect(fixture.plan).toHaveBeenCalledOnce();
+      expect(fixture.plan).toHaveBeenCalledWith(
+        expect.objectContaining({ startImmediately: true, beforeOldest: false, intervalMs: 500 }),
+      );
+      expect(submitted).not.toHaveBeenCalled();
+      act(() => fixture.planCallbacks.onError?.({ message: '合成检查失败' }));
+      expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('合成检查失败');
+      expect(submitted).not.toHaveBeenCalled();
+      act(() => fixture.planCallbacks.onSuccess?.());
+      expect(submitted).toHaveBeenCalledOnce();
+    } finally {
+      f.close();
+    }
+  });
   it('编辑列表后保留入口选择，增减目标只影响本次任务', () => {
     const targets = [
       { kind: 'c2c' as const, conv: 'u_fixture', name: '合成好友' },
@@ -383,7 +428,7 @@ describe('漫游目标范围', () => {
       act(() => inputs[0]!.click());
       act(() =>
         [...f.host.querySelectorAll('button')]
-          .find((node) => node.textContent?.includes('扫描候选缺口'))!
+          .find((node) => node.textContent?.includes('开始拉取'))!
           .click(),
       );
       expect(fixture.plan).toHaveBeenCalledWith(expect.objectContaining({ targets: [targets[1]] }));
@@ -417,7 +462,7 @@ describe('漫游目标范围', () => {
       act(() => f.host.querySelector('.weq-roaming-scope strong')!.dispatchEvent(selectText));
       expect(selectText.defaultPrevented).toBe(false);
       const scan = [...f.host.querySelectorAll('button')].find((node) =>
-        node.textContent?.includes('扫描候选缺口'),
+        node.textContent?.includes('开始拉取'),
       )!;
       act(() => scan.click());
       expect(fixture.plan).toHaveBeenCalledWith(expect.objectContaining({ targets }));
@@ -436,7 +481,7 @@ describe('漫游目标范围', () => {
       expect(f.host.querySelector('[aria-label="搜索补全会话"]')).not.toBeNull();
       expect(
         [...f.host.querySelectorAll('button')].find((node) =>
-          node.textContent?.includes('扫描候选缺口'),
+          node.textContent?.includes('开始拉取'),
         )!.disabled,
       ).toBe(true);
     } finally {
@@ -456,7 +501,7 @@ describe('漫游目标范围', () => {
         }),
       );
       const scan = [...f.host.querySelectorAll('button')].find((node) =>
-        node.textContent?.includes('扫描候选缺口'),
+        node.textContent?.includes('开始拉取'),
       )!;
       act(() => scan.click());
       expect(fixture.plan).toHaveBeenCalledWith(
@@ -478,7 +523,7 @@ describe('漫游目标范围', () => {
       expect(invalid.host.querySelector('[aria-label="搜索补全会话"]')).toBeNull();
       expect(
         [...invalid.host.querySelectorAll('button')].find((node) =>
-          node.textContent?.includes('扫描候选缺口'),
+          node.textContent?.includes('开始拉取'),
         )!.disabled,
       ).toBe(true);
     } finally {

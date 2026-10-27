@@ -884,6 +884,13 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setAutoFollowLatestMessages: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ autoFollowLatestMessages: input.enabled });
+      return true;
+    }),
+
   setJumpToLatestAfterSend: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {
@@ -1583,6 +1590,7 @@ export const bootstrapRouter = router({
         vendor: z.string().min(1),
         baseUrl: z.string().min(1),
         apiKey: z.string().min(1),
+        timeoutMs: z.number().int().min(1).max(2_147_483_647).optional(),
         models: z
           .array(
             z.object({
@@ -1616,6 +1624,16 @@ export const bootstrapRouter = router({
     .mutation(({ input }) => {
       return requireBootstrap().agentLabConfig.testEndpoint(input);
     }),
+
+  detectAgentLabModelCapabilities: procedure
+    .input(
+      z.object({
+        baseUrl: z.string().min(1),
+        apiKey: z.string().default(''),
+        model: z.string().min(1),
+      }),
+    )
+    .mutation(({ input }) => requireBootstrap().agentLabConfig.detectCapabilities(input)),
 
   // ---- TTS 服务商（设置 → 语音配置；克隆体发语音/语音克隆用）----
 

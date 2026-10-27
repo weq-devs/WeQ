@@ -16,11 +16,12 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { currentTarget, LABELS, nativeRel } from './platform.mjs';
+import { readRuntimeSource, runtimeManifest } from './runtime-deps.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, '..');
 const repoRoot = resolve(appRoot, '../..');
-const dist = join(appRoot, 'dist');
+const dist = resolve(process.env.WEQ_WEB_DIST ?? join(appRoot, 'dist'));
 const desktopMain = join(repoRoot, 'apps/desktop/src/main');
 
 const NATIVE_SRC = join(repoRoot, 'native');
@@ -32,19 +33,12 @@ const NODE_MIN_MAJOR = 22;
 // `scripts/set-version.mjs` stamps this from the release tag; baked in so the
 // running server can report its own version without reading package.json.
 const { version } = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8'));
-const { dependencies: desktopDependencies } = JSON.parse(
-  readFileSync(join(repoRoot, 'apps/desktop/package.json'), 'utf8'),
-);
+const runtimeSource = readRuntimeSource(repoRoot);
 
 /**
  * Native 绑定及 worker 按路径载入的 WASM 依赖不能内联；随服务端 manifest 安装。
  */
-const NATIVE_DEPS = {
-  ws: '^8.18.0',
-  '@resvg/resvg-js': '^2.6.2',
-  sharp: desktopDependencies.sharp,
-  'quickjs-emscripten': desktopDependencies['quickjs-emscripten'],
-};
+const NATIVE_DEPS = runtimeSource.manifest.dependencies;
 
 /**
  * Entries that must stay SEPARATE files on disk, because the server spawns them
@@ -126,7 +120,7 @@ if (existsSync(RESOURCES_SRC)) {
 mkdirSync(dist, { recursive: true });
 writeFileSync(
   join(dist, 'package.json'),
-  `${JSON.stringify({ name: 'weq-web', private: true, type: 'module', dependencies: NATIVE_DEPS }, null, 2)}\n`,
+  `${JSON.stringify(runtimeManifest(runtimeSource, version), null, 2)}\n`,
 );
 
 writeLaunchers();
@@ -142,7 +136,7 @@ writeFileSync(
     '  Windows：双击 start.bat',
     '  Linux  ：./start.sh',
     '',
-    '（依赖已随包预装。若自行删了 node_modules，跑 npm install --omit=dev 补回。）',
+    '（依赖已随包预装。若自行删了 node_modules，启动脚本通过锁定版本的 pnpm 按冻结锁文件补回。）',
     '',
     '然后浏览器打开终端里打印的地址，用访问令牌登录。',
     '自动生成的令牌会打印到终端；显式设置 WEQ_TOKEN 时不再打印令牌值。',
@@ -207,7 +201,7 @@ function writeLaunchers() {
       '',
       'if not exist "node_modules" (',
       '  echo 正在安装依赖...',
-      '  call npm install --omit=dev --no-audit --no-fund || exit /b 1',
+      `  call npx --yes ${runtimeSource.packageManager} install --prod --frozen-lockfile --ignore-scripts --ignore-workspace --node-linker=hoisted || exit /b 1`,
       ')',
       '',
       'node server.mjs %*',
@@ -254,7 +248,7 @@ function writeLaunchers() {
       '',
       'if [ ! -d node_modules ]; then',
       '  echo "正在安装依赖..."',
-      '  npm install --omit=dev --no-audit --no-fund',
+      `  npx --yes ${runtimeSource.packageManager} install --prod --frozen-lockfile --ignore-scripts --ignore-workspace --node-linker=hoisted`,
       'fi',
       '',
       'exec node server.mjs "$@"',
