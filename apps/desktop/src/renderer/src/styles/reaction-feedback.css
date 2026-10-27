@@ -1,0 +1,40 @@
+.msg-reaction-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 12px;
+  height: 18px;
+}
+
+.msg-reaction-count-value,
+.msg-reaction-loading {
+  grid-area: 1 / 1;
+}
+
+.msg-reaction-count.is-loading .msg-reaction-count-value {
+  visibility: hidden;
+}
+
+.msg-reaction-loading {
+  display: inline-flex;
+  color: var(--weq-fg-secondary);
+}
+
+html[data-theme='dark'] .msg-reaction-loading {
+  color: var(--weq-fg-secondary);
+}
+
+.msg-reaction-loading svg {
+  animation: reaction-feedback-spin 0.9s linear infinite;
+}
+
+@keyframes reaction-feedback-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-reaction-loading svg {
+    animation: none;
+  }
+}

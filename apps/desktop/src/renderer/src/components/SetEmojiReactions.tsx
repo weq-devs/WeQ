@@ -14,9 +14,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SetEmojiItem } from '@weq/codec';
+import { Loader2 } from 'lucide-react';
 import { FaceEmoji } from './FaceEmoji';
 import { ReactionLikersPanel } from './ReactionLikersPanel';
 import { cn } from '@renderer/lib/utils';
+import '../styles/reaction-feedback.css';
 
 /** Reaction emoji box size; smaller than an inline face. */
 const REACTION_FACE_SIZE = 18;
@@ -33,6 +35,7 @@ export interface ReactionInteraction {
   onChange: (code: string, isSet: boolean) => void;
   blockedReason?: string | null;
   busy?: boolean;
+  pending?: { code: string; isSet: boolean };
 }
 
 /** 一枚表情回应本体：能认出是 QQ 表情就画表情，否则退化成原始 id 文本。 */
@@ -107,12 +110,21 @@ export function SetEmojiReactions({
     }
   }, []);
 
-  if (!list || list.length === 0) return null;
+  const pending = interaction?.pending;
+  const items = list ?? [];
+  // 首次贴的新表情也要有请求反馈，但不提前计入回应人数或标记为成功。
+  const displayItems =
+    pending?.isSet && !items.some((item) => item.emojiId === pending.code)
+      ? [...items, { emojiId: pending.code, setNum: 0, isSelfSet: false }]
+      : items;
+  if (displayItems.length === 0) return null;
 
   return (
     <>
       <div className={cn('msg-reactions')}>
-        {list.map((item) => {
+        {displayItems.map((item) => {
+          const loading = pending?.code === item.emojiId;
+          const loadingLabel = `${pending?.isSet ? '正在贴表情' : '正在撤回表情回应'} ${item.emojiId}`;
           const active = open?.emojiId === item.emojiId;
           const canChange = Boolean(
             interaction && !interaction.blockedReason && !interaction.busy && canQuery,
@@ -126,19 +138,26 @@ export function SetEmojiReactions({
               key={item.emojiId}
               className={cn('msg-reaction', item.isSelfSet && 'is-self', active && 'is-open')}
               title={
-                canChange
-                  ? actionLabel
-                  : interaction?.blockedReason ||
-                    (canQuery ? `${item.emojiId} · 悬停查看谁贴了` : item.emojiId)
+                loading
+                  ? loadingLabel
+                  : canChange
+                    ? actionLabel
+                    : interaction?.blockedReason ||
+                      (canQuery ? `${item.emojiId} · 悬停查看谁贴了` : item.emojiId)
               }
               disabled={!canQuery || Boolean(interaction?.busy)}
+              aria-busy={loading || undefined}
               aria-pressed={interaction ? item.isSelfSet : undefined}
               // 只有能查名单时才是「可交互」的：给键盘用户同一份能力。
               {...(canQuery
                 ? {
                     tabIndex: 0,
                     role: 'button',
-                    'aria-label': canChange ? actionLabel : `查看 ${item.emojiId} 的回应人`,
+                    'aria-label': loading
+                      ? loadingLabel
+                      : canChange
+                        ? actionLabel
+                        : `查看 ${item.emojiId} 的回应人`,
                   }
                 : {})}
               onPointerEnter={(event) => scheduleOpen(item, event)}
@@ -168,7 +187,16 @@ export function SetEmojiReactions({
               }}
             >
               <ReactionEmoji emojiId={item.emojiId} label={item.emojiId} />
-              <span className={cn('msg-reaction-count')}>{item.setNum}</span>
+              <span className={cn('msg-reaction-count', loading && 'is-loading')}>
+                <span className="msg-reaction-count-value" aria-hidden={loading || undefined}>
+                  {item.setNum}
+                </span>
+                {loading ? (
+                  <span className="msg-reaction-loading" role="status" aria-label={loadingLabel}>
+                    <Loader2 size={12} aria-hidden="true" />
+                  </span>
+                ) : null}
+              </span>
             </button>
           );
         })}

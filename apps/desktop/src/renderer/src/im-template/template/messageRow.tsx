@@ -194,6 +194,7 @@ export const MessageRow = memo(function MessageRow({
   onReactionChange,
   reactionBlockedReason,
   reactionBusy,
+  reactionPending,
   repeatAction,
   pendingAction,
   /** 灰条外层的 class（聊天区靠它对齐，转发窗口用窄一点的边距）。 */
@@ -228,6 +229,7 @@ export const MessageRow = memo(function MessageRow({
   onReactionChange?: (message: Message, code: string, isSet: boolean) => void;
   reactionBlockedReason?: string | null;
   reactionBusy?: boolean;
+  reactionPending?: ReactionInteraction['pending'];
   repeatAction?: ReactNode;
   pendingAction?: ReactNode;
   grayTipClassName?: string;
@@ -240,9 +242,17 @@ export const MessageRow = memo(function MessageRow({
             onChange: (code: string, isSet: boolean) => onReactionChange(message, code, isSet),
             blockedReason: reactionBlockedReason,
             busy: reactionBusy,
+            pending: reactionPending,
           }
         : reactionInteraction,
-    [onReactionChange, message, reactionBlockedReason, reactionBusy, reactionInteraction],
+    [
+      onReactionChange,
+      message,
+      reactionBlockedReason,
+      reactionBusy,
+      reactionPending,
+      reactionInteraction,
+    ],
   );
   const gt = grayTipOf(message);
   if (gt) {

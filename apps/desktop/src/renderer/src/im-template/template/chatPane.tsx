@@ -2261,7 +2261,6 @@ export function ChatPane({
     if (!isSet && !current.setEmojiList?.some((item) => item.emojiId === code && item.isSelfSet))
       return;
     reactionRequestPending.current = true;
-    const finish = beginInlineAction(message.id, isSet ? '正在贴表情' : '正在撤回表情回应');
     setMessageReaction.mutate(
       {
         groupId: conversation.group.identityValue,
@@ -2278,7 +2277,6 @@ export function ChatPane({
           });
         },
         onSettled: () => {
-          finish();
           reactionRequestPending.current = false;
         },
       },
@@ -4901,6 +4899,15 @@ export function ChatPane({
                       onReactionChange={rowReaction}
                       reactionBlockedReason={messageReactionBlockedReason(message)}
                       reactionBusy={setMessageReaction.isLoading}
+                      reactionPending={
+                        setMessageReaction.isLoading &&
+                        conversation?.type === 'group' &&
+                        setMessageReaction.variables?.groupId ===
+                          conversation.group.identityValue &&
+                        setMessageReaction.variables.sequence === Number(message.msgSeq)
+                          ? setMessageReaction.variables
+                          : undefined
+                      }
                       pendingAction={
                         pendingActions[message.id] ? (
                           <span
