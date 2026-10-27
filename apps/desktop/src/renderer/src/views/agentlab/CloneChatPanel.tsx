@@ -4,15 +4,22 @@
  *  - 草稿会话：点克隆体进来就是新草稿，发第一条消息才落库建会话（sessionId null → 真 id），
  *    期间组件不重挂载、流式不中断（navKey 由父组件维持）。
  */
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { AgentLabModelSelection } from '@weq/agentlab';
 import type { GeneratedSearchHit } from '../../components/search/types';
-import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
-import { ArrowLeft, Send, Settings } from 'lucide-react';
+import {
+  CloneSearchButton,
+  GeneratedSearchNotice,
+  jumpToGeneratedMessage,
+  useGeneratedSearchJump,
+} from './messageSearch';
+import { Download, MessageSquareText, Settings2 } from 'lucide-react';
+import { CloneMessageActions } from './CloneMessageActions';
+import { EmptyState } from '../../im-template/template/primitives';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { autoGrowTextarea } from '../../lib/textareaAutoGrow';
-import { ChatBubble, type FaceContext } from './ChatBubble';
+import { CloneComposer, CloneConversation, CloneConversationHeader } from './CloneConversation';
+import { ChatBubble, inputFaceContext, type FaceContext } from './ChatBubble';
 import { ChatTimeDivider, shouldShowChatTime } from './messageTime';
 import { SessionSwitcher } from './SessionSwitcher';
 import { useGeneratedSelection } from './useGeneratedSelection';
@@ -74,6 +81,7 @@ export function CloneChatPanel({
   onOpenSettings: () => void;
 }): ReactElement {
   const dialog = useAppDialog();
+  const userFaces = useMemo(() => (faces ? inputFaceContext(faces.descToId) : undefined), [faces]);
   const utils = trpc.useUtils();
   const chat = trpc.account.chatWithAgentLabPersona.useMutation();
   const createSession = trpc.account.createAgentLabPersonaSession.useMutation();
@@ -119,6 +127,7 @@ export function CloneChatPanel({
     { kind: 'persona', ownerId: personaId, sessionId: legacy ? null : sessionIdRef.current },
     history,
     Boolean((legacy || sessionIdRef.current) && history.some((item) => item.id)),
+    'icon-button group-header-info-action',
   );
 
   const scrollTranscriptToBottom = useCallback((): void => {
@@ -160,7 +169,6 @@ export function CloneChatPanel({
     const text = input.trim();
     setAnimating(true);
     setInput('');
-    if (composerRef.current) composerRef.current.style.height = 'auto';
     const nextHistory = [...history, { role: 'user' as const, text, ts: Date.now() }];
     setHistory(nextHistory);
     try {
@@ -228,61 +236,74 @@ export function CloneChatPanel({
   }
 
   return (
-    <div className="weq-agentlab-chat">
-      <header className="weq-agentlab-head">
-        <div className="weq-agentlab-head-left">
-          <button
-            type="button"
-            className="weq-set-iconbtn"
-            onClick={onBack}
-            aria-label="返回主页"
-            title="返回"
-          >
-            <ArrowLeft size={16} />
-          </button>
-          <div>
-            <strong>{persona.name}</strong>
-            <span>{modelLabel}</span>
-          </div>
-        </div>
-        <div className="weq-agentlab-head-actions">
-          <SessionSwitcher
-            sessions={sessionList.data ?? []}
-            activeSessionId={sessionIdRef.current}
-            draft={!legacy && !sessionIdRef.current}
-            loading={sessionList.isLoading}
-            disabled={legacy}
-            onSwitch={onSwitchSession}
-            onNew={onNewSession}
-            onDelete={(target) => {
-              void (async () => {
-                const ok = await dialog.confirm('删除会话', '确认删除这段对话？删除后无法恢复。', {
-                  okLabel: '删除',
-                  tone: 'warning',
-                });
-                // confirm 的 okLabel 已经写明是删除，不再二次确认。
-                if (!ok) return;
-                await deleteSession.mutateAsync({ personaId, sessionId: target });
-                await utils.account.listAgentLabPersonaSessions.invalidate({ personaId });
-                // 删的就是当前这段：退回新草稿，避免停在一个已不存在的会话上。
-                if (sessionIdRef.current === target) onNewSession();
-              })();
-            }}
-          />
-          {selection.control}
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-            onClick={onOpenSettings}
-          >
-            <Settings size={12} />
-            设置
-          </button>
-        </div>
-      </header>
+    <CloneConversation>
+      <CloneConversationHeader
+        name={persona.name}
+        detail={modelLabel}
+        onBack={onBack}
+        actions={
+          <>
+            <CloneSearchButton
+              messages={history}
+              onJump={(id) => {
+                setSearchMessageId(id);
+                jumpToGeneratedMessage(transcriptRef.current, id);
+              }}
+            />
+            <CloneMessageActions
+              actions={[
+                {
+                  label: '导出',
+                  icon: <Download size={16} />,
+                  action: () => selection.exportConversation?.(),
+                  disabled: !selection.exportConversation,
+                },
+              ]}
+            />
+            <SessionSwitcher
+              sessions={sessionList.data ?? []}
+              activeSessionId={sessionIdRef.current}
+              draft={!legacy && !sessionIdRef.current}
+              loading={sessionList.isLoading}
+              disabled={legacy}
+              compact
+              onSwitch={onSwitchSession}
+              onNew={onNewSession}
+              onDelete={(target) => {
+                void (async () => {
+                  const ok = await dialog.confirm(
+                    '删除会话',
+                    '确认删除这段对话？删除后无法恢复。',
+                    {
+                      okLabel: '删除',
+                      tone: 'warning',
+                    },
+                  );
+                  // confirm 的 okLabel 已经写明是删除，不再二次确认。
+                  if (!ok) return;
+                  await deleteSession.mutateAsync({ personaId, sessionId: target });
+                  await utils.account.listAgentLabPersonaSessions.invalidate({ personaId });
+                  // 删的就是当前这段：退回新草稿，避免停在一个已不存在的会话上。
+                  if (sessionIdRef.current === target) onNewSession();
+                })();
+              }}
+            />
+            {selection.control}
+            <button
+              type="button"
+              className="icon-button group-header-info-action"
+              onClick={onOpenSettings}
+              title="会话设置"
+              aria-label="克隆设置"
+            >
+              <Settings2 size={18} />
+            </button>
+          </>
+        }
+      />
 
       <div
-        className="weq-agentlab-transcript"
+        className="message-scroll"
         {...selection.rootProps}
         ref={(element) => {
           transcriptRef.current = element;
@@ -296,17 +317,33 @@ export function CloneChatPanel({
         {searchMessageId && conversation.isFetching ? (
           <div className="weq-agentlab-empty">加载记录中…</div>
         ) : history.length === 0 ? (
-          <div className="weq-agentlab-empty">这里会显示你和克隆体的测试对话。</div>
+          <EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
         ) : (
           history.map((item, index) => {
             const prevTs = index > 0 ? history[index - 1]?.ts : undefined;
             const bubble =
               item.role === 'user' ? (
-                <ChatBubble mine name="我" uin={selfUin} text={item.text} />
+                <ChatBubble
+                  mine
+                  name="我"
+                  uin={selfUin}
+                  text={item.text}
+                  faces={userFaces}
+                  conversationStyle
+                  messageId={item.id}
+                  selectionMode={selection.selectionMode}
+                  selected={selection.selected(item.id)}
+                  onSelect={item.id ? () => selection.selectMessage(item.id) : undefined}
+                />
               ) : (
                 <ChatBubble
                   mine={false}
                   bot
+                  conversationStyle
+                  messageId={item.id}
+                  selectionMode={selection.selectionMode}
+                  selected={selection.selected(item.id)}
+                  onSelect={item.id ? () => selection.selectMessage(item.id) : undefined}
                   name={persona.name}
                   uin={clonedUin}
                   text={item.text}
@@ -329,36 +366,14 @@ export function CloneChatPanel({
           })
         )}
       </div>
-      <div className="weq-agentlab-composer">
-        <textarea
-          ref={composerRef}
-          rows={1}
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            autoGrowTextarea(e.currentTarget);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void onSend();
-            }
-          }}
-          placeholder={
-            legacy ? '旧版对话（只读）' : '输入一句话测试克隆效果（Enter 发送，Shift+Enter 换行）'
-          }
-          disabled={legacy || chat.isLoading || animating}
-        />
-        <button
-          type="button"
-          className="weq-set-btn"
-          onClick={() => void onSend()}
-          disabled={legacy || chat.isLoading || animating || !input.trim()}
-        >
-          <Send size={14} />
-          发送
-        </button>
-      </div>
-    </div>
+      <CloneComposer
+        inputRef={composerRef}
+        value={input}
+        onChange={setInput}
+        onSend={() => void onSend()}
+        disabled={legacy}
+        busy={chat.isLoading || animating}
+      />
+    </CloneConversation>
   );
 }

@@ -56,6 +56,23 @@ function GridAvatar({ uins, size }: { uins: readonly string[]; size: number }): 
   return <GroupMosaicAvatar uins={uins} size={size} />;
 }
 
+/** 会话列表与消息头像共用克隆角标。 */
+export function VirtualConversationBadge({ group = false }: { group?: boolean }) {
+  return (
+    <span
+      className="weq-virtual-avatar-badge"
+      title={group ? '克隆群聊' : '克隆体'}
+      aria-label={group ? '克隆群聊' : '克隆体'}
+    >
+      {group ? (
+        <MessagesSquare size={10} strokeWidth={2.4} />
+      ) : (
+        <Sparkles size={10} strokeWidth={2.4} />
+      )}
+    </span>
+  );
+}
+
 export function VirtualConversationAvatar({
   item,
   size = 44,
@@ -80,13 +97,7 @@ export function VirtualConversationAvatar({
           <Users size={Math.round(size * 0.5)} strokeWidth={1.7} />
         </span>
       )}
-      <span className="weq-virtual-avatar-badge" title={isGroup ? '克隆群聊' : '克隆体'}>
-        {isGroup ? (
-          <MessagesSquare size={10} strokeWidth={2.4} />
-        ) : (
-          <Sparkles size={10} strokeWidth={2.4} />
-        )}
-      </span>
+      <VirtualConversationBadge group={isGroup} />
     </span>
   );
 }

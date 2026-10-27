@@ -607,10 +607,7 @@ export function AgentLabView({
   const clonedProfile = activePersona ? profileByUid.get(activePersona.sourceId) : undefined;
   // 克隆体气泡的系统表情渲染上下文：用 TA 的 faceText 白名单 + 全局 faceText→id 映射。
   const cloneFaces: FaceContext | undefined = useMemo(
-    () =>
-      activePersona?.systemFaces?.length
-        ? { whitelist: activePersona.systemFaces, descToId: faceDescToId }
-        : undefined,
+    () => ({ whitelist: activePersona?.systemFaces ?? [], descToId: faceDescToId }),
     [activePersona?.systemFaces, faceDescToId],
   );
   const personaDetail = trpc.account.getAgentLabPersonaDetail.useQuery(

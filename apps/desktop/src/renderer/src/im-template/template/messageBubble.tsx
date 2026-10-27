@@ -103,6 +103,7 @@ export function MessageBubble({
   reactionInteraction,
   repeatAction,
   pendingAction,
+  avatarBadge,
 }: {
   message: Message;
   conversation: Conversation;
@@ -163,6 +164,8 @@ export function MessageBubble({
   reactionInteraction?: ReactionInteraction;
   repeatAction?: import('react').ReactNode;
   pendingAction?: import('react').ReactNode;
+  /** 本地克隆等展示标识，不改变发送者或 QQ 消息能力。 */
+  avatarBadge?: import('react').ReactNode;
 }) {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -429,6 +432,7 @@ export function MessageBubble({
               seed={senderSeed}
               widget={lineWidget}
             />
+            {avatarBadge}
           </button>
         ) : (
           <span
@@ -443,6 +447,7 @@ export function MessageBubble({
               seed={senderSeed}
               widget={lineWidget}
             />
+            {avatarBadge}
           </span>
         )
       ) : null}

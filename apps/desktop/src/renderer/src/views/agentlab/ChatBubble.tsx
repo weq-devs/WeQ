@@ -1,7 +1,21 @@
 /** 复用 im-template 的 QQ 气泡样式（chat.css 的 message-line / message-bubble）渲染一行。 */
-import { Fragment, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { Bot, Pause, Play, Sparkles } from 'lucide-react';
-import { QqAvatar } from '../../components/QqAvatar';
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
+import { Bot, CheckSquare, Copy, Pause, Play, Sparkles } from 'lucide-react';
+import { QqAvatar, qqAvatarUrl } from '../../components/QqAvatar';
+import { MessageBubble } from '../../im-template/template/messageBubble';
+import type { DirectConversation, Message, User } from '../../im-template/template/types';
+import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
+import { copyTextToClipboard } from '../../im-template/template/clipboard';
+import { useToast } from '../../components/Toast';
+import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
 import { FaceEmoji } from '../../components/FaceEmoji';
 import { mediaUrl } from '../../lib/resourceUrl';
 
@@ -9,6 +23,11 @@ import { mediaUrl } from '../../lib/resourceUrl';
 export interface FaceContext {
   whitelist: string[];
   descToId: Map<string, number>;
+}
+
+/** 输入工具栏插入的 /表情名使用完整系统表情表，不受克隆体训练白名单限制。 */
+export function inputFaceContext(descToId: Map<string, number>): FaceContext {
+  return { whitelist: [...descToId.keys()].map((name) => `/${name}`), descToId };
 }
 
 /** 归一化 faceText / 表情外显文字：去掉 /、[]、【】、空白后比对（"/捂脸"="[捂脸]"="捂脸"）。 */
@@ -73,6 +92,12 @@ function VoiceBubble({ personaId, voiceId }: { personaId: string; voiceId: strin
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const src = mediaUrl('agentvoice', { persona: personaId, id: voiceId });
+  useEffect(
+    () => () => {
+      audioRef.current?.pause();
+    },
+    [],
+  );
   const toggle = (): void => {
     let audio = audioRef.current;
     if (!audio) {
@@ -112,6 +137,12 @@ export function ChatBubble({
   faces,
   personaId,
   onMediaLoad,
+  conversationStyle = false,
+  showSenderName = false,
+  onSelect,
+  messageId,
+  selectionMode,
+  selected,
 }: {
   mine: boolean;
   name: string;
@@ -124,18 +155,119 @@ export function ChatBubble({
   personaId?: string;
   /** 图片类消息加载后通知父级重新贴底。 */
   onMediaLoad?: () => void;
+  /** 克隆聊天使用普通会话完整气泡；助手与导出预览保留原呈现。 */
+  conversationStyle?: boolean;
+  showSenderName?: boolean;
+  onSelect?: () => void;
+  messageId?: string;
+  selectionMode?: boolean;
+  selected?: boolean;
 }): ReactElement {
+  const localId = useId();
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   // 自定义表情包：整条消息就是一个表情标记时，渲染成图片。
   const stickerMatch = personaId ? text.match(STICKER_MARKER) : null;
   // 表情图加载失败（资源被清 / 下载失败）时降级为文字占位，别留个破图。
   const [stickerFailed, setStickerFailed] = useState(false);
   // 合成语音：整条消息就是一个语音标记时，渲染成语音气泡。
   const voiceMatch = personaId ? text.match(VOICE_MARKER) : null;
+  const content = (
+    <div className="message-content">
+      {stickerMatch && !stickerFailed ? (
+        <img
+          className="weq-agentlab-sticker-img"
+          src={mediaUrl('sticker', { persona: personaId!, md5: stickerMatch[1] ?? '' })}
+          alt="[表情]"
+          draggable={false}
+          onLoad={onMediaLoad}
+          onError={() => setStickerFailed(true)}
+        />
+      ) : stickerMatch ? (
+        <span className="weq-agentlab-sticker-fallback">[表情]</span>
+      ) : voiceMatch ? (
+        <VoiceBubble personaId={personaId!} voiceId={voiceMatch[1] ?? ''} />
+      ) : (
+        <span data-privacy-sensitive>{faces ? renderWithFaces(text, faces) : text}</span>
+      )}
+    </div>
+  );
+  if (conversationStyle) {
+    // 仅供呈现，不把本地克隆身份或合成序号交给 QQ 消息接口。
+    const sender: User = {
+      id: `clone:${personaId ?? 'self'}:${mine ? 'self' : 'peer'}`,
+      identityLabel: '',
+      identityValue: uin ?? localId,
+      username: name,
+      displayName: name,
+      avatarUrl: uin ? qqAvatarUrl(uin) : null,
+    };
+    const conversation: DirectConversation = {
+      id: `clone:${personaId ?? 'self'}`,
+      type: 'direct',
+      updatedAt: '',
+      lastMessage: null,
+      otherUser: sender,
+      group: null,
+      members: [],
+    };
+    const message: Message = {
+      id: messageId ?? localId,
+      conversationId: conversation.id,
+      senderId: sender.id,
+      body: text,
+      createdAt: '',
+    };
+    return (
+      <>
+        <MessageBubble
+          message={message}
+          conversation={conversation}
+          sender={sender}
+          mine={mine}
+          senderName={name}
+          senderAvatarUrl={sender.avatarUrl}
+          senderSeed={sender.identityValue}
+          showSenderName={showSenderName}
+          active={Boolean(menu)}
+          selectionMode={selectionMode}
+          selected={selected}
+          avatarBadge={!mine ? <VirtualConversationBadge /> : undefined}
+          renderers={[{ id: 'clone-content', match: () => true, render: () => content }]}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setMenu({ x: event.clientX, y: event.clientY });
+          }}
+          onLongPress={setMenu}
+        />
+        {menu ? (
+          <ConversationActionsMenu
+            {...menu}
+            label="消息操作"
+            onClose={() => setMenu(null)}
+            actions={[
+              {
+                label: '复制',
+                icon: <Copy size={16} />,
+                action: () => {
+                  void copyTextToClipboard(text).then((ok) => {
+                    if (!ok) useToast.getState().push({ tone: 'error', title: '复制失败' });
+                  });
+                },
+              },
+              ...(onSelect
+                ? [{ label: '多选', icon: <CheckSquare size={16} />, action: onSelect }]
+                : []),
+            ]}
+          />
+        ) : null}
+      </>
+    );
+  }
   // 头像统一用 uin 拼 weq-avatar:// 协议，不依赖数据库里存的外链。
   // 助手没有 QQ 号，用和助手面板一致的渐变星芒头像；给空 uin 只会回落成灰色小人。
   const avatar = (
     <span className="avatar">
-      {bot ? (
+      {bot && !uin ? (
         <span className="weq-asst-avatar is-bubble" aria-hidden>
           <Sparkles size={18} strokeWidth={1.9} />
         </span>
@@ -158,26 +290,7 @@ export function ChatBubble({
             ) : null}
           </span>
         ) : null}
-        <div className="message-content">
-          {stickerMatch && !stickerFailed ? (
-            <img
-              className="weq-agentlab-sticker-img"
-              src={mediaUrl('sticker', { persona: personaId!, md5: stickerMatch[1] ?? '' })}
-              alt="[表情]"
-              draggable={false}
-              onLoad={onMediaLoad}
-              onError={() => setStickerFailed(true)}
-            />
-          ) : stickerMatch && stickerFailed ? (
-            <span className="weq-agentlab-sticker-fallback">[表情]</span>
-          ) : voiceMatch ? (
-            <VoiceBubble personaId={personaId!} voiceId={voiceMatch[1] ?? ''} />
-          ) : faces ? (
-            <span data-privacy-sensitive>{renderWithFaces(text, faces)}</span>
-          ) : (
-            <span data-privacy-sensitive>{text}</span>
-          )}
-        </div>
+        {content}
       </div>
       {mine ? avatar : null}
     </div>

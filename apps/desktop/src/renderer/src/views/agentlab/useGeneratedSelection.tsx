@@ -1,7 +1,7 @@
 import { CheckSquare, X } from 'lucide-react';
 import type { GeneratedContentIdentity } from '../../../../shared/content_selection';
 import { generatedContentContainer } from '../../../../shared/content_selection';
-import { useContentMultiSelect } from '../../state/contentSelection';
+import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import '../../styles/generated-selection.css';
 
@@ -10,7 +10,9 @@ export function useGeneratedSelection(
   target: GeneratedContentIdentity,
   messages: readonly { id?: string }[],
   available: boolean,
+  controlClassName = 'weq-set-iconbtn',
 ) {
+  const requestExport = useRequestContentExport();
   const selection = useContentMultiSelect({
     kind: target.kind === 'assistant' ? 'assistant-messages' : 'clone-messages',
     container: generatedContentContainer(target),
@@ -26,13 +28,31 @@ export function useGeneratedSelection(
     onExit: () => selection.setSelectionMode(false),
   });
   return {
+    exportConversation:
+      requestExport && available
+        ? () =>
+            requestExport({
+              owner: {
+                kind: target.kind === 'assistant' ? 'assistant-messages' : 'clone-messages',
+                container: generatedContentContainer(target),
+              },
+              scope: { type: 'all' },
+            })
+        : undefined,
     rootProps: multi.rootProps,
+    selectionMode: selection.selectionMode,
     itemProps: (id?: string) => (id ? multi.itemProps(id) : {}),
     selected: (id?: string) => Boolean(id && selection.selectedIds.has(id)),
+    selectMessage: (id?: string) => {
+      if (!id || !available) return;
+      selection.anchorRef.current = id;
+      selection.setSelectedIds(new Set([id]));
+      selection.setSelectionMode(true);
+    },
     control: (
       <button
         type="button"
-        className="weq-set-iconbtn"
+        className={controlClassName}
         disabled={!available}
         aria-label={selection.selectionMode ? '退出消息多选' : '多选消息'}
         title={

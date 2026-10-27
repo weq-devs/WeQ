@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { Check, ChevronDown, MessageSquarePlus, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, History, MessageSquarePlus, Trash2 } from 'lucide-react';
 import type { AgentLabSession } from '@weq/service';
 
 export function SessionSwitcher({
@@ -16,6 +16,7 @@ export function SessionSwitcher({
   draft,
   loading,
   disabled,
+  compact = false,
   onSwitch,
   onNew,
   onDelete,
@@ -27,6 +28,7 @@ export function SessionSwitcher({
   draft: boolean;
   loading?: boolean;
   disabled?: boolean;
+  compact?: boolean;
   onSwitch: (sessionId: string) => void;
   onNew: () => void;
   onDelete: (sessionId: string) => void;
@@ -53,19 +55,27 @@ export function SessionSwitcher({
     <div className="weq-session-switcher" ref={root}>
       <button
         type="button"
-        className="weq-session-switcher-trigger"
+        className={
+          compact ? 'icon-button group-header-info-action' : 'weq-session-switcher-trigger'
+        }
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="切换会话"
-        title="切换会话"
+        title={compact ? `切换会话 · ${draft ? '新会话' : active?.title || '新会话'}` : '切换会话'}
         disabled={disabled}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="weq-session-switcher-title">
-          {draft ? '新会话' : active?.title || '新会话'}
-        </span>
-        <small>{sessions.length}</small>
-        <ChevronDown size={13} />
+        {compact ? (
+          <History size={18} />
+        ) : (
+          <>
+            <span className="weq-session-switcher-title">
+              {draft ? '新会话' : active?.title || '新会话'}
+            </span>
+            <small>{sessions.length}</small>
+            <ChevronDown size={13} />
+          </>
+        )}
       </button>
       {open ? (
         <div className="weq-session-switcher-menu" role="menu" aria-label="会话列表">

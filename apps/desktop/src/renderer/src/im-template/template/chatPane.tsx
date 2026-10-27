@@ -9,6 +9,7 @@ import {
   conversationAnalysisTarget,
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
+import { ChatHeader } from '../../components/ChatHeader';
 import { useMediaSave } from '../../components/MediaSaveControls';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
@@ -253,21 +254,14 @@ import { MessageDecorationCard } from '../../components/MessageDecorationCard';
 import { client, trpc } from '../../trpc/client';
 import { useToast } from '../../components/Toast';
 
-const composerHeightStorageKey = 'chat-template.layout.composerHeight';
+import {
+  composerHeightStorageKey,
+  composerHeightDefault,
+  composerHeightMin,
+  composerHeightMax,
+} from './composerLayout';
 const groupInfoCollapsedStorageKey = 'chat-template.layout.groupInfoCollapsed';
 const composerCollapsedStorageKey = 'chat-template.layout.composerCollapsed';
-/**
- * 输入区高度（桌面端可拖拽）。默认值按「语音条内联时也不用变高度」定：
- *
- *   composerHeight - 内边距 28 - 工具行 42 >= 语音面板（声纹舞台 126 + 脚注 ≈ 26）
- *
- * 语音条已经去掉外框和头部那一栏，整块只要 152px；算下来 222 就够，取 224 做下限，
- * 这样点语音键不会再让输入区越长越高、把聊天区顶上去。比这个矮的存量拖拽值会被
- * 自动夹上来。（配了 TTS 时头部会多出页签那一行，那种情况下语音面板内部自己滚动。）
- */
-const composerHeightDefault = 230;
-const composerHeightMin = 224;
-const composerHeightMax = 430;
 
 /**
  * 移动布局下输入框最多长到几行 —— 超过就内部滚动，并露出「展开」按钮（见
@@ -4861,12 +4855,10 @@ export function ChatPane({
         widgetId={backdrop.widgetId}
         opacity={backdrop.opacity}
       />
-      <header className={cn('chat-header')}>
-        <button className={cn('icon-button back-button')} onClick={onBack} title="返回">
-          <ChevronLeft size={22} />
-        </button>
-        <div className={cn('chat-title')}>
-          <strong>
+      <ChatHeader
+        onBack={onBack}
+        title={
+          <>
             {conversation.type === 'group' ||
             (conversation.type === 'direct' && onOpenGroupMember) ? (
               <button
@@ -4913,83 +4905,91 @@ export function ChatPane({
                 referrerPolicy="no-referrer"
               />
             ) : null}
-          </strong>
-          {conversation.type === 'direct' ? <OnlineStatus uid={conversation.otherUser.id} /> : null}
-        </div>
-        <div className={cn('chat-actions')} role="toolbar" aria-label="会话工具栏">
-          {intentSupported &&
-          conversation.type === 'direct' &&
-          conversation.otherUser &&
-          !isBotConversation(conversation) ? (
-            <AffinityPill
-              peerUid={conversation.otherUser.id}
-              peerName={displayUserName(conversation.otherUser)}
-            />
-          ) : null}
-          {onSearchChatRecords &&
-          (conversation.type === 'group' || conversation.type === 'direct') ? (
-            <button
-              className={cn('icon-button', 'group-header-info-action', 'chat-header-search-action')}
-              type="button"
-              title="搜索聊天记录"
-              onClick={() => onSearchChatRecords(conversation)}
-            >
-              <Search size={18} />
-            </button>
-          ) : null}
-          {conversation.type === 'group' || conversation.type === 'direct' ? (
-            <ConversationMessageActions
-              conversation={conversation}
-              onRoaming={onOpenRoamingBackfill}
-              onAdd={onAddMessage}
-              onDeleted={onViewDeleted}
-              onRecalled={onViewRecalled}
-            />
-          ) : null}
-          {conversation.type === 'group' ? (
-            <>
-              {!sidecarOpen ? (
-                <button
-                  className="icon-button group-header-info-action weq-mobile-group-info-trigger"
-                  type="button"
-                  title="群资料"
-                  aria-label="群资料"
-                  aria-expanded={mobileGroupInfoOpen}
-                  onClick={() => setMobileGroupInfoOpen((previous) => !previous)}
-                >
-                  <UsersRound size={18} />
-                </button>
-              ) : null}
-              {onOpenGroupBug && PROJECT_GROUP_IDS.includes(conversation.id) ? (
-                <button
-                  className={cn(
-                    'icon-button',
-                    'group-header-info-action',
-                    'group-header-bug-action',
-                  )}
-                  type="button"
-                  title={groupBugOnline ? '反馈 Bug' : '受限模式下无法反馈 Bug'}
-                  disabled={!groupBugOnline}
-                  onClick={() => onOpenGroupBug(conversation)}
-                >
-                  <Bug size={18} />
-                </button>
-              ) : null}
-            </>
-          ) : null}
-          {onOpenConversationSettings &&
-          (conversation.type === 'group' || conversation.type === 'direct') ? (
-            <button
-              className={cn('icon-button', 'group-header-info-action')}
-              type="button"
-              title="会话设置"
-              onClick={(event) => onOpenConversationSettings?.(conversation, event.currentTarget)}
-            >
-              <Settings2 size={18} />
-            </button>
-          ) : null}
-        </div>
-      </header>
+          </>
+        }
+        status={
+          conversation.type === 'direct' ? <OnlineStatus uid={conversation.otherUser.id} /> : null
+        }
+        actions={
+          <>
+            {intentSupported &&
+            conversation.type === 'direct' &&
+            conversation.otherUser &&
+            !isBotConversation(conversation) ? (
+              <AffinityPill
+                peerUid={conversation.otherUser.id}
+                peerName={displayUserName(conversation.otherUser)}
+              />
+            ) : null}
+            {onSearchChatRecords &&
+            (conversation.type === 'group' || conversation.type === 'direct') ? (
+              <button
+                className={cn(
+                  'icon-button',
+                  'group-header-info-action',
+                  'chat-header-search-action',
+                )}
+                type="button"
+                title="搜索聊天记录"
+                onClick={() => onSearchChatRecords(conversation)}
+              >
+                <Search size={18} />
+              </button>
+            ) : null}
+            {conversation.type === 'group' || conversation.type === 'direct' ? (
+              <ConversationMessageActions
+                conversation={conversation}
+                onRoaming={onOpenRoamingBackfill}
+                onAdd={onAddMessage}
+                onDeleted={onViewDeleted}
+                onRecalled={onViewRecalled}
+              />
+            ) : null}
+            {conversation.type === 'group' ? (
+              <>
+                {!sidecarOpen ? (
+                  <button
+                    className="icon-button group-header-info-action weq-mobile-group-info-trigger"
+                    type="button"
+                    title="群资料"
+                    aria-label="群资料"
+                    aria-expanded={mobileGroupInfoOpen}
+                    onClick={() => setMobileGroupInfoOpen((previous) => !previous)}
+                  >
+                    <UsersRound size={18} />
+                  </button>
+                ) : null}
+                {onOpenGroupBug && PROJECT_GROUP_IDS.includes(conversation.id) ? (
+                  <button
+                    className={cn(
+                      'icon-button',
+                      'group-header-info-action',
+                      'group-header-bug-action',
+                    )}
+                    type="button"
+                    title={groupBugOnline ? '反馈 Bug' : '受限模式下无法反馈 Bug'}
+                    disabled={!groupBugOnline}
+                    onClick={() => onOpenGroupBug(conversation)}
+                  >
+                    <Bug size={18} />
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+            {onOpenConversationSettings &&
+            (conversation.type === 'group' || conversation.type === 'direct') ? (
+              <button
+                className={cn('icon-button', 'group-header-info-action')}
+                type="button"
+                title="会话设置"
+                onClick={(event) => onOpenConversationSettings?.(conversation, event.currentTarget)}
+              >
+                <Settings2 size={18} />
+              </button>
+            ) : null}
+          </>
+        }
+      />
       {conversation.type === 'group' && titleProfileGroupId === conversation.id ? (
         <GroupProfileDialog
           conversation={conversation}

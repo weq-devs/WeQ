@@ -178,6 +178,34 @@ function mount() {
 }
 
 describe('生成内容搜索定位', () => {
+  it.each(['persona', 'group'] as const)(
+    '%s 与正常会话共用聊天布局且保留克隆入口',
+    async (kind) => {
+      const f = mount();
+      try {
+        act(() =>
+          f.root.render(
+            createElement(AgentLabView, { embedded: true, searchTarget: target(kind) }),
+          ),
+        );
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(50);
+        });
+        expect(f.host.querySelector('.chat-pane > .chat-header')).not.toBeNull();
+        expect(f.host.querySelector('.chat-pane > .message-scroll')).not.toBeNull();
+        expect(f.host.querySelector('.composer .composer-editor')).not.toBeNull();
+        expect(f.host.querySelector('.composer .composer-send')).not.toBeNull();
+        expect(f.host.querySelector('[aria-label="切换会话"]')).not.toBeNull();
+        expect(f.host.querySelector('.chat-header [title="克隆会话"]')).not.toBeNull();
+        expect(f.host.querySelector('.chat-header [aria-label="搜索聊天记录"]')).not.toBeNull();
+        expect(f.host.querySelector('.chat-header [aria-label="消息管理"]')).not.toBeNull();
+        expect(f.host.textContent).not.toContain('输入一句话测试克隆效果');
+        expect(f.host.querySelector('[title="发红包"]')).toBeNull();
+      } finally {
+        f.close();
+      }
+    },
+  );
   it.each(['persona', 'assistant'] as const)(
     '%s 更新后的持久身份可用于多选，不停留在第一次的历史快照',
     async (kind) => {
@@ -307,7 +335,7 @@ describe('生成内容搜索定位', () => {
         await vi.advanceTimersByTimeAsync(50);
       });
       expect(f.host.querySelector('.is-search-hit')?.textContent).toContain('合成搜索命中');
-      expect(f.host.querySelector('.weq-agentlab-head strong')?.textContent).toBe('合成克隆');
+      expect(f.host.querySelector('.chat-header strong')?.textContent).toBe('合成克隆');
     } finally {
       f.close();
     }
@@ -491,7 +519,7 @@ describe('生成内容搜索定位', () => {
         });
         expect(f.host.querySelector('.is-search-hit')?.textContent).toContain('合成搜索命中');
         const composer = f.host.querySelector<HTMLTextAreaElement>(
-          '.weq-agentlab-composer textarea',
+          '.composer textarea, .weq-agentlab-composer textarea',
         )!;
         expect(composer.disabled).toBe(true);
         expect(composer.placeholder).toContain('只读');
