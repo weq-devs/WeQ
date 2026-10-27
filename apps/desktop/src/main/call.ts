@@ -45,6 +45,7 @@ import {
   systemAudioCapability,
   type SystemAudioCapability,
 } from './call_system_audio';
+import type { VideoProfile, VideoSource } from '../shared/call_video_profile';
 
 const logger = getLogger().child({ scope: 'call' });
 
@@ -484,8 +485,8 @@ export class CallManager extends EventEmitter {
   /**
    * 开 / 关本端摄像头。
    *
-   * 只发控制信令并切换发送状态；画面要靠 `CallSession` 里注入的编码器吐帧
-   * （当前还没接），所以打开后对端会先看到「等待对方画面」。
+   * 只发控制信令并切换发送状态；画面要靠 `CallSession` 里注入的编码器吐帧，
+   * 采集由渲染层负责。
    */
   setCamera(enabled: boolean): boolean {
     const session = this.session;
@@ -499,7 +500,78 @@ export class CallManager extends EventEmitter {
       videoSending: `${before.videoSending} -> ${after.videoSending}`,
       roomId: after.roomId,
     });
+    // 关摄像头时顺手把采集源复位回摄像头：下次再打开应该回到摄像头，而不是
+    // 接着共享屏幕（用户点「关摄像头」的意思是「不发了」，不是「换成共享」）。
+    if (!enabled) void this.resetVideoSource();
     return true;
+  }
+
+  /**
+   * 切换采集源：摄像头 ↔ 屏幕共享。
+   *
+   * **协议层完全不做区分** —— 屏幕共享就是一路普通主视频流（`0x5b subType=2`），
+   * 与摄像头共用同一套 `subType=4` 开关信令、`subType=5` 保活、`bt=31` 状态交换。
+   * 对端不会收到「这是屏幕共享」的额外提示（QQ 本体的独立提示要另一套信令，
+   * 尚未还原），但对端能看到画面本身。
+   *
+   * 这里做三件事：
+   *
+   * 1. 编码器换档位（640×360@300kbps ↔ 1280×720@1.2Mbps）并重开；
+   * 2. 告诉 `CallSession` 新的编码规格（`snapshot().videoInfo`）；
+   * 3. 如果视频流原本没在发，顺手打开（共享屏幕本身就是要发画面）。
+   *
+   * 返回实际生效的档位，渲染层据此决定采集尺寸。
+   */
+  async setVideoSource(source: VideoSource): Promise<VideoProfile | null> {
+    const session = this.session;
+    const encoder = this.videoEncoder;
+    if (!session || !encoder) return null;
+    if (session.snapshot().state !== 'connected') {
+      logger.warn('切换采集源被拒：通话未接通', { source });
+      return null;
+    }
+    const profile = await encoder.setSource(source);
+    // 编码器重建后队列与规格都变了，让会话重新读一次（界面与状态快照都用它）。
+    session.setVideoEncoding();
+    // 共享屏幕必然要发画面：原本摄像头关着就一起打开。
+    if (!session.snapshot().videoSending) session.setCamera(true);
+    session.setVideoSource(source);
+    logger.info('采集源已切换', {
+      source,
+      width: profile.width,
+      height: profile.height,
+      fps: profile.fps,
+      bitrateKbps: profile.bitrateKbps,
+    });
+    return profile;
+  }
+
+  /**
+   * 渲染层按**源的实际宽高比**算出采集尺寸后回头重设编码器。
+   *
+   * 共享一块 21:9 的屏幕时渲染层会推出 1280×540 这样的尺寸；编码器必须用同一
+   * 个尺寸，否则 `pushFrame` 的平面长度校验不通过、帧会被静默丢掉。
+   */
+  async resizeVideo(width: number, height: number): Promise<boolean> {
+    const encoder = this.videoEncoder;
+    const session = this.session;
+    if (!encoder || !session) return false;
+    await encoder.resize(width, height);
+    session.setVideoEncoding();
+    return true;
+  }
+
+  /** 采集源复位回摄像头（关摄像头 / 通话结束时）。 */
+  private async resetVideoSource(): Promise<void> {
+    const encoder = this.videoEncoder;
+    if (!encoder || encoder.currentSource === 'camera') return;
+    await encoder.setSource('camera').catch((error: unknown) => {
+      logger.warn('复位采集源失败', { error: error instanceof Error ? error.message : error });
+    });
+    if (this.session && this.videoEncoder) {
+      this.session.setVideoEncoding();
+      this.session.setVideoSource('camera');
+    }
   }
 
   /**

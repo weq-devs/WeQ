@@ -23,8 +23,10 @@ import { requestOpenSettings } from '../lib/callSettingsBridge';
 import { useToolWindow } from '../hooks/useCompositionWindow';
 import { useCallAudio } from '../hooks/useCallAudio';
 import { nextRotation } from '../lib/callVideo';
+import { SCREEN_PROFILE, type VideoProfile } from '../../../shared/call_video_profile';
 import { useCallVideo } from '../hooks/useCallVideo';
 import { useCallCamera } from '../hooks/useCallCamera';
+import { useCallScreen } from '../hooks/useCallScreen';
 import { useCallRecorder } from '../hooks/useCallRecorder';
 import { RenderDocumentContext } from '../lib/renderDocument';
 import { HoverTooltip } from './HoverTooltip';
@@ -62,6 +64,37 @@ interface CallInfo {
   videoReceiving: boolean;
   receivedVideoFrames: number;
   videoInfo: { width: number; height: number; profile: number; codec: 'hevc' } | null;
+  /** 本端画面来源（摄像头 / 屏幕共享）。协议层不区分，只影响本端显示。 */
+  videoSource: 'camera' | 'screen';
+  /** 本端视频编码档位；还没开过视频为 null。 */
+  videoProfile: {
+    width: number;
+    height: number;
+    fps: number;
+    bitrateKbps: number;
+  } | null;
+}
+
+/**
+ * 主进程实际生效的编码档位 → 采集档位。
+ *
+ * 采集必须与编码器**同尺寸**：编码器按自己的宽高校验 I420 平面长度，对不上就
+ * 静默丢帧。主进程在切换采集源时会换档（摄像头 640×360 ↔ 共享 1280×720），
+ * 这里把它读回来，`useVideoCapture` 再按这个上限约束采集端。
+ *
+ * `videoProfile` 为 null（还没开过视频）时退回共享档位的默认值。
+ */
+function screenProfile(profile: CallInfo['videoProfile']): VideoProfile {
+  if (!profile) return SCREEN_PROFILE;
+  return {
+    width: profile.width,
+    height: profile.height,
+    fps: profile.fps || SCREEN_PROFILE.fps,
+    bitrateKbps: profile.bitrateKbps || SCREEN_PROFILE.bitrateKbps,
+    // 采集端直接要目标尺寸，省掉一次缩放（见 shared/call_video_profile.ts）。
+    captureWidth: profile.width,
+    captureHeight: profile.height,
+  };
 }
 
 /** 状态 → 文案。接通后显示时长，其余显示阶段。 */
@@ -143,17 +176,37 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     canvasRef: peerCanvasRef,
     rotate: peerRotation,
   });
-  // 本端摄像头：开关由按钮控制，采集后转 I420 推给主进程编码。
-  const camera = useCallCamera({ enabled: live && info.videoSending });
-  // 采集错误要告诉用户（权限被拒 / 没有设备），否则会以为「点了没反应」。
+  /**
+   * 本端画面：摄像头与屏幕共享**互斥**。
+   *
+   * 两者共用同一条采集管线（`useVideoCapture`），差别只在于拿流的方式与编码档位。
+   * 协议侧完全一致 —— 都是一路普通主视频流，所以对端看到的画面是一样的。
+   */
+  const screenSharing = info.videoSource === 'screen';
+  const capturing = live && info.videoSending;
+  // 摄像头：共享时不采集（否则摄像头指示灯会亮着、白占一路解码）。
+  const camera = useCallCamera({ enabled: capturing && !screenSharing });
+  // 屏幕共享：档位以主进程实际生效的为准（它可能因源宽高比而微调）。
+  const screen = useCallScreen({
+    enabled: capturing && screenSharing,
+    profile: screenProfile(info.videoProfile),
+    onEnded: () => {
+      // 用户在系统共享栏点了「停止共享」：轨道自己结束了，把状态切回摄像头。
+      // 不这么做界面会一直停在「共享中」，而且再也收不到新帧。
+      void switchSourceRef.current?.('camera');
+    },
+  });
+  /** 当前生效的采集状态（摄像头或屏幕）。 */
+  const capture = screenSharing ? screen : camera;
+  // 采集错误要告诉用户（权限被拒 / 没有设备 / 用户取消），否则会以为「点了没反应」。
   useEffect(() => {
-    if (!camera.error) return;
+    if (!capture.error) return;
     useToast.getState().push({
       tone: 'warning',
-      message: '无法打开摄像头',
-      detail: camera.error,
+      message: screenSharing ? '无法共享屏幕' : '无法打开摄像头',
+      detail: capture.error,
     });
-  }, [camera.error]);
+  }, [capture.error, screenSharing]);
 
   const settings = useCallRecordingSettings();
   const recorder = useCallRecorder({
@@ -313,17 +366,97 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   /**
    * 摄像头开关。
    *
-   * 主进程只发控制信令并切发送状态；画面要靠编码器（尚未接入），所以打开后
-   * 本端小窗先显示「本端画面准备中」。对端会立刻收到开关信号。
+   * 主进程只发控制信令并切发送状态；画面由渲染层的采集管线推过去。
+   *
+   * ⚠️ 共享屏幕时这个键**只切回摄像头、不关视频** —— 按钮提示写的是「关闭共享
+   * （回到摄像头）」，用户点它期待的是切回摄像头继续通话，而不是画面整个没了。
+   * 要彻底停止发画面，用「停止共享」按钮。
    */
+  /** 切采集源（在 `switchSource` 定义之后赋值；这里先声明，供回调引用）。 */
+  const switchSourceRef = useRef<((source: 'camera' | 'screen') => Promise<void>) | null>(null);
+
   const setCamera = trpc.call.setCamera.useMutation();
   const cameraPending = useRef(false);
   const handleToggleCamera = useCallback(() => {
     if (cameraPending.current) return;
+    if (screenSharing) {
+      // 已开着视频，只需要换采集源；`setCamera` 保持 true。
+      void switchSourceRef.current?.('camera');
+      return;
+    }
     cameraPending.current = true;
     const next = !info.videoSending;
     setCamera.mutate({ enabled: next }, { onSettled: () => (cameraPending.current = false) });
-  }, [info.videoSending, setCamera]);
+  }, [info.videoSending, screenSharing, setCamera]);
+
+  /**
+   * 屏幕共享开关（与摄像头互斥的切换式）。
+   *
+   * 流程：切主进程采集源（重开编码器、换档位）→ 渲染层按新档位重新采集。
+   * 目标分辨率跟着源宽高比走，采集拿到真实尺寸后再回头让主进程对齐编码器
+   * （见 `useVideoCapture` 的尺寸推导与 `resizeVideo`）。
+   */
+  const setVideoSource = trpc.call.setVideoSource.useMutation();
+  const resizeVideo = trpc.call.resizeVideo.useMutation();
+  const sourcePending = useRef(false);
+  const [sourceBusy, setSourceBusy] = useState(false);
+
+  /**
+   * 切换采集源。返回 Promise 以便调用方串接（比如「先切回摄像头再关视频」）。
+   *
+   * 用 ref 暴露给 `onEnded` 这类长生命周期回调：它们拿不到最新的闭包。
+   */
+  const switchSource = useCallback(
+    async (source: 'camera' | 'screen') => {
+      if (sourcePending.current) return;
+      if (info.videoSource === source) return;
+      sourcePending.current = true;
+      setSourceBusy(true);
+      try {
+        const result = await setVideoSource.mutateAsync({ source });
+        if (!result.ok) {
+          useToast.getState().push({
+            tone: 'warning',
+            message: source === 'screen' ? '无法开始共享屏幕' : '无法切回摄像头',
+            detail: '通话可能已经结束。',
+          });
+        }
+      } catch (error) {
+        useToast.getState().push({
+          tone: 'warning',
+          message: source === 'screen' ? '无法开始共享屏幕' : '无法切回摄像头',
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        sourcePending.current = false;
+        setSourceBusy(false);
+      }
+    },
+    [info.videoSource, setVideoSource],
+  );
+  switchSourceRef.current = switchSource;
+
+  const handleToggleScreenShare = useCallback(() => {
+    void switchSource(screenSharing ? 'camera' : 'screen');
+  }, [screenSharing, switchSource]);
+
+  /**
+   * 采集尺寸与编码器对齐。
+   *
+   * 共享超宽屏 / 4:3 屏时，渲染层会按源比例推出一个非 16:9 的尺寸；编码器必须
+   * 跟着改，否则 `pushFrame` 的平面长度校验不通过、帧会被静默丢掉（表现就是
+   * 「点了共享，对方什么都看不到」）。
+   */
+  useEffect(() => {
+    if (!capture.active || capture.width <= 0 || capture.height <= 0) return;
+    if (
+      capture.width === info.videoProfile?.width &&
+      capture.height === info.videoProfile?.height
+    ) {
+      return;
+    }
+    resizeVideo.mutate({ width: capture.width, height: capture.height });
+  }, [capture.active, capture.width, capture.height, info.videoProfile, resizeVideo]);
 
   /** 打开设置页的「通话与录音」。通话窗口不关，用户回来还能继续。 */
   const openSettings = useCallback(() => {
@@ -386,7 +519,8 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
             peerVideoOn={peerVideoOn}
             selfCanvasRef={videoLayout ? selfCanvasRef : undefined}
             selfVideoOn={info.videoSending}
-            selfVideoElement={camera.video}
+            selfVideoElement={capture.video}
+            selfVideoSource={info.videoSource}
             videoError={video.supported ? video.error : (video.error ?? '当前环境不支持视频解码')}
           />
 
@@ -409,6 +543,9 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
             speakerOff={speakerOff}
             cameraOn={info.videoSending}
             cameraEnabled={live}
+            screenSharing={screenSharing}
+            screenSharingPending={sourceBusy}
+            screenShareEnabled={live}
             recording={Boolean(recorder.recording?.active)}
             recordingEnabled={live && !recorder.busy}
             finished={finished}
@@ -416,6 +553,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
             onToggleMute={() => setMuted((value) => !value)}
             onToggleSpeaker={() => setSpeakerOff((value) => !value)}
             onToggleCamera={handleToggleCamera}
+            onToggleScreenShare={handleToggleScreenShare}
             onToggleRecording={handleToggleRecording}
             onHangup={handleHangup}
             canRotate={peerVideoOn}

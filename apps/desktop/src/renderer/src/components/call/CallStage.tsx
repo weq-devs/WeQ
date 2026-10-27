@@ -65,6 +65,14 @@ export interface CallStageProps {
   selfVideoOn?: boolean;
   /** 本端采集到的视频元素（画进 selfCanvasRef）。 */
   selfVideoElement?: HTMLVideoElement | null;
+  /**
+   * 本端画面来源。
+   *
+   * 摄像头在小窗里可以做镜像 / 圆形裁切（用户习惯看到「镜子里的自己」），
+   * 屏幕共享**不能**：镜像会让文字反过来、圆裁会把桌面截掉一圈。所以这一项
+   * 同时控制 `data-source` 属性与画法。
+   */
+  selfVideoSource?: 'camera' | 'screen';
   /** 对端是否在发视频（决定要不要铺满对端画面）。 */
   peerVideoOn?: boolean;
   /** 对端视频解码不可用时的提示；非空时画占位。 */
@@ -85,6 +93,7 @@ export function CallStage({
   selfCanvasRef,
   selfVideoOn = false,
   selfVideoElement = null,
+  selfVideoSource = 'camera',
   peerVideoOn = false,
   videoError = null,
 }: CallStageProps) {
@@ -195,10 +204,16 @@ export function CallStage({
           - self-only 布局：铺满主区域（对端没开视频，只有自己）
           没有编码器时 canvas 一直是空的，CSS 的占位文字会盖住。 */}
       {selfCanvasRef && (layout === 'self' || layout === 'self-only') ? (
-        <div className={`weq-call-self-video${layout === 'self-only' ? ' is-full' : ''}`}>
+        <div
+          className={`weq-call-self-video${layout === 'self-only' ? ' is-full' : ''}`}
+          data-source={selfVideoSource}
+        >
           <canvas ref={selfCanvasRef} />
           {/* 采集到的画面直接画进 canvas：video 元素只做解码源，不挂进 DOM。 */}
           <SelfVideoPainter canvasRef={selfCanvasRef} video={selfVideoElement} />
+          {selfVideoSource === 'screen' ? (
+            <span className="weq-call-self-badge">正在共享屏幕</span>
+          ) : null}
         </div>
       ) : null}
 

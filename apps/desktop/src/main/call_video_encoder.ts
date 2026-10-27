@@ -4,15 +4,18 @@
  * 链路：
  *
  * ```text
- * 渲染层 getUserMedia → VideoFrame → 转 I420 → IPC pushVideoFrame
+ * 渲染层 getUserMedia / getDisplayMedia → 缩放 → 转 I420 → IPC pushVideoFrame
  *   → 这里排进队列 → CallSession.pumpVideo 每 10ms 取一帧
  *   → native 的 t265（QQ 自带的魔改 x265）编成 Annex B
  *   → 0x5b subType=2 发给对端
  * ```
  *
- * 为什么采集在渲染层、编码在主进程：摄像头只能用 WebRTC 拿（主进程没有
+ * 为什么采集在渲染层、编码在主进程：摄像头与屏幕只能用 WebRTC 拿（主进程没有
  * `getUserMedia`），而编码必须用 QQ 自带的那一版 x265（系统 libx265 编出来的
  * 码流对端不一定能解）。两头分工，中间用 IPC 传 I420。
+ *
+ * **摄像头与屏幕共享共用这一个编码器**，切换时按 {@link CAMERA_PROFILE} /
+ * {@link SCREEN_PROFILE} 重开（t265 是进程级单例，打开后改不了参数）。
  *
  * 队列只留 2 帧：视频是实时流，落后就丢旧的 —— 与音频那边同一个口径。
  */
@@ -21,6 +24,12 @@ import { appendFileSync, writeFileSync } from 'node:fs';
 import type { NtHelperBinding } from '@weq/native';
 import type { CallVideoEncoder, VideoStreamInfo } from '@weq/service';
 import { getLogger } from '@weq/service';
+import {
+  CAMERA_PROFILE,
+  type VideoProfile,
+  type VideoSource,
+  profileFor,
+} from '../shared/call_video_profile';
 
 const logger = getLogger().child({ scope: 'call-video-encoder' });
 
@@ -40,7 +49,7 @@ const logger = getLogger().child({ scope: 'call-video-encoder' });
 const DUMP_DIR = process.env.WEQ_CALL_VIDEO_DUMP ?? '';
 const DUMP_FRAMES = Number.parseInt(process.env.WEQ_CALL_VIDEO_DUMP_FRAMES ?? '5', 10);
 
-/** 队列上限：2 帧（约 130 ms @ 15 fps）。 */
+/** 队列上限：2 帧（约 160 ms @ 12 fps 摄像头档 / 约 130 ms @ 15 fps 共享档）。 */
 const MAX_QUEUED = 2;
 
 interface I420Frame {
@@ -57,25 +66,28 @@ interface I420Frame {
  */
 export class NativeVideoEncoder implements CallVideoEncoder {
   private readonly queue: I420Frame[] = [];
-  private readonly width: number;
-  private readonly height: number;
+  private width: number;
+  private height: number;
 
   constructor(
     private readonly nt: NtHelperBinding,
     private readonly modulesDir: string,
     options: { width?: number; height?: number; fps?: number; bitrateKbps?: number } = {},
   ) {
-    this.width = options.width ?? 640;
-    this.height = options.height ?? 360;
-    this.fps = options.fps ?? 15;
-    // 30 kbps：与 QQ 本体对齐（实测静态 6 kbps、运动峰值 26 kbps）。
-    // 旧的 400 kbps 会让每帧涨到 3KB+、拆成 3~28 个 UDP 包，丢一片整帧报废。
-    this.bitrateKbps = options.bitrateKbps ?? 30;
+    this.width = options.width ?? CAMERA_PROFILE.width;
+    this.height = options.height ?? CAMERA_PROFILE.height;
+    this.fps = options.fps ?? CAMERA_PROFILE.fps;
+    // 码率取 {@link CAMERA_PROFILE}，数值来由见 `shared/call_video_profile.ts`。
+    // 旧值 30 kbps 是误把「静态画面下 ABR 的实际输出」当成目标码率，画面一动就
+    // 严重欠码（实测同一张图 30 kbps 的 PSNR-Y 只有 32.6 dB，300 kbps 是 43.4 dB）。
+    this.bitrateKbps = options.bitrateKbps ?? CAMERA_PROFILE.bitrateKbps;
   }
 
-  private readonly fps: number;
-  private readonly bitrateKbps: number;
+  private fps: number;
+  private bitrateKbps: number;
   private opened = false;
+  /** 当前采集源（摄像头 / 屏幕共享）。只用于日志与重配判断。 */
+  private source: VideoSource = 'camera';
 
   /** 打开 native 编码器。`CallSession.start` 里调。 */
   async open(): Promise<void> {
@@ -92,7 +104,87 @@ export class NativeVideoEncoder implements CallVideoEncoder {
       height: this.height,
       fps: this.fps,
       bitrate: this.bitrateKbps,
+      source: this.source,
     });
+  }
+
+  /**
+   * 切换采集源并**重开**编码器。
+   *
+   * 摄像头与屏幕共享的分辨率 / 码率不同（640×360@300kbps ↔ 1280×720@1.2Mbps），
+   * 而 native 的 t265 是进程级单例、打开后不能改参数 —— 只能关掉重建。
+   *
+   * 实测重建很便宜：`openVideoEncoder` 在 1080p 下也只要 ~10 ms，而且这里只在
+   * 用户点「共享屏幕 / 停止共享」时发生，不必为它做增量更新。
+   *
+   * 关键帧问题：新编码器从第一个 I 帧开始，对端本来就要等关键帧才能起解，
+   * 所以这次重建不会让对端画面比平时更糟。发送侧的帧序号由 `CallSession` 维护，
+   * 不受这里影响（序号连续，对端不会当成丢包）。
+   *
+   * 返回实际生效的档位，调用方据此告诉渲染层按什么尺寸采集。
+   */
+  async setSource(source: VideoSource): Promise<VideoProfile> {
+    if (this.source === source) return this.profile();
+    const target = profileFor(source);
+    const wasOpen = this.opened;
+    if (wasOpen) this.close();
+
+    this.source = source;
+    this.width = target.width;
+    this.height = target.height;
+    this.fps = target.fps;
+    this.bitrateKbps = target.bitrateKbps;
+    if (wasOpen) {
+      await this.open();
+    }
+    logger.info('切换视频采集源', {
+      source,
+      width: this.width,
+      height: this.height,
+      fps: this.fps,
+      bitrate: this.bitrateKbps,
+    });
+    return this.profile();
+  }
+
+  /**
+   * 按**实际采集尺寸**重开编码器。
+   *
+   * 屏幕共享的源宽高比不一定是 16:9（超宽屏 21:9、4:3 显示器），渲染层会按源比例
+   * 推导出一个不超过档位上限的尺寸再推帧。编码器必须用同一个尺寸，否则
+   * `pushFrame` 会因平面长度对不上而静默丢帧 —— 表现为「共享了但对方什么都看不到」。
+   *
+   * 尺寸与当前一致、且编码器已打开时是空操作。
+   */
+  async resize(width: number, height: number): Promise<void> {
+    // 对齐到偶数：I420 的色度平面按 2×2 采样，奇数会越界。
+    const w = width % 2 === 0 ? width : width - 1;
+    const h = height % 2 === 0 ? height : height - 1;
+    if (w <= 0 || h <= 0) return;
+    if (this.width === w && this.height === h && this.opened) return;
+    const wasOpen = this.opened;
+    if (wasOpen) this.close();
+    this.width = w;
+    this.height = h;
+    if (wasOpen) await this.open();
+    logger.info('重设视频编码尺寸', { width: this.width, height: this.height });
+  }
+
+  /** 当前档位。 */
+  profile(): VideoProfile {
+    return {
+      width: this.width,
+      height: this.height,
+      fps: this.fps,
+      bitrateKbps: this.bitrateKbps,
+      captureWidth: this.width,
+      captureHeight: this.height,
+    };
+  }
+
+  /** 当前采集源。 */
+  get currentSource(): VideoSource {
+    return this.source;
   }
 
   /** 渲染层推来一帧 I420。 */

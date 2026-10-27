@@ -257,23 +257,31 @@ QQ 电脑→电脑和电脑→手机的原生抓包中都能观察到这组状�
 | 视频包解析 / 组帧 / H.265 提取 | `packages/protocol/src/call/video.ts` |
 | 信令档位 | `packages/protocol/src/call/signaling.ts`（`MEDIA_PROFILE`） |
 | 会话收发与状态 | `packages/service/src/account/call_session.ts` |
-| 本端采集与 t265 编码 | `apps/desktop/src/main/call_video_encoder.ts` |
+| 采集档位（分辨率 / 码率，两侧共用） | `apps/desktop/src/shared/call_video_profile.ts` |
+| 本端 t265 编码 | `apps/desktop/src/main/call_video_encoder.ts` |
 | 上行帧的二进制 IPC | `apps/desktop/src/shared/call_video_ipc.ts` + `main/call_video_ipc.ts` |
+| 渲染层采集管线（共用） | `apps/desktop/src/renderer/src/hooks/useVideoCapture.ts` |
+| 摄像头 / 屏幕共享取流 | `hooks/useCallCamera.ts` / `hooks/useCallScreen.ts` |
+| 放行 `getDisplayMedia` | `apps/desktop/src/main/call_display_media.ts` |
 | 渲染层解码（WebCodecs） | `apps/desktop/src/renderer/src/hooks/useCallVideo.ts` |
 | 解码的纯逻辑（可单测） | `apps/desktop/src/renderer/src/lib/callVideo.ts` |
 
 关键接口：
 
 - `CallSession.onVideo(listener)` —— 收到完整帧时回调，给 Annex B 裸流；
-- `CallSession.setCamera(enabled)` —— 开 / 关本端摄像头（发控制包）；
+- `CallSession.setCamera(enabled)` —— 开 / 关本端视频（发控制包）；
+- `CallSession.setVideoSource(source)` —— 记录本端画面来自摄像头还是屏幕共享
+  （**协议层不发任何东西**，只让 `snapshot()` 能告诉界面）；
+- `CallManager.setVideoSource(source)` —— 切采集源并重开编码器（换档位）；
+- `CallManager.resizeVideo(w, h)` —— 按源宽高比重设编码尺寸；
 - `CallVideoEncoder` —— 主进程注入的编码器，`next()` 吐一帧裸流。
 
 ### 5.1 上行帧走二进制 IPC，不走 tRPC（2026-10-26）
 
-采集在渲染层、编码在主进程，中间要传一帧 640×360 的 I420（345 KB）。**不要用
-tRPC 传它**：tRPC 的 superjson 会把 `Uint8Array` 展开成十进制数字数组，实测一帧
-序列化 15 ms + 结构化克隆 10 ms + 反序列化 5 ms = 30 ms，15 fps 下渲染层主线程被
-吃满，采集、解码、绘制一起卡（两端画面都卡）。
+采集在渲染层、编码在主进程，中间要传原始 I420 —— 摄像头 640×360 一帧 345 KB，
+屏幕共享 1280×720 一帧 1.3 MB。**不要用 tRPC 传它**：tRPC 的 superjson 会把
+`Uint8Array` 展开成十进制数字数组（体积 3~4 倍），实测一帧 30 ms，帧率一高渲染层
+主线程就被吃满，采集、解码、绘制一起卡（两端画面都卡）。
 
 现在走 `window.weq.callVideo.pushFrame()` → `ipcRenderer.send` 的原生通道，
 `Uint8Array` 直接结构化克隆（实测 0.17 ms，快两个数量级），且天然 fire-and-forget。
@@ -355,8 +363,8 @@ Chromium 的 WebCodecs HEVC 解码器对 `VideoDecoderConfig.description` 的要
 ### 7.1.1 关键帧间隔：WeQ 比真实客户端密得多
 
 实测 QQ 本体**一整通 19.8 秒只发 1 个关键帧**（首帧），对端同样只有 1 个。
-WeQ 的 `t265` 配置是 `keyint=30`，15 fps 下**每 2 秒一个关键帧**，码流里 I 帧
-占比高一个量级。
+WeQ 的 `t265` 配置是 `keyint=30`，摄像头档 12 fps 下**每 2.5 秒一个关键帧**，
+码流里 I 帧占比高一个量级。
 
 这是「对端看 WeQ 画面卡」的可疑原因之一（I 帧大、瞬时码率尖峰大，弱网下更容易
 丢片 → 整帧丢弃 → 等下一个关键帧）。真实客户端显然用了很大的 keyint 或纯按需
@@ -399,13 +407,162 @@ c2s: 02 00 48 00 01 00 03 75 3f 14 08 b0 b2 6b 80 00 ... 00 03
 
 ### 7.3 其他
 
-- **屏幕共享**：协议侧与摄像头同一套 `subType=2`（可能要 `subType=7`），但
-  Wayland 下采集受限，本次未验证成功。
 - **群通话 / 被动接听**：与语音通话同样的限制（见 voice-call 文档 §1）。
 - **分片尾部 0 填充**：真实客户端等分后末片补 0，但补 0 是否被对端依赖无法从
   抓包证实，当前不补。
 
-## 8. 抓包复现方法
+## 8. 屏幕共享（2026-10-28）
+
+### 8.1 结论：它就是一路普通摄像头视频
+
+**协议层一个字节都不用改。** 屏幕共享复用摄像头那条完整链路：
+
+| 层 | 是否区分摄像头 / 屏幕共享 |
+| --- | --- |
+| 信令 `SsoCreateRoom` / `SsoInviteUser` | 不区分 |
+| GCS 认证 / 心跳 / `bt=31` 状态交换 / `bt=77` 参数 | 不区分 |
+| 媒体 `0x5b subType=2`（主画面） | **不区分** |
+| 摄像头开关 `subType=4` / 保活 `subType=5` | 不区分 |
+
+`VideoSubType.screen = 0x07` 是协议里预留的独立子类型，但**没有抓包证据**表明
+QQ 本体的「共享屏幕」走它。要单独适配（独立的 `subType=7` 流 + 独立的信令，让
+对端弹出「对方正在共享屏幕」的提示）需要重新抓包整条 `switchScreenShare` /
+`transformToScreenShare` 链路，代价是数小时逆向；而现状下对端虽然收不到独立
+提示，但**能看到完整画面**，功能本身是通的。
+
+因此实现取的是「换采集源」：同一路主视频流，`subType` 不变，只把采集到的像素
+从摄像头换成屏幕。
+
+### 8.2 四端采集：一条代码路径
+
+用 `getDisplayMedia`，让 Electron / Chromium 按平台自己选后端：
+
+| 平台 | 实际后端 |
+| --- | --- |
+| Windows | WGC（Win10 1903+）/ DXGI |
+| macOS | ScreenCaptureKit |
+| Linux X11 | XDG Portal ScreenCast → PipeWire |
+| Linux Wayland | XDG Portal ScreenCast → PipeWire |
+
+⚠️ **Linux 下即使传 `--ozone-platform=x11`（XWayland），采集仍然走 portal。**
+2026-10-28 本机（Hyprland / pipewire 1.6.9 / Electron 44.9.1）实测日志里是
+`third_party/webrtc/modules/desktop_capture/linux/wayland/shared_screencast_stream.cc`。
+也就是说 X11 与 Wayland 在 Electron 里是**同一条代码路径**，不需要像 OBS 那样分
+`linux-capture`（XSHM）与 `linux-pipewire` 两套。
+
+实测结果（同一环境）：
+
+```
+desktopCapturer.getSources({types:['screen']})  → 1 个源「整个屏幕」，约 10 s
+getDisplayMedia({video:true})                    → 1920×1080 @30fps，4 s
+连续采样 6 次非黑像素占比                     → 1.000（avg 155）
+```
+
+`getSources` 那 10 秒是 portal 弹窗等待用户选择的时间，不是性能问题。
+
+### 8.3 采到的源怎么选
+
+- **Linux / macOS 15+**：交给系统选择器。Linux 的 portal 弹窗由桌面环境提供
+  （Hyprland / KDE / GNOME 各自风格），macOS 用 `useSystemPicker: true` 走
+  ScreenCaptureKit 的系统选择器；
+- **Windows / macOS <15**：主进程用 `desktopCapturer` 取主显示器。
+
+**不要自己画选源面板**：Linux 的 portal 强制弹窗，自己再画一层等于让用户选两次。
+
+### 8.4 参数档位
+
+见 `apps/desktop/src/shared/call_video_profile.ts`，那份文件里有每个数字的来由。
+
+| 档位 | 分辨率 | 帧率 | 码率 |
+| --- | --- | --- | --- |
+| 摄像头 | 640×360 | 12 fps | 300 kbps |
+| 屏幕共享 | 1280×720 | 15 fps | 1200 kbps |
+
+编码器是 native 的 t265（进程级单例，打开后**不能改参数**），所以切换采集源
+只能 `closeVideoEncoder` + 重新打开。实测重开在 1080p 下也只要 ~10 ms，只在
+用户点按钮时发生，不需要做增量更新。
+
+采集尺寸按**源宽高比**推导（`fitWithin`）：共享 21:9 超宽屏时是 1280×540，
+不是硬塞进 16:9。渲染层算出尺寸后要回头调 `call.resizeVideo` 让编码器对齐 ——
+两边尺寸不一致时 `pushFrame` 会因平面长度校验失败而**静默丢帧**，表现是
+「点了共享，对方什么都看不到」。
+
+### 8.5 性能：让采集端直出目标尺寸
+
+实测（本机 1920×1080 源，取一帧 → 缩放 → 转 I420）：
+
+| 做法 | 耗时 |
+| --- | --- |
+| `getDisplayMedia` 给全分辨率，再 `drawImage` 缩到 1280×720 | 45 ms/帧 |
+| `getDisplayMedia` 直接要 1280×720（`width/height: {ideal, max}`） | **22 ms/帧** |
+
+所以约束必须带给采集端（`captureWidth` / `captureHeight`），不要在渲染层做完
+缩放再转 I420。`willReadFrequently: true` 也能再省 3~4 ms（避免 `getImageData`
+从 GPU 回读）。
+
+### 8.6 用户主动停止共享
+
+用户在系统共享栏点「停止共享」时，轨道会静默 `ended` —— 不接这个事件的话，
+界面会一直停在「共享中」而且再也收不到新帧。`useVideoCapture` 监听每一条轨道的
+`ended`，转成 `onEnded` 回调，`CallWindow` 收到后把采集源切回摄像头。
+
+## 9. 码率：为什么从 30 kbps 提到 300 kbps（2026-10-28）
+
+### 9.1 旧值的来源是个误判
+
+`call_video_encoder.ts` 原来的注释：
+
+```
+// 30 kbps：与 QQ 本体对齐（实测静态 6 kbps、运动峰值 26 kbps）。
+// 旧的 400 kbps 会让每帧涨到 3KB+、拆成 3~28 个 UDP 包，丢一片整帧报废。
+```
+
+那组数字是**静态画面**下 ABR 的实际输出。ABR（`rc=ABR`）在画面不动时本来就会
+自己把码率降下来 —— 把它当成目标码率写死，等于给了一个「静止时够用、一动就欠码」
+的上限。
+
+### 9.2 QQ 本体的真实数值
+
+对 `~/Desktop/weq-call-compare/1-QQ-native__P2P-OK.pcap` 按方向重新统计
+（`subType=2`，按 `(gidx,fidx)` 组帧，只算补全的帧）：
+
+| 方向 | 帧数 | 帧率 | 码率 | SPS 分辨率 |
+| --- | --- | --- | --- | --- |
+| 对端 → 本端 | 229 | 12.0 fps | **710 kbps** | 640×360 |
+| 本端 → 对端 | 226 | 12.1 fps | **283 kbps** | 640×360 |
+
+所以 QQ 本体与我们**分辨率完全一样**（640×360），差的是码率。而且上下行不对称
+（下行给得更多）—— 这也解释了为什么「觉得对方画面糊」比「对方觉得我们糊」更常见。
+
+### 9.3 质量差多少
+
+同一张真实屏幕截图、同一个 t265 编码器、640×360@15fps，逐档实测：
+
+| 目标码率 | 实际码率 | PSNR-Y | 单帧平均 | 单帧峰值 |
+| --- | --- | --- | --- | --- |
+| 30 kbps（旧值） | 43 kbps | **32.6 dB** | 0.35 KB | 2.09 KB |
+| 100 kbps | 124 kbps | 34.7 dB | 1.01 KB | 3.69 KB |
+| 200 kbps | 203 kbps | 40.6 dB | 1.65 KB | 7.34 KB |
+| **300 kbps** | 286 kbps | **43.4 dB** | 2.33 KB | 9.35 KB |
+| 500 kbps | 441 kbps | 45.2 dB | 3.59 KB | 10.72 KB |
+| 700 kbps | 546 kbps | 45.2 dB | 4.44 KB | 10.72 KB |
+
+30 → 300 kbps 是 10.8 dB，肉眼是「糊成一团」到「能看清字」的差别；再往上收益
+迅速递减（300 → 700 只多 1.8 dB，流量却翻倍），所以取 300。
+
+### 9.4 分片风险
+
+`0x5b` 的 `pkg_idx` 是单字节，单帧上限 255 片。实测：
+
+| 档位 | 单帧平均 | 单帧峰值 |
+| --- | --- | --- |
+| 640×360@300kbps | 2.3 KB（≈3 片） | 9.4 KB（≈9 片） |
+| 1280×720@1.2Mbps | 10 KB（≈10 片） | 29 KB（≈25 片，p95） |
+
+离 255 很远。（脚本里按 1177 B/片估算：1200 B UDP 载荷扣掉 17 B 外层头 +
+6 B RTP 头 + 3 B 扩展。）
+
+## 10. 抓包复现方法
 
 不需要改代码：`tcpdump` 抓原始包即可（媒体是明文）。
 
