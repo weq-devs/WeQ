@@ -609,6 +609,17 @@ export const bootstrapRouter = router({
       return requireBootstrap().userConfig.setSettings({ callRecording: input }).callRecording;
     }),
 
+  /**
+   * 禁用通话 P2P 直连（排障开关），媒体全程走服务端中继。
+   *
+   * **必须在发起通话前改**：媒体路径在会话生命周期内由 `CallSession` 自行
+   * 维护，进行中的通话不会因为改了这个开关而切换路径。
+   */
+  setCallDisableP2P: procedure.input(z.object({ disabled: z.boolean() })).mutation(({ input }) => {
+    return requireBootstrap().userConfig.setSettings({ callDisableP2P: input.disabled })
+      .callDisableP2P;
+  }),
+
   /** 弹系统目录选择框并保存为录音目录。取消返回 null（不修改设置）。 */
   pickCallRecordingDir: procedure.mutation(async (): Promise<string | null> => {
     const picked = await getHost().pickDirectory({ title: '选择通话录音保存文件夹' });

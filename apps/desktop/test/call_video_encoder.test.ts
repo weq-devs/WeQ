@@ -69,7 +69,7 @@ describe('NativeVideoEncoder 换档', () => {
     const { nt, opened, calls } = fakeNative();
     const encoder = new NativeVideoEncoder(nt, MODULES);
     await encoder.open();
-    expect(opened[0]).toMatchObject({ width: 640, height: 360, fps: 12, kbps: 300 });
+    expect(opened[0]).toMatchObject({ width: 480, height: 270, fps: 12, kbps: 300 });
 
     const profile = await encoder.setSource('screen');
     // 先关再开：t265 打开后不能改参数。
@@ -81,7 +81,7 @@ describe('NativeVideoEncoder 换档', () => {
       fps: SCREEN_PROFILE.fps,
       kbps: SCREEN_PROFILE.bitrateKbps,
     });
-    expect(profile).toMatchObject({ width: 1280, height: 720, bitrateKbps: 1200 });
+    expect(profile).toMatchObject({ width: 960, height: 540, bitrateKbps: 1200 });
     expect(encoder.currentSource).toBe('screen');
   });
 
@@ -92,7 +92,7 @@ describe('NativeVideoEncoder 换档', () => {
     await encoder.setSource('screen');
     await encoder.setSource('camera');
     expect(opened).toHaveLength(3);
-    expect(opened[2]).toMatchObject({ width: 640, height: 360, kbps: 300 });
+    expect(opened[2]).toMatchObject({ width: 480, height: 270, kbps: 300 });
     expect(encoder.currentSource).toBe('camera');
   });
 
@@ -109,10 +109,10 @@ describe('NativeVideoEncoder 换档', () => {
     const { nt } = fakeNative();
     const encoder = new NativeVideoEncoder(nt, MODULES);
     await encoder.open();
-    // 推一帧 640×360 合法的 I420。
-    const y = new Uint8Array(640 * 360);
-    const u = new Uint8Array(320 * 180);
-    const v = new Uint8Array(320 * 180);
+    // 推一帧当前摄像头档位合法的 I420。
+    const y = new Uint8Array(CAMERA_PROFILE.width * CAMERA_PROFILE.height);
+    const u = new Uint8Array((CAMERA_PROFILE.width / 2) * (CAMERA_PROFILE.height / 2));
+    const v = new Uint8Array((CAMERA_PROFILE.width / 2) * (CAMERA_PROFILE.height / 2));
     encoder.pushFrame({ y, u, v });
     expect(encoder.pending).toBe(1);
 
@@ -147,7 +147,7 @@ describe('NativeVideoEncoder 尺寸对齐', () => {
     const { nt, opened } = fakeNative();
     const encoder = new NativeVideoEncoder(nt, MODULES);
     await encoder.open();
-    await encoder.resize(640, 360);
+    await encoder.resize(CAMERA_PROFILE.width, CAMERA_PROFILE.height);
     expect(opened).toHaveLength(1);
   });
 
@@ -158,7 +158,10 @@ describe('NativeVideoEncoder 尺寸对齐', () => {
     await encoder.resize(0, 0);
     await encoder.resize(-10, 720);
     expect(opened).toHaveLength(1);
-    expect(encoder.info()).toMatchObject({ width: 640, height: 360 });
+    expect(encoder.info()).toMatchObject({
+      width: CAMERA_PROFILE.width,
+      height: CAMERA_PROFILE.height,
+    });
   });
 
   it('尺寸对不上的帧被丢弃，对得上的才进队列', async () => {
@@ -166,17 +169,21 @@ describe('NativeVideoEncoder 尺寸对齐', () => {
     const encoder = new NativeVideoEncoder(nt, MODULES);
     await encoder.open();
 
-    // 640×360 的一帧：合法。
+    // 当前档位的一帧：合法。
+    const cw = CAMERA_PROFILE.width;
+    const ch = CAMERA_PROFILE.height;
     encoder.pushFrame({
-      y: new Uint8Array(640 * 360),
-      u: new Uint8Array(320 * 180),
-      v: new Uint8Array(320 * 180),
+      y: new Uint8Array(cw * ch),
+      u: new Uint8Array((cw / 2) * (ch / 2)),
+      v: new Uint8Array((cw / 2) * (ch / 2)),
     });
-    // 720p 的一帧：与当前编码尺寸不符，丢。
+    // 共享档位的一帧：与当前编码尺寸不符，丢。
+    const sw = SCREEN_PROFILE.width;
+    const sh = SCREEN_PROFILE.height;
     encoder.pushFrame({
-      y: new Uint8Array(1280 * 720),
-      u: new Uint8Array(640 * 360),
-      v: new Uint8Array(640 * 360),
+      y: new Uint8Array(sw * sh),
+      u: new Uint8Array((sw / 2) * (sh / 2)),
+      v: new Uint8Array((sw / 2) * (sh / 2)),
     });
     expect(encoder.pending).toBe(1);
 

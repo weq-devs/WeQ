@@ -235,6 +235,13 @@ export interface StartCallParams {
   backgroundVideoUrl?: string;
   /** 录音设置（取设置页当前值；不传则按默认「双方混音、不录电脑声音」）。 */
   recordingConfig?: CallRecordingConfig;
+  /**
+   * 禁用 P2P 直连，媒体全程走服务端中继（排障开关，见设置项 `callDisableP2P`）。
+   *
+   * 必须在**发起时**定下：`CallSession` 的发送目标在会话生命周期内按媒体路径
+   * 变化，中途改会让已在途的包走两条路。
+   */
+  disableP2P?: boolean;
 }
 
 export type CallEvent =
@@ -348,6 +355,8 @@ export class CallManager extends EventEmitter {
       peerUin: params.peerUin,
       peerUid: params.peerUid,
       media: params.media ?? 'audio',
+      // 排障开关：强制走中继。发起时定一次，通话中不再变。
+      disableP2P: params.disableP2P === true,
       signaling: protocolSignaling(this.nt, params.pid),
       transport: {
         bind: async () => {

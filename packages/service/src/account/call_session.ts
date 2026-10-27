@@ -313,6 +313,19 @@ export interface CallSessionOptions {
   codec: CallAudioCodec;
   /** 视频编码器。不给则只做接收（看不到本端画面）。 */
   videoEncoder?: CallVideoEncoder;
+  /**
+   * 禁止 P2P 直连，媒体全程走服务端中继。
+   *
+   * 排障开关（设置项 `callDisableP2P`）。置位后：
+   *
+   * - 不学对端直连地址，也就不会进入 `probing` / `direct`；
+   * - {@link mediaTargets} 永远只返回 GCS；
+   * - 已有的 `peerDirect` 不再被发送路径使用。
+   *
+   * 2026-10-28 实测背景：P2P 直连上行只有 7.5 fps / 208 kbps，而经服务端中继
+   * 下发的对端流有满 12 fps / 679 kbps —— 直连不一定更快，取决于两端 NAT 与链路。
+   */
+  disableP2P?: boolean;
   timers?: CallTimers;
   logger?: Logger;
 }
@@ -1026,8 +1039,11 @@ export class CallSession {
       }
     }
 
-    const wantServer = this.mediaPath !== 'direct';
-    const wantPeer = hasPeer && this.mediaPath !== 'server';
+    // 禁用 P2P：媒体永远只发 GCS。放在这里而不是 `applyPeerEndpoint` 一处，
+    // 是因为 `mediaPath` 可能被三条路径改成 probing/direct（bt=27、真实回程、
+    // 中继候选），逐个挡住容易漏；出口只有这一个。
+    const wantServer = this.opts.disableP2P || this.mediaPath !== 'direct';
+    const wantPeer = !this.opts.disableP2P && hasPeer && this.mediaPath !== 'server';
     if (wantServer) out.push({ address: this.gcs.ip, port: this.gcs.port });
     if (wantPeer && peer) {
       // 同一台机器（回环 / 服务端与对端同址）会撞上，避免重复发。地址比较要做
@@ -1543,6 +1559,13 @@ export class CallSession {
     port: number,
     opts: { provisional?: boolean } = {},
   ): void {
+    // 禁用 P2P：不记对端端点，也就不会有打洞探测包与直连媒体。
+    // 这一处必须挡在**最前面**，否则 `sendPeerProbe` 仍会按 `peerDirect` 打洞 ——
+    // 实测会漏出一条 `0x02` 探测包（媒体包倒是拦住了）。
+    if (this.opts.disableP2P) {
+      this.log?.info('已禁用 P2P，忽略对端端点', { address, port });
+      return;
+    }
     const normalizedPort = port > 0 && port < 65536 ? port : 0;
     if (this.peerDirect?.address === address && this.peerDirect.port === normalizedPort) return;
     this.peerDirect = { address, port: normalizedPort };

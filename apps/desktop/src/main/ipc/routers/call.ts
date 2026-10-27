@@ -89,6 +89,8 @@ export const callRouter = router({
         backgroundUrl: background?.imageUrl,
         backgroundVideoUrl: background?.videoUrl,
         recordingConfig: ctx.bootstrap?.userConfig.getSettings().callRecording,
+        // 排障开关：禁止 P2P、强制走中继（设置 → 通话与录音 → 禁用 P2P 直连）。
+        disableP2P: ctx.bootstrap?.userConfig.getSettings().callDisableP2P === true,
       });
       logger.info('发起通话', { peer: input.peerUin, room: call.roomId });
       return call;

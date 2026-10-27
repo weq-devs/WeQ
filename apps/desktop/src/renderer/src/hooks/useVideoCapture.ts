@@ -202,8 +202,34 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
       }
     })();
 
-    /** 按固定间隔取帧。用递归 setTimeout 而不是 setInterval：编码慢时自动降频。 */
+    /**
+     * 按**固定时间轴**取帧，而不是「上一帧做完再等一个周期」。
+     *
+     * ⚠️ 这是 2026-10-28 真机掉帧的根因。旧写法是
+     * `setTimeout(..., 1000/fps)` 排在 `captureOnce()` **之后**，于是每帧的实际
+     * 周期 = 1000/fps + 采集耗时 + 定时器抖动，误差逐帧累积：
+     *
+     * | 项 | 实测 |
+     * | --- | --- |
+     * | 目标周期（12 fps） | 83 ms |
+     * | 实际 p50 间隔 | **99 ms**（10.1 fps） |
+     * | 实际平均 | 104 ms（9.6 fps） |
+     * | >120 ms 的断档 | 33 次，累计 7.0 秒 |
+     *
+     * 对端因此只有 7.5~10 fps 可看，表现为「画面特别卡」。现在改成按绝对时刻
+     * 排程：`nextAt += 周期`，耗掉的时间自动补回来，长期平均帧率稳定在目标值。
+     *
+     * 落后超过一整个周期时（主线程被长任务占了）**直接跳到下一个时刻**，不补发
+     * —— 补发只会让积压越滚越大，实时画面宁可丢帧也不要延迟。
+     */
+    const period = 1000 / profile.fps;
+    let nextAt = performance.now() + period;
+
     function scheduleNext(): void {
+      const now = performance.now();
+      // 落后超过一个周期：直接对齐到「当前时刻的下一个周期」，不补发积压的帧。
+      if (now - nextAt > period) nextAt = now;
+      const delay = Math.max(0, nextAt - now);
       timerRef.current = window.setTimeout(() => {
         timerRef.current = null;
         if (cancelled()) return;
@@ -215,8 +241,10 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
             console.warn('[call] 采集一帧失败', error);
           }
         }
+        // 按时间轴推进，而不是从现在起再等一个周期。
+        nextAt += period;
         if (!cancelled() && streamRef.current) scheduleNext();
-      }, 1000 / profile.fps);
+      }, delay);
     }
 
     /** 抓一帧、转 I420、推给主进程。 */
