@@ -118,10 +118,6 @@
 }
 
 .weq-session-switcher-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 3;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -133,6 +129,11 @@
   background: var(--weq-bg-surface);
   box-shadow: var(--weq-shadow-card);
 }
+.weq-overlay-layer.is-popover[tabindex] > .weq-session-switcher-menu {
+  width: 250px;
+  max-width: calc(100vw - 16px);
+  max-height: min(320px, calc(100dvh - 16px));
+}
 .weq-session-switcher-new {
   display: flex;
   align-items: center;
@@ -142,7 +143,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--weq-accent-effective);
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
   font-size: 12.5px;
   text-align: left;
   cursor: pointer;
@@ -188,7 +189,7 @@
   place-items: center;
   flex: none;
   width: 14px;
-  color: var(--weq-accent-effective);
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
 }
 .weq-session-switcher-text {
   display: flex;

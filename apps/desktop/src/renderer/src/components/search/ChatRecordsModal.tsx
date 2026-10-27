@@ -18,6 +18,8 @@ import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../../im-template/template/types';
 import '../../styles/chat-records.css';
+import { conversationExportSelection } from '../../lib/conversationActions';
+import { useRequestContentExport } from '../../state/contentSelection';
 
 const noop = (): void => {};
 
@@ -28,7 +30,15 @@ export function ChatRecordsModal({
   onClose,
   onJumpMessage,
   renderers,
+  localSource,
 }: {
+  /** 非 QQ 数据源复用同一搜索页面；不向原生记录接口提交本地身份。 */
+  localSource?: {
+    conversation: Conversation;
+    messages: Message[];
+    user: User;
+    onJump: (messageId: string) => void;
+  };
   initialHit: ChatRecordSearchHit;
   initialKeyword: string;
   /**
@@ -43,6 +53,7 @@ export function ChatRecordsModal({
   renderers?: MessageRenderer[];
 }): ReactElement {
   const dialog = useAppDialog();
+  const requestExport = useRequestContentExport();
   const [keyword, setKeyword] = useState(initialKeyword);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [rangeCalendarOpen, setRangeCalendarOpen] = useState(false);
@@ -61,6 +72,7 @@ export function ChatRecordsModal({
   const [msgError, setMsgError] = useState('');
   const [browseHasMore, setBrowseHasMore] = useState(false);
   const browseCursor = useRef<{ time: number; rowId: string } | null>(null);
+  const localMatches = useRef<ConversationRecordHit[]>([]);
   const filter = useMemo(
     () => ({
       sender: sender.trim() || undefined,
@@ -73,6 +85,10 @@ export function ChatRecordsModal({
   );
   useEffect(() => {
     let active = true;
+    if (localSource) {
+      setOwnUin(localSource.user.identityValue);
+      return () => {};
+    }
     if (fixed)
       void client.account.getSelfProfile
         .query()
@@ -83,7 +99,7 @@ export function ChatRecordsModal({
     return () => {
       active = false;
     };
-  }, [fixed]);
+  }, [fixed, localSource]);
   const [conversations, setConversations] = useState<ChatRecordSearchHit[]>([]);
   const [convLoading, setConvLoading] = useState(false);
   // fixed 模式下不请求会话排名，selected 恒为当前会话的 hit。
@@ -97,10 +113,14 @@ export function ChatRecordsModal({
   const msgScrollRef = useRef<HTMLDivElement | null>(null);
 
   // A minimal conversation view for the selected hit — enough for MessageBubble.
-  const conversation = useMemo(() => (selected ? conversationFromHit(selected) : null), [selected]);
+  const conversation = useMemo(
+    () => localSource?.conversation ?? (selected ? conversationFromHit(selected) : null),
+    [selected, localSource],
+  );
 
   // Fetch the conversation ranking for the current keyword.
   useEffect(() => {
+    if (localSource) return;
     const trimmed = keyword.trim();
     if (!trimmed || fixed) return undefined;
     const run = ++convRunRef.current;
@@ -133,10 +153,47 @@ export function ChatRecordsModal({
         });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [keyword, fixed]);
+  }, [keyword, fixed, localSource]);
 
   // Fetch messages for the selected conversation.
   useEffect(() => {
+    if (localSource) {
+      const keyword = (filter.keyword ?? '').toLocaleLowerCase();
+      const rows = localSource.messages
+        .filter((message) => {
+          const time = new Date(message.createdAt).getTime() / 1000;
+          const sender = message.sender;
+          return (
+            !message.generatedPending &&
+            (!keyword || message.body.toLocaleLowerCase().includes(keyword)) &&
+            (!filter.sender ||
+              [message.senderId, sender?.identityValue, sender?.displayName].includes(
+                filter.sender,
+              )) &&
+            (filter.start == null || time >= filter.start) &&
+            (filter.end == null || time <= filter.end)
+          );
+        })
+        .map(
+          (message): ConversationRecordHit => ({
+            msgId: message.id,
+            msgSeq: '',
+            senderUid: message.senderId,
+            senderUin: message.sender?.identityValue ?? '',
+            senderName: message.sender?.displayName ?? '',
+            sendTime: String(new Date(message.createdAt).getTime() / 1000),
+            content: message.body,
+            elements: [{ type: 'text', data: { textContent: message.body } }],
+          }),
+        );
+      localMatches.current = rows;
+      setMessages(rows.slice(0, 30));
+      setMsgTotal(Math.min(rows.length, 30));
+      setMsgLoading(false);
+      setBrowseHasMore(rows.length > 30);
+      setMsgError('');
+      return;
+    }
     const trimmed = keyword.trim();
     if ((!trimmed && !fixed) || !selected) {
       setMessages([]);
@@ -194,9 +251,16 @@ export function ChatRecordsModal({
     return () => {
       if (run === msgRunRef.current) msgRunRef.current++;
     };
-  }, [selected, keyword, fixed, filter]);
+  }, [selected, keyword, fixed, filter, localSource]);
 
   const loadMoreMessages = useCallback(() => {
+    if (localSource) {
+      const next = localMatches.current.slice(0, messages.length + 30);
+      setMessages(next);
+      setMsgTotal(next.length);
+      setBrowseHasMore(next.length < localMatches.current.length);
+      return;
+    }
     const trimmed = keyword.trim();
     if ((!trimmed && !fixed) || !selected || msgLoadingMore || msgLoading) return;
     const run = msgRunRef.current;
@@ -235,7 +299,7 @@ export function ChatRecordsModal({
         if (run === msgRunRef.current) setMsgError(String(err));
       })
       .finally(() => setMsgLoadingMore(false));
-  }, [keyword, selected, messages.length, msgLoadingMore, msgLoading, fixed, filter]);
+  }, [keyword, selected, messages.length, msgLoadingMore, msgLoading, fixed, filter, localSource]);
 
   // Infinite scroll for the message list.
   const onMsgScroll = useCallback(() => {
@@ -262,6 +326,11 @@ export function ChatRecordsModal({
 
   const jumpTo = useCallback(
     (msg: ConversationRecordHit) => {
+      if (localSource) {
+        localSource.onJump(msg.msgId);
+        onClose();
+        return;
+      }
       if (!selected) return;
       if (!/^\d+$/.test(msg.msgSeq) || BigInt(msg.msgSeq) <= 0n) {
         setMsgError('该消息没有可定位的原生序号。');
@@ -271,7 +340,7 @@ export function ChatRecordsModal({
       onJumpMessage({ source: selected.source, targetUid: selected.targetUid, msgSeq: msg.msgSeq });
       onClose();
     },
-    [onJumpMessage, onClose, selected],
+    [onJumpMessage, onClose, selected, localSource],
   );
 
   const isGroup = selected?.source === 'group';
@@ -337,7 +406,7 @@ export function ChatRecordsModal({
           <button
             type="button"
             title="按日期定位"
-            disabled={!selected}
+            disabled={Boolean(localSource) || !selected}
             onClick={() => setCalendarOpen(true)}
           >
             <CalendarDays size={15} />
@@ -416,6 +485,7 @@ export function ChatRecordsModal({
             </label>
             <select
               aria-label="消息类型"
+              disabled={Boolean(localSource)}
               value={category}
               onChange={(e) => setCategory(e.target.value as typeof category)}
             >
@@ -437,6 +507,7 @@ export function ChatRecordsModal({
             </select>
             <select
               aria-label="导出格式"
+              disabled={Boolean(localSource)}
               value={exportFormat}
               onChange={(e) => setExportFormat(e.target.value as typeof exportFormat)}
             >
@@ -448,7 +519,7 @@ export function ChatRecordsModal({
               <input
                 type="checkbox"
                 checked={includeMedia || exportFormat === 'html'}
-                disabled={exportFormat === 'html'}
+                disabled={Boolean(localSource) || exportFormat === 'html'}
                 onChange={(e) => setIncludeMedia(e.target.checked)}
               />
               附件
@@ -457,8 +528,27 @@ export function ChatRecordsModal({
               className="weq-dialog-x"
               aria-label="导出筛选结果"
               title="导出筛选结果"
-              disabled={exportBusy || msgLoading || !!msgError || !selected}
+              disabled={
+                exportBusy ||
+                msgLoading ||
+                !!msgError ||
+                !selected ||
+                Boolean(localSource && (!requestExport || !messages.length))
+              }
               onClick={() => {
+                if (localSource) {
+                  const scope = conversationExportSelection(localSource.conversation);
+                  if (requestExport && scope && messages.length)
+                    requestExport({
+                      ...scope,
+                      scope: {
+                        type: 'items',
+                        ids: localMatches.current.map((message) => message.msgId),
+                      },
+                    });
+                  if (requestExport && scope && messages.length) onClose();
+                  return;
+                }
                 if (!selected) return;
                 setExportBusy(true);
                 setMsgError('');
@@ -559,8 +649,10 @@ export function ChatRecordsModal({
                       {messages.map((msg) => {
                         // 能取到原消息 40800 正文的，渲染真实气泡；找不到的回退纯文本行。
                         if (msg.elements?.length && conversation) {
-                          const sender = senderUserFromHit(msg);
-                          const message = messageFromHit(msg, conversation);
+                          const message =
+                            localSource?.messages.find((message) => message.id === msg.msgId) ??
+                            messageFromHit(msg, conversation);
+                          const sender = message.sender ?? senderUserFromHit(msg);
                           return (
                             <div
                               key={msg.msgId}

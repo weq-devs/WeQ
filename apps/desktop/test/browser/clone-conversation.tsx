@@ -1,8 +1,13 @@
 import { createRoot } from 'react-dom/client';
+import { useState } from 'react';
 import { CloneChatPanel } from '../../src/renderer/src/views/agentlab/CloneChatPanel';
 import { GroupChatPanel } from '../../src/renderer/src/views/agentlab/GroupChatPanel';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import { contrastRatio } from '../../src/shared/theme_colors';
+import { PersonaSettingsModal } from '../../src/renderer/src/views/agentlab/PersonaSettingsModal';
+import { CloneGenerationPanel } from '../../src/renderer/src/components/settings/CloneGenerationPanel';
+import { OverlayAnchorProvider } from '../../src/renderer/src/lib/overlayAnchor';
+import { cloneRequests } from './clone-conversation.stub';
 import {
   useThemeStore,
   type ThemePreference,
@@ -15,9 +20,11 @@ declare global {
   interface Window {
     cloneTheme: (theme: ThemePreference, accent: string, background: ThemeBackground) => void;
     cloneContrast: typeof contrastRatio;
+    cloneRequests: () => typeof cloneRequests;
   }
 }
 window.cloneContrast = contrastRatio;
+window.cloneRequests = () => cloneRequests;
 window.cloneTheme = (theme, accent, background) => {
   const store = useThemeStore.getState();
   store.setPreference(theme);
@@ -39,29 +46,46 @@ const persona = {
   sourceId: 'u_fixture',
   sourceUin: '20001',
   sourceTitle: '合成样本',
+  models: { chat: { providerId: 'fixture', model: 'fixture-model' } },
 };
 const group = new URLSearchParams(location.search).has('group');
+function Fixture() {
+  const [settings, setSettings] = useState(false);
+  return (
+    <ContentSelectionProvider>
+      <style>{`html,body,#root{height:100%;margin:0}#root{display:flex;min-width:0}`}</style>
+      {group ? (
+        <GroupChatPanel
+          {...shared}
+          groupId="g"
+          personaList={[persona]}
+          profileByUid={new Map()}
+          faceDescToId={new Map()}
+          onDeleted={noop}
+        />
+      ) : (
+        <CloneChatPanel
+          {...shared}
+          personaId="p"
+          persona={persona}
+          clonedUin="20001"
+          modelLabel="合成模型"
+          onOpenSettings={() => setSettings(true)}
+        />
+      )}
+      {settings ? (
+        <PersonaSettingsModal
+          persona={persona}
+          paramsContent={<CloneGenerationPanel persona={persona} onSaved={noop} />}
+          onClose={() => setSettings(false)}
+          onSaved={noop}
+        />
+      ) : null}
+    </ContentSelectionProvider>
+  );
+}
 createRoot(document.getElementById('root')!).render(
-  <ContentSelectionProvider>
-    <style>{`html,body,#root{height:100%;margin:0}#root{display:flex;min-width:0}.weq-clone-conversation{height:100dvh}`}</style>
-    {group ? (
-      <GroupChatPanel
-        {...shared}
-        groupId="g"
-        personaList={[persona]}
-        profileByUid={new Map()}
-        faceDescToId={new Map()}
-        onDeleted={noop}
-      />
-    ) : (
-      <CloneChatPanel
-        {...shared}
-        personaId="p"
-        persona={persona}
-        clonedUin="20001"
-        modelLabel="合成模型"
-        onOpenSettings={noop}
-      />
-    )}
-  </ContentSelectionProvider>,
+  <OverlayAnchorProvider>
+    <Fixture />
+  </OverlayAnchorProvider>,
 );

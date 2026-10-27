@@ -67,7 +67,10 @@ export function MessageContextMenu({
   onRemoveReaction,
   removeReactionBlockedReason,
   extraActions,
+  unavailableReason,
 }: {
+  /** 数据源没有实现的能力保留按钮并置灰，不提供虚假的处理回调。 */
+  unavailableReason?: string;
   state: MessageContextMenuState;
   onClose?: () => void;
   onCopy: (message: Message) => void | Promise<void>;
@@ -187,63 +190,70 @@ export function MessageContextMenu({
           <span>{exportLabel}</span>
         </button>
       ) : null}
-      {onAddToComposition ? (
+      {onAddToComposition || unavailableReason ? (
         <button
           type="button"
-          title="添加到素材库"
-          onClick={() => onAddToComposition(state.message)}
+          title={!onAddToComposition ? unavailableReason : '添加到素材库'}
+          disabled={!onAddToComposition}
+          onClick={() => onAddToComposition?.(state.message)}
         >
           <ListPlus size={17} />
           <span>添加到素材库</span>
         </button>
       ) : null}
-      {onForward ? (
-        <button type="button" title="转发" onClick={() => onForward(state.message)}>
+      {onForward || unavailableReason ? (
+        <button
+          type="button"
+          title={!onForward ? unavailableReason : '转发'}
+          disabled={!onForward}
+          onClick={() => onForward?.(state.message)}
+        >
           <Forward size={17} />
           <span>转发</span>
         </button>
       ) : null}
-      {onRepeat && canRepeatMessage(state.message) ? (
+      {(onRepeat || unavailableReason) && canRepeatMessage(state.message) ? (
         <button
           type="button"
-          title={repeatBlockedReason || '发送一条相同的消息'}
-          disabled={Boolean(repeatBlockedReason)}
-          onClick={() => onRepeat(state.message)}
+          title={!onRepeat ? unavailableReason : repeatBlockedReason || '发送一条相同的消息'}
+          disabled={!onRepeat || Boolean(repeatBlockedReason)}
+          onClick={() => onRepeat?.(state.message)}
         >
           <Repeat2 size={17} />
           <span>+1</span>
         </button>
       ) : null}
-      {onReply ? (
+      {onReply || unavailableReason ? (
         <button
           type="button"
-          title={replyBlockedReason ?? '引用这条消息'}
-          disabled={Boolean(replyBlockedReason)}
-          onClick={() => onReply(state.message)}
+          title={!onReply ? unavailableReason : (replyBlockedReason ?? '引用这条消息')}
+          disabled={!onReply || Boolean(replyBlockedReason)}
+          onClick={() => onReply?.(state.message)}
         >
           <Quote size={17} />
           <span>引用</span>
         </button>
       ) : null}
-      {onReact ? (
+      {onReact || unavailableReason ? (
         <button
           type="button"
-          title={reactBlockedReason ?? '给这条消息贴一个表情'}
-          disabled={Boolean(reactBlockedReason)}
-          onClick={() => onReact(state.message)}
+          title={!onReact ? unavailableReason : (reactBlockedReason ?? '给这条消息贴一个表情')}
+          disabled={!onReact || Boolean(reactBlockedReason)}
+          onClick={() => onReact?.(state.message)}
         >
           <SmilePlus size={17} />
           <span>贴表情</span>
         </button>
       ) : null}
-      {onRecall ? (
+      {onRecall || unavailableReason ? (
         <button
           type="button"
           title={
-            recallBlockedReason ?? (recallCount ? `撤回所选 ${recallCount} 条消息` : '撤回这条消息')
+            (!onRecall ? unavailableReason : recallBlockedReason) ??
+            (recallCount ? `撤回所选 ${recallCount} 条消息` : '撤回这条消息')
           }
-          disabled={Boolean(recallBlockedReason)}
-          onClick={() => onRecall(state.message)}
+          disabled={!onRecall || Boolean(recallBlockedReason)}
+          onClick={() => onRecall?.(state.message)}
         >
           <RotateCcw size={17} />
           <span>{recallCount ? `撤回所选 ${recallCount} 条消息` : '撤回'}</span>
@@ -270,8 +280,13 @@ export function MessageContextMenu({
         <Copy size={17} />
         <span>复制</span>
       </button>
-      {onEditRaw ? (
-        <button type="button" onClick={() => onEditRaw(state.message)}>
+      {onEditRaw || unavailableReason ? (
+        <button
+          type="button"
+          title={!onEditRaw ? unavailableReason : '修改本地记录'}
+          disabled={!onEditRaw}
+          onClick={() => onEditRaw?.(state.message)}
+        >
           <Edit3 size={17} />
           <span>修改本地记录</span>
         </button>
@@ -292,8 +307,14 @@ export function MessageContextMenu({
           <span>{IS_WEB ? '保存到服务器' : '下载'}</span>
         </button>
       ) : null}
-      {onDelete ? (
-        <button type="button" aria-label={deleteLabel} onClick={() => onDelete(state.message)}>
+      {onDelete || unavailableReason ? (
+        <button
+          type="button"
+          aria-label={deleteLabel}
+          title={!onDelete ? unavailableReason : deleteLabel}
+          disabled={!onDelete}
+          onClick={() => onDelete?.(state.message)}
+        >
           <Trash2 size={17} />
           <span>{deleteLabel}</span>
         </button>

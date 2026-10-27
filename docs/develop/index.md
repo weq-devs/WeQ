@@ -31,6 +31,7 @@ pnpm dev
 - [目录选择与本地备份导入](./directory-picker-backup-20261024.md)：分层/递归扫描、独立位置记忆、三端账号目录、备份媒体与其他设备密钥复用。
 - [联系人精确导出](./contacts-exact-export-20261018.md)：好友/群多选交接、精确 UID、完整目录与任务快照。
 - [生成内容精确导出](./generated-content-export-20261018.md)：克隆与助手的持久身份、独立快照、原始结构及账号边界。
+- [克隆会话复用普通页面](./clone-shared-chat-pane-20261028.md)：共用 ChatPane、数据身份与能力适配、原位设置和浮层层级。
 - [空间精确导出](./qzone-exact-export-20261018.md)：离散 tid、正文/互动/媒体范围、统一入口及历史隔离。
 - [全局搜索新增来源](./content-search-sources-20261018.md)：来源覆盖、账号缓存、频道全库与稳定条目跳转。
 - [全局搜索优化](./global-search-optimization-20261018.md)：当前可见分类、会话来源范围、分类并行返回、匹配度排序与尚未实施的性能优化方向。

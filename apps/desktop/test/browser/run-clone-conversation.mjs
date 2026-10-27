@@ -88,10 +88,11 @@ try {
             transcript.bottom <= composer.top + 1 &&
             composer.bottom <= innerHeight + 1,
           sendVisible:
-            button.width > 0 &&
-            button.height > 0 &&
-            button.right <= innerWidth &&
-            button.bottom <= innerHeight,
+            innerWidth <= 760 ||
+            (button.width > 0 &&
+              button.height > 0 &&
+              button.right <= innerWidth &&
+              button.bottom <= innerHeight),
           editorVisible: editor.width > 100 && editor.height >= 40,
           toolsFit: [...document.querySelectorAll('.chat-header button')].every((node) => {
             const rect = node.getBoundingClientRect();
@@ -108,23 +109,77 @@ try {
         throw new Error(JSON.stringify({ kind, theme, width, checks }));
       await page.getByRole('button', { name: '切换会话', exact: true }).click();
       await page.getByRole('menu', { name: '会话列表' }).waitFor();
+      const sessionLayer = await page.getByRole('menu', { name: '会话列表' }).evaluate((menu) => {
+        const layer = menu.closest('.weq-overlay-layer');
+        const rect = menu.querySelector('button').getBoundingClientRect();
+        const cover = document.createElement('div');
+        cover.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;z-index:1000`;
+        document.body.append(cover);
+        const top = document.elementFromPoint(
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2,
+        );
+        const result = layer?.parentElement === document.body && menu.contains(top);
+        cover.remove();
+        return result;
+      });
+      if (!sessionLayer) throw new Error('会话选择仍被消息层遮挡');
+      if (output)
+        await page.screenshot({
+          path: resolve(output, `${kind}-${theme}-${width}-session-menu.png`),
+        });
       await page.keyboard.press('Escape');
       await page.getByRole('button', { name: '消息管理', exact: true }).click();
       await page.getByRole('menu', { name: '消息管理' }).waitFor();
       await page.keyboard.press('Escape');
       await page.getByRole('button', { name: '搜索聊天记录', exact: true }).click();
-      await page.getByRole('textbox', { name: '搜索当前会话', exact: true }).fill('合成消息');
-      await page.locator('.weq-clone-record-results > button').click();
-      await page.locator('[data-generated-message-id="m1"].is-search-hit').waitFor();
-      await page.getByRole('button', { name: '表情', exact: true }).click();
+      await page.locator('.weq-search-more-input').fill('合成消息');
+      await page.locator('.weq-chatrecords-msg').first().click();
+      await page.locator('.is-search-hit [data-generated-message-id="m1"]').waitFor();
+      await page
+        .locator('.composer-tools')
+        .getByRole('button', { name: '表情', exact: true })
+        .click();
       await page.locator('.emoji-panel [title="微笑"]').click();
-      if (!(await page.locator('.composer-editor').inputValue()).includes('/微笑'))
+      if (!(await page.locator('.composer-editor .composer-inline-emoji').count()))
         throw new Error('表情插入失败');
+      if (await page.locator('.emoji-panel').isVisible())
+        await page
+          .locator('.composer-tools')
+          .getByRole('button', { name: '表情', exact: true })
+          .click();
       await page.locator('.composer-editor').fill('');
+      await page
+        .getByRole('button', {
+          name: kind === 'group' ? '克隆群聊设置' : '克隆体设置',
+          exact: true,
+        })
+        .click();
+      await page.locator('.weq-conversation-settings-pane .weq-cvs-nav').waitFor();
+      await page
+        .locator('.weq-cvs-nav-item')
+        .filter({ hasText: kind === 'group' ? '群聊管理' : '额外提示' })
+        .click();
+      const settingsFit = await page
+        .locator('.weq-window-surface.weq-conversation-settings-pane')
+        .evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return (
+            rect.left >= 0 &&
+            rect.right <= innerWidth &&
+            rect.top >= 0 &&
+            rect.bottom <= innerHeight &&
+            node.scrollWidth <= node.clientWidth
+          );
+        });
+      if (!settingsFit) throw new Error('共用设置窗格溢出');
+      if (output)
+        await page.screenshot({ path: resolve(output, `${kind}-${theme}-${width}-settings.png`) });
+      await page.locator('.weq-cvs-close').click();
       if (kind === 'group') {
-        await page.getByRole('button', { name: '提及成员', exact: true }).click();
-        await page.locator('.weq-mention-opt').click();
-        if (!(await page.locator('.composer-editor').inputValue()).includes('@合成好友'))
+        await page.locator('.composer-editor').fill('@');
+        await page.locator('.mention-menu [role="option"]').filter({ hasText: '合成好友' }).click();
+        if (!(await page.locator('.composer-editor').textContent()).includes('@合成好友'))
           throw new Error('提及插入失败');
         await page.locator('.composer-editor').fill('');
       }
@@ -134,12 +189,21 @@ try {
       await page
         .locator('[data-generated-message-id="m1"] .message-bubble')
         .click({ button: 'right' });
-      await page.getByRole('menuitem', { name: '多选', exact: true }).click();
+      await page.locator('.message-context-menu [title="多选"]').click();
       await page.locator('.composer.selection-mode .selection-bar').waitFor();
       if (await page.locator('.composer-editor').isVisible())
         throw new Error('多选时输入区没有让位');
       await page.locator('[data-generated-message-id="m2"]').click();
       await page.getByLabel('已选 2 条消息', { exact: true }).waitFor();
+      for (const label of ['分析所选消息', '添加到素材库', '转发', '撤回所选消息', '删除']) {
+        const action = page
+          .locator('.selection-bar')
+          .getByRole('button', { name: label, exact: true });
+        if (!(await action.isVisible()) || !(await action.isDisabled()))
+          throw new Error(`未适配的多选动作没有显示并置灰：${label}`);
+        if ((await action.getAttribute('title')) !== '克隆会话暂不支持此功能')
+          throw new Error(`多选动作缺少不可用说明：${label}`);
+      }
       const selectionFit = await page.locator('.selection-bar').evaluate((node) => {
         const rect = node.getBoundingClientRect();
         const pixel = (color) => {
@@ -169,12 +233,29 @@ try {
         await page.screenshot({ path: resolve(output, `${kind}-${theme}-${width}-selection.png`) });
       await page.getByRole('button', { name: '退出多选', exact: true }).click();
       await page.locator('.composer-editor').waitFor({ state: 'visible' });
-      if ((await page.locator('.composer-editor').inputValue()) !== '未发送草稿')
+      if ((await page.locator('.composer-editor').textContent()) !== '未发送草稿')
         throw new Error('退出多选后草稿丢失');
       await page.locator('.composer-editor').fill('');
       if (output) await page.screenshot({ path: resolve(output, `${kind}-${theme}-${width}.png`) });
       results.push({ kind, theme, width, checks });
     }
+    await page.locator('.composer-editor').fill('共用页面发送');
+    await page.locator('.composer-editor').press('Enter');
+    await page
+      .locator('.message-line.theirs[data-generated-message-id]')
+      .filter({ hasText: '合成回复' })
+      .last()
+      .waitFor();
+    const sent = await page.evaluate(() => window.cloneRequests());
+    const expected = kind === 'group' ? 'sendAgentLabGroupMessage' : 'chatWithAgentLabPersona';
+    if (!sent.some((call) => call.name === expected && call.input.text === '共用页面发送'))
+      throw new Error('发送未适配到克隆后端');
+    if (
+      sent.some(
+        (call) => !['sendAgentLabGroupMessage', 'chatWithAgentLabPersona'].includes(call.name),
+      )
+    )
+      throw new Error('克隆页面误调用未适配的写接口');
   }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(JSON.stringify({ results, errors }, null, 2));

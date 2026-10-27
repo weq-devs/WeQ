@@ -27,6 +27,12 @@
 .weq-conversation-settings-pane .weq-cvs-nav-item {
   padding: 6px 8px;
 }
+.weq-conversation-settings-pane .weq-cvs-nav-item.is-on {
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
+}
+.weq-conversation-settings-pane .weq-cvs-body-icon {
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
+}
 .weq-conversation-settings-pane .weq-cvs-body-head {
   padding: 12px 40px 10px 16px;
 }

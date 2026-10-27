@@ -393,6 +393,9 @@ export function MessageBubble({
         selected && 'is-selected',
       )}
       data-message-id={message.id}
+      data-generated-message-id={
+        conversation.generated && !message.generatedPending ? message.id : undefined
+      }
       data-weq-select-id={selectionMode ? message.id : undefined}
       tabIndex={selectionMode ? 0 : undefined}
       onClickCapture={

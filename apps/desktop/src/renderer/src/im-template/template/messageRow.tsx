@@ -38,6 +38,7 @@ import { QqDynamic, qqDynamicElementProps } from '../../components/QqDynamic';
 import { MessageProvenance } from '../../components/MessageProvenance';
 import type { ReactionInteraction } from '../../components/SetEmojiReactions';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
+import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
 
 /**
  * 画成**居中灰条**（不套气泡、不显示头像昵称）的元素 kind。
@@ -308,6 +309,7 @@ export const MessageRow = memo(function MessageRow({
       senderAvatarUrl={(sender ?? user).avatarUrl}
       senderSeed={(sender ?? user).identityValue}
       senderKind={(sender ?? user).kind}
+      avatarBadge={(sender ?? user).clone ? <VirtualConversationBadge /> : undefined}
       showSenderName={showSenderName}
       active={active}
       renderers={renderers}

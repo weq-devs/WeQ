@@ -19,7 +19,6 @@ import {
   Download,
   FileText,
   Mic,
-  Settings,
   Save,
   Trash2,
   Brain,
@@ -40,7 +39,7 @@ import {
   Info,
   Image as ImageIcon,
 } from 'lucide-react';
-import { Modal } from '../../components/Dialog';
+import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 
@@ -786,92 +785,92 @@ export function PersonaSettingsModal({
   }
 
   return (
-    <Modal onClose={guard.requestClose} width={640}>
-      <DraftCloseContext.Provider value={guard.drafts}>
-        <div className="weq-persona-modal">
-          <header className="weq-persona-modal-head">
-            <Settings size={16} />
-            <strong>{persona.name} · 设置</strong>
-          </header>
-          <div className="weq-persona-management">
-            {persona.sourceKind === 'c2c' ? (
-              <CloneUpdateButton key={persona.id} persona={persona} />
-            ) : null}
-            {onDelete ? (
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                disabled={deleting}
-                onClick={onDelete}
-              >
-                <Trash2 size={14} aria-hidden="true" />
-                删除克隆体
-              </button>
-            ) : null}
-          </div>
-          <div className="weq-persona-modal-body">
-            <nav className="weq-persona-tabs">
-              {TABS.map((t) => (
+    <DraftCloseContext.Provider value={guard.drafts}>
+      <ConversationSettingsFrame<Tab>
+        title="克隆体设置"
+        subtitle={persona.name}
+        value={tab}
+        onClose={guard.requestClose}
+        sections={TABS.map((item) => ({
+          ...item,
+          label: item.id === 'params' && paramsTitle ? paramsTitle : item.label,
+        }))}
+        onValueChange={(id) => {
+          setVisited((current) => (current.includes(id) ? current : [...current, id]));
+          setTab(id);
+        }}
+      >
+        <div className="weq-cvs-body-head">
+          <span className="weq-cvs-body-icon">{TABS.find((item) => item.id === tab)?.icon}</span>
+          <strong>
+            {tab === 'params' && paramsTitle
+              ? paramsTitle
+              : TABS.find((item) => item.id === tab)?.label}
+          </strong>
+        </div>
+        <div className="weq-cvs-body-scroll">
+          {persona.sourceKind === 'c2c' || onDelete ? (
+            <div className="weq-persona-management">
+              {persona.sourceKind === 'c2c' ? (
+                <CloneUpdateButton key={persona.id} persona={persona} />
+              ) : null}
+              {onDelete ? (
                 <button
-                  key={t.id}
-                  className={`weq-persona-tab${tab === t.id ? ' is-active' : ''}`}
-                  onClick={() => {
-                    setVisited((current) =>
-                      current.includes(t.id) ? current : [...current, t.id],
-                    );
-                    setTab(t.id);
-                  }}
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft"
+                  disabled={deleting}
+                  onClick={onDelete}
                 >
-                  {t.icon}
-                  {t.id === 'params' && paramsTitle ? paramsTitle : t.label}
+                  <Trash2 size={14} aria-hidden="true" />
+                  删除克隆体
                 </button>
-              ))}
-            </nav>
-            <div className="weq-persona-tabpane">
-              {visited.map((page) => (
-                <TabActivity key={page} active={tab === page}>
-                  <div hidden={tab !== page} inert={tab !== page}>
-                    {page === 'params' ? (
-                      paramsContent
-                    ) : page === 'prompt' ? (
-                      <div className="weq-persona-form">
-                        <label className="weq-agentlab-field">
-                          <span>额外提示（拼进 system prompt，优先遵守）</span>
-                          <textarea
-                            value={prompt}
-                            onChange={(e) => setPrompt(e.target.value)}
-                            rows={6}
-                            placeholder="例如：这个克隆体说话更毒舌一点；少用句号"
-                          />
-                        </label>
-                        <div className="weq-clone-actions">
-                          <button
-                            className="weq-set-btn"
-                            disabled={update.isLoading}
-                            onClick={() => void savePrompt()}
-                          >
-                            <Save size={14} aria-hidden="true" />
-                            保存
-                          </button>
-                        </div>
-                      </div>
-                    ) : page === 'willing' ? (
-                      <WillingTab persona={persona} onSaved={onSaved} />
-                    ) : page === 'voice' ? (
-                      <VoiceTab persona={persona} onSaved={onSaved} />
-                    ) : page === 'memory' ? (
-                      <MemoryTab personaId={persona.id} />
-                    ) : (
-                      <ExportTab persona={persona} />
-                    )}
-                  </div>
-                </TabActivity>
-              ))}
+              ) : null}
             </div>
+          ) : null}
+          <div className="weq-persona-tabpane">
+            {visited.map((page) => (
+              <TabActivity key={page} active={tab === page}>
+                <div hidden={tab !== page} inert={tab !== page}>
+                  {page === 'params' ? (
+                    paramsContent
+                  ) : page === 'prompt' ? (
+                    <div className="weq-persona-form">
+                      <label className="weq-agentlab-field">
+                        <span>额外提示（拼进 system prompt，优先遵守）</span>
+                        <textarea
+                          value={prompt}
+                          onChange={(e) => setPrompt(e.target.value)}
+                          rows={6}
+                          placeholder="例如：这个克隆体说话更毒舌一点；少用句号"
+                        />
+                      </label>
+                      <div className="weq-clone-actions">
+                        <button
+                          className="weq-set-btn"
+                          disabled={update.isLoading}
+                          onClick={() => void savePrompt()}
+                        >
+                          <Save size={14} aria-hidden="true" />
+                          保存
+                        </button>
+                      </div>
+                    </div>
+                  ) : page === 'willing' ? (
+                    <WillingTab persona={persona} onSaved={onSaved} />
+                  ) : page === 'voice' ? (
+                    <VoiceTab persona={persona} onSaved={onSaved} />
+                  ) : page === 'memory' ? (
+                    <MemoryTab personaId={persona.id} />
+                  ) : (
+                    <ExportTab persona={persona} />
+                  )}
+                </div>
+              </TabActivity>
+            ))}
           </div>
         </div>
-      </DraftCloseContext.Provider>
-    </Modal>
+      </ConversationSettingsFrame>
+    </DraftCloseContext.Provider>
   );
 }
 import { SegmentedControl } from '../../components/SegmentedControl';

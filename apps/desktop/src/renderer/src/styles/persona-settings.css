@@ -7,6 +7,15 @@
   padding: 12px 18px;
   border-bottom: 1px solid var(--weq-border-subtle);
 }
+.weq-conversation-settings-pane .weq-persona-management {
+  justify-content: flex-start;
+  padding: 0 0 10px;
+}
+.weq-conversation-settings-pane .weq-persona-tabpane {
+  padding: 0;
+  max-height: none;
+  overflow: visible;
+}
 
 .weq-persona-modal .weq-persona-modal-head {
   flex-shrink: 0;

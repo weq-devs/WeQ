@@ -114,14 +114,18 @@ it('实际克隆会话在样本数后显示画像时间，设置包含更新、�
     );
     expect(host.textContent).toContain('样本 123 条 · 更新于 10-27 09:02');
     const button = (label: string) =>
-      [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-        (item) => item.textContent === label,
-      )!;
+      [
+        ...host.querySelectorAll<HTMLButtonElement>('button'),
+        ...document.querySelectorAll<HTMLButtonElement>('button'),
+      ].find((item) => item.textContent === label)!;
     expect(button('删除克隆体')).toBeUndefined();
     act(() => button('设置').click());
     expect(button('更新画像')).toBeDefined();
     expect(button('删除克隆体')).toBeDefined();
-    expect(host.textContent).toContain('模型与生成参数');
+    expect(document.querySelector('.weq-conversation-settings-pane')?.textContent).toContain(
+      '模型与生成参数',
+    );
+    expect(document.querySelector('.weq-cvs-nav')?.textContent).toContain('克隆体设置');
     f.confirm.mockResolvedValueOnce(false);
     await act(async () => button('删除克隆体').click());
     expect(f.remove).not.toHaveBeenCalled();

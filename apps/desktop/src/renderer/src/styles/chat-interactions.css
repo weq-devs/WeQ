@@ -75,3 +75,7 @@ html[data-theme='dark'] .weq-message-sending {
     animation: none;
   }
 }
+.message-avatar-wrap:has(> .weq-virtual-avatar-badge) {
+  position: relative;
+  overflow: visible;
+}

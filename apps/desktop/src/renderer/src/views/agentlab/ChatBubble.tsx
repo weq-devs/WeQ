@@ -1,21 +1,7 @@
 /** 复用 im-template 的 QQ 气泡样式（chat.css 的 message-line / message-bubble）渲染一行。 */
-import {
-  Fragment,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
-import { Bot, CheckSquare, Copy, Pause, Play, Sparkles } from 'lucide-react';
-import { QqAvatar, qqAvatarUrl } from '../../components/QqAvatar';
-import { MessageBubble } from '../../im-template/template/messageBubble';
-import type { DirectConversation, Message, User } from '../../im-template/template/types';
-import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
-import { copyTextToClipboard } from '../../im-template/template/clipboard';
-import { useToast } from '../../components/Toast';
-import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
+import { Fragment, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { Bot, Pause, Play, Sparkles } from 'lucide-react';
+import { QqAvatar } from '../../components/QqAvatar';
 import { FaceEmoji } from '../../components/FaceEmoji';
 import { mediaUrl } from '../../lib/resourceUrl';
 
@@ -128,50 +114,28 @@ function VoiceBubble({ personaId, voiceId }: { personaId: string; voiceId: strin
   );
 }
 
-export function ChatBubble({
-  mine,
-  name,
-  uin,
+/** 仅适配生成内容的表情和合成语音，气泡外壳与交互由普通 ChatPane 提供。 */
+export function AgentMessageContent({
   text,
-  bot,
   faces,
   personaId,
   onMediaLoad,
-  conversationStyle = false,
-  showSenderName = false,
-  onSelect,
-  messageId,
-  selectionMode,
-  selected,
 }: {
-  mine: boolean;
-  name: string;
-  uin?: string;
   text: string;
-  bot?: boolean;
   /** 提供后，会把文本里的系统表情 faceText 渲染成表情图（克隆体气泡用）。 */
   faces?: FaceContext;
   /** 克隆体 id：提供后，[[sticker:md5]] 标记会渲染成自定义表情图。 */
   personaId?: string;
   /** 图片类消息加载后通知父级重新贴底。 */
   onMediaLoad?: () => void;
-  /** 克隆聊天使用普通会话完整气泡；助手与导出预览保留原呈现。 */
-  conversationStyle?: boolean;
-  showSenderName?: boolean;
-  onSelect?: () => void;
-  messageId?: string;
-  selectionMode?: boolean;
-  selected?: boolean;
 }): ReactElement {
-  const localId = useId();
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   // 自定义表情包：整条消息就是一个表情标记时，渲染成图片。
   const stickerMatch = personaId ? text.match(STICKER_MARKER) : null;
   // 表情图加载失败（资源被清 / 下载失败）时降级为文字占位，别留个破图。
   const [stickerFailed, setStickerFailed] = useState(false);
   // 合成语音：整条消息就是一个语音标记时，渲染成语音气泡。
   const voiceMatch = personaId ? text.match(VOICE_MARKER) : null;
-  const content = (
+  return (
     <div className="message-content">
       {stickerMatch && !stickerFailed ? (
         <img
@@ -191,78 +155,28 @@ export function ChatBubble({
       )}
     </div>
   );
-  if (conversationStyle) {
-    // 仅供呈现，不把本地克隆身份或合成序号交给 QQ 消息接口。
-    const sender: User = {
-      id: `clone:${personaId ?? 'self'}:${mine ? 'self' : 'peer'}`,
-      identityLabel: '',
-      identityValue: uin ?? localId,
-      username: name,
-      displayName: name,
-      avatarUrl: uin ? qqAvatarUrl(uin) : null,
-    };
-    const conversation: DirectConversation = {
-      id: `clone:${personaId ?? 'self'}`,
-      type: 'direct',
-      updatedAt: '',
-      lastMessage: null,
-      otherUser: sender,
-      group: null,
-      members: [],
-    };
-    const message: Message = {
-      id: messageId ?? localId,
-      conversationId: conversation.id,
-      senderId: sender.id,
-      body: text,
-      createdAt: '',
-    };
-    return (
-      <>
-        <MessageBubble
-          message={message}
-          conversation={conversation}
-          sender={sender}
-          mine={mine}
-          senderName={name}
-          senderAvatarUrl={sender.avatarUrl}
-          senderSeed={sender.identityValue}
-          showSenderName={showSenderName}
-          active={Boolean(menu)}
-          selectionMode={selectionMode}
-          selected={selected}
-          avatarBadge={!mine ? <VirtualConversationBadge /> : undefined}
-          renderers={[{ id: 'clone-content', match: () => true, render: () => content }]}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            setMenu({ x: event.clientX, y: event.clientY });
-          }}
-          onLongPress={setMenu}
-        />
-        {menu ? (
-          <ConversationActionsMenu
-            {...menu}
-            label="消息操作"
-            onClose={() => setMenu(null)}
-            actions={[
-              {
-                label: '复制',
-                icon: <Copy size={16} />,
-                action: () => {
-                  void copyTextToClipboard(text).then((ok) => {
-                    if (!ok) useToast.getState().push({ tone: 'error', title: '复制失败' });
-                  });
-                },
-              },
-              ...(onSelect
-                ? [{ label: '多选', icon: <CheckSquare size={16} />, action: onSelect }]
-                : []),
-            ]}
-          />
-        ) : null}
-      </>
-    );
-  }
+}
+
+/** 助手及导出预览的轻量气泡；克隆会话页面不再使用此组件。 */
+export function ChatBubble({
+  mine,
+  name,
+  uin,
+  text,
+  bot,
+  faces,
+  personaId,
+  onMediaLoad,
+}: {
+  mine: boolean;
+  name: string;
+  uin?: string;
+  text: string;
+  bot?: boolean;
+  faces?: FaceContext;
+  personaId?: string;
+  onMediaLoad?: () => void;
+}): ReactElement {
   // 头像统一用 uin 拼 weq-avatar:// 协议，不依赖数据库里存的外链。
   // 助手没有 QQ 号，用和助手面板一致的渐变星芒头像；给空 uin 只会回落成灰色小人。
   const avatar = (
@@ -290,7 +204,12 @@ export function ChatBubble({
             ) : null}
           </span>
         ) : null}
-        {content}
+        <AgentMessageContent
+          text={text}
+          faces={faces}
+          personaId={personaId}
+          onMediaLoad={onMediaLoad}
+        />
       </div>
       {mine ? avatar : null}
     </div>

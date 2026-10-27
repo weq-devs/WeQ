@@ -1,3 +1,8 @@
+import type { GroupChatStreamEvent } from '../../src/main/mcp/agentlab_group_bus';
+
+export const cloneRequests: Array<{ name: string; input: unknown }> = [];
+const listeners = new Set<(event: GroupChatStreamEvent) => void>();
+let messageSerial = 2;
 const ts = new Date('2026-10-27T12:00:00+08:00').getTime();
 const turns = [
   { id: 'm1', role: 'assistant', text: '合成消息：今天的计划完成了吗？', ts },
@@ -44,12 +49,75 @@ const proxy = (path: string[] = []): unknown =>
           isFetching: false,
           isSuccess: true,
         });
+      if (key === 'query')
+        return async () => null;
       if (key === 'useMutation')
         return () => ({
-          mutateAsync: async () => ({ sessionId: 's', text: '合成回复', replyDelayMs: 0 }),
+          mutate: (input: unknown) => cloneRequests.push({ name: path.at(-1)!, input }),
+          mutateAsync: async (input: { text?: string }) => {
+            const name = path.at(-1)!;
+            cloneRequests.push({ name, input });
+            if (name === 'chatWithAgentLabPersona') {
+              data.getAgentLabPersonaSessionConversation = [
+                ...(data.getAgentLabPersonaSessionConversation as typeof turns),
+                {
+                  id: `m${++messageSerial}`,
+                  role: 'user',
+                  text: input.text ?? '',
+                  ts: ts + messageSerial * 1000,
+                },
+                {
+                  id: `m${++messageSerial}`,
+                  role: 'assistant',
+                  text: '合成回复',
+                  ts: ts + messageSerial * 1000,
+                },
+              ];
+            }
+            if (name === 'sendAgentLabGroupMessage') {
+              const rows = [
+                {
+                  id: `m${++messageSerial}`,
+                  groupId: 'g',
+                  senderId: 'self',
+                  senderKind: 'user' as const,
+                  text: input.text ?? '',
+                  ts: ts + messageSerial * 1000,
+                },
+                {
+                  id: `m${++messageSerial}`,
+                  groupId: 'g',
+                  senderId: 'p',
+                  senderKind: 'persona' as const,
+                  text: '合成回复',
+                  ts: ts + messageSerial * 1000,
+                },
+              ];
+              data.getAgentLabGroupConversation = [
+                ...(data.getAgentLabGroupConversation as typeof rows),
+                ...rows,
+              ];
+              queueMicrotask(() => {
+                for (const listener of listeners) {
+                  for (const message of rows)
+                    listener({ groupId: 'g', groupRunId: 'fixture-run', kind: 'message', message });
+                  listener({ groupId: 'g', groupRunId: 'fixture-run', kind: 'done' });
+                }
+              });
+            }
+            return { id: 's', sessionId: 's', text: '合成回复', replyDelayMs: 0 };
+          },
           isLoading: false,
         });
-      if (key === 'subscribe') return () => ({ unsubscribe() {} });
+      if (key === 'subscribe')
+        return (_input: unknown, handler: { onData: (event: GroupChatStreamEvent) => void }) => {
+          if (path.at(-1) === 'onGroupChatEvent') listeners.add(handler.onData);
+          return {
+            unsubscribe() {
+              listeners.delete(handler.onData);
+            },
+          };
+        };
       if (key === 'invalidate') return async () => undefined;
       return proxy([...path, String(key)]);
     },

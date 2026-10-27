@@ -1,45 +1,32 @@
 /**
- * 克隆体群聊面板：多个克隆体 + 「我」同处一室。
+ * 克隆群聊的数据源与设置适配：聊天页面唯一实现为普通 ChatPane。
  *
  * 发一条消息 → 后端让「被 @ 或全部」克隆体各回 → 每条回复经 account.onGroupChatEvent
- * 流式推来，按 senderId 分气泡逐条揭示（复用 ChatBubble 的头像/名字/表情/语音渲染）。
+ * 流式推来，投影为普通 Message / Conversation 后交给共用时间线。
  * @ 选择：输入 @ 弹出成员浮层，选中插入 @名字；发送时按文本里出现的 @名字 推出 mentions。
  *
- * M2 群骨架：还没有意愿 gate / 关系 / 连锁（M3–M6）。事件按 groupId 过滤（而非事后才拿到的
+ * 事件按 groupId 过滤（而非事后才拿到的
  * groupRunId），避免「用户那条消息比 mutation 响应更早到达」的竞态把它漏掉。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import {
-  AtSign,
-  Download,
-  Eraser,
-  MessageSquareText,
-  Settings2,
-  Trash2,
-  Users,
-  UserMinus,
-  UserPlus,
-  X,
-} from 'lucide-react';
-import { EmptyState } from '../../im-template/template/primitives';
+import { Trash2, Users, UserMinus, UserPlus, Settings2 } from 'lucide-react';
+import { ChatPane } from '../../im-template/template/chatPane';
+import { ChatRecordsModal } from '../../components/search/ChatRecordsModal';
+import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { CloneMessageActions } from './CloneMessageActions';
-import { CloneComposer, CloneConversation, CloneConversationHeader } from './CloneConversation';
-import { Modal } from '../../components/Dialog';
+import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
 import { QqAvatar } from '../../components/QqAvatar';
-import { ChatBubble, inputFaceContext, type FaceContext } from './ChatBubble';
-import { ChatTimeDivider, shouldShowChatTime } from './messageTime';
+import { AgentMessageContent, inputFaceContext, type FaceContext } from './ChatBubble';
+import {
+  cloneChatUser,
+  cloneChatConversation,
+  cloneChatMessages,
+  cloneChatInput,
+} from './cloneChatAdapter';
 import { SessionSwitcher } from './SessionSwitcher';
 import type { AgentLabGroupMessage } from '@weq/agentlab';
 import type { GeneratedSearchHit } from '../../components/search/types';
-import {
-  CloneSearchButton,
-  GeneratedSearchNotice,
-  jumpToGeneratedMessage,
-  useGeneratedSearchJump,
-} from './messageSearch';
-import { useGeneratedSelection } from './useGeneratedSelection';
 
 interface PersonaLite {
   id: string;
@@ -112,50 +99,44 @@ export function GroupChatPanel({
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<'members' | 'management'>('members');
   const seenIds = useRef<Set<string>>(new Set());
-  const transcriptRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const [searchMessageId, setSearchMessageId] = useState(searchTarget?.messageId ?? null);
-  const missingSearch = useGeneratedSearchJump(
-    transcriptRef,
-    searchMessageId,
-    conversation.isSuccess && !conversation.isFetching,
-    history,
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [jumpRequest, setJumpRequest] = useState(
+    searchTarget ? { messageId: searchTarget.messageId, revision: 0 } : undefined,
   );
-  const selection = useGeneratedSelection(
-    { kind: 'group', ownerId: groupId, sessionId: legacy ? null : currentSessionId },
-    history,
-    Boolean((legacy || currentSessionId) && history.some((item) => item.id)),
-  );
+  const viewId = useRef(`virtual:clone:group:${groupId}:${sessionId ?? 'draft'}`).current;
+  const user = useMemo(() => cloneChatUser('self', '我', selfUin), [selfUin]);
 
   const members = detail.data?.members ?? [];
   const personaMembers = useMemo(() => members.filter((m) => m.kind === 'persona'), [members]);
   const userFaces = useMemo(() => inputFaceContext(faceDescToId), [faceDescToId]);
+  const personasById = useMemo(
+    () => new Map(personaList.map((persona) => [persona.id, persona])),
+    [personaList],
+  );
 
-  // 解析发送者 → 头像/名字/表情上下文（复用 ChatBubble）。
-  const metaFor = (
-    senderId: string,
-    senderKind: 'user' | 'persona',
-    fallbackName: string,
-  ): { name: string; uin?: string; bot: boolean; personaId?: string; faces?: FaceContext } => {
-    if (senderKind === 'user') return { name: '我', uin: selfUin, bot: false, faces: userFaces };
-    const p = personaList.find((x) => x.id === senderId);
-    const uin = p ? profileByUid.get(p.sourceId)?.uin || p.sourceUin : undefined;
-    const faces: FaceContext | undefined = p?.systemFaces?.length
-      ? { whitelist: p.systemFaces, descToId: faceDescToId }
-      : undefined;
-    return { name: p?.name ?? fallbackName, uin, bot: true, personaId: senderId, faces };
-  };
+  // 解析源身份与生成内容，头像、气泡和消息操作由普通页面负责。
+  const metaFor = useCallback(
+    (
+      senderId: string,
+      senderKind: 'user' | 'persona',
+      fallbackName: string,
+    ): { name: string; uin?: string; bot: boolean; personaId?: string; faces?: FaceContext } => {
+      if (senderKind === 'user') return { name: '我', uin: selfUin, bot: false, faces: userFaces };
+      const p = personasById.get(senderId);
+      const uin = p ? profileByUid.get(p.sourceId)?.uin || p.sourceUin : undefined;
+      const faces: FaceContext | undefined = p?.systemFaces?.length
+        ? { whitelist: p.systemFaces, descToId: faceDescToId }
+        : undefined;
+      return { name: p?.name ?? fallbackName, uin, bot: true, personaId: senderId, faces };
+    },
+    [personasById, profileByUid, faceDescToId, selfUin, userFaces],
+  );
   const nameById = useMemo(
     () => new Map(members.map((m) => [m.memberId, m.displayName])),
     [members],
   );
-
-  const scrollToBottom = useCallback((): void => {
-    if (searchMessageId) return;
-    const el = transcriptRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [searchMessageId]);
 
   // 把持久化群消息合并进本地历史：按 id 去重、只补不删（流式已在的不动）、按时间排序。
   // 这样切走再切回 / 漏事件时都能从磁盘补齐，不会像「只 seed 一次」那样卡在陈旧缓存上。
@@ -211,32 +192,11 @@ export function GroupChatPanel({
     // 只按 groupId 过滤，其余状态全走 ref / 稳定 setter —— 订阅建一次即可，不随渲染重建。
   }, [groupId, legacy]);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [history, busy, scrollToBottom]);
-
-  // 输入框末尾的 @token（@ 后到光标、无空格）→ 驱动成员浮层。
-  const mentionQuery = useMemo(() => {
-    const m = input.match(/@([^@\s]*)$/);
-    return m ? (m[1] ?? '') : null;
-  }, [input]);
-  const mentionCandidates = useMemo(() => {
-    if (mentionQuery === null) return [];
-    const q = mentionQuery.toLowerCase();
-    return personaMembers.filter((m) => !q || m.displayName.toLowerCase().includes(q));
-  }, [mentionQuery, personaMembers]);
-
-  function pickMention(displayName: string): void {
-    // 用 @名字 + 空格 替换末尾的 @token。
-    setInput((cur) => cur.replace(/@([^@\s]*)$/, `@${displayName} `));
-    inputRef.current?.focus();
-  }
-
-  async function onSend(): Promise<void> {
+  async function onSend(body: string): Promise<void> {
     if (legacy) return;
-    const text = input.trim();
+    const text = cloneChatInput(body, faceDescToId).trim();
     if (!text || busy) return;
-    setSearchMessageId(null);
+    setJumpRequest(undefined);
     // 文本里出现 @某克隆体名 → 定向 @；一个都没有 → 全体应答（后端逻辑）。
     const mentions = personaMembers
       .filter((m) => text.includes(`@${m.displayName}`))
@@ -265,7 +225,7 @@ export function GroupChatPanel({
     } catch (e) {
       setBusy(false);
       dialog.error('发送失败', e instanceof Error ? e.message : String(e));
-      setInput(text);
+      throw e;
     } finally {
       // 事件漏发或生成失败时，也从落库消息恢复主列表的活动时间和预览。
       void utils.account.listAgentLabGroups.invalidate();
@@ -325,256 +285,240 @@ export function GroupChatPanel({
   }
 
   const groupName = detail.data?.group.name ?? '群聊';
+  const chatConversation = useMemo(
+    () =>
+      cloneChatConversation({
+        target: { kind: 'group', ownerId: groupId, sessionId: legacy ? null : currentSessionId },
+        viewId,
+        name: groupName,
+        peer: user,
+        members: [
+          user,
+          ...personaMembers.map((member) => {
+            const meta = metaFor(member.memberId, 'persona', member.displayName);
+            return cloneChatUser(member.memberId, meta.name, meta.uin, true);
+          }),
+        ],
+      }),
+    [groupId, legacy, currentSessionId, viewId, groupName, user, personaMembers, metaFor],
+  );
+  const messages = useMemo(
+    () =>
+      cloneChatMessages(history, viewId, (index) => {
+        const row = history[index]!;
+        if (row.senderKind === 'user') return user;
+        const meta = metaFor(row.senderId, 'persona', nameById.get(row.senderId) ?? '克隆体');
+        return cloneChatUser(row.senderId, meta.name, meta.uin, true);
+      }),
+    [history, viewId, user, metaFor, nameById],
+  );
+  const sourceMessages = useMemo(
+    () => new Map(history.map((message) => [message.id, message])),
+    [history],
+  );
+  const renderers = useMemo<MessageRenderer[]>(
+    () => [
+      {
+        id: 'generated-content',
+        match: () => true,
+        render: ({ message, mine }) => {
+          const source = sourceMessages.get(message.id);
+          const meta = source
+            ? metaFor(source.senderId, source.senderKind, nameById.get(source.senderId) ?? '克隆体')
+            : undefined;
+          return (
+            <AgentMessageContent
+              text={message.body}
+              personaId={mine ? undefined : source?.senderId}
+              faces={meta?.faces}
+            />
+          );
+        },
+      },
+    ],
+    [sourceMessages, metaFor, nameById],
+  );
   return (
-    <CloneConversation selectionMode={selection.selectionMode}>
-      <CloneConversationHeader
-        name={`${groupName} (${members.length})`}
+    <>
+      <ChatPane
+        loadError={conversation.isError ? '记录加载失败' : undefined}
+        user={user}
+        conversation={chatConversation}
+        messages={messages}
+        messageRenderers={renderers}
+        loading={Boolean(
+          conversation.isFetching && !history.length && (currentSessionId || legacy),
+        )}
+        preference={undefined}
+        draft={input}
+        onDraftChange={(_id, value) => setInput(value)}
+        onDraftClear={() => setInput('')}
+        onSend={onSend}
         onBack={onBack}
-        actions={
-          <>
-            <CloneSearchButton
-              messages={history}
-              onJump={(id) => {
-                setSearchMessageId(id);
-                jumpToGeneratedMessage(transcriptRef.current, id);
-              }}
-            />
-            <CloneMessageActions
-              actions={[
-                {
-                  label: '导出',
-                  icon: <Download size={16} />,
-                  action: () => selection.exportConversation?.(),
-                  disabled: !selection.exportConversation,
-                },
-                {
-                  label: '清空聊天记录',
-                  icon: <Eraser size={16} />,
-                  action: () => void onClear(),
-                  disabled: legacy,
-                },
-                {
-                  label: '删除克隆群聊',
-                  icon: <Trash2 size={16} />,
-                  action: () => void onDelete(),
-                  separatorBefore: true,
-                },
-              ]}
-            />
-            <SessionSwitcher
-              sessions={sessionList.data ?? []}
-              activeSessionId={currentSessionId}
-              draft={!legacy && !currentSessionId}
-              loading={sessionList.isLoading}
-              disabled={legacy}
-              compact
-              onSwitch={onSwitchSession}
-              onNew={onNewSession}
-              onDelete={(target) => {
-                void (async () => {
-                  const ok = await dialog.confirm(
-                    '删除会话',
-                    '确认删除这段对话？删除后无法恢复。',
-                    {
-                      okLabel: '删除',
-                      tone: 'warning',
-                    },
-                  );
-                  if (!ok) return;
-                  await deleteSession.mutateAsync({ groupId, sessionId: target });
-                  await utils.account.listAgentLabGroupSessions.invalidate({ groupId });
-                  if (currentSessionId === target) onNewSession();
-                })();
-              }}
-            />
-            <button
-              type="button"
-              className="icon-button group-header-info-action"
-              onClick={() => setMembersOpen(true)}
-              title="会话设置"
-              aria-label="会话设置"
-            >
-              <Settings2 size={18} />
-            </button>
-          </>
+        sendAvailable={!legacy && !busy}
+        readOnly={legacy}
+        sendBlockedReason={legacy ? '旧版对话（只读）' : '克隆体正在回复'}
+        settingsLabel="克隆群聊设置"
+        onOpenConversationSettings={() => setMembersOpen(true)}
+        onSearchChatRecords={() => setSearchOpen(true)}
+        jumpRequest={jumpRequest}
+        headerActions={
+          <SessionSwitcher
+            sessions={sessionList.data ?? []}
+            activeSessionId={currentSessionId}
+            draft={!legacy && !currentSessionId}
+            loading={sessionList.isLoading}
+            disabled={legacy}
+            compact
+            onSwitch={onSwitchSession}
+            onNew={onNewSession}
+            onDelete={(target) => {
+              void (async () => {
+                if (
+                  !(await dialog.confirm('删除会话', '确认删除这段对话？删除后无法恢复。', {
+                    okLabel: '删除',
+                    tone: 'warning',
+                  }))
+                )
+                  return;
+                await deleteSession.mutateAsync({ groupId, sessionId: target });
+                await utils.account.listAgentLabGroupSessions.invalidate({ groupId });
+                if (currentSessionId === target) onNewSession();
+              })();
+            }}
+          />
         }
       />
-
-      <div
-        className="message-scroll"
-        {...selection.rootProps}
-        ref={(element) => {
-          transcriptRef.current = element;
-          selection.rootProps.ref(element);
-        }}
-      >
-        <GeneratedSearchNotice
-          missing={missingSearch}
-          error={Boolean(searchMessageId && conversation.isError)}
+      {searchOpen ? (
+        <ChatRecordsModal
+          fixed
+          initialKeyword=""
+          initialHit={{
+            category: 'chatRecord',
+            source: 'group',
+            partition: viewId,
+            targetUid: viewId,
+            targetUin: '',
+            name: groupName,
+            count: messages.length,
+          }}
+          renderers={renderers}
+          localSource={{
+            conversation: chatConversation,
+            messages,
+            user,
+            onJump: (id) =>
+              setJumpRequest((request) => ({
+                messageId: id,
+                revision: (request?.revision ?? 0) + 1,
+              })),
+          }}
+          onClose={() => setSearchOpen(false)}
+          onJumpMessage={() => {}}
         />
-        {searchMessageId && conversation.isFetching ? (
-          <div className="weq-agentlab-empty">加载记录中…</div>
-        ) : history.length === 0 ? (
-          <EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
-        ) : (
-          history.map((m, index) => {
-            const meta = metaFor(m.senderId, m.senderKind, nameById.get(m.senderId) ?? '克隆体');
-            const prevTs = index > 0 ? history[index - 1]?.ts : undefined;
-            return (
-              <div
-                key={m.id || `${m.senderId}-${index}`}
-                {...selection.itemProps(m.id)}
-                data-generated-message-id={m.id}
-                className={`weq-generated-message${m.id === searchMessageId ? ' is-search-hit' : ''}${selection.selected(m.id) ? ' is-selected' : ''}`}
-              >
-                {shouldShowChatTime(prevTs, m.ts) ? <ChatTimeDivider ts={m.ts} /> : null}
-                <ChatBubble
-                  mine={m.senderKind === 'user'}
-                  bot={meta.bot}
-                  conversationStyle
-                  messageId={m.id}
-                  selectionMode={selection.selectionMode}
-                  selected={selection.selected(m.id)}
-                  showSenderName
-                  onSelect={() => selection.selectMessage(m.id)}
-                  name={meta.name}
-                  uin={meta.uin}
-                  text={m.text}
-                  faces={meta.faces}
-                  personaId={meta.personaId}
-                  onMediaLoad={scrollToBottom}
-                />
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      <CloneComposer
-        selectionBar={selection.toolbar}
-        group
-        inputRef={inputRef}
-        value={input}
-        onChange={setInput}
-        onSend={() => void onSend()}
-        disabled={legacy}
-        busy={busy}
-        tools={
-          <button
-            type="button"
-            title="提及成员"
-            aria-label="提及成员"
-            disabled={legacy || busy || !personaMembers.length}
-            onClick={() => {
-              setInput((value) => `${value}@`);
-              inputRef.current?.focus();
-            }}
-          >
-            <AtSign size={21} />
-          </button>
-        }
-      >
-        {mentionCandidates.length > 0 ? (
-          <div className="weq-mention-pop">
-            {mentionCandidates.map((m) => (
-              <button
-                key={m.memberId}
-                type="button"
-                className="weq-mention-opt"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  pickMention(m.displayName);
-                }}
-              >
-                <AtSign size={12} />
-                {m.displayName}
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </CloneComposer>
+      ) : null}
 
       {membersOpen ? (
-        <Modal
+        <ConversationSettingsFrame<'members' | 'management'>
+          title="克隆群聊设置"
+          subtitle={groupName}
+          value={settingsSection}
+          onValueChange={setSettingsSection}
           onClose={() => setMembersOpen(false)}
-          width={460}
-          labelledBy="weq-group-members-title"
+          sections={[
+            { id: 'members', label: '群成员', icon: <Users size={16} /> },
+            { id: 'management', label: '群聊管理', icon: <Settings2 size={16} /> },
+          ]}
         >
-          <div className="weq-clone-modal">
-            <header className="weq-clone-modal-head">
-              <Users size={18} />
-              <strong id="weq-group-members-title">{groupName} · 成员</strong>
-            </header>
-            <div className="weq-clone-config">
-              <div className="weq-agentlab-field">
-                <span>群内克隆体（{personaMembers.length}）</span>
-                <div className="weq-group-members">
-                  {personaMembers.length === 0 ? (
-                    <div className="weq-agentlab-empty">群里还没有克隆体。</div>
-                  ) : (
-                    personaMembers.map((m) => {
-                      const meta = metaFor(m.memberId, 'persona', m.displayName);
-                      return (
-                        <div key={m.memberId} className="weq-group-member">
-                          <QqAvatar uin={meta.uin} size={34} />
+          <div className="weq-cvs-body-head">
+            <span className="weq-cvs-body-icon">
+              {settingsSection === 'members' ? <Users size={16} /> : <Settings2 size={16} />}
+            </span>
+            <strong>{settingsSection === 'members' ? '群成员' : '群聊管理'}</strong>
+          </div>
+          <div className="weq-cvs-body-scroll">
+            {settingsSection === 'members' ? (
+              <>
+                <div className="weq-agentlab-field">
+                  <span>群内克隆体（{personaMembers.length}）</span>
+                  <div className="weq-group-members">
+                    {personaMembers.length === 0 ? (
+                      <div className="weq-agentlab-empty">群里还没有克隆体。</div>
+                    ) : (
+                      personaMembers.map((m) => {
+                        const meta = metaFor(m.memberId, 'persona', m.displayName);
+                        return (
+                          <div key={m.memberId} className="weq-group-member">
+                            <QqAvatar uin={meta.uin} size={34} />
+                            <span className="weq-group-member-text">
+                              <strong>{m.displayName}</strong>
+                            </span>
+                            <button
+                              type="button"
+                              className="weq-persona-memforget"
+                              title="踢出群聊"
+                              onClick={() => void onKickMember(m.memberId)}
+                            >
+                              <UserMinus size={14} />
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {outsiders.length > 0 ? (
+                  <div className="weq-agentlab-field">
+                    <span>添加克隆体</span>
+                    <div className="weq-group-members">
+                      {outsiders.map((p) => (
+                        <div key={p.id} className="weq-group-member">
+                          <QqAvatar
+                            uin={profileByUid.get(p.sourceId)?.uin || p.sourceUin}
+                            size={34}
+                          />
                           <span className="weq-group-member-text">
-                            <strong>{m.displayName}</strong>
+                            <strong>{p.name}</strong>
                           </span>
                           <button
                             type="button"
                             className="weq-persona-memforget"
-                            title="踢出群聊"
-                            onClick={() => void onKickMember(m.memberId)}
+                            title="加入群聊"
+                            onClick={() => void onAddMember(p.id)}
                           >
-                            <UserMinus size={14} />
+                            <UserPlus size={14} />
                           </button>
                         </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              {outsiders.length > 0 ? (
-                <div className="weq-agentlab-field">
-                  <span>添加克隆体</span>
-                  <div className="weq-group-members">
-                    {outsiders.map((p) => (
-                      <div key={p.id} className="weq-group-member">
-                        <QqAvatar
-                          uin={profileByUid.get(p.sourceId)?.uin || p.sourceUin}
-                          size={34}
-                        />
-                        <span className="weq-group-member-text">
-                          <strong>{p.name}</strong>
-                        </span>
-                        <button
-                          type="button"
-                          className="weq-persona-memforget"
-                          title="加入群聊"
-                          onClick={() => void onAddMember(p.id)}
-                        >
-                          <UserPlus size={14} />
-                        </button>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ) : null}
-
+                ) : null}
+              </>
+            ) : (
               <div className="weq-clone-actions">
                 <button
                   type="button"
                   className="weq-set-btn weq-set-btn-soft"
-                  onClick={() => setMembersOpen(false)}
+                  disabled={legacy || busy}
+                  onClick={() => void onClear()}
                 >
-                  <X size={13} /> 关闭
+                  清空聊天记录
+                </button>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft"
+                  disabled={busy}
+                  onClick={() => void onDelete()}
+                >
+                  <Trash2 size={14} />
+                  删除群聊
                 </button>
               </div>
-            </div>
+            )}
           </div>
-        </Modal>
+        </ConversationSettingsFrame>
       ) : null}
-    </CloneConversation>
+    </>
   );
 }

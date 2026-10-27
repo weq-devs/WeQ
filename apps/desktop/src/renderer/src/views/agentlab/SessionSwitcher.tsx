@@ -9,6 +9,9 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { Check, ChevronDown, History, MessageSquarePlus, Trash2 } from 'lucide-react';
 import type { AgentLabSession } from '@weq/service';
+import { OverlayLayer } from '../../components/OverlayLayer';
+import { useTabActive } from '../../components/RetainedTabs';
+import '../../styles/workspace-surfaces.css';
 
 export function SessionSwitcher({
   sessions,
@@ -34,26 +37,16 @@ export function SessionSwitcher({
   onDelete: (sessionId: string) => void;
 }): ReactElement {
   const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
+  const tabActive = useTabActive();
+  const trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (!open) return;
-    const close = (event: PointerEvent) => {
-      if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('pointerdown', close);
-    document.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('pointerdown', close);
-      document.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [open]);
+    setOpen(false);
+  }, [activeSessionId, disabled, tabActive]);
   const active = sessions.find((session) => session.id === activeSessionId);
   return (
-    <div className="weq-session-switcher" ref={root}>
+    <div className="weq-session-switcher">
       <button
+        ref={trigger}
         type="button"
         className={
           compact ? 'icon-button group-header-info-action' : 'weq-session-switcher-trigger'
@@ -78,64 +71,73 @@ export function SessionSwitcher({
         )}
       </button>
       {open ? (
-        <div className="weq-session-switcher-menu" role="menu" aria-label="会话列表">
-          <button
-            type="button"
-            role="menuitem"
-            className="weq-session-switcher-new"
-            onClick={() => {
-              setOpen(false);
-              onNew();
-            }}
-          >
-            <MessageSquarePlus size={13} />
-            新建会话
-          </button>
-          <div className="weq-session-switcher-list">
-            {loading && sessions.length === 0 ? (
-              <p className="weq-session-switcher-empty">读取会话中…</p>
-            ) : sessions.length === 0 ? (
-              <p className="weq-session-switcher-empty">还没有会话，发第一句就会自动保存。</p>
-            ) : (
-              sessions.map((session) => {
-                const current = session.id === activeSessionId;
-                return (
-                  <div
-                    key={session.id}
-                    className={`weq-session-switcher-row${current ? ' is-active' : ''}`}
-                  >
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="weq-session-switcher-open"
-                      onClick={() => {
-                        setOpen(false);
-                        onSwitch(session.id);
-                      }}
+        <OverlayLayer
+          presentation="popover"
+          anchor={trigger.current}
+          onClose={() => {
+            setOpen(false);
+            trigger.current?.focus({ preventScroll: true });
+          }}
+        >
+          <div className="weq-session-switcher-menu" role="menu" aria-label="会话列表">
+            <button
+              type="button"
+              role="menuitem"
+              className="weq-session-switcher-new"
+              onClick={() => {
+                setOpen(false);
+                onNew();
+              }}
+            >
+              <MessageSquarePlus size={13} />
+              新建会话
+            </button>
+            <div className="weq-session-switcher-list">
+              {loading && sessions.length === 0 ? (
+                <p className="weq-session-switcher-empty">读取会话中…</p>
+              ) : sessions.length === 0 ? (
+                <p className="weq-session-switcher-empty">还没有会话，发第一句就会自动保存。</p>
+              ) : (
+                sessions.map((session) => {
+                  const current = session.id === activeSessionId;
+                  return (
+                    <div
+                      key={session.id}
+                      className={`weq-session-switcher-row${current ? ' is-active' : ''}`}
                     >
-                      <span className="weq-session-switcher-mark" aria-hidden>
-                        {current ? <Check size={12} /> : null}
-                      </span>
-                      <span className="weq-session-switcher-text">
-                        <strong>{session.title || '新会话'}</strong>
-                        <small>{relTime(session.updatedAt)}</small>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="weq-session-switcher-del"
-                      aria-label={`删除会话 ${session.title || '新会话'}`}
-                      title="删除这段会话"
-                      onClick={() => onDelete(session.id)}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                );
-              })
-            )}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="weq-session-switcher-open"
+                        onClick={() => {
+                          setOpen(false);
+                          onSwitch(session.id);
+                        }}
+                      >
+                        <span className="weq-session-switcher-mark" aria-hidden>
+                          {current ? <Check size={12} /> : null}
+                        </span>
+                        <span className="weq-session-switcher-text">
+                          <strong>{session.title || '新会话'}</strong>
+                          <small>{relTime(session.updatedAt)}</small>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="weq-session-switcher-del"
+                        aria-label={`删除会话 ${session.title || '新会话'}`}
+                        title="删除这段会话"
+                        onClick={() => onDelete(session.id)}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
-        </div>
+        </OverlayLayer>
       ) : null}
     </div>
   );

@@ -9,6 +9,7 @@ export function messageBatchBlockReason(
   message: Message,
   action: MessageBatchAction,
 ): string | null {
+  if (message.generatedPending) return '生成内容尚未取得持久消息身份';
   if (action === 'recall') return '尚未核对当前会话的撤回权限和消息定位';
   if (message.source === 'roaming') {
     if (

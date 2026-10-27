@@ -17,6 +17,7 @@ const fixture = vi.hoisted(() => ({
   options: vi.fn(),
   mutate: vi.fn(),
   missing: false,
+  failed: false,
   fetching: false,
   sessionless: false,
   messageId: 'message-hit',
@@ -85,6 +86,13 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'useQuery')
           return (input?: { sessionId?: string }, options?: { enabled?: boolean }) => {
             const name = path.at(-1)!;
+            const failed =
+              fixture.failed &&
+              [
+                'getAgentLabPersonaSessionConversation',
+                'getAgentLabConversation',
+                'getAgentLabGroupConversation',
+              ].includes(name);
             fixture.options(name, options);
             if (options?.enabled !== false) fixture.query(name, input);
             const key = JSON.stringify([
@@ -97,11 +105,11 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             ]);
             if (!cache.has(key)) cache.set(key, data(name));
             return {
-              data: options?.enabled === false ? undefined : cache.get(key),
+              data: options?.enabled === false || failed ? undefined : cache.get(key),
               isLoading: false,
               isFetching: fixture.fetching,
-              isSuccess: options?.enabled !== false,
-              isError: false,
+              isSuccess: options?.enabled !== false && !failed,
+              isError: failed,
             };
           };
         if (key === 'useMutation')
@@ -145,6 +153,7 @@ it('生成内容按搜索类别区分，不把其它结果的 kind 字段误当�
 
 afterEach(() => {
   fixture.missing = false;
+  fixture.failed = false;
   fixture.fetching = false;
   fixture.sessionless = false;
   fixture.messageId = 'message-hit';
@@ -178,6 +187,23 @@ function mount() {
 }
 
 describe('生成内容搜索定位', () => {
+  it.each(['persona', 'group'] as const)('%s 读取失败不冒充消息已经删除', async (kind) => {
+    fixture.failed = true;
+    const f = mount();
+    try {
+      act(() =>
+        f.root.render(createElement(AgentLabView, { embedded: true, searchTarget: target(kind) })),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('记录加载失败');
+      expect(f.host.textContent).not.toContain('该条记录已不在当前会话中');
+      expect(fixture.mutate).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
   it.each(['persona', 'group'] as const)(
     '%s 与正常会话共用聊天布局且保留克隆入口',
     async (kind) => {
@@ -273,7 +299,7 @@ describe('生成内容搜索定位', () => {
               ),
           );
           act(() =>
-            [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+            [...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button')]
               .find((item) => item.textContent === '多选')!
               .click(),
           );
@@ -293,13 +319,19 @@ describe('生成内容搜索定位', () => {
           },
           scope: { type: 'items', ids: ['message-hit'] },
         });
-        expect(f.host.querySelector('.weq-generated-message.is-selected')).not.toBeNull();
+        expect(
+          f.host.querySelector(
+            kind === 'assistant'
+              ? '.weq-generated-message.is-selected'
+              : '.message-line.is-selected',
+          ),
+        ).not.toBeNull();
         expect(fixture.mutate).not.toHaveBeenCalled();
         if (kind !== 'assistant') {
-          const editor = f.host.querySelector('textarea');
+          const editor = f.host.querySelector('.composer-editor');
           act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="退出多选"]')!.click());
           expect(f.host.querySelector('.composer.selection-mode')).toBeNull();
-          expect(f.host.querySelector('textarea')).toBe(editor);
+          expect(f.host.querySelector('.composer-editor')).toBe(editor);
           expect(f.host.querySelector('.message-line.selection-mode')).toBeNull();
         }
       } finally {
@@ -323,7 +355,9 @@ describe('生成内容搜索定位', () => {
         await vi.advanceTimersByTimeAsync(50);
       });
       expect(f.host.textContent).toContain('合成搜索命中');
-      expect(f.host.querySelector<HTMLTextAreaElement>('textarea')?.disabled).toBe(true);
+      expect(f.host.querySelector('.composer-editor')?.getAttribute('contenteditable')).toBe(
+        'false',
+      );
       expect(fixture.mutate).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -345,7 +379,9 @@ describe('生成内容搜索定位', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(50);
       });
-      expect(f.host.querySelector<HTMLTextAreaElement>('textarea')?.disabled).toBe(false);
+      expect(f.host.querySelector('.composer-editor')?.getAttribute('contenteditable')).toBe(
+        'true',
+      );
     } finally {
       f.close();
     }
@@ -549,11 +585,10 @@ describe('生成内容搜索定位', () => {
           await vi.advanceTimersByTimeAsync(50);
         });
         expect(f.host.querySelector('.is-search-hit')?.textContent).toContain('合成搜索命中');
-        const composer = f.host.querySelector<HTMLTextAreaElement>(
-          '.composer textarea, .weq-agentlab-composer textarea',
-        )!;
-        expect(composer.disabled).toBe(true);
-        expect(composer.placeholder).toContain('只读');
+        expect(f.host.querySelector('.composer-editor')?.getAttribute('contenteditable')).toBe(
+          'false',
+        );
+        expect(f.host.querySelector<HTMLButtonElement>('.composer-send')?.title).toContain('只读');
         expect(fixture.mutate).not.toHaveBeenCalled();
       } finally {
         f.close();

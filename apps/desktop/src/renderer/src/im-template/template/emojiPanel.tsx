@@ -274,13 +274,7 @@ export function EmojiPanel({
 
       <div className={cn('emoji-tabs')}>
         {TABS.filter(({ id }) =>
-          textOnly
-            ? ['face', 'unicode', 'kaomoji'].includes(id)
-            : id === 'bounce'
-              ? Boolean(onSendBounce)
-              : id === 'poke'
-                ? Boolean(onSendPoke)
-                : true,
+          id === 'bounce' ? Boolean(onSendBounce) : id === 'poke' ? Boolean(onSendPoke) : true,
         ).map(({ id, label, icon: Icon }) => (
           <button
             key={id}
@@ -288,6 +282,7 @@ export function EmojiPanel({
             className={cn(id === tab ? 'active' : '')}
             title={label}
             aria-label={label}
+            disabled={textOnly && !['face', 'unicode', 'kaomoji'].includes(id)}
             aria-pressed={id === tab}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => setTab(id)}

@@ -1,28 +1,24 @@
 /**
- * 克隆体私聊面板：
- *  - 会话管理（查看/切换/新建/删除）在左栏克隆体条目里完成，聊天区只负责对话。
+ * 克隆私聊的数据源适配：页面、输入区、消息与多选全部由普通 ChatPane 渲染。
  *  - 草稿会话：点克隆体进来就是新草稿，发第一条消息才落库建会话（sessionId null → 真 id），
  *    期间组件不重挂载、流式不中断（navKey 由父组件维持）。
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { AgentLabModelSelection } from '@weq/agentlab';
 import type { GeneratedSearchHit } from '../../components/search/types';
-import {
-  CloneSearchButton,
-  GeneratedSearchNotice,
-  jumpToGeneratedMessage,
-  useGeneratedSearchJump,
-} from './messageSearch';
-import { Download, MessageSquareText, Settings2 } from 'lucide-react';
-import { CloneMessageActions } from './CloneMessageActions';
-import { EmptyState } from '../../im-template/template/primitives';
+import { ChatPane } from '../../im-template/template/chatPane';
+import { ChatRecordsModal } from '../../components/search/ChatRecordsModal';
+import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { CloneComposer, CloneConversation, CloneConversationHeader } from './CloneConversation';
-import { ChatBubble, inputFaceContext, type FaceContext } from './ChatBubble';
-import { ChatTimeDivider, shouldShowChatTime } from './messageTime';
+import { AgentMessageContent, inputFaceContext, type FaceContext } from './ChatBubble';
+import {
+  cloneChatUser,
+  cloneChatConversation,
+  cloneChatMessages,
+  cloneChatInput,
+} from './cloneChatAdapter';
 import { SessionSwitcher } from './SessionSwitcher';
-import { useGeneratedSelection } from './useGeneratedSelection';
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -54,7 +50,6 @@ export function CloneChatPanel({
   selfUin,
   clonedUin,
   faces,
-  modelLabel,
   onBack,
   onSessionCreated,
   onSwitchSession,
@@ -90,15 +85,15 @@ export function CloneChatPanel({
     { personaId },
     { staleTime: 0 },
   );
-  // 挂载时快照初始 id：草稿(null) 与既有会话在本组件生命周期内身份固定，
-  // 之后父组件把草稿升级成真会话（sessionId 由 null 变真）不重新拉历史，避免闪断。
+  // 页面身份在草稿升级时保持稳定，查询身份则切到持久会话以接管正式消息 ID。
   const initialSessionId = useRef(sessionId).current;
+  const [currentSessionId, setCurrentSessionId] = useState(sessionId);
   const sessionIdRef = useRef<string | null>(sessionId);
   const legacy = readOnlyLegacy || Boolean(searchTarget && searchTarget.sessionId === null);
   const sessionConversation = trpc.account.getAgentLabPersonaSessionConversation.useQuery(
-    { personaId, sessionId: initialSessionId ?? '' },
+    { personaId, sessionId: currentSessionId ?? '' },
     {
-      enabled: !!initialSessionId,
+      enabled: !!currentSessionId,
       staleTime: 0,
       refetchOnMount: 'always',
     },
@@ -114,33 +109,53 @@ export function CloneChatPanel({
   const [animating, setAnimating] = useState(false);
   const seeded = useRef(false);
   const lastPersisted = useRef(conversation.data);
-  const transcriptRef = useRef<HTMLDivElement | null>(null);
-  const composerRef = useRef<HTMLTextAreaElement | null>(null);
-  const [searchMessageId, setSearchMessageId] = useState(searchTarget?.messageId ?? null);
-  const missingSearch = useGeneratedSearchJump(
-    transcriptRef,
-    searchMessageId,
-    conversation.isSuccess && !conversation.isFetching,
-    history,
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [jumpRequest, setJumpRequest] = useState(
+    searchTarget ? { messageId: searchTarget.messageId, revision: 0 } : undefined,
   );
-  const selection = useGeneratedSelection(
-    { kind: 'persona', ownerId: personaId, sessionId: legacy ? null : sessionIdRef.current },
-    history,
-    Boolean((legacy || sessionIdRef.current) && history.some((item) => item.id)),
+  const viewId = useRef(`virtual:clone:persona:${personaId}:${sessionId ?? 'draft'}`).current;
+  const user = useMemo(() => cloneChatUser('self', '我', selfUin), [selfUin]);
+  const peer = useMemo(
+    () => cloneChatUser(personaId, persona.name, clonedUin, true),
+    [personaId, persona.name, clonedUin],
   );
-
-  const scrollTranscriptToBottom = useCallback((): void => {
-    if (searchMessageId) return;
-    const el = transcriptRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-    requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight;
-      requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-      });
-    });
-  }, [searchMessageId]);
+  const chatConversation = useMemo(
+    () =>
+      cloneChatConversation({
+        target: {
+          kind: 'persona',
+          ownerId: personaId,
+          sessionId: legacy ? null : currentSessionId,
+        },
+        viewId,
+        name: persona.name,
+        peer,
+      }),
+    [personaId, legacy, currentSessionId, viewId, persona.name, peer],
+  );
+  const messages = useMemo(
+    () =>
+      cloneChatMessages(history, viewId, (index) =>
+        history[index]?.role === 'user' ? user : peer,
+      ),
+    [history, viewId, user, peer],
+  );
+  const renderers = useMemo<MessageRenderer[]>(
+    () => [
+      {
+        id: 'generated-content',
+        match: () => true,
+        render: ({ message, mine }) => (
+          <AgentMessageContent
+            text={message.body}
+            faces={mine ? userFaces : faces}
+            personaId={mine ? undefined : personaId}
+          />
+        ),
+      },
+    ],
+    [userFaces, faces, personaId],
+  );
 
   // 首次加载持久化对话（真实会话）。
   useEffect(() => {
@@ -158,14 +173,11 @@ export function CloneChatPanel({
     }
   }, [conversation.data, conversation.isFetching, searchTarget, animating]);
 
-  useEffect(() => {
-    scrollTranscriptToBottom();
-  }, [history, chat.isLoading, scrollTranscriptToBottom]);
-
-  async function onSend(): Promise<void> {
-    if (legacy || !personaId || !input.trim() || chat.isLoading || animating) return;
-    setSearchMessageId(null);
-    const text = input.trim();
+  async function onSend(body: string): Promise<void> {
+    if (legacy || !personaId || chat.isLoading || animating) return;
+    const text = cloneChatInput(body, faces?.descToId ?? new Map()).trim();
+    if (!text) return;
+    setJumpRequest(undefined);
     setAnimating(true);
     setInput('');
     const nextHistory = [...history, { role: 'user' as const, text, ts: Date.now() }];
@@ -177,6 +189,7 @@ export function CloneChatPanel({
         const session = await createSession.mutateAsync({ personaId });
         id = session.id;
         sessionIdRef.current = id;
+        setCurrentSessionId(id);
         seeded.current = true; // 新会话无历史可 seed，别被首帧空对话覆盖本地 turns
         await utils.account.listAgentLabPersonaSessions.invalidate({ personaId });
         onSessionCreated(id);
@@ -185,6 +198,7 @@ export function CloneChatPanel({
       // 多会话兜底：后端重建了会话时采纳新 id。
       if (result.sessionId && result.sessionId !== id) {
         sessionIdRef.current = result.sessionId;
+        setCurrentSessionId(result.sessionId);
         onSessionCreated(result.sessionId);
       }
       // 首句标题 / 时间刷新由后端落库，这里让列表跟上。
@@ -228,151 +242,96 @@ export function CloneChatPanel({
       void utils.account.listAgentLabPersonas.invalidate();
       dialog.error('发送失败', error instanceof Error ? error.message : String(error));
       setHistory(history);
-      setInput(text);
+      throw error;
     } finally {
       setAnimating(false);
+      if (sessionIdRef.current)
+        void utils.account.getAgentLabPersonaSessionConversation.invalidate({
+          personaId,
+          sessionId: sessionIdRef.current,
+        });
     }
   }
 
   return (
-    <CloneConversation selectionMode={selection.selectionMode}>
-      <CloneConversationHeader
-        name={persona.name}
-        detail={modelLabel}
+    <>
+      <ChatPane
+        loadError={conversation.isError ? '记录加载失败' : undefined}
+        user={user}
+        conversation={chatConversation}
+        messages={messages}
+        messageRenderers={renderers}
+        loading={Boolean(
+          conversation.isFetching && !history.length && (initialSessionId || legacy),
+        )}
+        preference={undefined}
+        draft={input}
+        onDraftChange={(_id, value) => setInput(value)}
+        onDraftClear={() => setInput('')}
+        onSend={onSend}
         onBack={onBack}
-        actions={
-          <>
-            <CloneSearchButton
-              messages={history}
-              onJump={(id) => {
-                setSearchMessageId(id);
-                jumpToGeneratedMessage(transcriptRef.current, id);
-              }}
-            />
-            <CloneMessageActions
-              actions={[
-                {
-                  label: '导出',
-                  icon: <Download size={16} />,
-                  action: () => selection.exportConversation?.(),
-                  disabled: !selection.exportConversation,
-                },
-              ]}
-            />
-            <SessionSwitcher
-              sessions={sessionList.data ?? []}
-              activeSessionId={sessionIdRef.current}
-              draft={!legacy && !sessionIdRef.current}
-              loading={sessionList.isLoading}
-              disabled={legacy}
-              compact
-              onSwitch={onSwitchSession}
-              onNew={onNewSession}
-              onDelete={(target) => {
-                void (async () => {
-                  const ok = await dialog.confirm(
-                    '删除会话',
-                    '确认删除这段对话？删除后无法恢复。',
-                    {
-                      okLabel: '删除',
-                      tone: 'warning',
-                    },
-                  );
-                  // confirm 的 okLabel 已经写明是删除，不再二次确认。
-                  if (!ok) return;
-                  await deleteSession.mutateAsync({ personaId, sessionId: target });
-                  await utils.account.listAgentLabPersonaSessions.invalidate({ personaId });
-                  // 删的就是当前这段：退回新草稿，避免停在一个已不存在的会话上。
-                  if (sessionIdRef.current === target) onNewSession();
-                })();
-              }}
-            />
-            <button
-              type="button"
-              className="icon-button group-header-info-action"
-              onClick={onOpenSettings}
-              title="会话设置"
-              aria-label="克隆设置"
-            >
-              <Settings2 size={18} />
-            </button>
-          </>
+        sendAvailable={!legacy && !chat.isLoading && !animating}
+        readOnly={legacy}
+        sendBlockedReason={legacy ? '旧版对话（只读）' : '克隆体正在回复'}
+        settingsLabel="克隆体设置"
+        onOpenConversationSettings={onOpenSettings}
+        onSearchChatRecords={() => setSearchOpen(true)}
+        jumpRequest={jumpRequest}
+        headerActions={
+          <SessionSwitcher
+            sessions={sessionList.data ?? []}
+            activeSessionId={sessionIdRef.current}
+            draft={!legacy && !sessionIdRef.current}
+            loading={sessionList.isLoading}
+            disabled={legacy}
+            compact
+            onSwitch={onSwitchSession}
+            onNew={onNewSession}
+            onDelete={(target) => {
+              void (async () => {
+                const ok = await dialog.confirm('删除会话', '确认删除这段对话？删除后无法恢复。', {
+                  okLabel: '删除',
+                  tone: 'warning',
+                });
+                // confirm 的 okLabel 已经写明是删除，不再二次确认。
+                if (!ok) return;
+                await deleteSession.mutateAsync({ personaId, sessionId: target });
+                await utils.account.listAgentLabPersonaSessions.invalidate({ personaId });
+                // 删的就是当前这段：退回新草稿，避免停在一个已不存在的会话上。
+                if (sessionIdRef.current === target) onNewSession();
+              })();
+            }}
+          />
         }
       />
-
-      <div
-        className="message-scroll"
-        {...selection.rootProps}
-        ref={(element) => {
-          transcriptRef.current = element;
-          selection.rootProps.ref(element);
-        }}
-      >
-        <GeneratedSearchNotice
-          missing={missingSearch}
-          error={Boolean(searchMessageId && conversation.isError)}
+      {searchOpen ? (
+        <ChatRecordsModal
+          fixed
+          initialKeyword=""
+          initialHit={{
+            category: 'chatRecord',
+            source: 'buddy',
+            partition: viewId,
+            targetUid: viewId,
+            targetUin: '',
+            name: persona.name,
+            count: messages.length,
+          }}
+          renderers={renderers}
+          localSource={{
+            conversation: chatConversation,
+            messages,
+            user,
+            onJump: (id) =>
+              setJumpRequest((request) => ({
+                messageId: id,
+                revision: (request?.revision ?? 0) + 1,
+              })),
+          }}
+          onClose={() => setSearchOpen(false)}
+          onJumpMessage={() => {}}
         />
-        {searchMessageId && conversation.isFetching ? (
-          <div className="weq-agentlab-empty">加载记录中…</div>
-        ) : history.length === 0 ? (
-          <EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
-        ) : (
-          history.map((item, index) => {
-            const prevTs = index > 0 ? history[index - 1]?.ts : undefined;
-            const bubble =
-              item.role === 'user' ? (
-                <ChatBubble
-                  mine
-                  name="我"
-                  uin={selfUin}
-                  text={item.text}
-                  faces={userFaces}
-                  conversationStyle
-                  messageId={item.id}
-                  selectionMode={selection.selectionMode}
-                  selected={selection.selected(item.id)}
-                  onSelect={item.id ? () => selection.selectMessage(item.id) : undefined}
-                />
-              ) : (
-                <ChatBubble
-                  mine={false}
-                  bot
-                  conversationStyle
-                  messageId={item.id}
-                  selectionMode={selection.selectionMode}
-                  selected={selection.selected(item.id)}
-                  onSelect={item.id ? () => selection.selectMessage(item.id) : undefined}
-                  name={persona.name}
-                  uin={clonedUin}
-                  text={item.text}
-                  faces={faces}
-                  personaId={personaId}
-                  onMediaLoad={scrollTranscriptToBottom}
-                />
-              );
-            return (
-              <div
-                key={item.id ?? `${item.role}-${index}`}
-                {...selection.itemProps(item.id)}
-                data-generated-message-id={item.id}
-                className={`weq-generated-message${item.id === searchMessageId ? ' is-search-hit' : ''}${selection.selected(item.id) ? ' is-selected' : ''}`}
-              >
-                {shouldShowChatTime(prevTs, item.ts) ? <ChatTimeDivider ts={item.ts} /> : null}
-                {bubble}
-              </div>
-            );
-          })
-        )}
-      </div>
-      <CloneComposer
-        selectionBar={selection.toolbar}
-        inputRef={composerRef}
-        value={input}
-        onChange={setInput}
-        onSend={() => void onSend()}
-        disabled={legacy}
-        busy={chat.isLoading || animating}
-      />
-    </CloneConversation>
+      ) : null}
+    </>
   );
 }
