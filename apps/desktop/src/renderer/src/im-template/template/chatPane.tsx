@@ -425,6 +425,7 @@ export function ChatPane({
   onReadCurrentConversation,
   preference,
   onLoadMoreGroupMembers,
+  onAddGroupMember,
   groupMembersLoading,
   groupMembersError,
   groupMemberSearch,
@@ -512,6 +513,7 @@ export function ChatPane({
   onReadCurrentConversation?: (conversation: Conversation) => void;
   preference: ConversationPreference | undefined;
   onLoadMoreGroupMembers?: () => void;
+  onAddGroupMember?: () => void;
   groupMembersLoading?: boolean;
   groupMembersError?: string | null;
   /** 群资料面板的群内成员搜索（服务端搜全群）—— 关键字、命中成员与分页状态。 */
@@ -5478,6 +5480,7 @@ export function ChatPane({
               onOpenMember={onOpenGroupMember}
               onMemberContextMenu={!selectionMode && !generated ? openAvatarMenu : undefined}
               onLoadMoreMembers={onLoadMoreGroupMembers}
+              onAddMember={onAddGroupMember}
               loadingMoreMembers={groupMembersLoading}
               loadingError={groupMembersError}
               memberSearch={groupMemberSearch}

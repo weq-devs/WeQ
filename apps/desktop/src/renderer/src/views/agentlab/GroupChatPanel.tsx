@@ -27,6 +27,7 @@ import {
 import { SessionSwitcher } from './SessionSwitcher';
 import type { AgentLabGroupMessage } from '@weq/agentlab';
 import type { GeneratedSearchHit } from '../../components/search/types';
+import '../../styles/clone-group-members.css';
 
 interface PersonaLite {
   id: string;
@@ -51,6 +52,8 @@ export function GroupChatPanel({
   onSessionCreated,
   onSwitchSession,
   onNewSession,
+  onOpenPersonaSettings,
+  personaSettingsOpen = false,
 }: {
   groupId: string;
   /** 真实会话 id；null = 草稿会话（首条消息才落库建会话）。 */
@@ -68,6 +71,8 @@ export function GroupChatPanel({
   /** 切到同一群的另一段会话。 */
   onSwitchSession: (sessionId: string) => void;
   onNewSession: () => void;
+  onOpenPersonaSettings?: (personaId: string) => void;
+  personaSettingsOpen?: boolean;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
@@ -99,6 +104,10 @@ export function GroupChatPanel({
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [addingMembers, setAddingMembers] = useState(false);
+  const [candidateKeyword, setCandidateKeyword] = useState('');
+  const [pendingMemberId, setPendingMemberId] = useState<string | null>(null);
+  const addingMember = useRef(false);
   const [settingsSection, setSettingsSection] = useState<'members' | 'management'>('members');
   const seenIds = useRef<Set<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
@@ -234,10 +243,14 @@ export function GroupChatPanel({
 
   async function onClear(): Promise<void> {
     if (legacy) return;
-    const ok = await dialog.confirm('清空群聊', '确认清空这个群的聊天记录？', {
-      okLabel: '清空',
-      tone: 'warning',
-    });
+    const ok = await dialog.confirm(
+      '清空当前对话',
+      '仅清空当前这段群聊对话的消息，保留其他历史对话、群聊和成员。此操作无法恢复。',
+      {
+        okLabel: '清空',
+        tone: 'warning',
+      },
+    );
     if (!ok) return;
     const sid = sessionIdRef.current;
     if (sid) {
@@ -248,13 +261,21 @@ export function GroupChatPanel({
     seenIds.current.clear();
   }
 
-  /** 删除群会话：确认 → 后端删（含消息）→ 若删的是当前会话则换新草稿。 */
   async function onAddMember(personaId: string): Promise<void> {
+    if (busy || addingMember.current) return;
+    addingMember.current = true;
+    setPendingMemberId(personaId);
     try {
       await addMember.mutateAsync({ groupId, personaId });
-      await utils.account.getAgentLabGroupDetail.invalidate({ groupId });
+      await Promise.all([
+        utils.account.getAgentLabGroupDetail.invalidate({ groupId }),
+        utils.account.listAgentLabGroups.invalidate(),
+      ]);
     } catch (e) {
       dialog.error('添加失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      addingMember.current = false;
+      setPendingMemberId(null);
     }
   }
 
@@ -272,12 +293,22 @@ export function GroupChatPanel({
     () => personaList.filter((p) => !members.some((m) => m.memberId === p.id)),
     [personaList, members],
   );
+  const candidateQuery = candidateKeyword.trim().toLocaleLowerCase();
+  const candidates = outsiders.filter((persona) =>
+    [persona.name, persona.sourceUin, profileByUid.get(persona.sourceId)?.uin].some((value) =>
+      value?.toLocaleLowerCase().includes(candidateQuery),
+    ),
+  );
 
   async function onDelete(): Promise<void> {
-    const ok = await dialog.confirm('删除群聊', '确认删除这个群聊？聊天记录会一并删除。', {
-      okLabel: '删除',
-      tone: 'warning',
-    });
+    const ok = await dialog.confirm(
+      '删除整个群聊',
+      '删除这个克隆群及其全部历史对话。不会删除成员对应的克隆体。此操作无法恢复。',
+      {
+        okLabel: '删除',
+        tone: 'warning',
+      },
+    );
     if (!ok) return;
     await del.mutateAsync({ groupId });
     await utils.account.listAgentLabGroups.invalidate();
@@ -344,6 +375,12 @@ export function GroupChatPanel({
         loadError={conversation.isError ? '记录加载失败' : undefined}
         user={user}
         conversation={chatConversation}
+        onAddGroupMember={() => {
+          setSettingsSection('members');
+          setAddingMembers(true);
+          setCandidateKeyword('');
+          setMembersOpen(true);
+        }}
         messages={messages}
         messageRenderers={renderers}
         loading={Boolean(
@@ -372,6 +409,15 @@ export function GroupChatPanel({
             compact
             onSwitch={onSwitchSession}
             onNew={onNewSession}
+            onClear={
+              !legacy && currentSessionId
+                ? () =>
+                    void onClear().catch((error: unknown) =>
+                      dialog.error('清空失败', String(error)),
+                    )
+                : undefined
+            }
+            clearDisabled={busy || clear.isLoading}
             onDelete={(target) => {
               void (async () => {
                 if (
@@ -418,7 +464,7 @@ export function GroupChatPanel({
         />
       ) : null}
 
-      {membersOpen ? (
+      {membersOpen && !personaSettingsOpen ? (
         <ConversationSettingsFrame<'members' | 'management'>
           title="克隆群聊设置"
           subtitle={groupName}
@@ -438,81 +484,120 @@ export function GroupChatPanel({
           </div>
           <div className="weq-cvs-body-scroll">
             {settingsSection === 'members' ? (
-              <>
-                <div className="weq-agentlab-field">
+              <div className="weq-agentlab-field">
+                <div className="weq-clone-member-toolbar">
                   <span>群内克隆体（{personaMembers.length}）</span>
-                  <div className="weq-group-members">
-                    {personaMembers.length === 0 ? (
-                      <div className="weq-agentlab-empty">群里还没有克隆体。</div>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft"
+                    aria-expanded={addingMembers}
+                    onClick={() => setAddingMembers((value) => !value)}
+                  >
+                    <UserPlus size={14} />
+                    添加成员
+                  </button>
+                </div>
+                <p className="weq-persona-note">
+                  成员增删立即生效；成员配置由该克隆体的所有私聊和群聊共用。
+                </p>
+                {addingMembers ? (
+                  <section className="weq-clone-member-candidates" aria-label="可添加的克隆体">
+                    <input
+                      className="weq-set-input"
+                      aria-label="搜索可添加的克隆体"
+                      placeholder="搜索克隆体名称或 QQ 号"
+                      value={candidateKeyword}
+                      onChange={(event) => setCandidateKeyword(event.target.value)}
+                    />
+                    {outsiders.length === 0 ? (
+                      <p className="weq-persona-note">
+                        {personaList.length === 0
+                          ? '还没有克隆体，请先在消息列表的新建菜单中创建好友克隆。'
+                          : '所有已创建的克隆体都已在群内。'}
+                      </p>
+                    ) : candidates.length === 0 ? (
+                      <p className="weq-persona-note">没有匹配的克隆体。</p>
                     ) : (
-                      personaMembers.map((m) => {
-                        const meta = metaFor(m.memberId, 'persona', m.displayName);
-                        return (
-                          <div key={m.memberId} className="weq-group-member">
-                            <QqAvatar uin={meta.uin} size={34} />
+                      <div className="weq-group-members">
+                        {candidates.map((persona) => (
+                          <div key={persona.id} className="weq-group-member">
+                            <QqAvatar
+                              uin={profileByUid.get(persona.sourceId)?.uin || persona.sourceUin}
+                              size={34}
+                            />
                             <span className="weq-group-member-text">
-                              <strong>{m.displayName}</strong>
+                              <strong>{persona.name}</strong>
                             </span>
                             <button
                               type="button"
                               className="weq-persona-memforget"
-                              title="踢出群聊"
-                              onClick={() => void onKickMember(m.memberId)}
+                              title={`添加 ${persona.name}`}
+                              disabled={busy || pendingMemberId !== null}
+                              onClick={() => void onAddMember(persona.id)}
+                              aria-busy={pendingMemberId === persona.id}
                             >
-                              <UserMinus size={14} />
+                              <UserPlus size={14} />
                             </button>
                           </div>
-                        );
-                      })
+                        ))}
+                      </div>
                     )}
-                  </div>
-                </div>
-
-                {outsiders.length > 0 ? (
-                  <div className="weq-agentlab-field">
-                    <span>添加克隆体</span>
-                    <div className="weq-group-members">
-                      {outsiders.map((p) => (
-                        <div key={p.id} className="weq-group-member">
-                          <QqAvatar
-                            uin={profileByUid.get(p.sourceId)?.uin || p.sourceUin}
-                            size={34}
-                          />
+                  </section>
+                ) : null}
+                <div className="weq-group-members">
+                  {personaMembers.length === 0 ? (
+                    <div className="weq-agentlab-empty">群里还没有克隆体。</div>
+                  ) : (
+                    personaMembers.map((m) => {
+                      const meta = metaFor(m.memberId, 'persona', m.displayName);
+                      return (
+                        <div key={m.memberId} className="weq-group-member">
+                          <QqAvatar uin={meta.uin} size={34} />
                           <span className="weq-group-member-text">
-                            <strong>{p.name}</strong>
+                            <strong>{m.displayName}</strong>
                           </span>
+                          {onOpenPersonaSettings && personasById.has(m.memberId) ? (
+                            <button
+                              type="button"
+                              className="weq-persona-memforget"
+                              title={`设置克隆体 ${m.displayName}`}
+                              onClick={() => onOpenPersonaSettings(m.memberId)}
+                            >
+                              <Settings2 size={14} />
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             className="weq-persona-memforget"
-                            title="加入群聊"
-                            onClick={() => void onAddMember(p.id)}
+                            title="移出当前群（保留克隆体）"
+                            disabled={busy || removeMember.isLoading || pendingMemberId !== null}
+                            onClick={() => void onKickMember(m.memberId)}
                           >
-                            <UserPlus size={14} />
+                            <UserMinus size={14} />
                           </button>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
             ) : (
-              <div className="weq-clone-actions">
+              <div className="weq-persona-form">
+                <p className="weq-persona-note">
+                  删除整个群及全部历史对话，不会删除成员对应的克隆体。仅清空或删除某段对话请使用标题栏的历史会话菜单。
+                </p>
                 <button
                   type="button"
                   className="weq-set-btn weq-set-btn-soft"
-                  disabled={legacy || busy}
-                  onClick={() => void onClear()}
-                >
-                  清空聊天记录
-                </button>
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-soft"
-                  disabled={busy}
-                  onClick={() => void onDelete()}
+                  disabled={busy || del.isLoading}
+                  onClick={() =>
+                    void onDelete().catch((error: unknown) =>
+                      dialog.error('删除失败', String(error)),
+                    )
+                  }
                 >
                   <Trash2 size={14} />
-                  删除群聊
+                  删除整个群聊
                 </button>
               </div>
             )}

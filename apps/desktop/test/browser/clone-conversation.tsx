@@ -58,10 +58,15 @@ function Fixture() {
         <GroupChatPanel
           {...shared}
           groupId="g"
-          personaList={[persona]}
+          personaList={[
+            persona,
+            { ...persona, id: 'p2', name: '合成新成员', sourceId: 'u_new', sourceUin: '20002' },
+          ]}
           profileByUid={new Map()}
           faceDescToId={new Map()}
           onDeleted={noop}
+          onOpenPersonaSettings={() => setSettings(true)}
+          personaSettingsOpen={settings}
         />
       ) : (
         <CloneChatPanel
@@ -76,7 +81,8 @@ function Fixture() {
       {settings ? (
         <PersonaSettingsModal
           persona={persona}
-          paramsContent={<CloneGenerationPanel persona={persona} onSaved={noop} />}
+          fromGroup={group}
+          replyContent={<CloneGenerationPanel persona={persona} onSaved={noop} />}
           onClose={() => setSettings(false)}
           onSaved={noop}
         />

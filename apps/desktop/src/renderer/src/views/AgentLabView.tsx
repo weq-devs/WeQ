@@ -134,8 +134,8 @@ function PersonaParamsPanel({
   loading: boolean;
   detail: PersonaParamsDetail | null;
 }): ReactElement {
-  if (loading) return <div className="weq-agentlab-params">加载画像参数中…</div>;
-  if (!detail) return <div className="weq-agentlab-params">暂无画像参数。</div>;
+  if (loading) return <div className="weq-agentlab-params">加载画像中…</div>;
+  if (!detail) return <div className="weq-agentlab-params">暂无画像。</div>;
   const { stats, profile, fewShots } = detail.persona;
   const card = profile.card;
   const deep = profile.deep;
@@ -145,7 +145,7 @@ function PersonaParamsPanel({
   return (
     <div className="weq-agentlab-params">
       <div className="weq-pp-head">
-        <strong className="weq-pp-title">画像参数</strong>
+        <strong className="weq-pp-title">画像与样本</strong>
         <span className={`weq-pp-badge${profile.extractedByLlm ? ' is-llm' : ' is-fallback'}`}>
           {profile.extractedByLlm ? 'LLM 提炼' : '启发式兜底（未调用 LLM 或失败）'}
         </span>
@@ -573,6 +573,7 @@ export function AgentLabView({
   const cloneTasks = allCloneTasks.filter((task) => task.accountId === accountId);
   const [viewTaskId, setViewTaskId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [memberSettingsId, setMemberSettingsId] = useState<string | null>(null);
   const [mobileListOpen, setMobileListOpen] = useState(false);
   useEffect(() => setMobileListOpen(false), [sel]);
   // 递增序号，用来给每次「打开克隆体 / 群聊 / 会话」生成一个不重复的挂载 key（见 Selection.navKey）。
@@ -604,6 +605,9 @@ export function AgentLabView({
 
   const activePersona =
     sel.kind === 'persona' ? (personaList.find((item) => item.id === sel.id) ?? null) : null;
+  const settingsPersona = memberSettingsId
+    ? (personaList.find((item) => item.id === memberSettingsId) ?? null)
+    : activePersona;
   const clonedProfile = activePersona ? profileByUid.get(activePersona.sourceId) : undefined;
   // 克隆体气泡的系统表情渲染上下文：用 TA 的 faceText 白名单 + 全局 faceText→id 映射。
   const cloneFaces: FaceContext | undefined = useMemo(
@@ -611,8 +615,8 @@ export function AgentLabView({
     [activePersona?.systemFaces, faceDescToId],
   );
   const personaDetail = trpc.account.getAgentLabPersonaDetail.useQuery(
-    { personaId: sel.kind === 'persona' ? sel.id : '' },
-    { enabled: settingsOpen && sel.kind === 'persona' },
+    { personaId: settingsPersona?.id ?? '' },
+    { enabled: settingsOpen && !!settingsPersona },
   );
 
   // 选中的 persona 被删除时回退到主页。
@@ -625,6 +629,7 @@ export function AgentLabView({
   /** 点克隆体 → 开一个新草稿会话（列表默认展示克隆体本身，点它即开启新会话）。 */
   function selectPersona(id: string): void {
     setSettingsOpen(false);
+    setMemberSettingsId(null);
     // 已在本克隆体的未落库草稿里：重复点击不重置（避免误触清掉正在输入的内容）。
     if (sel.kind === 'persona' && sel.id === id && sel.sessionId === null) return;
     navSeq.current += 1;
@@ -633,6 +638,8 @@ export function AgentLabView({
 
   /** 点群聊 → 开一个新草稿会话。 */
   function openGroup(id: string): void {
+    setSettingsOpen(false);
+    setMemberSettingsId(null);
     if (sel.kind === 'group' && sel.id === id && sel.sessionId === null) return;
     navSeq.current += 1;
     setSel({ kind: 'group', id, sessionId: null, navKey: navSeq.current });
@@ -792,19 +799,27 @@ export function AgentLabView({
   }
 
   async function onDeletePersona(): Promise<void> {
-    const personaId = sel.kind === 'persona' ? sel.id : '';
+    const personaId = settingsPersona?.id;
     if (!personaId) return;
-    const ok = await dialog.confirm('删除克隆', '确认删除当前克隆体？', {
-      okLabel: '删除',
-      cancelLabel: '返回',
-      tone: 'warning',
-    });
+    const ok = await dialog.confirm(
+      '删除克隆体',
+      `确认删除「${settingsPersona?.name}」及其全部私聊历史和记忆？此操作无法恢复，群聊中的既有消息会保留。`,
+      {
+        okLabel: '删除',
+        cancelLabel: '返回',
+        tone: 'warning',
+      },
+    );
     if (!ok) return;
     try {
-      await deletePersona.mutateAsync({ personaId });
+      const deleted = await deletePersona.mutateAsync({ personaId });
+      if (!deleted) throw new Error('克隆体删除失败');
       setSettingsOpen(false);
-      setSel({ kind: 'home' });
-      if (embedded) onBackToDirectory?.();
+      setMemberSettingsId(null);
+      if (sel.kind === 'persona' && sel.id === personaId) {
+        setSel({ kind: 'home' });
+        if (embedded) onBackToDirectory?.();
+      }
       await utils.account.listAgentLabPersonas.invalidate();
       dialog.success('已删除');
     } catch (error) {
@@ -1038,6 +1053,11 @@ export function AgentLabView({
             onSessionCreated={(sessionId) => onGroupSessionCreated(sel.id, sel.navKey, sessionId)}
             onSwitchSession={(sessionId) => onSwitchGroupSession(sel.id, sessionId)}
             onNewSession={() => onNewGroupSession(sel.id)}
+            onOpenPersonaSettings={(personaId) => {
+              setMemberSettingsId(personaId);
+              setSettingsOpen(true);
+            }}
+            personaSettingsOpen={settingsOpen && !!memberSettingsId}
           />
         ) : sel.kind === 'persona' && activePersona ? (
           <CloneChatPanel
@@ -1058,7 +1078,10 @@ export function AgentLabView({
             onSessionCreated={(sessionId) => onPersonaSessionCreated(sel.id, sel.navKey, sessionId)}
             onSwitchSession={(sessionId) => onSwitchPersonaSession(sel.id, sessionId)}
             onNewSession={() => onNewPersonaSession(sel.id)}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={() => {
+              setMemberSettingsId(null);
+              setSettingsOpen(true);
+            }}
           />
         ) : (
           <div className="weq-agentlab-chat">
@@ -1095,29 +1118,45 @@ export function AgentLabView({
         />
       ) : null}
 
-      {settingsOpen && activePersona ? (
+      {settingsOpen && settingsPersona ? (
         <PersonaSettingsModal
-          persona={activePersona}
+          key={settingsPersona.id}
+          persona={settingsPersona}
+          fromGroup={!!memberSettingsId}
           onDelete={() => void onDeletePersona()}
           deleting={deletePersona.isLoading}
-          paramsContent={
+          replyContent={
+            <CloneGenerationPanel
+              key={settingsPersona.id}
+              persona={settingsPersona}
+              onSaved={() => {
+                void utils.account.listAgentLabPersonas.invalidate();
+                void utils.account.getAgentLabPersonaDetail.invalidate();
+              }}
+            />
+          }
+          profileContent={
             <>
-              <CloneGenerationPanel
-                key={activePersona.id}
-                persona={activePersona}
-                onSaved={() => {
-                  void utils.account.listAgentLabPersonas.invalidate();
-                  void utils.account.getAgentLabPersonaDetail.invalidate();
-                }}
-              />
+              <Row label="训练检索模型">
+                {selectionLabel(settingsPersona.models?.embedding, '未使用')}
+              </Row>
+              <Row label="训练视觉模型">
+                {selectionLabel(settingsPersona.models?.vision, '未使用')}
+              </Row>
               <PersonaParamsPanel
                 loading={personaDetail.isLoading}
                 detail={personaDetail.data ?? null}
               />
             </>
           }
-          onClose={() => setSettingsOpen(false)}
-          onSaved={() => void utils.account.listAgentLabPersonas.invalidate()}
+          onClose={() => {
+            setSettingsOpen(false);
+            setMemberSettingsId(null);
+          }}
+          onSaved={() => {
+            void utils.account.listAgentLabPersonas.invalidate();
+            void utils.account.getAgentLabPersonaDetail.invalidate();
+          }}
         />
       ) : null}
     </div>

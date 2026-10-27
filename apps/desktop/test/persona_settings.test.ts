@@ -83,7 +83,20 @@ vi.mock('../src/renderer/src/views/agentlab/AssistantPanel', () => ({
   AssistantPanel: () => null,
 }));
 vi.mock('../src/renderer/src/views/agentlab/GroupChatPanel', () => ({
-  GroupChatPanel: () => null,
+  GroupChatPanel: ({
+    onOpenPersonaSettings,
+    personaSettingsOpen,
+  }: {
+    onOpenPersonaSettings: (id: string) => void;
+    personaSettingsOpen: boolean;
+  }) =>
+    h(
+      'div',
+      null,
+      h('span', null, '原群聊仍在'),
+      h('button', { onClick: () => onOpenPersonaSettings(f.persona.id) }, '成员配置'),
+      personaSettingsOpen ? '成员设置已打开' : '群设置',
+    ),
 }));
 
 beforeEach(() => {
@@ -121,11 +134,14 @@ it('实际克隆会话在样本数后显示画像时间，设置包含更新、�
     expect(button('删除克隆体')).toBeUndefined();
     act(() => button('设置').click());
     expect(button('更新画像')).toBeDefined();
-    expect(button('删除克隆体')).toBeDefined();
+    expect(button('删除克隆体')).toBeUndefined();
+    act(() => button('回复设置').click());
     expect(document.querySelector('.weq-conversation-settings-pane')?.textContent).toContain(
       '模型与生成参数',
     );
     expect(document.querySelector('.weq-cvs-nav')?.textContent).toContain('克隆体设置');
+    act(() => button('克隆体管理').click());
+    expect(button('删除克隆体')).toBeDefined();
     f.confirm.mockResolvedValueOnce(false);
     await act(async () => button('删除克隆体').click());
     expect(f.remove).not.toHaveBeenCalled();
@@ -144,6 +160,41 @@ it('旧克隆回退已有更新时间，无效时间不显示错误日期', () =
   expect(personaUpdatedAt({ updatedAt })).toBe('10-27 02:03');
   expect(personaUpdatedAt({ updatedAt: 0 })).toBe('未知');
   expect(personaUpdatedAt({ updatedAt: Number.NaN })).toBe('未知');
+});
+
+it('从群成员打开克隆体设置，关闭后仍保留原群聊且不导航到私聊', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const back = vi.fn();
+  try {
+    await act(async () =>
+      root.render(
+        h(AgentLabView, {
+          embedded: true,
+          openTarget: { kind: 'group', id: 'synthetic-group', revision: 1 },
+          onBackToDirectory: back,
+        }),
+      ),
+    );
+    act(() =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent === '成员配置')!
+        .click(),
+    );
+    const pane = document.querySelector<HTMLElement>('.weq-conversation-settings-pane')!;
+    expect(pane.textContent).toContain('所有私聊和群聊');
+    expect(pane.textContent).toContain(f.persona.name);
+    expect(host.textContent).toContain('原群聊仍在');
+    expect(host.textContent).toContain('成员设置已打开');
+    await act(async () => pane.querySelector<HTMLButtonElement>('.weq-cvs-close')!.click());
+    expect(document.querySelector('.weq-conversation-settings-pane')).toBeNull();
+    expect(host.textContent).toContain('原群聊仍在');
+    expect(host.textContent).toContain('群设置');
+    expect(back).not.toHaveBeenCalled();
+  } finally {
+    act(() => root.unmount());
+  }
 });
 
 it('聊天头部不再包含克隆体删除入口', () => {

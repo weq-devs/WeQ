@@ -11,8 +11,7 @@ import {
 import { trpc } from '../../trpc/client';
 import { Row, Toggle } from './controls';
 import { ApiModelSelect } from './ApiModelSelect';
-import { useModelSelectionLabel } from './useModelSelectionLabel';
-import { useDraftProtection } from '../../lib/draftClose';
+import { useCloneSettingsSection } from '../../views/agentlab/cloneSettingsDraft';
 import { useDialog } from '../Dialog';
 import '../../styles/model-settings.css';
 
@@ -24,7 +23,6 @@ export function CloneGenerationPanel({
   onSaved: () => void;
 }) {
   const current = normalizeCloneGeneration(persona.generation);
-  const modelLabel = useModelSelectionLabel();
   const [model, setModel] = useState(persona.models?.chat ?? null);
   const [draft, setDraft] = useState(() =>
     Object.fromEntries(CLONE_GENERATION_KEYS.map((key) => [key, String(current[key])])),
@@ -33,7 +31,6 @@ export function CloneGenerationPanel({
   const [temperature, setTemperature] = useState(String(current.temperature ?? 0.8));
   const update = trpc.account.updateAgentLabPersona.useMutation();
   const showError = useDialog((s) => s.showError);
-  const guard = useDraftProtection({ model, draft, adaptive, temperature }, update.isLoading);
   const valid =
     !!model &&
     CLONE_GENERATION_KEYS.every((key) => {
@@ -48,12 +45,22 @@ export function CloneGenerationPanel({
         Number.isFinite(Number(temperature)) &&
         Number(temperature) >= 0 &&
         Number(temperature) <= 2));
+  const generation = Object.fromEntries(
+    CLONE_GENERATION_KEYS.map((key) => [key, Number(draft[key])]),
+  ) as Omit<AgentLabGenerationConfig, 'temperature'>;
+  const guard = useCloneSettingsSection(
+    'generation',
+    { model, draft, adaptive, temperature },
+    {
+      ...(model ? { chatModel: model } : {}),
+      generation: { ...generation, temperature: adaptive ? null : Number(temperature) },
+    },
+    valid,
+    update.isLoading,
+  );
   async function save() {
     if (!valid || !model || update.isLoading) return;
     try {
-      const generation = Object.fromEntries(
-        CLONE_GENERATION_KEYS.map((key) => [key, Number(draft[key])]),
-      ) as Omit<AgentLabGenerationConfig, 'temperature'>;
       const result = await update.mutateAsync({
         personaId: persona.id,
         chatModel: model,
@@ -87,14 +94,6 @@ export function CloneGenerationPanel({
       <details className="weq-model-advanced">
         <summary>高级设置</summary>
         <div className="weq-clone-generation-fields">
-          <Row
-            label="训练检索模型"
-            control={<span>{modelLabel(persona.models?.embedding, '未使用')}</span>}
-          />
-          <Row
-            label="训练视觉模型"
-            control={<span>{modelLabel(persona.models?.vision, '未使用')}</span>}
-          />
           {CLONE_GENERATION_KEYS.map((key) => (
             <Row
               key={key}
@@ -150,20 +149,22 @@ export function CloneGenerationPanel({
           ) : null}
         </div>
       </details>
-      <Row
-        label={null}
-        control={
-          <button
-            type="button"
-            className="weq-set-btn"
-            disabled={!valid || update.isLoading}
-            onClick={() => void save()}
-          >
-            <Save size={14} />
-            保存
-          </button>
-        }
-      />
+      {!guard.managed ? (
+        <Row
+          label={null}
+          control={
+            <button
+              type="button"
+              className="weq-set-btn"
+              disabled={!valid || update.isLoading}
+              onClick={() => void save()}
+            >
+              <Save size={14} />
+              保存
+            </button>
+          }
+        />
+      ) : null}
     </div>
   );
 }

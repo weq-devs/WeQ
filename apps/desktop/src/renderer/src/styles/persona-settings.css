@@ -7,6 +7,46 @@
   padding: 12px 18px;
   border-bottom: 1px solid var(--weq-border-subtle);
 }
+.weq-persona-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.weq-persona-fields input[type='checkbox'],
+.weq-persona-fields input[type='range'] {
+  accent-color: var(--weq-accent-effective);
+}
+.weq-persona-scope {
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.weq-persona-savebar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding: 10px 16px;
+  border-top: 1px solid var(--weq-border-subtle);
+  background: var(--weq-bg-surface);
+}
+.weq-persona-savebar [role='status'] {
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+}
+.weq-persona-savebar button {
+  flex: none;
+  min-height: 30px;
+}
+html[data-theme='dark'] .weq-persona-savebar {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
 .weq-conversation-settings-pane .weq-persona-management {
   justify-content: flex-start;
   padding: 0 0 10px;

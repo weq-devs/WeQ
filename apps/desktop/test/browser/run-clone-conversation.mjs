@@ -158,7 +158,7 @@ try {
       await page.locator('.weq-conversation-settings-pane .weq-cvs-nav').waitFor();
       await page
         .locator('.weq-cvs-nav-item')
-        .filter({ hasText: kind === 'group' ? '群聊管理' : '额外提示' })
+        .filter({ hasText: kind === 'group' ? '群聊管理' : '回复设置' })
         .click();
       const settingsFit = await page
         .locator('.weq-window-surface.weq-conversation-settings-pane')
@@ -175,6 +175,76 @@ try {
       if (!settingsFit) throw new Error('共用设置窗格溢出');
       if (output)
         await page.screenshot({ path: resolve(output, `${kind}-${theme}-${width}-settings.png`) });
+      if (kind === 'group') {
+        await page.locator('.weq-cvs-nav-item').filter({ hasText: '群成员' }).click();
+        const memberPane = page.locator('.weq-conversation-settings-pane');
+        const addMembers = memberPane.getByRole('button', { name: '添加成员', exact: true });
+        if ((await addMembers.getAttribute('aria-expanded')) === 'false') await addMembers.click();
+        const picker = memberPane.getByRole('region', { name: '可添加的克隆体' });
+        await picker.getByLabel('搜索可添加的克隆体').fill('合成新');
+        if (output)
+          await page.screenshot({
+            path: resolve(output, `${kind}-${theme}-${width}-add-member.png`),
+          });
+        await picker.getByTitle('添加 合成新成员', { exact: true }).click();
+        await memberPane
+          .locator('.weq-group-member')
+          .filter({ hasText: '合成新成员' })
+          .getByTitle('移出当前群（保留克隆体）')
+          .waitFor();
+        if (await picker.getByTitle('添加 合成新成员', { exact: true }).count())
+          throw new Error('加入后仍出现在添加候选中');
+        await memberPane
+          .locator('.weq-group-member')
+          .filter({ hasText: '合成新成员' })
+          .getByTitle('移出当前群（保留克隆体）')
+          .click();
+        await page.getByTitle('设置克隆体 合成好友', { exact: true }).click();
+        await page.getByText('以下修改影响此克隆体的所有私聊和群聊，不仅限于当前群。').waitFor();
+        await page.locator('.weq-cvs-nav-item').filter({ hasText: '回复设置' }).click();
+        if (output)
+          await page.screenshot({
+            path: resolve(output, `${kind}-${theme}-${width}-member-settings.png`),
+          });
+        await page.locator('.weq-cvs-close').click();
+        await page
+          .locator('.weq-cvs-nav-head strong')
+          .filter({ hasText: '克隆群聊设置' })
+          .waitFor();
+      } else {
+        for (const section of [
+          '人格与画像',
+          '回复设置',
+          '语音',
+          '对我的记忆',
+          '导出与部署',
+          '克隆体管理',
+        ]) {
+          await page.locator('.weq-cvs-nav-item').filter({ hasText: section }).click();
+          const sectionFits = await page
+            .locator('.weq-cvs-body-scroll')
+            .evaluate((node) => node.scrollWidth <= node.clientWidth);
+          if (!sectionFits) throw new Error(`设置分类横向溢出：${section} / ${theme} / ${width}`);
+          if (
+            output &&
+            ((theme === 'dark' && width === 1280) || (theme === 'light' && width === 390))
+          )
+            await page.screenshot({
+              path: resolve(output, `${kind}-${theme}-${width}-${section}.png`),
+            });
+        }
+        const footerFit = await page.locator('.weq-persona-savebar').evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return (
+            rect.width > 0 &&
+            rect.height >= 30 &&
+            rect.bottom <= innerHeight &&
+            rect.right <= innerWidth &&
+            node.scrollWidth <= node.clientWidth
+          );
+        });
+        if (!footerFit) throw new Error('统一保存栏溢出');
+      }
       await page.locator('.weq-cvs-close').click();
       if (kind === 'group') {
         await page.locator('.composer-editor').fill('@');
@@ -252,10 +322,23 @@ try {
       throw new Error('发送未适配到克隆后端');
     if (
       sent.some(
-        (call) => !['sendAgentLabGroupMessage', 'chatWithAgentLabPersona'].includes(call.name),
+        (call) =>
+          ![
+            'sendAgentLabGroupMessage',
+            'chatWithAgentLabPersona',
+            'addAgentLabGroupMember',
+            'removeAgentLabGroupMember',
+          ].includes(call.name),
       )
     )
       throw new Error('克隆页面误调用未适配的写接口');
+    if (
+      kind === 'group' &&
+      sent
+        .filter((call) => call.name === 'addAgentLabGroupMember')
+        .some((call) => call.input.groupId !== 'g' || call.input.personaId !== 'p2')
+    )
+      throw new Error('添加成员身份不正确');
   }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(JSON.stringify({ results, errors }, null, 2));

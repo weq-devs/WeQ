@@ -8,6 +8,7 @@ import {
   Search,
   Sparkles,
   UserMinus,
+  UserPlus,
   X,
 } from 'lucide-react';
 import {
@@ -45,6 +46,7 @@ export function GroupInfoPanel({
   onOpenMember,
   onMemberContextMenu,
   onOpenLeftMembers,
+  onAddMember,
   onOpenAnnouncements,
   groupTodos,
   onOpenEssence,
@@ -80,6 +82,7 @@ export function GroupInfoPanel({
    * 模板层只递一个「用户点了我」的信号。
    */
   onOpenLeftMembers?: () => void;
+  onAddMember?: () => void;
   onMemberContextMenu?: (
     event: ReactMouseEvent,
     member: GroupConversationView['members'][number],
@@ -267,6 +270,17 @@ export function GroupInfoPanel({
               ? `${rows.length}/${memberSearch?.total ?? 0}`
               : conversation.group.memberCount}
           </strong>
+          {onAddMember ? (
+            <button
+              type="button"
+              className="icon-button weq-group-add-member"
+              title="添加成员"
+              aria-label="添加成员"
+              onClick={onAddMember}
+            >
+              <UserPlus size={16} />
+            </button>
+          ) : null}
           {onOpenLeftMembers ? (
             <button
               className={cn('group-info-left-members-button')}

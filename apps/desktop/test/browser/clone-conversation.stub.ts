@@ -54,9 +54,25 @@ const proxy = (path: string[] = []): unknown =>
       if (key === 'useMutation')
         return () => ({
           mutate: (input: unknown) => cloneRequests.push({ name: path.at(-1)!, input }),
-          mutateAsync: async (input: { text?: string }) => {
+          mutateAsync: async (input: { text?: string; personaId?: string; memberId?: string }) => {
             const name = path.at(-1)!;
             cloneRequests.push({ name, input });
+            if (name === 'addAgentLabGroupMember' || name === 'removeAgentLabGroupMember') {
+              const detail = data.getAgentLabGroupDetail as {
+                group: { id: string; name: string };
+                members: Array<{ memberId: string; kind: string; displayName: string }>;
+              };
+              data.getAgentLabGroupDetail = {
+                ...detail,
+                members:
+                  name === 'addAgentLabGroupMember'
+                    ? [
+                        ...detail.members,
+                        { memberId: input.personaId!, kind: 'persona', displayName: '合成新成员' },
+                      ]
+                    : detail.members.filter((member) => member.memberId !== input.memberId),
+              };
+            }
             if (name === 'chatWithAgentLabPersona') {
               data.getAgentLabPersonaSessionConversation = [
                 ...(data.getAgentLabPersonaSessionConversation as typeof turns),

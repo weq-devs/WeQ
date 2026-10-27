@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { Check, ChevronDown, History, MessageSquarePlus, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, History, MessageSquarePlus, Trash2, Eraser } from 'lucide-react';
 import type { AgentLabSession } from '@weq/service';
 import { OverlayLayer } from '../../components/OverlayLayer';
 import { useTabActive } from '../../components/RetainedTabs';
@@ -23,6 +23,8 @@ export function SessionSwitcher({
   onSwitch,
   onNew,
   onDelete,
+  onClear,
+  clearDisabled = false,
 }: {
   sessions: AgentLabSession[];
   /** 当前会话 id；null = 还没落库的草稿会话。 */
@@ -35,6 +37,8 @@ export function SessionSwitcher({
   onSwitch: (sessionId: string) => void;
   onNew: () => void;
   onDelete: (sessionId: string) => void;
+  onClear?: () => void;
+  clearDisabled?: boolean;
 }): ReactElement {
   const [open, setOpen] = useState(false);
   const tabActive = useTabActive();
@@ -92,6 +96,21 @@ export function SessionSwitcher({
               <MessageSquarePlus size={13} />
               新建会话
             </button>
+            {onClear ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="weq-session-switcher-new"
+                disabled={clearDisabled}
+                onClick={() => {
+                  setOpen(false);
+                  onClear();
+                }}
+              >
+                <Eraser size={13} />
+                清空当前对话
+              </button>
+            ) : null}
             <div className="weq-session-switcher-list">
               {loading && sessions.length === 0 ? (
                 <p className="weq-session-switcher-empty">读取会话中…</p>

@@ -12,6 +12,7 @@ it('会话选择脱离标题栏的裁切和层叠上下文，通过统一浮层�
   const root = createRoot(host);
   const open = vi.fn();
   const remove = vi.fn();
+  const clear = vi.fn();
   try {
     act(() =>
       root.render(
@@ -23,6 +24,7 @@ it('会话选择脱离标题栏的裁切和层叠上下文，通过统一浮层�
           onNew: vi.fn(),
           onSwitch: open,
           onDelete: remove,
+          onClear: clear,
         }),
       ),
     );
@@ -31,9 +33,20 @@ it('会话选择脱离标题栏的裁切和层叠上下文，通过统一浮层�
     expect(menu).not.toBeNull();
     expect(host.contains(menu)).toBe(false);
     expect(menu.closest('.weq-overlay-layer')?.parentElement).toBe(document.body);
-    act(() => menu.querySelector<HTMLButtonElement>('[aria-label="删除会话 合成会话"]')!.click());
+    act(() =>
+      [...menu.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent === '清空当前对话')!
+        .click(),
+    );
+    expect(clear).toHaveBeenCalledOnce();
+    expect(document.querySelector('[role="menu"][aria-label="会话列表"]')).toBeNull();
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="切换会话"]')!.click());
+    const reopened = document.querySelector<HTMLElement>('[role="menu"][aria-label="会话列表"]')!;
+    act(() =>
+      reopened.querySelector<HTMLButtonElement>('[aria-label="删除会话 合成会话"]')!.click(),
+    );
     expect(remove).toHaveBeenCalledWith('s');
-    act(() => menu.querySelector<HTMLButtonElement>('.weq-session-switcher-open')!.click());
+    act(() => reopened.querySelector<HTMLButtonElement>('.weq-session-switcher-open')!.click());
     expect(open).toHaveBeenCalledWith('s');
     expect(document.querySelector('[role="menu"][aria-label="会话列表"]')).toBeNull();
   } finally {
