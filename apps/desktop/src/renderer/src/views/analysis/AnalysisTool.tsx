@@ -554,22 +554,8 @@ function AnalysisToolForm({
         </aside>
 
         <div className="weq-analysis-objects">
-          {/*
-            加载中 / 已锁定对象但目录还没读到时，用同一张卡片 + 骨架占位：
-            卡片高度从一开始就是最终高度，列表读完的一刻不会跳。
-          */}
-          {source.isLoading || (lockedTarget && !source.isError && !validObject) ? (
-            <ObjectPicker
-              items={[]}
-              selected={null}
-              loading
-              title={pickerTitle}
-              onSelect={() => undefined}
-            />
-          ) : lockedTarget &&
-            validObject &&
-            (lockedTarget.kind !== 'member' || pickedMember) &&
-            !source.isError ? (
+          {/* 固定对象不经过选择器，加载与失败时也保留同一份对象摘要。 */}
+          {lockedTarget ? (
             <div className="weq-analysis-locked-target">
               <span className="weq-analysis-choice-avatar" aria-hidden>
                 {lockedTarget.kind === 'group' ? (
@@ -580,11 +566,34 @@ function AnalysisToolForm({
               </span>
               <strong>
                 {lockedTarget.kind === 'member'
-                  ? pickedMember?.name
-                  : (pickedFriend?.name ?? pickedGroup?.groupName)}
+                  ? pickedMember?.name || lockedTarget.memberUin || lockedTarget.memberUid
+                  : lockedTarget.kind === 'buddy'
+                    ? pickedFriend?.name || lockedTarget.peerUid
+                    : pickedGroup?.groupName || lockedTarget.groupCode}
               </strong>
               <small>{ANALYSIS_LABELS[lockedTarget.kind]}</small>
+              {source.isError ? (
+                <button
+                  type="button"
+                  className="weq-analysis-retry"
+                  onClick={() => void source.refetch()}
+                >
+                  <RotateCw size={14} /> 重试读取对象
+                </button>
+              ) : source.isLoading ? (
+                <small role="status">正在读取对象…</small>
+              ) : !validObject ? (
+                <p role="alert">本地目录中未找到此分析对象。</p>
+              ) : null}
             </div>
+          ) : source.isLoading ? (
+            <ObjectPicker
+              items={[]}
+              selected={null}
+              loading
+              title={pickerTitle}
+              onSelect={() => undefined}
+            />
           ) : (
             <>
               {kind === 'member' && !chooseGroup && pickedGroup ? (
@@ -606,8 +615,6 @@ function AnalysisToolForm({
                 >
                   <RotateCw size={14} /> 重试读取对象
                 </button>
-              ) : lockedTarget && lockedTarget.kind !== 'member' ? (
-                <p role="alert">本地目录中未找到此分析对象。</p>
               ) : (
                 <ObjectPicker
                   key={`${kind}:${kind === 'member' && !chooseGroup ? group : 'groups'}`}

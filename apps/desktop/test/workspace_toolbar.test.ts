@@ -141,6 +141,41 @@ beforeEach(() => {
 });
 
 describe('工作菜单与内容工具范围', () => {
+  it('会话右键分析请求固定对象，不展示会话选择器，时间范围仍可配置', () => {
+    const previousAccount = useViewState.getState().openedUin;
+    useViewState.setState({ openedUin: '10002' });
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const generate = vi.fn();
+    try {
+      act(() =>
+        root.render(
+          workspaceTools({
+            analysisRequest: { target: { kind: 'group', groupCode: '777' }, revision: 1 },
+            onOpenAnalysis: generate,
+          }),
+        ),
+      );
+      expect(document.querySelector('.weq-analysis-picker')).toBeNull();
+      expect(document.querySelector('[aria-label="报告类型"]')).toBeNull();
+      expect(document.querySelector('.weq-analysis-locked-target')?.textContent).toContain('777');
+      expect(document.querySelector('[aria-label="分析时间范围"]')).not.toBeNull();
+      expect(
+        [...document.querySelectorAll('button')].some((button) =>
+          button.textContent?.includes('生成报告'),
+        ),
+      ).toBe(true);
+      expect(generate).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      useViewState.setState({ openedUin: previousAccount });
+      vi.unstubAllGlobals();
+    }
+  });
   it('会话入口固定范围后，菜单分析沿用当前对象且不再显示选择器', () => {
     const previousAccount = useViewState.getState().openedUin;
     useViewState.setState({ openedUin: '10002' });

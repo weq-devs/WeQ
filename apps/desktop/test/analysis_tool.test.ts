@@ -279,6 +279,36 @@ it('读取分析对象时用骨架占位，卡片高度不塌也不闪空白', (
   }
 });
 
+it.each<AnalysisTarget>([
+  { kind: 'group', groupCode: '777' },
+  { kind: 'buddy', peerUid: 'u_friend_0' },
+])('已确定会话的入口在目录加载期间也不显示会话选择控件（$kind）', (target) => {
+  fixture.pending = true;
+  const f = mount(target);
+  try {
+    expect(f.host.querySelector('.weq-analysis-picker')).toBeNull();
+    expect(f.host.querySelector('.weq-analysis-search')).toBeNull();
+    expect(f.host.querySelector('.weq-analysis-locked-target')).not.toBeNull();
+    expect(f.host.querySelector('[aria-label="分析时间范围"]')).not.toBeNull();
+    expect(f.button('生成报告').disabled).toBe(true);
+    expect(f.generate).not.toHaveBeenCalled();
+  } finally {
+    f.close();
+  }
+});
+
+it('固定会话不在目录时明确提示，不停留在选择器骨架中', () => {
+  const f = mount({ kind: 'group', groupCode: '999' });
+  try {
+    expect(f.host.querySelector('.weq-analysis-picker')).toBeNull();
+    expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('未找到此分析对象');
+    expect(f.host.querySelector('[aria-label="分析时间范围"]')).not.toBeNull();
+    expect(f.button('生成报告').disabled).toBe(true);
+  } finally {
+    f.close();
+  }
+});
+
 it('日期解析拒绝溢出的自然日期，闭区间按北京时间而非默认时区', () => {
   expect(() => analysisDateRange('2026-02-31', '2026-03-01')).toThrow();
   expect(analysisDateRange('2026-10-18', '2026-10-18')).toEqual({
