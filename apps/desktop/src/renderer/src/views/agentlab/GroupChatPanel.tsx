@@ -25,6 +25,7 @@ import {
   cloneChatInput,
 } from './cloneChatAdapter';
 import { SessionSwitcher } from './SessionSwitcher';
+import { AddGroupMembersModal, type AddGroupMembersResult } from './AddGroupMembersModal';
 import type { AgentLabGroupMessage } from '@weq/agentlab';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import '../../styles/clone-group-members.css';
@@ -105,8 +106,7 @@ export function GroupChatPanel({
   const [busy, setBusy] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [addingMembers, setAddingMembers] = useState(false);
-  const [candidateKeyword, setCandidateKeyword] = useState('');
-  const [pendingMemberId, setPendingMemberId] = useState<string | null>(null);
+  const [addingMembersBusy, setAddingMembersBusy] = useState(false);
   const addingMember = useRef(false);
   const removingMember = useRef(false);
   const [settingsSection, setSettingsSection] = useState<'members' | 'management'>('members');
@@ -263,21 +263,37 @@ export function GroupChatPanel({
     seenIds.current.clear();
   }
 
-  async function onAddMember(personaId: string): Promise<void> {
-    if (busy || addingMember.current) return;
+  async function onAddMembers(personaIds: string[]): Promise<AddGroupMembersResult> {
+    if (busy || addingMember.current)
+      return { addedIds: [], error: '当前无法添加成员，请稍后重试。' };
     addingMember.current = true;
-    setPendingMemberId(personaId);
+    setAddingMembersBusy(true);
+    const result: AddGroupMembersResult = { addedIds: [] };
     try {
-      await addMember.mutateAsync({ groupId, personaId });
-      await Promise.all([
-        utils.account.getAgentLabGroupDetail.invalidate({ groupId }),
-        utils.account.listAgentLabGroups.invalidate(),
-      ]);
-    } catch (e) {
-      dialog.error('添加失败', e instanceof Error ? e.message : String(e));
+      for (const personaId of personaIds) {
+        try {
+          await addMember.mutateAsync({ groupId, personaId });
+          result.addedIds.push(personaId);
+        } catch (cause) {
+          const name = personaList.find((persona) => persona.id === personaId)?.name ?? '成员';
+          result.error = `添加「${name}」失败：${cause instanceof Error ? cause.message : String(cause)}`;
+          break;
+        }
+      }
+      if (result.addedIds.length > 0) {
+        try {
+          await Promise.all([
+            utils.account.getAgentLabGroupDetail.invalidate({ groupId }),
+            utils.account.listAgentLabGroups.invalidate(),
+          ]);
+        } catch {
+          result.error = `${result.error ? `${result.error}。` : ''}已添加的成员已生效，但列表刷新失败，请稍后重新打开群聊。`;
+        }
+      }
+      return result;
     } finally {
       addingMember.current = false;
-      setPendingMemberId(null);
+      setAddingMembersBusy(false);
     }
   }
 
@@ -307,17 +323,18 @@ export function GroupChatPanel({
     }
   }
 
-  // 还没进群的克隆体（可添加）。
-  const outsiders = useMemo(
-    () => personaList.filter((p) => !members.some((m) => m.memberId === p.id)),
-    [personaList, members],
-  );
-  const candidateQuery = candidateKeyword.trim().toLocaleLowerCase();
-  const candidates = outsiders.filter((persona) =>
-    [persona.name, persona.sourceUin, profileByUid.get(persona.sourceId)?.uin].some((value) =>
-      value?.toLocaleLowerCase().includes(candidateQuery),
-    ),
-  );
+  const memberOptions = useMemo(() => {
+    const options = personaList.map((persona) => ({
+      id: persona.id,
+      name: persona.name,
+      uin: profileByUid.get(persona.sourceId)?.uin || persona.sourceUin,
+    }));
+    for (const member of personaMembers) {
+      if (!options.some((option) => option.id === member.memberId))
+        options.push({ id: member.memberId, name: member.displayName, uin: undefined });
+    }
+    return options;
+  }, [personaList, personaMembers, profileByUid]);
 
   async function onDelete(): Promise<void> {
     const ok = await dialog.confirm(
@@ -450,14 +467,11 @@ export function GroupChatPanel({
         }}
         groupMemberSearch={memberSearch}
         onGroupMemberSearchChange={setMemberSearchKeyword}
+        onAddGroupMember={() => {
+          setAddingMembers(true);
+        }}
         profileLoading={detail.isLoading}
         groupMembersError={detail.isError ? '群成员加载失败' : undefined}
-        onAddGroupMember={() => {
-          setSettingsSection('members');
-          setAddingMembers(true);
-          setCandidateKeyword('');
-          setMembersOpen(true);
-        }}
         messages={messages}
         messageRenderers={renderers}
         loading={Boolean(
@@ -541,7 +555,19 @@ export function GroupChatPanel({
         />
       ) : null}
 
-      {membersOpen && !personaSettingsOpen ? (
+      {addingMembers ? (
+        <AddGroupMembersModal
+          groupName={groupName}
+          personas={memberOptions}
+          memberIds={personaMembers.map((member) => member.memberId)}
+          loading={detail.isLoading || detail.isFetching}
+          loadError={detail.isError ? '成员列表加载失败，请重新进入群聊后重试。' : undefined}
+          blocked={busy}
+          onAdd={onAddMembers}
+          onClose={() => setAddingMembers(false)}
+        />
+      ) : null}
+      {membersOpen && !personaSettingsOpen && !addingMembers ? (
         <ConversationSettingsFrame<'members' | 'management'>
           title="克隆群聊设置"
           subtitle={groupName}
@@ -567,8 +593,8 @@ export function GroupChatPanel({
                   <button
                     type="button"
                     className="weq-set-btn weq-set-btn-soft"
-                    aria-expanded={addingMembers}
-                    onClick={() => setAddingMembers((value) => !value)}
+                    aria-haspopup="dialog"
+                    onClick={() => setAddingMembers(true)}
                   >
                     <UserPlus size={14} />
                     添加成员
@@ -577,50 +603,6 @@ export function GroupChatPanel({
                 <p className="weq-persona-note">
                   成员变更确认后生效；成员配置由该克隆体的所有私聊和群聊共用。
                 </p>
-                {addingMembers ? (
-                  <section className="weq-clone-member-candidates" aria-label="可添加的克隆体">
-                    <input
-                      className="weq-set-input"
-                      aria-label="搜索可添加的克隆体"
-                      placeholder="搜索克隆体名称或 QQ 号"
-                      value={candidateKeyword}
-                      onChange={(event) => setCandidateKeyword(event.target.value)}
-                    />
-                    {outsiders.length === 0 ? (
-                      <p className="weq-persona-note">
-                        {personaList.length === 0
-                          ? '还没有克隆体，请先在消息列表的新建菜单中创建好友克隆。'
-                          : '所有已创建的克隆体都已在群内。'}
-                      </p>
-                    ) : candidates.length === 0 ? (
-                      <p className="weq-persona-note">没有匹配的克隆体。</p>
-                    ) : (
-                      <div className="weq-group-members">
-                        {candidates.map((persona) => (
-                          <div key={persona.id} className="weq-group-member">
-                            <QqAvatar
-                              uin={profileByUid.get(persona.sourceId)?.uin || persona.sourceUin}
-                              size={34}
-                            />
-                            <span className="weq-group-member-text">
-                              <strong>{persona.name}</strong>
-                            </span>
-                            <button
-                              type="button"
-                              className="weq-persona-memforget"
-                              title={`添加 ${persona.name}`}
-                              disabled={busy || pendingMemberId !== null}
-                              onClick={() => void onAddMember(persona.id)}
-                              aria-busy={pendingMemberId === persona.id}
-                            >
-                              <UserPlus size={14} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                ) : null}
                 <div className="weq-group-members">
                   {personaMembers.length === 0 ? (
                     <div className="weq-agentlab-empty">群里还没有克隆体。</div>
@@ -647,7 +629,7 @@ export function GroupChatPanel({
                             type="button"
                             className="weq-persona-memforget"
                             title="移出当前群（保留克隆体）"
-                            disabled={busy || removeMember.isLoading || pendingMemberId !== null}
+                            disabled={busy || removeMember.isLoading || addingMembersBusy}
                             onClick={() => void onKickMember(m.memberId)}
                           >
                             <UserMinus size={14} />

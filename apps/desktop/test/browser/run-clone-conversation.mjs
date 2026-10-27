@@ -286,26 +286,36 @@ try {
         await page.locator('.weq-cvs-nav-item').filter({ hasText: '群成员' }).click();
         const memberPane = page.locator('.weq-conversation-settings-pane');
         const addMembers = memberPane.getByRole('button', { name: '添加成员', exact: true });
-        if ((await addMembers.getAttribute('aria-expanded')) === 'false') await addMembers.click();
-        const picker = memberPane.getByRole('region', { name: '可添加的克隆体' });
-        await picker.getByLabel('搜索可添加的克隆体').fill('合成新');
+        await addMembers.click();
+        const picker = page.getByRole('dialog', { name: '添加成员', exact: true });
+        const existingMember = picker.getByRole('checkbox', { name: '合成好友', exact: true });
+        if (!(await existingMember.isChecked()) || !(await existingMember.isDisabled()))
+          throw new Error('已在群内的成员必须默认勾选并禁用');
+        await picker.getByLabel('搜索克隆体', { exact: true }).fill('合成新');
+        await picker.getByRole('checkbox', { name: '合成新成员', exact: true }).check();
+        await picker.getByLabel('搜索克隆体', { exact: true }).fill('');
         if (output)
           await page.screenshot({
             path: resolve(output, `${kind}-${theme}-${width}-add-member.png`),
           });
-        await picker.getByTitle('添加 合成新成员', { exact: true }).click();
+        await picker.getByRole('button', { name: '添加（1）', exact: true }).click();
+        await picker.waitFor({ state: 'hidden' });
         await memberPane
           .locator('.weq-group-member')
           .filter({ hasText: '合成新成员' })
           .getByTitle('移出当前群（保留克隆体）')
           .waitFor();
-        if (await picker.getByTitle('添加 合成新成员', { exact: true }).count())
-          throw new Error('加入后仍出现在添加候选中');
+        await addMembers.click();
+        const addedMember = picker.getByRole('checkbox', { name: '合成新成员', exact: true });
+        if (!(await addedMember.isChecked()) || !(await addedMember.isDisabled()))
+          throw new Error('刚添加的成员应勾选并禁用');
+        await picker.getByRole('button', { name: '取消', exact: true }).click();
         await memberPane
           .locator('.weq-group-member')
           .filter({ hasText: '合成新成员' })
           .getByTitle('移出当前群（保留克隆体）')
           .click();
+        await page.getByRole('button', { name: '移除', exact: true }).click();
         await page.getByTitle('设置克隆体 合成好友', { exact: true }).click();
         await page.getByText('以下修改影响此克隆体的所有私聊和群聊，不仅限于当前群。').waitFor();
         await page.locator('.weq-cvs-nav-item').filter({ hasText: '回复设置' }).click();
@@ -315,7 +325,6 @@ try {
           });
         await page.locator('.weq-cvs-close').click();
         await page
-        await page.getByRole('button', { name: '移除', exact: true }).click();
           .locator('.weq-cvs-nav-head strong')
           .filter({ hasText: '克隆群聊设置' })
           .waitFor();

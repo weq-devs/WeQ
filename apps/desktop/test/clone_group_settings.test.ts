@@ -69,6 +69,7 @@ vi.mock('../src/renderer/src/im-template/template/chatPane', () => ({
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.clearAllMocks();
+  f.mutate.mockResolvedValue(true);
   f.confirm.mockResolvedValue(true);
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -88,6 +89,7 @@ function fixture(sessionId: string | null = 's') {
         personaList: [
           { id: 'p', name: '合成成员', sourceId: 'u_fixture' },
           { id: 'outside', name: '待加入成员', sourceId: 'u_outside' },
+          { id: 'second', name: '另一位成员', sourceId: 'u_second' },
         ],
         profileByUid: new Map(),
         faceDescToId: new Map(),
@@ -174,17 +176,19 @@ it('未保存的新草稿不显示清空当前对话，避免误触旧会话', (
   }
 });
 
-it('侧栏添加直接打开成员候选，可搜索且排除已入群克隆体，失败保留候选供重试', async () => {
+it('独立添加弹窗默认勾选并禁用已入群成员，搜索保留选择，确认前不写库且失败可重试', async () => {
   const t = fixture();
   try {
     act(() => t.button('侧栏添加成员').click());
-    const pane = document.querySelector<HTMLElement>('.weq-conversation-settings-pane')!;
-    expect(pane).not.toBeNull();
-    const picker = pane.querySelector<HTMLElement>('[aria-label="可添加的克隆体"]')!;
+    expect(document.querySelector('.weq-conversation-settings-pane')).toBeNull();
+    const picker = document.querySelector<HTMLElement>('.weq-clone-add-modal')!;
     expect(picker).not.toBeNull();
-    expect(picker.textContent).toContain('待加入成员');
-    expect(picker.textContent).not.toContain('合成成员');
-    const input = picker.querySelector<HTMLInputElement>('[aria-label="搜索可添加的克隆体"]')!;
+    const existing = picker.querySelector<HTMLInputElement>('[aria-label="合成成员"]')!;
+    expect(existing.checked).toBe(true);
+    expect(existing.disabled).toBe(true);
+    const candidate = () => picker.querySelector<HTMLInputElement>('[aria-label="待加入成员"]')!;
+    expect(candidate().checked).toBe(false);
+    const input = picker.querySelector<HTMLInputElement>('[aria-label="搜索克隆体"]')!;
     const change = (value: string) =>
       act(() => {
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
@@ -196,17 +200,22 @@ it('侧栏添加直接打开成员候选，可搜索且排除已入群克隆体�
     change('不存在');
     expect(picker.textContent).toContain('没有匹配的克隆体');
     change('待加入');
-    const add = () => picker.querySelector<HTMLButtonElement>('[title="添加 待加入成员"]')!;
+    act(() => candidate().click());
+    change('');
+    expect(candidate().checked).toBe(true);
+    expect(f.mutate).not.toHaveBeenCalled();
     f.mutate.mockRejectedValueOnce(new Error('合成失败'));
-    await act(async () => add().click());
-    expect(f.error).toHaveBeenCalledWith('添加失败', '合成失败');
-    expect(add().disabled).toBe(false);
-    await act(async () => add().click());
+    await act(async () => t.button('添加（1）').click());
+    expect(picker.querySelector('[role="alert"]')?.textContent).toContain('合成失败');
+    expect(candidate().checked).toBe(true);
+    expect(t.button('添加（1）').disabled).toBe(false);
+    await act(async () => t.button('添加（1）').click());
     expect(f.mutate).toHaveBeenLastCalledWith('addAgentLabGroupMember', {
       groupId: 'g',
       personaId: 'outside',
     });
     expect(f.invalidate).toHaveBeenCalled();
+    expect(document.querySelector('.weq-clone-add-modal')).toBeNull();
   } finally {
     t.dispose();
   }
@@ -217,22 +226,70 @@ it('添加后等待成员列表刷新期间不允许重复提交', async () => {
   let finish: () => void = () => {};
   try {
     act(() => t.button('侧栏添加成员').click());
-    const add = document.querySelector<HTMLButtonElement>('[title="添加 待加入成员"]')!;
+    act(() => document.querySelector<HTMLInputElement>('[aria-label="待加入成员"]')!.click());
     f.invalidate.mockImplementationOnce(
       () =>
         new Promise<void>((resolve) => {
           finish = resolve;
         }),
     );
-    await act(async () => add.click());
-    expect(add.disabled).toBe(true);
-    expect(add.getAttribute('aria-busy')).toBe('true');
-    act(() => add.click());
+    await act(async () => t.button('添加（1）').click());
+    expect(t.button('添加中…').disabled).toBe(true);
+    act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭添加成员"]')!.click());
+    expect(document.querySelector('.weq-clone-add-modal')).not.toBeNull();
+    act(() => t.button('添加中…').click());
     expect(f.mutate).toHaveBeenCalledOnce();
     await act(async () => finish());
-    expect(add.disabled).toBe(false);
+    expect(document.querySelector('.weq-clone-add-modal')).toBeNull();
   } finally {
     finish();
+    t.dispose();
+  }
+});
+
+it('批量部分成功后成功项变成已勾选禁用，重试只添加剩余成员', async () => {
+  const t = fixture();
+  try {
+    act(() => t.button('侧栏添加成员').click());
+    const checkbox = (name: string) =>
+      document.querySelector<HTMLInputElement>(`[aria-label="${name}"]`)!;
+    act(() => {
+      checkbox('待加入成员').click();
+      checkbox('另一位成员').click();
+    });
+    f.mutate.mockResolvedValueOnce(true).mockRejectedValueOnce(new Error('第二位失败'));
+    await act(async () => t.button('添加（2）').click());
+    expect(checkbox('待加入成员').checked).toBe(true);
+    expect(checkbox('待加入成员').disabled).toBe(true);
+    expect(checkbox('另一位成员').checked).toBe(true);
+    expect(checkbox('另一位成员').disabled).toBe(false);
+    await act(async () => t.button('添加（1）').click());
+    expect(f.mutate).toHaveBeenCalledTimes(3);
+    expect(f.mutate).toHaveBeenLastCalledWith('addAgentLabGroupMember', {
+      groupId: 'g',
+      personaId: 'second',
+    });
+    expect(document.querySelector('.weq-clone-add-modal')).toBeNull();
+  } finally {
+    t.dispose();
+  }
+});
+
+it('从成员设置进入独立弹窗，取消不修改群并返回原成员设置', () => {
+  const t = fixture();
+  try {
+    act(() => t.button('群设置').click());
+    act(() => t.button('添加成员').click());
+    expect(document.querySelector('.weq-conversation-settings-pane')).toBeNull();
+    act(() => document.querySelector<HTMLInputElement>('[aria-label="待加入成员"]')!.click());
+    act(() => t.button('取消').click());
+    expect(f.mutate).not.toHaveBeenCalled();
+    expect(document.querySelector('.weq-conversation-settings-pane')).not.toBeNull();
+    act(() => t.button('添加成员').click());
+    expect(document.querySelector<HTMLInputElement>('[aria-label="待加入成员"]')!.checked).toBe(
+      false,
+    );
+  } finally {
     t.dispose();
   }
 });
