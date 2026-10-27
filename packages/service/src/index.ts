@@ -798,6 +798,14 @@ export type {
   SendGroupJoinRequestServiceParams,
 } from './account/interaction';
 export { GroupModerationService } from './account/group_moderation';
+export { LocationShareService } from './account/lbs_share';
+export type {
+  LocationShareTarget,
+  StartLocationShareServiceParams,
+  ReportLocationServiceParams,
+  QueryLocationServiceParams,
+  SendShareCardParams,
+} from './account/lbs_share';
 export { AccountWriteService } from './account/account_write';
 export type { AccountWriteIdentity, AccountWriteOutcome } from './account/account_write';
 export type {
@@ -994,35 +1002,8 @@ export type {
 } from './account/export';
 
 // ---- 旧 daemon 协议兼容：仅用于升级退役，不再拉起独立服务 ----
-export {
-  DAEMON_PIPE_NAME,
-  DAEMON_MAX_FRAME,
-  daemonPipePath,
-  encodeDaemonFrame,
-  decodeDaemonFrame,
-  parseDaemonResponse,
-} from './daemon/protocol';
-export type {
-  DaemonRequest,
-  DaemonResponse,
-  DaemonReleaseWatchConfig,
-  DaemonReleaseWatchInfo,
-  DaemonAutostartMemory,
-} from './daemon/protocol';
-export {
-  callDaemon,
-  pingDaemon,
-  daemonStop,
-  daemonHttpStart,
-  daemonHttpStop,
-  daemonHttpStatus,
-  daemonReleaseWatchStart,
-  daemonReleaseWatchStop,
-  daemonReleaseWatchStatus,
-  daemonReleaseAck,
-  daemonAutostartSet,
-  daemonAutostartStatus,
-} from './daemon/client';
+// 只对外暴露退役迁移需要的两个入口；分帧细节留在 daemon/ 内部。
+export { pingDaemon, daemonStop } from './daemon/client';
 
 // ---- common (account-independent helpers) ----
 export { ModelStore } from './common/model_store';

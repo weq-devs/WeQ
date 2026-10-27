@@ -67,7 +67,7 @@ import https from 'node:https';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { Readable, Transform } from 'node:stream';
+import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { connect as tlsConnect } from 'node:tls';
 import { fileURLToPath } from 'node:url';
@@ -398,11 +398,14 @@ async function readBody(res) {
 }
 
 async function download(url, dest, { label, size } = {}) {
-  const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok || !res.body) {
-    throw new Error(`下载失败 ${res.status} ${res.statusText}：${url}`);
+  // 必须走 httpGet 而不是内置 fetch：内置 fetch 不认 HTTP(S)_PROXY，
+  // 在只挂本地代理（如 Clash 7897）的环境里会直连超时，只报一句 `fetch failed`。
+  const res = await httpGet(url);
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    res.resume();
+    throw new Error(`下载失败 ${res.statusCode} ${res.statusMessage ?? ''}：${url}`);
   }
-  const contentLength = Number(res.headers.get('content-length')) || 0;
+  const contentLength = Number(res.headers['content-length']) || 0;
   const total = size || contentLength;
   const progress = quiet ? undefined : new Progress(label ?? url);
   let done = 0;
@@ -415,7 +418,7 @@ async function download(url, dest, { label, size } = {}) {
     },
   });
   try {
-    await pipeline(Readable.fromWeb(res.body), counter, createWriteStream(dest));
+    await pipeline(res, counter, createWriteStream(dest));
   } catch (err) {
     if (progress && IS_TTY) process.stdout.write('\n');
     throw err;

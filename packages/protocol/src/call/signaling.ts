@@ -150,7 +150,8 @@ export const USER_WRAPPER: ProtoMessage = message([f('user', 1, USER_INFO)]);
  * 拿到回包后原样带回，服务端靠它把同一次通话的若干请求串起来。
  */
 export const C2C_MODE_COMMON: ProtoMessage = message([
-  f('roomId', 1, 'uint64'),
+  // `force`：开房时 roomId=0 也要显式写出来（`08 00`），与真实客户端一致。
+  f('roomId', 1, 'uint64', { force: true }),
   f('sessionId', 2, 'uint64'),
   f('relationId', 3, 'uint32', { force: true }),
   f('scene', 4, 'uint32', { force: true }),
@@ -216,12 +217,34 @@ export const C2C_LOGOUT_REQ: ProtoMessage = message([
   f('reason', 7, message([f('code', 1, 'uint32', { force: true })])),
 ]);
 
-/** 中继服务器。`ip` / `altIp` 是 fixed32，按小端存 IPv4 网络序。 */
+/**
+ * 中继 / GCS 服务器。
+ *
+ * - `ip` / `altIp`：fixed32，按小端存 IPv4 网络序；
+ * - `ipv6`（字段 5）：**16 字节裸 IPv6**，wire type 2。
+ *
+ * 2026-10-26 同一次通话的 OIDB + UDP 抓包对照（QQ 本体，P2P 正常）：
+ *
+ * ```text
+ * f1(ipv4)         | port | type | f4(altIp)        | f5(ipv6)
+ * -                | 8000 |    2 | 29.237.232.17    | 240e:930:c200:88::17   ← QQ 实际连这条
+ * -                | 8000 |    2 | 29.237.230.22    | 240e:930:c200:86::1c
+ * -                | 8800 |    2 | 29.237.193.13    | 240e:930:c200:81::13
+ * 113.250.57.133   | 8000 |    2 | 29.237.232.17    | -
+ * ...
+ * ```
+ *
+ * 服务端下发的是**同一台机器的 IPv6 + IPv4 两种形态**，靠字段 5 区分。旧 schema
+ * 没有这个字段，IPv6 条目就退化成 `altIp` 的 IPv4 地址（`29.237.232.17`），
+ * 而 `29.237.*` 根本连不通 —— 表现为 GCS 握手靠后续 IPv4 条目兜底、`bt=9`
+ * 拿不到对端 `f7`、媒体全程走中继。
+ */
 export const RELAY_SERVER: ProtoMessage = message([
   f('ip', 1, 'uint32'),
   f('port', 2, 'uint32'),
   f('type', 3, 'uint32'),
   f('altIp', 4, 'uint32'),
+  f('ipv6', 5, 'bytes'),
 ]);
 
 export const RSP_MEDIA_CONFIG: ProtoMessage = message([
@@ -300,10 +323,20 @@ export function nextRelationId(): number {
   return 15000 + Math.floor(Math.random() * 1000);
 }
 
+/**
+ * 构造 `common`。
+ *
+ * 2026-10-26 同一次通话的 OIDB 抓包逐字节比对（QQ 本体，P2P 正常）：
+ *
+ * - **开房**：`common` 里 `f1=0` 是**显式写出**的（`08 00`），不是省略；
+ * - **邀请**：`common` 里**没有 `f2`（sessionId）** —— 回包虽然带了
+ *   `common.f2`（值等于 selfUin），但邀请时不能回写。
+ *
+ * 这两处都是「语义等价、字节不同」的差异，服务端可能据此区分实现来源。
+ */
 function baseCommon(roomId: bigint, relationId: number, scene: number, selfUid: string) {
   return {
     roomId,
-    sessionId: 0n,
     relationId,
     scene,
     selfInfo: { user: { uid: selfUid, uidType: 2 } },
@@ -343,7 +376,7 @@ export interface MediaProfile {
 
 export const MEDIA_PROFILE: Record<'audio' | 'video', MediaProfile> = {
   audio: { f3: 1, ipStack: CALL_IP_STACK, f13: 1, inviteF3: 5, inviteF4: 10056 },
-  video: { f3: 0, ipStack: 12656, f13: 3, inviteF3: 15, inviteF4: 10063 },
+  video: { f3: 0, ipStack: 21547, f13: 3, inviteF3: 15, inviteF4: 10063 },
 };
 
 /** 开房 / 邀请请求里的媒体类型。 */
@@ -421,10 +454,13 @@ export const InviteUser: TrpcSpec<
   cmd: C2C_SSO_CMD.inviteUser,
   reqSchema: C2C_INVITE_USER_REQ,
   respSchema: INVITE_USER_RSP,
-  serialize: ({ selfUid, roomId, sessionId, relationId, media: kind = 'audio' }) => {
+  // 注意：`sessionId` 入参**不写进 common**。实测 QQ 的邀请请求里没有
+  // `common.f2`（开房回包虽带了该字段，但不回写）。早期多写一个 `10 <sessionId>`
+  // 是字节级差异。
+  serialize: ({ selfUid, roomId, relationId, media: kind = 'audio' }) => {
     const profile = MEDIA_PROFILE[kind];
     return {
-      common: { ...baseCommon(roomId, relationId, CALL_SCENE.invite, selfUid), sessionId },
+      common: baseCommon(roomId, relationId, CALL_SCENE.invite, selfUid),
       params: { f3: profile.inviteF3, f4: profile.inviteF4, f5: 0, f12: 0, f13: 0 },
     };
   },
@@ -536,11 +572,15 @@ export function decodeCreateRoomRspBytes(bytes: Uint8Array): CallRoom {
       if (field.field !== 6 || field.wire !== 2 || !field.bytes) continue;
       const s = parsePb(field.bytes);
       const fixed = (n: number) => s.find((x) => x.field === n && x.wire === 5)?.fixed32;
-      // 只有 altIp 的记录是同一台机器的 IPv4 备用地址，ip 缺省时用它。
-      const ip = ipv4FromFixed32(fixed(1)) ?? ipv4FromFixed32(fixed(4));
       const port = Number(s.find((x) => x.field === 2 && x.wire === 0)?.value ?? 0n);
       const type = Number(s.find((x) => x.field === 3 && x.wire === 0)?.value ?? 0n);
-      if (!ip || !port) continue;
+      if (!port) continue;
+      // 字段 5 是 16 字节裸 IPv6；有它就说明这条是 IPv6 形态。
+      const v6 = s.find((x) => x.field === 5 && x.wire === 2)?.bytes;
+      const ipv6 = v6 && v6.length === 16 ? formatIpv6Text(v6) : null;
+      // 只有 altIp 的记录是同一台机器的 IPv4 备用地址，ip 缺省时用它。
+      const ip = ipv6 ?? ipv4FromFixed32(fixed(1)) ?? ipv4FromFixed32(fixed(4));
+      if (!ip) continue;
       servers.push({ ip, port, type });
     }
   }
@@ -551,4 +591,45 @@ export function decodeCreateRoomRspBytes(bytes: Uint8Array): CallRoom {
     authKey,
     servers,
   };
+}
+
+/**
+ * 16 字节裸 IPv6 → 标准文本（RFC 5952：最长连续零段压缩成 `::`）。
+ *
+ * 服务器表字段 5 就是这种裸字节。用 `::` 压缩而不是逐段展开，是为了与抓包 /
+ * 日志里的形态一致，排查时不会误以为地址不同。
+ */
+function formatIpv6Text(raw: Uint8Array): string {
+  const groups: number[] = [];
+  for (let i = 0; i < 16; i += 2) groups.push((raw[i]! << 8) | raw[i + 1]!);
+
+  let bestStart = -1;
+  let bestLen = 0;
+  let runStart = -1;
+  let runLen = 0;
+  for (let i = 0; i < 8; i++) {
+    if (groups[i] === 0) {
+      if (runStart < 0) {
+        runStart = i;
+        runLen = 0;
+      }
+      runLen++;
+      if (runLen > bestLen) {
+        bestStart = runStart;
+        bestLen = runLen;
+      }
+    } else {
+      runStart = -1;
+      runLen = 0;
+    }
+  }
+
+  const hex = (n: number) => n.toString(16);
+  if (bestLen < 2) return groups.map(hex).join(':');
+  const head = groups.slice(0, bestStart).map(hex).join(':');
+  const tail = groups
+    .slice(bestStart + bestLen)
+    .map(hex)
+    .join(':');
+  return `${head}::${tail}`;
 }

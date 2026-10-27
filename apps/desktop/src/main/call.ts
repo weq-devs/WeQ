@@ -48,34 +48,66 @@ import {
 
 const logger = getLogger().child({ scope: 'call' });
 
+/**
+ * 补发缓存上限（帧）。
+ *
+ * 实测对端关键帧间隔约 17 秒（15 fps ≈ 255 帧），所以 600 帧足够覆盖一整段。
+ * 平均每帧 2 KB 时峰值约 1.2 MB —— 只为「订阅晚到」这一种情况准备，值得。
+ * 超出说明码流异常（关键帧间隔极大），整段作废、等下一个关键帧。
+ */
+const REPLAY_FRAMES = 600;
+
 // ─────────────────────────── UDP ───────────────────────────
 
 /** `node:dgram` 的 udp4 套接字适配成 `CallSession` 要的形状。 */
 class NodeUdpTransport implements UdpTransport {
   private socket: dgram.Socket | null = null;
+  private p2pSocket: dgram.Socket | null = null;
 
   async bind(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      // 双栈套接字：视频通话的 P2P 直连地址是 **IPv6**（服务端下发的 bt=9
-      // 里是 16 字节裸 IPv6），udp4 发不出去。`ipv6Only: false` 让它同时
-      // 接受 IPv4 目标（Linux 上会自动走 ::ffff: 映射）。
-      const socket = dgram.createSocket({ type: 'udp6', reuseAddr: false, ipv6Only: false });
-      socket.once('error', reject);
-      socket.bind(0, () => {
-        socket.removeListener('error', reject);
-        this.socket = socket;
-        resolve();
+    const open = (): Promise<dgram.Socket> =>
+      new Promise((resolve, reject) => {
+        const socket = dgram.createSocket({ type: 'udp6', reuseAddr: false, ipv6Only: false });
+        socket.once('error', reject);
+        socket.bind(0, () => {
+          socket.removeListener('error', reject);
+          resolve(socket);
+        });
       });
-    });
+    try {
+      const [control, p2p] = await Promise.all([open(), open()]);
+      this.socket = control;
+      this.p2pSocket = p2p;
+    } catch (error) {
+      this.close();
+      throw error;
+    }
+  }
+
+  /**
+   * 绑定后的本地端口。
+   *
+   * `CallSession` 要用它填 `bt=25`（向服务端公告本端 P2P 端口）—— 公告的端口必须
+   * 就是真正收发媒体这个 socket 的端口，否则对端打洞打不通。
+   */
+  localPort(): number {
+    if (!this.p2pSocket) return 0;
+    try {
+      return this.p2pSocket.address().port;
+    } catch {
+      // 已关闭 / 未绑定。
+      return 0;
+    }
   }
 
   send(data: Uint8Array, port: number, address: string): void {
-    if (!this.socket) return;
+    const socket = [8000, 8001, 8800].includes(port) ? this.socket : this.p2pSocket;
+    if (!socket) return;
     // 直接拷一份：dgram 的回调可能在原缓冲被复写之后才跑。
     const buffer = Buffer.from(data);
     // udp6 套接字发纯 IPv4 目标时，部分平台需要显式映射成 ::ffff: 形式。
     const target = address.includes(':') ? address : `::ffff:${address}`;
-    this.socket.send(buffer, 0, buffer.length, port, target, (error) => {
+    socket.send(buffer, 0, buffer.length, port, target, (error) => {
       // 发送失败以前是静默吞掉的：地址不可达 / 套接字类型不匹配时
       // 上层完全看不出「对方为什么收不到」。这里至少留一条日志。
       if (error) {
@@ -85,13 +117,17 @@ class NodeUdpTransport implements UdpTransport {
   }
 
   close(): void {
-    const socket = this.socket;
+    const sockets = [this.socket, this.p2pSocket].filter(
+      (socket): socket is dgram.Socket => !!socket,
+    );
     this.socket = null;
-    if (!socket) return;
-    try {
-      socket.close();
-    } catch {
-      // 已关闭 / 未绑定，忽略。
+    this.p2pSocket = null;
+    for (const socket of sockets) {
+      try {
+        socket.close();
+      } catch {
+        // 已关闭 / 未绑定，忽略。
+      }
     }
   }
 
@@ -113,14 +149,22 @@ class NodeUdpTransport implements UdpTransport {
    */
   private pending: Array<(socket: dgram.Socket) => void> = [];
   private watch(register: (socket: dgram.Socket) => void): void {
-    if (this.socket) register(this.socket);
-    else this.pending.push(register);
+    if (!this.socket) {
+      this.pending.push(register);
+      return;
+    }
+    register(this.socket);
+    if (this.p2pSocket) register(this.p2pSocket);
   }
 
   /** 绑定完成后把排队的监听器挂上。 */
   attach(): void {
-    if (!this.socket) return;
-    for (const register of this.pending) register(this.socket);
+    const sockets = [this.socket, this.p2pSocket].filter(
+      (socket): socket is dgram.Socket => !!socket,
+    );
+    for (const register of this.pending) {
+      for (const socket of sockets) register(socket);
+    }
     this.pending = [];
   }
 }
@@ -195,12 +239,20 @@ export interface StartCallParams {
 export type CallEvent =
   | { type: 'state'; call: ActiveCallInfo }
   | { type: 'audio'; pcm: Uint8Array }
-  /** 对端一帧视频（Annex B 裸流，只推基础层）。 */
+  /** 对端一帧视频（Annex B 裸流）。 */
   | {
       type: 'video';
       hevc: Uint8Array;
       timestamp: number;
       keyframe: boolean;
+      /**
+       * 16 位帧序号 `((fidx - 1) << 8) | gidx`。
+       *
+       * 渲染层要靠它判断「喂给解码器的帧是否连续」—— HEVC 的 P 帧依赖前序参考
+       * 帧，跳过若干帧后继续喂 delta 帧会让硬解输出错乱的 YUV（表现为整屏纯绿），
+       * 且要等到下一个关键帧才恢复。见 useCallVideo 的 continuity 检查。
+       */
+      frameIndex: number;
       info: VideoStreamInfo | null;
     }
   /** 录音收尾完成（含内部收尾：对端挂断 / 被踢 / 崩溃）。 */
@@ -223,10 +275,19 @@ export class CallManager extends EventEmitter {
 
   /** 视频编码器（只有视频通话才非 null）。 */
   private videoEncoder: NativeVideoEncoder | null = null;
-  /** 上一帧是否基础层（用于「基础层优先」的取舍）。 */
-  private lastFrameWasBase = false;
-  /** 最近收到的一个关键帧（新订阅者补发用）。 */
-  private lastKeyframe: VideoFramePayload | null = null;
+  /**
+   * 从**最近一个关键帧**开始的一段连续帧（新订阅者补发用）。
+   *
+   * ⚠️ **只补关键帧是不够的。** 2026-10-26 实测：渲染层订阅比收帧晚约 1.9 秒，
+   * 补发关键帧（帧 0）之后紧接着喂实时帧（帧 29），中间 1~28 缺失。HEVC 的 P 帧
+   * 依赖前序参考帧，硬解拒绝这些 delta 后内部状态被污染，输出错乱的 YUV ——
+   * 整屏纯绿，直到下一个关键帧（约 15 秒）才恢复。
+   *
+   * 所以这里缓存「关键帧 + 其后所有帧」的连续片段，订阅时整段补发，渲染层就能
+   * 从头连续解码。上限 {@link REPLAY_FRAMES} 帧，超出就丢最旧的（那些帧的参考
+   * 链已经断了，补发也没用）。
+   */
+  private replayBuffer: VideoFramePayload[] = [];
   /** 当前这通电话的录音设置（发起时取一次，通话中改设置不影响进行中的录音）。 */
   private recordingConfig: CallRecordingConfig = { mode: 'mixed', systemAudio: false, dir: null };
   private recorder: CallRecorder | null = null;
@@ -253,14 +314,16 @@ export class CallManager extends EventEmitter {
   }
 
   /**
-   * 取最近的关键帧，供**新建立**的渲染层订阅补发。
+   * 取一段**从关键帧开始、帧序号连续**的帧，供新建立的渲染层订阅补发。
    *
    * 渲染层是在「对端开始发视频」的状态推送之后才订阅 `onCallVideo` 的，而首个
-   * 关键帧通常已经过去。没有关键帧起解，后面的 delta 帧全解不出来 —— 所以
-   * 订阅时先补这一帧。
+   * 关键帧通常已经过去。**只补关键帧不够**：跳帧会让硬解输出错乱（整屏纯绿），
+   * 必须把关键帧之后的帧一并补上，让渲染层从头连续解码。详见 `replayBuffer`。
+   *
+   * 返回空数组表示还没有可用的起点（还没收到过关键帧）。
    */
-  latestKeyframe(): VideoFramePayload | null {
-    return this.lastKeyframe;
+  replayFrames(): VideoFramePayload[] {
+    return this.replayBuffer;
   }
 
   /** 发起一路通话。已有通话在跑时直接报错，由界面提示先挂断。 */
@@ -290,6 +353,8 @@ export class CallManager extends EventEmitter {
           await transport.bind();
           transport.attach();
         },
+        // 必须透传：会话靠它填 bt=25 的 P2P 端口，漏掉这一行整条 P2P 通路就断了。
+        localPort: () => transport.localPort(),
         send: (data, port, address) => transport.send(data, port, address),
         close: () => transport.close(),
         onMessage: (handler) => transport.onMessage(handler),
@@ -328,25 +393,21 @@ export class CallManager extends EventEmitter {
       this.emit('event', { type: 'audio', pcm } satisfies CallEvent);
     });
     session.onVideo((frame) => {
-      // 只推基础层：增强层依赖基础层，单独解会花屏。
+      // **每一帧都推，不要按 fidx 过滤。**
       //
-      // 但实测对端会在基础层之外再发 fidx=2 的增强层，而**基础层不是每帧都有**——
-      // 一旦对端把画面切成纯增强层（长时间静止后重新编码），全丢就会永久黑屏。
-      // 所以：基础层优先，没有基础层时退回增强层（解码器能解多少算多少，
-      // 花屏好过没画面）。
+      // 早先这里按「fidx === 1 才是基础层」丢弃 fidx>=2 的帧，前提是错的：fidx
+      // 其实是**16 位帧序号的高字节**（每 256 帧 +1），不是 SVC 层号。于是通话
+      // 进行到第 256 帧（10 fps 下约 25 秒）之后，`isBaseLayer` 恒为 false，
+      // 而标记又停在 true 且不再更新 —— 后续每一帧都被静默丢掉，画面永久冻结。
+      // 真机日志里 `g=249/f=1 → g=43/f=2` 的序号连续性就是证据。
       if (!frame.hevc) return;
-      // 增强层只在没有基础层可用时才推 —— 见上面的注释。
-      if (!frame.isBaseLayer && this.lastFrameWasBase) return;
-      this.lastFrameWasBase = frame.isBaseLayer;
-      // 缓存最近一个关键帧：渲染层的解码订阅是在「对端开始发视频」的状态推送
-      // **之后**才建立的，而首个关键帧往往已经过去 —— 后面的 delta 帧没有
-      // 关键帧起解，画面永远出不来。新订阅先用这份补一帧。
-      if (frame.isKeyframe) this.lastKeyframe = frame;
+      this.rememberForReplay(frame);
       this.emit('event', {
         type: 'video',
         hevc: frame.hevc,
         timestamp: frame.timestamp,
         keyframe: frame.isKeyframe,
+        frameIndex: frame.frameIndex,
         info: frame.info,
       } satisfies CallEvent);
     });
@@ -643,10 +704,41 @@ export class CallManager extends EventEmitter {
     this.transport?.close();
     this.videoEncoder?.close();
     this.videoEncoder = null;
-    this.lastKeyframe = null;
+    this.replayBuffer = [];
     this.session = null;
     this.transport = null;
     this.info = null;
+  }
+
+  /**
+   * 维护「从关键帧开始的一段连续帧」缓存，供新订阅补发。
+   *
+   * 见 {@link replayBuffer} 的注释：只补关键帧会让渲染层跳帧喂入，硬解输出
+   * 错乱（整屏纯绿）。所以：
+   *
+   * - 遇到关键帧 → 清空重来（这是新的参考链起点）；
+   * - 帧序号不连续 → 同样清空（参考链已断，之前的帧补发也没用）；
+   * - 其余帧追加，超过上限丢最旧的。
+   */
+  private rememberForReplay(frame: VideoFramePayload): void {
+    const last = this.replayBuffer[this.replayBuffer.length - 1];
+    if (frame.isKeyframe) {
+      this.replayBuffer = [frame];
+      return;
+    }
+    if (!last) return; // 还没见过关键帧，先不缓存
+    // 16 位序号会回绕，按模判断是否正好 +1。
+    const continuous = (frame.frameIndex - last.frameIndex + 65536) % 65536 === 1;
+    if (!continuous) {
+      this.replayBuffer = [];
+      return;
+    }
+    this.replayBuffer.push(frame);
+    // 超出上限时丢**最旧的 delta**、保留关键帧？不行 —— 关键帧之后的帧必须
+    // 连续才有意义。这里改为整段作废等下一个关键帧：对端关键帧间隔实测约
+    // 17 秒，缓存峰值 255 帧 × 平均 2 KB ≈ 500 KB，完全可以一直留着。
+    // 上限只是防止异常码流（关键帧间隔极大）把内存吃爆。
+    if (this.replayBuffer.length > REPLAY_FRAMES) this.replayBuffer = [];
   }
 
   /**

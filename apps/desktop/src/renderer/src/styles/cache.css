@@ -11,6 +11,10 @@
   grid-template-columns: 200px minmax(0, 1fr);
   gap: 14px;
   height: 100%;
+  /* 外层可能是 flex 容器（资源管理 / 数据与维护），不 grow 就只会按内容宽度
+   * 收缩，右侧内容面板会留下大片空白。min-width 清零防止宽内容顶穿。 */
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   padding: 14px;
   /* 透明底：跟随所在页面（维护工具）的界面背景。 */

@@ -198,10 +198,34 @@ export const GcsBodyType = {
   statusReportAck: 16,
   heartbeat: 23,
   heartbeatAck: 24,
+  /**
+   * 本端 P2P 端点公告（client→server，24 字节）。见 {@link buildPeerJoinReport}。
+   *
+   * **这是 P2P 能建立的开关。** 不发这条，服务端不知道我们的 P2P 端口，对端也就
+   * 永远拿不到我们的端点 —— 表现就是「对端很久才收到我的画面」+「全程中继」。
+   */
+  peerJoinReport: 25,
+  peerJoinReportAck: 26,
+  /** 对端 P2P 端点推送（server→client）。见 {@link parsePeerJoin}。 */
   peerJoin: 27,
   peerJoinAck: 28,
+  /**
+   * 视频流状态推送（server→client）。
+   *
+   * 真机上 `f1=4` 表示服务端请求本端确认视频流；客户端还需另发一条同类型的
+   * `f1=5`，并保留普通空 ACK（`bt=32`）。见 {@link buildVideoState}。
+   */
+  videoStatePush: 31,
+  videoStateAck: 32,
   mediaCtrlPush: 75,
   mediaCtrlAck: 76,
+  /**
+   * 视频流参数推送（仅 server→client）。
+   *
+   * 52 字节 body 包含分辨率 / 码率、目标端尺寸和流索引。真机客户端不会主动
+   * 发送这条；收到后只需普通 ACK（`bt=78`）。见 {@link buildVideoParamPush}。
+   */
+  videoParamPush: 77,
   logout: 1003,
 } as const;
 
@@ -276,13 +300,28 @@ export function parseGcsPacket(data: Uint8Array): GcsPacket | null {
 /**
  * 认证能力集。
  *
- * 一段固定的媒体能力协商描述：10 组编码能力 + 音频 / 视频 / 网络配置，描述
+ * 一段固定的媒体能力协商描述：18 组编码能力 + 音频 / 视频 / 网络配置，描述
  * 「本端能解哪些编码、带宽多少、要不要回声消除」。服务端拿它给房间选路，
  * 内容不必逐字段构造 —— 但**必须存在且能解析**，空 body 会被直接断开。
+ *
+ * 2026-10-26 逐字节替换为 QQ 本体（Linux 桌面版）实际发送的原文。旧模板是从
+ * 语音通话抓的，与视频通话有实质差异，服务端据此可能不把本端当视频/P2P 候选：
+ *
+ * | 字段 | QQ 本体（语音/视频一致） | 旧模板 |
+ * | --- | --- | --- |
+ * | `f3` | 15 | 5 |
+ * | `f6` | 10063 | 10058 |
+ * | `f11` | 1812048064 | 26847424 |
+ * | 内层 `f5`/`f6` | 0 / 0（由协商决定） | 2560 / 1440（硬编码） |
+ * | 能力条目 | 前 2 条为空 | 前 2 条是 `f1=2`（H.264 480×640@20） |
+ * | `f21` | 2 | 1 |
+ *
+ * 注意 `f3=15` / `f6=10063` 恰好等于 `MEDIA_PROFILE.video` 的
+ * `inviteF3` / `inviteF4` —— 能力集与信令档位是配套的。
  */
 export const DEFAULT_CAPABILITIES: Uint8Array = Uint8Array.from(
   atob(
-    'CtoDChkIAhABGOADIIAFKBQwgAg4wLsBQAFIAFABChkIAhACGOADIIAFKBQwgAg4wLsBQAFIAFABChkIAxABGLAJIIAPKA8wgCg42J4IQAFIAFABChkIAxACGLAJIIAPKB4wgCg4sL0QQAFIAFABChkIBBABGLAJIIAPKA8wgCg42J4IQAFIAFABChkIBBACGLAJIIAPKB4wgCg4sL0QQAFIAFABChkIBRABGLAJIIAPKA8wgCg42J4IQAFIAFABChkIBRACGLAJIIAPKB4wgCg4sL0QQAFIAFABChsIBhABGOADIIAFKA8wgCg40L2roAtAAUgAUAEKGwgGEAIY4AMggAUoDzCAKDi4vqugC0ABSABQAQoACgAKAAoACgAKAAoACgASXQgAEAAYACJSh2VDIQACACkDIA+gC7gAfgDAACsCWA+gBdwAfgDAAEAJYAyACWAAfgDAAEEJYBkACWAAfgDAAEIJYBkACWAAfgDAAFADIA+gC7gAfgDAEjRWeCoBABogCghTaGFycENhbRIICOADEOgCGB4SCAiABRDgAxgeGAEiFQi4FxABGAYgACgAMABKAnBjWgJwYyiAFDCgC0ABSAFQAFgCaAFwAXgBgAEBiAEHmAECqAEBEAEYBShkMMpOOAFAAUoAWMDR5gxqBAgDEAJyBggAEAAYAIIBVwoiMTAwMTNfYXVkaW9fY29uZmlnXzEwMDExX3Blbmd1aW5zXxIVMjA0X3ZpZGVvX2NvbmZpZ18yMDRfGhoxMDA1MV9jb21tb25fY29uZmlnXzEwMDUxX4oBDggAEgAiBGlvc18qADIAkAEAmAEA',
+    'CtMDCgAKAAoZCAMQARiwCSCADygPMIAoONieCEABSABQAQoZCAMQAhiwCSCADygeMIAoOLC9EEABSABQAQoZCAQQARiwCSCADygPMIAoONieCEABSABQAQoZCAQQAhiwCSCADygeMIAoOLC9EEABSABQAQoZCAUQARiwCSCADygPMIAoONieCEABSABQAQoZCAUQAhiwCSCADygeMIAoOLC9EEABSABQAQoXCAYQARjgAyCABSgPMIAoOABAAUgAUAEKFwgGEAIY4AMggAUoDzCAKDgAQAFIAFABCgAKAAoACgAKAAoACgAKABJpCAAQABgAIl6HZUMhAAIAKQMgD6ALuAB+AMAAKwJYD6AF3AB+AMAALgMgD6AJxAB+AMAAQAlgDIAJYAB+AMAAQQlgGQAJYAB+AMAAQglgGQAJYAB+AMAAUAMgD6ALuAB+AMASNFZ4KgEAGgwKCFNoYXJwQ2FtGAEiDQi4FxABGAYgACgAMAAoADAAQAFIAVAAWAJiCwgGEPABGMACIJBOYgwIBhDoAhjgAyDwkwliDAgGEOADGIAFILCuFWIMCAYQ0AUYgAoggOowYgwIBhC4CBiADyCg4WdoAXABeAGAAQGIAQeYAQKoAQIQARgPKGQwz044AUABSgBYwNGG4AZqBAgDEAJyBggAEAAYAIIBVwoiMTAwMTNfYXVkaW9fY29uZmlnXzEwMDExX3Blbmd1aW5zXxIVMjA0X3ZpZGVvX2NvbmZpZ18yMDRfGhoxMDA1MV9jb21tb25fY29uZmlnXzEwMDUxX4oBDggAEgAiBGlvc18qADIAkAEAmAEA',
   )
     .split('')
     .map((c) => c.charCodeAt(0)),
@@ -338,11 +377,8 @@ export function buildGcsAck(params: {
   authKey?: Uint8Array;
 }): Uint8Array {
   const isMediaCtrl = params.pushBodyType === GcsBodyType.mediaCtrlPush;
-  const errorCode = params.pushBodyType === GcsBodyType.ctrlPush ? 983041 : 0;
   let body: Uint8Array = new Uint8Array(0);
-  if (params.pushBodyType === GcsBodyType.ctrlPush) {
-    body = Uint8Array.from([0x08, 0x02]);
-  } else if (isMediaCtrl && params.pushBody) {
+  if (isMediaCtrl && params.pushBody) {
     const name = pbGetBytes(params.pushBody, 1);
     const type = pbGetVarint(params.pushBody, 2) ?? 1;
     if (name && name.length > 0) {
@@ -356,7 +392,6 @@ export function buildGcsAck(params: {
     typeId: params.typeId,
     authKey: isMediaCtrl ? params.authKey : undefined,
     bodyType: params.pushBodyType + 1,
-    errorCode,
   });
   return buildGcsPacket(head, body);
 }
@@ -385,6 +420,159 @@ export function buildGcsLogout(params: {
   });
   return buildGcsPacket(head, pbVarint(1, params.reason ?? 2));
 }
+
+/**
+ * 视频流参数推送（`bt=77`，52 字节 body，**server→client**）。
+ *
+ * 2026-10-26 三通对照抓包（QQ 电脑→电脑、QQ 电脑→手机、WeQ→手机）确认：
+ * 两侧原生客户端都不发这条，只由服务端在接听前下发并按流索引持续更新。
+ * 它描述目标端准备接收的视频规格，不是「本端摄像头已开」的公告。
+ *
+ * 载荷结构（逐字节还原，总长 52 字节）：
+ *
+ * ```text
+ * 12 25                  f2，37 字节
+ *   10 a2 02             .f2 = 290
+ *   18 01                .f3 = 1
+ *   22 1e                .f4，30 字节
+ *     08 0f              ..f1 = 15     fps
+ *     10 01              ..f2 = 1
+ *     18 80 05           ..f3 = 640    宽
+ *     20 e0 03           ..f4 = 480    高
+ *     28 80 28           ..f5 = 5120   码率 kbps
+ *     30 00              ..f6 = 0
+ *     38 88 27           ..f7 = 5000
+ *     50 80 05           ..f10 = 640
+ *     58 e0 03           ..f11 = 480
+ *     70 80 05           ..f14 = 640   目标端宽
+ *     78 e0 03           ..f15 = 480   目标端高
+ * 18 00                  f3 = 流索引（0/1/2/3…）
+ * 3a 09                  f7 = 流元数据
+ *   08 01                .f1 = 1
+ *   10 91 83 bd 03       .f2 = 7291281
+ *   20 01                .f4 = 1
+ * ```
+ *
+ * 电脑对端样本的 `f14/f15` 是 1920×1200；手机对端是 640×480。
+ * 该函数保留用于黄金样本与测试，**不要在客户端开摄像头时发送**。
+ */
+export function buildVideoParamPush(params: {
+  roomId: bigint;
+  selfUin: number;
+  sessionTs: number;
+  typeId: number;
+  width: number;
+  height: number;
+  fps: number;
+  /** 码率（kbps）。 */
+  bitrateKbps: number;
+  /** 目标端展示尺寸；缺省与编码尺寸一致。 */
+  displayWidth?: number;
+  displayHeight?: number;
+  /** 服务端流索引；缺省 0。 */
+  streamIndex?: number;
+}): Uint8Array {
+  const head = buildGcsHead({
+    roomId: params.roomId,
+    selfUin: params.selfUin,
+    sessionTs: params.sessionTs,
+    typeId: params.typeId,
+    bodyType: GcsBodyType.videoParamPush,
+  });
+  const videoParams = concat([
+    pbVarint(1, params.fps),
+    pbVarint(2, 1),
+    pbVarint(3, params.width),
+    pbVarint(4, params.height),
+    pbVarint(5, params.bitrateKbps),
+    pbVarint(6, 0),
+    pbVarint(7, 5000),
+    pbVarint(10, params.width),
+    pbVarint(11, params.height),
+    pbVarint(14, params.displayWidth ?? params.width),
+    pbVarint(15, params.displayHeight ?? params.height),
+  ]);
+  const inner = concat([pbVarint(2, 290), pbVarint(3, 1), pbBytes(4, videoParams)]);
+  const streamInfo = concat([pbVarint(1, 1), pbVarint(2, 7291281), pbVarint(4, 1)]);
+  const body = concat([
+    pbBytes(2, inner),
+    pbVarint(3, params.streamIndex ?? 0),
+    pbBytes(7, streamInfo),
+  ]);
+  return buildGcsPacket(head, body);
+}
+
+/**
+ * 视频流索引推送（bt=77，13 字节形态）。
+ *
+ * ```text
+ * 18 00         f3 = 流索引（0/1/2/3/4/5 递增）
+ * 3a 09         f7 bytes(9)
+ *   08 01       .f1 = 1
+ *   10 91 83 bd 03  .f2 = 7291281
+ *   20 01       .f4 = 1
+ * ```
+ *
+ * 实测在视频开始前/中随流建立推送，`f3` 每次 +1。与 52 字节那条是同一 bt 的
+ * 两种 body 形态，靠 body 长度与字段区分。
+ */
+export function buildVideoStreamPush(params: {
+  roomId: bigint;
+  selfUin: number;
+  sessionTs: number;
+  typeId: number;
+  /** 流索引，从 0 起递增。 */
+  streamIndex: number;
+}): Uint8Array {
+  const head = buildGcsHead({
+    roomId: params.roomId,
+    selfUin: params.selfUin,
+    sessionTs: params.sessionTs,
+    typeId: params.typeId,
+    bodyType: GcsBodyType.videoParamPush,
+  });
+  const streamInfo = concat([pbVarint(1, 1), pbVarint(2, 7291281), pbVarint(4, 1)]);
+  const body = concat([pbVarint(3, params.streamIndex), pbBytes(7, streamInfo)]);
+  return buildGcsPacket(head, body);
+}
+
+/**
+ * 视频流状态消息（`bt=31`，client↔server）。
+ *
+ * 三通原生抓包中，视频通话的 caller 在收到 `event=4` 后发送 `f1=3`；服务端
+ * 下发 `f1=4` 时，客户端除普通空 ACK 外还必须回一条 `f1=5`。客户端发出的
+ * 两条都带 88 字节房间 authKey。当前只实现主动发起，因此只构造 3 / 5。
+ */
+export function buildVideoState(params: {
+  roomId: bigint;
+  selfUin: number;
+  sessionTs: number;
+  typeId: number;
+  authKey: Uint8Array;
+  state: number;
+}): Uint8Array {
+  const head = buildGcsHead({
+    roomId: params.roomId,
+    selfUin: params.selfUin,
+    sessionTs: params.sessionTs,
+    typeId: params.typeId,
+    authKey: params.authKey,
+    bodyType: GcsBodyType.videoStatePush,
+  });
+  return buildGcsPacket(head, pbVarint(1, params.state));
+}
+
+/** `bt=31` 的线上状态值。 */
+export const VideoStateCode = {
+  /** C→S：客户端在振铃阶段发起视频流状态协商。 */
+  start: 3,
+  /** S→C：服务端请求本端确认视频流。 */
+  offer: 4,
+  /** C→S：确认服务端的 offer。 */
+  accept: 5,
+  /** S→C：服务端确认客户端的 start。 */
+  ready: 6,
+} as const;
 
 /** 房间事件推送（bt=3）里的事件类型。 */
 export const CallEvent = {
@@ -446,7 +634,10 @@ export function buildStatusReport(params: {
   sendBytes: number;
   /** 本次通话内的第几次上报，从 1 起。 */
   seq: number;
+  /** 当前是否已在发视频；只切换抓包中已确认会变化的字段。 */
+  media?: 'audio' | 'video';
 }): Uint8Array {
+  const videoCall = params.media === 'video';
   const tick = Date.now() >>> 0;
   const parts: Uint8Array[] = [];
   parts.push(pbBytes(1, concat([encodeVarint(tick), encodeVarint((tick + 2000) >>> 0)])));
@@ -462,9 +653,10 @@ export function buildStatusReport(params: {
   parts.push(pbVarint(13, params.seq === 1 ? 1 : 0));
   parts.push(pbVarint(14, params.sendBytes));
   parts.push(pbVarint(15, 0));
-  parts.push(pbVarint(16, 3)); // 网络类型：3 = 有线
+  // 原生视频样本固定为 1；旧语音模板的 3 会让服务端把它当成另一种终端。
+  parts.push(pbVarint(16, videoCall ? 1 : 3));
   parts.push(pbVarint(17, 1));
-  // f18：网络描述（34 字节），运营商 / 链路类型 / 带宽，照抄真实客户端。
+  // f18：网络描述，沿用已通过真机校验的固定样本。
   parts.push(
     pbBytes(
       18,
@@ -481,8 +673,9 @@ export function buildStatusReport(params: {
   parts.push(pbVarint(22, 100)); // 质量分
   for (let i = 23; i <= 33; i++) parts.push(pbVarint(i, 0));
   parts.push(pbVarint(36, 0));
-  for (let i = 38; i <= 40; i++) parts.push(pbVarint(i, 0));
-  parts.push(pbVarint(42, 26280)); // 发送码率
+  for (let i = 38; i <= 39; i++) parts.push(pbVarint(i, 0));
+  parts.push(pbVarint(40, videoCall ? 2 : 0));
+  parts.push(pbVarint(42, videoCall ? 45000 : 0)); // 收发带宽预算
   for (let i = 43; i <= 45; i++) parts.push(pbVarint(i, 0));
   for (let i = 46; i <= 53; i++) parts.push(pbVarint(i, 0xffff));
   parts.push(pbVarint(56, 0));
@@ -501,8 +694,13 @@ export function buildStatusReport(params: {
   parts.push(pbVarint(105, 0));
   parts.push(pbVarint(110, 0));
   parts.push(pbVarint(111, params.seq));
-  for (let i = 112; i <= 115; i++) parts.push(pbVarint(i, 0));
-  parts.push(pbVarint(120, 26847424));
+  parts.push(pbVarint(112, params.seq >= 3 ? 1 : 0));
+  parts.push(pbVarint(113, 0));
+  parts.push(pbVarint(114, params.seq >= 3 ? (videoCall ? 6553600 : 2621440) : 0));
+  parts.push(pbVarint(115, 0));
+  // 与 DEFAULT_CAPABILITIES.f11 一致。原生语音通话也声明视频能力，
+  // 否则之后动态打开摄像头时服务端不会补发完整的 bt=77 视频流参数。
+  parts.push(pbVarint(120, 1812048064));
   parts.push(pbVarint(123, 0));
   for (let i = 125; i <= 130; i++) parts.push(pbVarint(i, 0));
   parts.push(pbVarint(132, 0));
@@ -543,77 +741,320 @@ export function buildStatusReport(params: {
 // ═══════════════════════════ Relay (0x02) ═══════════════════════════
 
 export const RELAY_STX = 0x02;
-export const RELAY_HEADER_LEN = 37;
+
+/**
+ * `0x02` 的固定头长度（body 从 39 开始，最后一字节恒 `0x03`）。
+ *
+ * 2026-10-26 QQ 本体抓包逐字节核对：`[35:39]` 是 4 字节 token（= 邀请回包的
+ * authToken），它跨在「头 / 体」的老边界上。旧实现把头长写成 37，于是 token
+ * 只写进去 2 字节、剩 2 字节被当成 body 的开头 —— 中继因此从不回 GET_IN 应答。
+ */
+export const RELAY_HEADER_LEN = 39;
+
+/**
+ * `0x02` 的两条通道。
+ *
+ * - `server`（0）：中继注册 / 保活 / 对端路径下发；
+ * - `peer`（1）：P2P 打洞握手（见 {@link buildPeerProbe}）。
+ */
+export const RELAY_CHANNEL = { server: 0, peer: 1 } as const;
 
 export const RelayCmd = {
   getIn: 1,
   getInAck: 2,
-  peerPathInfo: 5,
+  peerPathInfo: 3,
+  /**
+   * `cmd=3`（对端路径下发）的应答。
+   *
+   * 2026-10-26 QQ 本体抓包：收到 `cmd=3` 立刻回一条 `cmd=4`（56 字节，
+   * body 16 字节全 0）。WeQ 之前从不回，中继就把 `cmd=3` 每秒重发一遍，
+   * 一直到挂断 —— 表现为「中继协商永远没完成」。
+   */
+  peerPathAck: 4,
   keepalive: 0x0b,
 } as const;
 
-/** 中继通道号的起点；每个中继服务器一个通道，依次 +1。 */
-export const RELAY_CHANNEL_BASE = 5000;
+/**
+ * 中继 GET_IN 尾部的能力摘要：`02 | capabilities.f3 | capabilities.f6(BE)`。
+ *
+ * 实测 QQ 本体（视频档）：`02 0f 27 4f` —— `0x0f`=15、`0x274f`=10063，正好是
+ * {@link DEFAULT_CAPABILITIES} 的 `f3` / `f6`。旧实现照抄的是语音档的旧模板
+ * `02 05 27 4a`（5 / 10058），与当前发出去的能力集自相矛盾。
+ */
+export const RELAY_CAPABILITY_TRIPLE = Uint8Array.from([0x02, 0x0f, 0x27, 0x4f]);
 
-function buildRelayPacket(params: {
+export function buildRelayPacket(params: {
   roomId: bigint;
   selfUin: number;
-  channelId: number;
-  authToken: number;
+  /** 本端的控制包序号（中继通道内恒定，P2P 探测从它往后递增）。 */
+  seq: number;
+  /** 对端 uin；真实客户端显式写出。 */
+  peerUin: number;
+  /** 邀请回包里的 authToken，放在 `[35:39]`。 */
+  token: number;
+  channel: number;
   cmd: number;
   body: Uint8Array;
 }): Uint8Array {
-  const out = new Uint8Array(RELAY_HEADER_LEN + params.body.length);
+  // 末尾固定一个 `0x03` 结束符，所以多留 1 字节（QQ 的 GET_IN 是 64 = 39 + 24 + 1）。
+  const out = new Uint8Array(RELAY_HEADER_LEN + params.body.length + 1);
   out[0] = RELAY_STX;
   writeU16be(out, 1, out.length);
-  writeU16be(out, 3, 0);
+  out[3] = 0;
+  out[4] = params.channel;
   writeU16be(out, 5, params.cmd);
   writeU64be(out, 7, params.roomId);
   writeU32be(out, 19, params.selfUin);
-  writeU16be(out, 25, params.channelId);
-  // [31:35] 是保留的对端 uin，真实客户端也写 0。
-  out[35] = (params.authToken >>> 24) & 0xff;
-  out[36] = (params.authToken >>> 16) & 0xff;
+  writeU32be(out, 23, params.seq);
+  writeU32be(out, 31, params.peerUin);
+  writeU32be(out, 35, params.token);
   out.set(params.body, RELAY_HEADER_LEN);
+  out[out.length - 1] = 0x03;
   return out;
 }
 
 /**
- * 注册到中继（cmd=1）。
+ * 注册到中继（ch=0, cmd=1）。
  *
- * `authToken` 来自邀请回包；`nonce` 是通道级的随机数，服务端原样带回。
- * 中继只做转发，同一个房间的两个客户端各注册一条通道，服务端把两边的音频
- * 互相投递。
+ * 2026-10-26 抓包逐字段对齐（QQ 本体，P2P 正常）：
+ *
+ * ```text
+ * [23:27] 本端序号         QQ 是 0x70ed 这样的递增计数，旧实现写死 5000
+ * [31:35] 对端 uin         QQ 显式填，旧实现写 0
+ * [35:39] token            QQ 填 authToken，旧实现只写 2 字节
+ * [53:57] 02 0f 27 4f      能力摘要，见 RELAY_CAPABILITY_TRIPLE
+ * ```
+ *
+ * 这四处不对，中继就不回 GET_IN 应答（cmd=2），也就不会下发对端路径（cmd=3）。
  */
 export function buildRelayGetIn(params: {
   roomId: bigint;
   selfUin: number;
-  channelId: number;
+  peerUin: number;
+  seq: number;
   authToken: number;
   nonce?: number;
 }): Uint8Array {
-  const body = new Uint8Array(27);
-  body[0] = (params.authToken >>> 8) & 0xff;
-  body[1] = params.authToken & 0xff;
-  writeU16be(body, 8, params.nonce ?? 0xfe8c);
-  // [10:18] 是固定的链路描述（IPv4 / UDP / 端口族），照抄。
-  body[16] = 0x02;
-  body[17] = 0x05;
-  body[18] = 0x27;
-  body[19] = 0x4a;
-  body[26] = 0x03;
-  return buildRelayPacket({ ...params, cmd: RelayCmd.getIn, body });
+  // body（相对 39）：[6:8] 通道随机数，[14:18] 能力摘要，其余 0。
+  const body = new Uint8Array(24);
+  writeU16be(body, 6, params.nonce ?? 0xae4e);
+  body.set(RELAY_CAPABILITY_TRIPLE, 14);
+  return buildRelayPacket({
+    roomId: params.roomId,
+    selfUin: params.selfUin,
+    peerUin: params.peerUin,
+    seq: params.seq,
+    token: params.authToken,
+    channel: RELAY_CHANNEL.server,
+    cmd: RelayCmd.getIn,
+    body,
+  });
 }
 
-/** 中继保活（cmd=0x0b），5 秒一次。 */
+/** 中继保活（ch=0, cmd=0x0b），5 秒一次；序号与 GET_IN 相同。 */
 export function buildRelayKeepalive(params: {
   roomId: bigint;
   selfUin: number;
-  channelId: number;
+  peerUin: number;
+  seq: number;
   authToken: number;
 }): Uint8Array {
-  const body = Uint8Array.from([(params.authToken >>> 8) & 0xff, params.authToken & 0xff, 0x03]);
-  return buildRelayPacket({ ...params, cmd: RelayCmd.keepalive, body });
+  return buildRelayPacket({
+    roomId: params.roomId,
+    selfUin: params.selfUin,
+    peerUin: params.peerUin,
+    seq: params.seq,
+    token: params.authToken,
+    channel: RELAY_CHANNEL.server,
+    cmd: RelayCmd.keepalive,
+    body: new Uint8Array(0),
+  });
+}
+
+// ═══════════════════════════ P2P 端点（bt=25 / bt=27） ═══════════════════════════
+
+/**
+ * `bt=25` / `bt=27` 里端点描述的固定前 6 字节。
+ *
+ * 两个方向、两通不同的通话都是 `d1 07 00 00 00 00`，含义未还原（看起来像
+ * 「IPv6 / UDP 族」之类的链路标识），照抄即可；**后两字节是大端端口**。
+ */
+const PEER_ENDPOINT_PREFIX = Uint8Array.from([0xd1, 0x07, 0x00, 0x00, 0x00, 0x00]);
+
+/** 本端 P2P 端点公告（`bt=25`）。 */
+export function buildPeerJoinReport(params: {
+  roomId: bigint;
+  selfUin: number;
+  peerUin: number;
+  sessionTs: number;
+  typeId: number;
+  /** 本端 UDP 套接字的本地端口（就是 P2P 要用的端口）。 */
+  port: number;
+}): Uint8Array {
+  const endpoint = new Uint8Array(8);
+  endpoint.set(PEER_ENDPOINT_PREFIX, 0);
+  writeU16be(endpoint, 6, params.port);
+  const body = concat([
+    pbVarint(1, params.selfUin),
+    pbVarint(2, params.peerUin),
+    // f3 恒 2（两通实测都是 2，语义未还原）。
+    pbVarint(3, 2),
+    pbBytes(4, endpoint),
+  ]);
+  const head = buildGcsHead({
+    roomId: params.roomId,
+    selfUin: params.selfUin,
+    sessionTs: params.sessionTs,
+    typeId: params.typeId,
+    bodyType: GcsBodyType.peerJoinReport,
+  });
+  return buildGcsPacket(head, body);
+}
+
+/** `bt=27` 解析结果。 */
+export interface PeerJoinPush {
+  /** 对端 uin。 */
+  peerUin: number;
+  /** 对端真实 P2P 端口（`bt=9` 的 f8 只是近似值，这个才是权威）。 */
+  port: number;
+}
+
+/**
+ * 解析 `bt=27`（peerJoin）里对端的 P2P 端口。
+ *
+ * 2026-10-26 抓包：`08 <对端uin> 10 <自己uin> 18 02 22 08 d10700000000 db19` ——
+ * `0xdb19` = 56089，正是对端发媒体用的端口（`bt=9` 的 f8 给的是 56082）。
+ */
+export function parsePeerJoin(body: Uint8Array): PeerJoinPush | null {
+  const peerUin = Number(pbGetVarint(body, 1) ?? 0);
+  const endpoint = pbGetBytes(body, 4);
+  if (!endpoint || endpoint.length < 8) return null;
+  const port = u16be(endpoint, 6);
+  if (port === 0) return null;
+  return { peerUin, port };
+}
+
+// ═══════════════════════════ P2P 握手（0x02 ch=1） ═══════════════════════════
+
+/** P2P 握手包定长 72 字节。 */
+export const PEER_PACKET_LEN = 72;
+
+/**
+ * P2P 通道的 `0x02` 子命令。
+ *
+ * 实序是「四步握手 + 2 秒保活」（2026-10-26 QQ 本体抓包，23.883s 起）：
+ *
+ * ```text
+ * A→B probe(0)      B→A probeReply(1)     ← 互相确认可达
+ * B→A probe(0)      A→B probeReply(1)
+ * A→B probeAck(2)   B→A probeAckReply(3)
+ * 之后每 2 秒：probeAck(2) + probeAckReply(3)
+ * ```
+ *
+ * 只有收到 1/3 才能确认「双向都通」，媒体才该切到直连。
+ */
+export const PeerProbeCmd = {
+  probe: 0,
+  probeReply: 1,
+  probeAck: 2,
+  probeAckReply: 3,
+} as const;
+
+/** 一条 P2P 握手包解析后的字段。 */
+export interface PeerProbe {
+  cmd: number;
+  /** 这条包「关于」哪个 uin：探测时是自己，应答时是发起方。 */
+  uinAbout: number;
+  seq: number;
+  otherUin: number;
+  token: number;
+  /** `uinAbout` 的时钟（应答时原样回抄）。 */
+  clock: number;
+  /** 发这条包的一方自己的时钟（探测时为 0）。 */
+  peerClock: number;
+}
+
+/**
+ * 构造 P2P 握手包（`0x02` ch=1）。
+ *
+ * 逐字节布局（72 字节，2026-10-26 抓包核对）：
+ *
+ * ```text
+ * [0:4]   02 00 48 00        magic + 总长（BE）
+ * [4]     01                 通道：1 = P2P
+ * [5:7]   cmd                BE
+ * [7:15]  roomId             u64 BE
+ * [19:23] uinAbout           这条包「关于」的 uin
+ * [23:27] seq
+ * [31:35] otherUin
+ * [35:39] token
+ * [39:43] 00 00 00 02        常量
+ * [47:51] clock（uinAbout 的）
+ * [51:55] peerClock（发信方自己的）
+ * [71]    03                 结束符
+ * ```
+ */
+export function buildPeerProbe(params: {
+  roomId: bigint;
+  cmd: number;
+  uinAbout: number;
+  seq: number;
+  otherUin: number;
+  token: number;
+  clock: number;
+  peerClock: number;
+}): Uint8Array {
+  const out = new Uint8Array(PEER_PACKET_LEN);
+  out[0] = RELAY_STX;
+  writeU16be(out, 1, out.length);
+  out[3] = 0;
+  out[4] = RELAY_CHANNEL.peer;
+  writeU16be(out, 5, params.cmd);
+  writeU64be(out, 7, params.roomId);
+  writeU32be(out, 19, params.uinAbout);
+  writeU32be(out, 23, params.seq);
+  writeU32be(out, 31, params.otherUin);
+  writeU32be(out, 35, params.token);
+  writeU32be(out, 39, 2);
+  writeU32be(out, 47, params.clock);
+  writeU32be(out, 51, params.peerClock);
+  out[out.length - 1] = 0x03;
+  return out;
+}
+
+/** 解析 P2P 握手包；不是 P2P 通道的 `0x02` 返回 null。 */
+export function parsePeerProbe(data: Uint8Array): PeerProbe | null {
+  if (data.length < PEER_PACKET_LEN || data[0] !== RELAY_STX) return null;
+  if (data[4] !== RELAY_CHANNEL.peer) return null;
+  if (u16be(data, 1) !== data.length) return null;
+  return {
+    cmd: u16be(data, 5),
+    uinAbout: u32be(data, 19),
+    seq: u32be(data, 23),
+    otherUin: u32be(data, 31),
+    token: u32be(data, 35),
+    clock: u32be(data, 47),
+    peerClock: u32be(data, 51),
+  };
+}
+
+/**
+ * 构造应答（cmd+1）。
+ *
+ * 实测应答包是「把收到的 [7:51] 原样回抄，再填上自己的时钟」：`uinAbout` /
+ * `seq` / `otherUin` / `token` / `clock` 全部照抄，只把 `peerClock` 换成自己的。
+ */
+export function buildPeerProbeReply(probe: PeerProbe, params: { roomId: bigint; clock: number }) {
+  return buildPeerProbe({
+    roomId: params.roomId,
+    cmd: probe.cmd + 1,
+    uinAbout: probe.uinAbout,
+    seq: probe.seq,
+    otherUin: probe.otherUin,
+    token: probe.token,
+    clock: probe.clock,
+    peerClock: params.clock,
+  });
 }
 
 // ═══════════════════════════ Audio (0x5b) ═══════════════════════════

@@ -16,6 +16,7 @@ import { createRequire } from 'node:module';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
 import { installRendererDiagnosticSampling } from './renderer_diagnostics';
 import type { EditMenuState } from '../shared/edit_menu';
+import { CALL_VIDEO_FRAME_CHANNEL, type CallVideoFrame } from '../shared/call_video_ipc';
 import type { LongTermAuthorizationBridge } from '../shared/long_term_authorization';
 import { rendererRecoveryBridge } from './renderer_recovery';
 
@@ -69,6 +70,19 @@ const weqBridge = {
     },
   },
   openLogDir: (): Promise<boolean> => ipcRenderer.invoke('logs:open-dir') as Promise<boolean>,
+  /**
+   * 往主进程日志文件里写一条结构化记录（fire-and-forget）。
+   *
+   * 渲染层的 `console.*` 不会落盘，通话视频解码这类纯渲染层的链路出了问题就
+   * 完全看不见。调用方显式调用才记，别拿来替代 `console`。
+   */
+  debugLog: (level: 'debug' | 'info' | 'warn' | 'error', message: string, context?: object) => {
+    try {
+      ipcRenderer.send('logs:renderer', { level, message, context });
+    } catch {
+      // 日志永远不能影响业务流程。
+    }
+  },
   /**
    * 用户选 / 拖 / 粘贴进来的文件的**本机绝对路径**（Electron 32+ 的 `webUtils`）。
    *
@@ -179,6 +193,18 @@ const weqBridge = {
     /** 导出专用入口开窗口时领走待渲染的载荷（只有导出窗口会调）。 */
     claimPayload: () =>
       ipcRenderer.invoke('analytics-shot:claim') as Promise<AnalyticsExportPayload | null>,
+  },
+  callVideo: {
+    /**
+     * 推一帧 I420（通话视频上行）。
+     *
+     * 走原生 IPC 而不是 tRPC：`Uint8Array` 在 `ipcRenderer.send` 里直接结构化
+     * 克隆（0.17 ms），经 tRPC + superjson 会被展开成十进制数组（一帧 1.2 MB
+     * 文本、30 ms）。视频帧本来就该 fire-and-forget，不等回执。
+     */
+    pushFrame(frame: CallVideoFrame): void {
+      ipcRenderer.send(CALL_VIDEO_FRAME_CHANNEL, frame);
+    },
   },
 };
 

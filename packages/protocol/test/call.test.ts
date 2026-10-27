@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AUDIO_HEADER_LEN,
   CallEvent,
+  DEFAULT_CAPABILITIES,
   FEC_DATA_FRAMES,
   FEC_PARITY_ROWS,
   GcsBodyType,
@@ -13,17 +14,30 @@ import {
   buildGcsAck,
   buildGcsAuth,
   buildGcsLogout,
+  buildVideoState,
+  buildVideoParamPush,
+  buildVideoStreamPush,
+  buildPeerJoinReport,
+  buildPeerProbe,
+  buildPeerProbeReply,
   buildQfbRequest,
   buildRelayGetIn,
+  buildRelayKeepalive,
   buildStatusReport,
+  parsePeerJoin,
+  parsePeerProbe,
+  PeerProbeCmd,
   decodeCreateRoomRsp,
   encodeCreateRoomReq,
   parseAudioFrame,
   parseCallEvent,
   parseFecContainer,
   parseGcsPacket,
+  parsePb,
   parseQfb,
+  pbGetBytes,
   pbGetVarint,
+  VideoStateCode,
   rsDecode,
   rsEncode,
 } from '../src/call';
@@ -51,29 +65,38 @@ describe('通话信令', () => {
     expect(Buffer.from(bytes).toString('latin1')).toContain('u_self');
   });
 
-  it('开房回包解析出房间、密钥与服务器（ip 缺失时用 altIp 兜底）', () => {
-    // 真实回包（发往 2863253201 那次），原样粘过来当黄金样本。
+  /**
+   * 黄金样本：2026-10-26 同一次通话的 OIDB 回包（QQ 本体，P2P 正常）。
+   *
+   * 服务器表前三条带**字段 5（16 字节裸 IPv6）**，服务端下发的原始顺序即优先级；
+   * QQ 实际连的就是第一条 `240e:930:c200:88::17:8000`（UDP 抓包证实）。
+   *
+   * 旧 schema 没有字段 5，这三条会退化成 `altIp` 的 IPv4（`29.237.*`，不可达），
+   * 导致 GCS 握手只能退到后面的 IPv4 条目、`bt=9` 拿不到对端 `f7`、媒体全程走
+   * 中继 —— 这就是「两端都卡」的根因。
+   */
+  it('开房回包解析出房间、密钥与服务器（IPv6 优先）', () => {
     const hex = readFileSync(
       new URL('./fixtures/call-create-room-rsp.hex', import.meta.url),
       'utf8',
     ).trim();
     const room = decodeCreateRoomRsp(new Uint8Array(Buffer.from(hex, 'hex')));
-    expect(room.roomId).toBe(6748173487929717840n);
+    expect(room.roomId).toBe(5697919981127284148n);
     expect(room.sessionId).toBe(1707889225n);
-    expect(room.relationId).toBe(15000);
+    expect(room.relationId).toBe(26136);
     expect(room.authKey).toHaveLength(80);
-    // 9 台：3 台只有 altIp（IPv6 记录的 IPv4 备用地址）+ 3 台 relay + 3 台 GCS
+    // 9 台：3 台 IPv6（字段 5）+ 3 台 IPv4 relay + 3 台 IPv4 GCS，顺序原样保留。
     expect(room.servers).toHaveLength(9);
     expect(room.servers.map((s) => `${s.ip}:${s.port}/t${s.type}`)).toEqual([
-      '29.237.193.13:8800/t2',
-      '29.237.234.22:8800/t2',
-      '29.237.209.13:8000/t2',
+      '240e:930:c200:88::17:8000/t2',
+      '240e:930:c200:86::1c:8000/t2',
+      '240e:930:c200:81::13:8800/t2',
+      '113.250.57.133:8000/t2',
+      '113.250.57.110:8000/t2',
       '113.250.57.28:8800/t2',
-      '113.250.57.166:8800/t2',
-      '113.250.58.106:8000/t2',
-      '113.250.57.28:8000/t1',
-      '113.250.57.166:8001/t1',
-      '113.250.58.106:8000/t1',
+      '113.250.57.133:8001/t1',
+      '113.250.57.110:8000/t1',
+      '113.250.57.28:8001/t1',
     ]);
   });
 });
@@ -90,6 +113,27 @@ describe('GCS 控制面', () => {
     const parsed = parseGcsPacket(pkt)!;
     expect(parsed.bodyType).toBe(GcsBodyType.authReq);
     expect(parsed.body.length).toBeGreaterThan(100);
+  });
+
+  /**
+   * 回归：能力集必须与 QQ 本体逐字节一致。
+   *
+   * 旧模板是从语音通话抓的，`f3=5 / f6=10058 / f11=26847424`，内层分辨率硬编码
+   * 2560×1440、前两条能力是 `f1=2`。视频通话实测是 `f3=15 / f6=10063 /
+   * f11=1812048064`、内层 0/0、前两条为空 —— 两者差异可能让服务端不把本端当
+   * 视频/P2P 候选（拿不到 `bt=9` 的 `f7`，媒体只能全程中继）。
+   *
+   * 黄金样本：2026-10-26 QQ 本体直接视频抓包的认证 body（618 字节）。
+   */
+  it('能力集与 QQ 本体逐字节一致（618 字节）', () => {
+    expect(DEFAULT_CAPABILITIES).toHaveLength(618);
+    // 顶层 f3 = 15（视频档位）、f6 = 10063（与 MEDIA_PROFILE.video.inviteF4 一致）。
+    expect(pbGetVarint(DEFAULT_CAPABILITIES, 3)).toBe(15);
+    expect(pbGetVarint(DEFAULT_CAPABILITIES, 6)).toBe(10063);
+    // 开头是 f1 能力列表：`0a d3 03`（field 1, len 467），之后两条空能力
+    // `0a 00 0a 00` —— 不是旧模板的 `f1=2`（`08 02 10 01`）。
+    expect([...DEFAULT_CAPABILITIES.subarray(0, 3)]).toEqual([0x0a, 0xd3, 0x03]);
+    expect([...DEFAULT_CAPABILITIES.subarray(3, 7)]).toEqual([0x0a, 0x00, 0x0a, 0x00]);
   });
 
   it('登出包的 body 是 reason=2', () => {
@@ -168,20 +212,196 @@ describe('GCS 控制面', () => {
 // ─────────────── Relay ───────────────
 
 describe('中继', () => {
-  it('GET_IN 是 37 字节头 + 27 字节体', () => {
+  /**
+   * 黄金样本：2026-10-26 QQ 本体抓包里的 GET_IN（发往对端中继 `183.47.105.240:8000`，
+   * 64 字节）。
+   *
+   * 旧实现与它逐字节相比有四处差异，导致中继从不回 GET_IN 应答（cmd=2）：
+   *
+   * ```text
+   * [23:27] QQ 是递增序号 0x70ed，旧实现写死 channelId=5000
+   * [31:35] QQ 填对端 uin，旧实现写 0
+   * [35:39] QQ 填 4 字节 token，旧实现只写 2 字节（头长写成 37）
+   * [53:57] QQ 是 02 0f 27 4f（能力摘要），旧实现照抄语音档的 02 05 27 4a
+   * ```
+   */
+  it('GET_IN 与 QQ 本体逐字节一致', () => {
     const pkt = buildRelayGetIn({
-      roomId: 1n,
-      selfUin: 2,
-      channelId: 5000,
-      authToken: 0x11223344,
+      roomId: 5697919981127284148n,
+      selfUin: 1707889225,
+      peerUin: 2863253201,
+      seq: 0x70ed,
+      authToken: 0x6d7bd793,
+      nonce: 0xae4e,
     });
-    expect(pkt[0]).toBe(0x02);
-    expect(pkt.length).toBe(64);
-    expect((pkt[5]! << 8) | pkt[6]!).toBe(1);
-    // 通道号写在 [25:27]
-    expect(((pkt[25]! << 8) | pkt[26]!) >>> 0).toBe(5000);
-    // auth_token 的高 2 字节在尾部
-    expect([pkt[35], pkt[36]]).toEqual([0x11, 0x22]);
+    expect(Buffer.from(pkt).toString('hex')).toBe(
+      '02004000000001' + // [0:7] 长度 / 通道 0 / cmd=1
+        '4f131408b1b135b4' + // [7:15] roomId
+        '00000000' + // [15:19]
+        '65cc5249' + // [19:23] selfUin
+        '000070ed' + // [23:27] seq
+        '00000000' + // [27:31]
+        'aaa9c6d1' + // [31:35] peerUin
+        '6d7bd793' + // [35:39] token
+        '00'.repeat(6) + // [39:45]
+        'ae4e' + // [45:47] 通道随机数
+        '00'.repeat(6) + // [47:53]
+        '020f274f' + // [53:57] 能力摘要
+        '00'.repeat(6) + // [57:63]
+        '03',
+    );
+  });
+
+  it('保活是 39 字节头 + 结束符，序号与 GET_IN 相同', () => {
+    const pkt = buildRelayKeepalive({
+      roomId: 5697919981127284148n,
+      selfUin: 1707889225,
+      peerUin: 2863253201,
+      seq: 0x70ed,
+      authToken: 0x6d7bd793,
+    });
+    expect(Buffer.from(pkt).toString('hex')).toBe(
+      '02002800' +
+        '00000b' +
+        '4f131408b1b135b4' +
+        '00000000' +
+        '65cc5249' +
+        '000070ed' +
+        '00000000' +
+        'aaa9c6d1' +
+        '6d7bd793' +
+        '03',
+    );
+  });
+});
+
+// ─────────────── P2P 端点 / 握手 ───────────────
+
+describe('P2P 端点交换', () => {
+  /**
+   * `bt=25`：QQ 本体抓包 24 字节 —— 把自己真正的 UDP 端口（0xc894 = 51348）公告
+   * 出去。不发这条，对端永远不知道往哪打洞，媒体只能全程中继。
+   */
+  it('bt=25 公告本端端口，与抓包逐字节一致', () => {
+    const pkt = buildPeerJoinReport({
+      roomId: 1n,
+      selfUin: 1707889225,
+      peerUin: 2863253201,
+      sessionTs: 0,
+      typeId: 1,
+      port: 51348,
+    });
+    const parsed = parseGcsPacket(pkt)!;
+    expect(parsed.bodyType).toBe(GcsBodyType.peerJoinReport);
+    expect(Buffer.from(parsed.body).toString('hex')).toBe(
+      '08c9a4b1ae0610d18da7d50a18022208d10700000000c894',
+    );
+  });
+
+  /**
+   * `bt=27`：服务端下发对端真实端口。抓包里 `0xdb19` = 56089，正是对端发媒体
+   * 用的端口；`bt=9` 的 `f8` 给的是 56082（近似值）。
+   */
+  it('bt=27 解析出对端端口', () => {
+    const body = Uint8Array.from(
+      Buffer.from('08d18da7d50a10c9a4b1ae0618022208d10700000000db19', 'hex'),
+    );
+    expect(parsePeerJoin(body)).toEqual({ peerUin: 2863253201, port: 56089 });
+    expect(parsePeerJoin(new Uint8Array([0x08, 0x01]))).toBeNull();
+  });
+});
+
+describe('P2P 握手（0x02 ch=1）', () => {
+  /**
+   * 黄金样本：抓包 23.883s 的 `probe`。对端回包后 P2P 建立，媒体硬切直连 ——
+   * 这是「对端收不到 / 极卡」的最后一环。
+   */
+  it('probe 与抓包逐字节一致', () => {
+    const pkt = buildPeerProbe({
+      roomId: 5697919981127284148n,
+      cmd: PeerProbeCmd.probe,
+      uinAbout: 1707889225,
+      seq: 0x70ee,
+      otherUin: 2863253201,
+      token: 0x6d7bd793,
+      clock: 0x74d7e43a,
+      peerClock: 0,
+    });
+    expect(Buffer.from(pkt).toString('hex')).toBe(
+      '02004800010000' + // [0:7] 长度 / 通道 1 / cmd=0
+        '4f131408b1b135b4' + // [7:15] roomId
+        '00000000' + // [15:19]
+        '65cc5249' + // [19:23] 本条「关于」的 uin（自己）
+        '000070ee' + // [23:27] seq
+        '00000000' + // [27:31]
+        'aaa9c6d1' + // [31:35] 对端 uin
+        '6d7bd793' + // [35:39] token
+        '00000002' + // [39:43] 常量
+        '00000000' + // [43:47]
+        '74d7e43a' + // [47:51] 自己的时钟
+        '00'.repeat(20) + // [51:71] 还没收到对端的时钟
+        '03',
+    );
+  });
+
+  it('解析出的字段与构造一致，且只认 P2P 通道', () => {
+    const pkt = buildPeerProbe({
+      roomId: 7n,
+      cmd: PeerProbeCmd.probeAck,
+      uinAbout: 1,
+      seq: 9,
+      otherUin: 2,
+      token: 3,
+      clock: 10,
+      peerClock: 11,
+    });
+    expect(parsePeerProbe(pkt)).toEqual({
+      cmd: PeerProbeCmd.probeAck,
+      uinAbout: 1,
+      seq: 9,
+      otherUin: 2,
+      token: 3,
+      clock: 10,
+      peerClock: 11,
+    });
+    // 服务端通道（[4]=0）不是握手包。
+    const server = buildRelayKeepalive({
+      roomId: 7n,
+      selfUin: 1,
+      peerUin: 2,
+      seq: 1,
+      authToken: 3,
+    });
+    expect(parsePeerProbe(server)).toBeNull();
+  });
+
+  /**
+   * 应答是「把收到的 [7:51] 原样回抄 + 自己的时钟」。抓包里 B 的 cmd1：
+   * uinAbout/seq/clock 全是 A 的，`peerClock` 才是 B 自己的。
+   */
+  it('应答回抄探测包的字段，只换上自己的时钟', () => {
+    const probe = parsePeerProbe(
+      buildPeerProbe({
+        roomId: 5n,
+        cmd: PeerProbeCmd.probe,
+        uinAbout: 11,
+        seq: 22,
+        otherUin: 33,
+        token: 44,
+        clock: 0x74d7e43a,
+        peerClock: 0,
+      }),
+    )!;
+    const reply = parsePeerProbe(buildPeerProbeReply(probe, { roomId: 5n, clock: 0x5df445 }))!;
+    expect(reply).toEqual({
+      cmd: PeerProbeCmd.probeReply,
+      uinAbout: 11,
+      seq: 22,
+      otherUin: 33,
+      token: 44,
+      clock: 0x74d7e43a,
+      peerClock: 0x5df445,
+    });
   });
 });
 
@@ -329,6 +549,119 @@ describe('质量反馈', () => {
     const parsed = parseQfb(late.subarray(AUDIO_HEADER_LEN))!;
     expect(parsed.qfbSeq).toBe(6);
     expect(parsed.type).toBe(1);
+  });
+});
+
+// ─────────────── 视频流状态（bt=31） ───────────────
+
+describe('视频流状态协商', () => {
+  it('客户端状态包带 authKey，body 是 f1=<state>', () => {
+    const authKey = new Uint8Array(88).fill(0x5a);
+    const packet = buildVideoState({
+      roomId: 1n,
+      selfUin: 10001,
+      sessionTs: 2,
+      typeId: 3,
+      authKey,
+      state: VideoStateCode.start,
+    });
+    const parsed = parseGcsPacket(packet)!;
+    expect(parsed.bodyType).toBe(GcsBodyType.videoStatePush);
+    expect([...parsed.body]).toEqual([0x08, VideoStateCode.start]);
+    expect(pbGetBytes(parsed.head, 5)).toEqual(authKey);
+  });
+});
+
+// ─────────────── 服务端视频参数推送（bt=77） ───────────────
+
+describe('视频参数推送', () => {
+  /**
+   * 黄金样本来自 2026-10-26 QQ 电脑→手机抓包：
+   * 服务端在接通前推的 52 字节 body，分辨率 640×480、15 fps、5120 kbps。
+   */
+  const REAL_PARAM_BODY = Uint8Array.from(
+    Buffer.from(
+      '122510a2021801221e080f100118800520e003288028300038882750800558e00370800578e003' +
+        '18003a090801109183bd032001',
+      'hex',
+    ),
+  );
+
+  it('逐字节还原真实抓包的 52 字节 body', () => {
+    const packet = buildVideoParamPush({
+      roomId: 1n,
+      selfUin: 10001,
+      sessionTs: 1,
+      typeId: 1,
+      width: 640,
+      height: 480,
+      fps: 15,
+      bitrateKbps: 5120,
+    });
+    const parsed = parseGcsPacket(packet)!;
+    expect(parsed.bodyType).toBe(GcsBodyType.videoParamPush);
+    expect([...parsed.body]).toEqual([...REAL_PARAM_BODY]);
+  });
+
+  it('分辨率、码率与目标端尺寸跟着参数走', () => {
+    const build = (width: number, height: number, fps: number, bitrateKbps: number) => {
+      const packet = buildVideoParamPush({
+        roomId: 1n,
+        selfUin: 1,
+        sessionTs: 1,
+        typeId: 1,
+        width,
+        height,
+        fps,
+        bitrateKbps,
+      });
+      return parseGcsPacket(packet)!.body;
+    };
+    const a = build(640, 480, 15, 5120);
+    const b = build(480, 270, 10, 400);
+    expect([...a]).not.toEqual([...b]);
+    // 480 / 270 的 varint 分别是 0xe0 0x03 / 0x8e 0x02，必须出现在 body 里。
+    expect([...b]).toContain(0x8e);
+
+    const pcPacket = buildVideoParamPush({
+      roomId: 1n,
+      selfUin: 1,
+      sessionTs: 1,
+      typeId: 1,
+      width: 640,
+      height: 480,
+      fps: 15,
+      bitrateKbps: 5120,
+      displayWidth: 1920,
+      displayHeight: 1200,
+    });
+    const outer = parsePb(parseGcsPacket(pcPacket)!.body);
+    const inner = parsePb(outer.find((field) => field.field === 2)!.bytes!);
+    const video = parsePb(inner.find((field) => field.field === 4)!.bytes!);
+    expect(video.find((field) => field.field === 14)?.value).toBe(1920n);
+    expect(video.find((field) => field.field === 15)?.value).toBe(1200n);
+  });
+
+  /**
+   * 13 字节形态：流索引递增。抓包里 f3 依次是 0/1/2/3/4/5，f7 恒定。
+   */
+  it('流索引形态逐字节还原真实抓包', () => {
+    const expected = [
+      '18003a090801109183bd032001',
+      '18013a090801109183bd032001',
+      '18023a090801109183bd032001',
+    ];
+    for (let i = 0; i < expected.length; i++) {
+      const packet = buildVideoStreamPush({
+        roomId: 1n,
+        selfUin: 1,
+        sessionTs: 1,
+        typeId: 1,
+        streamIndex: i,
+      });
+      const parsed = parseGcsPacket(packet)!;
+      expect(Buffer.from(parsed.body).toString('hex')).toBe(expected[i]);
+    }
   });
 });
 

@@ -22,6 +22,7 @@
 import {
   AUDIO_STX,
   AudioSubType,
+  RelayCmd,
   type AudioFrame,
   type CallRoom,
   CallEvent,
@@ -32,8 +33,10 @@ import {
   GCS_TYPE_ID_BASE,
   GcsBodyType,
   OPUS_SILENCE,
-  RELAY_CHANNEL_BASE,
+  RELAY_CHANNEL,
+  RELAY_HEADER_LEN,
   RELAY_STX,
+  PeerProbeCmd,
   buildAudioFrame,
   buildCodecInitFrame,
   buildFecContainer,
@@ -41,14 +44,19 @@ import {
   buildGcsAuth,
   buildGcsHeartbeat,
   buildGcsLogout,
+  buildPeerJoinReport,
+  buildPeerProbe,
+  buildPeerProbeReply,
   buildQfbRequest,
   buildQfbResponse,
   buildRelayGetIn,
   buildRelayKeepalive,
+  buildRelayPacket,
   buildStatusReport,
   buildVideoControl,
   buildVideoKeepalive,
   buildVideoPackets,
+  buildVideoState,
   buildVideoSubHeader,
   extractHevc,
   parseAudioFrame,
@@ -56,8 +64,11 @@ import {
   parseCallEvent,
   parseFecContainer,
   parseGcsPacket,
+  parsePb,
+  parsePeerJoin,
+  parsePeerProbe,
   parseQfb,
-  pbGetBytes,
+  pbGetVarint,
   parseVideoPacket,
   rsEncode,
   sampleVideoFrameQuality,
@@ -65,6 +76,7 @@ import {
   isIrapNalType,
   VIDEO_SUBHEADER_LEN,
   VIDEO_CTRL_SUB_TYPE,
+  VideoStateCode,
   videoPacketCount,
   VIDEO_KEEPALIVE_SUB_TYPE,
   VideoFrameAssembler,
@@ -125,7 +137,7 @@ export interface CallSnapshot {
   videoSending: boolean;
   /** 对端摄像头是否开着（收到对端视频流）。 */
   videoReceiving: boolean;
-  /** 收到的视频帧数（含增强层）。 */
+  /** 收到的视频帧数。 */
   receivedVideoFrames: number;
   /** 视频流的最近一次关键帧信息；没收到过为 null。 */
   videoInfo: VideoStreamInfo | null;
@@ -139,6 +151,10 @@ export interface VideoStreamInfo {
   profile: number;
   /** 编码格式，目前只认 hevc。 */
   codec: 'hevc';
+  /** 编码帧率（可选）。 */
+  fps?: number;
+  /** 目标码率（kbps，可选）。 */
+  bitrateKbps?: number;
 }
 
 // ─────────────────────────── 依赖注入 ───────────────────────────
@@ -147,6 +163,14 @@ export interface VideoStreamInfo {
 export interface UdpTransport {
   /** 绑定本地端口（0 = 随机）。 */
   bind(): Promise<void>;
+  /**
+   * 绑定后的本地端口。
+   *
+   * `bt=25` 要向服务端公告**本端的 P2P 端口**，对端随后就打这个端口。拿不到时
+   * （老实现 / 测试里的假 socket）跳过公告 —— 但那样 P2P 永远建不起来，所以真实
+   * 实现必须给。
+   */
+  localPort?(): number;
   send(data: Uint8Array, port: number, address: string): void;
   close(): void;
   /** 收到一个包。 */
@@ -232,8 +256,13 @@ export type CallVideoListener = (frame: VideoFramePayload, at: number) => void;
 export interface VideoFramePayload {
   gidx: number;
   fidx: number;
-  /** 基础层才能独立解码。 */
-  isBaseLayer: boolean;
+  /**
+   * 16 位帧序号 `((fidx - 1) << 8) | gidx`。
+   *
+   * **不要再用 `fidx` 判层**：`fidx` 是帧序号高字节（每 256 帧 +1），不是 SVC
+   * 层号。早先按 `fidx === 1` 过滤「增强层」，导致第 256 帧之后画面永久冻结。
+   */
+  frameIndex: number;
   isKeyframe: boolean;
   /** 真实帧时间戳（毫秒）。 */
   timestamp: number;
@@ -305,10 +334,34 @@ const MEDIA_PROBE_MS = 1000;
 /** 直连模式下多久没收到对端媒体包就回落服务端。 */
 const MEDIA_DIRECT_TIMEOUT_MS = 2000;
 
+/** P2P 握手（`0x02` ch=1）周期。实测真实客户端是 2 秒一拍。 */
+const PEER_PROBE_MS = 2000;
+
 /** 媒体包的发送路径。 */
 export type MediaPath = 'server' | 'probing' | 'direct';
 
 // ─────────────────────────── 会话 ───────────────────────────
+
+/**
+ * 两个地址是否指向同一台主机（忽略 IPv4 的 IPv6 映射前缀）。
+ *
+ * udp6 双栈 socket 上，IPv4 来源在 `rinfo.address` 里是 `::ffff:a.b.c.d`，而
+ * 服务器表里是 `a.b.c.d`。直接字符串比较会漏判 —— 见 `rememberPeerSource` 的
+ * 注释，这个漏判会让服务器回包被当成对端直连地址，媒体退化成全程中继。
+ */
+function sameHost(a: string, b: string): boolean {
+  if (a === b) return true;
+  return normalizeHost(a) === normalizeHost(b);
+}
+
+/** 去掉 IPv4-mapped IPv6 前缀并转小写（IPv6 十六进制大小写不敏感）。 */
+function normalizeHost(address: string): string {
+  const lower = address.toLowerCase();
+  const mapped = lower.startsWith('::ffff:') ? lower.slice('::ffff:'.length) : lower;
+  // `::ffff:1.2.3.4` 去掉前缀就是点分 IPv4；但 `::ffff:0102:0304` 形态要去前缀后
+  // 再按 IPv6 比较 —— 这里只处理点分那种（Node 在双栈 socket 上就给点分）。
+  return mapped;
+}
 
 /**
  * 16 字节 IPv6 → 标准文本形式。
@@ -355,23 +408,44 @@ function formatIpv6(raw: Uint8Array): string | null {
 }
 
 /**
+ * fixed32 → 点分 IPv4。
+ *
+ * `parsePb` 的 `fixed32` 是「按 wire 上的字节顺序读成的大端数」，所以直接按字节
+ * 拆就是网络序的 IPv4：线上 `b7 2f 69 f0` → 183.47.105.240（`bt=9` 的 `f5`
+ * 与服务器表的 `ip` / `altIp` 都是这个约定）。
+ */
+function formatIpv4Fixed(value: number): string {
+  const n = value >>> 0;
+  return `${(n >>> 24) & 0xff}.${(n >>> 16) & 0xff}.${(n >>> 8) & 0xff}.${n & 0xff}`;
+}
+
+/**
  * 从一帧 Annex B 里读 HEVC 规格（分辨率 / profile）。
  *
  * 只在关键帧上调：IDR 前面带 VPS + SPS + PPS，SPS 里有分辨率。实测视频流
  * 640×360 Main。解析失败返回 null —— 规格只是给界面显示的，读不到不影响解码。
  *
- * SPS 的字段顺序（HEVC）：`profile_tier_level`(12B) 之后是
- * `sps_seq_parameter_set_id`、`chroma_format_idc`（==3 时多一个
- * `separate_colour_plane_flag`）、`pic_width_in_luma_samples`、
- * `pic_height_in_luma_samples`，都是 Exp-Golomb。
+ * SPS 的字段顺序（HEVC）：NAL 头 2 字节之后是
+ * `sps_video_parameter_set_id`(4b) + `sps_max_sub_layers_minus1`(3b) +
+ * `sps_temporal_id_nesting_flag`(1b) = 1 字节，再往后是
+ * `profile_tier_level`(12B)，然后才是 `sps_seq_parameter_set_id`、
+ * `chroma_format_idc`（==3 时多一个 `separate_colour_plane_flag`）、
+ * `pic_width_in_luma_samples`、`pic_height_in_luma_samples`，都是 Exp-Golomb。
+ *
+ * ⚠️ 偏移是 **13 字节**不是 12：早先按 12 字节跳，等于把
+ * `temporal_id_nesting_flag` 当成了 `sps_seq_parameter_set_id` 的首位，读出来的
+ * 是 `chroma=0 / width=0 / height=1`，于是这个函数**永远返回 null**（界面拿不到
+ * 分辨率）。另外必须先剥掉 emulation prevention byte（`00 00 03` → `00 00`），
+ * 否则一旦载荷里出现该序列，位流整体错位。
  */
 function readHevcInfo(annexb: Uint8Array): VideoStreamInfo | null {
   for (const nal of splitHevcNals(annexb)) {
     // SPS = 33。NAL 头 2 字节，之后是 RBSP。
-    if (nal.type !== 33 || nal.data.length < 15) continue;
+    if (nal.type !== 33 || nal.data.length < 16) continue;
     const profile = nal.data[1]!; // profile_idc 在 NAL 头的第二个字节
-    const rbsp = nal.data.subarray(2 + 12);
-    const bits = new BitReader(rbsp);
+    const rbsp = removeEmulationPrevention(nal.data.subarray(2));
+    if (rbsp.length < 13) continue;
+    const bits = new BitReader(rbsp.subarray(13));
     try {
       bits.ue(); // sps_seq_parameter_set_id
       const chroma = bits.ue();
@@ -386,6 +460,36 @@ function readHevcInfo(annexb: Uint8Array): VideoStreamInfo | null {
     }
   }
   return null;
+}
+
+/**
+ * 剥掉 NAL 载荷里的 emulation prevention byte。
+ *
+ * H.264/H.265 规定 RBSP 里出现 `00 00 00/01/02/03` 时，编码端在第二个 `00`
+ * 之后插一个 `03` 防止与起始码混淆。解析位流前必须先把这些 `03` 去掉。
+ */
+function removeEmulationPrevention(data: Uint8Array): Uint8Array {
+  // 绝大多数 NAL 不含该序列，先扫一遍，没有就零拷贝返回。
+  let has = false;
+  for (let i = 0; i + 2 < data.length; i++) {
+    if (data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 3) {
+      has = true;
+      break;
+    }
+  }
+  if (!has) return data;
+  const out = new Uint8Array(data.length);
+  let n = 0;
+  for (let i = 0; i < data.length; i++) {
+    if (i + 2 < data.length && data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 3) {
+      out[n++] = 0;
+      out[n++] = 0;
+      i += 2; // 跳过被插入的 03
+      continue;
+    }
+    out[n++] = data[i]!;
+  }
+  return out.subarray(0, n);
 }
 
 /** 极简位读取器，只够解析 SPS 的前几个 Exp-Golomb 字段。 */
@@ -461,17 +565,53 @@ export class CallSession {
   /** 最近一次收到对端包的来源（P2P 端口往往只能从实际流量里学到）。 */
   private lastPeerFrom: { address: string; port: number } | null = null;
   /**
+   * 服务端在 `bt=27` 里下发的对端 P2P 端口。
+   *
+   * `bt=9` 的 `f8` 只是个近似值（实测 56082 vs 真实 56089），`bt=27` 才是权威。
+   * 地址仍然要靠 `bt=9`（f7 IPv6 / f5 IPv4），两边拼起来才是完整端点。
+   */
+  private peerAnnouncedPort: number | null = null;
+  /**
+   * 本端 UDP 套接字的本地端口。
+   *
+   * `bt=25` 要向服务端公告它，服务端再转给对端 —— 这是 P2P 能建立的开关。
+   */
+  private localPort = 0;
+  /** 已发出的 `bt=25` 条数（避免无限制重发）。 */
+  private peerJoinReports = 0;
+  /** 本端控制包序号（中继 GET_IN 与 P2P 握手共用一条计数，实测如此）。 */
+  private peerPacketSeq = 20_000 + Math.floor(Math.random() * 40_000);
+  /** 中继通道的序号（同一通内恒定，GET_IN 与保活共用）。 */
+  private relaySeq = 0;
+  /** 对端回过我们的 P2P 握手应答（说明双向可达）。 */
+  private peerProbeAnswered = false;
+  /** P2P 握手的定时器。 */
+  private peerProbeTimer: unknown = null;
+  /**
    * 媒体走哪条路。
    *
    * 真实客户端不是双发，而是**先纯中继、后硬切 P2P**（实测 0–7.9 秒只发服务端，
-   * 之后只发对端直连，服务端一个包都收不到）。我们沿用这个顺序，但把切换点
-   * 放在「真的学到对端端口」之后，中间留一小段双发探测期兜底。
+   * 之后只发对端直连，服务端一个包都收不到）。我们沿用这个顺序，但切换点必须
+   * 由**回程证据**决定，不能由「拿到了一个地址」决定 —— 见
+   * {@link confirmPeerPath} 与 {@link applyPeerEndpoint}。
    */
   private mediaPath: MediaPath = 'server';
   /** 进入 `probing` 的时刻（毫秒）。 */
   private probeSince = 0;
   /** 最近一次收到对端媒体包的时刻（毫秒），直连回落用。 */
   private lastPeerMediaAt = 0;
+  /** 已见过的媒体子类型（每个只记一次日志，避免逐包刷屏）。 */
+  private readonly seenMediaSubTypes = new Set<number>();
+  /** 是否已发过视频流状态协商首包（`bt=31/f1=3`）。 */
+  private videoStateStarted = false;
+  /**
+   * 进入 `probing` 的时刻，用于「探测期满仍无回程」的强制回落。
+   *
+   * 与 {@link probeSince} 分开：`probeSince` 决定什么时候从 probing 推进，
+   * 这里只用来兜底判死。两者同源但语义不同，合在一起会让「重置探测期」
+   * 把兜底计时也一起清掉。
+   */
+  private probeDeadlineAt = 0;
   /** 媒体路径看门狗。 */
   private mediaWatchdogTimer: unknown = null;
   /** 已发出的视频帧数。 */
@@ -491,10 +631,14 @@ export class CallSession {
    */
   private videoFrameFragment = 0;
   /**
-   * 会话基准 tick，接通那一刻定下来，写进 sub-header 的 `[12:16]`。
+   * 对端视频流的时间基准，写进本端 sub-header 的 `[12:16]`。
    *
-   * 实测 c2s 方向这个字段整通恒定，s2c 方向是 0 —— 我们只发 c2s，所以填它。
+   * 实测（2026-10-26 抓包）：对端还没开始发视频时填 0；收到对端首个视频帧后，
+   * 填**该帧 `[8:12]` 的值**，之后整通不变。语义是「我跟对端的哪个时间基准
+   * 对齐」，不是本端接通的 tick —— 早期填 `this.tick()` 是错的。
    */
+  private peerVideoBase = 0;
+  /** 本端接通的 tick（保留给日志 / 调试，不再写进 sub-header）。 */
   private mediaBaseTick = 0;
   /** 视频保活定时器。 */
   private videoKeepaliveTimer: unknown = null;
@@ -605,6 +749,7 @@ export class CallSession {
       return;
     }
     this.videoSending = enabled;
+    if (enabled) this.startVideoState();
     this.sendVideoControl();
     if (enabled) {
       this.videoFrameIndex = 0;
@@ -651,10 +796,11 @@ export class CallSession {
       this.opts.transport.onMessage((data, from) => this.handlePacket(data, from));
       this.opts.transport.onError((error) => this.fail(error.message));
       await this.opts.transport.bind();
+      // P2P 端点公告要用这个端口（见 sendPeerJoinReport）。
+      this.localPort = this.opts.transport.localPort?.() ?? 0;
 
       // 4. 握手
       this.sendAuth();
-      this.sendRelayGetIn();
       this.startHeartbeat();
       this.startStatusReport();
       this.sendCodecInit();
@@ -688,41 +834,43 @@ export class CallSession {
   // ── 服务器选择 ──
 
   /**
-   * 服务端给两张表：type=1 是 GCS（控制面 + 音频），type=2 是中继。
+   * 选 GCS：**按端口优先，组内保持服务端下发的原始顺序**。
    *
-   * 两张表里是**同一批机器**，只是端口不同（GCS 8000/8001，中继 8800）。
-   * 所以「选哪个」不是查表的事 —— 得挑一个真的能收发的。这里的策略：
+   * `type` 不能用来区分 GCS：QQ 本体实际连接的 `8000` 也经常标成 `type=2`。
+   * 真正可靠的是端口：`8000` / `8001` 是 GCS，`8800` 是中继。
    *
-   *   1. 首次认证从 type=1 的第一台开始，失败（3 秒内没有认证回包）就换下一台；
-   *   2. 全部失败再退到 type=2；
-   *   3. 中继列表也去重，同一对 ip:port 只注册一次。
+   * 2026-10-26 关闭 TUN 后的对照抓包：
    *
-   * 试错结果记在 {@link goodGcs}，同一进程内的后续通话直接复用 —— 服务端每次
-   * 分配的机器会变，但可达性通常一致，能省掉一次 3 秒的空等。
+   * - WeQ 按原始顺序选中 `240e:930:c200:8a::1c:8800`，`bt=9` 只给 IPv4
+   *   `f5/f6`；WeQ 向该端点打洞、发媒体，对端始终不回包；
+   * - QQ 本体连接 `8000`，`bt=9` 给出对端 IPv6 `f7/f8`，随后 P2P 正常。
+   *
+   * 因此先试所有 `8000` / `8001`，全部失败再回退其余端口。组内仍保持服务端
+   * 原始顺序，并优先复用上次认证成功的 GCS IP。
    */
   private pickServers(servers: CallServer[]): void {
-    const gcsCandidates = servers.filter((s) => s.type === 1);
-    const relayCandidates = servers.filter((s) => s.type === 2);
-    this.gcsCandidates = [...gcsCandidates, ...relayCandidates];
-    // 记住的 IP 优先在 **type=1（真 GCS）** 里找：同一个 IP 也可能出现在中继表
-    // 里（不同端口），直接在整个候选表里 find 会选中 8800 那个中继端口 ——
-    // 音频还能通（服务端两个端口都收），但视频控制包发到中继就没人处理。
+    const isGcsPort = (server: CallServer) => server.port === 8000 || server.port === 8001;
+    const preferred = servers.filter(isGcsPort);
+    const fallback = servers.filter((server) => !isGcsPort(server));
+    this.gcsCandidates = [...preferred, ...fallback];
     this.gcs =
-      gcsCandidates.find((s) => s.ip === CallSession.goodGcsIp) ??
-      gcsCandidates[0] ??
+      preferred.find((s) => s.ip === CallSession.goodGcsIp) ??
+      preferred[0] ??
       this.gcsCandidates.find((s) => s.ip === CallSession.goodGcsIp) ??
       this.gcsCandidates[0] ??
       null;
     this.gcsIndex = Math.max(0, this.gcsCandidates.indexOf(this.gcs!));
     this.log?.debug('服务器表', {
-      gcs: gcsCandidates.length,
-      relay: relayCandidates.length,
+      total: servers.length,
+      ipv6: servers.filter((s) => s.ip.includes(':')).length,
+      gcsPorts: preferred.length,
       picked: this.gcs ? `${this.gcs.ip}:${this.gcs.port}` : 'none',
     });
 
+    // 中继通道注册用前两台（按原始顺序，去重）。
     const seen = new Set<string>();
     this.relays = [];
-    for (const server of [...relayCandidates, ...gcsCandidates]) {
+    for (const server of servers) {
       const key = `${server.ip}:${server.port}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -763,17 +911,54 @@ export class CallSession {
 
     // probing → direct 的推进放在这里惰性做：音频 20 ms 一帧、保活 2 秒一条都会
     // 走到这条路径，摄像头关着也不会卡在 probing。
+    //
+    // ⚠️ **探测期满不等于直连可用。** 旧实现到期就无条件切 `direct`，只要拿到
+    // 一个「看起来像对端」的地址（中继下发的、bt=9 的 IPv4 近似值……）就切，
+    // 切完服务端一个包都收不到，而那个地址可能根本不回包 —— 2026-10-26 实测
+    // 三个候选（中继:19341 / 11.149.189.80:8889 / 中继:19338）全是零回程，
+    // 对端于是完全收不到我们的流，报「对方网络质量不佳」。
+    //
+    // 现在的判据是**回程证据**（{@link confirmPeerPath} 置位）：
+    // 探测期满仍无回程 → 直接放弃这一轮，退回 `server` 并清掉端口等重新学习。
     if (this.mediaPath === 'probing' && this.timers.now() - this.probeSince >= MEDIA_PROBE_MS) {
-      this.mediaPath = hasPeer ? 'direct' : 'server';
-      this.log?.info('媒体路径切换', { path: this.mediaPath });
+      if (hasPeer && this.peerProbeAnswered) {
+        this.mediaPath = 'direct';
+        this.log?.info('媒体路径切换', { path: this.mediaPath });
+      } else {
+        this.log?.warn('探测期满无直连回程，保持中继', {
+          address: peer?.address,
+          port: peer?.port,
+          answered: this.peerProbeAnswered,
+        });
+        this.mediaPath = 'server';
+        this.probeDeadlineAt = 0;
+        // 端口归零、地址留着：等对端下次真的发包过来再重新学。
+        if (this.peerDirect) this.peerDirect = { address: this.peerDirect.address, port: 0 };
+        this.lastPeerFrom = null;
+      }
+    }
+    // 兜底：探测期被反复重置（对端零星发包）时，超过 3 倍探测期仍无回程也判死。
+    if (this.mediaPath === 'probing' && this.probeDeadlineAt > 0) {
+      if (
+        this.timers.now() - this.probeDeadlineAt >= MEDIA_PROBE_MS * 3 &&
+        !this.peerProbeAnswered
+      ) {
+        this.log?.warn('直连探测超时，放弃本轮 P2P', { address: peer?.address });
+        this.mediaPath = 'server';
+        this.probeDeadlineAt = 0;
+        if (this.peerDirect) this.peerDirect = { address: this.peerDirect.address, port: 0 };
+        this.lastPeerFrom = null;
+      }
     }
 
     const wantServer = this.mediaPath !== 'direct';
     const wantPeer = hasPeer && this.mediaPath !== 'server';
     if (wantServer) out.push({ address: this.gcs.ip, port: this.gcs.port });
     if (wantPeer && peer) {
-      // 同一台机器（回环 / 服务端与对端同址）会撞上，避免重复发。
-      if (peer.address !== this.gcs.ip || peer.port !== this.gcs.port) {
+      // 同一台机器（回环 / 服务端与对端同址）会撞上，避免重复发。地址比较要做
+      // IPv4 映射归一化，否则 `::ffff:1.2.3.4` 与 `1.2.3.4` 会被当成两台机器，
+      // 同一份媒体包连发两遍。
+      if (!sameHost(peer.address, this.gcs.ip) || peer.port !== this.gcs.port) {
         out.push({ address: peer.address, port: peer.port });
       }
     }
@@ -861,12 +1046,15 @@ export class CallSession {
 
   private sendRelayGetIn(): void {
     if (!this.room) return;
-    for (const [index, server] of this.relays.entries()) {
+    // 序号在同一通内恒定（GET_IN 与保活共用），不能每次重发都换一个。
+    if (this.relaySeq === 0) this.relaySeq = this.nextPeerSeq();
+    for (const server of this.relays) {
       this.sendTo(
         buildRelayGetIn({
           roomId: this.room.roomId,
           selfUin: Number(this.opts.selfUin),
-          channelId: RELAY_CHANNEL_BASE + index,
+          peerUin: Number(this.opts.peerUin),
+          seq: this.relaySeq,
           authToken: this.authToken,
         }),
         server,
@@ -926,6 +1114,7 @@ export class CallSession {
     this.statusTimer = this.timers.setInterval(() => {
       if (!this.room) return;
       this.statusReportSeq++;
+      const videoCall = this.opts.media === 'video' || this.videoSending;
       this.send(
         buildStatusReport({
           roomId: this.room.roomId,
@@ -936,6 +1125,7 @@ export class CallSession {
           recvPackets: this.receivedFrames,
           sendBytes: this.sentFrames * 80,
           seq: this.statusReportSeq,
+          media: videoCall ? 'video' : 'audio',
         }),
       );
     }, STATUS_REPORT_MS);
@@ -960,12 +1150,13 @@ export class CallSession {
   private startRelayKeepalive(): void {
     this.relayTimer = this.timers.setInterval(() => {
       if (!this.room) return;
-      for (const [index, server] of this.relays.entries()) {
+      for (const server of this.relays) {
         this.sendTo(
           buildRelayKeepalive({
             roomId: this.room.roomId,
             selfUin: Number(this.opts.selfUin),
-            channelId: RELAY_CHANNEL_BASE + index,
+            peerUin: Number(this.opts.peerUin),
+            seq: this.relaySeq,
             authToken: this.authToken,
           }),
           server,
@@ -1088,7 +1279,7 @@ export class CallSession {
       this.rememberPeerSource(from);
       this.handleAudio(data);
     } else if (stx === GCS_STX) this.handleGcs(data);
-    else if (stx === RELAY_STX) this.handleRelay(data);
+    else if (stx === RELAY_STX) this.handleRelay(data, from);
   }
 
   private handleGcs(data: Uint8Array): void {
@@ -1106,13 +1297,20 @@ export class CallSession {
         this.handleCallEvent(packet.body, packet.typeId);
         break;
       case GcsBodyType.peerJoin:
+        // bt=27：服务端告知对端真实 P2P 端口（地址在 bt=9 里）。
+        this.handlePeerJoin(packet.body);
         this.ackPush(packet.typeId, packet.bodyType, packet.body);
         break;
       case GcsBodyType.ctrlPush:
         // bt=9 带对端直连地址 —— 视频通话的媒体与控制包主要走 P2P，
         // 只发服务端对端收不到。解析完照常 ACK。
         this.handlePeerAddress(packet.body);
+        // 对端已经进房：把自己的 P2P 端口公告出去（晚于接通时的那次补一条）。
+        this.sendPeerJoinReport(2);
         this.ackPush(packet.typeId, packet.bodyType, packet.body);
+        break;
+      case GcsBodyType.videoStatePush:
+        this.handleVideoStatePush(packet);
         break;
       default:
         // 其它推送类型一律回 ACK：不回的话服务端会重推。
@@ -1122,31 +1320,294 @@ export class CallSession {
   }
 
   /**
-   * 解析 `bt=9` 里的对端直连地址。
+   * 解析 `bt=9` 里的对端直连地址与端口。
    *
-   * body 结构（实测）：
+   * body 结构（2026-10-26 同一次通话的 OIDB + UDP 抓包对照，QQ 本体 P2P 正常）：
    *
    * ```text
-   * f1 bytes   固定 8 字节描述（链路类型等）
-   * f2 varint  对端 QQ 号
-   * f3 varint  端口相关（含义未定，实测不是监听端口）
-   * f7 bytes   16 字节 —— 对端 IPv6 地址 ★
-   * f8 varint  端口相关
+   * f1 bytes(10) 链路描述
+   * f2 varint    对端 QQ 号
+   * f3 varint    会话相关
+   * f7 bytes(16) 对端 IPv6 地址          ★
+   * f8 varint    对端 P2P 端口            ★
    * ```
    *
-   * 端口不在 `f3` / `f8` 里（实测对端 P2P 端口是 47652 / 38965，两者都对不上），
-   * 所以这里只取地址；端口用**实际收到对端包时的来源端口**（见
-   * {@link rememberPeerSource}）—— 对端一旦开始发，来源就是可用的回程地址。
+   * 实测（同一次通话）：
+   *
+   * ```text
+   * bt=9: f7 = 240e:399:f9d:3f10:7873:e70f:577e:60c5
+   *       f8 = 56082
+   * 随后 QQ 直接向 240e:...:60c5:56089 发 0x02 relay 探测包（1696 个），
+   * 对端回包后 P2P 建立，媒体走 2493+1666 个包直连。
+   * ```
+   *
+   * 另一形态（同一通 20 秒后的第二条 `bt=9`，也是 WeQ 实际收到的那条）：
+   *
+   * ```text
+   * f1 bytes(10) 对端中继（嵌套的 RELAY_SERVER）
+   * f4 bytes(10) 备选中继，可重复
+   * f5 fixed32  对端 IPv4 地址            ★
+   * f6 varint   对端 P2P 端口            ★
+   * ```
+   *
+   * 旧实现只认 `f7`，于是「服务端给的是 IPv4 候选」这一路被整个丢掉 —— 只要对端
+   * 是 IPv4 出口（或服务端选的是 IPv4 候选），就永远停在纯中继。
+   *
+   * **`f8` 只能当初始值。** 它是近似端口（实测 56082 vs 真实的 56089），权威值
+   * 在 `bt=27`（见 {@link handlePeerJoin}）。但 `mediaTargets` 要求 `port > 0` 才发
+   * 对端 —— 不发第一包，`bt=27` 也永远不会被触发，所以这里先用近似值打开局面。
    */
   private handlePeerAddress(body: Uint8Array): void {
-    const raw = pbGetBytes(body, 7);
-    if (raw?.length !== 16) return;
-    const address = formatIpv6(raw);
+    const fields = parsePb(body);
+    const candidates: Array<{ address: string; port: number; ipv6: boolean }> = [];
+    const relayCandidates: CallServer[] = [];
+
+    const v6 = fields.find((f) => f.field === 7 && f.wire === 2)?.bytes;
+    if (v6?.length === 16) {
+      const address = formatIpv6(v6);
+      if (address)
+        candidates.push({ address, port: Number(pbGetVarint(body, 8) ?? 0), ipv6: true });
+    }
+    const v4 = fields.find((f) => f.field === 5 && f.wire === 5)?.fixed32;
+    if (v4 !== undefined) {
+      // f6 的端口在 IPv4 形态里是 protobuf fixed32，线上字节 `b9 22 00 00`
+      // 按小端解出来是 0x000022b9 = 8889。parsePb 为了兼容地址字段按大端存成
+      // 0xb9220000，所以这里要把高 16 位再按字节序还原，不能直接取高 16 位。
+      const fixed = fields.find((f) => f.field === 6 && f.wire === 5)?.fixed32;
+      const fixedPort = fixed === undefined ? 0 : fixed >>> 16;
+      const wirePort = ((fixedPort & 0xff) << 8) | (fixedPort >>> 8);
+      const port = Number(pbGetVarint(body, 6) ?? wirePort);
+      candidates.push({ address: formatIpv4Fixed(v4), port, ipv6: false });
+    }
+    // `f3` 是本次通话的准入 token：它同时出现在中继 GET_IN 的 `[35:39]` 和每个
+    // `0x02` 握手包里。信令那边解析失败时拿它兜底，否则中继永远不回我们。
+    const pushToken = Number(pbGetVarint(body, 3) ?? 0);
+    if (pushToken > 0 && pushToken !== this.authToken) {
+      this.log?.info('bt=9 的准入 token 与信令不一致', {
+        pushToken,
+        signalingToken: this.authToken,
+      });
+      if (this.authToken === 0) this.authToken = pushToken;
+    }
+    for (const field of fields) {
+      if ((field.field !== 1 && field.field !== 4) || field.wire !== 2 || !field.bytes) continue;
+      const relay = parsePb(field.bytes);
+      const ip = relay.find((item) => item.field === 1 && item.wire === 5)?.fixed32;
+      const port = Number(relay.find((item) => item.field === 2 && item.wire === 0)?.value ?? 0);
+      const type = Number(relay.find((item) => item.field === 3 && item.wire === 0)?.value ?? 0);
+      if (ip === undefined || port <= 0) continue;
+      relayCandidates.push({ ip: formatIpv4Fixed(ip), port, type });
+    }
+    if (relayCandidates.length > 0 && this.authToken > 0) {
+      this.relays = relayCandidates;
+      this.sendRelayGetIn();
+      if (!this.relayTimer) this.startRelayKeepalive();
+    }
+    if (candidates.length === 0) return;
+
+    // IPv6 优先（无 NAT，连通率最高）。
+    const best = candidates[0]!;
+    // 端口优先级：真实流量里学到的 > bt=27 的权威值（只对 IPv6 成立）> bt=9 的近似值。
+    //
+    // 为什么 bt=27 只套 IPv6：抓包里对端的 IPv6 socket 与 IPv4 socket 是两个端口
+    // （56089 vs 18038），bt=27 下发的是它主端点（IPv6）的端口；IPv4 候选的端口
+    // 就在 bt=9 的 f6 里，本来就是准的。
+    const learned =
+      this.lastPeerFrom && sameHost(this.lastPeerFrom.address, best.address)
+        ? this.lastPeerFrom.port
+        : 0;
+    const announced = best.ipv6 ? this.peerAnnouncedPort : null;
+    const port = learned > 0 ? learned : (announced ?? best.port);
+    this.log?.info('拿到对端候选端点', { address: best.address, port, candidates });
+    // 可信度分级：
+    //   - 端口是从真实流量里学到的（learned）→ 对端确实从这儿发过包，可信；
+    //   - IPv6 + bt=27 的权威端口 → 可信；
+    //   - 其余（尤其 IPv4 的 f5/f6 近似值）→ 只是候选，必须等回程。
+    //
+    // 2026-10-26 实测：IPv4 候选 `11.149.189.80:8889` 发了 515 个媒体包，
+    // **零回包**，旧实现却因为「拿到地址」就切了 direct，媒体从此离开 GCS。
+    const trustworthy = learned > 0 || (best.ipv6 && announced !== null);
+    this.applyPeerEndpoint(best.address, port, { provisional: !trustworthy });
+  }
+
+  /**
+   * 处理 `bt=27`：服务端下发对端的真实 P2P 端口。
+   *
+   * 地址不在这条里，要和 `bt=9` 的 `f7` / `f5` 拼起来。端口到达后立即开始
+   * `0x02` 打洞握手（真实客户端也是这个顺序）。
+   */
+  private handlePeerJoin(body: Uint8Array): void {
+    const push = parsePeerJoin(body);
+    if (!push) return;
+    this.peerAnnouncedPort = push.port;
+    this.log?.info('服务端下发对端 P2P 端口', { peerUin: push.peerUin, port: push.port });
+    // 只有主端点（IPv6）用这个端口；IPv4 候选的端口在 bt=9 的 f6 里。
+    const address = this.peerDirect?.address ?? this.lastPeerFrom?.address;
     if (!address) return;
-    if (this.peerDirect?.address === address) return;
-    // 端口先留 0：真正可用的是对端发包时的来源端口。
-    this.peerDirect = { address, port: this.peerDirect?.port ?? 0 };
-    this.log?.info('拿到对端直连地址', { address, port: this.peerDirect.port });
+    const ipv4 = /^\d+\.\d+\.\d+\.\d+$/.test(address) || address.startsWith('::ffff:');
+    if (!ipv4) this.applyPeerEndpoint(address, push.port);
+  }
+
+  /**
+   * 确定对端端点并开始打洞。
+   *
+   * 这是「知道对端在哪」到「真的把路打通」之间的一步：探索包一发，对端就会回
+   * `0x02` 应答，两端几乎同时切到直连（实测 QQ 从拿到地址到媒体直连 <200 ms）。
+   *
+   * **拿到地址 ≠ 直连可用。** 这里的两种来源可信度差很多：
+   *
+   * - `bt=27` 给的端口是服务端确认过的对端 P2P 端口，可以直接进 `probing`；
+   * - 中继路径下发（`cmd=3`）、`bt=9` 的 IPv4 `f5/f6` 只是「候选」，
+   *   2026-10-26 实测这些地址可能根本是黑洞（发出去 515 包、0 回包）。
+   *
+   * 所以 `provisional` 的候选**不改变 `mediaPath`**，只用来发打洞探测包；
+   * 只有真收到回程（{@link confirmPeerPath}）或 `bt=27` 才允许进 `probing`。
+   */
+  private applyPeerEndpoint(
+    address: string,
+    port: number,
+    opts: { provisional?: boolean } = {},
+  ): void {
+    const normalizedPort = port > 0 && port < 65536 ? port : 0;
+    if (this.peerDirect?.address === address && this.peerDirect.port === normalizedPort) return;
+    this.peerDirect = { address, port: normalizedPort };
+    if (normalizedPort === 0) return;
+    if (!opts.provisional && this.mediaPath === 'server') {
+      this.mediaPath = 'probing';
+      this.probeSince = this.timers.now();
+      this.probeDeadlineAt = this.probeSince;
+      this.peerProbeAnswered = false;
+      this.log?.info('媒体路径切换', { path: 'probing' });
+    }
+    // 无论可信与否，都去打洞探测 —— 这是拿到回程证据的唯一途径。
+    //
+    // ⚠️ 循环已经在跑时也要**立刻补一拍**。`bt=27` 的权威端口常常晚于 `bt=9`
+    // 到达，而 `bt=9` 已经启动了探测循环；只依赖 `startPeerProbeLoop()` 的话，
+    // 新端口要等 2 秒后的下一拍才会用上，可探测期 1 秒就到期把端口清零了 ——
+    // 权威端口于是永远发不出去，P2P 握手死锁在中继上。
+    if (this.peerProbeTimer === null) this.startPeerProbeLoop();
+    else this.sendPeerProbe();
+  }
+
+  /**
+   * 公告本端 P2P 端点（`bt=25`）。
+   *
+   * 最多发 `max` 条：接通时一条，对端进房（收到 `bt=9`）后再补一条。
+   *
+   * ⚠️ **不要靠重发 `bt=25` 去催 `bt=27`。** 2026-10-26 Linux QQ 抓包实测：
+   * `bt=27` 在 `bt=25` 之前 2.7ms 就到了（服务端主动推），两者是同一次协商的
+   * 两个方向，不是「发了 25 才有 27」。拿不到 `bt=27` 是网络/服务端判定问题，
+   * 重发只会制造噪音。
+   */
+  private sendPeerJoinReport(max = 1): void {
+    if (!this.room || !['calling', 'ringing', 'connecting', 'connected'].includes(this.state)) {
+      return;
+    }
+    if (this.peerJoinReports >= max) return;
+    if (this.localPort <= 0) {
+      if (this.peerJoinReports === 0) {
+        this.log?.warn('拿不到本地 UDP 端口，跳过 P2P 端点公告');
+        this.peerJoinReports = max;
+      }
+      return;
+    }
+    this.peerJoinReports++;
+    this.send(
+      buildPeerJoinReport({
+        roomId: this.room.roomId,
+        selfUin: Number(this.opts.selfUin),
+        peerUin: Number(this.opts.peerUin),
+        sessionTs: this.sessionTs,
+        typeId: this.nextTypeId(),
+        port: this.localPort,
+      }),
+    );
+    this.log?.info('公告本端 P2P 端点', { port: this.localPort });
+  }
+
+  /** 下一个控制包序号（中继 GET_IN 与 P2P 握手共用）。 */
+  private nextPeerSeq(): number {
+    return ++this.peerPacketSeq;
+  }
+
+  /**
+   * 启动 P2P 握手循环（`0x02` ch=1，2 秒一拍）。
+   *
+   * 第一拍是 `probe`；一旦对端回过应答就换成 `probeAck`（实测真机的稳态就是
+   * 两秒一对 2/3）。
+   */
+  private startPeerProbeLoop(): void {
+    if (this.peerProbeTimer !== null) return;
+    const beat = () => this.sendPeerProbe();
+    beat();
+    this.peerProbeTimer = this.timers.setInterval(beat, PEER_PROBE_MS);
+  }
+
+  private stopPeerProbeLoop(): void {
+    if (this.peerProbeTimer === null) return;
+    this.timers.clearInterval(this.peerProbeTimer);
+    this.peerProbeTimer = null;
+  }
+
+  private sendPeerProbe(): void {
+    const peer = this.peerDirect;
+    if (!this.room || !peer || peer.port <= 0) return;
+    const packet = buildPeerProbe({
+      roomId: this.room.roomId,
+      cmd: this.peerProbeAnswered ? PeerProbeCmd.probeAck : PeerProbeCmd.probe,
+      uinAbout: Number(this.opts.selfUin),
+      seq: this.nextPeerSeq(),
+      otherUin: Number(this.opts.peerUin),
+      token: this.authToken,
+      clock: this.tick(),
+      peerClock: 0,
+    });
+    this.opts.transport.send(packet, peer.port, peer.address);
+  }
+
+  /**
+   * P2P 握手包（`0x02` ch=1）。
+   *
+   * 只有「对方发来的探测」需要应答：0→1、2→3。收到 1/3 说明我们发出去的探测
+   * 到了对方，这条路双向可用，媒体就可以停掉中继那份了。
+   */
+  private handlePeerChannel(data: Uint8Array, from: { address: string; port: number }): void {
+    const probe = parsePeerProbe(data);
+    if (!probe || !this.room) return;
+
+    // 打洞包本身就是最可靠的端点来源：它就是从这个地址:端口发过来的。
+    this.rememberPeerSource(from);
+    if (probe.cmd === PeerProbeCmd.probe || probe.cmd === PeerProbeCmd.probeAck) {
+      const reply: Uint8Array = buildPeerProbeReply(probe, {
+        roomId: this.room.roomId,
+        clock: this.tick(),
+      });
+      this.opts.transport.send(reply, from.port, from.address);
+    }
+    if (probe.cmd === PeerProbeCmd.probeReply || probe.cmd === PeerProbeCmd.probeAckReply) {
+      this.peerProbeAnswered = true;
+      this.confirmPeerPath();
+    }
+  }
+
+  /**
+   * 直连已双向确认：媒体立刻切到 P2P（不等探测期跑完）。
+   *
+   * 这是**唯一**能让 `mediaPath` 变成 `direct` 的路径之一（另一处是 `bt=27`
+   * 给的权威端口 + 探测期）。没有这一步，任何「拿到地址就切」都会把媒体推进
+   * 黑洞 —— 见 {@link mediaTargets} 的注释。
+   */
+  private confirmPeerPath(): void {
+    this.lastPeerMediaAt = this.timers.now();
+    this.peerProbeAnswered = true;
+    this.probeDeadlineAt = 0;
+    if (this.mediaPath === 'direct') return;
+    if (!this.peerDirect || this.peerDirect.port <= 0) return;
+    this.mediaPath = 'direct';
+    this.log?.info('P2P 直连已确认，媒体切到直连', {
+      address: this.peerDirect.address,
+      port: this.peerDirect.port,
+    });
   }
 
   /**
@@ -1158,8 +1619,23 @@ export class CallSession {
   private rememberPeerSource(from: { address: string; port: number }): void {
     // 判据是「来源 != 服务端」而不是「和 bt=9 一致」：bt=9 只给地址不给端口，
     // 而真正的回程端口只能从对端实际发包的来源学到。服务端地址要排除掉。
-    const isServer = this.gcs && this.gcs.ip === from.address && this.gcs.port === from.port;
-    // 只有绕过服务端的包才刷新「直连还活着」的时间戳 —— 被中继的包说明直连不通。
+    //
+    // ⚠️ **必须做地址归一化再比**。socket 是 udp6 双栈（`ipv6Only: false`），
+    // IPv4 来源在 `rinfo.address` 里是 `::ffff:113.250.57.28` 形态，而服务器表里
+    // 是 `113.250.57.28` —— 直接字符串比较永远不相等。后果很严重：服务器自己的
+    // 回包被当成「对端直连地址」，媒体路径切到 direct，实际仍发往服务器（同 IP
+    // 同端口），于是全程走中继、`bt=9` 也永远拿不到对端的 f7（IPv6），表现为
+    // 两端画面都极卡。
+    //
+    // ⚠️ **中继节点也必须排除**。经中继转发的媒体包，源地址是中继自己，不是
+    // 对端 —— 旧实现只排除了 GCS，于是中继的包既刷新了「直连还活着」的时间戳
+    // （看门狗因此永远不回落），又把 `peerDirect` 改写成中继地址。2026-10-26
+    // WeQ 抓包：整通 `sent 2478 / received 2389` 全在一条中继通道上，看门狗
+    // 一次都没触发。
+    const isServer =
+      (this.gcs !== null && sameHost(this.gcs.ip, from.address) && this.gcs.port === from.port) ||
+      this.relays.some((r) => sameHost(r.ip, from.address) && r.port === from.port);
+    // 只有绕过服务端（和中继）的包才算「直连还活着」。
     if (!isServer) this.lastPeerMediaAt = this.timers.now();
     if (this.lastPeerFrom?.address === from.address && this.lastPeerFrom?.port === from.port)
       return;
@@ -1168,19 +1644,27 @@ export class CallSession {
     this.peerDirect = { address: from.address, port: from.port };
     this.log?.info('学到对端直连地址', { address: from.address, port: from.port });
     // 首次学到端口：进入双发探测期。已经是 direct 时不动（回落由看门狗管）。
+    // 这里的端口是**对端真的从这个地址发过包**得来的，可信，可以直接进 probing。
     if (this.mediaPath === 'server') {
       this.mediaPath = 'probing';
       this.probeSince = this.timers.now();
+      this.probeDeadlineAt = this.probeSince;
+      this.peerProbeAnswered = false;
       this.log?.info('媒体路径切换', { path: 'probing' });
     }
+    // 对端已经在打我们了，我们也要跟上（否则对方收不到回程应答，不敢切直连）。
+    this.startPeerProbeLoop();
   }
 
   private handleAuthRsp(): void {
     this.authAcked = true;
     this.clearGcsRetry();
     if (this.gcs) CallSession.goodGcsIp = this.gcs.ip;
-    // 认证成功即开始中继保活（中继注册先于认证发出去，服务端会缓存）。
-    if (!this.relayTimer) this.startRelayKeepalive();
+    // relay token 通常在后续 bt=9 才下发；拿到 token 后再注册并开始保活。
+    if (this.authToken > 0) {
+      this.sendRelayGetIn();
+      if (!this.relayTimer) this.startRelayKeepalive();
+    }
     this.log?.debug('GCS 认证成功', { roomId: this.room?.roomId.toString() });
   }
 
@@ -1216,6 +1700,7 @@ export class CallSession {
 
     switch (event.event) {
       case CallEvent.ringing:
+        this.startVideoState();
         if (this.state === 'calling') {
           this.state = 'ringing';
           this.emit();
@@ -1250,6 +1735,55 @@ export class CallSession {
     }
   }
 
+  /**
+   * 振铃后发起视频流状态协商。
+   *
+   * 2026-10-26 三通原生抓包（电脑→电脑 / 电脑→手机 / WeQ→手机）对照：
+   * QQ 收到 `event=4` 后约 40–160 ms 发送 `bt=31 body=0803`（带 authKey）。
+   * 服务端随后回普通 `bt=32 body=0803` 和 `bt=31 body=0806`。
+   */
+  private startVideoState(): void {
+    if (this.videoStateStarted || !this.room) return;
+    if (this.opts.media !== 'video' && !this.videoSending) return;
+    this.videoStateStarted = true;
+    this.sendVideoState(VideoStateCode.start);
+  }
+
+  /**
+   * 处理 `bt=31` 视频流状态推送。
+   *
+   * 服务端下发 `f1=4` 时，原生客户端会同时发空 `bt=32` ACK 和
+   * `bt=31 body=0805`。后者不是普通 ACK，不能由「未知奇数推送一律 ACK」代替；
+   * 漏掉它时手机不会创建对端视频画面。
+   */
+  private handleVideoStatePush(packet: {
+    body: Uint8Array;
+    bodyType: number;
+    typeId: number;
+  }): void {
+    this.ackPush(packet.typeId, packet.bodyType, packet.body);
+    const state = pbGetVarint(packet.body, 1);
+    this.log?.info('视频流状态推送', { state });
+    if ((this.opts.media === 'video' || this.videoSending) && state === VideoStateCode.offer) {
+      this.sendVideoState(VideoStateCode.accept);
+    }
+  }
+
+  private sendVideoState(state: number): void {
+    if (!this.room) return;
+    this.send(
+      buildVideoState({
+        roomId: this.room.roomId,
+        selfUin: Number(this.opts.selfUin),
+        sessionTs: this.sessionTs,
+        typeId: this.nextTypeId(),
+        authKey: this.room.authKey,
+        state,
+      }),
+    );
+    this.log?.info('发送视频流状态', { state });
+  }
+
   private markConnected(): void {
     // 异步挂断期间的迟到 dataChange 不能复活通话。
     if (this.state === 'connected' || this.state === 'ending') return;
@@ -1265,6 +1799,8 @@ export class CallSession {
     this.startAudioLoop();
     this.startVideoWatchdog();
     this.startMediaWatchdog();
+    // 把自己的 P2P 端口公告出去 —— 不发这条，对端永远不知道往哪打洞。
+    this.sendPeerJoinReport();
     // QQ 的默认行为：**视频通话接通时双方摄像头自动打开**（对方可以选择
     // 语音接听，但那不影响我们这边开摄像头）。语音通话则保持关闭。
     //
@@ -1295,9 +1831,11 @@ export class CallSession {
     const header = parseAudioHeader(data);
     if (!header) return;
     this.lastPeerTick = header.tick;
-    // 0x5b 的每个子类型都记一笔：排查「对端到底发没发」时这是唯一线索。
-    if (header.subType !== AudioSubType.audio) {
-      this.log?.info('收到非音频媒体包', {
+    // 每个子类型**首次**出现时记一笔就够了：排查「对端到底发没发」时这是唯一
+    // 线索，但逐包记录会刷屏（一通视频通话上千条，实测 1014 条/通）。
+    if (header.subType !== AudioSubType.audio && !this.seenMediaSubTypes.has(header.subType)) {
+      this.seenMediaSubTypes.add(header.subType);
+      this.log?.info('收到媒体包子类型', {
         subType: `0x${header.subType.toString(16)}`,
         len: data.length,
         from: 'peer',
@@ -1404,6 +1942,13 @@ export class CallSession {
     this.receivedVideoFrames++;
     this.lastVideoPacketAt = this.timers.now();
 
+    // 记下对端视频流的时间基准：本端 sub-header 的 `[12:16]` 要填它。
+    // 实测是「对端首个视频帧的 `[8:12]` 值」，收到后整通不变。
+    if (this.peerVideoBase === 0 && frame.timestamp !== 0) {
+      this.peerVideoBase = frame.timestamp;
+      this.log?.info('记下对端视频时间基准', { peerVideoBase: frame.timestamp });
+    }
+
     const hevc = extractHevc(frame);
     // 前几帧把组帧结果打出来：拼不上 / 剥不出裸流是「收到包但没画面」的典型原因。
     if (this.receivedVideoFrames <= 5 || this.receivedVideoFrames % 50 === 0) {
@@ -1430,7 +1975,7 @@ export class CallSession {
     const payload: VideoFramePayload = {
       gidx: frame.gidx,
       fidx: frame.fidx,
-      isBaseLayer: frame.isBaseLayer,
+      frameIndex: frame.frameIndex,
       isKeyframe: frame.isKeyframe,
       timestamp: frame.timestamp,
       info: this.videoInfo,
@@ -1477,6 +2022,8 @@ export class CallSession {
       // 地址留着（bt=9 给的是对的），端口归零，等对端下次发包重新学。
       if (this.peerDirect) this.peerDirect = { address: this.peerDirect.address, port: 0 };
       this.lastPeerFrom = null;
+      this.peerProbeAnswered = false;
+      this.probeDeadlineAt = 0;
     }, 1000);
   }
 
@@ -1624,13 +2171,15 @@ export class CallSession {
     const now = this.timers.now();
     const ptsMs = this.connectedAt === null ? 0 : now - this.connectedAt;
     // `[16:20]` 要提前知道片数，所以先按「sub-header + 裸流」的总长估一次。
+    // 实测取值是 `0..totalPkg-1` 里的一个值（不是 `totalPkg-1` 定值），语义未
+    // 还原，用随机值对齐分布。
     const packetCount = videoPacketCount(VIDEO_SUBHEADER_LEN + hevc.length);
-    this.videoFrameFragment = Math.max(0, packetCount - 1);
+    this.videoFrameFragment = packetCount <= 1 ? 0 : Math.floor(Math.random() * packetCount);
     const subHeader = buildVideoSubHeader({
       direction: 'c2s',
       frameIndex: this.videoFrameIndex,
       timestampMs: ptsMs,
-      baseTick: this.mediaBaseTick,
+      peerVideoBase: this.peerVideoBase,
       // `[6:8]`：对端只拿它做统计，按真实分布抽样即可（见 sampleVideoFrameQuality）。
       quality: sampleVideoFrameQuality(splitHevcNals(hevc).some((nal) => isIrapNalType(nal.type))),
       fragment: this.videoFrameFragment,
@@ -1641,7 +2190,9 @@ export class CallSession {
 
     const packets = buildVideoPackets({
       frameData,
-      gidx: this.videoFrameIndex & 0xff,
+      // 16 位帧序号：包头里的 gidx/fidx 由它拆出。只写 gidx 会在第 256 帧回绕、
+      // 帧序号倒退，对端按序号判连续性时会当成乱序而丢帧。
+      frameIndex: this.videoFrameIndex,
       sessionTs: this.sessionTs,
       // tick 帧内恒定；seq 由 buildVideoPackets 按片递增。
       tick: this.tick(),
@@ -1652,11 +2203,87 @@ export class CallSession {
     this.videoFrameIndex++;
   }
 
-  private handleRelay(data: Uint8Array): void {
+  /**
+   * `0x02` 分流。
+   *
+   * - `[4] = 1`：P2P 打洞握手（cmd 0–3），走 {@link handlePeerChannel}；
+   * - `[4] = 0`：服务端通道 —— GET_IN 应答（cmd=2）/ 对端路径下发（cmd=3）。
+   *
+   * 旧实现只看 `[5:7]` 的 cmd 且只打日志，P2P 通道的包全被当成服务端包丢掉了：
+   * 对端的打洞探测没人应答，对方就一直不敢切直连。
+   */
+  private handleRelay(data: Uint8Array, from: { address: string; port: number }): void {
     if (data.length < 7) return;
+    if (data[4] === RELAY_CHANNEL.peer) {
+      this.handlePeerChannel(data, from);
+      return;
+    }
     const cmd = (data[5]! << 8) | data[6]!;
     // GET_IN 的应答（cmd=2）说明中继通道注册成功。
-    if (cmd === 2) this.log?.debug('中继通道已注册');
+    if (cmd === RelayCmd.getInAck) {
+      this.log?.debug('中继通道已注册');
+    } else if (cmd === RelayCmd.peerPathInfo) {
+      const body = data.subarray(RELAY_HEADER_LEN);
+      if (body.length >= 24) {
+        const address = `${body[0]}.${body[1]}.${body[2]}.${body[3]}`;
+        const primaryPort = (body[6]! << 8) | body[7]!;
+        const directPort = (body[22]! << 8) | body[23]!;
+        const port = directPort > 0 ? directPort : primaryPort;
+        // 回 ACK（cmd=4）。真实客户端收到路径下发就应答，不回的话中继会每秒重发
+        // 同一条（2026-10-26 WeQ 抓包：cmd=3 从 64 秒一直刷到挂断，cmd=4 一条
+        // 都没有）。应答走「来的那个中继节点」原路返回。
+        this.sendRelayPeerPathAck(from);
+        // ⚠️ **这条下发的是「对端在哪条中继通道上」，不是对端直连地址。**
+        // 旧实现直接 `applyPeerEndpoint(address, port)`，把中继节点自己当成了
+        // 对端：媒体从 GCS 挪到中继、`mediaPath` 变成 `direct`，于是「以为直连
+        // 了，其实还在中继」—— 和文档 §7.1.2 第 2 个坑同构，只是这次来源是
+        // 中继推送而不是服务器回包。
+        //
+        // 判据：地址若是中继节点自己（或就是 GCS），一律只记日志。
+        this.log?.info('中继下发对端路径', {
+          address,
+          primaryPort,
+          directPort,
+          from: from.address,
+        });
+        const isRelaySelf =
+          (this.gcs !== null && sameHost(this.gcs.ip, address) && this.gcs.port === port) ||
+          this.relays.some((r) => sameHost(r.ip, address) && r.port === port) ||
+          this.relays.some((r) => sameHost(r.ip, address) && r.port === primaryPort) ||
+          sameHost(from.address, address);
+        if (isRelaySelf) {
+          this.log?.info('中继路径是节点自身，不当作对端端点', { address, port });
+          return;
+        }
+        // 即便不是节点自身，中继下发的也只是「中继侧入口」，仍然要等回程证据
+        // 才允许切直连 —— 所以这里只把它作为候选交给探测，不改变 mediaPath。
+        if (port > 0) this.applyPeerEndpoint(address, port, { provisional: true });
+      }
+    }
+  }
+
+  /**
+   * 回 `cmd=4`：确认收到中继的对端路径下发。
+   *
+   * body 全 0（16 字节），和 `cmd=3` 的 24 字节 body 不同 —— 见 2026-10-26
+   * QQ 本体抓包：`cmd=3` 84 字节、`cmd=4` 56 字节，差值正好是 body 长度。
+   */
+  private sendRelayPeerPathAck(to: { address: string; port: number }): void {
+    if (!this.room) return;
+    this.opts.transport.send(
+      buildRelayPacket({
+        roomId: this.room.roomId,
+        selfUin: Number(this.opts.selfUin),
+        peerUin: Number(this.opts.peerUin),
+        seq: this.relaySeq,
+        token: this.authToken,
+        channel: RELAY_CHANNEL.server,
+        cmd: RelayCmd.peerPathAck,
+        body: new Uint8Array(16),
+      }),
+      to.port,
+      to.address,
+    );
   }
 
   // ── 超时 ──
@@ -1798,6 +2425,7 @@ export class CallSession {
     for (const [handle, kind] of pairs) {
       if (handle !== null) this.timers[kind](handle);
     }
+    this.stopPeerProbeLoop();
     this.heartbeatTimer = null;
     this.statusTimer = null;
     this.qfbTimer = null;

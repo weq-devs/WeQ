@@ -1,6 +1,6 @@
 /**
- * daemon 管道协议层的离线单测 —— 与 Rust 侧 `packages/daemon/src/protocol.rs`
- * 的分帧格式对齐：4 字节小端长度 + JSON（UTF-8），单帧上限 1 MiB。
+ * 旧 daemon 管道协议层的离线单测 —— 只服务升级退役：
+ * 4 字节小端长度 + JSON（UTF-8），单帧上限 1 MiB。
  *
  * 重点：坏输入不炸（对端按不可信处理，`parseDaemonResponse` 永远回一帧）、
  * 半帧返回 null（调用方继续等数据）、超限显式抛错（调用方问题）。
@@ -14,6 +14,7 @@ import {
   daemonPipePath,
   encodeDaemonFrame,
   parseDaemonResponse,
+  type DaemonRequest,
   type DaemonResponse,
 } from '../src/daemon/protocol';
 
@@ -70,9 +71,9 @@ describe('encodeDaemonFrame', () => {
   });
 
   it('超限帧抛错', () => {
-    expect(() =>
-      encodeDaemonFrame({ cmd: 'release_ack', version: 'x'.repeat(DAEMON_MAX_FRAME + 1) }),
-    ).toThrow(/frame too large/);
+    // 现役命令只有 ping / stop，不会超限；这里直接造一个超长载荷钉住上限检查。
+    const oversized = { cmd: 'stop', pad: 'x'.repeat(DAEMON_MAX_FRAME + 1) } as DaemonRequest;
+    expect(() => encodeDaemonFrame(oversized)).toThrow(/frame too large/);
   });
 });
 
@@ -116,7 +117,7 @@ describe('decodeDaemonFrame', () => {
 });
 
 describe('协议常量', () => {
-  it('与 Rust 侧约定一致', () => {
+  it('保持旧守护进程的固定名字与帧上限（退役探测按它找管道）', () => {
     expect(DAEMON_PIPE_NAME).toBe('weq-daemon');
     expect(DAEMON_MAX_FRAME).toBe(1024 * 1024);
   });
