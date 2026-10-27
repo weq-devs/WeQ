@@ -61,6 +61,7 @@ import {
   SendHorizontal,
   Settings2,
   Zap,
+  Flame,
   Share2,
   Forward,
   Copy,
@@ -140,6 +141,18 @@ import {
 } from './composerMediaStage';
 import { VoicePanel, type TtsSpeechResult } from './voicePanel';
 import { FlashComposer, type FlashSendPayload } from './flashComposer';
+
+/**
+ * 闪照「选图即发」的载荷：一张图的本地句柄（路径优先、字节兜底）。
+ *
+ * 闪照不进草稿、不内联成图片 —— 它在协议上是独立的一条消息（老式图片上传 +
+ * `commonElem{serviceType:3}`），所以和闪传一样走「菜单 → 应用层 → IPC」。
+ */
+export type FlashPhotoSendPayload = {
+  path?: string;
+  bytes?: Uint8Array;
+  name: string;
+};
 import {
   ComposerQuoteBar,
   composerQuoteToken,
@@ -446,6 +459,7 @@ export function ChatPane({
   onStartCall,
   onSendArk,
   onSendFlash,
+  onSendFlashPhoto,
   onSendRedPacket,
   arkLocation,
   arkContacts,
@@ -549,6 +563,11 @@ export function ChatPane({
    * 再走 IPC（与 onSendArk 同）。抛出即失败：面板保留已选文件并显示原因。
    */
   onSendFlash?: (conversation: Conversation, payload: FlashSendPayload) => Promise<void>;
+  /**
+   * 闪照「选图即发」—— 与 onSendFlash 同形，只是载荷是一张图的原始字节 + 文件名。
+   * 抛出即失败：错误由调用方 toast 出来。
+   */
+  onSendFlashPhoto?: (conversation: Conversation, payload: FlashPhotoSendPayload) => Promise<void>;
   /**
    * 红包面板「发红包」—— 面板只收「类型 / 金额 / 个数 / 祝福语（口令）」，发送目标
    * （私聊对方 / 群号）由应用层补，所以把**当前会话**一起交回（与 onSendArk 同）。
@@ -978,6 +997,8 @@ export function ChatPane({
   const locationMenuMobileButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // 闪照是「选一张图 → 立刻按闪照发出去」的一条独立通路（不进草稿、不内联成图）。
+  const flashPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const mentionMenuRef = useRef<HTMLDivElement | null>(null);
   const composerEditorRef = useRef<HTMLDivElement | null>(null);
   const expandedComposerEditorRef = useRef<HTMLDivElement | null>(null);
@@ -3286,6 +3307,24 @@ export function ChatPane({
     await jumpAfterSuccessfulSend(conversation);
   }
 
+  /**
+   * 闪照菜单「闪照」→ 选一张图 → 立刻按闪照发出去。
+   *
+   * 与图片不同，闪照**不进草稿**：它走老式图片上传（`LongConn.OffPicUp` +
+   * `PicUp.DataUp`），发出去是一条独立消息。失败原样抛给调用方 toast。
+   */
+  async function sendFlashPhoto(file: File): Promise<void> {
+    if (!conversation || conversation.type === 'merged' || !onSendFlashPhoto) {
+      throw new Error('这个会话不支持发送闪照。');
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.length === 0) throw new Error('图片是空的，无法发送闪照。');
+    // 闪照只能单独发：顶掉挂着的引用（与视频 / 文件同一套互斥）。
+    setPendingQuote(null);
+    await onSendFlashPhoto(conversation, { bytes, name: file.name });
+    await jumpAfterSuccessfulSend(conversation);
+  }
+
   async function sendArkCard(payload: ArkPayload) {
     if (!conversation || conversation.type === 'merged' || !onSendArk) {
       throw new Error('这个会话不支持发送 Ark 卡片。');
@@ -3832,6 +3871,24 @@ export function ChatPane({
     // 清空 value：同一个文件再选一次也要能触发 change。
     event.target.value = '';
     void addFiles(files, event.target === fileInputRef.current ? 'file' : undefined);
+  }
+
+  /** 闪照选择器：选完立刻发，校验失败只 toast、不进草稿。 */
+  function handleFlashPhotoPick(event: ReactChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      pushToast({ tone: 'warning', message: '闪照只能发送图片' });
+      return;
+    }
+    void sendFlashPhoto(file).catch((error: unknown) => {
+      pushToast({
+        tone: 'error',
+        message: '闪照发送失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   // ── 拖拽投递 ──────────────────────────────────────────────────────────────
@@ -4949,6 +5006,14 @@ export function ChatPane({
       icon: <FolderOpen size={16} />,
       action: () => openMediaPicker('file'),
     },
+    {
+      label: '闪照',
+      icon: <Flame size={16} />,
+      // 闪照是独立的一条消息（老式图片上传 + serviceType=3），不进草稿。
+      action: () => flashPhotoInputRef.current?.click(),
+      disabled: hasSingleSend,
+      reason: hasSingleSend ? singleSendHint : undefined,
+    },
     { label: 'QQ闪传', icon: <Zap size={16} />, action: toggleFlashPanel },
   ];
 
@@ -6064,6 +6129,14 @@ export function ChatPane({
         />
         {/* 视频 / 文件只能单独发，不带 multiple —— 选了也只会留第一个。 */}
         <input ref={fileInputRef} type="file" hidden onChange={handleMediaPickerChange} />
+        {/* 闪照：一次一张，选完立刻发送（不进草稿、不 multiple）。 */}
+        <input
+          ref={flashPhotoInputRef}
+          type="file"
+          hidden
+          accept="image/*"
+          onChange={handleFlashPhotoPick}
+        />
         {toolsOpen && hasPlusActions ? (
           <ComposerPlusPanel
             panelRef={toolsPanelRef}

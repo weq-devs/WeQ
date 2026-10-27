@@ -12,6 +12,7 @@ import type { RepeatElement } from '../../lib/messageRepeat';
 import type { LoadSelectionMessages } from '../../lib/messageSelection';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import type { FlashSendPayload } from './flashComposer';
+import type { FlashPhotoSendPayload } from './chatPane';
 import type { RedPacketDraft } from './redPacketPanel';
 import { ToolDetailPane } from './toolsPane';
 import { RetainedTabs, TabActivity } from '../../components/RetainedTabs';
@@ -91,6 +92,7 @@ export function ChatMainContent({
   arkContacts,
   defaultSignupGroupCode,
   onSendFlash,
+  onSendFlashPhoto,
   onSendRedPacket,
   onMessageAction,
   onDraftChange,
@@ -203,6 +205,8 @@ export function ChatMainContent({
   defaultSignupGroupCode?: string;
   /** 闪传文件框「发送」（应用层补目标会话再走 IPC）。 */
   onSendFlash?: (conversation: Conversation, payload: FlashSendPayload) => Promise<void>;
+  /** 闪照「选图即发」（老式图片上传，与闪传同一套应用层通路）。 */
+  onSendFlashPhoto?: (conversation: Conversation, payload: FlashPhotoSendPayload) => Promise<void>;
   /** 红包面板「发红包」（应用层补目标会话再走 IPC，成功后弹二维码灯箱）。 */
   onSendRedPacket?: (conversation: Conversation, draft: RedPacketDraft) => Promise<void>;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
@@ -366,6 +370,7 @@ export function ChatMainContent({
       arkContacts={arkContacts}
       defaultSignupGroupCode={defaultSignupGroupCode}
       onSendFlash={onSendFlash}
+      onSendFlashPhoto={onSendFlashPhoto}
       onSendRedPacket={onSendRedPacket}
       onMessageAction={onMessageAction}
       onDraftChange={onDraftChange}
