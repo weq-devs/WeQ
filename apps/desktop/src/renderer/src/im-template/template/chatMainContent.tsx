@@ -195,7 +195,7 @@ export function ChatMainContent({
   ) => Promise<void>;
   /** Ark 卡片面板「发送」；不传则工具栏那个按钮点开也发不出去。 */
   onSendArk?: (conversation: Conversation, payload: ArkPayload) => Promise<void>;
-  /** 位置卡片要用的地点搜索 / 逆地址解析（应用层注入）。 */
+  /** 位置菜单 →「发送位置」要用的地点搜索 / 逆地址解析（应用层注入）。 */
   arkLocation?: ArkLocationProvider;
   /** 推荐好友 / 群 的候选列表（应用层注入；不传就只能手填号码）。 */
   arkContacts?: ArkContactSource;
