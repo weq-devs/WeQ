@@ -14,11 +14,10 @@ it.each(['export', 'analysis', 'delete'] as const)(
     const pending = { ...own, id: 'optimistic-sent', optimistic: 'sent' as const };
     const roaming = { ...own, id: 'roaming:protocol:1:2', source: 'roaming' as const };
     expect(messageBatchBlockReason(own, action)).toBeNull();
-    expect(partitionMessageBatch([own, pending, roaming], action)).toMatchObject(
-      action === 'export' || action === 'delete'
-        ? { supported: [own, roaming], unsupported: [{ message: pending }] }
-        : { supported: [own], unsupported: [{ message: pending }, { message: roaming }] },
-    );
+    expect(partitionMessageBatch([own, pending, roaming], action)).toMatchObject({
+      supported: [own, roaming],
+      unsupported: [{ message: pending }],
+    });
   },
 );
 it('删除允许移除无回执失败占位，但发送中、已受理和无法确认送达的占位必须保留', () => {
@@ -29,7 +28,7 @@ it('删除允许移除无回执失败占位，但发送中、已受理和无法�
   expect(messageBatchBlockReason({ ...failed, optimisticRejected: true }, 'delete')).toBeTruthy();
 });
 
-it('已经持久化的自己的协议缓存支持导出和可恢复的本地删除，分析仍需正式入库', () => {
+it('已经持久化的自己的协议缓存支持导出、分析和可恢复的本地删除', () => {
   const cached = {
     ...own,
     id: 'roaming:protocol:2:77',
@@ -39,7 +38,8 @@ it('已经持久化的自己的协议缓存支持导出和可恢复的本地删�
   };
   expect(messageBatchBlockReason(cached, 'export')).toBeNull();
   expect(messageBatchBlockReason(cached, 'delete')).toBeNull();
-  expect(messageBatchBlockReason(cached, 'analysis')).toBeTruthy();
+  expect(messageBatchBlockReason(cached, 'analysis')).toBeNull();
+  expect(messageBatchBlockReason({ ...cached, id: 'roaming:invalid' }, 'analysis')).toBeTruthy();
   expect(messageBatchBlockReason({ ...cached, localSent: false }, 'delete')).toBeNull();
 });
 

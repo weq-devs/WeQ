@@ -410,7 +410,9 @@ function essenceContentToWire(
 
 const analyticsRangeInput = z
   .object({
-    messageIds: z.array(z.string().regex(/^-?\d+$/)).optional(),
+    messageIds: z
+      .array(z.string().regex(/^(?:roaming:(?:(?:native|protocol):)?[1-9]\d*:)?-?\d+$/))
+      .optional(),
     startTime: z.number().int().safe().nonnegative().optional(),
     endTime: z.number().int().safe().nonnegative().optional(),
     expectedAccountUin: z.string().min(1).optional(),

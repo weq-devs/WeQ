@@ -44,6 +44,7 @@ import {
   type ConversationGraphEdge,
 } from './conversation_graph';
 import { segmentWords } from './text_segment';
+import { AnalyticsMessageSource, type AnalyticsCacheSource } from './analytics_source';
 import {
   analyticsBrowseFilter,
   analyticsDayParts,
@@ -295,6 +296,7 @@ export class GroupInfoService {
   /** 同一群的并发拉取合并，避免 0xFE7_3 被并发打爆触发风控。 */
   private onlineMembersInflight = new Map<number, Promise<GroupMemberListItem[]>>();
   private messagePoliciesInflight?: { pid: number; task: Promise<GroupMessagePolicySnapshot[]> };
+  private analysis: AnalyticsMessageSource;
 
   constructor(
     private readonly session: AccountSession,
@@ -304,6 +306,11 @@ export class GroupInfoService {
     },
   ) {
     this.groupNotifyService = new GroupNotifyService(session);
+    this.analysis = new AnalyticsMessageSource(session);
+  }
+
+  setAnalysisCache(cache: AnalyticsCacheSource): void {
+    this.analysis = new AnalyticsMessageSource(this.session, cache);
   }
 
   async getJoinInfo(groupId: number) {
@@ -672,13 +679,19 @@ export class GroupInfoService {
   }
 
   async listAnalysisGroups() {
-    const [directory, current, codes, lastTimes] = await Promise.all([
+    const [directory, current, codes, lastTimes, cached] = await Promise.all([
       this.listExportGroups(),
       this.listGroupDirectory(),
       this.session.groupMsgs.listGroupCodes(),
       // 排序口径与导出页一致：最近有消息的群在前，从没聊过的按名字排。
       this.session.groupMsgs.lastSendTimes().catch(() => new Map<string, number>()),
+      this.analysis.cachedConversations(),
     ]);
+    for (const row of cached) {
+      if (row.kind !== 'group') continue;
+      if (!codes.includes(row.conv)) codes.push(row.conv);
+      lastTimes.set(row.conv, Math.max(lastTimes.get(row.conv) ?? 0, row.lastMessageTime));
+    }
     const groups = new Map(
       codes.map((groupCode) => [
         groupCode,
@@ -717,6 +730,11 @@ export class GroupInfoService {
       this.session.groupMembers.listAnalysisMembers(groupCode),
       this.session.groupMsgs.listSenderIdentities(String(groupCode)),
     ]);
+    for (const row of await this.analysis.cachedMessages('group', String(groupCode))) {
+      const uid = isSenderUid(row.senderUid) ? row.senderUid : '';
+      const uin = /^[1-9]\d*$/.test(row.senderUin) ? row.senderUin : '';
+      if (uid || uin) senders.push({ uid, uin });
+    }
     const members = new Map<
       string,
       { id: string; uid: string; uin: string; name: string; source: 'directory' | 'messages' }
@@ -947,25 +965,20 @@ export class GroupInfoService {
     startTime?: number,
     endTime?: number,
   ): Promise<GroupMessageRankingItem[]> {
-    const db = this.session.groupMsgs;
     const counts = new Map<string, number>(); // uid → count
     const uins = new Map<string, string>(); // uid → uin
 
-    let afterSeq = 0n;
-    while (true) {
-      const batch = await db.listBatch(String(groupCode), afterSeq, 500, startTime, endTime);
-      if (batch.length === 0) break;
-      for (const msg of batch) {
-        const uid = msg.senderUid || '';
-        // 删除/撤回占位行会把 40020 写成群号，不能当发言人统计。
-        if (!isSenderUid(uid)) continue;
-        counts.set(uid, (counts.get(uid) ?? 0) + 1);
-        if (!uins.has(uid) && msg.senderUin > 0n) {
-          uins.set(uid, String(msg.senderUin));
-        }
+    for await (const msg of this.analysis.messages('group', String(groupCode), {
+      startTime,
+      endTime,
+    })) {
+      const uid = msg.senderUid || '';
+      // 删除/撤回占位行会把 40020 写成群号，不能当发言人统计。
+      if (!isSenderUid(uid)) continue;
+      counts.set(uid, (counts.get(uid) ?? 0) + 1);
+      if (!uins.has(uid) && msg.senderUin > 0n) {
+        uins.set(uid, String(msg.senderUin));
       }
-      afterSeq = batch[batch.length - 1]!.msgSeq;
-      if (batch.length < 500) break;
     }
 
     const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
@@ -997,23 +1010,18 @@ export class GroupInfoService {
     startTime?: number,
     endTime?: number,
   ): Promise<Record<number, number>> {
-    const db = this.session.groupMsgs;
     const hourly: Record<number, number> = {};
     for (let i = 0; i < 24; i++) hourly[i] = 0;
 
-    let afterSeq = 0n;
-    while (true) {
-      const batch = await db.listBatch(String(groupCode), afterSeq, 500, startTime, endTime);
-      if (batch.length === 0) break;
-      for (const msg of batch) {
-        const sendTime = Number(msg.sendTime);
-        if (sendTime > 0) {
-          const hour = new Date(sendTime * 1000).getHours();
-          hourly[hour] = (hourly[hour] ?? 0) + 1;
-        }
+    for await (const msg of this.analysis.messages('group', String(groupCode), {
+      startTime,
+      endTime,
+    })) {
+      const sendTime = Number(msg.sendTime);
+      const date = analyticsDayParts(sendTime);
+      if (date) {
+        hourly[date.hour] = (hourly[date.hour] ?? 0) + 1;
       }
-      afterSeq = batch[batch.length - 1]!.msgSeq;
-      if (batch.length < 500) break;
     }
     return hourly;
   }
@@ -1028,12 +1036,6 @@ export class GroupInfoService {
   ): Promise<GroupMemberAnalytics> {
     if (!memberUid && !memberUin) throw new Error('成员身份不能为空。');
     if (memberUin && !/^[1-9]\d*$/.test(memberUin)) throw new Error('成员 QQ 号无效。');
-    const db = this.session.groupMsgs;
-    const filter = {
-      ...analyticsBrowseFilter({ startTime, endTime, messageIds }),
-      sender: memberUid,
-      senderUin: memberUin,
-    };
     const stats = {
       totalMessages: 0,
       textMessages: 0,
@@ -1053,97 +1055,95 @@ export class GroupInfoService {
     const phraseCounts = new Map<string, number>();
     const emojiCounts = new Map<string, { faceId: number; faceText: string; count: number }>();
 
-    let cursor: BrowseCursor | undefined;
-    while (true) {
-      const batch = await db.browse(String(groupCode), filter, cursor, 500, 'newer');
-      if (batch.length === 0) break;
-      for (const { message: msg } of batch) {
-        if (
-          !(memberUid && msg.senderUid === memberUid) &&
-          !(memberUin && String(msg.senderUin) === memberUin)
-        )
-          continue;
+    for await (const msg of this.analysis.messages('group', String(groupCode), {
+      startTime,
+      endTime,
+      messageIds,
+      sender: memberUid,
+      senderUin: memberUin,
+    })) {
+      if (
+        !(memberUid && msg.senderUid === memberUid) &&
+        !(memberUin && String(msg.senderUin) === memberUin)
+      )
+        continue;
 
-        const sendTime = Number(msg.sendTime);
-        stats.totalMessages++;
+      const sendTime = Number(msg.sendTime);
+      stats.totalMessages++;
 
-        // Classify by element kind
-        let hasText = false;
-        let hasImage = false;
-        let hasVoice = false;
-        let hasVideo = false;
-        let hasEmoji = false;
+      // Classify by element kind
+      let hasText = false;
+      let hasImage = false;
+      let hasVoice = false;
+      let hasVideo = false;
+      let hasEmoji = false;
 
-        for (const el of msg.elements) {
-          switch (el.kind) {
-            case 'text':
-              hasText = true;
-              // 分词统计高频词（常用语），跳过 @ 提及（见 'at' 分支）。
-              if (el.textContent) {
-                for (const word of segmentWords(String(el.textContent))) {
-                  phraseCounts.set(word, (phraseCounts.get(word) ?? 0) + 1);
-                }
+      for (const el of msg.elements) {
+        switch (el.kind) {
+          case 'text':
+            hasText = true;
+            // 分词统计高频词（常用语），跳过 @ 提及（见 'at' 分支）。
+            if (el.textContent) {
+              for (const word of segmentWords(String(el.textContent))) {
+                phraseCounts.set(word, (phraseCounts.get(word) ?? 0) + 1);
               }
-              break;
-            case 'at':
-              // @某人 仍算一条文本消息，但其文本不计入常用语。
-              hasText = true;
-              break;
-            case 'pic':
-              hasImage = true;
-              break;
-            case 'ptt':
-              hasVoice = true;
-              break;
-            case 'video':
-              hasVideo = true;
-              break;
-            case 'face': {
-              hasEmoji = true;
-              const faceId = Number(el.faceId);
-              if (Number.isFinite(faceId)) {
-                const key = String(faceId);
-                const prev = emojiCounts.get(key);
-                emojiCounts.set(key, {
-                  faceId,
-                  faceText: el.faceText ? String(el.faceText) : (prev?.faceText ?? ''),
-                  count: (prev?.count ?? 0) + 1,
-                });
-              }
-              break;
             }
-            case 'mface':
-            case 'emojiBounce':
-              hasEmoji = true;
-              break;
+            break;
+          case 'at':
+            // @某人 仍算一条文本消息，但其文本不计入常用语。
+            hasText = true;
+            break;
+          case 'pic':
+            hasImage = true;
+            break;
+          case 'ptt':
+            hasVoice = true;
+            break;
+          case 'video':
+            hasVideo = true;
+            break;
+          case 'face': {
+            hasEmoji = true;
+            const faceId = Number(el.faceId);
+            if (Number.isFinite(faceId)) {
+              const key = String(faceId);
+              const prev = emojiCounts.get(key);
+              emojiCounts.set(key, {
+                faceId,
+                faceText: el.faceText ? String(el.faceText) : (prev?.faceText ?? ''),
+                count: (prev?.count ?? 0) + 1,
+              });
+            }
+            break;
           }
-        }
-
-        if (hasText) stats.textMessages++;
-        if (hasImage) stats.imageMessages++;
-        if (hasVoice) stats.voiceMessages++;
-        if (hasVideo) stats.videoMessages++;
-        if (hasEmoji) stats.emojiMessages++;
-        if (!hasText && !hasImage && !hasVoice && !hasVideo && !hasEmoji) {
-          stats.otherMessages++;
-        }
-
-        const date = analyticsDayParts(sendTime);
-        if (date) {
-          if (stats.firstMessageTime === null || sendTime < stats.firstMessageTime) {
-            stats.firstMessageTime = sendTime;
-          }
-          if (stats.lastMessageTime === null || sendTime > stats.lastMessageTime) {
-            stats.lastMessageTime = sendTime;
-          }
-          const hour = date.hour;
-          hourly[hour] = (hourly[hour] ?? 0) + 1;
-          dailySet.add(date.day);
+          case 'mface':
+          case 'emojiBounce':
+            hasEmoji = true;
+            break;
         }
       }
-      const last = batch.at(-1)!;
-      cursor = { time: last.message.sendTime, rowId: last.rowId };
-      if (batch.length < 500) break;
+
+      if (hasText) stats.textMessages++;
+      if (hasImage) stats.imageMessages++;
+      if (hasVoice) stats.voiceMessages++;
+      if (hasVideo) stats.videoMessages++;
+      if (hasEmoji) stats.emojiMessages++;
+      if (!hasText && !hasImage && !hasVoice && !hasVideo && !hasEmoji) {
+        stats.otherMessages++;
+      }
+
+      const date = analyticsDayParts(sendTime);
+      if (date) {
+        if (stats.firstMessageTime === null || sendTime < stats.firstMessageTime) {
+          stats.firstMessageTime = sendTime;
+        }
+        if (stats.lastMessageTime === null || sendTime > stats.lastMessageTime) {
+          stats.lastMessageTime = sendTime;
+        }
+        const hour = date.hour;
+        hourly[hour] = (hourly[hour] ?? 0) + 1;
+        dailySet.add(date.day);
+      }
     }
 
     stats.activeDays = dailySet.size;
@@ -1172,25 +1172,17 @@ export class GroupInfoService {
     startTime?: number,
     endTime?: number,
   ): Promise<GroupDailyActivityItem[]> {
-    const db = this.session.groupMsgs;
     const daily = new Map<string, number>();
 
-    let afterSeq = 0n;
-    while (true) {
-      const batch = await db.listBatch(String(groupCode), afterSeq, 500, startTime, endTime);
-      if (batch.length === 0) break;
-      for (const msg of batch) {
-        const sendTime = Number(msg.sendTime);
-        if (sendTime > 0) {
-          const d = new Date(sendTime * 1000);
-          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-            d.getDate(),
-          ).padStart(2, '0')}`;
-          daily.set(key, (daily.get(key) ?? 0) + 1);
-        }
+    for await (const msg of this.analysis.messages('group', String(groupCode), {
+      startTime,
+      endTime,
+    })) {
+      const sendTime = Number(msg.sendTime);
+      const date = analyticsDayParts(sendTime);
+      if (date) {
+        daily.set(date.day, (daily.get(date.day) ?? 0) + 1);
       }
-      afterSeq = batch[batch.length - 1]!.msgSeq;
-      if (batch.length < 500) break;
     }
 
     return [...daily.entries()]
@@ -1208,24 +1200,19 @@ export class GroupInfoService {
     startTime?: number,
     endTime?: number,
   ): Promise<GroupWordCloudItem[]> {
-    const db = this.session.groupMsgs;
     const counts = new Map<string, number>();
 
-    let afterSeq = 0n;
-    while (true) {
-      const batch = await db.listBatch(String(groupCode), afterSeq, 500, startTime, endTime);
-      if (batch.length === 0) break;
-      for (const msg of batch) {
-        for (const el of msg.elements) {
-          if (el.kind === 'text' && el.textContent) {
-            for (const word of segmentWords(String(el.textContent))) {
-              counts.set(word, (counts.get(word) ?? 0) + 1);
-            }
+    for await (const msg of this.analysis.messages('group', String(groupCode), {
+      startTime,
+      endTime,
+    })) {
+      for (const el of msg.elements) {
+        if (el.kind === 'text' && el.textContent) {
+          for (const word of segmentWords(String(el.textContent))) {
+            counts.set(word, (counts.get(word) ?? 0) + 1);
           }
         }
       }
-      afterSeq = batch[batch.length - 1]!.msgSeq;
-      if (batch.length < 500) break;
     }
 
     return [...counts.entries()]
@@ -1239,19 +1226,29 @@ export class GroupInfoService {
    *
    * 判定本身是纯函数（见 {@link ./join_batches}，有单测），这里只负责把原料凑齐：
    * 成员表里的入群时间 / 最后发言 / 等级，加上「每个人发了多少条」——后者走一条
-   * `GROUP BY 40020` 的 SQL，不扫消息正文；群总人数取自群详情（拿不到就用有入群
+   * `GROUP BY 40020` 的 SQL，有漫游缓存时合并去重后的身份轻量页，不扫全量正文；群总人数取自群详情（拿不到就用有入群
    * 记录的成员数兜底）。
    *
-   * 于是整个接口只读两次库（成员表一次，消息表一次聚合），打开卡片几乎不卡。
+   * 没有漫游缓存时保留原来的数据库聚合快路径。
    */
   async getGroupJoinBatches(
     groupCode: bigint,
     range: AnalyticsRange = {},
   ): Promise<GroupJoinBatchReport> {
     const filter = analyticsBrowseFilter(range);
+    const hasCachedMessages =
+      (await this.analysis.cachedMessages('group', String(groupCode))).length > 0;
     const [briefs, countByUid, detail] = await Promise.all([
       this.session.groupMembers.listMemberJoinBriefs(groupCode),
-      this.session.groupMsgs.countBySenders(String(groupCode), filter),
+      hasCachedMessages
+        ? (async () => {
+            const counts: Record<string, number> = {};
+            for await (const row of this.analysis.messages('group', String(groupCode), range, true))
+              if (isSenderUid(row.senderUid))
+                counts[row.senderUid] = (counts[row.senderUid] ?? 0) + 1;
+            return counts;
+          })()
+        : this.session.groupMsgs.countBySenders(String(groupCode), filter),
       this.session.groupDetail.getDetail(groupCode).catch(() => null),
     ]);
     const groupMessageTotal = Object.values(countByUid).reduce((sum, n) => sum + n, 0);
@@ -1294,22 +1291,33 @@ export class GroupInfoService {
     const timeline: ConversationMessage[] = [];
     const filter = analyticsBrowseFilter(opts ?? {});
     let cursor: BrowseCursor | undefined;
-    while (true) {
-      const batch = await this.session.groupMsgs.browseSenderTimeline(
+    if ((await this.analysis.cachedMessages('group', String(groupCode))).length > 0) {
+      for await (const row of this.analysis.messages(
+        'group',
         String(groupCode),
-        filter,
-        cursor,
-        PAGE,
-      );
-      if (batch.length === 0) break;
-      for (const row of batch) {
-        if (analyticsDayParts(row.sendTime))
-          timeline.push({ senderUid: row.uid, sendTime: row.sendTime });
+        opts ?? {},
+        true,
+      )) {
+        const sendTime = Number(row.sendTime);
+        if (analyticsDayParts(sendTime)) timeline.push({ senderUid: row.senderUid, sendTime });
       }
-      const last = batch.at(-1)!;
-      cursor = { time: last.cursorTime, rowId: last.rowId };
-      if (batch.length < PAGE) break;
-    }
+    } else
+      while (true) {
+        const batch = await this.session.groupMsgs.browseSenderTimeline(
+          String(groupCode),
+          filter,
+          cursor,
+          PAGE,
+        );
+        if (batch.length === 0) break;
+        for (const row of batch) {
+          if (analyticsDayParts(row.sendTime))
+            timeline.push({ senderUid: row.uid, sendTime: row.sendTime });
+        }
+        const last = batch.at(-1)!;
+        cursor = { time: last.cursorTime, rowId: last.rowId };
+        if (batch.length < PAGE) break;
+      }
 
     const graph = buildConversationGraph(timeline, {
       windowSeconds: opts?.windowSeconds ?? DEFAULT_CONVERSATION_WINDOW_SECONDS,
@@ -1419,7 +1427,9 @@ export class GroupInfoService {
     let defaulted = false;
     if (startTime === undefined && endTime === undefined) {
       const latest = opts?.recentYear ? await db.listLatest(code, 1) : [];
-      const newest = latest[0] ? Number(latest[0].sendTime) : 0;
+      const newest = opts?.recentYear
+        ? await this.analysis.latestTime('group', code, latest[0] ? Number(latest[0].sendTime) : 0)
+        : 0;
       if (newest > 0) {
         defaulted = true;
         endTime = newest;
@@ -1428,10 +1438,10 @@ export class GroupInfoService {
     }
     const hasRange = startTime !== undefined || endTime !== undefined;
     const trackTimeline = opts?.skipTimeline !== true;
-    const filter = analyticsBrowseFilter({
+    const scanRange = {
       ...(trackTimeline ? {} : { startTime, endTime }),
       messageIds: range.messageIds,
-    });
+    };
 
     const counts = new Map<string, number>(); // uid → message count (range)
     const uins = new Map<string, string>(); // uid → uin
@@ -1458,99 +1468,91 @@ export class GroupInfoService {
       lastMessageTime: null as number | null,
     };
 
-    let cursor: BrowseCursor | undefined;
-    while (true) {
-      const batch = await db.browse(String(groupCode), filter, cursor, 500, 'newer');
-      if (batch.length === 0) break;
-      for (const { message: msg } of batch) {
-        const sendTime = Number(msg.sendTime);
-        const date = analyticsDayParts(sendTime);
-        if (trackTimeline && date) {
-          globalDaily.set(date.day, (globalDaily.get(date.day) ?? 0) + 1);
-          if (firstMessageTime === null || sendTime < firstMessageTime) firstMessageTime = sendTime;
-          if (lastMessageTime === null || sendTime > lastMessageTime) lastMessageTime = sendTime;
-        }
-        if (
-          hasRange &&
-          (sendTime <= 0 ||
-            (startTime !== undefined && sendTime < startTime) ||
-            (endTime !== undefined && sendTime > endTime))
-        )
-          continue;
-        totals.totalMessages++;
+    for await (const msg of this.analysis.messages('group', code, scanRange)) {
+      const sendTime = Number(msg.sendTime);
+      const date = analyticsDayParts(sendTime);
+      if (trackTimeline && date) {
+        globalDaily.set(date.day, (globalDaily.get(date.day) ?? 0) + 1);
+        if (firstMessageTime === null || sendTime < firstMessageTime) firstMessageTime = sendTime;
+        if (lastMessageTime === null || sendTime > lastMessageTime) lastMessageTime = sendTime;
+      }
+      if (
+        hasRange &&
+        (sendTime <= 0 ||
+          (startTime !== undefined && sendTime < startTime) ||
+          (endTime !== undefined && sendTime > endTime))
+      )
+        continue;
+      totals.totalMessages++;
 
-        const uid = msg.senderUid || '';
-        // 删除/撤回占位行会把 40020 写成群号，不能进「发言人」计数（speakerCount）。
-        if (isSenderUid(uid)) {
-          counts.set(uid, (counts.get(uid) ?? 0) + 1);
-          if (!uins.has(uid) && msg.senderUin > 0n) uins.set(uid, String(msg.senderUin));
-        }
+      const uid = msg.senderUid || '';
+      // 删除/撤回占位行会把 40020 写成群号，不能进「发言人」计数（speakerCount）。
+      if (isSenderUid(uid)) {
+        counts.set(uid, (counts.get(uid) ?? 0) + 1);
+        if (!uins.has(uid) && msg.senderUin > 0n) uins.set(uid, String(msg.senderUin));
+      }
 
-        let hasText = false;
-        let hasImage = false;
-        let hasVoice = false;
-        let hasVideo = false;
-        let hasEmoji = false;
-        for (const el of msg.elements) {
-          switch (el.kind) {
-            case 'text':
-              hasText = true;
-              if (el.textContent) {
-                for (const word of segmentWords(String(el.textContent))) {
-                  wordCounts.set(word, (wordCounts.get(word) ?? 0) + 1);
-                }
+      let hasText = false;
+      let hasImage = false;
+      let hasVoice = false;
+      let hasVideo = false;
+      let hasEmoji = false;
+      for (const el of msg.elements) {
+        switch (el.kind) {
+          case 'text':
+            hasText = true;
+            if (el.textContent) {
+              for (const word of segmentWords(String(el.textContent))) {
+                wordCounts.set(word, (wordCounts.get(word) ?? 0) + 1);
               }
-              break;
-            case 'at':
-              hasText = true;
-              break;
-            case 'pic':
-              hasImage = true;
-              break;
-            case 'ptt':
-              hasVoice = true;
-              break;
-            case 'video':
-              hasVideo = true;
-              break;
-            case 'face':
-            case 'mface':
-            case 'emojiBounce':
-              hasEmoji = true;
-              break;
-          }
-        }
-        if (hasText) totals.textMessages++;
-        if (hasImage) totals.imageMessages++;
-        if (hasVoice) totals.voiceMessages++;
-        if (hasVideo) totals.videoMessages++;
-        if (hasEmoji) totals.emojiMessages++;
-        if (!hasText && !hasImage && !hasVoice && !hasVideo && !hasEmoji) totals.otherMessages++;
-
-        if (date) {
-          hourly[date.hour] = (hourly[date.hour] ?? 0) + 1;
-          const key = date.day;
-          daily.set(key, (daily.get(key) ?? 0) + 1);
-          if (uid) {
-            const week = weekStartKey(new Date(sendTime * 1000));
-            let byWeek = senderWeekly.get(uid);
-            if (!byWeek) {
-              byWeek = new Map();
-              senderWeekly.set(uid, byWeek);
             }
-            byWeek.set(week, (byWeek.get(week) ?? 0) + 1);
-          }
-          if (totals.firstMessageTime === null || sendTime < totals.firstMessageTime) {
-            totals.firstMessageTime = sendTime;
-          }
-          if (totals.lastMessageTime === null || sendTime > totals.lastMessageTime) {
-            totals.lastMessageTime = sendTime;
-          }
+            break;
+          case 'at':
+            hasText = true;
+            break;
+          case 'pic':
+            hasImage = true;
+            break;
+          case 'ptt':
+            hasVoice = true;
+            break;
+          case 'video':
+            hasVideo = true;
+            break;
+          case 'face':
+          case 'mface':
+          case 'emojiBounce':
+            hasEmoji = true;
+            break;
         }
       }
-      const last = batch.at(-1)!;
-      cursor = { time: last.message.sendTime, rowId: last.rowId };
-      if (batch.length < 500) break;
+      if (hasText) totals.textMessages++;
+      if (hasImage) totals.imageMessages++;
+      if (hasVoice) totals.voiceMessages++;
+      if (hasVideo) totals.videoMessages++;
+      if (hasEmoji) totals.emojiMessages++;
+      if (!hasText && !hasImage && !hasVoice && !hasVideo && !hasEmoji) totals.otherMessages++;
+
+      if (date) {
+        hourly[date.hour] = (hourly[date.hour] ?? 0) + 1;
+        const key = date.day;
+        daily.set(key, (daily.get(key) ?? 0) + 1);
+        if (uid) {
+          const week = weekStartKey(new Date(sendTime * 1000));
+          let byWeek = senderWeekly.get(uid);
+          if (!byWeek) {
+            byWeek = new Map();
+            senderWeekly.set(uid, byWeek);
+          }
+          byWeek.set(week, (byWeek.get(week) ?? 0) + 1);
+        }
+        if (totals.firstMessageTime === null || sendTime < totals.firstMessageTime) {
+          totals.firstMessageTime = sendTime;
+        }
+        if (totals.lastMessageTime === null || sendTime > totals.lastMessageTime) {
+          totals.lastMessageTime = sendTime;
+        }
+      }
     }
 
     totals.activeDays = daily.size;

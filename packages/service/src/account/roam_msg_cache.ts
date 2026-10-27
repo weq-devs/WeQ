@@ -234,7 +234,45 @@ export class RoamMsgCacheDb {
     return descending ? messages.reverse() : messages;
   }
 
-  /** Export-only full scan with bounded DB pages, including every same-seq native ID. */
+  /** 只读身份和时间列，隐藏记录与未确认的私聊不进入分析对象目录。 */
+  async listConversations(): Promise<
+    Array<{ kind: 'c2c' | 'group'; conv: string; lastMessageTime: number }>
+  > {
+    await this.ensureSchema();
+    const rows = await this.nt.executeSql(
+      this.dbPath,
+      `SELECT kind,conv FROM ${TABLE} WHERE kind='group' OR nt_seq_verified=1
+       UNION SELECT kind,conv FROM ${NATIVE_TABLE} WHERE accepted=1 AND (kind='group' OR json_extract(payload,'$.ntSeqVerified')=1)
+       UNION SELECT kind,conv FROM ${PROTOCOL_TABLE} WHERE kind='group' OR nt_seq_verified=1`,
+      null,
+    );
+    const result = [];
+    for (const row of rows) {
+      const kind = String(row[0]) as 'c2c' | 'group';
+      const conv = String(row[1]);
+      const hidden = JSON.stringify(
+        this.hiddenIds(kind, conv).map((id) =>
+          id.replace(/^roaming:(?:(?:native|protocol):)?/, ''),
+        ),
+      );
+      const latest = await this.nt.executeSql(
+        this.dbPath,
+        `SELECT MAX(send_time) FROM (
+           SELECT msg_seq,msg_id,send_time FROM ${TABLE} WHERE kind=? AND conv=? ${kind === 'c2c' ? 'AND nt_seq_verified=1' : ''}
+           UNION ALL SELECT msg_seq,msg_id,CAST(json_extract(payload,'$.sendTime') AS INTEGER) FROM ${NATIVE_TABLE}
+             WHERE kind=? AND conv=? AND accepted=1 ${kind === 'c2c' ? "AND json_extract(payload,'$.ntSeqVerified')=1" : ''}
+           UNION ALL SELECT msg_seq,msg_id,CAST(json_extract(payload,'$.sendTime') AS INTEGER) FROM ${PROTOCOL_TABLE}
+             WHERE kind=? AND conv=? ${kind === 'c2c' ? 'AND nt_seq_verified=1' : ''}
+         ) WHERE msg_seq>0 AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))`,
+        [kind, conv, kind, conv, kind, conv, hidden],
+      );
+      if (latest[0]?.[0] != null)
+        result.push({ kind, conv, lastMessageTime: Number(latest[0][0]) || 0 });
+    }
+    return result;
+  }
+
+  /** 全量读取正常消息，包含同序号的不同原生消息身份。 */
   async allForExport(kind: 'c2c' | 'group', conv: string): Promise<GapFetchedMessage[]> {
     await this.ensureSchema();
     const legacy: GapFetchedMessage[] = [],

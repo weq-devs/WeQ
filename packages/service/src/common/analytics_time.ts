@@ -15,8 +15,12 @@ export function validateAnalyticsRange(range: AnalyticsRange = {}): AnalyticsRan
     range.startTime > range.endTime
   )
     throw new Error('分析开始时间不能晚于结束时间。');
-  if (range.messageIds?.some((id) => !/^-?\d+$/.test(id)))
-    throw new Error('分析消息 ID 必须是本地消息编号。');
+  if (
+    range.messageIds?.some(
+      (id) => !/^(?:roaming:(?:(?:native|protocol):)?[1-9]\d*:)?-?\d+$/.test(id),
+    )
+  )
+    throw new Error('分析消息 ID 必须是本地或漫游消息编号。');
   return {
     startTime: range.startTime,
     endTime: range.endTime,
@@ -26,7 +30,11 @@ export function validateAnalyticsRange(range: AnalyticsRange = {}): AnalyticsRan
 
 export function analyticsBrowseFilter(range: AnalyticsRange) {
   const valid = validateAnalyticsRange(range);
-  return { start: valid.startTime, end: valid.endTime, messageIds: valid.messageIds };
+  return {
+    start: valid.startTime,
+    end: valid.endTime,
+    messageIds: valid.messageIds?.filter((id) => !id.startsWith('roaming:')),
+  };
 }
 
 export function analyticsDayParts(seconds: number) {

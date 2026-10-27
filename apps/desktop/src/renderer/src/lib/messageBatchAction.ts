@@ -13,13 +13,11 @@ export function messageBatchBlockReason(
   if (action === 'recall') return '尚未核对当前会话的撤回权限和消息定位';
   if (message.source === 'roaming') {
     if (
-      (action === 'export' || action === 'delete') &&
+      (action === 'export' || action === 'delete' || action === 'analysis') &&
       /^roaming:(?:(?:native|protocol):)?[1-9]\d*:-?\d+$/.test(message.id)
     )
       return null;
-    return action === 'delete'
-      ? '漫游缓存消息身份无效，无法定位可删除记录'
-      : '漫游缓存尚未入库，当前操作只处理本地记录';
+    return '漫游缓存消息身份无效，无法定位记录';
   }
   if (!isLocalOutgoingMessage(message)) return null;
   if (action === 'delete' && canDiscardFailedMessage(message)) return null;

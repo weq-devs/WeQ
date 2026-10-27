@@ -8,6 +8,9 @@ import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 import { BuddyAnalyticsService } from '../src/account/buddy_analytics';
 import { GroupInfoService } from '../src/account/group_info';
 import { analyticsDayParts, validateAnalyticsRange } from '../src/common/analytics_time';
+import { GapHistoryService, type GapFetchedMessage } from '../src/account/gap_history';
+import type { AnalyticsCacheSource } from '../src/account/analytics_source';
+import * as textSegment from '../src/account/text_segment';
 
 let root = '';
 afterEach(() => {
@@ -220,4 +223,215 @@ it('时间范围明确拒绝无效或反向边界，异常消息时间不伪造�
   await expect(group.getGroupStatsReport(777n, { startTime: 2, endTime: 1 })).rejects.toThrow(
     '不能晚于',
   );
+});
+
+function roamingFixture() {
+  const { session } = fixture();
+  const cached: GapFetchedMessage[] = [];
+  const add = (kind: 'group' | 'c2c', conv: string, values: Partial<GapFetchedMessage> = {}) => {
+    const row: GapFetchedMessage = {
+      kind,
+      conv,
+      msgId: '100000',
+      msgSeq: '4',
+      sendTime: String(start + 10),
+      senderUid: 'u_peer',
+      senderUin: '10002',
+      ntSeqVerified: true,
+      sourceFormat: 'protocol',
+      elements: [{ type: 'text', data: { textContent: '漫游分析' } }],
+      ...values,
+    };
+    cached.push(row);
+    return row;
+  };
+  const cache: AnalyticsCacheSource = {
+    cachedForExport: async () => cached,
+    cachedConversations: async () => [
+      { kind: 'c2c', conv: 'u_cached', lastMessageTime: start + 10 },
+      { kind: 'group', conv: '888', lastMessageTime: start + 10 },
+    ],
+  };
+  const group = new GroupInfoService(session);
+  group.setAnalysisCache(cache);
+  return { session, cached, add, cache, group, buddy: new BuddyAnalyticsService(session, cache) };
+}
+
+it('漫游缓存补入私聊和群画像，时间线、词云、成员、入群批次和小团体统计保持一致', async () => {
+  vi.spyOn(textSegment, 'segmentWords').mockImplementation((text) => [text]);
+  const { buddy, group, add } = roamingFixture();
+  add('c2c', 'u_peer');
+  add('group', '777');
+  add('group', '777', {
+    msgId: '100001',
+    senderUid: 'u_self',
+    senderUin: '10001',
+    sendTime: String(start + 20),
+    elements: [{ type: 'face', data: { faceId: 14, faceText: '微笑' } }],
+  });
+  const privateReport = await buddy.getBuddyAnalytics('u_peer', {
+    startTime: start,
+    endTime: start + 20,
+  });
+  expect(privateReport.statistics.totalMessages).toBe(rows + 1);
+  expect(privateReport.statistics.peerMessages).toBe(rows / 2 + 1);
+  expect(privateReport.wordCloud.length).toBeGreaterThan(0);
+  const range = { startTime: start + 1, endTime: start + 20 };
+  const report = await group.getGroupStatsReport(777n, range);
+  expect(report.totals).toMatchObject({
+    totalMessages: 2,
+    textMessages: 1,
+    emojiMessages: 1,
+    speakerCount: 2,
+  });
+  expect(report.timeline.daily.reduce((sum, day) => sum + day.count, 0)).toBe(rows + 4);
+  expect(
+    (await group.getGroupMemberAnalytics(777n, 'u_peer', range.startTime, range.endTime)).statistics
+      .totalMessages,
+  ).toBe(1);
+  expect((await group.getGroupConversationGraph(777n, range)).messageCount).toBe(2);
+  expect((await group.getGroupJoinBatches(777n, range)).groupMessageTotal).toBe(2);
+  expect(
+    (await group.getGroupMessageRanking(777n, 10, range.startTime, range.endTime)).map(
+      (row) => row.messageCount,
+    ),
+  ).toEqual([1, 1]);
+  expect(
+    (await group.getGroupWordCloud(777n, 10, range.startTime, range.endTime)).length,
+  ).toBeGreaterThan(0);
+  expect(await group.getGroupDailyActivity(777n, range.startTime, range.endTime)).toEqual([
+    { date: '2026-10-18', count: 2 },
+  ]);
+});
+
+it('缓存按时间混排计算回复，缓存独有会话支持默认最近一年且不接受未确认私聊或其他会话', async () => {
+  const { buddy, group, add } = roamingFixture();
+  add('c2c', 'u_ordered', { senderUid: 'u_ordered', sendTime: String(start + 4) });
+  const ordered = await buddy.getBuddyAnalytics('u_ordered');
+  expect(ordered.statistics.totalMessages).toBe(3);
+  expect(ordered.reply.self).toMatchObject({ fastestSec: 1, count: 1 });
+  add('c2c', 'u_cached', { senderUid: 'u_cached' });
+  add('c2c', 'u_cached', { msgId: '100002', msgSeq: '5', ntSeqVerified: false });
+  add('group', '888');
+  const privateReport = await buddy.getBuddyAnalytics('u_cached', { recentYear: true });
+  expect(privateReport.statistics.totalMessages).toBe(1);
+  expect(privateReport.range).toMatchObject({ defaulted: true, endTime: start + 10 });
+  expect((await group.getGroupStatsReport(888n, { recentYear: true })).totals.totalMessages).toBe(
+    1,
+  );
+});
+
+it('漫游选区精确识别来源，不把同秒或同序号未选消息和空选区并入统计', async () => {
+  const { buddy, group, add } = roamingFixture();
+  for (const kind of ['group', 'c2c'] as const) {
+    const conv = kind === 'group' ? '777' : 'u_peer';
+    add(kind, conv);
+    add(kind, conv, { msgId: '100001' });
+  }
+  const scope = { messageIds: ['1', 'roaming:protocol:4:100000'] };
+  expect((await buddy.getBuddyAnalytics('u_peer', scope)).statistics.totalMessages).toBe(2);
+  expect((await group.getGroupStatsReport(777n, scope)).totals.totalMessages).toBe(2);
+  expect((await group.getGroupConversationGraph(777n, scope)).messageCount).toBe(2);
+  expect((await group.getGroupJoinBatches(777n, scope)).groupMessageTotal).toBe(2);
+  expect(
+    (await buddy.getBuddyAnalytics('u_peer', { messageIds: [] })).statistics.totalMessages,
+  ).toBe(0);
+  expect((await group.getGroupStatsReport(777n, { messageIds: [] })).totals.totalMessages).toBe(0);
+});
+
+it('缓存与本地副本按身份去重，缓存选中后同步入本地也只计一次，时间差不破坏去重', async () => {
+  const { buddy, group, add } = roamingFixture();
+  const sql = fixtureDb(join(root, 'msg.db'));
+  for (const table of ['c2c_msg_table', 'group_msg_table'])
+    sql.exec(`UPDATE ${table} SET "40002"=123 WHERE "40001"=4`);
+  for (const kind of ['group', 'c2c'] as const) {
+    const conv = kind === 'group' ? '777' : 'u_peer';
+    add(kind, conv, { msgId: '4', msgSeq: '1' });
+    add(kind, conv, { msgId: '123', msgSeq: '1', msgRandom: '123' });
+    add(kind, conv, { msgId: '555', msgSeq: '1', sourceFormat: undefined });
+  }
+  expect((await buddy.getBuddyAnalytics('u_peer')).statistics.totalMessages).toBe(rows + 3);
+  expect((await group.getGroupStatsReport(777n)).totals.totalMessages).toBe(rows + 3);
+  const scope = { messageIds: ['4', 'roaming:protocol:1:123'] };
+  expect((await buddy.getBuddyAnalytics('u_peer', scope)).statistics.totalMessages).toBe(1);
+  expect((await group.getGroupStatsReport(777n, scope)).totals.totalMessages).toBe(1);
+  // 不同身份的新原生消息即使同序号也不能丢弃。
+  add('group', '777', { msgId: '999999', msgSeq: '1', sourceFormat: 'native' });
+  expect((await group.getGroupStatsReport(777n)).totals.totalMessages).toBe(rows + 4);
+});
+
+it('真实缓存读取经过隐藏过滤，离线分析不调用漫游网络能力', async () => {
+  const { session } = fixture();
+  const nt = createSqliteStub();
+  const history = new GapHistoryService(
+    nt,
+    session,
+    () => {
+      throw new Error('不应请求网络');
+    },
+    join(root, 'roam.db'),
+    {
+      isHiddenCached: (row: GapFetchedMessage) => row.msgId === '42',
+      listHiddenIds: () => ['roaming:2:42'],
+    } as never,
+  );
+  await history.retainForBatch([
+    {
+      kind: 'group',
+      conv: '888',
+      msgId: '41',
+      msgSeq: '1',
+      senderUid: 'u_peer',
+      senderUin: '10002',
+      sendTime: String(start),
+      elements: [],
+    },
+    {
+      kind: 'group',
+      conv: '888',
+      msgId: '42',
+      msgSeq: '2',
+      senderUid: 'u_peer',
+      senderUin: '10002',
+      sendTime: String(start + 1),
+      elements: [],
+    },
+  ]);
+  const group = new GroupInfoService(session);
+  group.setAnalysisCache(history);
+  expect((await group.getGroupStatsReport(888n)).totals.totalMessages).toBe(1);
+  expect(await history.cachedConversations()).toEqual([
+    { kind: 'group', conv: '888', lastMessageTime: start },
+  ]);
+});
+
+it('超过两千条的缓存独有历史不截断，群关系统计仍走轻量身份分页', async () => {
+  const { buddy, group, session, add } = roamingFixture();
+  for (let i = 0; i < 2103; i++) {
+    const values = {
+      msgId: String(10000000 + i),
+      msgSeq: String(i + 1),
+      sendTime: String(start + i),
+    };
+    add('c2c', 'u_cached', { ...values, senderUid: 'u_cached' });
+    add('group', '888', values);
+  }
+  expect((await buddy.getBuddyAnalytics('u_cached')).statistics.totalMessages).toBe(2103);
+  // 关系和批次统计不应为了缓存补全改成扫描全部正文。
+  vi.spyOn(session.groupMsgs, 'browse').mockRejectedValue(new Error('不应读取正文页'));
+  expect((await group.getGroupConversationGraph(888n)).messageCount).toBe(2103);
+  expect((await group.getGroupJoinBatches(888n)).groupMessageTotal).toBe(2103);
+});
+
+it('按 QQ 号分析缓存中缺 UID 的旧成员，不混入其他成员，表情字段沿用渲染值', async () => {
+  const { group, add } = roamingFixture();
+  add('group', '888', {
+    senderUid: '',
+    senderUin: '10003',
+    elements: [{ type: 'face', data: { faceId: 14, faceText: '微笑' } }],
+  });
+  add('group', '888', { msgId: '100001', senderUin: '10004' });
+  const report = await group.getGroupMemberAnalytics(888n, '', undefined, undefined, '10003');
+  expect(report.statistics).toMatchObject({ totalMessages: 1, emojiMessages: 1 });
+  expect(report.commonEmojis).toEqual([{ faceId: 14, faceText: '微笑', count: 1 }]);
 });
