@@ -1005,6 +1005,8 @@ export function ChatPane({
   const lastMessageIdRef = useRef<string | null>(null);
   // Conversation id the scroll-tracking refs above currently describe.
   const scrollConversationRef = useRef<string | null>(null);
+  const bottomAfterLoadingRef = useRef(false);
+  const scrollAtLatestRef = useRef(atLatest);
   const unreadSeedRef = useRef<UnreadJumpSeed | null>(null);
   const unreadConversationRef = useRef<string | null>(null);
   const unreadScrollFrameRef = useRef<number | null>(null);
@@ -1406,12 +1408,17 @@ export function ChatPane({
     if (!tabActive) return;
     const conversationId = conversation?.id ?? null;
     const newestId = visibleMessages[visibleMessages.length - 1]?.id ?? null;
+    const wasAtLatest = scrollAtLatestRef.current;
+    scrollAtLatestRef.current = atLatest;
+    if (loading || (loadingNewer && wasAtLatest))
+      bottomAfterLoadingRef.current = !initialReadingPosition;
 
     // Conversation switched (or first paint): jump to bottom, reset trackers.
     if (scrollConversationRef.current !== conversationId) {
       scrollConversationRef.current = conversationId;
       lastMessageIdRef.current = newestId;
       readingPositionApplied.current = false;
+      bottomAfterLoadingRef.current = !initialReadingPosition && (loading || loadingNewer);
       atBottomRef.current = !initialReadingPosition;
       setNewMessagePill(0);
       setShowBottomJump(false);
@@ -1451,7 +1458,13 @@ export function ChatPane({
       lastMessageIdRef.current = newestId;
       return;
     }
-    if (loadingNewer) return;
+    if (loading || loadingNewer) return;
+    const bottomAfterLoading = bottomAfterLoadingRef.current;
+    bottomAfterLoadingRef.current = false;
+    // 首屏或尾页缓存校准完成属于进入定位，不受后续新消息跟随偏好控制。
+    // 重置尾部追踪，兼容整页替换及乐观尾部 id 不变；用户已离开底部时不动。
+    if (bottomAfterLoading && !initialReadingPosition && atBottomRef.current && atLatest)
+      lastMessageIdRef.current = null;
 
     // 尾部 id 没变，但列表内容可能变了。典型情况：打开会话时末尾挂着「数据库里还没有」
     // 的乐观消息，它先成为尾部，随后真实历史在它**上面**补全 —— 尾部 id 一直没变，

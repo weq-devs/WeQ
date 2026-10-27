@@ -30,6 +30,89 @@ afterEach(() => {
 });
 
 describe('新消息按钮已读行为', () => {
+  it.each([
+    [true, true],
+    [false, true],
+    [false, false],
+  ])('整页校准仅在进入会话时定位底部：自动跟随=%s，原窗口为最新=%s', (enabled, initialAtLatest) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+    settings.value = { autoFollowLatestMessages: enabled };
+    const demo = createTemplateDemoData();
+    const conversation = demo.conversations.find((item) => item.type === 'group')!;
+    const first = { ...demo.messages[0]!, id: 'cached', conversationId: conversation.id };
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const props = { user: demo.user, conversation, draft: '' };
+    const render = (messages: (typeof first)[], atLatest: boolean, loadingNewer: boolean) =>
+      act(() =>
+        root.render(createElement(ChatPane, { ...props, messages, atLatest, loadingNewer })),
+      );
+    try {
+      render([first], initialAtLatest, false);
+      const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+      Object.defineProperties(scroll, {
+        scrollHeight: { configurable: true, value: 1200 },
+        clientHeight: { configurable: true, value: 400 },
+      });
+      if (!initialAtLatest) scroll.scrollTop = 800;
+      render([first], false, true);
+      render([{ ...first, id: 'latest' }], true, false);
+      expect(scroll.scrollTop).toBe(initialAtLatest ? 1200 : 800);
+      expect(host.querySelector('.new-message-pill')).toBeNull();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+
+  it.each([false, true])(
+    '带乐观尾部的首屏加载完成后定位底部，但保留用户主动滚动：%s',
+    (scrolled) => {
+      vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+      vi.stubGlobal('localStorage', new Storage());
+      vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+      settings.value = { autoFollowLatestMessages: false };
+      const demo = createTemplateDemoData();
+      const conversation = demo.conversations.find((item) => item.type === 'group')!;
+      const tail = { ...demo.messages[0]!, id: 'optimistic', conversationId: conversation.id };
+      const host = document.createElement('div');
+      document.body.append(host);
+      const root = createRoot(host);
+      const props = { user: demo.user, conversation, draft: '', atLatest: true };
+      try {
+        act(() =>
+          root.render(createElement(ChatPane, { ...props, messages: [tail], loading: true })),
+        );
+        const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+        Object.defineProperties(scroll, {
+          scrollHeight: { configurable: true, value: 1600 },
+          clientHeight: { configurable: true, value: 400 },
+        });
+        if (scrolled)
+          act(() => {
+            scroll.scrollTop = 100;
+            scroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+          });
+        act(() =>
+          root.render(
+            createElement(ChatPane, {
+              ...props,
+              messages: [{ ...tail, id: 'history' }, tail],
+              loading: false,
+            }),
+          ),
+        );
+        expect(scroll.scrollTop).toBe(scrolled ? 100 : 1600);
+      } finally {
+        act(() => root.unmount());
+        host.remove();
+      }
+    },
+  );
+
   it.each([undefined, true, false])(
     '自动跟随=%s：底部追加、原尾部刷新及手动定位互不混淆',
     (enabled) => {
