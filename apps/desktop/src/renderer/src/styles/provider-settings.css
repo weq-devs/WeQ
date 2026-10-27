@@ -113,6 +113,37 @@ html[data-theme] .weq-provider-window > .weq-provider-modal {
   background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
 }
 
+.weq-provider-fields {
+  margin: 0;
+  border: 0;
+}
+
+.weq-provider-probe-results {
+  flex-basis: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-provider-probe-results li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  overflow-wrap: anywhere;
+}
+
+.weq-provider-probe-results strong {
+  flex-shrink: 0;
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme='dark'] .weq-provider-probe-results {
+  color: var(--weq-fg-secondary);
+}
+
 html[data-theme='dark'] .weq-provider-window > .weq-provider-modal {
   background: var(--weq-bg-elevated);
 }

@@ -20,6 +20,7 @@ const state = vi.hoisted(() => ({
   error: vi.fn(),
   confirm: vi.fn(async () => true),
   testLlm: vi.fn(),
+  detectCapabilities: vi.fn(),
   testTts: vi.fn(),
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
@@ -46,6 +47,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     client: {
       bootstrap: {
         testAgentLabProvider: { mutate: state.testLlm },
+        detectAgentLabModelCapabilities: { mutate: state.detectCapabilities },
         testTtsProvider: { mutate: state.testTts },
       },
     },
@@ -153,6 +155,7 @@ beforeEach(() => {
   ];
   state.error.mockReset();
   state.testLlm.mockReset();
+  state.detectCapabilities.mockReset();
   state.testTts.mockReset();
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
   state.confirm.mockClear();
@@ -218,6 +221,79 @@ function mount(tts = false) {
   return { host, render, button, set, close };
 }
 describe('多 API provider 配置', () => {
+  it('能力检测回填已验证与不支持项，未知项保留原选择且不自动保存', async () => {
+    state.providers[0]!.models[0]!.capabilities = ['embedding', 'vision'];
+    state.detectCapabilities.mockResolvedValue([
+      { capability: 'chat', status: 'supported', detail: '测试通过' },
+      { capability: 'embedding', status: 'unsupported', detail: '不支持 /embeddings' },
+      { capability: 'vision', status: 'unknown', detail: 'HTTP 502' },
+    ]);
+    const f = mount();
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    await act(async () => f.button('自动检测能力').click());
+    expect(state.confirm).toHaveBeenCalledWith(
+      '自动检测能力',
+      expect.stringContaining('不包含聊天记录'),
+      expect.anything(),
+    );
+    expect(state.detectCapabilities).toHaveBeenCalledWith({
+      baseUrl: state.providers[0]!.baseUrl,
+      apiKey: state.providers[0]!.apiKey,
+      model: 'shared-model',
+    });
+    expect(f.host.textContent).toContain('聊天：已验证');
+    expect(f.host.textContent).toContain('向量：不支持');
+    expect(f.host.textContent).toContain('视觉：未确定');
+    expect(f.host.textContent).toContain('HTTP 502');
+    expect(state.save).not.toHaveBeenCalled();
+    await act(async () => f.button('保存 provider').click());
+    expect(state.save.mock.calls[0]![0].models[0].capabilities).toEqual(['chat', 'vision']);
+    expect(state.save.mock.calls[0]![0].models[0]).not.toHaveProperty('probe');
+  });
+  it('取消检测不发请求，检测中锁定编辑和保存，失败不改原能力', async () => {
+    const f = mount();
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    state.confirm.mockResolvedValueOnce(false);
+    await act(async () => f.button('自动检测能力').click());
+    expect(state.detectCapabilities).not.toHaveBeenCalled();
+    let reject!: (error: Error) => void;
+    state.detectCapabilities.mockImplementation(
+      () =>
+        new Promise((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    await act(async () => f.button('自动检测能力').click());
+    expect(f.host.querySelector('fieldset')?.disabled).toBe(true);
+    expect(f.button('保存 provider').disabled).toBe(true);
+    await act(async () => reject(new Error('合成网络错误')));
+    expect(f.host.querySelector('fieldset')?.disabled).toBe(false);
+    expect(state.error).toHaveBeenCalledWith('能力检测失败', '合成网络错误');
+    await act(async () => f.button('保存 provider').click());
+    expect(state.save.mock.calls[0]![0].models[0].capabilities).toEqual(['chat']);
+  });
+  it('配置已变化时丢弃迟到的能力结果', async () => {
+    let finish!: (value: unknown) => void;
+    state.detectCapabilities.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const f = mount();
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    await act(async () => f.button('自动检测能力').click());
+    f.set('[aria-label="API Key"]', 'synthetic-new-key');
+    await act(async () =>
+      finish([{ capability: 'chat', status: 'unsupported', detail: '旧端点结果' }]),
+    );
+    expect(f.host.textContent).not.toContain('旧端点结果');
+    await act(async () => f.button('保存 provider').click());
+    expect(state.save.mock.calls[0]![0]).toMatchObject({
+      apiKey: 'synthetic-new-key',
+      models: [{ id: 'shared-model', capabilities: ['chat'] }],
+    });
+  });
   it.each([false, true])('%s 加载配置不冒充空列表，失败可重试并保留缓存', (tts) => {
     state.queryMode = 'loading';
     const f = mount(tts);

@@ -4,6 +4,7 @@ import {
   normalizeProviderConfig,
   resolveEndpoint,
   testChatEndpoint,
+  detectModelCapabilities,
   validateProviderConfig,
   isDefaultModelSelection,
   modelEndpointIdentity,
@@ -164,6 +165,21 @@ export class AgentLabConfigService {
       onUsage: this.onUsage,
     };
     return testChatEndpoint(endpoint);
+  }
+
+  async detectCapabilities(input: { baseUrl: string; apiKey: string; model: string }) {
+    const baseUrl = input.baseUrl
+      .trim()
+      .replace(/\/+$/, '')
+      .replace(/\/chat\/completions$/, '');
+    if (!/^https?:\/\//i.test(baseUrl)) throw new Error('请填写有效的 Base URL。');
+    if (!input.model.trim()) throw new Error('请先填写模型 ID。');
+    return detectModelCapabilities({
+      baseUrl,
+      apiKey: input.apiKey.trim(),
+      model: input.model.trim(),
+      onUsage: this.onUsage,
+    });
   }
 
   saveProvider(

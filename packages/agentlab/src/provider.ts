@@ -21,7 +21,7 @@ function normalizeModel(input: AgentLabProviderModel): AgentLabProviderModel {
   return {
     id: input.id.trim(),
     label: input.label?.trim() || undefined,
-    capabilities: capabilities.length > 0 ? capabilities : ['chat'],
+    capabilities: Array.isArray(input.capabilities) ? capabilities : ['chat'],
   };
 }
 

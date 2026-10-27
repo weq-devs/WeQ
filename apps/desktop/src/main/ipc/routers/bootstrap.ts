@@ -1625,6 +1625,16 @@ export const bootstrapRouter = router({
       return requireBootstrap().agentLabConfig.testEndpoint(input);
     }),
 
+  detectAgentLabModelCapabilities: procedure
+    .input(
+      z.object({
+        baseUrl: z.string().min(1),
+        apiKey: z.string().default(''),
+        model: z.string().min(1),
+      }),
+    )
+    .mutation(({ input }) => requireBootstrap().agentLabConfig.detectCapabilities(input)),
+
   // ---- TTS 服务商（设置 → 语音配置；克隆体发语音/语音克隆用）----
 
   /** 厂商模板（新建 provider 一键带入 + 表单字段提示）。 */
