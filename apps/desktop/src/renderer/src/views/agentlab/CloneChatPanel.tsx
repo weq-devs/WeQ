@@ -182,6 +182,7 @@ export function CloneChatPanel({
       }
       // 首句标题 / 时间刷新由后端落库，这里让列表跟上。
       void utils.account.listAgentLabPersonaSessions.invalidate({ personaId });
+      void utils.account.listAgentLabPersonas.invalidate();
       // 发言意愿对私聊生效且这次「懒得回」：只保留用户这条，不加回复气泡。
       if (result.silent) {
         seeded.current = true;
@@ -216,6 +217,8 @@ export function CloneChatPanel({
         sessionId: sessionIdRef.current ?? id,
       });
     } catch (error) {
+      // 生成失败前可能已经保存用户消息，主列表仍需读取实际活动时间。
+      void utils.account.listAgentLabPersonas.invalidate();
       dialog.error('发送失败', error instanceof Error ? error.message : String(error));
       setHistory(history);
       setInput(text);

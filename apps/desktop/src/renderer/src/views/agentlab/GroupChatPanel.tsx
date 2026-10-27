@@ -170,6 +170,7 @@ export function GroupChatPanel({
           if (seenIds.current.has(ev.message.id)) return;
           seenIds.current.add(ev.message.id);
           setHistory((prev) => [...prev, ev.message]);
+          void utilsRef.current.account.listAgentLabGroups.invalidate();
         } else if (ev.kind === 'done') {
           setBusy(false);
           // 让持久化群消息缓存跟上（后端已逐条落库）；否则切走再切回会从陈旧缓存 reseed 丢消息。
@@ -180,6 +181,7 @@ export function GroupChatPanel({
           });
           // 首句标题 / 时间刷新由后端落库，这里让会话列表跟上。
           void utilsRef.current.account.listAgentLabGroupSessions.invalidate({ groupId });
+          void utilsRef.current.account.listAgentLabGroups.invalidate();
         } else if (ev.kind === 'error') {
           setBusy(false);
           dialogRef.current.error('群聊出错', ev.message);
@@ -247,6 +249,9 @@ export function GroupChatPanel({
       setBusy(false);
       dialog.error('发送失败', e instanceof Error ? e.message : String(e));
       setInput(text);
+    } finally {
+      // 事件漏发或生成失败时，也从落库消息恢复主列表的活动时间和预览。
+      void utils.account.listAgentLabGroups.invalidate();
     }
   }
 
