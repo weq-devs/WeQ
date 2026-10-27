@@ -10,17 +10,24 @@ import { makeBackupPersona } from './fixtures/backup_persona';
 import { buildWeqBackup, readWeqBackup } from '../src/bootstrap/backup_bundle';
 import { validateWeqBackupData } from '../src/bootstrap/backup_data';
 
-const mocks = vi.hoisted(() => ({ card: vi.fn(), embed: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  card: vi.fn(),
+  embed: vi.fn(),
+  shots: vi.fn(),
+  chunks: vi.fn(),
+  chunk: vi.fn(),
+}));
 vi.mock('@weq/agentlab', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weq/agentlab')>();
   return {
     ...actual,
     extractPersonaCard: mocks.card,
     embedTexts: mocks.embed,
-    extractFewShots: async () => [],
+    extractFewShots: mocks.shots,
     extractExpressions: async () => [],
     extractStyleVariants: async () => [],
-    renderProfileChunks: () => [],
+    renderProfileChunks: mocks.chunks,
+    extractProfileChunk: mocks.chunk,
   };
 });
 const roots: string[] = [];
@@ -28,6 +35,8 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.card.mockResolvedValue({ ...makeBackupPersona().profile.card, tone: '最新语气' });
   mocks.embed.mockResolvedValue([]);
+  mocks.shots.mockResolvedValue([]);
+  mocks.chunks.mockReturnValue([]);
   vi.stubGlobal(
     'fetch',
     vi.fn(() => {
@@ -76,6 +85,108 @@ function fixture() {
   }));
   return { root, store, persona, service, latest, messages };
 }
+
+it('关键提炼失败时取消并等待兄弟请求结束，错误携带具体原因且保留旧画像', async () => {
+  const f = fixture();
+  let release!: () => void;
+  let signal: AbortSignal | undefined;
+  mocks.shots.mockImplementationOnce(
+    (endpoint) =>
+      new Promise((resolve) => {
+        signal = endpoint.signal;
+        signal?.addEventListener(
+          'abort',
+          () => {
+            release = () => resolve([]);
+          },
+          { once: true },
+        );
+      }),
+  );
+  mocks.card.mockRejectedValueOnce(new Error('合成 HTTP 502'));
+  let settled = false;
+  const pending = f.service.refreshFromC2c(f.persona.id).catch((error) => {
+    settled = true;
+    throw error;
+  });
+  const checked = expect(pending).rejects.toThrow('合成 HTTP 502');
+  await vi.waitFor(() => expect(signal?.aborted).toBe(true));
+  expect(settled).toBe(false);
+  await expect(f.service.refreshFromC2c(f.persona.id)).rejects.toThrow('正在创建或更新');
+  release();
+  await checked;
+  expect(f.store.getPersona(f.persona.id)?.persona.profile).toEqual(f.persona.profile);
+});
+
+it('关闭账号会取消构建并等待读取收尾，不保存未完成画像', async () => {
+  const f = fixture();
+  mocks.card.mockImplementationOnce(
+    (endpoint) =>
+      new Promise((_resolve, reject) => {
+        endpoint.signal.addEventListener('abort', () => reject(endpoint.signal.reason), {
+          once: true,
+        });
+      }),
+  );
+  const pending = f.service.refreshFromC2c(f.persona.id);
+  const checked = expect(pending).rejects.toThrow();
+  await vi.waitFor(() => expect(mocks.card).toHaveBeenCalled());
+  await f.service.close();
+  await checked;
+  expect(f.store.getPersona(f.persona.id)?.persona.profile).toEqual(f.persona.profile);
+});
+
+it('深层画像取消不被单块降级吞掉，不继续启动后续分块', async () => {
+  const f = fixture();
+  mocks.chunks.mockReturnValue(['合成第一块', '合成第二块']);
+  let signal: AbortSignal | undefined;
+  mocks.chunk.mockImplementation(
+    (endpoint) =>
+      new Promise((_resolve, reject) => {
+        signal = endpoint.signal;
+        signal?.addEventListener('abort', () => reject(signal?.reason), { once: true });
+      }),
+  );
+  const checked = expect(f.service.refreshFromC2c(f.persona.id)).rejects.toThrow();
+  await vi.waitFor(() => expect(mocks.chunk).toHaveBeenCalledOnce());
+  await f.service.close();
+  await checked;
+  expect(signal?.aborted).toBe(true);
+  expect(mocks.chunk).toHaveBeenCalledOnce();
+  expect(f.store.getPersona(f.persona.id)?.persona.profile).toEqual(f.persona.profile);
+});
+
+it('模型输出沿现有构建订阅分路发送，不把认证信息附入事件', async () => {
+  const f = fixture();
+  const progress: unknown[] = [];
+  f.service.on('build-progress', (p) => progress.push(p));
+  mocks.card.mockImplementationOnce(async (endpoint) => {
+    endpoint.onOutput({
+      requestId: 'fixture-request',
+      feature: '画像卡',
+      model: 'fixture',
+      status: 'running',
+      channel: 'content',
+      text: '合成增量',
+    });
+    return makeBackupPersona().profile.card;
+  });
+  await f.service.refreshFromC2c(f.persona.id);
+  expect(progress).toContainEqual({
+    personaId: f.persona.id,
+    phase: '模型输出',
+    percent: 0,
+    output: {
+      requestId: 'fixture-request',
+      feature: '画像卡',
+      model: 'fixture',
+      status: 'running',
+      channel: 'content',
+      text: '合成增量',
+    },
+  });
+  expect(JSON.stringify(progress)).not.toContain('apiKey');
+});
 
 it('用最新真实语料路径重训并原位保存，配置、身份及所有独立历史文件不变', async () => {
   const f = fixture();

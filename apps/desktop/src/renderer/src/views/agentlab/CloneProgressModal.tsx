@@ -11,6 +11,7 @@ import type { ReactElement } from 'react';
 import { Minus, Sparkles } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import type { CloneTask } from './cloneTaskStore';
+import { CloneTaskLog } from './CloneTaskLog';
 
 export type { CloneTask } from './cloneTaskStore';
 
@@ -106,6 +107,7 @@ export function CloneProgressModal({
               </button>
             )}
           </div>
+          <CloneTaskLog task={task} />
         </div>
       </div>
     </Modal>

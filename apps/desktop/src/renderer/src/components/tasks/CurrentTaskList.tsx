@@ -24,6 +24,7 @@ import {
 import { taskIcon, taskPct, taskTypeLabel, type UiTask } from '../../views/export/TaskList';
 import { LongTaskRow, orderLongTasks, type LongTaskItem } from './LongTaskRow';
 import '../../styles/flash-transfer.css';
+import { CloneTaskLog } from '../../views/agentlab/CloneTaskLog';
 
 export function CurrentTaskList({
   exports,
@@ -126,6 +127,7 @@ export function CurrentTaskList({
       detail: (
         <div>
           <p role={task.status === 'error' ? 'alert' : undefined}>{task.error || task.phase}</p>
+          <CloneTaskLog key={`${task.personaId}:${task.revision}`} task={task} />
           <div className="weq-long-task-actions">
             {task.status === 'done' && onOpenClone ? (
               <button

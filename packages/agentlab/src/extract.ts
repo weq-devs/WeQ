@@ -14,6 +14,7 @@ import type {
 } from './types';
 import { pickMessageText } from './http';
 import { requestApiJson } from './api_usage';
+import { extractStream } from './extract_stream';
 
 function coerceString(value: unknown): string {
   if (typeof value === 'string') return value.trim();
@@ -47,6 +48,25 @@ async function chatCompletion(
   temperature: number,
   feature: string,
 ): Promise<string> {
+  if (endpoint.onOutput) {
+    return extractStream(
+      { ...endpoint, feature },
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
+        body: JSON.stringify({
+          model: endpoint.model,
+          temperature,
+          stream: true,
+          stream_options: { include_usage: true },
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: prompt },
+          ],
+        }),
+      },
+    );
+  }
   const data = await requestApiJson<{
     choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
   }>({ ...endpoint, feature }, '/chat/completions', {
@@ -78,9 +98,7 @@ async function visionCompletion(
   imageDataUrl: string,
   temperature: number,
 ): Promise<string> {
-  const data = await requestApiJson<{
-    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-  }>({ ...endpoint, feature: 'sticker-description' }, '/chat/completions', {
+  const request = {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -89,6 +107,7 @@ async function visionCompletion(
     body: JSON.stringify({
       model: endpoint.model,
       temperature,
+      ...(endpoint.onOutput ? { stream: true, stream_options: { include_usage: true } } : {}),
       messages: [
         { role: 'system', content: system },
         {
@@ -100,7 +119,12 @@ async function visionCompletion(
         },
       ],
     }),
-  });
+  };
+  const target = { ...endpoint, feature: 'sticker-description' };
+  if (endpoint.onOutput) return extractStream(target, request);
+  const data = await requestApiJson<{
+    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+  }>(target, '/chat/completions', request);
   return pickMessageText(data.choices?.[0]?.message);
 }
 
@@ -118,7 +142,15 @@ async function generateJson(
       attempt === 0
         ? prompt
         : `${prompt}\n\n注意：上一次输出无法解析为 JSON，请严格只输出一个合法 JSON 对象，不要任何解释、前后缀或代码围栏。`;
-    lastRaw = await chatCompletion(endpoint, system, userPrompt, temperature, label);
+    endpoint.signal?.throwIfAborted();
+    try {
+      lastRaw = await chatCompletion(endpoint, system, userPrompt, temperature, label);
+    } catch (error) {
+      endpoint.signal?.throwIfAborted();
+      throw new Error(`${label}：${error instanceof Error ? error.message : String(error)}`, {
+        cause: error,
+      });
+    }
     try {
       const parsed = extractJson(lastRaw);
       if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;

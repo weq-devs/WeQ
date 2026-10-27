@@ -6,7 +6,7 @@ import {
   withoutTemperature,
 } from './temperature_fallback';
 
-export const DEFAULT_API_TIMEOUT_MS = 180_000;
+export const DEFAULT_API_TIMEOUT_MS = 3_600_000;
 
 export class ApiHttpError extends Error {
   constructor(
@@ -136,6 +136,16 @@ export async function requestApiJson<T>(
   path: string,
   init: RequestInit,
 ): Promise<T> {
+  return withApiDeadline(endpoint, init, (request) =>
+    requestApiJsonWithinDeadline<T>(endpoint, path, request),
+  );
+}
+
+export async function withApiDeadline<T>(
+  endpoint: AgentLabEndpoint,
+  init: RequestInit,
+  run: (request: RequestInit & { signal: AbortSignal }) => Promise<T>,
+): Promise<T> {
   const timeoutMs = endpoint.timeoutMs ?? DEFAULT_API_TIMEOUT_MS;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647)
     throw new Error('模型请求期限必须是 1–2147483647 毫秒的整数');
@@ -151,7 +161,7 @@ export async function requestApiJson<T>(
   );
   timer.unref();
   try {
-    return await requestApiJsonWithinDeadline<T>(endpoint, path, { ...init, signal });
+    return await run({ ...init, signal });
   } catch (error) {
     if (signal.aborted) throw signal.reason;
     throw error;
