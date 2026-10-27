@@ -200,6 +200,7 @@ import { useDialog } from '../../components/Dialog';
 import { MessageContextMenu } from './messageContextMenu';
 import { AvatarContextMenu, type AvatarContextMenuState } from './avatarContextMenu';
 import { ReactionPicker } from './reactionPicker';
+import { useReactionFeedback } from '../../hooks/useReactionFeedback';
 import type { MessageContextMenuState } from './messageContextMenu';
 import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
@@ -1012,6 +1013,10 @@ export function ChatPane({
           !hiddenMessageIds.has(message.id) && !hiddenDeletedKeys.has(deletionIdentity(message.id)),
       ),
     [messages, hiddenMessageIds, hiddenDeletedKeys],
+  );
+  const reactionFeedback = useReactionFeedback(
+    `${user.id}:${conversation?.id ?? ''}`,
+    visibleMessages,
   );
   const gapPredecessors = useMemo(() => {
     let previous: Message | undefined;
@@ -2240,7 +2245,7 @@ export function ChatPane({
   function messageReactionBlockedReason(message: Message): string | null {
     if (grayTipOf(message)) return '系统消息不支持贴表情';
     if (conversation?.type !== 'group') return '只有群消息支持贴表情';
-    if (reactionRequestPending.current) return '正在处理表情回应';
+    if (reactionRequestPending.current || reactionFeedback.pending) return '正在处理表情回应';
     return (
       outgoingActionBlockReason(message) ??
       reactionBlockedReason ??
@@ -2261,6 +2266,7 @@ export function ChatPane({
     if (!isSet && !current.setEmojiList?.some((item) => item.emojiId === code && item.isSelfSet))
       return;
     reactionRequestPending.current = true;
+    const feedback = reactionFeedback.begin(message.id, code, isSet, current.setEmojiList);
     setMessageReaction.mutate(
       {
         groupId: conversation.group.identityValue,
@@ -2269,7 +2275,9 @@ export function ChatPane({
         isSet,
       },
       {
+        onSuccess: () => feedback.acknowledge(),
         onError: (error) => {
+          feedback.cancel();
           pushToast({
             tone: 'error',
             title: isSet ? '贴表情失败' : '撤回贴表情失败',
@@ -4898,14 +4906,12 @@ export function ChatPane({
                       onToggleSelect={rowToggle}
                       onReactionChange={rowReaction}
                       reactionBlockedReason={messageReactionBlockedReason(message)}
-                      reactionBusy={setMessageReaction.isLoading}
+                      reactionBusy={
+                        setMessageReaction.isLoading || Boolean(reactionFeedback.pending)
+                      }
                       reactionPending={
-                        setMessageReaction.isLoading &&
-                        conversation?.type === 'group' &&
-                        setMessageReaction.variables?.groupId ===
-                          conversation.group.identityValue &&
-                        setMessageReaction.variables.sequence === Number(message.msgSeq)
-                          ? setMessageReaction.variables
+                        reactionFeedback.pending?.messageId === message.id
+                          ? reactionFeedback.pending
                           : undefined
                       }
                       pendingAction={

@@ -73,6 +73,26 @@ describe('贴表情请求反馈', () => {
     expect(doc.querySelector('button:disabled')).toBeNull();
   });
 
+  it('同步期间读回空列表，撤回目标及其他已有表情仍留在原位', () => {
+    const html = renderToStaticMarkup(
+      createElement(SetEmojiReactions, {
+        list: [],
+        groupId: '12345',
+        sequence: 42,
+        interaction: {
+          onChange: vi.fn(),
+          busy: true,
+          pending: { code: '14', isSet: false, snapshot: list },
+        },
+      }),
+    );
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    expect(doc.querySelectorAll('.msg-reaction')).toHaveLength(2);
+    expect(doc.querySelector('[aria-busy="true"]')?.getAttribute('aria-label')).toBe(
+      '正在撤回表情回应 14',
+    );
+  });
+
   it('可导出离线反馈样本供浏览器核对布局', () => {
     const output = process.env.WEQ_REACTION_FEEDBACK_DIR;
     if (!output) return;

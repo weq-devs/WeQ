@@ -19,6 +19,7 @@ import { FaceEmoji } from './FaceEmoji';
 import { ReactionLikersPanel } from './ReactionLikersPanel';
 import { cn } from '@renderer/lib/utils';
 import '../styles/reaction-feedback.css';
+import type { PendingReactionFeedback } from '../hooks/useReactionFeedback';
 
 /** Reaction emoji box size; smaller than an inline face. */
 const REACTION_FACE_SIZE = 18;
@@ -35,7 +36,7 @@ export interface ReactionInteraction {
   onChange: (code: string, isSet: boolean) => void;
   blockedReason?: string | null;
   busy?: boolean;
-  pending?: { code: string; isSet: boolean };
+  pending?: PendingReactionFeedback;
 }
 
 /** 一枚表情回应本体：能认出是 QQ 表情就画表情，否则退化成原始 id 文本。 */
@@ -111,7 +112,14 @@ export function SetEmojiReactions({
   }, []);
 
   const pending = interaction?.pending;
-  const items = list ?? [];
+  const currentItems = list ?? [];
+  const snapshot = pending?.snapshot ?? [];
+  const items = pending
+    ? [
+        ...snapshot.map((item) => currentItems.find((row) => row.emojiId === item.emojiId) ?? item),
+        ...currentItems.filter((item) => !snapshot.some((row) => row.emojiId === item.emojiId)),
+      ]
+    : currentItems;
   // 首次贴的新表情也要有请求反馈，但不提前计入回应人数或标记为成功。
   const displayItems =
     pending?.isSet && !items.some((item) => item.emojiId === pending.code)
