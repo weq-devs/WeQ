@@ -128,6 +128,50 @@ try {
           throw new Error('提及插入失败');
         await page.locator('.composer-editor').fill('');
       }
+      if (await page.locator('.chat-header [aria-label="多选消息"]').count())
+        throw new Error('顶栏仍有独立多选入口');
+      await page.locator('.composer-editor').fill('未发送草稿');
+      await page
+        .locator('[data-generated-message-id="m1"] .message-bubble')
+        .click({ button: 'right' });
+      await page.getByRole('menuitem', { name: '多选', exact: true }).click();
+      await page.locator('.composer.selection-mode .selection-bar').waitFor();
+      if (await page.locator('.composer-editor').isVisible())
+        throw new Error('多选时输入区没有让位');
+      await page.locator('[data-generated-message-id="m2"]').click();
+      await page.getByLabel('已选 2 条消息', { exact: true }).waitFor();
+      const selectionFit = await page.locator('.selection-bar').evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        const pixel = (color) => {
+          const ctx = document.createElement('canvas').getContext('2d');
+          ctx.fillStyle = color;
+          ctx.fillRect(0, 0, 1, 1);
+          return `#${[...ctx.getImageData(0, 0, 1, 1).data]
+            .slice(0, 3)
+            .map((value) => value.toString(16).padStart(2, '0'))
+            .join('')}`;
+        };
+        const mark = getComputedStyle(
+          document.querySelector('.message-line.is-selected .message-select-mark'),
+        );
+        const count = getComputedStyle(node.querySelector('.selection-bar-count'));
+        const composer = getComputedStyle(node.closest('.composer'));
+        return (
+          rect.bottom <= innerHeight &&
+          rect.right <= innerWidth &&
+          rect.height > 0 &&
+          window.cloneContrast(pixel(mark.color), pixel(mark.backgroundColor)) >= 4.5 &&
+          window.cloneContrast(pixel(count.color), pixel(composer.backgroundColor)) >= 4.5
+        );
+      });
+      if (!selectionFit) throw new Error('多选操作栏溢出');
+      if (output)
+        await page.screenshot({ path: resolve(output, `${kind}-${theme}-${width}-selection.png`) });
+      await page.getByRole('button', { name: '退出多选', exact: true }).click();
+      await page.locator('.composer-editor').waitFor({ state: 'visible' });
+      if ((await page.locator('.composer-editor').inputValue()) !== '未发送草稿')
+        throw new Error('退出多选后草稿丢失');
+      await page.locator('.composer-editor').fill('');
       if (output) await page.screenshot({ path: resolve(output, `${kind}-${theme}-${width}.png`) });
       results.push({ kind, theme, width, checks });
     }

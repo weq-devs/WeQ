@@ -127,7 +127,6 @@ export function CloneChatPanel({
     { kind: 'persona', ownerId: personaId, sessionId: legacy ? null : sessionIdRef.current },
     history,
     Boolean((legacy || sessionIdRef.current) && history.some((item) => item.id)),
-    'icon-button group-header-info-action',
   );
 
   const scrollTranscriptToBottom = useCallback((): void => {
@@ -236,7 +235,7 @@ export function CloneChatPanel({
   }
 
   return (
-    <CloneConversation>
+    <CloneConversation selectionMode={selection.selectionMode}>
       <CloneConversationHeader
         name={persona.name}
         detail={modelLabel}
@@ -288,7 +287,6 @@ export function CloneChatPanel({
                 })();
               }}
             />
-            {selection.control}
             <button
               type="button"
               className="icon-button group-header-info-action"
@@ -367,6 +365,7 @@ export function CloneChatPanel({
         )}
       </div>
       <CloneComposer
+        selectionBar={selection.toolbar}
         inputRef={composerRef}
         value={input}
         onChange={setInput}

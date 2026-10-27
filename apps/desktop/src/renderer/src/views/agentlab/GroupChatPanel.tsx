@@ -126,7 +126,6 @@ export function GroupChatPanel({
     { kind: 'group', ownerId: groupId, sessionId: legacy ? null : currentSessionId },
     history,
     Boolean((legacy || currentSessionId) && history.some((item) => item.id)),
-    'icon-button group-header-info-action',
   );
 
   const members = detail.data?.members ?? [];
@@ -327,7 +326,7 @@ export function GroupChatPanel({
 
   const groupName = detail.data?.group.name ?? '群聊';
   return (
-    <CloneConversation>
+    <CloneConversation selectionMode={selection.selectionMode}>
       <CloneConversationHeader
         name={`${groupName} (${members.length})`}
         onBack={onBack}
@@ -388,7 +387,6 @@ export function GroupChatPanel({
                 })();
               }}
             />
-            {selection.control}
             <button
               type="button"
               className="icon-button group-header-info-action"
@@ -453,6 +451,7 @@ export function GroupChatPanel({
       </div>
 
       <CloneComposer
+        selectionBar={selection.toolbar}
         group
         inputRef={inputRef}
         value={input}

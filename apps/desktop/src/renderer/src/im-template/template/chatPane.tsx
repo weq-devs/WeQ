@@ -10,6 +10,7 @@ import {
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { ChatHeader } from '../../components/ChatHeader';
+import { MessageSelectionBar } from '../../components/MessageSelectionBar';
 import { useMediaSave } from '../../components/MediaSaveControls';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
@@ -5440,129 +5441,123 @@ export function ChatPane({
         onDrop={handleComposerDrop}
       >
         {selectionMode ? (
-          <div className={cn('selection-bar')}>
-            <div
-              className={cn('selection-bar-info')}
-              aria-label={`已选 ${selectionFlow.selectedCount} 条消息`}
-              aria-live="polite"
-            >
-              <span className={cn('selection-bar-count')}>{selectionFlow.selectedCount}</span>
-              <span className={cn('selection-bar-label')}>条已选</span>
-              {selectionFlow.gaps.length ? <span>{selectionFlow.gaps.length} 处缺口</span> : null}
-            </div>
-            <div className={cn('selection-bar-actions')}>
-              {requestAnalysis && conversationAnalysisTarget(conversation) ? (
-                <button
-                  type="button"
-                  className="selection-action"
-                  aria-label="分析所选消息"
-                  title={selectionBlockedReason || '分析所选消息'}
-                  disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
-                  onClick={() => requestBatchAction('analysis')}
-                >
-                  <BarChart3 size={17} />
-                </button>
-              ) : null}
-              {requestExport && conversationExportSelection(conversation) ? (
-                <button
-                  type="button"
-                  className="selection-action"
-                  aria-label="导出所选消息"
-                  title={selectionBlockedReason || '导出所选消息'}
-                  disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
-                  onClick={() => requestBatchAction('export')}
-                >
-                  <Download size={17} />
-                </button>
-              ) : null}
-              {onAddToComposition ? (
-                <button
-                  type="button"
-                  className="selection-action"
-                  aria-label="添加到素材库"
-                  title={selectionBlockedReason || '添加到素材库'}
-                  disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
-                  onClick={() => void addSelectedToComposition()}
-                >
-                  <ListPlus size={17} />
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className={cn('selection-action')}
-                aria-label="转发"
-                title={
-                  selectionBlockedReason ||
-                  (!sendAvailable
-                    ? '受限模式下无法转发消息'
-                    : sendGateReason
-                      ? `${sendGateReason}，暂不可发送`
-                      : '转发')
-                }
-                aria-haspopup="menu"
-                aria-expanded={selectionMenu?.kind === 'forward'}
-                disabled={
-                  Boolean(selectionBlockedReason) || Boolean(sendGateReason) || !selectedIds.size
-                }
-                onClick={(event) => openSelectionMenu('forward', event.currentTarget)}
-              >
-                <Share2 size={17} />
-              </button>
+          <MessageSelectionBar
+            count={selectionFlow.selectedCount}
+            detail={
+              selectionFlow.gaps.length ? <span>{selectionFlow.gaps.length} 处缺口</span> : null
+            }
+          >
+            {requestAnalysis && conversationAnalysisTarget(conversation) ? (
               <button
                 type="button"
                 className="selection-action"
-                aria-label="复制"
-                title={selectionBlockedReason || '复制'}
-                aria-haspopup="menu"
-                aria-expanded={selectionMenu?.kind === 'copy'}
+                aria-label="分析所选消息"
+                title={selectionBlockedReason || '分析所选消息'}
                 disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
-                onClick={(event) => openSelectionMenu('copy', event.currentTarget)}
+                onClick={() => requestBatchAction('analysis')}
               >
-                <Copy size={17} />
+                <BarChart3 size={17} />
               </button>
+            ) : null}
+            {requestExport && conversationExportSelection(conversation) ? (
               <button
                 type="button"
-                className={cn('selection-action')}
-                aria-label="撤回所选消息"
-                title={selectionRecallBlockedReason || '撤回所选消息'}
-                disabled={Boolean(selectionRecallBlockedReason) || !selectedIds.size}
-                onClick={() => requestBatchAction('recall')}
+                className="selection-action"
+                aria-label="导出所选消息"
+                title={selectionBlockedReason || '导出所选消息'}
+                disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
+                onClick={() => requestBatchAction('export')}
+              >
+                <Download size={17} />
+              </button>
+            ) : null}
+            {onAddToComposition ? (
+              <button
+                type="button"
+                className="selection-action"
+                aria-label="添加到素材库"
+                title={selectionBlockedReason || '添加到素材库'}
+                disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
+                onClick={() => void addSelectedToComposition()}
+              >
+                <ListPlus size={17} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={cn('selection-action')}
+              aria-label="转发"
+              title={
+                selectionBlockedReason ||
+                (!sendAvailable
+                  ? '受限模式下无法转发消息'
+                  : sendGateReason
+                    ? `${sendGateReason}，暂不可发送`
+                    : '转发')
+              }
+              aria-haspopup="menu"
+              aria-expanded={selectionMenu?.kind === 'forward'}
+              disabled={
+                Boolean(selectionBlockedReason) || Boolean(sendGateReason) || !selectedIds.size
+              }
+              onClick={(event) => openSelectionMenu('forward', event.currentTarget)}
+            >
+              <Share2 size={17} />
+            </button>
+            <button
+              type="button"
+              className="selection-action"
+              aria-label="复制"
+              title={selectionBlockedReason || '复制'}
+              aria-haspopup="menu"
+              aria-expanded={selectionMenu?.kind === 'copy'}
+              disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
+              onClick={(event) => openSelectionMenu('copy', event.currentTarget)}
+            >
+              <Copy size={17} />
+            </button>
+            <button
+              type="button"
+              className={cn('selection-action')}
+              aria-label="撤回所选消息"
+              title={selectionRecallBlockedReason || '撤回所选消息'}
+              disabled={Boolean(selectionRecallBlockedReason) || !selectedIds.size}
+              onClick={() => requestBatchAction('recall')}
+            >
+              <RotateCcw size={17} />
+            </button>
+            <button
+              type="button"
+              className={cn('selection-action')}
+              aria-label="删除"
+              disabled={deletionBusy || Boolean(selectionBlockedReason) || !selectedIds.size}
+              title={selectionBlockedReason || '删除所选消息；失败占位仅从本机移除'}
+              onClick={deleteSelectedMessages}
+            >
+              <Trash2 size={17} />
+            </button>
+            {onRestoreMessage && restorableSelection.length > 0 ? (
+              <button
+                type="button"
+                className="selection-action"
+                aria-label="恢复所选已删除消息"
+                title="恢复所选已删除消息"
+                disabled={deletionBusy || Boolean(selectionBlockedReason)}
+                onClick={() => void restoreSelectedMessages()}
               >
                 <RotateCcw size={17} />
               </button>
-              <button
-                type="button"
-                className={cn('selection-action')}
-                aria-label="删除"
-                disabled={deletionBusy || Boolean(selectionBlockedReason) || !selectedIds.size}
-                title={selectionBlockedReason || '删除所选消息；失败占位仅从本机移除'}
-                onClick={deleteSelectedMessages}
-              >
-                <Trash2 size={17} />
-              </button>
-              {onRestoreMessage && restorableSelection.length > 0 ? (
-                <button
-                  type="button"
-                  className="selection-action"
-                  aria-label="恢复所选已删除消息"
-                  title="恢复所选已删除消息"
-                  disabled={deletionBusy || Boolean(selectionBlockedReason)}
-                  onClick={() => void restoreSelectedMessages()}
-                >
-                  <RotateCcw size={17} />
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className={cn('selection-action')}
-                onClick={exitSelection}
-                title="退出多选"
-                aria-label="退出多选"
-              >
-                <X size={17} />
-              </button>
-            </div>
-          </div>
+            ) : null}
+            <button
+              type="button"
+              className={cn('selection-action')}
+              onClick={exitSelection}
+              title="退出多选"
+              aria-label="退出多选"
+            >
+              <X size={17} />
+            </button>
+          </MessageSelectionBar>
         ) : null}
         {selectionMode && selectionMenu ? (
           <ConversationActionsMenu

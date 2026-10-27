@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { CloneChatPanel } from '../../src/renderer/src/views/agentlab/CloneChatPanel';
 import { GroupChatPanel } from '../../src/renderer/src/views/agentlab/GroupChatPanel';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
+import { contrastRatio } from '../../src/shared/theme_colors';
 import {
   useThemeStore,
   type ThemePreference,
@@ -13,8 +14,10 @@ import '../../src/renderer/src/styles/agentlab-workspace.css';
 declare global {
   interface Window {
     cloneTheme: (theme: ThemePreference, accent: string, background: ThemeBackground) => void;
+    cloneContrast: typeof contrastRatio;
   }
 }
+window.cloneContrast = contrastRatio;
 window.cloneTheme = (theme, accent, background) => {
   const store = useThemeStore.getState();
   store.setPreference(theme);

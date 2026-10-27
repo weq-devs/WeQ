@@ -199,6 +199,7 @@ describe('生成内容搜索定位', () => {
         expect(f.host.querySelector('.chat-header [title="克隆会话"]')).not.toBeNull();
         expect(f.host.querySelector('.chat-header [aria-label="搜索聊天记录"]')).not.toBeNull();
         expect(f.host.querySelector('.chat-header [aria-label="消息管理"]')).not.toBeNull();
+        expect(f.host.querySelector('.chat-header [aria-label="多选消息"]')).toBeNull();
         expect(f.host.textContent).not.toContain('输入一句话测试克隆效果');
         expect(f.host.querySelector('[title="发红包"]')).toBeNull();
       } finally {
@@ -258,10 +259,33 @@ describe('生成内容搜索定位', () => {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(50);
         });
-        act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="多选消息"]')!.click());
-        act(() =>
-          f.host.querySelector<HTMLElement>('[data-generated-message-id="message-hit"]')!.click(),
-        );
+        if (kind === 'assistant') {
+          act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="多选消息"]')!.click());
+          act(() =>
+            f.host.querySelector<HTMLElement>('[data-generated-message-id="message-hit"]')!.click(),
+          );
+        } else {
+          act(() =>
+            f.host
+              .querySelector('[data-generated-message-id="message-hit"] .message-bubble')!
+              .dispatchEvent(
+                new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
+              ),
+          );
+          act(() =>
+            [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+              .find((item) => item.textContent === '多选')!
+              .click(),
+          );
+          expect(
+            f.host
+              .querySelector('.composer.selection-mode .selection-bar-info')
+              ?.getAttribute('aria-label'),
+          ).toBe('已选 1 条消息');
+          expect(f.host.querySelector('.selection-bar [aria-label="复制"]')).not.toBeNull();
+          expect(f.host.querySelector('.selection-bar [aria-label="导出所选消息"]')).not.toBeNull();
+          expect(f.host.querySelector('.selection-bar [aria-label="退出多选"]')).not.toBeNull();
+        }
         expect(JSON.parse(f.host.querySelector('output')!.textContent!)).toEqual({
           owner: {
             kind: kind === 'assistant' ? 'assistant-messages' : 'clone-messages',
@@ -271,6 +295,13 @@ describe('生成内容搜索定位', () => {
         });
         expect(f.host.querySelector('.weq-generated-message.is-selected')).not.toBeNull();
         expect(fixture.mutate).not.toHaveBeenCalled();
+        if (kind !== 'assistant') {
+          const editor = f.host.querySelector('textarea');
+          act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="退出多选"]')!.click());
+          expect(f.host.querySelector('.composer.selection-mode')).toBeNull();
+          expect(f.host.querySelector('textarea')).toBe(editor);
+          expect(f.host.querySelector('.message-line.selection-mode')).toBeNull();
+        }
       } finally {
         f.close();
       }

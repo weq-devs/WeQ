@@ -5,6 +5,17 @@
   flex: none;
   white-space: nowrap;
 }
+.chat-pane .selection-bar-count {
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
+}
+.chat-pane .message-select-mark {
+  border-color: var(--weq-accent-ink, var(--weq-fg-primary));
+}
+.chat-pane .message-line.is-selected .message-select-mark {
+  border-color: var(--weq-accent-solid);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground);
+}
 .chat-pane .selection-bar-actions {
   min-width: 0;
   gap: 6px;

@@ -39,7 +39,13 @@ const ComposerHeightContext = createContext<{
   onChange: (height: number) => void;
 } | null>(null);
 
-export function CloneConversation({ children }: { children: ReactNode }) {
+export function CloneConversation({
+  children,
+  selectionMode = false,
+}: {
+  children: ReactNode;
+  selectionMode?: boolean;
+}) {
   const backdrop = useChatBackdrop();
   const [height, setHeight] = useState(() =>
     loadLayoutNumber(
@@ -51,8 +57,8 @@ export function CloneConversation({ children }: { children: ReactNode }) {
   );
   return (
     <div
-      className="chat-pane weq-clone-conversation"
-      style={{ '--clone-composer-height': `${height}px` } as CSSProperties}
+      className={`chat-pane weq-clone-conversation${selectionMode ? ' is-selecting' : ''}`}
+      style={{ '--clone-composer-height': `${selectionMode ? 64 : height}px` } as CSSProperties}
     >
       <ChatBackdrop {...backdrop} />
       <ComposerHeightContext.Provider
@@ -110,6 +116,7 @@ export function CloneComposer({
   tools,
   children,
   group = false,
+  selectionBar,
 }: {
   inputRef: RefObject<HTMLTextAreaElement | null>;
   value: string;
@@ -120,6 +127,7 @@ export function CloneComposer({
   tools?: ReactNode;
   children?: ReactNode;
   group?: boolean;
+  selectionBar?: ReactNode;
 }) {
   const [composing, setComposing] = useState(false);
   const layout = useContext(ComposerHeightContext);
@@ -163,7 +171,8 @@ export function CloneComposer({
     });
   }
   return (
-    <div className="composer weq-clone-composer">
+    <div className={`composer weq-clone-composer${selectionBar ? ' selection-mode' : ''}`}>
+      {selectionBar}
       {layout ? (
         <ComposerResizeHandle
           height={layout.height}
