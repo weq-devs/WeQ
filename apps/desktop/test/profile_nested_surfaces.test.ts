@@ -1,4 +1,4 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
@@ -52,7 +52,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
       qqWrite: {
         commonRelationships: {
-          useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }),
+          useQuery: () => ({
+            data: { friendCount: 0, groups: [{ groupCode: '10002', name: '合成共同群' }] },
+            isLoading: false,
+            isFetching: false,
+          }),
         },
       },
       dressup: {
@@ -162,6 +166,56 @@ const groupFixture = {
     joinedAt: new Date(0).toISOString(),
   })),
 } as GroupConversation;
+
+it.each([false, true])('共同群查看消息关闭列表及浮层好友名片，内嵌=%s', (embedded) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const navigate = vi.fn();
+  const close = vi.fn();
+  function Fixture() {
+    const [open, setOpen] = useState(true);
+    return h(
+      ChatNavigationContext.Provider,
+      { value: navigate },
+      open
+        ? h(ContactProfileDialog, {
+            contact: contactFixture,
+            embedded,
+            onClose: () => {
+              close();
+              setOpen(false);
+            },
+          })
+        : null,
+    );
+  }
+  try {
+    act(() => root.render(h(Fixture)));
+    act(() => document.querySelector<HTMLButtonElement>('[aria-label="查看共同群列表"]')!.click());
+    act(() =>
+      document.querySelector<HTMLButtonElement>('[aria-label="查看 合成共同群 的群名片"]')!.click(),
+    );
+    const entry = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === '查看群聊消息',
+    )!;
+    expect(entry).toBeDefined();
+    act(() => entry.click());
+    expect(navigate).toHaveBeenCalledWith({
+      kind: 'group',
+      conversation: expect.objectContaining({ id: '10002', type: 'group' }),
+    });
+    expect(close).toHaveBeenCalledTimes(embedded ? 0 : 1);
+    expect(document.querySelector('.weq-common-groups-dialog')).toBeNull();
+    expect(document.querySelector('[aria-label="群资料"]')).toBeNull();
+    expect(document.querySelectorAll('.weq-overlay-layer')).toHaveLength(0);
+    expect(host.querySelector('.weq-contact-profile') !== null).toBe(embedded);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 
 it.each(['friend', 'group'] as const)(
   '联系人页内嵌 %s 资料，保留群交集入口且不创建浮层',
