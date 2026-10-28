@@ -83,6 +83,23 @@ tid 拼造目标」那条约束的落点。
 `data.ret_msg` 里，必须单独判。推荐域（`domain_type === 3`）优先按 `target_uid` 关注，
 其余域按 `target_uin`。
 
+### 4.4 真实响应里的字段（2026-10-28 实测）
+
+用真实账号拉过 `GetPublicRecomFeeds`（3 页）、`GetFeedDetail`、`GetComment`、`GetReplies`
+后确认的形状，`apps/desktop/src/renderer/src/lib/qzonePublic.ts` 按这套投影：
+
+- 作者在 `cell_user_info.user`，**只有 `uid`**（32 位大写十六进制），`uin` 是空串；
+  这个 uid 与本地账号的 `u_xxx` uid 不是一套，不能直接比。
+- `cell_common.time` 是**字符串**；正文在 `cell_summary.summary[]`（`type 0` 文本、
+  `type 3` 内嵌媒体），表情仍是 `[em]eXXX[/em]`。
+- 图片在 `media_items[].image.default_url.url`（`photo_url[]` 是分档），
+  视频在 `media_items[].video`：直链 `url`、封面 `cover.default_url.url`、时长 `video_time`（毫秒）。
+- 计数分散在 `cell_like.num` / `cell_comment.num` / `cell_foward_info.retweet_count` /
+  `cell_visitor.view_num`；`cell_upvote` 常为 null（`can_upvote=false` 的账号）。
+- 详情是 `{ feed: { feed: <裸 feed> }, attach_info, has_more }`，首批评论 10 条；
+  评论页 `{ cell_comment: { comments }, attach_info, has_more }`，回复页
+  `{ replys, reply_attach_info, has_more, total }`。
+
 ## 5. 与既有代码的边界
 
 - **复用**：`credential.ts`（`computeBkn` / `cookieHeader` / `WebCredentialProvider` /
@@ -90,7 +107,11 @@ tid 拼造目标」那条约束的落点。
   空间翻页限流队列、读重试预算）。
 - **新增**：`qzone_public.ts` 一个文件；`index.ts` 的 `WebQueryService` 加 14 个方法
   （读走 `withRetry`，写直接取凭据不重放）。
-- **未动**：`apps/desktop` 的 IPC / 渲染层、导出链、`packages/protocol`。
+- **未动**：导出链、`packages/protocol`。
+- **本轮新增**（2026-10-28 收尾）：`apps/desktop/src/main/ipc/routers/qzone_public.ts`
+  （IPC，挂 `account.qzonePublic`）、`views/QzonePublicView.tsx`（空间导航新增一栏）、
+  `lib/qzonePublic.ts`（`cell_*` 投影）、`styles/qzone-public.css`；
+  空间页里原本私有的媒体网格 / 预览 / 状态件抽到 `views/qzoneShared.tsx` 供两边复用。
 
 评论/回复的身份（`uin` / `uid` / `nick`）由**上层**组装后传入，服务层不读 profile 库 ——
 和 `publishQzone` 之类「服务层只做协议」的既有分层一致。
