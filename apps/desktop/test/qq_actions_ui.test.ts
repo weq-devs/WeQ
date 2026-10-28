@@ -904,6 +904,41 @@ describe('QQ 主动操作的实际界面', () => {
     uploaderName: '自己',
     parentDirectory: 'folder-a',
   };
+  it('群文件默认最新在前，重复点击排序项反转实际列表与方向提示', () => {
+    const f = fixture(() =>
+      h(GroupFileActions, {
+        groupId: 123,
+        directory: 'folder-a',
+        files: [
+          { ...file, fileId: 'old', fileName: 'a.txt', uploadedTime: 10, fileSize: 1 },
+          { ...file, fileId: 'new', fileName: 'b.txt', uploadedTime: 20, fileSize: 2 },
+        ],
+        folders: [],
+        onChanged: vi.fn(),
+      }),
+    );
+    const ids = () =>
+      [...f.host.querySelectorAll('[data-file-id]')].map((row) => row.getAttribute('data-file-id'));
+    const option = (name: string) =>
+      [...f.host.querySelectorAll<HTMLButtonElement>('[aria-label="群文件排序"] button')].find(
+        (button) => button.textContent === name,
+      )!;
+    expect(ids()).toEqual(['new', 'old']);
+    expect(option('最近修改').title).toBe('最近修改：降序');
+    act(() => option('最近修改').click());
+    expect(ids()).toEqual(['old', 'new']);
+    expect(option('最近修改').title).toBe('最近修改：升序');
+    act(() => option('最近修改').click());
+    expect(ids()).toEqual(['new', 'old']);
+    act(() => option('名称').click());
+    expect(ids()).toEqual(['old', 'new']);
+    act(() => option('名称').click());
+    expect(ids()).toEqual(['new', 'old']);
+    act(() => option('文件大小').click());
+    expect(ids()).toEqual(['new', 'old']);
+    act(() => option('文件大小').click());
+    expect(ids()).toEqual(['old', 'new']);
+  });
   it('普通成员可查看全部文件，但只能管理自己上传的文件', () => {
     state.data.groupPermissions = { canManage: false, role: 'member', selfUin: '10001' };
     state.data.todoList = [{ sequence: '123', text: '待办内容' }];

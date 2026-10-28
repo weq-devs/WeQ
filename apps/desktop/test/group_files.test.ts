@@ -2,9 +2,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   canManageGroupFile,
+  DEFAULT_GROUP_FILE_SORT,
   groupFileEntries,
   groupFileNameConflict,
   readGroupFileDrag,
+  toggleGroupFileSort,
   validateGroupFileName,
 } from '../src/renderer/src/lib/groupFileManager';
 import {
@@ -48,6 +50,49 @@ describe('group_file_manager', () => {
   };
 
   describe('群文件管理器逻辑', () => {
+    it('默认最近修改倒序，同项点击反转，切换排序项恢复该项默认方向', () => {
+      expect(DEFAULT_GROUP_FILE_SORT).toEqual({ sort: 'time', order: 'desc' });
+      const ascending = toggleGroupFileSort(DEFAULT_GROUP_FILE_SORT, 'time');
+      expect(ascending).toEqual({ sort: 'time', order: 'asc' });
+      expect(toggleGroupFileSort(ascending, 'time')).toEqual(DEFAULT_GROUP_FILE_SORT);
+      const name = toggleGroupFileSort(ascending, 'name');
+      expect(name).toEqual({ sort: 'name', order: 'asc' });
+      expect(toggleGroupFileSort(name, 'name')).toEqual({ sort: 'name', order: 'desc' });
+      const size = toggleGroupFileSort(name, 'size');
+      expect(size).toEqual({ sort: 'size', order: 'desc' });
+      expect(toggleGroupFileSort(size, 'size')).toEqual({ sort: 'size', order: 'asc' });
+      expect(toggleGroupFileSort(name, 'time')).toEqual(DEFAULT_GROUP_FILE_SORT);
+    });
+    it('各排序项均可反转，文件夹始终在前，缺少修改时间回退到上传或创建时间', () => {
+      const files = [
+        { ...file, fileId: 'a', fileName: 'a.txt', uploadedTime: 30, fileSize: 2 },
+        {
+          ...file,
+          fileId: 'b',
+          fileName: 'b.txt',
+          uploadedTime: 50,
+          modifiedTime: 10,
+          fileSize: 8,
+        },
+      ];
+      const folders = [
+        { ...folder, folderId: 'a', folderName: 'a', createTime: 30 },
+        { ...folder, folderId: 'b', folderName: 'b', createTime: 50, modifiedTime: 10 },
+      ];
+      const keys = (sort: 'name' | 'time' | 'size', order: 'asc' | 'desc') =>
+        groupFileEntries(files, folders, '', sort, order).map((row) => row.key);
+      expect(keys('time', 'desc')).toEqual(['folder:a', 'folder:b', 'file:a', 'file:b']);
+      expect(keys('time', 'asc')).toEqual(['folder:b', 'folder:a', 'file:b', 'file:a']);
+      expect(keys('name', 'asc')).toEqual(['folder:a', 'folder:b', 'file:a', 'file:b']);
+      expect(keys('name', 'desc')).toEqual(['folder:b', 'folder:a', 'file:b', 'file:a']);
+      expect(keys('size', 'desc')).toEqual(['folder:b', 'folder:a', 'file:b', 'file:a']);
+      expect(keys('size', 'asc')).toEqual(['folder:a', 'folder:b', 'file:a', 'file:b']);
+      const tied = [{ ...file, fileId: 'b' }, file];
+      expect(groupFileEntries(tied, [], '', 'time', 'asc').map((row) => row.key)).toEqual([
+        'file:a',
+        'file:b',
+      ]);
+    });
     it('群文件时间明确按北京时间显示，不依赖运行机时区，坏时间不导致整页崩溃', () => {
       vi.stubEnv('TZ', 'UTC');
       try {

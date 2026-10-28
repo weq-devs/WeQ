@@ -9,6 +9,8 @@ import {
 } from 'react';
 import {
   ArrowLeft,
+  ArrowDown,
+  ArrowUp,
   Check,
   Download,
   FileUp,
@@ -48,11 +50,13 @@ import {
 } from '../lib/groupFile';
 import {
   canManageGroupFile,
+  DEFAULT_GROUP_FILE_SORT,
   GROUP_FILE_DRAG_TYPE,
   GROUP_FILE_UPLOAD_LIMIT,
   groupFileEntries,
   groupFileNameConflict,
   readGroupFileDrag,
+  toggleGroupFileSort,
   validateGroupFileName,
   type GroupFileEntryRow,
   type GroupFileSort,
@@ -119,7 +123,8 @@ function GroupFileManagerBody({
   const permissions = useQQGroupPermissions(groupId, a);
   const manager = permissions.data?.canManage === true;
   const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<GroupFileSort>('name');
+  const [sorting, setSorting] = useState(DEFAULT_GROUP_FILE_SORT);
+  const { sort, order } = sorting;
   const [selected, setSelected] = useState(new Set<string>());
   const selectionAnchor = useRef<string | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -175,8 +180,8 @@ function GroupFileManagerBody({
   }, [active]);
   const all = useMemo(() => groupFileEntries(files, folders, '', 'name'), [files, folders]);
   const rows = useMemo(
-    () => groupFileEntries(files, folders, query, sort),
-    [files, folders, query, sort],
+    () => groupFileEntries(files, folders, query, sort, order),
+    [files, folders, query, sort, order],
   );
   const chosen = all.filter((row) => selected.has(row.key));
   const manageable = (row: GroupFileEntryRow) =>
@@ -689,12 +694,34 @@ function GroupFileManagerBody({
         <SegmentedControl<GroupFileSort>
           label="群文件排序"
           value={sort}
-          onChange={setSort}
-          options={[
-            { value: 'name', label: '名称' },
-            { value: 'time', label: '最近修改' },
-            { value: 'size', label: '文件大小' },
-          ]}
+          onChange={(value) => setSorting((current) => toggleGroupFileSort(current, value))}
+          options={(
+            [
+              { value: 'name', label: '名称' },
+              { value: 'time', label: '最近修改' },
+              { value: 'size', label: '文件大小' },
+            ] as const
+          ).map((option) => ({
+            value: option.value,
+            title:
+              sort === option.value
+                ? `${option.label}：${order === 'desc' ? '降序' : '升序'}`
+                : option.label,
+            label: (
+              <span className="inline-flex items-center gap-1">
+                {option.label}
+                {sort === option.value ? (
+                  order === 'desc' ? (
+                    <ArrowDown size={12} />
+                  ) : (
+                    <ArrowUp size={12} />
+                  )
+                ) : (
+                  <span className="w-3" />
+                )}
+              </span>
+            ),
+          }))}
         />
       </div>
       <div className="weq-file-manager-status">

@@ -6,11 +6,33 @@ export type GroupFileEntryRow =
   | { kind: 'file'; key: string; name: string; file: GroupFileWire }
   | { kind: 'folder'; key: string; name: string; folder: GroupFolderWire };
 export type GroupFileSort = 'name' | 'time' | 'size';
+export interface GroupFileSortState {
+  sort: GroupFileSort;
+  order: 'asc' | 'desc';
+}
+export const DEFAULT_GROUP_FILE_SORT: GroupFileSortState = { sort: 'time', order: 'desc' };
+export function toggleGroupFileSort(
+  current: GroupFileSortState,
+  sort: GroupFileSort,
+): GroupFileSortState {
+  return {
+    sort,
+    order:
+      current.sort === sort
+        ? current.order === 'asc'
+          ? 'desc'
+          : 'asc'
+        : sort === 'name'
+          ? 'asc'
+          : 'desc',
+  };
+}
 export function groupFileEntries(
   files: readonly GroupFileWire[],
   folders: readonly GroupFolderWire[],
   query: string,
   sort: GroupFileSort,
+  order: GroupFileSortState['order'] = sort === 'name' ? 'asc' : 'desc',
 ): GroupFileEntryRow[] {
   const rows: GroupFileEntryRow[] = [
     ...folders.map((folder) => ({
@@ -37,11 +59,11 @@ export function groupFileEntries(
       if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
       const value =
         sort === 'time'
-          ? time(b) - time(a)
+          ? time(a) - time(b)
           : sort === 'size' && a.kind === 'file' && b.kind === 'file'
-            ? b.file.fileSize - a.file.fileSize
+            ? a.file.fileSize - b.file.fileSize
             : a.name.localeCompare(b.name, 'zh-CN', { numeric: true });
-      return value || a.key.localeCompare(b.key);
+      return (order === 'desc' ? -value : value) || a.key.localeCompare(b.key);
     });
 }
 export function canManageGroupFile(
