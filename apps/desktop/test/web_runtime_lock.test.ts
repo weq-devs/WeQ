@@ -17,10 +17,12 @@ afterEach(() => {
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
-it('Web 分发依赖从冻结工作区离线部署，构建后不得重新 npm install', () => {
+it('Web 分发依赖从冻结工作区部署，构建后不得重新 npm install', () => {
   const source = readFileSync(resolve(root, 'apps/web/scripts/install-runtime-deps.mjs'), 'utf8');
   expect(source).toContain('--frozen-lockfile');
-  expect(source).toContain('--offline');
+  // 不能用 --offline：冷 metadata 缓存时供应链校验会 ERR_PNPM_NO_OFFLINE_META。
+  expect(source).toContain('--prefer-offline');
+  expect(source).not.toMatch(/'--offline'/);
   expect(source).toContain('deploy');
   expect(source).not.toMatch(/npm\(\[\s*['"]install/);
 });
