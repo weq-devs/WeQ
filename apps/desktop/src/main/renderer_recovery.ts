@@ -15,7 +15,7 @@ export function normalizeRendererExitReason(reason: string): string {
 
 export const RENDERER_AUTO_RELOAD_DELAY_MS = 1000;
 export const RENDERER_AUTO_RELOAD_COOLDOWN_MS = 10 * 60_000;
-export const RENDERER_RELOAD_TIMEOUT_MS = 15_000;
+export const RENDERER_RELOAD_TIMEOUT_MS = 30_000;
 const AUTOMATIC_REASONS = new Set(['crashed', 'oom', 'abnormal-exit', 'memory-eviction']);
 
 /** 自动恢复有冷却与超时；失败后保留独立于 renderer 的原生入口。 */
@@ -112,7 +112,7 @@ export function createRendererRecovery(options: {
     failed,
     notice: () => (notice ? { ...notice } : null),
     rendererReady() {
-      // React 已挂载可能早于 did-finish-load；不等待图片等资源才交付恢复提示。
+      // 账号与目标工作区就绪才完成恢复，不把 HTML 加载完成当作业务就绪。
       loaded();
       return notice ? { ...notice } : null;
     },
@@ -149,7 +149,9 @@ export function createRendererRecovery(options: {
         autoTimer.unref?.();
       } else request();
     },
-    loaded,
+    loaded() {
+      if (!loading) loaded();
+    },
     dispose() {
       notice = null;
       clearTimers();

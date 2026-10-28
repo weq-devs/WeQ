@@ -49,15 +49,14 @@ export function BootstrapView(): ReactElement {
   const nativeOk = nativeStatus.isSuccess && nativeStatus.data === null;
 
   const currentAccount = trpc.bootstrap.currentAccount.useQuery(undefined, {
-    enabled: IS_WEB && nativeOk && homeStage === 'booting',
+    enabled: nativeOk && homeStage === 'booting',
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: false,
     retry: false,
   });
   const needsStartup =
-    nativeOk &&
-    (!IS_WEB || homeStage !== 'booting' || (currentAccount.isSuccess && !currentAccount.data));
+    nativeOk && (homeStage !== 'booting' || (currentAccount.isSuccess && !currentAccount.data));
 
   const install = trpc.bootstrap.describeInstall.useQuery(undefined, {
     enabled: needsStartup,
@@ -114,7 +113,7 @@ export function BootstrapView(): ReactElement {
       setHomeStage('home');
       return;
     }
-    if (IS_WEB && nativeOk) {
+    if (nativeOk) {
       if (currentAccount.isError) {
         booted.current = true;
         setHomeStage('home');
@@ -123,11 +122,22 @@ export function BootstrapView(): ReactElement {
       }
       if (!currentAccount.isSuccess) return;
       if (currentAccount.data) {
-        // Web 是已有桌面会话的另一个视图，不重开数据库或重建账号服务。
+        // 重载只接回主进程中的账号；不能重开数据库、切到自动进入目标或重置窗口。
         booted.current = true;
-        setHomeStage('home');
-        setOpenedUin(currentAccount.data.uin);
-        goTo('main');
+        const uin = currentAccount.data.uin;
+        void (async () => {
+          if (!IS_WEB) {
+            await utils.account.getAccountConfig.fetch();
+            await runAccountWarmup(utils, setWarmup);
+          }
+          setOpenedUin(uin);
+          goTo('main');
+          setHomeStage('home');
+        })().catch((error: unknown) => {
+          setWarmup(null);
+          setHomeStage('home');
+          showError('恢复工作区失败', errMsg(error));
+        });
         return;
       }
     }

@@ -64,6 +64,8 @@ describe('主界面崩溃恢复', () => {
     expect(f.reload).toHaveBeenCalledTimes(1);
     expect(f.recovery.needsRecovery()).toBe(true);
     f.recovery.loaded();
+    expect(f.recovery.needsRecovery()).toBe(true);
+    f.recovery.rendererReady();
     expect(f.recovery.needsRecovery()).toBe(false);
   });
 
@@ -126,7 +128,7 @@ describe('有界自动恢复', () => {
     await vi.advanceTimersByTimeAsync(RENDERER_AUTO_RELOAD_DELAY_MS);
     expect(f.reload).toHaveBeenCalledTimes(1);
     expect(f.record).toHaveBeenCalledWith('auto-reload');
-    f.recovery.loaded();
+    f.recovery.rendererReady();
     f.recovery.gone({ reason: 'oom', exitCode: 5 });
     expect(f.showDialog).toHaveBeenCalledTimes(1);
     await f.choose(2);
@@ -140,7 +142,7 @@ describe('有界自动恢复', () => {
   });
 
   it('重载无完成回执、加载失败或重载抛错时回到原生恢复入口', async () => {
-    for (const failure of ['timeout', 'failed', 'throw', 'crash'] as const) {
+    for (const failure of ['timeout', 'html-only', 'failed', 'throw', 'crash'] as const) {
       vi.useFakeTimers();
       const f = fixture(true);
       if (failure === 'throw')
@@ -151,7 +153,9 @@ describe('有界自动恢复', () => {
       await vi.advanceTimersByTimeAsync(RENDERER_AUTO_RELOAD_DELAY_MS);
       if (failure === 'failed') f.recovery.failed();
       if (failure === 'crash') f.recovery.gone({ reason: 'crashed', exitCode: 5 });
-      if (failure === 'timeout') await vi.advanceTimersByTimeAsync(RENDERER_RELOAD_TIMEOUT_MS);
+      if (failure === 'html-only') f.recovery.loaded();
+      if (failure === 'timeout' || failure === 'html-only')
+        await vi.advanceTimersByTimeAsync(RENDERER_RELOAD_TIMEOUT_MS);
       await vi.advanceTimersByTimeAsync(0);
       expect(f.showDialog).toHaveBeenCalledTimes(1);
       expect(f.reload).toHaveBeenCalledTimes(1);
@@ -227,6 +231,9 @@ describe('有界自动恢复', () => {
     await vi.advanceTimersByTimeAsync(RENDERER_AUTO_RELOAD_DELAY_MS);
     expect(f.recovery.notice()).toBeNull();
     f.recovery.loaded();
+    expect(f.recovery.notice()).toBeNull();
+    expect(f.recovery.needsRecovery()).toBe(true);
+    f.recovery.rendererReady();
     const first = f.recovery.notice();
     expect(first?.id).toBeTypeOf('number');
     expect(f.recovery.notice()).toEqual(first);
@@ -235,7 +242,7 @@ describe('有界自动恢复', () => {
     await vi.advanceTimersByTimeAsync(RENDERER_AUTO_RELOAD_COOLDOWN_MS);
     f.recovery.gone({ reason: 'oom', exitCode: 5 });
     await vi.advanceTimersByTimeAsync(RENDERER_AUTO_RELOAD_DELAY_MS);
-    f.recovery.loaded();
+    f.recovery.rendererReady();
     f.recovery.acknowledgeNotice(first!.id);
     expect(f.recovery.notice()?.id).not.toBe(first!.id);
     f.destroy();

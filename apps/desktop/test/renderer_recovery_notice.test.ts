@@ -9,7 +9,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('React 严格模式只显示一条错误横幅，挂载后领取，不因订阅迟于加载而丢失', async () => {
+it('工作区就绪前不确认，严格模式就绪后静默确认，不显示错误横幅', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   let notice: { id: number } | null = { id: 1 };
   const acknowledgeNotice = vi.fn(async () => {
@@ -19,14 +19,15 @@ it('React 严格模式只显示一条错误横幅，挂载后领取，不因订�
   const host = document.createElement('div');
   const root = createRoot(host);
   try {
+    await act(async () => root.render(createElement(RendererRecoveryNotice, { ready: false })));
+    expect(acknowledgeNotice).not.toHaveBeenCalled();
+    expect(notice).toEqual({ id: 1 });
     await act(async () =>
-      root.render(createElement(StrictMode, null, createElement(RendererRecoveryNotice))),
+      root.render(
+        createElement(StrictMode, null, createElement(RendererRecoveryNotice, { ready: true })),
+      ),
     );
-    expect(useToast.getState().toasts).toHaveLength(1);
-    expect(useToast.getState().toasts[0]).toMatchObject({
-      tone: 'error',
-      title: '界面崩溃，已自动恢复',
-    });
+    expect(useToast.getState().toasts).toHaveLength(0);
     expect(acknowledgeNotice).toHaveBeenCalledWith(1);
     expect(notice).toBeNull();
   } finally {
@@ -41,7 +42,7 @@ it('普通启动没有恢复事件时不显示误报', async () => {
   });
   const root = createRoot(document.createElement('div'));
   try {
-    await act(async () => root.render(createElement(RendererRecoveryNotice)));
+    await act(async () => root.render(createElement(RendererRecoveryNotice, { ready: true })));
     expect(useToast.getState().toasts).toHaveLength(0);
   } finally {
     await act(async () => root.unmount());

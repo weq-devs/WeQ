@@ -2,6 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
 import {
   useChatShellController,
   noopChatShellHistoryAdapter,
@@ -41,9 +42,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mount() {
+function mount(storage = new Storage(), scope: string | null = null) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  vi.stubGlobal('localStorage', new Storage());
+  vi.stubGlobal('localStorage', storage);
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -64,13 +65,26 @@ function mount() {
     });
     return null;
   }
-  act(() => root.render(h(Probe)));
+  act(() => root.render(h(PageSnapshots, { scope }, h(Probe))));
   cleanups.push(() => {
     act(() => root.unmount());
     host.remove();
   });
   return { state: () => current, contacts, conversations, read };
 }
+
+it('重建界面恢复栏目和联系人详情，另一数据源不继承旧导航', () => {
+  const storage = new Storage();
+  const first = mount(storage, 'account:source-a');
+  act(() => first.state().openContactDetails(person, 'portrait'));
+  const restored = mount(storage, 'account:source-a');
+  expect(restored.state().view).toBe('contacts');
+  expect(restored.state().selectedContactId).toBe(person.id);
+  expect(restored.state().contactWorkspaceTab).toBe('portrait');
+  const other = mount(storage, 'account:source-b');
+  expect(other.state().view).toBe('messages');
+  expect(other.state().selectedContactId).toBeNull();
+});
 
 it('群友或陌生人的名片可展开，不写入好友目录或改变会话阅读状态', () => {
   const p = mount();

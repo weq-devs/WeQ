@@ -449,7 +449,7 @@ export function SettingsDialog({
   const groupSections = group.sections.map((id) => sections.find((section) => section.id === id)!);
 
   useEffect(() => {
-    if (open) setActiveId(target.section);
+    if (open && (initialSection || searchTarget)) setActiveId(target.section);
     if (open) setMobileCategoryOpen(Boolean(initialSection || searchTarget));
   }, [open, initialSection, searchTarget, target, setActiveId]);
 

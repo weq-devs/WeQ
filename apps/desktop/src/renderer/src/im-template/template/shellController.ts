@@ -64,14 +64,36 @@ export function useChatShellController({
   onReadConversation,
   onOpenContactNotice,
 }: UseChatShellControllerOptions) {
-  const [view, setView] = useState<MainView>(initialView);
+  const [view, setView] = usePageState<MainView>(
+    'shell:view',
+    initialView,
+    z.enum([
+      'home',
+      'messages',
+      'contacts',
+      'collections',
+      'guild-direct',
+      'export',
+      'agentlab',
+      'cache',
+      'tools',
+      'qzone',
+      'mail',
+      'channel',
+      'annual',
+    ]),
+  );
   const [query, setQuery] = usePageState('shell:query', '', pageValue.string);
   const [contactTab, setContactTab] = usePageState<ContactTab>(
     'shell:contact-tab',
     'friends',
     z.enum(['friends', 'groups']),
   );
-  const [contactNotice, setContactNotice] = useState<ContactNoticeView | null>(null);
+  const [contactNotice, setContactNotice] = usePageState<ContactNoticeView | null>(
+    'shell:notice',
+    null,
+    z.enum(['friend', 'group']).nullable(),
+  );
   const [contactOverviewOpen, setContactOverviewOpen] = usePageState(
     'shell:contact-overview',
     true,
@@ -180,6 +202,8 @@ export function useChatShellController({
     setSelectedGroupConversationId,
     setActiveConversationId,
     setContactOverviewOpen,
+    setView,
+    setContactNotice,
   ]);
 
   const activeConversation = useMemo(
@@ -226,7 +250,7 @@ export function useChatShellController({
             (history.shouldAutoSelectConversation() ? (conversations[0]?.id ?? null) : null),
         );
     },
-    [conversations, history, setActiveConversationId],
+    [conversations, history, setActiveConversationId, setView],
   );
 
   const changeContactTab = useCallback(
@@ -235,7 +259,7 @@ export function useChatShellController({
       setContactNotice(null);
       setContactOverviewOpen(false);
     },
-    [setContactTab, setContactOverviewOpen],
+    [setContactTab, setContactOverviewOpen, setContactNotice],
   );
 
   const openContactNotice = useCallback(
@@ -261,6 +285,8 @@ export function useChatShellController({
       setSelectedContactId,
       setSelectedGroupConversationId,
       setContactOverviewOpen,
+      setView,
+      setContactNotice,
     ],
   );
 
@@ -270,7 +296,7 @@ export function useChatShellController({
       setView('messages');
       setActiveConversationId(conversationId);
     },
-    [history, setActiveConversationId],
+    [history, setActiveConversationId, setView],
   );
 
   const selectContact = useCallback(
@@ -281,7 +307,13 @@ export function useChatShellController({
       setSelectedContactId(contact.id);
       setContactWorkspaceTab('profile');
     },
-    [history, setContactWorkspaceTab, setSelectedContactId, setContactOverviewOpen],
+    [
+      history,
+      setContactWorkspaceTab,
+      setSelectedContactId,
+      setContactOverviewOpen,
+      setContactNotice,
+    ],
   );
 
   const selectGroup = useCallback(
@@ -291,7 +323,7 @@ export function useChatShellController({
       setContactOverviewOpen(false);
       setSelectedGroupConversationId(conversationId);
     },
-    [history, setSelectedGroupConversationId, setContactOverviewOpen],
+    [history, setSelectedGroupConversationId, setContactOverviewOpen, setContactNotice],
   );
 
   const openContactDetails = useCallback(
@@ -313,6 +345,8 @@ export function useChatShellController({
       setQuery,
       setSelectedContactId,
       setContactOverviewOpen,
+      setView,
+      setContactNotice,
     ],
   );
 
@@ -327,7 +361,15 @@ export function useChatShellController({
       setExpandedGroup(conversation);
       setSelectedGroupConversationId(conversation.id);
     },
-    [history, setSelectedGroupConversationId, setQuery, setContactTab, setContactOverviewOpen],
+    [
+      history,
+      setSelectedGroupConversationId,
+      setQuery,
+      setContactTab,
+      setContactOverviewOpen,
+      setView,
+      setContactNotice,
+    ],
   );
 
   const openConversation = useCallback(
@@ -338,7 +380,7 @@ export function useChatShellController({
       setView('messages');
       setActiveConversationId(conversationId);
     },
-    [history, setActiveConversationId],
+    [history, setActiveConversationId, setView],
   );
 
   const updateSidebarWidth = useCallback(
@@ -364,7 +406,7 @@ export function useChatShellController({
   const backContactNotice = useCallback(() => {
     setContactNotice(null);
     history.replaceShell();
-  }, [history]);
+  }, [history, setContactNotice]);
 
   const backConversation = useCallback(() => {
     setActiveConversationId(null);

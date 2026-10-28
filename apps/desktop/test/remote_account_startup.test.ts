@@ -11,7 +11,7 @@ const api = vi.hoisted(() => ({
   mutate: vi.fn(async () => ({ success: true })),
   warmup: vi.fn(async () => {}),
   error: vi.fn(),
-  utils: {},
+  utils: { account: { getAccountConfig: { fetch: vi.fn(async () => ({})) } } },
 }));
 vi.mock('../src/renderer/src/lib/target', () => ({
   get IS_WEB() {
@@ -104,9 +104,16 @@ it('当前会话读取失败时不擅自重开账号', async () => {
   expect(api.error).toHaveBeenCalled();
   expect(useViewState.getState().view).toBe('bootstrap');
 });
-it.each([true, false])('无已打开会话或桌面模式仍保留原自动进入流程：web=%s', async (web) => {
+it('桌面重载接回后台实际账号，预热但不验密钥、不重开库或切到自动进入目标', async () => {
+  api.web = false;
+  await render();
+  expect(api.mutate).not.toHaveBeenCalled();
+  expect(api.warmup).toHaveBeenCalledOnce();
+  expect(useViewState.getState()).toMatchObject({ view: 'main', openedUin: '10002' });
+});
+it.each([true, false])('没有后台账号时保留原自动进入流程：web=%s', async (web) => {
   api.web = web;
-  if (web) api.current = null;
+  api.current = null;
   await render();
   expect(api.mutate).toHaveBeenCalledTimes(2);
   expect(api.warmup).toHaveBeenCalledOnce();

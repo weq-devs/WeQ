@@ -108,7 +108,11 @@ function mount(initialSection: SectionId = 'global') {
   document.body.append(host);
   const root = createRoot(host);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const render = (section: SectionId, searchTarget?: SettingsSearchTarget) =>
+  const render = (
+    section: SectionId | undefined,
+    searchTarget?: SettingsSearchTarget,
+    generation = 0,
+  ) =>
     act(() =>
       root.render(
         h(
@@ -118,6 +122,7 @@ function mount(initialSection: SectionId = 'global') {
             PageSnapshots,
             { scope: 'synthetic-account' },
             h(SettingsDialog, {
+              key: generation,
               open: true,
               initialSection: section,
               searchTarget,
@@ -149,6 +154,17 @@ function inputValue(input: HTMLInputElement, value: string) {
 }
 
 describe('设置二级页现场与活动生命周期', () => {
+  it('重建设置页时没有显式跳转目标，恢复上次分类而非覆盖成外观页', () => {
+    const f = mount('appearance');
+    try {
+      f.render('mcp');
+      expect(f.body().querySelector('[aria-label="MCP 端口"]')).not.toBeNull();
+      f.render(undefined, undefined, 1);
+      expect(f.body().querySelector('[aria-label="MCP 端口"]')).not.toBeNull();
+    } finally {
+      f.dispose();
+    }
+  });
   it('已读回确认的端口不再作为未保存草稿，后续重建跟随新的服务端值', () => {
     fixture.mcpPort = 48765;
     const f = mount('mcp');

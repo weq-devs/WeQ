@@ -18,6 +18,7 @@ import React, {
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from 'react';
+import { z } from 'zod';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
 import { withBrowserFile } from '../lib/browserFileUpload';
@@ -268,7 +269,10 @@ import { ChatNavigationContext, type ProfileChatTarget } from '../lib/chatNaviga
 import { QzoneWorkspace } from './QzoneView';
 import { MailWorkspace } from './MailView';
 import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
-import { PageSnapshots } from '../components/PageSnapshots';
+import { PageSnapshots, usePageState } from '../components/PageSnapshots';
+import { pageValue } from '../lib/pageSnapshots';
+import { useConversationRecoveryPosition } from '../hooks/useConversationRecoveryPosition';
+import { RendererRecoveryNotice } from '../components/RendererRecoveryNotice';
 import {
   QzoneNavigationContext,
   QzoneProfileContext,
@@ -2312,6 +2316,7 @@ export function MainView(): ReactElement {
     config.data?.uin === uin && config.data.configId
       ? JSON.stringify([uin, config.data.configId])
       : null;
+  if (config.isLoading) return workspaceLoading;
   return (
     <PageSnapshots scope={scope}>
       <MainWorkspace key={scope ?? `pending:${uin ?? ''}`} />
@@ -2910,7 +2915,11 @@ function MainWorkspace(): ReactElement {
    * 之前就要用 —— 用 ref 转发拿最新实现，避免把两个 useCallback 的依赖搅在一起。
    */
   const flushDraftRef = useRef<(conversationId: string) => void>(() => {});
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = usePageState(
+    'workspace:settings',
+    false,
+    pageValue.boolean,
+  );
   const [settingsSearchTarget, setSettingsSearchTarget] = useState<SettingsSearchTarget | null>(
     null,
   );
@@ -2921,7 +2930,11 @@ function MainWorkspace(): ReactElement {
     appEnabled: appSearchEnabled,
     setAppEnabled: setAppSearchEnabled,
   } = useSearchPreferences();
-  const [conversationScope, setConversationScope] = useState<ConversationScope>('all');
+  const [conversationScope, setConversationScope] = usePageState<ConversationScope>(
+    'workspace:conversation-scope',
+    'all',
+    z.enum(['all', 'real', 'virtual', 'guild']),
+  );
   useEffect(() => {
     if (!settingsOpen) setSettingsSearchTarget(null);
   }, [settingsOpen]);
@@ -2951,7 +2964,7 @@ function MainWorkspace(): ReactElement {
         setSettingsSection('call-recording');
         setSettingsOpen(true);
       }),
-    [],
+    [setSettingsOpen],
   );
   const [surfaceNavigation, setSurfaceNavigation] = useState(0);
   /** 打开设置时要先落到哪一屏（损坏弹窗 → 数据库宽容）。 */
@@ -3001,10 +3014,14 @@ function MainWorkspace(): ReactElement {
   const [guildSearchTarget, setGuildSearchTarget] = useState<
     (Extract<ContentSearchTarget, { kind: 'guildMessage' }> & { revision: string }) | null
   >(null);
-  const [dressUpOpen, setDressUpOpen] = useState(false);
+  const [dressUpOpen, setDressUpOpen] = usePageState(
+    'workspace:dress-up',
+    false,
+    pageValue.boolean,
+  );
   useEffect(() => {
     if (settingsOpen) setDressUpOpen(false);
-  }, [settingsOpen]);
+  }, [settingsOpen, setDressUpOpen]);
   // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮页。
   useDressSkin();
   const [albumDialog, setAlbumDialog] = useState<{
@@ -7127,7 +7144,16 @@ function MainWorkspace(): ReactElement {
   ]);
 
   useEffect(() => {
-    if (contacts.isLoading) return;
+    // 恢复的会话可能在后续分页、隐藏/删除目录中，不能用尚未读齐的目录清掉选择。
+    if (
+      !contacts.isSuccess ||
+      contacts.hasNextPage ||
+      !hiddenSessions.isSuccess ||
+      !deletedSessions.isSuccess ||
+      !allGroups.isSuccess ||
+      !topContacts.isSuccess
+    )
+      return;
     // Don't auto-open the first conversation: land on the empty placeholder and
     // let the user pick. Only clear a selection that no longer exists — hidden
     // sessions are deliberately absent from `conversations` (see hiddenConversationsById),
@@ -7142,7 +7168,12 @@ function MainWorkspace(): ReactElement {
       shell.setActiveConversationId(null);
     }
   }, [
-    contacts.isLoading,
+    contacts.isSuccess,
+    contacts.hasNextPage,
+    hiddenSessions.isSuccess,
+    deletedSessions.isSuccess,
+    allGroups.isSuccess,
+    topContacts.isSuccess,
     conversations,
     hiddenConversationsById,
     deletedConversationsById,
@@ -7654,6 +7685,8 @@ function MainWorkspace(): ReactElement {
       conversations,
       hiddenConversationsById,
       deletedConversationsById,
+      setSettingsOpen,
+      setDressUpOpen,
     ],
   );
 
@@ -7729,6 +7762,13 @@ function MainWorkspace(): ReactElement {
     selectedConversation?.type === 'direct'
       ? (unreadChatType(selectedConversation.chatType ?? 1) ?? 1)
       : 2;
+  const { read: readRecoveryPosition, applied: recoveryPositionApplied } =
+    useConversationRecoveryPosition({
+      conv: selectedUid,
+      kind: isGroup ? 'group' : 'c2c',
+      rows: loaded,
+      enabled: messagesTabActive && !loadingInitialMessages && Boolean(messageScope),
+    });
   useEffect(() => {
     const binding = messageBindingRef.current,
       scope = messageScope;
@@ -7778,15 +7818,22 @@ function MainWorkspace(): ReactElement {
     }
     void (async () => {
       try {
-        const saved = displaySettings.data?.readFromFirstUnread
-          ? conversationWindows.getPosition(conversationWindowKey(scope, kind, conv))
-          : undefined;
+        const recoveryPosition = !cached ? readRecoveryPosition(conv, kind) : undefined;
+        const saved = recoveryPosition
+          ? recoveryPosition.anchorSeq
+            ? recoveryPosition
+            : undefined
+          : displaySettings.data?.readFromFirstUnread
+            ? conversationWindows.getPosition(conversationWindowKey(scope, kind, conv))
+            : undefined;
         let readSeq = saved?.anchorSeq;
         await loadConversationEntry<MessageWire>({
           cached,
           dirty,
           readSeq,
-          readFromFirstUnread: displaySettings.data?.readFromFirstUnread ?? false,
+          readFromFirstUnread: recoveryPosition
+            ? Boolean(recoveryPosition.anchorSeq)
+            : (displaySettings.data?.readFromFirstUnread ?? false),
           limit,
           current: valid,
           active,
@@ -7859,6 +7906,7 @@ function MainWorkspace(): ReactElement {
             ).map(toMessageWire),
           show: (next, first) => {
             if (!valid()) return;
+            recoveryPositionApplied();
             if (first && readSeq) {
               setInitialReadingPosition(
                 saved ?? {
@@ -7914,6 +7962,8 @@ function MainWorkspace(): ReactElement {
     messageScope,
     conversationWindows,
     refreshWindow,
+    readRecoveryPosition,
+    recoveryPositionApplied,
   ]);
 
   const requestOlderMessages = useCallback(
@@ -11393,6 +11443,15 @@ function MainWorkspace(): ReactElement {
                           setRemarkTarget(null);
                         }}
                       >
+                        <RendererRecoveryNotice
+                          ready={
+                            Boolean(messageScope) &&
+                            !loadingInitialMessages &&
+                            (!shell.activeConversationId ||
+                              (Boolean(selectedConversation) &&
+                                (loaded.length > 0 || windowVerifiedAtRef.current > 0)))
+                          }
+                        />
                         <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
                           {chatContent}
                         </GroupAlbumCardNavigationProvider>
