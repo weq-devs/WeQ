@@ -18,6 +18,60 @@ afterEach(() => {
 });
 
 describe('开发采样 preload', () => {
+  it('读取原生进程内存和 V8 KB 指标，异步等待期间不叠加采样', async () => {
+    let resolve!: (value: Electron.ProcessMemoryInfo) => void;
+    const native = vi.fn(
+      () =>
+        new Promise<Electron.ProcessMemoryInfo>((done) => {
+          resolve = done;
+        }),
+    );
+    vi.stubGlobal('process', {
+      ...process,
+      memoryUsage: () => ({ heapUsed: 100 }),
+      getBlinkMemoryInfo: () => ({ allocated: 2 }),
+      getHeapStatistics: () => ({ heapSizeLimit: 4096 }),
+      getProcessMemoryInfo: native,
+    });
+    installRendererDiagnosticSampling();
+    ipcRenderer.emit(DIAGNOSTIC_SAMPLE_REQUEST, {}, 1, true);
+    ipcRenderer.emit(DIAGNOSTIC_SAMPLE_REQUEST, {}, 2, true);
+    expect(native).toHaveBeenCalledTimes(1);
+    resolve({ private: 123, shared: 4 } as Electron.ProcessMemoryInfo);
+    await vi.waitFor(() => expect(ipcRenderer.send).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(ipcRenderer.send).mock.calls[0]?.[2]).toMatchObject({
+      development: {
+        processMemory: { privateKB: 123, sharedKB: 4 },
+        heap: { heapSizeLimit: 4096 },
+      },
+    });
+  });
+
+  it('原生 API 卡住时有界返回，其余采样继续且不再发起原生请求', async () => {
+    vi.useFakeTimers();
+    try {
+      const native = vi.fn(() => new Promise<Electron.ProcessMemoryInfo>(() => {}));
+      vi.stubGlobal('process', {
+        ...process,
+        memoryUsage: () => ({ heapUsed: 100 }),
+        getBlinkMemoryInfo: () => ({ allocated: 2 }),
+        getProcessMemoryInfo: native,
+      });
+      installRendererDiagnosticSampling();
+      ipcRenderer.emit(DIAGNOSTIC_SAMPLE_REQUEST, {}, 1, true);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(vi.mocked(ipcRenderer.send).mock.calls.at(-1)?.[2]).toMatchObject({
+        jsHeapUsedBytes: 100,
+        development: { processMemory: null },
+      });
+      ipcRenderer.emit(DIAGNOSTIC_SAMPLE_REQUEST, {}, 2, true);
+      expect(native).toHaveBeenCalledTimes(1);
+      expect(ipcRenderer.send).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('普通采样不读取 Chromium 缓存或动画，也不接受非布尔开关', () => {
     const animations = vi.fn(() => []);
     const query = vi.fn(() => []);

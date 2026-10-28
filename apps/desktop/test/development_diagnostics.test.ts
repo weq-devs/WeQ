@@ -20,6 +20,79 @@ const sample = (animations: DiagnosticAnimation[] | undefined = []) =>
   normalizeDevelopmentDetails(collectDevelopmentDetails(document, animations));
 
 describe('开发内存诊断的页面与动画归属', () => {
+  it('首页部件、动画、视频帧和样式表独立计数，缺失视频质量不冒充零', () => {
+    document.body.innerHTML =
+      '<section class="weq-chathome"><img class="weq-orb-widget"><img class="weq-flake"><span class="weq-tag"></span><video class="weq-chathome-backdrop-media"></video></section>';
+    const video = document.querySelector('video')!;
+    Object.defineProperties(video, {
+      videoWidth: { value: 320 },
+      videoHeight: { value: 240 },
+      readyState: { value: 4 },
+      getVideoPlaybackQuality: {
+        value: () => ({ totalVideoFrames: 50, droppedVideoFrames: 2 }),
+        configurable: true,
+      },
+    });
+    const result = sample(
+      ['weq-flake-fall-alt', 'weq-tag-float', 'weq-orb-breathe', 'weq-chathome-caret-blink'].map(
+        (animationName) => ({ animationName, playState: 'running', effect: { target: video } }),
+      ),
+    );
+    expect(result).toMatchObject({
+      surfaces: { home: { mounted: 1 } },
+      components: {
+        homeWidgets: { count: 1 },
+        homeFlakes: { count: 1 },
+        homeTags: { count: 1 },
+        homeBackdrops: { count: 1 },
+      },
+      media: {
+        videoPixels: 76800,
+        videoFrames: 50,
+        droppedVideoFrames: 2,
+        sampledVideoQuality: 1,
+        readyVideos: 1,
+      },
+      styles: { inaccessibleSheets: 0 },
+      animationDetails: {
+        byKind: {
+          homeTag: { running: 1 },
+          homeFlake: { running: 1 },
+          homeOrb: { running: 1 },
+          homeCaret: { running: 1 },
+        },
+        bySurface: { home: { count: 4 } },
+      },
+    });
+    Object.defineProperty(video, 'getVideoPlaybackQuality', { value: undefined });
+    expect(sample().media).toMatchObject({
+      videoFrames: null,
+      droppedVideoFrames: null,
+      sampledVideoQuality: 0,
+    });
+  });
+
+  it('样式表计数有上限，跨域拒读记录缺测数，数值投影不透传正文', () => {
+    const blocked = {
+      get cssRules(): { length: number } {
+        throw new Error('private-css');
+      },
+    };
+    const sheets = Array.from({ length: DEVELOPMENT_SCAN_LIMITS.styles + 2 }, (_, i) =>
+      i === 0 ? blocked : { cssRules: { length: 3 } },
+    );
+    const result = normalizeDevelopmentDetails(
+      collectDevelopmentDetails({ querySelectorAll: () => [], styleSheets: sheets }, []),
+    );
+    expect(result.styles).toMatchObject({
+      sheets: sheets.length,
+      sampledSheets: DEVELOPMENT_SCAN_LIMITS.styles,
+      omittedSheets: 2,
+      inaccessibleSheets: 1,
+      rules: (DEVELOPMENT_SCAN_LIMITS.styles - 1) * 3,
+    });
+    expect(JSON.stringify(result)).not.toContain('private-css');
+  });
   it('只输出白名单页面；同时保留显示页面与隐藏页面的挂载规模', () => {
     document.body.innerHTML = `<div data-weq-diagnostic-view="export">
       <div class="weq-export-tool"><span class="weq-exp-card">private message</span></div>

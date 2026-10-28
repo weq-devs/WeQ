@@ -98,6 +98,10 @@ describe('诊断采样生命周期', () => {
       },
     });
     expect(readdirSync(dir)).toEqual(['dev-memory-monitor']);
+    expect(readdirSync(join(dir, 'dev-memory-monitor')).sort()).toEqual([
+      'memory-diagnostics.jsonl',
+      'memory-trend.jsonl',
+    ]);
     const content = readFileSync(join(dir, 'dev-memory-monitor/memory-diagnostics.jsonl'), 'utf8');
     expect(content).not.toContain('secret');
     expect(JSON.parse(content.trim().split('\n').at(-1)!)).toMatchObject({
@@ -112,6 +116,7 @@ describe('诊断采样生命周期', () => {
         animationDetails: { byKind: { shimmer: { count: 2, running: 2 } } },
       },
     });
+    expect(content).toContain('diagnostic-session');
     vi.advanceTimersByTime(DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS - 1);
     expect(main.send).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(1);
@@ -120,6 +125,45 @@ describe('诊断采样生命周期', () => {
     vi.advanceTimersByTime(DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS * 10);
     expect(main.send).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('分钟趋势不随十秒明细增长，崩溃及新 PID 立即记入趋势', () => {
+    const main = new FakeContents(1);
+    vi.mocked(webContents.getAllWebContents).mockReturnValue([main.asContents()]);
+    stop = startRendererDiagnostics({
+      directory: dir,
+      mainWebContentsId: () => 1,
+      development: true,
+    });
+    const reply = (sequence: number) =>
+      ipcMain.emit(
+        DIAGNOSTIC_SAMPLE_RESPONSE,
+        { sender: main, senderFrame: main.mainFrame },
+        sequence,
+        { development: { processMemory: { privateKB: 123 }, mainView: 'home' } },
+      );
+    const trend = () =>
+      readFileSync(join(dir, 'dev-memory-monitor/memory-trend.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+    reply(1);
+    for (let i = 2; i <= 7; i++) {
+      vi.advanceTimersByTime(DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS);
+      reply(i);
+    }
+    expect(trend().filter((row) => row.kind === 'memory-trend')).toHaveLength(2);
+    expect(trend().at(-1)).toMatchObject({
+      pid: 100,
+      mainView: 'home',
+      processMemory: { privateKB: 123 },
+    });
+    main.emit('render-process-gone', {}, { reason: 'crashed', exitCode: 5 });
+    expect(trend().at(-1)).toMatchObject({ kind: 'renderer-exit', pid: 100 });
+    main.pid = 101;
+    vi.advanceTimersByTime(DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS);
+    reply(8);
+    expect(trend().at(-1)).toMatchObject({ kind: 'memory-trend', pid: 101 });
   });
 
   it('打包版即使误传开发开关也仍用分钟采样，不接受开发字段', () => {

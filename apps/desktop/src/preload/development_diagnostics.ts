@@ -12,6 +12,7 @@ export const DEVELOPMENT_SCAN_LIMITS = {
   components: 512,
   media: 512,
   animations: 1024,
+  styles: 128,
 } as const;
 
 // Node 类型检查不依赖 DOM lib；同时避免跨隔离世界的 instanceof 判定。
@@ -29,6 +30,10 @@ export interface DiagnosticElement {
   ended?: boolean;
   width?: number;
   height?: number;
+  videoWidth?: number;
+  videoHeight?: number;
+  readyState?: number;
+  getVideoPlaybackQuality?(): { totalVideoFrames: number; droppedVideoFrames: number };
 }
 export interface DiagnosticAnimation {
   playState: string;
@@ -37,10 +42,12 @@ export interface DiagnosticAnimation {
 }
 export interface DevelopmentDiagnosticDocument {
   querySelectorAll(selector: string): ArrayLike<DiagnosticElement>;
+  styleSheets?: ArrayLike<{ cssRules: { length: number } }>;
 }
 
 const SURFACES = {
   bootstrap: '.weq-home-shell',
+  home: '.weq-chathome',
   chat: '.message-scroll',
   export: '.weq-export-tool',
   exportViewer: '.weq-export-viewer',
@@ -65,10 +72,18 @@ const COMPONENTS = {
   widgets: '.weq-avatar-pendant-img',
   retainedPanels: '[data-retained-panel]',
   workspacePages: '.weq-workspace-page',
+  homeBackdrops: '.weq-chathome-backdrop-media',
+  homeWidgets: '.weq-orb-widget',
+  homeFlakes: '.weq-flake',
+  homeTags: '.weq-tag',
 } satisfies Record<(typeof DEVELOPMENT_COMPONENTS)[number], string>;
 const SURFACE_SELECTOR = Object.values(SURFACES).filter(Boolean).join(', ');
 
 function animationKind(name: string | undefined): (typeof DEVELOPMENT_ANIMATION_KINDS)[number] {
+  if (/^weq-flake-fall(?:-alt)?$/.test(name ?? '')) return 'homeFlake';
+  if (/^weq-tag-(?:appear|float)$/.test(name ?? '')) return 'homeTag';
+  if (/^weq-orb-(?:enter|breathe)$/.test(name ?? '')) return 'homeOrb';
+  if (name === 'weq-chathome-caret-blink') return 'homeCaret';
   if (/^weq-bubbleframe-\d+$/.test(name ?? '')) return 'bubbleFrames';
   if (/^weq-widgetframe-\d+$/.test(name ?? '')) return 'widgetFrames';
   if (/^weq-fontfx-\d+-\d+$/.test(name ?? '')) return 'fontFrames';
@@ -110,6 +125,7 @@ export function collectDevelopmentDetails(
   const surfaces: Record<string, object | null> = {};
   const components: Record<string, object | null> = {};
   let media: object | null = null;
+  let styles: object | null = null;
   if (document) {
     try {
       const view = document
@@ -171,7 +187,12 @@ export function collectDevelopmentDetails(
         naturalPixels = 0,
         maxNaturalPixels = 0;
       let playingVideos = 0,
-        canvasPixels = 0;
+        canvasPixels = 0,
+        videoPixels = 0,
+        videoFrames = 0,
+        droppedVideoFrames = 0,
+        sampledVideoQuality = 0,
+        readyVideos = 0;
       for (let i = 0; i < sampledImages; i++) {
         const image = images[i]!;
         const area = pixels(image.naturalWidth, image.naturalHeight);
@@ -181,8 +202,26 @@ export function collectDevelopmentDetails(
         naturalPixels += area;
         maxNaturalPixels = Math.max(maxNaturalPixels, area);
       }
-      for (let i = 0; i < sampledVideos; i++)
-        if (!videos[i]!.paused && !videos[i]!.ended) playingVideos++;
+      for (let i = 0; i < sampledVideos; i++) {
+        const video = videos[i]!;
+        if (!video.paused && !video.ended) playingVideos++;
+        if ((video.readyState ?? 0) >= 2) readyVideos++;
+        videoPixels += pixels(video.videoWidth, video.videoHeight);
+        try {
+          const quality = video.getVideoPlaybackQuality?.();
+          if (
+            quality &&
+            diagnosticNumber(quality.totalVideoFrames) !== null &&
+            diagnosticNumber(quality.droppedVideoFrames) !== null
+          ) {
+            videoFrames += quality.totalVideoFrames;
+            droppedVideoFrames += quality.droppedVideoFrames;
+            sampledVideoQuality++;
+          }
+        } catch {
+          // 单个播放器缺测不丢失其它视频的统计。
+        }
+      }
       for (let i = 0; i < sampledCanvases; i++)
         canvasPixels += pixels(canvases[i]!.width, canvases[i]!.height);
       media = {
@@ -203,9 +242,40 @@ export function collectDevelopmentDetails(
         canvasPixels,
         omittedCanvases: canvases.length - sampledCanvases,
         frames: document.querySelectorAll('iframe, webview').length,
+        videoPixels,
+        videoFrames: sampledVideoQuality > 0 || sampledVideos === 0 ? videoFrames : null,
+        droppedVideoFrames:
+          sampledVideoQuality > 0 || sampledVideos === 0 ? droppedVideoFrames : null,
+        sampledVideoQuality,
+        readyVideos,
       };
     } catch {
       /* 媒体节点不可读时不阻断其它分类。 */
+    }
+    try {
+      const sheets = document.styleSheets;
+      if (sheets) {
+        const sampledSheets = Math.min(sheets.length, DEVELOPMENT_SCAN_LIMITS.styles);
+        let rules = 0,
+          inaccessibleSheets = 0;
+        for (let i = 0; i < sampledSheets; i++) {
+          try {
+            rules += sheets[i]!.cssRules.length;
+          } catch {
+            inaccessibleSheets++;
+          }
+        }
+        styles = {
+          sheets: sheets.length,
+          sampledSheets,
+          rules,
+          inaccessibleSheets,
+          omittedSheets: sheets.length - sampledSheets,
+          styleElements: document.querySelectorAll('style').length,
+        };
+      }
+    } catch {
+      // 跨域样式表不可读时保留未知，不读取其正文或来源。
     }
   }
   let animationDetails: object | null = null;
@@ -270,6 +340,7 @@ export function collectDevelopmentDetails(
     surfaces,
     components,
     media,
+    styles,
     animationDetails,
   };
 }

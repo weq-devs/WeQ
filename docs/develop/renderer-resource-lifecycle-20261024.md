@@ -28,6 +28,43 @@
 
 ## 临时开发内存监控
 
+### 2026-10-28 细化采样（schemaVersion 3）
+
+十秒开发采样继续使用 `logs/dev-memory-monitor/memory-diagnostics.jsonl`，每份最多
+8 MiB / 8640 条，保留当前与上一份。新增的 `memory-trend.jsonl` 每分钟记一条摘要，
+每份最多 2 MiB / 2880 条，同样只保留两份；renderer 退出事件立即记入趋势，新 PID
+首份采样不等待一分钟。实际覆盖时长由记录大小决定，不保证固定天数。
+
+- 进程指标增加 CPU 百分比与 idle wakeups；采样会话记录主 PID、Electron / Chromium /
+  Node 版本及平台。回应带 sequence 和响应耗时，便于与同轮进程采样对应。
+- 开发 preload 调用 `process.getProcessMemoryInfo()`，分别记录 `privateKB`、
+  `sharedKB`、`residentSetKB`。macOS 的 residentSet 不提供，保持 null；private 是
+  Electron 对未共享内存的统计，对压缩前占用更有参考价值，不称为 vmmap footprint 或
+  swap。该调用最多等 500ms，失败或超时后本次 preload 生命周期不再重复调用；不阻断
+  后续其它指标，不允许异步采样重叠。
+- `process.getHeapStatistics()` 的堆大小、堆上限、可用量、可执行堆、malloced 等字段
+  **单位均为 KB**，与既有 `process.memoryUsage()` 的 bytes 字段分开。Blink、private、
+  RSS、图片 decoded 属于不同口径，不能相加或相减来推断“泄漏字节”。
+- 首页作为独立 surface；名片媒体、头像挂件、浮屏、标签独立计数，CSS 动画细分为
+  homeFlake / homeTag / homeOrb / homeCaret。不是 APNG 内部帧或真实 React 挂载累计次数。
+- 视频记录固有像素、ready 数及 PlaybackQuality 累计总帧 / 掉帧数；仅汇总当前文档
+  前 512 个 video。播放器被替换后累计量可回落；缺失质量 API 记录 null，并保留取得
+  质量数据的播放器数，不把部分覆盖冒充全部。
+- 样式表最多检查 128 份，仅计顶层规则和 style 元素；跨域拒读单独计数，不读取正文。
+- QueryClient 登记随 Provider effect 清理；按需记录查询总数、前 512 项中的 active /
+  fetching / 观察者数、遗漏项与 mutation 总数，不读取 key 或数据、不订阅查询变化。
+
+详细 DOM/媒体分类仍只在开发模式启用；打包版维持原分钟基础采样。没有附加 debugger、
+强制 GC、采集堆快照或替换全局监听器/定时器。系统整体 swap 和原生对象分配栈尚不在
+本轮指标中；这些计数帮助选择下一步取证方向，不直接认定具体泄漏来源。
+
+本轮 5 文件 / 30 项诊断专项回归及改动文件 Biome 通过；独立 Electron 44.9.1
+实收两次 schema 3 采样和一条分钟趋势，private 为正值，macOS residentSet 缺测、
+V8 堆指标、首页动画分类和查询计数均按预期落盘。小型合成场景额外采样耗时约
+9.6 / 3.3ms，不代表真实大页面的上限。整包 node / web 类型检查当时被并行数据库
+改动中的 `DatabasePriority` / `scheduleDatabase` 导出及其后续类型错误阻断，未放宽检查。
+独立实例已退出；尚未在日常业务实例加载新主进程/preload，不冒称长时增长已定位或修复。
+
 未打包且 `is.dev` 为真时，在原诊断链路上启用每 10 秒一次的监控；打包版本即使误传开关也拒绝开启，继续原有每分钟采样。开发监控独立写入日志目录的 `dev-memory-monitor/memory-diagnostics.jsonl`，轮转至同目录 `memory-diagnostics.previous.jsonl`；每文件最多 8 MiB / 8640 条，两份合计最多 16 MiB，先达到任一上限即轮转。恢复到默认模式后不覆盖这两份开发证据。
 
 监控同时记录进程 PID / 创建时间、working set / peak（KB）、JS 堆与 external（bytes）、Blink 分配（KB）、DOM 和受管资源数量。额外字段 `development.caches` 分为 images、scripts、cssStyleSheets、xslStyleSheets、fonts、other，各只保存 count、sizeBytes、liveSizeBytes。依据 [Electron 44.9.0 转换源码](https://github.com/electron/electron/blob/v44.9.0/shell/common/gin_converters/blink_converter.cc)，`liveSize` 实际映射 Blink 的 `decoded_size`，不能解释为「当前可见图片内存」，也不是全部原生内存；缺测保留 null。`development.animations` / `runningAnimations` 来自当前文档 `getAnimations()` 的总数 / running 数；`documentVisible` 只表示文档可见性，不代表窗口无遮挡或 GPU 正在绘制。

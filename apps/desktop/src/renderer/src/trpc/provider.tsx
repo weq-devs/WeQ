@@ -4,7 +4,8 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState, type ReactNode, type ReactElement } from 'react';
+import { useEffect, useState, type ReactNode, type ReactElement } from 'react';
+import { registerDiagnosticQueries } from '../lib/resourceDiagnostics';
 import { trpc, trpcClient } from './client';
 
 export function TrpcProvider({ children }: { children: ReactNode }): ReactElement {
@@ -24,6 +25,7 @@ export function TrpcProvider({ children }: { children: ReactNode }): ReactElemen
         },
       }),
   );
+  useEffect(() => registerDiagnosticQueries(queryClient), [queryClient]);
   // Reuse the single shared client from ./client — creating a second client
   // here would reintroduce the cross-talk between subscriptions (vanilla
   // `client`) and queries (React hooks). See the note in client.ts.

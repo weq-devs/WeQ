@@ -3,7 +3,7 @@ export const DIAGNOSTIC_SAMPLE_RESPONSE = 'diagnostics:sample-response';
 export const RESOURCE_DIAGNOSTIC_REQUEST = 'weq:resource-diagnostic-request';
 export const RESOURCE_DIAGNOSTIC_ID = 'weq-resource-diagnostics';
 export const DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS = 10_000;
-export const DEVELOPMENT_DIAGNOSTIC_VERSION = 2;
+export const DEVELOPMENT_DIAGNOSTIC_VERSION = 3;
 export const DEVELOPMENT_MAIN_VIEWS = [
   'home',
   'messages',
@@ -21,6 +21,7 @@ export const DEVELOPMENT_MAIN_VIEWS = [
 ] as const;
 export const DEVELOPMENT_SURFACES = [
   'bootstrap',
+  'home',
   'chat',
   'export',
   'exportViewer',
@@ -45,6 +46,10 @@ export const DEVELOPMENT_COMPONENTS = [
   'widgets',
   'retainedPanels',
   'workspacePages',
+  'homeBackdrops',
+  'homeWidgets',
+  'homeFlakes',
+  'homeTags',
 ] as const;
 export const DEVELOPMENT_ANIMATION_KINDS = [
   'bubbleFrames',
@@ -52,6 +57,10 @@ export const DEVELOPMENT_ANIMATION_KINDS = [
   'fontFrames',
   'shimmer',
   'spinner',
+  'homeFlake',
+  'homeTag',
+  'homeOrb',
+  'homeCaret',
   'other',
 ] as const;
 
@@ -110,6 +119,19 @@ export function normalizeDevelopmentDetails(value: unknown) {
       'canvasPixels',
       'omittedCanvases',
       'frames',
+      'videoPixels',
+      'videoFrames',
+      'droppedVideoFrames',
+      'sampledVideoQuality',
+      'readyVideos',
+    ]),
+    styles: diagnosticFields(data.styles, [
+      'sheets',
+      'sampledSheets',
+      'omittedSheets',
+      'inaccessibleSheets',
+      'rules',
+      'styleElements',
     ]),
     animationDetails: {
       ...diagnosticFields(animations, [
@@ -173,6 +195,17 @@ export function normalizeDevelopmentSample(value: unknown) {
     animations: diagnosticNumber(data.animations),
     runningAnimations: diagnosticNumber(data.runningAnimations),
     documentVisible: typeof data.documentVisible === 'boolean' ? data.documentVisible : null,
+    processMemory: diagnosticFields(data.processMemory, ['privateKB', 'sharedKB', 'residentSetKB']),
+    heap: diagnosticFields(data.heap, [
+      'totalHeapSize',
+      'totalHeapSizeExecutable',
+      'totalPhysicalSize',
+      'totalAvailableSize',
+      'usedHeapSize',
+      'heapSizeLimit',
+      'mallocedMemory',
+      'peakMallocedMemory',
+    ]),
     ...normalizeDevelopmentDetails(data),
   };
 }
@@ -196,6 +229,13 @@ const RESOURCE_FIELDS = [
   'decorationStyles',
   'decorationRules',
   'omittedStyles',
+  'queries',
+  'sampledQueries',
+  'omittedQueries',
+  'activeQueries',
+  'fetchingQueries',
+  'queryObservers',
+  'mutations',
 ] as const;
 export function normalizeResourceSample(value: unknown) {
   const data =
