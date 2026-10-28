@@ -25,6 +25,8 @@ import { IS_ELECTRON } from '@renderer/lib/target';
 import { cdnImageUrl, cdnVideoCoverUrl, flashPicUrl, useCdn } from '@renderer/lib/cdn';
 import { MediaSaveControls, MediaSourceSave, useMediaSave } from './MediaSaveControls';
 import type { MediaSaveSource } from '../../../shared/media_save';
+import { useVoiceTranscription } from '../hooks/useVoiceTranscription';
+import { useTabActive } from './RetainedTabs';
 
 type Data = Record<string, unknown>;
 
@@ -673,32 +675,35 @@ export function QqVoice({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
 
-  // Transcription state. The 转文字 entry only renders when a model is selected
-  // in the global settings; one shared query (react-query de-dupes across the
-  // many voice bubbles on screen) tells us whether that's the case.
-  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: 60_000,
-  });
-  const canTranscribe = Boolean(settings.data?.voiceTranscribe.modelId);
-  const transcribe = trpc.account.transcribeVoice.useMutation();
-  // A transcript already on the element (wire tag 45923) — written either by
-  // QQ's own 转文字 or by a previous WeQ run, which writes back to the same field.
   const storedTranscript = str(data, 'pttTranscript');
-  const [transcript, setTranscript] = useState<string | null>(null);
-  const [transcribeError, setTranscribeError] = useState<string | null>(null);
-  // SenseVoice reports the speaker's tone + any non-speech sounds as rich tags
-  // (see main `transcribe/tags.ts`); we render them as a badge above the text.
-  const [emotion, setEmotion] = useState<{ emoji: string; label: string } | null>(null);
-  const [events, setEvents] = useState<string[]>([]);
+  const active = useTabActive();
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const element = wrapRef.current;
+    if (!element || !active || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(([entry]) =>
+      setVisible(entry?.isIntersecting ?? false),
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [active, name, sendTimeMs]);
+  const transcribe = useVoiceTranscription(
+    { t: sendTimeMs, name, token, msgId },
+    active && visible && !storedTranscript && !localPreviewUrl && !localPath,
+  );
+  const canTranscribe = transcribe.available && !localPreviewUrl && !localPath;
+  const result = transcribe.result;
+  const transcribeError =
+    transcribe.error ?? (result && !result.success ? (result.error ?? '识别失败') : null);
+  const emotion = result?.emotion ?? null;
+  const events = (result?.events ?? []).map(
+    (event) => `${event.emoji ? `${event.emoji} ` : ''}${event.label}`,
+  );
 
   useEffect(() => {
-    // Reset the player + transcript if the message identity changes underneath us.
+    // 消息身份变化时重置播放器；转写状态按消息身份存放在共享缓存中。
     setPlaying(false);
-    setTranscript(null);
-    setTranscribeError(null);
-    setEmotion(null);
-    setEvents([]);
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
@@ -728,20 +733,7 @@ export function QqVoice({
 
   const runTranscribe = (e: ReactMouseEvent): void => {
     e.stopPropagation();
-    if (transcribe.isLoading) return;
-    setTranscribeError(null);
-    transcribe
-      .mutateAsync({ t: sendTimeMs, name, token, msgId })
-      .then((res) => {
-        if (res.success) {
-          setTranscript(res.text ?? '');
-          setEmotion(res.emotion ?? null);
-          setEvents((res.events ?? []).map((e) => `${e.emoji ? `${e.emoji} ` : ''}${e.label}`));
-        } else {
-          setTranscribeError(res.error ?? '识别失败');
-        }
-      })
-      .catch((err) => setTranscribeError(err instanceof Error ? err.message : String(err)));
+    transcribe.run();
   };
 
   // Bar count tracks duration (QQ-style: longer clip → longer strip), with a
@@ -750,11 +742,12 @@ export function QqVoice({
   // wave area also clips as a hard safety net; see .qq-media-voice-wave).
   const barCount = Math.max(12, Math.min(28, 8 + Math.round(seconds)));
   const bars = sampleBars(waveform, barCount);
-  const shownTranscript = transcript ?? (storedTranscript || null);
+  const shownTranscript =
+    (result?.success ? (result.text ?? '') : null) ?? (storedTranscript || null);
   const hasResult = shownTranscript !== null || transcribeError !== null;
 
   return (
-    <div className="qq-voice-wrap">
+    <div className="qq-voice-wrap" ref={wrapRef}>
       <div className="qq-voice-row">
         <div
           className={cn('qq-media-voice', playing && 'is-playing')}
@@ -795,20 +788,20 @@ export function QqVoice({
             iconOnly
           />
         ) : null}
-        {canTranscribe && !hasResult ? (
+        {canTranscribe && (shownTranscript === null || transcribeError) ? (
           <button
             type="button"
             className="qq-voice-transcribe-btn"
             title="转文字"
             onClick={runTranscribe}
-            disabled={transcribe.isLoading}
+            disabled={transcribe.busy}
           >
-            {transcribe.isLoading ? (
+            {transcribe.busy ? (
               <Loader2 size={13} strokeWidth={2} className="weq-spin" aria-hidden />
             ) : (
               <FileText size={13} strokeWidth={2} aria-hidden />
             )}
-            <span>{transcribe.isLoading ? '转写中' : '转文字'}</span>
+            <span>{transcribe.busy ? '转写中' : transcribeError ? '重试转文字' : '转文字'}</span>
           </button>
         ) : null}
       </div>

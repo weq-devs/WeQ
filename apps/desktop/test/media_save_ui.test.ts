@@ -89,6 +89,13 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   },
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => state.toast }));
+vi.mock('../src/renderer/src/hooks/useVoiceTranscription', () => ({
+  useVoiceTranscription: () => ({
+    available: Boolean(state.model),
+    busy: false,
+    run: state.transcribe,
+  }),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {

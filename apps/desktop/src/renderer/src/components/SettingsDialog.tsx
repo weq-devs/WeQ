@@ -74,6 +74,7 @@ import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMai
 import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
 import { ResourceManagementSection } from './settings/ResourceManagementSection';
 import { ChatImageCacheSettings } from './settings/ChatImageCacheSettings';
+import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
 import { Card, Row, SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
@@ -863,6 +864,7 @@ function AppearanceSection({
             </div>
           ))}
           {readingError ? <p role="alert">{readingError}</p> : null}
+          <VoiceAutoTranscribeSetting />
           <ChatImageCacheSettings />
           <Card title="自定义消息显示" settingId="custom-message-display">
             <Row

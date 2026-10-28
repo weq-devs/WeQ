@@ -252,6 +252,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['jump-latest-after-send', '发送消息后定位到最新消息'],
       ['scroll-to-bottom-button', '向下滚动时显示定位到底部按钮', '快速到底部'],
       ['send-with-qq-font', '使用 QQ 账号设置的个性字体发送消息'],
+      ['auto-transcribe-voice', '语音消息自动转文字', '语音自动识别'],
       ['custom-message-display', '自定义消息显示'],
       ['message-seq', '显示消息序号（seq）'],
       ['message-time', '显示发送时间（精确到秒）'],

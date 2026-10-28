@@ -1516,6 +1516,15 @@ export const bootstrapRouter = router({
   }),
 
   // ---- local OCR models (设置 → 模型与识别 → 图片识别) ----
+  setAutoTranscribeVoice: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({
+        voiceTranscribe: { autoTranscribe: input.enabled },
+      });
+      return true;
+    }),
+
   //
   // 和上面语音那一组同构：同一套「注册表 + 下载 + 进度事件」。引擎（onnxruntime +
   // PP-OCR 后处理）在 app 侧（`main/ocr/`），这里只管模型的下载与落盘。

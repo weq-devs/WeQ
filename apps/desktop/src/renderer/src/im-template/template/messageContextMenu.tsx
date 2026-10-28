@@ -21,6 +21,7 @@ import { useSurfaceOutside } from '../../lib/surfaceOutside';
 import { useTabActive } from '../../components/RetainedTabs';
 import { IS_WEB } from '../../lib/target';
 import type { ExportSavePolicy } from '@weq/service';
+import { VoiceTranscribeMenuAction } from '../../components/VoiceTranscribeMenuAction';
 
 export type MessageContextMenuState = {
   message: Message;
@@ -173,6 +174,7 @@ export function MessageContextMenu({
       onTouchStart={(event) => event.stopPropagation()}
     >
       {extraActions}
+      <VoiceTranscribeMenuAction message={state.message} onClose={onClose} />
       {onMultiSelect ? (
         <button type="button" title="多选" onClick={() => onMultiSelect(state.message)}>
           <ListChecks size={17} />

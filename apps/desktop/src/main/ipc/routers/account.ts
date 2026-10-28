@@ -7827,6 +7827,8 @@ export const accountRouter = router({
    * 当前账号的宽容（salvage）配置 + 降级账本。
    *
    * 账本按时间倒序取最新 50 条；只含 SQL 指纹，不含参数值。
+        expectedAccountUin: z.string().optional(),
+        expectedAccountConfigId: z.string().optional(),
    */
   getDbTolerance: procedure.query((): DbToleranceSnapshot => {
     const ctx = getAppContext();
@@ -7835,6 +7837,7 @@ export const accountRouter = router({
       return { level: 0, grantedAt: null, summary: EMPTY_SALVAGE_SUMMARY, entries: [] };
     const config = tolerance.getConfig();
     return {
+      requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
       level: config.level,
       grantedAt: config.grantedAt ?? null,
       summary: tolerance.summary(),
@@ -7872,6 +7875,8 @@ export const accountRouter = router({
    */
   listSalvageQuarantine: procedure.query((): QuarantinedTable[] => {
     const platform = getAppContext().platform;
+        if (ctx.services !== services)
+          return { success: false, error: '账号已切换，已停止保存转写' };
     if (!platform) return [];
     try {
       return platform.native.ntHelper.listQuarantinedTables();

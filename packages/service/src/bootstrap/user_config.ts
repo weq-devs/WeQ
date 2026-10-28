@@ -385,6 +385,8 @@ export interface VoiceTranscribeConfig {
   modelId: string;
   /** TTS 服务商列表（用于克隆体发语音/语音克隆）。 */
   ttsProviders: TtsProviderConfig[];
+  /** 浏览聊天时自动转换尚无文字的语音。 */
+  autoTranscribe: boolean;
 }
 
 /**
@@ -860,7 +862,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autoLockMinutes: 0,
   appLock: { enabled: true, method: 'totp' },
   modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
-  voiceTranscribe: { modelId: '', ttsProviders: [] },
+  voiceTranscribe: { modelId: '', autoTranscribe: false, ttsProviders: [] },
   // 本地图片文字识别：两个用途各自独立选模型（都空 = 未启用）。
   ocr: { modelId: '', filterModelId: '' },
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
@@ -1494,6 +1496,10 @@ export class UserConfigService {
         modelId: resources.voice,
         ttsProviders:
           normalizeTtsProviders(s?.voiceTranscribe?.ttsProviders) ?? d.voiceTranscribe.ttsProviders,
+        autoTranscribe:
+          typeof s?.voiceTranscribe?.autoTranscribe === 'boolean'
+            ? s.voiceTranscribe.autoTranscribe
+            : d.voiceTranscribe.autoTranscribe,
       },
       ocr: {
         modelId: resources.ocr,
@@ -1641,6 +1647,8 @@ export class UserConfigService {
         modelId: resources.voice,
         ttsProviders:
           patch.voiceTranscribe?.ttsProviders !== undefined
+        autoTranscribe:
+          patch.voiceTranscribe?.autoTranscribe ?? current.voiceTranscribe.autoTranscribe,
             ? normalizeTtsProviders(patch.voiceTranscribe.ttsProviders)
             : current.voiceTranscribe.ttsProviders,
       },
