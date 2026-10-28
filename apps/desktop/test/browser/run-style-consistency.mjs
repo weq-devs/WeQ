@@ -90,7 +90,30 @@ try {
         (node) => node.textContent === '合成详情',
       );
       const item = css('.group-essence-header');
+      const pill = '.weq-affinity-pill.tier-unrated';
+      const pillBackground = document.createElement('canvas').getContext('2d');
+      pillBackground.fillStyle = css('html').backgroundColor;
+      pillBackground.fillRect(0, 0, 1, 1);
+      pillBackground.fillStyle = css('.style-fixture').backgroundColor;
+      pillBackground.fillRect(0, 0, 1, 1);
+      pillBackground.fillStyle = css(pill).backgroundColor;
+      pillBackground.fillRect(0, 0, 1, 1);
+      const pillBackgroundHex = `#${[...pillBackground.getImageData(0, 0, 1, 1).data]
+        .slice(0, 3)
+        .map((value) => value.toString(16).padStart(2, '0'))
+        .join('')}`;
       return {
+        unratedPillForeground: color(pill) === token('--weq-fg-primary'),
+        unratedPillContrast:
+          window.styleConsistency.contrastRatio(color(pill), pillBackgroundHex) >= 4.5,
+        unratedPillIcon: color(`${pill} svg`) === color(pill),
+        unratedPillBackground: css(pill).backgroundColor !== 'rgba(0, 0, 0, 0)',
+        unratedPillResponsive:
+          css(`${pill} > span`).display === (innerWidth <= 720 ? 'none' : 'block') &&
+          (innerWidth > 720 || css(pill).width === '36px'),
+        scoredPillUnchanged:
+          color('.weq-affinity-pill.tier-2') === '#ffffff' &&
+          css('.weq-affinity-pill.tier-2').backgroundImage.includes('linear-gradient'),
         arkBody: pixel(getComputedStyle(detail).color) === token('--weq-fg-primary'),
         flashContrast:
           window.styleConsistency.contrastRatio(

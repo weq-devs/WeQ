@@ -157,6 +157,10 @@ describe('无证据的互动画像', () => {
       ),
     );
     expect(document.querySelector('.weq-affinity-pill')?.textContent).toBe('互动画像');
+    expect(document.querySelector('.weq-affinity-pill')?.classList.contains('tier-unrated')).toBe(
+      true,
+    );
+    expect(document.querySelector('.tier-null')).toBeNull();
     act(() => document.querySelector<HTMLButtonElement>('.weq-affinity-pill')!.click());
     expect(open).toHaveBeenCalledWith(
       expect.objectContaining({

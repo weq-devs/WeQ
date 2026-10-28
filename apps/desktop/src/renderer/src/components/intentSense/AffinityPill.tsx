@@ -81,7 +81,7 @@ export function AffinityPill({
     <button
       type="button"
       key={tier}
-      className={`weq-affinity-pill tier-${tier}${bumped ? ' is-bumped' : ''}`}
+      className={`weq-affinity-pill tier-${tier ?? 'unrated'}${bumped ? ' is-bumped' : ''}`}
       title={
         tier === null
           ? '互动画像（情绪未分析）'

@@ -273,6 +273,17 @@ html[data-theme='dark'] .weq-intent-popover {
   transform: translateY(0);
 }
 
+/* 尚无情绪评分时保留画像入口，不沿用评分胶囊的白色前景。 */
+.weq-affinity-pill.tier-unrated {
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-bg-surface) 82%, transparent);
+  border-color: var(--weq-border-subtle);
+}
+
+html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
+  background: color-mix(in srgb, var(--weq-bg-surface) 90%, transparent);
+}
+
 /* 五档：初识(灰蓝) → 熟络(青) → 亲近(绿) → 挚友(金) → 羁绊(玫红)。 */
 .weq-affinity-pill.tier-0 {
   background: linear-gradient(135deg, #64748b, #475569);
