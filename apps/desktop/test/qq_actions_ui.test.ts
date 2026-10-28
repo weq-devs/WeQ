@@ -123,6 +123,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   return {
     client: {
       account: {
+        qzone: { likes: { query: vi.fn(async () => ({ likes: [], coverage: 'complete' })) } },
         dressup: { peerStats: { query: async () => ({ likeCount: 100 }) } },
         listAllGroups: { query: async () => [] },
         listGroupAlbumMedia: { query: async () => [] },
@@ -305,7 +306,7 @@ beforeEach(() => {
   state.configId = 'source-a';
   state.available = true;
   state.result = null;
-  state.mutate.mockClear();
+  state.mutate.mockReset().mockResolvedValue({ state: 'accepted' });
   state.confirm.mockReset().mockResolvedValue(true);
   state.picker.mockClear();
   state.refreshSigns.mockClear();
@@ -599,6 +600,7 @@ describe('QQ 主动操作的实际界面', () => {
         tid: 'post-a',
         time: 1,
         initialLiked: false,
+        mode: 'like',
         onChanged: vi.fn(),
       }),
     );
@@ -633,6 +635,7 @@ describe('QQ 主动操作的实际界面', () => {
         tid: 'post-a',
         time: 1,
         initialLiked: true,
+        mode: 'like',
         onChanged: vi.fn(),
       }),
     );
