@@ -78,6 +78,7 @@ import {
 } from '@weq/service';
 import { runBackupProbe } from '../../backup_probe';
 import {
+  backupLoginDbPaths,
   scanBackupCandidates,
   probeBackup,
   resolveBackupDirectory,
@@ -2393,10 +2394,18 @@ export const bootstrapRouter = router({
       const dirPath = await resolveBackupDirectory(input.dirPath);
       if (!dirPath) throw new Error('未找到 nt_msg.db / profile_info.db');
       // 真正切换账号前再次在隔离进程验证，避免旧客户端绕过目录探测。
+      const loginDbPaths = (() => {
+        try {
+          return backupLoginDbPaths(requirePlatform());
+        } catch {
+          return [];
+        }
+      })();
       const checked = await runBackupProbe({
         dirPath,
         dbKey: input.dbKey,
         expectedUin: input.preview.uin,
+        ...(loginDbPaths.length ? { loginDbPaths } : {}),
       });
       if (checked.status === 'needKey') throw new Error('此备份需要数据库密钥，请先验证。');
       if (checked.status === 'error') throw new Error(checked.error);

@@ -45,7 +45,10 @@ WeQ 目前解析的是**频道私聊**（DM）链路：会话列表、消息行�
    - 明文解密目录（无 dbKey）统一不开密钥。
 4. 顺带一提，安卓的 `gpro_*` 文件还有一个特殊用途：**uid 识别**。
    PC 目录没有这种文件，所以「从目录内容反推 uid」这条路只对手机备份成立
-   （`deriveAndroidDbKey` 用它拿 uid 再推导主密钥）。
+   （`deriveAndroidDbKey` 用它拿 uid 再推导主密钥）。备份里没有 `gpro_*` 时
+   （只拷了数据库、或旧备份没有频道库）会退到 `login.db`：先找备份目录自带的那份，
+   再用调用方给的本机 `login.db`，按 QQ 号取 uid。这条回退是尽力而为的 ——
+   文件缺失、密钥探测失败或原生解密报错都只是静默跳过，不影响其它路径。
 5. 判断一个库是不是「安卓频道库」的统一写法是 `basename(dbPath).startsWith('gpro_')`
    （`db_decrypt.ts` / `db_explorer.ts` / `static_session.ts` 三处一致）。
 
