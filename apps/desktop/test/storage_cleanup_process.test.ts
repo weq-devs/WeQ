@@ -16,7 +16,7 @@ describe('存储清理助手的进程身份', () => {
   it.skipIf(process.platform !== 'win32')(
     'Windows 实际查询能识别独立运行的合成 worker，避免误放行清理',
     async () => {
-      const root = mkdtempSync(join(tmpdir(), 'weq-cleanup-process-'));
+      const root = mkdtempSync(join(tmpdir(), 'weq-中文路径-'));
       const worker = join(root, 'storageCleanupWorker.mjs');
       writeFileSync(worker, 'setInterval(() => {}, 1000);');
       const child = fork(worker, [], { execPath: process.execPath, stdio: 'ignore' });

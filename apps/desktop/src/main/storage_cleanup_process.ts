@@ -59,6 +59,7 @@ export function isStorageCleanupWorkerProcess(
   if (platform === 'win32') {
     // pid 已验证为正整数，绝不把锁文件里的字符串插入 PowerShell 脚本。
     const script =
+      '[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false);' +
       "$ErrorActionPreference='Stop';" +
       `$candidate=Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}';` +
       `if ($null -eq $candidate) { [Console]::Out.Write('${NO_PROCESS}') }` +
