@@ -27170,26 +27170,6 @@ html[data-theme='dark'] .weq-mf-mall-card {
   font-weight: 400;
   font-size: 12px;
 }
-.weq-group-helper-search {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--weq-border-subtle);
-}
-.weq-group-helper-search input {
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 6px;
-  background: var(--weq-bg-elevated);
-  color: var(--weq-fg-primary);
-  font-size: 13px;
-}
-.weq-group-helper-search input::placeholder {
-  color: var(--weq-fg-muted);
-}
-.weq-group-helper-search input:focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 1px;
-}
 .weq-group-helper-unread {
   flex-shrink: 0;
   min-width: 20px;
