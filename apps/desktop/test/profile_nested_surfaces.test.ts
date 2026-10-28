@@ -453,7 +453,7 @@ it('联系人好友操作可在原位预览私聊并返回资料，不触发聊�
   }
 });
 
-it('详情切换后的空标签不自动挂载群交集，主动打开后保留现场并暂停隐藏区域', () => {
+it('详情切换后的空标签不自动挂载群交集，关闭后卸载，主动重开才重新挂载', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -504,12 +504,13 @@ it('详情切换后的空标签不自动挂载群交集，主动打开后保留�
     expect(graph.dataset.active).toBe('true');
     graph.value = '保留手动布局';
     render('friends');
-    expect(graph.dataset.active).toBe('false');
-    expect(graph.closest('[hidden]')).not.toBeNull();
+    expect(graph.isConnected).toBe(false);
+    expect(host.querySelector('[aria-label="合成关系图状态"]')).toBeNull();
     render('friends', true);
-    expect(host.querySelector('[aria-label="合成关系图状态"]')).toBe(graph);
-    expect(graph.value).toBe('保留手动布局');
-    expect(graph.dataset.active).toBe('true');
+    const reopened = host.querySelector<HTMLInputElement>('[aria-label="合成关系图状态"]')!;
+    expect(reopened).not.toBe(graph);
+    expect(reopened.value).toBe('初始');
+    expect(reopened.dataset.active).toBe('true');
   } finally {
     act(() => root.unmount());
     host.remove();

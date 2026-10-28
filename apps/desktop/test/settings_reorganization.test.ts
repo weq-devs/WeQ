@@ -201,6 +201,7 @@ describe('设置归位后的实际页面', () => {
         '发送消息后定位到最新消息',
         '向下滚动时显示定位到底部按钮',
         '使用 QQ 账号设置的个性字体发送消息',
+        '语音消息自动转文字',
       ]);
       const display = f.body().querySelector('[data-setting-id="custom-message-display"]')!;
       expect(display).not.toBeNull();

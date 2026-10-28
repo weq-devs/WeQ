@@ -17,6 +17,14 @@ const fixture = vi.hoisted(() => ({
   clones: [],
   exports: [] as { id: string; status: 'running' | 'completed' | 'failed' }[],
 }));
+// 工具行为在这里同步验证，懒加载生命周期由页面卸载测试覆盖。
+vi.mock('../src/renderer/src/components/lazyWorkspaces', async () => ({
+  ...(await import('../src/renderer/src/views/ExportView')),
+  ...(await import('../src/renderer/src/views/ExportViewer')),
+  ...(await import('../src/renderer/src/views/analysis/AnalysisTool')),
+  ...(await import('../src/renderer/src/components/RoamingBackfillPanel')),
+  preloadWorkspace: vi.fn(),
+}));
 vi.mock('../src/renderer/src/views/agentlab/cloneTaskStore', () => ({
   getCloneTasks: () => fixture.clones,
   subscribeCloneTasks: () => () => {},

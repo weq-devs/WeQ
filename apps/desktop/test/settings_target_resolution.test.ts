@@ -23,7 +23,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
     expect(sections).toHaveLength(Object.keys(SETTINGS_PAGE_LABELS).length);
     expect(new Set(sections)).toEqual(new Set(Object.keys(SETTINGS_PAGE_LABELS)));
     expect(SETTINGS_GROUPS[0]?.sections[1]).toBe('home');
-    expect(SETTINGS_GROUPS[0]?.sections[0]).toBe('appearance');
+    expect(SETTINGS_GROUPS[0]?.sections[0]).toBe('startup');
     expect(SETTINGS_GROUPS[1]?.sections).toEqual([
       'chat-messages',
       'call-recording',

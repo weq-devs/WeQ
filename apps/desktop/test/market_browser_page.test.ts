@@ -150,6 +150,13 @@ it('商城详情只保留下载主按钮，按全局偏好保存，不展开保�
       (node) => node.textContent === '一键下载',
     )!;
     await act(async () => choose.click());
+    expect(document.querySelector('[aria-label="附带完整性报告"]')).not.toBeNull();
+    expect(saveState.download).not.toHaveBeenCalled();
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent === '开始导出')!
+        .click(),
+    );
     expect(saveState.prepare).toHaveBeenLastCalledWith(
       undefined,
       expect.objectContaining({ kind: 'bundle', targetCount: 1 }),
@@ -158,6 +165,7 @@ it('商城详情只保留下载主按钮，按全局偏好保存，不展开保�
       expect.objectContaining({
         savePolicy: { mode: 'before', directory: '/fixture/export' },
         expectedAccountConfigId: 'source-a',
+        includeIntegrityReport: false,
       }),
     );
     expect(host.querySelector('.weq-export-save-control')).toBeNull();
