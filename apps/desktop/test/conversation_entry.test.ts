@@ -25,6 +25,45 @@ function fixture() {
 }
 
 describe('会话分阶段打开', () => {
+  it('冷首屏先显示真实本地页，合并完成前保留未完成标记；空本地页不误报空会话', async () => {
+    const f = fixture();
+    let finish!: (rows: Row[]) => void;
+    const task = loadConversationEntry({
+      ...f,
+      readFromFirstUnread: false,
+      progressiveLatest: async (_size, show) => {
+        show([]);
+        show([row('10'), row('9')]);
+        return new Promise<Row[]>((done) => {
+          finish = done;
+        });
+      },
+    });
+    expect(f.show).toHaveBeenCalledOnce();
+    expect(f.show.mock.calls[0]![0].rows).toEqual([row('9'), row('10')]);
+    expect(f.show.mock.calls[0]).toHaveLength(3);
+    finish([row('11'), row('10')]);
+    await task;
+    expect(f.show).toHaveBeenLastCalledWith(
+      expect.objectContaining({ rows: [row('10'), row('11')] }),
+      false,
+    );
+  });
+  it('已有完整缓存时不被本地中间页替换，仍接收最终校准', async () => {
+    const f = fixture();
+    await loadConversationEntry({
+      ...f,
+      readFromFirstUnread: false,
+      cached: cached([row('9'), row('10')]),
+      progressiveLatest: async (_size, show) => {
+        show([row('8')]);
+        return [row('11')];
+      },
+    });
+    expect(f.show).toHaveBeenCalledTimes(2);
+    expect(f.show.mock.calls[0]![0].rows).toEqual([row('9'), row('10')]);
+    expect(f.show.mock.calls[1]![0].rows).toEqual([row('11')]);
+  });
   it('普通模式立即显示最新窗口缓存，校准只读最新页，不等待未读水位', async () => {
     const f = fixture();
     let release!: (rows: Row[]) => void;

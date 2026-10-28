@@ -35,6 +35,7 @@ const independentReads = new Set([
   'account.listAfter',
   'account.listFrom',
   'account.cancelMessageRead',
+  'account.promoteMessageRead',
 ]);
 
 export function createLinks(): TRPCLink<AppRouter>[] {

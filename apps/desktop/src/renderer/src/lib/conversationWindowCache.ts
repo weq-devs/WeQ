@@ -10,6 +10,7 @@ export interface ConversationWindow<T> {
   dirty: boolean;
   storedAt: number;
   verifiedAt: number;
+  prefetched?: boolean;
   readingPosition?: ConversationReadingPosition;
 }
 
@@ -112,3 +113,11 @@ export class ConversationWindowCache<T> {
 
 export const conversationWindowKey = (source: string, kind: 'c2c' | 'group', conv: string) =>
   JSON.stringify([source, kind, conv]);
+
+export function restorableConversationWindow<T>(
+  cached: ConversationWindow<T> | undefined,
+  readFromFirstUnread: boolean,
+): ConversationWindow<T> | undefined {
+  if (readFromFirstUnread && cached?.prefetched) return undefined;
+  return readFromFirstUnread || cached?.anchored ? cached : undefined;
+}

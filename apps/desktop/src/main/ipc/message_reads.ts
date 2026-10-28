@@ -1,4 +1,4 @@
-import { withDatabasePriority, type DatabasePriority } from '@weq/db';
+import { promoteDatabaseSignal, withDatabasePriority, type DatabasePriority } from '@weq/db';
 import type { MessageReadWindow } from '../../shared/message_read';
 
 interface WindowState {
@@ -39,6 +39,12 @@ export class MessageReadWindows {
     const previous = this.windows.get(window.owner);
     if (previous && previous.generation > window.generation) return;
     this.state(window).controller.abort();
+  }
+
+  promote(window: MessageReadWindow): void {
+    const previous = this.windows.get(window.owner);
+    if (previous && previous.generation > window.generation) return;
+    promoteDatabaseSignal(this.state(window).controller.signal);
   }
 
   async run<T>(

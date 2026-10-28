@@ -2,6 +2,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
   ConversationWindowCache,
   conversationWindowKey,
+  restorableConversationWindow,
 } from '../src/renderer/src/lib/conversationWindowCache';
 
 const window = (count: number) => ({
@@ -19,6 +20,14 @@ const window = (count: number) => ({
 afterEach(() => vi.useRealTimers());
 
 describe('会话阅读窗口缓存', () => {
+  it('预取尾页不冒充从未读处开始的阅读现场，偏好改变后仍会读取未读位置', () => {
+    const prefetched = { ...window(25), prefetched: true };
+    expect(restorableConversationWindow(prefetched, false)).toBe(prefetched);
+    expect(restorableConversationWindow(prefetched, true)).toBeUndefined();
+    const history = { ...window(25), anchored: false };
+    expect(restorableConversationWindow(history, false)).toBeUndefined();
+    expect(restorableConversationWindow(history, true)).toBe(history);
+  });
   it('切换时不序列化消息，下一轮核算预算；清空会取消未完成的核算', () => {
     vi.useFakeTimers();
     const cache = new ConversationWindowCache<{ toJSON: () => string }>();

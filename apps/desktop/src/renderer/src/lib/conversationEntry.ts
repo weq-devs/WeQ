@@ -15,6 +15,7 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
   before,
   after,
   latest,
+  progressiveLatest,
   current,
   show,
   cursor = (rows) => rows.at(-1)?.msgSeq,
@@ -30,8 +31,9 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
   before: (seq: string, limit: number) => Promise<T[]>;
   after: (seq: string, limit: number) => Promise<T[]>;
   latest: (limit: number) => Promise<T[]>;
+  progressiveLatest?: (limit: number, show: (rows: T[]) => void) => Promise<T[]>;
   current: () => boolean;
-  show: (window: EntryWindow<T>, first: boolean) => void;
+  show: (window: EntryWindow<T>, first: boolean, complete?: boolean) => void;
   cursor?: (rows: T[]) => string | undefined;
   resolveReadSeq?: () => Promise<string | undefined>;
   /** 窗口已改变时可拒收结果，但仍由原会话负责结束加载；切号／切会话后则不收尾。 */
@@ -40,16 +42,28 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
 }): Promise<void> {
   try {
     if (!current()) return;
+    const readLatest = async () => {
+      let shown = Boolean(cached?.rows.length);
+      const window = (rows: T[]): EntryWindow<T> => ({
+        rows: [...rows].reverse(),
+        anchored: true,
+        hasOlder: rows.length >= limit,
+        hasNewer: false,
+      });
+      const rows = progressiveLatest
+        ? await progressiveLatest(limit, (rows) => {
+            if (!current() || !rows.length || cached?.rows.length) return;
+            show(window(rows), !shown, false);
+            shown = true;
+          })
+        : await latest(limit);
+      if (current()) show(window(rows), !shown);
+    };
     if (!readFromFirstUnread) {
       // 普通模式只恢复尾部缓存，历史窗口不冒充最新页。
       if (cached?.anchored && cached.rows.length) show(cached, true);
       else cached = undefined;
-      const rows = await latest(limit);
-      if (current())
-        show(
-          { rows: rows.reverse(), anchored: true, hasOlder: rows.length >= limit, hasNewer: false },
-          !cached,
-        );
+      await readLatest();
       return;
     }
     if (cached?.rows.length === 0) cached = undefined;
@@ -70,17 +84,7 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
         };
         show(window, true);
       } else {
-        const rows = await latest(limit);
-        if (current())
-          show(
-            {
-              rows: rows.reverse(),
-              anchored: true,
-              hasOlder: rows.length >= limit,
-              hasNewer: false,
-            },
-            true,
-          );
+        await readLatest();
         return;
       }
     } else if (dirty && /^[1-9]\d*$/.test(cursor(window.rows) ?? '')) {

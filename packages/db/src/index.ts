@@ -23,6 +23,7 @@ export { QqDb } from './qq_db';
 export type { QqDbOptions } from './qq_db';
 export {
   scheduleDatabase,
+  promoteDatabaseSignal,
   withDatabasePriority,
   databasePerformance,
   recordMessagePartition,

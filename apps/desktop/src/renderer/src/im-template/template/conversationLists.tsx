@@ -591,6 +591,7 @@ export function ConversationList({
       <div className="weq-conversation-viewport" ref={viewportRef} {...clickTargetProps}>
         <WindowedList
           items={filtered}
+          onVisibleItems={selectionMode ? undefined : directory?.onVisibleConversations}
           rowHeight={rowHeight}
           height={listHeight}
           resetKey={`${scope}:${keyword}`}
@@ -659,11 +660,17 @@ export function ConversationList({
                 className={cn(
                   listRowClass(!selectionMode && active, 'conversation-row'),
                   pinned && 'pinned',
-                  selectionMode && rowSelectedIds.has(conversation.id) && 'is-multiselected',
                   locateHighlight?.id === conversation.id && 'is-locate-target',
+                  selectionMode && rowSelectedIds.has(conversation.id) && 'is-multiselected',
                 )}
                 aria-pressed={selectionMode ? rowSelectedIds.has(conversation.id) : undefined}
                 {...multi.itemProps(conversation.id)}
+                onPointerEnter={() => {
+                  if (!selectionMode) directory?.onConversationIntent?.(conversation);
+                }}
+                onFocus={() => {
+                  if (!selectionMode) directory?.onConversationIntent?.(conversation);
+                }}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   setActionMenu({
@@ -693,13 +700,6 @@ export function ConversationList({
                 }}
                 onClick={(e) => selectConversation(conversation.id, e)}
               >
-                {conversation.type === 'merged' ? (
-                  <span className={cn('avatar', 'has-default', 'merged-avatar')}>
-                    {conversation.mergedKind === 'hidden' ? (
-                      <EyeOff size={20} strokeWidth={2} />
-                    ) : conversation.mergedKind === 'deleted' ? (
-                      <Trash2 size={20} strokeWidth={2} />
-                    ) : conversation.mergedKind === 'guildDirect' ? (
                 {locateHighlight?.id === conversation.id ? (
                   <span
                     key={locateHighlight.revision}
@@ -707,6 +707,13 @@ export function ConversationList({
                     aria-hidden="true"
                   />
                 ) : null}
+                {conversation.type === 'merged' ? (
+                  <span className={cn('avatar', 'has-default', 'merged-avatar')}>
+                    {conversation.mergedKind === 'hidden' ? (
+                      <EyeOff size={20} strokeWidth={2} />
+                    ) : conversation.mergedKind === 'deleted' ? (
+                      <Trash2 size={20} strokeWidth={2} />
+                    ) : conversation.mergedKind === 'guildDirect' ? (
                       <Hash size={20} strokeWidth={2} />
                     ) : conversation.mergedKind === 'service' ||
                       conversation.mergedKind === 'groupAssistant' ? (

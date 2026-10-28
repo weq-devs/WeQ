@@ -1665,10 +1665,10 @@ export class UserConfigService {
       modelResources: resources,
       voiceTranscribe: {
         modelId: resources.voice,
-        ttsProviders:
-          patch.voiceTranscribe?.ttsProviders !== undefined
         autoTranscribe:
           patch.voiceTranscribe?.autoTranscribe ?? current.voiceTranscribe.autoTranscribe,
+        ttsProviders:
+          patch.voiceTranscribe?.ttsProviders !== undefined
             ? normalizeTtsProviders(patch.voiceTranscribe.ttsProviders)
             : current.voiceTranscribe.ttsProviders,
       },

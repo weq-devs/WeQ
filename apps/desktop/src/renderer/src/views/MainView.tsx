@@ -124,9 +124,18 @@ import {
 import { mergeRecentContactPages } from '../lib/recentContacts';
 import { useContentSelectionScope } from '../state/contentSelection';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
-import { ConversationWindowCache, conversationWindowKey } from '../lib/conversationWindowCache';
+import {
+  ConversationWindowCache,
+  conversationWindowKey,
+  restorableConversationWindow,
+} from '../lib/conversationWindowCache';
 import { isConversationPagingVisible, observeConversationPaging } from '../lib/conversationPaging';
 import { loadConversationEntry } from '../lib/conversationEntry';
+import {
+  ConversationFirstPage,
+  firstPageKey,
+  type FirstPageTarget,
+} from '../lib/conversationFirstPage';
 import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
 import { messageTemplateContext } from '../lib/messageTemplateContext';
 import type { MessageReadWindow } from '../../../shared/message_read';
@@ -385,6 +394,20 @@ const messageRenderers: MessageRenderer[] = composeMessageRenderers({
 
 const PAGE_SIZE = 50;
 const GROUP_INITIAL_PAGE_SIZE = 25;
+
+function prefetchTarget(conversation: Conversation): FirstPageTarget | undefined {
+  if (conversation.id.startsWith('virtual:') || conversation.id.startsWith('guild:'))
+    return undefined;
+  if (conversation.type === 'group')
+    return { kind: 'group', conv: conversation.id, limit: GROUP_INITIAL_PAGE_SIZE };
+  if (
+    conversation.type === 'direct' &&
+    conversation.id.startsWith('u_') &&
+    !isDataline(conversation.chatType ?? 1)
+  )
+    return { kind: 'c2c', conv: conversation.id, limit: PAGE_SIZE };
+  return undefined;
+}
 const GROUP_MEMBER_PAGE_SIZE = 120;
 /**
  * 后台刷新只重读有界尾页；已加载但不在这次查询范围内的历史保留原位。
@@ -2325,6 +2348,7 @@ export function MainView(): ReactElement {
 }
 
 function MainWorkspace(): ReactElement {
+  const firstPageStreamReady = useWebConnection((state) => state.status === 'connected');
   const [startupView] = useState(() => useViewState.getState().startupPage);
   useEffect(() => {
     useViewState.setState({ startupPage: null });
@@ -2627,6 +2651,11 @@ function MainWorkspace(): ReactElement {
   const pendingMessageCommit = useRef<number | null>(null);
   useEffect(() => installMessagePerformanceProbe(), [messageScope]);
   useLayoutEffect(() => {
+    const intent = entryScrollIntentRef.current;
+    if (intent?.revision === null) {
+      const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
+      intent.revision = scroll ? timelineViewport(scroll)?.scrollRevision?.() : undefined;
+    }
     if (pendingMessageCommit.current === null) return;
     recordMessagePhase('stateToCommit', performance.now() - pendingMessageCommit.current);
     pendingMessageCommit.current = null;
@@ -2645,7 +2674,91 @@ function MainWorkspace(): ReactElement {
     kind: 'direct' | 'group';
     readWindow: MessageReadWindow;
   } | null>(null);
+  const entryScrollIntentRef = useRef<{
+    selection: object | null;
+    revision: number | undefined | null;
+  } | null>(null);
   const [messageReadOwner] = useState(() => crypto.randomUUID());
+  const firstPages = useMemo(() => {
+    const binding = messageBindingRef.current;
+    return new ConversationFirstPage<MessageWire>({
+      owner: crypto.randomUUID(),
+      valid: () =>
+        Boolean(
+          messageScope && messageScopeRef.current === messageScope && messageBindingRef.current,
+        ),
+      version: () => dbRevisionRef.current,
+      fresh: (target) => {
+        const cached = conversationWindows.get(
+          conversationWindowKey(messageScope, target.kind, target.conv),
+        );
+        return Boolean(
+          cached &&
+            !cached.dirty &&
+            cached.revision === dbRevisionRef.current &&
+            Date.now() - cached.verifiedAt < 3000,
+        );
+      },
+      subscribe: (target, readWindow, prefetch, stage, error) => {
+        recordMessageCounter(prefetch ? 'prefetchStarted' : 'entryCold');
+        const subscription = client.account.latestPage.subscribe(
+          { ...binding, ...target, readWindow, prefetch },
+          {
+            onData: (value) =>
+              stage({
+                complete: value.complete,
+                reuseLocal: value.reuseLocal,
+                rows: value.rows.map(toMessageWire),
+              }),
+            onError: error,
+            onComplete: () => error(new Error('首屏读取结束但缺少完整结果')),
+          },
+        );
+        return () => subscription.unsubscribe();
+      },
+      promote: (readWindow) => {
+        recordMessageCounter('prefetchAdopted');
+        void client.account.promoteMessageRead.mutate({ ...binding, readWindow }).catch(() => {});
+      },
+      cancel: (readWindow) => {
+        void client.account.cancelMessageRead.mutate({ ...binding, readWindow }).catch(() => {});
+      },
+      store: (target, rows, prefetch) => {
+        if (prefetch) recordMessageCounter('prefetchReady');
+        conversationWindows.put(conversationWindowKey(messageScope, target.kind, target.conv), {
+          rows: [...rows].reverse(),
+          anchored: true,
+          hasOlder: rows.length >= target.limit,
+          hasNewer: false,
+          scrollTop: 0,
+          revision: dbRevisionRef.current,
+          dirty: false,
+          storedAt: Date.now(),
+          verifiedAt: Date.now(),
+          prefetched: prefetch,
+        });
+      },
+    });
+  }, [messageScope, conversationWindows]);
+  useEffect(() => () => firstPages.dispose(), [firstPages]);
+  const prefetchVisible = useCallback(
+    (rows: readonly Conversation[]) => {
+      firstPages.setVisible(
+        rows.flatMap((row) => {
+          const target = prefetchTarget(row);
+          return target ? [target] : [];
+        }),
+      );
+    },
+    [firstPages],
+  );
+  const prefetchIntent = useCallback(
+    (row: Conversation) => {
+      const target = prefetchTarget(row);
+      if (target) firstPages.hint(target);
+    },
+    [firstPages],
+  );
   const messageReadGeneration = useRef(0);
   const attemptedReplyMedia = useMemo(() => new WeakSet<MessageWire>(), [messageScope]);
   const replyMediaRows = useMemo(() => new WeakMap<MessageWire, MessageWire>(), [messageScope]);
@@ -4788,6 +4901,35 @@ function MainWorkspace(): ReactElement {
   messagesTabActiveRef.current = messagesTabActive;
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
+  useEffect(() => {
+    if (IS_WEB && !firstPageStreamReady) firstPages.interrupt();
+    const key =
+      selectedUid && (isDirect || isGroup)
+        ? firstPageKey({ kind: isGroup ? 'group' : 'c2c', conv: selectedUid, limit: 0 })
+        : '';
+    firstPages.activate(
+      Boolean(
+        messageScope &&
+          displaySettings.isSuccess &&
+          messagesTabActive &&
+          messageActivity.enabled &&
+          (!IS_WEB || firstPageStreamReady) &&
+          !displaySettings.data?.readFromFirstUnread,
+      ),
+      key,
+    );
+  }, [
+    firstPages,
+    firstPageStreamReady,
+    selectedUid,
+    isDirect,
+    isGroup,
+    messagesTabActive,
+    messageActivity.enabled,
+    messageScope,
+    displaySettings.data?.readFromFirstUnread,
+    displaySettings.isSuccess,
+  ]);
 
   /* ── 合并转发（合成聊天记录）────────────────────────────────────────────
    *
@@ -5644,8 +5786,10 @@ function MainWorkspace(): ReactElement {
             conversationWindowKey(messageScope, isGroup ? 'group' : 'c2c', selectedUid),
           )
         : undefined;
-    const restored =
-      displaySettings.data?.readFromFirstUnread || cached?.anchored ? cached : undefined;
+    const restored = restorableConversationWindow(
+      cached,
+      displaySettings.data?.readFromFirstUnread ?? false,
+    );
     setTrackedMessageScope(messageScope);
     setTrackedConversationId(shell.activeConversationId);
     setLoaded(restored?.rows ?? []);
@@ -7195,6 +7339,7 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     const binding = messageBindingRef.current;
     const readWindow = { owner: messageReadOwner, generation: ++messageReadGeneration.current };
+    entryScrollIntentRef.current = null;
     selectionRef.current =
       selectedUid && (isDirect || isGroup)
         ? { id: selectedUid, kind: isGroup ? 'group' : 'direct', readWindow }
@@ -7806,8 +7951,11 @@ function MainWorkspace(): ReactElement {
       };
     }
     const candidate = conversationWindows.get(conversationWindowKey(scope, kind, conv));
-    const cached =
-      displaySettings.data?.readFromFirstUnread || candidate?.anchored ? candidate : undefined;
+    const cached = restorableConversationWindow(
+      candidate,
+      displaySettings.data?.readFromFirstUnread ?? false,
+    );
+    if (cached?.prefetched) recordMessageCounter('prefetchHit');
     const dirty = Boolean(
       cached &&
         (cached.dirty || cached.revision !== revision || Date.now() - cached.verifiedAt > 30_000),
@@ -7836,6 +7984,9 @@ function MainWorkspace(): ReactElement {
             ? conversationWindows.getPosition(conversationWindowKey(scope, kind, conv))
             : undefined;
         let readSeq = saved?.anchorSeq;
+        let localShown = false;
+        const entryStarted = performance.now();
+        let firstRows = false;
         await loadConversationEntry<MessageWire>({
           cached,
           dirty,
@@ -7860,6 +8011,8 @@ function MainWorkspace(): ReactElement {
             return readSeq;
           },
           settled: () => {
+            if (entryScrollIntentRef.current?.selection === selection)
+              entryScrollIntentRef.current = null;
             entryLoadingRef.current = false;
             setMessagesLoading(false);
             setLoadingNewerMessages(false);
@@ -7913,8 +8066,39 @@ function MainWorkspace(): ReactElement {
                 }),
               )
             ).map(toMessageWire),
-          show: (next, first) => {
+          progressiveLatest: async (size, show) => {
+            try {
+              if (IS_WEB && useWebConnection.getState().status !== 'connected')
+                throw new Error('分阶段连接暂不可用');
+              return await measureMessagePhase('entryQuery', () =>
+                firstPages.read({ kind, conv, limit: size }, show),
+              );
+            } catch (error) {
+              if (!valid()) throw error;
+              recordMessageCounter('entryFallback');
+              // 旧主进程尚未加载分阶段接口时，继续使用原有消息页，不让热更新阻断聊天。
+              return (
+                await measureMessagePhase('entryQuery', () =>
+                  client.account.listLatest.query({
+                    ...binding,
+                    kind,
+                    conv,
+                    limit: size,
+                    readWindow: selection?.readWindow,
+                    deferReplyMedia: true,
+                  }),
+                )
+              ).map(toMessageWire);
+            }
+          },
+          show: (next, first, complete = true) => {
             if (!valid()) return;
+            if (!complete && !localShown)
+              entryScrollIntentRef.current = { selection, revision: null };
+            if (!firstRows && next.rows.length) {
+              recordMessagePhase('entryFirstRows', performance.now() - entryStarted);
+              firstRows = true;
+            }
             recoveryPositionApplied();
             if (first && readSeq) {
               setInitialReadingPosition(
@@ -7930,14 +8114,31 @@ function MainWorkspace(): ReactElement {
               const scroll = document.querySelector<HTMLElement>(
                 '.weq-readonly-chat .message-scroll',
               );
-              if (scroll) {
+              const intent = entryScrollIntentRef.current;
+              const interacted =
+                intent?.selection === selection &&
+                intent.revision !== null &&
+                intent.revision !==
+                  (scroll ? timelineViewport(scroll)?.scrollRevision?.() : undefined);
+              if (
+                scroll &&
+                (!localShown ||
+                  interacted ||
+                  displaySettings.data?.readFromFirstUnread ||
+                  recoveryPosition ||
+                  !next.anchored ||
+                  scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 48)
+              ) {
                 const position = captureReadingPosition(scroll, { transient: true });
                 if (position.anchorId) cachedScrollRef.current = { id: conv, position };
               }
             }
-            const rows = mergeRoamingTimeline(kind, next.rows, []);
+            const page = mergeRoamingTimeline(kind, next.rows, []);
+            const rows =
+              complete && localShown ? mergeRefreshedWindow(loadedRef.current, page, limit) : page;
+            if (!complete) localShown = true;
             loadedRevisionRef.current = revision;
-            windowVerifiedAtRef.current = Date.now();
+            windowVerifiedAtRef.current = complete ? Date.now() : 0;
             windowRef.current = expectedWindow = {
               minSeq: rows[0]?.msgSeq ?? null,
               anchored: next.anchored,
@@ -7948,8 +8149,9 @@ function MainWorkspace(): ReactElement {
             setHasOlder(next.hasOlder);
             setHasNewer(next.hasNewer);
             setAnchoredToLatest(next.anchored);
-            setMessagesLoading(false);
-            verifiedWindowRowsRef.current = rows;
+            setMessagesLoading(!complete);
+            if (!complete) setLoadingNewerMessages(true);
+            verifiedWindowRowsRef.current = complete ? rows : null;
           },
         });
       } catch (err) {
@@ -7973,6 +8175,7 @@ function MainWorkspace(): ReactElement {
     refreshWindow,
     readRecoveryPosition,
     recoveryPositionApplied,
+    firstPages,
   ]);
 
   const requestOlderMessages = useCallback(
@@ -11406,6 +11609,8 @@ function MainWorkspace(): ReactElement {
                     onRoaming: handleRoamingTargets,
                     onReadState: (rows, unread) => void changeConversationReadState(rows, unread),
                     readStateBusy,
+                    onVisibleConversations: prefetchVisible,
+                    onConversationIntent: prefetchIntent,
                     onVirtual: (item) => {
                       flushAllDirtyDrafts();
                       setCloneSearchTarget(null);

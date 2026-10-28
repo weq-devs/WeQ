@@ -20,6 +20,7 @@
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
 import { toBigint, toStr } from '../msg/util';
 import { QqDb } from '../qq_db';
+import { databaseRequestSignal } from '../query_schedule';
 
 const SELECT_COLUMNS = `"48901","48902","1002"`;
 
@@ -55,6 +56,14 @@ export class UidMappingDb {
     return rows.map(rowToMapping);
   }
 
+  async findByUid(uid: string): Promise<UidMappingRow | undefined> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM nt_uid_mapping_table WHERE "48902"=? AND "48901">0 LIMIT 2`,
+      [uid],
+    );
+    return rows.length === 1 ? rowToMapping(rows[0]!) : undefined;
+  }
+
   /** Drop the cached native connection. Call on account switch / shutdown. */
   close(): void {
     this.qq.close();
@@ -77,14 +86,23 @@ function rowToMapping(row: SqlRow): UidMappingRow {
  * never touches the database. bigint keys are stored as their decimal string.
  */
 export class UidMap {
+  private readonly pending = new Map<string, Promise<bigint | undefined>>();
+  private readonly scopedPending = new WeakMap<
+    AbortSignal,
+    Map<string, Promise<bigint | undefined>>
+  >();
+  constructor(private readonly resolve?: (uid: string) => Promise<UidMappingRow | undefined>) {}
   private readonly uidToSort = new Map<string, bigint>();
   private readonly sortToUid = new Map<string, string>();
   private readonly uidToUin = new Map<string, bigint>();
   private readonly uinToUid = new Map<string, string>();
 
   /** Build a resident map from raw mapping rows. */
-  static from(rows: readonly UidMappingRow[]): UidMap {
-    const map = new UidMap();
+  static from(
+    rows: readonly UidMappingRow[],
+    resolve?: (uid: string) => Promise<UidMappingRow | undefined>,
+  ): UidMap {
+    const map = new UidMap(resolve);
     for (const row of rows) map.add(row);
     return map;
   }
@@ -101,6 +119,30 @@ export class UidMap {
   /** c2c partition number (column 40027) for a peer uid, or undefined if unknown. */
   sortNoByUid(uid: string): bigint | undefined {
     return this.uidToSort.get(uid);
+  }
+
+  /** 账号打开后新出现的会话按需补查小目录，成功后继续走常驻索引映射。 */
+  async resolveSortNo(uid: string): Promise<bigint | undefined> {
+    const known = this.sortNoByUid(uid);
+    if (known !== undefined || !this.resolve) return known;
+    const signal = databaseRequestSignal();
+    let pending = signal ? this.scopedPending.get(signal) : this.pending;
+    if (signal && !pending) {
+      pending = new Map();
+      this.scopedPending.set(signal, pending);
+    }
+    const requests = pending ?? this.pending;
+    let task = requests.get(uid);
+    if (!task) {
+      task = this.resolve(uid)
+        .then((row) => {
+          if (row?.uid === uid && row.sortNo > 0n) this.add(row);
+          return this.sortNoByUid(uid);
+        })
+        .finally(() => requests.delete(uid));
+      requests.set(uid, task);
+    }
+    return task;
   }
 
   /** Peer uid for a sort number, or undefined if unknown. */

@@ -48,3 +48,38 @@ it('取消先于请求、旧取消迟到、双向定位和不同渲染窗口互�
   expect(await reads.run(window(1, 'renderer-b'), read)).toBe(1);
   await expect(reads.run(window(1), read)).rejects.toMatchObject({ name: 'AbortError' });
 });
+it('提升先于订阅到达时也保留交互优先级，旧提升不会复活取消的窗口', async () => {
+  const reads = new MessageReadWindows();
+  const order: string[] = [];
+  let release!: () => void;
+  const running = scheduleDatabase(
+    '/synthetic/promotion-before.db',
+    () =>
+      new Promise<void>((done) => {
+        release = done;
+      }),
+  );
+  reads.promote(window(1));
+  const background = reads.run(
+    window(1, 'other'),
+    () =>
+      scheduleDatabase('/synthetic/promotion-before.db', async () => {
+        order.push('background');
+      }),
+    'background',
+  );
+  const page = reads.run(
+    window(1),
+    () =>
+      scheduleDatabase('/synthetic/promotion-before.db', async () => {
+        order.push('page');
+      }),
+    'background',
+  );
+  release();
+  await Promise.all([running, background, page]);
+  expect(order).toEqual(['page', 'background']);
+  reads.cancel(window(2));
+  reads.promote(window(1));
+  await expect(reads.run(window(2), async () => 1)).rejects.toMatchObject({ name: 'AbortError' });
+});

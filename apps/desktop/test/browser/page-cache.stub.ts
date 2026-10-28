@@ -1,5 +1,7 @@
+import { client as inheritedClient } from './conversation-entry.stub';
+
 export const fixture = { holdHead: false, finish: () => {} };
-export const client = {
+const collectionClient = {
   account: {
     listCollections: {
       async query({ source, offset }: { source: string; offset: number }) {
@@ -38,6 +40,21 @@ export const client = {
     },
   },
 };
-export const trpc = {};
+const base = inheritedClient as { account: object };
+const account = new Proxy(base.account, {
+  get(target, key) {
+    return key === 'listCollections'
+      ? collectionClient.account.listCollections
+      : Reflect.get(target, key);
+  },
+});
+export const client = new Proxy(base, {
+  get(target, key) {
+    return key === 'account' ? account : Reflect.get(target, key);
+  },
+});
+export { trpc } from './conversation-entry.stub';
 export const QqAvatar = () => null;
 export const ProfileAvatar = () => null;
+export const qqAvatarUrl = () =>
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII=';

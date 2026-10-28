@@ -4,6 +4,27 @@ import { decodeElement, ElementType, type MsgCacheRecord } from '@weq/codec';
 import type { GroupMsg } from '@weq/db';
 import { MsgService } from '../src/account/msg';
 import type { AntiRecallService } from '../src/account/anti_recall';
+import { UidMap } from '@weq/db';
+
+it('新私聊先补查分区再读首屏，未索引目标只跳过预取，不影响用户正常读取', async () => {
+  const listLatest = vi.fn(async () => []);
+  const map = UidMap.from([], async (uid) =>
+    uid === 'u_new' ? { uid, sortNo: 17n, uin: 20002n } : undefined,
+  );
+  const service = new MsgService({
+    uidMap: map,
+    c2cMsgs: { listLatest },
+  } as unknown as AccountSession);
+  await service.getC2cLatest('u_new', 50, { skipUnindexed: true });
+  expect(listLatest).toHaveBeenCalledWith({ sortNo: 17n }, 50);
+  listLatest.mockClear();
+  await expect(service.getC2cLatest('u_missing', 50, { skipUnindexed: true })).rejects.toThrow(
+    '跳过',
+  );
+  expect(listLatest).not.toHaveBeenCalled();
+  await service.getC2cLatest('u_missing', 50);
+  expect(listLatest).toHaveBeenCalledWith({ uid: 'u_missing' }, 50);
+});
 
 it('正文可跳过慢引用缓存，但撤回与删除状态仍在首屏；默认读取继续等待完整引用', async () => {
   let release!: (value: Map<bigint, MsgCacheRecord[]>) => void;

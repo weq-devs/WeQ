@@ -5,6 +5,7 @@ import {
   scheduleDatabase,
   waitForDatabaseQuiet,
   withDatabasePriority,
+  promoteDatabaseSignal,
 } from '../src/query_schedule';
 
 afterEach(() => vi.useRealTimers());
@@ -12,6 +13,62 @@ const until = async (condition: () => boolean) => {
   for (let i = 0; i < 100 && !condition(); i++) await new Promise((done) => setTimeout(done, 1));
   expect(condition()).toBe(true);
 };
+
+it('点击提升同一预取的排队与后续 SQL，提升后仍可正确取消', async () => {
+  const path = '/synthetic/promoted.db';
+  const order: string[] = [];
+  let release!: () => void;
+  const blocker = scheduleDatabase(
+    path,
+    () =>
+      new Promise<void>((done) => {
+        release = done;
+      }),
+  );
+  const background = withDatabasePriority('background', () =>
+    scheduleDatabase(path, async () => {
+      order.push('background');
+    }),
+  );
+  const controller = new AbortController();
+  const page = withDatabasePriority(
+    'background',
+    async () => {
+      await scheduleDatabase(path, async () => {
+        order.push('page');
+      });
+      await scheduleDatabase(path, async () => {
+        order.push('state');
+      });
+    },
+    controller.signal,
+  );
+  promoteDatabaseSignal(controller.signal);
+  release();
+  await Promise.all([blocker, background, page]);
+  expect(order).toEqual(['page', 'state', 'background']);
+  let finish!: () => void;
+  const running = scheduleDatabase(
+    path,
+    () =>
+      new Promise<void>((done) => {
+        finish = done;
+      }),
+  );
+  const cancel = new AbortController();
+  const read = vi.fn(async () => 1);
+  const pending = withDatabasePriority(
+    'background',
+    () => scheduleDatabase(path, read),
+    cancel.signal,
+  );
+  const failed = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  promoteDatabaseSignal(cancel.signal);
+  cancel.abort();
+  finish();
+  await Promise.all([running, failed]);
+  expect(read).not.toHaveBeenCalled();
+});
 
 it('同一绑定的多层代理共享调度，独立绑定可模拟 QQ 并发，不与它互相等待', async () => {
   const underlying = {},

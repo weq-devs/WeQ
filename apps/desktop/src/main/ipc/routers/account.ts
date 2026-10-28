@@ -61,7 +61,7 @@ import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
 import { databasePerformance, withDatabasePriority, type DatabasePriority } from '@weq/db';
 import { MessageReadWindows } from '../message_reads';
-import type { MessageReadWindow } from '../../../shared/message_read';
+import type { MessagePageStage, MessageReadWindow } from '../../../shared/message_read';
 import { classifyChatType, ProtoMsg } from '@weq/codec';
 import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
 import { buildShareLocationElements, detectThumbType, type OcrBlock } from '@weq/protocol';
@@ -3123,6 +3123,94 @@ export const accountRouter = router({
     .query(({ input }) =>
       readMessageScope(input, () => fetchLatest(input.kind, input.conv, input.limit, input)),
     ),
+
+  latestPage: procedure
+    .input(
+      messagePageInput.extend({
+        readWindow: messageReadWindowInput,
+        prefetch: z.boolean().default(false),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    )
+    .subscription(({ input }) =>
+      observable<MessagePageStage<ChatMsgWire>>((emit) => {
+        const services = requireExpectedAccount(
+          input.expectedAccountUin,
+          input.expectedAccountConfigId,
+        );
+        let closed = false;
+        let localRows: ChatMsgWire[] | undefined;
+        void readMessageScope(
+          input,
+          async () => {
+            const local =
+              input.kind === 'group'
+                ? services.msgs
+                    .getGroupLatest(input.conv, input.limit, {
+                      deferReplyMedia: true,
+                      skipUnindexed: input.prefetch,
+                    })
+                    .then((rows) => rows.map(groupMsgToWire))
+                : services.msgs
+                    .getC2cLatest(input.conv, input.limit, {
+                      deferReplyMedia: true,
+                      skipUnindexed: input.prefetch,
+                    })
+                    .then((rows) => rows.map(c2cMsgToWire));
+            const cached = services.gapHistory
+              .cachedTimeline(input.kind, input.conv, 1, 0xffffffff, input.limit, true)
+              .catch(() => []);
+            const rows = await local;
+            localRows = rows;
+            if (
+              requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+              services
+            )
+              throw new Error('账号数据源已切换');
+            if (!closed && rows.length) emit.next({ rows, complete: false });
+            return mergeRoamingTimeline(input.kind, rows, (await cached).map(roamingMsgToWire), {
+              min: 1n,
+              max: 0xffffffffn,
+              limit: input.limit,
+              descending: true,
+            });
+          },
+          input.prefetch ? 'background' : 'interactive',
+        )
+          .then((rows) => {
+            if (closed) return;
+            const reuseLocal = Boolean(
+              localRows?.length &&
+                rows.length === localRows.length &&
+                rows.every((row, index) => row === localRows?.[index]),
+            );
+            emit.next(
+              reuseLocal
+                ? { rows: [], complete: true, reuseLocal: true }
+                : { rows, complete: true },
+            );
+            emit.complete();
+          })
+          .catch((error: unknown) => {
+            if (!closed) emit.error(error);
+          });
+        return () => {
+          closed = true;
+          messageWindowsFor(services).cancel(input.readWindow);
+        };
+      }),
+    ),
+
+  promoteMessageRead: procedure
+    .input(exportAccountBindingInput.extend({ readWindow: messageReadWindowInput }))
+    .mutation(({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      messageWindowsFor(services).promote(input.readWindow);
+      return true;
+    }),
 
   cancelMessageRead: procedure
     .input(exportAccountBindingInput.extend({ readWindow: messageReadWindowInput }))
@@ -7911,8 +7999,6 @@ export const accountRouter = router({
    * 当前账号的宽容（salvage）配置 + 降级账本。
    *
    * 账本按时间倒序取最新 50 条；只含 SQL 指纹，不含参数值。
-        expectedAccountUin: z.string().optional(),
-        expectedAccountConfigId: z.string().optional(),
    */
   getDbTolerance: procedure.query((): DbToleranceSnapshot => {
     const ctx = getAppContext();
@@ -7921,7 +8007,6 @@ export const accountRouter = router({
       return { level: 0, grantedAt: null, summary: EMPTY_SALVAGE_SUMMARY, entries: [] };
     const config = tolerance.getConfig();
     return {
-      requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
       level: config.level,
       grantedAt: config.grantedAt ?? null,
       summary: tolerance.summary(),
@@ -7959,8 +8044,6 @@ export const accountRouter = router({
    */
   listSalvageQuarantine: procedure.query((): QuarantinedTable[] => {
     const platform = getAppContext().platform;
-        if (ctx.services !== services)
-          return { success: false, error: '账号已切换，已停止保存转写' };
     if (!platform) return [];
     try {
       return platform.native.ntHelper.listQuarantinedTables();

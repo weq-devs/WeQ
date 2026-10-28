@@ -84,6 +84,7 @@ interface ReplyBearer {
 
 export interface MessagePageOptions {
   deferReplyMedia?: boolean;
+  skipUnindexed?: boolean;
 }
 
 /**
@@ -764,7 +765,10 @@ export class MsgService {
     limit = 50,
     options: MessagePageOptions = {},
   ): Promise<RenderC2cMsg[]> {
-    const msgs = await this.c2cDbFor(targetUid).listLatest(this.c2cPartition(targetUid), limit);
+    const msgs = await this.c2cDbFor(targetUid).listLatest(
+      await this.c2cPagePartition(targetUid, options),
+      limit,
+    );
     if (!options.deferReplyMedia) await this.enrichReplyMedia(msgs, 'c2c');
     const recallMap = await this.recallMapFor('c2c', targetUid, msgs);
     return msgs.map((m) => this.renderC2cWithState(m, recallMap));
@@ -855,7 +859,7 @@ export class MsgService {
     options: MessagePageOptions = {},
   ): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listBefore(
-      this.c2cPartition(targetUid),
+      await this.c2cPagePartition(targetUid),
       beforeSeq,
       limit,
     );
@@ -872,7 +876,7 @@ export class MsgService {
     options: MessagePageOptions = {},
   ): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listAfter(
-      this.c2cPartition(targetUid),
+      await this.c2cPagePartition(targetUid),
       afterSeq,
       limit,
     );
@@ -889,7 +893,7 @@ export class MsgService {
     options: MessagePageOptions = {},
   ): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listFrom(
-      this.c2cPartition(targetUid),
+      await this.c2cPagePartition(targetUid),
       sinceSeq,
       limit,
     );
@@ -1260,6 +1264,22 @@ export class MsgService {
   }
 
   /** Resolve a peer uid to its indexed partition (sortNo), else fall back to uid. */
+  private async c2cPagePartition(
+    targetUid: string,
+    options: MessagePageOptions = {},
+  ): Promise<C2cPartition> {
+    if (!isDatalineUid(targetUid) && this.session.uidMap.sortNoByUid(targetUid) === undefined) {
+      try {
+        await this.session.uidMap.resolveSortNo?.(targetUid);
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') throw error;
+      }
+    }
+    if (options.skipUnindexed && this.session.uidMap.sortNoByUid(targetUid) === undefined)
+      throw new Error('跳过未索引会话的后台预取');
+    return this.c2cPartition(targetUid);
+  }
+
   private c2cPartition(targetUid: string): C2cPartition {
     const sortNo = this.session.uidMap.sortNoByUid(targetUid);
     recordMessagePartition(this.session.msgDbPath, sortNo !== undefined);
