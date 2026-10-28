@@ -1257,3 +1257,85 @@ describe('P2P 打洞握手（0x02 ch=1）', () => {
     expect(ctx.transport.mediaTo(PEER_IP, VideoSubType.max).length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * 禁用 P2P 直连（排障开关）。
+ *
+ * 2026-10-28 实测：P2P 直连上行只有 7.5 fps / 208 kbps，而经服务端中继下发给我们
+ * 的对端流是满 12 fps / 679 kbps —— 直连不一定更快。开关置位后媒体**只能**发
+ * GCS，无论学没学到对端地址。
+ */
+describe('禁用 P2P 直连', () => {
+  function makeNoP2PSession(servers?: CallServer[]) {
+    const timers = new FakeTimers();
+    const transport = new FakeTransport();
+    const session = new CallSession({
+      selfUin: '1707889225',
+      selfUid: 'u_self',
+      peerUin: '2863253201',
+      peerUid: 'u_peer',
+      media: 'video',
+      signaling: fakeSignaling(servers),
+      transport,
+      codec: new FakeCodec(),
+      videoEncoder: new FakeVideoEncoder(1000),
+      disableP2P: true,
+      timers,
+    });
+    return { session, timers, transport };
+  }
+
+  it('媒体只发 GCS，不发给对端直连地址', async () => {
+    const ctx = makeNoP2PSession();
+    await connect(ctx);
+
+    // 模拟服务端下发对端直连端点（正常流程会进 probing，然后双发）。
+    const peerIpv6 = new Uint8Array([
+      0x24, 0x0e, 0x03, 0x99, 0x0f, 0x9d, 0x3f, 0x10, 0x10, 0xf7, 0x4f, 0xc6, 0x9c, 0x33, 0x13,
+      0xf9,
+    ]);
+    const peer = '240e:399:f9d:3f10:10f7:4fc6:9c33:13f9';
+    ctx.transport.reset();
+    ctx.transport.deliver(ctrlPushPacket(peerIpv6, 53498));
+    await ctx.timers.advanceAsync(200);
+
+    // 先确认连通：视频包确实在发（否则「不发对端」是假阴性）。
+    const media = ctx.transport.media(VideoSubType.max);
+    expect(media.length).toBeGreaterThan(0);
+    // 但一条都不该发给对端直连地址 —— 媒体**和**打洞探测都不该出现。
+    // 任何类型都不该发过去：媒体（0x5b）与 P2P 打洞探测（0x02）都要拦住。
+    expect(ctx.transport.sent.filter((s) => s.address === peer)).toHaveLength(0);
+  });
+
+  it('开关关闭时仍会向对端直连地址发包（对照组）', async () => {
+    // 对照组用**同一个**断开开关的会话跑一遍，证明「不发对端」确实是开关造成的，
+    // 而不是这条路径本来就不发。
+    const timers = new FakeTimers();
+    const transport = new FakeTransport();
+    const session = new CallSession({
+      selfUin: '1707889225',
+      selfUid: 'u_self',
+      peerUin: '2863253201',
+      peerUid: 'u_peer',
+      media: 'video',
+      signaling: fakeSignaling(),
+      transport,
+      codec: new FakeCodec(),
+      videoEncoder: new FakeVideoEncoder(1000),
+      timers,
+    });
+    const ctx = { session, timers, transport };
+    await connect(ctx);
+
+    const peerIpv6 = new Uint8Array([
+      0x24, 0x0e, 0x03, 0x99, 0x0f, 0x9d, 0x3f, 0x10, 0x10, 0xf7, 0x4f, 0xc6, 0x9c, 0x33, 0x13,
+      0xf9,
+    ]);
+    const peer = '240e:399:f9d:3f10:10f7:4fc6:9c33:13f9';
+    transport.reset();
+    transport.deliver(ctrlPushPacket(peerIpv6, 53498));
+    await timers.advanceAsync(20);
+    // 既有行为：收到 bt=9 就进 probing，同时向对端发探测/媒体包。
+    expect(transport.sent.filter((s) => s.address === peer).length).toBeGreaterThan(0);
+  });
+});

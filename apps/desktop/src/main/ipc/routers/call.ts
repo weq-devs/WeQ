@@ -89,6 +89,8 @@ export const callRouter = router({
         backgroundUrl: background?.imageUrl,
         backgroundVideoUrl: background?.videoUrl,
         recordingConfig: ctx.bootstrap?.userConfig.getSettings().callRecording,
+        // 排障开关：禁止 P2P、强制走中继（设置 → 通话与录音 → 禁用 P2P 直连）。
+        disableP2P: ctx.bootstrap?.userConfig.getSettings().callDisableP2P === true,
       });
       logger.info('发起通话', { peer: input.peerUin, room: call.roomId });
       return call;
@@ -127,13 +129,50 @@ export const callRouter = router({
   /**
    * 开 / 关本端摄像头。
    *
-   * 只切发送状态并发控制信令；真正的画面要等主进程接上编码器。
+   * 只切发送状态并发控制信令；画面由渲染层采集后推过来。
    */
   setCamera: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
     const manager = findCallManager();
     if (!manager) return { ok: false };
     return { ok: manager.setCamera(input.enabled) };
   }),
+
+  /**
+   * 切换本端画面来源：摄像头 ↔ 屏幕共享。
+   *
+   * **协议层不做区分** —— 屏幕共享与摄像头是同一路主视频流。这里只换编码档位
+   * （摄像头 640×360@300kbps / 共享 1280×720@1.2Mbps）并顺手打开视频发送。
+   * 对端不会收到「这是屏幕共享」的提示，但能看到画面。
+   *
+   * 返回实际生效的档位；渲染层据此决定 `getDisplayMedia` 的采集约束。
+   */
+  setVideoSource: procedure
+    .input(z.object({ source: z.enum(['camera', 'screen']) }))
+    .mutation(async ({ input }) => {
+      const manager = findCallManager();
+      if (!manager) return { ok: false, profile: null };
+      const profile = await manager.setVideoSource(input.source);
+      return { ok: profile !== null, profile };
+    }),
+
+  /**
+   * 渲染层按源的实际宽高比算出采集尺寸后回头重设编码器。
+   *
+   * 共享超宽屏 / 4:3 屏时目标尺寸不是 16:9，编码器必须跟着改 —— 否则
+   * `pushFrame` 的平面长度校验不通过，帧会被静默丢掉（表现：共享了但对方没画面）。
+   */
+  resizeVideo: procedure
+    .input(
+      z.object({
+        width: z.number().int().min(16).max(4096),
+        height: z.number().int().min(16).max(4096),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const manager = findCallManager();
+      if (!manager) return { ok: false };
+      return { ok: await manager.resizeVideo(input.width, input.height) };
+    }),
 
   /**
    * 渲染层推来一帧 I420（摄像头采集）。

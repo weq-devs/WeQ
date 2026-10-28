@@ -21,6 +21,7 @@ import {
   rvValueToJson,
   tryDecodeJce,
   tryDecodeAfterLengthPrefix,
+  tryDecodeAuto,
   detectLengthPrefix,
   detectLengthPrefixes,
   tryDecodeProtobuf,
@@ -331,6 +332,41 @@ describe('reverse 长度前缀自动识别', () => {
     expect(detectLengthPrefix(plain)).toBeNull();
     expect(tryDecodeAfterLengthPrefix(plain)).toBeNull();
     expect(tryDecodeProtobuf(plain)).not.toBeNull();
+  });
+
+  // TXHook / QQHook 导出的 SSO 裸包形如：4 字节大端整包长度前缀 + JCE 正文，
+  // 例如真实抓包开头的 `00 00 10 75 | 10 02 2c 3c 4c 56 …`。
+  // 这种数据**直接**按 JCE 解析也能「成功」——前缀字节被当成普通字段吃进去：
+  //   `00 00` → tag0 = BYTE 0；再读 `10 75` → tag1 = BYTE 0x75。
+  // 于是顶层凭空多出 tag 0，正确字段还出现重复 tag。必须以剥前缀的结果为准。
+  describe('长度前缀 + 正文都能被直接解析时', () => {
+    const PREFIXED_HEX = '00 00 00 06 10 02'; // 前缀 6 = 整包长度（含自身）
+    // 正文只有一个字段：0x10 = tag1 type BYTE，0x02 = 值 2。
+
+    it('直接 JCE 解析会成功，但顶层被前缀字节污染（回归用例）', () => {
+      const direct = tryDecodeJce(HEX(PREFIXED_HEX));
+      expect(direct).not.toBeNull();
+      // 假字段：tag 0 来自长度前缀，且同 tag 重复出现
+      expect(rvNodesToJson(direct!)['0']).toBeDefined();
+      expect(direct!.filter((n) => n.tag === 0)).toHaveLength(2);
+    });
+
+    it('自动解析优先采用剥前缀后的结果，不出现假字段', () => {
+      const hit = tryDecodeAuto(HEX(PREFIXED_HEX), 'jce');
+      expect(hit).not.toBeNull();
+      expect(hit!.kind).toBe('jce');
+      expect(hit!.prefix?.width).toBe(4);
+      expect(hit!.prefix?.declared).toBe('total');
+      expect(rvNodesToJson(hit!.nodes)).toEqual({ '1': 2 });
+    });
+
+    it('无前缀数据仍走直接解析，不返回 prefix', () => {
+      const plain = HEX('10 02');
+      const hit = tryDecodeAuto(plain, 'jce');
+      expect(hit).not.toBeNull();
+      expect(hit!.prefix).toBeUndefined();
+      expect(rvNodesToJson(hit!.nodes)).toEqual({ '1': 2 });
+    });
   });
 
   it('2 / 1 字节前缀也按数值自洽识别，不硬编码 4 字节', () => {

@@ -787,8 +787,8 @@ void app.whenReady().then(async () => {
   registerResourceProtocol();
   registerAvatarProtocol();
   registerMediaProtocol();
-  // Windows：放行通话窗口的 getDisplayMedia，用来录「电脑正在播放的声音」。
-  // 非 Windows 是空操作（Linux 走 parec，macOS 不支持）。
+  // 放行通话窗口的 getDisplayMedia：屏幕共享（所有平台）与 Windows 的
+  // 电脑声音 loopback（Linux 录电脑声音走 parec，不经这条路）。
   installCallDisplayMediaHandler();
   registerWindowLayoutIpc();
   registerMediaIpc();

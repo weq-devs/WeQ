@@ -2,17 +2,18 @@
 /**
  * 输入框工具栏「图文 ark」按钮弹出的**通用 Ark 发送框**。
  *
- * 六个 tab，对应六类卡片：
+ * 五个 tab，对应五类卡片：
  *   1. 推荐好友     → 服务端取卡（0x12b6_0），发一张可点击的好友卡
  *   2. 推荐群       → 服务端取卡（0x8b7_5），发一张可点击的群卡
  *   3. 群报名       → 服务端下发（0x921b_0），标题 + 详情 + 截止时间 / 报名方式 / 图片
- *   4. 位置卡片     → 搜索 / 地图点选 + 手写地名，走 trpc LocationArk.SsoSendMessage
- *   5. 图文 ark     → 服务端下发（0xdc2_34，与群反馈的 GitHub issue/PR 卡片同一条路）
- *   6. 自定义 JSON  → 自己写一段 ark JSON，原样下发（lightApp 元素）
+ *   4. 图文 ark     → 服务端下发（0xdc2_34，与群反馈的 GitHub issue/PR 卡片同一条路）
+ *   5. 自定义 JSON  → 自己写一段 ark JSON，原样下发（lightApp 元素）
+ *
+ * 「位置卡片」原先是这里的第 4 栏，现已与工具栏的位置共享合并成一个位置菜单，
+ * 面板见 locationCardPanel.tsx —— 位置两件事不该分在两个按钮里。
  *
  * 只做前端：面板不 import 任何 trpc / 协议，收齐输入后交回 `onSend(payload)`，
  * 由 chatPane 补上「发给哪个会话」再交给应用层（与 aiVoicePanel / bounceEmojiPanel 同）。
- * 位置那栏要联网（腾讯位置服务），同样由应用层以 `location` 注入进来，面板不碰网络。
  *
  * 样式全走主题 token（--weq-accent-effective / --weq-fg-* / --popover /
  * --im-color-line），主题色与深浅模式自动跟随，见 styles/ark-panel.css。
@@ -30,7 +31,6 @@ import {
   Image as ImageIcon,
   Link2,
   Loader2,
-  MapPin,
   Newspaper,
   RotateCcw,
   Search,
@@ -47,12 +47,10 @@ import {
   ARK_JSON_TEMPLATE,
   buildContactPlaceholderArk,
   buildGroupSignupArkJson,
-  buildLocationArkJson,
   buildTuwenArkJson,
   checkArkJson,
   emptyLinkCardDraft,
   emptySignupDraft,
-  isDecimalCoordinate,
   isHttpUrl,
   LINK_CARD_MAX_DESC_CHARS,
   LINK_CARD_MAX_TITLE_CHARS,
@@ -65,21 +63,18 @@ import {
   SIGNUP_TITLE_MAX_CHARS,
   type ArkContactEntry,
   type ArkContactSource,
-  type ArkLocationProvider,
   type ArkPayload,
   type LinkCardDraft,
   type SignupDraft,
   type SignupMethod,
 } from './arkCards';
-import { ArkLocationTab, emptyLocationDraft, type ArkLocationDraft } from './arkLocationTab';
 
-type ArkTab = 'friend' | 'group' | 'signup' | 'location' | 'tuwen' | 'json';
+type ArkTab = 'friend' | 'group' | 'signup' | 'tuwen' | 'json';
 
 const ARK_TABS: Array<{ id: ArkTab; label: string; icon: typeof UserPlus }> = [
   { id: 'friend', label: '好友', icon: UserPlus },
   { id: 'group', label: '群', icon: Users },
   { id: 'signup', label: '报名', icon: ClipboardList },
-  { id: 'location', label: '位置', icon: MapPin },
   { id: 'tuwen', label: '图文', icon: Newspaper },
   { id: 'json', label: 'JSON', icon: Braces },
 ];
@@ -344,38 +339,6 @@ function ContactSearch({
  *
  * 必填只用一个 `*`，不写「必填 / 可选」那两粒字 —— 面板里能省的字全省掉。
  */
-/**
- * 位置那栏的紧凑预览 —— 不再重复画一张静态地图卡片。
- *
- * 位置 tab 里已经有一张**可交互**的选点地图（~150px）+ 四个字段，底下再叠一张
- * 静态地图卡预览（~200px）纯属重复，还把面板顶得很高、严重挤压输入区。这里只留
- * 一行摘要（地址 · 省市区），高度约 40px；真要确认整卡效果，预览卡本来就是「就是
- * 对方收到的那张」的参考，位置卡片的渲染在气泡里也能看到。
- */
-function LocationPreviewCompact({ draft }: { draft: ArkLocationDraft }) {
-  const address = draft.address.trim();
-  const region = draft.region.trim();
-  const hasSpot = draft.latitude.trim() !== '' && draft.longitude.trim() !== '';
-  const ready = Boolean(address && region && hasSpot);
-  return (
-    <div className={cn('ark-preview', 'is-compact')} aria-live="polite">
-      <div className={cn('ark-loc-preview', !ready && 'is-empty')}>
-        <MapPin size={14} strokeWidth={2.1} />
-        <span className={cn('ark-loc-preview-text')}>
-          {ready ? (
-            <>
-              <strong>{address}</strong>
-              <em>{region}</em>
-            </>
-          ) : (
-            <span className={cn('ark-loc-preview-hint')}>地点名称 · 省市区 · 地图落点</span>
-          )}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 function Field({
   label,
   required,
@@ -419,7 +382,6 @@ export function ArkPanel({
   panelRef,
   disabled,
   disabledHint,
-  location,
   contacts,
   defaultSignupGroupCode,
   onSend,
@@ -429,8 +391,6 @@ export function ArkPanel({
   /** QQ 未在线 / 完全离线等：面板照常填，只是发不出去。 */
   disabled: boolean;
   disabledHint: string;
-  /** 地点搜索 / 逆地址解析能力；不传则位置那栏只有地图与手填。 */
-  location?: ArkLocationProvider;
   /** 好友 / 群候选项（应用层注入）；不传则推荐好友 / 群只能手填号码。 */
   contacts?: ArkContactSource;
   /** 「报名」那栏的默认目标群号（在群聊里打开时预填当前群号）。 */
@@ -451,8 +411,6 @@ export function ArkPanel({
   const [groupId, setGroupId] = useState('');
   // 群报名
   const [signup, setSignup] = useState<SignupDraft>(() => emptySignupDraft(defaultSignupGroupCode));
-  // 位置
-  const [locationDraft, setLocationDraft] = useState<ArkLocationDraft>(emptyLocationDraft);
   // 图文 / JSON
   const [tuwen, setTuwen] = useState<LinkCardDraft>(emptyLinkCardDraft);
   const [rawJson, setRawJson] = useState(ARK_JSON_TEMPLATE);
@@ -462,13 +420,11 @@ export function ArkPanel({
   const signupGroupCode = parsePositiveInt(signup.groupCode);
   const signupMaxCount = parsePositiveInt(signup.maxCount);
   const signupDeadline = useMemo(() => resolveSignupDeadline(signup.deadline), [signup.deadline]);
-  const latOk = isDecimalCoordinate(locationDraft.latitude, 90);
-  const lngOk = isDecimalCoordinate(locationDraft.longitude, 180);
   const jsonCheck = useMemo(() => checkArkJson(rawJson), [rawJson]);
 
   /**
-   * 预览用的 ark JSON —— 五种卡片各给了「现在就发」那把输入对应的那份：
-   * 图文 / 自定义 JSON 就是即将发出去的那段 JSON，推荐好友 / 群与位置卡片也是发送时
+   * 预览用的 ark JSON —— 每种卡片各给了「现在就发」那把输入对应的那份：
+   * 图文 / 自定义 JSON 就是即将发出去的那段 JSON，推荐好友 / 群与群报名也是发送时
    * 用的那一份（前者是本地占位卡，后者与乐观卡片同一份）。还拼不出卡时给 null，
    * 预览位显示空态（不会一敲字就抽得整个面板跳一下）。
    */
@@ -484,28 +440,11 @@ export function ArkPanel({
       if (signupGroupCode === null || !signup.title.trim() || !signup.detail.trim()) return null;
       return buildGroupSignupArkJson(signup);
     }
-    if (tab === 'location') {
-      const hasSpot = latOk && lngOk;
-      return hasSpot || locationDraft.address.trim() || locationDraft.region.trim()
-        ? buildLocationArkJson(locationDraft)
-        : null;
-    }
     if (tab === 'tuwen') {
       return tuwen.title.trim() || tuwen.jumpUrl.trim() ? buildTuwenArkJson(tuwen) : null;
     }
     return jsonCheck.ok ? jsonCheck.pretty : null;
-  }, [
-    tab,
-    friendContactId,
-    groupContactId,
-    signupGroupCode,
-    signup,
-    latOk,
-    lngOk,
-    locationDraft,
-    tuwen,
-    jsonCheck,
-  ]);
+  }, [tab, friendContactId, groupContactId, signupGroupCode, signup, tuwen, jsonCheck]);
 
   const problems = {
     friend: friendContactId === null ? '需要 QQ 号（纯数字）' : null,
@@ -524,13 +463,6 @@ export function ArkPanel({
                 : !signupDeadline.ok
                   ? signupDeadline.error
                   : null,
-    location: !locationDraft.address.trim()
-      ? '需要地址'
-      : !locationDraft.region.trim()
-        ? '需要省市区'
-        : !latOk || !lngOk
-          ? '需要在地图上点选位置（或填合法经纬度）'
-          : null,
     tuwen: !isHttpUrl(tuwen.jumpUrl)
       ? '链接需要 http/https 开头'
       : !tuwen.title.trim()
@@ -557,8 +489,6 @@ export function ArkPanel({
       setGroupId('');
     } else if (tab === 'signup') {
       setSignup(emptySignupDraft(defaultSignupGroupCode));
-    } else if (tab === 'location') {
-      setLocationDraft(emptyLocationDraft());
     } else if (tab === 'tuwen') {
       setTuwen(emptyLinkCardDraft());
     } else {
@@ -596,14 +526,6 @@ export function ArkPanel({
           ...(signup.method === 'image' && signup.imageUrl.trim()
             ? { imageUrl: signup.imageUrl.trim() }
             : {}),
-        };
-      case 'location':
-        return {
-          type: 'location',
-          address: locationDraft.address.trim(),
-          region: locationDraft.region.trim(),
-          latitude: locationDraft.latitude.trim(),
-          longitude: locationDraft.longitude.trim(),
         };
       case 'tuwen':
         // 图文**不再**自己拼 ark JSON 当 lightApp 发（那条路必然失败），改走服务端下发：
@@ -881,15 +803,6 @@ export function ArkPanel({
           </>
         ) : null}
 
-        {tab === 'location' ? (
-          <ArkLocationTab
-            value={locationDraft}
-            onChange={(patch) => setLocationDraft((current) => ({ ...current, ...patch }))}
-            provider={location}
-            disabled={sending}
-          />
-        ) : null}
-
         {tab === 'tuwen' ? (
           <>
             <Field
@@ -985,14 +898,8 @@ export function ArkPanel({
         ) : null}
       </form>
 
-      {/* 四种卡片给一张真卡预览（画法与气泡里同一套：QqArk）。位置那栏例外 ——
-          它自己就是一张可交互地图，再叠一张静态地图卡预览只会把面板顶高、挤压输入区，
-          所以改用一行紧凑摘要（见 LocationPreviewCompact）。 */}
-      {tab === 'location' ? (
-        <LocationPreviewCompact draft={locationDraft} />
-      ) : (
-        <ArkPreview arkData={previewArk} />
-      )}
+      {/* 四种卡片给一张真卡预览（画法与气泡里同一套：QqArk）。 */}
+      <ArkPreview arkData={previewArk} />
 
       <footer className={cn('ark-foot')}>
         <span className={cn('ark-foot-hint', (error || shownProblem) && 'is-error')}>

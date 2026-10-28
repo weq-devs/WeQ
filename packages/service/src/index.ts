@@ -731,6 +731,20 @@ export {
   getGroupAlbumUploadPermission,
   setQzoneLike,
   commentQzoneMsg,
+  getQzonePublicCapabilities,
+  getQzonePublicFeeds,
+  getQzonePublicFeedDetail,
+  getQzonePublicComments,
+  getQzonePublicReplies,
+  setQzonePublicUpvote,
+  setQzonePublicLike,
+  setQzonePublicCommentLike,
+  setQzonePublicFollow,
+  commentQzonePublic,
+  replyQzonePublic,
+  deleteQzonePublicComment,
+  deleteQzonePublicReply,
+  forwardQzonePublicFeed,
 } from './account/web';
 export type {
   GroupNotice,
@@ -753,6 +767,12 @@ export type {
   FriendMark,
   FriendMarkLevel,
   RawVipUserInfo,
+  QzonePublicFeed,
+  QzonePublicComment,
+  QzonePublicContent,
+  QzonePublicFeedsPage,
+  QzonePublicJson,
+  QzonePublicUser,
 } from './account/web';
 
 // ---- account protocol services (oidb/trpc packets) ----

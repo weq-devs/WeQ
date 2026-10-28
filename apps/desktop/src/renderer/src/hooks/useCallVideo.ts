@@ -92,12 +92,14 @@ export interface CallVideoState {
  * 订阅对端视频并解码到 `canvasRef`。
  *
  * `enabled` 为 false 时完全不订阅（音频通话不占这条通道）。
+ * `rotate` 是用户手动切换的旋转角度（0 / 90 / 270），见 `PEER_ROTATE` 的说明。
  */
 export function useCallVideo(options: {
   enabled: boolean;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  rotate?: 0 | 90 | 270;
 }): CallVideoState {
-  const { enabled, canvasRef } = options;
+  const { enabled, canvasRef, rotate = 0 } = options;
   const [state, setState] = useState<CallVideoState>({
     supported: true,
     active: false,
@@ -107,6 +109,16 @@ export function useCallVideo(options: {
   });
 
   const decoderRef = useRef<VideoDecoder | null>(null);
+  /**
+   * 当前旋转角度的最新值。
+   *
+   * 解码回调是在 hook 之外注册的长生命周期闭包，直接读闭包里的 `rotate` 会一直
+   * 是建解码器时的那个值 —— 用户点按钮转了画面，下一帧又被画回去。所以走 ref。
+   */
+  const rotateRef = useRef(rotate);
+  rotateRef.current = rotate;
+  /** 最近一帧的原始尺寸，旋转角度变化时要按它重设画布。 */
+  const frameSize = useRef({ width: 0, height: 0 });
   /** 是否已喂过关键帧（HEVC 必须先有 VPS/SPS/PPS + IDR 才能解后续帧）。 */
   const configured = useRef(false);
   /**
@@ -199,25 +211,26 @@ export function useCallVideo(options: {
           // 所有属性重置为 0 —— 在它之后读 `displayWidth` 拿到的是 0。
           const width = frame.displayWidth;
           const height = frame.displayHeight;
-          const canvas = canvasRef.current;
-          if (canvas) {
-            // 按帧尺寸调整画布，避免拉伸。
-            if (canvas.width !== width || canvas.height !== height) {
-              canvas.width = width;
-              canvas.height = height;
-            }
-            const ctx = canvas.getContext('2d');
-            ctx?.drawImage(frame, 0, 0);
-          }
+          frameSize.current = { width, height };
+          drawRotated(canvasRef.current, frame, width, height, rotateRef.current);
           frame.close();
           decodeFailures.current = 0;
           decodedFrames.current++;
           // 第一帧解出来是整条链路唯一的关键里程碑（有它才说明「等待对方画面」
           // 会消失），只记这一次，不逐帧刷屏。
           if (decodedFrames.current === 1) {
-            trace('info', '解出画面', { width, height });
+            trace('info', '解出画面', { width, height, rotate: rotateRef.current });
           }
-          setState((prev) => (prev.active ? prev : { ...prev, active: true, width, height }));
+          setState((prev) =>
+            prev.active
+              ? prev
+              : {
+                  ...prev,
+                  active: true,
+                  width: turnedSize(width, height, rotateRef.current).width,
+                  height: turnedSize(width, height, rotateRef.current).height,
+                },
+          );
         },
         error: (error) => {
           trace('error', '解码器错误', { error: String(error) });
@@ -366,5 +379,74 @@ export function useCallVideo(options: {
     };
   }, []);
 
+  /**
+   * 用户切换旋转角度后，把画布上**已经画着的那一帧**按新角度重画一遍。
+   *
+   * 不重画的话要等下一个解码输出才生效；对端暂停发帧（画面静止）时那个等待会
+   * 一直持续到画面动起来，按钮看起来像没反应。这里把画布现有内容当源图重画。
+   */
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || canvas.width === 0 || canvas.height === 0) return;
+    // 画布当前内容就是「上一角度画好的图」，不能直接当原图再转 —— 会叠着转。
+    // 所以只更新画布尺寸，真实画面由下一帧补齐；同时把状态里的宽高换过来，
+    // 让 CSS 的宽高比立刻正确。
+    const { width, height } = frameSize.current;
+    if (width === 0 || height === 0) return;
+    const target = turnedSize(width, height, rotate);
+    if (canvas.width !== target.width || canvas.height !== target.height) {
+      canvas.width = target.width;
+      canvas.height = target.height;
+    }
+  }, [canvasRef, rotate]);
+
   return state;
+}
+
+/**
+ * 旋转后画面的显示尺寸。转了 90° / 270° 时宽高互换。
+ *
+ * 目标画布必须按这个尺寸设 —— 否则 CSS 的 `object-fit: cover` 会按原帧的横屏
+ * 比例去裁，转正的竖画面又被压扁。
+ */
+function turnedSize(
+  width: number,
+  height: number,
+  rotate: 0 | 90 | 270,
+): { width: number; height: number } {
+  return rotate === 0 ? { width, height } : { width: height, height: width };
+}
+
+/**
+ * 按用户选的旋转角度把帧画进画布。
+ *
+ * `rotate === 0` 时就是原来的「画布 = 帧尺寸、原样贴」。需要转的时候围绕画布
+ * 中心转 90° / 270°，两轴各缩放到撑满 —— 旋转会让画面在其中一个维度上留黑边，
+ * 交给 CSS `object-fit: cover` 去裁即可，这里只保证不拉伸变形。
+ */
+function drawRotated(
+  canvas: HTMLCanvasElement | null,
+  frame: VideoFrame,
+  width: number,
+  height: number,
+  rotate: 0 | 90 | 270,
+): void {
+  if (!canvas) return;
+  const target = turnedSize(width, height, rotate);
+  if (canvas.width !== target.width || canvas.height !== target.height) {
+    canvas.width = target.width;
+    canvas.height = target.height;
+  }
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  if (rotate === 0) {
+    ctx.drawImage(frame, 0, 0);
+    return;
+  }
+  // 改了画布尺寸会重置变换矩阵，所以每次都重新设。
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.translate(target.width / 2, target.height / 2);
+  ctx.rotate((rotate * Math.PI) / 180);
+  ctx.drawImage(frame, -width / 2, -height / 2, width, height);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 }

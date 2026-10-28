@@ -210,6 +210,43 @@
   content: '';
 }
 
+/**
+ * 屏幕共享时的本端画面。
+ *
+ * 与摄像头不同：**不裁剪、不镜像**。共享的是桌面，`object-fit: cover` 会把边缘的
+ * 任务栏 / 侧栏切掉，用户会以为自己那块没发过去；`contain` 加底色才诚实。
+ */
+.weq-call-self-video[data-source='screen'] canvas {
+  object-fit: contain;
+  background: #000;
+}
+
+/* 屏幕共享时画中画要够大才看得清（96px 宽的桌面缩略图没有信息量）。 */
+.weq-call-self-video[data-source='screen']:not(.is-full) {
+  width: 190px;
+}
+
+/* 「正在共享屏幕」角标。用主题色，跟随设置里的主题色变化。 */
+.weq-call-self-badge {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  z-index: 1;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, #000 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+}
+
+html[data-theme='dark'] .weq-call-self-badge {
+  background: color-mix(in srgb, #000 68%, transparent);
+}
+
 /* ── 控件栏与抽屉在视频布局下的底衬 ──
  *
  * 卡片背景是纯黑，控件本身已有自己的底色；这里只补一层柔和渐变，

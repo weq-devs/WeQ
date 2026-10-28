@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { client } from '../trpc/client';
 
 let activeReads = 0;
@@ -21,14 +21,20 @@ function queueRead<T>(work: () => Promise<T>, background: boolean): Promise<T> {
   });
 }
 
-/** Bound queued reads to their mounted pane and propagate cancellation to main. */
-export function useQzoneRequests() {
+/**
+ * Bound queued reads to their mounted pane and propagate cancellation to main.
+ *
+ * `scope` 选主进程里哪个路由持有这些 requestId：旧空间 cgi 在 `qzone`，
+ * 空友爱看（h5 gotrpc）在 `qzonePublic`，两边各有一张 pending 表，不能混着取消。
+ */
+export function useQzoneRequests(scope: 'qzone' | 'qzonePublic' = 'qzone') {
   const ids = useRef(new Set<string>());
   const cancel = useCallback(() => {
-    for (const requestId of ids.current)
-      void client.account.qzone.cancel.mutate({ requestId }).catch(() => {});
+    const cancelRoute =
+      scope === 'qzonePublic' ? client.account.qzonePublic.cancel : client.account.qzone.cancel;
+    for (const requestId of ids.current) void cancelRoute.mutate({ requestId }).catch(() => {});
     ids.current.clear();
-  }, []);
+  }, [scope]);
   useEffect(() => cancel, [cancel]);
   const run = useCallback(
     async <T>(work: (requestId: string) => Promise<T>, background = false): Promise<T> => {
@@ -45,5 +51,7 @@ export function useQzoneRequests() {
     },
     [],
   );
-  return { run, cancel };
+  // 返回值必须稳定：调用方会把整个对象放进 effect 依赖数组，每次渲染新对象
+  // 会让 effect 反复重跑（进而无限发请求）。
+  return useMemo(() => ({ run, cancel }), [run, cancel]);
 }

@@ -17,6 +17,8 @@ export {
   swapFontId16,
   deflatePayload,
   isSendMediaElement,
+  isSendUploadElement,
+  flashPhotoNeedsUpload,
   FLASH_PHOTO_FALLBACK_TEXT,
 } from './send-elements';
 export type {

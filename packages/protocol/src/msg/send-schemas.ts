@@ -312,8 +312,8 @@ export const FLASH_PHOTO_PB_RESERVE: ProtoMessage = message([
  * 闪照 pbElem 里的老式图片记录 —— 字段编号沿用收侧 {@link NOT_ONLINE_IMAGE}
  * （`./schemas`），只有 `original`(13) 必须显式写 0，所以在这里单独声明一份。
  *
- * 抓包实测（同一张 1920×1437 的 jpg）：`picHeight`(8) = 1920、`picWidth`(9) = 1437
- * —— 这个旧结构里 **tag 8 装的是宽、tag 9 是高**（与收侧字段名相反）。本 schema
+ * 抓包实测（2026-10-28，864×1920 的 jpg）：`picHeight`(8) = 1920、`picWidth`(9) = 864
+ * —— 这个旧结构里 **tag 8 装的是高、tag 9 是宽**（与收侧字段名一致）。本 schema
  * 照抄抓包，不做换算；调用方按 tag 语义给值即可（见 `SendFlashPhotoPic`）。
  */
 export const FLASH_PHOTO_PIC: ProtoMessage = message([

@@ -166,6 +166,9 @@ export function unpackHighwayFrame(frame: Uint8Array): { head: Uint8Array; body:
 /**
  * 每块的请求头。`serviceTicket` 必须是会话的 sig_session；`md5` 是本块 md5、
  * `fileMd5` 是整文件 md5（服务端据此把块拼起来）。
+ *
+ * `appId` / `seq` 默认是 NTV2 富媒体那套（1600001604 / 0），老图片通道
+ * （`PicUp.DataUp`，见 `./legacy-image-upload`）用的是 16 / 随机序号，所以做成可选覆盖。
  */
 export function buildHighwayHead(params: {
   uin: string;
@@ -178,15 +181,17 @@ export function buildHighwayHead(params: {
   sigSession: Uint8Array;
   extend: Uint8Array;
   retryTimes?: number;
+  appId?: number;
+  seq?: number;
 }): Uint8Array {
   return encode(REQ_DATA_HIGHWAY_HEAD, {
     msgBaseHead: {
       version: 1,
       uin: params.uin,
       command: 'PicUp.DataUp',
-      seq: 0,
+      seq: params.seq ?? 0,
       retryTimes: params.retryTimes ?? 0,
-      appId: HIGHWAY_APP_ID,
+      appId: params.appId ?? HIGHWAY_APP_ID,
       dataFlag: 16,
       commandId: params.commandId,
     },
@@ -205,7 +210,7 @@ export function buildHighwayHead(params: {
     },
     bytesReqExtendInfo: params.extend,
     timestamp: 0,
-    msgLoginSigHead: { loginSigType: 8, appId: HIGHWAY_APP_ID },
+    msgLoginSigHead: { loginSigType: 8, appId: params.appId ?? HIGHWAY_APP_ID },
   });
 }
 
@@ -439,8 +444,12 @@ export interface HighwayUploadParams {
   source: ChunkSource;
   /** 整文件 md5。 */
   fileMd5: Uint8Array;
-  /** `buildHighwayExtend` 的产物。 */
+  /** `buildHighwayExtend` 的产物；老图片通道传空数组（抓包没有 extend）。 */
   extend: Uint8Array;
+  /** 覆盖 `msgBaseHead.appId` / `msgLoginSigHead.appId`（老图片通道用 16）。 */
+  appId?: number;
+  /** 覆盖 `msgBaseHead.seq`（老图片通道是随机序号，NTV2 固定 0）。 */
+  seq?: number;
   /** 可选日志钩子（默认静默）。 */
   log?: (message: string) => void;
 }
@@ -455,7 +464,7 @@ function md5Of(bytes: Uint8Array): Uint8Array {
 }
 
 export async function uploadHighwayHttp(params: HighwayUploadParams): Promise<void> {
-  const { session, uin, commandId, source, fileMd5, extend, log } = params;
+  const { session, uin, commandId, source, fileMd5, extend, log, appId, seq } = params;
   const path = `/cgi-bin/httpconn?htcmd=0x6FF0087&uin=${uin}`;
   const totalSize = source.size;
 
@@ -484,6 +493,8 @@ export async function uploadHighwayHttp(params: HighwayUploadParams): Promise<vo
           offset,
           length: chunkSize,
           chunkMd5,
+          ...(appId !== undefined ? { appId } : {}),
+          ...(seq !== undefined ? { seq } : {}),
           fileMd5,
           sigSession: session.sigSession,
           extend,

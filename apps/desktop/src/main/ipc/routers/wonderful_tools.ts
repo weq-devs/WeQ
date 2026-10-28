@@ -29,12 +29,7 @@ import { connectLongTermAuthorization } from '../../authorization/client';
 import { open as openFile, writeFile } from 'node:fs/promises';
 import { observable } from '@trpc/server/observable';
 import { readSipEnabled, type KeyScanProgress, type KeyScanResult } from '@weq/native';
-import {
-  rvNodesToJson,
-  tryDecodeAfterLengthPrefix,
-  tryDecodeJce,
-  tryDecodeProtobuf,
-} from '@weq/codec/raw';
+import { rvNodesToJson, tryDecodeAuto } from '@weq/codec/raw';
 import {
   fetchOtherDeviceDatabaseKey,
   getHost,
@@ -141,19 +136,13 @@ function humanizeKeyFetchError(error: string): string {
   return error;
 }
 
-/** 用 `@weq/codec/raw` 把正文按 protobuf → JCE → 去长度前缀的顺序解析成 JSON 树。 */
+/** 用 `@weq/codec/raw` 把正文按「去长度前缀 → protobuf → JCE」解析成 JSON 树。 */
 function decodeCaptureBody(bytes: Uint8Array): {
   kind: 'protobuf' | 'jce';
   json: ReturnType<typeof rvNodesToJson>;
 } | null {
-  if (bytes.length === 0) return null;
-  const proto = tryDecodeProtobuf(bytes);
-  if (proto) return { kind: 'protobuf', json: rvNodesToJson(proto) };
-  const jce = tryDecodeJce(bytes);
-  if (jce) return { kind: 'jce', json: rvNodesToJson(jce) };
-  const stripped = tryDecodeAfterLengthPrefix(bytes);
-  if (stripped) return { kind: stripped.kind, json: rvNodesToJson(stripped.nodes) };
-  return null;
+  const hit = tryDecodeAuto(bytes);
+  return hit ? { kind: hit.kind, json: rvNodesToJson(hit.nodes) } : null;
 }
 
 /** 加密类型文案（native：0 = 不加密，1 = d2key，2 = 全零 key）。 */
