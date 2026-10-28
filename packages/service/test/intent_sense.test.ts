@@ -309,6 +309,46 @@ describe('IntentSenseService', () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it('画像 API 默认等待 300 秒，保存与重开后不被旧上限截断', async () => {
+    const timeoutSeconds = 300;
+    const session = makeSession([textMsg(1n, 'u_peer', '合成样本', 1000)]);
+    const options = {
+      resolveEndpoint: () => ({
+        baseUrl: 'https://synthetic.invalid',
+        apiKey: 'synthetic',
+        model: 'profile-model',
+      }),
+    };
+    const svc = new IntentSenseService(session, dir, options);
+    expect(svc.getStatus().profileApiTimeoutSeconds).toBe(timeoutSeconds);
+    await svc.setConfig({
+      profileEnabled: true,
+      profileEngine: 'api',
+      profileProviderRef: { providerId: 'profile', model: 'profile-model' },
+      profileMinSamples: 1,
+      profileApiTimeoutSeconds: timeoutSeconds,
+    });
+    const reopened = new IntentSenseService(session, dir, options);
+    expect(reopened.getStatus().profileApiTimeoutSeconds).toBe(timeoutSeconds);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          choices: [
+            { message: { content: '{"emotions":[{"index":0,"sentiment":60,"intensity":50}]}' } },
+          ],
+        }),
+      ),
+    );
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      expect(await reopened.getProfile('u_peer')).toMatchObject({ analyzedSamples: 1 });
+      expect(timeout).toHaveBeenCalledWith(timeoutSeconds * 1000);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
   it('本地画像选择独立资源，不调用意图分析端口', async () => {
     const analyze = vi.fn(async () => ({
       intent: 'chat' as const,

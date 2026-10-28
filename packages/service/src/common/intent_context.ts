@@ -65,9 +65,9 @@ export const INTENT_TUNING = {
   profileApiTimeoutSeconds: {
     group: 'profile',
     label: '画像 API 请求超时（秒）',
-    default: 30,
+    default: 300,
     min: 5,
-    max: 120,
+    max: 300,
   },
   profileApiCooldownSeconds: {
     group: 'profile',
