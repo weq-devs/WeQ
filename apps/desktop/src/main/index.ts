@@ -78,6 +78,7 @@ import { registerAppQuitConfirmation, type QuitChoice } from './app_quit_confirm
 import { createRendererRecovery } from './renderer_recovery';
 import { registerRendererRecoveryIpc } from './renderer_recovery_ipc';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
+import { databaseCheckups } from './db_checkup';
 import { macApplicationMenu, nativeMenuLabels } from './application_menu';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
 import { registerCallVideoIpc } from './call_video_ipc';
@@ -932,6 +933,7 @@ if (hasSingleInstanceLock) {
     app,
     async () => {
       await Promise.all([
+        databaseCheckups.cancelAll(),
         assistantResourceServer.shutdown(),
         getAppContext().services?.unreadInfo.dispose(),
       ]);
@@ -949,6 +951,7 @@ if (hasSingleInstanceLock) {
 // 账号没有显式关闭时，也释放本轮 Web、Remote、MCP 与提权辅助进程。
 app.on('will-quit', (event) => {
   if (event.defaultPrevented) return;
+  void databaseCheckups.cancelAll();
   if (hasSingleInstanceLock) {
     try {
       const ctx = getAppContext();
