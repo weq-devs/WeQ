@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { Check, ExternalLink, Heart, Sparkles } from 'lucide-react';
 import { QqArk } from '../../src/renderer/src/components/ark/QqArk';
 import { GrayTipXmlMessage } from '../../src/renderer/src/components/GrayTipXmlMessage';
+import { ReplyJumpContext } from '../../src/renderer/src/components/QqMessageContent';
 import { GrayTipFileRecvMessage } from '../../src/renderer/src/components/GrayTipFileRecvMessage';
 import { ExternalSiteView } from '../../src/renderer/src/views/ExternalSiteView';
 import {
@@ -97,14 +98,21 @@ function Fixture() {
               <span>亲近 60</span>
             </button>
           </div>
-          <GrayTipXmlMessage
-            element={{
-              type: 'grayTipXml',
-              data: {
-                grayTipXmlContent: '<gtip><nor txt="系统提示 "/><url txt="查看详情"/></gtip>',
-              },
+          <ReplyJumpContext.Provider
+            value={(target) => {
+              window.dispatchEvent(new CustomEvent('graytip-jump', { detail: target }));
             }}
-          />
+          >
+            <GrayTipXmlMessage
+              element={{
+                type: 'grayTipXml',
+                data: {
+                  grayTipXmlContent:
+                    '<gtip><nor txt="回应了你的"/><url jp="" msgseq="63954" col="3" txt="消息:"/><face type="1" id="424"/></gtip>',
+                },
+              }}
+            />
+          </ReplyJumpContext.Provider>
           <GrayTipFileRecvMessage
             element={{
               type: 'grayTipFileRecv',

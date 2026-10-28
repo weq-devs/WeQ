@@ -1,10 +1,12 @@
-import { useMemo } from 'react';
+import { useContext, useMemo } from 'react';
 import type { Conversation, GroupMember, Message, User } from '../im-template/template/types';
 import { DOMParser, type Node } from '@xmldom/xmldom';
 import { displayUserName } from '../im-template/template/user';
 import { FaceEmoji } from './FaceEmoji';
 import { GrayTipPerson } from './GrayTipPerson';
 import { createGrayTipPersonKey } from '../lib/grayTipProfile';
+import { ReplyJumpContext } from './QqMessageContent';
+import '../styles/gray-tip-message.css';
 
 interface GrayTipXmlMessageProps {
   element: {
@@ -41,6 +43,7 @@ export function GrayTipXmlMessage({
   user,
 }: GrayTipXmlMessageProps) {
   const { grayTipXmlContent } = element.data || {};
+  const jumpToMessage = useContext(ReplyJumpContext);
 
   const content = useMemo(() => {
     if (!grayTipXmlContent) return null;
@@ -61,6 +64,7 @@ export function GrayTipXmlMessage({
     }
 
     const personKey = createGrayTipPersonKey();
+    const messageLinks = new Map<string, number>();
     const nodes = Array.from(gtip.childNodes).map((node, index) => {
       if (node.nodeName === 'qq') {
         const uin = getNodeValue(node, 'uin');
@@ -86,10 +90,30 @@ export function GrayTipXmlMessage({
         return <span key={index}>{getNodeValue(node, 'txt') || getNodeText(node)}</span>;
       }
       if (node.nodeName === 'url') {
+        const seq = getNodeValue(node, 'msgseq');
+        const text = getNodeValue(node, 'txt') || getNodeText(node);
+        if (/^\d+$/.test(seq) && BigInt(seq) > 0n) {
+          const occurrence = messageLinks.get(seq) ?? 0;
+          messageLinks.set(seq, occurrence + 1);
+          return (
+            <button
+              key={`message-${seq}-${occurrence}`}
+              type="button"
+              className="weq-graytip-accent weq-graytip-message-link"
+              title="跳转到原消息"
+              onClick={(event) => {
+                event.stopPropagation();
+                jumpToMessage({ seq });
+              }}
+            >
+              {text}
+            </button>
+          );
+        }
         return (
           // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
           <span key={index} className="weq-graytip-accent">
-            {getNodeValue(node, 'txt') || getNodeText(node)}
+            {text}
           </span>
         );
       }
@@ -109,7 +133,7 @@ export function GrayTipXmlMessage({
     });
 
     return <div className="weq-graytip text-center text-xs py-2">{nodes}</div>;
-  }, [grayTipXmlContent, conversation, message, user]);
+  }, [grayTipXmlContent, conversation, message, user, jumpToMessage]);
 
   return content;
 }

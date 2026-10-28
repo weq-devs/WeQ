@@ -51,6 +51,18 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/style-consistency.html`,
   );
   await page.waitForSelector('.weq-ark-security');
+  await page.evaluate(() => {
+    window.grayTipJumps = [];
+    window.addEventListener('graytip-jump', (event) => window.grayTipJumps.push(event.detail));
+  });
+  const messageLink = page.getByRole('button', { name: '消息:' });
+  await messageLink.click();
+  await messageLink.focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Space');
+  const jumps = await page.evaluate(() => window.grayTipJumps);
+  if (jumps.length !== 3 || jumps.some((target) => target.seq !== '63954'))
+    throw new Error('灰条消息点击、Enter 或空格未跳转到目标序号');
   if (output) await mkdir(output, { recursive: true });
   const failures = [];
   const results = [];
@@ -125,6 +137,10 @@ try {
           [...document.querySelectorAll('.weq-graytip-accent')].every(
             (node) => pixel(getComputedStyle(node).color) === token('--weq-accent-ink'),
           ),
+        grayTipMessage:
+          css('.weq-graytip-message-link').backgroundColor === 'rgba(0, 0, 0, 0)' &&
+          css('.weq-graytip-message-link').fontSize === css('.weq-graytip').fontSize &&
+          css('.weq-graytip-message-link').cursor === 'pointer',
         externalAccent: bg('.weq-extsite-btn') === token('--weq-accent-solid'),
         externalContrast:
           window.styleConsistency.contrastRatio(

@@ -1,0 +1,20 @@
+.weq-graytip-message-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  font: inherit;
+  vertical-align: baseline;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.weq-graytip-message-link:hover {
+  text-decoration: underline;
+}
+
+.weq-graytip-message-link:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
