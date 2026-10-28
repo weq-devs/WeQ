@@ -52,7 +52,7 @@ node apps/desktop/test/browser/run-style-consistency.mjs
 脚本结束后会关闭自己创建的浏览器和测试服务，不使用真实 QQ 数据。
 
 组件风格与独立密度使用 `node apps/desktop/test/browser/run-component-appearance.mjs`，
-覆盖六套风格、两种密度、深浅色、六种背景和桌面／窄屏，以及键盘选择、刷新恢复、
+覆盖简约／复古两套风格、两种密度、深浅色、六种背景和桌面／窄屏，检查两套实际控件的形态差异，以及键盘选择、刷新恢复、
 跟随系统和真实会话虚拟列表行高。Playwright 与浏览器路径沿用上述变量，
 截图目录由 `WEQ_APPEARANCE_ARTIFACTS` 指定。
 

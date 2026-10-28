@@ -53,6 +53,8 @@ try {
   const output = process.env.WEQ_APPEARANCE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   const failures = [];
+  if (styles.map((style) => style.value).join(',') !== 'minimal,retro')
+    failures.push('风格选项必须只有简约、复古');
   let cases = 0;
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 920 });
@@ -98,6 +100,24 @@ try {
                 const rowRect = row.getBoundingClientRect();
                 const preview = `[data-component-preview="${value}"]`;
                 const primary = css('.weq-set-btn');
+                const compositeBackground = (selector) => {
+                  const nodes = [];
+                  for (let node = document.querySelector(selector); node; node = node.parentElement)
+                    nodes.unshift(node);
+                  const ctx = document.createElement('canvas').getContext('2d');
+                  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(
+                    '--weq-bg-surface',
+                  );
+                  ctx.fillRect(0, 0, 1, 1);
+                  for (const node of nodes) {
+                    ctx.fillStyle = getComputedStyle(node).backgroundColor;
+                    ctx.fillRect(0, 0, 1, 1);
+                  }
+                  return `#${[...ctx.getImageData(0, 0, 1, 1).data]
+                    .slice(0, 3)
+                    .map((v) => v.toString(16).padStart(2, '0'))
+                    .join('')}`;
+                };
                 const pixel = (color) => {
                   const ctx = document.createElement('canvas').getContext('2d');
                   ctx.fillStyle = color;
@@ -124,27 +144,42 @@ try {
                     row.getBoundingClientRect().height ===
                     (density === 'compact' ? (width <= 720 ? 64 : 54) : width <= 760 ? 76 : 62),
                   previewGeometry:
-                    value === 'classic' ||
                     css('.weq-input').borderRadius ===
-                      css(`${preview} .weq-style-preview-input`).borderRadius,
+                    css(`${preview} .weq-style-preview-input`).borderRadius,
                   toggleGeometry:
-                    value === 'classic' ||
                     css('.weq-set-toggle-track').borderRadius ===
-                      css(`${preview} .weq-style-preview-toggle`).borderRadius,
+                    css(`${preview} .weq-style-preview-toggle`).borderRadius,
                   primaryContrast:
                     window.appearanceQa.contrastRatio(
                       pixel(primary.color),
-                      pixel(primary.backgroundColor),
+                      compositeBackground('.weq-set-btn'),
                     ) >= 4.5,
+                  selectionContrast:
+                    window.appearanceQa.contrastRatio(
+                      pixel(css('.conversation-row.active .row-main strong').color),
+                      compositeBackground('.conversation-row.active'),
+                    ) >= 4.5,
+                  minimalContract:
+                    value !== 'minimal' ||
+                    (primary.borderTopWidth === '0px' &&
+                      primary.borderBottomWidth === '2px' &&
+                      primary.backgroundColor === 'rgba(0, 0, 0, 0)' &&
+                      css('.weq-input').borderTopWidth === '0px' &&
+                      css('.weq-input').borderBottomWidth === '1px' &&
+                      css('.weq-input').boxShadow === 'none'),
+                  retroContract:
+                    value !== 'retro' ||
+                    (primary.borderTopWidth === '2px' &&
+                      css('.weq-input').borderTopWidth === '2px' &&
+                      css('.weq-input').boxShadow !== 'none' &&
+                      css('.weq-directory-scope-menu').borderTopWidth === '2px' &&
+                      css('.conversation-row.active').backgroundColor === primary.backgroundColor),
                   noOverflow: document.documentElement.scrollWidth <= innerWidth,
                   previewVisible: [...document.querySelectorAll('.weq-style-preview')].every(
                     (node) =>
                       node.getBoundingClientRect().height >= 120 &&
                       node.scrollWidth <= node.clientWidth,
                   ),
-                  blur:
-                    value !== 'glass' ||
-                    css('.weq-directory-scope-menu').backdropFilter.includes('blur'),
                   disabled: css('button:disabled').backgroundColor !== primary.backgroundColor,
                 };
               },
@@ -168,7 +203,7 @@ try {
   await page.getByRole('radio', { name: '复古', exact: true }).focus();
   await page.keyboard.press('ArrowRight');
   if (
-    (await page.getByRole('radio', { name: '经典', exact: true }).getAttribute('aria-checked')) !==
+    (await page.getByRole('radio', { name: '简约', exact: true }).getAttribute('aria-checked')) !==
     'true'
   )
     failures.push('键盘循环选择');

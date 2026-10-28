@@ -6,11 +6,7 @@ export type ThemePreference = 'system' | 'light' | 'dark';
 export type ThemeResolved = 'light' | 'dark';
 export type ThemeBackground = 'plain' | 'paper' | 'grid' | 'dots' | 'wash' | 'telegram';
 export const componentStyles = [
-  { value: 'classic', label: '经典' },
   { value: 'minimal', label: '简约' },
-  { value: 'soft', label: '柔和' },
-  { value: 'outline', label: '线框' },
-  { value: 'glass', label: '通透' },
   { value: 'retro', label: '复古' },
 ] as const;
 export type ThemeComponentStyle = (typeof componentStyles)[number]['value'];
@@ -100,9 +96,9 @@ function readBackground(): ThemeBackground {
 function readComponentStyle(): ThemeComponentStyle {
   try {
     const value = window.localStorage.getItem(storageKeys.componentStyle);
-    return isThemeComponentStyle(value) ? value : 'classic';
+    return isThemeComponentStyle(value) ? value : 'minimal';
   } catch {
-    return 'classic';
+    return 'minimal';
   }
 }
 
@@ -235,7 +231,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   resolved: 'light',
   accent: '',
   background: 'paper',
-  componentStyle: 'classic',
+  componentStyle: 'minimal',
   density: 'comfortable',
   initialized: false,
   setPreference: (preference) => {
