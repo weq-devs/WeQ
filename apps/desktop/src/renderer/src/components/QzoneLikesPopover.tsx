@@ -8,9 +8,11 @@ import '../styles/qzone-actions.css';
 export function QzoneLikesPopover({
   trigger,
   children,
+  label = '点赞列表',
 }: {
   trigger: ReactNode;
   children?: ReactNode;
+  label?: string;
 }) {
   const document = useRenderDocument();
   const anchor = useRef<HTMLDivElement>(null);
@@ -90,7 +92,7 @@ export function QzoneLikesPopover({
               <div
                 className="weq-qzn-like-popover"
                 role="region"
-                aria-label="点赞列表"
+                aria-label={label}
                 onMouseEnter={cancelClose}
                 onMouseLeave={leave}
                 onFocus={cancelClose}

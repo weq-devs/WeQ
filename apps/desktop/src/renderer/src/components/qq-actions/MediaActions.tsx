@@ -325,6 +325,8 @@ function QzoneWriteActionsBody({
   likeCount,
   replyTarget,
   onCancelReply,
+  draftContent,
+  onDraftContentChange,
 }: {
   hostUin: string;
   tid: string;
@@ -338,9 +340,13 @@ function QzoneWriteActionsBody({
   likeCount?: number | null;
   replyTarget?: { id: string; nickname: string } | null;
   onCancelReply?: () => void;
+  draftContent?: string;
+  onDraftContentChange?: (content: string) => void;
 }) {
   const a = useQQAction(`qzone:${hostUin}:${tid}`),
-    [content, setContent] = useState('');
+    [localContent, setLocalContent] = useState('');
+  const content = draftContent ?? localContent;
+  const setContent = onDraftContentChange ?? setLocalContent;
   const draftRevision = useRef(0);
   const [picture, setPicture] = useState<{ path: string; fileName: string } | null>(null);
   const [commentPending, setCommentPending] = useState(false);

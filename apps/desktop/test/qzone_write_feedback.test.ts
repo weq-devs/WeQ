@@ -108,6 +108,7 @@ beforeEach(() => {
         videos: [],
         isPrivate: false,
         commentNum: 2,
+        forwardNum: 37,
       },
     ],
   });
@@ -416,6 +417,17 @@ it('转发弹窗上方预填引用并将光标定位开头，下方保留原动�
   expect(state.write).not.toHaveBeenCalled();
 });
 
+it('转发悬停显示名单浮层，已有转发计数也保持问号，不请求假接口或发起转发', async () => {
+  const view = await mount();
+  const button = view.host.querySelector<HTMLButtonElement>('[title="转发"]')!;
+  expect(button.textContent).toContain('转发 ?');
+  expect(button.textContent).not.toContain('37');
+  await act(async () => button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+  expect(document.querySelector('[aria-label="转发列表"]')?.textContent).toContain('暂无可信数据');
+  expect(document.querySelector('[aria-label="转发语"]')).toBeNull();
+  expect(state.write).not.toHaveBeenCalled();
+});
+
 it('与我相关自动读取五页即停，向上滚动不续页，向下滚动才开始下一轮', async () => {
   state.related.mockReset().mockImplementation(async ({ offset }: { offset: number }) => ({
     feeds: [
@@ -494,15 +506,31 @@ it('每条评论和回复均可切换回复目标，缺少写接口时不误发�
     ...view.host.querySelectorAll<HTMLButtonElement>('.weq-qzn-comment-meta button'),
   ];
   expect(replies).toHaveLength(2);
+  enter(view.host, '保留草稿');
   await act(async () => replies[0]!.click());
   expect(view.host.querySelector<HTMLInputElement>('[aria-label="说说回复"]')!.placeholder).toBe(
     '回复 评论者',
   );
+  const firstInput = view.host.querySelector<HTMLInputElement>('[aria-label="说说回复"]')!;
+  expect(firstInput.closest('.weq-qzn-comment')?.textContent).toContain('一级评论');
+  expect(firstInput.closest('.is-reply')).toBeNull();
+  expect(firstInput.value).toBe('保留草稿');
   await act(async () => replies[1]!.click());
   expect(view.host.querySelector<HTMLInputElement>('[aria-label="说说回复"]')!.placeholder).toBe(
     '回复 回复者',
   );
+  const replyInput = view.host.querySelector<HTMLInputElement>('[aria-label="说说回复"]')!;
+  expect(replyInput.closest('.is-reply')?.textContent).toContain('二级回复');
+  expect(replyInput.value).toBe('保留草稿');
+  expect(view.host.querySelectorAll('.weq-qzn-comment-composer')).toHaveLength(1);
   expect(view.button('发送说说评论').disabled).toBe(true);
   expect(state.write).not.toHaveBeenCalled();
   capture(view.host, 'comments');
+  const cancel = [
+    ...view.host.querySelectorAll<HTMLButtonElement>('.weq-qzn-comment-composer button'),
+  ].find((button) => button.textContent === '取消')!;
+  await act(async () => cancel.click());
+  const restored = view.host.querySelector<HTMLInputElement>('[aria-label="说说评论"]')!;
+  expect(restored.closest('.weq-qzn-comment')).toBeNull();
+  expect(restored.value).toBe('保留草稿');
 });

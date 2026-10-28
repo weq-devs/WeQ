@@ -12,6 +12,7 @@ import {
   useState,
   type ReactElement,
   type RefObject,
+  type ReactNode,
 } from 'react';
 import {
   AtSign,
@@ -79,6 +80,7 @@ import {
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { QzonePublicPane } from './QzonePublicView';
 import { QzoneForwardDialog } from '../components/QzoneForwardDialog';
+import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
 import { QzoneRelatedRound } from '../lib/qzoneActions';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
@@ -1571,6 +1573,7 @@ function PostActionsBody({
   );
   const [forwardOpen, setForwardOpen] = useState(false);
   const [replyTarget, setReplyTarget] = useState<{ id: string; nickname: string } | null>(null);
+  const [commentDraft, setCommentDraft] = useState('');
   const focusId = focusComment?.id;
   const focusUin = focusComment?.uin;
   useEffect(() => {
@@ -1662,6 +1665,24 @@ function PostActionsBody({
   ]);
   const remoteLikeCount = likes?.reportedTotal ?? initialLikeCount;
   const likeCount = likeChange ? likeChange.count : remoteLikeCount;
+  const composer = (
+    <QzoneWriteActions
+      key={`${hostUin}:${post.tid}`}
+      hostUin={hostUin}
+      tid={post.tid}
+      time={post.time}
+      draftContent={commentDraft}
+      onDraftContentChange={setCommentDraft}
+      replyTarget={replyTarget}
+      onCancelReply={() => setReplyTarget(null)}
+      onCommentAccepted={() => setCommentCount((count) => (count === null ? null : count + 1))}
+      onChanged={() => {
+        summaryGeneration.current++;
+        summaryRefresh.current = null;
+        setWriteRevision((value) => value + 1);
+      }}
+    />
+  );
   return (
     <div ref={ref}>
       <div className="weq-qzn-actions">
@@ -1724,10 +1745,7 @@ function PostActionsBody({
           <MessageCircle size={16} />
           评论 {commentCount ?? '?'}
         </button>
-        <button type="button" title="转发" onClick={() => setForwardOpen(true)}>
-          <Repeat2 size={16} />
-          转发 {post.forwardNum ?? '?'}
-        </button>
+        <QzoneForwardAction onClick={() => setForwardOpen(true)} />
         <span title={likeError || '浏览量（非去重访客数）'}>
           <Eye size={16} />
           浏览量 {likes?.reportedViewCount ?? '?'}
@@ -1752,22 +1770,7 @@ function PostActionsBody({
           互动数据暂未校准：{likeError}
         </p>
       )}
-      {expanded === 'comments' ? (
-        <QzoneWriteActions
-          key={`${hostUin}:${post.tid}`}
-          hostUin={hostUin}
-          tid={post.tid}
-          time={post.time}
-          replyTarget={replyTarget}
-          onCancelReply={() => setReplyTarget(null)}
-          onCommentAccepted={() => setCommentCount((count) => (count === null ? null : count + 1))}
-          onChanged={() => {
-            summaryGeneration.current++;
-            summaryRefresh.current = null;
-            setWriteRevision((value) => value + 1);
-          }}
-        />
-      ) : null}
+      {expanded === 'comments' && !replyTarget ? composer : null}
       {expanded ? (
         <Interaction
           key={expanded}
@@ -1782,6 +1785,7 @@ function PostActionsBody({
           readComments={writeRevision > 0 ? undefined : readComments}
           writeRevision={writeRevision}
           writePending={likePending}
+          renderReply={(comment) => (replyTarget?.id === comment.id ? composer : null)}
           onReply={(comment) => {
             setReplyTarget({ id: comment.id, nickname: comment.nickname || comment.uin });
             requestAnimationFrame(() => {
@@ -1976,6 +1980,7 @@ function Interaction({
   writeRevision = 0,
   writePending = false,
   onReply,
+  renderReply,
 }: {
   mode: 'comments' | 'likes';
   selfUin: string;
@@ -1989,6 +1994,7 @@ function Interaction({
   writeRevision?: number;
   writePending?: boolean;
   onReply?: (comment: QzoneInteraction['comments'][number]) => void;
+  renderReply?: (comment: QzoneInteraction['comments'][number]) => ReactNode;
 }) {
   const focusRef = useRef<HTMLDivElement>(null);
   const readsPaused = useContext(QzoneReadPauseContext);
@@ -2216,6 +2222,7 @@ function Interaction({
               回复
             </button>
           </div>
+          {renderReply?.(source)}
         </div>
       </div>
     );

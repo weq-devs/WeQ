@@ -115,6 +115,15 @@ const COMMENT = {
 };
 
 describe('空友 feed 投影', () => {
+  it('转发次数保留服务端的零和非零，缺失不伪装成零', () => {
+    expect(
+      projectPublicFeed({ ...FEED, cell_foward_info: { retweet_count: 0 } })!.forwardCount,
+    ).toBe(0);
+    expect(
+      projectPublicFeed({ ...FEED, cell_foward_info: { retweet_count: 73 } })!.forwardCount,
+    ).toBe(73);
+    expect(projectPublicFeed({ ...FEED, cell_foward_info: {} })!.forwardCount).toBeNull();
+  });
   it('把真实 feed 的正文、媒体、计数与身份拆出来，原始对象原样保留', () => {
     const view = projectPublicFeed(FEED)!;
     expect(view.key).toBe(UNION.uf_key);

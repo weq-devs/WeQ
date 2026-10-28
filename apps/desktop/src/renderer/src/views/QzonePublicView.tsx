@@ -25,7 +25,6 @@ import {
   Loader2,
   MessageCircle,
   RefreshCw,
-  Repeat2,
   Send,
   ThumbsUp,
   UserPlus,
@@ -36,6 +35,7 @@ import { QqAvatar } from '../components/QqAvatar';
 import { QzoneProfileAvatar, QzonePersonButton } from '../components/QzoneProfileAvatar';
 import { QzoneEmoji } from '../components/QzoneEmoji';
 import { QzoneForwardDialog } from '../components/QzoneForwardDialog';
+import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { qzoneTextParts } from '../lib/qzone';
@@ -562,10 +562,11 @@ function PublicFeedCard({
           <MessageCircle size={16} />
           评论 {countText(view.commentCount)}
         </button>
-        <button type="button" aria-label="转发" onClick={() => setForwardOpen(true)}>
-          <Repeat2 size={16} />
-          转发 {countText(view.forwardCount)}
-        </button>
+        <QzoneForwardAction
+          count={view.forwardCount}
+          message="空友爱看当前未提供可用转发名单，暂无可信数据。"
+          onClick={() => setForwardOpen(true)}
+        />
         <button
           type="button"
           aria-pressed={view.upvoted}
@@ -796,6 +797,44 @@ function PublicFeedDetail({
   const selfUid = identity?.publicUid ?? '';
   const mine = (comment: PublicCommentView): boolean =>
     Boolean(selfUid) && comment.author.uid === selfUid;
+  const composerElement = canComment ? (
+    <div className="weq-qzn-public-composer">
+      {replyTarget ? (
+        <p className="weq-qzn-status">
+          回复 {replyTarget.reply?.author.nick || replyTarget.comment.author.nick || '这条评论'}
+          <button type="button" onClick={() => setReplyTarget(null)}>
+            取消
+          </button>
+        </p>
+      ) : null}
+      <div>
+        <input
+          ref={composer}
+          aria-label={replyTarget ? '回复内容' : '评论内容'}
+          placeholder={replyTarget ? '写下回复…' : '写下评论…'}
+          value={draft}
+          maxLength={4096}
+          disabled={sending}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              void send();
+            }
+          }}
+        />
+        <button
+          type="button"
+          className="weq-qzn-primary"
+          disabled={sending || !draft.trim()}
+          onClick={() => void send()}
+        >
+          {sending ? <Loader2 size={15} className="weq-spin" /> : <Send size={15} />}
+          {replyTarget ? '回复' : '评论'}
+        </button>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <section className="weq-qzn-interaction weq-qzn-public-detail" aria-label="空友动态评论">
@@ -841,6 +880,9 @@ function PublicFeedDetail({
                     ) : null}
                     <CommentLike selfUin={selfUin} feed={view.feed} comment={comment} />
                   </div>
+                  {replyTarget?.comment.id === comment.id && !replyTarget.reply
+                    ? composerElement
+                    : null}
                 </div>
               </div>
               {comment.replies.length ? (
@@ -879,6 +921,10 @@ function PublicFeedDetail({
                             reply={reply}
                           />
                         </div>
+                        {replyTarget?.comment.id === comment.id &&
+                        replyTarget.reply?.id === reply.id
+                          ? composerElement
+                          : null}
                       </div>
                     </div>
                   ))}
@@ -910,44 +956,7 @@ function PublicFeedDetail({
           ) : null}
         </>
       ) : null}
-      {canComment ? (
-        <div className="weq-qzn-public-composer">
-          {replyTarget ? (
-            <p className="weq-qzn-status">
-              回复 {replyTarget.reply?.author.nick || replyTarget.comment.author.nick || '这条评论'}
-              <button type="button" onClick={() => setReplyTarget(null)}>
-                取消
-              </button>
-            </p>
-          ) : null}
-          <div>
-            <input
-              ref={composer}
-              aria-label={replyTarget ? '回复内容' : '评论内容'}
-              placeholder={replyTarget ? '写下回复…' : '写下评论…'}
-              value={draft}
-              maxLength={4096}
-              disabled={sending}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                  event.preventDefault();
-                  void send();
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="weq-qzn-primary"
-              disabled={sending || !draft.trim()}
-              onClick={() => void send()}
-            >
-              {sending ? <Loader2 size={15} className="weq-spin" /> : <Send size={15} />}
-              {replyTarget ? '回复' : '评论'}
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {!replyTarget ? composerElement : null}
     </section>
   );
 }

@@ -117,6 +117,10 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
   expect(profile).not.toHaveBeenCalled();
   const actions = host.querySelector('.weq-qzn-actions')!;
   expect(actions.textContent).toBe('点赞 7评论 1转发 2推 ?浏览量 9');
+  const forward = actions.querySelector<HTMLButtonElement>('[aria-label="转发"]')!;
+  await act(async () => forward.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+  expect(document.querySelector('[aria-label="转发列表"]')?.textContent).toContain('暂无可信数据');
+  expect(state.forward).not.toHaveBeenCalled();
   const liked = actions.querySelector<HTMLButtonElement>('[aria-label="取消赞"]')!;
   expect(liked.getAttribute('aria-pressed')).toBe('true');
   await act(async () => liked.click());
@@ -128,8 +132,15 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
     ...host.querySelectorAll<HTMLButtonElement>('.weq-qzn-comment-meta button'),
   ].filter((button) => button.textContent === '回复');
   expect(buttons).toHaveLength(2);
+  await act(async () => buttons[0]!.click());
+  expect(
+    host.querySelector('[aria-label="回复内容"]')?.closest('.weq-qzn-comment')?.textContent,
+  ).toContain('评论原文');
+  expect(host.querySelector('[aria-label="回复内容"]')?.closest('.is-reply')).toBeNull();
   await act(async () => buttons[1]!.click());
   const input = host.querySelector<HTMLInputElement>('[aria-label="回复内容"]')!;
+  expect(input.closest('.is-reply')?.textContent).toContain('回复原文');
+  expect(host.querySelectorAll('.weq-qzn-public-composer')).toHaveLength(1);
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
       input,
