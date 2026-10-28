@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { client } from '../trpc/client';
 import { z } from 'zod';
-import { PageSnapshotScope, usePageState } from '../components/PageSnapshots';
+import { PageSnapshotScope, usePageDataCache, usePageState } from '../components/PageSnapshots';
 import { PageScrollSnapshot } from '../components/PageScrollSnapshot';
 import { useTabActive } from '../components/RetainedTabs';
 import { pageValue } from '../lib/pageSnapshots';
@@ -971,6 +971,13 @@ function SpaceStats({ selfUin, hostUin }: { selfUin: string; hostUin: string }) 
   );
 }
 
+interface PostsSnapshot {
+  posts: QzoneEmotion[];
+  nextOffset: number;
+  done: boolean;
+  pages: number[];
+  bridge: { offset: number; done: boolean; indices: [string, number][] } | null;
+}
 function Posts({
   selfUin,
   hostUin,
@@ -985,8 +992,11 @@ function Posts({
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
+  const dataCache = usePageDataCache();
+  const cacheKey = JSON.stringify(['posts', selfUin, hostUin]);
+  const [cached] = useState(() => dataCache.read<PostsSnapshot>(cacheKey));
   const lastRefresh = useRef(refresh);
-  const [posts, setPosts] = useState<QzoneEmotion[]>([]);
+  const [posts, setPosts] = useState<QzoneEmotion[]>(cached?.posts ?? []);
   const selection = useContentMultiSelect({ kind: 'qzone-posts', container: hostUin });
   const multi = useMultiSelection({
     ids: posts.map((post) => post.tid),
@@ -999,7 +1009,7 @@ function Posts({
   });
   const [offset, setOffset] = useState(0);
   const lastOffset = useRef(offset);
-  const headRequest = useRef(false);
+  const headRequest = useRef(Boolean(cached));
   const [pageRequest, setPageRequest] = useState(0);
   const loadOffset = useCallback((value: number) => {
     headRequest.current = false;
@@ -1008,19 +1018,30 @@ function Posts({
   }, []);
   const moreRef = useRef<HTMLDivElement>(null);
   const nearEnd = useNearViewport(moreRef);
-  const nextOffset = useRef(0);
-  const currentPosts = useRef<QzoneEmotion[]>([]);
-  const fetchedPages = useRef(new Set<number>());
+  const nextOffset = useRef(cached?.nextOffset ?? 0);
+  const currentPosts = useRef<QzoneEmotion[]>(cached?.posts ?? []);
+  const fetchedPages = useRef(new Set<number>(cached?.pages));
   const bridgeTail = useRef<{ offset: number; done: boolean; indices: Map<string, number> } | null>(
-    null,
+    cached?.bridge ? { ...cached.bridge, indices: new Map(cached.bridge.indices) } : null,
   );
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState(cached?.done ?? false);
   const doneRef = useRef(done);
   doneRef.current = done;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const { run, cancel } = useQzoneRequests();
+  useEffect(() => {
+    if (!fetchedPages.current.size) return;
+    const bridge = bridgeTail.current;
+    dataCache.write(cacheKey, {
+      posts,
+      nextOffset: nextOffset.current,
+      done,
+      pages: [...fetchedPages.current],
+      bridge: bridge ? { ...bridge, indices: [...bridge.indices] } : null,
+    } satisfies PostsSnapshot);
+  }, [posts, done, cacheKey, dataCache]);
   useEffect(() => {
     if (!active) {
       setLoading(false);
@@ -2173,6 +2194,16 @@ function Feeds({
   );
 }
 
+interface FeedSnapshot {
+  feeds: QzoneFeed[];
+  incomplete: boolean;
+  done: boolean;
+  nextCursor?: string;
+  pages: string[];
+  seenCursors: string[];
+  stalledPages: number;
+  bridge: { cursor: string | undefined; keys: string[] } | null;
+}
 function FeedTimeline({
   selfUin,
   onSpace,
@@ -2189,10 +2220,13 @@ function FeedTimeline({
   onFilter?: (filter: string) => void;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
-  const [incomplete, setIncomplete] = useState(false);
+  const dataCache = usePageDataCache();
+  const cacheKey = JSON.stringify(['feeds', selfUin, scope, kind, filter]);
+  const [cached] = useState(() => dataCache.read<FeedSnapshot>(cacheKey));
+  const [incomplete, setIncomplete] = useState(cached?.incomplete ?? false);
   const title = kind === 'friends' ? '好友动态' : '与我相关';
   const lastRefresh = useRef(refresh);
-  const [feeds, setFeeds] = useState<QzoneFeed[] | null>(null);
+  const [feeds, setFeeds] = useState<QzoneFeed[] | null>(cached?.feeds ?? null);
   const [error, setError] = useState('');
   const [interactionTab, setInteractionTab] = useState<RelatedKind>('like');
   const suspended = useRef<string | null>(null);
@@ -2202,7 +2236,7 @@ function FeedTimeline({
   const [retry, setRetry] = useState(0);
   const [cursor, setCursor] = useState<string | undefined>();
   const lastCursor = useRef(cursor);
-  const headRequest = useRef(false);
+  const headRequest = useRef(Boolean(cached));
   const [pageRequest, setPageRequest] = useState(0);
   const loadCursor = useCallback((value: string) => {
     headRequest.current = false;
@@ -2210,16 +2244,32 @@ function FeedTimeline({
     setPageRequest((current) => current + 1);
   }, []);
   const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
-  const accumulated = useRef<QzoneFeed[]>([]);
-  const fetchedPages = useRef(new Set<string>());
-  const nextCursor = useRef<string | undefined>(undefined);
-  const seenCursors = useRef(new Set<string>());
-  const stalledPages = useRef(0);
-  const bridgeTail = useRef<{ cursor: string | undefined; keys: Set<string> } | null>(null);
+  const [done, setDone] = useState(cached?.done ?? false);
+  const accumulated = useRef<QzoneFeed[]>(cached?.feeds ?? []);
+  const fetchedPages = useRef(new Set<string>(cached?.pages));
+  const nextCursor = useRef<string | undefined>(cached?.nextCursor);
+  const seenCursors = useRef(new Set<string>(cached?.seenCursors));
+  const stalledPages = useRef(cached?.stalledPages ?? 0);
+  const bridgeTail = useRef<{ cursor: string | undefined; keys: Set<string> } | null>(
+    cached?.bridge ? { ...cached.bridge, keys: new Set(cached.bridge.keys) } : null,
+  );
   const moreRef = useRef<HTMLDivElement>(null);
   const nearEnd = useNearViewport(moreRef);
   const { run, cancel } = useQzoneRequests();
+  useEffect(() => {
+    if (!feeds || !fetchedPages.current.size) return;
+    const bridge = bridgeTail.current;
+    dataCache.write(cacheKey, {
+      feeds,
+      incomplete,
+      done,
+      nextCursor: nextCursor.current,
+      pages: [...fetchedPages.current],
+      seenCursors: [...seenCursors.current],
+      stalledPages: stalledPages.current,
+      bridge: bridge ? { ...bridge, keys: [...bridge.keys] } : null,
+    } satisfies FeedSnapshot);
+  }, [feeds, incomplete, done, cacheKey, dataCache]);
   useEffect(() => {
     if (!active) return undefined;
     const recovery = `${refresh}:${retry}`;

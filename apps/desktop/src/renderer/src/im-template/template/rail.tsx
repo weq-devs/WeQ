@@ -20,6 +20,7 @@ import { displayUserName } from './user';
 import { useUpdateStore } from '../../state/update';
 import '../../styles/rail-navigation.css';
 import { useWorkspaceActiveTitle } from '../../components/WorkspacePages';
+import { preloadWorkspace } from '../../components/lazyWorkspaces';
 
 export function AppRail({
   user,
@@ -80,6 +81,8 @@ export function AppRail({
       )}
       aria-current={activeView === 'settings' ? 'page' : undefined}
       aria-label="设置"
+      onPointerEnter={() => preloadWorkspace('settings')}
+      onFocus={() => preloadWorkspace('settings')}
       onClick={() => {
         setProfileOpen(false);
         onOpenSettings();
@@ -228,6 +231,8 @@ export function AppRail({
             className={cn(railButtonClass(activeView === 'qzone'), 'rail-tab rail-tab-qzone')}
             onClick={() => selectView('qzone')}
             title="QQ 空间"
+            onPointerEnter={() => preloadWorkspace('qzone')}
+            onFocus={() => preloadWorkspace('qzone')}
             aria-current={activeView === 'qzone' ? 'page' : undefined}
             type="button"
           >
@@ -240,6 +245,8 @@ export function AppRail({
             className={cn(railButtonClass(activeView === 'channel'), 'rail-tab rail-tab-channel')}
             onClick={() => selectView('channel')}
             title="QQ 频道"
+            onPointerEnter={() => preloadWorkspace('channel')}
+            onFocus={() => preloadWorkspace('channel')}
             aria-current={activeView === 'channel' ? 'page' : undefined}
             type="button"
           >
@@ -273,6 +280,10 @@ export function AppRail({
           {contentItems.map((item) => (
             <button
               key={item.id}
+              onPointerEnter={() =>
+                preloadWorkspace(item.id === 'collection' ? 'collections' : item.id)
+              }
+              onFocus={() => preloadWorkspace(item.id === 'collection' ? 'collections' : item.id)}
               className={cn(
                 railButtonClass(
                   activeView === (item.id === 'collection' ? 'collections' : item.id),

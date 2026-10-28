@@ -53,7 +53,7 @@ import { writeMentionClipboard } from '../lib/mentionClipboard';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
 import { useToast } from './Toast';
-import { usePageState } from './PageSnapshots';
+import { usePageDataCache, usePageState } from './PageSnapshots';
 import { pageValue } from '../lib/pageSnapshots';
 import type { RepeatElement } from '../lib/messageRepeat';
 import '../styles/channel.css';
@@ -219,7 +219,10 @@ export function GuildDirectDialog({
   /** 当前打开的会话 nodeId，交给外层浮动工具按当前位置导出。 */
   onActiveSessionChange?: (nodeId: string | null) => void;
 }): ReactElement | null {
-  const [sessions, setSessions] = useState<GuildDirectSessionWire[] | null>(null);
+  const dataCache = usePageDataCache();
+  const [sessions, setSessions] = useState<GuildDirectSessionWire[] | null>(
+    () => dataCache.read<GuildDirectSessionWire[]>('guild:sessions') ?? null,
+  );
   const [selected, setSelected] = useState<GuildDirectSessionWire | null>(null);
   const [restoreNode, setRestoreNode] = usePageState<string | null>(
     'guild:selection',
@@ -303,8 +306,7 @@ export function GuildDirectDialog({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    const run = ++runRef.current;
-    setSessions(null);
+    runRef.current++;
     setSelected(null);
     setMessages([]);
     setHasMore(false);
@@ -313,22 +315,26 @@ export function GuildDirectDialog({
     void client.account.guildDirectListSessions
       .query()
       .then((rows) => {
-        if (cancelled || run !== runRef.current) return;
+        if (cancelled) return;
         setSessions((rows as GuildDirectSessionWire[]) ?? []);
+        setSelected((current) =>
+          current ? (rows.find((row) => row.nodeId === current.nodeId) ?? null) : null,
+        );
+        dataCache.write('guild:sessions', rows ?? []);
       })
       .catch((error: unknown) => {
-        if (cancelled || run !== runRef.current) return;
+        if (cancelled) return;
         setListError(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
-        if (cancelled || run !== runRef.current) return;
+        if (cancelled) return;
         setListLoading(false);
       });
     return () => {
       cancelled = true;
       runRef.current++;
     };
-  }, [open]);
+  }, [open, dataCache]);
 
   // 选中会话 → 加载最新一页（seq 大到小），反转成升序渲染。
   const openSession = useCallback(
@@ -337,9 +343,12 @@ export function GuildDirectDialog({
       setSearchMessageId(null);
       setSearchNotice('');
       const run = ++runRef.current;
+      const cached = dataCache.read<{ messages: GuildDirectMsgWire[]; hasMore: boolean }>(
+        `guild:latest:${session.nodeId}`,
+      );
       setSelected(session);
-      setMessages([]);
-      setHasMore(false);
+      setMessages(cached?.messages ?? []);
+      setHasMore(cached?.hasMore ?? false);
       setLatestLoading(true);
       setOlderLoading(false);
       setMessageError(null);
@@ -350,6 +359,10 @@ export function GuildDirectDialog({
           const asc = ((rows as GuildDirectMsgWire[]) ?? []).slice().reverse();
           setMessages(asc);
           setHasMore(asc.length >= PAGE);
+          dataCache.write(`guild:latest:${session.nodeId}`, {
+            messages: asc,
+            hasMore: asc.length >= PAGE,
+          });
         })
         .catch((error: unknown) => {
           if (run !== runRef.current) return;
@@ -360,7 +373,7 @@ export function GuildDirectDialog({
           setLatestLoading(false);
         });
     },
-    [setRestoreNode],
+    [setRestoreNode, dataCache],
   );
   useEffect(() => {
     if (
@@ -465,11 +478,12 @@ export function GuildDirectDialog({
   }, [searchMessageId, latestLoading, messages, searchTarget?.revision]);
 
   // 切换会话 / 最新页落地后滚到底部（贴最新）。
+  const hasMessages = messages.length > 0;
   useLayoutEffect(() => {
-    if (!selected || latestLoading) return;
+    if (!selected?.nodeId || !hasMessages) return;
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [selected, latestLoading, messages.length === 0]);
+  }, [selected?.nodeId, hasMessages]);
 
   // 向上翻更旧的一页：beforeSeq = 当前最旧一条的 seq。
   const loadOlder = useCallback(async () => {
@@ -648,7 +662,7 @@ export function GuildDirectDialog({
             </div>
           ) : null}
           <div className="weq-guild-direct-list" {...sessionMulti.rootProps}>
-            {listLoading ? (
+            {listLoading && !sessions ? (
               <div className="weq-guild-direct-empty">加载中…</div>
             ) : listError ? (
               <div className="weq-guild-direct-empty">
@@ -839,7 +853,7 @@ export function GuildDirectDialog({
                         }
                       }}
                     >
-                      {latestLoading ? (
+                      {latestLoading && !messages.length ? (
                         <div className="weq-guild-direct-empty">加载消息…</div>
                       ) : rows.length === 0 ? (
                         <div className="weq-guild-direct-empty">

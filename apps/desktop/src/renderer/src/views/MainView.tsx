@@ -128,6 +128,7 @@ import { ConversationWindowCache, conversationWindowKey } from '../lib/conversat
 import { isConversationPagingVisible, observeConversationPaging } from '../lib/conversationPaging';
 import { loadConversationEntry } from '../lib/conversationEntry';
 import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
+import { messageTemplateContext } from '../lib/messageTemplateContext';
 import type { MessageReadWindow } from '../../../shared/message_read';
 import { mergeRefreshedWindow } from '../lib/conversationRefresh';
 import {
@@ -146,19 +147,20 @@ import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
 import { useDressSkin } from '../hooks/useDressSkin';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { WorkspaceMenuButton, WorkspaceSettingsButton } from '../components/WorkspaceMenuButton';
+import type { SectionId as SettingsDialogSectionId } from '../components/SettingsDialog';
+import type { MaintenanceTool } from '../components/settings/DataMaintenanceSection';
 import {
   SettingsDialog,
-  type SectionId as SettingsDialogSectionId,
-} from '../components/SettingsDialog';
-import {
   DataMaintenanceDialog,
-  type MaintenanceTool,
-} from '../components/settings/DataMaintenanceSection';
+  CollectionDialog,
+  QzoneWorkspace,
+  ChannelView,
+  DressUpDialog,
+  GroupBugDialog,
+} from '../components/lazyWorkspaces';
 import { useSettingsMaintenance } from '../hooks/useSettingsMaintenance';
 import { useRecalledMessages } from '../hooks/useRecalledMessages';
-import { CollectionDialog } from '../components/CollectionDialog';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
-import { DressUpDialog } from '../components/DressUpDialog';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupAlbumCardNavigationProvider } from '../components/GroupAlbumCardNavigation';
 import { GroupFileDialog } from '../components/GroupFileDialog';
@@ -196,7 +198,6 @@ import {
   GroupMemberTitleDialog,
 } from '../components/GroupMemberModerationDialogs';
 import { MemberProfileCard } from '../components/MemberProfileCard';
-import { GroupBugDialog } from '../components/GroupBugDialog';
 import { openRedBagQrcode } from '../components/RedBagQrcodeDialog';
 import {
   GroupLeftMembersDialog,
@@ -266,7 +267,6 @@ import type { SettingsSearchTarget } from '../components/settings/searchTarget';
 import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
 import { displayGroupMemberName } from '../im-template/template/user';
 import { ChatNavigationContext, type ProfileChatTarget } from '../lib/chatNavigation';
-import { QzoneWorkspace } from './QzoneView';
 import { MailWorkspace } from './MailView';
 import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
 import { PageSnapshots, usePageState } from '../components/PageSnapshots';
@@ -278,7 +278,6 @@ import {
   QzoneProfileContext,
   type QzoneSpaceRequest,
 } from '../lib/qzoneNavigation';
-import { ChannelView } from './ChannelView';
 import { ChatHome } from './ChatHome';
 import {
   ChatMainContent,
@@ -5836,7 +5835,10 @@ function MainWorkspace(): ReactElement {
       })),
     [groupLeftMembers.data, profileByUid],
   );
-  const selectedGroupMemberWires = isGroup ? (groupMemberPages[selectedUid] ?? []) : [];
+  const selectedGroupMemberWires = useMemo(
+    () => (isGroup ? (groupMemberPages[selectedUid] ?? []) : []),
+    [isGroup, groupMemberPages, selectedUid],
+  );
   const selectedGroupMembersLoading = Boolean(isGroup && groupMemberLoading[selectedUid]);
   const selectedGroupMembersHasMore = Boolean(isGroup && groupMemberHasMore[selectedUid]);
   const selectedGroupMembersError = isGroup ? (groupMemberError[selectedUid] ?? null) : null;
@@ -6047,7 +6049,7 @@ function MainWorkspace(): ReactElement {
       return roleScore[a.role] - roleScore[b.role];
     });
   }, [
-    selectedConversation,
+    selectedConversation?.type,
     selectedUid,
     selectedGroupMemberWires,
     missingMembers,
@@ -6287,9 +6289,10 @@ function MainWorkspace(): ReactElement {
     [optimisticForwards, loadedMessageWires, selectedConversation, user],
   );
 
+  const templateContext = messageTemplateContext(selectedConversation);
   const messageTemplateCache = useMemo(
     () => new WeakMap<MessageWire, Message>(),
-    [selectedConversation, user, currentGroupMembers, botUids],
+    [templateContext, user, currentGroupMembers, botUids],
   );
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
@@ -10367,14 +10370,16 @@ function MainWorkspace(): ReactElement {
                   onOpenRequested={openMailView}
                   searchTarget={mailSearchTarget}
                 />
-                <QzoneWorkspace
-                  key={user.identityValue}
-                  active={shell.view === 'qzone' && !arkFeedState}
-                  selfUin={user.identityValue}
-                  nickname={user.displayName}
-                  spaceRequest={qzoneSpaceRequest}
-                  onSpaceChange={setCurrentQzoneUin}
-                />
+                {shell.view === 'qzone' ? (
+                  <QzoneWorkspace
+                    key={user.identityValue}
+                    active={shell.view === 'qzone' && !arkFeedState}
+                    selfUin={user.identityValue}
+                    nickname={user.displayName}
+                    spaceRequest={qzoneSpaceRequest}
+                    onSpaceChange={setCurrentQzoneUin}
+                  />
+                ) : null}
                 <RetainedTabs snapshotKey="main" activeKey={shell.view}>
                   {shell.view === 'messages' && arkFeedState ? (
                     <ArkFeedView
@@ -10791,31 +10796,35 @@ function MainWorkspace(): ReactElement {
             />
           ) : null}
 
-          <SettingsDialog
-            key={`settings:${messageScope}`}
-            open={settingsOpen}
-            onClose={() => setSettingsOpen(false)}
-            initialSection={settingsSection}
-            searchTarget={settingsSearchTarget}
-            onOpenMaintenance={openMaintenance}
-            onOpenRecalls={handleOpenRecallsAt}
-            recallDetails={recalls.origin === 'settings' ? recalledView : null}
-            onCloseRecalls={closeSettingsRecalls}
-            isCurrentSource={() => messageScopeRef.current === messageScope}
-          />
-          <DataMaintenanceDialog
-            key={`maintenance:${messageScope}`}
-            source={messageScope}
-            tool={maintenanceTool}
-            account={{
-              uin: openedUin ?? '',
-              name: user.displayName,
-              avatarUrl: user.avatarUrl ?? '',
-            }}
-            onClose={() => {
-              setMaintenanceTool(null);
-            }}
-          />
+          {settingsOpen ? (
+            <SettingsDialog
+              key={`settings:${messageScope}`}
+              open={settingsOpen}
+              onClose={() => setSettingsOpen(false)}
+              initialSection={settingsSection}
+              searchTarget={settingsSearchTarget}
+              onOpenMaintenance={openMaintenance}
+              onOpenRecalls={handleOpenRecallsAt}
+              recallDetails={recalls.origin === 'settings' ? recalledView : null}
+              onCloseRecalls={closeSettingsRecalls}
+              isCurrentSource={() => messageScopeRef.current === messageScope}
+            />
+          ) : null}
+          {maintenanceTool ? (
+            <DataMaintenanceDialog
+              key={`maintenance:${messageScope}`}
+              source={messageScope}
+              tool={maintenanceTool}
+              account={{
+                uin: openedUin ?? '',
+                name: user.displayName,
+                avatarUrl: user.avatarUrl ?? '',
+              }}
+              onClose={() => {
+                setMaintenanceTool(null);
+              }}
+            />
+          ) : null}
           <RailAccountFooter
             currentUin={user.identityValue}
             currentName={user.displayName}

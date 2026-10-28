@@ -19,6 +19,21 @@ const window = (count: number) => ({
 afterEach(() => vi.useRealTimers());
 
 describe('会话阅读窗口缓存', () => {
+  it('切换时不序列化消息，下一轮核算预算；清空会取消未完成的核算', () => {
+    vi.useFakeTimers();
+    const cache = new ConversationWindowCache<{ toJSON: () => string }>();
+    const toJSON = vi.fn(() => 'preview');
+    cache.put('chat', { ...window(0), rows: [{ toJSON }] });
+    expect(cache.get('chat')?.rows).toHaveLength(1);
+    expect(toJSON).not.toHaveBeenCalled();
+    vi.runAllTimers();
+    expect(toJSON).toHaveBeenCalledOnce();
+    cache.put('cancelled', { ...window(0), rows: [{ toJSON }] });
+    cache.clear();
+    vi.runAllTimers();
+    expect(toJSON).toHaveBeenCalledOnce();
+    expect(cache.get('chat')).toBeUndefined();
+  });
   it('长窗口只保留锚点附近上下文，仍可双向翻页', () => {
     const cache = new ConversationWindowCache<{ id: number }>();
     const input = window(1000);

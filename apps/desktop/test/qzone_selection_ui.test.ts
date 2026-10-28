@@ -116,6 +116,41 @@ it('空友爱看标签在页面卸载重建后仍能从快照恢复', async () =
     restored.close();
   }
 });
+
+it('说说卸载后返回先显示缓存，头页校准未完成不重新清空正文', async () => {
+  vi.stubGlobal('localStorage', new Storage());
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const render = (show: boolean) =>
+    act(async () =>
+      root.render(
+        createElement(
+          PageSnapshots,
+          { scope: 'posts-revisit' },
+          show
+            ? createElement(QzoneView, {
+                selfUin: '10001',
+                nickname: '合成自己',
+                active: true,
+                spaceRequest: { accountUin: '10001', uin: '10001', revision: 'posts-revisit' },
+              })
+            : null,
+        ),
+      ),
+    );
+  try {
+    await render(true);
+    expect(host.textContent).toContain('fixture-a');
+    await render(false);
+    fixture.posts.mockImplementationOnce(() => new Promise(() => {}));
+    await render(true);
+    expect(host.textContent).toContain('fixture-a');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 it('空间正文不显示重复按钮，修饰键多选仍可通过顶部导出交出离散 tid', async () => {
   function Probe() {
     return createElement(

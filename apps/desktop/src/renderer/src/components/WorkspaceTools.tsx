@@ -18,8 +18,13 @@ import {
 import type { ExportAuthorizationIndicatorState } from '../views/export/authorization';
 import { Modal } from './Dialog';
 import { RetainedTabs, TabActivity } from './RetainedTabs';
-import { ExportTool } from '../views/ExportView';
-import { ExportViewer } from '../views/ExportViewer';
+import {
+  ExportTool,
+  ExportViewer,
+  AnalysisTool,
+  RoamingBackfillPanel,
+  preloadWorkspace,
+} from './lazyWorkspaces';
 import { AssistantMenuWorkspace } from '../views/agentlab/AssistantMenuWorkspace';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { summarizeWorkspaceTasks } from '../lib/workspaceIndicators';
@@ -32,11 +37,9 @@ import {
 } from '../state/contentSelection';
 import '../styles/workspace-tools.css';
 import '../styles/workspace-menu.css';
-import { RoamingBackfillPanel } from './RoamingBackfillPanel';
 import { AssistantSection } from './settings/AssistantSection';
 import { useViewState } from '../state/view';
 import { createToolDraft, type ToolDraft } from '../../../shared/content_selection';
-import { AnalysisTool } from '../views/analysis/AnalysisTool';
 import { initialExportMode } from '../views/export/exportScope';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import type {
@@ -534,6 +537,8 @@ export function WorkspaceTools({
                     type="button"
                     title={item.id === 'export' ? entry.label : item.label}
                     aria-label={item.label}
+                    onPointerEnter={() => preloadWorkspace(item.id)}
+                    onFocus={() => preloadWorkspace(item.id)}
                     onClick={item.action}
                   >
                     {item.icon}

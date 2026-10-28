@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { GuildDirectDialog } from '../src/renderer/src/components/GuildDirectDialog';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { qqMessageRenderer } from '../src/renderer/src/components/QqMessageContent';
 import {
   ContentSelectionProvider,
   useContentExportRequest,
@@ -36,6 +38,64 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   };
 });
 afterEach(() => vi.unstubAllGlobals());
+it('频道重挂载先恢复目录和消息，慢校准不重新显示整页骨架', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  rpc.list.mockResolvedValue([
+    {
+      nodeId: '11',
+      peerTinyId: '11',
+      peerNick: '缓存频道好友',
+      guildName: '频道',
+      lastTime: '1',
+      lastSeq: '1',
+      preview: null,
+      peerAvatarUrl: null,
+    },
+  ]);
+  rpc.latest.mockResolvedValue([
+    {
+      msgId: '1',
+      msgSeq: '1',
+      sendType: '0',
+      sendTime: '1',
+      elements: [{ type: 'text', data: { textContent: '频道缓存正文' } }],
+    },
+  ]);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const render = (show: boolean) =>
+    act(async () =>
+      root.render(
+        h(
+          PageSnapshots,
+          { scope: 'guild-revisit' },
+          show
+            ? h(GuildDirectDialog, {
+                open: true,
+                embedded: true,
+                selfUser: createTemplateDemoData().user,
+                renderers: [qqMessageRenderer],
+                onClose() {},
+              })
+            : null,
+        ),
+      ),
+    );
+  try {
+    await render(true);
+    await act(async () => host.querySelector<HTMLButtonElement>('.weq-guild-direct-item')!.click());
+    expect(host.textContent).toContain('频道缓存正文');
+    await render(false);
+    rpc.list.mockImplementationOnce(() => new Promise(() => {}));
+    rpc.latest.mockImplementationOnce(() => new Promise(() => {}));
+    await render(true);
+    expect(host.textContent).toContain('缓存频道好友');
+    expect(host.textContent).toContain('频道缓存正文');
+  } finally {
+    act(() => root.unmount());
+  }
+});
 it('频道会话多选支持范围、全选、导出，消息选区独立且只有气泡绘制选中态', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());

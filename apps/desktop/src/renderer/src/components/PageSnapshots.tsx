@@ -14,9 +14,29 @@ import {
 import type { z } from 'zod';
 import superjson from 'superjson';
 import { pageSnapshots } from '../lib/pageSnapshots';
+import { PageDataCache } from '../lib/pageDataCache';
 import { useToast } from './Toast';
 
-const SnapshotContext = createContext<{ key: string; fallback: Map<string, unknown> } | null>(null);
+const SnapshotContext = createContext<{
+  key: string;
+  fallback: Map<string, unknown>;
+  data: PageDataCache;
+} | null>(null);
+
+export function usePageDataCache() {
+  const context = useContext(SnapshotContext);
+  return useMemo(
+    () => ({
+      read<T>(name: string): T | undefined {
+        return context?.data.get<T>(JSON.stringify([context.key, name]));
+      },
+      write(name: string, value: unknown): void {
+        context?.data.put(JSON.stringify([context.key, name]), value);
+      },
+    }),
+    [context],
+  );
+}
 
 export function usePageSnapshotKey(name: string): string | null {
   const scope = useContext(SnapshotContext);
@@ -25,7 +45,10 @@ export function usePageSnapshotKey(name: string): string | null {
 
 export function PageSnapshots({ scope, children }: { scope: string | null; children: ReactNode }) {
   const context = useMemo(
-    () => (scope ? { key: scope, fallback: new Map<string, unknown>() } : null),
+    () =>
+      scope
+        ? { key: scope, fallback: new Map<string, unknown>(), data: new PageDataCache() }
+        : null,
     [scope],
   );
   return <SnapshotContext.Provider value={context}>{children}</SnapshotContext.Provider>;
@@ -39,7 +62,10 @@ export function PageSnapshotsFallback({ scope, children }: { scope: string; chil
 export function PageSnapshotScope({ name, children }: { name: string; children: ReactNode }) {
   const parent = useContext(SnapshotContext);
   const context = useMemo(
-    () => (parent ? { key: JSON.stringify([parent.key, name]), fallback: parent.fallback } : null),
+    () =>
+      parent
+        ? { key: JSON.stringify([parent.key, name]), fallback: parent.fallback, data: parent.data }
+        : null,
     [parent, name],
   );
   return <SnapshotContext.Provider value={context}>{children}</SnapshotContext.Provider>;

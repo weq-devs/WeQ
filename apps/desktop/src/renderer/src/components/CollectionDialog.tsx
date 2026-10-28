@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { usePageState } from './PageSnapshots';
+import { usePageDataCache, usePageState } from './PageSnapshots';
 import { pageValue } from '../lib/pageSnapshots';
 import {
   Bookmark,
@@ -144,6 +144,7 @@ interface DetailSyncProgress {
 async function fetchAllCollections(
   source: CollectionSource,
   signal: AbortSignal,
+  onPage?: (items: CollectionItemWire[]) => void,
 ): Promise<CollectionItemWire[] | null> {
   const all: CollectionItemWire[] = [];
   let offset = 0;
@@ -169,6 +170,7 @@ async function fetchAllCollections(
       seen.add(item.cid);
       all.push(item);
     }
+    onPage?.([...all]);
     if (!res.hasMore) return all;
     offset += res.items.length;
   }
@@ -585,9 +587,16 @@ export function CollectionDialog({
 }): ReactElement | null {
   const activity = useQQReadActivity(open, { onlineOnly: false });
   const networkActivity = useQQReadActivity(open);
-  const [items, setItems] = useState<CollectionItemWire[]>([]);
+  const dataCache = usePageDataCache();
+  const [cached] = useState(() => dataCache.read<CollectionItemWire[]>('collections'));
+  const [items, setItems] = useState<CollectionItemWire[]>(cached ?? []);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
   const multiSelect = useContentMultiSelect({ kind: 'collections', container: 'all' });
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(Boolean(cached));
+  useEffect(() => {
+    if (loaded) dataCache.write('collections', items);
+  }, [items, loaded, dataCache]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -674,14 +683,19 @@ export function CollectionDialog({
     }
     const controller = new AbortController();
     let cancelled = false;
+    const hadItems = itemsRef.current.length > 0;
     setLoading(true);
     setRefreshing(false);
     setError(null);
     (async () => {
       try {
-        const local = await fetchAllCollections('db', controller.signal);
+        const local = await fetchAllCollections('db', controller.signal, (page) => {
+          if (cancelled || hadItems) return;
+          setItems(page);
+          setLoaded(true);
+        });
         if (cancelled) return;
-        setItems((current) => (current.length > 0 ? current : (local ?? [])));
+        setItems((current) => (hadItems ? current : (local ?? [])));
         setLoaded(true);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : '加载收藏失败');
@@ -1329,7 +1343,7 @@ export function CollectionDialog({
                 </>
               )}
             </section>
-          ) : loading ? (
+          ) : loading && !loaded ? (
             <div className="weq-collection-state">
               <Loader2 size={22} className="weq-spin" />
               <span>正在加载收藏…</span>
@@ -1359,7 +1373,7 @@ export function CollectionDialog({
             </div>
           )}
         </div>
-        {!selected && !loading && !error && filtered.length > 0 ? (
+        {!selected && loaded && filtered.length > 0 ? (
           <footer className="weq-collection-pager">
             <button
               type="button"
