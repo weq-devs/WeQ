@@ -78,8 +78,6 @@ export class NativeVideoEncoder implements CallVideoEncoder {
     this.height = options.height ?? CAMERA_PROFILE.height;
     this.fps = options.fps ?? CAMERA_PROFILE.fps;
     // 码率取 {@link CAMERA_PROFILE}，数值来由见 `shared/call_video_profile.ts`。
-    // 旧值 30 kbps 是误把「静态画面下 ABR 的实际输出」当成目标码率，画面一动就
-    // 严重欠码（实测同一张图 30 kbps 的 PSNR-Y 只有 32.6 dB，300 kbps 是 43.4 dB）。
     this.bitrateKbps = options.bitrateKbps ?? CAMERA_PROFILE.bitrateKbps;
   }
 
@@ -111,7 +109,7 @@ export class NativeVideoEncoder implements CallVideoEncoder {
   /**
    * 切换采集源并**重开**编码器。
    *
-   * 摄像头与屏幕共享的分辨率 / 码率不同（640×360@300kbps ↔ 1280×720@1.2Mbps），
+   * 摄像头与屏幕共享的分辨率 / 码率不同（640×360@30kbps ↔ 960×540@1.2Mbps），
    * 而 native 的 t265 是进程级单例、打开后不能改参数 —— 只能关掉重建。
    *
    * 实测重建很便宜：`openVideoEncoder` 在 1080p 下也只要 ~10 ms，而且这里只在

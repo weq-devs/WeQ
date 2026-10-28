@@ -69,7 +69,7 @@ describe('NativeVideoEncoder 换档', () => {
     const { nt, opened, calls } = fakeNative();
     const encoder = new NativeVideoEncoder(nt, MODULES);
     await encoder.open();
-    expect(opened[0]).toMatchObject({ width: 480, height: 270, fps: 12, kbps: 300 });
+    expect(opened[0]).toMatchObject({ width: 640, height: 360, fps: 15, kbps: 30 });
 
     const profile = await encoder.setSource('screen');
     // 先关再开：t265 打开后不能改参数。
@@ -92,7 +92,7 @@ describe('NativeVideoEncoder 换档', () => {
     await encoder.setSource('screen');
     await encoder.setSource('camera');
     expect(opened).toHaveLength(3);
-    expect(opened[2]).toMatchObject({ width: 480, height: 270, kbps: 300 });
+    expect(opened[2]).toMatchObject({ width: 640, height: 360, kbps: 30 });
     expect(encoder.currentSource).toBe('camera');
   });
 

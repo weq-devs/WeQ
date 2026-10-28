@@ -8,9 +8,8 @@
  *    与编码器当前的宽高对不上时，`NativeVideoEncoder.pushFrame` 会**静默丢帧** ——
  *    没有任何报错，表现只是「共享了但对方什么都看不到」。所以尺寸推导必须
  *    严格保持源宽高比、对齐偶数。
- * 2. **码率不能退回旧值**。2026-10-28 之前写死的是 30 kbps，来源是误把「静态
- *    画面下 ABR 的实际输出」当成目标码率；同一张图 30 kbps 的 PSNR-Y 只有
- *    32.6 dB，300 kbps 是 43.4 dB。
+ * 2. **摄像头档位跟随 `dev` 主线**（640×360 / 15 fps / 30 kbps），屏幕共享档位
+ *    则按真机实测（960×540 / 15 fps / 1.2 Mbps），两者别混着改。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -22,26 +21,13 @@ import {
 } from '../src/shared/call_video_profile';
 
 describe('视频采集档位', () => {
-  it('摄像头档位是 480×270 / 12 fps / 300 kbps', () => {
-    // 2026-10-28 真机复盘：640×360 在真实运动下编码 p95 19.4 ms，叠加采集与 IPC
-    // 后节拍滑到 99 ms/帧（目标 83 ms），对端只有 7.5~10 fps。降到 480×270 后
-    // 编码 p95 15.2 ms，且每像素比特数从 0.014 提到 0.025（+79%），画面更清楚。
-    expect(CAMERA_PROFILE.width).toBe(480);
-    expect(CAMERA_PROFILE.height).toBe(270);
-    expect(CAMERA_PROFILE.bitrateKbps).toBe(300);
-    expect(CAMERA_PROFILE.fps).toBe(12);
-  });
-
-  it('摄像头分辨率不能回到 640×360（会把发送节拍拖垮）', () => {
-    // 这条断言拦住「觉得 360p 更清楚」的回归：同一码率下 360p 的每像素比特数
-    // 只有 480×270 的 56%，而编码耗时高 27%，两头都吃亏。
-    expect(CAMERA_PROFILE.width * CAMERA_PROFILE.height).toBeLessThanOrEqual(640 * 360);
-  });
-
-  it('摄像头码率不能退回 30 kbps（旧值会把画面糊成一团）', () => {
-    // 30 kbps 是「静态画面下 ABR 的实际输出」被误当成目标码率。
-    // 这条断言的意义是拦住「有人觉得 30 够用」的回归。
-    expect(CAMERA_PROFILE.bitrateKbps).toBeGreaterThanOrEqual(200);
+  it('摄像头档位跟随 dev 主线：640×360 / 15 fps / 30 kbps', () => {
+    // 曾按真机实测上调到 480×270 / 12 fps / 300 kbps，后来要求与主线口径一致，
+    // 三项全部回退。要再动请连同 `dev` 主线一起改，别只改这里。
+    expect(CAMERA_PROFILE.width).toBe(640);
+    expect(CAMERA_PROFILE.height).toBe(360);
+    expect(CAMERA_PROFILE.bitrateKbps).toBe(30);
+    expect(CAMERA_PROFILE.fps).toBe(15);
   });
 
   it('屏幕共享档位是 960×540 / 15 fps / 1.2 Mbps', () => {
