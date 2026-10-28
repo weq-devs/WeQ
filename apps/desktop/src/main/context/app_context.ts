@@ -1768,6 +1768,11 @@ export function initAppContext(fileRoot?: string): AppContext {
             },
             // 好友 QQ 空间说说导出：翻页拉取 + 评论/点赞补全能力（需在线 QQ）。
             qzone: {
+              fetchAlbumPage: (uin, offset, signal) =>
+                webQuery.getQzoneAlbumPage(uin, offset, signal),
+              fetchAlbumPhotos: (uin, id, start, count) =>
+                webQuery.getQzoneAlbumPhotos(uin, id, start, count),
+              fetchAlbumVideo: (uin, id, key) => webQuery.getQzoneAlbumVideoUrl(uin, id, key),
               fetchPostDetail: (uin, tid, signal, captureRaw) =>
                 webQuery.getQzonePostDetail(uin, tid, signal, captureRaw),
               fetchPostImages: (uin, tid, signal, captureRaw) =>
@@ -2588,6 +2593,11 @@ export function initAppContext(fileRoot?: string): AppContext {
               },
             },
             qzone: {
+              fetchAlbumPage: (uin, offset, signal) =>
+                webQuery.getQzoneAlbumPage(uin, offset, signal),
+              fetchAlbumPhotos: (uin, id, start, count) =>
+                webQuery.getQzoneAlbumPhotos(uin, id, start, count),
+              fetchAlbumVideo: (uin, id, key) => webQuery.getQzoneAlbumVideoUrl(uin, id, key),
               fetchPostDetail: (uin, tid, signal, captureRaw) =>
                 webQuery.getQzonePostDetail(uin, tid, signal, captureRaw),
               fetchPostImages: (uin, tid, signal, captureRaw) =>

@@ -61,3 +61,18 @@ it('同号不同数据源及切号拒绝启动任务', async () => {
   );
   expect(fixture.start).not.toHaveBeenCalled();
 });
+it('同一空间任务保留说说与相册选择，拒绝两项都不选', async () => {
+  const api = accountRouter.createCaller({});
+  await api.startQzoneExport({ ...input, includePosts: true, includeAlbums: true });
+  expect(fixture.start).toHaveBeenLastCalledWith(
+    expect.objectContaining({ conv: input.targetUin, qzonePosts: true, qzoneAlbums: true }),
+  );
+  await api.startQzoneExport({ ...input, includePosts: false, includeAlbums: true });
+  expect(fixture.start).toHaveBeenLastCalledWith(
+    expect.objectContaining({ qzonePosts: false, qzoneAlbums: true }),
+  );
+  await expect(
+    api.startQzoneExport({ ...input, includePosts: false, includeAlbums: false }),
+  ).rejects.toThrow('至少选择');
+  expect(fixture.start).toHaveBeenCalledTimes(2);
+});

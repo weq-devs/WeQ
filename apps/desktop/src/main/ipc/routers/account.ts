@@ -1999,11 +1999,18 @@ export const accountRouter = router({
         webuiPort: z.number().int().min(1).max(65535).optional(),
         // 可选图像模型：写进导出 persona 的 models.vision，供 bot 解析上传的新表情。
         visionModel: agentLabModelRef.optional(),
+        ...exportAccountBindingInput.shape,
+        savePolicy: exportSavePolicyInput.optional(),
+        includeIntegrityReport: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }) => {
       const ctx = getAppContext();
-      const svc = ctx.services?.agentLab;
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const svc = services.agentLab;
       const cfg = ctx.bootstrap?.agentLabConfig;
       if (!svc || !cfg) throw new Error('账号未就绪');
       const record = svc.getPersonaRecord(input.personaId);
@@ -2056,15 +2063,16 @@ export const accountRouter = router({
       const botMjs = resolveResource('bot-runtime', 'bot.mjs');
       if (!botMjs) throw new Error('找不到 bot 引擎 bot.mjs（开发环境请先运行 pnpm build:bot）');
 
-      // 选输出位置。
-      const pickedDir = await getHost().pickDirectory({ title: '选择导出位置' });
-      if (!pickedDir) return { canceled: true as const };
+      const check = () => {
+        if (
+          requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+          services
+        )
+          throw new Error('账号或数据源已切换，请重新导出机器人。');
+      };
       const safeName =
         (persona.name || 'clone').replace(/[^\w一-龥-]+/g, '_').slice(0, 40) || 'clone';
-      const outDir = join(pickedDir, `${safeName}-bot`);
-
-      const result = await buildBotExport({
-        outDir,
+      const buildInput = structuredClone({
         botRuntimeMjs: botMjs,
         persona: { ...persona, models },
         pairs: record.pairs,
@@ -2081,23 +2089,61 @@ export const accountRouter = router({
         webuiPort: input.webuiPort,
         visionModel,
       });
-      // 记录 id → WebUI 访问信息，导出后在设置页可查密钥 / 一键打开控制台。
-      svc.recordExport(input.personaId, {
-        key: result.webui.key,
-        id: result.webui.id,
-        port: result.webui.port,
-        url: result.webui.url,
-        outDir: result.outDir,
-        exportedAt: Date.now(),
+      const settings = ctx.bootstrap?.userConfig.getSettings();
+      const policy = await prepareExportDestination(
+        input.savePolicy ?? { mode: settings?.exportSaveMode ?? 'before' },
+        settings?.defaultExportDir,
+        getHost(),
+        { kind: 'directory' },
+        check,
+      );
+      if (!policy) return { canceled: true as const };
+      check();
+      let botResult: Awaited<ReturnType<typeof buildBotExport>> | undefined;
+      const taskId = await services.exportManager.startResourceExport({
+        kind: 'persona-bot',
+        name: `${safeName}-bot`,
+        savePolicy: policy,
+        includeIntegrityReport: input.includeIntegrityReport,
+        run: async ({ directory, signal }) => {
+          check();
+          signal.throwIfAborted();
+          botResult = await buildBotExport({ ...buildInput, outDir: directory });
+          check();
+          signal.throwIfAborted();
+          return { total: 1, ok: 1, failed: [] };
+        },
+        onPublished: (directory) => {
+          check();
+          if (!botResult) throw new Error('机器人产物尚未生成');
+          svc.recordExport(input.personaId, {
+            ...botResult.webui,
+            taskId,
+            outDir: directory,
+            exportedAt: Date.now(),
+          });
+        },
       });
-      return { canceled: false as const, ...result };
+      return { canceled: false as const, taskId };
     }),
 
   /** 查某克隆体最近一次导出的 WebUI 访问信息（密钥/端口/url；没导出过则 null）。 */
   getAgentLabExportInfo: procedure
     .input(z.object({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
-      return requireServices().agentLab.getExportInfo(input.personaId) ?? null;
+      const services = requireServices();
+      const info = services.agentLab.getExportInfo(input.personaId);
+      if (!info) return null;
+      const task = info.taskId ? services.exportManager.getTask(info.taskId) : null;
+      if (task && task.status !== 'completed') return null;
+      return {
+        ...info,
+        outDir: task?.save?.path
+          ? join(task.save.path, 'files')
+          : task?.bundleDir
+            ? join(task.bundleDir, 'files')
+            : info.outDir,
+      };
     }),
 
   /**
@@ -6987,6 +7033,8 @@ export const accountRouter = router({
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
         targetUin: z.string().min(1),
+        includePosts: z.boolean().default(true),
+        includeAlbums: z.boolean().default(false),
         tids: z.array(z.string().trim().min(1).max(512)).optional(),
         expectedAccountUin: z.string().min(1).optional(),
         expectedAccountConfigId: z.string().min(1).optional(),
@@ -7006,9 +7054,13 @@ export const accountRouter = router({
         input.expectedAccountConfigId,
       );
       requireQqOnlineForAlbum(services); // 硬性要求：在线 QQ 实例
-      const tids = input.tids === undefined ? undefined : [...new Set(input.tids)];
+      const tids =
+        !input.includePosts || input.tids === undefined ? undefined : [...new Set(input.tids)];
+      if (!input.includePosts && !input.includeAlbums) throw new Error('至少选择说说或相册。');
       return services.exportManager.startTask({
         qzone: true,
+        qzonePosts: input.includePosts,
+        qzoneAlbums: input.includeAlbums,
         includeIntegrityReport: input.includeIntegrityReport,
         ...(tids !== undefined ? { qzoneTids: tids } : {}),
         savePolicy: input.savePolicy,

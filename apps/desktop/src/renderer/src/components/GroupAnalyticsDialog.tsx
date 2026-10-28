@@ -326,6 +326,8 @@ export function GroupAnalyticsDialog({
       report
         ? {
             kind: 'group',
+            expectedAccountUin: scope?.expectedAccountUin,
+            expectedAccountConfigId: scope?.expectedAccountConfigId,
             title: groupName,
             label: EXPORT_LABEL,
             groupCode,

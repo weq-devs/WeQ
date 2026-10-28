@@ -240,6 +240,8 @@ export function BuddyAnalyticsDialog({
       data
         ? {
             kind: 'buddy',
+            expectedAccountUin: scope?.expectedAccountUin,
+            expectedAccountConfigId: scope?.expectedAccountConfigId,
             title: peerName,
             label: EXPORT_LABEL,
             peerUid,

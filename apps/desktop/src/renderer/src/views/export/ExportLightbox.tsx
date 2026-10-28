@@ -185,7 +185,12 @@ function MasterRow({
         </span>
         {desc ? <span className="weq-exp-master-desc">{desc}</span> : null}
       </span>
-      <Toggle checked={checked} onChange={onChange} disabled={disabled} />
+      <Toggle
+        checked={checked}
+        onChange={onChange}
+        disabled={disabled}
+        label={typeof label === 'string' ? label : undefined}
+      />
     </div>
   );
 }
@@ -326,6 +331,8 @@ const optionsSnapshot = z.object({
   dress: z.object({ bubble: z.boolean(), font: z.boolean(), widget: z.boolean() }),
   exportMedia: z.boolean(),
   qzoneInteractions: z.boolean(),
+  qzonePosts: z.boolean().optional(),
+  qzoneAlbums: z.boolean().optional(),
   completeMessages: z.boolean(),
   exportAvatar: z.boolean(),
   completeMedia: z.boolean(),
@@ -352,6 +359,7 @@ export function ExportLightbox({
   headline,
   summary,
   contactScope = 'friends',
+  qzoneContent,
   calendarTargets,
   initialOptions,
   initialFormats,
@@ -373,6 +381,7 @@ export function ExportLightbox({
   summary: string;
   /** 联系人导出范围（决定灯箱内可选格式：好友含 vCard）。 */
   contactScope?: 'friends' | 'group' | 'groups';
+  qzoneContent?: import('./types').QzoneExportContent;
   calendarTargets?: CalendarTarget[];
   /**
    * 回填的上次配置（可能来自持久化预设 —— 旧版本缺 `onlineTranscribe` 等新字段，
@@ -636,6 +645,8 @@ export function ExportLightbox({
 
   const isAlbum = variant === 'album';
   const isQzone = variant === 'qzone';
+  const wantQzonePosts = qzoneContent ? qzoneContent !== 'albums' : opts.qzonePosts !== false;
+  const wantQzoneAlbums = qzoneContent ? qzoneContent !== 'posts' : Boolean(opts.qzoneAlbums);
   const isGuild = variant === 'guild';
   const isScheduled = variant === 'scheduled';
   const isContacts = variant === 'contacts';
@@ -718,7 +729,15 @@ export function ExportLightbox({
     }
     setConfirming(true);
     try {
-      const prepared = await authorization.prepare(opts);
+      const prepared = await authorization.prepare(
+        isQzone && qzoneContent
+          ? {
+              ...opts,
+              qzonePosts: qzoneContent !== 'albums',
+              qzoneAlbums: qzoneContent !== 'posts',
+            }
+          : opts,
+      );
       if (!prepared) return;
       setOpts(prepared);
       await onConfirm({
@@ -792,6 +811,7 @@ export function ExportLightbox({
     >
       <section
         className="weq-exp-dialog is-wide"
+        data-export-variant={variant}
         role={embedded ? 'region' : 'dialog'}
         aria-modal={embedded ? undefined : true}
         onMouseDown={(e) => e.stopPropagation()}
@@ -1160,9 +1180,7 @@ export function ExportLightbox({
                 {isQzone ? (
                   <Card title="QQ 空间导出">
                     <div className="weq-exp-placeholder">
-                      <span>
-                        导出该空间的说说（内容 / 时间 / 评论数 / 配图 / 视频；可选导出自己）
-                      </span>
+                      <span>导出自己或其他空间的说说与相册</span>
                       <small>
                         需登录该账号的 QQ 客户端。配图与视频存入 media/；HTML
                         格式会强制下载媒体并本地引用（离线可看）；评论与点赞从动态页解析，仅覆盖翻到的动态，可能不全。
@@ -1212,7 +1230,7 @@ export function ExportLightbox({
                           desc={
                             htmlForced
                               ? 'HTML 导出需要本地媒体，已随格式强制开启'
-                              : '说说正文始终导出；配图与视频开启后存入 media/ 子目录'
+                              : '说说与相册的配图、视频存入公共 media/ 目录'
                           }
                           checked={opts.exportMedia}
                           disabled={htmlForced}
@@ -1226,8 +1244,8 @@ export function ExportLightbox({
                               ? 'HTML 导出包含评论与点赞，已随格式强制开启'
                               : '按说说逐条补拉评论（含回复）与点赞用户，写进导出文件（尽力而为，可能不全）'
                           }
-                          checked={htmlForced || opts.qzoneInteractions}
-                          disabled={htmlForced}
+                          checked={wantQzonePosts && (htmlForced || opts.qzoneInteractions)}
+                          disabled={htmlForced || !wantQzonePosts}
                           onChange={(v) => patch({ qzoneInteractions: v })}
                         />
                       </>
@@ -1501,7 +1519,7 @@ export function ExportLightbox({
                   opts.dress.bubble || opts.dress.font || opts.dress.widget ? ' · 装扮' : ''
                 }`
               : isQzone
-                ? `${formats.length} 种格式${opts.exportMedia ? ' · 含配图' : ''}${opts.qzoneInteractions ? ' · 含评论/赞' : ''}`
+                ? `${wantQzonePosts ? '空间' : ''}${wantQzonePosts && wantQzoneAlbums ? ' + ' : ''}${wantQzoneAlbums ? '相册' : ''} · ${formats.length} 种格式${opts.exportMedia ? ' · 含媒体' : ''}${wantQzonePosts && opts.qzoneInteractions ? ' · 含评论/赞' : ''}`
                 : isContacts
                   ? `${formats.length} 种格式${opts.exportAvatar ? ' · 含头像' : ''}`
                   : null}

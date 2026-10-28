@@ -74,6 +74,7 @@ import {
   type ExportMode,
   type ExportOptions,
   type PickItem,
+  type QzoneExportContent,
   type ScheduledTask,
 } from './export/types';
 import '../styles/export.css';
@@ -106,6 +107,11 @@ import { usePageState } from '../components/PageSnapshots';
 import { pageValue } from '../lib/pageSnapshots';
 import { z } from 'zod';
 import { ScheduleSettings } from '../components/tasks/ScheduleSettings';
+import {
+  PersonaBotExportPane,
+  QzoneTargetInput,
+  QzoneContentSelector,
+} from './export/ResourceExportPanes';
 
 interface ModeDef {
   id: ExportMode;
@@ -117,6 +123,13 @@ interface ModeDef {
 }
 
 const MODES: ModeDef[] = [
+  {
+    id: 'persona-bot',
+    label: '克隆体机器人',
+    short: '机器人',
+    desc: 'OneBot 部署整包',
+    icon: <Bot size={18} />,
+  },
   {
     id: 'full',
     label: '聊天消息导出',
@@ -142,7 +155,7 @@ const MODES: ModeDef[] = [
     id: 'qzone',
     label: 'QQ空间导出',
     short: 'QQ 空间',
-    desc: '空间说说 · JSON / TXT / HTML',
+    desc: '说说 / 相册 · JSON / TXT / HTML',
     icon: <Globe size={18} />,
   },
   {
@@ -438,6 +451,11 @@ export function ExportTool({
     z.enum(['now', 'scheduled']),
     false,
     !initialMode,
+  );
+  const [qzoneContent, setQzoneContent] = usePageState<QzoneExportContent>(
+    'export:qzone-content',
+    'posts',
+    z.enum(['posts', 'both', 'albums']),
   );
   const [taskTab, setTaskTab] = usePageState<'tasks' | 'schedules'>(
     'export:task-tab',
@@ -771,6 +789,10 @@ export function ExportTool({
   }, [guildSessions.data]);
 
   // QQ 空间导出目标：自己的空间（置顶）+ 私聊好友（排除群聊、公众号、服务号，且需有效 uin）。
+  const [extraQzoneTargets, setExtraQzoneTargets] = useState<string[]>([]);
+  useEffect(() => {
+    setExtraQzoneTargets([]);
+  }, [accountUin, saveBinding?.expectedAccountConfigId]);
   const friendItems = useMemo<PickItem[]>(() => {
     const self = selfProfile.data as SelfProfileWire | null | undefined;
     const raw = (conversations.data ?? []) as ConvWire[];
@@ -818,7 +840,16 @@ export function ExportTool({
         meta: '好友空间 · 说说',
       }));
     const byUin = new Map<string, PickItem>();
-    for (const item of [...mine, ...friends]) if (!byUin.has(item.id)) byUin.set(item.id, item);
+    const extra: PickItem[] = extraQzoneTargets.map((uin) => ({
+      id: uin,
+      uin,
+      name: `空间 ${uin}`,
+      kind: 'c2c',
+      avatarUrl: convAvatarUrl('c2c', '', uin),
+      meta: '指定空间',
+    }));
+    for (const item of [...mine, ...friends, ...extra])
+      if (!byUin.has(item.id)) byUin.set(item.id, item);
     const items = [...byUin.values()];
     if (qzoneInitial.uin && !items.some((item) => item.id === qzoneInitial.uin))
       items.unshift({
@@ -830,7 +861,7 @@ export function ExportTool({
         meta: '当前空间 · 说说',
       });
     return items;
-  }, [conversations.data, selfProfile.data, qzoneInitial.uin]);
+  }, [conversations.data, selfProfile.data, qzoneInitial.uin, extraQzoneTargets]);
 
   const groupItems = useMemo<PickItem[]>(() => {
     return ((groups.data ?? []) as GroupWire[]).map((g) => ({
@@ -1133,16 +1164,17 @@ export function ExportTool({
       targets.length === 0 ||
       !account ||
       exportAccount.isFetching ||
-      targets.some((target) => target.tids?.length === 0)
+      (options.qzonePosts !== false && targets.some((target) => target.tids?.length === 0))
     )
       return;
     const binding = { expectedAccountUin: account.uin, expectedAccountConfigId: account.configId };
     const ok = await preflightQqOnline(dialog);
     if (!ok) return;
 
-    const range = targets.some((target) => target.tids !== undefined)
-      ? { start: null, end: null }
-      : { start: options.range.start, end: options.range.end };
+    const range =
+      options.qzonePosts !== false && targets.some((target) => target.tids !== undefined)
+        ? { start: null, end: null }
+        : { start: options.range.start, end: options.range.end };
     setSubmitting(true);
     try {
       const savePolicy = await prepareSave(intent, {
@@ -1160,7 +1192,9 @@ export function ExportTool({
           includeIntegrityReport: options.includeIntegrityReport ?? false,
           savePolicy,
           targetUin: t.uin,
-          tids: t.tids,
+          tids: options.qzonePosts === false ? undefined : t.tids,
+          includePosts: options.qzonePosts !== false,
+          includeAlbums: Boolean(options.qzoneAlbums),
           name: t.name,
           format: fmt0,
           formats: formats.map(qzoneFormatOf),
@@ -1734,7 +1768,10 @@ export function ExportTool({
     scopeConversationId &&
     convSelection.has(scopeConversationId)
       ? convItems.find((item) => item.id === scopeConversationId)
-      : mode === 'qzone' && spaceScopeUin && spaceSelection.has(spaceScopeUin)
+      : mode === 'qzone' &&
+          qzoneContent !== 'albums' &&
+          spaceScopeUin &&
+          spaceSelection.has(spaceScopeUin)
         ? friendItems.find((item) => item.id === spaceScopeUin)
         : undefined;
 
@@ -1746,7 +1783,11 @@ export function ExportTool({
         : mode === 'groupfile'
           ? '导出群文件'
           : mode === 'qzone'
-            ? '导出空间'
+            ? qzoneContent === 'albums'
+              ? '导出相册'
+              : qzoneContent === 'both'
+                ? '导出空间与相册'
+                : '导出空间'
             : mode === 'contacts'
               ? contactScope === 'groups'
                 ? '导出群聊名单'
@@ -1760,7 +1801,8 @@ export function ExportTool({
       ? !exportAccount.data ||
         exportAccount.isFetching ||
         !spaceSelection.size ||
-        [...spaceSelection].some((id) => postSelections[id]?.length === 0)
+        (qzoneContent !== 'albums' &&
+          [...spaceSelection].some((id) => postSelections[id]?.length === 0))
       : mode === 'album'
         ? !albumGroupId
         : mode === 'groupfile'
@@ -1944,7 +1986,26 @@ export function ExportTool({
               </div>
             ) : null}
 
+            {mode === 'qzone' ? (
+              <div className="weq-export-execution">
+                <QzoneContentSelector
+                  value={qzoneContent}
+                  onChange={setQzoneContent}
+                  disabled={submitting}
+                />
+              </div>
+            ) : null}
             <div className="weq-exp-pane-body">
+              {mode === 'qzone' && !modeLocked ? (
+                <QzoneTargetInput
+                  disabled={!saveBinding || submitting}
+                  key={`${accountUin}:${saveBinding?.expectedAccountConfigId}`}
+                  onAdd={(uin) => {
+                    setExtraQzoneTargets((current) => [...new Set([...current, uin])]);
+                    setConvSelection((current) => new Set([...current, uin]));
+                  }}
+                />
+              ) : null}
               {mode === 'mail' ? (
                 <MailExportPane
                   initialSelection={initialSelection}
@@ -1952,6 +2013,10 @@ export function ExportTool({
                   isCurrent={isCurrent}
                   onStarted={refetchTasks}
                   disabled={pickingSaveDirectory || globalSettings.isLoading}
+                />
+              ) : mode === 'persona-bot' ? (
+                <PersonaBotExportPane
+                  key={`${accountUin}:${saveBinding?.expectedAccountConfigId}`}
                 />
               ) : mode === 'generated' ? (
                 <GeneratedExportPane
@@ -1989,11 +2054,18 @@ export function ExportTool({
                     loading={conversations.isLoading}
                     selected={convSelection}
                     onChange={setConvSelection}
-                    scopeSelections={mode === 'full' ? messageSelections : postSelections}
+                    scopeSelections={
+                      mode === 'full'
+                        ? messageSelections
+                        : qzoneContent === 'albums'
+                          ? undefined
+                          : postSelections
+                    }
                     scopeLabel={mode === 'qzone' ? '说说范围' : '消息范围'}
                     scopeUnit={mode === 'qzone' ? '条说说' : '条消息'}
                     onEditScope={
-                      (mode === 'full' && execution === 'now') || mode === 'qzone'
+                      (mode === 'full' && execution === 'now') ||
+                      (mode === 'qzone' && qzoneContent !== 'albums')
                         ? (item) => {
                             setConvSelection(new Set([...convSelection, item.id]));
                             if (mode === 'qzone') setSpaceScopeUin(item.id);
@@ -2276,6 +2348,7 @@ export function ExportTool({
             {/* 商城表情下载 / 导出表情包自带底部操作条，隐藏导出中心的通用 footer。 */}
             {mode !== 'emojipack' &&
             mode !== 'database' &&
+            mode !== 'persona-bot' &&
             mode !== 'generated' &&
             mode !== 'mail' ? (
               <footer className="weq-exp-pane-foot">
@@ -2591,6 +2664,7 @@ export function ExportTool({
           headline={lightboxHeadline}
           summary={lightboxSummary}
           contactScope={contactScope}
+          qzoneContent={lightbox === 'qzone' ? qzoneContent : undefined}
           calendarTargets={
             ['full', 'chatlab', 'scheduled'].includes(lightbox)
               ? convItems

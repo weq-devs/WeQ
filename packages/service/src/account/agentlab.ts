@@ -298,6 +298,7 @@ function imageToDataUrl(path: string): string | null {
 
 /** 一次导出产物的 WebUI 访问信息（存 bot_exports.json，供设置页查密钥 / 打开控制台）。 */
 export interface BotExportInfo {
+  taskId?: string;
   /** WebUI 访问密钥（hex）。 */
   key: string;
   /** bot 编号（uuid）。 */
@@ -306,7 +307,7 @@ export interface BotExportInfo {
   port: number;
   /** 默认访问地址 http://127.0.0.1:<port>。 */
   url: string;
-  /** 产物目录。 */
+  /** 已知产物目录；后台任务尚未保存时可为空。 */
   outDir: string;
   /** 导出时间戳。 */
   exportedAt: number;

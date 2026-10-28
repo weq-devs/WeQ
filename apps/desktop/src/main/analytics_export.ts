@@ -15,18 +15,19 @@
  *   4. 把窗口内容区调到卡片尺寸 → `capturePage(整张卡片)` 一次成帧；
  *      系统把窗口压小了（平铺 WM / 屏幕限制）就按窗口高度**分段滚动拍**再拼起来 ——
  *      隐藏窗口里滚动没有任何可见影响，所以这套兜底是安全的；
- *   5. 在用户窗口上弹保存对话框、落盘，然后销毁隐藏窗口。
+ *   5. 返回 PNG 给公共资源任务落盘，然后销毁隐藏窗口。
  *
- * 主进程不缓存任何东西，也不碰账号会话：载荷里只有卡片要显示的数据。
+ * 位置选择先于捕获；卡片数据固定为点击时的快照，结果由公共任务缓存与保存。
  */
 
-import { BrowserWindow, dialog, ipcMain, nativeImage } from 'electron';
+import { BrowserWindow, ipcMain, nativeImage } from 'electron';
 import fs from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { is } from '@electron-toolkit/utils';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
 import { floatingWindowTypeOption } from './linux_window_backend';
+import { startAnalyticsSave } from './analytics_save';
 
 // 主进程产物是 ESM，`__dirname` 这个全局并不存在（同 index.ts / transcribe/engine.ts）。
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -72,20 +73,6 @@ interface CardRect {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** 文件名里的时间戳：20260918-1432。 */
-function stamp(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(
-    d.getMinutes(),
-  )}`;
-}
-
-/** 文件名主体：去掉路径分隔符与控制字符，避免保存对话框报错。 */
-function safeTitle(title: string): string {
-  return (title || '分析').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40);
 }
 
 /** 轻量校验：只挡住明显不是我们递过来的东西。 */
@@ -276,37 +263,9 @@ async function captureCard(win: BrowserWindow, card: CardRect): Promise<Buffer> 
     .toPNG();
 }
 
-/** 在发起导出的那个窗口上弹保存框并落盘。 */
-async function saveCard(
-  owner: BrowserWindow | null,
-  png: Buffer,
-  payload: AnalyticsExportPayload,
-): Promise<AnalyticsExportResult> {
-  const { dialogLocations } = await import('./host');
-  const locationKey = `analytics:${payload.label}`;
-  const options: Electron.SaveDialogOptions = {
-    defaultPath: dialogLocations().savePath(
-      locationKey,
-      `${payload.label}_${safeTitle(payload.title)}_${stamp()}.png`,
-    ),
-    filters: [{ name: 'PNG 图片', extensions: ['png'] }],
-  };
-  const result =
-    owner && !owner.isDestroyed()
-      ? await dialog.showSaveDialog(owner, options)
-      : await dialog.showSaveDialog(options);
-  if (result.canceled || !result.filePath) return { saved: false, canceled: true };
-  dialogLocations().remember(locationKey, result.filePath);
-  await fs.promises.writeFile(result.filePath, png);
-  return { saved: true, path: result.filePath };
-}
-
-/** 跑一次完整导出：开隐藏窗口 → 渲染 → 抓图 → 保存 → 收窗口。 */
-async function runExport(
-  payload: AnalyticsExportPayload,
-  owner: BrowserWindow | null,
-): Promise<AnalyticsExportResult> {
-  if (inFlight) return { saved: false, error: '上一张还在导出中' };
+/** 捕获只返回 PNG；结果保存由公共资源任务处理。 */
+async function runExport(payload: AnalyticsExportPayload): Promise<Buffer> {
+  if (inFlight) throw new Error('上一张还在导出中');
   inFlight = true;
   pendingPayload = payload;
   let win: BrowserWindow | null = null;
@@ -326,9 +285,7 @@ async function runExport(
     await delay(SETTLE_MS);
     const settled = await waitForStableCard(win, card);
 
-    return await saveCard(owner, await captureCard(win, settled), payload);
-  } catch (error) {
-    return { saved: false, error: error instanceof Error ? error.message : String(error) };
+    return await captureCard(win, settled);
   } finally {
     pendingPayload = null;
     inFlight = false;
@@ -337,12 +294,19 @@ async function runExport(
 }
 
 export function registerAnalyticsExportIpc(): void {
-  /** 可见窗口：把卡片数据递过来，拿到含保存对话框的结果。 */
-  ipcMain.handle('analytics-shot:render', async (event, payload: unknown) => {
-    const clean = sanitizePayload(payload);
-    if (!clean) return { saved: false as const, error: '导出参数无效' };
-    return runExport(clean, BrowserWindow.fromWebContents(event.sender));
-  });
+  /** 可见窗口：递交卡片快照，返回公共导出任务或取消结果。 */
+  ipcMain.handle(
+    'analytics-shot:render',
+    async (_event, payload: unknown): Promise<AnalyticsExportResult> => {
+      const clean = sanitizePayload(payload);
+      if (!clean) return { saved: false as const, error: '导出参数无效' };
+      try {
+        return await startAnalyticsSave(clean, runExport);
+      } catch (error) {
+        return { saved: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  );
 
   /** 导出窗口：认领待渲染的载荷。 */
   ipcMain.handle('analytics-shot:claim', () => pendingPayload);

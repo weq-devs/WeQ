@@ -22,11 +22,13 @@ export type ExportMode =
   | 'scheduled'
   | 'album'
   | 'groupfile'
+  | 'persona-bot'
   | 'emojipack';
 
 /** Every output format the 完整消息 / 定时 flows can request. HTML is one of the
  *  完整消息 chips; `vcard` is contacts-only (导出联系人). */
 export type ExportFormat = 'json' | 'jsonl' | 'xlsx' | 'csv' | 'txt' | 'html' | 'vcard';
+export type QzoneExportContent = 'posts' | 'both' | 'albums';
 
 /** Formats the backend (`account.startExport`) can produce. */
 export const BACKEND_FORMATS = ['json', 'jsonl', 'txt', 'csv', 'xlsx'] as const;
@@ -167,6 +169,8 @@ export interface ExportOptions {
   mediaKinds: MediaKinds;
   /** 好友 QQ 空间导出：按 tid 补全评论 + 点赞（空间动态页 HTML 解析，best-effort）。 */
   qzoneInteractions: boolean;
+  qzonePosts?: boolean;
+  qzoneAlbums?: boolean;
   /** 消息补全：扫描 seq 空窗，从 QQ 服务端拉取本机缺失的消息（需在线 QQ）。 */
   completeMessages: boolean;
   /** Export sender avatars. */
@@ -216,6 +220,8 @@ export const DEFAULT_OPTIONS: ExportOptions = {
   range: DEFAULT_RANGE,
   exportMedia: true,
   qzoneInteractions: false,
+  qzonePosts: true,
+  qzoneAlbums: false,
   mediaKinds: { ...DEFAULT_MEDIA_KINDS },
   completeMessages: false,
   exportAvatar: true,

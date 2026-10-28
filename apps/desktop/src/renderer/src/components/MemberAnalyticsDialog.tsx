@@ -155,6 +155,8 @@ export function MemberAnalyticsDialog({
       data
         ? {
             kind: 'member',
+            expectedAccountUin: scope?.expectedAccountUin,
+            expectedAccountConfigId: scope?.expectedAccountConfigId,
             title: `${member.name}_${groupName}`,
             label: EXPORT_LABEL,
             groupCode,
