@@ -16,6 +16,7 @@
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
+import { MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES } from '@weq/service/qzone-public-settings';
 import { isToastDuration } from '@weq/service/toast-settings';
 import {
   copyExportSavePolicy,
@@ -841,6 +842,16 @@ export const bootstrapRouter = router({
       requireBootstrap().userConfig.setSettings({ logRetentionDays: input.days });
       runLogRetentionSweep(input.days);
       return true;
+    }),
+
+  setQzonePublicRefreshCooldown: procedure
+    .input(
+      z.object({ minutes: z.number().int().min(0).max(MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES) }),
+    )
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({
+        qzonePublicRefreshCooldownMinutes: input.minutes,
+      }).qzonePublicRefreshCooldownMinutes;
     }),
 
   setQzoneForwardQuotePrevious: procedure

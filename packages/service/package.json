@@ -11,6 +11,7 @@
     "./db-checkup": "./src/account/db_repair/checkup.ts",
     "./bad-pages": "./src/account/bad_pages.ts",
     "./qzone-pagination": "./src/common/qzone_pagination.ts",
+    "./qzone-public-settings": "./src/common/qzone_public_settings.ts",
     "./toast-settings": "./src/common/toast_settings.ts",
     "./chat-image-cache": "./src/common/chat_image_cache.ts",
     "./home-settings": "./src/common/home_settings.ts",

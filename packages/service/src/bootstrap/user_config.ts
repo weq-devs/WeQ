@@ -49,6 +49,10 @@ import {
   qzonePaginationLimiter,
   type QzonePaginationSettings,
 } from '../common/qzone_pagination';
+import {
+  DEFAULT_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,
+  normalizeQzonePublicRefreshCooldown,
+} from '../common/qzone_public_settings';
 import { normalizeGroupKeywordRules } from '../account/group_keyword';
 import {
   DEFAULT_TOAST_DURATIONS,
@@ -627,6 +631,8 @@ export interface AppSettings {
   logRetentionDays: number;
   /** App-wide online Qzone page request budget, shared across accounts and exports. */
   qzonePagination: QzonePaginationSettings;
+  /** 空友爱看自动换首页的冷却分钟数；0 表示每次进入都刷新。 */
+  qzonePublicRefreshCooldownMinutes: number;
   /** 转发说说时自动引用上一人的文案。 */
   qzoneForwardQuotePrevious: boolean;
   /** 点击空间中的他人昵称或头像时的默认操作；当前空间主人始终显示名片。 */
@@ -902,6 +908,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   defaultExportDir: null,
   logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
   qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
+  qzonePublicRefreshCooldownMinutes: DEFAULT_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,
   qzoneForwardQuotePrevious: false,
   qzonePersonClickAction: 'space',
   // 默认双方混音；电脑声音默认不录（Linux / Windows 都要多占一路采集）。
@@ -1485,6 +1492,9 @@ export class UserConfigService {
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
       logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
       qzonePagination: normalizeQzonePagination(s?.qzonePagination),
+      qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(
+        s?.qzonePublicRefreshCooldownMinutes,
+      ),
       qzoneForwardQuotePrevious: s?.qzoneForwardQuotePrevious === true,
       qzonePersonClickAction: s?.qzonePersonClickAction === 'profile' ? 'profile' : 'space',
       callRecording: normalizeCallRecording(s?.callRecording, d.callRecording),
@@ -1628,6 +1638,10 @@ export class UserConfigService {
       logRetentionDays:
         normalizeLogRetentionDays(patch.logRetentionDays) ?? current.logRetentionDays,
       qzonePagination: normalizeQzonePagination(patch.qzonePagination, current.qzonePagination),
+      qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(
+        patch.qzonePublicRefreshCooldownMinutes,
+        current.qzonePublicRefreshCooldownMinutes,
+      ),
       qzoneForwardQuotePrevious:
         patch.qzoneForwardQuotePrevious ?? current.qzoneForwardQuotePrevious,
       qzonePersonClickAction:

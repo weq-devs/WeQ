@@ -11,6 +11,9 @@ const state = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/components/settings/QzonePaginationSettings', () => ({
   QzonePaginationSettings: () => null,
 }));
+vi.mock('../src/renderer/src/components/settings/QzonePublicRefreshSettings', () => ({
+  QzonePublicRefreshSettings: () => null,
+}));
 vi.mock('../src/renderer/src/components/qq-actions/QzoneFriendPermissions', () => ({
   QzoneFriendPermissions: () => null,
 }));

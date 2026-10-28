@@ -2,6 +2,7 @@ import { Globe } from 'lucide-react';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { trpc } from '../../trpc/client';
 import { QzonePaginationSettings } from './QzonePaginationSettings';
+import { QzonePublicRefreshSettings } from './QzonePublicRefreshSettings';
 import { QzoneFriendPermissions } from '../qq-actions/QzoneFriendPermissions';
 import { SegmentedControl } from '../SegmentedControl';
 
@@ -17,6 +18,7 @@ export function QzoneSettingsSection() {
     <div className="weq-set">
       <SectionHeader icon={<Globe size={16} strokeWidth={1.8} />} title="QQ 空间" />
       <QzonePaginationSettings />
+      <QzonePublicRefreshSettings />
       <Card title="人物入口" settingId="qzone-person-click">
         <Row
           label="点击他人昵称或头像时"

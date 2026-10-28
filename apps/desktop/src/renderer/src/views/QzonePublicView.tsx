@@ -31,6 +31,8 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { client } from '../trpc/client';
+import { normalizeQzonePublicRefreshCooldown } from '@weq/service/qzone-public-settings';
+import { PageDataCache } from '../lib/pageDataCache';
 import { QqAvatar } from '../components/QqAvatar';
 import { QzoneProfileAvatar, QzonePersonButton } from '../components/QzoneProfileAvatar';
 import { QzoneEmoji } from '../components/QzoneEmoji';
@@ -104,6 +106,18 @@ interface Capabilities {
   canComment: boolean;
 }
 
+interface PublicFeedSnapshot {
+  feeds: PublicFeedView[];
+  done: boolean;
+  nextCursor: string | null;
+  seenCursors: string[];
+  stalledPages: number;
+  headLoadedAt: number;
+}
+
+// 仅本次运行保留推荐与游标，不写磁盘；复用有容量上限的页面缓存。
+const publicFeedCache = new PageDataCache(8, 8 * 1024 * 1024, Infinity);
+
 /**
  * 操作者身份。`publicUid` 是公共域里的作者标识（32 位十六进制），与本地
  * `u_xxx` 形式的 uid 不是一套 —— 只有发过评论 / 回复之后主进程才能从回执里学到它，
@@ -150,7 +164,20 @@ export function QzonePublicPane({
   /** 作者带 uin 时才能打开其旧空间页；公共域多数只有 uid。 */
   onSpace?: (uin: string, nickname?: string) => void;
 }): ReactElement {
+  return <QzonePublicContent key={selfUin} selfUin={selfUin} onSpace={onSpace} />;
+}
+
+function QzonePublicContent({
+  selfUin,
+  onSpace,
+}: {
+  selfUin: string;
+  onSpace?: (uin: string, nickname?: string) => void;
+}): ReactElement {
   const { active, refresh } = useContext(QzonePageContext);
+  const [snapshot] = useState(() => publicFeedCache.get<PublicFeedSnapshot>(selfUin));
+  const [cooldownMinutes, setCooldownMinutes] = useState<number | null>(null);
+  const headLoadedAt = useRef(snapshot?.headLoadedAt ?? null);
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const [capabilityError, setCapabilityError] = useState('');
   const [capabilityRetry, setCapabilityRetry] = useState(0);
@@ -159,14 +186,14 @@ export function QzonePublicPane({
   // 共用一份的话，能力查询的 cleanup 会把推荐流的请求一起取消。
   const capabilityRequests = useQzoneRequests('qzonePublic');
   const feedRequests = useQzoneRequests('qzonePublic');
-  const [feeds, setFeeds] = useState<PublicFeedView[] | null>(null);
+  const [feeds, setFeeds] = useState<PublicFeedView[] | null>(snapshot?.feeds ?? null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [pageRequest, setPageRequest] = useState(0);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState(snapshot?.done ?? false);
   const [openDetail, setOpenDetail] = useState<string | null>(null);
-  const nextCursor = useRef<string | null>(null);
-  const seenCursors = useRef(new Set<string>());
+  const nextCursor = useRef<string | null>(snapshot?.nextCursor ?? null);
+  const seenCursors = useRef(new Set(snapshot?.seenCursors));
   const moreRef = useRef<HTMLDivElement>(null);
   const nearEnd = useNearEnd(moreRef);
 
@@ -179,13 +206,19 @@ export function QzonePublicPane({
     if (!active) return undefined;
     let live = true;
     setCapabilityError('');
-    void capabilityRequests
-      .run(
+    void Promise.all([
+      capabilityRequests.run(
         (requestId) => client.account.qzonePublic.capabilities.query({ selfUin, requestId }),
         true,
-      )
-      .then((result) => {
-        if (live) setCapabilities(publicCapabilities(result));
+      ),
+      client.bootstrap.getSettings.query(),
+    ])
+      .then(([result, settings]) => {
+        if (!live) return;
+        setCooldownMinutes(
+          normalizeQzonePublicRefreshCooldown(settings.qzonePublicRefreshCooldownMinutes),
+        );
+        setCapabilities(publicCapabilities(result));
       })
       .catch((reason: unknown) => {
         if (live) setCapabilityError(errorText(reason));
@@ -202,15 +235,19 @@ export function QzonePublicPane({
   // 复位 effect 后跑，只会让这一页仍按旧游标读，还不会触发重拉。所以复位写在
   // 拉取 effect 自己的开头。
   const cursorRequest = useRef<string | null>(null);
-  const lastRefresh = useRef(refresh);
+  const lastRefresh = useRef<number | undefined>(undefined);
   /** 上一次真正发出请求的游标，用来挡住「同一游标连发两次」。 */
-  const requestedCursor = useRef<string | undefined>(undefined);
+  const requestedCursor = useRef<string | null | undefined>(snapshot ? null : undefined);
   /** 连续几次没拿到新内容就停，避免上游原地打转时无限续页。 */
-  const stalledPages = useRef(0);
-  const available = capabilities?.available ?? false;
+  const stalledPages = useRef(snapshot?.stalledPages ?? 0);
+  const available = capabilities?.available;
   useEffect(() => {
     // 先确认入口：没有爱看入口的账号连推荐流都不该发。
-    if (!active || !capabilities) return undefined;
+    if (!active) {
+      lastRefresh.current = undefined;
+      return undefined;
+    }
+    if (available === undefined || cooldownMinutes === null) return undefined;
     if (!available) {
       setFeeds(null);
       setDone(true);
@@ -219,6 +256,11 @@ export function QzonePublicPane({
     const refreshed = lastRefresh.current !== refresh;
     if (refreshed) {
       lastRefresh.current = refresh;
+      const age = headLoadedAt.current === null ? null : Date.now() - headLoadedAt.current;
+      if (age !== null && age >= 0 && age < cooldownMinutes * 60_000) {
+        setLoading(false);
+        return undefined;
+      }
       cursorRequest.current = null;
       requestedCursor.current = undefined;
       seenCursors.current.clear();
@@ -226,10 +268,11 @@ export function QzonePublicPane({
     }
     const pageCursor = cursorRequest.current;
     // 同一个游标已经发过就别再发一遍（重复渲染 / 依赖抖动都会走到这里）。
-    if (pageCursor !== null && pageCursor === requestedCursor.current) return undefined;
-    requestedCursor.current = pageCursor ?? undefined;
+    if (pageCursor === requestedCursor.current) return undefined;
+    requestedCursor.current = pageCursor;
     const head = pageCursor === null;
     let live = true;
+    let completed = false;
     setError('');
     setLoading(true);
     void feedRequests
@@ -247,6 +290,7 @@ export function QzonePublicPane({
           .filter((view): view is PublicFeedView => Boolean(view));
         let added = views.length;
         if (head) {
+          headLoadedAt.current = Date.now();
           setFeeds(views);
         } else {
           setFeeds((current) => {
@@ -281,13 +325,27 @@ export function QzonePublicPane({
         if (live) setError(errorText(reason));
       })
       .finally(() => {
+        completed = true;
         if (live) setLoading(false);
       });
     return () => {
       live = false;
+      if (!completed) requestedCursor.current = undefined;
       feedRequests.cancel();
     };
-  }, [active, selfUin, refresh, pageRequest, available, capabilities, feedRequests]);
+  }, [active, selfUin, refresh, pageRequest, available, cooldownMinutes, feedRequests]);
+
+  useEffect(() => {
+    if (feeds === null || headLoadedAt.current === null) return;
+    publicFeedCache.put(selfUin, {
+      feeds,
+      done,
+      nextCursor: nextCursor.current,
+      seenCursors: [...seenCursors.current],
+      stalledPages: stalledPages.current,
+      headLoadedAt: headLoadedAt.current,
+    } satisfies PublicFeedSnapshot);
+  }, [selfUin, feeds, done]);
 
   // 触底自动续页；显式点「加载更多」走同一个入口。
   useEffect(() => {
@@ -307,11 +365,15 @@ export function QzonePublicPane({
     setPageRequest((value) => value + 1);
   }, [loading]);
 
-  /** 回到首页重新读：刷新按钮和错误重试都走这里。 */
+  /** 手动换一批与错误重试不受自动刷新冷却限制。 */
   const reload = useCallback(() => {
     if (loading) return;
     cursorRequest.current = null;
     requestedCursor.current = undefined;
+    seenCursors.current.clear();
+    stalledPages.current = 0;
+    nextCursor.current = null;
+    setDone(false);
     setPageRequest((value) => value + 1);
   }, [loading]);
 
@@ -346,7 +408,7 @@ export function QzonePublicPane({
         <h2>空友爱看</h2>
         <button type="button" onClick={reload} disabled={loading}>
           <RefreshCw size={14} className={loading ? 'weq-spin' : undefined} />
-          刷新
+          换一批
         </button>
       </div>
       {!feeds ? <State loading={loading && !error} error={error} empty="" retry={reload} /> : null}
