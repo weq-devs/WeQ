@@ -12,7 +12,7 @@ import type { RepeatElement } from '../../lib/messageRepeat';
 import type { LoadSelectionMessages } from '../../lib/messageSelection';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import type { FlashSendPayload } from './flashComposer';
-import type { FlashPhotoSendPayload } from './chatPane';
+import type { BubbleVideoSendPayload, FlashPhotoSendPayload } from './chatPane';
 import type { RedPacketDraft } from './redPacketPanel';
 import { ToolDetailPane } from './toolsPane';
 import { RetainedTabs, TabActivity } from '../../components/RetainedTabs';
@@ -93,6 +93,7 @@ export function ChatMainContent({
   defaultSignupGroupCode,
   onSendFlash,
   onSendFlashPhoto,
+  onSendBubbleVideo,
   onSendRedPacket,
   onMessageAction,
   onDraftChange,
@@ -134,6 +135,7 @@ export function ChatMainContent({
   onSelectTool,
   unreadDock,
   missingJumpSeq,
+  resolvedGapIds,
 }: {
   user: User;
   view: MainView;
@@ -207,6 +209,11 @@ export function ChatMainContent({
   onSendFlash?: (conversation: Conversation, payload: FlashSendPayload) => Promise<void>;
   /** 闪照「选图即发」（老式图片上传，与闪传同一套应用层通路）。 */
   onSendFlashPhoto?: (conversation: Conversation, payload: FlashPhotoSendPayload) => Promise<void>;
+  /** 泡泡消息「选视频即发」（视频 + businessType=14，与闪照同一套应用层通路）。 */
+  onSendBubbleVideo?: (
+    conversation: Conversation,
+    payload: BubbleVideoSendPayload,
+  ) => Promise<void>;
   /** 红包面板「发红包」（应用层补目标会话再走 IPC，成功后弹二维码灯箱）。 */
   onSendRedPacket?: (conversation: Conversation, draft: RedPacketDraft) => Promise<void>;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
@@ -279,6 +286,8 @@ export function ChatMainContent({
   unreadDock?: UnreadDock | null;
   /** 最近一次跳转落空的目标 seq（见 ChatPane 的 missingJumpSeq）。 */
   missingJumpSeq?: string | null;
+  /** 本次已确认「服务端没有对应消息」的缺口 id（见 ChatPane 的 resolvedGapIds）。 */
+  resolvedGapIds?: ReadonlySet<string>;
   onOpenTool?: (item: ToolPaneItem) => void;
   onSelectTool?: (item: ToolPaneItem) => void;
 }) {
@@ -371,6 +380,7 @@ export function ChatMainContent({
       defaultSignupGroupCode={defaultSignupGroupCode}
       onSendFlash={onSendFlash}
       onSendFlashPhoto={onSendFlashPhoto}
+      onSendBubbleVideo={onSendBubbleVideo}
       onSendRedPacket={onSendRedPacket}
       onMessageAction={onMessageAction}
       onDraftChange={onDraftChange}
@@ -410,6 +420,7 @@ export function ChatMainContent({
       onRestoreMessage={onRestoreMessage}
       unreadDock={unreadDock}
       missingJumpSeq={missingJumpSeq}
+      resolvedGapIds={resolvedGapIds}
     />
   );
 }
