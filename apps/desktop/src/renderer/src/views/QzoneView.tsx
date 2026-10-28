@@ -77,6 +77,9 @@ import {
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { QzonePublicPane } from './QzonePublicView';
+import { QzoneForwardDialog } from '../components/QzoneForwardDialog';
+import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
+import { QzoneRelatedRound } from '../lib/qzoneActions';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { completeQzonePostText, qzoneImageCompletionScope } from '../lib/qzoneCompletion';
@@ -1512,6 +1515,9 @@ function Repost({
             tid: original.tid,
             time: original.time ?? 0,
             commentNum: original.commentNum ?? null,
+            content: original.content,
+            images: original.images,
+            videos: original.videos,
           }}
           initialLikeCount={original.likeCount ?? null}
           onSpace={onSpace}
@@ -1519,11 +1525,20 @@ function Repost({
       ) : (
         <div className="weq-qzn-actions">
           <span>
-            <ThumbsUp size={16} />赞 ?
+            <ThumbsUp size={16} />
+            点赞 ?
           </span>
           <span>
             <MessageCircle size={16} />
             评论 ?
+          </span>
+          <span>
+            <Repeat2 size={16} />
+            转发 ?
+          </span>
+          <span>
+            <Eye size={16} />
+            浏览量 ?
           </span>
         </div>
       )}
@@ -1533,6 +1548,11 @@ function Repost({
 
 type InteractionPost = Pick<QzoneEmotion, 'tid' | 'time'> & {
   commentNum: number | null;
+  content?: string;
+  images?: string[];
+  videos?: QzoneEmotion['videos'];
+  forwardNum?: number;
+  repost?: QzoneEmotion['repost'];
 };
 const PostActions = withQQAccountScope(PostActionsBody);
 function PostActionsBody({
@@ -1555,11 +1575,17 @@ function PostActionsBody({
   const [expanded, setExpanded] = useState<'comments' | 'likes' | null>(
     focusComment ? 'comments' : null,
   );
+  const [forwardOpen, setForwardOpen] = useState(false);
+  const [replyTarget, setReplyTarget] = useState<{ id: string; nickname: string } | null>(null);
   const focusId = focusComment?.id;
   const focusUin = focusComment?.uin;
   useEffect(() => {
     if (focusId && focusUin) setExpanded('comments');
   }, [focusId, focusUin]);
+  useEffect(() => {
+    if (expanded === 'comments')
+      ref.current?.querySelector<HTMLInputElement>('[aria-label="说说评论"]')?.focus();
+  }, [expanded]);
   const [likes, setLikes] = useState<QzoneLikesResult | null>(null);
   const [likeError, setLikeError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -1645,14 +1671,56 @@ function PostActionsBody({
   return (
     <div ref={ref}>
       <div className="weq-qzn-actions">
-        <button
-          type="button"
-          aria-expanded={expanded === 'likes'}
-          title={likeError || undefined}
-          onClick={() => setExpanded(expanded === 'likes' ? null : 'likes')}
+        <QzoneLikesPopover
+          trigger={
+            <QzoneWriteActions
+              mode="like"
+              hostUin={hostUin}
+              tid={post.tid}
+              time={post.time}
+              likeCount={likeCount}
+              initialLiked={
+                likes?.likes.some((person) => person.uin === selfUin)
+                  ? true
+                  : likes?.coverage === 'complete'
+                    ? false
+                    : null
+              }
+              likeRevision={likeRevision}
+              onLikeChange={(change) => {
+                summaryGeneration.current++;
+                summaryRefresh.current = null;
+                if (change?.pending) {
+                  previousLikeChange.current = likeChange;
+                  const delta =
+                    change.previous === null ? 0 : Number(change.next) - Number(change.previous);
+                  setLikeChange({
+                    write: change,
+                    count: likeCount === null ? null : Math.max(0, likeCount + delta),
+                  });
+                } else if (change)
+                  setLikeChange((current) => (current ? { ...current, write: change } : null));
+                else setLikeChange(previousLikeChange.current);
+              }}
+              onChanged={() => {
+                summaryGeneration.current++;
+                summaryRefresh.current = null;
+                setWriteRevision((value) => value + 1);
+              }}
+            />
+          }
         >
-          <ThumbsUp size={16} />赞 {likeCount ?? '?'}
-        </button>
+          <Interaction
+            mode="likes"
+            selfUin={selfUin}
+            hostUin={hostUin}
+            post={post}
+            onSpace={onSpace}
+            initialLikes={likes}
+            onCommentCount={setCommentCount}
+            writePending={likePending}
+          />
+        </QzoneLikesPopover>
         <button
           type="button"
           aria-expanded={expanded === 'comments'}
@@ -1662,9 +1730,13 @@ function PostActionsBody({
           <MessageCircle size={16} />
           评论 {commentCount ?? '?'}
         </button>
+        <button type="button" title="转发" onClick={() => setForwardOpen(true)}>
+          <Repeat2 size={16} />
+          转发 {post.forwardNum ?? '?'}
+        </button>
         <span title={likeError || '浏览量（非去重访客数）'}>
           <Eye size={16} />
-          浏览 {likes?.reportedViewCount ?? '?'}
+          浏览量 {likes?.reportedViewCount ?? '?'}
         </span>
         {loading ? <Loader2 size={13} className="weq-spin" aria-label="正在加载互动数据" /> : null}
         {likeError && (
@@ -1686,43 +1758,22 @@ function PostActionsBody({
           互动数据暂未校准：{likeError}
         </p>
       )}
-      <QzoneWriteActions
-        key={`${hostUin}:${post.tid}`}
-        hostUin={hostUin}
-        tid={post.tid}
-        time={post.time}
-        initialLiked={
-          likes?.likes.some((person) => person.uin === selfUin)
-            ? true
-            : likes?.coverage === 'complete'
-              ? false
-              : null
-        }
-        likeRevision={likeRevision}
-        onLikeChange={(change) => {
-          summaryGeneration.current++;
-          summaryRefresh.current = null;
-          if (change?.pending) {
-            previousLikeChange.current = likeChange;
-            const delta =
-              change.previous === null ? 0 : Number(change.next) - Number(change.previous);
-            setLikeChange({
-              write: change,
-              count: likeCount === null ? null : Math.max(0, likeCount + delta),
-            });
-          } else if (change) {
-            setLikeChange((current) => (current ? { ...current, write: change } : null));
-          } else {
-            setLikeChange(previousLikeChange.current);
-          }
-        }}
-        onCommentAccepted={() => setCommentCount((count) => (count === null ? null : count + 1))}
-        onChanged={() => {
-          summaryGeneration.current++;
-          summaryRefresh.current = null;
-          setWriteRevision((value) => value + 1);
-        }}
-      />
+      {expanded === 'comments' ? (
+        <QzoneWriteActions
+          key={`${hostUin}:${post.tid}`}
+          hostUin={hostUin}
+          tid={post.tid}
+          time={post.time}
+          replyTarget={replyTarget}
+          onCancelReply={() => setReplyTarget(null)}
+          onCommentAccepted={() => setCommentCount((count) => (count === null ? null : count + 1))}
+          onChanged={() => {
+            summaryGeneration.current++;
+            summaryRefresh.current = null;
+            setWriteRevision((value) => value + 1);
+          }}
+        />
+      ) : null}
       {expanded ? (
         <Interaction
           key={expanded}
@@ -1737,7 +1788,43 @@ function PostActionsBody({
           readComments={writeRevision > 0 ? undefined : readComments}
           writeRevision={writeRevision}
           writePending={likePending}
+          onReply={(comment) => {
+            setReplyTarget({ id: comment.id, nickname: comment.nickname || comment.uin });
+            requestAnimationFrame(() => {
+              const input = ref.current?.querySelector<HTMLInputElement>('[aria-label="说说回复"]');
+              input?.focus();
+              input?.scrollIntoView({ block: 'nearest' });
+            });
+          }}
         />
+      ) : null}
+      {forwardOpen ? (
+        <QzoneForwardDialog
+          previousContent={post.content ?? ''}
+          onClose={() => setForwardOpen(false)}
+        >
+          <strong>
+            <QzoneName content={hostUin} uin={hostUin} />
+          </strong>
+          <p className="weq-qzn-content">
+            <QzoneText content={post.content ?? ''} onSpace={onSpace} />
+          </p>
+          <QzoneMediaGrid images={post.images ?? []} videos={post.videos ?? []} />
+          {post.repost ? (
+            <section className="weq-qzn-repost">
+              <strong>
+                <QzoneName
+                  content={post.repost.nickname || post.repost.uin}
+                  uin={post.repost.uin}
+                />
+              </strong>
+              <p className="weq-qzn-content">
+                <QzoneText content={post.repost.content} onSpace={onSpace} />
+              </p>
+              <QzoneMediaGrid images={post.repost.images} videos={post.repost.videos} />
+            </section>
+          ) : null}
+        </QzoneForwardDialog>
       ) : null}
     </div>
   );
@@ -1894,6 +1981,7 @@ function Interaction({
   readComments,
   writeRevision = 0,
   writePending = false,
+  onReply,
 }: {
   mode: 'comments' | 'likes';
   selfUin: string;
@@ -1906,6 +1994,7 @@ function Interaction({
   readComments?: () => Promise<QzoneInteraction>;
   writeRevision?: number;
   writePending?: boolean;
+  onReply?: (comment: QzoneInteraction['comments'][number]) => void;
 }) {
   const focusRef = useRef<HTMLDivElement>(null);
   const readsPaused = useContext(QzoneReadPauseContext);
@@ -2044,8 +2133,13 @@ function Interaction({
         ) : null}
         <div className="weq-qzn-like-users">
           {likes.likes.map((like) => (
-            <button type="button" key={like.uin} onClick={() => onSpace(like.uin, like.nickname)}>
-              <QqAvatar uin={like.uin} size={24} />
+            <button
+              type="button"
+              key={like.uin}
+              title={like.nickname || like.uin}
+              onClick={() => onSpace(like.uin, like.nickname)}
+            >
+              <QqAvatar uin={like.uin} size={20} />
               <QzoneName content={like.nickname || like.uin} uin={like.uin} preferNickname />
             </button>
           ))}
@@ -2127,6 +2221,9 @@ function Interaction({
           <Pictures images={comment.images} />
           <div className="weq-qzn-comment-meta">
             <time>{timeText(comment.time)}</time>
+            <button type="button" onClick={() => onReply?.(source)}>
+              回复
+            </button>
           </div>
         </div>
       </div>
@@ -2225,6 +2322,8 @@ function FeedTimeline({
   const [cached] = useState(() => dataCache.read<FeedSnapshot>(cacheKey));
   const [incomplete, setIncomplete] = useState(cached?.incomplete ?? false);
   const title = kind === 'friends' ? '好友动态' : '与我相关';
+  const relatedRound = useRef(new QzoneRelatedRound());
+  const [roundRevision, setRoundRevision] = useState(0);
   const lastRefresh = useRef(refresh);
   const [feeds, setFeeds] = useState<QzoneFeed[] | null>(cached?.feeds ?? null);
   const [error, setError] = useState('');
@@ -2271,9 +2370,57 @@ function FeedTimeline({
     } satisfies FeedSnapshot);
   }, [feeds, incomplete, done, cacheKey, dataCache]);
   useEffect(() => {
+    if (!active || kind !== 'related') return undefined;
+    const scroll = moreRef.current?.closest('.weq-qzn-scroll');
+    if (!scroll) return undefined;
+    const resume = () => {
+      if (relatedRound.current.scrollDown()) setRoundRevision((value) => value + 1);
+    };
+    const wheel = (event: Event) => {
+      if ((event as WheelEvent).deltaY > 0) resume();
+    };
+    let touchY: number | undefined;
+    const touchStart = (event: Event) => {
+      touchY = (event as TouchEvent).touches[0]?.clientY;
+    };
+    const touchMove = (event: Event) => {
+      const next = (event as TouchEvent).touches[0]?.clientY;
+      if (next !== undefined && touchY !== undefined && next < touchY) resume();
+      touchY = next;
+    };
+    const key = (event: Event) => {
+      const keyboard = event as KeyboardEvent;
+      if (
+        keyboard.target instanceof HTMLElement &&
+        keyboard.target.closest(
+          'input, textarea, select, button, a, summary, [role="tab"], [contenteditable="true"]',
+        )
+      )
+        return;
+      if (
+        keyboard.key === 'ArrowDown' ||
+        keyboard.key === 'PageDown' ||
+        keyboard.key === 'End' ||
+        (keyboard.key === ' ' && !keyboard.shiftKey)
+      )
+        resume();
+    };
+    scroll.addEventListener('wheel', wheel, { passive: true });
+    scroll.addEventListener('touchstart', touchStart, { passive: true });
+    scroll.addEventListener('touchmove', touchMove, { passive: true });
+    scroll.addEventListener('keydown', key);
+    return () => {
+      scroll.removeEventListener('wheel', wheel);
+      scroll.removeEventListener('touchstart', touchStart);
+      scroll.removeEventListener('touchmove', touchMove);
+      scroll.removeEventListener('keydown', key);
+    };
+  }, [active, kind]);
+  useEffect(() => {
     if (!active) return undefined;
     const recovery = `${refresh}:${retry}`;
     if (kind === 'related' && suspended.current === recovery) return undefined;
+    if (kind === 'related' && relatedRound.current.exhausted) return undefined;
     suspended.current = null;
     let live = true;
     setError('');
@@ -2287,11 +2434,13 @@ function FeedTimeline({
     void run<{ feeds: QzoneFeed[]; hasMore: boolean; nextCursor?: string; incomplete?: boolean }>(
       (requestId) => {
         if (kind === 'related')
-          return client.account.qzone.related.query({
-            selfUin,
-            requestId,
-            offset: Number(new URLSearchParams(pageCursor).get('offset') ?? 0),
-          });
+          return relatedRound.current.take()
+            ? client.account.qzone.related.query({
+                selfUin,
+                requestId,
+                offset: Number(new URLSearchParams(pageCursor).get('offset') ?? 0),
+              })
+            : Promise.reject(new Error('本轮互动读取已完成'));
         return client.account.qzone.feeds.query({ selfUin, requestId, cursor: pageCursor, scope });
       },
     )
@@ -2369,14 +2518,14 @@ function FeedTimeline({
       loadCursor(nextCursor.current);
       return undefined;
     }
-    if (seenCursors.current.size >= 50) return undefined;
+    if (relatedRound.current.exhausted) return undefined;
     // Pace automatic notification reads; explicit loading/retry stays immediate.
     const continuation = nextCursor.current;
     const timer = setTimeout(() => {
       if (nextCursor.current === continuation) loadCursor(continuation);
     }, 350);
     return () => clearTimeout(timer);
-  }, [active, nearEnd, loading, error, done, feeds, loadCursor, kind]);
+  }, [active, nearEnd, loading, error, done, feeds, loadCursor, kind, roundRevision]);
   const projections = useRef(
     new Map<
       string,
@@ -2732,11 +2881,16 @@ function FeedTimeline({
             <button
               type="button"
               className="weq-qzn-more"
+              disabled={kind === 'related' && relatedRound.current.exhausted}
               onClick={() => {
                 if (nextCursor.current) loadCursor(nextCursor.current);
               }}
             >
-              {kind === 'related' ? '加载更多互动' : '加载更多动态'}
+              {kind === 'related'
+                ? relatedRound.current.exhausted
+                  ? '向下滚动加载更多互动'
+                  : '加载更多互动'
+                : '加载更多动态'}
               {pageCountLabel}
             </button>
           ) : (
@@ -2788,8 +2942,6 @@ function RelatedCard({
 }) {
   const [open, setOpen] = useState(false);
   const { active } = useContext(QzonePageContext);
-  const ref = useRef<HTMLDetailsElement>(null);
-  const visible = useNearViewport(ref, true);
   const [fullPost, setFullPost] = useState<QzoneEmotion | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -2809,7 +2961,7 @@ function RelatedCard({
     if (
       !active ||
       paused ||
-      (!visible && !open) ||
+      !open ||
       !fullPost ||
       !hostUin ||
       !tid ||
@@ -2853,7 +3005,6 @@ function RelatedCard({
   }, [
     active,
     paused,
-    visible,
     open,
     fullPost,
     hostUin,
@@ -2870,7 +3021,7 @@ function RelatedCard({
       setLoading(false);
       return;
     }
-    if (!active || (!visible && !open) || !hostUin || !tid) return;
+    if (!active || !open || !hostUin || !tid) return;
     let live = true;
     setLoading(true);
     setError('');
@@ -2887,7 +3038,7 @@ function RelatedCard({
     return () => {
       live = false;
     };
-  }, [paused, active, visible, open, hostUin, tid, readPost, retry]);
+  }, [paused, active, open, hostUin, tid, readPost, retry]);
   const limit = Math.max(
     20,
     120 - [...activity.actorName].length - [...activity.action].length - 1,
@@ -2905,7 +3056,6 @@ function RelatedCard({
   };
   return (
     <details
-      ref={ref}
       className="weq-qzn-related-card"
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
@@ -3003,6 +3153,7 @@ function FeedCard({
             images: body.images,
             videos: body.videos,
             repost: body.repost ?? undefined,
+            forwardNum: body.forwardCount ?? undefined,
           }
         : null,
     [tid, body, feed.time],
@@ -3099,6 +3250,10 @@ function FeedCard({
             tid,
             time: feed.time,
             commentNum: body.commentCount,
+            content: body.text,
+            images: body.images,
+            videos: body.videos,
+            forwardNum: body.forwardCount ?? undefined,
           }}
           initialLikeCount={body.likeCount}
           onSpace={onSpace}

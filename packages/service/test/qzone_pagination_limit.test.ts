@@ -208,12 +208,15 @@ describe('Qzone quota transport and persistence', () => {
       const platform = { appDataRoot: () => root } as Platform;
       const config = new UserConfigService(platform);
       expect(config.getSettings().qzonePagination).toEqual({ windowSeconds: 10, maxPages: 5 });
+      expect(config.getSettings().qzoneForwardQuotePrevious).toBe(false);
+      config.setSettings({ qzoneForwardQuotePrevious: true });
       config.setSettings({ qzonePagination: { windowSeconds: 25, maxPages: 3 } });
       config.setSettings({ preferCdn: true });
       expect(new UserConfigService(platform).getSettings().qzonePagination).toEqual({
         windowSeconds: 25,
         maxPages: 3,
       });
+      expect(new UserConfigService(platform).getSettings().qzoneForwardQuotePrevious).toBe(true);
       expect(config.setSettings({ qzonePagination: { maxPages: 0 } }).qzonePagination).toEqual({
         windowSeconds: 25,
         maxPages: 3,

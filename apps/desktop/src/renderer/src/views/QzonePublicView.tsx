@@ -20,6 +20,7 @@ import {
 } from 'react';
 import {
   ChevronDown,
+  Eye,
   Heart,
   Loader2,
   MessageCircle,
@@ -29,12 +30,12 @@ import {
   ThumbsUp,
   UserPlus,
   UserCheck,
-  X,
 } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from '../components/QqAvatar';
 import { QzoneEmoji } from '../components/QzoneEmoji';
-import { Modal } from '../components/Dialog';
+import { QzoneForwardDialog } from '../components/QzoneForwardDialog';
+import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { qzoneTextParts } from '../lib/qzone';
 import {
@@ -527,37 +528,46 @@ function PublicFeedCard({
       ) : null}
       <QzoneMediaGrid images={grid.images} videos={grid.videos} />
       <div className="weq-qzn-actions weq-qzn-public-actions">
-        <button
-          type="button"
-          aria-pressed={view.liked}
-          aria-label={view.liked ? '取消赞' : '赞'}
-          disabled={!view.actionable || pending !== null}
-          onClick={() => void like()}
+        <QzoneLikesPopover
+          trigger={
+            <button
+              type="button"
+              aria-pressed={view.liked}
+              aria-label={view.liked ? '取消赞' : '赞'}
+              disabled={!view.actionable || pending !== null}
+              onClick={() => void like()}
+            >
+              <ThumbsUp size={16} fill={view.liked ? 'currentColor' : 'none'} />
+              点赞 {countText(view.likeCount)}
+            </button>
+          }
         >
-          <ThumbsUp size={16} fill={view.liked ? 'currentColor' : 'none'} />
-          {countText(view.likeCount)}
-        </button>
+          <p className="weq-qzn-status">
+            共 {countText(view.likeCount)} 人赞过 · 空友爱看点赞名单接口尚未接入
+          </p>
+        </QzoneLikesPopover>
         <button type="button" aria-expanded={expanded} aria-label="查看评论" onClick={onToggle}>
           <MessageCircle size={16} />
-          {countText(view.commentCount)}
+          评论 {countText(view.commentCount)}
         </button>
         <button type="button" aria-label="转发" onClick={() => setForwardOpen(true)}>
           <Repeat2 size={16} />
-          {countText(view.forwardCount)}
+          转发 {countText(view.forwardCount)}
         </button>
-        {capabilities.canUpvote ? (
-          <button
-            type="button"
-            aria-pressed={view.upvoted}
-            aria-label={view.upvoted ? '取消推' : '推'}
-            disabled={!view.actionable || pending !== null}
-            onClick={() => void upvote()}
-          >
-            <Heart size={16} fill={view.upvoted ? 'currentColor' : 'none'} />
-            {view.upvoted ? '已推' : '推'}
-          </button>
-        ) : null}
-        <span title="浏览量（非去重访客数）">浏览 {countText(view.viewCount)}</span>
+        <button
+          type="button"
+          aria-pressed={view.upvoted}
+          aria-label={view.upvoted ? '取消推' : '推'}
+          disabled={!capabilities.canUpvote || !view.actionable || pending !== null}
+          title={capabilities.canUpvote ? undefined : '当前账号不能推'}
+          onClick={() => void upvote()}
+        >
+          <Heart size={16} fill={view.upvoted ? 'currentColor' : 'none'} />推 ?
+        </button>
+        <span title="浏览量（非去重访客数）">
+          <Eye size={16} />
+          浏览量 {countText(view.viewCount)}
+        </span>
       </div>
       {error ? (
         <p className="weq-qzn-error" role="alert">
@@ -575,80 +585,33 @@ function PublicFeedCard({
         />
       ) : null}
       {forwardOpen ? (
-        <ForwardDialog
-          selfUin={selfUin}
-          feed={view.feed}
+        <QzoneForwardDialog
+          previousContent={view.text}
+          unavailableReason="这条动态缺少互动标识，暂不能转发。"
           onClose={() => setForwardOpen(false)}
-          onForwarded={(count) => onPatch(view.key, { forwardCount: count })}
-        />
+          submit={
+            view.actionable
+              ? async (reason) => {
+                  await client.account.qzonePublic.forward.mutate({
+                    selfUin,
+                    feed: view.feed,
+                    reason,
+                  });
+                  onPatch(view.key, {
+                    forwardCount: view.forwardCount === null ? null : view.forwardCount + 1,
+                  });
+                }
+              : undefined
+          }
+        >
+          <strong>{authorLabel}</strong>
+          <p className="weq-qzn-content">
+            <PublicText content={view.text} />
+          </p>
+          <QzoneMediaGrid images={grid.images} videos={grid.videos} />
+        </QzoneForwardDialog>
       ) : null}
     </article>
-  );
-}
-
-function ForwardDialog({
-  selfUin,
-  feed,
-  onClose,
-  onForwarded,
-}: {
-  selfUin: string;
-  feed: PublicJson;
-  onClose: () => void;
-  onForwarded: (count: number | null) => void;
-}): ReactElement {
-  const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  async function submit(): Promise<void> {
-    if (busy) return;
-    setBusy(true);
-    setError('');
-    try {
-      await client.account.qzonePublic.forward.mutate({ selfUin, feed, reason });
-      onForwarded(null);
-      onClose();
-    } catch (reasonError) {
-      setError(errorText(reasonError));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Modal width={460} onClose={busy ? undefined : onClose} labelledBy="weq-qzn-public-forward">
-      <section className="weq-qzn-public-dialog">
-        <header>
-          <h2 id="weq-qzn-public-forward">转发到我的空间</h2>
-          <button type="button" aria-label="关闭" disabled={busy} onClick={onClose}>
-            <X size={18} />
-          </button>
-        </header>
-        <textarea
-          aria-label="转发语"
-          placeholder="说点什么（可留空）"
-          value={reason}
-          maxLength={4096}
-          disabled={busy}
-          onChange={(event) => setReason(event.target.value)}
-        />
-        {error ? (
-          <p className="weq-qzn-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <footer>
-          <button
-            type="button"
-            className="weq-qzn-primary"
-            disabled={busy}
-            onClick={() => void submit()}
-          >
-            {busy ? <Loader2 size={15} className="weq-spin" /> : <Repeat2 size={15} />}
-            转发
-          </button>
-        </footer>
-      </section>
-    </Modal>
   );
 }
 
@@ -677,11 +640,16 @@ function PublicFeedDetail({
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
   const [draft, setDraft] = useState('');
+  const composer = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
   const [replyTarget, setReplyTarget] = useState<{
     comment: PublicCommentView;
     reply?: PublicCommentView;
   } | null>(null);
+  useEffect(() => {
+    composer.current?.focus();
+    if (replyTarget) composer.current?.scrollIntoView({ block: 'nearest' });
+  }, [replyTarget]);
 
   // 首批评论来自详情；之后的续页用 attach_info。
   useEffect(() => {
@@ -928,45 +896,45 @@ function PublicFeedDetail({
           ) : comments.length === 0 ? (
             <p className="weq-qzn-status">还没有评论</p>
           ) : null}
-          {canComment ? (
-            <div className="weq-qzn-public-composer">
-              {replyTarget ? (
-                <p className="weq-qzn-status">
-                  回复{' '}
-                  {replyTarget.reply?.author.nick || replyTarget.comment.author.nick || '这条评论'}
-                  <button type="button" onClick={() => setReplyTarget(null)}>
-                    取消
-                  </button>
-                </p>
-              ) : null}
-              <div>
-                <input
-                  aria-label={replyTarget ? '回复内容' : '评论内容'}
-                  placeholder={replyTarget ? '写下回复…' : '写下评论…'}
-                  value={draft}
-                  maxLength={4096}
-                  disabled={sending}
-                  onChange={(event) => setDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                      event.preventDefault();
-                      void send();
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  className="weq-qzn-primary"
-                  disabled={sending || !draft.trim()}
-                  onClick={() => void send()}
-                >
-                  {sending ? <Loader2 size={15} className="weq-spin" /> : <Send size={15} />}
-                  {replyTarget ? '回复' : '评论'}
-                </button>
-              </div>
-            </div>
-          ) : null}
         </>
+      ) : null}
+      {canComment ? (
+        <div className="weq-qzn-public-composer">
+          {replyTarget ? (
+            <p className="weq-qzn-status">
+              回复 {replyTarget.reply?.author.nick || replyTarget.comment.author.nick || '这条评论'}
+              <button type="button" onClick={() => setReplyTarget(null)}>
+                取消
+              </button>
+            </p>
+          ) : null}
+          <div>
+            <input
+              ref={composer}
+              aria-label={replyTarget ? '回复内容' : '评论内容'}
+              placeholder={replyTarget ? '写下回复…' : '写下评论…'}
+              value={draft}
+              maxLength={4096}
+              disabled={sending}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  void send();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="weq-qzn-primary"
+              disabled={sending || !draft.trim()}
+              onClick={() => void send()}
+            >
+              {sending ? <Loader2 size={15} className="weq-spin" /> : <Send size={15} />}
+              {replyTarget ? '回复' : '评论'}
+            </button>
+          </div>
+        </div>
       ) : null}
     </section>
   );

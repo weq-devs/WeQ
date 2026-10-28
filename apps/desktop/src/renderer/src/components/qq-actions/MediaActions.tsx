@@ -29,6 +29,7 @@ function LikeAction({
   onLikeChange,
   likeRevision = 0,
   readback,
+  count,
 }: {
   action: ReturnType<typeof useQQAction>;
   label: '媒体' | '说说';
@@ -40,6 +41,7 @@ function LikeAction({
   onLikeChange?: (change: QzoneLikeChange | null) => void;
   likeRevision?: number;
   readback?: (enabled: boolean) => Promise<boolean>;
+  count?: number | null;
 }) {
   const [liked, setLiked] = useState(initialLiked);
   const [pending, setPending] = useState(false);
@@ -106,7 +108,7 @@ function LikeAction({
   return (
     <button
       type="button"
-      className="weq-set-iconbtn weq-qq-like-toggle"
+      className={count === undefined ? 'weq-set-iconbtn weq-qq-like-toggle' : 'weq-qzn-like-toggle'}
       aria-label={actionLabel}
       aria-pressed={liked === null ? 'mixed' : liked}
       aria-busy={pending}
@@ -119,6 +121,7 @@ function LikeAction({
       ) : (
         <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />
       )}
+      {count !== undefined ? `点赞 ${count ?? '?'}` : null}
     </button>
   );
 }
@@ -318,6 +321,10 @@ function QzoneWriteActionsBody({
   onLikeChange,
   likeRevision,
   onCommentAccepted,
+  mode = 'comment',
+  likeCount,
+  replyTarget,
+  onCancelReply,
 }: {
   hostUin: string;
   tid: string;
@@ -327,6 +334,10 @@ function QzoneWriteActionsBody({
   onLikeChange?: (change: QzoneLikeChange | null) => void;
   likeRevision?: number;
   onCommentAccepted?: () => void;
+  mode?: 'like' | 'comment';
+  likeCount?: number | null;
+  replyTarget?: { id: string; nickname: string } | null;
+  onCancelReply?: () => void;
 }) {
   const a = useQQAction(`qzone:${hostUin}:${tid}`),
     [content, setContent] = useState('');
@@ -342,7 +353,7 @@ function QzoneWriteActionsBody({
     };
   }, []);
   async function sendComment() {
-    if (commentRunning.current || a.disabled || !content.trim()) return;
+    if (replyTarget || commentRunning.current || a.disabled || !content.trim()) return;
     commentRunning.current = true;
     setCommentPending(true);
     const submittedContent = content;
@@ -401,23 +412,9 @@ function QzoneWriteActionsBody({
       if (mounted.current) setCommentPending(false);
     }
   }
-  return (
-    <div className="weq-qq-actions">
-      {picture && (
-        <div className="weq-qq-action-image">
-          <img src={localFileUrl(picture.path)} alt={picture.fileName} />
-          <ActionIcon
-            label="移除评论图片"
-            onClick={() => {
-              draftRevision.current++;
-              setPicture(null);
-            }}
-          >
-            <Trash2 size={15} />
-          </ActionIcon>
-        </div>
-      )}
-      <div className="weq-qq-action-bar" aria-busy={commentPending || undefined}>
+  if (mode === 'like')
+    return (
+      <>
         <LikeAction
           key={`${hostUin}:${tid}`}
           action={a}
@@ -426,6 +423,7 @@ function QzoneWriteActionsBody({
           optimistic
           onLikeChange={onLikeChange}
           likeRevision={likeRevision}
+          count={likeCount ?? null}
           onChanged={onChanged}
           readback={async (enabled) => {
             const result = await client.account.qzone.likes.query({
@@ -447,14 +445,49 @@ function QzoneWriteActionsBody({
             })
           }
         />
+        <ActionFeedback action={a} />
+      </>
+    );
+  return (
+    <div className="weq-qq-actions weq-qzn-comment-composer">
+      {replyTarget ? (
+        <p className="weq-qzn-status">
+          回复 {replyTarget.nickname}{' '}
+          <button type="button" onClick={onCancelReply}>
+            取消
+          </button>{' '}
+          · 定向回复接口尚未接入，暂不能发送。
+        </p>
+      ) : null}
+      {picture && (
+        <div className="weq-qq-action-image">
+          <img src={localFileUrl(picture.path)} alt={picture.fileName} />
+          <ActionIcon
+            label="移除评论图片"
+            onClick={() => {
+              draftRevision.current++;
+              setPicture(null);
+            }}
+          >
+            <Trash2 size={15} />
+          </ActionIcon>
+        </div>
+      )}
+      <div className="weq-qq-action-bar" aria-busy={commentPending || undefined}>
         <input
-          aria-label="说说评论"
-          placeholder="写评论"
+          aria-label={replyTarget ? '说说回复' : '说说评论'}
+          placeholder={replyTarget ? `回复 ${replyTarget.nickname}` : '写评论'}
           value={content}
           maxLength={4096}
           onChange={(e) => {
             draftRevision.current++;
             setContent(e.target.value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              void sendComment();
+            }
           }}
         />
         <ImageAction
@@ -470,7 +503,7 @@ function QzoneWriteActionsBody({
         />
         <ActionIcon
           label="发送说说评论"
-          disabled={a.disabled || commentPending || !content.trim()}
+          disabled={Boolean(replyTarget) || a.disabled || commentPending || !content.trim()}
           onClick={() => void sendComment()}
         >
           {commentPending ? (

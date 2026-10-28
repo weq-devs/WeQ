@@ -842,6 +842,14 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setQzoneForwardQuotePrevious: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({
+        qzoneForwardQuotePrevious: input.enabled,
+      }).qzoneForwardQuotePrevious;
+    }),
+
   setQzonePagination: procedure
     .input(
       z.object({

@@ -621,6 +621,8 @@ export interface AppSettings {
   logRetentionDays: number;
   /** App-wide online Qzone page request budget, shared across accounts and exports. */
   qzonePagination: QzonePaginationSettings;
+  /** 转发说说时自动引用上一人的文案。 */
+  qzoneForwardQuotePrevious: boolean;
   /** 通话录音（设置 → 通话与录音，通话窗口的录音抽屉共用同一份）。 */
   callRecording: CallRecordingConfig;
   /**
@@ -891,6 +893,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   defaultExportDir: null,
   logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
   qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
+  qzoneForwardQuotePrevious: false,
   // 默认双方混音；电脑声音默认不录（Linux / Windows 都要多占一路采集）。
   callRecording: { mode: 'mixed', systemAudio: false, dir: null },
   // 默认允许 P2P 直连；禁用是排障开关，见 AppSettings.callDisableP2P。
@@ -1455,6 +1458,7 @@ export class UserConfigService {
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
       logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
       qzonePagination: normalizeQzonePagination(s?.qzonePagination),
+      qzoneForwardQuotePrevious: s?.qzoneForwardQuotePrevious === true,
       callRecording: normalizeCallRecording(s?.callRecording, d.callRecording),
       callDisableP2P: typeof s?.callDisableP2P === 'boolean' ? s.callDisableP2P : d.callDisableP2P,
       linkPreview: {
@@ -1591,6 +1595,8 @@ export class UserConfigService {
       logRetentionDays:
         normalizeLogRetentionDays(patch.logRetentionDays) ?? current.logRetentionDays,
       qzonePagination: normalizeQzonePagination(patch.qzonePagination, current.qzonePagination),
+      qzoneForwardQuotePrevious:
+        patch.qzoneForwardQuotePrevious ?? current.qzoneForwardQuotePrevious,
       callRecording: normalizeCallRecording(
         { ...current.callRecording, ...patch.callRecording },
         current.callRecording,
