@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
+import sharp from 'sharp';
 import { handleMediaRequest } from '../src/main/media_protocol';
 const state = vi.hoisted(() => ({ services: {} as object, root: '' }));
 vi.mock('../src/main/context/app_context', () => ({
@@ -55,14 +56,21 @@ it('图片协议将旧消息 MD5 交给文件查找，缩略图和原图分别�
   const source = join(state.root, 'source.png');
   const thumb = join(state.root, 'thumb.jpg');
   writeFileSync(source, 'synthetic original');
-  writeFileSync(thumb, 'synthetic thumbnail');
+  // 使用真实的合成 JPEG；缩略图安全策略不再把无法解码的文本原样返回。
+  writeFileSync(
+    thumb,
+    await sharp({ create: { width: 40, height: 20, channels: 3, background: '#336699' } })
+      .jpeg()
+      .toBuffer(),
+  );
   const findFile = vi.fn(async () => ({ source, thumb }));
   state.services = { fileSearch: { findFile } };
   const md5 = '1234567890abcdef1234567890abcdef';
   const url = `weq-media://pic?t=1692144000000&name=&md5=${md5}&lookup=2`;
-  expect(await (await handleMediaRequest(new Request(`${url}&v=thumb`))).text()).toBe(
-    'synthetic thumbnail',
-  );
+  const thumbResponse = await handleMediaRequest(new Request(`${url}&v=thumb`));
+  expect(thumbResponse.headers.get('content-type')).toBe('image/webp');
+  const thumbnail = await sharp(Buffer.from(await thumbResponse.arrayBuffer())).metadata();
+  expect(thumbnail).toMatchObject({ format: 'webp', width: 40, height: 20 });
   expect(await (await handleMediaRequest(new Request(url))).text()).toBe('synthetic original');
   expect(findFile.mock.calls).toEqual([
     [1692144000000, '', 'pic', md5],

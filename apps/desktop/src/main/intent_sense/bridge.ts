@@ -163,6 +163,22 @@ class LocalEngineBridge implements IntentLocalEnginePort {
     const task = this.doStart(modelDir)
       .catch((error) => {
         this.startFailed = true;
+        // 加载失败、超时或启动即退出时立即回收本轮进程，不能留下原生模型驻留。
+        const failedWorker = this.worker;
+        this.worker = null;
+        this.readyFlag = false;
+        if (this.idleTimer) clearTimeout(this.idleTimer);
+        this.idleTimer = null;
+        if (failedWorker) {
+          try {
+            failedWorker.kill();
+          } catch (killError) {
+            logger.warn('failed to stop intent-sense worker after load failure', {
+              event: 'intent-sense-load-cleanup-failed',
+              error: String(killError),
+            });
+          }
+        }
         throw error;
       })
       .finally(() => {

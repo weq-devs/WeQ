@@ -19,6 +19,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { prioritizeCurrentMessageTokens } from './token_budget';
 
 const requireFn = createRequire(__filename);
 
@@ -259,11 +260,15 @@ async function createQWeQ(modelDir: string): Promise<CommonEngine> {
       }
     }
     const ctxStr = parts.join(' | ');
-    const formatted = ctxStr ? `${ctxStr} [SEP] 消息: ${text.trim()}` : `消息: ${text.trim()}`;
+    const currentMessage = `消息: ${text.trim()}`;
+    const formatted = ctxStr ? `${ctxStr} [SEP] ${currentMessage}` : currentMessage;
 
     const maxLen = cfg.max_length ?? 128;
     const encoded = tok.encode(formatted, { add_special_tokens: true });
-    const ids = encoded.ids.slice(0, maxLen);
+    const currentTokens = ctxStr
+      ? tok.encode(currentMessage, { add_special_tokens: true }).ids
+      : encoded.ids;
+    const ids = prioritizeCurrentMessageTokens(encoded.ids, currentTokens, maxLen);
     const mask = new Array(ids.length).fill(1);
     const typeIds = new Array(ids.length).fill(0);
     while (ids.length < maxLen) {
@@ -595,7 +600,7 @@ process.on(
         break;
       }
       case 'close': {
-        void activeEngine?.close().finally(() => process.exit(0));
+        void Promise.resolve(activeEngine?.close()).finally(() => process.exit(0));
         break;
       }
       default:
@@ -605,5 +610,5 @@ process.on(
 );
 
 process.once('disconnect', () => {
-  void activeEngine?.close().finally(() => process.exit(0));
+  void Promise.resolve(activeEngine?.close()).finally(() => process.exit(0));
 });

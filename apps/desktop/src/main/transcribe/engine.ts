@@ -57,15 +57,23 @@ type TranscribeWorkerMessage =
 export function transcribeWav(
   wav: Buffer,
   paths: TranscribeModelPaths,
-  options: { engine?: string; languages?: string[] } = {},
+  options: { engine?: string; languages?: string[]; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<TranscribeResult> {
   return new Promise((resolve) => {
     let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let abortHandler: (() => void) | undefined;
     const done = (r: TranscribeResult): void => {
       if (settled) return;
       settled = true;
+      if (timer) clearTimeout(timer);
+      if (abortHandler) options.signal?.removeEventListener('abort', abortHandler);
       resolve(r);
     };
+    if (options.signal?.aborted) {
+      done({ success: false, error: '语音识别已取消' });
+      return;
+    }
 
     let worker: ReturnType<typeof fork>;
     try {
@@ -88,6 +96,22 @@ export function transcribeWav(
       if (worker.connected) worker.disconnect();
       worker.kill();
     };
+    const timeoutMs = Number.isFinite(options.timeoutMs)
+      ? Math.min(15 * 60_000, Math.max(1, options.timeoutMs!))
+      : 10 * 60_000;
+    timer = setTimeout(() => {
+      done({ success: false, error: '语音识别超时，已停止识别进程' });
+      stopWorker();
+    }, timeoutMs);
+    abortHandler = () => {
+      done({ success: false, error: '语音识别已取消' });
+      stopWorker();
+    };
+    options.signal?.addEventListener('abort', abortHandler, { once: true });
+    if (options.signal?.aborted) {
+      abortHandler();
+      return;
+    }
 
     worker.on('message', (msg: TranscribeWorkerMessage) => {
       if (msg?.type === 'final') {
