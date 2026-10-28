@@ -53,7 +53,7 @@ import { createAtomicExportBundle, type AtomicExportBundle } from './atomic_bund
 import { QzoneHistoryStore } from './qzone_history';
 import { createExportWriter } from './stream_utils';
 import { MessageAudit, type MessageCoverage } from './message_audit';
-import { exportReport, exportReportHtml } from './export_report';
+import { exportReport, exportReportHtml, supportsExportReport } from './export_report';
 import { exportOptionsHash, fileSha256, roamingDigest, messageSelectionHash } from './resume';
 import { MessageJournal } from './message_journal';
 import { findExportBaseline, listExportBaselines } from './baseline';
@@ -596,6 +596,11 @@ export class ExportTaskManager extends EventEmitter {
       if (!raw) return;
       const data = JSON.parse(raw) as ExportTask[];
       for (const t of data) {
+        if (!supportsExportReport(t)) {
+          delete t.reportVersion;
+          delete t.reportPath;
+          delete t.reportHtmlPath;
+        }
         // 旧任务只保留产物，不延续已经移除的保存策略或自动写入未知位置。
         if (t.save && !['before', 'preset'].includes(t.save.policy.mode)) {
           t.save = {
@@ -626,7 +631,7 @@ export class ExportTaskManager extends EventEmitter {
     try {
       mkdirSync(this.cacheDir, { recursive: true });
       for (const task of this.tasks.values()) {
-        if (task.createdAt >= this.startedAt) task.reportVersion = 1;
+        if (supportsExportReport(task) && task.createdAt >= this.startedAt) task.reportVersion = 1;
         if (
           task.journalPath &&
           ['completed', 'paused'].includes(task.status) &&
@@ -656,6 +661,7 @@ export class ExportTaskManager extends EventEmitter {
           }
         }
         if (
+          supportsExportReport(task) &&
           task.reportVersion &&
           ['completed', 'failed', 'cancelled', 'paused'].includes(task.status)
         ) {
@@ -4918,7 +4924,7 @@ export class ExportTaskManager extends EventEmitter {
 
   getReportPath(id: string): string | undefined {
     const task = this.tasks.get(id);
-    if (!task) return undefined;
+    if (!task || !supportsExportReport(task)) return undefined;
     if (!task.reportHtmlPath || !existsSync(task.reportHtmlPath)) {
       task.reportVersion = 1;
       this.saveTasks();

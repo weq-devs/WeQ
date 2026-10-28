@@ -101,6 +101,9 @@ describe('ExportTaskManager · 导出表情包', () => {
     await waitDone(manager, id);
     const task = manager.getTask(id)!;
     expect(task.status).toBe('completed');
+    expect(task.reportPath).toBeUndefined();
+    expect(task.reportHtmlPath).toBeUndefined();
+    expect(manager.getReportPath(id)).toBeUndefined();
     expect(task.filePath).toMatch(/\.zip$/);
     expect(task.bundleDir).toBeUndefined();
     expect(task.emojipack?.format).toBe('zip');
@@ -164,6 +167,11 @@ describe('ExportTaskManager · 导出表情包', () => {
       await Promise.all([waitDone(manager, first!), waitDone(manager, second!)]);
       expect(first!).not.toBe(second!);
       expect(manager.listTasks()).toHaveLength(2);
+      for (const task of manager.listTasks()) {
+        expect(task.reportPath).toBeUndefined();
+        expect(task.reportHtmlPath).toBeUndefined();
+        expect(manager.getReportPath(task.id)).toBeUndefined();
+      }
     },
   );
   it('runs scan → download → write and lands two source folders', async () => {

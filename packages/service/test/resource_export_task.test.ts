@@ -16,6 +16,64 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('独立资源沿用导出任务生命周期', () => {
+  it.each(['file', 'bundle'] as const)('正常下载 %s 不生成或另存聊天完整性报告', async (shape) => {
+    const f = fixture();
+    const id = await f.manager.startResourceExport({
+      name: '普通下载',
+      kind: 'group-files',
+      output: shape === 'file' ? { kind: 'file', name: '普通下载', extension: 'txt' } : undefined,
+      savePolicy: { mode: 'before', directory: f.root },
+      run: async ({ directory }) => {
+        writeFileSync(join(directory, 'download.txt'), 'synthetic-download');
+        return { total: 1, ok: 1, failed: [], fileName: 'download.txt' };
+      },
+    });
+    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    const task = f.manager.getTask(id)!;
+    expect(task.reportVersion).toBeUndefined();
+    expect(task.reportPath).toBeUndefined();
+    expect(task.reportHtmlPath).toBeUndefined();
+    expect(f.manager.getReportPath(id)).toBeUndefined();
+    expect(readdirSync(task.resource!.cacheDirectory!, { recursive: true })).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/report.*\.(json|html)$/)]),
+    );
+    expect(readdirSync(f.root, { recursive: true })).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/report.*\.(json|html)$/)]),
+    );
+  });
+  it.each(['resource', 'marketpack', 'emojipack'] as const)(
+    '旧 %s 下载任务不再提供或重新生成聊天完整性报告，保留已有文件',
+    (kind) => {
+      const f = fixture();
+      mkdirSync(f.cache, { recursive: true });
+      const reportPath = join(f.cache, 'old.report.json');
+      const reportHtmlPath = join(f.cache, 'old.report.html');
+      writeFileSync(reportPath, 'old-json');
+      writeFileSync(reportHtmlPath, 'old-html');
+      writeFileSync(
+        join(f.cache, 'export_tasks.json'),
+        JSON.stringify([
+          {
+            id: 'old-download',
+            status: 'completed',
+            stages: [],
+            [kind]: {},
+            reportVersion: 1,
+            reportPath,
+            reportHtmlPath,
+          },
+        ]),
+      );
+      const manager = new ExportTaskManager({} as MsgService, f.cache);
+      const task = manager.getTask('old-download')!;
+      expect(task.reportPath).toBeUndefined();
+      expect(task.reportHtmlPath).toBeUndefined();
+      expect(task.reportVersion).toBeUndefined();
+      expect(manager.getReportPath(task.id)).toBeUndefined();
+      expect(readFileSync(reportPath, 'utf8')).toBe('old-json');
+      expect(readFileSync(reportHtmlPath, 'utf8')).toBe('old-html');
+    },
+  );
   it('旧稍后保存任务保留产物但不自动落盘，新任务拒绝旧模式或未选位置', async () => {
     const f = fixture();
     mkdirSync(f.cache, { recursive: true });
