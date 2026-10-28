@@ -26,6 +26,19 @@
   color: var(--weq-fg-primary);
 }
 
+.weq-notice-dialog .weq-notice-scroll {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.weq-notice-dialog .notice-card-request > .notice-request-actions {
+  grid-column: 2 / -1;
+  margin-top: 6px;
+}
+
+.weq-notice-dialog .notice-card-request:has(> .notice-doubt-mark) > .notice-request-actions {
+  margin-bottom: 24px;
+}
+
 .weq-notice-dialog .notice-card-request .avatar {
   width: 32px;
   height: 32px;
@@ -142,9 +155,24 @@
 }
 
 .notice-request-actions {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
   min-width: 0;
+}
+
+.notice-request-actions:empty {
+  display: none;
+}
+
+.notice-request-actions > p {
+  flex-basis: 100%;
+  min-width: 0;
+  margin: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .weq-notice-dialog .notice-sysremark {
@@ -154,7 +182,8 @@
 
 .notice-request-actions input {
   box-sizing: border-box;
-  width: 100%;
+  flex: 1 1 140px;
+  width: auto;
   min-width: 0;
   padding: 5px 7px;
   border: 1px solid var(--weq-border-subtle);
@@ -167,12 +196,14 @@
 
 .notice-request-buttons {
   display: flex;
-  flex-wrap: wrap;
+  flex: none;
+  flex-wrap: nowrap;
   gap: 6px;
 }
 
 .notice-request-buttons button {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
   gap: 4px;
@@ -184,7 +215,12 @@
   color: var(--weq-fg-primary);
   font: inherit;
   font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.notice-request-buttons button > svg {
+  flex: none;
 }
 
 .notice-request-buttons button:first-child {
