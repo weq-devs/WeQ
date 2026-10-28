@@ -22,6 +22,7 @@ import { useTabActive } from '../../components/RetainedTabs';
 import { IS_WEB } from '../../lib/target';
 import type { ExportSavePolicy } from '@weq/service';
 import { VoiceTranscribeMenuAction } from '../../components/VoiceTranscribeMenuAction';
+import { TextMarkdownMenuAction } from '../../components/TextMarkdownMenuAction';
 
 export type MessageContextMenuState = {
   message: Message;
@@ -175,6 +176,7 @@ export function MessageContextMenu({
     >
       {extraActions}
       <VoiceTranscribeMenuAction message={state.message} onClose={onClose} />
+      <TextMarkdownMenuAction message={state.message} onClose={onClose} />
       {onMultiSelect ? (
         <button type="button" title="多选" onClick={() => onMultiSelect(state.message)}>
           <ListChecks size={17} />

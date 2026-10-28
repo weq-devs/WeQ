@@ -25,6 +25,8 @@ import { openLink } from '../lib/linkify';
 import { imageSizeHint, normalizeBotMarkdown } from './qqBotMarkdown';
 import { remarkQqHighlight, remarkQqLineBreaks } from './qqMarkdownPlugins';
 
+export { looksLikeMarkdown } from '../state/textMarkdown';
+
 const REMARK_PLUGINS = [remarkGfm, remarkQqLineBreaks, remarkQqHighlight];
 const PLUGINS = { code: shikiCodeHighlighter };
 
@@ -90,17 +92,6 @@ function MarkdownLink({ children, href }: JSX.IntrinsicElements['a']): ReactElem
 }
 
 const COMPONENTS = { img: MarkdownImage, a: MarkdownLink };
-
-/**
- * 廉价的 markdown 嫌疑检测：只在命中时才把这条消息交给 streamdown。
- *
- * 存在的理由是性能——几百条气泡各挂一个 remark+shiki 管线会明显卡顿，绝大多数聊天
- * 消息其实是纯文本。刻意写成单条无循环、无回溯的正则（手写状态机的死循环教训就在
- * 这个功能上）。
- */
-export function looksLikeMarkdown(text: string): boolean {
-  return /(^|\n)(#{1,6} |[-*+] |\d+\. |> |```)|\*\*|~~|\[[^\]\n]+\]\(/.test(text);
-}
 
 /**
  * @param bot 机器人卡片正文。会先把 QQ 私有方言（版本标记 / mqqapi 提及链接）翻成
