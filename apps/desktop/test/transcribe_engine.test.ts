@@ -26,7 +26,10 @@ describe('语音转写子进程', () => {
     mocks.fork.mockReturnValue(worker);
     mocks.resolve.mockReturnValue('/fixture/Resources/out/main/transcribeWorker.mjs');
   });
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
 
   it('使用共用解析器返回的实体 worker，成功结果保留富标签字段', async () => {
     const result = transcribeWav(Buffer.alloc(44), paths);
@@ -80,6 +83,60 @@ describe('语音转写子进程', () => {
     const killed = transcribeWav(Buffer.alloc(44), paths);
     worker.emit('close', null, 'SIGKILL');
     expect((await killed).error).toContain('SIGKILL');
+  });
+
+  it('native 识别阻塞时超时回收进程，并忽略迟到的退出回调', async () => {
+    vi.useFakeTimers();
+    try {
+      const result = transcribeWav(Buffer.alloc(44), paths, { timeoutMs: 100 });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(await result).toMatchObject({
+        success: false,
+        error: expect.stringContaining('超时'),
+      });
+      expect(worker.kill).toHaveBeenCalledOnce();
+      expect(worker.disconnect).toHaveBeenCalledOnce();
+      worker.emit('close', null, 'SIGKILL');
+      expect(worker.kill).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('已取消请求不启动子进程，运行中取消后及时清理', async () => {
+    const already = new AbortController();
+    already.abort();
+    expect(await transcribeWav(Buffer.alloc(44), paths, { signal: already.signal })).toMatchObject({
+      success: false,
+      error: expect.stringContaining('取消'),
+    });
+    expect(mocks.fork).not.toHaveBeenCalled();
+    const controller = new AbortController();
+    const result = transcribeWav(Buffer.alloc(44), paths, { signal: controller.signal });
+    controller.abort();
+    expect(await result).toMatchObject({
+      success: false,
+      error: expect.stringContaining('取消'),
+    });
+    expect(worker.kill).toHaveBeenCalledOnce();
+  });
+
+  it('正常结果清除超时与取消监听，不会重复杀进程', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const result = transcribeWav(Buffer.alloc(44), paths, {
+        signal: controller.signal,
+        timeoutMs: 10,
+      });
+      worker.emit('message', { type: 'final', text: '正常完成' });
+      expect((await result).success).toBe(true);
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(worker.kill).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('IPC 请求发送失败时返回诊断并结束子进程', async () => {

@@ -87,6 +87,7 @@ import {
 } from '../lib/localOutgoing';
 import { useFailedOutgoingRemoval } from '../hooks/useFailedOutgoingRemoval';
 import { OutgoingQueue } from '../lib/outgoingQueue';
+import { releaseObjectUrl } from '../lib/objectUrl';
 import { prepareOutgoingDecoration } from '../lib/prepareOutgoingDecoration';
 import { useDismissUnsentOutgoing } from '../hooks/useDismissUnsentOutgoing';
 import { useOutgoingConversationPreviews } from '../hooks/useOutgoingConversationPreviews';
@@ -102,6 +103,7 @@ import {
 } from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
+import { FLASH_PHOTO_PLACEHOLDER_TEXT, isFlashPhotoPlaceholderText } from '../lib/flashPhoto';
 import {
   classifyChatType,
   unreadChatType,
@@ -291,6 +293,8 @@ import {
   type ArkLocationProvider,
   type ArkPayload,
   type FlashSendPayload,
+  type FlashPhotoSendPayload,
+  type BubbleVideoSendPayload,
   type RedPacketDraft,
   buildFlashOptimisticElement,
   flashDescOf,
@@ -1641,6 +1645,9 @@ function messageToTemplate(
     senderId: sender.id,
     sender,
     body: messageBody(message.elements) || (message.sourceFormat ? '[漫游空消息或未解析]' : ''),
+    // 闪照：本地库只剩一句兜底文案（元素本体从没落库）。打上标记，让聊天窗按需走
+    // 协议拉取把真正的元素补回来；拉不到就继续显示这句话。
+    ...(isFlashPhotoPlaceholder(message.elements) ? { flashPhotoPlaceholder: true } : {}),
     createdAt: toIsoTime(message.sendTime),
     // Raw render-view elements for the QQ face renderer (qqFaceMessageRenderer).
     // `body` stays the text fallback for previews and non-face messages.
@@ -1769,6 +1776,24 @@ function resolveOrigSenderNick(
 function messageBody(elements: unknown[]): string {
   const parts = elements.map(elementText).filter(Boolean);
   return parts.length > 0 ? parts.join('') : '';
+}
+
+/**
+ * 这条消息的正文是不是**只有**闪照的兜底文案。
+ *
+ * QQ 在本地库里把闪照存成一条纯文本 `[闪照]请使用新版手机QQ查看闪照。`（元素本体
+ * `commonElem(serviceType=3)` 从来没落过库），所以离线看只能显示这句话。识别出来
+ * 之后由聊天窗按需走协议拉取补回真正的元素（见 `flashPhotoPlaceholder`）。
+ *
+ * 只认「整条消息就这一句话」：正常聊天里有人手打这句字面量时也不会误判成闪照，
+ * 因为那种消息同样是纯文本 —— 这条判据的代价只是多拉一次协议，拉不到就原样显示。
+ */
+function isFlashPhotoPlaceholder(elements: unknown[]): boolean {
+  if (!Array.isArray(elements) || elements.length !== 1) return false;
+  const element = elements[0] as { type?: string; data?: Record<string, unknown> } | null;
+  if (element?.type !== 'text') return false;
+  const text = element.data?.textContent;
+  return typeof text === 'string' && isFlashPhotoPlaceholderText(text);
 }
 
 /**
@@ -3130,6 +3155,18 @@ function MainWorkspace(): ReactElement {
   const [deletedLoading, setDeletedLoading] = useState(false);
   const gapFetchCursors = useRef(new Map<string, number>());
   const gapFetchLock = useRef(false);
+  /** 乐观条目持有的本地预览 blob（目前只有闪照）；条目被真消息收掉时释放。 */
+  const optimisticBlobs = useRef(new Map<string, string>());
+  /**
+   * 本次会话里「已经成功拉过、但服务端那段 seq 本来就没有可渲染消息」的缺口。
+   *
+   * 缺口条完全由「相邻两条消息的 seq 差」算出来（`messageGapCount`），所以服务端
+   * 返回空槽位 / 空消息时，即使拉取成功、没有报错，提示条也会一直挂着。把这类
+   * 缺口记下来传给聊天窗，本次就不再显示（刷新会话 / 重开会话后重新判断）。
+   *
+   * key 用 `gap:前一条seq:后一条seq`，与多选里的缺口 id 同一套写法。
+   */
+  const [resolvedGaps, setResolvedGaps] = useState<Set<string>>(() => new Set());
   const [unplacedRoaming, setUnplacedRoaming] = useState<{
     conversation: Conversation;
     messages: MessageWire[];
@@ -3516,6 +3553,14 @@ function MainWorkspace(): ReactElement {
             return;
           }
           if (result.nextStartSeq === null) {
+            // 整段窗口都拉完了、没有报错，却一条可渲染的消息都没有 —— 服务端那段
+            // seq 本来就没有消息（空槽位 / 已过期 / 未开漫游）。缺口条是按 seq 差
+            // 算的，不记一笔就会一直挂着，所以本次把它收起来。
+            setResolvedGaps((current) => {
+              const next = new Set(current);
+              next.add(`gap:${gap.previousSeq}:${gap.currentSeq}`);
+              return next;
+            });
             pushToast({
               tone: 'info',
               durationKind: 'failure',
@@ -5090,6 +5135,9 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     setDeletedIds(new Set());
     setHiddenDeletedIds(new Set());
+    // 换会话后缺口要重新判断：上个会话「确认无消息」的缺口 id 与本会话无关。
+    setResolvedGaps(new Set());
+    flashPhotoTried.current.clear();
   }, [selectedUid, isDirect, isGroup, messageScope]);
 
   // 补拉成功会解除对应隐藏记录；只同步标记，不再触发时间线重载。
@@ -6427,11 +6475,92 @@ function MainWorkspace(): ReactElement {
       if (matched) dropIds.add(item.id);
     }
     if (dropIds.size === 0) return;
+    // 乐观条目被真消息收掉后，它持有的本地预览 blob 也就没人用了（闪照）。
+    for (const id of dropIds) {
+      const url = optimisticBlobs.current.get(id);
+      if (!url) continue;
+      optimisticBlobs.current.delete(id);
+      releaseObjectUrl(url);
+    }
     setOptimisticMessages((current) => {
       const next = current.filter((item) => !dropIds.has(item.id));
       return next.length === current.length ? current : next;
     });
   }, [loadedMessageWires, optimisticMessages, selectedConversation, user]);
+
+  // ── 闪照：本地库只剩兜底文案时，按需走协议把真正的元素拉回来 ──────────────
+  //
+  // 本地库 `40800` 里闪照只有一句 `[闪照]请使用新版手机QQ查看闪照。`，
+  // `commonElem(serviceType=3)` 从来没落过库（见 `docs/database/nt_msg/elements/pic.md`）。
+  // 服务端漫游里这条消息仍然带着完整元素，所以按它的 seq 拉一个**单条窗口**就能拿到。
+  //
+  // 约束：
+  //   - 只有完整模式（在线 QQ + 附加能力）才拉，受限模式保持兜底文案；
+  //   - 每条消息只试一次（`flashPhotoTried`），拉不到就永远显示兜底文案，不反复打请求；
+  //   - 拉到就整条替换进时间线，渲染成真正的闪照气泡。
+  const flashPhotoTried = useRef(new Set<string>());
+  const flashPhotoPlaceholders = useMemo(() => {
+    if (!selectedConversation) return [] as { msgId: string; msgSeq: string }[];
+    return loadedMessageWires
+      .filter((wire) => {
+        const elements = wire.elements ?? [];
+        if (elements.length !== 1) return false;
+        const element = elements[0] as { type?: string; data?: Record<string, unknown> } | null;
+        if (element?.type !== 'text') return false;
+        const text = element.data?.textContent;
+        return typeof text === 'string' && isFlashPhotoPlaceholderText(text);
+      })
+      .map((wire) => ({ msgId: wire.msgId, msgSeq: String(wire.msgSeq ?? '') }))
+      .filter((row) => /^\d+$/.test(row.msgSeq) && Number(row.msgSeq) > 0);
+  }, [loadedMessageWires, selectedConversation]);
+
+  useEffect(() => {
+    if (!selectedConversation) return;
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) return;
+    const pending = flashPhotoPlaceholders.filter((row) => !flashPhotoTried.current.has(row.msgId));
+    if (pending.length === 0) return;
+    for (const row of pending) flashPhotoTried.current.add(row.msgId);
+    const { kind, conv } = convFetchKey(selectedConversation);
+    const selection = selectionRef.current;
+    let cancelled = false;
+    void (async () => {
+      // 一次最多补 4 条，避免打开一个全是闪照的会话时瞬间打出一串请求。
+      for (const row of pending.slice(0, 4)) {
+        const seq = Number(row.msgSeq);
+        if (!Number.isSafeInteger(seq) || seq <= 0) continue;
+        try {
+          const result = await client.account.fetchGapMessages.query({
+            kind,
+            conv,
+            startSeq: seq,
+            endSeq: seq,
+          });
+          if (cancelled || selectionRef.current !== selection) return;
+          if (!result.ok) continue;
+          // 只有真的拿到**带闪照元素**的那条才替换；否则保持兜底文案。
+          const fetched = result.messages.find((message) => String(message.msgSeq) === row.msgSeq);
+          const elements = (fetched?.elements ?? []) as { type?: string; data?: unknown }[];
+          const hasFlash = elements.some(
+            (element) =>
+              element?.type === 'pic' && (element.data as { isFlash?: boolean })?.isFlash,
+          );
+          if (!hasFlash || !fetched) continue;
+          setLoaded((current) =>
+            current.map((message) =>
+              message.msgId === row.msgId
+                ? { ...message, elements: fetched.elements, sourceFormat: fetched.sourceFormat }
+                : message,
+            ),
+          );
+        } catch {
+          // 拉取失败就保持兜底文案；不 toast —— 这是后台补全，不该打断阅读。
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [flashPhotoPlaceholders, selectedConversation, convFetchKey, sendAccess.data]);
 
   // Server acknowledgement can precede the QQ database write, or its watcher
   // may be disabled. Re-read a small number of times without resending anything.
@@ -8778,6 +8907,256 @@ function MainWorkspace(): ReactElement {
    * `flashTransferInfo.fileSetId`（Win / 安卓的真卡片），要么是被降级成纯文本的分享
    * 短码（Linux / 鸿蒙）—— 两条签名扫到任一条就把乐观条目收掉（见上面对账 effect）。
    */
+  /**
+   * 闪照「选图即发」。
+   *
+   * 协议上闪照是一条普通消息，只是元素换成 `flashPhoto`（老式图片上传 +
+   * `commonElem{serviceType:3}` + 兜底文本），所以直接复用 `sendElements`：
+   * 服务层看到 `flashPhoto` 就会带上传上下文（`elementsNeedUpload`）。
+   *
+   * 乐观渲染：先按**本地图片**画一条闪照气泡（`pic` + `isFlash` + `localPreviewUrl`），
+   * 上传完拿到服务端签发的 offpic 路径后再换成真图（`localPath` 换成服务端 token，
+   * 见 `flashPhotoOptimisticElement`）。对账走回执里的 `random` —— 与其它消息同一条
+   * 链路（`expectedKeysOf`），所以同步到位后不会重影。
+   */
+  async function sendFlashPhoto(
+    conversation: Conversation,
+    payload: FlashPhotoSendPayload,
+  ): Promise<void> {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '发送闪照需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+    const target = sendTargetOf(conversation);
+    if (!target) {
+      pushToast({
+        tone: 'warning',
+        message: '这个会话不支持发送闪照',
+        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+      });
+      throw new Error('unsupported conversation');
+    }
+    if (target.tempGroupCode) {
+      // 闪照走老式图片上传 + c2c 路由，临时会话这条还没验过。
+      pushToast({
+        tone: 'warning',
+        message: '群临时会话暂不支持发闪照',
+        detail: '闪照的老式图片上传还没有对应的临时会话实现。',
+      });
+      throw new Error('temp session flash photo unsupported');
+    }
+    // 乐观气泡：先拿本地字节画一张预览图（与真实闪照气泡同形），上传完成后再换真图。
+    const previewUrl = URL.createObjectURL(
+      new Blob([new Uint8Array(payload.bytes ?? new Uint8Array(0))], {
+        type: 'image/*',
+      }),
+    );
+    const optimisticId = `optimistic-${mfId('flp')}`;
+    const optimisticElement = (url: string, name: string): unknown => ({
+      type: 'pic',
+      data: {
+        fileName: name,
+        // 闪照在渲染层靠 `isFlash` + `localPreviewUrl` 直接显示本地预览；
+        // 服务端 token 回来之前 `fileToken` 留空（`flashPicUrl` 会返回 null）。
+        isFlash: true,
+        imgWidth: 0,
+        imgHeight: 0,
+        summary: ['[闪照]'],
+        localPreviewUrl: url,
+      },
+    });
+    setOptimisticMessages((current) => [
+      ...current,
+      {
+        id: optimisticId,
+        convId: conversation.id,
+        body: FLASH_PHOTO_PLACEHOLDER_TEXT,
+        afterSeq: outgoingAfterSeq(conversation.id),
+        elements: [optimisticElement(previewUrl, payload.name)],
+        state: 'sending',
+        at: Date.now(),
+      },
+    ]);
+    const patchOptimistic = (next: Partial<OptimisticMessage>): void =>
+      setOptimisticMessages((current) =>
+        current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
+      );
+    try {
+      const outcome = await client.account.sendElements.mutate({
+        expectedAccountUin: user.identityValue,
+        peerType: target.peerType,
+        targetId: target.targetId,
+        elements: toIpcElements([
+          {
+            kind: 'flashPhoto',
+            source: payload.bytes ?? payload.path,
+          },
+        ]),
+      });
+      if (!outcome.ok) {
+        const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条闪照';
+        patchOptimistic({ state: 'failed', error: reason });
+        pushToast({ tone: 'error', message: '闪照发送失败', detail: reason });
+        throw new Error(reason);
+      }
+      patchOptimistic({
+        ...expectedKeysOf({
+          peerType: target.peerType,
+          ...(outcome.groupSequence !== undefined ? { groupSequence: outcome.groupSequence } : {}),
+          ...(outcome.privateSequence !== undefined
+            ? { privateSequence: outcome.privateSequence }
+            : {}),
+          ...(outcome.random !== undefined ? { random: outcome.random } : {}),
+        }),
+        state: 'sent',
+      });
+      if (isSeqRejected(outcome)) {
+        pushToast({
+          tone: 'warning',
+          message: '这条闪照可能未被服务端接收',
+          detail: '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。',
+        });
+      }
+    } catch (error) {
+      patchOptimistic({
+        state: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      // blob 由乐观条目持有：真消息回来后整条被收掉，届时统一释放。
+      // 这里不释放 —— 提前 revoke 会让气泡里的预览图当场裂开。
+      optimisticBlobs.current.set(optimisticId, previewUrl);
+    }
+  }
+
+  /**
+   * 泡泡消息「选视频即发」。
+   *
+   * 协议上它就是一条视频消息，只是 `commonElem.businessType=14` 且 `pbElem.extBizInfo`
+   * 里带模板名（见 `@weq/protocol` 的 `SendBubbleVideoElement`），所以复用
+   * `sendElements`；服务层看到 `bubbleVideo` 会带上媒体上传上下文。
+   *
+   * 乐观渲染按 `bubbleVideo` 画圆形循环预览（与真消息同一条渲染通路），对账走回执
+   * 里的 `random`。
+   */
+  async function sendBubbleVideo(
+    conversation: Conversation,
+    payload: BubbleVideoSendPayload,
+  ): Promise<void> {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '发送泡泡消息需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+    const target = sendTargetOf(conversation);
+    if (!target) {
+      pushToast({
+        tone: 'warning',
+        message: '这个会话不支持发送泡泡消息',
+        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+      });
+      throw new Error('unsupported conversation');
+    }
+    if (target.tempGroupCode) {
+      pushToast({
+        tone: 'warning',
+        message: '群临时会话暂不支持发泡泡消息',
+        detail: '泡泡走 NTV2 视频上传，临时会话这条还没验过。',
+      });
+      throw new Error('temp session bubble unsupported');
+    }
+
+    const bytes = new Uint8Array(payload.bytes ?? new Uint8Array(0));
+    const previewUrl = URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' }));
+    const optimisticId = `optimistic-${mfId('bub')}`;
+    setOptimisticMessages((current) => [
+      ...current,
+      {
+        id: optimisticId,
+        convId: conversation.id,
+        body: '[泡泡消息]',
+        afterSeq: outgoingAfterSeq(conversation.id),
+        elements: [
+          {
+            type: 'bubbleVideo',
+            data: {
+              fileName: payload.name,
+              videoWidth: payload.width ?? 0,
+              videoHeight: payload.height ?? 0,
+              videoDuration: payload.duration ?? 0,
+              ...(payload.templateName ? { templateName: payload.templateName } : {}),
+              localPreviewUrl: previewUrl,
+            },
+          },
+        ],
+        state: 'sending',
+        at: Date.now(),
+      },
+    ]);
+    const patchOptimistic = (next: Partial<OptimisticMessage>): void =>
+      setOptimisticMessages((current) =>
+        current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
+      );
+    try {
+      const outcome = await client.account.sendElements.mutate({
+        expectedAccountUin: user.identityValue,
+        peerType: target.peerType,
+        targetId: target.targetId,
+        elements: toIpcElements([
+          {
+            kind: 'bubbleVideo',
+            source: payload.bytes ?? payload.path,
+            ...(payload.duration !== undefined ? { duration: payload.duration } : {}),
+            ...(payload.width !== undefined ? { width: payload.width } : {}),
+            ...(payload.height !== undefined ? { height: payload.height } : {}),
+            fileName: payload.name,
+            ...(payload.templateName ? { templateName: payload.templateName } : {}),
+          },
+        ]),
+      });
+      if (!outcome.ok) {
+        const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条泡泡消息';
+        patchOptimistic({ state: 'failed', error: reason });
+        pushToast({ tone: 'error', message: '泡泡消息发送失败', detail: reason });
+        throw new Error(reason);
+      }
+      patchOptimistic({
+        ...expectedKeysOf({
+          peerType: target.peerType,
+          ...(outcome.groupSequence !== undefined ? { groupSequence: outcome.groupSequence } : {}),
+          ...(outcome.privateSequence !== undefined
+            ? { privateSequence: outcome.privateSequence }
+            : {}),
+          ...(outcome.random !== undefined ? { random: outcome.random } : {}),
+        }),
+        state: 'sent',
+      });
+      if (isSeqRejected(outcome)) {
+        pushToast({
+          tone: 'warning',
+          message: '这条泡泡消息可能未被服务端接收',
+          detail: '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。',
+        });
+      }
+    } catch (error) {
+      patchOptimistic({
+        state: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      optimisticBlobs.current.set(optimisticId, previewUrl);
+    }
+  }
+
   async function sendFlashTransfer(
     conversation: Conversation,
     payload: FlashSendPayload,
@@ -10110,6 +10489,8 @@ function MainWorkspace(): ReactElement {
                               : undefined
                           }
                           onSendFlash={sendFlashTransfer}
+                          onSendFlashPhoto={sendFlashPhoto}
+                          onSendBubbleVideo={sendBubbleVideo}
                           onSendRedPacket={sendRedPacket}
                           onDraftChange={updateDraft}
                           onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
@@ -10167,6 +10548,7 @@ function MainWorkspace(): ReactElement {
                           }
                           unreadDock={unreadDock}
                           missingJumpSeq={missingJumpSeq}
+                          resolvedGapIds={resolvedGaps}
                         />
                       </div>
                       <OverlayScrollbar

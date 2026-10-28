@@ -14,8 +14,8 @@
  * opening another account to drop the cached native connections.
  */
 
-import { basename, join } from 'node:path';
-import { existsSync, readdirSync, openSync, readSync, closeSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+import { existsSync, readdirSync, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import {
   C2cMsgDb,
@@ -193,47 +193,166 @@ function readHeaderRand(dbPath: string): string | undefined {
   return undefined;
 }
 
+/** 手机备份的目录布局：账号根下是 `nt_db/`（导出时可能被拍平成一层）。 */
+function accountRootOf(dirPath: string): string {
+  return basename(dirPath) === 'nt_db' ? dirname(dirPath) : dirPath;
+}
+
+/**
+ * 安卓 `login.db` 的固定 pre-login 密钥。与 `@weq/service` 的
+ * `LOGIN_DB_KEY` 是同一个值，这里单独抄一份只是为了让本包不必依赖 service
+ * （account 是更底层的一层）。改动时两处一起改。
+ */
+const ANDROID_LOGIN_DB_KEY = 'BD156D6710D54D8782F4';
+
+/** `login.db` 可能出现的相对位置：全局目录，或直接平铺在备份里。 */
+const LOGIN_DB_SEGMENTS = [
+  ['global', 'nt_db', 'login.db'],
+  ['nt_qq', 'global', 'nt_db', 'login.db'],
+  ['login.db'],
+] as const;
+
+/** 从给定根目录找 `login.db`；只做存在性检查，读不了就当没有。 */
+function findLoginDbUnder(root: string): string | undefined {
+  for (const segments of LOGIN_DB_SEGMENTS) {
+    const candidate = join(root, ...segments);
+    try {
+      if (statSync(candidate).isFile()) return candidate;
+    } catch {
+      // 目录不可读 / 文件不存在：继续看下一个候选。
+    }
+  }
+  return undefined;
+}
+
+/** 一层层往上找 `login.db` 时最多回溯的层数（含账号根自身）。 */
+const LOGIN_DB_ROOT_DEPTH = 3;
+
+/** 从 `login.db` 里最多尝试的账号行数：给 KDF 探测留个上限。 */
+const LOGIN_DB_MAX_ROWS = 8;
+
+export interface AndroidKeyOptions {
+  /** 已知 uin 时只认这个账号在 `login.db` 里的行。 */
+  uin?: string;
+  /**
+   * 额外要尝试的 `login.db` 路径（调用方按平台数据根解析出的本机位置）。
+   * 排在本备份目录自带的那份之后。
+   */
+  loginDbPaths?: string[];
+}
+
+/** 读一份 `login.db` 的 uid 列表；解不开 / 不是账号库时返回空表，绝不抛错。 */
+async function loginDbUids(nt: NtHelperBinding, dbPath: string, uin?: string): Promise<string[]> {
+  try {
+    const probe = await nt.testDatabaseKey(dbPath, ANDROID_LOGIN_DB_KEY);
+    if (!probe.success || !probe.pageHmacAlgorithm || !probe.kdfHmacAlgorithm) return [];
+    const rows = nt.decryptLoginDb(dbPath, {
+      pageHmacAlgorithm: probe.pageHmacAlgorithm,
+      kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+    });
+    const matched = rows.filter((row) => row.uid && (!uin || row.uin === uin));
+    // 最近登录的账号更可能是这份备份的主人。
+    matched.sort((a, b) => (b.lastLoginAt ?? 0) - (a.lastLoginAt ?? 0));
+    return matched.slice(0, LOGIN_DB_MAX_ROWS).map((row) => row.uid);
+  } catch {
+    // login.db 解不开 / 不是账号库 / 原生抛错：当作没有这份来源。
+    return [];
+  }
+}
+
+/**
+ * 手机备份里没有 `gpro_*.db` 时（用户只拷了数据库、或旧版备份没有频道库），
+ * 退而求其次从 `login.db` 找 uid：先看备份目录自带的那份（账号根及其上两层，
+ * 覆盖 `<导出>/nt_qq/global/nt_db/login.db` 这类布局），再看调用方给的本机
+ * `login.db`。
+ *
+ * 任何失败（文件缺失、密钥探测失败、原生解密抛错、行里没有 uid）都静默跳过，
+ * 绝不向外抛错，也不影响非手机备份的既有路径。
+ */
+async function findUidsFromLoginDb(
+  nt: NtHelperBinding,
+  dirPath: string,
+  options: AndroidKeyOptions,
+): Promise<string[]> {
+  const paths: string[] = [];
+  let root = accountRootOf(dirPath);
+  const seen = new Set<string>();
+  for (let depth = 0; depth < LOGIN_DB_ROOT_DEPTH; depth++) {
+    if (seen.has(root)) break;
+    seen.add(root);
+    const found = findLoginDbUnder(root);
+    if (found) paths.push(found);
+    const parent = dirname(root);
+    if (parent === root) break;
+    root = parent;
+  }
+  for (const path of options.loginDbPaths ?? []) if (path) paths.push(path);
+
+  const uids: string[] = [];
+  const tried = new Set<string>();
+  for (const path of paths) {
+    if (tried.has(path)) continue;
+    tried.add(path);
+    for (const uid of await loginDbUids(nt, path, options.uin))
+      if (!uids.includes(uid)) uids.push(uid);
+    if (uids.length >= LOGIN_DB_MAX_ROWS) break;
+  }
+  return uids;
+}
+
 /**
  * 尝试为一个安卓备份目录直接算出 dbkey。算得出且能开库就返回它，
  * 任何一步不成立都返回 undefined —— 调用方回退到让用户手输。
+ *
+ * uid 优先取目录里的 `gpro_*.db` 文件名；没有时按 {@link AndroidKeyOptions}
+ * 退到 `login.db` 的行里逐个试。两条路都要过「头部 rand」这一关（PC 库的头
+ * 结构不同，读不出 8 字节 rand），所以不会改变非手机备份的行为。
  */
 export async function deriveAndroidDbKey(
   nt: NtHelperBinding,
   dirPath: string,
+  options: AndroidKeyOptions = {},
 ): Promise<{ dbKey: string; algos: Record<string, DatabaseAlgorithms> } | undefined> {
-  const uid = findUidFromDirEntries(dirPath);
-  if (!uid) return undefined;
-
   const msgDbPath = join(dirPath, 'nt_msg.db');
   if (!existsSync(msgDbPath)) return undefined;
 
+  // 先读 rand：读不出就说明这不是安卓备份的头，别去碰 login.db。
   const rand = readHeaderRand(msgDbPath);
   if (!rand) return undefined;
 
-  const inner = md5(uid);
-  // 目录名自校验：对不上说明这不是「uid 派生目录」的那套规则，别硬算。
+  const gproUid = findUidFromDirEntries(dirPath);
+  const uids = gproUid ? [gproUid] : await findUidsFromLoginDb(nt, dirPath, options);
+  if (!uids.length) return undefined;
+
+  // 目录名自校验：账号目录叫 `nt_qq_<hash>` 时，hash 必须由这条 uid 派生出来，
+  // 否则说明它不是「uid 派生目录」的那套规则，别硬算。
+  const accountRoot = accountRootOf(dirPath);
   const dirName =
-    dirPath
+    accountRoot
       .replace(/[\\/]+$/, '')
       .split(/[\\/]/)
       .pop() ?? '';
-  if (dirName.startsWith('nt_qq_') && dirName.slice(6) !== md5(inner + DIR_SALT)) {
-    return undefined;
+  for (const uid of uids) {
+    const inner = md5(uid);
+    if (dirName.startsWith('nt_qq_') && dirName.slice(6) !== md5(inner + DIR_SALT)) continue;
+    const dbKey = md5(inner + rand);
+    try {
+      const probe = await nt.testDatabaseKey(msgDbPath, dbKey);
+      if (!probe.success || !probe.pageHmacAlgorithm || !probe.kdfHmacAlgorithm) continue;
+      return {
+        dbKey,
+        algos: {
+          'nt_msg.db': {
+            pageHmacAlgorithm: probe.pageHmacAlgorithm,
+            kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+          },
+        },
+      };
+    } catch {
+      // 单个 uid 探测失败不影响其它候选。
+    }
   }
-
-  const dbKey = md5(inner + rand);
-  const probe = await nt.testDatabaseKey(msgDbPath, dbKey);
-  if (!probe.success || !probe.pageHmacAlgorithm || !probe.kdfHmacAlgorithm) return undefined;
-
-  return {
-    dbKey,
-    algos: {
-      'nt_msg.db': {
-        pageHmacAlgorithm: probe.pageHmacAlgorithm,
-        kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
-      },
-    },
-  };
+  return undefined;
 }
 
 /**

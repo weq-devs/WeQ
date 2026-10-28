@@ -303,6 +303,8 @@ export function McpServerSection(): ReactElement {
 
   const enabled = data?.enabled ?? false;
   const running = data?.running ?? false;
+  /** 已启用、但当前没有账号打开 —— 服务等下一个账号起来才监听。 */
+  const waitingForAccount = enabled && !running && data?.accountOpen === false;
 
   return (
     <div className="weq-set weq-service-settings">
@@ -346,11 +348,19 @@ export function McpServerSection(): ReactElement {
                 : running
                   ? '运行中'
                   : enabled
-                    ? '已启用（等待账号）'
+                    ? waitingForAccount
+                      ? '已启用（等待账号）'
+                      : '已启用（未在监听）'
                     : '已停止'}
             </span>
           }
-          desc={data ? data.url : '—'}
+          desc={
+            data
+              ? running || waitingForAccount
+                ? data.url
+                : `${data.url} · 服务未监听，可尝试关闭后重新开启`
+              : '—'
+          }
           control={
             <button
               type="button"

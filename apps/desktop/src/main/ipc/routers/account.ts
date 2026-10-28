@@ -96,6 +96,7 @@ import { mediaSaveRouter } from './media_save';
 import { resourceCleanupRouter } from './resource_cleanup';
 import { dressupRouter } from './dressup';
 import { qzoneRouter } from './qzone';
+import { qzonePublicRouter } from './qzone_public';
 import { mutualMarkRouter } from './mutual_mark';
 import {
   assistantBus,
@@ -1748,6 +1749,8 @@ export const accountRouter = router({
   // ---- 个性装扮（气泡九宫格 / 聊天字体）----
   dressup: dressupRouter,
   qzone: qzoneRouter,
+  /** 空友爱看（推荐域 3）：与旧空间 cgi 分开的一套动态身份与互动接口。 */
+  qzonePublic: qzonePublicRouter,
   // ---- 好友/群友互动标识（任务 / 惊喜 / 限定 / 幸运字符）----
   mutualMark: mutualMarkRouter,
 

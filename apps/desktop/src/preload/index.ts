@@ -206,6 +206,14 @@ const weqBridge = {
       ipcRenderer.send(CALL_VIDEO_FRAME_CHANNEL, frame);
     },
   },
+  /**
+   * 通话摄像头按标签指定（排障用）。
+   *
+   * 同机跑两个 QQ / WeQ 时，v4l2 摄像头是独占打开的，后开的那个拿不到设备。
+   * 设 `WEQ_CAMERA_LABEL` 让 WeQ 走一路 v4l2loopback 虚拟摄像头，QQ 继续用
+   * 物理的，两边互不干扰。空字符串表示用系统默认设备。
+   */
+  cameraLabel: process.env.WEQ_CAMERA_LABEL ?? '',
 };
 
 if (process.contextIsolated) {

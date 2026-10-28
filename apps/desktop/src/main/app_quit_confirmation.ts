@@ -26,7 +26,7 @@ export function registerAppQuitConfirmation(
     hideWindow(): void;
     failed(error: unknown): void;
   },
-): void {
+): () => void {
   let approved = false;
   let pending = false;
   let generation = 0;
@@ -64,4 +64,9 @@ export function registerAppQuitConfirmation(
       }
     })();
   });
+  // beforeunload 被用户取消后，下一次退出不能沿用上一次的确认。
+  return () => {
+    approved = false;
+    generation += 1;
+  };
 }

@@ -139,6 +139,7 @@ let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
  *  and lets the window actually close (托盘退出 / 确认框「完全退出」/ before-quit). */
 let isQuitting = false;
+let resetQuitConfirmation: () => void = () => {};
 let stopRendererDiagnostics: (() => void) | null = null;
 let mainWindowRequested = false;
 const rendererRecoveries = new Map<number, ReturnType<typeof createRendererRecovery>>();
@@ -786,8 +787,8 @@ void app.whenReady().then(async () => {
   registerResourceProtocol();
   registerAvatarProtocol();
   registerMediaProtocol();
-  // Windows：放行通话窗口的 getDisplayMedia，用来录「电脑正在播放的声音」。
-  // 非 Windows 是空操作（Linux 走 parec，macOS 不支持）。
+  // 放行通话窗口的 getDisplayMedia：屏幕共享（所有平台）与 Windows 的
+  // 电脑声音 loopback（Linux 录电脑声音走 parec，不经这条路）。
   installCallDisplayMediaHandler();
   registerWindowLayoutIpc();
   registerMediaIpc();
@@ -828,6 +829,7 @@ void app.whenReady().then(async () => {
       cancelled: () => {
         isQuitting = false;
         resetQuitPreparation();
+        resetQuitConfirmation();
       },
     });
   });
@@ -889,7 +891,7 @@ const resetQuitPreparation = registerAppQuitPreparation(app, autoUpdater, () => 
 
 // 助手资源随应用结束；次实例退出不能关闭主实例拥有的服务。
 if (hasSingleInstanceLock) {
-  registerAppQuitConfirmation(app, autoUpdater, {
+  resetQuitConfirmation = registerAppQuitConfirmation(app, autoUpdater, {
     needsConfirmation: () => {
       try {
         return getAppContext().bootstrap?.userConfig.getSettings().weqAssistant.enabled ?? false;

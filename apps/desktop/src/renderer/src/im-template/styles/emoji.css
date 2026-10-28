@@ -1102,6 +1102,53 @@ html[data-theme='dark'] .reaction-likers {
   border-radius: 0;
 }
 
+/* ---- 闪照 ----------------------------------------------------------------
+   闪照是「看过即焚」的语义：气泡里只给打码预览（offpic 的 198 档），点开才看
+   0 档原图。
+
+   打码分两层，缺一不可：
+     · blur 负责**真的遮住内容** —— 纯网格叠层只是视觉效果，底图清晰照样能看清；
+     · 网格叠层负责**看上去像马赛克** —— 光有模糊会读成「没加载好」。
+   `image-rendering: pixelated` 在这里没用（它只影响放大，不降采样），所以不用。 */
+.qq-media-wrap-flash {
+  overflow: hidden;
+}
+
+.qq-media-flash {
+  filter: blur(14px) saturate(0.85);
+  /* 模糊会让边缘透出底色，放大一点点盖住。 */
+  transform: scale(1.06);
+}
+
+.qq-media-wrap-flash::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* 粗网格 + 细网格叠成方块感，模拟马赛克贴片。 */
+  background-image:
+    repeating-linear-gradient(0deg, rgb(0 0 0 / 22%) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(90deg, rgb(0 0 0 / 22%) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(45deg, rgb(255 255 255 / 6%) 0 3px, transparent 3px 7px);
+  mix-blend-mode: multiply;
+}
+
+/* 右下角角标：说明这是闪照而不是加载失败的图。 */
+.qq-media-wrap-flash::after {
+  content: '闪照';
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
 .qq-media-mface {
   display: block;
   object-fit: contain;

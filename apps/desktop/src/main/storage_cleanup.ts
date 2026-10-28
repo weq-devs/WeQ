@@ -1,5 +1,5 @@
 import { app, dialog } from 'electron';
-import { execFileSync, fork, type ChildProcess } from 'node:child_process';
+import { fork, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -8,6 +8,7 @@ import type { StorageUsageItem } from '@weq/service';
 import { readStorageCleanupResult } from '@weq/service/storage-cleanup';
 import { resolveChildWorkerPath } from './worker_path';
 import { skipNextQuitConfirmation } from './app_quit_confirmation';
+import { isStorageCleanupWorkerProcess } from './storage_cleanup_process';
 
 const reportPath = () => join(app.getPath('userData'), 'storage-maintenance', 'last-result.json');
 const lockPath = () => join(app.getPath('userData'), 'storage-maintenance', 'running.json');
@@ -24,15 +25,11 @@ export function guardStorageCleanupStartup(): void {
     };
     if (!Number.isInteger(pid) || pid <= 0) throw new Error('清除助手状态无效');
     process.kill(pid, 0);
-    if (process.platform !== 'win32' && worker) {
-      const command = execFileSync('ps', ['-p', String(pid), '-o', 'command='], {
-        encoding: 'utf8',
-        timeout: 2000,
-      });
-      if (!command.includes(worker)) {
-        rmSync(lockPath(), { force: true });
-        return;
-      }
+    // PID 可被系统复用。即使该 PID 正在运行，也必须确认它仍属于原清理助手；
+    // Windows 使用 Win32_Process.CommandLine，其他平台保留 ps 检查。
+    if (!isStorageCleanupWorkerProcess(pid, worker)) {
+      rmSync(lockPath(), { force: true });
+      return;
     }
     // 不启动窗口、账号或后台服务，避免重新打开正在清除的文件。
     dialog.showErrorBox('存储清除仍在进行', '请等待清除助手完成后再打开 WeQ。');

@@ -70,6 +70,43 @@
   color: var(--media-danger, #f0483e);
 }
 
+/* 位置卡片面板在窄屏（手机端也能从位置菜单进入）跟红包面板同一套收边：
+ * 面板宽度撑满输入区两侧，别为 540px 的桌面宽度留出横向溢出。 */
+@media (max-width: 760px) {
+  .ark-panel.location-card-panel {
+    left: 8px;
+    width: calc(100% - 16px);
+  }
+}
+
+/* 不带 tab 的面板（位置卡片，见 locationCardPanel.tsx）用一行标题代替 tab 条：
+ * 高度与 .ark-tabs 对齐（22px 内容 + 上下 6px），切换过去时面板不会跳。 */
+
+.ark-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 11px;
+  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 60%, transparent);
+  color: var(--weq-fg-secondary, #666666);
+}
+
+.ark-head > svg {
+  flex: 0 0 auto;
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.ark-head > strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── 五个 tab ────────────────────────────────────────────────────────────── */
 
 .ark-tabs {
@@ -264,7 +301,8 @@
   color: color-mix(in srgb, var(--weq-fg-muted, #858585) 55%, transparent);
 }
 
-/* 位置那栏的紧凑预览：一行摘要，替换掉重复的静态地图卡（见 LocationPreviewCompact）。
+/* 位置卡片的紧凑预览：一行摘要，替换掉重复的静态地图卡（见 locationCardPanel.tsx 的
+ * LocationPreviewCompact）。
  * 面板因此矮了一大截，选点地图 + 字段不会被一张预览压得只剩一条缝。 */
 .ark-preview.is-compact {
   padding: 7px 11px 9px;

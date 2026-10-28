@@ -1,8 +1,10 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { CloneChatPanel } from '../src/renderer/src/views/agentlab/CloneChatPanel';
 import { GroupChatPanel } from '../src/renderer/src/views/agentlab/GroupChatPanel';
+import { restoreComposer } from '../src/renderer/src/im-template/template/composer';
 
 const fixture = vi.hoisted(() => ({
   invalidate: vi.fn(),
@@ -52,6 +54,8 @@ afterEach(() => {
 function mount(kind: 'persona' | 'group') {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('requestAnimationFrame', () => 0);
+  // ChatPane 读取布局偏好；Node 的全局 localStorage 未配 --localstorage-file 时为 undefined。
+  vi.stubGlobal('localStorage', new Storage());
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -84,13 +88,11 @@ function mount(kind: 'persona' | 'group') {
   );
   return {
     async send() {
-      const editor = host.querySelector('textarea')!;
+      // 克隆会话复用普通 ChatPane：输入区是 contentEditable 的 composer-editor，不是 textarea。
+      const editor = host.querySelector<HTMLElement>('.composer-editor')!;
       act(() => {
-        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
-          editor,
-          '合成消息',
-        );
-        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        restoreComposer(editor, '合成消息');
+        editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
       });
       await act(async () => {
         editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));

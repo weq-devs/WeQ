@@ -46,7 +46,7 @@ uid → sortNo 翻译一次，再按 `40027` 查（详见 [index.md · nt_uid_ma
 | 40003 | `msgSeq` | INTEGER | 会话内递增序号。**不是全序**：灰条与它挂靠的消息共用同一 seq，排序需 `(40003, 40050, 40001)` 三键 | 已验证 |
 | 40010 | `chatType` | INTEGER | 聊天类型（1 私聊 / 2 群聊 / 8 数据线 / 100+ 临时会话…），全表见 [enums.ts](../../../packages/codec/src/domain/msg/enums.ts) 的 `ChatType` | 已验证 |
 | 40011 | `msgType` | INTEGER | 消息大类（2 混排 / 5 灰条 / 8 合并转发 / 9 引用回复…），见 `MsgType` | 已验证 |
-| 40012 | `subMsgType` | INTEGER | 子类型，语义跟随 40011。**删除 / 撤回签名的一半**（见第五节） | 已验证 |
+| 40012 | `subMsgType` | INTEGER | 子类型，语义跟随 40011。**删除 / 撤回签名的一半**（见第五节）；`40011 = 2` 时是**位标志**而非枚举（闪照 = `& 0x2000`，见 [pic.md](./elements/pic.md#行级-40012位标志不是枚举闪照)） | 已验证 |
 | 40013 | `sendType` | INTEGER | 发送来源：0 别人发的 / 1 本机 / 2 本账号其它端 / 5 转发，见 `SendType` | 已验证 |
 | 40020 | `senderUid` | TEXT | 发送者 uid。私聊里自己发的行此值 = 本账号 uid（≠ 40021） | 已验证 |
 | 40021 | `targetUid` | TEXT | 对端 uid（私聊恒为对端；群聊行为群号体系，此列存群 code） | 已验证 |

@@ -322,6 +322,62 @@ schema 在 `src/oidb/file-upload-schemas.ts`，highway 扩展在 `src/highway/fi
 闪传走的是 `multimedia.qfile.qq.com/sliceupload`（HTTPS + rkey），媒体上传走 highway TCP。
 **两者只共享哈希层**（`highway/hash-file.ts`、`sha1-stream.ts`），传输层不共用。
 
+## 三之三、闪照：OffPicUp 申请 + 老式 highway
+
+闪照**不走** NTV2，而是老式图片通道，两跳：
+
+```
+  1. LongConn.OffPicUp（原始 SSO，body 是纯 protobuf；SSO 帧由 native 组）
+     → 回 serviceTicket（336B）+ 服务端签发的 downloadPath（/uin-<编号>-<MD5 大写>）
+  2. PicUp.DataUp（highway，appId=16 / cmdId=1 / extend 空）
+     → errorCode=0 即成功
+  3. 拼 commonElem{serviceType:3}.pbElem = { pic(2) = NotOnlineImage }，后面再补一条兜底文本
+```
+
+**秒传**：第 1 跳的响应里可能**没有** `serviceTicket`（实测 `field1=1 field4=1`，
+body 里只有 `downloadPath` / `resId`）。这说明服务端已按 md5 持有这张图，第 2 跳整段
+跳过 —— 与 NTV2 用「响应里没有 uKey」判定秒传是同一个语义，产物（`downloadPath` 与
+元素字节）完全一样。实现见 `uploadLegacyImage` 的 `fastUpload`，它会一路透传到
+`SendMediaUploadReport.fastUpload` 与服务层日志。
+
+代码：`packages/protocol/src/highway/legacy-image-upload.ts`（编排）+
+`offpic-schemas.ts`（OffPicUp 请求/响应）。元素侧是 `msg/send-elements.ts` 的
+`flashPhoto`：给 `source` 就走上传并自动拼 `pic`，给现成的 `pic` 就不上传。
+
+与 NTV2 的差别（**不要混用参数**）：
+
+| | NTV2 | 老式（闪照） |
+| --- | --- | --- |
+| 申请 | `0xE37_100` OIDB | `LongConn.OffPicUp` |
+| highway appId | 1600001604 | **16** |
+| highway commandId | 1003/1004… | **1** |
+| `bytesReqExtendInfo` | NTV2RichMediaHighwayExt | **空** |
+| `serviceTicket` | 会话的 sig_session | **OffPicUp 响应 field9** |
+| 产物 | `commonElem{48}.pbElem` | `NotOnlineImage` 记录 |
+
+### 五个容易写错的地方
+
+- **`serviceTicket` 缺失不等于失败**。它是秒传信号（见上）；只有 `downloadPath` 也
+  没有时才是真的失败。早先把缺 ticket 直接当错误，导致「同一张图发第二次」必定报错。
+
+- **不要在 body 前面补长度前缀。** 抓包里 `00 00 00 80 | body` 那 4 字节是 native
+  组好的 **SSO 帧长度**（钩子挂在 Socket 层才录进来），`sendPacket` 交纯 protobuf 就行。
+  补上去会让服务端当成畸形 protobuf **直接不回包**：真机实测 100% 卡满
+  `REPLY_TIMEOUT`（30s）后报 `sso_request_outcome_unknown_timeout`；去掉后稳定
+  500~600ms 回 515 字节。
+- **`NotOnlineImage` 的 tag 8 是高、tag 9 是宽**。早先的记录写反过；2026-10-28 用
+  JPEG SOF 核对真实像素（1080×505）确认：`picHeight`(8)=505、`picWidth`(9)=1080。
+- **OffPicUp 请求里的 0 值字段要显式写**（field10 / 13 / 22），抓包是 `50 00` /
+  `68 00` / `b0 01 00`，靠 schema 上的 `force`。
+- **请求里的 uin / selfUid 必须是当前登录账号**。拿抓包账号的参数发到别的账号上，
+  服务端回 `para error`（`08 01 12 11 … "para error"`）。
+
+### 已知未解
+
+`pbRes.md5Str`(31) 这个值**两跳响应里都没有**，本地也推不出（不是文件 md5、不是它
+的再哈希、也不是响应里的 field27）。目前退回文件 md5 大写，收端是否忽略它未验证。
+抓包：`qqhook-20261028-051613.txt` + `v6.htdata.qq.com_2026_10_28_05_14_53.har`。
+
 ## 三之四、合并转发（SsoSendLongMsg）
 
 发「聊天记录」是**两步**，协议实现在 `packages/protocol/src/msg/send-forward.ts`

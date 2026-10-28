@@ -581,6 +581,59 @@ export function tryDecodeAfterLengthPrefix(buf: Uint8Array): PrefixedDecode | nu
   return null;
 }
 
+/** 自动解析的结果：`prefix` 仅在剥离了长度前缀时存在。 */
+export interface AutoDecode {
+  kind: 'protobuf' | 'jce';
+  nodes: RvNode[];
+  prefix?: LengthPrefix;
+}
+
+/** 「自动」解析时允许的格式偏向；指定格式时只认该格式。 */
+export type AutoDecodeFormat = 'auto' | 'protobuf' | 'jce';
+
+/**
+ * 通用自动解析入口（逆向面板 / 抓包面板 / 主进程共用）：
+ * 自动识别长度前缀 → protobuf → JCE。
+ *
+ * **长度前缀优先于直接解析**，这一点很关键：TXHook / QQHook 导出的 SSO 裸包是
+ * 「4 字节大端长度前缀 + JCE 正文」（如 `00 00 10 75 10 02 2c 3c …`），而前缀
+ * 那 4 个字节本身也是合法的 JCE 头 —— `00 00` 被读成 tag0/BYTE 0，`10 75` 被读成
+ * tag1/BYTE 0x75。直接按 JCE 解会「成功」，但顶层凭空多出 tag 0，正确字段还出现
+ * 重复 tag。先试剥离前缀再直接解析，就不会被这段假字段骗到。
+ *
+ * 前缀的识别本来就要求「数值自洽 + 剥后完整解析」（见
+ * {@link tryDecodeAfterLengthPrefix}），无前缀的普通数据不会被误剥。
+ */
+export function tryDecodeAuto(
+  buf: Uint8Array,
+  format: AutoDecodeFormat = 'auto',
+): AutoDecode | null {
+  if (buf.length === 0) return null;
+
+  // 逐候选剥前缀；指定格式时**跳过**另一格式的命中，避免 body 恰好两种都能解时
+  // 被先试的 protobuf 抢先（e.g. `10 02` 同时是合法 protobuf {2:2} 与 JCE {1:2}）。
+  for (const prefix of detectLengthPrefixes(buf)) {
+    if (format !== 'jce') {
+      const proto = tryDecodeProtobufAt(prefix.body, 0);
+      if (proto) return { kind: 'protobuf', nodes: proto, prefix };
+    }
+    if (format !== 'protobuf') {
+      const jce = tryDecodeJceAt(prefix.body, 0);
+      if (jce) return { kind: 'jce', nodes: jce, prefix };
+    }
+  }
+
+  if (format !== 'jce') {
+    const proto = tryDecodeProtobuf(buf);
+    if (proto) return { kind: 'protobuf', nodes: proto };
+  }
+  if (format !== 'protobuf') {
+    const jce = tryDecodeJce(buf);
+    if (jce) return { kind: 'jce', nodes: jce };
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // 展示辅助：数值、分组、JSON 序列化
 // ---------------------------------------------------------------------------

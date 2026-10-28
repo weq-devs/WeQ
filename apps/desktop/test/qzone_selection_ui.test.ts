@@ -1,6 +1,8 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
 import { QzoneView } from '../src/renderer/src/views/QzoneView';
 import {
   ContentSelectionProvider,
@@ -59,6 +61,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({
   QqAvatar: () => createElement('span', null, '头像'),
 }));
+vi.mock('../src/renderer/src/views/QzonePublicView', () => ({
+  QzonePublicPane: () => createElement('div', null, '合成公共空间'),
+}));
 afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
@@ -77,6 +82,40 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
     },
   };
 }
+it('空友爱看标签在页面卸载重建后仍能从快照恢复', async () => {
+  vi.stubGlobal('localStorage', new Storage());
+  const page = () =>
+    createElement(
+      PageSnapshots,
+      { scope: 'qzone-public-tab' },
+      createElement(QzoneView, {
+        selfUin: '10001',
+        nickname: '合成自己',
+        active: true,
+        spaceRequest: { accountUin: '10001', uin: '10001', revision: 'public-tab' },
+      }),
+    );
+  const first = mount(page());
+  try {
+    await act(async () => {});
+    act(() => {
+      Array.from(first.host.querySelectorAll<HTMLButtonElement>('[aria-label="空间栏目"] button'))
+        .find((button) => button.textContent === '空友爱看')!
+        .click();
+    });
+    expect(first.host.textContent).toContain('合成公共空间');
+  } finally {
+    first.close();
+  }
+  const restored = mount(page());
+  try {
+    await act(async () => {});
+    expect(restored.host.querySelector('[aria-current="page"]')?.textContent).toBe('空友爱看');
+    expect(restored.host.textContent).toContain('合成公共空间');
+  } finally {
+    restored.close();
+  }
+});
 it('空间正文不显示重复按钮，修饰键多选仍可通过顶部导出交出离散 tid', async () => {
   function Probe() {
     return createElement(

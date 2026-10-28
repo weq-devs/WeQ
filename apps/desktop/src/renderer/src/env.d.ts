@@ -64,6 +64,11 @@ interface Window {
      * `pushVideoFrame`。
      */
     callVideo?: import('../../shared/call_video_ipc').CallVideoBridge;
+    /**
+     * 通话摄像头按 label 指定（`WEQ_CAMERA_LABEL`，排障用）。
+     * 空字符串 = 用系统默认设备。
+     */
+    cameraLabel?: string;
     analyticsShot: {
       /** 主进程在隐藏窗口里渲染同一张卡片、抓成长图、弹保存框（用户窗口全程不动）。 */
       render(

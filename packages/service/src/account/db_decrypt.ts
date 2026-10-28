@@ -5,8 +5,8 @@
  * exports selected databases through the native bulk decrypt helpers.
  */
 
-import { mkdirSync } from 'node:fs';
-import { copyFile, readdir, stat } from 'node:fs/promises';
+import { constants as fsConstants, mkdirSync } from 'node:fs';
+import { copyFile, link, lstat, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { basename, extname, join, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { type AccountSession, algoFor } from '@weq/account';
@@ -133,29 +133,33 @@ export class DbDecryptService {
       async (item) => {
         opts.signal?.throwIfAborted();
         const outPath = outputPath(opts.outputDir, item.name, item.dbPath);
+        let stagingDir: string | null = null;
         try {
+          await assertOutputAvailable(outPath);
+          // 先在私有临时目录完成解密，禁止 native 写入已有目标或半成品覆盖旧导出。
+          stagingDir = await mkdtemp(join(opts.outputDir, '.weq-decrypt-'));
+          const staged = join(stagingDir, basename(outPath));
           if (isPlainSqliteDb(item.dbPath)) {
-            await copyFile(item.dbPath, outPath);
+            await copyFile(item.dbPath, staged);
+          } else {
+            const guild = isGuildDb(item.dbPath);
+            const login = isLoginDb(item.dbPath);
+            const key = guild
+              ? this.platform.native.ntHelper.getGuildDbKey(item.dbPath, this.session.context.uin)
+              : login
+                ? LOGIN_DB_KEY
+                : this.session.context.dbKey;
+            const algo =
+              guild || login
+                ? await resolveAlgo(this.platform.native.ntHelper, item.dbPath, key)
+                : algoFor(this.session.context, item.dbPath);
+            if (login && !algo) throw new Error('login.db 密钥不正确，无法解密');
             opts.signal?.throwIfAborted();
-            return { name: item.name, dbPath: item.dbPath, outPath, ok: true };
+            await decryptOneInWorker(ntHelperPath, item.dbPath, staged, key, algo, opts.mode);
           }
-          const guild = isGuildDb(item.dbPath);
-          const login = isLoginDb(item.dbPath);
-          const key = guild
-            ? this.platform.native.ntHelper.getGuildDbKey(item.dbPath, this.session.context.uin)
-            : login
-              ? LOGIN_DB_KEY
-              : this.session.context.dbKey;
-          const algo =
-            guild || login
-              ? await resolveAlgo(this.platform.native.ntHelper, item.dbPath, key)
-              : algoFor(this.session.context, item.dbPath);
-          if (login && !algo) throw new Error('login.db 密钥不正确，无法解密');
           opts.signal?.throwIfAborted();
-          await decryptOneInWorker(ntHelperPath, item.dbPath, outPath, key, algo, opts.mode);
-          opts.signal?.throwIfAborted();
-          // Both decrypt modes produce a stock-layout database, so no layout
-          // marker is needed: later executeSql* calls detect it from the header.
+          // 排他发布：两个并发导出即使都通过了存在性检查，也只会有一个成功。
+          await publishOutputWithoutOverwrite(staged, outPath);
           return { name: item.name, dbPath: item.dbPath, outPath, ok: true };
         } catch (e) {
           opts.signal?.throwIfAborted();
@@ -167,8 +171,12 @@ export class DbDecryptService {
             error: e instanceof Error ? e.message : String(e),
           };
         } finally {
-          completed += 1;
-          opts.onProgress?.(completed, items.length);
+          try {
+            if (stagingDir) await rm(stagingDir, { recursive: true, force: true });
+          } finally {
+            completed += 1;
+            opts.onProgress?.(completed, items.length);
+          }
         }
       },
       opts.signal,
@@ -267,6 +275,40 @@ function outputPath(outputDir: string, nameOrPath: string, sourcePath: string): 
 function outputName(nameOrPath: string): string {
   const name = basename(nameOrPath);
   return name.toLowerCase().endsWith('.db') ? name : `${name}.db`;
+}
+
+function outputAlreadyExists(path: string): Error {
+  return new Error(`目标文件已存在，不会覆盖：${path}。请选择其他目录或移走旧文件。`);
+}
+
+/** lstat 也会识别失效的符号链接，避免覆盖用户已经占用的目标名称。 */
+async function assertOutputAvailable(path: string): Promise<void> {
+  try {
+    await lstat(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+  throw outputAlreadyExists(path);
+}
+
+/** 同目录硬链接原子发布；不支持硬链接时用 COPYFILE_EXCL 保证不覆盖已有文件。 */
+async function publishOutputWithoutOverwrite(staged: string, target: string): Promise<void> {
+  try {
+    await link(staged, target);
+    return;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'EEXIST') throw outputAlreadyExists(target);
+    if (!['EPERM', 'EACCES', 'ENOTSUP', 'EOPNOTSUPP', 'EXDEV', 'EMLINK'].includes(code ?? ''))
+      throw error;
+  }
+  try {
+    await copyFile(staged, target, fsConstants.COPYFILE_EXCL);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw outputAlreadyExists(target);
+    throw error;
+  }
 }
 
 function isGuildDb(dbPath: string): boolean {

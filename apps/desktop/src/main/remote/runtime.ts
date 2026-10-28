@@ -89,7 +89,7 @@ export class RemoteRuntime {
     const child = this.tailscaleChild;
     this.tailscaleChild = null;
     this.tailscaleState = { state: 'offline' };
-    this.pairing.cancelInvitation();
+    // 独立关闭 Tailscale 不应取消仍有效的 LAN 邀请或待确认配对。
     if (!child) return;
     if (child.exitCode === null) {
       this.tailscaleClosing = new Promise<void>((resolve) => {
@@ -179,6 +179,8 @@ export class RemoteRuntime {
   }
 
   async changeNetwork(): Promise<void> {
+    // 真正切换节点身份时才撤销旧邀请，防止二维码引用旧节点。
+    this.pairing.cancelInvitation();
     this.stopTailscale();
     // 更换身份而不删除原节点；旧节点可在 Tailscale 管理台移除。
     this.store?.save({

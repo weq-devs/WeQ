@@ -158,11 +158,11 @@ it('正在请求麦克风时不能切换页签或通过工具栏卸载录音面�
   expect(host.querySelector('.emoji-panel')).toBeNull();
 });
 
-it('发送图片或文件提供三个选项，图片选择发送文件后仍生成文件消息', async () => {
+it('发送图片或文件提供五个选项，图片选择发送文件后仍生成文件消息', async () => {
   const { host, send } = await mount();
   clickTitle(host, '发送图片或文件');
   expect([...document.querySelectorAll('[role="menuitem"]')].map((row) => row.textContent)).toEqual(
-    ['发送图片', '发送文件', 'QQ闪传'],
+    ['发送图片', '发送文件', '闪照', '泡泡消息', 'QQ闪传'],
   );
   const fileInput = host.querySelector<HTMLInputElement>('input[type="file"]:not([accept])')!;
   const picker = vi.spyOn(fileInput, 'click');

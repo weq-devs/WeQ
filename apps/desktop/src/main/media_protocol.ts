@@ -289,6 +289,49 @@ async function avatarFallbackResponse(
   }
 }
 
+/**
+ * 闪照（老式 offpic）的代理。
+ *
+ * 闪照的 `fileToken` 是 `/uin-图片id-MD5` 这种**路径**而不是凭据，拼出来的是
+ * `c2cpicdw.qpic.cn/offpic_new/…` 直链。渲染进程直连它会被 CORS 挡掉（响应不带
+ * `Access-Control-Allow-Origin`，而 `<img>` 一旦需要读像素 / 被上游跳转就会退化成
+ * CORS 请求），所以和群相册一样由主进程代取。
+ *
+ * 与 `album` 的差别：这里只认我们自己拼的 offpic 形状，不接受任意 URL ——
+ * 否则这条路由就成了任意地址的出口。
+ */
+async function flashPicResponse(token: string, spec: string): Promise<Response> {
+  const url = flashPicUpstreamUrl(token, spec);
+  if (!url) return notFound('flash pic needs offpic token');
+  const cache = getAppContext().bootstrap?.avatarCache;
+  if (!cache) return notFound('flash pic cache unavailable');
+  try {
+    const blob = await cache.get(url, 'avatar');
+    return new Response(new Uint8Array(blob.data), {
+      status: 200,
+      headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },
+    });
+  } catch {
+    return notFound('flash pic fetch failed');
+  }
+}
+
+/** offpic 三档：0 原图 / 198 预览 / 720 大图（实测非法档位回 400）。 */
+const FLASH_PIC_SPECS = new Set(['0', '198', '720']);
+
+/**
+ * 把闪照的 `fileToken` 拼成 offpic 上游地址；形状不对返回 null。
+ *
+ * `fileToken` 自带前导 `/`，与固定前缀拼起来是**连续两个斜杠**——CDN 就是这么认的，
+ * 不要「修正」成一个。
+ */
+function flashPicUpstreamUrl(token: string, spec: string): string | null {
+  if (!FLASH_PIC_SPECS.has(spec)) return null;
+  // 只放行 `/数字-数字-十六进制MD5` 这一段，杜绝把任意路径塞进上游 URL。
+  if (!/^\/\d+-\d+-[0-9A-Fa-f]{32}$/.test(token)) return null;
+  return `https://c2cpicdw.qpic.cn/offpic_new/${token}/${spec}`;
+}
+
 async function albumRemoteResponse(src: string): Promise<Response> {
   if (!/^https?:\/\//i.test(src)) return notFound('album image needs remote url');
   const target = new URL(src);
@@ -908,6 +951,10 @@ async function routeMediaRequest(request: Request): Promise<Response> {
         }
         case 'album': {
           return albumRemoteResponse(q.get('src') ?? '');
+        }
+        case 'flashpic': {
+          // 闪照：`token` 是老式 offpic 路径，`spec` 是 0/198/720 三档。
+          return flashPicResponse(q.get('token') ?? '', q.get('spec') ?? '198');
         }
         default:
           return notFound(`unknown media kind: ${kind}`);

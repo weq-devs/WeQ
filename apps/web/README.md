@@ -157,7 +157,7 @@ WEQ_TOKEN=$(openssl rand -hex 24) WEQ_HOST=0.0.0.0 node server.mjs
 pnpm install --frozen-lockfile
 pnpm native:fetch --no-authorization # 取本机原生模块与配套装扮资源
 pnpm --filter @weq/web build     # 产物在 apps/web/dist/
-pnpm --filter @weq/web deps      # 从根锁文件离线部署运行依赖
+pnpm --filter @weq/web deps      # 从根锁文件部署运行依赖（优先用本地缓存）
 ```
 
 完整业务验证使用构建后的服务端：
@@ -183,7 +183,7 @@ pnpm --filter @weq/web test:dist   # 启动打包产物跑一遍完整流程
 
 ```bash
 pnpm --filter @weq/web build       # 构建 + 两个守卫
-pnpm --filter @weq/web deps        # 冻结离线部署并检查本平台原生模块与 WASM
+pnpm --filter @weq/web deps        # 冻结部署并检查本平台原生模块与 WASM
 pnpm --filter @weq/web test:dist   # 冒烟
 ```
 

@@ -9,7 +9,7 @@
  */
 
 import type { ReactElement } from 'react';
-import { FolderOpen, Info, PhoneCall, RotateCcw } from 'lucide-react';
+import { FolderOpen, Info, PhoneCall, RotateCcw, Waypoints } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useToast } from '../Toast';
@@ -45,6 +45,15 @@ export function CallRecordingSection(): ReactElement {
         detail: error instanceof Error ? error.message : String(error),
       }),
   });
+  const setP2P = trpc.bootstrap.setCallDisableP2P.useMutation({
+    onSuccess: () => void settings.refetch(),
+    onError: (error) =>
+      pushToast({
+        tone: 'error',
+        message: '保存连接方式失败',
+        detail: error instanceof Error ? error.message : String(error),
+      }),
+  });
   const pickDir = trpc.bootstrap.pickCallRecordingDir.useMutation({
     onSuccess: (dir) => {
       if (dir) void settings.refetch();
@@ -55,6 +64,7 @@ export function CallRecordingSection(): ReactElement {
   const capability = capabilities.data?.systemAudio ?? null;
   const systemUnsupported = capability === 'unsupported';
   const mode = config?.mode ?? 'mixed';
+  const disableP2P = settings.data?.callDisableP2P === true;
 
   return (
     <div className="weq-set">
@@ -133,6 +143,21 @@ export function CallRecordingSection(): ReactElement {
                 恢复默认
               </button>
             </div>
+          }
+        />
+      </Card>
+
+      <Card title="连接方式" icon={<Waypoints size={15} strokeWidth={1.8} />}>
+        <Row
+          label="禁用 P2P 直连"
+          desc="强制媒体全程走腾讯服务器中继。如果通话画面特别卡、而对端网络正常，可以打开对比一下。改动只对之后发起的通话生效。"
+          control={
+            <Toggle
+              checked={disableP2P}
+              disabled={setP2P.isLoading}
+              onChange={(next) => setP2P.mutate({ disabled: next })}
+              label="禁用 P2P 直连"
+            />
           }
         />
       </Card>

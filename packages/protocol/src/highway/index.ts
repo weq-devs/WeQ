@@ -53,6 +53,24 @@ export {
   PRIVATE_FILE_HIGHWAY_CMD,
 } from './file-upload-ext';
 export type { FileUploadExtInput } from './file-upload-ext';
+// ── 老式图片通道（闪照：OffPicUp 申请 + PicUp.DataUp 传字节） ──
+export {
+  LEGACY_IMAGE_CHANNEL,
+  LEGACY_IMAGE_HIGHWAY_APP_ID,
+  LEGACY_IMAGE_HIGHWAY_CMD,
+  md5OfBytes,
+  requestOffPicUpload,
+  stripLengthPrefix,
+  uploadLegacyImage,
+} from './legacy-image-upload';
+export type { LegacyImageSource, LegacyImageUploadResult } from './legacy-image-upload';
+export {
+  OFF_PIC_UP_CMD,
+  OFF_PIC_UP_REQ,
+  OFF_PIC_UP_REQ_BODY,
+  OFF_PIC_UP_RESP,
+  OFF_PIC_UP_RESP_BODY,
+} from './offpic-schemas';
 export type { ChunkSource, HighwaySession, HighwayUploadParams } from './highway-client';
 export {
   finalizeMediaMsgInfo,
@@ -75,6 +93,7 @@ export {
   PTT_HIGHWAY_GROUP,
   PTT_OIDB_C2C,
   PTT_OIDB_GROUP,
+  DEFAULT_BUBBLE_TEMPLATE,
   RICH_MEDIA_BUSINESS_TYPE,
   RICH_MEDIA_SERVICE_TYPE,
   uploadImageMsgInfo,
@@ -124,6 +143,9 @@ export {
   HTTP_CONN,
   HTTP_CONN_REQ,
   HTTP_CONN_RESP,
+  BUBBLE_VIDEO_EXT_BIZ_INFO,
+  BUBBLE_VIDEO_EXTRA,
+  BUBBLE_VIDEO_PB,
   MSG_INFO_BODY,
   NTV2_EXT_BIZ_INFO,
   NTV2_RICH_MEDIA_HIGHWAY_EXT,
