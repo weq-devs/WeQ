@@ -68,6 +68,7 @@ import {
   invertSelectionIds,
 } from '../../lib/multiSelection';
 import { WindowedList } from '../../components/WindowedList';
+import { useThemeStore } from '../../state/theme';
 import '../../styles/conversation-directory.css';
 import { cn } from './classNames';
 import { Avatar, EmptyState, ListSkeleton } from './primitives';
@@ -211,6 +212,7 @@ export function ConversationList({
   const viewportRef = useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = useState(600);
   const [rowHeight, setRowHeight] = useState(62);
+  const density = useThemeStore((state) => state.density);
   const menuRef = useRef<HTMLDivElement>(null);
   const filtered = useMemo(() => {
     // 置顶会话排最前；其余按「最后一条消息时间」和真实会话混排。
@@ -384,7 +386,7 @@ export function ConversationList({
     const observer = new ResizeObserver(measure);
     if (viewportRef.current) observer.observe(viewportRef.current);
     return () => observer.disconnect();
-  }, []);
+  }, [density]);
   useEffect(() => {
     if (keyword && hasMore && !loadingMore) onLoadMore?.();
   }, [keyword, hasMore, loadingMore, onLoadMore]);

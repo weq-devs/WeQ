@@ -51,6 +51,11 @@ node apps/desktop/test/browser/run-style-consistency.mjs
 `WEQ_BROWSER_EXECUTABLE` 可指定已有 Chromium 浏览器，`WEQ_STYLE_ARTIFACTS` 可指定截图目录。
 脚本结束后会关闭自己创建的浏览器和测试服务，不使用真实 QQ 数据。
 
+组件风格与独立密度使用 `node apps/desktop/test/browser/run-component-appearance.mjs`，
+覆盖六套风格、两种密度、深浅色、六种背景和桌面／窄屏，以及键盘选择、刷新恢复、
+跟随系统和真实会话虚拟列表行高。Playwright 与浏览器路径沿用上述变量，
+截图目录由 `WEQ_APPEARANCE_ARTIFACTS` 指定。
+
 会话进入与下沿保持回归使用真实 ChatPane 和意图感知组件，合成延迟结果，覆盖短列表与
 虚拟长列表、深浅色、桌面与窄屏、自动跟随开关、异步增高和窗口缩小；主动向上滚动后
 必须保留阅读锚点。Playwright 与浏览器路径沿用上面的环境变量。

@@ -204,8 +204,8 @@ html[data-theme='dark'] .weq-conversation-selection-toolbar {
 }
 .weq-conversation-window .conversation-row,
 .app-shell .weq-conversation-window .conversation-row {
-  height: 62px;
-  min-height: 62px;
+  height: var(--weq-conversation-row-height, 62px);
+  min-height: var(--weq-conversation-row-height, 62px);
   box-sizing: border-box;
 }
 .conversation-row.is-locate-target {

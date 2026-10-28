@@ -57,6 +57,7 @@ import { MailSettingsSection } from './settings/MailSettingsSection';
 import { PrivacySection } from './settings/PrivacySection';
 import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
+import { ComponentAppearance } from './settings/ComponentAppearance';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
@@ -102,12 +103,7 @@ import {
   type SettingsPageId,
 } from './settings/navigation';
 export type { SectionId } from './settings/navigation';
-import {
-  useThemeStore,
-  type ThemeBackground,
-  type ThemeComponentStyle,
-  type ThemePreference,
-} from '../state/theme';
+import { useThemeStore, type ThemeBackground, type ThemePreference } from '../state/theme';
 import { useUpdateStore } from '../state/update';
 
 /** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
@@ -628,11 +624,9 @@ function AppearanceSection({
   const preference = useThemeStore((state) => state.preference);
   const accent = useThemeStore((state) => state.accent);
   const background = useThemeStore((state) => state.background);
-  const componentStyle = useThemeStore((state) => state.componentStyle);
   const setPreference = useThemeStore((state) => state.setPreference);
   const setAccent = useThemeStore((state) => state.setAccent);
   const setBackground = useThemeStore((state) => state.setBackground);
-  const setComponentStyle = useThemeStore((state) => state.setComponentStyle);
 
   // 「纯文本消息渲染 Markdown」——不像主题那样存 localStorage，而是走 AppSettings
   // （config.json）：渲染层要通过 App.tsx 的 TextMarkdownContext 广播给每条气泡。
@@ -752,15 +746,7 @@ function AppearanceSection({
             <ThemeBackgroundRow value={background} onChange={setBackground} />
           </div>
 
-          <div className="weq-settings-appearance-card is-placeholder">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>组件风格</strong>
-                <span>切换整套组件皮肤，目前仅提供经典版</span>
-              </div>
-            </div>
-            <ComponentStyleRow value={componentStyle} onChange={setComponentStyle} />
-          </div>
+          <ComponentAppearance />
         </>
       )}
       {page === 'messages' && (
@@ -1281,42 +1267,6 @@ function ThemeBackgroundRow({
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function ComponentStyleRow({
-  value,
-  onChange,
-}: {
-  value: ThemeComponentStyle;
-  onChange: (next: ThemeComponentStyle) => void;
-}) {
-  return (
-    <div className="weq-settings-preset-grid" role="radiogroup" aria-label="组件风格">
-      <button
-        type="button"
-        className={`weq-settings-preset-card${value === 'classic' ? ' is-active' : ''}`}
-        role="radio"
-        aria-checked={value === 'classic'}
-        onClick={() => onChange('classic')}
-      >
-        <span className="weq-settings-preset-preview is-style-classic" aria-hidden="true" />
-        <strong>经典</strong>
-        <small>当前默认组件套</small>
-      </button>
-      <div
-        className="weq-settings-preset-card is-locked"
-        role="radio"
-        aria-checked={false}
-        aria-disabled="true"
-      >
-        <span className="weq-settings-preset-preview is-style-soon" aria-hidden="true">
-          <Lock size={16} />
-        </span>
-        <strong>暂未提供</strong>
-        <small>暂无其他组件风格可选</small>
-      </div>
     </div>
   );
 }
