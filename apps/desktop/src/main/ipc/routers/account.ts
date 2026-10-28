@@ -7851,6 +7851,8 @@ export const accountRouter = router({
         name: z.string(),
         token: z.string().default(''),
         msgId: z.string().default(''),
+        expectedAccountUin: z.string().optional(),
+        expectedAccountConfigId: z.string().optional(),
       }),
     )
     .mutation(async ({ input }): Promise<TranscribeResult> => {
@@ -7859,6 +7861,7 @@ export const accountRouter = router({
       const services = ctx.services;
       if (!boot) return { success: false, error: '原生组件未就绪' };
       if (!services) return { success: false, error: '未打开账号' };
+      requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
 
       const modelId = boot.userConfig.getLocalModelId('voice');
       if (!modelId) return { success: false, error: '未选择转录模型' };
@@ -7896,6 +7899,8 @@ export const accountRouter = router({
       if (!result.success) return { success: false, error: result.error ?? '识别失败' };
       const text = result.text ?? '';
       if (input.msgId) {
+        if (ctx.services !== services)
+          return { success: false, error: '账号已切换，已停止保存转写' };
         // Best-effort: a failed back-write must not lose the text we just got.
         // Only the TEXT goes back to the DB — `pttTranscript` (45923) is the
         // field QQ itself reads, so it must stay a plain string. Emotion and

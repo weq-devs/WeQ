@@ -393,10 +393,10 @@ function normalizeSsePushServers(value: unknown): SsePushServerConfig[] {
 export interface VoiceTranscribeConfig {
   /** 离线转录模型 id（空 = 关）。 */
   modelId: string;
-  /** TTS 服务商列表（用于克隆体发语音/语音克隆）。 */
-  ttsProviders: TtsProviderConfig[];
   /** 浏览聊天时自动转换尚无文字的语音。 */
   autoTranscribe: boolean;
+  /** TTS 服务商列表（用于克隆体发语音/语音克隆）。 */
+  ttsProviders: TtsProviderConfig[];
 }
 
 /**
@@ -1510,12 +1510,12 @@ export class UserConfigService {
       modelResources: resources,
       voiceTranscribe: {
         modelId: resources.voice,
-        ttsProviders:
-          normalizeTtsProviders(s?.voiceTranscribe?.ttsProviders) ?? d.voiceTranscribe.ttsProviders,
         autoTranscribe:
           typeof s?.voiceTranscribe?.autoTranscribe === 'boolean'
             ? s.voiceTranscribe.autoTranscribe
             : d.voiceTranscribe.autoTranscribe,
+        ttsProviders:
+          normalizeTtsProviders(s?.voiceTranscribe?.ttsProviders) ?? d.voiceTranscribe.ttsProviders,
       },
       ocr: {
         modelId: resources.ocr,
