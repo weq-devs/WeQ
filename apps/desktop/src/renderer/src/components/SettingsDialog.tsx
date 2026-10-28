@@ -628,7 +628,7 @@ function AppearanceSection({
   const setAccent = useThemeStore((state) => state.setAccent);
   const setBackground = useThemeStore((state) => state.setBackground);
 
-  // 「纯文本消息渲染 Markdown」——不像主题那样存 localStorage，而是走 AppSettings
+  // 「纯文本消息自动渲染为 Markdown」——不像主题那样存 localStorage，而是走 AppSettings
   // （config.json）：渲染层要通过 App.tsx 的 TextMarkdownContext 广播给每条气泡。
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     enabled: active,
@@ -950,12 +950,12 @@ function AppearanceSection({
             ))}
             <Row
               settingId="text-markdown"
-              label="纯文本消息渲染 Markdown"
+              label="纯文本消息自动渲染为 Markdown"
               desc={
                 <>
                   把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
-                  自己的功能——QQ 只把专门的 Markdown 消息当富文本，关掉后纯文本原样显示 （QQ 原生
-                  Markdown 消息不受影响）。
+                  自己的功能，关闭后默认显示原文，仍可右键手动选择「显示
+                  Markdown」。单条消息的手动选择优先，QQ 原生 Markdown 消息不受影响。
                 </>
               }
               control={
@@ -963,7 +963,7 @@ function AppearanceSection({
                   checked={textMarkdown}
                   disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
                   onChange={(next) => void onSetTextMarkdown(next)}
-                  label="纯文本消息渲染 Markdown"
+                  label="纯文本消息自动渲染为 Markdown"
                 />
               }
             />

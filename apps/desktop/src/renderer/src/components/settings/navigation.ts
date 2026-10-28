@@ -273,7 +273,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
         'message-decoration',
       ],
       ['message-font', '消息字体', '聊天字体'],
-      ['text-markdown', '纯文本消息渲染 Markdown'],
+      ['text-markdown', '纯文本消息自动渲染为 Markdown'],
       ['link-preview', '链接预览卡片'],
       ['link-screenshot', '无封面时网页截图'],
     ] as const

@@ -94,6 +94,19 @@ function mount(initialSection?: SectionId) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('Markdown 开关明确为自动渲染，关闭后仍可手动渲染', () => {
+    const f = mount('chat-messages');
+    try {
+      const row = f.body().querySelector('[data-setting-id="text-markdown"]')!;
+      expect(row.querySelector('.weq-set-row-label')?.textContent).toBe(
+        '纯文本消息自动渲染为 Markdown',
+      );
+      expect(row.querySelector('[aria-label="纯文本消息自动渲染为 Markdown"]')).not.toBeNull();
+      expect(row.textContent).toContain('仍可右键手动选择「显示 Markdown」');
+    } finally {
+      f.close();
+    }
+  });
   it('旧 TTS 页面直接定位 API 页内语音分区，不打开编辑弹窗', () => {
     const f = mount('tts');
     try {
@@ -202,7 +215,7 @@ describe('设置归位后的实际页面', () => {
         '聊天头像挂件',
         '消息气泡',
         '消息字体',
-        '纯文本消息渲染 Markdown',
+        '纯文本消息自动渲染为 Markdown',
         '链接预览卡片',
         '无封面时网页截图',
       ]);

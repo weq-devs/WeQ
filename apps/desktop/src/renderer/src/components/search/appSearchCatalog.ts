@@ -85,7 +85,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['message-display', '图片预览内存预算', '图片缓存', '表情缓存', '内存缓存'],
   ['message-display', '自定义消息显示'],
   ['message-display', '显示消息汇总红点', '未读红点'],
-  ['message-display', '纯文本消息渲染 Markdown', '富文本'],
+  ['message-display', '纯文本消息自动渲染为 Markdown', '纯文本消息渲染 Markdown', '富文本'],
   ['message-display', '聊天头像挂件'],
   ['message-display', '显示消息序号（seq）', '消息序号'],
   ['message-display', '显示发送时间（精确到秒）', '消息时间'],

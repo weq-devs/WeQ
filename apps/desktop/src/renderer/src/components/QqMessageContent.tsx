@@ -32,6 +32,7 @@ import { QqMarkdown } from './QqMarkdown';
 import {
   autoTextMarkdownBody,
   TextMarkdownContext,
+  textMarkdownBody,
   textMarkdownKey,
   useTextMarkdownStore,
 } from '../state/textMarkdown';
@@ -789,27 +790,50 @@ function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendT
   );
 }
 
-function AutoTextMarkdown({
+function TextMarkdownDisplay({
   displayKey,
   text,
   renderRaw,
+  renderDefault,
 }: {
   displayKey?: string;
   text: string;
   renderRaw: () => ReactNode;
+  renderDefault: () => ReactNode;
 }) {
-  const raw = useTextMarkdownStore((state) => Boolean(displayKey && state.rawKeys.has(displayKey)));
-  return raw ? renderRaw() : <QqMarkdown text={text} />;
+  const override = useTextMarkdownStore((state) =>
+    displayKey ? state.modes.get(displayKey) : undefined,
+  );
+  if (override === undefined) return renderDefault();
+  return (
+    <div className={cn('message-content', 'qq-message-inline')}>
+      {override ? <QqMarkdown text={text} /> : renderRaw()}
+    </div>
+  );
 }
 
-export function QqMessageContent({
+export function QqMessageContent(props: Parameters<typeof QqMessageContentBody>[0]) {
+  const body = textMarkdownBody(props.elements);
+  if (body === null || !props.textMarkdownDisplayKey) return <QqMessageContentBody {...props} />;
+  return (
+    <TextMarkdownDisplay
+      displayKey={props.textMarkdownDisplayKey}
+      text={body}
+      renderDefault={() => <QqMessageContentBody {...props} />}
+      renderRaw={() =>
+        renderElementNodes(props.elements, props.sendTimeMs, props.msgId, props.isSender)
+      }
+    />
+  );
+}
+
+function QqMessageContentBody({
   elements,
   sendTimeMs,
   msgId,
   msgSeq,
   isSender = true,
   conversation,
-  textMarkdownDisplayKey,
 }: {
   elements: RenderElement[];
   sendTimeMs: number;
@@ -1163,19 +1187,12 @@ export function QqMessageContent({
     );
   }
 
-  // WeQ feature（可在设置里关掉）：一条**全是纯文本**的消息，如果看起来像 Markdown，
-  // 就整段交给 streamdown。两道闸都是必需的：
-  //   · 全 text —— 一旦混有 at/face，整段当 Markdown 渲染会吞掉 @ 高亮和表情图；
-  //   · looksLikeMarkdown —— 绝大多数消息是纯文本，不该为它们各起一个 remark+shiki 管线。
+  // 仅纯文本允许自动整段渲染，避免吞掉 @ 高亮和表情；显式选择在外层优先处理。
   const markdownBody = textMarkdownOn ? autoTextMarkdownBody(meaningful) : null;
   if (markdownBody !== null) {
     return (
       <div className={cn('message-content', 'qq-message-inline')}>
-        <AutoTextMarkdown
-          displayKey={textMarkdownDisplayKey}
-          text={markdownBody}
-          renderRaw={() => renderElementNodes(meaningful, sendTimeMs, msgId, isSender, callConv)}
-        />
+        <QqMarkdown text={markdownBody} />
       </div>
     );
   }

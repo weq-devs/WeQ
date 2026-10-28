@@ -8,12 +8,19 @@ export function looksLikeMarkdown(text: string): boolean {
   return /(^|\n)(#{1,6} |[-*+] |\d+\. |> |```)|\*\*|~~|\[[^\]\n]+\]\(/.test(text);
 }
 
-export function autoTextMarkdownBody(
+export function textMarkdownBody(
   elements: readonly { type?: string; data?: Record<string, unknown> }[],
 ): string | null {
   if (!elements.length || !elements.every((element) => element.type === 'text')) return null;
   const body = elements.map((element) => String(element.data?.textContent ?? '')).join('');
-  return looksLikeMarkdown(body) ? body : null;
+  return body.trim() ? body : null;
+}
+
+export function autoTextMarkdownBody(
+  elements: readonly { type?: string; data?: Record<string, unknown> }[],
+): string | null {
+  const body = textMarkdownBody(elements);
+  return body !== null && looksLikeMarkdown(body) ? body : null;
 }
 
 export function textMarkdownKey(message: { conversationId: string; id: string }): string {
@@ -22,15 +29,14 @@ export function textMarkdownKey(message: { conversationId: string; id: string })
 
 /** 仅保存本次打开期间的单条选择，不改变全局设置或消息内容。 */
 export const useTextMarkdownStore = create<{
-  rawKeys: ReadonlySet<string>;
-  toggle: (key: string) => void;
+  modes: ReadonlyMap<string, boolean>;
+  setRendered: (key: string, rendered: boolean) => void;
 }>((set) => ({
-  rawKeys: new Set(),
-  toggle: (key) =>
+  modes: new Map(),
+  setRendered: (key, rendered) =>
     set((state) => {
-      const rawKeys = new Set(state.rawKeys);
-      if (rawKeys.has(key)) rawKeys.delete(key);
-      else rawKeys.add(key);
-      return { rawKeys };
+      const modes = new Map(state.modes);
+      modes.set(key, rendered);
+      return { modes };
     }),
 }));

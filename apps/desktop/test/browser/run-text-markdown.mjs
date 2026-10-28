@@ -39,6 +39,10 @@ try {
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/text-markdown.html`,
   );
+  await page.locator('#message').waitFor();
+  if (await page.locator('#message .qq-md').count()) throw new Error('自动关闭时不应预先渲染');
+  await page.locator('#message').click({ button: 'right' });
+  await page.getByRole('button', { name: '显示 Markdown', exact: true }).click();
   await page.locator('#message [data-streamdown="strong"]').waitFor();
   const output = process.env.WEQ_STYLE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
