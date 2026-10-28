@@ -1,4 +1,11 @@
-/** 从工作区冻结锁树离线部署外置模块，不再 npm 二次解析。 */
+/**
+ * 从工作区冻结锁树部署外置模块，不再 npm 二次解析。
+ *
+ * 用 --prefer-offline 而不是 --offline：版本冻结由 --frozen-lockfile 和
+ * completeDeployLock() 保证，与网络无关；但 pnpm 的供应链校验要读 metadata
+ * 缓存，冷缓存（新 lockfile 首次在某个平台构建）时 --offline 会直接
+ * ERR_PNPM_NO_OFFLINE_META 失败。prefer-offline 有缓存就用、没有才去取。
+ */
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs';
@@ -43,7 +50,7 @@ try {
       '@weq/web-runtime',
       'deploy',
       '--prod',
-      '--offline',
+      '--prefer-offline',
       '--frozen-lockfile',
       '--ignore-scripts',
       '--node-linker=hoisted',
@@ -63,7 +70,7 @@ try {
       stage,
       'install',
       '--prod',
-      '--offline',
+      '--prefer-offline',
       '--frozen-lockfile',
       '--ignore-scripts',
       '--ignore-workspace',
