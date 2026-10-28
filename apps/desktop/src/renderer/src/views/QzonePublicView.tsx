@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from '../components/QqAvatar';
+import { QzoneProfileAvatar, QzonePersonButton } from '../components/QzoneProfileAvatar';
 import { QzoneEmoji } from '../components/QzoneEmoji';
 import { QzoneForwardDialog } from '../components/QzoneForwardDialog';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
@@ -488,19 +489,30 @@ function PublicFeedCard({
   return (
     <article className="weq-qzn-post weq-qzn-public-post">
       <header className="weq-qzn-post-head">
-        {canOpenSpace && onSpace ? (
-          <button
-            type="button"
-            aria-label={`进入 ${authorLabel} 的空间`}
-            onClick={() => onSpace(view.author.uin, authorLabel)}
-          >
-            <QqAvatar uin={view.author.uin} url={view.author.portrait} size={36} />
-          </button>
+        {canOpenSpace ? (
+          <QzoneProfileAvatar
+            uin={view.author.uin}
+            nickname={authorLabel}
+            url={view.author.portrait}
+            size={36}
+            onSpace={onSpace}
+          />
         ) : (
           <QqAvatar uin={null} url={view.author.portrait} size={36} />
         )}
         <div>
-          <strong className="weq-qzn-public-name">{authorLabel}</strong>
+          {canOpenSpace && onSpace ? (
+            <QzonePersonButton
+              className="weq-qzn-public-name"
+              uin={view.author.uin}
+              nickname={authorLabel}
+              onSpace={onSpace}
+            >
+              {authorLabel}
+            </QzonePersonButton>
+          ) : (
+            <strong className="weq-qzn-public-name">{authorLabel}</strong>
+          )}
           <time>{timeText(view.time)}</time>
         </div>
         {view.author.canFollow && capabilities.canFollow ? (

@@ -850,6 +850,14 @@ export const bootstrapRouter = router({
       }).qzoneForwardQuotePrevious;
     }),
 
+  setQzonePersonClickAction: procedure
+    .input(z.object({ action: z.enum(['profile', 'space']) }))
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({
+        qzonePersonClickAction: input.action,
+      }).qzonePersonClickAction;
+    }),
+
   setQzonePagination: procedure
     .input(
       z.object({

@@ -202,13 +202,19 @@ describe('Qzone quota transport and persistence', () => {
   });
   it('persists both values and applies saved settings on startup', async () => {
     vi.resetModules();
-    const { UserConfigService } = await import('../src/bootstrap/user_config');
+    const { UserConfigService, DEFAULT_APP_SETTINGS } = await import(
+      '../src/bootstrap/user_config'
+    );
     const root = mkdtempSync(join(tmpdir(), 'weq-pagination-'));
     try {
       const platform = { appDataRoot: () => root } as Platform;
       const config = new UserConfigService(platform);
       expect(config.getSettings().qzonePagination).toEqual({ windowSeconds: 10, maxPages: 5 });
       expect(config.getSettings().qzoneForwardQuotePrevious).toBe(false);
+      expect(config.getSettings().qzonePersonClickAction).toBe(
+        DEFAULT_APP_SETTINGS.qzonePersonClickAction,
+      );
+      config.setSettings({ qzonePersonClickAction: 'profile' });
       config.setSettings({ qzoneForwardQuotePrevious: true });
       config.setSettings({ qzonePagination: { windowSeconds: 25, maxPages: 3 } });
       config.setSettings({ preferCdn: true });
@@ -217,6 +223,9 @@ describe('Qzone quota transport and persistence', () => {
         maxPages: 3,
       });
       expect(new UserConfigService(platform).getSettings().qzoneForwardQuotePrevious).toBe(true);
+      expect(new UserConfigService(platform).getSettings().qzonePersonClickAction).toBe('profile');
+      config.setSettings({ qzonePersonClickAction: 'space' });
+      expect(new UserConfigService(platform).getSettings().qzonePersonClickAction).toBe('space');
       expect(config.setSettings({ qzonePagination: { maxPages: 0 } }).qzonePagination).toEqual({
         windowSeconds: 25,
         maxPages: 3,

@@ -51,7 +51,7 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 2px 6px;
 }
-.weq-qzn-like-popover .weq-qzn-like-users > button {
+.weq-qzn-like-popover .weq-qzn-like-users > span {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -63,10 +63,20 @@
   font: inherit;
   font-size: 12px;
   border-radius: 4px;
-  cursor: pointer;
 }
-.weq-qzn-like-popover .weq-qzn-like-users > button:hover {
+.weq-qzn-like-popover .weq-qzn-like-users button:hover {
   background: var(--muted);
+}
+.weq-qzn-like-users > span > button:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-qzn-like-popover .weq-qzn-like-users > span > button:last-child {
+  justify-content: flex-start;
+  padding: 0;
+  font: inherit;
 }
 .weq-qzn-like-popover .weq-qzn-name {
   min-width: 0;

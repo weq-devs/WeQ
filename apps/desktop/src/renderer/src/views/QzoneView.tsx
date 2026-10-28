@@ -31,13 +31,13 @@ import {
   ThumbsUp,
   X,
 } from 'lucide-react';
-import { client } from '../trpc/client';
+import { client, trpc } from '../trpc/client';
 import { z } from 'zod';
 import { PageSnapshotScope, usePageDataCache, usePageState } from '../components/PageSnapshots';
 import { PageScrollSnapshot } from '../components/PageScrollSnapshot';
 import { useTabActive } from '../components/RetainedTabs';
 import { pageValue } from '../lib/pageSnapshots';
-import { QqAvatar } from '../components/QqAvatar';
+import { QzoneProfileAvatar, QzonePersonButton } from '../components/QzoneProfileAvatar';
 import {
   useContentMultiSelect,
   useCurrentContentSelection,
@@ -71,6 +71,7 @@ import {
 import '../styles/qzone.css';
 import {
   QzoneProfileContext,
+  QzonePersonContext,
   QzoneAlbumNavigationContext,
   type QzoneAlbumRequest,
   type QzoneSpaceRequest,
@@ -160,6 +161,9 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
   onSpaceChange?: (uin: string) => void;
 }) {
   const parentActive = useTabActive();
+  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active && parentActive,
+  });
   return active && parentActive ? (
     <PageSnapshotScope name="qzone">
       <PageScrollSnapshot style={{ height: '100%', minHeight: 0 }}>
@@ -169,6 +173,7 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
           nickname={nickname}
           spaceRequest={spaceRequest}
           onSpaceChange={onSpaceChange}
+          personClickAction={settings.data?.qzonePersonClickAction ?? 'space'}
         />
       </PageScrollSnapshot>
     </PageSnapshotScope>
@@ -299,15 +304,15 @@ function QzoneText({
     <>
       {qzoneTextParts(content).map((part) =>
         part.kind === 'mention' ? (
-          <button
+          <QzonePersonButton
             key={`${part.offset}:${part.uin}`}
-            type="button"
             className="weq-qzn-mention"
-            title={`QQ ${part.uin}`}
-            onClick={() => onSpace(part.uin, part.text.slice(1))}
+            uin={part.uin}
+            nickname={part.text.slice(1)}
+            onSpace={onSpace}
           >
             <QzoneName content={part.text} uin={part.uin} />
-          </button>
+          </QzonePersonButton>
         ) : part.kind === 'emoji' ? (
           <QzoneEmoji key={`${part.offset}:${part.code}`} code={part.code} />
         ) : (
@@ -324,6 +329,7 @@ export function QzoneView({
   active = true,
   spaceRequest,
   onSpaceChange,
+  personClickAction = 'space',
 }: {
   selfUin: string;
   nickname: string;
@@ -331,6 +337,7 @@ export function QzoneView({
   spaceRequest?: QzoneSpaceRequest | null;
   /** 当前正在看谁的空间（自己或好友的 QQ 号），供浮动工具按当前位置导出。 */
   onSpaceChange?: (uin: string) => void;
+  personClickAction?: 'profile' | 'space';
 }): ReactElement {
   const activity = useQQReadActivity(active);
   const people = useQzonePeople(selfUin, activity.enabled);
@@ -455,10 +462,12 @@ export function QzoneView({
       <section className="weq-qzn" aria-label="QQ 空间">
         <header className="weq-qzn-header">
           <div className="weq-qzn-identity">
-            <QqAvatar uin={selfUin} size={36} />
+            <QzoneProfileAvatar uin={selfUin} nickname={nickname} size={36} />
             <div>
               <strong>QQ 空间</strong>
-              <QzoneName content={nickname} uin={selfUin} />
+              <QzonePersonButton uin={selfUin} nickname={nickname}>
+                <QzoneName content={nickname} uin={selfUin} />
+              </QzonePersonButton>
             </div>
           </div>
           <div className="weq-qzn-tools">
@@ -652,40 +661,48 @@ export function QzoneView({
     </QzonePeopleContext.Provider>
   );
   return (
-    <QzoneAlbumNavigationContext.Provider
-      value={(uin, topicId, name, ownerNickname) => {
-        openSpace(uin, ownerNickname);
-        setAlbumRequests((current) => ({
-          ...current,
-          [uin]: { hostUin: uin, topicId, name, revision: crypto.randomUUID() },
-        }));
+    <QzonePersonContext.Provider
+      value={{
+        action: personClickAction,
+        spaceUin: tab === 'space' ? hostUin : tab === 'posts' ? selfUin : null,
+        onSpace: openSpace,
       }}
     >
-      {workspace}
-      {settingsOpen && active ? (
-        <Modal
-          presentation="panel"
-          onClose={() => setSettingsOpen(false)}
-          width={480}
-          labelledBy="weq-qzone-settings-title"
-        >
-          <header className="weq-tools-header">
-            <h2 id="weq-qzone-settings-title">空间设置</h2>
-            <button
-              type="button"
-              aria-label="关闭空间设置"
-              title="关闭空间设置"
-              onClick={() => setSettingsOpen(false)}
-            >
-              <X size={18} />
-            </button>
-          </header>
-          <div className="weq-local-settings-body">
-            <QzoneSettingsSection />
-          </div>
-        </Modal>
-      ) : null}
-    </QzoneAlbumNavigationContext.Provider>
+      <QzoneAlbumNavigationContext.Provider
+        value={(uin, topicId, name, ownerNickname) => {
+          openSpace(uin, ownerNickname);
+          setAlbumRequests((current) => ({
+            ...current,
+            [uin]: { hostUin: uin, topicId, name, revision: crypto.randomUUID() },
+          }));
+        }}
+      >
+        {workspace}
+        {settingsOpen && active ? (
+          <Modal
+            presentation="panel"
+            onClose={() => setSettingsOpen(false)}
+            width={480}
+            labelledBy="weq-qzone-settings-title"
+          >
+            <header className="weq-tools-header">
+              <h2 id="weq-qzone-settings-title">空间设置</h2>
+              <button
+                type="button"
+                aria-label="关闭空间设置"
+                title="关闭空间设置"
+                onClick={() => setSettingsOpen(false)}
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <div className="weq-local-settings-body">
+              <QzoneSettingsSection />
+            </div>
+          </Modal>
+        ) : null}
+      </QzoneAlbumNavigationContext.Provider>
+    </QzonePersonContext.Provider>
   );
 }
 
@@ -760,17 +777,12 @@ function SpaceContent({
           相册
         </button>
         {openProfile ? (
-          <button
-            type="button"
-            className="weq-qzn-owner-profile"
-            aria-label={`查看 ${ownerLabel} 的资料`}
-            onClick={(event) =>
-              openProfile(hostUin, ownerLabel, { x: event.clientX, y: event.clientY })
-            }
-          >
-            <QqAvatar uin={hostUin} size={24} />
-            <QzoneName content={ownerLabel} uin={hostUin} freezeLabel />
-          </button>
+          <div className="weq-qzn-owner-profile">
+            <QzoneProfileAvatar uin={hostUin} nickname={ownerLabel} size={24} />
+            <QzonePersonButton uin={hostUin} nickname={ownerLabel} onSpace={onSpace}>
+              <QzoneName content={ownerLabel} uin={hostUin} freezeLabel />
+            </QzonePersonButton>
+          </div>
         ) : null}
       </nav>
       <QzonePage active={active && pane === 'posts'} refreshKey={refreshes.posts}>
@@ -1133,7 +1145,6 @@ function Posts({
           post={post}
           selectionProps={multi.itemProps(post.tid)}
           selected={selection.selectedIds.has(post.tid)}
-          ownerSpace
           onSpace={onSpace}
         />
       ))}
@@ -1216,7 +1227,6 @@ function Post({
   post: sourcePost,
   onSpace,
   articleRef,
-  ownerSpace = false,
   sourceName = null,
   links = [],
   focusComment,
@@ -1230,7 +1240,6 @@ function Post({
   post: QzoneEmotion;
   onSpace: (uin: string, nickname?: string) => void;
   articleRef?: RefObject<HTMLElement | null>;
-  ownerSpace?: boolean;
   sourceName?: string | null;
   links?: ReturnType<typeof projectQzoneFeed>['links'];
   focusComment?: RelatedComment | null;
@@ -1370,12 +1379,6 @@ function Post({
     run,
     cancel,
   ]);
-  const openProfile = useContext(QzoneProfileContext);
-  const openOwner = (event: React.MouseEvent<HTMLButtonElement>): void => {
-    if (ownerSpace && openProfile)
-      openProfile(hostUin, nickname, { x: event.clientX, y: event.clientY });
-    else onSpace(hostUin, nickname);
-  };
   const images = post.repost
     ? post.images.filter((url) => !post.repost!.images.includes(url))
     : post.images;
@@ -1397,19 +1400,11 @@ function Post({
       className={`weq-qzn-post${selected ? ' is-selected' : ''}`}
     >
       <div className="weq-qzn-post-head">
-        <button
-          type="button"
-          aria-label={
-            ownerSpace ? `查看 ${nickname || hostUin} 的资料` : `进入 ${nickname || hostUin} 的空间`
-          }
-          onClick={openOwner}
-        >
-          <QqAvatar uin={hostUin} size={34} />
-        </button>
+        <QzoneProfileAvatar uin={hostUin} nickname={nickname} size={34} />
         <div>
-          <button type="button" onClick={openOwner}>
+          <QzonePersonButton uin={hostUin} nickname={nickname} onSpace={onSpace}>
             <QzoneName content={nickname} uin={hostUin} />
-          </button>
+          </QzonePersonButton>
           <time dateTime={new Date(post.time * 1000).toISOString()}>
             {timeText(post.time)}
             {post.isPrivate ? ' · 仅自己可见' : ''}
@@ -1476,23 +1471,22 @@ function Repost({
     <section className="weq-qzn-repost" aria-label="原帖">
       <div className="weq-qzn-repost-author">
         {validUin ? (
-          <button
-            type="button"
+          <QzoneProfileAvatar
             className="weq-qzn-person"
-            aria-label={`进入 ${original.nickname || original.uin} 的空间`}
-            onClick={() => onSpace(original.uin, original.nickname)}
-          >
-            <QqAvatar uin={original.uin} size={26} />
-          </button>
+            uin={original.uin}
+            nickname={original.nickname}
+            size={26}
+          />
         ) : null}
         {validUin ? (
-          <button
-            type="button"
+          <QzonePersonButton
             className="weq-qzn-person"
-            onClick={() => onSpace(original.uin, original.nickname)}
+            uin={original.uin}
+            nickname={original.nickname}
+            onSpace={onSpace}
           >
             <QzoneName content={original.nickname || original.uin} uin={original.uin} />
-          </button>
+          </QzonePersonButton>
         ) : (
           <strong>
             <QzoneName content={original.nickname || '原作者'} />
@@ -2133,15 +2127,12 @@ function Interaction({
         ) : null}
         <div className="weq-qzn-like-users">
           {likes.likes.map((like) => (
-            <button
-              type="button"
-              key={like.uin}
-              title={like.nickname || like.uin}
-              onClick={() => onSpace(like.uin, like.nickname)}
-            >
-              <QqAvatar uin={like.uin} size={20} />
-              <QzoneName content={like.nickname || like.uin} uin={like.uin} preferNickname />
-            </button>
+            <span key={like.uin} title={like.nickname || like.uin}>
+              <QzoneProfileAvatar uin={like.uin} nickname={like.nickname} size={20} />
+              <QzonePersonButton uin={like.uin} nickname={like.nickname} onSpace={onSpace}>
+                <QzoneName content={like.nickname || like.uin} uin={like.uin} preferNickname />
+              </QzonePersonButton>
+            </span>
           ))}
         </div>
         <p className="weq-qzn-status">
@@ -2172,37 +2163,37 @@ function Interaction({
         ref={focusedComment?.id === comment.id ? focusRef : undefined}
         key={comment.id}
       >
-        <button
-          type="button"
+        <QzoneProfileAvatar
           className="weq-qzn-person"
-          aria-label={`进入 ${comment.nickname || comment.uin} 的空间`}
-          onClick={() => onSpace(comment.uin, comment.nickname)}
-        >
-          <QqAvatar uin={comment.uin} size={26} />
-        </button>
+          uin={comment.uin}
+          nickname={comment.nickname}
+          size={26}
+        />
         <div>
-          <button
-            type="button"
+          <QzonePersonButton
             className="weq-qzn-person"
-            onClick={() => onSpace(comment.uin, comment.nickname)}
+            uin={comment.uin}
+            nickname={comment.nickname}
+            onSpace={onSpace}
           >
             <QzoneName content={comment.nickname || comment.uin} uin={comment.uin} />
-          </button>
+          </QzonePersonButton>
           {comment.isReply ? (
             <span>
               {' '}
               回复{' '}
               {comment.replyToUin ? (
-                <button
-                  type="button"
+                <QzonePersonButton
                   className="weq-qzn-person"
-                  onClick={() => onSpace(comment.replyToUin!, comment.replyToNickname)}
+                  uin={comment.replyToUin}
+                  nickname={comment.replyToNickname}
+                  onSpace={onSpace}
                 >
                   <QzoneName
                     content={comment.replyToNickname || comment.replyToUin}
                     uin={comment.replyToUin}
                   />
-                </button>
+                </QzonePersonButton>
               ) : (
                 <QzoneName content={comment.replyToNickname || ''} uin={comment.replyToUin} />
               )}
@@ -3049,11 +3040,6 @@ function RelatedCard({
       ? `${[...activity.excerpt].slice(0, limit - 1).join('')}…`
       : activity.excerpt;
   const Icon = RELATED_TABS.find((item) => item.value === activity.kind)?.icon ?? MessageCircle;
-  const openActor = (event: React.MouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (activity.actorUin) onSpace(activity.actorUin, activity.actorName);
-  };
   return (
     <details
       className="weq-qzn-related-card"
@@ -3061,23 +3047,26 @@ function RelatedCard({
     >
       <summary>
         {activity.actorUin ? (
-          <button
-            type="button"
+          <QzoneProfileAvatar
             className="weq-qzn-related-avatar"
-            aria-label={`进入 ${activity.actorName || activity.actorUin} 的空间`}
-            onClick={openActor}
-          >
-            <QqAvatar uin={activity.actorUin} size={34} />
-          </button>
+            uin={activity.actorUin}
+            nickname={activity.actorName}
+            size={34}
+          />
         ) : (
           <Icon size={24} className="weq-qzn-related-icon" />
         )}
         <span className="weq-qzn-related-summary">
           <span className="weq-qzn-related-action-line">
             {activity.actorUin ? (
-              <button type="button" className="weq-qzn-related-name" onClick={openActor}>
+              <QzonePersonButton
+                className="weq-qzn-related-name"
+                uin={activity.actorUin}
+                nickname={activity.actorName}
+                onSpace={onSpace}
+              >
                 {activity.actorName || activity.actorUin}
-              </button>
+              </QzonePersonButton>
             ) : null}
             <span title={relatedActionLine(activity)}>{relatedActionLine(activity)}</span>
           </span>
@@ -3210,17 +3199,11 @@ function FeedCard({
   return (
     <article ref={ref} className="weq-qzn-post" key={`${feed.uin}:${feed.appid}:${feed.key}`}>
       <div className="weq-qzn-post-head">
-        <button
-          type="button"
-          aria-label={`进入 ${feed.nickname || feed.uin} 的空间`}
-          onClick={() => onSpace(String(feed.uin), feed.nickname)}
-        >
-          <QqAvatar uin={String(feed.uin)} size={34} />
-        </button>
+        <QzoneProfileAvatar uin={String(feed.uin)} nickname={feed.nickname} size={34} />
         <div>
-          <button type="button" onClick={() => onSpace(String(feed.uin), feed.nickname)}>
+          <QzonePersonButton uin={String(feed.uin)} nickname={feed.nickname} onSpace={onSpace}>
             <QzoneName content={feed.nickname || String(feed.uin)} uin={String(feed.uin)} />
-          </button>
+          </QzonePersonButton>
           <time>{timeText(feed.time)}</time>
         </div>
         <span className="weq-qzn-feed-kind">

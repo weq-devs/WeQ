@@ -27,6 +27,10 @@
   opacity: 0.5;
   cursor: default;
 }
+.weq-qzn button.weq-qzn-profile-avatar {
+  flex-shrink: 0;
+  padding: 0;
+}
 .weq-qzn button:focus-visible,
 .weq-qzn-composer button:focus-visible,
 .weq-qzn input:focus-visible,
@@ -907,9 +911,15 @@
 }
 
 .weq-qzn-owner-navigation .weq-qzn-owner-profile {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-left: auto;
   min-width: 0;
   max-width: 50%;
+}
+.weq-qzn-owner-profile > button:last-child {
+  min-width: 0;
 }
 .weq-qzn-owner-profile .weq-qzn-name {
   overflow-x: auto;

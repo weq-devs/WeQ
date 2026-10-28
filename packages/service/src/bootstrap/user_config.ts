@@ -625,6 +625,8 @@ export interface AppSettings {
   qzonePagination: QzonePaginationSettings;
   /** 转发说说时自动引用上一人的文案。 */
   qzoneForwardQuotePrevious: boolean;
+  /** 点击空间中的他人昵称或头像时的默认操作；当前空间主人始终显示名片。 */
+  qzonePersonClickAction: 'profile' | 'space';
   /** 通话录音（设置 → 通话与录音，通话窗口的录音抽屉共用同一份）。 */
   callRecording: CallRecordingConfig;
   /**
@@ -897,6 +899,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
   qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
   qzoneForwardQuotePrevious: false,
+  qzonePersonClickAction: 'space',
   // 默认双方混音；电脑声音默认不录（Linux / Windows 都要多占一路采集）。
   callRecording: { mode: 'mixed', systemAudio: false, dir: null },
   // 默认允许 P2P 直连；禁用是排障开关，见 AppSettings.callDisableP2P。
@@ -1479,6 +1482,7 @@ export class UserConfigService {
       logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
       qzonePagination: normalizeQzonePagination(s?.qzonePagination),
       qzoneForwardQuotePrevious: s?.qzoneForwardQuotePrevious === true,
+      qzonePersonClickAction: s?.qzonePersonClickAction === 'profile' ? 'profile' : 'space',
       callRecording: normalizeCallRecording(s?.callRecording, d.callRecording),
       callDisableP2P: typeof s?.callDisableP2P === 'boolean' ? s.callDisableP2P : d.callDisableP2P,
       linkPreview: {
@@ -1618,6 +1622,10 @@ export class UserConfigService {
       qzonePagination: normalizeQzonePagination(patch.qzonePagination, current.qzonePagination),
       qzoneForwardQuotePrevious:
         patch.qzoneForwardQuotePrevious ?? current.qzoneForwardQuotePrevious,
+      qzonePersonClickAction:
+        patch.qzonePersonClickAction === 'profile' || patch.qzonePersonClickAction === 'space'
+          ? patch.qzonePersonClickAction
+          : current.qzonePersonClickAction,
       callRecording: normalizeCallRecording(
         { ...current.callRecording, ...patch.callRecording },
         current.callRecording,

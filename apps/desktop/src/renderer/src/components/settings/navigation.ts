@@ -178,6 +178,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['storage', 'weq-storage'],
   },
   { id: 'qzone-pagination', section: 'qzone', label: '在线翻页限速', from: ['qzone'] },
+  { id: 'qzone-person-click', section: 'qzone', label: '点击他人昵称或头像时', from: ['qzone'] },
   {
     id: 'mail-unread-badge',
     section: 'mail',

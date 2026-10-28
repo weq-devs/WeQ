@@ -4,6 +4,7 @@ import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
 import { QzoneView } from '../src/renderer/src/views/QzoneView';
+import { QzoneProfileContext } from '../src/renderer/src/lib/qzoneNavigation';
 import {
   ContentSelectionProvider,
   useContentExportRequest,
@@ -82,6 +83,34 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
     },
   };
 }
+it('已在对方空间时，说说头像与昵称一律打开名片', async () => {
+  const profile = vi.fn();
+  const f = mount(
+    createElement(
+      QzoneProfileContext.Provider,
+      { value: profile },
+      createElement(QzoneView, {
+        selfUin: '10001',
+        nickname: '合成自己',
+        active: true,
+        spaceRequest: { accountUin: '10001', uin: '10002', revision: 'profile-entry' },
+      }),
+    ),
+  );
+  try {
+    await act(async () => {});
+    const buttons = f.host.querySelectorAll<HTMLButtonElement>(
+      '[data-qzone-tid="a"] .weq-qzn-post-head button',
+    );
+    act(() => buttons[0]!.click());
+    expect(profile).toHaveBeenCalledWith('10002', '合成空间', { x: 0, y: 0 });
+    profile.mockClear();
+    act(() => buttons[1]!.click());
+    expect(profile).toHaveBeenCalledWith('10002', '合成空间', { x: 0, y: 0 });
+  } finally {
+    f.close();
+  }
+});
 it('空友爱看标签在页面卸载重建后仍能从快照恢复', async () => {
   vi.stubGlobal('localStorage', new Storage());
   const page = () =>

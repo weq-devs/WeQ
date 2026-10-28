@@ -80,10 +80,16 @@ export const QzoneNavigationContext = createContext<
   ((uin: string, nickname?: string) => void) | null
 >(null);
 
-/** Owner profile entry inside an individual space; other people still open their spaces. */
+/** 空间头像共用主界面的账号资料卡入口。 */
 export const QzoneProfileContext = createContext<
   ((uin: string, nickname: string, anchor: { x: number; y: number }) => void) | null
 >(null);
+
+export const QzonePersonContext = createContext<{
+  spaceUin: string | null;
+  action: 'profile' | 'space';
+  onSpace: ((uin: string, nickname?: string) => void) | null;
+}>({ spaceUin: null, action: 'space', onSpace: null });
 
 export interface QzoneAlbumRequest {
   hostUin: string;

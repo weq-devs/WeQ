@@ -2,6 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { QzonePublicPane } from '../src/renderer/src/views/QzonePublicView';
+import { QzoneProfileContext } from '../src/renderer/src/lib/qzoneNavigation';
 
 const state = vi.hoisted(() => ({
   like: vi.fn(async () => ({})),
@@ -25,7 +26,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             feeds: [
               {
                 cell_common: { union_id: { uf_key: 'post-a' }, time: '1' },
-                cell_user_info: { user: { uid: 'author', nick: '原作者' } },
+                cell_user_info: { user: { uid: 'author', uin: '10002', nick: '原作者' } },
                 cell_summary: { summary: [{ type: 0, content: '上一人文案' }] },
                 cell_like: { num: 7, liked: true },
                 cell_comment: { num: 1 },
@@ -95,7 +96,25 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
     act(() => root.unmount());
     host.remove();
   };
-  await act(async () => root.render(h(QzonePublicPane, { selfUin: '10001' })));
+  const profile = vi.fn();
+  const space = vi.fn();
+  await act(async () =>
+    root.render(
+      h(
+        QzoneProfileContext.Provider,
+        { value: profile },
+        h(QzonePublicPane, { selfUin: '10001', onSpace: space }),
+      ),
+    ),
+  );
+  const avatar = host.querySelector<HTMLButtonElement>('.weq-qzn-profile-avatar')!;
+  act(() => avatar.click());
+  expect(space).toHaveBeenCalledWith('10002', '原作者');
+  expect(profile).not.toHaveBeenCalled();
+  space.mockClear();
+  act(() => host.querySelector<HTMLButtonElement>('.weq-qzn-public-name')!.click());
+  expect(space).toHaveBeenCalledWith('10002', '原作者');
+  expect(profile).not.toHaveBeenCalled();
   const actions = host.querySelector('.weq-qzn-actions')!;
   expect(actions.textContent).toBe('点赞 7评论 1转发 2推 ?浏览量 9');
   const liked = actions.querySelector<HTMLButtonElement>('[aria-label="取消赞"]')!;
