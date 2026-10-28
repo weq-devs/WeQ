@@ -59,7 +59,9 @@ import { fullModeAllowed, requestFullMode } from '../../context/full_mode';
 import { onlineTranscriber } from '../../online_transcribe';
 import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
-import { databasePerformance } from '@weq/db';
+import { databasePerformance, withDatabasePriority, type DatabasePriority } from '@weq/db';
+import { MessageReadWindows } from '../message_reads';
+import type { MessageReadWindow } from '../../../shared/message_read';
 import { classifyChatType, ProtoMsg } from '@weq/codec';
 import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
 import { buildShareLocationElements, detectThumbType, type OcrBlock } from '@weq/protocol';
@@ -136,6 +138,7 @@ import {
   type OcrResultCache,
   type RenderC2cMsg,
   type RenderGroupMsg,
+  type MessagePageOptions,
   type GapFetchedMessage,
 } from '@weq/service';
 import {
@@ -147,6 +150,7 @@ import {
   collectionDetailToWire,
   collectionItemToWire,
   forwardRecordToWire,
+  replyMediaToWire,
   groupBulletinToWire,
   groupTodoToWire,
   groupMsgToWire,
@@ -214,13 +218,33 @@ function groupAlbumReadScope(input: {
   return { services, check };
 }
 
+const messageWindows = new WeakMap<AccountServices, MessageReadWindows>();
+function messageWindowsFor(services: AccountServices): MessageReadWindows {
+  let windows = messageWindows.get(services);
+  if (!windows) {
+    windows = new MessageReadWindows();
+    messageWindows.set(services, windows);
+  }
+  return windows;
+}
+const directoryProcedure = procedure.use(({ next }) =>
+  withDatabasePriority('background', () => next()),
+);
+
 async function readMessageScope<T>(
-  input: { expectedAccountUin?: string; expectedAccountConfigId?: string },
+  input: {
+    expectedAccountUin?: string;
+    expectedAccountConfigId?: string;
+    readWindow?: MessageReadWindow;
+  },
   read: () => Promise<T>,
+  priority: DatabasePriority = 'interactive',
 ): Promise<T> {
   const services = requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
   const configId = services.accountConfig?.getRecord()?.configId;
-  const result = await read();
+  const result = await (input.readWindow
+    ? messageWindowsFor(services).run(input.readWindow, read, priority)
+    : withDatabasePriority(priority, read));
   if (
     requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services ||
     services.accountConfig?.getRecord()?.configId !== configId
@@ -372,6 +396,14 @@ const convInput = z.object({
   kind: z.enum(['c2c', 'group']),
   /** Conversation key: peer uid (c2c) or group code (group). */
   conv: z.string().min(1),
+});
+const messageReadWindowInput = z.object({
+  owner: z.string().uuid(),
+  generation: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+});
+const messagePageInput = convInput.merge(exportAccountBindingInput).extend({
+  readWindow: messageReadWindowInput.optional(),
+  deferReplyMedia: z.boolean().optional(),
 });
 
 const pageInput = z.object({
@@ -734,13 +766,18 @@ async function withRoamingHistory(
   }
 }
 
-async function fetchLatest(kind: ChatKind, conv: string, limit: number): Promise<ChatMsgWire[]> {
+async function fetchLatest(
+  kind: ChatKind,
+  conv: string,
+  limit: number,
+  options: MessagePageOptions = {},
+): Promise<ChatMsgWire[]> {
   const services = requireServices();
   const msgs = services.msgs;
   const rows =
     kind === 'group'
-      ? msgs.getGroupLatest(conv, limit).then((rows) => rows.map(groupMsgToWire))
-      : msgs.getC2cLatest(conv, limit).then((rows) => rows.map(c2cMsgToWire));
+      ? msgs.getGroupLatest(conv, limit, options).then((rows) => rows.map(groupMsgToWire))
+      : msgs.getC2cLatest(conv, limit, options).then((rows) => rows.map(c2cMsgToWire));
   return withRoamingHistory(services, kind, conv, rows, limit);
 }
 
@@ -749,13 +786,16 @@ async function fetchBefore(
   conv: string,
   beforeSeq: bigint,
   limit: number,
+  options: MessagePageOptions = {},
 ): Promise<ChatMsgWire[]> {
   const services = requireServices();
   const msgs = services.msgs;
   const rows =
     kind === 'group'
-      ? msgs.getGroupBefore(conv, beforeSeq, limit).then((rows) => rows.map(groupMsgToWire))
-      : msgs.getC2cBefore(conv, beforeSeq, limit).then((rows) => rows.map(c2cMsgToWire));
+      ? msgs
+          .getGroupBefore(conv, beforeSeq, limit, options)
+          .then((rows) => rows.map(groupMsgToWire))
+      : msgs.getC2cBefore(conv, beforeSeq, limit, options).then((rows) => rows.map(c2cMsgToWire));
   return withRoamingHistory(services, kind, conv, rows, limit, 1n, beforeSeq - 1n);
 }
 
@@ -764,13 +804,14 @@ async function fetchAfter(
   conv: string,
   afterSeq: bigint,
   limit: number,
+  options: MessagePageOptions = {},
 ): Promise<ChatMsgWire[]> {
   const services = requireServices();
   const msgs = services.msgs;
   const rows =
     kind === 'group'
-      ? msgs.getGroupAfter(conv, afterSeq, limit).then((rows) => rows.map(groupMsgToWire))
-      : msgs.getC2cAfter(conv, afterSeq, limit).then((rows) => rows.map(c2cMsgToWire));
+      ? msgs.getGroupAfter(conv, afterSeq, limit, options).then((rows) => rows.map(groupMsgToWire))
+      : msgs.getC2cAfter(conv, afterSeq, limit, options).then((rows) => rows.map(c2cMsgToWire));
   return withRoamingHistory(services, kind, conv, rows, limit, afterSeq + 1n, 0xffffffffn, false);
 }
 
@@ -779,13 +820,14 @@ async function fetchFrom(
   conv: string,
   sinceSeq: bigint,
   limit: number,
+  options: MessagePageOptions = {},
 ): Promise<ChatMsgWire[]> {
   const services = requireServices();
   const msgs = services.msgs;
   const rows =
     kind === 'group'
-      ? msgs.getGroupFrom(conv, sinceSeq, limit).then((rows) => rows.map(groupMsgToWire))
-      : msgs.getC2cFrom(conv, sinceSeq, limit).then((rows) => rows.map(c2cMsgToWire));
+      ? msgs.getGroupFrom(conv, sinceSeq, limit, options).then((rows) => rows.map(groupMsgToWire))
+      : msgs.getC2cFrom(conv, sinceSeq, limit, options).then((rows) => rows.map(c2cMsgToWire));
   return withRoamingHistory(services, kind, conv, rows, limit, sinceSeq);
 }
 
@@ -2613,10 +2655,14 @@ export const accountRouter = router({
       const svc = services.recentContacts;
       // 103 = 公众号, 118 = 服务号 (see @weq/codec chat_kind).
       const excludeChatTypes = [103, 118];
-      const [items, total] = await Promise.all([
-        svc.getRecentContact(input.limit, input.cursor, { excludeChatTypes }),
-        svc.countRecentContact({ excludeChatTypes }),
-      ]);
+      const [items, total] = await withDatabasePriority(
+        input.cursor > 0 ? 'background' : 'interactive',
+        () =>
+          Promise.all([
+            svc.getRecentContact(input.limit, input.cursor, { excludeChatTypes }),
+            svc.countRecentContact({ excludeChatTypes }),
+          ]),
+      );
       const next = input.cursor + items.length < total ? input.cursor + items.length : undefined;
       if (
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
@@ -2646,7 +2692,7 @@ export const accountRouter = router({
    * 隐藏会话（hidden_session_storage_table_v1）—— 已解析出的最后消息时间/预览，
    * 供前端并入会话列表统一渲染、排序。
    */
-  listHiddenSessions: procedure.query(async () => {
+  listHiddenSessions: directoryProcedure.query(async () => {
     const hidden = await requireServices().hiddenSessions.listHiddenSessions();
     return hidden.map(hiddenSessionToWire);
   }),
@@ -2721,7 +2767,7 @@ export const accountRouter = router({
    * 删除的会话（recent_contact_delete_storage）—— 已解析出的最后消息时间/预览，
    * 供前端在删除会话合并入口中显示。
    */
-  listDeletedSessions: procedure.query(async () => {
+  listDeletedSessions: directoryProcedure.query(async () => {
     const deleted = await requireServices().deletedSessions.listDeletedSessions();
     return deleted.map(deletedSessionToWire);
   }),
@@ -3027,13 +3073,41 @@ export const accountRouter = router({
     }),
 
   listLatest: procedure
+    .input(messagePageInput.extend({ limit: z.number().int().min(1).max(200).default(50) }))
+    .query(({ input }) =>
+      readMessageScope(input, () => fetchLatest(input.kind, input.conv, input.limit, input)),
+    ),
+
+  cancelMessageRead: procedure
+    .input(exportAccountBindingInput.extend({ readWindow: messageReadWindowInput }))
+    .mutation(({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      messageWindowsFor(services).cancel(input.readWindow);
+      return true;
+    }),
+
+  replyMedia: procedure
     .input(
-      convInput
-        .merge(exportAccountBindingInput)
-        .extend({ limit: z.number().int().min(1).max(200).default(50) }),
+      convInput.merge(exportAccountBindingInput).extend({
+        readWindow: messageReadWindowInput.optional(),
+        msgIds: z
+          .array(z.string().regex(/^-?\d{1,20}$/))
+          .min(1)
+          .max(200),
+      }),
     )
     .query(({ input }) =>
-      readMessageScope(input, () => fetchLatest(input.kind, input.conv, input.limit)),
+      readMessageScope(
+        input,
+        async () =>
+          (await requireServices().msgs.getReplyMedia(input.kind, input.msgIds.map(BigInt))).map(
+            replyMediaToWire,
+          ),
+        'background',
+      ),
     ),
 
   resolveReplySeq: procedure
@@ -3073,42 +3147,42 @@ export const accountRouter = router({
   /** The page just older than `beforeSeq` (scroll up), newest-first. */
   listBefore: procedure
     .input(
-      convInput.merge(exportAccountBindingInput).extend({
+      messagePageInput.extend({
         beforeSeq: z.string().min(1),
         limit: z.number().int().min(1).max(200).default(50),
       }),
     )
     .query(({ input }) =>
       readMessageScope(input, () =>
-        fetchBefore(input.kind, input.conv, BigInt(input.beforeSeq), input.limit),
+        fetchBefore(input.kind, input.conv, BigInt(input.beforeSeq), input.limit, input),
       ),
     ),
 
   /** The page just newer than `afterSeq` (scroll down / jump context), oldest-first. */
   listAfter: procedure
     .input(
-      convInput.merge(exportAccountBindingInput).extend({
+      messagePageInput.extend({
         afterSeq: z.string().min(1),
         limit: z.number().int().min(1).max(200).default(50),
       }),
     )
     .query(({ input }) =>
       readMessageScope(input, () =>
-        fetchAfter(input.kind, input.conv, BigInt(input.afterSeq), input.limit),
+        fetchAfter(input.kind, input.conv, BigInt(input.afterSeq), input.limit, input),
       ),
     ),
 
   /** Re-read everything with seq >= `sinceSeq` (live refresh of the window). */
   listFrom: procedure
     .input(
-      convInput.merge(exportAccountBindingInput).extend({
+      messagePageInput.extend({
         sinceSeq: z.string().min(1),
         limit: z.number().int().min(1).max(1000).default(500),
       }),
     )
     .query(({ input }) =>
       readMessageScope(input, () =>
-        fetchFrom(input.kind, input.conv, BigInt(input.sinceSeq), input.limit),
+        fetchFrom(input.kind, input.conv, BigInt(input.sinceSeq), input.limit, input),
       ),
     ),
 
@@ -3405,13 +3479,13 @@ export const accountRouter = router({
     }),
 
   /** List QQ buddies from profile_info.db. Omit input to fetch all (used by AgentLab). */
-  listBuddies: procedure.input(pageInput.optional()).query(async ({ input }) => {
+  listBuddies: directoryProcedure.input(pageInput.optional()).query(async ({ input }) => {
     const buddies = await requireServices().profile.listBuddies(input?.limit, input?.offset ?? 0);
     return buddies.map(buddyToWire);
   }),
 
   /** List QQ buddy categories. */
-  listCategories: procedure.query(async () => {
+  listCategories: directoryProcedure.query(async () => {
     const categories = await requireServices().profile.listCategories();
     return categories.map(categoryToWire);
   }),
@@ -3430,14 +3504,14 @@ export const accountRouter = router({
     }),
 
   /** List QQ buddy request notifications. */
-  listBuddyRequests: procedure.input(pageInput.optional()).query(async ({ input }) => {
+  listBuddyRequests: directoryProcedure.input(pageInput.optional()).query(async ({ input }) => {
     const page = input ?? { limit: 100, offset: 0 };
     const requests = await requireServices().profile.listBuddyRequests(page.limit, page.offset);
     return requests.map(buddyRequestToWire);
   }),
 
   /** List group notifications. */
-  listGroupNotifies: procedure.input(pageInput.optional()).query(async ({ input }) => {
+  listGroupNotifies: directoryProcedure.input(pageInput.optional()).query(async ({ input }) => {
     const page = input ?? { limit: 100, offset: 0 };
     const notifies = await requireServices().groupInfo.listGroupNotifies(page.limit, page.offset);
     return notifies.map(groupNotifyToWire);
@@ -3453,7 +3527,7 @@ export const accountRouter = router({
    * The uids of every bot with a cached profile. The renderer fetches this
    * once and uses it to badge bots in member / contact / conversation lists.
    */
-  botUids: procedure
+  botUids: directoryProcedure
     .input(z.object({ refresh: z.boolean().optional() }).optional())
     .query(async ({ input }) => {
       return [...(await requireServices().profile.botUids(input?.refresh))];
@@ -3496,7 +3570,7 @@ export const accountRouter = router({
     }),
 
   /** List cached user profiles. */
-  listProfiles: procedure.input(pageInput.optional()).query(async ({ input }) => {
+  listProfiles: directoryProcedure.input(pageInput.optional()).query(async ({ input }) => {
     const page = input ?? { limit: 100, offset: 0 };
     const profiles = await requireServices().profile.listProfiles(page.limit, page.offset);
     return profiles.map(userProfileToWire);
@@ -3513,7 +3587,7 @@ export const accountRouter = router({
   }),
 
   /** Get group metadata and latest announcement. */
-  getGroupDetail: procedure
+  getGroupDetail: directoryProcedure
     .input(z.object({ groupCode: z.string().min(1) }))
     .query(async ({ input }) => {
       const detail = await requireServices().groupInfo.getGroupDetail(BigInt(input.groupCode));
@@ -3521,7 +3595,7 @@ export const accountRouter = router({
     }),
 
   /** Get extended group metadata (活跃度 / 幸运字符 / 群主 uin 等). */
-  getGroupExt: procedure
+  getGroupExt: directoryProcedure
     .input(z.object({ groupCode: z.string().min(1) }))
     .query(async ({ input }) => {
       const ext = await requireServices().groupInfo.getGroupExt(BigInt(input.groupCode));
@@ -3548,7 +3622,7 @@ export const accountRouter = router({
     }),
 
   /** List all groups from group_info.db. */
-  listAllGroups: procedure.input(pageInput.optional()).query(async ({ input }) => {
+  listAllGroups: directoryProcedure.input(pageInput.optional()).query(async ({ input }) => {
     const page = input ?? { limit: 100, offset: 0 };
     const service = requireServices().groupInfo;
     const [groups, directory] = await Promise.all([
@@ -3563,7 +3637,7 @@ export const accountRouter = router({
   }),
 
   /** List group announcements. */
-  listGroupBulletins: procedure.input(groupPageInput).query(async ({ input }) => {
+  listGroupBulletins: directoryProcedure.input(groupPageInput).query(async ({ input }) => {
     return listGroupBulletinsWithWebFallback(requireServices(), input);
   }),
 
@@ -3583,7 +3657,7 @@ export const accountRouter = router({
     }),
 
   /** List group essence messages. */
-  listGroupEssenceMessages: procedure.input(groupPageInput).query(async ({ input }) => {
+  listGroupEssenceMessages: directoryProcedure.input(groupPageInput).query(async ({ input }) => {
     const essence = await requireServices().groupInfo.getEssenceMessages(
       BigInt(input.groupCode),
       input.limit,
@@ -3596,7 +3670,7 @@ export const accountRouter = router({
    * 取某个群全部当前为精华的消息 seq（仅查本地数据库，不联网）。
    * 返回 string[] 以便与渲染层 Message.msgSeq 直接匹配。
    */
-  listGroupEssenceSeqs: procedure
+  listGroupEssenceSeqs: directoryProcedure
     .input(z.object({ groupCode: z.string().min(1) }))
     .query(async ({ input }) => {
       const seqs = await requireServices().groupInfo.getEssenceSeqs(BigInt(input.groupCode));
@@ -3627,7 +3701,7 @@ export const accountRouter = router({
   }),
 
   /** Get group member level definitions. */
-  getGroupMemberLevelInfo: procedure
+  getGroupMemberLevelInfo: directoryProcedure
     .input(z.object({ groupCode: z.string().min(1) }))
     .query(async ({ input }) => {
       const info = await requireServices().groupInfo.getMemberLevelInfo(BigInt(input.groupCode));

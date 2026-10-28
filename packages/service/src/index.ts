@@ -359,7 +359,7 @@ export type {
   AssistantInvestigationPlan,
   AssistantWorkspace,
 } from './account/assistant';
-export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
+export type { RenderC2cMsg, RenderGroupMsg, MessagePageOptions } from './account/msg';
 export { DeletedMsgStore } from './account/deleted_msgs';
 export type { DeletedMsgRecord } from './account/deleted_msgs';
 export { AntiRecallService } from './account/anti_recall';

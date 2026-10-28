@@ -126,6 +126,8 @@ import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { ConversationWindowCache, conversationWindowKey } from '../lib/conversationWindowCache';
 import { isConversationPagingVisible, observeConversationPaging } from '../lib/conversationPaging';
 import { loadConversationEntry } from '../lib/conversationEntry';
+import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
+import type { MessageReadWindow } from '../../../shared/message_read';
 import { mergeRefreshedWindow } from '../lib/conversationRefresh';
 import {
   captureReadingPosition,
@@ -2629,7 +2631,16 @@ function MainWorkspace(): ReactElement {
 
   // Latest active-conversation identity, read by the once-mounted live
   // subscription (which must not re-subscribe on every selection change).
-  const selectionRef = useRef<{ id: string; kind: 'direct' | 'group' } | null>(null);
+  const selectionRef = useRef<{
+    id: string;
+    kind: 'direct' | 'group';
+    readWindow: MessageReadWindow;
+  } | null>(null);
+  const [messageReadOwner] = useState(() => crypto.randomUUID());
+  const messageReadGeneration = useRef(0);
+  const attemptedReplyMedia = useMemo(() => new WeakSet<MessageWire>(), [messageScope]);
+  const replyMediaRows = useMemo(() => new WeakMap<MessageWire, MessageWire>(), [messageScope]);
+  const [replyMediaRevision, setReplyMediaRevision] = useState(0);
   // Current loaded-window descriptor, read by the once-mounted subscription.
   const windowRef = useRef<{ minSeq: string | null; anchored: boolean }>({
     minSeq: null,
@@ -2657,13 +2668,22 @@ function MainWorkspace(): ReactElement {
         try {
           const page = await measureMessagePhase('windowQuery', async () =>
             win.minSeq === null
-              ? await client.account.listLatest.query({ ...binding, kind, conv, limit: PAGE_SIZE })
+              ? await client.account.listLatest.query({
+                  ...binding,
+                  kind,
+                  conv,
+                  limit: PAGE_SIZE,
+                  readWindow: sel.readWindow,
+                  deferReplyMedia: true,
+                })
               : await client.account.listFrom.query({
                   kind,
                   conv,
                   sinceSeq: win.minSeq,
                   limit: REFRESH_CAP,
                   ...binding,
+                  readWindow: sel.readWindow,
+                  deferReplyMedia: true,
                 }),
           );
           // Reject results after a conversation switch or a history-window change,
@@ -5977,7 +5997,10 @@ function MainWorkspace(): ReactElement {
   );
 
   // `loaded` is already oldest→newest; the template renders in array order.
-  const loadedMessageWires = loaded;
+  const loadedMessageWires = useMemo(
+    () => loaded.map((row) => replyMediaRows.get(row) ?? row),
+    [loaded, replyMediaRows, replyMediaRevision],
+  );
   const currentGroupMembers = useMemo(() => {
     if (selectedConversation?.type !== 'group') return [];
 
@@ -7130,13 +7153,56 @@ function MainWorkspace(): ReactElement {
   // Keep the live-subscription's view of "what's open" current without
   // re-subscribing on every selection change.
   useEffect(() => {
+    const binding = messageBindingRef.current;
+    const readWindow = { owner: messageReadOwner, generation: ++messageReadGeneration.current };
     selectionRef.current =
       selectedUid && (isDirect || isGroup)
-        ? { id: selectedUid, kind: isGroup ? 'group' : 'direct' }
+        ? { id: selectedUid, kind: isGroup ? 'group' : 'direct', readWindow }
         : null;
     // 换会话就清空群内成员搜索，否则新群的成员列表会顶着上一个群的关键字。
     setMemberSearchKeyword('');
-  }, [selectedUid, isDirect, isGroup, messageScope]);
+    return () => {
+      if (binding && selectedUid && (isDirect || isGroup))
+        void client.account.cancelMessageRead.mutate({ ...binding, readWindow }).catch(() => {});
+    };
+  }, [selectedUid, isDirect, isGroup, messageScope, messageReadOwner]);
+
+  useEffect(() => {
+    const selection = selectionRef.current;
+    const binding = messageBindingRef.current;
+    const scope = messageScopeRef.current;
+    if (!selection || !binding || !scope || !messagesTabActive) return;
+    const pending = loaded.filter((row) => needsReplyMedia(row) && !attemptedReplyMedia.has(row));
+    if (!pending.length) return;
+    for (const row of pending) attemptedReplyMedia.add(row);
+    const current = () => messageScopeRef.current === scope && selectionRef.current === selection;
+    void (async () => {
+      for (let offset = 0; offset < pending.length && current(); offset += 200) {
+        const page = pending.slice(offset, offset + 200);
+        try {
+          const patches = await client.account.replyMedia.query({
+            ...binding,
+            kind: selection.kind === 'group' ? 'group' : 'c2c',
+            conv: selection.id,
+            readWindow: selection.readWindow,
+            msgIds: page.map((row) => row.msgId),
+          });
+          if (!current()) return;
+          const originals = new Map(page.map((row) => [row.msgId, row]));
+          const rows = loadedRef.current;
+          const next = applyReplyMedia(rows, originals, patches);
+          if (next !== rows) {
+            next.forEach((row, index) => {
+              if (row !== rows[index]) replyMediaRows.set(rows[index]!, row);
+            });
+            setReplyMediaRevision((revision) => revision + 1);
+          }
+        } catch (error) {
+          if (current()) console.error('[msgs] reply media failed', error);
+        }
+      }
+    })();
+  }, [loaded, messageScope, messagesTabActive, selectedUid, attemptedReplyMedia, replyMediaRows]);
 
   // Keep the loaded-window descriptor in sync for the once-mounted subscription.
   useEffect(() => {
@@ -7183,6 +7249,8 @@ function MainWorkspace(): ReactElement {
             // `< target+1` is `<= target`, so the centre message is included.
             client.account.listBefore.query({
               ...binding,
+              readWindow: previousSelection?.readWindow,
+              deferReplyMedia: true,
               kind,
               conv,
               beforeSeq: String(BigInt(targetSeq) + 1n),
@@ -7190,6 +7258,8 @@ function MainWorkspace(): ReactElement {
             }),
             client.account.listAfter.query({
               ...binding,
+              readWindow: previousSelection?.readWindow,
+              deferReplyMedia: true,
               kind,
               conv,
               afterSeq: targetSeq,
@@ -7754,6 +7824,8 @@ function MainWorkspace(): ReactElement {
             (
               await client.account.listBefore.query({
                 ...binding,
+                readWindow: selection?.readWindow,
+                deferReplyMedia: true,
                 kind,
                 conv,
                 beforeSeq,
@@ -7764,6 +7836,8 @@ function MainWorkspace(): ReactElement {
             (
               await client.account.listAfter.query({
                 ...binding,
+                readWindow: selection?.readWindow,
+                deferReplyMedia: true,
                 kind,
                 conv,
                 afterSeq,
@@ -7773,7 +7847,14 @@ function MainWorkspace(): ReactElement {
           latest: async (size) =>
             (
               await measureMessagePhase('entryQuery', () =>
-                client.account.listLatest.query({ ...binding, kind, conv, limit: size }),
+                client.account.listLatest.query({
+                  ...binding,
+                  kind,
+                  conv,
+                  limit: size,
+                  readWindow: selection?.readWindow,
+                  deferReplyMedia: true,
+                }),
               )
             ).map(toMessageWire),
           show: (next, first) => {
@@ -7860,7 +7941,15 @@ function MainWorkspace(): ReactElement {
       loadingOlderRef.current = true;
 
       client.account.listBefore
-        .query({ ...binding, kind, conv, beforeSeq: minSeq, limit: PAGE_SIZE })
+        .query({
+          ...binding,
+          kind,
+          conv,
+          beforeSeq: minSeq,
+          limit: PAGE_SIZE,
+          readWindow: selection.readWindow,
+          deferReplyMedia: true,
+        })
         .then((older) => {
           if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
           loadingOlderRef.current = false;
@@ -7933,7 +8022,15 @@ function MainWorkspace(): ReactElement {
       setLoadingNewerMessages(true);
 
       client.account.listAfter
-        .query({ ...binding, kind, conv, afterSeq: maxSeq, limit: PAGE_SIZE })
+        .query({
+          ...binding,
+          kind,
+          conv,
+          afterSeq: maxSeq,
+          limit: PAGE_SIZE,
+          readWindow: selection.readWindow,
+          deferReplyMedia: true,
+        })
         .then((newer) => {
           if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
           loadingNewerRef.current = false;
@@ -10412,6 +10509,9 @@ function MainWorkspace(): ReactElement {
                             if (!selection) return false;
                             try {
                               const page = await client.account.listLatest.query({
+                                ...messageBindingRef.current,
+                                readWindow: selection.readWindow,
+                                deferReplyMedia: true,
                                 kind: selection.kind === 'group' ? 'group' : 'c2c',
                                 conv: selection.id,
                                 limit: PAGE_SIZE,

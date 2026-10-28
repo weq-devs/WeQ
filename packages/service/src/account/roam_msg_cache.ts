@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 import { dirname } from 'node:path';
 import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { compareMessageOrder } from '@weq/codec';
+import { scheduleDatabase } from '@weq/db';
 import type { GapFetchedMessage } from './gap_history';
 import { nativeHistoryElements } from './native_history_projection';
 import type { ProtocolHistoryObservation } from './sso_history_window';
@@ -197,34 +198,40 @@ export class RoamMsgCacheDb {
             id.replace(/^roaming:(?:(?:native|protocol):)?/, ''),
           ),
     );
-    const rows = await this.nt.executeSql(
+    const size = Math.max(1, Math.min(2000, limit));
+    const params: SqlValue[] = [kind, conv, BigInt(startSeq), BigInt(endSeq), hidden, size];
+    // 各来源先独立限额，再沿用原有去重；不能在 UNION 上提前 LIMIT，重复来源会挤掉消息。
+    const rows = await scheduleDatabase(
       this.dbPath,
-      `SELECT kind, conv, msg_id, msg_seq, sender_uid, sender_uin, send_time, elements, decoration, nt_seq_verified
+      () =>
+        this.nt.executeSql(
+          this.dbPath,
+          `SELECT 0, NULL, page.* FROM (SELECT kind, conv, msg_id, msg_seq, sender_uid, sender_uin, send_time, elements, decoration, nt_seq_verified
          FROM ${TABLE}
         WHERE kind = ? AND conv = ? AND msg_seq BETWEEN ? AND ?
           ${verifiedOnly ? 'AND nt_seq_verified = 1' : ''}
           AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
-        ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'} LIMIT ?`,
-      [kind, conv, BigInt(startSeq), BigInt(endSeq), hidden, Math.max(1, Math.min(2000, limit))],
-    );
-    const native = await this.nt.executeSql(
-      this.dbPath,
-      `SELECT payload FROM ${NATIVE_TABLE} WHERE kind = ? AND conv = ? AND accepted = 1 AND msg_seq BETWEEN ? AND ?
+        ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'} LIMIT ?) AS page
+       UNION ALL
+       SELECT 1, payload, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM (
+       SELECT payload FROM ${NATIVE_TABLE} WHERE kind = ? AND conv = ? AND accepted = 1 AND msg_seq BETWEEN ? AND ?
        AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
-       ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'}, msg_id LIMIT ?`,
-      [kind, conv, BigInt(startSeq), BigInt(endSeq), hidden, Math.max(1, Math.min(2000, limit))],
-    );
-    const protocol = await this.nt.executeSql(
-      this.dbPath,
-      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE kind=? AND conv=? AND msg_seq BETWEEN ? AND ?
+       ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'}, msg_id LIMIT ?)
+       UNION ALL
+       SELECT 2, payload, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM (
+       SELECT payload FROM ${PROTOCOL_TABLE} WHERE kind=? AND conv=? AND msg_seq BETWEEN ? AND ?
        AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
-       ${verifiedOnly ? 'AND nt_seq_verified=1' : ''} ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'},msg_id LIMIT ?`,
-      [kind, conv, BigInt(startSeq), BigInt(endSeq), hidden, Math.max(1, Math.min(2000, limit))],
+       ${verifiedOnly ? 'AND nt_seq_verified=1' : ''} ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'},msg_id LIMIT ?)`,
+          [...params, ...params, ...params],
+        ),
+      this.nt,
     );
     const messages = combineCache(
-      rows.map(rowToMessage),
-      native.map(nativeRow),
-      protocol.map((row) => parseJson<GapFetchedMessage>(String(row[0]))),
+      rows.filter((row) => Number(row[0]) === 0).map((row) => rowToMessage(row.slice(2))),
+      rows.filter((row) => Number(row[0]) === 1).map((row) => nativeRow([row[1]!])),
+      rows
+        .filter((row) => Number(row[0]) === 2)
+        .map((row) => parseJson<GapFetchedMessage>(String(row[1]))),
     )
       .sort((a, b) => {
         const order = compareMessageOrder(a, b);

@@ -966,6 +966,13 @@ export function elementsFromEditable<T>(v: T): T {
   return v;
 }
 
+export function replyMediaToWire(patch: { msgId: string; elements: unknown[] }): {
+  msgId: string;
+  elements: unknown[];
+} {
+  return { msgId: patch.msgId, elements: sanitize(patch.elements) };
+}
+
 /**
  * Deep-sanitize any object to be IPC-safe.
  * - Uint8Array -> hex string

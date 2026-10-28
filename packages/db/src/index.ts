@@ -22,12 +22,14 @@
 export { QqDb } from './qq_db';
 export type { QqDbOptions } from './qq_db';
 export {
+  scheduleDatabase,
   withDatabasePriority,
   databasePerformance,
   recordMessagePartition,
   recordMessageWork,
   waitForDatabaseQuiet,
 } from './query_schedule';
+export type { DatabasePriority } from './query_schedule';
 export { rowsToObjects } from './row';
 export type { SalvageScanOutcome, SalvageSkippedRange } from '@weq/native';
 export { isLikelyCorruptionError, wrapBindingForCorruption } from './errors';

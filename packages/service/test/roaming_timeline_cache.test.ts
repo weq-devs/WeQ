@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSqliteStub, closeAllFixtureDbs } from '@weq/testkit';
 import type { Platform } from '@weq/platform';
 import type { AccountSession } from '@weq/account';
@@ -57,6 +57,33 @@ function message(
 }
 
 describe('offline roaming timeline cache pages', () => {
+  it('空缓存和三来源混合页均只做一次查询，重复来源不挤掉分页后的独立消息', async () => {
+    const { cache, nt } = setup();
+    await cache.query('group', 'synthetic-conversation', 1, 10);
+    const read = vi.spyOn(nt, 'executeSql');
+    expect(await cache.query('group', 'synthetic-conversation', 1, 10)).toEqual([]);
+    expect(read).toHaveBeenCalledTimes(1);
+    await cache.store([
+      ...[1, 2, 3].map((seq) => ({ ...message(seq), msgId: String(seq) })),
+      ...[2, 3].map((seq) => ({
+        ...message(seq),
+        msgId: String(seq),
+        msgRandom: String(seq),
+        sourceFormat: 'native' as const,
+        nativeRaw: { elements: [] },
+      })),
+      ...[2, 3].map((seq) => ({
+        ...message(seq),
+        msgId: String(seq),
+        sourceFormat: 'protocol' as const,
+      })),
+    ]);
+    read.mockClear();
+    const rows = await cache.query('group', 'synthetic-conversation', 1, 10, false, 3);
+    expect([...new Set(rows.map((row) => row.msgSeq))]).toEqual(['1', '2', '3']);
+    expect(read).toHaveBeenCalledTimes(1);
+    read.mockRestore();
+  });
   it('同消息跨缓存格式不绕过隐藏标记，同序号不同消息仍保留', async () => {
     const { root, nt, path, cache } = setup();
     const store = new DeletedMsgStore(join(root, 'deleted.json'));
