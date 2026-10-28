@@ -79,7 +79,7 @@ const range = {
   expectedAccountConfigId: 'synthetic',
 };
 
-it('精确消息集合贯穿好友、群、成员和附属图表，拒绝漫游占位 ID', async () => {
+it('精确消息集合贯穿好友、群、成员和附属图表，接受漫游身份并拒绝非法占位 ID', async () => {
   const api = accountRouter.createCaller({});
   const scope = { ...range, messageIds: ['1', '4'] };
   await api.getBuddyAnalytics({ peerUid: 'u_peer', ...scope });
@@ -98,9 +98,20 @@ it('精确消息集合贯穿好友、群、成员和附属图表，拒绝漫游�
   expect(fixture.batches).toHaveBeenCalledWith(777n, expect.objectContaining(scope));
   await api.getGroupMemberAnalytics({ groupCode: '777', memberUid: 'u_peer', ...scope });
   expect(fixture.member).toHaveBeenCalledWith(777n, 'u_peer', 100, 200, undefined, ['1', '4']);
-  await expect(
-    api.getBuddyAnalytics({ peerUid: 'u_peer', messageIds: ['roaming:1:4'] }),
-  ).rejects.toThrow();
+  // 漫游缓存消息（roaming:<seq>:<id>，sourceFormat 前缀可省略）也属于可分析身份。
+  for (const messageIds of [
+    ['1', 'roaming:protocol:4:100000'],
+    ['1', 'roaming:4:100000'],
+  ]) {
+    const roamingScope = { peerUid: 'u_peer', messageIds };
+    await api.getBuddyAnalytics(roamingScope);
+    expect(fixture.buddy).toHaveBeenLastCalledWith('u_peer', expect.objectContaining(roamingScope));
+  }
+  // 缺序号、序号为 0 或非数字的占位 ID 不是可定位身份，读取前就拒绝。
+  for (const invalid of [['roaming:4'], ['roaming:protocol:0:4'], ['roaming:abc:4']])
+    await expect(
+      api.getBuddyAnalytics({ peerUid: 'u_peer', messageIds: invalid }),
+    ).rejects.toThrow();
 });
 
 it('五类分析路由保留同一范围，旧调用仍可省略范围', async () => {
