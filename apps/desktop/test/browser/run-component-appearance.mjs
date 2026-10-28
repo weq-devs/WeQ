@@ -53,8 +53,8 @@ try {
   const output = process.env.WEQ_APPEARANCE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   const failures = [];
-  if (styles.map((style) => style.value).join(',') !== 'minimal,retro')
-    failures.push('风格选项必须只有简约、复古');
+  if (styles.map((style) => style.value).join(',') !== 'classic,minimal,retro')
+    failures.push('必须保留经典默认，以及简约、复古两套新风格');
   let cases = 0;
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 920 });
@@ -94,6 +94,33 @@ try {
             const checks = await page.evaluate(
               ({ value, density, width }) => {
                 const css = (selector) => getComputedStyle(document.querySelector(selector));
+                const classicSignature = () =>
+                  [
+                    '.weq-set-btn',
+                    '.weq-input',
+                    '.weq-directory-scope-menu',
+                    '.conversation-row.active',
+                    '.weq-set-toggle-track',
+                  ].map((selector) => {
+                    const style = css(selector);
+                    return [
+                      style.backgroundColor,
+                      style.color,
+                      style.borderWidth,
+                      style.borderRadius,
+                      style.boxShadow,
+                    ];
+                  });
+                let classicUnchanged = true;
+                if (value === 'classic') {
+                  const actual = JSON.stringify(classicSignature());
+                  delete document.documentElement.dataset.componentStyle;
+                  try {
+                    classicUnchanged = actual === JSON.stringify(classicSignature());
+                  } finally {
+                    document.documentElement.dataset.componentStyle = value;
+                  }
+                }
                 const row = document.querySelector('.conversation-row');
                 const slot = row.parentElement;
                 const avatar = row.querySelector('.avatar').getBoundingClientRect();
@@ -144,16 +171,19 @@ try {
                     row.getBoundingClientRect().height ===
                     (density === 'compact' ? (width <= 720 ? 64 : 54) : width <= 760 ? 76 : 62),
                   previewGeometry:
+                    value === 'classic' ||
                     css('.weq-input').borderRadius ===
-                    css(`${preview} .weq-style-preview-input`).borderRadius,
+                      css(`${preview} .weq-style-preview-input`).borderRadius,
                   toggleGeometry:
+                    value === 'classic' ||
                     css('.weq-set-toggle-track').borderRadius ===
-                    css(`${preview} .weq-style-preview-toggle`).borderRadius,
+                      css(`${preview} .weq-style-preview-toggle`).borderRadius,
                   primaryContrast:
                     window.appearanceQa.contrastRatio(
                       pixel(primary.color),
                       compositeBackground('.weq-set-btn'),
                     ) >= 4.5,
+                  classicUnchanged,
                   selectionContrast:
                     window.appearanceQa.contrastRatio(
                       pixel(css('.conversation-row.active .row-main strong').color),
@@ -203,8 +233,9 @@ try {
   await page.getByRole('radio', { name: '复古', exact: true }).focus();
   await page.keyboard.press('ArrowRight');
   if (
-    (await page.getByRole('radio', { name: '简约', exact: true }).getAttribute('aria-checked')) !==
-    'true'
+    (await page
+      .getByRole('radio', { name: '经典（默认）', exact: true })
+      .getAttribute('aria-checked')) !== 'true'
   )
     failures.push('键盘循环选择');
   await page.keyboard.press('End');

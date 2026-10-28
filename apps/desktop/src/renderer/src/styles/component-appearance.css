@@ -1,4 +1,4 @@
-/* 两套风格共享尺寸与密度，只改变控件形态和表面处理。 */
+/* 经典保留原有样式；两套新风格共享尺寸与密度，只改变控件形态和表面处理。 */
 :root,
 [data-component-preview] {
   --weq-skin-radius: 2px;
@@ -26,6 +26,18 @@
   --weq-skin-surface: transparent;
   --weq-skin-popup-shadow: 0 3px 12px color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
   --weq-skin-selection: transparent;
+}
+
+[data-component-preview='classic'] {
+  --weq-skin-radius: 6px;
+  --weq-skin-border-width: 1px;
+  --weq-skin-input-border-width: 0px 0px 1px;
+  --weq-skin-primary-border-width: 1px;
+  --weq-skin-primary-bg: var(--weq-accent-solid);
+  --weq-skin-primary-fg: var(--weq-accent-solid-foreground);
+  --weq-skin-primary-border: var(--weq-accent-solid);
+  --weq-skin-selection: var(--weq-list-selected-background);
+  --weq-skin-selection-shadow: inset 2px 0 var(--weq-accent-ink);
 }
 
 :is(html[data-component-style='retro'], [data-component-preview='retro']) {
@@ -61,7 +73,7 @@ html[data-theme='dark'] [data-component-preview='retro'] {
     2px 2px 0 var(--weq-bg-app);
 }
 
-html[data-component-style][data-theme]
+html[data-component-style][data-theme]:not([data-component-style='classic'])
   body
   :is(
     .weq-action-primary,
@@ -94,7 +106,7 @@ html[data-component-style][data-theme]
   box-shadow: var(--weq-control-shadow, var(--weq-skin-shadow));
 }
 
-html[data-component-style][data-theme]
+html[data-component-style][data-theme]:not([data-component-style='classic'])
   body
   :is(
     .weq-input,
@@ -112,7 +124,7 @@ html[data-component-style][data-theme]
   --weq-control-border-width: var(--weq-skin-input-border-width);
 }
 
-html[data-component-style][data-theme]
+html[data-component-style][data-theme]:not([data-component-style='classic'])
   body
   :is(
     .weq-action-soft,
@@ -137,7 +149,7 @@ html[data-component-style][data-theme]
   color: var(--weq-fg-primary);
 }
 
-html[data-component-style][data-theme]
+html[data-component-style][data-theme]:not([data-component-style='classic'])
   body
   :is(
     .modal-card,
@@ -158,7 +170,7 @@ html[data-component-style][data-theme]
   box-shadow: var(--weq-skin-popup-shadow);
 }
 
-html[data-component-style][data-theme]
+html[data-component-style][data-theme]:not([data-component-style='classic'])
   body
   :is(
     .weq-action-primary,
@@ -222,25 +234,42 @@ html[data-component-style='retro'][data-theme]
   box-shadow: var(--weq-skin-input-shadow);
 }
 
-html[data-component-style][data-theme]
+html[data-component-style][data-theme]:not([data-component-style='classic'])
   body
   :is(.conversation-row.active, .contact-row.active):not(.is-multiselected) {
   background: var(--weq-skin-selection);
   color: var(--weq-skin-selection-fg);
   box-shadow: var(--weq-skin-selection-shadow);
 }
-html[data-component-style][data-theme] body :is(.weq-set-toggle-track, .weq-set-toggle-knob) {
+html[data-component-style][data-theme]:not([data-component-style='classic'])
+  body
+  :is(.weq-set-toggle-track, .weq-set-toggle-knob) {
   border-radius: var(--weq-skin-toggle-radius);
 }
-html[data-component-style][data-theme] body .weq-set-toggle.is-on .weq-set-toggle-track {
+html[data-component-style][data-theme]:not([data-component-style='classic'])
+  body
+  .weq-set-toggle.is-on
+  .weq-set-toggle-track {
   background: var(--weq-accent-solid);
 }
-html[data-component-style][data-theme] body .weq-set-toggle.is-on .weq-set-toggle-knob {
+html[data-component-style][data-theme]:not([data-component-style='classic'])
+  body
+  .weq-set-toggle.is-on
+  .weq-set-toggle-knob {
   background: var(--weq-accent-solid-foreground);
 }
-html[data-component-style][data-theme] body .weq-directory-scope-menu button[aria-checked='true'],
-html[data-component-style][data-theme] body .weq-directory-toolbar button:hover,
-html[data-component-style][data-theme] body .weq-directory-toolbar button[aria-pressed='true'] {
+html[data-component-style][data-theme]:not([data-component-style='classic'])
+  body
+  .weq-directory-scope-menu
+  button[aria-checked='true'],
+html[data-component-style][data-theme]:not([data-component-style='classic'])
+  body
+  .weq-directory-toolbar
+  button:hover,
+html[data-component-style][data-theme]:not([data-component-style='classic'])
+  body
+  .weq-directory-toolbar
+  button[aria-pressed='true'] {
   color: var(--weq-accent-ink);
 }
 html[data-component-style='retro']
@@ -255,7 +284,7 @@ html[data-component-style='retro']
   box-shadow: inset 1px 1px 0 var(--weq-border-strong);
   transform: translateY(1px);
 }
-html[data-component-style][data-theme]
+html[data-component-style][data-theme]:not([data-component-style='classic'])
   body
   :is(
     .weq-input,
@@ -361,7 +390,7 @@ html[data-density='compact'] body table :is(th, td) {
 
 .weq-style-options {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 .weq-style-option {
@@ -548,10 +577,12 @@ html[data-density='compact'] body table :is(th, td) {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  html[data-component-style][data-theme] body :is(.weq-set-toggle-track, .weq-set-toggle-knob) {
+  html[data-component-style][data-theme]:not([data-component-style='classic'])
+    body
+    :is(.weq-set-toggle-track, .weq-set-toggle-knob) {
     transition: none;
   }
-  html[data-component-style][data-theme]
+  html[data-component-style][data-theme]:not([data-component-style='classic'])
     body
     :is(
       .weq-action-primary,
@@ -561,7 +592,7 @@ html[data-density='compact'] body table :is(th, td) {
       .secondary-button,
       .weq-set-btn
     ):hover,
-  html[data-component-style][data-theme]
+  html[data-component-style][data-theme]:not([data-component-style='classic'])
     body
     :is(
       .weq-action-primary,

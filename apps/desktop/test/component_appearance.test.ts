@@ -15,8 +15,9 @@ afterEach(() => {
 });
 
 describe('组件风格与独立密度', () => {
-  it('只展示简约和复古两套，不再堆叠相近的预设', () => {
-    expect(componentStyles.map((style) => style.value)).toEqual(['minimal', 'retro']);
+  it('保留经典默认风格，并提供简约、复古两套新风格', () => {
+    expect(componentStyles.map((style) => style.value)).toEqual(['classic', 'minimal', 'retro']);
+    expect(useThemeStore.getState().componentStyle).toBe('classic');
   });
   it('设置搜索可精确定位到风格与密度条目', () => {
     expect(resolveSettingsTarget({ section: 'appearance', item: '组件风格' }).settingId).toBe(
@@ -26,7 +27,7 @@ describe('组件风格与独立密度', () => {
       'interface-density',
     );
   });
-  it.each(['minimal', 'retro'] as const)(
+  it.each(['classic', 'minimal', 'retro'] as const)(
     '%s 应用到根节点并可从存储恢复，不改主题色或背景',
     (style) => {
       const store = useThemeStore.getState();
@@ -63,8 +64,8 @@ describe('组件风格与独立密度', () => {
     expect(useThemeStore.getState().componentStyle).toBe('retro');
   });
 
-  it('收起的旧风格或未知值回落到简约，不改写其他有效偏好', () => {
-    for (const invalid of [null, '', 'classic', 'soft', 'outline', 'glass', 'future-style']) {
+  it('缺失配置、收起的旧风格或未知值回落到经典，不改写其他有效偏好', () => {
+    for (const invalid of [null, '', 'soft', 'outline', 'glass', 'future-style']) {
       localStorage.clear();
       if (invalid !== null) {
         localStorage.setItem('weq.theme-component-style', invalid);
@@ -72,7 +73,7 @@ describe('组件风格与独立密度', () => {
       localStorage.setItem('weq.theme-density', 'compact');
       localStorage.setItem('weq.theme-accent', '#075c30');
       useThemeStore.getState().hydrate();
-      expect(useThemeStore.getState().componentStyle).toBe('minimal');
+      expect(useThemeStore.getState().componentStyle).toBe('classic');
       expect(useThemeStore.getState().density).toBe('compact');
       expect(useThemeStore.getState().accent).toBe('#075c30');
     }
