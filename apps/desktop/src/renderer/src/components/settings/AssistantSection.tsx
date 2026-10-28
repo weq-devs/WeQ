@@ -140,6 +140,7 @@ export function AssistantSection() {
           }
         />
         <Row
+          settingId="assistant-port"
           label="端口"
           desc="20000–65535"
           control={

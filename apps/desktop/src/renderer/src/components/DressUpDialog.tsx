@@ -60,7 +60,7 @@ import { WorkspacePage } from './WorkspacePages';
 import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
 import '../styles/dressup.css';
 
-type DressKind = 'bubble' | 'font' | 'widget' | 'callbg' | 'background' | 'emoji';
+export type DressKind = 'bubble' | 'font' | 'widget' | 'callbg' | 'background' | 'emoji';
 
 const KINDS: Array<{ id: DressKind; label: string; icon: ReactElement }> = [
   { id: 'bubble', label: '聊天气泡', icon: <Palette size={14} /> },

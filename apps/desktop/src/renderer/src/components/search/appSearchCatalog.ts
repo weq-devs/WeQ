@@ -1,5 +1,7 @@
-import { searchNameRank } from '@weq/service/search-policy';
+import { searchNameRank, type ConversationScope } from '@weq/service/search-policy';
 import type { MainView } from '../../im-template/template/types';
+import type { ExportMode } from '../../views/export/types';
+import type { DressKind } from '../DressUpDialog';
 import { AI_SETTING_ITEMS } from '../settings/aiSettingsCatalog';
 import {
   SETTINGS_PAGE_LABELS,
@@ -11,18 +13,21 @@ import {
 } from '../settings/navigation';
 export { SETTINGS_PAGE_LABELS } from '../settings/navigation';
 
-export type SearchableTool = 'export' | 'viewer' | 'analysis' | 'tasks' | 'assistant';
+export type SearchableTool = 'export' | 'viewer' | 'analysis' | 'tasks' | 'assistant' | 'backfill';
 export interface ToolSearchRequest {
   scope: string;
   tool: SearchableTool;
+  exportMode?: ExportMode;
   revision: number;
 }
 export type AppSearchTarget =
   | { kind: 'view'; view: MainView }
-  | { kind: 'tool'; tool: SearchableTool }
+  | { kind: 'conversation-directory'; scope: ConversationScope }
+  | { kind: 'tool'; tool: SearchableTool; exportMode?: ExportMode }
   | { kind: 'setting'; section: SectionId; item?: string; settingId?: string }
   | { kind: 'composition' }
-  | { kind: 'dressup' };
+  | { kind: 'dressup'; dressKind?: DressKind }
+  | { kind: 'clone-create'; group?: boolean };
 
 export interface AppSearchEntry {
   id: string;
@@ -34,7 +39,11 @@ export interface AppSearchEntry {
 
 // 这里只保存公开的界面名称与入口，不读取设置值、账号资料或凭据。
 const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
-  global: ['窗口行为', '通知'],
+  global: ['窗口行为', '通知', '应用内横幅提醒'],
+  startup: ['开机启动', '系统登录项'],
+  home: ['主页显示'],
+  version: ['软件更新', '检查更新', '更新日志'],
+  faq: ['帮助文档', '帮助'],
   'weq-storage': ['默认保存', '存储与网络', 'storage', 'saving'],
   'chat-messages': ['消息显示', 'message-display'],
   'call-recording': ['通话与录音'],
@@ -47,7 +56,7 @@ const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
   'database-management': ['维护工具', 'maintenance'],
   'qq-storage': ['QQ 存储管理', '资源管理', '本地缓存'],
   privacy: ['隐私与应用锁', '应用锁', '隐私模式', 'applock'],
-  'resource-loading': ['资源下载网络', '网络', 'CDN'],
+  'resource-loading': ['资源下载网络', '加载来源', '网络', 'CDN'],
   assistant: ['公众号推送', 'QQ 公众号'],
   sse: ['SSE 消息推送'],
   backup: ['设置备份', '备份与恢复'],
@@ -68,7 +77,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['global', '默认发送正在输入状态', '正在输入', '打字状态'],
   ['startup', '开机自动启动 WeQ', '自启动'],
   ['startup', '自启时显示窗口', '启动显示窗口', '隐藏启动'],
-  ['call-recording', '录音来源', '录音模式', '双方混合', '仅本端', '仅对方'],
+  ['call-recording', '录音来源', '录制内容', '录音模式', '双方混合', '仅本端', '仅对方'],
   ['call-recording', '同时录电脑声音', '系统音频'],
   ['call-recording', '保存位置', '录音目录'],
   ['saving', '默认保存方式', '导出保存方式'],
@@ -115,14 +124,34 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['storage', 'WeQ 存储管理', '清理数据', '释放空间'],
   ['media', '关联本机媒体目录', '本地图片目录'],
   ['media', '允许使用外部安卓图片缓存', 'Android 图片'],
-  ['backup', '导出备份', '备份配置'],
-  ['backup', '导入备份', '恢复备份'],
+  ['backup', '导出备份', '备份配置', '包含此设备的界面偏好'],
+  [
+    'backup',
+    '导入备份',
+    '恢复备份',
+    '恢复界面偏好到此设备',
+    '同名数据处理',
+    '保留本机导出目录与图片库路径',
+  ],
   ['backup', '恢复默认设置', '重置设置', '恢复出厂'],
   ['database', '数据库异常时弹窗提醒', '损坏提醒'],
   ['database', '数据库宽容级别', '容错级别', '严格模式'],
   ['database-status', '降级账本'],
   ['database-status', '已放弃的表（隔离中）'],
-  ['agentlab', 'TTS 语音合成', '语音合成', '朗读', '音色'],
+  [
+    'agentlab',
+    'TTS 语音合成',
+    '语音合成',
+    '朗读',
+    '音色',
+    '默认音色',
+    '复刻模型',
+    '音频格式',
+    '语速',
+    '服务地址 (Base URL)',
+    'App ID',
+    'Resource ID',
+  ],
   ['agentlab', '已保存的 provider', 'API Key', 'Base URL', '服务商'],
   ['agentlab', '默认模型', 'LLM 默认模型'],
   ['intent-sense', '启用意图感知'],
@@ -206,16 +235,52 @@ export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = uniqueEntries([
   feature('收藏', { kind: 'view', view: 'collections' }),
   feature('QQ 空间', { kind: 'view', view: 'qzone' }, '说说', '相册'),
   feature('QQ 邮箱', { kind: 'view', view: 'mail' }, '邮件'),
-  feature('频道', { kind: 'view', view: 'channel' }, '频道私聊'),
-  feature('好友克隆', { kind: 'view', view: 'agentlab' }, '克隆聊天'),
+  feature('频道', { kind: 'view', view: 'channel' }, 'QQ 频道'),
+  feature('频道私聊', { kind: 'view', view: 'guild-direct' }),
+  feature('好友克隆', { kind: 'conversation-directory', scope: 'virtual' }, '克隆聊天'),
+  feature('新建好友克隆', { kind: 'clone-create' }, '创建克隆'),
+  feature('新建克隆体群聊', { kind: 'clone-create', group: true }, '克隆群聊'),
   feature('年度报告', { kind: 'view', view: 'annual' }, '年度总结'),
   feature('导出', { kind: 'tool', tool: 'export' }, '导出聊天记录', '备份聊天'),
+  ...(
+    [
+      ['聊天消息导出', 'full', '完整消息导出'],
+      ['定时导出', 'scheduled', '定时任务', '自动备份'],
+      ['频道私聊数据', 'guild', '导出频道私聊'],
+      ['克隆与助手对话', 'generated', '导出克隆对话', '导出助手会话'],
+      ['QQ空间导出', 'qzone', '导出说说'],
+      ['导出联系人', 'contacts', '好友名单', '群成员名单', 'vCard'],
+      ['导出收藏', 'collection', '收藏导出'],
+      ['邮件导出', 'mail', '导出邮件'],
+      ['导出表情包', 'emojipack', '表情包导出'],
+      ['群相册导出', 'album', '群相册'],
+      ['群文件导出', 'groupfile', '群文件'],
+      ['明文数据库', 'database', '数据库导出'],
+      ['克隆体机器人', 'persona-bot', '克隆机器人导出'],
+      ['个人空间相册', 'qzone', '空间相册导出'],
+    ] as const
+  ).map(([title, exportMode, ...aliases]) =>
+    feature(title, { kind: 'tool', tool: 'export', exportMode }, ...aliases),
+  ),
+  feature('拉取漫游消息', { kind: 'tool', tool: 'backfill' }, '漫游消息', '补全聊天记录'),
   feature('导出查看器', { kind: 'tool', tool: 'viewer' }, '打开导出', 'JSON', 'JSONL'),
   feature('分析与报告', { kind: 'tool', tool: 'analysis' }, '聊天分析', '统计'),
   feature('任务', { kind: 'tool', tool: 'tasks' }, '导出进度', '下载任务'),
   feature('WeQ 助手', { kind: 'tool', tool: 'assistant' }, 'AI 助手', '智能助手'),
   feature('合成聊天记录', { kind: 'composition' }, '合并转发'),
-  feature('个性装扮', { kind: 'dressup' }, '气泡', '字体', '商城表情', '通话背景'),
+  feature('个性装扮', { kind: 'dressup' }, '装扮商城'),
+  ...(
+    [
+      ['气泡商城', 'bubble', '聊天气泡', '气泡'],
+      ['字体商城', 'font', '个性字体', '字体'],
+      ['头像挂件', 'widget', '挂件商城'],
+      ['通话背景', 'callbg'],
+      ['QQ 聊天背景', 'background', '聊天背景商城'],
+      ['商城表情', 'emoji', '表情商城'],
+    ] as const
+  ).map(([title, dressKind, ...aliases]) =>
+    feature(title, { kind: 'dressup', dressKind }, ...aliases),
+  ),
   ...Object.keys(SETTINGS_PAGE_LABELS).map((section) =>
     settingEntry(section as keyof typeof SETTINGS_PAGE_LABELS, undefined, [section]),
   ),

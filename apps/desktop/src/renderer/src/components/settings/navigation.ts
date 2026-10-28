@@ -186,7 +186,64 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     label: '空友爱看自动刷新冷却期',
     from: ['qzone'],
   },
-  { id: 'qzone-person-click', section: 'qzone', label: '点击他人昵称或头像时', from: ['qzone'] },
+  {
+    id: 'qzone-person-click',
+    section: 'qzone',
+    label: '点击他人昵称或头像时',
+    aliases: ['人物入口'],
+    from: ['qzone'],
+  },
+  {
+    id: 'qzone-forward',
+    section: 'qzone',
+    label: '转发时引用上一人文案',
+    aliases: ['转发', '引用转发文案'],
+    from: ['qzone'],
+  },
+  ...(
+    [
+      ['call-p2p', 'call-recording', '禁用 P2P 直连', '连接方式', '通话中转'],
+      ['qzone-blocked', 'qzone', '不让 ta 看我的空间', '空间黑名单'],
+      ['qzone-hidden', 'qzone', '不看 ta 的空间', '屏蔽好友空间'],
+      ['totp-authenticator', 'privacy', 'WeQ 验证器', '绑定验证器', 'TOTP'],
+      ['mcp-connection', 'mcp', '连接信息', 'MCP 客户端配置', '复制客户端配置', 'MCP 令牌'],
+      ['mcp-install', 'mcp', '安装到本机 AI 客户端', '安装 MCP', 'MCP 自动配置'],
+      ['sse-targets', 'sse', '已配置的推送目标', '推送地址', 'SSE access_token', '添加推送目标'],
+      ['assistant-resource', 'assistant', '资源服务', '公众号资源地址'],
+      ['assistant-port', 'assistant', 'QQ 公众号推送端口', '公众号端口'],
+      ['qq-profile', 'qq-accounts', 'QQ 资料', 'QQ 昵称', '性别', '个性签名', '更换头像'],
+      ['qq-status', 'qq-accounts', 'QQ 状态', '在线状态', '自定义状态', '状态表情'],
+      ['chat-image-cache', 'chat-messages', '图片预览内存预算', '图片与表情', '内存缓存'],
+    ] as const
+  ).map(
+    ([id, section, label, ...aliases]): ItemRedirect => ({
+      id,
+      section,
+      label,
+      aliases,
+      from: [section],
+    }),
+  ),
+  ...(
+    [
+      ['web-enabled', '启用 Web 服务', '浏览器访问'],
+      ['web-autostart', '启动 WeQ 时自动开启 Web 服务'],
+      ['remote-enabled', '允许远程连接', 'WeQ Remote', '远程访问'],
+      ['remote-lan', '局域网 IP', '局域网地址'],
+      ['remote-tailscale', 'Tailscale IP', 'Tailscale', '跨网络连接', '内网穿透'],
+      ['remote-pairing', '配对手机', '设备配对', '手机配对', '配对二维码'],
+      ['remote-devices', '已配对设备', '设备授权', '撤销设备授权'],
+    ] as const
+  ).map(
+    ([id, label, ...aliases]): ItemRedirect => ({
+      id,
+      section: 'remote',
+      label,
+      aliases,
+      from: ['remote'],
+      desktopOnly: true,
+    }),
+  ),
   {
     id: 'mail-unread-badge',
     section: 'mail',
@@ -226,7 +283,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     id: 'long-term-authorization',
     section: 'account',
     label: '长期授权',
-    aliases: ['权限助手', '免重复提权', '管理员授权'],
+    aliases: ['权限助手', '本机权限助手', '免重复提权', '管理员授权'],
     from: ['account'],
     desktopOnly: true,
   },
@@ -363,7 +420,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     id: 'external-rkey',
     section: 'credentials',
     label: '外部 rKey',
-    aliases: ['外部 RKEY'],
+    aliases: ['外部 RKEY', '已导入的服务器', 'HTTP 服务器地址', 'rKey access_token'],
     from: ['rkey', 'credentials'],
   },
   {
@@ -445,7 +502,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     id: 'assistant-service',
     section: 'assistant',
     label: '启用 QQ 公众号推送',
-    aliases: ['启用 WeQ 助手', 'QQ 公众号推送'],
+    aliases: ['启用 WeQ 助手', 'QQ 公众号推送', '推送与资源服务'],
     from: ['assistant', 'remote'],
   },
 ];

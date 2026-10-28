@@ -19,6 +19,7 @@ export function ChannelView({
   selfUser,
   renderers,
   initialDirectOpen = false,
+  directOpenRequest = 0,
   sidebarWidth = 362,
   searchTarget,
   onActiveNodeChange,
@@ -26,6 +27,7 @@ export function ChannelView({
   selfUser: User;
   renderers?: MessageRenderer[];
   initialDirectOpen?: boolean;
+  directOpenRequest?: number;
   sidebarWidth?: number;
   searchTarget?: GuildSearchTarget | null;
   /** 当前打开的频道私聊 nodeId（浮动工具按当前位置导出）。 */
@@ -36,6 +38,9 @@ export function ChannelView({
     initialDirectOpen,
     pageValue.boolean,
   );
+  useEffect(() => {
+    if (initialDirectOpen || directOpenRequest > 0) setDirectOpen(true);
+  }, [initialDirectOpen, directOpenRequest, setDirectOpen]);
   useEffect(() => {
     if (searchTarget) {
       setDirectOpen(true);

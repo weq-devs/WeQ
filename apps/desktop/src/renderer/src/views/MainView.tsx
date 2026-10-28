@@ -272,6 +272,7 @@ import { displayUserName } from '../im-template/template/user';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
 import { WorkspaceTools } from '../components/WorkspaceTools';
 import type { AppSearchEntry, ToolSearchRequest } from '../components/search/appSearchCatalog';
+import type { DressKind } from '../components/DressUpDialog';
 import type { SettingsSearchTarget } from '../components/settings/searchTarget';
 import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
 import { displayGroupMemberName } from '../im-template/template/user';
@@ -3120,6 +3121,8 @@ function MainWorkspace(): ReactElement {
   const [currentQzoneUin, setCurrentQzoneUin] = useState<string | null>(null);
   /** 频道私聊当前打开的 nodeId（浮动工具按当前位置导出）。 */
   const [activeGuildNodeId, setActiveGuildNodeId] = useState<string | null>(null);
+  const [guildDirectOpenRequest, setGuildDirectOpenRequest] = useState(0);
+  const [dressUpSearchKind, setDressUpSearchKind] = useState<DressKind>('bubble');
   const [dressUpEmojiTarget, setDressUpEmojiTarget] = useState<{
     packId: string;
     name: string;
@@ -10338,18 +10341,40 @@ function MainWorkspace(): ReactElement {
           revision: Date.now(),
         });
       setSettingsOpen(true);
+    } else if (target.kind === 'conversation-directory') {
+      flushAllDirtyDrafts();
+      setSurfaceNavigation((value) => value + 1);
+      setArkFeedState(null);
+      setCloneSearchTarget(null);
+      setVirtualOpen(null);
+      shell.setQuery('');
+      setConversationScope(target.scope);
+      shell.switchView('messages');
+      shell.backConversation();
     } else if (target.kind === 'tool') {
       setToolSearchRequest((previous) => ({
         scope: messageScope,
         tool: target.tool,
+        exportMode: target.exportMode,
         revision: (previous?.revision ?? 0) + 1,
       }));
+    } else if (target.kind === 'clone-create') {
+      if (target.group) {
+        flushAllDirtyDrafts();
+        setCloneGroupRequest((current) => current + 1);
+        shell.switchView('agentlab');
+      } else handleCreateClone();
     } else if (target.kind === 'composition') compositionWindow.open();
     else if (target.kind === 'dressup') {
       setDressUpEmojiTarget(null);
+      setDressUpSearchKind(target.dressKind ?? 'bubble');
       setDressUpOpen(true);
     } else {
       if (shell.view === 'messages' && target.view !== 'messages') flushAllDirtyDrafts();
+      if (target.view === 'guild-direct') {
+        setGuildSearchTarget(null);
+        setGuildDirectOpenRequest((current) => current + 1);
+      }
       shell.switchView(target.view);
     }
   };
@@ -10438,6 +10463,7 @@ function MainWorkspace(): ReactElement {
             onOpenDressUp={() => {
               setSettingsOpen(false);
               setDressUpEmojiTarget(null);
+              setDressUpSearchKind('bubble');
               setDressUpOpen(true);
             }}
             onOpenProfile={noopAsync}
@@ -10644,6 +10670,7 @@ function MainWorkspace(): ReactElement {
                       sidebarWidth={shell.sidebarWidth}
                       renderers={messageRenderers}
                       initialDirectOpen={shell.view === 'guild-direct'}
+                      directOpenRequest={shell.view === 'guild-direct' ? guildDirectOpenRequest : 0}
                       searchTarget={guildSearchTarget}
                       onActiveNodeChange={setActiveGuildNodeId}
                     />
@@ -11122,8 +11149,8 @@ function MainWorkspace(): ReactElement {
           />
           {dressUpOpen ? (
             <DressUpDialog
-              key={dressUpEmojiTarget?.revision ?? 'dressup'}
-              initialKind={dressUpEmojiTarget ? 'emoji' : 'bubble'}
+              key={dressUpEmojiTarget?.revision ?? `dressup:${dressUpSearchKind}`}
+              initialKind={dressUpEmojiTarget ? 'emoji' : dressUpSearchKind}
               initialEmojiPackId={dressUpEmojiTarget?.packId}
               initialEmojiPackName={dressUpEmojiTarget?.name}
               onClose={() => {

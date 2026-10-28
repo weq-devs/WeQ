@@ -300,9 +300,14 @@ export function WorkspaceTools({
   };
 
   /** 主按钮：按当前界面直接进入对应工具。 */
-  const select = (next: Tool) => {
+  const select = (next: Tool, requestedMode?: ExportMode) => {
     closeWorkspace();
     if (next === 'export') {
+      if (requestedMode) {
+        requestedSelection.current = null;
+        openExport(null, { mode: requestedMode, fixed: false });
+        return;
+      }
       // 主按钮＝按当前界面直接进入。注意不能把 `entry.selection`（带 selected 的对象）
       // 直接放进 React 依赖里：每次渲染都是新引用，会触发导出面板反复重建。
       // 优先级：页面内当前多选 > 内容页显式请求过的内容 > 当前界面位置。
@@ -325,6 +330,10 @@ export function WorkspaceTools({
       setAnalysisTarget(directTarget ?? undefined);
       setAnalysisMessageIds(undefined);
       setAnalysisSeed((previous) => previous + 1);
+    }
+    if (next === 'backfill') {
+      setRoamingTargets([]);
+      setRoamingSeed((previous) => previous + 1);
     }
     setTool(next);
     setAssistantSettings(false);
@@ -363,7 +372,7 @@ export function WorkspaceTools({
       setPanel(searchRequest.tool);
       setExpanded(true);
       setAssistantSettings(false);
-    } else selectRef.current(searchRequest.tool);
+    } else selectRef.current(searchRequest.tool, searchRequest.exportMode);
   }, [searchRequest, closeMenu, accountScope]);
   const fixedExportScope =
     exportFixedScope &&
@@ -653,7 +662,7 @@ export function WorkspaceTools({
             <RoamingBackfillPanel
               key={JSON.stringify([accountKey, roamingTargets, roamingSeed])}
               initialTargets={roamingTargets}
-              targetMode="fixed"
+              targetMode={roamingTargets.length ? 'fixed' : 'select'}
               onSubmitted={() => useWorkspaceMenu.getState().openTasks()}
             />
           ) : null}
