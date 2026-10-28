@@ -312,6 +312,14 @@ html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-details summary {
   cursor: default;
 }
 
+/* 屏幕共享中：与「静音 / 关声」同一套高亮，但语义是「正在生效」。
+   用主题色而不是固定色 —— 用户换主题色时按钮要跟着变（见 AGENTS.md §5）。 */
+.weq-call-btn.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  color: var(--weq-accent-effective);
+}
+
 /* 静音 / 关声：用「按下」的视觉，而不是红色（红色只留给挂断）。 */
 .weq-call-btn.is-off {
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
@@ -483,13 +491,20 @@ html[data-theme='dark'] .weq-call-card {
   border-color: color-mix(in srgb, #fff 10%, transparent);
 }
 
-html[data-theme='dark'] .weq-call-btn:not(.is-hangup):not(.is-off) {
+html[data-theme='dark'] .weq-call-btn:not(.is-hangup):not(.is-off):not(.is-active) {
   background: color-mix(in srgb, #fff 7%, transparent);
   border-color: color-mix(in srgb, #fff 10%, transparent);
 }
 
-html[data-theme='dark'] .weq-call-btn:not(.is-hangup):not(.is-off):hover:not(:disabled) {
+html[data-theme='dark']
+  .weq-call-btn:not(.is-hangup):not(.is-off):not(.is-active):hover:not(:disabled) {
   background: color-mix(in srgb, #fff 13%, transparent);
+}
+
+/* 深色下主题色的对比度会掉一档，把高亮底和描边都提一点。 */
+html[data-theme='dark'] .weq-call-btn.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 62%, transparent);
 }
 
 html[data-theme='dark'] .weq-call-details dl {

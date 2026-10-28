@@ -623,6 +623,17 @@ export interface AppSettings {
   qzonePagination: QzonePaginationSettings;
   /** 通话录音（设置 → 通话与录音，通话窗口的录音抽屉共用同一份）。 */
   callRecording: CallRecordingConfig;
+  /**
+   * 是否禁用通话的 P2P 直连，强制媒体全程走服务端中继。
+   *
+   * **排障开关，默认 `false`。** 2026-10-28 实测：P2P 直连上行只有 7.5 fps /
+   * 208 kbps（目标 12 fps / 300 kbps），而对端经服务端中继下发给我们的是满
+   * 12 fps / 679 kbps —— 直连质量不一定更好，取决于两端的 NAT 与链路。
+   *
+   * 打开后 `CallSession` 既不学对端直连地址也不进入 `probing` / `direct`，
+   * 媒体只发 GCS。代价是所有流量都过腾讯服务器，延迟略高、且占用服务端带宽。
+   */
+  callDisableP2P: boolean;
 }
 
 /**
@@ -882,6 +893,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
   // 默认双方混音；电脑声音默认不录（Linux / Windows 都要多占一路采集）。
   callRecording: { mode: 'mixed', systemAudio: false, dir: null },
+  // 默认允许 P2P 直连；禁用是排障开关，见 AppSettings.callDisableP2P。
+  callDisableP2P: false,
 };
 
 export interface UserConfig {
@@ -1443,6 +1456,7 @@ export class UserConfigService {
       logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
       qzonePagination: normalizeQzonePagination(s?.qzonePagination),
       callRecording: normalizeCallRecording(s?.callRecording, d.callRecording),
+      callDisableP2P: typeof s?.callDisableP2P === 'boolean' ? s.callDisableP2P : d.callDisableP2P,
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -1581,6 +1595,8 @@ export class UserConfigService {
         { ...current.callRecording, ...patch.callRecording },
         current.callRecording,
       ),
+      callDisableP2P:
+        typeof patch.callDisableP2P === 'boolean' ? patch.callDisableP2P : current.callDisableP2P,
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,
