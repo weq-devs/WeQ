@@ -264,6 +264,7 @@ import { ChatNavigationContext, type ProfileChatTarget } from '../lib/chatNaviga
 import { QzoneWorkspace } from './QzoneView';
 import { MailWorkspace } from './MailView';
 import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
+import { PageSnapshots } from '../components/PageSnapshots';
 import {
   QzoneNavigationContext,
   QzoneProfileContext,
@@ -2278,6 +2279,20 @@ function isMobileShell(): boolean {
 }
 
 export function MainView(): ReactElement {
+  const uin = useViewState((state) => state.openedUin);
+  const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: Boolean(uin) });
+  const scope =
+    config.data?.uin === uin && config.data.configId
+      ? JSON.stringify([uin, config.data.configId])
+      : null;
+  return (
+    <PageSnapshots scope={scope}>
+      <MainWorkspace key={scope ?? `pending:${uin ?? ''}`} />
+    </PageSnapshots>
+  );
+}
+
+function MainWorkspace(): ReactElement {
   const [mailUnread, setMailUnread] = useState(0);
   const utils = trpc.useUtils();
   const pushToast = useToast((s) => s.push);
@@ -9756,7 +9771,7 @@ export function MainView(): ReactElement {
             refreshingContacts={refreshingContacts}
             onSidebarWidthChange={shell.updateSidebarWidth}
             sidebarContent={
-              <RetainedTabs activeKey={sidebarView} scrollable>
+              <RetainedTabs snapshotKey="sidebar" activeKey={sidebarView} scrollable>
                 {fullBleedView ? null : (
                   <>
                     <ChatSidebarContent
@@ -9834,7 +9849,7 @@ export function MainView(): ReactElement {
                   spaceRequest={qzoneSpaceRequest}
                   onSpaceChange={setCurrentQzoneUin}
                 />
-                <RetainedTabs activeKey={shell.view}>
+                <RetainedTabs snapshotKey="main" activeKey={shell.view}>
                   {shell.view === 'messages' && arkFeedState ? (
                     <ArkFeedView
                       conversationId={arkFeedState.conversationId}

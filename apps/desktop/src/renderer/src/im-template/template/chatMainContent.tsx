@@ -286,7 +286,10 @@ export function ChatMainContent({
           hidden={Boolean(selectedContact || selectedGroupConversation)}
         >
           <TabActivity active={!selectedContact && !selectedGroupConversation}>
-            <RetainedTabs activeKey={contactOverviewOpen ? 'graph' : 'empty'}>
+            <RetainedTabs
+              snapshotKey="contact-overview"
+              activeKey={contactOverviewOpen ? 'graph' : 'empty'}
+            >
               {contactOverviewOpen && relationGraphSlot ? (
                 relationGraphSlot
               ) : contactTab === 'groups' ? (

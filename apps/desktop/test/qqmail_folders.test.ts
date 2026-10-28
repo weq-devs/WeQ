@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MailPage as MailPageData, MailStatus } from '@weq/service/mail';
 import { SYSTEM_MAIL_FOLDERS } from '@weq/service/mail-wire';
 import { MailPage } from '../src/renderer/src/views/mail/MailPage';
 import type { MailApi } from '../src/renderer/src/views/mail/api';
 import type { ExportSavePolicy } from '@weq/service';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -98,6 +100,7 @@ function fixture() {
   return { api, list };
 }
 beforeEach(() => {
+  vi.stubGlobal('localStorage', new Storage());
   saveState.current = true;
   saveState.web = false;
   saveState.requestExport.mockReset();
@@ -110,31 +113,50 @@ afterEach(() => {
 async function mount(
   api: MailApi,
   searchTarget?: { id: string; folderId: number; revision: string },
+  scope = crypto.randomUUID(),
 ) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   await act(async () =>
-    root.render(createElement(MailPage, { api, selfEmail: 'self@example.invalid', searchTarget })),
+    root.render(
+      createElement(
+        PageSnapshots,
+        { scope },
+        createElement(MailPage, { api, selfEmail: 'self@example.invalid', searchTarget }),
+      ),
+    ),
   );
   return {
     host,
     setActive: (active: boolean) =>
       act(async () =>
         root.render(
-          createElement(MailPage, {
-            api,
-            selfEmail: 'self@example.invalid',
-            searchTarget,
-            active,
-          }),
+          createElement(
+            PageSnapshots,
+            { scope },
+            createElement(MailPage, {
+              api,
+              selfEmail: 'self@example.invalid',
+              searchTarget,
+              active,
+            }),
+          ),
         ),
       ),
     search: (target: { id: string; folderId: number; revision: string }) =>
       act(async () =>
         root.render(
-          createElement(MailPage, { api, selfEmail: 'self@example.invalid', searchTarget: target }),
+          createElement(
+            PageSnapshots,
+            { scope },
+            createElement(MailPage, {
+              api,
+              selfEmail: 'self@example.invalid',
+              searchTarget: target,
+            }),
+          ),
         ),
       ),
     clickInbox: () =>
@@ -149,6 +171,42 @@ async function mount(
 }
 
 describe('邮箱文件夹重复选择', () => {
+  it('非活动时释放阅读/编辑 DOM，后台连接继续，重建和重开都恢复未发送正文', async () => {
+    const { api } = fixture();
+    const scope = crypto.randomUUID();
+    const f = await mount(api, undefined, scope);
+    try {
+      await act(async () => f.host.querySelector<HTMLButtonElement>('.weq-mail-primary')!.click());
+      const editor = f.host.querySelector<HTMLElement>('[aria-label="邮件正文编辑器"]')!;
+      act(() => {
+        editor.innerHTML = '<p>尚未发送的合成正文</p>';
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await f.setActive(false);
+      expect(f.host.querySelector('.weq-mail-workspace')).toBeNull();
+      expect(f.host.querySelector('[aria-label="邮件正文编辑器"]')).toBeNull();
+      expect(editor.isConnected).toBe(false);
+      expect(api.dispose).not.toHaveBeenCalled();
+      expect(api.subscribe).toHaveBeenCalledOnce();
+      await f.setActive(true);
+      expect(f.host.querySelector('[aria-label="邮件正文编辑器"]')!.innerHTML).toBe(
+        '<p>尚未发送的合成正文</p>',
+      );
+      expect(api.subscribe).toHaveBeenCalledOnce();
+    } finally {
+      f.close();
+    }
+    const reopened = await mount(api, undefined, scope);
+    try {
+      expect(reopened.host.querySelector('[aria-label="邮件正文编辑器"]')!.innerHTML).toBe(
+        '<p>尚未发送的合成正文</p>',
+      );
+      expect(reopened.host.textContent).toContain('未保存');
+      expect(api.send).not.toHaveBeenCalled();
+    } finally {
+      reopened.close();
+    }
+  });
   it('顶部常驻按钮进入公共导出，未勾选默认全部，勾选后携带独立选区', async () => {
     const { api } = fixture();
     const f = await mount(api);

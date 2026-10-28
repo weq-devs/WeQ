@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { z } from 'zod';
+import { usePageState } from '../PageSnapshots';
 import { BarChart3, FolderOpen, HardDrive, Trash2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
@@ -61,7 +63,11 @@ export function ResourceManagementSection() {
 
 function ResourceManagementBody({ source }: { source: ResourceSource }) {
   const activity = useQQReadActivity(true, { onlineOnly: false });
-  const [view, setView] = useState<ResourceView>('overview');
+  const [view, setView] = usePageState<ResourceView>(
+    'resources:view',
+    'overview',
+    z.enum(['overview', 'cleanup', 'browse']),
+  );
   const [busy, setBusy] = useState(false);
   const [selection, setSelection] = useState<{ category: string }>();
   const scan = useResourceManagementScan(source, activity.enabled);
@@ -116,7 +122,7 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
           正在扫描{progress} · {scan.stats.length} / {RESOURCE_CATEGORIES.length + 1}
         </p>
       ) : null}
-      <RetainedTabs activeKey={view}>
+      <RetainedTabs snapshotKey="resource-management" activeKey={view}>
         <div key={view} className="weq-resource-panel" data-resource-panel={view}>
           {view === 'overview' ? (
             <>

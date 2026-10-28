@@ -34,6 +34,11 @@ import {
   X,
 } from 'lucide-react';
 import { client } from '../trpc/client';
+import { z } from 'zod';
+import { PageSnapshotScope, usePageState } from '../components/PageSnapshots';
+import { PageScrollSnapshot } from '../components/PageScrollSnapshot';
+import { useTabActive } from '../components/RetainedTabs';
+import { pageValue } from '../lib/pageSnapshots';
 import { QqAvatar } from '../components/QqAvatar';
 import {
   useContentMultiSelect,
@@ -90,7 +95,7 @@ function timeText(time: number): string {
 const QzonePageContext = createContext({ active: true, refresh: 0 });
 const QzoneReadPauseContext = createContext(false);
 
-/** Keep a tab's DOM, scroll position and reading state while it is hidden. */
+/** 子页离开即卸载，滚动与阅读现场单独保存。 */
 function QzonePage({
   active,
   refreshKey,
@@ -129,7 +134,9 @@ function QzonePage({
         if (active) position.current = event.currentTarget.scrollTop;
       }}
     >
-      <QzonePageContext.Provider value={context}>{children}</QzonePageContext.Provider>
+      <QzonePageContext.Provider value={context}>
+        {active ? children : null}
+      </QzonePageContext.Provider>
     </div>
   );
 }
@@ -148,20 +155,19 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
   spaceRequest?: QzoneSpaceRequest | null;
   onSpaceChange?: (uin: string) => void;
 }) {
-  const [visited, setVisited] = useState(active);
-  useEffect(() => {
-    if (active) setVisited(true);
-  }, [active]);
-  return visited || active ? (
-    <div hidden={!active} style={{ height: '100%', minHeight: 0 }}>
-      <QzoneView
-        active={active}
-        selfUin={selfUin}
-        nickname={nickname}
-        spaceRequest={spaceRequest}
-        onSpaceChange={onSpaceChange}
-      />
-    </div>
+  const parentActive = useTabActive();
+  return active && parentActive ? (
+    <PageSnapshotScope name="qzone">
+      <PageScrollSnapshot style={{ height: '100%', minHeight: 0 }}>
+        <QzoneView
+          active={active}
+          selfUin={selfUin}
+          nickname={nickname}
+          spaceRequest={spaceRequest}
+          onSpaceChange={onSpaceChange}
+        />
+      </PageScrollSnapshot>
+    </PageSnapshotScope>
   ) : null;
 });
 
@@ -349,18 +355,30 @@ export function QzoneView({
   const activity = useQQReadActivity(active);
   const people = useQzonePeople(selfUin, activity.enabled);
   const initialSpace = spaceRequest?.accountUin === selfUin ? spaceRequest : null;
-  const [tab, setTab] = useState<Tab>(
+  const [tab, setTab] = usePageState<Tab>(
+    'tab',
     initialSpace ? (initialSpace.uin === selfUin ? 'posts' : 'space') : 'feeds',
+    z.enum(['feeds', 'posts', 'space', 'related']),
   );
-  const handledRequest = useRef<string | null>(null);
+  const [handledRequest, setHandledRequest] = usePageState<string | null>(
+    'handled-request',
+    null,
+    pageValue.optionalString,
+  );
   const tabBar = useRef<HTMLElement>(null);
-  const [hostUin, setHostUin] = useState(initialSpace?.uin ?? selfUin);
+  const [hostUin, setHostUin] = usePageState(
+    'host',
+    initialSpace?.uin ?? selfUin,
+    pageValue.string,
+  );
   // 把自己的空间状态同步给外层（浮动工具按当前位置导出当前空间）。
   useEffect(() => {
     onSpaceChange?.(hostUin);
   }, [hostUin, onSpaceChange]);
-  const [spaces, setSpaces] = useState<string[]>(
+  const [spaces, setSpaces] = usePageState<string[]>(
+    'spaces',
     initialSpace && initialSpace.uin !== selfUin ? [initialSpace.uin] : [],
+    pageValue.strings,
   );
   const [spaceNames, setSpaceNames] = useState<Record<string, string>>(
     initialSpace ? { [initialSpace.uin]: initialSpace.nickname || initialSpace.uin } : {},
@@ -382,7 +400,7 @@ export function QzoneView({
       Object.hasOwn(current, uin) ? current : { ...current, [uin]: value },
     );
   }, []);
-  const [inputUin, setInputUin] = useState('');
+  const [inputUin, setInputUin] = usePageState('input', '', pageValue.string);
   const [targetError, setTargetError] = useState('');
   const requestExport = useRequestContentExport();
   const contentSelection = useCurrentContentSelection();
@@ -422,17 +440,17 @@ export function QzoneView({
         setTab('space');
       }
     },
-    [selfUin, people.names, rememberSpaceName],
+    [selfUin, people.names, rememberSpaceName, setTab, setSpaces, setHostUin],
   );
   useEffect(() => {
     if (
       !active ||
       !spaceRequest ||
       spaceRequest.accountUin !== selfUin ||
-      handledRequest.current === spaceRequest.revision
+      handledRequest === spaceRequest.revision
     )
       return;
-    handledRequest.current = spaceRequest.revision;
+    setHandledRequest(spaceRequest.revision);
     openSpace(spaceRequest.uin, spaceRequest.nickname);
     if (spaceRequest.target?.kind === 'album')
       setAlbumRequests((current) => ({
@@ -451,7 +469,7 @@ export function QzoneView({
         [spaceRequest.uin]: { tid, revision: spaceRequest.revision },
       }));
     }
-  }, [active, selfUin, spaceRequest, openSpace]);
+  }, [active, selfUin, spaceRequest, openSpace, handledRequest, setHandledRequest]);
   const workspace = (
     <QzonePeopleContext.Provider value={people}>
       <section className="weq-qzn" aria-label="QQ 空间">

@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { usePageState } from '../PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import { Image, Save } from 'lucide-react';
 import {
   DEFAULT_CHAT_IMAGE_CACHE_MIB,
@@ -15,9 +17,18 @@ export function ChatImageCacheSettings() {
   const save = trpc.bootstrap.setChatImageCacheMiB.useMutation();
   const utils = trpc.useUtils();
   const current = settings.data?.chatImageCacheMiB ?? DEFAULT_CHAT_IMAGE_CACHE_MIB;
-  const [draft, setDraft] = useState(String(current));
+  const [draft, setDraft] = usePageState(
+    'image-cache:draft',
+    String(current),
+    pageValue.string,
+    true,
+  );
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => setDraft(String(current)), [current]);
+  const previous = useRef(String(current));
+  useEffect(() => {
+    setDraft((value) => (value === previous.current ? String(current) : value));
+    previous.current = String(current);
+  }, [current, setDraft]);
   const value = draft.trim() === '' ? NaN : Number(draft);
   const valid = Number.isInteger(value) && value >= 0 && value <= MAX_CHAT_IMAGE_CACHE_MIB;
 

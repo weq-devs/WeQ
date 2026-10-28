@@ -2,6 +2,8 @@ import { act, createElement, type CSSProperties, type ReactNode } from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createRoot } from 'react-dom/client';
+import { Storage } from 'happy-dom';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChannelView } from '../src/renderer/src/views/ChannelView';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
@@ -354,8 +356,15 @@ describe('QQ 频道内的私聊工作区', () => {
       style.remove();
     }
   });
-  it('只在频道内部提供入口，按需读取，返回与重开保留两个阅读现场', async () => {
-    const f = mount(createElement(ChannelView, { selfUser: createTemplateDemoData().user }));
+  it('频道和私聊互相卸载，重建后恢复所选会话并重新读取消息', async () => {
+    vi.stubGlobal('localStorage', new Storage());
+    const f = mount(
+      createElement(
+        PageSnapshots,
+        { scope: 'synthetic' },
+        createElement(ChannelView, { selfUser: createTemplateDemoData().user }),
+      ),
+    );
     try {
       expect(rpc.sessions).not.toHaveBeenCalled();
       const browser = f.host.querySelector<HTMLInputElement>('[aria-label="合成频道浏览现场"]')!;
@@ -363,7 +372,8 @@ describe('QQ 频道内的私聊工作区', () => {
       const open = f.host.querySelector<HTMLButtonElement>('[aria-label="频道私聊"]')!;
       await act(async () => open.click());
       expect(rpc.sessions).toHaveBeenCalledOnce();
-      expect(f.host.querySelector<HTMLElement>('.weq-channel-browser')!.hidden).toBe(true);
+      expect(f.host.querySelector('.weq-channel-browser')).toBeNull();
+      expect(browser.isConnected).toBe(false);
       await act(async () =>
         f.host.querySelector<HTMLButtonElement>('.weq-guild-direct-item')!.click(),
       );
@@ -374,11 +384,14 @@ describe('QQ 频道内的私聊工作区', () => {
       });
       expect(f.host.querySelector('.has-selected-session')).not.toBeNull();
       act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="返回 QQ 频道"]')!.click());
-      expect(f.host.querySelector<HTMLElement>('.weq-channel-browser')!.hidden).toBe(false);
-      expect(browser.value).toBe('保留的频道现场');
-      act(() => open.click());
-      expect(rpc.sessions).toHaveBeenCalledOnce();
-      expect(rpc.latest).toHaveBeenCalledOnce();
+      expect(f.host.querySelector('.weq-channel-browser')).not.toBeNull();
+      expect(f.host.querySelector('[aria-label="合成频道浏览现场"]')).not.toBe(browser);
+      expect(f.host.querySelector('.weq-guild-direct')).toBeNull();
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('[aria-label="频道私聊"]')!.click(),
+      );
+      expect(rpc.sessions).toHaveBeenCalledTimes(2);
+      expect(rpc.latest).toHaveBeenCalledTimes(2);
       expect(f.host.querySelector('.has-selected-session')).not.toBeNull();
       act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="会话列表"]')!.click());
       expect(f.host.querySelector('.has-selected-session')).toBeNull();

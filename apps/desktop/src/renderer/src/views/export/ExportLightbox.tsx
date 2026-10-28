@@ -19,6 +19,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { z } from 'zod';
+import { usePageState } from '../../components/PageSnapshots';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import {
   CalendarClock,
@@ -306,6 +308,39 @@ interface OcrModelProgress {
   totalBytes: number;
 }
 
+const optionsSnapshot = z.object({
+  range: z.object({
+    preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
+    start: z.number().nullable(),
+    end: z.number().nullable(),
+  }),
+  mediaKinds: z.object({
+    image: z.boolean(),
+    voice: z.boolean(),
+    video: z.boolean(),
+    file: z.boolean(),
+    sysface: z.boolean(),
+  }),
+  dress: z.object({ bubble: z.boolean(), font: z.boolean(), widget: z.boolean() }),
+  exportMedia: z.boolean(),
+  qzoneInteractions: z.boolean(),
+  completeMessages: z.boolean(),
+  exportAvatar: z.boolean(),
+  completeMedia: z.boolean(),
+  downloadVideo: z.boolean(),
+  downloadFile: z.boolean(),
+  downloadPtt: z.boolean(),
+  completeDress: z.boolean(),
+  transcribeVoice: z.boolean(),
+  onlineTranscribe: z.boolean(),
+  onlineConcurrency: z.number(),
+  ocrImages: z.boolean(),
+  onlineOcr: z.boolean(),
+  ocrConcurrency: z.number(),
+  autoSave: z.boolean(),
+  chatlab: z.boolean(),
+});
+
 export function ExportLightbox({
   embedded = false,
   hidden = false,
@@ -363,13 +398,23 @@ export function ExportLightbox({
     if (!embedded && !hidden) onClose();
   });
   const pushToast = useToast((s) => s.push);
-  const [opts, setOpts] = useState<ExportOptions>(() => {
-    const value = normalizeLightboxOptions(initialOptions);
-    return contactScope === 'groups' ? { ...value, exportAvatar: false } : value;
-  });
+  const [opts, setOpts] = usePageState<ExportOptions>(
+    `export:options:${variant}:${contactScope}`,
+    () => {
+      const value = normalizeLightboxOptions(initialOptions);
+      return contactScope === 'groups' ? { ...value, exportAvatar: false } : value;
+    },
+    optionsSnapshot,
+    true,
+  );
   const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [schedule, setSchedule] = useState<Schedule>(initialSchedule);
+  const [schedule, setSchedule] = usePageState<Schedule>(
+    `export:schedule:${variant}`,
+    initialSchedule,
+    z.object({ mode: z.enum(['daily', 'interval']), time: z.string(), intervalHours: z.number() }),
+    true,
+  );
   const [path, setPath] = useState<string | null>(null);
   const [pickingPath, setPickingPath] = useState(false);
   const [baselineDirectory, setBaselineDirectory] = useState<string | undefined>(
@@ -606,10 +651,21 @@ export function ExportLightbox({
           : FULL_FORMATS,
     [variant, contactScope],
   );
-  const [formats, setFormats] = useState<ExportFormat[]>(() => {
-    const allowed = initialFormats?.filter((f) => formatOptions.some((o) => o.value === f));
-    return allowed && allowed.length > 0 ? allowed : [formatOptions[0]!.value];
-  });
+  const [formats, setFormats] = usePageState<ExportFormat[]>(
+    `export:formats:${variant}:${contactScope}`,
+    () => {
+      const allowed = initialFormats?.filter((f) => formatOptions.some((o) => o.value === f));
+      return allowed && allowed.length > 0 ? allowed : [formatOptions[0]!.value];
+    },
+    z.array(
+      z.custom<ExportFormat>((value) =>
+        [...FULL_FORMATS, ...FRIEND_FORMATS, ...QZONE_FORMATS].some(
+          (format) => format.value === value,
+        ),
+      ),
+    ),
+    true,
+  );
 
   /** QQ 空间 HTML 导出靠本地配图 + 评论/点赞渲染：选中 HTML 时锁定
    *  「下载配图」与「评论与点赞」为开。 */
@@ -623,7 +679,7 @@ export function ExportLightbox({
   useEffect(() => {
     if (!htmlForced) return;
     setOpts((o) => ({ ...o, exportMedia: true, qzoneInteractions: true }));
-  }, [htmlForced]);
+  }, [htmlForced, setOpts]);
 
   /** 在线转录先记本次选择，确认导出时再就绪抓包。 */
   async function toggleOnlineTranscribe(v: boolean): Promise<void> {

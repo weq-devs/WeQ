@@ -2,6 +2,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { loadLayoutNumber, saveLayoutNumber } from './layoutStorage';
 import { defaultConversationPreference } from './preferences';
+import { usePageState } from '../../components/PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
+import { z } from 'zod';
 import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
 import type {
   Contact,
@@ -62,19 +65,39 @@ export function useChatShellController({
   onOpenContactNotice,
 }: UseChatShellControllerOptions) {
   const [view, setView] = useState<MainView>(initialView);
-  const [query, setQuery] = useState('');
-  const [contactTab, setContactTab] = useState<ContactTab>('friends');
+  const [query, setQuery] = usePageState('shell:query', '', pageValue.string);
+  const [contactTab, setContactTab] = usePageState<ContactTab>(
+    'shell:contact-tab',
+    'friends',
+    z.enum(['friends', 'groups']),
+  );
   const [contactNotice, setContactNotice] = useState<ContactNoticeView | null>(null);
-  const [contactOverviewOpen, setContactOverviewOpen] = useState(true);
-  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [contactOverviewOpen, setContactOverviewOpen] = usePageState(
+    'shell:contact-overview',
+    true,
+    pageValue.boolean,
+  );
+  const [selectedContactId, setSelectedContactId] = usePageState<string | null>(
+    'shell:contact',
+    null,
+    pageValue.optionalString,
+  );
   const [expandedContact, setExpandedContact] = useState<Contact | undefined>();
   const [expandedGroup, setExpandedGroup] = useState<GroupConversation | undefined>();
-  const [contactWorkspaceTab, setContactWorkspaceTab] = useState<ContactWorkspaceTab>('profile');
-  const [selectedGroupConversationId, setSelectedGroupConversationId] = useState<string | null>(
-    null,
+  const [contactWorkspaceTab, setContactWorkspaceTab] = usePageState<ContactWorkspaceTab>(
+    'shell:contact-detail',
+    'profile',
+    z.enum(['profile', 'personality', 'marks', 'portrait']),
   );
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(
+  const [selectedGroupConversationId, setSelectedGroupConversationId] = usePageState<string | null>(
+    'shell:group',
+    null,
+    pageValue.optionalString,
+  );
+  const [activeConversationId, setActiveConversationId] = usePageState<string | null>(
+    'shell:conversation',
     initialActiveConversationId,
+    pageValue.optionalString,
   );
   const [sidebarWidth, setSidebarWidth] = useState(() =>
     loadLayoutNumber(sidebarWidthStorageKey, 362, 220, 520),
@@ -151,7 +174,13 @@ export function useChatShellController({
 
     window.addEventListener('popstate', returnToParentPage);
     return () => window.removeEventListener('popstate', returnToParentPage);
-  }, [history]);
+  }, [
+    history,
+    setSelectedContactId,
+    setSelectedGroupConversationId,
+    setActiveConversationId,
+    setContactOverviewOpen,
+  ]);
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === activeConversationId),
@@ -197,14 +226,17 @@ export function useChatShellController({
             (history.shouldAutoSelectConversation() ? (conversations[0]?.id ?? null) : null),
         );
     },
-    [conversations, history],
+    [conversations, history, setActiveConversationId],
   );
 
-  const changeContactTab = useCallback((tab: ContactTab) => {
-    setContactTab(tab);
-    setContactNotice(null);
-    setContactOverviewOpen(false);
-  }, []);
+  const changeContactTab = useCallback(
+    (tab: ContactTab) => {
+      setContactTab(tab);
+      setContactNotice(null);
+      setContactOverviewOpen(false);
+    },
+    [setContactTab, setContactOverviewOpen],
+  );
 
   const openContactNotice = useCallback(
     (kind: ContactNoticeView) => {
@@ -223,7 +255,13 @@ export function useChatShellController({
       setSelectedGroupConversationId(null);
       onOpenContactNotice?.(kind);
     },
-    [history, onOpenContactNotice],
+    [
+      history,
+      onOpenContactNotice,
+      setSelectedContactId,
+      setSelectedGroupConversationId,
+      setContactOverviewOpen,
+    ],
   );
 
   const selectConversation = useCallback(
@@ -232,7 +270,7 @@ export function useChatShellController({
       setView('messages');
       setActiveConversationId(conversationId);
     },
-    [history],
+    [history, setActiveConversationId],
   );
 
   const selectContact = useCallback(
@@ -243,7 +281,7 @@ export function useChatShellController({
       setSelectedContactId(contact.id);
       setContactWorkspaceTab('profile');
     },
-    [history],
+    [history, setContactWorkspaceTab, setSelectedContactId, setContactOverviewOpen],
   );
 
   const selectGroup = useCallback(
@@ -253,7 +291,7 @@ export function useChatShellController({
       setContactOverviewOpen(false);
       setSelectedGroupConversationId(conversationId);
     },
-    [history],
+    [history, setSelectedGroupConversationId, setContactOverviewOpen],
   );
 
   const openContactDetails = useCallback(
@@ -268,7 +306,14 @@ export function useChatShellController({
       setSelectedContactId(contact.id);
       setContactWorkspaceTab(tab);
     },
-    [history],
+    [
+      history,
+      setContactTab,
+      setContactWorkspaceTab,
+      setQuery,
+      setSelectedContactId,
+      setContactOverviewOpen,
+    ],
   );
 
   const openGroupDetails = useCallback(
@@ -282,7 +327,7 @@ export function useChatShellController({
       setExpandedGroup(conversation);
       setSelectedGroupConversationId(conversation.id);
     },
-    [history],
+    [history, setSelectedGroupConversationId, setQuery, setContactTab, setContactOverviewOpen],
   );
 
   const openConversation = useCallback(
@@ -293,7 +338,7 @@ export function useChatShellController({
       setView('messages');
       setActiveConversationId(conversationId);
     },
-    [history],
+    [history, setActiveConversationId],
   );
 
   const updateSidebarWidth = useCallback(
@@ -308,13 +353,13 @@ export function useChatShellController({
     setSelectedContactId(null);
     setContactOverviewOpen(true);
     history.replaceShell();
-  }, [history]);
+  }, [history, setSelectedContactId, setContactOverviewOpen]);
 
   const backGroup = useCallback(() => {
     setSelectedGroupConversationId(null);
     setContactOverviewOpen(true);
     history.replaceShell();
-  }, [history]);
+  }, [history, setSelectedGroupConversationId, setContactOverviewOpen]);
 
   const backContactNotice = useCallback(() => {
     setContactNotice(null);
@@ -324,7 +369,7 @@ export function useChatShellController({
   const backConversation = useCallback(() => {
     setActiveConversationId(null);
     history.replaceShell();
-  }, [history]);
+  }, [history, setActiveConversationId]);
 
   return {
     activeConversation,

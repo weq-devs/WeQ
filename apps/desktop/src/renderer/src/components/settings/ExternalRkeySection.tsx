@@ -17,6 +17,8 @@
  */
 
 import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
+import { z } from 'zod';
+import { usePageState } from '../PageSnapshots';
 import {
   CheckCircle2,
   ChevronDown,
@@ -85,7 +87,14 @@ export function ExternalRkeySection(): ReactElement {
   const deleteServer = trpc.bootstrap.deleteExternalRkeyServer.useMutation();
   const setEnabled = trpc.bootstrap.setExternalRkeyEnabled.useMutation();
 
-  const [form, setForm] = useState<ServerForm | null>(null);
+  const [form, setForm] = usePageState<ServerForm | null>(
+    'rkey:form',
+    null,
+    z
+      .object({ id: z.string(), name: z.string(), baseUrl: z.string(), accessToken: z.string() })
+      .nullable(),
+    true,
+  );
   const [revealToken, setRevealToken] = useState(false);
   useEffect(() => {
     if (!active) setRevealToken(false);

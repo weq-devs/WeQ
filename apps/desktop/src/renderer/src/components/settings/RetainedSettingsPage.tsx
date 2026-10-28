@@ -1,4 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { usePageState } from '../PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import { useTabActive } from '../RetainedTabs';
 import type { ResolvedSettingsTarget, SettingsPageId } from './navigation';
 import { revealSetting } from './searchTarget';
@@ -8,14 +10,21 @@ export function RetainedSettingsPage({
   pageId,
   target,
   children,
+  revision = 0,
 }: {
   pageId: SettingsPageId;
   target: ResolvedSettingsTarget;
   children: ReactNode;
+  revision?: number;
 }) {
   const active = useTabActive();
   const root = useRef<HTMLDivElement>(null);
-  const applied = useRef<ResolvedSettingsTarget | null>(null);
+  const [applied, setApplied] = usePageState<string | null>(
+    'search-applied',
+    null,
+    pageValue.optionalString,
+  );
+  const request = JSON.stringify([target, revision]);
   useEffect(() => {
     if (
       !active ||
@@ -24,13 +33,15 @@ export function RetainedSettingsPage({
       (!target.item && !target.settingId)
     )
       return;
+    if (applied !== request)
+      root.current.dispatchEvent(new Event('weq-page-navigation', { bubbles: true }));
     return revealSetting(root.current, target, {
-      navigate: applied.current !== target,
+      navigate: applied !== request,
       onLocated: () => {
-        applied.current = target;
+        if (applied !== request) setApplied(request);
       },
     });
-  }, [active, target, pageId]);
+  }, [active, target, pageId, applied, request, setApplied]);
   return (
     <div
       hidden={!active}

@@ -46,6 +46,9 @@ import {
   Layers,
 } from 'lucide-react';
 import type { CleanupTargetStat, CleanupVariant, CleanupResult } from '@weq/service';
+import { z } from 'zod';
+import { usePageState } from '../../components/PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import { client, trpc } from '../../trpc/client';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
 import { fmtBytes } from './CacheShared';
@@ -209,8 +212,12 @@ export function ResourceCleanupDialog({
   const [chosen, setChosen] = useState<{ preset: Preset; instructions: Instruction[] } | null>(
     null,
   );
-  const [customMode, setCustomMode] = useState(false);
-  const [customSel, setCustomSel] = useState<Record<string, CleanupVariant>>({});
+  const [customMode, setCustomMode] = usePageState('cleanup:custom', false, pageValue.boolean);
+  const [customSel, setCustomSel] = usePageState<Record<string, CleanupVariant>>(
+    'cleanup:selection',
+    {},
+    z.record(z.enum(['all', 'ori', 'thumb'])),
+  );
   const [phrase, setPhrase] = useState('');
   const [result, setResult] = useState<{
     receipt: CleanupResult;
@@ -242,15 +249,20 @@ export function ResourceCleanupDialog({
     [],
   );
 
-  const resetState = useCallback((): void => {
-    setError(null);
-    setStage('pick');
-    setChosen(null);
-    setCustomMode(false);
-    setCustomSel({});
-    setPhrase('');
-    setResult(null);
-  }, []);
+  const resetState = useCallback(
+    (keepSelection = false): void => {
+      setError(null);
+      setStage('pick');
+      setChosen(null);
+      if (!keepSelection) {
+        setCustomMode(false);
+        setCustomSel({});
+      }
+      setPhrase('');
+      setResult(null);
+    },
+    [setCustomSel, setCustomMode],
+  );
 
   const scan = useCallback(async (): Promise<void> => {
     if (refresh) return refresh();
@@ -274,12 +286,12 @@ export function ResourceCleanupDialog({
   // Fresh scan + reset every time the dialog opens.
   useEffect(() => {
     if (open) {
-      resetState();
+      resetState(embedded);
       if (!refresh) void scan();
     } else {
       runRef.current += 1;
     }
-  }, [open, scan, resetState, refresh]);
+  }, [open, scan, resetState, refresh, embedded]);
 
   const totalBytes = useMemo(() => targets.reduce((s, t) => s + t.bytes, 0), [targets]);
 

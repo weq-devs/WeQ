@@ -12,6 +12,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { z } from 'zod';
+import { usePageState } from '../PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import {
   AlertTriangle,
   Check,
@@ -135,10 +138,15 @@ export function BugReportPanel(): ReactElement {
     refetchOnMount: 'always',
   });
 
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+  const [title, setTitle] = usePageState('feedback:title', '', pageValue.string, true);
+  const [body, setBody] = usePageState('feedback:body', '', pageValue.string, true);
   const [preview, setPreview] = useState(false);
-  const [checks, setChecks] = useState({ isBug: true, knowCause: false, willingPr: false });
+  const [checks, setChecks] = usePageState(
+    'feedback:checks',
+    { isBug: true, knowCause: false, willingPr: false },
+    z.object({ isBug: z.boolean(), knowCause: z.boolean(), willingPr: z.boolean() }),
+    true,
+  );
   const [hexdump, setHexdump] = useState<HexdumpView | null>(null);
   const [hexBusy, setHexBusy] = useState(false);
   const [copiedHex, setCopiedHex] = useState(false);
@@ -190,7 +198,7 @@ export function BugReportPanel(): ReactElement {
     if (version.isLoading) return;
     templateFilledRef.current = true;
     setBody(buildTemplate());
-  }, [buildTemplate, body, version.isLoading]);
+  }, [buildTemplate, body, version.isLoading, setBody]);
 
   /** 顶部 banner 的底部渐变模糊。 */
   const bannerStyle = useMemo(

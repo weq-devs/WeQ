@@ -14,6 +14,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { usePageState } from './PageSnapshots';
+import { pageValue } from '../lib/pageSnapshots';
 import {
   Bookmark,
   CheckCheck,
@@ -589,8 +591,8 @@ export function CollectionDialog({
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [kind, setKind] = useState('all');
+  const [query, setQuery] = usePageState('collection:query', '', pageValue.string);
+  const [kind, setKind] = usePageState('collection:kind', 'all', pageValue.string);
   const [page, setPage] = useState(0);
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<CollectionItemWire | null>(null);

@@ -62,6 +62,8 @@ import {
 } from './export/chatExport';
 import {
   COLLECTION_FORMATS,
+  FRIEND_FORMATS,
+  QZONE_FORMATS,
   DEFAULT_OPTIONS,
   chatKind,
   convAvatarUrl,
@@ -99,6 +101,9 @@ import { QzoneScopePicker } from './export/QzoneScopePicker';
 import '../styles/workspace-tools.css';
 import '../styles/unified-export.css';
 import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
+import { usePageState } from '../components/PageSnapshots';
+import { pageValue } from '../lib/pageSnapshots';
+import { z } from 'zod';
 import { ScheduleSettings } from '../components/tasks/ScheduleSettings';
 
 interface ModeDef {
@@ -398,12 +403,20 @@ export function ExportTool({
   const tasks = trpc.account.listExportTasks.useQuery();
   const schedules = trpc.account.listSchedules.useQuery();
 
-  const [mode, setMode] = useState<ExportMode>(
+  const [mode, setMode] = usePageState<ExportMode>(
+    'export:mode',
     databaseTarget
       ? 'database'
       : initialMode === 'scheduled'
         ? 'full'
         : (initialMode ?? initialExportMode(initialSelection)),
+    z.custom<ExportMode>(
+      (value) =>
+        typeof value === 'string' &&
+        (value === 'database' || MODES.some((mode) => mode.id === value)),
+    ),
+    false,
+    !initialSelection && !initialMode && !databaseTarget,
   );
   // 浮动工具子项带过来的默认对象：群相册 / 群文件要从当前界面的群直接落地，
   // 不必在面板里再选一遍群。
@@ -417,76 +430,164 @@ export function ExportTool({
   const selfProfile = trpc.account.getSelfProfile.useQuery(undefined, {
     enabled: active && surface === 'export' && mode === 'qzone',
   });
-  const [execution, setExecution] = useState<'now' | 'scheduled'>(
+  const [execution, setExecution] = usePageState<'now' | 'scheduled'>(
+    'export:execution',
     initialMode === 'scheduled' ? 'scheduled' : 'now',
+    z.enum(['now', 'scheduled']),
+    false,
+    !initialMode,
   );
-  const [taskTab, setTaskTab] = useState<'tasks' | 'schedules'>('tasks');
-  const [selectedSchedule, setSelectedSchedule] = useState<string | null>(null);
+  const [taskTab, setTaskTab] = usePageState<'tasks' | 'schedules'>(
+    'export:task-tab',
+    'tasks',
+    z.enum(['tasks', 'schedules']),
+  );
+  const [selectedSchedule, setSelectedSchedule] = usePageState<string | null>(
+    'export:schedule',
+    null,
+    pageValue.optionalString,
+  );
   const activeScheduleId =
     schedules.data?.find((item) => item.id === selectedSchedule)?.id ?? schedules.data?.[0]?.id;
   // 频道私聊会话列表（guild_msg.db；只在该模式下加载）。
   const guildSessions = trpc.account.guildDirectListSessions.useQuery(undefined, {
     enabled: active && surface === 'export' && mode === 'guild',
   });
-  const [chatSelection, setChatSelection] = useState<Set<string>>(
+  const [chatSelection, setChatSelection] = usePageState<Set<string>>(
+    'export:chats',
     () => new Set(initialConversationIds(initialSelection)),
+    pageValue.stringSet,
+    true,
+    !initialSelection,
   );
   const [qzoneInitial] = useState(() => initialQzoneScope(initialSelection));
-  const [spaceSelection, setSpaceSelection] = useState<Set<string>>(
+  const [spaceSelection, setSpaceSelection] = usePageState<Set<string>>(
+    'export:spaces',
     () => new Set(qzoneInitial.uin ? [qzoneInitial.uin] : []),
+    pageValue.stringSet,
+    true,
+    !initialSelection,
   );
-  const [postSelections, setPostSelections] = useState<Record<string, string[]>>(() =>
-    qzoneInitial.uin && qzoneInitial.tids !== undefined
-      ? { [qzoneInitial.uin]: [...qzoneInitial.tids] }
-      : {},
+  const [postSelections, setPostSelections] = usePageState<Record<string, string[]>>(
+    'export:posts',
+    () =>
+      qzoneInitial.uin && qzoneInitial.tids !== undefined
+        ? { [qzoneInitial.uin]: [...qzoneInitial.tids] }
+        : {},
+    pageValue.stringLists,
+    true,
+    !initialSelection,
   );
-  const [spaceScopeUin, setSpaceScopeUin] = useState<string | null>(() =>
-    qzoneInitial.tids !== undefined ? (qzoneInitial.uin ?? null) : null,
+  const [spaceScopeUin, setSpaceScopeUin] = usePageState<string | null>(
+    'export:space-scope',
+    () => (qzoneInitial.tids !== undefined ? (qzoneInitial.uin ?? null) : null),
+    pageValue.optionalString,
+    true,
+    !initialSelection,
   );
   const convSelection = mode === 'qzone' ? spaceSelection : chatSelection;
   const setConvSelection = mode === 'qzone' ? setSpaceSelection : setChatSelection;
-  const [messageSelections, setMessageSelections] = useState<Record<string, string[]>>(() => {
-    if (initialSelection?.owner.kind !== 'messages' || initialSelection.scope.type !== 'items')
-      return {};
-    const conv = initialSelection.owner.container.slice(
-      initialSelection.owner.container.indexOf(':') + 1,
-    );
-    return { [conv]: [...initialSelection.scope.ids] };
-  });
-  const [scopeConversationId, setScopeConversationId] = useState<string | null>(() =>
-    initialSelection?.owner.kind === 'messages' && initialSelection.scope.type === 'items'
-      ? (initialConversationIds(initialSelection)[0] ?? null)
-      : null,
+  const [messageSelections, setMessageSelections] = usePageState<Record<string, string[]>>(
+    'export:messages',
+    () => {
+      if (initialSelection?.owner.kind !== 'messages' || initialSelection.scope.type !== 'items')
+        return {};
+      const conv = initialSelection.owner.container.slice(
+        initialSelection.owner.container.indexOf(':') + 1,
+      );
+      return { [conv]: [...initialSelection.scope.ids] };
+    },
+    pageValue.stringLists,
+    true,
+    !initialSelection,
+  );
+  const [scopeConversationId, setScopeConversationId] = usePageState<string | null>(
+    'export:conversation-scope',
+    () =>
+      initialSelection?.owner.kind === 'messages' && initialSelection.scope.type === 'items'
+        ? (initialConversationIds(initialSelection)[0] ?? null)
+        : null,
+    pageValue.optionalString,
+    true,
+    !initialSelection,
   );
   /** 频道私聊多选：id = nodeId（与普通会话 uid 空间不同，分开存。） */
   const [guildInitial] = useState(() => initialGuildScope(initialSelection));
-  const [guildSelection, setGuildSelection] = useState<Set<string>>(
+  const [guildSelection, setGuildSelection] = usePageState<Set<string>>(
+    'export:guilds',
     () => new Set(guildInitial.nodeIds),
+    pageValue.stringSet,
+    true,
+    !initialSelection,
   );
-  const [guildMessageSelections, setGuildMessageSelections] = useState(guildInitial.messageIds);
-  const [guildScopeId, setGuildScopeId] = useState<string | null>(
+  const [guildMessageSelections, setGuildMessageSelections] = usePageState(
+    'export:guild-messages',
+    guildInitial.messageIds,
+    pageValue.stringLists,
+    true,
+    !initialSelection,
+  );
+  const [guildScopeId, setGuildScopeId] = usePageState<string | null>(
+    'export:guild-scope',
     () => guildInitial.nodeIds[0] ?? null,
+    pageValue.optionalString,
+    true,
+    !initialSelection,
   );
   /** 新任务到达时，强制选中该任务。 */
   const [autoSelectTaskId, setAutoSelectTaskId] = useState<string | null>(null);
   /** 导出联系人：好友 or 群成员。 */
   const [contactInitial] = useState(() => initialContactScope(initialSelection));
-  const [contactScope, setContactScope] = useState<'friends' | 'group' | 'groups'>(
+  const [contactScope, setContactScope] = usePageState<'friends' | 'group' | 'groups'>(
+    'export:contact-scope',
     contactInitial.scope,
+    z.enum(['friends', 'group', 'groups']),
+    true,
+    !initialSelection,
   );
-  const [groupListIds, setGroupListIds] = useState<string[] | undefined>(
+  const [groupListIds, setGroupListIds] = usePageState<string[] | undefined>(
+    'export:group-list',
     contactInitial.groupListIds,
+    pageValue.strings.optional(),
+    true,
+    !initialSelection,
   );
-  const [friendUids, setFriendUids] = useState<string[] | undefined>(contactInitial.friendUids);
+  const [friendUids, setFriendUids] = usePageState<string[] | undefined>(
+    'export:friends',
+    contactInitial.friendUids,
+    pageValue.strings.optional(),
+    true,
+    !initialSelection,
+  );
   /** 好友导出：选中的分组 id（空 = 全部好友）。 */
-  const [catSelection, setCatSelection] = useState<Set<number>>(new Set());
-  /** 群成员导出：选中的群号。 */
-  const [contactGroupIds, setContactGroupIds] = useState<Set<string>>(
-    () => new Set(contactInitial.groupIds),
+  const [catSelection, setCatSelection] = usePageState<Set<number>>(
+    'export:categories',
+    new Set(),
+    z.set(z.number()),
+    true,
+    !initialSelection,
   );
-  const [memberUids, setMemberUids] = useState<Record<string, string[]>>(contactInitial.memberUids);
-  const [memberScopeGroupId, setMemberScopeGroupId] = useState<string | null>(
+  /** 群成员导出：选中的群号。 */
+  const [contactGroupIds, setContactGroupIds] = usePageState<Set<string>>(
+    'export:contact-groups',
+    () => new Set(contactInitial.groupIds),
+    pageValue.stringSet,
+    true,
+    !initialSelection,
+  );
+  const [memberUids, setMemberUids] = usePageState<Record<string, string[]>>(
+    'export:members',
+    contactInitial.memberUids,
+    pageValue.stringLists,
+    true,
+    !initialSelection,
+  );
+  const [memberScopeGroupId, setMemberScopeGroupId] = usePageState<string | null>(
+    'export:member-scope',
     () => Object.keys(contactInitial.memberUids)[0] ?? null,
+    pageValue.optionalString,
+    true,
+    !initialSelection,
   );
   const groups = trpc.account.exportGroupDirectory.useQuery(undefined, {
     enabled:
@@ -497,11 +598,22 @@ export function ExportTool({
         mode === 'groupfile'),
   });
   /** 导出收藏：选中的收藏类型（空 = 全部）。 */
-  const [collectionKinds, setCollectionKinds] = useState<Set<string>>(new Set());
-  const [collectionIds, setCollectionIds] = useState<string[] | undefined>(() =>
-    initialSelection?.owner.kind === 'collections' && initialSelection.scope.type === 'items'
-      ? [...initialSelection.scope.ids]
-      : undefined,
+  const [collectionKinds, setCollectionKinds] = usePageState<Set<string>>(
+    'export:collection-kinds',
+    new Set(),
+    pageValue.stringSet,
+    true,
+    !initialSelection,
+  );
+  const [collectionIds, setCollectionIds] = usePageState<string[] | undefined>(
+    'export:collections',
+    () =>
+      initialSelection?.owner.kind === 'collections' && initialSelection.scope.type === 'items'
+        ? [...initialSelection.scope.ids]
+        : undefined,
+    pageValue.strings.optional(),
+    true,
+    !initialSelection,
   );
   const [filteredCollectionIds, setFilteredCollectionIds] = useState<string[]>([]);
   /** 收藏预览：加载一次全部收藏（含展示摘要），按类型计数 + 下方列表预览。 */
@@ -545,7 +657,15 @@ export function ExportTool({
   const [fileGroupId, setFileGroupId] = useState<string | null>(
     initialMode === 'groupfile' ? initialGroupId : null,
   );
-  const [format, setFormat] = useState<ExportFormat>('json');
+  const [format, setFormat] = usePageState<ExportFormat>(
+    'export:format',
+    'json',
+    z.custom<ExportFormat>((value) =>
+      [...COLLECTION_FORMATS, ...FRIEND_FORMATS, ...QZONE_FORMATS].some(
+        (format) => format.value === value,
+      ),
+    ),
+  );
   const fixedMessages =
     fixedScope &&
     (initialSelection?.owner.kind === 'messages' ||
@@ -596,7 +716,7 @@ export function ExportTool({
       setFormat('json');
     // vcard 仅联系人可用；离开联系人模式时清掉，避免带进消息/定时导出。
     if (mode !== 'contacts' && format === 'vcard') setFormat('json');
-  }, [mode, contactScope, format]);
+  }, [mode, contactScope, format, setFormat]);
 
   // Live task progress: invalidate the list whenever the backend ticks.
   useEffect(() => {
@@ -2237,6 +2357,7 @@ export function ExportTool({
             </div>
           ) : null}
           <RetainedTabs
+            snapshotKey="export-tasks"
             activeKey={taskTab === 'schedules' && taskLayout !== 'compact' ? 'schedules' : 'tasks'}
           >
             {taskTab === 'schedules' && taskLayout !== 'compact' ? (
@@ -2282,7 +2403,10 @@ export function ExportTool({
                   )}
                 </div>
                 <div className="weq-schedule-details">
-                  <RetainedTabs activeKey={activeScheduleId ?? 'empty'}>
+                  <RetainedTabs
+                    snapshotKey="export-schedule"
+                    activeKey={activeScheduleId ?? 'empty'}
+                  >
                     {(schedules.data as ScheduledTask[] | undefined)
                       ?.filter((s) => s.id === activeScheduleId)
                       .map((s) => (

@@ -1,5 +1,8 @@
-import { act, createElement as h, useState } from 'react';
+import { act, createElement as h, useState, type ReactNode } from 'react';
+import { Storage } from 'happy-dom';
 import { createRoot } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Modal, DialogHost, useDialog } from '../src/renderer/src/components/Dialog';
 import {
@@ -10,6 +13,8 @@ import {
 import { OverlayLayer } from '../src/renderer/src/components/OverlayLayer';
 import { hasActiveModal } from '../src/renderer/src/lib/overlayStack';
 import { useMultiSelection } from '../src/renderer/src/hooks/useMultiSelection';
+import { PageSnapshots, usePageState } from '../src/renderer/src/components/PageSnapshots';
+import { pageValue } from '../src/renderer/src/lib/pageSnapshots';
 
 afterEach(() => {
   useDialog.setState({ current: null });
@@ -18,9 +23,14 @@ afterEach(() => {
 
 function fixture() {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
   const host = document.createElement('div');
   document.body.append(host);
-  const root = createRoot(host);
+  const actualRoot = createRoot(host);
+  const root = {
+    render: (node: ReactNode) => actualRoot.render(h(PageSnapshots, { scope: 'fixture' }, node)),
+    unmount: () => actualRoot.unmount(),
+  };
   return {
     host,
     root,
@@ -31,8 +41,64 @@ function fixture() {
   };
 }
 
+function SnapshotInput({ name, initial = '' }: { name: string; initial?: string }) {
+  const [value, setValue] = usePageState(name, initial, pageValue.string, true);
+  return h('input', {
+    [`data-${name}`]: true,
+    value,
+    onInput: (event) => setValue(event.currentTarget.value),
+  });
+}
+function edit(input: HTMLInputElement, value: string) {
+  act(() => {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
 describe('非模态内容工作区', () => {
-  it('整页均不生成标签，叠加设置保留报告现场，关闭后恢复', () => {
+  it('页面快照容器保留真实设置根节点的满幅尺寸规则', () => {
+    const app = fixture();
+    try {
+      act(() =>
+        app.root.render(
+          h(
+            WorkspacePages,
+            { navigationKey: 'chat' },
+            h(WorkspaceContent, null, '基础页'),
+            h(
+              WorkspacePage,
+              { title: '设置' },
+              h('section', { className: 'weq-settings-dialog' }, '设置内容'),
+            ),
+          ),
+        ),
+      );
+      const settings = app.host.querySelector('.weq-settings-dialog')!;
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(
+        readFileSync(
+          resolve(__dirname, '../src/renderer/src/styles/workspace-surfaces.css'),
+          'utf8',
+        ),
+      );
+      const rules = [...sheet.cssRules].filter(
+        (rule): rule is CSSStyleRule =>
+          rule.type === CSSRule.STYLE_RULE && settings.matches((rule as CSSStyleRule).selectorText),
+      );
+      expect(
+        rules.some(
+          (rule) =>
+            rule.style.width === '100%' &&
+            rule.style.height === '100%' &&
+            rule.style.position === 'relative',
+        ),
+      ).toBe(true);
+    } finally {
+      app.close();
+    }
+  });
+  it('整页均不生成标签，叠加设置卸载报告界面，关闭后重建', () => {
     const app = fixture();
     let open = () => {};
     let close = () => {};
@@ -66,10 +132,12 @@ describe('非模态内容工作区', () => {
       expect(app.host.querySelector('[aria-label="设置"]')?.hasAttribute('aria-labelledby')).toBe(
         false,
       );
-      expect(app.host.querySelector('[data-report]')).toBe(report);
+      expect(app.host.querySelector('[data-report]')).toBeNull();
+      expect(report?.isConnected).toBe(false);
       act(() => close());
       expect(app.host.querySelector('[aria-label="内容页面"]')).toBeNull();
-      expect(report?.closest('[hidden]')).toBeNull();
+      expect(app.host.querySelector('[data-report]')).not.toBe(report);
+      expect(app.host.querySelector('[data-report]')?.closest('[hidden]')).toBeNull();
     } finally {
       app.close();
     }
@@ -120,7 +188,7 @@ describe('非模态内容工作区', () => {
         h(
           Modal,
           { presentation: 'sidecar', title: '群相册' },
-          h('input', { 'data-album-position': true }),
+          h(SnapshotInput, { name: 'album-position' }),
         ),
         settings &&
           h(
@@ -134,14 +202,16 @@ describe('非模态内容工作区', () => {
       act(() => app.root.render(h(View)));
       const album = app.host.querySelector<HTMLInputElement>('[data-album-position]')!;
       const chat = app.host.querySelector('[data-original-chat]');
-      album.value = '保留的相册现场';
+      edit(album, '保留的相册现场');
       act(() => openSettings());
       expect(app.host.querySelector('.weq-workspace-sidecar')?.hasAttribute('hidden')).toBe(true);
-      expect(album.closest('[hidden]')).not.toBeNull();
+      expect(app.host.querySelector('[data-album-position]')).toBeNull();
       act(() => app.host.querySelector<HTMLButtonElement>('[aria-label="关闭设置"]')!.click());
       expect(app.host.querySelector('.weq-workspace-sidecar')?.hasAttribute('hidden')).toBe(false);
-      expect(app.host.querySelector('[data-album-position]')).toBe(album);
-      expect(album.value).toBe('保留的相册现场');
+      expect(app.host.querySelector('[data-album-position]')).not.toBe(album);
+      expect(app.host.querySelector<HTMLInputElement>('[data-album-position]')!.value).toBe(
+        '保留的相册现场',
+      );
       expect(app.host.querySelector('[data-original-chat]')).toBe(chat);
       expect(chat?.closest('[hidden]')).toBeNull();
     } finally {
@@ -272,7 +342,7 @@ describe('非模态内容工作区', () => {
         h(
           Modal,
           { presentation: 'page', title: '第一页' },
-          h('input', { defaultValue: '原值', 'data-first-input': true }),
+          h(SnapshotInput, { name: 'first-input', initial: '原值' }),
         ),
         second &&
           h(
@@ -293,22 +363,31 @@ describe('非模态内容工作区', () => {
     }
     const render = (account: string) =>
       act(() =>
-        app.root.render(h(WorkspacePages, { key: account, navigationKey: 'chat' }, h(Content))),
+        app.root.render(
+          h(
+            PageSnapshots,
+            { scope: account },
+            h(WorkspacePages, { key: account, navigationKey: 'chat' }, h(Content)),
+          ),
+        ),
       );
     try {
       render('account-a');
       const input = app.host.querySelector<HTMLInputElement>('[data-first-input]')!;
-      input.value = '编辑后的草稿';
+      edit(input, '编辑后的草稿');
       act(() => openSecond());
       const tabs = [...app.host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
       expect(tabs).toHaveLength(0);
       expect(input.value).toBe('编辑后的草稿');
-      expect(input.closest('[hidden]')).not.toBeNull();
+      expect(app.host.querySelector('[data-first-input]')).toBeNull();
       expect(document.querySelector('[data-second-panel]')?.closest('[hidden]')).toBeNull();
       act(() => app.host.querySelector<HTMLButtonElement>('[aria-label="关闭第二页"]')!.click());
       expect(app.host.querySelectorAll('[role="tab"]')).toHaveLength(0);
-      expect(app.host.querySelector('[data-first-input]')).toBe(input);
-      expect(input.closest('[hidden]')).toBeNull();
+      expect(app.host.querySelector('[data-first-input]')).not.toBe(input);
+      expect(app.host.querySelector<HTMLInputElement>('[data-first-input]')!.value).toBe(
+        '编辑后的草稿',
+      );
+      expect(app.host.querySelector('[data-first-input]')!.closest('[hidden]')).toBeNull();
       render('account-b');
       expect(app.host.querySelector('[data-first-input]')).not.toBe(input);
       expect(app.host.querySelector<HTMLInputElement>('[data-first-input]')?.value).toBe('原值');

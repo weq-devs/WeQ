@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { MessageSquarePlus, MessagesSquare, RefreshCw, Trash2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { AssistantPanel } from './AssistantPanel';
-import { RetainedTabs, useTabActive } from '../../components/RetainedTabs';
+import { TabActivity, useTabActive } from '../../components/RetainedTabs';
 import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import type { AssistantActivity } from '../../lib/workspaceIndicators';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
@@ -166,36 +166,38 @@ export function AssistantMenuWorkspace({
     (!selection.sessionId || sessions.data.some((session) => session.id === selection.sessionId));
   return (
     <div className={`weq-assistant-workspace${compact ? ' is-compact' : ''}`}>
-      <aside className="weq-assistant-sessions" hidden={compact} aria-label="助手会话">
-        <button type="button" className="weq-set-btn" onClick={newSession}>
-          <MessageSquarePlus size={16} />
-          新建会话
-        </button>
-        {(sessions.data ?? []).map((session) => (
-          <div key={session.id} className="weq-assistant-session-row">
-            <button
-              type="button"
-              aria-current={session.id === selection.sessionId ? 'true' : undefined}
-              onClick={() => select(session.id)}
-              title={session.title}
-            >
-              <MessagesSquare size={16} />
-              <span>{session.title || '新会话'}</span>
-            </button>
-            <button
-              type="button"
-              title="删除会话"
-              aria-label={`删除会话 ${session.title}`}
-              onClick={() => void deleteSession(session.id)}
-              disabled={remove.isLoading}
-            >
-              <Trash2 size={14} />
-            </button>
-          </div>
-        ))}
-      </aside>
+      {active ? (
+        <aside className="weq-assistant-sessions" hidden={compact} aria-label="助手会话">
+          <button type="button" className="weq-set-btn" onClick={newSession}>
+            <MessageSquarePlus size={16} />
+            新建会话
+          </button>
+          {(sessions.data ?? []).map((session) => (
+            <div key={session.id} className="weq-assistant-session-row">
+              <button
+                type="button"
+                aria-current={session.id === selection.sessionId ? 'true' : undefined}
+                onClick={() => select(session.id)}
+                title={session.title}
+              >
+                <MessagesSquare size={16} />
+                <span>{session.title || '新会话'}</span>
+              </button>
+              <button
+                type="button"
+                title="删除会话"
+                aria-label={`删除会话 ${session.title}`}
+                onClick={() => void deleteSession(session.id)}
+                disabled={remove.isLoading}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </aside>
+      ) : null}
       <section className="weq-assistant-conversation">
-        {!ready ? (
+        {active && !ready ? (
           <div className="weq-workspace-empty" role="status">
             {sessions.error ? (
               <>
@@ -215,9 +217,11 @@ export function AssistantMenuWorkspace({
             )}
           </div>
         ) : null}
-        <RetainedTabs activeKey={ready ? selection.key : 'loading'}>
+        <TabActivity active={active && ready}>
           {ready ? (
             <AssistantPanel
+              key={selection.key}
+              headless={!active}
               sessionId={selection.sessionId}
               searchTarget={selection.searchTarget}
               chatModels={models}
@@ -260,7 +264,7 @@ export function AssistantMenuWorkspace({
               }}
             />
           ) : null}
-        </RetainedTabs>
+        </TabActivity>
       </section>
     </div>
   );

@@ -474,36 +474,50 @@ export function WorkspaceTools({
           </div>
         </header>
         <div className="weq-workspace-menu-body">
-          <RetainedTabs activeKey={!hidden && (anchor || expanded) ? panel : 'closed'}>
-            {!hidden && (anchor || expanded) ? (
-              panel === 'tasks' ? (
-                <ExportTool
-                  surface="tasks"
-                  taskLayout={expanded ? 'split' : 'compact'}
-                  onTaskExpand={() => setExpanded(true)}
-                  onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
-                  onOpenClone={(id) => leave(() => onOpenClone?.(id))}
-                />
-              ) : (
-                <>
-                  <div className="weq-menu-assistant" hidden={assistantSettings && expanded}>
-                    <TabActivity active={!assistantSettings || !expanded}>
-                      <AssistantMenuWorkspace
-                        accountScope={accountScope}
-                        compact={!expanded}
-                        searchTarget={assistantSearchTarget}
-                      />
-                    </TabActivity>
-                  </div>
-                  {assistantSettings && expanded ? (
-                    <div className="weq-assistant-service-settings">
-                      <AssistantSection />
-                    </div>
-                  ) : null}
-                </>
-              )
+          <RetainedTabs snapshotKey="workspace-tools" activeKey="tasks">
+            {!hidden && (anchor || expanded) && panel === 'tasks' ? (
+              <ExportTool
+                surface="tasks"
+                taskLayout={expanded ? 'split' : 'compact'}
+                onTaskExpand={() => setExpanded(true)}
+                onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
+                onOpenClone={(id) => leave(() => onOpenClone?.(id))}
+              />
             ) : null}
           </RetainedTabs>
+          <div
+            className="weq-menu-assistant"
+            hidden={
+              hidden ||
+              !(anchor || expanded) ||
+              panel !== 'assistant' ||
+              (assistantSettings && expanded)
+            }
+          >
+            <TabActivity
+              active={
+                !hidden &&
+                Boolean(anchor || expanded) &&
+                panel === 'assistant' &&
+                (!assistantSettings || !expanded)
+              }
+            >
+              <AssistantMenuWorkspace
+                accountScope={accountScope}
+                compact={!expanded}
+                searchTarget={assistantSearchTarget}
+              />
+            </TabActivity>
+          </div>
+          {!hidden &&
+          (anchor || expanded) &&
+          panel === 'assistant' &&
+          assistantSettings &&
+          expanded ? (
+            <div className="weq-assistant-service-settings">
+              <AssistantSection />
+            </div>
+          ) : null}
         </div>
         {!expanded ? (
           <>
@@ -557,6 +571,7 @@ export function WorkspaceTools({
           </button>
         </header>
         <RetainedTabs
+          snapshotKey="workspace-export"
           key={accountKey ?? 'no-account'}
           activeKey={open && tool !== 'backfill' ? tool : 'closed'}
         >
@@ -625,6 +640,7 @@ export function WorkspaceTools({
           </button>
         </header>
         <RetainedTabs
+          snapshotKey="workspace-analysis"
           key={accountKey ?? 'no-account'}
           activeKey={open && tool === 'backfill' ? 'backfill' : 'closed'}
         >

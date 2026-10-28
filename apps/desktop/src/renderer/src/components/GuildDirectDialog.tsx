@@ -53,6 +53,8 @@ import { writeMentionClipboard } from '../lib/mentionClipboard';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
 import { useToast } from './Toast';
+import { usePageState } from './PageSnapshots';
+import { pageValue } from '../lib/pageSnapshots';
 import type { RepeatElement } from '../lib/messageRepeat';
 import '../styles/channel.css';
 
@@ -219,6 +221,11 @@ export function GuildDirectDialog({
 }): ReactElement | null {
   const [sessions, setSessions] = useState<GuildDirectSessionWire[] | null>(null);
   const [selected, setSelected] = useState<GuildDirectSessionWire | null>(null);
+  const [restoreNode, setRestoreNode] = usePageState<string | null>(
+    'guild:selection',
+    null,
+    pageValue.optionalString,
+  );
   /** 已加载消息，seq 从小到大（旧的在上、新的在下）。 */
   const [messages, setMessages] = useState<GuildDirectMsgWire[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -231,7 +238,11 @@ export function GuildDirectDialog({
   const runRef = useRef(0);
   const [searchMessageId, setSearchMessageId] = useState<string | null>(null);
   const [searchNotice, setSearchNotice] = useState('');
-  const handledSearch = useRef('');
+  const [handledSearch, setHandledSearch] = usePageState(
+    'guild:handled-search',
+    '',
+    pageValue.string,
+  );
   const scrolledSearch = useRef('');
   const [searchRetry, setSearchRetry] = useState(0);
   // 把当前打开的频道私聊同步给外层（浮动工具「导出当前频道私聊」用它定位）。
@@ -320,43 +331,69 @@ export function GuildDirectDialog({
   }, [open]);
 
   // 选中会话 → 加载最新一页（seq 大到小），反转成升序渲染。
-  const openSession = useCallback((session: GuildDirectSessionWire) => {
-    setSearchMessageId(null);
-    setSearchNotice('');
-    const run = ++runRef.current;
-    setSelected(session);
-    setMessages([]);
-    setHasMore(false);
-    setLatestLoading(true);
-    setOlderLoading(false);
-    setMessageError(null);
-    void client.account.guildDirectLatest
-      .query({ nodeId: session.nodeId, limit: PAGE, stablePaging: true })
-      .then((rows) => {
-        if (run !== runRef.current) return;
-        const asc = ((rows as GuildDirectMsgWire[]) ?? []).slice().reverse();
-        setMessages(asc);
-        setHasMore(asc.length >= PAGE);
-      })
-      .catch((error: unknown) => {
-        if (run !== runRef.current) return;
-        setMessageError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (run !== runRef.current) return;
-        setLatestLoading(false);
-      });
-  }, []);
+  const openSession = useCallback(
+    (session: GuildDirectSessionWire) => {
+      setRestoreNode(session.nodeId);
+      setSearchMessageId(null);
+      setSearchNotice('');
+      const run = ++runRef.current;
+      setSelected(session);
+      setMessages([]);
+      setHasMore(false);
+      setLatestLoading(true);
+      setOlderLoading(false);
+      setMessageError(null);
+      void client.account.guildDirectLatest
+        .query({ nodeId: session.nodeId, limit: PAGE, stablePaging: true })
+        .then((rows) => {
+          if (run !== runRef.current) return;
+          const asc = ((rows as GuildDirectMsgWire[]) ?? []).slice().reverse();
+          setMessages(asc);
+          setHasMore(asc.length >= PAGE);
+        })
+        .catch((error: unknown) => {
+          if (run !== runRef.current) return;
+          setMessageError(error instanceof Error ? error.message : String(error));
+        })
+        .finally(() => {
+          if (run !== runRef.current) return;
+          setLatestLoading(false);
+        });
+    },
+    [setRestoreNode],
+  );
+  useEffect(() => {
+    if (
+      !active ||
+      !sessions ||
+      selected ||
+      !restoreNode ||
+      (searchTarget && handledSearch !== searchTarget.revision)
+    )
+      return;
+    const saved = sessions.find((session) => session.nodeId === restoreNode);
+    if (saved) openSession(saved);
+    else setRestoreNode(null);
+  }, [
+    active,
+    sessions,
+    selected,
+    restoreNode,
+    searchTarget,
+    handledSearch,
+    openSession,
+    setRestoreNode,
+  ]);
   useEffect(() => {
     if (
       !open ||
       listLoading ||
       !sessions ||
       !searchTarget ||
-      handledSearch.current === searchTarget.revision
+      handledSearch === searchTarget.revision
     )
       return;
-    handledSearch.current = searchTarget.revision;
+    setHandledSearch(searchTarget.revision);
     const session = sessions.find((item) => item.nodeId === searchTarget.nodeId);
     if (!session) {
       setSelected(null);
@@ -370,6 +407,7 @@ export function GuildDirectDialog({
       return;
     }
     const run = ++runRef.current;
+    setRestoreNode(session.nodeId);
     setSelected(session);
     setMessages([]);
     setHasMore(false);
@@ -400,7 +438,17 @@ export function GuildDirectDialog({
       .finally(() => {
         if (run === runRef.current) setLatestLoading(false);
       });
-  }, [open, sessions, listLoading, searchTarget, searchRetry, openSession]);
+  }, [
+    open,
+    sessions,
+    listLoading,
+    searchTarget,
+    searchRetry,
+    openSession,
+    handledSearch,
+    setHandledSearch,
+    setRestoreNode,
+  ]);
   useEffect(() => {
     if (!searchMessageId || latestLoading) return;
     const key = JSON.stringify([searchTarget?.revision, searchMessageId]);
@@ -693,7 +741,10 @@ export function GuildDirectDialog({
                   className="weq-guild-direct-list-back"
                   title="会话列表"
                   aria-label="会话列表"
-                  onClick={() => setSelected(null)}
+                  onClick={() => {
+                    setSelected(null);
+                    setRestoreNode(null);
+                  }}
                 >
                   <ArrowLeft size={18} />
                 </button>
@@ -752,7 +803,7 @@ export function GuildDirectDialog({
                         searchMessageId === searchTarget.msgId &&
                         !messages.length
                       ) {
-                        handledSearch.current = '';
+                        setHandledSearch('');
                         setSearchRetry((value) => value + 1);
                       } else if (messages.length) void loadOlder();
                       else openSession(selected);

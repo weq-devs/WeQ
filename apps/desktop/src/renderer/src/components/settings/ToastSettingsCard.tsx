@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import { Bell, Loader2, Save } from 'lucide-react';
 import {
   DEFAULT_TOAST_DURATIONS,
@@ -62,14 +64,15 @@ function DurationRow({
   save: (seconds: number) => Promise<void>;
 }) {
   const label = `${kind === 'success' ? '成功' : '失败'}通知停留时长`;
-  const [value, setValue] = useState(String(initial));
+  const [value, setValue] = usePageState(`toast:${label}`, String(initial), pageValue.string, true);
+  usePageDraftConfirmation(`toast:${label}`, disabled ? undefined : String(initial));
   const [saving, setSaving] = useState(false);
   const busy = useRef(false);
   const previous = useRef(String(initial));
   useEffect(() => {
     setValue((draft) => (draft === previous.current ? String(initial) : draft));
     previous.current = String(initial);
-  }, [initial]);
+  }, [initial, setValue]);
   const seconds = value.trim() === '' ? NaN : Number(value);
   const canSave = !disabled && !saving && isToastDuration(seconds);
   async function submit() {

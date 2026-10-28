@@ -87,6 +87,8 @@ import '../styles/settings-navigation.css';
 import '../styles/app-search.css';
 import type { SettingsSearchTarget } from './settings/searchTarget';
 import { RetainedTabs, TabActivity, useTabActive } from './RetainedTabs';
+import { PageSnapshotsFallback, usePageState } from './PageSnapshots';
+import { z } from 'zod';
 import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
 import { useAppLock } from '../state/lock';
 import {
@@ -426,7 +428,15 @@ export function SettingsDialog({
     () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'appearance' }),
     [initialSection, searchTarget],
   );
-  const [activeId, setActiveId] = useState<SettingsPageId>(() => target.section);
+  const [activeId, setActiveId] = usePageState<SettingsPageId>(
+    'settings:active',
+    () => target.section,
+    z.custom<SettingsPageId>(
+      (value) =>
+        typeof value === 'string' &&
+        SETTINGS_GROUPS.some((group) => group.sections.some((section) => section === value)),
+    ),
+  );
   const updateAvailable = useUpdateStore((state) => state.available);
   const locked = useAppLock((state) => state.locked);
   const navRef = useRef<HTMLElement | null>(null);
@@ -441,7 +451,7 @@ export function SettingsDialog({
   useEffect(() => {
     if (open) setActiveId(target.section);
     if (open) setMobileCategoryOpen(Boolean(initialSection || searchTarget));
-  }, [open, initialSection, searchTarget, target]);
+  }, [open, initialSection, searchTarget, target, setActiveId]);
 
   useEffect(() => {
     if (open) {
@@ -542,39 +552,45 @@ export function SettingsDialog({
           </nav>
           <div className="weq-settings-pages">
             <TabActivity active={!locked}>
-              <RetainedTabs activeKey={active.id}>
-                <RetainedSettingsPage pageId={active.id} target={target}>
-                  <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
-                    {active.id === 'chat-messages' ? (
-                      <>
-                        <div className="weq-set">
-                          <SectionHeader
-                            title="聊天消息"
-                            icon={<Monitor size={16} strokeWidth={1.8} />}
-                          />
-                        </div>
-                        <AccountBasicsSection page="read" heading={false} />
-                        <TypingStatusSettingsCard />
-                        <div>
-                          <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
-                            <AntiRecallDialog
-                              embedded
-                              onClose={() => {}}
-                              onOpenRecalls={onOpenRecalls}
-                              recallDetails={recallDetails}
-                              onCloseRecalls={onCloseRecalls}
-                              isCurrentSource={isCurrentSource}
+              <PageSnapshotsFallback scope="bootstrap-settings">
+                <RetainedTabs snapshotKey="settings" activeKey={active.id}>
+                  <RetainedSettingsPage
+                    pageId={active.id}
+                    target={target}
+                    revision={searchTarget?.revision}
+                  >
+                    <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
+                      {active.id === 'chat-messages' ? (
+                        <>
+                          <div className="weq-set">
+                            <SectionHeader
+                              title="聊天消息"
+                              icon={<Monitor size={16} strokeWidth={1.8} />}
                             />
-                          </SettingsScopeContext.Provider>
-                        </div>
-                        <AppearanceSection page="messages" heading={false} />
-                      </>
-                    ) : (
-                      active.render(onOpenMaintenance)
-                    )}
-                  </SettingsScopeContext.Provider>
-                </RetainedSettingsPage>
-              </RetainedTabs>
+                          </div>
+                          <AccountBasicsSection page="read" heading={false} />
+                          <TypingStatusSettingsCard />
+                          <div>
+                            <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
+                              <AntiRecallDialog
+                                embedded
+                                onClose={() => {}}
+                                onOpenRecalls={onOpenRecalls}
+                                recallDetails={recallDetails}
+                                onCloseRecalls={onCloseRecalls}
+                                isCurrentSource={isCurrentSource}
+                              />
+                            </SettingsScopeContext.Provider>
+                          </div>
+                          <AppearanceSection page="messages" heading={false} />
+                        </>
+                      ) : (
+                        active.render(onOpenMaintenance)
+                      )}
+                    </SettingsScopeContext.Provider>
+                  </RetainedSettingsPage>
+                </RetainedTabs>
+              </PageSnapshotsFallback>
             </TabActivity>
           </div>
         </div>

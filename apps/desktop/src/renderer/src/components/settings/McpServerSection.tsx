@@ -18,6 +18,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import {
   AlertCircle,
   Check,
@@ -98,7 +100,11 @@ export function McpServerSection(): ReactElement {
   const [copiedToken, setCopiedToken] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedConfig, setCopiedConfig] = useState(false);
-  const [portDraft, setPortDraft] = useState('');
+  const [portDraft, setPortDraft] = usePageState('mcp:port', '', pageValue.string, true);
+  usePageDraftConfirmation(
+    'mcp:port',
+    status.data?.port == null ? undefined : String(status.data.port),
+  );
   const previousPort = useRef<string | null>(null);
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
   const hydratedAgents = useRef(false);
@@ -150,7 +156,7 @@ export function McpServerSection(): ReactElement {
     const next = String(data.port);
     setPortDraft((draft) => (draft === (previous ?? '') ? next : draft));
     previousPort.current = next;
-  }, [data?.port]);
+  }, [data?.port, setPortDraft]);
   useEffect(() => {
     if (!active) {
       setCopiedToken(false);

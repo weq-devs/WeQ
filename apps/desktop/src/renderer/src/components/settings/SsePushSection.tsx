@@ -16,6 +16,9 @@
  */
 
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from 'react';
+import { z } from 'zod';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import {
   Check,
   ChevronRight,
@@ -72,7 +75,14 @@ export function SsePushSection(): ReactElement {
   const setEnabled = trpc.bootstrap.setSsePushEnabled.useMutation();
   const setTuning = trpc.bootstrap.setSsePushTuning.useMutation();
 
-  const [form, setForm] = useState<PushForm | null>(null);
+  const [form, setForm] = usePageState<PushForm | null>(
+    'sse:form',
+    null,
+    z
+      .object({ id: z.string(), name: z.string(), pushUrl: z.string(), accessToken: z.string() })
+      .nullable(),
+    true,
+  );
   const [revealToken, setRevealToken] = useState(false);
   useEffect(() => {
     if (!active) setRevealToken(false);
@@ -80,12 +90,30 @@ export function SsePushSection(): ReactElement {
   const [draftId, setDraftId] = useState(() => crypto.randomUUID());
   const testKey = connectionTestKey('sse', form?.id || draftId);
   const testing = useConnectionTestTasks((state) => state.running.has(testKey));
-  const [debounceDraft, setDebounceDraft] = useState('2000');
-  const [thresholdDraft, setThresholdDraft] = useState('50');
+  const [debounceDraft, setDebounceDraft] = usePageState(
+    'sse:debounce',
+    '2000',
+    pageValue.string,
+    true,
+  );
+  const [thresholdDraft, setThresholdDraft] = usePageState(
+    'sse:threshold',
+    '50',
+    pageValue.string,
+    true,
+  );
   const previousDebounce = useRef('2000');
   const previousThreshold = useRef('50');
 
   const sse = settings.data?.ssePush;
+  usePageDraftConfirmation(
+    'sse:debounce',
+    sse?.debounceMs == null ? undefined : String(sse.debounceMs),
+  );
+  usePageDraftConfirmation(
+    'sse:threshold',
+    sse?.massThreshold == null ? undefined : String(sse.massThreshold),
+  );
   const servers = sse?.servers ?? [];
   const enabledServerId = sse?.enabledServerId ?? null;
   const busy = saveServer.isLoading || deleteServer.isLoading || setEnabled.isLoading;
@@ -97,14 +125,14 @@ export function SsePushSection(): ReactElement {
     const next = String(sse.debounceMs);
     setDebounceDraft((draft) => (draft === previous ? next : draft));
     previousDebounce.current = next;
-  }, [sse?.debounceMs]);
+  }, [sse?.debounceMs, setDebounceDraft]);
   useEffect(() => {
     if (sse?.massThreshold == null) return;
     const previous = previousThreshold.current;
     const next = String(sse.massThreshold);
     setThresholdDraft((draft) => (draft === previous ? next : draft));
     previousThreshold.current = next;
-  }, [sse?.massThreshold]);
+  }, [sse?.massThreshold, setThresholdDraft]);
 
   async function refetch(): Promise<void> {
     await settings.refetch();

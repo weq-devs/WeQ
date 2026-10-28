@@ -54,6 +54,7 @@ export function MailComposer({
   onInspect,
   onBusyChange,
   onDirtyChange,
+  onDraftChange,
 }: {
   initial: MailDraft;
   api: MailApi;
@@ -64,9 +65,12 @@ export function MailComposer({
   onInspect(folderId: number): void;
   onBusyChange(busy: boolean): void;
   onDirtyChange(dirty: boolean): void;
+  onDraftChange?(draft: MailDraft): void;
 }) {
   const [draft, setDraft] = useState(initial);
-  const [saved, setSaved] = useState(initial.draftId ? snapshot(initial) : '');
+  const [saved, setSaved] = useState(initial.draftId && !initial.unsaved ? snapshot(initial) : '');
+  const currentDraft = useRef(draft);
+  currentDraft.current = draft;
   const [more, setMore] = useState(Boolean(initial.cc || initial.bcc));
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -90,12 +94,19 @@ export function MailComposer({
       draft.attachments.length,
   );
   const dirty = meaningful && saved !== snapshot(draft);
+  useEffect(() => {
+    onDraftChange?.({ ...draft, unsaved: dirty });
+  }, [draft, dirty, onDraftChange]);
   useEffect(
     () => registerMailDraft(draftOwner.current, { dirty, busy: busy || uploading }),
     [dirty, busy, uploading],
   );
   function update(patch: Partial<MailDraft>): void {
-    setDraft((current) => ({ ...current, ...patch }));
+    const next = { ...currentDraft.current, ...patch };
+    next.unsaved = saved !== snapshot(next);
+    currentDraft.current = next;
+    onDraftChange?.(next);
+    setDraft(next);
   }
 
   useEffect(() => {

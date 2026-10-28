@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import { Loader2, Save } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
@@ -19,9 +21,21 @@ export function QzonePaginationSettings() {
   const showError = useDialog((s) => s.showError);
   const pushToast = useToast((s) => s.push);
   const saved = settings.data?.qzonePagination;
-  const [seconds, setSeconds] = useState(() => String(saved?.windowSeconds ?? 10));
-  const [pages, setPages] = useState(() => String(saved?.maxPages ?? 5));
+  const [seconds, setSeconds] = usePageState(
+    'qzone:seconds',
+    () => String(saved?.windowSeconds ?? 10),
+    pageValue.string,
+    true,
+  );
+  const [pages, setPages] = usePageState(
+    'qzone:pages',
+    () => String(saved?.maxPages ?? 5),
+    pageValue.string,
+    true,
+  );
   const previous = useRef(saved);
+  usePageDraftConfirmation('qzone:seconds', saved ? String(saved.windowSeconds) : undefined);
+  usePageDraftConfirmation('qzone:pages', saved ? String(saved.maxPages) : undefined);
   useEffect(() => {
     if (!saved) return;
     const before = previous.current;
@@ -30,7 +44,7 @@ export function QzonePaginationSettings() {
     );
     setPages((draft) => (draft === String(before?.maxPages ?? 5) ? String(saved.maxPages) : draft));
     previous.current = saved;
-  }, [saved]);
+  }, [saved, setSeconds, setPages]);
   const windowSeconds = Number(seconds);
   const maxPages = Number(pages);
   const valid =

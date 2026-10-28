@@ -1,3 +1,6 @@
+import { z } from 'zod';
+import { usePageState } from '../components/PageSnapshots';
+import { pageValue } from '../lib/pageSnapshots';
 import {
   useEffect,
   useMemo,
@@ -462,22 +465,47 @@ export function AgentLabView({
     return { chat: build('chat'), embedding: build('embedding'), vision: build('vision') };
   }, [providers.data]);
 
-  const [sel, setSel] = useState<Selection>(() => {
-    if (searchTarget && (searchTarget.kind === 'assistant') === (mode === 'assistant')) {
-      return searchTarget.kind === 'assistant'
-        ? { kind: 'assistant', sessionId: searchTarget.sessionId, navKey: 0, searchTarget }
-        : {
-            kind: searchTarget.kind,
-            id: searchTarget.ownerId,
-            sessionId: searchTarget.sessionId,
-            navKey: 0,
-            searchTarget,
-          };
-    }
-    return mode === 'assistant'
-      ? { kind: 'assistant', sessionId: null, navKey: 0 }
-      : { kind: 'home' };
-  });
+  const [sel, setSel] = usePageState<Selection>(
+    'agentlab:selection',
+    () => {
+      if (searchTarget && (searchTarget.kind === 'assistant') === (mode === 'assistant')) {
+        return searchTarget.kind === 'assistant'
+          ? { kind: 'assistant', sessionId: searchTarget.sessionId, navKey: 0, searchTarget }
+          : {
+              kind: searchTarget.kind,
+              id: searchTarget.ownerId,
+              sessionId: searchTarget.sessionId,
+              navKey: 0,
+              searchTarget,
+            };
+      }
+      return mode === 'assistant'
+        ? { kind: 'assistant', sessionId: null, navKey: 0 }
+        : { kind: 'home' };
+    },
+    z
+      .discriminatedUnion('kind', [
+        z.object({ kind: z.literal('home') }),
+        z.object({
+          kind: z.literal('assistant'),
+          sessionId: z.string().nullable(),
+          navKey: z.number(),
+        }),
+        z.object({
+          kind: z.literal('persona'),
+          id: z.string(),
+          sessionId: z.string().nullable(),
+          navKey: z.number(),
+        }),
+        z.object({
+          kind: z.literal('group'),
+          id: z.string(),
+          sessionId: z.string().nullable(),
+          navKey: z.number(),
+        }),
+      ])
+      .and(z.object({ readOnlyLegacy: z.boolean().optional() })),
+  );
   // WeQ 助手会话列表：仅进入助手模式时拉取。
   const assistantSessionsQuery = trpc.account.listAssistantSessions.useQuery(undefined, {
     enabled: sel.kind === 'assistant',
@@ -533,21 +561,26 @@ export function AgentLabView({
     },
   );
   const openingLegacy = openTarget?.kind === 'persona' ? openPersonaLegacy : openGroupLegacy;
-  const appliedOpenTarget = useRef<typeof openTarget>(null);
+  const [appliedOpenTarget, setAppliedOpenTarget] = usePageState<string | null>(
+    'agentlab:open-target',
+    null,
+    pageValue.optionalString,
+  );
+  const openTargetKey = JSON.stringify(openTarget ?? null);
   const openingSavedConversation = Boolean(
-    openTarget && !searchTarget && appliedOpenTarget.current !== openTarget,
+    openTarget && !searchTarget && appliedOpenTarget !== openTargetKey,
   );
   useEffect(() => {
     if (
       searchTarget ||
       !openTarget ||
-      appliedOpenTarget.current === openTarget ||
+      appliedOpenTarget === openTargetKey ||
       !openingSessions.data ||
       openingSessions.isFetching
     )
       return;
     if (needsLegacy && (!openingLegacy.isSuccess || openingLegacy.isFetching)) return;
-    appliedOpenTarget.current = openTarget;
+    setAppliedOpenTarget(openTargetKey);
     navSeq.current += 1;
     setSel({
       kind: openTarget.kind,
@@ -558,6 +591,9 @@ export function AgentLabView({
     });
   }, [
     openTarget,
+    openTargetKey,
+    appliedOpenTarget,
+    setAppliedOpenTarget,
     openingSessions.data,
     openingSessions.isFetching,
     searchTarget,
@@ -565,6 +601,7 @@ export function AgentLabView({
     openingLegacy.data,
     openingLegacy.isSuccess,
     openingLegacy.isFetching,
+    setSel,
   ]);
   const [groupOpen, setGroupOpen] = useState(false);
   // 克隆任务列表：抬到模块级 store（脱离本组件生命周期），切出 AgentLab 再回来任务不丢（bug2）。
@@ -577,12 +614,16 @@ export function AgentLabView({
   const [mobileListOpen, setMobileListOpen] = useState(false);
   useEffect(() => setMobileListOpen(false), [sel]);
   // 递增序号，用来给每次「打开克隆体 / 群聊 / 会话」生成一个不重复的挂载 key（见 Selection.navKey）。
-  const navSeq = useRef(0);
-  const appliedSearch = useRef({ target: searchTarget, mode });
+  const navSeq = useRef(sel.kind === 'home' ? 0 : sel.navKey);
+  const [appliedSearch, setAppliedSearch] = usePageState<string | null>(
+    'agentlab:search',
+    null,
+    pageValue.optionalString,
+  );
+  const searchKey = JSON.stringify([searchTarget ?? null, mode]);
   useEffect(() => {
-    if (appliedSearch.current.target === searchTarget && appliedSearch.current.mode === mode)
-      return;
-    appliedSearch.current = { target: searchTarget, mode };
+    if (appliedSearch === searchKey) return;
+    setAppliedSearch(searchKey);
     if (!searchTarget || (searchTarget.kind === 'assistant') !== (mode === 'assistant')) return;
     navSeq.current += 1;
     if (searchTarget.kind === 'assistant') {
@@ -601,7 +642,7 @@ export function AgentLabView({
         searchTarget,
       });
     }
-  }, [searchTarget, mode]);
+  }, [searchTarget, mode, searchKey, appliedSearch, setAppliedSearch, setSel]);
 
   const activePersona =
     sel.kind === 'persona' ? (personaList.find((item) => item.id === sel.id) ?? null) : null;
@@ -624,7 +665,7 @@ export function AgentLabView({
     if (sel.kind === 'persona' && personas.data && !personaList.some((p) => p.id === sel.id)) {
       setSel({ kind: 'home' });
     }
-  }, [sel, personas.data, personaList]);
+  }, [sel, personas.data, personaList, setSel]);
 
   /** 点克隆体 → 开一个新草稿会话（列表默认展示克隆体本身，点它即开启新会话）。 */
   function selectPersona(id: string): void {

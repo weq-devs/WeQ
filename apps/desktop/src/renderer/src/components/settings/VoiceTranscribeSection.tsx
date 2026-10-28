@@ -14,6 +14,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { z } from 'zod';
+import { usePageState } from '../PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import {
   AudioLines,
   Check,
@@ -339,9 +342,27 @@ export function TtsProvidersCard(): ReactElement {
   const providerLabels = providerDisplayLabels(providers.data ?? []);
   const deleteProvider = trpc.bootstrap.deleteTtsProvider.useMutation();
 
-  const [selectedId, setSelectedId] = useState<string>('');
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState<TtsForm>(emptyTtsForm);
+  const [selectedId, setSelectedId] = usePageState('tts:selected', '', pageValue.string);
+  const [open, setOpen] = usePageState('tts:open', false, pageValue.boolean, true);
+  const [form, setForm] = usePageState<TtsForm>(
+    'tts:form',
+    emptyTtsForm,
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      vendor: z.enum(TTS_VENDORS),
+      baseUrl: z.string(),
+      apiKey: z.string(),
+      appId: z.string(),
+      resourceId: z.string(),
+      model: z.string(),
+      cloneModel: z.string(),
+      voice: z.string(),
+      format: z.string(),
+      speed: z.string(),
+    }),
+    true,
+  );
   const testKey = connectionTestKey('tts', form.id);
   const testing = useConnectionTestTasks((state) => state.running.has(testKey));
   const guard = useDraftClose(
@@ -383,7 +404,7 @@ export function TtsProvidersCard(): ReactElement {
       setForm(next);
       guard.reset(next);
     },
-    [guard.reset],
+    [guard.reset, setForm],
   );
 
   const vendorEntry = useMemo(
