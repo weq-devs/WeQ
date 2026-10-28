@@ -156,6 +156,25 @@ export type FlashPhotoSendPayload = {
   bytes?: Uint8Array;
   name: string;
 };
+
+/**
+ * 泡泡消息「选视频即发」的载荷：一段短视频的本地句柄 + 浏览器读到的元信息。
+ *
+ * 泡泡在协议上是「视频 + businessType=14 + 模板名」，与闪照一样不进草稿 ——
+ * 它是独立的一条消息，走「菜单 → 应用层 → IPC」这条通路。
+ */
+export type BubbleVideoSendPayload = {
+  path?: string;
+  bytes?: Uint8Array;
+  name: string;
+  /** 视频时长（秒），收端显示时长就看它。 */
+  duration?: number;
+  /** 视频像素尺寸；群聊会上 wire，私聊固定发 0。 */
+  width?: number;
+  height?: number;
+  /** 泡泡模板名；缺省用协议层的 `video_penguin_dance`。 */
+  templateName?: string;
+};
 import {
   ComposerQuoteBar,
   composerQuoteToken,
@@ -457,6 +476,7 @@ export function ChatPane({
   onSendArk,
   onSendFlash,
   onSendFlashPhoto,
+  onSendBubbleVideo,
   onSendRedPacket,
   arkLocation,
   arkContacts,
@@ -500,6 +520,7 @@ export function ChatPane({
   onForwardMessages,
   unreadDock,
   missingJumpSeq,
+  resolvedGapIds,
   headerActions,
   settingsLabel = '会话设置',
   jumpRequest,
@@ -579,6 +600,14 @@ export function ChatPane({
    * 抛出即失败：错误由调用方 toast 出来。
    */
   onSendFlashPhoto?: (conversation: Conversation, payload: FlashPhotoSendPayload) => Promise<void>;
+  /**
+   * 泡泡消息「选视频即发」—— 与 onSendFlashPhoto 同形，载荷换成一段短视频。
+   * 抛出即失败：错误由调用方 toast 出来。
+   */
+  onSendBubbleVideo?: (
+    conversation: Conversation,
+    payload: BubbleVideoSendPayload,
+  ) => Promise<void>;
   /**
    * 红包面板「发红包」—— 面板只收「类型 / 金额 / 个数 / 祝福语（口令）」，发送目标
    * （私聊对方 / 群号）由应用层补，所以把**当前会话**一起交回（与 onSendArk 同）。
@@ -685,6 +714,13 @@ export function ChatPane({
    * 补一条可点击拉取的缺口条。
    */
   missingJumpSeq?: string | null;
+  /**
+   * 本次已经确认「服务端那段 seq 本来就没有可渲染消息」的缺口 id（`gap:前:后`）。
+   *
+   * 缺口条是按相邻 seq 差算的，服务端返回空槽位时它会一直挂着。宿主把这些缺口
+   * 记下来传进来，这里就不再渲染对应提示条；刷新 / 重开会话后重新判断。
+   */
+  resolvedGapIds?: ReadonlySet<string>;
 }) {
   const generated = Boolean(conversation?.generated);
   const exportSelection = conversationExportSelection(conversation);
@@ -1036,6 +1072,8 @@ export function ChatPane({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // 闪照是「选一张图 → 立刻按闪照发出去」的一条独立通路（不进草稿、不内联成图）。
   const flashPhotoInputRef = useRef<HTMLInputElement | null>(null);
+  // 泡泡消息同理：选一段视频 → 立刻按 businessType=14 发出去。
+  const bubbleVideoInputRef = useRef<HTMLInputElement | null>(null);
   const mentionMenuRef = useRef<HTMLDivElement | null>(null);
   const composerEditorRef = useRef<HTMLDivElement | null>(null);
   const expandedComposerEditorRef = useRef<HTMLDivElement | null>(null);
@@ -3449,6 +3487,61 @@ export function ChatPane({
     await jumpAfterSuccessfulSend(conversation);
   }
 
+  /**
+   * 泡泡消息菜单「泡泡消息」→ 选一段视频 → 立刻发出去。
+   *
+   * 与普通视频的区别只在协议层：`commonElem.businessType=14` + 模板名，收端会渲染成
+   * 圆形循环的「泡泡」。所以这里复用视频的元信息读取（时长 / 尺寸），不走草稿。
+   */
+  async function sendBubbleVideo(file: File): Promise<void> {
+    if (!conversation || conversation.type === 'merged' || !onSendBubbleVideo) {
+      throw new Error('这个会话不支持发送泡泡消息。');
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.length === 0) throw new Error('视频是空的，无法发送泡泡消息。');
+    // 元信息读不到不影响发送：时长 / 尺寸都是可选的（缺了按 0 发）。
+    const meta = await readVideoMetaFromBytes(bytes, file.type);
+    // 泡泡只能单独发：顶掉挂着的引用（与视频 / 文件同一套互斥）。
+    setPendingQuote(null);
+    await onSendBubbleVideo(conversation, {
+      bytes,
+      name: file.name,
+      ...(meta.duration > 0 ? { duration: meta.duration } : {}),
+      ...(meta.width > 0 ? { width: meta.width } : {}),
+      ...(meta.height > 0 ? { height: meta.height } : {}),
+    });
+    await jumpAfterSuccessfulSend(conversation);
+  }
+
+  /** 从内存字节读视频元信息（时长 / 宽高）；读不出来就返回全 0，不阻断发送。 */
+  async function readVideoMetaFromBytes(
+    bytes: Uint8Array,
+    mime: string,
+  ): Promise<{ duration: number; width: number; height: number }> {
+    const url = URL.createObjectURL(new Blob([bytes], { type: mime || 'video/mp4' }));
+    try {
+      return await new Promise((resolve) => {
+        const video = document.createElement('video');
+        const finish = (meta: { duration: number; width: number; height: number }) => {
+          video.removeAttribute('src');
+          video.load();
+          resolve(meta);
+        };
+        video.preload = 'metadata';
+        video.onloadedmetadata = () =>
+          finish({
+            duration: Number.isFinite(video.duration) ? video.duration : 0,
+            width: video.videoWidth,
+            height: video.videoHeight,
+          });
+        video.onerror = () => finish({ duration: 0, width: 0, height: 0 });
+        video.src = url;
+      });
+    } finally {
+      releaseObjectUrl(url);
+    }
+  }
+
   async function sendArkCard(payload: ArkPayload) {
     if (!conversation || conversation.type === 'merged' || !onSendArk) {
       throw new Error('这个会话不支持发送 Ark 卡片。');
@@ -4020,6 +4113,24 @@ export function ChatPane({
       pushToast({
         tone: 'error',
         message: '闪照发送失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  /** 泡泡消息选择器：选完立刻发，校验失败只 toast、不进草稿。 */
+  function handleBubbleVideoPick(event: ReactChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('video/')) {
+      pushToast({ tone: 'warning', message: '泡泡消息只能发送视频' });
+      return;
+    }
+    void sendBubbleVideo(file).catch((error: unknown) => {
+      pushToast({
+        tone: 'error',
+        message: '泡泡消息发送失败',
         detail: error instanceof Error ? error.message : String(error),
       });
     });
@@ -5182,6 +5293,14 @@ export function ChatPane({
       disabled: hasSingleSend,
       reason: hasSingleSend ? singleSendHint : undefined,
     },
+    {
+      label: '泡泡消息',
+      icon: <Sparkles size={16} />,
+      // 泡泡 = 视频 + businessType=14 + 模板名，独立的一条消息，不进草稿。
+      action: () => bubbleVideoInputRef.current?.click(),
+      disabled: hasSingleSend,
+      reason: hasSingleSend ? singleSendHint : undefined,
+    },
     { label: 'QQ闪传', icon: <Zap size={16} />, action: toggleFlashPanel },
   ];
 
@@ -5496,7 +5615,17 @@ export function ChatPane({
                     />,
                   );
                 }
-                if (gap > 0) {
+                // 本次已确认「服务端这段 seq 本来就没有可渲染消息」的缺口不再显示
+                // （拉取成功但拿到的是空槽位，见 MainView 的 resolvedGaps）。
+                const gapResolved =
+                  gapPrevious !== undefined &&
+                  resolvedGapIds?.has(
+                    selectionGapId({
+                      previousSeq: String(gapPrevious.msgSeq),
+                      currentSeq: String(message.msgSeq),
+                    }),
+                  ) === true;
+                if (gap > 0 && !gapResolved) {
                   out.push(
                     <MessageGapDivider
                       key={`gap-${message.id}`}
@@ -6365,6 +6494,14 @@ export function ChatPane({
           hidden
           accept="image/*"
           onChange={handleFlashPhotoPick}
+        />
+        {/* 泡泡消息：一次一段视频，选完立刻发送。 */}
+        <input
+          ref={bubbleVideoInputRef}
+          type="file"
+          hidden
+          accept="video/*"
+          onChange={handleBubbleVideoPick}
         />
         {toolsOpen && hasPlusActions ? (
           <ComposerPlusPanel

@@ -11,6 +11,7 @@
 
 import { inflateSync } from 'node:zlib';
 import { decode } from '../protobuf';
+import { BUBBLE_VIDEO_PB } from '../highway/ntv2-schemas';
 import {
   ELEM,
   FACE_COMMON_PB,
@@ -26,6 +27,12 @@ import {
   TEXT_PB_RESERVE,
   VIDEO_COMMON_PB,
 } from './schemas';
+import {
+  BUBBLE_VIDEO_BUSINESS_TYPE,
+  FLASH_PHOTO_FALLBACK_TEXT,
+  FLASH_PHOTO_PB,
+  FLASH_PHOTO_SERVICE_TYPE,
+} from './send-schemas';
 
 export interface DecodedDress {
   /** 气泡 itemId，无则为 0（elem tag 9.1）。 */
@@ -183,6 +190,84 @@ function liftVideoElem(pb: Record<string, unknown>): Record<string, unknown> {
     out.channelParams = hexToBytes(thumbInfo.md5Bytes);
   if (typeof thumbInfo?.contentHash === 'string' && thumbInfo.contentHash)
     out.videoFlag45421 = hexToBytes(thumbInfo.contentHash);
+  return out;
+}
+
+/**
+ * 泡泡消息：把 {@link liftVideoElem} 的结果改成 `kind:'bubbleVideo'`，并补上模板名。
+ *
+ * 与普通视频的字节结构完全一致，只有两处不同（真机抓包 2026-10-28）：
+ *   - `commonElem.businessType = 14`（普通视频 21）；
+ *   - `pbElem.extBizInfo.field4 = {1: "<模板名>"}`，样本是 `video_penguin_dance`。
+ *
+ * 模板名决定收端播哪套圆形动画，本地库对应 elementType=49 的 `templateName`(45428)。
+ * 拿不到就留空 —— 前端照样按圆形循环渲染，只是没有模板语义。
+ */
+function liftBubbleVideoElem(
+  video: Record<string, unknown>,
+  pbElem: Uint8Array,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...video, kind: 'bubbleVideo' };
+  const templateName = bubbleTemplateNameOf(pbElem);
+  if (templateName) out.templateName = templateName;
+  return out;
+}
+
+/** 是否是闪照的兜底纯文本（`[闪照]请使用新版手机QQ查看闪照。`）。 */
+function isFlashPhotoFallbackElem(lifted: Record<string, unknown>): boolean {
+  return (
+    lifted.kind === 'text' &&
+    typeof lifted.textContent === 'string' &&
+    lifted.textContent.trim() === FLASH_PHOTO_FALLBACK_TEXT
+  );
+}
+
+/**
+ * 从泡泡消息的 pbElem 里取 `extBizInfo.bubble.templateName`。
+ *
+ * 用 `BUBBLE_VIDEO_PB`（上传侧字段名）解析：`extBizInfo` 的 tag 布局两边一致，
+ * 这里只关心 tag 4.1，所以第一层叫什么名字无所谓；用同一份 schema 是为了避免
+ * 再维护一套同 tag 不同名的声明。
+ */
+function bubbleTemplateNameOf(pbElem: Uint8Array): string {
+  try {
+    const pb = decode(BUBBLE_VIDEO_PB, pbElem) as {
+      extBizInfo?: { bubble?: { templateName?: string } };
+    };
+    const name = pb.extBizInfo?.bubble?.templateName;
+    return typeof name === 'string' ? name : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 闪照：`commonElem(serviceType=3).pbElem` 里的老式 `NotOnlineImage` 记录。
+ *
+ * 提升成 `kind:'pic'` + `isFlash: true` —— 闪照在下载 / 尺寸 / 灯箱 / 导出上跟普通图
+ * 完全同构，唯一区别是 `fileToken` 是**老式 offpic 路径**（`/uin-id-MD5`），没有
+ * contentHash / 三档 URL / cdnHost（见 `docs/database/nt_msg/elements/pic.md`）。
+ * 前端 `flashPicUrl()` 正是按这个形状拼 `weq-media://flashpic`。
+ *
+ * 老记录里 tag 8 是**高**、tag 9 是**宽**（两次抓包都核对过真实像素），这里照抄，
+ * 不做换算。
+ */
+function liftFlashPhotoElem(pb: Record<string, unknown>): Record<string, unknown> {
+  const pic = pb.pic as Record<string, unknown> | undefined;
+  const out: Record<string, unknown> = { kind: 'pic', isFlash: true };
+  if (pic?.filePath !== undefined) out.fileName = pic.filePath;
+  if (pic?.fileLen !== undefined) out.fileSize = pic.fileLen;
+  // 闪照的可下载路径就是这个服务端签发的老式路径，与 resId(10) 同值。
+  const token = (pic?.downloadPath ?? pic?.resId) as string | undefined;
+  if (token !== undefined) out.fileToken = token;
+  if (pic?.imgType !== undefined) out.imgType = pic.imgType;
+  if (pic?.picMd5 instanceof Uint8Array) out.md5Bytes = pic.picMd5;
+  if (pic?.picWidth !== undefined) out.imgWidth = pic.picWidth;
+  if (pic?.picHeight !== undefined) out.imgHeight = pic.picHeight;
+  const reserve = pic?.pbRes as Record<string, unknown> | undefined;
+  if (typeof reserve?.md5Str === 'string' && reserve.md5Str) out.md5 = reserve.md5Str.toLowerCase();
+  out.originalUrl = '';
+  out.summary = ['[闪照]'];
   return out;
 }
 
@@ -490,6 +575,18 @@ function liftElem(
   ) {
     return liftPttElem(decode(PTT_COMMON_PB, common.pbElem) as Record<string, unknown>);
   }
+  // 闪照（commonElem serviceType=3）：老式 NotOnlineImage 形态，与普通图（48/20）完全不同。
+  // 详见 `send-schemas` 的 FLASH_PHOTO_* 与 `docs/database/nt_msg/elements/pic.md`。
+  if (common?.serviceType === FLASH_PHOTO_SERVICE_TYPE && common.pbElem) {
+    return liftFlashPhotoElem(decode(FLASH_PHOTO_PB, common.pbElem) as Record<string, unknown>);
+  }
+  // 泡泡消息：结构与普通视频相同（两个子文件），靠 businessType=14 与
+  // extBizInfo 里的模板名区分。收侧统一提升成 `bubbleVideo`（前端已有圆形循环渲染）。
+  if (common?.serviceType === 48 && common.businessType === BUBBLE_VIDEO_BUSINESS_TYPE) {
+    if (!common.pbElem) return undefined;
+    const lifted = liftVideoElem(decode(VIDEO_COMMON_PB, common.pbElem) as Record<string, unknown>);
+    return liftBubbleVideoElem(lifted, common.pbElem);
+  }
   if (common?.serviceType === 45 && common.pbElem) {
     return liftMarkdownElem(decode(MARKDOWN_COMMON_PB, common.pbElem) as Record<string, unknown>);
   }
@@ -571,7 +668,18 @@ export function decodeMessage(bytes: Uint8Array): DecodedMessage {
   const elements: Record<string, unknown>[] = [];
   for (const elem of elems) {
     const lifted = liftElem(elem, dress);
-    if (lifted !== undefined) elements.push(lifted);
+    if (lifted === undefined) continue;
+    // 闪照后面紧跟的那条 `[闪照]请使用新版手机QQ查看闪照。` 是老客户端兜底文案
+    // （见 `send-elements` 的 FLASH_PHOTO_FALLBACK_TEXT）。闪照本体已经能渲染时再画
+    // 一行灰字纯属噪音，所以紧跟在闪照元素后面、内容完全一致的那条直接丢掉。
+    if (
+      elements.length > 0 &&
+      (elements[elements.length - 1] as { isFlash?: boolean }).isFlash === true &&
+      isFlashPhotoFallbackElem(lifted)
+    ) {
+      continue;
+    }
+    elements.push(lifted);
   }
 
   // 私聊文件不在 richText.elems 里：老 wire 走 MsgBody.msgContent 的 notOnlineFile

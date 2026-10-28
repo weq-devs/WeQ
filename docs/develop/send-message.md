@@ -334,6 +334,12 @@ schema 在 `src/oidb/file-upload-schemas.ts`，highway 扩展在 `src/highway/fi
   3. 拼 commonElem{serviceType:3}.pbElem = { pic(2) = NotOnlineImage }，后面再补一条兜底文本
 ```
 
+**秒传**：第 1 跳的响应里可能**没有** `serviceTicket`（实测 `field1=1 field4=1`，
+body 里只有 `downloadPath` / `resId`）。这说明服务端已按 md5 持有这张图，第 2 跳整段
+跳过 —— 与 NTV2 用「响应里没有 uKey」判定秒传是同一个语义，产物（`downloadPath` 与
+元素字节）完全一样。实现见 `uploadLegacyImage` 的 `fastUpload`，它会一路透传到
+`SendMediaUploadReport.fastUpload` 与服务层日志。
+
 代码：`packages/protocol/src/highway/legacy-image-upload.ts`（编排）+
 `offpic-schemas.ts`（OffPicUp 请求/响应）。元素侧是 `msg/send-elements.ts` 的
 `flashPhoto`：给 `source` 就走上传并自动拼 `pic`，给现成的 `pic` 就不上传。
@@ -349,7 +355,10 @@ schema 在 `src/oidb/file-upload-schemas.ts`，highway 扩展在 `src/highway/fi
 | `serviceTicket` | 会话的 sig_session | **OffPicUp 响应 field9** |
 | 产物 | `commonElem{48}.pbElem` | `NotOnlineImage` 记录 |
 
-### 四个容易写错的地方
+### 五个容易写错的地方
+
+- **`serviceTicket` 缺失不等于失败**。它是秒传信号（见上）；只有 `downloadPath` 也
+  没有时才是真的失败。早先把缺 ticket 直接当错误，导致「同一张图发第二次」必定报错。
 
 - **不要在 body 前面补长度前缀。** 抓包里 `00 00 00 80 | body` 那 4 字节是 native
   组好的 **SSO 帧长度**（钩子挂在 Socket 层才录进来），`sendPacket` 交纯 protobuf 就行。
