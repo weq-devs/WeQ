@@ -263,13 +263,11 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('未指定入口时默认主题与背景，普通页面导航不自动执行工具', () => {
+  it('未指定入口时默认启动，普通页面导航不自动执行工具', () => {
     const f = mount();
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('常规');
-      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '主题与背景',
-      );
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe('启动');
       expect(f.onOpenMaintenance).not.toHaveBeenCalled();
     } finally {
       f.close();

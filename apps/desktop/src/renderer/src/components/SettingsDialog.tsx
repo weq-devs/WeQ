@@ -427,7 +427,7 @@ export function SettingsDialog({
   isCurrentSource?: () => boolean;
 }): ReactElement | null {
   const target = useMemo(
-    () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'appearance' }),
+    () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'startup' }),
     [initialSection, searchTarget],
   );
   const [activeId, setActiveId] = usePageState<SettingsPageId>(
