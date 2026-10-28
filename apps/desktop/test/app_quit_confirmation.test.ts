@@ -47,7 +47,7 @@ function fixture() {
   let updating = false;
   registerAppQuitPreparation(app, updater, prepare);
   registerAppQuitCleanup(app, cleanup, failed, updater);
-  registerAppQuitConfirmation(app, updater, {
+  const resetConfirmation = registerAppQuitConfirmation(app, updater, {
     needsConfirmation: () => enabled,
     bypass: () => updating,
     showDialog,
@@ -62,6 +62,7 @@ function fixture() {
     showDialog,
     hideWindow,
     failed,
+    resetConfirmation,
     choose: (choice: QuitChoice) => choose(choice),
     disable: () => {
       enabled = false;
@@ -128,6 +129,26 @@ describe('助手开启时的退出确认', () => {
       f.choose('cancel');
     },
   );
+  it('已确认退出后若窗口拒绝放弃更改，再次退出仍需重新确认', async () => {
+    const f = fixture();
+    const contents = new EventEmitter();
+    registerWindowUnloadConfirmation(contents, {
+      confirmDiscard: () => false,
+      cancelled: () => f.resetConfirmation(),
+    });
+    f.app.on('close-windows', (event: { preventDefault(): void }) => {
+      contents.emit('will-prevent-unload', { preventDefault: vi.fn() });
+      event.preventDefault();
+    });
+    f.app.quit();
+    f.choose('quit');
+    await vi.waitFor(() => expect(f.prepare).toHaveBeenCalledOnce());
+    expect(f.app.exits).toBe(0);
+    f.app.quit();
+    expect(f.showDialog).toHaveBeenCalledTimes(2);
+    f.choose('cancel');
+  });
+
   it('确认退出后只问一次，准备与清理正常执行', async () => {
     const f = fixture();
     f.app.quit();

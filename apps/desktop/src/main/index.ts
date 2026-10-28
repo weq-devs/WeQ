@@ -139,6 +139,7 @@ let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
  *  and lets the window actually close (托盘退出 / 确认框「完全退出」/ before-quit). */
 let isQuitting = false;
+let resetQuitConfirmation: () => void = () => {};
 let stopRendererDiagnostics: (() => void) | null = null;
 let mainWindowRequested = false;
 const rendererRecoveries = new Map<number, ReturnType<typeof createRendererRecovery>>();
@@ -828,6 +829,7 @@ void app.whenReady().then(async () => {
       cancelled: () => {
         isQuitting = false;
         resetQuitPreparation();
+        resetQuitConfirmation();
       },
     });
   });
@@ -889,7 +891,7 @@ const resetQuitPreparation = registerAppQuitPreparation(app, autoUpdater, () => 
 
 // 助手资源随应用结束；次实例退出不能关闭主实例拥有的服务。
 if (hasSingleInstanceLock) {
-  registerAppQuitConfirmation(app, autoUpdater, {
+  resetQuitConfirmation = registerAppQuitConfirmation(app, autoUpdater, {
     needsConfirmation: () => {
       try {
         return getAppContext().bootstrap?.userConfig.getSettings().weqAssistant.enabled ?? false;
