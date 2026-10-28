@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage } from 'node:http';
-import { type RemotePairing, claimSchema } from './pairing';
+import { type RemotePairing, claimSchema, tokenHash } from './pairing';
 import { RemoteWebGateway } from './web_gateway';
 
 function bearer(req: IncomingMessage): string {
@@ -10,7 +10,8 @@ function bearer(req: IncomingMessage): string {
 export function createRemoteServer(pairing: RemotePairing, webPort?: () => number | null) {
   const web = webPort === undefined ? null : new RemoteWebGateway(pairing, webPort);
   let windowStart = Date.now();
-  let requests = 0;
+  // 未授权请求与已授权设备分别计数，避免单个来源耗尽所有设备的限额。
+  const requests = new Map<string, number>();
   const server = createServer(async (req, res) => {
     const send = (code: number, value: unknown) => {
       res.writeHead(code, {
@@ -28,9 +29,16 @@ export function createRemoteServer(pairing: RemotePairing, webPort?: () => numbe
     if (req.headers.origin) return send(403, { error: '不接受浏览器来源。' });
     if (Date.now() - windowStart >= 60_000) {
       windowStart = Date.now();
-      requests = 0;
+      requests.clear();
     }
-    if (++requests > 120) return send(429, { error: '请求过于频繁。' });
+    const token = bearer(req);
+    const authorized = !!token && pairing.authenticate(token);
+    const quota = authorized
+      ? `device:${tokenHash(token)}`
+      : `peer:${req.socket.remoteAddress ?? 'unknown'}`;
+    const count = (requests.get(quota) ?? 0) + 1;
+    requests.set(quota, count);
+    if (count > 120) return send(429, { error: '请求过于频繁。' });
     const path = req.url ?? '';
     try {
       if (req.method === 'GET' && path === '/v1/hello') {
@@ -59,14 +67,13 @@ export function createRemoteServer(pairing: RemotePairing, webPort?: () => numbe
         const input = claimSchema.parse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
         return send(201, pairing.claim(input));
       }
-      const token = bearer(req);
       if (!token) return send(401, { error: '需要设备凭据。' });
       const match = /^\/v1\/pair\/([a-f0-9-]{36})$/.exec(path);
       if (req.method === 'GET' && match) {
         const result = pairing.poll(match[1]!, token);
         return result ? send(200, result) : send(401, { error: '请求已失效。' });
       }
-      if (!pairing.authenticate(token)) return send(401, { error: '设备未授权。' });
+      if (!authorized) return send(401, { error: '设备未授权。' });
       if (req.method === 'GET' && path === '/v1/status') {
         return send(200, {
           product: 'WeQ Remote',
