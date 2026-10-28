@@ -27,18 +27,43 @@ export function useCallCamera(options: {
 }): CallCameraState {
   const { enabled, profile = CAMERA_PROFILE, onEnded } = options;
 
-  const openStream = useCallback(
-    (target: { width: number; height: number; fps: number }) =>
-      navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: target.width },
-          height: { ideal: target.height },
-          frameRate: { ideal: target.fps },
-        },
-        audio: false,
-      }),
-    [],
-  );
+  const openStream = useCallback(async (target: { width: number; height: number; fps: number }) => {
+    // 调试用：按 label 或 deviceId 指定摄像头。
+    //
+    // 同机同时跑 QQ 与 WeQ 时，两边会争抢同一个物理摄像头（v4l2 是独占打开的），
+    // 谁后开谁拿不到 —— 表现为本端画面一片空白。用 v4l2loopback 造一路虚拟
+    // 摄像头（`modprobe v4l2loopback video_nr=10 card_label="WeQ Virtual"`，
+    // 再用 ffmpeg 往里推测试图案），然后在这里指定它。
+    //
+    //   WEQ_CAMERA_LABEL="WeQ Virtual" pnpm --filter @weq/desktop dev
+    //
+    // 走 label 匹配而不是写死 deviceId：deviceId 每次插拔都会变，label 稳定。
+    const wanted = window.weq?.cameraLabel;
+    if (wanted) {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const match = devices.find((d) => d.kind === 'videoinput' && d.label.includes(wanted));
+      if (match) {
+        return navigator.mediaDevices.getUserMedia({
+          video: {
+            deviceId: { exact: match.deviceId },
+            width: { ideal: target.width },
+            height: { ideal: target.height },
+            frameRate: { ideal: target.fps },
+          },
+          audio: false,
+        });
+      }
+      console.warn(`[call] 没找到标签含「${wanted}」的摄像头，回退默认设备`);
+    }
+    return navigator.mediaDevices.getUserMedia({
+      video: {
+        width: { ideal: target.width },
+        height: { ideal: target.height },
+        frameRate: { ideal: target.fps },
+      },
+      audio: false,
+    });
+  }, []);
 
   return useVideoCapture({
     enabled,
