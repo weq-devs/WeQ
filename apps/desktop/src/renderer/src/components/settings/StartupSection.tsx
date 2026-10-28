@@ -5,6 +5,7 @@ import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+import { SegmentedControl } from '../SegmentedControl';
 
 export function StartupSection() {
   const refresh = useQQAutoRefresh(true);
@@ -12,6 +13,7 @@ export function StartupSection() {
   const update = trpc.bootstrap.setAutostart.useMutation();
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, refresh);
   const windowUpdate = trpc.bootstrap.setShowWindowOnAutostart.useMutation();
+  const pageUpdate = trpc.bootstrap.setStartupPage.useMutation();
   const assistant = trpc.bootstrap.getWeqAssistantStatus.useQuery(undefined, refresh);
   const confirm = useDialog((state) => state.confirm);
   const [changing, setChanging] = useState(false);
@@ -73,7 +75,38 @@ export function StartupSection() {
   }
   return (
     <div className="weq-set">
-      <SectionHeader icon={<Power size={16} />} title="开机启动" />
+      <SectionHeader icon={<Power size={16} />} title="启动" />
+      <Card>
+        <Row
+          settingId="startup-page"
+          label="启动时进入"
+          control={
+            <SegmentedControl
+              label="启动时进入"
+              value={settings.data?.startupPage ?? 'last'}
+              disabled={settings.isLoading || !!settings.error || pageUpdate.isLoading}
+              options={
+                [
+                  { value: 'home', label: '主页' },
+                  { value: 'messages', label: '消息' },
+                  { value: 'last', label: '上次退出时所在页面' },
+                ] as const
+              }
+              onChange={(page) => {
+                void pageUpdate.mutateAsync({ page }).then(
+                  () => settings.refetch(),
+                  (error: unknown) => {
+                    showError(
+                      '保存启动页面失败',
+                      error instanceof Error ? error.message : '设置未保存',
+                    );
+                  },
+                );
+              }}
+            />
+          }
+        />
+      </Card>
       <Card title="开机启动">
         <Row
           settingId="startup-enabled"

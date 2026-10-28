@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { z } from 'zod';
+import { usePageState } from '../PageSnapshots';
 import { RotateCcw, Save } from 'lucide-react';
 import {
   INTENT_TUNING,
@@ -34,7 +36,12 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
   const utils = trpc.useUtils();
   const showError = useDialog((s) => s.showError);
   const baseline = useRef<Record<string, string>>({});
-  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [draft, setDraft] = usePageState<Record<string, string>>(
+    `tuning:${group}`,
+    {},
+    z.record(z.string()),
+    true,
+  );
   useEffect(() => {
     if (!status.data) return;
     const before = baseline.current;
@@ -49,7 +56,7 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
       return keys.every((key) => current[key] === updated[key]) ? current : updated;
     });
     baseline.current = next;
-  }, [keys, status.data]);
+  }, [keys, status.data, setDraft]);
   const ready = keys.every((key) => isIntentTuningValue(key, status.data?.[key]));
   const valid = keys.every(
     (key) => draft[key]?.trim() && isIntentTuningValue(key, Number(draft[key])),

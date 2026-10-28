@@ -23,6 +23,7 @@ import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
 import '../../styles/emoji-pack-formats.css';
+import { useExportReportDialog } from './ExportReportControl';
 
 type EmojiPackExportFormat = EmojiPackFormat | 'favorite-zip';
 
@@ -74,6 +75,7 @@ export function EmojiPackExportPane({
   isCurrent?: () => boolean;
 }): ReactElement {
   const dialog = useAppDialog();
+  const report = useExportReportDialog();
   const summary = trpc.account.emojiPack.summary.useQuery(undefined, { staleTime: 20_000 });
   const [selected, setSelected] = useState<Set<EmojiExportScope>>(new Set(['own', 'received']));
   const [submitting, setSubmitting] = useState(false);
@@ -105,6 +107,8 @@ export function EmojiPackExportPane({
     };
     setSubmitting(true);
     try {
+      const includeIntegrityReport = await report.choose();
+      if (includeIntegrityReport === null || !isCurrent()) return;
       const savePolicy = await prepareSave?.(intent, {
         kind: format !== 'directory' ? 'file' : 'bundle',
         name: favoriteBackup ? '收藏表情' : '自定义表情包',
@@ -114,12 +118,17 @@ export function EmojiPackExportPane({
       if (favoriteBackup) {
         if (!binding) throw new Error('请先打开要导出的 QQ 账号');
         await client.account.qqActions.favoriteExport.mutate({
+          includeIntegrityReport,
           expectedAccountUin: request.expectedAccountUin!,
           expectedAccountConfigId: request.expectedAccountConfigId!,
           savePolicy: savePolicy ?? { mode: 'before' },
         });
       } else {
-        await client.account.emojiPack.startExport.mutate({ ...request, savePolicy });
+        await client.account.emojiPack.startExport.mutate({
+          ...request,
+          savePolicy,
+          includeIntegrityReport,
+        });
       }
       if (!isCurrent()) return;
       onStarted();
@@ -133,6 +142,7 @@ export function EmojiPackExportPane({
 
   return (
     <div className="weq-epk" {...selection.rootProps}>
+      {report.dialog}
       {!favoriteBackup && (
         <div className="weq-epk-head">
           <Sparkles size={15} />

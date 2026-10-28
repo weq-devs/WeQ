@@ -50,11 +50,11 @@ function ProfileLikeDialogBody({
     );
   }
   return (
-    <Modal width={340} labelledBy={titleId} onClose={a.pending ? undefined : onClose} centered>
+    <Modal width={340} labelledBy={titleId} onClose={onClose} centered>
       <div className="weq-profile-like-dialog">
         <header>
           <h3 id={titleId}>{name} · 资料卡点赞</h3>
-          <ActionIcon label="关闭资料卡点赞" disabled={a.pending} onClick={onClose}>
+          <ActionIcon label="关闭资料卡点赞" onClick={onClose}>
             <X size={16} />
           </ActionIcon>
         </header>

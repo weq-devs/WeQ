@@ -60,7 +60,8 @@ html[data-theme='dark'] .weq-workspace-sidecar {
   container-type: inline-size;
 }
 
-html .weq-workspace-page > :first-child {
+html .weq-workspace-page > :first-child,
+html .weq-workspace-page > :where([data-page-snapshot]) > :first-child {
   position: relative;
   inset: auto;
   flex: 1;

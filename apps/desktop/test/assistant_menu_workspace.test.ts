@@ -44,10 +44,12 @@ vi.mock('../src/renderer/src/views/agentlab/AssistantPanel', () => ({
     sessionId,
     onSessionCreated,
     onActivityChange,
+    headless,
   }: {
     sessionId: string | null;
     onSessionCreated: (id: string) => void;
     onActivityChange: (activity: AssistantActivity, result?: string) => void;
+    headless?: boolean;
   }) => {
     const [draft, setDraft] = useState('');
     useEffect(() => {
@@ -55,6 +57,7 @@ vi.mock('../src/renderer/src/views/agentlab/AssistantPanel', () => ({
     }, []);
     if (!sessionId) fixture.created = () => onSessionCreated('created');
     fixture.activity.set(sessionId ?? 'new', onActivityChange);
+    if (headless) return null;
     return h(
       'div',
       { 'data-session': sessionId ?? 'new' },
@@ -282,12 +285,8 @@ describe('菜单助手会话', () => {
       );
       act(created);
       expect(readAssistantSession('account')).toBe('chosen');
-      expect(
-        host
-          .querySelector('[data-session="chosen"]')
-          ?.closest('[data-retained-panel]')
-          ?.hasAttribute('hidden'),
-      ).toBe(false);
+      expect(host.querySelector('[data-session="chosen"]')).not.toBeNull();
+      expect(host.querySelector('[data-session="chosen"]')!.closest('[hidden]')).toBeNull();
     } finally {
       act(() => root.unmount());
     }

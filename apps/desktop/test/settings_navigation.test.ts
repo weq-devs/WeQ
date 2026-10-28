@@ -2,11 +2,23 @@
 import { describe, expect, it } from 'vitest';
 import {
   SETTINGS_GROUPS,
+  SETTINGS_PAGE_LABELS,
   settingsGroupFor,
   settingsSectionFor,
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置的两级导航', () => {
+  it('常规先显示启动，再显示主页，启动保留原页面标识', () => {
+    expect(settingsGroupFor('startup').sections).toEqual([
+      'startup',
+      'home',
+      'appearance',
+      'global',
+      'weq-storage',
+      'privacy',
+    ]);
+    expect(SETTINGS_PAGE_LABELS.startup).toBe('启动');
+  });
   it('关于包含版本后的配置备份，旧帮助和更新提醒深链归到新页面', () => {
     expect(settingsGroupFor('version').sections).toEqual([
       'version',

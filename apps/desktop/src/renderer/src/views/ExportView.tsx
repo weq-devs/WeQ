@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
+import { useExportReportDialog } from './export/ExportReportControl';
 import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { fixProfileAvatarUrl } from '../lib/avatarResolver';
@@ -62,6 +63,8 @@ import {
 } from './export/chatExport';
 import {
   COLLECTION_FORMATS,
+  FRIEND_FORMATS,
+  QZONE_FORMATS,
   DEFAULT_OPTIONS,
   chatKind,
   convAvatarUrl,
@@ -71,6 +74,7 @@ import {
   type ExportMode,
   type ExportOptions,
   type PickItem,
+  type QzoneExportContent,
   type ScheduledTask,
 } from './export/types';
 import '../styles/export.css';
@@ -99,7 +103,15 @@ import { QzoneScopePicker } from './export/QzoneScopePicker';
 import '../styles/workspace-tools.css';
 import '../styles/unified-export.css';
 import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
+import { usePageState } from '../components/PageSnapshots';
+import { pageValue } from '../lib/pageSnapshots';
+import { z } from 'zod';
 import { ScheduleSettings } from '../components/tasks/ScheduleSettings';
+import {
+  PersonaBotExportPane,
+  QzoneTargetInput,
+  QzoneContentSelector,
+} from './export/ResourceExportPanes';
 
 interface ModeDef {
   id: ExportMode;
@@ -111,6 +123,13 @@ interface ModeDef {
 }
 
 const MODES: ModeDef[] = [
+  {
+    id: 'persona-bot',
+    label: '克隆体机器人',
+    short: '机器人',
+    desc: 'OneBot 部署整包',
+    icon: <Bot size={18} />,
+  },
   {
     id: 'full',
     label: '聊天消息导出',
@@ -136,7 +155,7 @@ const MODES: ModeDef[] = [
     id: 'qzone',
     label: 'QQ空间导出',
     short: 'QQ 空间',
-    desc: '空间说说 · JSON / TXT / HTML',
+    desc: '说说 / 相册 · JSON / TXT / HTML',
     icon: <Globe size={18} />,
   },
   {
@@ -368,6 +387,7 @@ export function ExportTool({
   const active = useTabActive();
   const modeLocked = lockMode || Boolean(databaseTarget);
   const dialog = useAppDialog();
+  const report = useExportReportDialog();
   const pushToast = useToast((s) => s.push);
   const mounted = useRef(true);
   const saveLocationPending = useRef<((directory: string | null) => void) | null>(null);
@@ -398,12 +418,20 @@ export function ExportTool({
   const tasks = trpc.account.listExportTasks.useQuery();
   const schedules = trpc.account.listSchedules.useQuery();
 
-  const [mode, setMode] = useState<ExportMode>(
+  const [mode, setMode] = usePageState<ExportMode>(
+    'export:mode',
     databaseTarget
       ? 'database'
       : initialMode === 'scheduled'
         ? 'full'
         : (initialMode ?? initialExportMode(initialSelection)),
+    z.custom<ExportMode>(
+      (value) =>
+        typeof value === 'string' &&
+        (value === 'database' || MODES.some((mode) => mode.id === value)),
+    ),
+    false,
+    !initialSelection && !initialMode && !databaseTarget,
   );
   // 浮动工具子项带过来的默认对象：群相册 / 群文件要从当前界面的群直接落地，
   // 不必在面板里再选一遍群。
@@ -417,76 +445,169 @@ export function ExportTool({
   const selfProfile = trpc.account.getSelfProfile.useQuery(undefined, {
     enabled: active && surface === 'export' && mode === 'qzone',
   });
-  const [execution, setExecution] = useState<'now' | 'scheduled'>(
+  const [execution, setExecution] = usePageState<'now' | 'scheduled'>(
+    'export:execution',
     initialMode === 'scheduled' ? 'scheduled' : 'now',
+    z.enum(['now', 'scheduled']),
+    false,
+    !initialMode,
   );
-  const [taskTab, setTaskTab] = useState<'tasks' | 'schedules'>('tasks');
-  const [selectedSchedule, setSelectedSchedule] = useState<string | null>(null);
+  const [qzoneContent, setQzoneContent] = usePageState<QzoneExportContent>(
+    'export:qzone-content',
+    'posts',
+    z.enum(['posts', 'both', 'albums']),
+  );
+  const [taskTab, setTaskTab] = usePageState<'tasks' | 'schedules'>(
+    'export:task-tab',
+    'tasks',
+    z.enum(['tasks', 'schedules']),
+  );
+  const [selectedSchedule, setSelectedSchedule] = usePageState<string | null>(
+    'export:schedule',
+    null,
+    pageValue.optionalString,
+  );
   const activeScheduleId =
     schedules.data?.find((item) => item.id === selectedSchedule)?.id ?? schedules.data?.[0]?.id;
   // 频道私聊会话列表（guild_msg.db；只在该模式下加载）。
   const guildSessions = trpc.account.guildDirectListSessions.useQuery(undefined, {
     enabled: active && surface === 'export' && mode === 'guild',
   });
-  const [chatSelection, setChatSelection] = useState<Set<string>>(
+  const [chatSelection, setChatSelection] = usePageState<Set<string>>(
+    'export:chats',
     () => new Set(initialConversationIds(initialSelection)),
+    pageValue.stringSet,
+    true,
+    !initialSelection,
   );
   const [qzoneInitial] = useState(() => initialQzoneScope(initialSelection));
-  const [spaceSelection, setSpaceSelection] = useState<Set<string>>(
+  const [spaceSelection, setSpaceSelection] = usePageState<Set<string>>(
+    'export:spaces',
     () => new Set(qzoneInitial.uin ? [qzoneInitial.uin] : []),
+    pageValue.stringSet,
+    true,
+    !initialSelection,
   );
-  const [postSelections, setPostSelections] = useState<Record<string, string[]>>(() =>
-    qzoneInitial.uin && qzoneInitial.tids !== undefined
-      ? { [qzoneInitial.uin]: [...qzoneInitial.tids] }
-      : {},
+  const [postSelections, setPostSelections] = usePageState<Record<string, string[]>>(
+    'export:posts',
+    () =>
+      qzoneInitial.uin && qzoneInitial.tids !== undefined
+        ? { [qzoneInitial.uin]: [...qzoneInitial.tids] }
+        : {},
+    pageValue.stringLists,
+    true,
+    !initialSelection,
   );
-  const [spaceScopeUin, setSpaceScopeUin] = useState<string | null>(() =>
-    qzoneInitial.tids !== undefined ? (qzoneInitial.uin ?? null) : null,
+  const [spaceScopeUin, setSpaceScopeUin] = usePageState<string | null>(
+    'export:space-scope',
+    () => (qzoneInitial.tids !== undefined ? (qzoneInitial.uin ?? null) : null),
+    pageValue.optionalString,
+    true,
+    !initialSelection,
   );
   const convSelection = mode === 'qzone' ? spaceSelection : chatSelection;
   const setConvSelection = mode === 'qzone' ? setSpaceSelection : setChatSelection;
-  const [messageSelections, setMessageSelections] = useState<Record<string, string[]>>(() => {
-    if (initialSelection?.owner.kind !== 'messages' || initialSelection.scope.type !== 'items')
-      return {};
-    const conv = initialSelection.owner.container.slice(
-      initialSelection.owner.container.indexOf(':') + 1,
-    );
-    return { [conv]: [...initialSelection.scope.ids] };
-  });
-  const [scopeConversationId, setScopeConversationId] = useState<string | null>(() =>
-    initialSelection?.owner.kind === 'messages' && initialSelection.scope.type === 'items'
-      ? (initialConversationIds(initialSelection)[0] ?? null)
-      : null,
+  const [messageSelections, setMessageSelections] = usePageState<Record<string, string[]>>(
+    'export:messages',
+    () => {
+      if (initialSelection?.owner.kind !== 'messages' || initialSelection.scope.type !== 'items')
+        return {};
+      const conv = initialSelection.owner.container.slice(
+        initialSelection.owner.container.indexOf(':') + 1,
+      );
+      return { [conv]: [...initialSelection.scope.ids] };
+    },
+    pageValue.stringLists,
+    true,
+    !initialSelection,
+  );
+  const [scopeConversationId, setScopeConversationId] = usePageState<string | null>(
+    'export:conversation-scope',
+    () =>
+      initialSelection?.owner.kind === 'messages' && initialSelection.scope.type === 'items'
+        ? (initialConversationIds(initialSelection)[0] ?? null)
+        : null,
+    pageValue.optionalString,
+    true,
+    !initialSelection,
   );
   /** 频道私聊多选：id = nodeId（与普通会话 uid 空间不同，分开存。） */
   const [guildInitial] = useState(() => initialGuildScope(initialSelection));
-  const [guildSelection, setGuildSelection] = useState<Set<string>>(
+  const [guildSelection, setGuildSelection] = usePageState<Set<string>>(
+    'export:guilds',
     () => new Set(guildInitial.nodeIds),
+    pageValue.stringSet,
+    true,
+    !initialSelection,
   );
-  const [guildMessageSelections, setGuildMessageSelections] = useState(guildInitial.messageIds);
-  const [guildScopeId, setGuildScopeId] = useState<string | null>(
+  const [guildMessageSelections, setGuildMessageSelections] = usePageState(
+    'export:guild-messages',
+    guildInitial.messageIds,
+    pageValue.stringLists,
+    true,
+    !initialSelection,
+  );
+  const [guildScopeId, setGuildScopeId] = usePageState<string | null>(
+    'export:guild-scope',
     () => guildInitial.nodeIds[0] ?? null,
+    pageValue.optionalString,
+    true,
+    !initialSelection,
   );
   /** 新任务到达时，强制选中该任务。 */
   const [autoSelectTaskId, setAutoSelectTaskId] = useState<string | null>(null);
   /** 导出联系人：好友 or 群成员。 */
   const [contactInitial] = useState(() => initialContactScope(initialSelection));
-  const [contactScope, setContactScope] = useState<'friends' | 'group' | 'groups'>(
+  const [contactScope, setContactScope] = usePageState<'friends' | 'group' | 'groups'>(
+    'export:contact-scope',
     contactInitial.scope,
+    z.enum(['friends', 'group', 'groups']),
+    true,
+    !initialSelection,
   );
-  const [groupListIds, setGroupListIds] = useState<string[] | undefined>(
+  const [groupListIds, setGroupListIds] = usePageState<string[] | undefined>(
+    'export:group-list',
     contactInitial.groupListIds,
+    pageValue.strings.optional(),
+    true,
+    !initialSelection,
   );
-  const [friendUids, setFriendUids] = useState<string[] | undefined>(contactInitial.friendUids);
+  const [friendUids, setFriendUids] = usePageState<string[] | undefined>(
+    'export:friends',
+    contactInitial.friendUids,
+    pageValue.strings.optional(),
+    true,
+    !initialSelection,
+  );
   /** 好友导出：选中的分组 id（空 = 全部好友）。 */
-  const [catSelection, setCatSelection] = useState<Set<number>>(new Set());
-  /** 群成员导出：选中的群号。 */
-  const [contactGroupIds, setContactGroupIds] = useState<Set<string>>(
-    () => new Set(contactInitial.groupIds),
+  const [catSelection, setCatSelection] = usePageState<Set<number>>(
+    'export:categories',
+    new Set(),
+    z.set(z.number()),
+    true,
+    !initialSelection,
   );
-  const [memberUids, setMemberUids] = useState<Record<string, string[]>>(contactInitial.memberUids);
-  const [memberScopeGroupId, setMemberScopeGroupId] = useState<string | null>(
+  /** 群成员导出：选中的群号。 */
+  const [contactGroupIds, setContactGroupIds] = usePageState<Set<string>>(
+    'export:contact-groups',
+    () => new Set(contactInitial.groupIds),
+    pageValue.stringSet,
+    true,
+    !initialSelection,
+  );
+  const [memberUids, setMemberUids] = usePageState<Record<string, string[]>>(
+    'export:members',
+    contactInitial.memberUids,
+    pageValue.stringLists,
+    true,
+    !initialSelection,
+  );
+  const [memberScopeGroupId, setMemberScopeGroupId] = usePageState<string | null>(
+    'export:member-scope',
     () => Object.keys(contactInitial.memberUids)[0] ?? null,
+    pageValue.optionalString,
+    true,
+    !initialSelection,
   );
   const groups = trpc.account.exportGroupDirectory.useQuery(undefined, {
     enabled:
@@ -497,11 +618,22 @@ export function ExportTool({
         mode === 'groupfile'),
   });
   /** 导出收藏：选中的收藏类型（空 = 全部）。 */
-  const [collectionKinds, setCollectionKinds] = useState<Set<string>>(new Set());
-  const [collectionIds, setCollectionIds] = useState<string[] | undefined>(() =>
-    initialSelection?.owner.kind === 'collections' && initialSelection.scope.type === 'items'
-      ? [...initialSelection.scope.ids]
-      : undefined,
+  const [collectionKinds, setCollectionKinds] = usePageState<Set<string>>(
+    'export:collection-kinds',
+    new Set(),
+    pageValue.stringSet,
+    true,
+    !initialSelection,
+  );
+  const [collectionIds, setCollectionIds] = usePageState<string[] | undefined>(
+    'export:collections',
+    () =>
+      initialSelection?.owner.kind === 'collections' && initialSelection.scope.type === 'items'
+        ? [...initialSelection.scope.ids]
+        : undefined,
+    pageValue.strings.optional(),
+    true,
+    !initialSelection,
   );
   const [filteredCollectionIds, setFilteredCollectionIds] = useState<string[]>([]);
   /** 收藏预览：加载一次全部收藏（含展示摘要），按类型计数 + 下方列表预览。 */
@@ -545,7 +677,15 @@ export function ExportTool({
   const [fileGroupId, setFileGroupId] = useState<string | null>(
     initialMode === 'groupfile' ? initialGroupId : null,
   );
-  const [format, setFormat] = useState<ExportFormat>('json');
+  const [format, setFormat] = usePageState<ExportFormat>(
+    'export:format',
+    'json',
+    z.custom<ExportFormat>((value) =>
+      [...COLLECTION_FORMATS, ...FRIEND_FORMATS, ...QZONE_FORMATS].some(
+        (format) => format.value === value,
+      ),
+    ),
+  );
   const fixedMessages =
     fixedScope &&
     (initialSelection?.owner.kind === 'messages' ||
@@ -596,7 +736,7 @@ export function ExportTool({
       setFormat('json');
     // vcard 仅联系人可用；离开联系人模式时清掉，避免带进消息/定时导出。
     if (mode !== 'contacts' && format === 'vcard') setFormat('json');
-  }, [mode, contactScope, format]);
+  }, [mode, contactScope, format, setFormat]);
 
   // Live task progress: invalidate the list whenever the backend ticks.
   useEffect(() => {
@@ -649,6 +789,10 @@ export function ExportTool({
   }, [guildSessions.data]);
 
   // QQ 空间导出目标：自己的空间（置顶）+ 私聊好友（排除群聊、公众号、服务号，且需有效 uin）。
+  const [extraQzoneTargets, setExtraQzoneTargets] = useState<string[]>([]);
+  useEffect(() => {
+    setExtraQzoneTargets([]);
+  }, [accountUin, saveBinding?.expectedAccountConfigId]);
   const friendItems = useMemo<PickItem[]>(() => {
     const self = selfProfile.data as SelfProfileWire | null | undefined;
     const raw = (conversations.data ?? []) as ConvWire[];
@@ -696,7 +840,16 @@ export function ExportTool({
         meta: '好友空间 · 说说',
       }));
     const byUin = new Map<string, PickItem>();
-    for (const item of [...mine, ...friends]) if (!byUin.has(item.id)) byUin.set(item.id, item);
+    const extra: PickItem[] = extraQzoneTargets.map((uin) => ({
+      id: uin,
+      uin,
+      name: `空间 ${uin}`,
+      kind: 'c2c',
+      avatarUrl: convAvatarUrl('c2c', '', uin),
+      meta: '指定空间',
+    }));
+    for (const item of [...mine, ...friends, ...extra])
+      if (!byUin.has(item.id)) byUin.set(item.id, item);
     const items = [...byUin.values()];
     if (qzoneInitial.uin && !items.some((item) => item.id === qzoneInitial.uin))
       items.unshift({
@@ -708,7 +861,7 @@ export function ExportTool({
         meta: '当前空间 · 说说',
       });
     return items;
-  }, [conversations.data, selfProfile.data, qzoneInitial.uin]);
+  }, [conversations.data, selfProfile.data, qzoneInitial.uin, extraQzoneTargets]);
 
   const groupItems = useMemo<PickItem[]>(() => {
     return ((groups.data ?? []) as GroupWire[]).map((g) => ({
@@ -1011,16 +1164,17 @@ export function ExportTool({
       targets.length === 0 ||
       !account ||
       exportAccount.isFetching ||
-      targets.some((target) => target.tids?.length === 0)
+      (options.qzonePosts !== false && targets.some((target) => target.tids?.length === 0))
     )
       return;
     const binding = { expectedAccountUin: account.uin, expectedAccountConfigId: account.configId };
     const ok = await preflightQqOnline(dialog);
     if (!ok) return;
 
-    const range = targets.some((target) => target.tids !== undefined)
-      ? { start: null, end: null }
-      : { start: options.range.start, end: options.range.end };
+    const range =
+      options.qzonePosts !== false && targets.some((target) => target.tids !== undefined)
+        ? { start: null, end: null }
+        : { start: options.range.start, end: options.range.end };
     setSubmitting(true);
     try {
       const savePolicy = await prepareSave(intent, {
@@ -1035,9 +1189,12 @@ export function ExportTool({
         const fmt0 = qzoneFormatOf(formats[0] ?? 'json');
         await client.account.startQzoneExport.mutate({
           ...binding,
+          includeIntegrityReport: options.includeIntegrityReport ?? false,
           savePolicy,
           targetUin: t.uin,
-          tids: t.tids,
+          tids: options.qzonePosts === false ? undefined : t.tids,
+          includePosts: options.qzonePosts !== false,
+          includeAlbums: Boolean(options.qzoneAlbums),
           name: t.name,
           format: fmt0,
           formats: formats.map(qzoneFormatOf),
@@ -1107,6 +1264,7 @@ export function ExportTool({
       if (contactScope === 'groups') {
         await client.account.startContactsExport.mutate({
           ...binding,
+          includeIntegrityReport: options.includeIntegrityReport ?? false,
           savePolicy,
           scope: 'groups',
           name: selectionName,
@@ -1117,6 +1275,7 @@ export function ExportTool({
       } else if (contactScope === 'friends') {
         await client.account.startContactsExport.mutate({
           ...binding,
+          includeIntegrityReport: options.includeIntegrityReport ?? false,
           savePolicy,
           scope: 'friends',
           name: selectionName,
@@ -1134,6 +1293,7 @@ export function ExportTool({
           if (!isCurrent()) return;
           await client.account.startContactsExport.mutate({
             ...binding,
+            includeIntegrityReport: options.includeIntegrityReport ?? false,
             savePolicy,
             scope: 'group',
             groupCode: g.id,
@@ -1164,6 +1324,8 @@ export function ExportTool({
     if (cids.length === 0) return;
     setSubmitting(true);
     try {
+      const includeIntegrityReport = await report.choose();
+      if (includeIntegrityReport === null || !isCurrent()) return;
       const savePolicy = await prepareSave(intent, {
         kind: 'bundle',
         name: kinds.length ? `收藏_${kinds.length}类` : '全部收藏',
@@ -1171,6 +1333,7 @@ export function ExportTool({
       if (!savePolicy) return;
       await client.account.startCollectionExport.mutate({
         ...binding,
+        includeIntegrityReport,
         savePolicy,
         name: kinds.length ? `收藏_${kinds.length}类` : '全部收藏',
         format: cfmt,
@@ -1320,6 +1483,7 @@ export function ExportTool({
         const fmt0 = formats[0] ?? format;
         await client.account.guildDirectStartExport.mutate({
           ...binding,
+          includeIntegrityReport: options.includeIntegrityReport ?? false,
           savePolicy,
           nodeId: t.id,
           messageIds: t.messageIds,
@@ -1366,6 +1530,7 @@ export function ExportTool({
       if (!savePolicy || !isCurrent()) return;
       await client.account.startGroupAlbumExport.mutate({
         ...binding,
+        includeIntegrityReport: result.includeIntegrityReport,
         name,
         savePolicy,
         groupCode: group.id,
@@ -1402,6 +1567,7 @@ export function ExportTool({
       if (!savePolicy || !isCurrent()) return;
       await client.account.startGroupFileExport.mutate({
         ...binding,
+        includeIntegrityReport: result.includeIntegrityReport,
         name,
         savePolicy,
         groupCode: group.id,
@@ -1539,6 +1705,7 @@ export function ExportTool({
           transcribeVoice: result.options.transcribeVoice,
           dress: result.options.dress,
           autoSave: result.options.autoSave,
+          includeIntegrityReport: result.options.includeIntegrityReport ?? false,
         },
         enabled: true,
       });
@@ -1601,7 +1768,10 @@ export function ExportTool({
     scopeConversationId &&
     convSelection.has(scopeConversationId)
       ? convItems.find((item) => item.id === scopeConversationId)
-      : mode === 'qzone' && spaceScopeUin && spaceSelection.has(spaceScopeUin)
+      : mode === 'qzone' &&
+          qzoneContent !== 'albums' &&
+          spaceScopeUin &&
+          spaceSelection.has(spaceScopeUin)
         ? friendItems.find((item) => item.id === spaceScopeUin)
         : undefined;
 
@@ -1613,7 +1783,11 @@ export function ExportTool({
         : mode === 'groupfile'
           ? '导出群文件'
           : mode === 'qzone'
-            ? '导出空间'
+            ? qzoneContent === 'albums'
+              ? '导出相册'
+              : qzoneContent === 'both'
+                ? '导出空间与相册'
+                : '导出空间'
             : mode === 'contacts'
               ? contactScope === 'groups'
                 ? '导出群聊名单'
@@ -1627,7 +1801,8 @@ export function ExportTool({
       ? !exportAccount.data ||
         exportAccount.isFetching ||
         !spaceSelection.size ||
-        [...spaceSelection].some((id) => postSelections[id]?.length === 0)
+        (qzoneContent !== 'albums' &&
+          [...spaceSelection].some((id) => postSelections[id]?.length === 0))
       : mode === 'album'
         ? !albumGroupId
         : mode === 'groupfile'
@@ -1696,6 +1871,7 @@ export function ExportTool({
 
   return (
     <div className={`weq-exp weq-export-tool is-${surface}`}>
+      {report.dialog}
       {serverLocation && (
         <ServerSavePrompt name={serverLocation.name} onChoose={chooseServerLocation} />
       )}
@@ -1810,7 +1986,26 @@ export function ExportTool({
               </div>
             ) : null}
 
+            {mode === 'qzone' ? (
+              <div className="weq-export-execution">
+                <QzoneContentSelector
+                  value={qzoneContent}
+                  onChange={setQzoneContent}
+                  disabled={submitting}
+                />
+              </div>
+            ) : null}
             <div className="weq-exp-pane-body">
+              {mode === 'qzone' && !modeLocked ? (
+                <QzoneTargetInput
+                  disabled={!saveBinding || submitting}
+                  key={`${accountUin}:${saveBinding?.expectedAccountConfigId}`}
+                  onAdd={(uin) => {
+                    setExtraQzoneTargets((current) => [...new Set([...current, uin])]);
+                    setConvSelection((current) => new Set([...current, uin]));
+                  }}
+                />
+              ) : null}
               {mode === 'mail' ? (
                 <MailExportPane
                   initialSelection={initialSelection}
@@ -1818,6 +2013,10 @@ export function ExportTool({
                   isCurrent={isCurrent}
                   onStarted={refetchTasks}
                   disabled={pickingSaveDirectory || globalSettings.isLoading}
+                />
+              ) : mode === 'persona-bot' ? (
+                <PersonaBotExportPane
+                  key={`${accountUin}:${saveBinding?.expectedAccountConfigId}`}
                 />
               ) : mode === 'generated' ? (
                 <GeneratedExportPane
@@ -1855,11 +2054,18 @@ export function ExportTool({
                     loading={conversations.isLoading}
                     selected={convSelection}
                     onChange={setConvSelection}
-                    scopeSelections={mode === 'full' ? messageSelections : postSelections}
+                    scopeSelections={
+                      mode === 'full'
+                        ? messageSelections
+                        : qzoneContent === 'albums'
+                          ? undefined
+                          : postSelections
+                    }
                     scopeLabel={mode === 'qzone' ? '说说范围' : '消息范围'}
                     scopeUnit={mode === 'qzone' ? '条说说' : '条消息'}
                     onEditScope={
-                      (mode === 'full' && execution === 'now') || mode === 'qzone'
+                      (mode === 'full' && execution === 'now') ||
+                      (mode === 'qzone' && qzoneContent !== 'albums')
                         ? (item) => {
                             setConvSelection(new Set([...convSelection, item.id]));
                             if (mode === 'qzone') setSpaceScopeUin(item.id);
@@ -2142,6 +2348,7 @@ export function ExportTool({
             {/* 商城表情下载 / 导出表情包自带底部操作条，隐藏导出中心的通用 footer。 */}
             {mode !== 'emojipack' &&
             mode !== 'database' &&
+            mode !== 'persona-bot' &&
             mode !== 'generated' &&
             mode !== 'mail' ? (
               <footer className="weq-exp-pane-foot">
@@ -2237,6 +2444,7 @@ export function ExportTool({
             </div>
           ) : null}
           <RetainedTabs
+            snapshotKey="export-tasks"
             activeKey={taskTab === 'schedules' && taskLayout !== 'compact' ? 'schedules' : 'tasks'}
           >
             {taskTab === 'schedules' && taskLayout !== 'compact' ? (
@@ -2282,7 +2490,10 @@ export function ExportTool({
                   )}
                 </div>
                 <div className="weq-schedule-details">
-                  <RetainedTabs activeKey={activeScheduleId ?? 'empty'}>
+                  <RetainedTabs
+                    snapshotKey="export-schedule"
+                    activeKey={activeScheduleId ?? 'empty'}
+                  >
                     {(schedules.data as ScheduledTask[] | undefined)
                       ?.filter((s) => s.id === activeScheduleId)
                       .map((s) => (
@@ -2453,6 +2664,7 @@ export function ExportTool({
           headline={lightboxHeadline}
           summary={lightboxSummary}
           contactScope={contactScope}
+          qzoneContent={lightbox === 'qzone' ? qzoneContent : undefined}
           calendarTargets={
             ['full', 'chatlab', 'scheduled'].includes(lightbox)
               ? convItems

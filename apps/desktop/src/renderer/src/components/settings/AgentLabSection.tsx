@@ -1,4 +1,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
+import { z } from 'zod';
+import { usePageState } from '../PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import type { CapabilityProbeResult } from '@weq/agentlab';
 import {
   Boxes,
@@ -93,9 +96,27 @@ export function AgentLabSection(): ReactElement {
   const deleteProvider = trpc.bootstrap.deleteAgentLabProvider.useMutation();
   const fetchModels = trpc.bootstrap.fetchAgentLabModels.useMutation();
 
-  const [selectedId, setSelectedId] = useState<string>('');
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState<ProviderForm>(emptyForm);
+  const [selectedId, setSelectedId] = usePageState('provider:selected', '', pageValue.string);
+  const [open, setOpen] = usePageState('provider:open', false, pageValue.boolean, true);
+  const [form, setForm] = usePageState<ProviderForm>(
+    'provider:form',
+    emptyForm,
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      vendor: z.string(),
+      baseUrl: z.string(),
+      apiKey: z.string(),
+      models: z.array(
+        z.object({
+          id: z.string(),
+          label: z.string(),
+          capabilities: z.array(z.enum(['chat', 'embedding', 'vision'])),
+        }),
+      ),
+    }),
+    true,
+  );
   const formRef = useRef(form);
   formRef.current = form;
   const [detectingModel, setDetectingModel] = useState<number | null>(null);
@@ -154,7 +175,7 @@ export function AgentLabSection(): ReactElement {
       guard.reset(next);
     },
     // 模板查询迟到只更新模板来源，不重新灌入并覆盖正在编辑的草稿。
-    [guard.reset],
+    [guard.reset, setForm],
   );
 
   const vendorEntry = useMemo(

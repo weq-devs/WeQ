@@ -169,13 +169,16 @@ function CdnProvider({
 export default function App(): ReactElement {
   const view = useViewState((s) => s.view);
   const openedUin = useViewState((s) => s.openedUin);
+  const homeStage = useViewState((s) => s.homeStage);
   const switching = useAccountSwitch((s) => s.active);
   const switchHint = useAccountSwitch((s) => s.hint);
   const switchProgress = useAccountSwitch((s) => s.progress);
 
   useEffect(() => {
-    setWindowLayout(view === 'main' ? 'chat' : 'home');
-  }, [view]);
+    // 启动探测期间可能正在接回原窗口中的账号，不能先缩成首页尺寸。
+    if (view === 'main' || homeStage !== 'booting')
+      setWindowLayout(view === 'main' ? 'chat' : 'home');
+  }, [view, homeStage]);
 
   useEffect(() => {
     ensureThemeInitialized();
@@ -215,7 +218,7 @@ export default function App(): ReactElement {
             <DialogHost />
             <RemoteRequests />
             <ToastHost />
-            <RendererRecoveryNotice />
+            <RendererRecoveryNotice ready={view === 'bootstrap' && homeStage !== 'booting'} />
             {IS_WEB && <WebConnectionStatus />}
             <HoverTooltip />
             <DbRepairWindowHost />

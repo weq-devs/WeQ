@@ -141,6 +141,35 @@ export interface CallSnapshot {
   receivedVideoFrames: number;
   /** 视频流的最近一次关键帧信息；没收到过为 null。 */
   videoInfo: VideoStreamInfo | null;
+  /**
+   * 本端正在发的画面来自哪里：摄像头还是屏幕共享。
+   *
+   * **只影响本端采集与显示**，协议层不分这两者（都是主视频流）。界面用它决定
+   * 本端小窗的画法（共享时不要镜像、也不该裁成圆形）。
+   */
+  videoSource: CallVideoSource;
+  /** 本端视频编码档位（采集端按它缩放）。还没开过视频时为 null。 */
+  videoProfile: CallVideoEncoding | null;
+}
+
+/**
+ * 本端画面的采集来源。
+ *
+ * **协议层不区分这两者** —— 屏幕共享就是一路普通主视频流（`0x5b subType=2`），
+ * 与摄像头共用 `subType=4` 开关、`subType=5` 保活、`bt=31` 状态交换。这个类型只
+ * 用来让界面决定本端画面怎么显示（共享时不该做镜像 / 圆形裁切）。
+ *
+ * 具体要多少分辨率、多少码率由主进程的采集档位决定，`@weq/service` 只负责把
+ * 「当前是哪一档」原样透传给界面，不关心数值本身。
+ */
+export type CallVideoSource = 'camera' | 'screen';
+
+/** 本端视频的编码档位（由主进程的采集档位决定，服务层只透传）。 */
+export interface CallVideoEncoding {
+  width: number;
+  height: number;
+  fps: number;
+  bitrateKbps: number;
 }
 
 /** 从 SPS 里读出来的视频规格。 */
@@ -284,6 +313,19 @@ export interface CallSessionOptions {
   codec: CallAudioCodec;
   /** 视频编码器。不给则只做接收（看不到本端画面）。 */
   videoEncoder?: CallVideoEncoder;
+  /**
+   * 禁止 P2P 直连，媒体全程走服务端中继。
+   *
+   * 排障开关（设置项 `callDisableP2P`）。置位后：
+   *
+   * - 不学对端直连地址，也就不会进入 `probing` / `direct`；
+   * - {@link mediaTargets} 永远只返回 GCS；
+   * - 已有的 `peerDirect` 不再被发送路径使用。
+   *
+   * 2026-10-28 实测背景：P2P 直连上行只有 7.5 fps / 208 kbps，而经服务端中继
+   * 下发的对端流有满 12 fps / 679 kbps —— 直连不一定更快，取决于两端 NAT 与链路。
+   */
+  disableP2P?: boolean;
   timers?: CallTimers;
   logger?: Logger;
 }
@@ -648,6 +690,8 @@ export class CallSession {
   private videoWatchdogTimer: unknown = null;
   /** 本端视频编码器（由主进程注入；没有就只做接收）。 */
   private videoEncoder: CallVideoEncoder | null = null;
+  /** 本端画面来源。协议层不区分，只透传给界面。 */
+  private videoSource: CallVideoSource = 'camera';
 
   // 定时器
   private heartbeatTimer: unknown = null;
@@ -704,7 +748,51 @@ export class CallSession {
       videoReceiving: this.videoReceiving,
       receivedVideoFrames: this.receivedVideoFrames,
       videoInfo: this.videoInfo,
+      videoSource: this.videoSource,
+      videoProfile: this.localVideoProfile(),
     };
+  }
+
+  /**
+   * 本端当前编码档位。
+   *
+   * 以注入的编码器为准（它会随采集源切换而换档），没有编码器时返回 null ——
+   * 那种情况下只发控制信令、不画面。
+   */
+  private localVideoProfile(): CallVideoEncoding | null {
+    const encoder = this.videoEncoder;
+    if (!encoder) return null;
+    const info = encoder.info();
+    return {
+      width: info.width,
+      height: info.height,
+      fps: info.fps ?? 0,
+      bitrateKbps: info.bitrateKbps ?? 0,
+    };
+  }
+
+  /**
+   * 更新本端采集源与编码档位（摄像头 ↔ 屏幕共享）。
+   *
+   * 协议层**什么都不发**：屏幕共享与摄像头在协议上是同一路主视频流。这里只是
+   * 把状态记下来，让 `snapshot()` 能告诉界面「当前在共享屏幕、编码尺寸是多少」。
+   */
+  setVideoSource(source: CallVideoSource): void {
+    if (this.videoSource === source) return;
+    this.videoSource = source;
+    this.log?.info('本端视频采集源', { source, profile: this.localVideoProfile() });
+    this.emit();
+  }
+
+  /**
+   * 编码档位变了（换采集源 / 按源宽高比重设尺寸）时刷新规格。
+   *
+   * `snapshot().videoProfile` 与界面都从这里取；编码器本身由主进程重开，
+   * 这里只负责让状态对得上。
+   */
+  setVideoEncoding(): void {
+    this.log?.info('本端视频规格更新', { profile: this.localVideoProfile() });
+    this.emit();
   }
 
   onStateChange(listener: CallListener): () => void {
@@ -951,8 +1039,11 @@ export class CallSession {
       }
     }
 
-    const wantServer = this.mediaPath !== 'direct';
-    const wantPeer = hasPeer && this.mediaPath !== 'server';
+    // 禁用 P2P：媒体永远只发 GCS。放在这里而不是 `applyPeerEndpoint` 一处，
+    // 是因为 `mediaPath` 可能被三条路径改成 probing/direct（bt=27、真实回程、
+    // 中继候选），逐个挡住容易漏；出口只有这一个。
+    const wantServer = this.opts.disableP2P || this.mediaPath !== 'direct';
+    const wantPeer = !this.opts.disableP2P && hasPeer && this.mediaPath !== 'server';
     if (wantServer) out.push({ address: this.gcs.ip, port: this.gcs.port });
     if (wantPeer && peer) {
       // 同一台机器（回环 / 服务端与对端同址）会撞上，避免重复发。地址比较要做
@@ -1468,6 +1559,13 @@ export class CallSession {
     port: number,
     opts: { provisional?: boolean } = {},
   ): void {
+    // 禁用 P2P：不记对端端点，也就不会有打洞探测包与直连媒体。
+    // 这一处必须挡在**最前面**，否则 `sendPeerProbe` 仍会按 `peerDirect` 打洞 ——
+    // 实测会漏出一条 `0x02` 探测包（媒体包倒是拦住了）。
+    if (this.opts.disableP2P) {
+      this.log?.info('已禁用 P2P，忽略对端端点', { address, port });
+      return;
+    }
     const normalizedPort = port > 0 && port < 65536 ? port : 0;
     if (this.peerDirect?.address === address && this.peerDirect.port === normalizedPort) return;
     this.peerDirect = { address, port: normalizedPort };
@@ -2404,6 +2502,7 @@ export class CallSession {
     this.videoAssembler.reset();
     this.videoSending = false;
     this.videoReceiving = false;
+    this.videoSource = 'camera';
     this.sendQueue.length = 0;
   }
 

@@ -3,12 +3,24 @@ import { resolve } from 'node:path';
 
 export type DatabasePriority = 'interactive' | 'background';
 const priority = new AsyncLocalStorage<{ priority: DatabasePriority; signal?: AbortSignal }>();
+const promotedSignals = new WeakSet<AbortSignal>();
+export function databaseRequestSignal(): AbortSignal | undefined {
+  return priority.getStore()?.signal;
+}
 export function withDatabasePriority<T>(
   value: DatabasePriority,
   run: () => T,
   signal?: AbortSignal,
 ): T {
-  return priority.run({ priority: value, signal }, run);
+  return priority.run(
+    {
+      get priority() {
+        return signal && promotedSignals.has(signal) ? 'interactive' : value;
+      },
+      signal,
+    },
+    run,
+  );
 }
 
 interface Series {
@@ -49,8 +61,27 @@ interface Queue {
   interactiveBurst: number;
   interactive: Job[];
   background: Job[];
+  current?: Job;
 }
 const queues = new Map<string, Queue>();
+
+/** 复用已开始的预取；只提升未执行 SQL，不抢占 native 当前工作。 */
+export function promoteDatabaseSignal(signal: AbortSignal): void {
+  if (signal.aborted) return;
+  promotedSignals.add(signal);
+  for (const queue of queues.values()) {
+    if (queue.current?.signal === signal) {
+      queue.current.priority = 'interactive';
+      metric(queue.path).lastInteractiveAt = performance.now();
+    }
+    const jobs = queue.background.filter((job) => job.signal === signal);
+    queue.background = queue.background.filter((job) => job.signal !== signal);
+    for (const job of jobs) {
+      job.priority = 'interactive';
+      queue.interactive.push(job);
+    }
+  }
+}
 const bindingAliases = new WeakMap<object, object>();
 const bindingIds = new WeakMap<object, number>();
 const defaultBinding = {};
@@ -131,9 +162,9 @@ export function scheduleDatabase<T>(
     return Promise.reject(new Error('数据库查询队列已满，请稍后重试'));
   return new Promise<T>((resolve, reject) => {
     const abort = () => {
-      const pending = state[kind].indexOf(job);
+      const pending = state[job.priority].indexOf(job);
       if (pending < 0) return;
-      state[kind].splice(pending, 1);
+      state[job.priority].splice(pending, 1);
       signal?.removeEventListener('abort', abort);
       reject(new DOMException('数据库读取已取消', 'AbortError'));
     };
@@ -155,7 +186,7 @@ export function scheduleDatabase<T>(
           reject(error);
         } finally {
           record(data.nativeAwait, performance.now() - began);
-          if (kind === 'interactive') data.lastInteractiveAt = performance.now();
+          if (job.priority === 'interactive') data.lastInteractiveAt = performance.now();
         }
       },
     };
@@ -172,7 +203,12 @@ export function scheduleDatabase<T>(
               (state.interactiveBurst < 8 || !state.background.length);
             const next = (foreground ? state.interactive : state.background).shift()!;
             state.interactiveBurst = foreground ? state.interactiveBurst + 1 : 0;
-            await next.start();
+            state.current = next;
+            try {
+              await next.start();
+            } finally {
+              state.current = undefined;
+            }
             // 批间让出，使 IPC 新请求有机会在下一条后台 SQL 前入队。
             if (state.interactive.length || state.background.length)
               await new Promise<void>((done) => setImmediate(done));

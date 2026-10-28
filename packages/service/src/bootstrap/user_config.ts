@@ -49,6 +49,10 @@ import {
   qzonePaginationLimiter,
   type QzonePaginationSettings,
 } from '../common/qzone_pagination';
+import {
+  DEFAULT_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,
+  normalizeQzonePublicRefreshCooldown,
+} from '../common/qzone_public_settings';
 import { normalizeGroupKeywordRules } from '../account/group_keyword';
 import {
   DEFAULT_TOAST_DURATIONS,
@@ -158,6 +162,7 @@ function normalizeTtsProviders(value: unknown): TtsProviderConfig[] {
 
 /** 导出灯箱的选项快照（与渲染层 `ExportOptions` 一一对应，字段缺一不可）。 */
 export interface ExportPresetOptions {
+  includeIntegrityReport?: boolean;
   range: {
     preset: 'all' | 'today' | '7d' | '30d' | '1y' | 'custom';
     start: number | null;
@@ -166,6 +171,8 @@ export interface ExportPresetOptions {
   exportMedia: boolean;
   /** 好友 QQ 空间导出：补全评论 + 点赞（读取时缺省补 false，字段始终存在）。 */
   qzoneInteractions: boolean;
+  qzonePosts?: boolean;
+  qzoneAlbums?: boolean;
   mediaKinds: {
     image: boolean;
     voice: boolean;
@@ -276,7 +283,10 @@ function normalizeExportPresetOptions(value: unknown): ExportPresetOptions | und
       end: range.end,
     },
     exportMedia: o.exportMedia,
+    includeIntegrityReport: o.includeIntegrityReport === true,
     qzoneInteractions: typeof o.qzoneInteractions === 'boolean' ? o.qzoneInteractions : false,
+    qzonePosts: o.qzonePosts !== false,
+    qzoneAlbums: o.qzoneAlbums === true,
     mediaKinds: {
       image: mediaKinds.image,
       voice: mediaKinds.voice,
@@ -383,6 +393,8 @@ function normalizeSsePushServers(value: unknown): SsePushServerConfig[] {
 export interface VoiceTranscribeConfig {
   /** 离线转录模型 id（空 = 关）。 */
   modelId: string;
+  /** 浏览聊天时自动转换尚无文字的语音。 */
+  autoTranscribe: boolean;
   /** TTS 服务商列表（用于克隆体发语音/语音克隆）。 */
   ttsProviders: TtsProviderConfig[];
 }
@@ -505,6 +517,8 @@ export interface AppSettings {
   webServiceAutoStart: boolean;
   /** 系统登录自启时显示主窗口，默认关闭；手动打开不受影响。 */
   showWindowOnAutostart: boolean;
+  /** 正常退出后重新启动的工作区栏目；异常恢复始终还原现场。 */
+  startupPage: 'home' | 'messages' | 'last';
   /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认关闭。 */
   reportReadEnabled: boolean;
   /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认关闭。 */
@@ -621,8 +635,25 @@ export interface AppSettings {
   logRetentionDays: number;
   /** App-wide online Qzone page request budget, shared across accounts and exports. */
   qzonePagination: QzonePaginationSettings;
+  /** 空友爱看自动换首页的冷却分钟数；0 表示每次进入都刷新。 */
+  qzonePublicRefreshCooldownMinutes: number;
+  /** 转发说说时自动引用上一人的文案。 */
+  qzoneForwardQuotePrevious: boolean;
+  /** 点击空间中的他人昵称或头像时的默认操作；当前空间主人始终显示名片。 */
+  qzonePersonClickAction: 'profile' | 'space';
   /** 通话录音（设置 → 通话与录音，通话窗口的录音抽屉共用同一份）。 */
   callRecording: CallRecordingConfig;
+  /**
+   * 是否禁用通话的 P2P 直连，强制媒体全程走服务端中继。
+   *
+   * **排障开关，默认 `false`。** 2026-10-28 实测：P2P 直连上行只有 7.5 fps /
+   * 208 kbps（目标 12 fps / 300 kbps），而对端经服务端中继下发给我们的是满
+   * 12 fps / 679 kbps —— 直连质量不一定更好，取决于两端的 NAT 与链路。
+   *
+   * 打开后 `CallSession` 既不学对端直连地址也不进入 `probing` / `direct`，
+   * 媒体只发 GCS。代价是所有流量都过腾讯服务器，延迟略高、且占用服务端带宽。
+   */
+  callDisableP2P: boolean;
 }
 
 /**
@@ -837,12 +868,13 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   restrictedModeBannerEnabled: true,
   webServiceAutoStart: false,
   showWindowOnAutostart: false,
+  startupPage: 'last',
   reportReadEnabled: false,
   manualReadReportEnabled: false,
   autoLockMinutes: 0,
   appLock: { enabled: true, method: 'totp' },
   modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
-  voiceTranscribe: { modelId: '', ttsProviders: [] },
+  voiceTranscribe: { modelId: '', autoTranscribe: false, ttsProviders: [] },
   // 本地图片文字识别：两个用途各自独立选模型（都空 = 未启用）。
   ocr: { modelId: '', filterModelId: '' },
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
@@ -880,14 +912,21 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   defaultExportDir: null,
   logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
   qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
+  qzonePublicRefreshCooldownMinutes: DEFAULT_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,
+  qzoneForwardQuotePrevious: false,
+  qzonePersonClickAction: 'space',
   // 默认双方混音；电脑声音默认不录（Linux / Windows 都要多占一路采集）。
   callRecording: { mode: 'mixed', systemAudio: false, dir: null },
+  // 默认允许 P2P 直连；禁用是排障开关，见 AppSettings.callDisableP2P。
+  callDisableP2P: false,
 };
 
 export interface UserConfig {
   autoEnter?: AutoEnterTarget | null;
   /** 登录页退出后仅跳过下一次启动，不改变自动进入偏好。 */
   skipAutoEnterOnce?: boolean;
+  /** 正常退出时写入，下次进程启动消费，异常终止不会留下该标记。 */
+  cleanExit?: boolean;
   tencentFilesRootOverride?: string | null;
   settings?: DeepPartial<AppSettings>;
   cacheDirOverride?: string | null;
@@ -956,6 +995,7 @@ export class UserConfigService {
   private cached: UserConfig | undefined;
   private readFailure: unknown;
   private skipAutoEnterThisStartup: boolean | undefined;
+  private startupPageThisStartup: AppSettings['startupPage'] | undefined;
   private readonly logger = getLogger().child({ scope: 'user-config' });
 
   constructor(platform: Pick<Platform, 'appDataRoot'>) {
@@ -1259,6 +1299,18 @@ export class UserConfigService {
     return this.read().autoEnter ?? null;
   }
 
+  getStartupPage(): AppSettings['startupPage'] {
+    if (this.startupPageThisStartup === undefined) {
+      this.startupPageThisStartup = this.read().cleanExit ? this.getSettings().startupPage : 'last';
+      this.write({ cleanExit: false });
+    }
+    return this.startupPageThisStartup;
+  }
+
+  markCleanExit(): void {
+    this.write({ cleanExit: true });
+  }
+
   getStartupAutoEnter(): AutoEnterTarget | null {
     if (this.skipAutoEnterThisStartup === undefined) {
       this.skipAutoEnterThisStartup = this.read().skipAutoEnterOnce === true;
@@ -1388,6 +1440,8 @@ export class UserConfigService {
       restrictedModeBannerEnabled: s?.restrictedModeBannerEnabled !== false,
       webServiceAutoStart: s?.webServiceAutoStart === true,
       showWindowOnAutostart: s?.showWindowOnAutostart === true,
+      startupPage:
+        s?.startupPage === 'home' || s?.startupPage === 'messages' ? s.startupPage : 'last',
       reportReadEnabled: s?.reportReadEnabled === true,
       manualReadReportEnabled: s?.manualReadReportEnabled === true,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
@@ -1442,7 +1496,13 @@ export class UserConfigService {
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
       logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
       qzonePagination: normalizeQzonePagination(s?.qzonePagination),
+      qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(
+        s?.qzonePublicRefreshCooldownMinutes,
+      ),
+      qzoneForwardQuotePrevious: s?.qzoneForwardQuotePrevious === true,
+      qzonePersonClickAction: s?.qzonePersonClickAction === 'profile' ? 'profile' : 'space',
       callRecording: normalizeCallRecording(s?.callRecording, d.callRecording),
+      callDisableP2P: typeof s?.callDisableP2P === 'boolean' ? s.callDisableP2P : d.callDisableP2P,
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -1450,6 +1510,10 @@ export class UserConfigService {
       modelResources: resources,
       voiceTranscribe: {
         modelId: resources.voice,
+        autoTranscribe:
+          typeof s?.voiceTranscribe?.autoTranscribe === 'boolean'
+            ? s.voiceTranscribe.autoTranscribe
+            : d.voiceTranscribe.autoTranscribe,
         ttsProviders:
           normalizeTtsProviders(s?.voiceTranscribe?.ttsProviders) ?? d.voiceTranscribe.ttsProviders,
       },
@@ -1506,6 +1570,7 @@ export class UserConfigService {
         patch.restrictedModeBannerEnabled ?? current.restrictedModeBannerEnabled,
       webServiceAutoStart: patch.webServiceAutoStart ?? current.webServiceAutoStart,
       showWindowOnAutostart: patch.showWindowOnAutostart ?? current.showWindowOnAutostart,
+      startupPage: patch.startupPage ?? current.startupPage,
       reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,
       manualReadReportEnabled: patch.manualReadReportEnabled ?? current.manualReadReportEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
@@ -1577,10 +1642,22 @@ export class UserConfigService {
       logRetentionDays:
         normalizeLogRetentionDays(patch.logRetentionDays) ?? current.logRetentionDays,
       qzonePagination: normalizeQzonePagination(patch.qzonePagination, current.qzonePagination),
+      qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(
+        patch.qzonePublicRefreshCooldownMinutes,
+        current.qzonePublicRefreshCooldownMinutes,
+      ),
+      qzoneForwardQuotePrevious:
+        patch.qzoneForwardQuotePrevious ?? current.qzoneForwardQuotePrevious,
+      qzonePersonClickAction:
+        patch.qzonePersonClickAction === 'profile' || patch.qzonePersonClickAction === 'space'
+          ? patch.qzonePersonClickAction
+          : current.qzonePersonClickAction,
       callRecording: normalizeCallRecording(
         { ...current.callRecording, ...patch.callRecording },
         current.callRecording,
       ),
+      callDisableP2P:
+        typeof patch.callDisableP2P === 'boolean' ? patch.callDisableP2P : current.callDisableP2P,
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,
@@ -1588,6 +1665,8 @@ export class UserConfigService {
       modelResources: resources,
       voiceTranscribe: {
         modelId: resources.voice,
+        autoTranscribe:
+          patch.voiceTranscribe?.autoTranscribe ?? current.voiceTranscribe.autoTranscribe,
         ttsProviders:
           patch.voiceTranscribe?.ttsProviders !== undefined
             ? normalizeTtsProviders(patch.voiceTranscribe.ttsProviders)

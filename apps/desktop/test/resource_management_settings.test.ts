@@ -1,5 +1,8 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Storage } from 'happy-dom';
+import { PageSnapshots, usePageState } from '../src/renderer/src/components/PageSnapshots';
+import { pageValue } from '../src/renderer/src/lib/pageSnapshots';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { CleanupInstruction, CleanupTargetStat, ResourceTreeKey } from '@weq/service';
 import { ResourceManagementSection } from '../src/renderer/src/components/settings/ResourceManagementSection';
@@ -38,7 +41,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 vi.mock('../src/renderer/src/views/cache/CacheView', () => ({
   CacheView: ({ selection, revision }: { selection?: { category: string }; revision: number }) => {
     f.browse(selection, revision);
-    return h('input', { 'aria-label': '合成资源筛选', defaultValue: '' });
+    const [value, setValue] = usePageState('resource-filter', '', pageValue.string);
+    return h('input', {
+      'aria-label': '合成资源筛选',
+      value,
+      onInput: (event) => setValue(event.currentTarget.value),
+    });
   },
 }));
 const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic' };
@@ -62,6 +70,7 @@ const targets: CleanupTargetStat[] = RESOURCE_CATEGORIES.flatMap((category) => [
 }));
 const cleanups: Array<() => void> = [];
 beforeEach(() => {
+  vi.stubGlobal('localStorage', new Storage());
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
   useViewState.setState({ openedUin: '10001' });
@@ -98,7 +107,15 @@ async function mount() {
   document.body.append(host);
   const root = createRoot(host);
   const render = async (active = true) =>
-    act(async () => root.render(h(TabActivity, { active }, h(ResourceManagementSection))));
+    act(async () =>
+      root.render(
+        h(
+          PageSnapshots,
+          { scope: `10001:${f.configId}` },
+          h(TabActivity, { active }, h(ResourceManagementSection)),
+        ),
+      ),
+    );
   cleanups.push(() => {
     act(() => root.unmount());
     host.remove();
@@ -140,11 +157,16 @@ it('直接承载概览、清理和浏览，共享一次扫描，表情子目标�
   expect(f.list).toHaveBeenCalledOnce();
   await page.view('resource-viewer');
   const input = page.host.querySelector<HTMLInputElement>('[aria-label="合成资源筛选"]')!;
-  input.value = '保留资源筛选';
+  act(() => {
+    input.value = '保留资源筛选';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
   await page.view('qq-storage-analysis');
   await page.view('resource-viewer');
-  expect(page.host.querySelector('[aria-label="合成资源筛选"]')).toBe(input);
-  expect(input.value).toBe('保留资源筛选');
+  expect(page.host.querySelector('[aria-label="合成资源筛选"]')).not.toBe(input);
+  expect(page.host.querySelector<HTMLInputElement>('[aria-label="合成资源筛选"]')!.value).toBe(
+    '保留资源筛选',
+  );
 });
 it('自定义保留全部/原图/缩略变体，确认显示真实范围，返回视图保留选择', async () => {
   const page = await mount();

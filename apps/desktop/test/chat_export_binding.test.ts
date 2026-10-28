@@ -7,6 +7,23 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { account: { startExport: { mutate: state.start } } },
 }));
 beforeEach(() => state.start.mockReset().mockResolvedValue('task-a'));
+it.each([false, true])(
+  '批量导出将本次完整性报告选择 %s 传给每个任务',
+  async (includeIntegrityReport) => {
+    await startChatExportTasks(
+      [
+        { id: 'u_a', name: '一' },
+        { id: 'u_b', name: '二' },
+      ],
+      { ...DEFAULT_OPTIONS, includeIntegrityReport, ocrImages: false },
+      ['json'],
+      'json',
+    );
+    expect(state.start).toHaveBeenCalledTimes(2);
+    for (const [input] of state.start.mock.calls)
+      expect(input).toMatchObject({ includeIntegrityReport });
+  },
+);
 it('批次每次建任务前检查来源，切换后停止未创建的目标', async () => {
   let current = true;
   const created = vi.fn();

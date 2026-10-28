@@ -18,6 +18,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import {
   AlertCircle,
   Check,
@@ -98,7 +100,11 @@ export function McpServerSection(): ReactElement {
   const [copiedToken, setCopiedToken] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedConfig, setCopiedConfig] = useState(false);
-  const [portDraft, setPortDraft] = useState('');
+  const [portDraft, setPortDraft] = usePageState('mcp:port', '', pageValue.string, true);
+  usePageDraftConfirmation(
+    'mcp:port',
+    status.data?.port == null ? undefined : String(status.data.port),
+  );
   const previousPort = useRef<string | null>(null);
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
   const hydratedAgents = useRef(false);
@@ -150,7 +156,7 @@ export function McpServerSection(): ReactElement {
     const next = String(data.port);
     setPortDraft((draft) => (draft === (previous ?? '') ? next : draft));
     previousPort.current = next;
-  }, [data?.port]);
+  }, [data?.port, setPortDraft]);
   useEffect(() => {
     if (!active) {
       setCopiedToken(false);
@@ -297,6 +303,8 @@ export function McpServerSection(): ReactElement {
 
   const enabled = data?.enabled ?? false;
   const running = data?.running ?? false;
+  /** 已启用、但当前没有账号打开 —— 服务等下一个账号起来才监听。 */
+  const waitingForAccount = enabled && !running && data?.accountOpen === false;
 
   return (
     <div className="weq-set weq-service-settings">
@@ -340,11 +348,19 @@ export function McpServerSection(): ReactElement {
                 : running
                   ? '运行中'
                   : enabled
-                    ? '已启用（等待账号）'
+                    ? waitingForAccount
+                      ? '已启用（等待账号）'
+                      : '已启用（未在监听）'
                     : '已停止'}
             </span>
           }
-          desc={data ? data.url : '—'}
+          desc={
+            data
+              ? running || waitingForAccount
+                ? data.url
+                : `${data.url} · 服务未监听，可尝试关闭后重新开启`
+              : '—'
+          }
           control={
             <button
               type="button"

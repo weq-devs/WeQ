@@ -1,11 +1,6 @@
-import {
-  createContext,
-  useContext,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { createContext, useContext, useId, type ReactNode } from 'react';
+import { PageSnapshotScope } from './PageSnapshots';
+import { PageScrollSnapshot } from './PageScrollSnapshot';
 
 const TabActivityContext = createContext(true);
 export const useTabActive = () => useContext(TabActivityContext);
@@ -19,39 +14,27 @@ export function TabActivity({ active, children }: { active: boolean; children?: 
   );
 }
 
-function RetainedPanel({
-  active,
+/** 仅挂载活动页；旧名称保留给现有调用方，现场改由轻量磁盘快照恢复。 */
+export function RetainedTabs({
+  activeKey,
   children,
-  scrollable,
+  scrollable = false,
+  snapshotKey,
 }: {
-  active: boolean;
+  activeKey: string;
   children: ReactNode;
-  scrollable: boolean;
+  scrollable?: boolean;
+  snapshotKey?: string;
 }) {
-  const parentActive = useTabActive();
-  const effectiveActive = parentActive && active;
-  const scrolls = useRef(new Map<HTMLElement, { top: number; left: number }>());
-  useLayoutEffect(() => {
-    if (!effectiveActive) return;
-    for (const [element, position] of scrolls.current) {
-      if (!element.isConnected) {
-        scrolls.current.delete(element);
-        continue;
-      }
-      // ChatPane owns history anchors and follow-new-message positioning.
-      if (element.matches('.message-scroll')) continue;
-      element.scrollTop = position.top;
-      element.scrollLeft = position.left;
-    }
-  }, [effectiveActive]);
+  const id = useId();
+  const active = useTabActive();
+  if (!active || children == null) return null;
   return (
-    <TabActivity active={active}>
-      <div
-        data-retained-panel=""
-        hidden={!active}
-        inert={!active}
+    <PageSnapshotScope key={activeKey} name={`${snapshotKey ?? id}:${activeKey}`}>
+      <PageScrollSnapshot
+        panel
         style={{
-          display: active ? 'flex' : 'none',
+          display: 'flex',
           flex: 1,
           minWidth: 0,
           minHeight: 0,
@@ -60,41 +43,9 @@ function RetainedPanel({
           overflowY: scrollable ? 'auto' : undefined,
           overflowX: scrollable ? 'hidden' : undefined,
         }}
-        onScrollCapture={(event) => {
-          if (effectiveActive && event.target instanceof HTMLElement)
-            scrolls.current.set(event.target, {
-              top: event.target.scrollTop,
-              left: event.target.scrollLeft,
-            });
-        }}
       >
         {children}
-      </div>
-    </TabActivity>
+      </PageScrollSnapshot>
+    </PageSnapshotScope>
   );
-}
-
-/** Only mount visited tabs; keep the last props of hidden tabs until they are activated again. */
-export function RetainedTabs({
-  activeKey,
-  children,
-  scrollable = false,
-}: {
-  activeKey: string;
-  children: ReactNode;
-  scrollable?: boolean;
-}) {
-  const [panels, setPanels] = useState(() => new Map<string, ReactNode>());
-  let rendered = panels;
-  if (children != null && panels.get(activeKey) !== children) {
-    // Render-state updates are discarded with an interrupted tab transition; mutable refs are not.
-    rendered = new Map(panels);
-    rendered.set(activeKey, children);
-    setPanels(rendered);
-  }
-  return [...rendered].map(([key, content]) => (
-    <RetainedPanel key={key} active={key === activeKey && children != null} scrollable={scrollable}>
-      {content}
-    </RetainedPanel>
-  ));
 }

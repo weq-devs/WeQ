@@ -7,6 +7,8 @@ export const backupProbeInput = z.object({
     .string()
     .regex(/^\d{1,20}$/)
     .optional(),
+  /** 本机 QQ 数据根下的 login.db；没有 gpro 库时用来查 uid。 */
+  loginDbPaths: z.array(z.string().min(1).max(4096)).max(8).optional(),
 });
 export const backupProbeResult = z.discriminatedUnion('status', [
   z.object({

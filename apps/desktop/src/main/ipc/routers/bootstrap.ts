@@ -16,6 +16,7 @@
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
+import { MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES } from '@weq/service/qzone-public-settings';
 import { isToastDuration } from '@weq/service/toast-settings';
 import {
   copyExportSavePolicy,
@@ -78,6 +79,7 @@ import {
 } from '@weq/service';
 import { runBackupProbe } from '../../backup_probe';
 import {
+  backupLoginDbPaths,
   scanBackupCandidates,
   probeBackup,
   resolveBackupDirectory,
@@ -124,6 +126,7 @@ function backupScanContext() {
 
 /** 导出灯箱选项快照（与渲染层 ExportOptions 一一对应）。 */
 const exportPresetOptionsSchema = z.object({
+  includeIntegrityReport: z.boolean().optional(),
   range: z.object({
     preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
     start: z.number().nullable(),
@@ -609,6 +612,17 @@ export const bootstrapRouter = router({
       return requireBootstrap().userConfig.setSettings({ callRecording: input }).callRecording;
     }),
 
+  /**
+   * 禁用通话 P2P 直连（排障开关），媒体全程走服务端中继。
+   *
+   * **必须在发起通话前改**：媒体路径在会话生命周期内由 `CallSession` 自行
+   * 维护，进行中的通话不会因为改了这个开关而切换路径。
+   */
+  setCallDisableP2P: procedure.input(z.object({ disabled: z.boolean() })).mutation(({ input }) => {
+    return requireBootstrap().userConfig.setSettings({ callDisableP2P: input.disabled })
+      .callDisableP2P;
+  }),
+
   /** 弹系统目录选择框并保存为录音目录。取消返回 null（不修改设置）。 */
   pickCallRecordingDir: procedure.mutation(async (): Promise<string | null> => {
     const picked = await getHost().pickDirectory({ title: '选择通话录音保存文件夹' });
@@ -828,6 +842,32 @@ export const bootstrapRouter = router({
       requireBootstrap().userConfig.setSettings({ logRetentionDays: input.days });
       runLogRetentionSweep(input.days);
       return true;
+    }),
+
+  setQzonePublicRefreshCooldown: procedure
+    .input(
+      z.object({ minutes: z.number().int().min(0).max(MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES) }),
+    )
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({
+        qzonePublicRefreshCooldownMinutes: input.minutes,
+      }).qzonePublicRefreshCooldownMinutes;
+    }),
+
+  setQzoneForwardQuotePrevious: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({
+        qzoneForwardQuotePrevious: input.enabled,
+      }).qzoneForwardQuotePrevious;
+    }),
+
+  setQzonePersonClickAction: procedure
+    .input(z.object({ action: z.enum(['profile', 'space']) }))
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({
+        qzonePersonClickAction: input.action,
+      }).qzonePersonClickAction;
     }),
 
   setQzonePagination: procedure
@@ -1211,13 +1251,17 @@ export const bootstrapRouter = router({
    */
   getMcpStatus: procedure.query(() => {
     const mcp = requireBootstrap().userConfig.getSettings().mcp;
+    const running = isMcpRunning();
+    const accountOpen = Boolean(getAppContext().services);
     return {
       enabled: mcp.enabled,
       port: mcp.port,
       token: mcp.token,
       host: '127.0.0.1',
       url: `http://127.0.0.1:${mcp.port}`,
-      running: isMcpRunning(),
+      running,
+      // 没有账号时服务是「已启用但没在监听」，前端据此区分文案。
+      accountOpen,
     };
   }),
 
@@ -1301,8 +1345,11 @@ export const bootstrapRouter = router({
       if (!current.enabled || !current.token) {
         const token = current.token || randomBytes(32).toString('hex');
         userConfig.setSettings({ mcp: { enabled: true, token } });
-        await getAppContext().applyMcp(userConfig.getSettings().mcp);
       }
+      // 无论配置是否刚刚改过都应用一次：`applyMcp` 幂等（配置相同且已在监听
+      // 时是 no-op），但配置早就 enabled、服务却没起来的场景（例如刚切换到
+      // 备份账号）需要它把服务真正拉起来，否则装好的客户端连不上。
+      await getAppContext().applyMcp(userConfig.getSettings().mcp);
       const mcp = userConfig.getSettings().mcp;
       const results = installMcpAgentConfigs(input.targets, {
         url: `http://127.0.0.1:${mcp.port}`,
@@ -1384,6 +1431,15 @@ export const bootstrapRouter = router({
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ showWindowOnAutostart: input.enabled });
       return input.enabled;
+    }),
+
+  getStartupPage: procedure.query(() => requireBootstrap().userConfig.getStartupPage()),
+
+  setStartupPage: procedure
+    .input(z.object({ page: z.enum(['home', 'messages', 'last']) }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ startupPage: input.page });
+      return input.page;
     }),
 
   // ---- first-run onboarding (欢迎使用) ----
@@ -1470,6 +1526,15 @@ export const bootstrapRouter = router({
     requireBootstrap().userConfig.setSettings({ voiceTranscribe: { modelId: input.modelId } });
     return true;
   }),
+
+  setAutoTranscribeVoice: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({
+        voiceTranscribe: { autoTranscribe: input.enabled },
+      });
+      return true;
+    }),
 
   // ---- local OCR models (设置 → 模型与识别 → 图片识别) ----
   //
@@ -2375,10 +2440,18 @@ export const bootstrapRouter = router({
       const dirPath = await resolveBackupDirectory(input.dirPath);
       if (!dirPath) throw new Error('未找到 nt_msg.db / profile_info.db');
       // 真正切换账号前再次在隔离进程验证，避免旧客户端绕过目录探测。
+      const loginDbPaths = (() => {
+        try {
+          return backupLoginDbPaths(requirePlatform());
+        } catch {
+          return [];
+        }
+      })();
       const checked = await runBackupProbe({
         dirPath,
         dbKey: input.dbKey,
         expectedUin: input.preview.uin,
+        ...(loginDbPaths.length ? { loginDbPaths } : {}),
       });
       if (checked.status === 'needKey') throw new Error('此备份需要数据库密钥，请先验证。');
       if (checked.status === 'error') throw new Error(checked.error);
@@ -2397,7 +2470,7 @@ export const bootstrapRouter = router({
       return ctx.account!.context;
     }),
 
-  /** Web 首屏只读取已打开账号的标识，不暴露密钥或重新打开数据库。 */
+  /** 首屏或界面重载接回已打开账号，不重新打开数据库。 */
   currentAccount: procedure.query(() => {
     const account = getAppContext().account;
     return account ? { uin: String(account.context.uin) } : null;

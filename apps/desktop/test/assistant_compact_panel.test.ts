@@ -13,6 +13,8 @@ const fixture = vi.hoisted(() => ({
     reasoningEffort: 'medium',
   },
   save: vi.fn(),
+  subscribe: vi.fn(),
+  unsubscribe: vi.fn(),
   utils: {
     account: {
       getAssistantConversation: { invalidate: vi.fn() },
@@ -54,7 +56,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     ),
   },
-  client: { account: { onAssistantEvent: { subscribe: () => ({ unsubscribe: vi.fn() }) } } },
+  client: { account: { onAssistantEvent: { subscribe: fixture.subscribe } } },
 }));
 vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
   useAppDialog: () => ({ error: vi.fn(), confirm: vi.fn() }),
@@ -75,10 +77,58 @@ vi.mock('../src/renderer/src/views/agentlab/messageSearch', () => ({
 beforeEach(() => {
   fixture.config.model = { providerId: 'synthetic', model: 'model-a' };
   fixture.save.mockReset().mockResolvedValue({});
+  fixture.unsubscribe.mockReset();
+  fixture.subscribe.mockReset().mockImplementation(() => ({ unsubscribe: fixture.unsubscribe }));
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it('无界面控制器释放聊天 DOM 与 ResizeObserver，保留后台订阅和输入数据', () => {
+  const targets = new Set<Element>();
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      private owned = new Set<Element>();
+      observe(element: Element) {
+        this.owned.add(element);
+        targets.add(element);
+      }
+      disconnect() {
+        for (const element of this.owned) targets.delete(element);
+        this.owned.clear();
+      }
+    },
+  );
+  rememberAssistantDraft('synthetic/config', null, '等待继续编辑');
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const props = {
+    sessionId: null,
+    chatModels: [],
+    draftAccount: 'synthetic/config',
+    onBack: vi.fn(),
+    onSessionCreated: vi.fn(),
+  };
+  try {
+    act(() => root.render(h(AssistantPanel, props)));
+    const input = host.querySelector('textarea');
+    expect(targets.size).toBeGreaterThan(0);
+    act(() => root.render(h(AssistantPanel, { ...props, headless: true })));
+    expect(host.querySelector('*')).toBeNull();
+    expect(targets.size).toBe(0);
+    expect(fixture.subscribe).toHaveBeenCalledOnce();
+    expect(fixture.unsubscribe).not.toHaveBeenCalled();
+    act(() => root.render(h(AssistantPanel, props)));
+    expect(host.querySelector('textarea')).not.toBe(input);
+    expect(host.querySelector('textarea')!.value).toBe('等待继续编辑');
+    expect(targets.size).toBeGreaterThan(0);
+  } finally {
+    act(() => root.unmount());
+  }
+  expect(fixture.unsubscribe).toHaveBeenCalledOnce();
+  expect(targets.size).toBe(0);
+});
 
 it('助手模型菜单显式保存默认标记，紧凑模式显示当前具体默认模型', async () => {
   const host = document.createElement('div');

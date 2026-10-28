@@ -592,7 +592,12 @@ export function createQQActionsRouter(
         return { discarded: true };
       }),
     favoriteExport: procedure
-      .input(binding.extend({ savePolicy: exportSavePolicyInput }))
+      .input(
+        binding.extend({
+          savePolicy: exportSavePolicyInput,
+          includeIntegrityReport: z.boolean().optional(),
+        }),
+      )
       .mutation(({ input: i }) =>
         read(i, async (s) => {
           const pid = s.accountConfig.getRecord()?.qqPid;
@@ -604,6 +609,7 @@ export function createQQActionsRouter(
             throw new Error('请先选择收藏包保存位置');
           return s.exportManager.startResourceExport({
             kind: 'favorite-emoji',
+            includeIntegrityReport: i.includeIntegrityReport,
             name: '收藏表情',
             output: { kind: 'file', name: '收藏表情', extension: 'zip' },
             savePolicy: i.savePolicy,
@@ -867,7 +873,8 @@ export function createQQActionsRouter(
             current,
           );
           current();
-          return s.webQuery.commentQzone(i.hostUin, i.tid, i.content, 1, picture.richval, current);
+          // 评论 richval 接受图片直链，不是发表说说的逗号分隔图片元数据。
+          return s.webQuery.commentQzone(i.hostUin, i.tid, i.content, 1, picture.url, current);
         }),
       ),
     inputStatus: procedure

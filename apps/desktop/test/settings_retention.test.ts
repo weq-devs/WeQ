@@ -9,6 +9,7 @@ import { useTabActive } from '../src/renderer/src/components/RetainedTabs';
 import { useAppLock } from '../src/renderer/src/state/lock';
 import { useViewState } from '../src/renderer/src/state/view';
 import type { SettingsSearchTarget } from '../src/renderer/src/components/settings/searchTarget';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
 
 const fixture = vi.hoisted(() => ({
   queries: new Map<string, { path: string; active: boolean; enabled: boolean }>(),
@@ -107,20 +108,29 @@ function mount(initialSection: SectionId = 'global') {
   document.body.append(host);
   const root = createRoot(host);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const render = (section: SectionId, searchTarget?: SettingsSearchTarget) =>
+  const render = (
+    section: SectionId | undefined,
+    searchTarget?: SettingsSearchTarget,
+    generation = 0,
+  ) =>
     act(() =>
       root.render(
         h(
           QueryClientProvider,
           { client },
-          h(SettingsDialog, {
-            open: true,
-            initialSection: section,
-            searchTarget,
-            onClose: vi.fn(),
-            onOpenMaintenance: vi.fn(),
-            onOpenRecalls: vi.fn(),
-          }),
+          h(
+            PageSnapshots,
+            { scope: 'synthetic-account' },
+            h(SettingsDialog, {
+              key: generation,
+              open: true,
+              initialSection: section,
+              searchTarget,
+              onClose: vi.fn(),
+              onOpenMaintenance: vi.fn(),
+              onOpenRecalls: vi.fn(),
+            }),
+          ),
         ),
       ),
     );
@@ -144,7 +154,35 @@ function inputValue(input: HTMLInputElement, value: string) {
 }
 
 describe('设置二级页现场与活动生命周期', () => {
-  it('局部记录工具在锁屏时关闭，解锁不自动重新打开，设置页仍是原实例', () => {
+  it('重建设置页时没有显式跳转目标，恢复上次分类而非覆盖成外观页', () => {
+    const f = mount('appearance');
+    try {
+      f.render('mcp');
+      expect(f.body().querySelector('[aria-label="MCP 端口"]')).not.toBeNull();
+      f.render(undefined, undefined, 1);
+      expect(f.body().querySelector('[aria-label="MCP 端口"]')).not.toBeNull();
+    } finally {
+      f.dispose();
+    }
+  });
+  it('已读回确认的端口不再作为未保存草稿，后续重建跟随新的服务端值', () => {
+    fixture.mcpPort = 48765;
+    const f = mount('mcp');
+    try {
+      inputValue(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!, '4567');
+      fixture.mcpPort = 4567;
+      f.render('mcp');
+      f.render('appearance');
+      fixture.mcpPort = 9999;
+      f.render('mcp');
+      expect(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!.value).toBe(
+        '9999',
+      );
+    } finally {
+      f.dispose();
+    }
+  });
+  it('锁屏释放设置内容和局部工具，解锁重建且不重新打开工具', () => {
     const f = mount('database-tolerance');
     try {
       const body = f.body();
@@ -158,7 +196,7 @@ describe('设置二级页现场与活动生命周期', () => {
       expect(document.querySelector('.weq-tool-modal')).toBeNull();
       act(() => useAppLock.setState({ locked: false }));
       expect(document.querySelector('.weq-tool-modal')).toBeNull();
-      expect(f.body()).toBe(body);
+      expect(f.body()).not.toBe(body);
     } finally {
       f.dispose();
     }
@@ -175,14 +213,16 @@ describe('设置二级页现场与活动生命周期', () => {
       f.render('appearance');
       fixture.mcpPort = 9999;
       f.render('mcp');
-      expect(f.body()).toBe(body);
-      expect(input.value).toBe('4567');
-      expect(body.innerHTML).not.toContain('synthetic-mcp-secret');
+      expect(f.body()).not.toBe(body);
+      expect(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!.value).toBe(
+        '4567',
+      );
+      expect(f.body().innerHTML).not.toContain('synthetic-mcp-secret');
     } finally {
       f.dispose();
     }
   });
-  it('普通返回保留滚动与旧高亮但不抢焦点，新的搜索仍可重新定位', () => {
+  it('重建恢复滚动与旧高亮但不抢焦点，新的搜索仍可重新定位', async () => {
     const previous = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
     const scroll = vi.fn();
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
@@ -211,21 +251,26 @@ describe('设置二级页现场与活动生命周期', () => {
         back.focus();
         back.click();
       });
-      expect(f.body()).toBe(body);
-      expect(body.scrollTop).toBe(143);
+      expect(f.body()).not.toBe(body);
+      Object.defineProperty(f.body(), 'scrollHeight', { value: 1000 });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+      expect(f.body().scrollTop).toBe(143);
       expect(document.activeElement).toBe(back);
-      expect(setting.dataset.searchHighlight).toBe('true');
+      const restoredSetting = f.body().querySelector<HTMLElement>('[data-search-highlight]')!;
+      expect(restoredSetting.dataset.searchHighlight).toBe('true');
       expect(scroll.mock.contexts.filter((context) => context === setting)).toHaveLength(1);
       f.render('global', { ...target, revision: 2 });
-      expect(scroll.mock.contexts.filter((context) => context === setting)).toHaveLength(2);
-      expect(document.activeElement).toBe(setting);
+      expect(scroll.mock.contexts.filter((context) => context === restoredSetting)).toHaveLength(1);
+      expect(document.activeElement).toBe(restoredSetting);
     } finally {
       f.dispose();
       if (previous) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', previous);
       else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
     }
   });
-  it('只挂载访问过的页，切页保留输入、展开与滚动，不让旧页继续查询', () => {
+  it('只挂载当前页，重建恢复输入、展开与滚动，不让旧页继续查询', async () => {
     const f = mount();
     try {
       const body = f.body(),
@@ -242,14 +287,18 @@ describe('设置二级页现场与活动生命周期', () => {
         details.open = true;
       });
       f.render('global');
-      expect(f.body()).toBe(body);
-      expect(f.body().querySelector('input')).toBe(input);
-      expect(input.value).toBe('73');
-      expect(body.scrollTop).toBe(137);
+      expect(f.body()).not.toBe(body);
+      expect(f.body().querySelector('input')).not.toBe(input);
+      expect(f.body().querySelector('input')!.value).toBe('73');
+      Object.defineProperty(f.body(), 'scrollHeight', { value: 1000 });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+      expect(f.body().scrollTop).toBe(137);
       f.render('database-tolerance');
-      expect(f.body()).toBe(databaseBody);
-      expect(details.open).toBe(true);
-      expect(f.host.querySelectorAll('[data-retained-panel]')).toHaveLength(2);
+      expect(f.body()).not.toBe(databaseBody);
+      expect(f.body().querySelector('details')!.open).toBe(true);
+      expect(f.host.querySelectorAll('[data-retained-panel]')).toHaveLength(1);
       expect(
         [...fixture.queries.values()].filter((query) => !query.active && query.enabled),
       ).toEqual([]);
@@ -257,7 +306,7 @@ describe('设置二级页现场与活动生命周期', () => {
       f.dispose();
     }
   });
-  it('凭据离页与锁屏后重新掩码，但页面实例和普通草稿仍保留', () => {
+  it('凭据离页与锁屏后重建为掩码，不恢复揭示状态', () => {
     const f = mount('credentials');
     try {
       const body = f.body();
@@ -265,13 +314,13 @@ describe('设置二级页现场与活动生命周期', () => {
       expect(body.textContent).toContain('synthetic-db-secret');
       f.render('appearance');
       f.render('credentials');
-      expect(f.body()).toBe(body);
-      expect(body.innerHTML).not.toContain('synthetic-db-secret');
-      act(() => body.querySelector<HTMLButtonElement>('[aria-label="显示 a2"]')!.click());
-      expect(body.textContent).toContain('synthetic-session-secret');
+      expect(f.body()).not.toBe(body);
+      expect(f.body().innerHTML).not.toContain('synthetic-db-secret');
+      act(() => f.body().querySelector<HTMLButtonElement>('[aria-label="显示 a2"]')!.click());
+      expect(f.body().textContent).toContain('synthetic-session-secret');
       act(() => useAppLock.setState({ locked: true }));
       act(() => useAppLock.setState({ locked: false }));
-      expect(body.innerHTML).not.toContain('synthetic-session-secret');
+      expect(f.body().innerHTML).not.toContain('synthetic-session-secret');
     } finally {
       f.dispose();
     }
@@ -294,7 +343,7 @@ describe('设置二级页现场与活动生命周期', () => {
         ).toEqual([]);
       }
       expect(f.host.querySelectorAll('.weq-settings-pages > [data-retained-panel]')).toHaveLength(
-        SETTINGS_GROUPS.flatMap((group) => group.sections).length,
+        1,
       );
       act(() => useAppLock.setState({ locked: true }));
       expect([...fixture.queries.values()].filter((query) => query.enabled)).toEqual([]);

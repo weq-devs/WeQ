@@ -184,6 +184,29 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture-source' };
+
+it.each([false, true])(
+  '群文件路由将完整性报告选项 %s 落入任务并按选择保存',
+  async (includeIntegrityReport) => {
+    const id = await accountRouter.createCaller({}).startGroupFileExport({
+      ...binding,
+      groupCode: '123',
+      name: '报告选择',
+      includeIntegrityReport,
+      files: [{ fileId: 'one', fileName: 'one.txt', path: [] }],
+      savePolicy: { mode: 'before', directory: roots[0]! },
+    });
+    await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
+    const task = manager.getTask(id)!;
+    expect(task.includeIntegrityReport).toBe(includeIntegrityReport);
+    expect(readdirSync(task.save!.path!).includes('export-report.json')).toBe(
+      includeIntegrityReport,
+    );
+    expect(readdirSync(task.save!.path!).includes('export-report.html')).toBe(
+      includeIntegrityReport,
+    );
+  },
+);
 it('助手报告只复制既有句柄产物，不调用模型；回执只返回保存所需字段', async () => {
   const id = await accountRouter.createCaller({}).startAssistantArtifactSave({
     ...binding,

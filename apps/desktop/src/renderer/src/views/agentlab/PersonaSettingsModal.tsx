@@ -1,6 +1,6 @@
 /** 克隆体设置：配置统一保存，即时管理操作与配置分开。 */
 
-import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { CloneUpdateButton } from './CloneUpdateButton';
 import '../../styles/persona-settings.css';
 import type { AgentLabModelSelection } from '@weq/agentlab';
@@ -37,8 +37,11 @@ import {
   useCloneSettingsDraft,
   useCloneSettingsSection,
 } from './cloneSettingsDraft';
-import { trpc } from '../../trpc/client';
+import { client, trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
+import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
+import { ServerSavePrompt } from '../../components/ServerSavePrompt';
+import { useExportReportDialog } from '../export/ExportReportControl';
 
 /** ④ 记忆 / 画像：克隆体「对你」记住的事（来自聊天蒸馏），可单条遗忘 / 全部清空。 */
 function MemoryTab({ personaId }: { personaId: string }): ReactElement {
@@ -457,13 +460,34 @@ function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement |
 }
 
 /** 「导出好友」页：填 napcat/snowluma 连接信息，把克隆体导出成独立 bot 产物。 */
-function ExportTab({
+export function ExportTab({
   persona,
 }: {
   persona: { id: string; name: string; voiceCloneEnabled?: boolean };
 }): ReactElement {
   const dialog = useAppDialog();
+  const save = useExportSavePolicy();
+  const report = useExportReportDialog();
   const utils = trpc.useUtils();
+  const locked = useRef(false);
+  const [pending, setPending] = useState(false);
+  const [taskId, setTaskId] = useState<string>();
+  useEffect(() => {
+    if (!taskId) return;
+    const subscription = client.account.onExportProgress.subscribe(undefined, {
+      onData: (event) => {
+        if (
+          event.taskId !== taskId ||
+          !['completed', 'failed', 'cancelled', 'paused'].includes(event.status)
+        )
+          return;
+        void utils.account.getAgentLabExportInfo.invalidate({ personaId: persona.id });
+        setTaskId(undefined);
+      },
+    });
+    void utils.account.getAgentLabExportInfo.invalidate({ personaId: persona.id });
+    return () => subscription.unsubscribe();
+  }, [taskId, utils, persona.id]);
   const exportMut = trpc.account.exportAgentLabPersona.useMutation();
   const canVoice = !!persona.voiceCloneEnabled;
   const [introOpen, setIntroOpen] = useState(false);
@@ -489,9 +513,10 @@ function ExportTab({
     webuiPort,
     visionModel,
   };
-  const guard = useDraftProtection(exportDraft, exportMut.isLoading);
+  const guard = useDraftProtection(exportDraft, pending);
 
   async function doExport(): Promise<void> {
+    if (locked.current || !save.binding) return;
     if (!wsUrl.trim()) {
       dialog.error('缺少信息', '请填写 WebSocket 地址');
       return;
@@ -505,35 +530,49 @@ function ExportTab({
       dialog.error('端口无效', 'WebUI 端口需为 1–65535 之间的整数');
       return;
     }
+    const request = {
+      ...save.binding,
+      personaId: persona.id,
+      adapterType,
+      wsUrl: wsUrl.trim(),
+      token: token.trim() || undefined,
+      selfId: selfId.trim(),
+      voice: voice && canVoice,
+      groupChat,
+      groupReplyMode,
+      webuiPort: portNum,
+      visionModel: visionModel ?? undefined,
+    };
+    locked.current = true;
+    setPending(true);
     try {
-      const r = await exportMut.mutateAsync({
-        personaId: persona.id,
-        adapterType,
-        wsUrl: wsUrl.trim(),
-        token: token.trim() || undefined,
-        selfId: selfId.trim(),
-        voice: voice && canVoice,
-        groupChat,
-        groupReplyMode,
-        webuiPort: portNum,
-        visionModel: visionModel ?? undefined,
+      const includeIntegrityReport = await report.choose();
+      if (includeIntegrityReport === null || !save.isCurrent()) return;
+      const savePolicy = await save.prepareSave(undefined, {
+        kind: 'bundle',
+        name: `${persona.name}-bot`,
       });
+      if (!savePolicy || !save.isCurrent()) return;
+      const r = await exportMut.mutateAsync({ ...request, savePolicy, includeIntegrityReport });
       if (r.canceled) return;
+      if (!save.isCurrent()) return;
+      setTaskId(r.taskId);
       guard.reset(exportDraft);
-      await utils.account.getAgentLabExportInfo.invalidate({ personaId: persona.id });
-      dialog.success(
-        '导出成功',
-        `已导出到：\n${r.outDir}\n\n表情 ${r.stickerCount} 张 / 语音参考 ${r.voiceClipCount} 条。\n\n` +
-          `WebUI 控制台：${r.webui.url}\n访问密钥：${r.webui.key}\n（请妥善保管，也可在下方「运行配置」或产物 README 里查看）\n\n` +
-          `进入该目录执行 npm install && npm start 即可让 bot 上线。`,
-      );
+      dialog.success('机器人导出任务已创建', '可在任务列表查看进度、保存位置和完整结果。');
     } catch (e) {
-      dialog.error('导出失败', e instanceof Error ? e.message : String(e));
+      if (save.isCurrent()) dialog.error('导出失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      locked.current = false;
+      setPending(false);
     }
   }
 
   return (
     <div className="weq-persona-form">
+      {report.dialog}
+      {save.serverLocation ? (
+        <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
+      ) : null}
       <div className="weq-collapse">
         <button type="button" className="weq-collapse-head" onClick={() => setIntroOpen((v) => !v)}>
           <Info size={13} />
@@ -668,11 +707,11 @@ function ExportTab({
       <div className="weq-clone-actions">
         <button
           className="weq-set-btn"
-          disabled={exportMut.isLoading}
+          disabled={pending || !save.binding || save.settings.isLoading}
           onClick={() => void doExport()}
         >
           <Download size={14} aria-hidden="true" />
-          {exportMut.isLoading ? '导出中…' : '导出机器人'}
+          {pending ? '准备中…' : '导出机器人'}
         </button>
       </div>
     </div>

@@ -18,6 +18,7 @@ import React, {
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from 'react';
+import { z } from 'zod';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
 import { withBrowserFile } from '../lib/browserFileUpload';
@@ -87,6 +88,7 @@ import {
 } from '../lib/localOutgoing';
 import { useFailedOutgoingRemoval } from '../hooks/useFailedOutgoingRemoval';
 import { OutgoingQueue } from '../lib/outgoingQueue';
+import { releaseObjectUrl } from '../lib/objectUrl';
 import { prepareOutgoingDecoration } from '../lib/prepareOutgoingDecoration';
 import { useDismissUnsentOutgoing } from '../hooks/useDismissUnsentOutgoing';
 import { useOutgoingConversationPreviews } from '../hooks/useOutgoingConversationPreviews';
@@ -102,6 +104,7 @@ import {
 } from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
+import { FLASH_PHOTO_PLACEHOLDER_TEXT, isFlashPhotoPlaceholderText } from '../lib/flashPhoto';
 import {
   classifyChatType,
   unreadChatType,
@@ -121,9 +124,21 @@ import {
 import { mergeRecentContactPages } from '../lib/recentContacts';
 import { useContentSelectionScope } from '../state/contentSelection';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
-import { ConversationWindowCache, conversationWindowKey } from '../lib/conversationWindowCache';
+import {
+  ConversationWindowCache,
+  conversationWindowKey,
+  restorableConversationWindow,
+} from '../lib/conversationWindowCache';
 import { isConversationPagingVisible, observeConversationPaging } from '../lib/conversationPaging';
 import { loadConversationEntry } from '../lib/conversationEntry';
+import {
+  ConversationFirstPage,
+  firstPageKey,
+  type FirstPageTarget,
+} from '../lib/conversationFirstPage';
+import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
+import { messageTemplateContext } from '../lib/messageTemplateContext';
+import type { MessageReadWindow } from '../../../shared/message_read';
 import { mergeRefreshedWindow } from '../lib/conversationRefresh';
 import {
   captureReadingPosition,
@@ -141,19 +156,20 @@ import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
 import { useDressSkin } from '../hooks/useDressSkin';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { WorkspaceMenuButton, WorkspaceSettingsButton } from '../components/WorkspaceMenuButton';
+import type { SectionId as SettingsDialogSectionId } from '../components/SettingsDialog';
+import type { MaintenanceTool } from '../components/settings/DataMaintenanceSection';
 import {
   SettingsDialog,
-  type SectionId as SettingsDialogSectionId,
-} from '../components/SettingsDialog';
-import {
   DataMaintenanceDialog,
-  type MaintenanceTool,
-} from '../components/settings/DataMaintenanceSection';
+  CollectionDialog,
+  QzoneWorkspace,
+  ChannelView,
+  DressUpDialog,
+  GroupBugDialog,
+} from '../components/lazyWorkspaces';
 import { useSettingsMaintenance } from '../hooks/useSettingsMaintenance';
 import { useRecalledMessages } from '../hooks/useRecalledMessages';
-import { CollectionDialog } from '../components/CollectionDialog';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
-import { DressUpDialog } from '../components/DressUpDialog';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupAlbumCardNavigationProvider } from '../components/GroupAlbumCardNavigation';
 import { GroupFileDialog } from '../components/GroupFileDialog';
@@ -191,7 +207,6 @@ import {
   GroupMemberTitleDialog,
 } from '../components/GroupMemberModerationDialogs';
 import { MemberProfileCard } from '../components/MemberProfileCard';
-import { GroupBugDialog } from '../components/GroupBugDialog';
 import { openRedBagQrcode } from '../components/RedBagQrcodeDialog';
 import {
   GroupLeftMembersDialog,
@@ -257,19 +272,22 @@ import { displayUserName } from '../im-template/template/user';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
 import { WorkspaceTools } from '../components/WorkspaceTools';
 import type { AppSearchEntry, ToolSearchRequest } from '../components/search/appSearchCatalog';
+import type { DressKind } from '../components/DressUpDialog';
 import type { SettingsSearchTarget } from '../components/settings/searchTarget';
 import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
 import { displayGroupMemberName } from '../im-template/template/user';
 import { ChatNavigationContext, type ProfileChatTarget } from '../lib/chatNavigation';
-import { QzoneWorkspace } from './QzoneView';
 import { MailWorkspace } from './MailView';
 import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
+import { PageSnapshots, usePageState } from '../components/PageSnapshots';
+import { pageValue } from '../lib/pageSnapshots';
+import { useConversationRecoveryPosition } from '../hooks/useConversationRecoveryPosition';
+import { RendererRecoveryNotice } from '../components/RendererRecoveryNotice';
 import {
   QzoneNavigationContext,
   QzoneProfileContext,
   type QzoneSpaceRequest,
 } from '../lib/qzoneNavigation';
-import { ChannelView } from './ChannelView';
 import { ChatHome } from './ChatHome';
 import {
   ChatMainContent,
@@ -290,6 +308,8 @@ import {
   type ArkLocationProvider,
   type ArkPayload,
   type FlashSendPayload,
+  type FlashPhotoSendPayload,
+  type BubbleVideoSendPayload,
   type RedPacketDraft,
   buildFlashOptimisticElement,
   flashDescOf,
@@ -375,6 +395,20 @@ const messageRenderers: MessageRenderer[] = composeMessageRenderers({
 
 const PAGE_SIZE = 50;
 const GROUP_INITIAL_PAGE_SIZE = 25;
+
+function prefetchTarget(conversation: Conversation): FirstPageTarget | undefined {
+  if (conversation.id.startsWith('virtual:') || conversation.id.startsWith('guild:'))
+    return undefined;
+  if (conversation.type === 'group')
+    return { kind: 'group', conv: conversation.id, limit: GROUP_INITIAL_PAGE_SIZE };
+  if (
+    conversation.type === 'direct' &&
+    conversation.id.startsWith('u_') &&
+    !isDataline(conversation.chatType ?? 1)
+  )
+    return { kind: 'c2c', conv: conversation.id, limit: PAGE_SIZE };
+  return undefined;
+}
 const GROUP_MEMBER_PAGE_SIZE = 120;
 /**
  * 后台刷新只重读有界尾页；已加载但不在这次查询范围内的历史保留原位。
@@ -1640,6 +1674,9 @@ function messageToTemplate(
     senderId: sender.id,
     sender,
     body: messageBody(message.elements) || (message.sourceFormat ? '[漫游空消息或未解析]' : ''),
+    // 闪照：本地库只剩一句兜底文案（元素本体从没落库）。打上标记，让聊天窗按需走
+    // 协议拉取把真正的元素补回来；拉不到就继续显示这句话。
+    ...(isFlashPhotoPlaceholder(message.elements) ? { flashPhotoPlaceholder: true } : {}),
     createdAt: toIsoTime(message.sendTime),
     // Raw render-view elements for the QQ face renderer (qqFaceMessageRenderer).
     // `body` stays the text fallback for previews and non-face messages.
@@ -1768,6 +1805,24 @@ function resolveOrigSenderNick(
 function messageBody(elements: unknown[]): string {
   const parts = elements.map(elementText).filter(Boolean);
   return parts.length > 0 ? parts.join('') : '';
+}
+
+/**
+ * 这条消息的正文是不是**只有**闪照的兜底文案。
+ *
+ * QQ 在本地库里把闪照存成一条纯文本 `[闪照]请使用新版手机QQ查看闪照。`（元素本体
+ * `commonElem(serviceType=3)` 从来没落过库），所以离线看只能显示这句话。识别出来
+ * 之后由聊天窗按需走协议拉取补回真正的元素（见 `flashPhotoPlaceholder`）。
+ *
+ * 只认「整条消息就这一句话」：正常聊天里有人手打这句字面量时也不会误判成闪照，
+ * 因为那种消息同样是纯文本 —— 这条判据的代价只是多拉一次协议，拉不到就原样显示。
+ */
+function isFlashPhotoPlaceholder(elements: unknown[]): boolean {
+  if (!Array.isArray(elements) || elements.length !== 1) return false;
+  const element = elements[0] as { type?: string; data?: Record<string, unknown> } | null;
+  if (element?.type !== 'text') return false;
+  const text = element.data?.textContent;
+  return typeof text === 'string' && isFlashPhotoPlaceholderText(text);
 }
 
 /**
@@ -2278,6 +2333,27 @@ function isMobileShell(): boolean {
 }
 
 export function MainView(): ReactElement {
+  const uin = useViewState((state) => state.openedUin);
+  const startupPage = useViewState((state) => state.startupPage);
+  const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: Boolean(uin) });
+  const scope =
+    config.data?.uin === uin && config.data.configId
+      ? JSON.stringify([uin, config.data.configId])
+      : null;
+  if (config.isLoading) return workspaceLoading;
+  return (
+    <PageSnapshots scope={scope} resetOnMount={startupPage !== null}>
+      <MainWorkspace key={scope ?? `pending:${uin ?? ''}`} />
+    </PageSnapshots>
+  );
+}
+
+function MainWorkspace(): ReactElement {
+  const firstPageStreamReady = useWebConnection((state) => state.status === 'connected');
+  const [startupView] = useState(() => useViewState.getState().startupPage);
+  useEffect(() => {
+    useViewState.setState({ startupPage: null });
+  }, []);
   const [mailUnread, setMailUnread] = useState(0);
   const utils = trpc.useUtils();
   const pushToast = useToast((s) => s.push);
@@ -2576,6 +2652,11 @@ export function MainView(): ReactElement {
   const pendingMessageCommit = useRef<number | null>(null);
   useEffect(() => installMessagePerformanceProbe(), [messageScope]);
   useLayoutEffect(() => {
+    const intent = entryScrollIntentRef.current;
+    if (intent?.revision === null) {
+      const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
+      intent.revision = scroll ? timelineViewport(scroll)?.scrollRevision?.() : undefined;
+    }
     if (pendingMessageCommit.current === null) return;
     recordMessagePhase('stateToCommit', performance.now() - pendingMessageCommit.current);
     pendingMessageCommit.current = null;
@@ -2589,7 +2670,100 @@ export function MainView(): ReactElement {
 
   // Latest active-conversation identity, read by the once-mounted live
   // subscription (which must not re-subscribe on every selection change).
-  const selectionRef = useRef<{ id: string; kind: 'direct' | 'group' } | null>(null);
+  const selectionRef = useRef<{
+    id: string;
+    kind: 'direct' | 'group';
+    readWindow: MessageReadWindow;
+  } | null>(null);
+  const entryScrollIntentRef = useRef<{
+    selection: object | null;
+    revision: number | undefined | null;
+  } | null>(null);
+  const [messageReadOwner] = useState(() => crypto.randomUUID());
+  const firstPages = useMemo(() => {
+    const binding = messageBindingRef.current;
+    return new ConversationFirstPage<MessageWire>({
+      owner: crypto.randomUUID(),
+      valid: () =>
+        Boolean(
+          messageScope && messageScopeRef.current === messageScope && messageBindingRef.current,
+        ),
+      version: () => dbRevisionRef.current,
+      fresh: (target) => {
+        const cached = conversationWindows.get(
+          conversationWindowKey(messageScope, target.kind, target.conv),
+        );
+        return Boolean(
+          cached &&
+            !cached.dirty &&
+            cached.revision === dbRevisionRef.current &&
+            Date.now() - cached.verifiedAt < 3000,
+        );
+      },
+      subscribe: (target, readWindow, prefetch, stage, error) => {
+        recordMessageCounter(prefetch ? 'prefetchStarted' : 'entryCold');
+        const subscription = client.account.latestPage.subscribe(
+          { ...binding, ...target, readWindow, prefetch },
+          {
+            onData: (value) =>
+              stage({
+                complete: value.complete,
+                reuseLocal: value.reuseLocal,
+                rows: value.rows.map(toMessageWire),
+              }),
+            onError: error,
+            onComplete: () => error(new Error('首屏读取结束但缺少完整结果')),
+          },
+        );
+        return () => subscription.unsubscribe();
+      },
+      promote: (readWindow) => {
+        recordMessageCounter('prefetchAdopted');
+        void client.account.promoteMessageRead.mutate({ ...binding, readWindow }).catch(() => {});
+      },
+      cancel: (readWindow) => {
+        void client.account.cancelMessageRead.mutate({ ...binding, readWindow }).catch(() => {});
+      },
+      store: (target, rows, prefetch) => {
+        if (prefetch) recordMessageCounter('prefetchReady');
+        conversationWindows.put(conversationWindowKey(messageScope, target.kind, target.conv), {
+          rows: [...rows].reverse(),
+          anchored: true,
+          hasOlder: rows.length >= target.limit,
+          hasNewer: false,
+          scrollTop: 0,
+          revision: dbRevisionRef.current,
+          dirty: false,
+          storedAt: Date.now(),
+          verifiedAt: Date.now(),
+          prefetched: prefetch,
+        });
+      },
+    });
+  }, [messageScope, conversationWindows]);
+  useEffect(() => () => firstPages.dispose(), [firstPages]);
+  const prefetchVisible = useCallback(
+    (rows: readonly Conversation[]) => {
+      firstPages.setVisible(
+        rows.flatMap((row) => {
+          const target = prefetchTarget(row);
+          return target ? [target] : [];
+        }),
+      );
+    },
+    [firstPages],
+  );
+  const prefetchIntent = useCallback(
+    (row: Conversation) => {
+      const target = prefetchTarget(row);
+      if (target) firstPages.hint(target);
+    },
+    [firstPages],
+  );
+  const messageReadGeneration = useRef(0);
+  const attemptedReplyMedia = useMemo(() => new WeakSet<MessageWire>(), [messageScope]);
+  const replyMediaRows = useMemo(() => new WeakMap<MessageWire, MessageWire>(), [messageScope]);
+  const [replyMediaRevision, setReplyMediaRevision] = useState(0);
   // Current loaded-window descriptor, read by the once-mounted subscription.
   const windowRef = useRef<{ minSeq: string | null; anchored: boolean }>({
     minSeq: null,
@@ -2617,13 +2791,22 @@ export function MainView(): ReactElement {
         try {
           const page = await measureMessagePhase('windowQuery', async () =>
             win.minSeq === null
-              ? await client.account.listLatest.query({ ...binding, kind, conv, limit: PAGE_SIZE })
+              ? await client.account.listLatest.query({
+                  ...binding,
+                  kind,
+                  conv,
+                  limit: PAGE_SIZE,
+                  readWindow: sel.readWindow,
+                  deferReplyMedia: true,
+                })
               : await client.account.listFrom.query({
                   kind,
                   conv,
                   sinceSeq: win.minSeq,
                   limit: REFRESH_CAP,
                   ...binding,
+                  readWindow: sel.readWindow,
+                  deferReplyMedia: true,
                 }),
           );
           // Reject results after a conversation switch or a history-window change,
@@ -2850,7 +3033,11 @@ export function MainView(): ReactElement {
    * 之前就要用 —— 用 ref 转发拿最新实现，避免把两个 useCallback 的依赖搅在一起。
    */
   const flushDraftRef = useRef<(conversationId: string) => void>(() => {});
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = usePageState(
+    'workspace:settings',
+    false,
+    pageValue.boolean,
+  );
   const [settingsSearchTarget, setSettingsSearchTarget] = useState<SettingsSearchTarget | null>(
     null,
   );
@@ -2861,7 +3048,11 @@ export function MainView(): ReactElement {
     appEnabled: appSearchEnabled,
     setAppEnabled: setAppSearchEnabled,
   } = useSearchPreferences();
-  const [conversationScope, setConversationScope] = useState<ConversationScope>('all');
+  const [conversationScope, setConversationScope] = usePageState<ConversationScope>(
+    'workspace:conversation-scope',
+    'all',
+    z.enum(['all', 'real', 'virtual', 'guild']),
+  );
   useEffect(() => {
     if (!settingsOpen) setSettingsSearchTarget(null);
   }, [settingsOpen]);
@@ -2891,7 +3082,7 @@ export function MainView(): ReactElement {
         setSettingsSection('call-recording');
         setSettingsOpen(true);
       }),
-    [],
+    [setSettingsOpen],
   );
   const [surfaceNavigation, setSurfaceNavigation] = useState(0);
   /** 打开设置时要先落到哪一屏（损坏弹窗 → 数据库宽容）。 */
@@ -2930,6 +3121,8 @@ export function MainView(): ReactElement {
   const [currentQzoneUin, setCurrentQzoneUin] = useState<string | null>(null);
   /** 频道私聊当前打开的 nodeId（浮动工具按当前位置导出）。 */
   const [activeGuildNodeId, setActiveGuildNodeId] = useState<string | null>(null);
+  const [guildDirectOpenRequest, setGuildDirectOpenRequest] = useState(0);
+  const [dressUpSearchKind, setDressUpSearchKind] = useState<DressKind>('bubble');
   const [dressUpEmojiTarget, setDressUpEmojiTarget] = useState<{
     packId: string;
     name: string;
@@ -2941,10 +3134,14 @@ export function MainView(): ReactElement {
   const [guildSearchTarget, setGuildSearchTarget] = useState<
     (Extract<ContentSearchTarget, { kind: 'guildMessage' }> & { revision: string }) | null
   >(null);
-  const [dressUpOpen, setDressUpOpen] = useState(false);
+  const [dressUpOpen, setDressUpOpen] = usePageState(
+    'workspace:dress-up',
+    false,
+    pageValue.boolean,
+  );
   useEffect(() => {
     if (settingsOpen) setDressUpOpen(false);
-  }, [settingsOpen]);
+  }, [settingsOpen, setDressUpOpen]);
   // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮页。
   useDressSkin();
   const [albumDialog, setAlbumDialog] = useState<{
@@ -3115,6 +3312,18 @@ export function MainView(): ReactElement {
   const [deletedLoading, setDeletedLoading] = useState(false);
   const gapFetchCursors = useRef(new Map<string, number>());
   const gapFetchLock = useRef(false);
+  /** 乐观条目持有的本地预览 blob（目前只有闪照）；条目被真消息收掉时释放。 */
+  const optimisticBlobs = useRef(new Map<string, string>());
+  /**
+   * 本次会话里「已经成功拉过、但服务端那段 seq 本来就没有可渲染消息」的缺口。
+   *
+   * 缺口条完全由「相邻两条消息的 seq 差」算出来（`messageGapCount`），所以服务端
+   * 返回空槽位 / 空消息时，即使拉取成功、没有报错，提示条也会一直挂着。把这类
+   * 缺口记下来传给聊天窗，本次就不再显示（刷新会话 / 重开会话后重新判断）。
+   *
+   * key 用 `gap:前一条seq:后一条seq`，与多选里的缺口 id 同一套写法。
+   */
+  const [resolvedGaps, setResolvedGaps] = useState<Set<string>>(() => new Set());
   const [unplacedRoaming, setUnplacedRoaming] = useState<{
     conversation: Conversation;
     messages: MessageWire[];
@@ -3501,6 +3710,14 @@ export function MainView(): ReactElement {
             return;
           }
           if (result.nextStartSeq === null) {
+            // 整段窗口都拉完了、没有报错，却一条可渲染的消息都没有 —— 服务端那段
+            // seq 本来就没有消息（空槽位 / 已过期 / 未开漫游）。缺口条是按 seq 差
+            // 算的，不记一笔就会一直挂着，所以本次把它收起来。
+            setResolvedGaps((current) => {
+              const next = new Set(current);
+              next.add(`gap:${gap.previousSeq}:${gap.currentSeq}`);
+              return next;
+            });
             pushToast({
               tone: 'info',
               durationKind: 'failure',
@@ -4582,6 +4799,7 @@ export function MainView(): ReactElement {
     initialActiveConversationId: null,
     // 手机直接落在消息列表；桌面保留主页，会话均由用户显式点选。
     initialView: IS_WEB && isMobileShell() ? 'messages' : 'home',
+    startupView,
     sidebarWidthStorageKey: 'weq.desktop.sidebarWidth.v2',
     history: shellHistory,
   });
@@ -4686,6 +4904,35 @@ export function MainView(): ReactElement {
   messagesTabActiveRef.current = messagesTabActive;
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
+  useEffect(() => {
+    if (IS_WEB && !firstPageStreamReady) firstPages.interrupt();
+    const key =
+      selectedUid && (isDirect || isGroup)
+        ? firstPageKey({ kind: isGroup ? 'group' : 'c2c', conv: selectedUid, limit: 0 })
+        : '';
+    firstPages.activate(
+      Boolean(
+        messageScope &&
+          displaySettings.isSuccess &&
+          messagesTabActive &&
+          messageActivity.enabled &&
+          (!IS_WEB || firstPageStreamReady) &&
+          !displaySettings.data?.readFromFirstUnread,
+      ),
+      key,
+    );
+  }, [
+    firstPages,
+    firstPageStreamReady,
+    selectedUid,
+    isDirect,
+    isGroup,
+    messagesTabActive,
+    messageActivity.enabled,
+    messageScope,
+    displaySettings.data?.readFromFirstUnread,
+    displaySettings.isSuccess,
+  ]);
 
   /* ── 合并转发（合成聊天记录）────────────────────────────────────────────
    *
@@ -5075,6 +5322,9 @@ export function MainView(): ReactElement {
   useEffect(() => {
     setDeletedIds(new Set());
     setHiddenDeletedIds(new Set());
+    // 换会话后缺口要重新判断：上个会话「确认无消息」的缺口 id 与本会话无关。
+    setResolvedGaps(new Set());
+    flashPhotoTried.current.clear();
   }, [selectedUid, isDirect, isGroup, messageScope]);
 
   // 补拉成功会解除对应隐藏记录；只同步标记，不再触发时间线重载。
@@ -5539,8 +5789,10 @@ export function MainView(): ReactElement {
             conversationWindowKey(messageScope, isGroup ? 'group' : 'c2c', selectedUid),
           )
         : undefined;
-    const restored =
-      displaySettings.data?.readFromFirstUnread || cached?.anchored ? cached : undefined;
+    const restored = restorableConversationWindow(
+      cached,
+      displaySettings.data?.readFromFirstUnread ?? false,
+    );
     setTrackedMessageScope(messageScope);
     setTrackedConversationId(shell.activeConversationId);
     setLoaded(restored?.rows ?? []);
@@ -5736,7 +5988,10 @@ export function MainView(): ReactElement {
       })),
     [groupLeftMembers.data, profileByUid],
   );
-  const selectedGroupMemberWires = isGroup ? (groupMemberPages[selectedUid] ?? []) : [];
+  const selectedGroupMemberWires = useMemo(
+    () => (isGroup ? (groupMemberPages[selectedUid] ?? []) : []),
+    [isGroup, groupMemberPages, selectedUid],
+  );
   const selectedGroupMembersLoading = Boolean(isGroup && groupMemberLoading[selectedUid]);
   const selectedGroupMembersHasMore = Boolean(isGroup && groupMemberHasMore[selectedUid]);
   const selectedGroupMembersError = isGroup ? (groupMemberError[selectedUid] ?? null) : null;
@@ -5914,7 +6169,10 @@ export function MainView(): ReactElement {
   );
 
   // `loaded` is already oldest→newest; the template renders in array order.
-  const loadedMessageWires = loaded;
+  const loadedMessageWires = useMemo(
+    () => loaded.map((row) => replyMediaRows.get(row) ?? row),
+    [loaded, replyMediaRows, replyMediaRevision],
+  );
   const currentGroupMembers = useMemo(() => {
     if (selectedConversation?.type !== 'group') return [];
 
@@ -5944,7 +6202,7 @@ export function MainView(): ReactElement {
       return roleScore[a.role] - roleScore[b.role];
     });
   }, [
-    selectedConversation,
+    selectedConversation?.type,
     selectedUid,
     selectedGroupMemberWires,
     missingMembers,
@@ -6184,9 +6442,10 @@ export function MainView(): ReactElement {
     [optimisticForwards, loadedMessageWires, selectedConversation, user],
   );
 
+  const templateContext = messageTemplateContext(selectedConversation);
   const messageTemplateCache = useMemo(
     () => new WeakMap<MessageWire, Message>(),
-    [selectedConversation, user, currentGroupMembers, botUids],
+    [templateContext, user, currentGroupMembers, botUids],
   );
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
@@ -6412,11 +6671,92 @@ export function MainView(): ReactElement {
       if (matched) dropIds.add(item.id);
     }
     if (dropIds.size === 0) return;
+    // 乐观条目被真消息收掉后，它持有的本地预览 blob 也就没人用了（闪照）。
+    for (const id of dropIds) {
+      const url = optimisticBlobs.current.get(id);
+      if (!url) continue;
+      optimisticBlobs.current.delete(id);
+      releaseObjectUrl(url);
+    }
     setOptimisticMessages((current) => {
       const next = current.filter((item) => !dropIds.has(item.id));
       return next.length === current.length ? current : next;
     });
   }, [loadedMessageWires, optimisticMessages, selectedConversation, user]);
+
+  // ── 闪照：本地库只剩兜底文案时，按需走协议把真正的元素拉回来 ──────────────
+  //
+  // 本地库 `40800` 里闪照只有一句 `[闪照]请使用新版手机QQ查看闪照。`，
+  // `commonElem(serviceType=3)` 从来没落过库（见 `docs/database/nt_msg/elements/pic.md`）。
+  // 服务端漫游里这条消息仍然带着完整元素，所以按它的 seq 拉一个**单条窗口**就能拿到。
+  //
+  // 约束：
+  //   - 只有完整模式（在线 QQ + 附加能力）才拉，受限模式保持兜底文案；
+  //   - 每条消息只试一次（`flashPhotoTried`），拉不到就永远显示兜底文案，不反复打请求；
+  //   - 拉到就整条替换进时间线，渲染成真正的闪照气泡。
+  const flashPhotoTried = useRef(new Set<string>());
+  const flashPhotoPlaceholders = useMemo(() => {
+    if (!selectedConversation) return [] as { msgId: string; msgSeq: string }[];
+    return loadedMessageWires
+      .filter((wire) => {
+        const elements = wire.elements ?? [];
+        if (elements.length !== 1) return false;
+        const element = elements[0] as { type?: string; data?: Record<string, unknown> } | null;
+        if (element?.type !== 'text') return false;
+        const text = element.data?.textContent;
+        return typeof text === 'string' && isFlashPhotoPlaceholderText(text);
+      })
+      .map((wire) => ({ msgId: wire.msgId, msgSeq: String(wire.msgSeq ?? '') }))
+      .filter((row) => /^\d+$/.test(row.msgSeq) && Number(row.msgSeq) > 0);
+  }, [loadedMessageWires, selectedConversation]);
+
+  useEffect(() => {
+    if (!selectedConversation) return;
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) return;
+    const pending = flashPhotoPlaceholders.filter((row) => !flashPhotoTried.current.has(row.msgId));
+    if (pending.length === 0) return;
+    for (const row of pending) flashPhotoTried.current.add(row.msgId);
+    const { kind, conv } = convFetchKey(selectedConversation);
+    const selection = selectionRef.current;
+    let cancelled = false;
+    void (async () => {
+      // 一次最多补 4 条，避免打开一个全是闪照的会话时瞬间打出一串请求。
+      for (const row of pending.slice(0, 4)) {
+        const seq = Number(row.msgSeq);
+        if (!Number.isSafeInteger(seq) || seq <= 0) continue;
+        try {
+          const result = await client.account.fetchGapMessages.query({
+            kind,
+            conv,
+            startSeq: seq,
+            endSeq: seq,
+          });
+          if (cancelled || selectionRef.current !== selection) return;
+          if (!result.ok) continue;
+          // 只有真的拿到**带闪照元素**的那条才替换；否则保持兜底文案。
+          const fetched = result.messages.find((message) => String(message.msgSeq) === row.msgSeq);
+          const elements = (fetched?.elements ?? []) as { type?: string; data?: unknown }[];
+          const hasFlash = elements.some(
+            (element) =>
+              element?.type === 'pic' && (element.data as { isFlash?: boolean })?.isFlash,
+          );
+          if (!hasFlash || !fetched) continue;
+          setLoaded((current) =>
+            current.map((message) =>
+              message.msgId === row.msgId
+                ? { ...message, elements: fetched.elements, sourceFormat: fetched.sourceFormat }
+                : message,
+            ),
+          );
+        } catch {
+          // 拉取失败就保持兜底文案；不 toast —— 这是后台补全，不该打断阅读。
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [flashPhotoPlaceholders, selectedConversation, convFetchKey, sendAccess.data]);
 
   // Server acknowledgement can precede the QQ database write, or its watcher
   // may be disabled. Re-read a small number of times without resending anything.
@@ -6960,7 +7300,16 @@ export function MainView(): ReactElement {
   ]);
 
   useEffect(() => {
-    if (contacts.isLoading) return;
+    // 恢复的会话可能在后续分页、隐藏/删除目录中，不能用尚未读齐的目录清掉选择。
+    if (
+      !contacts.isSuccess ||
+      contacts.hasNextPage ||
+      !hiddenSessions.isSuccess ||
+      !deletedSessions.isSuccess ||
+      !allGroups.isSuccess ||
+      !topContacts.isSuccess
+    )
+      return;
     // Don't auto-open the first conversation: land on the empty placeholder and
     // let the user pick. Only clear a selection that no longer exists — hidden
     // sessions are deliberately absent from `conversations` (see hiddenConversationsById),
@@ -6975,7 +7324,12 @@ export function MainView(): ReactElement {
       shell.setActiveConversationId(null);
     }
   }, [
-    contacts.isLoading,
+    contacts.isSuccess,
+    contacts.hasNextPage,
+    hiddenSessions.isSuccess,
+    deletedSessions.isSuccess,
+    allGroups.isSuccess,
+    topContacts.isSuccess,
     conversations,
     hiddenConversationsById,
     deletedConversationsById,
@@ -6986,13 +7340,57 @@ export function MainView(): ReactElement {
   // Keep the live-subscription's view of "what's open" current without
   // re-subscribing on every selection change.
   useEffect(() => {
+    const binding = messageBindingRef.current;
+    const readWindow = { owner: messageReadOwner, generation: ++messageReadGeneration.current };
+    entryScrollIntentRef.current = null;
     selectionRef.current =
       selectedUid && (isDirect || isGroup)
-        ? { id: selectedUid, kind: isGroup ? 'group' : 'direct' }
+        ? { id: selectedUid, kind: isGroup ? 'group' : 'direct', readWindow }
         : null;
     // 换会话就清空群内成员搜索，否则新群的成员列表会顶着上一个群的关键字。
     setMemberSearchKeyword('');
-  }, [selectedUid, isDirect, isGroup, messageScope]);
+    return () => {
+      if (binding && selectedUid && (isDirect || isGroup))
+        void client.account.cancelMessageRead.mutate({ ...binding, readWindow }).catch(() => {});
+    };
+  }, [selectedUid, isDirect, isGroup, messageScope, messageReadOwner]);
+
+  useEffect(() => {
+    const selection = selectionRef.current;
+    const binding = messageBindingRef.current;
+    const scope = messageScopeRef.current;
+    if (!selection || !binding || !scope || !messagesTabActive) return;
+    const pending = loaded.filter((row) => needsReplyMedia(row) && !attemptedReplyMedia.has(row));
+    if (!pending.length) return;
+    for (const row of pending) attemptedReplyMedia.add(row);
+    const current = () => messageScopeRef.current === scope && selectionRef.current === selection;
+    void (async () => {
+      for (let offset = 0; offset < pending.length && current(); offset += 200) {
+        const page = pending.slice(offset, offset + 200);
+        try {
+          const patches = await client.account.replyMedia.query({
+            ...binding,
+            kind: selection.kind === 'group' ? 'group' : 'c2c',
+            conv: selection.id,
+            readWindow: selection.readWindow,
+            msgIds: page.map((row) => row.msgId),
+          });
+          if (!current()) return;
+          const originals = new Map(page.map((row) => [row.msgId, row]));
+          const rows = loadedRef.current;
+          const next = applyReplyMedia(rows, originals, patches);
+          if (next !== rows) {
+            next.forEach((row, index) => {
+              if (row !== rows[index]) replyMediaRows.set(rows[index]!, row);
+            });
+            setReplyMediaRevision((revision) => revision + 1);
+          }
+        } catch (error) {
+          if (current()) console.error('[msgs] reply media failed', error);
+        }
+      }
+    })();
+  }, [loaded, messageScope, messagesTabActive, selectedUid, attemptedReplyMedia, replyMediaRows]);
 
   // Keep the loaded-window descriptor in sync for the once-mounted subscription.
   useEffect(() => {
@@ -7039,6 +7437,8 @@ export function MainView(): ReactElement {
             // `< target+1` is `<= target`, so the centre message is included.
             client.account.listBefore.query({
               ...binding,
+              readWindow: previousSelection?.readWindow,
+              deferReplyMedia: true,
               kind,
               conv,
               beforeSeq: String(BigInt(targetSeq) + 1n),
@@ -7046,6 +7446,8 @@ export function MainView(): ReactElement {
             }),
             client.account.listAfter.query({
               ...binding,
+              readWindow: previousSelection?.readWindow,
+              deferReplyMedia: true,
               kind,
               conv,
               afterSeq: targetSeq,
@@ -7440,6 +7842,8 @@ export function MainView(): ReactElement {
       conversations,
       hiddenConversationsById,
       deletedConversationsById,
+      setSettingsOpen,
+      setDressUpOpen,
     ],
   );
 
@@ -7515,6 +7919,13 @@ export function MainView(): ReactElement {
     selectedConversation?.type === 'direct'
       ? (unreadChatType(selectedConversation.chatType ?? 1) ?? 1)
       : 2;
+  const { read: readRecoveryPosition, applied: recoveryPositionApplied } =
+    useConversationRecoveryPosition({
+      conv: selectedUid,
+      kind: isGroup ? 'group' : 'c2c',
+      rows: loaded,
+      enabled: messagesTabActive && !loadingInitialMessages && Boolean(messageScope),
+    });
   useEffect(() => {
     const binding = messageBindingRef.current,
       scope = messageScope;
@@ -7543,8 +7954,11 @@ export function MainView(): ReactElement {
       };
     }
     const candidate = conversationWindows.get(conversationWindowKey(scope, kind, conv));
-    const cached =
-      displaySettings.data?.readFromFirstUnread || candidate?.anchored ? candidate : undefined;
+    const cached = restorableConversationWindow(
+      candidate,
+      displaySettings.data?.readFromFirstUnread ?? false,
+    );
+    if (cached?.prefetched) recordMessageCounter('prefetchHit');
     const dirty = Boolean(
       cached &&
         (cached.dirty || cached.revision !== revision || Date.now() - cached.verifiedAt > 30_000),
@@ -7564,15 +7978,25 @@ export function MainView(): ReactElement {
     }
     void (async () => {
       try {
-        const saved = displaySettings.data?.readFromFirstUnread
-          ? conversationWindows.getPosition(conversationWindowKey(scope, kind, conv))
-          : undefined;
+        const recoveryPosition = !cached ? readRecoveryPosition(conv, kind) : undefined;
+        const saved = recoveryPosition
+          ? recoveryPosition.anchorSeq
+            ? recoveryPosition
+            : undefined
+          : displaySettings.data?.readFromFirstUnread
+            ? conversationWindows.getPosition(conversationWindowKey(scope, kind, conv))
+            : undefined;
         let readSeq = saved?.anchorSeq;
+        let localShown = false;
+        const entryStarted = performance.now();
+        let firstRows = false;
         await loadConversationEntry<MessageWire>({
           cached,
           dirty,
           readSeq,
-          readFromFirstUnread: displaySettings.data?.readFromFirstUnread ?? false,
+          readFromFirstUnread: recoveryPosition
+            ? Boolean(recoveryPosition.anchorSeq)
+            : (displaySettings.data?.readFromFirstUnread ?? false),
           limit,
           current: valid,
           active,
@@ -7590,6 +8014,8 @@ export function MainView(): ReactElement {
             return readSeq;
           },
           settled: () => {
+            if (entryScrollIntentRef.current?.selection === selection)
+              entryScrollIntentRef.current = null;
             entryLoadingRef.current = false;
             setMessagesLoading(false);
             setLoadingNewerMessages(false);
@@ -7610,6 +8036,8 @@ export function MainView(): ReactElement {
             (
               await client.account.listBefore.query({
                 ...binding,
+                readWindow: selection?.readWindow,
+                deferReplyMedia: true,
                 kind,
                 conv,
                 beforeSeq,
@@ -7620,6 +8048,8 @@ export function MainView(): ReactElement {
             (
               await client.account.listAfter.query({
                 ...binding,
+                readWindow: selection?.readWindow,
+                deferReplyMedia: true,
                 kind,
                 conv,
                 afterSeq,
@@ -7629,11 +8059,50 @@ export function MainView(): ReactElement {
           latest: async (size) =>
             (
               await measureMessagePhase('entryQuery', () =>
-                client.account.listLatest.query({ ...binding, kind, conv, limit: size }),
+                client.account.listLatest.query({
+                  ...binding,
+                  kind,
+                  conv,
+                  limit: size,
+                  readWindow: selection?.readWindow,
+                  deferReplyMedia: true,
+                }),
               )
             ).map(toMessageWire),
-          show: (next, first) => {
+          progressiveLatest: async (size, show) => {
+            try {
+              if (IS_WEB && useWebConnection.getState().status !== 'connected')
+                throw new Error('分阶段连接暂不可用');
+              return await measureMessagePhase('entryQuery', () =>
+                firstPages.read({ kind, conv, limit: size }, show),
+              );
+            } catch (error) {
+              if (!valid()) throw error;
+              recordMessageCounter('entryFallback');
+              // 旧主进程尚未加载分阶段接口时，继续使用原有消息页，不让热更新阻断聊天。
+              return (
+                await measureMessagePhase('entryQuery', () =>
+                  client.account.listLatest.query({
+                    ...binding,
+                    kind,
+                    conv,
+                    limit: size,
+                    readWindow: selection?.readWindow,
+                    deferReplyMedia: true,
+                  }),
+                )
+              ).map(toMessageWire);
+            }
+          },
+          show: (next, first, complete = true) => {
             if (!valid()) return;
+            if (!complete && !localShown)
+              entryScrollIntentRef.current = { selection, revision: null };
+            if (!firstRows && next.rows.length) {
+              recordMessagePhase('entryFirstRows', performance.now() - entryStarted);
+              firstRows = true;
+            }
+            recoveryPositionApplied();
             if (first && readSeq) {
               setInitialReadingPosition(
                 saved ?? {
@@ -7648,14 +8117,31 @@ export function MainView(): ReactElement {
               const scroll = document.querySelector<HTMLElement>(
                 '.weq-readonly-chat .message-scroll',
               );
-              if (scroll) {
+              const intent = entryScrollIntentRef.current;
+              const interacted =
+                intent?.selection === selection &&
+                intent.revision !== null &&
+                intent.revision !==
+                  (scroll ? timelineViewport(scroll)?.scrollRevision?.() : undefined);
+              if (
+                scroll &&
+                (!localShown ||
+                  interacted ||
+                  displaySettings.data?.readFromFirstUnread ||
+                  recoveryPosition ||
+                  !next.anchored ||
+                  scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 48)
+              ) {
                 const position = captureReadingPosition(scroll, { transient: true });
                 if (position.anchorId) cachedScrollRef.current = { id: conv, position };
               }
             }
-            const rows = mergeRoamingTimeline(kind, next.rows, []);
+            const page = mergeRoamingTimeline(kind, next.rows, []);
+            const rows =
+              complete && localShown ? mergeRefreshedWindow(loadedRef.current, page, limit) : page;
+            if (!complete) localShown = true;
             loadedRevisionRef.current = revision;
-            windowVerifiedAtRef.current = Date.now();
+            windowVerifiedAtRef.current = complete ? Date.now() : 0;
             windowRef.current = expectedWindow = {
               minSeq: rows[0]?.msgSeq ?? null,
               anchored: next.anchored,
@@ -7666,8 +8152,9 @@ export function MainView(): ReactElement {
             setHasOlder(next.hasOlder);
             setHasNewer(next.hasNewer);
             setAnchoredToLatest(next.anchored);
-            setMessagesLoading(false);
-            verifiedWindowRowsRef.current = rows;
+            setMessagesLoading(!complete);
+            if (!complete) setLoadingNewerMessages(true);
+            verifiedWindowRowsRef.current = complete ? rows : null;
           },
         });
       } catch (err) {
@@ -7689,6 +8176,9 @@ export function MainView(): ReactElement {
     messageScope,
     conversationWindows,
     refreshWindow,
+    readRecoveryPosition,
+    recoveryPositionApplied,
+    firstPages,
   ]);
 
   const requestOlderMessages = useCallback(
@@ -7716,7 +8206,15 @@ export function MainView(): ReactElement {
       loadingOlderRef.current = true;
 
       client.account.listBefore
-        .query({ ...binding, kind, conv, beforeSeq: minSeq, limit: PAGE_SIZE })
+        .query({
+          ...binding,
+          kind,
+          conv,
+          beforeSeq: minSeq,
+          limit: PAGE_SIZE,
+          readWindow: selection.readWindow,
+          deferReplyMedia: true,
+        })
         .then((older) => {
           if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
           loadingOlderRef.current = false;
@@ -7789,7 +8287,15 @@ export function MainView(): ReactElement {
       setLoadingNewerMessages(true);
 
       client.account.listAfter
-        .query({ ...binding, kind, conv, afterSeq: maxSeq, limit: PAGE_SIZE })
+        .query({
+          ...binding,
+          kind,
+          conv,
+          afterSeq: maxSeq,
+          limit: PAGE_SIZE,
+          readWindow: selection.readWindow,
+          deferReplyMedia: true,
+        })
         .then((newer) => {
           if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
           loadingNewerRef.current = false;
@@ -8763,6 +9269,256 @@ export function MainView(): ReactElement {
    * `flashTransferInfo.fileSetId`（Win / 安卓的真卡片），要么是被降级成纯文本的分享
    * 短码（Linux / 鸿蒙）—— 两条签名扫到任一条就把乐观条目收掉（见上面对账 effect）。
    */
+  /**
+   * 闪照「选图即发」。
+   *
+   * 协议上闪照是一条普通消息，只是元素换成 `flashPhoto`（老式图片上传 +
+   * `commonElem{serviceType:3}` + 兜底文本），所以直接复用 `sendElements`：
+   * 服务层看到 `flashPhoto` 就会带上传上下文（`elementsNeedUpload`）。
+   *
+   * 乐观渲染：先按**本地图片**画一条闪照气泡（`pic` + `isFlash` + `localPreviewUrl`），
+   * 上传完拿到服务端签发的 offpic 路径后再换成真图（`localPath` 换成服务端 token，
+   * 见 `flashPhotoOptimisticElement`）。对账走回执里的 `random` —— 与其它消息同一条
+   * 链路（`expectedKeysOf`），所以同步到位后不会重影。
+   */
+  async function sendFlashPhoto(
+    conversation: Conversation,
+    payload: FlashPhotoSendPayload,
+  ): Promise<void> {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '发送闪照需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+    const target = sendTargetOf(conversation);
+    if (!target) {
+      pushToast({
+        tone: 'warning',
+        message: '这个会话不支持发送闪照',
+        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+      });
+      throw new Error('unsupported conversation');
+    }
+    if (target.tempGroupCode) {
+      // 闪照走老式图片上传 + c2c 路由，临时会话这条还没验过。
+      pushToast({
+        tone: 'warning',
+        message: '群临时会话暂不支持发闪照',
+        detail: '闪照的老式图片上传还没有对应的临时会话实现。',
+      });
+      throw new Error('temp session flash photo unsupported');
+    }
+    // 乐观气泡：先拿本地字节画一张预览图（与真实闪照气泡同形），上传完成后再换真图。
+    const previewUrl = URL.createObjectURL(
+      new Blob([new Uint8Array(payload.bytes ?? new Uint8Array(0))], {
+        type: 'image/*',
+      }),
+    );
+    const optimisticId = `optimistic-${mfId('flp')}`;
+    const optimisticElement = (url: string, name: string): unknown => ({
+      type: 'pic',
+      data: {
+        fileName: name,
+        // 闪照在渲染层靠 `isFlash` + `localPreviewUrl` 直接显示本地预览；
+        // 服务端 token 回来之前 `fileToken` 留空（`flashPicUrl` 会返回 null）。
+        isFlash: true,
+        imgWidth: 0,
+        imgHeight: 0,
+        summary: ['[闪照]'],
+        localPreviewUrl: url,
+      },
+    });
+    setOptimisticMessages((current) => [
+      ...current,
+      {
+        id: optimisticId,
+        convId: conversation.id,
+        body: FLASH_PHOTO_PLACEHOLDER_TEXT,
+        afterSeq: outgoingAfterSeq(conversation.id),
+        elements: [optimisticElement(previewUrl, payload.name)],
+        state: 'sending',
+        at: Date.now(),
+      },
+    ]);
+    const patchOptimistic = (next: Partial<OptimisticMessage>): void =>
+      setOptimisticMessages((current) =>
+        current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
+      );
+    try {
+      const outcome = await client.account.sendElements.mutate({
+        expectedAccountUin: user.identityValue,
+        peerType: target.peerType,
+        targetId: target.targetId,
+        elements: toIpcElements([
+          {
+            kind: 'flashPhoto',
+            source: payload.bytes ?? payload.path,
+          },
+        ]),
+      });
+      if (!outcome.ok) {
+        const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条闪照';
+        patchOptimistic({ state: 'failed', error: reason });
+        pushToast({ tone: 'error', message: '闪照发送失败', detail: reason });
+        throw new Error(reason);
+      }
+      patchOptimistic({
+        ...expectedKeysOf({
+          peerType: target.peerType,
+          ...(outcome.groupSequence !== undefined ? { groupSequence: outcome.groupSequence } : {}),
+          ...(outcome.privateSequence !== undefined
+            ? { privateSequence: outcome.privateSequence }
+            : {}),
+          ...(outcome.random !== undefined ? { random: outcome.random } : {}),
+        }),
+        state: 'sent',
+      });
+      if (isSeqRejected(outcome)) {
+        pushToast({
+          tone: 'warning',
+          message: '这条闪照可能未被服务端接收',
+          detail: '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。',
+        });
+      }
+    } catch (error) {
+      patchOptimistic({
+        state: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      // blob 由乐观条目持有：真消息回来后整条被收掉，届时统一释放。
+      // 这里不释放 —— 提前 revoke 会让气泡里的预览图当场裂开。
+      optimisticBlobs.current.set(optimisticId, previewUrl);
+    }
+  }
+
+  /**
+   * 泡泡消息「选视频即发」。
+   *
+   * 协议上它就是一条视频消息，只是 `commonElem.businessType=14` 且 `pbElem.extBizInfo`
+   * 里带模板名（见 `@weq/protocol` 的 `SendBubbleVideoElement`），所以复用
+   * `sendElements`；服务层看到 `bubbleVideo` 会带上媒体上传上下文。
+   *
+   * 乐观渲染按 `bubbleVideo` 画圆形循环预览（与真消息同一条渲染通路），对账走回执
+   * 里的 `random`。
+   */
+  async function sendBubbleVideo(
+    conversation: Conversation,
+    payload: BubbleVideoSendPayload,
+  ): Promise<void> {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '发送泡泡消息需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+    const target = sendTargetOf(conversation);
+    if (!target) {
+      pushToast({
+        tone: 'warning',
+        message: '这个会话不支持发送泡泡消息',
+        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+      });
+      throw new Error('unsupported conversation');
+    }
+    if (target.tempGroupCode) {
+      pushToast({
+        tone: 'warning',
+        message: '群临时会话暂不支持发泡泡消息',
+        detail: '泡泡走 NTV2 视频上传，临时会话这条还没验过。',
+      });
+      throw new Error('temp session bubble unsupported');
+    }
+
+    const bytes = new Uint8Array(payload.bytes ?? new Uint8Array(0));
+    const previewUrl = URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' }));
+    const optimisticId = `optimistic-${mfId('bub')}`;
+    setOptimisticMessages((current) => [
+      ...current,
+      {
+        id: optimisticId,
+        convId: conversation.id,
+        body: '[泡泡消息]',
+        afterSeq: outgoingAfterSeq(conversation.id),
+        elements: [
+          {
+            type: 'bubbleVideo',
+            data: {
+              fileName: payload.name,
+              videoWidth: payload.width ?? 0,
+              videoHeight: payload.height ?? 0,
+              videoDuration: payload.duration ?? 0,
+              ...(payload.templateName ? { templateName: payload.templateName } : {}),
+              localPreviewUrl: previewUrl,
+            },
+          },
+        ],
+        state: 'sending',
+        at: Date.now(),
+      },
+    ]);
+    const patchOptimistic = (next: Partial<OptimisticMessage>): void =>
+      setOptimisticMessages((current) =>
+        current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
+      );
+    try {
+      const outcome = await client.account.sendElements.mutate({
+        expectedAccountUin: user.identityValue,
+        peerType: target.peerType,
+        targetId: target.targetId,
+        elements: toIpcElements([
+          {
+            kind: 'bubbleVideo',
+            source: payload.bytes ?? payload.path,
+            ...(payload.duration !== undefined ? { duration: payload.duration } : {}),
+            ...(payload.width !== undefined ? { width: payload.width } : {}),
+            ...(payload.height !== undefined ? { height: payload.height } : {}),
+            fileName: payload.name,
+            ...(payload.templateName ? { templateName: payload.templateName } : {}),
+          },
+        ]),
+      });
+      if (!outcome.ok) {
+        const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条泡泡消息';
+        patchOptimistic({ state: 'failed', error: reason });
+        pushToast({ tone: 'error', message: '泡泡消息发送失败', detail: reason });
+        throw new Error(reason);
+      }
+      patchOptimistic({
+        ...expectedKeysOf({
+          peerType: target.peerType,
+          ...(outcome.groupSequence !== undefined ? { groupSequence: outcome.groupSequence } : {}),
+          ...(outcome.privateSequence !== undefined
+            ? { privateSequence: outcome.privateSequence }
+            : {}),
+          ...(outcome.random !== undefined ? { random: outcome.random } : {}),
+        }),
+        state: 'sent',
+      });
+      if (isSeqRejected(outcome)) {
+        pushToast({
+          tone: 'warning',
+          message: '这条泡泡消息可能未被服务端接收',
+          detail: '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。',
+        });
+      }
+    } catch (error) {
+      patchOptimistic({
+        state: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      optimisticBlobs.current.set(optimisticId, previewUrl);
+    }
+  }
+
   async function sendFlashTransfer(
     conversation: Conversation,
     payload: FlashSendPayload,
@@ -9585,18 +10341,40 @@ export function MainView(): ReactElement {
           revision: Date.now(),
         });
       setSettingsOpen(true);
+    } else if (target.kind === 'conversation-directory') {
+      flushAllDirtyDrafts();
+      setSurfaceNavigation((value) => value + 1);
+      setArkFeedState(null);
+      setCloneSearchTarget(null);
+      setVirtualOpen(null);
+      shell.setQuery('');
+      setConversationScope(target.scope);
+      shell.switchView('messages');
+      shell.backConversation();
     } else if (target.kind === 'tool') {
       setToolSearchRequest((previous) => ({
         scope: messageScope,
         tool: target.tool,
+        exportMode: target.exportMode,
         revision: (previous?.revision ?? 0) + 1,
       }));
+    } else if (target.kind === 'clone-create') {
+      if (target.group) {
+        flushAllDirtyDrafts();
+        setCloneGroupRequest((current) => current + 1);
+        shell.switchView('agentlab');
+      } else handleCreateClone();
     } else if (target.kind === 'composition') compositionWindow.open();
     else if (target.kind === 'dressup') {
       setDressUpEmojiTarget(null);
+      setDressUpSearchKind(target.dressKind ?? 'bubble');
       setDressUpOpen(true);
     } else {
       if (shell.view === 'messages' && target.view !== 'messages') flushAllDirtyDrafts();
+      if (target.view === 'guild-direct') {
+        setGuildSearchTarget(null);
+        setGuildDirectOpenRequest((current) => current + 1);
+      }
       shell.switchView(target.view);
     }
   };
@@ -9626,7 +10404,11 @@ export function MainView(): ReactElement {
             }
             contactBadgeCount={friendNoticeCount + groupNoticeCount}
             onMessageBadgeClick={() => {
-              const target = firstUnreadConversation(sidebarConversations, conversationPrefs);
+              const target = firstUnreadConversation(
+                sidebarConversations,
+                conversationPrefs,
+                displaySettings.data?.showGroupAssistantMessageCount ?? false,
+              );
               if (!target) return;
               setSurfaceNavigation((value) => value + 1);
               setSettingsOpen(false);
@@ -9681,6 +10463,7 @@ export function MainView(): ReactElement {
             onOpenDressUp={() => {
               setSettingsOpen(false);
               setDressUpEmojiTarget(null);
+              setDressUpSearchKind('bubble');
               setDressUpOpen(true);
             }}
             onOpenProfile={noopAsync}
@@ -9756,7 +10539,7 @@ export function MainView(): ReactElement {
             refreshingContacts={refreshingContacts}
             onSidebarWidthChange={shell.updateSidebarWidth}
             sidebarContent={
-              <RetainedTabs activeKey={sidebarView} scrollable>
+              <RetainedTabs snapshotKey="sidebar" activeKey={sidebarView} scrollable>
                 {fullBleedView ? null : (
                   <>
                     <ChatSidebarContent
@@ -9826,15 +10609,17 @@ export function MainView(): ReactElement {
                   onOpenRequested={openMailView}
                   searchTarget={mailSearchTarget}
                 />
-                <QzoneWorkspace
-                  key={user.identityValue}
-                  active={shell.view === 'qzone' && !arkFeedState}
-                  selfUin={user.identityValue}
-                  nickname={user.displayName}
-                  spaceRequest={qzoneSpaceRequest}
-                  onSpaceChange={setCurrentQzoneUin}
-                />
-                <RetainedTabs activeKey={shell.view}>
+                {shell.view === 'qzone' ? (
+                  <QzoneWorkspace
+                    key={user.identityValue}
+                    active={shell.view === 'qzone' && !arkFeedState}
+                    selfUin={user.identityValue}
+                    nickname={user.displayName}
+                    spaceRequest={qzoneSpaceRequest}
+                    onSpaceChange={setCurrentQzoneUin}
+                  />
+                ) : null}
+                <RetainedTabs snapshotKey="main" activeKey={shell.view}>
                   {shell.view === 'messages' && arkFeedState ? (
                     <ArkFeedView
                       conversationId={arkFeedState.conversationId}
@@ -9885,6 +10670,7 @@ export function MainView(): ReactElement {
                       sidebarWidth={shell.sidebarWidth}
                       renderers={messageRenderers}
                       initialDirectOpen={shell.view === 'guild-direct'}
+                      directOpenRequest={shell.view === 'guild-direct' ? guildDirectOpenRequest : 0}
                       searchTarget={guildSearchTarget}
                       onActiveNodeChange={setActiveGuildNodeId}
                     />
@@ -10018,6 +10804,9 @@ export function MainView(): ReactElement {
                             if (!selection) return false;
                             try {
                               const page = await client.account.listLatest.query({
+                                ...messageBindingRef.current,
+                                readWindow: selection.readWindow,
+                                deferReplyMedia: true,
                                 kind: selection.kind === 'group' ? 'group' : 'c2c',
                                 conv: selection.id,
                                 limit: PAGE_SIZE,
@@ -10095,6 +10884,8 @@ export function MainView(): ReactElement {
                               : undefined
                           }
                           onSendFlash={sendFlashTransfer}
+                          onSendFlashPhoto={sendFlashPhoto}
+                          onSendBubbleVideo={sendBubbleVideo}
                           onSendRedPacket={sendRedPacket}
                           onDraftChange={updateDraft}
                           onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
@@ -10152,6 +10943,7 @@ export function MainView(): ReactElement {
                           }
                           unreadDock={unreadDock}
                           missingJumpSeq={missingJumpSeq}
+                          resolvedGapIds={resolvedGaps}
                         />
                       </div>
                       <OverlayScrollbar
@@ -10244,31 +11036,35 @@ export function MainView(): ReactElement {
             />
           ) : null}
 
-          <SettingsDialog
-            key={`settings:${messageScope}`}
-            open={settingsOpen}
-            onClose={() => setSettingsOpen(false)}
-            initialSection={settingsSection}
-            searchTarget={settingsSearchTarget}
-            onOpenMaintenance={openMaintenance}
-            onOpenRecalls={handleOpenRecallsAt}
-            recallDetails={recalls.origin === 'settings' ? recalledView : null}
-            onCloseRecalls={closeSettingsRecalls}
-            isCurrentSource={() => messageScopeRef.current === messageScope}
-          />
-          <DataMaintenanceDialog
-            key={`maintenance:${messageScope}`}
-            source={messageScope}
-            tool={maintenanceTool}
-            account={{
-              uin: openedUin ?? '',
-              name: user.displayName,
-              avatarUrl: user.avatarUrl ?? '',
-            }}
-            onClose={() => {
-              setMaintenanceTool(null);
-            }}
-          />
+          {settingsOpen ? (
+            <SettingsDialog
+              key={`settings:${messageScope}`}
+              open={settingsOpen}
+              onClose={() => setSettingsOpen(false)}
+              initialSection={settingsSection}
+              searchTarget={settingsSearchTarget}
+              onOpenMaintenance={openMaintenance}
+              onOpenRecalls={handleOpenRecallsAt}
+              recallDetails={recalls.origin === 'settings' ? recalledView : null}
+              onCloseRecalls={closeSettingsRecalls}
+              isCurrentSource={() => messageScopeRef.current === messageScope}
+            />
+          ) : null}
+          {maintenanceTool ? (
+            <DataMaintenanceDialog
+              key={`maintenance:${messageScope}`}
+              source={messageScope}
+              tool={maintenanceTool}
+              account={{
+                uin: openedUin ?? '',
+                name: user.displayName,
+                avatarUrl: user.avatarUrl ?? '',
+              }}
+              onClose={() => {
+                setMaintenanceTool(null);
+              }}
+            />
+          ) : null}
           <RailAccountFooter
             currentUin={user.identityValue}
             currentName={user.displayName}
@@ -10353,8 +11149,8 @@ export function MainView(): ReactElement {
           />
           {dressUpOpen ? (
             <DressUpDialog
-              key={dressUpEmojiTarget?.revision ?? 'dressup'}
-              initialKind={dressUpEmojiTarget ? 'emoji' : 'bubble'}
+              key={dressUpEmojiTarget?.revision ?? `dressup:${dressUpSearchKind}`}
+              initialKind={dressUpEmojiTarget ? 'emoji' : dressUpSearchKind}
               initialEmojiPackId={dressUpEmojiTarget?.packId}
               initialEmojiPackName={dressUpEmojiTarget?.name}
               onClose={() => {
@@ -10840,6 +11636,8 @@ export function MainView(): ReactElement {
                     onRoaming: handleRoamingTargets,
                     onReadState: (rows, unread) => void changeConversationReadState(rows, unread),
                     readStateBusy,
+                    onVisibleConversations: prefetchVisible,
+                    onConversationIntent: prefetchIntent,
                     onVirtual: (item) => {
                       flushAllDirtyDrafts();
                       setCloneSearchTarget(null);
@@ -10896,6 +11694,15 @@ export function MainView(): ReactElement {
                           setRemarkTarget(null);
                         }}
                       >
+                        <RendererRecoveryNotice
+                          ready={
+                            Boolean(messageScope) &&
+                            !loadingInitialMessages &&
+                            (!shell.activeConversationId ||
+                              (Boolean(selectedConversation) &&
+                                (loaded.length > 0 || windowVerifiedAtRef.current > 0)))
+                          }
+                        />
                         <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
                           {chatContent}
                         </GroupAlbumCardNavigationProvider>

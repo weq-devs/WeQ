@@ -485,6 +485,57 @@ describe('新增消息交互', () => {
       fixture.close();
     }
   });
+  it('定位会话在行加载后短暂高亮，重复定位重新计时，普通选中不高亮', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const fixture = mount();
+    const conversation = createTemplateDemoData().conversations[0]!;
+    const render = (rows: Conversation[], revision?: number) =>
+      fixture.render(
+        h(
+          ConversationDirectoryContext.Provider,
+          {
+            value: {
+              virtual: [],
+              onVirtual: vi.fn(),
+              onCreate: vi.fn(),
+              locate: revision === undefined ? null : { id: conversation.id, revision },
+            },
+          },
+          h(ConversationList, {
+            conversations: rows,
+            activeConversationId: conversation.id,
+            preferences: {},
+            drafts: {},
+            onSelect: vi.fn(),
+          }),
+        ),
+      );
+    const highlight = () => fixture.host.querySelector('.weq-conversation-locate-highlight');
+    try {
+      render([conversation]);
+      expect(highlight()).toBeNull();
+      render([], 1);
+      act(() => vi.advanceTimersByTime(2000));
+      render([conversation], 1);
+      const first = highlight();
+      expect(first?.parentElement?.dataset.conversationId).toBe(conversation.id);
+      act(() => vi.advanceTimersByTime(800));
+      render([conversation], 2);
+      expect(highlight()).not.toBe(first);
+      expect(highlight()).not.toBeNull();
+      act(() => vi.advanceTimersByTime(800));
+      expect(highlight()).not.toBeNull();
+      act(() => vi.advanceTimersByTime(800));
+      expect(highlight()).toBeNull();
+      render([conversation], 3);
+      expect(highlight()).not.toBeNull();
+      render([conversation]);
+      expect(highlight()).toBeNull();
+    } finally {
+      fixture.close();
+      vi.useRealTimers();
+    }
+  });
   it('右键转发传真实消息，多选操作栏只有图标和提示', async () => {
     const fixture = mount();
     const demo = createTemplateDemoData();

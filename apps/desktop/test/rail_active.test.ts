@@ -114,8 +114,39 @@ it('收藏与后部页面入口按实际页面高亮，返回消息后清除旧�
     expect(locate).toHaveBeenCalledOnce();
     expect(navigate).not.toHaveBeenCalled();
     act(() => host.querySelector<HTMLButtonElement>('.rail-tab-messages')!.click());
+    expect(navigate).not.toHaveBeenCalled();
+    expect(locate).toHaveBeenCalledTimes(2);
+    for (const view of ['messages', 'contacts'] as const) {
+      act(() =>
+        root.render(
+          h(AppRail, {
+            ...props,
+            view,
+            messageBadgeCount: 0,
+            onMessageBadgeClick: locate,
+            onViewChange: navigate,
+          }),
+        ),
+      );
+      act(() => host.querySelector<HTMLButtonElement>('.rail-tab-messages')!.click());
+    }
+    expect(locate).toHaveBeenCalledTimes(3);
+    expect(navigate).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith('messages');
-    expect(locate).toHaveBeenCalledOnce();
+    act(() =>
+      root.render(
+        h(AppRail, {
+          ...props,
+          view: 'messages',
+          activeRailItem: 'settings',
+          onMessageBadgeClick: locate,
+          onViewChange: navigate,
+        }),
+      ),
+    );
+    act(() => host.querySelector<HTMLButtonElement>('.rail-tab-messages')!.click());
+    expect(locate).toHaveBeenCalledTimes(3);
+    expect(navigate).toHaveBeenCalledTimes(2);
     for (const title of ['数据库管理', '存储占用', '清理缓存', '数据库修复', '抓包'] as const) {
       act(() =>
         root.render(

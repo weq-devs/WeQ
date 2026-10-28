@@ -1,0 +1,184 @@
+.weq-qzn-actions {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+}
+.weq-qzn-forward-dialog button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 7px;
+  color: inherit;
+  font: inherit;
+}
+.weq-qzn-forward-dialog button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.weq-qzn .weq-qzn-actions button[aria-pressed='true'],
+.weq-qzn .weq-qzn-actions button[aria-expanded='true'],
+.weq-qzn .weq-qzn-interaction button.weq-qzn-person {
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
+}
+.weq-qzn-like-hover {
+  display: inline-flex;
+  align-items: center;
+}
+.weq-qzn-like-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+.weq-qzn-like-popover {
+  position: fixed;
+  top: var(--weq-popover-top, 8px);
+  left: var(--weq-popover-left, 8px);
+  width: min(360px, calc(100vw - 16px));
+  max-height: min(280px, calc(100dvh - 16px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  padding: 8px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--weq-shadow-card);
+}
+.weq-qzn-like-popover .weq-qzn-like-users {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px 6px;
+}
+.weq-qzn-like-popover .weq-qzn-like-users > span {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 3px 2px;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  border-radius: 4px;
+}
+.weq-qzn-like-popover .weq-qzn-like-users button:hover {
+  background: var(--muted);
+}
+.weq-qzn-like-users > span > button:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-qzn-like-popover .weq-qzn-like-users > span > button:last-child {
+  justify-content: flex-start;
+  padding: 0;
+  font: inherit;
+}
+.weq-qzn-like-popover .weq-qzn-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-qzn-like-popover .weq-qzn-status {
+  margin: 0;
+  padding: 4px 2px 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.weq-qzn-comment-composer .weq-qq-action-bar {
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+.weq-qzn-comment-composer .weq-qq-action-bar > input {
+  min-width: 0;
+  height: 40px;
+}
+.weq-qzn .weq-qzn-comment-composer .weq-set-iconbtn {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}
+.weq-qzn-comment-composer .weq-set-iconbtn > svg {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+}
+.weq-qzn .weq-qzn-comment-composer .weq-set-iconbtn:not(:disabled):hover {
+  background: var(--muted);
+  border-color: var(--weq-accent-ink, var(--weq-accent-effective));
+}
+@media (max-width: 320px) {
+  .weq-qzn-like-popover .weq-qzn-like-users {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.weq-qzn-like-popover .weq-qzn-interaction {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+.weq-qzn-forward-dialog {
+  padding: 20px;
+  max-height: min(760px, 85dvh);
+  overflow: auto;
+  color: var(--foreground);
+}
+.weq-qzn-forward-dialog header,
+.weq-qzn-forward-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.weq-qzn-forward-dialog h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.weq-qzn-forward-dialog textarea {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  margin: 16px 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+.weq-qzn-forward-dialog textarea:focus {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 1px;
+}
+.weq-qzn-forward-original {
+  border-block: 1px solid var(--border);
+  padding-block: 14px;
+  overflow-wrap: anywhere;
+}
+.weq-qzn-forward-dialog footer {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.weq-qzn-forward-dialog footer button {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: var(--weq-accent-effective);
+  color: var(--primary-foreground);
+}
+html[data-theme='dark'] .weq-qzn-like-popover {
+  background: var(--popover);
+  border-color: var(--weq-border-strong);
+}

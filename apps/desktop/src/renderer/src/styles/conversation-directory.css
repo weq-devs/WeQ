@@ -204,9 +204,42 @@ html[data-theme='dark'] .weq-conversation-selection-toolbar {
 }
 .weq-conversation-window .conversation-row,
 .app-shell .weq-conversation-window .conversation-row {
-  height: 62px;
-  min-height: 62px;
+  height: var(--weq-conversation-row-height, 62px);
+  min-height: var(--weq-conversation-row-height, 62px);
   box-sizing: border-box;
+}
+.conversation-row.is-locate-target {
+  position: relative;
+}
+.weq-conversation-locate-highlight {
+  position: absolute;
+  inset: 1px;
+  border-radius: 4px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  box-shadow: inset 0 0 0 2px
+    color-mix(in srgb, var(--weq-accent-effective) 40%, var(--weq-bg-surface));
+  opacity: 0;
+  animation: weq-conversation-locate 1.5s ease-in-out;
+}
+html[data-theme='dark'] .weq-conversation-locate-highlight {
+  background: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+}
+@keyframes weq-conversation-locate {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  20%,
+  45% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-conversation-locate-highlight {
+    animation: none;
+    opacity: 1;
+  }
 }
 .weq-conversation-virtual {
   display: inline-flex;

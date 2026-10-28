@@ -65,3 +65,33 @@ it('Web 搜索独立 HTTP 返回，慢分类不阻塞快分类；普通查询仍
   }
   expect(await client.account.searchHistory.query({ limit: 1 })).toEqual([]);
 });
+
+it('消息首屏和双向定位独立返回，不与慢辅助目录合并为同一 HTTP 批次', async () => {
+  let release!: () => void;
+  const slow = new Promise<Response>((resolve) => {
+    release = () => resolve(new Response(JSON.stringify([{ result: { data: [] } }])));
+  });
+  const fetch = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('account.listProfiles')) return slow;
+    expect(url).not.toContain('batch=1');
+    return Promise.resolve(new Response(JSON.stringify({ result: { data: [] } })));
+  });
+  vi.stubGlobal('fetch', fetch);
+  const { createLinks } = await import('../src/renderer/src/trpc/transport.web');
+  const client = createTRPCProxyClient<AppRouter>({ links: createLinks() });
+  const directory = client.account.listProfiles.query({ limit: 2000 });
+  try {
+    expect(
+      await Promise.all([
+        client.account.listLatest.query({ kind: 'group', conv: '777' }),
+        client.account.listBefore.query({ kind: 'group', conv: '777', beforeSeq: '20' }),
+        client.account.listAfter.query({ kind: 'group', conv: '777', afterSeq: '20' }),
+        client.account.listFrom.query({ kind: 'group', conv: '777', sinceSeq: '20' }),
+      ]),
+    ).toEqual([[], [], [], []]);
+  } finally {
+    release();
+    await directory;
+  }
+});

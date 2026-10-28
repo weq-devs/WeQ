@@ -366,6 +366,14 @@ export type Message = {
   msgRandom?: string;
   setEmojiList?: SetEmojiItem[];
   ntSeqVerified?: boolean;
+  /**
+   * 这条消息的正文只是闪照的兜底文案（`[闪照]请使用新版手机QQ查看闪照。`）。
+   *
+   * 本地库 40800 里闪照**只剩这一句**，`commonElem(serviceType=3)` 元素从来没落库，
+   * 所以离线看到的就是一行灰字。带上这个标记后，聊天窗会按需走协议拉取（完整模式）
+   * 把真正的闪照元素补回来重渲染；拉不到就继续显示兜底文案。
+   */
+  flashPhotoPlaceholder?: boolean;
   actions?: MessageAction[];
   streamStatus?: 'complete' | 'streaming' | 'failed';
   createdAt: string;

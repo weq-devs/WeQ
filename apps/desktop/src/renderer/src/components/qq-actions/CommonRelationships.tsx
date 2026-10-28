@@ -9,11 +9,13 @@ import { GroupProfileDialog, ProfileRow } from '../../im-template/template/profi
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { avatarFromGroupCode } from '../../lib/avatarResolver';
 import { sharedGroupConversation } from '../ark/groupShareCard';
+import { ChatNavigationContext } from '../../lib/chatNavigation';
 import '../../styles/common-relationships.css';
 
-function CommonRelationshipsBody({ uin }: { uin: string }) {
+function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?: () => void }) {
   const session = useQQWriteSession(`common-relationships:${uin}`);
   const directory = useContext(ConversationDirectoryContext);
+  const openChat = useContext(ChatNavigationContext);
   const titleId = useId();
   const [open, setOpen] = useState(false);
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
@@ -143,6 +145,16 @@ function CommonRelationshipsBody({ uin }: { uin: string }) {
               conversation={conversation}
               detailsKnown={known?.type === 'group'}
               onClose={() => setSelectedCode(null)}
+              onOpenChat={
+                openChat && conversation
+                  ? () => {
+                      setSelectedCode(null);
+                      setOpen(false);
+                      onNavigate?.();
+                      openChat({ kind: 'group', conversation });
+                    }
+                  : undefined
+              }
             />
           )}
         </Modal>

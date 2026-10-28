@@ -1,21 +1,24 @@
 import { create } from 'zustand';
 import { accentColors, normalizeHex } from '../../../shared/theme_colors';
+import '../styles/component-appearance.css';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type ThemeResolved = 'light' | 'dark';
 export type ThemeBackground = 'plain' | 'paper' | 'grid' | 'dots' | 'wash' | 'telegram';
-/**
- * Component skin pack. Only `classic` ships today; the field exists so the
- * settings page can present a (placeholder) switcher and so future packs slot
- * in without another store migration. Nothing in CSS consumes it yet.
- */
-export type ThemeComponentStyle = 'classic';
+export const componentStyles = [
+  { value: 'classic', label: '经典（默认）' },
+  { value: 'minimal', label: '简约' },
+  { value: 'retro', label: '复古' },
+] as const;
+export type ThemeComponentStyle = (typeof componentStyles)[number]['value'];
+export type ThemeDensity = 'comfortable' | 'compact';
 
 const storageKeys = {
   preference: 'weq.theme-preference',
   accent: 'weq.theme-accent',
   background: 'weq.theme-background',
   componentStyle: 'weq.theme-component-style',
+  density: 'weq.theme-density',
 } as const;
 
 type ThemeState = {
@@ -25,11 +28,13 @@ type ThemeState = {
   accent: string;
   background: ThemeBackground;
   componentStyle: ThemeComponentStyle;
+  density: ThemeDensity;
   initialized: boolean;
   setPreference: (preference: ThemePreference) => void;
   setAccent: (accent: string) => void;
   setBackground: (background: ThemeBackground) => void;
   setComponentStyle: (componentStyle: ThemeComponentStyle) => void;
+  setDensity: (density: ThemeDensity) => void;
   syncResolved: () => void;
   hydrate: () => void;
 };
@@ -50,7 +55,17 @@ function isThemeBackground(value: string | null): value is ThemeBackground {
 }
 
 function isThemeComponentStyle(value: string | null): value is ThemeComponentStyle {
-  return value === 'classic';
+  return componentStyles.some((option) => option.value === value);
+}
+
+function readDensity(): ThemeDensity {
+  try {
+    return window.localStorage.getItem(storageKeys.density) === 'compact'
+      ? 'compact'
+      : 'comfortable';
+  } catch {
+    return 'comfortable';
+  }
 }
 
 function readPreference(): ThemePreference {
@@ -100,11 +115,13 @@ function applyTheme({
   accent,
   background,
   componentStyle,
+  density,
 }: {
   preference: ThemePreference;
   accent: string;
   background: ThemeBackground;
   componentStyle: ThemeComponentStyle;
+  density: ThemeDensity;
 }) {
   const resolved = resolvePreference(preference);
   const colors = accentColors(accent, resolved);
@@ -113,6 +130,7 @@ function applyTheme({
   root.dataset.theme = resolved;
   root.dataset.background = background;
   root.dataset.componentStyle = componentStyle;
+  root.dataset.density = density;
   root.classList.toggle('dark', resolved === 'dark');
   root.style.colorScheme = resolved;
   root.style.setProperty('--weq-accent-custom', accent || '');
@@ -215,14 +233,15 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   accent: '',
   background: 'paper',
   componentStyle: 'classic',
+  density: 'comfortable',
   initialized: false,
   setPreference: (preference) => {
     const { resolved } = get();
     const revision = ++preferenceRevision;
     const commit = () => {
       if (revision !== preferenceRevision) return;
-      const { accent, background, componentStyle } = get();
-      applyTheme({ preference, accent, background, componentStyle });
+      const { accent, background, componentStyle, density } = get();
+      applyTheme({ preference, accent, background, componentStyle, density });
       persist(storageKeys.preference, preference);
       set({
         preference,
@@ -239,27 +258,33 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
   setAccent: (input) => {
     const accent = normalizeHex(input) ?? '';
-    const { preference, background, componentStyle } = get();
-    applyTheme({ preference, accent, background, componentStyle });
+    const { preference, background, componentStyle, density } = get();
+    applyTheme({ preference, accent, background, componentStyle, density });
     persist(storageKeys.accent, accent);
     set({ accent, initialized: true });
   },
   setBackground: (background) => {
-    const { preference, accent, componentStyle } = get();
-    applyTheme({ preference, accent, background, componentStyle });
+    const { preference, accent, componentStyle, density } = get();
+    applyTheme({ preference, accent, background, componentStyle, density });
     persist(storageKeys.background, background);
     set({ background, initialized: true });
   },
   setComponentStyle: (componentStyle) => {
-    const { preference, accent, background } = get();
-    applyTheme({ preference, accent, background, componentStyle });
+    const { preference, accent, background, density } = get();
+    applyTheme({ preference, accent, background, componentStyle, density });
     persist(storageKeys.componentStyle, componentStyle);
     set({ componentStyle, initialized: true });
   },
-  syncResolved: () => {
+  setDensity: (density) => {
     const { preference, accent, background, componentStyle } = get();
+    applyTheme({ preference, accent, background, componentStyle, density });
+    persist(storageKeys.density, density);
+    set({ density, initialized: true });
+  },
+  syncResolved: () => {
+    const { preference, accent, background, componentStyle, density } = get();
     const resolved = resolvePreference(preference);
-    applyTheme({ preference, accent, background, componentStyle });
+    applyTheme({ preference, accent, background, componentStyle, density });
     set({ resolved });
   },
   hydrate: () => {
@@ -268,17 +293,20 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     const accent = normalizeHex(readAccent()) ?? '';
     const background = readBackground();
     const componentStyle = readComponentStyle();
-    applyTheme({ preference, accent, background, componentStyle });
+    const density = readDensity();
+    applyTheme({ preference, accent, background, componentStyle, density });
     persist(storageKeys.preference, preference);
     persist(storageKeys.accent, accent);
     persist(storageKeys.background, background);
     persist(storageKeys.componentStyle, componentStyle);
+    persist(storageKeys.density, density);
     set({
       preference,
       resolved: resolvePreference(preference),
       accent,
       background,
       componentStyle,
+      density,
       initialized: true,
     });
   },

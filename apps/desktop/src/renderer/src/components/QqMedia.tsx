@@ -22,9 +22,11 @@ import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocum
 import { openMarketFaceLightbox } from './MarketFaceLightbox';
 import { ShimmerImage } from './ShimmerImage';
 import { IS_ELECTRON } from '@renderer/lib/target';
-import { cdnImageUrl, cdnVideoCoverUrl, useCdn } from '@renderer/lib/cdn';
+import { cdnImageUrl, cdnVideoCoverUrl, flashPicUrl, useCdn } from '@renderer/lib/cdn';
 import { MediaSaveControls, MediaSourceSave, useMediaSave } from './MediaSaveControls';
 import type { MediaSaveSource } from '../../../shared/media_save';
+import { useVoiceTranscription } from '../hooks/useVoiceTranscription';
+import { useTabActive } from './RetainedTabs';
 
 type Data = Record<string, unknown>;
 
@@ -143,7 +145,11 @@ export function QqImage({
   // 「优先使用 CDN」开着且拼得出直链时先试它（浏览器直连，服务端零流量）；rkey 过期 /
   // 老图片 / CDN 抽风都会 onError 落回上面这条代理路径，再失败才是「未找到」占位。
   const cdn = useCdn();
-  const cdnSrc = cdnImageUrl(cdn, conv !== '', token, orig);
+  // 闪照：`fileToken` 是老式 offpic 路径（`/uin-id-md5`），三档 URL 全空、没有
+  // rkey 可用，但 offpic 本身免 rkey。气泡显示打码的 198 预览，点开看 0 原图。
+  const flashSrc = flashPicUrl(token, 198);
+  const flashFullSrc = flashPicUrl(token, 0);
+  const cdnSrc = flashSrc ? null : cdnImageUrl(cdn, conv !== '', token, orig);
   // 合并转发编辑器里拼的图片带 `localPath`（本机绝对路径）—— 它还没上传、不在
   // Pic 缓存里，按发送时间 / 文件名找图会 404，直接从本机文件流出来预览。
   // 乐观渲染的图片还会带 `localPreviewUrl`（blob: 地址，剪贴板截图没有落盘路径）。
@@ -156,6 +162,8 @@ export function QqImage({
   const candidates: string[] = [];
   if (localPreviewUrl) candidates.push(localPreviewUrl);
   if (localPath) candidates.push(localFileUrl(localPath));
+  // 闪照优先走 offpic：本地库没有原图，代理路径（按发送时间找 nt_data）必然 miss。
+  if (flashSrc) candidates.push(flashSrc);
   if (cdnSrc) candidates.push(cdnSrc);
   if (!candidates.includes(proxySrc)) candidates.push(proxySrc);
   if (!isAnimatedEmoji && !candidates.includes(originalProxySrc)) candidates.push(originalProxySrc);
@@ -199,10 +207,25 @@ export function QqImage({
     // 外层包一层 relative 容器：ShimmerImage 的扫光占位（absolute inset 0）只
     // 覆盖图片本身，不会铺满整条消息气泡；点击仍开灯箱。
     <span
-      className={cn('qq-media-wrap', isAnimatedEmoji && 'qq-media-wrap-emoji')}
+      className={cn(
+        'qq-media-wrap',
+        isAnimatedEmoji && 'qq-media-wrap-emoji',
+        flashSrc && 'qq-media-wrap-flash',
+      )}
       onClick={
         openable
-          ? (event) =>
+          ? (event) => {
+              // 闪照：气泡里是打码的 198 预览，点开直接给 0 原图（不再往下回退到
+              // 预览档，否则点开看到的还是马赛克）。
+              if (flashFullSrc) {
+                openLightbox(
+                  flashFullSrc,
+                  name || '[闪照]',
+                  ocrContext,
+                  event.currentTarget.ownerDocument,
+                );
+                return;
+              }
               openLightbox(
                 src === proxySrc ? originalProxySrc : src,
                 name || '[图片]',
@@ -215,13 +238,17 @@ export function QqImage({
                     .map((candidate) => (candidate === proxySrc ? originalProxySrc : candidate)),
                   proxySrc,
                 ],
-              )
+              );
+            }
           : undefined
       }
     >
       <ShimmerImage
         suspendOffscreen
-        className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
+        className={cn(
+          isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image',
+          flashSrc && 'qq-media-flash',
+        )}
         style={style}
         src={src}
         alt={isAnimatedEmoji ? '[动画表情]' : name || '[图片]'}
@@ -648,32 +675,35 @@ export function QqVoice({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
 
-  // Transcription state. The 转文字 entry only renders when a model is selected
-  // in the global settings; one shared query (react-query de-dupes across the
-  // many voice bubbles on screen) tells us whether that's the case.
-  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: 60_000,
-  });
-  const canTranscribe = Boolean(settings.data?.voiceTranscribe.modelId);
-  const transcribe = trpc.account.transcribeVoice.useMutation();
-  // A transcript already on the element (wire tag 45923) — written either by
-  // QQ's own 转文字 or by a previous WeQ run, which writes back to the same field.
   const storedTranscript = str(data, 'pttTranscript');
-  const [transcript, setTranscript] = useState<string | null>(null);
-  const [transcribeError, setTranscribeError] = useState<string | null>(null);
-  // SenseVoice reports the speaker's tone + any non-speech sounds as rich tags
-  // (see main `transcribe/tags.ts`); we render them as a badge above the text.
-  const [emotion, setEmotion] = useState<{ emoji: string; label: string } | null>(null);
-  const [events, setEvents] = useState<string[]>([]);
+  const active = useTabActive();
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const element = wrapRef.current;
+    if (!element || !active || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(([entry]) =>
+      setVisible(entry?.isIntersecting ?? false),
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [active, name, sendTimeMs]);
+  const transcribe = useVoiceTranscription(
+    { t: sendTimeMs, name, token, msgId },
+    active && visible && !storedTranscript && !localPreviewUrl && !localPath,
+  );
+  const canTranscribe = transcribe.available && !localPreviewUrl && !localPath;
+  const result = transcribe.result;
+  const transcribeError =
+    transcribe.error ?? (result && !result.success ? (result.error ?? '识别失败') : null);
+  const emotion = result?.emotion ?? null;
+  const events = (result?.events ?? []).map(
+    (event) => `${event.emoji ? `${event.emoji} ` : ''}${event.label}`,
+  );
 
   useEffect(() => {
-    // Reset the player + transcript if the message identity changes underneath us.
+    // 消息身份变化时重置播放器；转写状态按消息身份存放在共享缓存中。
     setPlaying(false);
-    setTranscript(null);
-    setTranscribeError(null);
-    setEmotion(null);
-    setEvents([]);
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
@@ -703,20 +733,7 @@ export function QqVoice({
 
   const runTranscribe = (e: ReactMouseEvent): void => {
     e.stopPropagation();
-    if (transcribe.isLoading) return;
-    setTranscribeError(null);
-    transcribe
-      .mutateAsync({ t: sendTimeMs, name, token, msgId })
-      .then((res) => {
-        if (res.success) {
-          setTranscript(res.text ?? '');
-          setEmotion(res.emotion ?? null);
-          setEvents((res.events ?? []).map((e) => `${e.emoji ? `${e.emoji} ` : ''}${e.label}`));
-        } else {
-          setTranscribeError(res.error ?? '识别失败');
-        }
-      })
-      .catch((err) => setTranscribeError(err instanceof Error ? err.message : String(err)));
+    transcribe.run();
   };
 
   // Bar count tracks duration (QQ-style: longer clip → longer strip), with a
@@ -725,11 +742,12 @@ export function QqVoice({
   // wave area also clips as a hard safety net; see .qq-media-voice-wave).
   const barCount = Math.max(12, Math.min(28, 8 + Math.round(seconds)));
   const bars = sampleBars(waveform, barCount);
-  const shownTranscript = transcript ?? (storedTranscript || null);
+  const shownTranscript =
+    (result?.success ? (result.text ?? '') : null) ?? (storedTranscript || null);
   const hasResult = shownTranscript !== null || transcribeError !== null;
 
   return (
-    <div className="qq-voice-wrap">
+    <div className="qq-voice-wrap" ref={wrapRef}>
       <div className="qq-voice-row">
         <div
           className={cn('qq-media-voice', playing && 'is-playing')}
@@ -770,20 +788,20 @@ export function QqVoice({
             iconOnly
           />
         ) : null}
-        {canTranscribe && !hasResult ? (
+        {canTranscribe && (shownTranscript === null || transcribeError) ? (
           <button
             type="button"
             className="qq-voice-transcribe-btn"
             title="转文字"
             onClick={runTranscribe}
-            disabled={transcribe.isLoading}
+            disabled={transcribe.busy}
           >
-            {transcribe.isLoading ? (
+            {transcribe.busy ? (
               <Loader2 size={13} strokeWidth={2} className="weq-spin" aria-hidden />
             ) : (
               <FileText size={13} strokeWidth={2} aria-hidden />
             )}
-            <span>{transcribe.isLoading ? '转写中' : '转文字'}</span>
+            <span>{transcribe.busy ? '转写中' : transcribeError ? '重试转文字' : '转文字'}</span>
           </button>
         ) : null}
       </div>

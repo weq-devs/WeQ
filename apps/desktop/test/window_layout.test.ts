@@ -2,6 +2,31 @@
 import { expect, it, vi } from 'vitest';
 import { WINDOW_LAYOUTS, applyWindowLayout } from '../src/main/window_layout';
 
+it('同窗口重载后重复请求聊天布局，保留用户调整后的尺寸和位置', () => {
+  let bounds = { x: 100, y: 100, width: 1180, height: 760 };
+  const win = {
+    isMaximized: () => false,
+    isFullScreen: () => false,
+    getBounds: () => bounds,
+    getContentSize: () => [bounds.width, bounds.height],
+    setMinimumSize: vi.fn(),
+    setContentSize: vi.fn(),
+    setPosition: vi.fn(),
+  };
+  const area = { x: 0, y: 0, width: 1800, height: 1200 };
+  applyWindowLayout(win, 'chat', area);
+  bounds = { x: 230, y: 180, width: 1400, height: 900 };
+  vi.clearAllMocks();
+  applyWindowLayout(win, 'chat', area);
+  expect(win.setContentSize).not.toHaveBeenCalled();
+  expect(win.setPosition).not.toHaveBeenCalled();
+  applyWindowLayout(win, 'home', area);
+  expect(win.setContentSize).toHaveBeenCalledWith(
+    WINDOW_LAYOUTS.home.width,
+    WINDOW_LAYOUTS.home.height,
+  );
+});
+
 it('回到登录页先放宽最小宽度，再收成竖版；返回聊天恢复原边界', () => {
   let bounds = { x: 100, y: 100, width: 1180, height: 760 };
   const calls: string[] = [];

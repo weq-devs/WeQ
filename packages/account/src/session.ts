@@ -400,10 +400,10 @@ export async function openAccount(
   });
   let uidMap: UidMap;
   try {
-    uidMap = UidMap.from(await uidMappingDb.listAll());
+    uidMap = UidMap.from(await uidMappingDb.listAll(), (uid) => uidMappingDb.findByUid(uid));
   } catch (e) {
     console.error('[account] failed to load nt_uid_mapping_table — using empty uid map:', e);
-    uidMap = UidMap.from([]);
+    uidMap = UidMap.from([], (uid) => uidMappingDb.findByUid(uid));
   } finally {
     uidMappingDb.close();
   }

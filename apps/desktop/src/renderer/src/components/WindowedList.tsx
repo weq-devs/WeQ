@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 
 export function visibleListRange(count: number, rowHeight: number, height: number, top: number) {
   const start = Math.max(0, Math.min(Math.floor(top / rowHeight) - 5, count - 1));
@@ -18,6 +18,7 @@ export function WindowedList<T>({
   scrollRevision,
   onNearEnd,
   resetKey,
+  onVisibleItems,
 }: {
   items: readonly T[];
   rowHeight: number;
@@ -30,6 +31,7 @@ export function WindowedList<T>({
   scrollRevision?: number;
   onNearEnd?: () => void;
   resetKey?: string;
+  onVisibleItems?: (items: readonly T[]) => void;
 }) {
   const [top, setTop] = useState(0);
   const root = useRef<HTMLDivElement>(null);
@@ -52,6 +54,24 @@ export function WindowedList<T>({
     applied.current = request;
   }, [items, itemKey, scrollToKey, scrollRevision, rowHeight, height]);
   const range = visibleListRange(items.length, rowHeight, height, top);
+  useEffect(() => {
+    const viewport = root.current;
+    if (!viewport || !onVisibleItems) return;
+    const publish = () => {
+      if (!viewport.clientHeight) {
+        onVisibleItems([]);
+        return;
+      }
+      const first = Math.max(0, Math.floor(top / rowHeight));
+      const end = Math.min(items.length, Math.ceil((top + viewport.clientHeight) / rowHeight));
+      onVisibleItems(items.slice(first, end));
+    };
+    publish();
+    const observer =
+      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(publish);
+    observer?.observe(viewport);
+    return () => observer?.disconnect();
+  }, [items, rowHeight, top, onVisibleItems]);
   return (
     <div
       ref={root}

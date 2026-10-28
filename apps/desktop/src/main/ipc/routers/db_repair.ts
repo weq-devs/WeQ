@@ -24,7 +24,7 @@ import { existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
-import { assertRecoverCapable, isLikelyCorruptionError } from '@weq/db';
+import { assertRecoverCapable } from '@weq/db';
 import type { DatabaseAlgorithms, RecoverOptions } from '@weq/native';
 import {
   ACCOUNT_HEALTH_DATABASES,
@@ -33,7 +33,6 @@ import {
   getHost,
   getLogger,
   classifyLock,
-  concludeCheckup,
   resolveAccountDbDir,
   scanDatabaseBadPages,
   type BadPageScanReport,
@@ -46,7 +45,6 @@ import {
   type DbRepairProgress,
   type DbRepairRecord,
   type DbRepairRestorePreview,
-  type DbRepairTarget,
 } from '@weq/service';
 import {
   closeSalvageConnections,
@@ -55,6 +53,7 @@ import {
   requirePlatform,
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
+import { databaseCheckups } from '../../db_checkup';
 
 const logger = getLogger().child({ scope: 'db-repair' });
 
@@ -402,47 +401,6 @@ function failedResult(error: unknown, closedAccount: boolean, event: string): Db
   return { ok: false, code, error: message, closedAccount };
 }
 
-/**
- * 结构体检：`PRAGMA integrity_check`（native）。
- *
- * 失败分两种，不能都算"这一格没跑成"：
- *   - 没有密钥 / 产物缺方法 / 权限问题 → 没跑成，结论只能是未判定；
- *   - `database disk image is malformed` 这类错误 → **integrity_check 读坏页时抛的，
- *     抛错本身就是损坏结论**。早期这里统一按"没跑成"收，结果用户的坏库永远被判成
- *     "未判定"，面板上只剩一句"结构检查没跑成"。
- */
-async function runIntegrityCheck(target: DbRepairTarget): Promise<DbRepairCheckup['integrity']> {
-  try {
-    const health = await requirePlatform().native.ntHelper.checkDatabaseHealth(
-      target.dbPath,
-      target.key,
-      target.algo,
-    );
-    return { ran: true, healthy: health.healthy, corruptedTables: health.corruptedTables };
-  } catch (error) {
-    return {
-      ran: false,
-      error: error instanceof Error ? error.message : String(error),
-      corrupt: isLikelyCorruptionError(error),
-    };
-  }
-}
-
-/** 页级体检：坏页地图（native `scanBadPages` + `dbstat` 映射到对象）。 */
-async function runPageMap(target: DbRepairTarget): Promise<DbRepairCheckup['pages']> {
-  try {
-    const report = await scanDatabaseBadPages(requirePlatform().native.ntHelper, {
-      dbPath: target.dbPath,
-      dbName: target.dbName,
-      key: target.key,
-      algo: target.algo,
-    });
-    return { ran: true, report };
-  } catch (error) {
-    return { ran: false, error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
 const accountRef = z.object({ uin: z.string().min(1) });
 const targetRef = accountRef.extend({ dbName: z.string().min(1) });
 const recordRef = accountRef.extend({ recordId: z.string().min(1) });
@@ -563,34 +521,16 @@ export const dbRepairRouter = router({
    * **只读**，但要整库读一遍（128MB 的 `nt_msg.db` 通常几秒），所以界面是逐个库调用、
    * 逐个库显示结果的 —— 一个慢库不会把其它库的结果一起扣着。
    */
-  checkup: procedure.input(targetRef).mutation(async ({ input }): Promise<DbRepairCheckup> => {
-    let target: DbRepairTarget;
-    try {
-      target = service.resolveTarget(input.uin, input.dbName);
-    } catch (error) {
-      rethrow(error);
-    }
+  checkup: procedure
+    .input(targetRef.extend({ taskId: z.string().min(1).max(128) }))
+    .mutation(({ input }): Promise<DbRepairCheckup> => {
+      const target = service.resolveTarget(input.uin, input.dbName);
+      return databaseCheckups.start(input.uin, input.taskId, target);
+    }),
 
-    let bytes = 0;
-    try {
-      bytes = statSync(target.dbPath).size;
-    } catch {
-      bytes = 0;
-    }
-
-    const integrity = await runIntegrityCheck(target);
-    const pages = await runPageMap(target);
-    const { verdict, summary } = concludeCheckup(integrity, pages);
-    return {
-      dbName: target.dbName,
-      dbPath: target.dbPath,
-      bytes,
-      integrity,
-      pages,
-      verdict,
-      summary,
-    };
-  }),
+  cancelCheckup: procedure
+    .input(accountRef.extend({ taskId: z.string().min(1).max(128) }))
+    .mutation(({ input }) => databaseCheckups.cancel(input.uin, input.taskId)),
 
   /**
    * 结束挡住该库的 QQ 进程。

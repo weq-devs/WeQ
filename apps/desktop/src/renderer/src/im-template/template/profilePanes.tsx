@@ -504,7 +504,10 @@ export function ContactProfileDialog({
   );
   const commonRows =
     profile.identityLabel === 'QQ' && profile.kind !== 'bot' ? (
-      <CommonRelationships uin={profile.identityValue} />
+      <CommonRelationships
+        uin={profile.identityValue}
+        onNavigate={embedded ? undefined : onClose}
+      />
     ) : null;
   const hasRelationDetails = Boolean(commonRows || intimacy || createdAt);
   const hasSecondary = Boolean(hasRelationDetails || tags.length || openedPrivileges.length);

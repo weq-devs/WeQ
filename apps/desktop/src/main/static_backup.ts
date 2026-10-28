@@ -4,6 +4,7 @@ import { linuxAccountDirName, type Platform, type MediaDirKey } from '@weq/platf
 import { runBackupProbe } from './backup_probe';
 import {
   fetchOtherDeviceDatabaseKey,
+  loginDbPaths,
   type AccountConfig,
   type AttachHook,
   type OtherDeviceInstance,
@@ -184,6 +185,18 @@ export async function scanBackupCandidates(
   return { ...result, candidates };
 }
 
+/**
+ * 本机 QQ 数据根下的 `login.db`。手机备份缺 `gpro_*.db` 时，worker 会退到这些
+ * 文件里按 uin 查 uid；拿不到就是空表，探测照旧。
+ */
+export function backupLoginDbPaths(platform: Platform): string[] {
+  try {
+    return loginDbPaths(platform);
+  } catch {
+    return [];
+  }
+}
+
 export function matchingBackupConfigs(dbDir: string, configs: AccountConfig[]) {
   const parent = dirname(dbDir);
   const accountName = basename(parent) === 'nt_qq' ? basename(dirname(parent)) : basename(parent);
@@ -247,11 +260,13 @@ export async function probeBackup(
     for (const c of eligible)
       if (c.dbKey) candidates.push({ key: c.dbKey, source: 'saved', uin: c.uin, mobile: c.mobile });
   }
+  const loginDbPaths = backupLoginDbPaths(platform);
   const test = async (candidate: (typeof candidates)[number]) => {
     const result = await runBackupProbe({
       dirPath: dbDir,
       dbKey: candidate.key,
       expectedUin: candidate.uin,
+      ...(loginDbPaths.length ? { loginDbPaths } : {}),
     });
     if (result.status === 'needKey') return null;
     if (result.status === 'error') return { error: result.error };

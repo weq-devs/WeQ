@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import { House, Loader2, Save } from 'lucide-react';
 import {
   DEFAULT_HOME_SETTINGS,
@@ -27,12 +29,13 @@ export function HomeSettingsSection() {
   const home = settings.data?.home;
   const savedWords = (home?.blockedWords ?? []).join('\n');
   const previous = useRef(savedWords);
-  const [words, setWords] = useState(savedWords);
+  const [words, setWords] = usePageState('home:words', savedWords, pageValue.string, true);
+  usePageDraftConfirmation('home:words', home ? savedWords : undefined);
   useEffect(() => {
     const before = previous.current;
     setWords((draft) => (draft === before ? savedWords : draft));
     previous.current = savedWords;
-  }, [savedWords]);
+  }, [savedWords, setWords]);
   const blockedWords = normalizeHomeSettings({ blockedWords: words.split(/\r?\n/) }).blockedWords;
   const valid = blockedWords.length <= 1000 && blockedWords.every((word) => word.length <= 200);
   const disabled = !home || save.isLoading;

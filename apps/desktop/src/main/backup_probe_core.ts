@@ -41,7 +41,12 @@ export async function inspectBackupDatabases(
         (await isPlainBackupDatabase(msgPath)) &&
         (await isPlainBackupDatabase(join(input.dirPath, 'profile_info.db')));
       if (!plain) {
-        const derived = await deriveAndroidDbKey(nt, input.dirPath);
+        // 没有 gpro 库时 deriveAndroidDbKey 会退到 login.db 找 uid；这里把
+        // 备份自带的 uin 提示和本机 login.db 位置一并交过去。
+        const derived = await deriveAndroidDbKey(nt, input.dirPath, {
+          ...(input.expectedUin ? { uin: input.expectedUin } : {}),
+          ...(input.loginDbPaths?.length ? { loginDbPaths: input.loginDbPaths } : {}),
+        });
         if (!derived) return { status: 'needKey' };
         dbKey = derived.dbKey;
         mobile = true;

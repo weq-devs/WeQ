@@ -56,6 +56,28 @@ import {
 } from './group_essence';
 import { getHonorList, type HonorType, type HonorMember } from './group_honor';
 import {
+  commentQzonePublic,
+  deleteQzonePublicComment,
+  deleteQzonePublicReply,
+  forwardQzonePublicFeed,
+  getQzonePublicCapabilities,
+  getQzonePublicComments,
+  getQzonePublicFeedDetail,
+  getQzonePublicFeeds,
+  getQzonePublicReplies,
+  replyQzonePublic,
+  setQzonePublicCommentLike,
+  setQzonePublicFollow,
+  setQzonePublicLike,
+  setQzonePublicUpvote,
+  type QzonePublicComment,
+  type QzonePublicContent,
+  type QzonePublicFeed,
+  type QzonePublicFeedsPage,
+  type QzonePublicJson,
+  type QzonePublicUser,
+} from './qzone_public';
+import {
   getQzoneMsgList,
   getQzoneFeeds,
   type QzoneMsgListResult,
@@ -272,6 +294,157 @@ export class WebQueryService {
 
   async getHonorList(groupCode: string, type: HonorType): Promise<HonorMember[]> {
     return withRetry(this.creds, QUN_DOMAIN, (c) => getHonorList(c, groupCode, type));
+  }
+
+  // ───────────────────────── 空友爱看（推荐域 3） ─────────────────────────
+
+  /**
+   * 当前账号是否有爱看入口、能否「推」。
+   * 入口开关在 `public_qzone_entrance_switch`，推权限在 `can_upvote`；其余字段原样返回。
+   */
+  async getQzonePublicCapabilities(signal?: AbortSignal): Promise<QzonePublicJson> {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) => getQzonePublicCapabilities(cred, signal));
+  }
+
+  /** 推荐流首页(`cursor` 省略)或续页;续页游标绑定当前账号。 */
+  async getQzonePublicFeeds(cursor?: string, signal?: AbortSignal): Promise<QzonePublicFeedsPage> {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) => getQzonePublicFeeds(cred, cursor, signal));
+  }
+
+  async getQzonePublicFeedDetail(
+    feed: QzonePublicFeed,
+    signal?: AbortSignal,
+  ): Promise<QzonePublicJson> {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzonePublicFeedDetail(cred, feed, signal),
+    );
+  }
+
+  async getQzonePublicComments(
+    feed: QzonePublicFeed,
+    cursor: string,
+    signal?: AbortSignal,
+  ): Promise<QzonePublicJson> {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzonePublicComments(cred, feed, cursor, signal),
+    );
+  }
+
+  async getQzonePublicReplies(
+    feed: QzonePublicFeed,
+    comment: QzonePublicComment,
+    cursor = '',
+    pageSize = 20,
+    signal?: AbortSignal,
+  ): Promise<QzonePublicJson> {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzonePublicReplies(cred, feed, comment, cursor, pageSize, signal),
+    );
+  }
+
+  /** 推 / 取消推 —— 与普通赞是两个独立接口。写操作不换票重放。 */
+  async setQzonePublicUpvote(
+    feed: QzonePublicFeed,
+    enable = true,
+    beforeSend?: () => void,
+  ): Promise<QzonePublicJson> {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    beforeSend?.();
+    return setQzonePublicUpvote(cred, feed, enable);
+  }
+
+  async setQzonePublicLike(
+    feed: QzonePublicFeed,
+    enable = true,
+    beforeSend?: () => void,
+  ): Promise<QzonePublicJson> {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    beforeSend?.();
+    return setQzonePublicLike(cred, feed, enable);
+  }
+
+  /** 给评论点赞;给 `reply` 时改为给该回复点赞。 */
+  async setQzonePublicCommentLike(
+    feed: QzonePublicFeed,
+    comment: QzonePublicComment,
+    enable = true,
+    reply?: QzonePublicComment,
+    beforeSend?: () => void,
+  ): Promise<QzonePublicJson> {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    beforeSend?.();
+    return setQzonePublicCommentLike(cred, feed, comment, enable, reply);
+  }
+
+  /** 加关注 / 取消关注推荐动态作者。 */
+  async setQzonePublicFollow(
+    feed: QzonePublicFeed,
+    enable = true,
+    beforeSend?: () => void,
+  ): Promise<QzonePublicJson> {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    beforeSend?.();
+    return setQzonePublicFollow(cred, feed, enable);
+  }
+
+  /**
+   * 评论推荐动态。`self` 是操作者身份 —— 本账号 uin/uid/nick,
+   * 由上层用 session + profile 填好（服务层不读库）,uid 缺省为空串。
+   */
+  async commentQzonePublic(
+    feed: QzonePublicFeed,
+    self: QzonePublicUser,
+    content: QzonePublicContent,
+    beforeSend?: () => void,
+  ): Promise<QzonePublicJson> {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    beforeSend?.();
+    return commentQzonePublic(cred, feed, self, content);
+  }
+
+  /** 回复推荐动态里的某条评论;给 `reply` 时变成回复该回复。 */
+  async replyQzonePublic(
+    feed: QzonePublicFeed,
+    self: QzonePublicUser,
+    comment: QzonePublicComment,
+    content: QzonePublicContent,
+    reply?: QzonePublicComment,
+    beforeSend?: () => void,
+  ): Promise<QzonePublicJson> {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    beforeSend?.();
+    return replyQzonePublic(cred, feed, self, comment, content, reply);
+  }
+
+  async deleteQzonePublicComment(
+    feed: QzonePublicFeed,
+    comment: QzonePublicComment,
+    beforeSend?: () => void,
+  ): Promise<QzonePublicJson> {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    beforeSend?.();
+    return deleteQzonePublicComment(cred, feed, comment);
+  }
+
+  async deleteQzonePublicReply(
+    feed: QzonePublicFeed,
+    comment: QzonePublicComment,
+    reply: QzonePublicComment,
+    beforeSend?: () => void,
+  ): Promise<QzonePublicJson> {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    beforeSend?.();
+    return deleteQzonePublicReply(cred, feed, comment, reply);
+  }
+
+  async forwardQzonePublicFeed(
+    feed: QzonePublicFeed,
+    reason = '',
+    beforeSend?: () => void,
+  ): Promise<QzonePublicJson> {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    beforeSend?.();
+    return forwardQzonePublicFeed(cred, feed, reason);
   }
 
   /** 某个空间的说说列表;`pos`+`num` 可稳定深翻历史。 */
@@ -720,6 +893,30 @@ export type {
 export type { GroupAlbum, UploadGroupAlbumImageParams } from './group_album';
 export { getHonorList, HonorType } from './group_honor';
 export type { HonorMember } from './group_honor';
+export {
+  commentQzonePublic,
+  deleteQzonePublicComment,
+  deleteQzonePublicReply,
+  forwardQzonePublicFeed,
+  getQzonePublicCapabilities,
+  getQzonePublicComments,
+  getQzonePublicFeedDetail,
+  getQzonePublicFeeds,
+  getQzonePublicReplies,
+  replyQzonePublic,
+  setQzonePublicCommentLike,
+  setQzonePublicFollow,
+  setQzonePublicLike,
+  setQzonePublicUpvote,
+} from './qzone_public';
+export type {
+  QzonePublicComment,
+  QzonePublicContent,
+  QzonePublicFeed,
+  QzonePublicFeedsPage,
+  QzonePublicJson,
+  QzonePublicUser,
+} from './qzone_public';
 export {
   getQzoneMsgList,
   getQzoneFeeds,

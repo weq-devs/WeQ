@@ -119,12 +119,6 @@ function ContactNoticeDialogBody({
                           </div>
                         ))}
                       </dl>
-                      {open && operation && (
-                        <RequestActions
-                          key={`${operation.kind}:${operation.token}`}
-                          operation={operation}
-                        />
-                      )}
                     </div>
                     <div className="notice-meta">
                       {badge ? (
@@ -132,6 +126,12 @@ function ContactNoticeDialogBody({
                       ) : null}
                       <time>{formatProfileDate(request.createdAt)}</time>
                     </div>
+                    {open && operation && (
+                      <RequestActions
+                        key={`${operation.kind}:${operation.token}`}
+                        operation={operation}
+                      />
+                    )}
                   </article>
                 );
               })
@@ -190,7 +190,7 @@ function splitNoticeMessage(message: string): Array<{ label?: string; value: str
 
 /**
  * 群通知灯箱。结构与好友通知一致；保留存疑申请标记（notice-doubt-mark）。
- * 卡片三段：头像 / 正文（申请人+群名+动作、附言问答对）/ 右上角状态徽标 + 时间。
+ * 卡片主体三列：头像 / 正文 / 状态与时间；审核区在下方独立占用正文和状态两列。
  * 每行 nowrap + 省略号，长群名靠 CSS 截断而不是把时间挤到下一行。
  */
 function GroupNoticeDialogBody({
@@ -299,12 +299,6 @@ function GroupNoticeDialogBody({
                       {request.systemRemark ? (
                         <span className="notice-sysremark">{request.systemRemark}</span>
                       ) : null}
-                      {open && operation && (
-                        <RequestActions
-                          key={`${operation.kind}:${operation.token}`}
-                          operation={operation}
-                        />
-                      )}
                     </div>
                     <div className="notice-meta">
                       {badge ? (
@@ -312,6 +306,12 @@ function GroupNoticeDialogBody({
                       ) : null}
                       <time>{formatProfileDate(request.createdAt)}</time>
                     </div>
+                    {open && operation && (
+                      <RequestActions
+                        key={`${operation.kind}:${operation.token}`}
+                        operation={operation}
+                      />
+                    )}
                     {request.isDoubt ? <div className={cn('notice-doubt-mark')} /> : null}
                   </article>
                 );
@@ -370,11 +370,11 @@ function OnlineRequestCard({
           </p>
         )}
         <p className="notice-sysremark">{operation.message}</p>
-        <RequestActions operation={operation} />
       </div>
       <div className="notice-meta">
         <em className="notice-state is-pending">待处理</em>
       </div>
+      <RequestActions operation={operation} />
       {(operation.kind === 'doubtFriend' || operation.kind === 'filteredGroup') && (
         <div className="notice-doubt-mark" />
       )}

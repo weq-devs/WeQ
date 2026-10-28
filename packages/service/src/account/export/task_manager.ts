@@ -48,12 +48,15 @@ import {
   type QzonePageCapture,
   type QzoneRawKind,
   writeQzone,
+  type QzoneExportData,
 } from './qzone_export';
+import { QzoneMediaStore } from './qzone_media_store';
+import { exportQzoneAlbums } from './qzone_albums';
 import { createAtomicExportBundle, type AtomicExportBundle } from './atomic_bundle';
 import { QzoneHistoryStore } from './qzone_history';
 import { createExportWriter } from './stream_utils';
 import { MessageAudit, type MessageCoverage } from './message_audit';
-import { exportReport, exportReportHtml } from './export_report';
+import { exportReport, exportReportHtml, supportsExportReport } from './export_report';
 import { exportOptionsHash, fileSha256, roamingDigest, messageSelectionHash } from './resume';
 import { MessageJournal } from './message_journal';
 import { findExportBaseline, listExportBaselines } from './baseline';
@@ -326,6 +329,7 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
+  includeIntegrityReport?: boolean;
   /** 独立资源任务；下载运行器仅存在于当前进程，重启后保留结果但不冒称可续传。 */
   resource?: {
     kind:
@@ -340,6 +344,8 @@ export interface ExportTask {
       | 'qzone-albums'
       | 'favorite-emoji'
       | 'annual-report'
+      | 'analytics-report'
+      | 'persona-bot'
       | 'media';
     failed?: number;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
@@ -386,6 +392,8 @@ export interface ExportTask {
   chatlab?: boolean;
   /** 好友 QQ 空间说说导出（`conv` = 好友 uin；走独立的 Web 拉取流水线）。 */
   qzone?: boolean;
+  qzonePosts?: boolean;
+  qzoneAlbums?: boolean;
   qzoneTids?: string[];
   /** 好友空间导出：按 tid 补全评论 / 点赞（空间动态页 HTML 解析，best-effort）。 */
   qzoneInteractions?: boolean;
@@ -596,6 +604,11 @@ export class ExportTaskManager extends EventEmitter {
       if (!raw) return;
       const data = JSON.parse(raw) as ExportTask[];
       for (const t of data) {
+        if (!supportsExportReport(t)) {
+          delete t.reportVersion;
+          delete t.reportPath;
+          delete t.reportHtmlPath;
+        }
         // 旧任务只保留产物，不延续已经移除的保存策略或自动写入未知位置。
         if (t.save && !['before', 'preset'].includes(t.save.policy.mode)) {
           t.save = {
@@ -626,7 +639,7 @@ export class ExportTaskManager extends EventEmitter {
     try {
       mkdirSync(this.cacheDir, { recursive: true });
       for (const task of this.tasks.values()) {
-        if (task.createdAt >= this.startedAt) task.reportVersion = 1;
+        if (supportsExportReport(task) && task.createdAt >= this.startedAt) task.reportVersion = 1;
         if (
           task.journalPath &&
           ['completed', 'paused'].includes(task.status) &&
@@ -656,6 +669,7 @@ export class ExportTaskManager extends EventEmitter {
           }
         }
         if (
+          supportsExportReport(task) &&
           task.reportVersion &&
           ['completed', 'failed', 'cancelled', 'paused'].includes(task.status)
         ) {
@@ -999,6 +1013,7 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   async startTask(opts: {
+    includeIntegrityReport?: boolean;
     baselineDirectory?: string;
     savePolicy?: ExportSavePolicy;
     kind: ConvKind;
@@ -1013,6 +1028,8 @@ export class ExportTaskManager extends EventEmitter {
     chatlab?: boolean;
     /** 好友 QQ 空间说说导出（走独立流水线）。 */
     qzone?: boolean;
+    qzonePosts?: boolean;
+    qzoneAlbums?: boolean;
     qzoneTids?: string[];
     /** 好友空间导出：按 tid 补全评论 / 点赞（需在线 QQ；deps.qzone.fetchInteractions）。 */
     qzoneInteractions?: boolean;
@@ -1165,11 +1182,14 @@ export class ExportTaskManager extends EventEmitter {
 
     // 好友空间导出是独立的两段式流水线（说说 + 可选配图），不复用消息流水线。
     if (opts.qzone) {
+      if (opts.qzonePosts === false && !opts.qzoneAlbums) throw new Error('至少选择说说或相册。');
       const qStages: TaskStage[] = [
         { key: 'message', label: '导出说说', status: 'pending', current: 0, total: opts.total },
       ];
       if (wantMedia)
         qStages.push({ key: 'media', label: '下载媒体', status: 'pending', current: 0, total: 0 });
+      if (opts.qzoneAlbums)
+        qStages.push({ key: 'file', label: '导出相册', status: 'pending', current: 0, total: 0 });
       const qTask: ExportTask = {
         id,
         kind: opts.kind,
@@ -1182,6 +1202,8 @@ export class ExportTaskManager extends EventEmitter {
         current: 0,
         total: opts.qzoneTids === undefined ? opts.total : new Set(opts.qzoneTids).size,
         qzone: true,
+        ...(opts.qzonePosts === false ? { qzonePosts: false } : {}),
+        ...(opts.qzoneAlbums ? { qzoneAlbums: true } : {}),
         ...(opts.qzoneTids !== undefined ? { qzoneTids: [...new Set(opts.qzoneTids)] } : {}),
         ...(opts.qzoneInteractions ? { qzoneInteractions: true } : {}),
         ...(opts.media ? { media: structuredClone(opts.media) } : {}),
@@ -1289,6 +1311,7 @@ export class ExportTaskManager extends EventEmitter {
           }
         : {}),
       format: opts.format,
+      includeIntegrityReport: opts.includeIntegrityReport,
       ...(opts.formats?.length ? { formats: opts.formats } : {}),
       status: 'pending',
       progress: 0,
@@ -1327,6 +1350,7 @@ export class ExportTaskManager extends EventEmitter {
   async startMarketPackDownload(
     packs: MarketPackDownloadItem[],
     savePolicy?: ExportSavePolicy,
+    includeIntegrityReport?: boolean,
   ): Promise<string> {
     const id = `marketpack-${Date.now()}-${randomUUID()}`;
     const task: ExportTask = {
@@ -1340,6 +1364,7 @@ export class ExportTaskManager extends EventEmitter {
       current: 0,
       total: packs.length,
       marketpack: { packs },
+      includeIntegrityReport,
       stages: [{ key: 'sticker', label: '下载表情', status: 'pending', current: 0, total: 0 }],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1354,10 +1379,12 @@ export class ExportTaskManager extends EventEmitter {
   /** 既有独立下载器只写私有缓存，发布、另存、取消和回执沿用同一个任务管理器。 */
   async startResourceExport(opts: {
     name: string;
+    includeIntegrityReport?: boolean;
     kind: NonNullable<ExportTask['resource']>['kind'];
     savePolicy?: ExportSavePolicy;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
     run(context: ResourceExportRunContext): Promise<ResourceExportSummary>;
+    onPublished?(directory: string): void;
   }): Promise<string> {
     const id = `resource-${randomUUID()}`;
     const output = opts.output ? structuredClone(opts.output) : undefined;
@@ -1369,6 +1396,7 @@ export class ExportTaskManager extends EventEmitter {
       name: opts.name,
       format: 'json',
       resource: { kind: opts.kind, ...(output ? { output } : {}) },
+      includeIntegrityReport: opts.includeIntegrityReport,
       status: 'pending',
       progress: 0,
       current: 0,
@@ -1381,9 +1409,13 @@ export class ExportTaskManager extends EventEmitter {
               ? '解密数据库'
               : opts.kind === 'favorite-emoji'
                 ? '导出收藏表情'
-                : opts.kind === 'assistant-artifact' || opts.kind === 'annual-report'
-                  ? '保存报告'
-                  : '下载资源',
+                : opts.kind === 'persona-bot'
+                  ? '打包机器人'
+                  : opts.kind === 'assistant-artifact' ||
+                      opts.kind === 'annual-report' ||
+                      opts.kind === 'analytics-report'
+                    ? '保存报告'
+                    : '下载资源',
           status: 'pending',
           current: 0,
           total: 0,
@@ -1396,13 +1428,14 @@ export class ExportTaskManager extends EventEmitter {
     this.log(id, 'task', `资源任务已创建：${task.name}`);
     this.saveTasks();
     const run = opts.run;
-    this.enqueue(() => this.runResourceTask(task, run));
+    this.enqueue(() => this.runResourceTask(task, run, opts.onPublished));
     return id;
   }
 
   private async runResourceTask(
     task: ExportTask,
     run: (context: ResourceExportRunContext) => Promise<ResourceExportSummary>,
+    onPublished?: (directory: string) => void,
   ): Promise<void> {
     if (this.tasks.get(task.id) !== task || task.status !== 'pending') return;
     const abort = new AbortController();
@@ -1485,6 +1518,7 @@ export class ExportTaskManager extends EventEmitter {
       task.resource!.cacheDirectory = bundle.finalDir;
       if (output) task.filePath = join(bundle.finalDir, 'files', summary.fileName!);
       else task.bundleDir = bundle.finalDir;
+      onPublished?.(join(bundle.finalDir, 'files'));
       const counts = summary.contents ?? summary;
       task.current = stage.current = counts.ok;
       task.total = stage.total = counts.total;
@@ -1533,6 +1567,7 @@ export class ExportTaskManager extends EventEmitter {
     scopes: EmojiPackScope[],
     savePolicy?: ExportSavePolicy,
     format: EmojiPackFormat = 'directory',
+    includeIntegrityReport?: boolean,
   ): Promise<string> {
     if (!['directory', 'zip'].includes(format)) throw new Error('不支持的表情包导出格式');
     const wanted = scopes.length > 0 ? scopes : (['own', 'received'] as EmojiPackScope[]);
@@ -1557,6 +1592,7 @@ export class ExportTaskManager extends EventEmitter {
       id,
       kind: 'c2c',
       conv: 'emojipack',
+      includeIntegrityReport,
       name,
       format: 'json', // 占位（产物是图片文件夹，非消息文件）；TaskList 只读 bundleDir。
       status: 'pending',
@@ -1796,7 +1832,7 @@ export class ExportTaskManager extends EventEmitter {
           this.log(id, 'task', '来源或选项已有变化，保留消息断点并重新生成所选格式');
         }
         task.resumeBinding = { ...task.resumeBinding, ...binding };
-        task.reportVersion = 1;
+        if (supportsExportReport(task)) task.reportVersion = 1;
         this.saveTasks();
       }
       // 先让出事件循环：任务创建 / 列表刷新的 IPC 响应要先回到渲染进程，
@@ -3146,7 +3182,7 @@ export class ExportTaskManager extends EventEmitter {
         }
         const warnings = task.mergeWarnings;
         if (warnings.conflictingMessages || warnings.sequenceGapCount) {
-          const notice = `归档保留原消息：${warnings.conflictingMessages} 条消息内容与现有记录不同；发现 ${warnings.sequenceGapCount} 段可疑序号缺口（不代表已证实丢失消息），请查看完整性报告。`;
+          const notice = `归档保留原消息：${warnings.conflictingMessages} 条消息内容与现有记录不同；发现 ${warnings.sequenceGapCount} 段可疑序号缺口（不代表已证实丢失消息）${supportsExportReport(task) ? '，请查看完整性报告' : ''}。`;
           this.log(id, 'message', notice, 'warn');
           this.emit('progress', {
             taskId: id,
@@ -3258,81 +3294,88 @@ export class ExportTaskManager extends EventEmitter {
       bundle = createAtomicExportBundle(this.cacheDir, id);
       const outDir = bundle.stageDir;
       const mediaRoot = wantMedia ? join(outDir, 'media') : undefined;
+      const mediaStore = task.qzoneAlbums ? new QzoneMediaStore(join(outDir, 'media')) : undefined;
       const history =
-        task.qzoneTids === undefined ? new QzoneHistoryStore(this.cacheDir, task.conv) : null;
+        task.qzonePosts !== false && task.qzoneTids === undefined
+          ? new QzoneHistoryStore(this.cacheDir, task.conv)
+          : null;
       const resume = history?.resumeState();
 
       this.touchStage(
         task,
         'message',
         {
-          status: 'running',
+          status: task.qzonePosts === false ? 'skipped' : 'running',
           note: formats.length > 1 ? `拉取说说 × ${formats.length} 种格式…` : '拉取说说…',
         },
         { persist: true },
       );
       // 说说 / 互动 / 配图只拉一次，多格式产物共用 —— 若按格式各拉一次，只有第一份
       // 带互动与本地配图，排在后面的 HTML 会退化成「无评论无赞 + 远端图」的空壳。
-      const data = await collectQzone(
-        {
-          targetUin: task.conv,
-          tids: task.qzoneTids,
-          range: task.qzoneTids === undefined ? task.range : undefined,
-          mediaRoot,
-          includeInteraction: wantInteraction,
-          onProgress: (current, total, note) => {
-            if (aborted()) return;
-            this.touchStage(task, 'message', {
-              status: 'running',
-              current,
-              total: total || current,
-              note,
-            });
-            this.log(id, 'message', note);
-          },
-          onMedia: (done, total) => {
-            if (aborted()) return;
-            this.touchStage(task, 'media', {
-              status: 'running',
-              current: done,
-              total,
-              note: `下载 ${done}/${total}`,
-            });
-            this.log(id, 'media', `下载媒体 ${done}/${total}`);
-          },
-          onInteraction: (done, total, note) => {
-            if (aborted()) return;
-            this.touchStage(task, 'message', {
-              status: 'running',
-              current: done,
-              total: total || done,
-              note,
-            });
-            this.log(id, 'message', note);
-          },
-          ...(resume
-            ? {
-                startPos: resume.startPos,
-                initialRows: resume.rows,
-                expectedAnchorTids: resume.anchorTids,
-                expectedAnchors: resume.anchors,
-              }
-            : {}),
-          relocateCursor: true,
-          ...(history
-            ? {
-                onPage: async (page: QzonePageCapture) => history.savePage(page),
-                onRawInteraction: async (capture: {
-                  kind: QzoneRawKind;
-                  tid?: string;
-                  response: string;
-                }) => history.saveInteractionRaw(capture),
-              }
-            : {}),
-          signal: abort.signal,
-        },
-        qzone,
-      );
+      const data: QzoneExportData =
+        task.qzonePosts === false
+          ? { rows: [], mediaOk: 0, mediaFailed: 0 }
+          : await collectQzone(
+              {
+                targetUin: task.conv,
+                tids: task.qzoneTids,
+                range: task.qzoneTids === undefined ? task.range : undefined,
+                mediaRoot,
+                mediaStore,
+                includeInteraction: wantInteraction,
+                onProgress: (current, total, note) => {
+                  if (aborted()) return;
+                  this.touchStage(task, 'message', {
+                    status: 'running',
+                    current,
+                    total: total || current,
+                    note,
+                  });
+                  this.log(id, 'message', note);
+                },
+                onMedia: (done, total) => {
+                  if (aborted()) return;
+                  this.touchStage(task, 'media', {
+                    status: 'running',
+                    current: done,
+                    total,
+                    note: `下载 ${done}/${total}`,
+                  });
+                  this.log(id, 'media', `下载媒体 ${done}/${total}`);
+                },
+                onInteraction: (done, total, note) => {
+                  if (aborted()) return;
+                  this.touchStage(task, 'message', {
+                    status: 'running',
+                    current: done,
+                    total: total || done,
+                    note,
+                  });
+                  this.log(id, 'message', note);
+                },
+                ...(resume
+                  ? {
+                      startPos: resume.startPos,
+                      initialRows: resume.rows,
+                      expectedAnchorTids: resume.anchorTids,
+                      expectedAnchors: resume.anchors,
+                    }
+                  : {}),
+                relocateCursor: true,
+                ...(history
+                  ? {
+                      onPage: async (page: QzonePageCapture) => history.savePage(page),
+                      onRawInteraction: async (capture: {
+                        kind: QzoneRawKind;
+                        tid?: string;
+                        response: string;
+                      }) => history.saveInteractionRaw(capture),
+                    }
+                  : {}),
+                signal: abort.signal,
+              },
+              qzone,
+            );
       if (aborted()) {
         if (this.tasks.get(id)?.status !== 'paused') task.status = 'cancelled';
         return;
@@ -3351,7 +3394,7 @@ export class ExportTaskManager extends EventEmitter {
 
       let firstFilePath = '';
       task.formatCounts = {};
-      for (let i = 0; i < formats.length; i += 1) {
+      for (let i = 0; task.qzonePosts !== false && i < formats.length; i += 1) {
         abort.signal.throwIfAborted();
         const format = formats[i]!;
         const outPath = join(
@@ -3372,6 +3415,49 @@ export class ExportTaskManager extends EventEmitter {
         }
       }
 
+      let albumCount = 0;
+      let albumMediaOk = 0;
+      let albumMediaFailed = 0;
+      if (task.qzoneAlbums) {
+        if (
+          !qzone.fetchAlbumPage ||
+          !qzone.fetchAlbumPhotos ||
+          !qzone.fetchAlbumVideo ||
+          !mediaStore
+        )
+          throw new Error('空间相册导出能力不可用。');
+        this.touchStage(task, 'file', { status: 'running', note: '读取相册与媒体…' });
+        const albums = await exportQzoneAlbums(
+          {
+            targetUin: task.conv,
+            directory: outDir,
+            range: task.range,
+            formats,
+            media: mediaStore,
+            downloadMedia: wantMedia,
+            signal: abort.signal,
+            progress: (current, total) => this.touchStage(task, 'file', { current, total }),
+          },
+          {
+            fetchAlbumPage: qzone.fetchAlbumPage,
+            fetchAlbumPhotos: qzone.fetchAlbumPhotos,
+            fetchAlbumVideo: qzone.fetchAlbumVideo,
+          },
+        );
+        albumCount = albums.total;
+        albumMediaOk = albums.ok;
+        albumMediaFailed = albums.failed.length;
+        this.touchStage(task, 'file', {
+          status: 'completed',
+          current: albums.total,
+          total: albums.total,
+          failed: albums.failed.length,
+          failures: albums.failed.slice(0, 100).map((failure) => ({ stage: 'file', ...failure })),
+          note: `${albums.albums} 本相册 · ${albums.ok} 项${albums.failed.length ? ` · 失败 ${albums.failed.length}` : ''}`,
+        });
+        if (!firstFilePath) firstFilePath = join(outDir, 'albums', 'index.json');
+      }
+
       abort.signal.throwIfAborted();
       history?.writeSnapshot(join(outDir, 'qzone-history.json'));
       bundle.publish();
@@ -3379,8 +3465,8 @@ export class ExportTaskManager extends EventEmitter {
       firstFilePath = join(publishedDir, firstFilePath.slice(outDir.length + 1));
 
       task.filePath = firstFilePath;
-      task.current = count;
-      task.total = count;
+      task.current = count + albumCount;
+      task.total = count + albumCount;
       task.bundleDir = publishedDir;
       task.status = 'completed';
       task.progress = 100;
@@ -3388,7 +3474,7 @@ export class ExportTaskManager extends EventEmitter {
         task,
         'message',
         {
-          status: 'completed',
+          status: task.qzonePosts === false ? 'skipped' : 'completed',
           current: count,
           total: count,
           note: [
@@ -3404,10 +3490,10 @@ export class ExportTaskManager extends EventEmitter {
           'media',
           {
             status: 'completed',
-            current: mediaOk + mediaFailed,
-            total: mediaOk + mediaFailed,
-            failed: mediaFailed,
-            note: `已下载 ${mediaOk}${mediaFailed ? ` · 失败 ${mediaFailed}` : ''}`,
+            current: mediaOk + mediaFailed + albumCount,
+            total: mediaOk + mediaFailed + albumCount,
+            failed: mediaFailed + albumMediaFailed,
+            note: `已处理媒体引用 ${mediaOk + albumMediaOk}${mediaFailed + albumMediaFailed ? ` · 失败 ${mediaFailed + albumMediaFailed}` : ''}`,
           },
           { persist: true },
         );
@@ -4918,7 +5004,7 @@ export class ExportTaskManager extends EventEmitter {
 
   getReportPath(id: string): string | undefined {
     const task = this.tasks.get(id);
-    if (!task) return undefined;
+    if (!task || !supportsExportReport(task)) return undefined;
     if (!task.reportHtmlPath || !existsSync(task.reportHtmlPath)) {
       task.reportVersion = 1;
       this.saveTasks();
@@ -5024,7 +5110,7 @@ export class ExportTaskManager extends EventEmitter {
     if (task.directOutput && task.save) task.save.status = 'pending';
     task.error = undefined;
     task.updatedAt = Date.now();
-    task.reportVersion = 1;
+    if (supportsExportReport(task)) task.reportVersion = 1;
     if (task.contacts || task.generated || task.qzone) {
       task.current = 0;
       task.progress = 0;

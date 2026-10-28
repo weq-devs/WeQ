@@ -624,7 +624,6 @@ export function MergedSessionPanel({
             noun="群助手会话"
             query={groupSearch}
             onQuery={setGroupSearch}
-            searchEnabled={false}
             selecting={selectionMode}
             onSelecting={setSelectionMode}
             count={selectedIds.size}
@@ -639,16 +638,6 @@ export function MergedSessionPanel({
               } else setSelectedIds(invertSelectionIds(ids, selectedIds));
             }}
           />
-        ) : null}
-        {kind === 'groupAssistant' ? (
-          <div className="weq-group-helper-search">
-            <input
-              aria-label="搜索群助手"
-              placeholder="搜索群名或群号"
-              value={groupSearch}
-              onChange={(event) => setGroupSearch(event.target.value)}
-            />
-          </div>
         ) : null}
         <div className="weq-merged-popover-body">
           {kind === 'groupAssistant' && groupAssistantError ? (

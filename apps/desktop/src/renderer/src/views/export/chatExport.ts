@@ -163,6 +163,7 @@ export async function startChatExportTasks(
     const id = await client.account.startExport.mutate({
       ...binding,
       savePolicy,
+      includeIntegrityReport: frozenOptions.includeIntegrityReport ?? false,
       baselineDirectory: baselineByConversation
         ? baselineByConversation[`${t.kind ?? 'c2c'}:${t.id}`] || undefined
         : baselineDirectory,

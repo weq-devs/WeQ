@@ -186,6 +186,8 @@ export function taskTypeLabel(t: UiTask): string {
   if (t.resource?.kind === 'qzone-albums') return '空间相册导出';
   if (t.resource?.kind === 'favorite-emoji') return '收藏表情导出';
   if (t.resource?.kind === 'annual-report') return '年度报告导出';
+  if (t.resource?.kind === 'analytics-report') return '分析长图导出';
+  if (t.resource?.kind === 'persona-bot') return '克隆体机器人导出';
   if (t.resource?.kind === 'media') return '媒体文件保存';
   if (t.resource) return t.resource.kind === 'group-albums' ? '群相册导出' : '群文件导出';
   if (t.isMarketPack) return '商城表情下载';
@@ -659,7 +661,8 @@ function TaskDetail({
       (t.mergeWarnings.conflictingMessages > 0 || t.mergeWarnings.sequenceGapCount > 0) ? (
         <p className="weq-exp-detail-complete is-warn" role="status">
           保留原消息，未覆盖内容不同的 {t.mergeWarnings.conflictingMessages} 条记录；发现{' '}
-          {t.mergeWarnings.sequenceGapCount} 段可疑序号缺口，详见完整性报告。
+          {t.mergeWarnings.sequenceGapCount} 段可疑序号缺口
+          {t.reportPath ? '，详见完整性报告。' : '。'}
         </p>
       ) : null}
       {t.status === 'failed' && t.error ? (

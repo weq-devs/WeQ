@@ -11,6 +11,14 @@ const mocks = vi.hoisted(() => ({
   hangup: vi.fn(),
   hangupError: null as null | (() => void),
   state: null as null | { onData: (call: CallInfo) => void },
+  /** 摄像头开关。 */
+  setCamera: vi.fn(),
+  /** 采集源切换（摄像头 ↔ 屏幕共享）。 */
+  setVideoSource: vi.fn(async (_input: { source: 'camera' | 'screen' }) => ({
+    ok: true,
+    profile: { width: 1280, height: 720, fps: 15, bitrateKbps: 1200 },
+  })),
+  resizeVideo: vi.fn(),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
@@ -31,7 +39,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       onCallVideo: { useSubscription: () => {} },
       onCallRecording: { useSubscription: () => {} },
       onCallError: { useSubscription: () => {} },
-      setCamera: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },
+      setCamera: { useMutation: () => ({ mutate: mocks.setCamera, isPending: false }) },
+      // 屏幕共享换档：这些用例只关心布局与生命周期，切源一律当作成功。
+      setVideoSource: {
+        useMutation: () => ({ mutateAsync: mocks.setVideoSource, isPending: false }),
+      },
+      resizeVideo: { useMutation: () => ({ mutate: mocks.resizeVideo, isPending: false }) },
       pushVideoFrame: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },
       // 录音相关的 RPC：这个测试只关心窗口生命周期与通话控件，录音一律给空。
       startRecording: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
@@ -72,6 +85,8 @@ const initial: CallInfo = {
   videoReceiving: false,
   receivedVideoFrames: 0,
   videoInfo: null,
+  videoSource: 'camera',
+  videoProfile: null,
 };
 
 afterEach(() => {
@@ -351,6 +366,84 @@ it('只有本端开摄像头时是 self-only 布局，本端画面铺满主区�
   }
 });
 
+/**
+ * 旋转按钮：对端在发视频时才出现，点一下角度往前走一格。
+ *
+ * 自动判方向被否掉了（见 lib/callVideo.ts 里 PEER_ROTATE 的注释），所以这条按钮
+ * 是用户唯一的手段 —— 它不见了或点了没反应，就等于功能没了。
+ */
+it('对端在发视频时出现旋转按钮，点一下角度前进', async () => {
+  const { app, popups } = await mountWithState({ videoReceiving: true });
+  try {
+    const rotate = () =>
+      popups.at(-1)?.document.querySelector<HTMLButtonElement>('button[data-rotation]');
+    expect(rotate()).not.toBeNull();
+    expect(rotate()!.dataset.rotation).toBe('0');
+
+    await act(async () => {
+      rotate()!.click();
+    });
+    expect(rotate()!.dataset.rotation).toBe('90');
+
+    await act(async () => {
+      rotate()!.click();
+    });
+    expect(rotate()!.dataset.rotation).toBe('270');
+
+    await act(async () => {
+      rotate()!.click();
+    });
+    expect(rotate()!.dataset.rotation).toBe('0');
+  } finally {
+    await app.dispose();
+    for (const popup of popups) popup.close();
+  }
+});
+
+it('对端没开视频时不出现旋转按钮', async () => {
+  const { app, popups } = await mountWithState({});
+  try {
+    expect(popups.at(-1)?.document.querySelector('button[data-rotation]')).toBeNull();
+  } finally {
+    await app.dispose();
+    for (const popup of popups) popup.close();
+  }
+});
+
+/**
+ * 回归：挂断后不能再挂着「等待对方画面…」。
+ *
+ * 服务端推来的最后一次快照里 `videoReceiving` 可能仍是 true（看门狗还没把它
+ * 收敛成 false），而旧实现直接拿它决定要不要挂对端画面 —— 结果是「已挂断」下面
+ * 还挂着一块永远等不到的加载态。
+ */
+it('挂断后即使 videoReceiving 还是 true，也不显示等待画面', async () => {
+  const { app, popups, stage } = await mountWithState({ videoReceiving: true });
+  try {
+    // 先确认接通时确实是视频布局（对照组）。
+    expect(stage()?.getAttribute('data-layout')).toBe('peer');
+    expect(popups.at(-1)?.document.querySelector('.weq-call-peer-video')).not.toBeNull();
+
+    // 挂断：状态变成 ended，但 videoReceiving 仍是 true。
+    await act(async () => {
+      mocks.state?.onData({
+        ...initial,
+        state: 'ended',
+        endReason: 'peer_hangup',
+        videoReceiving: true,
+      });
+    });
+
+    expect(stage()?.getAttribute('data-layout')).not.toBe('peer');
+    expect(popups.at(-1)?.document.querySelector('.weq-call-peer-video')).toBeNull();
+    // 「等待对方画面」的文案也不该在。
+    expect(popups.at(-1)?.document.body.textContent ?? '').not.toContain('等待对方画面');
+  } finally {
+    await app.dispose();
+    for (const popup of popups) popup.close();
+  }
+});
+
 it('未接通时摄像头按钮不可点', async () => {
   const popups: HappyWindow[] = [];
   vi.spyOn(window, 'open').mockImplementation(() => {
@@ -368,6 +461,107 @@ it('未接通时摄像头按钮不可点', async () => {
     const camera = buttons.find((button) => button.title.includes('摄像头'));
     expect(camera).toBeDefined();
     expect(camera!.disabled).toBe(true);
+  } finally {
+    await app.dispose();
+    for (const popup of popups) popup.close();
+  }
+});
+
+/**
+ * 屏幕共享：与摄像头**互斥**的切换式。
+ *
+ * 协议侧屏幕共享与摄像头是同一路主视频流，界面上则是一个开关：点「共享屏幕」
+ * 切到 screen，再点（或点摄像头键）切回 camera。两件事必须满足：
+ *
+ * 1. 按钮的 `aria-pressed` 反映当前采集源 —— 用户要能一眼看出在不在共享；
+ * 2. 共享态下本端小窗**不镜像、不裁切**，并带「正在共享屏幕」角标。
+ */
+it('屏幕共享按钮是互斥切换，共享态下本端小窗带角标', async () => {
+  const { app, popups } = await mountWithState({ videoSending: true });
+  // ⚠️ 必须在 mountWithState 之后才取 popups —— 它内部才把窗口推进数组。
+  const shareButton = () =>
+    popups
+      .at(-1)
+      ?.document.querySelector<HTMLButtonElement>('.weq-call-actions button[title*="共享"]');
+  try {
+    expect(shareButton()).not.toBeNull();
+    expect(shareButton()!.getAttribute('aria-pressed')).toBe('false');
+
+    await act(async () => shareButton()!.click());
+    // 主进程收到的是「切到 screen」，不是「开摄像头」。
+    expect(mocks.setVideoSource).toHaveBeenCalledWith({ source: 'screen' });
+    // 主进程随后推回的新状态。
+    await act(async () => {
+      mocks.state?.onData({
+        ...initial,
+        state: 'connected',
+        videoSending: true,
+        videoSource: 'screen',
+        videoProfile: { width: 1280, height: 720, fps: 15, bitrateKbps: 1200 },
+      });
+    });
+    expect(shareButton()!.getAttribute('aria-pressed')).toBe('true');
+
+    // 本端小窗切到共享画法，并挂上角标。
+    const self = popups.at(-1)?.document.querySelector('.weq-call-self-video');
+    expect(self?.getAttribute('data-source')).toBe('screen');
+    expect(popups.at(-1)?.document.querySelector('.weq-call-self-badge')?.textContent).toBe(
+      '正在共享屏幕',
+    );
+
+    // 再点一次切回摄像头。
+    await act(async () => shareButton()!.click());
+    expect(mocks.setVideoSource).toHaveBeenLastCalledWith({ source: 'camera' });
+  } finally {
+    await app.dispose();
+    for (const popup of popups) popup.close();
+  }
+});
+
+/**
+ * 共享态下按摄像头键 = **切回摄像头**，不是把视频关掉。
+ *
+ * 按钮提示写的是「关闭共享（回到摄像头）」，用户点它期待的是接着用摄像头通话；
+ * 如果这里顺手把 `videoSending` 关了，画面会整个消失 —— 那是另一件事（停止发
+ * 画面），应该由共享按钮承担。
+ */
+it('共享中按摄像头键只切回摄像头，不关视频', async () => {
+  const { app, popups } = await mountWithState({
+    videoSending: true,
+    videoSource: 'screen',
+  });
+  try {
+    const cameraButton = popups
+      .at(-1)
+      ?.document.querySelector<HTMLButtonElement>('.weq-call-actions button[title*="关闭共享"]');
+    expect(cameraButton).not.toBeNull();
+    await act(async () => cameraButton!.click());
+    await act(async () => {});
+    // 切采集源，但**没有**调 setCamera 去关视频。
+    expect(mocks.setVideoSource).toHaveBeenCalledWith({ source: 'camera' });
+    expect(mocks.setCamera).not.toHaveBeenCalledWith({ enabled: false }, expect.anything());
+  } finally {
+    await app.dispose();
+    for (const popup of popups) popup.close();
+  }
+});
+
+it('未接通时共享按钮不可点', async () => {
+  const popups: HappyWindow[] = [];
+  vi.spyOn(window, 'open').mockImplementation(() => {
+    const popup = new HappyWindow();
+    popups.push(popup);
+    return popup as unknown as Window;
+  });
+  const app = mount();
+  try {
+    // mount() 自己同步渲染过一次，popups 此时已有窗口。
+    await act(async () => {});
+    const button = popups
+      .at(-1)
+      ?.document.querySelector<HTMLButtonElement>('.weq-call-actions button[title*="共享"]');
+    expect(button).not.toBeNull();
+    expect(button!.disabled).toBe(true);
   } finally {
     await app.dispose();
     for (const popup of popups) popup.close();

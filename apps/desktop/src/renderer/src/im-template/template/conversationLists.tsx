@@ -68,6 +68,7 @@ import {
   invertSelectionIds,
 } from '../../lib/multiSelection';
 import { WindowedList } from '../../components/WindowedList';
+import { useThemeStore } from '../../state/theme';
 import '../../styles/conversation-directory.css';
 import { cn } from './classNames';
 import { Avatar, EmptyState, ListSkeleton } from './primitives';
@@ -211,6 +212,7 @@ export function ConversationList({
   const viewportRef = useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = useState(600);
   const [rowHeight, setRowHeight] = useState(62);
+  const density = useThemeStore((state) => state.density);
   const menuRef = useRef<HTMLDivElement>(null);
   const filtered = useMemo(() => {
     // 置顶会话排最前；其余按「最后一条消息时间」和真实会话混排。
@@ -351,6 +353,21 @@ export function ConversationList({
 
   const locateId = directory?.locate?.id;
   const locateRevision = directory?.locate?.revision;
+  const [locateHighlight, setLocateHighlight] = useState<{
+    id: string;
+    revision: number | undefined;
+  } | null>(null);
+  const locateAvailable =
+    scope === 'all' && !keyword && filtered.some((row) => row.id === locateId);
+  useEffect(() => {
+    if (!locateId || !locateAvailable) {
+      setLocateHighlight(null);
+      return;
+    }
+    setLocateHighlight({ id: locateId, revision: locateRevision });
+    const timer = window.setTimeout(() => setLocateHighlight(null), 1500);
+    return () => window.clearTimeout(timer);
+  }, [locateId, locateRevision, locateAvailable]);
   useEffect(() => {
     if (!locateId) return;
     setKeyword('');
@@ -369,7 +386,7 @@ export function ConversationList({
     const observer = new ResizeObserver(measure);
     if (viewportRef.current) observer.observe(viewportRef.current);
     return () => observer.disconnect();
-  }, []);
+  }, [density]);
   useEffect(() => {
     if (keyword && hasMore && !loadingMore) onLoadMore?.();
   }, [keyword, hasMore, loadingMore, onLoadMore]);
@@ -574,6 +591,7 @@ export function ConversationList({
       <div className="weq-conversation-viewport" ref={viewportRef} {...clickTargetProps}>
         <WindowedList
           items={filtered}
+          onVisibleItems={selectionMode ? undefined : directory?.onVisibleConversations}
           rowHeight={rowHeight}
           height={listHeight}
           resetKey={`${scope}:${keyword}`}
@@ -642,10 +660,17 @@ export function ConversationList({
                 className={cn(
                   listRowClass(!selectionMode && active, 'conversation-row'),
                   pinned && 'pinned',
+                  locateHighlight?.id === conversation.id && 'is-locate-target',
                   selectionMode && rowSelectedIds.has(conversation.id) && 'is-multiselected',
                 )}
                 aria-pressed={selectionMode ? rowSelectedIds.has(conversation.id) : undefined}
                 {...multi.itemProps(conversation.id)}
+                onPointerEnter={() => {
+                  if (!selectionMode) directory?.onConversationIntent?.(conversation);
+                }}
+                onFocus={() => {
+                  if (!selectionMode) directory?.onConversationIntent?.(conversation);
+                }}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   setActionMenu({
@@ -675,6 +700,13 @@ export function ConversationList({
                 }}
                 onClick={(e) => selectConversation(conversation.id, e)}
               >
+                {locateHighlight?.id === conversation.id ? (
+                  <span
+                    key={locateHighlight.revision}
+                    className="weq-conversation-locate-highlight"
+                    aria-hidden="true"
+                  />
+                ) : null}
                 {conversation.type === 'merged' ? (
                   <span className={cn('avatar', 'has-default', 'merged-avatar')}>
                     {conversation.mergedKind === 'hidden' ? (

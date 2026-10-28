@@ -1,6 +1,8 @@
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   truncateSync,
@@ -128,6 +130,74 @@ describe('database export allocation guard', () => {
       key: 'fixture-key',
       algo,
     });
+  });
+
+  it.each(['group_msg_fts.db', 'bc_09.db'] as const)(
+    '已有目标 %s 时拒绝覆盖并保护源库',
+    async (name) => {
+      const source = join(dir, name);
+      if (name === 'bc_09.db') writeFileSync(source, 'plain fixture');
+      const outputDir = join(dir, 'existing');
+      mkdirSync(outputDir);
+      const target = join(outputDir, name);
+      writeFileSync(target, 'keep previous export');
+      const [result] = await service.decryptDatabases({
+        items: [{ dbPath: source }],
+        outputDir,
+        mode: 'safe',
+      });
+      expect(result?.ok).toBe(false);
+      expect(result?.error).toContain('已存在');
+      expect(readFileSync(target, 'utf8')).toBe('keep previous export');
+      expect(readFileSync(source, 'utf8')).toBe(name === 'bc_09.db' ? 'plain fixture' : 'fixture');
+      expect(readdirSync(outputDir)).toEqual([name]);
+    },
+  );
+
+  it('导出到 QQ 原库目录时不覆盖旧的 decrypted 文件', async () => {
+    const target = join(dir, 'group_msg_fts.decrypted.db');
+    writeFileSync(target, 'previous backup');
+    const [result] = await service.decryptDatabases({
+      items: [{ dbPath }],
+      outputDir: dir,
+      mode: 'safe',
+    });
+    expect(result?.ok).toBe(false);
+    expect(result?.error).toContain('已存在');
+    expect(readFileSync(dbPath, 'utf8')).toBe('fixture');
+    expect(readFileSync(target, 'utf8')).toBe('previous backup');
+  });
+
+  it('并发撞名只有一个导出成功，目标文件完整且无残留临时目录', async () => {
+    const other = join(dir, 'another.db');
+    writeFileSync(other, 'other fixture');
+    const outputDir = join(dir, 'parallel');
+    const results = await service.decryptDatabases({
+      items: [
+        { dbPath, name: 'shared.db' },
+        { dbPath: other, name: 'shared.db' },
+      ],
+      outputDir,
+      mode: 'safe',
+      concurrency: 2,
+    });
+    expect(results.filter((row) => row.ok)).toHaveLength(1);
+    expect(results.filter((row) => !row.ok)).toHaveLength(1);
+    expect(results.find((row) => !row.ok)?.error).toContain('已存在');
+    expect(readdirSync(outputDir)).toEqual(['shared.db']);
+    const content = JSON.parse(readFileSync(join(outputDir, 'shared.db'), 'utf8'));
+    expect([dbPath, other]).toContain(content.dbPath);
+  });
+
+  it('成功导出不留下明文暂存目录', async () => {
+    const outputDir = join(dir, 'success');
+    const [result] = await service.decryptDatabases({
+      items: [{ dbPath }],
+      outputDir,
+      mode: 'safe',
+    });
+    expect(result?.ok, result?.error).toBe(true);
+    expect(readdirSync(outputDir)).toEqual(['group_msg_fts.db']);
   });
 
   it('fails before native fast decryption if the file cannot be sized', () => {

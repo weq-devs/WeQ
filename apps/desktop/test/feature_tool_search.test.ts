@@ -31,14 +31,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
 }));
-vi.mock('../src/renderer/src/views/ExportView', () => ({
+vi.mock('../src/renderer/src/components/lazyWorkspaces', () => ({
+  preloadWorkspace: vi.fn(),
   ExportTool: ({ surface }: { surface?: string }) =>
     h('div', { 'data-search-tool': surface === 'tasks' ? 'tasks' : 'export' }),
-}));
-vi.mock('../src/renderer/src/views/ExportViewer', () => ({
   ExportViewer: () => h('div', { 'data-search-tool': 'viewer' }),
-}));
-vi.mock('../src/renderer/src/views/analysis/AnalysisTool', () => ({
   AnalysisTool: () => h('div', { 'data-search-tool': 'analysis' }),
 }));
 vi.mock('../src/renderer/src/views/agentlab/AssistantMenuWorkspace', () => ({
@@ -50,6 +47,12 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', new Storage());
 });
 afterEach(() => vi.unstubAllGlobals());
+
+function visibleTool(tool: SearchableTool) {
+  return [...document.querySelectorAll(`[data-search-tool="${tool}"]`)].find(
+    (element) => !element.closest('[hidden], [inert]'),
+  );
+}
 
 describe('搜索直达现有工作工具', () => {
   it.each(['export', 'viewer', 'analysis', 'tasks', 'assistant'] as const)(
@@ -71,9 +74,9 @@ describe('搜索直达现有工作工具', () => {
         );
       try {
         render('other/config', 1);
-        expect(document.querySelector(`[data-search-tool="${tool}"]`)).toBeNull();
+        expect(visibleTool(tool)).toBeUndefined();
         render('fixture/config', 2);
-        expect(document.querySelector(`[data-search-tool="${tool}"]`)).not.toBeNull();
+        expect(visibleTool(tool)).toBeDefined();
         const closeSelector =
           tool === 'tasks' || tool === 'assistant'
             ? '[aria-label="关闭完整面板"]'
@@ -82,8 +85,9 @@ describe('搜索直达现有工作工具', () => {
         act(() => close.click());
         const closedButton = document.querySelector(closeSelector);
         expect(!closedButton || Boolean(closedButton.closest('[hidden], [inert]'))).toBe(true);
+        expect(visibleTool(tool)).toBeUndefined();
         render('fixture/config', 3);
-        expect(document.querySelector(`[data-search-tool="${tool}"]`)).not.toBeNull();
+        expect(visibleTool(tool)).toBeDefined();
         expect(document.querySelector(closeSelector)?.closest('[hidden], [inert]')).toBeNull();
       } finally {
         act(() => root.unmount());

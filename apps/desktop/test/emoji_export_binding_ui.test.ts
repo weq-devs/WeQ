@@ -74,6 +74,11 @@ it.each(['zip', 'favorite-zip'] as const)(
           [format === 'zip' ? 1 : 2]!.click();
       });
       await act(async () => host.querySelector<HTMLButtonElement>('.weq-epk-start')!.click());
+      await act(async () =>
+        document
+          .querySelector<HTMLButtonElement>('.weq-dialog-actions .weq-action-primary')!
+          .click(),
+      );
       expect(prepare).toHaveBeenCalledWith(
         undefined,
         expect.objectContaining({ kind: 'file', format: 'zip' }),
@@ -82,6 +87,7 @@ it.each(['zip', 'favorite-zip'] as const)(
         expect(state.favorite).toHaveBeenCalledWith({
           ...binding,
           savePolicy: { mode: 'before', directory: '/fixture/export' },
+          includeIntegrityReport: false,
         });
         expect(state.start).not.toHaveBeenCalled();
         expect(host.querySelector('[aria-label="收藏备份来源"]')).not.toBeNull();
@@ -123,6 +129,9 @@ it.each([false, true])('表情导出固定点击时的来源，准备后来源�
       ),
     );
     act(() => host.querySelector<HTMLButtonElement>('.weq-epk-start')!.click());
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('.weq-dialog-actions .weq-action-primary')!.click(),
+    );
     expect(prepare).toHaveBeenCalledOnce();
     binding.expectedAccountConfigId = 'source-b';
     current = !changed;

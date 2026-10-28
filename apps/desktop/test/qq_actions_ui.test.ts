@@ -44,6 +44,7 @@ import { TypingStatusSettingsCard } from '../src/renderer/src/components/setting
 const state = vi.hoisted(() => ({
   configId: 'source-a',
   available: true,
+  result: null as { text: string; error: boolean } | null,
   mutate: vi.fn(
     async (_name: string, _input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' }),
   ),
@@ -72,7 +73,7 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
     binding: { expectedAccountUin: '10001', expectedAccountConfigId: state.configId },
     available: state.available,
     busy: false,
-    result: null,
+    result: state.result,
     run: async (
       action: (b: QQWriteBinding) => Promise<QQWriteOutcome>,
       refresh?: () => Promise<unknown>,
@@ -122,6 +123,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   return {
     client: {
       account: {
+        qzone: { likes: { query: vi.fn(async () => ({ likes: [], coverage: 'complete' })) } },
         dressup: { peerStats: { query: async () => ({ likeCount: 100 }) } },
         listAllGroups: { query: async () => [] },
         listGroupAlbumMedia: { query: async () => [] },
@@ -303,7 +305,8 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', new Storage());
   state.configId = 'source-a';
   state.available = true;
-  state.mutate.mockClear();
+  state.result = null;
+  state.mutate.mockReset().mockResolvedValue({ state: 'accepted' });
   state.confirm.mockReset().mockResolvedValue(true);
   state.picker.mockClear();
   state.refreshSigns.mockClear();
@@ -597,6 +600,7 @@ describe('QQ 主动操作的实际界面', () => {
         tid: 'post-a',
         time: 1,
         initialLiked: false,
+        mode: 'like',
         onChanged: vi.fn(),
       }),
     );
@@ -631,6 +635,7 @@ describe('QQ 主动操作的实际界面', () => {
         tid: 'post-a',
         time: 1,
         initialLiked: true,
+        mode: 'like',
         onChanged: vi.fn(),
       }),
     );
@@ -902,6 +907,41 @@ describe('QQ 主动操作的实际界面', () => {
     uploaderName: '自己',
     parentDirectory: 'folder-a',
   };
+  it('群文件默认最新在前，重复点击排序项反转实际列表与方向提示', () => {
+    const f = fixture(() =>
+      h(GroupFileActions, {
+        groupId: 123,
+        directory: 'folder-a',
+        files: [
+          { ...file, fileId: 'old', fileName: 'a.txt', uploadedTime: 10, fileSize: 1 },
+          { ...file, fileId: 'new', fileName: 'b.txt', uploadedTime: 20, fileSize: 2 },
+        ],
+        folders: [],
+        onChanged: vi.fn(),
+      }),
+    );
+    const ids = () =>
+      [...f.host.querySelectorAll('[data-file-id]')].map((row) => row.getAttribute('data-file-id'));
+    const option = (name: string) =>
+      [...f.host.querySelectorAll<HTMLButtonElement>('[aria-label="群文件排序"] button')].find(
+        (button) => button.textContent === name,
+      )!;
+    expect(ids()).toEqual(['new', 'old']);
+    expect(option('最近修改').title).toBe('最近修改：降序');
+    act(() => option('最近修改').click());
+    expect(ids()).toEqual(['old', 'new']);
+    expect(option('最近修改').title).toBe('最近修改：升序');
+    act(() => option('最近修改').click());
+    expect(ids()).toEqual(['new', 'old']);
+    act(() => option('名称').click());
+    expect(ids()).toEqual(['old', 'new']);
+    act(() => option('名称').click());
+    expect(ids()).toEqual(['new', 'old']);
+    act(() => option('文件大小').click());
+    expect(ids()).toEqual(['new', 'old']);
+    act(() => option('文件大小').click());
+    expect(ids()).toEqual(['old', 'new']);
+  });
   it('普通成员可查看全部文件，但只能管理自己上传的文件', () => {
     state.data.groupPermissions = { canManage: false, role: 'member', selfUin: '10001' };
     state.data.todoList = [{ sequence: '123', text: '待办内容' }];
@@ -1609,6 +1649,7 @@ describe('QQ 主动操作的实际界面', () => {
     state.confirm.mockResolvedValueOnce(false);
     await act(async () => f.button('拒绝申请').click());
     expect(state.mutate).not.toHaveBeenCalled();
+    state.result = { text: '合成处理回执', error: false };
     await act(async () => f.button('拒绝申请').click());
     expect(state.mutate).toHaveBeenCalledWith(
       'request',
@@ -1620,6 +1661,10 @@ describe('QQ 主动操作的实际界面', () => {
       }),
     );
     expect(f.host.querySelector('[aria-label="同意申请"]')).toBeNull();
+    expect(f.host.querySelector('[aria-label="拒绝理由"]')).toBeNull();
+    const feedback = f.host.querySelector('[role="status"]');
+    expect(feedback).not.toBeNull();
+    expect(feedback!.closest('.notice-request-actions')).not.toBeNull();
   });
   it('好友操作位于对应卡片内，自己发出的申请只读', () => {
     const user = {
@@ -1650,7 +1695,17 @@ describe('QQ 主动操作的实际界面', () => {
         message: '你好',
       },
     ];
-    state.data['requests:doubtFriend'] = [];
+    state.data['requests:doubtFriend'] = [
+      {
+        token: 'doubt-a',
+        uid: 'u_doubt',
+        uin: '',
+        groupId: '',
+        name: '可疑申请人',
+        groupName: '',
+        message: '待核对申请',
+      },
+    ];
     const f = fixture(() =>
       h(ContactNoticeDialog, {
         open: true,
@@ -1659,9 +1714,12 @@ describe('QQ 主动操作的实际界面', () => {
       }),
     );
     const cards = f.host.querySelectorAll('article');
-    expect(cards).toHaveLength(2);
+    expect(cards).toHaveLength(3);
     expect(cards[0]!.querySelector('[aria-label="同意申请"]')).not.toBeNull();
+    expect(cards[0]!.querySelector('.notice-request-actions')!.parentElement).toBe(cards[0]);
     expect(cards[1]!.querySelector('button')).toBeNull();
+    expect(cards[2]!.querySelector('.notice-request-actions')!.parentElement).toBe(cards[2]);
+    expect(cards[2]!.querySelector('.notice-doubt-mark')).not.toBeNull();
     expect(f.host.querySelector('details')).toBeNull();
   });
   it('群申请操作嵌入卡片，退群与自己申请无操作，过滤申请仍按卡片展示', () => {
@@ -1734,6 +1792,8 @@ describe('QQ 主动操作的实际界面', () => {
     expect(cards[2]!.querySelector('button')).toBeNull();
     expect(cards[3]!.textContent).toContain('过滤申请人');
     expect(cards[3]!.querySelector('[aria-label="拒绝申请"]')).not.toBeNull();
+    for (const card of [cards[0]!, cards[3]!])
+      expect(card.querySelector('.notice-request-actions')!.parentElement).toBe(card);
   });
   it('收藏按行显示，备注按需编辑，自动更新不覆盖正在输入的草稿', async () => {
     const f = fixture(() => h(FavoriteActions));

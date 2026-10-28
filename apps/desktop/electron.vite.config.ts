@@ -21,6 +21,8 @@ const EXCLUDE_FROM_EXTERNAL = [
   '@weq/protocol',
   '@weq/service',
   '@weq/service/storage-cleanup',
+  '@weq/service/db-checkup',
+  '@weq/service/bad-pages',
   '@weq/types',
   // 备份探测 worker 位于 asar 外，校验协议需随共享 chunks 一起打包。
   'zod',
@@ -87,6 +89,7 @@ export default defineConfig({
           keyScanWorker: resolve(__dirname, 'src/main/key_scan_worker.ts'),
           storageCleanupWorker: resolve(__dirname, 'src/main/storage_cleanup_worker.ts'),
           backupProbeWorker: resolve(__dirname, 'src/main/backup_probe_worker.ts'),
+          dbCheckupWorker: resolve(__dirname, 'src/main/db_checkup_worker.ts'),
           macUpdateWorker: resolve(__dirname, 'src/main/update/mac_worker.ts'),
           // 意图感知本地引擎：Laya ONNX 推理跑在 fork 的子进程（同 transcribeWorker
           // 的打包/寻址约定，主进程经 intent_sense/bridge.ts 持有）。
@@ -101,6 +104,7 @@ export default defineConfig({
             chunk.name === 'keyScanWorker' ||
             chunk.name === 'storageCleanupWorker' ||
             chunk.name === 'backupProbeWorker' ||
+            chunk.name === 'dbCheckupWorker' ||
             chunk.name === 'macUpdateWorker' ||
             chunk.name === 'intentSenseWorker'
               ? `${chunk.name}.mjs`

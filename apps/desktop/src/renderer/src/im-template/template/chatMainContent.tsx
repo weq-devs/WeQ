@@ -12,6 +12,7 @@ import type { RepeatElement } from '../../lib/messageRepeat';
 import type { LoadSelectionMessages } from '../../lib/messageSelection';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import type { FlashSendPayload } from './flashComposer';
+import type { BubbleVideoSendPayload, FlashPhotoSendPayload } from './chatPane';
 import type { RedPacketDraft } from './redPacketPanel';
 import { ToolDetailPane } from './toolsPane';
 import { RetainedTabs, TabActivity } from '../../components/RetainedTabs';
@@ -91,6 +92,8 @@ export function ChatMainContent({
   arkContacts,
   defaultSignupGroupCode,
   onSendFlash,
+  onSendFlashPhoto,
+  onSendBubbleVideo,
   onSendRedPacket,
   onMessageAction,
   onDraftChange,
@@ -132,6 +135,7 @@ export function ChatMainContent({
   onSelectTool,
   unreadDock,
   missingJumpSeq,
+  resolvedGapIds,
 }: {
   user: User;
   view: MainView;
@@ -195,7 +199,7 @@ export function ChatMainContent({
   ) => Promise<void>;
   /** Ark 卡片面板「发送」；不传则工具栏那个按钮点开也发不出去。 */
   onSendArk?: (conversation: Conversation, payload: ArkPayload) => Promise<void>;
-  /** 位置卡片要用的地点搜索 / 逆地址解析（应用层注入）。 */
+  /** 位置菜单 →「发送位置」要用的地点搜索 / 逆地址解析（应用层注入）。 */
   arkLocation?: ArkLocationProvider;
   /** 推荐好友 / 群 的候选列表（应用层注入；不传就只能手填号码）。 */
   arkContacts?: ArkContactSource;
@@ -203,6 +207,13 @@ export function ChatMainContent({
   defaultSignupGroupCode?: string;
   /** 闪传文件框「发送」（应用层补目标会话再走 IPC）。 */
   onSendFlash?: (conversation: Conversation, payload: FlashSendPayload) => Promise<void>;
+  /** 闪照「选图即发」（老式图片上传，与闪传同一套应用层通路）。 */
+  onSendFlashPhoto?: (conversation: Conversation, payload: FlashPhotoSendPayload) => Promise<void>;
+  /** 泡泡消息「选视频即发」（视频 + businessType=14，与闪照同一套应用层通路）。 */
+  onSendBubbleVideo?: (
+    conversation: Conversation,
+    payload: BubbleVideoSendPayload,
+  ) => Promise<void>;
   /** 红包面板「发红包」（应用层补目标会话再走 IPC，成功后弹二维码灯箱）。 */
   onSendRedPacket?: (conversation: Conversation, draft: RedPacketDraft) => Promise<void>;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
@@ -275,6 +286,8 @@ export function ChatMainContent({
   unreadDock?: UnreadDock | null;
   /** 最近一次跳转落空的目标 seq（见 ChatPane 的 missingJumpSeq）。 */
   missingJumpSeq?: string | null;
+  /** 本次已确认「服务端没有对应消息」的缺口 id（见 ChatPane 的 resolvedGapIds）。 */
+  resolvedGapIds?: ReadonlySet<string>;
   onOpenTool?: (item: ToolPaneItem) => void;
   onSelectTool?: (item: ToolPaneItem) => void;
 }) {
@@ -286,7 +299,10 @@ export function ChatMainContent({
           hidden={Boolean(selectedContact || selectedGroupConversation)}
         >
           <TabActivity active={!selectedContact && !selectedGroupConversation}>
-            <RetainedTabs activeKey={contactOverviewOpen ? 'graph' : 'empty'}>
+            <RetainedTabs
+              snapshotKey="contact-overview"
+              activeKey={contactOverviewOpen ? 'graph' : 'empty'}
+            >
               {contactOverviewOpen && relationGraphSlot ? (
                 relationGraphSlot
               ) : contactTab === 'groups' ? (
@@ -366,6 +382,8 @@ export function ChatMainContent({
       arkContacts={arkContacts}
       defaultSignupGroupCode={defaultSignupGroupCode}
       onSendFlash={onSendFlash}
+      onSendFlashPhoto={onSendFlashPhoto}
+      onSendBubbleVideo={onSendBubbleVideo}
       onSendRedPacket={onSendRedPacket}
       onMessageAction={onMessageAction}
       onDraftChange={onDraftChange}
@@ -405,6 +423,7 @@ export function ChatMainContent({
       onRestoreMessage={onRestoreMessage}
       unreadDock={unreadDock}
       missingJumpSeq={missingJumpSeq}
+      resolvedGapIds={resolvedGapIds}
     />
   );
 }

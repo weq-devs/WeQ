@@ -1,0 +1,160 @@
+/**
+ * 空友爱看（公共空间）样式。
+ *
+ * 只用 `styles/index.css` 的 design token（`--foreground` / `--muted` / `--border` /
+ * `--primary` / `--weq-accent-effective`），浅色与深色都从同一组值推导，
+ * 不为深色写第二套写死的颜色。
+ */
+
+.weq-qzn-public-post .weq-qzn-post-head {
+  gap: 10px;
+}
+
+.weq-qzn-public-name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.weq-qzn-public-post .weq-qzn-post-head > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.weq-qzn-public-follow {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-qzn-public-follow.is-following {
+  color: var(--muted-foreground);
+  background: var(--muted);
+  border-color: transparent;
+}
+
+.weq-qzn-public-actions button[aria-pressed='true'] {
+  color: var(--weq-accent-effective);
+}
+
+.weq-qzn-public-actions > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.weq-qzn-public-detail .weq-qzn-comment > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.weq-qzn-public-comment + .weq-qzn-public-comment {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-qzn-public-replies {
+  margin-left: 34px;
+  padding-left: 10px;
+  border-left: 2px solid var(--weq-border-subtle);
+}
+
+.weq-qzn-public-detail .weq-qzn-comment.is-reply {
+  margin-left: 0;
+}
+
+.weq-qzn-comment-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.weq-qzn-comment-meta button {
+  padding: 2px 4px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+.weq-qzn-public-comment-like {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.weq-qzn-public-comment-like[aria-pressed='true'] {
+  color: var(--weq-accent-effective);
+}
+
+.weq-qzn-public-more-replies {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 10px;
+  font-size: 12px;
+  color: var(--weq-accent-effective);
+}
+
+.weq-qzn-public-composer {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-qzn-public-composer > div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.weq-qzn-public-composer input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.weq-qzn-public-dialog {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.weq-qzn-public-dialog header,
+.weq-qzn-public-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.weq-qzn-public-dialog h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.weq-qzn-public-dialog textarea {
+  min-height: 96px;
+  padding: 10px;
+  background: var(--muted);
+  border-radius: 6px;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.weq-qzn-public-dialog footer {
+  justify-content: flex-end;
+}

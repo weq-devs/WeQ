@@ -30,6 +30,63 @@ afterEach(() => {
 });
 
 describe('新消息按钮已读行为', () => {
+  it.each([
+    [true, false],
+    [false, false],
+    [true, true],
+    [false, true],
+  ])('分阶段首屏持续贴底：自动跟随=%s，手动上滚=%s', (enabled, interrupted) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+    settings.value = { autoFollowLatestMessages: enabled };
+    const demo = createTemplateDemoData();
+    const conversation = demo.conversations.find((item) => item.type === 'group')!;
+    const first = { ...demo.messages[0]!, id: 'local', conversationId: conversation.id };
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = (messages: (typeof first)[], loading = true) =>
+      act(() =>
+        root.render(
+          createElement(ChatPane, {
+            user: demo.user,
+            conversation,
+            draft: '',
+            atLatest: true,
+            messages,
+            loading,
+          }),
+        ),
+      );
+    try {
+      render([]);
+      const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+      let height = 1200;
+      Object.defineProperties(scroll, {
+        scrollHeight: { configurable: true, get: () => height },
+        clientHeight: { configurable: true, value: 400 },
+      });
+      render([first]);
+      expect(host.querySelector('.message-line[data-message-id="local"]')).not.toBeNull();
+      expect(scroll.scrollTop).toBe(height);
+      height = 1600;
+      render([{ ...first }, { ...first, id: 'roaming' }]);
+      expect(scroll.scrollTop).toBe(height);
+      // 滚动事件尚未派发时，新一批加载也不能盖过上滚手势。
+      if (interrupted) {
+        act(() => scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -100 })));
+        scroll.scrollTop = 800;
+      }
+      height = 2000;
+      render([{ ...first, id: 'complete' }], false);
+      expect(scroll.scrollTop).toBe(interrupted ? 800 : height);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+
   it.each(['bottom', 'history', 'saved', 'interrupted'])(
     '异步内容增高只延续底部位置，不覆盖阅读锚点或新手势：%s',
     (mode) => {

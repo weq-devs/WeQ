@@ -66,6 +66,8 @@ import { useGeneratedSelection } from './useGeneratedSelection';
 import { readAssistantDraft, rememberAssistantDraft } from '../../lib/assistantWorkspace';
 import type { AssistantActivity } from '../../lib/workspaceIndicators';
 import { assistantResultVersion } from '../../lib/workspaceReadState';
+import { PageSnapshotScope } from '../../components/PageSnapshots';
+import { PageScrollSnapshot } from '../../components/PageScrollSnapshot';
 
 interface Turn {
   id?: string;
@@ -528,6 +530,7 @@ export function AssistantPanel({
   draftAccount,
   workspaceTitle,
   onActivityChange,
+  headless = false,
 }: {
   /** 真实会话 id；`null` 表示草稿会话——用户真正发第一条消息时才落库。 */
   sessionId: string | null;
@@ -540,7 +543,8 @@ export function AssistantPanel({
   draftAccount?: string;
   workspaceTitle?: string;
   onActivityChange?: (activity: AssistantActivity, result?: string) => void;
-}): ReactElement {
+  headless?: boolean;
+}): ReactElement | null {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   // 挂载时快照初始 id：草稿(null) 与既有会话在本组件生命周期内身份固定，
@@ -553,7 +557,8 @@ export function AssistantPanel({
     { sessionId: conversationSessionId ?? '' },
     {
       enabled: !!conversationSessionId,
-      ...(searchTarget ? { staleTime: 0, refetchOnMount: 'always' as const } : {}),
+      staleTime: 0,
+      refetchOnMount: 'always',
     },
   );
   const selfProfile = trpc.account.getSelfProfile.useQuery();
@@ -595,7 +600,7 @@ export function AssistantPanel({
   const missingSearch = useGeneratedSearchJump(
     transcriptRef,
     searchMessageId,
-    conversation.isSuccess && !conversation.isFetching,
+    !headless && conversation.isSuccess && !conversation.isFetching,
     turns,
   );
 
@@ -765,8 +770,13 @@ export function AssistantPanel({
   // 新内容时滚到底部（仅当用户本就贴着底部）。
   useEffect(() => {
     const el = transcriptRef.current;
-    if (el && stickRef.current && !searchMessageId) el.scrollTop = el.scrollHeight;
-  }, [turns, searchMessageId]);
+    if (!headless && el && stickRef.current && !searchMessageId) {
+      const frame = requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [turns, searchMessageId, headless]);
 
   function onTranscriptScroll(): void {
     const el = transcriptRef.current;
@@ -774,14 +784,14 @@ export function AssistantPanel({
   }
   useLayoutEffect(() => {
     const element = transcriptRef.current;
-    if (!element) return;
+    if (!element || headless) return;
     const observer = new ResizeObserver(() => {
       if (element.clientHeight > 0 && stickRef.current && !searchMessageId)
         element.scrollTop = element.scrollHeight;
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [searchMessageId]);
+  }, [searchMessageId, headless]);
 
   async function onSend(preset?: string): Promise<void> {
     setSearchMessageId(null);
@@ -917,220 +927,225 @@ export function AssistantPanel({
     }
   }
 
+  if (headless) return null;
   return (
-    <div className={`weq-agentlab-chat${compact ? ' is-menu-compact' : ''}`}>
-      <header className="weq-agentlab-head">
-        <div className="weq-agentlab-head-left">
-          {draftAccount ? (
-            <strong>{workspaceTitle ?? '新会话'}</strong>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="weq-set-iconbtn"
-                onClick={onBack}
-                aria-label="返回主页"
-                title="返回"
-              >
-                <ArrowLeft size={16} />
-              </button>
-              <div>
-                <strong>WeQ 助手</strong>
-                <span>把问题交给它：会自己查聊天记录、找联系人、多轮推进直到给出结论。</span>
-              </div>
-            </>
-          )}
-        </div>
-        <div className="weq-agentlab-head-actions">
-          {selection.control}
-          <button
-            className={
-              draftAccount ? 'weq-set-iconbtn' : 'weq-set-btn weq-set-btn-soft weq-set-btn-sm'
-            }
-            title="助手设置"
-            aria-label="助手设置"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <Settings size={draftAccount ? 16 : 12} /> {draftAccount ? null : '设置'}
-          </button>
-          <button
-            className={
-              draftAccount ? 'weq-set-iconbtn' : 'weq-set-btn weq-set-btn-soft weq-set-btn-sm'
-            }
-            title="清空当前对话"
-            aria-label="清空当前对话"
-            disabled={busy}
-            onClick={() => void onClear()}
-          >
-            {draftAccount ? <Trash2 size={16} /> : '清空'}
-          </button>
-        </div>
-      </header>
-
-      {compact ? (
-        <div className="weq-asst-menu-meta" aria-label="当前助手会话信息">
-          <span title={workspaceTitle ?? '新会话'}>{workspaceTitle ?? '新会话'}</span>
-          <span title={modelTitle}>{modelName}</span>
-          <span>{EFFORT_OPTIONS.find((option) => option.value === effort)?.label ?? effort}</span>
-        </div>
-      ) : null}
-
-      {resumable ? (
-        <div className="weq-asst-resume-bar">
-          <span>
-            上次回答被中断，已执行 {resumeQuery.data?.toolCallCount ?? 0} 次工具调用
-            {resumeQuery.data?.question ? `（「${resumeQuery.data.question.slice(0, 40)}」）` : ''}
-            。可从中断处继续，已完成的调查不重查。
-          </span>
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-sm"
-            disabled={resumeRun.isLoading}
-            onClick={() => void onResume()}
-          >
-            <Play size={13} aria-hidden="true" />
-            {resumeRun.isLoading ? '继续中…' : '继续回答'}
-          </button>
-        </div>
-      ) : null}
-
-      <div
-        className="weq-agentlab-transcript"
-        {...selection.rootProps}
-        ref={(element) => {
-          transcriptRef.current = element;
-          selection.rootProps.ref(element);
-        }}
-        onScroll={onTranscriptScroll}
-      >
-        <GeneratedSearchNotice
-          missing={missingSearch}
-          error={Boolean(searchMessageId && conversation.isError)}
-        />
-        {searchMessageId && conversation.isFetching ? (
-          <div className="weq-agentlab-empty">加载记录中…</div>
-        ) : turns.length === 0 ? (
-          compact ? null : (
-            <div className="weq-agentlab-empty weq-asst-empty">
-              <span className="weq-asst-empty-icon">
-                <Sparkles size={26} strokeWidth={1.6} />
-              </span>
-              <strong>把任务交给 WeQ 助手</strong>
-              <span>它会自己查聊天记录、找联系人、多轮推进直到给出结论。试试：</span>
-              <div className="weq-asst-presets">
-                {PRESET_QUESTIONS.map((q) => (
-                  <button
-                    key={q}
-                    type="button"
-                    className="weq-asst-preset"
-                    disabled={busy}
-                    onClick={() => void onSend(q)}
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )
-        ) : (
-          turns.map((t, i) => (
-            <div
-              key={t.id ?? `${t.role}-${i}`}
-              {...selection.itemProps(t.id)}
-              data-generated-message-id={t.id}
-              className={`weq-generated-message${t.id === searchMessageId ? ' is-search-hit' : ''}${selection.selected(t.id) ? ' is-selected' : ''}`}
+    <PageSnapshotScope name={`assistant:${draftAccount ?? ''}:${currentSessionId ?? 'draft'}`}>
+      <PageScrollSnapshot className={`weq-agentlab-chat${compact ? ' is-menu-compact' : ''}`}>
+        <header className="weq-agentlab-head">
+          <div className="weq-agentlab-head-left">
+            {draftAccount ? (
+              <strong>{workspaceTitle ?? '新会话'}</strong>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="weq-set-iconbtn"
+                  onClick={onBack}
+                  aria-label="返回主页"
+                  title="返回"
+                >
+                  <ArrowLeft size={16} />
+                </button>
+                <div>
+                  <strong>WeQ 助手</strong>
+                  <span>把问题交给它：会自己查聊天记录、找联系人、多轮推进直到给出结论。</span>
+                </div>
+              </>
+            )}
+          </div>
+          <div className="weq-agentlab-head-actions">
+            {selection.control}
+            <button
+              className={
+                draftAccount ? 'weq-set-iconbtn' : 'weq-set-btn weq-set-btn-soft weq-set-btn-sm'
+              }
+              title="助手设置"
+              aria-label="助手设置"
+              onClick={() => setSettingsOpen(true)}
             >
-              {t.role === 'user' ? (
-                <ChatBubble mine name="我" uin={selfProfile.data?.uin} text={t.text} />
-              ) : (
-                <AssistantBubble turn={t} />
-              )}
-            </div>
-          ))
-        )}
-      </div>
+              <Settings size={draftAccount ? 16 : 12} /> {draftAccount ? null : '设置'}
+            </button>
+            <button
+              className={
+                draftAccount ? 'weq-set-iconbtn' : 'weq-set-btn weq-set-btn-soft weq-set-btn-sm'
+              }
+              title="清空当前对话"
+              aria-label="清空当前对话"
+              disabled={busy}
+              onClick={() => void onClear()}
+            >
+              {draftAccount ? <Trash2 size={16} /> : '清空'}
+            </button>
+          </div>
+        </header>
 
-      <div className="weq-asst-composer">
-        {!compact ? (
-          <div className="weq-asst-composer-tools">
-            <ComposerSelect
-              icon={<Cpu size={13} />}
-              title="聊天模型"
-              placeholder="选择模型…"
-              value={modelSel}
-              groups={modelGroups}
-              disabled={busy || saveConfig.isLoading}
-              onChange={(v) => void onQuickConfig({ modelKey: v })}
-            />
-            <ComposerSelect
-              icon={<Brain size={13} />}
-              title="思考等级"
-              placeholder="思考等级"
-              value={effort}
-              groups={[
-                {
-                  label: '',
-                  options: EFFORT_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
-                },
-              ]}
-              disabled={busy || saveConfig.isLoading}
-              onChange={(v) => void onQuickConfig({ effort: v as EffortValue })}
-            />
+        {compact ? (
+          <div className="weq-asst-menu-meta" aria-label="当前助手会话信息">
+            <span title={workspaceTitle ?? '新会话'}>{workspaceTitle ?? '新会话'}</span>
+            <span title={modelTitle}>{modelName}</span>
+            <span>{EFFORT_OPTIONS.find((option) => option.value === effort)?.label ?? effort}</span>
           </div>
         ) : null}
-        <div className="weq-agentlab-composer weq-asst-composer-row">
-          <textarea
-            ref={inputRef}
-            rows={1}
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              autoGrowTextarea(e.currentTarget);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                void onSend();
-              }
-            }}
-            placeholder={
-              compact ? '发送消息…' : '把任务交给 WeQ 助手（Enter 发送，Shift+Enter 换行）'
-            }
-            disabled={busy}
+
+        {resumable ? (
+          <div className="weq-asst-resume-bar">
+            <span>
+              上次回答被中断，已执行 {resumeQuery.data?.toolCallCount ?? 0} 次工具调用
+              {resumeQuery.data?.question
+                ? `（「${resumeQuery.data.question.slice(0, 40)}」）`
+                : ''}
+              。可从中断处继续，已完成的调查不重查。
+            </span>
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-sm"
+              disabled={resumeRun.isLoading}
+              onClick={() => void onResume()}
+            >
+              <Play size={13} aria-hidden="true" />
+              {resumeRun.isLoading ? '继续中…' : '继续回答'}
+            </button>
+          </div>
+        ) : null}
+
+        <div
+          className="weq-agentlab-transcript"
+          {...selection.rootProps}
+          ref={(element) => {
+            transcriptRef.current = element;
+            selection.rootProps.ref(element);
+          }}
+          onScroll={onTranscriptScroll}
+        >
+          <GeneratedSearchNotice
+            missing={missingSearch}
+            error={Boolean(searchMessageId && conversation.isError)}
           />
-          {busy ? (
-            <button
-              className="weq-set-btn weq-asst-stop-btn"
-              onClick={() => void onStop()}
-              disabled={stopping}
-              aria-busy={stopping}
-              title={stopping ? '正在停止本轮任务…' : '停止本轮任务'}
-            >
-              {stopping ? (
-                <>
-                  <Loader2 size={13} strokeWidth={2.4} className="weq-asst-spin" /> 停止中…
-                </>
-              ) : (
-                <>
-                  <Square size={13} strokeWidth={2.6} /> 停止
-                </>
-              )}
-            </button>
+          {searchMessageId && conversation.isFetching ? (
+            <div className="weq-agentlab-empty">加载记录中…</div>
+          ) : turns.length === 0 ? (
+            compact ? null : (
+              <div className="weq-agentlab-empty weq-asst-empty">
+                <span className="weq-asst-empty-icon">
+                  <Sparkles size={26} strokeWidth={1.6} />
+                </span>
+                <strong>把任务交给 WeQ 助手</strong>
+                <span>它会自己查聊天记录、找联系人、多轮推进直到给出结论。试试：</span>
+                <div className="weq-asst-presets">
+                  {PRESET_QUESTIONS.map((q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      className="weq-asst-preset"
+                      disabled={busy}
+                      onClick={() => void onSend(q)}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
           ) : (
-            <button
-              className="weq-set-btn"
-              title="发送消息"
-              aria-label="发送消息"
-              onClick={() => void onSend()}
-              disabled={!input.trim()}
-            >
-              <Send size={14} /> {compact ? null : '发送'}
-            </button>
+            turns.map((t, i) => (
+              <div
+                key={t.id ?? `${t.role}-${i}`}
+                {...selection.itemProps(t.id)}
+                data-generated-message-id={t.id}
+                className={`weq-generated-message${t.id === searchMessageId ? ' is-search-hit' : ''}${selection.selected(t.id) ? ' is-selected' : ''}`}
+              >
+                {t.role === 'user' ? (
+                  <ChatBubble mine name="我" uin={selfProfile.data?.uin} text={t.text} />
+                ) : (
+                  <AssistantBubble turn={t} />
+                )}
+              </div>
+            ))
           )}
         </div>
-      </div>
 
-      {settingsOpen ? <AssistantSettings onClose={() => setSettingsOpen(false)} /> : null}
-    </div>
+        <div className="weq-asst-composer">
+          {!compact ? (
+            <div className="weq-asst-composer-tools">
+              <ComposerSelect
+                icon={<Cpu size={13} />}
+                title="聊天模型"
+                placeholder="选择模型…"
+                value={modelSel}
+                groups={modelGroups}
+                disabled={busy || saveConfig.isLoading}
+                onChange={(v) => void onQuickConfig({ modelKey: v })}
+              />
+              <ComposerSelect
+                icon={<Brain size={13} />}
+                title="思考等级"
+                placeholder="思考等级"
+                value={effort}
+                groups={[
+                  {
+                    label: '',
+                    options: EFFORT_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+                  },
+                ]}
+                disabled={busy || saveConfig.isLoading}
+                onChange={(v) => void onQuickConfig({ effort: v as EffortValue })}
+              />
+            </div>
+          ) : null}
+          <div className="weq-agentlab-composer weq-asst-composer-row">
+            <textarea
+              ref={inputRef}
+              rows={1}
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value);
+                autoGrowTextarea(e.currentTarget);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  void onSend();
+                }
+              }}
+              placeholder={
+                compact ? '发送消息…' : '把任务交给 WeQ 助手（Enter 发送，Shift+Enter 换行）'
+              }
+              disabled={busy}
+            />
+            {busy ? (
+              <button
+                className="weq-set-btn weq-asst-stop-btn"
+                onClick={() => void onStop()}
+                disabled={stopping}
+                aria-busy={stopping}
+                title={stopping ? '正在停止本轮任务…' : '停止本轮任务'}
+              >
+                {stopping ? (
+                  <>
+                    <Loader2 size={13} strokeWidth={2.4} className="weq-asst-spin" /> 停止中…
+                  </>
+                ) : (
+                  <>
+                    <Square size={13} strokeWidth={2.6} /> 停止
+                  </>
+                )}
+              </button>
+            ) : (
+              <button
+                className="weq-set-btn"
+                title="发送消息"
+                aria-label="发送消息"
+                onClick={() => void onSend()}
+                disabled={!input.trim()}
+              >
+                <Send size={14} /> {compact ? null : '发送'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {settingsOpen ? <AssistantSettings onClose={() => setSettingsOpen(false)} /> : null}
+      </PageScrollSnapshot>
+    </PageSnapshotScope>
   );
 }

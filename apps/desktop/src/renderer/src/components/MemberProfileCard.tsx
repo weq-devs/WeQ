@@ -440,7 +440,7 @@ export function MemberProfileCard({
               {!localClone && member.kind !== 'bot' && uin ? (
                 <>
                   <ProfileLikesRow uid={uid} uin={uin} name={displayUserName(member)} />
-                  <CommonRelationships uin={uin} />
+                  <CommonRelationships uin={uin} onNavigate={onClose} />
                 </>
               ) : null}
               {joinedAt ? (

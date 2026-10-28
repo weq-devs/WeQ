@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   SETTINGS_GROUPS,
   settingsGroupFor,
@@ -51,6 +51,95 @@ describe('basic_settings_navigation', () => {
 
 describe('feature_search', () => {
   describe('功能与设置目录搜索', () => {
+    it.each([
+      ['禁用 P2P 直连', 'call-recording'],
+      ['转发时引用上一人文案', 'qzone'],
+      ['不让 ta 看我的空间', 'qzone'],
+      ['不看 ta 的空间', 'qzone'],
+      ['允许远程连接', 'remote'],
+      ['Tailscale', 'remote'],
+      ['设备配对', 'remote'],
+      ['已配对设备', 'remote'],
+      ['安装到本机 AI 客户端', 'mcp'],
+      ['MCP 客户端配置', 'mcp'],
+      ['推送地址', 'sse'],
+      ['QQ 公众号推送端口', 'assistant'],
+      ['QQ 昵称', 'qq-accounts'],
+      ['个性签名', 'qq-accounts'],
+      ['在线状态', 'qq-accounts'],
+      ['WeQ 验证器', 'privacy'],
+    ])('%s 可检索且指向所属设置页面 %s', (keyword, section) => {
+      expect(
+        searchAppEntries(keyword).some(
+          (entry) => entry.target.kind === 'setting' && entry.target.section === section,
+        ),
+      ).toBe(true);
+    });
+    it.each([
+      ['定时导出', 'scheduled'],
+      ['群文件导出', 'groupfile'],
+      ['群相册导出', 'album'],
+      ['邮件导出', 'mail'],
+      ['导出联系人', 'contacts'],
+      ['导出收藏', 'collection'],
+      ['导出表情包', 'emojipack'],
+      ['克隆与助手对话', 'generated'],
+      ['个人空间相册', 'qzone'],
+      ['克隆体机器人', 'persona-bot'],
+    ])('%s 直接打开对应导出种类 %s', (keyword, exportMode) => {
+      expect(searchAppEntries(keyword)[0]?.target).toEqual({
+        kind: 'tool',
+        tool: 'export',
+        exportMode,
+      });
+    });
+    it('频道私聊、漫游拉取和商城表情使用准确入口', () => {
+      expect(searchAppEntries('频道私聊')[0]?.target).toEqual({
+        kind: 'view',
+        view: 'guild-direct',
+      });
+      expect(searchAppEntries('拉取漫游消息')[0]?.target).toEqual({
+        kind: 'tool',
+        tool: 'backfill',
+      });
+      expect(searchAppEntries('商城表情')[0]?.target).toEqual({
+        kind: 'dressup',
+        dressKind: 'emoji',
+      });
+      expect(searchAppEntries('通话背景')[0]?.target).toEqual({
+        kind: 'dressup',
+        dressKind: 'callbg',
+      });
+    });
+    it('Web 端不列出只有电脑客户端才有的 Remote 控件', async () => {
+      vi.stubEnv('VITE_WEQ_TARGET', 'web');
+      vi.resetModules();
+      try {
+        const web = await import('../src/renderer/src/components/search/appSearchCatalog');
+        for (const keyword of [
+          '启用 Web 服务',
+          '启动 WeQ 时自动开启 Web 服务',
+          '允许远程连接',
+          '设备配对',
+          'Tailscale',
+        ]) {
+          expect(web.searchAppEntries(keyword), keyword).toEqual([]);
+        }
+        expect(web.searchAppEntries('Web 与 Remote')[0]?.target).toEqual({
+          kind: 'setting',
+          section: 'remote',
+        });
+      } finally {
+        vi.unstubAllEnvs();
+        vi.resetModules();
+      }
+    });
+    it('克隆入口打开统一消息目录的克隆范围，不再进入已隐藏列表的旧页面', () => {
+      expect(searchAppEntries('克隆')[0]?.target).toEqual({
+        kind: 'conversation-directory',
+        scope: 'virtual',
+      });
+    });
     it('空白和未知关键词没有结果，名称匹配优先于别名', () => {
       expect(searchAppEntries('  ')).toEqual([]);
       expect(searchAppEntries('不存在的合成功能')).toEqual([]);

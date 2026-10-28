@@ -18,8 +18,13 @@ import {
 import type { ExportAuthorizationIndicatorState } from '../views/export/authorization';
 import { Modal } from './Dialog';
 import { RetainedTabs, TabActivity } from './RetainedTabs';
-import { ExportTool } from '../views/ExportView';
-import { ExportViewer } from '../views/ExportViewer';
+import {
+  ExportTool,
+  ExportViewer,
+  AnalysisTool,
+  RoamingBackfillPanel,
+  preloadWorkspace,
+} from './lazyWorkspaces';
 import { AssistantMenuWorkspace } from '../views/agentlab/AssistantMenuWorkspace';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { summarizeWorkspaceTasks } from '../lib/workspaceIndicators';
@@ -32,11 +37,9 @@ import {
 } from '../state/contentSelection';
 import '../styles/workspace-tools.css';
 import '../styles/workspace-menu.css';
-import { RoamingBackfillPanel } from './RoamingBackfillPanel';
 import { AssistantSection } from './settings/AssistantSection';
 import { useViewState } from '../state/view';
 import { createToolDraft, type ToolDraft } from '../../../shared/content_selection';
-import { AnalysisTool } from '../views/analysis/AnalysisTool';
 import { initialExportMode } from '../views/export/exportScope';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import type {
@@ -297,9 +300,14 @@ export function WorkspaceTools({
   };
 
   /** 主按钮：按当前界面直接进入对应工具。 */
-  const select = (next: Tool) => {
+  const select = (next: Tool, requestedMode?: ExportMode) => {
     closeWorkspace();
     if (next === 'export') {
+      if (requestedMode) {
+        requestedSelection.current = null;
+        openExport(null, { mode: requestedMode, fixed: false });
+        return;
+      }
       // 主按钮＝按当前界面直接进入。注意不能把 `entry.selection`（带 selected 的对象）
       // 直接放进 React 依赖里：每次渲染都是新引用，会触发导出面板反复重建。
       // 优先级：页面内当前多选 > 内容页显式请求过的内容 > 当前界面位置。
@@ -322,6 +330,10 @@ export function WorkspaceTools({
       setAnalysisTarget(directTarget ?? undefined);
       setAnalysisMessageIds(undefined);
       setAnalysisSeed((previous) => previous + 1);
+    }
+    if (next === 'backfill') {
+      setRoamingTargets([]);
+      setRoamingSeed((previous) => previous + 1);
     }
     setTool(next);
     setAssistantSettings(false);
@@ -360,7 +372,7 @@ export function WorkspaceTools({
       setPanel(searchRequest.tool);
       setExpanded(true);
       setAssistantSettings(false);
-    } else selectRef.current(searchRequest.tool);
+    } else selectRef.current(searchRequest.tool, searchRequest.exportMode);
   }, [searchRequest, closeMenu, accountScope]);
   const fixedExportScope =
     exportFixedScope &&
@@ -474,36 +486,50 @@ export function WorkspaceTools({
           </div>
         </header>
         <div className="weq-workspace-menu-body">
-          <RetainedTabs activeKey={!hidden && (anchor || expanded) ? panel : 'closed'}>
-            {!hidden && (anchor || expanded) ? (
-              panel === 'tasks' ? (
-                <ExportTool
-                  surface="tasks"
-                  taskLayout={expanded ? 'split' : 'compact'}
-                  onTaskExpand={() => setExpanded(true)}
-                  onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
-                  onOpenClone={(id) => leave(() => onOpenClone?.(id))}
-                />
-              ) : (
-                <>
-                  <div className="weq-menu-assistant" hidden={assistantSettings && expanded}>
-                    <TabActivity active={!assistantSettings || !expanded}>
-                      <AssistantMenuWorkspace
-                        accountScope={accountScope}
-                        compact={!expanded}
-                        searchTarget={assistantSearchTarget}
-                      />
-                    </TabActivity>
-                  </div>
-                  {assistantSettings && expanded ? (
-                    <div className="weq-assistant-service-settings">
-                      <AssistantSection />
-                    </div>
-                  ) : null}
-                </>
-              )
+          <RetainedTabs snapshotKey="workspace-tools" activeKey="tasks">
+            {!hidden && (anchor || expanded) && panel === 'tasks' ? (
+              <ExportTool
+                surface="tasks"
+                taskLayout={expanded ? 'split' : 'compact'}
+                onTaskExpand={() => setExpanded(true)}
+                onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
+                onOpenClone={(id) => leave(() => onOpenClone?.(id))}
+              />
             ) : null}
           </RetainedTabs>
+          <div
+            className="weq-menu-assistant"
+            hidden={
+              hidden ||
+              !(anchor || expanded) ||
+              panel !== 'assistant' ||
+              (assistantSettings && expanded)
+            }
+          >
+            <TabActivity
+              active={
+                !hidden &&
+                Boolean(anchor || expanded) &&
+                panel === 'assistant' &&
+                (!assistantSettings || !expanded)
+              }
+            >
+              <AssistantMenuWorkspace
+                accountScope={accountScope}
+                compact={!expanded}
+                searchTarget={assistantSearchTarget}
+              />
+            </TabActivity>
+          </div>
+          {!hidden &&
+          (anchor || expanded) &&
+          panel === 'assistant' &&
+          assistantSettings &&
+          expanded ? (
+            <div className="weq-assistant-service-settings">
+              <AssistantSection />
+            </div>
+          ) : null}
         </div>
         {!expanded ? (
           <>
@@ -520,6 +546,8 @@ export function WorkspaceTools({
                     type="button"
                     title={item.id === 'export' ? entry.label : item.label}
                     aria-label={item.label}
+                    onPointerEnter={() => preloadWorkspace(item.id)}
+                    onFocus={() => preloadWorkspace(item.id)}
                     onClick={item.action}
                   >
                     {item.icon}
@@ -557,6 +585,7 @@ export function WorkspaceTools({
           </button>
         </header>
         <RetainedTabs
+          snapshotKey="workspace-export"
           key={accountKey ?? 'no-account'}
           activeKey={open && tool !== 'backfill' ? tool : 'closed'}
         >
@@ -625,6 +654,7 @@ export function WorkspaceTools({
           </button>
         </header>
         <RetainedTabs
+          snapshotKey="workspace-analysis"
           key={accountKey ?? 'no-account'}
           activeKey={open && tool === 'backfill' ? 'backfill' : 'closed'}
         >
@@ -632,7 +662,7 @@ export function WorkspaceTools({
             <RoamingBackfillPanel
               key={JSON.stringify([accountKey, roamingTargets, roamingSeed])}
               initialTargets={roamingTargets}
-              targetMode="fixed"
+              targetMode={roamingTargets.length ? 'fixed' : 'select'}
               onSubmitted={() => useWorkspaceMenu.getState().openTasks()}
             />
           ) : null}

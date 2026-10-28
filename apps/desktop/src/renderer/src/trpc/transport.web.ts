@@ -27,6 +27,17 @@ const wsClient = createWSClient({
   onClose: () => useWebConnection.getState().disconnected(),
 });
 
+const independentReads = new Set([
+  'account.searchQuick',
+  'account.searchSlow',
+  'account.listLatest',
+  'account.listBefore',
+  'account.listAfter',
+  'account.listFrom',
+  'account.cancelMessageRead',
+  'account.promoteMessageRead',
+]);
+
 export function createLinks(): TRPCLink<AppRouter>[] {
   const httpOptions = {
     url: '/trpc',
@@ -41,7 +52,7 @@ export function createLinks(): TRPCLink<AppRouter>[] {
       condition: (op) => op.type === 'subscription',
       true: wsLink({ client: wsClient }),
       false: splitLink({
-        condition: (op) => op.path === 'account.searchQuick' || op.path === 'account.searchSlow',
+        condition: (op) => independentReads.has(op.path),
         true: httpLink(httpOptions),
         false: httpBatchLink({ ...httpOptions, maxURLLength: 2048 }),
       }),

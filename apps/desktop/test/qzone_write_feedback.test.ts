@@ -6,6 +6,7 @@ import { useViewState } from '../src/renderer/src/state/view';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
+import type { QzoneInteraction } from '../src/renderer/src/views/qzone_types';
 
 const state = vi.hoisted(() => ({
   configId: 'source-a',
@@ -22,11 +23,13 @@ const state = vi.hoisted(() => ({
     commentCount: 2,
   })),
   interactions: vi.fn(async (_input: unknown) => ({
-    comments: [],
+    comments: [] as QzoneInteraction['comments'],
     likes: [],
     commentCountInclusive: 2,
     fieldCoverage: { comments: 'observed' },
   })),
+  settings: vi.fn(async () => ({ qzoneForwardQuotePrevious: true })),
+  related: vi.fn(),
 }));
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({ QqAvatar: () => null }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
@@ -59,9 +62,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   client: {
+    bootstrap: { getSettings: { query: state.settings } },
     account: {
       qqActions: { qzone: { mutate: state.write } },
       qzone: {
+        related: { query: state.related },
         posts: {
           query: state.posts,
         },
@@ -103,6 +108,7 @@ beforeEach(() => {
         videos: [],
         isPrivate: false,
         commentNum: 2,
+        forwardNum: 37,
       },
     ],
   });
@@ -110,12 +116,18 @@ beforeEach(() => {
     likes: { likes: [], reportedTotal: 4, reportedViewCount: 8, coverage: 'complete' },
     commentCount: 2,
   }));
-  state.interactions.mockClear();
+  state.interactions.mockReset().mockResolvedValue({
+    comments: [],
+    likes: [],
+    commentCountInclusive: 2,
+    fieldCoverage: { comments: 'observed' },
+  });
 });
 afterEach(() => {
   close?.();
   close = undefined;
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 async function mount() {
   let active = true;
@@ -170,6 +182,12 @@ function enter(host: HTMLElement, content: string) {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
+async function openComments(host: HTMLElement) {
+  const button = [...host.querySelectorAll<HTMLButtonElement>('.weq-qzn-actions button')].find(
+    (button) => button.title === '评论',
+  )!;
+  await act(async () => button.click());
+}
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: Error) => void;
@@ -179,20 +197,20 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
-function capture(host: HTMLElement) {
+function capture(host: HTMLElement, name = 'feedback') {
   const directory = process.env.WEQ_QZONE_FEEDBACK_LAYOUT;
   if (!directory) return;
   mkdirSync(directory, { recursive: true });
   const post = host.querySelector('.weq-qzn-post')!;
-  const styles = ['index', 'qzone', 'qq-actions', 'qq-write']
+  const styles = ['index', 'qzone', 'qq-actions', 'qq-write', 'qzone-actions']
     .map(
       (name) =>
         `<link rel="stylesheet" href="/@fs${resolve('src/renderer/src/styles', `${name}.css`)}">`,
     )
     .join('');
   writeFileSync(
-    resolve(directory, 'qzone-feedback.html'),
-    `<!doctype html><html lang="zh-CN"><meta charset="utf-8">${styles}<style>html,body{margin:0;font-family:system-ui;background:var(--background);color:var(--foreground)}*,*::before,*::after{box-sizing:border-box}.qa-post{padding:16px;max-width:700px}</style><body><main class="weq-qzn"><section class="qa-post">${post.outerHTML}</section></main></body></html>`,
+    resolve(directory, `qzone-${name}.html`),
+    `<!doctype html><html lang="zh-CN"><meta charset="utf-8">${styles}<style>html,body{margin:0;font-family:system-ui;background:var(--background);color:var(--foreground)}*,*::before,*::after{box-sizing:border-box}.qa-post{padding:16px;max-width:700px}</style><body><main class="weq-qzn"><section class="qa-post">${post.outerHTML}</section></main>${document.querySelector('.weq-dialog-layer')?.outerHTML ?? ''}${document.querySelector('.weq-qzn-like-layer')?.outerHTML ?? ''}<script type="module">import {useThemeStore} from '/@fs${resolve('src/renderer/src/state/theme.ts')}';window.qaTheme=useThemeStore;</script></body></html>`,
   );
 }
 it('点赞立即高亮并更新数量，受理后即使远端仍为原值也重新校准', async () => {
@@ -343,6 +361,7 @@ it('公共会话尚在刷新其他缓存时收到校准，结束后仍应用远�
 });
 it('发送途中重新编辑为相同文字也视为下一份草稿，不被回执清空', async () => {
   const view = await mount();
+  await openComments(view.host);
   enter(view.host, '相同文字');
   const pending = deferred<QQWriteOutcome>();
   state.write.mockReturnValueOnce(pending.promise);
@@ -353,4 +372,165 @@ it('发送途中重新编辑为相同文字也视为下一份草稿，不被回�
   expect(view.host.querySelector<HTMLInputElement>('[aria-label="说说评论"]')!.value).toBe(
     '相同文字',
   );
+});
+
+it('操作行只有一处点赞，悬停显示名单但不写入，评论框随展开显示', async () => {
+  const view = await mount();
+  expect(view.host.querySelector('[aria-label="说说评论"]')).toBeNull();
+  expect(view.host.querySelectorAll('[aria-label="点赞说说"]')).toHaveLength(1);
+  const hover = view.host.querySelector('.weq-qzn-like-hover')!;
+  await act(async () => hover.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+  expect(document.querySelector('[aria-label="点赞列表"]')).not.toBeNull();
+  capture(view.host, 'hover');
+  expect(state.write).not.toHaveBeenCalled();
+  await openComments(view.host);
+  expect(view.host.querySelector('[aria-label="说说评论"]')).not.toBeNull();
+  expect(view.count()).toContain('转发');
+});
+
+it('读取时已经点赞，直接呈现已赞样式，点击执行取消点赞', async () => {
+  state.summary.mockResolvedValue({
+    likes: {
+      likes: [{ uin: '10001', nickname: '合成自己' }],
+      reportedTotal: 4,
+      reportedViewCount: 8,
+      coverage: 'complete',
+    },
+    commentCount: 2,
+  });
+  const view = await mount();
+  expect(view.button('取消说说点赞').getAttribute('aria-pressed')).toBe('true');
+  await act(async () => view.button('取消说说点赞').click());
+  expect(state.write).toHaveBeenCalledWith(expect.objectContaining({ action: 'unlike' }));
+});
+
+it('转发弹窗上方预填引用并将光标定位开头，下方保留原动态', async () => {
+  const view = await mount();
+  await act(async () => view.host.querySelector<HTMLButtonElement>('[title="转发"]')!.click());
+  const input = document.querySelector<HTMLTextAreaElement>('[aria-label="转发语"]')!;
+  expect(input.value).toBe('//：合成说说');
+  expect(input.selectionStart).toBe(0);
+  expect(document.activeElement).toBe(input);
+  expect(document.querySelector('[aria-label="原动态"]')!.textContent).toContain('合成说说');
+  capture(view.host, 'forward');
+  expect(document.querySelector('.weq-qzn-forward-dialog')!.textContent).toContain('接口尚未接入');
+  expect(state.write).not.toHaveBeenCalled();
+});
+
+it('转发悬停显示名单浮层，已有转发计数也保持问号，不请求假接口或发起转发', async () => {
+  const view = await mount();
+  const button = view.host.querySelector<HTMLButtonElement>('[title="转发"]')!;
+  expect(button.textContent).toContain('转发 ?');
+  expect(button.textContent).not.toContain('37');
+  await act(async () => button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+  expect(document.querySelector('[aria-label="转发列表"]')?.textContent).toContain('暂无可信数据');
+  expect(document.querySelector('[aria-label="转发语"]')).toBeNull();
+  expect(state.write).not.toHaveBeenCalled();
+});
+
+it('与我相关自动读取五页即停，向上滚动不续页，向下滚动才开始下一轮', async () => {
+  state.related.mockReset().mockImplementation(async ({ offset }: { offset: number }) => ({
+    feeds: [
+      {
+        uin: '10002',
+        nickname: '合成好友',
+        appid: 311,
+        time: offset + 1,
+        key: `post-${offset}`,
+        html: '合成通知',
+      },
+    ],
+    hasMore: true,
+    nextCursor: `offset=${offset + 1}`,
+  }));
+  const view = await mount();
+  vi.useFakeTimers();
+  const related = [
+    ...view.host.querySelectorAll<HTMLButtonElement>('.weq-qzn-navigation button'),
+  ].find((button) => button.textContent === '与我相关')!;
+  await act(async () => related.click());
+  for (let index = 0; index < 8; index++)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+  expect(state.related).toHaveBeenCalledTimes(5);
+  const scroll = view.host.querySelector('.weq-qzn-scroll')!;
+  await act(async () =>
+    scroll.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true })),
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(state.related).toHaveBeenCalledTimes(5);
+  await act(async () =>
+    scroll.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, bubbles: true })),
+  );
+  for (let index = 0; index < 8; index++)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+  expect(state.related).toHaveBeenCalledTimes(10);
+});
+
+it('每条评论和回复均可切换回复目标，缺少写接口时不误发为一级评论', async () => {
+  state.interactions.mockResolvedValue({
+    comments: [
+      {
+        id: '1',
+        uin: '10002',
+        nickname: '评论者',
+        content: '一级评论',
+        time: 1,
+        images: [],
+        isReply: false,
+      },
+      {
+        id: '1_r_2_10003',
+        parentCommentId: '1',
+        replyId: '2',
+        uin: '10003',
+        nickname: '回复者',
+        content: '二级回复',
+        time: 2,
+        images: [],
+        isReply: true,
+      },
+    ],
+    likes: [],
+    commentCountInclusive: 2,
+    fieldCoverage: { comments: 'observed' },
+  });
+  const view = await mount();
+  await openComments(view.host);
+  const replies = [
+    ...view.host.querySelectorAll<HTMLButtonElement>('.weq-qzn-comment-meta button'),
+  ];
+  expect(replies).toHaveLength(2);
+  enter(view.host, '保留草稿');
+  await act(async () => replies[0]!.click());
+  expect(view.host.querySelector<HTMLInputElement>('[aria-label="说说回复"]')!.placeholder).toBe(
+    '回复 评论者',
+  );
+  const firstInput = view.host.querySelector<HTMLInputElement>('[aria-label="说说回复"]')!;
+  expect(firstInput.closest('.weq-qzn-comment')?.textContent).toContain('一级评论');
+  expect(firstInput.closest('.is-reply')).toBeNull();
+  expect(firstInput.value).toBe('保留草稿');
+  await act(async () => replies[1]!.click());
+  expect(view.host.querySelector<HTMLInputElement>('[aria-label="说说回复"]')!.placeholder).toBe(
+    '回复 回复者',
+  );
+  const replyInput = view.host.querySelector<HTMLInputElement>('[aria-label="说说回复"]')!;
+  expect(replyInput.closest('.is-reply')?.textContent).toContain('二级回复');
+  expect(replyInput.value).toBe('保留草稿');
+  expect(view.host.querySelectorAll('.weq-qzn-comment-composer')).toHaveLength(1);
+  expect(view.button('发送说说评论').disabled).toBe(true);
+  expect(state.write).not.toHaveBeenCalled();
+  capture(view.host, 'comments');
+  const cancel = [
+    ...view.host.querySelectorAll<HTMLButtonElement>('.weq-qzn-comment-composer button'),
+  ].find((button) => button.textContent === '取消')!;
+  await act(async () => cancel.click());
+  const restored = view.host.querySelector<HTMLInputElement>('[aria-label="说说评论"]')!;
+  expect(restored.closest('.weq-qzn-comment')).toBeNull();
+  expect(restored.value).toBe('保留草稿');
 });

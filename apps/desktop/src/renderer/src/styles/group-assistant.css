@@ -1,7 +1,6 @@
 .weq-merged-overlay > .weq-merged-popover {
   max-height: min(560px, calc(100dvh - 24px));
 }
-.weq-merged-popover > .weq-group-helper-search,
 .weq-merged-popover > .weq-conversation-selection-toolbar {
   flex-shrink: 0;
 }

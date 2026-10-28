@@ -62,7 +62,16 @@ describe('远程服务的故障关闭', () => {
           (await runtime.invite({ authKey: `tskey-auth-${'k'.repeat(40)}` })).pairingURL,
         ).searchParams.get('v'),
       ).toBe('4');
+      const lanInvite = await runtime.invite({ endpoint: 'https://192.168.1.8:7691' });
+      const lanSecret = new URL(lanInvite.pairingURL).searchParams.get('invitation')!;
       await runtime.setTailscaleEnabled(false);
+      expect(runtime.status().invitationExpiresAt).toBe(lanInvite.expiresAt);
+      const lanClaim = runtime.pairing.claim({
+        invitation: lanSecret,
+        name: '局域网手机',
+        tokenHash: tokenHash('d'.repeat(64)),
+      });
+      expect(runtime.status().pending.some((row) => row.id === lanClaim.id)).toBe(true);
       expect(children[1].kill).toHaveBeenCalledOnce();
       expect(children[0].kill).not.toHaveBeenCalled();
       expect(runtime.status().enabled).toBe(true);

@@ -1,6 +1,6 @@
 {
   "name": "@weq/service",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "private": true,
   "type": "module",
   "exports": {
@@ -8,7 +8,10 @@
     "./mail": "./src/account/mail/index.ts",
     "./mail-wire": "./src/account/mail/wire.ts",
     "./db-tolerance-copy": "./src/account/db_tolerance_copy.ts",
+    "./db-checkup": "./src/account/db_repair/checkup.ts",
+    "./bad-pages": "./src/account/bad_pages.ts",
     "./qzone-pagination": "./src/common/qzone_pagination.ts",
+    "./qzone-public-settings": "./src/common/qzone_public_settings.ts",
     "./toast-settings": "./src/common/toast_settings.ts",
     "./chat-image-cache": "./src/common/chat_image_cache.ts",
     "./home-settings": "./src/common/home_settings.ts",

@@ -85,6 +85,30 @@ function fixture(total = 3000, deps: MediaDeps = {}) {
   };
 }
 
+it.each([false, true])(
+  '聊天导出按选择生成报告并在重启后保持：%s',
+  async (includeIntegrityReport) => {
+    const f = fixture(2);
+    const id = await f.manager.startTask({
+      kind: 'group',
+      conv: '777',
+      name: '报告选择',
+      format: 'txt',
+      total: 2,
+      includeIntegrityReport,
+    });
+    await wait(() => f.manager.getTask(id)?.save?.status === 'saved');
+    const task = f.manager.getTask(id)!;
+    expect(Boolean(task.reportPath)).toBe(includeIntegrityReport);
+    expect(Boolean(task.reportHtmlPath)).toBe(includeIntegrityReport);
+    const restored = new ExportTaskManager(f.msgs, join(f.root, 'exports'));
+    expect(restored.getTask(id)?.includeIntegrityReport).toBe(includeIntegrityReport);
+    expect(Boolean(restored.getReportPath(id))).toBe(includeIntegrityReport);
+    expect(existsSync(`${task.save!.path!}.report.json`)).toBe(includeIntegrityReport);
+    expect(existsSync(`${task.save!.path!}.report.html`)).toBe(includeIntegrityReport);
+  },
+);
+
 it('精确导出自己的已发送缓存直接读本地来源，不要求开启联网补全', async () => {
   const fetch = vi.fn(async () => {
     throw Error('本次不应联网补全');

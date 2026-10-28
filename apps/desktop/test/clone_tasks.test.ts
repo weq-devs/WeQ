@@ -2,6 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useViewState } from '../src/renderer/src/state/view';
+import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import { CloneTasksPane } from '../src/renderer/src/views/agentlab/CloneTasksPane';
 import {
   dismissCloneTask,
@@ -53,7 +54,7 @@ function args(id: string): StartCloneArgs {
     meta: { name: id, uin: '', mode: 'private' },
   };
 }
-it('运行中任务不能移除，切换视图不影响完成，收尾后断开订阅', async () => {
+it('开始后立即登记任务并打开统一列表，切换视图不影响完成，收尾后断开订阅', async () => {
   let finish = () => {};
   mocks.build.mockImplementationOnce(
     () =>
@@ -61,7 +62,10 @@ it('运行中任务不能移除，切换视图不影响完成，收尾后断开�
         finish = resolve;
       }),
   );
+  const openRequest = useWorkspaceMenu.getState().taskOpenRequest;
   const running = startCloneTask(args('克隆甲'));
+  expect(getCloneTasks()[0]).toMatchObject({ name: '克隆甲', status: 'running' });
+  expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(openRequest + 1);
   dismissCloneTask('克隆甲');
   expect(getCloneTasks()[0]?.status).toBe('running');
   useViewState.setState({ openedUin: 'fixture-b' });
@@ -108,6 +112,37 @@ it('流式事件不覆盖任务阶段，收尾先刷新缓冲并保留输出供�
     percent: 62,
     outputs: [{ requestId: 'r', content: '合成片段' }],
   });
+});
+it('批量克隆立即全部进入列表，失败结果仍保留且不会重新打开弹窗', async () => {
+  let finish!: () => void;
+  let fail!: (error: Error) => void;
+  mocks.build
+    .mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    )
+    .mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          fail = reject;
+        }),
+    );
+  const openRequest = useWorkspaceMenu.getState().taskOpenRequest;
+  const first = startCloneTask(args('batch-a'));
+  const second = startCloneTask(args('batch-b'));
+  expect(getCloneTasks().map((task) => [task.personaId, task.status])).toEqual([
+    ['batch-a', 'running'],
+    ['batch-b', 'running'],
+  ]);
+  expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(openRequest + 2);
+  finish();
+  fail(new Error('合成失败'));
+  await Promise.all([first, second]);
+  expect(getCloneTasks().map((task) => task.status)).toEqual(['done', 'error']);
+  expect(getCloneTasks()[1]?.error).toBe('合成失败');
+  expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(openRequest + 2);
 });
 it('统一任务列表按账号展示克隆任务，完成后可打开克隆体或移除记录', async () => {
   await startCloneTask(args('克隆甲'));

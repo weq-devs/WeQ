@@ -22,6 +22,7 @@ import {
   acceptsFrame,
   annexB,
   concatBytes,
+  nextRotation,
   payloadForDecoder,
   toAccessUnit,
   toBytes,
@@ -238,5 +239,32 @@ describe('acceptsFrame（帧序号连续性）', () => {
     // 0（关键帧）→ 之后 29..256 全丢（228 帧）→ 257（关键帧）起恢复
     expect(dropped).toBe(228);
     expect(fed).toBe(44); // 0 + 257..299
+  });
+});
+
+/**
+ * 画面旋转：**由用户手动切，不做自动判断**。
+ *
+ * 2026-10-27 / 10-28 两次真机抓包对照后确认没有可靠信号：SPS 里没有 VUI 旋转、
+ * 全流没有 SEI、扩展段恒为 `03 03 00`、`bt=77` 的 f14/f15 与朝向无关；而手机竖屏
+ * 画面是**铺满整帧**的（实测内容 640×318，比例 2.01，无黑边），从数据上看与横屏
+ * 通话完全一致。任何自动判据都只能靠猜，猜错时画面自己乱转，比多点一下按钮糟。
+ */
+describe('nextRotation（旋转按钮）', () => {
+  it('0° → 顺时针 90° → 逆时针 90° → 0°', () => {
+    expect(nextRotation(0)).toBe(90);
+    expect(nextRotation(90)).toBe(270);
+    expect(nextRotation(270)).toBe(0);
+  });
+
+  it('循环三次回到原点', () => {
+    let current: 0 | 90 | 270 = 0;
+    for (let i = 0; i < 3; i++) current = nextRotation(current);
+    expect(current).toBe(0);
+  });
+
+  it('中间态不打转：90° 一定是顺时针、270° 一定是逆时针', () => {
+    // 顺时针 90° 与逆时针 90° 是同一个摆放、朝向相反，两者都要能点到。
+    expect([nextRotation(0), nextRotation(90)]).toEqual([90, 270]);
   });
 });

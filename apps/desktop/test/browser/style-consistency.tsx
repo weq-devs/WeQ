@@ -1,7 +1,8 @@
 import { createRoot } from 'react-dom/client';
-import { Check, ExternalLink } from 'lucide-react';
+import { Check, ExternalLink, Heart, Sparkles } from 'lucide-react';
 import { QqArk } from '../../src/renderer/src/components/ark/QqArk';
 import { GrayTipXmlMessage } from '../../src/renderer/src/components/GrayTipXmlMessage';
+import { ReplyJumpContext } from '../../src/renderer/src/components/QqMessageContent';
 import { GrayTipFileRecvMessage } from '../../src/renderer/src/components/GrayTipFileRecvMessage';
 import { ExternalSiteView } from '../../src/renderer/src/views/ExternalSiteView';
 import {
@@ -17,6 +18,7 @@ import '../../src/renderer/src/styles/workspace-surfaces.css';
 import '../../src/renderer/src/styles/page-chrome.css';
 import '../../src/renderer/src/styles/group-content-management.css';
 import '../../src/renderer/src/styles/group-essence-actions.css';
+import '../../src/renderer/src/styles/intent-sense.css';
 
 declare global {
   interface Window {
@@ -86,14 +88,31 @@ function Fixture() {
               统一选择
             </button>
           </div>
-          <GrayTipXmlMessage
-            element={{
-              type: 'grayTipXml',
-              data: {
-                grayTipXmlContent: '<gtip><nor txt="系统提示 "/><url txt="查看详情"/></gtip>',
-              },
+          <div className="style-fixture-controls">
+            <button type="button" className="weq-affinity-pill tier-unrated" title="互动画像">
+              <Heart size={13} strokeWidth={2.2} />
+              <span>互动画像</span>
+            </button>
+            <button type="button" className="weq-affinity-pill tier-2" title="好感度 60">
+              <Sparkles size={13} strokeWidth={2.2} />
+              <span>亲近 60</span>
+            </button>
+          </div>
+          <ReplyJumpContext.Provider
+            value={(target) => {
+              window.dispatchEvent(new CustomEvent('graytip-jump', { detail: target }));
             }}
-          />
+          >
+            <GrayTipXmlMessage
+              element={{
+                type: 'grayTipXml',
+                data: {
+                  grayTipXmlContent:
+                    '<gtip><nor txt="回应了你的"/><url jp="" msgseq="63954" col="3" txt="消息:"/><face type="1" id="424"/></gtip>',
+                },
+              }}
+            />
+          </ReplyJumpContext.Provider>
           <GrayTipFileRecvMessage
             element={{
               type: 'grayTipFileRecv',

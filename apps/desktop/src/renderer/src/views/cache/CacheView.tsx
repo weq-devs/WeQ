@@ -7,7 +7,9 @@
  * 数据库不在这里；分析与批量清理由外层融合流程承载，不在内部重复放按钮。
  */
 
-import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, type ReactElement, type ReactNode } from 'react';
+import { usePageState } from '../../components/PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import {
   Image as ImageIcon,
   Images,
@@ -165,16 +167,22 @@ export function CacheView({
   selection?: { category: string };
   revision?: number;
 } = {}): ReactElement {
-  const [active, setActive] = useState<string>(
+  const [active, setActive] = usePageState<string>(
+    'cache:category',
     () =>
       CATEGORIES.find((category) => category.id === selection?.category)?.id ?? CATEGORIES[0]!.id,
+    pageValue.string,
   );
   useEffect(() => {
     if (selection && CATEGORIES.some((category) => category.id === selection.category))
       setActive(selection.category);
-  }, [selection]);
+  }, [selection, setActive]);
   // 资源选择列可收起，收起后腾出空间给右侧内容区。
-  const [catsCollapsed, setCatsCollapsed] = useState(false);
+  const [catsCollapsed, setCatsCollapsed] = usePageState(
+    'cache:collapsed',
+    false,
+    pageValue.boolean,
+  );
   // 静态账号在维护工具入口就被禁用（nt_data 属于本机在线账号，不属于快照），
   // 所以这里不需要再按账号类型裁剪分类。
   const activeCategory = CATEGORIES.find((c) => c.id === active) ?? CATEGORIES[0]!;

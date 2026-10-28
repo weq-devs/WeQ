@@ -106,6 +106,31 @@ try {
       await page.evaluate(() => window.timelineTest.reenter());
       await page.waitForTimeout(500);
       const afterReentry = await snapshot();
+      await page.evaluate(() => window.timelineTest.beginEntry());
+      await page.waitForTimeout(100);
+      await page.evaluate((count) => window.timelineTest.entryStage(count), count);
+      await page.waitForTimeout(500);
+      const duringLoading = await snapshot();
+      await page.evaluate(() => window.timelineTest.growTail());
+      await page.waitForTimeout(250);
+      const duringLoadingGrowth = await snapshot();
+      await page.evaluate((count) => window.timelineTest.entryStage(count + 10, true), count);
+      await page.waitForTimeout(500);
+      const afterLoading = await snapshot();
+      await page.evaluate(() => window.timelineTest.beginEntry());
+      await page.waitForTimeout(100);
+      await page.evaluate((count) => window.timelineTest.entryStage(count), count);
+      await page.waitForTimeout(500);
+      await page.locator('.message-scroll').hover();
+      await page.mouse.wheel(0, -600);
+      await page.waitForTimeout(250);
+      const loadingAnchor = await page.evaluate(() => window.timelineTest.capture());
+      await page.evaluate((count) => window.timelineTest.entryStage(count + 10, true), count);
+      await page.waitForTimeout(500);
+      const settledAnchor = await page.evaluate(() => window.timelineTest.capture());
+      const loadingHistoryPreserved =
+        loadingAnchor.anchorId === settledAnchor.anchorId &&
+        Math.abs(loadingAnchor.offset - settledAnchor.offset) < 3;
       results.push({
         count,
         width,
@@ -117,6 +142,10 @@ try {
         afterResize,
         historyPreserved,
         afterReentry,
+        duringLoading,
+        duringLoadingGrowth,
+        afterLoading,
+        loadingHistoryPreserved,
       });
     }
   }
@@ -140,6 +169,13 @@ try {
         result.afterReentry.distance > 2 ||
         !result.afterReentry.lastVisible ||
         !result.afterReentry.intentVisible ||
+        result.duringLoading.distance > 2 ||
+        !result.duringLoading.lastVisible ||
+        result.duringLoadingGrowth.distance > 2 ||
+        !result.duringLoadingGrowth.lastVisible ||
+        result.afterLoading.distance > 2 ||
+        !result.afterLoading.lastVisible ||
+        !result.loadingHistoryPreserved ||
         !result.historyPreserved,
     )
   )

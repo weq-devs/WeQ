@@ -40,7 +40,7 @@ import {
 import {
   buildSendElems,
   buildSendElemsWithMedia,
-  isSendMediaElement,
+  isSendUploadElement,
   type MediaSendContext,
   type SendDress,
   type SendElement,
@@ -85,9 +85,9 @@ export interface SendMessageParams {
    */
   dress?: SendDress;
   /**
-   * 媒体上传上下文（元素里含 image / record / video 时必填）。
+   * 媒体上传上下文（元素里含 image / record / video / flashPhoto 时必填）。
    *
-   * 只给「上传必需的」三样：native 绑定 + 进程 id + 自己 uin；场景 / 群号 /
+   * 只给「上传必需的」几样：native 绑定 + 进程 id + 自己 uin；场景 / 群号 /
    * 对方 uid 由 routing 参数推导（所以不会有「route 走群、上传走私聊」这种错配）。
    */
   media?: {
@@ -95,6 +95,8 @@ export interface SendMessageParams {
     pid: number;
     /** 自己账号的 uin（highway 帧头要带）。 */
     uin: string | number;
+    /** 自己 uid —— 闪照的老式上传（`LongConn.OffPicUp`）要带。 */
+    selfUid?: string;
     log?: (message: string) => void;
   };
 }
@@ -256,7 +258,9 @@ function resolveMediaContext(
 ): MediaSendContext {
   const media = params.media;
   if (!media) {
-    throw new Error('消息里含 image/record/video 元素，需要 params.media（nt/pid/uin）才能上传');
+    throw new Error(
+      '消息里含 image/record/video/flashPhoto 元素，需要 params.media（nt/pid/uin）才能上传',
+    );
   }
   return {
     nt: media.nt,
@@ -267,6 +271,7 @@ function resolveMediaContext(
     // 群临时会话不算群场景：上传走私聊形状（与 SnowLuma 一致）。
     groupId: params.groupId,
     userUid: params.userUid ?? params.groupTemp?.toUid,
+    ...(media.selfUid ? { selfUid: media.selfUid } : {}),
     ...(media.log ? { log: media.log } : {}),
     ...(onUpload ? { onUpload } : {}),
   };
@@ -347,7 +352,7 @@ export async function buildSendRequestWithMedia(
 ): Promise<SendRequestBuild> {
   const scene = resolveScene(params);
   const plan = resolveRouting(params);
-  if (!params.elements.some((element) => isSendMediaElement(element))) {
+  if (!params.elements.some((element) => isSendUploadElement(element))) {
     return assembleRequest(
       params,
       plan,

@@ -54,6 +54,64 @@ function groups(): Conversation[] {
 }
 
 describe('群助手', () => {
+  it('搜索与多选共用工具栏，支持群名、群号筛选和退出搜索', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const rows = groups();
+    try {
+      act(() =>
+        root.render(
+          h(
+            ContentSelectionProvider,
+            null,
+            h(MergedSessionPanel, {
+              kind: 'groupAssistant',
+              conversations: rows,
+              groupAssistantIds: new Set(rows.map((row) => row.id)),
+              anchorX: 0,
+              anchorY: 0,
+              onBack: vi.fn(),
+              onSelectConversation: vi.fn(),
+            }),
+          ),
+        ),
+      );
+      const toolbar = host.querySelector('.weq-directory-toolbar')!;
+      expect(host.querySelector('input')).toBeNull();
+      expect(toolbar.querySelector('[aria-label="多选群助手会话"]')).not.toBeNull();
+      act(() => toolbar.querySelector<HTMLButtonElement>('[aria-label="搜索群助手会话"]')!.click());
+      const input = toolbar.querySelector('input')!;
+      expect(document.activeElement).toBe(input);
+      const search = (value: string) => {
+        act(() => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+            input,
+            value,
+          );
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+      };
+      search('群一');
+      expect(host.querySelectorAll('.weq-merged-popover-row')).toHaveLength(1);
+      expect(host.querySelector('.weq-merged-popover-body')?.textContent).toContain('合成助手群一');
+      search('10002');
+      expect(host.querySelectorAll('.weq-merged-popover-row')).toHaveLength(1);
+      expect(host.querySelector('.weq-merged-popover-body')?.textContent).toContain('合成助手群二');
+      act(() =>
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+      );
+      expect(toolbar.querySelector('input')).toBeNull();
+      expect(host.querySelectorAll('.weq-merged-popover-row')).toHaveLength(2);
+      act(() => toolbar.querySelector<HTMLButtonElement>('[aria-label="多选群助手会话"]')!.click());
+      expect(toolbar.querySelector('[aria-label="全选当前结果"]')).not.toBeNull();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+
   it('会话时间与外层列表一致：今天、昨天、周内、更早和跨年', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -320,6 +378,7 @@ describe('群助手', () => {
           .find((node) => node.textContent === '在群助手内置顶')!
           .click(),
       );
+      act(() => host.querySelector<HTMLButtonElement>('[aria-label="搜索群助手会话"]')!.click());
       const input = host.querySelector<HTMLInputElement>('input')!;
       act(() => {
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(

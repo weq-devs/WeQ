@@ -2,6 +2,7 @@ export type MessagePhase =
   | 'observedToRenderer'
   | 'windowQuery'
   | 'entryQuery'
+  | 'entryFirstRows'
   | 'mapping'
   | 'stateToCommit'
   | 'commitToFrame'
@@ -10,13 +11,24 @@ const phases: MessagePhase[] = [
   'observedToRenderer',
   'windowQuery',
   'entryQuery',
+  'entryFirstRows',
   'mapping',
   'stateToCommit',
   'commitToFrame',
   'longTask',
 ];
 const samples = new Map<MessagePhase, { count: number; maxMs: number; values: number[] }>();
-const counters = { windowStarted: 0, windowDiscarded: 0, rowRenders: 0 };
+const counters = {
+  windowStarted: 0,
+  windowDiscarded: 0,
+  rowRenders: 0,
+  prefetchStarted: 0,
+  prefetchAdopted: 0,
+  prefetchReady: 0,
+  prefetchHit: 0,
+  entryCold: 0,
+  entryFallback: 0,
+};
 let generation = 0;
 export function recordMessagePhase(phase: MessagePhase, elapsed: number) {
   if (!Number.isFinite(elapsed) || elapsed < 0) return;

@@ -240,6 +240,7 @@ export const marketEmojiRouter = router({
     .input(
       z.object({
         savePolicy: exportSavePolicyInput.optional(),
+        includeIntegrityReport: z.boolean().optional(),
         ...exportAccountBindingInput.shape,
         packs: z
           .array(z.object({ id: z.string().min(1), name: z.string() }))
@@ -251,6 +252,10 @@ export const marketEmojiRouter = router({
       return requireServices(
         input.expectedAccountUin,
         input.expectedAccountConfigId,
-      ).exportManager.startMarketPackDownload(input.packs, input.savePolicy);
+      ).exportManager.startMarketPackDownload(
+        input.packs,
+        input.savePolicy,
+        input.includeIntegrityReport,
+      );
     }),
 });

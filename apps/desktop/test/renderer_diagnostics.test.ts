@@ -34,7 +34,7 @@ describe('渲染内存诊断隐私与上限', () => {
       documentVisible: null,
     });
     expect(Object.keys(sample.caches)).toHaveLength(6);
-    expect(JSON.stringify(sample)).not.toMatch(/secret|private/);
+    expect(JSON.stringify(sample)).not.toMatch(/secret|"private"/);
     expect(normalizeDevelopmentSample(null).caches.images).toMatchObject({ count: null });
   });
 
@@ -78,6 +78,8 @@ describe('渲染内存诊断隐私与上限', () => {
         workingSetKB: 1024,
         peakWorkingSetKB: 2048,
         privateBytesKB: null,
+        cpuPercent: null,
+        idleWakeupsPerSecond: null,
         pages: [
           { id: 1, category: 'main' },
           { id: 2, category: 'qzone' },

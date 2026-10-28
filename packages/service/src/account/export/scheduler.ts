@@ -48,6 +48,7 @@ export interface ScheduleRange {
 
 /** Media / content switches baked into the schedule template. */
 export interface ScheduleOptions {
+  includeIntegrityReport?: boolean;
   savePolicy?: import('./save_output').ExportSavePolicy;
   range: ScheduleRange;
   exportMedia: boolean;
@@ -419,6 +420,7 @@ export class ExportScheduler extends EventEmitter {
       try {
         const id = await this.deps.taskManager.startTask({
           savePolicy: t.options.savePolicy,
+          includeIntegrityReport: t.options.includeIntegrityReport,
           kind: c.kind,
           conv: c.id,
           name: c.name,

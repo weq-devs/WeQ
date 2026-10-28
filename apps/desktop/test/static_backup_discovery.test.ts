@@ -21,6 +21,7 @@ const f = vi.hoisted(() => ({
   peek: vi.fn(),
   derive: vi.fn(),
   other: vi.fn(),
+  loginDbPaths: vi.fn(() => []),
   key: vi.fn(),
   pid: vi.fn(),
   query: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock('../src/main/backup_probe', () => ({
 vi.mock('@weq/service', async (original) => ({
   ...(await original<typeof import('@weq/service')>()),
   fetchOtherDeviceDatabaseKey: f.other,
+  loginDbPaths: f.loginDbPaths,
 }));
 const roots: string[] = [];
 function fixture() {
@@ -68,6 +70,7 @@ const config = (patch: Partial<AccountConfig> = {}): AccountConfig => ({
 });
 beforeEach(() => {
   vi.resetAllMocks();
+  f.loginDbPaths.mockReturnValue([]);
   f.derive.mockResolvedValue(undefined);
   f.query.mockResolvedValue([]);
   f.peek.mockImplementation(async (_p, _dir, key) => {
@@ -289,6 +292,17 @@ it('先验证已有密钥，失败再用同账号配置登记 SSO 并请求其�
   expect(f.other).toHaveBeenCalledOnce();
   expect(f.other.mock.calls[0]?.[3]).toBe(join(dir, 'nt_msg.db'));
   expect(f.other.mock.calls[0]?.[4]).toMatchObject({ expectedUin: '12345', enabled: true });
+});
+it('本机 login.db 位置交给隔离探测，供缺 gpro 库的手机备份回退查 uid', async () => {
+  const dir = db(fixture());
+  f.loginDbPaths.mockReturnValue(['/synthetic/global/nt_db/login.db']);
+  f.derive.mockImplementationOnce(async (_nt, _dir, options) => {
+    expect(options).toMatchObject({ loginDbPaths: ['/synthetic/global/nt_db/login.db'] });
+    return { dbKey: 'valid' };
+  });
+  expect(await probeBackup(platform, [], dir, { allowOnline: false })).toMatchObject({
+    mobile: true,
+  });
 });
 it('明文、已保存密钥、安卓推导成功时不请求网络，离线开关和失效物料也不请求', async () => {
   const dir = db(fixture());

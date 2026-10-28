@@ -94,6 +94,19 @@ function mount(initialSection?: SectionId) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('Markdown 开关明确为自动渲染，关闭后仍可手动渲染', () => {
+    const f = mount('chat-messages');
+    try {
+      const row = f.body().querySelector('[data-setting-id="text-markdown"]')!;
+      expect(row.querySelector('.weq-set-row-label')?.textContent).toBe(
+        '纯文本消息自动渲染为 Markdown',
+      );
+      expect(row.querySelector('[aria-label="纯文本消息自动渲染为 Markdown"]')).not.toBeNull();
+      expect(row.textContent).toContain('仍可右键手动选择「显示 Markdown」');
+    } finally {
+      f.close();
+    }
+  });
   it('旧 TTS 页面直接定位 API 页内语音分区，不打开编辑弹窗', () => {
     const f = mount('tts');
     try {
@@ -188,6 +201,7 @@ describe('设置归位后的实际页面', () => {
         '发送消息后定位到最新消息',
         '向下滚动时显示定位到底部按钮',
         '使用 QQ 账号设置的个性字体发送消息',
+        '语音消息自动转文字',
       ]);
       const display = f.body().querySelector('[data-setting-id="custom-message-display"]')!;
       expect(display).not.toBeNull();
@@ -202,7 +216,7 @@ describe('设置归位后的实际页面', () => {
         '聊天头像挂件',
         '消息气泡',
         '消息字体',
-        '纯文本消息渲染 Markdown',
+        '纯文本消息自动渲染为 Markdown',
         '链接预览卡片',
         '无封面时网页截图',
       ]);
@@ -263,13 +277,11 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('未指定入口时默认主题与背景，普通页面导航不自动执行工具', () => {
+  it('未指定入口时默认启动，普通页面导航不自动执行工具', () => {
     const f = mount();
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('常规');
-      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '主题与背景',
-      );
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe('启动');
       expect(f.onOpenMaintenance).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -475,6 +487,13 @@ describe('设置归位后的实际页面', () => {
   it('自启独立于助手服务，旧后台入口转到内置组件，助手保留在服务区域', () => {
     const f = mount('startup');
     try {
+      expect(f.body().querySelector('[aria-label="启动时进入"]')?.textContent).toBe(
+        '主页消息上次退出时所在页面',
+      );
+      expect(
+        f.host.querySelector('.weq-settings-subnav-item.is-active .lucide-power'),
+      ).not.toBeNull();
+      expect(f.body().querySelector('.weq-set-head .lucide-power')).not.toBeNull();
       expect(f.body().textContent).toContain('开机自动启动');
       expect(f.body().textContent).not.toContain('启用 WeQ 助手');
       f.render('daemon');

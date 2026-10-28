@@ -9,11 +9,22 @@ import type { ContentSelection } from '../src/shared/content_selection';
 import { useViewState } from '../src/renderer/src/state/view';
 import { hasActiveModal } from '../src/renderer/src/lib/overlayStack';
 import type { GroupConversation } from '../src/renderer/src/im-template/template/types';
+import { PageSnapshots, usePageState } from '../src/renderer/src/components/PageSnapshots';
+import { pageValue } from '../src/renderer/src/lib/pageSnapshots';
 
 const fixture = vi.hoisted(() => ({
   selection: null as ContentSelection | null,
   exportRequest: null as { selection: ContentSelection; revision: number } | null,
   taskUnmounted: vi.fn(),
+  progress: 0,
+}));
+// 工具行为在这里同步验证，懒加载生命周期由页面卸载测试覆盖。
+vi.mock('../src/renderer/src/components/lazyWorkspaces', async () => ({
+  ...(await import('../src/renderer/src/views/ExportView')),
+  ...(await import('../src/renderer/src/views/ExportViewer')),
+  ...(await import('../src/renderer/src/views/analysis/AnalysisTool')),
+  ...(await import('../src/renderer/src/components/RoamingBackfillPanel')),
+  preloadWorkspace: vi.fn(),
 }));
 vi.mock('../src/renderer/src/state/contentSelection', () => ({
   useCurrentContentSelection: () => fixture.selection,
@@ -32,7 +43,8 @@ vi.mock('../src/renderer/src/views/ExportView', () => ({
     fixedScope?: boolean;
   }) => {
     const [seed] = useState(initialSelection);
-    const [progress, setProgress] = useState(0);
+    const [progress, setProgress] = useState(fixture.progress);
+    const [draft, setDraft] = usePageState('fixture-export-draft', '', pageValue.string, true);
     useEffect(
       () => () => {
         if (surface === 'tasks') fixture.taskUnmounted();
@@ -46,14 +58,21 @@ vi.mock('../src/renderer/src/views/ExportView', () => ({
         'data-fixed-scope': fixedScope,
       },
       '合成导出夹具',
-      createElement('input', { 'aria-label': '合成导出草稿', defaultValue: '' }),
+      createElement('input', {
+        'aria-label': '合成导出草稿',
+        value: draft,
+        onInput: (event) => setDraft(event.currentTarget.value),
+      }),
       surface === 'tasks' &&
         createElement(
           'button',
           {
             type: 'button',
             'data-task-progress': progress,
-            onClick: () => setProgress((value) => value + 1),
+            onClick: () => {
+              fixture.progress++;
+              setProgress(fixture.progress);
+            },
           },
           '推进合成任务',
         ),
@@ -96,15 +115,19 @@ vi.mock('../src/renderer/src/components/RoamingBackfillPanel', () => ({
 
 function workspaceTools(props: Partial<ComponentProps<typeof WorkspaceTools>> = {}) {
   return createElement(
-    'div',
-    null,
-    createElement(WorkspaceMenuButton),
-    createElement(WorkspaceTools, {
-      accountScope: 'fixture/config',
-      footerControls: null,
-      onOpenAnalysis: vi.fn(),
-      ...props,
-    }),
+    PageSnapshots,
+    { scope: props.accountScope ?? 'fixture/config' },
+    createElement(
+      'div',
+      null,
+      createElement(WorkspaceMenuButton),
+      createElement(WorkspaceTools, {
+        accountScope: 'fixture/config',
+        footerControls: null,
+        onOpenAnalysis: vi.fn(),
+        ...props,
+      }),
+    ),
   );
 }
 
@@ -135,9 +158,11 @@ function openTool(label: string) {
 }
 
 beforeEach(() => {
+  vi.stubGlobal('localStorage', new Storage());
   useWorkspaceMenu.setState({ anchor: null, running: 0, failed: 0 });
   fixture.selection = null;
   fixture.exportRequest = null;
+  fixture.progress = 0;
 });
 
 describe('工作菜单与内容工具范围', () => {
@@ -375,7 +400,10 @@ describe('工作菜单与内容工具范围', () => {
       const draft = document.querySelector<HTMLInputElement>(
         '.weq-tools-modal [aria-label="合成导出草稿"]',
       )!;
-      draft.value = '工具内调整后的范围';
+      act(() => {
+        draft.value = '工具内调整后的范围';
+        draft.dispatchEvent(new Event('input', { bubbles: true }));
+      });
       act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
       openTool('导出');
       expect(
@@ -461,7 +489,7 @@ describe('工作菜单与内容工具范围', () => {
       vi.unstubAllGlobals();
     }
   });
-  it('任务使用无模态菜单，关闭与切换工具仍保留任务现场', () => {
+  it('任务菜单关闭即卸载，重建后从后台状态恢复进度', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     fixture.taskUnmounted.mockClear();
@@ -480,17 +508,19 @@ describe('工作菜单与内容工具范围', () => {
       expect(progress.dataset.taskProgress).toBe('1');
       expect(dialog.closest('[hidden]')).toBeNull();
       act(() => menuTrigger().click());
-      expect(document.querySelector('[data-task-progress]')).toBe(progress);
-      expect(fixture.taskUnmounted).not.toHaveBeenCalled();
-      expect(progress.closest('[hidden]')).not.toBeNull();
+      expect(document.querySelector('[data-task-progress]')).toBeNull();
+      expect(fixture.taskUnmounted).toHaveBeenCalledOnce();
+      expect(progress.isConnected).toBe(false);
       openTool('导出');
       expect(hasActiveModal()).toBe(true);
       act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
       openMenu();
       expect(hasActiveModal()).toBe(false);
-      expect(document.querySelector('[data-task-progress]')).toBe(progress);
-      expect(progress.dataset.taskProgress).toBe('1');
-      expect(fixture.taskUnmounted).not.toHaveBeenCalled();
+      expect(document.querySelector('[data-task-progress]')).not.toBe(progress);
+      expect(
+        document.querySelector<HTMLElement>('[data-task-progress]')!.dataset.taskProgress,
+      ).toBe('1');
+      expect(fixture.taskUnmounted).toHaveBeenCalledTimes(2);
     } finally {
       act(() => root.unmount());
       host.remove();

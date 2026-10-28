@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { BuddyAnalyticsDialog } from '../src/renderer/src/components/BuddyAnalyticsDialog';
 import { formatDate } from '../src/renderer/src/components/analyticsCharts';
 import { GroupJoinBatches } from '../src/renderer/src/components/GroupJoinBatches';
+import { useViewState } from '../src/renderer/src/state/view';
 
 const fixture = vi.hoisted(() => ({ save: vi.fn(), query: vi.fn(), available: true }));
 vi.mock('../src/renderer/src/components/analyticsShot', () => ({
@@ -11,13 +12,19 @@ vi.mock('../src/renderer/src/components/analyticsShot', () => ({
   canExportAnalyticsCard: () => fixture.available,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  client: { account: { getBuddyAnalytics: { query: fixture.query } } },
+  client: {
+    account: {
+      getBuddyAnalytics: { query: fixture.query },
+      getAccountConfig: { query: async () => ({ configId: 'fixture-source' }) },
+    },
+  },
 }));
 afterEach(() => {
   fixture.available = true;
   vi.resetAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+  useViewState.setState({ openedUin: null });
 });
 
 it('没有图片导出桥接的环境明确禁用该操作，不把调用入口当作可用能力', async () => {
@@ -50,6 +57,7 @@ it('没有图片导出桥接的环境明确禁用该操作，不把调用入口�
 
 it('嵌入结果保留真实图片导出与时间口径，已有快照不重复扫描', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  useViewState.setState({ openedUin: '10001' });
   fixture.save.mockResolvedValue({ saved: false, canceled: true });
   const data = {
     peer: { uid: 'u_peer', uin: '' },
@@ -98,6 +106,8 @@ it('嵌入结果保留真实图片导出与时间口径，已有快照不重复�
     expect(fixture.save).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'buddy',
+        expectedAccountUin: '10001',
+        expectedAccountConfigId: 'fixture-source',
         peerUid: 'u_peer',
         data,
         periodLabel: '2026-10-01 至 2026-10-18 · 北京时间',

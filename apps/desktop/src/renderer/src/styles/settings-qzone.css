@@ -27,3 +27,12 @@
   flex-shrink: 0;
   margin-left: auto;
 }
+
+.weq-qzone-public-refresh-form {
+  flex-wrap: wrap;
+}
+
+.weq-qzone-public-refresh-form .weq-set-input {
+  flex-basis: 72px;
+  width: 72px;
+}

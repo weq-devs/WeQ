@@ -65,6 +65,14 @@ export interface CallStageProps {
   selfVideoOn?: boolean;
   /** 本端采集到的视频元素（画进 selfCanvasRef）。 */
   selfVideoElement?: HTMLVideoElement | null;
+  /**
+   * 本端画面来源。
+   *
+   * 摄像头在小窗里可以做镜像 / 圆形裁切（用户习惯看到「镜子里的自己」），
+   * 屏幕共享**不能**：镜像会让文字反过来、圆裁会把桌面截掉一圈。所以这一项
+   * 同时控制 `data-source` 属性与画法。
+   */
+  selfVideoSource?: 'camera' | 'screen';
   /** 对端是否在发视频（决定要不要铺满对端画面）。 */
   peerVideoOn?: boolean;
   /** 对端视频解码不可用时的提示；非空时画占位。 */
@@ -85,11 +93,20 @@ export function CallStage({
   selfCanvasRef,
   selfVideoOn = false,
   selfVideoElement = null,
+  selfVideoSource = 'camera',
   peerVideoOn = false,
   videoError = null,
 }: CallStageProps) {
   const live = state === 'connected';
   const ringing = state === 'calling' || state === 'ringing';
+  /**
+   * 只有接通期间才挂对端画面。
+   *
+   * 挂断后状态快照里的 `peerVideoOn` 可能还是上次的 true，直接照它渲染，界面就会
+   * 在「已挂断」之后继续显示「等待对方画面…」—— 那条画面已经不会来了。这里再兜
+   * 一次底，父组件传错也不会露出来。
+   */
+  const showPeerVideo = peerVideoOn && live;
   const hasBackdrop = !backdropFailed && Boolean(backgroundUrl || backgroundVideoUrl);
   const primary = peers[0];
   const peerLevel = primary?.level ?? 0;
@@ -114,7 +131,7 @@ export function CallStage({
    * 主画面用「对端在发视频」而不是「已有画面」：首帧到达前保持视频布局，
    * 否则会先闪一下语音形态再跳过去。
    */
-  const layout: 'audio' | 'peer' | 'self' | 'self-only' = peerVideoOn
+  const layout: 'audio' | 'peer' | 'self' | 'self-only' = showPeerVideo
     ? selfVideoOn
       ? 'self'
       : 'peer'
@@ -144,7 +161,7 @@ export function CallStage({
 
       {/* 对端画面。只有对端真的在发视频才挂载 —— 本端自己开摄像头不该让这里
           出现「等待对方画面」，那是两件独立的事。 */}
-      {peerVideoOn && peerCanvasRef ? (
+      {showPeerVideo && peerCanvasRef ? (
         <div className="weq-call-peer-video">
           <canvas ref={peerCanvasRef} className={peerVideoActive ? 'is-active' : ''} />
           {!peerVideoActive ? (
@@ -187,10 +204,16 @@ export function CallStage({
           - self-only 布局：铺满主区域（对端没开视频，只有自己）
           没有编码器时 canvas 一直是空的，CSS 的占位文字会盖住。 */}
       {selfCanvasRef && (layout === 'self' || layout === 'self-only') ? (
-        <div className={`weq-call-self-video${layout === 'self-only' ? ' is-full' : ''}`}>
+        <div
+          className={`weq-call-self-video${layout === 'self-only' ? ' is-full' : ''}`}
+          data-source={selfVideoSource}
+        >
           <canvas ref={selfCanvasRef} />
           {/* 采集到的画面直接画进 canvas：video 元素只做解码源，不挂进 DOM。 */}
           <SelfVideoPainter canvasRef={selfCanvasRef} video={selfVideoElement} />
+          {selfVideoSource === 'screen' ? (
+            <span className="weq-call-self-badge">正在共享屏幕</span>
+          ) : null}
         </div>
       ) : null}
 

@@ -51,7 +51,8 @@ vi.mock('@renderer/components/MemberAnalyticsDialog', () => ({
   MemberAnalyticsDialog: vi.fn(() => null),
 }));
 vi.mock('@renderer/components/qq-actions/CommonRelationships', () => ({
-  CommonRelationships: () => null,
+  CommonRelationships: ({ onNavigate }: { onNavigate?: () => void }) =>
+    createElement('button', { 'aria-label': '合成共同群跳转', onClick: onNavigate }),
 }));
 vi.mock('@renderer/components/QQGroupMemberControls', () => ({
   QQGroupMemberControls: () => null,
@@ -124,6 +125,12 @@ function layer(): HTMLElement {
 }
 
 describe('群成员资料卡浮层', () => {
+  it('共同群跳转通知关闭成员名片', async () => {
+    const close = vi.fn();
+    await mountCard(close);
+    act(() => document.querySelector<HTMLButtonElement>('[aria-label="合成共同群跳转"]')!.click());
+    expect(close).toHaveBeenCalledOnce();
+  });
   it('仅有 UID 的 @ 等入口在资料补全后显示 QQ 头像', async () => {
     let finish!: (
       profile: NonNullable<Awaited<ReturnType<typeof client.account.getProfile.query>>>,

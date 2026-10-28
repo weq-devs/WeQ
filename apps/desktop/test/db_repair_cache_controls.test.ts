@@ -1,4 +1,4 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { DbRepairPanel } from '../src/renderer/src/components/DbRepairPanel';
@@ -11,6 +11,7 @@ const fixture = vi.hoisted(() => ({
   reset: vi.fn(async () => ({ override: null })),
   invalidate: vi.fn(async () => {}),
   checkup: vi.fn<() => Promise<unknown>>(),
+  cancelCheckup: vi.fn(async () => ({ cancelled: true })),
   start: vi.fn<() => Promise<unknown>>(),
   backup: vi.fn<() => Promise<unknown>>(),
 }));
@@ -66,6 +67,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         pickCacheLocation: mutation(fixture.pick),
         resetCacheLocation: mutation(fixture.reset),
         checkup: mutation(fixture.checkup),
+        cancelCheckup: mutation(fixture.cancelCheckup),
         start: mutation(fixture.start),
         killQq: mutation(),
         restore: mutation(),
@@ -80,7 +82,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 let root: Root | null = null;
 let host: HTMLDivElement;
 let sequence = 0;
-let finishCheckup: () => void;
+let finishCheckup: (result?: unknown) => void;
 let finishRepair: () => void;
 let finishBackup: () => void;
 
@@ -96,10 +98,13 @@ beforeEach(() => {
   fixture.backup.mockClear();
   fixture.checkup.mockImplementation(
     () =>
-      new Promise((_, reject) => {
-        finishCheckup = () => reject(new Error('synthetic checkup finished'));
+      new Promise((resolve, reject) => {
+        finishCheckup = (result) =>
+          result === undefined ? reject(new Error('synthetic checkup finished')) : resolve(result);
       }),
   );
+  fixture.checkup.mockClear();
+  fixture.cancelCheckup.mockClear();
   fixture.start.mockImplementation(
     () =>
       new Promise((_, reject) => {
@@ -121,7 +126,11 @@ beforeEach(() => {
   const account = { uin: `synthetic-${sequence}`, name: '合成账号', avatarUrl: '' };
   act(() =>
     root!.render(
-      h(DbRepairPanel, { currentUin: account.uin, accounts: [account], onRefreshAccounts() {} }),
+      h(
+        StrictMode,
+        null,
+        h(DbRepairPanel, { currentUin: account.uin, accounts: [account], onRefreshAccounts() {} }),
+      ),
     ),
   );
 });
@@ -152,6 +161,47 @@ function selectDatabase(): void {
   if (!pick) throw new Error('数据库选项不存在');
   act(() => pick.click());
 }
+
+it('停止立即取消当前数据库体检，取消返回不记成检查失败，并可重新开始', async () => {
+  await act(async () => button('停止').click());
+  expect(fixture.cancelCheckup).toHaveBeenCalledWith(
+    expect.objectContaining({ taskId: expect.any(String) }),
+  );
+  await act(async () => finishCheckup());
+  expect(host.textContent).not.toContain('synthetic checkup finished');
+  expect(button('开始体检').disabled).toBe(false);
+  await act(async () => button('开始体检').click());
+  expect(fixture.checkup).toHaveBeenCalledTimes(2);
+});
+
+it('面板卸载会取消仍在运行的体检', async () => {
+  await act(async () => root!.unmount());
+  root = null;
+  expect(fixture.cancelCheckup).toHaveBeenCalledOnce();
+});
+
+it('StrictMode 模拟卸载不取消扫描，手动停止后也不接收迟到的成功结果', async () => {
+  await act(async () => {});
+  expect(fixture.cancelCheckup).not.toHaveBeenCalled();
+  expect(fixture.checkup).toHaveBeenCalledOnce();
+  await act(async () => button('停止').click());
+  await act(async () =>
+    finishCheckup({ dbName: 'nt_msg.db', verdict: 'healthy', summary: '迟到结果' }),
+  );
+  expect(host.textContent).not.toContain('一切健康');
+  expect(host.textContent).not.toContain('迟到结果');
+  expect(button('开始体检').disabled).toBe(false);
+});
+
+it('没有 randomUUID 的浏览器也能生成任务标识并重新体检', async () => {
+  await act(async () => button('停止').click());
+  await act(async () => finishCheckup());
+  vi.stubGlobal('crypto', {});
+  await act(async () => button('开始体检').click());
+  expect(fixture.checkup).toHaveBeenLastCalledWith(
+    expect.objectContaining({ taskId: expect.stringMatching(/^db-checkup-/) }),
+  );
+});
 
 it('体检尚未结束且空间不足时，仍可选择缓存位置或恢复默认，不启动修复', async () => {
   selectDatabase();

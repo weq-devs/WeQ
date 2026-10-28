@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { z } from 'zod';
+import { usePageState } from '../../components/PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import {
   AlertCircle,
   ArrowLeft,
@@ -104,14 +107,18 @@ export function MailPage({
   const activity = useQQReadActivity(active);
   const [status, setStatus] = useState(initialStatus);
   const [folders, setFolders] = useState<MailFolder[]>([...SYSTEM_MAIL_FOLDERS]);
-  const [folderId, setFolderId] = useState(1),
-    [pageNumber, setPageNumber] = useState(0);
-  const [unreadOnly, setUnreadOnly] = useState(false),
-    [query, setQuery] = useState(''),
-    [keyword, setKeyword] = useState('');
+  const [folderId, setFolderId] = usePageState('folder', 1, pageValue.number),
+    [pageNumber, setPageNumber] = usePageState('page', 0, pageValue.number);
+  const [unreadOnly, setUnreadOnly] = usePageState('unread', false, pageValue.boolean),
+    [query, setQuery] = usePageState('query', '', pageValue.string),
+    [keyword, setKeyword] = usePageState('keyword', '', pageValue.string);
   const [page, setPage] = useState(emptyPage),
     [loading, setLoading] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null),
+  const [selectedId, setSelectedId] = usePageState<string | null>(
+      'selected',
+      null,
+      pageValue.optionalString,
+    ),
     [detail, setDetail] = useState<MailDetail | null>(null),
     [reading, setReading] = useState(false);
   const [threadRoot, setThreadRoot] = useState<string | null>(null);
@@ -124,8 +131,36 @@ export function MailPage({
     selectionAnchor.current = null;
     setChecked([]);
   }, []);
-  const [draft, setDraft] = useState<MailDraft | null>(null),
-    [showCompose, setShowCompose] = useState(false),
+  const [draft, setDraft] = usePageState<MailDraft | null>(
+      'draft',
+      null,
+      z
+        .object({
+          key: z.string(),
+          to: z.string(),
+          cc: z.string(),
+          bcc: z.string(),
+          subject: z.string(),
+          content: z.string(),
+          plainText: z.boolean(),
+          attachments: z.array(
+            z.object({
+              id: z.string(),
+              name: z.string(),
+              size: z.number(),
+              big: z.boolean(),
+              available: z.boolean(),
+            }),
+          ),
+          replyId: z.string().optional(),
+          forwardId: z.string().optional(),
+          draftId: z.string().optional(),
+          unsaved: z.boolean().optional(),
+        })
+        .nullable(),
+      true,
+    ),
+    [showCompose, setShowCompose] = usePageState('compose-open', false, pageValue.boolean),
     [composeBusy, setComposeBusy] = useState(false),
     [composeDirty, setComposeDirty] = useState(false);
   const [revision, setRevision] = useState(0),
@@ -167,7 +202,7 @@ export function MailPage({
       // 重选当前文件夹时查询参数不变，也必须显式重新读取列表。
       setRevision((value) => value + 1);
     },
-    [clearChecked],
+    [clearChecked, setSelectedId, setKeyword, setShowCompose, setQuery, setPageNumber, setFolderId],
   );
   const handledSearch = useRef('');
   const [searchReadRevision, setSearchReadRevision] = useState(0);
@@ -194,7 +229,7 @@ export function MailPage({
       setSelectedId(searchTarget.id);
       setSearchReadRevision((value) => value + 1);
     })();
-  }, [active, ready, searchTarget, chooseFolder, showCompose, composeDirty]);
+  }, [active, ready, searchTarget, chooseFolder, showCompose, composeDirty, setSelectedId]);
 
   const connect = useCallback(async () => {
     setError('');
@@ -253,7 +288,7 @@ export function MailPage({
       api.dispose();
       download.current?.abort();
     };
-  }, [api, connect, chooseFolder]);
+  }, [api, connect, chooseFolder, setSelectedId]);
   useEffect(() => {
     onUnreadChange?.(status.unread);
   }, [onUnreadChange, status.unread]);
@@ -492,6 +527,8 @@ export function MailPage({
     [page.items],
   );
 
+  // 邮件连接与通知继续运行；非活动时释放整个阅读/编辑界面。在途提交完成后再卸载。
+  if (!active && !composeBusy && !actionBusy && !downloading) return null;
   return (
     <section
       className="weq-mail-workspace"
@@ -837,6 +874,7 @@ export function MailPage({
                 hidden={!showCompose}
                 onBusyChange={setComposeBusy}
                 onDirtyChange={setComposeDirty}
+                onDraftChange={setDraft}
                 onClose={() => {
                   setDraft(null);
                   setShowCompose(false);

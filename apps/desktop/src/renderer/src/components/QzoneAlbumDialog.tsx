@@ -31,6 +31,7 @@ import { useMultiSelection } from '../hooks/useMultiSelection';
 import type { ExportSavePolicy } from '@weq/service';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from './ServerSavePrompt';
+import { useExportReportDialog } from '../views/export/ExportReportControl';
 import { IS_WEB } from '../lib/target';
 import { QZONE_ALBUM_PAGE_SIZE as PAGE_NUM } from '../../../shared/qzone_album_export';
 import '../styles/qzone-album-save.css';
@@ -668,6 +669,7 @@ export function AlbumGridView({
   onOpen: (album: QzoneAlbumWire) => void;
 }): ReactElement {
   const [exporting, setExporting] = useState(false);
+  const report = useExportReportDialog();
   const {
     selected: checked,
     setSelected: setChecked,
@@ -707,10 +709,13 @@ export function AlbumGridView({
     cancelled.current = false;
     setExporting(true);
     try {
+      const includeIntegrityReport = await report.choose();
+      if (includeIntegrityReport === null || cancelled.current || !save.isCurrent()) return;
       const policy = await save.prepareSave(intent, { kind: 'bundle', name: '空间相册' });
       if (!policy || cancelled.current || !save.isCurrent()) return;
       const taskId = await client.account.startQzoneAlbumsExport.mutate({
         ...binding,
+        includeIntegrityReport,
         hostUin,
         name: '空间相册',
         albums: targets,
@@ -729,6 +734,7 @@ export function AlbumGridView({
 
   return (
     <div className="weq-qzal-album-list">
+      {report.dialog}
       {save.serverLocation && (
         <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
       )}
@@ -849,6 +855,7 @@ export function MediaView({
   const showError = useDialog((s) => s.showError);
   const pushToast = useToast((s) => s.push);
   const [downloading, setDownloading] = useState(false);
+  const report = useExportReportDialog();
   const save = useExportSavePolicy();
   const downloadLock = useRef(false);
 
@@ -1002,12 +1009,15 @@ export function MediaView({
     downloadLock.current = true;
     setDownloading(true);
     try {
+      const includeIntegrityReport = items.length > 1 ? await report.choose() : false;
+      if (includeIntegrityReport === null || !save.isCurrent()) return;
       const policy = IS_WEB
         ? await save.prepareSave(intent, { kind: 'bundle', name: albumName })
         : save.policy;
       if (!policy || !save.isCurrent()) return;
       const taskId = await client.account.startQzoneAlbumMediaExport.mutate({
         ...binding,
+        includeIntegrityReport,
         hostUin,
         topicId,
         name: albumName || '空间相册媒体',
@@ -1026,6 +1036,7 @@ export function MediaView({
 
   return (
     <div className="weq-qzal-media-view">
+      {report.dialog}
       {save.serverLocation && (
         <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
       )}

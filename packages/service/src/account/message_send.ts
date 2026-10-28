@@ -33,6 +33,7 @@ import {
   type ReadReportResult,
 } from '@weq/protocol';
 import {
+  isSendUploadElement,
   sendContactArk,
   sendForward as protocolSendForward,
   sendGroupFile,
@@ -460,9 +461,14 @@ export interface SendMessageOutcome {
   hint?: string;
 }
 
-/** 需要上传的元素类型（媒体消息必须带 uid）。 */
+/**
+ * 需要上传的元素类型（媒体消息必须带 uid）。
+ *
+ * 闪照也算：它走老式图片通道（`PicUp.DataUp`），同样要 native 上下文 —
+ * 只是路由不需要 uid（老通道只看 uin），带上传上下文是唯一目的。
+ */
 function elementsNeedUpload(elements: readonly SendElement[]): boolean {
-  return elements.some((e) => e.kind === 'image' || e.kind === 'record' || e.kind === 'video');
+  return elements.some((e) => isSendUploadElement(e));
 }
 
 export class MessageSendService {
@@ -1000,6 +1006,8 @@ export class MessageSendService {
               nt: this.nt,
               pid,
               uin: this.selfUin(),
+              // 闪照的老式上传（`LongConn.OffPicUp`）要带自己的 uid，其它媒体用不到。
+              ...(this.session.selfUid ? { selfUid: this.session.selfUid } : {}),
               // 上传链路（会话节点 / 每块 highway 回帧）写进账号日志：真机排查
               // 「上传成功但收端说过期」时，这是唯一能看到服务端态度的地方。
               log: (message: string) => logger.info(message, { event: 'media-upload' }),

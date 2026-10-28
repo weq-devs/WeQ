@@ -36,6 +36,7 @@ import {
   Palette,
   PhoneCall,
   Plug,
+  Power,
   Radio,
   ScanText,
   Settings2,
@@ -56,6 +57,7 @@ import { MailSettingsSection } from './settings/MailSettingsSection';
 import { PrivacySection } from './settings/PrivacySection';
 import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
+import { ComponentAppearance } from './settings/ComponentAppearance';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
@@ -73,6 +75,7 @@ import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMai
 import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
 import { ResourceManagementSection } from './settings/ResourceManagementSection';
 import { ChatImageCacheSettings } from './settings/ChatImageCacheSettings';
+import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
 import { Card, Row, SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
@@ -87,6 +90,8 @@ import '../styles/settings-navigation.css';
 import '../styles/app-search.css';
 import type { SettingsSearchTarget } from './settings/searchTarget';
 import { RetainedTabs, TabActivity, useTabActive } from './RetainedTabs';
+import { PageSnapshotsFallback, usePageState } from './PageSnapshots';
+import { z } from 'zod';
 import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
 import { useAppLock } from '../state/lock';
 import {
@@ -98,12 +103,7 @@ import {
   type SettingsPageId,
 } from './settings/navigation';
 export type { SectionId } from './settings/navigation';
-import {
-  useThemeStore,
-  type ThemeBackground,
-  type ThemeComponentStyle,
-  type ThemePreference,
-} from '../state/theme';
+import { useThemeStore, type ThemeBackground, type ThemePreference } from '../state/theme';
 import { useUpdateStore } from '../state/update';
 
 /** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
@@ -340,8 +340,8 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'startup',
-    label: '开机启动',
-    icon: <Monitor size={16} />,
+    label: '启动',
+    icon: <Power size={16} />,
     render: () => <StartupSection />,
   },
   {
@@ -423,10 +423,18 @@ export function SettingsDialog({
   isCurrentSource?: () => boolean;
 }): ReactElement | null {
   const target = useMemo(
-    () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'appearance' }),
+    () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'startup' }),
     [initialSection, searchTarget],
   );
-  const [activeId, setActiveId] = useState<SettingsPageId>(() => target.section);
+  const [activeId, setActiveId] = usePageState<SettingsPageId>(
+    'settings:active',
+    () => target.section,
+    z.custom<SettingsPageId>(
+      (value) =>
+        typeof value === 'string' &&
+        SETTINGS_GROUPS.some((group) => group.sections.some((section) => section === value)),
+    ),
+  );
   const updateAvailable = useUpdateStore((state) => state.available);
   const locked = useAppLock((state) => state.locked);
   const navRef = useRef<HTMLElement | null>(null);
@@ -439,9 +447,9 @@ export function SettingsDialog({
   const groupSections = group.sections.map((id) => sections.find((section) => section.id === id)!);
 
   useEffect(() => {
-    if (open) setActiveId(target.section);
+    if (open && (initialSection || searchTarget)) setActiveId(target.section);
     if (open) setMobileCategoryOpen(Boolean(initialSection || searchTarget));
-  }, [open, initialSection, searchTarget, target]);
+  }, [open, initialSection, searchTarget, target, setActiveId]);
 
   useEffect(() => {
     if (open) {
@@ -542,39 +550,45 @@ export function SettingsDialog({
           </nav>
           <div className="weq-settings-pages">
             <TabActivity active={!locked}>
-              <RetainedTabs activeKey={active.id}>
-                <RetainedSettingsPage pageId={active.id} target={target}>
-                  <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
-                    {active.id === 'chat-messages' ? (
-                      <>
-                        <div className="weq-set">
-                          <SectionHeader
-                            title="聊天消息"
-                            icon={<Monitor size={16} strokeWidth={1.8} />}
-                          />
-                        </div>
-                        <AccountBasicsSection page="read" heading={false} />
-                        <TypingStatusSettingsCard />
-                        <div>
-                          <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
-                            <AntiRecallDialog
-                              embedded
-                              onClose={() => {}}
-                              onOpenRecalls={onOpenRecalls}
-                              recallDetails={recallDetails}
-                              onCloseRecalls={onCloseRecalls}
-                              isCurrentSource={isCurrentSource}
+              <PageSnapshotsFallback scope="bootstrap-settings">
+                <RetainedTabs snapshotKey="settings" activeKey={active.id}>
+                  <RetainedSettingsPage
+                    pageId={active.id}
+                    target={target}
+                    revision={searchTarget?.revision}
+                  >
+                    <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
+                      {active.id === 'chat-messages' ? (
+                        <>
+                          <div className="weq-set">
+                            <SectionHeader
+                              title="聊天消息"
+                              icon={<Monitor size={16} strokeWidth={1.8} />}
                             />
-                          </SettingsScopeContext.Provider>
-                        </div>
-                        <AppearanceSection page="messages" heading={false} />
-                      </>
-                    ) : (
-                      active.render(onOpenMaintenance)
-                    )}
-                  </SettingsScopeContext.Provider>
-                </RetainedSettingsPage>
-              </RetainedTabs>
+                          </div>
+                          <AccountBasicsSection page="read" heading={false} />
+                          <TypingStatusSettingsCard />
+                          <div>
+                            <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
+                              <AntiRecallDialog
+                                embedded
+                                onClose={() => {}}
+                                onOpenRecalls={onOpenRecalls}
+                                recallDetails={recallDetails}
+                                onCloseRecalls={onCloseRecalls}
+                                isCurrentSource={isCurrentSource}
+                              />
+                            </SettingsScopeContext.Provider>
+                          </div>
+                          <AppearanceSection page="messages" heading={false} />
+                        </>
+                      ) : (
+                        active.render(onOpenMaintenance)
+                      )}
+                    </SettingsScopeContext.Provider>
+                  </RetainedSettingsPage>
+                </RetainedTabs>
+              </PageSnapshotsFallback>
             </TabActivity>
           </div>
         </div>
@@ -610,13 +624,11 @@ function AppearanceSection({
   const preference = useThemeStore((state) => state.preference);
   const accent = useThemeStore((state) => state.accent);
   const background = useThemeStore((state) => state.background);
-  const componentStyle = useThemeStore((state) => state.componentStyle);
   const setPreference = useThemeStore((state) => state.setPreference);
   const setAccent = useThemeStore((state) => state.setAccent);
   const setBackground = useThemeStore((state) => state.setBackground);
-  const setComponentStyle = useThemeStore((state) => state.setComponentStyle);
 
-  // 「纯文本消息渲染 Markdown」——不像主题那样存 localStorage，而是走 AppSettings
+  // 「纯文本消息自动渲染为 Markdown」——不像主题那样存 localStorage，而是走 AppSettings
   // （config.json）：渲染层要通过 App.tsx 的 TextMarkdownContext 广播给每条气泡。
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     enabled: active,
@@ -734,15 +746,7 @@ function AppearanceSection({
             <ThemeBackgroundRow value={background} onChange={setBackground} />
           </div>
 
-          <div className="weq-settings-appearance-card is-placeholder">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>组件风格</strong>
-                <span>切换整套组件皮肤，目前仅提供经典版</span>
-              </div>
-            </div>
-            <ComponentStyleRow value={componentStyle} onChange={setComponentStyle} />
-          </div>
+          <ComponentAppearance />
         </>
       )}
       {page === 'messages' && (
@@ -846,6 +850,7 @@ function AppearanceSection({
             </div>
           ))}
           {readingError ? <p role="alert">{readingError}</p> : null}
+          <VoiceAutoTranscribeSetting />
           <ChatImageCacheSettings />
           <Card title="自定义消息显示" settingId="custom-message-display">
             <Row
@@ -945,12 +950,12 @@ function AppearanceSection({
             ))}
             <Row
               settingId="text-markdown"
-              label="纯文本消息渲染 Markdown"
+              label="纯文本消息自动渲染为 Markdown"
               desc={
                 <>
                   把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
-                  自己的功能——QQ 只把专门的 Markdown 消息当富文本，关掉后纯文本原样显示 （QQ 原生
-                  Markdown 消息不受影响）。
+                  自己的功能，关闭后默认显示原文，仍可右键手动选择「显示
+                  Markdown」。单条消息的手动选择优先，QQ 原生 Markdown 消息不受影响。
                 </>
               }
               control={
@@ -958,7 +963,7 @@ function AppearanceSection({
                   checked={textMarkdown}
                   disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
                   onChange={(next) => void onSetTextMarkdown(next)}
-                  label="纯文本消息渲染 Markdown"
+                  label="纯文本消息自动渲染为 Markdown"
                 />
               }
             />
@@ -1262,42 +1267,6 @@ function ThemeBackgroundRow({
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function ComponentStyleRow({
-  value,
-  onChange,
-}: {
-  value: ThemeComponentStyle;
-  onChange: (next: ThemeComponentStyle) => void;
-}) {
-  return (
-    <div className="weq-settings-preset-grid" role="radiogroup" aria-label="组件风格">
-      <button
-        type="button"
-        className={`weq-settings-preset-card${value === 'classic' ? ' is-active' : ''}`}
-        role="radio"
-        aria-checked={value === 'classic'}
-        onClick={() => onChange('classic')}
-      >
-        <span className="weq-settings-preset-preview is-style-classic" aria-hidden="true" />
-        <strong>经典</strong>
-        <small>当前默认组件套</small>
-      </button>
-      <div
-        className="weq-settings-preset-card is-locked"
-        role="radio"
-        aria-checked={false}
-        aria-disabled="true"
-      >
-        <span className="weq-settings-preset-preview is-style-soon" aria-hidden="true">
-          <Lock size={16} />
-        </span>
-        <strong>暂未提供</strong>
-        <small>暂无其他组件风格可选</small>
-      </div>
     </div>
   );
 }

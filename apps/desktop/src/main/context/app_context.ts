@@ -1243,6 +1243,29 @@ export function initAppContext(fileRoot?: string): AppContext {
     voiceReady,
   });
 
+  /**
+   * MCP 服务器是账号级的：只在有账号打开时监听。在线账号与导入的备份账号
+   * （PC 快照 / 手机备份）在 services 就位后都调这一个函数；运行期改配置走
+   * `applyMcp`。失败只记日志 —— 打不开账号不该因为 MCP 端口被占而失败。
+   */
+  const startConfiguredMcp = (): void => {
+    const mcp = userConfig.getSettings().mcp;
+    if (!mcp.enabled || !mcp.token) return;
+    startMcpServer({ port: mcp.port, token: mcp.token })
+      .then((boundPort) => {
+        // Port fallback may have moved us off a squatted port; persist the
+        // real one so the UI / client config stay in sync.
+        if (boundPort !== mcp.port) userConfig.setSettings({ mcp: { port: boundPort } });
+      })
+      .catch((error) => {
+        logger.error('failed to start mcp server on account open', {
+          event: 'mcp-start-failed',
+          port: mcp.port,
+          ...logErrorContext(error),
+        });
+      });
+  };
+
   const ctx: AppContext = {
     platform,
     bootstrap,
@@ -1745,6 +1768,11 @@ export function initAppContext(fileRoot?: string): AppContext {
             },
             // 好友 QQ 空间说说导出：翻页拉取 + 评论/点赞补全能力（需在线 QQ）。
             qzone: {
+              fetchAlbumPage: (uin, offset, signal) =>
+                webQuery.getQzoneAlbumPage(uin, offset, signal),
+              fetchAlbumPhotos: (uin, id, start, count) =>
+                webQuery.getQzoneAlbumPhotos(uin, id, start, count),
+              fetchAlbumVideo: (uin, id, key) => webQuery.getQzoneAlbumVideoUrl(uin, id, key),
               fetchPostDetail: (uin, tid, signal, captureRaw) =>
                 webQuery.getQzonePostDetail(uin, tid, signal, captureRaw),
               fetchPostImages: (uin, tid, signal, captureRaw) =>
@@ -2112,22 +2140,7 @@ export function initAppContext(fileRoot?: string): AppContext {
 
       // MCP server is account-bound: only listen while an account is open.
       // Start it now if enabled; live toggling is handled by `applyMcp`.
-      const mcp = userConfig.getSettings().mcp;
-      if (mcp.enabled && mcp.token) {
-        startMcpServer({ port: mcp.port, token: mcp.token })
-          .then((boundPort) => {
-            // Port fallback may have moved us off a squatted port; persist the
-            // real one so the UI / client config stay in sync.
-            if (boundPort !== mcp.port) userConfig.setSettings({ mcp: { port: boundPort } });
-          })
-          .catch((error) => {
-            logger.error('failed to start mcp server on account open', {
-              event: 'mcp-start-failed',
-              port: mcp.port,
-              ...logErrorContext(error),
-            });
-          });
-      }
+      startConfiguredMcp();
 
       // WeQ 助手 is account-bound too: ensure the fabricated conversation exists
       // + start the loopback server when enabled. Live toggling → applyWeqAssistant.
@@ -2580,6 +2593,11 @@ export function initAppContext(fileRoot?: string): AppContext {
               },
             },
             qzone: {
+              fetchAlbumPage: (uin, offset, signal) =>
+                webQuery.getQzoneAlbumPage(uin, offset, signal),
+              fetchAlbumPhotos: (uin, id, start, count) =>
+                webQuery.getQzoneAlbumPhotos(uin, id, start, count),
+              fetchAlbumVideo: (uin, id, key) => webQuery.getQzoneAlbumVideoUrl(uin, id, key),
               fetchPostDetail: (uin, tid, signal, captureRaw) =>
                 webQuery.getQzonePostDetail(uin, tid, signal, captureRaw),
               fetchPostImages: (uin, tid, signal, captureRaw) =>
@@ -2840,6 +2858,10 @@ export function initAppContext(fileRoot?: string): AppContext {
       // （PC 快照 / 手机备份），WeQ 不该在里面留下任何 DDL。代价只是这类账号打开
       // 报告时慢一点 —— 与「备份保持原样」相比，这个代价可以接受。
       // （实时账号的预热见上面在线路径里的 warmAnnualReportIndex 调用。）
+
+      // MCP 与账号绑定，不区分在线 / 静态：备份账号的库同样能被只读查询，
+      // 上面开头统一停过服，这里按配置重新起来（手机备份也是这条路径）。
+      startConfiguredMcp();
 
       // Still no anti-recall triggers, no health check and no scheduler.
     },

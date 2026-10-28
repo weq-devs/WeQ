@@ -3,6 +3,38 @@ import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { WindowedList } from '../src/renderer/src/components/WindowedList';
 
+it('预取回调只报告真实可视行，不含虚拟列表预留行', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div'),
+    root = createRoot(host);
+  const visible = vi.fn();
+  try {
+    act(() =>
+      root.render(
+        createElement(WindowedList<string>, {
+          items: Array.from({ length: 100 }, (_, index) => String(index)),
+          rowHeight: 50,
+          height: 400,
+          itemKey: (item) => item,
+          renderItem: (item) => createElement('button', null, item),
+          onVisibleItems: visible,
+        }),
+      ),
+    );
+    const viewport = host.querySelector<HTMLDivElement>('[data-weq-windowed-list]')!;
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 100 });
+    act(() => {
+      viewport.scrollTop = 500;
+      viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    expect(visible).toHaveBeenLastCalledWith(['10', '11']);
+    expect(host.querySelectorAll('button').length).toBeGreaterThan(2);
+  } finally {
+    act(() => root.unmount());
+    vi.unstubAllGlobals();
+  }
+});
+
 it('列表被布局压缩后，按真实可视高度定位目标，而不是使用原始请求高度', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');

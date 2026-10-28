@@ -177,6 +177,7 @@ blockquote{margin:12px 0;padding-inline-start:16px;border-inline-start:2px solid
 }
 
 export interface MailDraft {
+  unsaved?: boolean;
   key: string;
   to: string;
   cc: string;

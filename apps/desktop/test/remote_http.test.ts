@@ -84,6 +84,20 @@ describe('远程原型的最小 HTTP 面', () => {
     ).toBe(413);
   });
 
+  it('未授权请求耗尽自己的配额后，合法设备仍能使用 Remote', async () => {
+    const claim = pairing.claim({
+      invitation: pairing.invite().secret,
+      name: '合法手机',
+      tokenHash: tokenHash(token),
+    });
+    pairing.decide(claim.id, true);
+    for (let i = 0; i < 120; i++) {
+      expect((await fetch(`${base}/v1/hello`)).status).toBe(200);
+    }
+    expect((await fetch(`${base}/v1/hello`)).status).toBe(429);
+    expect((await fetch(`${base}/v1/status`, { headers })).status).toBe(200);
+  });
+
   it('限制未认证请求频率', async () => {
     for (let i = 0; i < 120; i++) await fetch(`${base}/v1/status`);
     expect((await fetch(`${base}/v1/status`)).status).toBe(429);

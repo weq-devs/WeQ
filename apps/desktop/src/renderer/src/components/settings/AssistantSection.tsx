@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { pageValue } from '../../lib/pageSnapshots';
 import { Activity, Check, Copy, Save } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
@@ -16,7 +18,11 @@ export function AssistantSection() {
   const confirm = useDialog((state) => state.confirm);
   const showError = useDialog((state) => state.showError);
   const pushToast = useToast((state) => state.push);
-  const [portDraft, setPortDraft] = useState('');
+  const [portDraft, setPortDraft] = usePageState('assistant:port', '', pageValue.string, true);
+  usePageDraftConfirmation(
+    'assistant:port',
+    status.data?.port == null ? undefined : String(status.data.port),
+  );
   const previousPort = useRef<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [linking, setLinking] = useState(false);
@@ -29,7 +35,7 @@ export function AssistantSection() {
     const next = String(data.port);
     setPortDraft((draft) => (draft === (previous ?? '') ? next : draft));
     previousPort.current = next;
-  }, [data?.port]);
+  }, [data?.port, setPortDraft]);
   async function toggle(enabled: boolean) {
     if (linkingRef.current) return;
     linkingRef.current = true;
@@ -134,6 +140,7 @@ export function AssistantSection() {
           }
         />
         <Row
+          settingId="assistant-port"
           label="端口"
           desc="20000–65535"
           control={

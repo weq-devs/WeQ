@@ -12,6 +12,8 @@ import {
 import { createPortal } from 'react-dom';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { TabActivity } from './RetainedTabs';
+import { PageSnapshotScope } from './PageSnapshots';
+import { PageScrollSnapshot } from './PageScrollSnapshot';
 import '../styles/workspace-surfaces.css';
 import '../styles/page-chrome.css';
 
@@ -206,7 +208,23 @@ export function WorkspacePage({
       hidden={!active}
       tabIndex={-1}
     >
-      <TabActivity active={active}>{children}</TabActivity>
+      <TabActivity active={active}>
+        {active ? (
+          <PageSnapshotScope name={`workspace:${placement}:${title}`}>
+            <PageScrollSnapshot
+              style={{
+                display: 'flex',
+                flex: 1,
+                minWidth: 0,
+                minHeight: 0,
+                flexDirection: 'column',
+              }}
+            >
+              {children}
+            </PageScrollSnapshot>
+          </PageSnapshotScope>
+        ) : null}
+      </TabActivity>
     </div>
   );
   return context ? (host ? createPortal(content, host) : null) : content;

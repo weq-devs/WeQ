@@ -26,6 +26,7 @@ import '../../styles/market-browser.css';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { useAppDialog } from '../../lib/dialogUtils';
+import { useExportReportDialog } from './ExportReportControl';
 import { GridSkeleton } from './ExportSkeleton';
 
 const PAGE = 60;
@@ -283,6 +284,7 @@ export function MarketEmojiBrowserLightbox({
 }): ReactElement {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
+  const report = useExportReportDialog();
   const save = useExportSavePolicy();
   const selection = useContentMultiSelect({ kind: 'market-emojis', container: 'catalog' });
   const [downloading, setDownloading] = useState(false);
@@ -334,6 +336,8 @@ export function MarketEmojiBrowserLightbox({
     setDownloading(true);
     setQueued(false);
     try {
+      const includeIntegrityReport = await report.choose();
+      if (includeIntegrityReport === null || !save.isCurrent()) return;
       const policy = await save.prepareSave(intent, {
         kind: 'bundle',
         name: targets.length === 1 ? targets[0]!.name || targets[0]!.id : '商城表情包',
@@ -342,6 +346,7 @@ export function MarketEmojiBrowserLightbox({
       if (!policy || !save.isCurrent()) return;
       await client.account.marketEmoji.startDownload.mutate({
         packs: targets,
+        includeIntegrityReport,
         ...binding,
         savePolicy: policy,
         ...(save.accountUin ? { expectedAccountUin: save.accountUin } : {}),
@@ -483,6 +488,7 @@ export function MarketEmojiBrowserLightbox({
       aria-labelledby={embedded ? undefined : 'weq-market-title'}
       onMouseDown={(e) => e.stopPropagation()}
     >
+      {report.dialog}
       {save.serverLocation && (
         <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
       )}

@@ -6,6 +6,7 @@ import { GrayTipPokeMessage } from '../src/renderer/src/components/GrayTipPokeMe
 import { GrayTipGroupMessage } from '../src/renderer/src/components/GrayTipGroupMessage';
 import { GrayTipXmlMessage } from '../src/renderer/src/components/GrayTipXmlMessage';
 import { GrayTipRevokeMessage } from '../src/renderer/src/components/GrayTipRevokeMessage';
+import { ReplyJumpContext } from '../src/renderer/src/components/QqMessageContent';
 import { GrayTipLine } from '../src/renderer/src/im-template/template/messageRow';
 import { grayTipProfileTarget } from '../src/renderer/src/lib/grayTipProfile';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
@@ -139,6 +140,56 @@ it('XML 灰条支持 UID、明确 QQ 号和未加载的用户，不把数字当�
   act(() => f.people()[1]!.click());
   expect(f.open.mock.calls[1]![0]).toMatchObject({ id: '', identityValue: '10009' });
 });
+
+it.each(['63954', '9007199254740993'])('贴表情灰条按 msgseq=%s 跳转到原消息', (seq) => {
+  const jump = vi.fn();
+  const f = mount(
+    h(
+      ReplyJumpContext.Provider,
+      { value: jump },
+      h(GrayTipXmlMessage, {
+        conversation: group,
+        message,
+        element: {
+          type: 'grayTipXml',
+          data: {
+            grayTipXmlContent: `<gtip align="center"><nor txt="回应了你的"/><url jp="" msgseq="${seq}" col="3" txt="消息:"/><face type="1" id="424"/></gtip>`,
+          },
+        },
+      }),
+    ),
+  );
+  const link = f.host.querySelector<HTMLButtonElement>('button[title="跳转到原消息"]');
+  expect(link?.textContent).toBe('消息:');
+  expect(f.host.textContent).toBe('回应了你的消息:表情');
+  const bubble = vi.fn();
+  document.body.addEventListener('click', bubble);
+  cleanups.push(() => document.body.removeEventListener('click', bubble));
+  act(() => link!.click());
+  expect(jump).toHaveBeenCalledTimes(1);
+  expect(jump).toHaveBeenCalledWith({ seq });
+  expect(bubble).not.toHaveBeenCalled();
+});
+
+it.each(['', '0', '-1', '1.5', '12oops', '1e3'])(
+  'XML 灰条缺失或无效的 msgseq=%s 保留文字，不猜测跳转目标',
+  (seq) => {
+    const f = mount(
+      h(GrayTipXmlMessage, {
+        conversation: group,
+        message,
+        element: {
+          type: 'grayTipXml',
+          data: {
+            grayTipXmlContent: `<gtip><url jp="https://example.invalid/?msgseq=123" msgseq="${seq}">消息</url></gtip>`,
+          },
+        },
+      }),
+    );
+    expect(f.people()).toHaveLength(0);
+    expect(f.host.textContent).toBe('消息');
+  },
+);
 
 it('JSON 人名按各自 UID 定位，普通链接、仅有昵称和数字动作参数不变成名片', () => {
   const f = mount(

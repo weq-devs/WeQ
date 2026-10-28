@@ -12,6 +12,7 @@ import { useToast } from './Toast';
 import { collectGroupFileSubtree, resolveGroupFileSelection } from '../lib/groupFileSelection';
 import type { GroupFileWire, GroupFolderWire } from '../lib/groupFile';
 import '../styles/group-media.css';
+import { useExportReportDialog } from '../views/export/ExportReportControl';
 
 interface Props {
   groupCode: string;
@@ -37,6 +38,7 @@ function GroupFileDialogBody({
   const mediaSave = useMediaSave(),
     save = useExportSavePolicy();
   const toast = useToast((s) => s.push);
+  const report = useExportReportDialog();
   const [crumbs, setCrumbs] = useState<Crumb[]>(
     initialFolderId && initialFolderId !== '/'
       ? [ROOT, { id: initialFolderId, name: '定位目录', known: false }]
@@ -113,10 +115,13 @@ function GroupFileDialogBody({
     if (!isCurrent()) return;
     if (!selected.size) throw new Error('所选文件夹中没有可保存的文件');
     const name = `${groupName} 群文件`;
+    const includeIntegrityReport = await report.choose();
+    if (includeIntegrityReport === null || !isCurrent()) return;
     const savePolicy = await save.prepareSave(undefined, { kind: 'bundle', name });
     if (!savePolicy || !isCurrent()) return;
     await client.account.startGroupFileExport.mutate({
       ...binding,
+      includeIntegrityReport,
       groupCode,
       name,
       savePolicy,
@@ -137,6 +142,7 @@ function GroupFileDialogBody({
       className="modal-scrim group-album-scrim"
       onClose={() => void leave(onClose)}
     >
+      {report.dialog}
       <section
         className="group-album-dialog group-file-dialog"
         ref={root}

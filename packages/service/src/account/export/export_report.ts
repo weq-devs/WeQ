@@ -1,5 +1,9 @@
 import type { ExportTask } from './task_manager';
 
+export function supportsExportReport(task: ExportTask): boolean {
+  return task.includeIntegrityReport ?? (!task.resource && !task.marketpack && !task.emojipack);
+}
+
 export function exportReport(task: ExportTask) {
   const failures = task.stages.flatMap((stage) => stage.failures ?? []);
   const unresolved = task.stages.filter(

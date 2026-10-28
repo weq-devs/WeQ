@@ -30,6 +30,31 @@ export function startRendererDiagnostics(options: {
         maxEntries: 8640,
       })
     : createDiagnosticLog(options.directory);
+  const trend = development
+    ? createDiagnosticLog(join(options.directory, 'dev-memory-monitor'), {
+        basename: 'memory-trend',
+        maxBytes: 2 * 1024 * 1024,
+        maxEntries: 2880,
+      })
+    : null;
+  if (development) {
+    const identity = {
+      kind: 'diagnostic-session',
+      ts: new Date().toISOString(),
+      mainPid: process.pid,
+      electron: process.versions.electron,
+      chrome: process.versions.chrome,
+      node: process.versions.node,
+      platform: process.platform,
+      arch: process.arch,
+      intervalMs: DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS,
+    };
+    log.write(identity);
+    trend?.write(identity);
+  }
+  let latestProcesses: ReturnType<typeof projectDiagnosticProcesses> = [];
+  let lastTrendAt = -Infinity;
+  let lastTrendPid = 0;
   const pages = new Map<number, DiagnosticPage & { createdAtMs: number | null; dispose(): void }>();
   let stopped = false;
   let sequence = 0;
@@ -76,7 +101,7 @@ export function startRendererDiagnostics(options: {
     const gone = (_event: Electron.Event, details: Electron.RenderProcessGoneDetails): void => {
       if (stopped) return;
       if (pending?.id === contents.id) pending = null;
-      log.write({
+      const record = {
         kind: 'renderer-exit',
         ts: new Date().toISOString(),
         id: page.id,
@@ -85,7 +110,9 @@ export function startRendererDiagnostics(options: {
         category: page.id === options.mainWebContentsId() ? 'main' : page.category,
         reason: normalizeRendererExitReason(details.reason),
         exitCode: details.exitCode,
-      });
+      };
+      log.write(record);
+      trend?.write(record);
     };
     const destroyed = (): void => {
       page.dispose();
@@ -111,13 +138,14 @@ export function startRendererDiagnostics(options: {
         page.category = category(content);
         page.createdAtMs = metrics.find((metric) => metric.pid === page.pid)?.creationTime ?? null;
       }
+      latestProcesses = projectDiagnosticProcesses(metrics, [...pages.values()]);
       log.write({
         kind: 'process-sample',
         ...(development
           ? { development: true, intervalMs: DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS }
           : {}),
         ts: new Date().toISOString(),
-        processes: projectDiagnosticProcesses(metrics, [...pages.values()]),
+        processes: latestProcesses,
         omittedProcesses: Math.max(0, metrics.length - DIAGNOSTIC_PROCESS_LIMIT),
         omittedPages: Math.max(0, contents.length - pages.size),
         detailCoverage: {
@@ -161,6 +189,12 @@ export function startRendererDiagnostics(options: {
       return;
     const request = pending;
     pending = null;
+    const normalized = normalizeRendererSample(raw);
+    const detail = development
+      ? normalizeDevelopmentSample(
+          typeof raw === 'object' && raw !== null && 'development' in raw ? raw.development : null,
+        )
+      : null;
     log.write({
       kind: 'renderer-details',
       ts: new Date().toISOString(),
@@ -168,17 +202,37 @@ export function startRendererDiagnostics(options: {
       pid: request.pid,
       createdAtMs: request.createdAtMs,
       category: 'main',
-      ...normalizeRendererSample(raw),
-      ...(development
-        ? {
-            development: normalizeDevelopmentSample(
-              typeof raw === 'object' && raw !== null && 'development' in raw
-                ? raw.development
-                : null,
-            ),
-          }
-        : {}),
+      sequence: request.sequence,
+      responseDelayMs: Date.now() - request.requestedAtMs,
+      ...normalized,
+      ...(detail ? { development: detail } : {}),
     });
+    if (trend && detail && (Date.now() - lastTrendAt >= 60_000 || lastTrendPid !== request.pid)) {
+      lastTrendAt = Date.now();
+      lastTrendPid = request.pid;
+      trend.write({
+        kind: 'memory-trend',
+        ts: new Date().toISOString(),
+        pid: request.pid,
+        createdAtMs: request.createdAtMs,
+        sequence: request.sequence,
+        process: latestProcesses.find((metric) => metric.pid === request.pid) ?? null,
+        mainView: detail.mainView,
+        documentVisible: detail.documentVisible,
+        jsHeapUsedBytes: normalized.jsHeapUsedBytes,
+        externalBytes: normalized.externalBytes,
+        blinkAllocatedKB: normalized.blinkAllocatedKB,
+        blinkTotalKB: normalized.blinkTotalKB,
+        processMemory: detail.processMemory,
+        heap: detail.heap,
+        domNodes: normalized.domNodes,
+        resources: normalized.resources,
+        images: detail.caches.images,
+        media: detail.media,
+        styles: detail.styles,
+        runningAnimations: detail.runningAnimations,
+      });
+    }
   };
   const created = (_event: Electron.Event, contents: WebContents): void => track(contents);
   app.on('web-contents-created', created);

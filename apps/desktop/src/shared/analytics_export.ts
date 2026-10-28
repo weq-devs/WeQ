@@ -27,6 +27,9 @@ export interface AnalyticsExportMember {
  * 那一个对象）。形状对不上时隐藏窗口会退回自己重新查询，所以这里刻意松。
  */
 export interface AnalyticsExportPayload {
+  expectedAccountUin?: string;
+  expectedAccountConfigId?: string;
+  savePolicy?: import('@weq/service').ExportSavePolicy;
   kind: AnalyticsExportKind;
   /** 文件名主体，如群名 / 好友名 / 成员名。 */
   title: string;
@@ -46,6 +49,7 @@ export interface AnalyticsExportPayload {
 /** 导出结果：与「保存对话框」的语义一致。 */
 export interface AnalyticsExportResult {
   saved: boolean;
+  taskId?: string;
   canceled?: boolean;
   path?: string;
   error?: string;

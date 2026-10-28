@@ -35,11 +35,13 @@ import type {
 import type { ExportTimeRange } from './types';
 import type { parseQzonePostDetail } from '../web/qzone_detail';
 import { qzoneImageCompletionScope } from '../../common/qzone_media_scope';
+import type { QzoneAlbumExportDeps } from './qzone_albums';
+import type { QzoneMediaStore } from './qzone_media_store';
 
 export type QzoneRawKind = 'feeds' | 'comments' | 'likes' | 'detail' | 'images';
 
 /** 注入的说说拉取能力（一页）。 */
-export interface QzoneExportDeps {
+export interface QzoneExportDeps extends Partial<QzoneAlbumExportDeps> {
   fetchPostDetail?: (
     targetUin: string,
     tid: string,
@@ -153,6 +155,7 @@ export interface QzoneInteractionCoverage {
 
 /** 一次拉取的说说数据（含互动 / 配图统计）—— 多格式产物共用，避免重复翻页 / 重复拉互动。 */
 export interface QzoneExportData {
+  mediaPaths?: Record<string, string>;
   selection?: { tids: string[] };
   /** 时间窗过滤后的说说；拉过互动则 `comments` / `likes` 已挂上（否则缺失）。 */
   rows: EmotionWithInteraction[];
@@ -173,6 +176,7 @@ export interface QzoneExportData {
 
 /** {@link collectQzone} 的入参：拉说说 + 可选互动 / 配图。 */
 export interface QzoneCollectOpts extends QzonePaginationOptions {
+  mediaStore?: QzoneMediaStore;
   /** 精确离散条目；空数组不等于整空间，且不叠加日期范围。 */
   tids?: string[];
   onRawInteraction?: (capture: {
@@ -525,6 +529,7 @@ function fmtTime(sec: number): string {
 
 /** 带互动字段的说说（导出形态；未拉互动时两个字段缺失，等同 QzoneEmotion）。 */
 export interface EmotionWithInteraction extends QzoneEmotion {
+  localMedia?: Record<string, string>;
   contentEvidence?: {
     body: 'complete' | 'observed' | 'truncated' | 'failed';
     images: 'observed' | 'expanded' | 'failed';
@@ -881,15 +886,16 @@ function videoToHtml(
   i: number,
   localMedia: boolean,
   mediaFiles?: Set<string>,
+  mediaPaths?: Record<string, string>,
 ): string {
   if (localMedia) {
     const body =
       !mediaFiles || mediaFiles.has(videoBodyFileName(e, i))
-        ? `media/${encodeURI(videoBodyFileName(e, i))}`
+        ? `media/${encodeURI(mediaPaths?.[videoBodyFileName(e, i)] ?? videoBodyFileName(e, i))}`
         : v.videoUrl;
     const cover = v.coverUrl
       ? !mediaFiles || mediaFiles.has(videoCoverFileName(e, i))
-        ? `media/${encodeURI(videoCoverFileName(e, i))}`
+        ? `media/${encodeURI(mediaPaths?.[videoCoverFileName(e, i)] ?? videoCoverFileName(e, i))}`
         : v.coverUrl
       : '';
     return (
@@ -909,17 +915,22 @@ function videoToHtml(
 }
 
 /** 说说配图网格：图片 + 视频混合排布；下载了走本地 `media/`，否则直接引用远端（完整渲染）。 */
-function picturesToHtml(e: QzoneEmotion, localMedia: boolean, mediaFiles?: Set<string>): string {
+function picturesToHtml(
+  e: QzoneEmotion,
+  localMedia: boolean,
+  mediaFiles?: Set<string>,
+  mediaPaths?: Record<string, string>,
+): string {
   const imgs = e.images.map((url, i) => {
     const local =
       localMedia && (!mediaFiles || mediaFiles.has(imageFileName(e, url, i)))
-        ? `media/${encodeURI(imageFileName(e, url, i))}`
+        ? `media/${encodeURI(mediaPaths?.[imageFileName(e, url, i)] ?? imageFileName(e, url, i))}`
         : '';
     const href = local || url;
     const ext = local ? '' : ' target="_blank" rel="noreferrer"';
     return `<a href="${escapeHtml(href)}"${ext}><img loading="lazy" src="${escapeHtml(href)}" alt="配图 ${i + 1}" referrerpolicy="no-referrer"></a>`;
   });
-  const vids = e.videos.map((v, i) => videoToHtml(e, v, i, localMedia, mediaFiles));
+  const vids = e.videos.map((v, i) => videoToHtml(e, v, i, localMedia, mediaFiles, mediaPaths));
   const items = [...imgs, ...vids];
   if (items.length === 0) return '';
   const one = items.length === 1;
@@ -935,6 +946,7 @@ function emotionToHtml(
   author: { name: string; uin: string },
   localMedia: boolean,
   mediaFiles?: Set<string>,
+  mediaPaths?: Record<string, string>,
 ): string {
   const when = e.time ? fmtTime(e.time) : '';
   const privateBadge = e.isPrivate ? '<span class="badge is-private">私密</span>' : '';
@@ -947,9 +959,11 @@ function emotionToHtml(
     '</div></header>';
   const content = e.content ? `<div class="content">${qzoneTextToHtml(e.content)}</div>` : '';
   const pictures =
-    qzoneImageCompletionScope(e) === 'repost' ? '' : picturesToHtml(e, localMedia, mediaFiles);
+    qzoneImageCompletionScope(e) === 'repost'
+      ? ''
+      : picturesToHtml(e, localMedia, mediaFiles, mediaPaths);
   const repost = e.repost
-    ? `<blockquote class="repost"><strong>${escapeHtml(e.repost.nickname || e.repost.uin)}</strong><div class="content">${qzoneTextToHtml(e.repost.content)}</div>${picturesToHtml({ ...e, ...e.repost, tid: `${e.tid}_repost` }, localMedia, mediaFiles)}</blockquote>`
+    ? `<blockquote class="repost"><strong>${escapeHtml(e.repost.nickname || e.repost.uin)}</strong><div class="content">${qzoneTextToHtml(e.repost.content)}</div>${picturesToHtml({ ...e, ...e.repost, tid: `${e.tid}_repost` }, localMedia, mediaFiles, mediaPaths)}</blockquote>`
     : '';
   const stats = statsToHtml(e);
   const coverageText = interactionCoverageText(e);
@@ -1068,10 +1082,18 @@ async function downloadMedia(
   mediaRoot: string,
   onMedia?: (done: number, total: number) => void,
   signal?: AbortSignal,
-): Promise<{ ok: number; failed: number; files: string[]; outcomes: QzoneMediaOutcome[] }> {
+  mediaStore?: QzoneMediaStore,
+): Promise<{
+  ok: number;
+  failed: number;
+  files: string[];
+  outcomes: QzoneMediaOutcome[];
+  paths: Record<string, string>;
+}> {
   const jobs: Array<{ url: string; dest: string; path: string; kind: 'image' | 'video' }> = [];
   const files: string[] = [];
   const outcomes: QzoneMediaOutcome[] = [];
+  const paths: Record<string, string> = {};
   for (const e of emotions) {
     const sources: QzoneEmotion[] = [
       qzoneImageCompletionScope(e) === 'repost' ? { ...e, images: [], videos: [] } : e,
@@ -1109,12 +1131,12 @@ async function downloadMedia(
   const total = jobs.length;
   if (total === 0) {
     onMedia?.(0, 0);
-    return { ok: 0, failed: 0, files, outcomes };
+    return { ok: 0, failed: 0, files, outcomes, paths };
   }
   if (signal?.aborted) {
     for (const job of jobs)
       outcomes.push({ path: job.path, url: job.url, status: 'cancelled', variant: 'unverified' });
-    return { ok: 0, failed: jobs.length, files, outcomes };
+    return { ok: 0, failed: jobs.length, files, outcomes, paths };
   }
   await mkdir(mediaRoot, { recursive: true });
 
@@ -1132,15 +1154,22 @@ async function downloadMedia(
         outcomes.push({ path: job.path, url: job.url, status: 'cancelled', variant: 'unverified' });
         continue;
       }
-      const outcome = await downloadUrlToFile(job.url, job.dest, {
-        signal,
-        expectedKind: job.kind,
-      });
+      const outcome = mediaStore
+        ? await mediaStore.save(job.url, job.kind, signal)
+        : await downloadUrlToFile(job.url, job.dest, {
+            signal,
+            expectedKind: job.kind,
+          });
       if (outcome.ok) {
+        const path =
+          'fileName' in outcome && typeof outcome.fileName === 'string'
+            ? outcome.fileName
+            : job.path;
+        paths[job.path] = path;
         ok += 1;
         files.push(job.path);
         outcomes.push({
-          path: job.path,
+          path,
           url: job.url,
           status: 'saved',
           variant: 'unverified',
@@ -1162,7 +1191,7 @@ async function downloadMedia(
     }
   };
   await Promise.all(Array.from({ length: Math.min(4, total) }, worker));
-  return { ok, failed, files, outcomes };
+  return { ok, failed, files, outcomes, paths };
 }
 
 /**
@@ -1478,12 +1507,32 @@ export async function collectQzone(
   let mediaFailed = 0;
   let mediaFiles: string[] | undefined;
   let mediaOutcomes: QzoneMediaOutcome[] | undefined;
+  let mediaPaths: Record<string, string> | undefined;
   if (opts.mediaRoot) {
-    const r = await downloadMedia(rows, opts.mediaRoot, opts.onMedia, opts.signal);
+    const r = await downloadMedia(rows, opts.mediaRoot, opts.onMedia, opts.signal, opts.mediaStore);
     mediaOk = r.ok;
     mediaFailed = r.failed;
     mediaFiles = r.files;
     mediaOutcomes = r.outcomes;
+    if (opts.mediaStore) {
+      mediaPaths = r.paths;
+      const paths = new Map(
+        r.outcomes
+          .filter((item) => item.status === 'saved')
+          .map((item) => [item.url, `media/${item.path}`]),
+      );
+      for (const row of rows) {
+        const urls = [
+          ...row.images,
+          ...row.videos.flatMap((video) => [video.videoUrl, video.coverUrl]),
+          ...(row.repost?.images ?? []),
+          ...(row.repost?.videos.flatMap((video) => [video.videoUrl, video.coverUrl]) ?? []),
+        ];
+        row.localMedia = Object.fromEntries(
+          urls.flatMap((url) => (paths.has(url) ? [[url, paths.get(url)!]] : [])),
+        );
+      }
+    }
   }
 
   return {
@@ -1493,6 +1542,7 @@ export async function collectQzone(
     mediaFailed,
     mediaFiles,
     mediaOutcomes,
+    ...(mediaPaths ? { mediaPaths } : {}),
     ...(interaction ? { interaction } : {}),
   };
 }
@@ -1522,6 +1572,7 @@ export async function writeQzone(
                   { name: opts.name, uin: opts.targetUin },
                   opts.localMedia,
                   data.mediaFiles ? new Set(data.mediaFiles) : undefined,
+                  data.mediaPaths,
                 ),
               )
               .join('\n'),

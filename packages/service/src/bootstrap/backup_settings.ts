@@ -7,7 +7,7 @@ export type WeqAppBackupSettings = Omit<
   AppSettings,
   'agentLab' | 'mcp' | 'externalRkey' | 'ssePush' | 'voiceTranscribe'
 > & {
-  voiceTranscribe: Pick<AppSettings['voiceTranscribe'], 'modelId'>;
+  voiceTranscribe: Pick<AppSettings['voiceTranscribe'], 'modelId' | 'autoTranscribe'>;
 };
 type PartialSettings<T> = T extends object ? { [K in keyof T]?: PartialSettings<T[K]> } : T;
 export type WeqAppBackupPatch = PartialSettings<WeqAppBackupSettings>;
@@ -29,7 +29,13 @@ export function snapshotWeqSettings(settings: AppSettings): WeqAppBackupSettings
     voiceTranscribe,
     ...app
   } = settings;
-  return structuredClone({ ...app, voiceTranscribe: { modelId: voiceTranscribe.modelId } });
+  return structuredClone({
+    ...app,
+    voiceTranscribe: {
+      modelId: voiceTranscribe.modelId,
+      autoTranscribe: voiceTranscribe.autoTranscribe,
+    },
+  });
 }
 
 export function snapshotWeqApiSettings(settings: AppSettings): WeqApiBackupSettings {
@@ -146,6 +152,11 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
   // 默认空数组无法描述元素结构，输入状态单独校验，避免被当作普通对象。
   const { typingStatus, home, ...scalarSettings } = input;
   shape(scalarSettings, snapshotWeqSettings(DEFAULT_APP_SETTINGS), 'settings');
+  if (
+    input.startupPage !== undefined &&
+    !['home', 'messages', 'last'].includes(String(input.startupPage))
+  )
+    fail('settings.startupPage');
   if (Object.hasOwn(input, 'home')) {
     const page = fields(
       home,

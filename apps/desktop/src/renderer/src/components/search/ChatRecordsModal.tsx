@@ -11,6 +11,7 @@ import { c2cAvatarSrc, groupAvatarSrc, highlightText } from './SearchResultCard'
 import type { ChatRecordSearchHit, ConversationRecordHit, MoreSearchResult } from './types';
 import { client } from '../../trpc/client';
 import { preflightExportEstimate } from '../../views/export/preflight';
+import { useExportReportDialog } from '../../views/export/ExportReportControl';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../QqMessageContent';
 import { MessageBubble } from '../../im-template/template/messageBubble';
@@ -69,6 +70,7 @@ export function ChatRecordsModal({
   >('jsonl');
   const [exportBusy, setExportBusy] = useState(false);
   const [includeMedia, setIncludeMedia] = useState(false);
+  const report = useExportReportDialog();
   const [msgError, setMsgError] = useState('');
   const [browseHasMore, setBrowseHasMore] = useState(false);
   const browseCursor = useRef<{ time: number; rowId: string } | null>(null);
@@ -357,6 +359,7 @@ export function ChatRecordsModal({
       width={960}
       labelledBy="weq-chatrecords-title"
     >
+      {report.dialog}
       <div className="weq-chatrecords">
         <div className="weq-chatrecords-head" data-window-drag-handle>
           <div className="weq-chatrecords-title-wrap">
@@ -553,6 +556,8 @@ export function ChatRecordsModal({
                 setExportBusy(true);
                 setMsgError('');
                 void (async () => {
+                  const includeIntegrityReport = await report.choose();
+                  if (includeIntegrityReport === null) return;
                   const range = { start: filter.start ?? null, end: filter.end ?? null };
                   if (
                     !(await preflightExportEstimate(
@@ -574,6 +579,7 @@ export function ChatRecordsModal({
                   )
                     return;
                   await client.account.startExport.mutate({
+                    includeIntegrityReport,
                     kind: selected.source === 'group' ? 'group' : 'c2c',
                     conv: selected.targetUid,
                     name: selected.name,

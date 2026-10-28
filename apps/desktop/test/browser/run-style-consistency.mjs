@@ -51,6 +51,18 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/style-consistency.html`,
   );
   await page.waitForSelector('.weq-ark-security');
+  await page.evaluate(() => {
+    window.grayTipJumps = [];
+    window.addEventListener('graytip-jump', (event) => window.grayTipJumps.push(event.detail));
+  });
+  const messageLink = page.getByRole('button', { name: '消息:' });
+  await messageLink.click();
+  await messageLink.focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Space');
+  const jumps = await page.evaluate(() => window.grayTipJumps);
+  if (jumps.length !== 3 || jumps.some((target) => target.seq !== '63954'))
+    throw new Error('灰条消息点击、Enter 或空格未跳转到目标序号');
   if (output) await mkdir(output, { recursive: true });
   const failures = [];
   const results = [];
@@ -90,7 +102,30 @@ try {
         (node) => node.textContent === '合成详情',
       );
       const item = css('.group-essence-header');
+      const pill = '.weq-affinity-pill.tier-unrated';
+      const pillBackground = document.createElement('canvas').getContext('2d');
+      pillBackground.fillStyle = css('html').backgroundColor;
+      pillBackground.fillRect(0, 0, 1, 1);
+      pillBackground.fillStyle = css('.style-fixture').backgroundColor;
+      pillBackground.fillRect(0, 0, 1, 1);
+      pillBackground.fillStyle = css(pill).backgroundColor;
+      pillBackground.fillRect(0, 0, 1, 1);
+      const pillBackgroundHex = `#${[...pillBackground.getImageData(0, 0, 1, 1).data]
+        .slice(0, 3)
+        .map((value) => value.toString(16).padStart(2, '0'))
+        .join('')}`;
       return {
+        unratedPillForeground: color(pill) === token('--weq-fg-primary'),
+        unratedPillContrast:
+          window.styleConsistency.contrastRatio(color(pill), pillBackgroundHex) >= 4.5,
+        unratedPillIcon: color(`${pill} svg`) === color(pill),
+        unratedPillBackground: css(pill).backgroundColor !== 'rgba(0, 0, 0, 0)',
+        unratedPillResponsive:
+          css(`${pill} > span`).display === (innerWidth <= 720 ? 'none' : 'block') &&
+          (innerWidth > 720 || css(pill).width === '36px'),
+        scoredPillUnchanged:
+          color('.weq-affinity-pill.tier-2') === '#ffffff' &&
+          css('.weq-affinity-pill.tier-2').backgroundImage.includes('linear-gradient'),
         arkBody: pixel(getComputedStyle(detail).color) === token('--weq-fg-primary'),
         flashContrast:
           window.styleConsistency.contrastRatio(
@@ -102,6 +137,10 @@ try {
           [...document.querySelectorAll('.weq-graytip-accent')].every(
             (node) => pixel(getComputedStyle(node).color) === token('--weq-accent-ink'),
           ),
+        grayTipMessage:
+          css('.weq-graytip-message-link').backgroundColor === 'rgba(0, 0, 0, 0)' &&
+          css('.weq-graytip-message-link').fontSize === css('.weq-graytip').fontSize &&
+          css('.weq-graytip-message-link').cursor === 'pointer',
         externalAccent: bg('.weq-extsite-btn') === token('--weq-accent-solid'),
         externalContrast:
           window.styleConsistency.contrastRatio(

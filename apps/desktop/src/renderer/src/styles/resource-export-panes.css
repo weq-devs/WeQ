@@ -1,0 +1,74 @@
+.weq-resource-export-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  color: var(--weq-fg-primary);
+}
+.weq-qzone-export-content {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.weq-resource-export-target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+.weq-resource-export-target label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 180px;
+}
+.weq-resource-export-target input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+}
+.weq-resource-export-target input:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-resource-export-target button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  color: var(--weq-fg-primary);
+  background: transparent;
+  cursor: pointer;
+}
+.weq-resource-export-target button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+html[data-theme='dark'] .weq-resource-export-target input {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+.weq-exp-dialog[data-export-variant='qzone'] .weq-exp-dialog-foot .weq-exp-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+@media (max-width: 540px) {
+  .weq-exp-dialog[data-export-variant='qzone'] .weq-exp-dialog-foot {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .weq-exp-dialog[data-export-variant='qzone'] .weq-exp-dialog-foot-note {
+    flex: 1 1 100%;
+  }
+}

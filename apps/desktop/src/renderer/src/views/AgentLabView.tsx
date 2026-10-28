@@ -1,12 +1,7 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
+import { z } from 'zod';
+import { usePageState } from '../components/PageSnapshots';
+import { pageValue } from '../lib/pageSnapshots';
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import {
   ChevronDown,
   MessageCircle,
@@ -30,13 +25,7 @@ import {
   type FlatModels,
   type StartCloneArgs,
 } from './agentlab/NewCloneModal';
-import { CloneProgressModal } from './agentlab/CloneProgressModal';
-import {
-  startCloneTask,
-  dismissCloneTask,
-  subscribeCloneTasks,
-  getCloneTasks,
-} from './agentlab/cloneTaskStore';
+import { startCloneTask } from './agentlab/cloneTaskStore';
 import { PersonaSettingsModal } from './agentlab/PersonaSettingsModal';
 import { CloneGenerationPanel } from '../components/settings/CloneGenerationPanel';
 import { personaUpdatedAt } from './agentlab/personaUpdatedAt';
@@ -47,7 +36,6 @@ import { NewGroupModal, type GroupPersonaOption } from './agentlab/NewGroupModal
 import { GroupChatPanel } from './agentlab/GroupChatPanel';
 import type { GeneratedSearchHit } from '../components/search/types';
 import '../styles/agentlab-workspace.css';
-import { useViewState } from '../state/view';
 
 /** 好友资料里 AgentLab 头像/名称真正用到的字段（够用即可，避免耦合完整 profile 结构）。 */
 type AgentLabProfileWire = {
@@ -462,22 +450,47 @@ export function AgentLabView({
     return { chat: build('chat'), embedding: build('embedding'), vision: build('vision') };
   }, [providers.data]);
 
-  const [sel, setSel] = useState<Selection>(() => {
-    if (searchTarget && (searchTarget.kind === 'assistant') === (mode === 'assistant')) {
-      return searchTarget.kind === 'assistant'
-        ? { kind: 'assistant', sessionId: searchTarget.sessionId, navKey: 0, searchTarget }
-        : {
-            kind: searchTarget.kind,
-            id: searchTarget.ownerId,
-            sessionId: searchTarget.sessionId,
-            navKey: 0,
-            searchTarget,
-          };
-    }
-    return mode === 'assistant'
-      ? { kind: 'assistant', sessionId: null, navKey: 0 }
-      : { kind: 'home' };
-  });
+  const [sel, setSel] = usePageState<Selection>(
+    'agentlab:selection',
+    () => {
+      if (searchTarget && (searchTarget.kind === 'assistant') === (mode === 'assistant')) {
+        return searchTarget.kind === 'assistant'
+          ? { kind: 'assistant', sessionId: searchTarget.sessionId, navKey: 0, searchTarget }
+          : {
+              kind: searchTarget.kind,
+              id: searchTarget.ownerId,
+              sessionId: searchTarget.sessionId,
+              navKey: 0,
+              searchTarget,
+            };
+      }
+      return mode === 'assistant'
+        ? { kind: 'assistant', sessionId: null, navKey: 0 }
+        : { kind: 'home' };
+    },
+    z
+      .discriminatedUnion('kind', [
+        z.object({ kind: z.literal('home') }),
+        z.object({
+          kind: z.literal('assistant'),
+          sessionId: z.string().nullable(),
+          navKey: z.number(),
+        }),
+        z.object({
+          kind: z.literal('persona'),
+          id: z.string(),
+          sessionId: z.string().nullable(),
+          navKey: z.number(),
+        }),
+        z.object({
+          kind: z.literal('group'),
+          id: z.string(),
+          sessionId: z.string().nullable(),
+          navKey: z.number(),
+        }),
+      ])
+      .and(z.object({ readOnlyLegacy: z.boolean().optional() })),
+  );
   // WeQ 助手会话列表：仅进入助手模式时拉取。
   const assistantSessionsQuery = trpc.account.listAssistantSessions.useQuery(undefined, {
     enabled: sel.kind === 'assistant',
@@ -533,21 +546,26 @@ export function AgentLabView({
     },
   );
   const openingLegacy = openTarget?.kind === 'persona' ? openPersonaLegacy : openGroupLegacy;
-  const appliedOpenTarget = useRef<typeof openTarget>(null);
+  const [appliedOpenTarget, setAppliedOpenTarget] = usePageState<string | null>(
+    'agentlab:open-target',
+    null,
+    pageValue.optionalString,
+  );
+  const openTargetKey = JSON.stringify(openTarget ?? null);
   const openingSavedConversation = Boolean(
-    openTarget && !searchTarget && appliedOpenTarget.current !== openTarget,
+    openTarget && !searchTarget && appliedOpenTarget !== openTargetKey,
   );
   useEffect(() => {
     if (
       searchTarget ||
       !openTarget ||
-      appliedOpenTarget.current === openTarget ||
+      appliedOpenTarget === openTargetKey ||
       !openingSessions.data ||
       openingSessions.isFetching
     )
       return;
     if (needsLegacy && (!openingLegacy.isSuccess || openingLegacy.isFetching)) return;
-    appliedOpenTarget.current = openTarget;
+    setAppliedOpenTarget(openTargetKey);
     navSeq.current += 1;
     setSel({
       kind: openTarget.kind,
@@ -558,6 +576,9 @@ export function AgentLabView({
     });
   }, [
     openTarget,
+    openTargetKey,
+    appliedOpenTarget,
+    setAppliedOpenTarget,
     openingSessions.data,
     openingSessions.isFetching,
     searchTarget,
@@ -565,24 +586,24 @@ export function AgentLabView({
     openingLegacy.data,
     openingLegacy.isSuccess,
     openingLegacy.isFetching,
+    setSel,
   ]);
   const [groupOpen, setGroupOpen] = useState(false);
-  // 克隆任务列表：抬到模块级 store（脱离本组件生命周期），切出 AgentLab 再回来任务不丢（bug2）。
-  const allCloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
-  const accountId = useViewState((state) => state.openedUin);
-  const cloneTasks = allCloneTasks.filter((task) => task.accountId === accountId);
-  const [viewTaskId, setViewTaskId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [memberSettingsId, setMemberSettingsId] = useState<string | null>(null);
   const [mobileListOpen, setMobileListOpen] = useState(false);
   useEffect(() => setMobileListOpen(false), [sel]);
   // 递增序号，用来给每次「打开克隆体 / 群聊 / 会话」生成一个不重复的挂载 key（见 Selection.navKey）。
-  const navSeq = useRef(0);
-  const appliedSearch = useRef({ target: searchTarget, mode });
+  const navSeq = useRef(sel.kind === 'home' ? 0 : sel.navKey);
+  const [appliedSearch, setAppliedSearch] = usePageState<string | null>(
+    'agentlab:search',
+    null,
+    pageValue.optionalString,
+  );
+  const searchKey = JSON.stringify([searchTarget ?? null, mode]);
   useEffect(() => {
-    if (appliedSearch.current.target === searchTarget && appliedSearch.current.mode === mode)
-      return;
-    appliedSearch.current = { target: searchTarget, mode };
+    if (appliedSearch === searchKey) return;
+    setAppliedSearch(searchKey);
     if (!searchTarget || (searchTarget.kind === 'assistant') !== (mode === 'assistant')) return;
     navSeq.current += 1;
     if (searchTarget.kind === 'assistant') {
@@ -601,7 +622,7 @@ export function AgentLabView({
         searchTarget,
       });
     }
-  }, [searchTarget, mode]);
+  }, [searchTarget, mode, searchKey, appliedSearch, setAppliedSearch, setSel]);
 
   const activePersona =
     sel.kind === 'persona' ? (personaList.find((item) => item.id === sel.id) ?? null) : null;
@@ -624,7 +645,7 @@ export function AgentLabView({
     if (sel.kind === 'persona' && personas.data && !personaList.some((p) => p.id === sel.id)) {
       setSel({ kind: 'home' });
     }
-  }, [sel, personas.data, personaList]);
+  }, [sel, personas.data, personaList, setSel]);
 
   /** 点克隆体 → 开一个新草稿会话（列表默认展示克隆体本身，点它即开启新会话）。 */
   function selectPersona(id: string): void {
@@ -716,26 +737,12 @@ export function AgentLabView({
     }
   }
 
-  // 由配置弹窗发起构建：交给模块级 store 登记任务 + 后台跑构建 → 关弹窗 → 打开进度灯箱。
+  // 由配置弹窗发起构建：关弹窗 → 模块级 store 登记后台任务并打开统一列表。
   // 构建脱离本组件，切走再回来任务态仍在。完成后由主界面刷新共享克隆体列表。
   function startClone(args: StartCloneArgs): void {
     setCloneOpen(false);
-    setViewTaskId(args.params.personaId);
     void startCloneTask(args);
   }
-
-  function openPersonaFromTask(personaId: string): void {
-    dismissCloneTask(personaId);
-    setViewTaskId(null);
-    selectPersona(personaId);
-  }
-
-  function dismissTask(personaId: string): void {
-    dismissCloneTask(personaId);
-    setViewTaskId((cur) => (cur === personaId ? null : cur));
-  }
-
-  const viewingTask = cloneTasks.find((t) => t.personaId === viewTaskId) ?? null;
 
   const groupPersonaOptions: GroupPersonaOption[] = useMemo(
     () =>
@@ -1106,15 +1113,6 @@ export function AgentLabView({
           creating={createGroup.isLoading}
           onClose={() => setGroupOpen(false)}
           onCreate={(args) => void onCreateGroup(args)}
-        />
-      ) : null}
-
-      {viewingTask ? (
-        <CloneProgressModal
-          task={viewingTask}
-          onHide={() => setViewTaskId(null)}
-          onOpenPersona={openPersonaFromTask}
-          onDismiss={dismissTask}
         />
       ) : null}
 

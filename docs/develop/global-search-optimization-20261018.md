@@ -16,6 +16,17 @@
 
 消息中的真实会话和文件仍使用既有有界候选池，本轮未扩大扫描范围，不把候选池排名冒称全库最相关结果。频道先按联系人名称相关度、再按时间排序，与合并消息排名保持一致，避免前缀分页重排；生成对话、收藏与商城的内部排序保持原有规则。
 
+## 功能目录维护（2026-10-29）
+
+功能与设置目录来自 `appSearchCatalog.ts`、`settings/navigation.ts` 和 AI 设置公开目录。设置分区自动收录，具体控件通过 `SETTINGS_ITEM_TARGETS` 或 `SETTING_ITEMS` 补充；改名保留旧称为别名，桌面专属项标记 `desktopOnly`。`settingId` 应与真实控件对应；没有稳定标记时按真实标签定位，不能填写页面里不存在的控件名称。
+
+- 克隆列表已并入消息目录，搜索目标使用 `conversation-directory` 并指定 `virtual`，清空列表筛选与旧详情，不再指向隐藏侧栏的旧 AgentLab 首页。新建克隆复用已有创建入口。
+- 导出子功能携带 `exportMode`，打开对应种类且不沿用当前内容的固定选区；漫游入口以可选择会话的方式打开。搜索导航本身不提交任务。
+- 频道私聊有独立展开请求，关闭后重复点击仍会展开；装扮子功能携带真实 `DressKind`，不能用主页别名代替页签定位。
+- QQ 资料、状态、SSE 推送地址等搜索定位到其设置分区或所属卡片。服务商编辑框、单个克隆的生成参数等需要先选择具体对象的内容，不伪装成可独立打开的全局设置项。
+
+针对性检查：`settings_catalog.test.ts` 验证名称、目标和 Web 过滤，`app_search_settings_coverage.test.ts` 从实际设置行提取名称检查漏项，`app_search_navigation.test.ts` 执行实际导航处理器，`tool_search_navigation.test.ts` 验证工具宿主收到的导出种类和漫游选择模式，`channel_search_navigation.test.ts` 验证重复展开；`feature_search_ui.test.ts` 保留搜索选择和定位行为检查。新增设置页时同步扩充实际控件覆盖范围，不能仅以“每个分区都出现”证明具体项完整。
+
 ## 已定位的风险（尚未修复）
 
 1. `packages/db/src/msg/search_index.ts` 的 `fullRebuild()` 直接同步调用原生解密。上层即使使用 `void ensureIndexes()`，仍会阻塞 Electron 主线程；大库还涉及峰值内存与磁盘空间。

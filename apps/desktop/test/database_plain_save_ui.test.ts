@@ -120,6 +120,14 @@ async function mount(target?: DatabaseExportTarget) {
 function select(host: HTMLElement, index = 0) {
   act(() => host.querySelectorAll<HTMLButtonElement>('.weq-db-card')[index]!.click());
 }
+async function confirmExportOptions() {
+  expect(document.querySelector('[aria-label="附带完整性报告"]')).not.toBeNull();
+  await act(async () =>
+    [...document.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === '开始导出')!
+      .click(),
+  );
+}
 it('浏览器带入精确当前库，不默认为全部，提交后不因重渲自动重新勾选', async () => {
   const f = await mount(
     createDatabaseExportTarget(
@@ -169,6 +177,7 @@ it('同源扩选使用完整选择快照，多库沿用公共整包保存，不�
     f = await mount(target);
   select(f.host, 0);
   await act(async () => f.host.querySelector<HTMLButtonElement>('.is-safe')!.click());
+  await confirmExportOptions();
   expect(state.prepare).toHaveBeenCalledWith(undefined, { kind: 'bundle', name: '数据库明文' });
   expect(state.start).toHaveBeenCalledWith(
     expect.objectContaining({ dbPaths: ['/synthetic/msg.db', '/synthetic/login.db'] }),
@@ -351,6 +360,7 @@ it.each([1, 2])('选择 %i 个库后由普通按钮准备文件／整包，不�
     );
   }
   await act(async () => f.host.querySelector<HTMLButtonElement>('.is-safe')!.click());
+  if (count > 1) await confirmExportOptions();
   expect(state.prepare).toHaveBeenCalledWith(
     undefined,
     count === 1
@@ -361,6 +371,7 @@ it.each([1, 2])('选择 %i 个库后由普通按钮准备文件／整包，不�
     expectedAccountUin: '10001',
     expectedAccountConfigId: 'fixture-source',
     mode: 'safe',
+    includeIntegrityReport: false,
     savePolicy: { mode: 'before', directory: '/fixture/export' },
     dbPaths: count === 1 ? ['/synthetic/msg.db'] : ['/synthetic/msg.db', '/synthetic/login.db'],
   });

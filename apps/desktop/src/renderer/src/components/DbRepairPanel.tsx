@@ -61,6 +61,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { closeFromScrim } from '../im-template/template/modalUtils';
+import { createMediaId } from '../im-template/template/composerMedia';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useDbRepairReturn } from '../state/dbRepairReturn';
 import { useRenderDocument } from '../lib/renderDocument';
@@ -904,9 +905,12 @@ export function DbRepairPanel({
   const running = busy === 'repair' || busy === 'restore';
   const autoRefresh = useQQAutoRefresh(uin !== null);
 
-  /** 体检的「停」开关：当前这个库跑完就不再往下走。 */
+  /** 停止后丢弃当前调用的迟到结果，不再检查后续数据库。 */
   const stopScanRef = useRef(false);
   const checkupTaskRef = useRef<Promise<void> | null>(null);
+  const scanRunRef = useRef<symbol | null>(null);
+  const activeCheckupRef = useRef<{ uin: string; taskId: string } | null>(null);
+  const [stoppingScan, setStoppingScan] = useState(false);
 
   // ── 查询 ────────────────────────────────────────────────────────────────
   const statusQuery = trpc.dbRepair.status.useQuery(
@@ -950,6 +954,31 @@ export function DbRepairPanel({
 
   const startRepair = trpc.dbRepair.start.useMutation();
   const checkupRun = trpc.dbRepair.checkup.useMutation();
+  const cancelCheckup = trpc.dbRepair.cancelCheckup.useMutation();
+  const cancelCheckupRef = useRef(cancelCheckup.mutateAsync);
+  cancelCheckupRef.current = cancelCheckup.mutateAsync;
+  const checkupOwnerRef = useRef<{ uin: string | null } | null>(null);
+  useEffect(() => {
+    const owner = { uin };
+    checkupOwnerRef.current = owner;
+    return () => {
+      const active = activeCheckupRef.current;
+      const run = scanRunRef.current;
+      checkupOwnerRef.current = null;
+      // StrictMode 会立即重挂；只取消真正卸载或切换账号前的扫描。
+      queueMicrotask(() => {
+        if (checkupOwnerRef.current?.uin === owner.uin) return;
+        if (scanRunRef.current === run) {
+          stopScanRef.current = true;
+          scanRunRef.current = null;
+          checkupTaskRef.current = null;
+          setScan(null);
+          setBusy((current) => (current === 'checkup' ? null : current));
+        }
+        if (active) void cancelCheckupRef.current(active).catch(() => {});
+      });
+    };
+  }, [uin]);
   const killQq = trpc.dbRepair.killQq.useMutation();
   const restore = trpc.dbRepair.restore.useMutation();
   const removeRecord = trpc.dbRepair.deleteRecord.useMutation();
@@ -1005,6 +1034,20 @@ export function DbRepairPanel({
     return () => sub.unsubscribe();
   }, [running, uin, dbName]);
 
+  const stopCheckup = async (): Promise<void> => {
+    stopScanRef.current = true;
+    const active = activeCheckupRef.current;
+    if (!active) return;
+    setStoppingScan(true);
+    try {
+      await cancelCheckupRef.current(active);
+    } catch (error) {
+      setNotice(`停止请求未送达：${errMsg(error)}`);
+    } finally {
+      setStoppingScan(false);
+    }
+  };
+
   /**
    * 体检：逐个库调用主进程，**检完一个显示一个**。
    *
@@ -1019,6 +1062,9 @@ export function DbRepairPanel({
     // 手动跑过也算「这个账号体检过了」，自动那次就不用再补。
     autoCheckedUins.add(uin);
     stopScanRef.current = false;
+    const run = Symbol();
+    scanRunRef.current = run;
+    setStoppingScan(false);
     let finishScan = () => {};
     checkupTaskRef.current = new Promise<void>((resolve) => {
       finishScan = resolve;
@@ -1028,21 +1074,34 @@ export function DbRepairPanel({
     setScan({ done: 0, total: names.length, current: names[0] ?? null });
     try {
       for (const name of names) {
-        if (stopScanRef.current) break;
+        if (stopScanRef.current || scanRunRef.current !== run) break;
         setScan((prev) => (prev ? { ...prev, current: name } : prev));
+        const request = { uin, taskId: createMediaId('db-checkup') };
+        activeCheckupRef.current = request;
         try {
-          const row = (await checkupRun.mutateAsync({ uin, dbName: name })) as DbRepairCheckupView;
+          const row = (await checkupRun.mutateAsync({
+            ...request,
+            dbName: name,
+          })) as DbRepairCheckupView;
+          if (stopScanRef.current || scanRunRef.current !== run) break;
           setCheckups((prev) => ({ ...prev, [name]: row }));
         } catch (error) {
+          if (stopScanRef.current || scanRunRef.current !== run) break;
           setCheckups((prev) => ({ ...prev, [name]: failedCheckup(name, errMsg(error)) }));
+        } finally {
+          if (activeCheckupRef.current === request) activeCheckupRef.current = null;
         }
         setScan((prev) => (prev ? { ...prev, done: prev.done + 1 } : prev));
       }
     } finally {
-      setScan(null);
-      // 已确认的修复可能正在等待本次只读检查，不能把它的写入锁清掉。
-      setBusy((current) => (current === 'checkup' ? null : current));
-      checkupTaskRef.current = null;
+      if (scanRunRef.current === run) {
+        setScan(null);
+        setStoppingScan(false);
+        // 已确认的修复可能正在等待本次只读检查，不能把它的写入锁清掉。
+        setBusy((current) => (current === 'checkup' ? null : current));
+        checkupTaskRef.current = null;
+        scanRunRef.current = null;
+      }
       finishScan();
     }
   };
@@ -1180,7 +1239,7 @@ export function DbRepairPanel({
     const pendingScan = checkupTaskRef.current;
     // 热更新前发起的体检没有完成凭据，仍须等旧调用返回，不能误当作已释放。
     if (busy === 'checkup' && !pendingScan) return;
-    stopScanRef.current = true;
+    void stopCheckup();
     // 任务期间的 `dbName` 可能被用户改掉（面板不拦），所以先把目标钉住。
     const target = dbName;
     setConfirmRepair(null);
@@ -1190,7 +1249,7 @@ export function DbRepairPanel({
     setProgress({
       phase: 'backup',
       percent: 0,
-      message: pendingScan ? '等待当前只读体检结束，随后开始；不再检查后续数据库。' : '准备中…',
+      message: pendingScan ? '等待当前只读体检结束，正在停止体检进程…' : '准备中…',
     });
     try {
       await pendingScan;
@@ -1353,7 +1412,7 @@ export function DbRepairPanel({
 
   /** 从体检页进修复页。带上库名 = 预选它。 */
   const goRepair = (name: string | null): void => {
-    stopScanRef.current = true;
+    void stopCheckup();
     setDbName(name);
     setConfirmRepair(null);
     setNotice(null);
@@ -1533,12 +1592,11 @@ export function DbRepairPanel({
                 <button
                   type="button"
                   className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-                  onClick={() => {
-                    stopScanRef.current = true;
-                  }}
+                  disabled={stoppingScan}
+                  onClick={() => void stopCheckup()}
                 >
                   <Square size={12} strokeWidth={2.4} aria-hidden />
-                  停止
+                  {stoppingScan ? '正在停止…' : '停止'}
                 </button>
               ) : (
                 <>
@@ -1957,7 +2015,7 @@ export function DbRepairPanel({
               ) : null}
               {busy === 'checkup' ? (
                 <Note tone="muted" icon={<Loader2 size={14} className="weq-spin" />}>
-                  当前只读体检尚未结束。可以先确认修复或布局迁移，当前检查结束后再开始，不再检查后续数据库。
+                  正在停止当前只读体检。可以先确认修复或布局迁移，体检进程退出后再开始。
                 </Note>
               ) : null}
 

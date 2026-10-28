@@ -1191,13 +1191,13 @@ describe('统一导出实际界面', () => {
       expect(f.host.textContent).not.toContain('漫游拉取');
       expect(f.host.textContent).not.toContain('好友克隆');
       expect(f.host.querySelector('#weq-export-content-kind')).toBeNull();
+      const currentTasks = f.host.querySelector('[data-fixture-current-tasks]')!;
       click(f.host, '定时任务');
       expect(f.host.textContent).toContain('合成计划');
-      const currentTasks = f.host.querySelector('[data-fixture-current-tasks]')!;
-      expect(currentTasks.closest('[hidden]')).not.toBeNull();
+      expect(f.host.querySelector('[data-fixture-current-tasks]')).toBeNull();
       click(f.host, '当前任务');
-      expect(f.host.querySelector('[data-fixture-current-tasks]')).toBe(currentTasks);
-      expect(currentTasks.closest('[hidden]')).toBeNull();
+      expect(f.host.querySelector('[data-fixture-current-tasks]')).not.toBe(currentTasks);
+      expect(f.host.querySelector('[data-fixture-current-tasks]')!.closest('[hidden]')).toBeNull();
     } finally {
       f.close();
     }

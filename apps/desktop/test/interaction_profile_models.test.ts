@@ -1,7 +1,12 @@
 // @vitest-environment node
 import { afterEach, expect, it, vi } from 'vitest';
 
-const fixture = vi.hoisted(() => ({ selected: 'QWeQ-NineBird-v1', loaded: [] as string[] }));
+const fixture = vi.hoisted(() => ({
+  selected: 'QWeQ-NineBird-v1',
+  loaded: [] as string[],
+  failNextLoad: false,
+  killed: 0,
+}));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({ bootstrap: { userConfig: { getLocalModelId: () => fixture.selected } } }),
 }));
@@ -18,11 +23,18 @@ vi.mock('node:child_process', async () => {
       const worker = new EventEmitter();
       return Object.assign(worker, {
         stderr: new EventEmitter(),
-        kill: vi.fn(),
+        kill: vi.fn(() => {
+          fixture.killed += 1;
+        }),
         send: (message: { type: string; modelDir?: string; id?: number }) => {
           if (message.type === 'load') fixture.loaded.push(message.modelDir!);
           void Promise.resolve().then(() => {
-            if (message.type === 'load') worker.emit('message', { type: 'ready' });
+            if (message.type === 'load') {
+              if (fixture.failNextLoad) {
+                fixture.failNextLoad = false;
+                worker.emit('message', { type: 'load-error', error: '合成加载失败' });
+              } else worker.emit('message', { type: 'ready' });
+            }
             if (message.type === 'analyze')
               worker.emit('message', {
                 type: 'result',
@@ -46,6 +58,8 @@ import { downloadLayaBundle } from '../src/main/intent_sense/model_files';
 afterEach(async () => {
   await getIntentSenseLocalEngine().stop();
   fixture.loaded.length = 0;
+  fixture.failNextLoad = false;
+  fixture.killed = 0;
   vi.useRealTimers();
 });
 
@@ -75,6 +89,18 @@ it('画像下载明确选择 Laya，不改写当前意图资源', async () => {
     }),
   );
   expect(fixture.selected).toBe('QWeQ-NineBird-v1');
+});
+
+it('模型加载失败立即回收子进程，显式重试可以重新启动', async () => {
+  fixture.selected = 'QWeQ-NineBird-v1';
+  fixture.failNextLoad = true;
+  const engine = getIntentSenseLocalEngine();
+  await expect(engine.start()).rejects.toThrow('合成加载失败');
+  expect(fixture.killed).toBe(1);
+  expect(fixture.loaded).toHaveLength(1);
+  await engine.start();
+  expect(fixture.loaded).toHaveLength(2);
+  expect(await engine.analyze('恢复后的消息')).not.toBeNull();
 });
 
 it('画像资源空闲五分钟后释放，下次推断按原资源重新启动', async () => {

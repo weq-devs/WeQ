@@ -55,6 +55,7 @@ export function projectDiagnosticProcesses(
     creationTime: number;
     type: string;
     memory: { workingSetSize: number; peakWorkingSetSize: number; privateBytes?: number };
+    cpu?: { percentCPUUsage: number; idleWakeupsPerSecond: number };
   }[],
   pages: readonly DiagnosticPage[],
 ) {
@@ -67,6 +68,8 @@ export function projectDiagnosticProcesses(
       workingSetKB: diagnosticNumber(metric.memory.workingSetSize),
       peakWorkingSetKB: diagnosticNumber(metric.memory.peakWorkingSetSize),
       privateBytesKB: diagnosticNumber(metric.memory.privateBytes),
+      cpuPercent: diagnosticNumber(metric.cpu?.percentCPUUsage),
+      idleWakeupsPerSecond: diagnosticNumber(metric.cpu?.idleWakeupsPerSecond),
       pages: matches.slice(0, 8).map((page) => ({ id: page.id, category: page.category })),
       omittedPages: Math.max(0, matches.length - 8),
     };
@@ -76,10 +79,14 @@ export function projectDiagnosticProcesses(
 /** 专用双文件环：不让诊断本身形成无界日志或内存队列。 */
 export function createDiagnosticLog(
   directory: string,
-  limits = { maxBytes: 2 * 1024 * 1024, maxEntries: 1440 },
+  limits: { maxBytes: number; maxEntries: number; basename?: 'memory-trend' } = {
+    maxBytes: 2 * 1024 * 1024,
+    maxEntries: 1440,
+  },
 ) {
-  const current = join(directory, 'memory-diagnostics.jsonl');
-  const previous = join(directory, 'memory-diagnostics.previous.jsonl');
+  const basename = limits.basename ?? 'memory-diagnostics';
+  const current = join(directory, `${basename}.jsonl`);
+  const previous = join(directory, `${basename}.previous.jsonl`);
   let entries: number | null = null;
   return {
     write(record: object): boolean {

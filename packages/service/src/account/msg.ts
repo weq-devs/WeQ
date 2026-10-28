@@ -82,6 +82,11 @@ interface ReplyBearer {
   elements: Element[];
 }
 
+export interface MessagePageOptions {
+  deferReplyMedia?: boolean;
+  skipUnindexed?: boolean;
+}
+
 /**
  * Input for authoring a new message. `elements` is the *raw* authored array
  * (already byte-decoded at the IPC boundary); it is validated + coerced against
@@ -755,9 +760,16 @@ export class MsgService {
   }
 
   /** Newest N private-chat messages with one peer. */
-  async getC2cLatest(targetUid: string, limit = 50): Promise<RenderC2cMsg[]> {
-    const msgs = await this.c2cDbFor(targetUid).listLatest(this.c2cPartition(targetUid), limit);
-    await this.enrichReplyMedia(msgs, 'c2c');
+  async getC2cLatest(
+    targetUid: string,
+    limit = 50,
+    options: MessagePageOptions = {},
+  ): Promise<RenderC2cMsg[]> {
+    const msgs = await this.c2cDbFor(targetUid).listLatest(
+      await this.c2cPagePartition(targetUid, options),
+      limit,
+    );
+    if (!options.deferReplyMedia) await this.enrichReplyMedia(msgs, 'c2c');
     const recallMap = await this.recallMapFor('c2c', targetUid, msgs);
     return msgs.map((m) => this.renderC2cWithState(m, recallMap));
   }
@@ -840,37 +852,52 @@ export class MsgService {
   }
 
   /** Private-chat page just older than `beforeSeq` (scroll-up). */
-  async getC2cBefore(targetUid: string, beforeSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
+  async getC2cBefore(
+    targetUid: string,
+    beforeSeq: bigint,
+    limit = 50,
+    options: MessagePageOptions = {},
+  ): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listBefore(
-      this.c2cPartition(targetUid),
+      await this.c2cPagePartition(targetUid),
       beforeSeq,
       limit,
     );
-    await this.enrichReplyMedia(msgs, 'c2c');
+    if (!options.deferReplyMedia) await this.enrichReplyMedia(msgs, 'c2c');
     const recallMap = await this.recallMapFor('c2c', targetUid, msgs);
     return msgs.map((m) => this.renderC2cWithState(m, recallMap));
   }
 
   /** Private-chat page just newer than `afterSeq` (scroll-down / jump context). */
-  async getC2cAfter(targetUid: string, afterSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
+  async getC2cAfter(
+    targetUid: string,
+    afterSeq: bigint,
+    limit = 50,
+    options: MessagePageOptions = {},
+  ): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listAfter(
-      this.c2cPartition(targetUid),
+      await this.c2cPagePartition(targetUid),
       afterSeq,
       limit,
     );
-    await this.enrichReplyMedia(msgs, 'c2c');
+    if (!options.deferReplyMedia) await this.enrichReplyMedia(msgs, 'c2c');
     const recallMap = await this.recallMapFor('c2c', targetUid, msgs);
     return msgs.map((m) => this.renderC2cWithState(m, recallMap));
   }
 
   /** Re-read private-chat messages with seq >= `sinceSeq` (live refresh). */
-  async getC2cFrom(targetUid: string, sinceSeq: bigint, limit = 500): Promise<RenderC2cMsg[]> {
+  async getC2cFrom(
+    targetUid: string,
+    sinceSeq: bigint,
+    limit = 500,
+    options: MessagePageOptions = {},
+  ): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listFrom(
-      this.c2cPartition(targetUid),
+      await this.c2cPagePartition(targetUid),
       sinceSeq,
       limit,
     );
-    await this.enrichReplyMedia(msgs, 'c2c');
+    if (!options.deferReplyMedia) await this.enrichReplyMedia(msgs, 'c2c');
     const recallMap = await this.recallMapFor('c2c', targetUid, msgs);
     return msgs.map((m) => this.renderC2cWithState(m, recallMap));
   }
@@ -896,9 +923,13 @@ export class MsgService {
   // ---- group ---------------------------------------------------------------
 
   /** Newest N group messages in one group. */
-  async getGroupLatest(targetGroupCode: string, limit = 50): Promise<RenderGroupMsg[]> {
+  async getGroupLatest(
+    targetGroupCode: string,
+    limit = 50,
+    options: MessagePageOptions = {},
+  ): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listLatest(targetGroupCode, limit);
-    await this.enrichReplyMedia(msgs, 'group');
+    if (!options.deferReplyMedia) await this.enrichReplyMedia(msgs, 'group');
     const recallMap = await this.recallMapFor('group', targetGroupCode, msgs);
     return msgs.map((m) => this.renderGroupWithState(m, recallMap));
   }
@@ -908,9 +939,10 @@ export class MsgService {
     targetGroupCode: string,
     beforeSeq: bigint,
     limit = 50,
+    options: MessagePageOptions = {},
   ): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listBefore(targetGroupCode, beforeSeq, limit);
-    await this.enrichReplyMedia(msgs, 'group');
+    if (!options.deferReplyMedia) await this.enrichReplyMedia(msgs, 'group');
     const recallMap = await this.recallMapFor('group', targetGroupCode, msgs);
     return msgs.map((m) => this.renderGroupWithState(m, recallMap));
   }
@@ -920,9 +952,10 @@ export class MsgService {
     targetGroupCode: string,
     afterSeq: bigint,
     limit = 50,
+    options: MessagePageOptions = {},
   ): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listAfter(targetGroupCode, afterSeq, limit);
-    await this.enrichReplyMedia(msgs, 'group');
+    if (!options.deferReplyMedia) await this.enrichReplyMedia(msgs, 'group');
     const recallMap = await this.recallMapFor('group', targetGroupCode, msgs);
     return msgs.map((m) => this.renderGroupWithState(m, recallMap));
   }
@@ -932,9 +965,10 @@ export class MsgService {
     targetGroupCode: string,
     sinceSeq: bigint,
     limit = 500,
+    options: MessagePageOptions = {},
   ): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listFrom(targetGroupCode, sinceSeq, limit);
-    await this.enrichReplyMedia(msgs, 'group');
+    if (!options.deferReplyMedia) await this.enrichReplyMedia(msgs, 'group');
     const recallMap = await this.recallMapFor('group', targetGroupCode, msgs);
     return msgs.map((m) => this.renderGroupWithState(m, recallMap));
   }
@@ -1185,17 +1219,15 @@ export class MsgService {
     const began = performance.now();
 
     try {
-      const caches = await this.session.forwardMsgs.listForMessages(
+      const caches = await this.replyMedia(
         kind,
         pending.map((m) => m.msgId),
       );
       for (const m of pending) {
         const cache = caches.get(m.msgId) ?? [];
         if (cache.length === 0) continue;
-        const media = cachedQuotedMedia(cache);
-        if (media.length === 0) continue;
         for (const el of m.elements) {
-          if (isMediaLessReply(el)) (el as ReplyLike).origElements = media;
+          if (isMediaLessReply(el)) (el as ReplyLike).origElements = cache;
         }
       }
     } catch {
@@ -1205,7 +1237,49 @@ export class MsgService {
     }
   }
 
+  private async replyMedia(kind: 'c2c' | 'group', ids: bigint[]): Promise<Map<bigint, unknown[]>> {
+    const caches = await this.session.forwardMsgs.listForMessages(kind, ids);
+    return new Map([...caches].map(([id, cache]) => [id, cachedQuotedMedia(cache)]));
+  }
+
+  /** 正文已显示后按页补全引用媒体，仍复用 40900 的同一套解析与筛选规则。 */
+  async getReplyMedia(
+    kind: 'c2c' | 'group',
+    ids: bigint[],
+  ): Promise<{ msgId: string; elements: RenderElement[] }[]> {
+    const caches = await this.replyMedia(kind, ids);
+    return [...caches].flatMap(([id, elements]) => {
+      if (!elements.length) return [];
+      try {
+        return [
+          {
+            msgId: id.toString(),
+            elements: toRenderElements(elements.map((wire) => decodeElement(wire as never))),
+          },
+        ];
+      } catch {
+        return [];
+      }
+    });
+  }
+
   /** Resolve a peer uid to its indexed partition (sortNo), else fall back to uid. */
+  private async c2cPagePartition(
+    targetUid: string,
+    options: MessagePageOptions = {},
+  ): Promise<C2cPartition> {
+    if (!isDatalineUid(targetUid) && this.session.uidMap.sortNoByUid(targetUid) === undefined) {
+      try {
+        await this.session.uidMap.resolveSortNo?.(targetUid);
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') throw error;
+      }
+    }
+    if (options.skipUnindexed && this.session.uidMap.sortNoByUid(targetUid) === undefined)
+      throw new Error('跳过未索引会话的后台预取');
+    return this.c2cPartition(targetUid);
+  }
+
   private c2cPartition(targetUid: string): C2cPartition {
     const sortNo = this.session.uidMap.sortNoByUid(targetUid);
     recordMessagePartition(this.session.msgDbPath, sortNo !== undefined);

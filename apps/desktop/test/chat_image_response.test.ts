@@ -35,6 +35,27 @@ it('本地大图的气泡响应是真实小图，原文件不改写，来源失�
   ).rejects.toThrow('来源已切换');
 });
 
+it('像素超限或坏图不会直接回退成原图，聊天仍有可点击占位', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-chat-oversize-'));
+  roots.push(root);
+  const path = join(root, 'oversized.png');
+  const oversized = await sharp({
+    create: { width: 6000, height: 6000, channels: 3, background: '#ff0000' },
+  })
+    .png()
+    .toBuffer();
+  await writeFile(path, oversized);
+  const response = await chatImageResponse(path);
+  expect(response.status).toBe(200);
+  expect(response.headers.get('Content-Type')).toContain('image/svg+xml');
+  expect(await response.text()).toContain('点击查看原图');
+
+  const broken = join(root, 'broken.png');
+  await writeFile(broken, Buffer.from('not an image'));
+  const invalid = await chatImageResponse(broken);
+  expect(invalid.headers.get('Content-Type')).toContain('image/svg+xml');
+});
+
 it('多帧 GIF 仍返回动画，不能被小图优化变成静态首帧', async () => {
   const root = await mkdtemp(join(tmpdir(), 'weq-chat-animation-'));
   roots.push(root);
