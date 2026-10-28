@@ -1,5 +1,5 @@
 import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { listDressPreviewFiles, measureStorage, type StorageUsageItem } from './storage_usage';
 
 export interface StorageCleanupResult {
@@ -19,6 +19,29 @@ export interface StorageCleanupPlan {
 function contains(parent: string, child: string): boolean {
   const path = relative(parent, child);
   return path === '' || (!isAbsolute(path) && path !== '..' && !path.startsWith(`..${sep}`));
+}
+
+/** 不依赖 realpath 的字符串相等性：Windows 的 8.3 短名与长名可能指向同一目录。 */
+async function rejectLinkedAncestors(path: string): Promise<void> {
+  let parent = dirname(path);
+  for (;;) {
+    if ((await lstat(parent)).isSymbolicLink()) throw new Error('目标路径现为符号链接，未清除');
+    const next = dirname(parent);
+    if (next === parent) break;
+    parent = next;
+  }
+}
+
+/** 保护路径尚未创建时，将存在的父目录规范化后再比较；拒绝其它读取错误。 */
+async function canonicalPathOrMissing(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    const parent = dirname(path);
+    if (parent === path) throw error;
+    return join(await canonicalPathOrMissing(parent), basename(path));
+  }
 }
 
 /** 只接受后端重新解析出的目标；渲染进程不能传路径或构造清理计划。 */
@@ -67,8 +90,14 @@ export async function executeStorageCleanup(
         }
         throw error;
       }
-      if (info.isSymbolicLink() || (await realpath(path)) !== path)
-        throw new Error('目标路径现为符号链接，未清除');
+      if (info.isSymbolicLink()) throw new Error('目标路径现为符号链接，未清除');
+      await rejectLinkedAncestors(path);
+      // 用同一规范路径检查保护范围，避免短路径别名绕过受保护文件的判断。
+      const canonicalTarget = await realpath(path);
+      for (const protectedPath of [...plan.protectedPaths, dirname(plan.reportPath)]) {
+        if (contains(canonicalTarget, await canonicalPathOrMissing(resolve(protectedPath))))
+          throw new Error('目标包含受保护的应用或维护资源，未清除');
+      }
       const before = await measureStorage(path);
       if (before.incomplete) throw new Error('读取不完整，未清除');
       if (item.cleanupKind === 'dress-previews' || item.cleanupKind === 'dress-data') {

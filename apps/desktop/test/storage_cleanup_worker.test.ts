@@ -106,8 +106,9 @@ it.each([false, true])('宿主退出时，只有收到明确提交才清除：%s
   writeFileSync(
     harness,
     `import {fork} from 'node:child_process';
-const child=fork(${JSON.stringify(f.worker)},[],{stdio:['ignore','ignore','ignore','ipc']});
-child.on('message',()=>{${commit ? "child.send({type:'commit'},()=>{child.disconnect();process.exit(0);});" : 'child.disconnect();process.exit(0);'}});
+// Match production: Windows non-detached grandchildren can be killed when the synthetic parent exits.
+const child=fork(${JSON.stringify(f.worker)},[],{detached:true,stdio:['ignore','ignore','ignore','ipc']});
+child.on('message',()=>{${commit ? "child.send({type:'commit'},()=>{child.disconnect();child.unref();process.exit(0);});" : 'child.disconnect();process.exit(0);'}});
 child.send({type:'prepare',parentPid:process.pid,plan:${JSON.stringify(f.plan)}});`,
   );
   const parent = launch(harness);

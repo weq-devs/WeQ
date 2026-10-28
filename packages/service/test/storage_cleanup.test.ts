@@ -8,7 +8,7 @@ import {
   symlinkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import {
   executeStorageCleanup,
@@ -19,7 +19,8 @@ import { UserConfigService } from '../src/bootstrap/user_config';
 
 const roots: string[] = [];
 function fixture() {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'weq-storage-exit-')));
+  // 与业务扫描使用的 fs/promises.realpath 一致；Windows 常规 realpathSync 可能返回 8.3 短名。
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'weq-storage-exit-')));
   roots.push(root);
   const service = new UserConfigService({ appDataRoot: () => root });
   const file = (name: string) => {
@@ -114,7 +115,7 @@ it('配置文件、模型和诊断也可明确选择清除，未选原件保留'
   const original = f.file('personal-original.bin');
   const items = await f.service.listStorageUsage();
   const targets = items.filter((item) =>
-    selected.some((path) => path === item.path || path.startsWith(`${item.path}/`)),
+    selected.some((path) => path === item.path || path.startsWith(`${item.path}${sep}`)),
   );
   expect(targets).toHaveLength(4);
   expect(targets.every((item) => item.requiresExit && item.confirmation)).toBe(true);
@@ -155,7 +156,7 @@ it('保护安装资源、维护回执及被换成符号链接的目标，其他�
   const items = await f.service.listStorageUsage();
   const ocr = items.find((item) => item.id === 'ocr')!;
   rmSync(ocr.path, { recursive: true });
-  symlinkSync(other.root, ocr.path, 'dir');
+  symlinkSync(other.root, ocr.path, process.platform === 'win32' ? 'junction' : 'dir');
   const model = items.find((item) => item.label === '本地模型')!;
   const log = items.find((item) => item.label === '运行日志')!;
   const result = await executeStorageCleanup({
@@ -167,6 +168,91 @@ it('保护安装资源、维护回执及被换成符号链接的目标，其他�
   expect(result.cleared).toEqual([log.label]);
   expect(existsSync(original)).toBe(true);
   expect(existsSync(join(model.path, 'model'))).toBe(true);
+});
+
+it.skipIf(process.platform !== 'win32')(
+  'Windows 8.3 短路径不是符号链接，退出后可正常清理',
+  async () => {
+    const f = fixture();
+    f.file('cache/ocr/data');
+    const target = join(realpathSync(f.root), 'cache/ocr');
+    const result = await executeStorageCleanup({
+      targets: [
+        {
+          id: 'ocr',
+          path: target,
+          label: 'OCR',
+          bytes: 9,
+          clearable: true,
+          requiresExit: true,
+          incomplete: false,
+          reason: 'synthetic',
+        },
+      ],
+      protectedPaths: [],
+      reportPath: f.reportPath,
+    });
+    expect(result.failed).toEqual([]);
+    expect(result.cleared).toEqual(['OCR']);
+    expect(existsSync(target)).toBe(false);
+  },
+);
+
+it('短路径别名仍需保护目标内的安装或维护资源', async () => {
+  const f = fixture();
+  const file = f.file('cache/ocr/keep.txt');
+  const target = join(realpathSync(f.root), 'cache/ocr');
+  // Windows 的 native realpath 通常给出长路径；目标可能使用 8.3 短名。
+  const protectedFile = realpathSync.native(file);
+  const result = await executeStorageCleanup({
+    targets: [
+      {
+        id: 'ocr',
+        path: target,
+        label: 'OCR',
+        bytes: 9,
+        clearable: true,
+        requiresExit: true,
+        incomplete: false,
+        reason: 'synthetic',
+      },
+    ],
+    protectedPaths: [protectedFile],
+    reportPath: f.reportPath,
+  });
+  expect(result.cleared).toEqual([]);
+  expect(result.failed).toHaveLength(1);
+  expect(result.failed[0]!.error).toContain('受保护');
+  expect(existsSync(file)).toBe(true);
+});
+
+it('祖先目录被换成符号链接或 Windows junction 时，绝不越界清除', async () => {
+  const f = fixture();
+  const other = fixture();
+  const original = other.file('kept/nested/data');
+  const alias = join(f.root, 'alias');
+  symlinkSync(join(other.root, 'kept'), alias, process.platform === 'win32' ? 'junction' : 'dir');
+  const target = join(alias, 'nested');
+  const result = await executeStorageCleanup({
+    targets: [
+      {
+        id: 'synthetic',
+        path: target,
+        label: 'synthetic',
+        bytes: 9,
+        clearable: true,
+        requiresExit: true,
+        incomplete: false,
+        reason: 'synthetic',
+      },
+    ],
+    protectedPaths: [],
+    reportPath: f.reportPath,
+  });
+  expect(result.cleared).toEqual([]);
+  expect(result.failed).toHaveLength(1);
+  expect(result.failed[0]!.error).toContain('符号链接');
+  expect(existsSync(original)).toBe(true);
 });
 
 it('宿主运行目录可退出后清除，应用安装根及维护状态始终只读', async () => {
