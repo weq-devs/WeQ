@@ -90,7 +90,7 @@ export function useChatShellController({
   useLayoutEffect(() => {
     if (startupApplied.current) return;
     startupApplied.current = true;
-    // 正常启动只替换栏目；其余阅读位置和草稿继续复用已有快照。
+    // 正常启动的旧页面现场已在工作区挂载前重置，此处指定初始栏目。
     if (startupView) setView(startupView);
   }, [startupView, setView]);
   const [contactTab, setContactTab] = usePageState<ContactTab>(

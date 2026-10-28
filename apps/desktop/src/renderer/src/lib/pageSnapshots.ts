@@ -9,9 +9,34 @@ export const PAGE_SNAPSHOT_MAX_ENTRIES = 256;
 const envelope = z.object({ savedAt: z.number().finite(), data: z.string() });
 type SnapshotStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>;
 
+function belongsToScope(key: string, scope: string): boolean {
+  let current = key;
+  while (current !== scope) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(current);
+    } catch {
+      return false;
+    }
+    if (!Array.isArray(parsed) || parsed.length !== 2 || typeof parsed[0] !== 'string')
+      return false;
+    current = parsed[0];
+  }
+  return true;
+}
+
 /** 仅保存显式登记的页面数据；不持有 DOM、ReactNode 或媒体对象。 */
 export function createPageSnapshotStorage(source: () => SnapshotStorage) {
   return {
+    resetScope(scope: string): void {
+      const store = source();
+      // 正文草稿独立保存；只清除该账号及其嵌套页面的可重建现场。
+      for (let index = store.length - 1; index >= 0; index--) {
+        const key = store.key(index);
+        if (key?.startsWith(PREFIX) && belongsToScope(key.slice(PREFIX.length), scope))
+          store.removeItem(key);
+      }
+    },
     confirm(key: string, value: unknown): void {
       const store = source();
       const name = DRAFT_PREFIX + key;

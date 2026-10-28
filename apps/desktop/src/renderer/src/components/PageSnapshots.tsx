@@ -43,7 +43,30 @@ export function usePageSnapshotKey(name: string): string | null {
   return scope ? JSON.stringify([scope.key, name]) : null;
 }
 
-export function PageSnapshots({ scope, children }: { scope: string | null; children: ReactNode }) {
+export function PageSnapshots({
+  scope,
+  children,
+  resetOnMount = false,
+}: {
+  scope: string | null;
+  children: ReactNode;
+  resetOnMount?: boolean;
+}) {
+  const [preparedScope, setPreparedScope] = useState<string | null>(null);
+  const needsReset = Boolean(scope && resetOnMount && preparedScope !== scope);
+  useLayoutEffect(() => {
+    if (!scope || !needsReset) return;
+    try {
+      pageSnapshots.resetScope(scope);
+    } catch {
+      useToast.getState().push({
+        tone: 'error',
+        title: '页面现场重置失败',
+        detail: '请检查本机存储，部分页面可能仍保留上次的操作位置。',
+      });
+    }
+    setPreparedScope(scope);
+  }, [scope, needsReset]);
   const context = useMemo(
     () =>
       scope
@@ -51,7 +74,12 @@ export function PageSnapshots({ scope, children }: { scope: string | null; child
         : null,
     [scope],
   );
-  return <SnapshotContext.Provider value={context}>{children}</SnapshotContext.Provider>;
+  // 提交后再清除旧现场，子页面在清除完成前不挂载，也不影响被取消的并发渲染。
+  return (
+    <SnapshotContext.Provider value={context}>
+      {needsReset ? null : children}
+    </SnapshotContext.Provider>
+  );
 }
 
 export function PageSnapshotsFallback({ scope, children }: { scope: string; children: ReactNode }) {

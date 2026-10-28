@@ -2310,6 +2310,7 @@ function isMobileShell(): boolean {
 
 export function MainView(): ReactElement {
   const uin = useViewState((state) => state.openedUin);
+  const startupPage = useViewState((state) => state.startupPage);
   const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: Boolean(uin) });
   const scope =
     config.data?.uin === uin && config.data.configId
@@ -2317,7 +2318,7 @@ export function MainView(): ReactElement {
       : null;
   if (config.isLoading) return workspaceLoading;
   return (
-    <PageSnapshots scope={scope}>
+    <PageSnapshots scope={scope} resetOnMount={startupPage !== null}>
       <MainWorkspace key={scope ?? `pending:${uin ?? ''}`} />
     </PageSnapshots>
   );

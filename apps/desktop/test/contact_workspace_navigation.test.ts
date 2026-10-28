@@ -70,7 +70,7 @@ function mount(
     });
     return null;
   }
-  act(() => root.render(h(PageSnapshots, { scope }, h(Probe))));
+  act(() => root.render(h(PageSnapshots, { scope, resetOnMount: startupView !== null }, h(Probe))));
   cleanups.push(() => {
     act(() => root.unmount());
     host.remove();
@@ -97,13 +97,14 @@ it.each(['home', 'messages'] as const)('正常启动进入 %s，后续崩溃重�
   act(() => first.state().openContactDetails(person, 'portrait'));
   const normal = mount(storage, 'startup-source', page);
   expect(normal.state().view).toBe(page);
-  expect(normal.state().selectedContactId).toBe(person.id);
+  expect(normal.state().selectedContactId).toBeNull();
+  expect(normal.state().contactWorkspaceTab).toBe('profile');
   // 启动选项只应用一次，导航后不会被拉回。
   act(() => normal.state().switchView('qzone'));
   expect(normal.state().view).toBe('qzone');
   const recovered = mount(storage, 'startup-source');
   expect(recovered.state().view).toBe('qzone');
-  expect(recovered.state().selectedContactId).toBe(person.id);
+  expect(recovered.state().selectedContactId).toBeNull();
 });
 
 it('启动到指定栏目后立即崩溃，也从该栏目恢复', () => {
