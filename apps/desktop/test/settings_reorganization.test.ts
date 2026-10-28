@@ -475,6 +475,13 @@ describe('设置归位后的实际页面', () => {
   it('自启独立于助手服务，旧后台入口转到内置组件，助手保留在服务区域', () => {
     const f = mount('startup');
     try {
+      expect(f.body().querySelector('[aria-label="启动时进入"]')?.textContent).toBe(
+        '主页消息上次退出时所在页面',
+      );
+      expect(
+        f.host.querySelector('.weq-settings-subnav-item.is-active .lucide-power'),
+      ).not.toBeNull();
+      expect(f.body().querySelector('.weq-set-head .lucide-power')).not.toBeNull();
       expect(f.body().textContent).toContain('开机自动启动');
       expect(f.body().textContent).not.toContain('启用 WeQ 助手');
       f.render('daemon');

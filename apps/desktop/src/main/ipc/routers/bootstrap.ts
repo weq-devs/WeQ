@@ -1413,6 +1413,15 @@ export const bootstrapRouter = router({
       return input.enabled;
     }),
 
+  getStartupPage: procedure.query(() => requireBootstrap().userConfig.getStartupPage()),
+
+  setStartupPage: procedure
+    .input(z.object({ page: z.enum(['home', 'messages', 'last']) }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ startupPage: input.page });
+      return input.page;
+    }),
+
   // ---- first-run onboarding (欢迎使用) ----
 
   /** True once the user confirmed the first-run 欢迎使用 dialog. */

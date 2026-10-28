@@ -729,6 +729,8 @@ void app.whenReady().then(async () => {
   installUpdateActions();
   initAppContext();
   const userConfig = getAppContext().bootstrap?.userConfig;
+  // 尽早消费正常退出标记；本轮即使尚未加载界面就崩溃，下次也恢复原现场。
+  userConfig?.getStartupPage();
   if (userConfig?.getSettings().weqAssistant.enabled) {
     void getAppContext()
       .applyWeqAssistant(userConfig.getSettings().weqAssistant)
@@ -951,6 +953,7 @@ app.on('will-quit', (event) => {
     try {
       const ctx = getAppContext();
       ctx.bootstrap?.userConfig.setSkipAutoEnterOnce(!ctx.account);
+      ctx.bootstrap?.userConfig.markCleanExit();
     } catch (error) {
       logger.warn('failed to save login exit state', {
         event: 'login-exit-state-failed',

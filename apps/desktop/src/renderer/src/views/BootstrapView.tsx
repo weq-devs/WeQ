@@ -75,6 +75,11 @@ export function BootstrapView(): ReactElement {
       refetchOnWindowFocus: false,
     },
   );
+  const startupPage = trpc.bootstrap.getStartupPage.useQuery(undefined, {
+    enabled: needsStartup && !IS_WEB && homeStage === 'booting',
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
 
   // 过期弹窗要显示构建/过期时间。注意这个 query 不看 nativeOk：构建过期时它照样能
   // 读出来（`readNativeBuildInfo` 绕过了初始化校验）。
@@ -142,7 +147,14 @@ export function BootstrapView(): ReactElement {
       }
     }
     if (!nativeOk || !autoTarget.isFetched || !configs.isFetched) return;
+    if (!IS_WEB && !startupPage.isFetched) return;
     booted.current = true;
+    useViewState.setState({
+      startupPage:
+        !IS_WEB && (startupPage.data === 'home' || startupPage.data === 'messages')
+          ? startupPage.data
+          : null,
+    });
 
     const target = autoTarget.data ?? null;
     const cfg = target ? (configs.data ?? []).find((c) => c.configId === target.configId) : null;
@@ -216,6 +228,8 @@ export function BootstrapView(): ReactElement {
     currentAccount.data,
     autoTarget.isFetched,
     autoTarget.data,
+    startupPage.isFetched,
+    startupPage.data,
     configs.isFetched,
     configs.data,
     setHomeStage,

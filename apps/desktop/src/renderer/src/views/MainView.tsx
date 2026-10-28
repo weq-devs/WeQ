@@ -2324,6 +2324,10 @@ export function MainView(): ReactElement {
 }
 
 function MainWorkspace(): ReactElement {
+  const [startupView] = useState(() => useViewState.getState().startupPage);
+  useEffect(() => {
+    useViewState.setState({ startupPage: null });
+  }, []);
   const [mailUnread, setMailUnread] = useState(0);
   const utils = trpc.useUtils();
   const pushToast = useToast((s) => s.push);
@@ -4678,6 +4682,7 @@ function MainWorkspace(): ReactElement {
     initialActiveConversationId: null,
     // 手机直接落在消息列表；桌面保留主页，会话均由用户显式点选。
     initialView: IS_WEB && isMobileShell() ? 'messages' : 'home',
+    startupView,
     sidebarWidthStorageKey: 'weq.desktop.sidebarWidth.v2',
     history: shellHistory,
   });

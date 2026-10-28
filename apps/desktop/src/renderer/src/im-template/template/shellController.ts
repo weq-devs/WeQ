@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { loadLayoutNumber, saveLayoutNumber } from './layoutStorage';
 import { defaultConversationPreference } from './preferences';
 import { usePageState } from '../../components/PageSnapshots';
@@ -47,6 +47,7 @@ export type UseChatShellControllerOptions = {
   conversationPrefs: ConversationPreferences;
   initialActiveConversationId: string | null;
   initialView?: MainView;
+  startupView?: 'home' | 'messages' | null;
   sidebarWidthStorageKey: string;
   history: ChatShellHistoryAdapter;
   onReadConversation?: (conversationId: string) => void;
@@ -59,6 +60,7 @@ export function useChatShellController({
   conversationPrefs,
   initialActiveConversationId,
   initialView = 'messages',
+  startupView = null,
   sidebarWidthStorageKey,
   history,
   onReadConversation,
@@ -84,6 +86,13 @@ export function useChatShellController({
     ]),
   );
   const [query, setQuery] = usePageState('shell:query', '', pageValue.string);
+  const startupApplied = useRef(false);
+  useLayoutEffect(() => {
+    if (startupApplied.current) return;
+    startupApplied.current = true;
+    // 正常启动只替换栏目；其余阅读位置和草稿继续复用已有快照。
+    if (startupView) setView(startupView);
+  }, [startupView, setView]);
   const [contactTab, setContactTab] = usePageState<ContactTab>(
     'shell:contact-tab',
     'friends',

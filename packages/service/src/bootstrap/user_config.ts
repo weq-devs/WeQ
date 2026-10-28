@@ -505,6 +505,8 @@ export interface AppSettings {
   webServiceAutoStart: boolean;
   /** 系统登录自启时显示主窗口，默认关闭；手动打开不受影响。 */
   showWindowOnAutostart: boolean;
+  /** 正常退出后重新启动的工作区栏目；异常恢复始终还原现场。 */
+  startupPage: 'home' | 'messages' | 'last';
   /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认关闭。 */
   reportReadEnabled: boolean;
   /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认关闭。 */
@@ -850,6 +852,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   restrictedModeBannerEnabled: true,
   webServiceAutoStart: false,
   showWindowOnAutostart: false,
+  startupPage: 'last',
   reportReadEnabled: false,
   manualReadReportEnabled: false,
   autoLockMinutes: 0,
@@ -904,6 +907,8 @@ export interface UserConfig {
   autoEnter?: AutoEnterTarget | null;
   /** 登录页退出后仅跳过下一次启动，不改变自动进入偏好。 */
   skipAutoEnterOnce?: boolean;
+  /** 正常退出时写入，下次进程启动消费，异常终止不会留下该标记。 */
+  cleanExit?: boolean;
   tencentFilesRootOverride?: string | null;
   settings?: DeepPartial<AppSettings>;
   cacheDirOverride?: string | null;
@@ -972,6 +977,7 @@ export class UserConfigService {
   private cached: UserConfig | undefined;
   private readFailure: unknown;
   private skipAutoEnterThisStartup: boolean | undefined;
+  private startupPageThisStartup: AppSettings['startupPage'] | undefined;
   private readonly logger = getLogger().child({ scope: 'user-config' });
 
   constructor(platform: Pick<Platform, 'appDataRoot'>) {
@@ -1275,6 +1281,18 @@ export class UserConfigService {
     return this.read().autoEnter ?? null;
   }
 
+  getStartupPage(): AppSettings['startupPage'] {
+    if (this.startupPageThisStartup === undefined) {
+      this.startupPageThisStartup = this.read().cleanExit ? this.getSettings().startupPage : 'last';
+      this.write({ cleanExit: false });
+    }
+    return this.startupPageThisStartup;
+  }
+
+  markCleanExit(): void {
+    this.write({ cleanExit: true });
+  }
+
   getStartupAutoEnter(): AutoEnterTarget | null {
     if (this.skipAutoEnterThisStartup === undefined) {
       this.skipAutoEnterThisStartup = this.read().skipAutoEnterOnce === true;
@@ -1404,6 +1422,8 @@ export class UserConfigService {
       restrictedModeBannerEnabled: s?.restrictedModeBannerEnabled !== false,
       webServiceAutoStart: s?.webServiceAutoStart === true,
       showWindowOnAutostart: s?.showWindowOnAutostart === true,
+      startupPage:
+        s?.startupPage === 'home' || s?.startupPage === 'messages' ? s.startupPage : 'last',
       reportReadEnabled: s?.reportReadEnabled === true,
       manualReadReportEnabled: s?.manualReadReportEnabled === true,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
@@ -1524,6 +1544,7 @@ export class UserConfigService {
         patch.restrictedModeBannerEnabled ?? current.restrictedModeBannerEnabled,
       webServiceAutoStart: patch.webServiceAutoStart ?? current.webServiceAutoStart,
       showWindowOnAutostart: patch.showWindowOnAutostart ?? current.showWindowOnAutostart,
+      startupPage: patch.startupPage ?? current.startupPage,
       reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,
       manualReadReportEnabled: patch.manualReadReportEnabled ?? current.manualReadReportEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,

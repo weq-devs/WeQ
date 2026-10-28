@@ -42,7 +42,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mount(storage = new Storage(), scope: string | null = null) {
+function mount(
+  storage = new Storage(),
+  scope: string | null = null,
+  startupView: 'home' | 'messages' | null = null,
+) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', storage);
   const host = document.createElement('div');
@@ -59,6 +63,7 @@ function mount(storage = new Storage(), scope: string | null = null) {
       conversationPrefs: {},
       initialActiveConversationId: null,
       initialView: 'messages',
+      startupView,
       sidebarWidthStorageKey: 'test-contact-workspace',
       history: noopChatShellHistoryAdapter,
       onReadConversation: read,
@@ -84,6 +89,29 @@ it('重建界面恢复栏目和联系人详情，另一数据源不继承旧导�
   const other = mount(storage, 'account:source-b');
   expect(other.state().view).toBe('messages');
   expect(other.state().selectedContactId).toBeNull();
+});
+
+it.each(['home', 'messages'] as const)('正常启动进入 %s，后续崩溃重建恢复新现场', (page) => {
+  const storage = new Storage();
+  const first = mount(storage, 'startup-source');
+  act(() => first.state().openContactDetails(person, 'portrait'));
+  const normal = mount(storage, 'startup-source', page);
+  expect(normal.state().view).toBe(page);
+  expect(normal.state().selectedContactId).toBe(person.id);
+  // 启动选项只应用一次，导航后不会被拉回。
+  act(() => normal.state().switchView('qzone'));
+  expect(normal.state().view).toBe('qzone');
+  const recovered = mount(storage, 'startup-source');
+  expect(recovered.state().view).toBe('qzone');
+  expect(recovered.state().selectedContactId).toBe(person.id);
+});
+
+it('启动到指定栏目后立即崩溃，也从该栏目恢复', () => {
+  const storage = new Storage();
+  const first = mount(storage, 'immediate-crash');
+  act(() => first.state().switchView('qzone'));
+  mount(storage, 'immediate-crash', 'home');
+  expect(mount(storage, 'immediate-crash').state().view).toBe('home');
 });
 
 it('群友或陌生人的名片可展开，不写入好友目录或改变会话阅读状态', () => {

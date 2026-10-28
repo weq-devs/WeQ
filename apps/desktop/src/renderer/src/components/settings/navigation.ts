@@ -4,7 +4,7 @@ export const SETTINGS_PAGE_LABELS = {
   appearance: '主题与背景',
   home: '主页',
   global: '提醒与窗口',
-  startup: '开机启动',
+  startup: '启动',
   'weq-storage': 'WeQ 存储管理',
   'chat-messages': '聊天消息',
   'call-recording': '通话录音',
@@ -63,7 +63,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'general',
     label: '常规',
-    sections: ['appearance', 'home', 'global', 'startup', 'weq-storage', 'privacy'],
+    sections: ['startup', 'home', 'appearance', 'global', 'weq-storage', 'privacy'],
   },
   {
     id: 'basic',
@@ -191,6 +191,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     label: '收到新邮件时横幅提醒',
     aliases: ['新邮件提醒'],
     from: ['mail'],
+  },
+  {
+    id: 'startup-page',
+    section: 'startup',
+    label: '启动时进入',
+    aliases: ['上次退出时所在页面'],
+    from: ['startup'],
   },
   {
     id: 'startup-enabled',

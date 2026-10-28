@@ -146,6 +146,11 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
   // 默认空数组无法描述元素结构，输入状态单独校验，避免被当作普通对象。
   const { typingStatus, home, ...scalarSettings } = input;
   shape(scalarSettings, snapshotWeqSettings(DEFAULT_APP_SETTINGS), 'settings');
+  if (
+    input.startupPage !== undefined &&
+    !['home', 'messages', 'last'].includes(String(input.startupPage))
+  )
+    fail('settings.startupPage');
   if (Object.hasOwn(input, 'home')) {
     const page = fields(
       home,

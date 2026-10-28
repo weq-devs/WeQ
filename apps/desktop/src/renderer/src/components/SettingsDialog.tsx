@@ -36,6 +36,7 @@ import {
   Palette,
   PhoneCall,
   Plug,
+  Power,
   Radio,
   ScanText,
   Settings2,
@@ -342,8 +343,8 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'startup',
-    label: '开机启动',
-    icon: <Monitor size={16} />,
+    label: '启动',
+    icon: <Power size={16} />,
     render: () => <StartupSection />,
   },
   {

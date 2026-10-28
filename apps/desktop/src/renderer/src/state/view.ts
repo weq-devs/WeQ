@@ -19,6 +19,7 @@ interface ViewState {
   view: View;
   /** 打开账号后写入，用于驱动主界面。 */
   openedUin: string | null;
+  startupPage: 'home' | 'messages' | null;
   /** 首页内部阶段。 */
   homeStage: HomeStage;
   /** 选择页当前模式。 */
@@ -35,6 +36,7 @@ interface ViewState {
 export const useViewState = create<ViewState>((set) => ({
   view: 'bootstrap',
   openedUin: null,
+  startupPage: null,
   homeStage: 'booting',
   selectMode: 'existing',
   goTo: (view) => set({ view }),
