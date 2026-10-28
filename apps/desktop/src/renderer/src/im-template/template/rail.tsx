@@ -184,7 +184,12 @@ export function AppRail({
                 railButtonClass(activeView === 'messages'),
                 'rail-tab rail-tab-messages',
               )}
-              onClick={() => selectView('messages')}
+              onClick={() => {
+                if (activeView === 'messages' && onMessageBadgeClick) {
+                  setProfileOpen(false);
+                  onMessageBadgeClick();
+                } else selectView('messages');
+              }}
               title="消息"
               aria-current={activeView === 'messages' ? 'page' : undefined}
             >

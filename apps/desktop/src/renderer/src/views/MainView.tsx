@@ -10176,7 +10176,11 @@ function MainWorkspace(): ReactElement {
             }
             contactBadgeCount={friendNoticeCount + groupNoticeCount}
             onMessageBadgeClick={() => {
-              const target = firstUnreadConversation(sidebarConversations, conversationPrefs);
+              const target = firstUnreadConversation(
+                sidebarConversations,
+                conversationPrefs,
+                displaySettings.data?.showGroupAssistantMessageCount ?? false,
+              );
               if (!target) return;
               setSurfaceNavigation((value) => value + 1);
               setSettingsOpen(false);

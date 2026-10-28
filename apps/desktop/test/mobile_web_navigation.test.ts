@@ -132,11 +132,15 @@ it('手机资料与联系人操作复用桌面回调，操作后收起菜单', a
   expect(host.querySelector('#weq-mobile-contact-actions')).toBeNull();
 });
 
-it('在消息列表再次点击消息入口，保留定位首条未读的能力', async () => {
+it.each([0, 123])('消息汇总数为 %s 时再次点击消息入口仍可定位', async (messageBadgeCount) => {
   const locateUnread = vi.fn();
   await act(async () =>
     root.render(
-      createElement(MobileWebNavigation, { ...props, onMessageBadgeClick: locateUnread }),
+      createElement(MobileWebNavigation, {
+        ...props,
+        messageBadgeCount,
+        onMessageBadgeClick: locateUnread,
+      }),
     ),
   );
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[0]!.click());
