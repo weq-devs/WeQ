@@ -50,6 +50,7 @@ import { useToast } from '../../components/Toast';
 import { ocrReadiness, type OcrReadiness } from './preflight';
 import { useExportAuthorization, type ExportAuthorizationIndicatorState } from './authorization';
 import { BaselinePicker } from './BaselinePicker';
+import { ExportReportControl } from './ExportReportControl';
 import '../../styles/chat-export-continuation.css';
 import { Segmented } from './widgets';
 import { TimeRangePicker } from './TimeRangePicker';
@@ -309,6 +310,7 @@ interface OcrModelProgress {
 }
 
 const optionsSnapshot = z.object({
+  includeIntegrityReport: z.boolean().optional(),
   range: z.object({
     preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
     start: z.number().nullable(),
@@ -1347,6 +1349,12 @@ export function ExportLightbox({
                     )}
                   </Card>
                 ) : null}
+
+                <ExportReportControl
+                  checked={opts.includeIntegrityReport ?? false}
+                  onChange={(v) => patch({ includeIntegrityReport: v })}
+                  disabled={submitting}
+                />
 
                 {/* 扩展功能 */}
                 {isMessageFlow ? (

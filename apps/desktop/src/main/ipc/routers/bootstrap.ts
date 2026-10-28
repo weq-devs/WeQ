@@ -125,6 +125,7 @@ function backupScanContext() {
 
 /** 导出灯箱选项快照（与渲染层 ExportOptions 一一对应）。 */
 const exportPresetOptionsSchema = z.object({
+  includeIntegrityReport: z.boolean().optional(),
   range: z.object({
     preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
     start: z.number().nullable(),

@@ -3,6 +3,7 @@ import { Download, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { useToast } from '../../components/Toast';
 import { client } from '../../trpc/client';
+import { ExportReportControl } from './ExportReportControl';
 
 export function CollectionExportDialog({
   cids,
@@ -13,6 +14,7 @@ export function CollectionExportDialog({
 }) {
   const [format, setFormat] = useState<'json' | 'csv' | 'xlsx' | 'txt'>('json');
   const [busy, setBusy] = useState(false);
+  const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
   const [error, setError] = useState('');
   const toast = useToast((state) => state.push);
   async function start() {
@@ -23,6 +25,7 @@ export function CollectionExportDialog({
         name: cids ? `收藏_${cids.length}条` : '全部收藏',
         format,
         cids,
+        includeIntegrityReport,
       });
       toast({
         tone: 'success',
@@ -61,6 +64,11 @@ export function CollectionExportDialog({
             ]}
           />
         </label>
+        <ExportReportControl
+          checked={includeIntegrityReport}
+          onChange={setIncludeIntegrityReport}
+          disabled={busy}
+        />
         {error ? <p role="alert">{error}</p> : null}
         <div className="weq-dialog-actions">
           <button

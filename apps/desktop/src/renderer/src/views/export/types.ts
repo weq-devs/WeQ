@@ -159,6 +159,7 @@ export const MEDIA_KIND_LABELS: Record<keyof MediaKinds, string> = {
 
 /** Media / content options collected in the export lightbox. */
 export interface ExportOptions {
+  includeIntegrityReport?: boolean;
   range: TimeRange;
   /** Export media files alongside the messages. */
   exportMedia: boolean;
@@ -211,6 +212,7 @@ export interface ExportOptions {
 }
 
 export const DEFAULT_OPTIONS: ExportOptions = {
+  includeIntegrityReport: false,
   range: DEFAULT_RANGE,
   exportMedia: true,
   qzoneInteractions: false,

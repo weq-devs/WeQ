@@ -7,8 +7,10 @@ import { client } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import type { GroupAlbumWire } from '../../components/GroupAlbumDialog';
 import { ShimmerImage } from '../../components/ShimmerImage';
+import { ExportReportControl } from './ExportReportControl';
 
 export interface AlbumExportResult {
+  includeIntegrityReport: boolean;
   selectedAlbums: GroupAlbumWire[];
   saveIntent?: ExportSavePolicy;
 }
@@ -27,6 +29,7 @@ export function AlbumExportLightbox({
   onConfirm: (result: AlbumExportResult) => void;
 }): ReactElement {
   useEscapeToClose(onClose);
+  const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
   const [albums, setAlbums] = useState<GroupAlbumWire[]>([]);
   const [loadingAlbums, setLoadingAlbums] = useState(true);
   const [albumError, setAlbumError] = useState<string | null>(null);
@@ -158,6 +161,11 @@ export function AlbumExportLightbox({
           </div>
         </div>
 
+        <ExportReportControl
+          checked={includeIntegrityReport}
+          onChange={setIncludeIntegrityReport}
+          disabled={submitting}
+        />
         <footer className="weq-exp-dialog-foot">
           <button type="button" className="weq-exp-btn" onClick={onClose} disabled={submitting}>
             取消
@@ -168,7 +176,7 @@ export function AlbumExportLightbox({
             disabled={
               submitting || loadingAlbums || Boolean(albumError) || selectedAlbums.length === 0
             }
-            onClick={() => onConfirm({ selectedAlbums })}
+            onClick={() => onConfirm({ selectedAlbums, includeIntegrityReport })}
           >
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             开始导出

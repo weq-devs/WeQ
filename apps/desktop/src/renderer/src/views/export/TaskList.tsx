@@ -659,7 +659,8 @@ function TaskDetail({
       (t.mergeWarnings.conflictingMessages > 0 || t.mergeWarnings.sequenceGapCount > 0) ? (
         <p className="weq-exp-detail-complete is-warn" role="status">
           保留原消息，未覆盖内容不同的 {t.mergeWarnings.conflictingMessages} 条记录；发现{' '}
-          {t.mergeWarnings.sequenceGapCount} 段可疑序号缺口，详见完整性报告。
+          {t.mergeWarnings.sequenceGapCount} 段可疑序号缺口
+          {t.reportPath ? '，详见完整性报告。' : '。'}
         </p>
       ) : null}
       {t.status === 'failed' && t.error ? (

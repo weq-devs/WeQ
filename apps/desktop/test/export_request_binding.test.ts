@@ -67,10 +67,54 @@ function requests() {
   ];
 }
 describe('导出创建请求的数据源绑定', () => {
+  it.each([false, true])(
+    '商城和自定义表情透传完整性报告选择 %s',
+    async (includeIntegrityReport) => {
+      await emojiPackRouter
+        .createCaller({})
+        .startExport({ ...binding, scopes: ['own'], includeIntegrityReport });
+      expect(state.emoji).toHaveBeenLastCalledWith(
+        ['own'],
+        undefined,
+        'directory',
+        includeIntegrityReport,
+      );
+      const packs = [{ id: '123', name: '合成包' }];
+      await marketEmojiRouter
+        .createCaller({})
+        .startDownload({ ...binding, packs, includeIntegrityReport });
+      expect(state.market).toHaveBeenLastCalledWith(packs, undefined, includeIntegrityReport);
+    },
+  );
+  it.each([false, true])('消息及频道导出保留完整性报告选择 %s', async (includeIntegrityReport) => {
+    const api = accountRouter.createCaller({});
+    await api.startExport({
+      ...binding,
+      kind: 'group',
+      conv: '777',
+      name: '合成',
+      format: 'txt',
+      total: 2,
+      includeIntegrityReport,
+    });
+    expect(state.start).toHaveBeenLastCalledWith(
+      expect.objectContaining({ includeIntegrityReport }),
+    );
+    await api.guildDirectStartExport({
+      ...binding,
+      nodeId: '123',
+      name: '合成频道',
+      format: 'txt',
+      includeIntegrityReport,
+    });
+    expect(state.start).toHaveBeenLastCalledWith(
+      expect.objectContaining({ includeIntegrityReport }),
+    );
+  });
   it('表情导出格式透传给任务，旧请求默认目录，未知格式在创建前拒绝', async () => {
     const api = emojiPackRouter.createCaller({});
     await api.startExport({ ...binding, scopes: ['own'] });
-    expect(state.emoji).toHaveBeenLastCalledWith(['own'], undefined, 'directory');
+    expect(state.emoji).toHaveBeenLastCalledWith(['own'], undefined, 'directory', undefined);
     await api.startExport({
       ...binding,
       scopes: ['received'],
@@ -81,6 +125,7 @@ describe('导出创建请求的数据源绑定', () => {
       ['received'],
       { mode: 'before', directory: '/fixture/export' },
       'zip',
+      undefined,
     );
     await expect(
       api.startExport({ ...binding, scopes: ['own'], format: 'tar' as 'zip' }),

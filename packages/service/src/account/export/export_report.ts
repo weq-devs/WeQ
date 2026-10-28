@@ -1,7 +1,7 @@
 import type { ExportTask } from './task_manager';
 
 export function supportsExportReport(task: ExportTask): boolean {
-  return !task.resource && !task.marketpack && !task.emojipack;
+  return task.includeIntegrityReport ?? (!task.resource && !task.marketpack && !task.emojipack);
 }
 
 export function exportReport(task: ExportTask) {

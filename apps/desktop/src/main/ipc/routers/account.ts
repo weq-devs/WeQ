@@ -3279,6 +3279,7 @@ export const accountRouter = router({
         messageIds: z.array(z.string().min(1)).optional(),
         formats: z.array(z.enum(GENERATED_EXPORT_FORMATS)).min(1),
         savePolicy: exportSavePolicyInput.optional(),
+        includeIntegrityReport: z.boolean().optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -3299,6 +3300,7 @@ export const accountRouter = router({
         formats: input.formats,
         total: snapshot.messages.length,
         generated: snapshot,
+        includeIntegrityReport: input.includeIntegrityReport,
         savePolicy: input.savePolicy,
       });
     }),
@@ -3309,6 +3311,7 @@ export const accountRouter = router({
       z.object({
         ...exportAccountBindingInput.shape,
         savePolicy: exportSavePolicyInput.optional(),
+        includeIntegrityReport: z.boolean().optional(),
         /** 会话 40027 node id（消息分页键）。 */
         nodeId: z.string().min(1),
         messageIds: z.array(z.string().regex(/^-?\d+$/)).optional(),
@@ -3380,6 +3383,7 @@ export const accountRouter = router({
         kind: 'c2c',
         conv: guild.peerTinyId,
         savePolicy: input.savePolicy,
+        includeIntegrityReport: input.includeIntegrityReport,
         name: input.name,
         format: input.format,
         ...(input.formats?.length ? { formats: input.formats } : {}),
@@ -5980,6 +5984,7 @@ export const accountRouter = router({
         dbPaths: z.array(z.string().min(1)).min(1),
         mode: z.enum(['safe', 'fast']),
         savePolicy: exportSavePolicyInput.optional(),
+        includeIntegrityReport: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -6007,6 +6012,7 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         name,
         kind: 'database',
+        includeIntegrityReport: input.includeIntegrityReport,
         savePolicy: input.savePolicy,
         ...(single ? { output: { kind: 'file' as const, name, extension: 'db' } } : {}),
         run: async (context) => {
@@ -6406,7 +6412,11 @@ export const accountRouter = router({
       exportQzoneAlbumMediaInput
         .omit({ outputDir: true })
         .merge(exportAccountBindingInput)
-        .extend({ name: z.string().min(1), savePolicy: exportSavePolicyInput }),
+        .extend({
+          name: z.string().min(1),
+          savePolicy: exportSavePolicyInput,
+          includeIntegrityReport: z.boolean().optional(),
+        }),
     )
     .mutation(async ({ input }) => {
       const services = requireExpectedAccount(
@@ -6444,6 +6454,7 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'qzone-albums',
         name: selected.name,
+        includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: policy,
         ...(output.kind === 'file' ? { output } : {}),
         run: async (context) => {
@@ -6471,6 +6482,7 @@ export const accountRouter = router({
         name: z.string().min(1),
         albums: z.array(albumSelectionInput).min(1),
         savePolicy: exportSavePolicyInput,
+        includeIntegrityReport: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -6498,6 +6510,7 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'qzone-albums',
         name: selected.name,
+        includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: policy,
         run: async (context) => {
           const result = await exportSelectedQzoneAlbums(
@@ -6526,7 +6539,11 @@ export const accountRouter = router({
       exportGroupAlbumsInput
         .omit({ outputDir: true })
         .merge(exportAccountBindingInput)
-        .extend({ name: z.string().min(1), savePolicy: exportSavePolicyInput.optional() }),
+        .extend({
+          name: z.string().min(1),
+          savePolicy: exportSavePolicyInput.optional(),
+          includeIntegrityReport: z.boolean().optional(),
+        }),
     )
     .mutation(async ({ input }) => {
       const services = requireExpectedAccount(
@@ -6538,6 +6555,7 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'group-albums',
         name: selected.name,
+        includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: selected.savePolicy,
         run: async (context) => {
           if (
@@ -6621,7 +6639,11 @@ export const accountRouter = router({
       exportGroupFilesInput
         .omit({ outputDir: true })
         .merge(exportAccountBindingInput)
-        .extend({ name: z.string().min(1), savePolicy: exportSavePolicyInput.optional() }),
+        .extend({
+          name: z.string().min(1),
+          savePolicy: exportSavePolicyInput.optional(),
+          includeIntegrityReport: z.boolean().optional(),
+        }),
     )
     .mutation(async ({ input }) => {
       const services = requireExpectedAccount(
@@ -6633,6 +6655,7 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'group-files',
         name: selected.name,
+        includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: selected.savePolicy,
         run: async (context) => {
           if (
@@ -6881,6 +6904,7 @@ export const accountRouter = router({
       z.object({
         ...exportAccountBindingInput.shape,
         savePolicy: exportSavePolicyInput.optional(),
+        includeIntegrityReport: z.boolean().optional(),
         baselineDirectory: z.string().min(1).optional(),
         kind: z.enum(['group', 'c2c']),
         conv: z.string().min(1),
@@ -6961,6 +6985,7 @@ export const accountRouter = router({
     .input(
       z.object({
         savePolicy: exportSavePolicyInput.optional(),
+        includeIntegrityReport: z.boolean().optional(),
         targetUin: z.string().min(1),
         tids: z.array(z.string().trim().min(1).max(512)).optional(),
         expectedAccountUin: z.string().min(1).optional(),
@@ -6984,6 +7009,7 @@ export const accountRouter = router({
       const tids = input.tids === undefined ? undefined : [...new Set(input.tids)];
       return services.exportManager.startTask({
         qzone: true,
+        includeIntegrityReport: input.includeIntegrityReport,
         ...(tids !== undefined ? { qzoneTids: tids } : {}),
         savePolicy: input.savePolicy,
         kind: 'c2c',
@@ -7014,6 +7040,7 @@ export const accountRouter = router({
     .input(
       z.object({
         savePolicy: exportSavePolicyInput.optional(),
+        includeIntegrityReport: z.boolean().optional(),
         scope: z.enum(['friends', 'group', 'groups']),
         expectedAccountUin: z.string().min(1).optional(),
         expectedAccountConfigId: z.string().min(1).optional(),
@@ -7059,6 +7086,7 @@ export const accountRouter = router({
         },
         kind: 'c2c',
         savePolicy: input.savePolicy,
+        includeIntegrityReport: input.includeIntegrityReport,
         conv: input.scope === 'group' ? input.groupCode! : '',
         name: input.name,
         format,
@@ -7092,6 +7120,7 @@ export const accountRouter = router({
       z.object({
         ...exportAccountBindingInput.shape,
         savePolicy: exportSavePolicyInput.optional(),
+        includeIntegrityReport: z.boolean().optional(),
         name: z.string().min(1),
         format: z.enum(['json', 'csv', 'xlsx', 'txt']),
         kinds: z.array(z.string()).optional(),
@@ -7103,6 +7132,7 @@ export const accountRouter = router({
         input.expectedAccountUin,
         input.expectedAccountConfigId,
       ).exportManager.startTask({
+        includeIntegrityReport: input.includeIntegrityReport,
         collection: {
           ...(input.kinds?.length ? { kinds: input.kinds } : {}),
           ...(input.cids ? { cids: input.cids } : {}),
@@ -7417,6 +7447,7 @@ export const accountRouter = router({
           intervalHours: z.number().int().min(1).max(168),
         }),
         options: z.object({
+          includeIntegrityReport: z.boolean().optional(),
           range: z.object({
             preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
             start: z.number().nullable(),
@@ -7494,6 +7525,7 @@ export const accountRouter = router({
             .optional(),
           options: z
             .object({
+              includeIntegrityReport: z.boolean().optional(),
               range: z.object({
                 preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
                 start: z.number().nullable(),

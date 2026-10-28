@@ -23,6 +23,7 @@ import {
 } from '../../../../shared/content_selection';
 import { BACKEND_FORMATS, type BackendFormat } from './types';
 import '../../styles/generated-export.css';
+import { useExportReportDialog } from './ExportReportControl';
 
 const FORMATS: BackendFormat[] = [...BACKEND_FORMATS];
 
@@ -89,6 +90,7 @@ export function GeneratedExportPane({
   const [keyword, setKeyword] = useState('');
   const [formats, setFormats] = useState(new Set<BackendFormat>(['json']));
   const [busy, setBusy] = useState(false);
+  const report = useExportReportDialog();
   const [error, setError] = useState('');
   const autoRefresh = useQQAutoRefresh(active && ready);
   const sessions = trpc.account.generatedConversations.useQuery(binding, autoRefresh);
@@ -220,9 +222,15 @@ export function GeneratedExportPane({
     setBusy(true);
     setError('');
     try {
+      const includeIntegrityReport = await report.choose();
+      if (includeIntegrityReport === null || !isCurrent()) return;
       const savePolicy = await prepareSave(intent, { kind: 'bundle', name: '生成对话' });
       if (!savePolicy || !isCurrent()) return;
-      await client.account.startGeneratedExport.mutate({ ...frozen, savePolicy });
+      await client.account.startGeneratedExport.mutate({
+        ...frozen,
+        savePolicy,
+        includeIntegrityReport,
+      });
       if (isCurrent()) onStarted();
     } catch (reason) {
       if (isCurrent()) setError(reason instanceof Error ? reason.message : String(reason));
@@ -232,6 +240,7 @@ export function GeneratedExportPane({
   }
   return (
     <section className="weq-generated-export" aria-label="本地生成对话导出">
+      {report.dialog}
       <div className="weq-generated-export-body">
         <div className="weq-generated-export-sessions">
           <label className="weq-message-scope-search">

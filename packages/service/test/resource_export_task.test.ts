@@ -16,6 +16,31 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('独立资源沿用导出任务生命周期', () => {
+  it.each([false, true])(
+    '批量下载按本次选择附带报告：%s，重启后保持选择',
+    async (includeIntegrityReport) => {
+      const f = fixture();
+      const id = await f.manager.startResourceExport({
+        name: '批量下载',
+        kind: 'group-files',
+        includeIntegrityReport,
+        savePolicy: { mode: 'before', directory: f.root },
+        run: async ({ directory }) => {
+          writeFileSync(join(directory, 'first.txt'), 'first');
+          writeFileSync(join(directory, 'second.txt'), 'second');
+          return { total: 2, ok: 2, failed: [] };
+        },
+      });
+      await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+      const task = f.manager.getTask(id)!;
+      const savedNames = readdirSync(task.save!.path!);
+      expect(savedNames.includes('export-report.json')).toBe(includeIntegrityReport);
+      expect(savedNames.includes('export-report.html')).toBe(includeIntegrityReport);
+      const restored = new ExportTaskManager({} as MsgService, f.cache);
+      expect(restored.getTask(id)?.includeIntegrityReport).toBe(includeIntegrityReport);
+      expect(Boolean(restored.getReportPath(id))).toBe(includeIntegrityReport);
+    },
+  );
   it.each(['file', 'bundle'] as const)('正常下载 %s 不生成或另存聊天完整性报告', async (shape) => {
     const f = fixture();
     const id = await f.manager.startResourceExport({

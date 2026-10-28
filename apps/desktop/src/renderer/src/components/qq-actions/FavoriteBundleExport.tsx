@@ -7,6 +7,7 @@ import { client } from '../../trpc/client';
 import { ServerSavePrompt } from '../ServerSavePrompt';
 import { useToast } from '../Toast';
 import { ActionIcon } from './shared';
+import { useExportReportDialog } from '../../views/export/ExportReportControl';
 
 export function FavoriteBundleExport({
   binding,
@@ -16,6 +17,7 @@ export function FavoriteBundleExport({
   disabled: boolean;
 }) {
   const save = useExportSavePolicy();
+  const report = useExportReportDialog();
   const push = useToast((state) => state.push);
   const inFlight = useRef(false);
   const [pending, setPending] = useState(false);
@@ -30,13 +32,19 @@ export function FavoriteBundleExport({
     setPending(true);
     try {
       const selected = { ...binding };
+      const includeIntegrityReport = await report.choose();
+      if (includeIntegrityReport === null || !save.isCurrent()) return;
       const policy = await save.prepareSave(intent, {
         kind: 'file',
         name: '收藏表情',
         format: 'zip',
       });
       if (!policy || !save.isCurrent()) return;
-      await client.account.qqActions.favoriteExport.mutate({ ...selected, savePolicy: policy });
+      await client.account.qqActions.favoriteExport.mutate({
+        ...selected,
+        savePolicy: policy,
+        includeIntegrityReport,
+      });
       if (save.isCurrent()) push({ tone: 'info', title: '收藏表情导出任务已创建' });
     } catch (error) {
       if (save.isCurrent())
@@ -52,6 +60,7 @@ export function FavoriteBundleExport({
   }
   return (
     <>
+      {report.dialog}
       <ActionIcon
         label={pending ? '正在准备收藏包导出' : '导出收藏表情包'}
         disabled={unavailable}

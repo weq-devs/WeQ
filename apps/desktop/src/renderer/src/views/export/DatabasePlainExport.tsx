@@ -3,6 +3,7 @@ import { DatabaseZap, Loader2, ShieldCheck, Zap } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
+import { useExportReportDialog } from './ExportReportControl';
 import { useViewState } from '../../state/view';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
@@ -31,6 +32,7 @@ export function DatabasePlainExport({
   const tabActiveRef = useRef(tabActive);
   tabActiveRef.current = tabActive;
   const dialog = useAppDialog();
+  const report = useExportReportDialog();
   const [selected, setSelected] = useState(new Set<string>());
   const [busy, setBusy] = useState<Mode | null>(null);
   const [error, setError] = useState('');
@@ -126,6 +128,8 @@ export function DatabasePlainExport({
       }
       if (!current()) return;
       const name = targets.length === 1 ? targets[0]!.name.replace(/\.db$/i, '') : '数据库明文';
+      const includeIntegrityReport = targets.length > 1 ? await report.choose() : false;
+      if (includeIntegrityReport === null || !current()) return;
       const savePolicy = await prepareSave(
         intent,
         targets.length === 1 ? { kind: 'file', name, format: 'db' } : { kind: 'bundle', name },
@@ -136,6 +140,7 @@ export function DatabasePlainExport({
         mode,
         savePolicy,
         dbPaths: targets.map((item) => item.path),
+        includeIntegrityReport,
       });
       if (!sameSource()) return;
       setSelected(new Set());
@@ -162,6 +167,7 @@ export function DatabasePlainExport({
 
   return (
     <div className="weq-database-plain-export">
+      {report.dialog}
       {!matchesSource ? (
         <p className="weq-db-cards-error" role="alert">
           数据库导出来源已变化，请从当前数据库管理页重新打开。

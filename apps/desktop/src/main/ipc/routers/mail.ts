@@ -108,6 +108,7 @@ export const mailRouter = router({
         ids: z.array(mailId).min(1).max(100000).nullable(),
         filter: mailExportFilterInput.optional(),
         expandThreads: z.boolean().default(true),
+        includeIntegrityReport: z.boolean().optional(),
         expectedAccountConfigId: z.string().min(1),
         savePolicy: exportSavePolicyInput,
       }),
@@ -126,6 +127,7 @@ export const mailRouter = router({
       check();
       return services.exportManager.startResourceExport({
         kind: 'mail-messages',
+        includeIntegrityReport: input.includeIntegrityReport,
         name: input.ids === null ? '所有邮件' : `邮件导出-${input.ids.length}封`,
         savePolicy: input.savePolicy,
         run: (context) =>

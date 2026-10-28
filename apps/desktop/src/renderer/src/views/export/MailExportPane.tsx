@@ -8,6 +8,7 @@ import { useToast } from '../../components/Toast';
 import { WindowedList } from '../../components/WindowedList';
 import { formatMailTime } from '../mail/content';
 import '../../styles/mail-export.css';
+import { useExportReportDialog } from './ExportReportControl';
 
 export function MailExportPane({
   initialSelection,
@@ -33,6 +34,7 @@ export function MailExportPane({
   );
   const [all, setAll] = useState(selectedIds === null);
   const [busy, setBusy] = useState(false);
+  const report = useExportReportDialog();
   const pending = useRef(false);
   const [error, setError] = useState('');
   const [start, setStart] = useState('');
@@ -110,12 +112,14 @@ export function MailExportPane({
     setBusy(true);
     setError('');
     try {
+      const includeIntegrityReport = await report.choose();
+      if (includeIntegrityReport === null || !isCurrent()) return;
       const savePolicy = await prepareSave(intent, {
         kind: 'bundle',
         name: `邮件导出-${items.length}封`,
       });
       if (!savePolicy || !isCurrent()) return;
-      await client.mail.exportMessages.mutate({ ...target, savePolicy });
+      await client.mail.exportMessages.mutate({ ...target, savePolicy, includeIntegrityReport });
       if (isCurrent()) {
         useToast.getState().push({ tone: 'info', title: '邮件导出任务已创建' });
         onStarted();
@@ -129,6 +133,7 @@ export function MailExportPane({
   }
   return (
     <section className="weq-mail-export" aria-label="邮件导出范围">
+      {report.dialog}
       <SegmentedControl
         label="邮件范围"
         value={all ? 'all' : 'selected'}

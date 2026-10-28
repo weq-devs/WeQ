@@ -65,56 +65,60 @@ function waitDone(mgr: ExportTaskManager, taskId: string): Promise<void> {
 }
 
 describe('ExportTaskManager · 导出表情包', () => {
-  it('ZIP 格式按单文件保存，保留两个来源目录与失败计数，不遗留图片目录副本', async () => {
-    const root = tmp();
-    const manager = new ExportTaskManager(
-      {} as never,
-      join(root, 'cache'),
-      withExportSaveDirectory(join(root, 'cache'), {
-        emojipack: {
-          listOwnItems: async () => [
-            {
-              key: 'aaaa11',
-              oriPath: put(root, 'own/a.png', PNG),
-              thumbPath: null,
-              remoteUrl: null,
-            },
-            { key: 'cccc33', oriPath: null, thumbPath: null, remoteUrl: null },
-          ],
-          listReceivedItems: async () => [
-            {
-              key: 'bbbb22',
-              oriPath: put(root, 'recv/b.gif', GIF),
-              thumbPath: null,
-              remoteUrl: null,
-            },
-          ],
-          downloadImage: async () => false,
-        },
-      }),
-    );
-    const id = await manager.startEmojiPackExport(
-      ['own', 'received'],
-      { mode: 'before', directory: root },
-      'zip',
-    );
-    await waitDone(manager, id);
-    const task = manager.getTask(id)!;
-    expect(task.status).toBe('completed');
-    expect(task.reportPath).toBeUndefined();
-    expect(task.reportHtmlPath).toBeUndefined();
-    expect(manager.getReportPath(id)).toBeUndefined();
-    expect(task.filePath).toMatch(/\.zip$/);
-    expect(task.bundleDir).toBeUndefined();
-    expect(task.emojipack?.format).toBe('zip');
-    const files = readZipEntries(readFileSync(task.filePath!));
-    expect(files.map((file) => file.name)).toEqual(['我的表情/a.png', '收到的表情/b.gif']);
-    expect(files[0]!.data).toEqual(PNG);
-    expect(files[1]!.data).toEqual(GIF);
-    expect(task.stages.find((stage) => stage.key === 'emojiwrite')?.failed).toBe(1);
-    expect(task.stages.find((stage) => stage.key === 'emojizip')?.status).toBe('completed');
-    expect(existsSync(join(root, 'cache', `bundle-${id}`))).toBe(false);
-  });
+  it.each([false, true])(
+    'ZIP 按单文件保存，保留失败计数，按选择附带报告：%s',
+    async (includeIntegrityReport) => {
+      const root = tmp();
+      const manager = new ExportTaskManager(
+        {} as never,
+        join(root, 'cache'),
+        withExportSaveDirectory(join(root, 'cache'), {
+          emojipack: {
+            listOwnItems: async () => [
+              {
+                key: 'aaaa11',
+                oriPath: put(root, 'own/a.png', PNG),
+                thumbPath: null,
+                remoteUrl: null,
+              },
+              { key: 'cccc33', oriPath: null, thumbPath: null, remoteUrl: null },
+            ],
+            listReceivedItems: async () => [
+              {
+                key: 'bbbb22',
+                oriPath: put(root, 'recv/b.gif', GIF),
+                thumbPath: null,
+                remoteUrl: null,
+              },
+            ],
+            downloadImage: async () => false,
+          },
+        }),
+      );
+      const id = await manager.startEmojiPackExport(
+        ['own', 'received'],
+        { mode: 'before', directory: root },
+        'zip',
+        includeIntegrityReport,
+      );
+      await waitDone(manager, id);
+      const task = manager.getTask(id)!;
+      expect(task.status).toBe('completed');
+      expect(Boolean(task.reportPath)).toBe(includeIntegrityReport);
+      expect(Boolean(task.reportHtmlPath)).toBe(includeIntegrityReport);
+      expect(Boolean(manager.getReportPath(id))).toBe(includeIntegrityReport);
+      expect(task.filePath).toMatch(/\.zip$/);
+      expect(task.bundleDir).toBeUndefined();
+      expect(task.emojipack?.format).toBe('zip');
+      const files = readZipEntries(readFileSync(task.filePath!));
+      expect(files.map((file) => file.name)).toEqual(['我的表情/a.png', '收到的表情/b.gif']);
+      expect(files[0]!.data).toEqual(PNG);
+      expect(files[1]!.data).toEqual(GIF);
+      expect(task.stages.find((stage) => stage.key === 'emojiwrite')?.failed).toBe(1);
+      expect(task.stages.find((stage) => stage.key === 'emojizip')?.status).toBe('completed');
+      expect(existsSync(join(root, 'cache', `bundle-${id}`))).toBe(false);
+    },
+  );
 
   it('ZIP 可预先选择文件保存位置，不再被当作必须保存目录', async () => {
     const root = tmp();

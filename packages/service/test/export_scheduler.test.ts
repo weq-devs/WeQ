@@ -78,6 +78,15 @@ it('books the next cadence and persists in-flight IDs before the first batch com
   expect(f.manager.startTask).toHaveBeenCalledTimes(1);
 });
 
+it.each([false, true])('定时批次沿用创建时的完整性报告选择 %s', async (includeIntegrityReport) => {
+  const f = fixture();
+  f.scheduler.update(f.schedule.id, { options: { ...f.schedule.options, includeIntegrityReport } });
+  await f.scheduler.runNow(f.schedule.id);
+  expect(f.manager.startTask).toHaveBeenCalledWith(
+    expect.objectContaining({ includeIntegrityReport }),
+  );
+});
+
 it('repeated manual skips cannot hide the active batch or reset the cadence', async () => {
   const f = fixture();
   const nextRun = f.schedule.nextRunAt;

@@ -326,6 +326,7 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
+  includeIntegrityReport?: boolean;
   /** 独立资源任务；下载运行器仅存在于当前进程，重启后保留结果但不冒称可续传。 */
   resource?: {
     kind:
@@ -1005,6 +1006,7 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   async startTask(opts: {
+    includeIntegrityReport?: boolean;
     baselineDirectory?: string;
     savePolicy?: ExportSavePolicy;
     kind: ConvKind;
@@ -1295,6 +1297,7 @@ export class ExportTaskManager extends EventEmitter {
           }
         : {}),
       format: opts.format,
+      includeIntegrityReport: opts.includeIntegrityReport,
       ...(opts.formats?.length ? { formats: opts.formats } : {}),
       status: 'pending',
       progress: 0,
@@ -1333,6 +1336,7 @@ export class ExportTaskManager extends EventEmitter {
   async startMarketPackDownload(
     packs: MarketPackDownloadItem[],
     savePolicy?: ExportSavePolicy,
+    includeIntegrityReport?: boolean,
   ): Promise<string> {
     const id = `marketpack-${Date.now()}-${randomUUID()}`;
     const task: ExportTask = {
@@ -1346,6 +1350,7 @@ export class ExportTaskManager extends EventEmitter {
       current: 0,
       total: packs.length,
       marketpack: { packs },
+      includeIntegrityReport,
       stages: [{ key: 'sticker', label: '下载表情', status: 'pending', current: 0, total: 0 }],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1360,6 +1365,7 @@ export class ExportTaskManager extends EventEmitter {
   /** 既有独立下载器只写私有缓存，发布、另存、取消和回执沿用同一个任务管理器。 */
   async startResourceExport(opts: {
     name: string;
+    includeIntegrityReport?: boolean;
     kind: NonNullable<ExportTask['resource']>['kind'];
     savePolicy?: ExportSavePolicy;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
@@ -1375,6 +1381,7 @@ export class ExportTaskManager extends EventEmitter {
       name: opts.name,
       format: 'json',
       resource: { kind: opts.kind, ...(output ? { output } : {}) },
+      includeIntegrityReport: opts.includeIntegrityReport,
       status: 'pending',
       progress: 0,
       current: 0,
@@ -1539,6 +1546,7 @@ export class ExportTaskManager extends EventEmitter {
     scopes: EmojiPackScope[],
     savePolicy?: ExportSavePolicy,
     format: EmojiPackFormat = 'directory',
+    includeIntegrityReport?: boolean,
   ): Promise<string> {
     if (!['directory', 'zip'].includes(format)) throw new Error('不支持的表情包导出格式');
     const wanted = scopes.length > 0 ? scopes : (['own', 'received'] as EmojiPackScope[]);
@@ -1563,6 +1571,7 @@ export class ExportTaskManager extends EventEmitter {
       id,
       kind: 'c2c',
       conv: 'emojipack',
+      includeIntegrityReport,
       name,
       format: 'json', // 占位（产物是图片文件夹，非消息文件）；TaskList 只读 bundleDir。
       status: 'pending',
@@ -1802,7 +1811,7 @@ export class ExportTaskManager extends EventEmitter {
           this.log(id, 'task', '来源或选项已有变化，保留消息断点并重新生成所选格式');
         }
         task.resumeBinding = { ...task.resumeBinding, ...binding };
-        task.reportVersion = 1;
+        if (supportsExportReport(task)) task.reportVersion = 1;
         this.saveTasks();
       }
       // 先让出事件循环：任务创建 / 列表刷新的 IPC 响应要先回到渲染进程，
@@ -3152,7 +3161,7 @@ export class ExportTaskManager extends EventEmitter {
         }
         const warnings = task.mergeWarnings;
         if (warnings.conflictingMessages || warnings.sequenceGapCount) {
-          const notice = `归档保留原消息：${warnings.conflictingMessages} 条消息内容与现有记录不同；发现 ${warnings.sequenceGapCount} 段可疑序号缺口（不代表已证实丢失消息），请查看完整性报告。`;
+          const notice = `归档保留原消息：${warnings.conflictingMessages} 条消息内容与现有记录不同；发现 ${warnings.sequenceGapCount} 段可疑序号缺口（不代表已证实丢失消息）${supportsExportReport(task) ? '，请查看完整性报告' : ''}。`;
           this.log(id, 'message', notice, 'warn');
           this.emit('progress', {
             taskId: id,
@@ -5030,7 +5039,7 @@ export class ExportTaskManager extends EventEmitter {
     if (task.directOutput && task.save) task.save.status = 'pending';
     task.error = undefined;
     task.updatedAt = Date.now();
-    task.reportVersion = 1;
+    if (supportsExportReport(task)) task.reportVersion = 1;
     if (task.contacts || task.generated || task.qzone) {
       task.current = 0;
       task.progress = 0;

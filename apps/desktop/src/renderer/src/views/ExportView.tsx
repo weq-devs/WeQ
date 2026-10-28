@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
+import { useExportReportDialog } from './export/ExportReportControl';
 import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { fixProfileAvatarUrl } from '../lib/avatarResolver';
@@ -373,6 +374,7 @@ export function ExportTool({
   const active = useTabActive();
   const modeLocked = lockMode || Boolean(databaseTarget);
   const dialog = useAppDialog();
+  const report = useExportReportDialog();
   const pushToast = useToast((s) => s.push);
   const mounted = useRef(true);
   const saveLocationPending = useRef<((directory: string | null) => void) | null>(null);
@@ -1155,6 +1157,7 @@ export function ExportTool({
         const fmt0 = qzoneFormatOf(formats[0] ?? 'json');
         await client.account.startQzoneExport.mutate({
           ...binding,
+          includeIntegrityReport: options.includeIntegrityReport ?? false,
           savePolicy,
           targetUin: t.uin,
           tids: t.tids,
@@ -1227,6 +1230,7 @@ export function ExportTool({
       if (contactScope === 'groups') {
         await client.account.startContactsExport.mutate({
           ...binding,
+          includeIntegrityReport: options.includeIntegrityReport ?? false,
           savePolicy,
           scope: 'groups',
           name: selectionName,
@@ -1237,6 +1241,7 @@ export function ExportTool({
       } else if (contactScope === 'friends') {
         await client.account.startContactsExport.mutate({
           ...binding,
+          includeIntegrityReport: options.includeIntegrityReport ?? false,
           savePolicy,
           scope: 'friends',
           name: selectionName,
@@ -1254,6 +1259,7 @@ export function ExportTool({
           if (!isCurrent()) return;
           await client.account.startContactsExport.mutate({
             ...binding,
+            includeIntegrityReport: options.includeIntegrityReport ?? false,
             savePolicy,
             scope: 'group',
             groupCode: g.id,
@@ -1284,6 +1290,8 @@ export function ExportTool({
     if (cids.length === 0) return;
     setSubmitting(true);
     try {
+      const includeIntegrityReport = await report.choose();
+      if (includeIntegrityReport === null || !isCurrent()) return;
       const savePolicy = await prepareSave(intent, {
         kind: 'bundle',
         name: kinds.length ? `收藏_${kinds.length}类` : '全部收藏',
@@ -1291,6 +1299,7 @@ export function ExportTool({
       if (!savePolicy) return;
       await client.account.startCollectionExport.mutate({
         ...binding,
+        includeIntegrityReport,
         savePolicy,
         name: kinds.length ? `收藏_${kinds.length}类` : '全部收藏',
         format: cfmt,
@@ -1440,6 +1449,7 @@ export function ExportTool({
         const fmt0 = formats[0] ?? format;
         await client.account.guildDirectStartExport.mutate({
           ...binding,
+          includeIntegrityReport: options.includeIntegrityReport ?? false,
           savePolicy,
           nodeId: t.id,
           messageIds: t.messageIds,
@@ -1486,6 +1496,7 @@ export function ExportTool({
       if (!savePolicy || !isCurrent()) return;
       await client.account.startGroupAlbumExport.mutate({
         ...binding,
+        includeIntegrityReport: result.includeIntegrityReport,
         name,
         savePolicy,
         groupCode: group.id,
@@ -1522,6 +1533,7 @@ export function ExportTool({
       if (!savePolicy || !isCurrent()) return;
       await client.account.startGroupFileExport.mutate({
         ...binding,
+        includeIntegrityReport: result.includeIntegrityReport,
         name,
         savePolicy,
         groupCode: group.id,
@@ -1659,6 +1671,7 @@ export function ExportTool({
           transcribeVoice: result.options.transcribeVoice,
           dress: result.options.dress,
           autoSave: result.options.autoSave,
+          includeIntegrityReport: result.options.includeIntegrityReport ?? false,
         },
         enabled: true,
       });
@@ -1816,6 +1829,7 @@ export function ExportTool({
 
   return (
     <div className={`weq-exp weq-export-tool is-${surface}`}>
+      {report.dialog}
       {serverLocation && (
         <ServerSavePrompt name={serverLocation.name} onChoose={chooseServerLocation} />
       )}

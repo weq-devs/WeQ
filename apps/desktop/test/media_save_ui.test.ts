@@ -519,11 +519,17 @@ it('群文件与文件夹所选范围复用保存偏好，取消不创建任务�
     const save = () => f.host.querySelector<HTMLButtonElement>('[aria-label="保存所选项目"]')!;
     state.prepare.mockResolvedValueOnce(null);
     await act(async () => save().click());
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('.weq-dialog-actions .weq-action-primary')!.click(),
+    );
     expect(state.exportFiles).not.toHaveBeenCalled();
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="选择当前可见项目"]')!.checked).toBe(
       true,
     );
     await act(async () => save().click());
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('.weq-dialog-actions .weq-action-primary')!.click(),
+    );
     expect(state.exportFiles).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedAccountUin: '10001',

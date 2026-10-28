@@ -78,8 +78,13 @@ async function mount(selection?: ContentSelection) {
       act(async () =>
         host.querySelector<HTMLButtonElement>('.weq-mail-export-preview button')!.click(),
       ),
-    submit: () =>
-      act(async () => host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click()),
+    submit: async () => {
+      await act(async () => host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click());
+      const confirm = document.querySelector<HTMLButtonElement>(
+        '.weq-dialog-actions .weq-action-primary',
+      );
+      if (confirm) await act(async () => confirm.click());
+    },
     input: async (index: number, value: string) => {
       const input = host.querySelectorAll<HTMLInputElement>('.weq-mail-export-filters input')[
         index
@@ -134,6 +139,7 @@ it('先按北京时间和文本条件查询列表数量，确认后只导出预�
       ids: ['preview-one'],
       expandThreads: false,
       savePolicy: { mode: 'before', directory: '/fixture/export' },
+      includeIntegrityReport: false,
     });
     expect(state.started).toHaveBeenCalledTimes(1);
   } finally {

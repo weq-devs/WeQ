@@ -37,9 +37,9 @@ vi.mock('../src/renderer/src/hooks/useQzoneRequests', () => ({
   useQzoneRequests: () => ({ run: vi.fn(), cancel: vi.fn() }),
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => state.toast }));
-vi.mock('../src/renderer/src/components/Dialog', () => ({
+vi.mock('../src/renderer/src/components/Dialog', async (original) => ({
+  ...(await original<typeof import('../src/renderer/src/components/Dialog')>()),
   useDialog: () => state.error,
-  Modal: () => null,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
@@ -200,9 +200,15 @@ it.each([false, true])(
     capture(host, web ? 'qzone-albums-web.html' : 'qzone-albums-desktop.html');
     state.prepare.mockResolvedValueOnce(null);
     await act(async () => host.querySelector<HTMLButtonElement>('.weq-qzal-download')!.click());
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('.weq-dialog-actions .weq-action-primary')!.click(),
+    );
     expect(state.albums).not.toHaveBeenCalled();
     expect(host.textContent).toContain('已选 1 个相册');
     await act(async () => host.querySelector<HTMLButtonElement>('.weq-qzal-download')!.click());
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('.weq-dialog-actions .weq-action-primary')!.click(),
+    );
     expect(state.albums).toHaveBeenCalledWith(
       expect.objectContaining({
         albums: [{ id: 'album-a', title: '合成相册' }],

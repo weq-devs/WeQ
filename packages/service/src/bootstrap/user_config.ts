@@ -158,6 +158,7 @@ function normalizeTtsProviders(value: unknown): TtsProviderConfig[] {
 
 /** 导出灯箱的选项快照（与渲染层 `ExportOptions` 一一对应，字段缺一不可）。 */
 export interface ExportPresetOptions {
+  includeIntegrityReport?: boolean;
   range: {
     preset: 'all' | 'today' | '7d' | '30d' | '1y' | 'custom';
     start: number | null;
@@ -276,6 +277,7 @@ function normalizeExportPresetOptions(value: unknown): ExportPresetOptions | und
       end: range.end,
     },
     exportMedia: o.exportMedia,
+    includeIntegrityReport: o.includeIntegrityReport === true,
     qzoneInteractions: typeof o.qzoneInteractions === 'boolean' ? o.qzoneInteractions : false,
     mediaKinds: {
       image: mediaKinds.image,

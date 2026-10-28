@@ -32,6 +32,7 @@ import { useToast } from '../../components/Toast';
 import { PickerListSkeleton } from './ExportSkeleton';
 import { fileIconUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
+import { ExportReportControl } from './ExportReportControl';
 import {
   fileExtIcon,
   formatFileTime,
@@ -52,6 +53,7 @@ export interface GroupFileEntry {
 }
 
 export interface GroupFileExportResult {
+  includeIntegrityReport: boolean;
   selectedFiles: GroupFileEntry[];
   saveIntent?: ExportSavePolicy;
 }
@@ -97,6 +99,7 @@ export function GroupFileExportLightbox({
   onConfirm: (result: GroupFileExportResult) => void;
 }): ReactElement {
   useEscapeToClose(onClose);
+  const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
   const pushToast = useToast((s) => s.push);
   const [crumbs, setCrumbs] = useState<Crumb[]>([ROOT]);
   const [listing, setListing] = useState<GroupFileListing | null>(null);
@@ -443,6 +446,11 @@ export function GroupFileExportLightbox({
           </div>
         </div>
 
+        <ExportReportControl
+          checked={includeIntegrityReport}
+          onChange={setIncludeIntegrityReport}
+          disabled={submitting}
+        />
         <footer className="weq-exp-dialog-foot">
           <span className="weq-exp-dialog-foot-note">
             已选 {selection.size} 个文件
@@ -457,7 +465,7 @@ export function GroupFileExportLightbox({
             disabled={
               submitting || selecting || loading || Boolean(error) || selectedFiles.length === 0
             }
-            onClick={() => onConfirm({ selectedFiles })}
+            onClick={() => onConfirm({ selectedFiles, includeIntegrityReport })}
           >
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             开始导出
