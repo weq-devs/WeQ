@@ -75,7 +75,10 @@ function fixture() {
     webQuery: {
       getQzoneFriendPermissionList: vi.fn(async (_kind: 'blocked' | 'hidden') => []),
       getDaySignedList: vi.fn(async () => []),
-      uploadQzoneImage: vi.fn(async () => ({ richval: 'uploaded-richval' })),
+      uploadQzoneImage: vi.fn(async () => ({
+        richval: ',album-a,location-a,location-a,1000,480,640,,480,640',
+        url: 'https://example.com/uploaded-image.jpg',
+      })),
       getGroupNotice: vi.fn(async () => []),
       setGroupNotice: empty(),
       deleteGroupNotice: empty(),
@@ -632,7 +635,7 @@ describe('主动操作的账号与参数边界', () => {
     failure.s.groupModeration.getAtAllRemain.mockRejectedValueOnce(new Error('quota unavailable'));
     await expect(failure.caller.atAllMention(group)).rejects.toThrow('quota unavailable');
   });
-  it('带图评论先上传再使用 richval，取图期间切号不发送评论', async () => {
+  it('带图评论使用上传直链而非说说 richval，上传期间切号不发送评论', async () => {
     const f = fixture();
     const dir = await mkdtemp(join(tmpdir(), 'weq-qzone-comment-test-'));
     const path = join(dir, 'image.png');
@@ -653,13 +656,13 @@ describe('主动操作的账号与参数边界', () => {
         'post-a',
         '带图',
         1,
-        'uploaded-richval',
+        'https://example.com/uploaded-image.jpg',
         expect.any(Function),
       );
       f.s.webQuery.commentQzone.mockClear();
       f.s.webQuery.uploadQzoneImage.mockImplementationOnce(async () => {
         f.switchAccount();
-        return { richval: 'old-account-image' };
+        return { richval: 'old-account-image', url: 'https://example.com/old-account-image.jpg' };
       });
       await expect(
         f.caller.qzone({

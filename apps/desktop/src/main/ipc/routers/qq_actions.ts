@@ -867,7 +867,8 @@ export function createQQActionsRouter(
             current,
           );
           current();
-          return s.webQuery.commentQzone(i.hostUin, i.tid, i.content, 1, picture.richval, current);
+          // 评论 richval 接受图片直链，不是发表说说的逗号分隔图片元数据。
+          return s.webQuery.commentQzone(i.hostUin, i.tid, i.content, 1, picture.url, current);
         }),
       ),
     inputStatus: procedure

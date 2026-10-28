@@ -33,6 +33,8 @@ RetweetListViewModel 3.0    c6f86f6a89701ea3773fca1818e3ba405f374ab5fa4cb241c923
 Mood 模型 3.0              9ca897ee00e59ad65137b7c1c1f2832c6c5538bb76440ce7e03975b02dbe2016
 ```
 
+2026-10-29 补核 W09 图片参数：腾讯[评论模块公共模型](https://qzs.qq.com/qzone/app/controls/commentModule/viewModel/viewModel_3.0_common.js)把 `richValue` 按 Tab 拆分后直接作为图片 URL，不能复用发表说说的图片元数据。该脚本本次取得字节的 SHA-256 为 `b6892fcfd37c569d26913f4812039aefb19acbb5510a6e37fc3ec4353761906d`；此为前端源码证据，不代表 WeQ 带图评论已完成现网验收。
+
 ## 2. 通用用法
 
 ### 2.1 URL 记法
@@ -188,7 +190,7 @@ https://h5.qzone.qq.com/proxy/domain/<domain><path>
 | W06 | 删除说说：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_delete_v6)` | H `uin, topicId, feedsKey, feedsAppid=311, feedsTime, feedsType, feedsFlag`；O 另有 `tid/topicId` 方案 | 必须取真实 feed 句柄/发布时间，不能从展示文字或数组下标推导；删除不可由本工具保证恢复。H/O |
 | W07 | 点赞/取消赞：`U(w.qzone.qq.com, /cgi-bin/likes/internal_dolike_app)` | `opuin=L, unikey, curkey, appid, typeid, fid, abstime, active, fupdate` | **O 的 like/unlike 主分支都传 `active=0`，不能直接照抄为可靠取消赞**；真实语义需单独验证。H/O |
 | W08 | 另一点赞链路：`U(taotao.qzone.qq.com, /cgi-bin/like_cgi_likev6)` | O `opuin=L, ouin=T, fid=tid, abstime, appid, typeid`；取消分支 `optype=1` | 不能用跨端或旧版本参数盲目补救 W07；需核目标实际赞状态。O |
-| W09 | 发表评论（含图片）：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_addcomment_ugc)` | H `uin=L, hostUin=T, topicId=T_tid, commentUin=L, content, private=0, format=fs`；图片 `richtype=1, richval` 取上传结果 | 明确成功返回的评论 `data.id` 才能继续回复；原图上传亦有副作用。H |
+| W09 | 发表评论（含图片）：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_addcomment_ugc)` | H `uin=L, hostUin=T, topicId=T_tid, commentUin=L, content, private=0, format=fs`；图片 `richtype=1, richval` 取上传结果的 `url`，多图以 Tab 分隔，不是发表说说用的逗号分隔元数据 | 明确成功返回的评论 `data.id` 才能继续回复；原图上传亦有副作用。H/T |
 | W10 | 回复评论：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_addreply_ugc)` | H `uin=L, hostUin=T, topicId, commentId, commentUin, content`，可带图文 `richval` | 根评论 ID、回复 ID、被回复者和操作者要分开，按实际封套核身份。H |
 | W11 | 删除评论：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_delcomment_ugc)` | H `uin, hostUin, topicId, commentId, commentUin`；O 另用 `hostuin/uin/tid/comment_id` | 不同源码变体存在字段差异，不能自行统一；管理员/作者权限由服务端决定。H/O |
 | W12 | 删除回复：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_delreply_ugc)` | H `uin, hostUin, topicId, commentId, replyId, commentUin` | 不把删除回复退化成删除根评论；只认实际目标句柄。H |

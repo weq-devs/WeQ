@@ -777,7 +777,8 @@ export interface QzoneCommentResult {
  * 评论一条说说 — `emotion_cgi_re_feeds`。
  *
  * 搬运自 SnowLuma `protocol/src/web/qzone.ts` 的 `commentQzoneMsg`。
- * `richType` / `richval` 必须成对出现（带图评论）。
+ * `richType` / `richval` 必须成对出现（带图评论）。`richval` 为上传结果的图片
+ * `url`（多图以 `\t` 分隔），不能使用发表说说用的逗号分隔图片元数据。
  */
 export async function commentQzoneMsg(
   cred: WebCredential,
