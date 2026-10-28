@@ -280,6 +280,26 @@ export const MARKET_FACE_PB_RESERVE: ProtoMessage = message([
 export const FLASH_PHOTO_SERVICE_TYPE = 3;
 
 /**
+ * 闪照后面紧跟的兜底纯文本（给不认识 serviceType=3 的老客户端看）。
+ *
+ * 放在 schema 层而不是 `send-elements`：收侧解码要用它把这条噪音文案认出来丢掉，
+ * 而 `decode` 不该为了一个字符串把整个上传模块（highway / native）拖进来。
+ */
+export const FLASH_PHOTO_FALLBACK_TEXT = '[闪照]请使用新版手机QQ查看闪照。';
+
+/**
+ * 泡泡消息的 commonElem.businessType —— 与普通视频（21）只差这一个值。
+ *
+ * 真机抓包（2026-10-28，QQ NT 私聊发泡泡消息）解出：`commonElem{serviceType:48,
+ * businessType:14}`，`pbElem` 结构与普通视频**完全一致**（`files[0]` = mp4 本体、
+ * `files[1]` = 封面 png，各带 fileToken / md5 / 尺寸 / ttl），唯一多出来的是
+ * `pbElem.extBizInfo.field4` = `{1: "<模板名>"}`（样本是 `video_penguin_dance`）。
+ * 收端靠 businessType=14 把它渲染成圆形循环的「泡泡」，本地库也落成
+ * elementType=49（BUBBLE_VIDEO）。
+ */
+export const BUBBLE_VIDEO_BUSINESS_TYPE = 14;
+
+/**
  * 闪照 pbElem 里 NotOnlineImage 的 pbRes(29) 的 field20(20) 子结构。
  *
  * QQ 把这一段**整个写成显式 0 / 空串**（`08 00 12 00 18 00 20 00 28 00 3A 00`，

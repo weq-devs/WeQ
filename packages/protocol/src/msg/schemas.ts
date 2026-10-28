@@ -455,6 +455,11 @@ export const VIDEO_COMMON_PB: ProtoMessage = message([
   f('files', 1, VIDEO_COMMON_FILE, { repeated: true }),
 ]);
 
+// 泡泡消息（commonElem serviceType=48 / businessType=14）的 pbElem schema 在
+// `../highway/ntv2-schemas` 的 `BUBBLE_VIDEO_PB`：它和上传响应 `msgInfo` 是同一份
+// 字节，所以必须用上传侧那套字段名（`msgInfoBody(1).index(1)`）。收侧解码直接引它，
+// 不要再在这里声明一份 —— 两套同 tag 不同名的 schema 并存迟早会编码丢字段。
+
 // ---------- transElem(elemType=24) 群文件 ----------
 
 /** 文件信息（7.2）：fileToken / fileSize / fileName，其余字段丢弃。 */

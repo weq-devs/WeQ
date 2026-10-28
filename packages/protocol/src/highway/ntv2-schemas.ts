@@ -168,6 +168,36 @@ export const UPLOAD_MSG_INFO = message([
   f('extBizInfo', 2, NTV2_EXT_BIZ_INFO),
 ]);
 
+/** 泡泡消息 `extBizInfo.bubble`(4)：目前只观测到模板名一个字段。 */
+export const BUBBLE_VIDEO_EXTRA = message([f('templateName', 1, 'string')]);
+
+/**
+ * 泡泡消息的 extBizInfo(2)：**与普通视频那份同构，只多一层 `bubble`(4)**。
+ *
+ * 真机抓包里 pic(1) / video(2) / ptt(3) 都在（内容是空 bytes，视频上传固定这么填），
+ * 所以这里逐字段声明全 —— 少声明一个 tag，`encode()` 会静默丢它。
+ */
+export const BUBBLE_VIDEO_EXT_BIZ_INFO = message([
+  f('pic', 1, PIC_EXT_BIZ_INFO),
+  f('video', 2, VIDEO_EXT_BIZ_INFO),
+  f('ptt', 3, PTT_EXT_BIZ_INFO),
+  f('bubble', 4, BUBBLE_VIDEO_EXTRA),
+  f('busiType', 10, 'uint32'),
+]);
+
+/**
+ * 泡泡消息的 outgoing `commonElem.pbElem`。
+ *
+ * 与 {@link UPLOAD_MSG_INFO} 唯一的差别是 `extBizInfo` 多一层 `bubble`(4)；
+ * 第一层沿用上传侧的 `MSG_INFO_BODY`（`msgInfoBody(1).index(1)`），不要换成收侧那套
+ * `files(1).body(1)` —— tag 布局相同、字段名不同，混用会让 `picture` / `fileExist` /
+ * `hashSum` 静默丢失。
+ */
+export const BUBBLE_VIDEO_PB = message([
+  f('msgInfoBody', 1, MSG_INFO_BODY, { repeated: true }),
+  f('extBizInfo', 2, BUBBLE_VIDEO_EXT_BIZ_INFO),
+]);
+
 export const NTV2_IPV4 = message([f('outIp', 1, 'uint32'), f('outPort', 2, 'uint32')]);
 
 export const NTV2_SUB_FILE_INFO_RESP = message([

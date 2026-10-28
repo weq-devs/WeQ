@@ -63,6 +63,11 @@ export const RICH_MEDIA_BUSINESS_TYPE = {
   image: 20,
   video: 21,
   /**
+   * 泡泡消息：结构与视频完全相同，只有 businessType 换成 14（真机抓包 2026-10-28）。
+   * 收端据此渲染成圆形循环短视频。
+   */
+  bubbleVideo: 14,
+  /**
    * 语音：群 / 私聊都是 22。
    *
    * 曾试过按安卓抓包把私聊改成 12（`0x126d_100` + `PbSendMsg` 两条抓包里是 12），
@@ -75,6 +80,14 @@ export const RICH_MEDIA_BUSINESS_TYPE = {
 /** 视频封面兜底尺寸（SL 内嵌的就是 720×1280）。 */
 export const DEFAULT_VIDEO_THUMB_WIDTH = 720;
 export const DEFAULT_VIDEO_THUMB_HEIGHT = 1280;
+
+/**
+ * 缺省泡泡模板名 —— 抓包里唯一观测到的那一款（企鹅舞）。
+ *
+ * 放在这里而不是 `msg/send-elements`：上传层要用它兜底，而 `send-elements` 已经
+ * 依赖上传层，反向引用会成环。
+ */
+export const DEFAULT_BUBBLE_TEMPLATE = 'video_penguin_dance';
 
 // ───────────────────────── 公共类型 ─────────────────────────
 
@@ -93,6 +106,13 @@ export interface MediaUploadTarget {
 
 export interface MediaUploadOptions {
   log?: (message: string) => void;
+  /**
+   * 泡泡消息（`commonElem.businessType=14`）：上传管线与普通视频完全一致，
+   * 只在最终拼 `msgInfo` 时换 businessType 并补 `extBizInfo.bubble`。
+   */
+  bubble?: boolean;
+  /** 泡泡模板名（`extBizInfo.bubble.templateName`）；缺省用抓包里那款。 */
+  bubbleTemplate?: string;
 }
 
 /**
@@ -762,9 +782,15 @@ export async function uploadVideoMsgInfo(
     log: options.log,
   });
 
-  const msgInfo = finalizeMediaMsgInfo(upload);
+  // 泡泡消息与普通视频共用整条上传管线，只在最终拼 msgInfo 时补
+  // `extBizInfo.bubble`（模板名）并把 commonElem.businessType 换成 14。
+  const bubble = options.bubble === true;
+  const msgInfo = finalizeMediaMsgInfo(
+    upload,
+    bubble ? { bubbleTemplate: options.bubbleTemplate ?? DEFAULT_BUBBLE_TEMPLATE } : {},
+  );
   return toResult(upload, msgInfo, {
-    businessType: RICH_MEDIA_BUSINESS_TYPE.video,
+    businessType: bubble ? RICH_MEDIA_BUSINESS_TYPE.bubbleVideo : RICH_MEDIA_BUSINESS_TYPE.video,
     fileName,
     fileSize: size,
     md5Hex: videoHashes.md5Hex,

@@ -27,6 +27,7 @@ import {
   uploadHighwayHttp,
 } from './highway-client';
 import {
+  BUBBLE_VIDEO_PB,
   NTV2_UPLOAD_REQ_TOP,
   NTV2_UPLOAD_RESP_TOP,
   type Ntv2UploadMsgInfo,
@@ -254,6 +255,11 @@ export function finalizeMediaMsgInfo(
      * 写死，保证最终 `pbElem` 与真机一致（真机变声那条是 `changeVoice: 1`）。
      */
     ptt?: Record<string, unknown>;
+    /**
+     * 泡泡消息：`extBizInfo.bubble`(4) = `{ templateName }`。抓包里只有这一层，
+     * 收端靠它决定播哪套圆形动画。
+     */
+    bubbleTemplate?: string;
   } = {},
 ): Uint8Array {
   const msgInfo = upload.msgInfo;
@@ -290,6 +296,14 @@ export function finalizeMediaMsgInfo(
     };
   }
   if (source.busiType !== undefined) extBizInfo.busiType = source.busiType;
+  // 泡泡消息：extBizInfo.bubble(4) = { templateName }。UPLOAD_MSG_INFO 的 extBizInfo
+  // 按 NTV2_EXT_BIZ_INFO 声明，没有 tag 4，所以这里用泡泡那份 schema 编码。
+  if (options.bubbleTemplate !== undefined) {
+    return encode(BUBBLE_VIDEO_PB, {
+      msgInfoBody,
+      extBizInfo: { ...extBizInfo, bubble: { templateName: options.bubbleTemplate } },
+    });
+  }
 
   return encode(UPLOAD_MSG_INFO, { msgInfoBody, extBizInfo });
 }

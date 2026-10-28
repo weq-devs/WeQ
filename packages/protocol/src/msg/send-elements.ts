@@ -28,6 +28,7 @@ import { randomUUID } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import type { MediaNative } from '../highway/ntv2-upload';
 import {
+  DEFAULT_BUBBLE_TEMPLATE,
   RICH_MEDIA_SERVICE_TYPE,
   type MediaFingerprint,
   type MediaSource,
@@ -43,6 +44,7 @@ import { encode } from '../protobuf';
 import { ELEM, MARKDOWN_COMMON_PB, TEXT_PB_RESERVE } from './schemas';
 import {
   EMOJI_BOUNCE_EXTRA,
+  FLASH_PHOTO_FALLBACK_TEXT,
   FLASH_PHOTO_PB,
   FLASH_PHOTO_SERVICE_TYPE,
   MARKET_FACE_PB_RESERVE,
@@ -419,7 +421,7 @@ export interface SendFlashPhotoElement {
 }
 
 /** 闪照的兜底文本（老客户端靠这条认出「这是闪照，去新版看」）。 */
-export const FLASH_PHOTO_FALLBACK_TEXT = '[闪照]请使用新版手机QQ查看闪照。';
+export { FLASH_PHOTO_FALLBACK_TEXT };
 
 /** 语音：上传后拼成 `commonElem(serviceType=48, businessType=22)`。 */
 export interface SendRecordElement {
@@ -461,6 +463,36 @@ export interface SendVideoElement {
 }
 
 /**
+ * 泡泡消息：上传管线与视频**完全相同**，只是 `commonElem.businessType` 换成 14，
+ * 并在 `pbElem.extBizInfo.bubble` 里带上模板名（真机抓包 2026-10-28）。
+ *
+ * 收端据此把它渲染成圆形循环的短视频；本地库落成 elementType=49（BUBBLE_VIDEO）。
+ * 字段与 {@link SendVideoElement} 一一对应，所以直接复用视频的上传入口。
+ */
+export interface SendBubbleVideoElement {
+  kind: 'bubbleVideo';
+  /** 本地路径（流式上传）或内存字节。 */
+  source: MediaSource;
+  /** 封面；不给则按 width/height 合成一张纯色 PNG。 */
+  thumb?: MediaSource;
+  duration?: number;
+  width?: number;
+  height?: number;
+  fileName?: string;
+  thumbFileName?: string;
+  /**
+   * 泡泡模板名（`extBizInfo.bubble.templateName`）。真机样本是
+   * `video_penguin_dance`；缺省用 {@link DEFAULT_BUBBLE_TEMPLATE}。
+   */
+  templateName?: string;
+  /** 资源已在服务端时的指纹：转发已有泡泡时给，跳过读本地文件。 */
+  fingerprint?: MediaFingerprint;
+}
+
+/** 缺省泡泡模板名 —— 抓包里唯一观测到的那一款（企鹅舞）。 */
+export { DEFAULT_BUBBLE_TEMPLATE };
+
+/**
  * 文件（群文件 / 私聊文件）—— **只在合并转发的节点里有效**。
  *
  * 实时发文件走的是独立管线（`sendGroupFile` / `sendPrivateFile`），不是元素；文件也
@@ -475,8 +507,17 @@ export interface SendFileElement {
   fileName?: string;
 }
 
-/** 走 NTV2 上传的三种元素（闪照走老式通道，单独判定，见 {@link isSendUploadElement}）。 */
-export type SendMediaElement = SendImageElement | SendRecordElement | SendVideoElement;
+/**
+ * 走 NTV2 上传的四种元素（闪照走老式通道，单独判定，见 {@link isSendUploadElement}）。
+ *
+ * 泡泡消息复用视频的上传管线（同一套 OIDB / highway 命令号与子文件结构），
+ * 只在最终拼元素时换 businessType 并补模板名。
+ */
+export type SendMediaElement =
+  | SendImageElement
+  | SendRecordElement
+  | SendVideoElement
+  | SendBubbleVideoElement;
 
 export type SendElement =
   | SendTextElement
@@ -497,7 +538,12 @@ export type SendElement =
 
 /** 是否是走 NTV2 的媒体元素（闪照不在此列）。 */
 export function isSendMediaElement(element: SendElement): element is SendMediaElement {
-  return element.kind === 'image' || element.kind === 'record' || element.kind === 'video';
+  return (
+    element.kind === 'image' ||
+    element.kind === 'record' ||
+    element.kind === 'video' ||
+    element.kind === 'bubbleVideo'
+  );
 }
 
 /** 闪照是否需要先上传：给了 `source` 且没给现成的 `pic`。 */
@@ -554,7 +600,7 @@ export interface MediaSendContext {
  */
 export interface SendMediaUploadReport {
   /** `flashPhoto` 走老式图片通道（`fastUpload` 恒为 false）。 */
-  kind: 'image' | 'record' | 'video' | 'flashPhoto';
+  kind: 'image' | 'record' | 'video' | 'bubbleVideo' | 'flashPhoto';
   fileName: string;
   fileSize: number;
   md5Hex: string;
@@ -1122,13 +1168,13 @@ function assertMediaElement(element: SendMediaElement): void {
       );
     }
   }
-  if (element.kind === 'video') {
+  if (element.kind === 'video' || element.kind === 'bubbleVideo') {
     for (const [name, value] of [
       ['width', element.width],
       ['height', element.height],
     ] as const) {
       if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
-        throw new Error(`video 元素的 ${name} 必须是非负整数，收到 ${String(value)}`);
+        throw new Error(`${element.kind} 元素的 ${name} 必须是非负整数，收到 ${String(value)}`);
       }
     }
   }
@@ -1231,8 +1277,8 @@ export async function buildSendElemsWithMedia(
         fileName: uploaded.fileName,
         fileSize: uploaded.fileSize,
         md5Hex: uploaded.md5Hex,
-        // 老式通道没有 fast-upload 这回事，每次都真传字节。
-        fastUpload: false,
+        // OffPicUp 不回 serviceTicket 时就是秒传（服务端已按 md5 持有该图）。
+        fastUpload: uploaded.fastUpload,
       });
       continue;
     }
@@ -1242,7 +1288,15 @@ export async function buildSendElemsWithMedia(
         ? await uploadImageMsgInfo(ctx.nt, ctx.pid, target, element, options)
         : element.kind === 'record'
           ? await uploadPttMsgInfo(ctx.nt, ctx.pid, target, element, options)
-          : await uploadVideoMsgInfo(ctx.nt, ctx.pid, target, element, options);
+          : await uploadVideoMsgInfo(ctx.nt, ctx.pid, target, element, {
+              ...options,
+              // 泡泡消息与普通视频共用整条上传管线，只在最终拼元素时换
+              // businessType(21→14) 并补 extBizInfo.bubble。
+              ...(element.kind === 'bubbleVideo' ? { bubble: true } : {}),
+              ...(element.kind === 'bubbleVideo' && element.templateName
+                ? { bubbleTemplate: element.templateName }
+                : {}),
+            });
     slots[index] = [buildMediaElem(upload)];
     ctx.onUpload?.({
       kind: element.kind,

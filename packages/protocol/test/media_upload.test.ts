@@ -21,6 +21,7 @@ import {
   buildHighwayHead,
   buildPttWaveform,
   buildSendElemsWithMedia,
+  BUBBLE_VIDEO_PB,
   decode,
   decodePttWaveform,
   detectImageFormat,
@@ -837,6 +838,57 @@ describe('uploadVideoMsgInfo', () => {
       await fsp.rm(path, { force: true });
     }
   });
+
+  it('泡泡消息：businessType=14，msgInfo 里带 extBizInfo.bubble.templateName', async () => {
+    const native = makeNative({ oidb: () => uploadResponse({ fileName: 'b.mp4' }) });
+    const result = await uploadVideoMsgInfo(
+      native,
+      3,
+      C2C_TARGET,
+      { source: new Uint8Array(2048).fill(9), width: 720, height: 720, duration: 5 },
+      { bubble: true, bubbleTemplate: 'video_penguin_dance' },
+    );
+    // 上传申请与普通视频完全一致（同一条 0x11E9 / highway 1001+1002 管线）。
+    expect(native.oidbCalls[0]!.command).toBe(0x11e9);
+    expect(result.businessType).toBe(14);
+    // 用泡泡那份 schema 解码：UPLOAD_MSG_INFO 的 extBizInfo 没有 tag 4。
+    const msgInfo = decode(BUBBLE_VIDEO_PB, result.msgInfo) as {
+      msgInfoBody?: unknown[];
+      extBizInfo?: { bubble?: { templateName?: string } };
+    };
+    expect((msgInfo.msgInfoBody ?? []).length).toBeGreaterThan(0);
+    expect(msgInfo.extBizInfo?.bubble?.templateName).toBe('video_penguin_dance');
+  });
+
+  it('泡泡消息没给模板名时用抓包那款兜底', async () => {
+    const native = makeNative({ oidb: () => uploadResponse({ fileName: 'b.mp4' }) });
+    const result = await uploadVideoMsgInfo(
+      native,
+      3,
+      GROUP_TARGET,
+      { source: new Uint8Array(1024).fill(5), width: 8, height: 8 },
+      { bubble: true },
+    );
+    expect(result.businessType).toBe(14);
+    const msgInfo = decode(BUBBLE_VIDEO_PB, result.msgInfo) as {
+      extBizInfo?: { bubble?: { templateName?: string } };
+    };
+    expect(msgInfo.extBizInfo?.bubble?.templateName).toBe('video_penguin_dance');
+  });
+
+  it('普通视频不带 bubble（businessType 仍是 21，msgInfo 没有 bubble 段）', async () => {
+    const native = makeNative({ oidb: () => uploadResponse({ fileName: 'v.mp4' }) });
+    const result = await uploadVideoMsgInfo(native, 3, C2C_TARGET, {
+      source: new Uint8Array(1024).fill(2),
+      width: 4,
+      height: 4,
+    });
+    expect(result.businessType).toBe(21);
+    const msgInfo = decode(UPLOAD_MSG_INFO, result.msgInfo) as {
+      extBizInfo?: { bubble?: unknown };
+    };
+    expect(msgInfo.extBizInfo?.bubble).toBeUndefined();
+  });
 });
 
 describe('runNtv2Upload 的 fast-upload 分支', () => {
@@ -948,6 +1000,34 @@ describe('buildSendElemsWithMedia', () => {
     expect((elems[1] as { commonElem: { businessType: number } }).commonElem.businessType).toBe(21);
     // 语音一次申请 + 视频一次申请（视频封面在同一次申请里）。
     expect(native.oidbCalls.map((c) => c.command)).toEqual([0x126e, 0x11ea]);
+  });
+
+  it('泡泡消息元素拼成 commonElem(serviceType=48, businessType=14)', async () => {
+    const native = sendNative();
+    const elems = await buildSendElemsWithMedia(
+      [
+        {
+          kind: 'bubbleVideo',
+          source: new Uint8Array(512).fill(4),
+          width: 720,
+          height: 720,
+          duration: 5,
+        },
+      ],
+      { nt: native, pid: 1, uin: '10001', scene: 'c2c', userUid: 'u_peer' },
+    );
+    const elem = elems[0] as {
+      commonElem: { serviceType: number; businessType: number; pbElem: Uint8Array };
+    };
+    expect(elem.commonElem.serviceType).toBe(48);
+    expect(elem.commonElem.businessType).toBe(14);
+    // pbElem 里带模板名（抓包里那款兜底）。
+    const pb = decode(BUBBLE_VIDEO_PB, elem.commonElem.pbElem) as {
+      extBizInfo?: { bubble?: { templateName?: string } };
+    };
+    expect(pb.extBizInfo?.bubble?.templateName).toBe('video_penguin_dance');
+    // 与视频同一条上传管线（私聊 0x11E9）。
+    expect(native.oidbCalls.map((c) => c.command)).toEqual([0x11e9]);
   });
 
   it('校验先于联网：后面的元素非法 → 一个包都不发', async () => {

@@ -111,6 +111,17 @@ export interface RenderPicElement {
     summary: string[];
     // cdnHost: string;
     filePath?: string;
+    /**
+     * 闪照（阅后即焚图）。
+     *
+     * 只有走**协议拉取**（`commonElem serviceType=3`，见 `@weq/protocol` 的
+     * `liftFlashPhotoElem`）才带这个标记：本地库 40800 里闪照只剩一句兜底文本
+     * `[闪照]请使用新版手机QQ查看闪照。`，元素本体从来没落过库。
+     *
+     * 带它时 `fileToken` 是**老式 offpic 路径**（`/uin-id-MD5`），三档 URL 全空；
+     * 前端据此改走 `weq-media://flashpic` 代理。
+     */
+    isFlash?: boolean;
     // picTransferState?: number;
     // transferVersion?: number;
   };
@@ -711,6 +722,8 @@ function mapPic(el: PicElement): RenderPicElement {
       isSender: el.isSender,
       subType: el.subType,
       filePath: el.filePath,
+      // 闪照标记：只有协议拉取（serviceType=3）解出来的 pic 才有。
+      ...((el as { isFlash?: boolean }).isFlash === true ? { isFlash: true } : {}),
       // picTransferState: el.picTransferState,
       // transferVersion: el.transferVersion,
     },

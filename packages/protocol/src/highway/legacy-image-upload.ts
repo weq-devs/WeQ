@@ -65,6 +65,14 @@ export interface LegacyImageUploadResult {
   fileSize: number;
   /** 32 位小写 hex md5。 */
   md5Hex: string;
+  /**
+   * 秒传命中：`OffPicUp` 回了服务端签发的路径，但**没有 serviceTicket**。
+   *
+   * 语义与 NTV2 那边「响应里没有 uKey」完全一致 —— 服务端已经按 md5 持有这张图，
+   * 不必再走 `PicUp.DataUp` 传一遍字节。此时 `uploadLegacyImage` 会跳过第二跳，
+   * 但产物（downloadPath / 元素字节）与真传一次**完全一样**。
+   */
+  fastUpload: boolean;
   /** 服务端签发的路径（`NotOnlineImage.downloadPath` / `resId`）。 */
   downloadPath: string;
   /**
@@ -132,6 +140,10 @@ async function readSource(source: LegacyImageSource): Promise<Uint8Array> {
  *
  * 请求体的常量（1 / 3 / 2 / 8 / 0 / 8 / 0 / 1000 / 0）全部照抄抓包，
  * 没有改动余量 —— 它们是客户端版本/终端类型这类「服务端会校验」的标记。
+ *
+ * **秒传**：响应里可能**没有** `serviceTicket`（实测 `field1=1 field4=1`，body 里只有
+ * `downloadPath` / `resId`）。那说明服务端已按 md5 持有这张图，第二跳可以整段跳过 ——
+ * 与 NTV2 用「响应里没有 uKey」判定秒传是同一个语义。此时 `serviceTicket` 返回空数组。
  */
 export async function requestOffPicUpload(
   nt: MediaNative,
@@ -147,6 +159,7 @@ export async function requestOffPicUpload(
     imgType: number;
   },
 ): Promise<{
+  /** 空数组 = 秒传命中，不需要第二跳。 */
   serviceTicket: Uint8Array;
   downloadPath: string;
   resId: string;
@@ -188,20 +201,19 @@ export async function requestOffPicUpload(
     field4?: number;
   };
   const inner = resp.body;
-  if (!inner?.serviceTicket || inner.serviceTicket.length === 0) {
+  // 路径必须签发：没有它就拼不出闪照元素（不管是不是秒传）。
+  const downloadPath = (inner?.downloadPath ?? '').trim();
+  if (!downloadPath) {
     throw new Error(
-      `OffPicUp 响应缺少 serviceTicket（field1=${resp.field1} field4=${resp.field4}）`,
+      `OffPicUp 响应缺少 downloadPath（服务端未签发图片路径；field1=${resp.field1} field4=${resp.field4}）`,
     );
   }
-  const downloadPath = (inner.downloadPath ?? '').trim();
-  if (!downloadPath) {
-    throw new Error('OffPicUp 响应缺少 downloadPath（服务端未签发图片路径）');
-  }
   return {
-    serviceTicket: inner.serviceTicket,
+    // 没有 ticket = 秒传命中，交给调用方跳过第二跳。
+    serviceTicket: inner?.serviceTicket ?? new Uint8Array(0),
     downloadPath,
-    resId: (inner.resId ?? '').trim() || downloadPath,
-    fileId: inner.fileId ?? 0,
+    resId: (inner?.resId ?? '').trim() || downloadPath,
+    fileId: inner?.fileId ?? 0,
   };
 }
 
@@ -232,35 +244,42 @@ export async function uploadLegacyImage(
     height: detected.height,
     imgType,
   });
+  // 没有 ticket = 秒传：服务端已按 md5 持有这张图，第二跳整段跳过。
+  const fastUpload = ticket.serviceTicket.length === 0;
   params.log?.(
-    `OffPicUp 已签发: ${ticket.downloadPath}（fileId=${ticket.fileId}，ticket=${ticket.serviceTicket.length}B）`,
+    fastUpload
+      ? `OffPicUp 秒传命中: ${ticket.downloadPath}（服务端已有同 md5 资源，未上传字节）`
+      : `OffPicUp 已签发: ${ticket.downloadPath}（fileId=${ticket.fileId}，ticket=${ticket.serviceTicket.length}B）`,
   );
 
-  // highway 会话仍然走 `HttpConn.0x6ff_501`，但 serviceTicket 用 OffPicUp 签发的那份
-  // （不是会话里的 sig_session —— 抓包实测如此）。
-  const session = await fetchHighwaySession(nt, pid);
-  await uploadHighwayHttp({
-    session: { ...session, sigSession: ticket.serviceTicket },
-    uin: String(params.uin),
-    commandId: LEGACY_IMAGE_HIGHWAY_CMD,
-    source: new BufferChunkSource(bytes),
-    fileMd5: hashes.md5,
-    // 抓包里这一格是空的，不是 NTV2 那套 extend。
-    extend: new Uint8Array(0),
-    appId: LEGACY_IMAGE_HIGHWAY_APP_ID,
-    seq: 1,
-    ...(params.log ? { log: params.log } : {}),
-  });
+  if (!fastUpload) {
+    // highway 会话仍然走 `HttpConn.0x6ff_501`，但 serviceTicket 用 OffPicUp 签发的那份
+    // （不是会话里的 sig_session —— 抓包实测如此）。
+    const session = await fetchHighwaySession(nt, pid);
+    await uploadHighwayHttp({
+      session: { ...session, sigSession: ticket.serviceTicket },
+      uin: String(params.uin),
+      commandId: LEGACY_IMAGE_HIGHWAY_CMD,
+      source: new BufferChunkSource(bytes),
+      fileMd5: hashes.md5,
+      // 抓包里这一格是空的，不是 NTV2 那套 extend。
+      extend: new Uint8Array(0),
+      appId: LEGACY_IMAGE_HIGHWAY_APP_ID,
+      seq: 1,
+      ...(params.log ? { log: params.log } : {}),
+    });
 
-  params.log?.(
-    `老式图片已上传: ${fileName} (${bytes.length}B, md5=${hashes.md5Hex}, ` +
-      `cmdId=${LEGACY_IMAGE_HIGHWAY_CMD})`,
-  );
+    params.log?.(
+      `老式图片已上传: ${fileName} (${bytes.length}B, md5=${hashes.md5Hex}, ` +
+        `cmdId=${LEGACY_IMAGE_HIGHWAY_CMD})`,
+    );
+  }
 
   return {
     fileName,
     fileSize: bytes.length,
     md5Hex: hashes.md5Hex,
+    fastUpload,
     downloadPath: ticket.downloadPath,
     // 两跳响应里都没有 md5Str，先退回文件 md5 大写（见类型注释里的说明）。
     md5Str: md5Upper,

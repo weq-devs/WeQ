@@ -14,6 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSendElems,
+  buildSendElemsWithMedia,
   decode,
   ELEM,
   encode,
@@ -174,5 +175,129 @@ describe('闪照发送元素', () => {
         scene: 'c2c',
       }),
     ).toThrow(/pic/);
+  });
+});
+
+describe('闪照秒传（OffPicUp 不回 serviceTicket）', () => {
+  /** 1×1 的 PNG：足够走通格式探测。 */
+  const TINY_PNG = Uint8Array.from(
+    Buffer.from(
+      '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489' +
+        '0000000a49444154789c6300010000050001' +
+        '0d0a2db40000000049454e44ae426082',
+      'hex',
+    ),
+  );
+
+  /** 秒传形态的 OffPicUp 响应：有 downloadPath，**没有** serviceTicket。 */
+  const FAST_UPLOAD_RESP = encode(OFF_PIC_UP_RESP, {
+    field1: 1,
+    body: {
+      field1: 1,
+      fileId: 3206593187,
+      downloadPath: '/1000000001-1234567890-ABCDEF0123456789ABCDEF0123456789',
+      resId: '/1000000001-1234567890-ABCDEF0123456789ABCDEF0123456789',
+    },
+    field4: 1,
+  }) as Uint8Array;
+
+  function makeNative(handlers: { packet: (cmd: string) => Uint8Array }): {
+    calls: string[];
+    nt: Parameters<typeof buildSendElemsWithMedia>[1]['nt'];
+  } {
+    const calls: string[] = [];
+    const nt = {
+      sendOidbPacket: async (): Promise<Buffer> => {
+        throw new Error('秒传路径不应该发 OIDB');
+      },
+      sendPacket: async (_pid: number, cmd: string): Promise<Buffer> => {
+        calls.push(cmd);
+        return Buffer.from(handlers.packet(cmd));
+      },
+    };
+    return { calls, nt: nt as unknown as Parameters<typeof buildSendElemsWithMedia>[1]['nt'] };
+  }
+
+  it('没有 serviceTicket 时不报错，且不连 highway', async () => {
+    const { calls, nt } = makeNative({
+      packet: (cmd) => {
+        if (cmd !== 'LongConn.OffPicUp') throw new Error(`未知命令 ${cmd}`);
+        return FAST_UPLOAD_RESP;
+      },
+    });
+    const uploads: { fastUpload: boolean; kind: string }[] = [];
+    const elems = await buildSendElemsWithMedia([{ kind: 'flashPhoto', source: TINY_PNG }], {
+      nt,
+      pid: 1,
+      uin: '1000000001',
+      selfUid: 'u_self',
+      scene: 'c2c',
+      userUid: 'u_peer',
+      onUpload: (report) => uploads.push({ fastUpload: report.fastUpload, kind: report.kind }),
+    });
+    // 只发了申请这一包 —— 没有 highway 会话请求（HttpConn）。
+    expect(calls).toEqual(['LongConn.OffPicUp']);
+    expect(uploads).toEqual([{ fastUpload: true, kind: 'flashPhoto' }]);
+    // 产物照样是完整的闪照元素（commonElem serviceType=3 + 兜底文本）。
+    expect(elems).toHaveLength(2);
+    const common = (elems[0] as { commonElem: { serviceType: number } }).commonElem;
+    expect(common.serviceType).toBe(3);
+  });
+
+  it('有 serviceTicket 时仍走 highway（非秒传）', async () => {
+    const withTicket = encode(OFF_PIC_UP_RESP, {
+      field1: 1,
+      body: {
+        field1: 1,
+        fileId: 1,
+        serviceTicket: new Uint8Array(336).fill(7),
+        downloadPath: '/1000000001-1-ABCDEF0123456789ABCDEF0123456789',
+        resId: '/1000000001-1-ABCDEF0123456789ABCDEF0123456789',
+      },
+      field4: 1,
+    }) as Uint8Array;
+    const { calls, nt } = makeNative({
+      packet: (cmd) => {
+        if (cmd === 'LongConn.OffPicUp') return withTicket;
+        // 第二跳会去要 highway 会话；这里抛错即证明它**试图**连了。
+        throw new Error(`需要 highway 会话: ${cmd}`);
+      },
+    });
+    const uploads: { fastUpload: boolean }[] = [];
+    await expect(
+      buildSendElemsWithMedia([{ kind: 'flashPhoto', source: TINY_PNG }], {
+        nt,
+        pid: 1,
+        uin: '1000000001',
+        selfUid: 'u_self',
+        scene: 'c2c',
+        userUid: 'u_peer',
+        onUpload: (report) => uploads.push({ fastUpload: report.fastUpload }),
+      }),
+    ).rejects.toThrow(/highway/);
+    // 走到第二跳（去要 highway 会话）就说明没被判成秒传。
+    expect(calls[0]).toBe('LongConn.OffPicUp');
+    expect(calls.length).toBeGreaterThan(1);
+    // 第二跳失败 ⇒ 没走到 onUpload。
+    expect(uploads).toEqual([]);
+  });
+
+  it('连 downloadPath 都没有才算真失败', async () => {
+    const noPath = encode(OFF_PIC_UP_RESP, {
+      field1: 1,
+      body: { field1: 1 },
+      field4: 1,
+    }) as Uint8Array;
+    const { nt } = makeNative({ packet: () => noPath });
+    await expect(
+      buildSendElemsWithMedia([{ kind: 'flashPhoto', source: TINY_PNG }], {
+        nt,
+        pid: 1,
+        uin: '1000000001',
+        selfUid: 'u_self',
+        scene: 'c2c',
+        userUid: 'u_peer',
+      }),
+    ).rejects.toThrow(/downloadPath/);
   });
 });
