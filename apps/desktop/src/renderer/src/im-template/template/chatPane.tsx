@@ -6063,10 +6063,11 @@ export function ChatPane({
               'composer-mobile-tool',
               (locationMenu || locationCardOpen || locationShareOpen) && 'active',
             )}
-            title="位置"
+            title={qqUnavailable || '位置'}
+            aria-label="位置"
             aria-haspopup="menu"
             aria-expanded={locationMenu !== null}
-            disabled={currentPreference.blocked || sending}
+            disabled={generated || currentPreference.blocked || sending}
             onClick={openLocationMenu}
           >
             <MapPin size={21} strokeWidth={1.5} />
@@ -6164,10 +6165,11 @@ export function ChatPane({
               'composer-desktop-tool',
               (locationMenu || locationCardOpen || locationShareOpen) && 'active',
             )}
-            title="位置"
+            title={qqUnavailable || '位置'}
+            aria-label="位置"
             aria-haspopup="menu"
             aria-expanded={locationMenu !== null}
-            disabled={currentPreference.blocked || sending}
+            disabled={generated || currentPreference.blocked || sending}
             onClick={openLocationMenu}
           >
             <MapPin size={21} strokeWidth={1.5} />

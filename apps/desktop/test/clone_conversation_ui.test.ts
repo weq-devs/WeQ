@@ -112,7 +112,7 @@ it('克隆直接使用普通 ChatPane 的编辑器、时间线、菜单与多选
 it('共用工具栏保留未实现能力并置灰，旧记录使用同一只读编辑器', () => {
   const f = mount(true);
   try {
-    for (const label of ['发红包', '通话', '语音', '发送图片或文件', '发送 Ark 卡片', '位置共享']) {
+    for (const label of ['发红包', '通话', '语音', '发送图片或文件', '发送 Ark 卡片', '位置']) {
       expect(f.host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)?.disabled).toBe(
         true,
       );
