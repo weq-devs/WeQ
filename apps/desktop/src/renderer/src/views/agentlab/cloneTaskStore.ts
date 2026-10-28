@@ -12,6 +12,7 @@
 import { client } from '../../trpc/client';
 import type { StartCloneArgs, CloneMode } from './NewCloneModal';
 import { useViewState } from '../../state/view';
+import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import type { AgentLabBuildProgress } from '@weq/service';
 import { appendCloneOutput, type CloneModelLog } from './cloneTaskOutput';
 
@@ -114,7 +115,9 @@ function maybeStopProgressSub(): void {
  * 同一 personaId 再发起会替换旧任务。
  */
 export async function startCloneTask(args: StartCloneArgs): Promise<void> {
-  return runCloneTask(args, () => client.account.buildAgentLabFromC2c.mutate(args.params));
+  const pending = runCloneTask(args, () => client.account.buildAgentLabFromC2c.mutate(args.params));
+  useWorkspaceMenu.getState().openTasks();
+  return pending;
 }
 
 export async function startCloneUpdate(args: {

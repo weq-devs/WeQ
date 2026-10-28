@@ -1,15 +1,7 @@
 import { z } from 'zod';
 import { usePageState } from '../components/PageSnapshots';
 import { pageValue } from '../lib/pageSnapshots';
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import {
   ChevronDown,
   MessageCircle,
@@ -33,13 +25,7 @@ import {
   type FlatModels,
   type StartCloneArgs,
 } from './agentlab/NewCloneModal';
-import { CloneProgressModal } from './agentlab/CloneProgressModal';
-import {
-  startCloneTask,
-  dismissCloneTask,
-  subscribeCloneTasks,
-  getCloneTasks,
-} from './agentlab/cloneTaskStore';
+import { startCloneTask } from './agentlab/cloneTaskStore';
 import { PersonaSettingsModal } from './agentlab/PersonaSettingsModal';
 import { CloneGenerationPanel } from '../components/settings/CloneGenerationPanel';
 import { personaUpdatedAt } from './agentlab/personaUpdatedAt';
@@ -50,7 +36,6 @@ import { NewGroupModal, type GroupPersonaOption } from './agentlab/NewGroupModal
 import { GroupChatPanel } from './agentlab/GroupChatPanel';
 import type { GeneratedSearchHit } from '../components/search/types';
 import '../styles/agentlab-workspace.css';
-import { useViewState } from '../state/view';
 
 /** 好友资料里 AgentLab 头像/名称真正用到的字段（够用即可，避免耦合完整 profile 结构）。 */
 type AgentLabProfileWire = {
@@ -604,11 +589,6 @@ export function AgentLabView({
     setSel,
   ]);
   const [groupOpen, setGroupOpen] = useState(false);
-  // 克隆任务列表：抬到模块级 store（脱离本组件生命周期），切出 AgentLab 再回来任务不丢（bug2）。
-  const allCloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
-  const accountId = useViewState((state) => state.openedUin);
-  const cloneTasks = allCloneTasks.filter((task) => task.accountId === accountId);
-  const [viewTaskId, setViewTaskId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [memberSettingsId, setMemberSettingsId] = useState<string | null>(null);
   const [mobileListOpen, setMobileListOpen] = useState(false);
@@ -757,26 +737,12 @@ export function AgentLabView({
     }
   }
 
-  // 由配置弹窗发起构建：交给模块级 store 登记任务 + 后台跑构建 → 关弹窗 → 打开进度灯箱。
+  // 由配置弹窗发起构建：关弹窗 → 模块级 store 登记后台任务并打开统一列表。
   // 构建脱离本组件，切走再回来任务态仍在。完成后由主界面刷新共享克隆体列表。
   function startClone(args: StartCloneArgs): void {
     setCloneOpen(false);
-    setViewTaskId(args.params.personaId);
     void startCloneTask(args);
   }
-
-  function openPersonaFromTask(personaId: string): void {
-    dismissCloneTask(personaId);
-    setViewTaskId(null);
-    selectPersona(personaId);
-  }
-
-  function dismissTask(personaId: string): void {
-    dismissCloneTask(personaId);
-    setViewTaskId((cur) => (cur === personaId ? null : cur));
-  }
-
-  const viewingTask = cloneTasks.find((t) => t.personaId === viewTaskId) ?? null;
 
   const groupPersonaOptions: GroupPersonaOption[] = useMemo(
     () =>
@@ -1147,15 +1113,6 @@ export function AgentLabView({
           creating={createGroup.isLoading}
           onClose={() => setGroupOpen(false)}
           onCreate={(args) => void onCreateGroup(args)}
-        />
-      ) : null}
-
-      {viewingTask ? (
-        <CloneProgressModal
-          task={viewingTask}
-          onHide={() => setViewTaskId(null)}
-          onOpenPersona={openPersonaFromTask}
-          onDismiss={dismissTask}
         />
       ) : null}
 
