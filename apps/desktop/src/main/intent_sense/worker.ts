@@ -595,7 +595,7 @@ process.on(
         break;
       }
       case 'close': {
-        void activeEngine?.close().finally(() => process.exit(0));
+        void Promise.resolve(activeEngine?.close()).finally(() => process.exit(0));
         break;
       }
       default:
@@ -605,5 +605,5 @@ process.on(
 );
 
 process.once('disconnect', () => {
-  void activeEngine?.close().finally(() => process.exit(0));
+  void Promise.resolve(activeEngine?.close()).finally(() => process.exit(0));
 });
