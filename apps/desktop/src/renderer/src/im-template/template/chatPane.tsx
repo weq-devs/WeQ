@@ -1543,7 +1543,7 @@ export function ChatPane({
       setNewMessagePill(0);
       setShowBottomJump(false);
       lastScrollTopRef.current = 0;
-      if (initialReadingPosition || loading) {
+      if (initialReadingPosition || (loading && visibleMessages.length === 0)) {
         if (!loading && messageScrollRef.current && initialReadingPosition) {
           restoreReadingPosition(messageScrollRef.current, initialReadingPosition);
           lastScrollTopRef.current = messageScrollRef.current.scrollTop;
@@ -1552,9 +1552,12 @@ export function ChatPane({
         return;
       }
       scrollMessagesToBottomRef.current();
+      const viewport = messageScrollRef.current && timelineViewport(messageScrollRef.current);
+      const revision = viewport?.scrollRevision?.();
       const frame = window.requestAnimationFrame(() => {
         const current = readContextRef.current;
         if (
+          revision === viewport?.scrollRevision?.() &&
           atBottomRef.current &&
           current.tabActive &&
           current.atLatest &&
@@ -1578,7 +1581,12 @@ export function ChatPane({
       lastMessageIdRef.current = newestId;
       return;
     }
-    if (loading || loadingNewer) return;
+    if (loading || loadingNewer) {
+      // 首屏分批交付时也要贴底，不能等所有来源加载结束才定位。
+      if (!initialReadingPosition && atBottomRef.current && atLatest && newestId !== null)
+        scrollMessagesToBottomRef.current();
+      return;
+    }
     const bottomAfterLoading = bottomAfterLoadingRef.current;
     bottomAfterLoadingRef.current = false;
     // 首屏或尾页缓存校准完成属于进入定位，不受后续新消息跟随偏好控制。
@@ -1622,9 +1630,12 @@ export function ChatPane({
     ) {
       setNewMessagePill(0);
       scrollMessagesToBottomRef.current();
+      const viewport = messageScrollRef.current && timelineViewport(messageScrollRef.current);
+      const revision = viewport?.scrollRevision?.();
       const frame = window.requestAnimationFrame(() => {
         const current = readContextRef.current;
         if (
+          revision === viewport?.scrollRevision?.() &&
           atBottomRef.current &&
           current.tabActive &&
           current.atLatest &&
@@ -1654,7 +1665,7 @@ export function ChatPane({
   useLayoutEffect(() => {
     const scroll = messageScrollRef.current;
     const content = timelineContentRef.current;
-    if (!tabActive || loading || !scroll || !content) return;
+    if (!tabActive || !scroll || !content) return;
     // 意图标签、图片及建议回复异步改变内容或视口高度时，延续原来的下沿位置。
     // 新消息是否跟随仍由上面的 effect 决定；阅读历史和恢复锚点时不接管。
     let frame: number | undefined;
@@ -1671,7 +1682,6 @@ export function ChatPane({
           atBottomRef.current &&
           current.tabActive &&
           current.atLatest &&
-          !current.loading &&
           scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop > 1
         )
           scrollMessagesToBottomRef.current();
@@ -5334,7 +5344,11 @@ export function ChatPane({
         handleReadGesture(event);
       }}
       onClickCapture={handleReadGesture}
-      onWheelCapture={handleReadGesture}
+      onWheelCapture={(event) => {
+        if (event.deltaY < 0 && (event.target as Element).closest('.message-scroll'))
+          atBottomRef.current = false;
+        handleReadGesture(event);
+      }}
       onTouchMoveCapture={handleReadGesture}
       onKeyUpCapture={handleReadGesture}
       onCopyCapture={(event) => {
@@ -5547,7 +5561,7 @@ export function ChatPane({
           {marquee.box ? (
             <div className="weq-message-marquee" aria-hidden style={marquee.box} />
           ) : null}
-          {loading ? (
+          {loading && visibleMessages.length === 0 ? (
             <ChatMessagesSkeleton />
           ) : visibleMessages.length === 0 && !loadingNewer && !loadError ? (
             <EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />

@@ -95,6 +95,17 @@ function Fixture() {
   });
   const exportRequest = useContentExportRequest();
   Object.assign(bridge, {
+    beginEntry: () => {
+      setConversationId((id) => `${id}-loading`);
+      setMessages([]);
+      setLoading(true);
+      setAtLatest(true);
+      setInitialPosition(false);
+    },
+    entryStage: (count: number, complete = false) => {
+      setMessages(Array.from({ length: count }, (_, i) => message(i + 1001)));
+      setLoading(!complete);
+    },
     reenter: () => {
       setConversationId((id) => `${id}-next`);
       setMessages(Array.from({ length: entryCount }, (_, i) => message(i + 1001)));
