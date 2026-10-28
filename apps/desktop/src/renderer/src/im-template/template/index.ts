@@ -17,6 +17,7 @@ export * from './defaultAvatar';
 export * from './format';
 export * from './infoModals';
 export * from './layoutStorage';
+export * from './locationCardPanel';
 export * from './locationSharePanel';
 export * from './messageRenderers';
 export * from './messageRow';

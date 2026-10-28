@@ -37,6 +37,7 @@ import {
   uploadPttMsgInfo,
   uploadVideoMsgInfo,
 } from '../highway/media-upload';
+import { uploadLegacyImage } from '../highway/legacy-image-upload';
 import type { PttWaveformSource } from '../highway/ptt-waveform';
 import { encode } from '../protobuf';
 import { ELEM, MARKDOWN_COMMON_PB, TEXT_PB_RESERVE } from './schemas';
@@ -348,12 +349,12 @@ export interface SendImageElement {
  * 闪照（阅后即焚图）里的老式图片记录 —— 字段编号与收侧 `NOT_ONLINE_IMAGE` 一致，
  * 但只有真机抓包里出现过的那几个（详见 `send-schemas` 的 `FLASH_PHOTO_PIC`）。
  *
- * 抓包（2026-09-27 私聊）实测取值，可作参照：
- *   fileName = 'E4B0B65055D327B993D83E53A00309FD.jpg'（大写 md5 + 扩展名）
- *   fileSize = 102474、md5Hex = 'e4b0b65055d327b993d83e53a00309fd'
- *   downloadPath = resId = '/2863253201-1122281651-E4B0B65055D327B993D83E53A00309FD'
- *   imgType = 1000（jpg）、picHeight = 1920、picWidth = 1437
- *   md5Str = 'BBFCD4CAFC89868FA4501EF1B50E8818'
+ * 抓包（2026-10-28 私聊）实测取值，可作参照：
+ *   fileName = '97CB548233A112AC73308617CB37044A.jpg'（大写 md5 + 扩展名）
+ *   fileSize = 99944、md5Hex = '97cb548233a112ac73308617cb37044a'
+ *   downloadPath = resId = '/2863253201-2151786634-97CB548233A112AC73308617CB37044A'
+ *   imgType = 1000（jpg）、picHeight = 1920、picWidth = 864
+ *   md5Str = 'D4A0354FCDD29D896673E4C87E7C7156'
  */
 export interface SendFlashPhotoPic {
   /** 图片文件名（tag 1，老客户端用它显示 / 存盘）。 */
@@ -363,11 +364,11 @@ export interface SendFlashPhotoPic {
   /** 图片 MD5（tag 7，写进 wire 的是 16 字节原始摘要）。 */
   md5Hex: string;
   /**
-   * 服务端签发的图片路径 `/…-…-<MD5 大写>`（tag 3）。
+   * 服务端签发的图片路径 `/<自己 uin>-<服务端编号>-<MD5 大写>`（tag 3）。
    *
-   * ⚠️ 这一段**不是本地能算出来的**：抓包里是 `/<10 位数字>-<10 位数字>-<MD5 大写>`，
-   * 既不是自己 uin 也不是对方 uin，只能从服务端（老图片上传 / 已有图片记录）拿。
-   * 缺省留空不上 wire —— 但那样服务端大概率不认这张图。
+   * 中间那段由服务端给：`LongConn.OffPicUp` 响应的 `field10`（见
+   * `../highway/legacy-image-upload`）。本地算不出来（不是 md5 切片 / crc32 /
+   * 时间戳），所以发本地图片时传 `source` 让它自己拿，不要手填。
    */
   downloadPath?: string;
   /** 资源 id（tag 10）；缺省与 {@link downloadPath} 同串（抓包两者一致）。 */
@@ -375,11 +376,14 @@ export interface SendFlashPhotoPic {
   /** 图片格式码（tag 5）：1000 = jpg（抓包值），缺省 1000。 */
   imgType?: number;
   /**
-   * tag 8 —— 抓包里装的是**宽**（1920×1437 的图写 1920）。
-   * 收侧 `NOT_ONLINE_IMAGE` 把 tag 8 命名成 picHeight，这里保持 wire 语义、名字沿用。
+   * tag 8 —— 实际上是**高**。
+   *
+   * 早先 9/27 那次抓包（1920×1437）被记成了「tag 8 = 宽」，2026-10-28 重新核对图片
+   * 真实像素（864×1920，JPEG SOF 读出 height=1920 / width=864）后确认：tag 8 = 1920 = 高、
+   * tag 9 = 864 = 宽。这里名字沿用收侧 `NOT_ONLINE_IMAGE` 的 `picHeight`（语义一致）。
    */
   picHeight?: number;
-  /** tag 9 —— 抓包里装的是**高**（同上，写 1437）。 */
+  /** tag 9 —— **宽**（同上一次核对，写 864）。 */
   picWidth?: number;
   /** `pbRes.md5Str`(31)：另一份大写 md5（抓包与 NTV2 那套 pbElem 同槽位同值）。 */
   md5Str?: string;
@@ -388,9 +392,14 @@ export interface SendFlashPhotoPic {
 /**
  * 闪照：`commonElem(serviceType=3)` + 一条兜底纯文本，**一个元素产出两个 elem**。
  *
- * 与 {@link SendImageElement} 的区别：闪照**不上传**（没有 NTV2 那一步），只是把
- * 一张已经在服务端的老式图片记录按 serviceType=3 重发一遍；也正因为如此，{@link pic}
- * 里的 `downloadPath` / `md5Str` 必须由调用方提供（见 {@link SendFlashPhotoPic}）。
+ * 与 {@link SendImageElement} 的区别：闪照**不走 NTV2**，而是先把图片传进老式图片通道
+ * （`../highway/legacy-image-upload`，`PicUp.DataUp` + appId=16 + cmdId=1），再把结果
+ * 按 serviceType=3 拼成一份 `NotOnlineImage` 记录。
+ *
+ * 两种写法：
+ *   - 给 {@link source}（本地路径 / 字节）：`buildSendElemsWithMedia` 会上传并自动拼
+ *     `pic`，这是正常发一张闪照的用法；
+ *   - 给 {@link pic}（现成的图片记录）：不上传，直接发 —— 用于「把已有图片再发一遍」。
  *
  * QQ 真机会在图片 elem 后面再补一条纯文本 `[闪照]请使用新版手机QQ查看闪照。`，
  * 让不认识 serviceType=3 的老客户端也有东西显示 —— 本实现默认同样补上
@@ -398,8 +407,13 @@ export interface SendFlashPhotoPic {
  */
 export interface SendFlashPhotoElement {
   kind: 'flashPhoto';
-  /** 老式图片记录。 */
-  pic: SendFlashPhotoPic;
+  /**
+   * 本地图片来源（路径或字节）。给了就由 `buildSendElemsWithMedia` 上传并自动拼
+   * {@link pic}；与 {@link pic} 二选一（同时给时以 {@link pic} 为准）。
+   */
+  source?: MediaSource;
+  /** 现成的老式图片记录（不上传）。 */
+  pic?: SendFlashPhotoPic;
   /** 兜底文本；缺省 `[闪照]请使用新版手机QQ查看闪照。`。 */
   fallbackText?: string;
 }
@@ -461,7 +475,7 @@ export interface SendFileElement {
   fileName?: string;
 }
 
-/** 需要上传的三种元素。 */
+/** 走 NTV2 上传的三种元素（闪照走老式通道，单独判定，见 {@link isSendUploadElement}）。 */
 export type SendMediaElement = SendImageElement | SendRecordElement | SendVideoElement;
 
 export type SendElement =
@@ -481,9 +495,27 @@ export type SendElement =
   | SendRawElement
   | SendMediaElement;
 
-/** 是否是「要先上传」的元素。 */
+/** 是否是走 NTV2 的媒体元素（闪照不在此列）。 */
 export function isSendMediaElement(element: SendElement): element is SendMediaElement {
   return element.kind === 'image' || element.kind === 'record' || element.kind === 'video';
+}
+
+/** 闪照是否需要先上传：给了 `source` 且没给现成的 `pic`。 */
+export function flashPhotoNeedsUpload(element: SendFlashPhotoElement): boolean {
+  return element.pic == null && element.source !== undefined;
+}
+
+/**
+ * 是否是「要先上传」的元素 —— NTV2 那三种，外加带 `source` 的闪照。
+ *
+ * 调用方（`./send`、service 层）用它判断「这条消息要不要媒体上下文」。
+ */
+export function isSendUploadElement(
+  element: SendElement,
+): element is SendMediaElement | SendFlashPhotoElement {
+  return (
+    isSendMediaElement(element) || (element.kind === 'flashPhoto' && flashPhotoNeedsUpload(element))
+  );
 }
 
 /**
@@ -504,6 +536,11 @@ export interface MediaSendContext {
   groupId?: number;
   /** 对方 uid（私聊 / 群临时会话必填）。 */
   userUid?: string;
+  /**
+   * 自己 uid。闪照的老式上传（`LongConn.OffPicUp` field 25）要带；其它媒体用不到。
+   * 拿不到时留空 —— 该字段在抓包里恒为自己 uid，缺了服务端是否接受未验证。
+   */
+  selfUid?: string;
   log?: (message: string) => void;
   /** 每个媒体元素上传完成时回调（用于把「是否走了秒传」透出去）。 */
   onUpload?: (report: SendMediaUploadReport) => void;
@@ -516,7 +553,8 @@ export interface MediaSendContext {
  * 所以一个字节都没传，`pbElem` 直接用响应里的 msgInfo。
  */
 export interface SendMediaUploadReport {
-  kind: 'image' | 'record' | 'video';
+  /** `flashPhoto` 走老式图片通道（`fastUpload` 恒为 false）。 */
+  kind: 'image' | 'record' | 'video' | 'flashPhoto';
   fileName: string;
   fileSize: number;
   md5Hex: string;
@@ -880,9 +918,18 @@ function buildSendElem(element: SendElement): Record<string, unknown> {
  * 两个显式 0 骨架（`original` 与 `pbRes`）由 `send-schemas` 里的 force 负责。
  */
 function buildFlashPhotoElems(element: SendFlashPhotoElement): Record<string, unknown>[] {
-  const pic = element.pic as SendFlashPhotoPic | undefined;
+  return buildFlashPhotoElemsFromPic(element, element.pic);
+}
+
+/** 拿到确定的图片记录后拼 elem（同步入口与上传入口共用）。 */
+function buildFlashPhotoElemsFromPic(
+  element: SendFlashPhotoElement,
+  pic: SendFlashPhotoPic | undefined,
+): Record<string, unknown>[] {
   if (pic == null || typeof pic !== 'object') {
-    throw new Error('flashPhoto 元素缺少 pic（老式图片记录）');
+    throw new Error(
+      'flashPhoto 元素缺少 pic（老式图片记录）：发本地图片请给 source，走 buildSendElemsWithMedia 上传',
+    );
   }
   const fileName = requireNonEmpty(pic.fileName, 'pic.fileName', 'flashPhoto');
   const fileSize = requirePositiveInt(pic.fileSize, 'pic.fileSize', 'flashPhoto');
@@ -1025,6 +1072,26 @@ export function buildSendElems(
 
 // ───────────────────────── 媒体元素（先上传再打包） ─────────────────────────
 
+/**
+ * 「需要上传」元素的入参校验（在联网之前跑完）。
+ *
+ * 闪照只校验 `source` 非空 —— 它不走 NTV2，`assertMediaElement` 里那些
+ * fingerprint / duration / 尺寸规则都不适用。
+ */
+function assertUploadElement(element: SendMediaElement | SendFlashPhotoElement): void {
+  if (element.kind !== 'flashPhoto') {
+    assertMediaElement(element);
+    return;
+  }
+  const source = element.source;
+  const validSource =
+    (typeof source === 'string' && source.trim().length > 0) ||
+    (source instanceof Uint8Array && source.length > 0);
+  if (!validSource) {
+    throw new Error('flashPhoto 元素的 source 必须是非空路径或 Uint8Array');
+  }
+}
+
 /** 媒体元素的入参校验（在联网之前跑完）。 */
 function assertMediaElement(element: SendMediaElement): void {
   const source = element.source;
@@ -1118,7 +1185,7 @@ export async function buildSendElemsWithMedia(
   // 装扮与媒体无关，但顺序要和同步版本一致（装扮在最前）——先校验、先打包。
   const dressElems = buildDressElems(ctx.dress);
 
-  const hasMedia = elements.some((element) => isSendMediaElement(element));
+  const hasMedia = elements.some((element) => isSendUploadElement(element));
   if (!hasMedia) {
     return [...dressElems, ...elements.flatMap((element) => buildSendElemList(element))];
   }
@@ -1126,8 +1193,8 @@ export async function buildSendElemsWithMedia(
   // 每个槽位是一组 elem：媒体元素上传后才填，闪照这种一对多元素直接占满自己的槽位。
   const slots: (Record<string, unknown>[] | null)[] = [];
   for (const element of elements) {
-    if (isSendMediaElement(element)) {
-      assertMediaElement(element);
+    if (isSendUploadElement(element)) {
+      assertUploadElement(element);
       slots.push(null);
     } else {
       slots.push(buildSendElemList(element));
@@ -1138,7 +1205,38 @@ export async function buildSendElemsWithMedia(
   const options = ctx.log ? { log: ctx.log } : {};
   for (let index = 0; index < elements.length; index++) {
     const element = elements[index]!;
-    if (!isSendMediaElement(element)) continue;
+    if (!isSendUploadElement(element)) continue;
+
+    // 闪照：老式图片通道（不是 NTV2），上传产物直接拼成图片记录。
+    if (element.kind === 'flashPhoto') {
+      const uploaded = await uploadLegacyImage(ctx.nt, ctx.pid, {
+        uin: ctx.uin,
+        selfUid: ctx.selfUid ?? '',
+        source: element.source as MediaSource,
+        ...options,
+      });
+      slots[index] = buildFlashPhotoElemsFromPic(element, {
+        fileName: uploaded.fileName,
+        fileSize: uploaded.fileSize,
+        md5Hex: uploaded.md5Hex,
+        downloadPath: uploaded.downloadPath,
+        md5Str: uploaded.md5Str,
+        imgType: uploaded.imgType,
+        // ⚠️ 老结构 tag 8 是高、tag 9 是宽（两次抓包都核对过真实像素）。
+        picHeight: uploaded.height,
+        picWidth: uploaded.width,
+      });
+      ctx.onUpload?.({
+        kind: 'flashPhoto',
+        fileName: uploaded.fileName,
+        fileSize: uploaded.fileSize,
+        md5Hex: uploaded.md5Hex,
+        // 老式通道没有 fast-upload 这回事，每次都真传字节。
+        fastUpload: false,
+      });
+      continue;
+    }
+
     const upload =
       element.kind === 'image'
         ? await uploadImageMsgInfo(ctx.nt, ctx.pid, target, element, options)

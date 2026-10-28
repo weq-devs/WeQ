@@ -59,10 +59,12 @@ import {
   MessageSquareText,
   Mic,
   PhoneCall,
+  Radio,
   Video,
   SendHorizontal,
   Settings2,
   Zap,
+  Flame,
   Share2,
   Forward,
   Copy,
@@ -142,6 +144,18 @@ import {
 } from './composerMediaStage';
 import { VoicePanel, type TtsSpeechResult } from './voicePanel';
 import { FlashComposer, type FlashSendPayload } from './flashComposer';
+
+/**
+ * 闪照「选图即发」的载荷：一张图的本地句柄（路径优先、字节兜底）。
+ *
+ * 闪照不进草稿、不内联成图片 —— 它在协议上是独立的一条消息（老式图片上传 +
+ * `commonElem{serviceType:3}`），所以和闪传一样走「菜单 → 应用层 → IPC」。
+ */
+export type FlashPhotoSendPayload = {
+  path?: string;
+  bytes?: Uint8Array;
+  name: string;
+};
 import {
   ComposerQuoteBar,
   composerQuoteToken,
@@ -150,6 +164,7 @@ import {
   type ComposerQuote,
 } from './composerQuote';
 import { ArkPanel } from './arkPanel';
+import { LocationCardPanel, type LocationCardPayload } from './locationCardPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
 import { bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
@@ -441,6 +456,7 @@ export function ChatPane({
   onStartCall,
   onSendArk,
   onSendFlash,
+  onSendFlashPhoto,
   onSendRedPacket,
   arkLocation,
   arkContacts,
@@ -559,12 +575,17 @@ export function ChatPane({
    */
   onSendFlash?: (conversation: Conversation, payload: FlashSendPayload) => Promise<void>;
   /**
+   * 闪照「选图即发」—— 与 onSendFlash 同形，只是载荷是一张图的原始字节 + 文件名。
+   * 抛出即失败：错误由调用方 toast 出来。
+   */
+  onSendFlashPhoto?: (conversation: Conversation, payload: FlashPhotoSendPayload) => Promise<void>;
+  /**
    * 红包面板「发红包」—— 面板只收「类型 / 金额 / 个数 / 祝福语（口令）」，发送目标
    * （私聊对方 / 群号）由应用层补，所以把**当前会话**一起交回（与 onSendArk 同）。
    * 抛出即失败：面板会显示原因并保留已填内容。
    */
   onSendRedPacket?: (conversation: Conversation, draft: RedPacketDraft) => Promise<void>;
-  /** 位置卡片要用的地点搜索 / 逆地址解析（应用层注入；不传就只有地图 + 手填）。 */
+  /** 位置卡片（位置菜单 →「发送位置」）要用的地点搜索 / 逆地址解析；不传则只有地图 + 手填。 */
   arkLocation?: ArkLocationProvider;
   /** 推荐好友 / 群 的候选列表（应用层注入；不传就只能手填号码）。 */
   arkContacts?: ArkContactSource;
@@ -740,6 +761,10 @@ export function ChatPane({
   // 「红包」面板：群聊三档（普通 / 拼手气 / 口令），私聊两档（普通 / 拼手气）；
   // 下单出码后由应用层弹二维码灯箱。
   const [redPacketOpen, setRedPacketOpen] = useState(false);
+  // 「位置」菜单：点工具栏那个位置按钮弹出的两项 —— 发送位置 / 共享位置。
+  const [locationMenu, setLocationMenu] = useState<{ x: number; y: number } | null>(null);
+  // 「发送位置」面板：搜 / 点地图 / 填地址，发一张静态位置卡片。
+  const [locationCardOpen, setLocationCardOpen] = useState(false);
   // 「位置共享」面板：发起 / 心跳上报 / 看所有人在地图上的位置。房间靠上报续命，
   // 停上报约 60 秒后服务端自动结束 —— 没有单独的退出命令。
   const [locationShareOpen, setLocationShareOpen] = useState(false);
@@ -1003,9 +1028,14 @@ export function ChatPane({
   const flashPanelRef = useRef<HTMLDivElement | null>(null);
   const flashButtonRef = useRef<HTMLButtonElement | null>(null);
   const locationSharePanelRef = useRef<HTMLDivElement | null>(null);
-  const locationShareButtonRef = useRef<HTMLButtonElement | null>(null);
+  const locationCardPanelRef = useRef<HTMLDivElement | null>(null);
+  /** 工具栏那个「位置」按钮 —— 桌面端 / 手机端各渲染一个，点外关闭两者都要认。 */
+  const locationMenuDesktopButtonRef = useRef<HTMLButtonElement | null>(null);
+  const locationMenuMobileButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // 闪照是「选一张图 → 立刻按闪照发出去」的一条独立通路（不进草稿、不内联成图）。
+  const flashPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const mentionMenuRef = useRef<HTMLDivElement | null>(null);
   const composerEditorRef = useRef<HTMLDivElement | null>(null);
   const expandedComposerEditorRef = useRef<HTMLDivElement | null>(null);
@@ -1662,7 +1692,10 @@ export function ChatPane({
   useEffect(() => {
     setEmojiOpen(false);
     setToolsOpen(false);
-    // 切会话就关掉位置共享 —— 面板卸载会停心跳，等价于「退出上一场共享」。
+    // 切会话就关掉位置菜单与两个位置面板 —— 位置共享面板卸载会停心跳，
+    // 等价于「退出上一场共享」。
+    setLocationMenu(null);
+    setLocationCardOpen(false);
     setLocationShareOpen(false);
     setContextMenu(null);
     setMentionMenu(null);
@@ -2080,6 +2113,52 @@ export function ChatPane({
     };
   }, [tabActive, redPacketOpen]);
 
+  /**
+   * 「位置」菜单 / 两个位置面板的点外关闭。
+   *
+   * 工具栏那个位置按钮桌面端与手机端各渲染一个，两者都要算「点在自己身上」——
+   * 不然点开菜单再点同一个按钮想收起时，会被当成点了外面。
+   */
+  const isLocationTrigger = useCallback(
+    (target: Node): boolean =>
+      Boolean(
+        locationMenuDesktopButtonRef.current?.contains(target) ||
+          locationMenuMobileButtonRef.current?.contains(target),
+      ),
+    [],
+  );
+
+  // 「发送位置」面板：点外面 / Esc 关闭。
+  useLayoutEffect(() => {
+    if (!tabActive || !locationCardOpen) {
+      return;
+    }
+
+    function closeLocationCardFromOutside(event: globalThis.MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node) || isLocationTrigger(target)) {
+        return;
+      }
+      if (locationCardPanelRef.current?.contains(target)) {
+        return;
+      }
+      setLocationCardOpen(false);
+    }
+
+    function closeLocationCardOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape' && !hasActiveModal()) {
+        setLocationCardOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', closeLocationCardFromOutside);
+    document.addEventListener('keydown', closeLocationCardOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeLocationCardFromOutside);
+      document.removeEventListener('keydown', closeLocationCardOnEscape);
+    };
+  }, [tabActive, locationCardOpen, isLocationTrigger]);
+
   // 位置共享面板：点外面 / Esc 关闭。模态（灯箱等）开着时不抢 Esc。
   useLayoutEffect(() => {
     if (!tabActive || !locationShareOpen) {
@@ -2091,10 +2170,7 @@ export function ChatPane({
       if (!(target instanceof Node)) {
         return;
       }
-      if (
-        locationSharePanelRef.current?.contains(target) ||
-        locationShareButtonRef.current?.contains(target)
-      ) {
+      if (locationSharePanelRef.current?.contains(target) || isLocationTrigger(target)) {
         return;
       }
       setLocationShareOpen(false);
@@ -2112,7 +2188,7 @@ export function ChatPane({
       document.removeEventListener('mousedown', closeLocationShareFromOutside);
       document.removeEventListener('keydown', closeLocationShareOnEscape);
     };
-  }, [tabActive, locationShareOpen]);
+  }, [tabActive, locationShareOpen, isLocationTrigger]);
 
   // 附件跟着会话走：切会话时清掉上一条会话的待发送素材（预览地址一并释放）。
   const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
@@ -3029,6 +3105,8 @@ export function ChatPane({
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
+    setLocationMenu(null);
+    setLocationCardOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
     // 移动端长文展开态里没有卡片的位置，选完就把展开态收回去（正文会跟着搬回去）。
@@ -3072,6 +3150,8 @@ export function ChatPane({
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
+    setLocationMenu(null);
+    setLocationCardOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
     window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
@@ -3351,6 +3431,24 @@ export function ChatPane({
     await jumpAfterSuccessfulSend(conversation);
   }
 
+  /**
+   * 闪照菜单「闪照」→ 选一张图 → 立刻按闪照发出去。
+   *
+   * 与图片不同，闪照**不进草稿**：它走老式图片上传（`LongConn.OffPicUp` +
+   * `PicUp.DataUp`），发出去是一条独立消息。失败原样抛给调用方 toast。
+   */
+  async function sendFlashPhoto(file: File): Promise<void> {
+    if (!conversation || conversation.type === 'merged' || !onSendFlashPhoto) {
+      throw new Error('这个会话不支持发送闪照。');
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.length === 0) throw new Error('图片是空的，无法发送闪照。');
+    // 闪照只能单独发：顶掉挂着的引用（与视频 / 文件同一套互斥）。
+    setPendingQuote(null);
+    await onSendFlashPhoto(conversation, { bytes, name: file.name });
+    await jumpAfterSuccessfulSend(conversation);
+  }
+
   async function sendArkCard(payload: ArkPayload) {
     if (!conversation || conversation.type === 'merged' || !onSendArk) {
       throw new Error('这个会话不支持发送 Ark 卡片。');
@@ -3360,6 +3458,22 @@ export function ChatPane({
     await onSendArk(conversation, payload);
     await jumpAfterSuccessfulSend(conversation);
     setArkOpen(false);
+  }
+
+  /**
+   * 「发送位置」面板「发送」：与 Ark 卡片走**同一条**应用层通路（`onSendArk`，
+   * 载荷 `type:'location'` → trpc LocationArk 裸 SSO），只是入口从 Ark 面板里
+   * 挪到了位置菜单下。面板成功后自行关闭，这里只负责把失败原样抛回去。
+   */
+  async function sendLocationCard(payload: LocationCardPayload) {
+    if (!conversation || conversation.type === 'merged' || !onSendArk) {
+      throw new Error('这个会话不支持发送位置卡片。');
+    }
+    // 位置卡片只能单独发：顶掉挂着的引用（跟 Ark 卡片同一套互斥）。
+    setPendingQuote(null);
+    await onSendArk(conversation, payload);
+    await jumpAfterSuccessfulSend(conversation);
+    setLocationCardOpen(false);
   }
 
   /**
@@ -3812,6 +3926,8 @@ export function ChatPane({
       setEmojiOpen(false);
       setToolsOpen(false);
       setVoiceOpen(false);
+      setLocationMenu(null);
+      setLocationCardOpen(false);
       setArkOpen(false);
       setAttachmentError(
         media.length > 1
@@ -3889,6 +4005,24 @@ export function ChatPane({
     // 清空 value：同一个文件再选一次也要能触发 change。
     event.target.value = '';
     void addFiles(files, event.target === fileInputRef.current ? 'file' : undefined);
+  }
+
+  /** 闪照选择器：选完立刻发，校验失败只 toast、不进草稿。 */
+  function handleFlashPhotoPick(event: ReactChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      pushToast({ tone: 'warning', message: '闪照只能发送图片' });
+      return;
+    }
+    void sendFlashPhoto(file).catch((error: unknown) => {
+      pushToast({
+        tone: 'error',
+        message: '闪照发送失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   // ── 拖拽投递 ──────────────────────────────────────────────────────────────
@@ -4304,6 +4438,8 @@ export function ChatPane({
     setContextMenu(null);
     setToolsOpen(false);
     setEmojiOpen(false);
+    setLocationMenu(null);
+    setLocationCardOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
     setMobileComposerExpanded(true);
@@ -4313,6 +4449,8 @@ export function ChatPane({
     if (voiceBusyRef.current) return;
     setComposerMenu(null);
     setContextMenu(null);
+    setLocationMenu(null);
+    setLocationCardOpen(false);
     setLocationShareOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
@@ -4323,6 +4461,8 @@ export function ChatPane({
 
   function toggleToolsPanel() {
     setContextMenu(null);
+    setLocationMenu(null);
+    setLocationCardOpen(false);
     setLocationShareOpen(false);
     setEmojiOpen(false);
     setVoiceOpen(false);
@@ -4335,6 +4475,8 @@ export function ChatPane({
     if (voiceBusyRef.current) return;
     setComposerMenu(null);
     setContextMenu(null);
+    setLocationMenu(null);
+    setLocationCardOpen(false);
     setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
@@ -4345,6 +4487,8 @@ export function ChatPane({
 
   function toggleArkPanel() {
     setContextMenu(null);
+    setLocationMenu(null);
+    setLocationCardOpen(false);
     setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
@@ -4359,6 +4503,8 @@ export function ChatPane({
    */
   function toggleFlashPanel() {
     setContextMenu(null);
+    setLocationMenu(null);
+    setLocationCardOpen(false);
     setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
@@ -4371,6 +4517,8 @@ export function ChatPane({
   /** AI 声聊面板（仅群聊）：和其余面板互斥，同一时刻只开一个。 */
   function toggleAiVoicePanel() {
     setContextMenu(null);
+    setLocationMenu(null);
+    setLocationCardOpen(false);
     setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
@@ -4382,6 +4530,8 @@ export function ChatPane({
   /** 红包面板：和其余面板互斥；下单出码在应用层，成功后弹二维码灯箱。 */
   function toggleRedPacketPanel() {
     setContextMenu(null);
+    setLocationMenu(null);
+    setLocationCardOpen(false);
     setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
@@ -4392,12 +4542,17 @@ export function ChatPane({
   }
 
   /**
-   * 位置共享面板：和其余面板互斥。
+   * 位置菜单：点工具栏那个位置按钮弹出「发送位置 / 共享位置」两项。
    *
-   * 面板内部自己管心跳（打开才开始上报，关掉/切会话即停）—— 这里只负责显隐，
-   * 不把「是否在共享」提到 chatPane 层，避免关面板后还在后台偷偷上报位置。
+   * 位置这件事原本有两个入口 —— Ark 面板里的「位置」tab（发静态位置卡片）和工具栏
+   * 单独的位置共享按钮。两个按钮都叫「位置」，用户得先猜哪个是自己的；合成一个按钮
+   * + 两项菜单后，「发一个地点」与「一起看彼此位置」才分得清。
    */
-  function toggleLocationSharePanel() {
+  function openLocationMenu(event: ReactMouseEvent<HTMLButtonElement>) {
+    if (voiceBusyRef.current) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    // 已经开着菜单 / 任一个位置面板时，再点这个按钮就是收起（与其它工具栏按钮一致）。
+    const alreadyOpen = locationMenu !== null || locationCardOpen || locationShareOpen;
     setContextMenu(null);
     setEmojiOpen(false);
     setToolsOpen(false);
@@ -4405,7 +4560,46 @@ export function ChatPane({
     setArkOpen(false);
     setAiVoiceOpen(false);
     setRedPacketOpen(false);
-    setLocationShareOpen((open) => !open);
+    setComposerMenu(null);
+    setLocationCardOpen(false);
+    setLocationShareOpen(false);
+    // 菜单从按钮上沿往上长；各项文字短，宽高相对固定。
+    setLocationMenu(alreadyOpen ? null : { x: rect.left, y: rect.top - 88 });
+  }
+
+  /** 「发送位置」面板：和其余面板互斥，菜单点完就收。 */
+  function openLocationCardPanel() {
+    setLocationMenu(null);
+    setContextMenu(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setArkOpen(false);
+    setAiVoiceOpen(false);
+    setRedPacketOpen(false);
+    setFlashOpen(false);
+    setLocationShareOpen(false);
+    setLocationCardOpen(true);
+  }
+
+  /**
+   * 位置共享面板：和其余面板互斥。
+   *
+   * 面板内部自己管心跳（打开才开始上报，关掉/切会话即停）—— 这里只负责显隐，
+   * 不把「是否在共享」提到 chatPane 层，避免关面板后还在后台偷偷上报位置。
+   */
+  function openLocationSharePanel() {
+    setLocationMenu(null);
+    setContextMenu(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setArkOpen(false);
+    setAiVoiceOpen(false);
+    setRedPacketOpen(false);
+    setFlashOpen(false);
+    setLocationCardOpen(false);
+    setLocationShareOpen(true);
   }
 
   const handleVoiceBusyChange = useCallback((busy: boolean) => {
@@ -4925,6 +5119,8 @@ export function ChatPane({
       setArkOpen(false);
       setAiVoiceOpen(false);
       setRedPacketOpen(false);
+      setLocationMenu(null);
+      setLocationCardOpen(false);
     },
   };
   // 输入区高度固定：语音条内联时就装在正文那一行里，不再临时抬高（避免开录音时
@@ -4977,6 +5173,14 @@ export function ChatPane({
       label: '发送文件',
       icon: <FolderOpen size={16} />,
       action: () => openMediaPicker('file'),
+    },
+    {
+      label: '闪照',
+      icon: <Flame size={16} />,
+      // 闪照是独立的一条消息（老式图片上传 + serviceType=3），不进草稿。
+      action: () => flashPhotoInputRef.current?.click(),
+      disabled: hasSingleSend,
+      reason: hasSingleSend ? singleSendHint : undefined,
     },
     { label: 'QQ闪传', icon: <Zap size={16} />, action: toggleFlashPanel },
   ];
@@ -5850,13 +6054,20 @@ export function ChatPane({
               onClick={runComposerAction}
             />
           ))}
-          {/* 位置共享（手机端）：与桌面端同一个面板，只是工具栏样式不同。 */}
+          {/* 位置（手机端）：与桌面端同一个菜单 + 同一套面板，只是工具栏样式不同。 */}
           <button
+            ref={locationMenuMobileButtonRef}
             type="button"
-            className={cn('composer-tool', 'composer-mobile-tool', locationShareOpen && 'active')}
-            title={qqUnavailable || '位置共享'}
-            disabled={generated || currentPreference.blocked || sending}
-            onClick={toggleLocationSharePanel}
+            className={cn(
+              'composer-tool',
+              'composer-mobile-tool',
+              (locationMenu || locationCardOpen || locationShareOpen) && 'active',
+            )}
+            title="位置"
+            aria-haspopup="menu"
+            aria-expanded={locationMenu !== null}
+            disabled={currentPreference.blocked || sending}
+            onClick={openLocationMenu}
           >
             <MapPin size={21} strokeWidth={1.5} />
           </button>
@@ -5944,15 +6155,20 @@ export function ChatPane({
           >
             <Link2 size={21} strokeWidth={1.5} />
           </button>
-          {/* 位置共享：发起 / 看所有人在哪 / 摇杆挪位置。房间靠上报续命，停上报即退出。 */}
+          {/* 位置：点开两项 —— 发送位置（静态卡片）/ 共享位置（实时、房间靠上报续命）。 */}
           <button
-            ref={locationShareButtonRef}
+            ref={locationMenuDesktopButtonRef}
             type="button"
-            className={cn('composer-tool', 'composer-desktop-tool', locationShareOpen && 'active')}
-            title={qqUnavailable || (hasSingleSend ? singleSendHint : '位置共享')}
-            aria-label="位置共享"
-            disabled={generated || currentPreference.blocked || sending}
-            onClick={toggleLocationSharePanel}
+            className={cn(
+              'composer-tool',
+              'composer-desktop-tool',
+              (locationMenu || locationCardOpen || locationShareOpen) && 'active',
+            )}
+            title="位置"
+            aria-haspopup="menu"
+            aria-expanded={locationMenu !== null}
+            disabled={currentPreference.blocked || sending}
+            onClick={openLocationMenu}
           >
             <MapPin size={21} strokeWidth={1.5} />
           </button>
@@ -5988,6 +6204,29 @@ export function ChatPane({
             />
           )}
         </div>
+        {locationMenu && tabActive ? (
+          <ConversationActionsMenu
+            label="位置"
+            x={locationMenu.x}
+            y={locationMenu.y}
+            onClose={() => setLocationMenu(null)}
+            actions={[
+              {
+                label: '发送位置',
+                icon: <MapPin size={16} />,
+                // 位置卡片只能单独发，与 Ark 卡片同一套限制（挂着视频 / 文件时不让发）。
+                disabled: hasSingleSend,
+                reason: hasSingleSend ? singleSendHint : undefined,
+                action: openLocationCardPanel,
+              },
+              {
+                label: '共享位置',
+                icon: <Radio size={16} />,
+                action: openLocationSharePanel,
+              },
+            ]}
+          />
+        ) : null}
         {composerMenu && tabActive ? (
           <ConversationActionsMenu
             label="发送图片或文件"
@@ -6041,7 +6280,6 @@ export function ChatPane({
             panelRef={arkPanelRef}
             disabled={mediaSendDisabled}
             disabledHint={sendTitle}
-            location={arkLocation}
             contacts={arkContacts}
             defaultSignupGroupCode={defaultSignupGroupCode}
             onSend={sendArkCard}
@@ -6081,6 +6319,16 @@ export function ChatPane({
             onClose={() => setRedPacketOpen(false)}
           />
         ) : null}
+        {locationCardOpen && !mobileComposerExpanded ? (
+          <LocationCardPanel
+            panelRef={locationCardPanelRef}
+            disabled={mediaSendDisabled}
+            disabledHint={sendTitle}
+            location={arkLocation}
+            onSend={sendLocationCard}
+            onClose={() => setLocationCardOpen(false)}
+          />
+        ) : null}
         {locationSharePanelActive ? (
           <LocationSharePanel
             panelRef={locationSharePanelRef}
@@ -6108,6 +6356,14 @@ export function ChatPane({
         />
         {/* 视频 / 文件只能单独发，不带 multiple —— 选了也只会留第一个。 */}
         <input ref={fileInputRef} type="file" hidden onChange={handleMediaPickerChange} />
+        {/* 闪照：一次一张，选完立刻发送（不进草稿、不 multiple）。 */}
+        <input
+          ref={flashPhotoInputRef}
+          type="file"
+          hidden
+          accept="image/*"
+          onChange={handleFlashPhotoPick}
+        />
         {toolsOpen && hasPlusActions ? (
           <ComposerPlusPanel
             panelRef={toolsPanelRef}

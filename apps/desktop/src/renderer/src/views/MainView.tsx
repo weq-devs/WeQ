@@ -290,6 +290,7 @@ import {
   type ArkLocationProvider,
   type ArkPayload,
   type FlashSendPayload,
+  type FlashPhotoSendPayload,
   type RedPacketDraft,
   buildFlashOptimisticElement,
   flashDescOf,
@@ -8763,6 +8764,64 @@ export function MainView(): ReactElement {
    * `flashTransferInfo.fileSetId`（Win / 安卓的真卡片），要么是被降级成纯文本的分享
    * 短码（Linux / 鸿蒙）—— 两条签名扫到任一条就把乐观条目收掉（见上面对账 effect）。
    */
+  /**
+   * 闪照「选图即发」。
+   *
+   * 协议上闪照是一条普通消息，只是元素换成 `flashPhoto`（老式图片上传 +
+   * `commonElem{serviceType:3}` + 兜底文本），所以直接复用 `sendElements`：
+   * 服务层看到 `flashPhoto` 就会带上传上下文（`elementsNeedUpload`）。
+   *
+   * 不做乐观渲染 —— 闪照气泡要按「未点开 / 已查看」两种形态画，真实消息同步回来很快，
+   * 提前画一条反而容易和真气泡重影；失败靠 toast。
+   */
+  async function sendFlashPhoto(
+    conversation: Conversation,
+    payload: FlashPhotoSendPayload,
+  ): Promise<void> {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '发送闪照需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+    const target = sendTargetOf(conversation);
+    if (!target) {
+      pushToast({
+        tone: 'warning',
+        message: '这个会话不支持发送闪照',
+        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+      });
+      throw new Error('unsupported conversation');
+    }
+    if (target.tempGroupCode) {
+      // 闪照走老式图片上传 + c2c 路由，临时会话这条还没验过。
+      pushToast({
+        tone: 'warning',
+        message: '群临时会话暂不支持发闪照',
+        detail: '闪照的老式图片上传还没有对应的临时会话实现。',
+      });
+      throw new Error('temp session flash photo unsupported');
+    }
+    const outcome = await client.account.sendElements.mutate({
+      expectedAccountUin: user.identityValue,
+      peerType: target.peerType,
+      targetId: target.targetId,
+      elements: toIpcElements([
+        {
+          kind: 'flashPhoto',
+          source: payload.bytes ?? payload.path,
+        },
+      ]),
+    });
+    if (!outcome.ok) {
+      const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条闪照';
+      pushToast({ tone: 'error', message: '闪照发送失败', detail: reason });
+      throw new Error(reason);
+    }
+  }
+
   async function sendFlashTransfer(
     conversation: Conversation,
     payload: FlashSendPayload,
@@ -10095,6 +10154,7 @@ export function MainView(): ReactElement {
                               : undefined
                           }
                           onSendFlash={sendFlashTransfer}
+                          onSendFlashPhoto={sendFlashPhoto}
                           onSendRedPacket={sendRedPacket}
                           onDraftChange={updateDraft}
                           onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
