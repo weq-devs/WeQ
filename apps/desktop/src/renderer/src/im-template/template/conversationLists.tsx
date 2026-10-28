@@ -351,6 +351,21 @@ export function ConversationList({
 
   const locateId = directory?.locate?.id;
   const locateRevision = directory?.locate?.revision;
+  const [locateHighlight, setLocateHighlight] = useState<{
+    id: string;
+    revision: number | undefined;
+  } | null>(null);
+  const locateAvailable =
+    scope === 'all' && !keyword && filtered.some((row) => row.id === locateId);
+  useEffect(() => {
+    if (!locateId || !locateAvailable) {
+      setLocateHighlight(null);
+      return;
+    }
+    setLocateHighlight({ id: locateId, revision: locateRevision });
+    const timer = window.setTimeout(() => setLocateHighlight(null), 1500);
+    return () => window.clearTimeout(timer);
+  }, [locateId, locateRevision, locateAvailable]);
   useEffect(() => {
     if (!locateId) return;
     setKeyword('');
@@ -643,6 +658,7 @@ export function ConversationList({
                   listRowClass(!selectionMode && active, 'conversation-row'),
                   pinned && 'pinned',
                   selectionMode && rowSelectedIds.has(conversation.id) && 'is-multiselected',
+                  locateHighlight?.id === conversation.id && 'is-locate-target',
                 )}
                 aria-pressed={selectionMode ? rowSelectedIds.has(conversation.id) : undefined}
                 {...multi.itemProps(conversation.id)}
@@ -682,6 +698,13 @@ export function ConversationList({
                     ) : conversation.mergedKind === 'deleted' ? (
                       <Trash2 size={20} strokeWidth={2} />
                     ) : conversation.mergedKind === 'guildDirect' ? (
+                {locateHighlight?.id === conversation.id ? (
+                  <span
+                    key={locateHighlight.revision}
+                    className="weq-conversation-locate-highlight"
+                    aria-hidden="true"
+                  />
+                ) : null}
                       <Hash size={20} strokeWidth={2} />
                     ) : conversation.mergedKind === 'service' ||
                       conversation.mergedKind === 'groupAssistant' ? (
