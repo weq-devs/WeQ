@@ -10,6 +10,8 @@ import {
   toRenderElements,
   getLogger,
   getHost,
+  accountConfigId,
+  type RenderElement,
   type SendElement,
   type OneBotConfig,
 } from '@weq/service';
@@ -17,6 +19,7 @@ import type { AppContext } from '../context/app_context';
 import { OneBotServer, type BridgeMessage, type Segment } from './server';
 import { createActions } from './actions';
 import { fullModeAllowed } from '../context/full_mode';
+import { MessageRegistry } from './registry';
 
 const logger = getLogger().child({ scope: 'onebot' });
 let current: OneBotServer | null = null;
@@ -63,28 +66,28 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
         return active() && services.accountConfig.getRecord()?.qqPid === pid && Boolean(ready);
       };
       let server: OneBotServer;
+      type RenderRow = (Omit<C2cMsg, 'elements'> | Omit<GroupMsg, 'elements'>) & {
+        elements: RenderElement[];
+      };
       async function incoming(
         peerType: 'c2c' | 'group',
-        row: C2cMsg | GroupMsg,
+        row: RenderRow,
+        freshOnly = false,
       ): Promise<BridgeMessage | null> {
         requireActive();
         const senderUin = Number(row.senderUin || session!.uidMap.uinByUid(row.senderUid) || 0);
         if (
           !senderUin ||
-          senderUin === Number(session!.context.uin) ||
-          Number(row.sendTime) < Date.now() / 1000 - 120 ||
+          (freshOnly && Number(row.sendTime) < Date.now() / 1000 - 120) ||
           (row.msgType === 1n && row.subType === 1n)
         )
           return null;
         const targetId =
-          peerType === 'group'
-            ? (row as GroupMsg).targetGroupCode
-            : String(
-                (row as C2cMsg).targetUin ||
-                  session!.uidMap.uinByUid((row as C2cMsg).targetUid) ||
-                  '',
-              );
+          'targetGroupCode' in row
+            ? row.targetGroupCode
+            : String(row.targetUin || session!.uidMap.uinByUid(row.targetUid) || '');
         if (!/^[1-9]\d*$/.test(targetId)) return null;
+        const conv = 'targetUid' in row ? row.targetUid : targetId;
         const base = {
           peerType,
           targetId,
@@ -93,7 +96,7 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
           nickname: '',
         };
         const message: Segment[] = [];
-        for (const el of toRenderElements(row.elements)) {
+        for (const el of row.elements) {
           requireActive();
           switch (el.type) {
             case 'text':
@@ -120,6 +123,12 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
                   senderUin,
                   time: el.data.origMsgTime,
                   sequence: el.data.origMsgSeq,
+                  location: {
+                    conv,
+                    msgSeq: peerType === 'group' ? el.data.origMsgSeq : 0,
+                    clientSeq: peerType === 'c2c' ? el.data.origMsgSeq : 0,
+                    random: 0,
+                  },
                   message: [],
                 };
                 message.push({
@@ -187,12 +196,159 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
           ...base,
           key: `${peerType}:${targetId}:${row.msgId}`,
           nickname: profile?.nick ?? String(row.senderUin),
-          sequence: Number(peerType === 'group' ? row.msgSeq : ((row as C2cMsg).clientSeq ?? 0n)),
+          sequence: Number(
+            peerType === 'group' ? row.msgSeq : 'clientSeq' in row ? (row.clientSeq ?? 0n) : 0n,
+          ),
+          location: {
+            conv,
+            msgId: String(row.msgId),
+            msgSeq: Number(row.msgSeq),
+            clientSeq: Number('clientSeq' in row ? (row.clientSeq ?? 0n) : 0n),
+            random: Number(row.msgRandom ?? 0n),
+          },
           message,
         };
       }
+      async function readMessage(message: BridgeMessage): Promise<BridgeMessage | null> {
+        requireActive();
+        if (message.fileId)
+          return {
+            ...message,
+            message: [
+              {
+                type: 'file',
+                data: {
+                  file_id: message.fileId,
+                  name: message.fileName ?? '',
+                  file_size: message.fileSize ?? 0,
+                },
+              },
+            ],
+          };
+        const loc = message.location;
+        if (!loc) return null;
+        let row: RenderRow | null = null;
+        if (loc.msgId)
+          row =
+            message.peerType === 'group'
+              ? await services!.msgs.getGroupMessageById(loc.conv, BigInt(loc.msgId))
+              : await services!.msgs.getC2cMessageById(loc.conv, BigInt(loc.msgId));
+        requireActive();
+        if (
+          row &&
+          ('targetGroupCode' in row ? row.targetGroupCode !== loc.conv : row.targetUid !== loc.conv)
+        )
+          row = null;
+        if (
+          row &&
+          (Number(row.senderUin) !== message.senderUin ||
+            Number(row.sendTime) !== message.time ||
+            (loc.random && Number(row.msgRandom) !== loc.random))
+        )
+          row = null;
+        let seq = loc.msgSeq;
+        if (!row && !seq && loc.clientSeq && message.peerType === 'c2c') {
+          seq = Number(
+            (await services!.msgs.resolveC2cReplySeq(
+              loc.conv,
+              BigInt(loc.clientSeq),
+              BigInt(message.senderUin),
+              BigInt(message.time),
+            )) ??
+              (await services!.gapHistory.resolveReplySeq(
+                loc.conv,
+                String(loc.clientSeq),
+                String(message.senderUin),
+                String(message.time),
+              )) ??
+              0,
+          );
+          requireActive();
+        }
+        if (!row && seq > 0) {
+          const rows =
+            message.peerType === 'group'
+              ? await services!.msgs.getGroupFrom(loc.conv, BigInt(seq), 200)
+              : await services!.msgs.getC2cFrom(loc.conv, BigInt(seq), 200);
+          requireActive();
+          row =
+            rows.find(
+              (item) =>
+                Number(item.msgSeq) === seq &&
+                Number(item.senderUin) === message.senderUin &&
+                Number(item.sendTime) === message.time &&
+                (!loc.random || Number(item.msgRandom) === loc.random),
+            ) ?? null;
+          if (!row) {
+            const cached = await services!.gapHistory.cached(message.peerType, loc.conv, seq, seq);
+            requireActive();
+            const found = cached.find(
+              (item) =>
+                Number(item.senderUin) === message.senderUin &&
+                Number(item.sendTime) === message.time &&
+                (!loc.random || Number(item.msgRandom) === loc.random),
+            );
+            if (found)
+              row = {
+                msgId: BigInt(found.msgId),
+                msgSeq: BigInt(found.msgSeq),
+                msgRandom: BigInt(found.msgRandom ?? '0'),
+                clientSeq: BigInt(found.clientSeq ?? '0'),
+                targetUid: loc.conv,
+                targetUin: BigInt(message.targetId),
+                targetGroupCode: loc.conv,
+                senderUid: found.senderUid,
+                senderUin: BigInt(found.senderUin),
+                sendTime: BigInt(found.sendTime),
+                elements: found.elements,
+              };
+          }
+        }
+        return row ? incoming(message.peerType, row) : null;
+      }
+      const cache = ctx.bootstrap?.userConfig.cacheDir?.('onebot');
+      const registry = new MessageRegistry(
+        cache
+          ? join(cache, `${accountConfigId(session.context.uin, session.msgDbPath)}.json`)
+          : undefined,
+      );
       server = new OneBotServer(
         {
+          registry,
+          readMessage,
+          async recall(message) {
+            requireActive();
+            const loc = message.location;
+            if (!loc?.msgSeq || (message.peerType === 'c2c' && (!loc.clientSeq || !loc.random)))
+              throw new Error('消息缺少完整撤回定位信息');
+            const params = {
+              kind: message.peerType,
+              conv: loc.conv,
+              sequence: loc.msgSeq,
+              clientSequence: loc.clientSeq,
+              random: loc.random,
+              timestamp: message.time,
+            };
+            const send = () => {
+              requireActive();
+              return services.groupModeration.recallMessage(params);
+            };
+            if (services.antiRecall.protects(message.peerType, loc.conv))
+              await services.gapHistory.withSelfRecallProtection(params, send);
+            else await send();
+          },
+          async reaction(message, code, isSet) {
+            requireActive();
+            if (message.peerType !== 'group' || !message.location?.msgSeq)
+              throw new Error('当前仅支持对可定位的群消息贴表情');
+            if (!/^\d+$/.test(code)) throw new Error('表情 ID 无效');
+            await services.interaction.setMessageReaction({
+              groupId: message.targetId,
+              sequence: message.location.msgSeq,
+              code,
+              isSet,
+            });
+          },
           version: () => getHost().appVersion(),
           action: createActions(services, session, requireActive, imageReady),
           async status() {
@@ -248,7 +404,18 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
                   time: Math.floor(Date.now() / 1000),
                   sequence: 0,
                   fileId: outcome.fileId,
-                  message: segments,
+                  fileName: outcome.fileName,
+                  fileSize: outcome.fileSize,
+                  message: [
+                    {
+                      type: 'file',
+                      data: {
+                        file_id: outcome.fileId,
+                        name: outcome.fileName,
+                        file_size: outcome.fileSize,
+                      },
+                    },
+                  ],
                 };
               }
               const elements: SendElement[] = [];
@@ -298,7 +465,20 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
                 senderUin: Number(session.context.uin),
                 nickname: '',
                 time: outcome.timestamp,
-                sequence: target.peerType === 'group' ? outcome.groupSequence : 0,
+                sequence:
+                  target.peerType === 'group'
+                    ? outcome.groupSequence
+                    : (outcome.clientSequence ?? 0),
+                location: {
+                  conv:
+                    target.peerType === 'group'
+                      ? target.targetId
+                      : outcome.uid || session.uidMap.uidByUin(BigInt(target.targetId)) || '',
+                  msgSeq:
+                    target.peerType === 'group' ? outcome.groupSequence : outcome.privateSequence,
+                  clientSeq: outcome.clientSequence ?? 0,
+                  random: outcome.random,
+                },
                 message: segments,
               };
             } finally {
@@ -318,7 +498,11 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
                   ] as const) {
                     for (const row of rows) {
                       if (!active()) return;
-                      const msg = await incoming(kind, row);
+                      const msg = await incoming(
+                        kind,
+                        { ...row, elements: toRenderElements(row.elements) },
+                        true,
+                      );
                       if (msg && active()) deliver(msg);
                     }
                   }

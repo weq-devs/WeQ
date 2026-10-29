@@ -34,7 +34,7 @@ WeQ 与 cc-connect 需要运行在同一台电脑。接口固定监听 `127.0.0.
 - cc-connect 发送图片、群文件与私聊文件；Base64 或本机绝对路径，单文件最大 16 MiB。
 - 接收本机已经缓存的图片、语音和文件；图片缺失时尝试复用 WeQ 下载服务。无法取得媒体时提供文本占位。
 - 本机媒体由短期回环 URL 提供给 cc-connect，不需要 NapCat 的文件下载 API。
-- 私聊输入状态、登录资料、群名称、当前桥接会话缓存中的消息查询。
+- 私聊输入状态、登录资料、群名称与可回查的消息查询。
 
 除 cc-connect 收发外，正向 WebSocket 还提供以下常用接口：
 
@@ -43,6 +43,7 @@ WeQ 与 cc-connect 需要运行在同一台电脑。接口固定监听 `127.0.0.
 - 群文件：`get_group_root_files`、`get_group_files_by_folder`、`get_group_file_system_info`、`get_group_file_url`、`delete_group_file`、`rename_group_file`、`move_group_file`、`create_group_file_folder`、`delete_group_folder`（兼容 `delete_group_file_folder`）。上传可传 `folder` / `folder_id`，回包包含 `file_id`。
 - 互动：`set_friend_remark`、`set_group_remark`、`send_poke`（兼容 `friend_poke` / `group_poke`）、`mark_private_msg_as_read`、`mark_group_msg_as_read`、`get_group_at_all_remain`。
 - 能力：`get_status`、`get_version_info`、`can_send_image`、`can_send_record`。语音发送尚未接入，能力查询返回 false。
+- 消息操作：`get_msg` 回查完整正文，`delete_msg` 撤回，`set_msg_emoji_like` 对群消息添加/取消表情回应。
 
 消息输入接受 CQ 字符串、消息段数组或单个消息段对象；布尔参数接受布尔值及 `true/false`、`1/0`、`yes/no`。`send_msg` 不传 `message_type` 时按唯一目标 ID 推断。
 `/` 同时承载 API 和事件，`/api` 只处理 API，`/event` 只推事件。新增 action 不会自动变成 cc-connect Agent 的工具，需由调用方接入使用。
@@ -57,7 +58,7 @@ WeQ 与 cc-connect 需要运行在同一台电脑。接口固定监听 `127.0.0.
 如果切换到另一个 QQ 账号，请重启或重载 cc-connect 的 QQ 通道并选择相应 Agent 会话；当前 cc-connect 的自动重连不会重新读取登录账号。
 首次监听只建立基线，不重放历史；断线期间不保证补投，重新连接后的新消息继续上报。原生 QQ 登录及 WeQ 在线收发能力仍需保持可用。
 
-QQ 原始 `msgId` 为 64 位，接口映射为稳定的有符号 32 位 ID，兼容 cc-connect 的引用上下文；每个实例最多保存 4096 条映射。
-引用已淘汰、来自其他会话或缺少必要序号的消息会返回错误，不退化成无引用发送。QQ 拒绝发送时返回失败，不自动重发。
+QQ 原始 `msgId` 为 64 位，接口分配有符号 32 位 ID，兼容 cc-connect 的引用上下文。定位索引按账号和数据源保存，最多 8192 条，登记后 30 天过期；正文不复制进索引，热缓存最多 4096 条。正常关闭会刷盘；意外退出可能丢失最后 250ms 内尚未保存的定位，但旧 ID 不会重用给新消息。
+私聊分页 `msgSeq` 与引用 `clientSeq` 分开登记，发送回执、引用和 QQ 同步消息可关联到同一 ID。索引已淘汰、原文不可回查、跨会话或缺少必要序号时返回错误，不退化成无引用发送。QQ 拒绝发送时返回失败，不自动重发。
 
 OneBot 配置跟随全局配置保存；配置备份时与 MCP 一样进入 API 配置分区。

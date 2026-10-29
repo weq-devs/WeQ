@@ -63,12 +63,14 @@ async function setup() {
     timestamp: 100,
     groupSequence: 11,
     privateSequence: 88,
+    clientSequence: 23,
+    uid: 'u_peer',
   });
   const sendFile = vi.fn().mockResolvedValue({ ok: true, sent: true, fileId: 'file-1' });
   const ctx = {
     platform: { native: { ntHelper: { hasSsoSession: async () => true } } },
     bootstrap: { userConfig: { getSettings: () => ({ autoAttachQq: true }) } },
-    account: { context: { uin: 99 }, uidMap: { uinByUid: () => 99n } },
+    account: { context: { uin: 99 }, uidMap: { uinByUid: () => 99n, uidByUin: () => 'u_peer' } },
     accountIsStatic: false,
     services: {
       accountConfig: { getRecord: () => onlineRecord },
@@ -121,6 +123,56 @@ it('uses the distinct QQ quote pointer and validates all outgoing segments befor
   expect(f.sendElements).toHaveBeenCalledTimes(1);
 });
 
+it('发送回执保留 privateSequence 和 clientSequence，不用分页序号引用', async () => {
+  const f = await setup();
+  const sent = await f.backend.send({ peerType: 'c2c', targetId: '7' }, [
+    { type: 'text', data: { text: '正文' } },
+  ]);
+  expect(sent).toMatchObject({
+    sequence: 23,
+    location: { conv: 'u_peer', msgSeq: 88, clientSeq: 23, random: 1 },
+  });
+});
+
+it('撤回和回应使用登记的真实定位；私聊回应明确拒绝', async () => {
+  const f = await setup();
+  const recallMessage = vi.fn();
+  const setMessageReaction = vi.fn();
+  Object.assign(f.ctx.services!, {
+    groupModeration: { recallMessage },
+    antiRecall: { protects: () => false },
+  });
+  Object.assign(f.ctx.services!.interaction, { setMessageReaction });
+  const message: BridgeMessage = {
+    key: 's',
+    peerType: 'c2c',
+    targetId: '7',
+    senderUin: 99,
+    nickname: '',
+    time: 100,
+    sequence: 23,
+    message: [],
+    location: { conv: 'u_peer', msgSeq: 88, clientSeq: 23, random: 1 },
+  };
+  await f.backend.recall!(message);
+  expect(recallMessage).toHaveBeenCalledWith({
+    kind: 'c2c',
+    conv: 'u_peer',
+    sequence: 88,
+    clientSequence: 23,
+    random: 1,
+    timestamp: 100,
+  });
+  await expect(f.backend.reaction!(message, '76', true)).rejects.toThrow('群消息');
+  await f.backend.reaction!({ ...message, peerType: 'group', targetId: '42' }, '76', false);
+  expect(setMessageReaction).toHaveBeenCalledWith({
+    groupId: '42',
+    sequence: 88,
+    code: '76',
+    isSet: false,
+  });
+});
+
 it('routes files through sendFile and removes only its own temporary material after completion', async () => {
   const f = await setup();
   let temporary = '';
@@ -155,7 +207,7 @@ it('does not send partial mixed-file messages or swallow QQ business rejection',
   );
 });
 
-it('maps fresh private rows with clientSeq and native @ segments but ignores self and history', async () => {
+it('登记自身消息以供回查，但不登记历史增量；引用使用 clientSeq', async () => {
   await setup();
   const row = {
     msgId: 9007199254740993123n,
@@ -175,7 +227,8 @@ it('maps fresh private rows with clientSeq and native @ segments but ignores sel
     c2c: [row, { ...row, senderUin: 99n }, { ...row, sendTime: 1n }],
     group: [],
   });
-  expect(state.delivered).toHaveLength(1);
+  expect(state.delivered).toHaveLength(2);
+  expect(state.delivered[1]?.senderUin).toBe(99);
   expect(state.delivered[0]).toMatchObject({
     sequence: 23,
     targetId: '7',

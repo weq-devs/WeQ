@@ -71,6 +71,7 @@ async function setup(path = '/') {
     request,
     send,
     unsubscribe,
+    backend,
   };
 }
 
@@ -82,6 +83,39 @@ it('parses cc-connect CQ replies without interpreting escaped CQ-looking text', 
   expect(parseSegments('[CQ:at,qq=99]', true)).toEqual([
     { type: 'text', data: { text: '[CQ:at,qq=99]' } },
   ]);
+});
+
+it('get_msg 回查完整正文，撤回和表情回应共享同一定位', async () => {
+  const f = await setup();
+  const message = incoming({
+    message: [{ type: 'text', data: { text: 'x'.repeat(20000) } }],
+    location: { conv: '42', msgId: '9007199254740993123', msgSeq: 91, clientSeq: 0, random: 9 },
+  });
+  f.backend.readMessage = vi.fn().mockResolvedValue(message);
+  f.backend.recall = vi.fn();
+  f.backend.reaction = vi.fn();
+  const id = f.server.register(message);
+  const result = await f.request('get_msg', { message_id: id });
+  expect(result).toMatchObject({ retcode: 0, data: { message: message.message } });
+  expect(await f.request('delete_msg', { message_id: id })).toMatchObject({
+    retcode: 0,
+    data: null,
+  });
+  expect(f.backend.recall).toHaveBeenCalledWith(message);
+  await f.request('set_msg_emoji_like', { message_id: id, emoji_id: '76', set: 'false' });
+  expect(f.backend.reaction).toHaveBeenCalledWith(message, '76', false);
+});
+
+it('原消息不可回查时不返回截断正文或执行撤回', async () => {
+  const f = await setup();
+  f.backend.readMessage = vi.fn().mockResolvedValue(null);
+  f.backend.recall = vi.fn();
+  const id = f.server.register(
+    incoming({ location: { conv: '42', msgId: '1', msgSeq: 91, clientSeq: 0, random: 9 } }),
+  );
+  expect(await f.request('get_msg', { message_id: id })).toMatchObject({ retcode: 1404 });
+  expect(await f.request('delete_msg', { message_id: id })).toMatchObject({ retcode: 1404 });
+  expect(f.backend.recall).not.toHaveBeenCalled();
 });
 
 it('标准 send_msg、单段对象和字符串 false 通过真实 WS 生效', async () => {
@@ -164,11 +198,11 @@ it('keeps private clientSeq separate from conversation sequence and rejects cros
   ).toMatchObject({ retcode: 1400 });
   expect(
     await f.request('send_private_msg', { user_id: 7, message: '[CQ:reply,id=123]no' }),
-  ).toMatchObject({ retcode: 1400 });
+  ).toMatchObject({ retcode: 1404 });
   expect(f.send).toHaveBeenCalledTimes(1);
 });
 
-it('filters own messages and duplicates, preserves stable IDs on a new instance and closes on stop', async () => {
+it('登记但不上报自身消息，过滤重复上报，停止时断开连接', async () => {
   const f = await setup();
   f.deliver(incoming({ senderUin: 99 }));
   f.deliver(incoming());
@@ -180,7 +214,8 @@ it('filters own messages and duplicates, preserves stable IDs on a new instance 
   const next = await setup();
   next.deliver(incoming());
   await vi.waitFor(() => expect(next.messages.some((m) => m.post_type === 'message')).toBe(true));
-  expect(next.messages.find((m) => m.post_type === 'message')!.message_id).toBe(id);
+  expect(Number.isInteger(id)).toBe(true);
+  expect(Number(next.messages.find((m) => m.post_type === 'message')!.message_id)).toBeLessThan(0);
   const closed = once(f.ws, 'close');
   f.server.stop();
   await closed;

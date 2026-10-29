@@ -449,6 +449,8 @@ export interface SendMessageOutcome {
   groupSequence: number;
   /** 会话级 seq（私聊）。仅作辅助判据；对账请用 {@link random}。 */
   privateSequence: number;
+  /** 发送方原生引用序号，与 privateSequence 不同。 */
+  clientSequence?: number;
   timestamp: number;
   /**
    * 媒体消息：每个媒体元素的上传结果（非媒体消息不出现）。
@@ -1541,6 +1543,7 @@ export function toOutcome(
     random: receipt.random,
     groupSequence: receipt.groupSequence,
     privateSequence: receipt.privateSequence,
+    clientSequence: receipt.clientSequence,
     timestamp: receipt.timestamp,
     ...(uploads.length > 0 ? { uploads } : {}),
     ...(receipt.ok

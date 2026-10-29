@@ -1,9 +1,10 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import http from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
+import { MessageRegistry, type MessageLocation } from './registry';
 import {
   ActionError,
   bool,
@@ -28,6 +29,9 @@ export interface BridgeMessage {
   sequence: number;
   message: Segment[];
   fileId?: string;
+  fileName?: string;
+  fileSize?: number;
+  location?: MessageLocation;
 }
 export interface OneBotBackend {
   status(): { online: boolean; good: boolean } | Promise<{ online: boolean; good: boolean }>;
@@ -35,6 +39,10 @@ export interface OneBotBackend {
   group(id: string, noCache?: boolean): Promise<{ group_id: number; group_name: string }>;
   version?(): string;
   action?(action: string, params: Params): Promise<unknown>;
+  registry?: MessageRegistry;
+  readMessage?(message: BridgeMessage): Promise<BridgeMessage | null>;
+  recall?(message: BridgeMessage): Promise<void>;
+  reaction?(message: BridgeMessage, code: string, isSet: boolean): Promise<void>;
   send(
     target: { peerType: 'c2c' | 'group'; targetId: string },
     segments: Segment[],
@@ -54,7 +62,7 @@ export class OneBotServer {
   private readonly server: http.Server;
   private readonly sockets = new WebSocketServer({ noServer: true, maxPayload: 24 * 1024 * 1024 });
   private readonly records = new Map<number, BridgeMessage>();
-  private readonly keys = new Map<string, number>();
+  private readonly registry: MessageRegistry;
   private readonly media = new Map<string, { path: string; expires: number }>();
   private unsubscribe: (() => void) | null = null;
   private active = false;
@@ -68,6 +76,7 @@ export class OneBotServer {
     private readonly backend: OneBotBackend,
     private readonly token: string,
   ) {
+    this.registry = backend.registry ?? new MessageRegistry();
     this.server = http.createServer((req, res) => {
       void this.serveMedia(req, res);
     });
@@ -128,10 +137,10 @@ export class OneBotServer {
     this.port = address.port;
     this.active = true;
     this.unsubscribe = this.backend.subscribe((msg) => {
-      if (!this.active || msg.senderUin === this.selfId) return;
-      const existing = this.keys.has(msg.key);
+      if (!this.active) return;
+      const existing = this.registry.find(msg) !== undefined;
       const id = this.remember(msg);
-      if (existing) return;
+      if (existing || msg.senderUin === this.selfId) return;
       const event = {
         ...this.wire(msg, id),
         post_type: 'message',
@@ -173,7 +182,7 @@ export class OneBotServer {
     this.server.close();
     this.server.closeAllConnections();
     this.records.clear();
-    this.keys.clear();
+    this.registry.flush();
     this.media.clear();
   }
 
@@ -182,16 +191,31 @@ export class OneBotServer {
   }
 
   reference(msg: BridgeMessage): number {
-    for (const [id, record] of this.records) {
-      if (
-        record.peerType === msg.peerType &&
-        record.targetId === msg.targetId &&
-        record.senderUin === msg.senderUin &&
-        record.sequence === msg.sequence
-      )
-        return id;
-    }
     return this.remember(msg);
+  }
+
+  register(msg: BridgeMessage): number {
+    return this.remember(msg);
+  }
+
+  async resolve(id: number): Promise<BridgeMessage> {
+    const known = this.registry.get(id);
+    const hot = this.records.get(id);
+    if (!known) throw new ActionError('消息 ID 不存在或已过期', 1404);
+    if (this.backend.readMessage && (known.location || !hot?.message.length)) {
+      const full = await this.backend.readMessage(known);
+      if (!this.active) throw new ActionError('账号已关闭');
+      if (full) {
+        this.remember(full);
+        return full;
+      }
+      throw new ActionError('原消息不可回查', 1404);
+    }
+    return hot ?? known;
+  }
+
+  messageData(msg: BridgeMessage): Record<string, unknown> {
+    return this.wire(msg, this.remember(msg));
   }
 
   mediaUrl(path: string): string {
@@ -244,16 +268,12 @@ export class OneBotServer {
   }
 
   private remember(msg: BridgeMessage): number {
-    const known = this.keys.get(msg.key);
-    if (known !== undefined) return known;
-    // cc-connect 的引用上下文是 int32；不能把 QQ 的 64 位 msgId 直接转为 JS number。
-    let id = -((createHash('sha256').update(msg.key).digest().readUInt32BE(0) % 2147483647) + 1);
-    while (this.records.has(id)) id = id === -2147483647 ? -1 : id - 1;
+    const id = this.registry.remember(msg);
     // get_msg 只需定位/展示信息，不把每次回传的 Base64 附件长驻消息缓存。
     let remaining = 16384;
     const message = msg.message.slice(0, 256).map((segment): Segment => {
       const data: Record<string, string> = {};
-      for (const key of ['text', 'qq', 'id', 'name', 'url', 'file']) {
+      for (const key of ['text', 'qq', 'id', 'name', 'url', 'file', 'file_id', 'file_size']) {
         if (remaining <= 0) break;
         const value = segment.data[key];
         if (typeof value !== 'string' && typeof value !== 'number') continue;
@@ -266,12 +286,11 @@ export class OneBotServer {
       }
       return { type: segment.type, data };
     });
-    this.records.set(id, { ...msg, message });
-    this.keys.set(msg.key, id);
+    const previous = this.records.get(id);
+    this.records.set(id, { ...msg, message: message.length ? message : (previous?.message ?? []) });
     if (this.records.size > 4096) {
       const oldest = this.records.entries().next().value!;
       this.records.delete(oldest[0]);
-      this.keys.delete(oldest[1].key);
     }
     return id;
   }
@@ -316,10 +335,22 @@ export class OneBotServer {
           data = await this.backend.group(positiveId(p.group_id), bool(p.no_cache));
           break;
         case 'get_msg': {
-          const id = Number(p.message_id);
-          const msg = this.records.get(id);
-          if (!msg) throw new Error('消息不在当前 OneBot 会话缓存中');
+          const id = integer(p.message_id, undefined, -2147483647, 2147483647);
+          const msg = await this.resolve(id);
           data = { ...this.wire(msg, id), real_id: id };
+          break;
+        }
+        case 'delete_msg':
+        case 'set_msg_emoji_like': {
+          const msg = await this.resolve(integer(p.message_id, undefined, -2147483647, 2147483647));
+          if (request.action === 'delete_msg') {
+            if (!this.backend.recall) throw new ActionError('撤回不可用', 1404);
+            await this.backend.recall(msg);
+          } else {
+            if (!this.backend.reaction) throw new ActionError('表情回应不可用', 1404);
+            await this.backend.reaction(msg, String(p.emoji_id ?? ''), bool(p.set, true));
+          }
+          data = null;
           break;
         }
         case 'set_input_status':
@@ -342,13 +373,26 @@ export class OneBotServer {
             : parseSegments(p.message, bool(p.auto_escape));
           const replies = segments.filter((s) => s.type === 'reply');
           if (replies.length > 1) throw new Error('只支持一个引用段');
-          const reply = replies[0] ? this.records.get(Number(replies[0].data.id)) : undefined;
+          const reply = replies[0]
+            ? await this.resolve(integer(replies[0].data.id, undefined, -2147483647, 2147483647))
+            : undefined;
           if (
             replies.length &&
             (!reply || reply.peerType !== target.peerType || reply.targetId !== target.targetId)
           )
             throw new Error('引用消息已过期或属于其他会话');
           if (reply && reply.sequence <= 0) throw new Error('引用消息缺少 QQ 序号');
+          // 先预留可持久化的 ID，索引无法写入时不派发 QQ 发送。
+          const pendingKey = `outgoing:${randomBytes(16).toString('hex')}`;
+          this.remember({
+            ...target,
+            key: pendingKey,
+            senderUin: this.selfId,
+            nickname: '',
+            time: Math.floor(Date.now() / 1000),
+            sequence: 0,
+            message: [],
+          });
           const sent = await this.backend.send(
             target,
             segments.filter((s) => s.type !== 'reply'),
@@ -356,7 +400,7 @@ export class OneBotServer {
           );
           if (!this.active) throw new Error('账号已关闭，发送结果未在当前会话登记');
           data = {
-            message_id: this.remember(sent),
+            message_id: this.remember({ ...sent, key: pendingKey }),
             ...(request.action.startsWith('upload_') ? { file_id: sent.fileId } : {}),
           };
           break;

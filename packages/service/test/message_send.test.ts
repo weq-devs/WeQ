@@ -336,6 +336,35 @@ describe('resolveTarget', () => {
 });
 
 describe('toOutcome', () => {
+  it('私聊引用序号与会话分页序号独立透出', () => {
+    const outcome = toOutcome(
+      {
+        ok: true,
+        scene: 'c2c',
+        cmd: 'MessageSvc.PbSendMsg',
+        result: 0,
+        errMsg: '',
+        random: 91,
+        groupSequence: 0,
+        privateSequence: 800,
+        clientSequence: 23,
+        timestamp: 100,
+        requestBytes: new Uint8Array(),
+        responseBytes: new Uint8Array(),
+        response: {
+          result: 0,
+          errMsg: '',
+          timestamp1: 100,
+          groupSequence: 0,
+          privateSequence: 800,
+          field10: 0,
+          timestamp2: 100,
+        },
+      },
+      { peerType: 'c2c', targetId: '7', scene: 'c2c', uid: 'u_peer', uin: 7 },
+    );
+    expect(outcome).toMatchObject({ privateSequence: 800, clientSequence: 23 });
+  });
   const target: ResolvedSendTarget = {
     peerType: 'group',
     scene: 'group',
