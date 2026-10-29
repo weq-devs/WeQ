@@ -10,6 +10,7 @@ import type {
 import { Avatar } from './primitives';
 import type { GroupConversationView, GroupUpdateInput } from './conversationDetailsTypes';
 import { cn } from './classNames';
+import { useGroupRelationship } from '../../lib/contactRelationship';
 
 export function GroupSettingsPanel({
   conversation,
@@ -24,7 +25,11 @@ export function GroupSettingsPanel({
   detailActionGroups: ConversationDetailActionGroup[];
   detailActionContext: ConversationDetailActionContext;
 }) {
-  const canManage = conversation.group.role !== 'member';
+  const membership = useGroupRelationship(conversation.group);
+  const canManage =
+    (Boolean(conversation.generated) || membership === 'member') &&
+    conversation.group.roleKnown !== false &&
+    conversation.group.role !== 'member';
   const initialAvatar = groupAvatarInputFromUrl(conversation.group.avatarUrl);
   const [name, setName] = useState(conversation.group.name);
   const [announcement, setAnnouncement] = useState(conversation.group.announcement ?? '');

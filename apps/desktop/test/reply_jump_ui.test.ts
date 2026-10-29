@@ -33,7 +33,7 @@ afterEach(() => {
   lightbox.mockClear();
 });
 
-function mount({ media = 'pic', quoted = true, seq = 42 } = {}) {
+function mount({ media = 'pic', quoted = true, seq = 42, previewElements = [media] } = {}) {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
@@ -49,7 +49,9 @@ function mount({ media = 'pic', quoted = true, seq = 42 } = {}) {
           type: 'reply',
           data: {
             origMsgSeq: seq,
-            origElements: [preview],
+            origElements: previewElements.map((type) =>
+              type === 'text' ? { type, data: { textContent: '图文说明' } } : { ...preview, type },
+            ),
           },
         },
       ]
@@ -133,6 +135,27 @@ it.each(['pic', 'video'])('引用 %s 只跳转原消息，不同时打开灯箱�
   expect(lightbox).not.toHaveBeenCalled();
   expect(f.host.querySelector('video')).toBeNull();
   expect(f.scroll.scrollTop).toBe(120);
+});
+
+it.each([
+  ['pic', 'text'],
+  ['text', 'pic'],
+  ['text', 'pic', 'text', 'pic'],
+])('图文引用按原顺序保留文字和图片：%j', (...previewElements) => {
+  const f = mount({ previewElements });
+  const body = f.host.querySelector<HTMLElement>('.qq-reply-quote-body')!;
+  expect(
+    Array.from(body.children)
+      .filter((child) => child.tagName === 'SPAN')
+      .map((child) => (child.classList.contains('qq-reply-preview-media') ? 'pic' : 'text')),
+  ).toEqual(previewElements);
+  expect(body.textContent).toContain('图文说明');
+  expect(body.querySelectorAll('img')).toHaveLength(
+    previewElements.filter((type) => type === 'pic').length,
+  );
+  act(() => body.querySelector<HTMLElement>('.qq-reply-preview-media img')!.click());
+  expect(f.jump).toHaveBeenCalledOnce();
+  expect(lightbox).not.toHaveBeenCalled();
 });
 
 it.each(['Enter', ' '])('引用框键盘 %j 跳转并阻止默认滚动', (key) => {

@@ -38,6 +38,7 @@ import {
   type Platform,
 } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
+import { applyOneBot, stopOneBot } from '../onebot/runtime';
 import { startLogRetention } from '../log_retention';
 import { assistantResourceServer } from '../weq_assistant/server';
 import { publishWeqAssistantDocroot } from '../weq_assistant/publish';
@@ -1301,6 +1302,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       stopVipBadge();
+      stopOneBot();
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
@@ -2142,6 +2144,10 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Start it now if enabled; live toggling is handled by `applyMcp`.
       startConfiguredMcp();
 
+      void applyOneBot(this, userConfig.getSettings().oneBot).catch((error) => {
+        logger.error('failed to start OneBot bridge', logErrorContext(error));
+      });
+
       // WeQ 助手 is account-bound too: ensure the fabricated conversation exists
       // + start the loopback server when enabled. Live toggling → applyWeqAssistant.
       const weq = userConfig.getSettings().weqAssistant;
@@ -2184,6 +2190,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       stopVipBadge();
+      stopOneBot();
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
@@ -2883,6 +2890,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // ExportTaskManager.
       this.scheduler?.stop();
       this.scheduler = null;
+      stopOneBot();
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();

@@ -922,6 +922,29 @@ export class MsgService {
 
   // ---- group ---------------------------------------------------------------
 
+  async getHistoryPage(
+    kind: 'c2c' | 'group',
+    conv: string,
+    options: {
+      cursor?: { msgSeq: bigint; sendTime: bigint; msgId: bigint };
+      min: bigint;
+      max: bigint;
+      descending: boolean;
+      limit: number;
+    },
+  ): Promise<(RenderC2cMsg | RenderGroupMsg)[]> {
+    const rows =
+      kind === 'group'
+        ? await this.session.groupMsgs.listHistory(conv, options)
+        : await this.c2cDbFor(conv).listHistory(this.c2cPartition(conv), options);
+    const recalls = await this.recallMapFor(kind, conv, rows);
+    return rows.map((row) =>
+      kind === 'group'
+        ? this.renderGroupWithState(row as GroupMsg, recalls)
+        : this.renderC2cWithState(row as C2cMsg, recalls),
+    );
+  }
+
   /** Newest N group messages in one group. */
   async getGroupLatest(
     targetGroupCode: string,

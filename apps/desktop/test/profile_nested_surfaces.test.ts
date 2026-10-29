@@ -100,6 +100,7 @@ afterEach(() => {
 
 const contactFixture: Contact = {
   id: 'u_fixture',
+  isFriend: true,
   identityLabel: 'QQ',
   identityValue: '10003',
   username: 'fixture',
@@ -257,7 +258,7 @@ it.each(['friend', 'group'] as const)(
         ),
       );
       expect(host.querySelector('[role="region"]')?.getAttribute('aria-label')).toBe(
-        kind === 'friend' ? '好友资料' : '群资料',
+        kind === 'friend' ? '联系人资料' : '群资料',
       );
       expect(document.querySelector('.weq-overlay-layer')).toBeNull();
       expect(host.querySelector('[role="dialog"]')).toBeNull();
@@ -265,7 +266,7 @@ it.each(['friend', 'group'] as const)(
       expect(host.querySelector('.weq-contact-identity .weq-profile-hero')).not.toBeNull();
       if (kind === 'friend') {
         expect(host.querySelector('.weq-contact-primary')?.textContent).toContain('个人资料');
-        expect(host.querySelector('.weq-contact-secondary')?.textContent).toContain('好友关系');
+        expect(host.querySelector('.weq-contact-secondary')?.textContent).toContain('关系与互动');
         expect(host.querySelector('.weq-contact-primary')?.textContent).not.toContain('亲密度');
         expect(host.querySelector('.weq-contact-secondary')?.textContent).toContain('亲密度');
         expect(host.querySelector('.weq-contact-primary .weq-profile-album img')).not.toBeNull();
@@ -600,6 +601,37 @@ it('个性主页、互动标识与互动画像均在联系人正文内切换，�
   }
 });
 
+it.each([false, undefined])(
+  '非好友或关系未知（%s）不开放好友互动标识，仍保留其他详情',
+  (isFriend) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          h(ContactProfileDialog, {
+            contact: { ...contactFixture, isFriend },
+            embedded: true,
+            onClose: vi.fn(),
+          }),
+        ),
+      );
+      const marks = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) =>
+        button.textContent?.includes('互动标识'),
+      )!;
+      expect(marks.disabled).toBe(true);
+      expect(host.querySelector('.weq-contact-columns')).not.toBeNull();
+      expect(host.textContent).not.toContain('成为好友');
+      expect(host.textContent).toContain(isFriend === false ? '非好友' : '关系待确认');
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  },
+);
+
 it('UID 与 QQ 号分开判定，只有 UID 的对象仍可查看互动画像', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -674,6 +706,7 @@ it('联系人互动标识内可打开等级浮层，Escape 只关闭等级', () 
   const close = vi.fn();
   const contact: Contact = {
     id: 'fixture',
+    isFriend: true,
     identityLabel: 'QQ',
     identityValue: '10001',
     username: 'fixture',

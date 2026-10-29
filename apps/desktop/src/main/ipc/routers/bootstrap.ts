@@ -39,6 +39,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
+import { applyOneBot, oneBotStatus } from '../../onebot/runtime';
 import { assistantResourceServer } from '../../weq_assistant/server';
 import {
   installMcpAgents as installMcpAgentConfigs,
@@ -1273,6 +1274,37 @@ export const bootstrapRouter = router({
       const boot = requireBootstrap();
       if (!boot.userConfig.getSettings().linkPreview.enabled) return '';
       return boot.linkPreview.cacheCover(input.url);
+    }),
+
+  getOneBotStatus: procedure.query(() => {
+    const config = requireBootstrap().userConfig.getSettings().oneBot;
+    const ctx = getAppContext();
+    return {
+      ...config,
+      ...oneBotStatus(),
+      accountOpen: Boolean(ctx.account && !ctx.accountIsStatic),
+      url: `ws://127.0.0.1:${config.port}`,
+    };
+  }),
+  setOneBotConfig: procedure
+    .input(
+      z.object({
+        enabled: z.boolean().optional(),
+        port: z.number().int().min(1024).max(65535).optional(),
+        regenerateToken: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const old = userConfig.getSettings().oneBot;
+      const config = {
+        enabled: input.enabled ?? old.enabled,
+        port: input.port ?? old.port,
+        token: input.regenerateToken || !old.token ? randomBytes(32).toString('hex') : old.token,
+      };
+      userConfig.setSettings({ oneBot: config });
+      await applyOneBot(getAppContext(), config);
+      return { ...config, ...oneBotStatus() };
     }),
 
   // ---- MCP server (account-bound) ----

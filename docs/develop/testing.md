@@ -47,6 +47,8 @@ pnpm --filter @weq/desktop test   # 桌面端主/渲染进程的纯逻辑单测
 node apps/desktop/test/browser/run-style-consistency.mjs
 ```
 
+联系人关系回归使用 `node apps/desktop/test/browser/run-contact-relationship.mjs`，验证真实名片、列表和搜索结果的关系标识、长名称布局与主题取色，覆盖深浅色／跟随系统、六种背景和桌面／窄屏。沿用上述 Playwright 与浏览器路径变量，可用 `WEQ_RELATIONSHIP_ARTIFACTS` 指定截图目录；测试仅使用合成联系人，不连接 QQ。
+
 复用已安装的 Playwright。模块不在默认解析路径时，用 `WEQ_PLAYWRIGHT_IMPORT` 指定入口；
 `WEQ_BROWSER_EXECUTABLE` 可指定已有 Chromium 浏览器，`WEQ_STYLE_ARTIFACTS` 可指定截图目录。
 脚本结束后会关闭自己创建的浏览器和测试服务，不使用真实 QQ 数据。

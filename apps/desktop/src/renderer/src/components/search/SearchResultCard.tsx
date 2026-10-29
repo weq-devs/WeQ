@@ -18,6 +18,7 @@ import { cachedAvatarUrl } from '../../lib/avatarCache';
 import { resolveAvatar } from '../../lib/avatarResolver';
 import type { SearchHit } from './types';
 import { searchHitKey } from './types';
+import { PersonRelationshipStatus, GroupRelationshipStatus } from '../RelationshipStatus';
 
 /** Group avatar CDN: https://p.qlogo.cn/gh/<code>/<code>/0 */
 export function groupAvatarSrc(groupCode: string): string | null {
@@ -170,17 +171,19 @@ export function SearchResultCard({
       title = hit.remark || hit.nick || hit.uin || hit.uid;
       subtitle = (
         <span className="weq-search-muted">
-          {hit.target?.kind === 'persona'
-            ? '克隆体'
-            : hit.target?.kind === 'guild'
-              ? '频道私聊'
-              : hit.isFriend
-                ? '好友'
-                : hit.temporary
-                  ? '临时会话'
-                  : hit.hasConversation
-                    ? '本地会话'
-                    : '本地资料'}
+          {hit.target?.kind === 'persona' ? (
+            '克隆体'
+          ) : hit.target?.kind === 'guild' ? (
+            '频道私聊'
+          ) : (
+            <PersonRelationshipStatus
+              person={{ id: hit.uid, identityValue: hit.uin, isFriend: hit.isFriend }}
+              compact
+            />
+          )}
+          {!hit.target && !hit.isFriend
+            ? ` · ${hit.temporary ? '临时会话' : hit.hasConversation ? '本地会话' : '本地资料'}`
+            : null}
           {' · '}
           <span data-privacy-sensitive>{highlightText(hit.uin || hit.uid, keyword)}</span>
           {hit.nick && hit.nick !== title ? (
@@ -217,13 +220,17 @@ export function SearchResultCard({
       title = hit.remark || hit.name || hit.groupCode;
       subtitle = (
         <span className="weq-search-muted">
-          {hit.target
-            ? '克隆体群聊'
-            : hit.inDirectory
-              ? '通讯录群聊'
-              : hit.hasConversation
-                ? '本地群会话'
-                : '本地群资料'}
+          {hit.target ? (
+            '克隆体群聊'
+          ) : (
+            <GroupRelationshipStatus
+              group={{ id: hit.groupCode, listed: hit.inDirectory, membershipKnown: true }}
+              compact
+            />
+          )}
+          {!hit.target && !hit.inDirectory
+            ? ` · ${hit.hasConversation ? '本地群会话' : '本地群资料'}`
+            : null}
           {' · '}
           <span data-privacy-sensitive>{highlightText(hit.groupCode, keyword)}</span>
           {hit.name && hit.name !== title ? (

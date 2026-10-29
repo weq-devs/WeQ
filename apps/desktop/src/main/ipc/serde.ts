@@ -58,6 +58,7 @@ export interface UserProfileWire {
   intimacy: number;
   sigUpdateTime: number;
   isFriend: boolean;
+  friendshipKnown?: boolean;
   /** 是否 QQ 机器人（21000 里的 22007.29100 标志）。 */
   isBot: boolean;
   customStatus?: {
@@ -648,6 +649,7 @@ export function userProfileToWire(p: UserProfile): UserProfileWire {
     intimacy: p.intimacy,
     sigUpdateTime: p.sigUpdateTime,
     isFriend: p.isFriend,
+    friendshipKnown: p.friendshipKnown,
     isBot: p.isBot,
     customStatus: p.customStatus,
     extRelation: p.extRelation,

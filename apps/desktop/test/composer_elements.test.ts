@@ -32,6 +32,66 @@ import { resolveMentionLabels, resolveSendMentions } from '../src/renderer/src/l
 import { filterMentionMembers } from '../src/renderer/src/im-template/template/mentions';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 import { atAllMentionState } from '../src/renderer/src/lib/atAllMention';
+import { prepareReeditDraft } from '../src/renderer/src/im-template/template/composerReedit';
+import { buildSendElems, type SendElement } from '@weq/protocol';
+
+describe('引用消息重新编辑', () => {
+  const message = { body: '摘要', createdAt: '2026-10-18T12:00:00Z' } as Message;
+
+  it('媒体引用复用摘要规则，不尝试把被引用图片当正文重新上传，嵌套引用不重复发送', async () => {
+    const prepared = await prepareReeditDraft(
+      message,
+      [
+        {
+          type: 'reply',
+          data: {
+            origMsgSeq: 7,
+            origElements: [
+              { type: 'reply', data: { origMsgSeq: 3 } },
+              { type: 'pic', data: { fileName: 'unavailable.png' } },
+            ],
+          },
+        },
+        { type: 'text', data: { textContent: '正文' } },
+      ],
+      new AbortController().signal,
+    );
+    expect(prepared.locals).toEqual([]);
+    const plan = buildComposerSendPlan({ ...prepared, superStickers: new Map() });
+    expect(plan).toEqual({
+      kind: 'elements',
+      elements: [
+        { kind: 'reply', origMsgSeq: 7, origElements: [{ kind: 'text', textContent: '[图片]' }] },
+        { kind: 'text', textContent: '正文' },
+      ],
+    });
+    if (plan.kind !== 'elements') throw new Error('应按混排消息发送');
+    expect(() => buildSendElems(plan.elements as SendElement[])).not.toThrow();
+  });
+
+  it('已保存的发送草稿不按历史摘要再次转换，引用指针和已有内容保持不变', async () => {
+    const elements = [
+      {
+        kind: 'reply',
+        origMsgSeq: 7,
+        origMsgIndex: 120,
+        origElements: [{ kind: 'text', textContent: '原摘要' }],
+      },
+      { kind: 'text', textContent: '正文' },
+    ];
+    const body = elementsToComposerText(elements);
+    const prepared = await prepareReeditDraft(
+      { ...message, composerDraft: { body, locals: [] } },
+      [],
+      new AbortController().signal,
+    );
+    expect(prepared.body).toBe(body);
+    const plan = buildComposerSendPlan({ ...prepared, superStickers: new Map() });
+    expect(plan).toEqual({ kind: 'elements', elements });
+    if (plan.kind !== 'elements') throw new Error('应按混排消息发送');
+    expect(() => buildSendElems(plan.elements as SendElement[])).not.toThrow();
+  });
+});
 
 describe('composer_quote', () => {
   describe('发送引用的内容与编号', () => {

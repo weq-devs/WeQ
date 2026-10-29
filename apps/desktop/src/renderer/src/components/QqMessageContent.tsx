@@ -685,33 +685,15 @@ function origSenderDisplay(data: Record<string, unknown>): string | null {
   return null;
 }
 
-/**
- * Which quoted elements to preview in the reply box (QQ-style, not just the
- * single last element):
- *   - the message ends in media (image / video / file / sticker / …) → preview
- *     JUST that trailing media (its thumbnail / bracket label);
- *   - the message ends in inline content (text / @ / face) → preview the whole
- *     trailing run of inline elements (walk back until a media element or the
- *     start), so "@a 在吗😊" shows in full instead of only the last "😊".
- */
+/** 按原顺序预览图文内容，不因末尾元素类型丢弃图片或文字，也不嵌套上一层引用。 */
 function replyPreviewElements(origElements: RenderElement[]): RenderElement[] {
-  const meaningful = origElements.filter(isMeaningful);
-  const last = meaningful[meaningful.length - 1];
-  if (!last) return [];
-  if (!isTextLike(last)) return [last];
-  const run: RenderElement[] = [];
-  for (let i = meaningful.length - 1; i >= 0; i--) {
-    const el = meaningful[i];
-    if (!el || !isTextLike(el)) break;
-    run.unshift(el);
-  }
-  return run;
+  return origElements.filter((element) => element.type !== 'reply' && isMeaningful(element));
 }
 
 /**
  * The darker quote box for a `reply` element. Two lines:
  *   line 1 — the original sender's nickname (resolved by the host),
- *   line 2 — a compact preview of the referenced message's trailing elements
+ *   line 2 — a compact preview of the referenced message's elements
  *           with the jump-arrow tucked at its end.
  * Clicking anywhere on the box asks the host to scroll to that message.
  */

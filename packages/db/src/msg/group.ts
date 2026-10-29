@@ -52,6 +52,7 @@ import {
   type BrowseDirection,
 } from './browse';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
+import { nativeHistoryCursor } from './history';
 
 // 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
 // this list positionally, so inserting it in the middle would silently shift
@@ -160,6 +161,34 @@ export class GroupMsgDb {
         ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [targetGroupCode, BigInt(limit)],
+    );
+    return rows.map(rowToGroupMsg);
+  }
+
+  /** 三字段键集游标，允许一页停在同序号灰条之间。 */
+  async listHistory(
+    targetGroupCode: string,
+    options: {
+      cursor?: { msgSeq: bigint; sendTime: bigint; msgId: bigint };
+      min: bigint;
+      max: bigint;
+      descending: boolean;
+      limit: number;
+    },
+  ): Promise<GroupMsg[]> {
+    const cursor = nativeHistoryCursor(options.cursor, options.descending);
+    const direction = options.descending ? 'DESC' : 'ASC';
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table WHERE "40027" = ? AND "40003" BETWEEN ? AND ?
+       ${cursor ? `AND ("40003","40050","40001") ${options.descending ? '<' : '>'} (?,?,?)` : ''}
+       ORDER BY "40003" ${direction}, "40050" ${direction}, "40001" ${direction} LIMIT ?`,
+      [
+        targetGroupCode,
+        options.min,
+        options.max,
+        ...(cursor ? [cursor.msgSeq, cursor.sendTime, cursor.msgId] : []),
+        BigInt(options.limit),
+      ],
     );
     return rows.map(rowToGroupMsg);
   }

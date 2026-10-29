@@ -35,6 +35,7 @@ import {
   type LocalMediaRef,
 } from '../src/renderer/src/im-template/template/composerSend';
 import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
+import { buildSendElems, type SendElement } from '@weq/protocol';
 
 it('重发与重新编辑的表情图保留子类型和表情摘要，不变成普通大图', () => {
   for (const subType of [0, 1]) {
@@ -783,6 +784,80 @@ describe('输入区发送交接', () => {
       expect(sentLocals[0]?.key).toBe(restoredElements[1]?.localPreviewUrl);
       expect(sentLocals[0]?.bytes).toEqual(locals[0]!.bytes);
       expect(locals[0]!.key).toBe('blob:fixture-image');
+      await act(async () => f.finish());
+    } finally {
+      f.close();
+    }
+  });
+
+  it.each(['direct', 'group'])('含引用的 %s 消息撤回重新编辑后可编码发送', async (kind) => {
+    const f = mount();
+    try {
+      type(f.editor(), '');
+      const conversation = {
+        ...createTemplateDemoData().conversations.find((row) => row.type === kind)!,
+        id: f.props.conversation.id,
+      };
+      const origMsgSeq = kind === 'direct' ? 7 : 120;
+      f.render({
+        conversation,
+        messages: [
+          {
+            id: 'recalled-reply',
+            conversationId: conversation.id,
+            senderId: f.props.user.id,
+            body: '[引用]待修改正文',
+            createdAt: '2026-10-18T12:00:00Z',
+            recall: { revokeUid: f.props.user.id, sameSender: true, recallTs: 1 },
+            qqElements: [
+              {
+                type: 'reply',
+                data: {
+                  origMsgSeq,
+                  origMsgIndex: 120,
+                  origSenderUin: 20002,
+                  origMsgTime: 1700000000,
+                  origElements: [
+                    { type: 'text', data: { textContent: '被引用正文' } },
+                    { type: 'at', data: { textContent: '@测试成员', atTargetUid: 'u_peer' } },
+                    { type: 'face', data: { faceId: 14, faceText: '[微笑]' } },
+                  ],
+                },
+              },
+              { type: 'text', data: { textContent: '待修改正文' } },
+            ],
+          },
+        ],
+      });
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('button.weq-msg-reedit-trigger')!.click(),
+      );
+      expect(f.onSend).not.toHaveBeenCalled();
+      await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+      expect(f.onSend).toHaveBeenCalledOnce();
+      const plan = buildComposerSendPlan({
+        body: f.onSend.mock.calls[0]![0],
+        locals: [],
+        superStickers: new Map(),
+      });
+      expect(plan.kind).toBe('elements');
+      if (plan.kind !== 'elements') throw new Error('应按混排消息发送');
+      expect(() => buildSendElems(plan.elements as SendElement[])).not.toThrow();
+      expect(plan.elements).toEqual([
+        {
+          kind: 'reply',
+          origMsgSeq,
+          origMsgIndex: 120,
+          origSenderUin: 20002,
+          origMsgTime: 1700000000,
+          origElements: [
+            { kind: 'text', textContent: '被引用正文' },
+            { kind: 'text', textContent: '@测试成员' },
+            { kind: 'face', faceId: 14, faceText: '[微笑]' },
+          ],
+        },
+        { kind: 'text', textContent: '待修改正文' },
+      ]);
       await act(async () => f.finish());
     } finally {
       f.close();

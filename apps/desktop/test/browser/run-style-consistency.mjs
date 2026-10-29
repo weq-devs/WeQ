@@ -1,6 +1,7 @@
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
+import sharp from 'sharp';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir } from 'node:fs/promises';
@@ -41,16 +42,27 @@ try {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.route('**/*', (route) =>
-    new URL(route.request().url()).hostname === '127.0.0.1' ||
-    route.request().url().startsWith('data:')
+  const previewImage = await sharp({
+    create: { width: 160, height: 120, channels: 3, background: '#218c61' },
+  })
+    .png()
+    .toBuffer();
+  await page.route('**/*', (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname === '127.0.0.1' && url.pathname === '/test/reply-preview.png')
+      return route.fulfill({ contentType: 'image/png', body: previewImage });
+    return url.hostname === '127.0.0.1' || url.protocol === 'data:'
       ? route.continue()
-      : route.abort(),
-  );
+      : route.abort();
+  });
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/style-consistency.html`,
   );
   await page.waitForSelector('.weq-ark-security');
+  await page.waitForFunction(() => {
+    const image = document.querySelector('[data-reply-preview] img');
+    return image?.naturalWidth === 160;
+  });
   await page.evaluate(() => {
     window.grayTipJumps = [];
     window.addEventListener('graytip-jump', (event) => window.grayTipJumps.push(event.detail));
@@ -153,6 +165,14 @@ try {
         essencePlaceholder: color('.group-essence-placeholder') === token('--weq-fg-muted'),
         nestedHeader: item.padding === '0px' && item.borderBottomWidth === '0px',
         outerHeader: css('.group-essence-dialog > header').padding === '16px 18px',
+        replyImage: (() => {
+          const image = document.querySelector('[data-reply-preview] img');
+          const box = image.getBoundingClientRect();
+          return image.naturalWidth === 160 && box.width > 0 && box.width <= 96 && box.height <= 56;
+        })(),
+        replyText:
+          document.querySelector('[data-reply-preview] .qq-reply-quote-body').textContent ===
+          '图文引用说明',
         noOverflow: document.documentElement.scrollWidth <= innerWidth,
       };
     });

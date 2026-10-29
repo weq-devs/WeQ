@@ -2,6 +2,7 @@ import type { Message } from './types';
 import type { LocalMediaRef } from './composerSend';
 import { elementsToComposerText, composerTextToElements } from './draftElements';
 import { repeatImageSources, type RepeatElement } from '../../lib/messageRepeat';
+import { toReplyOrigElements } from '../../components/compose/composeModel';
 
 /** 从历史消息准备完整草稿；资源不可用时整次拒绝，不能只恢复文字。 */
 export async function prepareReeditDraft(
@@ -54,6 +55,19 @@ export async function prepareReeditDraft(
   for (const [index, element] of elements.entries()) {
     signal.throwIfAborted();
     const data = element.data ?? {};
+    if (element.type === 'reply') {
+      // 历史引用的摘要是渲染元素，不能直接作为发送元素交给协议编码器。
+      editable.push({
+        ...data,
+        kind: 'reply',
+        origElements: toReplyOrigElements(
+          Array.isArray(data.origElements) ? data.origElements : [],
+        ).map((quoted) =>
+          quoted.kind === 'at' ? { kind: 'text', textContent: quoted.textContent } : quoted,
+        ),
+      });
+      continue;
+    }
     if (element.type !== 'pic') {
       editable.push({ ...data, kind: element.type });
       continue;

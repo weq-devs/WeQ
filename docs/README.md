@@ -31,6 +31,7 @@ NTQQ 各数据库的表结构与字段解析，全部依据 WeQ 自己的解析�
 
 - [开发者入口](./develop/index.md)
 - [Web 服务与手机连接](./guide/remote-web.md)
+- [OneBot / cc-connect](./guide/onebot-cc-connect.md)
 - [WeQ Remote 仓库边界](./develop/remote-repository-split-20261023.md)
 - [贡献指南](../CONTRIBUTING.md)
 

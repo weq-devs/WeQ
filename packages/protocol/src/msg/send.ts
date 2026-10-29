@@ -1,12 +1,13 @@
 /**
  * 发消息 —— `MessageSvc.PbSendMsg`（原始 SSO 命令，无 OIDB 信封）。
  *
- * 三个场景共用同一条命令，只差 routingHead / contentHead / 时间戳格子：
+ * 四个场景共用同一条命令，设备正文另走 msgContent：
  *   群聊       routingHead.grp.groupCode          + contentHead { type: 1 }
  *   私聊       routingHead.c2c.{uin,uid}          + contentHead { type:1, c2cCmd:11 }
  *                                                 + ctrl.msgFlag（field 12）
  *   群临时会话 routingHead.grpTmp{groupUin,toUid} + contentHead { type:1, subType:0, c2cCmd:0 }
  *                                                 + syncCookie.msgFlag（field 6）
+ *   我的设备   routingHead.trans0x211{toUin,ccCmd:7,uid} + 数据线 msgContent
  *
  * 私聊与群临时会话**不是同一套字节**，两边都有真机说法：私聊那两个值（c2cCmd=11 +
  * ctrl@12）是被真机验证过能发出去的既有形状；群临时会话按 2026-09-29 的真机抓包对齐
@@ -32,6 +33,7 @@ import { decode, encode, type ProtoMessage } from '../protobuf';
 import { sendPacket, type TrpcNative } from '../transport';
 import { invokeTrpc, type TrpcSpec } from '../oidb/invoke';
 import { toInt } from '../oidb/shared';
+import { encodeDatalineText, type SendDatalineTarget } from './dataline';
 import {
   SEND_MESSAGE_REQUEST,
   SEND_MESSAGE_REQUEST_TEMP,
@@ -57,14 +59,16 @@ export interface SendGroupTempTarget {
 }
 
 export interface SendMessageParams {
-  /** 群聊目标群号（与 userUin / groupTemp 三选一）。 */
+  /** 群聊目标群号（四种目标只指定一种）。 */
   groupId?: number;
-  /** 私聊目标 QQ 号（与 groupId / groupTemp 三选一）。 */
+  /** 私聊目标 QQ 号（四种目标只指定一种）。 */
   userUin?: number;
   /** 私聊目标 uid；带上则一并写进 routingHead.c2c.uid（媒体消息必需）。 */
   userUid?: string;
-  /** 群临时会话目标（与 groupId / userUin 三选一）。 */
+  /** 群临时会话目标（四种目标只指定一种）。 */
   groupTemp?: SendGroupTempTarget;
+  /** 我的设备：本人 QQ 号 + 设备伪 UID，不能走普通 c2c 路由。 */
+  dataline?: SendDatalineTarget;
   /** 消息内容（至少一个元素）。 */
   elements: SendElement[];
   /** 客户端随机数（去重 / 回执用）；缺省随机生成。 */
@@ -186,13 +190,38 @@ interface RoutingPlan {
    * （field 6，2026-09-29 真机抓包）/ 群聊 `null`（不带）。
    */
   timestampField: 'ctrl' | 'syncCookie' | null;
+  msgContent?: Uint8Array;
 }
 
-/** 校验目标三选一并给出 routingHead / contentHead。 */
+/** 校验唯一目标并给出 routingHead / contentHead。 */
 function resolveRouting(params: SendMessageParams): RoutingPlan {
-  const targets = [params.groupId, params.userUin, params.groupTemp].filter((t) => t !== undefined);
+  const targets = [params.groupId, params.userUin, params.groupTemp, params.dataline].filter(
+    (t) => t !== undefined,
+  );
   if (targets.length !== 1) {
-    throw new Error('发消息必须且只能指定一个目标：groupId / userUin / groupTemp');
+    throw new Error('发消息必须且只能指定一个目标：groupId / userUin / groupTemp / dataline');
+  }
+
+  if (params.dataline) {
+    if (params.elements.some((element) => element.kind !== 'text'))
+      throw new Error('设备会话目前仅支持文本消息');
+    const text = params.elements
+      .map((element) => (element.kind === 'text' ? element.textContent : ''))
+      .join('');
+    return {
+      scene: 'c2c',
+      routingHead: {
+        trans0x211: {
+          toUin: params.dataline.selfUin,
+          ccCmd: 7,
+          uid: params.dataline.deviceUid,
+        },
+      },
+      contentHead: { type: 1, subType: 0 },
+      requestSchema: SEND_MESSAGE_REQUEST,
+      timestampField: 'ctrl',
+      msgContent: encodeDatalineText(params.dataline, text),
+    };
   }
 
   if (params.groupId !== undefined) {
@@ -248,6 +277,7 @@ function resolveScene(params: SendMessageParams): SendScene {
   if (params.scene) return params.scene;
   if (params.groupId !== undefined) return 'group';
   if (params.userUin !== undefined) return 'c2c';
+  if (params.dataline !== undefined) return 'c2c';
   return 'group-temp';
 }
 
@@ -301,7 +331,7 @@ function assembleRequest(
   const request: Record<string, unknown> = {
     routingHead: plan.routingHead,
     contentHead: plan.contentHead,
-    messageBody: { richText: { elems } },
+    messageBody: plan.msgContent ? { msgContent: plan.msgContent } : { richText: { elems } },
     clientSequence,
     random,
   };
@@ -332,7 +362,12 @@ export function buildSendRequest(params: SendMessageParams): SendRequestBuild {
   return assembleRequest(
     params,
     plan,
-    buildSendElems(params.elements, { scene, ...(params.dress ? { dress: params.dress } : {}) }),
+    plan.msgContent
+      ? []
+      : buildSendElems(params.elements, {
+          scene,
+          ...(params.dress ? { dress: params.dress } : {}),
+        }),
   );
 }
 
@@ -352,6 +387,7 @@ export async function buildSendRequestWithMedia(
 ): Promise<SendRequestBuild> {
   const scene = resolveScene(params);
   const plan = resolveRouting(params);
+  if (plan.msgContent) return assembleRequest(params, plan, []);
   if (!params.elements.some((element) => isSendUploadElement(element))) {
     return assembleRequest(
       params,

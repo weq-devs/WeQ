@@ -25,6 +25,7 @@
  */
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
+import { datalineDevice, isDatalineUid } from '@weq/codec';
 import {
   READ_REPORT_BATCH_SIZE,
   ReadedReport,
@@ -219,6 +220,7 @@ export interface SendMediaParams {
 }
 
 export interface SendElementsParams {
+  beforeSend?: () => void;
   peerType: SendPeerType;
   targetId: string | number;
   /** 群临时会话的来源群号（会话行的 `60001`）；给了就走 grpTmp 路由。 */
@@ -354,6 +356,7 @@ export interface SendForwardNodeInput {
 
 /** 发「合并转发 / 聊天记录」的参数。 */
 export interface SendForwardMessageParams {
+  beforeSend?: () => void;
   peerType: SendPeerType;
   /** 群号（群聊）或 QQ 号 / uid（私聊）。 */
   targetId: string | number;
@@ -449,6 +452,8 @@ export interface SendMessageOutcome {
   groupSequence: number;
   /** 会话级 seq（私聊）。仅作辅助判据；对账请用 {@link random}。 */
   privateSequence: number;
+  /** 发送方原生引用序号，与 privateSequence 不同。 */
+  clientSequence?: number;
   timestamp: number;
   /**
    * 媒体消息：每个媒体元素的上传结果（非媒体消息不出现）。
@@ -503,6 +508,8 @@ export class MessageSendService {
       hasText: boolean;
     },
   ) {
+    if (params.peerType === 'c2c' && isDatalineUid(String(params.targetId).trim()))
+      return { bubbleId: 0, font: null };
     const pid = this.resolvePid();
     const font = params.hasText ? await this.prepareChatFont(params) : null;
     if (this.resolvePid() !== pid) throw new Error('QQ 会话已变化，请重新发送。');
@@ -518,6 +525,7 @@ export class MessageSendService {
   async prepareChatFont(
     params: Pick<SendElementsParams, 'peerType' | 'targetId' | 'tempGroupCode'>,
   ) {
+    if (params.peerType === 'c2c' && isDatalineUid(String(params.targetId).trim())) return null;
     const pid = this.resolvePid();
     const temp =
       params.tempGroupCode === undefined
@@ -669,6 +677,7 @@ export class MessageSendService {
     }
 
     // 私聊：非纯数字 = uid
+    if (isDatalineUid(text)) throw new Error('设备会话目前仅支持文本消息');
     if (!/^\d+$/.test(text)) {
       const uin = this.session.uidMap.uinByUid(text);
       if (!uin) {
@@ -936,6 +945,10 @@ export class MessageSendService {
     if (!Array.isArray(params.elements) || params.elements.length === 0) {
       throw new Error('消息至少需要一个元素。');
     }
+    const deviceUid = String(params.targetId).trim();
+    const device = params.peerType === 'c2c' ? datalineDevice(deviceUid) : null;
+    if (device && params.tempGroupCode !== undefined)
+      throw new Error('设备会话不能使用群临时会话路由');
     const needUpload = elementsNeedUpload(params.elements);
     // 群临时会话（给了来源群号）走 grpTmp 路由：目标不走 resolveTarget —— 它只认群/私聊
     // 两套写法，而临时会话的 toUid 是必填的（私聊纯文本允许没 uid，刚好相反）。
@@ -943,24 +956,33 @@ export class MessageSendService {
       params.tempGroupCode === undefined
         ? null
         : this.resolveGroupTempTarget(params.targetId, params.tempGroupCode);
-    const target: ResolvedSendTarget = groupTemp
+    const target: ResolvedSendTarget = device
       ? {
-          peerType: params.peerType,
-          scene: 'group-temp',
-          uin: groupTemp.uin,
-          uid: groupTemp.toUid,
-          targetId: groupTemp.targetId,
+          peerType: 'c2c',
+          scene: 'c2c',
+          uin: Number(this.selfUin()),
+          uid: deviceUid,
+          targetId: deviceUid,
         }
-      : this.resolveTarget(params.targetId, params.peerType, needUpload);
+      : groupTemp
+        ? {
+            peerType: params.peerType,
+            scene: 'group-temp',
+            uin: groupTemp.uin,
+            uid: groupTemp.toUid,
+            targetId: groupTemp.targetId,
+          }
+        : this.resolveTarget(params.targetId, params.peerType, needUpload);
     const pid = this.resolvePid();
-    const previewBubbleId = this.readCurrentBubbleId();
+    const previewBubbleId = device ? 0 : this.readCurrentBubbleId();
     // 商城表情：把空 encryptKey 用包密钥补上（同包只查一次）。
-    const elements = await this.fillMarketFaceKeys(params.elements);
+    const elements = device ? params.elements : await this.fillMarketFaceKeys(params.elements);
 
     const useFont =
-      params.preparedChatFont !== undefined
+      !device &&
+      (params.preparedChatFont !== undefined
         ? params.preparedChatFont !== null
-        : this.sendWithQqFont();
+        : this.sendWithQqFont());
     const hasText = elements.some((element) => element.kind === 'text' || element.kind === 'at');
     const prepared = params.preparedChatFont;
     const currentFontId =
@@ -987,16 +1009,26 @@ export class MessageSendService {
           };
 
     const uploads: SendMediaUploadReport[] = [];
-    const receipt = await sendMessage(this.nt, pid, {
-      // 路由三选一：群临时会话（grpTmp）/ 群聊（grp）/ 私聊（c2c）。
-      ...(groupTemp
-        ? { groupTemp: { groupUin: groupTemp.groupUin, toUid: groupTemp.toUid } }
-        : target.scene === 'group'
-          ? { groupId: target.uin }
-          : { userUin: target.uin }),
+    params.beforeSend?.();
+    const receipt = await sendMessage(guardedNative(this.nt, params.beforeSend), pid, {
+      ...(device
+        ? {
+            dataline: {
+              selfUin: target.uin,
+              deviceUid,
+              terminalType: device === 'pc' ? 1 : device === 'phone' ? 2 : 3,
+            },
+          }
+        : groupTemp
+          ? { groupTemp: { groupUin: groupTemp.groupUin, toUid: groupTemp.toUid } }
+          : target.scene === 'group'
+            ? { groupId: target.uin }
+            : { userUin: target.uin }),
       // 纯文本私聊允许没有 uid（陌生人第一句）；有就带上（新版客户端以 uid 为准）。
       // 临时会话不算这条路（toUid 已经由 groupTemp 带走），所以显式排掉。
-      ...(!groupTemp && target.scene === 'c2c' && target.uid ? { userUid: target.uid } : {}),
+      ...(!device && !groupTemp && target.scene === 'c2c' && target.uid
+        ? { userUid: target.uid }
+        : {}),
       elements,
       // 显式携带当前字体原值；服务器历史回填字体不代表实时推送也带字体。
       ...(dress ? { dress } : {}),
@@ -1041,7 +1073,8 @@ export class MessageSendService {
       outcome.hint = '消息已发送；尚未同步到当前字体的可靠原值，本次按普通字体发送。';
     }
     const sequence = target.peerType === 'group' ? receipt.groupSequence : receipt.privateSequence;
-    if (outcome.ok && sequence > 0 && this.retainSent) {
+    // 设备由 dataline 表同步接管，不写入普通私聊的漫游缓存。
+    if (!device && outcome.ok && sequence > 0 && this.retainSent) {
       try {
         const request = decode(SEND_MESSAGE_REQUEST, receipt.requestBytes) as Record<
           string,
@@ -1245,7 +1278,8 @@ export class MessageSendService {
       );
     }
 
-    const upload = await protocolSendForward(this.nt, pid, {
+    params.beforeSend?.();
+    const upload = await protocolSendForward(guardedNative(this.nt, params.beforeSend), pid, {
       ...(target.scene === 'group' ? { groupId: target.uin } : { userUin: target.uin }),
       ...(target.scene !== 'group' && target.uid ? { userUid: target.uid } : {}),
       selfUin,
@@ -1264,6 +1298,7 @@ export class MessageSendService {
     // 卡片要带上 source / summary / news（前 4 行的「昵称: 内容摘要」）——缺了
     // 这些收端就只剩一个标题，没有预览行（协议层由 sendForward 算好，见 upload.card）。
     const card = await this.sendElements({
+      beforeSend: params.beforeSend,
       peerType: params.peerType,
       targetId: params.targetId,
       elements: [{ kind: 'forward', resId: upload.resId, ...upload.card }],
@@ -1524,6 +1559,24 @@ export function buildMediaElement(params: SendMediaParams): SendElement {
   }
 }
 
+/** 多步发送在每次原生发包前复核调用方绑定的账号。 */
+function guardedNative(
+  nt: Pick<NtHelperBinding, 'sendPacket' | 'sendOidbPacket'>,
+  beforeSend?: () => void,
+): Pick<NtHelperBinding, 'sendPacket' | 'sendOidbPacket'> {
+  if (!beforeSend) return nt;
+  return {
+    sendPacket: (...args) => {
+      beforeSend();
+      return nt.sendPacket(...args);
+    },
+    sendOidbPacket: (...args) => {
+      beforeSend();
+      return nt.sendOidbPacket(...args);
+    },
+  };
+}
+
 /** 协议回执 → 服务层归一化结果（bigint / bytes 一律不外泄）。 */
 export function toOutcome(
   receipt: SendMessageReceipt,
@@ -1541,6 +1594,7 @@ export function toOutcome(
     random: receipt.random,
     groupSequence: receipt.groupSequence,
     privateSequence: receipt.privateSequence,
+    clientSequence: receipt.clientSequence,
     timestamp: receipt.timestamp,
     ...(uploads.length > 0 ? { uploads } : {}),
     ...(receipt.ok

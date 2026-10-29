@@ -49,6 +49,7 @@ export type {
   OcrModelsConfig,
   LocalModelResources,
   McpServerConfig,
+  OneBotConfig,
   WeqAssistantConfig,
   AgentLabSettings,
   LinkPreviewConfig,

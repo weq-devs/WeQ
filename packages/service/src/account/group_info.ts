@@ -292,7 +292,10 @@ export class GroupInfoService {
   private webQueryService?: GroupEssenceWebQuery;
 
   /** 在线群成员缓存：groupId → { at, members }。 */
-  private onlineMembersCache = new Map<number, { at: number; members: GroupMemberListItem[] }>();
+  private onlineMembersCache = new Map<
+    number,
+    { at: number; pid: number; members: GroupMemberListItem[] }
+  >();
   /** 同一群的并发拉取合并，避免 0xFE7_3 被并发打爆触发风控。 */
   private onlineMembersInflight = new Map<number, Promise<GroupMemberListItem[]>>();
   private messagePoliciesInflight?: { pid: number; task: Promise<GroupMessagePolicySnapshot[]> };
@@ -350,7 +353,11 @@ export class GroupInfoService {
   ): Promise<GroupMemberListItem[]> {
     if (!this.online) throw new Error('该账号当前不在线，无法拉取在线群成员。');
     const cached = this.onlineMembersCache.get(groupId);
-    if (!options.force && cached && Date.now() - cached.at < ONLINE_MEMBERS_TTL_MS) {
+    if (
+      !options.force &&
+      cached?.pid === this.online.resolvePid() &&
+      Date.now() - cached.at < ONLINE_MEMBERS_TTL_MS
+    ) {
       return cached.members;
     }
     const inflight = this.onlineMembersInflight.get(groupId);
@@ -359,18 +366,27 @@ export class GroupInfoService {
     const task = (async () => {
       const { nt, resolvePid } = this.online!;
       const all: GroupMemberListItem[] = [];
+      const pid = resolvePid();
+      const tokens = new Set<string>();
       let token = '';
       for (let page = 0; page < ONLINE_MEMBERS_MAX_PAGES; page += 1) {
-        const result = await FetchGroupMemberListPage.invoke(nt, resolvePid(), {
+        if (resolvePid() !== pid) throw new Error('QQ 运行时已切换');
+        const result = await FetchGroupMemberListPage.invoke(nt, pid, {
           groupId,
           ...(token ? { token } : {}),
         });
         all.push(...result.members);
-        if (!result.token || result.token === token) break;
+        if (resolvePid() !== pid) throw new Error('QQ 运行时已切换');
+        if (!result.token) {
+          const members = [...new Map(all.map((member) => [String(member.uin), member])).values()];
+          this.onlineMembersCache.set(groupId, { at: Date.now(), pid, members });
+          return members;
+        }
+        if (tokens.has(result.token)) throw new Error('群成员分页游标重复，未返回截断名单');
+        tokens.add(result.token);
         token = result.token;
       }
-      this.onlineMembersCache.set(groupId, { at: Date.now(), members: all });
-      return all;
+      throw new Error('群成员分页超过上限，未返回截断名单');
     })().finally(() => {
       this.onlineMembersInflight.delete(groupId);
     });

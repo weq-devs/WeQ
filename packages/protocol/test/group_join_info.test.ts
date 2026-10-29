@@ -14,13 +14,42 @@ describe('入群资料和回执', () => {
     expect(decoded.groups).toEqual([
       {
         groupCode: 123n,
-        info: { option: 0, categoryId: 0, name: '', categoryName: '', question: '' },
+        info: {
+          maxMemberCount: 0,
+          memberCount: 0,
+          option: 0,
+          categoryId: 0,
+          name: '',
+          categoryName: '',
+          question: '',
+        },
       },
     ]);
     expect(Buffer.from(encode(GetGroupJoinInfo.reqSchema, body)).toString('hex')).toContain(
-      '1210087b120c380040007a00920100c20100',
+      '1214087b121028003000380040007a00920100c20100',
     );
     expect(JSON.stringify(body)).not.toContain('answer');
+  });
+  it('人数与容量按已核实的 tag 5/6 解码，缺失与明确零不同', () => {
+    // Lagrange.Core 20c2ba0 的 D88DGroupInfo：5=最大人数，6=当前人数。
+    const body = decode(
+      GetGroupJoinInfo.respSchema,
+      Buffer.from('0a0c087b1a0828c801300c7a0147', 'hex'),
+    );
+    expect(GetGroupJoinInfo.deserialize(body)[0]).toMatchObject({
+      groupId: 123,
+      name: 'G',
+      maxMemberCount: 200,
+      memberCount: 12,
+    });
+    expect(
+      GetGroupJoinInfo.deserialize({ groups: [{ groupCode: 123n, info: {} }] })[0],
+    ).toMatchObject({ memberCount: null, maxMemberCount: null });
+    expect(
+      GetGroupJoinInfo.deserialize({
+        groups: [{ groupCode: 123n, info: { memberCount: 0, maxMemberCount: 200 } }],
+      })[0]?.memberCount,
+    ).toBe(0);
   });
   it('分类只使用响应中的编号和名称，显式 0 与未返回分开', () => {
     const read = (info: Record<string, unknown>) =>

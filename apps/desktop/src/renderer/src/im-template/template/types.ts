@@ -23,6 +23,8 @@ export type User = {
   kind?: 'human' | 'bot';
   /** 本地克隆身份，只影响展示，不代表 QQ 机器人。 */
   clone?: boolean;
+  isFriend?: boolean;
+  friendshipKnown?: boolean;
 };
 
 /** profile_info_v6 21000 列解出的资料扩展信息（特权/互动标识/教育/所在地/兴趣/空间相册）。 */

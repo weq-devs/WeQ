@@ -214,8 +214,19 @@ export class GapHistoryService {
     endSeq: number,
     limit: number,
     descending: boolean,
+    cursor?: { msgSeq: number; sendTime: number; msgId: string },
   ): Promise<GapFetchedMessage[]> {
-    return this.cache.query(kind, conv, startSeq, endSeq, kind === 'c2c', limit, descending);
+    return this.cache.query(
+      kind,
+      conv,
+      startSeq,
+      endSeq,
+      kind === 'c2c',
+      limit,
+      descending,
+      false,
+      cursor,
+    );
   }
 
   async latestSent(): Promise<GapFetchedMessage[]> {

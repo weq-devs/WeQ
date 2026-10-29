@@ -27,6 +27,8 @@ import {
   X,
 } from 'lucide-react';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
+import { datalineName, isDatalineUid } from '@weq/codec';
+import { deviceAvatarDataUri } from '../../lib/deviceAvatar';
 import { OverlayLayer, type OverlayLayerProps } from '../../components/OverlayLayer';
 import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
@@ -49,6 +51,11 @@ import { relationMeta } from '../../lib/profileRelations';
 import '../../styles/group-profile.css';
 import '../../styles/contact-profile.css';
 import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
+import {
+  PersonRelationshipStatus,
+  GroupRelationshipStatus,
+} from '../../components/RelationshipStatus';
+import { usePersonRelationship } from '../../lib/contactRelationship';
 
 export { relationMeta } from '../../lib/profileRelations';
 
@@ -246,6 +253,78 @@ function ProfileIdentity({ embedded, children }: { embedded: boolean; children: 
   return embedded ? <header className="weq-contact-identity">{children}</header> : children;
 }
 
+function DeviceProfile({
+  contact,
+  embedded,
+  onClose,
+  onPreviewChat,
+  previewContent,
+}: {
+  contact: Contact;
+  embedded: boolean;
+  onClose: () => void;
+  onPreviewChat?: (contact: Contact) => void;
+  previewContent?: ReactNode;
+}) {
+  const openChat = useContext(ChatNavigationContext);
+  const name = datalineName(contact.id) || contact.displayName;
+  return (
+    <ProfileSurface
+      embedded={embedded}
+      title="设备信息"
+      className="weq-profile-layer"
+      onClose={onClose}
+    >
+      <section
+        className={cn(
+          'weq-profile-dialog',
+          embedded ? 'weq-contact-profile-content' : 'weq-anim-pop',
+          previewContent && 'is-previewing-chat',
+        )}
+        role={embedded ? 'region' : 'dialog'}
+        aria-label="设备信息"
+        aria-modal={embedded ? undefined : 'true'}
+      >
+        <header className="weq-contact-identity">
+          <div className="weq-profile-hero">
+            <span className="weq-profile-avatar">
+              <Avatar name={name} avatarUrl={deviceAvatarDataUri(contact.id)} seed={contact.id} />
+            </span>
+            <strong className="weq-profile-name">{name}</strong>
+            <span className="weq-profile-nick">我的设备</span>
+          </div>
+          <nav className="weq-contact-identity-actions" aria-label="设备操作">
+            {openChat ? (
+              <button
+                className="weq-profile-perhome"
+                type="button"
+                onClick={() => {
+                  if (!embedded) onClose();
+                  openChat({ kind: 'direct', user: contact });
+                }}
+              >
+                <MessageSquare size={13} />
+                查看消息
+              </button>
+            ) : null}
+            {onPreviewChat ? (
+              <button
+                className="weq-profile-perhome"
+                type="button"
+                onClick={() => onPreviewChat(contact)}
+              >
+                <Eye size={13} />
+                预览消息
+              </button>
+            ) : null}
+          </nav>
+        </header>
+        {previewContent ? <div className="weq-contact-chat-preview">{previewContent}</div> : null}
+      </section>
+    </ProfileSurface>
+  );
+}
+
 /** 好友资料默认以浮层名片展示，联系人页使用内嵌模式。 */
 export function ContactProfileDialog({
   contact,
@@ -269,6 +348,8 @@ export function ContactProfileDialog({
   const openWorkspace = useContext(ContactWorkspaceNavigationContext);
   const [copied, setCopied] = useState(false);
 
+  const relationship = usePersonRelationship(contact ?? {});
+
   useEffect(() => {
     setCopied(false);
   }, [contact?.id]);
@@ -276,6 +357,16 @@ export function ContactProfileDialog({
   if (!contact) {
     return null;
   }
+  if (contact.identityLabel === '设备' || isDatalineUid(contact.id))
+    return (
+      <DeviceProfile
+        contact={contact}
+        embedded={embedded}
+        onClose={onClose}
+        onPreviewChat={onPreviewChat}
+        previewContent={previewContent}
+      />
+    );
   const profile = contact;
 
   const ext = profile.extRelation;
@@ -330,6 +421,7 @@ export function ContactProfileDialog({
         />
       </span>
       <strong className="weq-profile-name">{displayUserName(profile)}</strong>
+      <PersonRelationshipStatus person={profile} />
       {nickDiffers ? <span className="weq-profile-nick">昵称 {profile.nick}</span> : null}
       <button className="weq-profile-id" type="button" onClick={copyIdentity} title="点击复制">
         <span>{profile.identityLabel}</span>
@@ -523,7 +615,7 @@ export function ContactProfileDialog({
           name={displayUserName(profile)}
         />
       ) : null}
-      {createdAt ? (
+      {createdAt && relationship === 'friend' ? (
         <ProfileRow icon={<CalendarDays size={13} />} label="成为好友" value={createdAt} />
       ) : null}
     </>
@@ -565,7 +657,7 @@ export function ContactProfileDialog({
   return (
     <ProfileSurface
       embedded={embedded}
-      title="好友资料"
+      title="联系人资料"
       className="weq-profile-layer"
       onClose={onClose}
     >
@@ -580,14 +672,14 @@ export function ContactProfileDialog({
         }
         role={embedded ? 'region' : 'dialog'}
         aria-modal={embedded ? undefined : 'true'}
-        aria-label="好友资料"
+        aria-label="联系人资料"
         onMouseDown={(event) => event.stopPropagation()}
       >
         {embedded ? (
           <>
             <header className="weq-contact-identity">
               {identity}
-              <nav className="weq-contact-identity-actions" aria-label="好友操作">
+              <nav className="weq-contact-identity-actions" aria-label="联系人操作">
                 {chatAction}
                 {onPreviewChat ? (
                   <div className="weq-profile-actions">
@@ -640,7 +732,7 @@ export function ContactProfileDialog({
                   {hasSecondary ? (
                     <aside className="weq-contact-secondary">
                       {hasRelationDetails ? (
-                        <ProfileSection title="好友关系">
+                        <ProfileSection title="关系与互动">
                           <div className="weq-profile-list">
                             {commonRows}
                             {relationRows}
@@ -827,18 +919,14 @@ export function GroupProfileDialog({
               {conversation.generated ? <VirtualConversationBadge group /> : null}
             </span>
             <strong className="weq-profile-name">{group.name}</strong>
+            {!conversation.generated ? <GroupRelationshipStatus group={group} /> : null}
             <button className="weq-profile-id" type="button" onClick={copyCode} title="点击复制">
               <span>{conversation.generated ? 'ID' : '群号'}</span>
               <span className="weq-number">{identityValue}</span>
               {copied ? <Check size={12} /> : <Copy size={12} />}
             </button>
             {embedded && detailsKnown ? (
-              <span className="weq-contact-group-summary">
-                {group.memberCount} 位成员
-                {group.roleKnown !== false
-                  ? ` · ${group.role === 'owner' ? '群主' : group.role === 'admin' ? '管理员' : '群成员'}`
-                  : ''}
-              </span>
+              <span className="weq-contact-group-summary">{group.memberCount} 位成员</span>
             ) : null}
           </div>
 

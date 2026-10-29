@@ -23,6 +23,7 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import { nativeHistoryCursor } from './history';
 import type {
   C2cInitiationTally,
   C2cMsg,
@@ -156,6 +157,35 @@ export class C2cMsgDb {
         ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [value, BigInt(limit)],
+    );
+    return rows.map(rowToC2cMsg);
+  }
+
+  /** 与群消息相同的三字段键集游标，不把 clientSeq 当分页序号。 */
+  async listHistory(
+    part: C2cPartition,
+    options: {
+      cursor?: { msgSeq: bigint; sendTime: bigint; msgId: bigint };
+      min: bigint;
+      max: bigint;
+      descending: boolean;
+      limit: number;
+    },
+  ): Promise<C2cMsg[]> {
+    const { clause, value } = partitionWhere(part);
+    const cursor = nativeHistoryCursor(options.cursor, options.descending);
+    const direction = options.descending ? 'DESC' : 'ASC';
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM ${this.table} WHERE ${clause} AND "40003" BETWEEN ? AND ?
+       ${cursor ? `AND ("40003","40050","40001") ${options.descending ? '<' : '>'} (?,?,?)` : ''}
+       ORDER BY "40003" ${direction}, "40050" ${direction}, "40001" ${direction} LIMIT ?`,
+      [
+        value,
+        options.min,
+        options.max,
+        ...(cursor ? [cursor.msgSeq, cursor.sendTime, cursor.msgId] : []),
+        BigInt(options.limit),
+      ],
     );
     return rows.map(rowToC2cMsg);
   }
