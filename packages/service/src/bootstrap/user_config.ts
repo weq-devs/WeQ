@@ -471,8 +471,8 @@ export interface AgentLabSettings {
 
 /**
  * 关闭主窗口（标题栏 ✕）时的行为：
- *   - 'ask'  首次询问，弹窗让用户选择（最小化到托盘 / 完全退出），可记住选择
- *   - 'tray' 最小化到系统托盘，进程常驻后台，可从托盘恢复
+ *   - 'ask'  每次询问，弹窗让用户选择（最小化到托盘 / 完全退出），可记住选择
+ *   - 'tray' 最小化到系统托盘，进程常驻后台，可从托盘恢复（默认）
  *   - 'quit' 直接完全退出应用
  */
 export type WindowCloseBehavior = 'ask' | 'tray' | 'quit';
@@ -544,8 +544,17 @@ export interface AppSettings {
   oneBot: OneBotConfig;
   weqAssistant: WeqAssistantConfig;
   agentLab: AgentLabSettings;
-  /** 点击关闭按钮时的行为。默认 'ask'（首次弹窗询问）。 */
+  /** 点击关闭按钮时的行为。默认 'tray'（最小化到托盘，后台服务继续运行）。 */
   windowCloseBehavior: WindowCloseBehavior;
+  /**
+   * 完全退出时不再询问「后台服务会停止」。
+   *
+   * 只在 `windowCloseBehavior` 之外生效：它管的是 `before-quit`（托盘退出 / Cmd+Q /
+   * 系统关机），不改变点 ✕ 的关窗行为。勾过之后即使又开启新服务也不重新弹——
+   * 用户的意图是「我知道退出会停服务，别再问了」，按服务集合失效会让开关一次服务就
+   * 复活弹窗，行为不可预测。当前运行的服务在「后台服务」页常驻展示，信息不丢失。
+   */
+  quitConfirmSuppressed: boolean;
   /**
    * 是否把纯文本消息里的 Markdown 也渲染出来。这是 WeQ 自己的 feature——QQ 的语义里
    * 只有 markdownElement 才是 Markdown，纯文本就该是纯文本（关掉后别人发的 ``` 或 **
@@ -892,7 +901,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // 20000+ 不常用端口；若被占用，宿主内的助手资源服务自动向上探测。
   weqAssistant: { enabled: false, port: 27182 },
   agentLab: { providers: [], defaultModel: null },
-  windowCloseBehavior: 'ask',
+  windowCloseBehavior: 'tray',
+  quitConfirmSuppressed: false,
   renderTextMarkdown: true,
   showAvatarPendant: true,
   linkPreview: { enabled: true, screenshot: false },
@@ -1460,6 +1470,7 @@ export class UserConfigService {
       },
       windowCloseBehavior:
         normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
+      quitConfirmSuppressed: s?.quitConfirmSuppressed === true,
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       preferCdn: s?.preferCdn ?? d.preferCdn,
@@ -1594,6 +1605,7 @@ export class UserConfigService {
       },
       windowCloseBehavior:
         normalizeWindowCloseBehavior(patch.windowCloseBehavior) ?? current.windowCloseBehavior,
+      quitConfirmSuppressed: patch.quitConfirmSuppressed ?? current.quitConfirmSuppressed,
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       preferCdn: patch.preferCdn ?? current.preferCdn,

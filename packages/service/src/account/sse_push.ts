@@ -149,6 +149,11 @@ export class SsePushService {
     this.logger.info('stopped sse push watcher', { event: 'sse-push-stop' });
   }
 
+  /** 是否已挂上推送目标（= 正在推送）。仅用于状态展示，不影响推送逻辑。 */
+  get hasTarget(): boolean {
+    return this.target !== null;
+  }
+
   /** 更新推送目标（地址 / token）。传 null 表示停用（清空待推队列）。 */
   setTarget(target: SsePushTarget | null): void {
     const changed =

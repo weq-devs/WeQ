@@ -504,7 +504,8 @@ describe('设置归位后的实际页面', () => {
       );
       f.render('assistant');
       expect(f.body().textContent).toContain('启用 QQ 公众号推送');
-      expect(f.host.textContent).not.toContain('后台服务');
+      // 只断言正文：二级导航里现在有「后台服务」这一项，不能拿整页文本判。
+      expect(f.body().textContent).not.toContain('后台服务状态');
       expect(f.body().textContent).not.toContain('开机自动启动');
       f.render('updates');
       expect(f.body().textContent).not.toContain('监控新版本发布');

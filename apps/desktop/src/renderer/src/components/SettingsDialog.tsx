@@ -39,6 +39,7 @@ import {
   Power,
   Radio,
   ScanText,
+  Server,
   Settings2,
   ScanSearch,
   ScrollText,
@@ -63,6 +64,7 @@ import { IntentSenseSection } from './settings/IntentSenseSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
 import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { OcrModelsSection } from './settings/OcrModelsSection';
+import { BackgroundServicesSection } from './settings/BackgroundServicesSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { OneBotSection } from './settings/OneBotSection';
 import { RemoteSection } from './settings/RemoteSection';
@@ -77,7 +79,14 @@ import { DatabaseManagementSection } from './settings/DatabaseManagementSection'
 import { ResourceManagementSection } from './settings/ResourceManagementSection';
 import { ChatImageCacheSettings } from './settings/ChatImageCacheSettings';
 import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
-import { Card, Row, SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
+import {
+  Card,
+  Row,
+  SectionHeader,
+  SettingsNavigateContext,
+  SettingsScopeContext,
+  Toggle,
+} from './settings/controls';
 import { trpc } from '../trpc/client';
 import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
 import { AntiRecallDialog } from './AntiRecallDialog';
@@ -296,6 +305,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '意图感知',
     icon: <BrainCircuit size={16} strokeWidth={1.8} />,
     render: () => <IntentSenseSection />,
+  },
+  {
+    id: 'background-services',
+    label: '后台服务',
+    icon: <Server size={16} strokeWidth={1.8} />,
+    render: () => <BackgroundServicesSection />,
   },
   {
     id: 'mcp',
@@ -565,33 +580,37 @@ export function SettingsDialog({
                     revision={searchTarget?.revision}
                   >
                     <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
-                      {active.id === 'chat-messages' ? (
-                        <>
-                          <div className="weq-set">
-                            <SectionHeader
-                              title="聊天消息"
-                              icon={<Monitor size={16} strokeWidth={1.8} />}
-                            />
-                          </div>
-                          <AccountBasicsSection page="read" heading={false} />
-                          <TypingStatusSettingsCard />
-                          <div>
-                            <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
-                              <AntiRecallDialog
-                                embedded
-                                onClose={() => {}}
-                                onOpenRecalls={onOpenRecalls}
-                                recallDetails={recallDetails}
-                                onCloseRecalls={onCloseRecalls}
-                                isCurrentSource={isCurrentSource}
+                      <SettingsNavigateContext.Provider
+                        value={(section) => setActiveId(section as SettingsPageId)}
+                      >
+                        {active.id === 'chat-messages' ? (
+                          <>
+                            <div className="weq-set">
+                              <SectionHeader
+                                title="聊天消息"
+                                icon={<Monitor size={16} strokeWidth={1.8} />}
                               />
-                            </SettingsScopeContext.Provider>
-                          </div>
-                          <AppearanceSection page="messages" heading={false} />
-                        </>
-                      ) : (
-                        active.render(onOpenMaintenance)
-                      )}
+                            </div>
+                            <AccountBasicsSection page="read" heading={false} />
+                            <TypingStatusSettingsCard />
+                            <div>
+                              <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
+                                <AntiRecallDialog
+                                  embedded
+                                  onClose={() => {}}
+                                  onOpenRecalls={onOpenRecalls}
+                                  recallDetails={recallDetails}
+                                  onCloseRecalls={onCloseRecalls}
+                                  isCurrentSource={isCurrentSource}
+                                />
+                              </SettingsScopeContext.Provider>
+                            </div>
+                            <AppearanceSection page="messages" heading={false} />
+                          </>
+                        ) : (
+                          active.render(onOpenMaintenance)
+                        )}
+                      </SettingsNavigateContext.Provider>
                     </SettingsScopeContext.Provider>
                   </RetainedSettingsPage>
                 </RetainedTabs>

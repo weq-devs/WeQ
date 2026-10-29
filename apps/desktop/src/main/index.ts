@@ -75,7 +75,7 @@ import {
   registerAppQuitPreparation,
   registerWindowUnloadConfirmation,
 } from './app_quit_lifecycle';
-import { registerAppQuitConfirmation, type QuitChoice } from './app_quit_confirmation';
+import { registerAppQuitConfirmation } from './app_quit_confirmation';
 import { createRendererRecovery } from './renderer_recovery';
 import { registerRendererRecoveryIpc } from './renderer_recovery_ipc';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
@@ -84,6 +84,8 @@ import { macApplicationMenu, nativeMenuLabels } from './application_menu';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
 import { registerCallVideoIpc } from './call_video_ipc';
 import { registerAttachHintIpc } from './attach_hint_ipc';
+import { backgroundServicesRunning, needsQuitConfirmation } from './background_services';
+import { promptQuitConfirm, registerQuitConfirmIpc } from './quit_confirm_ipc';
 import { registerElevationIpc } from './elevation_ipc';
 import { registerLongTermAuthorizationIpc } from './authorization/ipc';
 import {
@@ -815,6 +817,7 @@ void app.whenReady().then(async () => {
   registerFlashShareIpc();
   registerWeqAssistantIpc();
   registerAttachHintIpc();
+  registerQuitConfirmIpc();
   registerElevationIpc();
   registerLongTermAuthorizationIpc();
   registerEditUndoIpc();
@@ -896,35 +899,22 @@ const resetQuitPreparation = registerAppQuitPreparation(app, autoUpdater, () => 
   isQuitting = true;
 });
 
-// 助手资源随应用结束；次实例退出不能关闭主实例拥有的服务。
+// 后台服务随应用结束；次实例退出不能关闭主实例拥有的服务。
 if (hasSingleInstanceLock) {
   resetQuitConfirmation = registerAppQuitConfirmation(app, autoUpdater, {
-    needsConfirmation: () => {
-      try {
-        return getAppContext().bootstrap?.userConfig.getSettings().weqAssistant.enabled ?? false;
-      } catch {
-        return false;
-      }
-    },
+    needsConfirmation: needsQuitConfirmation,
     bypass: () => isInstallingUpdate(),
-    showDialog: async (): Promise<QuitChoice> => {
-      const options: Electron.MessageBoxOptions = {
-        type: 'warning',
-        title: '确认退出 WeQ',
-        message: 'WeQ 助手已启用，仍要完全退出吗？',
-        detail:
-          '完全退出后，QQ 中的助手卡片将无法加载本机封面和页面。只关闭窗口会保留 WeQ 与助手服务运行。',
-        buttons: ['取消', '只关闭窗口', '确认退出'],
-        defaultId: 1,
-        cancelId: 0,
-        noLink: true,
-      };
-      const window = getMainWindow();
-      const result =
-        window && !window.isDestroyed() && window.isVisible()
-          ? await dialog.showMessageBox(window, options)
-          : await dialog.showMessageBox(options);
-      return result.response === 2 ? 'quit' : result.response === 1 ? 'window' : 'cancel';
+    showDialog: () =>
+      promptQuitConfirm(backgroundServicesRunning().map((service) => service.label)),
+    onRemember: () => {
+      try {
+        getAppContext().bootstrap?.userConfig.setSettings({ quitConfirmSuppressed: true });
+      } catch (error) {
+        logger.warn('failed to remember quit confirmation', {
+          event: 'quit-confirm-remember-failed',
+          error: String(error),
+        });
+      }
     },
     hideWindow: () => getMainWindow()?.hide(),
     failed: (error) =>

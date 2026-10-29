@@ -44,6 +44,7 @@ pnpm dev
 - [原生 QQ 邮箱](./qqmail-native-20261017.md)：账号级认证、邮件协议、附件、正文隔离与提醒生命周期。
 - [手机连接与重连](./remote-two-paths-20261022.md)：局域网、已有/内嵌 TS、持久设备凭据和 iOS WebView 会话身份。
 - [Remote 手机壳独立仓库](./remote-repository-split-20261023.md)：手机源码、构建和协议测试的维护边界与电脑夹具入口。
+- [后台服务与关闭/退出行为](./background-services-close-behavior-20261030.md)：默认最小化到托盘、退出确认改为应用内弹窗、服务运行判据与「不再询问」语义。
 - [Web / Remote 功能对齐](./web-remote-parity-20261026.md)：浏览器文件发送、手机资料入口、内置 Web 报告捕获与独立 Node 部署限制。
 - [Web / Remote 体验优化](./web-remote-optimization-20261026.md)：重连反馈、活动查询补查、手机导航与重型工作区按需加载。
 - [会话分析时间轴 + 我的主场轮盘](./conversation-timeline-home-wheel-20261018.md) — 默认最近一年、拖动重算、全历史绿墙与群聊卡片轮盘的翻页守卫

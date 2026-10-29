@@ -51,6 +51,7 @@ import {
   requireBootstrap,
   requirePlatform,
   emitDressChanged,
+  isSsePushActive,
   rememberAccountUid,
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
@@ -1164,6 +1165,21 @@ export const bootstrapRouter = router({
     const next = userConfig.getSettings().ssePush;
     await getAppContext().applySsePush(next);
     return next;
+  }),
+
+  /**
+   * SSE 推送的运行态。SSE 没有监听端口，只能从服务实例判断：
+   * `running` = 有账号且已挂上推送目标；`configured` = 配置里选了目标但可能还没账号。
+   */
+  getSsePushStatus: procedure.query(() => {
+    const cfg = requireBootstrap().userConfig.getSettings().ssePush;
+    const target = cfg.servers.find((server) => server.id === cfg.enabledServerId);
+    return {
+      configured: Boolean(target),
+      pushUrl: target?.pushUrl ?? null,
+      running: isSsePushActive(),
+      accountOpen: Boolean(getAppContext().services),
+    };
   }),
 
   /** 启用 / 停用某条推送目标：同时只能启用一条，传 null 表示全部停用。 */
