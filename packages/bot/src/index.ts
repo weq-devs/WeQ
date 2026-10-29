@@ -104,14 +104,20 @@ async function boot(
   const dataDir = join(config.personaDir, '..', 'data');
   const stats = new StatsStore(join(dataDir, 'stats.json'));
   const resolver = buildEndpointResolver(config.llmProviders);
+  // 可选分桶存储（config.storage.bucketed，缺省 false = 单文件布局不变）：
+  // 按 scope 分桶后写入只动单键文件、内存 LRU 只驻留热 scope，旧单文件自动迁移。
+  const storeOpts = {
+    bucketed: config.storage?.bucketed ?? false,
+    maxCachedBuckets: config.storage?.maxCachedBuckets,
+  };
   const runtime = new AgentRuntime({
     signal,
     rootDir: config.personaDir,
     store,
     endpoints: resolver,
     usage: stats,
-    conversations: new JsonConversationStore(join(dataDir, 'conversations.json')),
-    memories: new JsonMemoryStore(join(dataDir, 'memories.json')),
+    conversations: new JsonConversationStore(join(dataDir, 'conversations.json'), storeOpts),
+    memories: new JsonMemoryStore(join(dataDir, 'memories.json'), storeOpts),
     notes: new JsonNotesStore(join(dataDir, 'notes.json')),
     relations: new JsonRelationStore(join(dataDir, 'relations.json')),
     selfId: config.selfId,

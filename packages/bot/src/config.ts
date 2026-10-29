@@ -85,6 +85,17 @@ export interface BotConfig {
   features?: BotFeatures;
   /** 本机 WebUI 控制台配置（缺省则不启）。 */
   webui?: WebUiConfig;
+  /**
+   * 存储布局（可选）：`bucketed=true` 时 conversations/memories 按 scope 分桶落盘
+   * （`<name>.json` → `<name>.d/`，每键一个文件）：写入只动单键文件、内存 LRU 只驻留
+   * 热 scope，旧单文件首次启动自动迁移（原件保留 `.migrated`）。
+   * 缺省 false = 单文件布局，行为与历史版本完全一致。
+   */
+  storage?: {
+    bucketed?: boolean;
+    /** 分桶模式的内存 LRU 桶数上限（默认 64；淘汰只丢内存副本，数据永远已落盘）。 */
+    maxCachedBuckets?: number;
+  };
 }
 
 /**
