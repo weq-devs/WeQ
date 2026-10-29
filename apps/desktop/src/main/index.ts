@@ -63,6 +63,7 @@ import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
+import { registerMainWindowReveal } from './main_window_lifecycle_instance';
 import {
   AUTOSTART_ARG,
   installStartupWindowReveal,
@@ -152,6 +153,9 @@ const mainWindowLifecycle = createMainWindowLifecycle({
   createWindow,
   attachWindow: (win) => mainIpcHandler?.attachWindow(win),
 });
+
+// 外部 MCP 的切号请求由渲染层执行，得先把窗口叫回来（见 account_switch_bus）。
+registerMainWindowReveal(mainWindowLifecycle);
 
 function openMainWindow(): void {
   mainWindowRequested = true;

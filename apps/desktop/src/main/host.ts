@@ -159,6 +159,17 @@ export const electronHost: HostBridge = {
   },
   canReveal: true,
 
+  /**
+   * 唤起主窗口。窗口可能被收进托盘、或被用户关掉（托盘常驻，进程还在），
+   * 两种都得处理：前者 show/focus，后者走 `mainWindowLifecycle` 新建。
+   *
+   * 动态 import 是为了避开 `host.ts ↔ index.ts` 的循环依赖 —— index 在启动时
+   * 才 `setHost(electronHost)`，此时模块早已求值完毕。
+   */
+  showMainWindow() {
+    void import('./main_window_lifecycle_instance').then((m) => m.revealMainWindow());
+  },
+
   async pickDirectory(opts) {
     const key = `directory:${opts?.locationKey ?? opts?.title ?? 'default'}`;
     const result = await dialog.showOpenDialog({

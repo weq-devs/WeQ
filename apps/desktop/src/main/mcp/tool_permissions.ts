@@ -1,5 +1,15 @@
-/** 显式审核过的只读能力；新工具默认拒绝，不能用名称前缀推断权限。 */
+/**
+ * 显式审核过的只读能力；新工具默认拒绝，不能用名称前缀推断权限。
+ *
+ * `list_accounts` 只读本机账号配置文件；`switch_account` 严格来说不是只读（它让
+ * 后续查询落到别的账号上），但它的副作用是「切换上下文」而不是「改数据」：不写库、
+ * 不碰 QQ、不产生不可逆结果，而且切过去之后每个工具本身仍然受各自权限约束。
+ * 因此两者都放进外部 MCP 的可见集合，并在 `docs/guide/mcp-server.md` 里写清
+ * 「令牌持有者可以切换账号」这条语义。
+ */
 const READ_ONLY_TOOLS = new Set([
+  'list_accounts',
+  'switch_account',
   'search_messages',
   'search_in_conversation',
   'find_people_who_mentioned',
@@ -62,6 +72,13 @@ export function isReadOnlyTool(name: string): boolean {
   return READ_ONLY_TOOLS.has(name);
 }
 
+/**
+ * 沙箱（内置助手的默认权限）能用的工具。
+ *
+ * 比 {@link isReadOnlyTool} 更窄：`switch_account` 虽然进了外部 MCP 的可见集合，
+ * 但它**不能**被沙箱内的脚本 / 助手顺手调用 —— 切号会关掉当前会话、让本轮正在进行的
+ * 查询全部作废，属于用户该亲自决定的事，必须显式开「任意权限」才允许。
+ */
 export function isSandboxTool(name: string): boolean {
-  return name === 'run_js' || isReadOnlyTool(name);
+  return name === 'run_js' || (isReadOnlyTool(name) && name !== 'switch_account');
 }

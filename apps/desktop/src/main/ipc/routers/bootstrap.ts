@@ -55,6 +55,12 @@ import {
 } from '../../context/app_context';
 import { runLogRetentionSweep } from '../../log_retention';
 import { takePendingConversationJump, takePendingGroupJump } from '../../group_keyword_bus';
+import {
+  accountSwitchSubscriberClosed,
+  accountSwitchSubscriberOpened,
+  takeAccountSwitchRequest,
+  type AccountSwitchRequest,
+} from '../../account_switch_bus';
 import { readNativeBuildInfo } from '@weq/native';
 import { procedure, router } from '../trpc';
 import { fullModeAllowed } from '../../context/full_mode';
@@ -296,6 +302,32 @@ export const bootstrapRouter = router({
   /** 领走一条待处理的群关键词跳转（无则返回 null）。 */
   consumeGroupKeywordJump: procedure.query(() => {
     return takePendingGroupJump();
+  }),
+
+  /**
+   * 外部 MCP 请求切换到另一个账号：主进程已记下目标，渲染层收到信号后调
+   * `consumeAccountSwitchRequest` 领走并执行。
+   *
+   * 订阅本身还兼一个作用 —— 建立/取消时登记订阅者计数，让 MCP 工具能判断
+   * 「现在到底有没有界面能接这个请求」（见 `account_switch_bus.ts`）。
+   */
+  onAccountSwitchRequested: procedure.subscription(() => {
+    return observable<{ at: number }>((emit) => {
+      const handler = (payload: { at: number }): void => {
+        emit.next(payload);
+      };
+      accountEventBus.on('accountSwitchRequested', handler);
+      accountSwitchSubscriberOpened();
+      return () => {
+        accountEventBus.off('accountSwitchRequested', handler);
+        accountSwitchSubscriberClosed();
+      };
+    });
+  }),
+
+  /** 领走一条待处理的切号请求（无则返回 null）。 */
+  consumeAccountSwitchRequest: procedure.query((): AccountSwitchRequest | null => {
+    return takeAccountSwitchRequest();
   }),
 
   /**

@@ -88,6 +88,14 @@ export interface HostBridge {
    * itself).
    */
   openExternal(url: string): Promise<void>;
+  /**
+   * Bring the main window to the front, creating it if the user closed it.
+   *
+   * 外部 MCP 发起的切号请求要由渲染层执行，而请求只有在界面活着时才有人领 ——
+   * 窗口收进托盘时得先把它叫回来。桌面端实现为「恢复 / 显示 / 聚焦，必要时新建」；
+   * Web 端没有「窗口」这个概念，不提供该能力（调用方据此判断是否可投递）。
+   */
+  showMainWindow?(): void;
   /** Whether {@link revealPath} does anything — the UI hides the button when false. */
   readonly canReveal: boolean;
   /**
