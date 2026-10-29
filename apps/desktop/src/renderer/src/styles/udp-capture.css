@@ -449,6 +449,7 @@ html[data-theme='dark'] .weq-udp {
   flex: 1;
   font-size: 11px;
   color: var(--udp-fg-3);
+  padding-left: 20px;
 }
 .weq-udp-spin {
   animation: weq-udp-spin 1s linear infinite;

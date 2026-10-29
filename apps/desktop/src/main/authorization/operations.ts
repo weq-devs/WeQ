@@ -20,6 +20,7 @@ export async function dispatchCaptureOperation(
       const batch = await addon.takeFrames(request.pid, {
         cursor: request.cursor,
         waitMs: request.waitMs,
+        maxFrames: request.maxFrames,
       });
       return { ...batch, frames: batch.frames.map(toCaptureFrameWire) };
     }

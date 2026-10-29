@@ -308,6 +308,7 @@ export async function takeAccountFrames(
       frames: batch.frames.map(toCaptureFrameWire),
       nextCursor: batch.nextCursor,
       dropped: batch.dropped,
+      kernelLost: batch.kernelLost,
     };
   });
 }

@@ -209,7 +209,10 @@ export function UdpCapturePanel(): ReactElement {
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [frames, setFrames] = useState<UdpFrameWire[]>([]);
+  /** 环形缓冲淘汰数：数据一度在缓冲里，只是被更新的帧挤掉了（取太慢）。 */
   const [dropped, setDropped] = useState(0);
+  /** 内核 / 回调层丢包数：数据真的没了。 */
+  const [kernelLost, setKernelLost] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pid, setPid] = useState<number | null>(null);
@@ -270,6 +273,7 @@ export function UdpCapturePanel(): ReactElement {
           if (cancelled) return;
           cursorRef.current = res.nextCursor;
           setDropped(res.dropped);
+          setKernelLost(res.kernelLost ?? 0);
           if (res.frames.length > 0) {
             setFrames((prev) => {
               const next = [...prev, ...(res.frames as UdpFrameWire[])];
@@ -435,7 +439,16 @@ export function UdpCapturePanel(): ReactElement {
         </span>
         <span className="weq-udp-metrics">
           <span>数据报 {frames.length}</span>
-          <span className={dropped > 0 ? 'is-bad' : undefined}>丢包 {dropped}</span>
+          {dropped > 0 ? (
+            <span title="环形缓冲淘汰：取帧太慢，数据被更新的帧挤掉了（不是网络丢包）">
+              缓冲溢出 {dropped}
+            </span>
+          ) : null}
+          {kernelLost > 0 ? (
+            <span className="is-bad" title="内核 / 回调层丢包：数据真的没了">
+              真丢包 {kernelLost}
+            </span>
+          ) : null}
         </span>
         <span className="weq-udp-spacer" />
         <button
@@ -511,11 +524,21 @@ export function UdpCapturePanel(): ReactElement {
           </button>
         </div>
       ) : null}
-      {dropped > 0 ? (
+      {kernelLost > 0 ? (
         <div className="weq-udp-warn is-error">
-          <strong>有丢包</strong>
+          <strong>内核丢包 {kernelLost} 条</strong>
           <span>
-            环形缓冲已淘汰 {dropped} 条（前端只留最近 {MAX_FRAMES} 条）。长时间抓包时建议 及时导出。
+            这部分数据真的没了（BPF 环形缓冲或暂存队列满）。通常是包率过高，
+            可以试着只抓一个方向或缩短抓包时长。
+          </span>
+        </div>
+      ) : null}
+      {dropped > 0 ? (
+        <div className="weq-udp-warn">
+          <strong>缓冲溢出 {dropped} 条</strong>
+          <span>
+            取帧速度跟不上包率，旧数据被新数据挤掉了（<b>不是网络丢包</b>）。 前端只保留最近{' '}
+            {MAX_FRAMES} 条，长时间抓包建议及时导出。
           </span>
         </div>
       ) : null}

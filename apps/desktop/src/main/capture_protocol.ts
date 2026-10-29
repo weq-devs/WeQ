@@ -48,7 +48,10 @@ export type CaptureSessionWire = CaptureSession;
 export interface CaptureBatchWire {
   frames: CaptureFrameWire[];
   nextCursor: number;
+  /** 环形缓冲淘汰数（取太慢），不是网络丢包。 */
   dropped: number;
+  /** 内核 / 回调层丢包数（数据真的没了）；老产物为 undefined。 */
+  kernelLost?: number;
 }
 
 /** `stopCapture` 的统计。 */
@@ -96,6 +99,8 @@ export interface CaptureWorkerRequest {
   cursor?: number;
   /** `take` 用：最多等多久（毫秒）再返回。 */
   waitMs?: number;
+  /** `take` 用：单批最多返回多少帧（UDP 包多，需要比 TCP 的 1024 更大）。 */
+  maxFrames?: number;
   /** `start` 用：传输层（`tcp` 默认 / `udp`）。 */
   transport?: 'tcp' | 'udp';
   /** `start` 用：环形缓冲帧数上限。 */

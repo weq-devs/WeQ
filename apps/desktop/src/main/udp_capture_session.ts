@@ -26,6 +26,26 @@ import { startElevatedCaptureWorker, type ElevatedCaptureWorker } from './captur
 
 const logger = getLogger().child({ scope: 'udp-capture' });
 
+/**
+ * UDP 会话的环形缓冲默认帧数。
+ *
+ * native 的默认是 512，按 TCP/MSF 定的（一次请求/应答几帧）。实测视频通话是
+ * **约 185 包/秒**（5 秒 926 包），512 帧只够缓冲 2.8 秒 —— 前端每 1 秒轮询
+ * 一次虽然勉强够，但轮询一旦被主进程的其它活拖慢（渲染、导出、IPC 排队）就会
+ * 立刻溢出，表现为 `dropped` 飞快上涨。
+ *
+ * 8192 帧 ≈ 44 秒的余量，代价是 8 MiB 级别的内存（单包约 1 KB）。
+ */
+const DEFAULT_UDP_RING_FRAMES = 8192;
+
+/**
+ * 单次 `takeFrames` 最多返回多少帧。
+ *
+ * native 默认 1024。185 包/秒下 1024 约等于 5.5 秒的吞吐，正常轮询（1 秒）远够；
+ * 但页签切走再回来、或主进程卡顿时会攒下更多，给到 4096 减少「取不完」的等待。
+ */
+const DEFAULT_UDP_MAX_FRAMES = 4096;
+
 /** 一次 UDP 抓包会话。 */
 export interface UdpCaptureHandle {
   pid: number;
@@ -121,7 +141,10 @@ export async function startUdpCapture(
     const options = {
       iface: opts.iface,
       port: opts.port,
-      ringFrames: opts.ringFrames,
+      // ⚠️ 必须显式给：native 的默认是 512，那是按 TCP（一次请求/应答几帧）
+      // 定的。UDP 通话每秒几百包，512 帧只够缓冲一两秒，前端一轮询就被挤掉
+      // 一半 —— 表现为 dropped 飞快上涨。这里按 UDP 的速率给默认值。
+      ringFrames: opts.ringFrames ?? DEFAULT_UDP_RING_FRAMES,
       transport: 'udp' as const,
     };
 
@@ -165,16 +188,19 @@ export async function takeUdpDatagrams(
       pid,
       cursor: opts.cursor,
       waitMs: opts.waitMs,
+      maxFrames: DEFAULT_UDP_MAX_FRAMES,
     });
   }
   const batch = await requirePlatform().native.ntHelper.takeFrames(pid, {
     cursor: opts.cursor,
+    maxFrames: DEFAULT_UDP_MAX_FRAMES,
     waitMs: opts.waitMs,
   });
   return {
     frames: batch.frames.map(toCaptureFrameWire),
     nextCursor: batch.nextCursor,
     dropped: batch.dropped,
+    kernelLost: batch.kernelLost,
   };
 }
 

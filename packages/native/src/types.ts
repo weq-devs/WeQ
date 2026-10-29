@@ -619,14 +619,28 @@ export interface FrameBatch {
   frames: CapturedFrame[];
   /** 下一次 `takeFrames` 传回它即可续取。 */
   nextCursor: number;
-  /** 自会话开始以来因环形缓冲溢出被淘汰的帧数（累计值）。 */
+  /**
+   * 自会话开始以来因环形缓冲溢出被淘汰的帧数（累计值）。
+   *
+   * 这是「调用方取太慢」，**不是网络丢包** —— 数据一度在缓冲里，只是被更新的
+   * 帧挤掉了。调大 `ringFrames` 或提高取帧频率即可避免。
+   */
   dropped: number;
+  /**
+   * 内核 / 回调层丢掉的包数（累计值，仅 Linux BPF 后端会非零）。
+   *
+   * 这个才是「数据真的没了」。老产物没有这个字段，按 0 处理。
+   */
+  kernelLost?: number;
 }
 
 /** `stopCapture` 的统计。 */
 export interface CaptureStats {
   frames: number;
+  /** 环形缓冲淘汰数（取太慢），不是网络丢包。 */
   dropped: number;
+  /** 内核 / 回调层丢包数（数据真的没了）。 */
+  kernelLost?: number;
   /** 看到的原始网卡包数（含非 MSF 流量）。 */
   packets: number;
 }
