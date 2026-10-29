@@ -1097,10 +1097,9 @@ html[data-theme='dark'] .reaction-likers {
   border-radius: 8px;
 }
 
-/* 动画表情是方形图，无需圆角。 */
-.qq-media-wrap-emoji {
-  border-radius: 0;
-}
+/* 动画表情与普通图片同圆角：容器沿用 .qq-media-wrap 的 8px，图片自身在
+   .qq-media-mface 里给同一个值，扫光占位（border-radius: inherit）才不会穿帮。
+   .qq-media-wrap-emoji 这个类仍保留 —— privacy.css 用它给模糊模式挂遮罩。 */
 
 /* ---- 闪照 ----------------------------------------------------------------
    闪照是「看过即焚」的语义：气泡里只给打码预览（offpic 的 198 档），点开才看
@@ -1151,6 +1150,9 @@ html[data-theme='dark'] .reaction-likers {
 
 .qq-media-mface {
   display: block;
+  /* 与普通图片同圆角；容器 .qq-media-wrap / .qq-mface-wrap 也是 8px，
+     扫光占位与图片边缘对齐，不会出现方角白块。 */
+  border-radius: 8px;
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
@@ -1161,6 +1163,7 @@ html[data-theme='dark'] .reaction-likers {
 .qq-mface-wrap {
   position: relative;
   display: inline-block;
+  border-radius: 8px;
   cursor: pointer;
   line-height: 0;
 }
