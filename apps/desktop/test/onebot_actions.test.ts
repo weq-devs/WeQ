@@ -18,6 +18,9 @@ function setup() {
         .fn()
         .mockResolvedValue({ groupName: '群', memberCount: 6, maxMemberCount: 200 }),
       fetchOnlineMembers: vi.fn().mockResolvedValue([{ uin: 8, uid: 'u_other' }]),
+      getJoinInfo: vi
+        .fn()
+        .mockResolvedValue({ name: '在线群名', memberCount: 12, maxMemberCount: 500 }),
     },
     groupModeration: {
       setName: vi.fn(),
@@ -96,6 +99,54 @@ it('好友名单来自好友表，群名单只包含当前目录', async () => {
   expect(await f.run('get_group_list', {})).toEqual([
     { group_id: 42, group_name: '群', member_count: 6, max_member_count: 200 },
   ]);
+});
+
+it('群资料 no_cache 真正查询在线字段，缺失人数不回退旧缓存', async () => {
+  const f = setup();
+  expect(await f.run('get_group_info', { group_id: 42, no_cache: 'true' })).toEqual({
+    group_id: 42,
+    group_name: '在线群名',
+    member_count: 12,
+    max_member_count: 500,
+  });
+  expect(f.services.groupInfo.getJoinInfo).toHaveBeenCalledWith(42);
+  f.services.groupInfo.getJoinInfo.mockResolvedValueOnce({
+    name: '缺字段',
+    memberCount: null,
+    maxMemberCount: null,
+  });
+  await expect(f.run('get_group_info', { group_id: 42, no_cache: true })).rejects.toThrow(
+    '完整群人数',
+  );
+});
+
+it('成员名单完整投影，no_cache 强制刷新，不把未建模字段编成默认值', async () => {
+  const f = setup();
+  const members = Array.from({ length: 501 }, (_, i) => ({
+    uin: i + 100,
+    uid: `u_${i}`,
+    nickname: `成员${i}`,
+    card: '',
+    permission: i === 0 ? 1 : 0,
+    level: 2,
+    specialTitle: '',
+    joinTime: 10,
+    lastSentTime: 20,
+    shutUpTime: 0,
+  }));
+  f.services.groupInfo.fetchOnlineMembers.mockResolvedValue(members);
+  expect(await f.run('get_group_member_list', { group_id: 42 })).toHaveLength(501);
+  expect(f.services.profile.profilesByUids).toHaveBeenCalledTimes(2);
+  expect(
+    await f.run('get_group_member_info', { group_id: 42, user_id: 100, no_cache: 'true' }),
+  ).toMatchObject({
+    role: 'owner',
+    join_time: 10,
+    title_expire_time: null,
+    card_changeable: null,
+    unavailable_fields: ['title_expire_time', 'unfriendly', 'card_changeable'],
+  });
+  expect(f.services.groupInfo.fetchOnlineMembers).toHaveBeenLastCalledWith(42, { force: true });
 });
 
 it('好友分页超过默认长度仍完整返回', async () => {

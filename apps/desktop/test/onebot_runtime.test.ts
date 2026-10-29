@@ -44,6 +44,18 @@ vi.mock('../src/main/onebot/server', () => ({
     reference() {
       return -100;
     }
+    sourcePath(value: unknown) {
+      return value;
+    }
+    prepare() {
+      return 'pending';
+    }
+    register() {
+      return -1;
+    }
+    forwardMessage() {
+      return undefined;
+    }
   },
 }));
 import { applyOneBot, stopOneBot } from '../src/main/onebot/runtime';
@@ -109,6 +121,7 @@ it('uses the distinct QQ quote pointer and validates all outgoing segments befor
   });
   expect(f.sendElements).toHaveBeenCalledWith({
     ...target,
+    beforeSend: expect.any(Function),
     elements: [
       { kind: 'reply', origMsgSeq: 23, origSenderUin: 7, origMsgTime: 100 },
       { kind: 'text', textContent: 'reply' },
@@ -132,6 +145,67 @@ it('发送回执保留 privateSequence 和 clientSequence，不用分页序号�
     sequence: 23,
     location: { conv: 'u_peer', msgSeq: 88, clientSeq: 23, random: 1 },
   });
+});
+
+it('私聊发送后从漫游缓存立即回查，不误当成群消息或需要等待 QQ 同步', async () => {
+  const f = await setup();
+  Object.assign(f.ctx.services!, {
+    msgs: { getC2cFrom: vi.fn().mockResolvedValue([]) },
+    gapHistory: {
+      cached: vi.fn().mockResolvedValue([
+        {
+          kind: 'c2c',
+          conv: 'u_peer',
+          msgId: '1',
+          msgSeq: '88',
+          msgRandom: '1',
+          clientSeq: '23',
+          senderUid: 'u_me',
+          senderUin: '99',
+          sendTime: '100',
+          elements: [{ type: 'text', data: { textContent: '刚发送的正文' } }],
+        },
+      ]),
+    },
+  });
+  const sent = await f.backend.send({ peerType: 'c2c', targetId: '7' }, [
+    { type: 'text', data: { text: '刚发送的正文' } },
+  ]);
+  expect(await f.backend.readMessage!(sent)).toMatchObject({
+    peerType: 'c2c',
+    targetId: '7',
+    message: [{ type: 'text', data: { text: '刚发送的正文' } }],
+    location: { conv: 'u_peer', msgSeq: 88, clientSeq: 23 },
+  });
+});
+
+it('合并转发不同节点的 Base64 图片使用独立临时文件，发送完成全部清理', async () => {
+  const f = await setup();
+  const paths: string[] = [];
+  const sendForward = vi
+    .fn()
+    .mockImplementation(async (params: { nodes: { elements: { source: string }[] }[] }) => {
+      for (const node of params.nodes) paths.push(node.elements[0]!.source);
+      expect(await readFile(paths[0]!, 'utf8')).toBe('first');
+      expect(await readFile(paths[1]!, 'utf8')).toBe('second');
+      return { ok: true, resId: 'res', card: { timestamp: 100, groupSequence: 11, random: 1 } };
+    });
+  Object.assign(f.ctx.services!.messageSend, { sendForward });
+  await f.backend.action!('send_group_forward_msg', {
+    group_id: 42,
+    messages: ['first', 'second'].map((value) => ({
+      type: 'node',
+      data: {
+        user_id: 7,
+        nickname: '合成成员',
+        content: [
+          { type: 'image', data: { file: `base64://${Buffer.from(value).toString('base64')}` } },
+        ],
+      },
+    })),
+  });
+  expect(new Set(paths).size).toBe(2);
+  for (const path of paths) await expect(access(path)).rejects.toThrow();
 });
 
 it('撤回和回应使用登记的真实定位；私聊回应明确拒绝', async () => {

@@ -31,6 +31,7 @@ export interface BridgeMessage {
   fileId?: string;
   fileName?: string;
   fileSize?: number;
+  forwardId?: string;
   location?: MessageLocation;
 }
 export interface OneBotBackend {
@@ -151,7 +152,7 @@ export class OneBotServer {
       for (const ws of this.clients) if (this.paths.get(ws) !== '/api') this.write(ws, event);
     });
     this.heartbeat = setInterval(() => {
-      void Promise.resolve(this.backend.status())
+      void this.serviceStatus()
         .catch(() => ({ online: false, good: false }))
         .then((status) => {
           for (const ws of this.clients)
@@ -182,7 +183,11 @@ export class OneBotServer {
     this.server.close();
     this.server.closeAllConnections();
     this.records.clear();
-    this.registry.flush();
+    try {
+      this.registry.flush();
+    } catch (error) {
+      console.error('OneBot 关闭时索引保存失败', error);
+    }
     this.media.clear();
   }
 
@@ -216,6 +221,34 @@ export class OneBotServer {
 
   messageData(msg: BridgeMessage): Record<string, unknown> {
     return this.wire(msg, this.remember(msg));
+  }
+
+  forwardMessage(id: string): BridgeMessage | undefined {
+    return this.registry.forward(id);
+  }
+
+  sourcePath(value: unknown): unknown {
+    if (typeof value !== 'string') return value;
+    const prefix = `http://127.0.0.1:${this.port}/media/`;
+    if (!value.startsWith(prefix)) return value;
+    const item = this.media.get(value.slice(prefix.length));
+    if (!item || item.expires < Date.now()) throw new ActionError('媒体引用已过期');
+    return item.path;
+  }
+
+  prepare(target: { peerType: 'c2c' | 'group'; targetId: string }): string {
+    if (!this.registry.healthy) throw new ActionError('消息索引无法持久化，尚未派发发送', 1500);
+    const key = `outgoing:${randomBytes(16).toString('hex')}`;
+    this.remember({
+      ...target,
+      key,
+      senderUin: this.selfId,
+      nickname: '',
+      time: Math.floor(Date.now() / 1000),
+      sequence: 0,
+      message: [],
+    });
+    return key;
   }
 
   mediaUrl(path: string): string {
@@ -309,6 +342,11 @@ export class OneBotServer {
     };
   }
 
+  private async serviceStatus(): Promise<{ online: boolean; good: boolean }> {
+    const status = await this.backend.status();
+    return { ...status, good: status.good && this.registry.healthy };
+  }
+
   private async handle(raw: string): Promise<unknown> {
     let echo: unknown = null;
     try {
@@ -322,7 +360,7 @@ export class OneBotServer {
           data = await this.backend.self();
           break;
         case 'get_status':
-          data = await this.backend.status();
+          data = await this.serviceStatus();
           break;
         case 'get_version_info':
           data = {
@@ -383,16 +421,7 @@ export class OneBotServer {
             throw new Error('引用消息已过期或属于其他会话');
           if (reply && reply.sequence <= 0) throw new Error('引用消息缺少 QQ 序号');
           // 先预留可持久化的 ID，索引无法写入时不派发 QQ 发送。
-          const pendingKey = `outgoing:${randomBytes(16).toString('hex')}`;
-          this.remember({
-            ...target,
-            key: pendingKey,
-            senderUin: this.selfId,
-            nickname: '',
-            time: Math.floor(Date.now() / 1000),
-            sequence: 0,
-            message: [],
-          });
+          const pendingKey = this.prepare(target);
           const sent = await this.backend.send(
             target,
             segments.filter((s) => s.type !== 'reply'),

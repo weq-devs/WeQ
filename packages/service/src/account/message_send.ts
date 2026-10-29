@@ -220,6 +220,7 @@ export interface SendMediaParams {
 }
 
 export interface SendElementsParams {
+  beforeSend?: () => void;
   peerType: SendPeerType;
   targetId: string | number;
   /** 群临时会话的来源群号（会话行的 `60001`）；给了就走 grpTmp 路由。 */
@@ -355,6 +356,7 @@ export interface SendForwardNodeInput {
 
 /** 发「合并转发 / 聊天记录」的参数。 */
 export interface SendForwardMessageParams {
+  beforeSend?: () => void;
   peerType: SendPeerType;
   /** 群号（群聊）或 QQ 号 / uid（私聊）。 */
   targetId: string | number;
@@ -1007,7 +1009,8 @@ export class MessageSendService {
           };
 
     const uploads: SendMediaUploadReport[] = [];
-    const receipt = await sendMessage(this.nt, pid, {
+    params.beforeSend?.();
+    const receipt = await sendMessage(guardedNative(this.nt, params.beforeSend), pid, {
       ...(device
         ? {
             dataline: {
@@ -1275,7 +1278,8 @@ export class MessageSendService {
       );
     }
 
-    const upload = await protocolSendForward(this.nt, pid, {
+    params.beforeSend?.();
+    const upload = await protocolSendForward(guardedNative(this.nt, params.beforeSend), pid, {
       ...(target.scene === 'group' ? { groupId: target.uin } : { userUin: target.uin }),
       ...(target.scene !== 'group' && target.uid ? { userUid: target.uid } : {}),
       selfUin,
@@ -1294,6 +1298,7 @@ export class MessageSendService {
     // 卡片要带上 source / summary / news（前 4 行的「昵称: 内容摘要」）——缺了
     // 这些收端就只剩一个标题，没有预览行（协议层由 sendForward 算好，见 upload.card）。
     const card = await this.sendElements({
+      beforeSend: params.beforeSend,
       peerType: params.peerType,
       targetId: params.targetId,
       elements: [{ kind: 'forward', resId: upload.resId, ...upload.card }],
@@ -1552,6 +1557,24 @@ export function buildMediaElement(params: SendMediaParams): SendElement {
       throw new Error(`不支持的媒体类型：${String(unknown.kind)}（支持 image / record / video）`);
     }
   }
+}
+
+/** 多步发送在每次原生发包前复核调用方绑定的账号。 */
+function guardedNative(
+  nt: Pick<NtHelperBinding, 'sendPacket' | 'sendOidbPacket'>,
+  beforeSend?: () => void,
+): Pick<NtHelperBinding, 'sendPacket' | 'sendOidbPacket'> {
+  if (!beforeSend) return nt;
+  return {
+    sendPacket: (...args) => {
+      beforeSend();
+      return nt.sendPacket(...args);
+    },
+    sendOidbPacket: (...args) => {
+      beforeSend();
+      return nt.sendOidbPacket(...args);
+    },
+  };
 }
 
 /** 协议回执 → 服务层归一化结果（bigint / bytes 一律不外泄）。 */

@@ -2,6 +2,7 @@
 import { once } from 'node:events';
 import { afterEach, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
+import { NapcatAdapter, SnowLumaAdapter } from '../../../packages/bot/src/adapter/onebot';
 import {
   OneBotServer,
   parseSegments,
@@ -141,6 +142,40 @@ it('/api 不推消息或生命周期，仍能收发 action', async () => {
   expect(await f.request('get_login_info')).toMatchObject({ retcode: 0 });
   expect(f.messages.some((message) => message.post_type)).toBe(false);
 });
+
+it.each([NapcatAdapter, SnowLumaAdapter])(
+  '已有独立 OneBot 客户端 %s 可收消息、发送并调用扩展 action',
+  async (Adapter) => {
+    const f = await setup();
+    f.backend.action = vi
+      .fn()
+      .mockResolvedValue([{ user_id: 7, nickname: '合成好友', remark: '' }]);
+    const adapter = new Adapter({
+      type: Adapter === NapcatAdapter ? 'napcat' : 'snowluma',
+      wsUrl: `ws://127.0.0.1:${f.port}`,
+      token: 'synthetic-token',
+    });
+    try {
+      await adapter.connect();
+      const events: unknown[] = [];
+      adapter.onEvent((event) => events.push(event));
+      f.deliver(incoming());
+      await vi.waitFor(() =>
+        expect(
+          events.some((event) => (event as { post_type?: string }).post_type === 'message'),
+        ).toBe(true),
+      );
+      expect(await adapter.callAction('get_friend_list', {})).toMatchObject([{ user_id: 7 }]);
+      expect(
+        await adapter.sendMessage({ chatType: 'group', peerId: '42' }, [
+          { type: 'text', data: { text: '客户端合成回复' } },
+        ]),
+      ).toHaveProperty('messageId');
+    } finally {
+      adapter.close();
+    }
+  },
+);
 
 it('supports login, group events, native mention segments, CQ replies and get_msg through real WS', async () => {
   const f = await setup();

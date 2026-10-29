@@ -1326,6 +1326,24 @@ describe('sendForward（合并转发，离线）', () => {
     };
   }
 
+  it('长消息上传后账号失效时不继续发送卡片', async () => {
+    const native = forwardNative();
+    const service = new MessageSendService(native, fakeSession(), () => 1);
+    await expect(
+      service.sendForward({
+        peerType: 'group',
+        targetId: '42',
+        nodes: [{ elements: [{ kind: 'text', textContent: '合成节点' }] }],
+        beforeSend: () => {
+          if (native.calls.length) throw Error('账号已切换');
+        },
+      }),
+    ).rejects.toThrow('切换');
+    expect(native.calls.map((call) => call.cmd)).toEqual([
+      'trpc.group.long_msg_interface.MsgService.SsoSendLongMsg',
+    ]);
+  });
+
   it('群聊：先传长消息（SsoSendLongMsg）再发卡片（PbSendMsg）', async () => {
     const native = forwardNative('res-g');
     const svc = new MessageSendService(native as never, fakeSession(), () => 1);

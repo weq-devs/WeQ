@@ -12,14 +12,18 @@ import {
   getHost,
   accountConfigId,
   type RenderElement,
+  type GapFetchedMessage,
   type SendElement,
   type OneBotConfig,
 } from '@weq/service';
 import type { AppContext } from '../context/app_context';
 import { OneBotServer, type BridgeMessage, type Segment } from './server';
-import { createActions } from './actions';
+import { createActions, groupSummary } from './actions';
 import { fullModeAllowed } from '../context/full_mode';
 import { MessageRegistry } from './registry';
+import { createHistory } from './history';
+import { createForward } from './forward';
+import { id, integer, text } from './contracts';
 
 const logger = getLogger().child({ scope: 'onebot' });
 let current: OneBotServer | null = null;
@@ -73,20 +77,21 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
         peerType: 'c2c' | 'group',
         row: RenderRow,
         freshOnly = false,
+        projectionOnly = false,
       ): Promise<BridgeMessage | null> {
         requireActive();
         const senderUin = Number(row.senderUin || session!.uidMap.uinByUid(row.senderUid) || 0);
         if (
-          !senderUin ||
+          (!senderUin && !projectionOnly) ||
           (freshOnly && Number(row.sendTime) < Date.now() / 1000 - 120) ||
-          (row.msgType === 1n && row.subType === 1n)
+          (freshOnly && row.msgType === 1n && row.subType === 1n)
         )
           return null;
         const targetId =
           'targetGroupCode' in row
             ? row.targetGroupCode
             : String(row.targetUin || session!.uidMap.uinByUid(row.targetUid) || '');
-        if (!/^[1-9]\d*$/.test(targetId)) return null;
+        if (!projectionOnly && !/^[1-9]\d*$/.test(targetId)) return null;
         const conv = 'targetUid' in row ? row.targetUid : targetId;
         const base = {
           peerType,
@@ -114,6 +119,10 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
               break;
             }
             case 'reply': {
+              if (projectionOnly) {
+                message.push({ type: 'text', data: { text: '[引用]' } });
+                break;
+              }
               const senderUin =
                 el.data.origSenderUin ||
                 Number(session!.uidMap.uinByUid(el.data.origSenderUid) ?? 0);
@@ -137,7 +146,7 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
                     id: String(
                       server.reference({
                         ...reference,
-                        key: `reference:${peerType}:${targetId}:${senderUin}:${el.data.origMsgSeq}`,
+                        key: `reference:${peerType}:${targetId}:${senderUin}:${el.data.origMsgSeq}:${el.data.origMsgTime}`,
                       }),
                     ),
                   },
@@ -145,6 +154,12 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
               }
               break;
             }
+            case 'multiMsg':
+              message.push({ type: 'forward', data: { id: el.data.resId } });
+              break;
+            case 'face':
+              message.push({ type: 'face', data: { id: String(el.data.faceId) } });
+              break;
             case 'pic':
             case 'ptt':
             case 'file': {
@@ -158,7 +173,7 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
                   'md5' in el.data ? el.data.md5 : undefined,
                 );
                 path = found.source;
-                if (!path && el.type === 'pic')
+                if (!path && el.type === 'pic' && freshOnly)
                   path = await services!.mediaDownload.download(el.data.fileToken, {
                     ext: '.jpg',
                     originalUrl: el.data.originalUrl,
@@ -178,6 +193,11 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
                     url: server.mediaUrl(path),
                   },
                 });
+              else if (!freshOnly)
+                message.push({
+                  type,
+                  data: { file: el.data.fileName, name: el.data.fileName, available: false },
+                });
               else
                 message.push({
                   type: 'text',
@@ -189,8 +209,11 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
               message.push({ type: 'text', data: { text: `[${el.type}]` } });
           }
         }
-        if (!message.length) return null;
-        const profile = await services!.profile.getProfile(row.senderUid);
+        if (!message.length) {
+          if (freshOnly) return null;
+          message.push({ type: 'text', data: { text: '[消息内容不可用]' } });
+        }
+        const profile = projectionOnly ? null : await services!.profile.getProfile(row.senderUid);
         requireActive();
         return {
           ...base,
@@ -207,7 +230,93 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
             random: Number(row.msgRandom ?? 0n),
           },
           message,
+          forwardId: row.elements.find((element) => element.type === 'multiMsg')?.data.resId,
         };
+      }
+      async function fromHistory(
+        row: GapFetchedMessage,
+        knownTarget?: string,
+      ): Promise<BridgeMessage | null> {
+        const targetId =
+          row.kind === 'group'
+            ? row.conv
+            : (knownTarget ?? String(session!.uidMap.uinByUid(row.conv) ?? ''));
+        return incoming(row.kind, {
+          msgId: BigInt(row.msgId),
+          msgSeq: BigInt(row.msgSeq),
+          msgRandom: BigInt(row.msgRandom ?? '0'),
+          clientSeq: BigInt(row.clientSeq ?? '0'),
+          targetUid: row.conv,
+          targetUin: BigInt(targetId || '0'),
+          ...(row.kind === 'group' ? { targetGroupCode: row.conv } : {}),
+          senderUid: row.senderUid,
+          senderUin: BigInt(row.senderUin || '0'),
+          sendTime: BigInt(row.sendTime),
+          elements: row.elements,
+        });
+      }
+
+      async function convert(
+        segments: Segment[],
+        directory: string,
+        budget = { bytes: 0 },
+      ): Promise<SendElement[]> {
+        const elements: SendElement[] = [];
+        for (const segment of segments) {
+          requireActive();
+          switch (segment.type) {
+            case 'text':
+              elements.push({ kind: 'text', textContent: text(segment.data.text) });
+              break;
+            case 'at': {
+              const qq = String(segment.data.qq ?? '');
+              elements.push(
+                qq === 'all'
+                  ? { kind: 'at', atTargetUid: 'all' }
+                  : { kind: 'at', atTargetUin: Number(id(qq)) },
+              );
+              break;
+            }
+            case 'image': {
+              const candidate =
+                typeof segment.data.url === 'string' &&
+                server.sourcePath(segment.data.url) !== segment.data.url
+                  ? segment.data.url
+                  : segment.data.file;
+              const source = await mediaSource(
+                server.sourcePath(candidate),
+                directory,
+                elements.length,
+              );
+              budget.bytes += (await stat(source)).size;
+              if (budget.bytes > 64 * 1024 * 1024)
+                throw new Error('单次消息或合并转发的媒体总量超过 64 MiB');
+              const name = typeof segment.data.name === 'string' ? segment.data.name : undefined;
+              elements.push({ kind: 'image', source, ...(name ? { fileName: name } : {}) });
+              break;
+            }
+            case 'reply': {
+              const original = await server.resolve(
+                integer(segment.data.id, undefined, -2147483647, -1),
+              );
+              if (!original.sequence) throw new Error('引用缺少原生序号');
+              elements.push({
+                kind: 'reply',
+                origMsgSeq: original.sequence,
+                origSenderUin: original.senderUin,
+                origMsgTime: original.time,
+              });
+              break;
+            }
+            case 'forward':
+              elements.push({ kind: 'forward', resId: text(segment.data.id) });
+              break;
+            default:
+              throw new Error(`暂不支持发送 ${segment.type} 段`);
+          }
+        }
+        requireActive();
+        return elements;
       }
       async function readMessage(message: BridgeMessage): Promise<BridgeMessage | null> {
         requireActive();
@@ -228,7 +337,11 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
         const loc = message.location;
         if (!loc) return null;
         let row: RenderRow | null = null;
-        if (loc.msgId)
+        if (
+          loc.msgId &&
+          BigInt(loc.msgId) <= 0x7fffffffffffffffn &&
+          BigInt(loc.msgId) >= -0x8000000000000000n
+        )
           row =
             message.peerType === 'group'
               ? await services!.msgs.getGroupMessageById(loc.conv, BigInt(loc.msgId))
@@ -271,37 +384,27 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
               ? await services!.msgs.getGroupFrom(loc.conv, BigInt(seq), 200)
               : await services!.msgs.getC2cFrom(loc.conv, BigInt(seq), 200);
           requireActive();
-          row =
-            rows.find(
-              (item) =>
-                Number(item.msgSeq) === seq &&
-                Number(item.senderUin) === message.senderUin &&
-                Number(item.sendTime) === message.time &&
-                (!loc.random || Number(item.msgRandom) === loc.random),
-            ) ?? null;
+          const matches = rows.filter(
+            (item) =>
+              Number(item.msgSeq) === seq &&
+              Number(item.senderUin) === message.senderUin &&
+              Number(item.sendTime) === message.time &&
+              (!loc.random || Number(item.msgRandom) === loc.random),
+          );
+          if (matches.length > 1) throw new Error('引用定位存在歧义，无法确定原消息');
+          row = matches[0] ?? null;
           if (!row) {
             const cached = await services!.gapHistory.cached(message.peerType, loc.conv, seq, seq);
             requireActive();
-            const found = cached.find(
+            const cachedMatches = cached.filter(
               (item) =>
                 Number(item.senderUin) === message.senderUin &&
                 Number(item.sendTime) === message.time &&
                 (!loc.random || Number(item.msgRandom) === loc.random),
             );
-            if (found)
-              row = {
-                msgId: BigInt(found.msgId),
-                msgSeq: BigInt(found.msgSeq),
-                msgRandom: BigInt(found.msgRandom ?? '0'),
-                clientSeq: BigInt(found.clientSeq ?? '0'),
-                targetUid: loc.conv,
-                targetUin: BigInt(message.targetId),
-                targetGroupCode: loc.conv,
-                senderUid: found.senderUid,
-                senderUin: BigInt(found.senderUin),
-                sendTime: BigInt(found.sendTime),
-                elements: found.elements,
-              };
+            if (cachedMatches.length > 1) throw new Error('引用缓存存在歧义，无法确定原消息');
+            const found = cachedMatches[0];
+            if (found) return fromHistory(found, message.targetId);
           }
         }
         return row ? incoming(message.peerType, row) : null;
@@ -311,6 +414,32 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
         cache
           ? join(cache, `${accountConfigId(session.context.uin, session.msgDbPath)}.json`)
           : undefined,
+      );
+      const actions = createActions(services, session, requireActive, imageReady);
+      const history = createHistory(services, session, requireActive, () => server, fromHistory);
+      const forward = createForward(
+        services,
+        session,
+        requireActive,
+        () => server,
+        async (elements, uin, uid, time) =>
+          (
+            await incoming(
+              'group',
+              {
+                targetGroupCode: '',
+                msgId: 0n,
+                msgSeq: 0n,
+                senderUid: uid,
+                senderUin: BigInt(uin),
+                sendTime: BigInt(time),
+                elements,
+              },
+              false,
+              true,
+            )
+          )?.message ?? [],
+        convert,
       );
       server = new OneBotServer(
         {
@@ -350,7 +479,17 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
             });
           },
           version: () => getHost().appVersion(),
-          action: createActions(services, session, requireActive, imageReady),
+          action(action, params) {
+            if (action === 'get_group_msg_history' || action === 'get_friend_msg_history')
+              return history(action === 'get_group_msg_history' ? 'group' : 'c2c', params);
+            if (
+              ['get_forward_msg', 'send_group_forward_msg', 'send_private_forward_msg'].includes(
+                action,
+              )
+            )
+              return forward(action, params);
+            return actions(action, params);
+          },
           async status() {
             if (!active()) return { online: false, good: false };
             const record = services.accountConfig.getRecord();
@@ -366,11 +505,8 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
               nickname: profile?.nick ?? String(session.context.uin),
             };
           },
-          async group(id) {
-            requireActive();
-            const group = await services.groupInfo.getGroupDetail(BigInt(id));
-            requireActive();
-            return { group_id: Number(id), group_name: group?.groupName ?? id };
+          async group(id, noCache) {
+            return groupSummary(services, id, noCache ?? false, requireActive);
           },
           async typing(id, event) {
             requireActive();
@@ -418,45 +554,21 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
                   ],
                 };
               }
-              const elements: SendElement[] = [];
+              const elements = await convert(segments, directory);
               if (reply)
-                elements.push({
+                elements.unshift({
                   kind: 'reply',
                   origMsgSeq: reply.sequence,
                   origSenderUin: reply.senderUin,
                   origMsgTime: reply.time,
                 });
-              for (const segment of segments) {
-                switch (segment.type) {
-                  case 'text': {
-                    if (typeof segment.data.text !== 'string') throw new Error('text 段缺少正文');
-                    elements.push({ kind: 'text', textContent: segment.data.text });
-                    break;
-                  }
-                  case 'at': {
-                    const qq = String(segment.data.qq ?? '');
-                    if (qq !== 'all' && !/^[1-9]\d*$/.test(qq)) throw new Error('@ 目标无效');
-                    elements.push(
-                      qq === 'all'
-                        ? { kind: 'at', atTargetUid: 'all' }
-                        : { kind: 'at', atTargetUin: Number(qq) },
-                    );
-                    break;
-                  }
-                  case 'image': {
-                    const source = await mediaSource(segment.data.file, directory, elements.length);
-                    const name =
-                      typeof segment.data.name === 'string' ? segment.data.name : undefined;
-                    elements.push({ kind: 'image', source, ...(name ? { fileName: name } : {}) });
-                    break;
-                  }
-                  default:
-                    throw new Error(`暂不支持发送 ${segment.type} 段`);
-                }
-              }
               if (!segments.length) throw new Error('消息正文不能为空');
               requireActive();
-              const outcome = await services.messageSend.sendElements({ ...target, elements });
+              const outcome = await services.messageSend.sendElements({
+                ...target,
+                elements,
+                beforeSend: requireActive,
+              });
               if (!outcome.ok) throw new Error(outcome.errMsg || 'QQ 拒绝发送消息');
               requireActive();
               return {
@@ -539,7 +651,7 @@ async function mediaSource(value: unknown, directory: string, index: number): Pr
       throw new Error('Base64 媒体无效或超过 16 MiB');
     const bytes = Buffer.from(encoded, 'base64');
     if (!bytes.length || bytes.length > MAX_FILE) throw new Error('媒体不能为空或超过 16 MiB');
-    const path = join(directory, String(index));
+    const path = join(directory, `${index}-${randomBytes(8).toString('hex')}`);
     await writeFile(path, bytes, { mode: 0o600 });
     return path;
   }

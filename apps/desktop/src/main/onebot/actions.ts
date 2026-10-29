@@ -4,6 +4,35 @@ import { ActionError, bool, id, integer, text, type Params } from './contracts';
 export type ActionServices = NonNullable<AppContext['services']>;
 export type ActionSession = NonNullable<AppContext['account']>;
 
+export async function groupSummary(
+  services: ActionServices,
+  groupId: string,
+  noCache: boolean,
+  requireActive: () => void,
+) {
+  if (noCache) {
+    const fresh = await services.groupInfo.getJoinInfo(Number(groupId));
+    requireActive();
+    if (fresh.memberCount === null || fresh.maxMemberCount === null)
+      throw new ActionError('服务端未返回完整群人数和容量', 1500);
+    return {
+      group_id: Number(groupId),
+      group_name: fresh.name,
+      member_count: fresh.memberCount,
+      max_member_count: fresh.maxMemberCount,
+    };
+  }
+  const group = await services.groupInfo.getGroupDetail(BigInt(groupId));
+  requireActive();
+  if (!group) throw new ActionError('没有该群的资料', 1404);
+  return {
+    group_id: Number(groupId),
+    group_name: group.groupName,
+    member_count: group.memberCount,
+    max_member_count: group.maxMemberCount,
+  };
+}
+
 export function createActions(
   services: ActionServices,
   session: ActionSession,
@@ -23,19 +52,70 @@ export function createActions(
   }
 
   async function groupInfo(groupId: string) {
-    const group = await services.groupInfo.getGroupDetail(BigInt(groupId));
+    return groupSummary(services, groupId, false, requireActive);
+  }
+
+  async function members(groupId: string, force: boolean, userId?: string) {
+    const rows = await services.groupInfo.fetchOnlineMembers(Number(groupId), { force });
     requireActive();
-    if (!group) throw new ActionError('没有该群的资料', 1404);
-    return {
-      group_id: Number(groupId),
-      group_name: group.groupName,
-      member_count: group.memberCount,
-      max_member_count: group.maxMemberCount,
-    };
+    const selected = userId ? rows.filter((member) => String(member.uin) === userId) : rows;
+    if (userId && !selected.length) throw new ActionError('群成员不存在', 1404);
+    const profiles = new Map<
+      string,
+      Awaited<ReturnType<typeof services.profile.profilesByUids>>[number]
+    >();
+    for (let offset = 0; offset < selected.length; offset += 500) {
+      const batch = await services.profile.profilesByUids(
+        selected.slice(offset, offset + 500).map((member) => member.uid),
+      );
+      requireActive();
+      for (const profile of batch) profiles.set(profile.uid, profile);
+    }
+    const out = [];
+    for (const member of selected) {
+      const profile = profiles.get(member.uid);
+      out.push({
+        group_id: Number(groupId),
+        user_id: member.uin,
+        nickname: member.nickname,
+        card: member.card,
+        sex: profile?.gender === 1 ? 'male' : profile?.gender === 2 ? 'female' : 'unknown',
+        age: profile?.age ?? 0,
+        area: [profile?.extInfo?.country, profile?.extInfo?.province, profile?.extInfo?.city]
+          .filter(Boolean)
+          .join(' '),
+        join_time: member.joinTime,
+        last_sent_time: member.lastSentTime,
+        level: String(member.level),
+        role:
+          member.permission === 1
+            ? 'owner'
+            : member.permission === 2
+              ? 'admin'
+              : member.permission === 0
+                ? 'member'
+                : null,
+        title: member.specialTitle,
+        title_expire_time: null,
+        unfriendly: null,
+        card_changeable: null,
+        profile_source: 'local_cache',
+        unavailable_fields: ['title_expire_time', 'unfriendly', 'card_changeable'],
+      });
+    }
+    return out;
   }
 
   async function run(action: string, p: Params): Promise<unknown> {
     switch (action) {
+      case 'get_group_info': {
+        const groupId = id(p.group_id);
+        return groupSummary(services, groupId, bool(p.no_cache), requireActive);
+      }
+      case 'get_group_member_list':
+        return members(id(p.group_id), false);
+      case 'get_group_member_info':
+        return (await members(id(p.group_id), bool(p.no_cache), id(p.user_id)))[0];
       case 'get_friend_list': {
         const out: { user_id: number; nickname: string; remark: string }[] = [];
         for (let offset = 0; ; offset += 500) {

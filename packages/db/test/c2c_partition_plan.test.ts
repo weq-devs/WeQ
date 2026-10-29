@@ -38,4 +38,18 @@ it('实际分页 SQL 的 sortNo 路径使用现有复合索引，UID 回退仍�
     });
   expect(plans[0]).toContain('SEARCH c2c_msg_table USING INDEX known_partition_seq');
   expect(plans[1]).toContain('SCAN c2c_msg_table');
+  sql.exec(`INSERT INTO c2c_msg_table("40001","40003","40005","40021","40027","40050") VALUES
+    (9007199254740993001,12,100,'u_peer',42,1002),
+    (9007199254740993002,12,200,'u_peer',42,1002)`);
+  const first = await db.listHistory(
+    { sortNo: 42n },
+    { min: 1n, max: 100n, descending: true, limit: 1 },
+  );
+  const second = await db.listHistory(
+    { uid: 'u_peer' },
+    { min: 1n, max: 100n, descending: true, limit: 1, cursor: first[0]! },
+  );
+  expect(first[0]?.msgId).toBe(9007199254740993002n);
+  expect(second[0]?.msgId).toBe(9007199254740993001n);
+  expect(first[0]?.clientSeq).toBe(200n);
 });
