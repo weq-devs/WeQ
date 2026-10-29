@@ -29,6 +29,7 @@ export const SETTINGS_PAGE_LABELS = {
   'resource-loading': '资源加载',
   remote: 'Web 与 Remote',
   mcp: 'MCP 服务器',
+  onebot: 'OneBot / cc-connect',
   sse: 'SSE 推送',
   assistant: 'QQ 公众号推送',
   privacy: '隐私',
@@ -99,7 +100,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
       'resource-loading',
     ],
   },
-  { id: 'services', label: 'WeQ 服务', sections: ['remote', 'mcp', 'sse', 'assistant'] },
+  { id: 'services', label: 'WeQ 服务', sections: ['remote', 'mcp', 'onebot', 'sse', 'assistant'] },
   { id: 'help', label: '关于 WeQ', sections: ['version', 'backup', 'faq', 'logs', 'feedback'] },
 ];
 

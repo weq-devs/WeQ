@@ -64,6 +64,7 @@ import { InteractionProfileSection } from './settings/InteractionProfileSection'
 import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { OcrModelsSection } from './settings/OcrModelsSection';
 import { McpServerSection } from './settings/McpServerSection';
+import { OneBotSection } from './settings/OneBotSection';
 import { RemoteSection } from './settings/RemoteSection';
 import { BackupSection } from './settings/BackupSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
@@ -301,6 +302,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: 'MCP 服务器',
     icon: <Plug size={16} strokeWidth={1.8} />,
     render: () => <McpServerSection />,
+  },
+  {
+    id: 'onebot',
+    label: 'OneBot / cc-connect',
+    icon: <Plug size={16} strokeWidth={1.8} />,
+    render: () => <OneBotSection />,
   },
   {
     id: 'remote',

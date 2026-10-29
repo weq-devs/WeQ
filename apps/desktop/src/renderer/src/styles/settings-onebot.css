@@ -1,0 +1,26 @@
+.weq-set-onebot .weq-set-row {
+  flex-wrap: wrap;
+  padding-block: 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-set-onebot .weq-set-row-ctrl {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-set-onebot .weq-set-btn-group {
+  display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.weq-set-onebot .weq-set-input {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-set-onebot code {
+  overflow-wrap: anywhere;
+  color: var(--weq-fg-primary);
+}

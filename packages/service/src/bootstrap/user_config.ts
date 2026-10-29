@@ -445,6 +445,13 @@ export interface McpServerConfig {
   token: string;
 }
 
+/** 当前在线账号的 OneBot v11 正向 WebSocket 服务配置。 */
+export interface OneBotConfig {
+  enabled: boolean;
+  port: number;
+  token: string;
+}
+
 /**
  * WeQ 助手 config. When enabled (and an account is open) we fabricate a built-in
  * "WeQ助手" public-account conversation inside the LIVE QQ databases and run a
@@ -534,6 +541,7 @@ export interface AppSettings {
   /** 本地图片文字识别（OCR）的模型选择。 */
   ocr: OcrModelsConfig;
   mcp: McpServerConfig;
+  oneBot: OneBotConfig;
   weqAssistant: WeqAssistantConfig;
   agentLab: AgentLabSettings;
   /** 点击关闭按钮时的行为。默认 'ask'（首次弹窗询问）。 */
@@ -880,6 +888,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
   mcp: { enabled: false, port: 48765, token: '' },
+  oneBot: { enabled: false, port: 48766, token: '' },
   // 20000+ 不常用端口；若被占用，宿主内的助手资源服务自动向上探测。
   weqAssistant: { enabled: false, port: 27182 },
   agentLab: { providers: [], defaultModel: null },
@@ -1526,6 +1535,11 @@ export class UserConfigService {
         port: s?.mcp?.port ?? d.mcp.port,
         token: s?.mcp?.token ?? d.mcp.token,
       },
+      oneBot: {
+        enabled: s?.oneBot?.enabled ?? d.oneBot.enabled,
+        port: s?.oneBot?.port ?? d.oneBot.port,
+        token: s?.oneBot?.token ?? d.oneBot.token,
+      },
       weqAssistant: {
         enabled: s?.weqAssistant?.enabled ?? d.weqAssistant.enabled,
         port: s?.weqAssistant?.port ?? d.weqAssistant.port,
@@ -1680,6 +1694,11 @@ export class UserConfigService {
         enabled: patch.mcp?.enabled ?? current.mcp.enabled,
         port: patch.mcp?.port ?? current.mcp.port,
         token: patch.mcp?.token ?? current.mcp.token,
+      },
+      oneBot: {
+        enabled: patch.oneBot?.enabled ?? current.oneBot.enabled,
+        port: patch.oneBot?.port ?? current.oneBot.port,
+        token: patch.oneBot?.token ?? current.oneBot.token,
       },
       weqAssistant: {
         enabled: patch.weqAssistant?.enabled ?? current.weqAssistant.enabled,
