@@ -56,6 +56,8 @@ import { ContactWorkspaceNavigationContext } from '../lib/profileNavigation';
 import type { AnalysisTarget } from '../views/analysis/model';
 import { OverlayLayer } from './OverlayLayer';
 import { QQGroupMemberControls } from './QQGroupMemberControls';
+import { PersonRelationshipStatus } from './RelationshipStatus';
+import { useGroupRelationship } from '../lib/contactRelationship';
 import { Avatar } from '../im-template/template/primitives';
 import { VirtualConversationBadge } from './VirtualConversationAvatar';
 import { cn } from '../im-template/template/classNames';
@@ -110,6 +112,7 @@ export function MemberProfileCard({
   localClone?: boolean;
 }) {
   const openSpace = useContext(QzoneNavigationContext);
+  const groupRelationship = useGroupRelationship({ id: groupCode });
   const openWorkspace = useContext(ContactWorkspaceNavigationContext);
   const [loadedProfile, setProfile] = useState(null);
   const profile = localClone ? null : loadedProfile;
@@ -355,6 +358,7 @@ export function MemberProfileCard({
                 {member.clone ? <VirtualConversationBadge /> : null}
               </span>
               <strong className="weq-profile-name">{name}</strong>
+              {!localClone ? <PersonRelationshipStatus person={{ ...member, ...profile }} /> : null}
               {nickDiffers ? <span className="weq-profile-nick">昵称 {profile.nick}</span> : null}
 
               {uin ? (
@@ -414,13 +418,27 @@ export function MemberProfileCard({
                   }
                 />
               ) : null}
-              {!localClone && groupCode && uid ? (
+              {!localClone && groupCode && uid && groupRelationship !== 'nonmember' ? (
                 <QQGroupMemberControls
                   key={`${groupCode}:${uid}`}
                   groupCode={groupCode}
                   uid={uid}
                   profile={{ card: member.card, title: member.customTitle }}
                 />
+              ) : null}
+              {!localClone && groupCode && groupRelationship === 'nonmember' ? (
+                <>
+                  {member.card ? (
+                    <ProfileRow icon={<UserIcon size={13} />} label="群昵称" value={member.card} />
+                  ) : null}
+                  {member.customTitle ? (
+                    <ProfileRow
+                      icon={<Award size={13} />}
+                      label="专属头衔"
+                      value={member.customTitle}
+                    />
+                  ) : null}
+                </>
               ) : null}
               {levelText ? (
                 <ProfileRow icon={<Award size={13} />} label="群等级" value={levelText} />

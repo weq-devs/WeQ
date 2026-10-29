@@ -48,6 +48,11 @@ import {
   virtualConversationRow,
 } from '../../lib/conversationDirectory';
 import { VirtualConversationAvatar } from '../../components/VirtualConversationAvatar';
+import { groupRelationship, RelationshipDirectoryContext } from '../../lib/contactRelationship';
+import {
+  PersonRelationshipStatus,
+  GroupRelationshipStatus,
+} from '../../components/RelationshipStatus';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
 import {
   conversationAnalysisTarget,
@@ -959,6 +964,7 @@ export function GroupList({
   onSelect: (conversationId: string, event?: React.MouseEvent) => void;
   loading?: boolean;
 }) {
+  const relationships = useContext(RelationshipDirectoryContext);
   const directory = useContext(ContactDirectoryContext);
   const conversationDirectory = useContext(ConversationDirectoryContext);
   const batch = useConversationBatchActions(conversations);
@@ -990,7 +996,9 @@ export function GroupList({
   });
   const categories = useMemo(() => {
     const groups = searchable.filter(
-      (conversation) => conversation.type === 'group' && conversation.group.listed === true,
+      (conversation) =>
+        conversation.type === 'group' &&
+        groupRelationship(conversation.group, relationships) === 'member',
     );
     if (basis === 'identity')
       return [
@@ -1067,20 +1075,31 @@ export function GroupList({
         (conversation) => groupNotificationMode(conversation.notifyLevel) === section.mode,
       ),
     }));
-  }, [searchable, basis]);
+  }, [searchable, basis, relationships]);
   const historicalCategory = useMemo(
     () => ({
       mode: 'historical',
-      label: '已解散或已退出的群聊',
+      label: '我不在群内',
       historical: true,
       items: searchable.filter(
         (conversation) =>
           conversation.type === 'group' &&
-          conversation.group.membershipKnown &&
-          conversation.group.listed === false,
+          groupRelationship(conversation.group, relationships) === 'nonmember',
       ),
     }),
-    [searchable],
+    [searchable, relationships],
+  );
+  const unknownCategory = useMemo(
+    () => ({
+      mode: 'membership-unknown',
+      label: '入群状态待确认',
+      items: searchable.filter(
+        (conversation) =>
+          conversation.type === 'group' &&
+          groupRelationship(conversation.group, relationships) === 'unknown',
+      ),
+    }),
+    [searchable, relationships],
   );
   const groupSelection = useContentMultiSelect({ kind: 'contacts', container: 'groups' });
   const multi = useMultiSelection({
@@ -1094,7 +1113,11 @@ export function GroupList({
   });
 
   if (loading) return <ListSkeleton rows={9} />;
-  if (!categories.some((category) => category.items.length) && !historicalCategory.items.length)
+  if (
+    !categories.some((category) => category.items.length) &&
+    !historicalCategory.items.length &&
+    !unknownCategory.items.length
+  )
     return <EmptyState title="暂无群聊" body="" icon={<Users />} />;
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
@@ -1130,6 +1153,14 @@ export function GroupList({
         ))}
         <GroupNotificationSection
           category={historicalCategory}
+          activeConversationId={activeConversationId}
+          onSelect={onSelect}
+          selection={groupSelection}
+          multi={multi}
+          onMenu={setActionMenu}
+        />
+        <GroupNotificationSection
+          category={unknownCategory}
           activeConversationId={activeConversationId}
           onSelect={onSelect}
           selection={groupSelection}
@@ -1288,6 +1319,9 @@ function GroupNotificationSection({
               <span className="row-main">
                 <strong>
                   <span className="row-title-text">{displayGroupName(conversation.group)}</span>
+                  {!conversation.generated ? (
+                    <GroupRelationshipStatus group={conversation.group} compact />
+                  ) : null}
                 </strong>
                 <span>
                   {category.historical
@@ -1726,7 +1760,8 @@ export function ContactList({
                         </span>
                         <span className={cn('row-main', 'contact-card-main')}>
                           <span className={cn('contact-card-nickname')}>
-                            {displayUserName(contact)}
+                            <span className="row-title-text">{displayUserName(contact)}</span>
+                            <PersonRelationshipStatus person={contact} compact />
                             {contact.kind === 'bot' ? (
                               <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
                                 <Bot size={12} strokeWidth={2.4} />

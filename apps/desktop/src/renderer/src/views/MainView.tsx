@@ -196,6 +196,7 @@ import type { GroupInfoDetail } from '../im-template/template/conversationDetail
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import { QQRemarkDialog } from '../components/QQRemarkDialog';
 import { FriendDirectoryControls } from '../components/FriendDirectoryControls';
+import { RelationshipDirectoryContext } from '../lib/contactRelationship';
 import { GroupEssenceDialog } from '../components/GroupEssenceDialog';
 import {
   projectGroupEssence,
@@ -607,6 +608,7 @@ type UserProfileWire = {
   intimacy: number;
   sigUpdateTime: number;
   isFriend: boolean;
+  friendshipKnown?: boolean;
   customStatus?: {
     id?: number;
     desc?: string;
@@ -960,6 +962,8 @@ function buddyToContact(
 
   return {
     id: buddy.uid,
+    isFriend: profile?.isFriend,
+    friendshipKnown: profile?.friendshipKnown,
     identityLabel: buddy.uin && buddy.uin !== '0' ? 'QQ' : 'UID',
     identityValue: buddy.uin && buddy.uin !== '0' ? buddy.uin : buddy.uid,
     username: buddy.uid,
@@ -3995,6 +3999,29 @@ function MainWorkspace(): ReactElement {
       }),
     [buddies.data, categoryById, onlineStatusByUid, profileByUid, botUids],
   );
+  const relationshipDirectory = useMemo(() => {
+    const friends = new Map<string, { categoryName?: string | null }>();
+    for (const contact of buddyContacts) {
+      friends.set(contact.id, contact);
+      if (contact.identityLabel === 'QQ') friends.set(contact.identityValue, contact);
+    }
+    const groups = new Map<string, { listed: boolean; role?: string | null }>();
+    for (const group of (allGroups.data ?? []) as GroupDetailWire[]) {
+      if (Object.hasOwn(group, 'directory'))
+        groups.set(group.groupCode, {
+          listed: Boolean(group.directory),
+          role: group.directory?.role,
+        });
+    }
+    return {
+      selfUid: user.uid,
+      selfUin: user.identityValue,
+      friends,
+      // 当前查询有 2000 条上限；满页不能用缺席证明非好友。
+      friendsComplete: buddies.data !== undefined && buddies.data.length < 2000,
+      groups,
+    };
+  }, [buddyContacts, buddies.data, allGroups.data, user.uid, user.identityValue]);
   /**
    * 关系图谱（群友圈子 / 重合图 / 排行榜）里点某个人：复用聊天里的资料卡。
    * 能在好友列表里对上号就带上联系人对象（有备注 / 分组 / 亲密关系），否则用
@@ -4691,7 +4718,7 @@ function MainWorkspace(): ReactElement {
     return [
       {
         id: 'history:former',
-        name: '已删除好友 / 非好友',
+        name: '非好友会话',
         items: [...former.values()],
         description: '保留私聊记录，但不在当前好友列表',
       },
@@ -11679,7 +11706,9 @@ function MainWorkspace(): ReactElement {
                           }
                         />
                         <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
-                          {chatContent}
+                          <RelationshipDirectoryContext.Provider value={relationshipDirectory}>
+                            {chatContent}
+                          </RelationshipDirectoryContext.Provider>
                         </GroupAlbumCardNavigationProvider>
                       </WorkspacePages>
                     </ContactDirectoryContext.Provider>

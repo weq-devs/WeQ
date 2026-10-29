@@ -134,6 +134,8 @@ export interface UserProfile {
   age: number;
   sigUpdateTime: number;
   isFriend: boolean;
+  /** 缺少好友名册的旧备份为 false；不能把未知当成非好友。 */
+  friendshipKnown?: boolean;
   gender: number; // 1: male, 2: female, 0: unknown
   customStatus?: CustomStatus;
   extRelation?: ExtensionRelation;
@@ -237,12 +239,20 @@ export class ProfileInfoDb {
     return this.columns && !this.columns.has(id) ? 'NULL' : `${alias ? `${alias}.` : ''}"${id}"`;
   }
 
+  private async profileColumns(): Promise<string> {
+    const columns = await this.qq.tableColumns('buddy_list');
+    const friendship = columns.has('1000')
+      ? `EXISTS(SELECT 1 FROM buddy_list b WHERE b."1000" = ${this.table}."1000")`
+      : 'NULL';
+    return `${this.selectColumns},${friendship}`;
+  }
+
   /**
    * Get profile by UID.
    */
   async getProfile(uid: string): Promise<UserProfile | null> {
     const rows = await this.qq.query(
-      `SELECT ${this.selectColumns} FROM ${this.table} WHERE "1000" = ? LIMIT 1`,
+      `SELECT ${await this.profileColumns()} FROM ${this.table} WHERE "1000" = ? LIMIT 1`,
       [uid],
     );
     if (rows.length === 0) return null;
@@ -254,7 +264,7 @@ export class ProfileInfoDb {
    */
   async getProfileByUin(uin: bigint): Promise<UserProfile | null> {
     const rows = await this.qq.query(
-      `SELECT ${this.selectColumns} FROM ${this.table} WHERE "1002" = ? LIMIT 1`,
+      `SELECT ${await this.profileColumns()} FROM ${this.table} WHERE "1002" = ? LIMIT 1`,
       [uin],
     );
     if (rows.length === 0) return null;
@@ -294,7 +304,7 @@ export class ProfileInfoDb {
     if (unique.length === 0) return [];
     const placeholders = unique.map(() => '?').join(',');
     const rows = await this.qq.query(
-      `SELECT ${this.selectColumns} FROM ${this.table} WHERE "1000" IN (${placeholders})`,
+      `SELECT ${await this.profileColumns()} FROM ${this.table} WHERE "1000" IN (${placeholders})`,
       unique,
     );
     return rows.map(rowToProfile);
@@ -453,7 +463,7 @@ export class ProfileInfoDb {
    */
   async listProfiles(limit = 100, offset = 0): Promise<UserProfile[]> {
     const rows = await this.qq.query(
-      `SELECT ${this.selectColumns} FROM ${this.table} LIMIT ? OFFSET ?`,
+      `SELECT ${await this.profileColumns()} FROM ${this.table} LIMIT ? OFFSET ?`,
       [limit, offset],
     );
     return rows.map(rowToProfile);
@@ -495,7 +505,8 @@ function rowToProfile(row: SqlRow): UserProfile {
   const ageRaw = row[14];
   const sigUpdateTimeRaw = row[15];
 
-  const isFriend = relationBlob !== null && relationBlob !== undefined;
+  const friendshipKnown = row[17] !== null && row[17] !== undefined;
+  const isFriend = friendshipKnown && Number(row[17]) === 1;
 
   let gender = 0;
   const genderNum = genderRaw !== null && genderRaw !== undefined ? Number(genderRaw) : 0;
@@ -547,6 +558,7 @@ function rowToProfile(row: SqlRow): UserProfile {
     age: Number(ageRaw ?? 0),
     sigUpdateTime: Number(sigUpdateTimeRaw ?? 0),
     isFriend,
+    friendshipKnown,
     customStatus,
     extRelation,
     extInfo,
