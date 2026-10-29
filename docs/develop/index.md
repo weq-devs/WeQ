@@ -66,6 +66,7 @@ pnpm dev
 - [审计第二批修复](./audit-second-batch-20261027.md)：消息追加原子性、Bot 会话队列、停止收尾与非流式模型请求期限。
 - [审计第三批修复](./audit-third-batch-20261027.md)：认证记录回收、链接预览内存预算与 Bot 默认日志隐私。
 - [审计第四批修复](./audit-fourth-batch-20261027.md)：发布草稿至公开门禁、Web 冻结运行依赖与本地构建验证边界。
+- [Bot persona 读穿缓存](./bot-persona-cache-20261029.md)：每消息 persona 全量重读消除、失效键与冻结语义、两档语料实测。
 - [消息同步与性能修复方案](./message-sync-performance-plan-20261025.md)及[阶段实施记录](./message-sync-performance-implementation-20261025.md)：消息到达、QQ 已读消点、会话首屏与媒体的已实施范围，以及时间线虚拟化和真实性能验收待办。
 - [消息性能修补](./message-performance-20261026.md)：后续性能实现与针对性验证范围。
 - [会话首屏请求与查询优化](./conversation-entry-performance-20261028.md)：消息请求分流、目录后台调度、旧窗口取消、漫游缓存合并查询与引用媒体后补。

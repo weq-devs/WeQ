@@ -1,7 +1,8 @@
 /**
  * @weq/bot 入口：把一个导出的克隆体跑成 OneBot bot。
  *
- * startBot(config, opts) 组装 AgentLabStore(persona) + AgentRuntime(引擎) + Adapter(napcat/snowluma) +
+ * startBot(config, opts) 组装 CachedAgentLabStore(persona 读穿缓存) + AgentRuntime(引擎) +
+ * Adapter(napcat/snowluma) +
  * Orchestrator(编排) + WebUI，连上 ws 即上线。产物的 index.mjs 读 config.json 后调用它。
  *
  * 完全重载：WebUI 的 POST /api/reload → 走 opts.reloadConfig() 重读 config.json → 停掉当前实例
@@ -12,7 +13,6 @@ import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
-  AgentLabStore,
   AgentRuntime,
   TtsService,
   describeSticker,
@@ -29,6 +29,7 @@ import {
   JsonNotesStore,
   JsonRelationStore,
 } from './stores';
+import { CachedAgentLabStore } from './persona_cache';
 import { StatsStore } from './stats';
 import { startWebUi, type WebUiHandle } from './webui/server';
 import { BotLogger, botErrorMetadata } from './logger';
@@ -80,7 +81,7 @@ async function boot(
 ): Promise<BotInstance> {
   signal.throwIfAborted();
   const logger = BotLogger.create(config.logging);
-  const store = new AgentLabStore(config.personaDir);
+  const store = new CachedAgentLabStore(config.personaDir);
   const persona = store.listPersonas()[0];
   if (!persona) throw new Error(`personaDir 里没有克隆体数据: ${config.personaDir}`);
 
@@ -285,6 +286,7 @@ export type {
   WebUiConfig,
 } from './config';
 export { StatsStore } from './stats';
+export { CachedAgentLabStore } from './persona_cache';
 export { startWebUi, type WebUiHandle } from './webui/server';
 export { createAdapter, NapcatAdapter, SnowLumaAdapter, BaseOneBotAdapter } from './adapter/onebot';
 export type { OneBot11Adapter, OneBotSegment, IncomingEvent, SendTarget } from './adapter/types';
