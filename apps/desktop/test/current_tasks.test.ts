@@ -12,6 +12,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { dismissCloneTask, getCloneTasks } from '../src/renderer/src/views/agentlab/cloneTaskStore';
+import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
+import type { BackgroundTask } from '../src/shared/background_task';
 
 const fixture = vi.hoisted(() => ({
   accountId: 'fixture-account',
@@ -23,6 +25,8 @@ const fixture = vi.hoisted(() => ({
   invalidate: vi.fn(),
   info: vi.fn(),
   error: vi.fn(),
+  background: [] as BackgroundTask[],
+  backgroundRefetch: vi.fn(),
 }));
 vi.mock('../src/renderer/src/state/view', () => ({
   useViewState: (select: (state: { openedUin: string }) => unknown) =>
@@ -62,6 +66,16 @@ vi.mock('../src/renderer/src/views/agentlab/cloneTaskStore', () => {
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { account: { clearCompletedTasks: { mutate: fixture.clear } } },
   trpc: {
+    backgroundTasks: {
+      details: { useQuery: () => ({ data: [] }) },
+      list: {
+        useQuery: () => ({
+          data: fixture.background,
+          isLoading: false,
+          refetch: fixture.backgroundRefetch,
+        }),
+      },
+    },
     useUtils: () => ({
       account: {
         flashListDownloadTasks: { invalidate: fixture.invalidate },
@@ -71,6 +85,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     }),
     account: {
+      getAccountConfig: {
+        useQuery: () => ({ data: { uin: fixture.accountId, configId: 'fixture-config' } }),
+      },
       roamingBackfill: {
         list: {
           useQuery: () => ({
@@ -111,6 +128,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 }));
 
 afterEach(() => {
+  for (const task of localBackgroundTasks.snapshot()) {
+    localBackgroundTasks.finish(task.id, 'cancelled');
+    localBackgroundTasks.remove(task.id);
+  }
+  fixture.background = [];
   fixture.accountId = 'fixture-account';
   fixture.roamingStatus = 'partial';
   fixture.plannedSeqs = 100;
@@ -122,6 +144,63 @@ afterEach(() => {
 });
 
 describe('统一当前任务', () => {
+  it('新增任务复用同一列表，保留停止操作、账号隔离及完成清除', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const stop = vi.fn();
+    const id = localBackgroundTasks.start({
+      kind: 'forward',
+      name: '合成逐条转发',
+      scope: { uin: fixture.accountId, configId: 'fixture-config' },
+    });
+    localBackgroundTasks.setActions(id, [{ id: 'stop', label: '停止转发', run: stop }]);
+    const other = localBackgroundTasks.start({
+      kind: 'forward',
+      name: '其他账号转发',
+      scope: { uin: 'other' },
+    });
+    localBackgroundTasks.finish(other, 'completed');
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          h(CurrentTaskList, {
+            exports: [],
+            renderExport: () => null,
+            onSaveAll: vi.fn(),
+            cleanupBinding: {
+              expectedAccountUin: fixture.accountId,
+              expectedAccountConfigId: 'fixture-config',
+            },
+          }),
+        ),
+      );
+      expect(host.textContent).toContain('合成逐条转发');
+      expect(host.textContent).not.toContain('其他账号转发');
+      act(() =>
+        [...host.querySelectorAll<HTMLButtonElement>('.weq-long-task')]
+          .find((button) => button.textContent?.includes('合成逐条转发'))!
+          .click(),
+      );
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '停止转发')!
+          .click(),
+      );
+      expect(stop).toHaveBeenCalledOnce();
+      act(() => localBackgroundTasks.finish(id, 'completed'));
+      fixture.confirm.mockResolvedValueOnce(true);
+      fixture.clear.mockResolvedValueOnce({ removed: 0, skipped: 0, errors: [] });
+      await act(async () =>
+        host.querySelector<HTMLButtonElement>('[aria-label="清除已完成任务"]')!.click(),
+      );
+      expect(localBackgroundTasks.snapshot().some((task) => task.id === id)).toBe(false);
+      expect(localBackgroundTasks.snapshot().some((task) => task.id === other)).toBe(true);
+      expect(fixture.info).toHaveBeenCalledWith('清除完成', '已清除 1 项任务。');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
   it('没有候选缺口时只显示检查结果，不显示缺口已覆盖', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     fixture.roamingStatus = 'completed';

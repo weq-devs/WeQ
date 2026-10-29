@@ -7,17 +7,32 @@ import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
 import { DEFAULT_FORWARD_OPTIONS } from '../src/renderer/src/lib/sequentialForward';
 import { MergeForwardTargets } from '../src/renderer/src/components/mergeForward/MergeForwardTargets';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
-  const proxy = (): unknown =>
+  const proxy = (path: string[] = []): unknown =>
     new Proxy(() => proxy(), {
       get: (_target, key) =>
-        key === 'useQuery' ? () => ({ data: undefined, isLoading: false }) : proxy(),
+        key === 'useQuery'
+          ? () => ({
+              data: path.includes('getAccountConfig')
+                ? { uin: '', configId: 'fixture' }
+                : undefined,
+              isLoading: false,
+            })
+          : proxy([...path, String(key)]),
     });
-  return { trpc: proxy(), client: proxy() };
+  return {
+    trpc: proxy(),
+    client: proxy(),
+  };
 });
 
 afterEach(() => {
+  for (const task of localBackgroundTasks.snapshot()) {
+    localBackgroundTasks.finish(task.id, 'cancelled');
+    localBackgroundTasks.remove(task.id);
+  }
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -55,6 +70,7 @@ it('多个目标并行发送且群内保序，一个目标失败不会阻塞其�
   let release: (() => void) | undefined;
   const events: string[] = [];
   const task = startSequentialForward({
+    scope: { uin: 'fixture', configId: 'fixture-config' },
     messages,
     targets: [target, second],
     options: DEFAULT_FORWARD_OPTIONS,
@@ -236,6 +252,7 @@ it('只停止一个目标，不跳转也不停止其他群；所有队列结束�
     await act(async () => {
       root.render(createElement(ToastHost));
       task = startSequentialForward({
+        scope: { uin: 'fixture', configId: 'fixture-config' },
         messages,
         targets: [target, second],
         options: { ...DEFAULT_FORWARD_OPTIONS, intervalMs: 1000 },
@@ -419,6 +436,7 @@ it('先展示预估，卸载配置窗仍转发，等待与完成时均可点击�
 it('等待期间可以停止，不再发送下一条；失败保留原因且不冒称成功', async () => {
   const send = vi.fn(async () => {});
   const pending = startSequentialForward({
+    scope: { uin: 'fixture', configId: 'fixture-config' },
     messages,
     targets: [target],
     options: { ...DEFAULT_FORWARD_OPTIONS, mode: 'text' },
@@ -429,6 +447,7 @@ it('等待期间可以停止，不再发送下一条；失败保留原因且不�
   await pending.done;
   expect(send).not.toHaveBeenCalled();
   const failed = startSequentialForward({
+    scope: { uin: 'fixture', configId: 'fixture-config' },
     messages,
     targets: [target],
     options: DEFAULT_FORWARD_OPTIONS,
@@ -440,4 +459,9 @@ it('等待期间可以停止，不再发送下一条；失败保留原因且不�
   await failed.done;
   expect(useToast.getState().toasts.at(-1)?.tone).toBe('warning');
   expect(useToast.getState().toasts.at(-1)?.detail).toContain('合成失败');
+  expect(localBackgroundTasks.snapshot().map((task) => task.status)).toEqual([
+    'cancelled',
+    'failed',
+  ]);
+  expect(localBackgroundTasks.snapshot().at(-1)?.details?.join('')).toContain('合成失败');
 });

@@ -50,6 +50,24 @@ afterEach(async () => {
 });
 
 describe('账号内收藏导入预览生命周期', () => {
+  it('无人轮询时仍发布进度与最终回执，展示监听器失败不改变 QQ 写入结局', async () => {
+    const f = await fixture();
+    const view = await f.manager.prepare(f.archive, () => {});
+    const observed: string[] = [];
+    f.manager.start(view.token, [view.items[0]!.key], exclusive, (snapshot) => {
+      observed.push(snapshot.phase);
+      snapshot.error = '外部修改不能污染内部回执';
+      if (snapshot.phase === 'running') throw new Error('合成展示错误');
+    });
+    await vi.waitFor(() => expect(observed.at(-1)).toBe('finished'));
+    expect(observed).toContain('running');
+    expect(f.manager.read()).toMatchObject({
+      phase: 'finished',
+      error: null,
+      result: { items: [{ state: 'confirmed' }] },
+    });
+    expect(f.port.addFavorite).toHaveBeenCalledOnce();
+  });
   it('只返回预览地址与元数据，私有原图不进入 IPC，丢弃后撤销预览并删除文件', async () => {
     const f = await fixture();
     const view = await f.manager.prepare(f.archive, () => {});

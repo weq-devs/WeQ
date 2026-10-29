@@ -7,6 +7,7 @@ import {
   RESOURCE_CATEGORIES,
   type ResourceSource,
 } from '../src/renderer/src/views/cache/resourceManagement';
+import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 
 const f = vi.hoisted(() => ({ analyze: vi.fn(), targets: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
@@ -39,6 +40,10 @@ beforeEach(() => {
 afterEach(() => {
   for (const close of cleanups.splice(0)) close();
   vi.unstubAllGlobals();
+  for (const task of localBackgroundTasks.snapshot()) {
+    localBackgroundTasks.finish(task.id, 'cancelled');
+    localBackgroundTasks.remove(task.id);
+  }
 });
 async function mount() {
   const host = document.createElement('div'),
@@ -81,9 +86,31 @@ it('隐藏时丢弃迟到统计并停止后续请求，重新激活后完成统�
   expect(page.current().stats).toHaveLength(0);
   expect(f.analyze).toHaveBeenCalledOnce();
   expect(f.targets).not.toHaveBeenCalled();
+  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('cancelled');
   await page.render();
   expect(page.current().complete).toBe(true);
   expect(f.analyze).toHaveBeenCalledTimes(9);
+  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('completed');
+});
+it('任务列表停止扫描等待在途请求返回，不继续读取下一目录且可重试', async () => {
+  let finish!: (value: ResourceStat) => void;
+  f.analyze.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const page = await mount();
+  const task = localBackgroundTasks.snapshot().at(-1)!;
+  await act(async () => localBackgroundTasks.act(task.id, 'stop'));
+  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('running');
+  await act(async () => finish(stat('pic')));
+  expect(f.analyze).toHaveBeenCalledOnce();
+  expect(f.targets).not.toHaveBeenCalled();
+  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('cancelled');
+  expect(page.current().scanningKey).toBeNull();
+  await act(async () => page.current().refresh());
+  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('completed');
 });
 it('同号换源后旧统计及旧刷新回调都不能影响新来源', async () => {
   let finish!: (value: ResourceStat) => void;

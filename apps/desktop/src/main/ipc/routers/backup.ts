@@ -16,6 +16,7 @@ import {
 import { getBackupContext } from '../../context/backup_context';
 import { retryBackupRecovery } from '../../context/app_context';
 import { procedure } from '../trpc';
+import { backgroundTasks, runBackgroundTask } from '../../background_tasks';
 
 const selection = z.object({
   parts: z.array(z.enum(WEQ_BACKUP_PARTS)).min(1).max(4),
@@ -84,24 +85,43 @@ export const backupProcedures = {
         extension: 'zip',
       });
       if (!target) return null;
-      const snapshot = ctx.backups.snapshot(input, input.client);
-      await writeWeqBackupExclusive(target.path, snapshot.archive);
-      const download = host.registerDownload?.(target.path, basename(target.path), 'file');
-      return {
-        id: ctx.backups.rememberExport(target.path),
-        path: target.path,
-        downloadUrl: download?.url ?? null,
-        canReveal: host.canReveal,
-        summary: snapshot.summary,
-      };
+      return runBackgroundTask(
+        { kind: 'backup', name: 'WeQ 配置备份' },
+        async (id) => {
+          const snapshot = ctx.backups.snapshot(input, input.client);
+          await writeWeqBackupExclusive(target.path, snapshot.archive);
+          const download = host.registerDownload?.(target.path, basename(target.path), 'file');
+          if (download)
+            backgroundTasks.update(id, {
+              download: { url: download.url, name: basename(target.path) },
+            });
+          if (host.canReveal)
+            backgroundTasks.setActions(id, [
+              { id: 'open', label: '定位备份文件', run: () => host.revealInFolder(target.path) },
+            ]);
+          return {
+            id: ctx.backups.rememberExport(target.path),
+            path: target.path,
+            downloadUrl: download?.url ?? null,
+            canReveal: host.canReveal,
+            summary: snapshot.summary,
+          };
+        },
+        (result) => ({ note: result.path }),
+      );
     }),
   backupPick: procedure.mutation(async () => {
     const ctx = ready();
     const path = await getHost().pickFile({ title: '选择 WeQ 备份', extensions: ['zip'] });
     return path
-      ? ctx.backups.inspect(
-          readWeqBackupFile(path, WEQ_BACKUP_LIMITS.maxArchiveBytes),
-          basename(path),
+      ? runBackgroundTask(
+          { kind: 'backup', name: '读取 WeQ 备份' },
+          () =>
+            ctx.backups.inspect(
+              readWeqBackupFile(path, WEQ_BACKUP_LIMITS.maxArchiveBytes),
+              basename(path),
+            ),
+          () => ({ note: '备份已读取，尚未执行恢复' }),
         )
       : null;
   }),
@@ -123,13 +143,29 @@ export const backupProcedures = {
     .mutation(({ input }) => ready().backups.finishUpload(input.id)),
   backupPrepare: procedure
     .input(choice.extend({ sourceId: z.string() }))
-    .mutation(({ input: { sourceId, ...choice } }) => ready().backups.prepare(sourceId, choice)),
-  backupStage: procedure
-    .input(z.object({ previewId: z.string() }))
-    .mutation(({ input }) => ready().backups.stage(input.previewId)),
+    .mutation(({ input: { sourceId, ...choice } }) =>
+      runBackgroundTask(
+        { kind: 'backup', name: '校验 WeQ 恢复范围' },
+        () => ready().backups.prepare(sourceId, choice),
+        () => ({ note: '恢复范围已校验，尚未应用恢复' }),
+      ),
+    ),
+  backupStage: procedure.input(z.object({ previewId: z.string() })).mutation(({ input }) =>
+    runBackgroundTask(
+      { kind: 'backup', name: '暂存 WeQ 恢复' },
+      () => ready().backups.stage(input.previewId),
+      () => ({ note: '恢复数据已暂存，等待重启应用；尚未应用到当前运行实例' }),
+    ),
+  ),
   backupDefaults: procedure
     .input(z.object({ clientId: z.string().uuid().optional() }).optional())
-    .mutation(({ input }) => ready().backups.stageDefaults(input?.clientId)),
+    .mutation(({ input }) =>
+      runBackgroundTask(
+        { kind: 'backup', name: '暂存恢复默认设置' },
+        () => ready().backups.stageDefaults(input?.clientId),
+        () => ({ note: '默认设置已暂存，等待重启应用' }),
+      ),
+    ),
   backupDiscardPreview: procedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
     const ctx = getBackupContext();
     if (ctx.ok) ctx.backups.dispose(input.id);

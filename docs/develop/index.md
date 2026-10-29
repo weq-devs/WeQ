@@ -22,6 +22,7 @@ pnpm dev
 ### 内容与工具
 
 - [界面与工具设计约定](./ux-discussion-20261017.md)：内容优先、选择草稿、任务身份和平台边界。
+- [后台任务接入](./background-task-integration-20261029.md)：模型、更新、维护、导入、转发、上传及资源操作的统一进度与回执。
 - [内容能力与缺口](./content-capability-census-20261018.md)：区分已接入父级与尚未覆盖的子内容。
 - [语音通话](./voice-call-20261023.md)：私聊主动发起的三层协议（信令 / GCS / Opus）、编解码来源与能力边界。
 - [视频通话](./video-call-20261025.md)：视频信令档位、H.265 媒体包格式、摄像头开关控制包与保活。
@@ -67,6 +68,7 @@ pnpm dev
 - [审计第三批修复](./audit-third-batch-20261027.md)：认证记录回收、链接预览内存预算与 Bot 默认日志隐私。
 - [审计第四批修复](./audit-fourth-batch-20261027.md)：发布草稿至公开门禁、Web 冻结运行依赖与本地构建验证边界。
 - [Bot persona 读穿缓存](./bot-persona-cache-20261029.md)：每消息 persona 全量重读消除、失效键与冻结语义、两档语料实测。
+- [Bot 存储热路径优化](./bot-store-hotpath-20261029.md)：整库深拷贝消除、冻结发布与增量校验，消息落库耗时与内存峰值实测。
 - [消息同步与性能修复方案](./message-sync-performance-plan-20261025.md)及[阶段实施记录](./message-sync-performance-implementation-20261025.md)：消息到达、QQ 已读消点、会话首屏与媒体的已实施范围，以及时间线虚拟化和真实性能验收待办。
 - [消息性能修补](./message-performance-20261026.md)：后续性能实现与针对性验证范围。
 - [会话首屏请求与查询优化](./conversation-entry-performance-20261028.md)：消息请求分流、目录后台调度、旧窗口取消、漫游缓存合并查询与引用媒体后补。

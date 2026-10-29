@@ -16,6 +16,7 @@ import { useToast } from '../Toast';
 import { Card, SectionHeader } from './controls';
 import { useTabActive } from '../RetainedTabs';
 import { Modal } from '../Dialog';
+import { localBackgroundTasks } from '../../state/backgroundTasks';
 import '../../styles/backup.css';
 
 const PARTS: WeqBackupPart[] = ['settings', 'accounts', 'api', 'clones'];
@@ -221,30 +222,61 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   async function upload(file: File) {
     if (!inventory || file.size < 1 || file.size > inventory.maxArchiveBytes)
       throw new Error('请选择不超过 260 MiB 的非空 WeQ 备份');
-    await accept(async () => {
-      const id = await api.begin(file.name, file.size);
-      sourceId.current = id;
-      try {
-        for (let offset = 0; offset < file.size; offset += inventory.chunkBytes) {
-          if (!alive.current) throw new Error('备份上传已取消');
-          const bytes = new Uint8Array(
-            await file.slice(offset, offset + inventory.chunkBytes).arrayBuffer(),
-          );
-          let binary = '';
-          for (const byte of bytes) binary += String.fromCharCode(byte);
-          await api.chunk(id, offset, btoa(binary));
-          if (alive.current)
-            setBusy(
-              `正在上传 ${Math.min(100, Math.round(((offset + bytes.length) / file.size) * 100))}%`,
+    const taskId = localBackgroundTasks.start({ kind: 'backup', name: `读取备份 · ${file.name}` });
+    let stopped = false;
+    localBackgroundTasks.setActions(taskId, [
+      {
+        id: 'stop',
+        label: '停止读取备份',
+        run: () => {
+          stopped = true;
+          localBackgroundTasks.update(taskId, { statusLabel: '停止收尾中' });
+        },
+      },
+    ]);
+    try {
+      await accept(async () => {
+        const id = await api.begin(file.name, file.size);
+        sourceId.current = id;
+        try {
+          for (let offset = 0; offset < file.size; offset += inventory.chunkBytes) {
+            if (!alive.current || stopped) throw new Error('备份上传已取消');
+            const bytes = new Uint8Array(
+              await file.slice(offset, offset + inventory.chunkBytes).arrayBuffer(),
             );
+            if (!alive.current || stopped) throw new Error('备份上传已取消');
+            let binary = '';
+            for (const byte of bytes) binary += String.fromCharCode(byte);
+            await api.chunk(id, offset, btoa(binary));
+            localBackgroundTasks.update(taskId, {
+              progress: ((offset + bytes.length) / file.size) * 100,
+              note: '正在上传备份到宿主',
+            });
+            if (alive.current)
+              setBusy(
+                `正在上传 ${Math.min(100, Math.round(((offset + bytes.length) / file.size) * 100))}%`,
+              );
+          }
+          if (!alive.current || stopped) throw new Error('备份上传已取消');
+          localBackgroundTasks.update(taskId, { progress: undefined, note: '正在校验备份内容' });
+          return await api.finish(id);
+        } catch (e) {
+          await api.dispose(id).catch(() => {});
+          if (sourceId.current === id) sourceId.current = null;
+          throw e;
         }
-        return await api.finish(id);
-      } catch (e) {
-        await api.dispose(id).catch(() => {});
-        if (sourceId.current === id) sourceId.current = null;
-        throw e;
-      }
-    });
+      });
+      localBackgroundTasks.finish(taskId, stopped || !alive.current ? 'cancelled' : 'completed', {
+        note: stopped || !alive.current ? '备份读取已停止' : '备份已读取，尚未执行恢复',
+      });
+    } catch (error) {
+      localBackgroundTasks.finish(taskId, stopped || !alive.current ? 'cancelled' : 'failed', {
+        note: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      localBackgroundTasks.setActions(taskId, []);
+    }
   }
   const pending = inventory?.restore.pending;
   const result = inventory?.restore.result;

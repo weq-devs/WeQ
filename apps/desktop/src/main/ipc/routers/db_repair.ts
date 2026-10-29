@@ -54,6 +54,7 @@ import {
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { databaseCheckups } from '../../db_checkup';
+import { backgroundTasks, runBackgroundTask } from '../../background_tasks';
 
 const logger = getLogger().child({ scope: 'db-repair' });
 
@@ -69,6 +70,16 @@ export interface DbRepairTaskProgress extends DbRepairProgress {
 }
 
 const progressBus = new EventEmitter();
+const checkupTasks = new Map<string, { id: string; cancelled: boolean }>();
+
+function cancelTrackedCheckup(uin: string, taskId: string) {
+  const task = checkupTasks.get(`${uin}:${taskId}`);
+  if (task) {
+    task.cancelled = true;
+    backgroundTasks.update(task.id, { statusLabel: '停止收尾中' });
+  }
+  return databaseCheckups.cancel(uin, taskId);
+}
 
 /** 列表里一条记录的精简形状（列表不需要全部字段）。 */
 export interface DbRepairRecordSummary {
@@ -495,12 +506,16 @@ export const dbRepairRouter = router({
       const platform = requirePlatform();
       try {
         const target = service.resolveTarget(input.uin, input.dbName);
-        return await scanDatabaseBadPages(platform.native.ntHelper, {
-          dbPath: target.dbPath,
-          dbName: input.dbName,
-          key: target.key,
-          algo: target.algo,
-        });
+        return await runBackgroundTask(
+          { kind: 'database', name: `数据库坏页扫描 · ${input.dbName}`, scope: { uin: input.uin } },
+          () =>
+            scanDatabaseBadPages(platform.native.ntHelper, {
+              dbPath: target.dbPath,
+              dbName: input.dbName,
+              key: target.key,
+              algo: target.algo,
+            }),
+        );
       } catch (error) {
         rethrow(error);
       }
@@ -525,12 +540,37 @@ export const dbRepairRouter = router({
     .input(targetRef.extend({ taskId: z.string().min(1).max(128) }))
     .mutation(({ input }): Promise<DbRepairCheckup> => {
       const target = service.resolveTarget(input.uin, input.dbName);
-      return databaseCheckups.start(input.uin, input.taskId, target);
+      const key = `${input.uin}:${input.taskId}`;
+      return runBackgroundTask(
+        { kind: 'database', name: `数据库体检 · ${input.dbName}`, scope: { uin: input.uin } },
+        async (id) => {
+          const tracked = { id, cancelled: false };
+          if (checkupTasks.has(key)) throw new Error('这个体检任务已经在运行。');
+          checkupTasks.set(key, tracked);
+          backgroundTasks.setActions(id, [
+            {
+              id: 'stop',
+              label: '停止体检',
+              run: () => cancelTrackedCheckup(input.uin, input.taskId),
+            },
+          ]);
+          try {
+            return await databaseCheckups.start(input.uin, input.taskId, target);
+          } catch (error) {
+            if (tracked.cancelled) backgroundTasks.finish(id, 'cancelled', { note: '体检已停止' });
+            throw error;
+          } finally {
+            checkupTasks.delete(key);
+            backgroundTasks.setActions(id, []);
+          }
+        },
+        (report) => ({ note: report.summary }),
+      );
     }),
 
   cancelCheckup: procedure
     .input(accountRef.extend({ taskId: z.string().min(1).max(128) }))
-    .mutation(({ input }) => databaseCheckups.cancel(input.uin, input.taskId)),
+    .mutation(({ input }) => cancelTrackedCheckup(input.uin, input.taskId)),
 
   /**
    * 结束挡住该库的 QQ 进程。
@@ -627,15 +667,13 @@ export const dbRepairRouter = router({
   }),
 
   /** 手动备份（不修复，只留一份修复前的快照）。 */
-  backup: procedure
-    .input(targetRef)
-    .mutation(({ input }): { path: string; bytes: number; sha256: string } => {
-      try {
-        return service.backup(input.uin, input.dbName);
-      } catch (error) {
-        rethrow(error);
-      }
-    }),
+  backup: procedure.input(targetRef).mutation(({ input }) =>
+    runBackgroundTask(
+      { kind: 'database', name: `数据库备份 · ${input.dbName}`, scope: { uin: input.uin } },
+      () => service.backup(input.uin, input.dbName),
+      (result) => ({ note: result.path }),
+    ),
+  ),
 
   /**
    * 跑一次修复。
@@ -655,37 +693,60 @@ export const dbRepairRouter = router({
         layoutMigration: z.boolean().optional(),
       }),
     )
-    .mutation(async ({ input }): Promise<DbRepairTaskResult> => {
-      closedAccountDuringRun = false;
-      const platform = requirePlatform();
-      try {
-        assertRecoverCapable(platform.native.ntHelper, '数据库修复');
-        const record = await service.repair(
+    .mutation(
+      ({ input }): Promise<DbRepairTaskResult> =>
+        runBackgroundTask(
           {
-            uin: input.uin,
-            dbName: input.dbName,
-            ...(input.backup === undefined ? {} : { backup: input.backup }),
-            ...(input.allowLowSpace === undefined ? {} : { allowLowSpace: input.allowLowSpace }),
-            ...(input.strictPages === undefined ? {} : { strictPages: input.strictPages }),
-            ...(input.layoutMigration === undefined
-              ? {}
-              : { layoutMigration: input.layoutMigration }),
+            kind: 'database',
+            name: `${input.layoutMigration ? '数据库布局迁移' : '数据库修复'} · ${input.dbName}`,
+            scope: { uin: input.uin },
           },
-          (progress) => {
-            progressBus.emit('progress', {
-              ...progress,
-              uin: input.uin,
-              dbName: input.dbName,
-            } satisfies DbRepairTaskProgress);
+          async (taskId): Promise<DbRepairTaskResult> => {
+            closedAccountDuringRun = false;
+            const platform = requirePlatform();
+            try {
+              assertRecoverCapable(platform.native.ntHelper, '数据库修复');
+              const record = await service.repair(
+                {
+                  uin: input.uin,
+                  dbName: input.dbName,
+                  ...(input.backup === undefined ? {} : { backup: input.backup }),
+                  ...(input.allowLowSpace === undefined
+                    ? {}
+                    : { allowLowSpace: input.allowLowSpace }),
+                  ...(input.strictPages === undefined ? {} : { strictPages: input.strictPages }),
+                  ...(input.layoutMigration === undefined
+                    ? {}
+                    : { layoutMigration: input.layoutMigration }),
+                },
+                (progress) => {
+                  backgroundTasks.update(taskId, {
+                    progress: progress.percent,
+                    note: progress.message || progress.phase,
+                  });
+                  progressBus.emit('progress', {
+                    ...progress,
+                    uin: input.uin,
+                    dbName: input.dbName,
+                  } satisfies DbRepairTaskProgress);
+                },
+              );
+              return { ok: true, record, closedAccount: closedAccountDuringRun };
+            } catch (error) {
+              return failedResult(error, closedAccountDuringRun, 'db-repair-start-failed');
+            } finally {
+              closedAccountDuringRun = false;
+            }
           },
-        );
-        return { ok: true, record, closedAccount: closedAccountDuringRun };
-      } catch (error) {
-        return failedResult(error, closedAccountDuringRun, 'db-repair-start-failed');
-      } finally {
-        closedAccountDuringRun = false;
-      }
-    }),
+          (result) =>
+            result.ok
+              ? {
+                  note: result.closedAccount ? '已完成，请重新打开账号' : '修复完成',
+                  details: result.record.reportPath ? [result.record.reportPath] : [],
+                }
+              : { status: 'failed', note: result.error },
+        ),
+    ),
 
   /**
    * 回滚到修复前。
@@ -697,19 +758,30 @@ export const dbRepairRouter = router({
    */
   restore: procedure
     .input(recordRef.extend({ force: z.boolean().optional() }))
-    .mutation(({ input }): DbRepairTaskResult => {
-      closedAccountDuringRun = false;
-      try {
-        const record = service.restore(input.uin, input.recordId, {
-          ...(input.force === undefined ? {} : { force: input.force }),
-        });
-        return { ok: true, record, closedAccount: closedAccountDuringRun };
-      } catch (error) {
-        return failedResult(error, closedAccountDuringRun, 'db-repair-restore-failed');
-      } finally {
-        closedAccountDuringRun = false;
-      }
-    }),
+    .mutation(({ input }) =>
+      runBackgroundTask(
+        { kind: 'database', name: '数据库恢复', scope: { uin: input.uin } },
+        (): DbRepairTaskResult => {
+          closedAccountDuringRun = false;
+          try {
+            const record = service.restore(input.uin, input.recordId, {
+              ...(input.force === undefined ? {} : { force: input.force }),
+            });
+            return { ok: true, record, closedAccount: closedAccountDuringRun };
+          } catch (error) {
+            return failedResult(error, closedAccountDuringRun, 'db-repair-restore-failed');
+          } finally {
+            closedAccountDuringRun = false;
+          }
+        },
+        (result) =>
+          result.ok
+            ? {
+                note: `${result.record.dbName} 已恢复${result.closedAccount ? '，请重新打开账号' : ''}`,
+              }
+            : { status: 'failed', note: result.error },
+      ),
+    ),
 
   /** 删掉一条记录的备份（释放空间）；记录留着并标 `purgedAt`。 */
   deleteBackup: procedure.input(recordRef).mutation(({ input }): { removed: boolean } => {

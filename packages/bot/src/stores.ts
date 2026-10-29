@@ -1,6 +1,14 @@
 /**
  * bot 侧的 store 实现（JSON 落盘），满足 AgentRuntime 的各 Sink 接口。
  * 数据落在产物的 data/ 目录；损坏原件拒绝加载，原子保存成功后才发布内存变更。
+ *
+ * 热路径内存约定（配合 BotJsonFile 的冻结发布）：
+ * - 已发布数据整树冻结，读取返回「新数组 + 逐条浅拷贝」而不是整库 structuredClone：
+ *   标量字段的修改对存储无害（与旧深拷贝语义一致），嵌套数组（记忆向量、关键词）
+ *   共享冻结引用，原地改写会抛 TypeError 而不是静默污染存储。
+ * - 写入用最小新鲜副本：只为「本次新增或变更的条目」构造新对象，未变更条目直接共享冻结引用，
+ *   由 replace 的所有权转移 + 增量冻结完成发布。传入 replace / upsert / append 的新对象
+ *   所有权移交存储，调用方不得保留引用再修改。
  */
 import { createHash } from 'node:crypto';
 import {
@@ -20,8 +28,8 @@ import {
 } from '@weq/agentlab';
 import { BotJsonFile, isDictionary, isRecord, isStrings, isNumber, own } from './json_file';
 
-const MAX_TURNS = 400;
-const MAX_MEMORIES = 200;
+export const MAX_TURNS = 400;
+export const MAX_MEMORIES = 200;
 
 function isTurns(raw: unknown): raw is ConversationTurnLike[] {
   return (
@@ -35,22 +43,29 @@ function isTurns(raw: unknown): raw is ConversationTurnLike[] {
     )
   );
 }
+/**
+ * 冻结条目在发布前必然已通过校验（BotJsonFile 的发布不变量），重复 replace 时跳过昂贵的
+ * 字段级扫描（向量 / 关键词逐项检查），把校验成本收敛到「本次新增 / 变更」的条目。
+ * isRecord 前置保证原始值不会借 Object.isFrozen(非对象)=true 混过校验；
+ * 调用方不得注入外部自行冻结的未校验数据。
+ */
 function isMemories(raw: unknown): raw is AgentLabMemoryItem[] {
   return (
     Array.isArray(raw) &&
     raw.every(
       (m) =>
         isRecord(m) &&
-        typeof m.id === 'string' &&
-        typeof m.text === 'string' &&
-        isStrings(m.keywords) &&
-        isNumber(m.accessCount) &&
-        isNumber(m.createdAt) &&
-        isNumber(m.lastAccessedAt) &&
-        (m.embedding === undefined ||
-          (Array.isArray(m.embedding) && m.embedding.every(isNumber))) &&
-        (m.aboutId === undefined || typeof m.aboutId === 'string') &&
-        (m.aboutKind === undefined || m.aboutKind === 'user' || m.aboutKind === 'persona'),
+        (Object.isFrozen(m) ||
+          (typeof m.id === 'string' &&
+            typeof m.text === 'string' &&
+            isStrings(m.keywords) &&
+            isNumber(m.accessCount) &&
+            isNumber(m.createdAt) &&
+            isNumber(m.lastAccessedAt) &&
+            (m.embedding === undefined ||
+              (Array.isArray(m.embedding) && m.embedding.every(isNumber))) &&
+            (m.aboutId === undefined || typeof m.aboutId === 'string') &&
+            (m.aboutKind === undefined || m.aboutKind === 'user' || m.aboutKind === 'persona'))),
     )
   );
 }
@@ -97,19 +112,25 @@ export class JsonConversationStore implements ConversationSink {
     );
   }
   get(agentId: string): ConversationTurnLike[] {
-    return structuredClone(own(this.file.data, agentId) ?? []);
+    const turns = own(this.file.data, agentId);
+    return turns ? turns.map((t) => ({ ...t })) : [];
   }
   getAll(prefix: string): ConversationTurnLike[] {
     const prefixWithColon = `${prefix}:`;
     const out: ConversationTurnLike[] = [];
     for (const key of Object.keys(this.file.data)) {
-      if (key === prefix || key.startsWith(prefixWithColon)) out.push(...this.get(key));
+      if (key === prefix || key.startsWith(prefixWithColon)) {
+        const turns = own(this.file.data, key);
+        if (turns) for (const t of turns) out.push({ ...t });
+      }
     }
     return out.sort((a, b) => a.ts - b.ts);
   }
+  /** `turns` 的所有权移交给存储（发布后随整树冻结）；调用方不得保留引用再修改。 */
   append(agentId: string, turns: ConversationTurnLike[]): void {
-    const next = [...this.get(agentId), ...turns];
-    this.file.replace({ ...this.file.data, [agentId]: next.slice(-MAX_TURNS) });
+    const prev = own(this.file.data, agentId);
+    const merged = prev ? [...prev, ...turns] : [...turns];
+    this.file.replace({ ...this.file.data, [agentId]: merged.slice(-MAX_TURNS) });
   }
 }
 
@@ -123,24 +144,30 @@ export class JsonMemoryStore implements MemorySink {
     );
   }
   get(personaId: string): AgentLabMemoryItem[] {
-    return structuredClone(own(this.file.data, personaId) ?? []);
+    const items = own(this.file.data, personaId);
+    // 浅拷贝条目：embedding / keywords 数组共享冻结引用（消费端只读，改写会显式抛错）。
+    return items ? items.map((m) => ({ ...m })) : [];
   }
   getAbout(personaId: string, aboutIds: string[], includeUntagged = false): AgentLabMemoryItem[] {
     const ids = new Set(aboutIds);
-    return this.get(personaId).filter((m) => (m.aboutId ? ids.has(m.aboutId) : includeUntagged));
+    const items = own(this.file.data, personaId);
+    if (!items) return [];
+    return items
+      .filter((m) => (m.aboutId ? ids.has(m.aboutId) : includeUntagged))
+      .map((m) => ({ ...m }));
   }
   touch(personaId: string, ids: string[], now: number): void {
     if (ids.length === 0) return;
+    const cur = own(this.file.data, personaId);
+    if (!cur) return;
     const idSet = new Set(ids);
     let changed = false;
-    const next = this.get(personaId);
-    for (const m of next) {
-      if (idSet.has(m.id)) {
-        m.accessCount += 1;
-        m.lastAccessedAt = now;
-        changed = true;
-      }
-    }
+    // 只为命中的条目构造新对象；未命中条目共享冻结引用，避免整库（含向量）深拷贝。
+    const next = cur.map((m) => {
+      if (!idSet.has(m.id)) return m;
+      changed = true;
+      return { ...m, accessCount: m.accessCount + 1, lastAccessedAt: now };
+    });
     if (changed) this.file.replace({ ...this.file.data, [personaId]: next });
   }
   add(
@@ -150,16 +177,16 @@ export class JsonMemoryStore implements MemorySink {
     about?: { aboutId: string; aboutKind: 'user' | 'persona' },
     embeddings?: Array<number[] | undefined>,
   ): void {
-    const cur = this.get(personaId);
+    const cur = own(this.file.data, personaId) ?? [];
     const seen = new Set(cur.map((m) => `${m.aboutId ?? ''} ${m.text}`));
-    let added = 0;
+    const fresh: AgentLabMemoryItem[] = [];
     texts.forEach((raw, i) => {
       const t = raw.trim();
       const key = `${about?.aboutId ?? ''} ${t}`;
       if (!t || seen.has(key)) return;
       seen.add(key);
       const emb = embeddings?.[i];
-      cur.push({
+      fresh.push({
         id: createHash('sha1')
           .update(`${personaId}|${t}|${now + i}`)
           .digest('hex')
@@ -172,9 +199,12 @@ export class JsonMemoryStore implements MemorySink {
         createdAt: now,
         lastAccessedAt: now,
       });
-      added += 1;
     });
-    if (added > 0) this.file.replace({ ...this.file.data, [personaId]: cur.slice(-MAX_MEMORIES) });
+    if (fresh.length > 0)
+      this.file.replace({
+        ...this.file.data,
+        [personaId]: [...cur, ...fresh].slice(-MAX_MEMORIES),
+      });
   }
 }
 
@@ -184,9 +214,10 @@ export class JsonNotesStore implements NotesSink {
     this.file = new BotJsonFile(filePath, () => ({}), isNotesData);
   }
   get(personaId: string): AgentLabPersonaNotes {
-    return structuredClone(
-      own(this.file.data.notes ?? {}, personaId) ?? { corrections: [], episodes: [] },
-    );
+    const notes = own(this.file.data.notes ?? {}, personaId);
+    return notes
+      ? { corrections: [...notes.corrections], episodes: [...notes.episodes] }
+      : { corrections: [], episodes: [] };
   }
   getReflectedCount(personaId: string): number {
     return own(this.file.data.reflected ?? {}, personaId) ?? 0;
@@ -198,10 +229,12 @@ export class JsonNotesStore implements NotesSink {
     });
   }
   add(personaId: string, corrections: string[], episode: string): void {
-    const cur = this.get(personaId);
-    const next = {
-      corrections: Array.from(new Set([...cur.corrections, ...corrections])).slice(-20),
-      episodes: (episode ? [...cur.episodes, episode] : cur.episodes).slice(-8),
+    const cur = own(this.file.data.notes ?? {}, personaId);
+    const next: AgentLabPersonaNotes = {
+      corrections: Array.from(new Set([...(cur?.corrections ?? []), ...corrections])).slice(-20),
+      episodes: (episode ? [...(cur?.episodes ?? []), episode] : [...(cur?.episodes ?? [])]).slice(
+        -8,
+      ),
     };
     this.file.replace({ ...this.file.data, notes: { ...this.file.data.notes, [personaId]: next } });
   }
@@ -221,13 +254,16 @@ export class JsonRelationStore implements AgentLabRelationStore {
     return `${subjectPersonaId} ${objectId}`;
   }
   get(subjectPersonaId: string, objectId: string): AgentLabRelation | null {
-    return structuredClone(own(this.file.data, this.key(subjectPersonaId, objectId)) ?? null);
+    const rel = own(this.file.data, this.key(subjectPersonaId, objectId));
+    // 字段全是原始值：浅拷贝即是完整副本。
+    return rel ? { ...rel } : null;
   }
   listForSubject(subjectPersonaId: string): AgentLabRelation[] {
-    return structuredClone(
-      Object.values(this.file.data).filter((r) => r.subjectPersonaId === subjectPersonaId),
-    );
+    return Object.values(this.file.data)
+      .filter((r) => r.subjectPersonaId === subjectPersonaId)
+      .map((r) => ({ ...r }));
   }
+  /** `relation` 的所有权移交给存储（发布后随整树冻结）；调用方不得保留引用再修改。 */
   upsert(relation: AgentLabRelation): void {
     this.file.replace({
       ...this.file.data,
@@ -242,11 +278,12 @@ export class JsonRelationStore implements AgentLabRelationStore {
     now: number,
   ): AgentLabRelation {
     const base =
-      this.get(subjectPersonaId, objectId) ??
+      own(this.file.data, this.key(subjectPersonaId, objectId)) ??
       makeBaseRelation(subjectPersonaId, objectId, objectKind, now);
     const next = applyRelationDelta(base, delta, now);
     this.upsert(next);
-    return next;
+    // 与旧实现一致：返回脱钩副本（发布对象已随整树冻结，不外泄）。
+    return { ...next };
   }
 }
 

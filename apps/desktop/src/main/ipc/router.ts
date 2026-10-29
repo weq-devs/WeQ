@@ -24,8 +24,10 @@ import { mailRouter } from './routers/mail';
 import { remoteRouter } from './routers/remote';
 import { exportViewerRouter } from './routers/export_viewer';
 import { callRouter } from './routers/call';
+import { backgroundTasksRouter } from './routers/background_tasks';
 
 export const appRouter = router({
+  backgroundTasks: backgroundTasksRouter,
   exportViewer: exportViewerRouter,
   remote: remoteRouter,
   /** 语音通话（仅主动发起）。 */
