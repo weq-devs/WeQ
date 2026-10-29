@@ -25,6 +25,16 @@ import { taskIcon, taskPct, taskTypeLabel, type UiTask } from '../../views/expor
 import { LongTaskRow, orderLongTasks, type LongTaskItem } from './LongTaskRow';
 import '../../styles/flash-transfer.css';
 import { CloneTaskLog } from '../../views/agentlab/CloneTaskLog';
+import {
+  useBackgroundTasks,
+  backgroundTaskId,
+  removeBackgroundTask,
+} from '../../hooks/useBackgroundTasks';
+import {
+  BACKGROUND_TASK_ICONS,
+  BACKGROUND_TASK_LABELS,
+  BackgroundTaskDetails,
+} from './BackgroundTaskDetails';
 
 export function CurrentTaskList({
   exports,
@@ -50,6 +60,7 @@ export function CurrentTaskList({
   cleanupBinding?: { expectedAccountUin: string; expectedAccountConfigId: string } | null;
 }) {
   const { enabled: active } = useQQReadActivity(true, { onlineOnly: false });
+  const background = useBackgroundTasks(active);
   const accountId = useViewState((state) => state.openedUin);
   const utils = trpc.useUtils();
   const showError = useDialog((state) => state.showError);
@@ -275,6 +286,28 @@ export function CurrentTaskList({
       ),
     });
   }
+  for (const entry of background.tasks) {
+    const task = entry.task;
+    const Icon = BACKGROUND_TASK_ICONS[task.kind];
+    items.push({
+      id: backgroundTaskId(entry),
+      name: task.name,
+      kind: BACKGROUND_TASK_LABELS[task.kind],
+      status: task.status,
+      statusLabel: task.statusLabel,
+      progress: task.progress,
+      note: task.note,
+      icon: <Icon size={16} />,
+      detail: (
+        <BackgroundTaskDetails
+          key={task.id}
+          entry={entry}
+          scope={background.scope}
+          refresh={() => background.query.refetch()}
+        />
+      ),
+    });
+  }
   const ordered = orderLongTasks(items);
   useEffect(() => {
     if (selected !== null && !ordered.some((task) => task.id === selected) && ordered[0])
@@ -287,14 +320,15 @@ export function CurrentTaskList({
         ? selected
         : ordered[0]?.id;
   const running = items.filter((task) => task.status === 'running').length;
-  const loading = loadingExports || roaming.isLoading || flash.isLoading;
+  const loading =
+    loadingExports || roaming.isLoading || flash.isLoading || background.query.isLoading;
   const visible = useTabActive();
   const unreadResults = useWorkspaceMenu((state) => state.finished);
   const readTasks = useWorkspaceMenu((state) => state.readTasks);
   useLayoutEffect(() => {
     if (visible && active && !loading && unreadResults > 0) readTasks();
   }, [visible, active, loading, unreadResults, readTasks]);
-  const hasError = exportError || roaming.error || flash.error;
+  const hasError = exportError || roaming.error || flash.error || background.query.error;
   const completed = items.filter((task) => task.status === 'completed');
   const clearCompleted = async (): Promise<void> => {
     if (clearingRef.current || !cleanupBinding || !completed.length) return;
@@ -337,7 +371,17 @@ export function CurrentTaskList({
           removed += 1;
         }
       }
+      for (const entry of background.tasks.filter((entry) => ids.has(backgroundTaskId(entry)))) {
+        try {
+          if (await removeBackgroundTask(entry, background.scope)) removed++;
+        } catch (error) {
+          result.errors.push(
+            `${entry.task.name}：${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
       await Promise.all([
+        background.query.refetch(),
         utils.account.listExportTasks.invalidate(),
         utils.account.getExportOutputReceipt.invalidate(),
         utils.account.roamingBackfill.list.invalidate(),
@@ -395,6 +439,11 @@ export function CurrentTaskList({
       {flash.error ? (
         <p role="alert" className="weq-current-tasks-notice">
           闪传任务读取失败：{flash.error.message}
+        </p>
+      ) : null}
+      {background.query.error ? (
+        <p role="alert" className="weq-current-tasks-notice">
+          后台任务读取失败：{background.query.error.message}
         </p>
       ) : null}
       {!items.length && !hasError ? (

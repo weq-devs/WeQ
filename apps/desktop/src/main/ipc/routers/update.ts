@@ -18,6 +18,7 @@
 import { observable } from '@trpc/server/observable';
 import { TRPCError } from '@trpc/server';
 import { procedure, router } from '../trpc';
+import { backgroundTasks, runBackgroundTask } from '../../background_tasks';
 import {
   getUpdateActions,
   getUpdateState,
@@ -32,6 +33,8 @@ const desktop = procedure.use(({ ctx, next }) => {
     throw new TRPCError({ code: 'FORBIDDEN', message: '仅允许桌面端管理应用更新。' });
   return next();
 });
+
+let downloadTask: Promise<unknown> | null = null;
 
 export const updateRouter = router({
   /** Last cached check result, or null if not checked yet this session. */
@@ -51,9 +54,33 @@ export const updateRouter = router({
    * event (so we swallow the rejection here).
    */
   download: desktop.mutation((): boolean => {
-    void getUpdateActions()
-      .startDownload()
-      .catch(() => {});
+    if (!downloadTask) {
+      downloadTask = runBackgroundTask(
+        {
+          kind: 'update',
+          name: `WeQ 更新包${getUpdateState()?.latest ? ` · ${getUpdateState()!.latest}` : ''}`,
+        },
+        async (id) => {
+          const progress = (p: UpdateProgress) =>
+            backgroundTasks.update(id, {
+              progress: p.percent,
+              note: `${(p.transferred / 1024 / 1024).toFixed(1)} / ${(p.total / 1024 / 1024).toFixed(1)} MiB`,
+            });
+          updateBus.on('progress', progress);
+          try {
+            if (!getUpdateActions().supported) throw new Error('当前宿主不支持应用更新');
+            await getUpdateActions().startDownload();
+          } finally {
+            updateBus.off('progress', progress);
+          }
+        },
+        () => ({ note: '更新包已下载，等待重启安装' }),
+      )
+        .catch(() => {})
+        .finally(() => {
+          downloadTask = null;
+        });
+    }
     return true;
   }),
 

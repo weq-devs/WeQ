@@ -10,6 +10,7 @@
 import { z } from 'zod';
 import { getAppContext } from '../../context/app_context';
 import { procedure, router } from '../trpc';
+import { runBackgroundTask } from '../../background_tasks';
 import {
   resourceSourceInput,
   requireResourceSource,
@@ -51,8 +52,27 @@ export const resourceCleanupRouter = router({
         throw new Error('静态账号不提供本地资源清理：这些资源不属于导入的数据库快照。');
       }
       const services = requireResourceSource(input);
-      const result = await services.resourceCleanup.cleanup(input.instructions);
-      assertResourceSource(services, input);
-      return result;
+      return runBackgroundTask(
+        {
+          kind: 'resource',
+          name: '清理本地资源',
+          scope: {
+            uin: services.accountConfig.getRecord()!.uin,
+            configId: services.accountConfig.getRecord()?.configId,
+          },
+        },
+        async () => {
+          const result = await services.resourceCleanup.cleanup(input.instructions);
+          assertResourceSource(services, input);
+          return result;
+        },
+        (result) => ({
+          status: result.perTarget.some((row) => row.failed > 0) ? 'failed' : 'completed',
+          note: `已删除 ${result.perTarget.reduce((sum, row) => sum + row.removed, 0)} 个文件 · 失败 ${result.perTarget.reduce((sum, row) => sum + row.failed, 0)} 个 · 文件大小合计 ${(result.freedBytes / 1024 / 1024).toFixed(1)} MiB`,
+          details: result.perTarget.map(
+            (row) => `${row.id} · 删除 ${row.removed} · 失败 ${row.failed}`,
+          ),
+        }),
+      );
     }),
 });

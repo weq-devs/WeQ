@@ -12,6 +12,20 @@ function withIds<const T>(tasks: T[]) {
 }
 
 describe('工作菜单状态汇总', () => {
+  it('新增后台任务逐项计数，待核对不当作完成，结果身份包含更新回执', () => {
+    const summary = summarizeWorkspaceTasks({
+      background: [
+        { id: 'model', status: 'running', updatedAt: 1 },
+        { id: 'backup', status: 'completed', updatedAt: 2 },
+        { id: 'import', status: 'paused', updatedAt: 3 },
+        { id: 'forward', status: 'failed', updatedAt: 4 },
+        { id: 'scan', status: 'cancelled', updatedAt: 5 },
+      ],
+    });
+    expect(summary).toMatchObject({ running: 1, finished: 3, failed: 1 });
+    expect(summary.items.find((item) => item.id === 'import')?.activity).toBe('idle');
+    expect(summary.items.find((item) => item.id === 'backup')?.result).toBe('completed:2');
+  });
   it.each([
     [1, 0, 'running', '1'],
     [3, 7, 'running', '3'],

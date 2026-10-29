@@ -14,6 +14,7 @@
  */
 
 import { observable } from '@trpc/server/observable';
+import { trackModelDownload } from '../../model_download_task';
 import { z } from 'zod';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES } from '@weq/service/qzone-public-settings';
@@ -1493,9 +1494,9 @@ export const bootstrapRouter = router({
   downloadVoiceModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
     // Don't await — the subscription drives the UI. Swallow rejections here;
     // the terminal 'progress' event already carries the error.
-    void requireBootstrap()
-      .voiceTranscribe.downloadModel(input.id)
-      .catch(() => {});
+    void trackModelDownload(requireBootstrap().voiceTranscribe, input.id, '语音转写模型').catch(
+      () => {},
+    );
     return true;
   }),
 
@@ -1561,9 +1562,7 @@ export const bootstrapRouter = router({
   downloadOcrModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
     // Don't await — the subscription drives the UI. Swallow rejections here;
     // the terminal 'progress' event already carries the error.
-    void requireBootstrap()
-      .ocrModels.downloadModel(input.id)
-      .catch(() => {});
+    void trackModelDownload(requireBootstrap().ocrModels, input.id, '图片识别模型').catch(() => {});
     return true;
   }),
 
