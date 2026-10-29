@@ -96,7 +96,7 @@ describe('设置的两级导航', () => {
   it('保留原分区深链，每个二级页只归属一个分类', () => {
     const ids = SETTINGS_GROUPS.flatMap((group) => group.sections);
     expect(SETTINGS_GROUPS).toHaveLength(7);
-    expect(ids).toHaveLength(36);
+    expect([...ids].sort()).toEqual(Object.keys(SETTINGS_PAGE_LABELS).sort());
     expect(settingsSectionFor('applock')).toBe('privacy');
     expect(settingsGroupFor('privacy').id).toBe('general');
     expect(new Set(ids).size).toBe(ids.length);

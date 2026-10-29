@@ -28,6 +28,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       listExportTasks: { useQuery: () => ({ data: [] }) },
       roamingBackfill: { list: { useQuery: () => ({ data: { jobs: [] } }) } },
       flashListDownloadTasks: { useQuery: () => ({ data: [] }) },
+      getAccountConfig: { useQuery: () => ({ data: undefined }) },
+    },
+    backgroundTasks: {
+      list: { useQuery: () => ({ data: [] }) },
     },
   },
 }));
