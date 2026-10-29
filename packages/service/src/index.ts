@@ -50,6 +50,8 @@ export type {
   LocalModelResources,
   McpServerConfig,
   OneBotConfig,
+  OneBotWebSocketServerConfig,
+  OneBotHttpServerConfig,
   WeqAssistantConfig,
   AgentLabSettings,
   LinkPreviewConfig,

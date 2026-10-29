@@ -58,117 +58,134 @@ const requestSchema = z.object({
   echo: z.unknown().optional(),
 });
 
-/** 正向 WebSocket 与媒体服务；账号切换时整个实例销毁。 */
+export type OneBotNetworkType = 'ws' | 'http';
+
+/** 一个监听器实际使用的启动参数。 */
+export interface OneBotNetworkListenConfig {
+  id: string;
+  port: number;
+  token: string;
+  enableCors?: boolean;
+}
+
+export interface OneBotNetworkConfig {
+  webSocketServers: OneBotNetworkListenConfig[];
+  httpServers: OneBotNetworkListenConfig[];
+}
+
+/** 单个监听器的实时状态；`port` 是实际端口，端口冲突时会自动顺延。 */
+export interface OneBotNetworkStatus {
+  id: string;
+  type: OneBotNetworkType;
+  requestedPort: number;
+  port: number;
+  running: boolean;
+  clients: number;
+  error?: string;
+}
+
+interface NetworkListener {
+  id: string;
+  type: OneBotNetworkType;
+  requestedPort: number;
+  port: number;
+  token: string;
+  enableCors: boolean;
+  server: http.Server;
+  sockets: WebSocketServer | null;
+  clients: Set<WebSocket>;
+}
+
+const PORT_FALLBACK_ATTEMPTS = 20;
+
+/**
+ * OneBot v11 服务集合。
+ *
+ * 动作分发、消息登记和媒体索引由本实例共享；每个 WS / HTTP 监听器独立
+ * 绑定端口、独立鉴权，也独立出现在状态列表里。账号切换时整个实例销毁。
+ */
 export class OneBotServer {
-  private readonly server: http.Server;
-  private readonly sockets = new WebSocketServer({ noServer: true, maxPayload: 24 * 1024 * 1024 });
   private readonly records = new Map<number, BridgeMessage>();
   private readonly registry: MessageRegistry;
   private readonly media = new Map<string, { path: string; expires: number }>();
+  private readonly listeners = new Map<string, NetworkListener>();
+  private lastStatuses: OneBotNetworkStatus[] = [];
   private unsubscribe: (() => void) | null = null;
   private active = false;
   private selfId = 0;
-  private port = 0;
   private clients = new Set<WebSocket>();
   private readonly paths = new WeakMap<WebSocket, string>();
   private heartbeat: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly backend: OneBotBackend,
-    private readonly token: string,
+    private readonly legacyToken = '',
   ) {
     this.registry = backend.registry ?? new MessageRegistry();
-    this.server = http.createServer((req, res) => {
-      void this.serveMedia(req, res);
-    });
-    this.server.on('upgrade', (req, socket, head) => {
-      const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
-      if (!['/', '/api', '/event'].includes(path)) {
-        socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
-        return;
-      }
-      if (!this.active || req.headers.authorization !== `Bearer ${this.token}`) {
-        socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
-        return;
-      }
-      this.sockets.handleUpgrade(req, socket, head, (ws) => {
-        this.clients.add(ws);
-        this.paths.set(ws, path);
-        ws.on('error', () => ws.terminate());
-        ws.on('close', () => this.clients.delete(ws));
-        let pending = 0;
-        ws.on('message', (raw) => {
-          if (path === '/event') return;
-          if (++pending > 32) {
-            ws.close(1008, 'Too many requests');
-            return;
-          }
-          void this.handle(raw.toString())
-            .then((reply) => {
-              this.write(ws, reply);
-            })
-            .finally(() => {
-              pending--;
-            });
-        });
-        if (path !== '/api')
-          this.write(ws, {
-            time: Math.floor(Date.now() / 1000),
-            self_id: this.selfId,
-            post_type: 'meta_event',
-            meta_event_type: 'lifecycle',
-            sub_type: 'connect',
-          });
-      });
-    });
   }
 
+  /** 兼容旧调用：启动一个使用构造器令牌的正向 WS 服务器。 */
   async start(port: number): Promise<number> {
-    if (!this.token) throw new Error('OneBot 访问令牌不能为空');
+    const [status] = await this.startConfigured({
+      webSocketServers: [{ id: 'legacy-ws', port, token: this.legacyToken }],
+      httpServers: [],
+    });
+    if (!status?.running) throw new Error(status?.error ?? 'OneBot WebSocket 启动失败');
+    return status.port;
+  }
+
+  /** 启动全部启用的监听器；单项端口冲突会顺延，不阻断其他服务器。 */
+  async startConfigured(config: OneBotNetworkConfig): Promise<OneBotNetworkStatus[]> {
+    if (this.active) throw new Error('OneBot 服务已经启动');
     this.selfId = (await this.backend.self()).user_id;
-    await new Promise<void>((resolve, reject) => {
-      this.server.once('error', reject);
-      this.server.listen(port, '127.0.0.1', () => {
-        this.server.off('error', reject);
-        resolve();
-      });
-    });
-    const address = this.server.address();
-    if (!address || typeof address === 'string') throw new Error('OneBot 监听地址无效');
-    this.port = address.port;
     this.active = true;
-    this.unsubscribe = this.backend.subscribe((msg) => {
-      if (!this.active) return;
-      const existing = this.registry.find(msg) !== undefined;
-      const id = this.remember(msg);
-      if (existing || msg.senderUin === this.selfId) return;
-      const event = {
-        ...this.wire(msg, id),
-        post_type: 'message',
-        self_id: this.selfId,
-        sub_type: msg.peerType === 'group' ? 'normal' : 'friend',
-        font: 0,
-      };
-      for (const ws of this.clients) if (this.paths.get(ws) !== '/api') this.write(ws, event);
-    });
-    this.heartbeat = setInterval(() => {
-      void this.serviceStatus()
-        .catch(() => ({ online: false, good: false }))
-        .then((status) => {
-          for (const ws of this.clients)
-            if (this.paths.get(ws) !== '/api')
-              this.write(ws, {
-                time: Math.floor(Date.now() / 1000),
-                self_id: this.selfId,
-                post_type: 'meta_event',
-                meta_event_type: 'heartbeat',
-                status,
-                interval: 15000,
-              });
-        });
-    }, 15000);
-    this.heartbeat.unref();
-    return this.port;
+    const statuses: OneBotNetworkStatus[] = [];
+    for (const [type, servers] of [
+      ['ws', config.webSocketServers],
+      ['http', config.httpServers],
+    ] as const) {
+      for (const item of servers) {
+        const status = await this.startListener(type, item);
+        statuses.push(status);
+      }
+    }
+    this.lastStatuses = statuses;
+    this.unsubscribe = statuses.some((status) => status.running && status.type === 'ws')
+      ? this.backend.subscribe((msg) => {
+          if (!this.active) return;
+          const existing = this.registry.find(msg) !== undefined;
+          const id = this.remember(msg);
+          if (existing || msg.senderUin === this.selfId) return;
+          const event = {
+            ...this.wire(msg, id),
+            post_type: 'message',
+            self_id: this.selfId,
+            sub_type: msg.peerType === 'group' ? 'normal' : 'friend',
+            font: 0,
+          };
+          for (const ws of this.clients) if (this.paths.get(ws) !== '/api') this.write(ws, event);
+        })
+      : null;
+    if (statuses.some((status) => status.running && status.type === 'ws')) {
+      this.heartbeat = setInterval(() => {
+        void this.serviceStatus()
+          .catch(() => ({ online: false, good: false }))
+          .then((status) => {
+            for (const ws of this.clients)
+              if (this.paths.get(ws) !== '/api')
+                this.write(ws, {
+                  time: Math.floor(Date.now() / 1000),
+                  self_id: this.selfId,
+                  post_type: 'meta_event',
+                  meta_event_type: 'heartbeat',
+                  status,
+                  interval: 15000,
+                });
+          });
+      }, 15000);
+      this.heartbeat.unref();
+    }
+    return statuses;
   }
 
   stop(): void {
@@ -179,9 +196,14 @@ export class OneBotServer {
     this.heartbeat = null;
     for (const ws of this.clients) ws.terminate();
     this.clients.clear();
-    this.sockets.close();
-    this.server.close();
-    this.server.closeAllConnections();
+    for (const listener of this.listeners.values()) {
+      for (const ws of listener.clients) ws.terminate();
+      listener.sockets?.close();
+      listener.server.close();
+      listener.server.closeAllConnections();
+    }
+    this.listeners.clear();
+    this.lastStatuses = [];
     this.records.clear();
     try {
       this.registry.flush();
@@ -193,6 +215,135 @@ export class OneBotServer {
 
   get clientCount(): number {
     return this.clients.size;
+  }
+
+  networkStatus(): OneBotNetworkStatus[] {
+    return this.lastStatuses.map((status) => {
+      const listener = this.listeners.get(`${status.type}:${status.id}`);
+      return {
+        ...status,
+        port: listener?.port ?? status.port,
+        running: this.active && Boolean(listener),
+        clients: listener?.clients.size ?? 0,
+      };
+    });
+  }
+
+  private async startListener(
+    type: OneBotNetworkType,
+    item: OneBotNetworkListenConfig,
+  ): Promise<OneBotNetworkStatus> {
+    const sockets =
+      type === 'ws' ? new WebSocketServer({ noServer: true, maxPayload: 24 * 1024 * 1024 }) : null;
+    const listener: NetworkListener = {
+      id: item.id,
+      type,
+      requestedPort: item.port,
+      port: item.port,
+      token: item.token,
+      enableCors: item.enableCors ?? true,
+      server: http.createServer((req, res) => {
+        if (type === 'http') void this.serveHttp(listener, req, res);
+        else void this.serveMedia(req, res);
+      }),
+      sockets,
+      clients: new Set(),
+    };
+    if (sockets) {
+      listener.server.on('upgrade', (req, socket, head) => {
+        this.handleUpgrade(listener, req, socket, head);
+      });
+    }
+    try {
+      listener.port = await this.listenWithFallback(listener.server, item.port);
+      this.listeners.set(`${type}:${item.id}`, listener);
+      return {
+        id: item.id,
+        type,
+        requestedPort: item.port,
+        port: listener.port,
+        running: true,
+        clients: 0,
+      };
+    } catch (error) {
+      sockets?.close();
+      listener.server.close();
+      listener.server.closeAllConnections();
+      return {
+        id: item.id,
+        type,
+        requestedPort: item.port,
+        port: item.port,
+        running: false,
+        clients: 0,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private async listenWithFallback(server: http.Server, requested: number): Promise<number> {
+    const attempts = requested === 0 ? 1 : PORT_FALLBACK_ATTEMPTS;
+    for (let offset = 0; offset < attempts; offset += 1) {
+      const port = requested === 0 ? 0 : requested + offset;
+      if (port > 65535) break;
+      if (!(await tryListen(server, port))) continue;
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('OneBot 监听地址无效');
+      return address.port;
+    }
+    throw new Error(
+      `端口 ${requested}–${Math.min(requested + attempts - 1, 65535)} 都被占用，无法启动`,
+    );
+  }
+
+  private handleUpgrade(
+    listener: NetworkListener,
+    req: http.IncomingMessage,
+    socket: import('node:stream').Duplex,
+    head: Buffer,
+  ): void {
+    const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
+    if (!['/', '/api', '/event'].includes(path)) {
+      socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
+      return;
+    }
+    if (!this.active || !this.authorized(listener, req)) {
+      socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+      return;
+    }
+    listener.sockets!.handleUpgrade(req, socket, head, (ws) => {
+      this.clients.add(ws);
+      listener.clients.add(ws);
+      this.paths.set(ws, path);
+      ws.on('error', () => ws.terminate());
+      ws.on('close', () => {
+        this.clients.delete(ws);
+        listener.clients.delete(ws);
+      });
+      let pending = 0;
+      ws.on('message', (raw) => {
+        if (path === '/event') return;
+        if (++pending > 32) {
+          ws.close(1008, 'Too many requests');
+          return;
+        }
+        void this.handle(raw.toString())
+          .then((reply) => {
+            this.write(ws, reply);
+          })
+          .finally(() => {
+            pending -= 1;
+          });
+      });
+      if (path !== '/api')
+        this.write(ws, {
+          time: Math.floor(Date.now() / 1000),
+          self_id: this.selfId,
+          post_type: 'meta_event',
+          meta_event_type: 'lifecycle',
+          sub_type: 'connect',
+        });
+    });
   }
 
   reference(msg: BridgeMessage): number {
@@ -229,9 +380,14 @@ export class OneBotServer {
 
   sourcePath(value: unknown): unknown {
     if (typeof value !== 'string') return value;
-    const prefix = `http://127.0.0.1:${this.port}/media/`;
-    if (!value.startsWith(prefix)) return value;
-    const item = this.media.get(value.slice(prefix.length));
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      return value;
+    }
+    if (url.hostname !== '127.0.0.1' || !url.pathname.startsWith('/media/')) return value;
+    const item = this.media.get(url.pathname.slice('/media/'.length));
     if (!item || item.expires < Date.now()) throw new ActionError('媒体引用已过期');
     return item.path;
   }
@@ -255,7 +411,111 @@ export class OneBotServer {
     const key = randomBytes(24).toString('hex');
     this.media.set(key, { path, expires: Date.now() + 10 * 60 * 1000 });
     while (this.media.size > 512) this.media.delete(this.media.keys().next().value!);
-    return `http://127.0.0.1:${this.port}/media/${key}`;
+    const listener =
+      [...this.listeners.values()].find((item) => item.type === 'ws') ??
+      [...this.listeners.values()].find((item) => item.type === 'http');
+    if (!listener) throw new Error('OneBot 没有运行中的监听器');
+    return `http://127.0.0.1:${listener.port}/media/${key}`;
+  }
+
+  private authorized(listener: NetworkListener, req: http.IncomingMessage): boolean {
+    if (!listener.token) return true;
+    const header = req.headers.authorization;
+    const bearer = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+    let query = '';
+    try {
+      query = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('access_token') ?? '';
+    } catch {
+      // URL 无效时按未鉴权处理。
+    }
+    return bearer === listener.token || query === listener.token;
+  }
+
+  private async serveHttp(
+    listener: NetworkListener,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): Promise<void> {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    if (url.pathname.startsWith('/media/')) {
+      await this.serveMedia(req, res);
+      return;
+    }
+    if (listener.enableCors) {
+      res.setHeader('access-control-allow-origin', '*');
+      res.setHeader('access-control-allow-headers', 'authorization, content-type');
+      res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
+    }
+    if (req.method === 'OPTIONS') {
+      res.writeHead(listener.enableCors ? 204 : 405).end();
+      return;
+    }
+    if (!this.active) {
+      sendJson(res, 503, {
+        status: 'failed',
+        retcode: 1500,
+        data: null,
+        message: 'OneBot 服务已停止',
+      });
+      return;
+    }
+    if (!this.authorized(listener, req)) {
+      sendJson(res, 401, {
+        status: 'failed',
+        retcode: 1401,
+        data: null,
+        message: 'token 验证失败',
+      });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/') {
+      sendJson(res, 200, {
+        status: 'ok',
+        retcode: 0,
+        data: { message: 'WeQ OneBot 服务正在运行' },
+      });
+      return;
+    }
+    if (req.method !== 'GET' && req.method !== 'POST') {
+      sendJson(res, 405, {
+        status: 'failed',
+        retcode: 1405,
+        data: null,
+        message: '仅支持 GET / POST',
+      });
+      return;
+    }
+    try {
+      const query = Object.fromEntries(url.searchParams.entries());
+      const body = req.method === 'POST' ? await readJsonBody(req) : {};
+      const pathParts = url.pathname.split('/').filter(Boolean);
+      const envelopeAction = typeof body.action === 'string' ? body.action : '';
+      const pathAction = pathParts.length === 1 ? decodeURIComponent(pathParts[0]!) : '';
+      const action = envelopeAction || pathAction;
+      if (!action) {
+        sendJson(res, 404, {
+          status: 'failed',
+          retcode: 1404,
+          data: null,
+          message: '缺少 OneBot action',
+        });
+        return;
+      }
+      const rawParams = envelopeAction ? body.params : pathAction ? body : {};
+      const params =
+        rawParams && typeof rawParams === 'object' && !Array.isArray(rawParams)
+          ? { ...query, ...(rawParams as Record<string, unknown>) }
+          : query;
+      const echo = body.echo ?? query.echo ?? null;
+      sendJson(res, 200, await this.respond(action, params, echo));
+    } catch (error) {
+      sendJson(res, 400, {
+        status: 'failed',
+        retcode: 1400,
+        data: null,
+        message: error instanceof Error ? error.message : 'OneBot 请求无效',
+      });
+    }
   }
 
   private async serveMedia(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -353,9 +613,21 @@ export class OneBotServer {
       const request = requestSchema.parse(JSON.parse(raw));
       echo = request.echo ?? null;
       if (!this.active) throw new Error('OneBot 服务已停止');
-      const p = request.params ?? {};
+      return await this.respond(request.action, request.params ?? {}, echo);
+    } catch (error) {
+      return failedResponse(error, echo);
+    }
+  }
+
+  private async respond(
+    action: string,
+    p: Record<string, unknown>,
+    echo: unknown,
+  ): Promise<unknown> {
+    try {
+      if (!this.active) throw new Error('OneBot 服务已停止');
       let data: unknown;
-      switch (request.action) {
+      switch (action) {
         case 'get_login_info':
           data = await this.backend.self();
           break;
@@ -381,7 +653,7 @@ export class OneBotServer {
         case 'delete_msg':
         case 'set_msg_emoji_like': {
           const msg = await this.resolve(integer(p.message_id, undefined, -2147483647, 2147483647));
-          if (request.action === 'delete_msg') {
+          if (action === 'delete_msg') {
             if (!this.backend.recall) throw new ActionError('撤回不可用', 1404);
             await this.backend.recall(msg);
           } else {
@@ -400,8 +672,8 @@ export class OneBotServer {
         case 'send_msg':
         case 'upload_group_file':
         case 'upload_private_file': {
-          const target = sendTarget(request.action, p);
-          const segments = request.action.startsWith('upload_')
+          const target = sendTarget(action, p);
+          const segments = action.startsWith('upload_')
             ? [
                 {
                   type: 'file',
@@ -430,24 +702,101 @@ export class OneBotServer {
           if (!this.active) throw new Error('账号已关闭，发送结果未在当前会话登记');
           data = {
             message_id: this.remember({ ...sent, key: pendingKey }),
-            ...(request.action.startsWith('upload_') ? { file_id: sent.fileId } : {}),
+            ...(action.startsWith('upload_') ? { file_id: sent.fileId } : {}),
           };
           break;
         }
         default:
           if (!this.backend.action)
-            throw new ActionError(`不支持的 OneBot action：${request.action}`, 1404);
-          data = await this.backend.action(request.action, p);
+            throw new ActionError(`不支持的 OneBot action：${action}`, 1404);
+          data = await this.backend.action(action, p);
       }
       return { status: 'ok', retcode: 0, data, echo };
     } catch (error) {
-      return {
-        status: 'failed',
-        retcode: error instanceof ActionError ? error.retcode : 1400,
-        data: null,
-        message: error instanceof Error ? error.message : 'OneBot 请求失败',
-        echo,
-      };
+      return failedResponse(error, echo);
     }
   }
+}
+
+function tryListen(server: http.Server, port: number): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const onError = (error: NodeJS.ErrnoException): void => {
+      server.off('listening', onListening);
+      if (error.code === 'EADDRINUSE') {
+        resolve(false);
+        return;
+      }
+      reject(error);
+    };
+    const onListening = (): void => {
+      server.off('error', onError);
+      resolve(true);
+    };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(port, '127.0.0.1');
+  });
+}
+
+function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    const finish = (error?: unknown, value?: Record<string, unknown>): void => {
+      if (settled) return;
+      settled = true;
+      if (error) reject(error);
+      else resolve(value ?? {});
+    };
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > 24 * 1024 * 1024) {
+        finish(new Error('请求正文超过 24 MiB'));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('error', (error) => finish(error));
+    req.on('end', () => {
+      if (settled) return;
+      const raw = Buffer.concat(chunks).toString('utf8').trim();
+      if (!raw) {
+        finish(undefined, {});
+        return;
+      }
+      try {
+        const value = JSON.parse(raw) as unknown;
+        if (!value || typeof value !== 'object' || Array.isArray(value))
+          throw new Error('请求正文必须是 JSON 对象');
+        finish(undefined, value as Record<string, unknown>);
+      } catch (error) {
+        finish(error);
+      }
+    });
+  });
+}
+
+function sendJson(res: http.ServerResponse, status: number, value: unknown): void {
+  if (res.headersSent) {
+    res.destroy();
+    return;
+  }
+  const body = JSON.stringify(value);
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(body),
+    'cache-control': 'no-store',
+  });
+  res.end(body);
+}
+
+function failedResponse(error: unknown, echo: unknown): Record<string, unknown> {
+  return {
+    status: 'failed',
+    retcode: error instanceof ActionError ? error.retcode : 1400,
+    data: null,
+    message: error instanceof Error ? error.message : 'OneBot 请求失败',
+    echo,
+  };
 }

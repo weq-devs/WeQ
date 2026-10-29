@@ -396,10 +396,34 @@ export function validateWeqApiSettings(
     string(mcp.token, 'api.mcp.token');
   }
   if (api.oneBot !== undefined) {
-    const config = fields(api.oneBot, 'api.oneBot', ['enabled', 'port', 'token']);
+    const config = fields(
+      api.oneBot,
+      'api.oneBot',
+      ['enabled'],
+      ['port', 'token', 'webSocketServers', 'httpServers'],
+    );
     if (typeof config.enabled !== 'boolean') fail('api.oneBot.enabled');
-    number(config.port, 'api.oneBot.port', 1024, 65535);
-    string(config.token, 'api.oneBot.token');
+    if (config.port !== undefined || config.token !== undefined) {
+      number(config.port, 'api.oneBot.port', 1024, 65535);
+      string(config.token, 'api.oneBot.token');
+    }
+    if (config.webSocketServers !== undefined) {
+      list(config.webSocketServers, 'api.oneBot.webSocketServers', (row, path) => {
+        fields(row, path, ['id', 'name', 'enabled', 'port', 'token']);
+        if (typeof row.enabled !== 'boolean') fail(`${path}.enabled`);
+        number(row.port, `${path}.port`, 1024, 65535);
+        strings(row, path, ['name', 'token']);
+      });
+    }
+    if (config.httpServers !== undefined) {
+      list(config.httpServers, 'api.oneBot.httpServers', (row, path) => {
+        fields(row, path, ['id', 'name', 'enabled', 'port', 'token', 'enableCors']);
+        if (typeof row.enabled !== 'boolean') fail(`${path}.enabled`);
+        if (typeof row.enableCors !== 'boolean') fail(`${path}.enableCors`);
+        number(row.port, `${path}.port`, 1024, 65535);
+        strings(row, path, ['name', 'token']);
+      });
+    }
   }
   for (const kind of ['externalRkey', 'ssePush'] as const) {
     if (api[kind] === undefined) continue;

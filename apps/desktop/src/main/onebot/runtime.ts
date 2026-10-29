@@ -17,7 +17,7 @@ import {
   type OneBotConfig,
 } from '@weq/service';
 import type { AppContext } from '../context/app_context';
-import { OneBotServer, type BridgeMessage, type Segment } from './server';
+import { OneBotServer, type BridgeMessage, type OneBotNetworkStatus, type Segment } from './server';
 import { createActions, groupSummary } from './actions';
 import { fullModeAllowed } from '../context/full_mode';
 import { MessageRegistry } from './registry';
@@ -36,8 +36,17 @@ export function stopOneBot(): void {
   current?.stop();
   current = null;
 }
-export function oneBotStatus(): { running: boolean; clients: number } {
-  return { running: current !== null, clients: current?.clientCount ?? 0 };
+export function oneBotStatus(): {
+  running: boolean;
+  clients: number;
+  servers: OneBotNetworkStatus[];
+} {
+  const servers = current?.networkStatus() ?? [];
+  return {
+    running: servers.some((server) => server.running),
+    clients: current?.clientCount ?? 0,
+    servers,
+  };
 }
 
 /** 串行应用配置；账号在 await 期间切换时，不让旧实例重新占回监听端口。 */
@@ -57,6 +66,9 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
         ctx.accountIsStatic
       )
         return;
+      const webSocketServers = config.webSocketServers.filter((item) => item.enabled);
+      const httpServers = config.httpServers.filter((item) => item.enabled);
+      if (!webSocketServers.length && !httpServers.length) return;
       const active = () =>
         generation === revision && ctx.account === session && ctx.services === services;
       const requireActive = () => {
@@ -624,16 +636,33 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
             return () => handle.unmount();
           },
         },
-        config.token,
+        // 每个网络监听器单独携带令牌；第二个参数仅保留给旧调用方式。
+        undefined,
       );
       try {
-        await server.start(config.port);
-        if (!active()) {
+        const statuses = await server.startConfigured({
+          webSocketServers: webSocketServers.map(({ id, port, token }) => ({ id, port, token })),
+          httpServers: httpServers.map(({ id, port, token, enableCors }) => ({
+            id,
+            port,
+            token,
+            enableCors,
+          })),
+        });
+        if (!active() || !statuses.some((status) => status.running)) {
           server.stop();
           return;
         }
         current = server;
-        logger.info('OneBot bridge started', { port: config.port });
+        logger.info('OneBot bridge started', {
+          servers: statuses.map((status) => ({
+            id: status.id,
+            type: status.type,
+            port: status.port,
+            requestedPort: status.requestedPort,
+            error: status.error,
+          })),
+        });
       } catch (error) {
         server.stop();
         throw error;

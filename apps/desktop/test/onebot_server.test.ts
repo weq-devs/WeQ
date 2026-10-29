@@ -76,6 +76,117 @@ async function setup(path = '/') {
   };
 }
 
+function basicBackend(): OneBotBackend {
+  return {
+    status: () => ({ online: true, good: true }),
+    self: async () => ({ user_id: 99, nickname: '合成账号' }),
+    group: async (id) => ({ group_id: Number(id), group_name: '合成群' }),
+    send: vi
+      .fn<OneBotBackend['send']>()
+      .mockImplementation(async (target, message) =>
+        incoming({ ...target, key: 'sent:1', senderUin: 99, sequence: 92, message }),
+      ),
+    typing: vi.fn(),
+    subscribe: () => () => {},
+  };
+}
+
+it('serves standard OneBot HTTP actions on an independently enabled HTTP server', async () => {
+  const server = new OneBotServer(basicBackend());
+  servers.push(server);
+  const [status] = await server.startConfigured({
+    webSocketServers: [],
+    httpServers: [{ id: 'http-main', port: 0, token: 'http-token', enableCors: true }],
+  });
+  expect(status).toMatchObject({ type: 'http', running: true, port: expect.any(Number) });
+  const base = `http://127.0.0.1:${status!.port}`;
+
+  const health = await fetch(base, {
+    headers: { Authorization: 'Bearer http-token' },
+  });
+  expect(health.status).toBe(200);
+  expect(await health.json()).toMatchObject({
+    status: 'ok',
+    data: { message: 'WeQ OneBot 服务正在运行' },
+  });
+
+  const login = await fetch(`${base}/get_login_info?access_token=http-token`);
+  expect(login.headers.get('access-control-allow-origin')).toBe('*');
+  expect(await login.json()).toMatchObject({
+    status: 'ok',
+    data: { user_id: 99, nickname: '合成账号' },
+  });
+
+  const sent = await fetch(`${base}/send_msg`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer http-token', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group_id: 42, message: 'HTTP 合成回复', echo: 'http-echo' }),
+  });
+  expect(await sent.json()).toMatchObject({
+    status: 'ok',
+    echo: 'http-echo',
+    data: { message_id: expect.any(Number) },
+  });
+
+  expect((await fetch(`${base}/get_login_info`)).status).toBe(401);
+  expect(
+    (
+      await fetch(base, {
+        method: 'OPTIONS',
+        headers: { Origin: 'http://127.0.0.1:3000' },
+      })
+    ).status,
+  ).toBe(204);
+});
+
+it('runs multiple WebSocket servers with independent ports and tokens', async () => {
+  const server = new OneBotServer(basicBackend());
+  servers.push(server);
+  const statuses = await server.startConfigured({
+    webSocketServers: [
+      { id: 'ws-a', port: 0, token: 'token-a' },
+      { id: 'ws-b', port: 0, token: 'token-b' },
+    ],
+    httpServers: [],
+  });
+  expect(statuses).toHaveLength(2);
+  expect(statuses.every((item) => item.running)).toBe(true);
+  expect(statuses[0]!.port).not.toBe(statuses[1]!.port);
+  for (const [index, status] of statuses.entries()) {
+    const ws = new WebSocket(`ws://127.0.0.1:${status.port}/api`, {
+      headers: { Authorization: `Bearer token-${index === 0 ? 'a' : 'b'}` },
+    });
+    sockets.push(ws);
+    await once(ws, 'open');
+    const reply = new Promise<Record<string, unknown>>((resolve) => {
+      ws.once('message', (raw) => resolve(JSON.parse(raw.toString())));
+    });
+    ws.send(JSON.stringify({ action: 'get_login_info', echo: status.id }));
+    expect(await reply).toMatchObject({ status: 'ok', echo: status.id });
+  }
+});
+
+it('falls back to a nearby free port without taking down other OneBot servers', async () => {
+  const first = new OneBotServer(basicBackend());
+  servers.push(first);
+  const [occupied] = await first.startConfigured({
+    webSocketServers: [{ id: 'first', port: 0, token: 'first-token' }],
+    httpServers: [],
+  });
+  const second = new OneBotServer(basicBackend());
+  servers.push(second);
+  const [fallback] = await second.startConfigured({
+    webSocketServers: [{ id: 'second', port: occupied!.port, token: 'second-token' }],
+    httpServers: [],
+  });
+  expect(occupied).toMatchObject({ running: true });
+  expect(fallback).toMatchObject({
+    running: true,
+    requestedPort: occupied!.port,
+  });
+  expect(fallback!.port).not.toBe(occupied!.port);
+});
+
 it('parses cc-connect CQ replies without interpreting escaped CQ-looking text', () => {
   expect(parseSegments('[CQ:reply,id=-123]hi &#91;CQ:at,qq=99&#93; &amp;')).toEqual([
     { type: 'reply', data: { id: '-123' } },

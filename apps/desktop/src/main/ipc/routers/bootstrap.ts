@@ -1295,32 +1295,225 @@ export const bootstrapRouter = router({
   getOneBotStatus: procedure.query(() => {
     const config = requireBootstrap().userConfig.getSettings().oneBot;
     const ctx = getAppContext();
+    const live = oneBotStatus();
+    const liveById = new Map(live.servers.map((server) => [`${server.type}:${server.id}`, server]));
+    const servers = [
+      ...config.webSocketServers.map((server) => ({
+        ...server,
+        type: 'ws' as const,
+        enableCors: undefined,
+      })),
+      ...config.httpServers.map((server) => ({
+        ...server,
+        type: 'http' as const,
+      })),
+    ].map((server) => {
+      const running = liveById.get(`${server.type}:${server.id}`);
+      const port = running?.port ?? server.port;
+      return {
+        ...server,
+        port,
+        requestedPort: running?.requestedPort ?? server.port,
+        running: running?.running ?? false,
+        clients: running?.clients ?? 0,
+        error: running?.error,
+        url: server.type === 'ws' ? `ws://127.0.0.1:${port}` : `http://127.0.0.1:${port}`,
+      };
+    });
+    const defaultWs = servers.find((server) => server.type === 'ws' && server.enabled);
     return {
-      ...config,
-      ...oneBotStatus(),
+      enabled: config.enabled,
+      ...live,
+      servers,
       accountOpen: Boolean(ctx.account && !ctx.accountIsStatic),
-      url: `ws://127.0.0.1:${config.port}`,
+      url: defaultWs?.url ?? '',
     };
   }),
-  setOneBotConfig: procedure
+  setOneBotEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      if (input.enabled) {
+        const config = userConfig.getSettings().oneBot;
+        userConfig.setSettings({
+          oneBot: {
+            enabled: true,
+            webSocketServers: config.webSocketServers.map((server) =>
+              server.token ? server : { ...server, token: randomBytes(32).toString('hex') },
+            ),
+            httpServers: config.httpServers.map((server) =>
+              server.token ? server : { ...server, token: randomBytes(32).toString('hex') },
+            ),
+          },
+        });
+      } else {
+        userConfig.setSettings({ oneBot: { enabled: false } });
+      }
+      const config = userConfig.getSettings().oneBot;
+      await applyOneBot(getAppContext(), config);
+      return config;
+    }),
+  saveOneBotServer: procedure
     .input(
       z.object({
-        enabled: z.boolean().optional(),
-        port: z.number().int().min(1024).max(65535).optional(),
-        regenerateToken: z.boolean().optional(),
+        id: z.string().optional(),
+        type: z.enum(['ws', 'http']),
+        name: z.string().max(80),
+        enabled: z.boolean(),
+        port: z.number().int().min(1024).max(65535),
+        token: z.string().max(512),
+        enableCors: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }) => {
       const userConfig = requireBootstrap().userConfig;
-      const old = userConfig.getSettings().oneBot;
-      const config = {
-        enabled: input.enabled ?? old.enabled,
-        port: input.port ?? old.port,
-        token: input.regenerateToken || !old.token ? randomBytes(32).toString('hex') : old.token,
-      };
-      userConfig.setSettings({ oneBot: config });
-      await applyOneBot(getAppContext(), config);
-      return { ...config, ...oneBotStatus() };
+      const config = userConfig.getSettings().oneBot;
+      const list = input.type === 'ws' ? config.webSocketServers : config.httpServers;
+      const existing = input.id ? list.find((server) => server.id === input.id) : undefined;
+      if (input.id && !existing) throw new Error('OneBot 服务器不存在');
+      const token = input.token.trim() || existing?.token || randomBytes(32).toString('hex');
+      const name =
+        input.name.trim() ||
+        `${input.type === 'ws' ? 'WebSocket' : 'HTTP'} 服务器 ${list.length + 1}`;
+      if (input.type === 'ws') {
+        const next = existing
+          ? config.webSocketServers.map((server) =>
+              server.id === existing.id
+                ? { ...server, name, enabled: input.enabled, port: input.port, token }
+                : server,
+            )
+          : [
+              ...config.webSocketServers,
+              {
+                id: randomBytes(12).toString('hex'),
+                name,
+                enabled: input.enabled,
+                port: input.port,
+                token,
+              },
+            ];
+        userConfig.setSettings({ oneBot: { webSocketServers: next } });
+      } else {
+        const next = existing
+          ? config.httpServers.map((server) =>
+              server.id === existing.id
+                ? {
+                    ...server,
+                    name,
+                    enabled: input.enabled,
+                    port: input.port,
+                    token,
+                    enableCors: input.enableCors ?? server.enableCors,
+                  }
+                : server,
+            )
+          : [
+              ...config.httpServers,
+              {
+                id: randomBytes(12).toString('hex'),
+                name,
+                enabled: input.enabled,
+                port: input.port,
+                token,
+                enableCors: input.enableCors ?? true,
+              },
+            ];
+        userConfig.setSettings({ oneBot: { httpServers: next } });
+      }
+      const next = userConfig.getSettings().oneBot;
+      await applyOneBot(getAppContext(), next);
+      return next;
+    }),
+  deleteOneBotServer: procedure
+    .input(z.object({ id: z.string(), type: z.enum(['ws', 'http']) }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const config = userConfig.getSettings().oneBot;
+      if (input.type === 'ws')
+        userConfig.setSettings({
+          oneBot: {
+            webSocketServers: config.webSocketServers.filter((server) => server.id !== input.id),
+          },
+        });
+      else
+        userConfig.setSettings({
+          oneBot: { httpServers: config.httpServers.filter((server) => server.id !== input.id) },
+        });
+      const next = userConfig.getSettings().oneBot;
+      await applyOneBot(getAppContext(), next);
+      return next;
+    }),
+  setOneBotServerEnabled: procedure
+    .input(z.object({ id: z.string(), type: z.enum(['ws', 'http']), enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const config = userConfig.getSettings().oneBot;
+      if (input.type === 'ws')
+        userConfig.setSettings({
+          oneBot: {
+            webSocketServers: config.webSocketServers.map((server) =>
+              server.id === input.id
+                ? {
+                    ...server,
+                    enabled: input.enabled,
+                    token:
+                      input.enabled && !server.token
+                        ? randomBytes(32).toString('hex')
+                        : server.token,
+                  }
+                : server,
+            ),
+          },
+        });
+      else
+        userConfig.setSettings({
+          oneBot: {
+            httpServers: config.httpServers.map((server) =>
+              server.id === input.id
+                ? {
+                    ...server,
+                    enabled: input.enabled,
+                    token:
+                      input.enabled && !server.token
+                        ? randomBytes(32).toString('hex')
+                        : server.token,
+                  }
+                : server,
+            ),
+          },
+        });
+      const next = userConfig.getSettings().oneBot;
+      await applyOneBot(getAppContext(), next);
+      return next;
+    }),
+  regenerateOneBotServerToken: procedure
+    .input(z.object({ id: z.string(), type: z.enum(['ws', 'http']) }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const config = userConfig.getSettings().oneBot;
+      if (input.type === 'ws')
+        userConfig.setSettings({
+          oneBot: {
+            webSocketServers: config.webSocketServers.map((server) =>
+              server.id === input.id
+                ? { ...server, token: randomBytes(32).toString('hex') }
+                : server,
+            ),
+          },
+        });
+      else
+        userConfig.setSettings({
+          oneBot: {
+            httpServers: config.httpServers.map((server) =>
+              server.id === input.id
+                ? { ...server, token: randomBytes(32).toString('hex') }
+                : server,
+            ),
+          },
+        });
+      const next = userConfig.getSettings().oneBot;
+      await applyOneBot(getAppContext(), next);
+      return next;
     }),
 
   // ---- MCP server (account-bound) ----

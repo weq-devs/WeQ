@@ -1,15 +1,17 @@
 # OneBot / cc-connect
 
-WeQ 可以提供 OneBot v11 正向 WebSocket 接口，直接连接 cc-connect 的 `qq` 通道。
-QQ 收发由 WeQ 完成，Agent 与会话仍由 cc-connect 管理，不需要额外启动 NapCat。
+WeQ 可以提供多个 OneBot v11 正向 WebSocket 与 HTTP API 服务器，直接连接 cc-connect
+或其他 OneBot v11 客户端。QQ 收发由 WeQ 完成，Agent 与会话仍由 cc-connect 管理，
+不需要额外启动 NapCat。
 
 ## 连接
 
 1. 在 QQ 登录目标账号，并在 WeQ 打开对应的在线账号。
-2. 打开「设置 → WeQ 服务 → OneBot / cc-connect」，启用服务。
-3. 点击「复制 cc-connect 配置」，加入 cc-connect 对应项目的配置中，将 `allow_from` 改为发起命令的用户 QQ 号。
-4. 把原 `qq` 通道的地址、令牌替换为 WeQ 的值；不要为同一项目重复创建两个 QQ 通道。
-5. 按 cc-connect 的正常流程重载配置，检查 WeQ 页面连接数，并用另一个 QQ 账号发送私聊或群内 @ 测试。
+2. 打开「设置 → WeQ 服务 → OneBot / cc-connect」，启用 OneBot 总开关。
+3. 点击「WebSocket」新建一个正向 WS 服务器，填写名称、端口并单独启用。
+4. 点击「复制 cc-connect 配置」，加入 cc-connect 对应项目的配置中，将 `allow_from` 改为发起命令的用户 QQ 号。
+5. 把原 `qq` 通道的地址、令牌替换为 WeQ 的值；不要为同一项目重复创建两个 QQ 通道。
+6. 按 cc-connect 的正常流程重载配置，检查 WeQ 页面连接数，并用另一个 QQ 账号发送私聊或群内 @ 测试。
 
 配置片段如下，项目名与 Agent 配置沿用原值：
 
@@ -25,7 +27,28 @@ group_require_mention = true
 ```
 
 保留原通道的其他会话配置。旧 `http_url` 指向 NapCat 时应删除；此接口的发送操作走同一个 WebSocket。
-WeQ 与 cc-connect 需要运行在同一台电脑。接口固定监听 `127.0.0.1`，默认端口为 `48766`；端口冲突会明确报错，不会自动换到另一个地址。
+WeQ 与 cc-connect 需要运行在同一台电脑。服务器固定监听 `127.0.0.1`，
+默认 WS 端口为 `48766`。每个 WS / HTTP 服务器都有独立开关、端口和访问令牌，可以同时运行；
+端口被占用时会自动顺延到附近空闲端口，卡片会显示实际监听地址。
+
+## HTTP API
+
+新建并启用一个「HTTP」服务器后，可以用标准 OneBot v11 action 路径调用，例如：
+
+```sh
+curl -H 'Authorization: Bearer 替换为页面令牌' \
+  'http://127.0.0.1:48767/get_login_info'
+
+curl -H 'Authorization: Bearer 替换为页面令牌' \
+  -H 'Content-Type: application/json' \
+  -d '{"group_id":12345,"message":"hello"}' \
+  'http://127.0.0.1:48767/send_msg'
+```
+
+令牌也可以通过 `?access_token=` 传入。GET 使用查询参数，POST 使用 JSON 请求体；
+根路径也接受 `{"action":"get_login_info","params":{},"echo":"..."}` 形式的统一请求。
+HTTP 服务器用于调用 action，不主动推送消息事件；需要接收新消息事件时请使用 WS 服务器。
+「允许跨域」只影响 HTTP 服务器，方便浏览器页面直接调用。
 
 ## 当前支持
 
@@ -49,9 +72,10 @@ WeQ 与 cc-connect 需要运行在同一台电脑。接口固定监听 `127.0.0.
 - 历史：`get_group_msg_history`、`get_friend_msg_history`，用法见下节。
 
 消息输入接受 CQ 字符串、消息段数组或单个消息段对象；布尔参数接受布尔值及 `true/false`、`1/0`、`yes/no`。`send_msg` 不传 `message_type` 时按唯一目标 ID 推断。
-`/` 同时承载 API 和事件，`/api` 只处理 API，`/event` 只推事件。新增 action 不会自动变成 cc-connect Agent 的工具，需由调用方接入使用。
+WebSocket 的 `/` 同时承载 API 和事件，`/api` 只处理 API，`/event` 只推事件。
+新增 action 不会自动变成 cc-connect Agent 的工具，需由调用方接入使用。
 
-这是实用兼容子集，不是 NapCat 的完整替代实现。暂不包含 HTTP action 接口、反向 WebSocket、语音/视频发送及未缓存文件的在线补全。
+这是实用兼容子集，不是 NapCat 的完整替代实现。暂不包含反向 WebSocket、语音/视频发送及未缓存文件的在线补全。
 文件走独立上传管线，不能与正文/图片混发，也不附带 QQ 原生引用；cc-connect 的文件发送仍可正常使用。
 
 ## 历史与转发
@@ -90,6 +114,7 @@ QQ 原始 `msgId` 为 64 位，接口分配有符号 32 位 ID，兼容 cc-conne
 索引使用增量日志与定期快照，不逐条重写整份索引；写盘故障会使 `get_status.good=false`，新发送在派发前返回错误。
 私聊分页 `msgSeq` 与引用 `clientSeq` 分开登记，发送回执、引用和 QQ 同步消息可关联到同一 ID。索引已淘汰、原文不可回查、跨会话或缺少必要序号时返回错误，不退化成无引用发送。QQ 拒绝发送时返回失败，不自动重发。
 
-OneBot 配置跟随全局配置保存；配置备份时与 MCP 一样进入 API 配置分区。
+OneBot 配置跟随全局配置保存；多服务器列表、各服务器启用状态和令牌会在配置备份时与 MCP
+一样进入 API 配置分区。旧版单 WebSocket 配置会自动迁移成一张 WebSocket 服务器卡片。
 
 开发实现与复验命令见 [实施记录](../develop/onebot-practical-service-20261029.md)。

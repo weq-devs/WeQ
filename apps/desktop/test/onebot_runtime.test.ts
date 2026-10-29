@@ -26,13 +26,39 @@ vi.mock('@weq/service', () => ({
 vi.mock('../src/main/onebot/server', () => ({
   OneBotServer: class {
     unsubscribe?: () => void;
+    statuses: unknown[] = [];
     constructor(public backend: OneBotBackend) {
       state.backends.push(backend);
     }
-    async start() {
+    async startConfigured(config: {
+      webSocketServers: { id: string; port: number }[];
+      httpServers: { id: string; port: number }[];
+    }) {
       await this.backend.self();
       this.unsubscribe = this.backend.subscribe((msg) => state.delivered.push(msg));
-      return 1;
+      this.statuses = [
+        ...config.webSocketServers.map((server) => ({
+          ...server,
+          type: 'ws',
+          requestedPort: server.port,
+          running: true,
+          clients: 0,
+        })),
+        ...config.httpServers.map((server) => ({
+          ...server,
+          type: 'http',
+          requestedPort: server.port,
+          running: true,
+          clients: 0,
+        })),
+      ];
+      return this.statuses;
+    }
+    networkStatus() {
+      return this.statuses;
+    }
+    get clientCount() {
+      return 0;
     }
     stop() {
       this.unsubscribe?.();
@@ -94,7 +120,19 @@ async function setup() {
       interaction: { setInputStatus: vi.fn() },
     },
   } as unknown as AppContext;
-  await applyOneBot(ctx, { enabled: true, port: 1, token: 'synthetic' });
+  await applyOneBot(ctx, {
+    enabled: true,
+    webSocketServers: [
+      {
+        id: 'ws-test',
+        name: 'Test WS',
+        enabled: true,
+        port: 1,
+        token: 'synthetic',
+      },
+    ],
+    httpServers: [],
+  });
   return { ctx, backend: state.backends.at(-1)!, sendElements, sendFile, onlineRecord };
 }
 
@@ -322,7 +360,19 @@ it('invalidates captured backends on account switch and never starts for a stati
   ).rejects.toThrow('切换或关闭');
   expect(f.sendElements).not.toHaveBeenCalled();
   f.ctx.accountIsStatic = true;
-  await applyOneBot(f.ctx, { enabled: true, port: 1, token: 'synthetic' });
+  await applyOneBot(f.ctx, {
+    enabled: true,
+    webSocketServers: [
+      {
+        id: 'ws-test',
+        name: 'Test WS',
+        enabled: true,
+        port: 1,
+        token: 'synthetic',
+      },
+    ],
+    httpServers: [],
+  });
   expect(state.backends).toHaveLength(1);
   expect(state.unmount).toHaveBeenCalledTimes(1);
 });

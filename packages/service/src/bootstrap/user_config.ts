@@ -390,6 +390,121 @@ function normalizeSsePushServers(value: unknown): SsePushServerConfig[] {
   return value.filter(isSsePushServerConfig);
 }
 
+function normalizeOneBotPort(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1024 && value <= 65535
+    ? value
+    : null;
+}
+
+function normalizeOneBotWebSocketServers(value: unknown): OneBotWebSocketServerConfig[] {
+  if (!Array.isArray(value)) return [];
+  const ids = new Set<string>();
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const item = entry as Partial<OneBotWebSocketServerConfig>;
+    const port = normalizeOneBotPort(item.port);
+    if (
+      typeof item.id !== 'string' ||
+      !item.id ||
+      ids.has(item.id) ||
+      typeof item.name !== 'string' ||
+      typeof item.enabled !== 'boolean' ||
+      port === null ||
+      typeof item.token !== 'string'
+    )
+      return [];
+    ids.add(item.id);
+    return [
+      {
+        id: item.id,
+        name: item.name,
+        enabled: item.enabled,
+        port,
+        token: item.token,
+      },
+    ];
+  });
+}
+
+function normalizeOneBotHttpServers(value: unknown): OneBotHttpServerConfig[] {
+  if (!Array.isArray(value)) return [];
+  const ids = new Set<string>();
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const item = entry as Partial<OneBotHttpServerConfig>;
+    const port = normalizeOneBotPort(item.port);
+    if (
+      typeof item.id !== 'string' ||
+      !item.id ||
+      ids.has(item.id) ||
+      typeof item.name !== 'string' ||
+      typeof item.enabled !== 'boolean' ||
+      port === null ||
+      typeof item.token !== 'string' ||
+      typeof item.enableCors !== 'boolean'
+    )
+      return [];
+    ids.add(item.id);
+    return [
+      {
+        id: item.id,
+        name: item.name,
+        enabled: item.enabled,
+        port,
+        token: item.token,
+        enableCors: item.enableCors,
+      },
+    ];
+  });
+}
+
+function normalizeOneBotConfig(
+  value: DeepPartial<OneBotConfig> | undefined,
+  fallback: OneBotConfig,
+): OneBotConfig {
+  const raw = value as
+    | (DeepPartial<OneBotConfig> & {
+        port?: unknown;
+        token?: unknown;
+      })
+    | undefined;
+  const hasServerLists = Array.isArray(raw?.webSocketServers) || Array.isArray(raw?.httpServers);
+  const hasLegacyFields =
+    raw !== undefined && (Object.hasOwn(raw, 'port') || Object.hasOwn(raw, 'token'));
+  if (hasServerLists && !hasLegacyFields) {
+    return {
+      enabled: typeof raw?.enabled === 'boolean' ? raw.enabled : fallback.enabled,
+      webSocketServers: Array.isArray(raw?.webSocketServers)
+        ? normalizeOneBotWebSocketServers(raw.webSocketServers)
+        : fallback.webSocketServers,
+      httpServers: Array.isArray(raw?.httpServers)
+        ? normalizeOneBotHttpServers(raw.httpServers)
+        : fallback.httpServers,
+    };
+  }
+
+  const legacy = fallback.webSocketServers[0] ?? {
+    id: 'ws-default',
+    name: 'WebSocket 服务器',
+    enabled: false,
+    port: 48766,
+    token: '',
+  };
+  const port = normalizeOneBotPort(raw?.port) ?? legacy.port;
+  return {
+    enabled: typeof raw?.enabled === 'boolean' ? raw.enabled : fallback.enabled,
+    webSocketServers: [
+      {
+        ...legacy,
+        enabled: typeof raw?.enabled === 'boolean' ? raw.enabled : legacy.enabled,
+        port,
+        token: typeof raw?.token === 'string' ? raw.token : legacy.token,
+      },
+    ],
+    httpServers: fallback.httpServers,
+  };
+}
+
 export interface VoiceTranscribeConfig {
   /** 离线转录模型 id（空 = 关）。 */
   modelId: string;
@@ -445,11 +560,37 @@ export interface McpServerConfig {
   token: string;
 }
 
-/** 当前在线账号的 OneBot v11 正向 WebSocket 服务配置。 */
-export interface OneBotConfig {
+/** 一条 OneBot v11 正向 WebSocket 服务器配置。 */
+export interface OneBotWebSocketServerConfig {
+  /** 稳定 id，用于列表增删与运行状态对应。 */
+  id: string;
+  name: string;
   enabled: boolean;
   port: number;
   token: string;
+}
+
+/** 一条 OneBot v11 HTTP API 服务器配置。 */
+export interface OneBotHttpServerConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  port: number;
+  token: string;
+  /** 浏览器端调用时允许跨域；仅影响 HTTP 服务器。 */
+  enableCors: boolean;
+}
+
+/**
+ * 当前在线账号的 OneBot v11 服务配置。
+ *
+ * `enabled` 是 OneBot 总线总开关；具体监听器由两组数组内的 `enabled`
+ * 独立控制。旧版单 WS 配置在读取时会迁移到 `webSocketServers[0]`。
+ */
+export interface OneBotConfig {
+  enabled: boolean;
+  webSocketServers: OneBotWebSocketServerConfig[];
+  httpServers: OneBotHttpServerConfig[];
 }
 
 /**
@@ -897,7 +1038,13 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
   mcp: { enabled: false, port: 48765, token: '' },
-  oneBot: { enabled: false, port: 48766, token: '' },
+  oneBot: {
+    enabled: false,
+    webSocketServers: [
+      { id: 'ws-default', name: 'WebSocket 服务器', enabled: false, port: 48766, token: '' },
+    ],
+    httpServers: [],
+  },
   // 20000+ 不常用端口；若被占用，宿主内的助手资源服务自动向上探测。
   weqAssistant: { enabled: false, port: 27182 },
   agentLab: { providers: [], defaultModel: null },
@@ -1546,11 +1693,7 @@ export class UserConfigService {
         port: s?.mcp?.port ?? d.mcp.port,
         token: s?.mcp?.token ?? d.mcp.token,
       },
-      oneBot: {
-        enabled: s?.oneBot?.enabled ?? d.oneBot.enabled,
-        port: s?.oneBot?.port ?? d.oneBot.port,
-        token: s?.oneBot?.token ?? d.oneBot.token,
-      },
+      oneBot: normalizeOneBotConfig(s?.oneBot, d.oneBot),
       weqAssistant: {
         enabled: s?.weqAssistant?.enabled ?? d.weqAssistant.enabled,
         port: s?.weqAssistant?.port ?? d.weqAssistant.port,
@@ -1707,11 +1850,7 @@ export class UserConfigService {
         port: patch.mcp?.port ?? current.mcp.port,
         token: patch.mcp?.token ?? current.mcp.token,
       },
-      oneBot: {
-        enabled: patch.oneBot?.enabled ?? current.oneBot.enabled,
-        port: patch.oneBot?.port ?? current.oneBot.port,
-        token: patch.oneBot?.token ?? current.oneBot.token,
-      },
+      oneBot: normalizeOneBotConfig({ ...current.oneBot, ...patch.oneBot }, current.oneBot),
       weqAssistant: {
         enabled: patch.weqAssistant?.enabled ?? current.weqAssistant.enabled,
         port: patch.weqAssistant?.port ?? current.weqAssistant.port,
