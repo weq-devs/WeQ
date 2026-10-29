@@ -50,6 +50,14 @@ it('shows live status, persists the toggle, masks the token and copies the nativ
   const root = createRoot(host);
   try {
     await act(async () => root.render(h(OneBotSection)));
+    expect(host.querySelector('.weq-set.weq-set-onebot')).not.toBeNull();
+    const cards = [...host.querySelectorAll('.weq-set-card')];
+    expect(cards.map((card) => card.querySelector('.weq-set-card-title')?.textContent)).toEqual([
+      '服务开关',
+      '连接信息',
+    ]);
+    expect(cards[0]?.querySelector('[role="switch"]')).not.toBeNull();
+    expect(cards[1]?.querySelector('[aria-label="OneBot 端口"]')).not.toBeNull();
     const token = host.querySelector<HTMLInputElement>('[aria-label="OneBot 访问令牌"]')!;
     expect(token.type).toBe('password');
     expect(host.textContent).toContain('已停止');
