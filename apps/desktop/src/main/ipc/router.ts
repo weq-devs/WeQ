@@ -24,6 +24,7 @@ import { mailRouter } from './routers/mail';
 import { remoteRouter } from './routers/remote';
 import { exportViewerRouter } from './routers/export_viewer';
 import { callRouter } from './routers/call';
+import { udpCaptureRouter } from './routers/udp_capture';
 import { backgroundTasksRouter } from './routers/background_tasks';
 
 export const appRouter = router({
@@ -39,6 +40,8 @@ export const appRouter = router({
   help: helpRouter,
   groupFeedback: groupFeedbackRouter,
   wonderfulTools: wonderfulToolsRouter,
+  /** 通用 UDP 抓包（与 QQNT / OIDB 抓包分开，不依赖账号）。 */
+  udpCapture: udpCaptureRouter,
   /**
    * 设置 → 数据维护 → 维护工具 → 数据库修复。挂在顶层而不是 `account` 下：修库要在 QQ 与当前账号都
    * 不持有库的时候做，所以它不该要求"有活动会话"（见 routers/db_repair.ts 的头注）。

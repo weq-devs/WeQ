@@ -57,6 +57,7 @@ import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { assistantResourceServer } from './weq_assistant/server';
 import { disposeExternalMcp } from './mcp/external';
 import { disposeElevatedCaptures } from './ipc/routers/wonderful_tools';
+import { disposeUdpCaptures } from './ipc/routers/udp_capture';
 import { registerAnalyticsExportIpc } from './analytics_export';
 import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
@@ -994,4 +995,6 @@ app.on('will-quit', (event) => {
   // 提权抓包子进程是 root 的 —— 退出时主动送走（子进程那边也会在环回连接断开时
   // 自己收尾，这里只是不让它多活一拍）。
   disposeElevatedCaptures();
+  // UDP 抓包用的是同一套提权子进程，但会话表是独立的，得单独收。
+  disposeUdpCaptures();
 });

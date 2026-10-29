@@ -1,0 +1,476 @@
+/**
+ * UDP 抓包面板样式。
+ *
+ * 变量层照抄抓包面板（`.weq-cap { --cap-* }`）的写法：浅色一套、深色整组重写，
+ * 强调色一律走 `--weq-accent-effective`。类名前缀 `.weq-udp-*`，不与 `.weq-cap-*`
+ * 共享命名空间（只复用 HexDump 的 `.weq-cap-hexdump` 系列，那部分样式在 index.css）。
+ */
+
+.weq-udp {
+  --udp-bg: var(--weq-bg-surface);
+  --udp-head-bg: color-mix(in srgb, var(--weq-fg-primary) 3%, var(--weq-bg-surface));
+  --udp-line: var(--weq-border-subtle);
+  --udp-line-strong: var(--weq-border-strong);
+  --udp-fg: var(--weq-fg-primary);
+  --udp-fg-2: var(--weq-fg-secondary);
+  --udp-fg-3: var(--weq-fg-muted);
+  --udp-sel: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  --udp-up: var(--weq-accent-effective);
+  --udp-down: color-mix(in srgb, var(--weq-accent-effective) 55%, var(--weq-fg-muted));
+  --udp-bad: #e5484d;
+  --udp-code-bg: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--udp-fg);
+  background: var(--udp-bg);
+}
+
+html[data-theme='dark'] .weq-udp {
+  --udp-head-bg: color-mix(in srgb, #fff 6%, var(--weq-bg-surface));
+  --udp-code-bg: color-mix(in srgb, #fff 8%, transparent);
+  --udp-bad: #ff6369;
+}
+
+/* ── 工具条 ── */
+.weq-udp-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--udp-line);
+  background: var(--udp-head-bg);
+  font-size: 12px;
+}
+.weq-udp-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--udp-fg-3);
+  flex: none;
+}
+.weq-udp-led.is-live {
+  background: var(--udp-up);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--udp-up) 22%, transparent);
+}
+.weq-udp-env,
+.weq-udp-metrics {
+  color: var(--udp-fg-2);
+  font-variant-numeric: tabular-nums;
+}
+.weq-udp-metrics {
+  display: flex;
+  gap: 10px;
+}
+.weq-udp-metrics .is-bad {
+  color: var(--udp-bad);
+  font-weight: 600;
+}
+.weq-udp-spacer {
+  flex: 1;
+}
+
+.weq-udp-btn,
+.weq-udp-proc {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--udp-line-strong);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--udp-fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+.weq-udp-btn:hover:not(:disabled),
+.weq-udp-proc:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective);
+}
+.weq-udp-btn:disabled,
+.weq-udp-proc:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.weq-udp-btn.is-primary {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--udp-fg);
+}
+.weq-udp-proc {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 提示条 ── */
+.weq-udp-warn {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--udp-line);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  font-size: 12px;
+  color: var(--udp-fg-2);
+}
+.weq-udp-warn.is-error {
+  background: color-mix(in srgb, var(--udp-bad) 10%, transparent);
+  color: var(--udp-fg);
+}
+.weq-udp-warn strong {
+  color: var(--udp-fg);
+}
+
+/* ── 主体 ── */
+.weq-udp-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.weq-udp-list-pane,
+.weq-udp-detail-pane {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.weq-udp-list-pane {
+  border-right: 1px solid var(--udp-line);
+}
+
+/* ── 筛选 ── */
+.weq-udp-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--udp-line);
+  flex-wrap: wrap;
+}
+.weq-udp-seg {
+  display: inline-flex;
+  border: 1px solid var(--udp-line-strong);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.weq-udp-seg-btn {
+  padding: 2px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--udp-fg-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.weq-udp-seg-btn + .weq-udp-seg-btn {
+  border-left: 1px solid var(--udp-line-strong);
+}
+.weq-udp-seg-btn.is-active {
+  background: var(--udp-sel);
+  color: var(--udp-fg);
+}
+.weq-udp-select,
+.weq-udp-search {
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--udp-line-strong);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--udp-fg);
+  font-size: 12px;
+}
+.weq-udp-search {
+  flex: 1;
+  min-width: 80px;
+}
+.weq-udp-select:focus,
+.weq-udp-search:focus,
+.weq-udp-btn:focus-visible,
+.weq-udp-proc:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 1px;
+}
+
+/* ── 列表 ── */
+.weq-udp-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  font-size: 12px;
+}
+.weq-udp-row {
+  display: grid;
+  grid-template-columns: 88px 22px minmax(0, 1fr) 52px 56px;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--udp-line);
+  background: transparent;
+  color: var(--udp-fg);
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+.weq-udp-row.is-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--udp-head-bg);
+  color: var(--udp-fg-3);
+  font-size: 11px;
+  cursor: default;
+}
+.weq-udp-row:not(.is-head):hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+.weq-udp-row.is-active {
+  background: var(--udp-sel);
+  box-shadow: inset 2px 0 0 var(--weq-accent-effective);
+}
+.weq-udp-row .is-up {
+  color: var(--udp-up);
+}
+.weq-udp-row .is-down {
+  color: var(--udp-down);
+}
+.weq-udp-ep {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-udp-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 首字节标注（不是协议解析，只是着色） */
+.weq-udp-kind {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 2px;
+  font-size: 10px;
+  line-height: 14px;
+  background: var(--udp-code-bg);
+  color: var(--udp-fg-2);
+}
+.weq-udp-kind.is-ctl {
+  color: color-mix(in srgb, var(--weq-accent-effective) 80%, var(--udp-fg));
+}
+.weq-udp-kind.is-media {
+  color: color-mix(in srgb, var(--weq-accent-effective) 55%, var(--udp-fg-2));
+}
+.weq-udp-kind.is-relay {
+  color: var(--udp-fg-3);
+}
+
+.weq-udp-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--udp-fg-3);
+  font-size: 12px;
+}
+.weq-udp-foot {
+  padding: 4px 8px;
+  border-top: 1px solid var(--udp-line);
+  color: var(--udp-fg-3);
+  font-size: 11px;
+}
+
+/* ── 详情 ── */
+.weq-udp-detail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.weq-udp-detail-tabs,
+.weq-udp-picker-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--udp-line);
+  background: var(--udp-head-bg);
+}
+.weq-udp-tab {
+  padding: 3px 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--udp-fg-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.weq-udp-tab.is-active {
+  color: var(--udp-fg);
+  border-bottom-color: var(--weq-accent-effective);
+}
+.weq-udp-detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+.weq-udp-kv {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.weq-udp-kv th {
+  width: 72px;
+  padding: 3px 8px 3px 0;
+  text-align: left;
+  font-weight: 500;
+  color: var(--udp-fg-3);
+  vertical-align: top;
+}
+.weq-udp-kv td {
+  padding: 3px 0;
+  color: var(--udp-fg);
+  word-break: break-all;
+}
+.weq-udp-tree {
+  --rv-indent: 3.5px;
+}
+
+/* ── 进程选择器 ── */
+.weq-udp-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.weq-udp-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--udp-line-strong);
+  border-radius: 3px;
+  color: var(--udp-fg-3);
+}
+.weq-udp-picker-search input {
+  flex: 1;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--udp-fg);
+  font-size: 12px;
+  outline: none;
+}
+.weq-udp-picker-hint {
+  padding: 6px 8px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  color: var(--udp-fg-2);
+  font-size: 12px;
+}
+.weq-udp-picker-list {
+  max-height: 320px;
+  min-height: 120px;
+  overflow: auto;
+  border: 1px solid var(--udp-line);
+  border-radius: 3px;
+}
+.weq-udp-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--udp-line);
+  background: transparent;
+  color: var(--udp-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.weq-udp-picker-row:last-child {
+  border-bottom: 0;
+}
+.weq-udp-picker-row:hover {
+  background: var(--udp-sel);
+}
+.weq-udp-picker-pid {
+  flex: none;
+  width: 56px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--udp-fg-3);
+}
+.weq-udp-picker-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.weq-udp-picker-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.weq-udp-picker-cmd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--udp-fg-3);
+}
+.weq-udp-picker-ppid {
+  flex: none;
+  font-size: 11px;
+  color: var(--udp-fg-3);
+}
+.weq-udp-picker-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 32px 12px;
+  color: var(--udp-fg-3);
+  font-size: 12px;
+}
+.weq-udp-picker-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.weq-udp-picker-note {
+  flex: 1;
+  font-size: 11px;
+  color: var(--udp-fg-3);
+}
+.weq-udp-spin {
+  animation: weq-udp-spin 1s linear infinite;
+}
+@keyframes weq-udp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-udp-spin {
+    animation: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .weq-udp-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .weq-udp-list-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--udp-line);
+  }
+}

@@ -524,6 +524,13 @@ export interface CaptureOptions {
   ringFrames?: number;
   /** 可选：同时把原始包旁路写成一个 pcap 文件。 */
   pcapFile?: string;
+  /**
+   * 传输层：`tcp`（默认，MSF 帧解密）或 `udp`（通用 UDP 抓包，不做协议解析）。
+   *
+   * UDP 模式下 `CapturedFrame.udp` 有值、`cmd` / `body` / `plain` 恒为空。
+   * 端口策略的 `auto` 在 UDP 下表示「全部端口都收」。
+   */
+  transport?: 'tcp' | 'udp';
 }
 
 /** 一次已 armed 的抓包会话。 */
@@ -560,8 +567,34 @@ export interface CapturedFrame {
   body?: Buffer;
   /** 完整解密明文。 */
   plain?: Buffer;
-  /** 完整原始帧（含 4 字节长度前缀）。 */
+  /** 完整原始帧（含 4 字节长度前缀）。UDP 数据报是完整 IP 包。 */
   raw: Buffer;
+  /** UDP 五元组；TCP 帧为 undefined。 */
+  udp?: CapturedUdp;
+}
+
+/** 一条 UDP 数据报的端点与载荷。 */
+export interface CapturedUdp {
+  /** 源地址（IPv4 / IPv6 文本）。 */
+  src: string;
+  srcPort: number;
+  /** 目的地址。 */
+  dst: string;
+  dstPort: number;
+  /** UDP 载荷（不含 IP / UDP 头）。 */
+  payload: Buffer;
+}
+
+/** 一个加载了指定模块的进程（`listProcessesWithModule` 的返回项）。 */
+export interface ProcessScanEntry {
+  pid: number;
+  ppid: number;
+  /** 进程名（`/proc/<pid>/comm` 之类）。 */
+  name: string;
+  /** 完整命令行；读不到时为空串。 */
+  cmdline: string;
+  /** 命中的模块路径（含调用方给的 hint）。 */
+  modules: string[];
 }
 
 /** `takeFrames` 选项。 */
@@ -1100,6 +1133,17 @@ export interface NtHelperBinding {
   takeFrames(pid: number, options?: TakeOptions | null): Promise<FrameBatch>;
   /** 停止并释放抓包会话，返回统计。 */
   stopCapture(pid: number): Promise<CaptureStats>;
+
+  /**
+   * 列出所有映射了路径含 `moduleHint` 的库的进程（大小写不敏感）。
+   *
+   * QQ 的通话媒体进程是 Chromium 的 `--type=ppapi` 子进程，稳定特征是加载了
+   * `resources/app/avsdk/` 下的库 —— 传 `"avsdk"` 即可找到它。只读进程元数据，
+   * 不附加、不读内存、不联网。
+   *
+   * 老产物没有这个导出，调用方要先用 `typeof` 探测。
+   */
+  listProcessesWithModule?(moduleHint: string): ProcessScanEntry[];
 
   // --- 纯协议登录（wtlogin，不注入 QQ） ---
   /**
