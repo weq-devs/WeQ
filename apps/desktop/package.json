@@ -77,7 +77,7 @@
     "clsx": "^2.1.1",
     "d3": "^7.9.0",
     "dompurify": "^3.4.17",
-    "electron": "44.9.1",
+    "electron": "44.10.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^6.0.0",
     "happy-dom": "^21.0.1",
