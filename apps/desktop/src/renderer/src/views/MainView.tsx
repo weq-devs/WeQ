@@ -65,6 +65,7 @@ import {
 } from '../lib/profileNavigation';
 import { buddyRequestDirection, buddyRequestState } from '@weq/service/buddy-request';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
+import { contactProfileIdentity, sendTargetOf } from '../lib/conversationIdentity';
 import { avatarFromGroupCode, avatarFromUin, resolveAvatar } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 import {
@@ -1351,14 +1352,15 @@ function contactToConversation(
   };
 
   if (kind === 'direct') {
+    const device = isDataline(c.chatType);
     const otherUser: User = {
       id: c.targetUid,
-      identityLabel: c.targetUin && c.targetUin !== '0' ? 'QQ' : 'UID',
-      identityValue: c.targetUin && c.targetUin !== '0' ? c.targetUin : c.targetUid,
+      identityLabel: device ? '设备' : c.targetUin && c.targetUin !== '0' ? 'QQ' : 'UID',
+      identityValue: !device && c.targetUin && c.targetUin !== '0' ? c.targetUin : c.targetUid,
       username: c.targetUid,
       displayName: title,
       kind: botUids.has(c.targetUid) ? 'bot' : 'human',
-      avatarUrl: isDataline(c.chatType) ? deviceAvatarDataUri(c.targetUid) : avatarSrc(c),
+      avatarUrl: device ? deviceAvatarDataUri(c.targetUid) : avatarSrc(c),
     };
 
     return {
@@ -4804,12 +4806,7 @@ function MainWorkspace(): ReactElement {
     history: shellHistory,
   });
   const detailContact = shell.view === 'contacts' ? shell.selectedContact : undefined;
-  const detailContactUid =
-    detailContact?.uid || (detailContact?.id.startsWith('u_') ? detailContact.id : '');
-  const detailContactUin =
-    detailContact && ['QQ', 'UIN'].includes(detailContact.identityLabel)
-      ? detailContact.identityValue
-      : '';
+  const { uid: detailContactUid, uin: detailContactUin } = contactProfileIdentity(detailContact);
   const cachedContactProfile =
     profileByUid.get(detailContactUid) ??
     (detailContactUin
@@ -4834,6 +4831,7 @@ function MainWorkspace(): ReactElement {
   );
   const selectedContactForDetail = useMemo(() => {
     if (!detailContact) return undefined;
+    if (!detailContactUid && !detailContactUin) return detailContact;
     const profile =
       cachedContactProfile ?? detailContactProfile.data ?? detailContactProfileByUin.data;
     if (!profile) return detailContact;
@@ -4860,6 +4858,7 @@ function MainWorkspace(): ReactElement {
     };
   }, [
     detailContact,
+    detailContactUid,
     cachedContactProfile,
     detailContactProfile.data,
     detailContactProfileByUin.data,
@@ -9677,30 +9676,6 @@ function MainWorkspace(): ReactElement {
       pushToast({ tone: 'error', title: '红包发送失败', detail: message });
       throw e;
     }
-  }
-
-  function sendTargetOf(conversation: Conversation): {
-    peerType: 'c2c' | 'group';
-    targetId: string;
-    /** 群临时会话的来源群号（60001）；非临时会话不出现。 */
-    tempGroupCode?: string;
-  } | null {
-    if (conversation.type === 'group') {
-      return { peerType: 'group', targetId: conversation.group.identityValue };
-    }
-    if (conversation.type === 'direct') {
-      const other = conversation.otherUser;
-      const tempGroupCode = conversation.tempSourceGroupCode;
-      return {
-        peerType: 'c2c',
-        // 临时会话的 wire 路由只认 uid（grpTmp.toUid）→ 优先给 uid；普通私聊反过来，
-        // 优先给 QQ 号（服务层顺手补 uid，连陌生人也能发第一句）。
-        targetId:
-          tempGroupCode || !/^\d+$/.test(other.identityValue) ? other.id : other.identityValue,
-        ...(tempGroupCode ? { tempGroupCode } : {}),
-      };
-    }
-    return null;
   }
 
   /**

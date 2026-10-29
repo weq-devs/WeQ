@@ -18,6 +18,8 @@ export function contactTitle(
   profile?: { remark?: string | null; nick?: string | null },
 ): string {
   const kind = classifyChatType(contact.chatType);
+  if (kind === 'dataline')
+    return datalineName(contact.targetUid) || contact.targetDisplayName || '我的设备';
   if (kind === 'direct' && profile)
     return (
       profile.remark ||
@@ -25,9 +27,8 @@ export function contactTitle(
       profile.nick ||
       (contact.targetUin && contact.targetUin !== '0' ? contact.targetUin : contact.targetUid)
     );
-  // 群会话的 senderRemark 属于最后发言人，不能用作群名；数据线保留设备名。
-  const remark =
-    kind === 'direct' || kind === 'dataline' ? contact.senderRemark || contact.targetGroupNick : '';
+  // 群会话的 senderRemark 属于最后发言人，不能用作群名。
+  const remark = kind === 'direct' ? contact.senderRemark || contact.targetGroupNick : '';
   return (
     remark ||
     contact.targetDisplayName ||

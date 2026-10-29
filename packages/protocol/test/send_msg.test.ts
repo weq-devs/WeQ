@@ -9,7 +9,7 @@
  */
 
 import { inflateSync } from 'node:zlib';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildSendElems,
   buildSendRequest,
@@ -69,6 +69,83 @@ function fakeNative(responseBytes: Uint8Array) {
 const TEXT: SendElement = { kind: 'text', textContent: 'hi' };
 
 describe('buildSendRequest 请求拼装', () => {
+  it('设备文本采用 trans0x211 命令 7 和 msgContent，不采用好友 richText', () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1);
+    try {
+      const built = buildSendRequest({
+        dataline: {
+          selfUin: 10001,
+          deviceUid: 'u_Wcc5rknRRqRO8y5gxMD6sA',
+          terminalType: 2,
+        },
+        elements: [TEXT],
+        clientSequence: 7,
+        random: 42,
+        msgFlag: 1700000000,
+      });
+      expect(built.request.routingHead).toEqual({
+        trans0x211: { toUin: 10001, ccCmd: 7, uid: 'u_Wcc5rknRRqRO8y5gxMD6sA' },
+      });
+      expect(built.request.messageBody).toHaveProperty('msgContent');
+      expect(built.request.messageBody).not.toHaveProperty('richText');
+      expect(built.request.contentHead).toEqual({ type: 1, subType: 0 });
+      expect(built.request.ctrl).toEqual({ msgFlag: 1700000000 });
+      const body = built.request.messageBody as { msgContent: Uint8Array };
+      // 按固定版本的公开字段布局手工列出字节，不用待测 schema 编造预期。
+      expect(hexOf(body.msgContent)).toBe(
+        '080412130801100118e907200128914e30914e4801500232100801100120012a080a06080112026869',
+      );
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('设备文本的多段文本按原顺序拼接，保留 Unicode 和换行', () => {
+    const built = buildSendRequest({
+      dataline: { selfUin: 10001, deviceUid: 'u_device', terminalType: 3 },
+      elements: [
+        { kind: 'text', textContent: '你好\n' },
+        { kind: 'text', textContent: '手机' },
+      ],
+    });
+    const body = built.request.messageBody as { msgContent: Uint8Array };
+    expect(Buffer.from(body.msgContent).includes(Buffer.from('你好\n手机'))).toBe(true);
+  });
+
+  it('设备会话拒绝非文本、空文本、无效终端和混合路由，均在上传前失败', async () => {
+    const dataline = { selfUin: 10001, deviceUid: 'u_device', terminalType: 2 as const };
+    for (const elements of [[], [{ kind: 'text' as const, textContent: '' }]])
+      expect(() => buildSendRequest({ dataline, elements })).toThrow(/文本不能为空/);
+    for (const change of [
+      { userUin: 20002 },
+      { groupId: 12345 },
+      { groupTemp: { groupUin: 12345, toUid: 'u_other' } },
+    ])
+      expect(() => buildSendRequest({ dataline, elements: [TEXT], ...change })).toThrow(
+        /只能指定一个目标/,
+      );
+    for (const terminalType of [0, 4])
+      expect(() =>
+        buildSendRequest({
+          dataline: { ...dataline, terminalType: terminalType as 2 },
+          elements: [TEXT],
+        }),
+      ).toThrow(/终端类型无效/);
+    for (const target of [
+      { ...dataline, selfUin: 0 },
+      { ...dataline, deviceUid: '' },
+    ])
+      expect(() => buildSendRequest({ dataline: target, elements: [TEXT] })).toThrow();
+    const native = fakeNative(new Uint8Array([8, 0]));
+    await expect(
+      sendMessage(native.nt, 1, {
+        dataline,
+        elements: [{ kind: 'image', source: '/not-uploaded.png' }],
+      }),
+    ).rejects.toThrow(/仅支持文本/);
+    expect(native.calls).toHaveLength(0);
+  });
+
   it('群聊纯文本 = 黄金字节（0 值不上 wire）', () => {
     const built = buildSendRequest({
       groupId: 1234,

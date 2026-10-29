@@ -69,6 +69,7 @@ export type {
   SendMessageResponseInfo,
   SendRequestBuild,
 } from './send';
+export type { SendDatalineTarget } from './dataline';
 
 export {
   MESSAGE_CONTROL,
