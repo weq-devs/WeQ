@@ -7,12 +7,15 @@ import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { NEUTRAL_AFFINITY, NEUTRAL_FAMILIARITY } from '@weq/agentlab';
 import { BotJsonFile, deepFreeze, isRecord } from '../src/json_file';
 import {
   JsonConversationStore,
   JsonMemoryStore,
   JsonNotesStore,
   JsonRelationStore,
+  MAX_MEMORIES,
+  MAX_TURNS,
 } from '../src/stores';
 
 const roots: string[] = [];
@@ -124,9 +127,9 @@ describe('Json store 读拷贝语义', () => {
     const applied = store.applyDelta('p', 'u', 'user', { familiarity: 2 }, 5);
     applied.familiarity = 100;
     const got = store.get('p', 'u');
-    expect(got?.familiarity).toBe(12); // 中性初值 10 + 2
+    expect(got?.familiarity).toBe(NEUTRAL_FAMILIARITY + 2);
     got!.affinity = 0;
-    expect(store.get('p', 'u')?.affinity).toBe(50);
+    expect(store.get('p', 'u')?.affinity).toBe(NEUTRAL_AFFINITY);
     expect(store.listForSubject('p')).toEqual([store.get('p', 'u')]);
   });
 
@@ -183,25 +186,25 @@ describe('热路径分配回归', () => {
 });
 
 describe('容量上限保持', () => {
-  it('会话按 MAX_TURNS=400 截断，保留最新', () => {
+  it('会话按 MAX_TURNS 截断，保留最新', () => {
     const store = new JsonConversationStore(storePath('conversations.json'));
-    const many = Array.from({ length: 410 }, (_, i) => turn(`t${i}`, i));
+    const many = Array.from({ length: MAX_TURNS + 10 }, (_, i) => turn(`t${i}`, i));
     store.append('p', many);
     const kept = store.get('p');
-    expect(kept).toHaveLength(400);
+    expect(kept).toHaveLength(MAX_TURNS);
     expect(kept[0]).toEqual(turn('t10', 10));
-    expect(kept[399]).toEqual(turn('t409', 409));
+    expect(kept[MAX_TURNS - 1]).toEqual(turn(`t${MAX_TURNS + 9}`, MAX_TURNS + 9));
   });
 
-  it('记忆按 MAX_MEMORIES=200 截断且去重', () => {
+  it('记忆按 MAX_MEMORIES 截断且去重', () => {
     const store = new JsonMemoryStore(storePath('memories.json'));
-    const texts = Array.from({ length: 210 }, (_, i) => `记忆${i}`);
+    const texts = Array.from({ length: MAX_MEMORIES + 10 }, (_, i) => `记忆${i}`);
     store.add('p', texts, 1);
-    store.add('p', ['记忆209', '记忆208'], 2); // 重复文本不新增
+    store.add('p', [`记忆${MAX_MEMORIES + 9}`, `记忆${MAX_MEMORIES + 8}`], 2); // 重复文本不新增
     const items = store.get('p');
-    expect(items).toHaveLength(200);
+    expect(items).toHaveLength(MAX_MEMORIES);
     expect(items[0]!.text).toBe('记忆10');
-    expect(items[199]!.text).toBe('记忆209');
+    expect(items[MAX_MEMORIES - 1]!.text).toBe(`记忆${MAX_MEMORIES + 9}`);
   });
 
   it('笔记纠正去重截 20、经历截 8', () => {

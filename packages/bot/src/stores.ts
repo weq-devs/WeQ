@@ -28,8 +28,8 @@ import {
 } from '@weq/agentlab';
 import { BotJsonFile, isDictionary, isRecord, isStrings, isNumber, own } from './json_file';
 
-const MAX_TURNS = 400;
-const MAX_MEMORIES = 200;
+export const MAX_TURNS = 400;
+export const MAX_MEMORIES = 200;
 
 function isTurns(raw: unknown): raw is ConversationTurnLike[] {
   return (
