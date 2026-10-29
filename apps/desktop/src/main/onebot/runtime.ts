@@ -9,11 +9,14 @@ import {
   createNtMsgDbHook,
   toRenderElements,
   getLogger,
+  getHost,
   type SendElement,
   type OneBotConfig,
 } from '@weq/service';
 import type { AppContext } from '../context/app_context';
 import { OneBotServer, type BridgeMessage, type Segment } from './server';
+import { createActions } from './actions';
+import { fullModeAllowed } from '../context/full_mode';
 
 const logger = getLogger().child({ scope: 'onebot' });
 let current: OneBotServer | null = null;
@@ -51,6 +54,13 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
         generation === revision && ctx.account === session && ctx.services === services;
       const requireActive = () => {
         if (!active()) throw new Error('OneBot 账号已切换或关闭');
+      };
+      const imageReady = async () => {
+        const record = services.accountConfig.getRecord();
+        if (!active() || !fullModeAllowed(ctx) || !record?.qqOnline || !record.qqPid) return false;
+        const pid = record.qqPid;
+        const ready = await ctx.platform?.native.ntHelper.hasSsoSession(pid).catch(() => false);
+        return active() && services.accountConfig.getRecord()?.qqPid === pid && Boolean(ready);
       };
       let server: OneBotServer;
       async function incoming(
@@ -183,11 +193,13 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
       }
       server = new OneBotServer(
         {
-          status() {
+          version: () => getHost().appVersion(),
+          action: createActions(services, session, requireActive, imageReady),
+          async status() {
             if (!active()) return { online: false, good: false };
             const record = services.accountConfig.getRecord();
             const online = Boolean(record?.qqOnline && record.qqPid);
-            return { online, good: online };
+            return { online, good: online && (await imageReady()) };
           },
           async self() {
             requireActive();
@@ -222,6 +234,7 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
                   ...target,
                   path,
                   ...(typeof file.data.name === 'string' ? { fileName: file.data.name } : {}),
+                  ...(typeof file.data.folder === 'string' ? { folderId: file.data.folder } : {}),
                   beforeSend: requireActive,
                 });
                 if (!outcome.ok || !outcome.sent)
@@ -234,6 +247,7 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
                   nickname: '',
                   time: Math.floor(Date.now() / 1000),
                   sequence: 0,
+                  fileId: outcome.fileId,
                   message: segments,
                 };
               }

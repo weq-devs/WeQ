@@ -66,6 +66,8 @@ async function setup() {
   });
   const sendFile = vi.fn().mockResolvedValue({ ok: true, sent: true, fileId: 'file-1' });
   const ctx = {
+    platform: { native: { ntHelper: { hasSsoSession: async () => true } } },
+    bootstrap: { userConfig: { getSettings: () => ({ autoAttachQq: true }) } },
     account: { context: { uin: 99 }, uidMap: { uinByUid: () => 99n } },
     accountIsStatic: false,
     services: {
@@ -84,11 +86,11 @@ async function setup() {
 
 it('reports actual QQ offline status rather than just a listening WebSocket', async () => {
   const f = await setup();
-  expect(f.backend.status()).toEqual({ online: true, good: true });
+  expect(await f.backend.status()).toEqual({ online: true, good: true });
   f.onlineRecord.qqOnline = false;
-  expect(f.backend.status()).toEqual({ online: false, good: false });
+  expect(await f.backend.status()).toEqual({ online: false, good: false });
   stopOneBot();
-  expect(f.backend.status()).toEqual({ online: false, good: false });
+  expect(await f.backend.status()).toEqual({ online: false, good: false });
 });
 
 it('uses the distinct QQ quote pointer and validates all outgoing segments before sending', async () => {

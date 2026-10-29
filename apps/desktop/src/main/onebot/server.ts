@@ -4,9 +4,20 @@ import { stat } from 'node:fs/promises';
 import http from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
+import {
+  ActionError,
+  bool,
+  id as positiveId,
+  integer,
+  parseSegments,
+  sendTarget,
+  serializeSegments,
+  type Params,
+  type Segment,
+} from './contracts';
+export { parseSegments } from './contracts';
+export type { Segment } from './contracts';
 
-const segmentSchema = z.object({ type: z.string(), data: z.record(z.unknown()) });
-export type Segment = z.infer<typeof segmentSchema>;
 export interface BridgeMessage {
   key: string;
   peerType: 'c2c' | 'group';
@@ -16,11 +27,14 @@ export interface BridgeMessage {
   time: number;
   sequence: number;
   message: Segment[];
+  fileId?: string;
 }
 export interface OneBotBackend {
-  status(): { online: boolean; good: boolean };
+  status(): { online: boolean; good: boolean } | Promise<{ online: boolean; good: boolean }>;
   self(): Promise<{ user_id: number; nickname: string }>;
-  group(id: string): Promise<{ group_id: number; group_name: string }>;
+  group(id: string, noCache?: boolean): Promise<{ group_id: number; group_name: string }>;
+  version?(): string;
+  action?(action: string, params: Params): Promise<unknown>;
   send(
     target: { peerType: 'c2c' | 'group'; targetId: string },
     segments: Segment[],
@@ -35,46 +49,7 @@ const requestSchema = z.object({
   echo: z.unknown().optional(),
 });
 
-function positiveId(value: unknown): string {
-  const text = String(value ?? '');
-  if (!/^\d+$/.test(text) || !Number.isSafeInteger(Number(text)) || Number(text) <= 0)
-    throw new Error('QQ 号或群号无效');
-  return text;
-}
-
-function unescapeCq(text: string): string {
-  return text
-    .replace(/&#44;/g, ',')
-    .replace(/&#91;/g, '[')
-    .replace(/&#93;/g, ']')
-    .replace(/&amp;/g, '&');
-}
-
-/** cc-connect 的文本回复含 CQ:reply；先分段再反转义，避免把正文转义符误作控制段。 */
-export function parseSegments(value: unknown, autoEscape = false): Segment[] {
-  if (typeof value !== 'string') return z.array(segmentSchema).min(1).max(256).parse(value);
-  if (autoEscape) return [{ type: 'text', data: { text: value } }];
-  const segments: Segment[] = [];
-  let offset = 0;
-  for (const match of value.matchAll(/\[CQ:([a-zA-Z0-9_]+)((?:,[^\]]*)?)\]/g)) {
-    if (match.index > offset)
-      segments.push({ type: 'text', data: { text: unescapeCq(value.slice(offset, match.index)) } });
-    const data: Record<string, string> = {};
-    for (const part of (match[2] ?? '').split(',').filter(Boolean)) {
-      const equals = part.indexOf('=');
-      if (equals < 1) throw new Error('CQ 参数无效');
-      data[part.slice(0, equals)] = unescapeCq(part.slice(equals + 1));
-    }
-    segments.push({ type: match[1]!, data });
-    offset = match.index + match[0].length;
-  }
-  if (offset < value.length)
-    segments.push({ type: 'text', data: { text: unescapeCq(value.slice(offset)) } });
-  if (!segments.length || segments.length > 256) throw new Error('消息不能为空或超过 256 段');
-  return segments;
-}
-
-/** 仅提供 cc-connect 使用的 OneBot v11 子集，账号切换时整个实例销毁。 */
+/** 正向 WebSocket 与媒体服务；账号切换时整个实例销毁。 */
 export class OneBotServer {
   private readonly server: http.Server;
   private readonly sockets = new WebSocketServer({ noServer: true, maxPayload: 24 * 1024 * 1024 });
@@ -86,6 +61,7 @@ export class OneBotServer {
   private selfId = 0;
   private port = 0;
   private clients = new Set<WebSocket>();
+  private readonly paths = new WeakMap<WebSocket, string>();
   private heartbeat: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -96,16 +72,23 @@ export class OneBotServer {
       void this.serveMedia(req, res);
     });
     this.server.on('upgrade', (req, socket, head) => {
+      const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
+      if (!['/', '/api', '/event'].includes(path)) {
+        socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
+        return;
+      }
       if (!this.active || req.headers.authorization !== `Bearer ${this.token}`) {
         socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
         return;
       }
       this.sockets.handleUpgrade(req, socket, head, (ws) => {
         this.clients.add(ws);
+        this.paths.set(ws, path);
         ws.on('error', () => ws.terminate());
         ws.on('close', () => this.clients.delete(ws));
         let pending = 0;
         ws.on('message', (raw) => {
+          if (path === '/event') return;
           if (++pending > 32) {
             ws.close(1008, 'Too many requests');
             return;
@@ -118,13 +101,14 @@ export class OneBotServer {
               pending--;
             });
         });
-        this.write(ws, {
-          time: Math.floor(Date.now() / 1000),
-          self_id: this.selfId,
-          post_type: 'meta_event',
-          meta_event_type: 'lifecycle',
-          sub_type: 'connect',
-        });
+        if (path !== '/api')
+          this.write(ws, {
+            time: Math.floor(Date.now() / 1000),
+            self_id: this.selfId,
+            post_type: 'meta_event',
+            meta_event_type: 'lifecycle',
+            sub_type: 'connect',
+          });
       });
     });
   }
@@ -155,17 +139,22 @@ export class OneBotServer {
         sub_type: msg.peerType === 'group' ? 'normal' : 'friend',
         font: 0,
       };
-      for (const ws of this.clients) this.write(ws, event);
+      for (const ws of this.clients) if (this.paths.get(ws) !== '/api') this.write(ws, event);
     });
     this.heartbeat = setInterval(() => {
-      for (const ws of this.clients)
-        this.write(ws, {
-          time: Math.floor(Date.now() / 1000),
-          self_id: this.selfId,
-          post_type: 'meta_event',
-          meta_event_type: 'heartbeat',
-          status: this.backend.status(),
-          interval: 15000,
+      void Promise.resolve(this.backend.status())
+        .catch(() => ({ online: false, good: false }))
+        .then((status) => {
+          for (const ws of this.clients)
+            if (this.paths.get(ws) !== '/api')
+              this.write(ws, {
+                time: Math.floor(Date.now() / 1000),
+                self_id: this.selfId,
+                post_type: 'meta_event',
+                meta_event_type: 'heartbeat',
+                status,
+                interval: 15000,
+              });
         });
     }, 15000);
     this.heartbeat.unref();
@@ -295,11 +284,9 @@ export class OneBotServer {
       user_id: msg.senderUin,
       ...(msg.peerType === 'group' ? { group_id: Number(msg.targetId) } : {}),
       sender: { user_id: msg.senderUin, nickname: msg.nickname, card: '' },
+      ...(msg.peerType === 'group' ? { anonymous: null } : {}),
       message: msg.message,
-      raw_message: msg.message
-        .filter((s) => s.type === 'text')
-        .map((s) => s.data.text)
-        .join(''),
+      raw_message: serializeSegments(msg.message),
     };
   }
 
@@ -316,13 +303,17 @@ export class OneBotServer {
           data = await this.backend.self();
           break;
         case 'get_status':
-          data = this.backend.status();
+          data = await this.backend.status();
           break;
         case 'get_version_info':
-          data = { app_name: 'WeQ', app_version: 'OneBot bridge', protocol_version: 'v11' };
+          data = {
+            app_name: 'WeQ',
+            app_version: this.backend.version?.() ?? 'unknown',
+            protocol_version: 'v11',
+          };
           break;
         case 'get_group_info':
-          data = await this.backend.group(positiveId(p.group_id));
+          data = await this.backend.group(positiveId(p.group_id), bool(p.no_cache));
           break;
         case 'get_msg': {
           const id = Number(p.message_id);
@@ -332,15 +323,7 @@ export class OneBotServer {
           break;
         }
         case 'set_input_status':
-          await this.backend.typing(
-            positiveId(p.user_id),
-            z
-              .number()
-              .int()
-              .min(0)
-              .max(10)
-              .parse(p.event_type ?? 1),
-          );
+          await this.backend.typing(positiveId(p.user_id), integer(p.event_type, 1, 1, 1));
           data = {};
           break;
         case 'send_private_msg':
@@ -348,17 +331,15 @@ export class OneBotServer {
         case 'send_msg':
         case 'upload_group_file':
         case 'upload_private_file': {
-          const group =
-            request.action === 'send_group_msg' ||
-            request.action === 'upload_group_file' ||
-            (request.action === 'send_msg' && p.message_type === 'group');
-          const target = {
-            peerType: group ? ('group' as const) : ('c2c' as const),
-            targetId: positiveId(group ? p.group_id : p.user_id),
-          };
+          const target = sendTarget(request.action, p);
           const segments = request.action.startsWith('upload_')
-            ? [{ type: 'file', data: { file: p.file, name: p.name } }]
-            : parseSegments(p.message, p.auto_escape === true);
+            ? [
+                {
+                  type: 'file',
+                  data: { file: p.file, name: p.name, folder: p.folder ?? p.folder_id },
+                },
+              ]
+            : parseSegments(p.message, bool(p.auto_escape));
           const replies = segments.filter((s) => s.type === 'reply');
           if (replies.length > 1) throw new Error('只支持一个引用段');
           const reply = replies[0] ? this.records.get(Number(replies[0].data.id)) : undefined;
@@ -374,23 +355,22 @@ export class OneBotServer {
             reply,
           );
           if (!this.active) throw new Error('账号已关闭，发送结果未在当前会话登记');
-          data = { message_id: this.remember(sent) };
+          data = {
+            message_id: this.remember(sent),
+            ...(request.action.startsWith('upload_') ? { file_id: sent.fileId } : {}),
+          };
           break;
         }
         default:
-          return {
-            status: 'failed',
-            retcode: 1404,
-            data: null,
-            message: `不支持的 OneBot action：${request.action}`,
-            echo,
-          };
+          if (!this.backend.action)
+            throw new ActionError(`不支持的 OneBot action：${request.action}`, 1404);
+          data = await this.backend.action(request.action, p);
       }
       return { status: 'ok', retcode: 0, data, echo };
     } catch (error) {
       return {
         status: 'failed',
-        retcode: 1400,
+        retcode: error instanceof ActionError ? error.retcode : 1400,
         data: null,
         message: error instanceof Error ? error.message : 'OneBot 请求失败',
         echo,

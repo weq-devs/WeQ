@@ -22,6 +22,8 @@ import {
   KickGroupMember,
   LeaveGroup,
   MuteGroupMember,
+  MuteGroupAll,
+  type MuteGroupAllParams,
   RecallGroup,
   RecallPrivate,
   SetGroupAddOption,
@@ -171,6 +173,10 @@ export class GroupModerationService {
       targetUid: requireTargetUid(params.targetUid),
       duration: params.duration,
     });
+  }
+
+  async muteAll(params: MuteGroupAllParams): Promise<void> {
+    await MuteGroupAll.invoke(this.nt, this.resolvePid(), params);
   }
 
   /** 设置 / 取消群管理员（OIDB 0x1096_1，仅群主）。 */

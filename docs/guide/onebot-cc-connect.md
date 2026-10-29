@@ -36,7 +36,18 @@ WeQ 与 cc-connect 需要运行在同一台电脑。接口固定监听 `127.0.0.
 - 本机媒体由短期回环 URL 提供给 cc-connect，不需要 NapCat 的文件下载 API。
 - 私聊输入状态、登录资料、群名称、当前桥接会话缓存中的消息查询。
 
-这是 cc-connect 所需的兼容子集，不是 NapCat 的完整替代实现。暂不包含 HTTP action 接口、反向 WebSocket、管理类 action、语音/视频发送及未缓存文件的在线补全。
+除 cc-connect 收发外，正向 WebSocket 还提供以下常用接口：
+
+- 名单：`get_friend_list`、`get_group_list`。
+- 群管理：`set_group_name`、`set_group_card`、`set_group_ban`、`set_group_whole_ban`、`set_group_kick`、`set_group_admin`。
+- 群文件：`get_group_root_files`、`get_group_files_by_folder`、`get_group_file_system_info`、`get_group_file_url`、`delete_group_file`、`rename_group_file`、`move_group_file`、`create_group_file_folder`、`delete_group_folder`（兼容 `delete_group_file_folder`）。上传可传 `folder` / `folder_id`，回包包含 `file_id`。
+- 互动：`set_friend_remark`、`set_group_remark`、`send_poke`（兼容 `friend_poke` / `group_poke`）、`mark_private_msg_as_read`、`mark_group_msg_as_read`、`get_group_at_all_remain`。
+- 能力：`get_status`、`get_version_info`、`can_send_image`、`can_send_record`。语音发送尚未接入，能力查询返回 false。
+
+消息输入接受 CQ 字符串、消息段数组或单个消息段对象；布尔参数接受布尔值及 `true/false`、`1/0`、`yes/no`。`send_msg` 不传 `message_type` 时按唯一目标 ID 推断。
+`/` 同时承载 API 和事件，`/api` 只处理 API，`/event` 只推事件。新增 action 不会自动变成 cc-connect Agent 的工具，需由调用方接入使用。
+
+这是实用兼容子集，不是 NapCat 的完整替代实现。暂不包含 HTTP action 接口、反向 WebSocket、语音/视频发送及未缓存文件的在线补全。
 文件走独立上传管线，不能与正文/图片混发，也不附带 QQ 原生引用；cc-connect 的文件发送仍可正常使用。
 
 ## 运行行为

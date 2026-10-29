@@ -43,13 +43,18 @@ export class GroupFileService {
   ) {}
 
   /** 拉某个目录下的全部文件+子文件夹(内部翻页到 isEnd)。 */
-  async list(groupId: number, targetDirectory = '/'): Promise<GroupFileListing> {
+  async list(
+    groupId: number,
+    targetDirectory = '/',
+    options: { beforeRequest?: () => void } = {},
+  ): Promise<GroupFileListing> {
     const dir = targetDirectory || '/';
     const files: GroupFileItem[] = [];
     const folders: GroupFolderItem[] = [];
 
     let startIndex = 0;
     for (let page = 0; page < MAX_PAGES; page += 1) {
+      options.beforeRequest?.();
       const res = await ListGroupFiles.invoke(this.nt, this.resolvePid(), {
         groupId,
         targetDirectory: dir,
@@ -58,11 +63,12 @@ export class GroupFileService {
       });
       files.push(...res.files);
       folders.push(...res.folders);
-      if (res.isEnd || res.files.length + res.folders.length === 0) break;
+      if (res.isEnd || res.files.length + res.folders.length === 0)
+        return { targetDirectory: dir, files, folders };
       startIndex += PAGE_SIZE;
     }
 
-    return { targetDirectory: dir, files, folders };
+    throw new Error('群文件分页超过上限，未返回截断列表');
   }
 
   /** 递归拉全群文件,给每个文件带上相对根目录的路径段(用于导出建目录树)。 */

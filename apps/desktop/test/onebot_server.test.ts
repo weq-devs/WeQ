@@ -27,7 +27,7 @@ const incoming = (patch: Partial<BridgeMessage> = {}): BridgeMessage => ({
   ...patch,
 });
 
-async function setup() {
+async function setup(path = '/') {
   let deliver: (msg: BridgeMessage) => void = () => {};
   const unsubscribe = vi.fn();
   const send = vi
@@ -49,7 +49,7 @@ async function setup() {
   const server = new OneBotServer(backend, 'synthetic-token');
   servers.push(server);
   const port = await server.start(0);
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}${path}`, {
     headers: { Authorization: 'Bearer synthetic-token' },
   });
   sockets.push(ws);
@@ -82,6 +82,30 @@ it('parses cc-connect CQ replies without interpreting escaped CQ-looking text', 
   expect(parseSegments('[CQ:at,qq=99]', true)).toEqual([
     { type: 'text', data: { text: '[CQ:at,qq=99]' } },
   ]);
+});
+
+it('标准 send_msg、单段对象和字符串 false 通过真实 WS 生效', async () => {
+  const f = await setup();
+  expect(
+    await f.request('send_msg', {
+      group_id: 42,
+      message: { type: 'text', data: { text: '单段' } },
+    }),
+  ).toMatchObject({ retcode: 0 });
+  expect(f.send).toHaveBeenLastCalledWith(
+    { peerType: 'group', targetId: '42' },
+    [{ type: 'text', data: { text: '单段' } }],
+    undefined,
+  );
+  await f.request('send_msg', { group_id: 42, message: '[CQ:at,qq=99]', auto_escape: 'false' });
+  expect(f.send.mock.calls.at(-1)?.[1]).toEqual([{ type: 'at', data: { qq: '99' } }]);
+});
+
+it('/api 不推消息或生命周期，仍能收发 action', async () => {
+  const f = await setup('/api');
+  f.deliver(incoming());
+  expect(await f.request('get_login_info')).toMatchObject({ retcode: 0 });
+  expect(f.messages.some((message) => message.post_type)).toBe(false);
 });
 
 it('supports login, group events, native mention segments, CQ replies and get_msg through real WS', async () => {
