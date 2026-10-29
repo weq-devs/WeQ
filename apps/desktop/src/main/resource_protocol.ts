@@ -28,6 +28,7 @@
 import { join, normalize, sep } from 'node:path';
 import { resolveResourceRoot } from './resource';
 import { fileResponse } from './file_response';
+import { withCors } from './protocol_response';
 import { getAppContext } from './context/app_context';
 
 export const RESOURCE_SCHEME = 'weq-asset';
@@ -44,6 +45,9 @@ export const RESOURCE_PRIVILEGED_SCHEME = {
     secure: true,
     supportFetchAPI: true,
     stream: true,
+    // dev 渲染页在 http://localhost:5173，读取 fullscreen.json 这类资源会走
+    // CORS-mode fetch；没有这条特权声明，Chromium 会直接拒绝 weq-asset://。
+    corsEnabled: true,
   },
 } as const;
 
@@ -86,6 +90,17 @@ function containedPath(root: string, relative: string): string | null {
  * can mount it on a plain HTTP route (see `apps/web`) without Electron.
  */
 export async function handleResourceRequest(request: Request): Promise<Response> {
+  try {
+    return withCors(await routeResourceRequest(request));
+  } catch (e) {
+    // Even early startup failures must carry the CORS header in dev, otherwise
+    // Chromium reports them as cross-origin failures and hides the real error.
+    console.error('[resource] request failed:', e);
+    return withCors(new Response('resource error', { status: 500 }));
+  }
+}
+
+async function routeResourceRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (url.hostname === 'emoji') return handleEmojiRequest(request, url);
 

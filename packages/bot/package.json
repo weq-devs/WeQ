@@ -7,7 +7,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@weq/agentlab": "workspace:*",
@@ -15,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.6",
-    "@types/ws": "^8.5.13"
+    "@types/ws": "^8.5.13",
+    "vitest": "^2.1.8"
   }
 }

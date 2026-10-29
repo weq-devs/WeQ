@@ -39,6 +39,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { viewerMedia } from './export_viewer';
 import { fileResponse as streamFile } from './file_response';
+import { withCors } from './protocol_response';
 import { decorationImageResponse } from './decoration_image_response';
 import { chatImageResponse } from './chat_image_response';
 import { createHash } from 'node:crypto';
@@ -162,23 +163,6 @@ export const MEDIA_PRIVILEGED_SCHEME = {
 
 function notFound(reason: string): Response {
   return new Response(reason, { status: 404 });
-}
-
-/**
- * 给每个响应补 `Access-Control-Allow-Origin`。
- *
- * 只有 dev 下的渲染页（`http://localhost:5173`）会真的走到这里：`weq-media://`
- * 与它不同源，字体走的是 CORS-mode 的 fetch（`new FontFace(url)`），缺这个头
- * 就算特权声明里开了 `corsEnabled` 也会被拒。图片/视频是 no-cors 请求，加不加
- * 都无所谓；统一加上省得以后又冒出「某类资源突然要 CORS」。
- *
- * `*` 而不是回显 Origin：这些响应都不带凭据，且协议本身只服务本机文件。
- * 304 也要带（Chromium 对缓存的字体照样做 CORS 校验），所以这里复制原响应头。
- */
-function withCors(res: Response): Response {
-  const headers = new Headers(res.headers);
-  headers.set('Access-Control-Allow-Origin', '*');
-  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
 
 /**

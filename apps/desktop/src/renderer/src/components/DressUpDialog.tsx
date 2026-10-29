@@ -24,6 +24,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactElement,
 } from 'react';
@@ -50,6 +51,8 @@ import { useAppDialog } from '../lib/dialogUtils';
 import { dressBackgroundUrl, dressFontUrl, dressUrl, isVideoBackground } from '../lib/resourceUrl';
 import { bubblePreviewCss } from '../lib/dressSkin';
 import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
+import { useNearViewport } from '../hooks/useNearViewport';
+import { useVideoPlaybackSlot } from '../hooks/useVideoPlaybackSlot';
 import { fontFaces } from '../lib/fontFaces';
 import { acquireDecorationStyle } from '../lib/decorationResources';
 import { useDecorationSave } from './DecorationSaveControls';
@@ -160,6 +163,59 @@ function FontLocalPreview({ itemId }: { itemId: number }): ReactElement {
     );
   }
   return <span className="weq-dress-font-fallback">无预览</span>;
+}
+
+/** 装扮页列表的滚动容器 —— 预览按它的视口懒加载(见 useNearViewport)。 */
+const LIST_SCROLL_SELECTOR = '.weq-dress-body';
+
+/**
+ * 一张卡片的预览格。
+ *
+ * 之前是整页一次性把每张预览图 / 每路视频都挂上去:通话背景那一栏 82 款、每款一支
+ * autoPlay 的 mp4,进页瞬间几十路解码同时起,整页就卡住了。现在分两种策略:
+ *
+ *  - **图片**:进过视口才设 `src`,之后一直留着(滚回来不用重新走主进程代理)。
+ *  - **视频**:只在视口内才挂 `<video>`;离屏退回静态封面图 —— 通话背景条目自带
+ *    `image.jpg`,所以离屏看到的是同一款的首帧,不会变成空白格。
+ */
+function DressCardPreview({
+  slotKey,
+  imageSrc,
+  videoSrc,
+  alt,
+  children,
+}: {
+  /** 播放名额的唯一标识(见 useVideoPlaybackSlot)。 */
+  slotKey: string;
+  imageSrc: string;
+  videoSrc?: string;
+  alt: string;
+  /** 本地画出来的预览(气泡 / 字体),给了就不走图片 / 视频这一套。 */
+  children?: ReactElement;
+}): ReactElement {
+  const ref = useRef<HTMLDivElement>(null);
+  const { near, entered } = useNearViewport(ref, { rootSelector: LIST_SCROLL_SELECTOR });
+  // 在视口内还要抢到播放名额才播 —— 一屏可能摆下二十多张卡片。
+  const showVideo = useVideoPlaybackSlot(slotKey, Boolean(videoSrc) && near);
+  return (
+    <div className={`weq-dress-card-preview${videoSrc ? ' is-video' : ''}`} ref={ref}>
+      {children ? (
+        children
+      ) : showVideo ? (
+        // poster 就是离屏时要显示的那张封面,浏览器会顺手把它载入缓存 —— 滚出去
+        // 换成 <img> 时不会白一下。
+        <video src={videoSrc} poster={imageSrc || undefined} autoPlay loop muted playsInline />
+      ) : imageSrc && entered ? (
+        // 有视频但离屏时同样走这张封面 —— 它本来就是这支视频的首帧。
+        <img src={imageSrc} alt={alt} loading="lazy" decoding="async" />
+      ) : imageSrc ? (
+        // 还没滚到:连 src 都不给,免得一进页就把几十张封面一起拉下来。
+        <span className="weq-dress-card-pending" aria-hidden />
+      ) : (
+        <div className="weq-dress-card-noimg">无预览</div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -593,18 +649,15 @@ export function DressUpDialog({
     // 那一步的失败由后端在点击时如实报错。离线也能装的款不再被按钮拦住。
     return (
       <div key={item.itemId} className={`weq-dress-card${isActive ? ' is-active' : ''}`}>
-        <div className="weq-dress-card-preview">
-          {localPreview ? (
-            localPreview
-          ) : isCallBg(mallKind) && item.videoUrl ? (
-            // 通话背景本来就是动态的 —— 列表里直接播，静帧看不出效果。
-            <video src={dressUrl(item.videoUrl)} autoPlay loop muted playsInline />
-          ) : previewSrc ? (
-            <img src={previewSrc} alt={item.name} loading="lazy" />
-          ) : (
-            <div className="weq-dress-card-noimg">无预览</div>
-          )}
-        </div>
+        <DressCardPreview
+          slotKey={`${mallKind}:${item.itemId}`}
+          imageSrc={previewSrc}
+          // 通话背景本来就是动态的 —— 在视口里就直接播，静帧看不出效果。
+          videoSrc={isCallBg(mallKind) && item.videoUrl ? dressUrl(item.videoUrl) : undefined}
+          alt={item.name}
+        >
+          {localPreview}
+        </DressCardPreview>
         <div className="weq-dress-card-body">
           <strong title={item.name}>{item.name}</strong>
           <small>{item.labels.slice(0, 2).join(' · ') || item.mallName || `#${item.itemId}`}</small>
