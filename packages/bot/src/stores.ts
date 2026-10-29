@@ -27,9 +27,28 @@ import {
   type UsageSink,
 } from '@weq/agentlab';
 import { BotJsonFile, isDictionary, isRecord, isStrings, isNumber, own } from './json_file';
+import { openBucketed, type BucketedJsonDir } from './bucketed_store';
 
 export const MAX_TURNS = 400;
 export const MAX_MEMORIES = 200;
+
+/**
+ * 存储布局选项：
+ * - `bucketed=true`：conversations / memories 改为「每键一个文件」的分桶目录
+ *   （`<name>.json` → `<name>.d/`；旧单文件自动迁移并保留为 `.migrated`），
+ *   写入只动单键文件、内存只驻留热桶（LRU）；
+ * - 缺省 false：单文件布局（BotJsonFile），与历史行为完全一致。
+ * 笔记 / 关系库体量小（每对端几十～几百字节），不分桶。
+ */
+export interface BotStoreOptions {
+  bucketed?: boolean;
+  /** 分桶模式的内存 LRU 桶数上限（默认 64；淘汰只丢内存副本，数据永远已落盘）。 */
+  maxCachedBuckets?: number;
+}
+
+function bucketedDirOf(filePath: string): string {
+  return `${filePath.replace(/\.json$/i, '')}.d`;
+}
 
 function isTurns(raw: unknown): raw is ConversationTurnLike[] {
   return (
@@ -103,63 +122,96 @@ function isRelation(raw: unknown): raw is AgentLabRelation {
 }
 
 export class JsonConversationStore implements ConversationSink {
-  private readonly file: BotJsonFile<Record<string, ConversationTurnLike[]>>;
-  constructor(filePath: string) {
-    this.file = new BotJsonFile(
-      filePath,
-      () => ({}),
-      (raw): raw is Record<string, ConversationTurnLike[]> => isDictionary(raw, isTurns),
-    );
+  private readonly file: BotJsonFile<Record<string, ConversationTurnLike[]>> | null;
+  private readonly buckets: BucketedJsonDir<ConversationTurnLike[]> | null;
+  constructor(filePath: string, opts: BotStoreOptions = {}) {
+    const validWhole = (raw: unknown): raw is Record<string, ConversationTurnLike[]> =>
+      isDictionary(raw, isTurns);
+    if (opts.bucketed) {
+      this.file = null;
+      this.buckets = openBucketed(filePath, bucketedDirOf(filePath), validWhole, isTurns, {
+        maxBuckets: opts.maxCachedBuckets,
+      });
+    } else {
+      this.buckets = null;
+      this.file = new BotJsonFile(filePath, () => ({}), validWhole);
+    }
+  }
+  private readBucket(agentId: string): ConversationTurnLike[] {
+    if (this.buckets) return this.buckets.get(agentId) ?? [];
+    return own(this.file!.data, agentId) ?? [];
+  }
+  private writeBucket(agentId: string, turns: ConversationTurnLike[]): void {
+    if (this.buckets) {
+      this.buckets.set(agentId, turns);
+      return;
+    }
+    this.file!.replace({ ...this.file!.data, [agentId]: turns });
+  }
+  private allKeys(): string[] {
+    return this.buckets ? this.buckets.keys() : Object.keys(this.file!.data);
   }
   get(agentId: string): ConversationTurnLike[] {
-    const turns = own(this.file.data, agentId);
-    return turns ? turns.map((t) => ({ ...t })) : [];
+    return this.readBucket(agentId).map((t) => ({ ...t }));
   }
   getAll(prefix: string): ConversationTurnLike[] {
     const prefixWithColon = `${prefix}:`;
     const out: ConversationTurnLike[] = [];
-    for (const key of Object.keys(this.file.data)) {
+    for (const key of this.allKeys()) {
       if (key === prefix || key.startsWith(prefixWithColon)) {
-        const turns = own(this.file.data, key);
-        if (turns) for (const t of turns) out.push({ ...t });
+        for (const t of this.readBucket(key)) out.push({ ...t });
       }
     }
     return out.sort((a, b) => a.ts - b.ts);
   }
   /** `turns` 的所有权移交给存储（发布后随整树冻结）；调用方不得保留引用再修改。 */
   append(agentId: string, turns: ConversationTurnLike[]): void {
-    const prev = own(this.file.data, agentId);
-    const merged = prev ? [...prev, ...turns] : [...turns];
-    this.file.replace({ ...this.file.data, [agentId]: merged.slice(-MAX_TURNS) });
+    const prev = this.readBucket(agentId);
+    this.writeBucket(agentId, [...prev, ...turns].slice(-MAX_TURNS));
   }
 }
 
 export class JsonMemoryStore implements MemorySink {
-  private readonly file: BotJsonFile<Record<string, AgentLabMemoryItem[]>>;
-  constructor(filePath: string) {
-    this.file = new BotJsonFile(
-      filePath,
-      () => ({}),
-      (raw): raw is Record<string, AgentLabMemoryItem[]> => isDictionary(raw, isMemories),
-    );
+  private readonly file: BotJsonFile<Record<string, AgentLabMemoryItem[]>> | null;
+  private readonly buckets: BucketedJsonDir<AgentLabMemoryItem[]> | null;
+  constructor(filePath: string, opts: BotStoreOptions = {}) {
+    const validWhole = (raw: unknown): raw is Record<string, AgentLabMemoryItem[]> =>
+      isDictionary(raw, isMemories);
+    if (opts.bucketed) {
+      this.file = null;
+      this.buckets = openBucketed(filePath, bucketedDirOf(filePath), validWhole, isMemories, {
+        maxBuckets: opts.maxCachedBuckets,
+      });
+    } else {
+      this.buckets = null;
+      this.file = new BotJsonFile(filePath, () => ({}), validWhole);
+    }
+  }
+  private readScope(personaId: string): AgentLabMemoryItem[] {
+    if (this.buckets) return this.buckets.get(personaId) ?? [];
+    return own(this.file!.data, personaId) ?? [];
+  }
+  private writeScope(personaId: string, items: AgentLabMemoryItem[]): void {
+    if (this.buckets) {
+      this.buckets.set(personaId, items);
+      return;
+    }
+    this.file!.replace({ ...this.file!.data, [personaId]: items });
   }
   get(personaId: string): AgentLabMemoryItem[] {
-    const items = own(this.file.data, personaId);
     // 浅拷贝条目：embedding / keywords 数组共享冻结引用（消费端只读，改写会显式抛错）。
-    return items ? items.map((m) => ({ ...m })) : [];
+    return this.readScope(personaId).map((m) => ({ ...m }));
   }
   getAbout(personaId: string, aboutIds: string[], includeUntagged = false): AgentLabMemoryItem[] {
     const ids = new Set(aboutIds);
-    const items = own(this.file.data, personaId);
-    if (!items) return [];
-    return items
+    return this.readScope(personaId)
       .filter((m) => (m.aboutId ? ids.has(m.aboutId) : includeUntagged))
       .map((m) => ({ ...m }));
   }
   touch(personaId: string, ids: string[], now: number): void {
     if (ids.length === 0) return;
-    const cur = own(this.file.data, personaId);
-    if (!cur) return;
+    const cur = this.readScope(personaId);
+    if (cur.length === 0) return;
     const idSet = new Set(ids);
     let changed = false;
     // 只为命中的条目构造新对象；未命中条目共享冻结引用，避免整库（含向量）深拷贝。
@@ -168,7 +220,7 @@ export class JsonMemoryStore implements MemorySink {
       changed = true;
       return { ...m, accessCount: m.accessCount + 1, lastAccessedAt: now };
     });
-    if (changed) this.file.replace({ ...this.file.data, [personaId]: next });
+    if (changed) this.writeScope(personaId, next);
   }
   add(
     personaId: string,
@@ -177,7 +229,7 @@ export class JsonMemoryStore implements MemorySink {
     about?: { aboutId: string; aboutKind: 'user' | 'persona' },
     embeddings?: Array<number[] | undefined>,
   ): void {
-    const cur = own(this.file.data, personaId) ?? [];
+    const cur = this.readScope(personaId);
     const seen = new Set(cur.map((m) => `${m.aboutId ?? ''} ${m.text}`));
     const fresh: AgentLabMemoryItem[] = [];
     texts.forEach((raw, i) => {
@@ -200,11 +252,7 @@ export class JsonMemoryStore implements MemorySink {
         lastAccessedAt: now,
       });
     });
-    if (fresh.length > 0)
-      this.file.replace({
-        ...this.file.data,
-        [personaId]: [...cur, ...fresh].slice(-MAX_MEMORIES),
-      });
+    if (fresh.length > 0) this.writeScope(personaId, [...cur, ...fresh].slice(-MAX_MEMORIES));
   }
 }
 
