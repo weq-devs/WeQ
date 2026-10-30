@@ -317,6 +317,18 @@ it('日期解析拒绝溢出的自然日期，闭区间按北京时间而非默�
   });
 });
 
+it('群成员入口固定对象时用成员 QQ 号显示头像，不回退默认头像', () => {
+  const f = mount({ kind: 'member', groupCode: '777', memberUid: 'u_777', memberUin: '10003' });
+  try {
+    const avatar = f.host.querySelector('.weq-analysis-locked-target .weq-analysis-choice-avatar');
+    expect(avatar).not.toBeNull();
+    expect(avatar!.querySelector('.weq-avatar-fallback')).toBeNull();
+    expect(avatar!.querySelector('img')).not.toBeNull();
+  } finally {
+    f.close();
+  }
+});
+
 it('历史仅号成员以真实 QQ 号生成请求，不将选择器键伪造为 UID', async () => {
   const f = mount();
   try {
