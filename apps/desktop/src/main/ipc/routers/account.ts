@@ -599,6 +599,17 @@ export interface GroupAlbumAccessState {
   hasD2Key: boolean;
   /** 本地是否已解析出设备 guid（服务端认设备的依据，缺了会被拒绝）。 */
   hasGuid: boolean;
+  /**
+   * 原生侧是否已经登记了这个 QQ 进程的 SSO 会话。
+   *
+   * **和 `qqOnline` 不是一回事**：Linux 上要先提权读进程内存拿到 a2 / d2 / d2key
+   * 才能登记，QQ 刚上线时中间有几十秒空窗。这段时间里发包只会回
+   * 「还没有登记 SSO 会话」，所以任何走原始 SSO 通道的功能（漫游补拉、闪照补拉）
+   * 都必须等它为真。`getGroupAlbumAccessState` 才会返回它。
+   */
+  ssoReady?: boolean;
+  /** 会话物料需要重新读一次进程内存（pid 变了或物料不全）。 */
+  needsMemoryRead?: boolean;
   clientKeyValid: boolean;
   clientKeyExpiresAt: number | null;
   clientKeySecondsLeft: number;

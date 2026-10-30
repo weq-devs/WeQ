@@ -979,6 +979,14 @@ html[data-theme='dark'] .weq-chat-backdrop {
   pointer-events: none;
 }
 
+/* 闪照封面在引用里同样缩成小方块：尺寸来自组件内联样式，这里压住它。 */
+.qq-reply-preview-media .qq-flash-cover {
+  width: 56px !important;
+  height: 56px !important;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
 .qq-reply-preview-media .qq-mface-badge {
   display: none;
 }

@@ -1102,50 +1102,58 @@ html[data-theme='dark'] .reaction-likers {
    .qq-media-wrap-emoji 这个类仍保留 —— privacy.css 用它给模糊模式挂遮罩。 */
 
 /* ---- 闪照 ----------------------------------------------------------------
-   闪照是「看过即焚」的语义：气泡里只给打码预览（offpic 的 198 档），点开才看
-   0 档原图。
+   气泡里是**固定封面**：灰阶马赛克方块 + 白色闪电，所有闪照共用；画面本体只在
+   点开的灯箱里现取（offpic 的 0 档）。
 
-   打码分两层，缺一不可：
-     · blur 负责**真的遮住内容** —— 纯网格叠层只是视觉效果，底图清晰照样能看清；
-     · 网格叠层负责**看上去像马赛克** —— 光有模糊会读成「没加载好」。
-   `image-rendering: pixelated` 在这里没用（它只影响放大，不降采样），所以不用。 */
-.qq-media-wrap-flash {
+   早先的做法是加载 198 预览再 blur + 网格遮罩。那本质是「真实画面打码」——只要
+   图进了缓存，糊得再重也总能被还原出来；也看得出明暗、构图。固定封面从数据上就
+   没有可还原的内容，深浅两套主题下都只看这一套灰阶。 */
+.qq-flash-cover {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 8px;
   overflow: hidden;
-}
-
-.qq-media-flash {
-  filter: blur(14px) saturate(0.85);
-  /* 模糊会让边缘透出底色，放大一点点盖住。 */
-  transform: scale(1.06);
-}
-
-.qq-media-wrap-flash::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  /* 粗网格 + 细网格叠成方块感，模拟马赛克贴片。 */
+  user-select: none;
+  -webkit-user-drag: none;
+  /* 马赛克底：两层错位的大方块网格，明暗随机感靠多层叠加，不用图片资源。 */
+  background-color: #8e8b88;
   background-image:
-    repeating-linear-gradient(0deg, rgb(0 0 0 / 22%) 0 1px, transparent 1px 7px),
-    repeating-linear-gradient(90deg, rgb(0 0 0 / 22%) 0 1px, transparent 1px 7px),
-    repeating-linear-gradient(45deg, rgb(255 255 255 / 6%) 0 3px, transparent 3px 7px);
-  mix-blend-mode: multiply;
+    linear-gradient(to right, rgb(255 255 255 / 12%) 50%, transparent 50%),
+    linear-gradient(to bottom, rgb(0 0 0 / 18%) 50%, transparent 50%),
+    linear-gradient(to right, rgb(255 255 255 / 7%) 50%, transparent 50%),
+    linear-gradient(to bottom, rgb(0 0 0 / 10%) 50%, transparent 50%);
+  background-size:
+    64px 64px,
+    64px 64px,
+    32px 32px,
+    32px 32px;
+  background-position:
+    0 0,
+    0 0,
+    32px 16px,
+    16px 32px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%);
 }
 
-/* 右下角角标：说明这是闪照而不是加载失败的图。 */
-.qq-media-wrap-flash::after {
-  content: '闪照';
-  position: absolute;
-  right: 6px;
-  bottom: 6px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: rgb(0 0 0 / 55%);
+/* 深色模式下把方块整体压暗一档：浅灰封面在深色画布上会亮得刺眼。 */
+html[data-theme='dark'] .qq-flash-cover {
+  background-color: #57546f;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%);
+}
+
+.qq-flash-cover-bolt {
+  position: relative;
+  width: 40%;
+  height: 40%;
+  min-width: 26px;
+  min-height: 26px;
   color: #fff;
-  font-size: 11px;
-  line-height: 1.4;
-  letter-spacing: 0.04em;
-  pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgb(0 0 0 / 35%));
+  /* 跟参考图一致：闪电略微右倾。 */
+  transform: rotate(6deg);
 }
 
 .qq-media-mface {

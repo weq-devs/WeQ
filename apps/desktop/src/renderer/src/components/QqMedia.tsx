@@ -13,7 +13,7 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-import { Cloud, FileText, ImageOff, Loader2, Sparkles, Star, Store } from 'lucide-react';
+import { Cloud, FileText, ImageOff, Loader2, Sparkles, Star, Store, Zap } from 'lucide-react';
 import { fileIconUrl, localFileUrl, localVoiceFileUrl, mediaUrl } from '@renderer/lib/resourceUrl';
 import { cn } from '@renderer/lib/utils';
 import { trpc } from '@renderer/trpc/client';
@@ -37,6 +37,34 @@ function str(d: Data, k: string): string {
 function num(d: Data, k: string): number {
   const v = d[k];
   return typeof v === 'number' ? v : Number(v) || 0;
+}
+
+/**
+ * 闪照的固定封面：灰阶马赛克方块 + 白色闪电，所有闪照共用，不透露画面内容。
+ *
+ * 不再画 198 预览打模糊 —— 那是「真实画面打码」，只要缓存里有图，放大或改样式
+ * 就能还原出内容；固定封面从数据上就没有可还原的东西。图片本体只在点开的灯箱里
+ * 现取 0 档。
+ */
+function QqFlashCover({
+  style,
+  onClick,
+}: {
+  style?: CSSProperties;
+  onClick?: (event: ReactMouseEvent<HTMLSpanElement>) => void;
+}) {
+  return (
+    <span
+      className="qq-flash-cover"
+      style={style}
+      role="img"
+      aria-label="闪照"
+      title="点击查看闪照"
+      onClick={onClick}
+    >
+      <Zap className="qq-flash-cover-bolt" fill="currentColor" strokeWidth={0} aria-hidden />
+    </span>
+  );
 }
 
 /**
@@ -145,11 +173,6 @@ export function QqImage({
   // 「优先使用 CDN」开着且拼得出直链时先试它（浏览器直连，服务端零流量）；rkey 过期 /
   // 老图片 / CDN 抽风都会 onError 落回上面这条代理路径，再失败才是「未找到」占位。
   const cdn = useCdn();
-  // 闪照：`fileToken` 是老式 offpic 路径（`/uin-id-md5`），三档 URL 全空、没有
-  // rkey 可用，但 offpic 本身免 rkey。气泡显示打码的 198 预览，点开看 0 原图。
-  const flashSrc = flashPicUrl(token, 198);
-  const flashFullSrc = flashPicUrl(token, 0);
-  const cdnSrc = flashSrc ? null : cdnImageUrl(cdn, conv !== '', token, orig);
   // 合并转发编辑器里拼的图片带 `localPath`（本机绝对路径）—— 它还没上传、不在
   // Pic 缓存里，按发送时间 / 文件名找图会 404，直接从本机文件流出来预览。
   // 乐观渲染的图片还会带 `localPreviewUrl`（blob: 地址，剪贴板截图没有落盘路径）。
@@ -159,11 +182,19 @@ export function QqImage({
   // 本地路径、CDN 与缓存依次兜底；灯箱沿用这条回退链，不依赖气泡先加载成功。
   const localPath = str(data, 'localPath');
   const localPreviewUrl = str(data, 'localPreviewUrl');
+  // 闪照：`fileToken` 是老式 offpic 路径（`/uin-id-md5`），三档 URL 全空、没有
+  // rkey 可用，但 offpic 本身免 rkey。气泡画固定封面，点开才现取 0 档原图。
+  //
+  // 判定闪照看两件事：元素带 `isFlash`（协议链路解出来的），或 token 形状是 offpic
+  // 路径（本地库里落着的真实闪照只留兜底文案、没有 fileToken，补拉回来才带
+  // `isFlash`）。自己刚发出去的那条有本地预览，照常显示预览，别换成封面。
+  const flash =
+    !localPreviewUrl && (Boolean((data as { isFlash?: unknown }).isFlash) || token.startsWith('/'));
+  const flashFullSrc = flash ? flashPicUrl(token, 0) : null;
+  const cdnSrc = flash ? null : cdnImageUrl(cdn, conv !== '', token, orig);
   const candidates: string[] = [];
   if (localPreviewUrl) candidates.push(localPreviewUrl);
   if (localPath) candidates.push(localFileUrl(localPath));
-  // 闪照优先走 offpic：本地库没有原图，代理路径（按发送时间找 nt_data）必然 miss。
-  if (flashSrc) candidates.push(flashSrc);
   if (cdnSrc) candidates.push(cdnSrc);
   if (!candidates.includes(proxySrc)) candidates.push(proxySrc);
   if (!isAnimatedEmoji && !candidates.includes(originalProxySrc)) candidates.push(originalProxySrc);
@@ -203,29 +234,39 @@ export function QqImage({
           expiresAt: expiresAtMs,
         }
       : null;
-  return (
-    // 外层包一层 relative 容器：ShimmerImage 的扫光占位（absolute inset 0）只
-    // 覆盖图片本身，不会铺满整条消息气泡；点击仍开灯箱。
-    <span
-      className={cn(
-        'qq-media-wrap',
-        isAnimatedEmoji && 'qq-media-wrap-emoji',
-        flashSrc && 'qq-media-wrap-flash',
-      )}
-      onClick={
-        openable
-          ? (event) => {
-              // 闪照：气泡里是打码的 198 预览，点开直接给 0 原图（不再往下回退到
-              // 预览档，否则点开看到的还是马赛克）。
-              if (flashFullSrc) {
+  // 闪照气泡：固定封面，不加载任何图片。尺寸跟着元素里的宽高走（拿不到就给一个
+  // 竖向短图的默认框），点击才现取 0 档原图 —— 拿不到 URL 时连点都点不开。
+  if (flash) {
+    // 封面必须有确定尺寸：元素没带宽高时 `style` 只有 max-* 约束，方块会塌成图标大小。
+    const flashStyle: CSSProperties = fit
+      ? { width: fit.width, height: fit.height }
+      : { width: 140, height: 190 };
+    return (
+      <QqFlashCover
+        style={{ ...flashStyle, cursor: flashFullSrc ? 'zoom-in' : undefined }}
+        onClick={
+          flashFullSrc
+            ? (event) => {
                 openLightbox(
                   flashFullSrc,
                   name || '[闪照]',
                   ocrContext,
                   event.currentTarget.ownerDocument,
                 );
-                return;
               }
+            : undefined
+        }
+      />
+    );
+  }
+  return (
+    // 外层包一层 relative 容器：ShimmerImage 的扫光占位（absolute inset 0）只
+    // 覆盖图片本身，不会铺满整条消息气泡；点击仍开灯箱。
+    <span
+      className={cn('qq-media-wrap', isAnimatedEmoji && 'qq-media-wrap-emoji')}
+      onClick={
+        openable
+          ? (event) => {
               openLightbox(
                 src === proxySrc ? originalProxySrc : src,
                 name || '[图片]',
@@ -245,10 +286,7 @@ export function QqImage({
     >
       <ShimmerImage
         suspendOffscreen
-        className={cn(
-          isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image',
-          flashSrc && 'qq-media-flash',
-        )}
+        className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
         style={style}
         src={src}
         alt={isAnimatedEmoji ? '[动画表情]' : name || '[图片]'}
