@@ -159,6 +159,24 @@ describe('appendClonedRow', () => {
     expect((await db.appendMessage(GROUP, fields()))?.msgSeq).toBe(31n);
   });
 
+  it('msgId 按全表 MAX 分配，不撞上别的会话已有的 id', async () => {
+    createFixture();
+    // 曾经按「模板行 id + 1..1000」随机增量分配：模板是群 777 的 12，而隔壁群
+    // 999 已经占着 14，随机数落到 2 就撞号。固定随机数把这条路径钉死。
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.0019);
+    try {
+      const result = await db.appendMessage(GROUP, fields());
+      // 全表最大 msgId 是 14 → 14 + 1 + 1 = 16，而不是 12 + 1 + 1 = 14。
+      expect(result?.msgId).toBe(16n);
+      const rows = sql()
+        .prepare('SELECT "40027" FROM group_msg_table WHERE "40001" = ?')
+        .all(result!.msgId) as Array<{ '40027': string }>;
+      expect(rows).toEqual([{ '40027': GROUP }]);
+    } finally {
+      random.mockRestore();
+    }
+  });
+
   it('模板读取后外部连接写入更高序号，追加仍从写入时的 MAX 分配', async () => {
     createFixture();
     const nt = createSqliteStub();
@@ -180,9 +198,11 @@ describe('appendClonedRow', () => {
     try {
       const result = await other.appendMessage(GROUP, fields());
       expect(result?.msgSeq).toBe(91n);
+      // msgId 按全表 MAX 分配，别处已有的 14 不会被再发一次；带上会话条件再查，
+      // 免得 msgId 撞号时把别的会话那行当成自己写的（那正是本用例要锁住的 bug）。
       const row = sql()
-        .prepare('SELECT "42000" FROM group_msg_table WHERE "40001" = ?')
-        .get(result!.msgId);
+        .prepare('SELECT "42000" FROM group_msg_table WHERE "40001" = ? AND "40027" = ?')
+        .get(result!.msgId, GROUP);
       expect(row?.['42000']).toBe('external');
     } finally {
       other.close();

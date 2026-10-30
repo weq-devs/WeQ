@@ -14,6 +14,8 @@ import { procedure, router } from '../trpc';
 import type { QQWriteBinding } from './qq_write';
 import { exportSavePolicyInput } from './export_save';
 import { AlbumVideoStaging } from './album_video_staging';
+import { backgroundTasks, taskError } from '../../background_tasks';
+import { updateFavoriteImportTask } from '../../favorite_import_task';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -573,14 +575,40 @@ export function createQQActionsRouter(
       .mutation(({ input: i }) => {
         const s = resolve(i);
         if (busy.has(s)) throw new Error('请等待当前 QQ 操作完成');
-        return s.favoriteEmojiImport.start(i.token, i.keys, async (run) => {
-          busy.add(s);
-          try {
-            return await run();
-          } finally {
-            busy.delete(s);
-          }
+        const id = backgroundTasks.start({
+          kind: 'favorite-import',
+          name: '收藏表情导入',
+          scope: { uin: i.expectedAccountUin, configId: i.expectedAccountConfigId },
         });
+        try {
+          const view = s.favoriteEmojiImport.start(
+            i.token,
+            i.keys,
+            async (run) => {
+              busy.add(s);
+              try {
+                return await run();
+              } finally {
+                busy.delete(s);
+              }
+            },
+            (view) => updateFavoriteImportTask(id, view),
+          );
+          backgroundTasks.setActions(id, [
+            {
+              id: 'stop',
+              label: '停止后续导入',
+              run: () => {
+                s.favoriteEmojiImport.cancel(i.token);
+                backgroundTasks.update(id, { statusLabel: '停止收尾中' });
+              },
+            },
+          ]);
+          return view;
+        } catch (error) {
+          backgroundTasks.finish(id, 'failed', { note: taskError(error) });
+          throw error;
+        }
       }),
     favoriteImportCancel: procedure
       .input(binding.extend({ token: z.string().uuid() }))

@@ -57,12 +57,14 @@ import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { assistantResourceServer } from './weq_assistant/server';
 import { disposeExternalMcp } from './mcp/external';
 import { disposeElevatedCaptures } from './ipc/routers/wonderful_tools';
+import { disposeUdpCaptures } from './ipc/routers/udp_capture';
 import { registerAnalyticsExportIpc } from './analytics_export';
 import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
+import { registerMainWindowReveal } from './main_window_lifecycle_instance';
 import {
   AUTOSTART_ARG,
   installStartupWindowReveal,
@@ -74,7 +76,7 @@ import {
   registerAppQuitPreparation,
   registerWindowUnloadConfirmation,
 } from './app_quit_lifecycle';
-import { registerAppQuitConfirmation, type QuitChoice } from './app_quit_confirmation';
+import { registerAppQuitConfirmation } from './app_quit_confirmation';
 import { createRendererRecovery } from './renderer_recovery';
 import { registerRendererRecoveryIpc } from './renderer_recovery_ipc';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
@@ -83,6 +85,8 @@ import { macApplicationMenu, nativeMenuLabels } from './application_menu';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
 import { registerCallVideoIpc } from './call_video_ipc';
 import { registerAttachHintIpc } from './attach_hint_ipc';
+import { backgroundServicesRunning, needsQuitConfirmation } from './background_services';
+import { promptQuitConfirm, registerQuitConfirmIpc } from './quit_confirm_ipc';
 import { registerElevationIpc } from './elevation_ipc';
 import { registerLongTermAuthorizationIpc } from './authorization/ipc';
 import {
@@ -152,6 +156,9 @@ const mainWindowLifecycle = createMainWindowLifecycle({
   createWindow,
   attachWindow: (win) => mainIpcHandler?.attachWindow(win),
 });
+
+// 外部 MCP 的切号请求由渲染层执行，得先把窗口叫回来（见 account_switch_bus）。
+registerMainWindowReveal(mainWindowLifecycle);
 
 function openMainWindow(): void {
   mainWindowRequested = true;
@@ -811,6 +818,7 @@ void app.whenReady().then(async () => {
   registerFlashShareIpc();
   registerWeqAssistantIpc();
   registerAttachHintIpc();
+  registerQuitConfirmIpc();
   registerElevationIpc();
   registerLongTermAuthorizationIpc();
   registerEditUndoIpc();
@@ -892,35 +900,22 @@ const resetQuitPreparation = registerAppQuitPreparation(app, autoUpdater, () => 
   isQuitting = true;
 });
 
-// 助手资源随应用结束；次实例退出不能关闭主实例拥有的服务。
+// 后台服务随应用结束；次实例退出不能关闭主实例拥有的服务。
 if (hasSingleInstanceLock) {
   resetQuitConfirmation = registerAppQuitConfirmation(app, autoUpdater, {
-    needsConfirmation: () => {
-      try {
-        return getAppContext().bootstrap?.userConfig.getSettings().weqAssistant.enabled ?? false;
-      } catch {
-        return false;
-      }
-    },
+    needsConfirmation: needsQuitConfirmation,
     bypass: () => isInstallingUpdate(),
-    showDialog: async (): Promise<QuitChoice> => {
-      const options: Electron.MessageBoxOptions = {
-        type: 'warning',
-        title: '确认退出 WeQ',
-        message: 'WeQ 助手已启用，仍要完全退出吗？',
-        detail:
-          '完全退出后，QQ 中的助手卡片将无法加载本机封面和页面。只关闭窗口会保留 WeQ 与助手服务运行。',
-        buttons: ['取消', '只关闭窗口', '确认退出'],
-        defaultId: 1,
-        cancelId: 0,
-        noLink: true,
-      };
-      const window = getMainWindow();
-      const result =
-        window && !window.isDestroyed() && window.isVisible()
-          ? await dialog.showMessageBox(window, options)
-          : await dialog.showMessageBox(options);
-      return result.response === 2 ? 'quit' : result.response === 1 ? 'window' : 'cancel';
+    showDialog: () =>
+      promptQuitConfirm(backgroundServicesRunning().map((service) => service.label)),
+    onRemember: () => {
+      try {
+        getAppContext().bootstrap?.userConfig.setSettings({ quitConfirmSuppressed: true });
+      } catch (error) {
+        logger.warn('failed to remember quit confirmation', {
+          event: 'quit-confirm-remember-failed',
+          error: String(error),
+        });
+      }
     },
     hideWindow: () => getMainWindow()?.hide(),
     failed: (error) =>
@@ -990,4 +985,6 @@ app.on('will-quit', (event) => {
   // 提权抓包子进程是 root 的 —— 退出时主动送走（子进程那边也会在环回连接断开时
   // 自己收尾，这里只是不让它多活一拍）。
   disposeElevatedCaptures();
+  // UDP 抓包用的是同一套提权子进程，但会话表是独立的，得单独收。
+  disposeUdpCaptures();
 });

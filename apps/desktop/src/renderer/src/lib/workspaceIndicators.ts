@@ -1,5 +1,6 @@
 import type { ExportTask, FlashDownloadTask, RoamingJobStatus } from '@weq/service';
 import type { CloneTask } from '../views/agentlab/cloneTaskStore';
+import type { BackgroundTask } from '../../../shared/background_task';
 
 export type AssistantActivity = 'idle' | 'running' | 'finished';
 export interface WorkspaceTaskIndicator {
@@ -20,6 +21,7 @@ export function summarizeWorkspaceTasks({
   roaming = [],
   scanning = false,
   flash = [],
+  background = [],
 }: {
   exports?: (Pick<ExportTask, 'id' | 'status' | 'save'> & Partial<Pick<ExportTask, 'updatedAt'>>)[];
   clones?: Pick<CloneTask, 'personaId' | 'status'>[];
@@ -27,6 +29,7 @@ export function summarizeWorkspaceTasks({
   scanning?: boolean;
   flash?: (Pick<FlashDownloadTask, 'id' | 'status'> &
     Partial<Pick<FlashDownloadTask, 'finishedAt'>>)[];
+  background?: Pick<BackgroundTask, 'id' | 'status' | 'updatedAt'>[];
 }) {
   const items: WorkspaceTaskIndicator[] = [];
   for (const task of exports) {
@@ -76,6 +79,15 @@ export function summarizeWorkspaceTasks({
         ? 'running'
         : 'finished',
       result: `${task.status}:${task.finishedAt ?? ''}`,
+      failed: task.status === 'failed',
+    });
+  }
+  for (const task of background) {
+    items.push({
+      id: task.id,
+      activity:
+        task.status === 'running' ? 'running' : task.status === 'paused' ? 'idle' : 'finished',
+      result: `${task.status}:${task.updatedAt}`,
       failed: task.status === 'failed',
     });
   }

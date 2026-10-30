@@ -55,7 +55,7 @@ vi.mock('@renderer/components/qq-actions/CommonRelationships', () => ({
     createElement('button', { 'aria-label': '合成共同群跳转', onClick: onNavigate }),
 }));
 vi.mock('@renderer/components/QQGroupMemberControls', () => ({
-  QQGroupMemberControls: () => null,
+  QQGroupMemberControls: () => createElement('div', { 'data-member-editor': true }),
 }));
 
 import { MemberProfileCard } from '@renderer/components/MemberProfileCard';
@@ -68,6 +68,10 @@ import {
   profileTargetUser,
 } from '@renderer/lib/profileNavigation';
 import { client } from '@renderer/trpc/client';
+import {
+  RelationshipDirectoryContext,
+  type RelationshipDirectory,
+} from '@renderer/lib/contactRelationship';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -95,6 +99,7 @@ async function mountCard(
   anchor = { x: 120, y: 120 },
   member: User = MEMBER,
   groupCode?: string,
+  directory: RelationshipDirectory | null = null,
 ): Promise<void> {
   const host = document.createElement('div');
   document.body.appendChild(host);
@@ -102,14 +107,18 @@ async function mountCard(
   await act(async () => {
     root.render(
       createElement(
-        ContactWorkspaceNavigationContext.Provider,
-        { value: expandContact },
-        createElement(MemberProfileCard, {
-          member,
-          anchor,
-          onClose,
-          groupCode,
-        }),
+        RelationshipDirectoryContext.Provider,
+        { value: directory },
+        createElement(
+          ContactWorkspaceNavigationContext.Provider,
+          { value: expandContact },
+          createElement(MemberProfileCard, {
+            member,
+            anchor,
+            onClose,
+            groupCode,
+          }),
+        ),
       ),
     );
   });
@@ -125,6 +134,49 @@ function layer(): HTMLElement {
 }
 
 describe('群成员资料卡浮层', () => {
+  it('仍在群内时保留原成员资料编辑器', async () => {
+    await mountCard(() => {}, undefined, MEMBER, '20001', {
+      friends: new Map(),
+      friendsComplete: true,
+      groups: new Map([['20001', { listed: true, role: 'member' }]]),
+    });
+    expect(layer().querySelector('[data-member-editor]')).not.toBeNull();
+  });
+  it('群外保留历史群昵称和头衔，但不挂载成员编辑器；好友关系在资料失败时仍保留', async () => {
+    vi.spyOn(client.account.getProfile, 'query').mockRejectedValueOnce(new Error('合成错误'));
+    await mountCard(
+      () => {},
+      undefined,
+      { ...MEMBER, card: '历史群昵称', customTitle: '历史头衔' } as User,
+      '20001',
+      {
+        friends: new Map([[MEMBER.id, {}]]),
+        friendsComplete: true,
+        groups: new Map([['20001', { listed: false }]]),
+      },
+    );
+    expect(layer().querySelector('.weq-relationship-status')?.textContent).toBe('我的好友');
+    expect(layer().textContent).toContain('历史群昵称');
+    expect(layer().textContent).toContain('历史头衔');
+    expect(layer().querySelector('[data-member-editor]')).toBeNull();
+  });
+  it.each([true, false])('资料补全后显示明确好友关系 %s', async (isFriend) => {
+    vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
+      uid: MEMBER.id,
+      isFriend,
+      friendshipKnown: true,
+    } as NonNullable<Awaited<ReturnType<typeof client.account.getProfile.query>>>);
+    await mountCard(() => {});
+    expect(layer().querySelector('.weq-relationship-status')?.textContent).toBe(
+      isFriend ? '我的好友' : '非好友',
+    );
+  });
+
+  it('资料读取失败显示待确认，不显示非好友', async () => {
+    vi.spyOn(client.account.getProfile, 'query').mockRejectedValueOnce(new Error('合成错误'));
+    await mountCard(() => {});
+    expect(layer().querySelector('.weq-relationship-status')?.textContent).toBe('关系待确认');
+  });
   it('共同群跳转通知关闭成员名片', async () => {
     const close = vi.fn();
     await mountCard(close);

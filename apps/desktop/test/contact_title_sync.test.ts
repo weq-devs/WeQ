@@ -55,6 +55,19 @@ it('群预览发送人使用新的群名片或资料，私聊发送人保持原�
   );
   expect(contactSenderName(contact, profiles, members)).toBe(contact.senderDisplayName);
 });
+it('设备标题不采用本人账号的昵称、备注或最近发送人信息', () => {
+  expect(
+    contactTitle({
+      ...contact,
+      chatType: ChatType.KCHATTYPEDATALINEMQQ,
+      targetUid: 'u_Wcc5rknRRqRO8y5gxMD6sA',
+      targetUin: '10001',
+      targetDisplayName: '本人昵称',
+      senderRemark: '本人备注',
+      senderNick: '本人昵称',
+    }),
+  ).toBe('我的手机');
+});
 it('更新名称后，数字形态的群临时会话仍保留来源说明', () => {
   const direct = createTemplateDemoData().conversations.find((row) => row.type === 'direct')!;
   const updated = {

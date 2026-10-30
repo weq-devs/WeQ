@@ -6,6 +6,8 @@ import type { OidbNative } from '../../transport';
 
 /** 来源：Lagrange.Core 20c2ba0 的 D88DGroupInfo 与 FetchStrangerGroupInfoService。 */
 const INFO = message([
+  { name: 'maxMemberCount', tag: 5, type: 'uint32', force: true },
+  { name: 'memberCount', tag: 6, type: 'uint32', force: true },
   { name: 'option', tag: 7, type: 'uint32', force: true },
   { name: 'categoryId', tag: 8, type: 'uint32', force: true },
   { name: 'name', tag: 15, type: 'string', force: true },
@@ -15,6 +17,8 @@ const INFO = message([
 export interface GroupJoinInfo {
   groupId: number;
   name: string;
+  maxMemberCount: number | null;
+  memberCount: number | null;
   categoryId: number | null;
   categoryName: string | null;
   option: number | null;
@@ -55,7 +59,18 @@ export namespace GetGroupJoinInfo {
     return {
       appId: randomInt(1, 0x7fffffff),
       groups: [
-        { groupCode, info: { option: 0, categoryId: 0, name: '', categoryName: '', question: '' } },
+        {
+          groupCode,
+          info: {
+            maxMemberCount: 0,
+            memberCount: 0,
+            option: 0,
+            categoryId: 0,
+            name: '',
+            categoryName: '',
+            question: '',
+          },
+        },
       ],
     };
   };
@@ -75,6 +90,8 @@ export namespace GetGroupJoinInfo {
       return {
         groupId,
         name: typeof info.name === 'string' ? info.name : '',
+        maxMemberCount: typeof info.maxMemberCount === 'number' ? info.maxMemberCount : null,
+        memberCount: typeof info.memberCount === 'number' ? info.memberCount : null,
         categoryId: typeof info.categoryId === 'number' ? info.categoryId : null,
         categoryName:
           typeof info.categoryName === 'string' && info.categoryName.trim()

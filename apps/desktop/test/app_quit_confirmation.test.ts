@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   registerAppQuitConfirmation,
   skipNextQuitConfirmation,
+  type QuitAnswer,
   type QuitChoice,
 } from '../src/main/app_quit_confirmation';
 import {
@@ -35,10 +36,11 @@ function fixture() {
   const prepare = vi.fn();
   const cleanup = vi.fn(async () => {});
   const failed = vi.fn();
-  let choose = (_choice: QuitChoice) => {};
+  const onRemember = vi.fn();
+  let choose = (_answer: QuitChoice | QuitAnswer) => {};
   const showDialog = vi.fn(
     () =>
-      new Promise<QuitChoice>((resolve) => {
+      new Promise<QuitChoice | QuitAnswer>((resolve) => {
         choose = resolve;
       }),
   );
@@ -51,6 +53,7 @@ function fixture() {
     needsConfirmation: () => enabled,
     bypass: () => updating,
     showDialog,
+    onRemember,
     hideWindow,
     failed,
   });
@@ -62,8 +65,10 @@ function fixture() {
     showDialog,
     hideWindow,
     failed,
+    onRemember,
     resetConfirmation,
     choose: (choice: QuitChoice) => choose(choice),
+    answer: (choice: QuitChoice, remember: boolean) => choose({ choice, remember }),
     disable: () => {
       enabled = false;
     },
@@ -187,5 +192,35 @@ describe('助手开启时的退出确认', () => {
     await Promise.resolve();
     expect(f.app.exits).toBe(1);
     expect(f.hideWindow).not.toHaveBeenCalled();
+  });
+  it('勾了不再询问时回调一次，本次选择照常执行', async () => {
+    const f = fixture();
+    f.app.quit();
+    f.answer('quit', true);
+    await vi.waitFor(() => expect(f.app.exits).toBe(1));
+    expect(f.onRemember).toHaveBeenCalledOnce();
+    expect(f.onRemember).toHaveBeenCalledWith('quit');
+  });
+  it('只关窗口时同样可以记住，但取消不记', async () => {
+    const windowed = fixture();
+    windowed.app.quit();
+    windowed.answer('window', true);
+    await vi.waitFor(() => expect(windowed.hideWindow).toHaveBeenCalledOnce());
+    expect(windowed.onRemember).toHaveBeenCalledWith('window');
+    expect(windowed.app.exits).toBe(0);
+
+    const cancelled = fixture();
+    cancelled.app.quit();
+    cancelled.answer('cancel', true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(cancelled.onRemember).not.toHaveBeenCalled();
+  });
+  it('没勾不再询问时不回调', async () => {
+    const f = fixture();
+    f.app.quit();
+    f.answer('quit', false);
+    await vi.waitFor(() => expect(f.app.exits).toBe(1));
+    expect(f.onRemember).not.toHaveBeenCalled();
   });
 });

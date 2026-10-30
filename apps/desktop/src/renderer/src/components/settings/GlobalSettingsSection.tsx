@@ -90,7 +90,8 @@ export function GlobalSettingsSection({
   const pushToast = useToast((s) => s.push);
   // 用来把「当前已登录的账号」标出来并禁掉它的删除按钮。
   const openedUin = useViewState((s) => s.openedUin);
-  const [closeBehavior, setCloseBehavior] = useState<WindowCloseBehavior>('ask');
+  // 初值与 DEFAULT_APP_SETTINGS 保持一致，否则首次渲染会先显示旧档位再跳变。
+  const [closeBehavior, setCloseBehavior] = useState<WindowCloseBehavior>('tray');
   const [preferCdn, setPreferCdn] = useState(false);
   const [logRetentionDays, setLogRetentionDays] = useState(7);
 

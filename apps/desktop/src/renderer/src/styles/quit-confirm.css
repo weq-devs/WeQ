@@ -1,0 +1,36 @@
+/*
+ * 退出确认框的服务清单。
+ *
+ * 其余外观直接复用 index.css 的 .weq-close*（跟主题、深浅模式与主题色），
+ * 这里只补「会停止哪些服务」这一块新结构。
+ */
+
+.weq-quit-services {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0 0 0.9rem;
+  padding: 0.6rem 0.75rem;
+  list-style: none;
+  border-radius: 0.5rem;
+  border: 1px solid var(--weq-border-subtle);
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.weq-quit-services li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-quit-services li::before {
+  content: '';
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--weq-accent-effective);
+}

@@ -14,6 +14,7 @@
  */
 
 import { z } from 'zod';
+import { backgroundTasks } from '../../background_tasks';
 import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';
 import { observable } from '@trpc/server/observable';
 import {
@@ -243,7 +244,15 @@ export const intentSenseModelProcedures = {
       if (!engine) return { ok: false, error: '本地引擎仅桌面版可用', alreadyRunning: false };
       if (downloading) return { ok: true, alreadyRunning: true };
       downloading = true;
+      const taskId = backgroundTasks.start({
+        kind: 'model',
+        name: `本地意图模型 · ${input.modelId ?? 'auto'}`,
+      });
       const notify = (p: IntentSenseModelProgress): void => {
+        backgroundTasks.update(taskId, {
+          progress: p.filesTotal > 0 ? (p.filesDone / p.filesTotal) * 100 : undefined,
+          note: `${p.filesDone} / ${p.filesTotal} 个文件${p.currentFile ? ` · ${p.currentFile}` : ''}`,
+        });
         for (const cb of progressListeners) {
           try {
             cb(p);
@@ -262,8 +271,10 @@ export const intentSenseModelProcedures = {
       });
       try {
         await engine.download({ modelId: input.modelId, mirror: input.mirror, onProgress: notify });
+        backgroundTasks.finish(taskId, 'completed', { note: '模型已下载' });
         return { ok: true, alreadyRunning: false };
       } catch (error) {
+        backgroundTasks.finish(taskId, 'failed', { note: String(error) });
         return { ok: false, error: String(error), alreadyRunning: false };
       } finally {
         downloading = false;

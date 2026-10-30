@@ -65,6 +65,7 @@ import {
 } from '../lib/profileNavigation';
 import { buddyRequestDirection, buddyRequestState } from '@weq/service/buddy-request';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
+import { contactProfileIdentity, sendTargetOf } from '../lib/conversationIdentity';
 import { avatarFromGroupCode, avatarFromUin, resolveAvatar } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 import {
@@ -195,6 +196,7 @@ import type { GroupInfoDetail } from '../im-template/template/conversationDetail
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import { QQRemarkDialog } from '../components/QQRemarkDialog';
 import { FriendDirectoryControls } from '../components/FriendDirectoryControls';
+import { RelationshipDirectoryContext } from '../lib/contactRelationship';
 import { GroupEssenceDialog } from '../components/GroupEssenceDialog';
 import {
   projectGroupEssence,
@@ -606,6 +608,7 @@ type UserProfileWire = {
   intimacy: number;
   sigUpdateTime: number;
   isFriend: boolean;
+  friendshipKnown?: boolean;
   customStatus?: {
     id?: number;
     desc?: string;
@@ -959,6 +962,8 @@ function buddyToContact(
 
   return {
     id: buddy.uid,
+    isFriend: profile?.isFriend,
+    friendshipKnown: profile?.friendshipKnown,
     identityLabel: buddy.uin && buddy.uin !== '0' ? 'QQ' : 'UID',
     identityValue: buddy.uin && buddy.uin !== '0' ? buddy.uin : buddy.uid,
     username: buddy.uid,
@@ -1351,14 +1356,15 @@ function contactToConversation(
   };
 
   if (kind === 'direct') {
+    const device = isDataline(c.chatType);
     const otherUser: User = {
       id: c.targetUid,
-      identityLabel: c.targetUin && c.targetUin !== '0' ? 'QQ' : 'UID',
-      identityValue: c.targetUin && c.targetUin !== '0' ? c.targetUin : c.targetUid,
+      identityLabel: device ? '设备' : c.targetUin && c.targetUin !== '0' ? 'QQ' : 'UID',
+      identityValue: !device && c.targetUin && c.targetUin !== '0' ? c.targetUin : c.targetUid,
       username: c.targetUid,
       displayName: title,
       kind: botUids.has(c.targetUid) ? 'bot' : 'human',
-      avatarUrl: isDataline(c.chatType) ? deviceAvatarDataUri(c.targetUid) : avatarSrc(c),
+      avatarUrl: device ? deviceAvatarDataUri(c.targetUid) : avatarSrc(c),
     };
 
     return {
@@ -3993,6 +3999,29 @@ function MainWorkspace(): ReactElement {
       }),
     [buddies.data, categoryById, onlineStatusByUid, profileByUid, botUids],
   );
+  const relationshipDirectory = useMemo(() => {
+    const friends = new Map<string, { categoryName?: string | null }>();
+    for (const contact of buddyContacts) {
+      friends.set(contact.id, contact);
+      if (contact.identityLabel === 'QQ') friends.set(contact.identityValue, contact);
+    }
+    const groups = new Map<string, { listed: boolean; role?: string | null }>();
+    for (const group of (allGroups.data ?? []) as GroupDetailWire[]) {
+      if (Object.hasOwn(group, 'directory'))
+        groups.set(group.groupCode, {
+          listed: Boolean(group.directory),
+          role: group.directory?.role,
+        });
+    }
+    return {
+      selfUid: user.uid,
+      selfUin: user.identityValue,
+      friends,
+      // 当前查询有 2000 条上限；满页不能用缺席证明非好友。
+      friendsComplete: buddies.data !== undefined && buddies.data.length < 2000,
+      groups,
+    };
+  }, [buddyContacts, buddies.data, allGroups.data, user.uid, user.identityValue]);
   /**
    * 关系图谱（群友圈子 / 重合图 / 排行榜）里点某个人：复用聊天里的资料卡。
    * 能在好友列表里对上号就带上联系人对象（有备注 / 分组 / 亲密关系），否则用
@@ -4689,7 +4718,7 @@ function MainWorkspace(): ReactElement {
     return [
       {
         id: 'history:former',
-        name: '已删除好友 / 非好友',
+        name: '非好友会话',
         items: [...former.values()],
         description: '保留私聊记录，但不在当前好友列表',
       },
@@ -4804,12 +4833,7 @@ function MainWorkspace(): ReactElement {
     history: shellHistory,
   });
   const detailContact = shell.view === 'contacts' ? shell.selectedContact : undefined;
-  const detailContactUid =
-    detailContact?.uid || (detailContact?.id.startsWith('u_') ? detailContact.id : '');
-  const detailContactUin =
-    detailContact && ['QQ', 'UIN'].includes(detailContact.identityLabel)
-      ? detailContact.identityValue
-      : '';
+  const { uid: detailContactUid, uin: detailContactUin } = contactProfileIdentity(detailContact);
   const cachedContactProfile =
     profileByUid.get(detailContactUid) ??
     (detailContactUin
@@ -4834,6 +4858,7 @@ function MainWorkspace(): ReactElement {
   );
   const selectedContactForDetail = useMemo(() => {
     if (!detailContact) return undefined;
+    if (!detailContactUid && !detailContactUin) return detailContact;
     const profile =
       cachedContactProfile ?? detailContactProfile.data ?? detailContactProfileByUin.data;
     if (!profile) return detailContact;
@@ -4860,6 +4885,7 @@ function MainWorkspace(): ReactElement {
     };
   }, [
     detailContact,
+    detailContactUid,
     cachedContactProfile,
     detailContactProfile.data,
     detailContactProfileByUin.data,
@@ -9679,30 +9705,6 @@ function MainWorkspace(): ReactElement {
     }
   }
 
-  function sendTargetOf(conversation: Conversation): {
-    peerType: 'c2c' | 'group';
-    targetId: string;
-    /** 群临时会话的来源群号（60001）；非临时会话不出现。 */
-    tempGroupCode?: string;
-  } | null {
-    if (conversation.type === 'group') {
-      return { peerType: 'group', targetId: conversation.group.identityValue };
-    }
-    if (conversation.type === 'direct') {
-      const other = conversation.otherUser;
-      const tempGroupCode = conversation.tempSourceGroupCode;
-      return {
-        peerType: 'c2c',
-        // 临时会话的 wire 路由只认 uid（grpTmp.toUid）→ 优先给 uid；普通私聊反过来，
-        // 优先给 QQ 号（服务层顺手补 uid，连陌生人也能发第一句）。
-        targetId:
-          tempGroupCode || !/^\d+$/.test(other.identityValue) ? other.id : other.identityValue,
-        ...(tempGroupCode ? { tempGroupCode } : {}),
-      };
-    }
-    return null;
-  }
-
   /**
    * Ark 卡片面板「发送」—— 面板把卡片内容交上来，这里补上**当前会话**的
    * peerType / targetId 再走 IPC。三类载荷对应三条 route：
@@ -11704,7 +11706,9 @@ function MainWorkspace(): ReactElement {
                           }
                         />
                         <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
-                          {chatContent}
+                          <RelationshipDirectoryContext.Provider value={relationshipDirectory}>
+                            {chatContent}
+                          </RelationshipDirectoryContext.Provider>
                         </GroupAlbumCardNavigationProvider>
                       </WorkspacePages>
                     </ContactDirectoryContext.Provider>

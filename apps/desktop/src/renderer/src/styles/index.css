@@ -8590,9 +8590,9 @@ html[data-theme='dark'] .chat-empty-logo {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 220px;
-  max-width: 320px;
+  width: 320px;
   min-width: 0;
+  max-width: 100%;
   padding: 10px 12px;
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 10px;
@@ -8697,7 +8697,7 @@ html[data-theme='dark'] .chat-empty-logo {
 }
 
 .weq-ark-container {
-  width: 290px;
+  width: 320px;
   max-width: 100%;
   background: #ffffff;
   border-radius: 12px;

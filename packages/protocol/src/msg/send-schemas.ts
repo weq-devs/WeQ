@@ -48,8 +48,7 @@ export const ROUTING_GROUP_TEMP: ProtoMessage = message([
 
 /**
  * trans0x211 路由（RoutingHead field 15）—— **只给 c2c 文件/设备会话用**。
- * 常规私聊走了这条会被服务端拒收；本文件的发消息入口不产出它，保留 schema 供
- * 后续文件发送（ccCmd=4）与设备会话（ccCmd=7）复用。
+ * 常规私聊走了这条会被服务端拒收；文件发送用 ccCmd=4，设备文本用 ccCmd=7。
  */
 export const ROUTING_TRANS_0X211: ProtoMessage = message([
   f('toUin', 1, 'uint64'),

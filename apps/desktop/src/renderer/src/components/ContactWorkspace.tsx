@@ -7,6 +7,7 @@ import { PersonalityHomeDialog, type PersonalityHomeProfile } from './Personalit
 import { MutualMarkDialog } from './MutualMarkDialog';
 import { IntentProfileDialog } from './intentSense/IntentProfileDialog';
 import { useIntentSenseStatus } from './intentSense/context';
+import { usePersonRelationship } from '../lib/contactRelationship';
 
 export function ContactWorkspace({
   contact,
@@ -26,6 +27,7 @@ export function ContactWorkspace({
   const [localTab, setLocalTab] = useState<ContactWorkspaceTab>('profile');
   const workspace = useRef<HTMLDivElement>(null);
   const status = useIntentSenseStatus();
+  const relationship = usePersonRelationship(contact);
   useEffect(() => setLocalTab('profile'), [contact.id]);
   const hasQQ =
     ['QQ', 'UIN'].includes(contact.identityLabel) && /^[1-9]\d{4,19}$/.test(contact.identityValue);
@@ -59,8 +61,15 @@ export function ContactWorkspace({
           互动标识
         </>
       ),
-      disabled: !hasQQ || contact.kind === 'bot',
-      title: contact.kind === 'bot' ? '机器人不提供互动标识' : hasQQ ? undefined : '需要有效 QQ 号',
+      disabled: !hasQQ || contact.kind === 'bot' || relationship !== 'friend',
+      title:
+        contact.kind === 'bot'
+          ? '机器人不提供互动标识'
+          : relationship !== 'friend'
+            ? '仅好友提供互动标识'
+            : hasQQ
+              ? undefined
+              : '需要有效 QQ 号',
     },
     {
       value: 'portrait' as const,

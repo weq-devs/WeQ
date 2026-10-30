@@ -2,7 +2,12 @@ const proxy = (): unknown =>
   new Proxy(() => proxy(), {
     get: (_target, key) =>
       key === 'useQuery'
-        ? () => ({ data: undefined, isLoading: false, isFetching: false })
+        ? () => ({
+            data: undefined,
+            isLoading: false,
+            isFetching: false,
+            refetch: async () => ({ data: undefined }),
+          })
         : key === 'useMutation'
           ? () => ({ mutate() {}, mutateAsync: async () => undefined, isLoading: false })
           : key === 'query' || key === 'fetch' || key === 'invalidate'

@@ -11,6 +11,8 @@ import {
   type ForwardOptions,
 } from '../lib/sequentialForward';
 import { useToast } from './Toast';
+import { localBackgroundTasks } from '../state/backgroundTasks';
+import type { BackgroundTaskScope } from '../../../shared/background_task';
 import '../styles/sequential-forward.css';
 
 /** 各目标独立并行，目标内等待逐条回执；生命周期独立于已关闭的配置弹窗。 */
@@ -20,12 +22,14 @@ export function startSequentialForward({
   options,
   onSend,
   onOpenTarget,
+  scope,
 }: {
   messages: readonly Message[];
   targets: readonly MfTarget[];
   options: ForwardOptions;
   onSend: (message: Message, target: MfTarget, signal: AbortSignal) => Promise<void>;
   onOpenTarget: (target: MfTarget) => void;
+  scope: BackgroundTaskScope;
 }): { controller: AbortController; done: Promise<void> } {
   validateForwardOptions(options);
   if (messages.some((message) => forwardUnsupportedReason(message.qqElements ?? [])))
@@ -48,6 +52,19 @@ export function startSequentialForward({
     let label = '正在转发';
     let finished = false;
     const startedAt = Date.now();
+    const taskId = localBackgroundTasks.start({ kind: 'forward', name: target.name, scope });
+    const openAction = { id: 'open', label: '打开对话', run: () => onOpenTarget(target) };
+    localBackgroundTasks.setActions(taskId, [
+      {
+        id: 'stop',
+        label: '停止向此会话发送',
+        run: () => {
+          local.abort();
+          localBackgroundTasks.update(taskId, { statusLabel: '停止收尾中' });
+        },
+      },
+      openAction,
+    ]);
     const progress = () => {
       const elapsed = Math.max(0, Date.now() - startedAt);
       const completed = sent + failed;
@@ -109,7 +126,15 @@ export function startSequentialForward({
       dismissible: false,
       action: { label: `打开对话：${target.name}`, run: () => onOpenTarget(target) },
     });
-    const update = () => toast.update(id, { title: progress() });
+    const update = () => {
+      toast.update(id, { title: progress() });
+      localBackgroundTasks.update(taskId, {
+        progress: ((sent + failed) / messages.length) * 100,
+        note: `${label} · 已处理 ${sent + failed} / ${messages.length} · 成功 ${sent} · 失败 ${failed} · 已用时 ${formatForwardDuration(Date.now() - startedAt)}`,
+        details: [...failures],
+      });
+    };
+    update();
     const clock = setInterval(update, 1000);
     let stopped: string | null = null;
     try {
@@ -157,6 +182,15 @@ export function startSequentialForward({
     }
     finished = true;
     label = stopped ? '转发已停止' : '转发完成';
+    update();
+    localBackgroundTasks.finish(
+      taskId,
+      local.signal.aborted ? 'cancelled' : stopped || failed ? 'failed' : 'completed',
+      {
+        details: [stopped, ...failures].filter((line): line is string => Boolean(line)),
+      },
+    );
+    localBackgroundTasks.setActions(taskId, [openAction]);
     toast.update(id, {
       tone: stopped || failed ? 'warning' : 'success',
       title: progress(),

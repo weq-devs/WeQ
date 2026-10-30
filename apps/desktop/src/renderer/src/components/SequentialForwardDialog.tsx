@@ -18,6 +18,7 @@ import { startSequentialForward } from './SequentialForwardTask';
 import { forwardUnsupportedReason } from '../lib/messageRepeat';
 import { GapMessagesModal } from './compose/GapMessagesModal';
 import { qqMessageRenderer } from './QqMessageContent';
+import { trpc } from '../trpc/client';
 import '../styles/sequential-forward.css';
 
 const previewRenderers = composeMessageRenderers({ prepend: [qqMessageRenderer] });
@@ -49,6 +50,7 @@ export function SequentialForwardDialog({
   conversation?: Conversation;
   renderers?: MessageRenderer[];
 }) {
+  const accountConfig = trpc.account.getAccountConfig.useQuery();
   const [selected, setSelected] = useState(new Set<string>());
   const [options, setOptions] = useState(DEFAULT_FORWARD_OPTIONS);
   const [error, setError] = useState('');
@@ -90,8 +92,11 @@ export function SequentialForwardDialog({
       return;
     }
     try {
+      if (!accountConfig.data?.configId || accountConfig.data.uin !== user.identityValue)
+        throw new Error('账号配置尚未就绪，请重新打开转发窗口');
       submitted.current = true;
       startSequentialForward({
+        scope: { uin: accountConfig.data.uin, configId: accountConfig.data.configId },
         messages: prepared.sendable,
         targets: picked,
         options: { ...options },

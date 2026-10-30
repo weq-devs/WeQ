@@ -336,6 +336,35 @@ describe('resolveTarget', () => {
 });
 
 describe('toOutcome', () => {
+  it('私聊引用序号与会话分页序号独立透出', () => {
+    const outcome = toOutcome(
+      {
+        ok: true,
+        scene: 'c2c',
+        cmd: 'MessageSvc.PbSendMsg',
+        result: 0,
+        errMsg: '',
+        random: 91,
+        groupSequence: 0,
+        privateSequence: 800,
+        clientSequence: 23,
+        timestamp: 100,
+        requestBytes: new Uint8Array(),
+        responseBytes: new Uint8Array(),
+        response: {
+          result: 0,
+          errMsg: '',
+          timestamp1: 100,
+          groupSequence: 0,
+          privateSequence: 800,
+          field10: 0,
+          timestamp2: 100,
+        },
+      },
+      { peerType: 'c2c', targetId: '7', scene: 'c2c', uid: 'u_peer', uin: 7 },
+    );
+    expect(outcome).toMatchObject({ privateSequence: 800, clientSequence: 23 });
+  });
   const target: ResolvedSendTarget = {
     peerType: 'group',
     scene: 'group',
@@ -453,6 +482,77 @@ describe('toOutcome', () => {
 });
 
 describe('MessageSendService.sendText（离线集成）', () => {
+  it('手机伪 UID 不查好友目录，装扮准备和发送使用设备身份', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    const target = { peerType: 'c2c' as const, targetId: 'u_Wcc5rknRRqRO8y5gxMD6sA' };
+    expect(await svc.prepareChatDecoration({ ...target, hasText: true })).toEqual({
+      bubbleId: 0,
+      font: null,
+    });
+    const outcome = await svc.sendText({ ...target, text: '发到手机' });
+    expect(outcome).toMatchObject({ ok: true, targetId: target.targetId, uid: target.targetId });
+    const body = decode(SEND_MESSAGE_REQUEST, native.calls[0]!.body) as {
+      routingHead?: Record<string, unknown>;
+      messageBody?: Record<string, unknown>;
+    };
+    expect(body.routingHead).toEqual({
+      trans0x211: { toUin: 10001n, ccCmd: 7, uid: target.targetId },
+    });
+    expect(body.messageBody?.msgContent).toBeInstanceOf(Uint8Array);
+    expect(body.messageBody?.richText).toBeUndefined();
+  });
+
+  it.each([
+    ['u_Wcc5rknRRqRO8y5gxMD6sA', 2],
+    ['u_rK7NMsbv2ZjEGPdCuOiCfw', 1],
+    ['u_l7jpPIZxQo0mzJwoEt-SKw', 3],
+  ])('设备 %s 即使目录指向本人也只走设备报文，使用终端 %s', async (uid, terminal) => {
+    const native = fakeNative();
+    let saved = 0;
+    const svc = new MessageSendService(
+      native as never,
+      fakeSession({ uinOf: { [uid]: 10001n } }),
+      () => 1,
+      undefined,
+      async () => {
+        saved++;
+      },
+    );
+    expect(await svc.prepareChatFont({ peerType: 'c2c', targetId: uid })).toBeNull();
+    await svc.sendElements({
+      peerType: 'c2c',
+      targetId: uid,
+      elements: [{ kind: 'text', textContent: '设备文本' }],
+    });
+    const body = decode(SEND_MESSAGE_REQUEST, native.calls[0]!.body) as {
+      routingHead?: Record<string, unknown>;
+      messageBody: { msgContent: Uint8Array };
+    };
+    expect(body.routingHead).toEqual({ trans0x211: { toUin: 10001n, ccCmd: 7, uid } });
+    // header field 10 是目的终端类型，generic 文本不会带这对字节。
+    expect(Buffer.from(body.messageBody.msgContent).includes(Buffer.from([0x50, terminal]))).toBe(
+      true,
+    );
+    expect(saved).toBe(0);
+  });
+
+  it('设备媒体和群临时路由在网络前拒绝，不转成给本人发普通消息', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    const target = { peerType: 'c2c' as const, targetId: 'u_Wcc5rknRRqRO8y5gxMD6sA' };
+    await expect(
+      svc.sendElements({
+        ...target,
+        elements: [{ kind: 'image', source: '/not-uploaded.png' }],
+      }),
+    ).rejects.toThrow(/仅支持文本/);
+    await expect(
+      svc.sendText({ ...target, tempGroupCode: '12345', text: '不发送' }),
+    ).rejects.toThrow(/设备会话/);
+    expect(native.calls).toHaveLength(0);
+  });
+
   it.each(['c2c', 'group'] as const)(
     '%s 回读前采用账号气泡，不把本地预览气泡写进请求',
     async (peerType) => {
@@ -1225,6 +1325,24 @@ describe('sendForward（合并转发，离线）', () => {
       },
     };
   }
+
+  it('长消息上传后账号失效时不继续发送卡片', async () => {
+    const native = forwardNative();
+    const service = new MessageSendService(native, fakeSession(), () => 1);
+    await expect(
+      service.sendForward({
+        peerType: 'group',
+        targetId: '42',
+        nodes: [{ elements: [{ kind: 'text', textContent: '合成节点' }] }],
+        beforeSend: () => {
+          if (native.calls.length) throw Error('账号已切换');
+        },
+      }),
+    ).rejects.toThrow('切换');
+    expect(native.calls.map((call) => call.cmd)).toEqual([
+      'trpc.group.long_msg_interface.MsgService.SsoSendLongMsg',
+    ]);
+  });
 
   it('群聊：先传长消息（SsoSendLongMsg）再发卡片（PbSendMsg）', async () => {
     const native = forwardNative('res-g');

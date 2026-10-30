@@ -178,6 +178,40 @@ describe('开机启动', () => {
   });
 });
 
+describe('关闭窗口与退出提醒', () => {
+  it('关闭按钮默认最小化到托盘；旧配置里写过的值保持不变', () => {
+    expect(DEFAULT_APP_SETTINGS.windowCloseBehavior).toBe('tray');
+    expect(fixture().service.getSettings().windowCloseBehavior).toBe('tray');
+    // 从没写过该字段的旧配置跟着新默认走，这正是想要的效果。
+    const legacy = fixture({ settings: { preferCdn: true } }).service.getSettings();
+    expect(legacy.windowCloseBehavior).toBe('tray');
+    // 明确选过「每次询问」的用户不该被新默认覆盖。
+    const explicit = fixture({ settings: { windowCloseBehavior: 'ask' } }).service.getSettings();
+    expect(explicit.windowCloseBehavior).toBe('ask');
+    // 非法值回落到默认。
+    expect(
+      fixture({ settings: { windowCloseBehavior: 'hide' as never } }).service.getSettings()
+        .windowCloseBehavior,
+    ).toBe('tray');
+  });
+
+  it('「不再询问退出提醒」默认关闭，可持久化并随备份往返', () => {
+    const f = fixture();
+    expect(f.service.getSettings().quitConfirmSuppressed).toBe(false);
+    f.service.setSettings({ quitConfirmSuppressed: true });
+    f.service.setSettings({ preferCdn: true });
+    const reloaded = new UserConfigService(f.platform).getSettings();
+    expect(reloaded.quitConfirmSuppressed).toBe(true);
+    expect(reloaded.preferCdn).toBe(true);
+
+    const snapshot = snapshotWeqSettings(reloaded);
+    expect(snapshot.quitConfirmSuppressed).toBe(true);
+    expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
+    for (const value of ['true', 1, null])
+      expect(() => validateWeqAppSettings({ quitConfirmSuppressed: value })).toThrow('字段无效');
+  });
+});
+
 describe('导出保存策略', () => {
   it('旧目录字段不自动改成无人值守保存，非法模式不启用自动落盘', () => {
     const old = fixture({

@@ -13,11 +13,14 @@ export async function dispatchCaptureOperation(
         iface: request.iface,
         port: request.port,
         d2Key: request.d2key,
+        transport: request.transport,
+        ringFrames: request.ringFrames,
       });
     case 'take': {
       const batch = await addon.takeFrames(request.pid, {
         cursor: request.cursor,
         waitMs: request.waitMs,
+        maxFrames: request.maxFrames,
       });
       return { ...batch, frames: batch.frames.map(toCaptureFrameWire) };
     }

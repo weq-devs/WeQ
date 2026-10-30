@@ -153,6 +153,7 @@ export class FavoriteEmojiImportSession {
     exclusive: (
       run: () => Promise<FavoriteEmojiImportResult>,
     ) => Promise<FavoriteEmojiImportResult>,
+    observe?: (view: FavoriteEmojiImportPreview) => void,
   ): FavoriteEmojiImportPreview {
     const session = this.require(token);
     if (session.view.phase !== 'ready') throw new Error('此收藏包已提交或过期，请重新选择文件');
@@ -168,6 +169,14 @@ export class FavoriteEmojiImportSession {
       throw new Error('请选择可导入且不重复的表情');
     const snapshot = [...keys];
     session.view.phase = 'running';
+    const notify = () => {
+      // 展示层异常不能中断已经提交的 QQ 写入流程。
+      try {
+        observe?.(structuredClone(session.view));
+      } catch {
+        /* 业务回执仍保留在 session */
+      }
+    };
     // 先消耗令牌再启动异步写入；响应丢失后重新查询，不允许同一令牌二次上传。
     session.work = (async () => {
       try {
@@ -177,6 +186,7 @@ export class FavoriteEmojiImportSession {
             signal: session.abort.signal,
             progress: (result) => {
               session.view.result = result;
+              notify();
             },
           }),
         );
@@ -186,6 +196,7 @@ export class FavoriteEmojiImportSession {
         session.items = [];
         session.view.phase = 'finished';
         session.view.expiresAt = Date.now() + FAVORITE_EMOJI_PREVIEW_TTL_MS;
+        notify();
         if (!this.disposed) this.armExpiry(session);
       }
     })();

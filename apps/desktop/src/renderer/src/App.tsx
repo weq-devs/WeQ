@@ -10,6 +10,7 @@ import { useViewState } from './state/view';
 import { BootstrapView } from './views/BootstrapView';
 import { MainView } from './views/MainView';
 import { DialogHost } from './components/Dialog';
+import { AccountSwitchRequestHost } from './components/AccountSwitchRequestHost';
 import { RemoteRequests } from './components/RemoteRequests';
 import { HoverTooltip } from './components/HoverTooltip';
 import { ToastHost, useToast } from './components/Toast';
@@ -18,6 +19,7 @@ import { CaptureWindowHost } from './components/CaptureWindow';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { JoinGroupDialog } from './components/JoinGroupDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
+import { QuitConfirmDialog } from './components/QuitConfirmDialog';
 import { RestrictedModeHost } from './components/RestrictedMode';
 import { DesktopOnly, IS_WEB } from './lib/target';
 import { WebConnectionStatus } from './components/WebConnectionStatus';
@@ -216,6 +218,7 @@ export default function App(): ReactElement {
                 自身决定是否显示（见 JoinGroupDialog 的判据）。 */}
             {view === 'main' ? <JoinGroupDialog /> : null}
             <DialogHost />
+            <AccountSwitchRequestHost />
             <RemoteRequests />
             <ToastHost />
             <RendererRecoveryNotice ready={view === 'bootstrap' && homeStage !== 'booting'} />
@@ -225,6 +228,7 @@ export default function App(): ReactElement {
             <CaptureWindowHost />
             <DesktopOnly>
               <CloseConfirmDialog />
+              <QuitConfirmDialog />
             </DesktopOnly>
             <RestrictedModeHost />
             <DesktopOnly>

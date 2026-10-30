@@ -20,6 +20,9 @@
  *
  *   # 续爬（推荐）：每类按已知分段，各自从文件里实际最大 id 往后扫，
  *   # 连续 200 个空 id 就收手 —— 自动覆盖「上次边界 → 边界 + 200」的确认。
+ *   # 跑完把「最后运行时间 + 各类各段最大 id / 扫到哪」写进
+ *   # resources/dress/fetch-state.json（本地文件，不入库），下次自动读回，
+ *   # 不用再手改下面的 BANDS.floor。
  *   pnpm tsx scripts/fetch_dress_resources.ts --bubble --font --widget --extend
  *
  * 可选参数：
@@ -27,11 +30,12 @@
  *                    说明该 id 服务端不回包（dataset 里正常的空洞），直接跳过不重试。
  *   --empty <n>      [--extend] 连续 n 个空 id 判定「到头了」（默认 200）。
  *   --tail <n>       [--extend] 至少越过各段上界这么多再允许收手（默认 200）。
+ *   --state <路径>   续爬状态文件（默认 resources/dress/fetch-state.json，本地不入库）。
  *
  * 需要目标 QQ（testEnv.uin）在线并已登录。
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { loadNative } from '../packages/native/src';
 import { ensureAttached, testEnv } from '../packages/testkit/src';
@@ -117,6 +121,14 @@ const EMPTY_STOP = Number(opt('--empty') ?? 200);
 const TAIL_MARGIN = Number(opt('--tail') ?? 200);
 /** 开区间续爬时每轮取多少个 id。 */
 const WINDOW = 40;
+/**
+ * 续爬状态文件：记录每类每段「上次跑到哪、上次扫到哪个 id、最后运行日期」。
+ * 有了它就不用再手改下面 BANDS 里的 `floor`，也不用维护脚本底部的「已跑过的范围」。
+ * 放在 resources/dress 下（该目录的 *_resources 已 gitignore），本文件同样不入库。
+ */
+const STATE_FILE = path.resolve(
+  opt('--state') ?? path.join('resources', 'dress', 'fetch-state.json'),
+);
 
 /**
  * 抓取身份固定用手Q 形状、与默认(PC)身份无关:这份本地 bundle 是按 android 段 scid
@@ -281,6 +293,10 @@ interface Band {
   hi: number;
   floor: number;
 }
+/**
+ * `floor` 只是**首次运行**的引导值。跑过一次 `--extend` 之后，实际边界以状态文件
+ * （`fetch-state.json`）里记的 `scannedTo` 为准，两者取大 —— 这样不用再回来手改这里。
+ */
 const BANDS: Record<Type, Band[]> = {
   bubble: [
     { lo: 1, hi: 1_000_000, floor: 60_000 },
@@ -290,6 +306,76 @@ const BANDS: Record<Type, Band[]> = {
   font: [{ lo: 1, hi: Number.MAX_SAFE_INTEGER, floor: 62_000 }],
   widget: [{ lo: 1, hi: Number.MAX_SAFE_INTEGER, floor: 200_000 }],
 };
+
+// ─────────────────────────── 续爬状态 ───────────────────────────
+
+/** 某类某段上次跑完后的记录。`hi` 存 MAX_SAFE_INTEGER 表示开区间。 */
+interface BandState {
+  lo: number;
+  hi: number;
+  /** 本段已抓到的最大 id（= 下次续爬的起点 - 1）。 */
+  maxId: number;
+  /** 上次实际扫到的最后一个 id（`floor` 的真实值，下次从它 + TAIL_MARGIN 起确认）。 */
+  scannedTo: number;
+}
+
+interface FetchState {
+  version: 1;
+  /** 上次跑完的时间（ISO 8601），每次有类型跑完都会刷新。 */
+  lastRun: string;
+  types: Partial<Record<Type, BandState[]>>;
+}
+
+function emptyState(): FetchState {
+  return { version: 1, lastRun: '', types: {} };
+}
+
+/** 读状态文件；不存在 / 损坏 / 版本不认 都当作「没跑过」，不影响抓取。 */
+function loadState(): FetchState {
+  if (!existsSync(STATE_FILE)) return emptyState();
+  try {
+    const raw = JSON.parse(readFileSync(STATE_FILE, 'utf8')) as Partial<FetchState>;
+    if (raw?.version !== 1 || typeof raw.types !== 'object' || raw.types === null) {
+      console.warn(`[fetch-dress] 状态文件格式不认识，忽略：${STATE_FILE}`);
+      return emptyState();
+    }
+    // 只收形状完整的段记录，坏条目丢掉（否则 Math.max 会拿到 NaN）。
+    const types: FetchState['types'] = {};
+    for (const [type, bands] of Object.entries(raw.types)) {
+      if (!(type in PARTS) || !Array.isArray(bands)) continue;
+      const good = bands.filter(
+        (b): b is BandState =>
+          typeof b?.lo === 'number' &&
+          typeof b.hi === 'number' &&
+          typeof b.maxId === 'number' &&
+          typeof b.scannedTo === 'number',
+      );
+      if (good.length > 0) types[type as Type] = good;
+    }
+    return { version: 1, lastRun: String(raw.lastRun ?? ''), types };
+  } catch (e) {
+    console.warn(`[fetch-dress] 状态文件读取失败，忽略：${STATE_FILE}（${(e as Error).message}）`);
+    return emptyState();
+  }
+}
+
+/** 本地时区的 ISO 8601（`2026-10-30T01:29:07+08:00`）—— 直接看文件也能对上日历日期。 */
+function localIso(d = new Date()): string {
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  const off = -d.getTimezoneOffset();
+  const sign = off >= 0 ? '+' : '-';
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` +
+    `${sign}${pad(Math.floor(Math.abs(off) / 60))}:${pad(Math.abs(off) % 60)}`
+  );
+}
+
+function saveState(state: FetchState): void {
+  mkdirSync(path.dirname(STATE_FILE), { recursive: true });
+  writeFileSync(STATE_FILE, `${JSON.stringify(state, null, 2)}\n`);
+  console.log(`  状态已记录 → ${STATE_FILE}`);
+}
 
 // ─────────────────────────── 并发池 ───────────────────────────
 
@@ -471,7 +557,7 @@ function report(
   );
 }
 
-async function fetchType(nt: Nt, pid: number, type: Type): Promise<void> {
+async function fetchType(nt: Nt, pid: number, type: Type, state: FetchState): Promise<void> {
   const parts = PARTS[type];
   const file = path.join(OUT_DIR, `${type}_resources`);
   mkdirSync(OUT_DIR, { recursive: true });
@@ -603,6 +689,10 @@ async function fetchType(nt: Nt, pid: number, type: Type): Promise<void> {
   );
   // 已出现过的 id（含历史记录里任一分包），用来判断某 id 是否「有货」。
   const present = new Set<number>(idsOf(existing));
+  // 本类上次跑完的记录（没有就用空数组，落到 BANDS 里的引导值）。以它为基础合并，
+  // 中途 Ctrl-C 时不会把本次没跑到的段的旧记录抹掉。
+  const prevBands = state.types[type] ?? [];
+  const bandStates: BandState[] = [...prevBands];
 
   for (const band of BANDS[type]) {
     // 取本段内已有最大的 id（不能用 Math.max(...)：尾部段十几万条会把调用栈撑爆）。
@@ -611,11 +701,15 @@ async function fetchType(nt: Nt, pid: number, type: Type): Promise<void> {
       if (id >= band.lo && id < band.hi && id > maxKnown) maxKnown = id;
     }
     const start = (maxKnown > 0 ? maxKnown : band.lo - 1) + 1;
-    // 至少要扫过「上次边界 + TAIL_MARGIN」，确保那之后确实全空。
-    const floorEnd = band.floor + TAIL_MARGIN;
+    // 至少要扫过「上次边界 + TAIL_MARGIN」，确保那之后确实全空。边界取
+    // 状态文件里上次实际扫到的位置与 BANDS 引导值中较大的一个。
+    const prev = prevBands.find((b) => b.lo === band.lo && b.hi === band.hi);
+    const floor = Math.max(band.floor, prev?.scannedTo ?? 0);
+    const floorEnd = floor + TAIL_MARGIN;
     console.log(
       `\n  ── 段 [${band.lo}, ${band.hi === Number.MAX_SAFE_INTEGER ? '∞' : band.hi})：` +
-        `已有最大 ${start - 1}，从 ${start} 起，至少扫到 ${floorEnd}`,
+        `已有最大 ${start - 1}，从 ${start} 起，至少扫到 ${floorEnd}` +
+        (prev ? `（上次 ${prev.scannedTo}）` : ''),
     );
 
     let cursor = start;
@@ -625,7 +719,8 @@ async function fetchType(nt: Nt, pid: number, type: Type): Promise<void> {
     while (true) {
       const ids: number[] = [];
       for (let i = cursor; i < cursor + WINDOW; i++) ids.push(i);
-      const windowEnd = ids[ids.length - 1];
+      // 直接用算术算窗口末尾，别从 ids 里取（noUncheckedIndexedAccess 下会是 number | undefined）。
+      const windowEnd = cursor + WINDOW - 1;
 
       const refs: ScidRef[] = [];
       const byScid = new Map<string, { id: number; part: string }>();
@@ -659,6 +754,19 @@ async function fetchType(nt: Nt, pid: number, type: Type): Promise<void> {
           `\n    段 [${band.lo}, ${band.hi === Number.MAX_SAFE_INTEGER ? '∞' : band.hi}) 收手：` +
             `扫 ${bandScanned} 个，新增命中 ${bandHits}，到 ${windowEnd} 已连续 ${consecEmpty} 个空 id`,
         );
+        // 记下本段结果：`maxId` 供下次续爬起点，`scannedTo` 供下次确认尾部。
+        let bandMax = 0;
+        for (const id of present) {
+          if (id >= band.lo && id < band.hi && id > bandMax) bandMax = id;
+        }
+        const nextState = { lo: band.lo, hi: band.hi, maxId: bandMax, scannedTo: windowEnd };
+        const idx = bandStates.findIndex((b) => b.lo === band.lo && b.hi === band.hi);
+        if (idx >= 0) bandStates[idx] = nextState;
+        else bandStates.push(nextState);
+        // 每段跑完就落盘一次，中途 Ctrl-C 也不会丢掉已确认的边界。
+        state.types[type] = bandStates;
+        state.lastRun = localIso();
+        saveState(state);
         break;
       }
       cursor += WINDOW;
@@ -671,10 +779,14 @@ async function fetchType(nt: Nt, pid: number, type: Type): Promise<void> {
 // ─────────────────────────── main ───────────────────────────
 
 async function main(): Promise<void> {
+  const state = loadState();
+  if (state.lastRun) {
+    console.log(`[fetch-dress] 上次运行：${state.lastRun}（状态文件 ${STATE_FILE}）`);
+  }
   const native = loadNative();
   const pid = await resolveTarget(native);
   for (const type of TYPES) {
-    await fetchType(native.ntHelper, pid, type);
+    await fetchType(native.ntHelper, pid, type, state);
   }
   console.log('全部完成 ✔');
 }
@@ -685,17 +797,22 @@ main().catch((e) => {
 });
 
 /*
- * 已跑过的范围 —— 记到「当前最大 id」，下次从这里往后接着跑（尾部之后才有新增；
- * 范围里的空洞多半是服务端本来就没有（not-found），不会随更新补齐）。
+ * 已跑过的范围 —— **现在由状态文件自动维护**，不用再手改这里。
+ *
+ * `--extend` 每跑完一类的一段，就把「本段最大 id + 实际扫到的位置」写进
+ * `resources/dress/fetch-state.json`（本地文件，已 gitignore），同时刷新 `lastRun`。
+ * 下次运行时自动读回，边界取「状态文件里的 scannedTo」与上面 `BANDS.floor` 的较大值；
+ * `BANDS.floor` 只在首次运行（没有状态文件）时起引导作用。
+ *
+ * 历史记录（2026/10 之前手记，仅供追溯；状态文件里没有时仍以 BANDS 为准）：
  *   2026/09/30  bubble 1-60000 // 1000000-1000050 // 2000000-2180000   font 1-62000   widget 1-200000
  *   2026/10/13  bubble →2180200   font →61257   widget →200386
- *               （补齐上次尾部：bubble 2179440+、widget 199742+、font 61210+）
  *   2026/10/16  bubble →2181294   font →61274   widget →200723   （--extend 续爬）
- *               （各段连续空 200 即停，已复跑确认三类尾部全空；font 段尾部最稀疏）
  *
  * 下次直接跑：
  *   pnpm tsx scripts/fetch_dress_resources.ts --bubble --font --widget --extend
- * 它会从各段真实最大 id 往后扫，连续 200 个空 id 自动收手，并至少越过旧边界 +200。
+ * 它会从各段真实最大 id 往后扫，连续 200 个空 id 自动收手，并至少越过旧边界 +200，
+ * 跑完自动把新的日期 / 最大 id 写回状态文件。
  *
- * 2026-10-27
+ * 2026-10-30
  * */

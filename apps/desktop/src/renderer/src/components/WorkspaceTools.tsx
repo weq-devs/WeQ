@@ -50,6 +50,7 @@ import type {
 import type { Conversation } from '../im-template/template/types';
 import type { RoamingTarget } from '@weq/service';
 import { conversationAnalysisTarget } from '../lib/conversationActions';
+import { useBackgroundTasks, backgroundTaskId } from '../hooks/useBackgroundTasks';
 import type { ContentSelection } from '../../../shared/content_selection';
 import type { ExportMode } from '../views/export/types';
 import {
@@ -219,6 +220,7 @@ export function WorkspaceTools({
   }, [assistantSearchTarget, closeMenu]);
   const selection = useCurrentContentSelection();
   const { enabled: readTasks } = useQQReadActivity(!hidden, { onlineOnly: false });
+  const background = useBackgroundTasks(readTasks);
   const taskQueryOptions = {
     enabled: readTasks,
     refetchInterval: readTasks ? 5000 : (false as const),
@@ -228,7 +230,10 @@ export function WorkspaceTools({
   const flashTasks = trpc.account.flashListDownloadTasks.useQuery(undefined, taskQueryOptions);
   const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
   const taskDataReady =
-    tasks.data !== undefined && roamingTasks.data !== undefined && flashTasks.data !== undefined;
+    tasks.data !== undefined &&
+    roamingTasks.data !== undefined &&
+    flashTasks.data !== undefined &&
+    background.query.data !== undefined;
   const {
     running,
     failed,
@@ -239,6 +244,7 @@ export function WorkspaceTools({
     roaming: roamingTasks.data?.jobs,
     scanning: roamingTasks.data?.scanning,
     flash: flashTasks.data,
+    background: background.tasks.map((entry) => ({ ...entry.task, id: backgroundTaskId(entry) })),
   });
   useEffect(() => {
     if (taskDataReady) syncTasks(accountScope, taskItems);

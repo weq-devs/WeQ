@@ -107,6 +107,34 @@ function fixture() {
     clone: (id: string) => join(cache, 'agentlab', id),
   };
 }
+it.each(['skip', 'overwrite'] as const)('OneBot API 配置冷启动恢复遵循 %s 冲突策略', (conflict) => {
+  const f = fixture();
+  const incoming = {
+    enabled: true,
+    webSocketServers: [
+      {
+        id: 'ws-imported',
+        name: '导入 WS',
+        enabled: true,
+        port: 48767,
+        token: 'synthetic-imported-onebot',
+      },
+    ],
+    httpServers: [],
+  };
+  stageWeqBackupRestore(f.root, buildWeqBackup([file('api/settings.json', { oneBot: incoming })]), {
+    parts: ['api'],
+    conflict,
+  });
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  expect(read(join(f.root, 'config.json'))).toMatchObject({
+    settings: {
+      oneBot: conflict === 'skip' ? f.initial.settings.oneBot : incoming,
+      mcp: f.initial.settings.mcp,
+    },
+  });
+});
+
 function account(id: string, name: string) {
   return {
     configId: id,

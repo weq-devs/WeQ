@@ -2,7 +2,10 @@ import { createRoot } from 'react-dom/client';
 import { Check, ExternalLink, Heart, Sparkles } from 'lucide-react';
 import { QqArk } from '../../src/renderer/src/components/ark/QqArk';
 import { GrayTipXmlMessage } from '../../src/renderer/src/components/GrayTipXmlMessage';
-import { ReplyJumpContext } from '../../src/renderer/src/components/QqMessageContent';
+import {
+  QqMessageContent,
+  ReplyJumpContext,
+} from '../../src/renderer/src/components/QqMessageContent';
 import { GrayTipFileRecvMessage } from '../../src/renderer/src/components/GrayTipFileRecvMessage';
 import { ExternalSiteView } from '../../src/renderer/src/views/ExternalSiteView';
 import {
@@ -119,6 +122,30 @@ function Fixture() {
               data: { fileName: '合成文件.txt', fileSize: 1024 },
             }}
           />
+          <div className="message-bubble" data-reply-preview>
+            <QqMessageContent
+              sendTimeMs={0}
+              elements={[
+                {
+                  type: 'reply',
+                  data: {
+                    origSenderDisplayName: '合成成员',
+                    origElements: [
+                      {
+                        type: 'pic',
+                        data: {
+                          localPreviewUrl: '/test/reply-preview.png',
+                          imgWidth: 160,
+                          imgHeight: 120,
+                        },
+                      },
+                      { type: 'text', data: { textContent: '图文引用说明' } },
+                    ],
+                  },
+                },
+              ]}
+            />
+          </div>
         </section>
         <section className="style-fixture-section">
           <h2>群精华</h2>

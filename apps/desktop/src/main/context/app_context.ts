@@ -38,6 +38,7 @@ import {
   type Platform,
 } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
+import { applyOneBot, stopOneBot } from '../onebot/runtime';
 import { startLogRetention } from '../log_retention';
 import { assistantResourceServer } from '../weq_assistant/server';
 import { publishWeqAssistantDocroot } from '../weq_assistant/publish';
@@ -261,6 +262,16 @@ let dbWatchHandle: DbWatchHandle | null = null;
 let dbChangeNotification: ReturnType<typeof createDbChangeNotification<DbChange>> | null = null;
 /** SSE 消息推送服务（随账号开关），null = 未启用 / 无账号。 */
 let ssePush: SsePushService | null = null;
+
+/**
+ * SSE 推送是否真的在推送（有账号 + 已挂上推送目标）。
+ *
+ * 只给「后台服务」页和退出确认用：SSE 没有独立的监听端口，运行态只能从
+ * 服务实例判断。配置里选了目标但账号没开时不算运行中。
+ */
+export function isSsePushActive(): boolean {
+  return ssePush?.hasTarget ?? false;
+}
 /** 群关键词提醒匹配器（随账号打开常驻），null = 无账号。 */
 let groupKeyword: GroupKeywordService | null = null;
 /**
@@ -1301,6 +1312,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       stopVipBadge();
+      stopOneBot();
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
@@ -2142,6 +2154,10 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Start it now if enabled; live toggling is handled by `applyMcp`.
       startConfiguredMcp();
 
+      void applyOneBot(this, userConfig.getSettings().oneBot).catch((error) => {
+        logger.error('failed to start OneBot bridge', logErrorContext(error));
+      });
+
       // WeQ 助手 is account-bound too: ensure the fabricated conversation exists
       // + start the loopback server when enabled. Live toggling → applyWeqAssistant.
       const weq = userConfig.getSettings().weqAssistant;
@@ -2184,6 +2200,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       stopVipBadge();
+      stopOneBot();
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
@@ -2883,6 +2900,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // ExportTaskManager.
       this.scheduler?.stop();
       this.scheduler = null;
+      stopOneBot();
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();

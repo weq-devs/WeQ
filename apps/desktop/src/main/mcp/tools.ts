@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../context/app_context';
 import { fullModeAllowed } from '../context/full_mode';
 import { assertAccountToolScope } from './account_scope';
+import { hasAccountSwitchSubscriber, pushAccountSwitchRequest } from '../account_switch_bus';
 import {
   classifyChatType,
   datalineName,
@@ -48,6 +49,7 @@ import {
   fetchClientKey,
   fetchDownloadRkeys,
   fetchWebTokens,
+  getHost,
   HonorType,
   localOcrBlocker,
   normalizeMallItems,
@@ -1117,6 +1119,97 @@ export const AI_TOOLS: AiTool[] = [
     run: async () => {
       const profile = await services().profile.getSelfProfile();
       return profile ? userProfileToWire(profile) : null;
+    },
+  }),
+
+  // ── 账号切换 ─────────────────────────────────────────────────────────────
+  // 这两个工具让外部 AI 客户端在多账号环境里换一个账号来查。**切换不由主进程执行**：
+  // 切号在渲染层是一整套有序动作（关会话 → 清缓存 → 重开 → 预热 → 重挂载），主进程
+  // 直接调 `setAccount` 会绕开它们，界面会挂在旧账号上。所以 `switch_account` 只投递
+  // 请求，由界面领走后走与「点左上角头像切号」完全相同的代码路径。
+  tool({
+    name: 'list_accounts',
+    description:
+      '列出本机已保存的所有账号记录（可用来给 switch_account 选目标）。' +
+      '\n返回 configId、uin、昵称、是否静态账号、是否当前打开、上次登录时间。' +
+      '同一个 QQ 号可能同时有「在线账号」和「导入的备份账号」两条记录，所以**用 configId 认账号，不要用 uin**。',
+    input: z.object({}),
+    run: async () => {
+      const boot = toolContext().bootstrap;
+      if (!boot) throw new Error('账号配置尚未就绪，请稍后重试。');
+      const current = toolContext().services?.accountConfig.getRecord() ?? null;
+      return boot.userConfig.listAccountConfigs().map((config) => ({
+        configId: config.configId,
+        uin: config.uin,
+        displayName: config.displayName ?? null,
+        static: config.static ?? false,
+        mobile: config.mobile ?? false,
+        current: current ? current.configId === config.configId : false,
+        lastLoginAt: config.lastLoginAt,
+      }));
+    },
+  }),
+
+  tool({
+    name: 'switch_account',
+    description:
+      '把 WeQ 切换到本机另一个已保存的账号。**异步语义**：调用成功只表示请求已交给界面，' +
+      '切换要几秒（关旧账号 → 重开 → 预热），完成后工具调用本身不会再来通知。' +
+      '想确认切好了，稍等再调 get_self_profile 看 uin 是否已经变成目标账号。' +
+      '\n【限制】必须有一个打开的 WeQ 界面来接请求（窗口被收进托盘时会自动唤起）。' +
+      '工具报错说明请求根本没提交（目标不存在 / 没有界面），别自动重试同一个目标。' +
+      '\n【需要用户确认】切换会关掉当前账号，若界面里有未保存的邮件草稿会弹确认框；' +
+      '用户取消则切换不会发生，工具无法得知这个结果，请以 get_self_profile 的实际 uin 为准。' +
+      '\n【安全】令牌持有者因此可以读取本机所有已保存账号的数据，别把 MCP 地址和令牌给不可信的人。' +
+      '\n先用 list_accounts 拿 configId。',
+    input: z.object({
+      configId: z
+        .string()
+        .min(1)
+        .describe('目标账号记录的 configId（从 list_accounts 拿，不要填 uin）'),
+    }),
+    run: async ({ configId }) => {
+      const boot = toolContext().bootstrap;
+      if (!boot) throw new Error('账号配置尚未就绪，请稍后重试。');
+      const target = boot.userConfig.listAccountConfigs().find((c) => c.configId === configId);
+      if (!target) {
+        throw new Error(
+          `没有 configId=${configId} 的账号记录。先用 list_accounts 查看本机已保存的账号。`,
+        );
+      }
+      const current = toolContext().services?.accountConfig.getRecord() ?? null;
+      if (current?.configId === target.configId) {
+        return {
+          ok: true,
+          alreadyCurrent: true,
+          configId: target.configId,
+          uin: target.uin,
+          note: '目标账号就是当前打开的账号，无需切换。',
+        };
+      }
+      // 没有界面就没人领这个请求 —— 别假装成功，让调用方当场知道。
+      if (!hasAccountSwitchSubscriber()) {
+        throw new Error(
+          '当前没有可用的 WeQ 界面来执行切换（界面未运行或已关闭）。请先在 WeQ 窗口中打开一个账号后再试。',
+        );
+      }
+      pushAccountSwitchRequest({
+        configId: target.configId,
+        uin: target.uin,
+        source: 'mcp',
+        at: Date.now(),
+      });
+      // 窗口可能在托盘里；叫它出来，用户才看得见切号进度、也能及时看到确认框。
+      getHost().showMainWindow?.();
+      return {
+        ok: true,
+        configId: target.configId,
+        uin: target.uin,
+        displayName: target.displayName ?? null,
+        note:
+          '请求已提交，界面正在执行切换。稍后调用 get_self_profile 确认 uin 已变为目标账号；' +
+          '若用户取消了未保存内容的确认框，账号不会切换。',
+      };
     },
   }),
 

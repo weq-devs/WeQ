@@ -43,8 +43,10 @@ vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    backgroundTasks: { list: { useQuery: () => ({ data: [] }) } },
     useUtils: () => ({}),
     account: {
+      getAccountConfig: { useQuery: () => ({ data: { uin: 'fixture', configId: 'fixture' } }) },
       listExportTasks: { useQuery: () => ({ data: fixture.exports }) },
       roamingBackfill: { list: { useQuery: () => ({ data: { jobs: [] } }) } },
       flashListDownloadTasks: { useQuery: () => ({ data: [] }) },

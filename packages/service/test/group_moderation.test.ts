@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { GroupModerationService } from '../src/account/group_moderation';
-import { RecallPrivate, decode } from '@weq/protocol';
+import { RecallPrivate, decode, MuteGroupAll, MUTE_ALL_PERMANENT } from '@weq/protocol';
 
 interface OidbCall {
   pid: number;
@@ -57,6 +57,16 @@ function makeService(nt: ReturnType<typeof fakeNative>) {
 }
 
 describe('GroupModerationService', () => {
+  it('全员禁言和解除都发送明确的 state', async () => {
+    const nt = fakeNative();
+    const service = makeService(nt);
+    await service.muteAll({ groupId: 12345, enable: true });
+    await service.muteAll({ groupId: 12345, enable: false });
+    expect(nt.oidb.map((call) => decode(MuteGroupAll.reqSchema, call.body))).toEqual([
+      { groupUin: 12345, muteState: { state: MUTE_ALL_PERMANENT } },
+      { groupUin: 12345, muteState: { state: 0 } },
+    ]);
+  });
   it('recallMessage(group) 走 SsoGroupRecallMsg，不签名，带 groupUin + sequence', async () => {
     const nt = fakeNative();
     await makeService(nt).recallMessage({ kind: 'group', conv: '12345', sequence: 7, random: 9 });

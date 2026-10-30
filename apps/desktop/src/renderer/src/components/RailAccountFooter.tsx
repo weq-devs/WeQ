@@ -28,13 +28,11 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
-import { useViewState } from '../state/view';
-import { leaveAccountForBootstrap, purgeAccountQueries } from '../lib/leaveAccount';
+import { leaveAccountForBootstrap } from '../lib/leaveAccount';
+import { switchAccount, type SwitchTarget } from '../lib/switchAccount';
 import { useAppLock } from '../state/lock';
 import { useThemeStore } from '../state/theme';
-import { useAccountSwitch } from '../state/accountSwitch';
 import { confirmMailAccountLeave } from '../state/mailDraft';
-import { runAccountWarmup } from '../lib/accountWarmup';
 import {
   fetchSystemAuthStatus,
   fetchTotpStatus,
@@ -83,8 +81,6 @@ export function RailAccountFooter({
   settingsButton?: ReactNode;
   children?: ReactNode | ((controls: ReactNode) => ReactNode);
 }): ReactElement {
-  const setOpenedUin = useViewState((s) => s.setOpenedUin);
-  const goTo = useViewState((s) => s.goTo);
   const showError = useDialog((s) => s.showError);
   const lock = useAppLock((s) => s.lock);
   // 菜单与设置共用主题状态；快捷切换固定为浅/深色，跟随系统仍在设置里选择。
@@ -93,10 +89,6 @@ export function RailAccountFooter({
   const pushToast = useToast((s) => s.push);
   const queryClient = useQueryClient();
   const utils = trpc.useUtils();
-  const beginSwitch = useAccountSwitch((s) => s.begin);
-  const setSwitchHint = useAccountSwitch((s) => s.setHint);
-  const setSwitchProgress = useAccountSwitch((s) => s.setProgress);
-  const endSwitch = useAccountSwitch((s) => s.end);
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -231,11 +223,6 @@ export function RailAccountFooter({
     }
   }
 
-  // 账号级缓存的清理在 lib/leaveAccount.ts（退出、切号、数据库修复修完都要同一套）。
-  function purgeAccountCache(): void {
-    purgeAccountQueries(queryClient);
-  }
-
   // staleTime 0 + refetchOnMount always: the account配置 is written by
   // openAccount, i.e. AFTER bootstrap already cached this query. Without an
   // immediate refetch the popover would keep serving the pre-login list and a
@@ -275,83 +262,21 @@ export function RailAccountFooter({
     }
   }
 
-  async function switchTo(cfg: {
-    configId: string;
-    uin: string;
-    uid?: string;
-    dbKey: string;
-    algos?: Record<string, { pageHmacAlgorithm: string; kdfHmacAlgorithm: string }> | null;
-    displayName?: string;
-    avatarUrl?: string | null;
-    dataDir?: string;
-    static?: boolean;
-    mobile?: boolean;
-  }): Promise<void> {
+  // 切号流程本体在 lib/switchAccount.ts —— 外部 MCP 触发的切换也走同一份实现。
+  async function switchTo(cfg: SwitchTarget): Promise<void> {
     if (busy) return;
-    // 按 configId 判「点的是不是当前账号」—— 同 uin 的另一种账号必须能切过去。
-    if (currentConfigId ? cfg.configId === currentConfigId : cfg.uin === currentUin) return;
     setBusy(true);
-    if (!(await confirmMailAccountLeave())) {
-      setBusy(false);
-      return;
-    }
     setOpen(false);
-    // 从这一刻起 App 渲染载入页、不渲染 MainView（见 state/accountSwitch）。
-    // 过渡期间 MainView 完全不挂载，所以下面 setOpenedUin(null) 不会再触发
-    // 一次「打在已关闭账号上」的无效挂载。
-    beginSwitch(`正在打开 ${cfg.displayName || cfg.uin}…`);
     try {
-      await client.bootstrap.closeAccount.mutate();
-      // Purge BEFORE we drop openedUin: any account-scoped useQuery that
-      // re-renders during the brief null-uin window must not be served the
-      // outgoing account's data from the React Query cache.
-      purgeAccountCache();
-      setOpenedUin(null);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      if (cfg.static) {
-        // Static (offline) account — no live key gate; re-open from its
-        // saved decrypted-db directory.
-        if (!cfg.dataDir) throw new Error('该静态账号缺少数据库目录，请重新导入。');
-        await client.bootstrap.openStaticAccount.mutate({
-          dirPath: cfg.dataDir,
-          preview: {
-            uin: cfg.uin,
-            uid: cfg.uid ?? '',
-            displayName: cfg.displayName ?? '',
-            avatarUrl: cfg.avatarUrl ?? '',
-          },
-          ...(cfg.dbKey ? { dbKey: cfg.dbKey } : {}),
-          ...(cfg.algos?.['nt_msg.db'] ? { algo: cfg.algos['nt_msg.db'] } : {}),
-          ...(cfg.mobile ? { mobile: true } : {}),
-        });
-      } else {
-        await client.bootstrap.openAccount.mutate({
-          uin: cfg.uin,
-          dbKey: cfg.dbKey,
-          ...(cfg.algos?.['nt_msg.db'] ? { algo: cfg.algos['nt_msg.db'] } : {}),
-          ...(cfg.displayName ? { displayName: cfg.displayName } : {}),
-          ...(cfg.avatarUrl ? { avatarUrl: cfg.avatarUrl } : {}),
-          ...(cfg.dataDir ? { dataDir: cfg.dataDir } : {}),
-        });
-      }
-      // Second purge: anything an in-flight component re-issued between the
-      // first purge and openAccount completion (e.g. a useQuery refetch
-      // triggered by the unmount/remount transition) would have hit the
-      // CLOSED backend and either errored or returned old data. Wipe again
-      // so the freshly-mounted MainView starts from a clean slate.
-      purgeAccountCache();
-      // 预热必须在第二次 purge 之后——否则刚灌进缓存的新账号数据会被一起清掉。
-      setSwitchHint(`正在载入 ${cfg.displayName || cfg.uin}…`);
-      await runAccountWarmup(utils, setSwitchProgress);
-      setOpenedUin(cfg.uin);
-    } catch (e) {
-      // Already closed; fall back to bootstrap so the user can recover.
-      purgeAccountCache();
-      setOpenedUin(null);
-      goTo('bootstrap');
-      showError('切换账号失败', errMsg(e));
+      await switchAccount({
+        queryClient,
+        utils,
+        target: cfg,
+        currentConfigId,
+        currentUin,
+        onError: (e) => showError('切换账号失败', errMsg(e)),
+      });
     } finally {
-      endSwitch();
       setBusy(false);
     }
   }

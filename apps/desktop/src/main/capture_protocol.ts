@@ -28,6 +28,17 @@ export interface CaptureFrameWire {
   rawHex: string;
   plainHex: string;
   bodyHex: string;
+  /** UDP 五元组；TCP 帧为 undefined。 */
+  udp?: CaptureUdpWire;
+}
+
+/** 一条 UDP 数据报的端点（hex 载荷）。 */
+export interface CaptureUdpWire {
+  src: string;
+  srcPort: number;
+  dst: string;
+  dstPort: number;
+  payloadHex: string;
 }
 
 /** 一次已 armed 的抓包会话（native 返回什么就透传什么）。 */
@@ -37,7 +48,10 @@ export type CaptureSessionWire = CaptureSession;
 export interface CaptureBatchWire {
   frames: CaptureFrameWire[];
   nextCursor: number;
+  /** 环形缓冲淘汰数（取太慢），不是网络丢包。 */
   dropped: number;
+  /** 内核 / 回调层丢包数（数据真的没了）；老产物为 undefined。 */
+  kernelLost?: number;
 }
 
 /** `stopCapture` 的统计。 */
@@ -85,6 +99,12 @@ export interface CaptureWorkerRequest {
   cursor?: number;
   /** `take` 用：最多等多久（毫秒）再返回。 */
   waitMs?: number;
+  /** `take` 用：单批最多返回多少帧（UDP 包多，需要比 TCP 的 1024 更大）。 */
+  maxFrames?: number;
+  /** `start` 用：传输层（`tcp` 默认 / `udp`）。 */
+  transport?: 'tcp' | 'udp';
+  /** `start` 用：环形缓冲帧数上限。 */
+  ringFrames?: number;
 }
 
 /** 应答。`result` 的具体类型由 `op` 决定（start→CaptureSessionWire …）。 */
@@ -105,5 +125,14 @@ export function toCaptureFrameWire(f: CapturedFrame): CaptureFrameWire {
     rawHex: f.raw ? Buffer.from(f.raw).toString('hex') : '',
     plainHex: f.plain ? Buffer.from(f.plain).toString('hex') : '',
     bodyHex: f.body ? Buffer.from(f.body).toString('hex') : '',
+    udp: f.udp
+      ? {
+          src: f.udp.src,
+          srcPort: f.udp.srcPort,
+          dst: f.udp.dst,
+          dstPort: f.udp.dstPort,
+          payloadHex: f.udp.payload ? Buffer.from(f.udp.payload).toString('hex') : '',
+        }
+      : undefined,
   };
 }

@@ -14,7 +14,7 @@
 
 ## 一、它是什么
 
-发消息走**原始 SSO 命令** `MessageSvc.PbSendMsg`（没有 OIDB 信封），三个场景共用同一条
+发消息走**原始 SSO 命令** `MessageSvc.PbSendMsg`（没有 OIDB 信封），以下场景共用同一条
 命令，只差 `routingHead` / `contentHead`：
 
 | 场景 | routingHead | contentHead | 备注 |
@@ -22,6 +22,7 @@
 | 群聊 | `grp.groupCode` | `{ type: 1 }` | 不带 c2cCmd / subType，也不带时间戳 |
 | 私聊 | `c2c.{uin, uid}` | `{ type: 1, c2cCmd: 11 }` | 带 `ctrl.msgFlag`（Request field 12，Unix 秒） |
 | 群临时会话 | `grpTmp.{groupUin, toUid}` | `{ type: 1, subType: 0, c2cCmd: 0 }`（两个 0 **显式**上 wire） | 带 `syncCookie.msgFlag`（Request **field 6**，Unix 秒） |
+| 我的设备 | `trans0x211.{toUin: 本人QQ号, ccCmd: 7, uid: 设备伪UID}` | `{ type: 1, subType: 0 }` | 文本在 `messageBody.msgContent`，带 `ctrl.msgFlag`，不走好友 `c2c` 路由 |
 
 群临时会话那两格是按真机抓包对齐的（2026-09-29，QQ NT 在群里发起临时会话）：同一份请求里
 `grpTmp` 的字段号是 **3 / 4**（不是网上常见的 1 / 2）、`contentHead` 把 `subType=0` 与
@@ -31,6 +32,24 @@
 `SEND_SYNC_COOKIE` / `SEND_MESSAGE_REQUEST_TEMP`，以及 `send.ts` 的 `RoutingPlan.timestampField`。
 
 消息体是 `messageBody.richText.elems[]` —— 一个 `Elem` 数组。
+
+### 我的设备文本
+
+设备会话不使用好友资料或好友 UID 目录，联系人名称和头像按固定设备伪 UID 解析。
+发送目标始终保留设备伪 UID；会话快照中的 `targetUin` 即使是本人 QQ 号，也不能拿它
+替换设备目标。联系人详情只展示设备及消息入口，不补全本人的资料卡。
+
+设备文本使用 `trans0x211` 命令 7，`msgContent` 内为数据线 `subCmd=4`：header 带本人
+源／目的 QQ 号、源终端 PC（1）、目的终端 PC／手机／平板（1／2／3），移动端 appId 为
+1001，PC appId 为 1；generic 带毫秒 sessionId、单片信息和 UTF-8 文本列表。
+本路径目前仅支持文本，不上传图片、语音、视频或文件，不发送好友装扮，也不把设备消息
+写入普通私聊的漫游缓存；本地消息由 `dataline_msg_table` 的现有同步链路接管。
+
+协议字段与发送形状核对自 SnowLuma 固定版本的
+[发送实现](https://github.com/SnowLuma/SnowLuma/blob/db142db9e6398c779283eab9afc3552da1e2c361/packages/core/src/bridge/apis/message.ts)、
+[数据线编码](https://github.com/SnowLuma/SnowLuma/blob/db142db9e6398c779283eab9afc3552da1e2c361/packages/protocol/src/dataline/codec.ts)
+和[字段定义](https://github.com/SnowLuma/SnowLuma/blob/db142db9e6398c779283eab9afc3552da1e2c361/packages/proto-defs/src/dataline.ts)。
+离线回归覆盖黄金字节、三种目的终端、本人 QQ 号误路由和非文本拒绝；真实手机接收仍需在线验证。
 
 ### 自动跟随当前聊天字体
 

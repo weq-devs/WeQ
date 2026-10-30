@@ -188,6 +188,7 @@ export class RoamMsgCacheDb {
     limit = 2000,
     descending = true,
     includeHidden = false,
+    cursor?: { msgSeq: number; sendTime: number; msgId: string },
   ): Promise<GapFetchedMessage[]> {
     if (startSeq > endSeq) return [];
     await this.ensureSchema();
@@ -199,7 +200,38 @@ export class RoamMsgCacheDb {
           ),
     );
     const size = Math.max(1, Math.min(2000, limit));
-    const params: SqlValue[] = [kind, conv, BigInt(startSeq), BigInt(endSeq), hidden, size];
+    if (cursor && !/^-?\d+$/.test(cursor.msgId)) throw new Error('缓存历史消息游标 ID 无效');
+    const cursorId = cursor ? BigInt(cursor.msgId).toString() : '';
+    if (cursorId && BigInt(cursorId) < -0x8000000000000000n)
+      throw new Error('缓存负数 ID 超出 int64');
+    const params: SqlValue[] = [
+      kind,
+      conv,
+      BigInt(startSeq),
+      BigInt(endSeq),
+      hidden,
+      ...(cursor
+        ? [
+            cursor.msgSeq,
+            cursor.sendTime,
+            cursorId.startsWith('-') ? 0 : 1,
+            cursorId.startsWith('-') ? BigInt(cursorId) : 0,
+            cursorId.length,
+            cursorId,
+          ]
+        : []),
+      size,
+    ];
+    const direction = descending ? 'DESC' : 'ASC';
+    // 正数用长度和字典序比较 uint64；负数仅在原生 int64 域内转型。
+    const sign = "CASE WHEN substr(msg_id,1,1)='-' THEN 0 ELSE 1 END";
+    const negative = "CASE WHEN substr(msg_id,1,1)='-' THEN CAST(msg_id AS INTEGER) ELSE 0 END";
+    const keyset = (time: string) =>
+      cursor
+        ? `AND (msg_seq,CAST(${time} AS INTEGER),${sign},${negative},length(msg_id),msg_id) ${descending ? '<' : '>'} (?,?,?,?,?,?)`
+        : '';
+    const order = (time: string) =>
+      `ORDER BY msg_seq ${direction},CAST(${time} AS INTEGER) ${direction},${sign} ${direction},${negative} ${direction},length(msg_id) ${direction},msg_id ${direction}`;
     // 各来源先独立限额，再沿用原有去重；不能在 UNION 上提前 LIMIT，重复来源会挤掉消息。
     const rows = await scheduleDatabase(
       this.dbPath,
@@ -211,17 +243,19 @@ export class RoamMsgCacheDb {
         WHERE kind = ? AND conv = ? AND msg_seq BETWEEN ? AND ?
           ${verifiedOnly ? 'AND nt_seq_verified = 1' : ''}
           AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
-        ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'} LIMIT ?) AS page
+        ${keyset('send_time')}
+        ${order('send_time')} LIMIT ?) AS page
        UNION ALL
        SELECT 1, payload, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM (
        SELECT payload FROM ${NATIVE_TABLE} WHERE kind = ? AND conv = ? AND accepted = 1 AND msg_seq BETWEEN ? AND ?
        AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
-       ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'}, msg_id LIMIT ?)
+       ${keyset("json_extract(payload,'$.sendTime')")}
+       ${order("json_extract(payload,'$.sendTime')")} LIMIT ?)
        UNION ALL
        SELECT 2, payload, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM (
        SELECT payload FROM ${PROTOCOL_TABLE} WHERE kind=? AND conv=? AND msg_seq BETWEEN ? AND ?
        AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
-       ${verifiedOnly ? 'AND nt_seq_verified=1' : ''} ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'},msg_id LIMIT ?)`,
+       ${verifiedOnly ? 'AND nt_seq_verified=1' : ''} ${keyset("json_extract(payload,'$.sendTime')")} ${order("json_extract(payload,'$.sendTime')")} LIMIT ?)`,
           [...params, ...params, ...params],
         ),
       this.nt,

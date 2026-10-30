@@ -1,0 +1,28 @@
+/*
+ * 「后台服务」汇总页的窄容器兜底。
+ *
+ * 外观全部复用 index.css 的 .weq-set-*（卡片、行、状态点、分段控件），
+ * 这里只处理地址折行和「管理」按钮不换行。
+ */
+
+.weq-set-background-services .weq-set-row {
+  flex-wrap: wrap;
+}
+
+.weq-set-background-services .weq-set-row-ctrl {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-set-background-services .weq-set-row-ctrl code {
+  overflow-wrap: anywhere;
+  font-size: 12.5px;
+  color: var(--weq-fg-primary);
+}
+
+.weq-set-background-services .weq-set-card-action .weq-set-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}

@@ -115,6 +115,37 @@ function sameSeqInversions(rows: GroupMsg[]): Array<[GroupMsg, GroupMsg]> {
 }
 
 describe('GroupMsgDb ordering (offline fixture)', () => {
+  it('键集分页可以停在同序号内部，不丢灰条且正反方向一致', async () => {
+    createFixture();
+    const options = { min: 1n, max: 100n, descending: true, limit: 3 };
+    const first = await db.listHistory(GROUP, options);
+    const second = await db.listHistory(GROUP, { ...options, cursor: first.at(-1)! });
+    const third = await db.listHistory(GROUP, { ...options, cursor: second.at(-1)! });
+    expect([...first, ...second, ...third].map((row) => row.msgId)).toEqual([
+      7n,
+      6n,
+      5n,
+      4n,
+      3n,
+      2n,
+      1n,
+    ]);
+    const forward = await db.listHistory(GROUP, {
+      ...options,
+      cursor: second[0]!,
+      descending: false,
+    });
+    expect(forward.map((row) => row.msgId)).toEqual([5n, 6n, 7n]);
+    const unsigned = { msgSeq: 12n, sendTime: 1022n, msgId: 18446744073709551615n };
+    expect(
+      (await db.listHistory(GROUP, { ...options, cursor: unsigned })).map((row) => row.msgId),
+    ).toEqual([5n, 4n, 3n]);
+    expect(
+      (await db.listHistory(GROUP, { ...options, cursor: unsigned, descending: false })).map(
+        (row) => row.msgId,
+      ),
+    ).toEqual([6n, 7n]);
+  });
   it('listLatest orders same-seq runs by time, newest-first overall', async () => {
     createFixture();
 

@@ -367,9 +367,24 @@
   border-radius: inherit;
 }
 
+/* 同一张封面在「播放 / 停播」之间切换时也按 cover 摆，不然会跳一下。 */
+.weq-dress-card-preview.is-video img {
+  object-fit: cover;
+}
+
 .weq-dress-card-noimg {
   color: #a8b0bd;
   font-size: 11px;
+}
+
+/* 还没滚到视口:留一块和骨架同款的呼吸位,不拉图也不铺裂图。 */
+.weq-dress-card-pending {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #eceff3 25%, #e0e5ea 50%, #eceff3 75%);
+  background-size: 200% 100%;
+  animation: weq-dress-shimmer 1.3s ease-in-out infinite;
 }
 
 .weq-dress-card-body {
@@ -645,6 +660,7 @@ html[data-theme='dark'] .weq-dress-save {
 @media (prefers-reduced-motion: reduce) {
   .weq-dress-spin,
   .weq-dress-skel-block,
+  .weq-dress-card-pending,
   .weq-dress-applying {
     animation: none;
   }
@@ -953,7 +969,8 @@ html[data-theme='dark'] .weq-dress-widget {
     repeating-conic-gradient(rgba(255, 255, 255, 0.05) 0% 25%, transparent 0% 50%) 50% / 12px 12px;
 }
 
-html[data-theme='dark'] .weq-dress-skel-block {
+html[data-theme='dark'] .weq-dress-skel-block,
+html[data-theme='dark'] .weq-dress-card-pending {
   background: linear-gradient(
     90deg,
     rgba(255, 255, 255, 0.055) 25%,

@@ -80,6 +80,8 @@ export function ReactionLikersPanel({
       getNextPageParam: (lastPage) => lastPage.nextCursor,
       // 同一枚表情反复悬停不必每次重拉；换表情 / 换消息是新 key，自然重查。
       staleTime: 30_000,
+      // 全局关闭了挂载刷新；名单过期或上次刷新失败后，再次悬停应正常重读。
+      refetchOnMount: true,
       enabled: Boolean(groupId) && sequence > 0 && Boolean(emojiId),
     },
   );

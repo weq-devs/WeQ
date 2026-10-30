@@ -57,6 +57,55 @@ function message(
 }
 
 describe('offline roaming timeline cache pages', () => {
+  it('原生负数 ID 与正数 ID 的同序号排序和续页一致', async () => {
+    const { cache, history } = setup();
+    await cache.store(
+      ['-2', '-1', '2'].map((msgId) => ({
+        ...message(12),
+        msgId,
+        sourceFormat: 'protocol' as const,
+      })),
+    );
+    expect(
+      (await history.cachedTimeline('group', 'synthetic-conversation', 1, 100, 3, true)).map(
+        (row) => row.msgId,
+      ),
+    ).toEqual(['-2', '-1', '2']);
+    expect(
+      (
+        await history.cachedTimeline('group', 'synthetic-conversation', 1, 100, 1, true, {
+          msgSeq: 12,
+          sendTime: 1700000000,
+          msgId: '-1',
+        })
+      ).map((row) => row.msgId),
+    ).toEqual(['-2']);
+  });
+  it('同序号缓存用时间与完整十进制 ID 续页，不经 JS number 或 int64 截断', async () => {
+    const { cache, history } = setup();
+    const ids = ['9007199254740993001', '9007199254740993002', '18446744073709551615'];
+    await cache.store(
+      ids.map((msgId) => ({ ...message(12), msgId, sourceFormat: 'protocol' as const })),
+    );
+    const first = await history.cachedTimeline('group', 'synthetic-conversation', 1, 100, 1, true);
+    expect(first[0]?.msgId).toBe(ids[2]);
+    const second = await history.cachedTimeline(
+      'group',
+      'synthetic-conversation',
+      1,
+      100,
+      1,
+      true,
+      { msgSeq: 12, sendTime: 1700000000, msgId: first[0]!.msgId },
+    );
+    expect(second[0]?.msgId).toBe(ids[1]);
+    const third = await history.cachedTimeline('group', 'synthetic-conversation', 1, 100, 1, true, {
+      msgSeq: 12,
+      sendTime: 1700000000,
+      msgId: second[0]!.msgId,
+    });
+    expect(third[0]?.msgId).toBe(ids[0]);
+  });
   it('空缓存和三来源混合页均只做一次查询，重复来源不挤掉分页后的独立消息', async () => {
     const { cache, nt } = setup();
     await cache.query('group', 'synthetic-conversation', 1, 10);

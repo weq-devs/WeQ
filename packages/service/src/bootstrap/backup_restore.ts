@@ -582,6 +582,10 @@ function configPlan(
       settings.mcp = base.mcp;
       skipped.push('api:mcp');
     }
+    if (value.oneBot !== undefined && base.oneBot !== undefined && choice.conflict === 'skip') {
+      settings.oneBot = base.oneBot;
+      skipped.push('api:oneBot');
+    }
   }
   return {
     ...current,

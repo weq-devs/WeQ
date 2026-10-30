@@ -14,6 +14,7 @@
  */
 
 import { observable } from '@trpc/server/observable';
+import { trackModelDownload } from '../../model_download_task';
 import { z } from 'zod';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES } from '@weq/service/qzone-public-settings';
@@ -38,6 +39,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
+import { applyOneBot, oneBotStatus } from '../../onebot/runtime';
 import { assistantResourceServer } from '../../weq_assistant/server';
 import {
   installMcpAgents as installMcpAgentConfigs,
@@ -49,11 +51,18 @@ import {
   requireBootstrap,
   requirePlatform,
   emitDressChanged,
+  isSsePushActive,
   rememberAccountUid,
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
 import { runLogRetentionSweep } from '../../log_retention';
 import { takePendingConversationJump, takePendingGroupJump } from '../../group_keyword_bus';
+import {
+  accountSwitchSubscriberClosed,
+  accountSwitchSubscriberOpened,
+  takeAccountSwitchRequest,
+  type AccountSwitchRequest,
+} from '../../account_switch_bus';
 import { readNativeBuildInfo } from '@weq/native';
 import { procedure, router } from '../trpc';
 import { fullModeAllowed } from '../../context/full_mode';
@@ -295,6 +304,32 @@ export const bootstrapRouter = router({
   /** 领走一条待处理的群关键词跳转（无则返回 null）。 */
   consumeGroupKeywordJump: procedure.query(() => {
     return takePendingGroupJump();
+  }),
+
+  /**
+   * 外部 MCP 请求切换到另一个账号：主进程已记下目标，渲染层收到信号后调
+   * `consumeAccountSwitchRequest` 领走并执行。
+   *
+   * 订阅本身还兼一个作用 —— 建立/取消时登记订阅者计数，让 MCP 工具能判断
+   * 「现在到底有没有界面能接这个请求」（见 `account_switch_bus.ts`）。
+   */
+  onAccountSwitchRequested: procedure.subscription(() => {
+    return observable<{ at: number }>((emit) => {
+      const handler = (payload: { at: number }): void => {
+        emit.next(payload);
+      };
+      accountEventBus.on('accountSwitchRequested', handler);
+      accountSwitchSubscriberOpened();
+      return () => {
+        accountEventBus.off('accountSwitchRequested', handler);
+        accountSwitchSubscriberClosed();
+      };
+    });
+  }),
+
+  /** 领走一条待处理的切号请求（无则返回 null）。 */
+  consumeAccountSwitchRequest: procedure.query((): AccountSwitchRequest | null => {
+    return takeAccountSwitchRequest();
   }),
 
   /**
@@ -1132,6 +1167,21 @@ export const bootstrapRouter = router({
     return next;
   }),
 
+  /**
+   * SSE 推送的运行态。SSE 没有监听端口，只能从服务实例判断：
+   * `running` = 有账号且已挂上推送目标；`configured` = 配置里选了目标但可能还没账号。
+   */
+  getSsePushStatus: procedure.query(() => {
+    const cfg = requireBootstrap().userConfig.getSettings().ssePush;
+    const target = cfg.servers.find((server) => server.id === cfg.enabledServerId);
+    return {
+      configured: Boolean(target),
+      pushUrl: target?.pushUrl ?? null,
+      running: isSsePushActive(),
+      accountOpen: Boolean(getAppContext().services),
+    };
+  }),
+
   /** 启用 / 停用某条推送目标：同时只能启用一条，传 null 表示全部停用。 */
   setSsePushEnabled: procedure
     .input(z.object({ serverId: z.string().nullable() }))
@@ -1240,6 +1290,230 @@ export const bootstrapRouter = router({
       const boot = requireBootstrap();
       if (!boot.userConfig.getSettings().linkPreview.enabled) return '';
       return boot.linkPreview.cacheCover(input.url);
+    }),
+
+  getOneBotStatus: procedure.query(() => {
+    const config = requireBootstrap().userConfig.getSettings().oneBot;
+    const ctx = getAppContext();
+    const live = oneBotStatus();
+    const liveById = new Map(live.servers.map((server) => [`${server.type}:${server.id}`, server]));
+    const servers = [
+      ...config.webSocketServers.map((server) => ({
+        ...server,
+        type: 'ws' as const,
+        enableCors: undefined,
+      })),
+      ...config.httpServers.map((server) => ({
+        ...server,
+        type: 'http' as const,
+      })),
+    ].map((server) => {
+      const running = liveById.get(`${server.type}:${server.id}`);
+      const port = running?.port ?? server.port;
+      return {
+        ...server,
+        port,
+        requestedPort: running?.requestedPort ?? server.port,
+        running: running?.running ?? false,
+        clients: running?.clients ?? 0,
+        error: running?.error,
+        url: server.type === 'ws' ? `ws://127.0.0.1:${port}` : `http://127.0.0.1:${port}`,
+      };
+    });
+    const defaultWs = servers.find((server) => server.type === 'ws' && server.enabled);
+    return {
+      enabled: config.enabled,
+      ...live,
+      servers,
+      accountOpen: Boolean(ctx.account && !ctx.accountIsStatic),
+      url: defaultWs?.url ?? '',
+    };
+  }),
+  setOneBotEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      if (input.enabled) {
+        const config = userConfig.getSettings().oneBot;
+        userConfig.setSettings({
+          oneBot: {
+            enabled: true,
+            webSocketServers: config.webSocketServers.map((server) =>
+              server.token ? server : { ...server, token: randomBytes(32).toString('hex') },
+            ),
+            httpServers: config.httpServers.map((server) =>
+              server.token ? server : { ...server, token: randomBytes(32).toString('hex') },
+            ),
+          },
+        });
+      } else {
+        userConfig.setSettings({ oneBot: { enabled: false } });
+      }
+      const config = userConfig.getSettings().oneBot;
+      await applyOneBot(getAppContext(), config);
+      return config;
+    }),
+  saveOneBotServer: procedure
+    .input(
+      z.object({
+        id: z.string().optional(),
+        type: z.enum(['ws', 'http']),
+        name: z.string().max(80),
+        enabled: z.boolean(),
+        port: z.number().int().min(1024).max(65535),
+        token: z.string().max(512),
+        enableCors: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const config = userConfig.getSettings().oneBot;
+      const list = input.type === 'ws' ? config.webSocketServers : config.httpServers;
+      const existing = input.id ? list.find((server) => server.id === input.id) : undefined;
+      if (input.id && !existing) throw new Error('OneBot 服务器不存在');
+      const token = input.token.trim() || existing?.token || randomBytes(32).toString('hex');
+      const name =
+        input.name.trim() ||
+        `${input.type === 'ws' ? 'WebSocket' : 'HTTP'} 服务器 ${list.length + 1}`;
+      if (input.type === 'ws') {
+        const next = existing
+          ? config.webSocketServers.map((server) =>
+              server.id === existing.id
+                ? { ...server, name, enabled: input.enabled, port: input.port, token }
+                : server,
+            )
+          : [
+              ...config.webSocketServers,
+              {
+                id: randomBytes(12).toString('hex'),
+                name,
+                enabled: input.enabled,
+                port: input.port,
+                token,
+              },
+            ];
+        userConfig.setSettings({ oneBot: { webSocketServers: next } });
+      } else {
+        const next = existing
+          ? config.httpServers.map((server) =>
+              server.id === existing.id
+                ? {
+                    ...server,
+                    name,
+                    enabled: input.enabled,
+                    port: input.port,
+                    token,
+                    enableCors: input.enableCors ?? server.enableCors,
+                  }
+                : server,
+            )
+          : [
+              ...config.httpServers,
+              {
+                id: randomBytes(12).toString('hex'),
+                name,
+                enabled: input.enabled,
+                port: input.port,
+                token,
+                enableCors: input.enableCors ?? true,
+              },
+            ];
+        userConfig.setSettings({ oneBot: { httpServers: next } });
+      }
+      const next = userConfig.getSettings().oneBot;
+      await applyOneBot(getAppContext(), next);
+      return next;
+    }),
+  deleteOneBotServer: procedure
+    .input(z.object({ id: z.string(), type: z.enum(['ws', 'http']) }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const config = userConfig.getSettings().oneBot;
+      if (input.type === 'ws')
+        userConfig.setSettings({
+          oneBot: {
+            webSocketServers: config.webSocketServers.filter((server) => server.id !== input.id),
+          },
+        });
+      else
+        userConfig.setSettings({
+          oneBot: { httpServers: config.httpServers.filter((server) => server.id !== input.id) },
+        });
+      const next = userConfig.getSettings().oneBot;
+      await applyOneBot(getAppContext(), next);
+      return next;
+    }),
+  setOneBotServerEnabled: procedure
+    .input(z.object({ id: z.string(), type: z.enum(['ws', 'http']), enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const config = userConfig.getSettings().oneBot;
+      if (input.type === 'ws')
+        userConfig.setSettings({
+          oneBot: {
+            webSocketServers: config.webSocketServers.map((server) =>
+              server.id === input.id
+                ? {
+                    ...server,
+                    enabled: input.enabled,
+                    token:
+                      input.enabled && !server.token
+                        ? randomBytes(32).toString('hex')
+                        : server.token,
+                  }
+                : server,
+            ),
+          },
+        });
+      else
+        userConfig.setSettings({
+          oneBot: {
+            httpServers: config.httpServers.map((server) =>
+              server.id === input.id
+                ? {
+                    ...server,
+                    enabled: input.enabled,
+                    token:
+                      input.enabled && !server.token
+                        ? randomBytes(32).toString('hex')
+                        : server.token,
+                  }
+                : server,
+            ),
+          },
+        });
+      const next = userConfig.getSettings().oneBot;
+      await applyOneBot(getAppContext(), next);
+      return next;
+    }),
+  regenerateOneBotServerToken: procedure
+    .input(z.object({ id: z.string(), type: z.enum(['ws', 'http']) }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const config = userConfig.getSettings().oneBot;
+      if (input.type === 'ws')
+        userConfig.setSettings({
+          oneBot: {
+            webSocketServers: config.webSocketServers.map((server) =>
+              server.id === input.id
+                ? { ...server, token: randomBytes(32).toString('hex') }
+                : server,
+            ),
+          },
+        });
+      else
+        userConfig.setSettings({
+          oneBot: {
+            httpServers: config.httpServers.map((server) =>
+              server.id === input.id
+                ? { ...server, token: randomBytes(32).toString('hex') }
+                : server,
+            ),
+          },
+        });
+      const next = userConfig.getSettings().oneBot;
+      await applyOneBot(getAppContext(), next);
+      return next;
     }),
 
   // ---- MCP server (account-bound) ----
@@ -1493,9 +1767,9 @@ export const bootstrapRouter = router({
   downloadVoiceModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
     // Don't await — the subscription drives the UI. Swallow rejections here;
     // the terminal 'progress' event already carries the error.
-    void requireBootstrap()
-      .voiceTranscribe.downloadModel(input.id)
-      .catch(() => {});
+    void trackModelDownload(requireBootstrap().voiceTranscribe, input.id, '语音转写模型').catch(
+      () => {},
+    );
     return true;
   }),
 
@@ -1561,9 +1835,7 @@ export const bootstrapRouter = router({
   downloadOcrModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
     // Don't await — the subscription drives the UI. Swallow rejections here;
     // the terminal 'progress' event already carries the error.
-    void requireBootstrap()
-      .ocrModels.downloadModel(input.id)
-      .catch(() => {});
+    void trackModelDownload(requireBootstrap().ocrModels, input.id, '图片识别模型').catch(() => {});
     return true;
   }),
 

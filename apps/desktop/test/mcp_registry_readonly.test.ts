@@ -18,6 +18,10 @@ it('lists the real registry without exposing SQL writes, messaging, wallet, cred
     const names = (await client.listTools()).tools.map((tool) => tool.name);
     expect(names).toContain('search_messages');
     expect(names).toContain('get_messages');
+    // 账号切换是显式审核过要暴露给外部客户端的（见 tool_permissions.ts 的说明），
+    // 别被误标成 assistantOnly 而在界面上消失。
+    expect(names).toContain('list_accounts');
+    expect(names).toContain('switch_account');
     for (const name of [
       'execute_sql',
       'decode_db_blob',

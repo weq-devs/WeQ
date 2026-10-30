@@ -1,0 +1,62 @@
+.weq-relationship-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.weq-relationship-status > svg {
+  flex: none;
+}
+
+.weq-relationship-status[data-relationship='friend'],
+.weq-relationship-status[data-relationship='member'] {
+  color: var(--weq-accent-effective);
+}
+
+.weq-relationship-detail {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-relationship-status.is-compact {
+  flex: none;
+  flex-wrap: nowrap;
+  font-size: 11px;
+  vertical-align: middle;
+}
+
+.contact-card-nickname > .row-title-text {
+  flex: 0 1 auto;
+}
+
+.row-main > strong:has(> .weq-relationship-status) {
+  gap: 6px;
+}
+
+html[data-theme='dark'] .weq-relationship-status {
+  color: var(--weq-fg-secondary);
+}
+
+html[data-theme='dark'] .weq-relationship-status[data-relationship='friend'],
+html[data-theme='dark'] .weq-relationship-status[data-relationship='member'] {
+  color: var(--weq-accent-effective);
+}
+
+html[data-theme] .contact-row .row-main .contact-card-nickname > .weq-relationship-status {
+  color: var(--weq-fg-secondary);
+}
+
+html[data-theme]
+  .contact-row
+  .row-main
+  .contact-card-nickname
+  > .weq-relationship-status[data-relationship='friend'] {
+  color: var(--weq-accent-effective);
+}

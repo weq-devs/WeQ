@@ -5,7 +5,7 @@ import { normalizeQzonePagination } from '../common/qzone_pagination';
 
 export type WeqAppBackupSettings = Omit<
   AppSettings,
-  'agentLab' | 'mcp' | 'externalRkey' | 'ssePush' | 'voiceTranscribe'
+  'agentLab' | 'mcp' | 'oneBot' | 'externalRkey' | 'ssePush' | 'voiceTranscribe'
 > & {
   voiceTranscribe: Pick<AppSettings['voiceTranscribe'], 'modelId' | 'autoTranscribe'>;
 };
@@ -15,6 +15,7 @@ export interface WeqApiBackupSettings {
   agentLab: AppSettings['agentLab'];
   ttsProviders: AppSettings['voiceTranscribe']['ttsProviders'];
   mcp: AppSettings['mcp'];
+  oneBot: AppSettings['oneBot'];
   externalRkey: AppSettings['externalRkey'];
   ssePush: AppSettings['ssePush'];
 }
@@ -24,6 +25,7 @@ export function snapshotWeqSettings(settings: AppSettings): WeqAppBackupSettings
   const {
     agentLab: _agent,
     mcp: _mcp,
+    oneBot: _oneBot,
     externalRkey: _rkey,
     ssePush: _sse,
     voiceTranscribe,
@@ -43,6 +45,7 @@ export function snapshotWeqApiSettings(settings: AppSettings): WeqApiBackupSetti
     agentLab: settings.agentLab,
     ttsProviders: settings.voiceTranscribe.ttsProviders,
     mcp: settings.mcp,
+    oneBot: settings.oneBot,
     externalRkey: {
       ...settings.externalRkey,
       servers: settings.externalRkey.servers.map(({ id, name, baseUrl, accessToken }) => ({
@@ -314,7 +317,7 @@ export function validateWeqApiSettings(
     value,
     'api',
     [],
-    ['agentLab', 'ttsProviders', 'mcp', 'externalRkey', 'ssePush'],
+    ['agentLab', 'ttsProviders', 'mcp', 'oneBot', 'externalRkey', 'ssePush'],
   );
   if (api.agentLab !== undefined) {
     const agent = fields(api.agentLab, 'api.agentLab', ['providers'], ['defaultModel']);
@@ -391,6 +394,36 @@ export function validateWeqApiSettings(
     if (typeof mcp.enabled !== 'boolean') fail('api.mcp.enabled');
     number(mcp.port, 'api.mcp.port', 1, 65535);
     string(mcp.token, 'api.mcp.token');
+  }
+  if (api.oneBot !== undefined) {
+    const config = fields(
+      api.oneBot,
+      'api.oneBot',
+      ['enabled'],
+      ['port', 'token', 'webSocketServers', 'httpServers'],
+    );
+    if (typeof config.enabled !== 'boolean') fail('api.oneBot.enabled');
+    if (config.port !== undefined || config.token !== undefined) {
+      number(config.port, 'api.oneBot.port', 1024, 65535);
+      string(config.token, 'api.oneBot.token');
+    }
+    if (config.webSocketServers !== undefined) {
+      list(config.webSocketServers, 'api.oneBot.webSocketServers', (row, path) => {
+        fields(row, path, ['id', 'name', 'enabled', 'port', 'token']);
+        if (typeof row.enabled !== 'boolean') fail(`${path}.enabled`);
+        number(row.port, `${path}.port`, 1024, 65535);
+        strings(row, path, ['name', 'token']);
+      });
+    }
+    if (config.httpServers !== undefined) {
+      list(config.httpServers, 'api.oneBot.httpServers', (row, path) => {
+        fields(row, path, ['id', 'name', 'enabled', 'port', 'token', 'enableCors']);
+        if (typeof row.enabled !== 'boolean') fail(`${path}.enabled`);
+        if (typeof row.enableCors !== 'boolean') fail(`${path}.enableCors`);
+        number(row.port, `${path}.port`, 1024, 65535);
+        strings(row, path, ['name', 'token']);
+      });
+    }
   }
   for (const kind of ['externalRkey', 'ssePush'] as const) {
     if (api[kind] === undefined) continue;

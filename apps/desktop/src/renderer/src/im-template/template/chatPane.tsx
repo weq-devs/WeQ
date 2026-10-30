@@ -833,7 +833,17 @@ export function ChatPane({
   });
   // 轻互动：戳一戳（0xED3_1）与群消息贴表情（0x9082）。都需要在线且已注入的 QQ。
   const sendPoke = trpc.account.sendPoke.useMutation();
-  const setMessageReaction = trpc.account.setMessageReaction.useMutation();
+  const setMessageReaction = trpc.account.setMessageReaction.useMutation({
+    onSuccess: (_result, input) => {
+      // 点击跟贴会卸载名单，inactive 缓存也要刷新；只更新本条消息的目标表情。
+      void emojiUtils.account.messageReactionUsers
+        .invalidate(
+          { groupId: String(input.groupId), sequence: input.sequence, emojiId: input.code },
+          { refetchType: 'all' },
+        )
+        .catch((error: unknown) => console.error('[reaction] refresh likers failed', error));
+    },
+  });
   const reactionRequestPending = useRef(false);
   const [pendingActions, setPendingActions] = useState<Record<string, string>>({});
   const actionContext = useRef(conversation?.id);

@@ -202,6 +202,16 @@ html[data-theme='dark'] .weq-long-task-detail > .weq-exp-detail {
   margin-top: 10px;
 }
 
+.weq-background-task-results {
+  max-height: 320px;
+  overflow: auto;
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+
 .weq-export-tool.is-tasks .weq-exp-sched-list {
   gap: 0;
   padding: 0;
@@ -244,5 +254,11 @@ html[data-theme='dark'] .weq-long-task-detail {
   }
   .weq-long-task-state {
     width: 88px;
+  }
+}
+
+@media (max-width: 700px) {
+  .weq-current-tasks.is-split .weq-current-task-columns {
+    grid-template-rows: minmax(0, 210px) minmax(0, 1fr);
   }
 }

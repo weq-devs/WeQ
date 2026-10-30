@@ -34,7 +34,7 @@ it('旧表和缺失列按真实 schema 读取，不把列号误当成字段值',
     uid: 'u_owner',
     nick: '合成旧用户',
     intimacy: 0,
-    isFriend: false,
+    isFriend: true,
   });
   expect((await db.getProfileByUin(12345n))?.uin).toBe(12345n);
   expect(await db.getUidByUin(12345n)).toBe('u_owner');
