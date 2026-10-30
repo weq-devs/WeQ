@@ -16,7 +16,7 @@
  * track those files — TTL / pruning belongs in whoever wrote them.
  */
 
-import { mkdirSync, readFileSync, readdirSync, unlinkSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, existsSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
@@ -59,6 +59,28 @@ import {
   normalizeToastDurations,
   type ToastDurations,
 } from '../common/toast_settings';
+
+/**
+ * 缓存里按 `accountConfigId` 分目录的顶层类别。configId 改变（uin 被纠正）时
+ * 需要连同这些目录一起搬迁，见 {@link UserConfigService.renameAccountConfigId}。
+ *
+ * 新增按 configId 分目录的缓存时**必须同步加进这里**，否则老账号升级后新目录
+ * 是空的、旧数据留在孤儿目录里。
+ */
+export const ACCOUNT_CONFIG_ID_DIRS = [
+  'collection-history',
+  'dress',
+  'agentlab',
+  'deleted',
+  'anti_recall',
+  'export',
+  'content-search',
+  'intent_sense',
+  'roaming-jobs',
+  'db_tolerance',
+  'db_repair',
+  'search-index',
+] as const;
 
 export interface AutoEnterTarget {
   configId: string;
@@ -1277,6 +1299,107 @@ export class UserConfigService {
       groupCount: Object.keys(rules).length,
       accounts: written,
     });
+  }
+
+  /**
+   * 把一条静态账号记录的 configId 换成新值，并搬走所有由 configId 派生的目录。
+   *
+   * 背景：`configId = ${uin}_${hash(dataDir)}`，uin 一变 id 就变。旧版安卓备份的
+   * uin 是从 `profile_info.db` 猜的，可能猜错；新版改用密钥推导链 + 消息库自证，
+   * 拿到正确的 uin 后必须同步搬迁，否则删除记录、防撤回、装扮、导出历史、宽容授权、
+   * 修复备份这些按 id 隔离的数据全都会变成孤儿。
+   *
+   * 目标 id 已存在时**不动**（用户可能已经重新扫描过，那份才是新的），返回 null。
+   * best-effort：单个目录搬迁失败只记日志，不影响账号记录本身的改写。
+   */
+  renameAccountConfigId(
+    oldConfigId: string,
+    patch: { uin: string; configId: string; uid?: string },
+  ): string | null {
+    if (!oldConfigId || !patch.configId || oldConfigId === patch.configId) return null;
+    if (existsSync(join(this.root, 'config', 'accounts', `${patch.configId}.json`))) return null;
+
+    const oldPath = join(this.root, 'config', 'accounts', `${oldConfigId}.json`);
+    let record: AccountConfig;
+    try {
+      record = normalizeAccountConfig(JSON.parse(readFileSync(oldPath, 'utf-8')) as AccountConfig);
+    } catch (error) {
+      this.logger.warn('skipped account config while rewriting its id', {
+        event: 'rename-account-config-skip',
+        configId: oldConfigId,
+        ...logErrorContext(error),
+      });
+      return null;
+    }
+
+    const next: AccountConfig = {
+      ...record,
+      uin: patch.uin,
+      configId: patch.configId,
+      ...(patch.uid ? { uid: patch.uid } : {}),
+    };
+    try {
+      writeFileAtomicSync(
+        join(this.root, 'config', 'accounts', `${patch.configId}.json`),
+        JSON.stringify(next, null, 2),
+      );
+      unlinkSync(oldPath);
+    } catch (error) {
+      this.logger.warn('failed to rewrite account config id', {
+        event: 'rename-account-config-write-failed',
+        configId: oldConfigId,
+        ...logErrorContext(error),
+      });
+      return null;
+    }
+
+    // 搬迁由 configId 派生的缓存目录与装扮配置目录。
+    const moved: string[] = [];
+    for (const kind of ACCOUNT_CONFIG_ID_DIRS) {
+      const from = join(this.cacheBaseDir(), kind, oldConfigId);
+      const to = join(this.cacheBaseDir(), kind, patch.configId);
+      if (this.renameDir(from, to)) moved.push(kind);
+    }
+    // 装扮配置放在 appDataRoot/config/accounts/<id>/，与账号记录同级的目录。
+    if (
+      this.renameDir(
+        join(this.root, 'config', 'accounts', oldConfigId),
+        join(this.root, 'config', 'accounts', patch.configId),
+      )
+    )
+      moved.push('dress-config');
+
+    // 自动进入目标还指着旧 id 的话一起改掉，否则下次启动会找不到账号。
+    const autoEnter = this.read().autoEnter;
+    if (autoEnter?.configId === oldConfigId) {
+      this.write({ autoEnter: { ...autoEnter, configId: patch.configId, uin: patch.uin } });
+    }
+
+    this.logger.info('renamed static account config id', {
+      event: 'rename-account-config',
+      from: oldConfigId,
+      to: patch.configId,
+      accountUin: patch.uin,
+      movedDirs: moved,
+    });
+    return patch.configId;
+  }
+
+  /** 目录改名；源不存在或目标已存在时跳过（不覆盖已有数据）。 */
+  private renameDir(from: string, to: string): boolean {
+    if (!existsSync(from) || existsSync(to)) return false;
+    try {
+      renameSync(from, to);
+      return true;
+    } catch (error) {
+      this.logger.warn('failed to move account cache directory', {
+        event: 'rename-account-config-dir-failed',
+        from,
+        to,
+        ...logErrorContext(error),
+      });
+      return false;
+    }
   }
 
   /**

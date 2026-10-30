@@ -31,6 +31,10 @@ Linux/macOS 的目录身份匹配复用平台包的 `linuxAccountDirName`；macO
 
 1. 优先检查明文数据库和 Android 自动推导，再验证已有配置密钥。明文资料库可读不代表消息库明文，两个路径都必须验证。
    Android 备份的身份不再以 `profile_info.db` 为主路径：`deriveAndroidDbKey` 会把推导用的 uid 一并返回（`login.db` 路径还带同一行的 uin 与昵称），`resolveStaticSelfIdentity` 按「推导链 → `nt_msg.db` 自证（`inferSelfIdentity`）→ 资料库」定身份。资料库是缓存表，本人行可能缺失、陈旧，`20003` 排序还会误选联系人；密钥由 uid 派生，库能开即证明 uid 正确，比资料库可靠。资料库只用于补昵称，读不到不影响身份。
+
+   旧版猜错的 uin 会被写进账号记录，而 `configId = ${uin}_${hash(dataDir)}`，于是该账号所有按 id 隔离的数据都挂在错误的键上。启动时 `migrateStaticAccountIdentity` 逐个复核静态记录：发现不一致就调用 `UserConfigService.renameAccountConfigId` 改写记录与 `configId`，并搬迁 `ACCOUNT_CONFIG_ID_DIRS` 列出的缓存目录、装扮配置目录，以及指旧 id 的 `autoEnter`。目标 id 已存在时不覆盖；拿不到密钥、探测失败或推导不出身份一律跳过，证据不足时不改写用户数据。新增按 `configId` 分目录的缓存时，必须同步加进 `ACCOUNT_CONFIG_ID_DIRS`。
+
+   打开与扫描两处不再拿旧 uin 当硬断言：身份核对改用 **uid**（安卓备份的密钥由 uid 派生，能开库就说明它属于这份备份），旧 uin 只是被纠正的对象；任一侧缺 uid 时回退 uin 比对，避免缺字段被误当成匹配成功。
 2. 需要在线密钥时先复用与当前 QQ PID 匹配的已有 SSO 物料；缺失时通过现有 `attachHook` 和 `attachAndRegisterSsoSession` 读取内存，必要时进入平台已有的提权流程。同批扫描对同一 PID 至多尝试一次读取，取消后不因其它备份反复弹出提权。
 3. 沿用 `requestDecryptKeyFromInstance` 读取数据库头的 salt 并请求 OIDB，不另造协议。所得密钥必须通过消息库校验，且解密后的资料身份与配置一致。
 4. 明确的数字账号或 UID 哈希目录只使用对应账号配置；无法从路径识别身份的平铺备份由服务端核对 salt，成功后再验证资料身份。完全离线不触发在线请求或提权；失败仍可手工输入。

@@ -2719,22 +2719,23 @@ export const bootstrapRouter = router({
           return [];
         }
       })();
+      // 不把调用方给的 uin 当作必须成立的断言：旧版本可能把 uin 猜错（见
+      // static_account_identity_migration），这里以探测出的权威身份为准，否则
+      // 老账号会永远打不开。preview 只用来展示，`setStaticAccount` 收到的也是
+      // probe 的结果，配置随之被纠正。
       const checked = await runBackupProbe({
         dirPath,
         dbKey: input.dbKey,
-        expectedUin: input.preview.uin,
         ...(loginDbPaths.length ? { loginDbPaths } : {}),
       });
       if (checked.status === 'needKey') throw new Error('此备份需要数据库密钥，请先验证。');
       if (checked.status === 'error') throw new Error(checked.error);
-      if (checked.preview.uin !== input.preview.uin)
-        throw new Error('备份账号已变化，请重新选择。');
       const dbKey = checked.dbKey;
       const algos: Record<string, import('@weq/native').DatabaseAlgorithms> | undefined = input.algo
         ? { 'nt_msg.db': input.algo }
         : undefined;
 
-      await ctx.setStaticAccount(dirPath, input.preview, {
+      await ctx.setStaticAccount(dirPath, checked.preview, {
         ...(dbKey ? { dbKey } : {}),
         ...(algos ? { algos } : {}),
         ...(input.mobile || checked.mobile ? { mobile: true } : {}),
