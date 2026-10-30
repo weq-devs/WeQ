@@ -869,6 +869,14 @@ export interface CallRecordingConfig {
    * （`<appDataRoot>/recordings/<本机 QQ 号>`）。
    */
   dir: string | null;
+  /**
+   * 是否把 WeQ 自己发起的通话的全部 UDP 流量写成 pcapng
+   * （`<录音目录>/udp/<时间>_<对端>.pcapng`）。
+   *
+   * 与「UDP 抓包」面板的 pcapng 导出同一套格式，Wireshark 可直接打开。默认关闭 ——
+   * 视频通话一小时的抓包文件是 GB 级，不该替所有人默默写盘。
+   */
+  udpTrace: boolean;
 }
 
 /** 归一化通话录音模式；非法值返回 undefined，交给调用方回落到默认值。 */
@@ -892,6 +900,7 @@ export function normalizeCallRecording(
     mode: normalizeCallRecordingMode(value?.mode) ?? fallback.mode,
     systemAudio: typeof value?.systemAudio === 'boolean' ? value.systemAudio : fallback.systemAudio,
     dir: value?.dir !== undefined ? normalizeRecordingDir(value.dir) : fallback.dir,
+    udpTrace: typeof value?.udpTrace === 'boolean' ? value.udpTrace : fallback.udpTrace,
   };
 }
 
@@ -1120,7 +1129,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   qzoneForwardQuotePrevious: false,
   qzonePersonClickAction: 'space',
   // 默认双方混音；电脑声音默认不录（Linux / Windows 都要多占一路采集）。
-  callRecording: { mode: 'mixed', systemAudio: false, dir: null },
+  callRecording: { mode: 'mixed', systemAudio: false, dir: null, udpTrace: false },
   // 默认允许 P2P 直连；禁用是排障开关，见 AppSettings.callDisableP2P。
   callDisableP2P: false,
 };

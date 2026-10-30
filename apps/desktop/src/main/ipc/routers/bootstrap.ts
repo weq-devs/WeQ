@@ -641,6 +641,8 @@ export const bootstrapRouter = router({
         mode: z.enum(['self', 'peer', 'mixed']).optional(),
         systemAudio: z.boolean().optional(),
         dir: z.string().min(1).nullable().optional(),
+        /** 通话的全部 UDP 流量落盘（pcapng，格式与 UDP 抓包面板导出一致）。 */
+        udpTrace: z.boolean().optional(),
       }),
     )
     .mutation(({ input }) => {
