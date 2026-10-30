@@ -27,6 +27,7 @@ import {
   takeUdpDatagrams,
 } from '../../udp_capture_session';
 import type { CaptureBatchWire, CaptureStatsWire } from '../../capture_protocol';
+import { buildPcapng } from '../../udp_capture_format';
 
 export { disposeUdpCaptures };
 
@@ -78,92 +79,6 @@ function fileStamp(): string {
 function safeName(raw: string, fallback: string): string {
   const cleaned = raw.replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40);
   return cleaned || fallback;
-}
-
-/**
- * 写一个最小 pcapng：SHB + IDB + EPB。
- *
- * 用 pcapng 而不是 pcap：能带接口名、时间戳精度更高，Wireshark 直接可读。
- * 只写 Ethernet 链路类型（linktype 1）—— 包本身是完整 IP 包，套一个假的
- * 以太网头即可，Wireshark 会按 IP 版本自己解析。
- */
-function buildPcapng(frames: { ts: number; rawHex: string }[], ifaceName: string): Buffer {
-  const chunks: Buffer[] = [];
-
-  const block = (type: number, body: Buffer): Buffer => {
-    // 长度 = 类型(4) + 长度(4) + body + 长度(4)，且按 4 字节对齐。
-    const pad = (4 - (body.length % 4)) % 4;
-    const total = 12 + body.length + pad;
-    const out = Buffer.alloc(total);
-    out.writeUInt32LE(type, 0);
-    out.writeUInt32LE(total, 4);
-    body.copy(out, 8);
-    out.writeUInt32LE(total, total - 4);
-    return out;
-  };
-
-  // SHB：字节序 0x1A2B3C4D，版本 1.0，section 长度 -1。
-  const shb = Buffer.alloc(16);
-  shb.writeUInt32LE(0x1a2b3c4d, 0);
-  shb.writeUInt16LE(1, 4);
-  shb.writeUInt16LE(0, 6);
-  shb.writeBigInt64LE(-1n, 8);
-  chunks.push(block(0x0a0d0d0a, shb));
-
-  // IDB：linktype 1 (Ethernet)，snaplen 0，附一个 if_name option。
-  const nameBytes = Buffer.from(ifaceName, 'utf8');
-  const namePad = (4 - (nameBytes.length % 4)) % 4;
-  const idb = Buffer.alloc(8 + 8 + nameBytes.length + namePad);
-  idb.writeUInt16LE(1, 0); // linktype
-  idb.writeUInt16LE(0, 2); // reserved
-  idb.writeUInt32LE(0, 4); // snaplen
-  // option: code=2 (if_name), len, value, pad
-  idb.writeUInt16LE(2, 8);
-  idb.writeUInt16LE(nameBytes.length, 10);
-  nameBytes.copy(idb, 12);
-  idb.writeUInt16LE(0, 12 + nameBytes.length + namePad); // opt_endofopt
-  idb.writeUInt16LE(0, 14 + nameBytes.length + namePad);
-  chunks.push(block(0x00000001, idb));
-
-  // EPB：每个包一条。时间戳单位 1e-6 秒（默认 tsresol）。
-  const ethHeader = Buffer.from([
-    0,
-    0,
-    0,
-    0,
-    0,
-    0, // dst mac
-    0,
-    0,
-    0,
-    0,
-    0,
-    0, // src mac
-    0x08,
-    0x00, // IPv4 —— 下面按包实际版本改写
-  ]);
-  for (const frame of frames) {
-    const ip = Buffer.from(frame.rawHex, 'hex');
-    if (ip.length === 0) continue;
-    const header = Buffer.from(ethHeader);
-    const version = ip[0]! >> 4;
-    header[12] = version === 6 ? 0x86 : 0x08;
-    header[13] = version === 6 ? 0xdd : 0x00;
-    const packet = Buffer.concat([header, ip]);
-    const pad = (4 - (packet.length % 4)) % 4;
-    const body = Buffer.alloc(20 + packet.length + pad);
-    body.writeUInt32LE(0, 0); // interface id
-    const seconds = Math.floor(frame.ts / 1000);
-    const micros = Math.round((frame.ts % 1000) * 1000);
-    body.writeUInt32LE(seconds >>> 0, 4);
-    body.writeUInt32LE(micros >>> 0, 8);
-    body.writeUInt32LE(packet.length, 12); // captured len
-    body.writeUInt32LE(packet.length, 16); // original len
-    packet.copy(body, 20);
-    chunks.push(block(0x00000006, body));
-  }
-
-  return Buffer.concat(chunks);
 }
 
 export const udpCaptureRouter = router({

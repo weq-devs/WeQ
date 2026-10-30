@@ -9,7 +9,7 @@
  */
 
 import type { ReactElement } from 'react';
-import { FolderOpen, Info, PhoneCall, RotateCcw, Waypoints } from 'lucide-react';
+import { FolderOpen, Info, PhoneCall, Radio, RotateCcw, Waypoints } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useToast } from '../Toast';
@@ -143,6 +143,21 @@ export function CallRecordingSection(): ReactElement {
                 恢复默认
               </button>
             </div>
+          }
+        />
+      </Card>
+
+      <Card title="抓包与排障" icon={<Radio size={15} strokeWidth={1.8} />}>
+        <Row
+          label="记录 UDP 流量"
+          desc="发起通话时自动开始，把本机收发的全部 UDP 数据报写到录音目录下的 udp 文件夹，格式与 UDP 抓包面板的导出相同（pcapng，Wireshark 可直接打开）。视频通话的文件可能有几个 GB，用完记得清理。"
+          control={
+            <Toggle
+              checked={config?.udpTrace === true}
+              disabled={setSettings.isLoading || !config}
+              onChange={(next) => setSettings.mutate({ udpTrace: next })}
+              label="记录 UDP 流量"
+            />
           }
         />
       </Card>

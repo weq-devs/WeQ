@@ -255,6 +255,8 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
       fail('settings.callRecording.systemAudio');
     if (recording.dir !== undefined && recording.dir !== null)
       string(recording.dir, 'settings.callRecording.dir');
+    if (recording.udpTrace !== undefined && typeof recording.udpTrace !== 'boolean')
+      fail('settings.callRecording.udpTrace');
   }
   const resources =
     input.modelResources === undefined
