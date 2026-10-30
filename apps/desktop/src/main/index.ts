@@ -27,11 +27,13 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   initAppContext,
+  requirePlatform,
   setGroupKeywordNotifier,
   setIntentSenseLocalEngine,
   setRecallNotifier,
   setMailNotifier,
 } from './context/app_context';
+import { migrateStaticAccountIdentity } from './static_account_identity_migration';
 import { getIntentSenseLocalEngine } from './intent_sense/bridge';
 import { probeQqProtocolHandler } from './context/qq_protocol';
 import { appRouter } from './ipc/router';
@@ -739,6 +741,16 @@ void app.whenReady().then(async () => {
   const userConfig = getAppContext().bootstrap?.userConfig;
   // 尽早消费正常退出标记；本轮即使尚未加载界面就崩溃，下次也恢复原现场。
   userConfig?.getStartupPage();
+  // 旧版安卓备份的 uin 是从资料库猜的，可能猜错；纠正它会连带改 configId，
+  // 所以必须在账号打开之前、且在任何按 id 建目录的服务之前跑完。
+  if (userConfig) {
+    await migrateStaticAccountIdentity(requirePlatform(), userConfig).catch((error: unknown) => {
+      logger.warn('static account identity migration failed', {
+        event: 'static-account-identity-migration-failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
   if (userConfig?.getSettings().weqAssistant.enabled) {
     void getAppContext()
       .applyWeqAssistant(userConfig.getSettings().weqAssistant)

@@ -35,7 +35,6 @@ it('隔离预检未成功或账号变化时，旧入口不能直接在主进程�
   for (const result of [
     { status: 'needKey' },
     { status: 'error', error: 'synthetic invalid database' },
-    { status: 'ready', preview: { ...preview, uin: '99999' } },
   ]) {
     f.probe.mockResolvedValueOnce(result);
     await expect(caller.openStaticAccount({ dirPath, preview })).rejects.toThrow();
@@ -43,6 +42,13 @@ it('隔离预检未成功或账号变化时，旧入口不能直接在主进程�
   f.probe.mockRejectedValueOnce(new Error('worker SIGSEGV 已隔离'));
   await expect(caller.openStaticAccount({ dirPath, preview })).rejects.toThrow('已隔离');
   expect(f.open).not.toHaveBeenCalled();
+});
+it('旧记录里的 uin 猜错时，以预检得到的权威身份打开而不是拒绝', async () => {
+  const dirPath = fixture();
+  const authoritative = { ...preview, uin: '99999', uid: 'u_real' };
+  f.probe.mockResolvedValueOnce({ status: 'ready', preview: authoritative, mobile: true });
+  await caller.openStaticAccount({ dirPath, preview });
+  expect(f.open).toHaveBeenCalledWith(expect.any(String), authoritative, { mobile: true });
 });
 it('预检得到的 Android 密钥会交给实际会话，而不是再次在主进程推导', async () => {
   const dirPath = fixture();

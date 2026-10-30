@@ -253,25 +253,50 @@ export async function probeBackup(
     basename(dbDir) === 'nt_db' &&
     (/^\d+$/.test(accountName) || /^nt_qq_[0-9a-f]{32}$/i.test(accountName));
   const eligible = matches.length ? matches : namedAccount ? [] : configs;
-  const candidates: Array<{ key?: string; mobile?: boolean; source?: string; uin?: string }> = [];
+  const candidates: Array<{
+    key?: string;
+    mobile?: boolean;
+    source?: string;
+    uin?: string;
+    uid?: string;
+  }> = [];
   if (options.dbKey) candidates.push({ key: options.dbKey, source: 'manual' });
   else {
     candidates.push({});
     for (const c of eligible)
-      if (c.dbKey) candidates.push({ key: c.dbKey, source: 'saved', uin: c.uin, mobile: c.mobile });
+      if (c.dbKey)
+        candidates.push({
+          key: c.dbKey,
+          source: 'saved',
+          uin: c.uin,
+          ...(c.uid ? { uid: c.uid } : {}),
+          mobile: c.mobile,
+        });
   }
   const loginDbPaths = backupLoginDbPaths(platform);
-  const test = async (candidate: (typeof candidates)[number]) => {
+  const test = async (candidate: (typeof candidates)[number] & { uid?: string }) => {
+    // 不把候选配置的 uin 当断言传下去：旧版可能存了猜错的 uin，传下去会让
+    // resolveStaticSelfIdentity 直接判「不匹配」而拿不到真实身份。
     const result = await runBackupProbe({
       dirPath: dbDir,
       dbKey: candidate.key,
-      expectedUin: candidate.uin,
       ...(loginDbPaths.length ? { loginDbPaths } : {}),
     });
     if (result.status === 'needKey') return null;
     if (result.status === 'error') return { error: result.error };
     const preview = result.preview;
-    if (candidate.uin && candidate.uin !== preview.uin) return { error: '数据库账号与配置不匹配' };
+    // 身份核对以 **uid** 为准而不是 uin。安卓备份的密钥由 uid 派生，密钥能开库
+    // 就说明这条 uid 属于这份备份；uin 反而是旧版从资料库猜错、本次要纠正的那
+    // 一项。用旧 uin 否决会让老账号永远打不开，用 uid 则仍能拦住「A 账号的密钥
+    // 套到 B 备份上」这类真正的串号。
+    //
+    // 任一侧拿不到 uid 时退回 uin 比对，不能因为缺字段就放行 —— 那会让错误的
+    // 密钥被当成匹配成功。
+    if (candidate.uid && preview.uid) {
+      if (candidate.uid !== preview.uid) return { error: '数据库账号与配置不匹配' };
+    } else if (candidate.uin && candidate.uin !== preview.uin) {
+      return { error: '数据库账号与配置不匹配' };
+    }
     return {
       ok: true as const,
       needKey: false as const,
