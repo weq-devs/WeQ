@@ -71,24 +71,50 @@ function ntStub(options: { rows?: LoginAccount[]; loginFails?: boolean; decryptT
   return { testDatabaseKey, decryptLoginDb } as unknown as NtHelperBinding;
 }
 
-it('有 gpro 库时仍走文件名取 uid，不去解 login.db', async () => {
+it('有 gpro 库时仍走文件名取 uid，推导密钥不需要 login.db', async () => {
   const dir = encryptedDb(join(fixture(), 'nt_db'));
   writeFileSync(join(dir, `gpro_v1-6_${UID}.db`), 'synthetic');
   const nt = ntStub({});
   expect(await deriveAndroidDbKey(nt, dir, { uin: UIN })).toMatchObject({
     dbKey: md5(md5(UID) + RAND),
+    uid: UID,
   });
   const loginCalls = (nt.testDatabaseKey as unknown as { mock: { calls: string[][] } }).mock.calls;
   expect(loginCalls.some(([path]) => path.endsWith('login.db'))).toBe(false);
   expect(nt.decryptLoginDb).not.toHaveBeenCalled();
 });
 
-it('没有 gpro 库时退到备份自带的 login.db 取 uid 算出密钥', async () => {
+it('gpro 路径顺带从同 uid 的 login.db 行补上 uin 与昵称', async () => {
+  const root = fixture();
+  const dir = encryptedDb(join(root, 'nt_db'));
+  writeFileSync(join(dir, `gpro_v1-6_${UID}.db`), 'synthetic');
+  loginDb(root);
+  const rows = [
+    accountRow({ uid: 'u_other', uin: '99999', userName: '别人' }),
+    accountRow({ userName: '合成昵称' }),
+  ];
+  // uin 提示故意给别的账号：uid 才是权威来源，补昵称不受它影响。
+  expect(await deriveAndroidDbKey(ntStub({ rows }), dir, {})).toMatchObject({
+    dbKey: md5(md5(UID) + RAND),
+    uid: UID,
+    uin: UIN,
+    nick: '合成昵称',
+  });
+});
+
+it('没有 gpro 库时退到备份自带的 login.db，命中行直接给出完整身份', async () => {
   const root = fixture();
   const dir = encryptedDb(join(root, `nt_qq_${md5(md5(UID) + 'nt_kernel')}`, 'nt_db'));
   loginDb(root);
-  expect(await deriveAndroidDbKey(ntStub({}), dir, { uin: UIN })).toMatchObject({
+  expect(
+    await deriveAndroidDbKey(ntStub({ rows: [accountRow({ userName: '合成昵称' })] }), dir, {
+      uin: UIN,
+    }),
+  ).toMatchObject({
     dbKey: md5(md5(UID) + RAND),
+    uid: UID,
+    uin: UIN,
+    nick: '合成昵称',
   });
 });
 

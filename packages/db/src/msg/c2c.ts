@@ -633,23 +633,37 @@ export class C2cMsgDb {
   }
 
   /**
-   * Infer the account's own uin from the data itself, in ONE pass: in
+   * Infer the account's own uin + uid from the data itself, in ONE pass: in
    * `c2c_msg_table` column 40021 (targetUid) is always the peer, and the rows
    * we sent are exactly the ones whose 40020 (senderUid) differs from the
-   * peer. So the most common 40033 among those rows is our own uin — fully
-   * independent of profile_info / session identity, and always consistent with
-   * the database being scanned. This is the correct uin to feed the group
-   * direction count, whose 40033 carries real senders. Returns null when there
-   * is no evidence (no sent rows at all).
+   * peer. So the most common (40033, 40020) pair among those rows is our own
+   * identity — fully independent of profile_info / session identity, and always
+   * consistent with the database being scanned.
+   *
+   * `40020 NOT GLOB '[0-9]*'` drops QQ's deleted/recalled placeholder rows,
+   * which write the group code (digits) into the sender column. Either field is
+   * null when there is no evidence (no sent rows at all) — the pair is only
+   * meaningful together, so callers should treat a null uin as "no identity".
+   */
+  async inferSelfIdentity(): Promise<{ uin: bigint | null; uid: string | null }> {
+    const rows = await this.qq.query(
+      `SELECT "40033", "40020", COUNT(*) AS n FROM ${this.table}
+       WHERE "40020" != "40021" AND "40020" != '' AND "40033" > 0
+         AND "40020" NOT GLOB '[0-9]*'
+       GROUP BY "40033", "40020" ORDER BY n DESC LIMIT 1`,
+    );
+    const uin = rows[0]?.[0];
+    if (uin == null) return { uin: null, uid: null };
+    return { uin: toBigint(uin), uid: toStr(rows[0]?.[1]) || null };
+  }
+
+  /**
+   * The account's own uin only. Kept as the narrow accessor for callers that
+   * feed a group direction count; it shares {@link inferSelfIdentity}'s query
+   * so the two can never disagree. Returns null when there is no evidence.
    */
   async inferSelfUin(): Promise<bigint | null> {
-    const rows = await this.qq.query(
-      `SELECT "40033", COUNT(*) AS n FROM ${this.table}
-       WHERE "40020" != "40021" AND "40020" != '' AND "40033" > 0
-       GROUP BY "40033" ORDER BY n DESC LIMIT 1`,
-    );
-    const value = rows[0]?.[0];
-    return value == null ? null : toBigint(value);
+    return (await this.inferSelfIdentity()).uin;
   }
 
   /**

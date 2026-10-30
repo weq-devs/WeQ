@@ -241,8 +241,19 @@ export interface AndroidKeyOptions {
   loginDbPaths?: string[];
 }
 
-/** 读一份 `login.db` 的 uid 列表；解不开 / 不是账号库时返回空表，绝不抛错。 */
-async function loginDbUids(nt: NtHelperBinding, dbPath: string, uin?: string): Promise<string[]> {
+/** `login.db` 里一行能提供的账号身份；`uin` / `nick` 可能缺失。 */
+export interface AndroidLoginCandidate {
+  uid: string;
+  uin?: string;
+  nick?: string;
+}
+
+/** 读一份 `login.db` 的账号候选；解不开 / 不是账号库时返回空表，绝不抛错。 */
+async function loginDbCandidates(
+  nt: NtHelperBinding,
+  dbPath: string,
+  uin?: string,
+): Promise<AndroidLoginCandidate[]> {
   try {
     const probe = await nt.testDatabaseKey(dbPath, ANDROID_LOGIN_DB_KEY);
     if (!probe.success || !probe.pageHmacAlgorithm || !probe.kdfHmacAlgorithm) return [];
@@ -253,27 +264,20 @@ async function loginDbUids(nt: NtHelperBinding, dbPath: string, uin?: string): P
     const matched = rows.filter((row) => row.uid && (!uin || row.uin === uin));
     // 最近登录的账号更可能是这份备份的主人。
     matched.sort((a, b) => (b.lastLoginAt ?? 0) - (a.lastLoginAt ?? 0));
-    return matched.slice(0, LOGIN_DB_MAX_ROWS).map((row) => row.uid);
+    // uin / 昵称本来就在这一行里，一并带走 —— 上层定身份时就不用再回头查资料库。
+    return matched.slice(0, LOGIN_DB_MAX_ROWS).map((row) => ({
+      uid: row.uid,
+      ...(row.uin ? { uin: row.uin } : {}),
+      ...(row.userName ? { nick: row.userName } : {}),
+    }));
   } catch {
     // login.db 解不开 / 不是账号库 / 原生抛错：当作没有这份来源。
     return [];
   }
 }
 
-/**
- * 手机备份里没有 `gpro_*.db` 时（用户只拷了数据库、或旧版备份没有频道库），
- * 退而求其次从 `login.db` 找 uid：先看备份目录自带的那份（账号根及其上两层，
- * 覆盖 `<导出>/nt_qq/global/nt_db/login.db` 这类布局），再看调用方给的本机
- * `login.db`。
- *
- * 任何失败（文件缺失、密钥探测失败、原生解密抛错、行里没有 uid）都静默跳过，
- * 绝不向外抛错，也不影响非手机备份的既有路径。
- */
-async function findUidsFromLoginDb(
-  nt: NtHelperBinding,
-  dirPath: string,
-  options: AndroidKeyOptions,
-): Promise<string[]> {
+/** 收集本次探测要尝试的 `login.db` 路径：备份自带的在前，调用方给的在后。 */
+function loginDbSearchPaths(dirPath: string, options: AndroidKeyOptions): string[] {
   const paths: string[] = [];
   let root = accountRootOf(dirPath);
   const seen = new Set<string>();
@@ -287,17 +291,46 @@ async function findUidsFromLoginDb(
     root = parent;
   }
   for (const path of options.loginDbPaths ?? []) if (path) paths.push(path);
+  return paths;
+}
 
-  const uids: string[] = [];
-  const tried = new Set<string>();
-  for (const path of paths) {
-    if (tried.has(path)) continue;
-    tried.add(path);
-    for (const uid of await loginDbUids(nt, path, options.uin))
-      if (!uids.includes(uid)) uids.push(uid);
-    if (uids.length >= LOGIN_DB_MAX_ROWS) break;
+/**
+ * 手机备份里没有 `gpro_*.db` 时（用户只拷了数据库、或旧版备份没有频道库），
+ * 退而求其次从 `login.db` 找账号：先看备份目录自带的那份（账号根及其上两层，
+ * 覆盖 `<导出>/nt_qq/global/nt_db/login.db` 这类布局），再看调用方给的本机
+ * `login.db`。
+ *
+ * 任何失败（文件缺失、密钥探测失败、原生解密抛错、行里没有 uid）都静默跳过，
+ * 绝不向外抛错，也不影响非手机备份的既有路径。
+ */
+async function findCandidatesFromLoginDb(
+  nt: NtHelperBinding,
+  dirPath: string,
+  options: AndroidKeyOptions,
+): Promise<AndroidLoginCandidate[]> {
+  const candidates: AndroidLoginCandidate[] = [];
+  const triedPaths = new Set<string>();
+  const triedUids = new Set<string>();
+  for (const path of loginDbSearchPaths(dirPath, options)) {
+    if (triedPaths.has(path)) continue;
+    triedPaths.add(path);
+    for (const candidate of await loginDbCandidates(nt, path, options.uin)) {
+      if (triedUids.has(candidate.uid)) continue;
+      triedUids.add(candidate.uid);
+      candidates.push(candidate);
+    }
+    if (candidates.length >= LOGIN_DB_MAX_ROWS) break;
   }
-  return uids;
+  return candidates;
+}
+
+/** 密钥推导成功时一并带出的账号身份；uin / nick 可能拿不到。 */
+export interface AndroidDerivedIdentity {
+  dbKey: string;
+  algos: Record<string, DatabaseAlgorithms>;
+  uid: string;
+  uin?: string;
+  nick?: string;
 }
 
 /**
@@ -307,12 +340,16 @@ async function findUidsFromLoginDb(
  * uid 优先取目录里的 `gpro_*.db` 文件名；没有时按 {@link AndroidKeyOptions}
  * 退到 `login.db` 的行里逐个试。两条路都要过「头部 rand」这一关（PC 库的头
  * 结构不同，读不出 8 字节 rand），所以不会改变非手机备份的行为。
+ *
+ * 返回值里的 uid 是**权威身份**：密钥就是由它派生的，库能开就说明它对。
+ * gpro 路径下 uid 来自文件名，uin / 昵称再从 `login.db` 里同 uid 的那行补
+ * （没有 `login.db` 就算了）；login.db 路径下三者都直接来自命中行。
  */
 export async function deriveAndroidDbKey(
   nt: NtHelperBinding,
   dirPath: string,
   options: AndroidKeyOptions = {},
-): Promise<{ dbKey: string; algos: Record<string, DatabaseAlgorithms> } | undefined> {
+): Promise<AndroidDerivedIdentity | undefined> {
   const msgDbPath = join(dirPath, 'nt_msg.db');
   if (!existsSync(msgDbPath)) return undefined;
 
@@ -321,8 +358,24 @@ export async function deriveAndroidDbKey(
   if (!rand) return undefined;
 
   const gproUid = findUidFromDirEntries(dirPath);
-  const uids = gproUid ? [gproUid] : await findUidsFromLoginDb(nt, dirPath, options);
-  if (!uids.length) return undefined;
+  let candidates: AndroidLoginCandidate[];
+  let fromLoginDb: boolean;
+  if (gproUid) {
+    candidates = [{ uid: gproUid }];
+    fromLoginDb = false;
+  } else {
+    candidates = await findCandidatesFromLoginDb(nt, dirPath, options);
+    fromLoginDb = true;
+  }
+  if (!candidates.length) return undefined;
+
+  // gpro 路径只有 uid；uin / 昵称要额外解一次 login.db 才拿得到。这一步是纯增益，
+  // 解不开不影响密钥推导，所以放在探测成功之后再做，避免白跑一趟。
+  const enrich = async (uid: string): Promise<AndroidLoginCandidate> => {
+    if (fromLoginDb) return candidates.find((c) => c.uid === uid) ?? { uid };
+    const extra = await findCandidatesFromLoginDb(nt, dirPath, options);
+    return extra.find((c) => c.uid === uid) ?? { uid };
+  };
 
   // 目录名自校验：账号目录叫 `nt_qq_<hash>` 时，hash 必须由这条 uid 派生出来，
   // 否则说明它不是「uid 派生目录」的那套规则，别硬算。
@@ -332,13 +385,14 @@ export async function deriveAndroidDbKey(
       .replace(/[\\/]+$/, '')
       .split(/[\\/]/)
       .pop() ?? '';
-  for (const uid of uids) {
-    const inner = md5(uid);
+  for (const candidate of candidates) {
+    const inner = md5(candidate.uid);
     if (dirName.startsWith('nt_qq_') && dirName.slice(6) !== md5(inner + DIR_SALT)) continue;
     const dbKey = md5(inner + rand);
     try {
       const probe = await nt.testDatabaseKey(msgDbPath, dbKey);
       if (!probe.success || !probe.pageHmacAlgorithm || !probe.kdfHmacAlgorithm) continue;
+      const identity = await enrich(candidate.uid);
       return {
         dbKey,
         algos: {
@@ -347,6 +401,9 @@ export async function deriveAndroidDbKey(
             kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
           },
         },
+        uid: candidate.uid,
+        ...(identity.uin ? { uin: identity.uin } : {}),
+        ...(identity.nick ? { nick: identity.nick } : {}),
       };
     } catch {
       // 单个 uid 探测失败不影响其它候选。
@@ -408,6 +465,104 @@ export async function peekStaticSelfUin(
   } finally {
     qq.close();
   }
+}
+
+export interface StaticSelfIdentityOptions {
+  /** SQLCipher key；明文备份不传。 */
+  dbKey?: string;
+  /** 每个库的加密参数；`nt_msg.db` 那一项用于库内身份推断。 */
+  algos?: Record<string, DatabaseAlgorithms>;
+  /** 调用方已经知道（或已校验过）的 uin。 */
+  expectedUin?: string;
+  /** 密钥推导链已经拿到的身份（`deriveAndroidDbKey` 的返回值）。 */
+  seed?: { uid?: string; uin?: string; nick?: string };
+}
+
+/**
+ * 定一个静态备份的「本人」身份，**不再以 `profile_info.db` 为主路径**。
+ *
+ * `profile_info` 是缓存表不是名册：本人行可能没缓存、可能陈旧，`20003` 排序
+ * 启发式也可能选到联系人；表结构不认识时还会直接抛错。而安卓备份的密钥是
+ * 由 uid 派生的（密钥能开库 ⇒ uid 一定对），uin 又能从 `nt_msg.db` 的发送行
+ * 自证，两条都比资料库可靠。
+ *
+ * 优先级：
+ *   uin：expectedUin 校验后的库内推断 → 库内推断 → seed.uin → expectedUin → 资料库
+ *   uid：seed.uid → 库内推断 → 资料库
+ *   nick：seed.nick → 资料库（best-effort）
+ *
+ * 只有最终 uin 为空才抛错；资料库相关的失败一律吞掉，不影响身份。
+ */
+export async function resolveStaticSelfIdentity(
+  nt: NtHelperBinding,
+  dirPath: string,
+  options: StaticSelfIdentityOptions = {},
+): Promise<StaticSelfPreview> {
+  const msgDbPath = join(dirPath, 'nt_msg.db');
+  const msgAlgo = options.algos?.['nt_msg.db'];
+  const inferFromMessages = async (): Promise<{ uin: string; uid: string }> => {
+    if (!existsSync(msgDbPath)) return { uin: '', uid: '' };
+    const opts = {
+      dbPath: msgDbPath,
+      ...(options.dbKey ? { key: options.dbKey } : {}),
+      ...(msgAlgo ? { algo: msgAlgo } : {}),
+    };
+    const c2c = new C2cMsgDb(nt, opts);
+    try {
+      const self = await c2c.inferSelfIdentity();
+      if (self.uin !== null) return { uin: String(self.uin), uid: self.uid ?? '' };
+    } catch {
+      // 表缺失 / 损坏：继续看群聊侧。
+    } finally {
+      c2c.close();
+    }
+    const group = new GroupMsgDb(nt, opts);
+    try {
+      const self = await group.inferSelfIdentity();
+      if (self.uin !== null) return { uin: String(self.uin), uid: self.uid ?? '' };
+    } catch {
+      // 同上。
+    } finally {
+      group.close();
+    }
+    return { uin: '', uid: '' };
+  };
+
+  const inferred = await inferFromMessages();
+  if (options.expectedUin && inferred.uin && inferred.uin !== options.expectedUin) {
+    throw new Error('数据库账号与配置不匹配');
+  }
+
+  const readProfile = async (): Promise<StaticSelfPreview | null> => {
+    try {
+      return await peekStaticSelfUin(
+        { native: { ntHelper: nt } } as Platform,
+        dirPath,
+        options.dbKey,
+        options.algos,
+        options.expectedUin,
+      );
+    } catch {
+      return null;
+    }
+  };
+
+  let profile: StaticSelfPreview | null | undefined;
+  const profileOnce = async () => (profile ??= await readProfile());
+
+  const uin =
+    inferred.uin || options.seed?.uin || options.expectedUin || (await profileOnce())?.uin || '';
+  if (!uin) throw new Error('无法从备份中识别账号，请手动输入数据库密钥');
+
+  let uid = options.seed?.uid || inferred.uid;
+  let nick = options.seed?.nick ?? '';
+  if (!uid || !nick) {
+    const row = await profileOnce();
+    if (!uid) uid = row?.uin === uin ? row.uid : '';
+    if (!nick) nick = row?.uin === uin ? row.nick : '';
+  }
+
+  return { uin, uid, nick, avatarUrl: '' };
 }
 
 export interface OpenStaticAccountOptions {
@@ -571,17 +726,18 @@ export async function openStaticAccount(
   // ---- misc ----
   const misc = new MiscDb(nt, opts(join(dirPath, 'misc.db')));
 
-  // Same rule as the live session: resolve "my uid" from profile_info_v6 by
-  // uin rather than trusting the caller-supplied preview, which is picked by a
-  // heuristic (`ORDER BY 20003 DESC`) that mis-identifies the owner when the
-  // table has ties. The preview stays as the fallback.
-  let selfUid = '';
-  try {
-    selfUid = await profileInfo.getUidByUin(BigInt(uin));
-  } catch (e) {
-    console.error('[static-account] failed to resolve own uid from profile_info_v6:', e);
+  // 安卓备份的 `self.uid` 来自密钥推导链（gpro 文件名 / login.db），是**权威**的 ——
+  // 密钥就是由它派生的，库能开就说明它对。资料库只是缓存表，本人行可能缺失或陈旧，
+  // 所以这里反过来：先信 preview，读不到才回退 `profile_info_v6`。
+  // PC 快照没有这条权威来源，`self.uid` 也来自资料库，顺序不影响结果。
+  let selfUid = self.uid ?? '';
+  if (!selfUid) {
+    try {
+      selfUid = await profileInfo.getUidByUin(BigInt(uin));
+    } catch (e) {
+      console.error('[static-account] failed to resolve own uid from profile_info_v6:', e);
+    }
   }
-  if (!selfUid) selfUid = self.uid ?? '';
 
   let disposed = false;
   return {

@@ -20,6 +20,7 @@ import { inspectBackupDatabases } from '../src/main/backup_probe_core';
 const f = vi.hoisted(() => ({
   peek: vi.fn(),
   derive: vi.fn(),
+  identity: vi.fn(),
   other: vi.fn(),
   loginDbPaths: vi.fn(() => []),
   key: vi.fn(),
@@ -33,7 +34,11 @@ vi.mock('@weq/db', async (original) => ({
     close() {}
   },
 }));
-vi.mock('@weq/account', () => ({ peekStaticSelfUin: f.peek, deriveAndroidDbKey: f.derive }));
+vi.mock('@weq/account', () => ({
+  peekStaticSelfUin: f.peek,
+  deriveAndroidDbKey: f.derive,
+  resolveStaticSelfIdentity: f.identity,
+}));
 vi.mock('../src/main/backup_probe', () => ({
   runBackupProbe: (input: import('../src/main/backup_probe_protocol').BackupProbeInput) =>
     inspectBackupDatabases(platform.native.ntHelper, input),
@@ -77,6 +82,11 @@ beforeEach(() => {
     if (key !== 'valid') throw new Error('encrypted');
     return { uin: '12345', uid: 'u_synthetic', nick: '合成账号', avatarUrl: '' };
   });
+  // 身份解析的默认实现：真实实现会先查 nt_msg.db 再兜底资料库，这里直接沿用
+  // 上面那个 peek mock 的语义，让既有用例聚焦在密钥路径上。
+  f.identity.mockImplementation(async (nt, dir, options) =>
+    f.peek({ native: { ntHelper: nt } }, dir, options?.dbKey),
+  );
   f.key.mockImplementation(async (_path, key) => ({ success: key === 'valid' }));
   f.pid.mockReturnValue(42);
   f.other.mockResolvedValue({ success: true, key: 'valid', pid: 42, uin: '12345' });

@@ -13,5 +13,17 @@ export type {
   LastRowIdMaps,
 } from './session';
 export type { CorruptionSuspectInfo } from '@weq/db';
-export { openStaticAccount, peekStaticSelfUin, deriveAndroidDbKey } from './static_session';
-export type { OpenStaticAccountOptions, StaticSelfPreview } from './static_session';
+export {
+  openStaticAccount,
+  peekStaticSelfUin,
+  deriveAndroidDbKey,
+  resolveStaticSelfIdentity,
+} from './static_session';
+export type {
+  AndroidDerivedIdentity,
+  AndroidKeyOptions,
+  AndroidLoginCandidate,
+  OpenStaticAccountOptions,
+  StaticSelfIdentityOptions,
+  StaticSelfPreview,
+} from './static_session';

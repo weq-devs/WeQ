@@ -1,9 +1,8 @@
 import { open } from 'node:fs/promises';
 import { join } from 'node:path';
-import { deriveAndroidDbKey, peekStaticSelfUin } from '@weq/account';
+import { deriveAndroidDbKey, resolveStaticSelfIdentity } from '@weq/account';
 import { QqDb } from '@weq/db';
-import type { NtHelperBinding } from '@weq/native';
-import type { Platform } from '@weq/platform';
+import type { DatabaseAlgorithms, NtHelperBinding } from '@weq/native';
 import type { BackupProbeInput, BackupProbeResult } from './backup_probe_protocol';
 
 /** 只读固定长度头；不能用一次无密钥 SQL 查询来猜测加密格式。 */
@@ -36,33 +35,47 @@ export async function inspectBackupDatabases(
     const msgPath = join(input.dirPath, 'nt_msg.db');
     let dbKey = input.dbKey;
     let mobile = false;
+    let algos: Record<string, DatabaseAlgorithms> | undefined;
+    let seed: { uid?: string; uin?: string; nick?: string } | undefined;
     if (!dbKey) {
       const plain =
         (await isPlainBackupDatabase(msgPath)) &&
         (await isPlainBackupDatabase(join(input.dirPath, 'profile_info.db')));
       if (!plain) {
         // 没有 gpro 库时 deriveAndroidDbKey 会退到 login.db 找 uid；这里把
-        // 备份自带的 uin 提示和本机 login.db 位置一并交过去。
+        // 备份自带的 uin 提示和本机 login.db 位置一并交过去。推导成功时它还会
+        // 把权威的 uid（以及 login.db 里的 uin / 昵称）带回来，身份就不必再去
+        // 资料库缓存里查。
         const derived = await deriveAndroidDbKey(nt, input.dirPath, {
           ...(input.expectedUin ? { uin: input.expectedUin } : {}),
           ...(input.loginDbPaths?.length ? { loginDbPaths: input.loginDbPaths } : {}),
         });
         if (!derived) return { status: 'needKey' };
         dbKey = derived.dbKey;
+        algos = derived.algos;
         mobile = true;
+        seed = derived;
       }
     }
     if (dbKey) {
       const result = await nt.testDatabaseKey(msgPath, dbKey);
       if (!result.success) return { status: 'error', error: '密钥不匹配' };
+      // 手动密钥 / 已存密钥没有走推导链，这里用刚探测到的参数补上，供库内身份推断。
+      if (!algos && result.pageHmacAlgorithm && result.kdfHmacAlgorithm) {
+        algos = {
+          'nt_msg.db': {
+            pageHmacAlgorithm: result.pageHmacAlgorithm,
+            kdfHmacAlgorithm: result.kdfHmacAlgorithm,
+          },
+        };
+      }
     }
-    const self = await peekStaticSelfUin(
-      { native: { ntHelper: nt } } as Platform,
-      input.dirPath,
-      dbKey,
-      undefined,
-      input.expectedUin,
-    );
+    const self = await resolveStaticSelfIdentity(nt, input.dirPath, {
+      ...(dbKey ? { dbKey } : {}),
+      ...(algos ? { algos } : {}),
+      ...(input.expectedUin ? { expectedUin: input.expectedUin } : {}),
+      ...(seed ? { seed } : {}),
+    });
     if (!dbKey) {
       const db = new QqDb(nt, { dbPath: msgPath });
       try {
