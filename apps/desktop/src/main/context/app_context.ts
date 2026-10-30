@@ -140,6 +140,7 @@ import {
   MessageSendService,
   FlashTransferFilesService,
   PeerStatsService,
+  ChatQqShowService,
   ChatImageOcrService,
   InteractionService,
   GroupModerationService,
@@ -858,6 +859,8 @@ export interface AccountServices {
   roamingBackfill: RoamingBackfillManager;
   /** 他人的个性主页统计（QQ 等级 + 资料卡累计获赞），需在线 QQ 发包。 */
   peerStats: PeerStatsService;
+  /** 聊天 QQ 秀形象 URL 的本地映射（个性主页共用，按设置天数过期）。 */
+  qqShow: ChatQqShowService;
   /** 聊天图片文字识别（OIDB 0xe07_0，需在线 QQ 发包取 rkey）。 */
   chatImageOcr: ChatImageOcrService;
   /** QQ 闪传分享链接（OIDB 0x93d3_1，需在线 QQ 发包）。 */
@@ -1983,6 +1986,20 @@ export function initAppContext(fileRoot?: string): AppContext {
         gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
+        qqShow: new ChatQqShowService({
+          storePath: join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'qqshow.json',
+          ),
+          ttlDays: () => userConfig.getSettings().qqShowCacheDays,
+          fetchShow: (uin) =>
+            new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid).getQqShow(
+              uin,
+            ),
+        }),
         chatImageOcr: new ChatImageOcrService(platform.native.ntHelper, session, resolveOnlinePid),
         flashTransfer: new FlashTransferService(
           platform.native.ntHelper,
@@ -2730,6 +2747,18 @@ export function initAppContext(fileRoot?: string): AppContext {
         gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
+        qqShow: new ChatQqShowService({
+          storePath: join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'qqshow.json',
+          ),
+          ttlDays: () => userConfig.getSettings().qqShowCacheDays,
+          fetchShow: (uin) =>
+            new PeerStatsService(platform.native.ntHelper, session, livePid).getQqShow(uin),
+        }),
         chatImageOcr: new ChatImageOcrService(platform.native.ntHelper, session, livePid),
         flashTransfer: new FlashTransferService(platform.native.ntHelper, session, livePid),
         messageSend: new MessageSendService(
