@@ -312,8 +312,8 @@ export function MemberProfileCard({
           <button
             className="weq-profile-expand"
             type="button"
-            title="展开联系人详情"
-            aria-label="展开联系人详情"
+            title="联系人详情"
+            aria-label="联系人详情"
             onClick={() => {
               onClose();
               openWorkspace({
@@ -602,7 +602,7 @@ export function MemberProfileCard({
                     }}
                   >
                     <BarChart3 size={13} />
-                    查看聊天分析
+                    聊天分析
                   </button>
                 ) : null}
               </div>
