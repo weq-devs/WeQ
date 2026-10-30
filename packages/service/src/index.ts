@@ -812,6 +812,14 @@ export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './acco
 export { prepareFavoriteEmojiElements } from './account/favorite_emoji_send';
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
+export {
+  ChatQqShowService,
+  DEFAULT_QQ_SHOW_CACHE_DAYS,
+  QQ_SHOW_CACHE_MAX_DAYS,
+  QQ_SHOW_CACHE_MIN_DAYS,
+  QQ_SHOW_FETCH_CONCURRENCY,
+} from './account/qq_show';
+export type { ChatQqShowOptions, QqShowResolved } from './account/qq_show';
 export { ChatImageOcrService } from './account/ocr_image';
 export type { ChatImageOcrParams, ChatImageOcrResult } from './account/ocr_image';
 export { InteractionService } from './account/interaction';

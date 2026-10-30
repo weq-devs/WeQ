@@ -728,6 +728,13 @@ export interface AppSettings {
    * 是否显示聊天头像挂件，包括消息记录、本地个性装扮和自己账号的静态挂件。
    */
   showAvatarPendant: boolean;
+  /**
+   * 是否用 QQ 秀形象替换聊天头像（同时不叠加头像挂件）。默认开启；
+   * 形象 URL 按 uin 缓存在本地，个性主页也读这份缓存。
+   */
+  showChatQqShow: boolean;
+  /** QQ 秀形象 URL 本地映射的有效期（天）。默认 14，过期后重新向 QQ 查询。 */
+  qqShowCacheDays: number;
   linkPreview: LinkPreviewConfig;
   /**
    * 头像与聊天图片/视频封面直接由前端向 QQ CDN 取，不经本进程代理。
@@ -1038,6 +1045,13 @@ export interface SsePushConfig {
 export type { GroupKeywordRules } from '../account/group_keyword';
 export { normalizeGroupKeywordRules } from '../account/group_keyword';
 
+/** QQ 秀缓存有效期：只接受 1–365 的整数天，非法值交给调用方回落默认。 */
+function normalizeQqShowCacheDays(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const days = Math.round(value);
+  return days >= 1 && days <= 365 ? days : null;
+}
+
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   toastDurations: { ...DEFAULT_TOAST_DURATIONS },
   exportSaveMode: 'before',
@@ -1074,6 +1088,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   quitConfirmSuppressed: false,
   renderTextMarkdown: true,
   showAvatarPendant: true,
+  showChatQqShow: true,
+  qqShowCacheDays: 14,
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
   home: DEFAULT_HOME_SETTINGS,
@@ -1743,6 +1759,8 @@ export class UserConfigService {
       quitConfirmSuppressed: s?.quitConfirmSuppressed === true,
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
+      showChatQqShow: s?.showChatQqShow ?? d.showChatQqShow,
+      qqShowCacheDays: normalizeQqShowCacheDays(s?.qqShowCacheDays) ?? d.qqShowCacheDays,
       preferCdn: s?.preferCdn ?? d.preferCdn,
       home: normalizeHomeSettings(s?.home),
       typingStatus: normalizeTypingStatus(s?.typingStatus),
@@ -1874,6 +1892,8 @@ export class UserConfigService {
       quitConfirmSuppressed: patch.quitConfirmSuppressed ?? current.quitConfirmSuppressed,
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
+      showChatQqShow: patch.showChatQqShow ?? current.showChatQqShow,
+      qqShowCacheDays: normalizeQqShowCacheDays(patch.qqShowCacheDays) ?? current.qqShowCacheDays,
       preferCdn: patch.preferCdn ?? current.preferCdn,
       home: normalizeHomeSettings({ ...current.home, ...patch.home }),
       typingStatus: normalizeTypingStatus({ ...current.typingStatus, ...patch.typingStatus }),

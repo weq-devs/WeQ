@@ -4,6 +4,8 @@ import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent }
 import { Bot, Check, LoaderCircle, RotateCcw, Sparkle, TriangleAlert, X } from 'lucide-react';
 import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
 import { Avatar } from './primitives';
+import { ChatQqShowEnabledContext, useChatQqShow } from '../../lib/chatQqShow';
+import { qqShowUrl } from '../../lib/resourceUrl';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { cn } from './classNames';
 import { SetEmojiReactions, type ReactionInteraction } from '../../components/SetEmojiReactions';
@@ -37,17 +39,37 @@ function hideBrokenImg(event: { currentTarget: HTMLImageElement }) {
  */
 function PendantOverlay({
   name,
+  uin,
   avatarUrl,
   seed,
   widget,
   fallbackUrl,
 }: {
   name: string;
+  /** 发送者 QQ 号；有值时按设置查 QQ 秀形象替换头像。 */
+  uin?: string | null;
   avatarUrl?: string;
   seed?: string;
   widget: { animated: boolean; url?: string } | null;
   fallbackUrl?: string | null;
 }) {
+  // QQ 秀替换头像时不显示头像和挂件；图片裂了自动回退到普通头像。
+  const qqShowEnabled = useContext(ChatQqShowEnabledContext);
+  const qqShow = useChatQqShow(uin, qqShowEnabled);
+  const [qqShowBroken, setQqShowBroken] = useState(false);
+  useEffect(() => setQqShowBroken(false), [qqShow]);
+  if (qqShow && !qqShowBroken) {
+    return (
+      <span className={cn('weq-qqshow-avatar')} title={name}>
+        <img
+          src={qqShowUrl(qqShow)}
+          alt=""
+          draggable={false}
+          onError={() => setQqShowBroken(true)}
+        />
+      </span>
+    );
+  }
   const staticUrl = widget ? (widget.animated ? undefined : widget.url) : fallbackUrl;
   if (!widget?.animated && !staticUrl) {
     return <Avatar name={name} avatarUrl={avatarUrl} seed={seed} />;
@@ -431,6 +453,7 @@ export function MessageBubble({
           >
             <PendantOverlay
               name={senderName}
+              uin={sender.identityValue}
               avatarUrl={senderAvatarUrl}
               seed={senderSeed}
               widget={lineWidget}
@@ -446,6 +469,7 @@ export function MessageBubble({
           >
             <PendantOverlay
               name={senderName}
+              uin={sender.identityValue}
               avatarUrl={senderAvatarUrl}
               seed={senderSeed}
               widget={lineWidget}
@@ -704,6 +728,7 @@ export function MessageBubble({
         >
           <PendantOverlay
             name={senderName}
+            uin={sender.identityValue}
             avatarUrl={senderAvatarUrl}
             seed={senderSeed}
             widget={lineWidget}

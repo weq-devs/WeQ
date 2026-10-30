@@ -343,6 +343,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['message-seq', '显示消息序号（seq）'],
       ['message-time', '显示发送时间（精确到秒）'],
       ['avatar-pendant', '聊天头像挂件'],
+      ['chat-qqshow', '聊天 QQ 秀替换头像', 'QQ 秀'],
+      ['chat-qqshow-days', 'QQ 秀缓存有效期'],
       [
         'message-bubble',
         '消息气泡',

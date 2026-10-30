@@ -38,6 +38,7 @@ import {
 import { SelfBubbleContext, SelfPendantContext } from './hooks/useSelfPendant';
 import { ActiveWidgetProvider } from './hooks/useActiveWidget';
 import { CdnContext, setPreferCdnFlag } from './lib/cdn';
+import { ChatQqShowEnabledContext } from './lib/chatQqShow';
 import { WarmupSplash } from './components/WarmupSplash';
 import { trpc } from './trpc/client';
 import { dressUrl } from './lib/resourceUrl';
@@ -81,18 +82,20 @@ function TextMarkdownProvider({
   return (
     <TextMarkdownContext.Provider value={settings.data?.renderTextMarkdown ?? true}>
       <LinkPreviewContext.Provider value={settings.data?.linkPreview?.enabled ?? true}>
-        <MsgDecorationEnabledContext.Provider value={messageDecoration}>
-          <ShowMessageSeqContext.Provider value={settings.data?.showMessageSeq ?? false}>
-            <ShowMessageTimeContext.Provider value={settings.data?.showMessageTime ?? false}>
-              <ChatImageCacheProvider
-                scope={cacheScope}
-                budgetMiB={settings.data?.chatImageCacheMiB ?? DEFAULT_CHAT_IMAGE_CACHE_MIB}
-              >
-                {children}
-              </ChatImageCacheProvider>
-            </ShowMessageTimeContext.Provider>
-          </ShowMessageSeqContext.Provider>
-        </MsgDecorationEnabledContext.Provider>
+        <ChatQqShowEnabledContext.Provider value={settings.data?.showChatQqShow ?? true}>
+          <MsgDecorationEnabledContext.Provider value={messageDecoration}>
+            <ShowMessageSeqContext.Provider value={settings.data?.showMessageSeq ?? false}>
+              <ShowMessageTimeContext.Provider value={settings.data?.showMessageTime ?? false}>
+                <ChatImageCacheProvider
+                  scope={cacheScope}
+                  budgetMiB={settings.data?.chatImageCacheMiB ?? DEFAULT_CHAT_IMAGE_CACHE_MIB}
+                >
+                  {children}
+                </ChatImageCacheProvider>
+              </ShowMessageTimeContext.Provider>
+            </ShowMessageSeqContext.Provider>
+          </MsgDecorationEnabledContext.Provider>
+        </ChatQqShowEnabledContext.Provider>
       </LinkPreviewContext.Provider>
     </TextMarkdownContext.Provider>
   );

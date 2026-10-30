@@ -823,6 +823,23 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  /**
+   * 聊天头像是否改用 QQ 秀形象（同时不叠加头像挂件）。渲染层通过 App.tsx 的
+   * ChatQqShowEnabledContext 读取——纯持久化，无需主进程侧应用。
+   */
+  setShowChatQqShow: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ showChatQqShow: input.enabled });
+    return true;
+  }),
+
+  /** QQ 秀 URL 本地映射的有效期（天）。按需读取，改完立即影响后续查询。 */
+  setQqShowCacheDays: procedure
+    .input(z.object({ days: z.number().int().min(1).max(365) }))
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({ qqShowCacheDays: input.days })
+        .qqShowCacheDays;
+    }),
+
   /** 数据库损坏弹窗「不再提醒」开关（全局配置，重启后仍生效）。 */
   setSuppressDbDamageReminder: procedure
     .input(z.object({ suppressed: z.boolean() }))
