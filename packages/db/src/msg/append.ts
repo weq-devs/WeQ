@@ -8,7 +8,8 @@
  * the DB in manual testing), while we override only the fields that must change
  * for a new message:
  *
- *   40001 msgId        → last + small random increment  (unique & monotonic)
+ *   40001 msgId        → table-wide MAX(id) + small random increment
+ *                        (unique & monotonic — see below)
  *   40002 msgRandom    → fresh random (part of the c2c UNIQUE(40027,40002,40005))
  *   40003 msgSeq       → MAX(seq) + 1  (see below)
  *   40011 msgType      → caller (2 = plain, 9 = reply)
@@ -31,6 +32,17 @@
  * drift (seq ties, NULL/0 seq-less rows, a template rule change). Keeping them
  * separate means a change to the clone rule can never silently renumber new
  * messages into the middle of the conversation.
+ *
+ * `msgId` is likewise anchored on the **whole table's** `MAX("40001")`, not on
+ * the template row. 40001 is a snowflake id: message tables have no uniqueness
+ * constraint on it, but every reader (`getMsgBody`, `updateMsgBody`,
+ * `listByMsgIds`, forward/reply caches, FTS row pointers) addresses rows by it,
+ * so two rows sharing one id silently cross wires between conversations. The
+ * old "template id + 1..1000" scheme drew from the template's *conversation*
+ * while every other conversation kept inserting, so a busier table could — and
+ * in practice did — hand out an id another chat already owned. Anchoring on the
+ * table-wide MAX keeps new ids above everything already written, which is both
+ * unique and monotonic, the two properties the readers assume.
  */
 
 import { resolve } from 'node:path';
@@ -121,8 +133,10 @@ async function appendAtomic(
   );
   if (lastRows.length === 0) return null;
 
-  const lastMsgId = toBigint(lastRows[0]![col('40001')]);
-  const newMsgId = lastMsgId + BigInt(1 + Math.floor(Math.random() * 1000));
+  // 40001 的锚点是全表 MAX，不是模板行：模板只回答「不透明列抄谁」，而 msgId
+  // 必须全表唯一，否则别的会话按 40001 回查会拿到这一行。见文件头注释。
+  const maxIdRows = await qq.query(`SELECT COALESCE(MAX("40001"), 0) FROM ${table}`);
+  const newMsgId = toBigint(maxIdRows[0]?.[0]) + BigInt(1 + Math.floor(Math.random() * 1000));
   const random = BigInt(Math.floor(Math.random() * 0x7fffffff));
   const overrides = new Map<string, SqlValue>([
     ['40001', newMsgId],

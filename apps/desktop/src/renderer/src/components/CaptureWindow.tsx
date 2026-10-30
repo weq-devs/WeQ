@@ -10,6 +10,7 @@ import { useCaptureWindow } from '../state/captureWindow';
 import { useAppLock } from '../state/lock';
 import { client } from '../trpc/client';
 import { CapturePanel } from './CapturePanel';
+import { UdpCapturePanel } from './UdpCapturePanel';
 import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
 import { ToastHost } from './Toast';
@@ -35,6 +36,8 @@ export function CaptureWindowRequest({
 }
 
 function CaptureWindowPanel({ initialUin, onClose }: { initialUin: string; onClose: () => void }) {
+  /** 两个抓包面板：TCP（QQNT / OIDB，按账号）与 UDP（按进程，不解析协议）。 */
+  const [tab, setTab] = useState<'tcp' | 'udp'>('tcp');
   const activity = useQQReadActivity(true, { onlineOnly: IS_WEB });
   const [accounts, setAccounts] = useState<
     Awaited<ReturnType<typeof client.wonderfulTools.overview.query>>
@@ -84,22 +87,43 @@ function CaptureWindowPanel({ initialUin, onClose }: { initialUin: string; onClo
     <div className="weq-capture-native">
       <header className="weq-capture-window-head">
         <Radio size={17} />
-        <h1>QQNT 抓包</h1>
-        {loading ? (
+        <div className="weq-capture-window-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'tcp'}
+            className={`weq-capture-window-tab${tab === 'tcp' ? ' is-active' : ''}`}
+            onClick={() => setTab('tcp')}
+          >
+            TCP / OIDB
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'udp'}
+            className={`weq-capture-window-tab${tab === 'udp' ? ' is-active' : ''}`}
+            onClick={() => setTab('udp')}
+          >
+            UDP
+          </button>
+        </div>
+        {tab === 'tcp' && loading ? (
           <span className="weq-capture-window-status" role="status">
             读取中…
           </span>
         ) : null}
-        <button
-          type="button"
-          className="weq-set-iconbtn"
-          title="刷新 QQ 账号"
-          aria-label="刷新 QQ 账号"
-          disabled={loading}
-          onClick={() => void refresh()}
-        >
-          <RefreshCw size={16} />
-        </button>
+        {tab === 'tcp' ? (
+          <button
+            type="button"
+            className="weq-set-iconbtn"
+            title="刷新 QQ 账号"
+            aria-label="刷新 QQ 账号"
+            disabled={loading}
+            onClick={() => void refresh()}
+          >
+            <RefreshCw size={16} />
+          </button>
+        ) : null}
         <button
           type="button"
           className="weq-set-iconbtn"
@@ -119,15 +143,19 @@ function CaptureWindowPanel({ initialUin, onClose }: { initialUin: string; onClo
         />
       ) : null}
       <div className="weq-capture-window-content">
-        <CapturePanel
-          initialUin={initialUin}
-          accounts={accounts.map((account) => ({
-            uin: account.uin,
-            name: account.userName,
-            avatarUrl: account.avatarUrl,
-            pid: account.pid,
-          }))}
-        />
+        {tab === 'udp' ? (
+          <UdpCapturePanel />
+        ) : (
+          <CapturePanel
+            initialUin={initialUin}
+            accounts={accounts.map((account) => ({
+              uin: account.uin,
+              name: account.userName,
+              avatarUrl: account.avatarUrl,
+              pid: account.pid,
+            }))}
+          />
+        )}
       </div>
     </div>
   );

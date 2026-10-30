@@ -109,3 +109,27 @@ body.weq-capture-window-body {
 html[data-theme='dark'] .weq-capture-window-head {
   background: var(--weq-bg-elevated);
 }
+
+/* 抓包窗口的两个 Tab（TCP / OIDB 与 UDP）。 */
+.weq-capture-window-tabs {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 4px;
+}
+.weq-capture-window-tab {
+  padding: 3px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.weq-capture-window-tab.is-active {
+  color: var(--weq-fg-primary);
+  border-bottom-color: var(--weq-accent-effective);
+}
+.weq-capture-window-tab:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 1px;
+}

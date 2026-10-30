@@ -465,6 +465,41 @@ Electron **不能以 root 运行**，而抓包要 root —— 所以桌面端把
 - 生命周期：主进程持着环回连接，断开（退出 / 崩溃）时子进程自己停会话再退出；退出时会
   主动 `dispose`。**不会**把 root 抓包留在后台。
 
+### 7.6 UDP 抓包（同一套接口，`transport: 'udp'`）
+
+UDP 复用上面的 start / take / stop，只多一个选项：
+
+| 字段 | 说明 |
+| --- | --- |
+| `CaptureOptions.transport` | `'tcp'`（默认，MSF 帧解密）或 `'udp'` |
+| `CapturedFrame.udp` | UDP 五元组 + 载荷；TCP 帧为 null |
+
+UDP 模式下 `cmd` / `body` / `plain` 恒为空，`raw` 是完整 IP 包。**不解析任何业务
+协议** —— 载荷原样交给调用方。
+
+**两个内核行为必须知道**（2026-10-30 真机验证，详见
+[udp-capture-20261030.md](./udp-capture-20261030.md)）：
+
+1. **socket 必须在目标 cgroup 内创建**。`cgroup/sendmsg` 只对属于被 attach 的
+   cgroup 的 socket 生效，而 socket 归属创建它时进程所在的 cgroup —— 事后移动进程
+   无效。所以会话要在目标进程创建 socket **之前** armed；已存在的 socket 由
+   `seed_existing`（`pidfd_getfd` + `SO_COOKIE`）补登记。
+2. **`sendmsg(2)` ≠ `sendto(2)`**。`cgroup/sendmsg4|6` 只拦 `sendmsg`。实测 QQ 的
+   avsdk 用的是 `sendmsg`，所以能抓到；若哪天改用 `sendto`，只能靠 `seed_existing`
+   兜底。
+
+另有一个独立接口，用于抓包面板的进程选择：
+
+```ts
+listProcessesWithModule(moduleHint: string): ProcessScanEntry[]
+//   ProcessScanEntry = { pid, ppid, name, cmdline, modules: string[] }
+```
+
+列出所有映射了路径含 `moduleHint` 的库的进程（大小写不敏感）。传 `"avsdk"` 就是
+「找 QQ 的通话媒体进程」（Chromium 的 `--type=ppapi` 子进程）。只读进程元数据
+（maps / 模块列表），不附加、不读内存、不联网。老产物没有这个导出，调用方先用
+`typeof` 探测。
+
 ---
 
 ## 8. 平台相关 / 其它
