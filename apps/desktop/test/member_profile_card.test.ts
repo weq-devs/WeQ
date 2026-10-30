@@ -239,7 +239,7 @@ describe('群成员资料卡浮层', () => {
     );
   });
 
-  it.each(['展开联系人详情', '查看聊天分析'])('从名片进入%s沿用补全后的头像', async (entry) => {
+  it.each(['联系人详情', '聊天分析'])('从名片进入%s沿用补全后的头像', async (entry) => {
     vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
       uid: 'u_peer',
       uin: '10009',
@@ -256,7 +256,7 @@ describe('群成员资料卡浮层', () => {
     expect(button).toBeDefined();
     act(() => button!.click());
     const avatarUrl = avatarFromUin('10009');
-    if (entry === '展开联系人详情') {
+    if (entry === '联系人详情') {
       expect(expandContact).toHaveBeenLastCalledWith(
         expect.objectContaining({
           kind: 'person',
