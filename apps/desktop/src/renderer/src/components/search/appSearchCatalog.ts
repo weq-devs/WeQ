@@ -82,6 +82,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['call-recording', '录音来源', '录制内容', '录音模式', '双方混合', '仅本端', '仅对方'],
   ['call-recording', '同时录电脑声音', '系统音频'],
   ['call-recording', '保存位置', '录音目录'],
+  ['call-recording', '记录 UDP 流量', 'udp 抓包', 'pcapng', '通话抓包'],
   ['saving', '默认保存方式', '导出保存方式'],
   ['saving', '保存位置', '默认导出目录', '默认保存目录'],
   ['appearance', '基础模式', '浅色模式', '深色模式', '暗色模式', '跟随系统'],
