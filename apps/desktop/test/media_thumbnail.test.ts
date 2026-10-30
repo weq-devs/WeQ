@@ -65,9 +65,10 @@ it('缩略图损坏时回退原图，不直接显示缺图', async () => {
 
 /**
  * 闪照：`fileToken` 是老式 offpic 路径（以 `/` 开头），三档 URL 与 contentHash
- * 全空，本地也没有原图。气泡走 198 预览并打码，点开给 0 原图。
+ * 全空，本地也没有原图。气泡画**固定封面**（灰阶马赛克 + 闪电），一张图都不加载；
+ * 点开才现取 0 档原图。
  */
-it('闪照用 offpic 的 198 预览打码显示，点开是 0 原图', async () => {
+it('闪照气泡画固定封面、不加载任何图片，点开是 0 原图', async () => {
   const host = await render({
     fileName: '91CFB712BCDAB31C397F4CB5F226B718.jpg',
     fileToken: '/1707889225-1108524972-91CFB712BCDAB31C397F4CB5F226B718',
@@ -75,16 +76,17 @@ it('闪照用 offpic 的 198 预览打码显示，点开是 0 原图', async () 
     imgHeight: 1920,
     fileSize: 153909,
   });
-  const image = host.querySelector('img')!;
-  // 渲染进程不直连 offpic（会被 CORS 挡），统一走主进程代理。
-  expect(image.src).toContain('flashpic');
-  expect(image.src).toContain('spec=198');
-  expect(image.src).not.toContain('c2cpicdw.qpic.cn');
-  // 打码只作用于气泡里的缩略图，不是灯箱。
-  expect(image.className).toContain('qq-media-flash');
-  expect(host.querySelector('.qq-media-wrap-flash')).not.toBeNull();
+  const cover = host.querySelector('.qq-flash-cover')!;
+  expect(cover).not.toBeNull();
+  // 封面不是图片：连 198 预览都不拉，气泡里没有任何 <img>。
+  expect(host.querySelector('img')).toBeNull();
+  expect(host.innerHTML).not.toContain('flashpic');
+  // 尺寸跟着元素里的宽高走（1440×1920 等比缩进 200×400 的框）。
+  const style = (cover as HTMLElement).style;
+  expect(style.width).toBe('200px');
+  expect(style.height).toBe('267px');
 
-  await act(async () => image.click());
+  await act(async () => (cover as HTMLElement).click());
   expect(state.open).toHaveBeenCalledTimes(1);
   expect(state.open.mock.calls[0]![0]).toContain('flashpic');
   expect(state.open.mock.calls[0]![0]).toContain('spec=0');
@@ -92,29 +94,27 @@ it('闪照用 offpic 的 198 预览打码显示，点开是 0 原图', async () 
   expect(state.open.mock.calls[0]![5]).toBeUndefined();
 });
 
-it('普通图片不会被打上闪照样式', async () => {
+it('元素带 isFlash 但拿不到 offpic token 时，封面点不开也不加载图', async () => {
+  const host = await render({
+    fileName: 'fixture.jpg',
+    isFlash: true,
+    imgWidth: 640,
+    imgHeight: 480,
+  });
+  const cover = host.querySelector('.qq-flash-cover')!;
+  expect(cover).not.toBeNull();
+  expect(host.querySelector('img')).toBeNull();
+  await act(async () => (cover as HTMLElement).click());
+  expect(state.open).not.toHaveBeenCalled();
+});
+
+it('普通图片不会被打上闪照封面', async () => {
   const host = await render({
     fileName: 'fixture.png',
     fileToken: 'EhSFggR8RGn2BgoNWCKJxibUo0KvhBj2sgIg',
     imgWidth: 2000,
     imgHeight: 1000,
   });
-  expect(host.querySelector('img')!.className).not.toContain('qq-media-flash');
-  expect(host.querySelector('.qq-media-wrap-flash')).toBeNull();
-});
-
-it('闪照缩略图取不到时回退到代理路径，不直接判缺图', async () => {
-  const host = await render({
-    fileName: 'fixture.jpg',
-    fileToken: '/1707889225-1108524972-91CFB712BCDAB31C397F4CB5F226B718',
-    imgWidth: 1440,
-    imgHeight: 1920,
-  });
-  await act(async () => host.querySelector('img')!.dispatchEvent(new Event('error')));
-  const image = host.querySelector('img')!;
-  expect(image.src).not.toContain('flashpic');
-  expect(new URL(image.src).searchParams.get('token')).toBe(
-    '/1707889225-1108524972-91CFB712BCDAB31C397F4CB5F226B718',
-  );
-  expect(host.textContent).not.toContain('未找到');
+  expect(host.querySelector('.qq-flash-cover')).toBeNull();
+  expect(host.querySelector('img')).not.toBeNull();
 });

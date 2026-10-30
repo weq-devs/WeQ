@@ -105,7 +105,18 @@ import {
 } from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
-import { FLASH_PHOTO_PLACEHOLDER_TEXT, isFlashPhotoPlaceholderText } from '../lib/flashPhoto';
+import {
+  classifyFlashPhotoFetch,
+  FLASH_PHOTO_MAX_ATTEMPTS,
+  FLASH_PHOTO_PLACEHOLDER_TEXT,
+  isFlashPhotoPlaceholderText,
+  pickFlashPhotoFetch,
+} from '../lib/flashPhoto';
+import {
+  loadFlashPhotoState,
+  saveFlashPhotoState,
+  type FlashPhotoPatch,
+} from '../lib/flashPhotoPatchStore';
 import {
   classifyChatType,
   unreadChatType,
@@ -2655,6 +2666,31 @@ function MainWorkspace(): ReactElement {
   // conversation, plus whether it still reaches the latest message and whether
   // older history remains. `loaded[0].msgSeq` is the window's lower cursor.
   const [loaded, setLoaded] = useState<MessageWire[]>([]);
+  /**
+   * 闪照补拉到的真元素，按**本地** `msgId` 存（补拉那条的 msgId 与本地行不同，
+   * 只有 seq 相同）。不能直接写进 `loaded`：`refreshWindow` 会在消息活动 / SSO
+   * 事件后从本地库整页重读并 `setLoaded(rows)`，把替换冲掉。
+   */
+  const [flashPhotoPatches, setFlashPhotoPatches] = useState(
+    () => new Map<string, FlashPhotoPatch>(),
+  );
+  /** 服务端确认补不回来的本地 msgId（切会话也不丢，见 flashPhotoPatchStore）。 */
+  const [flashPhotoDead, setFlashPhotoDead] = useState(() => new Set<string>());
+  // 写盘要在 setState 的 updater 之外拿「另一个集合」的最新值，用 ref 镜像一份。
+  const flashPhotoPatchesRef = useRef(flashPhotoPatches);
+  const flashPhotoDeadRef = useRef(flashPhotoDead);
+  flashPhotoPatchesRef.current = flashPhotoPatches;
+  flashPhotoDeadRef.current = flashPhotoDead;
+  /** 把当前会话的补丁 + 判死集合写回 sessionStorage。 */
+  const persistFlashPhotoState = useCallback(
+    (conv: string, patches: Map<string, FlashPhotoPatch>, dead: Set<string>): void => {
+      saveFlashPhotoState(conv, {
+        patches: Object.fromEntries(patches),
+        dead: [...dead],
+      });
+    },
+    [],
+  );
   const pendingMessageCommit = useRef<number | null>(null);
   useEffect(() => installMessagePerformanceProbe(), [messageScope]);
   useLayoutEffect(() => {
@@ -5351,6 +5387,11 @@ function MainWorkspace(): ReactElement {
     // 换会话后缺口要重新判断：上个会话「确认无消息」的缺口 id 与本会话无关。
     setResolvedGaps(new Set());
     flashPhotoTried.current.clear();
+    flashPhotoAttempts.current.clear();
+    // 补丁按会话号分桶存在 sessionStorage：换回来时直接接着用，不重新发包。
+    const restored = loadFlashPhotoState(selectedUid ?? '');
+    setFlashPhotoPatches(new Map(Object.entries(restored.patches)));
+    setFlashPhotoDead(new Set(restored.dead));
   }, [selectedUid, isDirect, isGroup, messageScope]);
 
   // 补拉成功会解除对应隐藏记录；只同步标记，不再触发时间线重载。
@@ -6195,9 +6236,19 @@ function MainWorkspace(): ReactElement {
   );
 
   // `loaded` is already oldest→newest; the template renders in array order.
+  //
+  // 闪照补丁（`flashPhotoPatches`）在这一层套用：`refreshWindow` 会从本地库整页
+  // 重读后直接 `setLoaded(rows)`，把任何写进 `loaded` 的替换冲掉，所以补到的元素
+  // 不能存进 `loaded`，只能钉在「本地 msgId → 真元素」这张表上，读时间线时合并。
   const loadedMessageWires = useMemo(
-    () => loaded.map((row) => replyMediaRows.get(row) ?? row),
-    [loaded, replyMediaRows, replyMediaRevision],
+    () =>
+      loaded.map((row) => {
+        const patched = flashPhotoPatches.get(row.msgId);
+        const base = replyMediaRows.get(row) ?? row;
+        if (!patched) return base;
+        return { ...base, elements: patched.elements, sourceFormat: patched.sourceFormat };
+      }),
+    [loaded, replyMediaRows, replyMediaRevision, flashPhotoPatches],
   );
   const currentGroupMembers = useMemo(() => {
     if (selectedConversation?.type !== 'group') return [];
@@ -6718,9 +6769,30 @@ function MainWorkspace(): ReactElement {
   //
   // 约束：
   //   - 只有完整模式（在线 QQ + 附加能力）才拉，受限模式保持兜底文案；
-  //   - 每条消息只试一次（`flashPhotoTried`），拉不到就永远显示兜底文案，不反复打请求；
+  //   - **还要等 SSO 会话登记好**（`ssoReady`）。QQ 在线 ≠ 能发包：Linux 上要提权读
+  //     内存拿 a2/d2 之后才登记，中间有几十秒空窗，撞进去必然回
+  //     「还没有登记 SSO 会话」，拉一次就白费；
+  //   - 每条消息最多试几次（`flashPhotoTried` / `flashPhotoAttempts`）：失败按瞬时
+  //     / 永久区分，瞬时（SSO 没就绪、网络抖动）放回队列等下一轮，永久（服务端确实
+  //     没有这条）才永久停在兜底文案；
   //   - 拉到就整条替换进时间线，渲染成真正的闪照气泡。
   const flashPhotoTried = useRef(new Set<string>());
+  /** 每条消息已经尝试过几次（瞬时失败会放回重试队列，但不能无限重打）。 */
+  const flashPhotoAttempts = useRef(new Map<string, number>());
+
+  // 凭据就绪（SSO 会话刚登记上）时把所有闪照的重试名额清空：之前因为
+  // 「还没有登记 SSO 会话」失败的消息，这时候才真的有可能拉到。同时失效一次
+  // 能力状态 —— 订阅事件可能早于 5 秒轮询，提前刷新能让 effect 立刻再跑一轮。
+  useEffect(() => {
+    const sub = client.account.onOnlineCredentialsReady.subscribe(undefined, {
+      onData: () => {
+        flashPhotoTried.current.clear();
+        flashPhotoAttempts.current.clear();
+        void utils.account.getGroupAlbumAccessState.invalidate();
+      },
+    });
+    return () => sub.unsubscribe();
+  }, [utils]);
   const flashPhotoPlaceholders = useMemo(() => {
     if (!selectedConversation) return [] as { msgId: string; msgSeq: string }[];
     return loadedMessageWires
@@ -6739,17 +6811,36 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     if (!selectedConversation) return;
     if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) return;
-    const pending = flashPhotoPlaceholders.filter((row) => !flashPhotoTried.current.has(row.msgId));
+    // QQ 在线不代表能发 SSO 包：会话物料要提权读出来才登记。没登记就发包只会拿到
+    // 「还没有登记 SSO 会话」，白白烧掉这条消息的重试名额（见上面的说明）。
+    if (sendAccess.data.ssoReady !== true) return;
+    // 待补 = 时间线里还是兜底文案、且没被服务端判死、也没补丁的。
+    //
+    // `tried` 只用来挡「同一批并发重复入队」，**不能**用来表示放弃：以前把
+    // `attempts >= MAX` 也当成不可再试，可一次 effect 就会给全部待补都 +1，
+    // 一轮跑完剩下的条目已经没名额了 —— 于是「一次只补 4 条」的那 4 条之后的
+    // 消息永远轮不到（实测 6 条闪照只补到第 3、4 条）。
+    const pending = flashPhotoPlaceholders.filter(
+      (row) =>
+        !flashPhotoDead.has(row.msgId) &&
+        !flashPhotoPatches.has(row.msgId) &&
+        (flashPhotoAttempts.current.get(row.msgId) ?? 0) < FLASH_PHOTO_MAX_ATTEMPTS,
+    );
     if (pending.length === 0) return;
-    for (const row of pending) flashPhotoTried.current.add(row.msgId);
     const { kind, conv } = convFetchKey(selectedConversation);
     const selection = selectionRef.current;
     let cancelled = false;
     void (async () => {
-      // 一次最多补 4 条，避免打开一个全是闪照的会话时瞬间打出一串请求。
-      for (const row of pending.slice(0, 4)) {
+      // 一条一条来：全部补完，不再砍成每轮 4 条。串行是为了不打爆服务端，
+      // 也保证「补完这一批」这件事本身是确定的。
+      for (const row of pending) {
+        if (cancelled) return;
         const seq = Number(row.msgSeq);
         if (!Number.isSafeInteger(seq) || seq <= 0) continue;
+        flashPhotoAttempts.current.set(
+          row.msgId,
+          (flashPhotoAttempts.current.get(row.msgId) ?? 0) + 1,
+        );
         try {
           const result = await client.account.fetchGapMessages.query({
             kind,
@@ -6758,31 +6849,55 @@ function MainWorkspace(): ReactElement {
             endSeq: seq,
           });
           if (cancelled || selectionRef.current !== selection) return;
-          if (!result.ok) continue;
-          // 只有真的拿到**带闪照元素**的那条才替换；否则保持兜底文案。
-          const fetched = result.messages.find((message) => String(message.msgSeq) === row.msgSeq);
-          const elements = (fetched?.elements ?? []) as { type?: string; data?: unknown }[];
-          const hasFlash = elements.some(
-            (element) =>
-              element?.type === 'pic' && (element.data as { isFlash?: boolean })?.isFlash,
-          );
-          if (!hasFlash || !fetched) continue;
-          setLoaded((current) =>
-            current.map((message) =>
-              message.msgId === row.msgId
-                ? { ...message, elements: fetched.elements, sourceFormat: fetched.sourceFormat }
-                : message,
-            ),
-          );
+          // 按 seq 挑（不能按 msgId，本地与服务端两套 id），再按结果分类：
+          // 瞬时失败 / 空响应 → 下一轮再试；服务端确实没有 → 判死；拿到 → 回填。
+          const fetched = result.ok ? pickFlashPhotoFetch(result.messages, row.msgSeq) : null;
+          const outcome = classifyFlashPhotoFetch({
+            ok: result.ok,
+            ...(result.ok ? {} : { reason: result.reason, message: result.message }),
+            fetchedRows: result.ok ? result.messages.length : 0,
+            picked: fetched !== null,
+          });
+          if (outcome === 'retry') continue;
+          if (outcome === 'give-up' || !fetched) {
+            // 服务端这一窗确实没有闪照元素：记进 dead，切会话回来也不再白打请求。
+            setFlashPhotoDead((current) => {
+              if (current.has(row.msgId)) return current;
+              const next = new Set(current);
+              next.add(row.msgId);
+              void persistFlashPhotoState(conv, flashPhotoPatchesRef.current, next);
+              return next;
+            });
+            continue;
+          }
+          // 补丁键用**本地** msgId：时间线里的行永远是本地那条，补拉那条只贡献元素。
+          setFlashPhotoPatches((current) => {
+            const next = new Map(current);
+            next.set(row.msgId, {
+              elements: fetched.elements,
+              sourceFormat: fetched.sourceFormat,
+            });
+            void persistFlashPhotoState(conv, next, flashPhotoDeadRef.current);
+            return next;
+          });
         } catch {
-          // 拉取失败就保持兜底文案；不 toast —— 这是后台补全，不该打断阅读。
+          // 请求抛错：次数上限（+1 已在发请求前记过）兜着，别变成死循环。
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [flashPhotoPlaceholders, selectedConversation, convFetchKey, sendAccess.data]);
+  }, [
+    flashPhotoPlaceholders,
+    selectedConversation,
+    convFetchKey,
+    sendAccess.data,
+    loaded,
+    flashPhotoDead,
+    flashPhotoPatches,
+    persistFlashPhotoState,
+  ]);
 
   // Server acknowledgement can precede the QQ database write, or its watcher
   // may be disabled. Re-read a small number of times without resending anything.
