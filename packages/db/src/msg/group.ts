@@ -639,6 +639,26 @@ export class GroupMsgDb {
   }
 
   /**
+   * 从数据本身推断账号自己的 uin + uid：群聊没有 c2c 的 40021 对端列，只能靠
+   * QQ 的 40040 自证（1 = 本机真实按下发送键，排除「自己转发别人消息」的同步副本）。
+   * 取这些行里最常见的 (40033, 40020) 组合 —— 完全离线、与库本身自洽，
+   * 不依赖 profile_info / 会话身份。
+   *
+   * 40020 必须「像 uid」：删除/撤回留下的占位行会把群号写进这一列。
+   * 没有发过言时返回 `{ uin: null, uid: null }`。
+   */
+  async inferSelfIdentity(): Promise<{ uin: bigint | null; uid: string | null }> {
+    const rows = await this.qq.query(
+      `SELECT "40033", "40020", COUNT(*) AS n FROM group_msg_table
+       WHERE "40040" = 1 AND "40033" > 0 AND ${SENDER_UID_SQL}
+       GROUP BY "40033", "40020" ORDER BY n DESC LIMIT 1`,
+    );
+    const uin = rows[0]?.[0];
+    if (uin == null) return { uin: null, uid: null };
+    return { uin: toBigint(uin), uid: toStr(rows[0]?.[1]) || null };
+  }
+
+  /**
    * 从真实发送时间取北京日历年份，不依赖可能缺失或滞后的 40058 日字段。
    * 先按整数北京日去重，再转换年份；不筛方向，调用方按数据修订缓存。
    */
