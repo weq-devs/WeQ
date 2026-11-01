@@ -37,6 +37,16 @@ export function WindowedList<T>({
   const root = useRef<HTMLDivElement>(null);
   const applied = useRef<string | null>(null);
   useLayoutEffect(() => {
+    const viewport = root.current;
+    if (!viewport) return;
+    const syncTop = () => {
+      if (viewport.clientHeight) setTop(viewport.scrollTop);
+    };
+    const observer = new ResizeObserver(syncTop);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
+  useLayoutEffect(() => {
     if (resetKey !== undefined && root.current) {
       root.current.scrollTop = 0;
       setTop(0);
@@ -45,13 +55,27 @@ export function WindowedList<T>({
   useLayoutEffect(() => {
     const request = `${scrollToKey}:${scrollRevision ?? 0}`;
     if (!scrollToKey || applied.current === request) return;
-    const index = items.findIndex((item) => itemKey(item) === scrollToKey);
-    if (index < 0 || !root.current) return;
-    const viewportHeight = root.current.clientHeight || height;
-    const next = Math.max(0, index * rowHeight - viewportHeight / 2 + rowHeight / 2);
-    root.current.scrollTop = next;
-    setTop(next);
-    applied.current = request;
+    const apply = () => {
+      const viewport = root.current;
+      if (!viewport) return false;
+      const index = items.findIndex((item) => itemKey(item) === scrollToKey);
+      if (index < 0) return false;
+      const viewportHeight = viewport.clientHeight || height;
+      const next = Math.max(0, index * rowHeight - viewportHeight / 2 + rowHeight / 2);
+      viewport.scrollTop = next;
+      setTop(viewport.clientHeight ? viewport.scrollTop : next);
+      if (!viewport.clientHeight) return false;
+      applied.current = request;
+      return true;
+    };
+    if (apply()) return;
+    const viewport = root.current;
+    if (!viewport) return;
+    const observer = new ResizeObserver(() => {
+      if (apply()) observer.disconnect();
+    });
+    observer.observe(viewport);
+    return () => observer.disconnect();
   }, [items, itemKey, scrollToKey, scrollRevision, rowHeight, height]);
   const range = visibleListRange(items.length, rowHeight, height, top);
   useEffect(() => {
