@@ -38,6 +38,10 @@ async function fileToBytes(file: File): Promise<Uint8Array> {
 /** 文件选择器：同一个 input 复用，选完清空 value 以便重选同一个文件。 */
 function useImagePicker(onPick: (file: File) => void) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // `onPick` 每次渲染都是新函数，但 input 的 onChange 只在选完文件时执行一次，
+  // 用 ref 保证它拿到的永远是最新的回调，而不是挂载时闭包里的旧值。
+  const pickRef = useRef(onPick);
+  pickRef.current = onPick;
   const open = useCallback(() => inputRef.current?.click(), []);
   const element = (
     <input
@@ -49,7 +53,7 @@ function useImagePicker(onPick: (file: File) => void) {
         const file = event.currentTarget.files?.[0];
         // 清空，否则连续选同一个文件不会再触发 change。
         event.currentTarget.value = '';
-        if (file) onPick(file);
+        if (file) pickRef.current(file);
       }}
     />
   );
@@ -202,6 +206,9 @@ export function ShowEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () => 
     staleTime: Infinity,
   });
   const [pending, setPending] = useState<ShowEmojiPack | null>(null);
+  // `pending` 的镜像：`picker.open()` 之后文件选择器会异步回调，那时闭包里拿到的
+  // 还是上一轮的 state（setPending 尚未生效），所以用 ref 读到最新值。
+  const pendingRef = useRef<ShowEmojiPack | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sendShow = trpc.account.emojiPanel.sendShowEmoji.useMutation();
@@ -231,14 +238,16 @@ export function ShowEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () => 
       } finally {
         setSending(false);
         setPending(null);
+        pendingRef.current = null;
       }
     },
     [ctx, onSent, sendShow, utils],
   );
 
   const picker = useImagePicker((file) => {
-    if (!pending) return;
-    void submit(file, pending);
+    const pack = pendingRef.current;
+    if (!pack) return;
+    void submit(file, pack);
   });
 
   const groups = (catalog.data ?? []) as ShowEmojiGroup[];
@@ -278,6 +287,7 @@ export function ShowEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () => 
                     return;
                   }
                   setPending(pack);
+                  pendingRef.current = pack;
                   picker.open();
                 }}
               >
