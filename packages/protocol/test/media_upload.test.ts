@@ -944,6 +944,63 @@ describe('runNtv2Upload 的 fast-upload 分支', () => {
   it('finalizeMediaMsgInfo 缺 msgInfo 时抛错', () => {
     expect(() => finalizeMediaMsgInfo({})).toThrow(/缺少 msgInfo/);
   });
+
+  /**
+   * 回归测试：服务端上传响应里已经回了一份 `bytesPbReserveC2c`（只有 subType），
+   * 早期实现用 `target[key] ?? value` 合并，把客户端补的 35/36 整份丢掉 ——
+   * 真机抓包确认那是「QQ 秀表情是否正常渲染」的开关，丢了收端就回退成普通图片。
+   */
+  it('客户端的 bytesPbReserveC2c 覆盖服务端回的空壳（35/36 不能被丢）', () => {
+    // 服务端回的 msgInfo：pic 里带一份只有 subType 的 reserve。
+    const serverPicture = {
+      bizType: 1,
+      textSummary: '[动画表情]',
+      bytesPbReserveC2c: { subType: 0 },
+    };
+    const upload = {
+      msgInfo: {
+        msgInfoBody: [
+          {
+            index: {
+              fileUuid: 'u',
+              subType: 0,
+              info: { fileSize: 1, fileHash: 'm', fileSha1: 's', fileName: 'f' },
+            },
+            picture: { urlPath: '/download?fileid=x' },
+            fileExist: false,
+          },
+        ],
+        extBizInfo: { pic: serverPicture },
+      },
+    } as never;
+
+    const pack = new Uint8Array([0x01, 0x02, 0x03]);
+    const out = finalizeMediaMsgInfo(upload, {
+      pic: {
+        bizType: 1,
+        textSummary: '[动画表情]',
+        fromScene: 1,
+        toScene: 1,
+        bytesPbReserveC2c: {
+          subType: 1,
+          fileName: 'ABC',
+          field34: 0,
+          showEmojiType: 3,
+          showEmojiPack: pack,
+        },
+      },
+    });
+    const decoded = decode(UPLOAD_MSG_INFO, out) as Record<string, unknown>;
+    const ext = decoded.extBizInfo as Record<string, unknown>;
+    const pic = ext.pic as Record<string, unknown>;
+    // 服务端的空壳被覆盖，客户端的字段全部到位。
+    expect(pic.fromScene).toBe(1);
+    expect(pic.toScene).toBe(1);
+    const reserve = pic.bytesPbReserveC2c as Record<string, unknown>;
+    expect(reserve.showEmojiType).toBe(3);
+    expect(Array.from(reserve.showEmojiPack as Uint8Array)).toEqual([1, 2, 3]);
+    expect(reserve.fileName).toBe('ABC');
+  });
 });
 
 // ───────────────────────── 元素层：媒体拼装 ─────────────────────────

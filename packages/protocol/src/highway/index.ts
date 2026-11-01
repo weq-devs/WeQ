@@ -96,6 +96,7 @@ export {
   DEFAULT_BUBBLE_TEMPLATE,
   RICH_MEDIA_BUSINESS_TYPE,
   RICH_MEDIA_SERVICE_TYPE,
+  SHOW_EMOJI_BUSINESS_TYPE,
   uploadImageMsgInfo,
   uploadPttMsgInfo,
   uploadVideoMsgInfo,

@@ -45,27 +45,52 @@ const f = (
  */
 export const PIC_RESERVE_TROOP = message([
   f('subType', 1, 'uint32'),
-  f('field3', 3, 'uint32'),
-  f('field4', 4, 'uint32'),
+  f('field3', 3, 'uint32', { force: true }),
+  f('field4', 4, 'uint32', { force: true }),
   f('field9', 9, 'string'),
-  f('field10', 10, 'uint32'),
-  f('field12', 12, 'string'),
-  f('field18', 18, 'string'),
-  f('field19', 19, 'string'),
+  f('field10', 10, 'uint32', { force: true }),
+  f('field12', 12, 'string', { force: true }),
+  f('field18', 18, 'string', { force: true }),
+  f('field19', 19, 'string', { force: true }),
   f('field21', 21, 'bytes'),
 ]);
 
-/** 私聊 reserve（tag 11，NapCat `BytesPbReserveC2c`）—— 字段集与群聊版略不同。 */
+/**
+ * 私聊 reserve（tag 11，NapCat `BytesPbReserveC2c`）—— 字段集与群聊版略不同。
+ *
+ * ⚠️ `30` / `31` / `34` / `35` / `36` 是「QQ 秀 / 互动表情」用的格子，**必须声明**：
+ * `encode()` 只遍历 `schema.fields`，没声明的 tag 会被静默丢弃（与 `GENERAL_FLAGS`
+ * 同一个坑）。真机抓包（2026-10-31 / 11-01）解出的取值：
+ *
+ *   - `30` 下载 rkey（`&rkey=...`）。互动形态下**非必需**（实测删掉仍正常显示），
+ *     但普通动画表情建议带。
+ *   - `31` 文件名。静态那张是「大写 MD5、不带扩展名」，gif 那张是空串；字段**要在**，
+ *     是否为空不影响。
+ *   - `34` 常量 0。
+ *   - `35` 互动表情类型（两次样本都是 `3`）。
+ *   - `36` 互动表情包定义（玩法包 id / 元素 id / 颜色 / 布局帧），由
+ *     `resources/qqshow/show_emoji.json` 的目录拼出。
+ *
+ * 显示开关是 `35` + `36`：只有图片本体会被当成普通图片渲染（回退默认表情），
+ * 服务端不校验这些字段（缺了照样 result=0）。
+ */
 export const PIC_RESERVE_C2C = message([
   f('subType', 1, 'uint32'),
-  f('field3', 3, 'uint32'),
-  f('field4', 4, 'uint32'),
+  // 下面这些 0 值 / 空串在真机里是**显式**写的（字节 `18 00` / `20 00` 等），
+  // proto3 缺省会把它们省掉。收端按「字段存在」判断表情形态，所以全部 force。
+  f('field3', 3, 'uint32', { force: true }),
+  f('field4', 4, 'uint32', { force: true }),
   f('field8', 8, 'string'),
-  f('field10', 10, 'uint32'),
-  f('field12', 12, 'string'),
-  f('field18', 18, 'string'),
-  f('field19', 19, 'string'),
+  f('field10', 10, 'uint32', { force: true }),
+  f('field12', 12, 'string', { force: true }),
+  f('field18', 18, 'string', { force: true }),
+  f('field19', 19, 'string', { force: true }),
   f('field20', 20, 'bytes'),
+  f('rkey', 30, 'string'),
+  f('fileName', 31, 'string', { force: true }),
+  f('field34', 34, 'uint32', { force: true }),
+  f('showEmojiType', 35, 'uint32'),
+  f('showEmojiPack', 36, 'bytes'),
 ]);
 
 /** `extBizInfo.pic` 里的扩展数据（旧版兼容渲染用；等价于群聊 reserve 的前两个 tag）。 */
@@ -149,8 +174,18 @@ export const NTV2_UPLOAD_REQ_TOP = message([
 export const C2C_SOURCE = message([f('friendUid', 2, 'string')]);
 export const TROOP_SOURCE = message([f('groupUin', 1, 'uint32')]);
 
-/** msgInfoBody 里的来源标记：私聊填 c2c、群聊填 troop（QQ 端据此渲染会话来源）。 */
+/**
+ * msgInfoBody 里的 `hashSum`（tag 6）。
+ *
+ * 真机抓包（2026-11-01 私聊「马力全开」）里它是 `6 { 2: <20 字节> }` —— 一段媒体
+ * 内容指纹。**这个字段必须声明**：`encode()` 只遍历 `schema.fields`，没声明的 tag
+ * 会被静默丢弃（与 `PIC_RESERVE_C2C` 同一个坑）。丢了之后收端拿不到指纹，
+ * 表情会回退成普通图片。
+ *
+ * `201` / `202` 是来源标记（私聊 c2c / 群聊 troop）。
+ */
 export const HASH_SUM = message([
+  f('hashBytes', 2, 'bytes'),
   f('bytesPbReserveC2c', 201, C2C_SOURCE),
   f('troopSource', 202, TROOP_SOURCE),
 ]);
