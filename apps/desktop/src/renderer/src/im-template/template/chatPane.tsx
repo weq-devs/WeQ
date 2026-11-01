@@ -6420,6 +6420,8 @@ export function ChatPane({
             onSelect={insertEmoji}
             onSelectSuper={stageSuperEmoji}
             {...specialEmojiProps}
+            {...(emojiSendTarget ? { sendTarget: emojiSendTarget } : {})}
+            onSentCustomEmoji={closeEmojiPanelAfterSend}
             textOnly={generated}
           />
         ) : null}
