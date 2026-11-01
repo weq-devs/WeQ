@@ -1,0 +1,184 @@
+.weq-export-report-modal {
+  background: var(--weq-bg-surface);
+}
+
+.weq-export-report-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  color: var(--weq-fg-primary);
+}
+
+.weq-export-report-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+}
+
+.weq-export-report-header-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 28%, transparent);
+  border-radius: 10px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, var(--weq-bg-elevated));
+}
+
+.weq-export-report-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 680;
+  line-height: 1.35;
+}
+
+.weq-export-report-header p {
+  margin: 2px 0 0;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.weq-export-report-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-bg-elevated) 72%, transparent);
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.weq-export-report-option:has(.weq-set-toggle.is-on) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 7%, var(--weq-bg-elevated));
+}
+
+.weq-export-report-option-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-export-report-option .weq-set-row {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.weq-export-report-option .weq-set-row-main {
+  gap: 3px;
+}
+
+.weq-export-report-option .weq-set-row-label {
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  font-weight: 620;
+}
+
+.weq-export-report-option .weq-set-row-desc {
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.weq-export-report-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  padding: 0 2px;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.weq-export-report-note svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--weq-accent-effective);
+}
+
+.weq-export-report-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.weq-export-report-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+
+.weq-export-report-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.weq-export-report-button.is-soft {
+  border: 1px solid var(--weq-border-strong);
+  color: var(--weq-fg-primary);
+  background: transparent;
+}
+
+.weq-export-report-button.is-soft:hover {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 7%, transparent);
+}
+
+.weq-export-report-button.is-primary {
+  border: 1px solid var(--weq-accent-effective);
+  color: var(--primary-foreground);
+  background: var(--weq-accent-effective);
+}
+
+.weq-export-report-button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-export-report-option,
+  .weq-export-report-button {
+    transition: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .weq-export-report-dialog {
+    padding: 15px;
+  }
+  .weq-export-report-option {
+    align-items: flex-start;
+  }
+  .weq-export-report-actions > button {
+    flex: 1;
+  }
+}

@@ -148,20 +148,30 @@ const SHOW_EMOJI_PACK: ProtoMessage = message([
 
 /** 拼好的一条互动包：`35` 的取值 + `36` 的字节。 */
 export interface ShowEmojiReserve {
-  /** `35`：互动表情类型（两次抓包都是 3）。 */
+  /** `35`：互动表情类型，等于目录里的 `type`（1 互动动作 / 2 双人互动 / 3 接龙）。 */
   type: number;
   /** `36`：互动表情包定义。 */
   pack: Uint8Array;
 }
 
-/** 抓包里 `35` 恒为 3；本文件没有更多样本，先固定。 */
-const SHOW_EMOJI_TYPE_MARKER = 3;
-
 /**
  * 把一个目录包 + 变体拼成发送用的 `35` / `36`。
  *
+ * 两类包的形状不同，以两份真机抓包为准：
+ *
+ * **带 `13` 变体列表的包**（接龙类多数、少量互动动作，如「成语接龙」）——
+ *   `1/2` = 当前变体的 primary，`4/5` = secondary，`13/14` = mirror，
+ *   `16` = 目录 `type`，`18` = 1，`19` 逐条写 variants。
+ *
+ * **不带变体列表的包**（36 个，如「放烟花」——见 `~/Downloads` 2026-11-01 抓包）——
+ *   真机用的是**图标预览**那组：`1/2` = `actionPackId` + `elementIds`，
+ *   `4/5` = `preview.packId` + `preview.elementId`；**不写 `13/14`、不写 `18`、
+ *   不写 `19`**，`16` 仍是目录 `type`。
+ *
+ * `35` 在两份抓包里分别取 1 / 3，正好等于两类的 `type`，不是写死的常量。
+ *
  * @param pack      目录里的表情包
- * @param variant   变体下标（默认 0）
+ * @param variant   变体下标（默认 0；越界回退第一个）
  * @param senderUin 发送者 uin 的十进制串（写进 `36.3`；不给则留空）
  */
 export function buildShowEmojiReserve(
@@ -170,55 +180,63 @@ export function buildShowEmojiReserve(
   senderUin = '',
 ): ShowEmojiReserve {
   const chosen = pack.variants[variant] ?? pack.variants[0];
-  if (!chosen?.primary) {
-    throw new Error(`表情包 ${pack.id} 没有可用的变体`);
-  }
-  const primary = chosen.primary;
-  const secondary = chosen.secondary;
-
-  /*
-   * 顶层三个槽位的取值以真机抓包（2026-11-01「马力全开」）为准：
-   *   1/2  = 当前变体的 primary（包 id + 元素 id）
-   *   4/5  = **secondary 的包 id** + secondary 的元素 id
-   *   13/14 = 上一次抓包里与 1 相同，这次是另一个包（`3000000059`）——
-   *          语义未定，用 primary 兜底（与旧抓包一致）。
-   * 早前把 4 写成 `actionPackId` 是错的：真机里它指向 secondary。
-   */
-  const packId2 = secondary?.packId ?? primary.packId;
-  const elementIds2 = secondary?.elementIds ?? primary.elementIds;
   const frames = Array.isArray(pack.preview?.frames) ? pack.preview.frames : [];
-
-  const encoded = encode(SHOW_EMOJI_PACK, {
-    packId: primary.packId,
-    elementIds: primary.elementIds,
+  const common = {
     senderUin,
-    packId2,
-    elementIds2,
     field6: 15,
     field8: 1,
     strokeColor: pack.preview?.color?.stroke ?? '#C2C2C2FF',
     fillColor: pack.preview?.color?.fill ?? '#E3E3E3FF',
     field11: 540,
     field12: 540,
-    packId3: primary.packId,
-    elementIds3: primary.elementIds,
     name: pack.name,
-    field16: 3,
+    field16: pack.type,
     field17: 2,
-    field18: 1,
-    // 19 的每条：平铺的主/副包 id 与元素 id（见 SHOW_EMOJI_VARIANT 的注释）。
-    variants: pack.variants.map((v) => ({
-      primaryPackId: v.primary?.packId,
-      primaryElementIds: v.primary?.elementIds,
-      secondaryPackId: v.secondary?.packId,
-      secondaryElementIds: v.secondary?.elementIds,
-      flag: v.flag,
-    })),
     // 布局帧：目录里没有这份数据（0x957b 只给图标规格 8/9），有才写。
-    // 真机「马力全开」带 7 帧；缺帧时先按空处理 —— 是否影响显示待实测确认。
     ...(frames.length > 0 ? { frames, frames2: frames, frames3: frames } : {}),
+  };
+
+  if (chosen?.primary) {
+    const primary = chosen.primary;
+    const secondary = chosen.secondary;
+    const mirror = chosen.mirror ?? primary;
+    const encoded = encode(SHOW_EMOJI_PACK, {
+      packId: primary.packId,
+      elementIds: primary.elementIds,
+      packId2: secondary?.packId ?? primary.packId,
+      elementIds2: secondary?.elementIds ?? primary.elementIds,
+      packId3: mirror.packId,
+      elementIds3: mirror.elementIds,
+      field18: 1,
+      // 19 的每条：平铺的主/副包 id 与元素 id（见 SHOW_EMOJI_VARIANT 的注释）。
+      variants: pack.variants.map((v) => ({
+        primaryPackId: v.primary?.packId,
+        primaryElementIds: v.primary?.elementIds,
+        secondaryPackId: v.secondary?.packId,
+        secondaryElementIds: v.secondary?.elementIds,
+        flag: v.flag,
+      })),
+      ...common,
+    });
+    return { type: pack.type, pack: encoded };
+  }
+
+  /*
+   * 无变体包：`primary` 取目录的 `actionPackId` + `elementIds`（两者在真机上
+   * 拼成 `3000000018` + `2000000139`），`secondary` 取图标预览那一组。
+   * 目录缺这两项就无从拼起 —— 明确报错，不要发出一个半残的包。
+   */
+  if (!pack.actionPackId || pack.elementIds.length === 0 || !pack.preview?.packId) {
+    throw new Error(`表情包 ${pack.id}（${pack.name}）缺少可用的发送元素`);
+  }
+  const encoded = encode(SHOW_EMOJI_PACK, {
+    packId: pack.actionPackId,
+    elementIds: pack.elementIds,
+    packId2: pack.preview.packId,
+    elementIds2: pack.preview.elementId ? [pack.preview.elementId] : [],
+    ...common,
   });
-  return { type: SHOW_EMOJI_TYPE_MARKER, pack: encoded };
+  return { type: pack.type, pack: encoded };
 }
 
 // ─────────────────────────── 目录读取 ───────────────────────────

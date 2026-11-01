@@ -68,16 +68,6 @@
   line-height: 1.5;
 }
 
-.show-emoji-error {
-  margin: 0;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--destructive, #d93f3f) 10%, transparent);
-  color: var(--destructive, #d93f3f);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
 /* ── 分组 ───────────────────────────────────────────────── */
 
 .show-emoji-section {

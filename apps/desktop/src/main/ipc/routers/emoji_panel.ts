@@ -144,12 +144,16 @@ export const emojiPanelRouter = router({
    * 与自定义表情的差别只有两处：`businessType` 换成 10、`pic.11` 里补 `35/36`
    * （互动包定义，由目录里选中的 `packId` 拼出）。缺了 `35/36` 收端会回退成
    * 普通图片 —— 已用真机重放验证过。
+   *
+   * 私聊 / 群聊都收：两边的 reserve 都带 `35/36`，走同一条上传链路。
    */
   sendShowEmoji: procedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
         targetId: z.string().min(1),
+        /** 群临时会话的来源群号（会话行的 `60001`）。 */
+        tempGroupCode: z.string().min(1).optional(),
         source: z.any(),
         /** 目录里的表情包 id（`iconUrl` 那格的 id）。 */
         packId: z.string().min(1),
@@ -159,10 +163,6 @@ export const emojiPanelRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      if (input.peerType !== 'c2c') {
-        // 抓到的样本都是私聊；群聊形态没验证过，不要凭猜发送。
-        throw new Error('QQ 秀表情目前只支持私聊');
-      }
       const source = elementsFromEditable(input.source) as Uint8Array;
       if (!(source instanceof Uint8Array) || source.byteLength === 0) {
         throw new Error('表情图片为空，无法发送。');
@@ -175,8 +175,9 @@ export const emojiPanelRouter = router({
         selfUin,
       );
       const outcome = await services.messageSend.sendMedia({
-        peerType: 'c2c',
+        peerType: input.peerType,
         targetId: input.targetId,
+        ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
         kind: 'image',
         source,
         subType: 1,

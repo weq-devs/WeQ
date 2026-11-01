@@ -53,6 +53,10 @@ export const PIC_RESERVE_TROOP = message([
   f('field18', 18, 'string', { force: true }),
   f('field19', 19, 'string', { force: true }),
   f('field21', 21, 'bytes'),
+  // 下面两格与私聊版同义：`35` 互动表情类型、`36` 互动表情包定义。没声明的 tag
+  // 会被 `encode()` 静默丢弃（与 `PIC_RESERVE_C2C` 同一个坑）。
+  f('showEmojiType', 35, 'uint32'),
+  f('showEmojiPack', 36, 'bytes'),
 ]);
 
 /**
