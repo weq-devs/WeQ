@@ -8,7 +8,7 @@
  *    与编码器当前的宽高对不上时，`NativeVideoEncoder.pushFrame` 会**静默丢帧** ——
  *    没有任何报错，表现只是「共享了但对方什么都看不到」。所以尺寸推导必须
  *    严格保持源宽高比、对齐偶数。
- * 2. **摄像头档位跟随 `dev` 主线**（640×360 / 15 fps / 30 kbps），屏幕共享档位
+ * 2. **摄像头档位对齐 QQ 本体**（640×360 / 15 fps / 300 kbps），屏幕共享档位
  *    则按真机实测（960×540 / 15 fps / 1.2 Mbps），两者别混着改。
  */
 
@@ -21,13 +21,20 @@ import {
 } from '../src/shared/call_video_profile';
 
 describe('视频采集档位', () => {
-  it('摄像头档位跟随 dev 主线：640×360 / 15 fps / 30 kbps', () => {
-    // 曾按真机实测上调到 480×270 / 12 fps / 300 kbps，后来要求与主线口径一致，
-    // 三项全部回退。要再动请连同 `dev` 主线一起改，别只改这里。
+  it('摄像头档位对齐 QQ 本体：640×360 / 15 fps / 300 kbps', () => {
+    // 30 kbps 是「静态画面下 ABR 的实际输出」被当成了目标码率，运动时严重欠码：
+    // 2026-11-02 同一通电话逐包对齐，QQ 上行单帧 2123 B、WeQ 只有 517 B。
+    // 300 kbps 给 15 fps×2123 B（≈255 kbps）留了关键帧余量。
     expect(CAMERA_PROFILE.width).toBe(640);
     expect(CAMERA_PROFILE.height).toBe(360);
-    expect(CAMERA_PROFILE.bitrateKbps).toBe(30);
+    expect(CAMERA_PROFILE.bitrateKbps).toBe(300);
     expect(CAMERA_PROFILE.fps).toBe(15);
+  });
+
+  it('摄像头码率要够支撑 QQ 的单帧大小', () => {
+    // 每帧预算 = 码率 / 帧率。QQ 实测单帧均值 2123 B，留 15% 余量。
+    const bytesPerFrame = (CAMERA_PROFILE.bitrateKbps * 1000) / 8 / CAMERA_PROFILE.fps;
+    expect(bytesPerFrame).toBeGreaterThan(2123 * 1.15);
   });
 
   it('屏幕共享档位是 960×540 / 15 fps / 1.2 Mbps', () => {
