@@ -62,7 +62,7 @@ interface UdpSessionState {
   elevated: boolean;
 }
 
-/** 前端保留上限：UDP 包多，超出裁掉最旧的。 */
+/** 前端只保留最近数据供界面浏览；全量数据由主进程写入本地 pcapng。 */
 const MAX_FRAMES = 4000;
 /** 长轮询单次等待。 */
 const POLL_WAIT_MS = 1000;
@@ -206,6 +206,7 @@ export function UdpCapturePanel(): ReactElement {
 
   const [support, setSupport] = useState<UdpSupportWire | null>(null);
   const [session, setSession] = useState<UdpSessionState | null>(null);
+  const [fullExportSession, setFullExportSession] = useState<UdpSessionState | null>(null);
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [frames, setFrames] = useState<UdpFrameWire[]>([]);
@@ -321,6 +322,7 @@ export function UdpCapturePanel(): ReactElement {
       setFrames([]);
       setDropped(0);
       setSession(next);
+      setFullExportSession(next);
       setRunning(true);
     } catch (e) {
       setError(errMsg(e));
@@ -438,7 +440,9 @@ export function UdpCapturePanel(): ReactElement {
           {session ? `${session.iface}:${session.port}` : '未连接'}
         </span>
         <span className="weq-udp-metrics">
-          <span>数据报 {frames.length}</span>
+          <span title="列表只保留最近 4000 条；完整记录持续写入本地 pcapng 文件">
+            列表 {frames.length}
+          </span>
           {dropped > 0 ? (
             <span title="环形缓冲淘汰：取帧太慢，数据被更新的帧挤掉了（不是网络丢包）">
               缓冲溢出 {dropped}
@@ -491,6 +495,29 @@ export function UdpCapturePanel(): ReactElement {
         >
           <Download size={14} />
           导出
+        </button>
+        <button
+          type="button"
+          className="weq-udp-btn"
+          disabled={!fullExportSession}
+          title="导出本次抓到的全部数据报（pcapng）"
+          onClick={async () => {
+            if (!fullExportSession) return;
+            try {
+              const result = await client.udpCapture.exportFull.mutate({
+                pid: fullExportSession.pid,
+                sessionId: fullExportSession.sessionId,
+              });
+              if (result.saved)
+                toast.push({ tone: 'success', title: '完整抓包已导出', detail: result.path });
+              else if (!result.canceled)
+                toast.push({ tone: 'error', title: '导出失败', detail: result.error });
+            } catch (e) {
+              toast.push({ tone: 'error', title: '导出失败', detail: errMsg(e) });
+            }
+          }}
+        >
+          <Download size={14} /> 全量 pcapng
         </button>
         <button
           type="button"

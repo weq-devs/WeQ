@@ -317,6 +317,14 @@ export class PcapngStream {
     this.packets += 1;
   }
 
+  /** 等待当前写队列排空，供抓包仍在运行时安全复制文件。 */
+  async flush(): Promise<void> {
+    if (this.failed || this.stream.destroyed) return;
+    await new Promise<void>((resolve, reject) => {
+      this.stream.write(Buffer.alloc(0), (error) => (error ? reject(error) : resolve()));
+    });
+  }
+
   /** 收尾：把写流关干净。幂等。 */
   async close(): Promise<void> {
     if (this.failed) return;
