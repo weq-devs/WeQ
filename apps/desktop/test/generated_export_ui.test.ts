@@ -139,7 +139,11 @@ it('生成对话只提供单个保存动作，遵循全局偏好', async () => {
     const button = f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!;
     await act(async () => button.click());
     await act(async () =>
-      document.querySelector<HTMLButtonElement>('.weq-dialog-actions .weq-action-primary')!.click(),
+      document
+        .querySelector<HTMLButtonElement>(
+          '.weq-export-report-actions .weq-export-report-button.is-primary',
+        )!
+        .click(),
     );
     expect(prepare).toHaveBeenCalledWith(undefined, { kind: 'bundle', name: '生成对话' });
     expect(fixture.start).toHaveBeenCalledWith(
@@ -192,7 +196,11 @@ it('精确选择按原身份交给任务，等待保存时来源选择的外部�
     expect(f.host.textContent).toContain('精确选中 2 条消息');
     await act(async () => f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click());
     await act(async () =>
-      document.querySelector<HTMLButtonElement>('.weq-dialog-actions .weq-action-primary')!.click(),
+      document
+        .querySelector<HTMLButtonElement>(
+          '.weq-export-report-actions .weq-export-report-button.is-primary',
+        )!
+        .click(),
     );
     f.selection.scope.ids.push('b');
     expect(fixture.start).not.toHaveBeenCalled();

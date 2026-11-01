@@ -81,7 +81,7 @@ async function mount(selection?: ContentSelection) {
     submit: async () => {
       await act(async () => host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click());
       const confirm = document.querySelector<HTMLButtonElement>(
-        '.weq-dialog-actions .weq-action-primary',
+        '.weq-export-report-actions .weq-export-report-button.is-primary',
       );
       if (confirm) await act(async () => confirm.click());
     },

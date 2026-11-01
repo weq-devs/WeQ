@@ -201,13 +201,21 @@ it.each([false, true])(
     state.prepare.mockResolvedValueOnce(null);
     await act(async () => host.querySelector<HTMLButtonElement>('.weq-qzal-download')!.click());
     await act(async () =>
-      document.querySelector<HTMLButtonElement>('.weq-dialog-actions .weq-action-primary')!.click(),
+      document
+        .querySelector<HTMLButtonElement>(
+          '.weq-export-report-actions .weq-export-report-button.is-primary',
+        )!
+        .click(),
     );
     expect(state.albums).not.toHaveBeenCalled();
     expect(host.textContent).toContain('已选 1 个相册');
     await act(async () => host.querySelector<HTMLButtonElement>('.weq-qzal-download')!.click());
     await act(async () =>
-      document.querySelector<HTMLButtonElement>('.weq-dialog-actions .weq-action-primary')!.click(),
+      document
+        .querySelector<HTMLButtonElement>(
+          '.weq-export-report-actions .weq-export-report-button.is-primary',
+        )!
+        .click(),
     );
     expect(state.albums).toHaveBeenCalledWith(
       expect.objectContaining({

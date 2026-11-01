@@ -76,7 +76,9 @@ it.each(['zip', 'favorite-zip'] as const)(
       await act(async () => host.querySelector<HTMLButtonElement>('.weq-epk-start')!.click());
       await act(async () =>
         document
-          .querySelector<HTMLButtonElement>('.weq-dialog-actions .weq-action-primary')!
+          .querySelector<HTMLButtonElement>(
+            '.weq-export-report-actions .weq-export-report-button.is-primary',
+          )!
           .click(),
       );
       expect(prepare).toHaveBeenCalledWith(
@@ -130,7 +132,11 @@ it.each([false, true])('表情导出固定点击时的来源，准备后来源�
     );
     act(() => host.querySelector<HTMLButtonElement>('.weq-epk-start')!.click());
     await act(async () =>
-      document.querySelector<HTMLButtonElement>('.weq-dialog-actions .weq-action-primary')!.click(),
+      document
+        .querySelector<HTMLButtonElement>(
+          '.weq-export-report-actions .weq-export-report-button.is-primary',
+        )!
+        .click(),
     );
     expect(prepare).toHaveBeenCalledOnce();
     binding.expectedAccountConfigId = 'source-b';
