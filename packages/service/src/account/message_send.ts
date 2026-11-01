@@ -217,6 +217,13 @@ export interface SendMediaParams {
   thumb?: MediaSource;
   /** 收端显示的文件名（图片/视频；缺省按 md5 + 扩展名）。 */
   fileName?: string;
+  /**
+   * QQ 秀 / 互动表情：`35` 的类型 + `36` 的互动包定义。
+   *
+   * 给了就走 `businessType=10` 并把这些字段写进 `pic.bytesPbReserveC2c`；
+   * 缺了收端会把图当普通图片渲染。用 `ShowEmojiCatalog.buildReserve` 生成。
+   */
+  showEmoji?: { type: number; pack: Uint8Array };
 }
 
 export interface SendElementsParams {
@@ -1532,6 +1539,7 @@ export function buildMediaElement(params: SendMediaParams): SendElement {
         ...(params.width !== undefined ? { width: params.width } : {}),
         ...(params.height !== undefined ? { height: params.height } : {}),
         ...(params.picFormat !== undefined ? { picFormat: params.picFormat } : {}),
+        ...(params.showEmoji !== undefined ? { showEmoji: params.showEmoji } : {}),
       };
     case 'record':
       return {

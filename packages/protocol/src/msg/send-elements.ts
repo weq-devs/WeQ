@@ -345,6 +345,13 @@ export interface SendImageElement {
    * 时给：跳过读本地文件，直接走 NTV2 fast-upload（对齐 SnowLuma 的 forward 路径）。
    */
   fingerprint?: MediaFingerprint;
+  /**
+   * 按「QQ 秀 / 互动表情」形态发送（`businessType=10` + `pic.11` 的 35/36）。
+   *
+   * `pack` 由 `ShowEmojiCatalog.buildReserve` 拼出；缺了它收端会把图当普通图片渲染
+   * （即用户看到的「回退默认表情」）。
+   */
+  showEmoji?: { type: number; pack: Uint8Array };
 }
 
 /**

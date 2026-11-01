@@ -820,6 +820,31 @@ export {
   QQ_SHOW_FETCH_CONCURRENCY,
 } from './account/qq_show';
 export type { ChatQqShowOptions, QqShowResolved } from './account/qq_show';
+export {
+  ShowEmojiCatalog,
+  buildShowEmojiReserve,
+  findShowEmojiPack,
+  groupShowEmojiPacks,
+  parseShowEmojiCatalog,
+  SHOW_EMOJI_TYPE,
+} from './account/show_emoji';
+export type {
+  ShowEmojiCatalogFile,
+  ShowEmojiCatalogOptions,
+  ShowEmojiFrame,
+  ShowEmojiPack,
+  ShowEmojiReserve,
+  ShowEmojiVariant,
+} from './account/show_emoji';
+export {
+  CustomEmojiRecentService,
+  CUSTOM_EMOJI_RECENT_MAX,
+  CUSTOM_EMOJI_RECENT_TTL_DAYS,
+} from './account/custom_emoji_recent';
+export type {
+  CustomEmojiRecentEntry,
+  CustomEmojiRecentOptions,
+} from './account/custom_emoji_recent';
 export { ChatImageOcrService } from './account/ocr_image';
 export type { ChatImageOcrParams, ChatImageOcrResult } from './account/ocr_image';
 export { InteractionService } from './account/interaction';

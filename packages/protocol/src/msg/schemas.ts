@@ -583,26 +583,39 @@ export const INLINE_KEYBOARD_PB: ProtoMessage = message([f('group', 1, INLINE_KE
  * 位置共享卡片因此发不出去（实测：缺这些字段时卡片不可点）。
  */
 export const FONT_INFO: ProtoMessage = message([
-  f('flag1', 1, 'uint32'),
+  f('flag1', 1, 'uint32', { force: true }),
   f('flag4', 4, 'uint32'),
   f('fontId2', 15, 'uint32'),
   f('flag20', 20, 'uint32'),
-  f('flag25', 25, 'uint32'),
-  f('flag30', 30, 'uint32'),
-  f('flag31', 31, 'uint32'),
-  f('flag34', 34, 'uint32'),
+  f('flag25', 25, 'uint32', { force: true }),
+  f('flag30', 30, 'uint32', { force: true }),
+  f('flag31', 31, 'uint32', { force: true }),
+  f('flag34', 34, 'uint32', { force: true }),
+  f('flag41', 41, 'uint32', { force: true }),
   f('flag51', 51, 'uint32'),
   f('flag52', 52, 'uint32'),
-  f('flag54', 54, 'uint32'),
+  f('flag55', 55, 'uint32', { force: true }),
+  f('flag54', 54, 'uint32', { force: true }),
   f('fontId1', 56, 'uint32'),
   f('flag58', 58, 'uint32'),
   f('flag61', 61, 'uint32'),
   f('nested65', 65, message([f('flag2', 2, 'uint32')])),
   f('flag66', 66, 'uint64'),
   f('flag71', 71, 'uint32'),
-  f('flag72', 72, 'uint32'),
-  f('nested73', 73, message([f('flag2', 2, 'uint32'), f('flag6', 6, 'uint32')])),
+  f('flag72', 72, 'uint32', { force: true }),
+  f(
+    'nested73',
+    73,
+    message([
+      f('flag1', 1, 'uint32', { force: true }),
+      f('flag2', 2, 'uint32', { force: true }),
+      f('flag3', 3, 'uint32', { force: true }),
+      f('flag4', 4, 'uint32', { force: true }),
+      f('flag7', 7, 'uint32', { force: true }),
+    ]),
+  ),
   f('flag79', 79, 'uint32'),
+  f('flag96', 96, 'uint32', { force: true }),
   f('flag81', 81, 'uint32'),
   f(
     'nested102',
@@ -625,7 +638,7 @@ export const FONT_INFO: ProtoMessage = message([
 ]);
 
 export const GENERAL_FLAGS: ProtoMessage = message([
-  f('bubbleDiyTextId', 1, 'int32'),
+  f('bubbleDiyTextId', 1, 'int32', { force: true }),
   f('groupFlagNew', 2, 'int32'),
   f('uin', 3, 'uint64'),
   f('longTextFlag', 6, 'int32'),
@@ -633,7 +646,8 @@ export const GENERAL_FLAGS: ProtoMessage = message([
   f('flag10', 10, 'int32'),
   f('flag12', 12, 'int32'),
   f('flag13', 13, 'int32'),
-  f('widgetId', 17, 'uint32'),
+  f('widgetId', 17, 'uint32', { force: true }),
+  f('flag16', 16, 'int32', { force: true }),
   f('font', 19, FONT_INFO),
 ]);
 
