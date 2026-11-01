@@ -14,11 +14,12 @@
  */
 
 import { z } from 'zod';
-import { writeFile } from 'node:fs/promises';
+import { copyFile, writeFile } from 'node:fs/promises';
 import { getHost } from '@weq/service';
 import { procedure, router } from '../trpc';
 import {
   disposeUdpCaptures,
+  flushUdpCaptureFile,
   listProcessesWithModule,
   probeProcessScan,
   probeUdpCaptureBackend,
@@ -297,6 +298,25 @@ export const udpCaptureRouter = router({
           bytes: bytes.length,
           datagrams: input.frames.length,
         };
+      } catch (error) {
+        return { saved: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }),
+
+  /** 将主进程持续记录的完整 pcapng 抓包文件另存到用户选择的位置。 */
+  exportFull: procedure
+    .input(z.object({ pid: z.number().int().positive(), sessionId: z.string().min(1).max(128) }))
+    .mutation(async ({ input }) => {
+      try {
+        const source = await flushUdpCaptureFile(input.pid, input.sessionId);
+        const target = await getHost().pickSaveTarget({
+          locationKey: 'udp-capture',
+          defaultName: `udp_full_${fileStamp()}.pcapng`,
+          extension: 'pcapng',
+        });
+        if (!target) return { saved: false, canceled: true };
+        await copyFile(source, target.path);
+        return { saved: true, path: target.path, downloadId: target.downloadId };
       } catch (error) {
         return { saved: false, error: error instanceof Error ? error.message : String(error) };
       }
