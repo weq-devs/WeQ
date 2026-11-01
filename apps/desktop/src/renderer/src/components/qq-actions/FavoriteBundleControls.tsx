@@ -15,8 +15,9 @@ function FavoriteBundleControlsBody({ onChanged }: { onChanged: () => Promise<vo
         available={action.available && !action.pending}
         onBusyChange={setBusy}
         onChanged={onChanged}
+        showLabel
       />
-      <FavoriteBundleExport binding={action.binding} disabled={action.disabled || busy} />
+      <FavoriteBundleExport binding={action.binding} disabled={action.disabled || busy} showLabel />
     </div>
   );
 }

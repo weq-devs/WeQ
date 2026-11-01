@@ -29,11 +29,14 @@ export function withQQAccountScope<P extends object>(Component: ComponentType<P>
 
 export function ActionIcon({
   label,
+  text,
   children,
   disabled,
   onClick,
 }: {
   label: string;
+  /** 紧凑工具条里可同时显示的动作名称；图标按钮仍由 label 提供完整可访问名称。 */
+  text?: string;
   children: ReactNode;
   disabled?: boolean;
   onClick: () => void;
@@ -42,13 +45,14 @@ export function ActionIcon({
     <button
       type="button"
       data-qq-action
-      className="weq-set-iconbtn"
+      className={`weq-set-iconbtn${text ? ' has-label' : ''}`}
       title={label}
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
     >
       {children}
+      {text && <span className="weq-set-iconbtn-label">{text}</span>}
     </button>
   );
 }

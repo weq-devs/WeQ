@@ -458,6 +458,57 @@ describe('uploadImageMsgInfo', () => {
     expect(req.upload?.extBizInfo?.pic?.bytesPbReserveC2c).toBeUndefined();
   });
 
+  /**
+   * 群聊的 QQ 秀表情：`35` + `36` 必须进群 reserve。
+   *
+   * 这两个格子早前只声明在私聊 schema 上，群聊分支又直接把 `showEmoji` 丢掉 ——
+   * 结果会发出「businessType=10 但 reserve 里没有 35/36」的组合，收端按普通图片
+   * 渲染。这里锁住群聊那条路也要带上它们。
+   */
+  it('群聊 QQ 秀：troop reserve 带上 35/36', async () => {
+    const native = makeNative({ oidb: () => uploadResponse() });
+    const pack = new Uint8Array([0x0a, 0x02, 0x01, 0x02]);
+    await uploadImageMsgInfo(native, 42, GROUP_TARGET, {
+      source: TINY_PNG,
+      subType: 1,
+      summary: '[动画表情]',
+      showEmoji: { type: 1, pack },
+    });
+    const req = decode(NTV2_UPLOAD_REQ_TOP, native.oidbCalls[0]!.body) as {
+      upload?: { extBizInfo?: { pic?: Record<string, unknown> } };
+    };
+    const pic = req.upload?.extBizInfo?.pic as Record<string, unknown> | undefined;
+    const troop = pic?.bytesPbReserveTroop as
+      | { showEmojiType?: number; showEmojiPack?: Uint8Array }
+      | undefined;
+    expect(pic?.bytesPbReserveC2c).toBeUndefined();
+    expect(troop?.subType).toBe(1);
+    expect(troop?.showEmojiType).toBe(1);
+    expect(Array.from(troop!.showEmojiPack!)).toEqual(Array.from(pack));
+  });
+
+  /** 私聊那条路的字段集在群聊改造后必须原样保留（含 reserve 的 8=textSummary）。 */
+  it('私聊 QQ 秀：c2c reserve 字段集不变', async () => {
+    const native = makeNative({ oidb: () => uploadResponse() });
+    const pack = new Uint8Array([0x0a, 0x02, 0x01, 0x02]);
+    await uploadImageMsgInfo(native, 42, C2C_TARGET, {
+      source: TINY_PNG,
+      subType: 1,
+      summary: '[动画表情]',
+      showEmoji: { type: 3, pack },
+    });
+    const req = decode(NTV2_UPLOAD_REQ_TOP, native.oidbCalls[0]!.body) as {
+      upload?: { extBizInfo?: { pic?: Record<string, unknown> } };
+    };
+    const pic = req.upload?.extBizInfo?.pic as Record<string, unknown> | undefined;
+    const c2c = pic?.bytesPbReserveC2c as Record<string, unknown> | undefined;
+    expect(pic?.bytesPbReserveTroop).toBeUndefined();
+    expect(c2c?.subType).toBe(1);
+    expect(c2c?.field8).toBe('[动画表情]');
+    expect(c2c?.showEmojiType).toBe(3);
+    expect(Array.from(c2c!.showEmojiPack as Uint8Array)).toEqual(Array.from(pack));
+  });
+
   it('指纹免字节：不读本地文件，按 md5/sha1/尺寸报 fast-upload', async () => {
     const native = makeNative({ oidb: () => uploadResponse() });
     const md5Hex = '0f343b0931126a20f133d67c2b018a3b';

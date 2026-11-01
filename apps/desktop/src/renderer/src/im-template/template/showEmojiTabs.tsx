@@ -15,6 +15,7 @@ import { ImagePlus, Loader2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { cn } from './classNames';
 import { qqShowUrl } from '../../lib/resourceUrl';
+import { useToast } from '../../components/Toast';
 
 /** 单张图片上限 10 MB —— 与 IPC 侧的限制保持一致。 */
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -60,10 +61,26 @@ function useImagePicker(onPick: (file: File) => void) {
   return { open, element };
 }
 
-/** 统一的错误文案：把主进程抛出来的中文提示原样展示，未知错误给兜底。 */
+/** 统一文案：把主进程抛出来的中文提示原样展示，未知错误给兜底。 */
 function errorText(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   return '发送失败，请稍后重试。';
+}
+
+/**
+ * 统一的错误出口：失败一律走右下角 toast。
+ *
+ * 面板窄、层级又压在输入框上方，就地插一行红字既挤又容易被忽略；发送是「点一下
+ * 就结束了」的一次性操作，结果该跟其它发送路径一样落在 toast 上。
+ */
+function useSendFailureToast(): (error: unknown) => void {
+  const pushToast = useToast((state) => state.push);
+  return useCallback(
+    (error: unknown) => {
+      pushToast({ tone: 'error', title: '表情发送失败', detail: errorText(error) });
+    },
+    [pushToast],
+  );
 }
 
 // ─────────────────────────── 自定义表情 ───────────────────────────
@@ -84,14 +101,13 @@ export function CustomEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () =
     staleTime: 10_000,
   });
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const sendCustom = trpc.account.emojiPanel.sendCustomEmoji.useMutation();
+  const toastFailure = useSendFailureToast();
 
   const submit = useCallback(
     async (file: File) => {
-      setError(null);
       if (file.size > MAX_BYTES) {
-        setError('图片超过 10 MB，请换一张。');
+        toastFailure(new Error('图片超过 10 MB，请换一张。'));
         return;
       }
       setSending(true);
@@ -106,17 +122,17 @@ export function CustomEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () =
         await utils.account.emojiPanel.customEmojiRecent.invalidate();
         onSent();
       } catch (cause) {
-        setError(errorText(cause));
+        toastFailure(cause);
       } finally {
         setSending(false);
       }
     },
-    [ctx, onSent, sendCustom, utils],
+    [ctx, onSent, sendCustom, toastFailure, utils],
   );
 
   const picker = useImagePicker((file) => {
     if (ctx.disabled) {
-      setError(ctx.disabledHint);
+      toastFailure(new Error(ctx.disabledHint));
       return;
     }
     void submit(file);
@@ -143,8 +159,6 @@ export function CustomEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () =
         <span>{sending ? '发送中…' : '选择图片或 GIF'}</span>
       </button>
       <p className={cn('show-emoji-hint')}>支持 JPG / PNG / GIF / WebP，单张不超过 10 MB</p>
-
-      {error ? <p className={cn('show-emoji-error')}>{error}</p> : null}
 
       {entries.length > 0 ? (
         <section className={cn('show-emoji-section')}>
@@ -210,14 +224,13 @@ export function ShowEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () => 
   // 还是上一轮的 state（setPending 尚未生效），所以用 ref 读到最新值。
   const pendingRef = useRef<ShowEmojiPack | null>(null);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const sendShow = trpc.account.emojiPanel.sendShowEmoji.useMutation();
+  const toastFailure = useSendFailureToast();
 
   const submit = useCallback(
     async (file: File, pack: ShowEmojiPack) => {
-      setError(null);
       if (file.size > MAX_BYTES) {
-        setError('图片超过 10 MB，请换一张。');
+        toastFailure(new Error('图片超过 10 MB，请换一张。'));
         return;
       }
       setSending(true);
@@ -225,6 +238,7 @@ export function ShowEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () => 
         await sendShow.mutateAsync({
           peerType: ctx.peerType,
           targetId: ctx.targetId,
+          ...(ctx.tempGroupCode ? { tempGroupCode: ctx.tempGroupCode } : {}),
           source: await fileToBytes(file),
           packId: pack.id,
           // 接龙类的不同变体是不同关卡，默认用第一个。
@@ -234,14 +248,14 @@ export function ShowEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () => 
         await utils.account.emojiPanel.customEmojiRecent.invalidate();
         onSent();
       } catch (cause) {
-        setError(errorText(cause));
+        toastFailure(cause);
       } finally {
         setSending(false);
         setPending(null);
         pendingRef.current = null;
       }
     },
-    [ctx, onSent, sendShow, utils],
+    [ctx, onSent, sendShow, toastFailure, utils],
   );
 
   const picker = useImagePicker((file) => {
@@ -259,8 +273,6 @@ export function ShowEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () => 
       <p className={cn('show-emoji-hint')}>
         先选一个动作，再选择图片；图片会与这个动作的效果一起发出
       </p>
-
-      {error ? <p className={cn('show-emoji-error')}>{error}</p> : null}
 
       {catalog.isLoading ? <div className={cn('emoji-state')}>加载中…</div> : null}
       {!catalog.isLoading && groups.length === 0 ? (
@@ -283,7 +295,7 @@ export function ShowEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () => 
                 disabled={ctx.disabled || sending}
                 onClick={() => {
                   if (ctx.disabled) {
-                    setError(ctx.disabledHint);
+                    toastFailure(new Error(ctx.disabledHint));
                     return;
                   }
                   setPending(pack);

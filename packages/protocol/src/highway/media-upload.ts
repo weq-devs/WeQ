@@ -419,33 +419,40 @@ export async function uploadImageMsgInfo(
   ];
 
   const picReserve = (() => {
-    if (!target.isGroup && showEmoji) {
-      // 字段集照真机抓包（2026-11-01「马力全开」）逐字段对齐：
-      //   1 subType / 3,4,10,34 = 0 / 12,18,19 = "" / 20 = 12 字节空壳
-      //   30 rkey / 31 文件名 / 35 类型 / 36 互动包
-      // 前后两段 0 值由 schema 的 force 保证上 wire。
-      return {
-        subType,
-        field3: 0,
-        field4: 0,
-        field10: 0,
-        field12: '',
-        field18: '',
-        field19: '',
-        // 真机 20 = `08 00 12 00 18 00 20 00 28 00 3a 00`（12 字节空壳）
-        field20: new Uint8Array([
-          0x08, 0x00, 0x12, 0x00, 0x18, 0x00, 0x20, 0x00, 0x28, 0x00, 0x3a, 0x00,
-        ]),
-        // 30 是下载 rkey：服务端已在上传响应的 pic 里给了一份，这里不覆盖（保留它）。
-        fileName: hashes.md5Hex.toUpperCase(),
-        field34: 0,
-        showEmojiType: showEmoji.type,
-        showEmojiPack: showEmoji.pack,
-      };
+    if (!showEmoji) {
+      return target.isGroup
+        ? { bytesPbReserveTroop: { subType } }
+        : { bytesPbReserveC2c: { subType } };
     }
+    // 互动表情：`35`(类型) + `36`(互动包定义) 是收端的显示开关，缺了按普通图片渲染。
+    // 两边 reserve 都带上这两个格子（群聊版 schema 也声明了 35/36）。
+    //
+    // 字段集照**私聊**真机抓包（2026-11-01「马力全开」）逐字段对齐：
+    //   1 subType / 3,4,10,34 = 0 / 12,18,19 = "" / 20 = 12 字节空壳
+    //   30 rkey / 31 文件名 / 35 类型 / 36 互动包
+    // 前后两段 0 值由 schema 的 force 保证上 wire。
+    const base = {
+      subType,
+      field3: 0,
+      field4: 0,
+      field10: 0,
+      field12: '',
+      field18: '',
+      field19: '',
+      // 真机 20 = `08 00 12 00 18 00 20 00 28 00 3a 00`（12 字节空壳）
+      field20: new Uint8Array([
+        0x08, 0x00, 0x12, 0x00, 0x18, 0x00, 0x20, 0x00, 0x28, 0x00, 0x3a, 0x00,
+      ]),
+      // 30 是下载 rkey：服务端已在上传响应的 pic 里给了一份，这里不覆盖（保留它）。
+      fileName: hashes.md5Hex.toUpperCase(),
+      field34: 0,
+      showEmojiType: showEmoji.type,
+      showEmojiPack: showEmoji.pack,
+    };
     return target.isGroup
-      ? { bytesPbReserveTroop: { subType } }
-      : { bytesPbReserveC2c: { subType } };
+      ? { bytesPbReserveTroop: base }
+      : // 私聊 reserve 的 `8` 也带一遍 textSummary（真机如此）；群聊 schema 没有这一格。
+        { bytesPbReserveC2c: { ...base, field8: summary } };
   })();
 
   const upload = await runNtv2Upload(nt, pid, {
@@ -461,14 +468,12 @@ export async function uploadImageMsgInfo(
       pic: {
         bizType: subType,
         textSummary: summary,
-        // 群/私聊各带一个 reserve（NapCat：bytesPbReserveTroop / bytesPbReserveC2c），
-        // 都填 subType。**漏了不会报错，但服务端不会把文件真的落到该子类型的存储桶，
+        // 群/私聊各带一个 reserve（NapCat：bytesPbReserveTroop / bytesPbReserveC2c）。
+        // **漏了不会报错，但服务端不会把文件真的落到该子类型的存储桶，
         // 收端一律显示「图片已过期」** —— 真机验证过的坑，不要省这两个字段。
-        // 互动表情：真机的 reserve 里 8(textSummary) 也在，上传时就得带上，
-        // 服务端才会原样回填到 msgInfo。
-        ...(target.isGroup
-          ? { bytesPbReserveTroop: { subType } }
-          : { bytesPbReserveC2c: showEmoji ? { subType, field8: summary } : { subType } }),
+        // 互动表情的 35/36 也在这里就带上：上传与发出必须用同一份 reserve，
+        // 否则服务端回填的空壳会把它们顶掉。
+        ...picReserve,
       },
       ...extBizPlaceholders(target.isGroup),
     },
@@ -483,9 +488,7 @@ export async function uploadImageMsgInfo(
       textSummary: summary,
       // 真机互动表情的 pic 带 fromScene/toScene = 1（普通图片没有）。
       ...(showEmoji ? { fromScene: 1, toScene: 1 } : {}),
-      ...(target.isGroup
-        ? { bytesPbReserveTroop: { subType } }
-        : { bytesPbReserveC2c: picReserve }),
+      ...picReserve,
     },
   });
   return toResult(upload, msgInfo, {

@@ -43,10 +43,12 @@ function FavoriteActionsBody() {
             available={a.available && !a.pending}
             onBusyChange={setImporting}
             onChanged={refresh}
+            showLabel
           />
           <FavoriteBundleExport
             binding={a.binding}
             disabled={disabled || list.isLoading || Boolean(list.error)}
+            showLabel
           />
           <ActionIcon
             label="新建收藏表情"

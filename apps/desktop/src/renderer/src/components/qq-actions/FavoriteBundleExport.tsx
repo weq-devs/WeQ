@@ -12,9 +12,11 @@ import { useExportReportDialog } from '../../views/export/ExportReportControl';
 export function FavoriteBundleExport({
   binding,
   disabled,
+  showLabel = false,
 }: {
   binding: QQWriteBinding | null;
   disabled: boolean;
+  showLabel?: boolean;
 }) {
   const save = useExportSavePolicy();
   const report = useExportReportDialog();
@@ -62,11 +64,12 @@ export function FavoriteBundleExport({
     <>
       {report.dialog}
       <ActionIcon
+        text={showLabel ? (pending ? '处理中' : '导出') : undefined}
         label={pending ? '正在准备收藏包导出' : '导出收藏表情包'}
         disabled={unavailable}
         onClick={() => void run()}
       >
-        {pending ? <Loader2 size={16} /> : <Download size={16} />}
+        {pending ? <Loader2 className="weq-spin" size={16} /> : <Download size={16} />}
       </ActionIcon>
       {save.serverLocation && (
         <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
