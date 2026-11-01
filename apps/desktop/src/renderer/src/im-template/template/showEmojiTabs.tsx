@@ -14,6 +14,7 @@ import { useCallback, useRef, useState } from 'react';
 import { ImagePlus, Loader2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { cn } from './classNames';
+import { qqShowUrl } from '../../lib/resourceUrl';
 
 /** 单张图片上限 10 MB —— 与 IPC 侧的限制保持一致。 */
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -281,7 +282,7 @@ export function ShowEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () => 
                 }}
               >
                 <img
-                  src={pack.iconUrl}
+                  src={qqShowUrl(pack.iconUrl)}
                   alt={pack.name}
                   draggable={false}
                   referrerPolicy="no-referrer"
