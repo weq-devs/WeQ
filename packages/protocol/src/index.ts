@@ -129,6 +129,8 @@ export * from './scupdate';
 export * from './highway';
 export * from './oidb/flashtransfer';
 
+export * from './web/gift-mall';
+
 export * from './msg';
 export * from './file';
 

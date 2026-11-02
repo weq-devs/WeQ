@@ -778,6 +778,26 @@ export type {
   QzonePublicJson,
   QzonePublicUser,
 } from './account/web';
+export type {
+  GiftMallGift,
+  GiftMallVipInfo,
+  GiftMallTab,
+  GiftMallSubTab,
+  GiftMallBuyItemOptions,
+  GiftMallBuyItemRequest,
+  GiftMallBuyItemResponse,
+  GiftMallGiftListOptions,
+  GiftMallGiftListResponse,
+  GiftMallAIDiscStatusResponse,
+  GiftMallHomePageExtraResponse,
+  GiftMallSearchOptions,
+  GiftMallSearchResponse,
+  GiftMallSingleGiftInfoResponse,
+  GiftMallVipInfoResponse,
+  GiftMallWallItem,
+  GiftMallWallOptions,
+  GiftMallWallResponse,
+} from '@weq/protocol';
 
 // ---- account protocol services (oidb/trpc packets) ----
 export { GapHistoryService } from './account/gap_history';
