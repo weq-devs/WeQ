@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import type { CallVideoEncoding } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { resourceUrl } from '../lib/resourceUrl';
 import { requestOpenSettings } from '../lib/callSettingsBridge';
@@ -66,20 +67,21 @@ interface CallInfo {
   videoInfo: { width: number; height: number; profile: number; codec: 'hevc' } | null;
   /** 本端画面来源（摄像头 / 屏幕共享）。协议层不区分，只影响本端显示。 */
   videoSource: 'camera' | 'screen';
-  /** 本端视频编码档位；还没开过视频为 null。 */
-  videoProfile: {
-    width: number;
-    height: number;
-    fps: number;
-    bitrateKbps: number;
-  } | null;
+  /**
+   * 本端视频编码档位；还没开过视频为 null。
+   *
+   * 直接复用 service 的 `CallVideoEncoding`，**不要**在这里另抄一份字段 ——
+   * 抄一份就必然漏字段（之前就漏了 `keyint` / `allIntra`，导致渲染层拿不到
+   * 编码器真实在跑的参数）。
+   */
+  videoProfile: CallVideoEncoding | null;
 }
 
 /**
  * 主进程实际生效的编码档位 → 采集档位。
  *
  * 采集必须与编码器**同尺寸**：编码器按自己的宽高校验 I420 平面长度，对不上就
- * 静默丢帧。主进程在切换采集源时会换档（摄像头 640×360 ↔ 共享 1280×720），
+ * 静默丢帧。主进程在切换采集源时会换档（摄像头 320×184 ↔ 共享 960×540），
  * 这里把它读回来，`useVideoCapture` 再按这个上限约束采集端。
  *
  * `videoProfile` 为 null（还没开过视频）时退回共享档位的默认值。
@@ -91,6 +93,11 @@ function screenProfile(profile: CallInfo['videoProfile']): VideoProfile {
     height: profile.height,
     fps: profile.fps || SCREEN_PROFILE.fps,
     bitrateKbps: profile.bitrateKbps || SCREEN_PROFILE.bitrateKbps,
+    // 编码参数（关键帧间隔 / 是否全 I 帧）照抄主进程报上来的值，**不要**在这里
+    // 拿 SCREEN_PROFILE 顶替 —— 摄像头和屏幕共享的这两个值不一样，写死一个
+    // 会让渲染层拿到的档位和编码器实际在跑的档位对不上。
+    keyint: profile.keyint ?? SCREEN_PROFILE.keyint,
+    allIntra: profile.allIntra ?? SCREEN_PROFILE.allIntra,
     // 采集端直接要目标尺寸，省掉一次缩放（见 shared/call_video_profile.ts）。
     captureWidth: profile.width,
     captureHeight: profile.height,

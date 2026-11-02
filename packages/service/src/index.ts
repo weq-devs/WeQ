@@ -131,6 +131,7 @@ export type {
   CallAudioListener,
   CallVideoListener,
   CallVideoEncoder,
+  CallVideoEncoding,
   VideoFramePayload,
   VideoStreamInfo,
   UdpTransport,

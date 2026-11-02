@@ -170,6 +170,17 @@ export interface CallVideoEncoding {
   height: number;
   fps: number;
   bitrateKbps: number;
+  /**
+   * 关键帧间隔（帧数）。渲染层不关心，但界面要显示 / 调试要对齐，所以一并透传。
+   */
+  keyint?: number;
+  /**
+   * 是否每帧都是关键帧（全 I 帧）。
+   *
+   * 渲染层**不需要**知道（采集不区分帧类型），但界面和日志要能看到当前编码器
+   * 到底是不是全 I 帧 —— 这是判断「画面为什么不流畅」的第一手依据。
+   */
+  allIntra?: boolean;
 }
 
 /** 从 SPS 里读出来的视频规格。 */
@@ -184,6 +195,10 @@ export interface VideoStreamInfo {
   fps?: number;
   /** 目标码率（kbps，可选）。 */
   bitrateKbps?: number;
+  /** 关键帧间隔（帧数，可选）。 */
+  keyint?: number;
+  /** 是否每帧都是关键帧（可选）。 */
+  allIntra?: boolean;
 }
 
 // ─────────────────────────── 依赖注入 ───────────────────────────
@@ -364,6 +379,26 @@ const VIDEO_PUMP_MS = 10;
  * 正常的卡顿误判，又能在控制包丢失时较快收敛。
  */
 const VIDEO_SILENCE_MS = 3000;
+
+/**
+ * 逐帧回 `subType=4` 的限流窗口：**只在对端视频开头的这么多帧内回**。
+ *
+ * 2026-11-02 四份抓包统计了权威客户端的实际策略（`subType=4` = 收帧 ACK）：
+ *
+ * | 场景 | 对端发帧 | 权威客户端回的 st4 |
+ * | --- | ---: | ---: |
+ * | QQ 主叫（对端是手机） | 292 | **4 个**（≈1.4%） |
+ * | dev 通 QQ 收 WeQ | 53 | 60 个，只覆盖前 27 帧 |
+ * | fix 通 QQ 收 WeQ | 137 | **0 个**（帧不可解码，见 FEC 修复） |
+ *
+ * 也就是说它**不是每帧都回**：集中在开头一小段，之后基本静默。WeQ 此前
+ * 无条件逐帧回一对，fix 通 586 帧回了 1178 个 st4 —— 命中率 100%，在本来就
+ * 只有 3.8 fps 的上行上又加了 7.6 pkt/s 的额外往返。
+ *
+ * 取 30 帧对齐 dev 通里 QQ 的实际表现（前 27 帧）。这不是精确复刻 —— 要精确
+ * 还得再抓一次「QQ 收 WeQ 帧」的长通话 —— 但足以消除「逐帧轰炸」这个放大器。
+ */
+const VIDEO_ACK_WINDOW_FRAMES = 30;
 
 /**
  * 学到对端直连地址后，双发探测期长度。
@@ -789,6 +824,10 @@ export class CallSession {
       height: info.height,
       fps: info.fps ?? 0,
       bitrateKbps: info.bitrateKbps ?? 0,
+      // 编码器自己报的档位优先；老编码器不实现这两个字段时留 undefined，
+      // 不要在这里编造默认值 —— 界面显示「未知」比显示一个假的 30 强。
+      keyint: info.keyint,
+      allIntra: info.allIntra,
     };
   }
 
@@ -2165,10 +2204,10 @@ export class CallSession {
     const at = this.timers.now();
     for (const listener of this.videoListeners) listener(payload, at);
 
-    // 逐帧回 `subType=4`：同一个包格式既表示「我开摄像头」，也是对端每帧的
-    // 接收确认。实测 QQ 收到对端每个视频帧后 1–45 ms（中位数 2 ms）回一对，
-    // 我们此前从不确认，对端（尤其手机端）可能据此判定上行不通。
-    this.sendVideoAck();
+    // 回 `subType=4`（收帧 ACK）。权威客户端**不是每帧都回** —— 集中在开头
+    // 一小段，之后基本静默（见 {@link VIDEO_ACK_WINDOW_FRAMES}）。这里同样
+    // 只在前若干帧回，避免逐帧轰炸把本来就窄的上行再挤占一份。
+    if (this.receivedVideoFrames <= VIDEO_ACK_WINDOW_FRAMES) this.sendVideoAck();
   }
 
   /** 发摄像头开关控制包（连发两次防丢包，与真实客户端一致）。 */
@@ -2190,13 +2229,13 @@ export class CallSession {
   }
 
   /**
-   * 逐帧回 `subType=4`（对端视频的接收确认）。
+   * 回一对 `subType=4`（对端视频的接收确认）。
    *
    * 同一个 17 字节空体既表示「我开了摄像头」，也是「我收到你这一帧了」的回执。
-   * 实测 QQ 对每个收到的视频帧都回一对（1–45 ms，中位数 2 ms），我们此前只在
-   * 开摄像头时发一对、从不确认对端，对端可能据此判定上行链路不通。
+   * 只在**真正收到完整帧**时回（不是收到每个分片）。
    *
-   * 只在**真正收到帧**时回（不是收到每个分片），频率跟对端帧率走，不会放大流量。
+   * ⚠️ 调用方负责限流：权威客户端对开头 30 帧左右回 ACK、之后基本静默，
+   * 所以这里不能每帧都调（见 {@link VIDEO_ACK_WINDOW_FRAMES}）。
    */
   private sendVideoAck(): void {
     const packet = buildVideoControl({

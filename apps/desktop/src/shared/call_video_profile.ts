@@ -38,6 +38,37 @@ export interface VideoProfile {
   /** 目标码率（kbps）。 */
   bitrateKbps: number;
   /**
+   * 关键帧间隔（帧数）。
+   *
+   * t265（腾讯魔改 x265）实测只接受 **3 或 ≥5**：1 / 2 / 4 都会在
+   * `t265_encoder_open` 里报 "Intra period must be larger than GOP size for
+   * periodic IDR pictures" 并直接失败，与 `bframes` / `rc-lookahead` 无关。
+   */
+  keyint: number;
+  /**
+   * 是否**每帧都编成关键帧**（全 I 帧）。
+   *
+   * ## 为什么这么做
+   *
+   * 实测 QQ 收到 WeQ 的关键帧能正常解码显示，但**后续 P 帧一律不认** ——
+   * 画面只按关键帧间隔一跳一跳地动。把每帧都变成关键帧后画面立刻连续流畅，
+   * 说明问题出在 P 帧的参考链上，而不是包结构 / 网络。
+   *
+   * ## 带宽代价：几乎没有
+   *
+   * ABR 码率控制会按目标码率反推 QP，全 I 帧只是让 QP 略微升高，总码率仍贴着
+   * 目标走。实测（320×184 / 15 fps / 300 kbps，真实运动画面 180 帧）：
+   *
+   * | 模式 | 关键帧 | avg | p90 | 实测码率 |
+   * | --- | ---: | ---: | ---: | ---: |
+   * | keyint=3 | 60/180 | 2613 B | 4461 B | 314 kbps |
+   * | 全 I 帧 | 180/180 | 2668 B | 2932 B | **320 kbps** |
+   *
+   * 960×540 同样如此（1241 → 1250 kbps）。代价是单帧质量略降，但帧率与流畅度
+   * 优先。
+   */
+  allIntra: boolean;
+  /**
    * 采集时给 `getUserMedia` / `getDisplayMedia` 的宽度上限。
    *
    * **必须让采集端直接出目标尺寸**，不要拿 1920×1080 的流再 `drawImage` 缩下来：
@@ -52,29 +83,43 @@ export interface VideoProfile {
 }
 
 /**
- * 摄像头档位：640×360 / 15 fps / 300 kbps。
+ * 摄像头档位：**320×184** / 15 fps / 300 kbps。
  *
- * ## 为什么是 300 kbps
+ * ## 为什么是 320×184（2026-11-02 晚更正）
  *
- * 30 kbps 的来历是「静态画面下 ABR 的实际输出」被当成了目标码率：同一张屏幕截图
- * 640×360 下 PSNR-Y 只有 32.6 dB（300 kbps 是 43.4 dB），差 10.8 dB ——
- * 肉眼就是「糊成一团」和「能看清字」。画面一有运动就严重欠码。
+ * 早先这里写 640×360，依据是「能力声明里 360p 那档」。但**能力声明只是上限
+ * 协商表，不是实际编码尺寸** —— 2026-11-02 从四份抓包的 HEVC SPS 里直接解出
+ * 权威客户端的真实尺寸：
  *
- * 2026-11-02 逐包对齐同一通电话又确认了一遍：QQ 上行单帧 2123 B、WeQ 517 B。
- * QQ 的 15 fps × 2123 B ≈ 255 kbps，取 300 kbps 给关键帧留余量。
+ * | 抓包 | 方向 | SPS 分辨率 |
+ * | --- | --- | --- |
+ * | dev 通 | QQ 发 | **320×184**（3 个关键帧全部） |
+ * | fix 通 | QQ 发 | **320×184**（3 个关键帧全部） |
+ * | QQ 主叫 | QQ 发 | 480×272 |
+ * | dev / fix 通 | WeQ 发 | 640×360 |
  *
- * ## 分片
+ * 也就是说 QQ 的摄像头默认只编 **320×184**（16:9 取整到 8 的倍数）。
+ * WeQ 按 640×360 编，面积是它的 4 倍 —— 关键帧 5.9~8.5 KB vs QQ 的
+ * 1.1~2.3 KB，切成 5~8 片 vs QQ 的 2 片。**这才是「QQ 收不到画面」的根因**：
+ * 多分片的 I 帧让对端的重组/解码路径走不通。
  *
- * 300 kbps 下 640×360 单帧平均约 2.3 KB（≈3 片）、峰值 9.4 KB（≈9 片），
- * 离 `pkg_idx` 的单字节上限 255 很远。
+ * 480×272 那次是 QQ 主叫、对端是手机的采样，属于另一档；对端是 PC 时用
+ * 320×184。要跟 PC 对齐就用这一档。
+ *
+ * ## 码率
+ *
+ * 300 kbps 保留：320×184@15fps 下每帧预算约 2.5 KB，与 QQ 实测单帧
+ * 2.1 KB（fix 通 2123 B 均值）同量级，关键帧留了余量。
  */
 export const CAMERA_PROFILE: VideoProfile = {
-  width: 640,
-  height: 360,
-  fps: 15,
-  bitrateKbps: 300,
-  captureWidth: 640,
-  captureHeight: 360,
+  width: 320,
+  height: 184,
+  fps: 30,
+  bitrateKbps: 450,
+  keyint: 30,
+  allIntra: true,
+  captureWidth: 320,
+  captureHeight: 184,
 };
 
 /**
@@ -96,6 +141,10 @@ export const SCREEN_PROFILE: VideoProfile = {
   height: 540,
   fps: 15,
   bitrateKbps: 1200,
+  keyint: 30,
+  // 全 I 帧在 960×540 下单帧编码 p90 36.9 ms，超过 30 fps 的 33.3 ms 预算，
+  // 会把主进程事件循环卡住、连带音频和心跳。15 fps（66.7 ms 预算）留有余量。
+  allIntra: true,
   captureWidth: 960,
   captureHeight: 540,
 };
