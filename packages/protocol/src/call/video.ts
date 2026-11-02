@@ -44,16 +44,43 @@ import { rsEncode } from './fec';
 import { AUDIO_HEADER_LEN, AUDIO_STX, u32be, writeU16be, writeU32be } from './gcs';
 
 /**
- * 视频关键帧的 RS-FEC 参数：**3 个数据分片 + 2 个校验分片**。
+ * 视频关键帧的 RS-FEC 参数：**2 个数据分片 + 2 个校验分片**。
  *
- * 从 QQ 本体抓包逆出来的（2026-11-02，`qq_udp.pcapng` 帧 257）：该帧
- * `total_pkg=3 / total_fec=2`，实际发 5 片，5 片的载荷都等长（496 B）。
- * 用项目里 `rsEncode(chunks, 496, 2)` 复算，2 条校验片**逐字节吻合**。
+ * 从 QQ 本体抓包逆出来的（2026-11-02，`qq_udp.pcapng` 帧 257 与 QQ 主叫那次
+ * 通话）：关键帧一律 `total_pkg=2 / total_fec=2`，实际发 4 片，4 片的载荷都
+ * 等长（496 B / 212 B）。用项目里 `rsEncode(chunks, N, 2)` 复算，2 条校验片
+ * **逐字节吻合**。
  *
- * 关键帧约 256 帧一次（≈17 秒 @15fps），所以这条 FEC 的开销可以忽略。
+ * ⚠️ 2026-11-02 晚更正：早先这里写的是 3，来自把某帧的 `total_pkg=3` 当成了
+ * 关键帧。实际上 QQ 的关键帧是 **2 片**（`total=2`），3 片那批是普通帧。
+ * 参数只影响 `total_fec` 的取值（`VIDEO_FEC_PARITY`）与「数据片数多少才算
+ * 关键帧形态」的判断，见 {@link buildVideoPackets} 的 `useFec`。
+ *
+ * ## 全 I 帧模式下的开销
+ *
+ * 2026-11-02 起摄像头默认**每帧都编成关键帧**（`allIntra`），于是每帧都会带
+ * 这 2 条校验片。实测 320×184@30fps 编码约 505 kbps、单帧约 2.1 KB，正好切成
+ * 2 数据片，加 FEC 后 4 片 —— 与 QQ 自己的关键帧形态（2 数据 + 2 校验）完全
+ * 一致，线缆码率约 1 Mbps，视频通话可以接受。
+ *
+ * 数据片数超过 {@link VIDEO_FEC_MAX_DATA} 时不加 FEC（屏幕共享 960×540 的帧
+ * 约 9 片，就落在这条路径上）。
  */
-export const VIDEO_FEC_DATA = 3;
+export const VIDEO_FEC_DATA = 2;
 export const VIDEO_FEC_PARITY = 2;
+
+/**
+ * 带 FEC 时允许的最大数据片数。
+ *
+ * 权威客户端的 320×184 关键帧正好 2 片，落在 `VIDEO_FEC_DATA` 上。WeQ 的
+ * 分辨率/码率更高时关键帧会切出更多片，此时仍然**必须**带 FEC —— 不带的话
+ * 对端看到「多分片 I 帧 + `total_fec=0`」会整帧丢弃（2026-11-02 fix 通实测：
+ * QQ 对 WeQ 的 137 帧零 ACK，画面完全不动）。
+ *
+ * 上限取 `VIDEO_FEC_DATA + VIDEO_FEC_PARITY`（RS 校验片数不能超过数据片数，
+ * 否则 Cauchy 矩阵构造无意义），实际发片数 = 数据片数 + 2。
+ */
+const VIDEO_FEC_MAX_DATA = 8;
 
 // ═══════════════════════════ 常量 ═══════════════════════════
 
@@ -595,13 +622,20 @@ export function videoPacketCount(frameBytes: number, maxPayload = 1200): number 
  *
  * ## RS-FEC（关键帧）
  *
- * `fec: true` 时按 **RS(5,3)** 给数据分片加 2 条校验片：数据片补齐到等长，
- * 校验片用 {@link rsEncode} 以 `rows = FEC_PARITY_ROWS - 1 = 2`、`cols = 3`
- * 生成。`total_pkg` 仍是**数据片数**（3），`total_fec` 写 2，实际发 5 片。
+ * `fec: true` 时按 RS(4,2) 给数据分片加 2 条校验片：数据片补齐到等长，
+ * 校验片用 {@link rsEncode} 以 `rows = FEC_PARITY_ROWS - 1 = 2`、
+ * `cols = 数据片数` 生成。`total_pkg` 仍是**数据片数**，`total_fec` 写 2，
+ * 实际发 `数据片数 + 2` 片。
  *
- * 这三个参数是从 QQ 本体抓包里逆出来的（2026-11-02，`qq_udp.pcapng` 帧 257）：
- * 用项目里的 Cauchy 矩阵 SHA 复算，2 条校验片**逐字节吻合**。语义还没完全
- * 确认前不要改 rows/cols —— 改了就对不上对端的解码矩阵。
+ * 权威客户端的关键帧是 **2 数据片 + 2 校验片**（2026-11-02 抓包）。WeQ 的
+ * 关键帧更大、会切出更多片，这时**仍然加 FEC**（上限 {@link VIDEO_FEC_MAX_DATA}）：
+ * 2026-11-02 的 fix 通就是因为「8 片 I 帧 + `total_fec=0`」被 QQ 整帧丢弃，
+ * 表现为画面一动不动。数据片数超过上限时不加 FEC（RS 校验片数不能超过数据
+ * 片数，且继续加大分片只会让丢一片就整帧报废）。
+ *
+ * 校验矩阵的参数是从 QQ 本体抓包里逆出来的：用项目里的 Cauchy 矩阵复算，
+ * 2 条校验片**逐字节吻合**。语义还没完全确认前不要改 rows —— 改了就对不上
+ * 对端的解码矩阵。
  */
 export function buildVideoPackets(params: {
   frameData: Uint8Array;
@@ -629,9 +663,15 @@ export function buildVideoPackets(params: {
   // 等分：末片自然短。真实客户端的末片不带 0 填充（填充语义未经证实，不补）。
   const chunkSize = Math.max(1, Math.ceil(params.frameData.length / totalPkg));
 
-  // 校验片：只有「数据片数 == 3」这一档有实测样本（QQ 的 RS(5,3)）。
-  // 其他片数下矩阵列数会变，对端未必能解，保守起见不加。
-  const useFec = params.fec === true && totalPkg === VIDEO_FEC_DATA;
+  // 关键帧的分片带校验片。权威客户端的两档实测：`total=1` 的关键帧 `tfec=0`
+  // （单包整帧没有重组问题，不需要纠错），`total=2` 的 `tfec=2`。
+  //
+  // 因此从 2 片起都加 —— 包括 WeQ 分辨率更高时切出的 3~8 片。不加的话对端会把
+  // 「多分片 I 帧 + total_fec=0」当成不可解码整帧丢掉（2026-11-02 fix 通实测：
+  // QQ 对 WeQ 的 137 帧零 ACK，画面完全不动）。上限按 RS 的约束给
+  // （校验片数 ≤ 数据片数）。
+  const useFec =
+    params.fec === true && totalPkg >= VIDEO_FEC_DATA && totalPkg <= VIDEO_FEC_MAX_DATA;
 
   const chunks: Uint8Array[] = [];
   for (let i = 0; i < totalPkg; i++) {

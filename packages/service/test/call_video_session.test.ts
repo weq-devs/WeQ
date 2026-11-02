@@ -478,9 +478,9 @@ describe('接收视频', () => {
     expect(ctx.session.snapshot().receivedVideoFrames).toBe(1);
   });
 
-  it('收到对端每个视频帧回一对 subType=4（逐帧 ACK）', async () => {
-    // 2026-11-02 实测：QQ 对每个收到的视频帧都回一对 subType=4（1–45 ms）。
-    // 我们此前只在开摄像头时发一对、从不确认对端。
+  it('收到对端视频帧回一对 subType=4（限流在开头若干帧）', async () => {
+    // 2026-11-02 四份抓包实测：权威客户端**不是每帧都回** —— QQ 主叫那次
+    // 收 292 帧只回 4 个 st4（≈1.4%），dev 通里 QQ 只覆盖前 27 帧。
     //
     // 收到对端视频包会让媒体路径进 `probing`（服务端 + 对端各发一份），所以
     // 这里按「每个目标各一对」来断言，而不是绝对条数。
@@ -518,6 +518,32 @@ describe('接收视频', () => {
     ctx.transport.reset();
     ctx.transport.deliver(videoPacket({ gidx: 2, pkgIdx: 0, totalPkg: 2, chunk: whole }));
     expect(ctx.transport.media(VIDEO_CTRL_SUB_TYPE)).toHaveLength(0);
+  });
+
+  it('ACK 限流：窗口外的帧不再回 subType=4', async () => {
+    // 回归 2026-11-02 fix 通：WeQ 曾对 QQ 的每一帧都回一对，586 帧回了 1178 个
+    // st4（命中率 100%），在只有 3.8 fps 的上行上又加了 7.6 pkt/s。
+    // 权威客户端只有 ≈1.4%，集中在开头。
+    const ctx = makeSession();
+    await connect(ctx);
+
+    const whole = new Uint8Array(26);
+    whole[0] = 20;
+    whole.set([0, 0, 0, 1, 0x40, 0x01], 20);
+
+    // 前 30 帧每帧都该回。
+    for (let i = 0; i < 30; i++) {
+      ctx.transport.reset();
+      ctx.transport.deliver(videoPacket({ gidx: i, pkgIdx: 0, totalPkg: 1, chunk: whole }));
+      expect(ctx.transport.media(VIDEO_CTRL_SUB_TYPE).length).toBeGreaterThan(0);
+    }
+
+    // 第 31 帧起静默。
+    for (let i = 30; i < 40; i++) {
+      ctx.transport.reset();
+      ctx.transport.deliver(videoPacket({ gidx: i, pkgIdx: 0, totalPkg: 1, chunk: whole }));
+      expect(ctx.transport.media(VIDEO_CTRL_SUB_TYPE)).toHaveLength(0);
+    }
   });
 
   it('小画面 / 屏幕共享子类型也认', async () => {
@@ -1450,7 +1476,7 @@ describe('关键帧带 RS-FEC', () => {
     return frame;
   }
 
-  it('关键帧发出 total_fec=2 的 5 个分片', async () => {
+  it('关键帧带 total_fec=2 的校验片（数据片数随帧长变）', async () => {
     const timers = new FakeTimers();
     const transport = new FakeTransport();
     const session = new CallSession({
@@ -1475,10 +1501,55 @@ describe('关键帧带 RS-FEC', () => {
       .filter((s) => s.data[0] === AUDIO_STX && s.data[3] === VideoSubType.max)
       .map((s) => s.data);
     expect(video.length).toBeGreaterThan(0);
-    // total_pkg（RTP 头第 2 字节）与 total_fec（第 3 字节）
-    expect(video[0]![AUDIO_HEADER_LEN + 1]).toBe(VIDEO_FEC_DATA);
+    // total_pkg（RTP 头第 2 字节）是**数据片数**，随帧长变化；
+    // total_fec（第 3 字节）恒为 2。
+    const dataPkg = video[0]![AUDIO_HEADER_LEN + 1]!;
+    expect(dataPkg).toBeGreaterThanOrEqual(VIDEO_FEC_DATA);
     expect(video[0]![AUDIO_HEADER_LEN + 2]).toBe(VIDEO_FEC_PARITY);
-    expect(video).toHaveLength(VIDEO_FEC_DATA + VIDEO_FEC_PARITY);
+    // 实际发出的包数 = 数据片数 + 校验片数。
+    expect(video).toHaveLength(dataPkg + VIDEO_FEC_PARITY);
+  });
+
+  /**
+   * 回归 2026-11-02 fix 通：WeQ 的关键帧切成 5~8 片却一个 FEC 包都不发，
+   * 对端把「多分片 I 帧 + total_fec=0」整帧丢弃，画面一动不动。
+   *
+   * 这里用 8 KB 的关键帧（约 7 片）钉住「多分片关键帧也必须带 FEC」。
+   */
+  it('多分片关键帧同样带 FEC（回归：不能退回 total_fec=0）', async () => {
+    const timers = new FakeTimers();
+    const transport = new FakeTransport();
+    const big = new Uint8Array(8000);
+    big.set([0, 0, 0, 1, 0x40, 0x01], 0); // VPS
+    big.set([0, 0, 0, 1, 0x26, 0x01], 6); // IDR → 关键帧
+    for (let i = 12; i < big.length; i++) big[i] = i & 0xff;
+    const session = new CallSession({
+      selfUin: '1707889225',
+      selfUid: 'u_self',
+      peerUin: '2863253201',
+      peerUid: 'u_peer',
+      media: 'video',
+      signaling: fakeSignaling(),
+      transport,
+      codec: new FakeCodec(),
+      videoEncoder: new FakeVideoEncoder(1, big),
+      timers,
+    });
+    const ctx = { session, timers, transport };
+    await connect(ctx);
+    ctx.session.setCamera(true);
+    await timers.advanceAsync(3000);
+
+    const video = transport.sent
+      .filter((s) => s.data[0] === AUDIO_STX && s.data[3] === VideoSubType.max)
+      .map((s) => s.data);
+    expect(video.length).toBeGreaterThan(0);
+    const dataPkg = video[0]![AUDIO_HEADER_LEN + 1]!;
+    // 8000 字节在默认 maxPayload=1200 下会切成 7 片 —— 远多于权威客户端的 2 片。
+    expect(dataPkg).toBeGreaterThan(2);
+    // 关键：仍然带 FEC。
+    expect(video[0]![AUDIO_HEADER_LEN + 2]).toBe(VIDEO_FEC_PARITY);
+    expect(video).toHaveLength(dataPkg + VIDEO_FEC_PARITY);
   });
 
   it('普通帧不发 FEC 分片', async () => {

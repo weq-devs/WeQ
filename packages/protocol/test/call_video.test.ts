@@ -714,10 +714,10 @@ describe('视频关键帧 RS-FEC（2026-11-02 QQ 抓包逆向）', () => {
     expect(rsEncode(frames, 4, 2)).toHaveLength(2);
   });
 
-  it('关键帧（3 个数据片）带 2 条校验片，total_pkg 仍是数据片数', () => {
-    // 造一帧刚好切成 3 片的数据：maxPayload=1200 时每片上限约 1168 字节,
-    // 2900 字节 → 3 片。
-    const frameData = new Uint8Array(2900);
+  it('关键帧（2 个数据片）带 2 条校验片，total_pkg 仍是数据片数', () => {
+    // 权威客户端的关键帧是 2 数据片 + 2 校验片（`total=2 / tfec=2`）。
+    // maxPayload=1200 时每片上限约 1168 字节，2000 字节 → 2 片。
+    const frameData = new Uint8Array(2000);
     for (let i = 0; i < frameData.length; i++) frameData[i] = (i * 7) & 0xff;
     const packets = buildVideoPackets({
       frameData,
@@ -727,16 +727,46 @@ describe('视频关键帧 RS-FEC（2026-11-02 QQ 抓包逆向）', () => {
       seq: 0,
       fec: true,
     });
-    expect(packets).toHaveLength(5);
-    // total_pkg 位（第 19 字节）写的是**数据片数** 3
+    expect(packets).toHaveLength(4);
+    // total_pkg 位（第 19 字节）写的是**数据片数** 2
     expect(packets[0]![AUDIO_HEADER_LEN + 1]).toBe(VIDEO_FEC_DATA);
     // total_fec 位（第 20 字节）写 2
     expect(packets[0]![AUDIO_HEADER_LEN + 2]).toBe(VIDEO_FEC_PARITY);
-    // pkg_idx 连续 0..4
-    expect(packets.map((p) => p[AUDIO_HEADER_LEN])).toEqual([0, 1, 2, 3, 4]);
+    // pkg_idx 连续 0..3
+    expect(packets.map((p) => p[AUDIO_HEADER_LEN])).toEqual([0, 1, 2, 3]);
     // 校验片与数据片等长（实测末片没有短片）
     const sizes = packets.map((p) => p.length);
     expect(new Set(sizes).size).toBe(1);
+  });
+
+  /**
+   * 回归：**多分片的关键帧也必须带 FEC**。
+   *
+   * 2026-11-02 fix 通的现场：WeQ 按 640×360 编，关键帧 5.9~8.5 KB 切成 5~8 片，
+   * 而 `useFec` 当时要求 `totalPkg === 3`，于是一个 FEC 包都没发。对端（QQ）
+   * 收到「多分片 I 帧 + total_fec=0」后整帧丢弃 —— 137 帧零 ACK、画面一动不动。
+   *
+   * 这里钉住 3 / 5 / 8 片都要带校验片，且 `total_fec` 都是 2。
+   */
+  it('多分片关键帧同样带校验片（3 / 5 / 8 片）', () => {
+    for (const [bytes, expectData] of [
+      [2900, 3],
+      [5000, 5],
+      [8800, 8],
+    ] as const) {
+      const frameData = new Uint8Array(bytes);
+      const packets = buildVideoPackets({
+        frameData,
+        frameIndex: 0,
+        sessionTs: 1,
+        tick: 2,
+        seq: 0,
+        fec: true,
+      });
+      expect(packets[0]![AUDIO_HEADER_LEN + 1]).toBe(expectData);
+      expect(packets[0]![AUDIO_HEADER_LEN + 2]).toBe(VIDEO_FEC_PARITY);
+      expect(packets).toHaveLength(expectData + VIDEO_FEC_PARITY);
+    }
   });
 
   /**
@@ -783,7 +813,8 @@ describe('视频关键帧 RS-FEC（2026-11-02 QQ 抓包逆向）', () => {
     expect(packets[0]![AUDIO_HEADER_LEN + 2]).toBe(0);
   });
 
-  it('数据片数不是 3 时不加 FEC（矩阵列数会变，对端未必能解）', () => {
+  it('单分片关键帧不加 FEC（对齐权威客户端的 total=1 / tfec=0）', () => {
+    // 单包整帧不存在重组丢片的问题，权威客户端这一档的 tfec 也是 0。
     const small = buildVideoPackets({
       frameData: new Uint8Array(500),
       frameIndex: 0,
@@ -794,5 +825,18 @@ describe('视频关键帧 RS-FEC（2026-11-02 QQ 抓包逆向）', () => {
     });
     expect(small).toHaveLength(1);
     expect(small[0]![AUDIO_HEADER_LEN + 2]).toBe(0);
+  });
+
+  it('数据片数超过上限时不加 FEC（校验片数不能超过数据片数）', () => {
+    // 超过上限说明分片已经过多，继续加大只会让丢一片就整帧报废。
+    const huge = buildVideoPackets({
+      frameData: new Uint8Array(12000),
+      frameIndex: 0,
+      sessionTs: 1,
+      tick: 2,
+      seq: 0,
+      fec: true,
+    });
+    expect(huge[0]![AUDIO_HEADER_LEN + 2]).toBe(0);
   });
 });

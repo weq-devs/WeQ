@@ -1050,6 +1050,13 @@ export interface NtHelperBinding {
    *
    * 用 QQ 自带的 `t265`（腾讯改过的 x265）而不是系统 libx265：标准实现编出来的
    * 码流对端不一定能解。
+   *
+   * `keyint` 是关键帧间隔（帧数），不传按 QQ 客户端的 30。**t265 只接受 3 或
+   * ≥5**：1 / 2 / 4 会在 `t265_encoder_open` 里报
+   * "Intra period must be larger than GOP size for periodic IDR pictures" 并失败。
+   *
+   * `allIntra` 为 true 时**每帧都编成关键帧**，对端不依赖参考链，任何一帧
+   * 丢失都不影响后续解码。ABR 码率控制下几乎不增加带宽。
    */
   openVideoEncoder(
     modulesDir: string,
@@ -1057,6 +1064,8 @@ export interface NtHelperBinding {
     height?: number | null,
     fps?: number | null,
     bitrateKbps?: number | null,
+    keyint?: number | null,
+    allIntra?: boolean | null,
   ): Promise<void>;
   /** 关掉视频编码器。挂断时调用。 */
   closeVideoEncoder(): void;

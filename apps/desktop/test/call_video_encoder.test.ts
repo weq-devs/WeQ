@@ -20,7 +20,13 @@ import { CAMERA_PROFILE, SCREEN_PROFILE } from '../src/shared/call_video_profile
 
 /** 记录每次 open 的参数，并让 encodeVideoFrame 返回一个固定的小帧。 */
 function fakeNative() {
-  const opened: Array<{ width: number; height: number; fps: number; kbps: number }> = [];
+  const opened: Array<{
+    width: number;
+    height: number;
+    fps: number;
+    kbps: number;
+    keyint: number;
+  }> = [];
   const calls = { close: 0, encode: 0, open: 0 };
   const nt = {
     openVideoEncoder: vi.fn(
@@ -30,6 +36,7 @@ function fakeNative() {
         height?: number | null,
         fps?: number | null,
         kbps?: number | null,
+        keyint?: number | null,
       ) => {
         calls.open++;
         opened.push({
@@ -37,6 +44,7 @@ function fakeNative() {
           height: height ?? 0,
           fps: fps ?? 0,
           kbps: kbps ?? 0,
+          keyint: keyint ?? 0,
         });
       },
     ),
@@ -85,6 +93,7 @@ describe('NativeVideoEncoder 换档', () => {
       height: SCREEN_PROFILE.height,
       fps: SCREEN_PROFILE.fps,
       kbps: SCREEN_PROFILE.bitrateKbps,
+      keyint: SCREEN_PROFILE.keyint,
     });
     expect(profile).toMatchObject({ width: 960, height: 540, bitrateKbps: 1200 });
     expect(encoder.currentSource).toBe('screen');
@@ -101,6 +110,7 @@ describe('NativeVideoEncoder 换档', () => {
       width: CAMERA_PROFILE.width,
       height: CAMERA_PROFILE.height,
       kbps: CAMERA_PROFILE.bitrateKbps,
+      keyint: CAMERA_PROFILE.keyint,
     });
     expect(encoder.currentSource).toBe('camera');
   });
