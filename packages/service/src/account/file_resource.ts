@@ -532,7 +532,7 @@ const EXT_TABLE: Record<string, { category: FileCategory; icon: string }> = {
   docx: { category: 'document', icon: 'doc.png' },
   pdf: { category: 'document', icon: 'pdf.png' },
   txt: { category: 'document', icon: 'txt.png' },
-  md: { category: 'document', icon: 'txt.png' },
+  md: { category: 'document', icon: 'markdown.png' },
   rtf: { category: 'document', icon: 'txt.png' },
   ppt: { category: 'document', icon: 'ppt.png' },
   pptx: { category: 'document', icon: 'ppt.png' },

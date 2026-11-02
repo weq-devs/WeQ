@@ -103,7 +103,7 @@ function fileExtIcon(fileName: string): string {
     bmp: 'image.png',
     svg: 'image.png',
     txt: 'txt.png',
-    md: 'txt.png',
+    md: 'markdown.png',
     log: 'txt.png',
     json: 'code.png',
     apk: 'apk.png',
