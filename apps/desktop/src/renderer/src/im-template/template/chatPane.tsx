@@ -10,6 +10,7 @@ import {
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { GiftMallPanel } from '../../components/gift/GiftMallPanel';
+import { GroupGiftPanel } from '../../components/gift/GroupGiftPanel';
 import { ChatHeader } from '../../components/ChatHeader';
 import { MessageSelectionBar } from '../../components/MessageSelectionBar';
 import { useMediaSave } from '../../components/MediaSaveControls';
@@ -811,9 +812,9 @@ export function ChatPane({
   // 「红包」面板：群聊三档（普通 / 拼手气 / 口令），私聊两档（普通 / 拼手气）；
   // 下单出码后由应用层弹二维码灯箱。
   const [redPacketOpen, setRedPacketOpen] = useState(false);
-  // 「红包 / 礼物」菜单：点红包按钮先出两项（与通话按钮同一套菜单），礼物只在私聊里给。
+  // 「红包 / 礼物」菜单：点红包按钮先出两项（与通话按钮同一套菜单）。
   const [redPacketMenu, setRedPacketMenu] = useState<{ x: number; y: number } | null>(null);
-  // 「礼物」面板：私聊礼物商城（首页 / 分栏子栏 / 搜索 / 详情 / 赠送）。
+  // 「礼物」面板：私聊是礼物商城（可赠送），群聊是只读的群礼物面板。
   const [giftOpen, setGiftOpen] = useState(false);
   // 「位置」菜单：点工具栏那个位置按钮弹出的两项 —— 发送位置 / 共享位置。
   const [locationMenu, setLocationMenu] = useState<{ x: number; y: number } | null>(null);
@@ -4724,7 +4725,7 @@ export function ChatPane({
     setRedPacketOpen((open) => !open);
   }
 
-  /** 礼物面板（仅私聊）：和其余面板互斥。 */
+  /** 礼物面板（私聊商城 / 群聊只读）：和其余面板互斥。 */
   function openGiftPanel() {
     setRedPacketMenu(null);
     setRedPacketOpen(false);
@@ -6305,7 +6306,7 @@ export function ChatPane({
             <Smile size={21} strokeWidth={1.5} />
           </button>
           {/* 红包 / 礼物：点一下先出两项菜单（与通话按钮同款）。红包群聊三档 / 私聊两档，
-              下单后弹二维码灯箱；礼物只有私聊，打开礼物商城面板。 */}
+              下单后弹二维码灯箱；礼物私聊打开商城，群聊打开只读的群礼物面板。 */}
           <button
             ref={redPacketButtonRef}
             type="button"
@@ -6541,6 +6542,13 @@ export function ChatPane({
           <GiftMallPanel
             peer={conversation.otherUser?.id ?? ''}
             peerName={conversation.name}
+            onClose={() => setGiftOpen(false)}
+          />
+        ) : null}
+        {giftOpen && conversation?.type === 'group' ? (
+          <GroupGiftPanel
+            groupUin={Number(conversation.group.id)}
+            groupName={conversation.name}
             onClose={() => setGiftOpen(false)}
           />
         ) : null}
@@ -6945,9 +6953,9 @@ export function ChatPane({
             {
               label: '礼物',
               icon: <Gift size={16} />,
-              ...(conversation?.type === 'direct'
+              ...(conversation?.type === 'direct' || conversation?.type === 'group'
                 ? {}
-                : { disabled: true, reason: '礼物目前只支持私聊' }),
+                : { disabled: true, reason: '礼物只支持私聊和群聊' }),
               action: () => {
                 setRedPacketMenu(null);
                 openGiftPanel();
