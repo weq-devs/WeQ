@@ -18,7 +18,6 @@ import { getLogger } from '@weq/service';
 import { createWriteStream } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { app } from 'electron';
 import { requirePlatform } from './context/app_context';
 import {
   toCaptureFrameWire,
@@ -74,6 +73,12 @@ interface UdpCaptureFile {
 }
 const captureFiles = new Map<string, UdpCaptureFile>();
 const activeCaptureFiles = new Map<number, string>();
+let captureDirectory: string | undefined;
+
+/** 桌面入口注入持久化目录，保持共享会话模块不依赖 Electron。 */
+export function setUdpCaptureDirectory(directory: string): void {
+  captureDirectory = directory;
+}
 
 function nextSessionId(): string {
   sequence += 1;
@@ -176,7 +181,8 @@ export async function startUdpCapture(
           transport: 'udp',
         });
       }
-      const dir = join(app.getPath('userData'), 'udp-captures');
+      if (!captureDirectory) throw new Error('UDP 抓包目录尚未配置');
+      const dir = captureDirectory;
       await mkdir(dir, { recursive: true });
       const path = join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}_pid-${pid}.pcapng`);
       const writer = new PcapngStream(
