@@ -443,6 +443,32 @@ async function qqshowRemoteResponse(src: string): Promise<Response> {
 }
 
 /**
+ * 礼物商城图片(`tianquan / qzonestyle / sola` 等 gtimg CDN)。
+ *
+ * 和装扮图同一套思路:渲染进程不直连 CDN,主进程代取 + 落进头像缓存(独立 namespace),
+ * 于是不用为礼物再放开一片 CSP,滚回去的卡片也不用重新拉。只放行 `*.gtimg.cn`,
+ * 不能拿它当任意 URL 的代理。
+ */
+async function giftRemoteResponse(src: string): Promise<Response> {
+  if (!/^https:\/\//i.test(src)) return notFound('gift asset needs https url');
+  const host = new URL(src).hostname.toLowerCase();
+  if (host !== 'gtimg.cn' && !host.endsWith('.gtimg.cn')) {
+    return notFound('gift host not allowed');
+  }
+  const cache = getAppContext().bootstrap?.avatarCache;
+  if (!cache) return notFound('gift cache unavailable');
+  try {
+    const blob = await cache.get(src, 'gift');
+    return new Response(new Uint8Array(blob.data), {
+      status: 200,
+      headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },
+    });
+  } catch {
+    return notFound('gift asset fetch failed');
+  }
+}
+
+/**
  * Serve one `weq-media://` request. Pure `Request`→`Response`, so the web app
  * can mount it on a plain HTTP route (see `apps/web`) without Electron.
  */
@@ -482,6 +508,16 @@ async function routeMediaRequest(request: Request): Promise<Response> {
         return await dressRemoteResponse(q.get('src') ?? '', q.get('theme'));
       } catch (e) {
         console.error('[media] dress failed:', e);
+        return new Response('media error', { status: 500 });
+      }
+    }
+
+    // 礼物商城图片:只放行 gtimg CDN,同样主进程代取 + 落盘。
+    if (kind === 'gift') {
+      try {
+        return await giftRemoteResponse(q.get('src') ?? '');
+      } catch (e) {
+        console.error('[media] gift failed:', e);
         return new Response('media error', { status: 500 });
       }
     }

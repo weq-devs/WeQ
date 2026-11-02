@@ -9,6 +9,7 @@ import {
   conversationAnalysisTarget,
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
+import { GiftMallPanel } from '../../components/gift/GiftMallPanel';
 import { ChatHeader } from '../../components/ChatHeader';
 import { MessageSelectionBar } from '../../components/MessageSelectionBar';
 import { useMediaSave } from '../../components/MediaSaveControls';
@@ -62,6 +63,7 @@ import {
   Radio,
   Video,
   SendHorizontal,
+  Gift,
   Settings2,
   Zap,
   Flame,
@@ -809,6 +811,10 @@ export function ChatPane({
   // 「红包」面板：群聊三档（普通 / 拼手气 / 口令），私聊两档（普通 / 拼手气）；
   // 下单出码后由应用层弹二维码灯箱。
   const [redPacketOpen, setRedPacketOpen] = useState(false);
+  // 「红包 / 礼物」菜单：点红包按钮先出两项（与通话按钮同一套菜单），礼物只在私聊里给。
+  const [redPacketMenu, setRedPacketMenu] = useState<{ x: number; y: number } | null>(null);
+  // 「礼物」面板：私聊礼物商城（首页 / 分栏子栏 / 搜索 / 详情 / 赠送）。
+  const [giftOpen, setGiftOpen] = useState(false);
   // 「位置」菜单：点工具栏那个位置按钮弹出的两项 —— 发送位置 / 共享位置。
   const [locationMenu, setLocationMenu] = useState<{ x: number; y: number } | null>(null);
   // 「发送位置」面板：搜 / 点地图 / 填地址，发一张静态位置卡片。
@@ -4675,8 +4681,37 @@ export function ChatPane({
     setAiVoiceOpen((open) => !open);
   }
 
+  /**
+   * 红包按钮：先弹「红包 / 礼物」两项菜单（与通话按钮同款）。
+   * 已经开着别的面板时再点一次 = 全部收起，不弹菜单。
+   */
+  function openRedPacketMenu(event: ReactMouseEvent<HTMLButtonElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const alreadyOpen = redPacketMenu !== null || redPacketOpen || giftOpen;
+    setContextMenu(null);
+    setLocationMenu(null);
+    setLocationCardOpen(false);
+    setLocationShareOpen(false);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setArkOpen(false);
+    setAiVoiceOpen(false);
+    setComposerMenu(null);
+    setRedPacketOpen(false);
+    setGiftOpen(false);
+    if (alreadyOpen) {
+      setRedPacketMenu(null);
+      return;
+    }
+    // 菜单从按钮上沿往上长；两项文字短，宽高相对固定。
+    setRedPacketMenu({ x: rect.left, y: rect.top - 96 });
+  }
+
   /** 红包面板：和其余面板互斥；下单出码在应用层，成功后弹二维码灯箱。 */
   function toggleRedPacketPanel() {
+    setRedPacketMenu(null);
+    setGiftOpen(false);
     setContextMenu(null);
     setLocationMenu(null);
     setLocationCardOpen(false);
@@ -4687,6 +4722,22 @@ export function ChatPane({
     setArkOpen(false);
     setAiVoiceOpen(false);
     setRedPacketOpen((open) => !open);
+  }
+
+  /** 礼物面板（仅私聊）：和其余面板互斥。 */
+  function openGiftPanel() {
+    setRedPacketMenu(null);
+    setRedPacketOpen(false);
+    setContextMenu(null);
+    setLocationMenu(null);
+    setLocationCardOpen(false);
+    setLocationShareOpen(false);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setArkOpen(false);
+    setAiVoiceOpen(false);
+    setGiftOpen(true);
   }
 
   /**
@@ -6253,15 +6304,21 @@ export function ChatPane({
           >
             <Smile size={21} strokeWidth={1.5} />
           </button>
-          {/* 红包：群聊三档类型 / 私聊两档，下单后弹二维码灯箱。 */}
+          {/* 红包 / 礼物：点一下先出两项菜单（与通话按钮同款）。红包群聊三档 / 私聊两档，
+              下单后弹二维码灯箱；礼物只有私聊，打开礼物商城面板。 */}
           <button
             ref={redPacketButtonRef}
             type="button"
-            className={cn('composer-tool', redPacketOpen && 'active')}
-            title={qqUnavailable || (hasSingleSend ? singleSendHint : '发红包')}
-            aria-label="发红包"
+            className={cn(
+              'composer-tool',
+              (redPacketOpen || giftOpen || redPacketMenu) && 'active',
+            )}
+            title={qqUnavailable || (hasSingleSend ? singleSendHint : '红包 / 礼物')}
+            aria-label="红包或礼物"
+            aria-haspopup="menu"
+            aria-expanded={redPacketMenu !== null}
             disabled={generated || currentPreference.blocked}
-            onClick={toggleRedPacketPanel}
+            onClick={openRedPacketMenu}
           >
             <AiOutlineRedEnvelope size={21} />
           </button>
@@ -6478,6 +6535,13 @@ export function ChatPane({
             onSynthesizeSpeech={synthesizeSpeech}
             onSend={(draft) => void sendAiVoice(draft)}
             onClose={() => setAiVoiceOpen(false)}
+          />
+        ) : null}
+        {giftOpen && conversation?.type === 'direct' ? (
+          <GiftMallPanel
+            peer={conversation.otherUser?.id ?? ''}
+            peerName={conversation.name}
+            onClose={() => setGiftOpen(false)}
           />
         ) : null}
         {redPacketPanelActive ? (
@@ -6861,6 +6925,35 @@ export function ChatPane({
           }
           recallBlockedReason={contextRecallInfo?.show ? contextRecallInfo.reason : undefined}
           recallCount={contextSelectionRecall ? selectionFlow.selectedCount : undefined}
+        />
+      ) : null}
+      {redPacketMenu ? (
+        <ConversationActionsMenu
+          x={redPacketMenu.x}
+          y={redPacketMenu.y}
+          label="红包与礼物"
+          onClose={() => setRedPacketMenu(null)}
+          actions={[
+            {
+              label: '红包',
+              icon: <AiOutlineRedEnvelope size={16} />,
+              action: () => {
+                setRedPacketMenu(null);
+                toggleRedPacketPanel();
+              },
+            },
+            {
+              label: '礼物',
+              icon: <Gift size={16} />,
+              ...(conversation?.type === 'direct'
+                ? {}
+                : { disabled: true, reason: '礼物目前只支持私聊' }),
+              action: () => {
+                setRedPacketMenu(null);
+                openGiftPanel();
+              },
+            },
+          ]}
         />
       ) : null}
       {callMenu ? (

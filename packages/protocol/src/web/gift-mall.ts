@@ -53,6 +53,23 @@ export interface GiftMallGift {
   isReceived?: boolean;
   canSendByPriviledge?: boolean;
   mapExt?: Record<string, unknown>;
+  /** 详情页兜底图（抓包：`qzoneAIGift/item/<id>/详情页兜底图.png`）。 */
+  staticPic?: string;
+  /** 详情页大图。 */
+  backgroundPic?: string;
+  receivePic?: string;
+  /** 商城列表用的方图（静态 / 动态），比 staticPic 更接近真机列表观感。 */
+  squareStaticPic?: string;
+  squareDynamicPic?: string;
+  /** 礼物主题底色（`#rrggbb`），做预览卡背景用。 */
+  backgroundColor?: string;
+  /** 列表卡片上的短标语。 */
+  homepageDesc?: string;
+  /** 比 giftDesc 更长的一句描述。 */
+  desc?: string;
+  /** 分类标签（如 `['个性化装扮', '气泡']`）。 */
+  vecTags?: string[];
+  pagResourceUrl?: string;
   [field: string]: unknown;
 }
 
@@ -182,7 +199,8 @@ export interface GiftMallWallItem {
   orderNum: string;
   time: string;
   nick: string;
-  displayType: number;
+  /** 抓包里是字符串（"0" / "2"），不是数字 —— 别按 int 解。 */
+  displayType: number | string;
   material: string;
   source: number;
 }
