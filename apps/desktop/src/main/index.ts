@@ -47,6 +47,7 @@ import {
   registerAvatarProtocol,
   registerMediaProtocol,
 } from './protocol_register';
+import { registerUdpCaptureStorage } from './udp_capture_register';
 import { getAppContext } from './context/app_context';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
@@ -809,6 +810,7 @@ void app.whenReady().then(async () => {
   registerResourceProtocol();
   registerAvatarProtocol();
   registerMediaProtocol();
+  registerUdpCaptureStorage();
   // 放行通话窗口的 getDisplayMedia：屏幕共享（所有平台）与 Windows 的
   // 电脑声音 loopback（Linux 录电脑声音走 parec，不经这条路）。
   installCallDisplayMediaHandler();

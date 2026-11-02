@@ -50,6 +50,13 @@ const summary: MailSummary = {
 };
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   state.current = true;
   state.mutate.mockClear();
   state.prepare.mockClear();
