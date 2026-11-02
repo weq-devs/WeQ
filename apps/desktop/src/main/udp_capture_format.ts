@@ -248,14 +248,38 @@ export function ethernetFrame(ip: Buffer): Buffer {
   return Buffer.concat([header, ip]);
 }
 
-/** EPB：一个包一条，时间戳单位 1e-6 秒（pcapng 默认 tsresol）。 */
+/**
+ * EPB：一个包一条，时间戳单位 1e-6 秒（pcapng 默认 tsresol）。
+ *
+ * ⚠️ pcapng 的 EPB 时间戳是**一个 64 位无符号整数**，但它的两个 32 位字是
+ * **High 在前、Low 在后**（不是常见的「低地址存低位」）。单位由 IDB 的
+ * `if_tsresol` 决定，默认 1e-6 秒。
+ *
+ * `ts` 是**毫秒**，换算成微秒后必须整体拆成高低两半：
+ *
+ * ```text
+ * micros = ts * 1000
+ * tsHigh = floor(micros / 2^32)   ← 写 offset 4
+ * tsLow  = micros mod 2^32        ← 写 offset 8
+ * ```
+ *
+ * 2026-11-02 之前的实现把 `floor(ts/1000)`（**秒**）写进了 High、把
+ * `(ts%1000)*1000`（微秒）写进了 Low。字段位置是对的，但 High 的语义错了 ——
+ * 秒不是「微秒的高 32 位」，而是它的 1/4295。Wireshark 读出来是 **246079 年**、
+ * `frame.time_relative` 出现 8589 秒的假跳变，整份抓包的时序分析全废。
+ * 两份抓包（WeQ 自己的、以及抓包面板导出的 QQ 侧）都是这个错法。
+ */
 export function pcapngEnhancedPacket(ts: number, ip: Buffer): Buffer {
   const packet = ethernetFrame(ip);
   const pad = (4 - (packet.length % 4)) % 4;
   const body = Buffer.alloc(20 + packet.length + pad);
   body.writeUInt32LE(0, 0); // interface id
-  body.writeUInt32LE(Math.floor(ts / 1000) >>> 0, 4);
-  body.writeUInt32LE(Math.round((ts % 1000) * 1000) >>> 0, 8);
+  // 毫秒 -> 微秒。用整数运算拆高低位，避免 2^32 量级的浮点精度损失。
+  const micros = Math.max(0, Math.round(ts * 1000));
+  const tsHigh = Math.floor(micros / 0x1_0000_0000);
+  const tsLow = micros % 0x1_0000_0000;
+  body.writeUInt32LE(tsHigh, 4); // High 在前
+  body.writeUInt32LE(tsLow, 8); // Low 在后
   body.writeUInt32LE(packet.length, 12); // captured len
   body.writeUInt32LE(packet.length, 16); // original len
   packet.copy(body, 20);
