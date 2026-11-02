@@ -2,8 +2,8 @@
 
 import {
   GIFT_MALL_ENDPOINTS,
-  buildGiftMallGiftListRequest,
   buildGiftMallHomePageExtraRequest,
+  buildGiftMallHomePageGiftListRequest,
   buildGiftMallSearchRequest,
   buildGiftMallSingleGiftInfoRequest,
   buildGiftMallVipInfoRequest,
@@ -56,7 +56,7 @@ async function postGiftMall<T>(cred: WebCredential, endpoint: string, body: unkn
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': GIFT_MALL_UA,
-        Referer,
+        Referer: REFERER,
       },
       body: JSON.stringify(body),
       retry: WEB_READ_RETRY,

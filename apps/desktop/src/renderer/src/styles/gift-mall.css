@@ -1,0 +1,718 @@
+/* ──────────────────────────────────────────────────────────────────────────
+ * 礼物商城面板（私聊输入框「红包 / 礼物」菜单 → 礼物）。
+ *
+ * 原则与其它浮层一致：颜色全部走 design token，深浅模式各写一份覆盖，
+ * 强调色一律用 --weq-accent-effective（跟随设置里的主题色）。
+ * 图片是主进程代理的 `weq-media://gift`，每张都很大，所以刻意不密排。
+ * ────────────────────────────────────────────────────────────────────────── */
+
+.weq-gift-layer {
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, #0d1420 38%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+html[data-theme='dark'] .weq-gift-layer {
+  background: color-mix(in srgb, #000 62%, transparent);
+}
+
+.weq-gift-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, calc(100vw - 56px));
+  height: min(764px, calc(100vh - 56px));
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 18px;
+  background: var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-card);
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+html[data-theme='dark'] .weq-gift-dialog {
+  border-color: var(--weq-border-strong);
+  box-shadow: var(--weq-shadow-soft);
+}
+
+/* ===== 头部：标题 / 送给谁 / 搜索 / 关闭 ===== */
+
+.weq-gift-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: none;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-gift-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: none;
+  color: var(--weq-fg-primary);
+}
+
+.weq-gift-title-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-gift-title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.weq-gift-title small {
+  display: block;
+  margin-top: 1px;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.weq-gift-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  max-width: 360px;
+  margin-left: auto;
+  padding: 0 10px;
+  height: 32px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 4%, transparent);
+  color: var(--weq-fg-muted);
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+
+.weq-gift-search:focus-within {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 46%, transparent);
+  background: var(--weq-bg-surface);
+}
+
+.weq-gift-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.weq-gift-search input::placeholder {
+  color: var(--weq-fg-muted);
+}
+
+.weq-gift-search-clear {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-gift-close {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  flex: none;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-gift-close:hover,
+.weq-gift-close:focus-visible {
+  background: color-mix(in srgb, var(--weq-fg-primary) 7%, transparent);
+  color: var(--weq-fg-primary);
+  outline: none;
+}
+
+/* ===== 分栏 / 子栏 ===== */
+
+.weq-gift-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 10px 18px 0;
+}
+
+.weq-gift-tab {
+  padding: 5px 13px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    color 0.14s ease,
+    background 0.14s ease;
+}
+
+.weq-gift-tab:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-gift-tab.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 78%, var(--weq-fg-primary));
+  font-weight: 600;
+}
+
+.weq-gift-subtabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 8px 18px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.weq-gift-subtabs::-webkit-scrollbar {
+  display: none;
+}
+
+.weq-gift-subtab {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-gift-subtab:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-gift-subtab.is-active {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 80%, var(--weq-fg-primary));
+}
+
+/* ===== 列表 ===== */
+
+.weq-gift-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 18px 18px;
+  scrollbar-width: thin;
+}
+
+.weq-gift-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(206px, 1fr));
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.weq-gift-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 14px;
+  background: var(--weq-bg-surface);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.weq-gift-card:hover,
+.weq-gift-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, var(--weq-border-subtle));
+  box-shadow: var(--weq-shadow-soft);
+  outline: none;
+}
+
+.weq-gift-card-media {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1 / 1;
+  padding: 12px;
+  /* 礼物自带的主题底色只在预览格上淡淡铺一层，深浅模式下都不会跳。 */
+  background: color-mix(in srgb, var(--weq-gift-tint, transparent) 16%, var(--weq-bg-surface));
+}
+
+.weq-gift-card-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.weq-gift-card-fallback {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-gift-card-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 88%, #000);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.weq-gift-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 11px 11px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-gift-card-body strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--weq-fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-gift-card-body small {
+  min-height: 15px;
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-gift-card-price {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  color: color-mix(in srgb, var(--weq-accent-effective) 74%, var(--weq-fg-primary));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.weq-gift-card-price s {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+/* ===== 状态：加载 / 空 / 错误 / 更多 ===== */
+
+.weq-gift-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 260px;
+  color: var(--weq-fg-secondary);
+  text-align: center;
+}
+
+.weq-gift-state p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--weq-fg-primary);
+}
+
+.weq-gift-state span {
+  font-size: 12px;
+  color: var(--weq-fg-muted);
+  max-width: 420px;
+  line-height: 1.6;
+}
+
+.weq-gift-state.is-error {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-gift-spin {
+  animation: weq-gift-spin 0.9s linear infinite;
+}
+
+@keyframes weq-gift-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-gift-spin {
+    animation: none;
+  }
+
+  .weq-gift-card {
+    transition: none;
+  }
+}
+
+.weq-gift-skeleton {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(206px, 1fr));
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.weq-gift-skel-card {
+  height: 268px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 14px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--weq-fg-primary) 5%, transparent) 30%,
+    color-mix(in srgb, var(--weq-fg-primary) 9%, transparent) 46%,
+    color-mix(in srgb, var(--weq-fg-primary) 5%, transparent) 62%
+  );
+  background-size: 220% 100%;
+  animation: weq-gift-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes weq-gift-shimmer {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -30% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-gift-skel-card {
+    animation: none;
+  }
+}
+
+.weq-gift-count {
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+}
+
+.weq-gift-more {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0 4px;
+}
+
+.weq-gift-more button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 18px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.weq-gift-more button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-gift-more button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ===== 详情 ===== */
+
+.weq-gift-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 26px;
+  flex: 1;
+  min-height: 0;
+  padding: 18px 22px 22px;
+}
+
+.weq-gift-detail-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: start;
+  margin-bottom: 10px;
+  padding: 4px 10px 4px 6px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-gift-detail-back:hover {
+  color: var(--weq-fg-primary);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 36%, transparent);
+}
+
+.weq-gift-detail-preview {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.weq-gift-detail-stage {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-height: 240px;
+  padding: 24px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--weq-gift-tint, transparent) 18%, var(--weq-bg-surface));
+  overflow: hidden;
+}
+
+html[data-theme='dark'] .weq-gift-detail-stage {
+  border-color: var(--weq-border-strong);
+  background: color-mix(in srgb, var(--weq-gift-tint, transparent) 12%, var(--weq-bg-surface));
+}
+
+.weq-gift-detail-stage img {
+  width: 100%;
+  height: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  display: block;
+}
+
+.weq-gift-detail-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+
+.weq-gift-detail-name {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.weq-gift-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.weq-gift-tag {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 74%, var(--weq-fg-primary));
+  font-size: 11px;
+}
+
+.weq-gift-detail-desc {
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+  line-height: 1.72;
+}
+
+.weq-gift-detail-price {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: color-mix(in srgb, var(--weq-accent-effective) 76%, var(--weq-fg-primary));
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.weq-gift-detail-price small {
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.weq-gift-detail-price s {
+  color: var(--weq-fg-muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.weq-gift-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-gift-detail-field > span {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-gift-detail-field textarea {
+  min-height: 68px;
+  padding: 9px 11px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 3%, transparent);
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  font-family: inherit;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+
+.weq-gift-detail-field textarea:focus {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 46%, transparent);
+  background: var(--weq-bg-surface);
+}
+
+.weq-gift-detail-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-gift-detail-option input {
+  accent-color: var(--weq-accent-effective);
+}
+
+.weq-gift-detail-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.weq-gift-detail-result.is-error {
+  border: 1px solid color-mix(in srgb, #e5484d 34%, transparent);
+  background: color-mix(in srgb, #e5484d 10%, transparent);
+  color: color-mix(in srgb, #e5484d 86%, var(--weq-fg-primary));
+}
+
+.weq-gift-detail-result.is-ok {
+  border: 1px solid color-mix(in srgb, #30a46c 34%, transparent);
+  background: color-mix(in srgb, #30a46c 10%, transparent);
+  color: color-mix(in srgb, #30a46c 82%, var(--weq-fg-primary));
+}
+
+html[data-theme='dark'] .weq-gift-detail-result.is-error {
+  color: color-mix(in srgb, #ff8a8f 88%, var(--weq-fg-primary));
+}
+
+html[data-theme='dark'] .weq-gift-detail-result.is-ok {
+  color: color-mix(in srgb, #6ede9f 88%, var(--weq-fg-primary));
+}
+
+.weq-gift-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.weq-gift-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 20px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--weq-accent-effective);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--weq-accent-effective) 28%, transparent);
+}
+
+.weq-gift-send:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.weq-gift-send:disabled {
+  opacity: 0.55;
+  cursor: default;
+  box-shadow: none;
+}
+
+.weq-gift-detail-hint {
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+/* 窄窗口（双栏放不下）时详情改成上下排，图片仍然占满宽度。 */
+@media (max-width: 860px) {
+  .weq-gift-detail {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    overflow-y: auto;
+  }
+
+  .weq-gift-detail-preview {
+    min-height: 260px;
+  }
+
+  .weq-gift-detail-info {
+    overflow: visible;
+  }
+}

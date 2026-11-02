@@ -1,0 +1,266 @@
+/* ──────────────────────────────────────────────────────────────────────────
+ * 我的礼物墙（个性装扮 → 我的礼物墙）。
+ *
+ * 瀑布流用 CSS multi-column：礼物图宽高比各不相同，做等高网格会不是裁掉就是留白，
+ * 让每张按原比例排下去才像「礼物墙」。卡片与图片尺寸都刻意放大，不密排。
+ * 颜色全部走 design token，深色模式单独覆盖。
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/* 外层（个性装扮的 .weq-dress-body）已经是滚动容器，这里不再套一层滚动 ——
+   双滚动条比「工具条跟着滚走」难看得多。 */
+.weq-gift-wall {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.weq-gift-wall-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.weq-gift-wall-switch {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 3%, transparent);
+}
+
+.weq-gift-wall-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    color 0.14s ease;
+}
+
+.weq-gift-wall-switch button.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 80%, var(--weq-fg-primary));
+  font-weight: 600;
+}
+
+.weq-gift-wall-count {
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+}
+
+.weq-gift-wall-body {
+  padding: 2px 2px 8px;
+}
+
+/* 瀑布流：按可用宽度自动增减列数，每列最窄 200px，图片不至于缩成小图标。 */
+.weq-gift-wall-masonry {
+  columns: 4 200px;
+  column-gap: 14px;
+}
+
+.weq-gift-wall-card {
+  break-inside: avoid;
+  display: block;
+  width: 100%;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 14px;
+  background: var(--weq-bg-surface);
+  overflow: hidden;
+  text-align: left;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.weq-gift-wall-card:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, var(--weq-border-subtle));
+  box-shadow: var(--weq-shadow-soft);
+}
+
+.weq-gift-wall-media {
+  display: grid;
+  place-items: center;
+  min-height: 132px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 3%, var(--weq-bg-surface));
+}
+
+html[data-theme='dark'] .weq-gift-wall-media {
+  background: color-mix(in srgb, #fff 5%, var(--weq-bg-surface));
+}
+
+.weq-gift-wall-media img {
+  width: 100%;
+  height: auto;
+  max-height: 420px;
+  object-fit: contain;
+  display: block;
+}
+
+.weq-gift-wall-media .weq-gift-wall-fallback {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 140px;
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+}
+
+.weq-gift-wall-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px 10px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-gift-wall-meta-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.weq-gift-wall-meta-main strong {
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-gift-wall-meta-main small {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-gift-wall-price {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  color: color-mix(in srgb, var(--weq-accent-effective) 70%, var(--weq-fg-primary));
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.weq-gift-wall-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 280px;
+  text-align: center;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-gift-wall-state p {
+  margin: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+}
+
+.weq-gift-wall-state span {
+  max-width: 420px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.weq-gift-wall-spin {
+  animation: weq-gift-wall-spin 0.9s linear infinite;
+}
+
+@keyframes weq-gift-wall-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-gift-wall-spin {
+    animation: none;
+  }
+}
+
+.weq-gift-wall-skeleton {
+  columns: 4 200px;
+  column-gap: 14px;
+}
+
+.weq-gift-wall-skel {
+  break-inside: avoid;
+  width: 100%;
+  margin-bottom: 14px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 14px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--weq-fg-primary) 5%, transparent) 30%,
+    color-mix(in srgb, var(--weq-fg-primary) 9%, transparent) 46%,
+    color-mix(in srgb, var(--weq-fg-primary) 5%, transparent) 62%
+  );
+  background-size: 220% 100%;
+  animation: weq-gift-wall-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes weq-gift-wall-shimmer {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -30% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-gift-wall-skel {
+    animation: none;
+  }
+}
+
+.weq-gift-wall-more {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 12px;
+}
+
+.weq-gift-wall-more button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 20px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.weq-gift-wall-more button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-gift-wall-more button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

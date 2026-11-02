@@ -39,9 +39,26 @@ Service 从 `WebCredentialProvider` 获取对应域的当前 p_skey，不使用�
 
 下单前调用方必须传入 `beforeSend` 回调以完成上层确认。`sendGift` 使用 `qzone.qq.com` 凭据；首页/搜索/详情/礼物墙使用 `vip.qq.com` 凭据。
 
+## 响应字段里容易踩的两处
+
+- 礼物墙条目的 `displayType` 是**字符串**（`"0"` / `"2"`），不是数字；按 int 解会在严格解析里炸。
+- 礼物图片分散在 `staticPic` / `backgroundPic` / `receivePic` / `squareStaticPic` / `squareDynamicPic`：
+  商城列表用两张方图（真机列表同款），详情页用 `staticPic` 兜底。`backgroundColor` 是礼物主题底色，
+  可以拿来给预览格铺一层淡色底。
+
+## 渲染层接线
+
+- 图片：`weq-media://gift?src=…` 由主进程代取并落进头像缓存的 `gift` 子目录（只放行 `*.gtimg.cn`，
+  30 天 TTL），渲染进程不直连 CDN，也不必为礼物图放开 CSP。
+- 入口：私聊输入框的「红包」按钮现在先弹「红包 / 礼物」两项菜单（与通话按钮同一套菜单）；
+  礼物打开商城面板，含首页分栏 / 子栏、搜索、详情与赠送。
+- 礼物墙挂在「个性装扮 → 我的礼物墙」，按收到 / 送出分组，瀑布流展示。
+- `sendGift` 的响应里只要出现 `payMode !== 0` / `token` / `url_params` / `orderID` 就算「需要支付」，
+  路由直接抛错并在详情页原样提示；WeQ 没有收银台，不会假装送出成功。
+
 ## API
 
-纯请求体 builder 与响应类型位于 `packages/protocol/src/web/gift-mall.ts`，账户级方法由 `WebQueryService` 提供：
+纯请求体 builder 与响应类型位于 `packages/protocol/src/web/gift-mall.ts`，账户级方法由 `WebQueryService` 提供（桌面端再包一层 `account.giftMall.*` tRPC 路由）：
 
 - `getGiftMallHomePageExtraInfo`
 - `getGiftMallGiftList`
