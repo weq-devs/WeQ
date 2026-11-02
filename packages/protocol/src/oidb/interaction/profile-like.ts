@@ -11,6 +11,8 @@ export const PROFILE_LIKE_SOURCE_ID = 71;
 export namespace SendProfileLike {
   export const command = 0x7e5;
   export const subCommand = 104;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = message([
     { name: 'targetUid', tag: 11, type: 'string' },
     { name: 'sourceId', tag: 12, type: 'uint32' },

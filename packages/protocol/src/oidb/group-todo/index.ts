@@ -34,6 +34,8 @@ export interface GroupTodoParams {
 
 export namespace GroupTodo {
   export const command = 0xf90;
+  /** 动态子命令未逐个实测，按 QQ 对 `0xf90` 家族的行为不签。 */
+  export const needSign = false;
   export const reqSchema = TODO_REQ;
   export const respSchema = TODO_RESP;
 
@@ -151,6 +153,8 @@ function parseTimestamp(value: unknown): number {
 export namespace GetGroupTodoList {
   export const command = 0x9474;
   export const subCommand = 0;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = TODO_LIST_REQ;
   export const respSchema = TODO_LIST_RESP;
 

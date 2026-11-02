@@ -150,7 +150,7 @@ describe('群管理 / 群文件 / 群待办', () => {
     expect(decode(GetGroupCategoryTags.reqSchema, nt.calls[0]!.body).groupClass).toBe(0);
   });
 
-  it('FetchGroupMemberListPage：0xfe7_3，签名；解析成员与 token', async () => {
+  it('FetchGroupMemberListPage：0xfe7_3，不签名（真机实测）；解析成员与 token', async () => {
     const resp = encode(FetchGroupMemberListPage.respSchema, {
       members: [
         {
@@ -169,7 +169,7 @@ describe('群管理 / 群文件 / 群待办', () => {
     });
     const nt = makeNative(resp);
     const page = await FetchGroupMemberListPage.invoke(nt, 1, { groupId: 100 });
-    expect(nt.calls[0]).toMatchObject({ command: 0xfe7, subCommand: 3, needSign: true });
+    expect(nt.calls[0]).toMatchObject({ command: 0xfe7, subCommand: 3, needSign: false });
     expect(page).toEqual({
       members: [
         {
@@ -189,11 +189,11 @@ describe('群管理 / 群文件 / 群待办', () => {
     });
   });
 
-  it('DeleteGroupFile：0x6d6_3，签名，busId=102', async () => {
+  it('DeleteGroupFile：0x6d6_3，不签名（真机实测），busId=102', async () => {
     const nt = makeNative(encode(DeleteGroupFile.respSchema, { delete: { retCode: 0 } }));
     await DeleteGroupFile.invoke(nt, 1, { groupId: 100, fileId: 'f1' });
     const call = nt.calls[0]!;
-    expect(call).toMatchObject({ command: 0x6d6, subCommand: 3, isUid: true, needSign: true });
+    expect(call).toMatchObject({ command: 0x6d6, subCommand: 3, isUid: true, needSign: false });
     expect(decode(DeleteGroupFile.reqSchema, call.body)).toEqual({
       delete: { groupUin: 100, busId: 102, fileId: 'f1' },
     });

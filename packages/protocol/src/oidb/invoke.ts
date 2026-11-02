@@ -12,7 +12,6 @@
  */
 
 import { decode, encode, type ProtoMessage } from '../protobuf';
-import { commandNeedsSign, oidbWireCommand } from '../sign/whitelist';
 import { sendOidb, sendPacket, type OidbNative, type TrpcNative } from '../transport';
 
 /** A single OIDB command. */
@@ -20,13 +19,17 @@ export interface OidbSpec<TParams, TResult> {
   command: number;
   subCommand?: number;
   /**
-   * 该命令是否需要签名（`SecSign/SecToken/SecExtra`）。
+   * 该命令是否需要签名（`SecSign/SecToken/SecExtra`）——**必填**。
    *
-   * **不写就按 LagrangeV2 的签名白名单推导**（见 `../sign/whitelist`）—— 名单里
-   * 没有的命令不签，多签不是好事。显式值只用于两种情形：与白名单不一致的已核实
-   * 特例，或命令在名单里但抓包确认不该签。新命令一律优先不写。
+   * 取值来自真机抓包：用注入的 QQ 发该命令，看 QQ 自己在 SSO reserved 里写不写
+   * tag 24（`SecInfo`）。2026-11-03 对 `@weq/protocol` 全部 81 个 OIDB 命令做过实测，
+   * 只有 8 个会签：`0x89a_0/15`、`0x102a_0/1`、`0x112a_2`、`0x112e_1`、`0x11ec_1`、
+   * `0x93d7_1`。
+   *
+   * 不再有「按名单推导」的兜底：旧实现照抄 LagrangeV2 的 `WhiteListCommand`，
+   * 与 PC 端实测不符（15 个只读命令被误判成要签），已随白名单一起移除。
    */
-  needSign?: boolean;
+  needSign: boolean;
   /**
    * 从参数动态解析 sub-command（0x9082：1 = 贴表情，2 = 撤回）。优先于
    * {@link subCommand}。
@@ -54,8 +57,6 @@ export async function invokeOidb<TParams, TResult>(
     );
   }
   const reqBytes = encode(spec.reqSchema, spec.serialize(params));
-  // 未显式标注时按 LagrangeV2 白名单推导；名单外不签。
-  const needSign = spec.needSign ?? commandNeedsSign(oidbWireCommand(spec.command, subCommand));
   const respBytes = await sendOidb(
     nt,
     pid,
@@ -65,7 +66,7 @@ export async function invokeOidb<TParams, TResult>(
       body: reqBytes,
       isUid: spec.uinForm ?? false,
     },
-    needSign,
+    spec.needSign,
   );
   return spec.deserialize(
     spec.decodeResponseBody
@@ -77,8 +78,8 @@ export async function invokeOidb<TParams, TResult>(
 /** A trpc service reached via a raw SSO command string (no OIDB envelope). */
 export interface TrpcSpec<TParams, TResult> {
   cmd: string;
-  /** 同 {@link OidbSpec.needSign}：不写就按白名单推导，名单外不签。 */
-  needSign?: boolean;
+  /** 同 {@link OidbSpec.needSign}：必填，取值来自真机抓包。 */
+  needSign: boolean;
   reqSchema: ProtoMessage;
   respSchema: ProtoMessage;
   serialize(params: TParams): Record<string, unknown>;
@@ -104,9 +105,7 @@ export async function invokeTrpc<TParams, TResult>(
   const reqBytes = spec.encodeRequest
     ? spec.encodeRequest(params)
     : encode(spec.reqSchema, spec.serialize(params));
-  // 同 invokeOidb：未显式标注时按白名单推导。
-  const needSign = spec.needSign ?? commandNeedsSign(spec.cmd);
-  const respBytes = await sendPacket(nt, pid, spec.cmd, reqBytes, needSign);
+  const respBytes = await sendPacket(nt, pid, spec.cmd, reqBytes, spec.needSign);
   if (spec.decodeResponse) return spec.decodeResponse(respBytes);
   return spec.deserialize(decode(spec.respSchema, respBytes));
 }
