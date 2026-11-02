@@ -1,0 +1,86 @@
+/* ──────────────────────────────────────────────────────────────────────────
+ * 群礼物面板的附加样式（主体复用 gift-mall.css）。
+ *
+ * 只补私聊商城没有的三处：右上角「仅供查看」标记、抓包兜底提示条、
+ * 卡片 / 详情里的「金币」「魅力值 +N」。颜色仍走 design token。
+ * ────────────────────────────────────────────────────────────────────────── */
+
+.weq-group-gift-mode {
+  margin-left: auto;
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 28%, var(--weq-border-subtle));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 78%, var(--weq-fg-primary));
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.weq-group-gift-fallback {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  flex: none;
+  margin: 10px 18px 0;
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, #d97706 38%, var(--weq-border-subtle));
+  border-radius: 10px;
+  background: color-mix(in srgb, #d97706 11%, var(--weq-bg-surface));
+  color: color-mix(in srgb, #92400e 82%, var(--weq-fg-primary));
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.weq-group-gift-fallback svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+html[data-theme='dark'] .weq-group-gift-fallback {
+  border-color: color-mix(in srgb, #f59e0b 42%, var(--weq-border-strong));
+  background: color-mix(in srgb, #f59e0b 13%, var(--weq-bg-surface));
+  color: color-mix(in srgb, #fbbf24 76%, var(--weq-fg-primary));
+}
+
+.weq-group-gift-unit {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.weq-group-gift-charm {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 74%, var(--weq-fg-primary));
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.weq-group-gift-detail-charm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 76%, var(--weq-fg-primary));
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.weq-group-gift-note {
+  padding: 9px 11px;
+  border: 1px dashed var(--weq-border-subtle);
+  border-radius: 10px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+html[data-theme='dark'] .weq-group-gift-note {
+  border-color: var(--weq-border-strong);
+}

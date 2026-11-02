@@ -875,6 +875,7 @@ export type {
   SendGroupJoinRequestServiceParams,
 } from './account/interaction';
 export { GroupModerationService } from './account/group_moderation';
+export { GroupGiftService } from './account/group_gift';
 export { LocationShareService } from './account/lbs_share';
 export type {
   LocationShareTarget,

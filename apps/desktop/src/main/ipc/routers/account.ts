@@ -98,6 +98,7 @@ import { mediaSaveRouter } from './media_save';
 import { resourceCleanupRouter } from './resource_cleanup';
 import { dressupRouter } from './dressup';
 import { giftMallRouter } from './gift_mall';
+import { groupGiftRouter } from './group_gift';
 import { qzoneRouter } from './qzone';
 import { qzonePublicRouter } from './qzone_public';
 import { mutualMarkRouter } from './mutual_mark';
@@ -1804,6 +1805,8 @@ export const accountRouter = router({
   dressup: dressupRouter,
   // ---- 私聊礼物商城（首页 / 搜索 / 详情 / 礼物墙 / 赠送）----
   giftMall: giftMallRouter,
+  // ---- 群礼物面板（只读）----
+  groupGift: groupGiftRouter,
   qzone: qzoneRouter,
   /** 空友爱看（推荐域 3）：与旧空间 cgi 分开的一套动态身份与互动接口。 */
   qzonePublic: qzonePublicRouter,
