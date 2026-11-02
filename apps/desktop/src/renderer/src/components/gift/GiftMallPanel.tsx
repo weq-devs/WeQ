@@ -77,6 +77,16 @@ type GiftItem = {
   vecTags?: string[];
 };
 
+/** 接口翻页或切换推荐流时可能重发同一条，首屏和后续页都按礼物 ID 去重。 */
+export function uniqueGiftItems(items: GiftItem[]): GiftItem[] {
+  const seen = new Set<number>();
+  return items.filter((item) => {
+    if (seen.has(item.giftId)) return false;
+    seen.add(item.giftId);
+    return true;
+  });
+}
+
 /** 列表优先用方图（真机商城同款），没有才退回详情兜底图。 */
 function previewOf(gift: GiftItem): string {
   return gift.squareStaticPic || gift.staticPic || '';
@@ -151,14 +161,10 @@ export function GiftMallPanel({
             });
         if (id !== requestId.current) return;
         cursor.current = { attach: result.attachInfo, page: nextPage };
-        const list = result.giftList as unknown as GiftItem[];
+        const list = uniqueGiftItems(result.giftList as unknown as GiftItem[]);
         // 按 giftId 去重：翻页 / 换页时服务端偶尔会重复给同一个礼物，
         // 它同时也充当卡片的稳定 key，不用下标。
-        setItems((prev) => {
-          if (mode === 'reset') return list;
-          const seen = new Set(prev.map((item) => item.giftId));
-          return [...prev, ...list.filter((item) => !seen.has(item.giftId))];
-        });
+        setItems((prev) => (mode === 'reset' ? list : uniqueGiftItems([...prev, ...list])));
         setIsEnd(result.isEnd);
       } catch (e) {
         if (id !== requestId.current) return;
@@ -179,6 +185,7 @@ export function GiftMallPanel({
   }, [loadPage]);
 
   const subtabs = SUBTABS[tab];
+  const gridKey = keyword ? `search:${keyword}` : `${tab}:${subTab}`;
 
   return (
     <OverlayLayer presentation="modal" className="weq-gift-layer" onClose={onClose}>
@@ -338,7 +345,7 @@ export function GiftMallPanel({
                 </div>
               ) : (
                 <>
-                  <div className="weq-gift-grid">
+                  <div className="weq-gift-grid" key={gridKey}>
                     {items.map((gift) => (
                       <GiftCard key={gift.giftId} gift={gift} onOpen={() => setSelected(gift)} />
                     ))}
