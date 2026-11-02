@@ -6289,7 +6289,7 @@ export function ChatPane({
             aria-label="位置"
             aria-haspopup="menu"
             aria-expanded={locationMenu !== null}
-            disabled={generated || currentPreference.blocked || sending}
+            disabled={readOnly || generated || currentPreference.blocked || sending}
             onClick={openLocationMenu}
           >
             <MapPin size={21} strokeWidth={1.5} />
@@ -6315,10 +6315,10 @@ export function ChatPane({
               (redPacketOpen || giftOpen || redPacketMenu) && 'active',
             )}
             title={qqUnavailable || (hasSingleSend ? singleSendHint : '红包 / 礼物')}
-            aria-label="红包或礼物"
+            aria-label="发红包"
             aria-haspopup="menu"
             aria-expanded={redPacketMenu !== null}
-            disabled={generated || currentPreference.blocked}
+            disabled={readOnly || generated || currentPreference.blocked}
             onClick={openRedPacketMenu}
           >
             <AiOutlineRedEnvelope size={21} />
@@ -6331,7 +6331,7 @@ export function ChatPane({
               className={cn('composer-tool', callMenu && 'active')}
               title={qqUnavailable || '通话'}
               aria-label="通话"
-              disabled={generated || currentPreference.blocked}
+              disabled={readOnly || generated || currentPreference.blocked}
               onClick={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
                 setCallMenu({ x: rect.left, y: rect.top - 8 });
@@ -6351,7 +6351,7 @@ export function ChatPane({
             title={qqUnavailable || (hasSingleSend ? singleSendHint : '语音')}
             aria-label="语音"
             aria-expanded={voiceOpen || aiVoiceOpen}
-            disabled={generated || currentPreference.blocked || hasSingleSend}
+            disabled={readOnly || generated || currentPreference.blocked || hasSingleSend}
             onClick={toggleVoicePanel}
           >
             <Mic size={21} strokeWidth={1.5} />
@@ -6368,7 +6368,7 @@ export function ChatPane({
             aria-label="发送图片或文件"
             aria-haspopup="menu"
             aria-expanded={composerMenu?.kind === 'file'}
-            disabled={generated || currentPreference.blocked || sending}
+            disabled={readOnly || generated || currentPreference.blocked || sending}
             onClick={(event) => openComposerMenu('file', event)}
           >
             <FolderOpen size={21} strokeWidth={1.5} />
@@ -6379,7 +6379,9 @@ export function ChatPane({
             className={cn('composer-tool', 'composer-desktop-tool', arkOpen && 'active')}
             title={qqUnavailable || (hasSingleSend ? singleSendHint : '发送 Ark 卡片')}
             aria-label="发送 Ark 卡片"
-            disabled={generated || currentPreference.blocked || sending || hasSingleSend}
+            disabled={
+              readOnly || generated || currentPreference.blocked || sending || hasSingleSend
+            }
             onClick={toggleArkPanel}
           >
             <Link2 size={21} strokeWidth={1.5} />
@@ -6397,7 +6399,7 @@ export function ChatPane({
             aria-label="位置"
             aria-haspopup="menu"
             aria-expanded={locationMenu !== null}
-            disabled={generated || currentPreference.blocked || sending}
+            disabled={readOnly || generated || currentPreference.blocked || sending}
             onClick={openLocationMenu}
           >
             <MapPin size={21} strokeWidth={1.5} />

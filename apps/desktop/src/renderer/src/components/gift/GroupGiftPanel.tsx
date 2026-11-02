@@ -37,7 +37,7 @@ function uniqueGifts(gifts: GroupGiftItem[]): GroupGiftItem[] {
   });
 }
 
-function countGifts(panel: GroupGiftPanelResult): number {
+function _countGifts(panel: GroupGiftPanelResult): number {
   return panel.tabs.reduce((total, tab) => total + uniqueGifts(tab.gifts).length, 0);
 }
 
@@ -80,12 +80,12 @@ export function GroupGiftPanel({
           result.tabs.find((tab) => tab.gifts.length > 0)?.id ?? result.tabs[0]?.id ?? '',
         );
         setUsingFallback(false);
-        pushToast({
-          key: 'group-gift-panel',
-          tone: 'success',
-          title: '群礼物加载成功',
-          message: `${countGifts(result)} 件礼物`,
-        });
+        // pushToast({
+        // key: 'group-gift-panel',
+        //  tone: 'success',
+        //  title: '群礼物加载成功',
+        //  message: `${countGifts(result)} 件礼物`,
+        // });
       })
       .catch((cause) => {
         if (cancelled) return;
