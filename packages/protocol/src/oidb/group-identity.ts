@@ -30,6 +30,8 @@ function writableTitleId(id: string): number | null {
 export namespace GetGroupIdentity {
   export const command = 0x9436;
   export const subCommand = 0;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = message([
     { name: 'groupId', tag: 1, type: 'uint64', force: true },
@@ -118,6 +120,8 @@ export namespace GetGroupIdentity {
 export namespace SetGroupIdentity {
   export const command = 0x9437;
   export const subCommand = 0;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = message([
     { name: 'groupId', tag: 1, type: 'uint64', force: true },

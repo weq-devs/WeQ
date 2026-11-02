@@ -60,6 +60,8 @@ export interface SetDiyOnlineStatusParams {
 
 export namespace SetOnlineStatus {
   export const cmd = SET_STATUS_CMD;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = SET_STATUS_REQ;
   export const respSchema = SET_STATUS_RESP;
 
@@ -103,6 +105,8 @@ export namespace SetOnlineStatus {
 
 export namespace SetDiyOnlineStatus {
   export const cmd = SET_STATUS_CMD;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = SET_STATUS_REQ;
   export const respSchema = SET_STATUS_RESP;
 
@@ -144,6 +148,8 @@ export interface SetInputStatusParams {
 export namespace SetInputStatus {
   export const command = 0xcd4;
   export const subCommand = 1;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = INPUT_STATUS_REQ;
   export const respSchema = INPUT_STATUS_RESP;
 
@@ -230,6 +236,8 @@ export interface GetUserOnlineStatusParams {
 export namespace GetUserOnlineStatus {
   export const command = 0xfe1;
   export const subCommand = 2;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = STATUS_REQ;
   export const respSchema = STATUS_RESP;

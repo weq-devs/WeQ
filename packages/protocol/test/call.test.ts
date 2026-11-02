@@ -668,11 +668,10 @@ describe('视频参数推送', () => {
 // ─────────────── 协议层的公开契约 ───────────────
 
 describe('不破坏既有机制', () => {
-  it('这些命令不在签名白名单里，发包时不带签名', async () => {
-    const { commandNeedsSign } = await import('../src/sign/whitelist');
-    const { C2C_SSO_CMD } = await import('../src/call');
-    for (const cmd of Object.values(C2C_SSO_CMD)) {
-      expect(commandNeedsSign(cmd)).toBe(false);
+  it('这些命令真机实测不签名，发包时不带签名', async () => {
+    const { CreateRoom, InviteUser, Logout } = await import('../src/call');
+    for (const spec of [CreateRoom, InviteUser, Logout]) {
+      expect(spec.needSign).toBe(false);
     }
   });
 

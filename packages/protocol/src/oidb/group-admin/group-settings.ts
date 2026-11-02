@@ -36,6 +36,8 @@ export interface LeaveGroupParams {
 export namespace LeaveGroup {
   export const command = 0x1097;
   export const subCommand = 1;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = LEAVE_GROUP_REQ;
   export const respSchema = LEAVE_GROUP_RESP;
 
@@ -150,6 +152,8 @@ export interface GetGroupAtAllRemainParams {
 export namespace GetGroupAtAllRemain {
   export const command = 0x8a7;
   export const subCommand = 0;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = AT_ALL_REQ;
   export const respSchema = AT_ALL_RESP;
 
@@ -260,6 +264,8 @@ export interface GroupCategoryParams {
 export namespace GetGroupCategoryTags {
   export const command = 0x967c;
   export const subCommand = 0;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = GET_CATEGORY_TAGS_REQ;
   export const respSchema = GET_CATEGORY_TAGS_RESP;
   export function decodeResponseBody(bytes: Uint8Array): Record<string, unknown> {
@@ -308,6 +314,8 @@ function serializeCategoryTagChange(p: ChangeGroupCategoryTagParams): Record<str
 export namespace AddGroupCategoryTag {
   export const command = 0x967d;
   export const subCommand = 0;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = CHANGE_CATEGORY_TAG_REQ;
   export const respSchema = EMPTY_RESP;
 
@@ -323,6 +331,8 @@ export namespace AddGroupCategoryTag {
 export namespace DeleteGroupCategoryTag {
   export const command = 0x967e;
   export const subCommand = 0;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = CHANGE_CATEGORY_TAG_REQ;
   export const respSchema = EMPTY_RESP;
 
@@ -432,6 +442,8 @@ export interface FetchGroupMemberListParams {
 export namespace FetchGroupMemberListPage {
   export const command = 0xfe7;
   export const subCommand = 3;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = MEMBER_LIST_REQ;
   export const respSchema = MEMBER_LIST_RESP;
 

@@ -83,7 +83,7 @@ interface GroupFileUploadParams {
 const UploadGroupFile = {
   command: 0x6d6,
   subCommand: 0,
-  // 0x6d6_0 不在 LagrangeV2 签名白名单里（白名单只有 0x6d6_2 / 0x6d6_3），needSign = false。
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
   needSign: false,
   uinForm: true,
   reqSchema: OIDB_GROUP_FILE_UPLOAD_REQ,
@@ -117,6 +117,8 @@ const PUBLISH_EMPTY_RESP = message([]);
 const PublishGroupFile = {
   command: 0x6d9,
   subCommand: 4,
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  needSign: false,
   reqSchema: OIDB_GROUP_SEND_FILE_REQ,
   respSchema: PUBLISH_EMPTY_RESP,
   serialize: (p: { groupId: number; fileId: string }): Record<string, unknown> => ({
@@ -299,6 +301,8 @@ interface PrivateFileUploadParams {
 const UploadPrivateFile = {
   command: 0xe37,
   subCommand: 1700,
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  needSign: false,
   reqSchema: OIDB_PRIVATE_FILE_UPLOAD_REQ,
   respSchema: OIDB_PRIVATE_FILE_UPLOAD_RESP,
   serialize: (p: PrivateFileUploadParams): Record<string, unknown> => ({
@@ -344,6 +348,8 @@ interface FinalizeMetadata {
 const FinalizeOfflineFile = {
   command: 0xe37,
   subCommand: 800,
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  needSign: false,
   reqSchema: OIDB_OFFLINE_FILE_FINALIZE_REQ,
   respSchema: OIDB_OFFLINE_FILE_FINALIZE_RESP,
   serialize: (p: FinalizeParams): Record<string, unknown> => ({

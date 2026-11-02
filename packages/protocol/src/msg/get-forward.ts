@@ -113,6 +113,8 @@ export interface ForwardFetchResult {
 
 export namespace RecvLongMsg {
   export const cmd = SSO_RECV_LONG_MSG_CMD;
+  /** 真机实测会签名（scripts/probe-sign.ts）。 */
+  export const needSign = true;
   export const reqSchema = RECV_LONG_MSG_REQ;
   export const respSchema = RECV_LONG_MSG_RESP;
 

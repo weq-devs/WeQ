@@ -4,7 +4,6 @@
  *
  *   protobuf.ts           — runtime, schema-driven protobuf encode/decode (no build step).
  *   transport.ts          — sendOidb / sendPacket wrappers around the native addon.
- *   sign/whitelist.ts     — 签名策略：按 LagrangeV2 WhiteListCommand 推导 needSign。
  *   oidb/invoke.ts        — invokeOidb / invokeTrpc dispatchers + spec shapes.
  *   oidb/shared.ts        — toInt / ensureRetCodeZero / hex utils.
  *   oidb/media-schemas.ts — NTV2 + file + album proto schemas + MediaIndexNode.
@@ -30,11 +29,11 @@ export { encode, decode, message } from './protobuf';
 export type { ProtoMessage, ProtoField, ScalarType } from './protobuf';
 
 export { sendOidb, sendPacket } from './transport';
+/** 签名策略已于 2026-11-03 移除白名单推导，改由每个 spec 显式声明 `needSign`。 */
 export type { PacketNative, OidbNative, TrpcNative, OidbRequest } from './transport';
 
 export { invokeOidb, invokeTrpc } from './oidb/invoke';
 export type { OidbSpec, TrpcSpec } from './oidb/invoke';
-export { commandNeedsSign, oidbNeedsSign, oidbWireCommand } from './sign/whitelist';
 
 export {
   toInt,
