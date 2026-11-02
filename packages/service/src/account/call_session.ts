@@ -2123,11 +2123,11 @@ export class CallSession {
     this.receivedVideoFrames++;
     this.lastVideoPacketAt = this.timers.now();
 
-    // 记下对端视频流的时间基准：本端 sub-header 的 `[12:16]` 要填它。
-    // 实测是「对端首个视频帧的 `[8:12]` 值」，收到后整通不变。
-    if (this.peerVideoBase === 0 && frame.timestamp !== 0) {
+    // 记下对端最新一帧的时间戳：本端 sub-header 的 `[12:16]` 要填它。
+    // 实测（2026-11-02 逐帧比对 QQ 上行）是**每帧都跟着更新**，不是填一次就不变 ——
+    // 语义是「我收到你发到哪个时间点了」，对端拿它当播放基准。
+    if (frame.timestamp !== 0) {
       this.peerVideoBase = frame.timestamp;
-      this.log?.info('记下对端视频时间基准', { peerVideoBase: frame.timestamp });
     }
 
     const hevc = extractHevc(frame);
@@ -2164,6 +2164,11 @@ export class CallSession {
     };
     const at = this.timers.now();
     for (const listener of this.videoListeners) listener(payload, at);
+
+    // 逐帧回 `subType=4`：同一个包格式既表示「我开摄像头」，也是对端每帧的
+    // 接收确认。实测 QQ 收到对端每个视频帧后 1–45 ms（中位数 2 ms）回一对，
+    // 我们此前从不确认，对端（尤其手机端）可能据此判定上行不通。
+    this.sendVideoAck();
   }
 
   /** 发摄像头开关控制包（连发两次防丢包，与真实客户端一致）。 */
@@ -2180,6 +2185,24 @@ export class CallSession {
     });
     // 连发两次防丢包。去向跟随当前媒体路径：中继阶段只到服务端（真实客户端也是
     // 这样 —— 7.9 秒切换前它的控制包同样只发服务端）。
+    this.sendMedia(packet);
+    this.sendMedia(packet);
+  }
+
+  /**
+   * 逐帧回 `subType=4`（对端视频的接收确认）。
+   *
+   * 同一个 17 字节空体既表示「我开了摄像头」，也是「我收到你这一帧了」的回执。
+   * 实测 QQ 对每个收到的视频帧都回一对（1–45 ms，中位数 2 ms），我们此前只在
+   * 开摄像头时发一对、从不确认对端，对端可能据此判定上行链路不通。
+   *
+   * 只在**真正收到帧**时回（不是收到每个分片），频率跟对端帧率走，不会放大流量。
+   */
+  private sendVideoAck(): void {
+    const packet = buildVideoControl({
+      sessionTs: this.sessionTs,
+      tick: this.tick(),
+    });
     this.sendMedia(packet);
     this.sendMedia(packet);
   }
@@ -2357,13 +2380,16 @@ export class CallSession {
     // 还原，用随机值对齐分布。
     const packetCount = videoPacketCount(VIDEO_SUBHEADER_LEN + hevc.length);
     this.videoFrameFragment = packetCount <= 1 ? 0 : Math.floor(Math.random() * packetCount);
+    // 关键帧要额外带 RS-FEC 校验片（见 buildVideoPackets 的 `fec`）。判定与
+    // `[6:8]` 的质量档同源：都看这帧里有没有 IRAP NAL。
+    const keyframe = splitHevcNals(hevc).some((nal) => isIrapNalType(nal.type));
     const subHeader = buildVideoSubHeader({
       direction: 'c2s',
       frameIndex: this.videoFrameIndex,
       timestampMs: ptsMs,
       peerVideoBase: this.peerVideoBase,
       // `[6:8]`：对端只拿它做统计，按真实分布抽样即可（见 sampleVideoFrameQuality）。
-      quality: sampleVideoFrameQuality(splitHevcNals(hevc).some((nal) => isIrapNalType(nal.type))),
+      quality: sampleVideoFrameQuality(keyframe),
       fragment: this.videoFrameFragment,
     });
     const frameData = new Uint8Array(subHeader.length + hevc.length);
@@ -2379,6 +2405,8 @@ export class CallSession {
       // tick 帧内恒定；seq 由 buildVideoPackets 按片递增。
       tick: this.tick(),
       seq: this.videoSeq,
+      // 关键帧带 RS(5,3) 校验片；普通帧不发（实测 QQ 也只有关键帧带）。
+      fec: keyframe,
     });
     this.videoSeq += packets.length;
     for (const packet of packets) this.sendMedia(packet);

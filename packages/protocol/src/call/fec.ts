@@ -79,16 +79,24 @@ function cauchyMatrix(rows: number, cols: number): Uint8Array {
 }
 
 /**
- * 编码：把 `FEC_DATA_FRAMES` 帧数据压成 `FEC_PARITY_ROWS` 行校验。
+ * 编码：把若干帧数据压成 `rows` 行校验。
+ *
+ * `rows` 默认 `FEC_PARITY_ROWS`（音频那套 4×3）。视频关键帧实测是 **2 行**：
+ * QQ 的 `total_fec=2` 对应 Cauchy 矩阵 `rows=2`，用 `rows=3` 算出来的校验片
+ * 对不上（已逐字节验证）。
  *
  * 短帧按 0 补齐到 `frameSize`，解码端恢复出来的尾部补零会被裁掉（长度由
  * 各帧自己的帧头给出）。
  */
-export function rsEncode(frames: Uint8Array[], frameSize: number): Uint8Array[] {
+export function rsEncode(
+  frames: Uint8Array[],
+  frameSize: number,
+  rows: number = FEC_PARITY_ROWS,
+): Uint8Array[] {
   if (frames.length === 0) return [];
-  const matrix = cauchyMatrix(FEC_PARITY_ROWS, frames.length);
+  const matrix = cauchyMatrix(rows, frames.length);
   const out: Uint8Array[] = [];
-  for (let r = 0; r < FEC_PARITY_ROWS; r++) {
+  for (let r = 0; r < rows; r++) {
     const parity = new Uint8Array(frameSize);
     for (let c = 0; c < frames.length; c++) {
       const coeff = matrix[r * frames.length + c]!;
