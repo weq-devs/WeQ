@@ -293,11 +293,11 @@ export function GlobalSettingsSection({
       item.confirmation ? [`${item.label}：${item.confirmation}`] : [],
     );
     const ok = await confirm(
-      exit ? '退出并清除所选数据' : '清理 WeQ 缓存',
+      exit ? '清除并重启' : '清理 WeQ 缓存',
       exit
-        ? `将完全退出 WeQ，然后永久删除「${label}」，预计清除约 ${formatBytes(willFree)}。只删除所选路径中的数据，不会额外清理其它 QQ 数据目录。请先停止导出、模型下载和数据库修复，并退出托管 QQ。\n\n${extra.join('\n\n')}\n\n清除期间不要重新启动应用；下次打开存储管理可查看结果。确认接受这些风险并退出？`
+        ? `将完全退出 WeQ，然后永久删除「${label}」，预计清除约 ${formatBytes(willFree)}，清除完成后自动重新打开 WeQ。只删除所选路径中的数据，不会额外清理其它 QQ 数据目录。请先停止导出、模型下载和数据库修复，并退出托管 QQ。\n\n${extra.join('\n\n')}\n\n清除期间不要手动启动应用；重启后可在存储管理查看结果。确认清除并重启？`
         : `将删除「${label}」，预计释放约 ${formatBytes(willFree)}。需要时会重新下载或生成；保留数据不受影响。${extra.length ? `\n\n${extra.join('\n')}\n\n` : ''}是否继续？`,
-      { okLabel: exit ? '退出并清除' : '清理', cancelLabel: '取消', tone: 'warning' },
+      { okLabel: exit ? '清除并重启' : '清理', cancelLabel: '取消', tone: 'warning' },
     );
     if (!ok) return;
     try {
@@ -305,8 +305,8 @@ export function GlobalSettingsSection({
         await clearStorageData.mutateAsync({ ids, acknowledgeRisk: true });
         pushToast({
           tone: 'warning',
-          title: '已安排退出后清除',
-          message: '等待清除完成后再打开 WeQ；清除结果会保留。',
+          title: '已安排清除并重启',
+          message: '清除完成后自动重新打开 WeQ，清除结果会保留。',
         });
         return;
       }
@@ -735,7 +735,7 @@ export function GlobalSettingsSection({
                   <Trash2 size={14} strokeWidth={1.8} aria-hidden />
                 )}
                 {selectedItems.some((item) => item.requiresExit)
-                  ? '退出并清除所选'
+                  ? '清除并重启'
                   : pickedCats.size > 0
                     ? '清理所选'
                     : '清理缓存'}
@@ -748,7 +748,7 @@ export function GlobalSettingsSection({
               role={cleanupResult.data.failed.length ? 'alert' : 'status'}
             >
               <span>
-                上次退出后清除：{cleanupResult.data.cleared.length} 项成功，
+                上次清除：{cleanupResult.data.cleared.length} 项成功，
                 {cleanupResult.data.failed.length} 项失败，清除约{' '}
                 {formatBytes(cleanupResult.data.freedBytes)}。
               </span>
