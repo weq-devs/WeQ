@@ -149,6 +149,29 @@ describe('macOS 更新可信来源', () => {
 });
 
 describe('macOS 退出后原位替换', () => {
+  it.each(['arm64', 'x64'] as const)(
+    '按 %s 架构核验并启动 plist 指定的新可执行文件',
+    async (arch) => {
+      const plan = { ...(await planFixture()), arch };
+      const run = fixture.run.getMockImplementation();
+      fixture.run.mockImplementation(async (command, args, options) => {
+        if (command === '/usr/bin/plutil' && args[1] === 'CFBundleExecutable')
+          return { stdout: 'custom-weq', stderr: '' };
+        return run?.(command, args, options);
+      });
+      await replaceMacApp(plan);
+      expect(fixture.run).toHaveBeenCalledWith('/usr/bin/lipo', [
+        '-verify_arch',
+        arch === 'x64' ? 'x86_64' : arch,
+        join(plan.staging, 'weQ.app/Contents/MacOS/custom-weq'),
+      ]);
+      expect(fixture.spawn).toHaveBeenCalledWith(
+        join(plan.target, 'Contents/MacOS/custom-weq'),
+        [],
+        expect.objectContaining({ detached: true }),
+      );
+    },
+  );
   it('真实子进程从替换后的目录执行新文件，并清除 Node 模式环境变量', async () => {
     const plan = await planFixture();
     const executableDir = join(plan.staging, 'weQ.app/Contents/MacOS');
