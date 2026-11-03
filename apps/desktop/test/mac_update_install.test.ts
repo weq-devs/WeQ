@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, type rename, rm, writeFile } from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
+import { mkdtemp, mkdir, readFile, realpath, type rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,10 +17,13 @@ import {
   type MacUpdatePlan,
 } from '../src/main/update/mac_install';
 
-const fixture = vi.hoisted(() => ({ run: vi.fn(), rename: vi.fn() }));
+const fixture = vi.hoisted(() => ({ run: vi.fn(), rename: vi.fn(), spawn: vi.fn() }));
 vi.mock('node:child_process', async () => {
   const { promisify } = await import('node:util');
-  return { execFile: Object.assign(vi.fn(), { [promisify.custom]: fixture.run }) };
+  return {
+    execFile: Object.assign(vi.fn(), { [promisify.custom]: fixture.run }),
+    spawn: fixture.spawn,
+  };
 });
 vi.mock('node:fs/promises', async (original) => {
   const actual = await original<typeof import('node:fs/promises')>();
@@ -33,6 +37,11 @@ beforeEach(async () => {
   realRename = (await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises'))
     .rename;
   fixture.rename.mockReset().mockImplementation(realRename);
+  fixture.spawn.mockReset().mockImplementation(() => {
+    const child = Object.assign(new EventEmitter(), { unref: vi.fn() });
+    queueMicrotask(() => child.emit('spawn'));
+    return child;
+  });
   fixture.run.mockReset().mockImplementation(async (command: string, args: string[]) => ({
     stdout:
       command === '/usr/bin/plutil'
@@ -140,6 +149,55 @@ describe('macOS 更新可信来源', () => {
 });
 
 describe('macOS 退出后原位替换', () => {
+  it('真实子进程从替换后的目录执行新文件，并清除 Node 模式环境变量', async () => {
+    const plan = await planFixture();
+    const executableDir = join(plan.staging, 'weQ.app/Contents/MacOS');
+    await mkdir(executableDir, { recursive: true });
+    const receipt = join(plan.staging, 'launched.json');
+    await writeFile(
+      join(executableDir, 'weQ'),
+      `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(receipt)}, JSON.stringify({file: __filename, nodeMode: process.env.ELECTRON_RUN_AS_NODE ?? null}));\n`,
+      { mode: 0o700 },
+    );
+    const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+    fixture.spawn.mockImplementation(actual.spawn);
+    vi.stubEnv('ELECTRON_RUN_AS_NODE', '1');
+    try {
+      await replaceMacApp(plan);
+      let observation: string | undefined;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        try {
+          observation = await readFile(receipt, 'utf8');
+          break;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+      }
+      expect(observation).toBeDefined();
+      expect(JSON.parse(observation!)).toEqual({
+        file: await realpath(join(plan.target, 'Contents/MacOS/weQ')),
+        nodeMode: null,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('直接启动新 bundle 的可执行文件，不沿用系统缓存中的旧壳，也不继承助手的 Node 模式', async () => {
+    const plan = await planFixture();
+    vi.stubEnv('ELECTRON_RUN_AS_NODE', '1');
+    try {
+      await replaceMacApp(plan);
+      expect(fixture.spawn).toHaveBeenCalledWith(join(plan.target, 'Contents/MacOS/weQ'), [], {
+        detached: true,
+        stdio: 'ignore',
+        env: expect.not.objectContaining({ ELECTRON_RUN_AS_NODE: expect.anything() }),
+      });
+      expect(fixture.run.mock.calls.some(([command]) => command === '/usr/bin/open')).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('先严格验证两个 bundle，再替换并重启；旧应用留到新版本确认启动', async () => {
     const plan = await planFixture();
     await replaceMacApp(plan);
@@ -155,9 +213,11 @@ describe('macOS 退出后原位替换', () => {
       'arm64',
       join(plan.staging, 'weQ.app/Contents/MacOS/weQ'),
     ]);
-    expect(fixture.run).toHaveBeenCalledWith('/usr/bin/open', ['-n', plan.target], {
-      timeout: 30_000,
-    });
+    expect(fixture.spawn).toHaveBeenCalledWith(
+      join(plan.target, 'Contents/MacOS/weQ'),
+      [],
+      expect.objectContaining({ detached: true }),
+    );
   });
   it('新应用签名损坏时完全不移动原应用', async () => {
     const plan = await planFixture();
@@ -188,10 +248,10 @@ describe('macOS 退出后原位替换', () => {
   });
   it('系统拒绝启动时回退旧应用，保留失败的新版本供排查', async () => {
     const plan = await planFixture();
-    const run = fixture.run.getMockImplementation();
-    fixture.run.mockImplementation(async (command, args, options) => {
-      if (command === '/usr/bin/open') throw new Error('合成启动失败');
-      return run?.(command, args, options);
+    fixture.spawn.mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), { unref: vi.fn() });
+      queueMicrotask(() => child.emit('error', new Error('合成启动失败')));
+      return child;
     });
     await expect(replaceMacApp(plan)).rejects.toThrow('启动失败');
     expect(await readFile(join(plan.target, 'version'), 'utf8')).toBe('old');
