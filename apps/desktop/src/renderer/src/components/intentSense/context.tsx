@@ -244,7 +244,6 @@ export function IntentSenseProvider({
           void utils.account.intentSense.getStatus.invalidate();
           return;
         }
-        let extra = false;
         if (
           analysisMessageId &&
           stats &&
@@ -254,14 +253,9 @@ export function IntentSenseProvider({
           stats.latestMsgId !== analysisMessageId &&
           !analysesRef.current.has(analysisMessageId)
         ) {
-          extra = (await requestAnalysis(analysisMessageId)) === true;
+          await requestAnalysis(analysisMessageId);
         }
         if (disposed || prevConvKeyRef.current !== expected) return;
-        if (
-          (peerTarget.current || suggestAfterSelf.current) &&
-          ((stats?.analyzed ?? 0) > 0 || extra)
-        )
-          void utils.account.intentSense.getSuggestions.invalidate({ kind, conv });
         void utils.account.intentSense.getStatus.invalidate();
       })
       .catch(() => undefined)
