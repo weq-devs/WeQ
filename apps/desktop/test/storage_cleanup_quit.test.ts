@@ -10,6 +10,7 @@ const fixture = vi.hoisted(() => ({
   app: {
     getPath: vi.fn(),
     getAppPath: () => '/synthetic/WeQ.app',
+    isPackaged: true,
     on: vi.fn(),
     removeListener: vi.fn(),
     quit: vi.fn(),
@@ -59,6 +60,12 @@ it('退出后清除等待可提交的 will-quit，不在后台清理暂缓期间
   await clearStorageAfterExit([]);
   await vi.advanceTimersByTimeAsync(200);
   expect(helper.send).toHaveBeenCalledTimes(1);
+  expect(helper.send).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'prepare',
+      restart: expect.objectContaining({ execPath: process.execPath }),
+    }),
+  );
   expect(helper.disconnect).not.toHaveBeenCalled();
   expect(app.listenerCount('will-quit')).toBe(1);
   app.emit('will-quit', { defaultPrevented: false, preventDefault: vi.fn() });

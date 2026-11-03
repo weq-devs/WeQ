@@ -1,7 +1,7 @@
 import { app, dialog } from 'electron';
 import { fork, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { StorageUsageItem } from '@weq/service';
@@ -9,6 +9,7 @@ import { readStorageCleanupResult } from '@weq/service/storage-cleanup';
 import { resolveChildWorkerPath } from './worker_path';
 import { skipNextQuitConfirmation } from './app_quit_confirmation';
 import { isStorageCleanupWorkerProcess } from './storage_cleanup_process';
+import { createStorageCleanupRestart } from './storage_cleanup_restart';
 
 const reportPath = () => join(app.getPath('userData'), 'storage-maintenance', 'last-result.json');
 const lockPath = () => join(app.getPath('userData'), 'storage-maintenance', 'running.json');
@@ -51,9 +52,21 @@ export async function clearStorageAfterExit(targets: StorageUsageItem[]): Promis
     'storageCleanupWorker.mjs',
     dirname(fileURLToPath(import.meta.url)),
   );
+  const restart = createStorageCleanupRestart({
+    platform: process.platform,
+    packaged: app.isPackaged,
+    execPath: process.execPath,
+    argv: process.argv,
+    appPath: app.getAppPath(),
+    appImage: process.env.APPIMAGE,
+    rendererUrl: process.env.ELECTRON_RENDERER_URL,
+    nodePath: process.env.npm_node_execpath,
+  });
   pending = true;
   let child: ChildProcess | undefined;
   try {
+    await access(restart.execPath);
+    if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) await access(restart.args[0]!);
     await mkdir(dirname(reportPath()), { recursive: true });
     await writeFile(
       reportPath(),
@@ -92,9 +105,16 @@ export async function clearStorageAfterExit(targets: StorageUsageItem[]): Promis
       helper.send({
         type: 'prepare',
         parentPid: process.pid,
+        restart,
         plan: {
           targets,
-          protectedPaths: [app.getAppPath(), process.execPath, worker],
+          protectedPaths: [
+            app.getAppPath(),
+            process.execPath,
+            worker,
+            restart.execPath,
+            restart.cwd,
+          ],
           reportPath: reportPath(),
           lockPath: lockPath(),
         },
