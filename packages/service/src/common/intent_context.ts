@@ -1,6 +1,6 @@
 export const DEFAULT_ANALYSIS_CONTEXT_MESSAGES = 4;
-// 旧推荐窗口共 24 条，扣除当前消息后保持 23 条上文。
-export const DEFAULT_SUGGESTION_CONTEXT_MESSAGES = 23;
+// 推荐窗口：扣除当前消息后保持 6 条上文（共 7 条消息），足以把握即时对话语境，避免巨额 token 开销。
+export const DEFAULT_SUGGESTION_CONTEXT_MESSAGES = 6;
 export const MAX_INTENT_CONTEXT_MESSAGES = 100;
 
 export function isIntentContextCount(value: unknown): value is number {
@@ -94,7 +94,7 @@ export const INTENT_TUNING = {
   backfillMessages: {
     group: 'analysis',
     label: '自动补齐范围（条）',
-    default: 300,
+    default: 60,
     min: 20,
     max: 1000,
   },
