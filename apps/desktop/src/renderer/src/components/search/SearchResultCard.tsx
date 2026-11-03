@@ -69,7 +69,7 @@ export function fileExtIcon(fileName: string): string {
     bmp: 'image.png',
     svg: 'image.png',
     txt: 'txt.png',
-    md: 'txt.png',
+    md: 'markdown.png',
     log: 'txt.png',
     ai: 'ai.png',
     apk: 'apk.png',

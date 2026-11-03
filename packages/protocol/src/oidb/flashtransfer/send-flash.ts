@@ -18,6 +18,8 @@ export interface SendFlashMsgParams {
 export namespace SendFlashMsg {
   export const command = 0x93d7;
   export const subCommand = 1;
+  /** 真机实测会签名（scripts/probe-sign.ts）。 */
+  export const needSign = true;
   export const reqSchema = FLASH_SEND_REQ;
   export const respSchema = FLASH_SEND_RESP;
 

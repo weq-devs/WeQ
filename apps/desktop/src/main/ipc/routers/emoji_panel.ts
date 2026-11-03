@@ -14,6 +14,8 @@
 
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
+import type { SendMediaUploadReport } from '@weq/protocol';
+import { elementsFromEditable } from '../serde';
 import { procedure, router } from '../trpc';
 
 function requireServices(): AccountServices {
@@ -22,6 +24,34 @@ function requireServices(): AccountServices {
     throw new Error('No account session open — call bootstrap.openAccount first.');
   }
   return ctx.services;
+}
+
+/**
+ * 发送成功后把这张图记进「最近上传」。
+ *
+ * 失败（落盘出错 / 拿不到元数据）只记一条警告 —— 发送本身已经成功，不能因为
+ * 索引写不进去就把整次发送报成失败。
+ */
+function recordRecentFromOutcome(
+  services: AccountServices,
+  outcome: { uploads?: SendMediaUploadReport[] },
+  fileName?: string,
+): void {
+  const upload = outcome.uploads?.[0];
+  if (!upload?.md5Hex) return;
+  try {
+    services.customEmojiRecent.record({
+      md5: upload.md5Hex,
+      fileName: fileName ?? upload.fileName,
+      fileSize: upload.fileSize,
+      // 上传报告不带尺寸/格式；「最近」列表只用来展示与去重，尺寸留 0 即可。
+      width: 0,
+      height: 0,
+      picFormat: 1000,
+    });
+  } catch {
+    // 索引不是关键路径。
+  }
 }
 
 export const emojiPanelRouter = router({
@@ -56,6 +86,115 @@ export const emojiPanelRouter = router({
    * 把「刚使用的一个系统表情」写回 emoji_com_used_table（与 QQ 共用）。前端在
    * 选中 / 发送系统表情时调用；写入失败返回 false，不影响发送。
    */
+  /**
+   * QQ 秀 / 互动表情目录（按类型分组）。
+   *
+   * 数据来自 `resources/qqshow/show_emoji.json` 的离线快照 —— 服务端目录接口
+   * `0x957b_0` 只对 Android appid 放行，PC 端拉不到。图标是 `iconUrl`（远程 PNG），
+   * 渲染层直接加载，不经过 tRPC。
+   */
+  showEmojiCatalog: procedure.query(() => {
+    return requireServices().showEmojiCatalog.groups();
+  }),
+
+  /** 自定义表情的「最近上传」索引（只含元数据，缩略图由渲染层按 md5 从缓存取）。 */
+  customEmojiRecent: procedure.query(() => {
+    return requireServices().customEmojiRecent.list();
+  }),
+
+  /**
+   * 发一条自定义表情（普通图片形态，`businessType=20`）。
+   *
+   * `source` 是渲染层读出来的图片字节（IPC 安全的 Buffer 盒子），支持
+   * JPG / PNG / GIF / WebP / BMP —— 格式由协议层按 magic 探测。
+   */
+  sendCustomEmoji: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        tempGroupCode: z.string().min(1).optional(),
+        source: z.any(),
+        fileName: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const source = elementsFromEditable(input.source) as Uint8Array;
+      if (!(source instanceof Uint8Array) || source.byteLength === 0) {
+        throw new Error('表情图片为空，无法发送。');
+      }
+      const services = requireServices();
+      const outcome = await services.messageSend.sendMedia({
+        peerType: input.peerType,
+        targetId: input.targetId,
+        ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
+        kind: 'image',
+        source,
+        subType: 1,
+        summary: '[动画表情]',
+        ...(input.fileName ? { fileName: input.fileName } : {}),
+      });
+      recordRecentFromOutcome(services, outcome, input.fileName);
+      return outcome;
+    }),
+
+  /**
+   * 发一条 QQ 秀 / 互动表情。
+   *
+   * 与自定义表情的差别只有两处：`businessType` 换成 10、`pic.11` 里补 `35/36`
+   * （互动包定义，由目录里选中的 `packId` 拼出）。缺了 `35/36` 收端会回退成
+   * 普通图片 —— 已用真机重放验证过。
+   *
+   * 私聊 / 群聊都收：两边的 reserve 都带 `35/36`，走同一条上传链路。
+   */
+  sendShowEmoji: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        /** 群临时会话的来源群号（会话行的 `60001`）。 */
+        tempGroupCode: z.string().min(1).optional(),
+        source: z.any(),
+        /** 目录里的表情包 id（`iconUrl` 那格的 id）。 */
+        packId: z.string().min(1),
+        /** 变体下标（接龙类用它选关卡），缺省 0。 */
+        variant: z.number().int().min(0).max(64).optional(),
+        fileName: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const source = elementsFromEditable(input.source) as Uint8Array;
+      if (!(source instanceof Uint8Array) || source.byteLength === 0) {
+        throw new Error('表情图片为空，无法发送。');
+      }
+      const services = requireServices();
+      const selfUin = services.accountConfig.getRecord()?.uin ?? '';
+      const reserve = services.showEmojiCatalog.buildReserve(
+        input.packId,
+        input.variant ?? 0,
+        selfUin,
+      );
+      const outcome = await services.messageSend.sendMedia({
+        peerType: input.peerType,
+        targetId: input.targetId,
+        ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
+        kind: 'image',
+        source,
+        subType: 1,
+        summary: '[动画表情]',
+        showEmoji: reserve,
+        ...(input.fileName ? { fileName: input.fileName } : {}),
+      });
+      recordRecentFromOutcome(services, outcome, input.fileName);
+      return outcome;
+    }),
+
+  /** 清空「最近上传」。 */
+  clearCustomEmojiRecent: procedure.mutation(() => {
+    requireServices().customEmojiRecent.clear();
+    return { ok: true };
+  }),
+
   recordRecent: procedure
     .input(
       z.object({

@@ -780,8 +780,8 @@ export function ContactProfileDialog({
               <button
                 className="weq-profile-expand"
                 type="button"
-                title="展开联系人详情"
-                aria-label="展开联系人详情"
+                title="联系人详情"
+                aria-label="联系人详情"
                 onClick={() => {
                   onClose();
                   openWorkspace({ kind: 'person', contact: profile });

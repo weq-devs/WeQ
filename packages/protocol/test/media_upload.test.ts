@@ -458,6 +458,57 @@ describe('uploadImageMsgInfo', () => {
     expect(req.upload?.extBizInfo?.pic?.bytesPbReserveC2c).toBeUndefined();
   });
 
+  /**
+   * 群聊的 QQ 秀表情：`35` + `36` 必须进群 reserve。
+   *
+   * 这两个格子早前只声明在私聊 schema 上，群聊分支又直接把 `showEmoji` 丢掉 ——
+   * 结果会发出「businessType=10 但 reserve 里没有 35/36」的组合，收端按普通图片
+   * 渲染。这里锁住群聊那条路也要带上它们。
+   */
+  it('群聊 QQ 秀：troop reserve 带上 35/36', async () => {
+    const native = makeNative({ oidb: () => uploadResponse() });
+    const pack = new Uint8Array([0x0a, 0x02, 0x01, 0x02]);
+    await uploadImageMsgInfo(native, 42, GROUP_TARGET, {
+      source: TINY_PNG,
+      subType: 1,
+      summary: '[动画表情]',
+      showEmoji: { type: 1, pack },
+    });
+    const req = decode(NTV2_UPLOAD_REQ_TOP, native.oidbCalls[0]!.body) as {
+      upload?: { extBizInfo?: { pic?: Record<string, unknown> } };
+    };
+    const pic = req.upload?.extBizInfo?.pic as Record<string, unknown> | undefined;
+    const troop = pic?.bytesPbReserveTroop as
+      | { showEmojiType?: number; showEmojiPack?: Uint8Array }
+      | undefined;
+    expect(pic?.bytesPbReserveC2c).toBeUndefined();
+    expect(troop?.subType).toBe(1);
+    expect(troop?.showEmojiType).toBe(1);
+    expect(Array.from(troop!.showEmojiPack!)).toEqual(Array.from(pack));
+  });
+
+  /** 私聊那条路的字段集在群聊改造后必须原样保留（含 reserve 的 8=textSummary）。 */
+  it('私聊 QQ 秀：c2c reserve 字段集不变', async () => {
+    const native = makeNative({ oidb: () => uploadResponse() });
+    const pack = new Uint8Array([0x0a, 0x02, 0x01, 0x02]);
+    await uploadImageMsgInfo(native, 42, C2C_TARGET, {
+      source: TINY_PNG,
+      subType: 1,
+      summary: '[动画表情]',
+      showEmoji: { type: 3, pack },
+    });
+    const req = decode(NTV2_UPLOAD_REQ_TOP, native.oidbCalls[0]!.body) as {
+      upload?: { extBizInfo?: { pic?: Record<string, unknown> } };
+    };
+    const pic = req.upload?.extBizInfo?.pic as Record<string, unknown> | undefined;
+    const c2c = pic?.bytesPbReserveC2c as Record<string, unknown> | undefined;
+    expect(pic?.bytesPbReserveTroop).toBeUndefined();
+    expect(c2c?.subType).toBe(1);
+    expect(c2c?.field8).toBe('[动画表情]');
+    expect(c2c?.showEmojiType).toBe(3);
+    expect(Array.from(c2c!.showEmojiPack as Uint8Array)).toEqual(Array.from(pack));
+  });
+
   it('指纹免字节：不读本地文件，按 md5/sha1/尺寸报 fast-upload', async () => {
     const native = makeNative({ oidb: () => uploadResponse() });
     const md5Hex = '0f343b0931126a20f133d67c2b018a3b';
@@ -943,6 +994,63 @@ describe('runNtv2Upload 的 fast-upload 分支', () => {
 
   it('finalizeMediaMsgInfo 缺 msgInfo 时抛错', () => {
     expect(() => finalizeMediaMsgInfo({})).toThrow(/缺少 msgInfo/);
+  });
+
+  /**
+   * 回归测试：服务端上传响应里已经回了一份 `bytesPbReserveC2c`（只有 subType），
+   * 早期实现用 `target[key] ?? value` 合并，把客户端补的 35/36 整份丢掉 ——
+   * 真机抓包确认那是「QQ 秀表情是否正常渲染」的开关，丢了收端就回退成普通图片。
+   */
+  it('客户端的 bytesPbReserveC2c 覆盖服务端回的空壳（35/36 不能被丢）', () => {
+    // 服务端回的 msgInfo：pic 里带一份只有 subType 的 reserve。
+    const serverPicture = {
+      bizType: 1,
+      textSummary: '[动画表情]',
+      bytesPbReserveC2c: { subType: 0 },
+    };
+    const upload = {
+      msgInfo: {
+        msgInfoBody: [
+          {
+            index: {
+              fileUuid: 'u',
+              subType: 0,
+              info: { fileSize: 1, fileHash: 'm', fileSha1: 's', fileName: 'f' },
+            },
+            picture: { urlPath: '/download?fileid=x' },
+            fileExist: false,
+          },
+        ],
+        extBizInfo: { pic: serverPicture },
+      },
+    } as never;
+
+    const pack = new Uint8Array([0x01, 0x02, 0x03]);
+    const out = finalizeMediaMsgInfo(upload, {
+      pic: {
+        bizType: 1,
+        textSummary: '[动画表情]',
+        fromScene: 1,
+        toScene: 1,
+        bytesPbReserveC2c: {
+          subType: 1,
+          fileName: 'ABC',
+          field34: 0,
+          showEmojiType: 3,
+          showEmojiPack: pack,
+        },
+      },
+    });
+    const decoded = decode(UPLOAD_MSG_INFO, out) as Record<string, unknown>;
+    const ext = decoded.extBizInfo as Record<string, unknown>;
+    const pic = ext.pic as Record<string, unknown>;
+    // 服务端的空壳被覆盖，客户端的字段全部到位。
+    expect(pic.fromScene).toBe(1);
+    expect(pic.toScene).toBe(1);
+    const reserve = pic.bytesPbReserveC2c as Record<string, unknown>;
+    expect(reserve.showEmojiType).toBe(3);
+    expect(Array.from(reserve.showEmojiPack as Uint8Array)).toEqual([1, 2, 3]);
+    expect(reserve.fileName).toBe('ABC');
   });
 });
 

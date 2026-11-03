@@ -109,6 +109,8 @@ function toSeq(value: number | bigint | undefined): bigint {
 
 export namespace ReadedReport {
   export const cmd = READ_REPORT_CMD;
+  /** 真机实测会签名（scripts/probe-sign.ts）。 */
+  export const needSign = true;
   export const reqSchema = READ_REQ;
   export const respSchema = READ_RESP;
 

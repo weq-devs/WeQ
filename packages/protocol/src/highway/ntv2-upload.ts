@@ -280,6 +280,13 @@ export function finalizeMediaMsgInfo(
     if (options.pic) {
       const target = extBizInfo.pic as Record<string, unknown>;
       for (const [key, value] of Object.entries(options.pic)) {
+        // `bytesPbReserveC2c` / `bytesPbReserveTroop` 是**客户端补的**，服务端回的
+        // 那份只有 `{ subType }`。互动表情的 35/36 必须覆盖上去，否则会被服务端的
+        // 空壳顶掉（真机抓包确认：丢了 35/36 收端就回退成普通图片）。
+        if (key === 'bytesPbReserveC2c' || key === 'bytesPbReserveTroop') {
+          target[key] = value;
+          continue;
+        }
         target[key] = target[key] ?? value;
       }
     }

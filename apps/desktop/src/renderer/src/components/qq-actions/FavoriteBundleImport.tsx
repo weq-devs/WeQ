@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { FolderOpen, ImageOff, Loader2, RotateCw, Upload, X } from 'lucide-react';
+import { FileArchive, FolderOpen, ImageOff, Loader2, RotateCw, Upload, X } from 'lucide-react';
 import type { FavoriteEmojiImportPreview, FavoriteEmojiImportState } from '@weq/service';
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import { client, trpc } from '../../trpc/client';
@@ -26,11 +26,13 @@ export function FavoriteBundleImport({
   available,
   onBusyChange,
   onChanged,
+  showLabel = false,
 }: {
   binding: QQWriteBinding | null;
   available: boolean;
   onBusyChange: (busy: boolean) => void;
   onChanged: () => Promise<void>;
+  showLabel?: boolean;
 }) {
   const utils = trpc.useUtils();
   const titleId = useId();
@@ -214,6 +216,7 @@ export function FavoriteBundleImport({
   return (
     <>
       <ActionIcon
+        text={showLabel ? (running ? '进度' : pending ? '处理中' : '导入') : undefined}
         label={
           running
             ? '查看收藏导入进度'
@@ -224,7 +227,7 @@ export function FavoriteBundleImport({
         disabled={pending || state.isLoading || (!stage && (!available || IS_WEB))}
         onClick={() => (stage ? setOpen(true) : void choose())}
       >
-        {running || pending ? <Loader2 size={16} /> : <Upload size={16} />}
+        {running || pending ? <Loader2 className="weq-spin" size={16} /> : <Upload size={16} />}
       </ActionIcon>
       {open && (
         <Modal
@@ -237,7 +240,12 @@ export function FavoriteBundleImport({
         >
           <div className="weq-favorite-import">
             <div className="weq-favorite-import-toolbar">
-              <h3 id={titleId}>导入收藏表情</h3>
+              <div className="weq-favorite-import-title">
+                <span className="weq-favorite-import-title-icon" aria-hidden>
+                  <FileArchive size={17} strokeWidth={1.9} />
+                </span>
+                <h3 id={titleId}>导入收藏表情</h3>
+              </div>
               <ActionIcon label="关闭收藏导入" disabled={pending} onClick={close}>
                 <X size={16} />
               </ActionIcon>
@@ -248,6 +256,7 @@ export function FavoriteBundleImport({
               </span>
               <div>
                 <ActionIcon
+                  text="选择 ZIP"
                   label="选择收藏包"
                   disabled={pending || running || !available || IS_WEB}
                   onClick={() => void choose()}
@@ -255,6 +264,7 @@ export function FavoriteBundleImport({
                   <FolderOpen size={16} />
                 </ActionIcon>
                 <ActionIcon
+                  text="刷新"
                   label="重新读取导入状态"
                   disabled={pending || state.isFetching}
                   onClick={() => void state.refetch()}
@@ -263,6 +273,7 @@ export function FavoriteBundleImport({
                 </ActionIcon>
                 {stage?.phase === 'ready' && (
                   <ActionIcon
+                    text="导入"
                     label="导入所选表情"
                     disabled={
                       pending || !available || !selected.size || submitted.current === stage.token
@@ -274,6 +285,7 @@ export function FavoriteBundleImport({
                 )}
                 {running && (
                   <ActionIcon
+                    text={stage.cancelling ? '停止中' : '停止'}
                     label={stage.cancelling ? '正在等待在途请求结束' : '停止后续导入'}
                     disabled={pending || stage.cancelling}
                     onClick={() => void stop()}

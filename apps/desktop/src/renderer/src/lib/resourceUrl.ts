@@ -82,6 +82,15 @@ export function dressUrl(src: string): string {
 }
 
 /**
+ * 礼物商城的礼物图(`*.gtimg.cn`)。主进程代取 + 落盘,见 media_protocol.ts 的 `gift` 分支。
+ * 空串原样返回,方便调用方直接 `url && <img …>`。
+ */
+export function giftImageUrl(src: string): string {
+  if (!src) return '';
+  return mediaUrl('gift', { src });
+}
+
+/**
  * 已安装的装扮字体 ttf。清单里记着绝对路径,主进程按 itemId 查(见服务侧
  * DressService.fontFile)。
  * 走 weq-media 而不是 weq-asset —— 后者只服务仓库的 resources/ 树,读不了账号缓存目录。

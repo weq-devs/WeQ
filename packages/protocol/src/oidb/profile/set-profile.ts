@@ -51,6 +51,8 @@ export interface SetProfileParams {
 export namespace SetProfile {
   export const command = 0x112a;
   export const subCommand = 2;
+  /** 真机实测会签名（scripts/probe-sign.ts）。 */
+  export const needSign = true;
   export const reqSchema = SET_PROFILE_REQ;
   export const respSchema = SET_PROFILE_RESP;
 
@@ -116,6 +118,8 @@ export interface SetSelfLongNickParams {
 export namespace SetSelfLongNick {
   export const command = 0x112a;
   export const subCommand = 2;
+  /** 真机实测会签名（scripts/probe-sign.ts）。 */
+  export const needSign = true;
   export const reqSchema = SELF_LONG_NICK_REQ;
   export const respSchema = SET_PROFILE_RESP;
 

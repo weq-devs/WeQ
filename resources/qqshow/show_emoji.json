@@ -1,0 +1,2377 @@
+{
+  "source": {
+    "command": "OidbSvcTrpcTcp.0x957b_0",
+    "note": "QQ 秀互动表情目录（Android 端下发）。PC/Linux appid 调用会返回 319 rule type not match appid，只能离线固化。",
+    "capturedAt": "2026-11-01",
+    "packCount": 48
+  },
+  "packs": [
+    {
+      "id": "4000000228",
+      "seq": 74,
+      "name": "奇妙接龙",
+      "type": 3,
+      "typeName": "接龙",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/VF6ofdcs.png",
+      "actionPackId": "3000000075",
+      "actionName": "接龙动作",
+      "elementIds": [
+        "2000000552",
+        "2000000553",
+        "2000000554",
+        "2000000555",
+        "2000000556",
+        "2000000557",
+        "2000000558"
+      ],
+      "version": 1,
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000566",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000566",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      },
+      "elementGroup": {
+        "packId": "3000000075",
+        "elementIds": [
+          "2000000552",
+          "2000000553",
+          "2000000554",
+          "2000000555",
+          "2000000556",
+          "2000000557",
+          "2000000558"
+        ]
+      },
+      "variants": [
+        {
+          "primary": {
+            "packId": "3000000075",
+            "elementIds": [
+              "2000000552",
+              "2000000553",
+              "2000000554",
+              "2000000555",
+              "2000000556",
+              "2000000557",
+              "2000000558"
+            ]
+          },
+          "secondary": {
+            "packId": "3000000076",
+            "elementIds": [
+              "2000000559",
+              "2000000560",
+              "2000000561",
+              "2000000562",
+              "2000000563",
+              "2000000564",
+              "2000000565"
+            ]
+          },
+          "mirror": {
+            "packId": "3000000075",
+            "elementIds": [
+              "2000000552",
+              "2000000553",
+              "2000000554",
+              "2000000555",
+              "2000000556",
+              "2000000557",
+              "2000000558"
+            ]
+          },
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000075",
+            "elementIds": [
+              "2000000552",
+              "2000000553",
+              "2000000554",
+              "2000000555",
+              "2000000556",
+              "2000000557",
+              "2000000558"
+            ]
+          },
+          "secondary": {
+            "packId": "3000000076",
+            "elementIds": [
+              "2000000559",
+              "2000000560",
+              "2000000561",
+              "2000000562",
+              "2000000563",
+              "2000000564",
+              "2000000565"
+            ]
+          },
+          "mirror": {
+            "packId": "3000000075",
+            "elementIds": [
+              "2000000552",
+              "2000000553",
+              "2000000554",
+              "2000000555",
+              "2000000556",
+              "2000000557",
+              "2000000558"
+            ]
+          },
+          "flag": 1
+        }
+      ]
+    },
+    {
+      "id": "4000000102",
+      "seq": 41,
+      "name": "成语接龙",
+      "type": 3,
+      "typeName": "接龙",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/g4oLBnFf.png",
+      "actionPackId": "3000000043",
+      "actionName": "接龙动作",
+      "elementIds": ["2000000185", "2000000186", "2000000187", "2000000188"],
+      "version": 1,
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000194",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000194",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      },
+      "elementGroup": {
+        "packId": "3000000043",
+        "elementIds": ["2000000185", "2000000186", "2000000187", "2000000188"]
+      },
+      "variants": [
+        {
+          "primary": {
+            "packId": "3000000043",
+            "elementIds": ["2000000185", "2000000186", "2000000187", "2000000188"]
+          },
+          "secondary": {
+            "packId": "3000000044",
+            "elementIds": ["2000000193", "2000000195", "2000000196", "2000000197"]
+          },
+          "mirror": {
+            "packId": "3000000043",
+            "elementIds": ["2000000185", "2000000186", "2000000187", "2000000188"]
+          },
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000049",
+            "elementIds": ["2000000213", "2000000214", "2000000215", "2000000216"]
+          },
+          "secondary": {
+            "packId": "3000000049",
+            "elementIds": ["2000000217", "2000000218", "2000000219", "2000000220"]
+          },
+          "mirror": {
+            "packId": "3000000049",
+            "elementIds": ["2000000213", "2000000214", "2000000215", "2000000216"]
+          },
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000048",
+            "elementIds": ["2000000221", "2000000222", "2000000223", "2000000224"]
+          },
+          "secondary": {
+            "packId": "3000000048",
+            "elementIds": ["2000000225", "2000000226", "2000000227", "2000000228"]
+          },
+          "mirror": {
+            "packId": "3000000048",
+            "elementIds": ["2000000221", "2000000222", "2000000223", "2000000224"]
+          },
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000054",
+            "elementIds": ["2000000229", "2000000230", "2000000231", "2000000232"]
+          },
+          "secondary": {
+            "packId": "3000000054",
+            "elementIds": ["2000000233", "2000000234", "2000000235", "2000000236"]
+          },
+          "mirror": {
+            "packId": "3000000054",
+            "elementIds": ["2000000229", "2000000230", "2000000231", "2000000232"]
+          },
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000047",
+            "elementIds": ["2000000237", "2000000238", "2000000239", "2000000240"]
+          },
+          "secondary": {
+            "packId": "3000000047",
+            "elementIds": ["2000000241", "2000000242", "2000000243", "2000000244"]
+          },
+          "mirror": {
+            "packId": "3000000047",
+            "elementIds": ["2000000237", "2000000238", "2000000239", "2000000240"]
+          },
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000046",
+            "elementIds": ["2000000245", "2000000246", "2000000247", "2000000248"]
+          },
+          "secondary": {
+            "packId": "3000000046",
+            "elementIds": ["2000000249", "2000000250", "2000000251", "2000000252"]
+          },
+          "mirror": {
+            "packId": "3000000046",
+            "elementIds": ["2000000245", "2000000246", "2000000247", "2000000248"]
+          },
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000052",
+            "elementIds": ["2000000271", "2000000272", "2000000273", "2000000274"]
+          },
+          "secondary": {
+            "packId": "3000000052",
+            "elementIds": ["2000000275", "2000000276", "2000000277", "2000000278"]
+          },
+          "mirror": {
+            "packId": "3000000052",
+            "elementIds": ["2000000271", "2000000272", "2000000273", "2000000274"]
+          },
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000051",
+            "elementIds": ["2000000279", "2000000280", "2000000281", "2000000282"]
+          },
+          "secondary": {
+            "packId": "3000000051",
+            "elementIds": ["2000000283", "2000000284", "2000000285", "2000000286"]
+          },
+          "mirror": {
+            "packId": "3000000051",
+            "elementIds": ["2000000279", "2000000280", "2000000281", "2000000282"]
+          },
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000053",
+            "elementIds": ["2000000290", "2000000291", "2000000292", "2000000293"]
+          },
+          "secondary": {
+            "packId": "3000000053",
+            "elementIds": ["2000000294", "2000000295", "2000000296", "2000000297"]
+          },
+          "mirror": {
+            "packId": "3000000053",
+            "elementIds": ["2000000290", "2000000291", "2000000292", "2000000293"]
+          },
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000050",
+            "elementIds": ["2000000298", "2000000299", "2000000300", "2000000301"]
+          },
+          "secondary": {
+            "packId": "3000000050",
+            "elementIds": ["2000000302", "2000000303", "2000000304", "2000000305"]
+          },
+          "mirror": {
+            "packId": "3000000050",
+            "elementIds": ["2000000298", "2000000299", "2000000300", "2000000301"]
+          },
+          "flag": 1
+        }
+      ]
+    },
+    {
+      "id": "4000000099",
+      "seq": 39,
+      "name": "马力全开",
+      "type": 3,
+      "typeName": "接龙",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/4NjdIdZa.png",
+      "actionPackId": "3000000042",
+      "actionName": "接龙动作",
+      "elementIds": [
+        "2000000161",
+        "2000000163",
+        "2000000164",
+        "2000000165",
+        "2000000166",
+        "2000000167",
+        "2000000168"
+      ],
+      "version": 1,
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000175",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000175",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      },
+      "elementGroup": {
+        "packId": "3000000057",
+        "elementIds": [
+          "2000000162",
+          "2000000169",
+          "2000000170",
+          "2000000171",
+          "2000000172",
+          "2000000173",
+          "2000000174"
+        ]
+      },
+      "variants": [
+        {
+          "primary": {
+            "packId": "3000000042",
+            "elementIds": [
+              "2000000161",
+              "2000000163",
+              "2000000164",
+              "2000000165",
+              "2000000166",
+              "2000000167",
+              "2000000168"
+            ]
+          },
+          "secondary": {
+            "packId": "3000000045",
+            "elementIds": [
+              "2000000176",
+              "2000000207",
+              "2000000208",
+              "2000000209",
+              "2000000210",
+              "2000000211",
+              "2000000212"
+            ]
+          },
+          "mirror": {
+            "packId": "3000000057",
+            "elementIds": [
+              "2000000162",
+              "2000000169",
+              "2000000170",
+              "2000000171",
+              "2000000172",
+              "2000000173",
+              "2000000174"
+            ]
+          },
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000055",
+            "elementIds": [
+              "2000000310",
+              "2000000311",
+              "2000000312",
+              "2000000313",
+              "2000000315",
+              "2000000316",
+              "2000000317"
+            ]
+          },
+          "secondary": {
+            "packId": "3000000045",
+            "elementIds": [
+              "2000000325",
+              "2000000326",
+              "2000000327",
+              "2000000328",
+              "2000000329",
+              "2000000330",
+              "2000000331"
+            ]
+          },
+          "mirror": {
+            "packId": "3000000058",
+            "elementIds": [
+              "2000000350",
+              "2000000351",
+              "2000000352",
+              "2000000353",
+              "2000000354",
+              "2000000355",
+              "2000000356"
+            ]
+          },
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000056",
+            "elementIds": [
+              "2000000318",
+              "2000000319",
+              "2000000320",
+              "2000000321",
+              "2000000322",
+              "2000000323",
+              "2000000324"
+            ]
+          },
+          "secondary": {
+            "packId": "3000000045",
+            "elementIds": [
+              "2000000332",
+              "2000000333",
+              "2000000334",
+              "2000000335",
+              "2000000336",
+              "2000000337",
+              "2000000338"
+            ]
+          },
+          "mirror": {
+            "packId": "3000000059",
+            "elementIds": [
+              "2000000357",
+              "2000000358",
+              "2000000359",
+              "2000000360",
+              "2000000361",
+              "2000000362",
+              "2000000363"
+            ]
+          },
+          "flag": 1
+        }
+      ]
+    },
+    {
+      "id": "4000000069",
+      "seq": 29,
+      "name": "6人接龙",
+      "type": 3,
+      "typeName": "接龙",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/pzql0UEE.png",
+      "actionPackId": "3000000037",
+      "actionName": "接龙动作",
+      "elementIds": [
+        "2000000033",
+        "2000000033",
+        "2000000080",
+        "2000000080",
+        "2000000087",
+        "2000000087"
+      ],
+      "version": 1,
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000140",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000140",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      },
+      "elementGroup": {
+        "packId": "3000000037",
+        "elementIds": [
+          "2000000033",
+          "2000000033",
+          "2000000080",
+          "2000000080",
+          "2000000087",
+          "2000000087"
+        ]
+      },
+      "variants": [
+        {
+          "primary": {
+            "packId": "3000000037",
+            "elementIds": [
+              "2000000033",
+              "2000000033",
+              "2000000080",
+              "2000000080",
+              "2000000087",
+              "2000000087"
+            ]
+          },
+          "secondary": {
+            "packId": "3000000037",
+            "elementIds": [
+              "2000000148",
+              "2000000148",
+              "2000000147",
+              "2000000147",
+              "2000000149",
+              "2000000149"
+            ]
+          },
+          "mirror": {
+            "packId": "3000000037",
+            "elementIds": [
+              "2000000033",
+              "2000000033",
+              "2000000080",
+              "2000000080",
+              "2000000087",
+              "2000000087"
+            ]
+          },
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000037",
+            "elementIds": [
+              "2000000033",
+              "2000000080",
+              "2000000087",
+              "2000000033",
+              "2000000080",
+              "2000000087"
+            ]
+          },
+          "secondary": {
+            "packId": "3000000037",
+            "elementIds": [
+              "2000000148",
+              "2000000147",
+              "2000000149",
+              "2000000148",
+              "2000000147",
+              "2000000149"
+            ]
+          },
+          "mirror": {
+            "packId": "3000000037",
+            "elementIds": [
+              "2000000033",
+              "2000000080",
+              "2000000087",
+              "2000000033",
+              "2000000080",
+              "2000000087"
+            ]
+          },
+          "flag": 1
+        }
+      ]
+    },
+    {
+      "id": "4000000067",
+      "seq": 28,
+      "name": "精神大伙",
+      "type": 3,
+      "typeName": "接龙",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/3TT1ZdkX.png",
+      "actionPackId": "3000000036",
+      "actionName": "接龙动作",
+      "elementIds": ["2000000110", "2000000113", "2000000114", "2000000115", "2000000116"],
+      "preview": {
+        "packId": "3000000039",
+        "elementId": "2000000112",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000121",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      },
+      "elementGroup": {
+        "packId": "3000000036",
+        "elementIds": ["2000000110", "2000000113", "2000000114", "2000000115", "2000000116"]
+      }
+    },
+    {
+      "id": "4000000215",
+      "seq": 73,
+      "name": "吃月饼",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/CshG36bn.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000536"],
+      "version": 1,
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000543",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000549",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      },
+      "variants": [
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000537"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000544"]
+          },
+          "mirror": null,
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000538"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000545"]
+          },
+          "mirror": null,
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000539"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000546"]
+          },
+          "mirror": null,
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000540"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000547"]
+          },
+          "mirror": null,
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000541"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000548"]
+          },
+          "mirror": null,
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000536"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000543"]
+          },
+          "mirror": null,
+          "flag": 1
+        }
+      ]
+    },
+    {
+      "id": "4000000213",
+      "seq": 72,
+      "name": "天哪",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/kxerXboY.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000498"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000499",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000499",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000211",
+      "seq": 71,
+      "name": "吾腹腹",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/qzhDPjLD.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000496"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000497",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000497",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000209",
+      "seq": 70,
+      "name": "嫌弃",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/sdFEU2mC.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000494"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000495",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000495",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000207",
+      "seq": 69,
+      "name": "啊啊啊",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/X1HYR1Fh.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000492"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000493",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000493",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000205",
+      "seq": 68,
+      "name": "真有你的",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/iFRHBSQQ.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000490"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000491",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000491",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000203",
+      "seq": 67,
+      "name": "求求了",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/MMYCwC5a.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000476"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000477",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000477",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000201",
+      "seq": 66,
+      "name": "不嘻嘻",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/kccpGZ87.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000474"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000475",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000475",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000199",
+      "seq": 65,
+      "name": "全肯定",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/cLsYfZHu.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000472"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000473",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000473",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000197",
+      "seq": 64,
+      "name": "6",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/n4u8NLBE.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000470"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000471",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000471",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000195",
+      "seq": 63,
+      "name": "思考中",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/LUMSKgiW.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000468"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000469",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000469",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000193",
+      "seq": 62,
+      "name": "我不行了",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/iHv9RXtY.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000457"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000458",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000458",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000186",
+      "seq": 61,
+      "name": "好耀眼",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/tzXLBPUQ.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000453"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000454",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000454",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000184",
+      "seq": 60,
+      "name": "趴玻璃",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/ZODFSqre.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000450"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000451",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000451",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000182",
+      "seq": 59,
+      "name": "赔笑",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/yLyIhcfu.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000448"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000449",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000449",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000180",
+      "seq": 58,
+      "name": "踩踩",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/8QZr2bvC.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000446"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000447",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000447",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000168",
+      "seq": 57,
+      "name": "新年快乐",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/TzQDfh7M.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000182"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000349",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000349",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000113",
+      "seq": 54,
+      "name": "马年大吉",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/I8DTnOfH.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000160"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000202",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000202",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000115",
+      "seq": 53,
+      "name": "马上发财",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/NSnJgdo2.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000177"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000203",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000203",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000109",
+      "seq": 52,
+      "name": "福到",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/WC1YtEwg.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000198"],
+      "version": 1,
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000199",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000199",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      },
+      "variants": [
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000198"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000199"]
+          },
+          "mirror": null,
+          "flag": 1
+        }
+      ]
+    },
+    {
+      "id": "4000000117",
+      "seq": 51,
+      "name": "跪谢",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/DSJacdmN.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000178"],
+      "version": 1,
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000204",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000204",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      },
+      "variants": [
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000178"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000204"]
+          },
+          "mirror": null,
+          "flag": 1
+        }
+      ]
+    },
+    {
+      "id": "4000000155",
+      "seq": 48,
+      "name": "马上暴富",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/3jeA3zD0.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000306"],
+      "version": 1,
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000307",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000307",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      },
+      "variants": [
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000306"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000307"]
+          },
+          "mirror": null,
+          "flag": 1
+        }
+      ]
+    },
+    {
+      "id": "4000000157",
+      "seq": 47,
+      "name": "马上躺赢",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/V764ZYdb.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000308"],
+      "version": 1,
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000309",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000309",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      },
+      "variants": [
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000308"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000309"]
+          },
+          "mirror": null,
+          "flag": 1
+        }
+      ]
+    },
+    {
+      "id": "4000000137",
+      "seq": 46,
+      "name": "接好运",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/5hfDw9W0.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000262"],
+      "version": 1,
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000266",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000266",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      },
+      "variants": [
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000263"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000268"]
+          },
+          "mirror": null,
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000264"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000269"]
+          },
+          "mirror": null,
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000265"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000270"]
+          },
+          "mirror": null,
+          "flag": 1
+        },
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000262"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000267"]
+          },
+          "mirror": null,
+          "flag": 1
+        }
+      ]
+    },
+    {
+      "id": "4000000088",
+      "seq": 45,
+      "name": "放烟花",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/vD8nKvLc.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000139"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000143",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000143",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000100",
+      "seq": 43,
+      "name": "被炸晕",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/rZFvBpMP.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000150"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000179",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000179",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000103",
+      "seq": 42,
+      "name": "满分闪避",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/H1SFxcVo.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000151"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000347",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000191",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000105",
+      "seq": 40,
+      "name": "有钱花",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/SVZejPfL.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000108"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000192",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000192",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000134",
+      "seq": 38,
+      "name": "生日快乐",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/B4ehr9rp.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000259"],
+      "version": 1,
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000261",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000260",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      },
+      "variants": [
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000259"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000261"]
+          },
+          "mirror": null,
+          "flag": 1
+        }
+      ]
+    },
+    {
+      "id": "4000000112",
+      "seq": 36,
+      "name": "谢谢",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/b7rmh7JW.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000184"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000201",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000201",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000027",
+      "seq": 17,
+      "name": "丢炸弹",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/ONyTGQ1E.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000012"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000060",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000060",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000028",
+      "seq": 16,
+      "name": "动感光波",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/zNosl7B3.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000038"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000063",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000063",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000029",
+      "seq": 15,
+      "name": "爱你",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/iV3XyLKB.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000020"],
+      "version": 1,
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000138",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000059",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      },
+      "variants": [
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000020"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000138"]
+          },
+          "mirror": null,
+          "flag": 4
+        },
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000128"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000132"]
+          },
+          "mirror": null,
+          "flag": 4
+        },
+        {
+          "primary": {
+            "packId": "3000000018",
+            "elementIds": ["2000000129"]
+          },
+          "secondary": {
+            "packId": "3000000013",
+            "elementIds": ["2000000133"]
+          },
+          "mirror": null,
+          "flag": 2
+        }
+      ]
+    },
+    {
+      "id": "4000000030",
+      "seq": 14,
+      "name": "点赞",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/0sAzh44Q.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000019"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000061",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000061",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000031",
+      "seq": 13,
+      "name": "扔垃圾",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/pZgPFdum.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000032"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000064",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000064",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000034",
+      "seq": 10,
+      "name": "哈哈哈",
+      "type": 1,
+      "typeName": "互动动作",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/t9f1k2yh.png",
+      "actionPackId": "3000000018",
+      "actionName": "互动动作",
+      "elementIds": ["2000000015"],
+      "preview": {
+        "packId": "3000000013",
+        "elementId": "2000000062",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000013",
+        "elementId": "2000000062",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000164",
+      "seq": 56,
+      "name": "舞狮送福",
+      "type": 2,
+      "typeName": "双人互动",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/M1igc3bV.png",
+      "actionPackId": "3000000017",
+      "actionName": "互动动作",
+      "elementIds": ["2000000341", "2000000342"],
+      "preview": {
+        "packId": "3000000014",
+        "elementId": "2000000345",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000014",
+        "elementId": "2000000343",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000093",
+      "seq": 55,
+      "name": "原地起飞",
+      "type": 2,
+      "typeName": "双人互动",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/w6H06lt8.png",
+      "actionPackId": "3000000023",
+      "actionName": "互动动作",
+      "elementIds": ["2000000153", "2000000154"],
+      "preview": {
+        "packId": "3000000014",
+        "elementId": "2000000339",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000014",
+        "elementId": "2000000339",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000095",
+      "seq": 49,
+      "name": "鞭炮伺候",
+      "type": 2,
+      "typeName": "双人互动",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/fFVbaQG1.png",
+      "actionPackId": "3000000017",
+      "actionName": "互动动作",
+      "elementIds": ["2000000158", "2000000159"],
+      "preview": {
+        "packId": "3000000014",
+        "elementId": "2000000256",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000014",
+        "elementId": "2000000255",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000025",
+      "seq": 9,
+      "name": "退退退",
+      "type": 2,
+      "typeName": "双人互动",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/4iQHhaNh.png",
+      "actionPackId": "3000000010",
+      "actionName": "互动动作",
+      "elementIds": ["2000000066", "2000000067"],
+      "preview": {
+        "packId": "3000000014",
+        "elementId": "2000000056",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000014",
+        "elementId": "2000000056",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000013",
+      "seq": 8,
+      "name": "举高高",
+      "type": 2,
+      "typeName": "双人互动",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/F3maTNZb.png",
+      "actionPackId": "3000000010",
+      "actionName": "互动动作",
+      "elementIds": ["2000000053", "2000000054"],
+      "preview": {
+        "packId": "3000000015",
+        "elementId": "2000000057",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000015",
+        "elementId": "2000000057",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000012",
+      "seq": 7,
+      "name": "花式比心",
+      "type": 2,
+      "typeName": "双人互动",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/Y7tBfMF1.jpg",
+      "actionPackId": "3000000012",
+      "actionName": "互动动作",
+      "elementIds": ["2000000051", "2000000052"],
+      "preview": {
+        "packId": "3000000014",
+        "elementId": "2000000058",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000014",
+        "elementId": "2000000058",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "4000000011",
+      "seq": 6,
+      "name": "一起使坏",
+      "type": 2,
+      "typeName": "双人互动",
+      "iconUrl": "https://qqshow.gtimg.com/pcg_images/lP54T6WL.png",
+      "actionPackId": "3000000010",
+      "actionName": "互动动作",
+      "elementIds": ["2000000044", "2000000045"],
+      "preview": {
+        "packId": "3000000014",
+        "elementId": "2000000065",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "width": 540,
+        "height": 540
+      },
+      "thumb": {
+        "packId": "3000000014",
+        "elementId": "2000000065",
+        "color": {
+          "stroke": "#C2C2C2FF",
+          "fill": "#E3E3E3FF"
+        },
+        "field4": 15,
+        "field5": 1,
+        "width": 256,
+        "height": 256
+      }
+    }
+  ]
+}

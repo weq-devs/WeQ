@@ -27,6 +27,7 @@ import {
   Heart,
   Hand,
   Image as ImageIcon,
+  ImagePlus,
   MessageSquareQuote,
   Plus,
   Search,
@@ -43,6 +44,7 @@ import { useOverlayLayer } from '../../lib/overlayStack';
 import { cn } from './classNames';
 import { BounceEmojiPanel, type BounceEmojiDraft } from './bounceEmojiPanel';
 import { PokeEmojiPanel, type PokeEmojiDraft, type RandomFaceDraft } from './pokeEmojiPanel';
+import { CustomEmojiTab, ShowEmojiTab } from './showEmojiTabs';
 import {
   favEmojiItem,
   marketFaceItem,
@@ -62,7 +64,9 @@ type TabId =
   | 'gif'
   | 'kaomoji'
   | 'bounce'
-  | 'poke';
+  | 'poke'
+  | 'custom'
+  | 'qqshow';
 
 const TABS: Array<{ id: TabId; label: string; icon: typeof Smile }> = [
   { id: 'recent', label: '最近', icon: Clock },
@@ -70,6 +74,8 @@ const TABS: Array<{ id: TabId; label: string; icon: typeof Smile }> = [
   { id: 'super', label: '超级表情', icon: Sparkles },
   { id: 'bounce', label: '弹射表情', icon: Rocket },
   { id: 'poke', label: '互动表情', icon: Hand },
+  { id: 'custom', label: '自定义表情', icon: ImagePlus },
+  { id: 'qqshow', label: 'QQ 秀表情', icon: Sparkles },
   { id: 'unicode', label: '字符表情', icon: Type },
   { id: 'market', label: '商城表情', icon: Store },
   { id: 'fav', label: '收藏', icon: Heart },
@@ -117,6 +123,8 @@ export function EmojiPanel({
   onSendPoke,
   randomFaces,
   onSendRandom,
+  sendTarget,
+  onSentCustomEmoji,
   textOnly = false,
 }: {
   panelRef: RefObject<HTMLDivElement | null>;
@@ -130,6 +138,19 @@ export function EmojiPanel({
   onSendPoke?: (draft: PokeEmojiDraft) => void;
   randomFaces?: React.ComponentProps<typeof PokeEmojiPanel>['randomFaces'];
   onSendRandom?: (draft: RandomFaceDraft) => void;
+  /**
+   * 「自定义表情」与「QQ 秀表情」两栏的发送目标。
+   *
+   * 这两栏是**点选即发**（不像其它栏插进输入框），所以要知道发给谁。
+   * 缺省时两栏隐藏 —— 没有目标就没法发。
+   */
+  sendTarget?: {
+    peerType: 'c2c' | 'group';
+    targetId: string;
+    tempGroupCode?: string;
+  };
+  /** 发送成功后回调（宿主用来关面板 / 清理状态）。 */
+  onSentCustomEmoji?: () => void;
   /** 纯文本会话不展示必须携带 QQ 媒体元素的表情来源。 */
   textOnly?: boolean;
 }) {
@@ -265,6 +286,28 @@ export function EmojiPanel({
             emptyText="还没有收藏的自定义表情"
             onSelect={onSelect}
           />
+        ) : tab === 'custom' ? (
+          <CustomEmojiTab
+            ctx={{
+              peerType: sendTarget?.peerType ?? 'c2c',
+              targetId: sendTarget?.targetId ?? '',
+              ...(sendTarget?.tempGroupCode ? { tempGroupCode: sendTarget.tempGroupCode } : {}),
+              disabled: Boolean(disabled) || !sendTarget,
+              disabledHint: sendTarget ? (disabledHint ?? '') : '请先选择一个会话',
+            }}
+            onSent={() => onSentCustomEmoji?.()}
+          />
+        ) : tab === 'qqshow' ? (
+          <ShowEmojiTab
+            ctx={{
+              peerType: sendTarget?.peerType ?? 'c2c',
+              targetId: sendTarget?.targetId ?? '',
+              ...(sendTarget?.tempGroupCode ? { tempGroupCode: sendTarget.tempGroupCode } : {}),
+              disabled: Boolean(disabled) || !sendTarget,
+              disabledHint: sendTarget ? (disabledHint ?? '') : '请先选择一个会话',
+            }}
+            onSent={() => onSentCustomEmoji?.()}
+          />
         ) : tab === 'gif' ? (
           <GifTab tags={tags} loading={overview.isLoading} onSelect={onSelect} />
         ) : (
@@ -274,7 +317,13 @@ export function EmojiPanel({
 
       <div className={cn('emoji-tabs')}>
         {TABS.filter(({ id }) =>
-          id === 'bounce' ? Boolean(onSendBounce) : id === 'poke' ? Boolean(onSendPoke) : true,
+          id === 'bounce'
+            ? Boolean(onSendBounce)
+            : id === 'poke'
+              ? Boolean(onSendPoke)
+              : id === 'custom' || id === 'qqshow'
+                ? Boolean(sendTarget)
+                : true,
         ).map(({ id, label, icon: Icon }) => (
           <button
             key={id}

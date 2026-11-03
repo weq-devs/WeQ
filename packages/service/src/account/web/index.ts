@@ -12,6 +12,7 @@
  * 新增的相册管理写入只尝试一次，认证拒绝也不自动换票重放。
  */
 import type { AccountSession } from '@weq/account';
+import { buildGiftMallBuyItemRequest } from '@weq/protocol';
 import { WebCredentialProvider, withRetry, type WebNative } from './credential';
 import { getFriendDress, type FriendDress } from './friend_dress';
 import {
@@ -122,6 +123,30 @@ import {
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
 import { getDressRank, searchDress, type DressAppId, type DressMallItem } from './dress_mall';
+import {
+  fetchGiftMallGiftList,
+  fetchGiftMallAIDiscStatus,
+  fetchGiftMallHomePageExtraInfo,
+  fetchGiftMallSingleGiftInfo,
+  fetchGiftMallVipInfo,
+  fetchGiftMallWall,
+  searchGiftMall,
+  submitGiftMallBuyItem as submitGiftMallOrder,
+} from './gift_mall';
+import type {
+  GiftMallBuyItemOptions,
+  GiftMallBuyItemResponse,
+  GiftMallGiftListOptions,
+  GiftMallGiftListResponse,
+  GiftMallAIDiscStatusResponse,
+  GiftMallHomePageExtraResponse,
+  GiftMallSearchOptions,
+  GiftMallSearchResponse,
+  GiftMallSingleGiftInfoResponse,
+  GiftMallVipInfoResponse,
+  GiftMallWallOptions,
+  GiftMallWallResponse,
+} from '@weq/protocol';
 
 const QUN_DOMAIN = 'qun.qq.com';
 const QZONE_DOMAIN = 'qzone.qq.com';
@@ -266,6 +291,59 @@ export class WebQueryService {
    */
   async getVipInfo(): Promise<VipInfo | null> {
     return withRetry(this.creds, VIP_DOMAIN, (c) => fetchVipInfo(c));
+  }
+
+  /** 读取礼物商城首页推荐、愿望单和服务端页签。 */
+  async getGiftMallHomePageExtraInfo(toUin: number): Promise<GiftMallHomePageExtraResponse> {
+    return withRetry(this.creds, VIP_DOMAIN, (cred) => fetchGiftMallHomePageExtraInfo(cred, toUin));
+  }
+
+  /** 读取礼物列表；空子页签数组使用「最近上新」默认页。 */
+  async getGiftMallGiftList(
+    toUin: number,
+    options: GiftMallGiftListOptions = {},
+  ): Promise<GiftMallGiftListResponse> {
+    return withRetry(this.creds, VIP_DOMAIN, (cred) => fetchGiftMallGiftList(cred, toUin, options));
+  }
+
+  /** 搜索礼物并返回服务端分页游标。 */
+  async searchGiftMall(options: GiftMallSearchOptions): Promise<GiftMallSearchResponse> {
+    return withRetry(this.creds, VIP_DOMAIN, (cred) => searchGiftMall(cred, options));
+  }
+
+  /** 查询礼物详情及针对收礼人的状态。 */
+  async getGiftMallSingleGiftInfo(
+    giftId: string | number,
+    toUin: number,
+  ): Promise<GiftMallSingleGiftInfoResponse> {
+    return withRetry(this.creds, VIP_DOMAIN, (cred) =>
+      fetchGiftMallSingleGiftInfo(cred, giftId, toUin),
+    );
+  }
+
+  /** 查询礼物对应的会员身份、免费次数和折扣次数。 */
+  async getGiftMallVipInfo(giftId: string | number): Promise<GiftMallVipInfoResponse> {
+    return withRetry(this.creds, VIP_DOMAIN, (cred) => fetchGiftMallVipInfo(cred, giftId));
+  }
+
+  /** 查询送出或收到的礼物墙。游标与时间字段由上次响应原样传入。 */
+  async getGiftMallWall(options: GiftMallWallOptions): Promise<GiftMallWallResponse> {
+    return withRetry(this.creds, VIP_DOMAIN, (cred) => fetchGiftMallWall(cred, options));
+  }
+
+  /** 读取礼物商城 AI 内容披露状态。 */
+  async getGiftMallAIDiscStatus(): Promise<GiftMallAIDiscStatusResponse> {
+    return withRetry(this.creds, VIP_DOMAIN, (cred) => fetchGiftMallAIDiscStatus(cred));
+  }
+
+  /** 提交一次送礼/下单请求；付费分支只返回支付信息，不会替用户付款。 */
+  async sendGift(
+    options: GiftMallBuyItemOptions,
+    beforeSend: () => void,
+  ): Promise<GiftMallBuyItemResponse> {
+    const request = buildGiftMallBuyItemRequest(options);
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    return submitGiftMallOrder(cred, request, beforeSend);
   }
 
   /** 查 `targetUin` 与你之间的互动标识(任务进度/关系标识),按 ti.qq.com 域取 skey/pskey。 */

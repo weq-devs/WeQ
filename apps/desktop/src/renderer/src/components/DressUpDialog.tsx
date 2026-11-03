@@ -40,6 +40,7 @@ import {
   Type,
   Image as ImageIcon,
   Gem,
+  Gift,
   Upload,
   Trophy,
   X,
@@ -61,9 +62,17 @@ import { IS_WEB } from '../lib/target';
 import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
 import { WorkspacePage } from './WorkspacePages';
 import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
+import { GiftWall } from './gift/GiftWall';
 import '../styles/dressup.css';
 
-export type DressKind = 'bubble' | 'font' | 'widget' | 'callbg' | 'background' | 'emoji';
+export type DressKind =
+  | 'bubble'
+  | 'font'
+  | 'widget'
+  | 'callbg'
+  | 'background'
+  | 'emoji'
+  | 'giftwall';
 
 const KINDS: Array<{ id: DressKind; label: string; icon: ReactElement }> = [
   { id: 'bubble', label: '聊天气泡', icon: <Palette size={14} /> },
@@ -72,6 +81,8 @@ const KINDS: Array<{ id: DressKind; label: string; icon: ReactElement }> = [
   { id: 'callbg', label: '通话背景', icon: <PhoneCall size={14} /> },
   { id: 'background', label: '聊天背景', icon: <ImageIcon size={14} /> },
   { id: 'emoji', label: '商城表情', icon: <Store size={14} /> },
+  // 礼物墙是纯展示的只读一栏：数据来自礼物商城接口，不参与装扮安装。
+  { id: 'giftwall', label: '我的礼物墙', icon: <Gift size={14} /> },
 ];
 
 /** 商城那几类共用一套列表 UI;聊天背景和表情包是各自独立的形状。 */
@@ -858,6 +869,7 @@ export function DressUpDialog({
   }
 
   function renderList(): ReactElement {
+    if (kind === 'giftwall') return <GiftWall />;
     if (kind === 'background') return renderBackground();
     if (kind === 'emoji')
       return (

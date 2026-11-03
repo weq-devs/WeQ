@@ -39,7 +39,7 @@ const logger = getLogger().child({ scope: 'call-video-encoder' });
  * ```bash
  * WEQ_CALL_VIDEO_DUMP=/tmp/vdump pnpm --filter @weq/desktop dev
  * # 通话后：
- * ffplay -f rawvideo -pix_fmt yuv420p -s 640x360 /tmp/vdump/i420-0.raw  # 输入
+ * ffplay -f rawvideo -pix_fmt yuv420p -s 320x184 /tmp/vdump/i420-0.raw  # 输入
  * ffplay /tmp/vdump/encoded.h265                                       # 输出
  * ```
  *
@@ -72,17 +72,28 @@ export class NativeVideoEncoder implements CallVideoEncoder {
   constructor(
     private readonly nt: NtHelperBinding,
     private readonly modulesDir: string,
-    options: { width?: number; height?: number; fps?: number; bitrateKbps?: number } = {},
+    options: {
+      width?: number;
+      height?: number;
+      fps?: number;
+      bitrateKbps?: number;
+      keyint?: number;
+      allIntra?: boolean;
+    } = {},
   ) {
     this.width = options.width ?? CAMERA_PROFILE.width;
     this.height = options.height ?? CAMERA_PROFILE.height;
     this.fps = options.fps ?? CAMERA_PROFILE.fps;
     // 码率取 {@link CAMERA_PROFILE}，数值来由见 `shared/call_video_profile.ts`。
     this.bitrateKbps = options.bitrateKbps ?? CAMERA_PROFILE.bitrateKbps;
+    this.keyint = options.keyint ?? CAMERA_PROFILE.keyint;
+    this.allIntra = options.allIntra ?? CAMERA_PROFILE.allIntra;
   }
 
   private fps: number;
   private bitrateKbps: number;
+  private keyint: number;
+  private allIntra: boolean;
   private opened = false;
   /** 当前采集源（摄像头 / 屏幕共享）。只用于日志与重配判断。 */
   private source: VideoSource = 'camera';
@@ -95,6 +106,8 @@ export class NativeVideoEncoder implements CallVideoEncoder {
       this.height,
       this.fps,
       this.bitrateKbps,
+      this.keyint,
+      this.allIntra,
     );
     this.opened = true;
     logger.info('视频编码器已打开', {
@@ -102,6 +115,8 @@ export class NativeVideoEncoder implements CallVideoEncoder {
       height: this.height,
       fps: this.fps,
       bitrate: this.bitrateKbps,
+      keyint: this.keyint,
+      allIntra: this.allIntra,
       source: this.source,
     });
   }
@@ -109,7 +124,7 @@ export class NativeVideoEncoder implements CallVideoEncoder {
   /**
    * 切换采集源并**重开**编码器。
    *
-   * 摄像头与屏幕共享的分辨率 / 码率不同（640×360@30kbps ↔ 960×540@1.2Mbps），
+   * 摄像头与屏幕共享的分辨率 / 码率不同（320×184@300kbps ↔ 960×540@1.2Mbps），
    * 而 native 的 t265 是进程级单例、打开后不能改参数 —— 只能关掉重建。
    *
    * 实测重建很便宜：`openVideoEncoder` 在 1080p 下也只要 ~10 ms，而且这里只在
@@ -132,6 +147,8 @@ export class NativeVideoEncoder implements CallVideoEncoder {
     this.height = target.height;
     this.fps = target.fps;
     this.bitrateKbps = target.bitrateKbps;
+    this.keyint = target.keyint;
+    this.allIntra = target.allIntra;
     if (wasOpen) {
       await this.open();
     }
@@ -175,6 +192,8 @@ export class NativeVideoEncoder implements CallVideoEncoder {
       height: this.height,
       fps: this.fps,
       bitrateKbps: this.bitrateKbps,
+      keyint: this.keyint,
+      allIntra: this.allIntra,
       captureWidth: this.width,
       captureHeight: this.height,
     };
@@ -256,6 +275,8 @@ export class NativeVideoEncoder implements CallVideoEncoder {
       // `bt=77` 视频参数公告要用：对端按这里声明的规格准备解码。
       fps: this.fps,
       bitrateKbps: this.bitrateKbps,
+      keyint: this.keyint,
+      allIntra: this.allIntra,
     };
   }
 

@@ -16,7 +16,7 @@
  * track those files — TTL / pruning belongs in whoever wrote them.
  */
 
-import { mkdirSync, readFileSync, readdirSync, unlinkSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, existsSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
@@ -59,6 +59,28 @@ import {
   normalizeToastDurations,
   type ToastDurations,
 } from '../common/toast_settings';
+
+/**
+ * 缓存里按 `accountConfigId` 分目录的顶层类别。configId 改变（uin 被纠正）时
+ * 需要连同这些目录一起搬迁，见 {@link UserConfigService.renameAccountConfigId}。
+ *
+ * 新增按 configId 分目录的缓存时**必须同步加进这里**，否则老账号升级后新目录
+ * 是空的、旧数据留在孤儿目录里。
+ */
+export const ACCOUNT_CONFIG_ID_DIRS = [
+  'collection-history',
+  'dress',
+  'agentlab',
+  'deleted',
+  'anti_recall',
+  'export',
+  'content-search',
+  'intent_sense',
+  'roaming-jobs',
+  'db_tolerance',
+  'db_repair',
+  'search-index',
+] as const;
 
 export interface AutoEnterTarget {
   configId: string;
@@ -706,6 +728,13 @@ export interface AppSettings {
    * 是否显示聊天头像挂件，包括消息记录、本地个性装扮和自己账号的静态挂件。
    */
   showAvatarPendant: boolean;
+  /**
+   * 是否用 QQ 秀形象替换聊天头像（同时不叠加头像挂件）。默认开启；
+   * 形象 URL 按 uin 缓存在本地，个性主页也读这份缓存。
+   */
+  showChatQqShow: boolean;
+  /** QQ 秀形象 URL 本地映射的有效期（天）。默认 14，过期后重新向 QQ 查询。 */
+  qqShowCacheDays: number;
   linkPreview: LinkPreviewConfig;
   /**
    * 头像与聊天图片/视频封面直接由前端向 QQ CDN 取，不经本进程代理。
@@ -840,6 +869,14 @@ export interface CallRecordingConfig {
    * （`<appDataRoot>/recordings/<本机 QQ 号>`）。
    */
   dir: string | null;
+  /**
+   * 是否把 WeQ 自己发起的通话的全部 UDP 流量写成 pcapng
+   * （`<录音目录>/udp/<时间>_<对端>.pcapng`）。
+   *
+   * 与「UDP 抓包」面板的 pcapng 导出同一套格式，Wireshark 可直接打开。默认关闭 ——
+   * 视频通话一小时的抓包文件是 GB 级，不该替所有人默默写盘。
+   */
+  udpTrace: boolean;
 }
 
 /** 归一化通话录音模式；非法值返回 undefined，交给调用方回落到默认值。 */
@@ -863,6 +900,7 @@ export function normalizeCallRecording(
     mode: normalizeCallRecordingMode(value?.mode) ?? fallback.mode,
     systemAudio: typeof value?.systemAudio === 'boolean' ? value.systemAudio : fallback.systemAudio,
     dir: value?.dir !== undefined ? normalizeRecordingDir(value.dir) : fallback.dir,
+    udpTrace: typeof value?.udpTrace === 'boolean' ? value.udpTrace : fallback.udpTrace,
   };
 }
 
@@ -1016,6 +1054,13 @@ export interface SsePushConfig {
 export type { GroupKeywordRules } from '../account/group_keyword';
 export { normalizeGroupKeywordRules } from '../account/group_keyword';
 
+/** QQ 秀缓存有效期：只接受 1–365 的整数天，非法值交给调用方回落默认。 */
+function normalizeQqShowCacheDays(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const days = Math.round(value);
+  return days >= 1 && days <= 365 ? days : null;
+}
+
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   toastDurations: { ...DEFAULT_TOAST_DURATIONS },
   exportSaveMode: 'before',
@@ -1052,6 +1097,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   quitConfirmSuppressed: false,
   renderTextMarkdown: true,
   showAvatarPendant: true,
+  showChatQqShow: true,
+  qqShowCacheDays: 14,
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
   home: DEFAULT_HOME_SETTINGS,
@@ -1082,7 +1129,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   qzoneForwardQuotePrevious: false,
   qzonePersonClickAction: 'space',
   // 默认双方混音；电脑声音默认不录（Linux / Windows 都要多占一路采集）。
-  callRecording: { mode: 'mixed', systemAudio: false, dir: null },
+  callRecording: { mode: 'mixed', systemAudio: false, dir: null, udpTrace: false },
   // 默认允许 P2P 直连；禁用是排障开关，见 AppSettings.callDisableP2P。
   callDisableP2P: false,
 };
@@ -1277,6 +1324,107 @@ export class UserConfigService {
       groupCount: Object.keys(rules).length,
       accounts: written,
     });
+  }
+
+  /**
+   * 把一条静态账号记录的 configId 换成新值，并搬走所有由 configId 派生的目录。
+   *
+   * 背景：`configId = ${uin}_${hash(dataDir)}`，uin 一变 id 就变。旧版安卓备份的
+   * uin 是从 `profile_info.db` 猜的，可能猜错；新版改用密钥推导链 + 消息库自证，
+   * 拿到正确的 uin 后必须同步搬迁，否则删除记录、防撤回、装扮、导出历史、宽容授权、
+   * 修复备份这些按 id 隔离的数据全都会变成孤儿。
+   *
+   * 目标 id 已存在时**不动**（用户可能已经重新扫描过，那份才是新的），返回 null。
+   * best-effort：单个目录搬迁失败只记日志，不影响账号记录本身的改写。
+   */
+  renameAccountConfigId(
+    oldConfigId: string,
+    patch: { uin: string; configId: string; uid?: string },
+  ): string | null {
+    if (!oldConfigId || !patch.configId || oldConfigId === patch.configId) return null;
+    if (existsSync(join(this.root, 'config', 'accounts', `${patch.configId}.json`))) return null;
+
+    const oldPath = join(this.root, 'config', 'accounts', `${oldConfigId}.json`);
+    let record: AccountConfig;
+    try {
+      record = normalizeAccountConfig(JSON.parse(readFileSync(oldPath, 'utf-8')) as AccountConfig);
+    } catch (error) {
+      this.logger.warn('skipped account config while rewriting its id', {
+        event: 'rename-account-config-skip',
+        configId: oldConfigId,
+        ...logErrorContext(error),
+      });
+      return null;
+    }
+
+    const next: AccountConfig = {
+      ...record,
+      uin: patch.uin,
+      configId: patch.configId,
+      ...(patch.uid ? { uid: patch.uid } : {}),
+    };
+    try {
+      writeFileAtomicSync(
+        join(this.root, 'config', 'accounts', `${patch.configId}.json`),
+        JSON.stringify(next, null, 2),
+      );
+      unlinkSync(oldPath);
+    } catch (error) {
+      this.logger.warn('failed to rewrite account config id', {
+        event: 'rename-account-config-write-failed',
+        configId: oldConfigId,
+        ...logErrorContext(error),
+      });
+      return null;
+    }
+
+    // 搬迁由 configId 派生的缓存目录与装扮配置目录。
+    const moved: string[] = [];
+    for (const kind of ACCOUNT_CONFIG_ID_DIRS) {
+      const from = join(this.cacheBaseDir(), kind, oldConfigId);
+      const to = join(this.cacheBaseDir(), kind, patch.configId);
+      if (this.renameDir(from, to)) moved.push(kind);
+    }
+    // 装扮配置放在 appDataRoot/config/accounts/<id>/，与账号记录同级的目录。
+    if (
+      this.renameDir(
+        join(this.root, 'config', 'accounts', oldConfigId),
+        join(this.root, 'config', 'accounts', patch.configId),
+      )
+    )
+      moved.push('dress-config');
+
+    // 自动进入目标还指着旧 id 的话一起改掉，否则下次启动会找不到账号。
+    const autoEnter = this.read().autoEnter;
+    if (autoEnter?.configId === oldConfigId) {
+      this.write({ autoEnter: { ...autoEnter, configId: patch.configId, uin: patch.uin } });
+    }
+
+    this.logger.info('renamed static account config id', {
+      event: 'rename-account-config',
+      from: oldConfigId,
+      to: patch.configId,
+      accountUin: patch.uin,
+      movedDirs: moved,
+    });
+    return patch.configId;
+  }
+
+  /** 目录改名；源不存在或目标已存在时跳过（不覆盖已有数据）。 */
+  private renameDir(from: string, to: string): boolean {
+    if (!existsSync(from) || existsSync(to)) return false;
+    try {
+      renameSync(from, to);
+      return true;
+    } catch (error) {
+      this.logger.warn('failed to move account cache directory', {
+        event: 'rename-account-config-dir-failed',
+        from,
+        to,
+        ...logErrorContext(error),
+      });
+      return false;
+    }
   }
 
   /**
@@ -1620,6 +1768,8 @@ export class UserConfigService {
       quitConfirmSuppressed: s?.quitConfirmSuppressed === true,
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
+      showChatQqShow: s?.showChatQqShow ?? d.showChatQqShow,
+      qqShowCacheDays: normalizeQqShowCacheDays(s?.qqShowCacheDays) ?? d.qqShowCacheDays,
       preferCdn: s?.preferCdn ?? d.preferCdn,
       home: normalizeHomeSettings(s?.home),
       typingStatus: normalizeTypingStatus(s?.typingStatus),
@@ -1751,6 +1901,8 @@ export class UserConfigService {
       quitConfirmSuppressed: patch.quitConfirmSuppressed ?? current.quitConfirmSuppressed,
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
+      showChatQqShow: patch.showChatQqShow ?? current.showChatQqShow,
+      qqShowCacheDays: normalizeQqShowCacheDays(patch.qqShowCacheDays) ?? current.qqShowCacheDays,
       preferCdn: patch.preferCdn ?? current.preferCdn,
       home: normalizeHomeSettings({ ...current.home, ...patch.home }),
       typingStatus: normalizeTypingStatus({ ...current.typingStatus, ...patch.typingStatus }),

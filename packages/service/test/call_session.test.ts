@@ -13,15 +13,20 @@ import {
   AudioSubType,
   CallEvent,
   GcsBodyType,
+  RELAY_CHANNEL,
   buildAudioFrame,
   buildGcsPacket,
   buildGcsHead,
+  buildPeerProbe,
+  buildRelayPacket,
   encodeVarint,
   pbBytes,
   pbVarint,
   parseAudioFrame,
   parseFecContainer,
   parseGcsPacket,
+  PeerProbeCmd,
+  RelayCmd,
   rsDecode,
   rsEncode,
 } from '@weq/protocol';
@@ -104,6 +109,10 @@ class FakeTransport implements UdpTransport {
   /** 模拟服务端推一个包过来。 */
   deliver(data: Uint8Array): void {
     this.messageHandler?.(data, { address: '1.2.3.4', port: 8000 });
+  }
+  /** 模拟某个指定来源发一个包过来（P2P / 中继要用它才测得出端点归属）。 */
+  deliverFrom(data: Uint8Array, from: { address: string; port: number }): void {
+    this.messageHandler?.(data, from);
   }
   raise(error: Error): void {
     this.errorHandler?.(error);
@@ -190,6 +199,37 @@ function notifyPacket(event: number, peer = 2863253201, exitReason = 0): Uint8Ar
     bodyType: GcsBodyType.notifyPush,
   });
   return buildGcsPacket(head, body);
+}
+
+/**
+ * 拼一个中继的「对端路径下发」（`0x02` ch=0 cmd=3）。
+ *
+ * 布局对齐 `handleRelay` 的解析：body[0:4] 是 IPv4 地址、body[6:8] 是主端口、
+ * body[22:24] 是直连端口。
+ */
+function relayPeerPathPacket(params: {
+  address: string;
+  primaryPort: number;
+  directPort: number;
+}): Uint8Array {
+  const body = new Uint8Array(24);
+  params.address.split('.').forEach((part, index) => {
+    body[index] = Number(part);
+  });
+  body[6] = params.primaryPort >> 8;
+  body[7] = params.primaryPort & 0xff;
+  body[22] = params.directPort >> 8;
+  body[23] = params.directPort & 0xff;
+  return buildRelayPacket({
+    roomId: 777n,
+    selfUin: 1707889225,
+    seq: 1,
+    peerUin: 2863253201,
+    token: 1234,
+    channel: RELAY_CHANNEL.server,
+    cmd: RelayCmd.peerPathInfo,
+    body,
+  });
 }
 
 /** 拼一个认证回包（带会话时间戳）。 */
@@ -532,6 +572,176 @@ describe('通话会话状态机', () => {
     const { session } = makeSession();
     await session.start();
     await expect(session.start()).rejects.toThrow(/通话已在/);
+  });
+});
+
+// ─────────────────────── 媒体目标不能被中继顶掉 ───────────────────────
+
+describe('媒体目标（P2P 直连 vs 中继）', () => {
+  /** 接通到 connected 并让 P2P 建立（对端从指定端点回过包）。 */
+  async function connectWithP2P(peer: { address: string; port: number }) {
+    const ctx = makeSession();
+    await ctx.session.start();
+    ctx.transport.deliver(authRspPacket());
+    ctx.transport.deliver(notifyPacket(CallEvent.entered));
+    ctx.transport.deliver(notifyPacket(CallEvent.dataChange));
+    // 对端从它的 P2P 端点回一个握手应答 → 直连确认
+    ctx.transport.deliverFrom(
+      buildPeerProbe({
+        roomId: 777n,
+        cmd: PeerProbeCmd.probeReply,
+        uinAbout: 2863253201,
+        seq: 1,
+        otherUin: 1707889225,
+        token: 1234,
+        clock: 1,
+        peerClock: 2,
+      }),
+      peer,
+    );
+    return ctx;
+  }
+
+  /** 取「实际带媒体载荷（0x5b）」的发送目标集合。 */
+  function mediaTargets(transport: FakeTransport): Set<string> {
+    return new Set(
+      transport.sent.filter((s) => s.data[0] === AUDIO_STX).map((s) => `${s.address}:${s.port}`),
+    );
+  }
+
+  it('中继下发 cmd=3 不得把媒体从直连改到中继', async () => {
+    const peer = { address: '240e:399:f9d:3f10::1000', port: 58879 };
+    const { session, transport, timers } = await connectWithP2P(peer);
+
+    // 直连已建立，媒体只该发对端
+    timers.advance(100);
+    const before = mediaTargets(transport);
+    expect(before.has(`${peer.address}:${peer.port}`)).toBe(true);
+
+    // 中继每秒下发一次对端路径（真实抓包里的节奏）
+    for (let i = 0; i < 5; i++) {
+      transport.deliverFrom(
+        relayPeerPathPacket({
+          address: '110.184.179.252',
+          primaryPort: 18149,
+          directPort: 18148,
+        }),
+        { address: '183.47.105.248', port: 18149 },
+      );
+      timers.advance(1000);
+    }
+
+    // 降级证据：任何一帧媒体都不该发到中继
+    const after = mediaTargets(transport);
+    expect(after.has('110.184.179.252:18148')).toBe(false);
+    expect(after.has(`${peer.address}:${peer.port}`)).toBe(true);
+    expect(session.snapshot().state).toBe('connected');
+  });
+
+  it('中继下发的中继地址即使有回程也不能转正', async () => {
+    const { session, transport, timers } = makeSession();
+    await session.start();
+    transport.deliver(authRspPacket());
+    transport.deliver(notifyPacket(CallEvent.entered));
+    transport.deliver(notifyPacket(CallEvent.dataChange));
+
+    const relay = { address: '110.184.179.252', port: 18148 };
+    // 中继下发自己作为「对端路径」
+    transport.deliverFrom(
+      relayPeerPathPacket({
+        address: relay.address,
+        primaryPort: 18149,
+        directPort: relay.port,
+      }),
+      { address: '183.47.105.248', port: 18149 },
+    );
+    timers.advance(500);
+    // 候选还不能当媒体目标
+    expect(mediaTargets(transport).has(`${relay.address}:${relay.port}`)).toBe(false);
+
+    // 中继自己从这个地址回一个 P2P 应答 —— 它来自中继 IP，不能当对端直连证据
+    transport.deliverFrom(
+      buildPeerProbe({
+        roomId: 777n,
+        cmd: PeerProbeCmd.probeReply,
+        uinAbout: 2863253201,
+        seq: 2,
+        otherUin: 1707889225,
+        token: 1234,
+        clock: 3,
+        peerClock: 4,
+      }),
+      relay,
+    );
+    timers.advance(100);
+    expect(session.snapshot().state).toBe('connected');
+    // 仍然不能转正：它是中继，不是对端
+    expect(mediaTargets(transport).has(`${relay.address}:${relay.port}`)).toBe(false);
+  });
+
+  it('看门狗回落后残留的候选不会继续发探测', async () => {
+    const peer = { address: '240e:399:f9d:3f10::1000', port: 58879 };
+    const { transport, timers } = await connectWithP2P(peer);
+
+    transport.deliverFrom(
+      relayPeerPathPacket({
+        address: '110.184.179.252',
+        primaryPort: 18149,
+        directPort: 18148,
+      }),
+      { address: '183.47.105.248', port: 18149 },
+    );
+    // 对端停止发包 → 直连静默超时 → 回落中继
+    timers.advance(5000);
+
+    // 只看 P2P 通道（`0x02` 里还混着中继保活，按 [4] 区分）。
+    const p2pProbes = (t: FakeTransport) =>
+      t.sent.filter((s) => s.data[0] === 0x02 && s.data[4] === RELAY_CHANNEL.peer).length;
+    const probesBefore = p2pProbes(transport);
+    timers.advance(10_000);
+    // 候选已清空，探测循环没有可打的目标，不该再增加
+    expect(p2pProbes(transport)).toBe(probesBefore);
+  });
+
+  it('中继换端口后回应答，也不能把自己变成媒体目标', async () => {
+    const peer = { address: '240e:399:f9d:3f10::1000', port: 58879 };
+    const { transport, timers } = await connectWithP2P(peer);
+
+    // 让直连先静默下来，探测循环才有机会去打候选（否则它一直打 peerDirect）。
+    timers.advance(5000);
+
+    // 中继从一个**不在 relays 列表里**的端口下发路径（实测中继会换端口：
+    // 19209 → 0 → 又变），于是 cmd=3 里带出的候选端点绕过「按地址+端口精确匹配」
+    // 的排除逻辑。
+    const relay = { address: '110.184.179.252', port: 19999 };
+    transport.deliverFrom(
+      relayPeerPathPacket({
+        address: relay.address,
+        primaryPort: 20000,
+        directPort: relay.port,
+      }),
+      { address: '183.47.105.248', port: 20000 },
+    );
+    // 中继自己回一条 P2P 应答 —— 这条来自中继，不能被当成对端直连证据。
+    transport.deliverFrom(
+      buildPeerProbe({
+        roomId: 777n,
+        cmd: PeerProbeCmd.probeReply,
+        uinAbout: 2863253201,
+        seq: 9,
+        otherUin: 1707889225,
+        token: 1234,
+        clock: 5,
+        peerClock: 6,
+      }),
+      relay,
+    );
+    timers.advance(300);
+
+    // 媒体仍然只该发真的对端
+    const targets = mediaTargets(transport);
+    expect(targets.has(`${relay.address}:${relay.port}`)).toBe(false);
+    expect(targets.has(`${peer.address}:${peer.port}`)).toBe(true);
   });
 });
 

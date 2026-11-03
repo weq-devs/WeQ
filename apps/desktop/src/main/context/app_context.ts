@@ -24,7 +24,7 @@ import { initBackupContext, resetBackupContextForRecovery } from './backup_conte
 import { clearFullMode, fullModeAllowed } from './full_mode';
 import { resolveBackupLocation, backupMediaRoots } from '../static_backup';
 import { VipBadgeService } from '../vip_badge';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { AnnualReportIndexDb, withDatabasePriority, waitForDatabaseQuiet } from '@weq/db';
@@ -140,9 +140,13 @@ import {
   MessageSendService,
   FlashTransferFilesService,
   PeerStatsService,
+  ChatQqShowService,
+  ShowEmojiCatalog,
+  CustomEmojiRecentService,
   ChatImageOcrService,
   InteractionService,
   GroupModerationService,
+  GroupGiftService,
   LocationShareService,
   AccountWriteService,
   DbWatchService,
@@ -858,6 +862,12 @@ export interface AccountServices {
   roamingBackfill: RoamingBackfillManager;
   /** 他人的个性主页统计（QQ 等级 + 资料卡累计获赞），需在线 QQ 发包。 */
   peerStats: PeerStatsService;
+  /** 聊天 QQ 秀形象 URL 的本地映射（个性主页共用，按设置天数过期）。 */
+  qqShow: ChatQqShowService;
+  /** QQ 秀 / 互动表情目录（`resources/qqshow/show_emoji.json` 的离线快照）。 */
+  showEmojiCatalog: ShowEmojiCatalog;
+  /** 自定义表情「最近上传」索引（按账号落盘，只存元数据不存字节）。 */
+  customEmojiRecent: CustomEmojiRecentService;
   /** 聊天图片文字识别（OIDB 0xe07_0，需在线 QQ 发包取 rkey）。 */
   chatImageOcr: ChatImageOcrService;
   /** QQ 闪传分享链接（OIDB 0x93d3_1，需在线 QQ 发包）。 */
@@ -868,6 +878,8 @@ export interface AccountServices {
   interaction: InteractionService;
   /** 会话治理：撤回 + 群管理（改群名片 / 踢人 / 禁言 / 设撤管理员，需在线 QQ 发包）。 */
   groupModeration: GroupModerationService;
+  /** 群礼物面板（只读，需在线 QQ 发包）。 */
+  groupGift: GroupGiftService;
   /** 位置共享（QQLBSShareSvc 发起 / 上报 / 查询，需在线 QQ 发包）。 */
   locationShare: LocationShareService;
   accountWrite: AccountWriteService;
@@ -1135,6 +1147,15 @@ export function initAppContext(fileRoot?: string): AppContext {
   // 词云 / 常用语的分词优先用 QQ 自带结巴词典，读不到时用随包的
   // resources/jieba（进程级单例）。账号无关、非关键路径，fire-and-forget 即可。
   void warmJiebaDict([platform.jiebaDictDir(), resolveResource('jieba')]);
+  // QQ 秀表情目录：只读快照，进程内缓存。文件缺失时返回 null，由 ShowEmojiCatalog
+  // 在真正被调用时明确报错（不在这里吞掉，否则 UI 只会显示「没有表情」）。
+  const createShowEmojiCatalog = () =>
+    new ShowEmojiCatalog({
+      readFile: () => {
+        const path = resolveResource('qqshow', 'show_emoji.json');
+        return path ? readFileSync(path, 'utf-8') : null;
+      },
+    });
   readDataRootOverride = () => userConfig.read().tencentFilesRootOverride ?? null;
   readUidFromConfig = (uin: string): string | null => {
     for (const rec of userConfig.listAccountConfigs()) {
@@ -1983,6 +2004,30 @@ export function initAppContext(fileRoot?: string): AppContext {
         gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
+        qqShow: new ChatQqShowService({
+          storePath: join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'qqshow.json',
+          ),
+          ttlDays: () => userConfig.getSettings().qqShowCacheDays,
+          fetchShow: (uin) =>
+            new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid).getQqShow(
+              uin,
+            ),
+        }),
+        showEmojiCatalog: createShowEmojiCatalog(),
+        customEmojiRecent: new CustomEmojiRecentService({
+          storePath: join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'custom_emoji_recent.json',
+          ),
+        }),
         chatImageOcr: new ChatImageOcrService(platform.native.ntHelper, session, resolveOnlinePid),
         flashTransfer: new FlashTransferService(
           platform.native.ntHelper,
@@ -2014,6 +2059,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, resolveOnlinePid),
+        groupGift: new GroupGiftService(platform.native.ntHelper, resolveOnlinePid),
         locationShare: new LocationShareService(platform.native.ntHelper, resolveOnlinePid),
         accountWrite: new AccountWriteService(
           platform.native.ntHelper,
@@ -2730,6 +2776,28 @@ export function initAppContext(fileRoot?: string): AppContext {
         gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
+        qqShow: new ChatQqShowService({
+          storePath: join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'qqshow.json',
+          ),
+          ttlDays: () => userConfig.getSettings().qqShowCacheDays,
+          fetchShow: (uin) =>
+            new PeerStatsService(platform.native.ntHelper, session, livePid).getQqShow(uin),
+        }),
+        showEmojiCatalog: createShowEmojiCatalog(),
+        customEmojiRecent: new CustomEmojiRecentService({
+          storePath: join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'custom_emoji_recent.json',
+          ),
+        }),
         chatImageOcr: new ChatImageOcrService(platform.native.ntHelper, session, livePid),
         flashTransfer: new FlashTransferService(platform.native.ntHelper, session, livePid),
         messageSend: new MessageSendService(
@@ -2756,6 +2824,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, livePid),
+        groupGift: new GroupGiftService(platform.native.ntHelper, livePid),
         locationShare: new LocationShareService(platform.native.ntHelper, livePid),
         accountWrite: new AccountWriteService(
           platform.native.ntHelper,

@@ -1,4 +1,4 @@
-/** 杂项：OCR / 解密密钥 / clientKey / rkey / pskey / 红包皮肤 / Ark / AI 语音 / 群报名。 */
+/** 杂项：OCR / 解密密钥 / clientKey / rkey / pskey / 红包皮肤 / Ark / AI 语音 / 群报名 / 群礼物面板。 */
 export {
   OcrImage,
   OCR_CLIENT_TAG,
@@ -61,3 +61,17 @@ export type {
   SendGroupSignupParams,
   SendGroupSignupImage,
 } from './send-group-signup';
+export {
+  GroupGiftPanel,
+  GROUP_GIFT_PANEL_CMD,
+  GROUP_GIFT_SCENE_ID,
+  GROUP_GIFT_CLIENT_VERSION,
+} from './group-gift-panel';
+export type {
+  GroupGiftPanelParams,
+  GroupGiftPanelResult,
+  GroupGiftTab,
+  GroupGiftItem,
+  GroupGiftImage,
+  GroupGiftCorner,
+} from './group-gift-panel';

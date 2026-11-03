@@ -40,7 +40,47 @@
  * 变化的时间戳。真正的帧时间戳在 sub-header 里。
  */
 
+import { rsEncode } from './fec';
 import { AUDIO_HEADER_LEN, AUDIO_STX, u32be, writeU16be, writeU32be } from './gcs';
+
+/**
+ * 视频关键帧的 RS-FEC 参数：**2 个数据分片 + 2 个校验分片**。
+ *
+ * 从 QQ 本体抓包逆出来的（2026-11-02，`qq_udp.pcapng` 帧 257 与 QQ 主叫那次
+ * 通话）：关键帧一律 `total_pkg=2 / total_fec=2`，实际发 4 片，4 片的载荷都
+ * 等长（496 B / 212 B）。用项目里 `rsEncode(chunks, N, 2)` 复算，2 条校验片
+ * **逐字节吻合**。
+ *
+ * ⚠️ 2026-11-02 晚更正：早先这里写的是 3，来自把某帧的 `total_pkg=3` 当成了
+ * 关键帧。实际上 QQ 的关键帧是 **2 片**（`total=2`），3 片那批是普通帧。
+ * 参数只影响 `total_fec` 的取值（`VIDEO_FEC_PARITY`）与「数据片数多少才算
+ * 关键帧形态」的判断，见 {@link buildVideoPackets} 的 `useFec`。
+ *
+ * ## 全 I 帧模式下的开销
+ *
+ * 2026-11-02 起摄像头默认**每帧都编成关键帧**（`allIntra`），于是每帧都会带
+ * 这 2 条校验片。实测 320×184@30fps 编码约 505 kbps、单帧约 2.1 KB，正好切成
+ * 2 数据片，加 FEC 后 4 片 —— 与 QQ 自己的关键帧形态（2 数据 + 2 校验）完全
+ * 一致，线缆码率约 1 Mbps，视频通话可以接受。
+ *
+ * 数据片数超过 {@link VIDEO_FEC_MAX_DATA} 时不加 FEC（屏幕共享 960×540 的帧
+ * 约 9 片，就落在这条路径上）。
+ */
+export const VIDEO_FEC_DATA = 2;
+export const VIDEO_FEC_PARITY = 2;
+
+/**
+ * 带 FEC 时允许的最大数据片数。
+ *
+ * 权威客户端的 320×184 关键帧正好 2 片，落在 `VIDEO_FEC_DATA` 上。WeQ 的
+ * 分辨率/码率更高时关键帧会切出更多片，此时仍然**必须**带 FEC —— 不带的话
+ * 对端看到「多分片 I 帧 + `total_fec=0`」会整帧丢弃（2026-11-02 fix 通实测：
+ * QQ 对 WeQ 的 137 帧零 ACK，画面完全不动）。
+ *
+ * 上限取 `VIDEO_FEC_DATA + VIDEO_FEC_PARITY`（RS 校验片数不能超过数据片数，
+ * 否则 Cauchy 矩阵构造无意义），实际发片数 = 数据片数 + 2。
+ */
+const VIDEO_FEC_MAX_DATA = 8;
 
 // ═══════════════════════════ 常量 ═══════════════════════════
 
@@ -579,6 +619,23 @@ export function videoPacketCount(frameBytes: number, maxPayload = 1200): number 
  * `frameIndex` 是 16 位帧序号，包头里的 `(gidx, fidx)` 由它拆出来
  * （{@link videoFrameHeader}）—— 只写 `gidx` 会在第 256 帧回绕、帧序号倒退。
  * 调用方可以直接给 `gidx` / `fidx` 覆盖，供黄金样本比对用。
+ *
+ * ## RS-FEC（关键帧）
+ *
+ * `fec: true` 时按 RS(4,2) 给数据分片加 2 条校验片：数据片补齐到等长，
+ * 校验片用 {@link rsEncode} 以 `rows = FEC_PARITY_ROWS - 1 = 2`、
+ * `cols = 数据片数` 生成。`total_pkg` 仍是**数据片数**，`total_fec` 写 2，
+ * 实际发 `数据片数 + 2` 片。
+ *
+ * 权威客户端的关键帧是 **2 数据片 + 2 校验片**（2026-11-02 抓包）。WeQ 的
+ * 关键帧更大、会切出更多片，这时**仍然加 FEC**（上限 {@link VIDEO_FEC_MAX_DATA}）：
+ * 2026-11-02 的 fix 通就是因为「8 片 I 帧 + `total_fec=0`」被 QQ 整帧丢弃，
+ * 表现为画面一动不动。数据片数超过上限时不加 FEC（RS 校验片数不能超过数据
+ * 片数，且继续加大分片只会让丢一片就整帧报废）。
+ *
+ * 校验矩阵的参数是从 QQ 本体抓包里逆出来的：用项目里的 Cauchy 矩阵复算，
+ * 2 条校验片**逐字节吻合**。语义还没完全确认前不要改 rows —— 改了就对不上
+ * 对端的解码矩阵。
  */
 export function buildVideoPackets(params: {
   frameData: Uint8Array;
@@ -595,6 +652,8 @@ export function buildVideoPackets(params: {
   maxPayload?: number;
   /** 覆盖单片的 tick（调试用；默认所有分片相同）。 */
   tickForPacket?: (index: number) => number;
+  /** 给数据分片追加 RS(5,3) 校验片（关键帧用）。数据片数不足 3 时忽略。 */
+  fec?: boolean;
 }): Uint8Array[] {
   const header = videoFrameHeader(params.frameIndex ?? 0);
   const gidx = params.gidx ?? header.gidx;
@@ -604,17 +663,50 @@ export function buildVideoPackets(params: {
   // 等分：末片自然短。真实客户端的末片不带 0 填充（填充语义未经证实，不补）。
   const chunkSize = Math.max(1, Math.ceil(params.frameData.length / totalPkg));
 
-  const packets: Uint8Array[] = [];
+  // 关键帧的分片带校验片。权威客户端的两档实测：`total=1` 的关键帧 `tfec=0`
+  // （单包整帧没有重组问题，不需要纠错），`total=2` 的 `tfec=2`。
+  //
+  // 因此从 2 片起都加 —— 包括 WeQ 分辨率更高时切出的 3~8 片。不加的话对端会把
+  // 「多分片 I 帧 + total_fec=0」当成不可解码整帧丢掉（2026-11-02 fix 通实测：
+  // QQ 对 WeQ 的 137 帧零 ACK，画面完全不动）。上限按 RS 的约束给
+  // （校验片数 ≤ 数据片数）。
+  const useFec =
+    params.fec === true && totalPkg >= VIDEO_FEC_DATA && totalPkg <= VIDEO_FEC_MAX_DATA;
+
+  const chunks: Uint8Array[] = [];
   for (let i = 0; i < totalPkg; i++) {
     const start = i * chunkSize;
     const end = Math.min(start + chunkSize, params.frameData.length);
     const chunk = params.frameData.subarray(start, end);
+    // 带 FEC 时**数据片也要补齐到等长**：QQ 抓包里 5 片全是 496 B，末片没有
+    // 短片（不加 FEC 时仍是末片自然短，那是实测的普通帧形态）。
+    if (useFec && chunk.length < chunkSize) {
+      const padded = new Uint8Array(chunkSize);
+      padded.set(chunk);
+      chunks.push(padded);
+    } else {
+      chunks.push(chunk);
+    }
+  }
+  const parity = useFec ? rsEncode(chunks, chunkSize, VIDEO_FEC_PARITY) : [];
+  const totalFec = parity.length;
+
+  const packets: Uint8Array[] = [];
+  // 先发数据片（`pkg_idx = 0..totalPkg-1`），再发校验片（接在后面递增）。
+  for (let i = 0; i < chunks.length + parity.length; i++) {
+    const isParity = i >= chunks.length;
+    // 校验片按 0 补齐到 `chunkSize`（实测末片就是等长的 496 B）。
+    const chunk = isParity ? parity[i - chunks.length]! : chunks[i]!;
     const bodyLen = VIDEO_RTP_HEADER_LEN + VIDEO_EXT_LEN + chunk.length;
     const out = new Uint8Array(AUDIO_HEADER_LEN + bodyLen);
 
     out[0] = AUDIO_STX;
     writeU16be(out, 1, out.length);
     out[3] = subType;
+    // `[4]`：非关键帧 `0x07`、关键帧 `0x00`。两通独立抓包（2026-11-02 第 1/5 通）
+    // 上这个规律都成立：QQ 的 489 个非关键帧视频包全是 `0x07`，只有 1 个关键帧是
+    // `0x00`。WeQ 此前恒写 `0x00`，是最显眼的结构差异。音频包恒 `0x00`（不动）。
+    out[4] = params.fec === true ? 0x00 : 0x07;
     writeU32be(out, 5, (params.seq + i) >>> 0);
     writeU32be(out, 9, params.sessionTs);
     writeU32be(out, 13, params.tickForPacket ? params.tickForPacket(i) : params.tick >>> 0);
@@ -622,7 +714,7 @@ export function buildVideoPackets(params: {
     // RTP 头。`ext_fec_byte=0x0b` 是实测值：无跨帧 FEC、1 条 type=3 扩展。
     out[AUDIO_HEADER_LEN] = i;
     out[AUDIO_HEADER_LEN + 1] = totalPkg;
-    out[AUDIO_HEADER_LEN + 2] = 0;
+    out[AUDIO_HEADER_LEN + 2] = totalFec;
     out[AUDIO_HEADER_LEN + 3] = 0x0b;
     out[AUDIO_HEADER_LEN + 4] = gidx & 0xff;
     out[AUDIO_HEADER_LEN + 5] = fidx & 0xff;
@@ -645,11 +737,15 @@ export function buildVideoPackets(params: {
  *
  * | 方向 | `[2]` | `[8:12]` | `[12:16]` |
  * | --- | --- | --- | --- |
- * | c2s | `0x00` | 帧 PTS（相对会话起点 ms） | 会话基准 tick（恒定） |
+ * | c2s | `0x00` | 帧 PTS（相对会话起点 ms） | 对端最新收到的 PTS |
  * | s2c | `0x03` | 发送方 tick（每帧变） | 0 |
  *
  * 这个字节不能照抄对端那一侧的值 —— 早期实现恒写 `0x03`，等于把 s2c 的格式
  * 用在了自己的上行里。
+ *
+ * ⚠️ 2026-11-02 的 Linux ↔ Linux 通话里**双方上行都是 `0x00`**，所以它可能其实是
+ * **终端平台类型**（Windows=`0x03`、Linux=`0x00`）而非方向。没有手机/Windows
+ * 上行的抓包，暂不下结论；对 Linux 对端按方向写是正确的。
  */
 export const VIDEO_SUBHEADER_DIRECTION = { c2s: 0x00, s2c: 0x03 } as const;
 
@@ -664,12 +760,12 @@ export const VIDEO_SUBHEADER_LEN = 20;
  * ```text
  * [0]      20                  sub-header 长度（自己）
  * [1]      帧序号 & 0xff
- * [2]      c2s=0x00 / s2c=0x03 方向标识
+ * [2]      c2s=0x00 / s2c=0x03 方向标识（可能是平台类型，见上）
  * [3]      0x06                常量（**首帧也是 06**，早期「首帧 03」是误判）
  * [4:6]    00 00               常量
  * [6:8]    帧质量 + 码率档     = GetVideoFrameQuality() 的 16 位返回值
  * [8:12]   帧时间戳（见上表，随方向变）
- * [12:16]  会话基准 tick（c2s）/ 0（s2c）
+ * [12:16]  对端最新 PTS（c2s）/ 0（s2c）
  * [16:20]  未还原（实测 0–8 的小整数，**与分片数无关**）
  * ```
  *
@@ -696,13 +792,12 @@ export function buildVideoSubHeader(params: {
   /** `[8:12]`：c2s 填帧 PTS（ms），s2c 填发送时的 tick。 */
   timestampMs: number;
   /**
-   * `[12:16]`：**对端视频流的时间基准**（s2c 恒 0）。
+   * `[12:16]`：**对端最新一帧的 PTS**（s2c 恒 0）。
    *
-   * 实测（2026-10-26 抓包）：对端还没开始发视频时填 0；收到对端首个视频帧后，
-   * 填**该帧 `[8:12]` 的值**（本例 `1952894717`），之后整通不变。
+   * 实测（2026-11-02 逐帧比对）：每帧都重写为「我最新收到你那帧的 `[8:12]`」，
+   * 不是填一次就不变 —— 2026-10-26 的「整通不变」结论是错的。
    *
-   * 语义是「我这边在跟对端的哪个时间基准对齐」，不是本端的会话 tick —— 早期
-   * 填 `mediaBaseTick`（本端接通的 tick）是错的。
+   * 语义是「我对齐到你哪个时间点了」，作为对端的播放基准。对端没发视频时填 0。
    */
   peerVideoBase?: number;
   /** `[6:8]`：`{ hi, lo }` 分别写进 `[6]` 和 `[7]`。缺省时填 0。 */

@@ -730,6 +730,8 @@ async function uploadLevel(
 
 export namespace SendLongMsg {
   export const cmd = SSO_SEND_LONG_MSG_CMD;
+  /** 真机实测会签名（scripts/probe-sign.ts）。 */
+  export const needSign = true;
   export const reqSchema = SEND_LONG_MSG_REQ;
   export const respSchema = SEND_LONG_MSG_RESP;
 

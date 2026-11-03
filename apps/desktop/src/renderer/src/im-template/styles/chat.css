@@ -681,6 +681,44 @@ html[data-theme='dark'] .weq-chat-backdrop {
   -webkit-user-drag: none;
 }
 
+/*
+ * 聊天头像的 QQ 秀全身像（设置 → 自定义消息显示 → 聊天 QQ 秀替换头像）。
+ *
+ * 外层保持头像的 36×36，行内布局不因开关而跳动；形象比头像略宽（44px，约 1.2 倍）
+ * 更接近 QQ 里的存在感，高度按原图比例自然向上伸展（绝对定位，不撑高消息行）。透明底，
+ * 深浅模式都不需要额外底色；阴影只为让浅底上的白色服饰有轮廓。
+ */
+.weq-qqshow-avatar {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  overflow: visible;
+  z-index: 1;
+}
+
+.weq-qqshow-avatar img {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 44px;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  transform: translateX(-50%);
+  object-fit: contain;
+  object-position: bottom center;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--weq-fg-primary) 16%, transparent));
+}
+
+html[data-theme='dark'] .weq-qqshow-avatar img {
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.55));
+}
+
 .message-time-divider {
   align-self: center;
   display: inline-flex;
@@ -976,6 +1014,14 @@ html[data-theme='dark'] .weq-chat-backdrop {
 /* 引用预览里的商城表情只作缩略图：让 wrap 不拦点击（点整条跳原消息），
    并隐藏商城角标——56px 缩略图里再叠角标会显得杂乱。 */
 .qq-reply-preview-media .qq-mface-wrap {
+  pointer-events: none;
+}
+
+/* 闪照封面在引用里同样缩成小方块：尺寸来自组件内联样式，这里压住它。 */
+.qq-reply-preview-media .qq-flash-cover {
+  width: 56px !important;
+  height: 56px !important;
+  border-radius: 4px;
   pointer-events: none;
 }
 

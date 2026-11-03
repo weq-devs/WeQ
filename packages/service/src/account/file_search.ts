@@ -334,7 +334,7 @@ export class FileSearchService {
       psd: 'ps.png',
       rar: 'rar.png',
       txt: 'txt.png',
-      md: 'txt.png',
+      md: 'markdown.png',
       mp4: 'video.png',
       mkv: 'video.png',
       avi: 'video.png',

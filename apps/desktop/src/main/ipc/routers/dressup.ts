@@ -563,18 +563,27 @@ export const dressupRouter = router({
     }),
 
   /**
+   * 聊天消息里出现过的成员的 QQ 秀 URL（uin → 形象）。
+   *
+   * 本地映射命中时不联网，直接返回；未命中才按并发 3 去查 QQ。离线时返回已缓存的
+   * 记录（过期记录也保留，图片 URL 自带版本号），完全没有的 uin 不出现在结果里。
+   */
+  chatQqShows: procedure
+    .input(z.object({ uins: z.array(z.string().regex(/^\d{5,20}$/)).max(120) }))
+    .query(({ input }) => requireServices().qqShow.resolve(input.uins)),
+
+  /**
    * 他人的 QQ 秀形象（0xFE1_3，透明全身像 URL）。
    *
-   * 与 peerStats 同属「个性主页」数据，需要在线实例发包；失败统一转成
-   * 「需要在线实例」的提示，前端静默回退到头像+挂件即可。
+   * 与聊天头像共用同一份本地映射：有效期内直接读缓存（离线也能显示个性主页），
+   * 过期才重新发包；查询失败时回退到过期记录，失败提示只在前端静默处理。
    */
   peerQqShow: procedure
     .input(z.object({ uin: z.string().regex(/^\d{5,}$/) }))
     .query(async ({ input }) => {
-      requireAttachEnabled();
       const services = requireServices();
       try {
-        return await services.peerStats.getQqShow(input.uin);
+        return await services.qqShow.resolveOne(input.uin);
       } catch {
         throw new Error(PEER_QQ_SHOW_HINT);
       }

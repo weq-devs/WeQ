@@ -65,7 +65,8 @@ it('收藏详情使用 UIN 信封，保持原顺序并且不发送前置移动�
     FetchCustomFaceDetail.subCommand,
   ]);
   expect(call[4]).toBe(true);
-  expect(call[5]).toBe(true);
+  // 0x902e_1：真机实测 QQ 不签名（scripts/probe-sign.ts）。
+  expect(call[5]).toBe(false);
   expect(decode(FetchCustomFaceDetail.reqSchema, call[3] as Uint8Array)).toMatchObject({
     opType: 2,
     emojis,

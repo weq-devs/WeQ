@@ -131,6 +131,7 @@ export type {
   CallAudioListener,
   CallVideoListener,
   CallVideoEncoder,
+  CallVideoEncoding,
   VideoFramePayload,
   VideoStreamInfo,
   UdpTransport,
@@ -777,6 +778,26 @@ export type {
   QzonePublicJson,
   QzonePublicUser,
 } from './account/web';
+export type {
+  GiftMallGift,
+  GiftMallVipInfo,
+  GiftMallTab,
+  GiftMallSubTab,
+  GiftMallBuyItemOptions,
+  GiftMallBuyItemRequest,
+  GiftMallBuyItemResponse,
+  GiftMallGiftListOptions,
+  GiftMallGiftListResponse,
+  GiftMallAIDiscStatusResponse,
+  GiftMallHomePageExtraResponse,
+  GiftMallSearchOptions,
+  GiftMallSearchResponse,
+  GiftMallSingleGiftInfoResponse,
+  GiftMallVipInfoResponse,
+  GiftMallWallItem,
+  GiftMallWallOptions,
+  GiftMallWallResponse,
+} from '@weq/protocol';
 
 // ---- account protocol services (oidb/trpc packets) ----
 export { GapHistoryService } from './account/gap_history';
@@ -812,6 +833,39 @@ export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './acco
 export { prepareFavoriteEmojiElements } from './account/favorite_emoji_send';
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
+export {
+  ChatQqShowService,
+  DEFAULT_QQ_SHOW_CACHE_DAYS,
+  QQ_SHOW_CACHE_MAX_DAYS,
+  QQ_SHOW_CACHE_MIN_DAYS,
+  QQ_SHOW_FETCH_CONCURRENCY,
+} from './account/qq_show';
+export type { ChatQqShowOptions, QqShowResolved } from './account/qq_show';
+export {
+  ShowEmojiCatalog,
+  buildShowEmojiReserve,
+  findShowEmojiPack,
+  groupShowEmojiPacks,
+  parseShowEmojiCatalog,
+  SHOW_EMOJI_TYPE,
+} from './account/show_emoji';
+export type {
+  ShowEmojiCatalogFile,
+  ShowEmojiCatalogOptions,
+  ShowEmojiFrame,
+  ShowEmojiPack,
+  ShowEmojiReserve,
+  ShowEmojiVariant,
+} from './account/show_emoji';
+export {
+  CustomEmojiRecentService,
+  CUSTOM_EMOJI_RECENT_MAX,
+  CUSTOM_EMOJI_RECENT_TTL_DAYS,
+} from './account/custom_emoji_recent';
+export type {
+  CustomEmojiRecentEntry,
+  CustomEmojiRecentOptions,
+} from './account/custom_emoji_recent';
 export { ChatImageOcrService } from './account/ocr_image';
 export type { ChatImageOcrParams, ChatImageOcrResult } from './account/ocr_image';
 export { InteractionService } from './account/interaction';
@@ -821,6 +875,7 @@ export type {
   SendGroupJoinRequestServiceParams,
 } from './account/interaction';
 export { GroupModerationService } from './account/group_moderation';
+export { GroupGiftService } from './account/group_gift';
 export { LocationShareService } from './account/lbs_share';
 export type {
   LocationShareTarget,

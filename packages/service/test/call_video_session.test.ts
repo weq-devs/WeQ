@@ -22,6 +22,7 @@ import {
 import {
   AUDIO_HEADER_LEN,
   AUDIO_STX,
+  AudioSubType,
   CallEvent,
   GCS_STX,
   GcsBodyType,
@@ -33,6 +34,8 @@ import {
   VIDEO_CTRL_SUB_TYPE,
   VIDEO_EXT_LEN,
   VIDEO_EXT_TYPE,
+  VIDEO_FEC_DATA,
+  VIDEO_FEC_PARITY,
   VideoFrameAssembler,
   VideoSubType,
   buildGcsHead,
@@ -203,13 +206,16 @@ class FakeCodec implements CallAudioCodec {
 class FakeVideoEncoder implements CallVideoEncoder {
   closed = false;
   framesLeft: number;
-  constructor(frames = 1) {
+  /** 每帧返回的 Annex B 裸流；缺省是一帧普通帧（NAL 0x40 → type 32 VPS）。 */
+  frame?: Uint8Array;
+  constructor(frames = 1, frame?: Uint8Array) {
     this.framesLeft = frames;
+    this.frame = frame;
   }
   async next(): Promise<Uint8Array | null> {
     if (this.framesLeft <= 0) return null;
     this.framesLeft--;
-    return new Uint8Array([0, 0, 0, 1, 0x40, 0x01, 0x0c, 0x01]);
+    return this.frame ?? new Uint8Array([0, 0, 0, 1, 0x40, 0x01, 0x0c, 0x01]);
   }
   info(): VideoStreamInfo {
     return { width: 640, height: 360, profile: 1, codec: 'hevc' };
@@ -470,6 +476,74 @@ describe('接收视频', () => {
     // 音频计数不该被视频包污染。
     expect(ctx.session.snapshot().receivedFrames).toBe(before);
     expect(ctx.session.snapshot().receivedVideoFrames).toBe(1);
+  });
+
+  it('收到对端视频帧回一对 subType=4（限流在开头若干帧）', async () => {
+    // 2026-11-02 四份抓包实测：权威客户端**不是每帧都回** —— QQ 主叫那次
+    // 收 292 帧只回 4 个 st4（≈1.4%），dev 通里 QQ 只覆盖前 27 帧。
+    //
+    // 收到对端视频包会让媒体路径进 `probing`（服务端 + 对端各发一份），所以
+    // 这里按「每个目标各一对」来断言，而不是绝对条数。
+    const ctx = makeSession();
+    await connect(ctx);
+
+    const whole = new Uint8Array(26);
+    whole[0] = 20;
+    whole.set([0, 0, 0, 1, 0x40, 0x01], 20);
+
+    /** 每个目标地址各收到几份。 */
+    const perTarget = (): Map<string, number> => {
+      const out = new Map<string, number>();
+      for (const s of ctx.transport.sent) {
+        if (s.data[0] !== AUDIO_STX || s.data[3] !== VIDEO_CTRL_SUB_TYPE) continue;
+        const key = `${s.address}:${s.port}`;
+        out.set(key, (out.get(key) ?? 0) + 1);
+      }
+      return out;
+    };
+
+    ctx.transport.reset();
+    ctx.transport.deliver(videoPacket({ gidx: 0, pkgIdx: 0, totalPkg: 1, chunk: whole }));
+    const first = perTarget();
+    expect(first.size).toBeGreaterThan(0);
+    for (const count of first.values()) expect(count).toBe(2); // 一对
+
+    ctx.transport.reset();
+    ctx.transport.deliver(videoPacket({ gidx: 1, pkgIdx: 0, totalPkg: 1, chunk: whole }));
+    const second = perTarget();
+    expect(second.size).toBeGreaterThan(0);
+    for (const count of second.values()) expect(count).toBe(2);
+
+    // 只回**完整帧**，不回分片：缺片的帧组不出来，不该 ACK。
+    ctx.transport.reset();
+    ctx.transport.deliver(videoPacket({ gidx: 2, pkgIdx: 0, totalPkg: 2, chunk: whole }));
+    expect(ctx.transport.media(VIDEO_CTRL_SUB_TYPE)).toHaveLength(0);
+  });
+
+  it('ACK 限流：窗口外的帧不再回 subType=4', async () => {
+    // 回归 2026-11-02 fix 通：WeQ 曾对 QQ 的每一帧都回一对，586 帧回了 1178 个
+    // st4（命中率 100%），在只有 3.8 fps 的上行上又加了 7.6 pkt/s。
+    // 权威客户端只有 ≈1.4%，集中在开头。
+    const ctx = makeSession();
+    await connect(ctx);
+
+    const whole = new Uint8Array(26);
+    whole[0] = 20;
+    whole.set([0, 0, 0, 1, 0x40, 0x01], 20);
+
+    // 前 30 帧每帧都该回。
+    for (let i = 0; i < 30; i++) {
+      ctx.transport.reset();
+      ctx.transport.deliver(videoPacket({ gidx: i, pkgIdx: 0, totalPkg: 1, chunk: whole }));
+      expect(ctx.transport.media(VIDEO_CTRL_SUB_TYPE).length).toBeGreaterThan(0);
+    }
+
+    // 第 31 帧起静默。
+    for (let i = 30; i < 40; i++) {
+      ctx.transport.reset();
+      ctx.transport.deliver(videoPacket({ gidx: i, pkgIdx: 0, totalPkg: 1, chunk: whole }));
+      expect(ctx.transport.media(VIDEO_CTRL_SUB_TYPE)).toHaveLength(0);
+    }
   });
 
   it('小画面 / 屏幕共享子类型也认', async () => {
@@ -744,6 +818,25 @@ describe('发送视频', () => {
     expect(seen[256]).toEqual({ gidx: 0, fidx: 2 });
   });
 
+  /**
+   * 外层 `[4]`：非关键帧 `0x07`、关键帧 `0x00`。
+   *
+   * 2026-11-02 第 5 通实测：QQ 的 489 个非关键帧视频包全是 `0x07`，只有 1 个
+   * 关键帧是 `0x00`；WeQ 此前全程写 `0x00`。音频包不受影响（恒 `0x00`）。
+   */
+  it('视频包外层 [4]：普通帧 0x07', async () => {
+    const ctx = makeSession({ media: 'video', videoEncoder: new FakeVideoEncoder(2) });
+    await connect(ctx);
+    ctx.session.setCamera(true);
+    await ctx.timers.advanceAsync(40);
+
+    const videos = ctx.transport.media(VideoSubType.max);
+    expect(videos.length).toBeGreaterThan(0);
+    for (const p of videos) expect(p[4]).toBe(0x07);
+    // 音频包仍恒 0x00，不能被带跑。
+    for (const p of ctx.transport.media(AudioSubType.audio)) expect(p[4]).toBe(0x00);
+  });
+
   it('sub-header 按 c2s 方向填（[2]=0x00、[3]=0x06、PTS 递增）', async () => {
     const encoder = new FakeVideoEncoder(2);
     const ctx = makeSession({ media: 'video', videoEncoder: encoder });
@@ -768,12 +861,12 @@ describe('发送视频', () => {
   });
 
   /**
-   * 回归：收到对端视频后，本端 `[12:16]` 要换成对端的时间基准。
+   * 回归：收到对端视频后，本端 `[12:16]` 要填对端最新一帧的 PTS。
    *
-   * 2026-10-26 抓包：对端首个视频帧的 `[8:12]` 是 1952894717，本端从下一帧起
-   * 就把它写进 `[12:16]`，之后整通不变。
+   * 2026-11-02 逐帧比对 QQ 上行：这个字段**每帧都跟着更新**（「我收到你发到哪个
+   * 时间点了」），不是填一次就不变 —— 2026-10-26 的「整通不变」结论是错的。
    */
-  it('收到对端视频后，[12:16] 换成对端时间基准', async () => {
+  it('收到对端视频后，[12:16] 换成对端最新 PTS', async () => {
     const encoder = new FakeVideoEncoder(100);
     const ctx = makeSession({ media: 'video', videoEncoder: encoder });
     await connect(ctx);
@@ -796,6 +889,37 @@ describe('发送视频', () => {
     expect(videos.length).toBeGreaterThan(0);
     const sh = parseVideoPacket(videos[0]!)!.payload;
     expect([...sh.subarray(12, 16)]).toEqual([0x74, 0x66, 0xce, 0xfd]);
+  });
+
+  it('[12:16] 逐帧跟随对端 PTS，不是填一次就不变', async () => {
+    const encoder = new FakeVideoEncoder(100);
+    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
+    await connect(ctx);
+    ctx.session.setCamera(true);
+
+    const deliverPeerFrame = (gidx: number, pts: number): void => {
+      const sub = new Uint8Array(20);
+      sub[0] = 20;
+      new DataView(sub.buffer).setUint32(8, pts);
+      const body = new Uint8Array([0, 0, 0, 1, 0x26, 0x01, 0xaf, 0xe0]);
+      const whole = new Uint8Array(sub.length + body.length);
+      whole.set(sub, 0);
+      whole.set(body, sub.length);
+      ctx.transport.deliver(videoPacket({ gidx, pkgIdx: 0, totalPkg: 1, chunk: whole }));
+    };
+
+    deliverPeerFrame(0, 707);
+    ctx.transport.reset();
+    await ctx.timers.advanceAsync(200);
+    let sh = parseVideoPacket(ctx.transport.media(VideoSubType.max)[0]!)!.payload;
+    expect(new DataView(sh.buffer, sh.byteOffset + 12, 4).getUint32(0)).toBe(707);
+
+    // 对端继续发，本端下一帧就该换成新值。
+    deliverPeerFrame(1, 926);
+    ctx.transport.reset();
+    await ctx.timers.advanceAsync(200);
+    sh = parseVideoPacket(ctx.transport.media(VideoSubType.max)[0]!)!.payload;
+    expect(new DataView(sh.buffer, sh.byteOffset + 12, 4).getUint32(0)).toBe(926);
   });
 
   it('关摄像头后不再发视频包', async () => {
@@ -1337,5 +1461,122 @@ describe('禁用 P2P 直连', () => {
     await timers.advanceAsync(20);
     // 既有行为：收到 bt=9 就进 probing，同时向对端发探测/媒体包。
     expect(transport.sent.filter((s) => s.address === peer).length).toBeGreaterThan(0);
+  });
+});
+
+describe('关键帧带 RS-FEC', () => {
+  /** 拼一帧足够切成 3 片的 Annex B：VPS + IRAP，总长 2900 字节。 */
+  function makeKeyframe(): Uint8Array {
+    const frame = new Uint8Array(2900);
+    // NAL 1：0x40 → (0x40>>1)&0x3f = 32 (VPS)
+    frame.set([0, 0, 0, 1, 0x40, 0x01], 0);
+    // NAL 2：0x26 → (0x26>>1)&0x3f = 19 (IDR)，关键帧判定就是靠它
+    frame.set([0, 0, 0, 1, 0x26, 0x01], 6);
+    for (let i = 12; i < frame.length; i++) frame[i] = i & 0xff;
+    return frame;
+  }
+
+  it('关键帧带 total_fec=2 的校验片（数据片数随帧长变）', async () => {
+    const timers = new FakeTimers();
+    const transport = new FakeTransport();
+    const session = new CallSession({
+      selfUin: '1707889225',
+      selfUid: 'u_self',
+      peerUin: '2863253201',
+      peerUid: 'u_peer',
+      media: 'video',
+      signaling: fakeSignaling(),
+      transport,
+      codec: new FakeCodec(),
+      videoEncoder: new FakeVideoEncoder(1, makeKeyframe()),
+      timers,
+    });
+    const ctx = { session, timers, transport };
+    await connect(ctx);
+    ctx.session.setCamera(true);
+    await timers.advanceAsync(3000);
+
+    // 只看视频（subType=2）的分片。
+    const video = transport.sent
+      .filter((s) => s.data[0] === AUDIO_STX && s.data[3] === VideoSubType.max)
+      .map((s) => s.data);
+    expect(video.length).toBeGreaterThan(0);
+    // total_pkg（RTP 头第 2 字节）是**数据片数**，随帧长变化；
+    // total_fec（第 3 字节）恒为 2。
+    const dataPkg = video[0]![AUDIO_HEADER_LEN + 1]!;
+    expect(dataPkg).toBeGreaterThanOrEqual(VIDEO_FEC_DATA);
+    expect(video[0]![AUDIO_HEADER_LEN + 2]).toBe(VIDEO_FEC_PARITY);
+    // 实际发出的包数 = 数据片数 + 校验片数。
+    expect(video).toHaveLength(dataPkg + VIDEO_FEC_PARITY);
+  });
+
+  /**
+   * 回归 2026-11-02 fix 通：WeQ 的关键帧切成 5~8 片却一个 FEC 包都不发，
+   * 对端把「多分片 I 帧 + total_fec=0」整帧丢弃，画面一动不动。
+   *
+   * 这里用 8 KB 的关键帧（约 7 片）钉住「多分片关键帧也必须带 FEC」。
+   */
+  it('多分片关键帧同样带 FEC（回归：不能退回 total_fec=0）', async () => {
+    const timers = new FakeTimers();
+    const transport = new FakeTransport();
+    const big = new Uint8Array(8000);
+    big.set([0, 0, 0, 1, 0x40, 0x01], 0); // VPS
+    big.set([0, 0, 0, 1, 0x26, 0x01], 6); // IDR → 关键帧
+    for (let i = 12; i < big.length; i++) big[i] = i & 0xff;
+    const session = new CallSession({
+      selfUin: '1707889225',
+      selfUid: 'u_self',
+      peerUin: '2863253201',
+      peerUid: 'u_peer',
+      media: 'video',
+      signaling: fakeSignaling(),
+      transport,
+      codec: new FakeCodec(),
+      videoEncoder: new FakeVideoEncoder(1, big),
+      timers,
+    });
+    const ctx = { session, timers, transport };
+    await connect(ctx);
+    ctx.session.setCamera(true);
+    await timers.advanceAsync(3000);
+
+    const video = transport.sent
+      .filter((s) => s.data[0] === AUDIO_STX && s.data[3] === VideoSubType.max)
+      .map((s) => s.data);
+    expect(video.length).toBeGreaterThan(0);
+    const dataPkg = video[0]![AUDIO_HEADER_LEN + 1]!;
+    // 8000 字节在默认 maxPayload=1200 下会切成 7 片 —— 远多于权威客户端的 2 片。
+    expect(dataPkg).toBeGreaterThan(2);
+    // 关键：仍然带 FEC。
+    expect(video[0]![AUDIO_HEADER_LEN + 2]).toBe(VIDEO_FEC_PARITY);
+    expect(video).toHaveLength(dataPkg + VIDEO_FEC_PARITY);
+  });
+
+  it('普通帧不发 FEC 分片', async () => {
+    const timers = new FakeTimers();
+    const transport = new FakeTransport();
+    const session = new CallSession({
+      selfUin: '1707889225',
+      selfUid: 'u_self',
+      peerUin: '2863253201',
+      peerUid: 'u_peer',
+      media: 'video',
+      signaling: fakeSignaling(),
+      transport,
+      codec: new FakeCodec(),
+      // 缺省帧的 NAL 是 0x40（VPS，type 32），不是 IRAP。
+      videoEncoder: new FakeVideoEncoder(1),
+      timers,
+    });
+    const ctx = { session, timers, transport };
+    await connect(ctx);
+    ctx.session.setCamera(true);
+    await timers.advanceAsync(3000);
+
+    const video = transport.sent
+      .filter((s) => s.data[0] === AUDIO_STX && s.data[3] === VideoSubType.max)
+      .map((s) => s.data);
+    expect(video.length).toBeGreaterThan(0);
+    expect(video[0]![AUDIO_HEADER_LEN + 2]).toBe(0);
   });
 });

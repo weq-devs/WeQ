@@ -46,6 +46,7 @@ import {
   type SystemAudioCapability,
 } from './call_system_audio';
 import type { VideoProfile, VideoSource } from '../shared/call_video_profile';
+import { CallUdpTrace, type TracedDatagram } from './call_udp_trace';
 
 const logger = getLogger().child({ scope: 'call' });
 
@@ -64,6 +65,9 @@ const REPLAY_FRAMES = 600;
 class NodeUdpTransport implements UdpTransport {
   private socket: dgram.Socket | null = null;
   private p2pSocket: dgram.Socket | null = null;
+
+  /** 数据报观察者（通话 UDP 落盘用）；发送 / 接收各喂一份。 */
+  sink: ((datagram: TracedDatagram) => void) | null = null;
 
   async bind(): Promise<void> {
     const open = (): Promise<dgram.Socket> =>
@@ -104,6 +108,8 @@ class NodeUdpTransport implements UdpTransport {
   send(data: Uint8Array, port: number, address: string): void {
     const socket = [8000, 8001, 8800].includes(port) ? this.socket : this.p2pSocket;
     if (!socket) return;
+    // 落盘要的是「实际发出去的这条」，所以在选好 socket 之后、发送之前记。
+    this.trace('c2s', socket, data, address, port);
     // 直接拷一份：dgram 的回调可能在原缓冲被复写之后才跑。
     const buffer = Buffer.from(data);
     // udp6 套接字发纯 IPv4 目标时，部分平台需要显式映射成 ::ffff: 形式。
@@ -135,6 +141,8 @@ class NodeUdpTransport implements UdpTransport {
   onMessage(handler: (data: Uint8Array, from: { address: string; port: number }) => void): void {
     this.watch((socket) => {
       socket.on('message', (msg, rinfo) => {
+        // 先落盘再交给会话：会话丢掉（解密失败 / 未知首字节）的包也要留在文件里。
+        this.trace('s2c', socket, msg, rinfo.address, rinfo.port);
         handler(new Uint8Array(msg), { address: rinfo.address, port: rinfo.port });
       });
     });
@@ -167,6 +175,33 @@ class NodeUdpTransport implements UdpTransport {
       for (const socket of sockets) register(socket);
     }
     this.pending = [];
+  }
+
+  /** 把一条收发的数据报交给观察者。本端地址取自真实 socket，端口不会错。 */
+  private trace(
+    direction: TracedDatagram['direction'],
+    socket: dgram.Socket,
+    payload: Uint8Array,
+    remoteAddress: string,
+    remotePort: number,
+  ): void {
+    const sink = this.sink;
+    if (!sink) return;
+    let local: { address: string; port: number };
+    try {
+      local = socket.address();
+    } catch {
+      // 已关闭 / 未绑定。
+      return;
+    }
+    sink({
+      direction,
+      payload: Buffer.from(payload),
+      localAddress: local.address,
+      localPort: local.port,
+      remoteAddress,
+      remotePort,
+    });
   }
 }
 
@@ -297,8 +332,15 @@ export class CallManager extends EventEmitter {
    */
   private replayBuffer: VideoFramePayload[] = [];
   /** 当前这通电话的录音设置（发起时取一次，通话中改设置不影响进行中的录音）。 */
-  private recordingConfig: CallRecordingConfig = { mode: 'mixed', systemAudio: false, dir: null };
+  private recordingConfig: CallRecordingConfig = {
+    mode: 'mixed',
+    systemAudio: false,
+    dir: null,
+    udpTrace: false,
+  };
   private recorder: CallRecorder | null = null;
+  /** 通话 UDP 落盘（设置里开了「记录 UDP 流量」时才有）。 */
+  private udpTrace: CallUdpTrace | null = null;
   /** 录音记录（落盘后才有；收尾时用它回报给界面）。 */
   private recordingEntry: CallRecordingEntry | null = null;
   /** 当前录音所在的索引（收尾时补时长）。 */
@@ -342,6 +384,8 @@ export class CallManager extends EventEmitter {
     if (!modulesDir) throw new Error('找不到 QQ 的 AVSDK 目录，无法初始化语音编解码器');
 
     const transport = new NodeUdpTransport();
+    // 收发的每条数据报都先喂给落盘器；没开开关时 `udpTrace` 为 null，开销接近于零。
+    transport.sink = (datagram) => this.udpTrace?.record(datagram);
     const codec = new NativeCallCodec(this.nt, modulesDir);
     // 视频编码器只在发起视频通话时建：它要打开 QQ 自带的那一版 x265，
     // 纯语音通话没必要付这个开销。
@@ -383,6 +427,23 @@ export class CallManager extends EventEmitter {
     this.conv = params.conv ?? params.peerUid ?? '';
     this.recordingConfig = params.recordingConfig ?? this.recordingConfig;
     this.recordingEntry = null;
+
+    // UDP 落盘必须在 `session.start()` 之前打开，认证 / 心跳这些首包才抓得到。
+    // 开文件失败只记日志：排障能力不该把通话拖下水。
+    this.udpTrace = null;
+    if (this.recordingConfig.udpTrace) {
+      const root =
+        this.recordingConfig.dir ?? recordingsRootFor(this.platform.appDataRoot(), params.selfUin);
+      this.udpTrace = await CallUdpTrace.start({ root, peerUin: params.peerUin }).catch(
+        (error: unknown) => {
+          logger.warn('通话 UDP 落盘开启失败，通话继续', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        },
+      );
+      if (this.udpTrace) logger.info('开始记录通话 UDP', { path: this.udpTrace.path });
+    }
     this.info = {
       ...session.snapshot(),
       peerName: params.peerName ?? '',
@@ -780,6 +841,9 @@ export class CallManager extends EventEmitter {
     this.stopDurationTicker();
     // 兜底：对端挂断 / 被踢 / 异常路径都会走到这里，录音必须在这里收尾。
     void this.finalizeRecording();
+    // 先收 UDP 落盘（把写流关干净），再拆 socket —— 关掉之后不会再有包进来。
+    void this.udpTrace?.stop();
+    this.udpTrace = null;
     // 会话自己会关 socket，但异常路径（订阅断了 / 渲染层崩了）可能没走到，
     // 这里兜一次底：重复 close 是幂等的。
     this.transport?.close();

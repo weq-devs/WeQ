@@ -49,6 +49,13 @@ WeQ 目前解析的是**频道私聊**（DM）链路：会话列表、消息行�
    （只拷了数据库、或旧备份没有频道库）会退到 `login.db`：先找备份目录自带的那份，
    再用调用方给的本机 `login.db`，按 QQ 号取 uid。这条回退是尽力而为的 ——
    文件缺失、密钥探测失败或原生解密报错都只是静默跳过，不影响其它路径。
+
+   `deriveAndroidDbKey` 现在会把推导用的 uid 一并返回（`login.db` 路径还带上
+   同一行的 uin 与昵称），上层据此定身份，**不再回头查 `profile_info.db`**：
+   密钥既然由 uid 派生，库能开就说明 uid 正确，比资料库缓存可靠。QQ 号缺失时
+   由 `C2cMsgDb/GroupMsgDb.inferSelfIdentity()` 从消息行自证（私聊看
+   `40020 != 40021` 的自证行，群聊看 `40040 = 1` 的本机发出标记）；资料库只
+   用于补昵称，读不到也不影响身份。
 5. 判断一个库是不是「安卓频道库」的统一写法是 `basename(dbPath).startsWith('gpro_')`
    （`db_decrypt.ts` / `db_explorer.ts` / `static_session.ts` 三处一致）。
 
