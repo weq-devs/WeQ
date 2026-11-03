@@ -21,7 +21,7 @@ import { join } from 'node:path';
 import type { UserConfigService } from './user_config';
 
 /** Cache subdirectory for organizing different media types. */
-export type CacheSubdir = 'avatar' | 'dress' | 'collection' | 'linkpreview' | 'qqshow';
+export type CacheSubdir = 'avatar' | 'dress' | 'collection' | 'linkpreview' | 'qqshow' | 'gift';
 
 /** Bytes + content type for one resolved media resource. */
 export interface MediaBlob {
@@ -78,6 +78,8 @@ function contentTypeForExt(ext: string): string {
  * 减少重复抓取；过期后重新拉一次即可。
  *
  * dress / qqshow（30 天）：URL 自带版本号，换装扮 / 形象即换 URL，长 TTL 不会出现旧图。
+ *
+ * gift（30 天）：礼物图是按 giftId 命名的静态物料，商城换了图就会换 URL，同理长 TTL。
  */
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -88,6 +90,7 @@ const TTL_BY_SUBDIR: Record<CacheSubdir, number> = {
   linkpreview: 7 * DAY_MS,
   dress: 30 * DAY_MS,
   qqshow: 30 * DAY_MS,
+  gift: 30 * DAY_MS,
 };
 
 /** 某个子目录的默认磁盘 TTL（毫秒）；`get` 的显式 `ttl` 参数优先。 */

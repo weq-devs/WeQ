@@ -77,6 +77,17 @@ export const RICH_MEDIA_BUSINESS_TYPE = {
   voice: 22,
 } as const;
 
+/**
+ * QQ 秀 / 互动表情的 `commonElem.businessType` —— **10**，不是普通图片的 20。
+ *
+ * 真机抓包（2026-10-31 静态 jpg、11-01 gif）两条都是 10。仓库原先只在「合并转发里的
+ * 图片」见过这个值，这次确认私聊直发的互动表情也用它。
+ *
+ * 注意它是**显示能否正常**的必要条件之一，但不是充分条件：`35` + `36` 才是开关，
+ * 详见 `UploadImageParams.showEmoji`。
+ */
+export const SHOW_EMOJI_BUSINESS_TYPE = 10;
+
 /** 视频封面兜底尺寸（SL 内嵌的就是 720×1280）。 */
 export const DEFAULT_VIDEO_THUMB_WIDTH = 720;
 export const DEFAULT_VIDEO_THUMB_HEIGHT = 1280;
@@ -319,6 +330,19 @@ export interface UploadImageParams {
   picFormat?: number;
   /** 资源已在服务端时的指纹：给了就跳过读本地文件（转发已有图片）。 */
   fingerprint?: MediaFingerprint;
+  /**
+   * 按「QQ 秀 / 互动表情」形态发送。
+   *
+   * 与普通图片相比改三处（真机抓包 2026-10-31 / 11-01）：
+   *   - `commonElem.businessType` 20 → **10**
+   *   - `extBizInfo.pic.bytesPbReserveC2c` 里补 `31`(文件名) / `34` / `35` / `36`
+   *   - `35` + `36` 是显示开关：缺了收端按普通图片渲染（回退默认表情），
+   *     服务端不校验（缺了照样 result=0）。
+   *
+   * `pack` 是 `36` 的内容，由 `resources/qqshow/show_emoji.json` 的目录拼出
+   * （见 `@weq/service` 的 `ShowEmojiCatalog.buildReserve`）。
+   */
+  showEmoji?: { type: number; pack: Uint8Array };
 }
 
 function extBizPlaceholders(isGroup: boolean) {
@@ -362,6 +386,9 @@ export async function uploadImageMsgInfo(
   const fileName =
     params.fileName ?? fp?.fileName ?? `${hashes.md5Hex}${PIC_EXT_BY_FORMAT[picFormat] ?? '.jpg'}`;
 
+  // 互动表情（QQ 秀）：`businessType` 换成 10，`pic.11` 里多带 31/34/35/36，
+  // 图片按非原图发。私聊场景，群聊暂不支持。
+  const showEmoji = params.showEmoji;
   const uploads: MediaSubFileUpload[] = [
     {
       source: 'top',
@@ -383,11 +410,50 @@ export async function uploadImageMsgInfo(
         width,
         height,
         time: 0,
-        original: 1,
+        // 真机「马力全开」那张原图是 `original: 0`（没走原图通道）。互动表情的图片
+        // 由客户端本地渲染，体积通常不大，按非原图发与真机一致。
+        original: showEmoji ? 0 : 1,
       },
       subFileType: 0,
     },
   ];
+
+  const picReserve = (() => {
+    if (!showEmoji) {
+      return target.isGroup
+        ? { bytesPbReserveTroop: { subType } }
+        : { bytesPbReserveC2c: { subType } };
+    }
+    // 互动表情：`35`(类型) + `36`(互动包定义) 是收端的显示开关，缺了按普通图片渲染。
+    // 两边 reserve 都带上这两个格子（群聊版 schema 也声明了 35/36）。
+    //
+    // 字段集照**私聊**真机抓包（2026-11-01「马力全开」）逐字段对齐：
+    //   1 subType / 3,4,10,34 = 0 / 12,18,19 = "" / 20 = 12 字节空壳
+    //   30 rkey / 31 文件名 / 35 类型 / 36 互动包
+    // 前后两段 0 值由 schema 的 force 保证上 wire。
+    const base = {
+      subType,
+      field3: 0,
+      field4: 0,
+      field10: 0,
+      field12: '',
+      field18: '',
+      field19: '',
+      // 真机 20 = `08 00 12 00 18 00 20 00 28 00 3a 00`（12 字节空壳）
+      field20: new Uint8Array([
+        0x08, 0x00, 0x12, 0x00, 0x18, 0x00, 0x20, 0x00, 0x28, 0x00, 0x3a, 0x00,
+      ]),
+      // 30 是下载 rkey：服务端已在上传响应的 pic 里给了一份，这里不覆盖（保留它）。
+      fileName: hashes.md5Hex.toUpperCase(),
+      field34: 0,
+      showEmojiType: showEmoji.type,
+      showEmojiPack: showEmoji.pack,
+    };
+    return target.isGroup
+      ? { bytesPbReserveTroop: base }
+      : // 私聊 reserve 的 `8` 也带一遍 textSummary（真机如此）；群聊 schema 没有这一格。
+        { bytesPbReserveC2c: { ...base, field8: summary } };
+  })();
 
   const upload = await runNtv2Upload(nt, pid, {
     uin: target.uin,
@@ -402,12 +468,12 @@ export async function uploadImageMsgInfo(
       pic: {
         bizType: subType,
         textSummary: summary,
-        // 群/私聊各带一个 reserve（NapCat：bytesPbReserveTroop / bytesPbReserveC2c），
-        // 都填 subType。**漏了不会报错，但服务端不会把文件真的落到该子类型的存储桶，
+        // 群/私聊各带一个 reserve（NapCat：bytesPbReserveTroop / bytesPbReserveC2c）。
+        // **漏了不会报错，但服务端不会把文件真的落到该子类型的存储桶，
         // 收端一律显示「图片已过期」** —— 真机验证过的坑，不要省这两个字段。
-        ...(target.isGroup
-          ? { bytesPbReserveTroop: { subType } }
-          : { bytesPbReserveC2c: { subType } }),
+        // 互动表情的 35/36 也在这里就带上：上传与发出必须用同一份 reserve，
+        // 否则服务端回填的空壳会把它们顶掉。
+        ...picReserve,
       },
       ...extBizPlaceholders(target.isGroup),
     },
@@ -420,13 +486,13 @@ export async function uploadImageMsgInfo(
     pic: {
       bizType: subType,
       textSummary: summary,
-      ...(target.isGroup
-        ? { bytesPbReserveTroop: { subType } }
-        : { bytesPbReserveC2c: { subType } }),
+      // 真机互动表情的 pic 带 fromScene/toScene = 1（普通图片没有）。
+      ...(showEmoji ? { fromScene: 1, toScene: 1 } : {}),
+      ...picReserve,
     },
   });
   return toResult(upload, msgInfo, {
-    businessType: RICH_MEDIA_BUSINESS_TYPE.image,
+    businessType: showEmoji ? SHOW_EMOJI_BUSINESS_TYPE : RICH_MEDIA_BUSINESS_TYPE.image,
     fileName,
     fileSize,
     md5Hex: hashes.md5Hex,

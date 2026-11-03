@@ -952,9 +952,17 @@ export function elementsToEditable<T>(v: T): T {
   return v;
 }
 
-/** Reverse {@link elementsToEditable}: `{ type:'Buffer', data }` → Uint8Array. */
+/**
+ * Reverse {@link elementsToEditable}: `{ type:'Buffer', data }` → Uint8Array.
+ *
+ * 已经是 `Uint8Array` 的值必须原样返回。超级二进制（图片 / 语音字节）从渲染层
+ * 直接以 `Uint8Array` 发出，superjson 的 typed-array 规则会原样带过来；如果这里
+ * 把它当普通对象逐键拷贝，结果会变成 `{0:..,1:..}` —— 调用方拿不到 `byteLength`，
+ * 只会报「图片为空」。（`Buffer` 是 `Uint8Array` 子类，同样落进这一支。）
+ */
 export function elementsFromEditable<T>(v: T): T {
   if (v === null || v === undefined) return v;
+  if (v instanceof Uint8Array) return v;
   if (Array.isArray(v)) return v.map((item) => elementsFromEditable(item)) as T;
   if (typeof v === 'object') {
     const record = v as Record<string, unknown>;

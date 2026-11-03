@@ -54,6 +54,8 @@ function toBigInt(value: number | string, what: string): bigint {
 export namespace ClickInlineKeyboardButton {
   export const command = 0x112e;
   export const subCommand = 1;
+  /** 真机实测会签名（scripts/probe-sign.ts）。 */
+  export const needSign = true;
   export const reqSchema = INLINE_BUTTON_REQ;
   export const respSchema = INLINE_BUTTON_RESP;
 

@@ -99,6 +99,7 @@ const toggles = [
   ['消息气泡', 'showMessageBubble', true],
   ['消息字体', 'showMessageFont', true],
   ['聊天头像挂件', 'showAvatarPendant', true],
+  ['聊天 QQ 秀替换头像', 'showChatQqShow', true],
 ] as const;
 
 it('消息开关分别按默认值展示、保存、刷新共享设置，重开后可恢复与再次开启', () => {

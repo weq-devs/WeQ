@@ -601,6 +601,8 @@ export function sendGroupTempMessage(
  */
 export namespace SendMsg {
   export const cmd = SEND_MSG_CMD;
+  /** 真机实测会签名（scripts/probe-sign.ts）。 */
+  export const needSign = true;
   export const reqSchema = SEND_MESSAGE_REQUEST;
   export const respSchema = SEND_MESSAGE_RESPONSE;
 

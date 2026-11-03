@@ -104,6 +104,9 @@ resources/ninebird-runtime/
 /docs/develop/protocol-history-500-20261016.md
 /docs/develop/native-history-500-20261016.md
 
+# 视频通话系列尝试性修复
+/todo.md 
+
 # Local ML models and scratch reverse artifacts
 models/
 tmp_reverse/

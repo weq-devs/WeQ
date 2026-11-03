@@ -1,0 +1,258 @@
+/*
+ * 「自定义表情」与「QQ 秀表情」两栏的样式。
+ *
+ * 颜色一律走 design token：浅色 / 深色 / 自定义主题色都要成立（见 AGENTS.md §5）。
+ * 深色模式的钩子是 `html[data-theme="dark"]`，不是 Tailwind 的 `dark:`。
+ */
+
+.show-emoji-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 文件选择器只用来触发系统对话框，不占布局。 */
+.emoji-file-input {
+  display: none;
+}
+
+/* ── 上传按钮 ───────────────────────────────────────────── */
+
+.show-emoji-upload {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 64px;
+  border: 1px dashed
+    var(--weq-border-strong, color-mix(in srgb, var(--border, #dedede) 82%, transparent));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 4%, transparent);
+  color: var(--weq-fg-primary, #111111);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+.show-emoji-upload:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective, #12a8ff);
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 9%, transparent);
+}
+
+.show-emoji-upload:active:not(:disabled) {
+  transform: scale(0.995);
+}
+
+.show-emoji-upload:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.show-emoji-upload svg {
+  color: var(--weq-accent-effective, #12a8ff);
+  flex: 0 0 auto;
+}
+
+/* ── 文案 ───────────────────────────────────────────────── */
+
+.show-emoji-hint {
+  margin: 0;
+  color: var(--weq-fg-muted, #9a9aa2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ── 分组 ───────────────────────────────────────────────── */
+
+.show-emoji-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.show-emoji-section h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--weq-fg-secondary, #5c5c66);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.show-emoji-count {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #9a9aa2) 14%, transparent);
+  color: var(--weq-fg-muted, #9a9aa2);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+/* ── QQ 秀 action 网格 ──────────────────────────────────── */
+
+.show-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 6px;
+}
+
+.show-emoji-action {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px 5px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+}
+
+.show-emoji-action:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 32%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 8%, transparent);
+  transform: translateY(-1px);
+}
+
+.show-emoji-action.active {
+  border-color: var(--weq-accent-effective, #12a8ff);
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 12%, transparent);
+}
+
+.show-emoji-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
+.show-emoji-action img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.show-emoji-action-name {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--weq-fg-secondary, #5c5c66);
+  font-size: 10px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 发送中：图标上盖一层半透明遮罩 + spinner。 */
+.show-emoji-action-busy {
+  position: absolute;
+  inset: 6px 4px auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--popover, #ffffff) 62%, transparent);
+  color: var(--weq-accent-effective, #12a8ff);
+}
+
+/* ── 最近上传 ───────────────────────────────────────────── */
+
+.show-emoji-recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 132px;
+  overflow: auto;
+  scrollbar-color: color-mix(in srgb, var(--weq-fg-muted, #858585) 34%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.show-emoji-recent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-secondary, #5c5c66);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  transition: background 120ms ease;
+}
+
+.show-emoji-recent:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 8%, transparent);
+}
+
+.show-emoji-recent svg {
+  flex: 0 0 auto;
+  color: var(--weq-fg-muted, #9a9aa2);
+}
+
+.show-emoji-recent-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 加载动画 ───────────────────────────────────────────── */
+
+.show-emoji-spin {
+  animation: show-emoji-spin 900ms linear infinite;
+}
+
+@keyframes show-emoji-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 系统「减少动态效果」时停掉自转，避免眩晕。 */
+@media (prefers-reduced-motion: reduce) {
+  .show-emoji-spin {
+    animation: none;
+  }
+
+  .show-emoji-upload,
+  .show-emoji-action,
+  .show-emoji-recent {
+    transition: none;
+  }
+}
+
+/* ── 深色模式 ──────────────────────────────────────────────
+ * 上面用的都是 token，深色下大部分会自动跟随；这里只显式写两处依赖
+ * 「向白色混合」的地方 —— 深色下混白会发灰，改成向卡片色混合。 */
+html[data-theme='dark'] .show-emoji-action-busy {
+  background: color-mix(in srgb, var(--popover, #1f1f24) 68%, transparent);
+}
+
+html[data-theme='dark'] .show-emoji-upload {
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 8%, transparent);
+}
+
+html[data-theme='dark'] .show-emoji-count {
+  background: color-mix(in srgb, var(--weq-fg-muted, #9a9aa2) 20%, transparent);
+}

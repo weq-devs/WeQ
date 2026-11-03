@@ -1,18 +1,5 @@
-﻿import {
-  Copy,
-  Download,
-  RotateCcw,
-  Trash2,
-  Edit3,
-  ListChecks,
-  Palette,
-  Quote,
-  SmilePlus,
-  Forward,
-  ListPlus,
-  Repeat2,
-} from 'lucide-react';
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { QqIcon } from '../../lib/qqIcons';
 import type { Message } from './types';
 import { cn } from './classNames';
 import { FaceEmoji } from '../../components/FaceEmoji';
@@ -179,7 +166,7 @@ export function MessageContextMenu({
       <TextMarkdownMenuAction message={state.message} onClose={onClose} />
       {onMultiSelect ? (
         <button type="button" title="多选" onClick={() => onMultiSelect(state.message)}>
-          <ListChecks size={17} />
+          <QqIcon name="multiSelect" size={17} />
           <span>多选</span>
         </button>
       ) : null}
@@ -190,7 +177,7 @@ export function MessageContextMenu({
           disabled={Boolean(exportBlockedReason)}
           onClick={() => onExport(state.message)}
         >
-          <Download size={17} />
+          <QqIcon name="exportFile" size={17} />
           <span>{exportLabel}</span>
         </button>
       ) : null}
@@ -201,7 +188,7 @@ export function MessageContextMenu({
           disabled={!onAddToComposition}
           onClick={() => onAddToComposition?.(state.message)}
         >
-          <ListPlus size={17} />
+          <QqIcon name="collection" size={17} />
           <span>添加到素材库</span>
         </button>
       ) : null}
@@ -212,7 +199,7 @@ export function MessageContextMenu({
           disabled={!onForward}
           onClick={() => onForward?.(state.message)}
         >
-          <Forward size={17} />
+          <QqIcon name="share" size={17} />
           <span>转发</span>
         </button>
       ) : null}
@@ -223,7 +210,7 @@ export function MessageContextMenu({
           disabled={!onRepeat || Boolean(repeatBlockedReason)}
           onClick={() => onRepeat?.(state.message)}
         >
-          <Repeat2 size={17} />
+          <QqIcon name="refresh" size={17} />
           <span>+1</span>
         </button>
       ) : null}
@@ -234,7 +221,7 @@ export function MessageContextMenu({
           disabled={!onReply || Boolean(replyBlockedReason)}
           onClick={() => onReply?.(state.message)}
         >
-          <Quote size={17} />
+          <QqIcon name="reply" size={17} />
           <span>引用</span>
         </button>
       ) : null}
@@ -245,7 +232,7 @@ export function MessageContextMenu({
           disabled={!onReact || Boolean(reactBlockedReason)}
           onClick={() => onReact?.(state.message)}
         >
-          <SmilePlus size={17} />
+          <QqIcon name="react" size={17} />
           <span>贴表情</span>
         </button>
       ) : null}
@@ -259,7 +246,7 @@ export function MessageContextMenu({
           disabled={!onRecall || Boolean(recallBlockedReason)}
           onClick={() => onRecall?.(state.message)}
         >
-          <RotateCcw size={17} />
+          <QqIcon name="recall" size={17} />
           <span>{recallCount ? `撤回所选 ${recallCount} 条消息` : '撤回'}</span>
         </button>
       ) : null}
@@ -281,7 +268,7 @@ export function MessageContextMenu({
             ))
         : null}
       <button type="button" onClick={() => void onCopy(state.message)}>
-        <Copy size={17} />
+        <QqIcon name="copy" size={17} />
         <span>复制</span>
       </button>
       {onEditRaw || unavailableReason ? (
@@ -291,13 +278,13 @@ export function MessageContextMenu({
           disabled={!onEditRaw}
           onClick={() => onEditRaw?.(state.message)}
         >
-          <Edit3 size={17} />
+          <QqIcon name="edit" size={17} />
           <span>修改本地记录</span>
         </button>
       ) : null}
       {hasDecoration && onViewDecoration ? (
         <button type="button" onClick={() => onViewDecoration(state.message)}>
-          <Palette size={17} />
+          <QqIcon name="palette" size={17} />
           <span>装扮</span>
         </button>
       ) : null}
@@ -307,7 +294,7 @@ export function MessageContextMenu({
           disabled={downloadDisabled}
           onClick={() => onDownloadImage(state.downloadUrl ?? '', state.message)}
         >
-          <Download size={17} />
+          <QqIcon name="download" size={17} />
           <span>{IS_WEB ? '保存到服务器' : '下载'}</span>
         </button>
       ) : null}
@@ -319,7 +306,7 @@ export function MessageContextMenu({
           disabled={!onDelete}
           onClick={() => onDelete?.(state.message)}
         >
-          <Trash2 size={17} />
+          <QqIcon name="trash" size={17} />
           <span>{deleteLabel}</span>
         </button>
       ) : null}

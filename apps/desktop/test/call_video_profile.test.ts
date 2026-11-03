@@ -8,8 +8,12 @@
  *    与编码器当前的宽高对不上时，`NativeVideoEncoder.pushFrame` 会**静默丢帧** ——
  *    没有任何报错，表现只是「共享了但对方什么都看不到」。所以尺寸推导必须
  *    严格保持源宽高比、对齐偶数。
- * 2. **摄像头档位跟随 `dev` 主线**（640×360 / 15 fps / 30 kbps），屏幕共享档位
+ * 2. **摄像头档位对齐 QQ 本体**（320×184 / 15 fps / 300 kbps），屏幕共享档位
  *    则按真机实测（960×540 / 15 fps / 1.2 Mbps），两者别混着改。
+ *
+ * 320×184 是 2026-11-02 从四份抓包的 HEVC SPS 里直接解出来的（QQ 摄像头
+ * 恒定 320×184）。早先按能力声明里的 360p 写 640×360 是错的 —— 能力声明只是
+ * 上限协商表，不是实际编码尺寸。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -21,22 +25,37 @@ import {
 } from '../src/shared/call_video_profile';
 
 describe('视频采集档位', () => {
-  it('摄像头档位跟随 dev 主线：640×360 / 15 fps / 30 kbps', () => {
-    // 曾按真机实测上调到 480×270 / 12 fps / 300 kbps，后来要求与主线口径一致，
-    // 三项全部回退。要再动请连同 `dev` 主线一起改，别只改这里。
-    expect(CAMERA_PROFILE.width).toBe(640);
-    expect(CAMERA_PROFILE.height).toBe(360);
-    expect(CAMERA_PROFILE.bitrateKbps).toBe(30);
-    expect(CAMERA_PROFILE.fps).toBe(15);
+  it('摄像头档位：320×184 / 30 fps / 450 kbps / 全 I 帧', () => {
+    // 分辨率来自 HEVC SPS 实测（dev/fix 两通 QQ 上行关键帧全是 320×184），
+    // 不是能力声明里的 360p —— 那只是上限协商表。
+    //
+    // 30 fps 是 15 的 3 倍（keyint 只接受 3 或 ≥5，帧率取 3 的倍数便于配比）。
+    // 450 kbps 来自全 I 帧实测：320×184@30fps 全 I 帧实测 435 kbps，留余量。
+    expect(CAMERA_PROFILE.width).toBe(320);
+    expect(CAMERA_PROFILE.height).toBe(184);
+    expect(CAMERA_PROFILE.bitrateKbps).toBe(450);
+    expect(CAMERA_PROFILE.fps).toBe(30);
+    expect(CAMERA_PROFILE.allIntra).toBe(true);
   });
 
-  it('屏幕共享档位是 960×540 / 15 fps / 1.2 Mbps', () => {
+  it('摄像头码率要够支撑全 I 帧的实测开销', () => {
+    // 全 I 帧实测（320×184 / 30 fps，真实运动画面）：435 kbps。
+    // 目标码率必须盖住它，否则码控会把 QP 拉到画面糊掉。
+    expect(CAMERA_PROFILE.bitrateKbps).toBeGreaterThan(435);
+  });
+
+  it('屏幕共享档位是 960×540 / 15 fps / 1.2 Mbps / 全 I 帧', () => {
     // 720p 在真实运动下编码 p95 58.8 ms、最大 68.5 ms，而 15 fps 的帧预算只有
     // 67 ms —— 光编码就吃掉整个预算，是「对端特别卡」的主要元凶。
+    //
+    // 屏幕共享**保持 15 fps**（不跟摄像头一起提到 30）：全 I 帧在 960×540 下
+    // 实测 p90 36.9 ms，30 fps 的 33.3 ms 预算装不下，会把主进程事件循环卡住，
+    // 连带音频和心跳一起掉。15 fps 的 66.7 ms 预算留有余量。
     expect(SCREEN_PROFILE.width).toBe(960);
     expect(SCREEN_PROFILE.height).toBe(540);
     expect(SCREEN_PROFILE.bitrateKbps).toBe(1200);
     expect(SCREEN_PROFILE.fps).toBe(15);
+    expect(SCREEN_PROFILE.allIntra).toBe(true);
   });
 
   it('屏幕共享编码耗时不能吃掉超过一半的帧预算', () => {
@@ -67,6 +86,15 @@ describe('视频采集档位', () => {
     for (const profile of [CAMERA_PROFILE, SCREEN_PROFILE]) {
       expect(profile.width % 2).toBe(0);
       expect(profile.height % 2).toBe(0);
+    }
+  });
+
+  it('keyint 必须是 t265 能接受的档位（3 或 ≥5）', () => {
+    // 实测 t265（腾讯魔改 x265）在 keyint=1 / 2 / 4 时 encoder_open 直接失败：
+    // "Intra period must be larger than GOP size for periodic IDR pictures"。
+    // 与 bframes / rc-lookahead 无关，纯 keyint 取值问题。
+    for (const profile of [CAMERA_PROFILE, SCREEN_PROFILE]) {
+      expect(profile.keyint === 3 || profile.keyint >= 5).toBe(true);
     }
   });
 });

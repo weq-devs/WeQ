@@ -16,17 +16,8 @@
  */
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import {
-  Phone,
-  Video,
-  MonitorUp,
-  LaptopMinimal,
-  PhoneCall,
-  Radio,
-  Pause,
-  Play,
-} from 'lucide-react';
 import { trpc } from '../trpc/client';
+import { QqIcon, type QqIconName } from '../lib/qqIcons';
 import { recordingUrl } from '../lib/resourceUrl';
 import type { CallConv } from './QqMessageContent';
 
@@ -52,19 +43,19 @@ const CONNECTED_SUBTYPES = new Set<number>([
 ]);
 
 // subType 优先覆盖 callMethod 选图标（用于 callMethod 未知的新类型）。
-const SUBTYPE_ICON: Record<number, typeof Phone> = {
-  27: Radio, // GROUP_CLASSROOM_STARTED
-  29: Radio, // GROUP_CLASSROOM_ENDED
+const SUBTYPE_ICON: Record<number, QqIconName> = {
+  27: 'groupClass', // GROUP_CLASSROOM_STARTED
+  29: 'groupClass', // GROUP_CLASSROOM_ENDED
 };
 
-// CallType (callMethod) → display label + lucide icon. 0 是群通话结束提示，
-// QQ 不在这条消息里区分语音/视频（只能看 subType），所以用中性的话筒图标。
-const CALL_KIND: Record<number, { label: string; Icon: typeof Phone }> = {
-  0: { label: '通话已结束', Icon: PhoneCall },
-  1: { label: '语音通话', Icon: Phone },
-  2: { label: '视频通话', Icon: Video },
-  3: { label: '屏幕共享', Icon: MonitorUp },
-  5: { label: '远程协作', Icon: LaptopMinimal },
+// CallType (callMethod) → display label + 图标（QQ 图标集，见 lib/qqIcons）。0 是群通话
+// 结束提示，QQ 不在这条消息里区分语音/视频（只能看 subType），所以用挂断的话筒图标。
+const CALL_KIND: Record<number, { label: string; icon: QqIconName }> = {
+  0: { label: '通话已结束', icon: 'hangup' },
+  1: { label: '语音通话', icon: 'telephone' },
+  2: { label: '视频通话', icon: 'videoCall' },
+  3: { label: '屏幕共享', icon: 'shareScreen' },
+  5: { label: '远程协作', icon: 'remoteControl' },
 };
 
 export function QqCall({
@@ -87,8 +78,11 @@ export function QqCall({
 }): ReactElement {
   const method = Number(callMethod);
   const sub = Number(subType);
-  const kind = CALL_KIND[method] ?? { label: '通话', Icon: PhoneCall };
-  const Icon = SUBTYPE_ICON[sub] ?? kind.Icon;
+  const kind: { label: string; icon: QqIconName } = CALL_KIND[method] ?? {
+    label: '通话',
+    icon: 'telephone',
+  };
+  const icon = SUBTYPE_ICON[sub] ?? kind.icon;
 
   // Summary lines are pre-localized by QQ — join them with " · " so multi-line
   // summaries (e.g. "通话时长 00:12 · 已结束") read as one line in the bubble.
@@ -102,7 +96,7 @@ export function QqCall({
 
   return (
     <span className={`weq-call-card${connected ? '' : ' weq-call-failed'}`}>
-      <Icon className="weq-call-icon" size={16} strokeWidth={2} aria-hidden />
+      <QqIcon className="weq-call-icon" name={icon} size={16} />
       <span className="weq-call-text">{text}</span>
       {recording ? (
         <CallRecordingButton id={recording.id} durationSec={recording.durationSec} />
@@ -178,7 +172,7 @@ function CallRecordingButton({ id, durationSec }: { id: string; durationSec: num
       aria-label="播放通话录音"
       aria-pressed={playing}
     >
-      {playing ? <Pause size={12} /> : <Play size={12} />}
+      {playing ? <QqIcon name="pause" size={12} /> : <QqIcon name="play" size={12} />}
     </button>
   );
 }

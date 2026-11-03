@@ -560,6 +560,10 @@ function AnalysisToolForm({
               <span className="weq-analysis-choice-avatar" aria-hidden>
                 {lockedTarget.kind === 'group' ? (
                   <GroupAvatar code={lockedTarget.groupCode} size={52} />
+                ) : lockedTarget.kind === 'member' ? (
+                  // 群成员入口没有好友目录（friends 查询不启用），头像号只能从
+                  // 成员目录或入口自带的 memberUin 取，别再回落到 pickedFriend。
+                  <QqAvatar uin={lockedTarget.memberUin || pickedMember?.uin || null} size={52} />
                 ) : (
                   <QqAvatar uin={pickedFriend?.uin || null} size={52} />
                 )}

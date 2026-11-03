@@ -1,20 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  Bold,
-  Check,
-  ChevronDown,
-  Italic,
-  Link,
-  List,
-  ListOrdered,
-  LoaderCircle,
-  Paperclip,
-  Quote,
-  Save,
-  Send,
-  Underline,
-  X,
-} from 'lucide-react';
+import { Check, ChevronDown, LoaderCircle, Paperclip, Save, Send, X } from 'lucide-react';
+import { QqIcon } from '../../lib/qqIcons';
 import type { MailComposeInput } from '@weq/service/mail';
 import { useDialog } from '../../components/Dialog';
 import { useToast } from '../../components/Toast';
@@ -327,12 +313,12 @@ export function MailComposer({
           <div className="weq-mail-format-buttons">
             {(
               [
-                { icon: Bold, command: 'bold', label: '加粗' },
-                { icon: Italic, command: 'italic', label: '斜体' },
-                { icon: Underline, command: 'underline', label: '下划线' },
-                { icon: List, command: 'insertUnorderedList', label: '项目列表' },
-                { icon: ListOrdered, command: 'insertOrderedList', label: '编号列表' },
-                { icon: Quote, command: 'formatBlock', value: 'blockquote', label: '引用' },
+                { name: 'bold', command: 'bold', label: '加粗' },
+                { name: 'italic', command: 'italic', label: '斜体' },
+                { name: 'underline', command: 'underline', label: '下划线' },
+                { name: 'unorderedList', command: 'insertUnorderedList', label: '项目列表' },
+                { name: 'orderedList', command: 'insertOrderedList', label: '编号列表' },
+                { name: 'quote', command: 'formatBlock', value: 'blockquote', label: '引用' },
               ] as const
             ).map((item) => (
               <button
@@ -344,7 +330,7 @@ export function MailComposer({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => format(item.command, 'value' in item ? item.value : undefined)}
               >
-                <item.icon size={16} />
+                <QqIcon name={item.name} size={16} />
               </button>
             ))}
             <button
@@ -362,7 +348,7 @@ export function MailComposer({
               }}
               onClick={() => setLinkOpen((value) => !value)}
             >
-              <Link size={16} />
+              <QqIcon name="link" size={16} />
             </button>
           </div>
         ) : (

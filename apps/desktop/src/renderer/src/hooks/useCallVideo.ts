@@ -31,7 +31,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { acceptsFrame, payloadForDecoder, toAccessUnit } from '../lib/callVideo';
 import { trpc } from '../trpc/client';
 
-/** HEVC 的 codec string：Main profile、level 1.5（实测 640×360@10fps 用这档）。 */
 /**
  * HEVC 的 codec string 候选。
  *
@@ -179,8 +178,8 @@ export function useCallVideo(options: {
       for (const codec of HEVC_CODEC_CANDIDATES) {
         const candidate: VideoDecoderConfig = {
           codec,
-          codedWidth: width || 640,
-          codedHeight: height || 360,
+          codedWidth: width || 320,
+          codedHeight: height || 184,
           optimizeForLatency: true,
         };
         try {
@@ -321,7 +320,7 @@ export function useCallVideo(options: {
           if (buildingDecoder.current) return;
           buildingDecoder.current = true;
           try {
-            decoder = await ensureDecoder(frame.info?.width ?? 640, frame.info?.height ?? 360);
+            decoder = await ensureDecoder(frame.info?.width ?? 320, frame.info?.height ?? 184);
           } finally {
             buildingDecoder.current = false;
           }

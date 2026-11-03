@@ -97,6 +97,8 @@ import { mediaResourceRouter } from './media_resource';
 import { mediaSaveRouter } from './media_save';
 import { resourceCleanupRouter } from './resource_cleanup';
 import { dressupRouter } from './dressup';
+import { giftMallRouter } from './gift_mall';
+import { groupGiftRouter } from './group_gift';
 import { qzoneRouter } from './qzone';
 import { qzonePublicRouter } from './qzone_public';
 import { mutualMarkRouter } from './mutual_mark';
@@ -599,6 +601,17 @@ export interface GroupAlbumAccessState {
   hasD2Key: boolean;
   /** 本地是否已解析出设备 guid（服务端认设备的依据，缺了会被拒绝）。 */
   hasGuid: boolean;
+  /**
+   * 原生侧是否已经登记了这个 QQ 进程的 SSO 会话。
+   *
+   * **和 `qqOnline` 不是一回事**：Linux 上要先提权读进程内存拿到 a2 / d2 / d2key
+   * 才能登记，QQ 刚上线时中间有几十秒空窗。这段时间里发包只会回
+   * 「还没有登记 SSO 会话」，所以任何走原始 SSO 通道的功能（漫游补拉、闪照补拉）
+   * 都必须等它为真。`getGroupAlbumAccessState` 才会返回它。
+   */
+  ssoReady?: boolean;
+  /** 会话物料需要重新读一次进程内存（pid 变了或物料不全）。 */
+  needsMemoryRead?: boolean;
   clientKeyValid: boolean;
   clientKeyExpiresAt: number | null;
   clientKeySecondsLeft: number;
@@ -1790,6 +1803,10 @@ export const accountRouter = router({
   resourceCleanup: resourceCleanupRouter,
   // ---- 个性装扮（气泡九宫格 / 聊天字体）----
   dressup: dressupRouter,
+  // ---- 私聊礼物商城（首页 / 搜索 / 详情 / 礼物墙 / 赠送）----
+  giftMall: giftMallRouter,
+  // ---- 群礼物面板（只读）----
+  groupGift: groupGiftRouter,
   qzone: qzoneRouter,
   /** 空友爱看（推荐域 3）：与旧空间 cgi 分开的一套动态身份与互动接口。 */
   qzonePublic: qzonePublicRouter,

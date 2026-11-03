@@ -78,6 +78,7 @@ import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMai
 import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
 import { ResourceManagementSection } from './settings/ResourceManagementSection';
 import { ChatImageCacheSettings } from './settings/ChatImageCacheSettings';
+import { QqShowSettings } from './settings/QqShowSettings';
 import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
 import {
   Card,
@@ -974,6 +975,7 @@ function AppearanceSection({
                 }
               />
             ))}
+            <QqShowSettings />
             <Row
               settingId="text-markdown"
               label="纯文本消息自动渲染为 Markdown"

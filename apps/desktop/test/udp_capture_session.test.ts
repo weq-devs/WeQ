@@ -1,5 +1,8 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * UDP 抓包会话的归属与幂等语义。
@@ -62,7 +65,20 @@ const {
   listProcessesWithModule,
   probeProcessScan,
   disposeUdpCaptures,
+  setUdpCaptureDirectory,
 } = await import('../src/main/udp_capture_session');
+
+let captureDir: string;
+beforeEach(() => {
+  // 抓包目录由桌面入口注入（见 `udp_capture_register.ts`），这里直接走同一个入口。
+  captureDir = mkdtempSync(join(tmpdir(), 'weq-udp-capture-'));
+  setUdpCaptureDirectory(captureDir);
+});
+
+afterEach(() => {
+  disposeUdpCaptures();
+  rmSync(captureDir, { recursive: true, force: true });
+});
 
 describe('UDP 抓包会话', () => {
   it('开始后能按 sessionId 取帧，停止后会话失效', async () => {

@@ -76,6 +76,8 @@ export interface DeleteGroupAlbumMediaParams {
 
 export namespace DeleteGroupAlbumMedia {
   export const cmd = DELETE_MEDIAS_CMD;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = DELETE_MEDIAS_REQ;
   export const respSchema = DELETE_MEDIAS_RESP;
 
@@ -188,6 +190,8 @@ export function groupAlbumCellId(
 
 export namespace SetGroupAlbumLike {
   export const cmd = QUN_LIKE_CMD;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = QUN_LIKE_REQ;
   export const respSchema = QUN_LIKE_RESP;
 
@@ -327,6 +331,8 @@ export interface GroupAlbumFeedCells {
  */
 export namespace GetGroupAlbumFeedDetail {
   export const cmd = QUN_FEED_DETAIL_CMD;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = FEED_DETAIL_REQ;
   export const respSchema = FEED_DETAIL_RESP;
 
@@ -506,6 +512,8 @@ export interface GroupAlbumCommentResult {
  */
 export namespace CommentGroupAlbumMedia {
   export const cmd = QUN_COMMENT_CMD;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = COMMENT_REQ;
   export const respSchema = COMMENT_RESP;
 

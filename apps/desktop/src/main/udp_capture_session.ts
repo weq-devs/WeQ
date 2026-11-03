@@ -15,6 +15,9 @@
 import type { CapturedFrame, CaptureSupport, ProcessScanEntry } from '@weq/native';
 import { resolveNtHelperPath } from '@weq/native';
 import { getLogger } from '@weq/service';
+import { createWriteStream } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { requirePlatform } from './context/app_context';
 import {
   toCaptureFrameWire,
@@ -23,6 +26,7 @@ import {
   type CaptureStatsWire,
 } from './capture_protocol';
 import { startElevatedCaptureWorker, type ElevatedCaptureWorker } from './capture_elevation';
+import { PcapngStream, synthesizeIpPacket } from './udp_capture_format';
 
 const logger = getLogger().child({ scope: 'udp-capture' });
 
@@ -62,6 +66,19 @@ const queues = new Map<number, Promise<unknown>>();
 /** 当前有效的会话 id（按 pid）。 */
 const sessionIds = new Map<number, string>();
 let sequence = 0;
+interface UdpCaptureFile {
+  pid: number;
+  path: string;
+  writer: PcapngStream;
+}
+const captureFiles = new Map<string, UdpCaptureFile>();
+const activeCaptureFiles = new Map<number, string>();
+let captureDirectory: string | undefined;
+
+/** 桌面入口注入持久化目录，保持共享会话模块不依赖 Electron。 */
+export function setUdpCaptureDirectory(directory: string): void {
+  captureDirectory = directory;
+}
 
 function nextSessionId(): string {
   sequence += 1;
@@ -149,21 +166,32 @@ export async function startUdpCapture(
     };
 
     try {
+      let session: CaptureSessionWire;
       if (support.elevated) {
         // 本进程已有权限（Windows 管理员 / root）：直接抓。
-        const session = await platform.native.ntHelper.startCapture(pid, options);
-        return { pid, sessionId, elevated: false, session };
+        session = await platform.native.ntHelper.startCapture(pid, options);
+      } else {
+        const worker = await acquireElevatedWorker(pid);
+        session = await worker.request<CaptureSessionWire>({
+          op: 'start',
+          pid,
+          iface: opts.iface,
+          port: opts.port,
+          ringFrames: opts.ringFrames,
+          transport: 'udp',
+        });
       }
-      const worker = await acquireElevatedWorker(pid);
-      const session = await worker.request<CaptureSessionWire>({
-        op: 'start',
-        pid,
-        iface: opts.iface,
-        port: opts.port,
-        ringFrames: opts.ringFrames,
-        transport: 'udp',
-      });
-      return { pid, sessionId, elevated: true, session };
+      if (!captureDirectory) throw new Error('UDP 抓包目录尚未配置');
+      const dir = captureDirectory;
+      await mkdir(dir, { recursive: true });
+      const path = join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}_pid-${pid}.pcapng`);
+      const writer = new PcapngStream(
+        createWriteStream(path, { flags: 'wx' }),
+        session.iface || 'udp',
+      );
+      captureFiles.set(sessionId, { pid, path, writer });
+      activeCaptureFiles.set(pid, sessionId);
+      return { pid, sessionId, elevated: !support.elevated, session };
     } catch (error) {
       sessionIds.delete(pid);
       throw error;
@@ -182,26 +210,60 @@ export async function takeUdpDatagrams(
     throw new Error('抓包会话已失效，请重新开始');
   }
   const elevated = elevatedWorkers.get(pid);
+  let batch: CaptureBatchWire;
   if (elevated) {
-    return await elevated.request<CaptureBatchWire>({
+    batch = await elevated.request<CaptureBatchWire>({
       op: 'take',
       pid,
       cursor: opts.cursor,
       waitMs: opts.waitMs,
       maxFrames: DEFAULT_UDP_MAX_FRAMES,
     });
+  } else {
+    const nativeBatch = await requirePlatform().native.ntHelper.takeFrames(pid, {
+      cursor: opts.cursor,
+      maxFrames: DEFAULT_UDP_MAX_FRAMES,
+      waitMs: opts.waitMs,
+    });
+    batch = {
+      frames: nativeBatch.frames.map(toCaptureFrameWire),
+      nextCursor: nativeBatch.nextCursor,
+      dropped: nativeBatch.dropped,
+      kernelLost: nativeBatch.kernelLost,
+    };
   }
-  const batch = await requirePlatform().native.ntHelper.takeFrames(pid, {
-    cursor: opts.cursor,
-    maxFrames: DEFAULT_UDP_MAX_FRAMES,
-    waitMs: opts.waitMs,
-  });
-  return {
-    frames: batch.frames.map(toCaptureFrameWire),
-    nextCursor: batch.nextCursor,
-    dropped: batch.dropped,
-    kernelLost: batch.kernelLost,
-  };
+  const sessionId = activeCaptureFiles.get(pid);
+  const captureFile = sessionId ? captureFiles.get(sessionId) : undefined;
+  if (captureFile) {
+    for (const frame of batch.frames) {
+      const udp = frame.udp;
+      if (!udp) continue;
+      const payload = Buffer.from(udp.payloadHex, 'hex');
+      captureFile.writer.writePacket(
+        frame.ts,
+        synthesizeIpPacket({
+          src: udp.src,
+          srcPort: udp.srcPort,
+          dst: udp.dst,
+          dstPort: udp.dstPort,
+          payload,
+        }),
+      );
+    }
+  }
+  return batch;
+}
+
+/** 全量抓包文件位置；复制前排空写队列，支持抓包期间导出。 */
+export async function flushUdpCaptureFile(pid: number, sessionId: string): Promise<string> {
+  if (captureFiles.get(sessionId)?.pid !== pid) {
+    throw new Error('抓包文件不存在或会话已失效');
+  }
+  const file = captureFiles.get(sessionId);
+  if (!file) throw new Error('抓包文件不存在');
+  await file.writer.flush();
+  if (file.writer.isFailed) throw new Error('抓包文件写入失败，请检查磁盘空间和权限');
+  return file.path;
 }
 
 /**
@@ -212,6 +274,9 @@ export async function takeUdpDatagrams(
  */
 async function releaseSession(pid: number): Promise<CaptureStatsWire | null> {
   sessionIds.delete(pid);
+  const fileId = activeCaptureFiles.get(pid);
+  activeCaptureFiles.delete(pid);
+  if (fileId) await captureFiles.get(fileId)?.writer.close();
   const elevated = elevatedWorkers.get(pid);
   if (elevated) {
     elevatedWorkers.delete(pid);
@@ -254,6 +319,8 @@ export function disposeUdpCaptures(): void {
   for (const [, worker] of elevatedWorkers) worker.dispose();
   elevatedWorkers.clear();
   sessionIds.clear();
+  for (const file of captureFiles.values()) void file.writer.close();
+  activeCaptureFiles.clear();
 }
 
 async function acquireElevatedWorker(pid: number): Promise<ElevatedCaptureWorker> {
