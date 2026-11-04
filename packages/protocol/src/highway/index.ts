@@ -7,7 +7,7 @@
 //   ntv2-upload.ts   — 上传编排(申请 → PUT → msgInfo 回写)。
 //   media-upload.ts  — 按类型入口(图片 / 语音 / 视频)。
 //   ptt-waveform.ts  — 语音波形(真条或合成条)。
-//   image-format.ts  — 图片格式探测 + 罩底封面。
+//   image-format.ts  — 图片格式探测(SVG 挡回) + 罩底封面。
 
 export { Sha1Stream, computeSha1StateV } from './sha1-stream';
 export {
@@ -129,7 +129,9 @@ export {
 } from './ptt-waveform';
 export type { PttWaveformBuild, PttWaveformSource } from './ptt-waveform';
 export {
+  assertUploadableImage,
   detectImageFormat,
+  isSvgImage,
   makeSolidPng,
   PIC_FORMAT_BMP,
   PIC_FORMAT_GIF,

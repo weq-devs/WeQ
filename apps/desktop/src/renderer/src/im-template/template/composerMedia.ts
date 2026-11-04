@@ -65,6 +65,16 @@ export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 const IMAGE_MIME = /^image\//;
 const VIDEO_MIME = /^video\//;
 
+/**
+ * QQ 服务端**不收**的图片格式（真机实测 2026-11-03：SVG）。
+ *
+ * 它们要按「文件」发（走文件通道，收端当附件下载），而不是内联成 `pic` 元素 ——
+ * `pic` 那条路上传时会被协议层挡回来（见 `assertUploadableImage`），用户会看到
+ * 一条「发送失败」，而不是「发出去了一份 svg 文件」。
+ */
+const NON_SENDABLE_IMAGE_MIME = new Set(['image/svg+xml']);
+const NON_SENDABLE_IMAGE_EXT = new Set(['svg', 'svgz']);
+
 export function createMediaId(prefix = 'media'): string {
   const uuid = globalThis.crypto?.randomUUID?.();
   if (uuid) return `${prefix}-${uuid}`;
@@ -72,6 +82,7 @@ export function createMediaId(prefix = 'media'): string {
 }
 
 export function classifyFile(file: File): ComposerAttachmentKind {
+  if (NON_SENDABLE_IMAGE_MIME.has(file.type.toLowerCase())) return 'file';
   if (IMAGE_MIME.test(file.type)) return 'image';
   if (VIDEO_MIME.test(file.type)) return 'video';
   return 'file';
@@ -90,10 +101,19 @@ export function isImageFile(file: File): boolean {
   return attachmentKindOf(file) === 'image';
 }
 
+/** 这个文件看着是图片、但 QQ 这边发不出去（目前只有 SVG）。 */
+export function isUnsupportedImageFile(file: File): boolean {
+  if (NON_SENDABLE_IMAGE_MIME.has(file.type.toLowerCase())) return true;
+  const name = file.name;
+  const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
+  return NON_SENDABLE_IMAGE_EXT.has(ext);
+}
+
 /** 扩展名兜底：有些系统给出来的 `File.type` 是空的。 */
 export function classifyByName(name: string): ComposerAttachmentKind {
   const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif', 'apng', 'svg'].includes(ext)) {
+  if (NON_SENDABLE_IMAGE_EXT.has(ext)) return 'file';
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif', 'apng'].includes(ext)) {
     return 'image';
   }
   if (['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'].includes(ext)) return 'video';

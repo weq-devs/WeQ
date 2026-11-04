@@ -5,6 +5,7 @@
  * `detect_image_format` 的复刻），返回 NTV2 的 `picFormat` 码与像素尺寸：
  *   1000 jpg / 1001 png / 1002 webp / 1005 bmp / 2000 gif。
  * 发图时 picFormat 与 width/height 都要上 wire，QQ 端拿它们排版；探不出来就退回 jpg。
+ * SVG 是文本格式、走不了这条通道（服务端不收），由 {@link assertUploadableImage} 挡掉。
  *
  * `makeSolidPng` 生成一张纯色 PNG（真实像素 = 声明尺寸），给视频封面兜底 ——
  * SnowLuma 内嵌了一张 720×1280 的 base64 PNG（约 30 KB），我们用 zlib 现算一张，
@@ -34,6 +35,38 @@ const readBE32 = (d: Uint8Array, o: number): number =>
 const readLE16 = (d: Uint8Array, o: number): number => d[o]! | (d[o + 1]! << 8);
 const readLE32 = (d: Uint8Array, o: number): number =>
   (d[o]! | (d[o + 1]! << 8) | (d[o + 2]! << 16) | (d[o + 3]! << 24)) >>> 0;
+
+/**
+ * 这段字节是不是 SVG。
+ *
+ * SVG 是**文本**格式，`detectImageFormat` 认不出来会回落成「jpg + 0×0」，照传下去
+ * 服务端不收（真机实测 2026-11-03：带 SVG 的图片上传失败）。所以发图前要先挡掉，
+ * 让调用方拿到一句能看懂的中文报错，而不是一个「没有尺寸的 jpg」。
+ *
+ * 只读文件头前 1 KiB：根元素前通常只有 XML 声明 / 少量注释，足够判断；
+ * 大文件也不用整个读进内存。
+ */
+export function isSvgImage(bytes: Uint8Array): boolean {
+  // 1 KiB 足够覆盖根元素：XML 声明 + 注释 + DOCTYPE 加起来很少超过这个量级。
+  const head = new TextDecoder('utf-8', { fatal: false })
+    .decode(bytes.subarray(0, 1024))
+    .replace(/^\uFEFF/, '')
+    .trimStart()
+    .toLowerCase();
+  if (head.startsWith('<svg')) return true;
+  // `<?xml …?>` 开头的 XML 里，`<svg` 可能被注释 / DOCTYPE 隔开，扫一小段就够。
+  return head.startsWith('<?xml') && head.includes('<svg');
+}
+
+/**
+ * 图片上传前的格式校验：目前只挡 SVG（服务端明确不收），其余格式仍交给
+ * `detectImageFormat` 按魔数判断。
+ */
+export function assertUploadableImage(bytes: Uint8Array, what = '图片'): void {
+  if (isSvgImage(bytes)) {
+    throw new Error(`${what}不支持 SVG 格式：QQ 服务端不收 SVG，请先转成 PNG / JPG 再发。`);
+  }
+}
 
 /** 探测图片格式与像素尺寸；认不出来时返回 0×0 + jpg。 */
 export function detectImageFormat(bytes: Uint8Array): ImageFormat {
