@@ -132,6 +132,7 @@ import {
   dataTransferHasFiles,
   formatFileSize,
   isImageFile,
+  isUnsupportedImageFile,
   MAX_ATTACHMENT_BYTES,
   MAX_COMPOSER_ATTACHMENTS,
   releaseAttachment,
@@ -4044,8 +4045,24 @@ export function ChatPane({
       return;
     }
 
-    const images = sendAs === 'file' ? [] : usable.filter(isImageFile);
-    const media = sendAs === 'file' ? usable : usable.filter((file) => !isImageFile(file));
+    // SVG 之类的「看起来是图、服务端不收」的文件按普通文件发：用户是拖着它 / 选了它
+    // 要发出去，转成文件附件至少能到对面手里；直接当图片发只会在上传时失败。
+    const svgFiles = sendAs === 'file' ? [] : usable.filter(isUnsupportedImageFile);
+    const images =
+      sendAs === 'file'
+        ? []
+        : usable.filter((file) => !isUnsupportedImageFile(file) && isImageFile(file));
+    const media =
+      sendAs === 'file'
+        ? usable
+        : usable.filter((file) => !isImageFile(file) || isUnsupportedImageFile(file));
+    if (svgFiles.length > 0) {
+      pushToast({
+        tone: 'warning',
+        title: 'SVG 按文件发送',
+        detail: 'QQ 服务端不收 SVG 图片，已改为文件附件发送。',
+      });
+    }
 
     if (media.length === 0 && (mediaAttachment || pendingSuperEmoji)) {
       setAttachmentError(
@@ -4149,7 +4166,9 @@ export function ChatPane({
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
+    // 用 `isImageFile` 而不是 MIME 前缀：SVG 也是 `image/*`，但它不是 QQ 收的
+    // 图片格式（协议层会在上传前挡掉），这里提前给出提示。
+    if (!isImageFile(file)) {
       pushToast({ tone: 'warning', message: '闪照只能发送图片' });
       return;
     }

@@ -37,7 +37,7 @@ import { decode, encode } from '../protobuf';
 import { sendPacket } from '../transport';
 import { computeHashes } from './hash-file';
 import { BufferChunkSource, fetchHighwaySession, uploadHighwayHttp } from './highway-client';
-import { detectImageFormat } from './image-format';
+import { assertUploadableImage, detectImageFormat } from './image-format';
 import type { MediaNative } from './ntv2-upload';
 import { OFF_PIC_UP_CMD, OFF_PIC_UP_REQ, OFF_PIC_UP_RESP } from './offpic-schemas';
 
@@ -228,6 +228,8 @@ export async function uploadLegacyImage(
   params: LegacyImageUploadParams,
 ): Promise<LegacyImageUploadResult> {
   const bytes = await readSource(params.source);
+  // 闪照走的也是真正的图片通道，SVG 一样传不上去；先挡掉再算哈希。
+  assertUploadableImage(bytes, '闪照');
   const hashes = computeHashes(bytes);
   const detected = detectImageFormat(bytes);
   const imgType = detected.width > 0 ? detected.format : 1000;
