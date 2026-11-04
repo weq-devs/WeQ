@@ -7,7 +7,7 @@ import {
   groupNoticeId,
   type NoticeOperation,
 } from '../src/renderer/src/lib/contactNotice';
-import { useNoticeUnread } from '../src/renderer/src/hooks/useNoticeUnread';
+import { NOTICE_SEEN_LIMIT, useNoticeUnread } from '../src/renderer/src/hooks/useNoticeUnread';
 import type {
   ContactRequest,
   GroupJoinRequest,
@@ -98,6 +98,59 @@ describe('通知卡片操作匹配', () => {
   });
 });
 describe('通知红点', () => {
+  it('已读 ID 淘汰后仍保留时间水位，相同时间的其他新通知不被吞掉', () => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    cleanups.push(() => act(() => root.unmount()));
+    function Probe({ ids }: { ids: string[] }) {
+      return h('span', null, useNoticeUnread('bounded', 'friend', ids, false, true));
+    }
+    const newest = NOTICE_SEEN_LIMIT + 10;
+    const ids = Array.from(
+      { length: newest },
+      (_, index) => `buddy-request:u_peer:${newest - index}`,
+    );
+    act(() => root.render(h(Probe, { ids })));
+    expect(host.textContent).toBe('0');
+    const stored = JSON.parse(
+      window.localStorage.getItem('weq:notice-seen:bounded:friend') ?? '{}',
+    );
+    expect(stored.seen).toHaveLength(NOTICE_SEEN_LIMIT);
+    expect(stored.readThrough).toBe(newest);
+    act(() => root.render(null));
+    act(() => root.render(h(Probe, { ids })));
+    expect(host.textContent).toBe('0');
+    act(() => root.render(h(Probe, { ids: [...ids, `buddy-request:u_other:${newest}`] })));
+    expect(host.textContent).toBe('1');
+  });
+  it.each(['friend', 'group'] as const)(
+    '更新后重新读到较早历史不亮红点，离线期间的新通知仍提示：%s',
+    (kind) => {
+      const host = document.createElement('div');
+      const root = createRoot(host);
+      cleanups.push(() => act(() => root.unmount()));
+      const prefix = kind === 'friend' ? 'buddy-request:u_peer' : 'group-notify:123:u_peer';
+      const id = (timestamp: number) => `${prefix}:${timestamp}`;
+      // 直接提供旧版存储格式，验证升级迁移而非用新实现生成夹具。
+      window.localStorage.setItem(
+        `weq:notice-seen:upgrade:${kind}`,
+        JSON.stringify([id(200), id(300)]),
+      );
+      function Probe({ times, open }: { times: number[]; open: boolean }) {
+        return h('span', null, useNoticeUnread('upgrade', kind, times.map(id), open, true));
+      }
+      const render = (times: number[], open = false) =>
+        act(() => root.render(h(Probe, { times, open })));
+      render([100, 200, 300]);
+      expect(host.textContent).toBe('0');
+      render([100, 200, 300, 400]);
+      expect(host.textContent).toBe('1');
+      render([300, 400], true);
+      act(() => root.render(null));
+      render([50, 100, 200, 300, 400, 500]);
+      expect(host.textContent).toBe('1');
+    },
+  );
   it('群资料补齐或处理状态变化不产生新通知，只有新记录点亮', () => {
     const host = document.createElement('div');
     const root = createRoot(host);
