@@ -4,8 +4,9 @@
 //   `oidb-services/contacts/fetch-group-requests.ts`
 //   `oidb-services/group-admin/set-add-request.ts`
 //
-// 签名：LagrangeV2 白名单里有 `OidbSvcTrpcTcp.0x10c0_1/2` 与 `0x10c8_1/2`
-// → 自动推导为签。
+// 签名（真机实测，`scripts/probe-sign.ts`，三次一致）：`0x10c0_1/2` **不签**，
+// `0x10c8_1/2` **签**。LagrangeV2 白名单把这两族都收录了，但 QQ 自己只给 0x10c8 加
+// tag 24，所以两边要分开标。
 //
 // ⚠️ `setAddRequest` 的 `message`（拒绝理由）**空值必须写 `" "`**，不能省略 ——
 // 官方客户端就是这么发的；省略会被服务端拒。
@@ -200,8 +201,8 @@ function parseRequests(body: Record<string, unknown>, filtered: boolean): GroupR
 
 export namespace FetchGroupRequests {
   export const command = 0x10c0;
-  /** 主 / 过滤两个子命令都在白名单里；动态子命令无法在分发时推导，显式标注。 */
-  export const needSign = true;
+  /** 真机实测不会签名（scripts/probe-sign.ts），主 / 过滤两个子命令都不签。 */
+  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = GROUP_REQUEST_LIST_REQ;
   // uinForm=true 时用户字段 tag 1 是 uint32，必须用 UIN 形态的 schema。
@@ -232,8 +233,8 @@ export namespace FetchGroupRequests {
 export namespace FetchFilteredGroupRequests {
   export const command = 0x10c0;
   export const subCommand = 2;
-  /** 同 {@link FetchGroupRequests}。 */
-  export const needSign = true;
+  /** 同 {@link FetchGroupRequests}：真机实测不签名。 */
+  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = GROUP_REQUEST_LIST_REQ;
   export const respSchema = GROUP_REQUEST_RESP_BY_UIN;
@@ -284,7 +285,7 @@ export interface SetGroupRequestParams {
 
 export namespace SetGroupRequest {
   export const command = 0x10c8;
-  /** 主 / 过滤两个子命令都在白名单里；动态子命令无法在分发时推导，显式标注。 */
+  /** 真机实测会签名（scripts/probe-sign.ts），主 / 过滤两个子命令都签。 */
   export const needSign = true;
   export const uinForm = true;
   export const reqSchema = GROUP_REQUEST_ACTION_REQ;

@@ -2,7 +2,7 @@
  * 新增群管理 / 群文件 / 群待办 / 群打卡命令的离线单测。
  *
  * 覆盖：请求编码（黄金字节或结构断言）、路由（command/subCommand/isUid）、
- * needSign（按 LagrangeV2 白名单推导）、响应解析。
+ * needSign（真机实测，见 scripts/probe-sign.ts）、响应解析。
  *
  * 字段布局来源：SnowLuma `proto-defs/oidb-actions/*` 与
  * `oidb-services/{group-admin,group-file,extras,misc}/*`。
@@ -380,13 +380,13 @@ describe('请求处理 / 状态 / 已读', () => {
     expect(nt.calls[0]!.subCommand).toBe(2);
   });
 
-  it('FetchGroupRequests：0x10c0_1/2，签名', async () => {
+  it('FetchGroupRequests：0x10c0_1/2，不签名（真机实测）', async () => {
     const nt = makeNative();
     await FetchGroupRequests.invoke(nt, 1, {});
     await FetchGroupRequests.invoke(nt, 1, { filtered: true });
     expect(nt.calls.map((c) => [c.command, c.subCommand, c.needSign])).toEqual([
-      [0x10c0, 1, true],
-      [0x10c0, 2, true],
+      [0x10c0, 1, false],
+      [0x10c0, 2, false],
     ]);
   });
 

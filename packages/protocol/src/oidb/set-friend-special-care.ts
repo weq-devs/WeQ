@@ -11,7 +11,8 @@ export const SNS_SPECIAL_CARE = 13573;
 export namespace SetFriendSpecialCare {
   export const command = 0x5d6;
   export const subCommand = 6;
-  export const needSign = true;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = message([
     { name: 'sequence', tag: 1, type: 'uint32', force: true },
     {
