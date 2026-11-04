@@ -25,6 +25,13 @@ export type { GroupMsgFtsDbOptions } from './group_msg_fts';
 
 export { MsgSearchIndexDb } from './search_index';
 export type { MsgSearchIndexOptions, MsgSearchIndexPage } from './search_index';
+export { SourceMsgSearchDb } from './source_search';
+export type {
+  SourceSearchOptions,
+  SourceSearchTarget,
+  SourceSearchQuery,
+  SourceSearchTable,
+} from './source_search';
 
 export { UnreadInfoDb } from './unread_info';
 export type {
