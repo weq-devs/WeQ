@@ -52,6 +52,7 @@ import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
 import { getQqProtocolExe } from './qq_protocol_cache';
 import { searchAccountContent } from '../search_content';
+import { createSourceSearchQuery } from '../source_search';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
 import type { IntentLocalEnginePort } from '@weq/service';
@@ -1341,6 +1342,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
+      this.services?.unifiedSearch.dispose();
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
@@ -1652,10 +1654,10 @@ export function initAppContext(fileRoot?: string): AppContext {
           searchCollections: (keyword, limit, offset) =>
             collectionSvc.searchLocal(keyword, limit, offset),
           generatedSources: () => generatedSources,
-          // 本地 trigram 搜索索引：首查后台构建（群库约 20s），之后毫秒级。
-          // 构建失败自动回退 LIKE 扫描，搜索功能不受影响。
+          // 只读复用 QQ 搜索库；校验与交互查询在独立 worker 中运行。
           dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
           nt: platform.native.ntHelper,
+          sourceSearchQuery: createSourceSearchQuery(),
         }),
         onlineStatus: new OnlineStatusService(session, {
           nt: platform.native.ntHelper,
@@ -2254,6 +2256,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
+      this.services?.unifiedSearch.dispose();
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
@@ -2522,11 +2525,11 @@ export function initAppContext(fileRoot?: string): AppContext {
             ),
           searchCollections: (keyword, limit, offset) =>
             collectionSvc.searchLocal(keyword, limit, offset),
-          // 本地 trigram 搜索索引：首查后台构建（群库约 20s），之后毫秒级。
           generatedSources: () => generatedSources,
-          // 构建失败自动回退 LIKE 扫描，搜索功能不受影响。
+          // 只读复用 QQ 搜索库；校验与交互查询在独立 worker 中运行。
           dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
           nt: platform.native.ntHelper,
+          sourceSearchQuery: createSourceSearchQuery(),
         }),
         onlineStatus: new OnlineStatusService(session, {
           nt: platform.native.ntHelper,
@@ -2986,6 +2989,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
+      this.services?.unifiedSearch.dispose();
       void this.services?.agentLab.close().catch((error) => {
         getLogger().warn('停止克隆运行时失败', { error: String(error) });
       });

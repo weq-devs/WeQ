@@ -237,6 +237,12 @@ SQLite 的保留页按**文件**设置：QQ 库因 1024 字节头保留 `262144`
 
 ### 5.2 SQL 参数与返回值 `SqlValue`
 
+只读连接额外注册 QQ 搜索查询适配：`weq_qq_pinyin0_query_version()`、
+`weq_trigram_contains(body, keyword)` 与 `weq_trigram_equivalents(scalar)`。
+它们与 `pinyin_letter 0` 查询分词器共用内置 SQLite，不用于写回或重建 QQ 文档索引。
+旧 native 不提供这些函数时，宿主能力探测失败并退回已有读取路径；详见
+[复用 QQ 搜索索引](./qq-source-search-20261104.md)。
+
 `params` 支持 `null | bigint | number | string | Buffer | Uint8Array`；返回行内每个单元格为：
 
 - NULL → `null`
