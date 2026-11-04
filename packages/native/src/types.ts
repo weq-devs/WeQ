@@ -165,6 +165,13 @@ export interface SsoSessionConfig {
   subAppId: number;
   /** Current QQ client version, e.g. `7.0.1-52892`. */
   clientVersion?: string;
+  /**
+   * 完整的 QUA（如 `V1_LNX_NQ_3.2.34_53644_GW_B`），由 WeQ 从 `major.node` 扫出后传入。
+   *
+   * 签名时需要它拼 `SecExtra`（protobuf `{2: QUA}`）——原生侧在 WeQ 进程里
+   * 算不出这个值（没有 QQ 的登录会话），也必须避免在签名路径上重新扫 major。
+   */
+  qua?: string | null;
   /** 覆盖会话常量 `clientConnSeq`；不传 = 取建连时的 unix 秒。 */
   clientConnSeq?: string | null;
   /** 覆盖 tag 15 `traceParent`（仅离线比对用）。 */

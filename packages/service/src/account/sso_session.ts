@@ -90,6 +90,11 @@ export interface SsoIdentity {
   subAppId?: number;
   /** Explicit version override for tests or known client metadata. */
   clientVersion?: string;
+  /**
+   * 完整 QUA（如 `V1_LNX_NQ_3.2.34_53644_GW_B`）。省略时从 `major.node` 解析；
+   * 签名时要拿它拼 `SecExtra`（protobuf `{2: QUA}`）。
+   */
+  qua?: string;
 }
 
 export interface SsoClientSnapshot {
@@ -123,7 +128,8 @@ export function resolveSsoClientSnapshot(
   const majorPath = platform.qqMajorNodePath(pid);
   const wrapperPath = platform.qqWrapperNodePath(pid);
   let info: AppidInfo | undefined;
-  if (identity.subAppId === undefined || !identity.clientVersion) {
+  // QUA 也要从这里取（签名时拼 SecExtra），所以缺 qua 时一样要读一次 major。
+  if (identity.subAppId === undefined || !identity.clientVersion || !identity.qua) {
     if (!majorPath && identity.subAppId === undefined)
       throw new Error('运行中 QQ 的 major.node 不可用，无法确认 App ID。');
     if (majorPath) {
@@ -158,9 +164,15 @@ export function resolveSsoClientSnapshot(
   const clientVersion =
     identity.clientVersion ||
     (info?.version && info.build ? `${info.version}-${info.build}` : undefined);
+  const qua = identity.qua ?? info?.qua ?? undefined;
   return {
     pid,
-    identity: { ...identity, subAppId, ...(clientVersion ? { clientVersion } : {}) },
+    identity: {
+      ...identity,
+      subAppId,
+      ...(clientVersion ? { clientVersion } : {}),
+      ...(qua ? { qua } : {}),
+    },
     majorPath,
     wrapperPath,
   };
@@ -269,7 +281,7 @@ export async function registerSsoSessionInTurn(
       client.identity.guid !== identity.guid
     )
       throw new Error('SSO 客户端快照与账号会话不匹配。');
-    const { subAppId, clientVersion } = client.identity;
+    const { subAppId, clientVersion, qua } = client.identity;
 
     if (!isCurrent()) return false;
     await nt.setSsoSession(
@@ -283,6 +295,8 @@ export async function registerSsoSessionInTurn(
         uid: identity.uid,
         subAppId,
         ...(clientVersion ? { clientVersion } : {}),
+        // QUA 来自 major.node：签名时拼 SecExtra（protobuf `{2: QUA}`）。
+        ...(qua ? { qua } : {}),
         // SecToken 来自 QQ 内存（随 a2/d2/d2key 同批扫出）：本进程签名算不出它。
         ...(material.secToken ? { secToken: material.secToken } : {}),
       },
