@@ -74,6 +74,11 @@ export interface UnifiedSearchServiceOptions {
   /** 读取 QQ 搜索库的 native；不会解密复制或写入源库。 */
   nt?: NtHelperBinding;
   sourceSearchQuery?: SourceSearchQuery;
+  retireSearchIndex?: (
+    source: FtsSource,
+    sourcePath: string,
+    signal: AbortSignal,
+  ) => Promise<boolean>;
 }
 
 export const SEARCH_CATEGORIES = [
@@ -270,6 +275,10 @@ export class UnifiedSearchService {
   private indexSyncPromise: Promise<void> | null = null;
   private lastIndexSyncAt = 0;
   private disposed = false;
+  private readonly retirementAbort = new AbortController();
+  private readonly retiredSources = new Set<FtsSource>();
+  private readonly retirementAttempts = new Map<FtsSource, number>();
+  private readonly retirementPending = new Set<FtsSource>();
 
   constructor(
     private readonly session: AccountSession,
@@ -339,10 +348,39 @@ export class UnifiedSearchService {
   }
   dispose(): void {
     this.disposed = true;
+    this.retirementAbort.abort(new Error('搜索来源已关闭'));
     this.buddyIndex?.dispose();
     this.groupIndex?.dispose();
     this.chatRecordCache.clear();
     this.fileCache.clear();
+  }
+  private maybeRetire(source: FtsSource): void {
+    const index = source === 'group' ? this.groupIndex : this.buddyIndex;
+    if (
+      this.disposed ||
+      !this.options.retireSearchIndex ||
+      !index?.accelerated ||
+      !index.indexedReadVerified ||
+      this.retiredSources.has(source) ||
+      this.retirementPending.has(source)
+    )
+      return;
+    const now = Date.now();
+    if (now - (this.retirementAttempts.get(source) ?? 0) < 60000) return;
+    this.retirementAttempts.set(source, now);
+    this.retirementPending.add(source);
+    const path =
+      source === 'group' ? this.session.groupMsgFts.dbPath : this.session.buddyMsgFts.dbPath;
+    void this.options
+      .retireSearchIndex(source, path, this.retirementAbort.signal)
+      .then((done) => {
+        if (done) this.retiredSources.add(source);
+      })
+      .catch((error) => {
+        if (!this.disposed)
+          console.warn('[unified-search] legacy cache retirement deferred:', error);
+      })
+      .finally(() => this.retirementPending.delete(source));
   }
 
   // ---------------------------------------------------------------- public
@@ -693,6 +731,7 @@ export class UnifiedSearchService {
     const r = index?.ready
       ? await index.searchPartition(partition, needle, limit, offset, true)
       : await db.searchInPartition(partition, needle, limit, offset);
+    this.maybeRetire(source);
     // 把 FTS 命中回查原消息表（同一 40027 分区 + 40003 seq），能取到真实
     // 40800 正文就渲染原消息，取不到（已撤回/未同步/行被删）回退 FTS 纯文本。
     const originals = await this.loadOriginalMessages(source, partition, r.items);
@@ -977,6 +1016,8 @@ export class UnifiedSearchService {
         ? this.groupIndex.topPartitions(keyword, 200)
         : this.session.groupMsgFts.topConversationsByKeyword(keyword, 200),
     ]);
+    this.maybeRetire('buddy');
+    this.maybeRetire('group');
 
     // Resolve identities for all ranked partitions in parallel.
     const [buddyIds, groupNames] = await Promise.all([
@@ -1042,6 +1083,8 @@ export class UnifiedSearchService {
         ? this.groupIndex.searchFiles(keyword, 100, 0)
         : this.session.groupMsgFts.searchFilesByKeyword(keyword, 100, 0),
     ]);
+    this.maybeRetire('buddy');
+    this.maybeRetire('group');
     const seen = new Set<string>();
     const out: FileSearchHit[] = [];
     const candidates = [
