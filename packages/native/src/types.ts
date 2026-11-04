@@ -1104,6 +1104,38 @@ export interface NtHelperBinding {
    */
   encodeVideoFrame(y: Buffer, u: Buffer, v: Buffer): VideoFrameResult | null;
 
+  // --- 群通话的 H.264 ---
+  /**
+   * 打开群通话用的 H.264 编码器。
+   *
+   * 与 {@link openVideoEncoder}（私聊的 H.265）并列：群通话抓包里的 SPS 是
+   * `67 64 00 1f`（H.264 High 3.1），不是 t265 的 H.265。
+   *
+   * 用 QQ 自带的 `libopenh264.so`（linux `resources/app/avsdk/` 下）。
+   * **目前只有 linux 支持**：macOS 的 openh264 静态链进 `libAVSDKPlugin.dylib`、
+   * Windows 的编码走自有 `CVideoEncoder`，两端都要另外逆。
+   *
+   * `keyint` 是关键帧间隔（帧数），不传按 QQ 客户端的 30。
+   */
+  openH264Encoder(
+    modulesDir: string,
+    width?: number | null,
+    height?: number | null,
+    fps?: number | null,
+    bitrateKbps?: number | null,
+    keyint?: number | null,
+  ): Promise<void>;
+  /** 关掉 H.264 编码器。群通话结束时调用。 */
+  closeH264Encoder(): void;
+  /** 当前 H.264 编码器是否已打开。 */
+  isH264EncoderOpen(): boolean;
+  /**
+   * 用 H.264 编一帧。输入 I420 三个平面，输出 Annex B 裸流。
+   *
+   * 实时模式下一般每帧都有输出，返回 `null` 表示这一帧没编出东西。
+   */
+  encodeH264Frame(y: Buffer, u: Buffer, v: Buffer): VideoFrameResult | null;
+
   /**
    * Sign a red bag pre-pack request (`hb_pc_pre_pack`) — the plaintext `f101`.
    *
