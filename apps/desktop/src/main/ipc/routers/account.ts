@@ -3600,7 +3600,7 @@ export const accountRouter = router({
       configId: record.configId,
       uin: record.uin,
       dbKey: record.dbKey,
-      // 会话物料（a2 / d2 / d2key）+ 设备身份，供 设置 → 账号基础 展示。
+      // 会话物料（a2 / d2 / d2key / secToken）+ 设备身份，供 设置 → 账号基础 展示。
       // a1 是 login.db 解出来的 TGTGT payload；guid 与登录无关，单独一档。
       // 渲染层默认打码，眼睛按需展开 —— 与 dbKey 同款交互。
       a1: record.a1Payload ?? null,
