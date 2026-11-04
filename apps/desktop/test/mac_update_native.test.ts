@@ -24,7 +24,24 @@ async function signedApp(path: string, version: string) {
   await mkdir(join(path, 'Contents/MacOS'), { recursive: true });
   await mkdir(join(path, 'Contents/Resources'));
   const source = join(dirname(path), 'probe.c');
-  await writeFile(source, 'int main(void) { return 0; }\n');
+  const receipt = join(dirname(path), `launched-${version}.txt`);
+  await writeFile(
+    source,
+    `#include <mach-o/dyld.h>
+#include <stdio.h>
+#include <stdlib.h>
+int main(void) {
+  char executable[4096], resolved[4096];
+  uint32_t size = sizeof(executable);
+  if (_NSGetExecutablePath(executable, &size) != 0 || !realpath(executable, resolved)) return 1;
+  FILE *file = fopen(${JSON.stringify(receipt)}, "w");
+  if (!file) return 2;
+  const char *nodeMode = getenv("ELECTRON_RUN_AS_NODE");
+  fprintf(file, "%s\\n%s\\n%s\\n", ${JSON.stringify(version)}, resolved, nodeMode ? nodeMode : "");
+  return fclose(file) == 0 ? 0 : 3;
+}
+`,
+  );
   await run('/usr/bin/clang', [
     '-arch',
     nativeArch === 'arm64' ? 'arm64' : 'x86_64',
@@ -106,7 +123,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 
-// 依赖 macOS 系统 codesign / ditto / LaunchServices，不在其它系统伪造原生验收。
+// 依赖 macOS 系统 codesign / ditto 与 Mach-O 执行，不在其它系统伪造原生验收。
 describe.runIf(process.platform === 'darwin')('macOS 原生更新回归（合成应用，无 QQ 数据）', () => {
   it('复现两个完整 ad-hoc 签名仍不满足旧 cdhash；独立验证接受完整新包，拒绝损坏资源', async () => {
     const { root, next, plan } = await fixture();
@@ -166,6 +183,12 @@ child.send({type:'prepare',parentPid:process.pid,plan:${JSON.stringify(plan)}});
         async () => JSON.parse(await readFile(plan.report, 'utf8')).phase !== 'installing',
       );
       expect(JSON.parse(await readFile(plan.report, 'utf8'))).toMatchObject({ phase: 'installed' });
+      const receipt = join(plan.staging, `launched-${plan.version}.txt`);
+      await until(() => existsSync(receipt));
+      expect(await readFile(receipt, 'utf8')).toBe(
+        `${plan.version}\n${await realpath(join(plan.target, 'Contents/MacOS/probe'))}\n\n`,
+      );
+      expect(existsSync(join(root, `launched-${plan.previousVersion}.txt`))).toBe(false);
       await verifyMacBundle(plan.target, plan.version, nativeArch);
       expect(
         await readFile(join(plan.staging, 'previous.app/Contents/Resources/version.txt'), 'utf8'),

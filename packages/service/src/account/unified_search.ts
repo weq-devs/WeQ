@@ -4,7 +4,6 @@
  * bigint 在边界转成字符串，供桌面与 Web 共享 IPC 契约。
  */
 
-import { join } from 'node:path';
 import {
   classifyChatType,
   toChatTypeNumber,
@@ -12,7 +11,14 @@ import {
   type SetEmojiItem,
 } from '@weq/codec';
 import { algoFor, type AccountSession } from '@weq/account';
-import { MsgSearchIndexDb, type BuddyMsgFtsHit, type C2cMsg, type GroupMsg } from '@weq/db';
+import {
+  SourceMsgSearchDb,
+  type SourceSearchQuery,
+  type SourceSearchTable,
+  type BuddyMsgFtsHit,
+  type C2cMsg,
+  type GroupMsg,
+} from '@weq/db';
 import { toRenderElements, type RenderElement } from './msg_view';
 import { elementsToText } from './export/element_text';
 import { GuildDirectService } from './guild_direct';
@@ -62,12 +68,17 @@ export interface UnifiedSearchServiceOptions {
   ) => Promise<{ items: CollectionSearchHit[]; total: number }>;
   generatedSources?: () => GeneratedSearchSources | undefined;
   /**
-   * Directory for the local trigram search index (one subdir per source db).
-   * Omit to disable the index and fall back to plain LIKE scans.
+   * 旧搜索缓存的位置，仅供迁移清理；源库搜索不在这里创建数据库。
    */
   dataDir?: string;
-  /** Native binding used for bulk decrypt + plain-SQLite index writes. */
+  /** 读取 QQ 搜索库的 native；不会解密复制或写入源库。 */
   nt?: NtHelperBinding;
+  sourceSearchQuery?: SourceSearchQuery;
+  retireSearchIndex?: (
+    source: FtsSource,
+    sourcePath: string,
+    signal: AbortSignal,
+  ) => Promise<boolean>;
 }
 
 export const SEARCH_CATEGORIES = [
@@ -259,57 +270,45 @@ export class UnifiedSearchService {
     string,
     { at: number; value: FileSearchHit[]; limited: boolean }
   >();
-  private readonly buddyIndex?: MsgSearchIndexDb;
-  private readonly groupIndex?: MsgSearchIndexDb;
+  private readonly buddyIndex?: SourceMsgSearchDb;
+  private readonly groupIndex?: SourceMsgSearchDb;
   private indexSyncPromise: Promise<void> | null = null;
   private lastIndexSyncAt = 0;
-  private indexFailed = false;
+  private disposed = false;
+  private readonly retirementAbort = new AbortController();
+  private readonly retiredSources = new Set<FtsSource>();
+  private readonly retirementAttempts = new Map<FtsSource, number>();
+  private readonly retirementPending = new Set<FtsSource>();
 
   constructor(
     private readonly session: AccountSession,
     private readonly options: UnifiedSearchServiceOptions = {},
   ) {
-    if (!options.dataDir || !options.nt) return;
-    const dataDir = options.dataDir;
-    this.buddyIndex = this.createIndex(
-      options.nt,
-      dataDir,
-      session.buddyMsgFts.dbPath,
-      'buddy_msg_fts',
-    );
-    this.groupIndex = this.createIndex(
-      options.nt,
-      dataDir,
-      session.groupMsgFts.dbPath,
-      'group_msg_fts',
-    );
+    if (!options.nt) return;
+    this.buddyIndex = this.createIndex(options.nt, session.buddyMsgFts.dbPath, 'buddy_msg_fts');
+    this.groupIndex = this.createIndex(options.nt, session.groupMsgFts.dbPath, 'group_msg_fts');
   }
 
   private createIndex(
     nt: NtHelperBinding,
-    dataDir: string,
     sourcePath: string,
-    tableName: string,
-  ): MsgSearchIndexDb | undefined {
-    return new MsgSearchIndexDb({
+    tableName: SourceSearchTable,
+  ): SourceMsgSearchDb {
+    return new SourceMsgSearchDb({
       nt,
-      sourcePath,
-      indexDbPath: join(dataDir, tableName, 'index.db'),
+      dbPath: sourcePath,
       key: this.session.context.dbKey,
       algo: algoFor(this.session.context, sourcePath),
       tableName,
+      query: this.options.sourceSearchQuery,
     });
   }
 
-  /**
-   * Local index status — 'disabled' when the service was built without index
-   * options, 'building' while the (one-time) full build runs, 'ready' after.
-   */
+  /** 兼容原状态枚举：building 表示校验源库，不再表示构建本地副本。 */
   get indexStatus(): 'disabled' | 'building' | 'ready' {
     if (!this.buddyIndex || !this.groupIndex) return 'disabled';
-    if (this.indexFailed) return 'disabled';
     if (this.indexSyncPromise) return 'building';
-    return this.buddyIndex.ready && this.groupIndex.ready ? 'ready' : 'building';
+    return this.buddyIndex.ready || this.groupIndex.ready ? 'ready' : 'disabled';
   }
 
   /**
@@ -317,6 +316,7 @@ export class UnifiedSearchService {
    * leave the index disabled and every query falls back to the LIKE scans.
    */
   ensureIndexes(): Promise<void> {
+    if (this.disposed) return Promise.resolve();
     if (!this.buddyIndex || !this.groupIndex) return Promise.resolve();
     if (this.indexSyncPromise) return this.indexSyncPromise;
     const now = Date.now();
@@ -325,7 +325,6 @@ export class UnifiedSearchService {
     this.indexSyncPromise = this.syncIndexes()
       .then(() => undefined)
       .catch((e) => {
-        this.indexFailed = true;
         console.error('[unified-search] index sync failed, falling back to LIKE:', e);
       })
       .finally(() => {
@@ -334,52 +333,54 @@ export class UnifiedSearchService {
     return this.indexSyncPromise;
   }
 
-  /**
-   * Full rebuild (structural mismatch only) + per-conversation msgSeq watermark
-   * catch-up. Watermarks come from the recent-contact table (small, live); how
-   * far each partition already got comes from the index's own keys table, so
-   * messages that arrived while WeQ was closed are picked up on the next run.
-   * A failed incremental is non-fatal (retried next time); only a failed full
-   * rebuild disables the index.
-   */
+  /** 两个来源独立校验；缺失或不兼容的一个库不禁用另一个。QQ 自己维护增量。 */
   private async syncIndexes(): Promise<void> {
     const buddy = this.buddyIndex;
     const group = this.groupIndex;
     if (!buddy || !group) return;
-    await Promise.all([buddy.sync(), group.sync()]);
-    // Watermarks read AFTER the rebuild so rows that arrived during it
-    // (incl. the -wal backlog the decrypt snapshot missed) are in the diff.
-    let buddyWm = new Map<string, bigint>();
-    let groupWm = new Map<string, bigint>();
-    try {
-      [buddyWm, groupWm] = await Promise.all([
-        this.watermarkMap('direct'),
-        this.watermarkMap('group'),
-      ]);
-    } catch (e) {
-      console.warn('[unified-search] watermark read failed, skip incremental:', e);
-      return;
-    }
-    await Promise.all([
-      buddy.incrementalFromWatermarks(buddyWm),
-      group.incrementalFromWatermarks(groupWm),
-    ]);
+    const results = await Promise.allSettled([buddy.sync(), group.sync()]);
+    for (const result of results)
+      if (result.status === 'rejected')
+        console.warn(
+          '[unified-search] source search unavailable, falling back to LIKE:',
+          result.reason,
+        );
   }
-
-  /** Per-conversation 40003 watermark map keyed by the FTS partition (40027). */
-  private async watermarkMap(kind: 'direct' | 'group'): Promise<Map<string, bigint>> {
-    const rows = await this.session.recentContacts.listSeqWatermarks();
-    const out = new Map<string, bigint>();
-    for (const r of rows) {
-      if (classifyChatType(r.chatType) !== kind) continue;
-      if (kind === 'group') {
-        out.set(r.targetUid, r.msgSeq);
-      } else {
-        const sortNo = this.session.uidMap.sortNoByUid(r.targetUid);
-        if (sortNo !== undefined) out.set(sortNo.toString(), r.msgSeq);
-      }
-    }
-    return out;
+  dispose(): void {
+    this.disposed = true;
+    this.retirementAbort.abort(new Error('搜索来源已关闭'));
+    this.buddyIndex?.dispose();
+    this.groupIndex?.dispose();
+    this.chatRecordCache.clear();
+    this.fileCache.clear();
+  }
+  private maybeRetire(source: FtsSource): void {
+    const index = source === 'group' ? this.groupIndex : this.buddyIndex;
+    if (
+      this.disposed ||
+      !this.options.retireSearchIndex ||
+      !index?.accelerated ||
+      !index.indexedReadVerified ||
+      this.retiredSources.has(source) ||
+      this.retirementPending.has(source)
+    )
+      return;
+    const now = Date.now();
+    if (now - (this.retirementAttempts.get(source) ?? 0) < 60000) return;
+    this.retirementAttempts.set(source, now);
+    this.retirementPending.add(source);
+    const path =
+      source === 'group' ? this.session.groupMsgFts.dbPath : this.session.buddyMsgFts.dbPath;
+    void this.options
+      .retireSearchIndex(source, path, this.retirementAbort.signal)
+      .then((done) => {
+        if (done) this.retiredSources.add(source);
+      })
+      .catch((error) => {
+        if (!this.disposed)
+          console.warn('[unified-search] legacy cache retirement deferred:', error);
+      })
+      .finally(() => this.retirementPending.delete(source));
   }
 
   // ---------------------------------------------------------------- public
@@ -726,7 +727,11 @@ export class UnifiedSearchService {
     if (partition === undefined) return { items: [], total: 0 };
 
     const db = source === 'group' ? this.session.groupMsgFts : this.session.buddyMsgFts;
-    const r = await db.searchInPartition(partition, needle, limit, offset);
+    const index = source === 'group' ? this.groupIndex : this.buddyIndex;
+    const r = index?.ready
+      ? await index.searchPartition(partition, needle, limit, offset, true)
+      : await db.searchInPartition(partition, needle, limit, offset);
+    this.maybeRetire(source);
     // 把 FTS 命中回查原消息表（同一 40027 分区 + 40003 seq），能取到真实
     // 40800 正文就渲染原消息，取不到（已撤回/未同步/行被删）回退 FTS 纯文本。
     const originals = await this.loadOriginalMessages(source, partition, r.items);
@@ -1003,15 +1008,16 @@ export class UnifiedSearchService {
     const hit = this.chatRecordCache.get(keyword);
     if (hit && Date.now() - hit.at < 30_000) return hit.value;
     // Indexed path first (trigram FTS5, ms-level); LIKE GROUP BY as fallback.
-    const indexed = trigramReady(keyword);
     const [buddyTop, groupTop] = await Promise.all([
-      indexed && this.buddyIndex?.ready
+      this.buddyIndex?.ready
         ? this.buddyIndex.topPartitions(keyword, 200)
         : this.session.buddyMsgFts.topConversationsByKeyword(keyword, 200),
-      indexed && this.groupIndex?.ready
+      this.groupIndex?.ready
         ? this.groupIndex.topPartitions(keyword, 200)
         : this.session.groupMsgFts.topConversationsByKeyword(keyword, 200),
     ]);
+    this.maybeRetire('buddy');
+    this.maybeRetire('group');
 
     // Resolve identities for all ranked partitions in parallel.
     const [buddyIds, groupNames] = await Promise.all([
@@ -1069,15 +1075,16 @@ export class UnifiedSearchService {
     if (hit && Date.now() - hit.at < 30_000) return hit.value;
 
     // 候选池有界；只去掉同一来源、会话、消息的重复索引行。
-    const indexed = trigramReady(keyword);
     const [buddyPool, groupPool] = await Promise.all([
-      indexed && this.buddyIndex?.ready
+      this.buddyIndex?.ready
         ? this.buddyIndex.searchFiles(keyword, 100, 0)
         : this.session.buddyMsgFts.searchFilesByKeyword(keyword, 100, 0),
-      indexed && this.groupIndex?.ready
+      this.groupIndex?.ready
         ? this.groupIndex.searchFiles(keyword, 100, 0)
         : this.session.groupMsgFts.searchFilesByKeyword(keyword, 100, 0),
     ]);
+    this.maybeRetire('buddy');
+    this.maybeRetire('group');
     const seen = new Set<string>();
     const out: FileSearchHit[] = [];
     const candidates = [
@@ -1180,9 +1187,6 @@ function isBareLabel(text: string): boolean {
 }
 
 /** trigram tokenizer only matches 3+ character substrings. */
-function trigramReady(keyword: string): boolean {
-  return [...keyword.trim()].length >= 3;
-}
 
 /** Human label for a recent-contact chatType (from the codec ChatKind). */
 function conversationTypeLabel(chatType: string | number): string {

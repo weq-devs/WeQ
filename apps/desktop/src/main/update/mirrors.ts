@@ -73,7 +73,6 @@ export const FILE_MIRRORS: readonly string[] = [
   'https://gh-proxy.com/',
   'https://ghfile.geekertao.top/',
   'https://j.1lin.dpdns.org/',
-  'https://ghproxy.imciel.com/',
   'https://github-proxy.teach-english.tech/',
   'https://gh.927223.xyz/',
   'https://github.ednovas.xyz/',
