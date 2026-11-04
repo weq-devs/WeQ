@@ -93,7 +93,9 @@ describe('长期授权设置', () => {
     expect(bridge.install).not.toHaveBeenCalled();
     bridge.install.mockRejectedValueOnce(new Error('fixture denied'));
     await act(async () => view.button('启用长期授权').click());
-    expect(view.host.querySelector('[role="alert"]')?.textContent).toBe('fixture denied');
+    expect(view.host.querySelector('[role="alert"]')?.textContent).toBe(
+      '启用长期授权失败：fixture denied',
+    );
     expect(view.button('启用长期授权').disabled).toBe(false);
   });
   it('已就绪支持修复与撤销；失败不误显示已撤销', async () => {
