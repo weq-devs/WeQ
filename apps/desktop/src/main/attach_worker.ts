@@ -30,6 +30,8 @@ interface SessionMaterial {
   a2?: string;
   d2?: string;
   d2Key?: string;
+  /** 12 字符 base64 原文；扫不到就没有这一项。 */
+  secToken?: string;
 }
 
 interface AttachResult {
@@ -46,14 +48,16 @@ function fail(error: string, code: number): never {
 
 async function main(): Promise<void> {
   const pid = Number(process.argv[2]);
-  // argv[3] 是账号 uin —— 读取本身不需要它（只用于归属/诊断），保留这个位置是
-  // 为了让父进程的参数布局不随实现变化。
+  // argv[3] / argv[4] 是账号 uin / uid：读取 a2/d2/d2key 不需要它们，但 SecToken
+  // 的候选要靠它们消歧（Windows 记录附近带 uid，macOS/Linux 带 uin）。为空串表示
+  // 调用方不知道，原生侧会退回「命中次数投票」。
   const uin = process.argv[3];
-  const ntHelperPath = process.argv[4];
+  const uid = process.argv[4];
+  const ntHelperPath = process.argv[5];
 
   if (!Number.isInteger(pid) || pid <= 0) fail(`bad pid: ${process.argv[2]}`, 2);
-  if (!uin) fail('missing account uin (argv[3])', 2);
-  if (!ntHelperPath) fail('missing nt_helper.node path (argv[4])', 2);
+  // uin / uid 都可能为空（调用方还没解析出账号身份），此时照样能读。
+  if (!ntHelperPath) fail('missing nt_helper.node path (argv[5])', 2);
 
   // Must run BEFORE require — the addon's LICENSE check runs on load, and it
   // walks up from cwd. The addon dir's ancestors contain the LICENSE.
@@ -65,7 +69,7 @@ async function main(): Promise<void> {
 
   let nt: {
     getInitStatus(): number;
-    scanSessionMaterial(pid: number): Promise<SessionMaterial>;
+    scanSessionMaterial(pid: number, uin?: string, uid?: string): Promise<SessionMaterial>;
   };
   try {
     nt = requireFn(ntHelperPath);
@@ -77,7 +81,7 @@ async function main(): Promise<void> {
   if (initStatus !== 0) fail(`nt_helper init failed (status ${initStatus})`, 1);
 
   try {
-    const material = await nt.scanSessionMaterial(pid);
+    const material = await nt.scanSessionMaterial(pid, uin || undefined, uid || undefined);
     const payload: AttachResult = { ok: true, material };
     process.stdout.write(JSON.stringify(payload));
     process.exit(0);

@@ -31,7 +31,12 @@ export type {
 } from './bootstrap/key';
 
 export { createDirectAttachHook, createCachedAttachHook } from './bootstrap/attach';
-export type { AttachHook, AttachHintChoice, AttachHintAnswer } from './bootstrap/attach';
+export type {
+  AttachHook,
+  AttachIdentity,
+  AttachHintChoice,
+  AttachHintAnswer,
+} from './bootstrap/attach';
 export { runUnprivilegedAttach } from './bootstrap/attach_flow';
 export type { DirectAttachFailure, AttachFlowDeps } from './bootstrap/attach_flow';
 
@@ -189,7 +194,10 @@ export {
 } from './account/web/dress_mall';
 export type { DressMallItem } from './account/web/dress_mall';
 export { AccountMonitorService } from './account/monitor';
-export { isCompleteSessionMaterial } from './common/session_material';
+export {
+  canReuseSessionMaterial,
+  isCompleteSessionMaterial,
+} from './common/session_material';
 export {
   attachAndRegisterSsoSession,
   registerSsoSession,

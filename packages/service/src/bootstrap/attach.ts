@@ -28,17 +28,29 @@ import type { NtHelperBinding, SessionMaterial } from '@weq/native';
 import { getLogger } from '../common/logger';
 import { isCompleteSessionMaterial } from '../common/session_material';
 
+/**
+ * 读内存时能提供给原生侧的账号标识。
+ *
+ * 两者都不参与 a2/d2/d2key 的读取，只用来让 `SecToken` 的候选收敛：
+ * Windows 的真 token 记录附近带 uid，macOS/Linux 带 uin。调用方手上有什么
+ * 就给什么 —— 缺一个仍能工作，只是少一条消歧证据。
+ */
+export interface AttachIdentity {
+  uin?: string | null;
+  uid?: string | null;
+}
+
 export interface AttachHook {
   /**
-   * 读 `pid` 的内存并返回该会话物料。平台差异（是否提权）由实现自己决定；
-   * `uin` 只用于日志与归属，读取本身不需要它。
+   * 读 `pid` 的内存并返回该会话物料。平台差异（是否提权）由实现自己决定。
    * 幂等 —— 同一账号和 pid 已读到完整凭据时直接返回缓存，部分结果允许重读。
+   * 缓存以 `uin` 为归属键（没有 uin 时退回 uid）。
    */
-  attach(pid: number, uin: string, signal?: AbortSignal): Promise<SessionMaterial>;
+  attach(pid: number, identity: AttachIdentity, signal?: AbortSignal): Promise<SessionMaterial>;
   /**
    * 同 {@link attach}（读内存没有独立的「等待就绪」半步）。
    */
-  ensure(pid: number, uin: string, signal?: AbortSignal): Promise<SessionMaterial>;
+  ensure(pid: number, identity: AttachIdentity, signal?: AbortSignal): Promise<SessionMaterial>;
   /** 忘掉 `pid` 的缓存物料，下一次调用重新读。 */
   reset(pid: number): void;
 }
@@ -65,11 +77,24 @@ export interface AttachHintAnswer {
  * win32 (and used as the fallback whenever no platform-specific hook is
  * supplied). Not for linux/macOS — see {@link AttachHook}.
  */
+/**
+ * 缓存归属键：优先 uin（账号的主标识），没有时退回 uid。
+ *
+ * 两者都没有时会退化成空串 —— 调用方本来就拿不到账号身份，缓存只能按 pid
+ * 认；这种情况只出现在诊断脚本里，不影响正常链路。
+ */
+function attachOwner(identity: AttachIdentity): string {
+  return identity.uin || identity.uid || '';
+}
+
 /** Account-scoped caching with exclusive reads per process and reset fencing. */
 export function createCachedAttachHook(
-  read: (pid: number, uin: string, signal: AbortSignal) => Promise<SessionMaterial>,
+  read: (pid: number, identity: AttachIdentity, signal: AbortSignal) => Promise<SessionMaterial>,
 ): AttachHook {
-  const cached = new Map<number, { uin: string; generation: number; material: SessionMaterial }>();
+  const cached = new Map<
+    number,
+    { owner: string; generation: number; material: SessionMaterial }
+  >();
   const generations = new Map<number, number>();
   type ReadEntry = {
     generation: number;
@@ -117,15 +142,16 @@ export function createCachedAttachHook(
   };
   const ensure = async (
     pid: number,
-    uin: string,
+    identity: AttachIdentity,
     signal?: AbortSignal,
   ): Promise<SessionMaterial> => {
     signal?.throwIfAborted();
+    const owner = attachOwner(identity);
     const hit = cached.get(pid);
     const generation = generations.get(pid) ?? 0;
-    if (hit?.uin === uin && hit.generation === generation) return hit.material;
-    if (hit && hit.uin !== uin) cached.delete(pid);
-    const key = `${pid}:${uin}`;
+    if (hit?.owner === owner && hit.generation === generation) return hit.material;
+    if (hit && hit.owner !== owner) cached.delete(pid);
+    const key = `${pid}:${owner}`;
     const pending = inflight.get(key);
     if (pending?.generation === generation && !pending.controller.signal.aborted)
       return subscribe(pending, signal);
@@ -137,12 +163,12 @@ export function createCachedAttachHook(
       controller.signal.throwIfAborted();
       if ((generations.get(pid) ?? 0) !== generation)
         throw new Error('QQ 会话读取已失效，请重新读取。');
-      const material = await read(pid, uin, controller.signal);
+      const material = await read(pid, identity, controller.signal);
       controller.signal.throwIfAborted();
       if ((generations.get(pid) ?? 0) !== generation)
         throw new Error('QQ 会话读取已失效，请重新读取。');
       // 扫描成功也可能只拿到部分字段，不能让暂缺凭据一直命中缓存。
-      if (isCompleteSessionMaterial(material)) cached.set(pid, { uin, generation, material });
+      if (isCompleteSessionMaterial(material)) cached.set(pid, { owner, generation, material });
       return material;
     });
     const entry: ReadEntry = { generation, task, controller, users: 0 };
@@ -168,11 +194,15 @@ export function createDirectAttachHook(
   fallback?: (pid: number, signal?: AbortSignal) => Promise<SessionMaterial | null>,
 ): AttachHook {
   const logger = getLogger().child({ scope: 'attach' });
-  return createCachedAttachHook(async (pid, uin, signal) => {
+  return createCachedAttachHook(async (pid, identity, signal) => {
     let material: SessionMaterial;
     try {
-      // uin 只用来给 SecToken 精筛（同一段内存记录里 uin 就在 token 后面）。
-      material = await nt.scanSessionMaterial(pid, uin || undefined);
+      // uin / uid 只用来给 SecToken 精筛（同一段内存记录里带其一）。
+      material = await nt.scanSessionMaterial(
+        pid,
+        identity.uin || undefined,
+        identity.uid || undefined,
+      );
     } catch (error) {
       signal.throwIfAborted();
       const recovered = await fallback?.(pid, signal);
@@ -182,7 +212,7 @@ export function createDirectAttachHook(
     logger.info('attached to qq process', {
       event: 'attach',
       pid,
-      uin,
+      uin: identity.uin,
       hasA2: material.a2 !== undefined,
       hasD2: material.d2 !== undefined,
       hasD2Key: material.d2Key !== undefined,

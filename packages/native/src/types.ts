@@ -804,11 +804,12 @@ export interface NtHelperBinding {
    * SIP）；Windows 需要管理员。失败时 reject，错误信息本身就是提权/版本变化的
    * 诊断提示。
    *
-   * `uin` 用于给 `SecToken` 精筛（同一条内存记录里 uin 就在 token 后面几十
-   * 字节）：传了能保证唯一命中，不传则退回粗筛、可能取到字段名之类的误报。
-   * 调用方本来就知道 uin，务必传。
+   * `uin` / `uid` 用于给 `SecToken` 精筛：内存里可能残留旧会话的 token，
+   * 当前会话的记录附近带 uin（macOS / Linux）或 uid（Windows）。调用方通常
+   * 两个都知道，**都传**；都不传时原生侧退回「命中次数投票」，在没有旧会话
+   * 残留的情况下仍能得出正确结果。
    */
-  scanSessionMaterial(pid: number, uin?: string): Promise<SessionMaterial>;
+  scanSessionMaterial(pid: number, uin?: string, uid?: string): Promise<SessionMaterial>;
   /**
    * 从 QQ 数据根路径离线计算/读取设备 guid（32 位小写 hex），或 `null`。
    *

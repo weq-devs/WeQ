@@ -21,10 +21,15 @@
 /** The slice of `NtHelperBinding` this module needs. Structural to avoid a
  * dependency cycle — `@weq/native` already devDepends on this package. */
 export interface AttachableNative {
-  scanSessionMaterial(pid: number): Promise<{
+  scanSessionMaterial(
+    pid: number,
+    uin?: string,
+    uid?: string,
+  ): Promise<{
     a2?: string;
     d2?: string;
     d2Key?: string;
+    secToken?: string;
   }>;
 }
 
@@ -55,7 +60,7 @@ export async function ensureAttached(
   try {
     // Try the direct (in-process) read first — ptrace_scope=0 / CAP_SYS_PTRACE
     // make it succeed without any elevation. Mirrors the desktop flow.
-    material = await nt.scanSessionMaterial(pid);
+    material = await nt.scanSessionMaterial(pid, uin || undefined);
   } catch (error) {
     if (isPermissionDenied(error)) {
       throw new Error(
@@ -69,7 +74,7 @@ export async function ensureAttached(
   // 只报「有没有」——物料本身就是凭据。
   say(
     `读取结果: a2=${material.a2 ? 'yes' : 'no'} d2=${material.d2 ? 'yes' : 'no'} ` +
-      `d2key=${material.d2Key ? 'yes' : 'no'}`,
+      `d2key=${material.d2Key ? 'yes' : 'no'} secToken=${material.secToken ? 'yes' : 'no'}`,
   );
   return material;
 }
