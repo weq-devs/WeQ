@@ -226,3 +226,11 @@ export type {
 } from './oidb/set-self-profile';
 
 export * from './call';
+/**
+ * 群通话协议层。
+ *
+ * 用命名空间导出而不是 `export *`：私聊 `call/` 里已经有一个同名的
+ * `GROUP_SSO_CMD`（旧的 OIDB 4752/4753/4754 那套，已废弃），直接展开会冲突。
+ * 用法：`import { groupCall } from '@weq/protocol'` → `groupCall.GroupRelayCmd`。
+ */
+export * as groupCall from './group-call';
