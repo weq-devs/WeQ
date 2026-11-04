@@ -127,7 +127,15 @@ export function parseGroupGcsPacket(data: Uint8Array): GroupGcsPacket | null {
   };
 }
 
-/** 组 inner head（字段顺序必须与抓包一致：f1…f8，最后 f11）。 */
+/**
+ * 组 inner head。
+ *
+ * **字段顺序必须与抓包一致**：f1…f8、f11、f13、f16、f19…f23，最后才是未建模字段。
+ * 少写 `f13`（群号）服务端不认房间；把 `f11` 放在 `f8` 之后而不是末尾则字节对不上。
+ *
+ * `f13 / f16 / f19…f23` 只在**入房 / 认证类**的完整头里出现，应答类包（精简头）
+ * 里是 0 —— 0 的字段不写出来，正好对上抓包。
+ */
 export function buildGroupGcsHead(head: GroupGcsHead): Uint8Array {
   const parts: Uint8Array[] = [
     pbVarint(1, head.sessionId),
@@ -139,6 +147,12 @@ export function buildGroupGcsHead(head: GroupGcsHead): Uint8Array {
   if (head.key && head.key.length > 0) parts.push(pbBytes(6, head.key));
   parts.push(pbVarint(7, head.f7), pbVarint(8, head.f8));
   if (head.f11) parts.push(pbVarint(11, head.f11));
+  if (head.groupId) parts.push(pbVarint(13, head.groupId));
+  if (head.f16) parts.push(pbVarint(16, head.f16));
+  for (const field of [19, 20, 21, 22, 23] as const) {
+    const value = head[`f${field}` as 'f19' | 'f20' | 'f21' | 'f22' | 'f23'];
+    if (value) parts.push(pbVarint(field, value));
+  }
   for (const extra of head.unknown) {
     parts.push(
       typeof extra.value === 'number'
@@ -165,19 +179,34 @@ export function buildGroupGcsPacket(innerHead: Uint8Array, body: Uint8Array): Ui
 /**
  * 组「收到一条 s2c 之后的应答」。
  *
- * 抓包里应答的 head 是：`f2` = 收到那条 + 1，`f6` = **当前**密钥（刚下发的 k2
- * 立刻生效，哪怕是用来应答那条 `hl=63` 的精简头推送），`f11` = 1，其余字段沿用；
- * body 恒为 `22 00`（field 4 空消息）。
+ * `f6` = **当前**密钥（刚下发的 k2 立刻生效，哪怕是用来应答那条 `hl=63` 的精简头
+ * 推送），`f11` = 1；`f13` / `f16` / `f19…f23` 与未建模字段都不写。body 恒为
+ * `22 00`（field 4 空消息）。
+ *
+ * ⚠️ **`f1` / `f2` 都按「本端那一路」算，不是照抄收到的那条**。
+ * 服务端给每条 s2c 流分配独立的会话 ID 和自己的序号序列，③ 抓包里
+ * k2 下发包是 `f1 = 23552, f2 = 278`，紧随其后的应答是
+ * `f1 = 612176395, f2 = 284` —— 两个字段分别属于两条流。
+ * 会话层要自己维护 `(sessionId, seq)`，所以这里两个值都从 `options` 取。
  */
 export function buildGroupGcsAck(
+  options: { key?: Uint8Array; sessionId: number; seq: number },
   received: GroupGcsHead,
-  options?: { key?: Uint8Array },
 ): Uint8Array {
   const head: GroupGcsHead = {
     ...received,
-    seq: (received.seq + 1) >>> 0,
-    key: options?.key ?? received.key,
+    sessionId: options.sessionId,
+    seq: options.seq,
+    key: options.key ?? received.key,
     f11: 1,
+    groupId: 0,
+    f16: 0,
+    f19: 0,
+    f20: 0,
+    f21: 0,
+    f22: 0,
+    f23: 0,
+    unknown: [],
   };
   return buildGroupGcsPacket(buildGroupGcsHead(head), pbBytes(4, new Uint8Array(0)));
 }

@@ -142,6 +142,25 @@ export type {
   UdpTransport,
   CallTimers,
 } from './account/call_session';
+export {
+  GroupCallSession,
+  makeGroupStream,
+  realGroupTimers,
+} from './account/group_call_session';
+export type {
+  GroupCallState,
+  GroupCallEndReason,
+  GroupCallMember,
+  GroupCallSnapshot,
+  GroupCallSessionOptions,
+  GroupCallSignaling,
+  GroupCallTransport,
+  GroupCallCodec,
+  GroupCallTimers,
+  GroupCallListener,
+  GroupCallAudioListener,
+  GroupCallVideoListener,
+} from './account/group_call_session';
 export { warmJiebaDict, segmentWords } from './account/text_segment';
 export type { HomeDressSnapshot, PeerDressSnapshot } from './account/home_dress';
 export {

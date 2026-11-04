@@ -67,6 +67,10 @@ const CREATE_ROOM_F4 = 2;
 const CREATE_ROOM_F5 = 3;
 const CREATE_ROOM_F9 = 3;
 
+/** `SsoMultiTerminalSync` 的三个常量字段（③ 抓包逐字节核对）。 */
+const MULTI_TERMINAL_F1 = 15;
+const MULTI_TERMINAL_F2 = 1;
+
 /** `SsoInviteRoom.f13.f2`：实测 0x185706AA，三次抓包恒定。 */
 const GROUP_INVITE_MEDIA_F2 = 0x185706aa;
 /** `SsoInviteRoom.f13.f7`：实测 673646675，与开房 `f8.f7` 同值。 */
@@ -173,11 +177,16 @@ export const GROUP_CREATE_ROOM_RSP: ProtoMessage = message([
 export const GROUP_INVITE_MEDIA: ProtoMessage = message([
   /** 裸 88 字节 authKey（**不是**嵌套），与开房回包的 `f2` 同源。 */
   f('authKey', 1, 'bytes'),
-  /** 字段按 tag 升序排列 —— 运行时会按 schema 顺序编码，顺序错了字节就对不上。 */
-  f('f2', 2, 'uint32'),
-  f('f3', 3, 'uint32'),
-  f('f4', 4, 'uint32'),
-  f('f7', 7, 'uint32'),
+  /**
+   * 字段按 tag 升序排列 —— 运行时会按 schema 顺序编码，顺序错了字节就对不上。
+   *
+   * `f2` 必须 `force`：`SsoMultiTerminalSync` 复用这个结构时 `f2 = 0`，
+   * 不加 force 会被省略，字节就对不上抓包。
+   */
+  f('f2', 2, 'uint32', { force: true }),
+  f('f3', 3, 'uint32', { force: true }),
+  f('f4', 4, 'uint32', { force: true }),
+  f('f7', 7, 'uint32', { force: true }),
   f('f8', 8, 'uint32'),
 ]);
 
@@ -269,13 +278,23 @@ export const GROUP_QUERY_ROOM_RSP: ProtoMessage = message([
   f('f5', 5, 'uint32'),
 ]);
 
-/** `SsoMultiTerminalSync` 请求。 */
+/**
+ * `SsoMultiTerminalSync` 请求。
+ *
+ * ```text
+ * f1 = 15            常量
+ * f2 = 1             常量
+ * f3 = 10063         能力档（与开房 f3 同值）
+ * f4 = <媒体块>      与邀请 `f13` 同构（authKey + f2=0 / f3=10 / f4=1 / f7=群号）
+ * ```
+ *
+ * 抓包里这条请求只有 **111 字节**、到 `f4` 就结束，没有 `f5`。
+ */
 export const GROUP_MULTI_TERMINAL_REQ: ProtoMessage = message([
   f('f1', 1, 'uint32', { force: true }),
   f('f2', 2, 'uint32', { force: true }),
   f('f3', 3, 'uint32', { force: true }),
-  f('f4', 4, 'bytes'),
-  f('f5', 5, 'uint32', { force: true }),
+  f('f4', 4, GROUP_INVITE_MEDIA),
 ]);
 
 // ─────────────────────────── 结果类型 ───────────────────────────
@@ -464,6 +483,32 @@ export const InviteToGroupRoom: TrpcSpec<
       })),
     };
   },
+};
+
+/**
+ * `SsoMultiTerminalSync` —— 让同账号的其它设备也响铃 / 同步房间状态。
+ *
+ * 抓包里在开房之后、邀请之前调一次；应答是**空 body**（0 字节），所以
+ * `respSchema` 是空消息。
+ */
+export const MultiTerminalSync: TrpcSpec<{ authKey: Uint8Array }, void> = {
+  cmd: GROUP_SSO_CMD.multiTerminalSync,
+  needSign: false,
+  reqSchema: GROUP_MULTI_TERMINAL_REQ,
+  respSchema: message([]),
+  serialize: ({ authKey }) => ({
+    f1: MULTI_TERMINAL_F1,
+    f2: MULTI_TERMINAL_F2,
+    f3: GROUP_CAPABILITY_PROFILE,
+    f4: {
+      authKey,
+      f2: 0,
+      f3: 10,
+      f4: 1,
+      f7: GROUP_INVITE_MEDIA_F7,
+    },
+  }),
+  deserialize: () => undefined,
 };
 
 /** `SsoQueryRoom` 默认要的条目类型（实测客户端固定这一串）。 */
