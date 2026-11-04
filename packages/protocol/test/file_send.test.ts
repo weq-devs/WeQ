@@ -226,6 +226,8 @@ describe('sendGroupFile', () => {
     const publish = native.oidbCalls[1]!;
     expect(publish.command).toBe(0x6d9);
     expect(publish.subCommand).toBe(4);
+    // 真机实测 0x6d9_4 会签名（申请 0x6d6_0 不签）。
+    expect(publish.needSign).toBe(true);
     const body = decode(OIDB_GROUP_SEND_FILE_REQ, publish.body) as {
       body?: {
         groupUin?: number;

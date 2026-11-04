@@ -22,12 +22,15 @@ export interface OidbSpec<TParams, TResult> {
    * 该命令是否需要签名（`SecSign/SecToken/SecExtra`）——**必填**。
    *
    * 取值来自真机抓包：用注入的 QQ 发该命令，看 QQ 自己在 SSO reserved 里写不写
-   * tag 24（`SecInfo`）。2026-11-03 对 `@weq/protocol` 全部 81 个 OIDB 命令做过实测，
-   * 只有 8 个会签：`0x89a_0/15`、`0x102a_0/1`、`0x112a_2`、`0x112e_1`、`0x11ec_1`、
+   * tag 24（`SecInfo`）。2026-11-05 用 `scripts/probe-sign.ts` 对 WeQ 在用的 103 条
+   * OIDB 命令复测（每条三次取一致结果），会签的有 13 条：`0x6d9_4`、`0x89a_0/15`、
+   * `0x102a_0/1`、`0x10c8_1/2`、`0x112a_2`、`0x112e_1`、`0x11ec_1`、`0x9082_1/2`、
    * `0x93d7_1`。
    *
    * 不再有「按名单推导」的兜底：旧实现照抄 LagrangeV2 的 `WhiteListCommand`，
    * 与 PC 端实测不符（15 个只读命令被误判成要签），已随白名单一起移除。
+   * 白名单**不能**当依据：`0x9082_1/2`、`0x6d9_4` 在名单外但 QQ 会签，
+   * `0x5d6_6/19`、`0x8fc_3`、`0xa80_1`、`0x10c0_1/2` 在名单里但 QQ 不签。
    */
   needSign: boolean;
   /**

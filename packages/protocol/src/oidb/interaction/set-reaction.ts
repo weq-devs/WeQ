@@ -23,8 +23,9 @@
 // 只做设置/撤回：查询某个表情的回应人列表见 `get-emoji-likes.ts`（0x9083_1）；
 // 常用表情目录（0x9084_1）没有搬，按需再说。
 //
-// 签名：**不签**（`needSign = false`）。Lagrange 的需要签名白名单里 0x908x 一族一个都没有，
-// 同族的 0x9083_1（回应人列表）也是 false。
+// 签名：**要签**（`needSign = true`）。真机实测 `0x9082_1` 和 `_2` 的 SSO reserved 里
+// 都有 tag 24（`scripts/probe-sign.ts`，三次一致）；Lagrange 的签名白名单里没有 0x908x
+// 一族，照抄会漏签。同族的 `0x9083_1`（回应人列表）实测不签，别跟着改。
 
 import { message } from '../../protobuf';
 import { invokeOidb, type OidbSpec } from '../invoke';
@@ -56,8 +57,8 @@ export interface SetReactionParams {
 
 export namespace SetReaction {
   export const command = 0x9082;
-  /** 不签名：Lagrange 签名白名单里没有 0x908x（见文件头注释）。 */
-  export const needSign = false;
+  /** 真机实测会签名（scripts/probe-sign.ts）；不在 Lagrange 白名单里（见文件头注释）。 */
+  export const needSign = true;
   export const reqSchema = REACTION_REQ;
   export const respSchema = REACTION_RESP;
 

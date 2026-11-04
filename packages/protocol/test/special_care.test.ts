@@ -7,7 +7,8 @@ describe('特别关心整体开关', () => {
     await SetFriendSpecialCare.invoke({ sendOidbPacket }, 7, { uid: 'u_friend', enabled });
     const call = sendOidbPacket.mock.calls[0] as unknown as unknown[];
     expect(call.slice(0, 3)).toEqual([7, 0x5d6, 6]);
-    expect(call.slice(4)).toEqual([false, true]);
+    // [isUid, needSign]：真机实测 0x5d6_6 不签名。
+    expect(call.slice(4)).toEqual([false, false]);
     // 固定 wire 样本独立于被测 schema，关闭值必须有 12 00，不能省略。
     const item = enabled ? '120131' : '1200';
     const target = `0a08755f667269656e648219${enabled ? '06' : '05'}08806a${item}8219${enabled ? '06' : '05'}08846a${item}8219${enabled ? '06' : '05'}08856a${item}`;

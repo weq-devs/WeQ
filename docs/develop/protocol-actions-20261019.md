@@ -31,19 +31,28 @@ src/oidb/misc/          OCR / 解密密钥 / clientKey / rkey / pskey / Ark / AI
 
 在线状态写入统一使用 `oidb/profile/status.ts` 的 `SetOnlineStatus`，根导出、账号写操作和在线状态服务共用同一实现；旧 `oidb/set-self-profile.ts` 路径仅重导出，不再维护第二套状态协议。`StatusService.SetStatus` 不在白名单中，不额外签名。普通状态的默认电量值沿用上游 100，显式传入的扩展状态、电量 0 保留上 wire；旧 `{ custom: { faceId, wording, faceType } }` 参数兼容映射到 `customExt`，与 `SetDiyOnlineStatus` 共用校验和回包处理。非零 `errCode` 不论有无错误文案均抛错，成功文案 `set status success` 不被误判为失败。
 
-`src/sign/whitelist.ts` 收录 LagrangeV2 `BotSignProvider.cs` 的 `WhiteListCommand`
-（2026-10-19 抄录）。`invokeOidb` / `invokeTrpc` 在 spec **未显式标注** `needSign`
-时按白名单推导：**名单外不签**。
+> **2026-11-03 起白名单推导已移除**：`src/sign/whitelist.ts`（照抄 LagrangeV2
+> `BotSignProvider.cs` 的 `WhiteListCommand`）删除，`needSign` 改由每个 spec
+> **显式声明**，没有兜底。依据是 `scripts/probe-sign.ts` 的真机实测——连已注入的 QQ
+> 的 pipe 发包，抓包读 SSO reserved 的 tag 24（`SecInfo`），看 QQ 自己写不写。
 
-只匹配 `OidbSvcTrpcTcp.0x<hex>_<sub>` 形态，因为 native 的 `sendOidbPacket` 只会拼
-这一种；名单里另一种 `OidbSvc.0x...` 写法（如 `0x6d6_0` / `0x6d7_0`）在本仓库
-实际不命中，因此不签。
+白名单**不可作为依据**，2026-11-05 复测（每条三次一致）发现两侧都不符：
 
-显式 `needSign` 只用于两类已核实情形：
+| 情形 | 命令 |
+| --- | --- |
+| 在名单里、QQ 实际**不签** | `0x5d6_6`、`0x5d6_19`、`0x8fc_3`、`0xa80_1`、`0x10c0_1/2` |
+| 不在名单里、QQ 实际**会签** | `0x6d9_4`、`0x9082_1/2` |
 
-- 命令在名单里、但抓包确认不该签：`SendAiVoice` (0x929b_0)、`SendTuwenArk` (0xdc2_34)。
-- 命令的 subCommand 是动态的，分发时无法推导：`FetchGroupRequests` / `SetGroupRequest`
-  （0x10C0 / 0x10C8 两个子命令都在名单里）。
+当前会签的完整集合：`0x6d9_4`、`0x89a_0/15`、`0x102a_0/1`、`0x10c8_1/2`、`0x112a_2`、
+`0x112e_1`、`0x11ec_1`、`0x9082_1/2`、`0x93d7_1`，以及 raw 侧的 `MessageSvc.PbSendMsg`、
+`SsoReadedReport`、`SsoC2CRecallMsg`、`SsoSendLongMsg`、`SsoRecvLongMsg`、
+`trpc.qqhb.qqhb_proxy.Handler.sso_handle`。
+
+改了 `needSign` 或新增命令后，跑 `pnpm sign:probe`（或 `pnpm tsx scripts/probe-sign.ts
+--cmd <命令>`）复核，别照抄白名单。
+
+动态 subCommand 的命令（`FetchGroupRequests` / `SetGroupRequest` / `SetReaction` /
+`SetPeerPin` / `GroupTodo`）在分发时无法按 sub 分别判定，所以要按实际会签情况整族标注。
 
 ## 命令清单（本次新增）
 
@@ -53,17 +62,17 @@ src/oidb/misc/          OCR / 解密密钥 / clientKey / rkey / pskey / Ark / AI
 | --- | --- | --- |
 | 标记已读 | `trpc.msg.msg_svc.MsgService.SsoReadedReport` | true |
 | 收藏表情列表 / 删除 | `Faceroam.OpReq` | false |
-| 收藏表情详情 / 改备注 | `0x902E_1` | true |
+| 收藏表情详情 / 改备注 | `0x902E_1` | false |
 | 收藏表情移到最前（position=1） | `0x902F_1` | false |
 | 添加收藏表情 | `ImgStore.BDHExpressionRoam` + highway cmdId 9 | false |
 | 点击内联按钮 | `0x112E_1` | true |
 | 群打卡 | `0xEB7_1` | false |
-| 群文件删除 / 重命名 / 移动 | `0x6D6_3 / _4 / _5` | true / false / false |
+| 群文件删除 / 重命名 / 移动 | `0x6D6_3 / _4 / _5` | false |
 | 群文件夹新建 / 删除 / 重命名 | `0x6D7_0 / _1 / _2` | false |
 | 群文件数量 / 空间 | `0x6D8_2 / _3` | false |
 | @全体剩余次数 | `0x8A7_0` | false |
-| 在线群成员列表 | `0xFE7_3` | true |
-| 用户在线 / 扩展状态 | `0xFE1_2` key 27372 | true |
+| 在线群成员列表 | `0xFE7_3` | false |
+| 用户在线 / 扩展状态 | `0xFE1_2` key 27372 | false |
 | 设置在线 / 自定义状态 | `trpc.qq_new_tech.status_svc.StatusService.SetStatus` | false |
 | 设置输入状态 | `0xCD4_1` | false |
 | 设置个人头像 | highway cmdId 90 | — |
@@ -79,7 +88,8 @@ src/oidb/misc/          OCR / 解密密钥 / clientKey / rkey / pskey / Ark / AI
 | 群相册动态详情 | `FeedsReader.GetQunFeedDetail` | false |
 | 好友申请 同意 / 拒绝 | `0xB5D_44` | false |
 | 可疑好友申请 列表 / 拒绝 / 同意 | `0xD69_0` / `0xD72_0` | false |
-| 加群请求 拉取 / 处理 | `0x10C0_1/2` / `0x10C8_1/2` | true |
+| 加群请求 拉取 | `0x10C0_1/2` | false |
+| 加群请求 处理 | `0x10C8_1/2` | true |
 
 ### HTTP CGI（service/web）
 
