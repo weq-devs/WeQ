@@ -58,8 +58,10 @@ export class SourceMsgSearchDb {
   private identity = '';
   private schema = -1;
   private tokenizer: SourceTokenizer | null = null;
+  private coverageRetryAt = Number.POSITIVE_INFINITY;
   ready = false;
   lastError: string | null = null;
+  indexedReadVerified = false;
 
   constructor(options: SourceSearchOptions) {
     this.qq = new QqDb(options.nt, options);
@@ -106,9 +108,17 @@ export class SourceMsgSearchDb {
     const generation = this.generation;
     const identity = this.fileIdentity();
     const version = Number((await this.query('PRAGMA schema_version', [], 'validation'))[0]?.[0]);
-    if (this.ready && identity === this.identity && version === this.schema) return;
+    if (
+      this.ready &&
+      identity === this.identity &&
+      version === this.schema &&
+      Date.now() < this.coverageRetryAt
+    )
+      return;
     this.ready = false;
     this.tokenizer = null;
+    this.indexedReadVerified = false;
+    this.coverageRetryAt = Number.POSITIVE_INFINITY;
     if (this.identity && identity !== this.identity && !this.override) this.qq.close();
     const caps = await this.query(
       "SELECT weq_trigram_contains('CAFÉ','café'),weq_trigram_contains('a  b','a b')",
@@ -148,9 +158,13 @@ export class SourceMsgSearchDb {
           [],
           'validation',
         );
-        if (Number(missing[0]?.[0]) !== 0) tokenizer = null;
+        if (Number(missing[0]?.[0]) !== 0) {
+          tokenizer = null;
+          this.coverageRetryAt = Date.now() + 5 * 60000;
+        }
       } catch {
         tokenizer = null;
+        this.coverageRetryAt = Date.now() + 5 * 60000;
       }
     }
     const afterVersion = Number(
@@ -296,6 +310,7 @@ export class SourceMsgSearchDb {
       throw error;
     }
     this.assertCurrent(rows, 10, generation);
+    if (plan.indexed && rows.some((row) => row[8] !== null)) this.indexedReadVerified = true;
     return {
       total: Number(rows[0]?.[9] ?? 0),
       items: rows
@@ -341,6 +356,7 @@ export class SourceMsgSearchDb {
       throw error;
     }
     this.assertCurrent(rows, 2, generation);
+    if (plan.indexed && rows.some((row) => row[0] !== null)) this.indexedReadVerified = true;
     return rows
       .filter((row) => row[0] !== null)
       .map((row) => ({ partition: toBigint(row[0]), count: Number(row[1]) }));

@@ -5,6 +5,7 @@ import { resolveNtHelperPath } from '@weq/native';
 import { runOwnedChild } from '@weq/service';
 import { sourceSearchRequest, sourceSearchResponse } from './source_search_protocol';
 import { resolveChildWorkerPath } from './worker_path';
+import { sourceSearchCommand } from './source_search_disk_guard';
 
 let running = 0;
 /** 搜索 SQL 独立于主进程连接；超时和账号切换只取消本次拥有的进程。 */
@@ -25,7 +26,12 @@ export function createSourceSearchQuery(
     const nativeRoot = options.nativeRoot ?? dirname(dirname(dirname(resolveNtHelperPath())));
     running++;
     try {
-      const result = await runOwnedChild(options.executable ?? process.execPath, [worker], {
+      const command = sourceSearchCommand(
+        options.executable ?? process.execPath,
+        [worker],
+        [target.dbPath],
+      );
+      const result = await runOwnedChild(command.executable, command.args, {
         input: JSON.stringify(request),
         signal,
         timeoutMs: purpose === 'validation' ? 120000 : 10000,

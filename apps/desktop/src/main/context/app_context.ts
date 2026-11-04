@@ -53,6 +53,7 @@ import { sampleHitokoto } from '../hitokoto';
 import { getQqProtocolExe } from './qq_protocol_cache';
 import { searchAccountContent } from '../search_content';
 import { createSourceSearchQuery } from '../source_search';
+import { createSearchIndexRetirement } from '../source_search_retirement';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
 import type { IntentLocalEnginePort } from '@weq/service';
@@ -1658,6 +1659,9 @@ export function initAppContext(fileRoot?: string): AppContext {
           dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
           nt: platform.native.ntHelper,
           sourceSearchQuery: createSourceSearchQuery(),
+          retireSearchIndex: createSearchIndexRetirement(
+            userConfig.cacheDir(join('search-index', exportConfigId)),
+          ),
         }),
         onlineStatus: new OnlineStatusService(session, {
           nt: platform.native.ntHelper,
@@ -2530,6 +2534,9 @@ export function initAppContext(fileRoot?: string): AppContext {
           dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
           nt: platform.native.ntHelper,
           sourceSearchQuery: createSourceSearchQuery(),
+          retireSearchIndex: createSearchIndexRetirement(
+            userConfig.cacheDir(join('search-index', exportConfigId)),
+          ),
         }),
         onlineStatus: new OnlineStatusService(session, {
           nt: platform.native.ntHelper,

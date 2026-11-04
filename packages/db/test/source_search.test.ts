@@ -104,6 +104,18 @@ describe('SourceMsgSearchDb', () => {
     f.db.exec(`INSERT INTO ${TABLE} VALUES(1,111,2,'group','sender',101,3,77,'数据库 live','')`);
     expect((await f.search.searchPartition(77n, '数据库')).total).toBe(3);
   });
+  it('can enable acceleration after QQ catches up previously missing index rows without a schema change', async () => {
+    const f = fixture(false);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1000000);
+    await f.search.sync();
+    expect(f.search.accelerated).toBe(false);
+    f.db.exec(
+      `INSERT INTO ${TABLE}_fts(rowid,"41701","41702") SELECT "41700","41701","41702" FROM ${TABLE} WHERE "41700"=17`,
+    );
+    clock.mockReturnValue(1000000 + 5 * 60000 + 1);
+    await f.search.sync();
+    expect(f.search.accelerated).toBe(true);
+  });
   it('invalidates results after schema changes, including empty pages, and can re-probe', async () => {
     const f = fixture();
     await f.search.sync();
