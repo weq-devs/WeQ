@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat, rename, writeFile } from 'node:fs/promises';
@@ -117,6 +117,7 @@ export async function verifyMacBundle(bundle: string, version?: string, arch?: '
       arch === 'x64' ? 'x86_64' : arch,
       join(bundle, 'Contents', 'MacOS', executable),
     ]);
+  return executable;
 }
 
 export function validateMacUpdatePlan(input: unknown): MacUpdatePlan {
@@ -133,13 +134,31 @@ export function validateMacUpdatePlan(input: unknown): MacUpdatePlan {
   return plan;
 }
 
+/** 直接执行已验证的 bundle，避免 LaunchServices 原位更新后仍选择旧可执行文件。 */
+async function launchMacApp(bundle: string, executable: string): Promise<void> {
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(join(bundle, 'Contents/MacOS', executable), [], {
+      detached: true,
+      stdio: 'ignore',
+      env,
+    });
+    child.once('error', reject);
+    child.once('spawn', () => {
+      child.unref();
+      resolve();
+    });
+  });
+}
+
 /** 同卷 rename，不覆盖原目录；任一步失败都尽力恢复旧应用，保留失败现场。 */
 export async function replaceMacApp(input: MacUpdatePlan): Promise<void> {
   const plan = validateMacUpdatePlan(input);
   const next = join(plan.staging, 'weQ.app');
   const previous = join(plan.staging, 'previous.app');
-  await verifyMacBundle(plan.target, plan.previousVersion);
-  await verifyMacBundle(next, plan.version, plan.arch);
+  const previousExecutable = await verifyMacBundle(plan.target, plan.previousVersion);
+  const nextExecutable = await verifyMacBundle(next, plan.version, plan.arch);
   let moved = false;
   let replaced = false;
   try {
@@ -147,7 +166,7 @@ export async function replaceMacApp(input: MacUpdatePlan): Promise<void> {
     moved = true;
     await rename(next, plan.target);
     replaced = true;
-    await run('/usr/bin/open', ['-n', plan.target], { timeout: 30_000 });
+    await launchMacApp(plan.target, nextExecutable);
   } catch (error) {
     if (moved) {
       try {
@@ -159,7 +178,7 @@ export async function replaceMacApp(input: MacUpdatePlan): Promise<void> {
           `更新失败且自动恢复未完成，旧应用保存在 ${previous}`,
         );
       }
-      await run('/usr/bin/open', ['-n', plan.target], { timeout: 30_000 }).catch(() => {});
+      await launchMacApp(plan.target, previousExecutable).catch(() => {});
     }
     throw error;
   }

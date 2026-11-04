@@ -459,6 +459,36 @@ const CORPUS_RULES: readonly CorpusRule[] = [
     minConfidence: 0.86,
     hard: true,
   },
+  // 15. 日常极简确认与应答（ack）—— 如「好的/收到/好的收到/ok/行/嗯嗯/明白/1」
+  {
+    id: 'ack_simple_affirmation',
+    match: (_text, norm) =>
+      /^(1+|((好的|收到|ok|okk|okay|行|好|嗯|明白|了解|好嘞|好滴)[哈啦呢呀~！!，, ]*)+)$/i.test(
+        norm,
+      ),
+    gloss:
+      '「好的/收到/ok/行/嗯嗯/明白/1」属于日常普通确认与简单应答，判为闲聊(chat)与平静(neutral)。',
+    intent: 'chat',
+    emotion: 'neutral',
+    intensity: 25,
+    sentiment: 15,
+    minConfidence: 0.9,
+    hard: true,
+  },
+  // 16. 纯表情或媒体占位
+  {
+    id: 'simple_face_expression',
+    match: (text, norm) =>
+      /^\[(动画表情|表情|图片|语音)\]$/.test(text) ||
+      /^\[?(动画表情|表情|图片|语音)\]?$/.test(norm),
+    gloss: '纯表情、图片或媒体占位，无具体复杂文本，判为闲聊(chat)与平静(neutral)。',
+    intent: 'chat',
+    emotion: 'neutral',
+    intensity: 20,
+    sentiment: 10,
+    minConfidence: 0.85,
+    hard: true,
+  },
 ];
 
 const UPSTREAM_SIGNAL_DESC: Record<UpstreamContextSignal, string | null> = {

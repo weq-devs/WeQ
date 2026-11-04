@@ -1,6 +1,6 @@
 {
   "name": "@weq/service",
-  "version": "2.3.5",
+  "version": "2.3.6",
   "private": true,
   "type": "module",
   "exports": {
@@ -27,7 +27,8 @@
     "./search-policy": "./src/account/search_policy.ts",
     "./report-time": "./src/account/annual_report/time.ts",
     "./report-assets": "./src/account/annual_report/report-assets.ts",
-    "./report-mate": "./src/account/annual_report/report-mate.ts"
+    "./report-mate": "./src/account/annual_report/report-mate.ts",
+    "./search-index-retirement": "./src/common/search_index_retirement.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
