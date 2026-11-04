@@ -490,10 +490,11 @@ export function AccountBasicsSection({
               <KeyValueRow label="a2" value={cfg?.session?.a2} secret />
               <KeyValueRow label="d2" value={cfg?.session?.d2} secret />
               <KeyValueRow label="d2key" value={cfg?.session?.d2Key} secret />
+              <KeyValueRow label="secToken" value={cfg?.session?.secToken} secret />
               <KeyValueRow label="guid" value={cfg?.guid} />
             </div>
             <p className="weq-set-note">
-              a1 来自 login.db，a2 / d2 / d2key 由在线 QQ
+              a1 来自 login.db，a2 / d2 / d2key / secToken 由在线 QQ
               进程内存采集（需为当前来源启用完整功能）；guid
               是本机设备标识。账号下线后会话物料会被清空。
             </p>

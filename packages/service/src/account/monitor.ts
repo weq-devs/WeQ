@@ -474,6 +474,7 @@ export class AccountMonitorService {
       a2: material.a2,
       d2: material.d2,
       d2Key: material.d2Key,
+      secToken: material.secToken,
       pid,
     });
     if (!isCompleteSessionMaterial(material))
@@ -497,6 +498,7 @@ export class AccountMonitorService {
         a2: session.a2,
         d2: session.d2,
         d2Key: session.d2Key,
+        secToken: session.secToken,
         pid: record.qqPid,
       });
     } catch {

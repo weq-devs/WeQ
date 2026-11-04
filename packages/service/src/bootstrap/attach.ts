@@ -171,7 +171,8 @@ export function createDirectAttachHook(
   return createCachedAttachHook(async (pid, uin, signal) => {
     let material: SessionMaterial;
     try {
-      material = await nt.scanSessionMaterial(pid);
+      // uin 只用来给 SecToken 精筛（同一段内存记录里 uin 就在 token 后面）。
+      material = await nt.scanSessionMaterial(pid, uin || undefined);
     } catch (error) {
       signal.throwIfAborted();
       const recovered = await fallback?.(pid, signal);
@@ -185,6 +186,7 @@ export function createDirectAttachHook(
       hasA2: material.a2 !== undefined,
       hasD2: material.d2 !== undefined,
       hasD2Key: material.d2Key !== undefined,
+      hasSecToken: material.secToken !== undefined,
     });
     return material;
   });

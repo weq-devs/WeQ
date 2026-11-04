@@ -121,6 +121,12 @@ export interface SessionMaterial {
   a2?: string;
   d2?: string;
   d2Key?: string;
+  /**
+   * `SecToken`（12 字符 base64 **原文**，不是 hex）。与 a2/d2/d2key 同批从 QQ
+   * 进程内存里扫出——它同样只存在于登录后的会话里，签名时填进
+   * `SsoSecureInfo.sec_token`。扫不到就是 `undefined`。
+   */
+  secToken?: string;
 }
 
 /** `signPacket` 的返回：三个字段都是大写十六进制（对齐 Lagrange 的 SsoSecureInfo）。 */
@@ -163,6 +169,13 @@ export interface SsoSessionConfig {
   clientConnSeq?: string | null;
   /** 覆盖 tag 15 `traceParent`（仅离线比对用）。 */
   traceParent?: string | null;
+  /**
+   * `SecToken`（12 字符 base64 **原文**），来自 `scanSessionMaterial`。
+   *
+   * 签名函数在 WeQ 进程里算出的 token 恒为空（没有 QQ 的登录会话），所以必须
+   * 由这里把真值传下去，否则签出来的 `SsoSecureInfo.sec_token` 是空的。
+   */
+  secToken?: string | null;
 }
 
 /** Native images actually mapped by a QQ process, including macOS hot updates. */
@@ -776,15 +789,19 @@ export interface NtHelperBinding {
 
   // --- 内存扫描（attach） ---
   /**
-   * 扫描某 QQ 进程的内存，取出该会话的 a2 / d2 / d2key。
+   * 扫描某 QQ 进程的内存，取出该会话的 a2 / d2 / d2key 与 `SecToken`。
    *
    * 运行时 RTTI 自举，零硬编码 RVA。**权限要求与进程注入一致**：
    * Linux 需要 root（或 CAP_SYS_PTRACE）且 `/proc/sys/kernel/yama/ptrace_scope`
    * 放行；macOS 需要 root，且目标未启用强化运行时保护（QQ 启用了，所以得关
    * SIP）；Windows 需要管理员。失败时 reject，错误信息本身就是提权/版本变化的
    * 诊断提示。
+   *
+   * `uin` 用于给 `SecToken` 精筛（同一条内存记录里 uin 就在 token 后面几十
+   * 字节）：传了能保证唯一命中，不传则退回粗筛、可能取到字段名之类的误报。
+   * 调用方本来就知道 uin，务必传。
    */
-  scanSessionMaterial(pid: number): Promise<SessionMaterial>;
+  scanSessionMaterial(pid: number, uin?: string): Promise<SessionMaterial>;
   /**
    * 从 QQ 数据根路径离线计算/读取设备 guid（32 位小写 hex），或 `null`。
    *

@@ -283,6 +283,8 @@ export async function registerSsoSessionInTurn(
         uid: identity.uid,
         subAppId,
         ...(clientVersion ? { clientVersion } : {}),
+        // SecToken 来自 QQ 内存（随 a2/d2/d2key 同批扫出）：本进程签名算不出它。
+        ...(material.secToken ? { secToken: material.secToken } : {}),
       },
       client.wrapperPath,
     );
