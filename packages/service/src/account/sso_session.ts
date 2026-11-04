@@ -379,7 +379,7 @@ export async function attachAndRegisterSsoSession(
   uin: string,
   identity: { uid?: string | null; guid?: string | null },
 ): Promise<{ material: SessionMaterial; registered: boolean }> {
-  const material = await attachHook.ensure(pid, uin);
+  const material = await attachHook.ensure(pid, { uin, uid: identity.uid ?? null });
   const uid = identity.uid ?? null;
   const guid = identity.guid ?? null;
   if (!uid || !guid) {

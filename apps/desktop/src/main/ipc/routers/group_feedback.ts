@@ -158,7 +158,7 @@ export const groupFeedbackRouter = router({
         }
         const services = requireServices();
         try {
-          await getAppContext().bootstrap?.attachHook.ensure(online.pid, online.uin);
+          await getAppContext().bootstrap?.attachHook.ensure(online.pid, { uin: online.uin });
         } catch (e) {
           return {
             ok: false,
@@ -249,7 +249,7 @@ export const groupFeedbackRouter = router({
           };
         }
         try {
-          await getAppContext().bootstrap?.attachHook.ensure(online.pid, online.uin);
+          await getAppContext().bootstrap?.attachHook.ensure(online.pid, { uin: online.uin });
         } catch (e) {
           return {
             ok: false,

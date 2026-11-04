@@ -33,7 +33,7 @@ import { queueSsoWork, ssoWorkState, type SsoWorkState } from './sso_lifecycle';
 import { fetchHomeDress, type HomeDressSnapshot } from './home_dress';
 import { fetchClientKey, fetchDownloadRkeys } from './online_ticket';
 import { getLogger, logErrorContext } from '../common/logger';
-import { isCompleteSessionMaterial } from '../common/session_material';
+import { canReuseSessionMaterial, isCompleteSessionMaterial } from '../common/session_material';
 
 /** How often to poll for the account becoming logged in. */
 const LOGIN_POLL_MS = 5000;
@@ -459,7 +459,9 @@ export class AccountMonitorService {
       throw new Error('SSO 会话身份不完整（缺少账号 uid 或设备 guid）。');
     }
     const stored = record.session;
-    if (stored?.pid === pid && isCompleteSessionMaterial(stored)) {
+    // 复用判据要求 secToken 也在：老物料缺它时下面会重扫一次，否则升级后
+    // 需要签名的命令会一直带着空 token 发出去。
+    if (stored?.pid === pid && canReuseSessionMaterial(stored)) {
       await this.storeSsoSession(pid, stored, generation);
       this.logger.info('registered the native sso session from stored material', {
         event: 'sso-session-reused',
@@ -468,7 +470,11 @@ export class AccountMonitorService {
       return;
     }
     // 物料缺失 / pid 对不上（QQ 重启过）→ 回退到读内存（可能触发提权）。
-    const material = await this.attachHook.ensure(pid, this.uin, this.readAbort.signal);
+    const material = await this.attachHook.ensure(
+      pid,
+      { uin: this.uin, uid: record.uid ?? null },
+      this.readAbort.signal,
+    );
     this.assertCurrent(generation, pid);
     this.accountConfig.setSessionMaterial({
       a2: material.a2,

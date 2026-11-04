@@ -6284,7 +6284,7 @@ export const accountRouter = router({
           return { ok: false, reason: 'offline' };
         }
         try {
-          await ctx.bootstrap?.attachHook.ensure(record.qqPid, uin);
+          await ctx.bootstrap?.attachHook.ensure(record.qqPid, { uin, uid: record.uid ?? null });
           const shareUrl = await services.flashTransfer.getShareLink(input.fileSetId);
           if (!shareUrl) {
             return { ok: false, reason: 'error', message: '没有拿到分享链接（文件可能已过期）' };

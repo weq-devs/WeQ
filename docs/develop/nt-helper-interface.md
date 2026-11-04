@@ -334,18 +334,20 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
-| `scanSessionMaterial(pid)` | pid | `Promise<SessionMaterial>` | 运行时 RTTI 自举、零硬编码 RVA，读出该会话的 a2 / d2 / d2key（十六进制串；没扫到的项为 `undefined`，不影响其它项）。失败时 reject，错误信息本身就是提权/版本变化的诊断提示。 |
+| `scanSessionMaterial(pid, uin?, uid?)` | pid + 账号 uin / uid（可选） | `Promise<SessionMaterial>` | 运行时 RTTI 自举、零硬编码 RVA，读出该会话的 a2 / d2 / d2key 与 `SecToken`（a2/d2/d2key 是十六进制串，`SecToken` 是 12 字符 base64 原文；没扫到的项为 `undefined`，不影响其它项）。`uin` / `uid` 只用于给 `SecToken` 的候选消歧（Windows 的记录附近带 uid，macOS/Linux 带 uin）。失败时 reject，错误信息本身就是提权/版本变化的诊断提示。 |
 | `readDeviceGuid(dataRoot)` | QQ 数据根路径 | `string \| null` | 离线算出设备 guid（32 位小写 hex）。**不需要任何权限、不碰进程**；算不出返回 `null`。 |
 | `writeDeviceGuid(dataRoot)` | QQ 数据根路径 | `string \| null` | 随机换一个设备 guid 并写回数据目录，返回新值。三端各改写自己那份来源（Linux `machine-info` 的 MAC / macOS `machineid-info` 的 machine_id / Windows `Registry20` 或 `Registry2.0.db`）。与 `readDeviceGuid` 一样**同步**——只改文件，不 await 任何东西。**调用方必须先确认没有 QQ 实例在跑**（在线时会被 QQ 覆盖回去）；不需要权限。老产物没有这个方法，调用方要按"旧产物"处理。 |
 | `setSsoSession(pid, session, wrapperPath?)` | 物料 + `wrapper.node` 路径 | `Promise<void>` | 登记这一场会话。**只存不连**：不读内存、不发包时一个 socket 都不存在；TCP 等到第一次发包才建，闲置一分钟丢弃，断了下次发包自动重连。 |
 | `hasSsoSession(pid)` / `clearSsoSession(pid)` | pid | `Promise<boolean>` | 诊断 / 忘掉物料（账号下线、QQ 重启时调用，会一并关掉可能存在的连接）。 |
 
-- `SessionMaterial = { a2?: string; d2?: string; d2Key?: string }`
+- `SessionMaterial = { a2?: string; d2?: string; d2Key?: string; secToken?: string }`
+  `secToken` 只对**需要签名的命令**有意义，缺它不阻塞发包；但本地缓存复用的判据（`canReuseSessionMaterial`）要求它也在，否则升级后老物料会一直复用、签名始终缺 token。
 - 扫描 resolve 不代表物料完整：attach 缓存只保留三项均为有效 hex 且 d2key 为 16 字节的结果，部分结果原样返回、不跨扫描合并。账号 monitor 即使已有未过期的 rkey/clientKey，也会补齐当前 PID 的物料；失败按 30 秒起、最长 5 分钟退避重试。uid/guid 暂缺只检查账号配置及补读离线设备身份，不读内存、不弹密码框；仅用户明确取消授权会暂停本 PID 的自动重试。原生登记完成后仍通过 `onlineCredentialsReady` 通知界面重查实际能力，不把提交密码当作成功。
 - 桌面端能力查询同时返回账号身份是否齐全、是否需要重新读内存，以及 `hasSsoSession` 确认的 `ssoReady`。受限模式仅在当前 PID 的有效物料、账号/设备身份和原生登记都就绪后解除；查询不触发内存读取或网络请求，异步查询期间切号会拒绝旧结果。
 - `credentialsPending` 包括正在读取、等待授权、原生登记和未取消的自动重试，不包括登记完成后的网络取票。界面保留「正在启用完整功能」及常驻进度；提交授权后须等新的状态查询完成，不用提交前缓存的就绪状态提前结束。
 - 前端授权请求优先于 `credentialsPending`：存在尚未提交的密码或 ptrace 引导请求时显示「待提权」，标题栏、详情和横幅均暂停进入中进度；最后一项请求处理后才恢复进入中。横幅原地更新，避免退场动画残留相反的阶段提示。
-- `SsoSessionConfig = { uin; a2: Buffer; d2: Buffer; d2Key: Buffer; guid; uid; subAppId; clientConnSeq?; traceParent? }`（`traceParent` 只给离线比对用）。
+- `SsoSessionConfig = { uin; a2: Buffer; d2: Buffer; d2Key: Buffer; guid; uid; subAppId; secToken?; qua?; clientConnSeq?; traceParent? }`（`traceParent` 只给离线比对用）。
+  `secToken` / `qua` 是签名三件套里**本进程算不出来**的两项：签名函数跑在 WeQ 里、没有 QQ 的登录会话，产出的 `SecToken` / `SecExtra` 恒为空。前者由 `scanSessionMaterial` 从 QQ 内存扫出，后者由 `major.node` 解析的 QUA 本地拼成；两者都缺时退回签名函数的空产出（旧行为），不会报错。
   ⚠️ `subAppId` **必须等于当前运行 QQ 构建的 appid**（`major.node` 里
   `QQAppId/537xxxxxx`，`resolveAppidFromMajor` 扫出来的那个值）；QQ 每次更新
   都会换 appid，用错值服务端一律回 `Reply status error: -10003 身份验证失败`。
@@ -361,7 +363,7 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 | `sendOidbPacket(pid, command, subCommand, body, isUid, needSign?)` | OIDB 命令/子命令/protobuf body/isUid | `Promise<Buffer>` | **通用 OIDB 发包**：任何 OIDB 请求都行，无需改 native。`isUid=true` 走 UIN-form 变体（reserved=1）。`needSign`（缺省 true）由调用方按命令逐个标注。 |
 | `sendPacket(pid, cmd, body, needSign?)` | 完整 SSO 命令串 + protobuf body | `Promise<Buffer>` | 通用原始发包，给**不是 OIDB 的 trpc 服务**用（命令串如 `QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList`）。`needSign` 同上。 |
 | `resetPacketSequence()` / `currentPacketSequence()` | — | `number` | 全局发包序号。重连 / 换会话时先 `resetPacketSequence()` 回收起点；`currentPacketSequence()` 仅供诊断。 |
-| `locateSignFunction(wrapperPath)` / `signPacket(wrapperPath, cmd, src, seq)` | `wrapper.node` 路径 + 命令 + 明文 + 序号 | RVA / `SignOutput` | `wrapper.node` 签名函数的定位与调用：`needSign` 的命令靠它算 `SecToken / SecExtra / SecSign`。离线逐字节核对抓包用 `buildSsoPacket(req)`。 |
+| `locateSignFunction(wrapperPath)` / `signPacket(wrapperPath, cmd, src, seq)` | `wrapper.node` 路径 + 命令 + 明文 + 序号 | RVA / `SignOutput` | `wrapper.node` 签名函数的定位与调用：`needSign` 的命令靠它算 `SecSign`（以及本进程里恒为空的 `SecToken / SecExtra`）。离线逐字节核对抓包用 `buildSsoPacket(req)`。 |
 
 > **业务命令不在 native**：clientKey / 下载 rkey / decryptKey / skey / p_skey / bkn 的请求构造
 > 与解析已经在 `@weq/protocol` + `@weq/service`（`account/online_ticket.ts`）里实现，只通过

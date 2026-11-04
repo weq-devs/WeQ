@@ -8,7 +8,7 @@ describe('直接读取与权限助手回退', () => {
     const fallback = vi.fn();
     const nt = { scanSessionMaterial: vi.fn(async () => material) } as unknown as NtHelperBinding;
     const hook = createDirectAttachHook(nt, fallback);
-    expect(await hook.ensure(123, 'synthetic')).toEqual(material);
+    expect(await hook.ensure(123, { uin: 'synthetic' })).toEqual(material);
     expect(fallback).not.toHaveBeenCalled();
   });
   it('读取被拒后使用助手，并复用现有完整物料缓存', async () => {
@@ -19,8 +19,8 @@ describe('直接读取与权限助手回退', () => {
       }),
     } as unknown as NtHelperBinding;
     const hook = createDirectAttachHook(nt, fallback);
-    await hook.ensure(123, 'synthetic');
-    await hook.ensure(123, 'synthetic');
+    await hook.ensure(123, { uin: 'synthetic' });
+    await hook.ensure(123, { uin: 'synthetic' });
     expect(fallback).toHaveBeenCalledOnce();
     expect(nt.scanSessionMaterial).toHaveBeenCalledOnce();
   });
@@ -32,7 +32,7 @@ describe('直接读取与权限助手回退', () => {
       }),
     } as unknown as NtHelperBinding;
     await expect(
-      createDirectAttachHook(nt, async () => null).ensure(123, 'synthetic'),
+      createDirectAttachHook(nt, async () => null).ensure(123, { uin: 'synthetic' }),
     ).rejects.toBe(failure);
   });
 });
