@@ -17,6 +17,8 @@ import {
   buildGroupGcsHead,
   buildGroupGcsPacket,
   extractGroupSessionKey,
+  gcsFieldsFromStream,
+  streamFromGcsFields,
   parseGroupGcsPacket,
   parseGroupSessionKeyPush,
 } from '../src/group-call';
@@ -61,6 +63,34 @@ describe('0x28 包格式', () => {
       (gcsKeyPush[5]! << 24) | (gcsKeyPush[6]! << 16) | (gcsKeyPush[7]! << 8) | gcsKeyPush[8]!;
     expect(gcsKeyPush.length).toBe(9 + headLen + bodyLen + 1);
     expect(packet.body.length).toBe(bodyLen);
+  });
+});
+
+describe('流标识（服务端分配）', () => {
+  it('从服务端下发的 f4/f5 还原流标识（两通抓包）', () => {
+    // groupvideo: f4=0x18b606aa f5=0x47320001 → 18 b6 06 aa 47 32 00
+    expect(toHex(streamFromGcsFields(0x18b606aa, 0x47320001))).toBe('18b606aa473200');
+    // events:     f4=0x185706aa f5=0x677e0001 → 18 57 06 aa 67 7e 00
+    expect(toHex(streamFromGcsFields(0x185706aa, 0x677e0001))).toBe('185706aa677e00');
+  });
+
+  it('与 gcsFieldsFromStream 互为逆运算', () => {
+    for (const [f4, f5] of [
+      [0x18b606aa, 0x47320001],
+      [0x185706aa, 0x677e0001],
+      [0x182106aa, 0x704d0001],
+    ] as const) {
+      const stream = streamFromGcsFields(f4, f5);
+      expect(gcsFieldsFromStream(stream)).toEqual({ f4, f5 });
+    }
+  });
+
+  it('末字节恒为 0', () => {
+    expect(streamFromGcsFields(0x185706aa, 0x677e0001)[6]).toBe(0);
+  });
+
+  it('流标识长度不对时抛错', () => {
+    expect(() => gcsFieldsFromStream(new Uint8Array(5))).toThrow(/7 字节/);
   });
 });
 
@@ -131,8 +161,8 @@ describe('head 构造', () => {
       sessionId: 1,
       seq: 2,
       selfUin: 3,
-      streamPrefix: 0,
-      streamSuffix: 0,
+      f4: 0,
+      f5: 0,
       key: null,
       f7: 15,
       f8: 3,
@@ -155,8 +185,8 @@ describe('head 构造', () => {
       sessionId: 23548,
       seq: 7,
       selfUin: 1707889225,
-      streamPrefix: 0,
-      streamSuffix: 0,
+      f4: 0,
+      f5: 0,
       key: null,
       f7: 15,
       f8: 3,

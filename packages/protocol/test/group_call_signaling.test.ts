@@ -97,9 +97,8 @@ describe('群通话信令', () => {
 
   it('查询请求与抓包逐字节一致', () => {
     const bytes = encodeQueryReq({
-      roomUin: 673646675,
-      authKey: hex(AUTH_KEY_HEX),
       groupId: 673646675,
+      authKey: hex(AUTH_KEY_HEX),
     });
     expect(toHex(bytes)).toBe(QUERY_REQ_HEX);
     expect([...QUERY_ROOM_WANTED]).toEqual([1, 2, 6, 5, 10, 11, 12, 14, 16]);
@@ -125,8 +124,8 @@ describe('群通话信令', () => {
 
   it('查询回包解出 uin ↔ uid 映射', () => {
     const state = decodeQueryRoomRspBytes(hex(QUERY_RSP_HEX));
-    // kind=1 的 f2 实测 673646675（三个抓包恒定），不是 uin
-    expect(state.ownerUin).toBe(673646675);
+    // kind=1 的 f2 是群号，不是主叫 uin。
+    expect(state.groupId).toBe(673646675);
     expect(state.members).toEqual([
       { uin: 1707889225, uid: SELF_UID },
       { uin: 2940720980, uid: PEER_UID },
@@ -150,12 +149,12 @@ describe('SsoQueryRoom 归一化', () => {
       ],
     };
     const state = normalizeQueryRoom(rsp);
-    expect(state.ownerUin).toBe(123);
+    expect(state.groupId).toBe(123);
     expect(state.members).toEqual([]);
   });
 
   it('空应答不炸', () => {
-    expect(normalizeQueryRoom({})).toEqual({ ownerUin: null, members: [] });
+    expect(normalizeQueryRoom({})).toEqual({ groupId: null, members: [] });
   });
 
   it('成员按 uin 升序（服务端顺序不保证）', () => {

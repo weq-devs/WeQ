@@ -50,21 +50,10 @@ export interface GroupGcsHead {
   seq: number;
   /** `f3`：自己 uin。 */
   selfUin: number;
-  /**
-   * `f4`：**流标识的前 4 字节**（大端）。
-   *
-   * 实测：流标识 `18 b6 06 aa 47 32 00` → `f4 = 0x18b606aa`；
-   * 另一通 `18 57 06 aa 67 7e 00` → `f4 = 0x185706aa`。
-   * 入房包**必须**带上它，发 0 服务端不认（这是之前入不了房的原因）。
-   */
-  streamPrefix: number;
-  /**
-   * `f5`：**流标识的第 5-6 字节左移 16 位再加 1**。
-   *
-   * 实测：`47 32` → `0x47320001`；`67 7e` → `0x677e0001`。
-   * 与 {@link streamPrefix} 一起由 {@link buildGroupGcsHead} 从流标识推出。
-   */
-  streamSuffix: number;
+  /** `f4`：入房请求为 0；服务端认证后推送里会写流标识前 4 字节。 */
+  f4: number;
+  /** `f5`：入房请求为 0；服务端认证后推送里会写流标识尾部派生值。 */
+  f5: number;
   /** `f6`：当前会话密钥（88B）；k2 下发后就是 k2。 */
   key: Uint8Array | null;
   /** `f7`：恒 15。 */
@@ -118,8 +107,8 @@ export function parseGroupGcsPacket(data: Uint8Array): GroupGcsPacket | null {
       sessionId: pbGetVarint(inner, 1) ?? 0,
       seq: pbGetVarint(inner, 2) ?? 0,
       selfUin: pbGetVarint(inner, 3) ?? 0,
-      streamPrefix: pbGetVarint(inner, 4) ?? 0,
-      streamSuffix: pbGetVarint(inner, 5) ?? 0,
+      f4: pbGetVarint(inner, 4) ?? 0,
+      f5: pbGetVarint(inner, 5) ?? 0,
       key: pbGetBytes(inner, 6) ?? null,
       f7: pbGetVarint(inner, 7) ?? 0,
       f8: pbGetVarint(inner, 8) ?? 0,
@@ -139,24 +128,42 @@ export function parseGroupGcsPacket(data: Uint8Array): GroupGcsPacket | null {
 }
 
 /**
- * 从 7 字节流标识推出 head 的 `f4` / `f5`。
+ * 从服务端下发的 `f4` / `f5` 还原 7 字节流标识。
+ *
+ * **流标识是服务端分配的，不是客户端生成的** —— 2026-11-05 静态比对两通抓包
+ * 确认：客户端入房包的 `f4 = f5 = 0`，服务端在应答里回具体的值，之后所有
+ * `0x02` 包都用由它还原出的流标识。
  *
  * ```text
- * stream = 18 b6 06 aa 47 32 00
- * f4 = 0x18b606aa        （前 4 字节）
- * f5 = 0x47320001        （第 5-6 字节 << 16 | 1）
+ * 应答 f4 = 0x185706aa, f5 = 0x677e0001
+ *   → stream = 18 57 06 aa | 67 7e | 00
+ *               └─ f4 ─────┘  └f5>>16┘  固定 0x00
  * ```
  *
- * 两通抓包各自验证过。入房包必须带上这两个值，发 0 服务端不会回包。
+ * 两通抓包各自验证过（`0x18b606aa`/`0x47320001` → `18b606aa473200`）。
  */
-export function gcsFieldsFromStream(stream: Uint8Array): {
-  streamPrefix: number;
-  streamSuffix: number;
-} {
+export function streamFromGcsFields(f4: number, f5: number): Uint8Array {
+  return Uint8Array.from([
+    (f4 >>> 24) & 0xff,
+    (f4 >>> 16) & 0xff,
+    (f4 >>> 8) & 0xff,
+    f4 & 0xff,
+    (f5 >>> 24) & 0xff,
+    (f5 >>> 16) & 0xff,
+    0x00,
+  ]);
+}
+
+/**
+ * 从 7 字节流标识反推 `f4` / `f5`（{@link streamFromGcsFields} 的逆运算）。
+ *
+ * 只在构造后续包（认证 / 订阅 / 媒体）时用；首次入房包的 `f4/f5` 必须是 0。
+ */
+export function gcsFieldsFromStream(stream: Uint8Array): { f4: number; f5: number } {
   if (stream.length !== 7) throw new RangeError(`流标识必须是 7 字节，收到 ${stream.length}`);
   return {
-    streamPrefix: ((stream[0]! << 24) | (stream[1]! << 16) | (stream[2]! << 8) | stream[3]!) >>> 0,
-    streamSuffix: (((stream[4]! << 8) | stream[5]!) << 16 | 1) >>> 0,
+    f4: ((stream[0]! << 24) | (stream[1]! << 16) | (stream[2]! << 8) | stream[3]!) >>> 0,
+    f5: ((((stream[4]! << 8) | stream[5]!) << 16) | 1) >>> 0,
   };
 }
 
@@ -174,8 +181,8 @@ export function buildGroupGcsHead(head: GroupGcsHead): Uint8Array {
     pbVarint(1, head.sessionId),
     pbVarint(2, head.seq),
     pbVarint(3, head.selfUin),
-    pbVarint(4, head.streamPrefix),
-    pbVarint(5, head.streamSuffix),
+    pbVarint(4, head.f4),
+    pbVarint(5, head.f5),
   ];
   if (head.key && head.key.length > 0) parts.push(pbBytes(6, head.key));
   parts.push(pbVarint(7, head.f7), pbVarint(8, head.f8));
@@ -207,6 +214,47 @@ export function buildGroupGcsPacket(innerHead: Uint8Array, body: Uint8Array): Ui
   out.set(body, 9 + head.length);
   out[out.length - 1] = GROUP_GCS_ETX;
   return out;
+}
+
+/**
+ * 组首次入房用的 GCS 包。
+ *
+ * 抓包里的首包 head 是 `f1=sessionId, f2=265, f3=selfUin, f4=0, f5=0,
+ * f6=k1, f7=15, f8=3`；群号和认证后才出现的字段此时都不带。`body` 是
+ * AVSDK 的 964 字节能力块，协议层不解释它，由调用方提供。
+ */
+export function buildGroupGcsEntry(params: {
+  sessionId: number;
+  selfUin: number;
+  key: Uint8Array;
+  body: Uint8Array;
+  seq?: number;
+}): Uint8Array {
+  if (params.key.length !== GROUP_SESSION_KEY_LEN) {
+    throw new RangeError(
+      `群通话 k1 必须是 ${GROUP_SESSION_KEY_LEN} 字节，收到 ${params.key.length}`,
+    );
+  }
+  const head = buildGroupGcsHead({
+    sessionId: params.sessionId,
+    seq: params.seq ?? 265,
+    selfUin: params.selfUin,
+    f4: 0,
+    f5: 0,
+    key: params.key,
+    f7: GROUP_GCS_DEFAULTS.f7,
+    f8: GROUP_GCS_DEFAULTS.f8,
+    f11: 0,
+    groupId: 0,
+    f16: 0,
+    f19: 0,
+    f20: 0,
+    f21: 0,
+    f22: 0,
+    f23: 0,
+    unknown: [],
+  });
+  return buildGroupGcsPacket(head, params.body);
 }
 
 /**
