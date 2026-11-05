@@ -14,6 +14,7 @@ import {
   namespace,
   parseJson,
   projectBasic,
+  readArchive,
   revision,
   schemaFiles,
   validateArchive,
@@ -85,6 +86,151 @@ test('独立黄金摘要与规范化顺序', () => {
   assert.equal(canonical({ z: [3, { b: 2, a: 1 }], a: 'x' }), '{"a":"x","z":[3,{"a":1,"b":2}]}');
   assert.equal(hash('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
 });
+
+test('数字键、浮点与 Unicode 使用独立规范化预期，不依赖对象枚举顺序', () => {
+  assert.equal(canonical({ 2: 'b', 10: 'a' }), '{"10":"a","2":"b"}');
+  assert.equal(
+    hash(canonical({ 2: 'b', 10: 'a' })),
+    'a76f9931f09e47db676e50eebb06409ca3288449353bcd0eed02e168f7c6caf2',
+  );
+  assert.equal(canonical({ z: 1e-7, a: 1.25, b: 0.000001 }), '{"a":1.25,"b":0.000001,"z":1e-7}');
+  assert.equal(
+    canonical({ '\ue000': '\ud800', '\ud83d\ude00': 'e\u0301' }),
+    '{"\ud83d\ude00":"e\u0301","\ue000":"\\ud800"}',
+  );
+  assert.throws(() => canonical(-0));
+  assert.throws(() => canonical(Number.NaN));
+  assert.throws(() => canonical(9007199254740992));
+  assert.throws(() => canonical(undefined));
+  assert.throws(() => canonical(new Array(2)));
+});
+
+function futureFixture(profile = 'basic') {
+  return edit(profile === 'full' ? fullFixture() : basicFixture(), (document) => {
+    document.version = '1.7';
+    document.futureHeader = { label: 'future' };
+    for (const record of document.records) record.data.futureFlag = false;
+    document.records[1].futureRecord = false;
+    document.records[1].data.futureData = {
+      type: 'reference',
+      target: 'not-a-reference',
+      status: 'resolved',
+    };
+    document.records[1].data.sender.futureActor = 'preserved';
+    document.records[1].data.content[0].futureElement = { type: 'bytes', value: 'not-base64' };
+    document.records[1].data.content[0].resourceIds = ['not-an-element-reference'];
+    document.records[1].data.parentId = 'not-a-message-parent';
+    document.observations[1].futureObservation = { unixSeconds: 'not-a-time', precision: 'future' };
+    document.resources[0].futureResource = ['preserved'];
+  });
+}
+
+for (const profile of ['basic', 'full']) {
+  test(`${profile} 未来小版本可读，JSON/JSONL 和追加保留所有未知可选字段`, () => {
+    const future = futureFixture(profile);
+    const before = canonical(future);
+    assert.throws(() => validateArchive(future));
+    assert.equal(readArchive(future), future);
+    const decoded = decodeLog(encodeLog(future, { mode: 'read' }));
+    assert.deepEqual(decoded.document, future);
+    assert.deepEqual(appendObjects(future, future, { mode: 'read' }), future);
+    const addition = edit(future, (a) => {
+      a.records[1].data.content[0].text = '追加正文';
+    });
+    addition.records = [addition.records[1]];
+    addition.observations = [
+      observation(addition.records[0], 'future-addition', time('1793856200')),
+    ];
+    addition.resources = [];
+    const appended = appendObjects(future, addition, { mode: 'read' });
+    assert.deepEqual(appended.records.slice(0, future.records.length), future.records);
+    assert.equal(latest(appended, future.records[1].id).effective.content[0].text, '追加正文');
+    assert.deepEqual(decodeLog(encodeLog(appended, { mode: 'read' })).document, appended);
+    assert.equal(canonical(future), before);
+    const broken = structuredClone(future);
+    broken.records[1].futureRecord = true;
+    assert.throws(() => readArchive(broken), /正文摘要/);
+  });
+}
+
+test('兼容读取不放宽已有字段、档位、枚举、主版本及提交协议', () => {
+  for (const change of [
+    (a) => {
+      a.version = '2.0';
+    },
+    (a) => {
+      a.version = '1.01';
+    },
+    (a) => {
+      delete a.records[1].data.sender;
+    },
+    (a) => {
+      a.records[1].data.seq = 1;
+    },
+    (a) => {
+      a.records[1].data.content[0].type = 'future-element';
+    },
+    (a) => {
+      a.records[1].native = emptyNative();
+    },
+    (a) => {
+      a.resources[0].native = emptyNative();
+    },
+    (a) => {
+      a.records[1].data.sentAt.unixSeconds = '1793856000.1';
+    },
+  ])
+    assert.throws(() => readArchive(edit(futureFixture(), change)));
+  const lines = encodeLog(basicFixture()).trimEnd().split('\n').map(JSON.parse);
+  lines[1].futureWrapper = true;
+  assert.throws(() => decodeLog(`${lines.map(JSON.stringify).join('\n')}\n`));
+});
+
+test('已知写入版本仍严格拒绝未声明字段，兼容读取可保留它们', () => {
+  const document = futureFixture();
+  document.version = '1.0';
+  assert.throws(() => validateArchive(document));
+  assert.throws(() => encodeLog(document));
+  assert.deepEqual(readArchive(document), document);
+});
+
+test('未来小版本的有损档位投影拒绝执行，不猜未知字段是否只属于 full', () => {
+  assert.throws(() => projectBasic(futureFixture('full')), /版本|version/);
+});
+
+for (const unknownTime of [false, true]) {
+  test(`${unknownTime ? '未知' : '相同'}观察时间的顺序经过转换和投影不改变默认正文`, () => {
+    const full = fullFixture();
+    const next = structuredClone(full.records[1]);
+    next.data.content = [{ type: 'text', text: '第二次观察正文' }];
+    next.revision = revision(next);
+    full.records.push(next);
+    full.observations.push(observation(next, 'same-time', full.observations[1].observedAt));
+    if (unknownTime) {
+      for (const item of full.observations.filter((o) => o.recordId === next.id)) {
+        item.observedAt = null;
+        item.importedAt = time();
+        item.source.kind = 'legacy-import';
+        item.source.provenance = { file: 'synthetic.json' };
+      }
+      for (const record of full.records.filter((r) => r.id === next.id)) {
+        const old = record.revision;
+        record.identity = { status: 'source-local', nativeNamespace: 'fixture/message' };
+        record.revision = revision(record);
+        for (const item of full.observations)
+          if (item.recordId === next.id && item.revision === old) item.revision = record.revision;
+      }
+    }
+    for (const document of [full, decodeLog(encodeLog(full)).document, projectBasic(full)]) {
+      validateArchive(document);
+      assert.equal(latest(document, next.id).effective.content[0].text, '第二次观察正文');
+      assert.deepEqual(
+        document.observations.map((o) => o.id),
+        full.observations.map((o) => o.id),
+      );
+    }
+  });
+}
 test('full→basic 投影不改变语义，重算版本并改观察引用', () => {
   assert.deepEqual(projectBasic(fullFixture(), 'synthetic-archive'), basicFixture());
 });
@@ -261,7 +407,11 @@ const negatives = [
   ],
 ];
 for (const [name, change] of negatives)
-  test(`反例：${name}`, () => assert.throws(() => validateArchive(edit(basicFixture(), change))));
+  test(`反例：${name}`, () => {
+    assert.throws(() => validateArchive(edit(basicFixture(), change)));
+    if (name !== '已知字段重复为 raw')
+      assert.throws(() => readArchive(edit(basicFixture(), change)));
+  });
 
 const fullNegatives = [
   [
@@ -354,8 +504,10 @@ const fullNegatives = [
   ],
 ];
 for (const [name, change] of fullNegatives)
-  test(`full 反例：${name}`, () =>
-    assert.throws(() => validateArchive(edit(fullFixture(), change))));
+  test(`full 反例：${name}`, () => {
+    assert.throws(() => validateArchive(edit(fullFixture(), change)));
+    assert.throws(() => readArchive(edit(fullFixture(), change)));
+  });
 
 test('显式声明范围外关系，不扩读未选对象', () => {
   const basic = edit(basicFixture(), (a) => {
@@ -802,6 +954,27 @@ test('集合保留大小号 scope、跨归档关系和共享资源，不按相�
   const dangling = clone(set);
   dangling.links[0].to.id = 'missing';
   assert.throws(() => validateArchiveSet(dangling, documents), /端点/);
+  const future = clone(set);
+  future.version = '1.7';
+  future.archives[0].futureMember = { label: 'preserved' };
+  const futureDocuments = new Map(
+    [...documents].map(([id, document]) => [
+      id,
+      edit(document, (a) => {
+        a.version = '1.7';
+        a.records[0].native.attributes.push({
+          target: '/data',
+          name: 'legacy.future.extra',
+          interpretation: 'opaque',
+          value: { type: 'text', value: 'preserved' },
+        });
+      }),
+    ]),
+  );
+  const before = canonical(future);
+  assert.throws(() => validateArchiveSet(future, futureDocuments));
+  assert.equal(validateArchiveSet(future, futureDocuments, { mode: 'read' }), future);
+  assert.equal(canonical(future), before);
 });
 
 test('旧变体引用和可信关联随版本保留，不把不同原生命名空间按数值归并', () => {

@@ -8,6 +8,38 @@ import addFormats from 'ajv-formats';
 export const namespace = 'https://weq.local/schemas/export/v1/';
 const ajv = new Ajv2020({ allErrors: true, strictSchema: true, strictTypes: false });
 addFormats(ajv);
+const readerAjv = new Ajv2020({ allErrors: true, strictSchema: true, strictTypes: false });
+addFormats(readerAjv);
+
+// 读取只放开可选属性；必填、类型、枚举、档位和 JSONL 提交外壳仍按原契约校验。
+function readerSchema(schema, name) {
+  const output = structuredClone(schema);
+  walk(output, (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (node.additionalProperties === false) delete node.additionalProperties;
+    if (node.unevaluatedProperties === false) delete node.unevaluatedProperties;
+    if (node.properties?.version?.const === '1.0')
+      node.properties.version = { type: 'string', pattern: '^1\\.(?:0|[1-9][0-9]*)$' };
+  });
+  if (name.endsWith('.basic.schema.json')) output.not = { required: ['native'] };
+  if (name === 'archive.schema.json')
+    output.$defs.basicResource.not = {
+      anyOf: [{ required: ['native'] }, { required: ['source'] }],
+    };
+  if (name === 'stream.schema.json') {
+    for (const branch of output.oneOf) branch.additionalProperties = false;
+    output.oneOf[0].properties.header.not = {
+      anyOf: ['records', 'observations', 'resources'].map((field) => ({ required: [field] })),
+    };
+  }
+  if (name === 'legacy.schema.json')
+    output.$defs.attribute.allOf[0].then.properties.name = {
+      type: 'string',
+      pattern: '^legacy\\.',
+    };
+  return output;
+}
+
 export const schemaFiles = readdirSync(new URL('.', import.meta.url)).filter((name) =>
   name.endsWith('.schema.json'),
 );
@@ -15,18 +47,45 @@ for (const name of schemaFiles) {
   const schema = JSON.parse(readFileSync(new URL(name, import.meta.url), 'utf8'));
   assert(ajv.validateSchema(schema), `无效 schema ${name}`);
   ajv.addSchema(schema);
+  readerAjv.addSchema(readerSchema(schema, name));
 }
-for (const name of schemaFiles) ajv.getSchema(namespace + name);
+for (const name of schemaFiles) {
+  ajv.getSchema(namespace + name);
+  readerAjv.getSchema(namespace + name);
+}
 
-export function checkShape(name, value) {
-  const validate = ajv.getSchema(namespace + name);
+export function checkShape(name, value, { mode = 'write' } = {}) {
+  assert(['read', 'write'].includes(mode), '未知校验模式');
+  if (mode === 'read') {
+    const header = name === 'stream.schema.json' && value?.type === 'header' ? value.header : value;
+    if (header?.format === 'weq-export' || header?.format === 'weq-export-set')
+      assert(/^1\.(?:0|[1-9][0-9]*)$/.test(header.version), '不支持的导出格式版本（仅读取 1.x）');
+  }
+  const validate = (mode === 'read' ? readerAjv : ajv).getSchema(namespace + name);
   assert(validate, `缺少 schema ${name}`);
   assert(validate(value), `${name}: ${ajv.errorsText(validate.errors, { separator: '\n' })}`);
 }
 
 export function canonical(value) {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (typeof value === 'number') {
+    assert(Number.isFinite(value) && !Object.is(value, -0), '非规范 JSON 数值');
+    assert(!Number.isInteger(value) || Number.isSafeInteger(value), '整数精度丢失');
+  }
+  if (value === null || typeof value !== 'object') {
+    assert(['string', 'number', 'boolean'].includes(typeof value) || value === null, '非 JSON 值');
+    return JSON.stringify(value);
+  }
+  assert(
+    Array.isArray(value) ||
+      Object.getPrototypeOf(value) === Object.prototype ||
+      Object.getPrototypeOf(value) === null,
+    '非 JSON 对象',
+  );
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index++)
+      assert(Object.hasOwn(value, index), '非 JSON 稀疏数组');
+    return `[${value.map(canonical).join(',')}]`;
+  }
   return `{${Object.keys(value)
     .sort()
     .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
@@ -35,18 +94,8 @@ export function canonical(value) {
 
 export const hash = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
 export function revision(record) {
-  const { id, kind, state, coverage, data, native, identity } = record;
-  return hash(
-    canonical({
-      id,
-      kind,
-      state,
-      coverage,
-      data,
-      ...(identity ? { identity } : {}),
-      ...(native ? { native } : {}),
-    }),
-  );
+  const { revision: _revision, ...body } = record;
+  return hash(canonical(body));
 }
 
 const keyOf = (record) => `${record.id}\u0000${record.revision}`;
@@ -64,6 +113,31 @@ function walk(value, visitor) {
   visitor(value);
   if (value && typeof value === 'object')
     for (const child of Object.values(value)) walk(child, visitor);
+}
+
+function knownProperties(value, properties) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => Object.hasOwn(properties, key)),
+  );
+}
+
+function knownData(record) {
+  const schema = ajv.getSchema(`${namespace}${record.kind}.basic.schema.json`).schema;
+  return knownProperties(record.data, schema.$defs.data.properties);
+}
+
+// 只沿已知内容关系遍历，不将未知属性或 structured.value 中的 JSON 猜成资源/引用。
+function walkContent(data, visitor, root = true) {
+  if (root) visitor(data);
+  const elements = ajv.getSchema(`${namespace}common.schema.json`).schema.$defs.element.oneOf;
+  for (const element of data.content ?? []) {
+    const shape = elements.find((entry) => entry.properties.type.const === element.type);
+    visitor(knownProperties(element, shape.properties));
+    if (element.type === 'forward')
+      for (const node of element.records) walkContent(node, visitor, false);
+  }
+  if (root)
+    for (const inline of data.inlineResources ?? []) visitor({ resourceId: inline.resourceId });
 }
 
 function pointer(value, path) {
@@ -84,20 +158,6 @@ function verifyScalars(document) {
     if (typeof value === 'number') {
       assert(Number.isFinite(value) && !Object.is(value, -0), '非规范 JSON 数值');
       assert(!Number.isInteger(value) || Number.isSafeInteger(value), '整数精度丢失');
-    }
-    if (!value || typeof value !== 'object') return;
-    if ('unixSeconds' in value && 'precision' in value) {
-      const precision = { second: 0, millisecond: 3, microsecond: 6, nanosecond: 9 }[
-        value.precision
-      ];
-      assert((value.unixSeconds.split('.')[1]?.length ?? 0) <= precision, '时间精度不符');
-      assert(!/^-0(?:\.0+)?$/.test(value.unixSeconds), '负零时间');
-    }
-    if (value.type === 'bytes') {
-      assert(
-        Buffer.from(value.value, 'base64').toString('base64') === value.value,
-        '非规范 base64',
-      );
     }
   });
 }
@@ -160,8 +220,12 @@ function verifyNative(record, observations) {
   }
 }
 
-export function validateArchive(document) {
-  checkShape('archive.schema.json', document);
+export function readArchive(document) {
+  return validateArchive(document, { mode: 'read' });
+}
+
+export function validateArchive(document, options = {}) {
+  checkShape('archive.schema.json', document, options);
   verifyScalars(document);
   if (!document.scope.account.identities.length)
     assert(document.scope.partition, '未知账号须保留独立来源分区');
@@ -188,7 +252,7 @@ export function validateArchive(document) {
       ),
       '正文缺少来源观察',
     );
-    walk(record.data, (value) => {
+    walkContent(knownData(record), (value) => {
       if (value?.type === 'forward') {
         if (value.status === 'unavailable')
           assert(value.records.length === 0, '不可用转发却含正文');
@@ -297,12 +361,10 @@ export function validateArchive(document) {
     paths.set(resource.path, resource.size);
   }
   for (const record of document.records) {
+    const data = knownData(record);
     for (const field of ['parentId', 'repostId', 'replyToId', 'targetId']) {
-      if (record.data[field])
-        assert(
-          ids.has(record.data[field]) || external(document, record.data[field]),
-          `悬空关系 ${field}`,
-        );
+      if (data[field])
+        assert(ids.has(data[field]) || external(document, data[field]), `悬空关系 ${field}`);
     }
     if (record.kind === 'qzone' && record.data.parentType) {
       const parents = document.records.filter((entry) => entry.id === record.data.parentId);
@@ -314,9 +376,9 @@ export function validateArchive(document) {
         '空间互动父实体类型不符',
       );
     }
-    for (const id of record.data.categoryIds ?? [])
+    for (const id of data.categoryIds ?? [])
       assert(ids.has(id) || external(document, id), '悬空分类');
-    walk(record.data, (value) => {
+    walkContent(data, (value) => {
       if (!value || typeof value !== 'object') return;
       const refs = [
         ...(value.resourceIds ?? []),
@@ -340,6 +402,7 @@ function external(document, id) {
 }
 
 export function projectBasic(full, archiveId = `${full.archiveId}:basic`) {
+  assert(full.version === '1.0', '不支持对未知小版本执行有损投影');
   validateArchive(full);
   const output = structuredClone(full);
   output.profile = 'basic';
@@ -366,7 +429,7 @@ export function projectBasic(full, archiveId = `${full.archiveId}:basic`) {
   }
   const referenced = new Set();
   for (const record of output.records)
-    walk(record.data, (value) => {
+    walkContent(knownData(record), (value) => {
       if (!value || typeof value !== 'object') return;
       for (const id of [
         ...(value.resourceIds ?? []),
@@ -389,9 +452,14 @@ export function projectBasic(full, archiveId = `${full.archiveId}:basic`) {
   return validateArchive(output);
 }
 
-export function appendObjects(base, addition) {
-  for (const field of ['archiveId', 'version', 'profile', 'scope', 'incremental'])
-    assert(same(base[field], addition[field]), `归档 ${field} 不兼容`);
+export function appendObjects(base, addition, options = {}) {
+  const header = ({
+    records: _records,
+    observations: _observations,
+    resources: _resources,
+    ...rest
+  }) => rest;
+  assert(same(header(base), header(addition)), '归档 header 不兼容');
   const output = structuredClone(base);
   for (const [field, key] of [
     ['records', keyOf],
@@ -406,7 +474,7 @@ export function appendObjects(base, addition) {
     }
     output[field] = [...index.values()];
   }
-  return validateArchive(output);
+  return validateArchive(output, options);
 }
 
 export function latest(document, id) {
@@ -458,15 +526,15 @@ export function latest(document, id) {
   return { record: current, effective };
 }
 
-export function validateArchiveSet(set, documents) {
-  checkShape('archive-set.schema.json', set);
+export function validateArchiveSet(set, documents, options = {}) {
+  checkShape('archive-set.schema.json', set, options);
   unique(set.archives, (entry) => entry.archiveId, '集合归档');
   unique(set.archives, (entry) => entry.path, '集合路径');
   const archives = new Map();
   for (const entry of set.archives) {
     const document = documents.get(entry.archiveId);
     assert(document, '集合归档缺失');
-    validateArchive(document);
+    validateArchive(document, options);
     assert(
       document.archiveId === entry.archiveId && document.scope.partition === entry.scope,
       '集合范围不符',
@@ -499,7 +567,8 @@ export function validateArchiveSet(set, documents) {
   return set;
 }
 
-export function encodeLog(document) {
+export function encodeLog(document, options = {}) {
+  validateArchive(document, options);
   const { records, observations, resources, ...header } = document;
   const events = [
     ...records.map((record) => ({ type: 'revision', batchId: 'batch-1', record })),
@@ -527,11 +596,11 @@ export function makeCommit(events, sequence, previous, batchId = events[0]?.batc
   };
 }
 
-export function decodeLog(text) {
+export function decodeLog(text, options = { mode: 'read' }) {
   const lines = text.split('\n');
   const tail = lines.pop();
   const first = parseJson(lines.shift());
-  checkShape('stream.schema.json', first);
+  checkShape('stream.schema.json', first, options);
   assert(first.type === 'header', '缺少首行 header');
   let document = { ...first.header, records: [], observations: [], resources: [] };
   let pending = [],
@@ -540,7 +609,7 @@ export function decodeLog(text) {
   const batches = new Set();
   for (const line of lines) {
     const event = parseJson(line);
-    checkShape('stream.schema.json', event);
+    checkShape('stream.schema.json', event, options);
     assert(event.type !== 'header', '重复 header');
     if (event.type !== 'commit') {
       assert(!pending.length || pending[0].batchId === event.batchId, '批次交错');
@@ -573,7 +642,7 @@ export function decodeLog(text) {
       assert(!document[field].some((entry) => key(entry) === key(value)), '重复写入已提交对象');
       addition[field].push(value);
     }
-    document = appendObjects(document, addition);
+    document = appendObjects(document, addition, options);
     previous = hash(canonical(event));
     batches.add(event.batchId);
     sequence++;

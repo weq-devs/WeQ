@@ -22,7 +22,8 @@
 
 `basic/full` 表示两个独立文件，不是包含斜线的文件名。basic 文件的 `$defs.data` 是
 领域基本字段；full 引用同一 data 定义，再增加 native。闭合对象用 unevaluatedProperties
-实现跨 allOf 的检查，不能将 full 当作可附任意 raw 字段的宽松外壳。
+实现跨 allOf 的写入检查，不能将 full 当作可附任意 raw 字段的宽松外壳。
+闭合 writer schema 不等于 reader 遇到未知可选字段就拒绝：两条校验路径见下文。
 
 所有 `$id` 使用 `https://weq.local/schemas/export/v1/` 标识命名空间，**不做网络请求**。
 将全部 19 个 schema 一次注册到支持 Draft 2020-12 的校验器，再校验入口。
@@ -62,3 +63,23 @@ pnpm exec biome check package.json schemas/export/v1
 根 devDependencies 显式登记已有锁文件中的 Ajv 8 / ajv-formats，未增加业务运行依赖。
 Ajv 使用标准 schema 形状约束；关闭其跨 allOf 无法完整推断的 strictTypes 静态提示，
 不关闭 strictSchema、实际类型校验、引用校验或反例。
+
+## 兼容校验入口
+
+- `validateArchive(document)` / `checkShape(name, value)`：严格 1.0 写入校验，拒绝未声明字段。
+- `readArchive(document)`：兼容读取 1.x，仍检查必填、已知类型/枚举、档位、摘要与引用，
+  返回原结构，不删除或修改未知属性。未知主版本拒绝。
+- `decodeLog(text)` 默认兼容读取，仍严格检查 JSONL 行外壳、提交摘要、前链与顺序。
+- `encodeLog(document, {mode:'read'})` / `appendObjects(base, addition, {mode:'read'})`
+  用于参考模型验证无损往返/集合追加，保留版本、header、未知属性与观察/资源顺序；
+  不是赋予旧 writer 生成未知版本内容的能力。省略 mode 仍执行严格写入检查。
+- `validateArchiveSet(set, documents, {mode:'read'})` 同样保留集合属性并校验成员引用。
+- `projectBasic` 只对已知 1.0 执行有损投影；未知小版本不擅自投影。
+
+兼容读取用同一组 schema 派生 reader 校验器，只打开可选属性，不删除数据，不增加依赖。
+新内容仍使用严格 writer 校验。时间精度与 base64 padding bits 由各自 schema 检查，
+不根据任意未知 JSON 中恰好同名的字段猜类型。正式摘要包含 Record 除 revision 外全部
+属性，含未知可选字段；JSONL 摘要包含完整内容行载荷。已有静态示例与摘要保持不变。
+
+未来小版本夹具、数字键/浮点/Unicode 黄金向量、同时间及未知时间观察顺序、未知字段
+往返和拒绝降级投影的测试位于 `contract.test.mjs`；不读取个人原件、不访问网络。
