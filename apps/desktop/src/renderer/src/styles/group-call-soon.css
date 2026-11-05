@@ -1,0 +1,117 @@
+/**
+ * 群通话「敬请期待」面板。
+ *
+ * 全部走 design token（AGENTS.md §5）：
+ * - 颜色只用 `--weq-*` 与 shadcn 基础色，强调色用 `--weq-accent-effective`
+ * - 深色模式单独写覆盖（钩子是 `html[data-theme="dark"]`，不是 Tailwind `dark:`）
+ * - 浮层半透明，跟着界面背景透出底色
+ */
+
+.weq-group-call-soon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 26px 24px 22px;
+  text-align: center;
+}
+
+.weq-group-call-soon-icons {
+  display: flex;
+  gap: 10px;
+}
+
+.weq-group-call-soon-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+}
+
+.weq-group-call-soon-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--weq-fg-primary);
+}
+
+.weq-group-call-soon-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 28%, transparent);
+}
+
+.weq-group-call-soon-desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-group-call-soon-action {
+  margin-top: 4px;
+  min-width: 108px;
+  padding: 8px 20px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.weq-group-call-soon-action:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+}
+
+.weq-group-call-soon-action:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* 深色：主题色本身在深底上偏亮，降低一点透明度避免发灰。 */
+html[data-theme='dark'] .weq-group-call-soon-icon {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+}
+
+html[data-theme='dark'] .weq-group-call-soon-badge {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 38%, transparent);
+}
+
+html[data-theme='dark'] .weq-group-call-soon-action {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 38%, transparent);
+}
+
+html[data-theme='dark'] .weq-group-call-soon-action:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 24%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-group-call-soon-action {
+    transition: none;
+  }
+}

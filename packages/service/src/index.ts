@@ -31,7 +31,12 @@ export type {
 } from './bootstrap/key';
 
 export { createDirectAttachHook, createCachedAttachHook } from './bootstrap/attach';
-export type { AttachHook, AttachHintChoice, AttachHintAnswer } from './bootstrap/attach';
+export type {
+  AttachHook,
+  AttachIdentity,
+  AttachHintChoice,
+  AttachHintAnswer,
+} from './bootstrap/attach';
 export { runUnprivilegedAttach } from './bootstrap/attach_flow';
 export type { DirectAttachFailure, AttachFlowDeps } from './bootstrap/attach_flow';
 
@@ -137,6 +142,25 @@ export type {
   UdpTransport,
   CallTimers,
 } from './account/call_session';
+export {
+  GroupCallSession,
+  makeGroupStream,
+  realGroupTimers,
+} from './account/group_call_session';
+export type {
+  GroupCallState,
+  GroupCallEndReason,
+  GroupCallMember,
+  GroupCallSnapshot,
+  GroupCallSessionOptions,
+  GroupCallSignaling,
+  GroupCallTransport,
+  GroupCallCodec,
+  GroupCallTimers,
+  GroupCallListener,
+  GroupCallAudioListener,
+  GroupCallVideoListener,
+} from './account/group_call_session';
 export { warmJiebaDict, segmentWords } from './account/text_segment';
 export type { HomeDressSnapshot, PeerDressSnapshot } from './account/home_dress';
 export {
@@ -189,7 +213,10 @@ export {
 } from './account/web/dress_mall';
 export type { DressMallItem } from './account/web/dress_mall';
 export { AccountMonitorService } from './account/monitor';
-export { isCompleteSessionMaterial } from './common/session_material';
+export {
+  canReuseSessionMaterial,
+  isCompleteSessionMaterial,
+} from './common/session_material';
 export {
   attachAndRegisterSsoSession,
   registerSsoSession,
@@ -419,6 +446,7 @@ export type { RenderElement, RenderTextElement } from './account/msg_view';
 export type { UrlVerifyInfo } from '@weq/codec';
 export { MsgSearchService } from './account/msg_search';
 export { UnifiedSearchService, SEARCH_CATEGORIES } from './account/unified_search';
+export type { UnifiedSearchServiceOptions } from './account/unified_search';
 export type { CollectionSearchHit } from './account/collection_search';
 export type { GeneratedSearchHit, GeneratedSearchSources } from './account/generated_search';
 export {

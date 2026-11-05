@@ -463,6 +463,8 @@ export class IntentSenseService {
     string,
     { lastMsgId: string; at: number; suggestions: ReplySuggestion[] }
   >();
+  /** 回复建议在途任务（去重并发，防止相同会话重复调用 API）。 */
+  private readonly suggestionInFlight = new Map<string, Promise<ReplySuggestion[]>>();
   /** API 熔断截止时间戳（ms）：网络/服务报错后短时间内不再重复撞墙。 */
   private apiCooldownUntil = 0;
   /** 最近一次 API 请求失败信息（供设置面板提示用户排查网络/Provider）。 */
@@ -604,6 +606,7 @@ export class IntentSenseService {
       if (kind === 'suggestion') {
         this.suggestionRevision++;
         this.suggestionCache.clear();
+        this.suggestionInFlight.clear();
         this.suggestionApiCooldownUntil = 0;
         this.lastSuggestionApiError = null;
       }
@@ -713,6 +716,7 @@ export class IntentSenseService {
     ) {
       this.suggestionRevision++;
       this.suggestionCache.clear();
+      this.suggestionInFlight.clear();
     }
     if (analysisChanged || next.enabled !== previous.enabled) {
       this.apiCooldownUntil = 0;
@@ -770,6 +774,7 @@ export class IntentSenseService {
     }
     this.analysisStores.clear();
     this.suggestionCache.clear();
+    this.suggestionInFlight.clear();
     this.apiCooldownUntil = 0;
     this.lastApiError = null;
     this.suggestionApiCooldownUntil = 0;
@@ -931,13 +936,29 @@ export class IntentSenseService {
     if (this.config.engine === 'local') {
       result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text, context);
     } else {
-      const batchOut = await this.analyzeBatchViaApi([{ ...row, context }]);
-      this.syncDefaultModels();
-      if (revision !== this.analysisRevision) return null;
-      if (batchOut !== null) {
-        result = batchOut[0] ?? null;
-      } else if (this.opts.localEngine?.ready) {
-        result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text, context);
+      const prag = analyzePragmatics(row.text, context, row.sendTime);
+      if (prag.override?.hard) {
+        result = {
+          msgId: row.msgId,
+          mine: row.mine,
+          sendTime: row.sendTime,
+          intent: prag.override.intent,
+          emotion: prag.override.emotion,
+          intensity: clamp(prag.override.intensity, 0, 100),
+          sentiment: clamp(prag.override.sentiment, -100, 100),
+          confidence: clamp(prag.override.minConfidence, 0, 1),
+          engine: 'api',
+          analyzedAt: Date.now(),
+        };
+      } else {
+        const batchOut = await this.analyzeBatchViaApi([{ ...row, context }]);
+        this.syncDefaultModels();
+        if (revision !== this.analysisRevision) return null;
+        if (batchOut !== null) {
+          result = batchOut[0] ?? null;
+        } else if (this.opts.localEngine?.ready) {
+          result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text, context);
+        }
       }
     }
     if (revision !== this.analysisRevision) return null;
@@ -1051,32 +1072,64 @@ export class IntentSenseService {
         for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
           if (!current()) break;
           const slice = chunks[cIdx]!;
-          const batchInput = slice.map(({ row, context }) => ({
-            msgId: row.msgId,
-            mine: row.mine,
-            sendTime: row.sendTime,
-            text: row.text,
-            context,
-          }));
-          const results = await this.analyzeBatchViaApi(batchInput);
-          if (!current()) break;
-          if (results === null) {
-            // API 发生网络故障或处于熔断冷却：若本地引擎就绪则无缝降级本地引擎，否则立即中止后续批次避免刷屏报错
-            if (this.opts.localEngine?.ready) {
-              await runChunkLocal(slice);
-              continue;
+          const directResults: IntentSenseResult[] = [];
+          const apiSlice: typeof slice = [];
+
+          for (const item of slice) {
+            const prag = analyzePragmatics(item.row.text, item.context, item.row.sendTime);
+            if (prag.override?.hard) {
+              directResults.push({
+                msgId: item.row.msgId,
+                mine: item.row.mine,
+                sendTime: item.row.sendTime,
+                intent: prag.override.intent,
+                emotion: prag.override.emotion,
+                intensity: clamp(prag.override.intensity, 0, 100),
+                sentiment: clamp(prag.override.sentiment, -100, 100),
+                confidence: clamp(prag.override.minConfidence, 0, 1),
+                engine: 'api',
+                analyzedAt: Date.now(),
+              });
+            } else {
+              apiSlice.push(item);
             }
-            const remaining = chunks.slice(cIdx).reduce((acc, s) => acc + s.length, 0);
-            failed += remaining;
+          }
+
+          let apiResults: IntentSenseResult[] | null = [];
+          if (apiSlice.length > 0) {
+            const batchInput = apiSlice.map(({ row, context }) => ({
+              msgId: row.msgId,
+              mine: row.mine,
+              sendTime: row.sendTime,
+              text: row.text,
+              context,
+            }));
+            apiResults = await this.analyzeBatchViaApi(batchInput);
+            if (!current()) break;
+          }
+
+          if (apiResults === null) {
+            // API 发生网络故障或处于熔断冷却：若本地引擎就绪则无缝降级本地引擎，否则记录失败并中止
+            if (this.opts.localEngine?.ready) {
+              await runChunkLocal(apiSlice);
+            } else {
+              const remaining = chunks.slice(cIdx).reduce((acc, s) => acc + s.length, 0);
+              failed += remaining - directResults.length;
+            }
+          }
+
+          const combined = [...directResults, ...(apiResults ?? [])];
+          if (combined.length > 0) {
+            this.storeResults(kind, conv, combined);
+            this.emitAnalyzed({ kind, conv, results: combined });
+            analyzed += combined.length;
+            peerAnalyzed += combined.filter((result) => !result.mine).length;
+          }
+          if (apiResults !== null) {
+            failed += apiSlice.length - apiResults.length;
+          } else if (!this.opts.localEngine?.ready) {
             break;
           }
-          if (results.length > 0) {
-            this.storeResults(kind, conv, results);
-            this.emitAnalyzed({ kind, conv, results });
-          }
-          analyzed += results.length;
-          peerAnalyzed += results.filter((result) => !result.mine).length;
-          failed += slice.length - results.length;
         }
       }
     }
@@ -1277,7 +1330,7 @@ export class IntentSenseService {
 
   // ── 回复建议（API 引擎优先 + 本地意图候选兜底）─────────────────────────────
 
-  async getSuggestions(
+  getSuggestions(
     kind: IntentConversationKind,
     conv: string,
     options: { refresh?: boolean } = {},
@@ -1287,128 +1340,145 @@ export class IntentSenseService {
       this.config.conversationOverrides[conversationKey(kind, conv)] === false ||
       !this.config.suggestionsEnabled
     )
-      return [];
+      return Promise.resolve([]);
     const revision = this.suggestionRevision;
     const manualRefresh = options.refresh === true;
-    const contextMessages = this.config.suggestionContextMessages;
     const key = conversationKey(kind, conv);
-    const current = () => {
-      this.syncDefaultModels();
-      return (
-        revision === this.suggestionRevision &&
-        this.config.suggestionsEnabled &&
-        this.config.conversationOverrides[key] !== false
-      );
-    };
-    const rows = await this.loadMessages(kind, conv, contextMessages + 1);
-    if (!current()) return [];
-    if (rows.length === 0) return [];
-    const last = rows[rows.length - 1] as SenseRow;
-    if (last.mine && !this.config.suggestAfterSelf && !manualRefresh) {
-      this.suggestionCache.delete(key);
-      return [];
-    }
-    const cachedHit = this.suggestionCache.get(key);
-    if (
-      !manualRefresh &&
-      cachedHit &&
-      cachedHit.lastMsgId === last.msgId &&
-      Date.now() - cachedHit.at < this.config.suggestionCacheSeconds * 1000
-    ) {
-      return cachedHit.suggestions;
-    }
+    const inFlightKey = `${key}:${revision}:${manualRefresh ? 'refresh' : 'auto'}`;
+    const running = this.suggestionInFlight.get(inFlightKey);
+    if (running) return running;
 
-    const fallbackLocal = (): ReplySuggestion[] => {
-      if (!current()) return [];
-      const cache = this.cacheFor(kind, conv);
-      const analyzedLast = cache.data.results.find((r) => r.msgId === last.msgId);
-      const context = extractContextBefore(rows, rows.length - 1, contextMessages, this.config);
-      const suggestions = buildLocalSuggestions(
-        last.text,
-        analyzedLast,
-        context,
-        last.sendTime,
-      ).slice(0, this.config.suggestionCount);
-      this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
-      return suggestions;
-    };
-
-    const stillLatestMessage = async (): Promise<boolean> => {
-      if (!current()) return false;
-      try {
-        const latest = (await this.loadMessages(kind, conv, 1))[0];
+    const task = (async (): Promise<ReplySuggestion[]> => {
+      const contextMessages = this.config.suggestionContextMessages;
+      const current = () => {
+        this.syncDefaultModels();
         return (
-          current() &&
-          latest?.msgId === last.msgId &&
-          (!latest.mine || this.config.suggestAfterSelf || manualRefresh)
+          revision === this.suggestionRevision &&
+          this.config.suggestionsEnabled &&
+          this.config.conversationOverrides[key] !== false
         );
-      } catch {
-        return false;
+      };
+      const rows = await this.loadMessages(kind, conv, contextMessages + 1);
+      if (!current()) return [];
+      if (rows.length === 0) return [];
+      const last = rows[rows.length - 1] as SenseRow;
+      if (last.mine && !this.config.suggestAfterSelf && !manualRefresh) {
+        this.suggestionCache.delete(key);
+        return [];
       }
-    };
-    const fallbackAfterRequest = async () => ((await stillLatestMessage()) ? fallbackLocal() : []);
+      const cachedHit = this.suggestionCache.get(key);
+      if (
+        !manualRefresh &&
+        cachedHit &&
+        cachedHit.lastMsgId === last.msgId &&
+        Date.now() - cachedHit.at < this.config.suggestionCacheSeconds * 1000
+      ) {
+        return cachedHit.suggestions;
+      }
 
-    const endpoint = this.endpoint(this.config.suggestionProviderRef);
-    if (!endpoint || Date.now() < this.suggestionApiCooldownUntil) {
-      return fallbackLocal();
-    }
-    const baseUrl = endpoint.baseUrl.replace(/\/+$/, '');
+      const fallbackLocal = (): ReplySuggestion[] => {
+        if (!current()) return [];
+        const cache = this.cacheFor(kind, conv);
+        const analyzedLast = cache.data.results.find((r) => r.msgId === last.msgId);
+        const context = extractContextBefore(rows, rows.length - 1, contextMessages, this.config);
+        const suggestions = buildLocalSuggestions(
+          last.text,
+          analyzedLast,
+          context,
+          last.sendTime,
+        ).slice(0, this.config.suggestionCount);
+        this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
+        return suggestions;
+      };
 
-    const people = await this.suggestionPeople(kind, conv, rows);
-    if (!current()) return [];
-    const prompt = buildSuggestionPrompt({
-      kind,
-      rows,
-      people,
-      self: { uid: this.session.selfUid, uin: this.session.context.uin?.toString() },
-      now: Date.now() / 1000,
-      count: this.config.suggestionCount,
-      targetChars: this.config.suggestionTargetChars,
+      const stillLatestMessage = async (): Promise<boolean> => {
+        if (!current()) return false;
+        try {
+          const latest = (await this.loadMessages(kind, conv, 1))[0];
+          return (
+            current() &&
+            latest?.msgId === last.msgId &&
+            (!latest.mine || this.config.suggestAfterSelf || manualRefresh)
+          );
+        } catch {
+          return false;
+        }
+      };
+      const fallbackAfterRequest = async () =>
+        (await stillLatestMessage()) ? fallbackLocal() : [];
+
+      const endpoint = this.endpoint(this.config.suggestionProviderRef);
+      if (!endpoint || Date.now() < this.suggestionApiCooldownUntil) {
+        return fallbackLocal();
+      }
+      const baseUrl = endpoint.baseUrl.replace(/\/+$/, '');
+
+      const people = await this.suggestionPeople(kind, conv, rows);
+      if (!current()) return [];
+      const prompt = buildSuggestionPrompt({
+        kind,
+        rows,
+        people,
+        self: { uid: this.session.selfUid, uin: this.session.context.uin?.toString() },
+        now: Date.now() / 1000,
+        count: this.config.suggestionCount,
+        targetChars: this.config.suggestionTargetChars,
+      });
+      try {
+        const body = await requestApiJson<{
+          choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+        }>({ ...endpoint, baseUrl, feature: 'reply-suggestion' }, '/chat/completions', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${endpoint.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: endpoint.model,
+            temperature: this.config.suggestionTemperature,
+            messages: [
+              { role: 'system', content: prompt.system },
+              { role: 'user', content: prompt.user },
+            ],
+          }),
+          signal: AbortSignal.timeout(this.config.apiTimeoutSeconds * 1000),
+        });
+        if (!current()) return [];
+        if (!(await stillLatestMessage())) return [];
+        this.lastSuggestionApiError = null;
+        const parsed = extractJsonBlock(pickMessageText(body.choices?.[0]?.message)) as {
+          replies?: unknown[];
+        } | null;
+        const suggestions: ReplySuggestion[] = (parsed?.replies ?? [])
+          .map((r): ReplySuggestion | null => {
+            if (typeof r === 'string') return { text: r };
+            const o = r as { text?: unknown; tone?: unknown } | null;
+            if (!o || typeof o.text !== 'string' || !o.text) return null;
+            return { text: o.text, tone: typeof o.tone === 'string' ? o.tone : undefined };
+          })
+          .filter((r): r is ReplySuggestion => r !== null)
+          .slice(0, this.config.suggestionCount);
+        if (suggestions.length === 0) return fallbackLocal();
+        this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
+        return suggestions;
+      } catch (error) {
+        if (!current()) return [];
+        this.suggestionApiCooldownUntil = Date.now() + this.config.apiCooldownSeconds * 1000;
+        this.lastSuggestionApiError = error instanceof Error ? error.message : String(error);
+        logger.debug('intent-sense suggestions failed', {
+          event: 'intent-sense-suggestions-failed',
+          ...logErrorContext(error),
+        });
+        return fallbackAfterRequest();
+      }
+    })().finally(() => {
+      if (this.suggestionInFlight.get(inFlightKey) === task) {
+        this.suggestionInFlight.delete(inFlightKey);
+      }
     });
-    try {
-      const body = await requestApiJson<{
-        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-      }>({ ...endpoint, baseUrl, feature: 'reply-suggestion' }, '/chat/completions', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
-        body: JSON.stringify({
-          model: endpoint.model,
-          temperature: this.config.suggestionTemperature,
-          messages: [
-            { role: 'system', content: prompt.system },
-            { role: 'user', content: prompt.user },
-          ],
-        }),
-        signal: AbortSignal.timeout(this.config.apiTimeoutSeconds * 1000),
-      });
-      if (!current()) return [];
-      if (!(await stillLatestMessage())) return [];
-      this.lastSuggestionApiError = null;
-      const parsed = extractJsonBlock(pickMessageText(body.choices?.[0]?.message)) as {
-        replies?: unknown[];
-      } | null;
-      const suggestions: ReplySuggestion[] = (parsed?.replies ?? [])
-        .map((r): ReplySuggestion | null => {
-          if (typeof r === 'string') return { text: r };
-          const o = r as { text?: unknown; tone?: unknown } | null;
-          if (!o || typeof o.text !== 'string' || !o.text) return null;
-          return { text: o.text, tone: typeof o.tone === 'string' ? o.tone : undefined };
-        })
-        .filter((r): r is ReplySuggestion => r !== null)
-        .slice(0, this.config.suggestionCount);
-      if (suggestions.length === 0) return fallbackLocal();
-      this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
-      return suggestions;
-    } catch (error) {
-      if (!current()) return [];
-      this.suggestionApiCooldownUntil = Date.now() + this.config.apiCooldownSeconds * 1000;
-      this.lastSuggestionApiError = error instanceof Error ? error.message : String(error);
-      logger.debug('intent-sense suggestions failed', {
-        event: 'intent-sense-suggestions-failed',
-        ...logErrorContext(error),
-      });
-      return fallbackAfterRequest();
-    }
+
+    this.suggestionInFlight.set(inFlightKey, task);
+    return task;
   }
 
   // ── 消息读取（内部）─────────────────────────────────────────────────────

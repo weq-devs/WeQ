@@ -54,9 +54,9 @@ const SET_QQ_FACE: SetReactionParams = {
 };
 
 describe('SetReaction (0x9082)', () => {
-  it('declares command 0x9082（sub 由 isSet 决定），并显式关掉签名', () => {
+  it('declares command 0x9082（sub 由 isSet 决定），并显式开启签名', () => {
     expect(SetReaction.command).toBe(0x9082);
-    expect(SetReaction.needSign).toBe(false);
+    expect(SetReaction.needSign).toBe(true);
     expect(SetReaction.resolveSubCommand(SET_QQ_FACE)).toBe(1);
     expect(SetReaction.resolveSubCommand({ ...SET_QQ_FACE, isSet: false })).toBe(2);
   });
@@ -81,15 +81,15 @@ describe('SetReaction (0x9082)', () => {
     });
   });
 
-  it('isSet=false 走 0x9082_2、isSet=true 走 0x9082_1，两条都不签名', async () => {
+  it('isSet=false 走 0x9082_2、isSet=true 走 0x9082_1，两条都要签名', async () => {
     const nt = makeNative();
     await SetReaction.invoke(nt, 7, SET_QQ_FACE);
     await SetReaction.invoke(nt, 7, { ...SET_QQ_FACE, isSet: false });
     expect(nt.calls.map((c) => c.subCommand)).toEqual([1, 2]);
     expect(nt.calls.every((c) => c.command === 0x9082)).toBe(true);
     expect(nt.calls.every((c) => c.pid === 7 && c.isUid === false)).toBe(true);
-    // 白名单里没有 0x908x → 不带 SecToken/SecExtra/SecSign。
-    expect(nt.calls.every((c) => c.needSign === false)).toBe(true);
+    // 真机实测两个子命令都带 SecToken/SecExtra/SecSign（不在 Lagrange 白名单里，别照抄）。
+    expect(nt.calls.every((c) => c.needSign === true)).toBe(true);
   });
 
   it('参数非法时在编码前报错', () => {

@@ -17,7 +17,7 @@ vi.mock('../src/account/user_config', () => ({
   clientKeyExpiryMs: (key: { expiresAt: number }) => key.expiresAt,
 }));
 
-const material = { a2: 'aa', d2: 'bb', d2Key: 'cc'.repeat(16) };
+const material = { a2: 'aa', d2: 'bb', d2Key: 'cc'.repeat(16), secToken: 'g0Re+NHuibp5' };
 
 function fixture(stored = false, onCredentialsReady?: () => void) {
   let pid: number | null = 42;
@@ -313,7 +313,11 @@ describe('account monitor authorization and SSO readiness', () => {
     f.setPid(43);
     await vi.advanceTimersByTimeAsync(5000);
     expect(f.hook.ensure).toHaveBeenCalledTimes(2);
-    expect(f.hook.ensure).toHaveBeenLastCalledWith(43, '12345', expect.any(AbortSignal));
+    expect(f.hook.ensure).toHaveBeenLastCalledWith(
+      43,
+      { uin: '12345', uid: 'u_fixture' },
+      expect.any(AbortSignal),
+    );
     f.monitor.stop();
   });
 

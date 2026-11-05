@@ -9,7 +9,8 @@
 // 搬运自 SnowLuma `oidb-services/group-admin/set-member-card.ts`（与 Lagrange
 // `OidbSvcTrpcTcp0x8FC`、NapCat `Oidb.0x8FC_3` 逐字节一致）。
 //
-// 签名：LagrangeV2 白名单里有 `OidbSvcTrpcTcp.0x8fc_3`，needSign = true。
+// 签名：真机实测**不签**（`scripts/probe-sign.ts`，三次一致）。LagrangeV2 白名单里
+// 虽有 `OidbSvcTrpcTcp.0x8fc_3`，但 QQ 自己发这条命令时 reserved 里没有 tag 24。
 
 import { message } from '../../protobuf';
 import { invokeOidb, type OidbSpec } from '../invoke';
@@ -40,7 +41,8 @@ export interface SetGroupMemberCardParams {
 export namespace SetGroupMemberCard {
   export const command = 0x8fc;
   export const subCommand = 3;
-  export const needSign = true;
+  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
+  export const needSign = false;
   export const reqSchema = RENAME_MEMBER_REQ;
   export const respSchema = RENAME_MEMBER_RESP;
 

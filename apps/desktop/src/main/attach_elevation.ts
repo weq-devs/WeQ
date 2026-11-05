@@ -69,7 +69,8 @@ import {
   resolveSudoPath,
   writeYamaPtraceScope,
 } from '@weq/native';
-import { runUnprivilegedAttach, type AttachHook, type UserConfigService } from '@weq/service';
+import { runUnprivilegedAttach } from '@weq/service';
+import type { AttachHook, AttachIdentity, UserConfigService } from '@weq/service';
 import { getLogger } from '@weq/service';
 import { getSudoPasswordPrompt, requestSudoPassword } from './sudo_prompt';
 import { getAttachHintPrompt } from './attach_hint';
@@ -167,7 +168,7 @@ class SudoPasswordRequired extends Error {}
 
 async function sudoAttach(
   pid: number,
-  uin: string,
+  identity: AttachIdentity,
   password: string | null,
   signal?: AbortSignal,
 ): Promise<SessionMaterial> {
@@ -185,7 +186,8 @@ async function sudoAttach(
       process.execPath,
       workerPath,
       String(pid),
-      uin,
+      identity.uin ?? '',
+      identity.uid ?? '',
       ntHelperPath,
     ],
     {
@@ -242,14 +244,23 @@ export function createLinuxAttachHook(
   const isRoot = process.geteuid?.() === 0;
 
   /**
+   * 进程内读一次内存。`uin` / `uid` 只用于 SecToken 消歧，缺了也能读，
+   * 所以这里统一收口成一个入口，免得四处写了不同的参数组合。
+   */
+  function scanInProcess(pid: number, identity: AttachIdentity): Promise<SessionMaterial> {
+    return nt.scanSessionMaterial(pid, identity.uin || undefined, identity.uid || undefined);
+  }
+
+  /**
    * Try the unprivileged in-process read. Returns either the material or the
    * error; the caller decides whether to prompt or escalate.
    */
   async function tryDirectAttach(
     pid: number,
+    identity: AttachIdentity,
   ): Promise<{ material: SessionMaterial } | { error: Error }> {
     try {
-      return { material: await nt.scanSessionMaterial(pid) };
+      return { material: await scanInProcess(pid, identity) };
     } catch (e) {
       const error = e instanceof Error ? e : new Error(String(e));
       logger.warn('unprivileged attach failed', {
@@ -274,7 +285,7 @@ export function createLinuxAttachHook(
    */
   async function attachUnprivileged(
     pid: number,
-    uin: string,
+    identity: AttachIdentity,
     signal: AbortSignal,
   ): Promise<SessionMaterial> {
     const box: { material: SessionMaterial | null } = { material: null };
@@ -282,7 +293,7 @@ export function createLinuxAttachHook(
       log: (level, message, context) => logger[level](message, { ...context, pid }),
       tryDirect: async () => {
         signal.throwIfAborted();
-        const outcome = await tryDirectAttach(pid);
+        const outcome = await tryDirectAttach(pid, identity);
         signal.throwIfAborted();
         if ('material' in outcome) {
           box.material = outcome.material;
@@ -315,7 +326,7 @@ export function createLinuxAttachHook(
         return prompt ? await prompt(signal) : { choice: 'skip' as const, password: '' };
       },
       escalate: async (password) => {
-        box.material = await escalateWithPassword(pid, uin, password, signal);
+        box.material = await escalateWithPassword(pid, identity, password, signal);
       },
       suppressHint: () => {
         userConfig.setSettings({ suppressAttachHint: true });
@@ -342,7 +353,7 @@ export function createLinuxAttachHook(
    */
   async function escalateViaPtraceScope(
     pid: number,
-    uin: string,
+    identity: AttachIdentity,
     password: string,
     signal?: AbortSignal,
   ): Promise<SessionMaterial> {
@@ -354,7 +365,7 @@ export function createLinuxAttachHook(
         pid,
         scope: before ?? 'unavailable',
       });
-      return sudoAttach(pid, uin, password, signal);
+      return sudoAttach(pid, identity, password, signal);
     }
 
     logger.info('lifting yama ptrace protection for this attach (fuse-hosted install)', {
@@ -365,7 +376,7 @@ export function createLinuxAttachHook(
     await writeYamaPtraceScope('0', password);
     try {
       signal?.throwIfAborted();
-      const material = await nt.scanSessionMaterial(pid);
+      const material = await scanInProcess(pid, identity);
       signal?.throwIfAborted();
       return material;
     } catch (e) {
@@ -400,7 +411,7 @@ export function createLinuxAttachHook(
    */
   async function escalateWithPassword(
     pid: number,
-    uin: string,
+    identity: AttachIdentity,
     provided?: string,
     signal?: AbortSignal,
   ): Promise<SessionMaterial> {
@@ -415,7 +426,7 @@ export function createLinuxAttachHook(
     let password: string | null = provided ?? null;
     if (!password && !installInvisibleToRoot()) {
       try {
-        const material = await sudoAttach(pid, uin, null, signal);
+        const material = await sudoAttach(pid, identity, null, signal);
         logger.info('read qq memory with existing system authorization', {
           event: 'attach-sudo-cached-ok',
           pid,
@@ -447,13 +458,17 @@ export function createLinuxAttachHook(
       throw new Error('已取消授权，未读取 QQ 进程内存。');
     }
     if (installInvisibleToRoot()) {
-      return escalateViaPtraceScope(pid, uin, password, signal);
+      return escalateViaPtraceScope(pid, identity, password, signal);
     }
-    return sudoAttach(pid, uin, password, signal);
+    return sudoAttach(pid, identity, password, signal);
   }
 
   /** The read half — pops the password dialog unless we're already root. */
-  async function doAttach(pid: number, uin: string, signal: AbortSignal): Promise<SessionMaterial> {
+  async function doAttach(
+    pid: number,
+    identity: AttachIdentity,
+    signal: AbortSignal,
+  ): Promise<SessionMaterial> {
     // macOS 的硬门槛：SIP 开着时读内存不可能成功（QQ 带强化运行时，`task_for_pid`
     // 连 root 都拒），所以在这里就停住 —— 不问密码、不起 sudo 子进程。
     if (process.platform === 'darwin' && readSipEnabled() === true) {
@@ -469,9 +484,9 @@ export function createLinuxAttachHook(
             event: 'attach-direct-root',
             pid,
           });
-          return nt.scanSessionMaterial(pid);
+          return scanInProcess(pid, identity);
         })()
-      : await attachUnprivileged(pid, uin, signal);
+      : await attachUnprivileged(pid, identity, signal);
     return material;
   }
 

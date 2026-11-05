@@ -164,6 +164,27 @@ describe('registerSsoSession', () => {
     expect(wrapper).toBe('/opt/QQ/resources/app/wrapper.node');
   });
 
+  it('透传扫描到的 SecToken，缺失时不写该字段', async () => {
+    const setSsoSession = vi.fn(async () => {});
+    const nt = {
+      setSsoSession,
+      resolveAppidFromMajor: () => ({ appid: '537382819' }),
+    } as unknown as Pick<NtHelperBinding, 'setSsoSession' | 'resolveAppidFromMajor'>;
+    const identity = { uin: '1707889225', uid: 'u_abc', guid: 'ab'.repeat(16) };
+
+    await registerSsoSession(nt, fakePlatform(), 42, identity, {
+      ...MATERIAL,
+      secToken: 'g0Re+NHuibp5',
+    });
+    // SecToken 来自 QQ 内存：本进程签名算不出来，必须原样带下去。
+    expect(setSsoSession.mock.calls[0]![1]).toMatchObject({ secToken: 'g0Re+NHuibp5' });
+
+    setSsoSession.mockClear();
+    await registerSsoSession(nt, fakePlatform(), 42, identity, MATERIAL);
+    // 没扫到时不发空串 —— 让原生侧走「没有 token」的回退分支。
+    expect(setSsoSession.mock.calls[0]![1]).not.toHaveProperty('secToken');
+  });
+
   it('skips registration when the uid is missing', async () => {
     const setSsoSession = vi.fn(async () => {});
     const nt = { setSsoSession, resolveAppidFromMajor: () => ({ appid: '1' }) } as unknown as Pick<
@@ -222,7 +243,7 @@ describe('attachAndRegisterSsoSession', () => {
     );
     expect(res.registered).toBe(true);
     expect(res.material).toEqual(MATERIAL);
-    expect(ensure).toHaveBeenCalledWith(7, '1707889225');
+    expect(ensure).toHaveBeenCalledWith(7, { uin: '1707889225', uid: 'u_abc' });
     expect(setSsoSession).toHaveBeenCalledTimes(1);
   });
 

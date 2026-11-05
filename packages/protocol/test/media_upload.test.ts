@@ -17,6 +17,7 @@ import { promises as fsp } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   amplitudesFromPcmS16le,
+  assertUploadableImage,
   buildHighwayExtend,
   buildHighwayHead,
   buildPttWaveform,
@@ -28,6 +29,7 @@ import {
   encode,
   finalizeMediaMsgInfo,
   IMAGE_HIGHWAY_GROUP,
+  isSvgImage,
   makeSolidPng,
   NTV2_RICH_MEDIA_HIGHWAY_EXT,
   NTV2_UPLOAD_REQ_TOP,
@@ -153,6 +155,10 @@ function uploadResponse(
 const TINY_PNG = makeSolidPng(1, 1);
 /** 640×360 的合法 PNG（探测尺寸用）。 */
 const PNG_640x360 = makeSolidPng(640, 360);
+/** 一句最小 SVG —— 服务端不收的格式（真机实测 2026-11-03）。 */
+const TINY_SVG = new TextEncoder().encode(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
+);
 
 const GROUP_TARGET = { uin: '10001', isGroup: true, groupId: 2863253201 };
 const C2C_TARGET = { uin: '10001', isGroup: false, userUid: 'u_mGIBTBW7gF4Wocw8zapc6w' };
@@ -339,6 +345,23 @@ describe('图片格式探测 / 兜底封面', () => {
     const png = makeSolidPng(64, 48);
     expect(detectImageFormat(png)).toEqual({ format: PIC_FORMAT_PNG, width: 64, height: 48 });
   });
+
+  /**
+   * SVG 是文本格式，`detectImageFormat` 会把它当成「jpg + 0×0」—— 照传服务端不收。
+   * 发图前必须挡掉，所以这两个函数是上传路径的前置闸门。
+   */
+  it('认得出 SVG（含 XML 声明 / BOM / 前导空白），不误伤位图', () => {
+    expect(isSvgImage(TINY_SVG)).toBe(true);
+    expect(isSvgImage(new TextEncoder().encode('<?xml version="1.0"?><svg/>'))).toBe(true);
+    expect(isSvgImage(new TextEncoder().encode('﻿  <svg xmlns="x"/>'))).toBe(true);
+    expect(isSvgImage(TINY_PNG)).toBe(false);
+    expect(isSvgImage(new Uint8Array([1, 2, 3, 4, 5]))).toBe(false);
+  });
+
+  it('assertUploadableImage：SVG 抛中文提示，位图放行', () => {
+    expect(() => assertUploadableImage(TINY_SVG)).toThrow(/不支持 SVG/);
+    expect(() => assertUploadableImage(TINY_PNG)).not.toThrow();
+  });
 });
 
 // ───────────────────────── 上传 → msgInfo ─────────────────────────
@@ -428,6 +451,14 @@ describe('uploadImageMsgInfo', () => {
     expect(msgInfo.extBizInfo?.pic?.textSummary).toBe('[图片]');
     // 服务端响应里有 pic 时按 key 补齐（不能把 reserve 丢掉）。
     expect(msgInfo.extBizInfo?.pic?.bytesPbReserveC2c).toBeDefined();
+  });
+
+  it('SVG 在联网前就报错（服务端不收，不能当「jpg + 0×0」传上去）', async () => {
+    const native = makeNative({ oidb: () => uploadResponse() });
+    await expect(uploadImageMsgInfo(native, 42, C2C_TARGET, { source: TINY_SVG })).rejects.toThrow(
+      /不支持 SVG/,
+    );
+    expect(native.oidbCalls).toHaveLength(0);
   });
 
   it('群聊图片：0x11C4_100 + sceneType=2 + 群号 + compat=2', async () => {

@@ -117,8 +117,8 @@ const PUBLISH_EMPTY_RESP = message([]);
 const PublishGroupFile = {
   command: 0x6d9,
   subCommand: 4,
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  needSign: false,
+  /** 真机实测会签名（scripts/probe-sign.ts）。 */
+  needSign: true,
   reqSchema: OIDB_GROUP_SEND_FILE_REQ,
   respSchema: PUBLISH_EMPTY_RESP,
   serialize: (p: { groupId: number; fileId: string }): Record<string, unknown> => ({
