@@ -25,6 +25,35 @@
   margin-left: auto;
 }
 
+.weq-current-tasks-actions > .weq-set-btn {
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+.weq-current-tasks .weq-set-btn-soft:not(:disabled) {
+  max-width: 100%;
+  border-color: var(--weq-border-strong);
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.weq-current-tasks .weq-set-btn > svg {
+  flex: none;
+}
+
+.weq-current-tasks .weq-set-btn-soft:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}
+
 .weq-current-tasks-empty,
 .weq-current-tasks-notice {
   margin: 0;

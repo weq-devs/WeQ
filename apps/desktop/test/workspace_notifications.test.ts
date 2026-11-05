@@ -27,6 +27,24 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('任务结果已读状态', () => {
+  it('首次加载和切换账号不弹出，同账号新增任务自动打开，刷新和进度变化不重复弹出', () => {
+    const store = useWorkspaceMenu.getState();
+    const initial = store.taskOpenRequest;
+    store.syncTasks('auto-open-a', [task('old')]);
+    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial);
+    store.syncTasks('auto-open-a', [task('new', 'running')]);
+    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 1);
+    store.syncTasks('auto-open-a', [task('new', 'running', 'progress')]);
+    store.syncTasks('auto-open-a', [task('new')]);
+    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 1);
+    store.syncTasks('auto-open-b', [task('other')]);
+    store.syncTasks('auto-open-a', [task('new')]);
+    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 1);
+    // 快速完成的任务也可能在第一次轮询时已经结束。
+    store.syncTasks('auto-open-a', [task('new'), task('fast')]);
+    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 2);
+  });
+
   it('重启后恢复已读结果，仍区分新结果、在途任务和其他账号', () => {
     const store = useWorkspaceMenu.getState();
     store.syncTasks('persist-a', [task('1'), task('2', 'running')]);
