@@ -14,7 +14,6 @@ export function PrivacySection() {
       <div className="weq-set">
         <SectionHeader title="隐私" icon={<EyeOff size={16} />} />
       </div>
-      <AppLockSection heading={false} />
       <div className="weq-set">
         <Card title="隐私模式" settingId="privacy-mode">
           <Row
@@ -38,6 +37,7 @@ export function PrivacySection() {
           </DesktopOnly>
         </Card>
       </div>
+      <AppLockSection heading={false} />
     </>
   );
 }
