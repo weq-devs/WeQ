@@ -1,4 +1,11 @@
 export type QqDebugCopyAction = 'prepare' | 'verify' | 'launch' | 'remove';
+export const QQ_DEBUG_COPY_PERMISSION_ACTIONS = [
+  'screenCapture',
+  'microphone',
+  'camera',
+  'reveal',
+] as const;
+export type QqDebugCopyPermissionAction = (typeof QQ_DEBUG_COPY_PERMISSION_ACTIONS)[number];
 export type QqDebugCopyPhase =
   | 'idle'
   | 'checking'

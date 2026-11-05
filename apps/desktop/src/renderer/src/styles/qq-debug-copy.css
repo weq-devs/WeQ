@@ -97,6 +97,72 @@
 .weq-qq-debug [role='alert'] {
   overflow-wrap: anywhere;
 }
+.weq-qq-debug-permissions {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-qq-debug-permissions-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.weq-qq-debug-permissions h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.weq-qq-debug-permissions-head > span {
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+}
+.weq-qq-debug-permission-select {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.weq-qq-debug-permission-select select {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  font: inherit;
+}
+.weq-qq-debug-permission-select select:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-qq-debug-permission-steps {
+  list-style: decimal;
+  padding-left: 20px;
+  line-height: 1.7;
+  color: var(--weq-fg-secondary);
+}
+.weq-qq-debug-permission-steps li + li {
+  margin-top: 8px;
+}
+.weq-qq-debug-permission-path,
+.weq-qq-debug-permission-troubleshoot code {
+  overflow-wrap: anywhere;
+  user-select: text;
+  font-size: 12px;
+}
+.weq-qq-debug-permission-troubleshoot {
+  margin-top: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-qq-debug-permission-troubleshoot summary {
+  cursor: pointer;
+}
+html[data-theme='dark'] .weq-qq-debug-permissions {
+  border-color: var(--weq-border-strong);
+}
 html[data-theme='dark'] .weq-qq-debug-checks li {
   border-color: var(--weq-border-strong);
 }

@@ -324,3 +324,47 @@ it('非 macOS 状态不可用且所有操作拒绝，不执行系统命令', asy
   await expect(manager.perform('prepare')).rejects.toThrow('仅 macOS');
   expect(run).not.toHaveBeenCalled();
 });
+it('权限入口只打开固定系统页面，不读取授权数据库或修改原版授权', async () => {
+  const f = await fixture();
+  const host = { openExternal: vi.fn(), revealInFolder: vi.fn() };
+  for (const [action, pane] of [
+    ['screenCapture', 'Privacy_ScreenCapture'],
+    ['microphone', 'Privacy_Microphone'],
+    ['camera', 'Privacy_Camera'],
+  ] as const) {
+    await f.manager.permission(action, host);
+    expect(host.openExternal).toHaveBeenLastCalledWith(
+      `x-apple.systempreferences:com.apple.preference.security?${pane}`,
+    );
+  }
+  expect(f.run).not.toHaveBeenCalled();
+  expect(host.revealInFolder).not.toHaveBeenCalled();
+});
+it('定位只接受本机管理的固定副本，不启动 QQ；未知应用和软链接拒绝定位', async () => {
+  const f = await fixture();
+  const host = { openExternal: vi.fn(), revealInFolder: vi.fn() };
+  await expect(f.manager.permission('reveal', host)).rejects.toThrow('尚未创建');
+  await f.manager.perform('prepare');
+  await f.manager.permission('reveal', host);
+  expect(host.revealInFolder).toHaveBeenCalledOnce();
+  expect(host.revealInFolder).toHaveBeenCalledWith(f.target);
+  expect(f.run.mock.calls.some(([command]) => command === '/usr/bin/open')).toBe(false);
+  const moved = join(f.home, 'moved.app');
+  await cp(f.target, moved, { recursive: true });
+  await rm(f.target, { recursive: true });
+  await symlink(moved, f.target);
+  await expect(f.manager.permission('reveal', host)).rejects.toThrow('软链接');
+  await rm(f.target);
+  await mkdir(f.target);
+  await expect(f.manager.permission('reveal', host)).rejects.toThrow('不是 WeQ');
+  expect(host.revealInFolder).toHaveBeenCalledOnce();
+});
+it('非 macOS 不打开权限页面，系统打开失败如实返回', async () => {
+  const host = { openExternal: vi.fn(), revealInFolder: vi.fn() };
+  const manager = new QqDebugCopyManager({ source: () => null, platform: 'linux' });
+  await expect(manager.permission('screenCapture', host)).rejects.toThrow('仅 macOS');
+  expect(host.openExternal).not.toHaveBeenCalled();
+  const f = await fixture();
+  host.openExternal.mockRejectedValue(new Error('synthetic settings failure'));
+  await expect(f.manager.permission('camera', host)).rejects.toThrow('synthetic settings failure');
+});

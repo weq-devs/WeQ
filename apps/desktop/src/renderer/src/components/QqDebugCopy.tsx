@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, LoaderCircle, Play, RefreshCw, Trash2 } from 'lucide-react';
+import { Check, Copy, LoaderCircle, Play, RefreshCw, Settings, Trash2 } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { useTabActive } from './RetainedTabs';
+import { QqDebugCopyPermissions } from './QqDebugCopyPermissions';
 import type { QqDebugCopyAction, QqDebugCopyPhase } from '../../../shared/qq_debug_copy';
 import '../styles/qq-debug-copy.css';
 
@@ -33,6 +34,7 @@ export function QqDebugCopy({
   const [pending, setPending] = useState<QqDebugCopyAction | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
   const locked = useRef(false);
   const mounted = useRef(true);
   const confirm = useDialog((s) => s.confirm);
@@ -65,6 +67,8 @@ export function QqDebugCopy({
         return;
       if (!mounted.current) return;
       await client.bootstrap.qqDebugCopyAction.mutate({ action });
+      if (mounted.current && action === 'prepare') setPermissionsOpen(true);
+      if (mounted.current && action === 'remove') setPermissionsOpen(false);
       await status.refetch();
       if (!mounted.current) return;
       if (action === 'verify' && onCheck) await onCheck();
@@ -90,6 +94,10 @@ export function QqDebugCopy({
     <div className="weq-qq-debug">
       <p className="weq-qq-debug-intro">
         保留 SIP 开启，使用可调试的 QQ 副本。副本与原 QQ 共用账号和聊天数据，不替换原安装。
+      </p>
+      <p className="weq-qq-debug-message">
+        截图、麦克风和摄像头可能需要重新授权，原版 QQ
+        的授权不一定适用于副本。可在创建后按需设置，不影响创建或启动。
       </p>
       <ol className="weq-qq-debug-checks" aria-label="调试副本状态">
         <li data-ready={data?.readerReady === true}>
@@ -190,6 +198,18 @@ export function QqDebugCopy({
           <button
             type="button"
             className="weq-set-btn"
+            disabled={busy}
+            aria-expanded={permissionsOpen}
+            onClick={() => setPermissionsOpen((open) => !open)}
+          >
+            <Settings size={14} />
+            权限设置
+          </button>
+        )}
+        {managed && (
+          <button
+            type="button"
+            className="weq-set-btn"
             disabled={busy || running}
             onClick={() => void run('remove')}
           >
@@ -198,6 +218,16 @@ export function QqDebugCopy({
           </button>
         )}
       </div>
+      {permissionsOpen && data && (
+        <QqDebugCopyPermissions
+          path={data.path}
+          busy={busy}
+          canLaunch={Boolean(ready) && !running}
+          running={running}
+          onLaunch={() => void run('launch')}
+          onClose={() => setPermissionsOpen(false)}
+        />
+      )}
     </div>
   );
 }

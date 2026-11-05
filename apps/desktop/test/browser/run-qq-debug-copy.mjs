@@ -81,6 +81,12 @@ try {
     throw new Error('读取端缺少权限不应阻止启动副本');
   const output = process.env.WEQ_DEBUG_COPY_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
+  await page.getByRole('button', { name: '权限设置', exact: true }).click();
+  const permissions = page.getByRole('region', { name: '副本权限引导' });
+  await permissions.waitFor();
+  await permissions.getByRole('button', { name: '打开录屏设置', exact: true }).click();
+  await permissions.getByText('已请求打开系统设置，副本权限仍待确认。', { exact: true }).waitFor();
+  await permissions.getByText('仍无法截图', { exact: true }).click();
   let cases = 0;
   for (const width of [1180, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
@@ -104,7 +110,7 @@ try {
             () =>
               [
                 ...document.querySelectorAll(
-                  '.weq-qq-debug, .weq-qq-debug-actions button, .weq-qq-debug-checks strong, .weq-qq-debug-details dd',
+                  '.weq-qq-debug, .weq-qq-debug-actions button, .weq-qq-debug-checks strong, .weq-qq-debug-details dd, .weq-qq-debug-permissions, .weq-qq-debug-permission-path, .weq-qq-debug-permission-troubleshoot code',
                 ),
               ].some((node) => node.scrollWidth > node.clientWidth + 1) ||
               document.documentElement.scrollWidth > innerWidth,
@@ -120,17 +126,39 @@ try {
             );
           if (new Set(buttonStyles).size !== 1) throw new Error('副本操作按钮样式不一致');
           if (output && accent === '#075c30' && background === 'plain')
-            await page.screenshot({ path: resolve(output, `${width}-${theme}.png`) });
+            await page.screenshot({
+              path: resolve(output, `${width}-${theme}.png`),
+              fullPage: true,
+            });
           cases++;
         }
     }
   }
+  for (const [value, label] of [
+    ['microphone', '麦克风'],
+    ['camera', '摄像头'],
+  ]) {
+    await permissions.getByRole('combobox', { name: '按需设置' }).selectOption(value);
+    await permissions.getByRole('button', { name: `打开${label}设置`, exact: true }).click();
+    await permissions
+      .getByText('已请求打开系统设置，副本权限仍待确认。', { exact: true })
+      .waitFor();
+    if (await permissions.locator('details').count())
+      throw new Error('其他权限不能展示录屏重置命令');
+  }
+  await permissions.getByRole('button', { name: '稍后设置', exact: true }).click();
+  await permissions.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: '更新副本', exact: true }).click();
   await page.getByText('副本已准备好，请启动并登录目标账号。', { exact: true }).waitFor();
+  await permissions.waitFor();
   await page.getByRole('button', { name: '启动副本', exact: true }).click();
   await page.getByText('正在运行，登录状态待检查', { exact: true }).waitFor();
   if (!(await page.getByRole('button', { name: '更新副本', exact: true }).isDisabled()))
     throw new Error('运行中不能更新');
+  if (
+    !(await permissions.getByRole('button', { name: '授权后启动副本', exact: true }).isDisabled())
+  )
+    throw new Error('权限引导不能重复启动运行中的副本');
   await page.evaluate(() => window.debugCopyQa.setFixture({ phase: 'signing', runningPids: [] }));
   await page.getByText('正在配置调试签名', { exact: true }).waitFor();
   const animation = await page
@@ -156,6 +184,9 @@ try {
       throw new Error(`启动页副本面板越界：${width}`);
     if (output) await page.screenshot({ path: resolve(output, `startup-${width}.png`) });
     await page.evaluate(() => window.debugCopyQa.setFixture({ state: 'ready' }));
+    await dialog.getByRole('button', { name: '权限设置', exact: true }).click();
+    await dialog.getByRole('region', { name: '副本权限引导' }).waitFor();
+    await dialog.getByRole('button', { name: '稍后设置', exact: true }).click();
     await dialog.getByRole('button', { name: '移除副本', exact: true }).click();
     const confirmation = page.getByRole('dialog', { name: '移除 QQ 调试副本', exact: true });
     await confirmation.waitFor();
@@ -193,6 +224,14 @@ try {
           throw new Error('受限详情的重新检查入口重复');
         if (await page.getByRole('button', { name: '检查在线凭据', exact: true }).count())
           throw new Error('嵌入面板不应另设检查入口');
+        if (state === 'ready') {
+          await page.getByRole('button', { name: '权限设置', exact: true }).click();
+          const guide = page.getByRole('region', { name: '副本权限引导' });
+          await guide.waitFor();
+          if (await guide.evaluate((node) => node.scrollWidth > node.clientWidth + 1))
+            throw new Error('受限详情的权限引导溢出');
+          await guide.getByRole('button', { name: '稍后设置', exact: true }).click();
+        }
         await page.locator('.weq-restricted-body').evaluate((node) => {
           node.scrollTop = node.scrollHeight;
         });
@@ -298,7 +337,7 @@ try {
   }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(
-    `通过 ${cases} 组视口/主题/主题色/背景布局、${restrictedCases} 组受限面板检查、${offlineCases} 组离线副本引导、4 组移除确认交互，以及创建、启动、运行中保护、减少动态效果和公共入口去重检查。`,
+    `通过 ${cases} 组权限引导视口/主题/主题色/背景布局、${restrictedCases} 组受限面板检查、${offlineCases} 组离线副本引导、4 组移除确认交互，以及三类权限入口、跳过与重新打开、创建后引导、启动、运行中保护和减少动态效果检查。`,
   );
 } finally {
   await browser?.close();

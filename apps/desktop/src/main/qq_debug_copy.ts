@@ -1,11 +1,17 @@
 import { lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
-import { runOwnedChild, type OwnedChildOptions, type OwnedChildResult } from '@weq/service';
+import {
+  runOwnedChild,
+  type HostBridge,
+  type OwnedChildOptions,
+  type OwnedChildResult,
+} from '@weq/service';
 import { z } from 'zod';
 import type {
   QqDebugCopyAction,
   QqDebugCopyPhase,
+  QqDebugCopyPermissionAction,
   QqDebugCopyStatus,
 } from '../shared/qq_debug_copy';
 
@@ -147,6 +153,28 @@ export class QqDebugCopyManager {
     ]);
     if ((await this.entitlements(path))[GET_TASK_ALLOW] !== true)
       throw new Error('副本缺少调试读取权限，请重新准备副本。');
+  }
+  async permission(
+    action: QqDebugCopyPermissionAction,
+    host: Pick<HostBridge, 'openExternal' | 'revealInFolder'>,
+  ): Promise<void> {
+    if ((this.options.platform ?? process.platform) !== 'darwin')
+      throw new Error('仅 macOS 支持 QQ 副本权限设置。');
+    if (action === 'reveal') {
+      if (!(await exists(this.path))) throw new Error('尚未创建 QQ 调试副本。');
+      if ((await lstat(this.path)).isSymbolicLink()) throw new Error('副本路径是软链接。');
+      if (!(await this.owned())) throw new Error('此位置不是 WeQ 管理的副本。');
+      await host.revealInFolder(this.path);
+      return;
+    }
+    const panes = {
+      screenCapture: 'Privacy_ScreenCapture',
+      microphone: 'Privacy_Microphone',
+      camera: 'Privacy_Camera',
+    } as const;
+    await host.openExternal(
+      `x-apple.systempreferences:com.apple.preference.security?${panes[action]}`,
+    );
   }
   async status(): Promise<QqDebugCopyStatus> {
     const supported = (this.options.platform ?? process.platform) === 'darwin';
