@@ -447,7 +447,7 @@ export function parseGroupKeepalive(body: Uint8Array): { roomUin: number } | nul
  * 成员表以 `0x03` 收尾：有成员时落在**最后一个成员项的第 17 字节**，成员表为空时
  * 落在 6 字节头的最后一字节（抓包 `... 00 00 | 00 | 00 00 00 03 | 03`）。
  *
- * ③ 里每收到一次成员变化（`0x19` type=01）就会跟一条 `0x13`，紧接着服务端回
+ * ③ 里每收到一次远端成员状态（`0x19` type=01/03/02）就会跟一条 `0x13`，紧接着服务端回
  * `0x14`；成员表清空时（自己退出前）发一条 0 成员的。
  */
 export function buildGroupStreamSubscribe(params: {

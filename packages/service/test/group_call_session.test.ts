@@ -126,25 +126,28 @@ const fakeCodec: GroupCallCodec = {
 
 /** 可控的信令层。 */
 class FakeSignaling implements GroupCallSignaling {
-  startCalls = 0;
+  createCalls = 0;
+  inviteCalls = 0;
   syncCalls = 0;
   queryCalls = 0;
-  failStart = false;
+  failCreate = false;
 
-  async start(): Promise<{
+  async create(): Promise<{
     room: { ownerUin: number; authKey: Uint8Array; servers: Array<{ ip: string; port: number }> };
-    invited: Array<{ uid: string; accepted: boolean }>;
   }> {
-    this.startCalls += 1;
-    if (this.failStart) throw new Error('开房失败');
+    this.createCalls += 1;
+    if (this.failCreate) throw new Error('开房失败');
     return {
       room: {
         ownerUin: PEER_UIN,
         authKey: AUTH_KEY,
         servers: [{ ip: '1.2.3.4', port: 7791 }],
       },
-      invited: [{ uid: PEER_UID, accepted: true }],
     };
+  }
+
+  async invite(): Promise<void> {
+    this.inviteCalls += 1;
   }
 
   async multiTerminalSync(): Promise<void> {
@@ -152,12 +155,10 @@ class FakeSignaling implements GroupCallSignaling {
   }
 
   async query(): Promise<{
-    ownerUin: number;
     members: Array<{ uin: number; uid: string | null }>;
   }> {
     this.queryCalls += 1;
     return {
-      ownerUin: PEER_UIN,
       members: [
         { uin: SELF_UIN, uid: SELF_UID },
         { uin: PEER_UIN, uid: PEER_UID },
@@ -185,6 +186,7 @@ function makeSession(
     targetUids: [PEER_UID],
     groupId: GROUP_ID,
     stream: makeGroupStream(() => Uint8Array.from([0x57, 0x67, 0x7e])),
+    gcsEntryBody: Uint8Array.from([0x0a, 0x00]),
     signaling,
     transport,
     codec: fakeCodec,
@@ -208,8 +210,10 @@ describe('启动', () => {
     expect(snapshot.state).toBe('calling');
     expect(snapshot.groupId).toBe(GROUP_ID);
     expect(snapshot.ownerUin).toBe(PEER_UIN);
-    expect(signaling.startCalls).toBe(1);
+    expect(signaling.createCalls).toBe(1);
     expect(signaling.syncCalls).toBe(1);
+    expect(signaling.inviteCalls).toBe(0);
+    expect(transport.sent[0]?.data[0]).toBe(0x28);
     expect(transport.closed).toBe(false);
   });
 
@@ -220,7 +224,7 @@ describe('启动', () => {
 
   it('开房失败时状态是 failed', async () => {
     const { session, signaling } = makeSession();
-    signaling.failStart = true;
+    signaling.failCreate = true;
     await expect(session.start()).rejects.toThrow();
     expect(session.snapshot().state).toBe('failed');
     expect(session.snapshot().endReason).toBe('connect_fail');
@@ -250,7 +254,7 @@ describe('控制面', () => {
 
     // 认证（0x02）之后收到 k2 会回一条 0x28 应答
     const gcs = transport.sent.filter((item) => item.data[0] === 0x28);
-    expect(gcs.length).toBe(1);
+    expect(gcs.length).toBe(2);
   });
 
   it('收到保活后回应答', async () => {

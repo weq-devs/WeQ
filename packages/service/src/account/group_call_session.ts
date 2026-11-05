@@ -29,6 +29,7 @@ const {
   GroupTrack,
   GroupVideoAssembler,
   buildGroupAuth,
+  buildGroupGcsEntry,
   buildGroupAudioFrame,
   buildGroupExit,
   buildGroupGcsAck,
@@ -41,12 +42,15 @@ const {
   extractGroupSessionKey,
   parseGroupAudioFrame,
   parseGroupCameraState,
+  parseGroupAuthRsp,
   parseGroupGcsPacket,
   parseGroupMediaHeader,
   parseGroupMemberState,
   parseGroupRelay,
   parseGroupVideoFragment,
+  streamFromGcsFields,
 } = groupCall;
+type GroupGcsHead = Parameters<typeof buildGroupGcsAck>[1];
 
 // ─────────────────────────── 状态 ───────────────────────────
 
@@ -105,18 +109,17 @@ export interface GroupCallSnapshot {
 
 // ─────────────────────────── 依赖注入 ───────────────────────────
 
-/** 群通话信令（`@weq/protocol` 的 `startGroupCall` / `queryGroupRoom` 直接满足）。 */
+/** 群通话信令适配；开房、同步、UDP 入房和邀请按抓包顺序分开调用。 */
 export interface GroupCallSignaling {
-  /** 开房 + 邀请，返回房间信息与邀请结果。 */
-  start(params: { selfUid: string; targetUids: string[] }): Promise<{
+  /** 只开房；邀请必须等 GCS 入房与 0x25 认证请求发出后再调。 */
+  create(params: { selfUid: string; groupId: number }): Promise<{
     room: { ownerUin: number; authKey: Uint8Array; servers: Array<{ ip: string; port: number }> };
-    invited: Array<{ uid: string; accepted: boolean }>;
   }>;
+  invite(params: { targetUids: string[]; authKey: Uint8Array; groupId: number }): Promise<void>;
   /** 让同账号的其它设备也响铃。 */
-  multiTerminalSync(params: { authKey: Uint8Array }): Promise<void>;
+  multiTerminalSync(params: { authKey: Uint8Array; groupId: number }): Promise<void>;
   /** 查一次房间成员。 */
-  query(params: { roomUin: number; authKey: Uint8Array }): Promise<{
-    ownerUin: number;
+  query(params: { groupId: number; authKey: Uint8Array }): Promise<{
     members: Array<{ uin: number; uid: string | null }>;
   }>;
 }
@@ -164,13 +167,18 @@ export interface GroupCallSessionOptions {
   /** 群号。信令层从开房回包拿不到时由调用方从上下文传。 */
   groupId: number;
   /**
-   * 本端 7 字节流标识，例如 `18 57 06 aa 67 7e 00`。
+   * 本端 7 字节流标识。
    *
-   * **由调用方生成**（服务端不分配）：抓包里两次通话分别是
-   * `18 57 06 aa 67 7e 00` / `18 b6 06 aa 47 32 00`，`18 ?? 06 aa` 是固定前缀、
-   * 后 3 字节每通电话随机。用 {@link makeGroupStream} 生成即可。
+   * **不是客户端生成的** —— 服务端在入房应答的 `f4`/`f5` 里分配，会话收到后
+   * 用 {@link streamFromGcsFields} 还原（见 `onEntryResponse`）。
+   * 2026-11-05 静态比对两通抓包确认：客户端入房包 `f4=f5=0`，
+   * 服务端回 `0x185706aa`/`0x677e0001` → 流标识 `18 57 06 aa 67 7e 00`。
+   *
+   * 保留这个字段只为测试注入固定值；生产路径不传。
    */
-  stream: Uint8Array;
+  stream?: Uint8Array;
+  /** AVSDK 首次 `0x28` 入房请求里的能力 body；当前协议层将其作为 opaque bytes 传入。 */
+  gcsEntryBody: Uint8Array;
   signaling: GroupCallSignaling;
   transport: GroupCallTransport;
   codec: GroupCallCodec;
@@ -241,13 +249,16 @@ export class GroupCallSession {
   private ownerUin = 0;
   private groupId: number;
 
-  /** 本端的 7 字节流标识（`0x02` 包 body 开头），构造时就确定。 */
-  private readonly stream: Uint8Array;
+  /** 本端 7 字节流标识；入房应答到达前为 null（由服务端分配）。 */
+  private stream: Uint8Array | null;
   /** 本端 `0x02` 的 route 计数。 */
   private route = 0;
   /** 本端 GCS 会话 ID 与序号（与收到的 s2c 流是两条独立序列）。 */
   private gcsSessionId = 0;
   private gcsSeq = 0;
+  private gcsAckStarted = false;
+  private entryResponseReceived = false;
+  private inviteStarted = false;
   /** 本端 `0x17` 的包序号与采样时间戳。 */
   private mediaSeq = 0;
   private sampleTs = 0;
@@ -275,7 +286,7 @@ export class GroupCallSession {
     this.opts = options;
     this.timers = options.timers ?? realGroupTimers;
     this.groupId = options.groupId;
-    this.stream = options.stream;
+    this.stream = options.stream ?? null;
   }
 
   // ─────────────────────────── 生命周期 ───────────────────────────
@@ -291,9 +302,9 @@ export class GroupCallSession {
 
     this.setState('calling');
     try {
-      const { room } = await this.opts.signaling.start({
+      const { room } = await this.opts.signaling.create({
         selfUid: this.opts.selfUid,
-        targetUids: this.opts.targetUids,
+        groupId: this.groupId,
       });
       this.k1 = room.authKey;
       this.ownerUin = room.ownerUin;
@@ -301,7 +312,10 @@ export class GroupCallSession {
 
       // 多端同步：让手机端也响铃。失败不影响主链路。
       try {
-        await this.opts.signaling.multiTerminalSync({ authKey: room.authKey });
+        await this.opts.signaling.multiTerminalSync({
+          authKey: room.authKey,
+          groupId: this.groupId,
+        });
       } catch (error) {
         this.opts.logger?.warn?.('群通话多端同步失败', { error: String(error) });
       }
@@ -314,10 +328,10 @@ export class GroupCallSession {
         this.opts.logger?.warn?.('群通话 UDP 错误', { error: error.message });
       });
 
-      // 入房认证（`0x02 cmd=0x25`，带 k1）。这一步同时确定本端的流标识。
-      this.authenticate();
-
       this.startTimers();
+      // 抓包顺序：开房 → 多端同步 → GCS 入房 → ACK + 0x25 → 邀请。
+      // 邀请不能早于主叫的 GCS 入房，否则对端已经振铃、主叫还未进入房间。
+      this.sendEntry();
       this.emit();
       return this.snapshot();
     } catch (error) {
@@ -341,7 +355,7 @@ export class GroupCallSession {
           buildGroupExit({
             route: this.nextRoute(),
             ownerUin: this.opts.selfUin,
-            stream: this.stream,
+            stream: this.stream!,
             key,
           }),
         );
@@ -364,7 +378,7 @@ export class GroupCallSession {
       buildGroupMicState({
         route: this.nextRoute(),
         ownerUin: this.opts.selfUin,
-        stream: this.stream,
+        stream: this.stream!,
         key,
         muted,
       }),
@@ -380,7 +394,7 @@ export class GroupCallSession {
       buildGroupMicState({
         route: this.nextRoute(),
         ownerUin: this.opts.selfUin,
-        stream: this.stream,
+        stream: this.stream!,
         key,
         muted,
         targetUin: uin,
@@ -403,7 +417,7 @@ export class GroupCallSession {
    */
   async pushAudio(pcm: Uint8Array): Promise<void> {
     if (this.state !== 'connected' && this.state !== 'connecting') return;
-    if (this.micMuted) return;
+    if (this.micMuted || !this.stream) return;
     if (pcm.length !== FRAME_SAMPLES * 2) {
       throw new RangeError(`一帧必须是 ${FRAME_SAMPLES * 2} 字节 PCM，收到 ${pcm.length}`);
     }
@@ -413,7 +427,7 @@ export class GroupCallSession {
       buildGroupAudioFrame({
         route: this.nextRoute(),
         ownerUin: this.opts.selfUin,
-        stream: this.stream,
+        stream: this.stream!,
         seq: this.mediaSeq,
         frameIndex: this.frameIndex,
         sampleTs: this.sampleTs,
@@ -427,11 +441,11 @@ export class GroupCallSession {
 
   /** 推一帧 H.264 Annex B（已编码），按上限切片后发 `0x17`。 */
   pushVideoFrame(data: Uint8Array): void {
-    if (!this.cameraOn) return;
+    if (!this.cameraOn || !this.stream) return;
     const packets = buildGroupVideoFragments({
       route: this.nextRoute(),
       ownerUin: this.opts.selfUin,
-      stream: this.stream,
+      stream: this.stream!,
       seq: this.mediaSeq,
       data,
     });
@@ -446,14 +460,13 @@ export class GroupCallSession {
    * 从第一次认证一直用到退出）。所以这一步既完成认证，也确定 `this.stream`。
    * 第一次用 k1，k2 下发后如果重认证要换成 k2。
    */
-  private authenticate(): void {
-    const key = this.currentKey();
-    if (!key) return;
+  private authenticate(key = this.currentKey()): void {
+    if (!key || !this.stream) return;
     this.sendRelay(
       buildGroupAuth({
         route: this.nextRoute(),
         ownerUin: this.opts.selfUin,
-        stream: this.stream,
+        stream: this.stream!,
         key,
       }),
     );
@@ -509,19 +522,22 @@ export class GroupCallSession {
     if (key) {
       this.k2 = key;
       this.respondGcs(packet.head);
+      this.onEntryResponse(packet.head);
       return;
     }
 
     // 其余都是保活 / 状态推送，一律应答。
     this.respondGcs(packet.head);
+    this.onEntryResponse(packet.head);
   }
 
   /** 应答一条 s2c `0x28`。 */
   private respondGcs(received: Parameters<typeof buildGroupGcsAck>[1]): void {
     // 第一次应答时用服务端给本端的会话 ID 建立自己的序列。
-    if (!this.gcsSessionId) {
-      this.gcsSessionId = received.sessionId;
+    if (!this.gcsAckStarted) {
+      this.gcsSessionId = received.sessionId + 1;
       this.gcsSeq = received.seq;
+      this.gcsAckStarted = true;
     }
     this.gcsSeq += 1;
     const packet = buildGroupGcsAck(
@@ -571,7 +587,7 @@ export class GroupCallSession {
       buildGroupKeepaliveAck({
         route: packet.route,
         ownerUin: this.opts.selfUin,
-        stream: this.stream,
+        stream: this.stream!,
       }),
     );
   }
@@ -602,9 +618,14 @@ export class GroupCallSession {
       buildGroupMemberStateAck({
         route: packet.route,
         ownerUin: this.opts.selfUin,
-        stream: this.stream,
+        stream: this.stream!,
       }),
     );
+    // 自己的「房间就绪」不发 self-only 列表；远端进入、状态变化或离开后，
+    // 都按最新成员表重发订阅。远端刚加入时尤其不能漏掉，否则看不到对方的流。
+    if (state && state.uin !== this.opts.selfUin) {
+      this.subscribeStreams();
+    }
   }
 
   private onCameraState(packet: { route: number; body: Uint8Array }): void {
@@ -617,15 +638,16 @@ export class GroupCallSession {
       }
     }
     this.sendRelay(
-      buildGroupAckRaw(packet.route, this.opts.selfUin, this.stream, GroupRelayCmd.cameraStateAck),
+      buildGroupAckRaw(packet.route, this.opts.selfUin, this.stream!, GroupRelayCmd.cameraStateAck),
     );
   }
 
   private onAuthRsp(packet: { body: Uint8Array }): void {
+    if (!parseGroupAuthRsp(packet.body).ok) {
+      this.fail('connect_fail');
+      return;
+    }
     if (this.state === 'calling') this.setState('connecting');
-    // 认证成功后订阅成员流（服务端随后回 0x14）。
-    this.subscribeStreams();
-    void packet;
   }
 
   private onMedia(packet: { ownerUin: number; body: Uint8Array }): void {
@@ -669,13 +691,13 @@ export class GroupCallSession {
 
   /** 订阅成员流（`0x13`）。成员表变化时也要重发。 */
   private subscribeStreams(): void {
-    const key = this.currentKey();
+    const key = this.k2;
     if (!this.stream || !key) return;
     this.sendRelay(
       buildGroupStreamSubscribe({
         route: this.nextRoute(),
         ownerUin: this.opts.selfUin,
-        stream: this.stream,
+        stream: this.stream!,
         key,
         memberUins: [...this.members.keys()],
       }),
@@ -699,6 +721,55 @@ export class GroupCallSession {
   private nextRoute(): number {
     this.route = (this.route + 1) & 0xffffff;
     return this.route;
+  }
+
+  /** 首包使用未认证 head（f4/f5=0），等服务端回 GCS 包后再做 0x25 认证。 */
+  private sendEntry(): void {
+    if (!this.k1 || !this.server) throw new Error('开房信息未就绪，无法发送 GCS 入房包');
+    if (this.opts.gcsEntryBody.length === 0) throw new Error('缺少 GCS 入房能力 body');
+    this.gcsSessionId = 20_000 + Math.floor(Math.random() * 10_000);
+    this.gcsSeq = 265;
+    this.sendRaw(
+      buildGroupGcsEntry({
+        sessionId: this.gcsSessionId,
+        seq: this.gcsSeq,
+        selfUin: this.opts.selfUin,
+        key: this.k1,
+        body: this.opts.gcsEntryBody,
+      }),
+    );
+  }
+
+  /**
+   * 首次 GCS 回包已 ACK 后：还原流标识 → 发 `0x25` → 发 `SsoInviteRoom`。
+   *
+   * **流标识由服务端分配**：应答 head 的 `f4` 是流标识前 4 字节、`f5` 的第 5-6
+   * 字节是流标识第 5-6 字节（`f5 >> 16`），末字节恒 0。两通抓包各自验证过。
+   */
+  private onEntryResponse(received?: GroupGcsHead): void {
+    if (this.entryResponseReceived || this.state === 'ending' || this.state === 'ended') return;
+    this.entryResponseReceived = true;
+
+    // 服务端在入房应答里下发流标识，后续所有 0x02 包都用它。
+    if (received && !this.opts.stream) {
+      this.stream = streamFromGcsFields(received.f4, received.f5);
+      this.opts.logger?.info?.('群通话流标识已分配', {
+        stream: [...this.stream].map((b) => b.toString(16).padStart(2, '0')).join(''),
+      });
+    }
+
+    // 首次 0x25 必须使用开房回包的 k1；即使首个 0x28 已经下发 k2，也不能提前切换。
+    this.authenticate(this.k1);
+    if (this.inviteStarted) return;
+    this.inviteStarted = true;
+    const authKey = this.k1;
+    if (!authKey) return;
+    void this.opts.signaling
+      .invite({ targetUids: this.opts.targetUids, authKey, groupId: this.groupId })
+      .catch((error: unknown) => {
+        this.opts.logger?.warn?.('群通话邀请失败', { error: String(error) });
+        this.fail('error');
+      });
   }
 
   // ─────────────────────────── 定时器 ───────────────────────────
@@ -734,10 +805,9 @@ export class GroupCallSession {
     if (!this.k1 || !this.ownerUin) return;
     try {
       const room = await this.opts.signaling.query({
-        roomUin: this.ownerUin,
+        groupId: this.groupId,
         authKey: this.k1,
       });
-      if (room.ownerUin) this.ownerUin = room.ownerUin;
       for (const member of room.members) {
         const existing = this.members.get(member.uin);
         if (existing) {

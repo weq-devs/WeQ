@@ -331,8 +331,8 @@ export interface GroupRoomMember {
 
 /** `SsoQueryRoom` 归一化结果。 */
 export interface GroupRoomState {
-  /** 房间 uin（= 主叫 uin）。 */
-  ownerUin: number | null;
+  /** 群号（`SsoQueryRoom` 的 kind=1 / f2）。 */
+  groupId: number | null;
   members: GroupRoomMember[];
 }
 
@@ -362,7 +362,7 @@ export function uinToUid(state: GroupRoomState, uin: number): string | null {
  */
 export function normalizeQueryRoom(rsp: Record<string, unknown>): GroupRoomState {
   const items = (rsp.items ?? []) as Array<Record<string, unknown>>;
-  let ownerUin: number | null = null;
+  let groupId: number | null = null;
   const byUin = new Map<number, string>();
   const byUid = new Map<string, number>();
 
@@ -370,7 +370,7 @@ export function normalizeQueryRoom(rsp: Record<string, unknown>): GroupRoomState
     const kind = Number(item.kind ?? 0);
     if (kind === 1) {
       const f2 = Number(item.f2 ?? 0);
-      if (f2) ownerUin = f2;
+      if (f2) groupId = f2;
       continue;
     }
     if (kind !== 16) continue;
@@ -390,7 +390,7 @@ export function normalizeQueryRoom(rsp: Record<string, unknown>): GroupRoomState
   const members: GroupRoomMember[] = [...byUin.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([uin, uid]) => ({ uin, uid }));
-  return { ownerUin, members };
+  return { groupId, members };
 }
 
 // ─────────────────────────── 命令 spec ───────────────────────────
@@ -522,16 +522,13 @@ export const MultiTerminalSync: TrpcSpec<{ authKey: Uint8Array; groupId: number 
 export const QUERY_ROOM_WANTED = [1, 2, 6, 5, 10, 11, 12, 14, 16] as const;
 
 /** `SsoQueryRoom` —— 查房间成员与状态。 */
-export const QueryGroupRoom: TrpcSpec<
-  { roomUin: number; authKey: Uint8Array; groupId: number },
-  GroupRoomState
-> = {
+export const QueryGroupRoom: TrpcSpec<{ groupId: number; authKey: Uint8Array }, GroupRoomState> = {
   cmd: GROUP_SSO_CMD.queryRoom,
   needSign: false,
   reqSchema: GROUP_QUERY_ROOM_REQ,
   respSchema: GROUP_QUERY_ROOM_RSP,
-  serialize: ({ roomUin, authKey, groupId }) => ({
-    roomId: roomUin,
+  serialize: ({ authKey, groupId }) => ({
+    roomId: groupId,
     wanted: [...QUERY_ROOM_WANTED],
     f3: 2,
     media: {
@@ -579,7 +576,7 @@ export async function startGroupCall(
 export async function queryGroupRoom(
   nt: GroupCallSignalingNative,
   pid: number,
-  params: { roomUin: number; authKey: Uint8Array; groupId: number },
+  params: { groupId: number; authKey: Uint8Array },
 ): Promise<GroupRoomState> {
   return invokeTrpc(nt, pid, QueryGroupRoom, params);
 }
@@ -602,11 +599,7 @@ export function encodeInviteReq(params: {
 }
 
 /** 单测用：编码查询请求。 */
-export function encodeQueryReq(params: {
-  roomUin: number;
-  authKey: Uint8Array;
-  groupId: number;
-}): Uint8Array {
+export function encodeQueryReq(params: { groupId: number; authKey: Uint8Array }): Uint8Array {
   return encode(GROUP_QUERY_ROOM_REQ, QueryGroupRoom.serialize(params));
 }
 
