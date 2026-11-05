@@ -98,6 +98,7 @@ import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
 import { isDbRepairBusy } from './db_repair';
 import { launchQq } from '../../qq_launch';
+import { checkQqDataAccess, QQ_DATA_ACCESS_SETTINGS } from '../../qq_data_access';
 
 /** Result of the QQ data-directory picker. */
 export interface PickRootResult {
@@ -359,6 +360,22 @@ export const bootstrapRouter = router({
   }),
 
   // ---- detection (via global config cache) ----
+
+  qqDataAccess: procedure.query(() => {
+    const desktop = getHost().canReveal;
+    return checkQqDataAccess({
+      kind: desktop ? requirePlatform().kind : 'web',
+      roots: desktop ? requirePlatform().tencentFilesRoots() : [],
+      executable: getHost().currentExePath(),
+    });
+  }),
+
+  openQqDataAccessSettings: procedure.mutation(async () => {
+    if (process.platform !== 'darwin' || !getHost().canReveal)
+      throw new Error('请在运行 WeQ 的 Mac 上打开系统设置 → 隐私与安全性 → 完全磁盘访问权限。');
+    await getHost().openExternal(QQ_DATA_ACCESS_SETTINGS);
+    return true;
+  }),
 
   /** Enriched, cached install info (paths + version + user-data + health flags). */
   describeInstall: procedure.query(() => {

@@ -12,6 +12,7 @@
 面向使用者，介绍每一项功能怎么用。
 
 - [功能总览与快速上手](./guide/index.md)
+- [macOS QQ 数据读取授权](./guide/macos-data-access.md)
 
 ## Native 原理
 

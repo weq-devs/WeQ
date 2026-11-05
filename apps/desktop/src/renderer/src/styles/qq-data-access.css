@@ -1,0 +1,48 @@
+.weq-qq-data-access {
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 14px 0;
+  border-block: 1px solid var(--weq-border-strong);
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.weq-select.weq-account-workspace .weq-account-content:has(.weq-qq-data-access) {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.weq-qq-data-access h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.weq-qq-data-access h2 svg {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--weq-accent-effective) 40%, var(--weq-fg-primary));
+}
+
+.weq-qq-data-access p {
+  margin: 6px 0;
+}
+.weq-qq-data-access-path {
+  color: var(--weq-fg-secondary);
+}
+.weq-qq-data-access-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.weq-qq-data-access-actions button {
+  min-height: 34px;
+}
+html[data-theme='dark'] .weq-qq-data-access {
+  border-color: var(--weq-border-strong);
+}

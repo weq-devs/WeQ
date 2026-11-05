@@ -19,6 +19,8 @@ import { AccountSelector } from './AccountSelector';
 import { LoginPanel } from './LoginPanel';
 import { StaticBackupPanel } from './StaticBackupPanel';
 import { StatsPanel } from './StatsPanel';
+import { QqDataAccessNotice } from './QqDataAccessNotice';
+import { IS_MAC } from '../../lib/target';
 import type { UiAccount } from './types';
 import logoUrl from '@resources/brand/logo.png';
 import '../../styles/bootstrap-select.css';
@@ -80,6 +82,12 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
   const accountMode = mode === 'existing' ? 'existing' : 'new';
   const selected = accounts.find((a) => a.key === selection[accountMode]) ?? accounts[0] ?? null;
   const accountQuery = mode === 'existing' ? savedConfigs : historical;
+  const dataAccess = trpc.bootstrap.qqDataAccess.useQuery(undefined, {
+    enabled: IS_MAC && mode !== 'backup',
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const dataBlocked = IS_MAC && dataAccess.data?.status === 'denied' && !selected?.static;
 
   function onEntered(uin: string): void {
     setOpenedUin(uin);
@@ -137,6 +145,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
         </h1>
       </header>
       <div className="weq-account-content">
+        {mode !== 'backup' && <QqDataAccessNotice />}
         <section
           id="account-source-panel"
           aria-labelledby="account-page-title"
@@ -156,7 +165,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                     autoTarget={autoTarget.data ?? null}
                     onEntered={onEntered}
                     onBusyChange={setBusy}
-                    disabled={busy}
+                    disabled={busy || dataBlocked}
                     onDiagnostics={mode === 'new' ? () => setDiagnostics(true) : undefined}
                   />
                 ) : (

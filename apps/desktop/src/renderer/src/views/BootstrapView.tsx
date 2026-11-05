@@ -58,6 +58,13 @@ export function BootstrapView(): ReactElement {
   const needsStartup =
     nativeOk && (homeStage !== 'booting' || (currentAccount.isSuccess && !currentAccount.data));
 
+  const dataAccess = trpc.bootstrap.qqDataAccess.useQuery(undefined, {
+    enabled: needsStartup && IS_MAC,
+    retry: false,
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+  });
+
   const install = trpc.bootstrap.describeInstall.useQuery(undefined, {
     enabled: needsStartup,
     refetchOnWindowFocus: false,
@@ -148,6 +155,7 @@ export function BootstrapView(): ReactElement {
     }
     if (!nativeOk || !autoTarget.isFetched || !configs.isFetched) return;
     if (!IS_WEB && !startupPage.isFetched) return;
+    if (IS_MAC && !dataAccess.isFetched) return;
     booted.current = true;
     useViewState.setState({
       startupPage:
@@ -158,6 +166,16 @@ export function BootstrapView(): ReactElement {
 
     const target = autoTarget.data ?? null;
     const cfg = target ? (configs.data ?? []).find((c) => c.configId === target.configId) : null;
+    if (
+      IS_MAC &&
+      !cfg?.static &&
+      (dataAccess.isError ||
+        dataAccess.data?.status === 'denied' ||
+        dataAccess.data?.status === 'error')
+    ) {
+      setHomeStage('home');
+      return;
+    }
     if (!target || !cfg) {
       setHomeStage('home');
       return;
@@ -232,6 +250,9 @@ export function BootstrapView(): ReactElement {
     startupPage.data,
     configs.isFetched,
     configs.data,
+    dataAccess.isFetched,
+    dataAccess.isError,
+    dataAccess.data,
     setHomeStage,
     setOpenedUin,
     goTo,
