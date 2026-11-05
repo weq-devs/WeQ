@@ -15,14 +15,17 @@ afterEach(() => {
 });
 
 describe('组件风格与独立密度', () => {
-  it('保留经典默认风格，并提供简约、复古与 QQ NT 预设', () => {
+  it('默认采用纯净背景与首位的 QQ NT 风格，并保留其他预设', () => {
     expect(componentStyles.map((style) => style.value)).toEqual([
+      'qqnt',
       'classic',
       'minimal',
       'retro',
-      'qqnt',
     ]);
-    expect(useThemeStore.getState().componentStyle).toBe('classic');
+    expect(useThemeStore.getState().componentStyle).toBe('qqnt');
+    expect(useThemeStore.getState().background).toBe('plain');
+    expect(document.documentElement.dataset.componentStyle).toBe('qqnt');
+    expect(document.documentElement.dataset.background).toBe('plain');
   });
   it('设置搜索可精确定位到风格与密度条目', () => {
     expect(resolveSettingsTarget({ section: 'appearance', item: '组件风格' }).settingId).toBe(
@@ -69,7 +72,7 @@ describe('组件风格与独立密度', () => {
     expect(useThemeStore.getState().componentStyle).toBe('retro');
   });
 
-  it('缺失配置、收起的旧风格或未知值回落到经典，不改写其他有效偏好', () => {
+  it('缺失配置、收起的旧风格或未知值回落到 QQ NT，不改写其他有效偏好', () => {
     for (const invalid of [null, '', 'soft', 'outline', 'glass', 'future-style']) {
       localStorage.clear();
       if (invalid !== null) {
@@ -78,10 +81,28 @@ describe('组件风格与独立密度', () => {
       localStorage.setItem('weq.theme-density', 'compact');
       localStorage.setItem('weq.theme-accent', '#075c30');
       useThemeStore.getState().hydrate();
-      expect(useThemeStore.getState().componentStyle).toBe('classic');
+      expect(useThemeStore.getState().componentStyle).toBe('qqnt');
       expect(useThemeStore.getState().density).toBe('compact');
       expect(useThemeStore.getState().accent).toBe('#075c30');
     }
+  });
+  it('未知背景回落到纯净，已保存的背景保持不变', () => {
+    localStorage.setItem('weq.theme-background', 'future-background');
+    useThemeStore.getState().hydrate();
+    expect(useThemeStore.getState().background).toBe('plain');
+    localStorage.setItem('weq.theme-background', 'paper');
+    useThemeStore.getState().hydrate();
+    expect(useThemeStore.getState().background).toBe('paper');
+  });
+  it('存储不可读时仍采用纯净背景与 QQ NT 风格', () => {
+    vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+      throw new Error('存储不可读');
+    });
+    useThemeStore.getState().hydrate();
+    expect(useThemeStore.getState()).toMatchObject({
+      background: 'plain',
+      componentStyle: 'qqnt',
+    });
   });
   it('缺失或未知密度仍采用舒适', () => {
     for (const value of ['', 'future-density']) {
