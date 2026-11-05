@@ -34,6 +34,7 @@ export class ConversationFirstPage<T> {
     private readonly options: {
       owner: string;
       fresh: (target: FirstPageTarget) => boolean;
+      canPrefetch?: (target: FirstPageTarget) => boolean;
       subscribe: (
         target: FirstPageTarget,
         window: MessageReadWindow,
@@ -134,6 +135,7 @@ export class ConversationFirstPage<T> {
     const target = candidates.find(
       (candidate) =>
         firstPageKey(candidate) !== this.selected &&
+        (this.options.canPrefetch?.(candidate) ?? true) &&
         !this.options.fresh(candidate) &&
         Date.now() - (this.attempts.get(firstPageKey(candidate)) ?? -Infinity) >= 15_000,
     );
@@ -199,6 +201,7 @@ export class ConversationFirstPage<T> {
             return;
           }
           finished = true;
+          if (this.current === job) this.current = undefined;
           const rows = stage.reuseLocal ? job.partial : stage.rows;
           if (!rows) {
             reject(new Error('缺少可复用的本地首屏'));
@@ -214,6 +217,7 @@ export class ConversationFirstPage<T> {
         (error) => {
           if (!finished) {
             finished = true;
+            if (this.current === job) this.current = undefined;
             reject(error);
           }
         },
@@ -221,6 +225,7 @@ export class ConversationFirstPage<T> {
       if (finished) release();
     } catch (error) {
       finished = true;
+      if (this.current === job) this.current = undefined;
       reject(error);
     }
     return job;

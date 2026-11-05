@@ -438,12 +438,14 @@ export class AntiRecallDb {
    * Column order matches the SELECT list; `query` returns positional rows.
    */
   async listRecalls(
-    kind: AntiRecallKind,
+    kind: AntiRecallKind | readonly AntiRecallKind[],
     conv: string,
     msgIds?: readonly bigint[],
   ): Promise<RecallLogRow[]> {
-    if (msgIds?.length === 0) return [];
+    const kinds = [...new Set(typeof kind === 'string' ? [kind] : kind)];
+    if (!kinds.length || msgIds?.length === 0) return [];
     if (!(await this.recallLogExists())) return [];
+    const kindClause = `table_kind IN (${kinds.map(() => '?').join(',')})`;
 
     if (msgIds) {
       const ids = [...new Set(msgIds)];
@@ -452,9 +454,9 @@ export class AntiRecallDb {
         const batch = ids.slice(offset, offset + 256);
         const rows = await this.qq.query(
           `SELECT msgid, conv, table_kind, sender_uid, revoke_uid, orig_seq, recall_ts
-           FROM ${RECALL_LOG_TABLE} WHERE table_kind = ? AND conv = ?
+           FROM ${RECALL_LOG_TABLE} WHERE ${kindClause} AND conv = ?
            AND msgid IN (${batch.map(() => '?').join(',')}) ORDER BY recall_ts DESC`,
-          [kind, conv, ...batch],
+          [...kinds, conv, ...batch],
         );
         result.push(...rows.map(mapRecallRow));
       }
@@ -464,9 +466,9 @@ export class AntiRecallDb {
     const rows = await this.qq.query(
       `SELECT msgid, conv, table_kind, sender_uid, revoke_uid, orig_seq, recall_ts
         FROM ${RECALL_LOG_TABLE}
-        WHERE table_kind = ? AND conv = ?
+        WHERE ${kindClause} AND conv = ?
         ORDER BY recall_ts DESC`,
-      [kind, conv],
+      [...kinds, conv],
     );
     return rows.map(mapRecallRow);
   }

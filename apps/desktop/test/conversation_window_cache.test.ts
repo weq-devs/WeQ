@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
   ConversationWindowCache,
+  CONVERSATION_WINDOW_LIMIT,
   conversationWindowKey,
   restorableConversationWindow,
 } from '../src/renderer/src/lib/conversationWindowCache';
@@ -20,6 +21,60 @@ const window = (count: number) => ({
 afterEach(() => vi.useRealTimers());
 
 describe('会话阅读窗口缓存', () => {
+  it('预取检查不改变淘汰顺序，真正读取才提升窗口优先级', () => {
+    vi.useFakeTimers();
+    const cache = new ConversationWindowCache<{ id: number }>();
+    for (let i = 0; i < CONVERSATION_WINDOW_LIMIT; i++) cache.put(String(i), window(1));
+    expect(cache.peek('0')).toBeDefined();
+    cache.get('1');
+    cache.put('new', window(1));
+    expect(cache.peek('0')).toBeUndefined();
+    expect(cache.peek('1')).toBeDefined();
+    cache.clear();
+  });
+  it('后台预取不挤掉已阅读窗口，已采用的预取仍可按普通窗口复用', () => {
+    vi.useFakeTimers();
+    const cache = new ConversationWindowCache<{ id: number }>();
+    for (let i = 0; i < CONVERSATION_WINDOW_LIMIT - 1; i++) cache.put(String(i), window(1));
+    cache.put('adopted', { ...window(1), prefetched: true });
+    cache.get('adopted');
+    cache.put('speculative', { ...window(1), prefetched: true });
+    expect(cache.peek('0')).toBeDefined();
+    expect(cache.peek('adopted')?.prefetched).toBe(true);
+    expect(cache.peek('speculative')).toBeUndefined();
+    cache.put('visited', window(1));
+    expect(cache.peek('0')).toBeUndefined();
+    expect(cache.peek('visited')).toBeDefined();
+    cache.clear();
+  });
+  it('已阅读窗口占满时不启动无法缓存的预取，过期或有预取空位时仍允许', () => {
+    vi.useFakeTimers();
+    const cache = new ConversationWindowCache<{ id: number }>();
+    for (let i = 0; i < CONVERSATION_WINDOW_LIMIT; i++) cache.put(String(i), window(1));
+    expect(cache.canPrefetch('new')).toBe(false);
+    expect(cache.canPrefetch('0')).toBe(true);
+    cache.put('0', { ...window(1), prefetched: true });
+    expect(cache.canPrefetch('new')).toBe(false);
+    vi.advanceTimersByTime(11 * 60_000);
+    expect(cache.canPrefetch('new')).toBe(true);
+    cache.clear();
+    for (let i = 0; i < CONVERSATION_WINDOW_LIMIT - 1; i++) cache.put(String(i), window(1));
+    cache.put('speculative', { ...window(1), prefetched: true });
+    expect(cache.canPrefetch('new')).toBe(true);
+    cache.put('new', window(1));
+    expect(cache.peek('speculative')).toBeUndefined();
+    expect(cache.peek('0')).toBeDefined();
+    cache.clear();
+  });
+  it('预取过期检查仍会清理窗口，不恢复过期消息', () => {
+    vi.useFakeTimers();
+    const cache = new ConversationWindowCache<{ id: number }>();
+    cache.put('old', window(1));
+    vi.advanceTimersByTime(11 * 60_000);
+    expect(cache.peek('old')).toBeUndefined();
+    expect(cache.get('old')).toBeUndefined();
+    cache.clear();
+  });
   it('预取尾页不冒充从未读处开始的阅读现场，偏好改变后仍会读取未读位置', () => {
     const prefetched = { ...window(25), prefetched: true };
     expect(restorableConversationWindow(prefetched, false)).toBe(prefetched);

@@ -28,6 +28,7 @@ export {
   databasePerformance,
   recordMessagePartition,
   recordMessageWork,
+  measureMessageWork,
   waitForDatabaseQuiet,
 } from './query_schedule';
 export type { DatabasePriority } from './query_schedule';

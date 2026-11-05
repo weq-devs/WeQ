@@ -10,7 +10,7 @@ type Row = { msgSeq: string };
 const target = (conv: string): FirstPageTarget => ({ kind: 'group', conv, limit: 25 });
 const row = (msgSeq: string) => ({ msgSeq });
 afterEach(() => vi.useRealTimers());
-function fixture() {
+function fixture(canPrefetch = (_target: FirstPageTarget) => true) {
   vi.useFakeTimers();
   const cached = new Set<string>();
   let version = 0;
@@ -28,6 +28,7 @@ function fixture() {
   const loader = new ConversationFirstPage<Row>({
     owner: 'synthetic-owner',
     fresh: (value) => cached.has(firstPageKey(value)),
+    canPrefetch,
     valid: () => true,
     version: () => version,
     store,
@@ -50,6 +51,32 @@ function fixture() {
     },
   };
 }
+it('缓存无空位时跳过后台预取，完成后立即点击别的会话不复用旧任务', async () => {
+  const f = fixture((value) => value.conv !== 'a');
+  f.loader.activate(true, '');
+  f.loader.setVisible([target('a'), target('b')]);
+  await vi.advanceTimersByTimeAsync(300);
+  expect(f.reads.map((read) => read.target.conv)).toEqual(['b']);
+  f.reads[0]!.stage({ rows: [row('1')], complete: true });
+  await Promise.resolve();
+  const page = f.loader.read(target('a'), vi.fn());
+  expect(f.reads.map((read) => read.target.conv)).toEqual(['b', 'a']);
+  f.reads[1]!.stage({ rows: [row('2')], complete: true });
+  expect(await page).toEqual([row('2')]);
+  f.loader.dispose();
+});
+it('首屏失败后同一轮立即重试能够启动新任务', async () => {
+  const f = fixture();
+  const first = f.loader.read(target('a'), vi.fn());
+  const failure = expect(first).rejects.toThrow('synthetic failure');
+  f.reads[0]!.error(new Error('synthetic failure'));
+  const retry = f.loader.read(target('a'), vi.fn());
+  expect(f.reads).toHaveLength(2);
+  f.reads[1]!.stage({ rows: [row('2')], complete: true });
+  expect(await retry).toEqual([row('2')]);
+  await failure;
+  f.loader.dispose();
+});
 it('未打开会话的在途预取被点击接用，立即交付已有正文，不重复读取', async () => {
   const f = fixture();
   f.loader.activate(true, '');

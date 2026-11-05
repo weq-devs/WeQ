@@ -6,6 +6,7 @@ import {
   waitForDatabaseQuiet,
   withDatabasePriority,
   promoteDatabaseSignal,
+  measureMessageWork,
 } from '../src/query_schedule';
 
 afterEach(() => vi.useRealTimers());
@@ -13,6 +14,24 @@ const until = async (condition: () => boolean) => {
   for (let i = 0; i < 100 && !condition(); i++) await new Promise((done) => setTimeout(done, 1));
   expect(condition()).toBe(true);
 };
+
+it('首屏阶段计时保留结果与错误，失败和取消同样记录，不泄露消息或会话', async () => {
+  const path = '/synthetic/page-measurement.db';
+  const row = { text: '不进入采样的正文' };
+  expect(await measureMessageWork(path, 'messagePage', async () => row)).toBe(row);
+  const error = new DOMException('读取已取消', 'AbortError');
+  await expect(
+    measureMessageWork(path, 'messagePage', async () => {
+      throw error;
+    }),
+  ).rejects.toBe(error);
+  await measureMessageWork(path, 'roamingCache', async () => []);
+  const snapshot = databasePerformance(path);
+  expect(snapshot.phases.messagePage?.count).toBe(2);
+  expect(snapshot.phases.roamingCache?.count).toBe(1);
+  expect(JSON.stringify(snapshot)).not.toContain(row.text);
+  expect(JSON.stringify(snapshot)).not.toContain(path);
+});
 
 it('点击提升同一预取的排队与后续 SQL，提升后仍可正确取消', async () => {
   const path = '/synthetic/promoted.db';
