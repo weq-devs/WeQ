@@ -4757,6 +4757,7 @@ export const accountRouter = router({
         expectedAccountConfigId: z.string().min(1).optional(),
         peerType: z.enum(['c2c', 'group']),
         targetId: z.string().min(1),
+        title: z.string().optional(),
         nodes: z.array(z.any()).min(1),
       }),
     )
@@ -4769,6 +4770,7 @@ export const accountRouter = router({
       return services.messageSend.sendForward({
         peerType: input.peerType,
         targetId: input.targetId,
+        title: input.title,
         nodes: input.nodes as never,
       });
     }),
