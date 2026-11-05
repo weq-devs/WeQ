@@ -689,9 +689,9 @@ export interface AppSettings {
   showWindowOnAutostart: boolean;
   /** 正常退出后重新启动的工作区栏目；异常恢复始终还原现场。 */
   startupPage: 'home' | 'messages' | 'last';
-  /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认关闭。 */
+  /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认开启。 */
   reportReadEnabled: boolean;
-  /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认关闭。 */
+  /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认开启。 */
   manualReadReportEnabled: boolean;
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁（仍可在左栏手动上锁）。
@@ -1072,8 +1072,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   webServiceAutoStart: false,
   showWindowOnAutostart: false,
   startupPage: 'last',
-  reportReadEnabled: false,
-  manualReadReportEnabled: false,
+  reportReadEnabled: true,
+  manualReadReportEnabled: true,
   autoLockMinutes: 0,
   appLock: { enabled: true, method: 'totp' },
   modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
@@ -1756,8 +1756,8 @@ export class UserConfigService {
       showWindowOnAutostart: s?.showWindowOnAutostart === true,
       startupPage:
         s?.startupPage === 'home' || s?.startupPage === 'messages' ? s.startupPage : 'last',
-      reportReadEnabled: s?.reportReadEnabled === true,
-      manualReadReportEnabled: s?.manualReadReportEnabled === true,
+      reportReadEnabled: s?.reportReadEnabled ?? d.reportReadEnabled,
+      manualReadReportEnabled: s?.manualReadReportEnabled ?? d.manualReadReportEnabled,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       appLock: {
         enabled: s?.appLock?.enabled ?? d.appLock.enabled,
