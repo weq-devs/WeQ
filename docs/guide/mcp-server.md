@@ -59,6 +59,14 @@ WeQ 内置一个 **MCP（Model Context Protocol）服务器**，让外部 AI 客
 > 拿到令牌就等于拿到当前账号的聊天数据，请像对待密码一样保管令牌，不要把地址和令牌暴露到
 > 公网。
 
+## 4. 消息性能快照
+
+`get_message_performance` 只读取当前账号的性能统计，不触发聊天查询。
+普通启动返回排队、原生等待及阶段汇总；以 `WEQ_DATABASE_DIAGNOSTICS=1` 启动时，
+额外返回匿名请求编号、查询指纹、源码调用点和在途关联。
+逐查询记录有界且只保留在内存，不包含正文、SQL、参数或账号/会话标识。
+详细字段和复测方式见[冷读取诊断](../develop/cold-read-diagnostics-20261105.md)。
+
 ---
 
 下一步 → [语音转文字](./voice-transcribe.md)

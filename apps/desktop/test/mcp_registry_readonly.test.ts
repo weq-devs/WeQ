@@ -4,7 +4,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { startMcpServer, stopMcpServer } from '../src/main/mcp/server';
 
-vi.mock('../src/main/context/app_context', () => ({ getAppContext: () => ({}) }));
+vi.mock('../src/main/context/app_context', () => ({
+  getAppContext: () => ({ services: {}, account: { msgDbPath: '/synthetic/mcp-performance.db' } }),
+}));
 
 it('lists the real registry without exposing SQL writes, messaging, wallet, credentials or host files', async () => {
   const port = await startMcpServer({ port: 39873, token: 'synthetic-only' });
@@ -18,6 +20,12 @@ it('lists the real registry without exposing SQL writes, messaging, wallet, cred
     const names = (await client.listTools()).tools.map((tool) => tool.name);
     expect(names).toContain('search_messages');
     expect(names).toContain('get_messages');
+    expect(names).toContain('get_message_performance');
+    const snapshot = await client.callTool({ name: 'get_message_performance', arguments: {} });
+    expect(snapshot.isError).not.toBe(true);
+    const text = (snapshot.content as Array<{ type: string; text?: string }>)[0]?.text ?? '';
+    expect(JSON.parse(text).database.jsQueueWait.count).toBe(0);
+    expect(text).not.toContain('/synthetic/mcp-performance.db');
     // 账号切换是显式审核过要暴露给外部客户端的（见 tool_permissions.ts 的说明），
     // 别被误标成 assistantOnly 而在界面上消失。
     expect(names).toContain('list_accounts');

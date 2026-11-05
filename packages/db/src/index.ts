@@ -32,6 +32,7 @@ export {
   waitForDatabaseQuiet,
 } from './query_schedule';
 export type { DatabasePriority } from './query_schedule';
+export { withDatabaseRequest } from './query_diagnostics';
 export { rowsToObjects } from './row';
 export type { SalvageScanOutcome, SalvageSkippedRange } from '@weq/native';
 export { isLikelyCorruptionError, wrapBindingForCorruption } from './errors';

@@ -19,6 +19,7 @@ import type {
   DatabaseAlgorithms,
 } from '@weq/native';
 import { scheduleDatabase } from './query_schedule';
+import { queryDiagnosticSource } from './query_diagnostics';
 import {
   iterateSalvageWindows,
   runSalvageScan,
@@ -72,6 +73,7 @@ export class QqDb {
           ? this.nt.executeSqlWithKey(this.dbPath, sql, this.key!, this.algo!, params ?? null)
           : this.nt.executeSql(this.dbPath, sql, params ?? null),
       this.nt,
+      queryDiagnosticSource(sql),
     );
   }
 
@@ -194,6 +196,7 @@ export class QqDb {
         }
       },
       this.nt,
+      queryDiagnosticSource(sql),
     );
   }
 

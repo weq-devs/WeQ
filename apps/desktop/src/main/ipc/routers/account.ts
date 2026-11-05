@@ -12,6 +12,7 @@
  */
 
 import { z } from 'zod';
+import { withDatabaseRequest } from '@weq/db';
 import { clearCompletedTasks } from './clear_completed_tasks';
 import { FileUploadStaging } from './album_video_staging';
 import {
@@ -244,9 +245,11 @@ async function readMessageScope<T>(
 ): Promise<T> {
   const services = requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
   const configId = services.accountConfig?.getRecord()?.configId;
-  const result = await (input.readWindow
-    ? messageWindowsFor(services).run(input.readWindow, read, priority)
-    : withDatabasePriority(priority, read));
+  const result = await withDatabaseRequest('message.window', () =>
+    input.readWindow
+      ? messageWindowsFor(services).run(input.readWindow, read, priority)
+      : withDatabasePriority(priority, read),
+  );
   if (
     requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services ||
     services.accountConfig?.getRecord()?.configId !== configId
