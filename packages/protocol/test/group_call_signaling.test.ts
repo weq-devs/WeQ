@@ -81,7 +81,7 @@ describe('群通话信令', () => {
   });
 
   it('开房请求与抓包逐字节一致', () => {
-    const bytes = encodeCreateGroupRoomReq({ selfUid: SELF_UID });
+    const bytes = encodeCreateGroupRoomReq({ selfUid: SELF_UID, groupId: 673646675 });
     expect(toHex(bytes)).toBe(CREATE_ROOM_REQ_HEX);
   });
 
@@ -89,6 +89,7 @@ describe('群通话信令', () => {
     const bytes = encodeInviteReq({
       targetUids: [PEER_UID],
       authKey: hex(AUTH_KEY_HEX),
+      groupId: 673646675,
       now: 1793812310 * 1000,
     });
     expect(toHex(bytes)).toBe(INVITE_REQ_HEX);
@@ -98,6 +99,7 @@ describe('群通话信令', () => {
     const bytes = encodeQueryReq({
       roomUin: 673646675,
       authKey: hex(AUTH_KEY_HEX),
+      groupId: 673646675,
     });
     expect(toHex(bytes)).toBe(QUERY_REQ_HEX);
     expect([...QUERY_ROOM_WANTED]).toEqual([1, 2, 6, 5, 10, 11, 12, 14, 16]);
@@ -110,7 +112,9 @@ describe('群通话信令', () => {
     expect(room.ownerUin).toBe(1707889225);
     expect(room.servers.length).toBeGreaterThan(0);
     expect(room.servers).toEqual(
-      expect.arrayContaining([{ ip: '240e:930:c200:8f::1a', port: 7790, backup: false }]),
+      expect.arrayContaining([
+        { ip: '240e:930:c200:8f::1a', port: 7790, primary: true, backup: false },
+      ]),
     );
   });
 

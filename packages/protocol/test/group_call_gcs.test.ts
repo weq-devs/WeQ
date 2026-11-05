@@ -131,8 +131,8 @@ describe('head 构造', () => {
       sessionId: 1,
       seq: 2,
       selfUin: 3,
-      sessionTs: 0,
-      clock: 0,
+      streamPrefix: 0,
+      streamSuffix: 0,
       key: null,
       f7: 15,
       f8: 3,
@@ -155,8 +155,8 @@ describe('head 构造', () => {
       sessionId: 23548,
       seq: 7,
       selfUin: 1707889225,
-      sessionTs: 0,
-      clock: 0,
+      streamPrefix: 0,
+      streamSuffix: 0,
       key: null,
       f7: 15,
       f8: 3,
@@ -190,7 +190,7 @@ describe('SsoMultiTerminalSync', () => {
   it('请求与抓包逐字节相同', () => {
     const built = encode(
       GROUP_MULTI_TERMINAL_REQ,
-      MultiTerminalSync.serialize({ authKey: AUTH_KEY }),
+      MultiTerminalSync.serialize({ authKey: AUTH_KEY, groupId: 673646675 }),
     );
     expect(toHex(built)).toBe(toHex(multiTerminalSyncReq));
   });
