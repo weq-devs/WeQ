@@ -324,12 +324,13 @@ function nameByUid(el: Rec, self: ReadonlySet<string>, displayNames: DisplayName
   };
 }
 
-/** Exact identities embedded in a preview, for the existing local profile resolver. */
-export function previewIdentityIds(preview: unknown): string[] {
-  if (!preview || typeof preview !== 'object') return [];
-  const el = preview as Rec;
-  if (!str(el.kind).startsWith('grayTip')) return [];
+/** 收集预览发送者及灰条引用的身份，交由现有资料与群名片解析器补全。 */
+export function previewIdentityIds(preview: unknown, senderUid = ''): string[] {
   const ids = new Set<string>();
+  if (senderUid) ids.add(senderUid);
+  if (!preview || typeof preview !== 'object') return [...ids];
+  const el = preview as Rec;
+  if (!str(el.kind).startsWith('grayTip')) return [...ids];
   for (const key of ['actionInitiator', 'actionTarget']) {
     const who = el[key] as Rec | undefined;
     if (who && str(who.uid)) ids.add(str(who.uid));
