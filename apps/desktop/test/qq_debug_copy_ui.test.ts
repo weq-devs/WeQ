@@ -10,6 +10,8 @@ const f = vi.hoisted(() => ({
   action: vi.fn(),
   refetch: vi.fn(),
   confirm: vi.fn(),
+  permission: vi.fn(),
+  copy: vi.fn(),
   error: null as Error | null,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
@@ -18,7 +20,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       qqDebugCopyStatus: { useQuery: () => ({ data: f.data, error: f.error, refetch: f.refetch }) },
     },
   },
-  client: { bootstrap: { qqDebugCopyAction: { mutate: f.action } } },
+  client: {
+    bootstrap: {
+      qqDebugCopyAction: { mutate: f.action },
+      qqDebugCopyPermission: { mutate: f.permission },
+    },
+  },
 }));
 let close = () => {};
 beforeEach(() => {
@@ -39,6 +46,12 @@ beforeEach(() => {
   f.action.mockReset().mockResolvedValue(f.data);
   f.refetch.mockReset().mockResolvedValue({ data: f.data });
   f.confirm.mockReset().mockResolvedValue(true);
+  f.permission.mockReset().mockResolvedValue(true);
+  f.copy.mockReset().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: f.copy },
+  });
   useDialog.setState({ confirm: f.confirm });
 });
 afterEach(() => {
@@ -176,4 +189,79 @@ it('未知同名应用不提供覆盖或删除，查询失败保留错误状态'
   expect(v.button('创建副本').disabled).toBe(true);
   expect(v.button('移除副本')).toBeUndefined();
   expect(v.host.querySelector('[role="alert"]')?.textContent).toContain('synthetic probe failed');
+});
+it('创建前说明授权差异，创建和更新成功后自动展开可跳过的权限引导', async () => {
+  const v = await mount();
+  expect(v.host.textContent).toContain('原版 QQ 的授权不一定适用于副本');
+  expect(v.host.querySelector('[aria-label="副本权限引导"]')).toBeNull();
+  await act(async () => v.button('创建副本').click());
+  expect(v.host.querySelector('[aria-label="副本权限引导"]')).not.toBeNull();
+  expect(f.permission).not.toHaveBeenCalled();
+  await act(async () => v.button('稍后设置').click());
+  expect(v.host.querySelector('[aria-label="副本权限引导"]')).toBeNull();
+  f.data!.state = 'ready';
+  await v.render();
+  await act(async () => v.button('更新副本').click());
+  expect(v.host.querySelector('[aria-label="副本权限引导"]')).not.toBeNull();
+});
+it('已创建副本可随时打开引导，选择权限并定位、复制固定副本路径；不误报授权成功', async () => {
+  f.data!.state = 'ready';
+  const v = await mount();
+  await act(async () => v.button('权限设置').click());
+  await act(async () => v.button('打开录屏设置').click());
+  expect(f.permission).toHaveBeenLastCalledWith({ action: 'screenCapture' });
+  const select = v.host.querySelector('select')!;
+  await act(async () => {
+    select.value = 'microphone';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await act(async () => v.button('打开麦克风设置').click());
+  expect(f.permission).toHaveBeenLastCalledWith({ action: 'microphone' });
+  await act(async () => {
+    select.value = 'camera';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await act(async () => v.button('打开摄像头设置').click());
+  expect(f.permission).toHaveBeenLastCalledWith({ action: 'camera' });
+  await act(async () => v.button('在访达中显示副本').click());
+  expect(f.permission).toHaveBeenLastCalledWith({ action: 'reveal' });
+  await act(async () => v.button('复制副本路径').click());
+  expect(f.copy).toHaveBeenCalledWith(f.data!.path);
+  expect(v.host.textContent).toContain('待确认');
+  expect(v.host.querySelector('.weq-qq-debug-permissions-head')?.textContent).toBe(
+    '副本权限待确认',
+  );
+  expect(f.action).not.toHaveBeenCalled();
+});
+it('权限引导在副本运行时要求手动退出，不退出原版；停止后沿用固定副本启动操作', async () => {
+  f.data!.state = 'ready';
+  f.data!.runningPids = [42];
+  const v = await mount();
+  await act(async () => v.button('权限设置').click());
+  expect(v.button('授权后启动副本').disabled).toBe(true);
+  expect(v.host.textContent).toContain('稍后');
+  expect(v.host.textContent).toContain('从副本菜单退出 QQ');
+  expect(f.action).not.toHaveBeenCalled();
+  f.data!.runningPids = [];
+  await v.render();
+  await act(async () => v.button('授权后启动副本').click());
+  expect(f.action).toHaveBeenCalledWith({ action: 'launch' });
+  expect(v.host.textContent).toContain('待确认');
+});
+it('打开系统设置或复制失败保留引导并显示错误，不执行权限重置', async () => {
+  f.data!.state = 'ready';
+  f.permission.mockRejectedValue(new Error('synthetic settings failure'));
+  const v = await mount();
+  await act(async () => v.button('权限设置').click());
+  await act(async () => v.button('打开录屏设置').click());
+  expect(v.host.querySelector('[role="alert"]')?.textContent).toContain(
+    'synthetic settings failure',
+  );
+  f.copy.mockRejectedValue(new Error('synthetic clipboard failure'));
+  await act(async () => v.button('复制副本路径').click());
+  expect(v.host.querySelector('[role="alert"]')?.textContent).toContain(
+    'synthetic clipboard failure',
+  );
+  expect(v.host.querySelector('[aria-label="副本权限引导"]')).not.toBeNull();
+  expect(f.action).not.toHaveBeenCalled();
 });

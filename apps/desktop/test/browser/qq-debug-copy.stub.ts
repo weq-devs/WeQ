@@ -71,6 +71,7 @@ const debugTrpc = {
 };
 const debugClient = {
   bootstrap: {
+    qqDebugCopyPermission: { mutate: async () => true },
     qqDebugCopyAction: {
       mutate: async ({ action }: { action: QqDebugCopyAction }) => {
         if (action === 'prepare')

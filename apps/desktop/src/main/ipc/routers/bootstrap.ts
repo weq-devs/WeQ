@@ -99,6 +99,7 @@ import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_s
 import { isDbRepairBusy } from './db_repair';
 import { launchQq, runningQqCount } from '../../qq_launch';
 import { QqDebugCopyManager } from '../../qq_debug_copy';
+import { QQ_DEBUG_COPY_PERMISSION_ACTIONS } from '../../../shared/qq_debug_copy';
 import { checkQqDataAccess, QQ_DATA_ACCESS_SETTINGS } from '../../qq_data_access';
 import { macLaunchApplication } from '../../mac_launch_application';
 
@@ -415,6 +416,12 @@ export const bootstrapRouter = router({
   qqDebugCopyAction: procedure
     .input(z.object({ action: z.enum(['prepare', 'verify', 'launch', 'remove']) }))
     .mutation(({ input }) => requireDebugCopyDesktop().perform(input.action)),
+  qqDebugCopyPermission: procedure
+    .input(z.object({ action: z.enum(QQ_DEBUG_COPY_PERMISSION_ACTIONS) }))
+    .mutation(async ({ input }) => {
+      await requireDebugCopyDesktop().permission(input.action, getHost());
+      return true;
+    }),
 
   listAccounts: procedure.query(() => {
     return requireBootstrap().detect.listAccounts();
