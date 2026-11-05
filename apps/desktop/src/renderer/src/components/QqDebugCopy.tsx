@@ -163,7 +163,7 @@ export function QqDebugCopy({ onCheck }: { onCheck?: () => Promise<void> }) {
         <button
           type="button"
           className="weq-set-btn"
-          disabled={busy || !ready || !data?.readerReady || running}
+          disabled={busy || !ready || running}
           onClick={() => void run('launch')}
         >
           <Play size={14} />
@@ -181,13 +181,12 @@ export function QqDebugCopy({ onCheck }: { onCheck?: () => Promise<void> }) {
         {managed && (
           <button
             type="button"
-            className="weq-set-iconbtn"
-            title="移除副本"
-            aria-label="移除副本"
+            className="weq-set-btn"
             disabled={busy || running}
             onClick={() => void run('remove')}
           >
-            <Trash2 size={15} />
+            <Trash2 size={14} />
+            移除副本
           </button>
         )}
       </div>
