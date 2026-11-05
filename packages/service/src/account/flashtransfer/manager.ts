@@ -10,9 +10,9 @@
  */
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { createWriteStream, constants } from 'node:fs';
+import { readFile, writeFile, mkdir, lstat, readdir, copyFile, rm } from 'node:fs/promises';
+import { join, dirname, isAbsolute, resolve } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { getLogger, logErrorContext } from '../../common/logger';
@@ -108,6 +108,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
   private loading: Promise<void> | undefined;
   private readonly client: FlashTransferClient;
   private readonly resolver: FlashTransferResolver;
+  private startQueue: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly baseDir: string,
@@ -175,28 +176,58 @@ export class FlashTransferDownloadManager extends EventEmitter {
    * 解析选择 → 记录操作归属 → 后台并发下载。返回文件数、操作 id 和解析期错误。
    * 目录递归在调用内完成，一次操作只在常规任务列表占一项。
    */
-  async start(
+  start(
     filesetName: string,
     filesetId: string,
     selections: FlashSelection[],
+    directory: string,
   ): Promise<{ started: number; errors: string[]; taskId?: string }> {
+    const request = this.startQueue.then(() =>
+      this.enqueue(filesetName, filesetId, selections, directory),
+    );
+    this.startQueue = request.catch(() => {});
+    return request;
+  }
+
+  private async enqueue(
+    filesetName: string,
+    filesetId: string,
+    selections: FlashSelection[],
+    directory: string,
+  ) {
     await this.loading;
+    if (!isAbsolute(directory) || !(await lstat(directory)).isDirectory())
+      throw new Error('保存目录不可用，请重新选择');
     const { files, errors } = await this.resolver.resolveDownloads(selections);
     const batchId = randomUUID();
     const now = Date.now();
     const usedByDir = new Map<string, Set<string>>();
 
-    const newTasks: FlashDownloadTask[] = files.map((f) => {
+    const newTasks: FlashDownloadTask[] = [];
+    for (const f of files) {
       const segments = safeRelSegments(f.relativePath, { maxLen: MAX_NAME_LEN });
       const dir = join(
-        this.baseDir,
+        resolve(directory),
         sanitizeSegment(filesetName || filesetId, 'flash', { maxLen: MAX_NAME_LEN }),
         ...segments.slice(0, -1),
       );
-      const used = usedByDir.get(dir) ?? new Set<string>();
+      let used = usedByDir.get(dir);
+      if (!used) {
+        used = new Set(
+          (
+            await readdir(dir).catch((error: NodeJS.ErrnoException) => {
+              if (error.code === 'ENOENT') return [];
+              throw error;
+            })
+          ).map((name) => name.toLowerCase()),
+        );
+        for (const task of this.tasks)
+          if (dirname(task.targetPath) === dir)
+            used.add(task.targetPath.slice(dir.length + 1).toLowerCase());
+      }
       usedByDir.set(dir, used);
       const fileName = uniqueName(segments.at(-1) ?? 'file', used);
-      return {
+      newTasks.push({
         id: randomUUID(),
         batchId,
         filesetId: f.filesetId || filesetId,
@@ -209,12 +240,18 @@ export class FlashTransferDownloadManager extends EventEmitter {
         status: 'pending',
         downloadedBytes: 0,
         createdAt: now,
-      };
-    });
+      });
+    }
     if (newTasks[0] && errors.length) newTasks[0].resolutionErrors = errors;
 
     this.tasks.push(...newTasks);
-    await this.persist();
+    try {
+      await this.persist(true);
+    } catch (error) {
+      const ids = new Set(newTasks.map((task) => task.id));
+      this.tasks = this.tasks.filter((task) => !ids.has(task.id));
+      throw error;
+    }
     for (const task of newTasks) this.emitTask(task);
     void this.pump();
     return { started: newTasks.length, errors, taskId: newTasks.length ? batchId : undefined };
@@ -295,6 +332,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
 
   private async runTask(task: FlashDownloadTask): Promise<void> {
     const abort = new AbortController();
+    const partialPath = `${task.targetPath}.weq-part-${task.id}`;
     this.aborts.set(task.id, abort);
     try {
       // 取消竞态：cancel() 可能在 pump 调度后才生效，这里每次推进前复查。
@@ -311,10 +349,13 @@ export class FlashTransferDownloadManager extends EventEmitter {
       // 2) 流式下载
       task.status = 'downloading';
       this.emitTask(task);
-      await downloadWithProgress(url, task.targetPath, abort.signal, (received) => {
+      await downloadWithProgress(url, partialPath, abort.signal, (received) => {
         task.downloadedBytes = received;
         this.emitTask(task);
       });
+      if (abort.signal.aborted) return;
+      // 成品仅排他创建；重试写自己的临时文件，不覆盖用户已有文件。
+      await copyFile(partialPath, task.targetPath, constants.COPYFILE_EXCL);
       if (abort.signal.aborted) return;
 
       task.status = 'done';
@@ -331,6 +372,9 @@ export class FlashTransferDownloadManager extends EventEmitter {
       task.finishedAt = Date.now();
       this.emitTask(task);
     } finally {
+      await rm(partialPath, { force: true }).catch((error: unknown) =>
+        logger.warn('清理闪传临时文件失败', { error: String(error) }),
+      );
       this.aborts.delete(task.id);
       await this.persist();
     }

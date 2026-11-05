@@ -18,6 +18,7 @@ import { useTabActive } from '../RetainedTabs';
 import { Modal } from '../Dialog';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
 import '../../styles/backup.css';
+import { GlobalSettingsSection } from './GlobalSettingsSection';
 
 const PARTS: WeqBackupPart[] = ['settings', 'accounts', 'api', 'clones'];
 const LABELS: Record<WeqBackupPart, string> = {
@@ -771,6 +772,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           </div>
         </Card>
       ) : null}
+      <GlobalSettingsSection section="storage" heading={false} storageManagement="backup" />
       {confirm && confirmation ? (
         <Modal
           centered

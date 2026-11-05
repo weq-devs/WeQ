@@ -71,6 +71,7 @@ export async function prepareExportDestination(
   locationKey = output?.kind === 'file' ? `export:file:${output.extension}` : 'export:directory',
 ): Promise<ExportSavePolicy | null> {
   current();
+  directoryTitle = '选择本次导出保存位置',
   if (input.mode !== 'preset' && input.mode !== 'before')
     throw new Error('不支持此保存方式，请在开始前选择保存位置。');
   if (input.directory && input.filePath) throw new Error('保存位置只能选择文件或目录之一。');
@@ -94,7 +95,7 @@ export async function prepareExportDestination(
       filePath = selected.path;
     } else {
       directory = await host.pickDirectory({
-        title: '选择本次导出保存位置',
+        title: directoryTitle,
         locationKey,
         defaultDirectory: defaultDirectory ?? undefined,
       });

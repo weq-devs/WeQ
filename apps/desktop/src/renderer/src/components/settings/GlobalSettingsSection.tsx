@@ -14,7 +14,7 @@
  * everything fresh for 5 min and never refetches on mount).
  */
 
-import { useEffect, useState, type ReactElement } from 'react';
+import { useContext, useEffect, useState, type ReactElement } from 'react';
 import {
   Cloud,
   ChevronRight,
@@ -27,23 +27,33 @@ import {
   Trash2,
   User,
 } from 'lucide-react';
-import type { WindowCloseBehavior } from '@weq/service';
-import { trpc } from '../../trpc/client';
+import type { WindowCloseBehavior, StorageUsageItem } from '@weq/service';
+import { client, trpc } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
-import { Card, Row, SectionHeader, Toggle } from './controls';
+import { Card, Row, SectionHeader, Toggle, SettingsNavigateContext } from './controls';
 import { useTabActive } from '../RetainedTabs';
 import { ToastSettingsCard } from './ToastSettingsCard';
 import { DesktopOnly, IS_WEB } from '../../lib/target';
-import { groupRetainedStorage } from '../../lib/storage-groups';
+import { groupStorage } from '../../lib/storage-groups';
 import '../../styles/save-preferences.css';
 import '../../styles/storage-management.css';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+function backupDescription(item: StorageUsageItem): string | null {
+  if (!item.backup) return null;
+  const { at, status } = item.backup;
+  const date =
+    at && /(?:Z|[+-]\d{2}:\d{2})$/.test(at) && Number.isFinite(Date.parse(at))
+      ? `${new Date(at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）`
+      : at || '时间未知';
+  return `${date} · ${status === 'linked' ? '已关联修复记录' : status === 'orphan' ? '无关联修复记录' : '未识别备份'}`;
 }
 
 /** Human-readable byte size for the cache-cleanup card. */
@@ -80,10 +90,13 @@ const LOG_RETENTION_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
 export function GlobalSettingsSection({
   section = 'general',
   heading = true,
+  storageManagement = 'cleanup',
 }: {
   section?: 'general' | 'accounts' | 'storage' | 'saving' | 'logs' | 'network';
   heading?: boolean;
+  storageManagement?: 'cleanup' | 'backup';
 }): ReactElement {
+  const navigate = useContext(SettingsNavigateContext);
   const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
@@ -155,19 +168,23 @@ export function GlobalSettingsSection({
   const [restartIds, setRestartIds] = useState<string[]>([]);
   const cleanupBusy = cleaning || clearStorageData.isLoading;
   const [pickedCats, setPickedCats] = useState<Set<string>>(new Set());
-  const cacheItems = cacheUsage.data ?? [];
+  const cacheItems = (cacheUsage.data ?? []).filter((item) =>
+    storageManagement === 'backup'
+      ? item.management === 'backup'
+      : item.management !== 'backup' && item.management !== 'downloads',
+  );
   const clearableItems = cacheItems.filter(
     (item) => item.clearable && (item.bytes > 0 || item.incomplete),
   );
-  const retainedGroups = groupRetainedStorage(cacheItems);
-  const safeCacheItems = clearableItems.filter((item) => !item.requiresExit);
-  const riskGroups = groupRetainedStorage(
-    clearableItems
-      .filter((item) => item.requiresExit)
-      .map((item) => ({ ...item, clearable: false })),
+  const storageGroups = groupStorage(cacheItems, storageManagement === 'backup');
+  const safeCacheItems = clearableItems.filter(
+    (item) => item.action === 'cache' || (!item.action && !item.requiresExit),
   );
   const totalCacheBytes = cacheItems.reduce((sum, it) => sum + it.bytes, 0);
-  const clearableBytes = clearableItems.reduce((sum, it) => sum + it.bytes, 0);
+  const clearableBytes = safeCacheItems.reduce((sum, it) => sum + it.bytes, 0);
+  const backupBytes = cacheItems
+    .filter((item) => item.category === 'db-backups')
+    .reduce((sum, item) => sum + item.bytes, 0);
   const selectedItems = clearableItems.filter((item) => pickedCats.has(item.id));
   const cleanupBytes = (pickedCats.size > 0 ? selectedItems : safeCacheItems).reduce(
     (sum, item) => sum + item.bytes,
@@ -276,6 +293,8 @@ export function GlobalSettingsSection({
       <HardDrive size={14} strokeWidth={1.8} aria-hidden />
       <span className="weq-storage-detail">
         <span>{item.label}</span>
+        {item.backup && <small>{backupDescription(item)}</small>}
+        {item.category === 'program-backups' && <small>{item.reason}</small>}
         <small>{item.confirmation ?? item.reason}</small>
         <small className="weq-storage-path">{item.path}</small>
       </span>
@@ -614,7 +633,7 @@ export function GlobalSettingsSection({
           />
         </Card>
       )}
-      {section === 'storage' && (
+      {section === 'storage' && storageManagement === 'cleanup' && (
         <>
           {/* Cache directory */}
           <Card title="缓存目录">
@@ -718,11 +737,21 @@ export function GlobalSettingsSection({
 
       {/* WeQ 存储管理 */}
       {section === 'storage' && (
-        <Card title="空间清理" settingId="weq-space-cleanup">
+        <Card
+          title={storageManagement === 'backup' ? '配置与运行数据管理' : '空间清理'}
+          settingId={storageManagement === 'backup' ? 'weq-config-management' : 'weq-space-cleanup'}
+        >
           <div className="weq-set-actions weq-storage-toolbar">
             <span className="weq-set-cache-total">
-              合计占用 <strong className="weq-number">{formatBytes(totalCacheBytes)}</strong>
-              {' · '}可清理 <strong className="weq-number">{formatBytes(clearableBytes)}</strong>
+              本页占用 <strong className="weq-number">{formatBytes(totalCacheBytes)}</strong>
+              {storageManagement === 'cleanup' && (
+                <>
+                  {' · '}普通缓存可清理{' '}
+                  <strong className="weq-number">{formatBytes(clearableBytes)}</strong>
+                  {' · '}历史数据库备份占用{' '}
+                  <strong className="weq-number">{formatBytes(backupBytes)}</strong>
+                </>
+              )}
               {cacheItems.some((item) => item.incomplete) ? '（统计不完整）' : ''}
             </span>
             <div className="weq-set-btn-group weq-storage-toolbar-buttons">
@@ -780,70 +809,72 @@ export function GlobalSettingsSection({
               <div className="weq-set-empty" role="alert">
                 读取存储占用失败：{errMsg(cacheUsage.error)}
               </div>
-            ) : clearableItems.length === 0 && retainedGroups.length === 0 ? (
+            ) : storageGroups.length === 0 ? (
               <div className="weq-set-empty">暂无存储数据</div>
             ) : (
-              <>
-                {safeCacheItems.length > 0 && (
-                  <div className="weq-storage-group">
-                    <h4>可清理缓存</h4>
-                    {safeCacheItems.map(storageItem)}
-                  </div>
-                )}
-                {riskGroups.length > 0 && (
-                  <div className="weq-storage-group">
-                    <h4>需确认风险的数据</h4>
-                    {riskGroups.map((group) => (
-                      <details className="weq-storage-category" key={group.label}>
-                        <summary>
-                          <ChevronRight size={14} className="weq-storage-chevron" aria-hidden />
-                          <span className="weq-storage-detail">{group.label}</span>
-                          <span className="weq-set-cache-size weq-number">
-                            {formatBytes(group.bytes)}
-                          </span>
-                        </summary>
-                        <div className="weq-storage-entries">{group.items.map(storageItem)}</div>
-                      </details>
-                    ))}
-                  </div>
-                )}
-                {retainedGroups.length > 0 && (
-                  <div className="weq-storage-group">
-                    <h4>保留数据</h4>
-                    {retainedGroups.map((group) => (
-                      <details className="weq-storage-category" key={group.label}>
-                        <summary>
-                          <ChevronRight size={14} className="weq-storage-chevron" aria-hidden />
-                          <span className="weq-storage-detail">{group.label}</span>
-                          <span className="weq-set-cache-size weq-number">
-                            {group.incomplete ? '至少 ' : ''}
-                            {formatBytes(group.bytes)}
-                          </span>
-                        </summary>
-                        <div className="weq-storage-entries">
-                          {group.items.map((item) => (
-                            <div key={item.id} className="weq-set-cache-item is-readonly">
-                              <HardDrive size={14} strokeWidth={1.8} aria-hidden />
-                              <span className="weq-storage-detail">
-                                <span>{item.label}</span>
-                                <small>{item.reason}</small>
-                                <small className="weq-storage-path">{item.path}</small>
-                              </span>
-                              <span className="weq-set-cache-size weq-number">
-                                {item.incomplete ? '至少 ' : ''}
-                                {formatBytes(item.bytes)}
-                              </span>
-                            </div>
-                          ))}
-                          {group.items.length === 0 && (
-                            <div className="weq-set-empty">系统辅助文件</div>
-                          )}
-                        </div>
-                      </details>
-                    ))}
-                  </div>
-                )}
-              </>
+              <div className="weq-storage-group">
+                {storageGroups.map((group) => (
+                  <details
+                    className="weq-storage-category"
+                    key={group.key}
+                    open={group.key === 'db-backups' ? true : undefined}
+                  >
+                    <summary>
+                      <ChevronRight size={14} className="weq-storage-chevron" aria-hidden />
+                      <span className="weq-storage-detail">{group.label}</span>
+                      <span className="weq-set-cache-size weq-number">
+                        {group.incomplete ? '至少 ' : ''}
+                        {formatBytes(group.bytes)}
+                      </span>
+                    </summary>
+                    <div className="weq-storage-entries">
+                      {group.items.map((item) =>
+                        item.clearable ? (
+                          storageItem(item)
+                        ) : (
+                          <div key={item.id} className="weq-set-cache-item is-readonly">
+                            <HardDrive size={14} strokeWidth={1.8} aria-hidden />
+                            <span className="weq-storage-detail">
+                              <span>{item.label}</span>
+                              {item.backup && <small>{backupDescription(item)}</small>}
+                              <small>{item.reason}</small>
+                              <small className="weq-storage-path">{item.path}</small>
+                              {item.management === 'repair' && navigate && (
+                                <button
+                                  type="button"
+                                  className="weq-set-btn weq-set-btn-sm"
+                                  onClick={() => navigate('database-repair')}
+                                >
+                                  数据库修复
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="weq-set-btn weq-set-btn-sm"
+                                onClick={() =>
+                                  void client.bootstrap.revealStorageItem
+                                    .mutate({ id: item.id })
+                                    .catch((error: unknown) => showError('定位失败', errMsg(error)))
+                                }
+                              >
+                                <FolderOpen size={14} aria-hidden />
+                                定位
+                              </button>
+                            </span>
+                            <span className="weq-set-cache-size weq-number">
+                              {item.incomplete ? '至少 ' : ''}
+                              {formatBytes(item.bytes)}
+                            </span>
+                          </div>
+                        ),
+                      )}
+                      {group.items.length === 0 && (
+                        <div className="weq-set-empty">系统辅助文件</div>
+                      )}
+                    </div>
+                  </details>
+                ))}
+              </div>
             )}
           </div>
           <div className="weq-set-actions">
@@ -860,7 +891,7 @@ export function GlobalSettingsSection({
               ) : (
                 <Trash2 size={14} strokeWidth={1.8} aria-hidden />
               )}
-              开始清理
+              {storageManagement === 'backup' ? '清除所选数据' : '开始清理'}
             </button>
           </div>
         </Card>

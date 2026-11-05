@@ -227,6 +227,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     aliases: ['WeQ 存储管理'],
     from: ['storage', 'weq-storage'],
   },
+  {
+    id: 'weq-config-management',
+    section: 'backup',
+    label: '配置与运行数据管理',
+    aliases: ['账号与应用配置', '全局配置', '桌面运行数据', '远程连接状态'],
+    from: ['storage', 'weq-storage', 'backup'],
+  },
   { id: 'qzone-pagination', section: 'qzone', label: '在线翻页限速', from: ['qzone'] },
   {
     id: 'qzone-public-refresh',

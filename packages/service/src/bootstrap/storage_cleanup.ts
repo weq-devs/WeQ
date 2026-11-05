@@ -1,6 +1,8 @@
 import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { listDressPreviewFiles, measureStorage, type StorageUsageItem } from './storage_usage';
+import { DbRepairHistory } from '../account/db_repair/history';
+import { dbRepairPaths } from '../account/db_repair/paths';
 
 export interface StorageCleanupResult {
   at: string;
@@ -118,7 +120,13 @@ export async function executeStorageCleanup(
       const before = await measureStorage(path);
       if (before.incomplete) throw new Error('读取不完整，未清除');
       beforeBytes = before.bytes;
-      if (item.cleanupKind === 'dress-previews' || item.cleanupKind === 'dress-data') {
+      if (item.cleanupKind === 'db-backup' && item.backup?.recordId && item.backup.historyPath) {
+        const history = new DbRepairHistory(dbRepairPaths(dirname(item.backup.historyPath)));
+        const record = history.find(item.backup.recordId);
+        if (!record?.backupPath || (await realpath(dirname(record.backupPath))) !== canonicalTarget)
+          throw new Error('数据库备份关联已变化，请刷新后重试');
+        history.deleteBackup(record.id);
+      } else if (item.cleanupKind === 'dress-previews' || item.cleanupKind === 'dress-data') {
         const previews = await listDressPreviewFiles(path);
         if (previews.incomplete) throw new Error('预览文件读取不完整，未清除');
         const files = new Set(previews.files);

@@ -69,7 +69,7 @@ it('一次下载建立一个持久化任务，整批取消并保留各文件详�
   try {
     const manager = new FlashTransferDownloadManager(dir);
     await manager.load();
-    await manager.start('合成资料', 'set', []);
+    await manager.start('合成资料', 'set', [], dir);
     expect(manager.list()).toHaveLength(1);
     const task = manager.list()[0]!;
     expect(task).toMatchObject({ name: '合成资料', fileSize: 200 });

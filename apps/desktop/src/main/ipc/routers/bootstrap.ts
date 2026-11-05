@@ -2215,6 +2215,17 @@ export const bootstrapRouter = router({
 
   storageCleanupResult: procedure.query(() => getHost().storageCleanupResult?.() ?? null),
 
+  revealStorageItem: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const item = (await requireBootstrap().userConfig.listStorageUsage(storageRoots())).find(
+        (item) => item.id === input.id,
+      );
+      if (!item) throw new Error('存储项目已变化，请刷新后重试');
+      await getHost().revealInFolder(item.path);
+      return { ok: true };
+    }),
+
   clearStorageData: procedure
     .input(
       z.object({

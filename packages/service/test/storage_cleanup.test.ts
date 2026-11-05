@@ -90,23 +90,22 @@ it('持久类型均有风险说明，缓存接口不接管；退出助手仅删�
     'agentlab',
     'roam-msg',
     'export',
-    'db_repair',
     'intent_sense',
     'api_usage',
-    'flash',
     'collection-history',
     'roaming-jobs',
     'deleted',
     'anti_recall',
     'db_tolerance',
     'weq-assistant',
-    'dbfix',
-    'dbfix2',
   ];
   for (const name of selected) f.file(`cache/${name}/data`);
+  const excluded = ['db_repair', 'dbfix', 'dbfix2', 'flash'];
+  for (const name of excluded) f.file(`cache/${name}/data`);
   f.file('models/model');
   f.file('config/accounts/synthetic.json');
   const items = await f.service.listStorageUsage();
+  for (const id of excluded) expect(() => selectStorageCleanupTargets(items, [id])).toThrow();
   const targets = items.filter(
     (item) => selected.includes(item.id) || ['models', 'config'].includes(item.label),
   );
@@ -126,6 +125,7 @@ it('持久类型均有风险说明，缓存接口不接管；退出助手仅删�
   });
   expect(result.failed).toEqual([]);
   expect(result.cleared).toHaveLength(selected.length);
+  for (const name of excluded) expect(existsSync(join(f.root, 'cache', name, 'data'))).toBe(true);
   for (const name of selected) expect(existsSync(join(f.root, 'cache', name))).toBe(false);
   expect(existsSync(originals)).toBe(true);
   expect(existsSync(join(f.root, 'models/model'))).toBe(true);

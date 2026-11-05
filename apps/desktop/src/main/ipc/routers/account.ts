@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { withDatabaseRequest } from '@weq/db';
 import { clearCompletedTasks } from './clear_completed_tasks';
 import { FileUploadStaging } from './album_video_staging';
+import { startFlashDownloads } from './flash_save';
 import {
   BROWSER_FILE_CHUNK_BYTES,
   BROWSER_FILE_MAX_BYTES,
@@ -51,6 +52,7 @@ import { basename, dirname, extname, join } from 'node:path';
 import {
   getAppContext,
   closeSalvageConnections,
+  requireBootstrap,
   dbEventBus,
   accountEventBus,
   type AccountServices,
@@ -6320,8 +6322,10 @@ export const accountRouter = router({
     )
     .mutation(async ({ input }) => {
       const svc = requireServices().flashTransferFiles;
-      const filesetId = input.selections[0]!.filesetId;
-      return svc.downloads.start(input.filesetName, filesetId, input.selections);
+      return startFlashDownloads(input, svc.downloads, getHost(), () => {
+        if (requireServices().flashTransferFiles !== svc)
+          throw new Error('账号已切换，请重新开始下载');
+      });
     }),
 
   /** 全部下载任务（含历史，新在前）。 */
@@ -6339,14 +6343,27 @@ export const accountRouter = router({
   /** 清掉已结束（完成 / 失败 / 取消）的任务，进行中的保留。 */
   flashClearDownloadTasks: procedure.mutation(async () => {
     return requireServices().flashTransferFiles.downloads.clearFinished();
+        directory: z.string().min(1).optional(),
   }),
 
   /** 在系统文件管理器里打开闪传下载根目录。 */
-  flashRevealDownloadDir: procedure.mutation(async () => {
-    const dir = requireServices().flashTransferFiles.downloads.rootDir;
-    await getHost().revealPath(dir);
-    return { ok: true };
-  }),
+  flashRevealDownloadDir: procedure
+    .input(z.object({ taskId: z.string().min(1) }).optional())
+    .mutation(async ({ input }) => {
+      const manager = requireServices().flashTransferFiles.downloads;
+      if (input?.taskId) {
+        const task = manager.list().find((task) => task.id === input.taskId);
+        if (!task?.files[0]) throw new Error('下载记录不存在');
+        await getHost().revealInFolder(task.files[0].targetPath);
+      } else {
+        const directories = (await requireBootstrap().userConfig.listStorageUsage()).filter(
+          (item) => item.management === 'downloads' && item.bytes > 0,
+        );
+        if (!directories.length) throw new Error('尚无历史闪传下载目录');
+        for (const directory of directories) await getHost().revealPath(directory.path);
+      }
+      return { ok: true };
+    }),
 
   /** 订阅单个下载任务的状态 / 进度变化。 */
   onFlashDownloadProgress: procedure.subscription(() => {
