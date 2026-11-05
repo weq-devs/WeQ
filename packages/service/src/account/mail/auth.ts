@@ -2,7 +2,7 @@ import type { NtHelperBinding } from '@weq/native';
 import { Cookie } from 'tough-cookie';
 import { MailHttp, type MailResponse, type MailTransport } from './http';
 import { MailFailure, MAIL_VERIFICATION_REQUIRED } from './types';
-import { MAIL_ORIGIN, mailEnvelope, text, type MailObject } from './wire';
+import { MAIL_ORIGIN, mailEnvelope, mailUnreadCount, text, type MailObject } from './wire';
 
 type MailNative = Pick<NtHelperBinding, 'ptFetchMailSession'>;
 const MAIL_SESSION_ORIGINS = new Set([MAIL_ORIGIN, 'https://mail.qq.com']);
@@ -151,14 +151,30 @@ export class MailAuth {
 
   async notificationQuery(signal?: AbortSignal): Promise<MailObject> {
     await this.connect(signal);
-    return mailEnvelope(
-      json(
-        await this.transport.request(`${MAIL_ORIGIN}/qs/list_notify?f=json`, {
+    const [notice, mailbox] = await Promise.allSettled([
+      this.transport
+        .request(`${MAIL_ORIGIN}/qs/list_notify?f=json`, {
           signal,
           panelCookie: `p_uin=o${this.uin}; p_skey=${this.panelPskey}`,
-        }),
-      ),
-    );
+        })
+        .then((response) => mailEnvelope(json(response))),
+      this.cgi('/list/folderlist', {}, { signal }).then((body) => mailUnreadCount(body.list)),
+    ]);
+    signal?.throwIfAborted();
+    if (this.disposed) throw new MailFailure('auth', '邮箱会话已关闭。');
+    if (
+      mailbox.status === 'rejected' &&
+      mailbox.reason instanceof MailFailure &&
+      mailbox.reason.businessCode === MAIL_VERIFICATION_REQUIRED
+    )
+      throw mailbox.reason;
+    const unread = mailbox.status === 'fulfilled' ? mailbox.value : null;
+    if (notice.status === 'rejected') {
+      if (unread === null) throw notice.reason;
+      // 提醒票据失效不妨碍邮箱会话同步已读；后续仍补查提醒，不伪造新邮件基线。
+      return { unread, notificationUnavailable: true, next_sync_time_interval_sec: 60 };
+    }
+    return { ...notice.value, ...(unread === null ? {} : { unread }) };
   }
 
   async downloadCredentials(
