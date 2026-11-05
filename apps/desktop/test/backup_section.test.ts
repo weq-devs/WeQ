@@ -6,6 +6,12 @@ import { BackupSection, backupApi } from '../src/renderer/src/components/setting
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ client: {} }));
+vi.mock('../src/renderer/src/components/settings/GlobalSettingsSection', () => ({
+  GlobalSettingsSection: () => null,
+}));
+vi.mock('../src/renderer/src/components/settings/GlobalSettingsSection', () => ({
+  GlobalSettingsSection: () => null,
+}));
 const cleanups: (() => void)[] = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -46,8 +52,24 @@ function fixture() {
       skipped: [],
       warnings: [],
     })),
-    stage: vi.fn(async () => ({ id: 'staged-1', summary })),
-    defaults: vi.fn(async () => ({ id: 'defaults-1', summary })),
+    stage: vi.fn(async () => ({
+      id: 'staged-1',
+      status: 'applied' as const,
+      completedAt: '2026-11-05T00:00:00Z',
+      applied: ['settings'],
+      skipped: [],
+      warnings: [],
+      clientPending: false,
+    })),
+    defaults: vi.fn(async () => ({
+      id: 'defaults-1',
+      status: 'applied' as const,
+      completedAt: '2026-11-05T00:00:00Z',
+      applied: ['settings'],
+      skipped: [],
+      warnings: [],
+      clientPending: false,
+    })),
     dispose: vi.fn(async () => true),
     export: vi.fn(async () => null),
   };
@@ -71,7 +93,7 @@ async function mount(api: typeof backupApi) {
   };
   return { host, button, click };
 }
-it('读取文件不直接写入，明确预览并确认后才暂存；改选使旧确认失效', async () => {
+it('读取文件不直接写入，明确预览并确认后直接恢复；改选使旧确认失效', async () => {
   const f = fixture(),
     ui = await mount(f.api);
   await ui.click('选择备份文件');
@@ -83,7 +105,8 @@ it('读取文件不直接写入，明确预览并确认后才暂存；改选使�
   });
   expect(ui.host.textContent).not.toContain('确认恢复范围');
   await ui.click('预览恢复');
-  await ui.click('确认并暂存');
+  expect(ui.host.textContent).toContain('无需重启 WeQ');
+  await ui.click('确认恢复');
   expect(f.api.stage).toHaveBeenCalledWith('preview-1');
 });
 it('恢复默认需二次确认，未变化的命令仍可再次主动执行', async () => {
@@ -112,41 +135,39 @@ it('恢复默认使用居中模态确认，焦点落在取消，取消不提交�
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(f.api.defaults).not.toHaveBeenCalled();
 });
-it('默认恢复暂存后原操作区显示重启状态，重启仍需弹窗确认', async () => {
+it('旧暂存任务可确认后直接应用，Web 同样不要求重启服务', async () => {
   const f = fixture();
-  const staged = await f.api.defaults();
-  f.api.defaults.mockClear();
-  let pending = false;
+  let pending = true;
   const api: typeof backupApi = {
     ...f.api,
     inventory: async () => ({
       ...(await f.api.inventory()),
-      canRestart: true,
+      canRestart: false,
       restore: {
         result: null,
-        pending: pending ? { id: staged.id, phase: 'ready', summary: staged.summary } : null,
+        pending: pending
+          ? { id: 'old', phase: 'ready', summary: (await f.api.pick())!.summary }
+          : null,
       },
     }),
-    defaults: async () => {
-      pending = true;
-      return staged;
-    },
-    restart: vi.fn(async () => true),
+    apply: vi.fn(async () => {
+      pending = false;
+      return f.api.defaults();
+    }),
   };
   const ui = await mount(api);
-  await ui.click('恢复默认设置');
-  await ui.click('确认恢复默认');
-  const restartSection = ui.button('重启 WeQ').closest('section');
-  expect(restartSection?.textContent).toContain('已暂存，等待重启');
+  expect(ui.host.textContent).toContain('存在待恢复数据');
   expect(ui.button('恢复默认设置')).toBeUndefined();
-  expect(api.restart).not.toHaveBeenCalled();
-  await ui.click('重启 WeQ');
+  expect(ui.button('重启 WeQ')).toBeUndefined();
+  expect(api.apply).not.toHaveBeenCalled();
+  await ui.click('应用恢复');
   const confirmation = document.querySelector('[role="dialog"]');
-  expect(confirmation?.textContent).toContain('重启 WeQ？');
+  expect(confirmation?.textContent).toContain('应用待恢复数据？');
   await act(async () => {
     confirmation?.querySelectorAll<HTMLButtonElement>('button')[1]?.click();
   });
-  expect(api.restart).toHaveBeenCalledTimes(1);
+  expect(api.apply).toHaveBeenCalledTimes(1);
+  expect(ui.button('恢复默认设置')).toBeDefined();
 });
 
 it('Esc 可取消确认，提交中不能重复或关闭，失败留在弹窗且可重试', async () => {
@@ -164,7 +185,7 @@ it('Esc 可取消确认，提交中不能重复或关闭，失败留在弹窗且
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   await ui.click('恢复默认设置');
   await ui.click('确认恢复默认');
-  expect(ui.button('正在暂存…').disabled).toBe(true);
+  expect(ui.button('正在恢复…').disabled).toBe(true);
   expect(ui.button('取消').disabled).toBe(true);
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
   expect(document.querySelector('[role="dialog"]')).not.toBeNull();

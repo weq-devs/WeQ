@@ -96,7 +96,8 @@ import {
 } from '../../static_backup';
 import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
-import { isDbRepairBusy } from './db_repair';
+import { assertRuntimeFilesIdle, runtimeFileBusyPaths } from '../../context/runtime_files';
+import { runtimeMaintenance } from '../../runtime_maintenance';
 import { launchQq, runningQqCount } from '../../qq_launch';
 import { QqDebugCopyManager } from '../../qq_debug_copy';
 import { QQ_DEBUG_COPY_PERMISSION_ACTIONS } from '../../../shared/qq_debug_copy';
@@ -244,6 +245,8 @@ function storageRoots(): StorageRoot[] {
     ...(host.exportRoot ? [{ path: host.exportRoot, label: 'Web 导出文件' }] : []),
   ];
 }
+
+const storageRestartCandidates = new Map<string, string>();
 
 export const bootstrapRouter = router({
   ...backupProcedures,
@@ -2213,32 +2216,52 @@ export const bootstrapRouter = router({
   storageCleanupResult: procedure.query(() => getHost().storageCleanupResult?.() ?? null),
 
   clearStorageData: procedure
-    .input(z.object({ ids: z.array(z.string()).min(1), acknowledgeRisk: z.literal(true) }))
-    .mutation(async ({ input }) => {
-      const host = getHost();
-      if (!host.clearStorageAfterExit) throw new Error('请在电脑桌面端执行退出后清除');
-      if (isDbRepairBusy()) throw new Error('数据库修复或回滚仍在进行，请等待完成后再清除');
-      if (
-        getAppContext()
-          .services?.exportManager.listTasks()
-          .some((task) => task.status === 'running' || task.status === 'pending')
-      ) {
-        throw new Error('导出任务仍在进行，请先暂停或取消任务');
-      }
-      if (isIntentModelDownloading()) throw new Error('模型仍在下载，请等待完成后再清除');
-      const boot = requireBootstrap();
-      if (
-        [...boot.ocrModels.listModels(), ...boot.voiceTranscribe.listModels()].some(
-          (model) => model.downloading,
-        )
-      ) {
-        throw new Error('模型仍在下载，请等待完成后再清除');
-      }
-      const items = await requireBootstrap().userConfig.listStorageUsage(storageRoots());
-      const targets = selectStorageCleanupTargets(items, input.ids);
-      await host.clearStorageAfterExit(targets);
-      return { scheduled: true };
-    }),
+    .input(
+      z.object({
+        ids: z.array(z.string()).min(1),
+        acknowledgeRisk: z.literal(true),
+        afterExit: z.boolean().optional(),
+      }),
+    )
+    .mutation(({ input }) =>
+      runtimeMaintenance.run(async () => {
+        const host = getHost();
+        const items = await requireBootstrap().userConfig.listStorageUsage(storageRoots());
+        const targets = selectStorageCleanupTargets(items, input.ids);
+        if (!host.clearStorageNow || !host.clearStorageAfterExit) {
+          if (input.afterExit || targets.some((item) => item.requiresExit))
+            throw new Error('请在电脑桌面端清除所选数据');
+          const result = await requireBootstrap().userConfig.clearCache(input.ids, storageRoots());
+          return {
+            ...result,
+            scheduled: false,
+            restartIds: [],
+            failed: result.failed.map((id) => ({
+              id,
+              label: targets.find((item) => item.id === id)?.label ?? id,
+              error: '清理失败，请检查宿主日志',
+              retryAfterRestart: false,
+            })),
+          };
+        }
+        if (input.afterExit) {
+          assertRuntimeFilesIdle();
+          if (targets.some((item) => storageRestartCandidates.get(item.id) !== item.path))
+            throw new Error('请先执行直接清理，只能重试其中被占用的剩余项目');
+          await host.clearStorageAfterExit(targets);
+          return { scheduled: true, cleared: [], failed: [], freedBytes: 0, restartIds: [] };
+        }
+        const result = await host.clearStorageNow(targets, runtimeFileBusyPaths());
+        storageRestartCandidates.clear();
+        const restartIds = result.failed.flatMap((failure) => {
+          const item = targets.find((target) => target.id === failure.id);
+          if (!failure.retryAfterRestart || !item) return [];
+          storageRestartCandidates.set(item.id, item.path);
+          return [item.id];
+        });
+        return { ...result, scheduled: false, restartIds };
+      }),
+    ),
 
   /** 旧接口保留为可清理项的子集。 */
   listClearableCache: procedure.query(async () => {
@@ -2710,8 +2733,7 @@ export const bootstrapRouter = router({
 
   closeAccount: procedure.mutation(async () => {
     logger.info('router closing account', { event: 'router-close-account' });
-    await getAppContext().services?.unreadInfo.dispose();
-    getAppContext().clearAccount();
+    await getAppContext().clearAccount(true);
     return true;
   }),
 

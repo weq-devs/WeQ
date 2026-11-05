@@ -7,8 +7,14 @@ import { GlobalSettingsSection } from '../src/renderer/src/components/settings/G
 
 const fixture = vi.hoisted(() => ({
   confirm: vi.fn(async (_title: string, _body: string, _options: unknown) => true),
-  clear: vi.fn(async () => ({ freedBytes: 1024, cleared: ['avatar'], failed: [] })),
-  exitClear: vi.fn(async () => ({ scheduled: true })),
+  clear: vi.fn(async (_input: unknown) => ({
+    freedBytes: 1024,
+    cleared: ['avatar'],
+    failed: [] as Array<{ id?: string; label: string; error: string; retryAfterRestart?: boolean }>,
+    scheduled: false,
+    restartIds: [] as string[],
+  })),
+  exitClear: vi.fn(async (_input: unknown) => ({ scheduled: true })),
   push: vi.fn(),
   refetch: vi.fn(),
   items: [
@@ -46,7 +52,11 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             })
           : key === 'useMutation'
             ? () => ({
-                mutateAsync: path.at(-1) === 'clearStorageData' ? fixture.exitClear : fixture.clear,
+                mutateAsync:
+                  path.at(-1) === 'clearStorageData'
+                    ? (input: { afterExit?: boolean }) =>
+                        input.afterExit ? fixture.exitClear(input) : fixture.clear(input)
+                    : fixture.clear,
                 isLoading: false,
               })
             : proxy([...path, String(key)]),
@@ -67,7 +77,103 @@ afterEach(() => {
 });
 
 describe('WeQ 存储管理页面', () => {
-  it('风险数据不参与默认清理，明确选择后走清除并重启，取消不退出', async () => {
+  it('直接清理先完成，取消重启保留剩余项，再次确认只重试被占用项目', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const length = fixture.items.length;
+    fixture.items.push({
+      ...fixture.items[0]!,
+      id: 'agentlab',
+      label: '克隆数据',
+      requiresExit: true,
+    });
+    fixture.clear.mockResolvedValueOnce({
+      scheduled: false,
+      freedBytes: 1024,
+      cleared: ['avatar'],
+      failed: [
+        { id: 'agentlab', label: '克隆数据', error: '当前运行实例占用', retryAfterRestart: true },
+      ],
+      restartIds: ['agentlab'],
+    });
+    fixture.confirm.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const click = async (label: string) =>
+      act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent?.trim() === label)!
+          .click(),
+      );
+    try {
+      act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      act(() => {
+        host.querySelector<HTMLElement>('[data-weq-select-id="avatar"]')!.click();
+        host.querySelector<HTMLElement>('[data-weq-select-id="agentlab"]')!.click();
+      });
+      await click('开始清理');
+      expect(fixture.clear).toHaveBeenCalledWith({
+        ids: ['avatar', 'agentlab'],
+        acknowledgeRisk: true,
+      });
+      expect(fixture.confirm).toHaveBeenLastCalledWith(
+        '剩余项目被占用',
+        expect.stringContaining('可直接清除的项目已经处理'),
+        expect.objectContaining({ cancelLabel: '暂不重启' }),
+      );
+      expect(fixture.exitClear).not.toHaveBeenCalled();
+      expect(host.querySelector<HTMLInputElement>('input[aria-label="头像缓存"]')!.checked).toBe(
+        false,
+      );
+      expect(host.querySelector<HTMLInputElement>('input[aria-label="克隆数据"]')!.checked).toBe(
+        true,
+      );
+      await click('重启并清除剩余项目');
+      expect(fixture.exitClear).toHaveBeenCalledWith({
+        ids: ['agentlab'],
+        acknowledgeRisk: true,
+        afterExit: true,
+      });
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      fixture.items.splice(length);
+    }
+  });
+
+  it('非占用失败显示原因，不提示或执行重启', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    fixture.clear.mockResolvedValueOnce({
+      scheduled: false,
+      freedBytes: 0,
+      cleared: [],
+      failed: [{ id: 'avatar', label: '头像缓存', error: '读取不完整', retryAfterRestart: false }],
+      restartIds: [],
+    });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '开始清理')!
+          .click(),
+      );
+      expect(fixture.confirm).toHaveBeenCalledTimes(1);
+      expect(fixture.exitClear).not.toHaveBeenCalled();
+      expect(fixture.push).toHaveBeenLastCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('读取不完整') }),
+      );
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+
+  it('风险数据不参与默认清理，明确选择后先直接清除，成功不提示重启', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const originalLength = fixture.items.length;
@@ -88,7 +194,7 @@ describe('WeQ 存储管理页面', () => {
         (item) => item.textContent === '开始清理',
       )!;
       await act(async () => button.click());
-      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'] });
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'], acknowledgeRisk: true });
       expect(fixture.exitClear).not.toHaveBeenCalled();
       const checkbox = host.querySelector<HTMLInputElement>(
         'input[aria-label="数据库修复工作区"]',
@@ -101,16 +207,16 @@ describe('WeQ 存储管理页面', () => {
       expect(fixture.exitClear).not.toHaveBeenCalled();
       expect(fixture.confirm.mock.calls.at(-1)?.[1]).toContain('失去回滚能力');
       expect(fixture.confirm).toHaveBeenLastCalledWith(
-        '清除并重启',
-        expect.stringContaining('清除完成后自动重新打开 WeQ'),
-        expect.objectContaining({ okLabel: '清除并重启' }),
+        '清除所选数据',
+        expect.stringContaining('先清除可直接清除的项目'),
+        expect.objectContaining({ okLabel: '清除' }),
       );
       await act(async () => button.click());
-      expect(fixture.exitClear).toHaveBeenCalledWith({ ids: ['db_repair'], acknowledgeRisk: true });
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['db_repair'], acknowledgeRisk: true });
+      expect(fixture.exitClear).not.toHaveBeenCalled();
       expect(fixture.push).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          title: '已安排清除并重启',
-          message: expect.stringContaining('自动重新打开 WeQ'),
+          title: '清理已完成',
         }),
       );
     } finally {
@@ -146,7 +252,7 @@ describe('WeQ 存储管理页面', () => {
       expect(fixture.confirm.mock.calls[0][1]).toContain('重新进入账号');
       expect(fixture.confirm.mock.calls[0][1]).toContain('装扮设置不会删除');
       await act(async () => button.click());
-      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['dress_shared'] });
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['dress_shared'], acknowledgeRisk: true });
     } finally {
       act(() => root.unmount());
       host.remove();
@@ -183,7 +289,7 @@ describe('WeQ 存储管理页面', () => {
       expect(button.parentElement?.nextElementSibling).toBeNull();
       expect(toolbar.contains(button)).toBe(false);
       await act(async () => button.click());
-      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'] });
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'], acknowledgeRisk: true });
       expect(fixture.confirm.mock.calls[0]).not.toContain('图片识别结果');
       expect(fixture.refetch).toHaveBeenCalled();
     } finally {

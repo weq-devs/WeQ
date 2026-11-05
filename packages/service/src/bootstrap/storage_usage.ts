@@ -76,7 +76,7 @@ const DATA_LABELS: Readonly<Record<string, string>> = {
   restore: '设置恢复暂存数据',
 };
 
-const RUNTIME_DATA_NAMES = new Set([
+export const RUNTIME_DATA_NAMES: ReadonlySet<string> = new Set([
   'Cache',
   'Code Cache',
   'GPUCache',
@@ -238,7 +238,7 @@ export async function listStorageUsage(
           clearable: !root.protected && root.clearableAfterExit === true && !info.isSymbolicLink(),
           requiresExit: !root.protected && root.clearableAfterExit === true,
           reason: root.clearableAfterExit
-            ? '退出应用后清除；文件无法保证恢复'
+            ? '清除前需确认；文件无法保证恢复'
             : '应用安装资源，请通过系统卸载管理',
           ...(root.clearableAfterExit
             ? {
@@ -327,7 +327,7 @@ export async function listStorageUsage(
         clearable,
         requiresExit: persistent,
         reason: persistent
-          ? '退出应用后清除；请先确认风险并保留需要的副本'
+          ? '清除前需确认；请保留需要的副本，占用项可重启后继续'
           : clearable
             ? name === 'dress_shared'
               ? '清理已下载的字体、气泡与挂件，保留账号装扮设置'

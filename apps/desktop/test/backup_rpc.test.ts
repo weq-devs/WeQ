@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   bootstrapWeqBackupFiles,
+  applyPendingWeqBackupRestore,
   setHost,
   type HostBridge,
   type WeqFileStartup,
@@ -13,8 +14,25 @@ import { backupProcedures } from '../src/main/ipc/routers/backup';
 import { router } from '../src/main/ipc/trpc';
 
 const context = vi.hoisted(() => ({ current: null as WeqFileStartup | null }));
-vi.mock('../src/main/context/backup_context', () => ({ getBackupContext: () => context.current }));
-vi.mock('../src/main/context/app_context', () => ({ retryBackupRecovery: () => true }));
+vi.mock('../src/main/context/backup_context', () => ({
+  getBackupContext: () => context.current,
+  applyLiveBackupContext: () => {
+    const files = context.current!;
+    const result = applyPendingWeqBackupRestore(files.root, files.cacheRoot);
+    if (files.ok) files.config.reload();
+    files.result = result;
+    return result;
+  },
+}));
+vi.mock('../src/main/context/app_context', () => ({
+  retryBackupRecovery: () => true,
+  getAppContext: () => ({ bootstrap: null, clearAccount: async () => {} }),
+}));
+vi.mock('../src/main/ipc/routers/db_repair', () => ({ isDbRepairBusy: () => false }));
+vi.mock('../src/main/ipc/routers/intent_sense', () => ({ isIntentModelDownloading: () => false }));
+vi.mock('../src/main/weq_assistant/server', () => ({
+  assistantResourceServer: { stop: async () => {} },
+}));
 const roots: string[] = [];
 afterEach(() => {
   context.current = null;
@@ -47,7 +65,7 @@ function fixture() {
   const routes = router(backupProcedures);
   return { root, caller: routes.createCaller({}), routes };
 }
-it('真实备份 RPC 无 Native 可读取、导出、分片导入、冻结预览、暂存及取消', async () => {
+it('真实备份 RPC 无 Native 可读取、导出、分片导入、预览并直接应用，无待重启任务', async () => {
   const f = fixture();
   expect(await f.caller.backupStartup()).toMatchObject({
     ok: true,
@@ -66,7 +84,9 @@ it('真实备份 RPC 无 Native 可读取、导出、分片导入、冻结预览
     conflict: 'overwrite',
   });
   await f.caller.backupStage({ previewId: preview.id });
-  expect((await f.caller.backupStatus()).pending?.phase).toBe('ready');
+  const status = await f.caller.backupStatus();
+  expect(status.pending).toBeNull();
+  expect(status.result?.status).toBe('applied');
   await f.caller.backupCancel();
   expect((await f.caller.backupStatus()).pending).toBeNull();
   await expect(f.caller.backupRestart()).rejects.toThrow('服务管理器');

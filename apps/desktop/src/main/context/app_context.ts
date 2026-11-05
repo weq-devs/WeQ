@@ -236,6 +236,17 @@ export interface AccountForcedClosedEvent {
 }
 
 export const accountEventBus = new EventEmitter();
+const accountCacheRoots = new WeakMap<object, string>();
+const pendingAccountClosures = new Set<Promise<unknown>>();
+let bootstrapCacheRoot: string | undefined;
+
+export function accountRuntimeCacheRoot(ctx: AppContext): string | undefined {
+  return accountCacheRoots.get(ctx);
+}
+
+export function bootstrapRuntimeCacheRoot(): string | undefined {
+  return bootstrapCacheRoot;
+}
 
 /**
  * 装扮清单被主进程改过了（目前只有开机同步会这么做）。
@@ -994,7 +1005,7 @@ export interface AppContext {
     },
   ): Promise<void>;
   /** Drop the current account session, if any. */
-  clearAccount(): void;
+  clearAccount(waitForPending?: boolean): Promise<void>;
   /**
    * Mount/unmount the live nt_msg.db watcher for the open account without
    * re-opening it. Called when the user toggles 启用数据库监听 so the change
@@ -1063,7 +1074,7 @@ function unavailableContext(nativeError: NativeInitError | null, reason: string)
     setStaticAccount(): Promise<void> {
       throw new Error(reason);
     },
-    clearAccount(): void {
+    async clearAccount(_waitForPending?: boolean): Promise<void> {
       /* nothing to clear */
     },
     applyRealtime(): void {
@@ -1209,6 +1220,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       : createDirectAttachHook(platform.native.ntHelper, tryLongTermAttach);
 
   const linkPreview = new LinkPreviewService(userConfig);
+  bootstrapCacheRoot = userConfig.cacheBaseDir();
   const apiUsage = new TokenUsageStore(join(userConfig.cacheDir('api_usage'), 'global.json'));
 
   const bootstrap: BootstrapServices = {
@@ -1388,6 +1400,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         },
       );
       this.account = session;
+      accountCacheRoots.set(this, userConfig.cacheBaseDir());
       // Online account: resources resolve against the local install as always.
       this.resourcePlatform = platform;
       this.accountIsStatic = false;
@@ -2307,6 +2320,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         },
       });
       this.account = session;
+      accountCacheRoots.set(this, userConfig.cacheBaseDir());
 
       const accountConfig = new AccountConfigService(session, platform.appDataRoot());
       const exportConfigId = accountConfigId(session.context.uin, dirPath);
@@ -2961,7 +2975,8 @@ export function initAppContext(fileRoot?: string): AppContext {
 
       // Still no anti-recall triggers, no health check and no scheduler.
     },
-    clearAccount(): void {
+    async clearAccount(waitForPending = false): Promise<void> {
+      const previousClosures = [...pendingAccountClosures];
       clearFullMode(this);
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
@@ -2980,9 +2995,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.scheduler?.stop();
       this.scheduler = null;
       stopOneBot();
-      void stopMcpServer();
+      const mcpClosed = stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
-      void disposeExternalMcp();
+      const externalMcpClosed = disposeExternalMcp();
       // 取消还没触发的索引预热：索引属于刚关掉的那个会话，别在关账号后
       // 还去写它的库（此刻 this.account 已改成 null，定时器里的守卫也会兜住，
       // 这里显式清掉只是不留悬挂的定时器）。
@@ -2992,20 +3007,16 @@ export function initAppContext(fileRoot?: string): AppContext {
       ssePush = null;
       unmountGroupKeyword();
       unmountAntiRecallMonitor();
-      this.services?.roamingBackfill.dispose();
-      void this.services?.favoriteEmojiImport.dispose();
+      const roamingClosed = this.services?.roamingBackfill.close();
+      const favoriteImportClosed = this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
       this.services?.unifiedSearch.dispose();
-      void this.services?.agentLab.close().catch((error) => {
-        getLogger().warn('停止克隆运行时失败', { error: String(error) });
-      });
-      void this.services?.unreadInfo.dispose().catch((error) => {
-        console.error('[unread] 关闭账号时保存本地阅读状态失败', error);
-      });
+      const agentLabClosed = this.services?.agentLab.close();
+      const unreadClosed = this.services?.unreadInfo.dispose();
       this.services?.contentSearch.close();
       this.services?.guildDirect.cancelSearch();
-      this.account?.dispose();
+      const closingAccount = this.account;
       this.account = null;
       this.services = null;
       this.resourcePlatform = null;
@@ -3014,6 +3025,27 @@ export function initAppContext(fileRoot?: string): AppContext {
       // 宽容服务跟着账号一起走：留着它会让设置页继续显示、甚至改写刚刚关掉的那个账号的
       // 配置，而下一个账号（尤其静态账号）会误用到它（见 `createDbTolerance`）。
       this.dbTolerance = null;
+      accountCacheRoots.delete(this);
+      if (waitForPending) uidRegistry.clear();
+      const closing = Promise.allSettled([
+        mcpClosed,
+        externalMcpClosed,
+        roamingClosed,
+        favoriteImportClosed,
+        agentLabClosed,
+        unreadClosed,
+        ...previousClosures,
+      ]);
+      pendingAccountClosures.add(closing);
+      void closing.then(() => pendingAccountClosures.delete(closing));
+      if (!waitForPending) closingAccount?.dispose();
+      const closed = await closing;
+      if (waitForPending) closingAccount?.dispose();
+      const failed = closed.find((result) => result.status === 'rejected');
+      if (failed?.status === 'rejected') {
+        if (waitForPending) throw failed.reason;
+        logger.warn('账号后台收尾失败', { error: String(failed.reason) });
+      }
     },
     applyRealtime(enabled: boolean): void {
       const session = this.account;
@@ -3245,6 +3277,10 @@ export function retryBackupRecovery(): boolean {
   cached = undefined;
   initAppContext(root);
   return initBackupContext(root).ok;
+}
+
+export function blockRuntimeForBackupRecovery(reason: string): void {
+  cached = unavailableContext(null, reason);
 }
 
 /** Platform handle, asserting native loaded. */
