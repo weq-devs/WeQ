@@ -21,6 +21,7 @@ import type { OcrBlock } from '@weq/protocol';
 import {
   getOcrModel,
   localOcrBlocker,
+  type OcrModelKind,
   type OcrFilterOutcome,
   type OcrImageOutcome,
 } from '@weq/service';
@@ -32,6 +33,23 @@ import { decodeImageBytes, decodeImageDataUrl } from './image';
 // 只引类型：管线本体由 worker 独享（带上运行时会让 rollup 多抽一个共享 chunk，
 // 见 `engine.ts` 顶部那段说明）。
 import type { RgbImage } from './pipeline';
+
+/** 使用时补齐旧空引用，也覆盖运行期间恢复文件或清空引用的情况。 */
+function resolveDownloadedModelId(kind: OcrModelKind): string | null {
+  const boot = getAppContext().bootstrap;
+  if (!boot) return null;
+  const selected = boot.userConfig.getLocalModelId(kind);
+  const available = boot.ocrModels.listByKind(kind).filter((m) => m.downloaded && !m.downloading);
+  const model =
+    available.find((m) => m.id === selected) ??
+    available.find((m) => m.recommended) ??
+    available[0];
+  if (!model) return null;
+  if (model.id !== selected) {
+    boot.userConfig.setSettings({ modelResources: { [kind]: model.id } });
+  }
+  return model.id;
+}
 
 /** 一个「已选且已下载」的本地识别模型。 */
 export interface LocalOcrModel {
@@ -49,7 +67,7 @@ export function resolveLocalOcrModel(): LocalOcrModel | null {
   if (localOcrBlocker()) return null;
   const boot = getAppContext().bootstrap;
   if (!boot) return null;
-  const modelId = boot.userConfig.getLocalModelId('ocr');
+  const modelId = resolveDownloadedModelId('ocr');
   if (!modelId) return null;
   const model = getOcrModel(modelId);
   // 筛图模型不出文字，不能拿来当识别模型用。
@@ -87,7 +105,7 @@ export function resolveLocalOcrFilterModel(): LocalOcrFilterModel | null {
   if (localOcrBlocker()) return null;
   const boot = getAppContext().bootstrap;
   if (!boot) return null;
-  const modelId = boot.userConfig.getLocalModelId('filter');
+  const modelId = resolveDownloadedModelId('filter');
   if (!modelId) return null;
   const model = getOcrModel(modelId);
   // 识别模型不能拿来筛图（它要 rec / dict，这里只给 det）。
