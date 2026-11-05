@@ -49,10 +49,7 @@ import {
 } from '../../lib/conversationDirectory';
 import { VirtualConversationAvatar } from '../../components/VirtualConversationAvatar';
 import { groupRelationship, RelationshipDirectoryContext } from '../../lib/contactRelationship';
-import {
-  PersonRelationshipStatus,
-  GroupRelationshipStatus,
-} from '../../components/RelationshipStatus';
+import { GroupRelationshipStatus } from '../../components/RelationshipStatus';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
 import {
   conversationAnalysisTarget,
@@ -1762,7 +1759,6 @@ export function ContactList({
                         <span className={cn('row-main', 'contact-card-main')}>
                           <span className={cn('contact-card-nickname')}>
                             <span className="row-title-text">{displayUserName(contact)}</span>
-                            <PersonRelationshipStatus person={contact} compact />
                             {contact.kind === 'bot' ? (
                               <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
                                 <Bot size={12} strokeWidth={2.4} />
