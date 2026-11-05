@@ -36,7 +36,15 @@ async function fixture() {
   insert.setReadBigInts(true);
   const count = UNREAD_OUTGOING_PAGE_SIZE * 2 + 9;
   const base = 9007199254740993000n;
-  for (let i = 0; i < count; i++) insert.run(base + BigInt(i), 70001, 1, 'u_peer', 10002);
+  // 夹具一次提交，避免 CI 将每行落盘成本计入分页回归的超时预算。
+  sql.exec('BEGIN');
+  try {
+    for (let i = 0; i < count; i++) insert.run(base + BigInt(i), 70001, 1, 'u_peer', 10002);
+    sql.exec('COMMIT');
+  } catch (error) {
+    sql.exec('ROLLBACK');
+    throw error;
+  }
   return { path, sql, nt, db, insert, count, base };
 }
 const self = { selfUid: 'u_self', selfUin: '10001' };
