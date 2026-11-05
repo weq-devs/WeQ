@@ -17,6 +17,7 @@
  */
 
 import type { AccountSession } from '@weq/account';
+import { measureMessageWork } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import { type decodeMessage, fetchC2cHistoryRaw, fetchGroupHistoryRaw } from '@weq/protocol';
 import { toRenderElements, type RenderElement } from './msg_view';
@@ -216,16 +217,18 @@ export class GapHistoryService {
     descending: boolean,
     cursor?: { msgSeq: number; sendTime: number; msgId: string },
   ): Promise<GapFetchedMessage[]> {
-    return this.cache.query(
-      kind,
-      conv,
-      startSeq,
-      endSeq,
-      kind === 'c2c',
-      limit,
-      descending,
-      false,
-      cursor,
+    return measureMessageWork(this.session.msgDbPath, 'roamingCache', () =>
+      this.cache.query(
+        kind,
+        conv,
+        startSeq,
+        endSeq,
+        kind === 'c2c',
+        limit,
+        descending,
+        false,
+        cursor,
+      ),
     );
   }
 

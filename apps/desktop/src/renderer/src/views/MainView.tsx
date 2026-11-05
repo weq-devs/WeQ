@@ -2731,8 +2731,12 @@ function MainWorkspace(): ReactElement {
           messageScope && messageScopeRef.current === messageScope && messageBindingRef.current,
         ),
       version: () => dbRevisionRef.current,
+      canPrefetch: (target) =>
+        conversationWindows.canPrefetch(
+          conversationWindowKey(messageScope, target.kind, target.conv),
+        ),
       fresh: (target) => {
-        const cached = conversationWindows.get(
+        const cached = conversationWindows.peek(
           conversationWindowKey(messageScope, target.kind, target.conv),
         );
         return Boolean(

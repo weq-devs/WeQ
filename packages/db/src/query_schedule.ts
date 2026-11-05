@@ -139,6 +139,19 @@ function metric(key: string) {
   return value;
 }
 
+export async function measureMessageWork<T>(
+  dbPath: string | undefined,
+  phase: MessageWorkPhase,
+  run: () => Promise<T>,
+): Promise<T> {
+  const began = performance.now();
+  try {
+    return await run();
+  } finally {
+    recordMessageWork(dbPath, phase, performance.now() - began);
+  }
+}
+
 /** JS 侧非抢占调度；不把 native Promise 总耗时冒称原生执行耗时。 */
 export function scheduleDatabase<T>(
   dbPath: string,

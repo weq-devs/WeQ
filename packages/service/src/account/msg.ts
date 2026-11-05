@@ -14,7 +14,7 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import { recordMessagePartition, recordMessageWork } from '@weq/db';
+import { measureMessageWork, recordMessagePartition, recordMessageWork } from '@weq/db';
 import type {
   C2cMsg,
   GroupMsg,
@@ -765,13 +765,15 @@ export class MsgService {
     limit = 50,
     options: MessagePageOptions = {},
   ): Promise<RenderC2cMsg[]> {
-    const msgs = await this.c2cDbFor(targetUid).listLatest(
-      await this.c2cPagePartition(targetUid, options),
-      limit,
-    );
-    if (!options.deferReplyMedia) await this.enrichReplyMedia(msgs, 'c2c');
-    const recallMap = await this.recallMapFor('c2c', targetUid, msgs);
-    return msgs.map((m) => this.renderC2cWithState(m, recallMap));
+    return measureMessageWork(this.session.msgDbPath, 'messagePage', async () => {
+      const msgs = await this.c2cDbFor(targetUid).listLatest(
+        await this.c2cPagePartition(targetUid, options),
+        limit,
+      );
+      if (!options.deferReplyMedia) await this.enrichReplyMedia(msgs, 'c2c');
+      const recallMap = await this.recallMapFor('c2c', targetUid, msgs);
+      return msgs.map((m) => this.renderC2cWithState(m, recallMap));
+    });
   }
 
   resolveC2cReplySeq(
@@ -951,10 +953,12 @@ export class MsgService {
     limit = 50,
     options: MessagePageOptions = {},
   ): Promise<RenderGroupMsg[]> {
-    const msgs = await this.session.groupMsgs.listLatest(targetGroupCode, limit);
-    if (!options.deferReplyMedia) await this.enrichReplyMedia(msgs, 'group');
-    const recallMap = await this.recallMapFor('group', targetGroupCode, msgs);
-    return msgs.map((m) => this.renderGroupWithState(m, recallMap));
+    return measureMessageWork(this.session.msgDbPath, 'messagePage', async () => {
+      const msgs = await this.session.groupMsgs.listLatest(targetGroupCode, limit);
+      if (!options.deferReplyMedia) await this.enrichReplyMedia(msgs, 'group');
+      const recallMap = await this.recallMapFor('group', targetGroupCode, msgs);
+      return msgs.map((m) => this.renderGroupWithState(m, recallMap));
+    });
   }
 
   /** Group page just older than `beforeSeq` (scroll-up). */

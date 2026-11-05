@@ -12,6 +12,7 @@ import { MsgService } from '../src/account/msg';
 import { UserConfigService } from '../src/bootstrap/user_config';
 import { MessageSendService } from '../src/account/message_send';
 import { encode, SEND_MESSAGE_RESPONSE } from '@weq/protocol';
+import { databasePerformance } from '@weq/db';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -30,7 +31,7 @@ function setup() {
     cache: new RoamMsgCacheDb(nt, path),
     history: new GapHistoryService(
       nt,
-      {} as AccountSession,
+      { msgDbPath: path } as AccountSession,
       () => {
         throw Error('offline');
       },
@@ -38,6 +39,11 @@ function setup() {
     ),
   };
 }
+it('本机漫游时间线读取记录独立阶段，空缓存也计时且不联网', async () => {
+  const { history, path } = setup();
+  expect(await history.cachedTimeline('group', '777', 1, 100, 25, true)).toEqual([]);
+  expect(databasePerformance(path).phases.roamingCache?.count).toBe(1);
+});
 function message(
   seq: number,
   kind: 'group' | 'c2c' = 'group',
