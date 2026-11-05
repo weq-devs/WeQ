@@ -17,6 +17,9 @@ import { withDatabaseRequest } from '@weq/db';
 import { clearCompletedTasks } from './clear_completed_tasks';
 import { startFlashDownloads } from './flash_save';
 import { FileUploadStaging } from './album_video_staging';
+import { pickedBrowserFiles } from '../../browser_files';
+import { saveAnalyticsFromWeb } from '../../analytics_save';
+import { webNotices, type WebNotice } from '../../web/notices';
 import {
   BROWSER_FILE_CHUNK_BYTES,
   BROWSER_FILE_MAX_BYTES,
@@ -1752,6 +1755,117 @@ const browserFiles = new FileUploadStaging(30 * 60000, {
 });
 
 export const accountRouter = router({
+  onWebNotice: procedure.input(browserFileBinding).subscription(({ input }) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    return observable<WebNotice>((emit) => {
+      const receive = (notice: WebNotice) => {
+        if (
+          getAppContext().services === services &&
+          notice.uin === input.expectedAccountUin &&
+          notice.configId === input.expectedAccountConfigId
+        )
+          emit.next(notice);
+      };
+      webNotices.on('notice', receive);
+      return () => webNotices.off('notice', receive);
+    });
+  }),
+  exportAnalyticsCard: procedure
+    .input(
+      z.object({
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1),
+        savePolicy: exportSavePolicyInput.optional(),
+        kind: z.enum(['buddy', 'group', 'member']),
+        title: z.string().min(1).max(512),
+        label: z.string().min(1).max(512),
+        periodLabel: z.string().optional(),
+        groupCode: z.string().optional(),
+        groupName: z.string().optional(),
+        peerUid: z.string().optional(),
+        memberCount: z.number().optional(),
+        avatarUrl: z.string().nullable().optional(),
+        member: z
+          .object({
+            uid: z.string(),
+            name: z.string(),
+            uin: z.string().nullable().optional(),
+            avatarUrl: z.string().nullable().optional(),
+          })
+          .optional(),
+        data: z.unknown(),
+      }),
+    )
+    .mutation(({ input }) => saveAnalyticsFromWeb(input)),
+  pickedFileStart: procedure
+    .input(
+      browserFileBinding.extend({
+        size: z
+          .number()
+          .int()
+          .positive()
+          .max(2 * 1024 ** 3),
+        name: z.string().min(1).max(255),
+      }),
+    )
+    .mutation(({ input }) =>
+      pickedBrowserFiles.start(
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+        input.size,
+        input.name,
+      ),
+    ),
+  pickedFileChunk: procedure
+    .input(
+      browserFileBinding.extend({
+        uploadId: z.string().uuid(),
+        offset: z.number().int().nonnegative(),
+        base64: z
+          .string()
+          .min(1)
+          .max(Math.ceil(BROWSER_FILE_CHUNK_BYTES / 3) * 4),
+      }),
+    )
+    .mutation(({ input }) => {
+      const bytes = Buffer.from(input.base64, 'base64');
+      if (bytes.toString('base64') !== input.base64) throw new Error('附件分段编码无效');
+      return pickedBrowserFiles.append(
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+        input.uploadId,
+        input.offset,
+        bytes,
+      );
+    }),
+  pickedFileFinish: procedure
+    .input(browserFileBinding.extend({ uploadId: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const path = pickedBrowserFiles.complete(services, input.uploadId);
+      const info = await stat(path);
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号已切换，请重新选择附件');
+      services.fileResource.trustPath(path);
+      pickedBrowserFiles.whenDiscarded(services, input.uploadId, () =>
+        services.fileResource.untrustPath(path),
+      );
+      return { path, fileName: basename(path), size: info.size };
+    }),
+  pickedFileDiscard: procedure
+    .input(browserFileBinding.extend({ uploadId: z.string().uuid() }))
+    .mutation(({ input }) =>
+      pickedBrowserFiles.discard(
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+        input.uploadId,
+      ),
+    ),
   /** 固定字段的性能快照：不包含消息正文、会话 ID、SQL、路径或凭据。 */
   messagePerformance: procedure.input(exportAccountBindingInput).query(({ input }) => {
     requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
@@ -4708,14 +4822,22 @@ export const accountRouter = router({
    * 用户在文件框里点取消时返回 null（不是失败）。
    */
   pickComposeImage: procedure
-    .input(z.object({ sendTime: z.number().int().positive().optional() }))
+    .input(
+      z.object({
+        sendTime: z.number().int().positive().optional(),
+        path: z.string().min(1).optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
-      const picked = await getHost().pickFile({
-        title: '选择一张图片',
-        extensions: [...COMPOSE_IMAGE_EXTENSIONS],
-      });
+      const services = requireServices();
+      const picked =
+        (input.path ? pickedBrowserFiles.requirePath(services, input.path) : undefined) ??
+        (await getHost().pickFile({
+          title: '选择一张图片',
+          extensions: [...COMPOSE_IMAGE_EXTENSIONS],
+        }));
       if (!picked) return null;
-      const staged = await requireServices().composeImage.stage(picked, input.sendTime);
+      const staged = await services.composeImage.stage(picked, input.sendTime);
       return {
         sendTime: staged.sendTime,
         element: elementsToEditable(staged.element),
@@ -7968,7 +8090,7 @@ export const accountRouter = router({
       requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
 
       const modelId = boot.userConfig.getLocalModelId('voice');
-      if (!modelId) return { success: false, error: '未选择转录模型' };
+      if (!modelId) return { success: false, error: '请先下载本地语音模型' };
       const model = getVoiceModel(modelId);
       if (!model) return { success: false, error: '转录模型不存在' };
 

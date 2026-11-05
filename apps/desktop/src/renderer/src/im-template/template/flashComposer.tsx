@@ -38,6 +38,8 @@ import { cn } from './classNames';
 import { dataTransferHasFiles } from './composerMedia';
 import { fileExtIcon } from '../../lib/groupFile';
 import { fileIconUrl } from '../../lib/resourceUrl';
+import { IS_WEB } from '../../lib/target';
+import { stageAccountFile } from '../../lib/accountFilePicker';
 
 /** 待发送的一个文件（渲染层只知道路径 / 名字 / 大小；字节在主进程读）。 */
 export interface FlashDraftFile {
@@ -371,9 +373,13 @@ export async function composeFlashCover(files: FlashDraftFile[]): Promise<string
  * 路径走 `window.weq.pathForFile`（Electron `webUtils`）：闪传要主进程按**路径**读文件
  * （大文件不落内存），剪贴板之类没有落盘来源的东西拿不到路径 —— 那种直接跳过。
  */
-function toDraft(file: File): FlashDraftFile | null {
+async function toDraft(file: File): Promise<FlashDraftFile | null> {
   const path = window.weq?.pathForFile?.(file) ?? '';
-  if (!path) return null;
+  if (!path) {
+    if (!IS_WEB) return null;
+    const staged = await stageAccountFile(file);
+    return { path: staged.path, name: staged.fileName, size: staged.size };
+  }
   return { path, name: file.name || path.split(/[\\/]/).pop() || path, size: file.size ?? 0 };
 }
 
@@ -513,18 +519,22 @@ export function FlashComposer({
   }, []);
 
   const addFromFiles = useCallback(
-    (picked: File[] | FileList | null) => {
+    async (picked: File[] | FileList | null) => {
       if (!picked) return;
-      const draft: FlashDraftFile[] = [];
-      let skipped = 0;
-      for (const file of Array.from(picked)) {
-        const item = toDraft(file);
-        if (item) draft.push(item);
-        else skipped += 1;
-      }
-      addFiles(draft);
-      if (skipped > 0) {
-        setError(`${skipped} 个文件拿不到本机路径（剪切板 / 虚拟位置不支持闪传），已跳过。`);
+      try {
+        const draft: FlashDraftFile[] = [];
+        let skipped = 0;
+        for (const file of Array.from(picked)) {
+          const item = await toDraft(file);
+          if (item) draft.push(item);
+          else skipped += 1;
+        }
+        addFiles(draft);
+        if (skipped > 0) {
+          setError(`${skipped} 个文件拿不到本机路径（剪切板 / 虚拟位置不支持闪传），已跳过。`);
+        }
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
       }
     },
     [addFiles],

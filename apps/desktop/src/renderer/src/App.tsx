@@ -22,6 +22,7 @@ import { CloseConfirmDialog } from './components/CloseConfirmDialog';
 import { QuitConfirmDialog } from './components/QuitConfirmDialog';
 import { RestrictedModeHost } from './components/RestrictedMode';
 import { DesktopOnly, IS_WEB } from './lib/target';
+import { WebNotifications } from './components/WebNotifications';
 import { WebConnectionStatus } from './components/WebConnectionStatus';
 import { ImageLightbox } from './components/ImageLightbox';
 import { VideoLightbox } from './components/VideoLightbox';
@@ -229,6 +230,7 @@ export default function App(): ReactElement {
             <ToastHost />
             <RendererRecoveryNotice ready={view === 'bootstrap' && homeStage !== 'booting'} />
             {IS_WEB && <WebConnectionStatus />}
+            {IS_WEB && view === 'main' && <WebNotifications />}
             <HoverTooltip />
             <DbRepairWindowHost />
             <CaptureWindowHost />

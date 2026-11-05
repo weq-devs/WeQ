@@ -14,6 +14,7 @@ import {
   type QQMailService,
 } from '@weq/service/mail';
 import { getAppContext } from '../../context/app_context';
+import { pickedBrowserFiles } from '../../browser_files';
 import { procedure, router } from '../trpc';
 import { rememberMail } from '../../search_content';
 import { exportSavePolicyInput } from './export_save';
@@ -338,13 +339,19 @@ export const mailRouter = router({
       return mail.setNotifications(input.enabled);
     }),
   ),
-  upload: procedure.input(operation).mutation(({ input }) =>
-    perform(input, async (mail, signal) => {
-      const path = await getHost().pickFile({ title: '选择邮件附件' });
-      signal.throwIfAborted();
-      return path ? mail.upload(path, signal) : null;
-    }),
-  ),
+  upload: procedure
+    .input(operation.extend({ path: z.string().min(1).optional() }))
+    .mutation(({ input }) =>
+      perform(input, async (mail, signal) => {
+        const services = getAppContext().services;
+        const path =
+          input.path && services
+            ? pickedBrowserFiles.requirePath(services, input.path)
+            : await getHost().pickFile({ title: '选择邮件附件' });
+        signal.throwIfAborted();
+        return path ? mail.upload(path, signal) : null;
+      }),
+    ),
   download: procedure.input(operation.extend({ id: z.string().uuid() })).mutation(({ input }) =>
     perform(input, async (mail, signal) => {
       const attachment = mail.attachments.get(input.id);

@@ -3280,6 +3280,15 @@ export function ChatPane({
         out.push({ key, path, name: attachment.name, ...(previewUrl ? { previewUrl } : {}) });
         continue;
       }
+      if (attachment.kind === 'file') {
+        out.push({
+          key,
+          file: attachment.file,
+          name: attachment.name,
+          ...(previewUrl ? { previewUrl } : {}),
+        });
+        continue;
+      }
       try {
         out.push({
           key,

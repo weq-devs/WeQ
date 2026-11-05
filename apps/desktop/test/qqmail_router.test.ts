@@ -12,6 +12,7 @@ vi.mock('@weq/service', async (original) => ({
 }));
 import { mailRouter } from '../src/main/ipc/routers/mail';
 import { MailFailure } from '@weq/service/mail';
+import { pickedBrowserFiles } from '../src/main/browser_files';
 
 const input = { selfUin: '12345678', requestId: '11111111-1111-4111-8111-111111111111' };
 const message = {
@@ -138,7 +139,21 @@ describe('原生邮箱 IPC 边界', () => {
   });
   it('用户取消文件选择不上传，也不接收任意本机路径输入', async () => {
     expect(await api.upload(input)).toBeNull();
+    await expect(api.upload({ ...input, path: '/private/not-selected.txt' })).rejects.toThrow();
     expect(mail.upload).not.toHaveBeenCalled();
+  });
+  it('浏览器暂存附件只供创建它的账号使用，上传后仍走既有邮件附件管线', async () => {
+    const owner = mocks.context.services as object;
+    const staged = await pickedBrowserFiles.start(owner, 3, 'fixture.txt');
+    try {
+      await pickedBrowserFiles.append(owner, staged.id, 0, Buffer.from('abc'));
+      const path = pickedBrowserFiles.complete(owner, staged.id);
+      await api.upload({ ...input, path });
+      expect(mail.upload).toHaveBeenCalledWith(path, expect.any(AbortSignal));
+      expect(() => pickedBrowserFiles.requirePath({}, path)).toThrow('失效');
+    } finally {
+      await pickedBrowserFiles.discard(owner, staged.id);
+    }
   });
   it('取消只作用于当前账号的请求，结束后释放请求编号', async () => {
     mocks.selectedFile = '/fixture/user-selected.txt';

@@ -4,7 +4,7 @@ import type { FavoriteEmojiImportPreview, FavoriteEmojiImportState } from '@weq/
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import { client, trpc } from '../../trpc/client';
 import { localFileUrl } from '../../lib/resourceUrl';
-import { IS_WEB } from '../../lib/target';
+import { pickAccountFile } from '../../lib/accountFilePicker';
 import { Modal, useDialog } from '../Dialog';
 import { useTabActive } from '../RetainedTabs';
 import { ActionIcon } from './shared';
@@ -95,14 +95,14 @@ export function FavoriteBundleImport({
     if (mounted.current) utils.account.qqActions.favoriteImportState.setData(binding, view);
   };
   async function choose() {
-    if (!binding || !available || IS_WEB || inFlight.current || running) return;
+    if (!binding || !available || inFlight.current || running) return;
     const expected = { ...binding };
     inFlight.current = true;
     setPending(true);
     setError('');
     setOpen(true);
     try {
-      const file = await client.account.pickSendFile.mutate({ kind: 'file' });
+      const file = await pickAccountFile('file', binding);
       if (!file || !mounted.current) return;
       const view = await client.account.qqActions.favoriteImportPreview.mutate({
         ...expected,
@@ -217,14 +217,8 @@ export function FavoriteBundleImport({
     <>
       <ActionIcon
         text={showLabel ? (running ? '进度' : pending ? '处理中' : '导入') : undefined}
-        label={
-          running
-            ? '查看收藏导入进度'
-            : IS_WEB
-              ? '收藏包导入仅支持桌面端选择文件'
-              : '导入收藏表情包'
-        }
-        disabled={pending || state.isLoading || (!stage && (!available || IS_WEB))}
+        label={running ? '查看收藏导入进度' : '导入收藏表情包'}
+        disabled={pending || state.isLoading || (!stage && !available)}
         onClick={() => (stage ? setOpen(true) : void choose())}
       >
         {running || pending ? <Loader2 className="weq-spin" size={16} /> : <Upload size={16} />}
@@ -258,7 +252,7 @@ export function FavoriteBundleImport({
                 <ActionIcon
                   text="选择 ZIP"
                   label="选择收藏包"
-                  disabled={pending || running || !available || IS_WEB}
+                  disabled={pending || running || !available}
                   onClick={() => void choose()}
                 >
                   <FolderOpen size={16} />

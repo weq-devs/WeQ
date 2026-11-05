@@ -46,6 +46,7 @@ import {
 } from 'lucide-react';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { client } from '../trpc/client';
+import { openExternalLink } from '../lib/openExternalLink';
 import { Modal } from './Dialog';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
@@ -1046,9 +1047,7 @@ export function CapturePanel({
                 type="button"
                 className="weq-cap-link"
                 onClick={() =>
-                  void client.help.openExternal
-                    .mutate({ url: 'https://npcap.com/#download' })
-                    .catch(() => undefined)
+                  void openExternalLink('https://npcap.com/#download').catch(() => undefined)
                 }
               >
                 去安装
@@ -1276,11 +1275,9 @@ export function CapturePanel({
                 className="weq-set-btn"
                 onClick={() => {
                   setInstallGuide(false);
-                  void client.help.openExternal
-                    .mutate({ url: 'https://npcap.com/#download' })
-                    .catch((error) => {
-                      if (alive.current && !view.closed) setError(errMsg(error));
-                    });
+                  void openExternalLink('https://npcap.com/#download').catch((error) => {
+                    if (alive.current && !view.closed) setError(errMsg(error));
+                  });
                 }}
               >
                 <Download size={14} />

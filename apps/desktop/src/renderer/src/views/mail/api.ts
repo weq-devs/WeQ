@@ -11,6 +11,7 @@ import type {
 } from '@weq/service/mail';
 import { client } from '../../trpc/client';
 import { IS_WEB } from '../../lib/target';
+import { pickAccountFile } from '../../lib/accountFilePicker';
 import type { ExportSavePolicy } from '@weq/service';
 
 export type MailSubmission =
@@ -90,8 +91,15 @@ export function createMailApi(selfUin: string): MailApi {
       request((requestId) => client.mail.send.mutate({ selfUin, requestId, message, draft })),
     notifications: (enabled) =>
       request((requestId) => client.mail.notifications.mutate({ selfUin, requestId, enabled })),
-    upload: (signal) =>
-      request((requestId) => client.mail.upload.mutate({ selfUin, requestId }), signal),
+    upload: async (signal) => {
+      const picked = IS_WEB ? await pickAccountFile('file') : undefined;
+      if (IS_WEB && !picked) return null;
+      signal?.throwIfAborted();
+      return request(
+        (requestId) => client.mail.upload.mutate({ selfUin, requestId, path: picked?.path }),
+        signal,
+      );
+    },
     download: async (id, signal) => {
       const result = await request(
         (requestId) => client.mail.download.mutate({ selfUin, requestId, id }),

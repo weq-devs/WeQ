@@ -36,6 +36,8 @@ export type LocalMediaRef = {
   path?: string;
   /** 无路径时的字节（剪贴板截图等）。 */
   bytes?: Uint8Array;
+  /** 浏览器设备文件保留为 Blob 句柄，发送时分片读取。 */
+  file?: File;
   name: string;
   /**
    * 本地预览地址（图片 / 视频的 blob: object URL，语音的录音 blob URL）——
@@ -56,8 +58,9 @@ export type SuperStickerEntry = {
 export type ComposerSendPlan =
   | { kind: 'elements'; elements: unknown[] }
   | ({ kind: 'file'; fileName: string } & (
-      | { path: string; bytes?: never }
-      | { bytes: Uint8Array; path?: never }
+      | { path: string; bytes?: never; file?: never }
+      | { bytes: Uint8Array; path?: never; file?: never }
+      | { file: File; path?: never; bytes?: never }
     ))
   | { kind: 'aiVoice'; text: string; voiceId: string }
   | {
@@ -259,14 +262,16 @@ function mapWireElement(
     case 'file': {
       const key = localKeyOf(element);
       const local = key ? localByKey.get(key) : undefined;
-      if (!local?.path && !local?.bytes?.length) {
+      if (!local?.path && !local?.bytes?.length && !local?.file?.size) {
         throw new Error(`找不到文件「${String(element.fileName ?? '')}」的本地数据，请重新选择。`);
       }
       const fileName =
         typeof element.fileName === 'string' && element.fileName ? element.fileName : local.name;
       return local.path
         ? { kind: 'file', path: local.path, fileName }
-        : { kind: 'file', bytes: local.bytes!, fileName };
+        : local.file
+          ? { kind: 'file', file: local.file, fileName }
+          : { kind: 'file', bytes: local.bytes!, fileName };
     }
     default:
       throw new Error(`不支持的发送元素：${String(element.kind)}`);
