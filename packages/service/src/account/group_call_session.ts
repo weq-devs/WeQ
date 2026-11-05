@@ -699,7 +699,9 @@ export class GroupCallSession {
     if (!frame) return;
     const at = this.timers.now();
     // 调试：打印帧头，确认是不是关键帧（SPS 67 / IDR 65）
-    const head = [...frame.data.subarray(0, 8)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const head = [...frame.data.subarray(0, 8)]
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
     this.opts.logger?.info?.('群通话视频帧', {
       len: frame.data.length,
       fragments: frame.fragments,

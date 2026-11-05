@@ -33,6 +33,8 @@ const SELF_UID = 'u_self';
 const PEER_UIN = 2940720980;
 const PEER_UID = 'u_peer';
 const GROUP_ID = 673646675;
+/** 退出包重发序列的总时长（10 次 × 100ms），假时钟要推进这么久。 */
+const EXIT_RETRY_TOTAL_MS = 1500;
 const AUTH_KEY = new Uint8Array(GROUP_SESSION_KEY_LEN).fill(0x11);
 
 // ─────────────────────────── 测试替身 ───────────────────────────
@@ -375,18 +377,38 @@ describe('麦克风', () => {
 
 describe('挂断', () => {
   it('挂断后状态是 ended、socket 已关闭', async () => {
-    const { session, transport } = makeSession();
+    const { session, transport, timers } = makeSession();
     await session.start();
-    await session.hangup();
+    const done = session.hangup();
+    // 退出包按 100ms 重发，假时钟要推进才会走完序列。
+    timers.advance(EXIT_RETRY_TOTAL_MS);
+    await done;
     expect(session.snapshot().state).toBe('ended');
     expect(session.snapshot().endReason).toBe('hangup');
     expect(transport.closed).toBe(true);
   });
 
-  it('重复挂断是幂等的', async () => {
-    const { session } = makeSession();
+  it('退出包会重发多次', async () => {
+    const { session, transport, timers } = makeSession();
     await session.start();
-    await session.hangup();
+    transport.deliver(memberSelfReady);
+    transport.deliver(gcsKeyPushPacket());
+    const before = transport.sent.length;
+    const done = session.hangup();
+    timers.advance(EXIT_RETRY_TOTAL_MS);
+    await done;
+    const exits = transport.sent
+      .slice(before)
+      .filter((item) => parseGroupRelay(item.data)?.cmd === GroupRelayCmd.exit);
+    expect(exits.length).toBeGreaterThan(1);
+  });
+
+  it('重复挂断是幂等的', async () => {
+    const { session, timers } = makeSession();
+    await session.start();
+    const done = session.hangup();
+    timers.advance(EXIT_RETRY_TOTAL_MS);
+    await done;
     await session.hangup();
     expect(session.snapshot().state).toBe('ended');
   });
