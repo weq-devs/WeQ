@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
 import { withDatabaseRequest } from '@weq/db';
 import { clearCompletedTasks } from './clear_completed_tasks';
+import { readContactSpecialCare } from './contact_special_care';
 import { startFlashDownloads } from './flash_save';
 import { FileUploadStaging } from './album_video_staging';
 import { pickedBrowserFiles } from '../../browser_files';
@@ -3793,8 +3794,8 @@ export const accountRouter = router({
       const services = requireServices();
       if (String(getAppContext().account?.context.uin) !== input.selfUin)
         throw new Error('账号已切换，请重新读取特别关心。');
-      requireOnlineQqForWeb(services);
-      const result = await services.webQuery.getSpecialCare();
+      requireQqOnlineForAlbum(services);
+      const result = await readContactSpecialCare(services);
       if (getAppContext().services !== services)
         throw new Error('账号已切换，请重新读取特别关心。');
       return result;
