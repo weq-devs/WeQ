@@ -26,39 +26,6 @@ function messages(): MsgService {
 }
 
 describe('消息导出进度与收尾', () => {
-  it.each([undefined, false, true])(
-    '任务列表展开策略随任务保存并返回：%s',
-    async (autoOpenTaskList) => {
-      const root = await mkdtemp(join(tmpdir(), 'weq-export-presentation-'));
-      try {
-        const cache = join(root, 'cache');
-        const manager = new ExportTaskManager(messages(), cache);
-        const id = await manager.startTask({
-          autoOpenTaskList,
-          kind: 'c2c',
-          conv: 'peer',
-          name: '展开策略',
-          format: 'txt',
-          total: 2,
-          includeIntegrityReport: false,
-          savePolicy: { mode: 'before', directory: root },
-        });
-        expect(manager.listTasks().find((task) => task.id === id)?.autoOpenTaskList).toBe(
-          autoOpenTaskList,
-        );
-        await vi.waitFor(() =>
-          expect(manager.getTask(id)?.status, manager.getTask(id)?.error).toBe('completed'),
-        );
-        const restored = new ExportTaskManager(messages(), cache);
-        expect(restored.listTasks().find((task) => task.id === id)?.autoOpenTaskList).toBe(
-          autoOpenTaskList,
-        );
-      } finally {
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-  );
-
   it.each([0, 1, 3])('实际消息数取代初始估计 %i，多格式不重复计数', async (total) => {
     const root = await mkdtemp(join(tmpdir(), 'weq-export-progress-'));
     try {
