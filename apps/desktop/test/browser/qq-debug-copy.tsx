@@ -20,7 +20,8 @@ Object.assign(window, {
 useViewState.getState().enterSelect('existing');
 const startup = new URLSearchParams(location.search).has('startup');
 const restricted = new URLSearchParams(location.search).has('restricted');
-if (restricted) useViewState.setState({ view: 'main', openedUin: '10001' });
+const startupOffline = new URLSearchParams(location.search).has('startup-offline');
+if (restricted && !startupOffline) useViewState.setState({ view: 'main', openedUin: '10001' });
 createRoot(document.getElementById('root')!).render(
   startup ? (
     <>
@@ -42,7 +43,7 @@ createRoot(document.getElementById('root')!).render(
     </>
   ) : restricted ? (
     <>
-      <RestrictedModeIndicator />
+      {!startupOffline && <RestrictedModeIndicator />}
       <RestrictedModeHost />
       <DialogHost />
     </>

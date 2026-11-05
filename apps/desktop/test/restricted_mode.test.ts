@@ -42,6 +42,7 @@ const mock = vi.hoisted(() => ({
   banner: true,
   settingsLoading: false,
   launchQq: vi.fn(async () => true),
+  debugAction: vi.fn(async () => ({})),
   requestFull: vi.fn(),
   refreshRkeys: vi.fn(),
   refetch: vi.fn(async () => ({})),
@@ -57,6 +58,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     bootstrap: {
       launchQq: { mutate: mock.launchQq },
+      qqDebugCopyAction: { mutate: mock.debugAction },
       openQqDataAccessSettings: { mutate: mock.openSettings },
     },
     account: {
@@ -133,6 +135,16 @@ const utils = {
 };
 
 describe('受限原因按实际能力判定', () => {
+  it.each([true, false, null, undefined])('离线登录引导跟随 SIP 状态：%s', (sipEnabled) => {
+    const inputs = [
+      startupRestrictionReasons({ probe: { count: 0 }, sipEnabled }),
+      restrictionReasons({ access: { ...ready, qqOnline: false }, sipEnabled }),
+    ];
+    for (const reasons of inputs) {
+      expect(reasons.map((reason) => reason.code)).toEqual(['offline']);
+      expect(reasons[0]?.guidance.includes('QQ 调试副本')).toBe(sipEnabled === true);
+    }
+  });
   it('启动状态文件未知但 QQ 进程存在时，不显示不在线；数据读取受限独立列出', () => {
     const reasons = startupRestrictionReasons({
       probe: { count: null, runningCount: 1 },
@@ -208,6 +220,7 @@ beforeEach(() => {
   mock.banner = true;
   mock.settingsLoading = false;
   mock.launchQq.mockReset().mockResolvedValue(true);
+  mock.debugAction.mockReset().mockResolvedValue({});
   mock.requestFull.mockReset().mockResolvedValue({ requested: true });
   mock.refreshRkeys.mockReset().mockResolvedValue(false);
   mock.refetch.mockClear();
@@ -608,6 +621,33 @@ describe('受限模式启动 QQ', () => {
   function launchButton(host: HTMLElement) {
     return [...host.querySelectorAll('button')].find((button) => button.textContent === '启动 QQ');
   }
+  it.each([
+    ['main', 'missing'],
+    ['main', 'ready'],
+    ['startup', 'missing'],
+    ['startup', 'ready'],
+  ] as const)('%s 页 SIP 开启且离线时使用 %s 调试副本入口', async (view, state) => {
+    mock.sip = true;
+    mock.access = { ...ready, qqOnline: false };
+    mock.onlineCount = 0;
+    mock.debugState = state;
+    useViewState.setState({ view, openedUin: view === 'main' ? '10001' : null });
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    expect(launchButton(f.host)).toBeUndefined();
+    expect(f.host.textContent).toContain('独立的 QQ 调试副本');
+    const button = [...f.host.querySelectorAll('button')].find(
+      (item) => item.textContent === (state === 'missing' ? '创建副本' : '启动副本'),
+    );
+    expect(button?.disabled).toBe(false);
+    await act(async () => button!.click());
+    expect(mock.debugAction).toHaveBeenCalledWith({
+      action: state === 'missing' ? 'prepare' : 'launch',
+    });
+    expect(mock.launchQq).not.toHaveBeenCalled();
+    expect(f.host.textContent).toContain('QQ 不在线');
+    expect(useRestrictedMode.getState().enteringSince).toBeNull();
+  });
   it.each(['main', 'startup'] as const)(
     '%s 页确认 QQ 离线时可启动，启动不冒充登录成功',
     async (view) => {

@@ -281,7 +281,9 @@ export function RestrictedModeHost() {
   // 由运行 QQ 的宿主判断系统；Web 客户端的操作系统不能代表宿主。
   const sip = trpc.bootstrap.sipEnabled.useQuery(undefined, { staleTime: 60_000 });
   const showDebugCopy =
-    IS_MAC && sip.data === true && reasons.some((reason) => reason.code === 'sip');
+    IS_MAC &&
+    sip.data === true &&
+    reasons.some((reason) => reason.code === 'sip' || reason.code === 'offline');
   const online = trpc.bootstrap.probeOnline.useQuery(undefined, {
     enabled: !active,
     refetchInterval: 5000,
@@ -301,6 +303,7 @@ export function RestrictedModeHost() {
         })
       : startupRestrictionReasons({
           probe: online.data,
+          sipEnabled: sip.data,
           dataStatus: dataAccess.data?.status,
           failed: online.isError,
         });
@@ -554,7 +557,7 @@ export function RestrictedModeHost() {
   }
   const actions = (
     <>
-      {reasons.some((reason) => reason.code === 'offline') && (
+      {!showDebugCopy && reasons.some((reason) => reason.code === 'offline') && (
         <button
           type="button"
           className="weq-set-btn"

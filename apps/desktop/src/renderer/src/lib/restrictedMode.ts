@@ -36,9 +36,21 @@ export function dataAccessRestriction(status?: string): Restriction[] {
   ];
 }
 
+function offlineRestriction(sipEnabled?: boolean | null): Restriction {
+  return {
+    code: 'offline',
+    title: 'QQ 不在线',
+    guidance:
+      sipEnabled === true
+        ? '请启动独立的 QQ 调试副本，并在副本中登录目标账号；尚未创建时请先创建副本。SIP 可以保持开启，登录后会自动重新检查。'
+        : '请在本机 QQ 登录当前账号，登录后会自动重新检查。',
+  };
+}
+
 /** 启动页未选账号，进程在运行与账号已登录是两项不同事实。 */
 export function startupRestrictionReasons(input: {
   probe?: { count: number | null; runningCount?: number | null };
+  sipEnabled?: boolean | null;
   dataStatus?: string;
   failed?: boolean;
 }): Restriction[] {
@@ -52,11 +64,7 @@ export function startupRestrictionReasons(input: {
         : '暂时无法读取 QQ 的登录状态，请重新检查。',
     });
   } else if (input.probe?.count === 0) {
-    reasons.push({
-      code: 'offline',
-      title: 'QQ 不在线',
-      guidance: '请在本机 QQ 登录当前账号，登录后会自动重新检查。',
-    });
+    reasons.push(offlineRestriction(input.sipEnabled));
   }
   return reasons;
 }
@@ -73,12 +81,7 @@ export function restrictionReasons(input: {
       : [];
   const access = input.access;
   const reasons: Restriction[] = [];
-  if (!access.qqOnline)
-    reasons.push({
-      code: 'offline',
-      title: 'QQ 不在线',
-      guidance: '请在本机 QQ 登录当前账号，登录后会自动重新检查。',
-    });
+  if (!access.qqOnline) reasons.push(offlineRestriction(input.sipEnabled));
   if (!access.attachEnabled)
     reasons.push({
       code: 'disabled',
