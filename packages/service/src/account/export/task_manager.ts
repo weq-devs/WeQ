@@ -1093,9 +1093,9 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   async startTask(opts: {
+    autoOpenTaskList?: boolean;
     extra?: import('../../common/export_content').ExportExtraOptions;
     content?: ExportContentPolicy;
-    autoOpenTaskList?: boolean;
     completeAvatar?: boolean;
     profile?: ExportProfile;
     incrementalSupport?: boolean;
@@ -1184,9 +1184,9 @@ export class ExportTaskManager extends EventEmitter {
     )
       throw new Error('所选附加数据需要 WeQ JSON/JSONL，请选择格式或关闭相应附加数据。');
     const archiveSettings = {
+      autoOpenTaskList: opts.autoOpenTaskList,
       scanId: randomUUID(),
       scanStartedAt: Date.now(),
-      autoOpenTaskList: opts.autoOpenTaskList,
       extra: opts.extra ? structuredClone(opts.extra) : undefined,
       profile: 'full',
       incrementalSupport: !opts.chatlab && structuredFormats.length > 0,
