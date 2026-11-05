@@ -57,10 +57,17 @@ it.each(['home', 'messages', 'last'] as const)(
   },
 );
 
-it('旧配置默认保留现场；启动偏好可备份，拒绝无效值', () => {
+it('未设置启动页面时默认进入主页，正常退出后仍使用主页', () => {
   const restart = setup();
   const config = restart();
-  expect(config.getSettings().startupPage).toBe('last');
+  expect(config.getSettings().startupPage).toBe('home');
+  config.markCleanExit();
+  expect(restart().getStartupPage()).toBe('home');
+});
+
+it('启动偏好可备份，拒绝无效值', () => {
+  const restart = setup();
+  const config = restart();
   config.setSettings({ startupPage: 'messages' });
   const snapshot = snapshotWeqSettings(config.getSettings());
   expect(snapshot.startupPage).toBe('messages');

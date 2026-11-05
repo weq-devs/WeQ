@@ -139,7 +139,7 @@ export function StartupSection() {
           control={
             <SegmentedControl
               label="启动时进入"
-              value={settings.data?.startupPage ?? 'last'}
+              value={settings.data?.startupPage ?? 'home'}
               disabled={settings.isLoading || !!settings.error || pageUpdate.isLoading}
               options={
                 [
