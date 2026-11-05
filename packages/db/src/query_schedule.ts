@@ -1,5 +1,12 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { resolve } from 'node:path';
+import {
+  beginQueryTrace,
+  databaseQueryDiagnostics,
+  withDatabaseWorkPhase,
+  type QuerySource,
+  type QueryTrace,
+} from './query_diagnostics';
 
 export type DatabasePriority = 'interactive' | 'background';
 const priority = new AsyncLocalStorage<{ priority: DatabasePriority; signal?: AbortSignal }>();
@@ -49,6 +56,7 @@ function summary(data: Series) {
   };
 }
 interface Job {
+  trace?: QueryTrace;
   at: number;
   priority: DatabasePriority;
   signal?: AbortSignal;
@@ -72,12 +80,14 @@ export function promoteDatabaseSignal(signal: AbortSignal): void {
   for (const queue of queues.values()) {
     if (queue.current?.signal === signal) {
       queue.current.priority = 'interactive';
+      if (queue.current.trace) queue.current.trace.priority = 'interactive';
       metric(queue.path).lastInteractiveAt = performance.now();
     }
     const jobs = queue.background.filter((job) => job.signal === signal);
     queue.background = queue.background.filter((job) => job.signal !== signal);
     for (const job of jobs) {
       job.priority = 'interactive';
+      if (job.trace) job.trace.priority = 'interactive';
       queue.interactive.push(job);
     }
   }
@@ -146,7 +156,7 @@ export async function measureMessageWork<T>(
 ): Promise<T> {
   const began = performance.now();
   try {
-    return await run();
+    return await withDatabaseWorkPhase(phase, run);
   } finally {
     recordMessageWork(dbPath, phase, performance.now() - began);
   }
@@ -157,6 +167,7 @@ export function scheduleDatabase<T>(
   dbPath: string,
   run: () => Promise<T>,
   binding: object = defaultBinding,
+  source?: QuerySource,
 ): Promise<T> {
   const path = resolve(dbPath),
     key = `${bindingId(binding)}:${path}`,
@@ -178,10 +189,15 @@ export function scheduleDatabase<T>(
       const pending = state[job.priority].indexOf(job);
       if (pending < 0) return;
       state[job.priority].splice(pending, 1);
+      if (job.trace) {
+        job.trace.endedAtMs = performance.now();
+        job.trace.outcome = 'cancelled';
+      }
       signal?.removeEventListener('abort', abort);
       reject(new DOMException('数据库读取已取消', 'AbortError'));
     };
     const job: Job = {
+      trace: beginQueryTrace(path, kind, source, state.current?.trace),
       at: performance.now(),
       priority: kind,
       signal,
@@ -190,14 +206,27 @@ export function scheduleDatabase<T>(
         signal?.removeEventListener('abort', abort);
         record(data.wait, performance.now() - job.at);
         const began = performance.now();
+        if (job.trace) {
+          job.trace.priority = job.priority;
+          job.trace.startedAtMs = began;
+          job.trace.outcome = 'running';
+        }
         try {
           const result = await run();
+          if (job.trace) {
+            job.trace.outcome = 'ok';
+            if (Array.isArray(result)) job.trace.rows = result.length;
+          }
           if (Array.isArray(result)) data.rows += result.length;
           resolve(result);
         } catch (error) {
+          if (job.trace)
+            job.trace.outcome =
+              error instanceof Error && error.name === 'AbortError' ? 'cancelled' : 'failed';
           data.failed++;
           reject(error);
         } finally {
+          if (job.trace) job.trace.endedAtMs = performance.now();
           record(data.nativeAwait, performance.now() - began);
           if (job.priority === 'interactive') data.lastInteractiveAt = performance.now();
         }
@@ -296,5 +325,13 @@ export function databasePerformance(dbPath: string) {
       Object.entries(data.phases).map(([name, values]) => [name, summary(values)]),
     ),
     partition: { indexed: data.indexed, uidFallback: data.fallback },
+    diagnostics: databaseQueryDiagnostics(
+      key,
+      active.flatMap((queue) =>
+        [queue.current, ...queue.interactive, ...queue.background].flatMap((job) =>
+          job?.trace ? [job.trace] : [],
+        ),
+      ),
+    ),
   };
 }

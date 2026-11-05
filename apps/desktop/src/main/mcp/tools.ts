@@ -16,6 +16,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
+import { databasePerformance } from '@weq/db';
 import { getAppContext, type AccountServices } from '../context/app_context';
 import { fullModeAllowed } from '../context/full_mode';
 import { assertAccountToolScope } from './account_scope';
@@ -1119,6 +1120,24 @@ export const AI_TOOLS: AiTool[] = [
     run: async () => {
       const profile = await services().profile.getSelfProfile();
       return profile ? userProfileToWire(profile) : null;
+    },
+  }),
+
+  tool({
+    name: 'get_message_performance',
+    description:
+      '读取当前账号消息数据库的性能快照，不执行聊天查询。返回排队/原生等待、在途任务及固定阶段统计；' +
+      '以 WEQ_DATABASE_DIAGNOSTICS=1 启动时额外返回匿名请求编号、查询指纹及源码调用点。' +
+      '不含正文、账号/会话标识、SQL、参数或数据库路径；native 等待不等于纯 SQL 执行耗时。',
+    input: z.object({}),
+    run: async () => {
+      services();
+      const session = getAppContext().account;
+      if (!session) throw new Error('账号尚未打开');
+      return {
+        runtime: { pid: process.pid, electron: process.versions.electron ?? null },
+        database: databasePerformance(session.msgDbPath),
+      };
     },
   }),
 
