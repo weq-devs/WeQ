@@ -121,6 +121,12 @@ export interface SessionMaterial {
   a2?: string;
   d2?: string;
   d2Key?: string;
+  /**
+   * `SecToken`（12 字符 base64 **原文**，不是 hex）。与 a2/d2/d2key 同批从 QQ
+   * 进程内存里扫出——它同样只存在于登录后的会话里，签名时填进
+   * `SsoSecureInfo.sec_token`。扫不到就是 `undefined`。
+   */
+  secToken?: string;
 }
 
 /** `signPacket` 的返回：三个字段都是大写十六进制（对齐 Lagrange 的 SsoSecureInfo）。 */
@@ -159,10 +165,24 @@ export interface SsoSessionConfig {
   subAppId: number;
   /** Current QQ client version, e.g. `7.0.1-52892`. */
   clientVersion?: string;
+  /**
+   * 完整的 QUA（如 `V1_LNX_NQ_3.2.34_53644_GW_B`），由 WeQ 从 `major.node` 扫出后传入。
+   *
+   * 签名时需要它拼 `SecExtra`（protobuf `{2: QUA}`）——原生侧在 WeQ 进程里
+   * 算不出这个值（没有 QQ 的登录会话），也必须避免在签名路径上重新扫 major。
+   */
+  qua?: string | null;
   /** 覆盖会话常量 `clientConnSeq`；不传 = 取建连时的 unix 秒。 */
   clientConnSeq?: string | null;
   /** 覆盖 tag 15 `traceParent`（仅离线比对用）。 */
   traceParent?: string | null;
+  /**
+   * `SecToken`（12 字符 base64 **原文**），来自 `scanSessionMaterial`。
+   *
+   * 签名函数在 WeQ 进程里算出的 token 恒为空（没有 QQ 的登录会话），所以必须
+   * 由这里把真值传下去，否则签出来的 `SsoSecureInfo.sec_token` 是空的。
+   */
+  secToken?: string | null;
 }
 
 /** Native images actually mapped by a QQ process, including macOS hot updates. */
@@ -776,15 +796,20 @@ export interface NtHelperBinding {
 
   // --- 内存扫描（attach） ---
   /**
-   * 扫描某 QQ 进程的内存，取出该会话的 a2 / d2 / d2key。
+   * 扫描某 QQ 进程的内存，取出该会话的 a2 / d2 / d2key 与 `SecToken`。
    *
    * 运行时 RTTI 自举，零硬编码 RVA。**权限要求与进程注入一致**：
    * Linux 需要 root（或 CAP_SYS_PTRACE）且 `/proc/sys/kernel/yama/ptrace_scope`
    * 放行；macOS 需要 root，且目标未启用强化运行时保护（QQ 启用了，所以得关
    * SIP）；Windows 需要管理员。失败时 reject，错误信息本身就是提权/版本变化的
    * 诊断提示。
+   *
+   * `uin` / `uid` 用于给 `SecToken` 精筛：内存里可能残留旧会话的 token，
+   * 当前会话的记录附近带 uin（macOS / Linux）或 uid（Windows）。调用方通常
+   * 两个都知道，**都传**；都不传时原生侧退回「命中次数投票」，在没有旧会话
+   * 残留的情况下仍能得出正确结果。
    */
-  scanSessionMaterial(pid: number): Promise<SessionMaterial>;
+  scanSessionMaterial(pid: number, uin?: string, uid?: string): Promise<SessionMaterial>;
   /**
    * 从 QQ 数据根路径离线计算/读取设备 guid（32 位小写 hex），或 `null`。
    *
@@ -1078,6 +1103,38 @@ export interface NtHelperBinding {
    * 调用方下一帧再取。
    */
   encodeVideoFrame(y: Buffer, u: Buffer, v: Buffer): VideoFrameResult | null;
+
+  // --- 群通话的 H.264 ---
+  /**
+   * 打开群通话用的 H.264 编码器。
+   *
+   * 与 {@link openVideoEncoder}（私聊的 H.265）并列：群通话抓包里的 SPS 是
+   * `67 64 00 1f`（H.264 High 3.1），不是 t265 的 H.265。
+   *
+   * 用 QQ 自带的 `libopenh264.so`（linux `resources/app/avsdk/` 下）。
+   * **目前只有 linux 支持**：macOS 的 openh264 静态链进 `libAVSDKPlugin.dylib`、
+   * Windows 的编码走自有 `CVideoEncoder`，两端都要另外逆。
+   *
+   * `keyint` 是关键帧间隔（帧数），不传按 QQ 客户端的 30。
+   */
+  openH264Encoder(
+    modulesDir: string,
+    width?: number | null,
+    height?: number | null,
+    fps?: number | null,
+    bitrateKbps?: number | null,
+    keyint?: number | null,
+  ): Promise<void>;
+  /** 关掉 H.264 编码器。群通话结束时调用。 */
+  closeH264Encoder(): void;
+  /** 当前 H.264 编码器是否已打开。 */
+  isH264EncoderOpen(): boolean;
+  /**
+   * 用 H.264 编一帧。输入 I420 三个平面，输出 Annex B 裸流。
+   *
+   * 实时模式下一般每帧都有输出，返回 `null` 表示这一帧没编出东西。
+   */
+  encodeH264Frame(y: Buffer, u: Buffer, v: Buffer): VideoFrameResult | null;
 
   /**
    * Sign a red bag pre-pack request (`hb_pc_pre_pack`) — the plaintext `f101`.

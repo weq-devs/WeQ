@@ -414,6 +414,7 @@ export class AccountConfigService {
       hasA2: material.a2 !== undefined,
       hasD2: material.d2 !== undefined,
       hasD2Key: material.d2Key !== undefined,
+      hasSecToken: material.secToken !== undefined,
       pid: material.pid ?? null,
     });
   }
@@ -606,6 +607,11 @@ export interface AccountSessionMaterial {
   a2?: string;
   d2?: string;
   d2Key?: string;
+  /**
+   * `SecToken`（12 字符 base64 **原文**）。与 a2/d2/d2key 同批从 QQ 进程内存
+   * 扫出，生命周期一致：账号下线即清除（它绑定在那个 QQ 进程的登录会话上）。
+   */
+  secToken?: string;
   /**
    * 读到这份物料时 QQ 的 pid。用来判断「这份缓存是不是仍属于当前那个 QQ 进程」
    * —— 本地凭据齐全时直接拿它登记 SSO（不读内存、不提权）；pid 对不上说明 QQ

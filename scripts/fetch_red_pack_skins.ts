@@ -28,7 +28,9 @@
  * `fetch_dress_resources.ts` 完全一致。
  */
 
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { loadNative } from '../packages/native/src';
 import { ensureAttached, testEnv } from '../packages/testkit/src';
@@ -152,6 +154,25 @@ function readExisting(): Map<number, SkinRecord> {
   return out;
 }
 
+/**
+ * 落盘后用 Biome 按仓库格式刷一遍。
+ *
+ * `JSON.stringify(_, null, 2)` 与 Biome 的排版不一致（短数组 biome 会压成一行，
+ * 如 `"range": [1039, 2683]`），直接写会让 `pnpm format:check` 红。这个文件是
+ * 入库产物，必须过门禁，所以写完就地格式化 —— 别依赖谁手动跑 `pnpm format`。
+ */
+function formatInPlace(file: string): void {
+  try {
+    const biome = createRequire(import.meta.url).resolve('@biomejs/biome/bin/biome');
+    const res = spawnSync(process.execPath, [biome, 'format', '--write', file], {
+      stdio: 'inherit',
+    });
+    if (res.status !== 0) console.warn(`  ⚠ Biome 格式化 ${file} 失败，产物需手动 pnpm format`);
+  } catch (err) {
+    console.warn(`  ⚠ 找不到 Biome，${file} 需手动 pnpm format：${String(err)}`);
+  }
+}
+
 function writeAll(merged: Map<number, SkinRecord>): number {
   mkdirSync(OUT_DIR, { recursive: true });
   const skins = [...merged.values()].sort((a, b) => a.id - b.id);
@@ -162,6 +183,7 @@ function writeAll(merged: Map<number, SkinRecord>): number {
     skins,
   };
   writeFileSync(OUT_FILE, `${JSON.stringify(payload, null, 2)}\n`);
+  formatInPlace(OUT_FILE);
   return skins.length;
 }
 

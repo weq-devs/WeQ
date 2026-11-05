@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw, ShieldCheck, Trash2, Wrench } from 'lucide-react';
+import { AlertTriangle, RefreshCw, ShieldCheck, Trash2, Wrench } from 'lucide-react';
 import type { LongTermAuthorizationStatus } from '../../../../shared/long_term_authorization';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { Card, Row } from './controls';
+import { authorizationFailure, type AuthorizationFailure } from '../../lib/authorizationError';
 import { IS_WEB } from '../../lib/target';
 
 const STATE_LABELS = {
@@ -17,7 +18,7 @@ export function LongTermAuthorizationSection() {
   const active = useTabActive();
   const [status, setStatus] = useState<LongTermAuthorizationStatus | null>(null);
   const [pending, setPending] = useState<'status' | 'install' | 'remove' | null>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<AuthorizationFailure | null>(null);
   const operation = useRef(false);
   const mounted = useRef(true);
   const confirm = useDialog((state) => state.confirm);
@@ -29,7 +30,7 @@ export function LongTermAuthorizationSection() {
       if (!bridge || operation.current) return;
       operation.current = true;
       setPending(kind);
-      setError('');
+      setError(null);
       try {
         if (kind !== 'status') {
           const approved = await confirm(
@@ -45,7 +46,14 @@ export function LongTermAuthorizationSection() {
         const result = kind === 'status' ? await bridge.status() : await bridge[kind](development);
         if (mounted.current) setStatus(result);
       } catch (failure) {
-        if (mounted.current) setError(failure instanceof Error ? failure.message : String(failure));
+        // 失败原文是助手的英文 bail!，渲染层统一翻成用户能照着做的说明。
+        if (mounted.current)
+          setError(
+            authorizationFailure(failure instanceof Error ? failure.message : String(failure), {
+              development,
+              operation: kind === 'remove' ? 'remove' : 'install',
+            }),
+          );
       } finally {
         operation.current = false;
         if (mounted.current) setPending(null);
@@ -88,8 +96,14 @@ export function LongTermAuthorizationSection() {
         }
       />
       {error && (
-        <p className="weq-set-note" role="alert">
-          {error}
+        <p
+          className={`weq-set-note weq-set-note-multiline${
+            error.needsUserAction ? ' weq-set-note-warn' : ''
+          }`}
+          role="alert"
+        >
+          {error.needsUserAction && <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />}
+          <span>{error.message}</span>
         </p>
       )}
       {bridge && (

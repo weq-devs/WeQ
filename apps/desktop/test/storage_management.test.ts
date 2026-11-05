@@ -9,6 +9,7 @@ const fixture = vi.hoisted(() => ({
   confirm: vi.fn(async (_title: string, _body: string, _options: unknown) => true),
   clear: vi.fn(async () => ({ freedBytes: 1024, cleared: ['avatar'], failed: [] })),
   exitClear: vi.fn(async () => ({ scheduled: true })),
+  push: vi.fn(),
   refetch: vi.fn(),
   items: [
     {
@@ -57,7 +58,7 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
     selector({ confirm: fixture.confirm, showError: vi.fn() }),
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({
-  useToast: (selector: (state: unknown) => unknown) => selector({ push: vi.fn() }),
+  useToast: (selector: (state: unknown) => unknown) => selector({ push: fixture.push }),
 }));
 
 afterEach(() => {
@@ -66,7 +67,7 @@ afterEach(() => {
 });
 
 describe('WeQ 存储管理页面', () => {
-  it('风险数据不参与默认清理，明确选择后提示不可恢复并走退出清除接口', async () => {
+  it('风险数据不参与默认清理，明确选择后走清除并重启，取消不退出', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const originalLength = fixture.items.length;
@@ -94,12 +95,24 @@ describe('WeQ 存储管理页面', () => {
       )!;
       expect(checkbox.checked).toBe(false);
       act(() => checkbox.closest('label')!.click());
+      expect(button.textContent).toBe('清除并重启');
       fixture.confirm.mockResolvedValueOnce(false);
       await act(async () => button.click());
       expect(fixture.exitClear).not.toHaveBeenCalled();
       expect(fixture.confirm.mock.calls.at(-1)?.[1]).toContain('失去回滚能力');
+      expect(fixture.confirm).toHaveBeenLastCalledWith(
+        '清除并重启',
+        expect.stringContaining('清除完成后自动重新打开 WeQ'),
+        expect.objectContaining({ okLabel: '清除并重启' }),
+      );
       await act(async () => button.click());
       expect(fixture.exitClear).toHaveBeenCalledWith({ ids: ['db_repair'], acknowledgeRisk: true });
+      expect(fixture.push).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          title: '已安排清除并重启',
+          message: expect.stringContaining('自动重新打开 WeQ'),
+        }),
+      );
     } finally {
       act(() => root.unmount());
       host.remove();

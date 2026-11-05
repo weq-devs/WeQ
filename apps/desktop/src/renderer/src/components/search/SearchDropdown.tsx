@@ -312,7 +312,7 @@ export function SearchDropdown({
           </div>
           {indexBuilding ? (
             <div className="weq-search-index-hint">
-              正在建立本地搜索索引，消息/文件首次查询较慢…
+              正在校验 QQ 搜索索引，消息/文件首次查询可能较慢…
             </div>
           ) : null}
           <div role="listbox" aria-label="搜索结果" aria-busy={quickLoading || slowLoading}>

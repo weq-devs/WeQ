@@ -5593,6 +5593,25 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   margin-top: 2px;
 }
 
+/*
+ * 多行说明（长期授权的报错修复指引）：保留文案里的换行，并让用户能选中
+ * 复制里面的命令（`sudo chown ...`），长路径在窄卡片里折行而不撑破。
+ */
+.weq-set-note.weq-set-note-multiline {
+  /* pre-wrap 而不是 pre-line：指引里命令前的缩进要保留下来。 */
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+/*
+ * 深色下 `html[data-theme] .weq-set-note` 的灰字优先级比 `.weq-set-note-warn`
+ * 高，警告色会被吃掉。这里的多行指引必须让用户看出「需要你自己动手」，显式提权。
+ */
+html[data-theme] .weq-set-note.weq-set-note-multiline.weq-set-note-warn {
+  color: var(--weq-warn-fg);
+}
+
 /* ────────────────────────────────────────────────────────────────────────
  * 设置面板内嵌的会话选择器（防撤回复用导出页 ConversationPicker）。
  * 导出页 picker 是为宽布局设计的：搜索框/工具条带 16px 横向 margin、列表撑满

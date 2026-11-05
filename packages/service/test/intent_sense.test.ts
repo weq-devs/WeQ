@@ -1841,4 +1841,85 @@ describe('IntentSenseService', () => {
     expect(cleared.clearedFiles).toBe(1);
     expect(svc.getMessageAnalyses('c2c', 'u_peer', ['1']).length).toBe(0);
   });
+
+  it('getSuggestions 在途请求并发去重，防止重复触发 API 调用', async () => {
+    const msgs = [textMsg(1n, 'u_peer', '明天下午一起去打羽毛球吗？', 1000)];
+    const fetchMock = vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{"replies":[{"text":"好啊，几点去？"}]}' } }],
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      resolveEndpoint: (ref) => ({ baseUrl: 'http://api', apiKey: 'k', model: ref.model }),
+    });
+    await svc.setConfig({
+      enabled: true,
+      suggestionsEnabled: true,
+      suggestionProviderRef: { providerId: 'p', model: 'm' },
+    });
+
+    const [res1, res2] = await Promise.all([
+      svc.getSuggestions('c2c', 'u_peer'),
+      svc.getSuggestions('c2c', 'u_peer'),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(res1).toEqual([{ text: '好啊，几点去？' }]);
+    expect(res2).toEqual([{ text: '好啊，几点去？' }]);
+  });
+
+  it('api 引擎下命中 hard 规则或日常应答时直接本地短路，免调 API', async () => {
+    const msgs = [
+      textMsg(1n, 'u_peer', '好的收到', 1000),
+      textMsg(2n, 'u_peer', '啊对对对', 2000),
+      textMsg(3n, 'u_peer', '[动画表情]', 3000),
+    ];
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      resolveEndpoint: (ref) => ({ baseUrl: 'http://api', apiKey: 'k', model: ref.model }),
+    });
+    await svc.setConfig({
+      enabled: true,
+      engine: 'api',
+      providerRef: { providerId: 'p', model: 'm' },
+    });
+
+    const stats = await svc.ensureAnalysis('c2c', 'u_peer');
+    expect(stats.analyzed).toBe(3);
+    // 全部命中硬规则短路，API 一次都没被调用
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const analyses = svc.getMessageAnalyses('c2c', 'u_peer', ['1', '2', '3']);
+    expect(analyses[0]).toMatchObject({
+      msgId: '1',
+      intent: 'chat',
+      emotion: 'neutral',
+      engine: 'api',
+    });
+    expect(analyses[1]).toMatchObject({
+      msgId: '2',
+      intent: 'perfunctory',
+      emotion: 'irony',
+      engine: 'api',
+    });
+    expect(analyses[2]).toMatchObject({
+      msgId: '3',
+      intent: 'chat',
+      emotion: 'neutral',
+      engine: 'api',
+    });
+
+    // 单条分析 analyzeMessage 也短路
+    const single = await svc.analyzeMessage('c2c', 'u_peer', '1');
+    expect(single).toMatchObject({ msgId: '1', intent: 'chat', engine: 'api' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

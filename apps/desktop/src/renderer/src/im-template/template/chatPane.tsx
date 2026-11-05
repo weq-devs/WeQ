@@ -9,6 +9,7 @@ import {
   conversationAnalysisTarget,
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
+import { GroupCallComingSoon } from '../../components/GroupCallComingSoon';
 import { GiftMallPanel } from '../../components/gift/GiftMallPanel';
 import { GroupGiftPanel } from '../../components/gift/GroupGiftPanel';
 import { ChatHeader } from '../../components/ChatHeader';
@@ -20,6 +21,7 @@ import { useStableCallback } from '../../hooks/useStableCallback';
 import { timelineViewport } from '../../lib/timelineViewport';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
+import '../../styles/group-call-soon.css';
 import { GroupProfileDialog } from './profilePanes';
 import { CloneMemberProfileCard } from '../../views/agentlab/CloneMemberProfileCard';
 import { ConversationMessageActions } from '../../components/ConversationMessageActions';
@@ -132,6 +134,7 @@ import {
   dataTransferHasFiles,
   formatFileSize,
   isImageFile,
+  isUnsupportedImageFile,
   MAX_ATTACHMENT_BYTES,
   MAX_COMPOSER_ATTACHMENTS,
   releaseAttachment,
@@ -937,6 +940,8 @@ export function ChatPane({
   const [avatarMenu, setAvatarMenu] = useState<AvatarContextMenuState | null>(null);
   /** 通话按钮的选择菜单（语音 / 视频）。锚点是被点的那个按钮。 */
   const [callMenu, setCallMenu] = useState<{ x: number; y: number } | null>(null);
+  /** 群聊通话入口的「敬请期待」面板。 */
+  const [groupCallSoon, setGroupCallSoon] = useState(false);
   const callButtonRef = useRef<HTMLButtonElement | null>(null);
   // 右键消息 → 「贴表情」打开的表情面板（仅群聊可用）。
   const [reactionPicker, setReactionPicker] = useState<{
@@ -4044,8 +4049,24 @@ export function ChatPane({
       return;
     }
 
-    const images = sendAs === 'file' ? [] : usable.filter(isImageFile);
-    const media = sendAs === 'file' ? usable : usable.filter((file) => !isImageFile(file));
+    // SVG 之类的「看起来是图、服务端不收」的文件按普通文件发：用户是拖着它 / 选了它
+    // 要发出去，转成文件附件至少能到对面手里；直接当图片发只会在上传时失败。
+    const svgFiles = sendAs === 'file' ? [] : usable.filter(isUnsupportedImageFile);
+    const images =
+      sendAs === 'file'
+        ? []
+        : usable.filter((file) => !isUnsupportedImageFile(file) && isImageFile(file));
+    const media =
+      sendAs === 'file'
+        ? usable
+        : usable.filter((file) => !isImageFile(file) || isUnsupportedImageFile(file));
+    if (svgFiles.length > 0) {
+      pushToast({
+        tone: 'warning',
+        title: 'SVG 按文件发送',
+        detail: 'QQ 服务端不收 SVG 图片，已改为文件附件发送。',
+      });
+    }
 
     if (media.length === 0 && (mediaAttachment || pendingSuperEmoji)) {
       setAttachmentError(
@@ -4149,7 +4170,9 @@ export function ChatPane({
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
+    // 用 `isImageFile` 而不是 MIME 前缀：SVG 也是 `image/*`，但它不是 QQ 收的
+    // 图片格式（协议层会在上传前挡掉），这里提前给出提示。
+    if (!isImageFile(file)) {
       pushToast({ tone: 'warning', message: '闪照只能发送图片' });
       return;
     }
@@ -6323,8 +6346,9 @@ export function ChatPane({
           >
             <AiOutlineRedEnvelope size={21} />
           </button>
-          {/* 通话：仅私聊。群通话要先进群房间再邀请，协议路径不同，暂不做。 */}
-          {conversation?.type === 'direct' && (onStartCall || generated) ? (
+          {/* 通话：私聊走真实链路；群聊的协议还在收尾，先给「敬请期待」面板。 */}
+          {(conversation?.type === 'direct' || conversation?.type === 'group') &&
+          (onStartCall || generated) ? (
             <button
               ref={callButtonRef}
               type="button"
@@ -6333,6 +6357,10 @@ export function ChatPane({
               aria-label="通话"
               disabled={readOnly || generated || currentPreference.blocked}
               onClick={(event) => {
+                if (conversation?.type === 'group') {
+                  setGroupCallSoon(true);
+                  return;
+                }
                 const rect = event.currentTarget.getBoundingClientRect();
                 setCallMenu({ x: rect.left, y: rect.top - 8 });
               }}
@@ -6966,6 +6994,7 @@ export function ChatPane({
           ]}
         />
       ) : null}
+      <GroupCallComingSoon open={groupCallSoon} onClose={() => setGroupCallSoon(false)} />
       {callMenu ? (
         <ConversationActionsMenu
           x={callMenu.x}

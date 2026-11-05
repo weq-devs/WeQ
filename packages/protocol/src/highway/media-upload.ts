@@ -21,7 +21,13 @@ import { createHash } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import { computeHashes, readFileRange } from './hash-file';
 import { HIGHWAY_BLOCK_SIZE } from './highway-client';
-import { detectImageFormat, makeSolidPng, PIC_FORMAT_JPEG, PIC_FORMAT_PNG } from './image-format';
+import {
+  assertUploadableImage,
+  detectImageFormat,
+  makeSolidPng,
+  PIC_FORMAT_JPEG,
+  PIC_FORMAT_PNG,
+} from './image-format';
 import {
   finalizeMediaMsgInfo,
   makeClientRandomId,
@@ -374,6 +380,8 @@ export async function uploadImageMsgInfo(
   const fp = params.fingerprint;
   // 有指纹就是「转发已有图片」：不读本地文件，直接把哈希报给服务端走 fast-upload。
   const bytes = fp ? EMPTY_MEDIA_BYTES : await readMediaSource(params.source, '图片');
+  // 有指纹就是服务端已有的图，字节已经过校验；实传的字节在这里挡住服务端不收的格式。
+  if (!fp) assertUploadableImage(bytes, '图片');
   const detected = detectImageFormat(bytes);
   const picFormat =
     params.picFormat ?? fp?.picFormat ?? (detected.width > 0 ? detected.format : PIC_FORMAT_JPEG);
