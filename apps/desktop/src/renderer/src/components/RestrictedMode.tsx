@@ -115,10 +115,12 @@ export function AuthorizationForm({
   request,
   onOpenLongTermAuthorization,
   actions,
+  showLongTermAuthorization = true,
 }: {
   request: AuthorizationRequest;
   onOpenLongTermAuthorization?: () => void;
   actions?: ReactNode;
+  showLongTermAuthorization?: boolean;
 }) {
   const [password, setPassword] = useState('');
   const id = useId();
@@ -177,7 +179,7 @@ export function AuthorizationForm({
             重试免密读取
           </button>
         )}
-        {!request.title.includes('长期授权') && (
+        {showLongTermAuthorization && !request.title.includes('长期授权') && (
           <LongTermAuthorizationLink
             beforeNavigate={() => {
               respond(true);
@@ -276,6 +278,8 @@ export function RestrictedModeHost() {
   );
   // 由运行 QQ 的宿主判断系统；Web 客户端的操作系统不能代表宿主。
   const sip = trpc.bootstrap.sipEnabled.useQuery(undefined, { staleTime: 60_000 });
+  const showDebugCopy =
+    IS_MAC && sip.data === true && reasons.some((reason) => reason.code === 'sip');
   const online = trpc.bootstrap.probeOnline.useQuery(undefined, {
     enabled: !active,
     refetchInterval: 5000,
@@ -499,6 +503,8 @@ export function RestrictedModeHost() {
       const disk = IS_MAC ? await dataAccess.refetch() : null;
       if (!current()) return;
       if (disk?.error) throw disk.error;
+      if (showDebugCopy) await utils.bootstrap.qqDebugCopyStatus.invalidate();
+      if (!current()) return;
       if (disk) setDataRetried(true);
       const dataBlocked = disk && (disk.data?.status === 'denied' || disk.data?.status === 'error');
       if (disk && !dataBlocked) {
@@ -620,13 +626,14 @@ export function RestrictedModeHost() {
                 </div>
               ))}
             <QqDataAccessNotice showRetry={false} checked={dataRetried} />
-            {IS_MAC && sip.data === true && reasons.some((reason) => reason.code === 'sip') && (
-              <QqDebugCopy key={sourceKey} onCheck={() => refresh(true)} />
-            )}
+            {showDebugCopy && <QqDebugCopy key={sourceKey} showRetry={false} />}
             {requests.map((request, index) => (
               <AuthorizationForm
                 key={`${request.kind}:${request.token}`}
                 request={request}
+                showLongTermAuthorization={
+                  index === requests.findLastIndex((item) => !item.title.includes('长期授权'))
+                }
                 actions={index === requests.length - 1 ? actions : undefined}
               />
             ))}

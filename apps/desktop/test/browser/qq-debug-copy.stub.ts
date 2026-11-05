@@ -20,7 +20,24 @@ export function setFixture(patch: Partial<QqDebugCopyStatus>) {
   for (const listener of listeners) listener();
 }
 const debugTrpc = {
+  account: {
+    getGroupAlbumAccessState: {
+      useQuery: () => ({
+        data: {
+          source: { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic' },
+          qqOnline: true,
+          attachEnabled: true,
+          hasA2: true,
+          hasD2: false,
+          hasD2Key: true,
+          hasGuid: true,
+        },
+        refetch: async () => ({}),
+      }),
+    },
+  },
   bootstrap: {
+    sipEnabled: { useQuery: () => ({ data: true, refetch: async () => ({ data: true }) }) },
     qqDebugCopyStatus: {
       useQuery: () => ({
         data: useSyncExternalStore(
@@ -56,13 +73,14 @@ const debugClient = {
   },
 };
 
-function withDebugBootstrap(base: object, debug: { bootstrap: object }) {
+function withDebugBootstrap(base: object, debug: Record<string, object>) {
   return new Proxy(base, {
     get(target, key) {
-      if (key !== 'bootstrap') return Reflect.get(target, key);
+      const override = Reflect.get(debug, key);
+      if (!override) return Reflect.get(target, key);
       return new Proxy(Reflect.get(target, key), {
         get(bootstrap, key) {
-          return Reflect.get(debug.bootstrap, key) ?? Reflect.get(bootstrap, key);
+          return Reflect.get(override, key) ?? Reflect.get(bootstrap, key);
         },
       });
     },
