@@ -54,6 +54,22 @@ async function pickFaceImage(root: string, id: string): Promise<string | null> {
   return null;
 }
 
+export async function localFaceVariants(root: string, id: string): Promise<string[]> {
+  if (!/^\d+$/.test(id)) return [];
+  const files: string[] = [];
+  for (const format of ['apng', 'png']) {
+    const directory = join(root, id, format);
+    try {
+      for (const file of await readdir(directory, { withFileTypes: true }))
+        if (file.isFile() && file.name.toLowerCase().endsWith('.png'))
+          files.push(join(directory, file.name));
+    } catch {
+      /* 未缓存该版本。 */
+    }
+  }
+  return files.sort();
+}
+
 /** Run `worker` over `items` with at most `concurrency` in flight. */
 async function runWithConcurrency<T>(
   items: T[],

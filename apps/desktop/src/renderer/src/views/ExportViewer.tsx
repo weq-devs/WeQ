@@ -400,6 +400,11 @@ export function ExportViewer({
         </p>
       ) : null}
       {notice ? <p className="weq-ev-notice">{notice}</p> : null}
+      {source?.notice ? (
+        <p className="weq-ev-notice" role="status">
+          {source.notice}
+        </p>
+      ) : null}
       {local.error ? (
         <p className="weq-ev-notice">本机会话检查失败：{local.error.message}</p>
       ) : null}

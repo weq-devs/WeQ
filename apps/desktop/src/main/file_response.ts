@@ -11,9 +11,10 @@
  */
 
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
-import { extname } from 'node:path';
+import { open, stat } from 'node:fs/promises';
+import { basename, extname } from 'node:path';
 import { Readable } from 'node:stream';
+import { sniffImageExt } from '@weq/service';
 
 const MIME: Record<string, string> = {
   '.png': 'image/png',
@@ -96,7 +97,31 @@ export async function fileResponse(
     return new Response('not found', { status: 404 });
   }
 
-  const type = mimeOf(path);
+  let type = mimeOf(path);
+  if (/^[a-f0-9]{64}$/.test(basename(path))) {
+    const handle = await open(path, 'r');
+    try {
+      const buffer = Buffer.alloc(32),
+        { bytesRead } = await handle.read(buffer, 0, 32, 0);
+      const head = buffer.subarray(0, bytesRead),
+        image = sniffImageExt(head);
+      if (image) type = mimeOf(`image${image}`);
+      else if (head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WAVE')
+        type = 'audio/wav';
+      else if (head.toString('ascii', 0, 4) === 'OggS') type = 'audio/ogg';
+      else if (head.toString('ascii', 4, 8) === 'ftyp')
+        type = head.toString('ascii', 8, 12).startsWith('M4A') ? 'audio/mp4' : 'video/mp4';
+      else if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3)
+        type = 'video/webm';
+      else if (
+        head.toString('ascii', 0, 3) === 'ID3' ||
+        (head[0] === 0xff && (head[1]! & 0xe0) === 0xe0)
+      )
+        type = 'audio/mpeg';
+    } finally {
+      await handle.close();
+    }
+  }
   const range = parseRange(request?.headers.get('range') ?? null, size);
 
   // `Last-Modified` has one-second granularity, so compare at that resolution —

@@ -122,7 +122,7 @@ async function supportsFileLinks(directory: string): Promise<boolean> {
 }
 
 /** 不支持硬链接的卷使用独占句柄流式写入，已有文件永远不会被打开覆盖。 */
-async function publishVerifiedCopy(
+export async function publishVerifiedCopy(
   source: string,
   target: string,
   expectedHash: string,
@@ -153,6 +153,7 @@ async function publishVerifiedCopy(
       (await fileSha256(source, signal)) !== expectedHash
     )
       throw new Error('文件复制校验失败或保存目标已改变。');
+    await handle.sync();
     return receipt;
   } catch (error) {
     input.destroy();

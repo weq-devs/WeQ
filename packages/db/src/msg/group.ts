@@ -53,13 +53,28 @@ import {
 } from './browse';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 import { nativeHistoryCursor } from './history';
+import { readMessageSourceRows } from './export_source';
 
 // 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
 // this list positionally, so inserting it in the middle would silently shift
 // every column after it. It is the client-generated `random` we echo into the
 // send request — the one stable id shared by the DB, the send receipt, and the
 // server-fetched history (see GroupMsg.msgRandom).
-const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062","40003","40011","40012","40801","40002"`;
+const SELECT_COLUMN_NAMES = [
+  '40001',
+  '40020',
+  '40027',
+  '40033',
+  '40050',
+  '40800',
+  '40062',
+  '40003',
+  '40011',
+  '40012',
+  '40801',
+  '40002',
+] as const;
+const SELECT_COLUMNS = SELECT_COLUMN_NAMES.map((column) => `"${column}"`).join(',');
 
 /**
  * rowid 键的**跨窗口跳空探针**（契约见 `SalvageWindowPlan.seekSql`）：给下一条真的存在
@@ -120,6 +135,20 @@ export class GroupMsgDb {
   }
   get sourcePath(): string {
     return this.qq.dbPath;
+  }
+  async exportSourceRows(conversation: string, ids: readonly string[], full = true) {
+    const rows = await readMessageSourceRows(
+      this.qq,
+      'group_msg_table',
+      '40027',
+      conversation,
+      ids,
+      full ? undefined : SELECT_COLUMN_NAMES,
+    );
+    return rows.map((source) => ({
+      ...source,
+      message: rowToGroupMsg(SELECT_COLUMN_NAMES.map((column) => source.columns[column] ?? null)),
+    }));
   }
 
   calendar(targetGroupCode: string) {

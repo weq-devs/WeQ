@@ -11,6 +11,7 @@ import {
 import type { GeneratedSearchSources } from '../src/account/generated_search';
 import { ExportTaskManager } from '../src/account/export/task_manager';
 import type { MsgService } from '../src/account/msg';
+import { object, readArchive } from '../src/account/export/archive';
 import { writeGeneratedContent } from '../src/account/export/generated_export';
 
 const roots: string[] = [];
@@ -48,6 +49,41 @@ const targets: GeneratedContentTarget[] = [
   { kind: 'group', ownerId: 'group-fixture', sessionId: null },
   { kind: 'assistant', ownerId: 'assistant', sessionId: 's' },
 ];
+it('生成对话增量复用正式 JSONL 与确认快照，不重新读取模型或追加重复正文', async () => {
+  const f = fixture();
+  const root = mkdtempSync(join(tmpdir(), 'weq-generated-update-'));
+  roots.push(root);
+  const manager = new ExportTaskManager({} as MsgService, root, withExportSaveDirectory(root));
+  const snapshot = captureGeneratedContent(f.sources, {
+    kind: 'assistant',
+    ownerId: 'assistant',
+    sessionId: 's',
+  });
+  const id = await manager.startTask({
+    kind: 'c2c',
+    conv: 'generated',
+    name: '合成生成对话',
+    format: 'jsonl',
+    total: 3,
+    generated: snapshot,
+  });
+  await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
+  const saved = manager.getTask(id)!.save!.path!;
+  const path = join(saved, '合成生成对话.jsonl');
+  const prefix = readFileSync(path, 'utf8');
+  f.get.mockClear();
+  f.messages.length = 0;
+  expect(manager.resumeTask(id, true)).toBe(true);
+  await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
+  expect(manager.getTask(id)?.error).toBeUndefined();
+  expect(manager.getTask(id)?.filePath).toBe(path);
+  expect(readFileSync(path, 'utf8').startsWith(prefix)).toBe(true);
+  const { readArchiveFile } = await import('../src/account/export/archive');
+  const { archive } = await readArchiveFile(path, 'jsonl');
+  expect(archive.records).toHaveLength(3);
+  expect(archive.observations).toHaveLength(6);
+  expect(f.get).not.toHaveBeenCalled();
+});
 it('表格区分 null 旧版身份与名称恰为 legacy 的真实会话', async () => {
   const f = fixture();
   const root = mkdtempSync(join(tmpdir(), 'weq-generated-identity-'));
@@ -136,11 +172,11 @@ it('实际生成内容任务写多格式、自动保存和恢复快照，不读 
   expect(task.save?.status).toBe('saved');
   expect(task.current).toBe(2);
   expect(task.formatCounts).toEqual({ json: 2, jsonl: 2, csv: 2, txt: 2, xlsx: 2 });
-  const json = JSON.parse(readFileSync(task.filePath!, 'utf8'));
-  expect(json.schema).toBe('weq-generated-content/1');
-  expect(json.origin).toBe('local-generated');
-  expect(json.messages.map((row: { id: string }) => row.id)).toEqual(['m1', 'm3']);
-  expect(json.messages[0].text).toBe('fixture-1');
+  const json = readArchive(JSON.parse(readFileSync(task.filePath!, 'utf8')));
+  expect(json.format).toBe('weq-export');
+  expect(json.records.every((row) => row.data.origin === 'local-generated')).toBe(true);
+  expect(json.records.map((row) => row.data.messageId)).toEqual(['m1', 'm3']);
+  expect(object((json.records[0]!.data.content as unknown[])[0]).text).toBe('fixture-1');
   const restored = new ExportTaskManager(
     {} as MsgService,
     join(root, 'cache'),
@@ -189,7 +225,12 @@ it('暂停后可在新管理器按同一份快照重新执行，不重新读取�
   for (let i = 0; i < 400 && !['completed', 'failed'].includes(restored.getTask(id)!.status); i++)
     await new Promise((resolve) => setTimeout(resolve, 10));
   expect(restored.getTask(id)?.error).toBeUndefined();
-  expect(JSON.parse(readFileSync(restored.getTask(id)!.filePath!, 'utf8')).messages[0].text).toBe(
-    'fixture-3',
-  );
+  expect(
+    object(
+      (
+        readArchive(JSON.parse(readFileSync(restored.getTask(id)!.filePath!, 'utf8'))).records[0]!
+          .data.content as unknown[]
+      )[0],
+    ).text,
+  ).toBe('fixture-3');
 });

@@ -13,9 +13,12 @@
  */
 
 import { writeFileStream, writeTable, type Col } from './table_writer';
+import { writeDirectoryArchive } from './archive_domain';
+import type { ArchiveOptions } from './archive';
 
 /** 注入的联系人数据拉取能力（bigint 已归一化为字符串）。 */
 export interface ContactsExportDeps {
+  groupByCode?: (groupCode: string) => Promise<GroupDirectoryRow | null>;
   /** 分页拉群资料目录；旧调用方仅导出好友／成员时可不提供。 */
   listGroups?: (limit: number, offset: number) => Promise<GroupDirectoryRow[]>;
   /** 分页拉好友（`buddy_list`）。 */
@@ -138,7 +141,10 @@ export async function writeGroupDirectory(
   rows: GroupDirectoryRow[],
   format: Exclude<ContactsFormat, 'vcard'>,
   outputPath: string,
+  archive?: ArchiveOptions,
 ): Promise<void> {
+  if (format === 'json' || format === 'jsonl')
+    return writeDirectoryArchive(rows, 'group', outputPath, format, archive);
   await writeTable(format, GROUP_COLS, rows, outputPath, '群聊名单');
 }
 
@@ -246,6 +252,7 @@ function escapeVcard(value: string): string {
 // ---- 好友导出 ----
 
 interface FriendRow {
+  native?: Record<string, unknown>;
   uin: string;
   nick: string;
   remark: string;
@@ -300,6 +307,7 @@ const FRIEND_COLS: Array<Col<FriendRow>> = [
 ];
 
 export interface ExportFriendsOpts {
+  archive?: ArchiveOptions;
   format: ContactsFormat;
   outputPath: string;
   /** 只导出这些分组 id（空 / 省略 = 全部好友）。 */
@@ -378,6 +386,7 @@ export async function collectFriends(
     const ext = p?.extInfo;
     const album = ext?.album ?? [];
     return {
+      native: { ...b, ...(p ?? {}) },
       uin: b.uin,
       nick: p?.nick ?? '',
       remark: p?.remark ?? '',
@@ -419,7 +428,10 @@ export async function writeFriends(
   rows: FriendRow[],
   format: ContactsFormat,
   outputPath: string,
+  archive?: ArchiveOptions,
 ): Promise<void> {
+  if (format === 'json' || format === 'jsonl')
+    return writeDirectoryArchive(rows, 'contact', outputPath, format, archive);
   if (format === 'vcard') {
     await writeFriendsVcard(rows, outputPath);
   } else {
@@ -434,7 +446,7 @@ export async function exportFriends(
 ): Promise<ContactsExportResult> {
   const rows = await collectFriends(opts, deps);
   opts.signal?.throwIfAborted();
-  await writeFriends(rows, opts.format, opts.outputPath);
+  await writeFriends(rows, opts.format, opts.outputPath, opts.archive);
   return { filePath: opts.outputPath, count: rows.length };
 }
 
@@ -474,6 +486,7 @@ async function writeFriendsVcard(rows: FriendRow[], outputPath: string): Promise
 // ---- 群成员导出 ----
 
 interface MemberRow {
+  native?: Record<string, unknown>;
   uin: string;
   card: string;
   nick: string;
@@ -498,6 +511,7 @@ const MEMBER_COLS: Array<Col<MemberRow>> = [
 ];
 
 export interface ExportGroupMembersOpts {
+  archive?: ArchiveOptions;
   groupCode: string;
   format: Exclude<ContactsFormat, 'vcard'>;
   outputPath: string;
@@ -532,6 +546,7 @@ export async function collectGroupMembers(
     opts.collectUins?.add(m.uin);
     const role = m.uid && m.uid === ownerUid ? '群主' : m.adminFlag ? '管理员' : '成员';
     return {
+      native: { ...m },
       uin: m.uin,
       card: m.card,
       nick: m.nick,
@@ -553,7 +568,11 @@ export async function writeGroupMembers(
   rows: MemberRow[],
   format: Exclude<ContactsFormat, 'vcard'>,
   outputPath: string,
+  archive?: ArchiveOptions,
+  groupCode?: string,
 ): Promise<void> {
+  if (format === 'json' || format === 'jsonl')
+    return writeDirectoryArchive(rows, 'member', outputPath, format, archive, groupCode);
   await writeTable(format, MEMBER_COLS, rows, outputPath, '群成员');
 }
 
@@ -563,6 +582,6 @@ export async function exportGroupMembers(
 ): Promise<ContactsExportResult> {
   const rows = await collectGroupMembers(opts, deps);
   opts.signal?.throwIfAborted();
-  await writeGroupMembers(rows, opts.format, opts.outputPath);
+  await writeGroupMembers(rows, opts.format, opts.outputPath, opts.archive, opts.groupCode);
   return { filePath: opts.outputPath, count: rows.length };
 }

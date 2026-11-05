@@ -4,6 +4,11 @@ import { Modal } from '../../components/Dialog';
 import { useToast } from '../../components/Toast';
 import { client } from '../../trpc/client';
 import { ExportReportControl } from './ExportReportControl';
+import {
+  StructuredExportControls,
+  structuredExportOptions,
+  type StructuredExportOptions,
+} from './StructuredExportControls';
 
 export function CollectionExportDialog({
   cids,
@@ -12,7 +17,11 @@ export function CollectionExportDialog({
   cids?: string[];
   onClose: () => void;
 }) {
-  const [format, setFormat] = useState<'json' | 'csv' | 'xlsx' | 'txt'>('json');
+  const [format, setFormat] = useState<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt'>('json');
+  const [structured, setStructured] = useState<StructuredExportOptions>({
+    profile: 'basic',
+    incrementalSupport: false,
+  });
   const [busy, setBusy] = useState(false);
   const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
   const [error, setError] = useState('');
@@ -22,6 +31,7 @@ export function CollectionExportDialog({
     setError('');
     try {
       await client.account.startCollectionExport.mutate({
+        ...structuredExportOptions(structured, [format]),
         name: cids ? `收藏_${cids.length}条` : '全部收藏',
         format,
         cids,
@@ -58,12 +68,21 @@ export function CollectionExportDialog({
             onChange={setFormat}
             options={[
               { value: 'json', label: 'JSON' },
+              { value: 'jsonl', label: 'JSONL' },
               { value: 'csv', label: 'CSV' },
               { value: 'xlsx', label: 'Excel' },
               { value: 'txt', label: 'TXT' },
             ]}
           />
         </label>
+        <StructuredExportControls
+          domain="collectionProperties"
+          onRequireJson={() => setFormat('json')}
+          options={structured}
+          formats={[format]}
+          disabled={busy}
+          onChange={(value) => setStructured((current) => ({ ...current, ...value }))}
+        />
         <ExportReportControl
           checked={includeIntegrityReport}
           onChange={setIncludeIntegrityReport}

@@ -3,6 +3,10 @@ import { join } from 'node:path';
 import type { QzoneAlbumPage, QzoneAlbumMediaResult } from '../web/qzone_album';
 import type { ExportTimeRange } from './types';
 import type { QzoneMediaStore } from './qzone_media_store';
+import { DomainArchive } from './archive_domain';
+import { actor, recordRevision, stableId, type ArchiveOptions } from './archive';
+import { unixTime } from './archive_value';
+import { archiveResource } from './archive_resource';
 
 export interface QzoneAlbumExportDeps {
   fetchAlbumPage(targetUin: string, offset: number, signal?: AbortSignal): Promise<QzoneAlbumPage>;
@@ -25,6 +29,7 @@ const escapeHtml = (text: string) =>
 export async function exportQzoneAlbums(
   opts: {
     targetUin: string;
+    archive?: ArchiveOptions;
     directory: string;
     range?: ExportTimeRange;
     formats: string[];
@@ -154,15 +159,104 @@ export async function exportQzoneAlbums(
   }
   const metadataRoot = join(opts.directory, 'albums');
   await mkdir(metadataRoot, { recursive: true });
-  await writeFile(
-    join(metadataRoot, 'index.json'),
-    JSON.stringify(
-      { targetUin: opts.targetUin, range: opts.range, albums: records, failed },
-      null,
-      2,
-    ),
-    { flag: 'wx', signal: opts.signal },
-  );
+  const archive = new DomainArchive({
+    ...opts.archive,
+    archiveId: opts.archive?.archiveId
+      ? stableId('archive-part', [opts.archive.archiveId, 'albums'])
+      : undefined,
+  });
+  const owner = actor(opts.targetUin);
+  for (const record of records) {
+    const { id, name, desc, createTime, ...properties } = record.album;
+    const album = archive.add(
+      'qzone',
+      archive.identity('album', opts.targetUin, id),
+      {
+        type: 'album',
+        owner,
+        author: owner,
+        sourceId: id,
+        createdAt: unixTime(createTime),
+        content: [
+          { type: 'text', text: name },
+          { type: 'text', text: desc },
+        ],
+      },
+      Object.fromEntries(
+        Object.entries(properties).map(([field, value]) => [`source.${field}`, value]),
+      ),
+      'remote',
+    );
+    const errors = failed
+      .filter(
+        (failure) => failure.fileName === '相册目录' || failure.fileName.startsWith(`${name}/`),
+      )
+      .map((failure) => failure.error);
+    if (errors.length)
+      album.record.coverage = { acquisition: 'partial', parsing: 'partial', issues: errors };
+    for (const media of record.media) {
+      const {
+        id: mediaId,
+        name: mediaName,
+        desc: mediaDesc,
+        uploadTime,
+        isVideo,
+        localPath,
+        downloadedAs,
+        error,
+        ...properties
+      } = media;
+      const identity = archive.identity('album-media', opts.targetUin, id, mediaId);
+      const resourceId = stableId('resource', identity);
+      const photo = archive.add(
+        'qzone',
+        identity,
+        {
+          type: isVideo ? 'video' : 'photo',
+          owner,
+          author: owner,
+          sourceId: mediaId,
+          parentId: album.record.id,
+          parentType: 'album',
+          createdAt: unixTime(uploadTime),
+          content: [
+            { type: 'text', text: mediaName },
+            { type: 'text', text: mediaDesc },
+            {
+              type: 'media',
+              mediaType: downloadedAs === 'video' ? 'video' : 'image',
+              resourceIds: [resourceId],
+            },
+          ],
+        },
+        Object.fromEntries(
+          Object.entries(properties).map(([field, value]) => [`source.${field}`, value]),
+        ),
+        'remote',
+      );
+      photo.resources = [
+        await archiveResource(opts.directory, localPath, {
+          id: resourceId,
+          role: isVideo && downloadedAs !== 'video' ? 'cover' : 'original',
+          status: error && !localPath ? 'failed' : 'not-requested',
+          ...(error && !localPath ? { error } : {}),
+          name: mediaName,
+          url: media.url || media.thumbUrl,
+          observedAt: archive.observedAt,
+        }),
+      ];
+      if (error)
+        photo.record.coverage = { acquisition: 'partial', parsing: 'partial', issues: [error] };
+    }
+  }
+  // 覆盖事实参与版本摘要；关联和资源均完整组装后再写出。
+  for (const entry of archive.entries) {
+    entry.record.revision = recordRevision(entry.record);
+    entry.observation.revision = entry.record.revision;
+  }
+  for (const format of opts.formats)
+    if (format === 'json' || format === 'jsonl')
+      await archive.write(join(metadataRoot, `index.${format}`), format);
   if (opts.formats.includes('txt'))
     await writeFile(
       join(metadataRoot, 'index.txt'),

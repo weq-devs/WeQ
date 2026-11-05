@@ -26,7 +26,7 @@ import {
   lstatSync,
   realpathSync,
 } from 'node:fs';
-import { basename, dirname, extname, join } from 'node:path';
+import { basename, dirname, extname, join, relative } from 'node:path';
 import { sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import type { MsgService } from '../msg';
 import type { SenderResolveDeps } from './sender_resolve';
@@ -37,6 +37,29 @@ import { exportGroupToJson } from './json_exporter';
 import { exportGroupToTxt } from './txt_exporter';
 import { exportGroupToJsonl } from './jsonl_exporter';
 import { exportJsonConversation } from './json_meta_exporter';
+import { exportArchiveConversation } from './archive_message';
+import { sourceValue } from './archive_value';
+import { writeArchiveView } from './archive_view_writer';
+import { sha256, type ExportProfile, type ArchiveOptions } from './archive';
+import { finalizeArchiveMessages } from './archive_finalize';
+import {
+  selectedResourceEntries,
+  writeResourceDirectoryArchive,
+  type ResourceDirectoryEntry,
+} from './archive_directory';
+import { collectContentResources } from './content_resources';
+import { listFormalArchives, resolveArchiveTargets } from './archive_catalog';
+import { updateArchiveFile } from './archive_update';
+import { updateArchiveBundle, type DomainArchiveTarget } from './archive_bundle_update';
+import {
+  normalizeExportContent,
+  exportContentFlags,
+  hasExportContent,
+  hasExportResources,
+  requiresStructuredExport,
+  withoutStructuredContent,
+  type ExportContentPolicy,
+} from '../../common/export_content';
 import { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
 import { exportToXlsx } from './xlsx_exporter';
 import { exportToChatlab, type ChatlabDeps } from './chatlab_exporter';
@@ -277,6 +300,7 @@ export interface MarketPackDeps {
 
 /** Media-export options threaded from the lightbox. */
 export interface MediaExportOptions {
+  completeDressKinds?: DressExportKinds;
   /** Export media files alongside the messages (turns the output into a bundle). */
   exportMedia: boolean;
   /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
@@ -329,6 +353,20 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
+  content?: ExportContentPolicy;
+  completeAvatar?: boolean;
+  resourceArchive?: ArchiveOptions;
+  profile?: ExportProfile;
+  incrementalSupport?: boolean;
+  archiveId?: string;
+  resourceOnly?: boolean;
+  scanId?: string;
+  scanStartedAt?: number;
+  extra?: import('../../common/export_content').ExportExtraOptions;
+  archiveTargets?: Partial<Record<'json' | 'jsonl', string>>;
+  domainUpdate?: DomainArchiveTarget;
+  archivePublished?: boolean;
+  publishedOutputs?: Record<string, string>;
   includeIntegrityReport?: boolean;
   /** 独立资源任务；下载运行器仅存在于当前进程，重启后保留结果但不冒称可续传。 */
   resource?: {
@@ -441,6 +479,7 @@ export interface TaskProgress {
 }
 
 export interface ResourceExportSummary {
+  metadata?: ResourceDirectoryEntry[];
   fileName?: string;
   total: number;
   ok: number;
@@ -454,6 +493,7 @@ export interface ResourceExportSummary {
 }
 
 export interface ResourceExportRunContext {
+  archive?: ArchiveOptions;
   directory: string;
   signal: AbortSignal;
   progress(current: number, total: number): void;
@@ -466,6 +506,8 @@ export interface ExportTaskView
   generated?: Omit<GeneratedContentSnapshot, 'messages'> & { messageCount: number };
   logs: TaskLogLine[];
   canResume: boolean;
+  canIncremental?: boolean;
+  canFinalize?: boolean;
   isFinalizing: boolean;
   resumeMode?: 'checkpoint' | 'restart';
 }
@@ -477,6 +519,10 @@ export interface MediaDeps {
   exportSavePolicy?: () => ExportSavePolicy;
   resolveSaveDirectory?: (directory: string) => string;
   avatarCache?: AvatarCacheService;
+  avatarLocal?: (
+    uin: string,
+    variant: 'big' | 'small',
+  ) => Promise<import('../avatar_resource').AvatarLocalFile | null>;
   mediaDownload?: MediaDownloadService;
   /** OIDB-backed video / file download URL resolver (needs online QQ). */
   mediaUrl?: MediaUrlService;
@@ -550,7 +596,8 @@ export interface MediaDeps {
    * 本地解密路径（weq 缓存 → QQ 本地缓存 → CDN 明文 GIF/PNG）。HTML 导出把
    * 会话里用到的商城表情也归类进「QQ系统表情」资源、复制进 bundle 时用它解析。
    */
-  marketFace?: (pack: string, hash: string) => Promise<string | null>;
+  marketFace?: (pack: string, hash: string, localOnly?: boolean) => Promise<string | null>;
+  marketFaceVariants?: (pack: string, hash: string) => Promise<string[]>;
   /** 消息补全能力（由 app 注入，桥接聊天页 GapHistoryService：缓存+拉取共用）。 */
   messageBackfill?: MessageBackfillDeps;
   /** 漫游缓存元素回退（缺失消息补全的消息不在本地 msg 表，导出下载用它定位媒体元素）。 */
@@ -559,6 +606,7 @@ export interface MediaDeps {
 
 export class ExportTaskManager extends EventEmitter {
   private journals = new Map<string, MessageJournal>();
+  private resourceMetadata = new Map<string, Map<string, ResourceDirectoryEntry>>();
   private finalizing = new Set<string>();
   private startedAt = Date.now();
   private filteredSources = new Map<string, MsgService>();
@@ -678,8 +726,11 @@ export class ExportTaskManager extends EventEmitter {
             : task.filePath
               ? `${task.filePath}.report.json`
               : join(this.cacheDir, `report-${task.id}.json`);
+          const externalOutput = Boolean(
+            task.directOutput || task.archiveTargets || task.domainUpdate,
+          );
           const path =
-            task.directOutput && !existsSync(dirname(desiredPath))
+            externalOutput && !existsSync(dirname(desiredPath))
               ? join(this.cacheDir, `report-${task.id}.json`)
               : desiredPath;
           const report = JSON.stringify(exportReport(task), null, 2);
@@ -708,7 +759,7 @@ export class ExportTaskManager extends EventEmitter {
               writeFileAtomicSync(htmlPath, html);
             task.reportHtmlPath = htmlPath;
           } catch (error) {
-            if (!task.directOutput) throw error;
+            if (!externalOutput) throw error;
             const fallback = join(this.cacheDir, `report-${task.id}.json`);
             writeFileAtomicSync(fallback, report);
             task.reportPath = fallback;
@@ -766,6 +817,7 @@ export class ExportTaskManager extends EventEmitter {
             exportAvatar: task.exportAvatar,
             media: task.media,
             dress: task.dress,
+            content: task.content,
           }));
     if (resolved.filePath) {
       if (output.kind === 'directory') throw new Error('本次结果包含多个文件，请选择保存文件夹。');
@@ -802,6 +854,15 @@ export class ExportTaskManager extends EventEmitter {
 
   getOutputShape(plan: ExportOutputPlan) {
     return describeExportOutput(plan, this.outputCapabilities());
+  }
+
+  formalArchivePath(id: string): string | undefined {
+    const task = this.tasks.get(id);
+    if (!task?.archiveId || task.chatlab || !task.outputDirectory) return undefined;
+    const formats = task.formats ?? [task.format],
+      paths = this.exportFilePaths(task, task.outputDirectory);
+    const index = formats.includes('jsonl') ? formats.indexOf('jsonl') : formats.indexOf('json');
+    return index >= 0 ? paths[index] : undefined;
   }
 
   /** 保存结果是独立状态；失败不抹掉已经完成的导出，也不清理唯一缓存结果。 */
@@ -935,11 +996,24 @@ export class ExportTaskManager extends EventEmitter {
               }
             : {}),
           canResume,
+          canIncremental: this.canIncremental(task),
+          canFinalize:
+            !task.contacts &&
+            !task.generated &&
+            !task.qzone &&
+            !task.collection &&
+            task.status === 'paused' &&
+            canResume &&
+            Boolean(
+              task.journalPath || (task.archiveId && task.incrementalSupport && task.current > 0),
+            ),
           isFinalizing: this.finalizing.has(task.id),
           ...(canResume
             ? {
                 resumeMode:
-                  task.contacts || task.generated || task.qzone ? 'restart' : 'checkpoint',
+                  task.contacts || task.generated || task.qzone || task.collection
+                    ? 'restart'
+                    : 'checkpoint',
               }
             : {}),
           logs: this.taskLogs.get(task.id) ?? [],
@@ -1013,6 +1087,11 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   async startTask(opts: {
+    extra?: import('../../common/export_content').ExportExtraOptions;
+    content?: ExportContentPolicy;
+    completeAvatar?: boolean;
+    profile?: ExportProfile;
+    incrementalSupport?: boolean;
     includeIntegrityReport?: boolean;
     baselineDirectory?: string;
     savePolicy?: ExportSavePolicy;
@@ -1046,6 +1125,65 @@ export class ExportTaskManager extends EventEmitter {
     guild?: GuildExportTaskMeta;
     generated?: GeneratedContentSnapshot;
   }): Promise<string> {
+    if (opts.content && !opts.qzone && !opts.contacts && !opts.collection && !opts.generated) {
+      const content = normalizeExportContent(opts.content, {}, Boolean(opts.guild));
+      if (!hasExportContent(content)) throw new Error('请至少选择一项导出内容。');
+      const flags = exportContentFlags(content);
+      opts = {
+        ...opts,
+        content,
+        exportAvatar: flags.exportAvatar,
+        completeAvatar: flags.completeAvatar,
+        dress: flags.dress,
+        media: {
+          transcribeVoice: false,
+          ...opts.media,
+          exportMedia: flags.exportMedia,
+          completeMessages: flags.completeMessages,
+          completeMedia: flags.completeMedia,
+          downloadPtt: flags.downloadPtt,
+          downloadVideo: flags.downloadVideo,
+          downloadFile: flags.downloadFile,
+          mediaKinds: flags.mediaKinds,
+          completeDress: flags.completeDress,
+          completeDressKinds: flags.completeDressKinds,
+        },
+      };
+    }
+    const resourceOnly = opts.formats?.length === 0;
+    if (
+      resourceOnly &&
+      (!opts.content ||
+        !hasExportResources(opts.content) ||
+        opts.qzone ||
+        opts.contacts ||
+        opts.collection ||
+        opts.generated)
+    )
+      throw new Error('请至少选择一种导出格式或资源内容。');
+    if (
+      opts.content &&
+      requiresStructuredExport(opts.content) &&
+      (opts.chatlab ||
+        !(opts.formats ?? [opts.format]).some((format) => format === 'json' || format === 'jsonl'))
+    )
+      throw new Error('所选附加数据需要 WeQ JSON/JSONL，请选择格式或关闭相应附加数据。');
+    const structuredFormats = (opts.formats?.length ? opts.formats : [opts.format]).filter(
+      (format) => format === 'json' || format === 'jsonl',
+    );
+    if (
+      Object.values(opts.extra ?? {}).some(Boolean) &&
+      (opts.chatlab || !structuredFormats.length)
+    )
+      throw new Error('所选附加数据需要 WeQ JSON/JSONL，请选择格式或关闭相应附加数据。');
+    const archiveSettings = {
+      scanId: randomUUID(),
+      scanStartedAt: Date.now(),
+      extra: opts.extra ? structuredClone(opts.extra) : undefined,
+      profile: 'full',
+      incrementalSupport: !opts.chatlab && structuredFormats.length > 0,
+      archiveId: randomUUID(),
+    } as const;
     // 清洗 conv (uid/uin/groupCode) 以避免 Windows 文件名非法字符（陌生人 uid 含 *）
     const safeConv = sanitizeSegment(opts.conv, 'conversation');
     const id = opts.guild
@@ -1068,6 +1206,7 @@ export class ExportTaskManager extends EventEmitter {
       const snapshot = structuredClone(opts.generated);
       const resources = discoverGeneratedResources(snapshot).map((reference) => ({ reference }));
       const task: ExportTask = {
+        ...archiveSettings,
         id,
         kind: opts.kind,
         conv: opts.conv,
@@ -1113,6 +1252,7 @@ export class ExportTaskManager extends EventEmitter {
     // 收藏导出是独立流水线（单文件表格产物，无媒体 / 头像），不复用消息流水线。
     if (opts.collection) {
       const colTask: ExportTask = {
+        ...archiveSettings,
         id,
         kind: opts.kind,
         conv: opts.conv,
@@ -1157,6 +1297,7 @@ export class ExportTaskManager extends EventEmitter {
       if (wantAvatars)
         cStages.push({ key: 'avatar', label: '下载头像', status: 'pending', current: 0, total: 0 });
       const cTask: ExportTask = {
+        ...archiveSettings,
         id,
         kind: opts.kind,
         conv: opts.conv,
@@ -1169,6 +1310,7 @@ export class ExportTaskManager extends EventEmitter {
         total: opts.total,
         contacts: structuredClone(opts.contacts),
         exportAvatar: wantAvatars,
+        completeAvatar: opts.completeAvatar,
         stages: cStages,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -1191,6 +1333,7 @@ export class ExportTaskManager extends EventEmitter {
       if (opts.qzoneAlbums)
         qStages.push({ key: 'file', label: '导出相册', status: 'pending', current: 0, total: 0 });
       const qTask: ExportTask = {
+        ...archiveSettings,
         id,
         kind: opts.kind,
         conv: opts.conv,
@@ -1300,6 +1443,10 @@ export class ExportTaskManager extends EventEmitter {
       stages.push({ key: 'sysface', label: '导出表情', status: 'pending', current: 0, total: 0 });
     }
     const task: ExportTask = {
+      ...archiveSettings,
+      content: opts.content ? structuredClone(opts.content) : undefined,
+      resourceOnly,
+      completeAvatar: opts.completeAvatar,
       id,
       kind: opts.kind,
       conv: opts.conv,
@@ -1312,7 +1459,7 @@ export class ExportTaskManager extends EventEmitter {
         : {}),
       format: opts.format,
       includeIntegrityReport: opts.includeIntegrityReport,
-      ...(opts.formats?.length ? { formats: opts.formats } : {}),
+      ...(opts.formats !== undefined ? { formats: [...opts.formats] } : {}),
       status: 'pending',
       progress: 0,
       current: 0,
@@ -1335,6 +1482,21 @@ export class ExportTaskManager extends EventEmitter {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
+    if (task.baselineDirectory && !task.chatlab) {
+      task.archiveTargets = await resolveArchiveTargets(
+        task.baselineDirectory,
+        { kind: task.guild ? 'guild-direct' : task.kind, conv: task.guild?.nodeId ?? task.conv },
+        task.formats ?? [task.format],
+      );
+      if (task.archiveTargets) {
+        const selected = Object.values(task.archiveTargets)[0]!;
+        const format = Object.entries(task.archiveTargets).find(
+          ([, path]) => path === selected,
+        )![0] as 'json' | 'jsonl';
+        const { readArchiveHeader } = await import('./archive_stream');
+        task.archiveId = String((await readArchiveHeader(selected, format)).archiveId);
+      }
+    }
     this.registerTask(task, opts.savePolicy);
     this.log(id, 'task', `任务已创建：导出「${opts.name}」（${opts.format}）`);
     this.saveTasks();
@@ -1378,6 +1540,7 @@ export class ExportTaskManager extends EventEmitter {
 
   /** 既有独立下载器只写私有缓存，发布、另存、取消和回执沿用同一个任务管理器。 */
   async startResourceExport(opts: {
+    archive?: ArchiveOptions;
     name: string;
     includeIntegrityReport?: boolean;
     kind: NonNullable<ExportTask['resource']>['kind'];
@@ -1388,13 +1551,27 @@ export class ExportTaskManager extends EventEmitter {
   }): Promise<string> {
     const id = `resource-${randomUUID()}`;
     const output = opts.output ? structuredClone(opts.output) : undefined;
+    if (
+      opts.archive?.formats?.length === 0 &&
+      Object.values(opts.archive.extra ?? {}).some(Boolean)
+    )
+      throw new Error('所选附加数据需要 WeQ JSON/JSONL，请选择清单格式或关闭相应附加数据。');
     if (output) exportOutputFileName(output);
     const task: ExportTask = {
+      ...(!output
+        ? {
+            archiveId: randomUUID(),
+            profile: opts.archive?.profile ?? 'basic',
+            incrementalSupport: opts.archive?.incrementalSupport ?? false,
+            resourceArchive: opts.archive,
+            extra: opts.archive?.extra ? structuredClone(opts.archive.extra) : undefined,
+          }
+        : {}),
       id,
       kind: 'c2c',
       conv: opts.kind,
       name: opts.name,
-      format: 'json',
+      format: opts.archive?.formats?.[0] ?? 'json',
       resource: { kind: opts.kind, ...(output ? { output } : {}) },
       includeIntegrityReport: opts.includeIntegrityReport,
       status: 'pending',
@@ -1450,6 +1627,11 @@ export class ExportTaskManager extends EventEmitter {
       const directory = join(bundle.stageDir, 'files');
       mkdirSync(directory);
       const summary = await run({
+        archive: {
+          ...task.resourceArchive,
+          ...(await this.archiveOptions(task)),
+          ...(task.resourceArchive?.selection ? { selection: task.resourceArchive.selection } : {}),
+        },
         directory,
         signal: abort.signal,
         progress: (current, total) => {
@@ -1501,19 +1683,25 @@ export class ExportTaskManager extends EventEmitter {
           !lstatSync(join(directory, summary.fileName)).isFile()
         )
           throw new Error('单文件资源缺失或包含额外产物，未发布结果。');
-      } else
-        writeFileAtomicSync(
-          join(bundle.stageDir, 'resource-results.json'),
-          JSON.stringify(
-            {
-              total: summary.total,
-              ok: summary.ok,
-              failed: summary.failed.map(({ fileName, error }) => ({ fileName, error })),
-            },
-            null,
-            2,
-          ),
+      } else if (
+        task.resource?.kind !== 'mail-messages' &&
+        task.resourceArchive?.formats?.length !== 0
+      ) {
+        await writeResourceDirectoryArchive(
+          bundle.stageDir,
+          task.format === 'jsonl' ? 'jsonl' : 'json',
+          {
+            ...task.resourceArchive,
+            ...(await this.archiveOptions(task)),
+            ...(task.resourceArchive?.selection
+              ? { selection: task.resourceArchive.selection }
+              : {}),
+          },
+          summary.failed,
+          summary.metadata,
+          abort.signal,
         );
+      }
       bundle.publish();
       task.resource!.cacheDirectory = bundle.finalDir;
       if (output) task.filePath = join(bundle.finalDir, 'files', summary.fileName!);
@@ -1855,8 +2043,27 @@ export class ExportTaskManager extends EventEmitter {
       } = this.deps;
       const { wantAvatars, wantMedia, wantTranscribe, wantOcr, wantDress, wantSysFaces, isBundle } =
         messageOutputFlags(task, this.outputCapabilities());
-      const needsScan = wantMedia || wantTranscribe || wantOcr;
-      const formats = task.formats?.length ? task.formats : [task.format];
+      const needsScan =
+        wantMedia ||
+        wantTranscribe ||
+        wantOcr ||
+        Boolean(
+          task.content &&
+            Object.entries(task.content.details ?? {}).some(
+              ([key, tier]) => key.endsWith('Variants') && tier !== 'none',
+            ),
+        );
+      const formats = task.resourceOnly ? [] : task.formats?.length ? task.formats : [task.format];
+      if (
+        task.archiveTargets &&
+        Object.values(task.archiveTargets).some((path) => !existsSync(dirname(path)))
+      )
+        throw new Error('归档目录不可用，请恢复原位置后继续。');
+      if (task.archiveTargets && !task.outputDirectory) {
+        const root = dirname(Object.values(task.archiveTargets)[0]!);
+        task.outputDirectory = join(root, `.weq-update-${task.id}`);
+        mkdirSync(task.outputDirectory);
+      }
       if (task.directOutput?.filePath && isBundle) {
         const previous = task.directOutput;
         const expanded = prepareDirectOutput(
@@ -1910,8 +2117,16 @@ export class ExportTaskManager extends EventEmitter {
       if (isBundle) task.bundleDir = outDir;
       task.filePath = this.exportFilePaths(task, outDir)[0];
       const mediaRoot = join(outDir, 'media');
-      const senders = wantAvatars ? new Set<string>() : undefined;
-      const faces = wantSysFaces ? new Set<string>() : undefined;
+      const senders =
+        wantAvatars ||
+        task.content?.details?.avatarProperties === 'local' ||
+        task.content?.details?.avatarVariants === 'local'
+          ? new Set<string>()
+          : undefined;
+      const faces =
+        wantSysFaces || task.content?.details?.qqFaceVariants === 'local'
+          ? new Set<string>()
+          : undefined;
 
       // Defensive: a stage created for a capability that isn't injected (no
       // avatar cache / no transcription engine) is skipped up-front, so the
@@ -2164,13 +2379,24 @@ export class ExportTaskManager extends EventEmitter {
         );
       }
 
+      const dressScanKinds = task.content
+        ? {
+            bubble: Boolean(
+              task.dress?.bubble || task.content.details?.bubbleProperties === 'local',
+            ),
+            font: Boolean(task.dress?.font || task.content.details?.fontProperties === 'local'),
+            widget: Boolean(
+              task.dress?.widget || task.content.details?.widgetProperties === 'local',
+            ),
+          }
+        : task.dress;
       const dressScanPromise =
-        wantDress && task.dress && this.deps.dressInstall
+        dressScanKinds && this.deps.dressInstall
           ? collectDressUsage(
               this.msgsFor(task),
               task.kind,
               task.conv,
-              task.dress,
+              dressScanKinds,
               task.range,
               roam,
             )
@@ -2180,6 +2406,7 @@ export class ExportTaskManager extends EventEmitter {
             pageSize: 2000,
             range: task.range,
             roam,
+            includeVariants: Boolean(task.content),
           })
         : Promise.resolve(null);
       // 预计算导出总量（本地消息按时间窗计数 + 漫游补全消息），让 message 阶段
@@ -2256,7 +2483,7 @@ export class ExportTaskManager extends EventEmitter {
       let dressExportPromise: Promise<DressExportResult | null> | null = null;
 
       // ---- 装扮资产导出（与消息导出、媒体补全并发，不再单独串行） ----
-      if (dressUsage && dressUsed > 0 && task.dress && this.deps.dressInstall) {
+      if (wantDress && dressUsage && dressUsed > 0 && task.dress && this.deps.dressInstall) {
         const kinds = task.dress;
         this.touchStage(
           task,
@@ -2280,7 +2507,7 @@ export class ExportTaskManager extends EventEmitter {
                 });
                 this.log(id, 'dress', `${note}（${done}/${total}）`);
               },
-              task.media?.completeDress !== false,
+              task.media?.completeDressKinds ?? task.media?.completeDress !== false,
             );
             dressManifest = r.manifest;
             this.touchStage(
@@ -2320,7 +2547,7 @@ export class ExportTaskManager extends EventEmitter {
       }
 
       // ---- 消息导出（HTML + 装扮需等 manifest；其余格式仅等装扮用量扫描） ----
-      if (!task.guild && (task.kind === 'group' || task.kind === 'c2c')) {
+      if (!task.archiveId && !task.guild && (task.kind === 'group' || task.kind === 'c2c')) {
         const journalDir = task.directOutput?.journalDirectory ?? outDir;
         if (task.journalPath && task.current > 0 && !existsSync(task.journalPath))
           throw new Error('原消息进度记录已丢失，请恢复进度目录后继续。');
@@ -2376,7 +2603,7 @@ export class ExportTaskManager extends EventEmitter {
           dressManifest,
           task.dress,
         );
-        task.filePath = result.filePath;
+        task.filePath = task.resourceOnly ? undefined : result.filePath;
         task.current = result.messageCount;
         if (task.filter && Object.values(task.filter).some(Boolean))
           task.total = result.messageCount;
@@ -2536,7 +2763,10 @@ export class ExportTaskManager extends EventEmitter {
             }
           }
           if (mfaceRefs.length > 0) {
-            const resolve = this.deps.marketFace;
+            const resolve = this.deps.marketFace
+              ? (pack: string, hash: string) =>
+                  this.deps.marketFace!(pack, hash, task.content?.qqFaces === 'local')
+              : undefined;
             if (!resolve) {
               failed += mfaceRefs.length;
               this.log(id, 'sysface', '商城表情服务不可用，跳过商城表情', 'warn');
@@ -2606,6 +2836,7 @@ export class ExportTaskManager extends EventEmitter {
             { persist: true },
           );
           const r = await exportGuildAvatars(avatarCache, usable, outDir, {
+            localOnly: task.completeAvatar === false,
             signal: abort.signal,
             onProgress: (done, total) => {
               if (aborted()) return;
@@ -2658,6 +2889,10 @@ export class ExportTaskManager extends EventEmitter {
             { persist: true },
           );
           const r = await exportAvatars(avatarCache, senders, outDir, {
+            localOnly: task.completeAvatar === false,
+            localFile: this.deps.avatarLocal
+              ? async (uin) => (await this.deps.avatarLocal!(uin, 'big'))?.path ?? null
+              : undefined,
             signal: abort.signal,
             onProgress: (done, total) => {
               if (aborted()) return;
@@ -3149,6 +3384,118 @@ export class ExportTaskManager extends EventEmitter {
       const firstError = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
       if (firstError) throw firstError.reason;
 
+      if (task.resourceOnly && task.content && !aborted())
+        await collectContentResources(outDir, task.content, {
+          scan,
+          senders,
+          avatarLocal: this.deps.avatarLocal,
+          dress: this.deps.dressInstall,
+          usage: dressUsage,
+          dressManifest,
+          faces,
+          emojiDir: this.deps.emojiDir,
+          marketFaceVariants: this.deps.marketFaceVariants,
+          signal: abort.signal,
+          copyPrimary: false,
+        });
+      if (!task.resourceOnly && task.archiveId && !task.chatlab && !aborted()) {
+        const archive = await this.archiveOptions(task);
+        if (task.content && !formats.some((format) => format === 'json' || format === 'jsonl'))
+          await exportArchiveConversation(
+            this.msgsFor(task),
+            {
+              kind: task.kind,
+              conv: task.conv,
+              outputPath: task.filePath!,
+              format: 'json',
+              archive,
+              range: task.range,
+              roam,
+              write: false,
+              onResource: (resource) => this.rememberResource(task.id, resource),
+            },
+            this.senderDeps(task) ?? {},
+          );
+        const metadata =
+          this.resourceMetadata.get(task.id) ?? new Map<string, ResourceDirectoryEntry>();
+        if (task.content)
+          for (const resource of await collectContentResources(outDir, task.content, {
+            scan,
+            senders,
+            avatarLocal: this.deps.avatarLocal,
+            dress: this.deps.dressInstall,
+            usage: dressUsage,
+            dressManifest,
+            faces,
+            emojiDir: this.deps.emojiDir,
+            marketFaceVariants: this.deps.marketFaceVariants,
+            signal: abort.signal,
+          }))
+            metadata.set(resource.sourceId, resource);
+        const additionalEntries = await selectedResourceEntries(
+          outDir,
+          [...metadata.values()],
+          archive,
+        );
+        const readResult = <T>(file: string): T | undefined =>
+          existsSync(join(outDir, file))
+            ? (JSON.parse(readFileSync(join(outDir, file), 'utf8')) as T)
+            : undefined;
+        const transcripts = readResult<Record<string, string>>('transcripts.json');
+        const ocr = readResult<{ images?: Record<string, { text?: string }> }>(
+          OCR_RESULTS_FILE,
+        )?.images;
+        const paths = this.exportFilePaths(task, outDir);
+        const needsFinalization =
+          additionalEntries.length > 0 ||
+          wantMedia ||
+          Object.values(transcripts ?? {}).some(Boolean) ||
+          Object.values(ocr ?? {}).some((value) => Boolean(value.text));
+        for (const [index, format] of formats.entries())
+          if (needsFinalization && (format === 'json' || format === 'jsonl')) {
+            await finalizeArchiveMessages(paths[index]!, format, {
+              media: wantMedia,
+              transcripts,
+              ocr,
+              signal: abort.signal,
+              additionalEntries,
+            });
+          }
+        for (const [index, format] of formats.entries())
+          if (
+            format !== 'json' &&
+            format !== 'jsonl' &&
+            format !== 'vcard' &&
+            task.content?.messages === 'none'
+          ) {
+            await writeArchiveView(
+              paths[index]!,
+              format as 'txt' | 'csv' | 'xlsx' | 'html',
+              async (emit) => {
+                const result = await exportArchiveConversation(
+                  this.msgsFor(task),
+                  {
+                    kind: task.kind,
+                    conv: task.conv,
+                    outputPath: paths[index]!,
+                    format: 'json',
+                    archive,
+                    range: task.range,
+                    roam,
+                    profiles: this.deps.contacts,
+                    write: false,
+                    onEntry: emit,
+                  },
+                  this.senderDeps(task) ?? {},
+                );
+                for (const entry of additionalEntries) await emit(entry);
+                return result;
+              },
+            );
+          }
+        this.resourceMetadata.delete(task.id);
+      }
+
       // 防御：所有子任务都已 settle，不应再有阶段处于 running / pending。
       // 若仍有（例如某阶段因条件未启动），记录警告便于排查，而不是静默完成。
       const dangling = task.stages.filter((s) => s.status === 'running' || s.status === 'pending');
@@ -3164,6 +3511,43 @@ export class ExportTaskManager extends EventEmitter {
       if (aborted()) {
         if (!paused()) task.status = 'cancelled';
         return;
+      }
+      if (task.archiveTargets) {
+        const targets = task.archiveTargets;
+        const root = dirname(Object.values(targets)[0]!);
+        const staged = this.exportFilePaths(task, outDir);
+        const published: Record<string, string> = {};
+        const { copyFile, constants } = await import('node:fs/promises');
+        for (const [index, format] of formats.entries()) {
+          if (format === 'json' || format === 'jsonl') {
+            const target = targets[format];
+            if (!target) throw new Error('未选择该格式的正式归档。');
+            const updated = await updateArchiveFile(target, staged[index]!, format, abort.signal);
+            task.current = Math.max(task.current, updated.messageCount);
+            task.total = Math.max(task.total ?? 0, task.current);
+            task.formatCounts ??= {};
+            task.formatCounts[format] = updated.messageCount;
+            published[format] = target;
+          } else {
+            const target = join(
+              root,
+              `${sanitizeSegment(task.name, 'export')}-${task.id}.${format}`,
+            );
+            await copyFile(staged[index]!, target, constants.COPYFILE_EXCL);
+            published[format] = target;
+          }
+        }
+        task.publishedOutputs = published;
+        task.archivePublished = true;
+        task.outputDirectory = root;
+        task.filePath = published[formats[0]!];
+        task.bundleDir = existsSync(join(root, '.weq-export')) ? root : undefined;
+        task.formatCheckpoints = {};
+        if (task.save) {
+          task.save.status = 'saved';
+          task.save.path = task.bundleDir ?? task.filePath;
+        }
+        rmSync(outDir, { recursive: true });
       }
       for (const key of task.skippedStages ?? []) {
         const stage = this.stage(task, key);
@@ -3291,7 +3675,10 @@ export class ExportTaskManager extends EventEmitter {
           (qzone.fetchInteractions || qzone.fetchLikes || qzone.fetchLikesResult),
       );
       // 每次空间导出都包含正文与 coverage，必须在私有 staging 中全部完成后整体发布。
-      bundle = createAtomicExportBundle(this.cacheDir, id);
+      bundle = createAtomicExportBundle(
+        this.cacheDir,
+        task.domainUpdate ? `${id}-${task.scanId}` : id,
+      );
       const outDir = bundle.stageDir;
       const mediaRoot = wantMedia ? join(outDir, 'media') : undefined;
       const mediaStore = task.qzoneAlbums ? new QzoneMediaStore(join(outDir, 'media')) : undefined;
@@ -3402,12 +3789,20 @@ export class ExportTaskManager extends EventEmitter {
           `${sanitizeSegment(task.name, task.conv || task.id)}.${format}`,
         );
         if (i === 0) firstFilePath = outPath;
-        const qzoneFormat = format === 'txt' ? 'txt' : format === 'html' ? 'html' : 'json';
+        const qzoneFormat =
+          format === 'txt'
+            ? 'txt'
+            : format === 'html'
+              ? 'html'
+              : format === 'jsonl'
+                ? 'jsonl'
+                : 'json';
         await writeQzone(qzoneFormat, data, {
           name: task.name,
           targetUin: task.conv,
           outputPath: outPath,
           localMedia: Boolean(mediaRoot),
+          archive: await this.archiveOptions(task),
         });
         task.formatCounts[format] = count;
         if (formats.length > 1) {
@@ -3429,6 +3824,7 @@ export class ExportTaskManager extends EventEmitter {
         this.touchStage(task, 'file', { status: 'running', note: '读取相册与媒体…' });
         const albums = await exportQzoneAlbums(
           {
+            archive: await this.archiveOptions(task),
             targetUin: task.conv,
             directory: outDir,
             range: task.range,
@@ -3455,19 +3851,20 @@ export class ExportTaskManager extends EventEmitter {
           failures: albums.failed.slice(0, 100).map((failure) => ({ stage: 'file', ...failure })),
           note: `${albums.albums} 本相册 · ${albums.ok} 项${albums.failed.length ? ` · 失败 ${albums.failed.length}` : ''}`,
         });
-        if (!firstFilePath) firstFilePath = join(outDir, 'albums', 'index.json');
+        if (!firstFilePath) firstFilePath = join(outDir, 'albums', `index.${formats[0] ?? 'json'}`);
       }
 
       abort.signal.throwIfAborted();
       history?.writeSnapshot(join(outDir, 'qzone-history.json'));
-      bundle.publish();
-      const publishedDir = bundle.finalDir;
-      firstFilePath = join(publishedDir, firstFilePath.slice(outDir.length + 1));
-
-      task.filePath = firstFilePath;
+      const updated = await this.publishDomainUpdate(task, outDir, abort.signal);
+      if (updated) bundle.discard();
+      else {
+        bundle.publish();
+        task.filePath = join(bundle.finalDir, firstFilePath.slice(outDir.length + 1));
+        task.bundleDir = bundle.finalDir;
+      }
       task.current = count + albumCount;
       task.total = count + albumCount;
-      task.bundleDir = publishedDir;
       task.status = 'completed';
       task.progress = 100;
       this.touchStage(
@@ -3564,9 +3961,13 @@ export class ExportTaskManager extends EventEmitter {
       task.formats = formats;
       // 有头像或多格式 → 产物为 bundle 目录（表文件 + avatars/），否则单文件。
       const isBundle = wantAvatars || formats.length > 1;
-      const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
-      if (isBundle) mkdirSync(outDir, { recursive: true });
-      if (isBundle) task.bundleDir = outDir;
+      const outDir = task.domainUpdate
+        ? join(this.cacheDir, `.contacts-${id}-${task.scanId}`)
+        : isBundle
+          ? join(this.cacheDir, `bundle-${id}`)
+          : this.cacheDir;
+      if (isBundle || task.domainUpdate) mkdirSync(outDir, { recursive: true });
+      if (isBundle && !task.domainUpdate) task.bundleDir = outDir;
       const uins = wantAvatars ? new Set<string>() : undefined;
 
       if (task.exportAvatar && !avatarCache) {
@@ -3630,7 +4031,9 @@ export class ExportTaskManager extends EventEmitter {
         const ext = format === 'vcard' ? 'vcf' : format;
         const outPath = join(
           outDir,
-          `${isBundle ? sanitizeSegment(task.name, task.conv || task.id) : task.id}.${ext}`,
+          task.domainUpdate
+            ? `${basename(task.domainUpdate.primaryRelative, extname(task.domainUpdate.primaryRelative))}.${ext}`
+            : `${isBundle ? sanitizeSegment(task.name, task.conv || task.id) : task.id}.${ext}`,
         );
         if (i === 0) {
           task.filePath = outPath;
@@ -3647,10 +4050,21 @@ export class ExportTaskManager extends EventEmitter {
         );
         abort.signal.throwIfAborted();
         if (snapshot.scope === 'groups')
-          await writeGroupDirectory(snapshot.rows, format === 'vcard' ? 'csv' : format, outPath);
+          await writeGroupDirectory(
+            snapshot.rows,
+            format === 'vcard' ? 'csv' : format,
+            outPath,
+            await this.archiveOptions(task),
+          );
         else if (snapshot.scope === 'group')
-          await writeGroupMembers(snapshot.rows, format === 'vcard' ? 'csv' : format, outPath);
-        else await writeFriends(snapshot.rows, format, outPath);
+          await writeGroupMembers(
+            snapshot.rows,
+            format === 'vcard' ? 'csv' : format,
+            outPath,
+            await this.archiveOptions(task),
+            task.conv,
+          );
+        else await writeFriends(snapshot.rows, format, outPath, await this.archiveOptions(task));
         if (aborted()) {
           if (!paused()) task.status = 'cancelled';
           return;
@@ -3693,6 +4107,13 @@ export class ExportTaskManager extends EventEmitter {
           { persist: true },
         );
         const r = await exportAvatars(avatarCache, uins, outDir, {
+          localOnly: task.completeAvatar === false,
+          localFile: this.deps.avatarLocal
+            ? async (uin) =>
+                (await this.deps.avatarLocal!(uin, 'big'))?.path ??
+                (await this.deps.avatarLocal!(uin, 'small'))?.path ??
+                null
+            : undefined,
           signal: abort.signal,
           onProgress: (done, total) => {
             if (aborted()) return;
@@ -3720,12 +4141,44 @@ export class ExportTaskManager extends EventEmitter {
           },
           { persist: true },
         );
+        const metadata: ResourceDirectoryEntry[] = [...uins].map((uin) => {
+          const file = ['png', 'jpg', 'gif', 'webp']
+            .map((ext) => `avatars/${uin}.${ext}`)
+            .find((path) => existsSync(join(outDir, path)));
+          return {
+            sourceId: `contact-avatar:${uin}`,
+            name: uin,
+            type: 'photo',
+            path: file,
+            status: file ? undefined : 'missing',
+          };
+        });
+        const entries = await selectedResourceEntries(
+          outDir,
+          metadata,
+          await this.archiveOptions(task),
+        );
+        for (const format of formats)
+          if (format === 'json' || format === 'jsonl') {
+            const path = join(
+              outDir,
+              task.domainUpdate
+                ? `${basename(task.domainUpdate.primaryRelative, extname(task.domainUpdate.primaryRelative))}.${format}`
+                : `${isBundle ? sanitizeSegment(task.name, task.conv || task.id) : task.id}.${format}`,
+            );
+            await finalizeArchiveMessages(path, format, {
+              media: false,
+              signal: abort.signal,
+              additionalEntries: entries,
+            });
+          }
       }
       if (aborted()) {
         if (!paused()) task.status = 'cancelled';
         return;
       }
-
+      if (await this.publishDomainUpdate(task, outDir, abort.signal))
+        rmSync(outDir, { recursive: true });
       task.status = 'completed';
       task.progress = 100;
     } catch (e) {
@@ -3766,7 +4219,10 @@ export class ExportTaskManager extends EventEmitter {
     this.saveTasks();
     let bundle: AtomicExportBundle | null = null;
     try {
-      bundle = createAtomicExportBundle(this.cacheDir, id);
+      bundle = createAtomicExportBundle(
+        this.cacheDir,
+        task.domainUpdate ? `${id}-${task.scanId}` : id,
+      );
       if (!task.generatedResourceCache)
         task.generatedResourceCache = discoverGeneratedResources(task.generated).map(
           (reference) => ({ reference }),
@@ -3851,19 +4307,25 @@ export class ExportTaskManager extends EventEmitter {
           format,
           join(bundle.stageDir, `${stem}.${format}`),
           resources.manifest,
+          await this.archiveOptions(task),
         );
         abort.signal.throwIfAborted();
         task.formatCounts[format] = task.generated.messages.length;
       }
-      bundle.publish();
-      task.bundleDir = bundle.finalDir;
-      task.filePath = join(bundle.finalDir, `${stem}.${formats[0]}`);
+      const updated = await this.publishDomainUpdate(task, bundle.stageDir, abort.signal);
+      if (updated) bundle.discard();
+      else {
+        bundle.publish();
+        task.bundleDir = bundle.finalDir;
+        task.filePath = join(bundle.finalDir, `${stem}.${formats[0]}`);
+      }
       task.current = task.generated.messages.length;
       task.status = 'completed';
       task.progress = 100;
       for (const item of resourceCache) {
         const relative = resources.published.get(item.reference.key);
-        if (item.snapshot && relative) item.snapshot.directory = join(bundle.finalDir, relative);
+        if (!updated && item.snapshot && relative)
+          item.snapshot.directory = join(bundle.finalDir, relative);
       }
       this.touchStage(task, 'message', {
         status: 'completed',
@@ -3873,6 +4335,7 @@ export class ExportTaskManager extends EventEmitter {
       });
       if (
         this.saveTasks() &&
+        !updated &&
         resourceCache.every((item) => !item.snapshot || resources.published.has(item.reference.key))
       ) {
         try {
@@ -3921,13 +4384,17 @@ export class ExportTaskManager extends EventEmitter {
     const abort = new AbortController();
     this.abortControllers.set(id, abort);
     const aborted = (): boolean => abort.signal.aborted;
+    const paused = (): boolean => this.tasks.get(id)?.status === 'paused';
     let bundle: AtomicExportBundle | null = null;
 
     try {
       const deps = this.deps.collection;
       if (!deps) throw new Error('收藏数据拉取能力不可用。');
 
-      bundle = createAtomicExportBundle(this.cacheDir, id);
+      bundle = createAtomicExportBundle(
+        this.cacheDir,
+        task.domainUpdate ? `${id}-${task.scanId}` : id,
+      );
       const fileName = `${sanitizeSegment(task.name, task.conv || task.id)}.${task.format}`;
       const outPath = join(bundle.stageDir, fileName);
 
@@ -3945,6 +4412,7 @@ export class ExportTaskManager extends EventEmitter {
       }
       const result = await exportCollections(
         {
+          archive: await this.archiveOptions(task),
           format: task.format as CollectionFormat,
           outputPath: outPath,
           kinds: task.collection?.kinds,
@@ -3959,7 +4427,7 @@ export class ExportTaskManager extends EventEmitter {
         deps,
       );
       if (aborted()) {
-        task.status = 'cancelled';
+        if (!paused()) task.status = 'cancelled';
         return;
       }
 
@@ -3989,10 +4457,13 @@ export class ExportTaskManager extends EventEmitter {
           2,
         ),
       );
-      bundle.publish();
-
-      task.filePath = join(bundle.finalDir, fileName);
-      task.bundleDir = bundle.finalDir;
+      const updated = await this.publishDomainUpdate(task, bundle.stageDir, abort.signal);
+      if (updated) bundle.discard();
+      else {
+        bundle.publish();
+        task.filePath = join(bundle.finalDir, fileName);
+        task.bundleDir = bundle.finalDir;
+      }
       task.current = result.count;
       this.touchStage(
         task,
@@ -4009,15 +4480,18 @@ export class ExportTaskManager extends EventEmitter {
       task.status = 'completed';
       task.progress = 100;
     } catch (e) {
-      task.status = 'failed';
-      task.error = String((e as Error)?.message ?? e);
-      const running = task.stages.find((s) => s.status === 'running');
-      if (running) {
-        running.status = 'failed';
-        running.note = task.error;
+      if (!aborted()) {
+        task.status = 'failed';
+        task.error = String((e as Error)?.message ?? e);
+        const running = task.stages.find((s) => s.status === 'running');
+        if (running) {
+          running.status = 'failed';
+          running.note = task.error;
+        }
+        this.log(id, 'task', `导出失败：${task.error}`, 'error');
       }
-      this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
+      if (aborted() && !paused()) task.status = 'cancelled';
       if (task.status !== 'completed') bundle?.discard();
       task.updatedAt = Date.now();
       this.abortControllers.delete(id);
@@ -4027,7 +4501,10 @@ export class ExportTaskManager extends EventEmitter {
         status: task.status,
         progress: task.progress,
         current: task.current,
-        message: task.status === 'completed' ? '导出完成' : (task.error ?? '已取消'),
+        message:
+          task.status === 'completed'
+            ? '导出完成'
+            : (task.error ?? (paused() ? '已暂停' : '已取消')),
       });
     }
   }
@@ -4538,9 +5015,11 @@ export class ExportTaskManager extends EventEmitter {
 
   /** 本次导出会产出的消息文件路径（与 {@link exportMessages} 的命名规则一致）。 */
   private exportFilePaths(task: ExportTask, outDir: string): string[] {
+    if (task.resourceOnly) return [];
     const formats = task.formats?.length ? task.formats : [task.format];
     return formats.map(
       (format) =>
+        task.publishedOutputs?.[format] ??
         task.directOutput?.filePath ??
         (format === 'html'
           ? join(outDir, 'index.html')
@@ -4646,6 +5125,15 @@ export class ExportTaskManager extends EventEmitter {
     return result;
   }
 
+  async listArchiveBaselines(directory: string) {
+    const resolved = this.deps.resolveSaveDirectory?.(directory) ?? directory;
+    const formal = await listFormalArchives(resolved);
+    const legacy = lstatSync(resolved).isDirectory()
+      ? this.listBaselines(resolved)
+      : { items: [], truncated: false };
+    return { ...legacy, items: [...formal, ...legacy.items] };
+  }
+
   /**
    * 消息阶段：多格式同任务时逐格式各写一个文件（进度跨格式累计）；单格式保持
    * 原行为。所有格式复用同一套 senders / faces 收集，媒体只由任务级 media 阶段
@@ -4663,6 +5151,27 @@ export class ExportTaskManager extends EventEmitter {
     dressManifest?: DressExportManifest | null,
     dressKinds?: DressExportKinds,
   ): Promise<ExportResult> {
+    if (task.resourceOnly && task.content) {
+      const content = { ...withoutStructuredContent(task.content), messages: 'none' as const };
+      const result = await exportArchiveConversation(
+        this.msgsFor(task),
+        {
+          kind: task.kind,
+          conv: task.conv,
+          outputPath: outDir,
+          format: 'json',
+          archive: { ...(await this.archiveOptions(task)), content },
+          range: task.range,
+          roam,
+          collectSenders: senders,
+          collectFaces: faces,
+          guild: task.guild,
+          write: false,
+        },
+        this.senderDeps(task) ?? {},
+      );
+      return result;
+    }
     const formats = task.formats?.length ? task.formats : [task.format];
     const filePathFor = (format: ExportFormat): string =>
       task.directOutput?.filePath ??
@@ -4711,6 +5220,10 @@ export class ExportTaskManager extends EventEmitter {
           dressManifest,
           dressKinds,
         );
+        if (task.archiveId && (format === 'json' || format === 'jsonl')) {
+          task.current = Math.max(task.current, result.messageCount);
+          task.formatCounts[format] = result.messageCount;
+        }
         this.abortControllers.get(task.id)?.signal.throwIfAborted();
         if (task.resumeBinding && !this.finalizing.has(task.id)) {
           task.formatCheckpoints ??= {};
@@ -4746,6 +5259,83 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   /** Dispatch one format pass to the right exporter by format / conversation kind. */
+  private rememberResource(id: string, resource: ResourceDirectoryEntry): void {
+    const map = this.resourceMetadata.get(id) ?? new Map<string, ResourceDirectoryEntry>();
+    map.set(resource.sourceId, resource);
+    this.resourceMetadata.set(id, map);
+  }
+
+  private async archiveOptions(task: ExportTask): Promise<ArchiveOptions> {
+    const self = await this.senderDeps(task)?.self?.();
+    return {
+      content: task.content,
+      extra: task.extra,
+      accountUin: this.deps.exportAccountUin || self?.uin,
+      scanId: task.scanId ?? task.id,
+      observedAt: task.scanStartedAt ?? task.createdAt,
+      profile: task.profile ?? 'basic',
+      incrementalSupport: task.incrementalSupport ?? false,
+      archiveId: task.archiveId,
+      partition: sha256(this.cacheDir),
+      formats: (task.formats?.length ? task.formats : [task.format]).filter(
+        (format): format is 'json' | 'jsonl' => format === 'json' || format === 'jsonl',
+      ),
+      selection: sourceValue(
+        task.generated
+          ? {
+              origin: 'local-generated',
+              target: task.generated.target,
+              messageIds: task.generated.selectedIds,
+            }
+          : task.contacts
+            ? {
+                contacts: task.contacts,
+                groupCode: task.contacts.scope === 'group' ? task.conv : undefined,
+              }
+            : task.collection
+              ? { collection: task.collection }
+              : task.qzone
+                ? {
+                    targetUin: task.conv,
+                    tids: task.qzoneTids,
+                    posts: task.qzonePosts !== false,
+                    albums: Boolean(task.qzoneAlbums),
+                    range: task.range,
+                  }
+                : {
+                    kind: task.guild ? 'guild-direct' : task.kind,
+                    conv: task.guild?.nodeId ?? task.conv,
+                    filter: task.filter,
+                    range: task.range,
+                  },
+      ),
+    };
+  }
+
+  private async publishDomainUpdate(
+    task: ExportTask,
+    stage: string,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    if (!task.domainUpdate || !task.archiveId) return false;
+    const target = task.domainUpdate;
+    const paths = await updateArchiveBundle(stage, target, task.archiveId, signal);
+    task.filePath = paths.get(target.primaryRelative)!;
+    task.bundleDir = target.bundle ? target.directory : undefined;
+    task.outputDirectory = target.directory;
+    task.publishedOutputs = Object.fromEntries(
+      [...paths]
+        .filter(([path]) => dirname(path) === dirname(target.primaryRelative))
+        .map(([path, published]) => [extname(path).slice(1), published]),
+    );
+    task.archivePublished = true;
+    if (task.save) {
+      task.save.status = 'saved';
+      task.save.path = target.bundle ? target.directory : task.filePath;
+    }
+    return true;
+  }
+
   private async exportMessagesOne(
     task: ExportTask,
     format: ExportFormat,
@@ -4783,6 +5373,57 @@ export class ExportTaskManager extends EventEmitter {
           collectFaces: faces,
         },
         this.senderDeps(task) ?? {},
+      );
+    }
+    if (task.archiveId && (format === 'json' || format === 'jsonl')) {
+      return exportArchiveConversation(
+        this.msgsFor(task),
+        {
+          kind: task.kind,
+          conv: task.conv,
+          name: task.name,
+          outputPath,
+          format,
+          range: task.range,
+          roam,
+          progressEvery,
+          onProgress: tick,
+          collectSenders: senders,
+          collectFaces: faces,
+          dressLookup,
+          withMediaPaths,
+          archive: await this.archiveOptions(task),
+          profiles: this.deps.contacts,
+          onResource: (resource) => this.rememberResource(task.id, resource),
+          guild: task.guild,
+          legacyJournal:
+            task.baselineDirectory && !task.archiveTargets ? this.baselineFor(task) : undefined,
+        },
+        this.senderDeps(task) ?? {},
+      );
+    }
+    if (task.content?.messages === 'none' && format !== 'vcard') {
+      const awaitableArchive = await this.archiveOptions(task);
+      return writeArchiveView(outputPath, format as 'txt' | 'csv' | 'xlsx' | 'html', (emit) =>
+        exportArchiveConversation(
+          this.msgsFor(task),
+          {
+            kind: task.kind,
+            conv: task.conv,
+            name: task.name,
+            outputPath,
+            format: 'json',
+            archive: awaitableArchive,
+            range: task.range,
+            roam,
+            collectSenders: senders,
+            collectFaces: faces,
+            write: false,
+            onEntry: emit,
+            profiles: this.deps.contacts,
+          },
+          this.senderDeps(task) ?? {},
+        ),
       );
     }
     // HTML resolves names / roles / self-alignment itself (like ChatLab) and
@@ -4828,6 +5469,7 @@ export class ExportTaskManager extends EventEmitter {
     }
     if (task.kind === 'group') {
       const opts: GroupExportOptions = {
+        legacyFormat: !task.archiveId,
         groupCode: task.conv,
         name: task.name,
         outputPath,
@@ -4892,6 +5534,7 @@ export class ExportTaskManager extends EventEmitter {
       return exportJsonConversation(
         msgs,
         {
+          legacyFormat: true,
           kind,
           conv: peerUid,
           name: convName,
@@ -4986,7 +5629,7 @@ export class ExportTaskManager extends EventEmitter {
 
   private canResume(task: ExportTask): boolean {
     if (this.finalizing.has(task.id) || this.outputSaves.has(task.id)) return false;
-    if (task.contacts || task.generated || task.qzone)
+    if (task.contacts || task.generated || task.qzone || task.collection)
       return ['paused', 'failed'].includes(task.status) && !this.abortControllers.has(task.id);
     return (
       ['paused', 'failed'].includes(task.status) &&
@@ -5018,9 +5661,13 @@ export class ExportTaskManager extends EventEmitter {
     const task = this.tasks.get(id);
     if (
       task?.status !== 'paused' ||
+      task.contacts ||
+      task.generated ||
+      task.qzone ||
+      task.collection ||
       !this.canResume(task) ||
-      !task.journalPath ||
-      !existsSync(task.journalPath)
+      (!(task.archiveId && task.incrementalSupport) &&
+        (!task.journalPath || !existsSync(task.journalPath)))
     )
       return false;
     if (task.partialReady) return true;
@@ -5033,8 +5680,25 @@ export class ExportTaskManager extends EventEmitter {
       message: '收尾中',
     });
     try {
+      if (task.archiveId && task.incrementalSupport && !task.journalPath) {
+        const { scanArchiveFile } = await import('./archive_stream');
+        const formats = task.formats ?? [task.format];
+        const paths = this.exportFilePaths(task, task.outputDirectory ?? dirname(task.filePath!));
+        const hashes: Record<string, string> = {};
+        for (const [index, format] of formats.entries())
+          if ((format === 'json' || format === 'jsonl') && existsSync(paths[index]!)) {
+            const scan = await scanArchiveFile(paths[index]!, format);
+            task.current = Math.max(task.current, scan.messageCount);
+            hashes[paths[index]!] = await fileSha256(paths[index]!);
+          }
+        if (!Object.keys(hashes).length) throw new Error('尚无已提交的正式数据可供收尾。');
+        task.outputHashes = hashes;
+        task.partialReady = true;
+        task.error = undefined;
+        return true;
+      }
       this.filteredSources.delete(id);
-      const journal = new MessageJournal(task.journalPath, undefined, !!task.filter?.messageIds);
+      const journal = new MessageJournal(task.journalPath!, undefined, !!task.filter?.messageIds);
       journal.sealed = true;
       this.journals.set(id, journal);
       const result = await this.exportMessages(
@@ -5081,20 +5745,98 @@ export class ExportTaskManager extends EventEmitter {
     }
   }
 
+  private canIncremental(task: ExportTask): boolean {
+    return (
+      task.status === 'completed' &&
+      !task.chatlab &&
+      !task.resource &&
+      !task.marketpack &&
+      !task.emojipack &&
+      Boolean(
+        task.journalPath ||
+          (task.archiveId &&
+            task.incrementalSupport &&
+            (task.formats ?? [task.format]).some(
+              (format) => format === 'json' || format === 'jsonl',
+            )),
+      )
+    );
+  }
+
   resumeTask(id: string, incremental = false): boolean {
     const task = this.tasks.get(id);
     if (
       !task ||
       this.outputSaves.has(id) ||
-      (!(
-        incremental &&
-        task.status === 'completed' &&
-        task.journalPath &&
-        !this.abortControllers.has(id)
-      ) &&
+      (!(incremental && this.canIncremental(task) && !this.abortControllers.has(id)) &&
         !this.canResume(task))
     )
       return false;
+    const resumeFormal =
+      !incremental &&
+      !task.contacts &&
+      !task.generated &&
+      !task.qzone &&
+      !task.collection &&
+      task.archiveId &&
+      task.incrementalSupport &&
+      Boolean(task.filePath && existsSync(task.filePath) && lstatSync(task.filePath).size > 0);
+    if (
+      incremental &&
+      task.archiveId &&
+      (task.qzone || task.collection || task.contacts || task.generated)
+    ) {
+      const formats = (task.formats ?? [task.format]).filter(
+        (format) => format === 'json' || format === 'jsonl',
+      );
+      if (!formats.length || !task.filePath) return false;
+      const oldRoot = task.bundleDir ?? dirname(task.filePath);
+      const primary = `${task.filePath.slice(0, -extname(task.filePath).length)}.${formats[0]}`;
+      const saved = task.save?.status === 'saved' ? task.save.path : undefined;
+      const directory = task.bundleDir ? (saved ?? oldRoot) : saved ? dirname(saved) : oldRoot;
+      const primaryRelative = relative(oldRoot, primary);
+      const primaryPath = !task.bundleDir && saved ? saved : join(directory, primaryRelative);
+      if (!existsSync(primaryPath)) return false;
+      task.domainUpdate = {
+        directory,
+        primaryRelative,
+        primaryPath,
+        bundle: Boolean(task.bundleDir),
+      };
+      task.formats = formats;
+      task.format = formats[0]!;
+      task.scanId = randomUUID();
+      task.scanStartedAt = Date.now();
+      task.publishedOutputs = undefined;
+      task.archivePublished = false;
+      task.outputHashes = undefined;
+      task.formatCheckpoints = {};
+      if (task.save) task.save.status = 'pending';
+    } else if ((incremental || resumeFormal) && task.archiveId) {
+      const formats = task.formats ?? [task.format],
+        paths = this.exportFilePaths(task, task.outputDirectory ?? dirname(task.filePath!));
+      const targets: Partial<Record<'json' | 'jsonl', string>> = { ...task.archiveTargets };
+      for (const [index, format] of formats.entries())
+        if (format === 'json' || format === 'jsonl') {
+          const path = targets[format] ?? paths[index]!;
+          if (!existsSync(path)) return false;
+          targets[format] = path;
+        }
+      task.archiveTargets = targets;
+      task.scanId = randomUUID();
+      task.scanStartedAt = Date.now();
+      task.outputDirectory = undefined;
+      task.directOutput = undefined;
+      task.bundleDir = undefined;
+      task.publishedOutputs = undefined;
+      task.archivePublished = false;
+      task.outputHashes = undefined;
+      task.current = 0;
+      task.progress = 0;
+      task.formatCounts = {};
+      task.formatCheckpoints = {};
+      if (task.save) task.save.status = 'pending';
+    }
     if (incremental) task.formatCheckpoints = {};
     if (incremental) {
       for (const stage of task.stages) {
@@ -5111,7 +5853,7 @@ export class ExportTaskManager extends EventEmitter {
     task.error = undefined;
     task.updatedAt = Date.now();
     if (supportsExportReport(task)) task.reportVersion = 1;
-    if (task.contacts || task.generated || task.qzone) {
+    if (task.contacts || task.generated || task.qzone || task.collection) {
       task.current = 0;
       task.progress = 0;
       task.formatCounts = {};
@@ -5132,7 +5874,9 @@ export class ExportTaskManager extends EventEmitter {
           ? this.runQzoneTask(id)
           : task.contacts
             ? this.runContactsTask(id)
-            : this.runTask(id),
+            : task.collection
+              ? this.runCollectionTask(id)
+              : this.runTask(id),
     );
     return true;
   }
@@ -5242,6 +5986,16 @@ export class ExportTaskManager extends EventEmitter {
   /** Remove a task's on-disk output (the whole bundle folder, or the lone file). */
   private cleanupOutput(task: ExportTask): void {
     if (task.directOutput) return;
+    if (task.archiveTargets || task.domainUpdate) {
+      for (const path of [
+        join(this.cacheDir, `bundle-${task.id}`),
+        join(this.cacheDir, `task-${task.id}`),
+        join(this.cacheDir, `.contacts-${task.id}-${task.scanId}`),
+        join(this.cacheDir, `generated-resources-${sanitizeSegment(task.id, 'generated')}`),
+      ])
+        rmSync(path, { recursive: true, force: true });
+      return;
+    }
     try {
       const cachedHtml = join(this.cacheDir, `report-${task.id}.html`);
       if (task.reportHtmlPath === cachedHtml && existsSync(cachedHtml)) unlinkSync(cachedHtml);

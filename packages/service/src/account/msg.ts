@@ -39,6 +39,7 @@ import {
   type FieldSpec,
   type MsgCacheRecord,
   decodeMsgDressColumn,
+  decodeMsgCacheColumn,
   type MsgDecoration,
 } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
@@ -211,6 +212,72 @@ export class MsgService {
     return sourceStamp(
       kind === 'group' ? this.session.groupMsgs.sourcePath : this.c2cDbFor(conv).sourcePath,
     );
+  }
+  async exportSourceRows(
+    kind: 'group' | 'c2c' | 'service' | 'official',
+    conversation: string,
+    ids: readonly string[],
+    full = true,
+  ) {
+    const enrich = (message: GroupMsg | C2cMsg, columns: Record<string, unknown>) => {
+      const cache = decodeMsgCacheColumn(columns['40900']);
+      const quoted = cache.length === 1 ? cache[0] : undefined;
+      const elements = (quoted as { elements?: unknown[] } | undefined)?.elements;
+      const offsets: Record<number, number> = {};
+      const metadata: Record<string, string | number | null> = {};
+      if (quoted)
+        for (const field of ['msgId', 'msgSeq', 'senderUin', 'senderUid', 'sendNick', 'sendTime']) {
+          const value = (quoted as unknown as Record<string, unknown>)[field];
+          if (value !== undefined) metadata[field] = String(value);
+        }
+      if (Array.isArray(elements) && elements.length)
+        for (const [index, element] of message.elements.entries()) {
+          if (element.kind !== 'reply') continue;
+          const reply = element as ReplyLike;
+          const previous = Array.isArray(reply.origElements) ? reply.origElements : [];
+          offsets[index] = previous.length;
+          reply.origElements = [...previous, ...elements];
+        }
+      return { offsets, metadata, count: elements?.length ?? 0 };
+    };
+    const metadataFor = (
+      message: RenderGroupMsg | RenderC2cMsg,
+      details: ReturnType<typeof enrich>,
+    ) => {
+      for (const [index, offset] of Object.entries(details.offsets)) {
+        const element = message.elements[Number(index)];
+        if (element?.type === 'reply')
+          element.data.exportQuoteCache = {
+            ...details.metadata,
+            elementOffset: offset,
+            elementCount: details.count,
+          };
+      }
+      return message;
+    };
+    if (kind === 'group')
+      return (await this.session.groupMsgs.exportSourceRows(conversation, ids, full)).map(
+        (source) => {
+          const details = enrich(source.message, source.columns);
+          return {
+            ...source,
+            quoteCacheOffsets: details.offsets,
+            message: metadataFor(this.renderGroupWithState(source.message), details),
+          };
+        },
+      );
+    const database =
+      kind === 'service' ? this.session.serviceAssistantMsgs : this.c2cDbFor(conversation);
+    const partition =
+      kind === 'service' ? { appId: BigInt(conversation) } : this.c2cPartition(conversation);
+    return (await database.exportSourceRows(partition, ids, full)).map((source) => {
+      const details = enrich(source.message, source.columns);
+      return {
+        ...source,
+        quoteCacheOffsets: details.offsets,
+        message: metadataFor(this.renderC2cWithState(source.message), details),
+      };
+    });
   }
 
   async browse(
@@ -1374,6 +1441,7 @@ function isMediaLessReply(el: Element): boolean {
  * record carries no media after all.
  */
 function cachedQuotedMedia(cache: MsgCacheRecord[]): unknown[] {
+  if (cache.length !== 1) return [];
   const record = cache[0];
   const els = (record as { elements?: unknown[] } | undefined)?.elements;
   if (!Array.isArray(els)) return [];

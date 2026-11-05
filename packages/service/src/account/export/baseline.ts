@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from '
 import { basename, isAbsolute, join } from 'node:path';
 
 export interface ExportBaselineEntry {
+  formal?: { path: string; format: 'json' | 'jsonl'; archiveId: string };
   directory: string;
   journalPath: string;
   name: string;

@@ -111,6 +111,9 @@ export interface UiTask {
   save?: import('@weq/service').ExportSaveState;
   canResume?: boolean;
   journalPath?: string;
+  canIncremental?: boolean;
+  canFinalize?: boolean;
+  resourceOnly?: boolean;
   partialReady?: boolean;
   isFinalizing?: boolean;
   mergeWarnings?: import('@weq/service').ExportTask['mergeWarnings'];
@@ -177,6 +180,7 @@ export function taskPct(t: UiTask): number {
 
 /** 任务类型标签（卡片 title / 详情 meta）。 */
 export function taskTypeLabel(t: UiTask): string {
+  if (t.resourceOnly) return '资源导出';
   if (t.resource?.kind === 'database') return '数据库明文导出';
   if (t.resource?.kind === 'assistant-artifact') return '助手报告保存';
   if (t.resource?.kind === 'market-image') return '商城单张表情保存';
@@ -213,6 +217,7 @@ export function taskIcon(t: UiTask): ReactElement {
 
 /** 详情 meta 用的格式标签：`HTML + JSON`。 */
 function fmtFormats(t: UiTask): string {
+  if (t.resourceOnly) return '仅资源';
   return (t.formats?.length ? t.formats : [t.format]).join(' + ').toUpperCase();
 }
 
@@ -520,7 +525,7 @@ function TaskDetail({
         </span>
         <strong className="weq-exp-detail-overall">{overall}%</strong>
         <div className="weq-exp-detail-actions">
-          {t.status === 'paused' && t.journalPath && onFinalize ? (
+          {t.status === 'paused' && (t.canFinalize || t.journalPath) && onFinalize ? (
             <button
               type="button"
               title={t.isFinalizing ? '收尾中' : t.partialReady ? '已收尾' : '收尾'}
@@ -531,7 +536,7 @@ function TaskDetail({
               {t.isFinalizing ? <Loader2 size={15} /> : <Check size={15} />}
             </button>
           ) : null}
-          {t.status === 'completed' && t.journalPath && onIncremental ? (
+          {t.status === 'completed' && (t.canIncremental || t.journalPath) && onIncremental ? (
             <button
               type="button"
               title="增量导出"
