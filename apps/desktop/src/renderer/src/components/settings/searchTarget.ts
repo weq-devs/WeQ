@@ -1,5 +1,8 @@
 import type { SettingsTarget } from './navigation';
 
+// 与 app-search.css 的淡出动画时长保持一致。
+export const SETTINGS_SEARCH_HIGHLIGHT_MS = 2000;
+
 export interface SettingsSearchTarget extends SettingsTarget {
   revision: number;
 }
@@ -39,6 +42,7 @@ export function revealSetting(
   let highlighted: HTMLElement | null = null;
   let focused: HTMLElement | null = null;
   let addedTabIndex = false;
+  let highlightTimer: ReturnType<typeof setTimeout> | undefined;
   const locate = () => {
     const element = findSettingElement(root, target);
     if (!element) return;
@@ -51,6 +55,10 @@ export function revealSetting(
     }
     highlighted = element;
     element.setAttribute('data-search-highlight', 'true');
+    highlightTimer = setTimeout(() => {
+      element.removeAttribute('data-search-highlight');
+      highlightTimer = undefined;
+    }, SETTINGS_SEARCH_HIGHLIGHT_MS);
     const owner =
       element.closest<HTMLElement>('button, input, select, textarea, a[href], summary') ?? element;
     focused = owner.matches(':disabled')
@@ -82,6 +90,7 @@ export function revealSetting(
   locate();
   return () => {
     observer.disconnect();
+    clearTimeout(highlightTimer);
     if (!highlighted) return;
     highlighted.removeAttribute('data-search-highlight');
     if (addedTabIndex && focused?.getAttribute('tabindex') === '-1')
