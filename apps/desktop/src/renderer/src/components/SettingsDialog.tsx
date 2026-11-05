@@ -62,6 +62,7 @@ import { ComponentAppearance } from './settings/ComponentAppearance';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
+import { ReplySuggestionsSection } from './settings/ReplySuggestionsSection';
 import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { OcrModelsSection } from './settings/OcrModelsSection';
 import { BackgroundServicesSection } from './settings/BackgroundServicesSection';
@@ -298,7 +299,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'reply-suggestions',
     label: '推荐回复',
     icon: <BrainCircuit size={16} strokeWidth={1.8} />,
-    render: () => <IntentSenseSection page="suggestions" />,
+    render: () => <ReplySuggestionsSection />,
   },
   {
     id: 'intent-sense',

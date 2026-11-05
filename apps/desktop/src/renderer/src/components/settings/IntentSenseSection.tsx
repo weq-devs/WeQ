@@ -1,321 +1,174 @@
-/**
- * 设置 → 模型与识别 → 意图感知。
- *
- * 功能开关与 API 引用按账号保存，本地模型资源全局共享。
- * 重要开关和模型选择直接呈现，业务参数集中在底部高级设置。
- */
-
-import { useState, type ReactElement } from 'react';
-import type { AgentLabModelSelection } from '@weq/agentlab';
-import { BrainCircuit, RotateCcw } from 'lucide-react';
+import { useState } from 'react';
+import { RotateCcw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { TabActivity, useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
-import { Card, Row, SectionHeader, Toggle, QueryError } from './controls';
+import { SegmentedControl } from '../SegmentedControl';
+import { Card, Row, Toggle } from './controls';
 import { IntentModelsSection } from './IntentModelsSection';
-import { ApiModelSelect } from './ApiModelSelect';
+import { ApiModelRow } from './ApiModelSelect';
 import { IntentTuningPanel } from './IntentTuningPanel';
+import { AiFeatureSettingsLayout } from './AiFeatureSettingsLayout';
+import { useAiFeatureSettings } from './useAiFeatureSettings';
 import '../../styles/intent-sense.css';
-import '../../styles/model-settings.css';
 
-interface StatusWire {
-  enabled: boolean;
-  engine: 'api' | 'local';
-  providerRef: AgentLabModelSelection | null;
-  suggestionProviderRef: AgentLabModelSelection | null;
-  suggestionApiConfigured: boolean;
-  lastSuggestionApiError?: string | null;
-  suggestionsEnabled: boolean;
-  analyzeAfterSelf: boolean;
-  persistentDisplay: boolean;
-  hoverDisplay: boolean;
-  suggestAfterSelf: boolean;
-  analysisContextMessages: number;
-  suggestionContextMessages: number;
-  hfMirror: boolean;
-  apiConfigured: boolean;
-  localAvailable: boolean;
-  localReady?: boolean;
-  lastApiError?: string | null;
-}
-
-interface LocalEngineWire {
-  available: boolean;
-  modelDownloaded: boolean;
-  engineReady: boolean;
-  modelDir: string;
-  downloading: boolean;
-}
-
-export function IntentSenseSection({
-  page = 'intent',
-}: {
-  page?: 'intent' | 'suggestions';
-}): ReactElement {
-  const active = useTabActive();
-  const suggestionsPage = page === 'suggestions';
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const showError = useDialog((s) => s.showError);
-  const utils = trpc.useUtils();
-
-  const status = trpc.account.intentSense.getStatus.useQuery(undefined, {
+export function IntentSenseSection() {
+  const settings = useAiFeatureSettings('意图感知');
+  const { active, status, disabled, patch, refreshResults } = settings;
+  const s = status.data;
+  const local = trpc.bootstrap.getLocalEngine.useQuery(undefined, {
     enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const localEngine = trpc.bootstrap.getLocalEngine.useQuery(undefined, {
-    enabled: active && !suggestionsPage,
-    refetchOnWindowFocus: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
-    // 引擎状态会因下载/启动变化，订阅进度时顺手刷新。
-  });
+  const clearCache = trpc.account.intentSense.clearCache.useMutation();
+  const utils = trpc.useUtils();
+  const showError = useDialog((s) => s.showError);
   const [clearedHint, setClearedHint] = useState<string | null>(null);
 
-  const setConfig = trpc.account.intentSense.setConfig.useMutation();
-  const clearCache = trpc.account.intentSense.clearCache.useMutation();
-
-  const s = status.data as StatusWire | undefined;
-  const local = localEngine.data as LocalEngineWire | undefined;
-
-  type ConfigPatch = Parameters<typeof setConfig.mutateAsync>[0];
-
-  async function patch(input: ConfigPatch): Promise<void> {
-    try {
-      const next = await setConfig.mutateAsync(input);
-      utils.account.intentSense.getStatus.setData(undefined, next);
-      void utils.account.intentSense.listMessageAnalyses.invalidate();
-      void utils.account.intentSense.getSuggestions.invalidate();
-      void utils.account.intentSense.getProfile.invalidate();
-    } catch (e) {
-      showError('意图感知设置失败', e instanceof Error ? e.message : String(e));
-      void status.refetch();
-    }
-  }
-
-  async function onClearCache(): Promise<void> {
+  async function onClearCache() {
     try {
       const res = await clearCache.mutateAsync();
       setClearedHint(`已清除 (${res.clearedFiles} 个会话)`);
       void utils.account.intentSense.getStatus.invalidate();
-      void utils.account.intentSense.listMessageAnalyses.invalidate();
-      void utils.account.intentSense.getSuggestions.invalidate();
-      void utils.account.intentSense.getProfile.invalidate();
-    } catch (e) {
-      showError('清空缓存失败', e instanceof Error ? e.message : String(e));
+      refreshResults();
+    } catch (error) {
+      showError('清空缓存失败', error instanceof Error ? error.message : String(error));
     }
   }
 
-  const modelControls = !suggestionsPage ? (
-    <>
-      <Card title="意图感知模型">
+  return (
+    <AiFeatureSettingsLayout
+      settings={settings}
+      title="意图感知"
+      advancedId="intent-advanced"
+      error={status.error}
+      retrying={status.isFetching}
+      onRetry={() => void status.refetch()}
+      basic={
         <Row
-          settingId="intent-engine"
-          label="运行方式"
+          settingId="intent-enabled"
+          label="启用意图感知"
+          desc="分析聊天消息的意图与情绪。"
           control={
-            <SegmentedControl
-              label="意图感知运行方式"
-              value={s?.engine ?? 'api'}
-              disabled={!s || status.isLoading || setConfig.isLoading}
-              onChange={(engine) => void patch({ engine })}
-              options={[
-                { value: 'api', label: 'API 模型' },
-                { value: 'local', label: '本地离线模型', disabled: !local?.available },
-              ]}
+            <Toggle
+              label="启用意图感知"
+              checked={s?.enabled ?? false}
+              disabled={disabled}
+              onChange={(enabled) => void patch({ enabled })}
             />
           }
         />
-        {s?.engine === 'api' ? (
+      }
+      model={
+        <>
           <Row
-            settingId="intent-api-model"
-            label="服务商与模型"
-            desc={`分析时会将消息文本发送至所选服务商。${s.lastApiError ? ` 最近调用失败：${s.lastApiError}` : ''}`}
+            settingId="intent-engine"
+            label="运行方式"
             control={
-              <ApiModelSelect
-                allowDefault
-                label="意图感知 API 模型"
-                value={s.providerRef}
-                disabled={setConfig.isLoading}
-                onChange={(providerRef) => void patch({ providerRef })}
+              <SegmentedControl
+                label="意图感知运行方式"
+                value={s?.engine ?? 'api'}
+                disabled={disabled}
+                onChange={(engine) => void patch({ engine })}
+                options={[
+                  { value: 'api', label: 'API 模型' },
+                  { value: 'local', label: '本地模型', disabled: !local.data?.available },
+                ]}
               />
             }
           />
-        ) : s?.engine === 'local' ? (
-          <p className="weq-set-note" data-setting-id="intent-api-model">
-            API 模型：当前使用本地离线模型。
+          {s?.engine === 'api' ? (
+            <ApiModelRow
+              settingId="intent-api-model"
+              label="意图感知 API 模型"
+              value={s.providerRef}
+              disabled={disabled}
+              lastError={s.lastApiError}
+              onChange={(providerRef) => void patch({ providerRef })}
+            />
+          ) : (
+            <p className="weq-set-note" data-setting-id="intent-api-model">
+              API 模型：{s ? '当前使用本地模型。' : '运行方式待确认。'}
+            </p>
+          )}
+        </>
+      }
+      resources={
+        s?.engine === 'local' ? (
+          <IntentModelsSection embedded />
+        ) : !s ? (
+          <p className="weq-set-note" data-setting-id="intent-model-resources">
+            尚未取得运行方式，本地模型资源状态待确认。
           </p>
-        ) : (
-          <p className="weq-set-note" data-setting-id="intent-api-model">
-            API 模型状态待确认。
-          </p>
-        )}
-      </Card>
-      {s?.engine === 'local' ? <IntentModelsSection embedded /> : null}
-    </>
-  ) : null;
-
-  return (
-    <div className="weq-set">
-      <SectionHeader
-        icon={<BrainCircuit size={18} strokeWidth={1.8} />}
-        title={suggestionsPage ? '推荐回复' : '意图感知'}
-      />
-      {status.error ? (
-        <QueryError
-          message={status.error.message}
-          retryLabel="重新读取意图设置"
-          onRetry={() => void status.refetch()}
-        />
-      ) : null}
-
-      <Card title="基础">
-        {!suggestionsPage ? (
-          <Row
-            settingId="intent-enabled"
-            label="启用意图感知"
-            desc="意图与情绪是模型推断，结果仅供参考。"
-            control={
-              <Toggle
-                checked={!!s?.enabled}
-                disabled={!s || status.isLoading || setConfig.isLoading}
-                onChange={(next) => void patch({ enabled: next })}
-                label="启用意图感知"
-              />
-            }
-          />
-        ) : null}
-        {suggestionsPage ? (
-          <Row
-            settingId="suggestions-enabled"
-            label="启用推荐回复"
-            desc="候选只会填入草稿，不会自动发送。"
-            control={
-              <Toggle
-                checked={!!s?.suggestionsEnabled}
-                disabled={!s || status.isLoading || setConfig.isLoading}
-                onChange={(next) => void patch({ suggestionsEnabled: next })}
-                label="启用推荐回复"
-              />
-            }
-          />
-        ) : null}
-        {suggestionsPage ? (
-          <Row
-            settingId="suggestions-model"
-            label="推荐回复 API 模型"
-            desc={`生成时会将消息和所选上文发送至该服务商；不可用时仅提供规则候选。${s?.lastSuggestionApiError ? ` 最近调用失败：${s.lastSuggestionApiError}` : ''}`}
-            control={
-              <ApiModelSelect
-                allowDefault
-                label="推荐回复 API 模型"
-                value={s?.suggestionProviderRef ?? null}
-                disabled={!s || status.isLoading || setConfig.isLoading}
-                onChange={(suggestionProviderRef) => void patch({ suggestionProviderRef })}
-                emptyLabel="未选择（仅规则候选）"
-              />
-            }
-          />
-        ) : null}
-      </Card>
-
-      {modelControls}
-      {!suggestionsPage && !s ? (
-        <p className="weq-set-note" data-setting-id="intent-model-resources">
-          尚未取得运行方式，本地模型资源状态待确认。
-        </p>
-      ) : null}
-      <details
-        className="weq-model-advanced"
-        onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
-      >
-        <summary data-setting-id={suggestionsPage ? 'suggestions-advanced' : 'intent-advanced'}>
-          高级设置
-        </summary>
-        <TabActivity active={active && advancedOpen}>
-          {!suggestionsPage ? (
-            <Card title="显示方式">
-              <Row
-                settingId="intent-persistent-display"
-                label="常驻显示"
-                control={
-                  <Toggle
-                    label="常驻显示"
-                    checked={s?.persistentDisplay !== false}
-                    disabled={!advancedOpen || !s || status.isLoading || setConfig.isLoading}
-                    onChange={(persistentDisplay) => void patch({ persistentDisplay })}
-                  />
-                }
-              />
-              <Row
-                settingId="intent-hover-display"
-                label="悬停显示"
-                control={
-                  <Toggle
-                    label="悬停显示"
-                    checked={s?.hoverDisplay !== false}
-                    disabled={!advancedOpen || !s || status.isLoading || setConfig.isLoading}
-                    onChange={(hoverDisplay) => void patch({ hoverDisplay })}
-                  />
-                }
-              />
-            </Card>
-          ) : null}
-
-          <Card title="触发与缓存">
-            {suggestionsPage ? (
-              <Row
-                settingId="suggestions-after-self"
-                label="自己发送后推荐回复"
-                control={
-                  <Toggle
-                    label="自己发送后推荐回复"
-                    checked={s?.suggestAfterSelf === true}
-                    disabled={!advancedOpen || !s || status.isLoading || setConfig.isLoading}
-                    onChange={(suggestAfterSelf) => void patch({ suggestAfterSelf })}
-                  />
-                }
-              />
-            ) : (
-              <>
-                <Row
-                  settingId="intent-after-self"
-                  label="自己发送后分析"
-                  control={
-                    <Toggle
-                      label="自己发送后分析"
-                      checked={s?.analyzeAfterSelf !== false}
-                      disabled={!advancedOpen || !s || status.isLoading || setConfig.isLoading}
-                      onChange={(analyzeAfterSelf) => void patch({ analyzeAfterSelf })}
-                    />
-                  }
+        ) : null
+      }
+    >
+      {(inactive) => (
+        <>
+          <Card title="显示方式">
+            <Row
+              settingId="intent-persistent-display"
+              label="常驻显示"
+              control={
+                <Toggle
+                  label="常驻显示"
+                  checked={s?.persistentDisplay !== false}
+                  disabled={disabled || inactive}
+                  onChange={(persistentDisplay) => void patch({ persistentDisplay })}
                 />
-                <Row
-                  settingId="intent-cache"
-                  label="分析缓存"
-                  desc={clearedHint ?? undefined}
-                  control={
-                    <button
-                      type="button"
-                      className="weq-int-download-btn"
-                      disabled={!advancedOpen || !s || clearCache.isLoading}
-                      onClick={() => void onClearCache()}
-                    >
-                      <RotateCcw size={13} />
-                      <span>清空并重算</span>
-                    </button>
-                  }
+              }
+            />
+            <Row
+              settingId="intent-hover-display"
+              label="悬停显示"
+              control={
+                <Toggle
+                  label="悬停显示"
+                  checked={s?.hoverDisplay !== false}
+                  disabled={disabled || inactive}
+                  onChange={(hoverDisplay) => void patch({ hoverDisplay })}
                 />
-              </>
-            )}
+              }
+            />
           </Card>
-
-          <IntentTuningPanel group={suggestionsPage ? 'suggestions' : 'analysis'} />
-          {!suggestionsPage ? <IntentTuningPanel group="advanced" /> : null}
-          {!suggestionsPage && s?.engine === 'api' ? <IntentModelsSection embedded /> : null}
-        </TabActivity>
-      </details>
-    </div>
+          <Card title="触发方式">
+            <Row
+              settingId="intent-after-self"
+              label="自己发送后分析"
+              control={
+                <Toggle
+                  label="自己发送后分析"
+                  checked={s?.analyzeAfterSelf !== false}
+                  disabled={disabled || inactive}
+                  onChange={(analyzeAfterSelf) => void patch({ analyzeAfterSelf })}
+                />
+              }
+            />
+          </Card>
+          <IntentTuningPanel group="analysis" />
+          <IntentTuningPanel group="advanced" />
+          <Card title="缓存管理">
+            <Row
+              settingId="intent-cache"
+              label="意图与推荐缓存"
+              desc={clearedHint ?? '清除当前账号的意图分析与推荐回复缓存，不影响互动画像。'}
+              control={
+                <button
+                  type="button"
+                  className="weq-set-btn"
+                  disabled={disabled || inactive || clearCache.isLoading}
+                  onClick={() => void onClearCache()}
+                >
+                  <RotateCcw size={14} />
+                  <span>清空并重算</span>
+                </button>
+              }
+            />
+          </Card>
+          {s?.engine === 'api' ? <IntentModelsSection embedded /> : null}
+        </>
+      )}
+    </AiFeatureSettingsLayout>
   );
 }
-import { SegmentedControl } from '../SegmentedControl';

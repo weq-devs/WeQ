@@ -10,6 +10,8 @@ describe('好友克隆设置的浏览器依赖', () => {
       '../src/renderer/src/views/agentlab/PersonaSettingsModal.tsx',
       '../src/renderer/src/components/settings/ApiModelSelect.tsx',
       '../src/renderer/src/components/settings/IntentSenseSection.tsx',
+      '../src/renderer/src/components/settings/ReplySuggestionsSection.tsx',
+      '../src/renderer/src/components/settings/InteractionProfileSection.tsx',
       '../src/renderer/src/views/agentlab/NewCloneModal.tsx',
       '../src/renderer/src/views/agentlab/AssistantPanel.tsx',
     ].map((path) => resolve(__dirname, path));

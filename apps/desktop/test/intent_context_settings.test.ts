@@ -2,6 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { IntentSenseSection } from '../src/renderer/src/components/settings/IntentSenseSection';
+import { ReplySuggestionsSection } from '../src/renderer/src/components/settings/ReplySuggestionsSection';
 import { AI_SETTING_ITEMS } from '../src/renderer/src/components/settings/aiSettingsCatalog';
 import { searchAppEntries } from '../src/renderer/src/components/search/appSearchCatalog';
 import { revealSetting } from '../src/renderer/src/components/settings/searchTarget';
@@ -151,15 +152,18 @@ function renderFixture(open = true) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = (page: 'intent' | 'suggestions' = 'intent') =>
-    act(() => root.render(createElement(IntentSenseSection, { page })));
+  const render = (page: 'intent' | 'suggestions' = 'intent') => {
+    act(() =>
+      root.render(createElement(page === 'intent' ? IntentSenseSection : ReplySuggestionsSection)),
+    );
+    if (open)
+      act(() => {
+        const details = host.querySelector('details')!;
+        details.open = true;
+        details.dispatchEvent(new Event('toggle'));
+      });
+  };
   render();
-  if (open)
-    act(() => {
-      const details = host.querySelector('details')!;
-      details.open = true;
-      details.dispatchEvent(new Event('toggle'));
-    });
   cleanups.push(() => {
     act(() => root.unmount());
     host.remove();
@@ -336,7 +340,9 @@ it.each(['loading', 'error'])('设置 %s 时保留条件摘要并禁止改配置
   expect(fixture.resourceActive).toBe(false);
   expect(fixture.resourceSubscriptionActive).toBe(false);
   if (kind === 'error') {
-    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="重新读取意图设置"]')!.click());
+    act(() =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="重新读取意图感知设置"]')!.click(),
+    );
     expect(fixture.retry).toHaveBeenCalledOnce();
   }
   expect(fixture.save).not.toHaveBeenCalled();

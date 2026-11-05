@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useContext, useEffect, useMemo, useRef } from 'react';
 import { z } from 'zod';
 import { usePageState } from '../PageSnapshots';
 import { RotateCcw, Save } from 'lucide-react';
@@ -9,11 +9,10 @@ import {
   isIntentTuningValue,
   type IntentTuningKey,
 } from '@weq/service/intent-context';
-import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
 import { Card, Row } from './controls';
-import { useDialog } from '../Dialog';
 import { intentTuningSettingId } from './aiSettingsCatalog';
+import { AiFeatureSettingsContext, useAiFeatureSettings } from './useAiFeatureSettings';
+import { useTabActive } from '../RetainedTabs';
 
 const TITLES = {
   analysis: '分析范围与时效',
@@ -23,18 +22,33 @@ const TITLES = {
 };
 
 export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
+  const settings = useContext(AiFeatureSettingsContext);
+  return settings ? (
+    <TuningFields group={group} settings={settings} />
+  ) : (
+    <StandaloneTuningPanel group={group} />
+  );
+}
+
+function StandaloneTuningPanel({ group }: { group: keyof typeof TITLES }) {
+  const settings = useAiFeatureSettings('参数');
+  return <TuningFields group={group} settings={settings} />;
+}
+
+function TuningFields({
+  group,
+  settings,
+}: {
+  group: keyof typeof TITLES;
+  settings: ReturnType<typeof useAiFeatureSettings>;
+}) {
   const active = useTabActive();
+  const { status, patch } = settings;
+  const disabled = !active || settings.disabled;
   const keys = useMemo(
     () => INTENT_TUNING_KEYS.filter((key) => INTENT_TUNING[key].group === group),
     [group],
   );
-  const status = trpc.account.intentSense.getStatus.useQuery(undefined, {
-    enabled: active,
-    refetchOnWindowFocus: false,
-  });
-  const save = trpc.account.intentSense.setConfig.useMutation();
-  const utils = trpc.useUtils();
-  const showError = useDialog((s) => s.showError);
   const baseline = useRef<Record<string, string>>({});
   const [draft, setDraft] = usePageState<Record<string, string>>(
     `tuning:${group}`,
@@ -63,19 +77,11 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
   );
 
   async function submit() {
-    if (!active || !ready || !valid || save.isLoading) return;
-    try {
-      const patch: Partial<Record<IntentTuningKey, number>> = {};
-      const changed = keys.filter((key) => Number(draft[key]) !== status.data?.[key]);
-      for (const key of changed.length ? changed : keys) patch[key] = Number(draft[key]);
-      const next = await save.mutateAsync(patch);
-      utils.account.intentSense.getStatus.setData(undefined, next);
-      void utils.account.intentSense.listMessageAnalyses.invalidate();
-      void utils.account.intentSense.getSuggestions.invalidate();
-      void utils.account.intentSense.getProfile.invalidate();
-    } catch (error) {
-      showError('参数保存失败', String(error));
-    }
+    if (!active || disabled || !ready || !valid) return;
+    const input: Partial<Record<IntentTuningKey, number>> = {};
+    const changed = keys.filter((key) => Number(draft[key]) !== status.data?.[key]);
+    for (const key of changed.length ? changed : keys) input[key] = Number(draft[key]);
+    await patch(input);
   }
 
   return (
@@ -107,7 +113,7 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
                   step={'step' in rule ? rule.step : 1}
                   required
                   value={draft[key] ?? ''}
-                  disabled={!active || !ready || save.isLoading}
+                  disabled={disabled || !ready}
                   onChange={(event) =>
                     setDraft((current) => ({ ...current, [key]: event.target.value }))
                   }
@@ -126,7 +132,7 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
                 className="weq-set-iconbtn"
                 title="恢复默认值"
                 aria-label={`恢复${TITLES[group]}默认值`}
-                disabled={!active || !ready || save.isLoading}
+                disabled={disabled || !ready}
                 onClick={() =>
                   setDraft(
                     Object.fromEntries(
@@ -137,11 +143,7 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
               >
                 <RotateCcw size={15} />
               </button>
-              <button
-                type="submit"
-                className="weq-set-btn"
-                disabled={!active || !ready || !valid || save.isLoading}
-              >
+              <button type="submit" className="weq-set-btn" disabled={disabled || !ready || !valid}>
                 <Save size={14} />
                 保存
               </button>

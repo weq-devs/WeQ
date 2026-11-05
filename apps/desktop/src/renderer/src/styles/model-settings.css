@@ -17,6 +17,11 @@
 .weq-model-advanced[open] > summary {
   margin-bottom: 8px;
 }
+.weq-ai-settings-advanced {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
 html[data-theme='dark'] .weq-model-advanced > summary {
   border-color: var(--weq-border-strong);
 }
