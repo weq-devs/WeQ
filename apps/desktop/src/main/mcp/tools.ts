@@ -2762,7 +2762,7 @@ export const AI_TOOLS: AiTool[] = [
           entry.ok = false;
           entry.error = res.error ?? '语音转写失败';
           entry.hint =
-            '模型未下载/未配置时请先在 WeQ「设置 → 语音转录」选择并下载模型；结果不会写回数据库。';
+            '模型未下载时请先在 WeQ「设置 → AI 功能 → 语音识别」下载模型；结果不会写回数据库。';
         }
         results.push(entry);
       }

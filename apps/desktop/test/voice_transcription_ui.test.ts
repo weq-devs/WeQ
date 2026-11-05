@@ -232,7 +232,7 @@ describe('语音消息转换入口', () => {
     render();
     rightClick();
     expect(
-      host.querySelector<HTMLButtonElement>('button[title="请先在设置中选择本地语音模型"]')!
+      host.querySelector<HTMLButtonElement>('button[title="请先在设置中下载本地语音模型"]')!
         .disabled,
     ).toBe(true);
   });

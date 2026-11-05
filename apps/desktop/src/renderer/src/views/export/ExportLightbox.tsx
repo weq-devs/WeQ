@@ -1231,7 +1231,7 @@ export function ExportLightbox({
                         label="语音转写"
                         desc={
                           voiceModelReady === false
-                            ? '需先在「设置 → 语音转录」下载并选择模型'
+                            ? '需先在「设置 → AI 功能 → 语音识别」下载模型'
                             : '将语音消息转录为文字一并保存'
                         }
                         control={
