@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weq.local/schemas/export/v1/generated.full.schema.json",
+  "title": "本地生成对话全部数据",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    },
+    {
+      "required": ["native"],
+      "properties": {
+        "kind": {
+          "const": "generated"
+        },
+        "data": {
+          "$ref": "generated.basic.schema.json#/$defs/data"
+        },
+        "native": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/native"
+            },
+            {
+              "properties": {
+                "attributes": {
+                  "items": {
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "model"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["text"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "usage"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "generation"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "sessionProperties"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "unevaluatedProperties": false
+}

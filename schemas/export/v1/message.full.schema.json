@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weq.local/schemas/export/v1/message.full.schema.json",
+  "title": "消息全部数据",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    },
+    {
+      "required": ["native"],
+      "properties": {
+        "kind": {
+          "const": "message"
+        },
+        "data": {
+          "$ref": "message.basic.schema.json#/$defs/data"
+        },
+        "native": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/native"
+            },
+            {
+              "properties": {
+                "attributes": {
+                  "items": {
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "msgRandom"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "clientSeq"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "chatType"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "msgType"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "subMsgType"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "sendType"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "sendStatus"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "guildId"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "peerTinyId"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "routing"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "decoration"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "reactions"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "directGid"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["text"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "unevaluatedProperties": false
+}

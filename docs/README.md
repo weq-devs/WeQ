@@ -31,6 +31,7 @@ NTQQ 各数据库的表结构与字段解析，全部依据 WeQ 自己的解析�
 面向贡献者，介绍项目架构、构建发版与贡献流程。
 
 - [开发者入口](./develop/index.md)
+- [导出格式设计与双档 Schema（待实现）](./develop/export-format/README.md)
 - [Web 服务与手机连接](./guide/remote-web.md)
 - [OneBot / cc-connect](./guide/onebot-cc-connect.md)
 - [后台服务与关闭/退出行为](./develop/background-services-close-behavior-20261030.md)

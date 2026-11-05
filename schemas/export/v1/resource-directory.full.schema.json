@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weq.local/schemas/export/v1/resource-directory.full.schema.json",
+  "title": "资源目录全部数据",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    },
+    {
+      "required": ["native"],
+      "properties": {
+        "kind": {
+          "const": "resource-directory"
+        },
+        "data": {
+          "$ref": "resource-directory.basic.schema.json#/$defs/data"
+        },
+        "native": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/native"
+            },
+            {
+              "properties": {
+                "attributes": {
+                  "items": {
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "size"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer", "text"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "total"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer", "text"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "unread"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer", "text"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "price"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer", "text"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "version"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer", "text"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "locked"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["boolean"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "available"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["boolean"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "downloaded"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["boolean"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "uploader"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "permissions"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "classification"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "unevaluatedProperties": false
+}

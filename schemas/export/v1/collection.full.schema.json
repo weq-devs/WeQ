@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weq.local/schemas/export/v1/collection.full.schema.json",
+  "title": "收藏全部数据",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    },
+    {
+      "required": ["native"],
+      "properties": {
+        "kind": {
+          "const": "collection"
+        },
+        "data": {
+          "$ref": "collection.basic.schema.json#/$defs/data"
+        },
+        "native": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/native"
+            },
+            {
+              "properties": {
+                "attributes": {
+                  "items": {
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "typeCode"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "modifiedAt"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "authorProperties"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "contentProperties"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "detailProperties"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "sequence"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer", "text"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "unevaluatedProperties": false
+}

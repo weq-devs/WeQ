@@ -169,6 +169,12 @@ importers:
       '@biomejs/biome':
         specifier: ^2.5.4
         version: 2.5.4
+      ajv:
+        specifier: 8.20.0
+        version: 8.20.0
+      ajv-formats:
+        specifier: 3.0.1
+        version: 3.0.1
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
