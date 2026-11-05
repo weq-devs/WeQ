@@ -122,6 +122,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             hasD2: true,
             hasD2Key: true,
             hasGuid: true,
+            ssoReady: true,
+            source: {
+              expectedAccountUin: '10001',
+              expectedAccountConfigId: state.configId,
+            },
           },
         }),
       },
