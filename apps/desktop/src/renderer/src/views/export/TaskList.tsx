@@ -6,8 +6,8 @@
  *
  * 详情区展示该任务的每个子任务进度条（右侧只显示百分比，不显示进度名称），
  * 每个子任务进度条下方挂自己的滚动日志（Docker TUI 风格）；子任务完成后日志
- * 自动收起。任务级日志（扫描摘要 / 起止 / 错误）固定在详情底部，同样在任务
- * 完成后自动隐藏。
+ * 自动收起，仍可手动展开。任务级日志（扫描摘要 / 起止 / 错误）固定在详情
+ * 底部，任务完成后也可展开查看。
  */
 
 import { useEffect, useState, type ReactElement } from 'react';
@@ -319,8 +319,11 @@ function StageRow({
 }): ReactElement {
   const [open, setOpen] = useState(false);
   const pct = stagePct(stage);
-  // 运行中 / 失败时可展开日志；完成 / 跳过自动收起（按钮禁用）。
-  const canOpen = stage.status === 'running' || stage.status === 'failed';
+  // 完成 / 跳过时自动收起，但保留手动展开入口。
+  const canOpen = stage.status !== 'pending';
+  useEffect(() => {
+    if (stage.status === 'completed' || stage.status === 'skipped') setOpen(false);
+  }, [stage.status]);
   const showLog = canOpen && open;
   const failures = stage.failures ?? [];
   return (
@@ -368,7 +371,7 @@ function StageRow({
             aria-expanded={canOpen && open}
             onClick={() => setOpen((v) => !v)}
           >
-            <ChevronDown size={13} className={open ? 'is-open' : ''} />
+            <ChevronDown size={13} className={showLog ? 'is-open' : ''} />
           </button>
         </span>
       </div>
@@ -469,9 +472,15 @@ function TaskDetail({
   const logs = t.logs ?? [];
   const stageLogs = (key: string): UiLogLine[] => logs.filter((l) => l.stage === key);
   const taskLogs = logs.filter((l) => l.stage === 'task');
-  // 任务级日志在任务收尾后隐藏（与子任务日志一致）。
-  const showTaskLog = t.status === 'running' || t.status === 'paused' || t.status === 'failed';
+  const showTaskLog =
+    t.status === 'running' ||
+    t.status === 'paused' ||
+    t.status === 'failed' ||
+    t.status === 'completed';
   const [taskLogOpen, setTaskLogOpen] = useState(false);
+  useEffect(() => {
+    if (t.status === 'completed' || t.status === 'cancelled') setTaskLogOpen(false);
+  }, [t.status]);
   // 待执行的可跳过阶段也显示，让用户能提前略过它。
   const mounted = (t.stages ?? []).filter(
     (s) =>
