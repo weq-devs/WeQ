@@ -565,8 +565,8 @@ export const dressupRouter = router({
   /**
    * 聊天消息里出现过的成员的 QQ 秀 URL（uin → 形象）。
    *
-   * 本地映射命中时不联网，直接返回；未命中才按并发 3 去查 QQ。离线时返回已缓存的
-   * 记录（过期记录也保留，图片 URL 自带版本号），完全没有的 uin 不出现在结果里。
+   * 本地映射命中时不联网，直接返回；未命中才逐个查 QQ。离线时返回已缓存的
+   * 记录（过期记录也保留），完全没有的 uin 不出现在结果里。
    */
   chatQqShows: procedure
     .input(z.object({ uins: z.array(z.string().regex(/^\d{5,20}$/)).max(120) }))

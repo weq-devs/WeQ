@@ -734,8 +734,10 @@ export interface AppSettings {
    * 形象 URL 按 uin 缓存在本地，个性主页也读这份缓存。
    */
   showChatQqShow: boolean;
-  /** QQ 秀形象 URL 本地映射的有效期（天）。默认 14，过期后重新向 QQ 查询。 */
-  qqShowCacheDays: number;
+  /** QQ 秀形象 URL 本地映射的有效期（分钟）。默认 5。 */
+  qqShowCacheMinutes: number;
+  /** 旧版天数配置，仅用于读取和恢复时迁移。 */
+  qqShowCacheDays?: number;
   linkPreview: LinkPreviewConfig;
   /**
    * 头像与聊天图片/视频封面直接由前端向 QQ CDN 取，不经本进程代理。
@@ -1055,11 +1057,15 @@ export interface SsePushConfig {
 export type { GroupKeywordRules } from '../account/group_keyword';
 export { normalizeGroupKeywordRules } from '../account/group_keyword';
 
-/** QQ 秀缓存有效期：只接受 1–365 的整数天，非法值交给调用方回落默认。 */
-function normalizeQqShowCacheDays(value: unknown): number | null {
+/** 旧默认 14 天迁移为 5 分钟，其他自定义天数保留。 */
+function normalizeQqShowCacheMinutes(value: unknown, legacyDays?: unknown): number | null {
+  if (value === undefined && typeof legacyDays === 'number' && Number.isFinite(legacyDays)) {
+    const days = Math.round(legacyDays);
+    return days >= 1 && days <= 365 ? (days === 14 ? 5 : days * 1440) : null;
+  }
   if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  const days = Math.round(value);
-  return days >= 1 && days <= 365 ? days : null;
+  const minutes = Math.round(value);
+  return minutes >= 1 && minutes <= 365 * 1440 ? minutes : null;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -1099,7 +1105,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   renderTextMarkdown: true,
   showAvatarPendant: true,
   showChatQqShow: true,
-  qqShowCacheDays: 14,
+  qqShowCacheMinutes: 5,
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
   home: DEFAULT_HOME_SETTINGS,
@@ -1772,7 +1778,9 @@ export class UserConfigService {
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       showChatQqShow: s?.showChatQqShow ?? d.showChatQqShow,
-      qqShowCacheDays: normalizeQqShowCacheDays(s?.qqShowCacheDays) ?? d.qqShowCacheDays,
+      qqShowCacheMinutes:
+        normalizeQqShowCacheMinutes(s?.qqShowCacheMinutes, s?.qqShowCacheDays) ??
+        d.qqShowCacheMinutes,
       preferCdn: s?.preferCdn ?? d.preferCdn,
       home: normalizeHomeSettings(s?.home),
       typingStatus: normalizeTypingStatus(s?.typingStatus),
@@ -1905,7 +1913,9 @@ export class UserConfigService {
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       showChatQqShow: patch.showChatQqShow ?? current.showChatQqShow,
-      qqShowCacheDays: normalizeQqShowCacheDays(patch.qqShowCacheDays) ?? current.qqShowCacheDays,
+      qqShowCacheMinutes:
+        normalizeQqShowCacheMinutes(patch.qqShowCacheMinutes, patch.qqShowCacheDays) ??
+        current.qqShowCacheMinutes,
       preferCdn: patch.preferCdn ?? current.preferCdn,
       home: normalizeHomeSettings({ ...current.home, ...patch.home }),
       typingStatus: normalizeTypingStatus({ ...current.typingStatus, ...patch.typingStatus }),

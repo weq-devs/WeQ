@@ -153,7 +153,8 @@ function shape(value: unknown, template: unknown, path: string): void {
 export function validateWeqAppSettings(value: unknown): asserts value is WeqAppBackupPatch {
   const input = record(value, 'settings');
   // 默认空数组无法描述元素结构，输入状态单独校验，避免被当作普通对象。
-  const { typingStatus, home, ...scalarSettings } = input;
+  const { typingStatus, home, qqShowCacheDays, ...scalarSettings } = input;
+  if (qqShowCacheDays !== undefined) number(qqShowCacheDays, 'settings.qqShowCacheDays', 1, 365);
   shape(scalarSettings, snapshotWeqSettings(DEFAULT_APP_SETTINGS), 'settings');
   if (
     input.startupPage !== undefined &&

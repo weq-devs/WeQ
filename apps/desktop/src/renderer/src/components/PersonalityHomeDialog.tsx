@@ -165,7 +165,7 @@ export function PersonalityHomeDialog({
           {showQqShow && qqShowUrlValue && !qqShowFailed ? (
             <img
               className="weq-qqshow"
-              src={qqShowUrl(qqShowUrlValue)}
+              src={qqShowUrl(qqShowUrlValue, qqShow.data?.expiresAt)}
               alt={profile.name}
               draggable={false}
               onError={() => setQqShowFailed(true)}

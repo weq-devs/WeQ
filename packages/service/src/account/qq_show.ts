@@ -5,11 +5,11 @@
  * 同一个人短时间内被反复看到（滚动消息、切换会话、开个性主页）不该每次都发一次包。
  * 所以这里维护一份 `uin → { hasShow, url, fetchedAt }` 的本地映射：
  *
- *  - 有效期由设置里的「QQ 秀缓存有效期」决定（默认 14 天），过期后才重新查询；
+ *  - 有效期由设置里的「QQ 秀缓存有效期」决定（默认 5 分钟），过期后才重新查询；
  *  - 没有 QQ 秀（hasShow=false）也落一条空记录，避免对同一个人反复空查；
  *  - 最多同时发 {@link QQ_SHOW_FETCH_CONCURRENCY} 个请求，其余排队；
  *  - 同一个 uin 的并发请求合并成一次；失败不清掉旧记录，过期记录仍可在离线时兜底展示
- *    （图片 URL 自带版本号，旧图通常仍能取到）。
+ *    （图片代理另按同一有效期刷新字节，离线保留旧图）。
  *
  * 这份映射同时供「个性主页」使用：路由里的 peerQqShow 先读缓存，再决定要不要联网。
  * 存储文件按账号放在 `config/accounts/<accountId>/qqshow.json`。
@@ -17,12 +17,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { writeFileAtomicSync } from '../common/atomic_write';
 
-/** 设置里未配置时的默认有效期（天）。 */
-export const DEFAULT_QQ_SHOW_CACHE_DAYS = 14;
-export const QQ_SHOW_CACHE_MIN_DAYS = 1;
-export const QQ_SHOW_CACHE_MAX_DAYS = 365;
+/** 设置里未配置时的默认有效期（分钟）。 */
+export const DEFAULT_QQ_SHOW_CACHE_MINUTES = 5;
+export const QQ_SHOW_CACHE_MIN_MINUTES = 1;
+export const QQ_SHOW_CACHE_MAX_MINUTES = 365 * 24 * 60;
 /** 同时向 QQ 发的 OIDB 包上限。 */
-export const QQ_SHOW_FETCH_CONCURRENCY = 3;
+export const QQ_SHOW_FETCH_CONCURRENCY = 1;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** 过期记录只为离线兜底保留，超过 4 个有效期就清掉，避免文件无限长。 */
@@ -34,6 +34,10 @@ export interface QqShowResolved {
   url: string;
 }
 
+export interface QqShowCached extends QqShowResolved {
+  expiresAt: number;
+}
+
 interface QqShowEntry extends QqShowResolved {
   /** 最近一次成功查询的时间戳（毫秒）。 */
   fetchedAt: number;
@@ -42,11 +46,10 @@ interface QqShowEntry extends QqShowResolved {
 export interface ChatQqShowOptions {
   /** 映射文件路径；空 / 缺省时只做内存缓存。 */
   storePath?: string | null;
-  /** 有效期（天），每次查询时读取，改设置后立即生效。 */
-  ttlDays: () => number;
+  /** 有效期（分钟），每次查询时读取，改设置后立即生效。 */
+  ttlMinutes: () => number;
   /** 实际发包；由账号上下文注入，测试里可用假实现。 */
   fetchShow: (uin: string) => Promise<QqShowResolved>;
-  concurrency?: number;
   now?: () => number;
 }
 
@@ -58,27 +61,28 @@ export class ChatQqShowService {
   private readonly entries = new Map<string, QqShowEntry>();
   private readonly pending = new Map<string, Promise<QqShowResolved>>();
   private dirty = false;
+  private tail: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly opts: ChatQqShowOptions) {
     this.load();
   }
 
   /** 只读缓存：未过期才返回，未命中返回 null（不联网）。 */
-  cached(uin: string): QqShowResolved | null {
+  cached(uin: string): QqShowCached | null {
     if (!validUin(uin)) return null;
     const entry = this.entries.get(uin);
     if (!entry) return null;
     if (this.now() - entry.fetchedAt >= this.ttlMs()) return null;
-    return { hasShow: entry.hasShow, url: entry.url };
+    return this.withExpiry(entry);
   }
 
   /**
-   * 批量解析（聊天消息里的可见成员）。命中的直接返回，未命中的并发补查；
+   * 批量解析（聊天消息里的可见成员）。命中的直接返回，未命中的串行补查；
    * 查询失败但有旧记录时返回旧记录，否则从结果里省略。
    */
-  async resolve(uins: string[]): Promise<Record<string, QqShowResolved>> {
+  async resolve(uins: string[]): Promise<Record<string, QqShowCached>> {
     const unique = [...new Set(uins.filter(validUin))];
-    const out: Record<string, QqShowResolved> = {};
+    const out: Record<string, QqShowCached> = {};
     const tasks: Array<() => Promise<void>> = [];
     for (const uin of unique) {
       const cached = this.cached(uin);
@@ -88,10 +92,11 @@ export class ChatQqShowService {
       }
       tasks.push(async () => {
         try {
-          out[uin] = await this.fetchOne(uin);
+          await this.fetchOne(uin);
+          out[uin] = this.withExpiry(this.entries.get(uin)!);
         } catch {
           const stale = this.entries.get(uin);
-          if (stale) out[uin] = { hasShow: stale.hasShow, url: stale.url };
+          if (stale) out[uin] = this.withExpiry(stale, this.now() + 30_000);
         }
       });
     }
@@ -101,15 +106,16 @@ export class ChatQqShowService {
   }
 
   /** 单个 uin（个性主页用）：缓存优先，失败时回退到过期记录，完全没有才抛错。 */
-  async resolveOne(uin: string): Promise<QqShowResolved> {
+  async resolveOne(uin: string): Promise<QqShowCached> {
     if (!validUin(uin)) throw new Error('无效的 QQ 号');
     const cached = this.cached(uin);
     if (cached) return cached;
     try {
-      return await this.fetchOne(uin);
+      await this.fetchOne(uin);
+      return this.withExpiry(this.entries.get(uin)!);
     } catch (error) {
       const stale = this.entries.get(uin);
-      if (stale) return { hasShow: stale.hasShow, url: stale.url };
+      if (stale) return this.withExpiry(stale, this.now() + 30_000);
       throw error;
     } finally {
       this.flush();
@@ -117,10 +123,13 @@ export class ChatQqShowService {
   }
 
   private async fetchOne(uin: string): Promise<QqShowResolved> {
+    const cached = this.cached(uin);
+    if (cached) return cached;
     const running = this.pending.get(uin);
     if (running) return running;
-    const task = this.opts
-      .fetchShow(uin)
+    // 所有批次和个性主页共用队列，避免多个调用各自限流后叠加并发。
+    const task = this.tail
+      .then(() => this.opts.fetchShow(uin))
       .then((info) => {
         const resolved: QqShowResolved = {
           hasShow: Boolean(info.hasShow && info.url),
@@ -134,11 +143,12 @@ export class ChatQqShowService {
         this.pending.delete(uin);
       });
     this.pending.set(uin, task);
+    this.tail = task.catch(() => undefined);
     return task;
   }
 
   private async runLimited(tasks: Array<() => Promise<void>>): Promise<void> {
-    const limit = Math.max(1, this.opts.concurrency ?? QQ_SHOW_FETCH_CONCURRENCY);
+    const limit = QQ_SHOW_FETCH_CONCURRENCY;
     let next = 0;
     const workers = Array.from({ length: Math.min(limit, tasks.length) }, async () => {
       for (;;) {
@@ -156,14 +166,18 @@ export class ChatQqShowService {
   }
 
   private ttlMs(): number {
-    const days = Math.min(
-      QQ_SHOW_CACHE_MAX_DAYS,
+    const minutes = Math.min(
+      QQ_SHOW_CACHE_MAX_MINUTES,
       Math.max(
-        QQ_SHOW_CACHE_MIN_DAYS,
-        Math.round(this.opts.ttlDays()) || DEFAULT_QQ_SHOW_CACHE_DAYS,
+        QQ_SHOW_CACHE_MIN_MINUTES,
+        Math.round(this.opts.ttlMinutes()) || DEFAULT_QQ_SHOW_CACHE_MINUTES,
       ),
     );
-    return days * DAY_MS;
+    return minutes * 60_000;
+  }
+
+  private withExpiry(entry: QqShowEntry, expiresAt = entry.fetchedAt + this.ttlMs()): QqShowCached {
+    return { hasShow: entry.hasShow, url: entry.url, expiresAt };
   }
 
   private load(): void {

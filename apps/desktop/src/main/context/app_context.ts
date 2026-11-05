@@ -2031,7 +2031,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             exportConfigId,
             'qqshow.json',
           ),
-          ttlDays: () => userConfig.getSettings().qqShowCacheDays,
+          ttlMinutes: () => userConfig.getSettings().qqShowCacheMinutes,
           fetchShow: (uin) =>
             new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid).getQqShow(
               uin,
@@ -2808,7 +2808,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             exportConfigId,
             'qqshow.json',
           ),
-          ttlDays: () => userConfig.getSettings().qqShowCacheDays,
+          ttlMinutes: () => userConfig.getSettings().qqShowCacheMinutes,
           fetchShow: (uin) =>
             new PeerStatsService(platform.native.ntHelper, session, livePid).getQqShow(uin),
         }),

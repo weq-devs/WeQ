@@ -5,7 +5,7 @@
  * `DialogHost` 常驻挂载，承载全局错误/确认弹窗（替代原生 alert/confirm）。
  */
 
-import { useEffect, useMemo, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, type ReactElement, type ReactNode } from 'react';
 import { useViewState } from './state/view';
 import { BootstrapView } from './views/BootstrapView';
 import { MainView } from './views/MainView';
@@ -38,7 +38,7 @@ import {
 import { SelfBubbleContext, SelfPendantContext } from './hooks/useSelfPendant';
 import { ActiveWidgetProvider } from './hooks/useActiveWidget';
 import { CdnContext, setPreferCdnFlag } from './lib/cdn';
-import { ChatQqShowEnabledContext } from './lib/chatQqShow';
+import { ChatQqShowEnabledContext, resetChatQqShowCache } from './lib/chatQqShow';
 import { WarmupSplash } from './components/WarmupSplash';
 import { trpc } from './trpc/client';
 import { dressUrl } from './lib/resourceUrl';
@@ -75,6 +75,9 @@ function TextMarkdownProvider({
   const font = settings.data?.showMessageFont ?? settings.data?.showMsgDecoration ?? true;
   const widget = settings.data?.showAvatarPendant ?? true;
   const messageDecoration = useMemo(() => ({ bubble, font, widget }), [bubble, font, widget]);
+  useLayoutEffect(() => {
+    resetChatQqShowCache();
+  }, [cacheScope, settings.data?.qqShowCacheMinutes]);
   useEffect(() => {
     if (settings.data?.toastDurations)
       useToast.getState().setDurations(settings.data.toastDurations);

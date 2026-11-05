@@ -3,6 +3,38 @@ import { UserConfigService, DEFAULT_APP_SETTINGS } from '../src/bootstrap/user_c
 import { snapshotWeqSettings, validateWeqAppSettings } from '../src/bootstrap/backup_settings';
 import { configFixture as fixture } from './support/user_config';
 
+describe('QQ 秀分钟缓存配置', () => {
+  it.each([
+    [{}, 5],
+    [{ qqShowCacheDays: 14 }, 5],
+    [{ qqShowCacheDays: 2 }, 2880],
+    [{ qqShowCacheDays: 14, qqShowCacheMinutes: 8 }, 8],
+    [{ qqShowCacheMinutes: 0 }, 5],
+    [{ qqShowCacheMinutes: 525601 }, 5],
+  ])('迁移旧默认、保留自定义值并拒绝越界：%j', (settings, expected) => {
+    const f = fixture({ settings });
+    expect(f.open().getSettings().qqShowCacheMinutes).toBe(expected);
+    f.service.setSettings({ qqShowCacheMinutes: 3 });
+    expect(f.open().getSettings().qqShowCacheMinutes).toBe(3);
+    f.service.setSettings({ qqShowCacheMinutes: 0 });
+    expect(f.open().getSettings().qqShowCacheMinutes).toBe(3);
+  });
+
+  it('旧备份仍可验证与恢复，分钟设置可往返保存', () => {
+    const f = fixture();
+    expect(() => validateWeqAppSettings({ qqShowCacheDays: 14 })).not.toThrow();
+    f.service.setSettings({ qqShowCacheMinutes: 20 });
+    f.service.setSettings({ qqShowCacheDays: 14 });
+    expect(f.open().getSettings().qqShowCacheMinutes).toBe(5);
+    f.service.setSettings({ qqShowCacheMinutes: 1 });
+    const snapshot = snapshotWeqSettings(f.open().getSettings());
+    expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
+    const restored = fixture();
+    restored.service.setSettings(snapshot);
+    expect(restored.open().getSettings().qqShowCacheMinutes).toBe(1);
+  });
+});
+
 describe('聊天阅读偏好', () => {
   it('受限横幅默认开启，旧配置兼容，持久化与备份恢复保留独立偏好', () => {
     const f = fixture();

@@ -863,9 +863,9 @@ export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account
 export { PeerStatsService } from './account/peer_stats';
 export {
   ChatQqShowService,
-  DEFAULT_QQ_SHOW_CACHE_DAYS,
-  QQ_SHOW_CACHE_MAX_DAYS,
-  QQ_SHOW_CACHE_MIN_DAYS,
+  DEFAULT_QQ_SHOW_CACHE_MINUTES,
+  QQ_SHOW_CACHE_MAX_MINUTES,
+  QQ_SHOW_CACHE_MIN_MINUTES,
   QQ_SHOW_FETCH_CONCURRENCY,
 } from './account/qq_show';
 export type { ChatQqShowOptions, QqShowResolved } from './account/qq_show';
