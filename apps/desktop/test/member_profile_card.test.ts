@@ -54,6 +54,9 @@ vi.mock('@renderer/components/qq-actions/CommonRelationships', () => ({
   CommonRelationships: ({ onNavigate }: { onNavigate?: () => void }) =>
     createElement('button', { 'aria-label': '合成共同群跳转', onClick: onNavigate }),
 }));
+vi.mock('@renderer/components/qq-actions/FriendClue', () => ({
+  FriendClue: ({ uid }: { uid: string }) => createElement('div', { 'data-friend-clue': uid }),
+}));
 vi.mock('@renderer/components/QQGroupMemberControls', () => ({
   QQGroupMemberControls: () => createElement('div', { 'data-member-editor': true }),
 }));
@@ -159,6 +162,9 @@ describe('群成员资料卡浮层', () => {
     expect(layer().textContent).toContain('历史群昵称');
     expect(layer().textContent).toContain('历史头衔');
     expect(layer().querySelector('[data-member-editor]')).toBeNull();
+    expect(layer().querySelector('[data-friend-clue]')?.getAttribute('data-friend-clue')).toBe(
+      MEMBER.id,
+    );
   });
   it.each([true, false])('资料补全后显示明确好友关系 %s', async (isFriend) => {
     vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
@@ -170,6 +176,7 @@ describe('群成员资料卡浮层', () => {
     expect(layer().querySelector('.weq-relationship-status')?.textContent).toBe(
       isFriend ? '我的好友' : '非好友',
     );
+    expect(Boolean(layer().querySelector('[data-friend-clue]'))).toBe(isFriend);
   });
 
   it('资料读取失败显示待确认，不显示非好友', async () => {

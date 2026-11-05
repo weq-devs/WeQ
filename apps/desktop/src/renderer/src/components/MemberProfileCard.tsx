@@ -51,13 +51,14 @@ import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
 import { CommonRelationships } from './qq-actions/CommonRelationships';
+import { FriendClue } from './qq-actions/FriendClue';
 import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
 import { ContactWorkspaceNavigationContext } from '../lib/profileNavigation';
 import type { AnalysisTarget } from '../views/analysis/model';
 import { OverlayLayer } from './OverlayLayer';
 import { QQGroupMemberControls } from './QQGroupMemberControls';
 import { PersonRelationshipStatus } from './RelationshipStatus';
-import { useGroupRelationship } from '../lib/contactRelationship';
+import { useGroupRelationship, usePersonRelationship } from '../lib/contactRelationship';
 import { Avatar } from '../im-template/template/primitives';
 import { VirtualConversationBadge } from './VirtualConversationAvatar';
 import { cn } from '../im-template/template/classNames';
@@ -135,6 +136,11 @@ export function MemberProfileCard({
     ? ''
     : member.uid || (member.id.startsWith('self:') ? '' : member.id);
   const uid = lookupUid || profile?.uid || '';
+  const relationship = usePersonRelationship({
+    ...member,
+    uid,
+    isFriend: profile?.isFriend ?? member.isFriend,
+  });
   const canAnalyze = !localClone && Boolean(groupCode && uid);
 
   // 补全陌生人资料字段。
@@ -459,6 +465,7 @@ export function MemberProfileCard({
                 <>
                   <ProfileLikesRow uid={uid} uin={uin} name={displayUserName(member)} />
                   <CommonRelationships uin={uin} onNavigate={onClose} />
+                  {relationship === 'friend' ? <FriendClue uid={uid} /> : null}
                 </>
               ) : null}
               {joinedAt ? (

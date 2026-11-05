@@ -89,6 +89,17 @@ function fixture() {
         friendError: null,
         groupError: null,
       })),
+      friendClue: vi.fn(async (uid: string) => ({
+        uid,
+        targetUin: '10002',
+        addedAt: null,
+        direction: null,
+        rawDirection: null,
+        source: null,
+        sourceGroupCode: null,
+        canOpenSourceGroup: null,
+        verificationMessage: null,
+      })),
       editableSelfProfile: vi.fn(async () => ({
         birthday: null,
         region: null,
@@ -162,6 +173,27 @@ function fixture() {
 }
 
 describe('QQ 写 IPC 边界', () => {
+  it('好友线索绑定账号和 UID，读取使用在线入口', async () => {
+    const f = fixture();
+    await expect(f.caller.friendClue({ ...binding, uid: 'u_peer' })).resolves.toMatchObject({
+      uid: 'u_peer',
+    });
+    expect(f.write).toHaveBeenCalled();
+    await expect(f.caller.friendClue({ ...binding, uid: '10002' })).rejects.toThrow();
+    await expect(
+      f.caller.friendClue({ ...binding, expectedAccountConfigId: 'other', uid: 'u_peer' }),
+    ).rejects.toThrow();
+  });
+  it('线索查询期间切号，拒绝旧结果', async () => {
+    const f = fixture();
+    const get = f.services.accountWrite.friendClue;
+    f.services.accountWrite.friendClue = async (uid) => {
+      const result = await get(uid);
+      f.switchAccount();
+      return result;
+    };
+    await expect(f.caller.friendClue({ ...binding, uid: 'u_peer' })).rejects.toThrow('切换');
+  });
   it('自己与他人的群资料按当前账号 UID 区分，自己 UID 与号码不一致时拒绝编辑身份', async () => {
     const f = fixture();
     f.services.groupInfo.getMemberInfo = async () => ({

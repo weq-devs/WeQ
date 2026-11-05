@@ -31,6 +31,7 @@ export interface QQWriteServices {
     | 'manageFriendCategories'
     | 'exactProfile'
     | 'commonRelationships'
+    | 'friendClue'
     | 'editableSelfProfile'
     | 'editSelfProfile'
     | 'groupMessagePolicy'
@@ -89,6 +90,13 @@ export function createQQWriteRouter(
   read: (input: QQWriteBinding) => QQWriteServices,
 ) {
   return router({
+    friendClue: procedure.input(binding.extend({ uid })).query(async ({ input }) => {
+      const services = resolve(input);
+      const result = await services.accountWrite.friendClue(input.uid);
+      if (resolve(input) !== services) throw new Error('账号已切换，请重新读取好友线索');
+      if (result.uid !== input.uid) throw new Error('返回好友与读取目标不一致');
+      return result;
+    }),
     friendRemarkState: procedure.input(binding.extend({ uid })).query(async ({ input }) => {
       const services = resolve(input);
       const result = await services.accountWrite.getFriendRemark(input.uid);

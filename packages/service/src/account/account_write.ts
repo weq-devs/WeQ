@@ -11,6 +11,7 @@ import {
   getCloudProfile,
   getCommonFriendCount,
   getCommonGroups,
+  getFriendClue,
   GetGroupJoinInfo,
   readEditableProfile,
   writeEditableProfile,
@@ -103,6 +104,16 @@ export class AccountWriteService {
       friendError: friends.status === 'rejected' ? '共同好友读取失败' : null,
       groupError: groups.status === 'rejected' ? '共同群读取失败' : null,
     };
+  }
+
+  async friendClue(uid: string) {
+    const pid = this.resolvePid();
+    const buddy = await this.friend(uid);
+    this.assertCurrentPid(pid);
+    if (buddy.uid !== uid || uid === this.identity.selfUid) throw new Error('好友线索读取目标无效');
+    const result = await getFriendClue(this.nt, pid, String(buddy.uin));
+    this.assertCurrentPid(pid);
+    return { uid, ...result };
   }
 
   async editableSelfProfile() {
