@@ -11,7 +11,7 @@ import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
-import { Card, Row, SectionHeader, Toggle } from './controls';
+import { Card, Row, Toggle } from './controls';
 import '../../styles/settings-home.css';
 
 export function HomeSettingsSection() {
@@ -59,9 +59,8 @@ export function HomeSettingsSection() {
 
   return (
     <div className="weq-set">
-      <SectionHeader title="主页" icon={<House size={16} strokeWidth={1.8} />} />
       {settings.isError && <p role="alert">{settings.error.message}</p>}
-      <Card title="主页显示">
+      <Card title="主页" icon={<House size={16} strokeWidth={1.8} />}>
         {(
           [
             ['showTags', '个性标签', 'home-tags'],
@@ -83,16 +82,19 @@ export function HomeSettingsSection() {
             }
           />
         ))}
-      </Card>
-      <Card title="一言屏蔽词" settingId="home-blocked-words">
         <form
           className="weq-home-words"
+          data-setting-id="home-blocked-words"
           onSubmit={(event) => {
             event.preventDefault();
             if (!disabled && valid) void update({ blockedWords });
           }}
         >
+          <label className="weq-set-card-title" htmlFor="weq-home-blocked-words">
+            一言屏蔽词
+          </label>
           <textarea
+            id="weq-home-blocked-words"
             aria-label="一言屏蔽词（每行一个）"
             className="weq-set-input"
             rows={6}
