@@ -99,6 +99,36 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('统一竖向工作菜单', () => {
+  it('历史任务不弹出，新任务自动打开完整列表，状态刷新不重复打开', () => {
+    const root = createRoot(document.createElement('div'));
+    const render = () =>
+      act(() =>
+        root.render(
+          h(WorkspaceTools, {
+            accountScope: 'new-task-entry',
+            footerControls: null,
+            onOpenAnalysis: vi.fn(),
+          }),
+        ),
+      );
+    try {
+      fixture.exports = [{ id: 'old', status: 'completed' }];
+      render();
+      expect(document.querySelector('[data-task-layout="split"]')).toBeNull();
+      fixture.exports = [{ id: 'new', status: 'running' }];
+      render();
+      expect(document.querySelector('[data-task-layout="split"]')).not.toBeNull();
+      act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭完整面板"]')!.click());
+      fixture.exports = [{ id: 'new', status: 'completed' }];
+      render();
+      expect(
+        document.querySelector('[data-task-layout="split"]')?.closest('[hidden]'),
+      ).not.toBeNull();
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   it('漫游提交成功后关闭配置并打开常规任务完整面板', () => {
     const host = document.createElement('div');
     const root = createRoot(host);

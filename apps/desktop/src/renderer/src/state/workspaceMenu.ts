@@ -43,6 +43,10 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
     set({ assistant, assistantUnread: unread }),
   syncTasks: (taskScope, taskItems) =>
     set((state) => {
+      const previousIds = new Set(state.taskItems.map((item) => item.id));
+      // 首次读取和账号切换只建立快照，后续新增任务才展开列表。
+      const hasNewTask =
+        state.taskScope === taskScope && taskItems.some((item) => !previousIds.has(item.id));
       const readTaskResults: Record<string, string> = {};
       // 只保留仍在列表且结果未变化的已读记录，重新运行或重新保存后可以再次提醒。
       const previousRead =
@@ -57,6 +61,7 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
       return {
         taskScope,
         taskItems,
+        taskOpenRequest: state.taskOpenRequest + Number(hasNewTask),
         readTaskResults,
         readTaskResultsByScope: { ...state.readTaskResultsByScope, [taskScope]: readTaskResults },
         running: taskItems.filter((item) => item.activity === 'running').length,
