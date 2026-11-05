@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { exportContentPolicyInput } from '../../../shared/export_content';
 import {
   sanitizeSegment,
   type ExportTask,
@@ -36,11 +37,12 @@ export const exportSavePolicyInput = z.object({
 
 const outputFormat = z.string().regex(EXPORT_EXTENSION_PATTERN);
 export const exportOutputPlanInput = z.object({
+  content: exportContentPolicyInput.optional(),
   kind: z.enum(['messages', 'contacts', 'bundle', 'file']),
   name: z.string().min(1),
   fileName: z.string().min(1).max(512).optional(),
   format: outputFormat.optional(),
-  formats: z.array(outputFormat).min(1).optional(),
+  formats: z.array(outputFormat).optional(),
   targetCount: z.number().int().positive().safe().optional(),
   contactScope: z.enum(['friends', 'group', 'groups']).optional(),
   exportAvatar: z.boolean().optional(),
@@ -69,9 +71,9 @@ export async function prepareExportDestination(
   output?: ExportOutputShape,
   current: () => void = () => {},
   locationKey = output?.kind === 'file' ? `export:file:${output.extension}` : 'export:directory',
+  directoryTitle = '选择本次导出保存位置',
 ): Promise<ExportSavePolicy | null> {
   current();
-  directoryTitle = '选择本次导出保存位置',
   if (input.mode !== 'preset' && input.mode !== 'before')
     throw new Error('不支持此保存方式，请在开始前选择保存位置。');
   if (input.directory && input.filePath) throw new Error('保存位置只能选择文件或目录之一。');

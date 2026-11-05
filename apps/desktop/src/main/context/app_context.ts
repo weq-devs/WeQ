@@ -19,6 +19,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { createContactsExportDeps } from './export_contacts';
 import { createDbChangeNotification } from '../db_change_notification';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
 import { clearFullMode, fullModeAllowed } from './full_mode';
@@ -1753,6 +1754,8 @@ export function initAppContext(fileRoot?: string): AppContext {
             // Cache-first avatar resolution for the 导出头像 option.
             guildDirect,
             avatarCache: bootstrap.avatarCache,
+            avatarLocal: (uin, variant) =>
+              new AvatarResourceService(session, platform).resolveByUinFile('user', uin, variant),
             // rkey-backed CDN image completion (媒体补全).
             mediaDownload,
             // OIDB video / file download URL resolver (媒体补全 视频/文件).
@@ -1840,70 +1843,7 @@ export function initAppContext(fileRoot?: string): AppContext {
                 webQuery.getQzoneLikesResult(uin, tid, signal, captureRaw),
             },
             // 联系人导出（好友 / 群成员）：本地资料库拉取，bigint 归一化为字符串。
-            contacts: {
-              listGroups: async (limit, offset) =>
-                (await groupInfo.listAllGroups(limit, offset)).map((g) => ({
-                  groupCode: g.groupCode.toString(),
-                  groupName: g.groupName,
-                  remark: g.remark,
-                  memberCount: g.memberCount,
-                  maxMemberCount: g.maxMemberCount,
-                  ownerUid: g.ownerUid,
-                  createTime: g.createTime,
-                  leaveFlag: g.leaveFlag,
-                })),
-              listBuddies: async (limit, offset) => {
-                const buddies = await profile.listBuddies(limit, offset);
-                return buddies.map((b) => ({
-                  uid: b.uid,
-                  uin: b.uin.toString(),
-                  qid: b.qid,
-                  categoryId: b.categoryId,
-                }));
-              },
-              listCategories: async () => {
-                const cats = await profile.listCategories();
-                return cats.map((c) => ({ id: c.id, name: c.name }));
-              },
-              profilesByUids: async (uids) => {
-                const profiles = await profile.profilesByUids(uids);
-                return profiles.map((p) => ({
-                  uid: p.uid,
-                  nick: p.nick,
-                  remark: p.remark,
-                  signature: p.signature,
-                  gender: p.gender,
-                  age: p.age,
-                  birthYear: p.birthYear,
-                  birthMonth: p.birthMonth,
-                  birthDay: p.birthDay,
-                  intimacy: p.intimacy,
-                  extInfo: p.extInfo,
-                }));
-              },
-              listGroupMembers: async (groupCode, limit, offset) => {
-                const members = await groupInfo.listMembersInGroup(
-                  BigInt(groupCode),
-                  limit,
-                  offset,
-                );
-                return members.map((m) => ({
-                  uid: m.uid,
-                  uin: m.uin.toString(),
-                  card: m.card,
-                  nick: m.nick,
-                  adminFlag: m.adminFlag,
-                  customTitle: m.customTitle,
-                  memberLevel: m.memberLevel,
-                  joinTime: m.joinTime,
-                  lastSpeakTime: m.lastSpeakTime,
-                }));
-              },
-              groupOwnerUid: async (groupCode) => {
-                const detail = await groupInfo.getGroupDetail(BigInt(groupCode));
-                return detail?.ownerUid ?? null;
-              },
-            },
+            contacts: createContactsExportDeps(profile, groupInfo),
             // 收藏导出：翻页拉本地收藏并拍平为可序列化行（复用 IPC 的 wire 投影）。
             collection: {
               listCollections: async (limit, offset) => {
@@ -1960,7 +1900,9 @@ export function initAppContext(fileRoot?: string): AppContext {
             },
             // 商城表情单张贴图解析：HTML 导出把会话用到的商城表情归类进「QQ系统表情」
             // 资源、复制进 bundle 时用它取本地解密路径（weq 缓存 → QQ 本地 → CDN）。
-            marketFace: (pack, hash) => emojiService.getMarketFace(pack, hash),
+            marketFace: (pack, hash, localOnly) =>
+              emojiService.getMarketFace(pack, hash, localOnly),
+            marketFaceVariants: (pack, hash) => emojiService.localMarketFaceVariants(pack, hash),
             // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
             messageBackfill: gapHistory,
             exportAccountUin: session.context.uin,
@@ -2605,6 +2547,16 @@ export function initAppContext(fileRoot?: string): AppContext {
           userConfig.cacheDir(join('export', exportConfigId)),
           {
             guildDirect,
+            contacts: createContactsExportDeps(profile, groupInfo),
+            avatarLocal: (uin, variant) =>
+              new AvatarResourceService(session, staticPlatform).resolveByUinFile(
+                'user',
+                uin,
+                variant,
+              ),
+            marketFace: (pack, hash, localOnly) =>
+              emojiService.getMarketFace(pack, hash, localOnly),
+            marketFaceVariants: (pack, hash) => emojiService.localMarketFaceVariants(pack, hash),
             generatedResource: (ref) => {
               const services = this.services;
               if (

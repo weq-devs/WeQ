@@ -9,6 +9,11 @@ import { WindowedList } from '../../components/WindowedList';
 import { formatMailTime } from '../mail/content';
 import '../../styles/mail-export.css';
 import { useExportReportDialog } from './ExportReportControl';
+import {
+  StructuredExportControls,
+  structuredExportOptions,
+  type StructuredExportOptions,
+} from './StructuredExportControls';
 
 export function MailExportPane({
   initialSelection,
@@ -34,6 +39,11 @@ export function MailExportPane({
   );
   const [all, setAll] = useState(selectedIds === null);
   const [busy, setBusy] = useState(false);
+  const [format, setFormat] = useState<'json' | 'jsonl'>('json');
+  const [structured, setStructured] = useState<StructuredExportOptions>({
+    profile: 'basic',
+    incrementalSupport: false,
+  });
   const report = useExportReportDialog();
   const pending = useRef(false);
   const [error, setError] = useState('');
@@ -107,6 +117,8 @@ export function MailExportPane({
       expectedAccountConfigId: account.data.configId,
       ids: items.map((item) => item.id),
       expandThreads: false,
+      format,
+      ...structuredExportOptions(structured, [format]),
     };
     pending.current = true;
     setBusy(true);
@@ -239,6 +251,23 @@ export function MailExportPane({
           )
         ) : null}
       </div>
+      <SegmentedControl
+        label="邮件导出格式"
+        value={format}
+        onChange={setFormat}
+        disabled={busy}
+        options={[
+          { value: 'json', label: 'JSON' },
+          { value: 'jsonl', label: 'JSONL' },
+        ]}
+      />
+      <StructuredExportControls
+        domain="mailProperties"
+        options={structured}
+        formats={[format]}
+        disabled={busy}
+        onChange={(value) => setStructured((current) => ({ ...current, ...value }))}
+      />
       <footer className="weq-exp-pane-foot">
         <span className="weq-exp-foot-hint">HTML 正文 · JSON 元数据 · 附件</span>
         <div className="weq-save-action-group">

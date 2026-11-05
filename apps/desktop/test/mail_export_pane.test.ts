@@ -142,6 +142,9 @@ it('先按北京时间和文本条件查询列表数量，确认后只导出预�
     await f.submit();
     expect(state.mutate).toHaveBeenCalledWith({
       selfUin: '10001',
+      format: 'json',
+      profile: 'full',
+      incrementalSupport: true,
       expectedAccountConfigId: 'source-a',
       ids: ['preview-one'],
       expandThreads: false,

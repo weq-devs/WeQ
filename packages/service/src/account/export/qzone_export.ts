@@ -21,9 +21,11 @@
 
 import { mkdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
-import { createHash } from 'node:crypto';
 import { downloadUrlToFile } from '../media_url';
 import { writeFileStream } from './table_writer';
+import { writeQzoneArchive } from './archive_domain';
+import { fileDigest } from './archive_resource';
+import type { ArchiveOptions } from './archive';
 import type { QzoneEmotion, QzoneEmotionVideo, QzoneMsgListResult } from '../web/qzone';
 import type {
   QzoneComment,
@@ -86,7 +88,7 @@ export interface QzoneExportDeps extends Partial<QzoneAlbumExportDeps> {
 }
 
 /** 说说导出可选产物格式。 */
-export type QzoneFormat = 'json' | 'txt' | 'html';
+export type QzoneFormat = 'json' | 'jsonl' | 'txt' | 'html';
 
 export interface QzoneExportOpts {
   tids?: string[];
@@ -203,6 +205,7 @@ export interface QzoneCollectOpts extends QzonePaginationOptions {
 
 /** {@link writeQzone} 的入参。 */
 export interface QzoneWriteOpts {
+  archive?: ArchiveOptions;
   /** 展示名（HTML 资料头 / 标题用）。 */
   name: string;
   /** 目标空间 uin（HTML 资料头用）。 */
@@ -1558,8 +1561,8 @@ export async function writeQzone(
 ): Promise<void> {
   const rows = data.rows;
   const body =
-    format === 'json'
-      ? JSON.stringify(rows, null, 2)
+    format === 'json' || format === 'jsonl'
+      ? null
       : format === 'html'
         ? buildHtmlDoc(
             opts.name,
@@ -1578,8 +1581,9 @@ export async function writeQzone(
               .join('\n'),
           )
         : rows.map(emotionToTxt).join('\n');
-  await writeFileStream(opts.outputPath, body);
-  const bodySha256 = createHash('sha256').update(body).digest('hex');
+  if (format === 'json' || format === 'jsonl') await writeQzoneArchive(data, opts, format);
+  else await writeFileStream(opts.outputPath, body!);
+  const bodySha256 = (await fileDigest(opts.outputPath)).sha256;
   await writeFileStream(
     `${opts.outputPath}.coverage.json`,
     JSON.stringify(

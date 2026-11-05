@@ -48,6 +48,11 @@ export interface ScheduleRange {
 
 /** Media / content switches baked into the schedule template. */
 export interface ScheduleOptions {
+  content?: import('../../common/export_content').ExportContentPolicy;
+  completeAvatar?: boolean;
+  completeDressKinds?: DressExportKinds;
+  profile?: import('./archive').ExportProfile;
+  incrementalSupport?: boolean;
   includeIntegrityReport?: boolean;
   savePolicy?: import('./save_output').ExportSavePolicy;
   range: ScheduleRange;
@@ -110,6 +115,7 @@ export interface ScheduleTrigger {
 
 /** A persisted scheduled export. */
 export interface ScheduledTask {
+  archives?: Record<string, string>;
   id: string;
   name: string;
   /** 灯箱多选的导出格式（缺省 = [format]）。 */
@@ -140,12 +146,12 @@ const SCHEDULE_FILE = 'schedules.json';
 /** Input shape for `create` / `update` — server-side fields filled by the manager. */
 export type ScheduleInput = Omit<
   ScheduledTask,
-  'id' | 'createdAt' | 'updatedAt' | 'nextRunAt' | 'history'
+  'id' | 'createdAt' | 'updatedAt' | 'nextRunAt' | 'history' | 'archives'
 >;
 
 /** Patch for `update` — every field optional. */
 export type SchedulePatch = Partial<
-  Omit<ScheduledTask, 'id' | 'createdAt' | 'updatedAt' | 'nextRunAt' | 'history'>
+  Omit<ScheduledTask, 'id' | 'createdAt' | 'updatedAt' | 'nextRunAt' | 'history' | 'archives'>
 >;
 
 /** Injected dependencies. `isOnline` is consulted at fire-time only — the
@@ -387,7 +393,10 @@ export class ExportScheduler extends EventEmitter {
         skipReason: '上次任务未结束',
       });
     }
-    if (!this.deps.isOnline()) {
+    const completeMessages = t.options.content
+      ? t.options.content.messages === 'cloud'
+      : t.options.completeMessages;
+    if (completeMessages && !this.deps.isOnline()) {
       return this.recordOutcome(t, { at, taskIds, outcome: 'skipped', skipReason: 'QQ 离线' });
     }
     if (t.conversations.length === 0) {
@@ -411,7 +420,7 @@ export class ExportScheduler extends EventEmitter {
 
     // --- run the template via ExportTaskManager.startTask ---
     const range = resolveRange(t.options.range, at);
-    const formats = t.formats?.length ? t.formats : [t.format];
+    const formats = t.formats ?? [t.format];
     let firstError: string | null = null;
     for (const c of t.conversations) {
       if (this.stopped) break;
@@ -419,6 +428,14 @@ export class ExportScheduler extends EventEmitter {
       const carryResources = true;
       try {
         const id = await this.deps.taskManager.startTask({
+          baselineDirectory:
+            !t.chatlab && formats.some((format) => format === 'json' || format === 'jsonl')
+              ? t.archives?.[`${c.kind}:${c.id}`]
+              : undefined,
+          content: t.options.content,
+          completeAvatar: t.options.completeAvatar,
+          profile: t.options.profile ?? 'basic',
+          incrementalSupport: t.options.incrementalSupport ?? false,
           savePolicy: t.options.savePolicy,
           includeIntegrityReport: t.options.includeIntegrityReport,
           kind: c.kind,
@@ -448,6 +465,7 @@ export class ExportScheduler extends EventEmitter {
                   transcribeVoice: t.options.transcribeVoice,
                   mediaKinds: t.options.mediaKinds,
                   completeDress: t.options.completeDress,
+                  completeDressKinds: t.options.completeDressKinds,
                 },
               }
             : {}),
@@ -513,6 +531,13 @@ export class ExportScheduler extends EventEmitter {
         )
           return;
         const saveFailed = task?.save?.status === 'failed' || task?.save?.status === 'interrupted';
+        if (p.status === 'completed' && !saveFailed && task?.archiveId) {
+          const path = this.deps.taskManager.formalArchivePath(task.id);
+          if (path) {
+            t.archives ??= {};
+            t.archives[`${task.kind}:${task.conv}`] = path;
+          }
+        }
         if (saveFailed && !firstError) firstError = task?.save?.error ?? '导出已完成，结果未保存';
         if (!states.has(p.taskId)) {
           states.set(p.taskId, saveFailed ? 'failed' : p.status);

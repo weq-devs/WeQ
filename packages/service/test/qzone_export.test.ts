@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { collectQzone, writeQzone } from '../src/account/export/qzone_export';
+import { object, readArchive } from '../src/account/export/archive';
 import type { QzoneEmotion, QzoneMsgListResult } from '../src/account/web/qzone';
 import type { QzoneComment, QzoneLike } from '../src/account/web/qzone_interaction';
 
@@ -96,15 +97,23 @@ describe('collectQzone / writeQzone', () => {
     const jsonPath = join(dir, 'qzone.json');
     const htmlPath = join(dir, 'qzone.html');
     const write = { name: 'H3CoF6', targetUin: '10000', localMedia: true };
-    await writeQzone('json', data, { ...write, outputPath: jsonPath });
+    await writeQzone('json', data, {
+      ...write,
+      outputPath: jsonPath,
+      archive: { profile: 'full' },
+    });
     await writeQzone('html', data, { ...write, outputPath: htmlPath });
 
-    const json = JSON.parse(await readFile(jsonPath, 'utf8')) as Array<{
-      comments: unknown[];
-      likes: unknown[];
-    }>;
-    expect(json[0]?.comments).toHaveLength(5);
-    expect(json[0]?.likes).toHaveLength(12);
+    const json = readArchive(JSON.parse(await readFile(jsonPath, 'utf8')));
+    expect(
+      json.records.filter((row) => row.data.type === 'comment' || row.data.type === 'reply'),
+    ).toHaveLength(5);
+    const post = json.records.find((row) => row.data.type === 'post')!;
+    expect(
+      (object(post.native).attributes as Array<{ name: string; value: { value: unknown[] } }>).find(
+        (attribute) => attribute.name === 'source.likes',
+      )?.value.value,
+    ).toHaveLength(12);
 
     const html = await readFile(htmlPath, 'utf8');
     expect(html).toContain('<section class=\x22comments\x22>');

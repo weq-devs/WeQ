@@ -3,6 +3,7 @@ import { basename, dirname, join } from 'node:path';
 import { TRPCError } from '@trpc/server';
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
+import { exportExtraInput } from '../../../shared/export_content';
 import { describeExportOutput, exportOutputFileName, getHost } from '@weq/service';
 import {
   MailFailure,
@@ -106,6 +107,10 @@ export const mailRouter = router({
     .input(
       account.extend({
         ids: z.array(mailId).min(1).max(100000).nullable(),
+        extra: exportExtraInput.optional(),
+        profile: z.enum(['basic', 'full']).optional(),
+        incrementalSupport: z.boolean().optional(),
+        format: z.enum(['json', 'jsonl']).default('json'),
         filter: mailExportFilterInput.optional(),
         expandThreads: z.boolean().default(true),
         includeIntegrityReport: z.boolean().optional(),
@@ -132,7 +137,13 @@ export const mailRouter = router({
         savePolicy: input.savePolicy,
         run: (context) =>
           input.ids === null
-            ? exportAllMailMessages(mail, context, check, input.filter)
+            ? exportAllMailMessages(mail, context, check, input.filter, {
+                extra: input.extra,
+                profile: input.profile,
+                incrementalSupport: input.incrementalSupport,
+                format: input.format,
+                accountUin: input.selfUin,
+              })
             : exportMailMessages(
                 mail,
                 input.ids,
@@ -140,6 +151,13 @@ export const mailRouter = router({
                 check,
                 input.filter,
                 input.expandThreads,
+                {
+                  extra: input.extra,
+                  profile: input.profile,
+                  incrementalSupport: input.incrementalSupport,
+                  format: input.format,
+                  accountUin: input.selfUin,
+                },
               ),
       });
     }),

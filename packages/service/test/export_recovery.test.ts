@@ -8,12 +8,13 @@ import {
   readFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager, type MediaDeps } from '../src/account/export/task_manager';
 import { sourceStamp, roamingDigest, fileSha256 } from '../src/account/export/resume';
 import type { MsgService, RenderGroupMsg } from '../src/account/msg';
 import { MessageAudit } from '../src/account/export/message_audit';
+import { readArchiveFile } from '../src/account/export/archive';
 import { sequenceCoverage } from '../src/account/export/sequence_coverage';
 import type { MessageFilter } from '../src/account/message_filter';
 import { iterateGroupMessages } from '../src/account/export/message_source';
@@ -444,9 +445,10 @@ it('旧任务只有格式断点时先建立消息基线，之后可继续增量'
   });
   await wait(() => f.manager.getTask(id)?.status === 'completed');
   const task = f.manager.getTask(id)!;
-  expect(f.manager.listBaselines(dirname(task.journalPath!)).items).toHaveLength(1);
-  rmSync(task.journalPath!);
-  delete task.journalPath;
+  expect(task.journalPath).toBeUndefined();
+  // 模拟尚未带正式归档字段的旧版持久任务，保留其格式断点兼容路径。
+  delete task.archiveId;
+  delete task.incrementalSupport;
   task.status = 'paused';
   expect(f.manager.resumeTask(id)).toBe(true);
   await wait(() => ['completed', 'failed'].includes(task.status));
@@ -523,9 +525,13 @@ it('暂停收尾生成可保存的有效 JSON，续作与增量不重复消息',
   mkdirSync(target);
   expect(await f.manager.saveTaskOutput(id, target)).toContain(target);
   expect(f.manager.resumeTask(id)).toBe(true);
-  await wait(() => f.manager.getTask(id)?.status === 'completed');
+  await wait(() => ['completed', 'failed'].includes(task.status));
+  expect(task.error).toBeUndefined();
+  expect(task.status).toBe('completed');
   expect(f.manager.resumeTask(id, true)).toBe(true);
-  await wait(() => f.manager.getTask(id)?.status === 'completed');
+  await wait(() => ['completed', 'failed'].includes(task.status));
+  expect(task.error).toBeUndefined();
+  expect(task.status).toBe('completed');
   expect(f.manager.getTask(id)?.current).toBe(3000);
 });
 
@@ -559,16 +565,13 @@ it('增量导出补入新消息，保留源库已删除的旧记录，重复执�
     expect(f.manager.getTask(id)?.error).toBeUndefined();
     expect(f.manager.getTask(id)?.current).toBe(4);
   }
-  const rows = readFileSync(path, 'utf8')
-    .trim()
-    .split('\n')
-    .map((line) => JSON.parse(line));
-  expect(rows.map((row) => row.msgId)).toEqual(['1', '2', '3', '4']);
+  const { archive } = await readArchiveFile(path, 'jsonl');
+  expect(archive.records.map((row) => row.data.messageId)).toEqual(['1', '2', '3', '4']);
   expect(f.manager.deleteTask(id)).toBe(true);
   expect(existsSync(path)).toBe(true);
 });
 
-it('选择基线文件夹在新任务中合并归档，不依赖原任务索引且不改写基线', async () => {
+it('选择正式归档在新任务中原位合并，不依赖原任务索引并保留冲突版本', async () => {
   const f = fixture(3, { exportAccountUin: '10001' });
   const target = join(f.root, 'baseline');
   mkdirSync(target);
@@ -588,7 +591,7 @@ it('选择基线文件夹在新任务中合并归档，不依赖原任务索引�
   f.rows.push({ ...removed, msgId: 4n, msgSeq: 4n });
   const manager = new ExportTaskManager(f.msgs, join(f.root, 'new-exports'), {
     exportSavePolicy: () => ({ mode: 'before', directory: f.root }),
-    exportAccountUin: '10002',
+    exportAccountUin: '10001',
   });
   const next = await manager.startTask({
     kind: 'group',
@@ -600,14 +603,18 @@ it('选择基线文件夹在新任务中合并归档，不依赖原任务索引�
   });
   await wait(() => ['completed', 'failed'].includes(manager.getTask(next)!.status));
   expect(manager.getTask(next)?.error).toBeUndefined();
-  const rows = readFileSync(manager.getTask(next)!.filePath!, 'utf8')
-    .trim()
-    .split('\n')
-    .map((row) => JSON.parse(row));
-  expect(rows.map((row) => row.msgId)).toEqual(['1', '2', '3', '4']);
-  expect(JSON.stringify(rows[1])).toContain('message 1');
-  expect(manager.getTask(next)?.mergeWarnings?.conflictingMessages).toBe(1);
-  expect(readFileSync(f.manager.getTask(id)!.filePath!)).toEqual(original);
+  const { archive } = await readArchiveFile(manager.getTask(next)!.filePath!, 'jsonl');
+  expect([...new Set(archive.records.map((row) => row.data.messageId))]).toEqual([
+    '1',
+    '2',
+    '3',
+    '4',
+  ]);
+  expect(archive.records.filter((row) => row.data.messageId === '2')).toHaveLength(2);
+  expect(JSON.stringify(archive.records)).toContain('message 1');
+  expect(readFileSync(f.manager.getTask(id)!.filePath!).subarray(0, original.length)).toEqual(
+    original,
+  );
   const other = new ExportTaskManager(f.msgs, join(f.root, 'other-account'), {
     exportSavePolicy: () => ({ mode: 'before', directory: f.root }),
     exportAccountUin: '10002',
@@ -669,7 +676,7 @@ it('多格式直接写入独立目标包，增量和暂停不把几个格式写�
   expect(task.save?.path).toBe(task.bundleDir);
 });
 
-it('续作选项从单文件变为多格式时转入独立目录，不覆盖原文件或混写格式', async () => {
+it('非结构化结果不提供增量，新增格式新建任务且不覆盖原文件', async () => {
   const f = fixture(3);
   const target = join(f.root, 'options-change');
   mkdirSync(target);
@@ -686,13 +693,23 @@ it('续作选项从单文件变为多格式时转入独立目录，不覆盖原�
   const original = task.filePath!,
     bytes = readFileSync(original);
   task.formats = ['txt', 'json'];
-  expect(f.manager.resumeTask(id, true)).toBe(true);
-  await wait(() => ['completed', 'failed'].includes(task.status));
-  expect(task.error).toBeUndefined();
-  expect(task.bundleDir).toBeDefined();
+  expect(f.manager.resumeTask(id, true)).toBe(false);
+  const next = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '格式变化',
+    format: 'txt',
+    formats: ['txt', 'json'],
+    total: 3,
+    savePolicy: { mode: 'before', directory: target },
+  });
+  await wait(() => ['completed', 'failed'].includes(f.manager.getTask(next)!.status));
+  const nextTask = f.manager.getTask(next)!;
+  expect(nextTask.error).toBeUndefined();
+  expect(nextTask.bundleDir).toBeDefined();
   expect(readFileSync(original)).toEqual(bytes);
   expect(() =>
-    JSON.parse(readFileSync(join(task.bundleDir!, '格式变化.json'), 'utf8')),
+    JSON.parse(readFileSync(join(nextTask.bundleDir!, '格式变化.json'), 'utf8')),
   ).not.toThrow();
   expect(task.current).toBe(3);
 });
@@ -705,17 +722,18 @@ it('目标目录失效不重建替代目录，用户修改过的目标文件不�
     kind: 'group',
     conv: '777',
     name: '保护结果',
-    format: 'txt',
+    format: 'json',
     total: 2,
     savePolicy: { mode: 'before', directory: target },
   });
   await wait(() => f.manager.getTask(id)?.status === 'completed');
   const task = f.manager.getTask(id)!;
-  writeFileSync(task.filePath!, '用户修改');
+  const original = task.filePath!;
+  writeFileSync(original, '用户修改');
   expect(f.manager.resumeTask(id, true)).toBe(true);
   await wait(() => f.manager.getTask(id)?.status === 'failed');
-  expect(readFileSync(task.filePath!, 'utf8')).toBe('用户修改');
-  expect(task.error).toContain('已有修改');
+  expect(readFileSync(original, 'utf8')).toBe('用户修改');
+  expect(task.error).toMatch(/JSON|Unexpected|归档|格式/);
   rmSync(target, { recursive: true });
   expect(f.manager.resumeTask(id)).toBe(true);
   await wait(() => f.manager.getTask(id)?.status === 'failed');

@@ -16,6 +16,57 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('独立资源沿用导出任务生命周期', () => {
+  it('资源附加数据选择贯穿任务参数，不被归档默认选项覆盖', async () => {
+    const f = fixture();
+    const id = await f.manager.startResourceExport({
+      kind: 'group-files',
+      name: '资源属性',
+      archive: { formats: ['json'], profile: 'full', extra: { resourceProperties: false } },
+      savePolicy: { mode: 'before', directory: f.root },
+      run: async ({ directory }) => {
+        writeFileSync(join(directory, 'resource.bin'), 'chosen');
+        return {
+          total: 1,
+          ok: 1,
+          failed: [],
+          metadata: [
+            {
+              sourceId: 'file',
+              name: '资源',
+              path: 'files/resource.bin',
+              attributes: { excluded: '未选择的属性' },
+            },
+          ],
+        };
+      },
+    });
+    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    const text = readFileSync(
+      join(f.manager.getTask(id)!.bundleDir!, 'resource-results.json'),
+      'utf8',
+    );
+    expect(text).not.toContain('未选择的属性');
+    expect(f.manager.getTask(id)?.extra).toEqual({ resourceProperties: false });
+  });
+  it('仅资源模式不生成结构化清单，保留实际文件与任务计数', async () => {
+    const f = fixture();
+    const id = await f.manager.startResourceExport({
+      kind: 'group-files',
+      name: '仅资源',
+      archive: { formats: [] },
+      includeIntegrityReport: false,
+      savePolicy: { mode: 'before', directory: f.root },
+      run: async ({ directory }) => {
+        writeFileSync(join(directory, 'resource.bin'), 'chosen');
+        return { total: 1, ok: 1, failed: [] };
+      },
+    });
+    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    const task = f.manager.getTask(id)!;
+    expect(readdirSync(task.bundleDir!)).toEqual(['files']);
+    expect(readFileSync(join(task.bundleDir!, 'files', 'resource.bin'), 'utf8')).toBe('chosen');
+    expect(task.current).toBe(1);
+  });
   it.each([false, true])(
     '批量下载按本次选择附带报告：%s，重启后保持选择',
     async (includeIntegrityReport) => {

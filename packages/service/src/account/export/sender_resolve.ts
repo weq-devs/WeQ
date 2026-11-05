@@ -53,6 +53,8 @@ export interface SenderResolveDeps {
 
 /** A sender's resolved identity, cached per uid for the message pass. */
 export interface ResolvedSender {
+  /** 实际读到的名称；与仅用于显示的账号 ID 回退分开。 */
+  sourceName?: string;
   /** platformId — the value used for `sender` / `members[].platformId` (uin, or uid fallback). */
   platformId: string;
   /** accountName (global nick, or a best-effort fallback). */
@@ -131,6 +133,7 @@ export async function resolveGroupSenders(
     const role: ResolvedSender['role'] =
       uid === ownerUid ? 'owner' : t?.adminFlag === 1 ? 'admin' : undefined;
     out.set(uid, {
+      ...(t ? { sourceName: t.nick || t.card } : {}),
       platformId,
       accountName: t?.nick || t?.card || (uin && uin !== '0' ? uin : uid),
       groupNickname: t?.card || undefined,
@@ -152,6 +155,7 @@ export async function resolveC2cSenders(
   if (self) {
     const platformId = self.uin && self.uin !== '0' ? self.uin : self.uid;
     senders.set(self.uid, {
+      sourceName: self.nick,
       platformId,
       accountName: self.nick || platformId,
       ...(self.avatar ? { avatar: self.avatar } : {}),
@@ -163,6 +167,7 @@ export async function resolveC2cSenders(
   const peerUin = peer?.uin && peer.uin !== '0' ? peer.uin : conv;
   if (!senders.has(conv)) {
     senders.set(conv, {
+      ...(peer ? { sourceName: peer.nick } : {}),
       platformId: peerUin,
       accountName: peer?.nick || peerUin,
       ...(peer?.avatar ? { avatar: peer.avatar } : {}),

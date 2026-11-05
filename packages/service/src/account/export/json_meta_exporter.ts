@@ -13,6 +13,7 @@
  */
 
 import { statSync } from 'node:fs';
+import { exportArchiveConversation } from './archive_message';
 import { MessageAudit } from './message_audit';
 import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
@@ -39,6 +40,9 @@ import type {
 } from './types';
 
 export interface JsonMetaExportOptions {
+  /** 仅旧任务恢复保留原文件形状；新导出不设置。 */
+  legacyFormat?: boolean;
+  archive?: import('./archive').ArchiveOptions;
   kind: ConvKind;
   conv: string;
   /** Conversation display name (fallback for meta.name when unresolvable). */
@@ -110,6 +114,7 @@ export async function exportJsonConversation(
   opts: JsonMetaExportOptions,
   deps: SenderResolveDeps = {},
 ): Promise<ExportResult> {
+  if (!opts.legacyFormat) return exportArchiveConversation(msgs, opts, deps);
   const start = Date.now();
   const progressEvery = opts.progressEvery ?? 5000;
   const isJsonl = opts.format === 'jsonl';

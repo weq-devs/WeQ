@@ -33,6 +33,9 @@ export function exportOptionsHash(task: ExportTask): string {
     media: task.media ?? null,
     avatar: task.exportAvatar ?? false,
     chatlab: task.chatlab ?? false,
+    profile: task.profile ?? null,
+    incrementalSupport: task.incrementalSupport ?? false,
+    archiveId: task.archiveId ?? null,
     dress: task.dress ?? null,
   };
   return createHash('sha256').update(JSON.stringify(options)).digest('hex');

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -10,6 +10,7 @@ import {
   previewMailExport,
 } from '../src/account/mail/export';
 import type { MailDetail } from '../src/account/mail/types';
+import { object, readArchive } from '../src/account/export/archive';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -55,17 +56,33 @@ it('导出基本信息、正文与附件，去重、路径安全且不主动标�
     ['fixture', 'fixture'],
     ctx,
     vi.fn(),
+    {},
+    true,
+    { profile: 'full' },
   );
   expect(result).toEqual({ total: 1, ok: 1, failed: [] });
   expect(read).toHaveBeenCalledWith('fixture', ctx.signal, false);
-  const index = JSON.parse(await readFile(join(ctx.directory, 'index.json'), 'utf8'));
-  const folder = join(ctx.directory, index[0].directory);
-  const metadata = JSON.parse(await readFile(join(folder, 'message.json'), 'utf8'));
-  expect(metadata.unread).toBe(true);
-  expect(metadata.sender).toEqual(detail.sender);
-  expect(JSON.stringify(metadata)).not.toContain('opaque-token');
-  expect(metadata.attachments[0].file).not.toContain('/');
-  expect(await readFile(join(folder, metadata.attachments[0].file), 'utf8')).toBe('fixture');
+  const index = readArchive(JSON.parse(await readFile(join(ctx.directory, 'index.json'), 'utf8')));
+  const folder = join(
+    ctx.directory,
+    (await readdir(ctx.directory)).find((name) => name.startsWith('0001-'))!,
+  );
+  const metadata = index.records[0]!;
+  expect(object(metadata.native).attributes).toContainEqual({
+    target: '/data',
+    name: 'source.unread',
+    value: { type: 'boolean', value: true },
+  });
+  expect(metadata.data.sender).toEqual({
+    identities: [{ namespace: 'email', value: detail.sender.email }],
+    name: detail.sender.name,
+  });
+  expect(JSON.stringify(index)).not.toContain('opaque-token');
+  expect(index.resources[0]!.path).toMatch(/^media\/[a-f0-9]{64}$/);
+  expect(await readFile(join(ctx.directory, String(index.resources[0]!.path)), 'utf8')).toBe(
+    'fixture',
+  );
+  expect(object((metadata.data.content as unknown[])[0]).text).toBe(detail.html);
   const body = await readFile(join(folder, 'body.html'), 'utf8');
   expect(body).toContain('正文');
   expect(body).not.toMatch(/secret|tracker.invalid|<script/);
@@ -85,11 +102,10 @@ it('附件失效与下载失败记录缺失，底层错误不泄漏凭据', asyn
   );
   expect(result.failed).toHaveLength(1);
   expect(JSON.stringify(result)).not.toContain('secret');
-  const index = JSON.parse(await readFile(join(ctx.directory, 'index.json'), 'utf8'));
-  const metadata = JSON.parse(
-    await readFile(join(ctx.directory, index[0].directory, 'message.json'), 'utf8'),
-  );
-  expect(metadata.attachments[0].error).toBeTruthy();
+  const index = readArchive(JSON.parse(await readFile(join(ctx.directory, 'index.json'), 'utf8')));
+  expect(index.resources[0]!.error).toBeTruthy();
+  expect(index.resources[0]!.status).toBe('failed');
+  expect(index.resources[0]!.path).toBeUndefined();
 });
 it('迟到读取遇到账号切换立即终止，不产出索引', async () => {
   const ctx = await context();
@@ -189,9 +205,11 @@ it('筛选会话子邮件时不因摘要不匹配而漏导，也不夹带不匹�
     { subject: '目标' },
   );
   expect(result).toEqual({ total: 1, ok: 1, failed: [] });
-  expect(JSON.parse(await readFile(join(ctx.directory, 'index.json'), 'utf8'))).toEqual([
-    { id: 'match', directory: expect.any(String) },
-  ]);
+  expect(
+    readArchive(JSON.parse(await readFile(join(ctx.directory, 'index.json'), 'utf8'))).records.map(
+      (record) => record.data.mailId,
+    ),
+  ).toEqual(['match']);
 });
 
 it('全量枚举失败、重复分页、锁定、切换来源和取消都不生成成功索引', async () => {

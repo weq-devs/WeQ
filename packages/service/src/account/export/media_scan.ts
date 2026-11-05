@@ -71,6 +71,7 @@ export function mediaDirsFromAccountDir(accountDir: string): MediaDirs {
 
 /** One referenced media file. */
 export interface MediaRef {
+  localVariants?: Array<{ path: string; role: 'original' | 'thumbnail' | 'preview' | 'cover' }>;
   forwardMsgId?: string;
   forwardElement?: RenderElement;
   msgId: string;
@@ -194,6 +195,7 @@ export interface MediaScanResult {
 }
 
 export interface ScanOptions {
+  includeVariants?: boolean;
   pageSize?: number;
   /** Concurrency for index-building readdir calls (default 24). */
   concurrency?: number;
@@ -562,16 +564,29 @@ export async function scanConvMedia(
   let indexedFiles = 0;
 
   // Month-bucketed kinds: only the spanned months, Ori only (the source).
-  const dirTasks: Array<{ kind: MediaKind; dir: string }> = [];
+  const variants = new Map<string, NonNullable<MediaRef['localVariants']>>();
+  const dirTasks: Array<{
+    kind: MediaKind;
+    dir: string;
+    role: 'original' | 'thumbnail' | 'preview' | 'cover';
+  }> = [];
   for (const kind of MONTH_KINDS) {
     for (const month of months[kind]) {
-      dirTasks.push({ kind, dir: join(dirs[kind], month, 'Ori') });
+      dirTasks.push({ kind, dir: join(dirs[kind], month, 'Ori'), role: 'original' });
+      if (opts.includeVariants)
+        for (const [folder, role] of [
+          ['Thumb', 'thumbnail'],
+          ['ThumbLow', 'thumbnail'],
+          ['Preview', 'preview'],
+          ['Cover', 'cover'],
+        ] as const)
+          dirTasks.push({ kind, dir: join(dirs[kind], month, folder), role });
     }
   }
   // Emoji: all months, both Ori and Thumb (display can be in either).
   for (const month of await listSubdirs(dirs.emoji)) {
-    dirTasks.push({ kind: 'emoji', dir: join(dirs.emoji, month, 'Ori') });
-    dirTasks.push({ kind: 'emoji', dir: join(dirs.emoji, month, 'Thumb') });
+    dirTasks.push({ kind: 'emoji', dir: join(dirs.emoji, month, 'Ori'), role: 'original' });
+    dirTasks.push({ kind: 'emoji', dir: join(dirs.emoji, month, 'Thumb'), role: 'thumbnail' });
   }
 
   await mapLimit(dirTasks, concurrency, async (task) => {
@@ -587,7 +602,14 @@ export async function scanConvMedia(
       if (!e.isFile()) continue;
       indexedFiles += 1;
       const stem = stemOf(e.name);
-      if (!map.has(stem)) map.set(stem, join(task.dir, e.name));
+      if (task.role === 'original' || task.kind === 'emoji')
+        if (!map.has(stem)) map.set(stem, join(task.dir, e.name));
+      if (opts.includeVariants) {
+        const key = `${task.kind}:${task.role === 'original' ? stem : stem.replace(/_\d+$/, '')}`;
+        const entries = variants.get(key) ?? [];
+        entries.push({ path: join(task.dir, e.name), role: task.role });
+        variants.set(key, entries);
+      }
     }
   });
 
@@ -598,6 +620,12 @@ export async function scanConvMedia(
       indexedFiles += 1;
       const stem = stemOf(name);
       if (!index.file.has(stem)) index.file.set(stem, full);
+      if (opts.includeVariants) {
+        const key = `file:${stem}`,
+          entries = variants.get(key) ?? [];
+        entries.push({ path: full, role: 'original' });
+        variants.set(key, entries);
+      }
     },
     () => {
       indexedDirs += 1;
@@ -621,6 +649,10 @@ export async function scanConvMedia(
   const missing: MediaRef[] = [];
   const downloadList: MediaRef[] = [];
   for (const ref of uniqueByKey.values()) {
+    if (opts.includeVariants)
+      ref.localVariants = (variants.get(`${ref.kind}:${ref.stem}`) ?? []).sort((a, b) =>
+        a.path.localeCompare(b.path),
+      );
     const counts = byKind[ref.kind];
     counts.unique += 1;
     const hit = index[ref.kind].get(ref.stem);

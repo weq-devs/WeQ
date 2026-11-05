@@ -169,7 +169,7 @@ function isAllDigits(s: string): boolean {
 }
 
 /** `originalUrl` is usually a host-relative path; join it onto the media host. */
-function resolveOriginalUrl(originalUrl: string): string {
+export function resolveOriginalUrl(originalUrl: string): string {
   if (/^https?:\/\//i.test(originalUrl)) return originalUrl;
   return `${MEDIA_HOST}${originalUrl.startsWith('/') ? '' : '/'}${originalUrl}`;
 }

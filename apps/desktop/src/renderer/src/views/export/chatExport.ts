@@ -16,6 +16,7 @@ import {
 } from './preflight';
 import type { ExportFormat, ExportOptions } from './types';
 import type { ExportSavePolicy } from '@weq/service';
+import { normalizeExportContent, exportContentFlags } from '@weq/service/export-content';
 
 /** 一个导出目标会话（导出中心的选择项 / 聊天页当前会话）。 */
 export interface ChatExportTarget {
@@ -46,7 +47,15 @@ export function buildChatExportMedia(
   ocrPrefilter: boolean;
   mediaKinds: ExportOptions['mediaKinds'] | undefined;
   completeDress: boolean;
+  completeDressKinds?: ExportOptions['dress'];
 } {
+  if (options.content)
+    options = {
+      ...options,
+      ...exportContentFlags(
+        normalizeExportContent(options.content, options, opts.messageCompletion === false),
+      ),
+    };
   // 频道私聊（guild）没有漫游缓存可拉，补全消息恒关闭。
   const messageCompletion = opts.messageCompletion ?? true;
   return {
@@ -68,6 +77,7 @@ export function buildChatExportMedia(
     ocrPrefilter: options.ocrImages && opts.ocrPrefilter === true,
     mediaKinds: options.exportMedia ? options.mediaKinds : undefined,
     completeDress: options.completeDress,
+    completeDressKinds: options.completeDressKinds,
   };
 }
 
@@ -89,7 +99,7 @@ export async function preflightChatExport(
   if (media.completeMedia || media.downloadVideo || media.downloadFile || media.downloadPtt) {
     const ok = await preflightMediaCompletion(dialog);
     if (!ok) return false;
-  } else if (media.exportMedia) {
+  } else if (media.exportMedia && !options.content) {
     const ok = await dialog.confirm(
       '未开启媒体补全',
       '已开启「导出媒体文件」但未开启「补全缺失媒体」。本地缓存中缺失的图片 / 视频 / 文件不会从云端下载，可能有大量媒体无法导出。是否继续？',
@@ -164,6 +174,13 @@ export async function startChatExportTasks(
       ...binding,
       savePolicy,
       includeIntegrityReport: frozenOptions.includeIntegrityReport ?? false,
+      profile: 'full',
+      content: frozenOptions.content,
+      completeAvatar: frozenOptions.completeAvatar,
+      incrementalSupport:
+        !frozenOptions.chatlab &&
+        frozenFormats.some((format) => format === 'json' || format === 'jsonl') &&
+        true,
       baselineDirectory: baselineByConversation
         ? baselineByConversation[`${t.kind ?? 'c2c'}:${t.id}`] || undefined
         : baselineDirectory,

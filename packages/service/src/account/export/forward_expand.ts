@@ -105,6 +105,7 @@ export async function expandForwards(
   msgs: MsgService,
   kind: ConvKind,
   exported: ExportedMessage,
+  localRecords?: MsgCacheRecord[],
 ): Promise<void> {
   const hasForward = exported.elements.some(
     (el) => el.type === 'multiMsg' && !el.data.forwardMessages?.length,
@@ -112,14 +113,17 @@ export async function expandForwards(
   if (!hasForward) return;
   let records: MsgCacheRecord[];
   try {
-    records = await msgs.listForward(kind, BigInt(exported.msgId));
+    records = localRecords ?? (await msgs.listForward(kind, BigInt(exported.msgId)));
   } catch {
     records = [];
   }
   const lifted = liftForwardRecords(records);
+  const cards = exported.elements.filter((el) => el.type === 'multiMsg');
+  const unambiguous =
+    new Set(cards.map((el) => (el.type === 'multiMsg' ? el.data.resId : ''))).size <= 1;
   for (const el of exported.elements) {
     if (el.type !== 'multiMsg' || el.data.forwardMessages?.length) continue;
-    if (lifted.length) el.data.forwardMessages = lifted;
+    if (lifted.length && unambiguous) el.data.forwardMessages = lifted;
     await expandRemote(msgs, el, new Set(), 0);
   }
 }

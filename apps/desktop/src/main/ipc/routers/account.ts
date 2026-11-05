@@ -12,10 +12,11 @@
  */
 
 import { z } from 'zod';
+import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
 import { withDatabaseRequest } from '@weq/db';
 import { clearCompletedTasks } from './clear_completed_tasks';
-import { FileUploadStaging } from './album_video_staging';
 import { startFlashDownloads } from './flash_save';
+import { FileUploadStaging } from './album_video_staging';
 import {
   BROWSER_FILE_CHUNK_BYTES,
   BROWSER_FILE_MAX_BYTES,
@@ -51,8 +52,8 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import {
   getAppContext,
-  closeSalvageConnections,
   requireBootstrap,
+  closeSalvageConnections,
   dbEventBus,
   accountEventBus,
   type AccountServices,
@@ -524,6 +525,18 @@ const exportQzoneAlbumMediaInput = z
   })
   .merge(exportAccountBindingInput);
 /** 导出装扮资源（气泡 / 字体 / 挂件），缺省不导出。 */
+const structuredExportInput = {
+  extra: exportExtraInput.optional(),
+  content: exportContentPolicyInput.optional(),
+  completeAvatar: z.boolean().optional(),
+  profile: z.enum(['basic', 'full']).optional(),
+  incrementalSupport: z.boolean().optional(),
+};
+const resourceArchiveInput = {
+  ...structuredExportInput,
+  metadataFormat: z.enum(['json', 'jsonl', 'none']).optional(),
+};
+
 const dressInput = z
   .object({
     bubble: z.boolean(),
@@ -3431,6 +3444,7 @@ export const accountRouter = router({
   startGeneratedExport: procedure
     .input(
       generatedAccountInput.extend({
+        ...structuredExportInput,
         target: generatedTargetInput,
         messageIds: z.array(z.string().min(1)).optional(),
         formats: z.array(z.enum(GENERATED_EXPORT_FORMATS)).min(1),
@@ -3456,6 +3470,9 @@ export const accountRouter = router({
         formats: input.formats,
         total: snapshot.messages.length,
         generated: snapshot,
+        extra: input.extra,
+        profile: input.profile,
+        incrementalSupport: input.incrementalSupport,
         includeIntegrityReport: input.includeIntegrityReport,
         savePolicy: input.savePolicy,
       });
@@ -3465,6 +3482,7 @@ export const accountRouter = router({
   guildDirectStartExport: procedure
     .input(
       z.object({
+        ...structuredExportInput,
         ...exportAccountBindingInput.shape,
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
@@ -3516,6 +3534,7 @@ export const accountRouter = router({
               .optional(),
             /** 下载本地未缓存的装扮资源。 */
             completeDress: z.boolean().optional(),
+            completeDressKinds: dressInput,
           })
           .optional(),
         /** Inclusive send-time window (unix seconds); null bound = open-ended. */
@@ -3538,6 +3557,10 @@ export const accountRouter = router({
       return services.exportManager.startTask({
         kind: 'c2c',
         conv: guild.peerTinyId,
+        content: input.content,
+        completeAvatar: input.completeAvatar,
+        profile: input.profile,
+        incrementalSupport: input.incrementalSupport,
         savePolicy: input.savePolicy,
         includeIntegrityReport: input.includeIntegrityReport,
         name: input.name,
@@ -6318,6 +6341,7 @@ export const accountRouter = router({
       z.object({
         filesetName: z.string().optional().default(''),
         selections: z.array(flashSelectionSchema).min(1),
+        directory: z.string().min(1).optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -6343,7 +6367,6 @@ export const accountRouter = router({
   /** 清掉已结束（完成 / 失败 / 取消）的任务，进行中的保留。 */
   flashClearDownloadTasks: procedure.mutation(async () => {
     return requireServices().flashTransferFiles.downloads.clearFinished();
-        directory: z.string().min(1).optional(),
   }),
 
   /** 在系统文件管理器里打开闪传下载根目录。 */
@@ -6711,6 +6734,7 @@ export const accountRouter = router({
         .omit({ outputDir: true })
         .merge(exportAccountBindingInput)
         .extend({
+          ...resourceArchiveInput,
           name: z.string().min(1),
           savePolicy: exportSavePolicyInput.optional(),
           includeIntegrityReport: z.boolean().optional(),
@@ -6725,6 +6749,16 @@ export const accountRouter = router({
       const selected = structuredClone(input);
       return services.exportManager.startResourceExport({
         kind: 'group-albums',
+        archive: {
+          extra: selected.extra,
+          profile: selected.profile,
+          incrementalSupport: selected.incrementalSupport,
+          formats: selected.metadataFormat === 'none' ? [] : [selected.metadataFormat ?? 'json'],
+          selection: {
+            groupCode: selected.groupCode,
+            albumIds: selected.albums.map((album) => album.id),
+          },
+        },
         name: selected.name,
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: selected.savePolicy,
@@ -6811,6 +6845,7 @@ export const accountRouter = router({
         .omit({ outputDir: true })
         .merge(exportAccountBindingInput)
         .extend({
+          ...resourceArchiveInput,
           name: z.string().min(1),
           savePolicy: exportSavePolicyInput.optional(),
           includeIntegrityReport: z.boolean().optional(),
@@ -6825,6 +6860,18 @@ export const accountRouter = router({
       const selected = structuredClone(input);
       return services.exportManager.startResourceExport({
         kind: 'group-files',
+        archive: {
+          extra: selected.extra,
+          profile: selected.profile,
+          incrementalSupport: selected.incrementalSupport,
+          formats: selected.metadataFormat === 'none' ? [] : [selected.metadataFormat ?? 'json'],
+          selection: {
+            groupCode: selected.groupCode,
+            ...(selected.files
+              ? { fileIds: selected.files.map((file) => file.fileId) }
+              : { all: true }),
+          },
+        },
         name: selected.name,
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: selected.savePolicy,
@@ -7073,6 +7120,7 @@ export const accountRouter = router({
   startExport: procedure
     .input(
       z.object({
+        ...structuredExportInput,
         ...exportAccountBindingInput.shape,
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
@@ -7124,6 +7172,7 @@ export const accountRouter = router({
               .optional(),
             /** 下载本地未缓存的装扮资源。 */
             completeDress: z.boolean().optional(),
+            completeDressKinds: dressInput,
           })
           .optional(),
         /** Inclusive send-time window (unix seconds); null bound = open-ended. */
@@ -7155,6 +7204,7 @@ export const accountRouter = router({
   startQzoneExport: procedure
     .input(
       z.object({
+        ...structuredExportInput,
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
         targetUin: z.string().min(1),
@@ -7164,9 +7214,9 @@ export const accountRouter = router({
         expectedAccountUin: z.string().min(1).optional(),
         expectedAccountConfigId: z.string().min(1).optional(),
         name: z.string().min(1),
-        format: z.enum(['json', 'txt', 'html']),
+        format: z.enum(['json', 'jsonl', 'txt', 'html']),
         /** 多格式导出：json / txt / html 一次任务全出。 */
-        formats: z.array(z.enum(['json', 'txt', 'html'])).optional(),
+        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'html'])).optional(),
         /** 补全互动：按 tid 拉取评论 + 点赞（空间动态页 HTML 解析，best-effort，需在线 QQ）。 */
         includeInteraction: z.boolean().optional(),
         downloadMedia: z.boolean(),
@@ -7184,6 +7234,9 @@ export const accountRouter = router({
       if (!input.includePosts && !input.includeAlbums) throw new Error('至少选择说说或相册。');
       return services.exportManager.startTask({
         qzone: true,
+        extra: input.extra,
+        profile: input.profile,
+        incrementalSupport: input.incrementalSupport,
         qzonePosts: input.includePosts,
         qzoneAlbums: input.includeAlbums,
         includeIntegrityReport: input.includeIntegrityReport,
@@ -7216,6 +7269,7 @@ export const accountRouter = router({
   startContactsExport: procedure
     .input(
       z.object({
+        ...structuredExportInput,
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
         scope: z.enum(['friends', 'group', 'groups']),
@@ -7261,9 +7315,12 @@ export const accountRouter = router({
           ...(input.uids ? { uids: input.uids } : {}),
           ...(input.groupIds ? { groupIds: input.groupIds } : {}),
         },
+        profile: input.profile,
+        incrementalSupport: input.incrementalSupport,
         kind: 'c2c',
         savePolicy: input.savePolicy,
         includeIntegrityReport: input.includeIntegrityReport,
+        extra: input.extra,
         conv: input.scope === 'group' ? input.groupCode! : '',
         name: input.name,
         format,
@@ -7295,11 +7352,12 @@ export const accountRouter = router({
   startCollectionExport: procedure
     .input(
       z.object({
+        ...structuredExportInput,
         ...exportAccountBindingInput.shape,
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
         name: z.string().min(1),
-        format: z.enum(['json', 'csv', 'xlsx', 'txt']),
+        format: z.enum(['json', 'jsonl', 'csv', 'xlsx', 'txt']),
         kinds: z.array(z.string()).optional(),
         cids: z.array(z.string().min(1)).min(1).optional(),
       }),
@@ -7314,6 +7372,9 @@ export const accountRouter = router({
           ...(input.kinds?.length ? { kinds: input.kinds } : {}),
           ...(input.cids ? { cids: input.cids } : {}),
         },
+        extra: input.extra,
+        profile: input.profile,
+        incrementalSupport: input.incrementalSupport,
         kind: 'c2c',
         savePolicy: input.savePolicy,
         conv: '',
@@ -7394,7 +7455,7 @@ export const accountRouter = router({
 
   listExportBaselines: procedure
     .input(z.object({ directory: z.string().min(1) }))
-    .query(({ input }) => requireServices().exportManager.listBaselines(input.directory)),
+    .query(({ input }) => requireServices().exportManager.listArchiveBaselines(input.directory)),
 
   saveExportTaskOutput: procedure
     .input(
@@ -7624,6 +7685,7 @@ export const accountRouter = router({
           intervalHours: z.number().int().min(1).max(168),
         }),
         options: z.object({
+          ...structuredExportInput,
           includeIntegrityReport: z.boolean().optional(),
           range: z.object({
             preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
@@ -7649,6 +7711,7 @@ export const accountRouter = router({
             })
             .optional(),
           completeDress: z.boolean().optional(),
+          completeDressKinds: dressInput,
           autoSave: z.boolean().optional(),
           savePolicy: exportSavePolicyInput.optional(),
         }),
@@ -7702,6 +7765,7 @@ export const accountRouter = router({
             .optional(),
           options: z
             .object({
+              ...structuredExportInput,
               includeIntegrityReport: z.boolean().optional(),
               range: z.object({
                 preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
@@ -7727,6 +7791,7 @@ export const accountRouter = router({
                 })
                 .optional(),
               completeDress: z.boolean().optional(),
+              completeDressKinds: dressInput,
               autoSave: z.boolean().optional(),
               savePolicy: exportSavePolicyInput.optional(),
             })

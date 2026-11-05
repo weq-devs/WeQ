@@ -1,7 +1,9 @@
 import { normaliseContactsFormats } from './contacts_export';
 import { sanitizeSegment } from '../../common/path_sanitize';
+import { hasExportResources } from '../../common/export_content';
 
 export interface ExportOutputPlan {
+  content?: import('../../common/export_content').ExportContentPolicy;
   kind: 'messages' | 'contacts' | 'bundle' | 'file';
   name: string;
   /** 已有资源的原文件名；仅 file 使用，可保留无扩展名文件。 */
@@ -41,7 +43,10 @@ export function exportOutputFileName(
 
 /** 与消息写入管线共用，能力不可用时不伪造实际不存在的额外产物。 */
 export function messageOutputFlags(
-  plan: Pick<ExportOutputPlan, 'format' | 'formats' | 'exportAvatar' | 'media' | 'dress'>,
+  plan: Pick<
+    ExportOutputPlan,
+    'format' | 'formats' | 'exportAvatar' | 'media' | 'dress' | 'content'
+  >,
   capabilities: ExportOutputCapabilities,
 ) {
   const wantAvatars = Boolean(plan.exportAvatar && capabilities.avatar);
@@ -59,6 +64,9 @@ export function messageOutputFlags(
     wantOcr ||
     wantDress ||
     wantSysFaces ||
+    Object.entries(plan.content?.details ?? {}).some(
+      ([key, tier]) => key.endsWith('Variants') && tier !== 'none',
+    ) ||
     plan.format === 'html' ||
     (plan.formats?.length ?? 1) > 1;
   return { wantAvatars, wantMedia, wantTranscribe, wantOcr, wantDress, wantSysFaces, isBundle };
@@ -74,6 +82,13 @@ export function describeExportOutput(
   )
     throw new Error('未选择有效的输出目标。');
   if (plan.kind === 'bundle' || (plan.targetCount ?? 1) > 1) return { kind: 'directory' };
+  if (
+    plan.kind === 'messages' &&
+    plan.formats?.length === 0 &&
+    plan.content &&
+    hasExportResources(plan.content)
+  )
+    return { kind: 'directory' };
   if (plan.kind === 'file' && plan.fileName !== undefined) {
     const name = sanitizeSegment(plan.fileName.replace(/^.*[\\/]/, ''), '附件', { maxLen: 512 });
     const split = /^(.*)\.([a-z0-9]{1,16})$/i.exec(name);

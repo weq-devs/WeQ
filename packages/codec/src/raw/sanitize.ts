@@ -58,7 +58,7 @@ function scalarWire(t: ScalarType): WireType {
 }
 
 /** Whether the wire type seen on the wire can satisfy the field's declaration. */
-function wireMatches(info: FieldInfo, wireType: WireType): boolean {
+export function wireMatches(info: FieldInfo, wireType: WireType): boolean {
   if (info.kind === 'message') return wireType === 2;
   const base = scalarWire(info.scalarType!);
   // Packed repeated numeric scalars arrive as one LEN blob (wire 2); the
