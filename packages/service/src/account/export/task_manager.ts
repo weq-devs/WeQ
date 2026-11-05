@@ -355,8 +355,6 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
-  /** 自动调度等后台任务保留记录，但不在创建时展开任务列表。 */
-  autoOpenTaskList?: boolean;
   content?: ExportContentPolicy;
   completeAvatar?: boolean;
   resourceArchive?: ArchiveOptions;
@@ -398,6 +396,8 @@ export interface ExportTask {
   journalPath?: string;
   outputDirectory?: string;
   skippedStages?: StageKey[];
+  /** 用户跳过前的原选项随任务持久化，完成后补传时恢复。 */
+  skippedStageOptions?: Pick<ExportTask, 'media' | 'dress' | 'exportAvatar'>;
   partialReady?: boolean;
   outputHashes?: Record<string, string>;
   baselineDirectory?: string;
@@ -1093,7 +1093,6 @@ export class ExportTaskManager extends EventEmitter {
   async startTask(opts: {
     extra?: import('../../common/export_content').ExportExtraOptions;
     content?: ExportContentPolicy;
-    autoOpenTaskList?: boolean;
     completeAvatar?: boolean;
     profile?: ExportProfile;
     incrementalSupport?: boolean;
@@ -1184,7 +1183,6 @@ export class ExportTaskManager extends EventEmitter {
     const archiveSettings = {
       scanId: randomUUID(),
       scanStartedAt: Date.now(),
-      autoOpenTaskList: opts.autoOpenTaskList,
       extra: opts.extra ? structuredClone(opts.extra) : undefined,
       profile: 'full',
       incrementalSupport: !opts.chatlab && structuredFormats.length > 0,
@@ -5673,12 +5671,22 @@ export class ExportTaskManager extends EventEmitter {
     return true;
   }
 
+  private canRetrySkippedStage(task: ExportTask, stage: TaskStage): boolean {
+    if (stage.status !== 'skipped') return false;
+    if (task.skippedStages?.includes(stage.key)) return Boolean(task.skippedStageOptions);
+    if (stage.key === 'record') return task.media?.mediaKinds?.voice !== false;
+    if (stage.key === 'ocrfilter') return Boolean(task.media?.ocrPrefilter);
+    return true;
+  }
+
   private canResume(task: ExportTask): boolean {
     if (this.finalizing.has(task.id) || this.outputSaves.has(task.id)) return false;
     if (task.contacts || task.generated || task.qzone || task.collection)
       return ['paused', 'failed'].includes(task.status) && !this.abortControllers.has(task.id);
     return (
-      ['paused', 'failed'].includes(task.status) &&
+      (['paused', 'failed'].includes(task.status) ||
+        (task.status === 'completed' &&
+          task.stages.some((stage) => this.canRetrySkippedStage(task, stage)))) &&
       (task.kind === 'group' || task.kind === 'c2c') &&
       !task.guild &&
       !task.qzone &&
@@ -5818,12 +5826,16 @@ export class ExportTaskManager extends EventEmitter {
         !this.canResume(task))
     )
       return false;
+    const retrySkipped =
+      task.status === 'completed' &&
+      task.stages.some((stage) => this.canRetrySkippedStage(task, stage));
     const resumeFormal =
       !incremental &&
       !task.contacts &&
       !task.generated &&
       !task.qzone &&
       !task.collection &&
+      !(task.archiveTargets && !task.archivePublished) &&
       task.archiveId &&
       task.incrementalSupport &&
       Boolean(task.filePath && existsSync(task.filePath) && lstatSync(task.filePath).size > 0);
@@ -5882,6 +5894,28 @@ export class ExportTaskManager extends EventEmitter {
       task.formatCounts = {};
       task.formatCheckpoints = {};
       if (task.save) task.save.status = 'pending';
+    }
+    if (retrySkipped) {
+      if (task.skippedStageOptions) {
+        const options = structuredClone(task.skippedStageOptions);
+        // JSON 不保存 undefined；显式恢复原本未设置的选项。
+        task.media = options.media;
+        task.dress = options.dress;
+        task.exportAvatar = options.exportAvatar;
+        task.skippedStageOptions = undefined;
+        task.skippedStages = [];
+      }
+      for (const stage of task.stages) {
+        if (!this.canRetrySkippedStage(task, stage)) continue;
+        stage.status = 'pending';
+        stage.current = 0;
+        stage.failed = 0;
+        delete stage.note;
+        delete stage.failures;
+      }
+      // 即使没有来源指纹也重新收集发言者、表情和媒体引用。
+      task.formatCheckpoints = {};
+      this.log(id, 'task', '继续补传已跳过的项目，保留已有文件和消息进度');
     }
     if (incremental) task.formatCheckpoints = {};
     if (incremental) {
@@ -5967,6 +6001,11 @@ export class ExportTaskManager extends EventEmitter {
     while (this.abortControllers.has(id) || this.finalizing.has(id))
       await new Promise<void>((resolve) => setTimeout(resolve, 20));
     if (task.status !== 'paused' && task.status !== 'failed') return false;
+    task.skippedStageOptions ??= structuredClone({
+      media: task.media,
+      dress: task.dress,
+      exportAvatar: task.exportAvatar,
+    });
     task.skippedStages = [...new Set([...(task.skippedStages ?? []), key])];
     task.media ??= {
       exportMedia: false,

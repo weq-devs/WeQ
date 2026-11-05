@@ -8,19 +8,7 @@ export interface WorkspaceTaskIndicator {
   activity: AssistantActivity;
   result: string;
   failed: boolean;
-  /** 记录与提醒照常保留，但后台步骤不抢占当前界面。 */
-  autoOpenTaskList?: boolean;
 }
-
-const QUICK_SAVE_RESOURCE_KINDS = new Set<NonNullable<ExportTask['resource']>['kind']>([
-  'media',
-  'market-image',
-  'decoration',
-  'group-albums',
-  'qzone-albums',
-  'group-files',
-  'mail-attachment',
-]);
 
 export function workspaceIndicator(running: number, finished: number) {
   return running > 0 ? 'running' : finished > 0 ? 'finished' : null;
@@ -35,8 +23,7 @@ export function summarizeWorkspaceTasks({
   flash = [],
   background = [],
 }: {
-  exports?: (Pick<ExportTask, 'id' | 'status' | 'save'> &
-    Partial<Pick<ExportTask, 'updatedAt' | 'resource' | 'autoOpenTaskList'>>)[];
+  exports?: (Pick<ExportTask, 'id' | 'status' | 'save'> & Partial<Pick<ExportTask, 'updatedAt'>>)[];
   clones?: Pick<CloneTask, 'personaId' | 'status'>[];
   roaming?: { id: string; status: RoamingJobStatus; updatedAt?: number }[];
   scanning?: boolean;
@@ -61,9 +48,6 @@ export function summarizeWorkspaceTasks({
       activity: running ? 'running' : finished ? 'finished' : 'idle',
       result: `${task.status}:${task.save?.status ?? ''}:${task.updatedAt ?? ''}`,
       failed,
-      autoOpenTaskList:
-        task.autoOpenTaskList !== false &&
-        !(task.resource?.output && QUICK_SAVE_RESOURCE_KINDS.has(task.resource.kind)),
     });
   }
   for (const task of clones) {
@@ -84,17 +68,10 @@ export function summarizeWorkspaceTasks({
           : 'idle',
       result: `${task.status}:${task.updatedAt ?? ''}`,
       failed: task.status === 'failed',
-      autoOpenTaskList: false,
     });
   }
   if (scanning)
-    items.push({
-      id: 'roaming:scanning',
-      activity: 'running',
-      result: '',
-      failed: false,
-      autoOpenTaskList: false,
-    });
+    items.push({ id: 'roaming:scanning', activity: 'running', result: '', failed: false });
   for (const task of flash) {
     items.push({
       id: `flash:${task.id}`,
@@ -112,7 +89,6 @@ export function summarizeWorkspaceTasks({
         task.status === 'running' ? 'running' : task.status === 'paused' ? 'idle' : 'finished',
       result: `${task.status}:${task.updatedAt}`,
       failed: task.status === 'failed',
-      autoOpenTaskList: false,
     });
   }
   return {

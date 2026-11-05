@@ -19,6 +19,7 @@ import { sequenceCoverage } from '../src/account/export/sequence_coverage';
 import type { MessageFilter } from '../src/account/message_filter';
 import { iterateGroupMessages } from '../src/account/export/message_source';
 import { ExportScheduler } from '../src/account/export/scheduler';
+import { normalizeExportContent } from '../src/common/export_content';
 
 const dirs: string[] = [];
 it('sequence-gap reports keep exact bounded candidates, not a proof of lost messages', () => {
@@ -773,6 +774,119 @@ it('暂停后可单独跳过头像，继续正文且在报告保留用户跳过�
   expect(task.stages.find((s) => s.key === 'avatar')?.status).toBe('skipped');
   expect(get).not.toHaveBeenCalled();
   expect(JSON.parse(readFileSync(task.reportPath!, 'utf8')).skippedStages).toEqual(['avatar']);
+});
+
+it.each([
+  ['txt', false],
+  ['json', false],
+  ['jsonl', false],
+  ['jsonl', true],
+] as const)(
+  '跳过的选项在重启后保留，%s 完成任务可补传且不重复正文（增量：%s）',
+  async (format, incremental) => {
+    const avatar = Buffer.from('synthetic avatar fixture');
+    const get = vi.fn(async () => ({ data: avatar, contentType: 'image/png' }));
+    const deps = { avatarCache: { get } as unknown as NonNullable<MediaDeps['avatarCache']> };
+    const f = fixture(3, deps);
+    // 无来源指纹的旧接口也必须在补传时重建格式，重新收集发言者。
+    if (!incremental) Object.assign(f.msgs, { exportSourceStamp: undefined });
+    let paused = false;
+    f.manager.on('progress', () => {
+      const task = f.manager.listTasks()[0];
+      if (!paused && (task?.stages.find((s) => s.key === 'message')?.current ?? 0) > 0) {
+        paused = true;
+        f.manager.pauseTask(task!.id);
+      }
+    });
+    const id = await f.manager.startTask({
+      kind: 'group',
+      conv: '777',
+      name: '补传头像',
+      format,
+      total: 3,
+      exportAvatar: true,
+      incrementalSupport: format !== 'txt',
+      content:
+        format === 'txt'
+          ? undefined
+          : normalizeExportContent({ avatar: 'cloud', profiles: 'none' }),
+    });
+    await wait(() => f.manager.listTasks()[0]?.canResume === true);
+    expect(await f.manager.skipTaskStage(id, 'avatar')).toBe(true);
+    expect(f.manager.resumeTask(id)).toBe(true);
+    await wait(() => {
+      const task = f.manager.getTask(id);
+      return task?.status === 'completed' && task.save?.status === 'saved';
+    });
+    expect(get).not.toHaveBeenCalled();
+    const originalPath = f.manager.getTask(id)!.filePath;
+    const reloaded = new ExportTaskManager(f.msgs, join(f.root, 'exports'), deps);
+    expect(reloaded.listTasks()[0]?.canResume).toBe(true);
+    expect(reloaded.getTask(id)?.skippedStageOptions?.exportAvatar).toBe(true);
+    let pausedRetry = false;
+    if (incremental)
+      reloaded.on('progress', () => {
+        const task = reloaded.getTask(id)!;
+        if (!pausedRetry && (task.stages.find((s) => s.key === 'message')?.current ?? 0) > 0) {
+          pausedRetry = true;
+          reloaded.pauseTask(id);
+        }
+      });
+    expect(reloaded.resumeTask(id, incremental)).toBe(true);
+    if (incremental) {
+      await wait(
+        () =>
+          reloaded.getTask(id)?.status === 'paused' && reloaded.listTasks()[0]?.canResume === true,
+      );
+      expect(reloaded.resumeTask(id)).toBe(true);
+    }
+    await wait(() => ['completed', 'failed'].includes(reloaded.getTask(id)!.status));
+    const task = reloaded.getTask(id)!;
+    expect(task.error).toBeUndefined();
+    expect(task.status).toBe('completed');
+    expect(task.filePath).toBe(originalPath);
+    expect(get, JSON.stringify(reloaded.listTasks()[0])).toHaveBeenCalled();
+    expect(task.skippedStages).toEqual([]);
+    expect(task.stages.find((s) => s.key === 'avatar')?.status).toBe('completed');
+    expect(task.current).toBe(3);
+    expect(reloaded.listTasks()[0]?.canResume).toBe(false);
+    if (format !== 'txt') {
+      const { archive } = await readArchiveFile(task.filePath!, format);
+      expect(archive.records.filter((record) => record.kind === 'message')).toHaveLength(3);
+      const saved = archive.resources.find(
+        (resource) => resource.status === 'saved' && resource.name === '123',
+      );
+      expect(saved).toBeDefined();
+      expect(readFileSync(join(task.bundleDir!, String(saved!.path)))).toEqual(avatar);
+    } else expect(readFileSync(join(task.bundleDir!, 'avatars', '123.png'))).toEqual(avatar);
+  },
+);
+
+it('能力不可用而跳过的阶段也能在重启后补传', async () => {
+  const f = fixture(2);
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '头像服务恢复',
+    format: 'txt',
+    total: 2,
+    exportAvatar: true,
+  });
+  await wait(() => {
+    const task = f.manager.getTask(id);
+    return task?.status === 'completed' && task.save?.status === 'saved';
+  });
+  expect(f.manager.getTask(id)?.stages.find((s) => s.key === 'avatar')?.status).toBe('skipped');
+  const get = vi.fn(async () => null);
+  const reloaded = new ExportTaskManager(f.msgs, join(f.root, 'exports'), {
+    avatarCache: { get } as unknown as NonNullable<MediaDeps['avatarCache']>,
+  });
+  expect(reloaded.listTasks()[0]?.canResume).toBe(true);
+  expect(reloaded.resumeTask(id)).toBe(true);
+  await wait(() => ['completed', 'failed'].includes(reloaded.getTask(id)!.status));
+  expect(reloaded.getTask(id)?.error).toBeUndefined();
+  expect(get).toHaveBeenCalled();
+  expect(reloaded.getTask(id)?.stages.find((s) => s.key === 'avatar')?.status).toBe('completed');
 });
 
 it('report separates actual message counts from format copies and full-history claims', async () => {

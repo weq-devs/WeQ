@@ -28,7 +28,7 @@ function fixture(status: 'completed' | 'running' = 'completed'): UiTask {
   };
 }
 
-function mount(task: UiTask) {
+function mount(task: UiTask, onResume = vi.fn()) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -39,6 +39,7 @@ function mount(task: UiTask) {
           tasks: [value],
           detailOnly: true,
           onPause: vi.fn(),
+          onResume,
           onCancel: vi.fn(),
           onDownload: vi.fn(),
           onDelete: vi.fn(),
@@ -100,4 +101,18 @@ it('已跳过的阶段可查看保留的日志，无日志的已完成任务也�
   render({ ...fixture(), logs: [] });
   expectToggle(host.querySelector('.weq-exp-detail-stage')!, '暂无日志');
   expectToggle(host.querySelector('.weq-exp-detail-tasklog')!, '暂无日志');
+});
+
+it('已完成任务保留补传入口，与暂停任务的继续操作区分', () => {
+  const task = { ...fixture(), canResume: true };
+  task.stages![0]!.status = 'skipped';
+  const onResume = vi.fn();
+  const { host, render } = mount(task, onResume);
+  const button = host.querySelector<HTMLButtonElement>('button[aria-label="补传已跳过项目"]');
+  expect(button?.title).toBe('补传已跳过项目');
+  act(() => button!.click());
+  expect(onResume).toHaveBeenCalledWith(task);
+  render({ ...task, status: 'paused' });
+  expect(host.querySelector('button[aria-label="继续导出"]')).not.toBeNull();
+  expect(host.querySelector('button[aria-label="补传已跳过项目"]')).toBeNull();
 });

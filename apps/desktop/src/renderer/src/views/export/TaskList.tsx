@@ -559,8 +559,20 @@ function TaskDetail({
           {t.canResume && onResume ? (
             <button
               type="button"
-              title={t.resumeMode === 'restart' ? '按原范围重新执行' : '继续导出'}
-              aria-label={t.resumeMode === 'restart' ? '重新执行导出' : '继续导出'}
+              title={
+                t.status === 'completed'
+                  ? '补传已跳过项目'
+                  : t.resumeMode === 'restart'
+                    ? '按原范围重新执行'
+                    : '继续导出'
+              }
+              aria-label={
+                t.status === 'completed'
+                  ? '补传已跳过项目'
+                  : t.resumeMode === 'restart'
+                    ? '重新执行导出'
+                    : '继续导出'
+              }
               onClick={() => onResume(t)}
             >
               {t.resumeMode === 'restart' ? <RotateCw size={15} /> : <Play size={15} />}
