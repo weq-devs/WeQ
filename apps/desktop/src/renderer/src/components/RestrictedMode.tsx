@@ -13,6 +13,8 @@ import { QqDataAccessNotice } from '../views/bootstrap/QqDataAccessNotice';
 import { useRestrictedMode, type AuthorizationRequest } from '../state/restrictedMode';
 import { useViewState } from '../state/view';
 import { useToast } from './Toast';
+import { useOverlayLayer } from '../lib/overlayStack';
+import { topSurface } from '../lib/surfaceEscape';
 import '../styles/restricted-mode.css';
 
 const NOTICE_KEY = 'restricted-mode';
@@ -377,6 +379,7 @@ export function RestrictedModeHost() {
     ...(requests.length ? ['authorization'] : []),
     ...(entering ? ['entering'] : []),
   ].join(',');
+  const layer = useOverlayLayer(open && Boolean(signature));
   useEffect(() => {
     if (reasonSource !== sourceKey) return;
     const activeNotice = entering || awaitingAuthorization;
@@ -445,10 +448,20 @@ export function RestrictedModeHost() {
     const before = document.activeElement;
     panel.current?.querySelector<HTMLButtonElement>('button')?.focus();
     const close = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') useRestrictedMode.getState().setOpen(false);
+      if (
+        event.key === 'Escape' &&
+        !event.defaultPrevented &&
+        topSurface(document) === panel.current
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        useRestrictedMode.getState().setOpen(false);
+      }
     };
     const outside = (event: PointerEvent) => {
       if (
+        !event.defaultPrevented &&
+        topSurface(document) === panel.current &&
         event.target instanceof Element &&
         !panel.current?.contains(event.target) &&
         !event.target.closest('.weq-restricted-indicator, .weq-toast')
@@ -589,6 +602,7 @@ export function RestrictedModeHost() {
           aria-modal="false"
           aria-labelledby={titleId}
           className={`weq-restricted-panel${entering ? ' is-entering' : ''}`}
+          style={{ zIndex: layer }}
         >
           <header>
             <h2 id={titleId}>

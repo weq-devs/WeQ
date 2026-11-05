@@ -43,7 +43,6 @@
   position: fixed;
   top: 46px;
   right: 12px;
-  z-index: 2400;
   width: min(390px, calc(100vw - 24px));
   max-height: calc(100dvh - 58px);
   display: flex;

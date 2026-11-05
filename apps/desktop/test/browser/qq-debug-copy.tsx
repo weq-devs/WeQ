@@ -44,6 +44,7 @@ createRoot(document.getElementById('root')!).render(
     <>
       <RestrictedModeIndicator />
       <RestrictedModeHost />
+      <DialogHost />
     </>
   ) : (
     <main

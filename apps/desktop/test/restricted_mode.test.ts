@@ -14,6 +14,7 @@ import {
 } from '../src/renderer/src/components/RestrictedMode';
 import { useViewState } from '../src/renderer/src/state/view';
 import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
+import { DialogHost, useDialog } from '../src/renderer/src/components/Dialog';
 import type { QqDataAccess } from '../src/main/qq_data_access';
 import type { QqDebugCopyStatus } from '../src/shared/qq_debug_copy';
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_MAC: true, IS_WEB: false }));
@@ -231,7 +232,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-function fixture(showToasts = false) {
+function fixture(showToasts = false, showDialogs = false) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -245,6 +246,7 @@ function fixture(showToasts = false) {
           h(RestrictedModeIndicator),
           h(RestrictedModeHost, { key: revision }),
           showToasts ? h(ToastHost) : null,
+          showDialogs ? h(DialogHost) : null,
         ),
       ),
     );
@@ -265,6 +267,48 @@ function fixture(showToasts = false) {
 function event(channel: string, payload: unknown) {
   act(() => mock.listeners.get(channel)?.({}, payload));
 }
+
+it.each(['取消', 'Escape', '移除副本'])(
+  '受限详情上的移除确认框处理 %s，不关闭底层详情',
+  async (action) => {
+    mock.access = { ...ready, attachEnabled: false };
+    const f = fixture(false, true);
+    act(() => useRestrictedMode.getState().setOpen(true));
+    const panel = f.host.querySelector<HTMLElement>('.weq-restricted-panel')!;
+    let result: Promise<boolean> | undefined;
+    act(() => {
+      result = useDialog
+        .getState()
+        .confirm('移除 QQ 调试副本', '合成确认', { okLabel: '移除副本' });
+    });
+    const dialog = document.querySelector<HTMLElement>('.weq-message-modal')!;
+    expect(Number(dialog.closest<HTMLElement>('.weq-dialog-layer')!.style.zIndex)).toBeGreaterThan(
+      Number(panel.style.zIndex),
+    );
+    await act(async () => {
+      if (action === 'Escape')
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+        );
+      else {
+        const button = [...dialog.querySelectorAll('button')].find(
+          (item) => item.textContent === action,
+        )!;
+        button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+        button.click();
+      }
+    });
+    expect(await result).toBe(action === '移除副本');
+    expect(useRestrictedMode.getState().open).toBe(true);
+    expect(f.host.contains(panel)).toBe(true);
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    });
+    expect(useRestrictedMode.getState().open).toBe(false);
+  },
+);
 
 it('手动启用提交完整来源，不修改自动偏好；普通重新检查不升级为手动请求', async () => {
   const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-live' };
