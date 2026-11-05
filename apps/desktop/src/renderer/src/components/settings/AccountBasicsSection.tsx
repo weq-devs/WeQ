@@ -700,7 +700,7 @@ export function AccountBasicsSection({
                 同步已读状态到 QQ
               </span>
             }
-            desc="向 QQ 上报在 WeQ 阅读和手动标记的位置，可能清除其他端的未读提醒。默认关闭，仅在线完整模式生效；标为未读只在本地生效，不能恢复其他端已清除的提醒。"
+            desc="向 QQ 上报在 WeQ 阅读和手动标记的位置，可能清除其他端的未读提醒。默认开启，仅在线完整模式生效；标为未读只在本地生效，不能恢复其他端已清除的提醒。"
             control={
               <Toggle
                 checked={reportRead || manualReadReport}

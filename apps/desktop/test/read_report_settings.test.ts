@@ -121,7 +121,7 @@ describe('设置中的已读上报开关', () => {
       f.close();
     }
   });
-  it('默认关闭，实际点击保存，重新打开恢复偏好', async () => {
+  it('保留已保存的关闭状态，实际点击保存，重新打开恢复偏好', async () => {
     let f = mount();
     try {
       expect(f.toggle().getAttribute('aria-checked')).toBe('false');
