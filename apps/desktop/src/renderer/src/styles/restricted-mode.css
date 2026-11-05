@@ -121,6 +121,9 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+.weq-restricted-body > .weq-qq-debug + .weq-restricted-actions {
+  margin-top: 12px;
+}
 html[data-theme='dark'] .weq-restricted-panel {
   background: var(--weq-bg-elevated);
   border-color: var(--weq-border-strong);

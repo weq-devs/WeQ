@@ -196,6 +196,12 @@ try {
         await page.locator('.weq-restricted-body').evaluate((node) => {
           node.scrollTop = node.scrollHeight;
         });
+        const actionGap = await page.locator('.weq-restricted-body').evaluate((node) => {
+          const copy = node.querySelector('.weq-qq-debug-actions');
+          const footer = node.querySelector(':scope > .weq-restricted-actions');
+          return footer.getBoundingClientRect().top - copy.getBoundingClientRect().bottom;
+        });
+        if (actionGap < 8) throw new Error(`副本操作与重新检查间距不足：${actionGap}px`);
         if (output)
           await page.screenshot({
             path: resolve(output, `recheck-${width}-${theme}-${state}.png`),
