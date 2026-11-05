@@ -431,9 +431,9 @@ it('真实导出配置窗口选择基线后将文件夹带入本次确认', asyn
     expect(host.textContent).toContain('约 9 条');
     click(host, '使用所选基线');
     await flush();
-    expect(host.querySelector<HTMLInputElement>('[aria-label="增量基线文件夹"]')?.value).toBe(
-      '/synthetic/baseline',
-    );
+    expect(
+      host.querySelector<HTMLInputElement>('[aria-label="继续更新的归档文件或文件夹"]')?.value,
+    ).toBe('/synthetic/baseline');
     click(host, '开始导出');
     await flush();
     expect(confirm).toHaveBeenCalledWith(
@@ -467,9 +467,9 @@ it('查看器带入的增量基线保留到真实导出配置确认，不重新�
       ),
     );
     await flush();
-    expect(host.querySelector<HTMLInputElement>('[aria-label="增量基线文件夹"]')?.value).toBe(
-      '/synthetic/baseline/.weq-export',
-    );
+    expect(
+      host.querySelector<HTMLInputElement>('[aria-label="继续更新的归档文件或文件夹"]')?.value,
+    ).toBe('/synthetic/baseline/.weq-export');
     click(host, '开始导出');
     await flush();
     expect(confirm).toHaveBeenCalledWith(
