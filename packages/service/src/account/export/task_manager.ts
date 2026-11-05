@@ -34,7 +34,7 @@ import type { GapFetchedMessage, GapHistoryService } from '../gap_history';
 import type { AvatarCacheService } from '../../bootstrap/media_cache';
 import type { MediaDownloadService } from '../media_download';
 import { exportGroupToJson } from './json_exporter';
-import { exportGroupToTxt } from './txt_exporter';
+import { exportGroupToTxt, exportConversationToTxt } from './txt_exporter';
 import { exportGroupToJsonl } from './jsonl_exporter';
 import { exportJsonConversation } from './json_meta_exporter';
 import { exportArchiveConversation } from './archive_message';
@@ -3203,6 +3203,7 @@ export class ExportTaskManager extends EventEmitter {
                 readFileSync(join(outDir, TRANSCRIPTS_FILE), 'utf-8'),
               ) as Record<string, string>;
               const w = rewriteVoiceTranscripts(this.exportFilePaths(task, outDir), transcripts, {
+                plainText: true,
                 chatlabJson: task.chatlab === true,
                 onLog: (text, level) => this.log(id, 'transcribe', text, level ?? 'info'),
               });
@@ -3364,6 +3365,7 @@ export class ExportTaskManager extends EventEmitter {
                 images?: Record<string, { text?: string }>;
               };
               const w = rewriteOcrTexts(this.exportFilePaths(task, outDir), parsed.images ?? {}, {
+                plainText: true,
                 chatlabJson: task.chatlab === true,
                 onLog: (text, level) => this.log(id, 'ocr', text, level ?? 'info'),
               });
@@ -5472,6 +5474,24 @@ export class ExportTaskManager extends EventEmitter {
           },
           this.senderDeps(task) ?? {},
         ),
+      );
+    }
+    if (format === 'txt') {
+      return exportConversationToTxt(
+        this.msgsFor(task),
+        {
+          kind: task.kind,
+          conv: task.conv,
+          outputPath,
+          range: task.range,
+          roam,
+          progressEvery,
+          onProgress: tick,
+          collectSenders: senders,
+          collectFaces: faces,
+          withMediaPaths,
+        },
+        this.senderDeps(task),
       );
     }
     // HTML resolves names / roles / self-alignment itself (like ChatLab) and

@@ -148,14 +148,14 @@ describe('formatTime / messageToText', () => {
     expect(formatTime(Math.floor(d.getTime() / 1000))).toBe('2026-01-02 03:04:05');
   });
 
-  it('messageToText → [time] uin: content', () => {
-    const d = new Date(2026, 5, 1, 12, 0, 0);
+  it('messageToText 与复制共用北京时间分段格式', () => {
+    const d = new Date('2026-06-01T04:00:00Z');
     const m = {
       sendTime: Math.floor(d.getTime() / 1000),
       senderUin: '10001',
       elements: [{ type: 'text', data: { textContent: 'hi' } } as RenderElement],
     } as unknown as ExportedMessage;
-    expect(messageToText(m)).toBe('[2026-06-01 12:00:00] 10001: hi');
+    expect(messageToText(m)).toBe('10001 · 2026-06-01 12:00:00\nhi');
   });
 
   it('TABLE_HEADERS 形状（tabular 导出依赖列序）', () => {

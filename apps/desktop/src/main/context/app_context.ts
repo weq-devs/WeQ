@@ -1830,11 +1830,15 @@ export function initAppContext(fileRoot?: string): AppContext {
             chatlab: {
               resolveGroupMembers: async (groupCode, uids) => {
                 const members = await groupInfo.getMembersByUids(BigInt(groupCode), uids);
+                const profiles = new Map(
+                  (await profile.profilesByUids(uids).catch(() => [])).map((p) => [p.uid, p]),
+                );
                 return members.map((m) => ({
                   uid: m.uid,
                   uin: m.uin.toString(),
                   card: m.card,
                   nick: m.nick,
+                  remark: profiles.get(m.uid)?.remark,
                   adminFlag: m.adminFlag,
                 }));
               },
@@ -1844,7 +1848,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               },
               resolveProfile: async (uid) => {
                 const p = await profile.getProfile(uid);
-                return p ? { uin: p.uin.toString(), nick: p.nick } : null;
+                return p ? { uin: p.uin.toString(), nick: p.nick, remark: p.remark } : null;
               },
               self: async () => {
                 const p = await profile.getSelfProfile();
@@ -2642,11 +2646,15 @@ export function initAppContext(fileRoot?: string): AppContext {
             chatlab: {
               resolveGroupMembers: async (groupCode, uids) => {
                 const members = await groupInfo.getMembersByUids(BigInt(groupCode), uids);
+                const profiles = new Map(
+                  (await profile.profilesByUids(uids).catch(() => [])).map((p) => [p.uid, p]),
+                );
                 return members.map((m) => ({
                   uid: m.uid,
                   uin: m.uin.toString(),
                   card: m.card,
                   nick: m.nick,
+                  remark: profiles.get(m.uid)?.remark,
                   adminFlag: m.adminFlag,
                 }));
               },
@@ -2656,7 +2664,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               },
               resolveProfile: async (uid) => {
                 const p = await profile.getProfile(uid);
-                return p ? { uin: p.uin.toString(), nick: p.nick } : null;
+                return p ? { uin: p.uin.toString(), nick: p.nick, remark: p.remark } : null;
               },
               self: async () => {
                 const p = await profile.getSelfProfile();

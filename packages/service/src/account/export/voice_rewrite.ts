@@ -19,6 +19,7 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
+import { rewritePlainMedia } from './plain_media_rewrite';
 
 /** 回写统计，供任务日志展示。 */
 export interface VoiceRewriteStats {
@@ -34,6 +35,8 @@ type RewriteMode = 'text' | 'csv' | 'html' | 'json' | 'skip';
 
 /** 回写选项。 */
 export interface VoiceRewriteOptions {
+  /** 统一分段 TXT 格式；旧格式恢复任务可继续使用原替换逻辑。 */
+  plainText?: boolean;
   /** 日志回调（任务日志面板）。 */
   onLog?: (text: string, level?: 'info' | 'warn') => void;
   /**
@@ -157,9 +160,11 @@ export function rewriteVoiceTranscripts(
     let skipped = 0;
     for (const [fileName, text] of entries) {
       const out =
-        mode === 'html'
-          ? replaceHtmlAnchor(content, fileName, text)
-          : replaceLabelAnchor(content, fileName, text, mode);
+        mode === 'text' && opts.plainText
+          ? rewritePlainMedia(content, '语音', fileName, text)
+          : mode === 'html'
+            ? replaceHtmlAnchor(content, fileName, text)
+            : replaceLabelAnchor(content, fileName, text, mode);
       content = out.content;
       replaced += out.replaced;
       skipped += out.skipped;
