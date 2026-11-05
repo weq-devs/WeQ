@@ -155,6 +155,21 @@ try {
     )
       throw new Error(`启动页副本面板越界：${width}`);
     if (output) await page.screenshot({ path: resolve(output, `startup-${width}.png`) });
+    await page.evaluate(() => window.debugCopyQa.setFixture({ state: 'ready' }));
+    await dialog.getByRole('button', { name: '移除副本', exact: true }).click();
+    const confirmation = page.getByRole('dialog', { name: '移除 QQ 调试副本', exact: true });
+    await confirmation.waitFor();
+    await confirmation.getByRole('button', { name: '取消', exact: true }).click({ timeout: 5000 });
+    await confirmation.waitFor({ state: 'detached' });
+    await dialog.getByRole('button', { name: '移除副本', exact: true }).click();
+    await confirmation.waitFor();
+    await page.keyboard.press('Escape');
+    await confirmation.waitFor({ state: 'detached' });
+    await dialog.getByRole('button', { name: '移除副本', exact: true }).click();
+    await confirmation
+      .getByRole('button', { name: '移除副本', exact: true })
+      .click({ timeout: 5000 });
+    await dialog.getByRole('button', { name: '创建副本', exact: true }).waitFor();
     await page.getByRole('button', { name: '关闭调试副本', exact: true }).click();
   }
   await page.goto(
@@ -187,6 +202,42 @@ try {
           });
         restrictedCases++;
       }
+  for (const width of [1180, 390])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((theme) => {
+        window.debugCopyQa.store.getState().setPreference(theme);
+        window.debugCopyQa.setFixture({ state: 'ready' });
+      }, theme);
+      const restrictedPanel = page.locator('.weq-restricted-panel');
+      await restrictedPanel.getByRole('button', { name: '移除副本', exact: true }).click();
+      const removeConfirmation = page.getByRole('dialog', {
+        name: '移除 QQ 调试副本',
+        exact: true,
+      });
+      await removeConfirmation.waitFor();
+      if (output) await page.screenshot({ path: resolve(output, `remove-${width}-${theme}.png`) });
+      await removeConfirmation
+        .getByRole('button', { name: '取消', exact: true })
+        .click({ timeout: 5000 });
+      if (!(await restrictedPanel.isVisible())) throw new Error('取消移除不应关闭受限详情');
+      await restrictedPanel.getByRole('button', { name: '移除副本', exact: true }).click();
+      await removeConfirmation.waitFor();
+      await removeConfirmation.getByRole('button', { name: '取消', exact: true }).focus();
+      for (let index = 0; index < 6; index++) {
+        await page.keyboard.press('Tab');
+        if (!(await removeConfirmation.evaluate((node) => node.contains(document.activeElement))))
+          throw new Error('确认框的键盘焦点不能逃到受限详情');
+      }
+      await page.keyboard.press('Escape');
+      await removeConfirmation.waitFor({ state: 'detached' });
+      if (!(await restrictedPanel.isVisible())) throw new Error('Esc 应仅关闭确认框');
+      await restrictedPanel.getByRole('button', { name: '移除副本', exact: true }).click();
+      await removeConfirmation
+        .getByRole('button', { name: '移除副本', exact: true })
+        .click({ timeout: 5000 });
+      await restrictedPanel.getByRole('button', { name: '创建副本', exact: true }).waitFor();
+    }
   await page.evaluate(() => {
     window.weq = { authorization: {} };
     const store = window.debugCopyQa.restrictedStore.getState();
@@ -202,7 +253,7 @@ try {
     throw new Error('多项授权时公共操作入口重复');
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(
-    `通过 ${cases} 组视口/主题/主题色/背景布局、${restrictedCases} 组受限面板检查，以及创建、启动、运行中保护、减少动态效果和公共入口去重检查。`,
+    `通过 ${cases} 组视口/主题/主题色/背景布局、${restrictedCases} 组受限面板检查、4 组移除确认交互，以及创建、启动、运行中保护、减少动态效果和公共入口去重检查。`,
   );
 } finally {
   await browser?.close();
