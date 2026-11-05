@@ -218,6 +218,7 @@ export function ConversationList({
   const [listHeight, setListHeight] = useState(600);
   const [rowHeight, setRowHeight] = useState(62);
   const density = useThemeStore((state) => state.density);
+  const componentStyle = useThemeStore((state) => state.componentStyle);
   const menuRef = useRef<HTMLDivElement>(null);
   const filtered = useMemo(() => {
     // 置顶会话排最前；其余按「最后一条消息时间」和真实会话混排。
@@ -391,7 +392,7 @@ export function ConversationList({
     const observer = new ResizeObserver(measure);
     if (viewportRef.current) observer.observe(viewportRef.current);
     return () => observer.disconnect();
-  }, [density]);
+  }, [density, componentStyle]);
   useEffect(() => {
     if (keyword && hasMore && !loadingMore) onLoadMore?.();
   }, [keyword, hasMore, loadingMore, onLoadMore]);

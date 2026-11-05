@@ -104,6 +104,9 @@ describe('群助手', () => {
       );
       expect(toolbar.querySelector('input')).toBeNull();
       expect(host.querySelectorAll('.weq-merged-popover-row')).toHaveLength(2);
+      expect(host.querySelectorAll('.weq-conversation-list .conversation-row')).toHaveLength(2);
+      expect(host.querySelector('.weq-conversation-list .row-main strong')).not.toBeNull();
+      expect(host.querySelector('.weq-conversation-list .row-preview-line')).not.toBeNull();
       act(() => toolbar.querySelector<HTMLButtonElement>('[aria-label="多选群助手会话"]')!.click());
       expect(toolbar.querySelector('[aria-label="全选当前结果"]')).not.toBeNull();
     } finally {
@@ -159,8 +162,8 @@ describe('群助手', () => {
       const times = (selector: string) =>
         Array.from(host.querySelectorAll(selector), (node) => node.textContent);
       const expected = ['09:05', '昨天', '星期二', '2026/10/19', '2025/12/31'];
-      expect(times('.row-time-line')).toEqual(expected);
-      expect(times('.weq-merged-popover-item-time')).toEqual(expected);
+      expect(times('.weq-conversation-window .row-time-line')).toEqual(expected);
+      expect(times('.weq-conversation-list .row-time-line')).toEqual(expected);
     } finally {
       act(() => root.unmount());
       host.remove();

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { accentColors, normalizeHex } from '../../../shared/theme_colors';
 import '../styles/component-appearance.css';
+import '../styles/qqnt-appearance.css';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type ThemeResolved = 'light' | 'dark';
@@ -9,6 +10,7 @@ export const componentStyles = [
   { value: 'classic', label: '经典（默认）' },
   { value: 'minimal', label: '简约' },
   { value: 'retro', label: '复古' },
+  { value: 'qqnt', label: 'QQ NT' },
 ] as const;
 export type ThemeComponentStyle = (typeof componentStyles)[number]['value'];
 export type ThemeDensity = 'comfortable' | 'compact';

@@ -53,10 +53,10 @@ try {
   const output = process.env.WEQ_APPEARANCE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   const failures = [];
-  if (styles.map((style) => style.value).join(',') !== 'classic,minimal,retro')
-    failures.push('必须保留经典默认，以及简约、复古两套新风格');
+  if (styles.map((style) => style.value).join(',') !== 'classic,minimal,retro,qqnt')
+    failures.push('必须保留经典默认，以及简约、复古、QQ NT 三套预设');
   let cases = 0;
-  for (const width of [1280, 390]) {
+  for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 920 });
     for (const theme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
@@ -169,7 +169,15 @@ try {
                   avatarFits: avatar.top >= rowRect.top && avatar.bottom <= rowRect.bottom,
                   expectedHeight:
                     row.getBoundingClientRect().height ===
-                    (density === 'compact' ? (width <= 720 ? 64 : 54) : width <= 760 ? 76 : 62),
+                    (density === 'compact'
+                      ? width <= 720
+                        ? 64
+                        : 54
+                      : width <= 760
+                        ? 76
+                        : value === 'qqnt'
+                          ? 64
+                          : 62),
                   previewGeometry:
                     value === 'classic' ||
                     css('.weq-input').borderRadius ===
@@ -204,6 +212,13 @@ try {
                       css('.weq-input').boxShadow !== 'none' &&
                       css('.weq-directory-scope-menu').borderTopWidth === '2px' &&
                       css('.conversation-row.active').backgroundColor === primary.backgroundColor),
+                  qqntContract:
+                    value !== 'qqnt' ||
+                    (primary.borderRadius === '4px' &&
+                      css('.weq-input').borderRadius === '8px' &&
+                      css('.weq-directory-scope-menu').borderRadius === '8px' &&
+                      css('.conversation-row.active').boxShadow ===
+                        css(`${preview} .weq-style-preview-item.is-selected`).boxShadow),
                   noOverflow: document.documentElement.scrollWidth <= innerWidth,
                   previewVisible: [...document.querySelectorAll('.weq-style-preview')].every(
                     (node) =>
@@ -230,7 +245,8 @@ try {
     }
   }
   // 键盘、实际滚动、刷新恢复与系统模式同样走真实组件。
-  await page.getByRole('radio', { name: '复古', exact: true }).focus();
+  const lastStyle = styles.at(-1);
+  await page.getByRole('radio', { name: lastStyle.label, exact: true }).focus();
   await page.keyboard.press('ArrowRight');
   if (
     (await page
@@ -257,8 +273,9 @@ try {
   await page.reload();
   await page.waitForSelector('.conversation-row');
   if (
-    (await page.getByRole('radio', { name: '复古', exact: true }).getAttribute('aria-checked')) !==
-    'true'
+    (await page
+      .getByRole('radio', { name: lastStyle.label, exact: true })
+      .getAttribute('aria-checked')) !== 'true'
   )
     failures.push('刷新风格恢复');
   if (
@@ -271,7 +288,7 @@ try {
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
   await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
-  if (output) await page.screenshot({ path: resolve(output, 'mobile-retro.png'), fullPage: true });
+  if (output) await page.screenshot({ path: resolve(output, 'mobile-qqnt.png'), fullPage: true });
   console.log(JSON.stringify({ cases, failures, errors }, null, 2));
   if (failures.length || errors.length) throw new Error([...failures, ...errors].join('\n'));
 } finally {

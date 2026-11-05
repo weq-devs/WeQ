@@ -15,8 +15,13 @@ afterEach(() => {
 });
 
 describe('组件风格与独立密度', () => {
-  it('保留经典默认风格，并提供简约、复古两套新风格', () => {
-    expect(componentStyles.map((style) => style.value)).toEqual(['classic', 'minimal', 'retro']);
+  it('保留经典默认风格，并提供简约、复古与 QQ NT 预设', () => {
+    expect(componentStyles.map((style) => style.value)).toEqual([
+      'classic',
+      'minimal',
+      'retro',
+      'qqnt',
+    ]);
     expect(useThemeStore.getState().componentStyle).toBe('classic');
   });
   it('设置搜索可精确定位到风格与密度条目', () => {
@@ -27,7 +32,7 @@ describe('组件风格与独立密度', () => {
       'interface-density',
     );
   });
-  it.each(['classic', 'minimal', 'retro'] as const)(
+  it.each(componentStyles.map((style) => style.value))(
     '%s 应用到根节点并可从存储恢复，不改主题色或背景',
     (style) => {
       const store = useThemeStore.getState();

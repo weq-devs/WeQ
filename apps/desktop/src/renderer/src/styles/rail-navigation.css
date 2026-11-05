@@ -123,7 +123,7 @@ html[data-theme='dark']
 }
 
 html .app-shell .rail-nav :is(.rail-message-badge, .rail-badge-mail),
-html .app-shell .conversation-row .row-unread {
+html :is(.app-shell, .weq-conversation-list) .conversation-row .row-unread {
   box-sizing: border-box;
   display: inline-grid;
   place-items: center;
@@ -145,7 +145,7 @@ html .app-shell .conversation-row .row-unread {
   font-variant-numeric: tabular-nums;
 }
 
-html .app-shell .conversation-row .row-unread.muted {
+html :is(.app-shell, .weq-conversation-list) .conversation-row .row-unread.muted {
   background: var(--weq-unread-muted-background);
   color: var(--weq-fg-primary);
 }

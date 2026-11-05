@@ -1,0 +1,414 @@
+/* QQ NT 7.0.3-54395：尺寸取自 pcqqkit / 消息容器 CSS，表面层次经本机深浅界面对照。
+ * 仅覆写当前预设；行高由主题 token 驱动，保留独立密度与用户拖拽尺寸。 */
+:is(html[data-component-style='qqnt'], [data-component-preview='qqnt']) {
+  --weq-qqnt-canvas: #f5f5f5;
+  --weq-qqnt-chrome: #e8e8e8;
+  --weq-qqnt-input: #ededed;
+  --weq-qqnt-guest: #ffffff;
+  --weq-qqnt-selection: #e1e1e1;
+  --weq-qqnt-primary: #171717;
+  --weq-qqnt-secondary: #666666;
+  --weq-qqnt-muted: #737373;
+  --weq-qqnt-line: rgb(0 0 0 / 8%);
+  --weq-qqnt-outline: rgb(0 0 0 / 16%);
+  --weq-qqnt-popup-shadow: 0 4px 12px rgb(0 0 0 / 10%);
+  --weq-qqnt-unread: #f74c30;
+  --weq-qqnt-unread-muted: #dddddd;
+  --weq-qqnt-unread-muted-ink: #4a4a4a;
+  --weq-qqnt-unread-ink: #ffffff;
+  --weq-qqnt-preview: #737373;
+  --weq-qqnt-time: #8c8c8c;
+  --weq-skin-radius: 4px;
+  --weq-skin-input-radius: 8px;
+  --weq-skin-popup-radius: 8px;
+  --weq-skin-border-width: 1px;
+  --weq-skin-input-border-width: 1px;
+  --weq-skin-primary-border-width: 1px;
+  --weq-skin-border: var(--weq-qqnt-outline);
+  --weq-skin-surface: var(--weq-qqnt-input);
+  --weq-skin-shadow: none;
+  --weq-skin-input-shadow: none;
+  --weq-skin-popup-shadow: var(--weq-qqnt-popup-shadow);
+  --weq-skin-popup-surface: var(--weq-bg-surface);
+  --weq-skin-selection: var(--weq-qqnt-selection);
+  --weq-skin-selection-fg: var(--weq-qqnt-primary);
+  --weq-skin-selection-shadow: inset 0 0 0 2px var(--weq-qqnt-canvas);
+  --weq-skin-toggle-radius: 999px;
+  --weq-skin-primary-bg: var(--weq-accent-solid);
+  --weq-skin-primary-fg: var(--weq-accent-solid-foreground);
+  --weq-skin-primary-border: var(--weq-accent-solid);
+}
+
+html[data-theme='dark'][data-component-style='qqnt'],
+html[data-theme='dark'] [data-component-preview='qqnt'] {
+  --weq-qqnt-canvas: #222222;
+  --weq-qqnt-chrome: #191919;
+  --weq-qqnt-input: #303030;
+  --weq-qqnt-guest: #333333;
+  --weq-qqnt-selection: #3d3d3d;
+  --weq-qqnt-primary: #eeeeee;
+  --weq-qqnt-secondary: #b3b3b3;
+  --weq-qqnt-muted: #a3a3a3;
+  --weq-qqnt-line: rgb(255 255 255 / 8%);
+  --weq-qqnt-outline: rgb(255 255 255 / 16%);
+  --weq-qqnt-popup-shadow: 0 4px 12px rgb(0 0 0 / 30%);
+  --weq-qqnt-unread-muted: #4c4c4c;
+  --weq-qqnt-unread-muted-ink: #eeeeee;
+  --weq-qqnt-preview: #808080;
+  --weq-qqnt-time: #7a7a7a;
+}
+
+html[data-component-style='qqnt'][data-theme] {
+  --weq-conversation-row-height: 64px;
+  --weq-qqnt-row-avatar: 40px;
+  --weq-qqnt-row-padding: 12px;
+  --weq-qqnt-row-content-height: 40px;
+  --weq-qqnt-row-title-line: 20px;
+  --weq-qqnt-row-preview-line: 16px;
+  --background: var(--weq-qqnt-canvas);
+  --foreground: var(--weq-qqnt-primary);
+  --card: var(--weq-qqnt-guest);
+  --card-foreground: var(--weq-qqnt-primary);
+  --popover: var(--weq-qqnt-guest);
+  --popover-foreground: var(--weq-qqnt-primary);
+  --muted: var(--weq-qqnt-input);
+  --muted-foreground: var(--weq-qqnt-secondary);
+  --border: var(--weq-qqnt-line);
+  --weq-bg-app: var(--weq-qqnt-chrome);
+  --weq-bg-surface: var(--weq-qqnt-guest);
+  --weq-bg-elevated: var(--weq-qqnt-input);
+  --weq-fg-primary: var(--weq-qqnt-primary);
+  --weq-fg-secondary: var(--weq-qqnt-secondary);
+  --weq-fg-muted: var(--weq-qqnt-muted);
+  --weq-border-subtle: var(--weq-qqnt-line);
+  --weq-border-strong: var(--weq-qqnt-outline);
+  --weq-list-selected-background: var(--weq-qqnt-selection);
+  --weq-bar-surface: transparent;
+  --weq-bar-border: var(--weq-qqnt-line);
+  --weq-chat-bubble-other: var(--weq-qqnt-guest);
+  --weq-chat-bubble-mine: color-mix(
+    in srgb,
+    var(--weq-accent-effective) 18%,
+    var(--weq-qqnt-guest)
+  );
+  --weq-chat-mine-ink: var(--weq-qqnt-primary);
+  --weq-chat-bubble-active: var(--weq-qqnt-selection);
+  --weq-shadow-card: var(--weq-qqnt-popup-shadow);
+  font-family: var(--im-font-body, system-ui, -apple-system, 'Segoe UI', sans-serif);
+}
+
+html[data-component-style='qqnt'][data-theme][data-density='compact'] {
+  --weq-conversation-row-height: 54px;
+  --weq-qqnt-row-avatar: 36px;
+  --weq-qqnt-row-padding: 7px 12px;
+  --weq-qqnt-row-content-height: 36px;
+  --weq-qqnt-row-title-line: 18px;
+  --weq-qqnt-row-preview-line: 14px;
+}
+
+html[data-component-style='qqnt'][data-theme][data-density]
+  body
+  :is(.app-shell, .weq-conversation-list)
+  .conversation-row {
+  grid-template-columns: var(--weq-qqnt-row-avatar) minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: var(--weq-qqnt-row-padding);
+}
+
+html[data-component-style='qqnt'][data-theme][data-density]
+  body
+  :is(.app-shell, .weq-conversation-list)
+  .conversation-row
+  .avatar {
+  width: var(--weq-qqnt-row-avatar);
+  height: var(--weq-qqnt-row-avatar);
+  min-width: var(--weq-qqnt-row-avatar);
+}
+
+html[data-component-style='qqnt'][data-theme][data-density]
+  body
+  :is(.app-shell, .weq-conversation-list)
+  .conversation-row
+  .row-main {
+  gap: 4px;
+}
+
+html[data-component-style='qqnt'][data-theme][data-density]
+  body
+  :is(.app-shell, .weq-conversation-list)
+  .conversation-row
+  .row-main
+  strong {
+  line-height: var(--weq-qqnt-row-title-line);
+  font-weight: 400;
+}
+
+html[data-component-style='qqnt'][data-theme][data-density]
+  body
+  :is(.app-shell, .weq-conversation-list)
+  .conversation-row
+  .row-preview-line {
+  font-size: 12px;
+  line-height: var(--weq-qqnt-row-preview-line);
+  color: var(--weq-qqnt-preview);
+}
+
+html[data-component-style='qqnt'][data-theme][data-density]
+  body
+  :is(.app-shell, .weq-conversation-list)
+  .conversation-row
+  .row-meta {
+  align-self: center;
+  height: var(--weq-qqnt-row-content-height);
+  padding-top: 0;
+  gap: 4px;
+  font-size: 11px;
+  line-height: var(--weq-qqnt-row-title-line);
+  color: var(--weq-qqnt-time);
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  :is(.row-unread, .rail-message-badge, .rail-badge-mail) {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  background: var(--weq-qqnt-unread);
+  color: var(--weq-qqnt-unread-ink);
+}
+
+html[data-component-style='qqnt'][data-theme][data-density]
+  body
+  :is(.app-shell, .weq-conversation-list)
+  .conversation-row
+  .row-unread {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border: 0;
+  font-size: 11px;
+  line-height: 1;
+  background: var(--weq-qqnt-unread);
+  color: var(--weq-qqnt-unread-ink);
+}
+
+html[data-component-style='qqnt'][data-theme][data-density]
+  body
+  :is(.app-shell, .weq-conversation-list)
+  .conversation-row
+  .row-unread.muted {
+  background: var(--weq-qqnt-unread-muted);
+  color: var(--weq-qqnt-unread-muted-ink);
+}
+
+html[data-component-style='qqnt'][data-theme][data-background='plain'] {
+  --weq-chat-bg: var(--weq-qqnt-canvas);
+}
+
+html[data-component-style='qqnt'][data-theme] .weq-conversation-list {
+  background: var(--weq-qqnt-canvas);
+}
+
+html[data-component-style='qqnt'][data-theme] body .app-title-bar {
+  border-color: var(--weq-border-subtle);
+  background: var(--weq-qqnt-chrome);
+  backdrop-filter: none;
+}
+
+html[data-component-style='qqnt'][data-theme] body .weq-directory-toolbar {
+  background: transparent;
+}
+
+html[data-component-style='qqnt'][data-theme] body .sidebar-header-contacts .contact-tools {
+  margin: 0;
+}
+
+html[data-component-style='qqnt'][data-theme] body .sidebar-header-contacts .weq-directory-toolbar {
+  border-bottom: 0;
+}
+
+html[data-component-style='qqnt'][data-theme] body .contact-tab-switch {
+  margin: 10px 12px 0;
+}
+
+html[data-component-style='qqnt'][data-theme] body :is(.app-rail, .sidebar, .sidebar-header) {
+  background: var(--weq-qqnt-canvas);
+  border-color: var(--weq-border-subtle);
+  box-shadow: none;
+}
+
+html[data-component-style='qqnt'][data-theme] body :is(.chat-header, .composer) {
+  background: var(--weq-bar-surface);
+  border-color: var(--weq-border-subtle);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* 自定义聊天背景仍透出画布，图片背景继续使用原有遮罩。 */
+html[data-component-style='qqnt'][data-theme] .chat-pane:has(> .weq-chat-backdrop) {
+  --weq-bar-surface: color-mix(in srgb, var(--weq-bg-surface) 82%, transparent);
+}
+
+html[data-component-style='qqnt'][data-theme] body .chat-pane {
+  --chat-header-height: 52px;
+}
+
+html[data-component-style='qqnt'][data-theme] body .chat-title strong {
+  font-size: 16px;
+  line-height: 22px;
+}
+
+html[data-component-style='qqnt'][data-theme] body :is(.search-box, .sidebar-add) {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--weq-qqnt-input);
+  box-shadow: none;
+}
+
+html[data-component-style='qqnt'][data-theme] body :is(.search-box, .weq-input):focus-within {
+  border-color: var(--weq-accent-ink);
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  :is(.weq-input, .weq-set-input, .weq-set-select, .form-field input, .form-field select) {
+  border-radius: 8px;
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  :is(.weq-set-btn, .primary-button, .secondary-button, .composer-send) {
+  min-height: 30px;
+  padding: 5px 11px;
+  font-size: 14px;
+  line-height: 18px;
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  :is(.weq-set-btn, .primary-button, .secondary-button, .composer-send):hover:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+  filter: brightness(0.96);
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  :is(.conversation-row, .contact-row):not(.is-multiselected) {
+  border-radius: 8px;
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  :is(.conversation-row, .contact-row):hover:not(.active, .is-multiselected) {
+  background: color-mix(in srgb, var(--weq-qqnt-selection) 60%, var(--weq-qqnt-canvas));
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  :is(.conversation-row, .contact-row).active:not(.is-multiselected) {
+  background: var(--weq-skin-selection);
+  box-shadow: var(--weq-skin-selection-shadow);
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  .message-content:not(
+    .qq-card-only,
+    .qq-voice-only,
+    .sticker-only,
+    .markdown-image-only,
+    .code-only
+  ) {
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+html[data-component-style='qqnt'][data-theme] body :is(.message-name, .message-time-divider) {
+  background: transparent;
+  color: var(--weq-fg-muted);
+  font-weight: 400;
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  .weq-settings-dialog
+  :is(.weq-set-card, .weq-settings-appearance-card) {
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  background: var(--weq-bg-surface);
+  box-shadow: none;
+}
+
+[data-component-preview='qqnt'].weq-style-preview {
+  border-radius: 8px;
+  background: var(--weq-qqnt-canvas);
+}
+[data-component-preview='qqnt'] .weq-style-preview-input {
+  border-radius: 8px;
+}
+[data-component-preview='qqnt'] .weq-style-preview-item {
+  border-radius: 6px;
+}
+
+html[data-component-style='qqnt'][data-theme][data-density='compact']
+  body
+  :is(.weq-set-btn, .primary-button, .secondary-button, .composer-send) {
+  min-height: 28px;
+  padding-block: 4px;
+}
+
+@media (max-width: 760px), (pointer: coarse) {
+  html[data-component-style='qqnt'][data-theme]
+    body
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
+    .conversation-row:not(.active, .is-multiselected) {
+    background: transparent;
+  }
+  html[data-component-style='qqnt'][data-theme]
+    body
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
+    .conversation-row:not(.active, .is-multiselected):hover {
+    background: color-mix(in srgb, var(--weq-qqnt-selection) 60%, var(--weq-qqnt-canvas));
+  }
+  html[data-component-style='qqnt'][data-theme] body .chat-pane {
+    --chat-header-height: calc(52px + env(safe-area-inset-top, 0px));
+  }
+  html[data-component-style='qqnt'][data-theme] {
+    --weq-qqnt-row-avatar: 50px;
+    --weq-qqnt-row-padding: 10px 16px;
+    --weq-qqnt-row-content-height: 44px;
+    --weq-qqnt-row-title-line: 22px;
+    --weq-qqnt-row-preview-line: 18px;
+  }
+  html[data-component-style='qqnt'][data-theme][data-density='compact'] {
+    --weq-conversation-row-height: 64px;
+    --weq-qqnt-row-avatar: 36px;
+    --weq-qqnt-row-padding: 7px 12px;
+    --weq-qqnt-row-content-height: 36px;
+    --weq-qqnt-row-title-line: 18px;
+    --weq-qqnt-row-preview-line: 14px;
+  }
+  html[data-component-style='qqnt'][data-theme][data-density]
+    body
+    :is(
+      .weq-set-btn,
+      .primary-button,
+      .secondary-button,
+      .composer-send,
+      .composer-send-expanded,
+      .composer-tools .composer-mobile-tool
+    ) {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-component-style='qqnt'][data-theme]
+    body
+    :is(.weq-set-btn, .primary-button, .secondary-button, .composer-send) {
+    transition: none;
+  }
+}

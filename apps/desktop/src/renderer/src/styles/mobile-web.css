@@ -315,8 +315,9 @@
     border-radius: 8px;
   }
 
-  .weq-web-shell .app-shell :is(.conversation-row, .contact-row),
-  .weq-web-shell .app-shell :is(.conversation-row, .contact-row).active {
+  :is(.weq-web-shell .app-shell, .weq-conversation-list) :is(.conversation-row, .contact-row),
+  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+    :is(.conversation-row, .contact-row).active {
     min-height: var(--weq-conversation-row-height);
     grid-template-columns: 50px minmax(0, 1fr) 48px;
     gap: 12px;
@@ -325,12 +326,15 @@
     color: var(--weq-fg-primary);
   }
 
-  .weq-web-shell .app-shell :is(.conversation-row, .contact-row) .avatar {
+  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+    :is(.conversation-row, .contact-row)
+    .avatar {
     width: 50px;
     height: 50px;
   }
 
-  .weq-web-shell .app-shell :is(.conversation-row, .contact-row).active {
+  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+    :is(.conversation-row, .contact-row).active {
     background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface));
     box-shadow: inset 3px 0 var(--weq-accent-effective);
   }
@@ -339,34 +343,45 @@
     background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
   }
 
-  html[data-theme='dark'] .weq-web-shell .app-shell :is(.conversation-row, .contact-row).active {
+  html[data-theme='dark']
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
+    :is(.conversation-row, .contact-row).active {
     background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
   }
 
-  .weq-web-shell .app-shell :is(.conversation-row, .contact-row) .row-main {
+  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+    :is(.conversation-row, .contact-row)
+    .row-main {
     gap: 6px;
   }
 
-  .weq-web-shell .app-shell :is(.conversation-row, .contact-row) .row-main strong {
+  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+    :is(.conversation-row, .contact-row)
+    .row-main
+    strong {
     color: var(--weq-fg-primary);
     font-size: 16px;
     font-weight: 500;
   }
 
-  .weq-web-shell .app-shell :is(.conversation-row, .contact-row) .row-main strong .row-title-text {
+  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+    :is(.conversation-row, .contact-row)
+    .row-main
+    strong
+    .row-title-text {
     color: inherit;
   }
 
-  .weq-web-shell .app-shell :is(.row-preview-line, .row-meta) {
+  :is(.weq-web-shell .app-shell, .weq-conversation-list) :is(.row-preview-line, .row-meta) {
     color: var(--weq-fg-muted);
     font-size: 12px;
   }
 
-  html .weq-web-shell .app-shell .conversation-row .row-unread {
+  html :is(.weq-web-shell .app-shell, .weq-conversation-list) .conversation-row .row-unread {
     inset: auto 16px 10px auto;
   }
 
-  .weq-web-shell .app-shell .conversation-row .row-meta {
+  :is(.weq-web-shell .app-shell, .weq-conversation-list) .conversation-row .row-meta {
     align-self: start;
     padding-top: 2px;
   }

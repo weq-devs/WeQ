@@ -639,7 +639,9 @@ export function MergedSessionPanel({
             }}
           />
         ) : null}
-        <div className="weq-merged-popover-body">
+        <div
+          className={`weq-merged-popover-body${kind === 'groupAssistant' ? ' weq-conversation-list' : ''}`}
+        >
           {kind === 'groupAssistant' && groupAssistantError ? (
             <div className="weq-merged-popover-empty" role="status">
               群助手读取失败：{groupAssistantError}
@@ -665,7 +667,11 @@ export function MergedSessionPanel({
               >
                 <button
                   type="button"
-                  className="weq-merged-popover-item"
+                  className={
+                    kind === 'groupAssistant'
+                      ? `weq-merged-popover-item conversation-row${pinned ? ' pinned' : ''}${selectedIds.has(conv.id) ? ' is-multiselected' : ''}`
+                      : 'weq-merged-popover-item'
+                  }
                   {...(kind === 'groupAssistant' ? multi.itemProps(conv.id) : {})}
                   aria-pressed={
                     kind === 'groupAssistant' && selectionMode
@@ -703,24 +709,42 @@ export function MergedSessionPanel({
                   }}
                 >
                   <Avatar name={name ?? ''} avatarUrl={avatarUrl} seed={seed ?? conv.id} />
-                  <div className="weq-merged-popover-item-main">
-                    <div className="weq-merged-popover-item-top">
-                      <div className="weq-merged-popover-item-name">{name}</div>
-                      {pinned ? (
-                        <Pin size={12} aria-label="置顶" className="weq-group-helper-pin-mark" />
-                      ) : null}
-                      {time && <div className="weq-merged-popover-item-time">{time}</div>}
+                  {kind === 'groupAssistant' ? (
+                    <>
+                      <span className="row-main">
+                        <strong>
+                          <span className="row-title-text">{name}</span>
+                        </strong>
+                        <span className="row-preview-line">
+                          <span className="row-message-preview">{preview}</span>
+                        </span>
+                      </span>
+                      <span className="row-meta">
+                        <span className="row-time-line">
+                          {pinned ? (
+                            <Pin size={12} aria-label="置顶" className="row-pinned" />
+                          ) : null}
+                          {time}
+                        </span>
+                        {unreadCount > 0 ? (
+                          <span
+                            className={`row-unread${conv.preference?.muted ? ' muted' : ''}`}
+                            aria-label={`${unreadCount} 条未读消息`}
+                          >
+                            {unreadCount > 99 ? '99+' : unreadCount}
+                          </span>
+                        ) : null}
+                      </span>
+                    </>
+                  ) : (
+                    <div className="weq-merged-popover-item-main">
+                      <div className="weq-merged-popover-item-top">
+                        <div className="weq-merged-popover-item-name">{name}</div>
+                        {time && <div className="weq-merged-popover-item-time">{time}</div>}
+                      </div>
+                      {preview && <div className="weq-merged-popover-item-preview">{preview}</div>}
                     </div>
-                    {preview && <div className="weq-merged-popover-item-preview">{preview}</div>}
-                  </div>
-                  {kind === 'groupAssistant' && unreadCount > 0 ? (
-                    <span
-                      className="weq-group-helper-unread"
-                      aria-label={`${unreadCount} 条未读消息`}
-                    >
-                      {unreadCount > 99 ? '99+' : unreadCount}
-                    </span>
-                  ) : null}
+                  )}
                   {kind === 'hidden' && (
                     <EyeOff size={14} className="weq-merged-popover-item-badge" />
                   )}
