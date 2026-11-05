@@ -37,6 +37,7 @@ vi.mock('../src/main/context/app_context', async () => {
       account: fixture.switched ? null : account,
       services,
       bootstrap: {
+        ocrModels: { listByKind: () => [] },
         userConfig: {
           getSettings: () => ({ autoAttachQq: true }),
           getLocalModelId: () => null,

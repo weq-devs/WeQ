@@ -302,9 +302,10 @@ it('祖先目录被换成符号链接或 Windows junction 时，绝不越界清�
   expect(existsSync(original)).toBe(true);
 });
 
-it('宿主运行目录可退出后清除，应用安装根及维护状态始终只读', async () => {
+it('宿主只清除可再生缓存，运行身份、应用安装根及维护状态只读', async () => {
   const f = fixture();
   f.file('profile/Cookies');
+  f.file('profile/Cache/data');
   f.file('install/config/a');
   f.file('storage-maintenance/result.json');
   const items = await f.service.listStorageUsage([
@@ -312,8 +313,13 @@ it('宿主运行目录可退出后清除，应用安装根及维护状态始终�
     { path: join(f.root, 'install'), label: '应用安装资源', protected: true },
   ]);
   expect(items.find((item) => item.path === join(f.root, 'profile/Cookies'))).toMatchObject({
+    clearable: false,
+    requiresExit: false,
+    management: 'runtime',
+  });
+  expect(items.find((item) => item.path === join(f.root, 'profile/Cache'))).toMatchObject({
     clearable: true,
-    requiresExit: true,
+    category: 'cache',
   });
   expect(items.find((item) => item.path === join(f.root, 'install/config'))?.clearable).toBe(false);
   expect(items.find((item) => item.path === join(f.root, 'storage-maintenance'))?.clearable).toBe(
@@ -331,8 +337,9 @@ it('宿主目录与业务根重合时仍保护未知业务原件，托管 QQ 风
   ]);
   expect(items.find((item) => item.label === 'personal-original.bin')?.clearable).toBe(false);
   expect(items.find((item) => item.label === 'Cookies')).toMatchObject({
-    clearable: true,
-    requiresExit: true,
+    clearable: false,
+    requiresExit: false,
+    management: 'runtime',
   });
   expect(items.find((item) => item.path === join(f.root, 'managed-qq'))?.confirmation).toContain(
     '本地聊天数据库',

@@ -45,6 +45,7 @@ vi.mock('../src/main/context/app_context', () => ({
     account: { context: { uin: state.uin } },
     services: state.services,
     bootstrap: {
+      ocrModels: { listByKind: () => [] },
       userConfig: {
         getSettings: () => ({ autoAttachQq: state.automatic }),
         getLocalModelId: () => null,

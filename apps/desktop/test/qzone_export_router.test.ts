@@ -10,6 +10,7 @@ vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({
     account: { context: { uin: fixture.uin } },
     bootstrap: {
+      ocrModels: { listByKind: () => [] },
       userConfig: {
         getSettings: () => ({ autoAttachQq: true }),
         getLocalModelId: () => null,
