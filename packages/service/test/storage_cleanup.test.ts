@@ -35,6 +35,53 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+it('运行中先清除闲置数据，仅将实际持有路径留作重启候选；未选项不受影响', async () => {
+  const f = fixture();
+  const idle = f.file('cache/export/output.txt');
+  const busy = f.file('cache/agentlab/synthetic/memory.json');
+  const other = f.file('cache/ocr/keep.txt');
+  const targets = selectStorageCleanupTargets(await f.service.listStorageUsage(), [
+    'export',
+    'agentlab',
+  ]);
+  const result = await executeStorageCleanup({
+    targets,
+    protectedPaths: [],
+    reportPath: f.reportPath,
+    busyPaths: [busy],
+  });
+  expect(existsSync(idle)).toBe(false);
+  expect(existsSync(busy)).toBe(true);
+  expect(existsSync(other)).toBe(true);
+  expect(result.failed).toEqual([
+    expect.objectContaining({ id: 'agentlab', retryAfterRestart: true }),
+  ]);
+  expect(result.cleared).toHaveLength(1);
+  const retry = await executeStorageCleanup({
+    targets: targets.filter((item) => item.id === 'agentlab'),
+    protectedPaths: [],
+    reportPath: f.reportPath,
+    previousResult: result,
+  });
+  expect(retry.failed).toEqual([]);
+  expect(retry.cleared).toHaveLength(2);
+  expect(retry.freedBytes).toBeGreaterThan(result.freedBytes);
+  expect(existsSync(busy)).toBe(false);
+});
+
+it('路径校验失败不被伪装成重启可解决的占用', async () => {
+  const f = fixture();
+  f.file('cache/export/output.txt');
+  const targets = selectStorageCleanupTargets(await f.service.listStorageUsage(), ['export']);
+  const result = await executeStorageCleanup({
+    targets,
+    protectedPaths: [targets[0]!.path],
+    reportPath: f.reportPath,
+    busyPaths: [],
+  });
+  expect(result.failed[0]).toMatchObject({ id: 'export', retryAfterRestart: false });
+});
+
 it('持久类型均有风险说明，缓存接口不接管；退出助手仅删除明确选择项并留下回执', async () => {
   const f = fixture();
   const originals = f.file('qq-original/nt_msg.db');

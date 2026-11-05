@@ -42,7 +42,7 @@ export const backupApi = {
   defaults: (clientId: string) => client.bootstrap.backupDefaults.mutate({ clientId }),
   dispose: (id: string) => client.bootstrap.backupDiscardPreview.mutate({ id }),
   cancel: () => client.bootstrap.backupCancel.mutate(),
-  restart: () => client.bootstrap.backupRestart.mutate(),
+  apply: () => client.bootstrap.backupApply.mutate(),
   reveal: (id: string) => client.bootstrap.backupRevealExport.mutate({ id }),
   claim: (id: string, clientId: string) =>
     client.bootstrap.backupClaimClient.mutate({ id, clientId }),
@@ -120,7 +120,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   });
   const [preview, setPreview] = useState<Preview | null>(null);
   const [exported, setExported] = useState<Exported | null>(null);
-  const [confirm, setConfirm] = useState<'defaults' | 'restart' | 'claim' | 'skip' | null>(null);
+  const [confirm, setConfirm] = useState<'defaults' | 'apply' | 'claim' | 'skip' | null>(null);
   const [busy, setBusy] = useState<string | null>('正在读取');
   const [error, setError] = useState<string | null>(null);
   const acting = useRef(false);
@@ -285,16 +285,16 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         defaults: {
           title: '恢复默认设置？',
           message:
-            '重置通用设置、导出预设和此设备的界面偏好。API、账号配置、克隆体和本机应用锁密钥会保留。重启 WeQ 后生效。',
+            '重置通用设置、导出预设和此设备的界面偏好。API、账号配置、克隆体和本机应用锁密钥会保留。将关闭当前账号并刷新界面，无需重启 WeQ，请先保存正在编辑的内容。',
           action: '确认恢复默认',
-          progress: '正在暂存…',
+          progress: '正在恢复…',
         },
-        restart: {
-          title: '重启 WeQ？',
+        apply: {
+          title: '应用待恢复数据？',
           message:
-            '请先保存正在编辑的内容。重启会关闭当前账号与在途任务，随后应用已暂存的数据并重新打开窗口。',
-          action: '重启 WeQ',
-          progress: '正在重启…',
+            '请先保存正在编辑的内容。将关闭当前账号、应用已暂存的数据并刷新界面，无需重启 WeQ。',
+          action: '应用恢复',
+          progress: '正在恢复…',
         },
         claim: {
           title: '在此设备恢复界面偏好？',
@@ -681,7 +681,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
             <Summary value={preview.summary} />
             <p>
               将应用 {preview.planned.length} 项，跳过 {preview.skipped.length}{' '}
-              项。暂存后重启应用，不立即修改正在运行的服务。
+              项。确认后关闭当前账号并刷新界面，无需重启 WeQ。请先保存正在编辑的内容。
             </p>
             <ul className="weq-backup-list">
               {[
@@ -706,17 +706,17 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                 className="weq-set-btn"
                 disabled={Boolean(busy) || Boolean(pending)}
                 onClick={() =>
-                  void act('正在暂存恢复', async () => {
+                  void act('正在恢复', async () => {
                     await api.stage(preview.id);
                     sourceId.current = null;
                     setSource(null);
                     setPreview(null);
                     await refresh();
-                    toast({ tone: 'success', title: '恢复已暂存，重启后应用' });
+                    toast({ tone: 'success', title: '备份已恢复' });
                   })
                 }
               >
-                确认并暂存
+                确认恢复
               </button>
             </div>
           </div>
@@ -739,14 +739,9 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         </Card>
       ) : null}
       {pending ? (
-        <Card title={pending.phase === 'ready' ? '已暂存，等待重启' : '恢复暂存未完成'}>
+        <Card title={pending.phase === 'ready' ? '存在待恢复数据' : '恢复暂存未完成'}>
           <Summary value={pending.summary} />
-          <p>
-            正在运行的服务尚未使用这份备份。
-            {inventory?.canRestart
-              ? '重启 WeQ 后应用。'
-              : '请由服务管理器重启 WeQ 服务后应用，刷新网页不会应用。'}
-          </p>
+          <p>正在运行的服务尚未使用这份备份，可直接应用恢复，无需重启。</p>
           <div className="weq-backup-actions">
             <button
               type="button"
@@ -762,15 +757,15 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               <X size={14} />
               取消待恢复任务
             </button>
-            {inventory?.canRestart ? (
+            {pending.phase === 'ready' ? (
               <button
                 type="button"
                 className="weq-set-btn"
                 disabled={Boolean(busy)}
-                onClick={() => openConfirmation('restart')}
+                onClick={() => openConfirmation('apply')}
               >
                 <RefreshCw size={14} />
-                重启 WeQ
+                应用恢复
               </button>
             ) : null}
           </div>
@@ -819,7 +814,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                       sourceId.current = null;
                       setSource(null);
                       setPreview(null);
-                    } else if (confirm === 'restart') await api.restart();
+                    } else if (confirm === 'apply') await api.apply();
                     else if (result) {
                       const ok =
                         confirm === 'claim'

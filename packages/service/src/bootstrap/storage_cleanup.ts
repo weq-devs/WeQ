@@ -5,7 +5,7 @@ import { listDressPreviewFiles, measureStorage, type StorageUsageItem } from './
 export interface StorageCleanupResult {
   at: string;
   cleared: string[];
-  failed: Array<{ label: string; error: string }>;
+  failed: Array<{ label: string; error: string; id?: string; retryAfterRestart?: boolean }>;
   freedBytes: number;
 }
 
@@ -14,6 +14,9 @@ export interface StorageCleanupPlan {
   protectedPaths: string[];
   reportPath: string;
   lockPath?: string;
+  /** 运行中清理时，当前服务实际持有的路径；不能用 unlink 成功冒充已释放。 */
+  busyPaths?: string[];
+  previousResult?: StorageCleanupResult;
 }
 
 function contains(parent: string, child: string): boolean {
@@ -56,17 +59,23 @@ export function selectStorageCleanupTargets(
   return selected.filter((item): item is StorageUsageItem => Boolean(item));
 }
 
-/** 只能在宿主进程已经退出后调用，避免打开的 SQLite、模型及配置状态被删除后写回。 */
+/** 运行中调用须提供 busyPaths；退出助手不再有宿主占用。 */
 export async function executeStorageCleanup(
   plan: StorageCleanupPlan,
 ): Promise<StorageCleanupResult> {
   const result: StorageCleanupResult = {
     at: new Date().toISOString(),
-    cleared: [],
-    failed: [],
-    freedBytes: 0,
+    cleared: [...(plan.previousResult?.cleared ?? [])],
+    failed: (plan.previousResult?.failed ?? []).filter(
+      (failure) =>
+        !plan.targets.some((item) =>
+          failure.id ? failure.id === item.id : failure.label === item.label,
+        ),
+    ),
+    freedBytes: plan.previousResult?.freedBytes ?? 0,
   };
   for (const item of plan.targets) {
+    let beforeBytes: number | undefined;
     try {
       const path = resolve(item.path);
       if (
@@ -98,8 +107,17 @@ export async function executeStorageCleanup(
         if (contains(canonicalTarget, await canonicalPathOrMissing(resolve(protectedPath))))
           throw new Error('目标包含受保护的应用或维护资源，未清除');
       }
+      for (const busyPath of plan.busyPaths ?? []) {
+        const busy = await canonicalPathOrMissing(resolve(busyPath));
+        if (contains(canonicalTarget, busy) || contains(busy, canonicalTarget)) {
+          throw Object.assign(new Error('当前运行实例正在使用此项，未删除；可重启后继续清除'), {
+            code: 'EBUSY',
+          });
+        }
+      }
       const before = await measureStorage(path);
       if (before.incomplete) throw new Error('读取不完整，未清除');
+      beforeBytes = before.bytes;
       if (item.cleanupKind === 'dress-previews' || item.cleanupKind === 'dress-data') {
         const previews = await listDressPreviewFiles(path);
         if (previews.incomplete) throw new Error('预览文件读取不完整，未清除');
@@ -114,14 +132,26 @@ export async function executeStorageCleanup(
           await rm(file, { recursive: item.cleanupKind === 'dress-data', force: true });
       } else {
         await rm(path, { recursive: true, force: true });
+        if (plan.busyPaths && item.cleanupKind === 'dress-shared') {
+          for (const name of ['bubbles', 'fonts', 'pendants'])
+            await mkdir(join(path, name), { recursive: true });
+        }
       }
       const after = await measureStorage(path);
       result.freedBytes += Math.max(0, before.bytes - after.bytes);
       result.cleared.push(item.label);
     } catch (error) {
+      if (beforeBytes !== undefined) {
+        const remaining = await measureStorage(item.path);
+        if (!remaining.incomplete) result.freedBytes += Math.max(0, beforeBytes - remaining.bytes);
+      }
       result.failed.push({
         label: item.label,
         error: error instanceof Error ? error.message : String(error),
+        id: item.id,
+        retryAfterRestart: ['EBUSY', 'ETXTBSY'].includes(
+          (error as NodeJS.ErrnoException).code ?? '',
+        ),
       });
     }
   }

@@ -38,6 +38,7 @@ export interface HostBridge {
   /** 宿主额外拥有的目录，显式标记运行数据或受保护的安装资源。 */
   storageRoots?(): StorageRoot[];
   clearStorageAfterExit?(targets: StorageUsageItem[]): Promise<void>;
+  clearStorageNow?(targets: StorageUsageItem[], busyPaths: string[]): Promise<StorageCleanupResult>;
   storageCleanupResult?(): Promise<StorageCleanupResult | null>;
   /** 仅宿主支持时提供；调用方必须先明确确认重启。 */
   restartApplication?(): Promise<void>;

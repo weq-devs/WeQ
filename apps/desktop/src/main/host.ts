@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { basename, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { HostBridge, SaveTarget, StorageRoot } from '@weq/service';
-import { clearStorageAfterExit, storageCleanupResult } from './storage_cleanup';
+import { clearStorageAfterExit, clearStorageNow, storageCleanupResult } from './storage_cleanup';
 import { DialogLocations } from './dialog_locations';
 import { AppAutostart } from './autostart';
 import { manualRestartArgs } from './startup_window';
@@ -134,6 +134,7 @@ function desktopStorageRoots(): StorageRoot[] {
 export const electronHost: HostBridge = {
   storageRoots: desktopStorageRoots,
   clearStorageAfterExit,
+  clearStorageNow,
   storageCleanupResult,
   restartApplication: async () => {
     if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {

@@ -147,12 +147,13 @@ export function GlobalSettingsSection({
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const clearWeqCache = trpc.bootstrap.clearWeqCache.useMutation();
   const clearStorageData = trpc.bootstrap.clearStorageData.useMutation();
   const cleanupResult = trpc.bootstrap.storageCleanupResult.useQuery(undefined, {
     enabled: active && section === 'storage',
   });
-  const cleanupBusy = clearWeqCache.isLoading || clearStorageData.isLoading;
+  const [cleaning, setCleaning] = useState(false);
+  const [restartIds, setRestartIds] = useState<string[]>([]);
+  const cleanupBusy = cleaning || clearStorageData.isLoading;
   const [pickedCats, setPickedCats] = useState<Set<string>>(new Set());
   const cacheItems = cacheUsage.data ?? [];
   const clearableItems = cacheItems.filter(
@@ -288,39 +289,53 @@ export function GlobalSettingsSection({
     if (ids.length === 0) return;
     const willFree = targets.reduce((sum, it) => sum + it.bytes, 0);
     const label = pickedCats.size > 0 ? targets.map((t) => t.label).join('、') : '全部可清理缓存';
-    const exit = targets.some((item) => item.requiresExit);
+    const risky = targets.some((item) => item.requiresExit);
     const extra = targets.flatMap((item) =>
       item.confirmation ? [`${item.label}：${item.confirmation}`] : [],
     );
     const ok = await confirm(
-      exit ? '清除并重启' : '清理 WeQ 缓存',
-      exit
-        ? `将完全退出 WeQ，然后永久删除「${label}」，预计清除约 ${formatBytes(willFree)}，清除完成后自动重新打开 WeQ。只删除所选路径中的数据，不会额外清理其它 QQ 数据目录。请先停止导出、模型下载和数据库修复，并退出托管 QQ。\n\n${extra.join('\n\n')}\n\n清除期间不要手动启动应用；重启后可在存储管理查看结果。确认清除并重启？`
+      risky ? '清除所选数据' : '清理 WeQ 缓存',
+      risky
+        ? `将永久删除「${label}」，预计清除约 ${formatBytes(willFree)}。只删除所选路径中的数据，不会额外清理其它 QQ 数据目录。先清除可直接清除的项目；若有占用项，会另行询问是否重启。\n\n${extra.join('\n\n')}\n\n确认清除？`
         : `将删除「${label}」，预计释放约 ${formatBytes(willFree)}。需要时会重新下载或生成；保留数据不受影响。${extra.length ? `\n\n${extra.join('\n')}\n\n` : ''}是否继续？`,
-      { okLabel: exit ? '清除并重启' : '清理', cancelLabel: '取消', tone: 'warning' },
+      { okLabel: risky ? '清除' : '清理', cancelLabel: '取消', tone: 'warning' },
     );
     if (!ok) return;
+    setCleaning(true);
     try {
-      if (exit) {
-        await clearStorageData.mutateAsync({ ids, acknowledgeRisk: true });
-        pushToast({
-          tone: 'warning',
-          title: '已安排清除并重启',
-          message: '清除完成后自动重新打开 WeQ，清除结果会保留。',
-        });
-        return;
-      }
-      const res = await clearWeqCache.mutateAsync({ ids });
+      const res = await clearStorageData.mutateAsync({ ids, acknowledgeRisk: true });
+      setRestartIds(res.restartIds);
       await cacheUsage.refetch();
-      setPickedCats(new Set());
+      await cleanupResult.refetch();
+      setPickedCats(new Set(res.failed.flatMap((item) => (item.id ? [item.id] : []))));
       pushToast({
         tone: res.failed.length > 0 ? 'warning' : 'success',
-        title: res.failed.length > 0 ? '部分缓存未能清理' : '缓存已清理',
-        message: `释放约 ${formatBytes(res.freedBytes)}`,
+        title: res.failed.length > 0 ? '部分项目未能清除' : '清理已完成',
+        message: `已清除 ${res.cleared.length} 项，释放约 ${formatBytes(res.freedBytes)}${res.failed.length ? `；${res.failed.map((item) => `${item.label}：${item.error}`).join('；')}` : ''}`,
       });
+      if (res.restartIds.length) await retryOccupiedStorage(res.restartIds);
     } catch (e) {
       showError('清理缓存失败', errMsg(e));
+    } finally {
+      setCleaning(false);
     }
+  }
+
+  async function retryOccupiedStorage(ids: string[]): Promise<void> {
+    const labels = ids.map((id) => cacheItems.find((item) => item.id === id)?.label ?? id);
+    const ok = await confirm(
+      '剩余项目被占用',
+      `可直接清除的项目已经处理。仅「${labels.join('、')}」仍被占用，是否退出 WeQ 后继续清除这些项目？完成后会自动重新打开 WeQ。取消将保留剩余项目，不影响已完成的清理。若由 QQ 等其他程序占用，请先关闭对应程序。`,
+      { okLabel: '重启并继续清除', cancelLabel: '暂不重启', tone: 'warning' },
+    );
+    if (!ok) return;
+    await clearStorageData.mutateAsync({ ids, acknowledgeRisk: true, afterExit: true });
+    setRestartIds([]);
+    pushToast({
+      tone: 'warning',
+      title: '已安排清除剩余项目',
+      message: '清除完成后自动重新打开 WeQ。',
+    });
   }
 
   async function onSetAutoEnter(uin: string, dataDir?: string): Promise<void> {
@@ -739,6 +754,22 @@ export function GlobalSettingsSection({
                 </div>
               ))}
             </div>
+          )}
+          {restartIds.length > 0 && (
+            <button
+              type="button"
+              className="weq-set-btn"
+              disabled={cleanupBusy}
+              onClick={() => {
+                setCleaning(true);
+                void retryOccupiedStorage(restartIds)
+                  .catch((error) => showError('继续清除失败', errMsg(error)))
+                  .finally(() => setCleaning(false));
+              }}
+            >
+              <RotateCcw size={14} />
+              重启并清除剩余项目
+            </button>
           )}
           <div className="weq-set-cache-list" {...cacheMulti.rootProps}>
             {cacheUsage.isLoading ? (

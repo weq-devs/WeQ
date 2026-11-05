@@ -4,8 +4,8 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { access, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { StorageUsageItem } from '@weq/service';
-import { readStorageCleanupResult } from '@weq/service/storage-cleanup';
+import { STORAGE_RUNTIME_DATA_NAMES, type StorageUsageItem } from '@weq/service';
+import { executeStorageCleanup, readStorageCleanupResult } from '@weq/service/storage-cleanup';
 import { resolveChildWorkerPath } from './worker_path';
 import { skipNextQuitConfirmation } from './app_quit_confirmation';
 import { isStorageCleanupWorkerProcess } from './storage_cleanup_process';
@@ -16,6 +16,22 @@ const lockPath = () => join(app.getPath('userData'), 'storage-maintenance', 'run
 let pending = false;
 
 export const storageCleanupResult = () => readStorageCleanupResult(reportPath());
+
+export function clearStorageNow(targets: StorageUsageItem[], busyPaths: string[]) {
+  return executeStorageCleanup({
+    targets,
+    protectedPaths: [app.getAppPath(), process.execPath],
+    reportPath: reportPath(),
+    busyPaths: [
+      ...busyPaths,
+      ...[...STORAGE_RUNTIME_DATA_NAMES, 'remote-network'].flatMap((name) =>
+        [...new Set([app.getPath('userData'), app.getPath('sessionData')])].map((root) =>
+          join(root, name),
+        ),
+      ),
+    ],
+  });
+}
 
 export function guardStorageCleanupStartup(): void {
   if (!existsSync(lockPath())) return;
@@ -65,6 +81,7 @@ export async function clearStorageAfterExit(targets: StorageUsageItem[]): Promis
   pending = true;
   let child: ChildProcess | undefined;
   try {
+    const previousResult = await storageCleanupResult();
     await access(restart.execPath);
     if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) await access(restart.args[0]!);
     await mkdir(dirname(reportPath()), { recursive: true });
@@ -72,8 +89,8 @@ export async function clearStorageAfterExit(targets: StorageUsageItem[]): Promis
       reportPath(),
       JSON.stringify({
         at: new Date().toISOString(),
-        cleared: [],
-        freedBytes: 0,
+        cleared: previousResult?.cleared ?? [],
+        freedBytes: previousResult?.freedBytes ?? 0,
         failed: [
           { label: '上次退出后清除', error: '尚未收到完成回执；若应用未退出则未执行清除。' },
         ],
@@ -117,6 +134,7 @@ export async function clearStorageAfterExit(targets: StorageUsageItem[]): Promis
           ],
           reportPath: reportPath(),
           lockPath: lockPath(),
+          previousResult: previousResult ?? undefined,
         },
       });
     });
