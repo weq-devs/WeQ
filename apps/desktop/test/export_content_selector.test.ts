@@ -28,7 +28,9 @@ describe('导出内容列表结构', () => {
     const additional = root.querySelector('[role="group"][aria-label="附加数据"]');
     const buttons = [...(additional?.querySelectorAll('button') ?? [])];
     expect(buttons.map((button) => button.textContent)).toEqual([
-      ...new Set(EXPORT_CONTENT_DETAILS.map((detail) => detail.label)),
+      '属性信息',
+      '协议与未解析数据',
+      '其他已存版本',
     ]);
     expect(buttons.every((button) => button.getAttribute('aria-pressed') === 'false')).toBe(true);
     expect(additional?.querySelector('[role="radiogroup"]')).toBeNull();
@@ -64,15 +66,31 @@ describe('导出内容列表结构', () => {
     try {
       await act(async () => root.render(createElement(ExportContentSelector, { value, onChange })));
       const buttons = [...host.querySelectorAll<HTMLButtonElement>('.weq-exp-format')];
-      await act(async () =>
-        buttons.find((button) => button.textContent === '资源详细信息')?.click(),
-      );
+      await act(async () => buttons.find((button) => button.textContent === '属性信息')?.click());
       const selected = onChange.mock.lastCall?.[0];
       for (const detail of EXPORT_CONTENT_DETAILS)
         expect(selected.details[detail.key]).toBe(
-          detail.label === '资源详细信息' ? 'local' : 'none',
+          detail.key.endsWith('Properties') ? 'local' : 'none',
         );
       expect(selected.images).toBe('none');
+      await act(async () =>
+        root.render(createElement(ExportContentSelector, { value: selected, onChange })),
+      );
+      const properties = buttons.find((button) => button.textContent === '属性信息');
+      expect(properties?.getAttribute('aria-pressed')).toBe('true');
+      await act(async () => properties?.click());
+      expect(onChange.mock.lastCall?.[0]).toEqual(value);
+      const legacy = {
+        ...value,
+        details: { ...value.details, messageProperties: 'local' as const },
+      };
+      await act(async () =>
+        root.render(createElement(ExportContentSelector, { value: legacy, onChange })),
+      );
+      expect(properties?.getAttribute('aria-pressed')).toBe('mixed');
+      await act(async () => properties?.click());
+      expect(onChange.mock.lastCall?.[0]).toEqual(selected);
+      await act(async () => root.render(createElement(ExportContentSelector, { value, onChange })));
       await act(async () =>
         host.querySelector<HTMLButtonElement>('[aria-label="展开图片明细"]')?.click(),
       );
