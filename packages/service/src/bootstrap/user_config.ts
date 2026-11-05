@@ -1071,7 +1071,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   restrictedModeBannerEnabled: true,
   webServiceAutoStart: false,
   showWindowOnAutostart: false,
-  startupPage: 'last',
+  startupPage: 'home',
   reportReadEnabled: true,
   manualReadReportEnabled: true,
   autoLockMinutes: 0,
@@ -1755,7 +1755,9 @@ export class UserConfigService {
       webServiceAutoStart: s?.webServiceAutoStart === true,
       showWindowOnAutostart: s?.showWindowOnAutostart === true,
       startupPage:
-        s?.startupPage === 'home' || s?.startupPage === 'messages' ? s.startupPage : 'last',
+        s?.startupPage === 'home' || s?.startupPage === 'messages' || s?.startupPage === 'last'
+          ? s.startupPage
+          : d.startupPage,
       reportReadEnabled: s?.reportReadEnabled ?? d.reportReadEnabled,
       manualReadReportEnabled: s?.manualReadReportEnabled ?? d.manualReadReportEnabled,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
