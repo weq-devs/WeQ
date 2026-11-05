@@ -246,19 +246,27 @@ describe('电脑端远程连接面板', () => {
 
   it('专用节点失败后可直接重新启动，Remote 关闭时不能更换节点身份', async () => {
     const onTailscale = vi.fn();
+    const onChangeNetwork = vi.fn();
     await render(
       {
         ...base,
         tailscaleEnabled: true,
         network: { state: 'error', addresses: base.network.addresses },
       },
-      { onTailscale },
+      { onTailscale, onChangeNetwork },
     );
     const start = [...container.querySelectorAll('button')].find((button) =>
       button.textContent?.includes('启动服务'),
     )!;
     await act(async () => start.click());
     expect(onTailscale).toHaveBeenCalledWith(true);
+    const changeNetwork = container.querySelector<HTMLButtonElement>(
+      '[aria-label="更换 WeQ 专用 Tailscale 网络"]',
+    )!;
+    expect(changeNetwork.textContent).toBe('更换 Tailscale 网络');
+    expect(changeNetwork.classList.contains('weq-set-btn')).toBe(true);
+    await act(async () => changeNetwork.click());
+    expect(onChangeNetwork).toHaveBeenCalledOnce();
     await render({
       ...base,
       enabled: false,

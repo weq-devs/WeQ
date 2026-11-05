@@ -182,13 +182,14 @@ export function RemotePanel({
                 {tailscale ? (
                   <button
                     type="button"
-                    className="weq-set-iconbtn"
+                    className="weq-set-btn weq-set-btn-soft"
                     title="更换 WeQ 专用 Tailscale 网络"
                     aria-label="更换 WeQ 专用 Tailscale 网络"
                     disabled={busy || !data?.enabled}
                     onClick={onChangeNetwork}
                   >
-                    <RefreshCw size={15} />
+                    <RefreshCw size={14} />
+                    更换 Tailscale 网络
                   </button>
                 ) : null}
               </div>
