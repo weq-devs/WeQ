@@ -83,7 +83,7 @@ const groups = names.map((name, index) => ({
   group: { ...groupSeed.group!, name, avatarUrl: peer.avatarUrl },
   lastMessage: conversations[index].lastMessage,
   unreadCount: index === 1 ? 68 : index + 1,
-  preference: { ...groupSeed.preference, muted: index === 1 },
+  preference: { ...groupSeed.preference, muted: index === 1, pinned: index === 1 },
 }));
 function Fixture() {
   const [draft, setDraft] = useState('');

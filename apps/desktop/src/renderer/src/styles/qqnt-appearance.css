@@ -209,6 +209,62 @@ html[data-component-style='qqnt'][data-theme] .weq-conversation-list {
   background: var(--weq-qqnt-canvas);
 }
 
+/* 群助手位于 app-shell 之外，弹层外壳也要沿用会话画布，避免只换了列表行。 */
+html[data-component-style='qqnt'][data-theme] body [data-merged-kind='groupAssistant'] {
+  --weq-skin-popup-surface: var(--weq-qqnt-canvas);
+  color: var(--weq-fg-primary);
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  [data-merged-kind='groupAssistant']
+  .weq-merged-popover-header {
+  min-height: 48px;
+  padding: 8px 12px;
+  background: var(--weq-qqnt-canvas);
+  border-color: var(--weq-qqnt-line);
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  [data-merged-kind='groupAssistant']
+  .weq-merged-popover-title {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  [data-merged-kind='groupAssistant']
+  .weq-merged-popover-body {
+  padding: 0;
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  [data-merged-kind='groupAssistant']
+  .weq-conversation-selection-toolbar {
+  background: var(--weq-qqnt-canvas);
+  border-color: var(--weq-qqnt-line);
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  [data-merged-kind='groupAssistant']
+  .weq-merged-popover-close:hover {
+  background: var(--weq-qqnt-selection);
+  color: var(--weq-fg-primary);
+}
+
+html[data-component-style='qqnt'][data-theme]
+  body
+  [data-merged-kind='groupAssistant']
+  .weq-merged-popover-close:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 1px;
+}
+
 html[data-component-style='qqnt'][data-theme] body .app-title-bar {
   border-color: var(--weq-border-subtle);
   background: var(--weq-qqnt-chrome);
@@ -343,6 +399,13 @@ html[data-component-style='qqnt'][data-theme]
 }
 [data-component-preview='qqnt'] .weq-style-preview-item {
   border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-component-style='qqnt'][data-theme] body [data-merged-kind='groupAssistant'] {
+    animation: none;
+    will-change: auto;
+  }
 }
 
 @media (max-width: 760px), (pointer: coarse) {
