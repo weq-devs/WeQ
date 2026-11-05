@@ -157,7 +157,7 @@ if (serve) {
             await page.waitForTimeout(30);
             const comparison = await page.evaluate(() => {
               const metrics = (base) => {
-                const row = document.querySelector(`${base} .conversation-row`);
+                const row = document.querySelector(`${base} .conversation-row:not(.active)`);
                 const css = getComputedStyle(row);
                 const read = (part, property) =>
                   getComputedStyle(row.querySelector(part))[property];
@@ -171,6 +171,9 @@ if (serve) {
                   preview: read('.row-preview-line', 'fontSize'),
                   time: read('.row-meta', 'fontSize'),
                   unreadBorder: read('.row-unread', 'borderWidth'),
+                  titleColor: read('.row-main strong', 'color'),
+                  previewColor: read('.row-preview-line', 'color'),
+                  timeColor: read('.row-meta', 'color'),
                 };
               };
               const main = metrics('.app-shell');
@@ -178,10 +181,34 @@ if (serve) {
               const row = document.querySelector('.weq-conversation-list .conversation-row');
               const title = row.querySelector('.row-main strong').getBoundingClientRect();
               const time = row.querySelector('.row-time-line').getBoundingClientRect();
-              return { main, assistant, titleTimeAligned: Math.abs(title.top - time.top) <= 1 };
+              const panel = document.querySelector('.weq-merged-popover');
+              const header = panel.querySelector('.weq-merged-popover-header');
+              const body = panel.querySelector('.weq-merged-popover-body');
+              const surface = getComputedStyle(document.querySelector('.sidebar')).backgroundColor;
+              return {
+                main,
+                assistant,
+                titleTimeAligned: Math.abs(title.top - time.top) <= 1,
+                shell: {
+                  panelSurface: getComputedStyle(panel).backgroundColor === surface,
+                  headerSurface: getComputedStyle(header).backgroundColor === surface,
+                  listSurface: getComputedStyle(body).backgroundColor === surface,
+                  edgeToEdge: getComputedStyle(body).padding === '0px',
+                  titleWeight:
+                    getComputedStyle(panel.querySelector('.weq-merged-popover-title'))
+                      .fontWeight === '400',
+                  fitsViewport:
+                    panel.getBoundingClientRect().left >= 0 &&
+                    panel.getBoundingClientRect().right <= innerWidth,
+                  reducedMotion: getComputedStyle(panel).animationName === 'none',
+                },
+              };
             });
             for (const property of Object.keys(comparison.main))
-              if (comparison.main[property] !== comparison.assistant[property])
+              if (
+                (preset === 'qqnt' || !property.endsWith('Color')) &&
+                comparison.main[property] !== comparison.assistant[property]
+              )
                 failures.push(
                   `群助手 ${width}/${theme}/${preset}/${density}/${property}: ${comparison.main[property]} != ${comparison.assistant[property]}`,
                 );
@@ -190,6 +217,9 @@ if (serve) {
               (!comparison.titleTimeAligned || comparison.assistant.unreadBorder !== '0px')
             )
               failures.push(`群助手 ${width}/${theme}/${density}: 时间对齐或未读描边`);
+            if (preset === 'qqnt')
+              for (const [name, passed] of Object.entries(comparison.shell))
+                if (!passed) failures.push(`群助手 ${width}/${theme}/${density}: ${name}`);
             if (output && preset === 'qqnt' && density === 'comfortable')
               await page.screenshot({
                 path: resolve(output, `${width}-${theme}-assistant.png`),
@@ -199,6 +229,73 @@ if (serve) {
           }
         }
       }
+    }
+    await page.evaluate(() => window.qqntQa.store.getState().setComponentStyle('qqnt'));
+    for (const width of [1280, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const theme of ['light', 'dark']) {
+        for (const accent of ['#fff3a1', '#075c30']) {
+          for (const background of ['plain', 'paper', 'grid']) {
+            await page.evaluate(
+              ({ theme, accent, background }) => {
+                const store = window.qqntQa.store.getState();
+                store.setPreference(theme);
+                store.setAccent(accent);
+                store.setBackground(background);
+              },
+              { theme, accent, background },
+            );
+            const panel = page.locator('.weq-merged-popover');
+            await panel.getByRole('button', { name: '搜索群助手会话', exact: true }).click();
+            await panel.locator('input').fill('不存在的合成群');
+            if ((await panel.locator('.weq-merged-popover-row').count()) !== 0)
+              failures.push(`群助手 ${width}/${theme}/${accent}/${background}: 搜索空态`);
+            await panel.getByRole('button', { name: '退出搜索群助手会话', exact: true }).click();
+            await panel.getByRole('button', { name: '多选群助手会话', exact: true }).click();
+            await panel.locator('.conversation-row').first().click();
+            const checks = await panel.evaluate((node) => {
+              const style = (selector) => getComputedStyle(node.querySelector(selector));
+              const surface = getComputedStyle(node).backgroundColor;
+              return {
+                selected: node.querySelectorAll('.conversation-row.is-multiselected').length === 1,
+                batchSurface:
+                  style('.weq-conversation-selection-toolbar').backgroundColor === surface,
+                toolbarSurface:
+                  style('.weq-directory-toolbar').backgroundColor === 'rgba(0, 0, 0, 0)',
+                noOverflow: node.scrollWidth <= node.clientWidth,
+              };
+            });
+            for (const [name, passed] of Object.entries(checks))
+              if (!passed)
+                failures.push(`群助手 ${width}/${theme}/${accent}/${background}: ${name}`);
+            if (output && accent === '#075c30' && background === 'paper')
+              await page.screenshot({
+                path: resolve(output, `${width}-${theme}-assistant-selection.png`),
+                fullPage: true,
+              });
+            await panel.getByRole('button', { name: '退出多选', exact: true }).click();
+            cases++;
+          }
+        }
+      }
+    }
+    await page.evaluate(() => window.qqntQa.store.getState().setPreference('system'));
+    for (const colorScheme of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme });
+      await page.waitForFunction(
+        (theme) => document.documentElement.dataset.theme === theme,
+        colorScheme,
+      );
+      const followsSystem = await page.locator('.weq-merged-popover').evaluate((node) => {
+        const surface = getComputedStyle(document.querySelector('.sidebar')).backgroundColor;
+        return (
+          getComputedStyle(node).backgroundColor === surface &&
+          getComputedStyle(node.querySelector('.weq-merged-popover-header')).backgroundColor ===
+            surface
+        );
+      });
+      if (!followsSystem) failures.push(`群助手 跟随系统/${colorScheme}: 弹层表面`);
+      cases++;
     }
     let reference;
     if (process.env.WEQ_QQNT_REFERENCE) {

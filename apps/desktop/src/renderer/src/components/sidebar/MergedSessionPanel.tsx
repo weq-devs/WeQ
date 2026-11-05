@@ -603,6 +603,7 @@ export function MergedSessionPanel({
           multi.rootProps.ref(element);
         }}
         className="weq-merged-popover"
+        data-merged-kind={kind}
         style={{
           left: `${position.x}px`,
           top: `${position.y}px`,
@@ -615,7 +616,13 @@ export function MergedSessionPanel({
               <span className="weq-group-helper-count"> · {filtered.length} 个群</span>
             ) : null}
           </div>
-          <button type="button" className="weq-merged-popover-close" onClick={onBack}>
+          <button
+            type="button"
+            className="weq-merged-popover-close"
+            aria-label={`关闭${title}`}
+            title={`关闭${title}`}
+            onClick={onBack}
+          >
             <X size={16} />
           </button>
         </div>
