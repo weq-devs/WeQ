@@ -355,6 +355,8 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
+  /** 自动调度等后台任务保留记录，但不在创建时展开任务列表。 */
+  autoOpenTaskList?: boolean;
   content?: ExportContentPolicy;
   completeAvatar?: boolean;
   resourceArchive?: ArchiveOptions;
@@ -1093,6 +1095,7 @@ export class ExportTaskManager extends EventEmitter {
   async startTask(opts: {
     extra?: import('../../common/export_content').ExportExtraOptions;
     content?: ExportContentPolicy;
+    autoOpenTaskList?: boolean;
     completeAvatar?: boolean;
     profile?: ExportProfile;
     incrementalSupport?: boolean;
@@ -1183,6 +1186,7 @@ export class ExportTaskManager extends EventEmitter {
     const archiveSettings = {
       scanId: randomUUID(),
       scanStartedAt: Date.now(),
+      autoOpenTaskList: opts.autoOpenTaskList,
       extra: opts.extra ? structuredClone(opts.extra) : undefined,
       profile: 'full',
       incrementalSupport: !opts.chatlab && structuredFormats.length > 0,

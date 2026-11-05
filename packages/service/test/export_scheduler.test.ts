@@ -88,6 +88,19 @@ it.each([false, true])('定时批次沿用创建时的完整性报告选择 %s',
   );
 });
 
+it('自动定时批次不展开任务列表，手动运行保留展开行为', async () => {
+  const automatic = fixture();
+  await vi.advanceTimersByTimeAsync(3_600_000);
+  expect(automatic.manager.startTask).toHaveBeenCalledWith(
+    expect.objectContaining({ autoOpenTaskList: false }),
+  );
+  const manual = fixture();
+  await manual.scheduler.runNow(manual.schedule.id);
+  expect(manual.manager.startTask).toHaveBeenCalledWith(
+    expect.objectContaining({ autoOpenTaskList: true }),
+  );
+});
+
 it('repeated manual skips cannot hide the active batch or reset the cadence', async () => {
   const f = fixture();
   const nextRun = f.schedule.nextRunAt;
