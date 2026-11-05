@@ -38,6 +38,34 @@
 参考 WCDA 的阶段式反馈与手动启动检查思路，不复用其登录期捕获或原安装替换流程：
 [WCDA macOS 捕获说明](https://github.com/LifeArchiveProject/WeChatDataAnalysis/blob/main/docs/MACOS_KEY_CAPTURE.md)。
 
+## 开发宿主准备
+
+`pnpm dev` 现在先调用 `scripts/prepare-dev-electron.mjs --launch`，macOS 使用 APFS clone
+在 `apps/desktop/dist/dev-runtime/Electron.app` 准备独立开发宿主。保留源主程序权限，
+合并 `build/entitlements.mac.plist` 后仅重签主程序，通过 `ELECTRON_EXEC_PATH` 交给
+electron-vite；非 macOS 继续使用依赖中的 Electron。账号目录参数保持不变。
+直接执行 `node scripts/prepare-dev-electron.mjs` 只准备并输出路径，不启动 WeQ。
+
+主程序与权限清单指纹未变且签名验证通过时复用缓存；损坏或更新时先准备、验证新宿主，
+再替换旧宿主。运行中的宿主需更新时提示先正常退出，不自动停止应用。未知应用、遗留锁和
+恢复资产不会被覆盖。原 `node_modules` 及嵌套 Helper/框架字节、签名保持不变。
+
+本机 Electron 开发发行物的嵌套框架只有 linker-signed 签名、没有完整资源封印，原件的
+`codesign --verify --deep --strict` 本身也不通过。因此这里只对重签后的主宿主做
+`codesign --verify --strict`，不为了递归校验重签嵌套组件；另用真实 Electron 主进程、
+沙盒渲染窗口启动验证可运行性。权限就绪不代替具体账号的在线能力验收。
+
+本机桌面快捷方式对应的开发启动脚本也接入同一准备器；已打开的旧 WeQ 需要正常退出后
+重新启动，QQ 副本无需退出或重新登录。准备器不修改系统设置、原 QQ 或账号数据。
+
+本机验证：6 项 Node 针对性测试、改动文件 Biome 检查和启动脚本语法检查通过。
+独立宿主实际启动 Electron 44.10.0 与隐藏沙盒渲染窗口，并对已登录 QQ 副本成功执行
+原生内存扫描，确认 `a2`、`d2`、`d2Key` 存在；只记录布尔结果，不输出或保存凭据。
+不带账号身份的探针未取得可选 `SecToken`，不将此次扫描表述为全部在线业务验收。
+克隆宿主的 252 个框架文件及 14 个软链接与原发行物完全一致，探针已退出。
+随后通过修复后的本机启动脚本完成主进程、预加载与界面构建，实际 WeQ 主进程使用
+独立宿主路径；QQ 副本与其子进程也已启动。未以启动成功替代界面账号在线状态验收。
+
 ## 抓包归属
 
 核对当前 nt_helper 实现：macOS 原生权限助手编译路径通过 PKTAP `ProcessGuard` 过滤目标
