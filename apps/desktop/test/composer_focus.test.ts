@@ -57,6 +57,45 @@ function fixture() {
 }
 
 describe('进入会话自动聚焦', () => {
+  it.each(['resolve', 'reject'] as const)(
+    '发送迟到的 %s 不清空后续输入或其他会话草稿',
+    async (outcome) => {
+      const f = fixture();
+      let settle: () => void = () => {};
+      const send = vi.fn(
+        (_body: string) =>
+          new Promise<void>((resolve, reject) => {
+            settle = () =>
+              outcome === 'resolve' ? resolve() : reject(new Error('离线发送失败夹具'));
+          }),
+      );
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        f.render({ onSend: send });
+        await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')?.click());
+        expect(send).toHaveBeenCalledOnce();
+        expect(send.mock.calls[0]?.[0]).toBe('已有草稿');
+        act(() => {
+          f.editor().textContent = '发送后继续输入';
+          f.editor().dispatchEvent(new InputEvent('input', { bubbles: true }));
+        });
+        f.render({
+          onSend: send,
+          conversation: { ...f.props.conversation, id: 'next-chat' },
+          draft: '另一会话草稿',
+        });
+        const clears = f.props.onDraftClear.mock.calls.length;
+        await act(async () => settle());
+        expect(f.editor().textContent).toBe('另一会话草稿');
+        expect(f.props.onDraftClear).toHaveBeenCalledTimes(clears);
+        expect(send).toHaveBeenCalledOnce();
+      } finally {
+        log.mockRestore();
+        f.dispose();
+      }
+    },
+  );
+
   it('迟到的草稿可回填未编辑输入框，但不能覆盖用户刚输入的内容', () => {
     const f = fixture();
     try {
