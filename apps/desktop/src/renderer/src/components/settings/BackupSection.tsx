@@ -122,7 +122,9 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [exported, setExported] = useState<Exported | null>(null);
   const [confirm, setConfirm] = useState<'defaults' | 'apply' | 'claim' | 'skip' | null>(null);
-  const [busy, setBusy] = useState<string | null>('正在读取');
+  const [operation, setBusy] = useState<string | null>('正在读取');
+  const [configurationBusy, setConfigurationBusy] = useState(false);
+  const busy = operation ?? (configurationBusy ? '正在清除配置' : null);
   const [error, setError] = useState<string | null>(null);
   const acting = useRef(false);
   const sourceId = useRef<string | null>(null);
@@ -724,19 +726,30 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         ) : null}
       </Card>
       {!pending ? (
-        <Card title="恢复默认设置">
-          <p>仅重置通用设置、导出预设与此设备界面偏好；不会删除账号、API 配置或克隆数据。</p>
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-soft"
-            disabled={
-              Boolean(busy) || !inventory || Boolean(pending) || Boolean(result?.clientPending)
-            }
-            onClick={() => openConfirmation('defaults')}
-          >
-            <RotateCcw size={14} />
-            恢复默认设置
-          </button>
+        <Card title="重置与清除配置" settingId="weq-config-management">
+          <p>
+            恢复默认设置仅重置通用设置、导出预设与此设备界面偏好；不会删除账号、API 配置或克隆数据。
+          </p>
+          <div className="weq-backup-actions">
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft"
+              disabled={
+                Boolean(busy) || !inventory || Boolean(pending) || Boolean(result?.clientPending)
+              }
+              onClick={() => openConfirmation('defaults')}
+            >
+              <RotateCcw size={14} />
+              恢复默认设置
+            </button>
+            <GlobalSettingsSection
+              section="storage"
+              heading={false}
+              storageManagement="configuration"
+              disabled={Boolean(operation) || !inventory || Boolean(result?.clientPending)}
+              onBusyChange={setConfigurationBusy}
+            />
+          </div>
         </Card>
       ) : null}
       {pending ? (
@@ -772,7 +785,6 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           </div>
         </Card>
       ) : null}
-      <GlobalSettingsSection section="storage" heading={false} storageManagement="backup" />
       {confirm && confirmation ? (
         <Modal
           centered

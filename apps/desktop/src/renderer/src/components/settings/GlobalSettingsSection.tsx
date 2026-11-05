@@ -38,7 +38,7 @@ import { Card, Row, SectionHeader, Toggle, SettingsNavigateContext } from './con
 import { useTabActive } from '../RetainedTabs';
 import { ToastSettingsCard } from './ToastSettingsCard';
 import { DesktopOnly, IS_WEB } from '../../lib/target';
-import { groupStorage } from '../../lib/storage-groups';
+import { groupStorage, mergeStorageEntries } from '../../lib/storage-groups';
 import '../../styles/save-preferences.css';
 import '../../styles/storage-management.css';
 
@@ -91,10 +91,14 @@ export function GlobalSettingsSection({
   section = 'general',
   heading = true,
   storageManagement = 'cleanup',
+  disabled = false,
+  onBusyChange,
 }: {
   section?: 'general' | 'accounts' | 'storage' | 'saving' | 'logs' | 'network';
   heading?: boolean;
-  storageManagement?: 'cleanup' | 'backup';
+  storageManagement?: 'cleanup' | 'configuration';
+  disabled?: boolean;
+  onBusyChange?: (busy: boolean) => void;
 }): ReactElement {
   const navigate = useContext(SettingsNavigateContext);
   const active = useTabActive();
@@ -169,14 +173,21 @@ export function GlobalSettingsSection({
   const cleanupBusy = cleaning || clearStorageData.isLoading;
   const [pickedCats, setPickedCats] = useState<Set<string>>(new Set());
   const cacheItems = (cacheUsage.data ?? []).filter((item) =>
-    storageManagement === 'backup'
-      ? item.management === 'backup'
-      : item.management !== 'backup' && item.management !== 'downloads',
+    storageManagement === 'configuration'
+      ? item.management === 'backup' &&
+        ['config', 'config.json'].includes(item.path.split(/[\\/]/).at(-1) ?? '')
+      : item.management !== 'backup' &&
+        item.management !== 'downloads' &&
+        item.management !== 'runtime',
   );
   const clearableItems = cacheItems.filter(
     (item) => item.clearable && (item.bytes > 0 || item.incomplete),
   );
-  const storageGroups = groupStorage(cacheItems, storageManagement === 'backup');
+  const storageGroups = groupStorage(cacheItems).map((group) => ({
+    ...group,
+    entries: mergeStorageEntries(group.items),
+  }));
+  const storageEntries = storageGroups.flatMap((group) => group.entries);
   const safeCacheItems = clearableItems.filter(
     (item) => item.action === 'cache' || (!item.action && !item.requiresExit),
   );
@@ -185,7 +196,12 @@ export function GlobalSettingsSection({
   const backupBytes = cacheItems
     .filter((item) => item.category === 'db-backups')
     .reduce((sum, item) => sum + item.bytes, 0);
-  const selectedItems = clearableItems.filter((item) => pickedCats.has(item.id));
+  const selectedIds = new Set(
+    storageEntries
+      .filter(({ item }) => item.clearable && pickedCats.has(item.id))
+      .flatMap(({ members }) => members.map((item) => item.id)),
+  );
+  const selectedItems = clearableItems.filter((item) => selectedIds.has(item.id));
   const cleanupBytes = (pickedCats.size > 0 ? selectedItems : safeCacheItems).reduce(
     (sum, item) => sum + item.bytes,
     0,
@@ -275,13 +291,13 @@ export function GlobalSettingsSection({
   }
 
   const cacheMulti = useMultiSelection({
-    ids: clearableItems.map((item) => item.id),
+    ids: storageEntries.filter(({ item }) => item.clearable).map(({ item }) => item.id),
     selected: pickedCats,
     onChange: setPickedCats,
     disabled: cleanupBusy || cacheUsage.isFetching,
   });
 
-  const storageItem = (item: (typeof cacheItems)[number]) => (
+  const storageItem = (item: StorageUsageItem, members: StorageUsageItem[]) => (
     <label key={item.id} className="weq-set-cache-item" {...cacheMulti.itemProps(item.id)}>
       <input
         type="checkbox"
@@ -296,47 +312,67 @@ export function GlobalSettingsSection({
         {item.backup && <small>{backupDescription(item)}</small>}
         {item.category === 'program-backups' && <small>{item.reason}</small>}
         <small>{item.confirmation ?? item.reason}</small>
-        <small className="weq-storage-path">{item.path}</small>
+        <small className="weq-storage-path">
+          {members.map((member) => member.path).join('\n')}
+        </small>
       </span>
       <span className="weq-set-cache-size weq-number">{formatBytes(item.bytes)}</span>
     </label>
   );
 
-  async function onClearWeqCache(): Promise<void> {
-    const targets = pickedCats.size > 0 ? selectedItems : safeCacheItems;
+  async function onClearWeqCache(explicitTargets?: StorageUsageItem[]): Promise<void> {
+    const targets = explicitTargets ?? (pickedCats.size > 0 ? selectedItems : safeCacheItems);
     const ids = targets.map((item) => item.id);
     if (ids.length === 0) return;
     const willFree = targets.reduce((sum, it) => sum + it.bytes, 0);
-    const label = pickedCats.size > 0 ? targets.map((t) => t.label).join('、') : '全部可清理缓存';
+    const displayTargets = mergeStorageEntries(targets).map(({ item }) => item);
+    const label =
+      explicitTargets || pickedCats.size > 0
+        ? displayTargets.map((t) => t.label).join('、')
+        : '全部可清理缓存';
     const risky = targets.some((item) => item.requiresExit);
-    const extra = targets.flatMap((item) =>
+    const extra = displayTargets.flatMap((item) =>
       item.confirmation ? [`${item.label}：${item.confirmation}`] : [],
     );
+    const configuration = storageManagement === 'configuration';
     const ok = await confirm(
-      risky ? '清除所选数据' : '清理 WeQ 缓存',
-      risky
-        ? `将永久删除「${label}」，预计清除约 ${formatBytes(willFree)}。只删除所选路径中的数据，不会额外清理其它 QQ 数据目录。先清除可直接清除的项目；若有占用项，会另行询问是否重启。\n\n${extra.join('\n\n')}\n\n确认清除？`
-        : `将删除「${label}」，预计释放约 ${formatBytes(willFree)}。需要时会重新下载或生成；保留数据不受影响。${extra.length ? `\n\n${extra.join('\n')}\n\n` : ''}是否继续？`,
+      configuration ? `清除${label}？` : risky ? '清除所选数据' : '清理 WeQ 缓存',
+      configuration
+        ? `将清除「${label}」。\n\n${extra.join('\n\n')}\n\n先直接应用；若配置文件被占用，会另行询问是否重启。确认继续？`
+        : risky
+          ? `将永久删除「${label}」，预计清除约 ${formatBytes(willFree)}。只删除所选路径中的数据，不会额外清理其它 QQ 数据目录。先清除可直接清除的项目；若有占用项，会另行询问是否重启。\n\n${extra.join('\n\n')}\n\n确认清除？`
+          : `将删除「${label}」，预计释放约 ${formatBytes(willFree)}。需要时会重新下载或生成；保留数据不受影响。${extra.length ? `\n\n${extra.join('\n')}\n\n` : ''}是否继续？`,
       { okLabel: risky ? '清除' : '清理', cancelLabel: '取消', tone: 'warning' },
     );
     if (!ok) return;
     setCleaning(true);
+    onBusyChange?.(true);
     try {
       const res = await clearStorageData.mutateAsync({ ids, acknowledgeRisk: true });
       setRestartIds(res.restartIds);
       await cacheUsage.refetch();
       await cleanupResult.refetch();
-      setPickedCats(new Set(res.failed.flatMap((item) => (item.id ? [item.id] : []))));
+      const failedIds = new Set(res.failed.flatMap((item) => (item.id ? [item.id] : [])));
+      setPickedCats(
+        new Set([
+          ...failedIds,
+          ...storageEntries
+            .filter(({ members }) => members.some((item) => failedIds.has(item.id)))
+            .map(({ item }) => item.id),
+        ]),
+      );
       pushToast({
         tone: res.failed.length > 0 ? 'warning' : 'success',
-        title: res.failed.length > 0 ? '部分项目未能清除' : '清理已完成',
-        message: `已清除 ${res.cleared.length} 项，释放约 ${formatBytes(res.freedBytes)}${res.failed.length ? `；${res.failed.map((item) => `${item.label}：${item.error}`).join('；')}` : ''}`,
+        title:
+          res.failed.length > 0 ? '部分项目未能清除' : configuration ? '配置已清除' : '清理已完成',
+        message: `已清除 ${res.cleared.length} 项${configuration ? '' : `，释放约 ${formatBytes(res.freedBytes)}`}${res.failed.length ? `；${res.failed.map((item) => `${item.label}：${item.error}`).join('；')}` : ''}`,
       });
       if (res.restartIds.length) await retryOccupiedStorage(res.restartIds);
     } catch (e) {
-      showError('清理缓存失败', errMsg(e));
+      showError(configuration ? '清除配置失败' : '清理缓存失败', errMsg(e));
     } finally {
       setCleaning(false);
+      onBusyChange?.(false);
     }
   }
 
@@ -442,6 +478,58 @@ export function GlobalSettingsSection({
 
   const accountList = accounts.data ?? [];
   const autoEnterTarget = autoEnter.data;
+
+  if (storageManagement === 'configuration') {
+    return (
+      <>
+        {[
+          { name: 'config', label: '清除账号与应用配置' },
+          { name: 'config.json', label: '重置全局配置' },
+        ].map(({ name, label }) => {
+          const targets = clearableItems.filter((item) => item.path.split(/[\\/]/).at(-1) === name);
+          return (
+            <button
+              key={name}
+              type="button"
+              className="weq-set-btn weq-set-btn-soft"
+              title={cacheUsage.isError ? `读取配置失败：${errMsg(cacheUsage.error)}` : undefined}
+              disabled={
+                disabled ||
+                cleanupBusy ||
+                cacheUsage.isFetching ||
+                cacheUsage.isError ||
+                targets.length === 0
+              }
+              onClick={() => void onClearWeqCache(targets)}
+            >
+              {name === 'config' ? <Trash2 size={14} /> : <RotateCcw size={14} />}
+              {label}
+            </button>
+          );
+        })}
+        {restartIds.length > 0 && (
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={disabled || cleanupBusy}
+            onClick={() => {
+              setCleaning(true);
+              onBusyChange?.(true);
+              void retryOccupiedStorage(restartIds)
+                .catch((error) => showError('继续清除失败', errMsg(error)))
+                .finally(() => {
+                  setCleaning(false);
+                  onBusyChange?.(false);
+                });
+            }}
+          >
+            <RotateCcw size={14} />
+            重启并清除剩余配置
+          </button>
+        )}
+      </>
+    );
+  }
 
   return (
     <div className={`weq-set${section === 'storage' ? ' weq-storage-settings' : ''}`}>
@@ -738,21 +826,14 @@ export function GlobalSettingsSection({
 
       {/* WeQ 存储管理 */}
       {section === 'storage' && (
-        <Card
-          title={storageManagement === 'backup' ? '配置与运行数据管理' : '空间清理'}
-          settingId={storageManagement === 'backup' ? 'weq-config-management' : 'weq-space-cleanup'}
-        >
+        <Card title="空间清理" settingId="weq-space-cleanup">
           <div className="weq-set-actions weq-storage-toolbar">
             <span className="weq-set-cache-total">
               本页占用 <strong className="weq-number">{formatBytes(totalCacheBytes)}</strong>
-              {storageManagement === 'cleanup' && (
-                <>
-                  {' · '}普通缓存可清理{' '}
-                  <strong className="weq-number">{formatBytes(clearableBytes)}</strong>
-                  {' · '}历史数据库备份占用{' '}
-                  <strong className="weq-number">{formatBytes(backupBytes)}</strong>
-                </>
-              )}
+              {' · '}普通缓存可清理{' '}
+              <strong className="weq-number">{formatBytes(clearableBytes)}</strong>
+              {' · '}历史数据库备份占用{' '}
+              <strong className="weq-number">{formatBytes(backupBytes)}</strong>
               {cacheItems.some((item) => item.incomplete) ? '（统计不完整）' : ''}
             </span>
             <div className="weq-set-btn-group weq-storage-toolbar-buttons">
@@ -829,9 +910,9 @@ export function GlobalSettingsSection({
                       </span>
                     </summary>
                     <div className="weq-storage-entries">
-                      {group.items.map((item) =>
+                      {group.entries.map(({ item, members }) =>
                         item.clearable ? (
-                          storageItem(item)
+                          storageItem(item, members)
                         ) : (
                           <div key={item.id} className="weq-set-cache-item is-readonly">
                             <HardDrive size={14} strokeWidth={1.8} aria-hidden />
@@ -892,7 +973,7 @@ export function GlobalSettingsSection({
               ) : (
                 <Trash2 size={14} strokeWidth={1.8} aria-hidden />
               )}
-              {storageManagement === 'backup' ? '清除所选数据' : '开始清理'}
+              开始清理
             </button>
           </div>
         </Card>

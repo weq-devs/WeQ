@@ -8,6 +8,19 @@ const base = {
   management: 'cleanup' as const,
 };
 export const storageItems: StorageUsageItem[] = [
+  ...['Cache', 'Code Cache', 'GPUCache'].map(
+    (name): StorageUsageItem => ({
+      ...base,
+      id: name,
+      path: `/synthetic/profile/${name}`,
+      label: '桌面运行缓存',
+      category: 'cache',
+      action: 'cache',
+      requiresExit: true,
+      confirmation: '仅删除桌面缓存，后续使用时会重新生成。',
+    }),
+  ),
+  { ...base, id: 'empty', path: '/synthetic/empty', label: '空项目', category: 'media', bytes: 0 },
   {
     ...base,
     id: 'media',

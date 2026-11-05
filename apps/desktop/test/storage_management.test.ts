@@ -78,6 +78,48 @@ afterEach(() => {
 });
 
 describe('WeQ 存储管理页面', () => {
+  it('同类缓存只显示一行，选择后清除全部来源，空项目及空分类不显示', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const length = fixture.items.length;
+    fixture.items.push(
+      {
+        ...fixture.items[0]!,
+        id: 'old-avatar',
+        path: '/old/avatar',
+        label: '头像缓存（默认目录）',
+      },
+      {
+        ...fixture.items[0]!,
+        id: 'empty',
+        path: '/empty',
+        label: '空装扮',
+        bytes: 0,
+        category: 'dress',
+      },
+    );
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      expect(host.querySelectorAll('input[aria-label="头像缓存"]')).toHaveLength(1);
+      expect(host.textContent).not.toContain('空装扮');
+      expect(host.textContent).not.toContain('表情与装扮缓存');
+      act(() => host.querySelector<HTMLElement>('[data-weq-select-id="avatar"]')!.click());
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '开始清理')!
+          .click(),
+      );
+      expect(fixture.clear).toHaveBeenCalledWith({
+        ids: ['avatar', 'old-avatar'],
+        acknowledgeRisk: true,
+      });
+    } finally {
+      act(() => root.unmount());
+      fixture.items.splice(length);
+    }
+  });
   it('数据库备份置顶并默认展开，配置与闪传成品不计入本页占用或默认清理', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
@@ -138,19 +180,40 @@ describe('WeQ 存储管理页面', () => {
     }
   });
 
-  it('备份页管理区只处理明确选择的配置，取消确认不清除', async () => {
+  it('配置操作只显示独立按钮，取消不清除，确认不混入缓存或运行状态', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const length = fixture.items.length;
-    fixture.items.push({
-      ...fixture.items[0]!,
-      id: 'config',
-      label: '账号与应用配置',
-      management: 'backup',
-      action: 'data',
-      requiresExit: true,
-      confirmation: '将删除账号配置，需要重新登录。',
-    });
+    fixture.items.push(
+      {
+        ...fixture.items[0]!,
+        id: 'config',
+        path: '/synthetic/config',
+        label: '账号与应用配置',
+        management: 'backup',
+        action: 'data',
+        requiresExit: true,
+        confirmation: '将删除账号配置，需要重新登录。',
+      },
+      {
+        ...fixture.items[0]!,
+        id: 'global-config',
+        path: '/synthetic/config.json',
+        label: '全局配置',
+        management: 'backup',
+        action: 'data',
+        requiresExit: true,
+        confirmation: '将重置全局设置。',
+      },
+      {
+        ...fixture.items[0]!,
+        id: 'runtime',
+        path: '/synthetic/profile/Preferences',
+        label: '桌面运行数据 / Preferences',
+        management: 'runtime',
+        clearable: false,
+      },
+    );
     const host = document.createElement('div');
     const root = createRoot(host);
     try {
@@ -159,22 +222,31 @@ describe('WeQ 存储管理页面', () => {
           createElement(GlobalSettingsSection, {
             section: 'storage',
             heading: false,
-            storageManagement: 'backup',
+            storageManagement: 'configuration',
           }),
         ),
       );
       expect(host.textContent).not.toContain('头像缓存');
       expect(host.textContent).not.toContain('缓存目录');
+      expect(host.textContent).not.toContain('本页占用');
+      expect(host.querySelector('input[type="checkbox"]')).toBeNull();
       const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-        (button) => button.textContent === '清除所选数据',
+        (button) => button.textContent === '清除账号与应用配置',
       )!;
-      expect(button.disabled).toBe(true);
-      act(() => host.querySelector<HTMLElement>('[data-weq-select-id="config"]')!.click());
+      expect(button.disabled).toBe(false);
       fixture.confirm.mockResolvedValueOnce(false);
       await act(async () => button.click());
       expect(fixture.clear).not.toHaveBeenCalled();
       await act(async () => button.click());
       expect(fixture.clear).toHaveBeenCalledWith({ ids: ['config'], acknowledgeRisk: true });
+      const reset = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+        (node) => node.textContent === '重置全局配置',
+      )!;
+      await act(async () => reset.click());
+      expect(fixture.clear).toHaveBeenLastCalledWith({
+        ids: ['global-config'],
+        acknowledgeRisk: true,
+      });
     } finally {
       act(() => root.unmount());
       fixture.items.splice(length);
