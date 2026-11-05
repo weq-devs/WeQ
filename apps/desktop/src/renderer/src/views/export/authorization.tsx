@@ -256,10 +256,13 @@ export function useExportAuthorization(options: ExportOptions, enabled: boolean)
               </ul>
               {requests
                 .filter(() => busy)
-                .map((request) => (
+                .map((request, index) => (
                   <AuthorizationForm
                     key={`${request.kind}:${request.token}`}
                     request={request}
+                    showLongTermAuthorization={
+                      index === requests.findLastIndex((item) => !item.title.includes('长期授权'))
+                    }
                     onOpenLongTermAuthorization={() => settle(null)}
                   />
                 ))}

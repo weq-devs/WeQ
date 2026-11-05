@@ -15,6 +15,7 @@ import {
 import { useViewState } from '../src/renderer/src/state/view';
 import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
 import type { QqDataAccess } from '../src/main/qq_data_access';
+import type { QqDebugCopyStatus } from '../src/shared/qq_debug_copy';
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_MAC: true, IS_WEB: false }));
 
 const ready: OnlineAccess = {
@@ -48,6 +49,8 @@ const mock = vi.hoisted(() => ({
   credentialsReady: undefined as undefined | (() => void),
   unsubscribe: vi.fn(),
   invalidateAccess: vi.fn(async () => {}),
+  invalidateDebug: vi.fn(async () => {}),
+  debugState: 'missing' as QqDebugCopyStatus['state'],
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
@@ -79,6 +82,20 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     },
     bootstrap: {
+      qqDebugCopyStatus: {
+        useQuery: () => ({
+          data: {
+            phase: 'idle',
+            state: mock.debugState,
+            sourceVersion: '7.0.1-1',
+            path: '/synthetic/QQ-WeQ.app',
+            readerReady: false,
+            runningPids: [],
+            message: '合成副本状态',
+          },
+          refetch: mock.refetch,
+        }),
+      },
       qqDataAccess: {
         useQuery: () => ({
           data: mock.dataAccess,
@@ -110,6 +127,7 @@ const utils = {
     listAccounts: { invalidate: mock.invalidateBootstrap },
     listAccountConfigs: { invalidate: mock.invalidateBootstrap },
     describeInstall: { invalidate: mock.invalidateBootstrap },
+    qqDebugCopyStatus: { invalidate: mock.invalidateDebug },
   },
 };
 
@@ -161,6 +179,7 @@ describe('受限原因按实际能力判定', () => {
 
 let cleanup = () => {};
 beforeEach(() => {
+  Object.defineProperty(window, 'weq', { configurable: true, value: undefined });
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   Object.defineProperty(window, 'electron', {
     configurable: true,
@@ -196,6 +215,8 @@ beforeEach(() => {
   mock.credentialsReady = undefined;
   mock.unsubscribe.mockClear();
   mock.invalidateAccess.mockReset();
+  mock.invalidateDebug.mockReset().mockResolvedValue(undefined);
+  mock.debugState = 'missing';
   useViewState.setState({ view: 'main', openedUin: '10001' });
   useRestrictedMode.setState({
     reasons: [],
@@ -267,6 +288,72 @@ it('手动启用提交完整来源，不修改自动偏好；普通重新检查�
   expect(mock.refreshRkeys).toHaveBeenCalledOnce();
   expect(f.host.textContent).toContain('尚未恢复完整功能');
   expect(useToast.getState().toasts.some((toast) => toast.title === '已启用完整功能')).toBe(false);
+});
+it.each(['missing', 'ready', 'outdated', 'invalid', 'unmanaged'] as const)(
+  'SIP 副本 %s 状态的嵌入面板只显示一个重新检查，点击同时刷新副本和在线状态',
+  async (state) => {
+    mock.sip = true;
+    mock.debugState = state;
+    mock.access = { ...ready, hasD2: false };
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('button')].filter(
+      (button) => button.textContent === '重新检查',
+    );
+    expect(buttons).toHaveLength(1);
+    await act(async () => buttons[0]!.click());
+    expect(mock.invalidateDebug).toHaveBeenCalledOnce();
+    expect(mock.refreshRkeys).toHaveBeenCalledOnce();
+    expect(mock.requestFull).not.toHaveBeenCalled();
+  },
+);
+it('副本、数据读取提示和多项授权同时出现时，通用检查及长期授权入口仍各只有一份', async () => {
+  Object.defineProperty(window, 'weq', { configurable: true, value: { authorization: {} } });
+  mock.sip = true;
+  mock.access = { ...ready, hasD2: false };
+  mock.dataAccess = { status: 'denied', applicationPath: '/synthetic/WeQ.app', issues: [] };
+  const f = fixture();
+  event('elev:request-password', { token: 41 });
+  event('attach:confirm-hint', { token: 42 });
+  act(() => useRestrictedMode.getState().setOpen(true));
+  const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('button')];
+  expect(buttons.filter((button) => button.textContent === '重新检查')).toHaveLength(1);
+  expect(buttons.filter((button) => button.textContent === '重新检测')).toHaveLength(0);
+  expect(buttons.filter((button) => button.textContent === '管理长期授权')).toHaveLength(1);
+  await act(async () => buttons.find((button) => button.textContent === '重新检查')!.click());
+  expect(mock.invalidateDebug).toHaveBeenCalledOnce();
+  expect(mock.dataRefetch).toHaveBeenCalledOnce();
+  expect(mock.send).not.toHaveBeenCalled();
+  expect(useRestrictedMode.getState().requests).toHaveLength(2);
+});
+it('等待副本刷新时切换来源，不把旧来源检查继续应用到新账号', async () => {
+  mock.sip = true;
+  mock.access = {
+    ...ready,
+    hasD2: false,
+    source: { expectedAccountUin: '10001', expectedAccountConfigId: 'old' },
+  };
+  let finish = () => {};
+  mock.invalidateDebug.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const f = fixture();
+  act(() => useRestrictedMode.getState().setOpen(true));
+  await act(async () =>
+    [...f.host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === '重新检查')!
+      .click(),
+  );
+  mock.access = {
+    ...mock.access,
+    source: { expectedAccountUin: '10001', expectedAccountConfigId: 'new' },
+  };
+  f.render();
+  await act(async () => finish());
+  expect(mock.refreshRkeys).not.toHaveBeenCalled();
 });
 it('同号切源丢弃手动请求的迟到结果，不在新来源继续采集', async () => {
   const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-live' };
@@ -544,6 +631,7 @@ describe('受限模式启动 QQ', () => {
 
 describe('非阻塞提权入口', () => {
   it('重新检查与提权共用一行操作区，多项授权时只显示一次且不提交表单', async () => {
+    Object.defineProperty(window, 'weq', { configurable: true, value: { authorization: {} } });
     const f = fixture();
     event('elev:request-password', { token: 41 });
     event('attach:confirm-hint', { token: 42 });
@@ -552,6 +640,11 @@ describe('非阻塞提权入口', () => {
       (button) => button.textContent === '重新检查',
     );
     expect(buttons).toHaveLength(1);
+    expect(
+      [...f.host.querySelectorAll('button')].filter(
+        (button) => button.textContent === '管理长期授权',
+      ),
+    ).toHaveLength(1);
     const row = buttons[0]!.closest('.weq-restricted-actions')!;
     expect(row.querySelector('[type="submit"]')?.textContent).toBe('提权');
     expect(row.closest('form')).not.toBeNull();

@@ -5,13 +5,22 @@ import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/st
 import { setFixture } from './qq-debug-copy.stub';
 import { SelectScreen } from '../../src/renderer/src/views/bootstrap/SelectScreen';
 import { useViewState } from '../../src/renderer/src/state/view';
+import {
+  RestrictedModeHost,
+  RestrictedModeIndicator,
+} from '../../src/renderer/src/components/RestrictedMode';
+import { useRestrictedMode } from '../../src/renderer/src/state/restrictedMode';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/settings-controls.css';
 
 ensureThemeInitialized();
-Object.assign(window, { debugCopyQa: { store: useThemeStore, setFixture } });
+Object.assign(window, {
+  debugCopyQa: { store: useThemeStore, setFixture, restrictedStore: useRestrictedMode },
+});
 useViewState.getState().enterSelect('existing');
 const startup = new URLSearchParams(location.search).has('startup');
+const restricted = new URLSearchParams(location.search).has('restricted');
+if (restricted) useViewState.setState({ view: 'main', openedUin: '10001' });
 createRoot(document.getElementById('root')!).render(
   startup ? (
     <>
@@ -30,6 +39,11 @@ createRoot(document.getElementById('root')!).render(
         }}
       />
       <DialogHost />
+    </>
+  ) : restricted ? (
+    <>
+      <RestrictedModeIndicator />
+      <RestrictedModeHost />
     </>
   ) : (
     <main

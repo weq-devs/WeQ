@@ -253,6 +253,39 @@ it('提权请求在当前弹窗显示，跳过取消本次密码请求但保留�
     view.close();
   }
 });
+it('导出弹窗中多项授权请求共用一个长期授权管理入口', async () => {
+  Object.defineProperty(window, 'weq', { configurable: true, value: { authorization: {} } });
+  let rejectArm: ((error: Error) => void) | undefined;
+  f.arm.mockImplementationOnce(async () => {
+    useRestrictedMode
+      .getState()
+      .request({ kind: 'password', token: 21, title: '导出抓包', message: 'synthetic' });
+    useRestrictedMode
+      .getState()
+      .request({ kind: 'ptrace', token: 22, title: '导出读取', message: 'synthetic' });
+    return await new Promise((_resolve, reject) => {
+      rejectArm = reject;
+    });
+  });
+  const view = mount();
+  try {
+    await flush();
+    click(view.host, '导出');
+    await flush();
+    click(view.host, '提权并继续');
+    await flush();
+    expect(view.host.querySelectorAll('input[type="password"]')).toHaveLength(2);
+    expect(
+      [...view.host.querySelectorAll('button')].filter(
+        (button) => button.textContent === '管理长期授权',
+      ),
+    ).toHaveLength(1);
+  } finally {
+    rejectArm?.(new Error('cleanup'));
+    view.close();
+    Object.defineProperty(window, 'weq', { configurable: true, value: undefined });
+  }
+});
 
 it('授权成功后才将完整选项交给导出，已就绪时不再次抓包', async () => {
   f.arm.mockImplementationOnce(async () => {

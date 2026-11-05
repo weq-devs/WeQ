@@ -16,7 +16,13 @@ const PHASE_LABELS: Record<QqDebugCopyPhase, string> = {
   removing: '正在移除副本',
 };
 
-export function QqDebugCopy({ onCheck }: { onCheck?: () => Promise<void> }) {
+export function QqDebugCopy({
+  onCheck,
+  showRetry = true,
+}: {
+  onCheck?: () => Promise<void>;
+  showRetry?: boolean;
+}) {
   const active = useTabActive();
   const status = trpc.bootstrap.qqDebugCopyStatus.useQuery(undefined, {
     enabled: active,
@@ -169,15 +175,17 @@ export function QqDebugCopy({ onCheck }: { onCheck?: () => Promise<void> }) {
           <Play size={14} />
           启动副本
         </button>
-        <button
-          type="button"
-          className="weq-set-btn"
-          disabled={busy}
-          onClick={() => (ready ? void run('verify') : void status.refetch())}
-        >
-          <RefreshCw size={14} />
-          {onCheck && ready ? '检查在线凭据' : '重新检查'}
-        </button>
+        {showRetry && (
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={busy}
+            onClick={() => (ready ? void run('verify') : void status.refetch())}
+          >
+            <RefreshCw size={14} />
+            {onCheck && ready ? '检查在线凭据' : '重新检查'}
+          </button>
+        )}
         {managed && (
           <button
             type="button"

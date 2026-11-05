@@ -157,9 +157,52 @@ try {
     if (output) await page.screenshot({ path: resolve(output, `startup-${width}.png`) });
     await page.getByRole('button', { name: '关闭调试副本', exact: true }).click();
   }
+  await page.goto(
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-debug-copy.html?restricted=1`,
+  );
+  await page.getByRole('button', { name: '受限模式', exact: true }).click();
+  await page.locator('.weq-restricted-panel .weq-qq-debug').waitFor();
+  let restrictedCases = 0;
+  for (const width of [1180, 390])
+    for (const theme of ['light', 'dark'])
+      for (const state of ['missing', 'ready']) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate(
+          ({ theme, state }) => {
+            window.debugCopyQa.store.getState().setPreference(theme);
+            window.debugCopyQa.setFixture({ state });
+          },
+          { theme, state },
+        );
+        if ((await page.getByRole('button', { name: '重新检查', exact: true }).count()) !== 1)
+          throw new Error('受限详情的重新检查入口重复');
+        if (await page.getByRole('button', { name: '检查在线凭据', exact: true }).count())
+          throw new Error('嵌入面板不应另设检查入口');
+        await page.locator('.weq-restricted-body').evaluate((node) => {
+          node.scrollTop = node.scrollHeight;
+        });
+        if (output)
+          await page.screenshot({
+            path: resolve(output, `recheck-${width}-${theme}-${state}.png`),
+          });
+        restrictedCases++;
+      }
+  await page.evaluate(() => {
+    window.weq = { authorization: {} };
+    const store = window.debugCopyQa.restrictedStore.getState();
+    store.request({ kind: 'password', token: 41, title: '合成授权', message: 'synthetic' });
+    store.request({ kind: 'ptrace', token: 42, title: '合成读取', message: 'synthetic' });
+    store.setOpen(true);
+  });
+  await page.getByRole('button', { name: '管理长期授权', exact: true }).waitFor();
+  if (
+    (await page.getByRole('button', { name: '管理长期授权', exact: true }).count()) !== 1 ||
+    (await page.getByRole('button', { name: '重新检查', exact: true }).count()) !== 1
+  )
+    throw new Error('多项授权时公共操作入口重复');
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(
-    `通过 ${cases} 组视口/主题/主题色/背景布局，以及创建、启动、运行中保护和减少动态效果检查。`,
+    `通过 ${cases} 组视口/主题/主题色/背景布局、${restrictedCases} 组受限面板检查，以及创建、启动、运行中保护、减少动态效果和公共入口去重检查。`,
   );
 } finally {
   await browser?.close();

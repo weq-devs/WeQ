@@ -45,11 +45,11 @@ afterEach(() => {
   close();
   vi.unstubAllGlobals();
 });
-async function mount(onCheck?: () => Promise<void>) {
+async function mount(onCheck?: () => Promise<void>, showRetry = true) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = () => root.render(createElement(QqDebugCopy, { onCheck }));
+  const render = () => root.render(createElement(QqDebugCopy, { onCheck, showRetry }));
   await act(async () => render());
   close = () => {
     act(() => root.unmount());
@@ -74,7 +74,21 @@ it('打开界面只检测，缺少副本不能启动；显示读取端、签名�
   expect(v.host.textContent).toContain('调试权限已就绪');
   expect(v.host.textContent).toContain('未创建');
   expect(v.host.textContent).toContain('未启动');
+  expect(
+    [...v.host.querySelectorAll('button')].filter((button) => button.textContent === '重新检查'),
+  ).toHaveLength(1);
 });
+it.each(['missing', 'ready'] as const)(
+  '嵌入面板 %s 隐藏自身检查入口，但不影响副本管理操作',
+  async (state) => {
+    f.data!.state = state;
+    const v = await mount(undefined, false);
+    expect(v.button('重新检查')).toBeUndefined();
+    expect(v.button('检查在线凭据')).toBeUndefined();
+    expect(v.button('启动副本')).toBeDefined();
+    expect(v.button(state === 'missing' ? '创建副本' : '更新副本')).toBeDefined();
+  },
+);
 it('创建期间禁用重复操作，完成只提示准备好，不冒称在线凭据就绪', async () => {
   let finish = () => {};
   f.action.mockReturnValue(
