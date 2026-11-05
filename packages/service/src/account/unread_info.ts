@@ -1,5 +1,5 @@
 import type { AccountSession } from '@weq/account';
-import { recordMessageWork } from '@weq/db';
+import { databaseRequestSignal, recordMessageWork, withDatabasePriority } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import { ReportRead, type ReadReportParams } from '@weq/protocol';
 import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
@@ -54,6 +54,7 @@ export class UnreadInfoService {
   private readonly local: LocalUnreadStore;
   private readonly openedAt = Date.now() / 1000;
   private disposed = false;
+  private readonly reads = new AbortController();
   private generation = 0;
   private readonly pending = new Map<string, PendingReport>();
   private readonly confirmed = new Map<
@@ -113,6 +114,7 @@ export class UnreadInfoService {
 
   async dispose(): Promise<void> {
     this.disposed = true;
+    this.reads.abort();
     this.cancelReports();
     this.readHistory.clear();
     await this.local.flush();
@@ -133,6 +135,14 @@ export class UnreadInfoService {
     targets: UnreadInfoTarget[],
     watermarksOnly = false,
   ): Promise<ResolvedUnreadInfo[]> {
+    if (this.disposed)
+      return targets.map(({ chatType, uid }) => ({
+        chatType,
+        uid,
+        peer: `${chatType}_${uid}`,
+        latestSeq: null,
+        readError: true,
+      }));
     const began = performance.now();
     const snapshots = watermarksOnly
       ? await this.session.unreadInfo.getUnreadInfos(targets)
@@ -159,10 +169,19 @@ export class UnreadInfoService {
   }
 
   private readSnapshots(targets: UnreadInfoTarget[]): Promise<UnreadInfoSnapshot[]> {
-    return this.session.unreadInfo.getUnreadInfos(targets, {
-      selfUid: this.session.selfUid,
-      selfUin: this.session.context.uin,
-    });
+    const inherited = databaseRequestSignal();
+    const signal = inherited ? AbortSignal.any([inherited, this.reads.signal]) : this.reads.signal;
+    return withDatabasePriority(
+      'background',
+      () => {
+        signal.throwIfAborted();
+        return this.session.unreadInfo.getUnreadInfos(targets, {
+          selfUid: this.session.selfUid,
+          selfUin: this.session.context.uin,
+        });
+      },
+      signal,
+    );
   }
 
   async markLocalRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {

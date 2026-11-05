@@ -1,0 +1,100 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import type { AccountSession } from '@weq/account';
+import {
+  databasePerformance,
+  databaseRequestSignal,
+  scheduleDatabase,
+  withDatabasePriority,
+} from '@weq/db';
+import { UnreadInfoService } from '../src/account/unread_info';
+
+afterEach(() => vi.unstubAllEnvs());
+const target = [{ chatType: 2, uid: '70001' }];
+function fixture(path: string) {
+  const binding = {};
+  const queried = vi.fn(async () => []);
+  const signals: Array<AbortSignal | undefined> = [];
+  const getUnreadInfos = vi.fn(async () => {
+    signals.push(databaseRequestSignal());
+    await scheduleDatabase(path, queried, binding);
+    return [
+      { chatType: 2, uid: '70001', peer: '2_70001', msgSeq: 1, latestSeq: '2', outgoingSeqs: [] },
+    ];
+  });
+  const service = new UnreadInfoService({
+    selfUid: 'u_self',
+    context: { uin: '10001' },
+    msgDbPath: path,
+    unreadInfo: { getUnreadInfos },
+  } as unknown as AccountSession);
+  return { service, binding, queried, signals, getUnreadInfos };
+}
+
+it('完整未读补算后台执行，轻量水位仍走交互通道且不读取自己发言', async () => {
+  vi.stubEnv('WEQ_DATABASE_DIAGNOSTICS', '1');
+  const path = '/synthetic/unread-priority.db',
+    f = fixture(path);
+  await f.service.getUnreadInfos(target);
+  await f.service.getUnreadInfos(target, true);
+  expect(f.getUnreadInfos.mock.calls[0]).toEqual([target, { selfUid: 'u_self', selfUin: '10001' }]);
+  expect(f.getUnreadInfos.mock.calls[1]).toEqual([target]);
+  expect(databasePerformance(path).diagnostics.queries.map((q) => q.priority)).toEqual([
+    'background',
+    'interactive',
+  ]);
+  await f.service.dispose();
+});
+
+it('账号关闭取消尚未执行的补算，不把取消伪装成零条未读', async () => {
+  const path = '/synthetic/unread-dispose.db',
+    f = fixture(path);
+  let release!: () => void;
+  const blocker = scheduleDatabase(
+    path,
+    () =>
+      new Promise<void>((done) => {
+        release = done;
+      }),
+    f.binding,
+  );
+  const read = f.service.getUnreadInfos(target);
+  const rejected = expect(read).rejects.toMatchObject({ name: 'AbortError' });
+  await f.service.dispose();
+  release();
+  await Promise.all([blocker, rejected]);
+  expect(f.queried).not.toHaveBeenCalled();
+  expect((await f.service.getUnreadInfos(target))[0]).toMatchObject({
+    readError: true,
+    latestSeq: null,
+  });
+  expect((await f.service.getUnreadInfos(target))[0]?.unreadCount).toBeUndefined();
+  expect(f.queried).not.toHaveBeenCalled();
+});
+
+it('继承调用方取消，但一个调用取消不影响服务后续读取', async () => {
+  const path = '/synthetic/unread-parent-cancel.db',
+    f = fixture(path);
+  let release!: () => void;
+  const blocker = scheduleDatabase(
+    path,
+    () =>
+      new Promise<void>((done) => {
+        release = done;
+      }),
+    f.binding,
+  );
+  const controller = new AbortController();
+  const read = withDatabasePriority(
+    'interactive',
+    () => f.service.getUnreadInfos(target),
+    controller.signal,
+  );
+  const rejected = expect(read).rejects.toMatchObject({ name: 'AbortError' });
+  controller.abort();
+  release();
+  await Promise.all([blocker, rejected]);
+  expect(f.signals[0]?.aborted).toBe(true);
+  expect((await f.service.getUnreadInfos(target))[0]?.readError).not.toBe(true);
+  expect(f.signals[1]?.aborted).toBe(false);
+  await f.service.dispose();
+});
