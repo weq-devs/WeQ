@@ -257,9 +257,48 @@ try {
     (await page.getByRole('button', { name: '重新检查', exact: true }).count()) !== 1
   )
     throw new Error('多项授权时公共操作入口重复');
+  let offlineCases = 0;
+  for (const view of ['main', 'startup']) {
+    await page.goto(
+      `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-debug-copy.html?restricted=1&offline=1${view === 'startup' ? '&startup-offline=1' : ''}`,
+    );
+    await page.getByRole('button', { name: '受限模式', exact: true }).click();
+    const panel = page.locator('.weq-restricted-panel');
+    await panel.getByText('QQ 不在线', { exact: true }).waitFor();
+    await panel.getByText('请启动独立的 QQ 调试副本', { exact: false }).waitFor();
+    if (await panel.getByRole('button', { name: '启动 QQ', exact: true }).count())
+      throw new Error('SIP 开启的离线引导不能启动普通 QQ');
+    for (const width of [1180, 390])
+      for (const theme of ['light', 'dark'])
+        for (const accent of ['#075c30', '#fff3a1']) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.evaluate(
+            ({ theme, accent }) => {
+              window.debugCopyQa.store.getState().setPreference(theme);
+              window.debugCopyQa.store.getState().setAccent(accent);
+            },
+            { theme, accent },
+          );
+          if (
+            await panel.evaluate(
+              (node) =>
+                node.scrollWidth > node.clientWidth + 1 ||
+                [...node.querySelectorAll('p, button')].some(
+                  (item) => item.scrollWidth > item.clientWidth + 1,
+                ),
+            )
+          )
+            throw new Error(`离线副本引导溢出：${view} ${width} ${theme} ${accent}`);
+          if (output && accent === '#075c30')
+            await page.screenshot({
+              path: resolve(output, `offline-${view}-${width}-${theme}.png`),
+            });
+          offlineCases++;
+        }
+  }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(
-    `通过 ${cases} 组视口/主题/主题色/背景布局、${restrictedCases} 组受限面板检查、4 组移除确认交互，以及创建、启动、运行中保护、减少动态效果和公共入口去重检查。`,
+    `通过 ${cases} 组视口/主题/主题色/背景布局、${restrictedCases} 组受限面板检查、${offlineCases} 组离线副本引导、4 组移除确认交互，以及创建、启动、运行中保护、减少动态效果和公共入口去重检查。`,
   );
 } finally {
   await browser?.close();

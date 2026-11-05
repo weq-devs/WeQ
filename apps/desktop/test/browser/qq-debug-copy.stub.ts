@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import type { QqDebugCopyAction, QqDebugCopyStatus } from '../../src/shared/qq_debug_copy';
 import { trpc as baseTrpc, client as baseClient } from './qq-data-access-trpc.stub';
 
+const offline = new URLSearchParams(location.search).has('offline');
 let data: QqDebugCopyStatus = {
   supported: true,
   phase: 'idle',
@@ -25,7 +26,7 @@ const debugTrpc = {
       useQuery: () => ({
         data: {
           source: { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic' },
-          qqOnline: true,
+          qqOnline: !offline,
           attachEnabled: true,
           hasA2: true,
           hasD2: false,
@@ -37,6 +38,19 @@ const debugTrpc = {
     },
   },
   bootstrap: {
+    ...(offline
+      ? {
+          qqDataAccess: {
+            useQuery: () => ({
+              data: { status: 'readable', applicationPath: '/fixture/WeQ.app', issues: [] },
+              refetch: async () => ({}),
+            }),
+          },
+        }
+      : {}),
+    probeOnline: {
+      useQuery: () => ({ data: { count: offline ? 0 : 1 }, refetch: async () => ({}) }),
+    },
     sipEnabled: { useQuery: () => ({ data: true, refetch: async () => ({ data: true }) }) },
     qqDebugCopyStatus: {
       useQuery: () => ({
