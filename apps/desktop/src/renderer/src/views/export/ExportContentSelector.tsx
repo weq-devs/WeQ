@@ -13,6 +13,7 @@ import {
   Smile,
   ChevronRight,
   ContactRound,
+  Check,
 } from 'lucide-react';
 import {
   EXPORT_CONTENT_KEYS,
@@ -56,6 +57,7 @@ export function ExportContentSelector({
   const id = useId();
   const [expanded, setExpanded] = useState<Partial<Record<ExportContentKey, boolean>>>({});
   const policy = normalizeExportContent(value, {}, guild);
+  const detailsTier = exportContentDetailsTier(policy);
   const row = (key: ExportContentKey | 'all') => {
     const item = key === 'all' ? { label: '全部', icon: ListChecks } : items[key];
     const Icon = item.icon;
@@ -106,16 +108,21 @@ export function ExportContentSelector({
           <div className="weq-export-content-details">
             <div className="weq-export-content-row is-detail is-additional">
               <span className="weq-export-content-label">附加数据</span>
-              <SegmentedControl
-                label="附加数据导出方式"
-                value={exportContentDetailsTier(policy)}
+              <button
+                type="button"
+                className={`weq-exp-format${detailsTier === 'local' ? ' is-on' : ''}`}
+                aria-label="导出附加数据（仅本地）"
+                aria-pressed={detailsTier === null ? 'mixed' : detailsTier === 'local'}
                 disabled={disabled}
-                onChange={(tier) => onChange(selectExportContentDetails(policy, tier))}
-                options={[
-                  { value: 'none', label: '不导出' },
-                  { value: 'local', label: '仅本地' },
-                ]}
-              />
+                onClick={() =>
+                  onChange(
+                    selectExportContentDetails(policy, detailsTier === 'local' ? 'none' : 'local'),
+                  )
+                }
+              >
+                {detailsTier === 'local' ? <Check size={13} aria-hidden /> : null}
+                仅本地
+              </button>
             </div>
           </div>
         ) : null}

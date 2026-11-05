@@ -113,12 +113,16 @@ try {
     const groups = await page
       .locator('.weq-export-content-selector [role="radiogroup"]')
       .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label')));
-    if (groups[1] !== '附加数据导出方式' || groups.at(-1) !== '联系人或群资料导出方式')
+    if (groups[1] !== '消息导出方式' || groups.at(-1) !== '联系人或群资料导出方式')
       throw new Error('附加数据或独立资料项目位置错误');
-    const additional = page.getByRole('radiogroup', { name: '附加数据导出方式', exact: true });
+    const additional = page.getByRole('button', { name: '导出附加数据（仅本地）', exact: true });
     const all = page.getByRole('radiogroup', { name: '全部导出方式', exact: true });
     await all.getByRole('radio', { name: '仅本地', exact: true }).click();
-    await additional.getByRole('radio', { name: '不导出', exact: true }).click();
+    if ((await additional.getAttribute('aria-pressed')) !== 'true')
+      throw new Error('附加数据全选后按钮未亮起');
+    await additional.click();
+    if ((await additional.getAttribute('aria-pressed')) !== 'false')
+      throw new Error('附加数据关闭后按钮未熄灭');
     if (
       (await all
         .getByRole('radio', { name: '仅本地', exact: true })
@@ -137,9 +141,9 @@ try {
     });
     if (!underDivider) throw new Error('附加数据未作为分割线上方的明细子项');
     await all.getByRole('radio', { name: '不导出', exact: true }).click();
-    await additional.getByRole('radio', { name: '仅本地', exact: true }).click();
+    await additional.click();
     if (await start.isDisabled()) throw new Error('附加数据独立总控未生效');
-    await additional.getByRole('radio', { name: '不导出', exact: true }).click();
+    await additional.click();
     await page
       .getByRole('radiogroup', { name: '图片：资源详细信息', exact: true })
       .getByRole('radio', { name: '仅本地', exact: true })
