@@ -66,6 +66,8 @@ node apps/desktop/test/browser/run-style-consistency.mjs
 node apps/desktop/test/browser/run-conversation-entry.mjs
 ```
 
+HTML 导出图片比例可运行 `node apps/desktop/test/browser/run-export-image-ratio.mjs` 回归，覆盖聊天图片、说明文字、表情、转发、Markdown、空间单图/多图以及桌面/窄屏与深浅色；仅使用内联合成图片，不联网、不读取 QQ。Playwright 与浏览器路径沿用上面的环境变量，`WEQ_IMAGE_RATIO_ARTIFACTS` 可指定截图目录。
+
 ## 合并与夹具
 
 - 同领域、同依赖且没有模块 mock 的小测试可合并成一个文件，各自的 `describe` 保留局部夹具和 hook 作用域，减少重复 worker 启动和依赖加载。
