@@ -48,6 +48,7 @@ const {
   parseGroupMemberState,
   parseGroupRelay,
   parseGroupVideoFragment,
+  hasIdrNal,
   streamFromGcsFields,
 } = groupCall;
 type GroupGcsHead = Parameters<typeof buildGroupGcsAck>[1];
@@ -281,6 +282,8 @@ export class GroupCallSession {
 
   private readonly handles: unknown[] = [];
   private exitRetries = 0;
+  /** 退出重发的完成回调；收到 `0x12` 时调用。 */
+  private exitDone: (() => void) | null = null;
 
   constructor(options: GroupCallSessionOptions) {
     this.opts = options;
@@ -344,13 +347,33 @@ export class GroupCallSession {
   async hangup(): Promise<void> {
     if (this.state === 'idle' || this.state === 'ended' || this.state === 'failed') return;
     this.setState('ending');
-    this.stopTimers();
 
     const key = this.currentKey();
     if (key && this.server) {
+      // 退出包要**重发到收到 0x12 应答**（抓包里连发 5 次、间隔 ~100ms）。
+      // 之前的实现发完第一条就 `finish()` 关掉 socket，后面 9 次全丢 ——
+      // 服务端收不到退出，房间一直占着，下一次通话的邀请就进不来。
+      // 所以这里等到重发结束（或收到应答）再收尾。
+      await this.sendExitAndWait(key);
+    }
+
+    // 退出包发完（或收到 0x12）后再停定时器并收尾。
+    this.stopTimers();
+    this.finish('hangup');
+  }
+
+  /** 发退出包并等待，直到收到 `0x12` 或重发次数用尽。 */
+  private sendExitAndWait(key: Uint8Array): Promise<void> {
+    return new Promise((resolve) => {
       this.exitRetries = 0;
-      const send = () => {
-        if (this.exitRetries++ >= EXIT_RETRY_MAX) return;
+      this.exitDone = resolve;
+      const tick = () => {
+        if (this.exitRetries >= EXIT_RETRY_MAX) {
+          this.exitDone = null;
+          resolve();
+          return;
+        }
+        this.exitRetries += 1;
         this.sendRelay(
           buildGroupExit({
             route: this.nextRoute(),
@@ -359,12 +382,10 @@ export class GroupCallSession {
             key,
           }),
         );
-        this.timers.setTimeout(send, EXIT_RETRY_MS);
+        this.timers.setTimeout(tick, EXIT_RETRY_MS);
       };
-      send();
-    }
-
-    this.finish('hangup');
+      tick();
+    });
   }
 
   // ─────────────────────────── 麦克风 / 摄像头 ───────────────────────────
@@ -440,14 +461,15 @@ export class GroupCallSession {
   }
 
   /** 推一帧 H.264 Annex B（已编码），按上限切片后发 `0x17`。 */
-  pushVideoFrame(data: Uint8Array): void {
+  pushVideoFrame(data: Uint8Array, keyframe = hasIdrNal(data)): void {
     if (!this.cameraOn || !this.stream) return;
     const packets = buildGroupVideoFragments({
       route: this.nextRoute(),
       ownerUin: this.opts.selfUin,
-      stream: this.stream!,
+      stream: this.stream,
       seq: this.mediaSeq,
       data,
+      keyframe,
     });
     for (const packet of packets) this.sendRelay(packet);
     this.mediaSeq += packets.length;
@@ -566,6 +588,7 @@ export class GroupCallSession {
         break;
       case GroupRelayCmd.exitAck:
         this.exitRetries = EXIT_RETRY_MAX;
+        this.exitDone?.();
         break;
       case GroupRelayCmd.mediaDown:
         this.onMedia(packet);
@@ -648,6 +671,9 @@ export class GroupCallSession {
       return;
     }
     if (this.state === 'calling') this.setState('connecting');
+    // 认证成功后立刻订阅成员流。不发这条服务端不会把别人的媒体转给我们，
+    // 我们自己的上行也不会被转发（实机抓包确认：对端发了 0x13 才有 0x18）。
+    this.subscribeStreams();
   }
 
   private onMedia(packet: { ownerUin: number; body: Uint8Array }): void {
@@ -672,6 +698,14 @@ export class GroupCallSession {
     const frame = this.videoAssembler.push(packet.ownerUin, fragment);
     if (!frame) return;
     const at = this.timers.now();
+    // 调试：打印帧头，确认是不是关键帧（SPS 67 / IDR 65）
+    const head = [...frame.data.subarray(0, 8)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    this.opts.logger?.info?.('群通话视频帧', {
+      len: frame.data.length,
+      fragments: frame.fragments,
+      keyframe: frame.keyframe,
+      head,
+    });
     for (const listener of this.videoListeners) {
       listener(frame.data, { uin: frame.ownerUin, keyframe: frame.keyframe }, at);
     }
@@ -689,9 +723,17 @@ export class GroupCallSession {
 
   // ─────────────────────────── 发送 ───────────────────────────
 
-  /** 订阅成员流（`0x13`）。成员表变化时也要重发。 */
+  /**
+   * 订阅成员流（`0x13`）。成员表变化时也要重发。
+   *
+   * **不订阅就收不到任何媒体** —— 对端发了 `0x13` 才有 `0x18` 下行流；
+   * 不发的话服务端根本不会把别人的流转给我们（实机抓包确认）。
+   *
+   * 密钥用当前可用的那把：k2 下发后用它，否则用 k1。之前这里写死 `this.k2`，
+   * 而 k2 在某些房间根本不下发，导致订阅永远发不出去。
+   */
   private subscribeStreams(): void {
-    const key = this.k2;
+    const key = this.currentKey();
     if (!this.stream || !key) return;
     this.sendRelay(
       buildGroupStreamSubscribe({

@@ -71,6 +71,8 @@ const AUDIO_PAYLOAD_DELTA = 2;
 const VIDEO_PAYLOAD_OFFSET = 35;
 /** 视频分片头里 pkgIdx 的位置。 */
 const VIDEO_IDX_OFFSET = 18;
+/** 视频分片头里总分片数的位置（`body[19]`）。 */
+const VIDEO_TOTAL_OFFSET = 19;
 
 /** 媒体包里的 track 类型（`body[16]`）。 */
 export const GroupTrack = {
@@ -172,6 +174,8 @@ export function parseGroupAudioFrame(body: Uint8Array): GroupAudioFrame | null {
 export interface GroupVideoFragment {
   /** 本片在帧内的序号（`body[18]`）。 */
   pkgIdx: number;
+  /** 本帧总分片数（`body[19]`）。0 表示对端没填。 */
+  totalPkg: number;
   /** 分片载荷（已去掉分片头）。 */
   payload: Uint8Array;
   /** 完整 body，调试用。 */
@@ -187,6 +191,7 @@ export function parseGroupVideoFragment(body: Uint8Array): GroupVideoFragment | 
   if (body.length <= VIDEO_PAYLOAD_OFFSET) return null;
   return {
     pkgIdx: body[VIDEO_IDX_OFFSET] ?? 0,
+    totalPkg: body[VIDEO_TOTAL_OFFSET] ?? 0,
     payload: body.subarray(VIDEO_PAYLOAD_OFFSET),
     raw: body,
   };
@@ -219,28 +224,33 @@ export interface GroupVideoFrame {
  * 后续帧，比「等齐再交」更抗丢包。
  */
 export class GroupVideoAssembler {
-  private readonly pending = new Map<number, Uint8Array[]>();
+  /** 每个成员正在攒的那一帧：已收到的分片 + 本帧总分片数。 */
+  private readonly pending = new Map<number, { chunks: Uint8Array[]; total: number }>();
 
   /**
    * 喂一个分片。
    *
-   * @returns 当前能组出的帧（首片之后每片都会返回一版）；还没收到首片时返回 `null`。
+   * **收齐 `totalPkg` 才返回整帧** —— 早先的实现每片都 emit 一版半截数据，
+   * 下游拿到的「帧」缺尾巴，解出来是花的（实机验证：对端音频正常、视频花屏）。
+   * 分片数不对或序号跳变时丢弃整帧，等下一个首片。
+   *
+   * @returns 完整帧；还在攒片时返回 `null`。
    */
   push(ownerUin: number, fragment: GroupVideoFragment): GroupVideoFrame | null {
-    const { pkgIdx, payload } = fragment;
+    const { pkgIdx, payload, totalPkg } = fragment;
     if (pkgIdx === 0) {
       // 新帧开始：上一帧没凑齐就丢掉。
-      this.pending.set(ownerUin, [payload]);
-      return this.emit(ownerUin);
+      this.pending.set(ownerUin, { chunks: [payload], total: totalPkg });
+      return this.maybeEmit(ownerUin);
     }
-    const chunks = this.pending.get(ownerUin);
+    const state = this.pending.get(ownerUin);
     // 没有首片、或序号跳变：丢弃，等下一帧的 pkgIdx=0。
-    if (!chunks || pkgIdx !== chunks.length) {
+    if (!state || pkgIdx !== state.chunks.length) {
       this.pending.delete(ownerUin);
       return null;
     }
-    chunks.push(payload);
-    return this.emit(ownerUin);
+    state.chunks.push(payload);
+    return this.maybeEmit(ownerUin);
   }
 
   /** 清掉某个成员（或全部）的待重组状态，例如成员离开时。 */
@@ -249,14 +259,18 @@ export class GroupVideoAssembler {
     else this.pending.delete(ownerUin);
   }
 
-  private emit(ownerUin: number): GroupVideoFrame | null {
-    const chunks = this.pending.get(ownerUin);
-    if (!chunks) return null;
-    const data = concat(chunks);
+  private maybeEmit(ownerUin: number): GroupVideoFrame | null {
+    const state = this.pending.get(ownerUin);
+    if (!state) return null;
+    // totalPkg 为 0（抓包里个别包没填）时按 1 处理，避免永远攒不齐。
+    const total = state.total > 0 ? state.total : 1;
+    if (state.chunks.length < total) return null;
+    this.pending.delete(ownerUin);
+    const data = concat(state.chunks);
     return {
       data,
       keyframe: hasIdrNal(data),
-      fragments: chunks.length,
+      fragments: state.chunks.length,
       ownerUin,
     };
   }
@@ -345,6 +359,8 @@ export function buildGroupVideoFragments(params: {
   data: Uint8Array;
   /** 每片载荷上限。 */
   maxPayload?: number;
+  /** 本帧是否关键帧（决定 `body[17]` 首片是 0x00 还是 0x07）。 */
+  keyframe?: boolean;
 }): Uint8Array[] {
   assertStream(params.stream);
   const maxPayload = params.maxPayload ?? 1000;
@@ -358,19 +374,23 @@ export function buildGroupVideoFragments(params: {
     const start = idx * maxPayload;
     const chunk = params.data.subarray(start, Math.min(params.data.length, start + maxPayload));
     const body = new Uint8Array(VIDEO_PAYLOAD_OFFSET + chunk.length);
+    // 字段布局按 698 个真实上行视频包统计得出（见文件头注释）。
     body.set(params.stream, 0);
     body[7] = 0x01; // c2s
-    body[8] = 0xa7;
-    writeSeq5(body, 9, params.seq + idx);
-    body[14] = 0xa7;
+    body[8] = 0xa7; // codec 标记
+    body[9] = 0x83; // 视频标记
+    // 序号是 4 字节（[10:14]），不是 5 字节。
+    writeU32be(body, 10, (params.seq + idx) >>> 0);
+    body[14] = 0x83;
     body[15] = 0xa7;
     body[16] = GroupTrack.video;
-    body[17] = 0x07;
+    // [17]：关键帧首片 0x00，其余 0x07（实测 698 包里只有关键帧首片是 0）。
+    body[17] = idx === 0 && params.keyframe ? 0x00 : 0x07;
     body[18] = idx;
-    body[19] = 0x02;
-    body[20] = 0x01;
+    body[19] = total; // 本帧总分片数
+    body[20] = 0x00;
     body[21] = 0x0c;
-    body[22] = total;
+    body[22] = idx; // pkgIdx（与 [18] 同值）
     body[23] = 0x01;
     body[24] = 0x04;
     body[25] = 0x04;
@@ -403,7 +423,10 @@ function wrapMedia(route: number, ownerUin: number, body: Uint8Array): Uint8Arra
   out[0] = 0x02;
   out[1] = (total >>> 8) & 0xff;
   out[2] = total & 0xff;
-  out[3] = 0x04; // 媒体通道 kind
+  // 上行媒体的 kind 实测是 **0x00**（不是 0x04）。
+  // 抓包统计：c2s `0x17` 全部 kind=0x00（920 包），s2c `0x18` 是 0x03（1051 包）。
+  // 之前写 0x04 会让服务端/对端把我们的媒体包当未知类型丢掉。
+  out[3] = 0x00;
   out[4] = (route >>> 16) & 0xff;
   out[5] = (route >>> 8) & 0xff;
   out[6] = route & 0xff;
