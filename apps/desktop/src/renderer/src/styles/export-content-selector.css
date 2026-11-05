@@ -96,6 +96,14 @@
   border-top: 0;
   padding-block: 6px;
 }
+.weq-export-content-row.is-additional .weq-exp-format {
+  min-height: 30px;
+  border-radius: 4px;
+}
+.weq-export-content-row.is-additional .weq-exp-format:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .weq-exp-format-note {
   font-size: 11px;
   color: var(--weq-fg-muted);
