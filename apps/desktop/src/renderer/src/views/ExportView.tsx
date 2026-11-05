@@ -2093,12 +2093,10 @@ export function ExportTool({
                     scopeLabel={mode === 'qzone' ? '说说范围' : '消息范围'}
                     scopeUnit={mode === 'qzone' ? '条说说' : '条消息'}
                     onEditScope={
-                      (mode === 'full' && execution === 'now') ||
-                      (mode === 'qzone' && qzoneContent !== 'albums')
+                      mode === 'qzone' && qzoneContent !== 'albums'
                         ? (item) => {
                             setConvSelection(new Set([...convSelection, item.id]));
-                            if (mode === 'qzone') setSpaceScopeUin(item.id);
-                            else setScopeConversationId(item.id);
+                            setSpaceScopeUin(item.id);
                           }
                         : undefined
                     }
@@ -2168,10 +2166,6 @@ export function ExportTool({
                     selected={guildSelection}
                     onChange={setGuildSelection}
                     scopeSelections={guildMessageSelections}
-                    onEditScope={(item) => {
-                      setGuildSelection(new Set([...guildSelection, item.id]));
-                      setGuildScopeId(item.id);
-                    }}
                     emptyText="暂无频道私聊会话（需本机有 QQ 频道私聊记录）"
                   />
                   {guildScopeId && guildSelection.has(guildScopeId) ? (
