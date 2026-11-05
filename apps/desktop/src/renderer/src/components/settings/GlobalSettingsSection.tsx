@@ -721,25 +721,6 @@ export function GlobalSettingsSection({
               >
                 <RotateCcw size={14} aria-hidden />
               </button>
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-danger"
-                disabled={
-                  cleanupBusy || cacheUsage.isFetching || cacheUsage.isError || cleanupBytes === 0
-                }
-                onClick={() => void onClearWeqCache()}
-              >
-                {cleanupBusy ? (
-                  <Loader2 size={14} strokeWidth={1.8} className="weq-spin" aria-hidden />
-                ) : (
-                  <Trash2 size={14} strokeWidth={1.8} aria-hidden />
-                )}
-                {selectedItems.some((item) => item.requiresExit)
-                  ? '清除并重启'
-                  : pickedCats.size > 0
-                    ? '清理所选'
-                    : '清理缓存'}
-              </button>
             </div>
           </div>
           {cleanupResult.data && (
@@ -833,6 +814,23 @@ export function GlobalSettingsSection({
                 )}
               </>
             )}
+          </div>
+          <div className="weq-set-actions">
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-danger"
+              disabled={
+                cleanupBusy || cacheUsage.isFetching || cacheUsage.isError || cleanupBytes === 0
+              }
+              onClick={() => void onClearWeqCache()}
+            >
+              {cleanupBusy ? (
+                <Loader2 size={14} strokeWidth={1.8} className="weq-spin" aria-hidden />
+              ) : (
+                <Trash2 size={14} strokeWidth={1.8} aria-hidden />
+              )}
+              开始清理
+            </button>
           </div>
         </Card>
       )}

@@ -85,7 +85,7 @@ describe('WeQ 存储管理页面', () => {
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
       const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-        (item) => item.textContent === '清理缓存',
+        (item) => item.textContent === '开始清理',
       )!;
       await act(async () => button.click());
       expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'] });
@@ -95,7 +95,7 @@ describe('WeQ 存储管理页面', () => {
       )!;
       expect(checkbox.checked).toBe(false);
       act(() => checkbox.closest('label')!.click());
-      expect(button.textContent).toBe('清除并重启');
+      expect(button.textContent).toBe('开始清理');
       fixture.confirm.mockResolvedValueOnce(false);
       await act(async () => button.click());
       expect(fixture.exitClear).not.toHaveBeenCalled();
@@ -138,7 +138,7 @@ describe('WeQ 存储管理页面', () => {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
       act(() => host.querySelector<HTMLElement>('[data-weq-select-id="dress_shared"]')!.click());
       const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-        (item) => item.textContent === '清理所选',
+        (item) => item.textContent === '开始清理',
       )!;
       fixture.confirm.mockResolvedValueOnce(false);
       await act(async () => button.click());
@@ -176,8 +176,12 @@ describe('WeQ 存储管理页面', () => {
       expect(readonly.querySelector('input')).toBeNull();
       expect(readonly.hasAttribute('data-weq-select-id')).toBe(false);
       const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-        (item) => item.textContent === '清理缓存',
+        (item) => item.textContent === '开始清理',
       )!;
+      const list = host.querySelector('.weq-set-cache-list')!;
+      expect(list.nextElementSibling?.contains(button)).toBe(true);
+      expect(button.parentElement?.nextElementSibling).toBeNull();
+      expect(toolbar.contains(button)).toBe(false);
       await act(async () => button.click());
       expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'] });
       expect(fixture.confirm.mock.calls[0]).not.toContain('图片识别结果');
