@@ -34,6 +34,19 @@ function read(path: string): string {
 }
 
 describe('rewriteVoiceTranscripts', () => {
+  it('统一 TXT 保留文件名、路径和多行转写，重复回写不重复追加', () => {
+    const path = write(
+      'unified.txt',
+      '小明 · 时间未知\n> [语音: a(1).silk]\n> 附件：media/record/a.wav',
+    );
+    const run = () =>
+      rewriteVoiceTranscripts([path], { 'a(1).silk': '第一行\n第二行' }, { plainText: true });
+    expect(run().replaced).toBe(1);
+    expect(read(path)).toBe(
+      '小明 · 时间未知\n> [语音: a(1).silk]\n> 附件：media/record/a.wav\n> [语音转写]\n> 第一行\n> 第二行',
+    );
+    expect(run().replaced).toBe(0);
+  });
   it('TXT：`[语音: 文件名]` → `[语音] 转写文本`', () => {
     const path = write('a.txt', '[2026-09-27 10:00:00] 10001: [语音: abc.silk]\n');
     const stats = rewriteVoiceTranscripts([path], { 'abc.silk': '你好呀' });

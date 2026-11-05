@@ -1,15 +1,15 @@
 /**
- * Render a message's elements to a plain-text summary, for the TXT exporter
- * (and reusable as alt-text elsewhere). Non-text media collapse to a bracketed
- * label (`[图片]`, `[视频]`, …) the way a chat log preview would show them.
- *
- * Sender names are NOT resolved here — TXT shows the sender uin. Nickname /
- * group-card resolution needs profile / member lookups and is a later step,
- * same as media completion.
+ * 表格与 ChatLab 使用的紧凑正文摘要、媒体路径和表情收集工具。
+ * TXT 的完整消息通过 messageToText 接入公共纯文本格式，不再使用紧凑摘要。
  */
 
 import type { RenderElement, ForwardMessage } from '../msg_view';
 import type { ExportedMessage } from './types';
+import {
+  plainMessageText,
+  type PlainSender,
+  type PlainSenderLookup,
+} from '../../common/message_plain_text';
 
 /** Fixed bracket labels for media kinds that carry no useful text. */
 const LABEL: Record<string, string> = {
@@ -144,14 +144,24 @@ export function formatTime(unixSec: number): string {
   );
 }
 
-/** One message → a single log line: `[time] <uin>: <content>`. */
-export function messageToText(m: ExportedMessage): string {
-  return `[${formatTime(m.sendTime)}] ${m.senderUin}: ${elementsToText(m.elements)}`;
+/** TXT 与多选复制共用消息格式；表格与 ChatLab 继续使用各自的正文契约。 */
+export function messageToText(
+  m: ExportedMessage,
+  sender: PlainSender = {},
+  resolveSender?: PlainSenderLookup,
+): string {
+  return plainMessageText({
+    ...sender,
+    uin: sender.uin || m.senderUin,
+    time: new Date(m.sendTime * 1000),
+    elements: m.elements,
+    resolveSender,
+  });
 }
 
 /**
  * Column headers for the tabular exporters (CSV / XLSX), in cell order. Sender
- * names are NOT resolved yet (same as TXT) — the sender columns show uin / uid.
+ * names are NOT resolved — the sender columns show uin / uid.
  */
 export const TABLE_HEADERS = ['时间', '发送者QQ', '发送者ID', '内容', '消息ID', '序号'] as const;
 

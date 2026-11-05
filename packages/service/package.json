@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./message-plain-text": "./src/common/message_plain_text.ts",
+    "./ark-cards": "./src/common/arkCards.ts",
+    "./group-share-target": "./src/common/group_share_target.ts",
+    "./card-clipboard": "./src/common/cardClipboard.ts",
+    "./unicode-face-map": "./src/common/unicodeFaceMap.ts",
     "./export-content": "./src/common/export_content.ts",
     ".": "./src/index.ts",
     "./mail": "./src/account/mail/index.ts",

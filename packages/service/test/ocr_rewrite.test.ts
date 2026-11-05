@@ -34,6 +34,16 @@ function read(path: string): string {
 }
 
 describe('rewriteOcrTexts', () => {
+  it('统一 TXT 图片文字保留转发缩进、附件路径和换行', () => {
+    const path = write('unified.txt', '  [图片: a.jpg]\n  附件：media/image/a.jpg\n下一条');
+    expect(
+      rewriteOcrTexts([path], { 'a.jpg': { text: '第一行\n第二行' } }, { plainText: true })
+        .replaced,
+    ).toBe(1);
+    expect(read(path)).toBe(
+      '  [图片: a.jpg]\n  附件：media/image/a.jpg\n  [图片文字]\n  第一行\n  第二行\n下一条',
+    );
+  });
   it('TXT：`[图片: 文件名]` → `[图片] 识别文字`（多行折成空格）', () => {
     const path = write('a.txt', '[2026-10-16 10:00:00] 10001: [图片: abc.jpg]\n');
     const stats = rewriteOcrTexts([path], { 'abc.jpg': { text: '第一行\n第二行' } });

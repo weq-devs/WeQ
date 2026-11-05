@@ -3,7 +3,7 @@ import { resolveMessageSender } from '../im-template/template/conversationDispla
 import { displayUserName } from '../im-template/template/user';
 import { previewNodes, previewNodesToText } from './conversationPreview';
 import { selfIdentityValues } from './selfIdentity';
-import { messageContentText } from './messageClipboard';
+import { plainMessageText } from '@weq/service/message-plain-text';
 import { messageGapCount, isSeqBetween } from '../im-template/template/messageGap';
 import { isUnpositionedFailure } from './localOutgoing';
 
@@ -157,17 +157,6 @@ export function outgoingActionBlockReason(message: Message): string | null {
   return null;
 }
 
-const timestamp = new Intl.DateTimeFormat('sv-SE', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-});
-
 export function selectedMessagesText(
   messages: readonly Message[],
   conversation: Conversation,
@@ -177,8 +166,6 @@ export function selectedMessagesText(
   return messages
     .map((message) => {
       const sender = resolveMessageSender(message, conversation, user);
-      const date = new Date(message.createdAt);
-      const time = Number.isFinite(date.getTime()) ? timestamp.format(date) : '时间未知';
       const elements = (
         message as Message & {
           qqElements?: Array<{ type?: string; data?: Record<string, unknown> }>;
@@ -198,7 +185,28 @@ export function selectedMessagesText(
               self,
             ),
           ) || '[消息]';
-      return `${displayUserName(sender) || '未知发送者'} (${time})\n${messageContentText(elements, body)}`;
+      return plainMessageText({
+        name: displayUserName(sender),
+        uin: ['QQ', 'UIN'].includes(sender.identityLabel) ? sender.identityValue : undefined,
+        time: new Date(message.createdAt),
+        elements,
+        body: message.body?.trim() || !elements?.length ? body : '',
+        resolveSender: (uid, uin) => {
+          const known = [
+            user,
+            ...(conversation.type === 'group' ? conversation.members : [conversation.otherUser]),
+          ].find(
+            (item) =>
+              item && (item.id === uid || item.uid === uid || (uin && item.identityValue === uin)),
+          );
+          return known
+            ? {
+                name: displayUserName(known),
+                uin: ['QQ', 'UIN'].includes(known.identityLabel) ? known.identityValue : undefined,
+              }
+            : undefined;
+        },
+      });
     })
     .join('\n\n');
 }
