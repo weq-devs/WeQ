@@ -55,14 +55,16 @@ function PendantOverlay({
 }) {
   // QQ 秀替换头像时不显示头像和挂件；图片裂了自动回退到普通头像。
   const qqShowEnabled = useContext(ChatQqShowEnabledContext);
-  const qqShow = useChatQqShow(uin, qqShowEnabled);
+  const avatarRef = useRef<HTMLSpanElement>(null);
+  const qqShowInfo = useChatQqShow(uin, qqShowEnabled, avatarRef);
+  const qqShow = qqShowInfo?.url ?? '';
   const [qqShowBroken, setQqShowBroken] = useState(false);
-  useEffect(() => setQqShowBroken(false), [qqShow]);
+  useEffect(() => setQqShowBroken(false), [qqShow, qqShowInfo?.expiresAt]);
   if (qqShow && !qqShowBroken) {
     return (
-      <span className={cn('weq-qqshow-avatar')} title={name}>
+      <span ref={avatarRef} className={cn('weq-qqshow-avatar')} title={name}>
         <img
-          src={qqShowUrl(qqShow)}
+          src={qqShowUrl(qqShow, qqShowInfo?.expiresAt)}
           alt=""
           draggable={false}
           onError={() => setQqShowBroken(true)}
@@ -72,10 +74,14 @@ function PendantOverlay({
   }
   const staticUrl = widget ? (widget.animated ? undefined : widget.url) : fallbackUrl;
   if (!widget?.animated && !staticUrl) {
-    return <Avatar name={name} avatarUrl={avatarUrl} seed={seed} />;
+    return (
+      <span ref={avatarRef} style={{ display: 'inline-flex', flexShrink: 0 }}>
+        <Avatar name={name} avatarUrl={avatarUrl} seed={seed} />
+      </span>
+    );
   }
   return (
-    <span className={cn('weq-avatar-pendant')}>
+    <span ref={avatarRef} className={cn('weq-avatar-pendant')}>
       <Avatar name={name} avatarUrl={avatarUrl} seed={seed} />
       {widget?.animated ? (
         <span className={cn('weq-avatar-pendant-img')} aria-hidden />

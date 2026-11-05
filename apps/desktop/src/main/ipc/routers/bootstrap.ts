@@ -888,12 +888,20 @@ export const bootstrapRouter = router({
     return true;
   }),
 
-  /** QQ 秀 URL 本地映射的有效期（天）。按需读取，改完立即影响后续查询。 */
-  setQqShowCacheDays: procedure
-    .input(z.object({ days: z.number().int().min(1).max(365) }))
+  /** QQ 秀 URL 本地映射的有效期（分钟）。 */
+  setQqShowCacheMinutes: procedure
+    .input(
+      z.object({
+        minutes: z
+          .number()
+          .int()
+          .min(1)
+          .max(365 * 1440),
+      }),
+    )
     .mutation(({ input }) => {
-      return requireBootstrap().userConfig.setSettings({ qqShowCacheDays: input.days })
-        .qqShowCacheDays;
+      return requireBootstrap().userConfig.setSettings({ qqShowCacheMinutes: input.minutes })
+        .qqShowCacheMinutes;
     }),
 
   /** 数据库损坏弹窗「不再提醒」开关（全局配置，重启后仍生效）。 */
