@@ -301,6 +301,14 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['account'],
   },
   {
+    id: 'qq-debug-copy',
+    section: 'account',
+    label: 'QQ 调试副本',
+    aliases: ['SIP', '不关闭 SIP', '副本更新', '调试读取'],
+    from: ['account'],
+    desktopOnly: true,
+  },
+  {
     id: 'long-term-authorization',
     section: 'account',
     label: '长期授权',

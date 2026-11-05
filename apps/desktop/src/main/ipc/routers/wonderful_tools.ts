@@ -28,7 +28,7 @@ import { existsSync } from 'node:fs';
 import { connectLongTermAuthorization } from '../../authorization/client';
 import { open as openFile, writeFile } from 'node:fs/promises';
 import { observable } from '@trpc/server/observable';
-import { readSipEnabled, type KeyScanProgress, type KeyScanResult } from '@weq/native';
+import type { KeyScanProgress, KeyScanResult } from '@weq/native';
 import { rvNodesToJson, tryDecodeAuto } from '@weq/codec/raw';
 import {
   fetchOtherDeviceDatabaseKey,
@@ -59,8 +59,8 @@ import {
 
 // 退出时清理提权抓包子进程 —— 保持旧出口名不变（main/index.ts 依赖它）。
 export { disposeElevatedCaptures } from '../../capture_session';
-import { SIP_ENABLED_MESSAGE } from '../../attach_elevation';
 import { scanKeyElevated } from '../../key_scan_elevation';
+import { isPermissionError } from '../../attach_elevation';
 
 /** 展示给用户的数据库头部字节数：≥192 字节，取 16 的倍数整行展示。 */
 const HEADER_READ_BYTES = 192;
@@ -241,11 +241,10 @@ export const wonderfulToolsRouter = router({
     try {
       result = await runInProcess();
     } catch (error) {
-      return {
-        success: false,
-        key: undefined,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      const failure = error instanceof Error ? error : new Error(String(error));
+      const failed = { success: false, key: undefined, error: failure.message };
+      if (!isPermissionError(failure)) return failed;
+      result = failed;
     }
     if (result.success) return { ...result, pid };
 
@@ -254,11 +253,6 @@ export const wonderfulToolsRouter = router({
     // 一样弹密码框，起一个 root 子进程重扫一遍。已 root 或非 unix 平台直接返回。
     const isUnix = process.platform === 'linux' || process.platform === 'darwin';
     if (!isUnix || process.geteuid?.() === 0) return { ...result, pid };
-
-    // macOS 的硬门槛：SIP 开着时读内存连 root 都拒，别让人白输一次密码。
-    if (process.platform === 'darwin' && readSipEnabled() === true) {
-      return { ...result, pid, error: SIP_ENABLED_MESSAGE };
-    }
 
     try {
       const elevated = await scanKeyElevated({

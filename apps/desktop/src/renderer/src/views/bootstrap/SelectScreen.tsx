@@ -10,6 +10,7 @@ import {
   UserPlus,
   ArrowLeft,
   X,
+  Copy,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { Modal, useDialog } from '../../components/Dialog';
@@ -20,6 +21,7 @@ import { LoginPanel } from './LoginPanel';
 import { StaticBackupPanel } from './StaticBackupPanel';
 import { StatsPanel } from './StatsPanel';
 import { IS_MAC } from '../../lib/target';
+import { QqDebugCopy } from '../../components/QqDebugCopy';
 import type { UiAccount } from './types';
 import logoUrl from '@resources/brand/logo.png';
 import '../../styles/bootstrap-select.css';
@@ -34,6 +36,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
   const utils = trpc.useUtils();
   const [busy, setBusy] = useState(false);
   const [diagnostics, setDiagnostics] = useState(false);
+  const [debugCopyOpen, setDebugCopyOpen] = useState(false);
   const [selection, setSelection] = useState<{ existing: string | null; new: string | null }>({
     existing: null,
     new: null,
@@ -131,6 +134,18 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
       setBusy(false);
     }
   }
+
+  const debugCopyAction = IS_MAC ? (
+    <button
+      type="button"
+      className="weq-account-debug-copy"
+      disabled={busy}
+      onClick={() => setDebugCopyOpen(true)}
+    >
+      <Copy size={16} aria-hidden />
+      QQ 调试副本
+    </button>
+  ) : null;
 
   return (
     <div className="weq-select weq-account-workspace" data-mode={mode}>
@@ -267,6 +282,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
               <FolderInput size={16} aria-hidden />
               导入备份
             </button>
+            {debugCopyAction}
           </nav>
         ) : (
           <nav className="weq-account-actions weq-account-return" aria-label="账号导航">
@@ -279,9 +295,38 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
               <ArrowLeft size={16} aria-hidden />
               返回
             </button>
+            {debugCopyAction}
           </nav>
         )}
 
+        {debugCopyOpen && (
+          <Modal
+            open
+            centered
+            labelledBy="qq-debug-copy-title"
+            className="weq-qq-debug-modal"
+            onClose={() => setDebugCopyOpen(false)}
+            width={520}
+          >
+            <div className="weq-dialog-head">
+              <h3 id="qq-debug-copy-title" className="weq-dialog-title">
+                QQ 调试副本
+              </h3>
+              <button
+                type="button"
+                className="weq-dialog-x"
+                title="关闭"
+                aria-label="关闭调试副本"
+                onClick={() => setDebugCopyOpen(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="weq-dialog-body">
+              <QqDebugCopy />
+            </div>
+          </Modal>
+        )}
         {mode === 'new' && diagnostics && (
           <Modal
             open

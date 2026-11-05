@@ -1,0 +1,147 @@
+import { createServer } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwind from '@tailwindcss/vite';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { mkdir } from 'node:fs/promises';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const server = await createServer({
+  configFile: false,
+  root,
+  cacheDir: resolve(root, 'node_modules/.vite-qq-debug-copy'),
+  plugins: [react(), tailwind()],
+  resolve: {
+    dedupe: ['react', 'react-dom'],
+    alias: [
+      { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
+      {
+        find: /^.*\/trpc\/client$/,
+        replacement: resolve(root, 'test/browser/qq-debug-copy.stub.ts'),
+      },
+      { find: '@resources', replacement: resolve(root, '../../resources') },
+      { find: '@transport', replacement: resolve(root, 'test/support/transport.stub.ts') },
+    ],
+  },
+  optimizeDeps: {
+    entries: ['test/browser/qq-debug-copy.html'],
+    include: [
+      'react',
+      'react-dom/client',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+      'lucide-react',
+      'zustand',
+    ],
+  },
+  server: {
+    host: '127.0.0.1',
+    port: 0,
+    hmr: false,
+    watch: null,
+    fs: { allow: [resolve(root, '../..')] },
+  },
+});
+let browser;
+try {
+  await server.listen();
+  browser = await chromium.launch({
+    headless: true,
+    ...(process.env.WEQ_BROWSER_EXECUTABLE
+      ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
+      : {}),
+  });
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  await page.addInitScript(() => {
+    window.electron = { process: { platform: 'darwin' } };
+  });
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.route('**/*', (route) =>
+    new URL(route.request().url()).hostname === '127.0.0.1' ||
+    route.request().url().startsWith('data:')
+      ? route.continue()
+      : route.abort(),
+  );
+  await page.goto(
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-debug-copy.html`,
+  );
+  await page.getByRole('button', { name: '创建副本', exact: true }).waitFor();
+  const output = process.env.WEQ_DEBUG_COPY_ARTIFACTS;
+  if (output) await mkdir(output, { recursive: true });
+  let cases = 0;
+  for (const width of [1180, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark', 'system']) {
+      await page.emulateMedia({
+        colorScheme: theme === 'light' ? 'light' : 'dark',
+        reducedMotion: 'reduce',
+      });
+      for (const accent of ['#075c30', '#fff3a1'])
+        for (const background of ['plain', 'telegram']) {
+          await page.evaluate(
+            ({ theme, accent, background }) => {
+              const store = window.debugCopyQa.store.getState();
+              store.setPreference(theme);
+              store.setAccent(accent);
+              store.setBackground(background);
+            },
+            { theme, accent, background },
+          );
+          const overflow = await page.evaluate(
+            () =>
+              [
+                ...document.querySelectorAll(
+                  '.weq-qq-debug, .weq-qq-debug-actions button, .weq-qq-debug-checks strong, .weq-qq-debug-details dd',
+                ),
+              ].some((node) => node.scrollWidth > node.clientWidth + 1) ||
+              document.documentElement.scrollWidth > innerWidth,
+          );
+          if (overflow) throw new Error(`布局溢出：${width} ${theme} ${accent} ${background}`);
+          if (output && accent === '#075c30' && background === 'plain')
+            await page.screenshot({ path: resolve(output, `${width}-${theme}.png`) });
+          cases++;
+        }
+    }
+  }
+  await page.getByRole('button', { name: '创建副本', exact: true }).click();
+  await page.getByText('副本已准备好，请启动并登录目标账号。', { exact: true }).waitFor();
+  await page.getByRole('button', { name: '启动副本', exact: true }).click();
+  await page.getByText('正在运行，登录状态待检查', { exact: true }).waitFor();
+  if (!(await page.getByRole('button', { name: '更新副本', exact: true }).isDisabled()))
+    throw new Error('运行中不能更新');
+  await page.evaluate(() => window.debugCopyQa.setFixture({ phase: 'signing', runningPids: [] }));
+  await page.getByText('正在配置调试签名', { exact: true }).waitFor();
+  const animation = await page
+    .locator('.weq-qq-debug-progress svg')
+    .evaluate((node) => getComputedStyle(node).animationName);
+  if (animation !== 'none') throw new Error('减少动态效果未生效');
+  await page.goto(
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-debug-copy.html?startup=1`,
+  );
+  for (const width of [1180, 390, 320]) {
+    await page.setViewportSize({ width, height: 760 });
+    await page.getByRole('button', { name: 'QQ 调试副本', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'QQ 调试副本', exact: true });
+    await dialog.waitFor();
+    const bounds = await dialog.boundingBox();
+    if (
+      !bounds ||
+      bounds.x < 0 ||
+      bounds.x + bounds.width > width + 1 ||
+      bounds.y < 0 ||
+      bounds.y + bounds.height > 761
+    )
+      throw new Error(`启动页副本面板越界：${width}`);
+    if (output) await page.screenshot({ path: resolve(output, `startup-${width}.png`) });
+    await page.getByRole('button', { name: '关闭调试副本', exact: true }).click();
+  }
+  if (errors.length) throw new Error(errors.join('\n'));
+  console.log(
+    `通过 ${cases} 组视口/主题/主题色/背景布局，以及创建、启动、运行中保护和减少动态效果检查。`,
+  );
+} finally {
+  await browser?.close();
+  await server.close();
+}

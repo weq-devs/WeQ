@@ -21,11 +21,8 @@
  *     that have the account's `nt_msg.db` open via `libproc`
  *     (`proc_pidfdinfo`), the analog of Windows' Restart Manager — not linux's
  *     single-holder `F_GETLK`. Each holder is name-tagged via `proc_name`.
- *   - Memory scanning (`scanSessionMaterial` / `scanKeyFromDatabase`) only works
- *     with SIP off AND root (QQ runs hardened, so SIP alone blocks
- *     `task_for_pid`). {@link Platform.sipEnabled} answers that first question
- *     without any privilege, so callers can skip the scan instead of
- *     discovering it from a failure.
+ *   - 内存读取由读取端和 QQ 的签名权限决定。带 cs.debugger 的读取端可以在 SIP
+ *     开启时读取 get-task-allow 调试副本；sipEnabled 只报告系统状态，不提前拒绝读取。
  */
 
 import { readSipEnabled, type NativeBundle, type QqRuntimeModules } from '@weq/native';
@@ -185,8 +182,7 @@ export function createDarwinPlatform(
       const dbPath = findNtMsgDb(uid(u), home, override());
       return dbPath ? probeOnline(dbPath) : Promise.resolve(null);
     },
-    // 读内存的硬门槛：SIP 开着时 `task_for_pid` 连 root 都拒（QQ 带强化运行时）。
-    // 所以这一档必须能在**尝试之前**问出来 —— 见 `readSipEnabled`。
+    // 系统状态不等于目标进程的实际可读性。
     sipEnabled: () => readSipEnabled(),
   };
 }
