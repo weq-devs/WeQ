@@ -296,15 +296,30 @@ function AnalysisToolForm({
   }, [account]);
   const friends = trpc.account.analysisPeerDirectory.useQuery(
     { expectedAccountUin: account ?? '' },
-    { enabled: active && kind === 'buddy' },
+    { enabled: active && !lockedTarget && kind === 'buddy' },
   );
   const groups = trpc.account.analysisGroupDirectory.useQuery(
     { expectedAccountUin: account ?? '' },
-    { enabled: active && (kind === 'group' || kind === 'member') },
+    { enabled: active && !lockedTarget && (kind === 'group' || kind === 'member') },
   );
   const memberList = trpc.account.analysisMemberDirectory.useQuery(
     { groupCode: group ?? '1', expectedAccountUin: account ?? '' },
-    { enabled: active && kind === 'member' && Boolean(group) && !chooseGroup },
+    { enabled: active && !lockedTarget && kind === 'member' && Boolean(group) && !chooseGroup },
+  );
+  // 固定入口已携带真实身份；资料只补名称和头像，不让全量历史目录阻塞生成。
+  const lockedUid =
+    lockedTarget?.kind === 'buddy'
+      ? lockedTarget.peerUid
+      : lockedTarget?.kind === 'member'
+        ? lockedTarget.memberUid
+        : '';
+  const profile = trpc.account.getProfile.useQuery(
+    { uid: lockedUid || 'unused' },
+    { enabled: active && Boolean(lockedUid) },
+  );
+  const groupDetail = trpc.account.getGroupDetail.useQuery(
+    { groupCode: group || '1' },
+    { enabled: active && Boolean(lockedTarget && group) },
   );
   // 日历按当前对象统计每日消息量，让「指定日期」能直接看到哪里有记录。
   const calendarTargets = (() => {
@@ -324,8 +339,21 @@ function AnalysisToolForm({
   const groupRows = (groups.data ?? []) as GroupRow[];
   const friendRows = (friends.data ?? []) as PeerRow[];
   const memberRows = (memberList.data ?? []) as MemberRow[];
-  const pickedGroup = groupRows.find((row) => row.groupCode === group);
-  const pickedFriend = friendRows.find((row) => row.uid === peer);
+  const pickedGroup =
+    lockedTarget && lockedTarget.kind !== 'buddy'
+      ? {
+          groupCode: lockedTarget.groupCode,
+          groupName: groupDetail.data?.groupName || lockedTarget.groupCode,
+        }
+      : groupRows.find((row) => row.groupCode === group);
+  const pickedFriend =
+    lockedTarget?.kind === 'buddy'
+      ? {
+          uid: lockedTarget.peerUid,
+          uin: profile.data?.uin || '',
+          name: profile.data?.remark || profile.data?.nick || lockedTarget.peerUid,
+        }
+      : friendRows.find((row) => row.uid === peer);
   const initialMember =
     initialTarget?.kind === 'member' && group === initialTarget.groupCode
       ? memberRows.find((row) =>
@@ -335,7 +363,18 @@ function AnalysisToolForm({
         )
       : undefined;
   const selectedMemberId = group ? (members[group] ?? initialMember?.id ?? null) : null;
-  const pickedMember = memberRows.find((row) => row.id === selectedMemberId);
+  const pickedMember =
+    lockedTarget?.kind === 'member' && (lockedTarget.memberUid || lockedTarget.memberUin)
+      ? {
+          uid: lockedTarget.memberUid,
+          uin: lockedTarget.memberUin || '',
+          name:
+            profile.data?.remark ||
+            profile.data?.nick ||
+            lockedTarget.memberUin ||
+            lockedTarget.memberUid,
+        }
+      : memberRows.find((row) => row.id === selectedMemberId);
 
   const items: Choice[] =
     kind === 'buddy'
@@ -561,9 +600,7 @@ function AnalysisToolForm({
                 {lockedTarget.kind === 'group' ? (
                   <GroupAvatar code={lockedTarget.groupCode} size={52} />
                 ) : lockedTarget.kind === 'member' ? (
-                  // 群成员入口没有好友目录（friends 查询不启用），头像号只能从
-                  // 成员目录或入口自带的 memberUin 取，别再回落到 pickedFriend。
-                  <QqAvatar uin={lockedTarget.memberUin || pickedMember?.uin || null} size={52} />
+                  <QqAvatar uin={lockedTarget.memberUin || profile.data?.uin || null} size={52} />
                 ) : (
                   <QqAvatar uin={pickedFriend?.uin || null} size={52} />
                 )}
@@ -576,19 +613,7 @@ function AnalysisToolForm({
                     : pickedGroup?.groupName || lockedTarget.groupCode}
               </strong>
               <small>{ANALYSIS_LABELS[lockedTarget.kind]}</small>
-              {source.isError ? (
-                <button
-                  type="button"
-                  className="weq-analysis-retry"
-                  onClick={() => void source.refetch()}
-                >
-                  <RotateCw size={14} /> 重试读取对象
-                </button>
-              ) : source.isLoading ? (
-                <small role="status">正在读取对象…</small>
-              ) : !validObject ? (
-                <p role="alert">本地目录中未找到此分析对象。</p>
-              ) : null}
+              {!validObject ? <p role="alert">分析对象缺少有效身份。</p> : null}
             </div>
           ) : source.isLoading ? (
             <ObjectPicker
