@@ -137,7 +137,7 @@ export async function preflightVoiceTranscribe(dialog: AppDialogApi): Promise<bo
   if (!modelId) {
     await dialog.info(
       '未配置语音模型',
-      '「语音自动转写」需要先下载并选择一个转录模型。请前往「设置 → 语音转录」下载模型后重试，或关闭「语音自动转写」后继续导出。',
+      '「语音自动转写」需要先下载一个转录模型。请前往「设置 → AI 功能 → 语音识别」下载模型后重试，或关闭「语音自动转写」后继续导出。',
     );
     return false;
   }

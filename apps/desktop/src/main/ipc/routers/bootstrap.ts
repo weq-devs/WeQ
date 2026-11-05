@@ -15,6 +15,7 @@
 
 import { observable } from '@trpc/server/observable';
 import { trackModelDownload } from '../../model_download_task';
+import { reconcileLocalModelResources } from '../../context/local_model_resources';
 import { z } from 'zod';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES } from '@weq/service/qzone-public-settings';
@@ -1870,9 +1871,7 @@ export const bootstrapRouter = router({
   deleteVoiceModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
     const boot = requireBootstrap();
     const removed = boot.voiceTranscribe.deleteModel(input.id);
-    if (removed && boot.userConfig.getLocalModelId('voice') === input.id) {
-      boot.userConfig.setSettings({ modelResources: { voice: '' } });
-    }
+    if (removed) reconcileLocalModelResources(boot);
     return removed;
   }),
 
@@ -1936,15 +1935,7 @@ export const bootstrapRouter = router({
   deleteOcrModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
     const boot = requireBootstrap();
     const removed = boot.ocrModels.deleteModel(input.id);
-    if (removed) {
-      const refs = boot.userConfig.getSettings().modelResources;
-      boot.userConfig.setSettings({
-        modelResources: {
-          ocr: refs.ocr === input.id ? '' : refs.ocr,
-          filter: refs.filter === input.id ? '' : refs.filter,
-        },
-      });
-    }
+    if (removed) reconcileLocalModelResources(boot);
     return removed;
   }),
 

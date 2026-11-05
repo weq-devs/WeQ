@@ -42,7 +42,7 @@ export function useVoiceTranscription(input: VoiceTranscriptionInput, automatic 
     queryKey: [...getQueryKey(trpc.account), 'voiceTranscription', binding, modelId, input],
     queryFn: ({ signal }) =>
       queueVoiceTranscription(signal!, async (): Promise<VoiceTranscriptionResult> => {
-        if (!binding || !available) throw new Error('请先在设置中选择本地语音模型');
+        if (!binding || !available) throw new Error('请先在设置中下载本地语音模型');
         try {
           return await client.account.transcribeVoice.mutate({ ...input, ...binding });
         } catch (error) {

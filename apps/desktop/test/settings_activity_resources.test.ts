@@ -50,7 +50,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                   ? {
                       selected: { voice: '', ocr: '', filter: '', intent: 'auto' },
                       voice: [{ ...model, id: 'voice-fixture' }],
-                      ocr: [{ ...model, id: 'ocr-fixture', kind: 'ocr' }],
+                      ocr: [
+                        { ...model, id: 'ocr-fixture', kind: 'ocr' },
+                        { ...model, id: 'filter-fixture', kind: 'filter' },
+                      ],
                       engineBlocker: null,
                     }
                   : name === 'getVersionInfo'
@@ -104,6 +107,23 @@ function mount(content: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
   };
 }
 describe('隐藏设置页的进度资源', () => {
+  it.each([VoiceTranscribeSection, OcrModelsSection])(
+    '已下载模型不再显示选用或取消按钮',
+    (Component) => {
+      fixture.downloaded = true;
+      fixture.downloading = false;
+      const f = mount(h(Component));
+      try {
+        expect(f.host.textContent).toContain('已下载');
+        expect(f.host.textContent).not.toContain('设为当前');
+        expect(f.host.textContent).not.toContain('取消选用');
+        expect(f.host.textContent).not.toContain('不选 =');
+        expect(f.host.querySelector('button[aria-label="删除模型"]')).not.toBeNull();
+      } finally {
+        f.dispose();
+      }
+    },
+  );
   it.each([VoiceTranscribeSection, OcrModelsSection])('下载完成刷新模型和共享设置', (Component) => {
     const f = mount(h(Component));
     try {
