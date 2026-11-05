@@ -9,6 +9,7 @@ import {
   conversationAnalysisTarget,
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
+import { GroupCallComingSoon } from '../../components/GroupCallComingSoon';
 import { GiftMallPanel } from '../../components/gift/GiftMallPanel';
 import { GroupGiftPanel } from '../../components/gift/GroupGiftPanel';
 import { ChatHeader } from '../../components/ChatHeader';
@@ -20,6 +21,7 @@ import { useStableCallback } from '../../hooks/useStableCallback';
 import { timelineViewport } from '../../lib/timelineViewport';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
+import '../../styles/group-call-soon.css';
 import { GroupProfileDialog } from './profilePanes';
 import { CloneMemberProfileCard } from '../../views/agentlab/CloneMemberProfileCard';
 import { ConversationMessageActions } from '../../components/ConversationMessageActions';
@@ -938,6 +940,8 @@ export function ChatPane({
   const [avatarMenu, setAvatarMenu] = useState<AvatarContextMenuState | null>(null);
   /** 通话按钮的选择菜单（语音 / 视频）。锚点是被点的那个按钮。 */
   const [callMenu, setCallMenu] = useState<{ x: number; y: number } | null>(null);
+  /** 群聊通话入口的「敬请期待」面板。 */
+  const [groupCallSoon, setGroupCallSoon] = useState(false);
   const callButtonRef = useRef<HTMLButtonElement | null>(null);
   // 右键消息 → 「贴表情」打开的表情面板（仅群聊可用）。
   const [reactionPicker, setReactionPicker] = useState<{
@@ -6342,8 +6346,9 @@ export function ChatPane({
           >
             <AiOutlineRedEnvelope size={21} />
           </button>
-          {/* 通话：仅私聊。群通话要先进群房间再邀请，协议路径不同，暂不做。 */}
-          {conversation?.type === 'direct' && (onStartCall || generated) ? (
+          {/* 通话：私聊走真实链路；群聊的协议还在收尾，先给「敬请期待」面板。 */}
+          {(conversation?.type === 'direct' || conversation?.type === 'group') &&
+          (onStartCall || generated) ? (
             <button
               ref={callButtonRef}
               type="button"
@@ -6352,6 +6357,10 @@ export function ChatPane({
               aria-label="通话"
               disabled={readOnly || generated || currentPreference.blocked}
               onClick={(event) => {
+                if (conversation?.type === 'group') {
+                  setGroupCallSoon(true);
+                  return;
+                }
                 const rect = event.currentTarget.getBoundingClientRect();
                 setCallMenu({ x: rect.left, y: rect.top - 8 });
               }}
@@ -6985,6 +6994,7 @@ export function ChatPane({
           ]}
         />
       ) : null}
+      <GroupCallComingSoon open={groupCallSoon} onClose={() => setGroupCallSoon(false)} />
       {callMenu ? (
         <ConversationActionsMenu
           x={callMenu.x}
