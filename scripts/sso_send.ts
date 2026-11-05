@@ -85,6 +85,11 @@ const HELP = `${LABEL} —— 借同机在线 QQ 的凭据发一包自己指定�
   --sign          带上 SecToken/SecExtra/SecSign（默认【不签名】）。
   --no-token      签名时**不写** SecToken（tag 2），只带 SecSign + SecExtra。
                   用于排查「服务端鉴权通过（result=0）但拒收消息」一类问题。
+  --no-extra      签名时**不写** SecExtra（tag 3）。与 --no-token 一起用就是
+                  「只发 SecSign」，即 v2.3.6 之前的帧形态。
+  --no-version    不写 SSO 头的客户端版本字段（真机抓包里是空串）。
+  --seq <n>       把 SSO sequence 起点钉成 n（诊断：服务端可能按会话绑定 seq 段）。
+  --token <s>     覆盖 SecToken 为该字符串（诊断：验证服务端是否校验 sign(token)）。
   --is-uid        按 UIN-form 变体发包（sendOidbPacket 的 isUid=true，信封 reserved=1）。
   --uin <uin>     指定账号（缺省 = login.db 里第一个在线的）。
   --list          只列出 login.db 账号与在线状态，不发包。
@@ -468,6 +473,8 @@ async function main(): Promise<void> {
   const cmd = cmdText ? parseCommand(cmdText) : null;
   const sign = has('--sign');
   const noToken = has('--no-token');
+  const noExtra = has('--no-extra');
+  const noVersion = has('--no-version');
   const isUid = has('--is-uid');
 
   let plan: BodyPlan | null = null;
@@ -476,7 +483,8 @@ async function main(): Promise<void> {
     log(`命令字 ${describeCommand(cmd)}`);
     log(
       `签名 ${sign ? '开（--sign）' : '关（默认不签名）'}；` +
-        `SecToken ${noToken ? '不传（--no-token）' : '照常'}；isUid=${isUid}`,
+        `SecToken ${noToken ? '不传（--no-token）' : '照常'}；` +
+        `SecExtra ${noExtra ? '不传（--no-extra）' : '照常'}；isUid=${isUid}`,
     );
     plan = planBody(readBody(), cmd, isUid);
     for (const note of plan.notes) log(`body: ${note}`);
@@ -514,6 +522,13 @@ async function main(): Promise<void> {
     log(`--no-token：丢掉扫到的 SecToken（${material.secToken.length} 字符）`);
     delete (material as { secToken?: string }).secToken;
   }
+  // `--token`：覆盖 SecToken。用来验证「服务端校验的是 sign(token) 而不是 token 本身」
+  // —— 随机 token 应当失败，换成内存里那份真值则成功。
+  const tokenOverride = opt('--token');
+  if (tokenOverride !== undefined) {
+    (material as { secToken?: string }).secToken = tokenOverride;
+    log(`--token：SecToken 覆盖为 ${JSON.stringify(tokenOverride)}`);
+  }
 
   // ③ 扫描需要的数据：设备 guid（离线）+ 当前 QQ 构建的 appid（subAppId）。
   const guid = resolveDeviceGuid(nt, platform);
@@ -528,11 +543,32 @@ async function main(): Promise<void> {
     nt,
     platform,
     target.pid,
-    { uin: target.uin, uid: target.uid, guid, subAppId },
+    // `--no-extra`：qua 传空串。native 的 `with_qua` 会把空串当「没给」，
+    // `secure_info` 于是回退到签名函数的产出（本进程里恒为空）→ 帧里没有 SecExtra。
+    {
+      uin: target.uin,
+      uid: target.uid,
+      guid,
+      subAppId,
+      ...(noExtra ? { qua: '' } : {}),
+      // `--no-version`：真机抓包里 SSO 头的版本字段是空串，不是 `3.2.34-53644`。
+      ...(noVersion ? { clientVersion: '' } : {}),
+    },
     material,
   );
   if (!registered) fail('会话物料不齐（缺 a2 / d2 / d2key），没登记上 SSO 会话');
   log('SSO 会话已登记');
+
+  // ④.5 诊断：把 sequence 起点钉成指定值。
+  const seqArg = opt('--seq');
+  if (seqArg !== undefined) {
+    const value = Number(seqArg);
+    if (!Number.isInteger(value) || value < 0) fail(`--seq 需要非负整数，收到 ${seqArg}`);
+    const applied = (nt as { setPacketSequence?: (v: number) => number }).setPacketSequence;
+    if (typeof applied !== 'function') fail('当前 native 没有 setPacketSequence，先重新构建');
+    applied(value);
+    log(`sequence 起点已钉成 ${value}`);
+  }
 
   // ⑤ 发包。
   const startedAt = Date.now();
