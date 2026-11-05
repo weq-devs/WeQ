@@ -156,21 +156,43 @@ it('备份删除失败不标记 purgedAt，原始数据库不受影响', async (
   expect(readFileSync(original, 'utf8')).toBe('original');
 });
 
-it('配置与桌面运行状态归备份页，闪传成果不可通过旧 ID 删除', async () => {
+it('配置独立管理，桌面缓存归空间清理，小型运行状态不开放清理', async () => {
   const f = fixture();
   for (const path of [
     'config/accounts/settings.json',
     'config.json',
     'remote-network/state.json',
-    'Local Storage/data',
+    'profile/Local Storage/data',
+    'profile/Cache/data',
+    'profile/Code Cache/data',
+    'profile/GPUCache/data',
+    'profile/Preferences',
+    'profile/Cookies',
     'cache/flash/file',
   ])
     f.write(join(f.root, path), '{}');
   const items = await f.service.listStorageUsage([
-    { path: f.root, label: '桌面运行数据', clearableAfterExit: true },
+    { path: join(f.root, 'profile'), label: '桌面运行数据', clearableAfterExit: true },
   ]);
-  for (const name of ['config', 'config.json', 'remote-network', 'Local Storage'])
-    expect(items.find((item) => item.path === join(f.root, name))?.management).toBe('backup');
+  for (const name of ['config', 'config.json'])
+    expect(items.find((item) => item.path === join(f.root, name))).toMatchObject({
+      management: 'backup',
+      action: 'data',
+    });
+  for (const name of ['remote-network', 'Local Storage', 'Preferences', 'Cookies']) {
+    const item = items.find(
+      (item) => item.path === join(f.root, name === 'remote-network' ? name : `profile/${name}`),
+    )!;
+    expect(item).toMatchObject({ management: 'runtime', clearable: false, action: 'none' });
+    expect(() => selectStorageCleanupTargets(items, [item.id])).toThrow();
+  }
+  for (const name of ['Cache', 'Code Cache', 'GPUCache'])
+    expect(items.find((item) => item.path === join(f.root, 'profile', name))).toMatchObject({
+      management: 'cleanup',
+      category: 'cache',
+      action: 'cache',
+      clearable: true,
+    });
   expect(items.find((item) => item.id === 'flash')).toMatchObject({
     management: 'downloads',
     clearable: false,

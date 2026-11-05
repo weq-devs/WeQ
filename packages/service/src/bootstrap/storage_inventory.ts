@@ -2,10 +2,10 @@ import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import { basename, dirname, join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { DbRepairHistory } from '../account/db_repair/history';
 import { dbRepairPaths } from '../account/db_repair/paths';
-import { measureStorage, type StorageUsageItem } from './storage_usage';
+import { measureStorage, RUNTIME_CACHE_NAMES, type StorageUsageItem } from './storage_usage';
 
 const REPAIR_NAMES = new Set(['db_repair', 'db-repair', 'dbfix', 'dbfix2']);
-const CONFIG_NAMES = new Set(['config', 'config.json', 'remote-network']);
+const CONFIG_NAMES = new Set(['config', 'config.json']);
 const MEDIA_NAMES = new Set(['avatar', 'media', 'voice', 'linkpreview', 'collection']);
 const DRESS_NAMES = new Set([
   'dress',
@@ -228,12 +228,21 @@ function classify(item: StorageUsageItem): StorageUsageItem {
     management: 'cleanup' as const,
     action: 'none' as StorageUsageItem['action'],
   };
-  if (
-    CONFIG_NAMES.has(name) ||
-    item.management === 'backup' ||
-    item.label.startsWith('桌面运行数据')
-  )
+  if (CONFIG_NAMES.has(name))
     return { ...base, management: 'backup', action: item.clearable ? 'data' : 'none' };
+  if (item.management === 'backup' || item.label.startsWith('桌面运行数据')) {
+    if (RUNTIME_CACHE_NAMES.has(name))
+      return {
+        ...base,
+        label: '桌面运行缓存',
+        category: 'cache',
+        action: item.clearable ? 'cache' : 'none',
+        confirmation: item.clearable ? '仅删除桌面缓存，后续使用时会重新生成。' : undefined,
+      };
+    return { ...base, management: 'runtime', clearable: false, requiresExit: false };
+  }
+  if (name === 'remote-network')
+    return { ...base, management: 'runtime', clearable: false, requiresExit: false };
   if (name === 'flash')
     return {
       ...base,

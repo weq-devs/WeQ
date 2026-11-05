@@ -34,7 +34,7 @@ export interface StorageUsageItem {
     | 'repair-history'
     | 'repair-work'
     | 'unknown';
-  management?: 'cleanup' | 'backup' | 'downloads' | 'repair';
+  management?: 'cleanup' | 'backup' | 'downloads' | 'repair' | 'runtime';
   action?: 'cache' | 'data' | 'db-backup' | 'program-backup' | 'none';
   backup?: {
     account: string;
@@ -145,6 +145,17 @@ export const RUNTIME_DATA_NAMES: ReadonlySet<string> = new Set([
   'Web Data',
   'Web Data-journal',
   'Extension State',
+]);
+
+/** 仅包含可重新生成的桌面缓存，不包含登录、连接身份及界面偏好。 */
+export const RUNTIME_CACHE_NAMES: ReadonlySet<string> = new Set([
+  'Cache',
+  'Code Cache',
+  'GPUCache',
+  'DawnGraphiteCache',
+  'DawnWebGPUCache',
+  'GrShaderCache',
+  'ShaderCache',
 ]);
 
 const DATA_RISKS: Readonly<Record<string, string>> = {

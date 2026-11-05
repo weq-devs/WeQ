@@ -100,6 +100,7 @@
 
 .weq-storage-path {
   font-size: 11px;
+  white-space: pre-line;
 }
 
 .weq-storage-group .weq-set-cache-size {
