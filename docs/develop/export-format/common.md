@@ -8,7 +8,7 @@ JSON 根对象对应 `archive.schema.json`。必填字段如下。
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
-| format / version | 常量 | `weq-export` / `1.0`；独立于应用版本 |
+| format / version | 标识 / 版本 | 当前写入 `weq-export` / `1.0`；独立于应用版本，同主版本的小版本读取规则见下文 |
 | profile | basic 或 full | 同一归档不得混用 |
 | archiveId | 非空字符串 | 首次创建后保持不变，不用每轮任务 ID 替换 |
 | scope.account / partition | Actor / 可选字符串 | 来源账号与来源分区；账号未知时 partition 必填，不同账号或 scope 不因消息 ID 相同而混写 |
@@ -16,7 +16,7 @@ JSON 根对象对应 `archive.schema.json`。必填字段如下。
 | formats | JSON/JSONL 数组 | 显式选择的结构化格式，不含强制附加的隐藏副本 |
 | incremental | 对象 | `enabled`；开启时必填唯一 `authority`，必须属于 formats |
 | records | Record[] | 各对象的不同内容版本，只出现一次 |
-| observations | Observation[] | 来源和本次观察，不重复携带正文 |
+| observations | Observation[] | 来源和本次观察，不重复携带正文；数组顺序属于正式语义 |
 | resources | Resource[] | 各次资源取得回执，不内嵌文件字节 |
 | externalReferences | 可选数组 | 范围外父对象等的 id/kind/reason（not-selected/unavailable），不附其正文 |
 
@@ -43,9 +43,13 @@ JSON 根对象对应 `archive.schema.json`。必填字段如下。
 无服务端 ID 的转发节点以资源 ID + 节点稳定索引定位；完全没有稳定身份的记录使用
 持久分配的本地 ID，记录 identity-unverified，不声称跨来源可去重。修改正文不改变 id。
 
-`revision = sha256(UTF8(C({id, kind, state, coverage, data, identity?, native?})))`。
-`C` 递归按对象键的 UTF-16 code unit 升序排序，数组保序，随后用 ECMAScript
-`JSON.stringify` 无空格编码。只允许有效 JSON、有限数值；字符串不做 Unicode 归一化。
+`revision = sha256(UTF8(C(Record 去掉 revision 属性)))`，包括读取者不认识的新增可选属性。
+当前 1.0 Record 的其余属性就是 id/kind/state/coverage/data/identity?/native?，既有摘要不变。
+`C` 递归按对象键的 UTF-16 code unit 升序**直接输出成员**，数组保序，无空白。
+键和标量用 ECMAScript `JSON.stringify` 编码，不能先创建排序后的 JS 对象再整体 stringify，
+否则整数键会被重新按数值排序。例如 `{"2":"b","10":"a"}` 的 C 必须为
+`{"10":"a","2":"b"}`。数值采用 ECMAScript 的最短 JSON 表示；非 JS 实现须通过同一
+黄金向量。只允许有效 JSON、有限数值；字符串不做 Unicode 归一化。
 整数超出安全范围先转为字符串；字节用 Value。协议不接受重复 JSON 键或负零数值。
 观察时刻、来源位置、下载状态不进入正文版本摘要；它们分别属于 observations/resources。
 full 向 basic 投影删除 native、重算摘要，并合并投影后相同的版本及来源观察引用。
@@ -72,7 +76,8 @@ full 向 basic 投影删除 native、重算摘要，并合并投影后相同的�
 
 ## 内容元素
 
-`content` 为有序元素数组，顺序是正文的一部分。各元素均是闭合对象。
+`content` 为有序元素数组，顺序是正文的一部分。写入 schema 中各元素均是闭合对象；
+兼容读取允许其未知可选属性，但仍校验已有 type、必填字段与类型，不猜测未知元素类型。
 
 | type | 必填属性 | 用法 |
 | --- | --- | --- |
@@ -139,3 +144,22 @@ resource id 以来源稳定引用和变体角色生成；文件按内容 SHA-256
 历史来源定位、旧 ID 映射、身份关联、附件绑定 bindings 与派生 derivation 的字段定义及
 验收见 [历史兼容契约](historical.md)。bindings 状态独立于 saved；playback 必须有派生
 来源、编解码信息及依据。TAR/CAS 的位置只能进入来源 locator/provenance，不是 media path。
+
+## 新增字段与兼容读取
+
+正式 writer 按其目标版本的闭合 schema 校验，新字段先登记对应版本的 schema、字段说明
+和测试，不能靠 reader 宽容读取偷偷发布。reader 则允许已有业务对象增加可选属性，保留
+原始结构，只解释已知字段；不能将未知属性中的 type/resourceIds/unixSeconds 等名字猜成
+已知内容、引用或时间。必填字段、已有字段类型、枚举、basic 禁止 native 等约束仍成立。
+`native.attributes/residuals` 保存来源属性；它们不替代格式本身新增可选字段的兼容读取。
+
+JSON 读取和 JSONL 解码返回的正式对象不得按展示模型重建。未知属性（包括 Record 根、
+data、内容元素、Observation、Resource、header 和集合成员的属性）必须在无损转换、
+校验摘要及增量重写时保留；未知 Record 属性参与 revision，未知内容行载荷参与批次摘要。
+header 原样保留，不把文件版本号降成当前 writer 的版本。JSONL 的 type/batchId/commit
+外壳及提交算法在同一主版本固定，不允许通过新增行类型或提交字段绕过旧 reader 的校验。
+
+`observations` 在 JSON 中按正式追加顺序排列；JSONL 按已提交 observation 行顺序恢复。
+迁移、转换、投影和重写不得排序这个数组。按时间的排序只能用于派生视图；观察时间相同
+或不可排序时使用该稳定顺序。resources 回执数组同样保持追加顺序，时间相同时用顺序
+确定最新成功与最新尝试；records 不靠排列顺序决定新旧。
