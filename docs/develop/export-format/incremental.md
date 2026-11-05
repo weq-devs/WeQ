@@ -28,6 +28,8 @@
   不同扫描同内容只增加小型观察，不制造正文版本。
 - 分析默认按 observedAt 选择对象最近观察，时间相同时按已提交顺序确定；来源 modifiedAt
   单独提供给分析者，不把不同来源的时间戳假定为同一可信时钟。
+- 历史 observedAt=null 或无时区 local 不能与真实时刻比较，不用 importedAt 替代。
+  默认将不可排序观察放在可排序观察之前，同类按提交顺序；展示时间不确定及全部冲突版本。
 - 最新观察是 partial 时，只将实际取得的字段作为新事实；缺席字段回看最近可用版本。
   对正文、评论、附件集合以完整语义单元回退，不按数组下标拼新旧内容。未知/截断的新
   正文不能抹掉完整旧正文；同时展示最新观察缺项以及实际采用的旧版本引用。explicit null
@@ -96,7 +98,7 @@ JSON 与 JSONL 的等价对象是 header + 去重版本/观察/资源回执集�
 | 旧来源 | 识别方式 | 转换与缺失处理 |
 | --- | --- | --- |
 | WeQ enriched JSON | meta/members/messages | 映射会话和发送者；保留旧实际元素，缺失行属性不冒称 full |
-| 旧裸消息数组/JSONL | msgId/msgSeq/sendTime/elements | 缺账号、会话时要求显式提供，不能从文件名或昵称猜测 |
+| 旧裸消息数组/JSONL | msgId/msgSeq/sendTime/elements | 未知账号、会话/原生 ID 按历史契约表达，不为满足必填项编造或强制补填 |
 | header/member/message JSONL | type 行及 meta | 保留实际行关系，校验后迁入新正式格式，不把新 stream 当旧消息行读取 |
 | 隐藏 messages-*.jsonl + baseline.json | 旧 version/selection/journal 清单 | 只读导入日志及可用媒体；旧 selection hash 不是业务消息身份，不复制为新隐藏日志 |
 | ChatLab | chatlab/meta 与实际消息字段 | 已拍平成文本的媒体/转发无法反推结构；parsing/acquisition 标记缺项，不称无损 |
@@ -105,3 +107,8 @@ JSON 与 JSONL 的等价对象是 header + 去重版本/观察/资源回执集�
 
 识别器优先新 format/version，再旧格式；不以文件扩展名判定。导入始终生成新归档，
 完成校验后再允许显式选择它续作。不自动删除原件、隐藏日志、旧媒体或历史基线。
+
+历史规范化聊天库的字段、旧 archive_message_id/archive_variant_id 引用、多账号集合、
+资源及逐字段验收统一遵循[历史兼容契约](historical.md)。新增导出与迁移相同语义必须
+使用同一字段、身份和版本规则。本轮修订仍是尚未发布的 v1 设计稿，不是对已发布
+version=1.0 数据的原位结构变更；正式冻结后变更须按本节版本规则处理。

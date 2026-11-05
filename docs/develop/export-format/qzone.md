@@ -6,13 +6,17 @@
 
 | 字段 | 必填 | 含义 |
 | --- | --- | --- |
-| type | 是 | post/comment/reply/album/photo/video/repost |
+| type | 是 | post/comment/reply/album/photo/video/repost/blog/guestbook/share/favorite/visit |
 | owner / author | 是 | 空间归属与实际作者 Actor，不能一律填空间主人 |
 | sourceId | 是 | tid、评论/回复 ID、albumId 或媒体 ID |
-| createdAt | 是 | Time 或 null；照片按实际上传/拍摄字段意义记录，不混用 |
+| createdAt | 是 | Time 或 null；对象创建时刻，不将拍摄时间与上传时间混用 |
+| uploadedAt / shotAt | 否 | 独立上传时间与拍摄时间；无时区时保留 local 形式 |
+| location | 否 | 地名、经纬度；shootGeo/lbs 未解释部分进入登记属性/残余，不重复已映射值 |
 | content | 是 | 文字、原帖、媒体、语音等完整 Content |
 | title | 否 | 相册/媒体等标题 |
 | parentId | 条件 | 评论、回复、照片、视频必填，指向父 Record.id |
+| parentType | 历史互动必填 | 与父实体类型相符；照片/相册互动不能误连为说说互动 |
+| targetId | 空间 favorite 必填 | 被收藏对象 Record.id，可指向不同类型实体；范围外声明 externalReferences |
 | repostId | 否 | 原帖 Record.id，与转发者文案分离 |
 | replyTo | 否 | 回复对象 Actor |
 | counts | 否 | comments/likes/reposts/media 为十进制非负整数字符串或 null；未提供不补零 |
@@ -20,6 +24,12 @@
 原帖可得时另存 repost 记录，转发帖只引用它。评论、回复是可独立版本化的内容对象，
 basic 也保留；正文中的媒体顺序不能由去重后的下载列表代替。相册照片归属保留 parentId，
 相同媒体文件在多个相册中出现不等于一个业务条目。
+
+blog 保存日志全文/原 HTML，guestbook 保存每条留言正文及 HTML/UBB；replyList 拆为
+带 parentId/parentType 的 reply。share 的原来源链接和发布者用 structured/link，评论
+仍是独立内容，详细点赞放 full。空间 favorite 是 qzone 对象，不转换为 QQ collection。
+visit 是一次访问事件，author 为访客、owner 为空间主人、createdAt 为真实访问时间；
+不能用访问量 counts 生成访客名单，相同访客重复访问保留不同来源事件身份。
 
 身份分量：账号 + owner 身份 + type + 来源 ID；评论/回复再加所在帖子/父评论。
 来源没有稳定评论 ID 时保留持久本地 ID，不能按“名字+正文+时间”跨页无条件去重。
@@ -60,6 +70,9 @@ target 默认 `/data`。媒体的实际不同变体各有 Resource；下载后�
 模型；`account/export/qzone_export.ts` 的 nativeMedia、历史 rawPages 与解析 rows 存在信息
 重叠。新 full 需在 Web 解析前取得来源字段清单，再按映射拆残余，而非复制 nativeMedia。
 当前 JSON/TXT/HTML 和相册索引不符合本设计，JSONL 尚需业务接入。
+
+历史 blog/guestbook/share/favorite/visit 已有格式支持，但本轮未添加在线读取器。相册
+classid/className/lastuploadtime/modifytime 与照片 shootGeo/lbs 的附加映射见[历史字段表](historical.md#历史字段目录)。
 
 正例含 post→comment→reply 及 album→photo 关系，full 增加点赞名单。反例：photo 无
 parentId、负互动计数、将未取回评论填为空并声称 complete，分别由 schema/语义或未来

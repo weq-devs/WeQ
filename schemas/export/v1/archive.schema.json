@@ -49,6 +49,7 @@
           "required": ["account", "selection"],
           "properties": {
             "account": { "$ref": "common.schema.json#/$defs/actor" },
+            "partition": { "$ref": "common.schema.json#/$defs/id" },
             "selection": { "$ref": "common.schema.json#/$defs/value" }
           },
           "additionalProperties": false

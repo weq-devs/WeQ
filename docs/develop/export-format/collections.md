@@ -1,5 +1,8 @@
 # 收藏
 
+历史 QQ 收藏 bizKey/qzoneUgcKey/topTime 的登记属性见[历史兼容契约](historical.md)。
+它们不替代 CID；topTime=0 不证明有置顶历史。空间收藏是 qzone/type=favorite，不混入此领域。
+
 状态：待实现设计。入口：`collection.basic.schema.json` / `collection.full.schema.json`。
 
 ## 基本内容字段

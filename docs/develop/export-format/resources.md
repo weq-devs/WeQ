@@ -1,6 +1,8 @@
 # 资源目录与文件清单
 
 状态：待实现设计。入口：`resource-directory.basic.schema.json` / `resource-directory.full.schema.json`。
+历史附件绑定、SILK→WAV 等播放副本及 TAR/CAS 定位见[历史兼容契约](historical.md#资源与派生)。
+文件已 saved 不会把 candidate/unresolved 绑定自动升级为 verified。
 资源文件和取得回执的公共 schema 见 [common](common.md)。
 
 | data 字段 | 必填 | 含义 |

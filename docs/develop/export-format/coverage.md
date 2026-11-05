@@ -22,6 +22,9 @@ schema 已接入**。未读取真实 QQ 数据库、未发业务网络请求；�
 | 表情与装扮 | packages/service/src/account/export/{emoji_export,sysface_export,dress_export}.ts；account/favorite_emoji_export.ts | 本地/商城/收藏资源与分类 | 所有目录属性、variant、unknown字段及新schema | 商城目录不是已拥有/已下载清单 |
 | 报告/机器人与生成附件 | packages/service/src/account/export/generated_resources.ts；apps/desktop/src/shared/analytics_export.ts；packages/service/src/account/agentlab_export.ts | 现成文件、导出元数据、附件句柄 | 复用resource-directory的文件及回执映射 | 不新增生成器/部署恢复，不把截图当原统计数据 |
 | 当前增量/查看器 | packages/service/src/account/export/{message_journal,baseline,task_manager}.ts；apps/desktop/src/main/export_viewer.ts | 旧隐藏journal、基线目录扫描、各格式重建 | 正式JSON/JSONL直接读取、原位更新、批次链、旧格式导入、丢索引恢复 | 本轮未修运行实现、未验证真实断电/掉盘 |
+| 历史 PCQQ/移动端/云端 | ChatsArchiveTools/scripts/pcqq_msg0_decode.py 及已有历史规范化来源 | 前一会话已核字段；本轮复核 PCQQ 头定义，未重读个人原件 | legacy 属性、identity/provenance/旧引用的迁移提取器 | 已知字段不全等于已知语义；read 等仍 partial/opaque |
+| 历史空间日志/留言/分享/收藏/访问 | 已有历史规范化来源；非当前 WeQ 在线读取器 | 历史字段要求已进入 qzone schema | 历史迁移及各在线读取链路分别补接 | 不以 schema 已支持宣称在线采集已实现 |
+| 历史资源及多归档 | 旧 TAR/CAS/资源关系和变体引用 | 本轮仅按既有字段要求设计 | bindings/derivation/来源 locator、archive set 读取器 | 未实际提取、转码或迁移；合成 codec 字段不证明真实解码 |
 
 ## 全量覆盖的后续验收方法
 

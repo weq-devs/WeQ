@@ -10,6 +10,8 @@
 | archive.schema.json | 完整 JSON 正式归档 |
 | stream.schema.json | 单条 JSONL 行，提交链和跨行规则须另外校验 |
 | common.schema.json | 共享 Actor/Time/Content/Value/Observation/Resource/Native 等类型 |
+| legacy.schema.json | 已登记历史属性名称、类型和解释状态约束 |
+| archive-set.schema.json | 多账号/分区归档引用、跨归档关系和共享资源清单，不含正文 |
 | message.basic/full.schema.json | 普通消息、数据线、服务号、公众号、频道私聊的单个 Record |
 | qzone.basic/full.schema.json | 说说、评论回复、转发、相册和媒体 Record |
 | collection.basic/full.schema.json | 八类收藏及未知类型 Record |
@@ -23,7 +25,7 @@
 实现跨 allOf 的检查，不能将 full 当作可附任意 raw 字段的宽松外壳。
 
 所有 `$id` 使用 `https://weq.local/schemas/export/v1/` 标识命名空间，**不做网络请求**。
-将全部 17 个 schema 一次注册到支持 Draft 2020-12 的校验器，再校验入口。
+将全部 19 个 schema 一次注册到支持 Draft 2020-12 的校验器，再校验入口。
 known attributes 的 Value 类型也由对应 full schema 检查；未知源字段使用 typed Value
 保留，字段意义和互斥来源必须结合映射文档核验。
 
@@ -36,6 +38,11 @@ known attributes 的 Value 类型也由对应 full schema 检查；未知源字�
 每档 43 个 Record，覆盖 7 个领域及其当前子类型。JSON 与 JSONL 是用户显式同时选择
 两种格式的示例，不表示运行时必须保存两份。两个档位使用不同 archiveId。文件中的账号、
 地址、正文、模型和资源都为合成数据，example.invalid 不需访问。
+
+新增 `historical-fixtures.mjs` 提供历史全量合成样例（测试同时投影 basic 并往返 JSONL），
+含旧排版、未确认状态、日志/留言等新实体、资料快照、收藏关联键、旧 ID 与来源、
+未知时间、UTF-16 码元及资源关系。codec/hash 是合成元数据，不是 SILK/WAV 实文件验收。
+字段说明和最后要求逐项对照见[历史兼容契约](../../../docs/develop/export-format/historical.md)。
 
 反例集中在 `contract.test.mjs`：每个测试将明确的一项有效输入改成无效输入并断言拒绝，
 涵盖缺字段、错误类型、原始残余重复、悬空关系、坏提交等；不是把无效文件混入正例目录。

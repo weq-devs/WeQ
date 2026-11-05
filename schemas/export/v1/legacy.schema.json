@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weq.local/schemas/export/v1/legacy.schema.json",
+  "title": "历史来源已登记属性；不是任意 JSON 容器",
+  "$defs": {
+    "attribute": {
+      "allOf": [
+        {
+          "if": { "properties": { "name": { "pattern": "^legacy\\." } } },
+          "then": {
+            "required": ["interpretation"],
+            "properties": {
+              "name": {
+                "pattern": "^legacy\\.(?:pcqq\\.header\\.(?:color|font_size|font_name|font_family|font_style|charset)|mobile\\.(?:read|extensionData|reservedInt[0-9]+)|cloud\\.(?:totalSeq|editable|msgEventInfo)|senderSnapshot\\.(?:memberLevel|gender)|qzone\\.(?:classid|className|lastuploadtime|modifytime|shootGeo|lbs)|collection\\.(?:bizKey|qzoneUgcKey|topTime))$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "pattern": "^legacy\\.(?:pcqq\\.header\\.(?:color|font_size|font_family|font_style|charset)|mobile\\.reservedInt[0-9]+|cloud\\.totalSeq|collection\\.topTime)$"
+              }
+            }
+          },
+          "then": {
+            "properties": { "value": { "properties": { "type": { "const": "integer" } } } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "enum": [
+                  "legacy.pcqq.header.font_name",
+                  "legacy.qzone.className",
+                  "legacy.collection.bizKey",
+                  "legacy.collection.qzoneUgcKey"
+                ]
+              }
+            }
+          },
+          "then": { "properties": { "value": { "properties": { "type": { "const": "text" } } } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "pattern": "^legacy\\.(?:mobile\\.|cloud\\.(?:totalSeq|editable|msgEventInfo))"
+              }
+            }
+          },
+          "then": { "properties": { "interpretation": { "enum": ["partial", "opaque"] } } }
+        }
+      ]
+    }
+  }
+}
