@@ -34,6 +34,7 @@ const fixture = vi.hoisted(() => ({
       bytes: 2048,
       clearable: false,
       reason: '持久数据',
+      category: 'persistent',
       incomplete: false,
     },
   ] as StorageUsageItem[],
@@ -61,7 +62,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               })
             : proxy([...path, String(key)]),
     });
-  return { trpc: proxy() };
+  return { trpc: proxy(), client: proxy() };
 });
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: (selector: (state: unknown) => unknown) =>
@@ -77,6 +78,109 @@ afterEach(() => {
 });
 
 describe('WeQ 存储管理页面', () => {
+  it('数据库备份置顶并默认展开，配置与闪传成品不计入本页占用或默认清理', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const length = fixture.items.length;
+    fixture.items.push(
+      {
+        ...fixture.items[0]!,
+        id: 'database-backup',
+        label: '合成账号 · nt_msg.db',
+        category: 'db-backups',
+        action: 'db-backup',
+        requiresExit: true,
+        backup: {
+          account: '合成账号',
+          database: 'nt_msg.db',
+          at: '2026-11-05T00:00:00Z',
+          status: 'linked',
+        },
+      },
+      {
+        ...fixture.items[0]!,
+        id: 'config',
+        label: '账号与应用配置',
+        management: 'backup',
+        action: 'data',
+        requiresExit: true,
+        bytes: 1024 ** 3,
+      },
+      {
+        ...fixture.items[0]!,
+        id: 'flash',
+        label: '历史闪传下载',
+        management: 'downloads',
+        clearable: false,
+        bytes: 1024 ** 3,
+      },
+    );
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      const first = host.querySelector<HTMLDetailsElement>('.weq-storage-category')!;
+      expect(first.querySelector('summary')?.textContent).toContain('历史数据库备份');
+      expect(first.open).toBe(true);
+      expect(first.textContent).toContain('已关联修复记录');
+      expect(host.textContent).toContain('本页占用 4.0 KB');
+      expect(host.textContent).not.toContain('账号与应用配置');
+      expect(host.textContent).not.toContain('历史闪传下载');
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '开始清理')!
+          .click(),
+      );
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'], acknowledgeRisk: true });
+    } finally {
+      act(() => root.unmount());
+      fixture.items.splice(length);
+    }
+  });
+
+  it('备份页管理区只处理明确选择的配置，取消确认不清除', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const length = fixture.items.length;
+    fixture.items.push({
+      ...fixture.items[0]!,
+      id: 'config',
+      label: '账号与应用配置',
+      management: 'backup',
+      action: 'data',
+      requiresExit: true,
+      confirmation: '将删除账号配置，需要重新登录。',
+    });
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          createElement(GlobalSettingsSection, {
+            section: 'storage',
+            heading: false,
+            storageManagement: 'backup',
+          }),
+        ),
+      );
+      expect(host.textContent).not.toContain('头像缓存');
+      expect(host.textContent).not.toContain('缓存目录');
+      const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent === '清除所选数据',
+      )!;
+      expect(button.disabled).toBe(true);
+      act(() => host.querySelector<HTMLElement>('[data-weq-select-id="config"]')!.click());
+      fixture.confirm.mockResolvedValueOnce(false);
+      await act(async () => button.click());
+      expect(fixture.clear).not.toHaveBeenCalled();
+      await act(async () => button.click());
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['config'], acknowledgeRisk: true });
+    } finally {
+      act(() => root.unmount());
+      fixture.items.splice(length);
+    }
+  });
+
   it('直接清理先完成，取消重启保留剩余项，再次确认只重试被占用项目', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
@@ -179,9 +283,11 @@ describe('WeQ 存储管理页面', () => {
     const originalLength = fixture.items.length;
     fixture.items.push({
       ...fixture.items[0],
-      id: 'db_repair',
-      label: '数据库修复工作区',
-      path: '/synthetic/cache/db_repair',
+      id: 'backup:test',
+      label: '历史数据库备份 · nt_msg.db',
+      path: '/synthetic/cache/db_repair/account/backups/test',
+      category: 'db-backups',
+      action: 'db-backup',
       requiresExit: true,
       confirmation: '将删除修复备份，失去回滚能力，无法自动恢复。',
     });
@@ -197,7 +303,7 @@ describe('WeQ 存储管理页面', () => {
       expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'], acknowledgeRisk: true });
       expect(fixture.exitClear).not.toHaveBeenCalled();
       const checkbox = host.querySelector<HTMLInputElement>(
-        'input[aria-label="数据库修复工作区"]',
+        'input[aria-label="历史数据库备份 · nt_msg.db"]',
       )!;
       expect(checkbox.checked).toBe(false);
       act(() => checkbox.closest('label')!.click());
@@ -212,7 +318,7 @@ describe('WeQ 存储管理页面', () => {
         expect.objectContaining({ okLabel: '清除' }),
       );
       await act(async () => button.click());
-      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['db_repair'], acknowledgeRisk: true });
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['backup:test'], acknowledgeRisk: true });
       expect(fixture.exitClear).not.toHaveBeenCalled();
       expect(fixture.push).toHaveBeenLastCalledWith(
         expect.objectContaining({
@@ -269,15 +375,17 @@ describe('WeQ 存储管理页面', () => {
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
       expect(host.textContent).toContain('WeQ 存储管理');
-      expect(host.textContent).toContain('合计占用 3.0 KB');
+      expect(host.textContent).toContain('本页占用 3.0 KB');
       expect(host.textContent).toContain('可清理 1.0 KB');
       expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
       const readonly = host.querySelector<HTMLElement>('.is-readonly')!;
       const toolbar = host.querySelector('.weq-storage-toolbar')!;
       expect(toolbar.nextElementSibling?.classList.contains('weq-set-cache-list')).toBe(true);
-      const category = host.querySelector<HTMLDetailsElement>('.weq-storage-category')!;
+      const category = [...host.querySelectorAll<HTMLDetailsElement>('.weq-storage-category')].find(
+        (item) => item.textContent?.includes('图片识别结果'),
+      )!;
       expect(category.open).toBe(false);
-      expect(category.querySelector('summary')?.textContent).toContain('消息与搜索数据');
+      expect(category.querySelector('summary')?.textContent).toContain('持久数据');
       expect(readonly.textContent).toContain('图片识别结果');
       expect(readonly.querySelector('input')).toBeNull();
       expect(readonly.hasAttribute('data-weq-select-id')).toBe(false);
@@ -312,13 +420,16 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
-      expect(host.textContent).toContain('合计占用 7.0 KB');
+      expect(host.textContent).toContain('本页占用 7.0 KB');
       expect(host.textContent).not.toContain('.DS_Store');
       expect(host.textContent).not.toContain('空缓存');
       const categories = [...host.querySelectorAll('.weq-storage-category')];
       expect(categories).toHaveLength(2);
-      expect(categories[0].querySelector('summary')?.textContent).toContain('4.0 KB');
-      expect(categories[0].querySelectorAll('.is-readonly')).toHaveLength(2);
+      const persistent = categories.find((item) =>
+        item.querySelector('summary')?.textContent?.includes('持久数据'),
+      )!;
+      expect(persistent.querySelector('summary')?.textContent).toContain('6.0 KB');
+      expect(persistent.querySelectorAll('.is-readonly')).toHaveLength(2);
       expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
     } finally {
       act(() => root.unmount());

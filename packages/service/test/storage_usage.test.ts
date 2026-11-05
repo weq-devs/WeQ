@@ -34,13 +34,27 @@ describe('WeQ 存储管理', () => {
     const f = fixture();
     const cache = join(f.root, 'repair-custom');
     const backup = f.file('repair-custom/db_repair/synthetic/backups/one/nt_msg.db', 71);
+    const meta = JSON.stringify({
+      uin: 'synthetic',
+      dbName: 'nt_msg.db',
+      at: '2026-11-05T00:00:00Z',
+      source: join(f.root, 'qq-original', 'nt_msg.db'),
+    });
+    writeFileSync(join(cache, 'db_repair/synthetic/backups/one/meta.json'), meta);
     const original = f.file('repair-custom/personal.db', 100);
     f.service.setDbRepairCacheDir(cache);
     const reloaded = new UserConfigService({ appDataRoot: () => f.root });
     expect(reloaded.getDbRepairCacheDir()).toBe(cache);
     const items = await reloaded.listStorageUsage();
-    const item = items.find((row) => row.path === join(cache, 'db_repair/synthetic'));
-    expect(item).toMatchObject({ bytes: 71, requiresExit: true, clearable: true });
+    const item = items.find((row) => row.path === join(cache, 'db_repair/synthetic/backups/one'));
+    expect(item).toMatchObject({
+      bytes: 71 + Buffer.byteLength(meta),
+      requiresExit: true,
+      clearable: true,
+      category: 'db-backups',
+      backup: { status: 'orphan' },
+    });
+    expect(items.some((row) => row.path === join(cache, 'db_repair/synthetic'))).toBe(false);
     expect(item?.confirmation).toContain('回滚');
     await reloaded.clearCache(item ? [item.id] : []);
     expect(existsSync(backup)).toBe(true);

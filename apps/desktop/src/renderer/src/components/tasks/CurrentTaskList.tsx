@@ -265,7 +265,7 @@ export function CurrentTaskList({
               type="button"
               className="weq-set-btn"
               disabled={revealFlash.isLoading}
-              onClick={() => revealFlash.mutate()}
+              onClick={() => revealFlash.mutate({ taskId: task.id })}
             >
               <FolderOpen size={14} />
               打开下载目录
@@ -407,6 +407,15 @@ export function CurrentTaskList({
           {items.length} 项任务{running ? ` · ${running} 项进行中` : ''}
         </span>
         <div className="weq-current-tasks-actions">
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={revealFlash.isLoading || flash.isLoading || Boolean(flash.error)}
+            onClick={() => revealFlash.mutate()}
+          >
+            <FolderOpen size={14} />
+            旧闪传目录
+          </button>
           {exports.some((task) => task.status === 'completed') ? (
             <button type="button" className="weq-set-btn" onClick={onSaveAll}>
               <Download size={14} />

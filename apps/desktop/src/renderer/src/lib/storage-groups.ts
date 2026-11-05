@@ -1,55 +1,57 @@
-interface StorageEntry {
-  path: string;
-  bytes: number;
-  incomplete: boolean;
-  clearable: boolean;
-}
+import type { StorageUsageItem } from '@weq/service';
 
-const GROUPS = [
-  { label: '本地模型', names: ['models'] },
-  {
-    label: '消息与搜索数据',
-    names: [
-      'ocr',
-      'search-index',
-      'content-search',
-      'roam-msg',
-      'roaming-jobs',
-      'collection-history',
-      'deleted',
-      'anti_recall',
-    ],
-  },
-  { label: '助手与智能分析', names: ['agentlab', 'weq-assistant', 'api_usage', 'intent_sense'] },
-  { label: '导出与文件', names: ['export', 'web-exports', 'merge-forward', 'flash'] },
-  {
-    label: '装扮与表情资源',
-    names: ['dress', 'dress_shared', 'qqshow', 'marketface', 'marketpack', 'sysemoji'],
-  },
-  { label: '配置与日志', names: ['config', 'config.json', 'logs', 'remote-network'] },
-] as const;
+const LABELS = {
+  'db-backups': '历史数据库备份',
+  media: '图片、视频与媒体缓存',
+  dress: '表情与装扮缓存',
+  cache: '其他可再生成缓存',
+  persistent: '持久数据',
+  'program-backups': '历史程序修补备份',
+  'repair-history': '数据库修复记录与报告',
+  'repair-work': '数据库修复临时文件',
+  unknown: '其他已占用数据',
+} as const;
 
 const SYSTEM_FILES = new Set(['.ds_store', 'thumbs.db', 'desktop.ini']);
 
-/** 只整理展示；不改变原始清理 ID、权限或总占用，未知文件仍可展开查看。 */
-export function groupRetainedStorage<T extends StorageEntry>(items: readonly T[]) {
-  const groups = GROUPS.map(({ label }) => ({
-    label,
-    items: [] as T[],
-    bytes: 0,
-    incomplete: false,
-  }));
-  const other = { label: '应用运行与其他数据', items: [] as T[], bytes: 0, incomplete: false };
+/** 使用服务端业务分类；旧清单只提供保守展示，不通过路径猜测删除能力。 */
+export function groupStorage(items: readonly StorageUsageItem[], backupManagement = false) {
+  const groups = new Map<
+    string,
+    { key: string; label: string; items: StorageUsageItem[]; bytes: number; incomplete: boolean }
+  >();
   for (const item of items) {
-    if (item.clearable) continue;
-    const name = item.path.split(/[\\/]/).filter(Boolean).at(-1) ?? '';
-    const index = GROUPS.findIndex((group) => group.names.some((entry) => entry === name));
-    const group = groups[index] ?? other;
+    const key =
+      item.category ?? (item.clearable ? (item.requiresExit ? 'persistent' : 'cache') : 'unknown');
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        key,
+        label: backupManagement ? '配置与运行数据管理' : LABELS[key],
+        items: [],
+        bytes: 0,
+        incomplete: false,
+      };
+      groups.set(key, group);
+    }
     group.bytes += item.bytes;
     group.incomplete ||= item.incomplete;
-    if (!SYSTEM_FILES.has(name.toLowerCase()) && (item.bytes > 0 || item.incomplete)) {
-      group.items.push(item);
-    }
+    const name = item.path.split(/[\\/]/).at(-1)?.toLowerCase() ?? '';
+    if (!SYSTEM_FILES.has(name) && (item.bytes > 0 || item.incomplete)) group.items.push(item);
   }
-  return [...groups, other].filter((group) => group.bytes > 0 || group.incomplete);
+  for (const group of groups.values())
+    group.items.sort(
+      (a, b) =>
+        b.bytes - a.bytes ||
+        (b.backup?.at ?? '').localeCompare(a.backup?.at ?? '') ||
+        a.id.localeCompare(b.id),
+    );
+  return [...groups.values()]
+    .filter((group) => group.bytes > 0 || group.incomplete)
+    .sort((a, b) => {
+      if (a.key === b.key) return 0;
+      if (a.key === 'db-backups' || b.key === 'unknown') return -1;
+      if (b.key === 'db-backups' || a.key === 'unknown') return 1;
+      return b.bytes - a.bytes || a.key.localeCompare(b.key);
+    });
 }

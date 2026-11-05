@@ -43,6 +43,7 @@ import {
   type StorageRoot,
   type StorageUsageItem,
 } from './storage_usage';
+import { organizeStorageUsage } from './storage_inventory';
 import {
   DEFAULT_QZONE_PAGINATION,
   normalizeQzonePagination,
@@ -2211,7 +2212,9 @@ export class UserConfigService {
           },
         ]
       : [];
-    return listStorageUsage(this.root, this.cacheBaseDir(), [...extraRoots, ...repairRoots]);
+    return organizeStorageUsage(
+      await listStorageUsage(this.root, this.cacheBaseDir(), [...extraRoots, ...repairRoots]),
+    );
   }
 
   /** 兼容旧客户端，仍只返回可清理项。 */

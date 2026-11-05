@@ -19,8 +19,31 @@ export interface StorageUsageItem {
   clearable: boolean;
   reason: string;
   incomplete: boolean;
+  /** 统计拆分时仍须保留原根的排除范围，不再次累计嵌套数据根。 */
+  excludedPaths?: string[];
+  protected?: boolean;
   /** 混合目录只清理下载器拥有的文件，不能整目录删除。 */
-  cleanupKind?: 'dress-previews' | 'dress-shared' | 'dress-data';
+  cleanupKind?: 'dress-previews' | 'dress-shared' | 'dress-data' | 'db-backup';
+  category?:
+    | 'db-backups'
+    | 'media'
+    | 'dress'
+    | 'cache'
+    | 'persistent'
+    | 'program-backups'
+    | 'repair-history'
+    | 'repair-work'
+    | 'unknown';
+  management?: 'cleanup' | 'backup' | 'downloads' | 'repair';
+  action?: 'cache' | 'data' | 'db-backup' | 'program-backup' | 'none';
+  backup?: {
+    account: string;
+    database: string;
+    at: string;
+    status: 'linked' | 'orphan' | 'unrecognized';
+    historyPath?: string;
+    recordId?: string;
+  };
   /** 清理确认中需要额外告知的影响。 */
   confirmation?: string;
   requiresExit?: boolean;
@@ -324,6 +347,9 @@ export async function listStorageUsage(
               : label,
         path,
         bytes: size.bytes,
+        excludedPaths: nested,
+        protected: root.protected,
+        ...(RUNTIME_DATA_NAMES.has(name) ? { management: 'backup' as const } : {}),
         clearable,
         requiresExit: persistent,
         reason: persistent

@@ -5,7 +5,7 @@ import { FlashTransferViewer } from '../src/renderer/src/components/FlashTransfe
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 
 const fixture = vi.hoisted(() => ({
-  start: vi.fn(async () => ({ started: 2, errors: [] })),
+  start: vi.fn(async () => ({ started: 2, errors: [], cancelled: false })),
   toast: vi.fn(),
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
@@ -37,6 +37,27 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+});
+
+it('取消保存目录后保留勾选，不关闭浏览弹窗或打开任务面板', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  fixture.start.mockResolvedValueOnce({ started: 0, errors: [], cancelled: true });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const onClose = vi.fn();
+  const before = useWorkspaceMenu.getState().taskOpenRequest;
+  try {
+    await act(async () =>
+      root.render(h(FlashTransferViewer, { filesetId: 'fixture', title: '合成资料', onClose })),
+    );
+    act(() => host.querySelector<HTMLInputElement>('.weq-ft-select-all input')!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('.weq-ft-btn-primary')!.click());
+    expect(host.textContent).toContain('已选 2 项');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(before);
+  } finally {
+    act(() => root.unmount());
+  }
 });
 
 it('多选只提交一次下载操作，成功后进入常规任务入口，不展示独立列表', async () => {
