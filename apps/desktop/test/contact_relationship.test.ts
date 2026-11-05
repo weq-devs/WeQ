@@ -22,6 +22,9 @@ vi.mock('../src/renderer/src/components/ContactWorkspace', () => ({
 vi.mock('../src/renderer/src/components/qq-actions/CommonRelationships', () => ({
   CommonRelationships: () => null,
 }));
+vi.mock('../src/renderer/src/components/qq-actions/FriendClue', () => ({
+  FriendClue: ({ uid }: { uid: string }) => h('div', { 'data-friend-clue': uid }),
+}));
 vi.mock('../src/renderer/src/components/qq-actions/ProfileLikesRow', () => ({
   ProfileLikesRow: () => null,
 }));
@@ -120,6 +123,9 @@ it.each([false, true])(
     expect(scope.querySelector('[data-relationship="friend"]')?.textContent).toContain('我的好友');
     expect(scope.querySelector('[data-relationship="friend"]')?.textContent).toContain('同学');
     expect(scope.querySelector('[aria-label="联系人资料"]')).not.toBeNull();
+    expect(scope.querySelector('[data-friend-clue]')?.getAttribute('data-friend-clue')).toBe(
+      person.id,
+    );
   },
 );
 

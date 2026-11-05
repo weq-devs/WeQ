@@ -36,6 +36,7 @@ import { openLightbox } from '../../components/ImageLightbox';
 import { ContactWorkspace } from '../../components/ContactWorkspace';
 import { ProfileLikesRow } from '../../components/qq-actions/ProfileLikesRow';
 import { CommonRelationships } from '../../components/qq-actions/CommonRelationships';
+import { FriendClue } from '../../components/qq-actions/FriendClue';
 import {
   ContactWorkspaceNavigationContext,
   type ContactWorkspaceTab,
@@ -88,18 +89,6 @@ export function birthdayText(year?: number, month?: number, day?: number) {
     return null;
   }
   return year && year > 0 ? `${year} 年 ${month} 月 ${day} 日` : `${month} 月 ${day} 日`;
-}
-
-/** createdAt 对好友是 epoch（无真实入会时间），>2000 才认为有效。 */
-function realCreatedAt(value?: string) {
-  if (!value) {
-    return null;
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime()) || date.getFullYear() <= 2000) {
-    return null;
-  }
-  return formatProfileDate(value);
 }
 
 /**
@@ -387,7 +376,6 @@ export function ContactProfileDialog({
   // 所以这里不再尝试拼接「城市 · 天气」。
   const statusText = [profile.customStatus || profile.onlineStatus].filter(Boolean).join(' · ');
   const birthday = birthdayText(profile.birthYear, profile.birthMonth, profile.birthDay);
-  const createdAt = realCreatedAt(profile.createdAt);
   const intimacy = profile.intimacy ? Number(profile.intimacy).toLocaleString('en-US') : null;
   const nickDiffers =
     profile.nick && profile.nick !== displayUserName(profile) && profile.nick !== profile.remark;
@@ -601,7 +589,12 @@ export function ContactProfileDialog({
         onNavigate={embedded ? undefined : onClose}
       />
     ) : null;
-  const hasRelationDetails = Boolean(commonRows || intimacy || createdAt);
+  const showFriendClue =
+    relationship === 'friend' &&
+    profile.identityLabel === 'QQ' &&
+    profile.kind !== 'bot' &&
+    !profile.clone;
+  const hasRelationDetails = Boolean(commonRows || intimacy || showFriendClue);
   const hasSecondary = Boolean(hasRelationDetails || tags.length || openedPrivileges.length);
   const relationRows = (
     <>
@@ -615,9 +608,7 @@ export function ContactProfileDialog({
           name={displayUserName(profile)}
         />
       ) : null}
-      {createdAt && relationship === 'friend' ? (
-        <ProfileRow icon={<CalendarDays size={13} />} label="成为好友" value={createdAt} />
-      ) : null}
+      {showFriendClue ? <FriendClue uid={profile.id} /> : null}
     </>
   );
 
