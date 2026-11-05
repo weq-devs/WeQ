@@ -24,22 +24,22 @@ export const EXPORT_EXTRA_LABELS = {
 export type ExportExtraKey = keyof typeof EXPORT_EXTRA_LABELS;
 export type ExportExtraOptions = Partial<Record<ExportExtraKey, boolean>>;
 export const EXPORT_CONTENT_DETAILS = [
-  { key: 'messageProperties', parent: 'messages', label: '消息属性' },
+  { key: 'messageProperties', parent: 'messages', label: '属性信息' },
   { key: 'protocol', parent: 'messages', label: '协议与未解析数据' },
-  { key: 'voiceProperties', parent: 'voice', label: '资源详细信息' },
+  { key: 'voiceProperties', parent: 'voice', label: '属性信息' },
   { key: 'voiceVariants', parent: 'voice', label: '其他已存版本' },
-  { key: 'imageProperties', parent: 'images', label: '资源详细信息' },
+  { key: 'imageProperties', parent: 'images', label: '属性信息' },
   { key: 'imageVariants', parent: 'images', label: '其他已存版本' },
-  { key: 'videoProperties', parent: 'videos', label: '资源详细信息' },
+  { key: 'videoProperties', parent: 'videos', label: '属性信息' },
   { key: 'videoVariants', parent: 'videos', label: '其他已存版本' },
-  { key: 'fileProperties', parent: 'files', label: '资源详细信息' },
+  { key: 'fileProperties', parent: 'files', label: '属性信息' },
   { key: 'fileVariants', parent: 'files', label: '其他已存版本' },
-  { key: 'bubbleProperties', parent: 'bubble', label: '装扮信息' },
-  { key: 'fontProperties', parent: 'font', label: '装扮信息' },
-  { key: 'avatarProperties', parent: 'avatar', label: '资源详细信息' },
+  { key: 'bubbleProperties', parent: 'bubble', label: '属性信息' },
+  { key: 'fontProperties', parent: 'font', label: '属性信息' },
+  { key: 'avatarProperties', parent: 'avatar', label: '属性信息' },
   { key: 'avatarVariants', parent: 'avatar', label: '其他已存版本' },
-  { key: 'widgetProperties', parent: 'widget', label: '装扮信息' },
-  { key: 'qqFaceProperties', parent: 'qqFaces', label: '资源详细信息' },
+  { key: 'widgetProperties', parent: 'widget', label: '属性信息' },
+  { key: 'qqFaceProperties', parent: 'qqFaces', label: '属性信息' },
   { key: 'qqFaceVariants', parent: 'qqFaces', label: '其他已存版本' },
 ] as const;
 export type ExportContentDetailKey = (typeof EXPORT_CONTENT_DETAILS)[number]['key'];

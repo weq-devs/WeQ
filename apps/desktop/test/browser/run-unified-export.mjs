@@ -99,7 +99,7 @@ try {
       .click();
     await page.getByRole('button', { name: '展开图片明细', exact: true }).click();
     const imageDetails = page.locator('[id$="-images"]');
-    await imageDetails.getByRole('button', { name: '资源详细信息', exact: true }).click();
+    await imageDetails.getByRole('button', { name: '属性信息', exact: true }).click();
     await page.getByRole('button', { name: '选中 JSON', exact: true }).click();
     if (
       (await page
@@ -117,7 +117,7 @@ try {
       .locator('.weq-export-content-group')
       .first()
       .getByRole('group', { name: '附加数据', exact: true });
-    const additional = additionalGroup.getByRole('button', { name: '消息属性', exact: true });
+    const additional = additionalGroup.getByRole('button', { name: '属性信息', exact: true });
     const all = page.getByRole('radiogroup', { name: '全部导出方式', exact: true });
     await all.getByRole('radio', { name: '仅本地', exact: true }).click();
     if ((await additional.getAttribute('aria-pressed')) !== 'true')
@@ -146,7 +146,7 @@ try {
     await additional.click();
     if (await start.isDisabled()) throw new Error('附加数据独立总控未生效');
     await additional.click();
-    await imageDetails.getByRole('button', { name: '资源详细信息', exact: true }).click();
+    await imageDetails.getByRole('button', { name: '属性信息', exact: true }).click();
     if (await start.isDisabled()) throw new Error('独立明细未启用开始');
     if ((await imageDetails.getByRole('button').count()) !== 2) throw new Error('明细云端段未隐藏');
     if (
