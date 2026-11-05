@@ -45,7 +45,10 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
-    account: { qqWrite: { onlineStatus: { mutate: (input: unknown) => state.mutate(input) } } },
+    account: {
+      qqWrite: { onlineStatus: { mutate: (input: unknown) => state.mutate(input) } },
+      pickSendFile: { mutate: state.pick },
+    },
   },
   trpc: {
     useUtils: () => ({
@@ -101,7 +104,6 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         selfAvatar: { useMutation: () => ({ mutateAsync: state.mutate }) },
         onlineStatus: { useMutation: () => ({ mutateAsync: state.mutate }) },
       },
-      pickSendFile: { useMutation: () => ({ mutateAsync: state.pick }) },
       getSystemFaces: {
         useQuery: () => ({
           data: [
@@ -262,6 +264,24 @@ describe('个人资料编辑入口', () => {
     expect(signature.value).toBe('原签名');
     expect(signature.disabled).toBe(false);
   });
+  it('选择头像后提交当前来源的文件，并恢复按钮', async () => {
+    state.pick.mockResolvedValueOnce({ path: '/synthetic/avatar.png' });
+    const f = fixture();
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('[aria-label="更换头像"]')!.click();
+    });
+    expect(state.pick).toHaveBeenCalledOnce();
+    expect(state.pick).toHaveBeenCalledWith({ kind: 'image' });
+    expect(state.mutate).toHaveBeenCalledOnce();
+    expect(state.mutate).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      source: '/synthetic/avatar.png',
+    });
+    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="更换头像"]')!.disabled).toBe(
+      false,
+    );
+  });
   it('选头像期间切换数据源不提交旧文件，并恢复按钮', async () => {
     let finish!: (file: { path: string }) => void;
     state.pick.mockImplementationOnce(
@@ -273,6 +293,8 @@ describe('个人资料编辑入口', () => {
     const f = fixture();
     const avatarButton = () => f.host.querySelector<HTMLButtonElement>('[aria-label="更换头像"]')!;
     act(() => avatarButton().click());
+    expect(state.pick).toHaveBeenCalledOnce();
+    expect(state.pick).toHaveBeenCalledWith({ kind: 'image' });
     expect(avatarButton().disabled).toBe(true);
     state.configId = 'source-b';
     f.render();
