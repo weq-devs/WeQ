@@ -17,6 +17,8 @@ import type {
   AnalyticsExportPayload,
   AnalyticsExportResult,
 } from '../../../shared/analytics_export';
+import { IS_WEB } from '../lib/target';
+import { client } from '../trpc/client';
 
 type ExportBridge = {
   render(payload: AnalyticsExportPayload): Promise<AnalyticsExportResult>;
@@ -27,7 +29,7 @@ function bridge(): ExportBridge | undefined {
 }
 
 export function canExportAnalyticsCard(): boolean {
-  return typeof bridge()?.render === 'function';
+  return IS_WEB || typeof bridge()?.render === 'function';
 }
 
 /**
@@ -37,6 +39,19 @@ export function canExportAnalyticsCard(): boolean {
 export async function exportAnalyticsCard(
   payload: AnalyticsExportPayload,
 ): Promise<AnalyticsExportResult> {
+  if (IS_WEB) {
+    try {
+      if (!payload.expectedAccountUin || !payload.expectedAccountConfigId)
+        throw new Error('账号尚未就绪');
+      return await client.account.exportAnalyticsCard.mutate({
+        ...payload,
+        expectedAccountUin: payload.expectedAccountUin,
+        expectedAccountConfigId: payload.expectedAccountConfigId,
+      });
+    } catch (error) {
+      return { saved: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
   const api = bridge();
   if (!api) return { saved: false, error: '当前环境不支持保存图片' };
   try {

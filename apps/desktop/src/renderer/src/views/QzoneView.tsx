@@ -33,6 +33,7 @@ import {
   X,
 } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
+import { openExternalLink } from '../lib/openExternalLink';
 import { z } from 'zod';
 import { PageSnapshotScope, usePageDataCache, usePageState } from '../components/PageSnapshots';
 import { PageScrollSnapshot } from '../components/PageScrollSnapshot';
@@ -1922,8 +1923,7 @@ function FeedLinks({
               );
               return;
             }
-            void client.help.openExternal
-              .mutate({ url: link.href })
+            void openExternalLink(link.href)
               .then((result) => {
                 if (!result.ok) setError(result.error || '链接打开失败');
               })

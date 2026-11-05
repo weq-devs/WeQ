@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { ImagePlus, Save } from 'lucide-react';
-import { client, trpc } from '../../trpc/client';
+import { trpc } from '../../trpc/client';
+import { pickAccountFile } from '../../lib/accountFilePicker';
 import { useTabActive } from '../RetainedTabs';
 import {
   useQQWriteSession,
@@ -97,7 +98,7 @@ export function useQQAction(scope: string) {
     busy.current = true;
     setPending(true);
     try {
-      const result = await client.account.pickSendFile.mutate({ kind });
+      const result = await pickAccountFile(kind, session.binding ?? undefined);
       return mounted.current && latest.current === identity ? result : null;
     } catch (e) {
       if (mounted.current && latest.current === identity)

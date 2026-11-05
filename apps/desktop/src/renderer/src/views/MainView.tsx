@@ -22,6 +22,9 @@ import { z } from 'zod';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
 import { withBrowserFile } from '../lib/browserFileUpload';
+import { stageAccountFile } from '../lib/accountFilePicker';
+import { WEB_NOTICE_OPEN } from '../components/WebNotifications';
+import type { WebNotice } from '../../../main/web/notices';
 import {
   createReplyPreviewIndex,
   findReplyPreview,
@@ -8040,6 +8043,24 @@ function MainWorkspace(): ReactElement {
     };
   }, [jumpToConvSeq]);
 
+  useEffect(() => {
+    if (!IS_WEB) return;
+    const open = (event: Event) => {
+      const notice = (event as CustomEvent<WebNotice>).detail;
+      if (
+        !notice ||
+        notice.uin !== user.identityValue ||
+        notice.configId !== noticeConfig.data?.configId
+      )
+        return;
+      if (notice.kind === 'mail') openMailView();
+      else if (notice.target)
+        jumpToConvSeq(notice.target.kind, notice.target.conv, notice.target.seq);
+    };
+    window.addEventListener(WEB_NOTICE_OPEN, open);
+    return () => window.removeEventListener(WEB_NOTICE_OPEN, open);
+  }, [jumpToConvSeq, openMailView, user.identityValue, noticeConfig.data?.configId]);
+
   // 撤回通知被点击：主进程唤起窗口并记下「打开该会话、跳到该 seq」，这里领走。
   // 私聊 / 群聊共用同一条跳转（与群关键词通知同一套机制）。
   useEffect(() => {
@@ -9214,7 +9235,15 @@ function MainWorkspace(): ReactElement {
             ...source,
             fileName: plan.fileName,
           });
-        if (plan.path !== undefined) outcome = await sendFile({ path: plan.path });
+        if (plan.file !== undefined) {
+          if (!expectedAccountConfigId) throw new Error('账号来源未就绪，请重新打开会话');
+          const staged = await stageAccountFile(plan.file, {
+            expectedAccountUin: user.identityValue,
+            expectedAccountConfigId,
+          });
+          if (!isCurrent()) throw new Error('账号或会话已切换，未发送文件');
+          outcome = await sendFile({ path: staged.path });
+        } else if (plan.path !== undefined) outcome = await sendFile({ path: plan.path });
         else {
           if (!expectedAccountConfigId) throw new Error('账号来源未就绪，请重新打开会话');
           outcome = await withBrowserFile(

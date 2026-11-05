@@ -21,6 +21,7 @@
 import { EventEmitter } from 'node:events';
 import { createContactsExportDeps } from './export_contacts';
 import { createDbChangeNotification } from '../db_change_notification';
+import { webNotices, type WebNotice } from '../web/notices';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
 import { clearFullMode, fullModeAllowed } from './full_mode';
 import { resolveBackupLocation, backupMediaRoots } from '../static_backup';
@@ -304,6 +305,31 @@ let groupKeywordNotifier: ((hit: GroupKeywordHit) => void | Promise<void>) | nul
  * 由 app 层注入 —— app_context 保持 Electron-free（web 端共用它）。
  */
 let recallNotifier: ((event: RecallNotifyEvent) => void) | null = null;
+function webNotice(session: AccountSession, notice: Omit<WebNotice, 'uin' | 'configId'>): void {
+  const ctx = getAppContext();
+  const configId = ctx.services?.accountConfig.getRecord()?.configId;
+  if (ctx.account !== session || !configId) return;
+  webNotices.emit('notice', {
+    ...notice,
+    uin: String(session.context.uin),
+    configId,
+  } satisfies WebNotice);
+}
+function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
+  webNotice(session, {
+    kind: 'recall',
+    title: '撤回提醒',
+    body: '有一条消息被撤回。',
+    ...(event.kind === 'dataline'
+      ? {}
+      : { target: { kind: event.kind, conv: event.conv, seq: event.origSeq } }),
+  });
+  recallNotifier?.(event);
+}
+function notifyMail(session: AccountSession, notice: MailNotice): void {
+  webNotice(session, { kind: 'mail', title: 'QQ 邮箱', body: '收到新邮件。' });
+  mailNotifier?.(String(session.context.uin), notice);
+}
 let mailNotifier: ((uin: string, notice: MailNotice) => void) | null = null;
 export function setMailNotifier(
   notifier: ((uin: string, notice: MailNotice) => void) | null,
@@ -460,7 +486,15 @@ function unmountDbWatch(): void {
 function mountGroupKeyword(session: AccountSession, rules: GroupKeywordRules): void {
   if (!groupKeyword) {
     groupKeyword = new GroupKeywordService(session, {
-      onHit: (hit) => groupKeywordNotifier?.(hit),
+      onHit: (hit) => {
+        webNotice(session, {
+          kind: 'keyword',
+          title: '群关键词提醒',
+          body: '收到命中群提醒词的消息。',
+          target: { kind: 'group', conv: hit.groupCode, seq: String(hit.msgSeq) },
+        });
+        return groupKeywordNotifier?.(hit);
+      },
     });
     groupKeyword.start();
   }
@@ -1530,7 +1564,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         session,
         platform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
-        { onRecall: (event) => recallNotifier?.(event) },
+        { onRecall: (event) => notifyRecall(session, event) },
       );
       // 打开账号就挂上撤回记录监听（拦到新撤回时按会话开关弹系统通知）。
       activeAntiRecall = antiRecall;
@@ -1954,7 +1988,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             notificationsEnabled: accountConfig.getRecord()?.mailNotifications ?? false,
             allowOnline: () => fullModeAllowed(this, session),
-            onNotice: (notice) => mailNotifier?.(String(session.context.uin), notice),
+            onNotice: (notice) => notifyMail(session, notice),
           },
         ),
         groupAlbumMedia: new GroupAlbumMediaService(
@@ -2380,7 +2414,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         session,
         staticPlatform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
-        { onRecall: (event) => recallNotifier?.(event) },
+        { onRecall: (event) => notifyRecall(session, event) },
       );
 
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
@@ -2745,7 +2779,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             notificationsEnabled: accountConfig.getRecord()?.mailNotifications ?? false,
             allowOnline: () => fullModeAllowed(this, session),
-            onNotice: (notice) => mailNotifier?.(String(session.context.uin), notice),
+            onNotice: (notice) => notifyMail(session, notice),
           },
         ),
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),

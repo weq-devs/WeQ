@@ -37,6 +37,17 @@ import {
 import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
 import { buildSendElems, type SendElement } from '@weq/protocol';
 
+it('设备文件计划保留 File 句柄，不要求整个文件预读成字节', () => {
+  const file = new File(['fixture'], 'fixture.bin');
+  const body = elementsToComposerText([{ kind: 'file', fileName: file.name, fileSize: file.size }]);
+  const locals: LocalMediaRef[] = [{ key: `${file.name}:${file.size}`, name: file.name, file }];
+  expect(buildComposerSendPlan({ body, locals, superStickers: new Map() })).toEqual({
+    kind: 'file',
+    fileName: file.name,
+    file,
+  });
+});
+
 it('重发与重新编辑的表情图保留子类型和表情摘要，不变成普通大图', () => {
   for (const subType of [0, 1]) {
     const body = elementsToComposerText([
