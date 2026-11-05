@@ -1,4 +1,3 @@
-﻿// @ts-nocheck
 /**
  * 一条消息在**聊天时间线**里的完整渲染单元 —— 聊天区、转发窗口、合成转发预览
  * 三处共用同一份实现。
@@ -214,7 +213,7 @@ export const MessageRow = memo(function MessageRow({
   deletedKind?: 'weq' | 'qq';
   recallRevokerName?: string;
   onRestore?: (msgId: string) => Promise<void>;
-  onContextMenu?: (event: unknown, message: Message) => void;
+  onContextMenu?: (event: ReactMouseEvent, message: Message) => void;
   onLongPress?: (point: { x: number; y: number }, message: Message) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
   onReedit?: (message: Message) => Promise<boolean>;
@@ -222,7 +221,7 @@ export const MessageRow = memo(function MessageRow({
   onDismissUnsent?: (message: Message) => void;
   onStartOutgoing?: (message: Message) => void;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
-  onAvatarContextMenu?: (event: unknown, sender: User) => void;
+  onAvatarContextMenu?: (event: ReactMouseEvent, sender: User) => void;
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;

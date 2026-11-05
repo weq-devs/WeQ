@@ -1,4 +1,3 @@
-﻿// @ts-nocheck
 import type { ReactNode } from 'react';
 import type { Conversation, Message, User } from './types';
 

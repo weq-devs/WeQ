@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useContext, useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { Bot, Check, LoaderCircle, RotateCcw, Sparkle, TriangleAlert, X } from 'lucide-react';
@@ -6,7 +5,7 @@ import { renderMessageWithRegistry, type MessageRenderer } from './messageRender
 import { Avatar } from './primitives';
 import { ChatQqShowEnabledContext, useChatQqShow } from '../../lib/chatQqShow';
 import { qqShowUrl } from '../../lib/resourceUrl';
-import type { Conversation, Message, MessageAction, User } from './types';
+import type { Conversation, GroupMember, Message, MessageAction, User } from './types';
 import { cn } from './classNames';
 import { SetEmojiReactions, type ReactionInteraction } from '../../components/SetEmojiReactions';
 import { MessageIntentSense } from '../../components/intentSense/MessageIntentSense';
@@ -48,7 +47,7 @@ function PendantOverlay({
   name: string;
   /** 发送者 QQ 号；有值时按设置查 QQ 秀形象替换头像。 */
   uin?: string | null;
-  avatarUrl?: string;
+  avatarUrl?: string | null;
   seed?: string;
   widget: { animated: boolean; url?: string } | null;
   fallbackUrl?: string | null;
@@ -88,7 +87,7 @@ function PendantOverlay({
       ) : (
         <img
           className={cn('weq-avatar-pendant-img')}
-          src={staticUrl}
+          src={staticUrl ?? undefined}
           alt=""
           aria-hidden
           draggable={false}
@@ -135,7 +134,7 @@ export function MessageBubble({
 }: {
   message: Message;
   conversation: Conversation;
-  sender: User;
+  sender: User & Partial<GroupMember>;
   mine: boolean;
   senderName: string;
   senderAvatarUrl: string | null;
