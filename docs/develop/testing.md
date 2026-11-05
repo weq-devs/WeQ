@@ -55,7 +55,7 @@ node apps/desktop/test/browser/run-style-consistency.mjs
 
 组件风格与独立密度使用 `node apps/desktop/test/browser/run-component-appearance.mjs`，
 覆盖 QQ NT 默认与经典／简约／复古风格、两种密度、深浅色、六种背景和桌面／窄屏，检查经典样式不被覆盖、各套风格的形态差异，以及键盘选择、刷新恢复、
-跟随系统和真实会话虚拟列表行高。Playwright 与浏览器路径沿用上述变量，
+跟随系统和真实会话虚拟列表行高。复古额外检查分段选项、功能页导航和搜索框、任务浮层、提示框，以及真实 ChatPane 的消息气泡、头像与主导航；整页模式不继承弹窗外框和阴影。Playwright 与浏览器路径沿用上述变量，
 截图目录由 `WEQ_APPEARANCE_ARTIFACTS` 指定。
 
 会话进入与下沿保持回归使用真实 ChatPane 和意图感知组件，合成延迟结果，覆盖短列表与

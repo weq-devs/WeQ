@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { accentColors, normalizeHex } from '../../../shared/theme_colors';
 import '../styles/component-appearance.css';
 import '../styles/qqnt-appearance.css';
+import '../styles/retro-appearance.css';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type ThemeResolved = 'light' | 'dark';
