@@ -161,8 +161,10 @@ export function resolveSsoClientSnapshot(
   const subAppId = identity.subAppId ?? Number(info?.appid);
   if (!Number.isSafeInteger(subAppId) || subAppId <= 0 || subAppId > 0xffff_ffff)
     throw new Error('SSO App ID 无效。');
+  // 用 `??` 而不是 `||`：真机抓包里 SSO 头的版本字段是空串，调用方需要能显式
+  // 传 `''` 把这个字段压成空（`||` 会把空串当成「没给」而回退到 major.node 版本）。
   const clientVersion =
-    identity.clientVersion ||
+    identity.clientVersion ??
     (info?.version && info.build ? `${info.version}-${info.build}` : undefined);
   const qua = identity.qua ?? info?.qua ?? undefined;
   return {
@@ -170,7 +172,7 @@ export function resolveSsoClientSnapshot(
     identity: {
       ...identity,
       subAppId,
-      ...(clientVersion ? { clientVersion } : {}),
+      ...(clientVersion !== undefined ? { clientVersion } : {}),
       ...(qua ? { qua } : {}),
     },
     majorPath,
@@ -294,7 +296,8 @@ export async function registerSsoSessionInTurn(
         guid: identity.guid,
         uid: identity.uid,
         subAppId,
-        ...(clientVersion ? { clientVersion } : {}),
+        // 空串是有效值（真机抓包里 SSO 头的版本字段就是空的），所以只跳过 undefined。
+        ...(clientVersion !== undefined ? { clientVersion } : {}),
         // QUA 来自 major.node：签名时拼 SecExtra（protobuf `{2: QUA}`）。
         ...(qua ? { qua } : {}),
         // SecToken 来自 QQ 内存（随 a2/d2/d2key 同批扫出）：本进程签名算不出它。
