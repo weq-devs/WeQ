@@ -26,6 +26,9 @@
 
 账号选择页、账号设置、受限详情复用同一组件；持续显示检查/复制/签名/校验/启动阶段。
 读取端权限、副本签名、进程存在、账号凭据是不同事实，不用启动成功冒称完整功能恢复。
+启动按钮只取决于副本就绪、未运行和无在途操作，不以 `readerReady` 为前置条件。
+开发 Electron 宿主可能没有 `com.apple.security.cs.debugger`，此时仍可启动副本并登录；
+读取端状态继续如实显示未就绪，不将启动成功视为已获得读取权限。移除使用与其他操作一致的图标文字按钮。
 参考 WCDA 的阶段式反馈与手动启动检查思路，不复用其登录期捕获或原安装替换流程：
 [WCDA macOS 捕获说明](https://github.com/LifeArchiveProject/WeChatDataAnalysis/blob/main/docs/MACOS_KEY_CAPTURE.md)。
 

@@ -98,12 +98,23 @@ it('显示后台真实阶段，重开页面也不能并行操作', async () => {
   expect(v.host.textContent).toContain('正在配置调试签名');
   expect(v.button('创建副本').disabled).toBe(true);
 });
-it('读取端没有权限时保留准备入口，但不把已签名副本当作可读', async () => {
+it('开发宿主缺少读取权限不阻止启动已就绪副本，也不把副本当作可读', async () => {
   f.data!.state = 'ready';
   f.data!.readerReady = false;
   const v = await mount();
-  expect(v.button('启动副本').disabled).toBe(true);
+  expect(v.button('启动副本').disabled).toBe(false);
   expect(v.host.textContent).toContain('当前构建缺少调试权限');
+  await act(async () => v.button('启动副本').click());
+  expect(f.action).toHaveBeenCalledWith({ action: 'launch' });
+  expect(v.host.textContent).toContain('当前构建缺少调试权限');
+});
+it('移除副本使用与其他操作一致的图标文字按钮', async () => {
+  f.data!.state = 'ready';
+  const v = await mount();
+  const remove = v.button('移除副本');
+  expect(remove.className).toBe(v.button('更新副本').className);
+  expect(remove.textContent).toBe('移除副本');
+  expect(remove.querySelector('svg')).not.toBeNull();
 });
 it('失败保留错误和重试入口，不显示成功；刷新查询失败不覆盖原错误', async () => {
   f.action.mockRejectedValue(new Error('synthetic codesign failure'));

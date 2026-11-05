@@ -235,6 +235,20 @@ it('启动使用精确副本路径；失败不报告已运行，也不继承 Ele
     vi.unstubAllEnvs();
   }
 });
+it('读取端缺少调试权限时仍能启动副本，状态继续如实报告未就绪', async () => {
+  const f = await fixture();
+  f.noReader();
+  await f.manager.perform('prepare');
+  expect(await f.manager.perform('launch')).toMatchObject({
+    state: 'ready',
+    readerReady: false,
+  });
+  expect(f.run.mock.calls.find(([command]) => command === '/usr/bin/open')?.[1]).toEqual([
+    '-n',
+    '-a',
+    f.target,
+  ]);
+});
 it('副本路径被换为软链接时不通过校验', async () => {
   const f = await fixture();
   await f.manager.perform('prepare');

@@ -68,6 +68,17 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-debug-copy.html`,
   );
   await page.getByRole('button', { name: '创建副本', exact: true }).waitFor();
+  await page.evaluate(() =>
+    window.debugCopyQa.setFixture({
+      state: 'ready',
+      readerReady: false,
+      version: '7.0.1-1',
+      message: '副本签名与调试权限已就绪；启动并登录后检查在线凭据。',
+    }),
+  );
+  await page.getByText('当前构建缺少调试权限', { exact: true }).waitFor();
+  if (await page.getByRole('button', { name: '启动副本', exact: true }).isDisabled())
+    throw new Error('读取端缺少权限不应阻止启动副本');
   const output = process.env.WEQ_DEBUG_COPY_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   let cases = 0;
@@ -99,13 +110,22 @@ try {
               document.documentElement.scrollWidth > innerWidth,
           );
           if (overflow) throw new Error(`布局溢出：${width} ${theme} ${accent} ${background}`);
+          const buttonStyles = await page
+            .locator('.weq-qq-debug-actions button')
+            .evaluateAll((buttons) =>
+              buttons.map((button) => {
+                const style = getComputedStyle(button);
+                return [style.height, style.borderRadius, style.padding].join('|');
+              }),
+            );
+          if (new Set(buttonStyles).size !== 1) throw new Error('副本操作按钮样式不一致');
           if (output && accent === '#075c30' && background === 'plain')
             await page.screenshot({ path: resolve(output, `${width}-${theme}.png`) });
           cases++;
         }
     }
   }
-  await page.getByRole('button', { name: '创建副本', exact: true }).click();
+  await page.getByRole('button', { name: '更新副本', exact: true }).click();
   await page.getByText('副本已准备好，请启动并登录目标账号。', { exact: true }).waitFor();
   await page.getByRole('button', { name: '启动副本', exact: true }).click();
   await page.getByText('正在运行，登录状态待检查', { exact: true }).waitFor();
