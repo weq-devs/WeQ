@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * 输入框的「引用」：右键消息 → 引用，在输入框上方挂一条引用条，发送时把被引用消息
  * 编成 `reply` 元素跟着正文一起发出去。
@@ -73,7 +72,7 @@ const PREVIEW_LABELS: Record<string, string> = {
   qqDynamic: '[动态]',
 };
 
-type MessageElement = { type?: unknown; data?: Record<string, unknown> };
+type MessageElement = { type?: string; data?: Record<string, unknown> };
 
 function messageElements(message: Message): MessageElement[] {
   const elements = (message as { qqElements?: MessageElement[] }).qqElements;

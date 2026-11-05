@@ -1,4 +1,3 @@
-﻿// @ts-nocheck
 import type { PreviewNode } from '../../lib/conversationPreview';
 import type { SetEmojiItem } from '@weq/codec';
 import type { LocalMediaRef } from './composerSend';
@@ -331,6 +330,8 @@ export type MessageAction = {
 
 export type Message = {
   id: string;
+  deletedKind?: 'weq' | 'qq';
+  recallRevokerName?: string;
   /** 尚未取得持久身份的生成片段，只显示，不进入导出或多选。 */
   generatedPending?: boolean;
   /** 原始消息 ID；展示 ID 可能带漫游来源前缀，用于可靠身份对账。 */
