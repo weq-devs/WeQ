@@ -225,6 +225,8 @@ export type StageKey =
   /** 图片文字识别：识别（在线优先、本地兜底）。 */
   | 'ocr'
   | 'sysface'
+  /** 消息导出：资源回写、归档发布与文件校验。 */
+  | 'finalize'
   | 'sticker'
   /** 导出表情包：扫描本地表情资源。 */
   | 'emojiscan'
@@ -1442,6 +1444,7 @@ export class ExportTaskManager extends EventEmitter {
     if (opts.media?.mediaKinds?.sysface) {
       stages.push({ key: 'sysface', label: '导出表情', status: 'pending', current: 0, total: 0 });
     }
+    stages.push({ key: 'finalize', label: '收尾与校验', status: 'pending', current: 0, total: 4 });
     const task: ExportTask = {
       ...archiveSettings,
       content: opts.content ? structuredClone(opts.content) : undefined,
@@ -1944,10 +1947,11 @@ export class ExportTaskManager extends EventEmitter {
    * would jump around; averaging keeps the summary bar smooth and monotonic-ish.
    */
   private overallProgress(task: ExportTask): number {
+    if (task.status === 'completed') return 100;
     if (task.stages.length === 0) return task.progress;
     let sum = 0;
     for (const s of task.stages) sum += this.stagePercent(s);
-    return Math.min(100, Math.floor(sum / task.stages.length));
+    return Math.min(99, Math.floor(sum / task.stages.length));
   }
 
   /** Push a stage update + emit progress (debounced writes happen on stage edges). */
@@ -1991,6 +1995,18 @@ export class ExportTaskManager extends EventEmitter {
 
     task.status = 'running';
     task.partialReady = false;
+    // 旧任务没有收尾阶段；续作时也必须重新校验本轮生成的文件。
+    const finalizeStage = this.stage(task, 'finalize');
+    const finalize: TaskStage = {
+      key: 'finalize',
+      label: '收尾与校验',
+      status: 'pending',
+      current: 0,
+      total: 4,
+    };
+    if (finalizeStage) Object.assign(finalizeStage, finalize, { note: undefined });
+    else task.stages.push(finalize);
+    task.progress = this.overallProgress(task);
     task.updatedAt = Date.now();
     this.saveTasks();
 
@@ -2445,6 +2461,7 @@ export class ExportTaskManager extends EventEmitter {
       }
       dressUsage = dressUsageResult;
       scan = scanResult;
+      task.total = messageTotal;
       if (scan) {
         this.log(
           id,
@@ -2605,8 +2622,7 @@ export class ExportTaskManager extends EventEmitter {
         );
         task.filePath = task.resourceOnly ? undefined : result.filePath;
         task.current = result.messageCount;
-        if (task.filter && Object.values(task.filter).some(Boolean))
-          task.total = result.messageCount;
+        task.total = result.messageCount;
         task.messageCoverage = result.coverage;
         if (aborted()) {
           if (!paused()) task.status = 'cancelled';
@@ -3383,6 +3399,16 @@ export class ExportTaskManager extends EventEmitter {
       const settled = await Promise.allSettled([...jobs.map((j) => j()), messageJob]);
       const firstError = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
       if (firstError) throw firstError.reason;
+      if (aborted()) {
+        if (!paused()) task.status = 'cancelled';
+        return;
+      }
+      this.touchStage(
+        task,
+        'finalize',
+        { status: 'running', current: 0, note: '整理资源与回写归档…' },
+        { persist: true },
+      );
 
       if (task.resourceOnly && task.content && !aborted())
         await collectContentResources(outDir, task.content, {
@@ -3498,7 +3524,9 @@ export class ExportTaskManager extends EventEmitter {
 
       // 防御：所有子任务都已 settle，不应再有阶段处于 running / pending。
       // 若仍有（例如某阶段因条件未启动），记录警告便于排查，而不是静默完成。
-      const dangling = task.stages.filter((s) => s.status === 'running' || s.status === 'pending');
+      const dangling = task.stages.filter(
+        (s) => s.key !== 'finalize' && (s.status === 'running' || s.status === 'pending'),
+      );
       if (dangling.length > 0) {
         this.log(
           id,
@@ -3512,6 +3540,7 @@ export class ExportTaskManager extends EventEmitter {
         if (!paused()) task.status = 'cancelled';
         return;
       }
+      this.touchStage(task, 'finalize', { current: 1, note: '发布归档文件…' });
       if (task.archiveTargets) {
         const targets = task.archiveTargets;
         const root = dirname(Object.values(targets)[0]!);
@@ -3549,6 +3578,7 @@ export class ExportTaskManager extends EventEmitter {
         }
         rmSync(outDir, { recursive: true });
       }
+      this.touchStage(task, 'finalize', { current: 2, note: '检查消息完整性…' });
       for (const key of task.skippedStages ?? []) {
         const stage = this.stage(task, key);
         if (stage) {
@@ -3578,17 +3608,17 @@ export class ExportTaskManager extends EventEmitter {
           });
         }
       }
-      this.log(
-        id,
-        'task',
-        `导出完成：${task.current} 条${task.bundleDir ? '（含资源 bundle）' : ''}`,
-      );
       task.sourceChanged =
         !!task.resumeBinding &&
         typeof this.msgs.exportSourceStamp === 'function' &&
         task.resumeBinding.source !==
           this.msgs.exportSourceStamp(task.kind as 'group' | 'c2c', task.conv);
+      this.touchStage(task, 'finalize', { current: 3, note: '校验导出文件…' });
       task.outputHashes = await this.hashMessageOutputs(task);
+      if (aborted()) {
+        if (!paused()) task.status = 'cancelled';
+        return;
+      }
       task.status = 'completed';
       task.progress = 100;
       if (task.directOutput && task.save) {
@@ -3596,6 +3626,18 @@ export class ExportTaskManager extends EventEmitter {
         task.save.path = task.bundleDir ?? task.filePath;
         delete task.save.error;
       }
+      this.log(
+        id,
+        'task',
+        `导出完成：${task.current} 条${task.bundleDir ? '（含资源 bundle）' : ''}`,
+      );
+      // 终态只在 finally 持久化后统一推送，避免提前触发自动保存。
+      Object.assign(this.stage(task, 'finalize')!, {
+        status: 'completed',
+        current: 4,
+        note: '收尾完成',
+      });
+      this.log(id, 'finalize', '收尾与校验完成');
     } catch (e) {
       if (aborted() && (paused() || task.status === 'cancelled')) return;
       task.status = 'failed';
@@ -5030,7 +5072,7 @@ export class ExportTaskManager extends EventEmitter {
   private async hashMessageOutputs(task: ExportTask): Promise<Record<string, string>> {
     const hashes: Record<string, string> = {};
     for (const path of this.exportFilePaths(task, task.outputDirectory!)) {
-      hashes[path] = await fileSha256(path);
+      hashes[path] = await fileSha256(path, this.abortControllers.get(task.id)?.signal);
       const checkpoint = Object.values(task.formatCheckpoints ?? {}).find(
         (item) => item.result.filePath === path,
       );
