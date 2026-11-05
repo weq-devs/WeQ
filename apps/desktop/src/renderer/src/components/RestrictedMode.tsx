@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { LongTermAuthorizationLink } from './LongTermAuthorizationLink';
+import { QqDebugCopy } from './QqDebugCopy';
 import { client, trpc } from '../trpc/client';
 import {
   restrictionReasons,
@@ -619,6 +620,9 @@ export function RestrictedModeHost() {
                 </div>
               ))}
             <QqDataAccessNotice showRetry={false} checked={dataRetried} />
+            {IS_MAC && sip.data === true && reasons.some((reason) => reason.code === 'sip') && (
+              <QqDebugCopy key={sourceKey} onCheck={() => refresh(true)} />
+            )}
             {requests.map((request, index) => (
               <AuthorizationForm
                 key={`${request.kind}:${request.token}`}

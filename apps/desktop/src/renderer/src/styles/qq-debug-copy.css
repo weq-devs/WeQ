@@ -1,0 +1,112 @@
+.weq-qq-debug {
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  min-width: 0;
+}
+.weq-account-debug-copy {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-modal.weq-qq-debug-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 32px);
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--weq-bg-surface);
+}
+.weq-qq-debug-modal > .weq-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.weq-qq-debug-modal > .weq-dialog-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+.weq-qq-debug-intro {
+  margin: 0 0 12px;
+  line-height: 1.6;
+}
+.weq-qq-debug-checks {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.weq-qq-debug-checks li {
+  display: grid;
+  grid-template-columns: 15px minmax(72px, auto) minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-qq-debug-checks strong {
+  text-align: right;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.weq-qq-debug-checks li[data-ready='true'] > svg {
+  color: var(--weq-accent-effective);
+}
+.weq-qq-debug-marker {
+  width: 10px;
+  height: 10px;
+  margin: 3px 0;
+  border: 1px solid var(--weq-fg-muted);
+  border-radius: 50%;
+}
+.weq-qq-debug-details {
+  margin: 10px 0;
+  color: var(--weq-fg-secondary);
+}
+.weq-qq-debug-details div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+  margin: 6px 0;
+}
+.weq-qq-debug-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.weq-qq-debug-message {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.weq-qq-debug-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.weq-qq-debug-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--weq-accent-effective);
+}
+.weq-qq-debug-progress svg {
+  animation: weq-qq-debug-spin 1.2s linear infinite;
+  flex-shrink: 0;
+}
+.weq-qq-debug [role='alert'] {
+  overflow-wrap: anywhere;
+}
+html[data-theme='dark'] .weq-qq-debug-checks li {
+  border-color: var(--weq-border-strong);
+}
+@keyframes weq-qq-debug-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-qq-debug-progress svg {
+    animation: none;
+  }
+}

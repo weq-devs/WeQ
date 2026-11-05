@@ -93,9 +93,9 @@ export function restrictionReasons(input: {
     if (input.sipEnabled === true && !sessionReady)
       reasons.push({
         code: 'sip',
-        title: 'SIP 未关闭',
+        title: 'QQ 调试读取尚未就绪',
         guidance:
-          'macOS 系统完整性保护阻止读取 QQ 内存，管理员密码无法绕过。可使用扫码登录；如选择关闭 SIP，需进入恢复模式操作，这会降低系统安全性。',
+          'SIP 可以保持开启。请创建并启动 QQ 调试副本，在副本中登录目标账号后重新检查；也可使用扫码登录。是否就绪以实际会话凭据为准。',
       });
     else
       reasons.push({

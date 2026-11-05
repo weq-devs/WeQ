@@ -42,14 +42,9 @@
  * exclusive hook pipe this flow used to install. The device guid is separate:
  * it is read offline from the QQ data root, no elevation involved.
  *
- * macOS rides the same hook but has a **hard gate that no password can open**:
- * `task_for_pid` is refused while 系统完整性保护（SIP）is on, because QQ runs with
- * the hardened runtime. So on macOS, before any password prompt or sudo child,
- * `doAttach` asks {@link readSipEnabled} and refuses outright when SIP is on —
- * with a message pointing at the 扫码登录 path. With SIP off the only
- * remaining blocker is privilege, which is exactly the sudo prompt below; the
- * Linux-specific yama guidance dialog is skipped on macOS because it can't apply
- * (see `askHint`).
+ * macOS 先尝试直接读取及长期助手：带 cs.debugger 的读取端可以在 SIP 开启时读取
+ * 带 get-task-allow 的 QQ 调试副本。只有这些路径被拒后才提示创建副本，不以 sudo
+ * 绕过 SIP，也不弹 Linux 的 yama 引导。
  *
  * Windows never uses this — it gets `createDirectAttachHook` instead, which
  * reads in-process and needs no elevation.
@@ -81,17 +76,11 @@ const logger = getLogger().child({ scope: 'attach-elevation' });
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 
-/**
- * macOS 且 SIP 开着时的拒绝理由。给两条出路：扫码（不读内存），或者关掉 SIP 再来。
- *
- * 这里不给「输入密码试试」这种话 —— 密码不是瓶颈，SIP 才是，说了只会让人白输一次。
- */
+/** 已尝试读取后给出可操作的入口，SIP 本身不再作为失败判据。 */
 export const SIP_ENABLED_MESSAGE =
-  'macOS 的系统完整性保护（SIP）处于开启状态，读取 QQ 进程内存会被系统直接拒绝' +
-  '（QQ 带强化运行时，管理员权限也不够）。\n' +
-  '两条出路：\n' +
-  '  · 需要在线数据的功能可以改走扫码登录（登录本身不读内存）；\n' +
-  '  · 关机后进恢复模式执行 `csrutil disable` 关闭 SIP，重启再回来启用「自动读取 QQ 内存」。';
+  '当前读取路径未能获得 QQ 调试权限。可在「设置 → 账号基础 → QQ 调试副本」创建并启动副本，' +
+  '无需关闭 SIP；WeQ 读取端也需带调试权限，请使用支持该功能的桌面构建。' +
+  '也可改用扫码登录。管理员密码不能替代调试签名权限。';
 
 /**
  * Locate the bundled `attachWorker.mjs`. electron-vite emits it next to the
@@ -108,7 +97,7 @@ function resolveWorkerPath(): string {
  * retry can actually fix, and the ones worth prompting about. Everything else
  * (no such process, wrapper.node not mapped, …) is left to the caller as-is.
  */
-function isPermissionError(error: Error): boolean {
+export function isPermissionError(error: Error): boolean {
   const msg = error.message;
   return (
     // English libc / kernel phrasings for EPERM / EACCES.
@@ -117,7 +106,7 @@ function isPermissionError(error: Error): boolean {
     /不允许的操作|权限不足|没有权限|操作不允许/i.test(msg) ||
     /EPERM|EACCES/i.test(msg) ||
     /os error (1|13)\b/i.test(msg) ||
-    /PTRACE_ATTACH|ptrace attach|task_for_pid 失败/i.test(msg) ||
+    /PTRACE_ATTACH|ptrace attach|task_for_pid (?:失败|failed)/i.test(msg) ||
     // 原生侧打开 /proc/<pid>/mem 失败时的提示。
     /\/proc\/\d+\/mem|ptrace_scope/i.test(msg)
   );
@@ -469,13 +458,19 @@ export function createLinuxAttachHook(
     identity: AttachIdentity,
     signal: AbortSignal,
   ): Promise<SessionMaterial> {
-    // macOS 的硬门槛：SIP 开着时读内存不可能成功（QQ 带强化运行时，`task_for_pid`
-    // 连 root 都拒），所以在这里就停住 —— 不问密码、不起 sudo 子进程。
     if (process.platform === 'darwin' && readSipEnabled() === true) {
-      logger.warn('macOS SIP is on; skipping the memory scan', {
-        event: 'attach-skip-sip-on',
-        pid,
-      });
+      signal.throwIfAborted();
+      const direct = await tryDirectAttach(pid, identity);
+      signal.throwIfAborted();
+      if ('material' in direct) return direct.material;
+      if (!isPermissionError(direct.error)) throw direct.error;
+      try {
+        const material = await tryLongTermAttach(pid, signal);
+        signal.throwIfAborted();
+        if (material) return material;
+      } catch {
+        signal.throwIfAborted();
+      }
       throw new Error(SIP_ENABLED_MESSAGE);
     }
     const material = isRoot

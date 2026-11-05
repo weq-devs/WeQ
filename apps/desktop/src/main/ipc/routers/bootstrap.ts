@@ -36,7 +36,7 @@ import {
   exportSavePolicyInput,
 } from './export_save';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
 import { applyOneBot, oneBotStatus } from '../../onebot/runtime';
@@ -98,8 +98,24 @@ import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
 import { isDbRepairBusy } from './db_repair';
 import { launchQq, runningQqCount } from '../../qq_launch';
+import { QqDebugCopyManager } from '../../qq_debug_copy';
 import { checkQqDataAccess, QQ_DATA_ACCESS_SETTINGS } from '../../qq_data_access';
 import { macLaunchApplication } from '../../mac_launch_application';
+
+const qqDebugCopy = new QqDebugCopyManager({
+  source: () => {
+    const executable = requirePlatform().qqExePath();
+    if (!executable) return null;
+    const bundle = dirname(dirname(dirname(executable)));
+    return bundle.endsWith('/QQ-WeQ.app') ? '/Applications/QQ.app' : bundle;
+  },
+});
+
+function requireDebugCopyDesktop(): QqDebugCopyManager {
+  if (!getHost().canReveal || requirePlatform().kind !== 'darwin')
+    throw new Error('请在运行 QQ 的 Mac 上打开 WeQ 桌面端管理调试副本。');
+  return qqDebugCopy;
+}
 
 /** Result of the QQ data-directory picker. */
 export interface PickRootResult {
@@ -395,6 +411,11 @@ export const bootstrapRouter = router({
     return true;
   }),
 
+  qqDebugCopyStatus: procedure.query(() => requireDebugCopyDesktop().status()),
+  qqDebugCopyAction: procedure
+    .input(z.object({ action: z.enum(['prepare', 'verify', 'launch', 'remove']) }))
+    .mutation(({ input }) => requireDebugCopyDesktop().perform(input.action)),
+
   listAccounts: procedure.query(() => {
     return requireBootstrap().detect.listAccounts();
   }),
@@ -416,8 +437,7 @@ export const bootstrapRouter = router({
    * macOS only: is 系统完整性保护（SIP）still on? `true` = on, `false` = off,
    * `null` = not macOS / couldn't tell.
    *
-   * 在线实例取密钥 / 读内存那条路要先问它：SIP 开着时 `task_for_pid` 连 root 都
-   * 拒（读不了 QQ 进程内存），问密码没有意义。
+   * 只提供系统状态；读取能力取决于目标和读取端的签名，不能单凭 SIP 判断。
    */
   sipEnabled: procedure.query(() => requirePlatform().sipEnabled()),
 
