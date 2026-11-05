@@ -62,7 +62,11 @@ async function fixture() {
         else if (args[0] === '--force') {
           if (failSigning)
             return { code: 1, signal: null, stdout: '', stderr: 'synthetic signing failure' };
-          await writeFile(entPath(path), await readFile(args[args.indexOf('--entitlements') + 1]!));
+          if (args.includes('--entitlements'))
+            await writeFile(
+              entPath(path),
+              await readFile(args[args.indexOf('--entitlements') + 1]!),
+            );
         }
       } else if (command === '/usr/bin/open') {
         if (failOpening)
@@ -131,6 +135,11 @@ it('准备副本保留原 entitlement，只在副本增加 get-task-allow，校�
     JSON.parse(await readFile(join(f.target, 'Contents/Resources/entitlements.json'), 'utf8')),
   ).toEqual({ 'com.apple.security.cs.allow-jit': true, 'com.apple.security.get-task-allow': true });
   expect(f.run.mock.calls.find(([command]) => command === '/bin/cp')?.[1][0]).toBe('-cR');
+  const signing = f.run.mock.calls.filter(
+    ([command, args]) => command === '/usr/bin/codesign' && args[0] === '--force',
+  );
+  expect(signing).toHaveLength(1);
+  expect(signing[0]![1]).not.toContain('--deep');
   expect(await readdir(join(f.home, 'Applications'))).toEqual(['QQ-WeQ.app']);
 });
 it('原安装升级后显示可更新；更新成功替换副本并清理本次暂存', async () => {
@@ -140,6 +149,18 @@ it('原安装升级后显示可更新；更新成功替换副本并清理本次�
   expect(await f.manager.status()).toMatchObject({ state: 'outdated', sourceVersion: '7.0.1-2' });
   expect(await f.manager.perform('prepare')).toMatchObject({ state: 'ready', version: '7.0.1-2' });
   expect(await readdir(join(f.home, 'Applications'))).toEqual(['QQ-WeQ.app']);
+});
+it('旧签名副本提示修复且不再启动，重新准备后恢复可用', async () => {
+  const f = await fixture();
+  await f.manager.perform('prepare');
+  await writeFile(
+    join(f.target, 'Contents/Resources/weq-debug-copy.json'),
+    JSON.stringify({ format: 1, source: f.source, sourceVersion: '7.0.1-1' }),
+  );
+  expect(await f.manager.status()).toMatchObject({ state: 'invalid' });
+  await expect(f.manager.perform('launch')).rejects.toThrow('旧签名方式');
+  expect(f.run.mock.calls.some(([command]) => command === '/usr/bin/open')).toBe(false);
+  expect(await f.manager.perform('prepare')).toMatchObject({ state: 'ready' });
 });
 it('复制期间原安装更新时停止提交，不把混合版本副本显示为就绪', async () => {
   const f = await fixture();
