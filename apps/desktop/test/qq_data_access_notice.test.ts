@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
   data: {
     status: 'denied',
     applicationPath: '/Applications/weQ.app',
+    launchApplicationPath: '/System/Applications/Utilities/Terminal.app',
     issues: [{ path: '/fixture/QQ/login.db', code: 'EPERM' }],
   },
   refetch: vi.fn(),
@@ -53,6 +54,8 @@ const button = (label: string) =>
 test('显示真实应用与受限路径，仅用户点击才打开系统设置', async () => {
   expect(host.textContent).toContain('/Applications/weQ.app');
   expect(host.textContent).toContain('/fixture/QQ/login.db');
+  expect(host.textContent).toContain('/System/Applications/Utilities/Terminal.app');
+  expect(host.textContent).toContain('仅授权 Electron 可能不够');
   expect(api.settings).not.toHaveBeenCalled();
   await act(async () => button('打开系统设置').click());
   expect(api.settings).toHaveBeenCalledOnce();

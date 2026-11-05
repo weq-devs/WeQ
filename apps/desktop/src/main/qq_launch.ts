@@ -3,6 +3,28 @@ import { existsSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 import type { Platform } from '@weq/platform';
 
+/** 仅作「正在运行」的证据，不用进程数量代替账号在线数。复用 macOS 在线探测的精确主进程名。 */
+export async function runningQqCount(kind: string): Promise<number | null> {
+  if (kind !== 'darwin') return null;
+  return new Promise((resolve) => {
+    execFile(
+      '/usr/bin/pgrep',
+      ['-x', 'QQ'],
+      { encoding: 'utf8', timeout: 1000, maxBuffer: 16 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) {
+          resolve(error.code === 1 && !stdout && !stderr ? 0 : null);
+          return;
+        }
+        const pids = stdout.trim().split(/\s+/);
+        resolve(
+          pids.length && pids.every((pid) => /^[1-9]\d*$/.test(pid)) ? new Set(pids).size : null,
+        );
+      },
+    );
+  });
+}
+
 /** 只启动检测到的 QQ 客户端；启动成功不代表账号已登录或在线凭据已就绪。 */
 export async function launchQq(platform: Pick<Platform, 'kind' | 'qqExePath'>): Promise<void> {
   const exe = platform.qqExePath();
