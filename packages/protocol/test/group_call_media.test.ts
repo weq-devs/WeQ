@@ -133,10 +133,10 @@ describe('视频分片', () => {
 });
 
 describe('视频重组', () => {
-  it('关键帧首片就能认出是 IDR', () => {
+  it('关键帧收齐后认出是 IDR', () => {
     const assembler = new GroupVideoAssembler();
     const frag = parseGroupVideoFragment(bodyOf(videoKeyframeFirstFragment))!;
-    const frame = assembler.push(2940720980, frag)!;
+    const frame = assembler.push(2940720980, { ...frag, totalPkg: 1 })!;
     expect(frame.keyframe).toBe(true);
     expect(frame.ownerUin).toBe(2940720980);
     expect(frame.fragments).toBe(1);
@@ -145,15 +145,21 @@ describe('视频重组', () => {
   it('普通帧不算关键帧', () => {
     const assembler = new GroupVideoAssembler();
     const frag = parseGroupVideoFragment(bodyOf(videoFrameFirstFragment))!;
-    expect(assembler.push(2940720980, frag)!.keyframe).toBe(false);
+    expect(assembler.push(2940720980, { ...frag, totalPkg: 1 })!.keyframe).toBe(false);
   });
 
-  it('分片按 pkgIdx 拼接', () => {
+  it('收齐 totalPkg 才输出，分片按序拼接', () => {
     const assembler = new GroupVideoAssembler();
     const first = parseGroupVideoFragment(bodyOf(videoFrameFirstFragment))!;
-    assembler.push(1, first);
+    // 首片：totalPkg=2，还差一片 → 不输出
+    expect(assembler.push(1, { ...first, totalPkg: 2 })).toBeNull();
     const second = parseGroupVideoFragment(bodyOf(videoFrameFirstFragment))!;
-    const frame = assembler.push(1, { ...second, pkgIdx: 1, payload: new Uint8Array([0xaa]) })!;
+    const frame = assembler.push(1, {
+      ...second,
+      pkgIdx: 1,
+      totalPkg: 2,
+      payload: new Uint8Array([0xaa]),
+    })!;
     expect(frame.fragments).toBe(2);
     expect(frame.data.subarray(frame.data.length - 1)).toEqual(new Uint8Array([0xaa]));
   });
@@ -161,8 +167,8 @@ describe('视频重组', () => {
   it('不同成员的分片互不干扰', () => {
     const assembler = new GroupVideoAssembler();
     const frag = parseGroupVideoFragment(bodyOf(videoFrameFirstFragment))!;
-    assembler.push(111, frag);
-    const other = assembler.push(222, frag)!;
+    assembler.push(111, { ...frag, totalPkg: 1 });
+    const other = assembler.push(222, { ...frag, totalPkg: 1 })!;
     expect(other.ownerUin).toBe(222);
     expect(other.fragments).toBe(1);
   });
@@ -170,11 +176,11 @@ describe('视频重组', () => {
   it('序号跳变时丢弃当前帧，等下一个首片', () => {
     const assembler = new GroupVideoAssembler();
     const frag = parseGroupVideoFragment(bodyOf(videoFrameFirstFragment))!;
-    assembler.push(1, frag);
+    assembler.push(1, { ...frag, totalPkg: 3 });
     // 直接来 pkgIdx = 2，缺了 1 → 丢弃
-    expect(assembler.push(1, { ...frag, pkgIdx: 2 })).toBeNull();
-    // 下一个首片能正常开始
-    expect(assembler.push(1, frag)).not.toBeNull();
+    expect(assembler.push(1, { ...frag, pkgIdx: 2, totalPkg: 3 })).toBeNull();
+    // 下一个首片能正常开始（totalPkg=1 收齐即输出）
+    expect(assembler.push(1, { ...frag, totalPkg: 1 })).not.toBeNull();
   });
 
   it('没有首片就先收到续片时忽略', () => {
