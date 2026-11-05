@@ -31,6 +31,8 @@ const BODY = message([
 
 export interface SendDatalineTarget {
   selfUin: number;
+  /** 外层 SSO 路由使用本人真实 UID，设备伪 UID 仅标识本地会话。 */
+  selfUid: string;
   deviceUid: string;
   /** 1 = 电脑，2 = 手机，3 = 平板。 */
   terminalType: 1 | 2 | 3;
@@ -39,6 +41,7 @@ export interface SendDatalineTarget {
 export function encodeDatalineText(target: SendDatalineTarget, text: string): Uint8Array {
   if (!Number.isSafeInteger(target.selfUin) || target.selfUin <= 0)
     throw new Error('设备消息需要有效的本人 QQ 号');
+  if (!target.selfUid.trim()) throw new Error('设备消息需要本人的真实 UID');
   if (!target.deviceUid.trim()) throw new Error('设备消息需要设备 UID');
   if (![1, 2, 3].includes(target.terminalType)) throw new Error('设备消息的终端类型无效');
   if (!text.length) throw new Error('设备消息文本不能为空');
