@@ -120,7 +120,7 @@ native-only 的未引用变体才可在投影中省略。没有复制文件不�
 | 最后要求 | 本次落点 | 尚待实现 |
 | --- | --- | --- |
 | 旧已知字段、解释状态及当时资料快照 | legacy.schema、native 属性目录及合成字段映射 | 实际各源提取与字段清单 |
-| 日志/留言/分享/空间收藏/逐次访问 | qzone.basic/full 共用 data 与独立身份 | 历史迁移、在线采集分别实施 |
+| 日志/留言/分享/空间收藏/逐次访问 | qzone.schema 共用 data 与独立身份 | 历史迁移、在线采集分别实施 |
 | 拍摄/上传/地点、正确互动父实体、收藏关联键 | shotAt/uploadedAt/location/parentType、legacy 属性 | 来源单位/坐标/枚举核验 |
 | 跨年代 ID、未知账号会话、旧引用/别名、分区 | identity、nullable messageId、legacyReferences、identityLinks、archive set | 可信身份归并与旧映射导入 |
 | 来源行/chunk、hash、账号角色、时间/编码无损 | provenance、importedAt/nullable observedAt、Time.local、转义码元 | 对真实输入逐字段对账 |

@@ -1,6 +1,6 @@
 # 空间
 
-状态：待实现设计。入口：`qzone.basic.schema.json` / `qzone.full.schema.json`。
+状态：待实现设计。统一入口：`qzone.schema.json`；basic/full 仅为导出内容范围。
 
 ## 基本内容字段
 

@@ -11,7 +11,7 @@ addFormats(ajv);
 const readerAjv = new Ajv2020({ allErrors: true, strictSchema: true, strictTypes: false });
 addFormats(readerAjv);
 
-// 读取只放开可选属性；必填、类型、枚举、档位和 JSONL 提交外壳仍按原契约校验。
+// 读取只放开可选属性；必填、类型、枚举和 JSONL 提交外壳仍按原契约校验。
 function readerSchema(schema, name) {
   const output = structuredClone(schema);
   walk(output, (node) => {
@@ -21,11 +21,6 @@ function readerSchema(schema, name) {
     if (node.properties?.version?.const === '1.0')
       node.properties.version = { type: 'string', pattern: '^1\\.(?:0|[1-9][0-9]*)$' };
   });
-  if (name.endsWith('.basic.schema.json')) output.not = { required: ['native'] };
-  if (name === 'archive.schema.json')
-    output.$defs.basicResource.not = {
-      anyOf: [{ required: ['native'] }, { required: ['source'] }],
-    };
   if (name === 'stream.schema.json') {
     for (const branch of output.oneOf) branch.additionalProperties = false;
     output.oneOf[0].properties.header.not = {
@@ -122,7 +117,7 @@ function knownProperties(value, properties) {
 }
 
 function knownData(record) {
-  const schema = ajv.getSchema(`${namespace}${record.kind}.basic.schema.json`).schema;
+  const schema = ajv.getSchema(`${namespace}${record.kind}.schema.json`).schema;
   return knownProperties(record.data, schema.$defs.data.properties);
 }
 
@@ -401,12 +396,11 @@ function external(document, id) {
   return document.externalReferences?.some((item) => item.id === id);
 }
 
-export function projectBasic(full, archiveId = `${full.archiveId}:basic`) {
+export function projectBasic(full, archiveId = full.archiveId) {
   assert(full.version === '1.0', '不支持对未知小版本执行有损投影');
   validateArchive(full);
   const output = structuredClone(full);
   output.profile = 'basic';
-  assert(archiveId !== full.archiveId, '投影需要新 archiveId');
   output.archiveId = archiveId;
   const revisions = new Map();
   for (const record of output.records) {
@@ -453,7 +447,9 @@ export function projectBasic(full, archiveId = `${full.archiveId}:basic`) {
 }
 
 export function appendObjects(base, addition, options = {}) {
+  assert(['basic', 'full'].includes(addition.profile), '未知导出内容范围');
   const header = ({
+    profile: _profile,
     records: _records,
     observations: _observations,
     resources: _resources,

@@ -9,7 +9,7 @@ JSON 根对象对应 `archive.schema.json`。必填字段如下。
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
 | format / version | 标识 / 版本 | 当前写入 `weq-export` / `1.0`；独立于应用版本，同主版本的小版本读取规则见下文 |
-| profile | basic 或 full | 同一归档不得混用 |
+| profile | basic 或 full | 首次导出的内容范围选项，仅为说明，不用于格式分派，不限制后续记录含哪些附加字段 |
 | archiveId | 非空字符串 | 首次创建后保持不变，不用每轮任务 ID 替换 |
 | scope.account / partition | Actor / 可选字符串 | 来源账号与来源分区；账号未知时 partition 必填，不同账号或 scope 不因消息 ID 相同而混写 |
 | scope.selection | Value | 首次选择的描述，精确 ID 集合不退化成日期近似范围 |
@@ -32,8 +32,8 @@ JSON 根对象对应 `archive.schema.json`。必填字段如下。
 | revision | 是 | 小写 SHA-256，算法见下文 |
 | state | 是 | present 或 deleted；deleted 只在确有删除/撤回证据时写入 |
 | coverage | 是 | acquisition：complete-for-selection / partial / unknown；parsing：complete / partial / opaque |
-| data | 是 | 对应领域 basic 数据，两档完全同形 |
-| native | 仅 full 必填 | attributes 和 residuals 数组，允许为空；basic 禁止出现 |
+| data | 是 | 对应领域的完整语义内容，basic/full 共用，不是两套结构 |
+| native | 否 | 已取得的附加属性与未知残余；存在时 attributes/residuals 数组必填，允许为空；读取不由 profile 决定是否接受 |
 | identity | 历史导入必填 | status=verified/source-local/unverified；原生消息 ID 非 null 时 nativeNamespace 必填，不能把归档 id 当原生 ID |
 
 对象键用 `namespace + 身份分量` 表示，分量采用 JSON 数组编码后计算 SHA-256，前缀为
@@ -53,6 +53,7 @@ JSON 根对象对应 `archive.schema.json`。必填字段如下。
 整数超出安全范围先转为字符串；字节用 Value。协议不接受重复 JSON 键或负零数值。
 观察时刻、来源位置、下载状态不进入正文版本摘要；它们分别属于 observations/resources。
 full 向 basic 投影删除 native、重算摘要，并合并投影后相同的版本及来源观察引用。
+对象 id 不变；投影是显式生成的派生内容，不是对原 full 的删除更新，不强制更换 archiveId。
 
 ## 基础类型
 
@@ -124,6 +125,8 @@ legacy-import 必填 importedAt，不能拿迁移时间冒充当年观察时间�
 规则名（如 unix-ms-to-seconds-v1），不携带原值。完整映射清单应覆盖本次消费的来源叶。
 同一来源叶只映射一个权威目标；需要拆出多个语义字段时映射到承载这些字段的公共结构，
 不能另保留一份原值。投影 basic 时，删除只由 native 引用的额外资源变体回执。
+Observation.profile 可记录本次扫描选择 basic/full；新扫描应写入，旧观察缺席时表示未记录，
+不能从 header.profile 推断之后每次扫描的选项。它不参与正文摘要，也不证明来源取得完整。
 多来源相同内容复用 Record；来源有分歧时各自绑定自己的版本，不能把两个互斥值拍成一个。
 Observation.selection 可记录本次实际读取选择；扩展/更换范围时必须提供，旧 header 的
 首次选择不改写。精确选择不包含父对象时，用 externalReferences 声明范围外关系而不扩读。
@@ -133,7 +136,8 @@ Observation.selection 可记录本次实际读取选择；扩展/更换范围时
 Resource 必含 id、role、status、observedAt；name/mime/url/size/尺寸可选。role 区分
 original、preview、thumbnail、cover、unverified、auxiliary、playback。status=saved 时必须含
 path、sha256、size；其他状态不得含成功路径或下载摘要，可含失败原因。size 是字节数。
-full 资源另含 native 和 source（Source），规则同正文；残余来源指向该 source.id。
+资源可附 native 和 source（Source），两者同时存在或同时缺席，规则同正文；残余来源指向
+该 source.id。是否存在这些字段不由 header.profile 限制。
 URL 是线索，不代表已取得资源。
 
 resource id 以来源稳定引用和变体角色生成；文件按内容 SHA-256 放入 `media/<sha256>`，
@@ -150,7 +154,7 @@ resource id 以来源稳定引用和变体角色生成；文件按内容 SHA-256
 正式 writer 按其目标版本的闭合 schema 校验，新字段先登记对应版本的 schema、字段说明
 和测试，不能靠 reader 宽容读取偷偷发布。reader 则允许已有业务对象增加可选属性，保留
 原始结构，只解释已知字段；不能将未知属性中的 type/resourceIds/unixSeconds 等名字猜成
-已知内容、引用或时间。必填字段、已有字段类型、枚举、basic 禁止 native 等约束仍成立。
+已知内容、引用或时间。必填字段、已有字段类型、枚举、native 的内部结构等约束仍成立。
 `native.attributes/residuals` 保存来源属性；它们不替代格式本身新增可选字段的兼容读取。
 
 JSON 读取和 JSONL 解码返回的正式对象不得按展示模型重建。未知属性（包括 Record 根、
@@ -163,3 +167,18 @@ header 原样保留，不把文件版本号降成当前 writer 的版本。JSONL
 迁移、转换、投影和重写不得排序这个数组。按时间的排序只能用于派生视图；观察时间相同
 或不可排序时使用该稳定顺序。resources 回执数组同样保持追加顺序，时间相同时用顺序
 确定最新成功与最新尝试；records 不靠排列顺序决定新旧。
+
+## 一种格式，两种导出范围
+
+basic/full 只是导出时的内容范围选择，共用 format/version、归档封装、领域 schema、对象
+身份、摘要、资源和增量协议。每个领域只有 `<领域>.schema.json` 一个入口，reader 依据
+实际字段读取，不依据 profile 选择另一套解析器。profile=full 不是来源/解析覆盖完整的证明。
+
+basic 输出完整语义内容；full 复用相同内容提取，再枚举所选来源的全部其他字段，保存已取得
+的 native、映射和来源信息。schema 允许 native 缺席，不代表 full 可以跳过字段枚举或漏存
+已取得的属性：取得失败或解析缺项仍须标 partial/unknown/opaque，不能补空 native 冒称完整。
+
+同一归档允许只有基本内容的旧版本与带附加数据的新版本共存。后续 full 读取真实来源后以
+相同 id 追加新 revision/observation；后续 basic 不删除旧 native、不把旧 full 改写成 basic。
+header.profile 保留首次选择，新增 observation.profile 说明当次选择，不需要格式迁移、
+第二份正文基线或仅因选项变化而新建归档。

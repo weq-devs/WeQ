@@ -1,6 +1,6 @@
 # 消息与频道
 
-状态：待实现设计。入口：`message.basic.schema.json` / `message.full.schema.json`。
+状态：待实现设计。统一入口：`message.schema.json`；basic/full 仅为导出内容范围。
 共同外壳及类型见 [common](common.md)。以下均指 Record.data。
 
 ## 基本内容字段
@@ -25,7 +25,8 @@ Android、NTQQ、云端 ID 需 nativeNamespace，不能仅按相同数值归并�
 
 ## 全部数据属性目录
 
-除 data 外，full.native 必填。以下属性放在 attributes，target=`/data`，除非另注。
+full 导出须提取并保存来源中实际取得的附加字段；统一 schema 的 native 可选，存在时
+结构必须有效，不能仅凭其存在声称完整。以下属性放在 attributes，target=`/data`，除非另注。
 Value 类型必须遵循目录；尚未登记、但来源已识别的属性以 `source.<原字段名>` 命名，
 登记其来源和类型，不能伪装成 unknown。目录不是允许丢弃其他列的白名单。
 

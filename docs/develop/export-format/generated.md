@@ -1,6 +1,6 @@
 # 本地生成对话
 
-状态：待实现设计。入口：`generated.basic.schema.json` / `generated.full.schema.json`。
+状态：待实现设计。统一入口：`generated.schema.json`；basic/full 仅为导出内容范围。
 
 | data 字段 | 必填 | 含义 |
 | --- | --- | --- |

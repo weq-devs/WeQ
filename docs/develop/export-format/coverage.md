@@ -17,8 +17,8 @@ schema 已接入**。未读取真实 QQ 数据库、未发业务网络请求；�
 | 收藏网络与详情缓存 | packages/service/src/account/{collection_detail_store,collection_history,collection_media}.ts；account/export/collection_export.ts | 原始批次、详情、原件/预览回执 | 按CID切分、已知字段去重、全文正文与残余分离、JSONL | 未解析二进制详情中的附件尚不能证明枚举完整 |
 | 邮箱 | packages/service/src/account/mail/{types,wire,client,export,attachments}.ts | 地址、主题、HTML、会话、目录、状态、附件 | wire转换前残余、原HTML/CID、结构化JSONL、目录/状态映射 | 原始完整头、MIME/EML未核实，不能承诺已有 |
 | 联系人/群/成员 | packages/service/src/account/export/contacts_export.ts | FriendRow、MemberRow、GroupDirectoryRow字段 | 底层完整资料、未读列与blob、格式化字段逆映射禁止 | 目录不证明在线在群，未缓存资料不猜 |
-| 本地生成对话 | packages/service/src/account/{generated_content,generated_search}.ts；account/export/{generated_export,generated_resources}.ts | 持久ID、角色、正文、steps/actions/mentions及已知资源 | 双档封装、模型等实际持久属性、未知步骤拆分 | 未持久流式消息、未保存模型过程不可重建 |
-| 群文件/群相册 | apps/desktop/src/main/ipc/routers；packages/service/src/account/export/task_manager.ts | 目录/相册下载、resource-results与失败回执 | 冻结原目录字段、双档正式清单、资源来源观察 | 过期/无权限原件不保证取得 |
+| 本地生成对话 | packages/service/src/account/{generated_content,generated_search}.ts；account/export/{generated_export,generated_resources}.ts | 持久ID、角色、正文、steps/actions/mentions及已知资源 | 统一封装与内容范围选项、模型等实际持久属性、未知步骤拆分 | 未持久流式消息、未保存模型过程不可重建 |
+| 群文件/群相册 | apps/desktop/src/main/ipc/routers；packages/service/src/account/export/task_manager.ts | 目录/相册下载、resource-results与失败回执 | 冻结原目录字段、统一正式清单与内容范围选项、资源来源观察 | 过期/无权限原件不保证取得 |
 | 表情与装扮 | packages/service/src/account/export/{emoji_export,sysface_export,dress_export}.ts；account/favorite_emoji_export.ts | 本地/商城/收藏资源与分类 | 所有目录属性、variant、unknown字段及新schema | 商城目录不是已拥有/已下载清单 |
 | 报告/机器人与生成附件 | packages/service/src/account/export/generated_resources.ts；apps/desktop/src/shared/analytics_export.ts；packages/service/src/account/agentlab_export.ts | 现成文件、导出元数据、附件句柄 | 复用resource-directory的文件及回执映射 | 不新增生成器/部署恢复，不把截图当原统计数据 |
 | 当前增量/查看器 | packages/service/src/account/export/{message_journal,baseline,task_manager}.ts；apps/desktop/src/main/export_viewer.ts | 旧隐藏journal、基线目录扫描、各格式重建 | 正式JSON/JSONL直接读取、原位更新、批次链、旧格式导入、丢索引恢复 | 本轮未修运行实现、未验证真实断电/掉盘 |
