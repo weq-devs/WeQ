@@ -70,6 +70,27 @@ export class QqDebugCopyManager {
       throw new Error(result.stderr.trim() || `系统命令执行失败：${command} (${result.code})`);
     return result.stdout;
   }
+  private async removeTree(path: string): Promise<void> {
+    // Electron 会把 .asar 当虚拟目录；系统 rm 按真实文件删除归档，避免 ENOTEMPTY。
+    await this.command('/bin/rm', ['-r', '--', path]);
+  }
+  private async removeCopy(): Promise<void> {
+    const markerPath = join(this.path, 'Contents/Resources', markerName);
+    const marker = await readFile(markerPath, 'utf8');
+    try {
+      await this.removeTree(this.path);
+    } catch (error) {
+      if (await exists(this.path)) {
+        const remaining = await lstat(this.path);
+        if (remaining.isDirectory() && !remaining.isSymbolicLink()) {
+          // 部分删除可能先删掉标记；恢复它，让下次操作仍可识别并继续移除。
+          await mkdir(dirname(markerPath), { recursive: true });
+          await writeFile(markerPath, marker);
+        }
+      }
+      throw error;
+    }
+  }
   private async entitlements(path: string): Promise<Record<string, unknown>> {
     const xml = await this.command('/usr/bin/codesign', ['-d', '--entitlements', ':-', path]);
     return z
@@ -205,7 +226,7 @@ export class QqDebugCopyManager {
       else if (action === 'remove') {
         await this.stopped();
         this.phase = 'removing';
-        if (present) await rm(this.path, { recursive: true });
+        if (present) await this.removeCopy();
       } else {
         this.phase = 'verifying';
         await this.verify(this.path);
@@ -293,7 +314,7 @@ export class QqDebugCopyManager {
       backedUp = false;
     } finally {
       // 若回滚本身失败，保留 previous.app，不把唯一可恢复副本当临时文件删掉。
-      if (!backedUp) await rm(staging, { recursive: true, force: true });
+      if (!backedUp) await this.removeTree(staging);
     }
   }
 }

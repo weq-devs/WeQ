@@ -37,6 +37,7 @@ async function fixture() {
   let failOpening = false;
   let blockCopy: (() => Promise<void>) | undefined;
   let readerReady = true;
+  let failRemoving = false;
   const run = vi.fn(
     async (
       command: string,
@@ -45,7 +46,15 @@ async function fixture() {
     ): Promise<OwnedChildResult> => {
       let stdout = '';
       if (command === '/bin/ps') stdout = processes;
-      else if (command === '/usr/bin/plutil') {
+      else if (command === '/bin/rm') {
+        const path = args.at(-1)!;
+        if (failRemoving && path === target) {
+          await rm(join(target, 'Contents/Resources/weq-debug-copy.json'));
+          await rm(infoPath(target));
+          return { code: 1, signal: null, stdout: '', stderr: 'synthetic ENOTEMPTY' };
+        }
+        await rm(path, { recursive: true, force: true });
+      } else if (command === '/usr/bin/plutil') {
         if (args[0] === '-extract')
           stdout = JSON.parse(await readFile(args[args.length - 1]!, 'utf8'))[args[1]!];
         else stdout = options?.input ?? '';
@@ -105,6 +114,9 @@ async function fixture() {
     },
     noReader: () => {
       readerReady = false;
+    },
+    failRemove: (value: boolean) => {
+      failRemoving = value;
     },
   };
 }
@@ -215,6 +227,20 @@ it('移除只删管理的副本，原安装和数据目录保留', async () => {
   expect(await f.manager.perform('remove')).toMatchObject({ state: 'missing' });
   expect(await readFile(f.infoPath(f.source), 'utf8')).toContain('com.tencent.qq');
   expect(await readFile(join(f.home, 'QQ-data/chat'), 'utf8')).toBe('synthetic data');
+  expect(
+    f.run.mock.calls.some(([command, args]) => command === '/bin/rm' && args.at(-1) === f.target),
+  ).toBe(true);
+});
+it('系统删除失败后仍保留管理标记，重新打开管理器可以重试移除', async () => {
+  const f = await fixture();
+  await f.manager.perform('prepare');
+  f.failRemove(true);
+  await expect(f.manager.perform('remove')).rejects.toThrow('synthetic ENOTEMPTY');
+  expect((await new QqDebugCopyManager(f.options).status()).state).toBe('invalid');
+  f.failRemove(false);
+  expect(await new QqDebugCopyManager(f.options).perform('remove')).toMatchObject({
+    state: 'missing',
+  });
 });
 it('单实例和跨实例重复操作都不并行创建；进行中可查询真实阶段', async () => {
   const f = await fixture();
