@@ -7,7 +7,10 @@ export type WeqAppBackupSettings = Omit<
   AppSettings,
   'agentLab' | 'mcp' | 'oneBot' | 'externalRkey' | 'ssePush' | 'voiceTranscribe'
 > & {
-  voiceTranscribe: Pick<AppSettings['voiceTranscribe'], 'modelId' | 'autoTranscribe'>;
+  voiceTranscribe: Pick<
+    AppSettings['voiceTranscribe'],
+    'modelId' | 'autoTranscribe' | 'onlineConcurrency'
+  >;
 };
 type PartialSettings<T> = T extends object ? { [K in keyof T]?: PartialSettings<T[K]> } : T;
 export type WeqAppBackupPatch = PartialSettings<WeqAppBackupSettings>;
@@ -36,6 +39,7 @@ export function snapshotWeqSettings(settings: AppSettings): WeqAppBackupSettings
     voiceTranscribe: {
       modelId: voiceTranscribe.modelId,
       autoTranscribe: voiceTranscribe.autoTranscribe,
+      onlineConcurrency: voiceTranscribe.onlineConcurrency,
     },
   });
 }
@@ -268,6 +272,13 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
       ? undefined
       : record(input.voiceTranscribe, 'settings.voiceTranscribe');
   const ocr = input.ocr === undefined ? undefined : record(input.ocr, 'settings.ocr');
+  for (const [key, config] of [
+    ['ocr', ocr],
+    ['voiceTranscribe', voice],
+  ] as const) {
+    if (config?.onlineConcurrency !== undefined)
+      number(config.onlineConcurrency, `settings.${key}.onlineConcurrency`, 1, 32);
+  }
   if (
     resources &&
     voice &&

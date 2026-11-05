@@ -73,7 +73,7 @@ export function buildChatExportMedia(
     // 在线识别依附于「图片文字识别」；未开 OCR 时强制关闭。
     onlineOcr: options.ocrImages && options.onlineOcr,
     onlineOcrConcurrency: options.ocrConcurrency,
-    // 筛图模型没下好就跳过预筛选阶段（灯箱 / 设置里都能下）。
+    // 筛图模型在设置中下载，没下好就跳过预筛选阶段。
     ocrPrefilter: options.ocrImages && opts.ocrPrefilter === true,
     mediaKinds: options.exportMedia ? options.mediaKinds : undefined,
     completeDress: options.completeDress,

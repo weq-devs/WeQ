@@ -21,6 +21,7 @@ import { useTabActive } from '../RetainedTabs';
 import { Modal, useDialog } from '../Dialog';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Card, QueryError, Row, SectionHeader } from './controls';
+import { RecognitionConcurrencySetting } from './RecognitionConcurrencySetting';
 import '../../styles/provider-settings.css';
 import { useDraftClose } from '../../lib/draftClose';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
@@ -148,11 +149,17 @@ export function VoiceTranscribeSection(): ReactElement {
   const modelList = models.data?.voice ?? [];
 
   return (
-    <div className="weq-set">
+    <div className="weq-set weq-recognition-settings">
       <SectionHeader icon={<AudioLines size={18} strokeWidth={1.8} />} title="语音识别" />
+      <Card title="QQ 在线转写">
+        <p className="weq-set-note">
+          由 QQ 服务端将语音转为文字，需要 QQ 在线，并在导出时准备官方转写抓包。
+        </p>
+        <RecognitionConcurrencySetting kind="voice" />
+      </Card>
 
-      <Card title="本地语音模型">
-        <p className="weq-set-note">识别在本机完成，不会将语音发送给 API 服务商。</p>
+      <Card title="本地语音识别">
+        <p className="weq-set-note">使用本机已下载的模型将语音转为文字，可离线使用。</p>
         {modelList.length === 0 ? (
           <div className="weq-set-empty">{models.isLoading ? '加载中…' : '暂无可用模型'}</div>
         ) : (
