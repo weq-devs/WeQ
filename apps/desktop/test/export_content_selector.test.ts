@@ -1,7 +1,8 @@
-import { createElement } from 'react';
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { selectAllExportContent } from '@weq/service/export-content';
+import { EXPORT_CONTENT_DETAILS, selectAllExportContent } from '@weq/service/export-content';
 import { ExportContentSelector } from '../src/renderer/src/views/export/ExportContentSelector';
 import { exportContentPolicyInput } from '../src/shared/export_content';
 
@@ -24,9 +25,14 @@ describe('导出内容列表结构', () => {
     expect(groups.at(-1)?.getAttribute('aria-label')).toBe('联系人或群资料导出方式');
     expect(root.querySelector('[aria-label="展开附加数据明细"]')).toBeNull();
     expect(root.querySelector('[aria-label="展开联系人或群资料明细"]')).toBeNull();
-    const additional = root.querySelector('button[aria-label="导出附加数据（仅本地）"]');
-    expect(additional?.getAttribute('aria-pressed')).toBe('false');
-    expect(additional?.classList.contains('weq-exp-format')).toBe(true);
+    const additional = root.querySelector('[role="group"][aria-label="附加数据"]');
+    const buttons = [...(additional?.querySelectorAll('button') ?? [])];
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      ...new Set(EXPORT_CONTENT_DETAILS.map((detail) => detail.label)),
+    ]);
+    expect(buttons.every((button) => button.getAttribute('aria-pressed') === 'false')).toBe(true);
+    expect(additional?.querySelector('[role="radiogroup"]')).toBeNull();
+    expect(additional?.textContent).not.toMatch(/不导出|仅本地/);
     expect(additional?.closest('.is-detail')).not.toBeNull();
     expect(additional?.closest('.weq-export-content-group')).toBe(
       groups[0]?.closest('.weq-export-content-group'),
@@ -41,11 +47,46 @@ describe('导出内容列表结构', () => {
         disabled: true,
       }),
     );
-    const additional = root.querySelector('button[aria-label="导出附加数据（仅本地）"]');
-    expect(additional?.getAttribute('aria-pressed')).toBe('true');
-    expect(additional?.classList.contains('is-on')).toBe(true);
-    expect(additional?.querySelector('svg')).not.toBeNull();
-    expect(additional?.hasAttribute('disabled')).toBe(true);
+    const buttons = root.querySelectorAll('[role="group"][aria-label="附加数据"] button');
+    for (const button of buttons) {
+      expect(button.getAttribute('aria-pressed')).toBe('true');
+      expect(button.classList.contains('is-on')).toBe(true);
+      expect(button.querySelector('svg')).not.toBeNull();
+      expect(button.hasAttribute('disabled')).toBe(true);
+    }
+  });
+  it('同类子项目独立切换，展开后的按钮只修改当前内容明细', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const onChange = vi.fn();
+    const value = selectAllExportContent('none');
+    try {
+      await act(async () => root.render(createElement(ExportContentSelector, { value, onChange })));
+      const buttons = [...host.querySelectorAll<HTMLButtonElement>('.weq-exp-format')];
+      await act(async () =>
+        buttons.find((button) => button.textContent === '资源详细信息')?.click(),
+      );
+      const selected = onChange.mock.lastCall?.[0];
+      for (const detail of EXPORT_CONTENT_DETAILS)
+        expect(selected.details[detail.key]).toBe(
+          detail.label === '资源详细信息' ? 'local' : 'none',
+        );
+      expect(selected.images).toBe('none');
+      await act(async () =>
+        host.querySelector<HTMLButtonElement>('[aria-label="展开图片明细"]')?.click(),
+      );
+      const imageDetails = host.querySelector('[id$="-images"]');
+      expect(imageDetails?.querySelector('[role="radiogroup"]')).toBeNull();
+      await act(async () => imageDetails?.querySelector<HTMLButtonElement>('button')?.click());
+      expect(onChange.mock.lastCall?.[0].details).toEqual({
+        ...value.details,
+        imageProperties: 'local',
+      });
+    } finally {
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    }
   });
   it('传输层将旧预设中的资料明细迁移到独立项目', () => {
     const { profiles: _profiles, ...legacy } = selectAllExportContent('none');

@@ -96,11 +96,23 @@
   border-top: 0;
   padding-block: 6px;
 }
-.weq-export-content-row.is-additional .weq-exp-format {
+.weq-export-content-row.is-additional {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+.weq-export-content-detail-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 26px;
+  min-width: 0;
+}
+.weq-export-content-detail-buttons .weq-exp-format {
   min-height: 30px;
+  max-width: 100%;
   border-radius: 4px;
 }
-.weq-export-content-row.is-additional .weq-exp-format:disabled {
+.weq-export-content-detail-buttons .weq-exp-format:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
