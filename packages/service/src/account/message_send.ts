@@ -367,6 +367,8 @@ export interface SendForwardMessageParams {
   peerType: SendPeerType;
   /** 群号（群聊）或 QQ 号 / uid（私聊）。 */
   targetId: string | number;
+  /** 外层卡片标题；缺省沿用协议层自动生成的标题。 */
+  title?: string;
   /** 转发内容（至少一个节点）。 */
   nodes: SendForwardNodeInput[];
 }
@@ -1308,7 +1310,14 @@ export class MessageSendService {
       beforeSend: params.beforeSend,
       peerType: params.peerType,
       targetId: params.targetId,
-      elements: [{ kind: 'forward', resId: upload.resId, ...upload.card }],
+      elements: [
+        {
+          kind: 'forward',
+          resId: upload.resId,
+          ...upload.card,
+          ...(params.title?.trim() ? { forwardSource: params.title.trim() } : {}),
+        },
+      ],
     });
     return {
       ok: card.ok,

@@ -5209,7 +5209,16 @@ function MainWorkspace(): ReactElement {
       if (messages.length === 0) return;
       const members = mergeForwardMembersOf(c);
       void buildMergeForwardDraft(messages)
-        .then((draft) => setMergeForwardDraft({ draft, senderMode: 'conversation', members }))
+        .then((draft) =>
+          setMergeForwardDraft({
+            draft:
+              c.kind === 'group'
+                ? { ...draft, title: draft.title || draftTitle(draft.nodes, 'group') }
+                : draft,
+            senderMode: 'conversation',
+            members,
+          }),
+        )
         .catch((error) =>
           pushToast({
             tone: 'error',
@@ -5274,6 +5283,7 @@ function MainWorkspace(): ReactElement {
           ...binding,
           peerType,
           targetId: target.conv,
+          title: draft.title || undefined,
           nodes,
         });
         if (!outcome.ok) {

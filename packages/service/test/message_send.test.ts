@@ -1394,6 +1394,24 @@ describe('sendForward（合并转发，离线）', () => {
     expect(cardJson.meta?.detail?.news).toEqual([{ text: '小明: 你好' }]);
   });
 
+  it.each(['group', 'c2c'] as const)('群记录转发到 %s 时保留群聊标题', async (peerType) => {
+    const native = forwardNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    await svc.sendForward({
+      peerType,
+      targetId: peerType === 'group' ? '42' : '20002',
+      title: '群聊的聊天记录',
+      nodes: [{ nickname: '小明', elements: [{ kind: 'text', textContent: '你好' }] }],
+    });
+    const request = decode(SEND_MESSAGE_REQUEST, native.calls[1]!.body) as {
+      messageBody: { richText: { elems: { lightApp: { data: Uint8Array } }[] } };
+    };
+    const data = request.messageBody.richText.elems[0]!.lightApp.data;
+    const card = JSON.parse(inflateSync(Buffer.from(data).subarray(1)).toString('utf8'));
+    expect(card.meta.detail.source).toBe('群聊的聊天记录');
+    expect(card.meta.detail.news).toEqual([{ text: '小明: 你好' }]);
+  });
+
   it('私聊：长消息用自己 uid 的槽位，卡片走 c2c 路由', async () => {
     const native = forwardNative('res-c');
     const svc = new MessageSendService(native as never, fakeSession(), () => 1);
