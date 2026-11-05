@@ -81,7 +81,7 @@ export function MergeForwardDialog({
   async function forward(): Promise<void> {
     const picked = targets.filter((t) => selected.has(t.id));
     if (picked.length === 0) {
-      pushToast({ tone: 'warning', title: '先选择会话' });
+      pushToast({ tone: 'warning', durationKind: 'success', title: '先选择会话' });
       return;
     }
     setSending(true);

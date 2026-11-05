@@ -447,6 +447,20 @@ describe('QQ 写操作账号与生命周期', () => {
     render();
     return { ...f, render, session: () => session! };
   }
+  it('状态未改变是普通回执，使用成功时长且不继续读回', async () => {
+    const f = harness();
+    const refresh = vi.fn();
+    await act(async () => {
+      expect(await f.session().run(async () => ({ state: 'unchanged' }), refresh)).toBe(true);
+    });
+    expect(refresh).not.toHaveBeenCalled();
+    expect(useToast.getState().toasts[0]).toMatchObject({
+      tone: 'info',
+      durationKind: 'success',
+      loading: false,
+      ttl: 3000,
+    });
+  });
   it('提交后在同一条横幅显示加载，普通读回成功即可确认，不依赖写回执', async () => {
     const f = harness();
     let finish!: (value: boolean) => void;

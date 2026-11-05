@@ -440,9 +440,12 @@ export function AgentLabSection(): ReactElement {
   /** 测试连通性：用表单里第一个带「聊天」能力的模型探活，把详细错误（状态码/响应体）展示出来。 */
   function onTest(): void {
     if (!form.baseUrl.trim()) {
-      useToast
-        .getState()
-        .push({ tone: 'warning', title: '无法测试', detail: '请先填写 Base URL。' });
+      useToast.getState().push({
+        tone: 'warning',
+        durationKind: 'success',
+        title: '无法测试',
+        detail: '请先填写 Base URL。',
+      });
       return;
     }
     const chatModel = form.models
@@ -453,6 +456,7 @@ export function AgentLabSection(): ReactElement {
         tone: 'warning',
         title: '无法测试',
         detail: '请先添加并填写一个带「聊天」能力的模型。',
+        durationKind: 'success',
       });
       return;
     }

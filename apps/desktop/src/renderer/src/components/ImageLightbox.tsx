@@ -309,7 +309,7 @@ export function ImageLightbox(): ReactElement | null {
       if (result.blocks.length === 0) {
         useToast.getState().push({
           tone: 'info',
-          durationKind: 'failure',
+          durationKind: 'success',
           title: '没识别到文字',
           ...(result.cached ? { message: '（本机缓存里这条结果就是空文字）' } : {}),
         });
