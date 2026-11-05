@@ -88,6 +88,7 @@ export function TitleBarSearch({
       setPinned(false);
       setHovered(false);
       setSuppressHover(true);
+      input.current?.blur();
     };
     document.addEventListener('pointerdown', outside);
     return () => document.removeEventListener('pointerdown', outside);
