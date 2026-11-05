@@ -11,6 +11,8 @@ const fixture = vi.hoisted(() => ({
   friends: [] as { uid: string; uin: string; name: string; categoryId: number }[],
   /** 目录查询的挂起开关：验证加载骨架。 */
   pending: false,
+  directories: vi.fn(),
+  metadata: 'missing' as 'missing' | 'pending' | 'error' | 'ready',
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const result = (data: unknown) => ({
@@ -30,34 +32,67 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     client: { account: { getAccountConfig: { query: fixture.config } } },
     trpc: {
       account: {
+        getProfile: {
+          useQuery: () => ({
+            ...result(
+              fixture.metadata === 'ready'
+                ? { nick: '单对象昵称', remark: '', uin: '12345' }
+                : null,
+            ),
+            isLoading: fixture.metadata === 'pending',
+            isError: fixture.metadata === 'error',
+          }),
+        },
+        getGroupDetail: {
+          useQuery: () => ({
+            ...result(fixture.metadata === 'ready' ? { groupName: '单对象群名' } : null),
+            isLoading: fixture.metadata === 'pending',
+            isError: fixture.metadata === 'error',
+          }),
+        },
         annualReport: { getAvailableYears: { useQuery: () => result([2025, 0]) } },
         analysisGroupDirectory: {
-          useQuery: () =>
-            fixture.pending
+          useQuery: (_input: unknown, options: { enabled: boolean }) => {
+            fixture.directories('group', options.enabled);
+            return fixture.pending
               ? pendingResult()
               : result([
                   { groupCode: '777', groupName: '合成群 A' },
                   { groupCode: '888', groupName: '合成群 B' },
-                ]),
+                ]);
+          },
         },
         analysisPeerDirectory: {
-          useQuery: () => (fixture.pending ? pendingResult() : result(fixture.friends)),
+          useQuery: (_input: unknown, options: { enabled: boolean }) => {
+            fixture.directories('buddy', options.enabled);
+            return fixture.pending ? pendingResult() : result(fixture.friends);
+          },
         },
         exportCalendar: {
           useQuery: () => ({ data: [], isLoading: false, isError: false, error: null }),
         },
         analysisMemberDirectory: {
-          useQuery: (input: { groupCode?: string }) =>
-            result([
-              {
-                id: `uid:u_${input.groupCode}`,
-                uid: `u_${input.groupCode}`,
-                uin: '10003',
-                name: `合成成员 ${input.groupCode}`,
-                categoryId: 0,
-              },
-              { id: 'uin:10009', uid: '', uin: '10009', name: '历史仅号成员', source: 'messages' },
-            ]),
+          useQuery: (input: { groupCode?: string }, options: { enabled: boolean }) => {
+            fixture.directories('member', options.enabled);
+            return fixture.pending
+              ? pendingResult()
+              : result([
+                  {
+                    id: `uid:u_${input.groupCode}`,
+                    uid: `u_${input.groupCode}`,
+                    uin: '10003',
+                    name: `合成成员 ${input.groupCode}`,
+                    categoryId: 0,
+                  },
+                  {
+                    id: 'uin:10009',
+                    uid: '',
+                    uin: '10009',
+                    name: '历史仅号成员',
+                    source: 'messages',
+                  },
+                ]);
+          },
         },
       },
     },
@@ -78,6 +113,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   fixture.pending = false;
+  fixture.metadata = 'missing';
   useViewState.setState({ openedUin: restoreAccount });
   vi.resetAllMocks();
   vi.unstubAllGlobals();
@@ -282,28 +318,82 @@ it('读取分析对象时用骨架占位，卡片高度不塌也不闪空白', (
 it.each<AnalysisTarget>([
   { kind: 'group', groupCode: '777' },
   { kind: 'buddy', peerUid: 'u_friend_0' },
-])('已确定会话的入口在目录加载期间也不显示会话选择控件（$kind）', (target) => {
+  { kind: 'member', groupCode: '777', memberUid: '', memberUin: '10009' },
+])('固定对象入口无需全量目录即可分析已选消息（$kind）', async (target) => {
   fixture.pending = true;
-  const f = mount(target);
+  const f = mount(target, ['42']);
   try {
     expect(f.host.querySelector('.weq-analysis-picker')).toBeNull();
     expect(f.host.querySelector('.weq-analysis-search')).toBeNull();
     expect(f.host.querySelector('.weq-analysis-locked-target')).not.toBeNull();
-    expect(f.host.querySelector('[aria-label="分析时间范围"]')).not.toBeNull();
-    expect(f.button('生成报告').disabled).toBe(true);
-    expect(f.generate).not.toHaveBeenCalled();
+    expect(f.host.textContent).not.toContain('正在读取对象');
+    expect(fixture.directories.mock.calls.every(([, enabled]) => !enabled)).toBe(true);
+    expect(f.button('生成报告').disabled).toBe(false);
+    await act(async () => f.button('生成报告').click());
+    expect(f.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...target,
+        scope: {
+          expectedAccountUin: '10001',
+          expectedAccountConfigId: 'synthetic',
+          messageIds: ['42'],
+        },
+      }),
+    );
   } finally {
     f.close();
   }
 });
 
-it('固定会话不在目录时明确提示，不停留在选择器骨架中', () => {
+it('固定会话不在目录时仍可分析历史记录', async () => {
   const f = mount({ kind: 'group', groupCode: '999' });
   try {
     expect(f.host.querySelector('.weq-analysis-picker')).toBeNull();
-    expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('未找到此分析对象');
+    expect(f.host.querySelector('[role="alert"]')).toBeNull();
     expect(f.host.querySelector('[aria-label="分析时间范围"]')).not.toBeNull();
-    expect(f.button('生成报告').disabled).toBe(true);
+    expect(f.button('生成报告').disabled).toBe(false);
+    await act(async () => f.button('生成报告').click());
+    expect(f.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'group', groupCode: '999' }),
+    );
+  } finally {
+    f.close();
+  }
+});
+
+it.each(['pending', 'error'] as const)(
+  '单对象资料%s也不阻塞生成，仍核对账号来源',
+  async (metadata) => {
+    fixture.pending = true;
+    fixture.metadata = metadata;
+    fixture.config.mockResolvedValue({ uin: '10002', configId: 'other' });
+    const f = mount({ kind: 'buddy', peerUid: 'u_history' }, ['42']);
+    try {
+      expect(f.button('生成报告').disabled).toBe(false);
+      await act(async () => f.button('生成报告').click());
+      expect(f.generate).not.toHaveBeenCalled();
+      expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('账号数据源已变化');
+    } finally {
+      f.close();
+    }
+  },
+);
+
+it('单对象资料补齐展示名称，但不将资料中的 QQ 号扩入群成员身份', async () => {
+  fixture.pending = true;
+  fixture.metadata = 'ready';
+  const f = mount({ kind: 'member', groupCode: '777', memberUid: 'u_history' });
+  try {
+    expect(f.host.textContent).toContain('单对象昵称');
+    await act(async () => f.button('生成报告').click());
+    expect(f.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: '单对象昵称',
+        groupName: '单对象群名',
+        memberUid: 'u_history',
+        memberUin: undefined,
+      }),
+    );
   } finally {
     f.close();
   }
