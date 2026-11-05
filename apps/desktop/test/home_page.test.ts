@@ -78,10 +78,11 @@ function mount(component: typeof HomeSettingsSection | typeof ChatHome) {
 }
 
 describe('主页显示与偏好', () => {
-  it('主页紧跟常规第一个标签页，搜索可定位屏蔽词', () => {
-    expect(SETTINGS_GROUPS[0]!.sections.slice(0, 2)).toEqual(['startup', 'home']);
+  it('主页合并到启动页，搜索可定位屏蔽词', () => {
+    expect(SETTINGS_GROUPS[0]!.sections[0]).toBe('startup');
+    expect(SETTINGS_GROUPS[0]!.sections).not.toContain('home');
     expect(searchAppEntries('一言屏蔽词')[0]?.target).toMatchObject({
-      section: 'home',
+      section: 'startup',
       settingId: 'home-blocked-words',
     });
   });

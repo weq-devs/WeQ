@@ -13,13 +13,13 @@ import {
 
 describe('basic_settings_navigation', () => {
   describe('基础功能内的通话录音入口', () => {
-    it('基础功能位于常规之后，通话录音为第二项，深链身份与全局作用域不变', () => {
+    it('基础功能位于常规之后，通话录音排在三项聊天设置后，深链身份与全局作用域不变', () => {
       const group = settingsGroupFor('call-recording');
       expect(SETTINGS_GROUPS[1]?.label).toBe('基础功能');
       expect(group.label).toBe('基础功能');
-      expect(group.sections.indexOf('call-recording')).toBe(1);
+      expect(group.sections.indexOf('call-recording')).toBe(3);
       expect(settingsGroupFor('message-display').id).toBe(group.id);
-      expect(group.sections.slice(2)).toEqual(['qzone', 'mail']);
+      expect(group.sections.slice(4)).toEqual(['qzone', 'mail']);
       expect(settingsSectionFor('call-recording')).toBe('call-recording');
       expect(settingsScopeFor('call-recording')).toBeNull();
     });
@@ -32,11 +32,11 @@ describe('basic_settings_navigation', () => {
       }
       expect(searchAppEntries('消息显示')[0]?.target).toEqual({
         kind: 'setting',
-        section: 'chat-messages',
+        section: 'message-display',
       });
       expect(searchAppEntries('自定义消息显示')[0]?.target).toEqual({
         kind: 'setting',
-        section: 'chat-messages',
+        section: 'message-display',
         item: '自定义消息显示',
         settingId: 'custom-message-display',
       });
@@ -176,7 +176,7 @@ describe('feature_search', () => {
       });
       expect(searchAppEntries('消息序号')[0]?.target).toEqual({
         kind: 'setting',
-        section: 'chat-messages',
+        section: 'message-display',
         item: '显示消息序号（seq）',
         settingId: 'message-seq',
       });

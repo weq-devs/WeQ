@@ -53,7 +53,7 @@
 
 ### 自动跟随当前聊天字体
 
-「设置 → 基础功能 → 聊天消息」的 `sendWithQqFont` 默认开启，两个账号初始化路径均动态读取。
+「设置 → 基础功能 → 互动与防撤回」的 `sendWithQqFont` 默认开启，两个账号初始化路径均动态读取。
 关闭时跳过字体查找并从常规发送的 dress 中去掉字体字段，气泡／挂件不受影响。
 桌面发送先调用只读 `prepareChatDecoration`（字体复用 `prepareChatFont`），将同一份 `{fontId,fontId2Raw}` 或 `null`
 同时交给乐观气泡和发送请求，不在发送时重新选择字体；账号／数据源／PID 切换后中止。

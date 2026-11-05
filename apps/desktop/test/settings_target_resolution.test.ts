@@ -9,7 +9,7 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置重构的规范目标与旧入口分流', () => {
-  it('七组页面各归其位，主页位于常规第二页，通话录音仍是基础功能第二页', () => {
+  it('七组页面各归其位，主页并入启动，聊天拆成三个二级页面', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
       '基础功能',
@@ -22,10 +22,12 @@ describe('设置重构的规范目标与旧入口分流', () => {
     const sections = SETTINGS_GROUPS.flatMap((group) => group.sections);
     expect(sections).toHaveLength(Object.keys(SETTINGS_PAGE_LABELS).length);
     expect(new Set(sections)).toEqual(new Set(Object.keys(SETTINGS_PAGE_LABELS)));
-    expect(SETTINGS_GROUPS[0]?.sections[1]).toBe('home');
+    expect(SETTINGS_GROUPS[0]?.sections).not.toContain('home');
     expect(SETTINGS_GROUPS[0]?.sections[0]).toBe('startup');
     expect(SETTINGS_GROUPS[1]?.sections).toEqual([
       'chat-messages',
+      'message-display',
+      'chat-interaction',
       'call-recording',
       'qzone',
       'mail',
@@ -38,6 +40,8 @@ describe('设置重构的规范目标与旧入口分流', () => {
     target: string;
     settingId?: string;
   }>([
+    { section: 'home', target: 'startup', settingId: 'home-settings' },
+    { section: 'home', item: '一言屏蔽词', target: 'startup', settingId: 'home-blocked-words' },
     { section: 'applock', target: 'privacy', settingId: 'app-lock' },
     { section: 'applock', item: '启用应用锁', target: 'privacy', settingId: 'app-lock' },
     { section: 'applock', item: '解锁方式', target: 'privacy', settingId: 'unlock-method' },
@@ -60,7 +64,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
     {
       section: 'global',
       item: '默认发送正在输入状态',
-      target: 'chat-messages',
+      target: 'chat-interaction',
       settingId: 'typing-status',
     },
     { section: 'account', target: 'account' },
@@ -76,8 +80,8 @@ describe('设置重构的规范目标与旧入口分流', () => {
       target: 'chat-messages',
       settingId: 'read-sync',
     },
-    { section: 'message-display', item: '显示消息序号（seq）', target: 'chat-messages' },
-    { section: 'anti-recall', target: 'chat-messages', settingId: 'anti-recall' },
+    { section: 'message-display', item: '显示消息序号（seq）', target: 'message-display' },
+    { section: 'anti-recall', target: 'chat-interaction', settingId: 'anti-recall' },
     { section: 'media', target: 'accounts', settingId: 'linked-resources' },
     {
       section: 'media',

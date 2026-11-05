@@ -40,12 +40,11 @@ export interface AppSearchEntry {
 // 这里只保存公开的界面名称与入口，不读取设置值、账号资料或凭据。
 const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
   global: ['窗口行为', '通知', '应用内横幅提醒'],
-  startup: ['开机启动', '系统登录项'],
-  home: ['主页显示'],
+  startup: ['启动', '开机启动', '系统登录项'],
   version: ['软件更新', '检查更新', '更新日志'],
   faq: ['帮助文档', '帮助'],
   'weq-storage': ['默认保存', '存储与网络', 'storage', 'saving'],
-  'chat-messages': ['消息显示', 'message-display'],
+  'chat-messages': ['聊天消息', '阅读设置', '未读设置'],
   'call-recording': ['通话与录音'],
   account: ['接入与监听', '账号接入与消息'],
   accounts: ['账号管理', '媒体来源', 'media'],

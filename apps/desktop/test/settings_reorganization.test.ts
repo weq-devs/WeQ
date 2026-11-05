@@ -8,6 +8,7 @@ import { HelpSection } from '../src/renderer/src/components/settings/HelpSection
 import type { SettingsSearchTarget } from '../src/renderer/src/components/settings/searchTarget';
 import { useUpdateStore } from '../src/renderer/src/state/update';
 import { useViewState } from '../src/renderer/src/state/view';
+import { SETTINGS_ITEM_TARGETS } from '../src/renderer/src/components/settings/navigation';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const queryData = (name: string) => {
@@ -95,7 +96,7 @@ function mount(initialSection?: SectionId) {
 
 describe('设置归位后的实际页面', () => {
   it('Markdown 开关明确为自动渲染，关闭后仍可手动渲染', () => {
-    const f = mount('chat-messages');
+    const f = mount('message-display');
     try {
       const row = f.body().querySelector('[data-setting-id="text-markdown"]')!;
       expect(row.querySelector('.weq-set-row-label')?.textContent).toBe(
@@ -185,13 +186,18 @@ describe('设置归位后的实际页面', () => {
       f.close();
     }
   });
-  it('聊天行为与自定义显示按最终顺序展示，显示项具有稳定身份', () => {
+  it('聊天设置拆成二级页面，不增加三级导航，同类开关合并为连续设置行', () => {
     const f = mount('chat-messages');
     try {
       expect(
-        [...f.body().querySelectorAll('.weq-settings-appearance-card strong')].map(
-          (node) => node.textContent,
-        ),
+        [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
+      ).toEqual(['阅读与未读', '消息显示', '互动与防撤回', '通话录音', 'QQ 空间', 'QQ 邮箱']);
+      expect(f.body().querySelector('[role="tablist"]')).toBeNull();
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        '阅读与未读',
+      );
+      expect(
+        [...f.body().querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
       ).toEqual([
         '在消息图标上显示红点',
         '在联系人界面显示未读消息数',
@@ -200,14 +206,15 @@ describe('设置归位后的实际页面', () => {
         '自动跟随最新消息',
         '发送消息后定位到最新消息',
         '向下滚动时显示定位到底部按钮',
-        '使用 QQ 账号设置的个性字体发送消息',
-        '语音消息自动转文字',
+        '同步已读状态到 QQ',
       ]);
-      const display = f.body().querySelector('[data-setting-id="custom-message-display"]')!;
-      expect(display).not.toBeNull();
-      expect(display.querySelectorAll('.weq-set-card, .weq-settings-appearance-card')).toHaveLength(
-        0,
-      );
+      expect(f.body().querySelector('.weq-settings-appearance-card')).toBeNull();
+      expect(f.body().querySelector('[data-setting-id="anti-recall"]')).toBeNull();
+      expect(f.body().querySelector('[data-setting-id="text-markdown"]')).toBeNull();
+      const tabs = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')];
+      act(() => tabs.find((tab) => tab.textContent === '消息显示')!.click());
+      const display = f.body();
+      expect(display.querySelector('.weq-set-card .weq-set-card')).toBeNull();
       expect(
         [...display.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
       ).toEqual([
@@ -221,30 +228,77 @@ describe('设置归位后的实际页面', () => {
         '纯文本消息自动渲染为 Markdown',
         '链接预览卡片',
         '无封面时网页截图',
+        '语音消息自动转文字',
+        '图片预览内存预算',
       ]);
       expect(
-        [...display.querySelectorAll('[data-setting-id]')].map((node) =>
-          node.getAttribute('data-setting-id'),
+        [...display.querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
+      ).toEqual(['时间与序号', '头像与装扮', '文本与链接', '语音消息', '图片与表情']);
+      act(() => tabs.find((tab) => tab.textContent === '互动与防撤回')!.click());
+      expect(f.body().querySelector('[data-setting-id="send-with-qq-font"]')).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="typing-status"]')).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="read-sync"]')).toBeNull();
+      expect(f.body().querySelector('[data-setting-id="anti-recall"]')).not.toBeNull();
+      expect(f.body().querySelector('[role="tablist"]')).toBeNull();
+    } finally {
+      f.close();
+    }
+  });
+  it('旧聊天条目的搜索切换二级页，手动切页不重放旧搜索，同一条目可再次定位', () => {
+    const f = mount('chat-messages');
+    try {
+      const target = {
+        section: 'chat-messages',
+        settingId: 'link-screenshot',
+        revision: 1,
+      } as const;
+      f.render('chat-messages', target);
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        '消息显示',
+      );
+      expect(
+        f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
+      ).toBe('link-screenshot');
+      const tabs = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')];
+      act(() => tabs.find((tab) => tab.textContent === '阅读与未读')!.click());
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        '阅读与未读',
+      );
+      expect(f.body().querySelector('[data-setting-id="link-screenshot"]')).toBeNull();
+      f.render('chat-messages', { ...target, revision: 2 });
+      expect(
+        f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
+      ).toBe('link-screenshot');
+      expect(document.activeElement).toBe(f.body().querySelector('[data-search-highlight]'));
+    } finally {
+      f.close();
+    }
+  });
+  it('聊天设置目录中每个条目都能切换到实际分类并定位', () => {
+    const f = mount('chat-messages');
+    try {
+      let revision = 0;
+      for (const item of SETTINGS_ITEM_TARGETS.filter((item) =>
+        ['chat-messages', 'message-display', 'chat-interaction', 'anti-recall'].includes(
+          item.section,
         ),
-      ).toEqual([
-        'message-seq',
-        'message-time',
-        'avatar-pendant',
-        'message-bubble',
-        'message-font',
-        'chat-qqshow',
-        'chat-qqshow-days',
-        'text-markdown',
-        'link-preview',
-        'link-screenshot',
-      ]);
+      )) {
+        const target = { section: item.section, settingId: item.id, revision: ++revision };
+        f.render('chat-messages', target);
+        expect(f.body().getAttribute('data-settings-page'), item.id).toBe(item.section);
+        expect(f.body().querySelector('[role="tablist"]'), item.id).toBeNull();
+        expect(
+          f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
+          item.id,
+        ).toBe(item.id);
+      }
     } finally {
       f.close();
     }
   });
   it.each([
-    ['global', '默认发送正在输入状态', 'typing-status', '聊天消息'],
-    ['account', '手动标记时上报已读位置', 'read-sync', '聊天消息'],
+    ['global', '默认发送正在输入状态', 'typing-status', '互动与防撤回'],
+    ['account', '手动标记时上报已读位置', 'read-sync', '阅读与未读'],
     ['storage', '优先使用 CDN', 'prefer-cdn', '资源加载'],
     ['media', '关联本机媒体目录', 'linked-resources', 'WeQ 账号管理'],
     ['media', '允许使用外部安卓图片缓存', 'external-chatpic', 'WeQ 账号管理'],
@@ -253,7 +307,7 @@ describe('设置归位后的实际页面', () => {
     ['applock', '启用应用锁', 'app-lock', '隐私'],
     ['applock', '解锁方式', 'unlock-method', '隐私'],
     ['applock', '无操作自动上锁', 'auto-lock', '隐私'],
-    ['anti-recall', '防撤回', 'anti-recall', '聊天消息'],
+    ['anti-recall', '防撤回', 'anti-recall', '互动与防撤回'],
     ['maintenance', '本地缓存', 'resource-viewer', '资源目录管理'],
     ['maintenance', '存储占用', 'qq-storage-analysis', '资源目录管理'],
     ['maintenance', '清理缓存', 'qq-storage-cleanup', '资源目录管理'],
@@ -261,7 +315,11 @@ describe('设置归位后的实际页面', () => {
     ['maintenance', '导出明文数据库', 'database-export', '数据库管理'],
     ['maintenance', '密钥扫描', 'key-scan', '凭据管理'],
     ['maintenance', '其它设备密钥', 'other-device-key', '凭据管理'],
-    ['message-display', '显示消息汇总红点', 'message-unread-badge', '聊天消息'],
+    ['message-display', '显示消息汇总红点', 'message-unread-badge', '阅读与未读'],
+    ['chat-messages', '纯文本消息自动渲染为 Markdown', 'text-markdown', '消息显示'],
+    ['chat-messages', '语音消息自动转文字', 'auto-transcribe-voice', '消息显示'],
+    ['chat-messages', '图片预览内存预算', 'chat-image-cache', '消息显示'],
+    ['chat-messages', '使用 QQ 账号设置的个性字体发送消息', 'send-with-qq-font', '互动与防撤回'],
     ['reply-suggestions', '常驻显示', 'intent-persistent-display', '意图感知'],
     ['reply-suggestions', '悬停显示', 'intent-hover-display', '意图感知'],
     ['intent-models', '意图模型资源', 'intent-model-resources', '意图感知'],
@@ -285,7 +343,9 @@ describe('设置归位后的实际页面', () => {
     const f = mount();
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('常规');
-      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe('启动');
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        '启动与主页',
+      );
       expect(f.onOpenMaintenance).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -420,7 +480,7 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('聊天、通话录音、空间与邮箱归入基础功能，通话录音位于第二项', () => {
+  it('拆分后的聊天设置与通话录音、空间、邮箱同属基础功能', () => {
     const f = mount('qzone');
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
@@ -428,7 +488,7 @@ describe('设置归位后的实际页面', () => {
       );
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
-      ).toEqual(['聊天消息', '通话录音', 'QQ 空间', 'QQ 邮箱']);
+      ).toEqual(['阅读与未读', '消息显示', '互动与防撤回', '通话录音', 'QQ 空间', 'QQ 邮箱']);
       expect(f.body().querySelector('h3')?.textContent).toBe('QQ 空间');
       expect(f.host.textContent).not.toContain('QQ 空间设置');
       f.render('call-recording');
@@ -516,6 +576,48 @@ describe('设置归位后的实际页面', () => {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
         '关于 WeQ',
       );
+    } finally {
+      f.close();
+    }
+  });
+  it('启动与主页按开机启动、启动页面、主页设置排列，旧主页入口定位到底部分区', () => {
+    const f = mount('startup');
+    try {
+      expect(f.body().querySelector('h3')?.textContent).toBe('启动与主页');
+      expect(
+        [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
+      ).toEqual(['启动与主页', '主题与背景', '提醒与窗口', 'WeQ 存储管理', '隐私']);
+      const ids = [...f.body().querySelectorAll('[data-setting-id]')].map((node) =>
+        node.getAttribute('data-setting-id'),
+      );
+      expect(ids).toEqual([
+        'startup-enabled',
+        'startup-page',
+        'home-settings',
+        'home-tags',
+        'home-greeting',
+        'home-hitokoto',
+        'home-blocked-words',
+      ]);
+      expect(f.body().querySelector('.weq-set-row-label')?.textContent).toBe('开机自动启动');
+      f.render('home');
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        '启动与主页',
+      );
+      expect(
+        f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
+      ).toBe('home-settings');
+      for (const [item, id] of [
+        ['个性标签', 'home-tags'],
+        ['问候语', 'home-greeting'],
+        ['一言', 'home-hitokoto'],
+        ['一言屏蔽词', 'home-blocked-words'],
+      ] as const) {
+        f.render('home', { section: 'home', item, revision: 1 });
+        expect(
+          f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
+        ).toBe(id);
+      }
     } finally {
       f.close();
     }
