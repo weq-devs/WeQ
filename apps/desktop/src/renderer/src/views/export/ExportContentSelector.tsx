@@ -22,8 +22,7 @@ import {
   normalizeExportContent,
   selectAllExportContent,
   selectExportContentGroup,
-  selectExportContentDetails,
-  exportContentDetailsTier,
+  type ExportContentDetailKey,
   type ExportContentKey,
   type ExportContentPolicy,
 } from '@weq/service/export-content';
@@ -57,7 +56,43 @@ export function ExportContentSelector({
   const id = useId();
   const [expanded, setExpanded] = useState<Partial<Record<ExportContentKey, boolean>>>({});
   const policy = normalizeExportContent(value, {}, guild);
-  const detailsTier = exportContentDetailsTier(policy);
+  const detailButtons = (details: readonly (typeof EXPORT_CONTENT_DETAILS)[number][]) => {
+    const groups = new Map<string, ExportContentDetailKey[]>();
+    for (const detail of details) {
+      const keys = groups.get(detail.label) ?? [];
+      keys.push(detail.key);
+      groups.set(detail.label, keys);
+    }
+    return (
+      <div className="weq-export-content-detail-buttons" role="group" aria-label="附加数据">
+        {[...groups].map(([label, keys]) => {
+          const on = keys.every((key) => policy.details?.[key] === 'local');
+          const mixed = !on && keys.some((key) => policy.details?.[key] === 'local');
+          return (
+            <button
+              key={label}
+              type="button"
+              className={`weq-exp-format${on ? ' is-on' : ''}`}
+              aria-pressed={mixed ? 'mixed' : on}
+              disabled={disabled}
+              onClick={() =>
+                onChange({
+                  ...policy,
+                  details: {
+                    ...policy.details,
+                    ...Object.fromEntries(keys.map((key) => [key, on ? 'none' : 'local'])),
+                  },
+                })
+              }
+            >
+              {on ? <Check size={13} aria-hidden /> : null}
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
   const row = (key: ExportContentKey | 'all') => {
     const item = key === 'all' ? { label: '全部', icon: ListChecks } : items[key];
     const Icon = item.icon;
@@ -108,44 +143,16 @@ export function ExportContentSelector({
           <div className="weq-export-content-details">
             <div className="weq-export-content-row is-detail is-additional">
               <span className="weq-export-content-label">附加数据</span>
-              <button
-                type="button"
-                className={`weq-exp-format${detailsTier === 'local' ? ' is-on' : ''}`}
-                aria-label="导出附加数据（仅本地）"
-                aria-pressed={detailsTier === null ? 'mixed' : detailsTier === 'local'}
-                disabled={disabled}
-                onClick={() =>
-                  onChange(
-                    selectExportContentDetails(policy, detailsTier === 'local' ? 'none' : 'local'),
-                  )
-                }
-              >
-                {detailsTier === 'local' ? <Check size={13} aria-hidden /> : null}
-                仅本地
-              </button>
+              {detailButtons(EXPORT_CONTENT_DETAILS)}
             </div>
           </div>
         ) : null}
         {key !== 'all' && expanded[key] ? (
           <div id={`${id}-${key}`} className="weq-export-content-details">
-            {children.map((detail) => (
-              <div key={detail.key} className="weq-export-content-row is-detail">
-                <span className="weq-export-content-label">{detail.label}</span>
-                <SegmentedControl
-                  label={`${item.label}：${detail.label}`}
-                  value={policy.details?.[detail.key] ?? 'none'}
-                  disabled={disabled}
-                  onChange={(tier) =>
-                    onChange({ ...policy, details: { ...policy.details, [detail.key]: tier } })
-                  }
-                  options={[
-                    { value: 'none', label: '不导出' },
-                    { value: 'local', label: '仅本地' },
-                    { value: 'cloud', label: '云端补全', hidden: true },
-                  ]}
-                />
-              </div>
-            ))}
+            <div className="weq-export-content-row is-detail is-additional">
+              <span className="weq-export-content-label">附加数据</span>
+              {detailButtons(children)}
+            </div>
           </div>
         ) : null}
       </div>

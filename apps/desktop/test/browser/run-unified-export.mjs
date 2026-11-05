@@ -98,10 +98,8 @@ try {
       .getByRole('radio', { name: '不导出', exact: true })
       .click();
     await page.getByRole('button', { name: '展开图片明细', exact: true }).click();
-    await page
-      .getByRole('radiogroup', { name: '图片：资源详细信息', exact: true })
-      .getByRole('radio', { name: '仅本地', exact: true })
-      .click();
+    const imageDetails = page.locator('[id$="-images"]');
+    await imageDetails.getByRole('button', { name: '资源详细信息', exact: true }).click();
     await page.getByRole('button', { name: '选中 JSON', exact: true }).click();
     if (
       (await page
@@ -115,7 +113,11 @@ try {
       .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label')));
     if (groups[1] !== '消息导出方式' || groups.at(-1) !== '联系人或群资料导出方式')
       throw new Error('附加数据或独立资料项目位置错误');
-    const additional = page.getByRole('button', { name: '导出附加数据（仅本地）', exact: true });
+    const additionalGroup = page
+      .locator('.weq-export-content-group')
+      .first()
+      .getByRole('group', { name: '附加数据', exact: true });
+    const additional = additionalGroup.getByRole('button', { name: '消息属性', exact: true });
     const all = page.getByRole('radiogroup', { name: '全部导出方式', exact: true });
     await all.getByRole('radio', { name: '仅本地', exact: true }).click();
     if ((await additional.getAttribute('aria-pressed')) !== 'true')
@@ -136,7 +138,7 @@ try {
         row &&
           group &&
           Number.parseFloat(getComputedStyle(group).borderBottomWidth) > 0 &&
-          !row.querySelector('svg'),
+          !row.querySelector('[role="radiogroup"]'),
       );
     });
     if (!underDivider) throw new Error('附加数据未作为分割线上方的明细子项');
@@ -144,18 +146,9 @@ try {
     await additional.click();
     if (await start.isDisabled()) throw new Error('附加数据独立总控未生效');
     await additional.click();
-    await page
-      .getByRole('radiogroup', { name: '图片：资源详细信息', exact: true })
-      .getByRole('radio', { name: '仅本地', exact: true })
-      .click();
+    await imageDetails.getByRole('button', { name: '资源详细信息', exact: true }).click();
     if (await start.isDisabled()) throw new Error('独立明细未启用开始');
-    if (
-      (await page
-        .getByRole('radiogroup', { name: '图片：资源详细信息', exact: true })
-        .getByRole('radio')
-        .count()) !== 2
-    )
-      throw new Error('明细云端段未隐藏');
+    if ((await imageDetails.getByRole('button').count()) !== 2) throw new Error('明细云端段未隐藏');
     if (
       (await page
         .getByRole('radiogroup', { name: 'QQ表情导出方式', exact: true })
