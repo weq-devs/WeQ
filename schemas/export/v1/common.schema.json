@@ -14,11 +14,25 @@
     },
     "time": {
       "type": "object",
-      "required": ["unixSeconds", "precision"],
+      "required": ["precision"],
       "properties": {
         "unixSeconds": { "type": "string", "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,9})?$" },
-        "precision": { "enum": ["second", "millisecond", "microsecond", "nanosecond"] }
+        "precision": {
+          "enum": ["second", "millisecond", "microsecond", "nanosecond", "day", "unknown"]
+        },
+        "local": { "type": "string", "minLength": 1 },
+        "timezone": { "const": "unknown" }
       },
+      "oneOf": [
+        {
+          "required": ["unixSeconds"],
+          "not": { "anyOf": [{ "required": ["local"] }, { "required": ["timezone"] }] },
+          "properties": {
+            "precision": { "enum": ["second", "millisecond", "microsecond", "nanosecond"] }
+          }
+        },
+        { "required": ["local", "timezone"], "not": { "required": ["unixSeconds"] } }
+      ],
       "additionalProperties": false
     },
     "actor": {
@@ -49,12 +63,28 @@
       "required": ["kind", "id"],
       "properties": {
         "kind": {
-          "enum": ["c2c", "group", "service", "official", "data-line", "guild-direct", "generated"]
+          "enum": [
+            "c2c",
+            "group",
+            "service",
+            "official",
+            "data-line",
+            "guild-direct",
+            "generated",
+            "unknown"
+          ]
         },
-        "id": { "$ref": "#/$defs/id" },
+        "id": { "anyOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
         "name": { "type": "string" },
         "guildId": { "$ref": "#/$defs/id" }
       },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "unknown" } } },
+          "then": { "properties": { "id": { "type": "null" } } },
+          "else": { "properties": { "id": { "$ref": "#/$defs/id" } } }
+        }
+      ],
       "additionalProperties": false
     },
     "coverage": {
@@ -136,10 +166,12 @@
           "items": {
             "type": "object",
             "required": ["target", "name", "value"],
+            "allOf": [{ "$ref": "legacy.schema.json#/$defs/attribute" }],
             "properties": {
               "target": { "$ref": "#/$defs/pointer" },
               "name": { "$ref": "#/$defs/id" },
-              "value": { "$ref": "#/$defs/value" }
+              "value": { "$ref": "#/$defs/value" },
+              "interpretation": { "enum": ["verified", "partial", "opaque"] }
             },
             "additionalProperties": false
           }
@@ -185,7 +217,7 @@
           "properties": {
             "type": { "const": "text" },
             "text": { "type": "string" },
-            "format": { "enum": ["plain", "html", "markdown", "xml"] }
+            "format": { "enum": ["plain", "html", "markdown", "xml", "ubb"] }
           },
           "additionalProperties": false
         },
@@ -292,6 +324,15 @@
         "revision": { "$ref": "#/$defs/hash" },
         "state": { "enum": ["present", "deleted"] },
         "coverage": { "$ref": "#/$defs/coverage" },
+        "identity": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["verified", "source-local", "unverified"] },
+            "nativeNamespace": { "$ref": "#/$defs/id" }
+          },
+          "additionalProperties": false
+        },
         "data": { "type": "object" }
       }
     },
@@ -302,7 +343,26 @@
         "id": { "$ref": "#/$defs/id" },
         "kind": { "enum": ["database", "cache", "remote", "legacy-import", "local-generated"] },
         "locator": { "$ref": "#/$defs/id" },
-        "modifiedAt": { "anyOf": [{ "$ref": "#/$defs/time" }, { "type": "null" }] }
+        "modifiedAt": { "anyOf": [{ "$ref": "#/$defs/time" }, { "type": "null" }] },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "file": { "$ref": "#/$defs/id" },
+            "table": { "$ref": "#/$defs/id" },
+            "row": { "$ref": "#/$defs/id" },
+            "chunk": { "$ref": "#/$defs/id" },
+            "line": { "$ref": "#/$defs/unsigned" },
+            "sha256": { "$ref": "#/$defs/hash" },
+            "sourceAccount": { "$ref": "#/$defs/actor" },
+            "observerAccount": { "$ref": "#/$defs/actor" },
+            "scope": { "$ref": "#/$defs/id" },
+            "container": { "enum": ["file", "tar", "cas"] },
+            "member": { "$ref": "#/$defs/id" },
+            "offset": { "$ref": "#/$defs/unsigned" },
+            "length": { "$ref": "#/$defs/unsigned" }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },
@@ -313,7 +373,35 @@
         "id": { "$ref": "#/$defs/id" },
         "recordId": { "$ref": "#/$defs/id" },
         "revision": { "$ref": "#/$defs/hash" },
-        "observedAt": { "$ref": "#/$defs/time" },
+        "observedAt": { "anyOf": [{ "$ref": "#/$defs/time" }, { "type": "null" }] },
+        "importedAt": { "$ref": "#/$defs/time" },
+        "legacyReferences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["namespace", "messageId"],
+            "properties": {
+              "namespace": { "$ref": "#/$defs/id" },
+              "messageId": { "$ref": "#/$defs/id" },
+              "variantId": { "$ref": "#/$defs/id" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "identityLinks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["relation", "target", "status", "evidence"],
+            "properties": {
+              "relation": { "enum": ["same-object", "actor-alias", "display-alias"] },
+              "target": { "$ref": "#/$defs/id" },
+              "status": { "enum": ["verified", "candidate"] },
+              "evidence": { "$ref": "#/$defs/id" }
+            },
+            "additionalProperties": false
+          }
+        },
         "source": { "$ref": "#/$defs/source" },
         "selection": { "$ref": "#/$defs/value" },
         "mappings": {
@@ -330,6 +418,14 @@
           }
         }
       },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "source": { "properties": { "kind": { "const": "legacy-import" } } } }
+          },
+          "then": { "required": ["importedAt"] }
+        }
+      ],
       "additionalProperties": false
     },
     "resource": {
@@ -338,10 +434,19 @@
       "properties": {
         "id": { "$ref": "#/$defs/id" },
         "role": {
-          "enum": ["original", "preview", "thumbnail", "cover", "unverified", "auxiliary"]
+          "enum": [
+            "original",
+            "preview",
+            "thumbnail",
+            "cover",
+            "unverified",
+            "auxiliary",
+            "playback"
+          ]
         },
         "status": { "enum": ["saved", "not-requested", "missing", "failed", "unavailable"] },
-        "observedAt": { "$ref": "#/$defs/time" },
+        "observedAt": { "anyOf": [{ "$ref": "#/$defs/time" }, { "type": "null" }] },
+        "importedAt": { "$ref": "#/$defs/time" },
         "name": { "type": "string" },
         "mime": { "type": "string" },
         "url": { "type": "string", "format": "uri" },
@@ -350,9 +455,40 @@
         "sha256": { "$ref": "#/$defs/hash" },
         "width": { "type": "integer", "minimum": 0 },
         "height": { "type": "integer", "minimum": 0 },
-        "error": { "type": "string" }
+        "error": { "type": "string" },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["recordId", "target", "status", "evidence"],
+            "properties": {
+              "recordId": { "$ref": "#/$defs/id" },
+              "target": { "$ref": "#/$defs/pointer" },
+              "status": { "enum": ["verified", "candidate", "unresolved"] },
+              "evidence": { "$ref": "#/$defs/id" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "derivation": {
+          "type": "object",
+          "required": ["sourceResourceId", "operation", "inputCodec", "outputCodec", "evidence"],
+          "properties": {
+            "sourceResourceId": { "$ref": "#/$defs/id" },
+            "operation": { "$ref": "#/$defs/id" },
+            "inputCodec": { "$ref": "#/$defs/id" },
+            "outputCodec": { "$ref": "#/$defs/id" },
+            "evidence": { "$ref": "#/$defs/id" },
+            "inputSha256": { "$ref": "#/$defs/hash" }
+          },
+          "additionalProperties": false
+        }
       },
       "allOf": [
+        {
+          "if": { "properties": { "observedAt": { "type": "null" } } },
+          "then": { "required": ["importedAt"] }
+        },
         {
           "if": { "properties": { "status": { "const": "saved" } } },
           "then": { "required": ["path", "sha256", "size"] },

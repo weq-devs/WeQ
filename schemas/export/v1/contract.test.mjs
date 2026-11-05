@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { historicalFixture } from './historical-fixtures.mjs';
 import {
   appendObjects,
   canonical,
@@ -16,6 +17,7 @@ import {
   revision,
   schemaFiles,
   validateArchive,
+  validateArchiveSet,
 } from './conformance.mjs';
 import {
   actor,
@@ -58,7 +60,7 @@ function messageVariant(base, text, suffix) {
 }
 
 test('全部 schema 自校验、引用闭合并预编译', () => {
-  assert.equal(schemaFiles.length, 17);
+  assert.equal(schemaFiles.length, 19);
   assert.equal(namespace, 'https://weq.local/schemas/export/v1/');
 });
 
@@ -622,4 +624,238 @@ test('示例真实资源 hash/size 与回执一致', () => {
   const bytes = readFileSync(new URL(`examples/${resource.path}`, import.meta.url));
   assert.equal(hash(bytes), resource.sha256);
   assert.equal(String(bytes.length), resource.size);
+});
+
+test('历史全量和 basic 投影均通过，JSONL 无损保留旧 ID、未知身份和 UTF-16', () => {
+  const full = validateArchive(historicalFixture());
+  assert.deepEqual(decodeLog(encodeLog(full)).document, full);
+  const basic = projectBasic(full);
+  assert.deepEqual(decodeLog(encodeLog(basic)).document, basic);
+  assert.equal(basic.records[0].data.messageId, null);
+  assert.equal(basic.records[0].data.content[0].text.charCodeAt(7), 0xd800);
+  assert.deepEqual(basic.observations[0].legacyReferences, full.observations[0].legacyReferences);
+  assert.equal(basic.observations[0].observedAt, null);
+  assert.equal(basic.resources[0].bindings[0].status, 'candidate');
+});
+
+const historicalNegatives = [
+  [
+    '排版类型错误',
+    (a) => {
+      a.records[0].native.attributes[0].value.type = 'text';
+    },
+  ],
+  [
+    '旧字段缺解释状态',
+    (a) => {
+      delete a.records[0].native.attributes[0].interpretation;
+    },
+  ],
+  [
+    'read 冒充已验证语义',
+    (a) => {
+      a.records[0].native.attributes[6].interpretation = 'verified';
+    },
+  ],
+  [
+    '旧字段未登记',
+    (a) => {
+      a.records[0].native.attributes[0].name = 'legacy.pcqq.header.guessed';
+    },
+  ],
+  [
+    '迁移时间缺失',
+    (a) => {
+      delete a.observations[0].importedAt;
+    },
+  ],
+  [
+    '来源定位缺失',
+    (a) => {
+      delete a.observations[0].source.provenance;
+    },
+  ],
+  [
+    '未知身份声称已核实',
+    (a) => {
+      a.records[0].identity.status = 'verified';
+    },
+  ],
+  [
+    '原生 ID 无平台空间',
+    (a) => {
+      a.records[0].data.messageId = '123';
+      delete a.records[0].identity.nativeNamespace;
+    },
+  ],
+  [
+    '照片互动误挂日志',
+    (a) => {
+      a.records.find((r) => r.data.sourceId === 'photo-comment').data.parentId = a.records[1].id;
+    },
+  ],
+  [
+    '未知账号丢分区',
+    (a) => {
+      delete a.scope.partition;
+    },
+  ],
+  [
+    '空间收藏无对象',
+    (a) => {
+      delete a.records.find((r) => r.data.type === 'favorite').data.targetId;
+    },
+  ],
+  [
+    '播放副本无派生关系',
+    (a) => {
+      delete a.resources[1].derivation;
+    },
+  ],
+  [
+    '派生输入摘要不匹配',
+    (a) => {
+      a.resources[1].derivation.inputSha256 = 'b'.repeat(64);
+    },
+  ],
+  [
+    '派生循环',
+    (a) => {
+      a.resources[1].derivation.sourceResourceId = 'legacy-playback';
+    },
+  ],
+  [
+    'TAR 偏移冒充媒体路径',
+    (a) => {
+      a.resources[0].path = 'old.tar:512';
+    },
+  ],
+  [
+    '附件绑定目标错误',
+    (a) => {
+      a.resources[0].bindings[0].target = '/data/content/0';
+    },
+  ],
+  [
+    '无时区值混装 UTC',
+    (a) => {
+      a.records[0].data.sentAt.unixSeconds = '1';
+    },
+  ],
+];
+for (const [name, change] of historicalNegatives)
+  test(`历史反例：${name}`, () =>
+    assert.throws(() => validateArchive(edit(historicalFixture(), change))));
+
+test('未知历史观察不按迁移日期压过实际观察', () => {
+  const base = historicalFixture();
+  const current = clone(base.records[0]);
+  current.data.content = [{ type: 'text', text: '真实较新观察' }];
+  current.revision = revision(current);
+  const observed = clone(base.observations[0]);
+  observed.id = 'real-observation';
+  observed.revision = current.revision;
+  observed.observedAt = time('2');
+  delete observed.mappings;
+  base.records.push(current);
+  base.observations.unshift(observed);
+  validateArchive(base);
+  assert.equal(latest(base, current.id).effective.content[0].text, '真实较新观察');
+});
+
+test('集合保留大小号 scope、跨归档关系和共享资源，不按相同 ID 合并', () => {
+  const first = historicalFixture(),
+    second = historicalFixture();
+  second.archiveId = 'second-history';
+  second.scope.partition = 'personal';
+  for (const item of second.observations) item.source.provenance.scope = 'personal';
+  const endpoint = (archive, id) => ({ archiveId: archive.archiveId, id });
+  const set = {
+    format: 'weq-export-set',
+    version: '1.0',
+    archives: [first, second].map((a, i) => ({
+      archiveId: a.archiveId,
+      path: `archives/${i}.jsonl`,
+      scope: a.scope.partition,
+    })),
+    links: [
+      {
+        from: endpoint(first, first.records[0].id),
+        to: endpoint(second, second.records[0].id),
+        status: 'candidate',
+        evidence: 'synthetic/not-auto-merged',
+      },
+    ],
+    sharedResources: [
+      {
+        sha256: first.resources[0].sha256,
+        path: first.resources[0].path,
+        references: [endpoint(first, 'legacy-audio'), endpoint(second, 'legacy-audio')],
+      },
+    ],
+  };
+  const documents = new Map([first, second].map((a) => [a.archiveId, a]));
+  validateArchiveSet(set, documents);
+  const wrong = clone(set);
+  wrong.archives[1].scope = 'shokou_private';
+  assert.throws(() => validateArchiveSet(wrong, documents), /范围/);
+  const dangling = clone(set);
+  dangling.links[0].to.id = 'missing';
+  assert.throws(() => validateArchiveSet(dangling, documents), /端点/);
+});
+
+test('旧变体引用和可信关联随版本保留，不把不同原生命名空间按数值归并', () => {
+  const archive = historicalFixture();
+  const other = clone(archive.records[0]);
+  other.id = 'message:independent-ios-local-id';
+  other.data.messageId = '123';
+  other.identity = { status: 'source-local', nativeNamespace: 'ios/message' };
+  other.data.content = [{ type: 'text', text: '另一来源' }];
+  other.revision = revision(other);
+  const item = clone(archive.observations[0]);
+  item.id = 'ios-observation';
+  item.recordId = other.id;
+  item.revision = other.revision;
+  item.legacyReferences[0].variantId = 'ios-original-variant';
+  item.identityLinks = [
+    {
+      relation: 'same-object',
+      target: archive.records[0].id,
+      status: 'candidate',
+      evidence: 'synthetic/not-verified',
+    },
+  ];
+  archive.records.push(other);
+  archive.observations.push(item);
+  const original = archive.records[0];
+  original.data.messageId = '123';
+  const updated = edit(archive, () => {});
+  const decoded = decodeLog(encodeLog(updated)).document;
+  assert.equal(decoded.records.filter((r) => r.kind === 'message').length, 2);
+  assert.deepEqual(decoded.observations.at(-1).legacyReferences, item.legacyReferences);
+  const alias = clone(decoded.observations[0]);
+  alias.id = 'historical-verified-alias';
+  alias.legacyReferences[0].variantId = 'same-revision-old-variant';
+  alias.identityLinks = [
+    {
+      relation: 'actor-alias',
+      target: 'qq-uin:synthetic',
+      status: 'verified',
+      evidence: 'synthetic/explicit-identity-map',
+    },
+  ];
+  decoded.observations.push(alias);
+  assert.equal(projectBasic(decoded).observations.length, decoded.observations.length);
+});
+
+test('旧资源观察时间未知，不用迁移时间伪装保存时刻', () => {
+  const archive = historicalFixture();
+  archive.resources[0].observedAt = null;
+  archive.resources[0].importedAt = time();
+  assert.equal(
+    decodeLog(encodeLog(validateArchive(archive))).document.resources[0].observedAt,
+    null,
+  );
+  delete archive.resources[0].importedAt;
+  assert.throws(() => validateArchive(archive));
 });

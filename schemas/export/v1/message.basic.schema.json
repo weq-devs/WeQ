@@ -27,7 +27,7 @@
           "$ref": "common.schema.json#/$defs/conversation"
         },
         "messageId": {
-          "$ref": "common.schema.json#/$defs/id"
+          "anyOf": [{ "$ref": "common.schema.json#/$defs/id" }, { "type": "null" }]
         },
         "sender": {
           "$ref": "common.schema.json#/$defs/actor"

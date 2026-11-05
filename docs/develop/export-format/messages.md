@@ -8,7 +8,7 @@
 | 字段 | 必填 | 类型与含义、来源 |
 | --- | --- | --- |
 | conversation | 是 | Conversation；私聊 40021/targetUid，群 targetGroupCode，频道 40027/nodeId；kind 来自实际迭代器 |
-| messageId | 是 | 40001/msgId 字符串；不可用 seq 替代 |
+| messageId | 是 | 40001/msgId 字符串或 null；历史没有原生 ID 时为 null，不可用 seq 或归档 id 替代 |
 | sender | 是 | 40020/senderUid、40033/senderUin；频道 40026/senderTinyId；namespace 不混同 |
 | sentAt | 是 | 40050/sendTime 秒 → Time 或 null |
 | seq | 是 | 40003/msgSeq 十进制字符串或 null，不把 0 当未知 |
@@ -17,6 +17,11 @@
 普通消息身份分量为账号、conversation.kind/id、messageId。漫游和本地有同一可信消息
 身份时合并为来源观察；精确选择仍保留读取来源约束，不用它制造重复的业务消息。频道的
 tinyId 不是 UIN；guildId/directGid 等通过附加属性保存，不猜测 QQ 身份对应。
+
+以上身份公式只适用于已知来源账号、会话及原生消息身份。历史未知会话使用
+`{kind:"unknown",id:null}`，未知账号 Actor.identities=[] 并保留独立 scope.partition；
+归档 id 用持久来源定位/本地分配身份，identity.status 不得为 verified。PCQQ、iOS、
+Android、NTQQ、云端 ID 需 nativeNamespace，不能仅按相同数值归并。详见[历史契约](historical.md)。
 
 ## 全部数据属性目录
 
@@ -34,6 +39,10 @@ Value 类型必须遵循目录；尚未登记、但来源已识别的属性以 `
 | reactions | json | 40062 贴表情；保留零/空的真实值，不用展示过滤结果代替源值 |
 | directGid / guildId / peerTinyId | text/integer/integer | 频道会话缓存路由与身份 |
 | element.<规范名> | Value | target 指向具体 content 元素或 forward 节点；如 urlVerifyFlag(bytes)、subType(integer)、fileToken(text)、hash(text/bytes) |
+
+旧 PCQQ 排版、移动端保留字段、云消息字段和发送时资料快照使用 legacy.schema 中登记的
+来源属性，完整目录见[历史字段表](historical.md#历史字段目录)。font_name/font_size 等
+不是 NTQQ fontId；read 不解释为对方已读。已知消息类型、状态和贴表情仍用已有规范字段。
 
 SELECT 列之外的全部其他列仍须枚举。已知元素未进入渲染层的属性从 codec/来源提取；
 未识别 SQL 列、protobuf tag、类型冲突、sanitizer 丢弃值、未消费尾字节进入 residual。

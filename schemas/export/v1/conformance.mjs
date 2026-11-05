@@ -35,8 +35,18 @@ export function canonical(value) {
 
 export const hash = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
 export function revision(record) {
-  const { id, kind, state, coverage, data, native } = record;
-  return hash(canonical({ id, kind, state, coverage, data, ...(native ? { native } : {}) }));
+  const { id, kind, state, coverage, data, native, identity } = record;
+  return hash(
+    canonical({
+      id,
+      kind,
+      state,
+      coverage,
+      data,
+      ...(identity ? { identity } : {}),
+      ...(native ? { native } : {}),
+    }),
+  );
 }
 
 const keyOf = (record) => `${record.id}\u0000${record.revision}`;
@@ -153,6 +163,8 @@ function verifyNative(record, observations) {
 export function validateArchive(document) {
   checkShape('archive.schema.json', document);
   verifyScalars(document);
+  if (!document.scope.account.identities.length)
+    assert(document.scope.partition, '未知账号须保留独立来源分区');
   if (document.incremental.enabled)
     assert(document.formats.includes(document.incremental.authority), 'authority 未选中');
   unique(document.records, keyOf, '正文版本');
@@ -186,10 +198,36 @@ export function validateArchive(document) {
         assert(record.coverage.parsing !== 'complete', '未知内容不能声称解析完整');
     });
     verifyNative(record, document.observations);
+    if (
+      record.kind === 'message' &&
+      (record.data.messageId === null || record.data.conversation.kind === 'unknown')
+    )
+      assert(
+        record.identity && record.identity.status !== 'verified',
+        '未知原生身份不得声称已核实',
+      );
   }
   for (const observation of document.observations) {
     assert(records.has(`${observation.recordId}\u0000${observation.revision}`), '悬空观察');
     const record = records.get(`${observation.recordId}\u0000${observation.revision}`);
+    if (observation.source.kind === 'legacy-import') {
+      assert(observation.source.provenance, '历史导入缺少来源定位');
+      if (observation.source.provenance.scope)
+        assert(
+          observation.source.provenance.scope === document.scope.partition,
+          '历史来源 scope 与归档分区不符',
+        );
+      assert(record.identity, '历史导入缺少身份解释');
+      if (record.kind === 'message' && record.data.messageId !== null)
+        assert(record.identity.nativeNamespace, '原生消息 ID 缺少平台命名空间');
+      if (record.kind === 'qzone' && ['comment', 'reply'].includes(record.data.type))
+        assert(record.data.parentType, '历史互动缺少父实体类型');
+    }
+    if (observation.observedAt === null)
+      assert(
+        observation.importedAt && observation.source.kind === 'legacy-import',
+        '未知观察时刻只允许带迁移时间的历史导入',
+      );
     unique(observation.mappings ?? [], (item) => item.from, '来源字段映射');
     for (const mapping of observation.mappings ?? []) {
       assert(/^(?:\/(?:[^~/]|~[01])*)*$/.test(mapping.from), '无效来源 Pointer');
@@ -200,6 +238,48 @@ export function validateArchive(document) {
     assert(!ids.has(reference.id), '外部引用与内部对象重复');
   const paths = new Map();
   for (const resource of document.resources) {
+    unique(
+      resource.bindings ?? [],
+      (binding) => `${binding.recordId}\u0000${binding.target}`,
+      '资源绑定',
+    );
+    for (const binding of resource.bindings ?? []) {
+      const versions = document.records.filter((record) => record.id === binding.recordId);
+      assert(versions.length, '附件绑定对象悬空');
+      assert(
+        versions.some((record) => {
+          try {
+            const element = pointer(record, binding.target);
+            return element?.resourceIds?.includes(resource.id);
+          } catch {
+            return false;
+          }
+        }),
+        '附件绑定没有对应内容引用',
+      );
+    }
+    if (resource.role === 'playback') assert(resource.derivation, '播放副本缺少派生关系');
+    if (resource.derivation) {
+      assert(resource.derivation.sourceResourceId !== resource.id, '资源自引用派生');
+      assert(resources.has(resource.derivation.sourceResourceId), '派生来源资源悬空');
+      const visited = new Set([resource.id]);
+      let next = resource;
+      while (next?.derivation) {
+        const id = next.derivation.sourceResourceId;
+        assert(!visited.has(id), '资源派生循环');
+        visited.add(id);
+        next = document.resources.find((entry) => entry.id === id && entry.derivation);
+      }
+      if (resource.derivation.inputSha256) {
+        const saved = document.resources.filter(
+          (entry) => entry.id === resource.derivation.sourceResourceId && entry.status === 'saved',
+        );
+        assert(
+          saved.length && saved.every((entry) => entry.sha256 === resource.derivation.inputSha256),
+          '派生输入摘要缺少匹配原件',
+        );
+      }
+    }
     if (resource.native) {
       const sourceObservation = {
         recordId: resource.id,
@@ -217,12 +297,22 @@ export function validateArchive(document) {
     paths.set(resource.path, resource.size);
   }
   for (const record of document.records) {
-    for (const field of ['parentId', 'repostId', 'replyToId']) {
+    for (const field of ['parentId', 'repostId', 'replyToId', 'targetId']) {
       if (record.data[field])
         assert(
           ids.has(record.data[field]) || external(document, record.data[field]),
           `悬空关系 ${field}`,
         );
+    }
+    if (record.kind === 'qzone' && record.data.parentType) {
+      const parents = document.records.filter((entry) => entry.id === record.data.parentId);
+      assert(record.data.parentId, '父实体类型缺少父实体');
+      assert(
+        parents.every(
+          (entry) => entry.kind === 'qzone' && entry.data.type === record.data.parentType,
+        ),
+        '空间互动父实体类型不符',
+      );
     }
     for (const id of record.data.categoryIds ?? [])
       assert(ids.has(id) || external(document, id), '悬空分类');
@@ -286,6 +376,14 @@ export function projectBasic(full, archiveId = `${full.archiveId}:basic`) {
         referenced.add(id);
       if ('resourceId' in value) referenced.add(value.resourceId);
     });
+  let grew = true;
+  while (grew) {
+    const size = referenced.size;
+    for (const resource of output.resources)
+      if (referenced.has(resource.id) && resource.derivation)
+        referenced.add(resource.derivation.sourceResourceId);
+    grew = size !== referenced.size;
+  }
   output.resources = output.resources.filter((resource) => referenced.has(resource.id));
   output.resources = [...new Map(output.resources.map((item) => [canonical(item), item])).values()];
   return validateArchive(output);
@@ -317,12 +415,15 @@ export function latest(document, id) {
     .map((item, index) => ({ item, index }))
     .sort((a, b) => {
       const time = (item) => {
+        if (!item.observedAt?.unixSeconds) return null;
         const [whole, fraction = ''] = item.observedAt.unixSeconds.split('.');
         const sign = whole.startsWith('-') ? -1n : 1n;
         return BigInt(whole) * 1000000000n + sign * BigInt(fraction.padEnd(9, '0'));
       };
       const left = time(a.item),
         right = time(b.item);
+      if (left === null || right === null)
+        return left === right ? a.index - b.index : left === null ? -1 : 1;
       return left < right ? -1 : left > right ? 1 : a.index - b.index;
     });
   const revisions = sorted.map(({ item }) =>
@@ -355,6 +456,47 @@ export function latest(document, id) {
     }
   }
   return { record: current, effective };
+}
+
+export function validateArchiveSet(set, documents) {
+  checkShape('archive-set.schema.json', set);
+  unique(set.archives, (entry) => entry.archiveId, '集合归档');
+  unique(set.archives, (entry) => entry.path, '集合路径');
+  const archives = new Map();
+  for (const entry of set.archives) {
+    const document = documents.get(entry.archiveId);
+    assert(document, '集合归档缺失');
+    validateArchive(document);
+    assert(
+      document.archiveId === entry.archiveId && document.scope.partition === entry.scope,
+      '集合范围不符',
+    );
+    archives.set(entry.archiveId, document);
+  }
+  const endpoint = (ref, field) => {
+    const document = archives.get(ref.archiveId);
+    assert(
+      document?.[field].some((entry) => entry.id === ref.id),
+      '集合端点悬空',
+    );
+    return document[field].filter((entry) => entry.id === ref.id);
+  };
+  for (const link of set.links) {
+    endpoint(link.from, 'records');
+    endpoint(link.to, 'records');
+  }
+  unique(set.sharedResources, (entry) => entry.sha256, '共享资源');
+  for (const shared of set.sharedResources) {
+    assert(shared.path === `media/${shared.sha256}`, '共享资源路径不符');
+    for (const ref of shared.references)
+      assert(
+        endpoint(ref, 'resources').some(
+          (entry) => entry.status === 'saved' && entry.sha256 === shared.sha256,
+        ),
+        '共享资源摘要不符',
+      );
+  }
+  return set;
 }
 
 export function encodeLog(document) {
