@@ -512,9 +512,12 @@ export function TtsProvidersCard(): ReactElement {
 
   function onTest(): void {
     if (!form.baseUrl.trim()) {
-      useToast
-        .getState()
-        .push({ tone: 'warning', title: '无法测试', detail: '请先填写服务地址（Base URL）。' });
+      useToast.getState().push({
+        tone: 'warning',
+        durationKind: 'success',
+        title: '无法测试',
+        detail: '请先填写服务地址（Base URL）。',
+      });
       return;
     }
     const input = toPayload(form.id);

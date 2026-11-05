@@ -353,6 +353,7 @@ export function GlobalSettingsSection({
     pushToast({
       tone: 'warning',
       title: '已安排清除剩余项目',
+      durationKind: 'success',
       message: '清除完成后自动重新打开 WeQ。',
     });
   }

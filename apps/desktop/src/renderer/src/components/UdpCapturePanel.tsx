@@ -376,7 +376,7 @@ export function UdpCapturePanel(): ReactElement {
   const runExport = useCallback(
     async (format: 'json' | 'jsonl' | 'pcapng') => {
       if (visible.length === 0) {
-        toast.push({ tone: 'warning', title: '没有可导出的数据报' });
+        toast.push({ tone: 'warning', durationKind: 'success', title: '没有可导出的数据报' });
         return;
       }
       const id = toast.push({

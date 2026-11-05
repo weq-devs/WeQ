@@ -565,6 +565,7 @@ export function ExportLightbox({
       pushToast({
         tone: 'warning',
         title: '识别模型请在设置页下载',
+        durationKind: 'success',
         detail:
           '导出面板只提供筛图模型；出文字的识别模型在「设置 → 模型与识别 → 图片识别」里下载。',
         ttl: 6000,

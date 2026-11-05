@@ -995,7 +995,7 @@ export function ChatPane({
   };
   const exportMessageIds = (ids: string[]) => {
     if (ids.some((id) => parseSelectionGap(id))) {
-      pushToast({ tone: 'warning', title: '请先补全或取消所选消息缺口' });
+      pushToast({ tone: 'warning', durationKind: 'success', title: '请先补全或取消所选消息缺口' });
       return;
     }
     const scope = exportSelection;
@@ -1445,7 +1445,7 @@ export function ChatPane({
   const copySelectedMessagesText = useCallback(async () => {
     if (!conversation) return;
     if (selectionBlockedReason) {
-      pushToast({ tone: 'warning', title: selectionBlockedReason });
+      pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
       return;
     }
     const picked = await selectionFlow.prepare('复制');
@@ -1463,7 +1463,7 @@ export function ChatPane({
   }, [conversation, selectionFlow.prepare, user, pushToast, selectionBlockedReason]);
   const copySelectedMessagesRich = useCallback(async () => {
     if (selectionBlockedReason) {
-      pushToast({ tone: 'warning', title: selectionBlockedReason });
+      pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
       return;
     }
     const picked = await selectionFlow.prepare('复制');
@@ -4064,6 +4064,7 @@ export function ChatPane({
       pushToast({
         tone: 'warning',
         title: 'SVG 按文件发送',
+        durationKind: 'success',
         detail: 'QQ 服务端不收 SVG 图片，已改为文件附件发送。',
       });
     }
@@ -4173,7 +4174,7 @@ export function ChatPane({
     // 用 `isImageFile` 而不是 MIME 前缀：SVG 也是 `image/*`，但它不是 QQ 收的
     // 图片格式（协议层会在上传前挡掉），这里提前给出提示。
     if (!isImageFile(file)) {
-      pushToast({ tone: 'warning', message: '闪照只能发送图片' });
+      pushToast({ tone: 'warning', durationKind: 'success', message: '闪照只能发送图片' });
       return;
     }
     void sendFlashPhoto(file).catch((error: unknown) => {
@@ -4191,7 +4192,7 @@ export function ChatPane({
     event.target.value = '';
     if (!file) return;
     if (!file.type.startsWith('video/')) {
-      pushToast({ tone: 'warning', message: '泡泡消息只能发送视频' });
+      pushToast({ tone: 'warning', durationKind: 'success', message: '泡泡消息只能发送视频' });
       return;
     }
     void sendBubbleVideo(file).catch((error: unknown) => {
@@ -4410,7 +4411,7 @@ export function ChatPane({
 
   async function copySelectedMessagesJson() {
     if (selectionBlockedReason) {
-      pushToast({ tone: 'warning', title: selectionBlockedReason });
+      pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
       return;
     }
     const picked = await selectionFlow.prepare('复制');

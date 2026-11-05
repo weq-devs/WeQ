@@ -199,6 +199,7 @@ export function ExternalRkeySection(): ReactElement {
         tone: 'warning',
         title: '信息不完整',
         detail: '请先填写服务器地址与 access_token。',
+        durationKind: 'success',
       });
       return;
     }
