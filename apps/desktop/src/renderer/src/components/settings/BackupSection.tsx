@@ -727,7 +727,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           <p>仅重置通用设置、导出预设与此设备界面偏好；不会删除账号、API 配置或克隆数据。</p>
           <button
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-soft"
             disabled={
               Boolean(busy) || !inventory || Boolean(pending) || Boolean(result?.clientPending)
             }

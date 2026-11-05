@@ -151,7 +151,7 @@ export function InteractionProfileSection() {
             ?.downloaded ? (
             <button
               type="button"
-              className="weq-set-btn"
+              className="weq-set-btn weq-set-btn-soft"
               disabled={disabled || download.isLoading || local.data?.downloading}
               onClick={() => void downloadModel()}
             >
