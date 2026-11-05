@@ -9,6 +9,37 @@ import { DEFAULT_HOME_SETTINGS, normalizeHomeSettings } from '../src/common/home
 import { snapshotWeqSettings, validateWeqAppSettings } from '../src/bootstrap/backup_settings';
 import { configFixture } from './support/user_config';
 
+describe('导出识别并发设置', () => {
+  it('旧配置使用默认并发，独立修改、备份和重开后保留', () => {
+    const f = configFixture();
+    expect(f.service.getSettings().ocr.onlineConcurrency).toBe(
+      DEFAULT_APP_SETTINGS.ocr.onlineConcurrency,
+    );
+    expect(f.service.getSettings().voiceTranscribe.onlineConcurrency).toBe(
+      DEFAULT_APP_SETTINGS.voiceTranscribe.onlineConcurrency,
+    );
+    f.service.setSettings({ ocr: { onlineConcurrency: 8 } });
+    f.service.setSettings({ voiceTranscribe: { onlineConcurrency: 3 } });
+    f.service.setSettings({ preferCdn: false });
+    const settings = f.open().getSettings();
+    expect(settings.ocr.onlineConcurrency).toBe(8);
+    expect(settings.voiceTranscribe.onlineConcurrency).toBe(3);
+    const backup = snapshotWeqSettings(settings);
+    expect(backup.voiceTranscribe.onlineConcurrency).toBe(3);
+    expect(() => validateWeqAppSettings(backup)).not.toThrow();
+  });
+
+  it.each([0, 33, 1.5, '8', null])('非法并发 %s 不覆盖有效配置', (value) => {
+    const f = configFixture({ settings: { ocr: { onlineConcurrency: value } } });
+    expect(f.service.getSettings().ocr.onlineConcurrency).toBe(
+      DEFAULT_APP_SETTINGS.ocr.onlineConcurrency,
+    );
+    f.service.setSettings({ ocr: { onlineConcurrency: 7 } });
+    f.service.setSettings(JSON.parse(JSON.stringify({ ocr: { onlineConcurrency: value } })));
+    expect(f.open().getSettings().ocr.onlineConcurrency).toBe(7);
+  });
+});
+
 describe('通知偏好', () => {
   function fixture(settings = {}) {
     const f = configFixture({ settings });

@@ -18,7 +18,6 @@ const cases = [
   ['components/compose/RecalledMessagesModal.tsx', '未找到该消息'],
   ['components/mergeForward/MergeForwardDialog.tsx', '先选择会话'],
   ['views/annual-report/QzoneShareLightbox.tsx', '上一次分享还没发完'],
-  ['views/export/ExportLightbox.tsx', '识别模型请在设置页下载'],
   ['im-template/template/chatPane.tsx', 'SVG 按文件发送'],
   ['im-template/template/chatPane.tsx', '请先补全或取消所选消息缺口'],
   ['im-template/template/chatPane.tsx', '闪照只能发送图片'],

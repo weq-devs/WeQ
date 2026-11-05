@@ -17,7 +17,8 @@ import { AlertTriangle, Download, Loader2, ScanText, Trash2 } from 'lucide-react
 import { trpc, client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
-import { Card, Row, SectionHeader } from './controls';
+import { Card, SectionHeader } from './controls';
+import { RecognitionConcurrencySetting } from './RecognitionConcurrencySetting';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -60,9 +61,9 @@ interface ModelRow {
   recommended: boolean;
 }
 
-interface ModelKindCardProps {
+interface ModelKindSectionProps {
   title: string;
-  /** 这张卡是干什么的（一句话）。 */
+  /** 这组模型的用途。 */
   desc: string;
   /** 注册表里这一类为空时显示什么。 */
   emptyHint: string;
@@ -78,8 +79,8 @@ interface ModelKindCardProps {
   onDelete(id: string): void;
 }
 
-/** 一类模型的卡片（识别 / 筛图共用同一套渲染）。 */
-function ModelKindCard({
+/** 本地模型卡片内按用途分组，不另嵌套设置卡片。 */
+function ModelKindSection({
   title,
   desc,
   emptyHint,
@@ -89,9 +90,10 @@ function ModelKindCard({
   engineBlocker,
   onDownload,
   onDelete,
-}: ModelKindCardProps): ReactElement {
+}: ModelKindSectionProps): ReactElement {
   return (
-    <Card title={title}>
+    <section className="weq-recognition-model-group" aria-label={title}>
+      <h4>{title}</h4>
       <p className="weq-set-note">{desc}</p>
       {engineBlocker ? (
         <p className="weq-set-warnbox">
@@ -174,7 +176,7 @@ function ModelKindCard({
           })}
         </div>
       )}
-    </Card>
+    </section>
   );
 }
 
@@ -270,39 +272,40 @@ export function OcrModelsSection(): ReactElement {
   const busy = remove.isLoading || models.isFetching;
 
   return (
-    <div className="weq-set">
+    <div className="weq-set weq-recognition-settings">
       <SectionHeader icon={<ScanText size={18} strokeWidth={1.8} />} title="图片识别" />
-      <Row
-        label="QQ 在线 OCR"
-        desc="由 QQ 服务端提供，不是本地模型；需要 QQ 在线及对应凭据，无需下载下方资源。"
-        control={null}
-      />
+      <Card title="QQ 在线识别">
+        <p className="weq-set-note">由 QQ 服务端识别图片文字，需要 QQ 在线及对应凭据。</p>
+        <RecognitionConcurrencySetting kind="ocr" />
+      </Card>
 
-      <ModelKindCard
-        title="识别模型"
-        desc="负责真正把图上的文字读出来（检测 + 方向分类 + 识别）。"
-        emptyHint={models.isLoading ? '加载中…' : '暂无可用模型'}
-        models={ocrModels}
-        progress={progress}
-        busy={busy}
-        engineBlocker={engineBlocker}
-        onDownload={(id) => void onDownload(id)}
-        onDelete={(id) => void onDelete(id)}
-      />
+      <Card title="本地图片识别">
+        <ModelKindSection
+          title="识别模型"
+          desc="检测图片中的文字位置并识别内容。"
+          emptyHint={models.isLoading ? '加载中…' : '暂无可用模型'}
+          models={ocrModels}
+          progress={progress}
+          busy={busy}
+          engineBlocker={engineBlocker}
+          onDownload={(id) => void onDownload(id)}
+          onDelete={(id) => void onDelete(id)}
+        />
 
-      <ModelKindCard
-        title="筛图模型"
-        desc="只回答「这张图里有没有文字」，比识别模型轻得多：批量识别（例如导出时自动 OCR）之前先跑一遍，风景照 / 人像这类直接跳过。"
-        emptyHint={models.isLoading ? '加载中…' : '暂无可用模型'}
-        models={filterModels}
-        progress={progress}
-        busy={busy}
-        engineBlocker={engineBlocker}
-        onDownload={(id) => void onDownload(id)}
-        onDelete={(id) => void onDelete(id)}
-      />
+        <ModelKindSection
+          title="筛图模型"
+          desc="识别前先判断图片是否包含文字，跳过无文字图片以减少处理量。"
+          emptyHint={models.isLoading ? '加载中…' : '暂无可用模型'}
+          models={filterModels}
+          progress={progress}
+          busy={busy}
+          engineBlocker={engineBlocker}
+          onDownload={(id) => void onDownload(id)}
+          onDelete={(id) => void onDelete(id)}
+        />
 
-      <p className="weq-set-note">本地模型用于离线识别，删除「账号缓存」不会影响这些资源。</p>
+        <p className="weq-set-note">本地模型用于离线识别，删除「账号缓存」不会影响这些资源。</p>
+      </Card>
     </div>
   );
 }

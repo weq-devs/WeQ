@@ -533,6 +533,8 @@ export interface VoiceTranscribeConfig {
   modelId: string;
   /** 浏览聊天时自动转换尚无文字的语音。 */
   autoTranscribe: boolean;
+  /** 导出时同时向 QQ 发起的在线转录请求数。 */
+  onlineConcurrency: number;
   /** TTS 服务商列表（用于克隆体发语音/语音克隆）。 */
   ttsProviders: TtsProviderConfig[];
 }
@@ -549,6 +551,14 @@ export interface VoiceTranscribeConfig {
 export interface OcrModelsConfig {
   modelId: string;
   filterModelId: string;
+  /** 导出时同时向 QQ 发起的在线识别请求数。 */
+  onlineConcurrency: number;
+}
+
+function recognitionConcurrency(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 32
+    ? value
+    : fallback;
 }
 
 /** 各功能引用的共享本地资源；模型文件仍由原有 ModelStore / 意图引擎管理。 */
@@ -1084,9 +1094,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autoLockMinutes: 0,
   appLock: { enabled: true, method: 'totp' },
   modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
-  voiceTranscribe: { modelId: '', autoTranscribe: false, ttsProviders: [] },
+  voiceTranscribe: { modelId: '', autoTranscribe: false, onlineConcurrency: 5, ttsProviders: [] },
   // 本地图片文字识别：两个用途各自独立选模型（都空 = 未启用）。
-  ocr: { modelId: '', filterModelId: '' },
+  ocr: { modelId: '', filterModelId: '', onlineConcurrency: 5 },
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
   mcp: { enabled: false, port: 48765, token: '' },
@@ -1838,6 +1848,10 @@ export class UserConfigService {
       modelResources: resources,
       voiceTranscribe: {
         modelId: resources.voice,
+        onlineConcurrency: recognitionConcurrency(
+          s?.voiceTranscribe?.onlineConcurrency,
+          d.voiceTranscribe.onlineConcurrency,
+        ),
         autoTranscribe:
           typeof s?.voiceTranscribe?.autoTranscribe === 'boolean'
             ? s.voiceTranscribe.autoTranscribe
@@ -1848,6 +1862,10 @@ export class UserConfigService {
       ocr: {
         modelId: resources.ocr,
         filterModelId: resources.filter,
+        onlineConcurrency: recognitionConcurrency(
+          s?.ocr?.onlineConcurrency,
+          d.ocr.onlineConcurrency,
+        ),
       },
       mcp: {
         enabled: s?.mcp?.enabled ?? d.mcp.enabled,
@@ -1999,6 +2017,10 @@ export class UserConfigService {
       modelResources: resources,
       voiceTranscribe: {
         modelId: resources.voice,
+        onlineConcurrency: recognitionConcurrency(
+          patch.voiceTranscribe?.onlineConcurrency,
+          current.voiceTranscribe.onlineConcurrency,
+        ),
         autoTranscribe:
           patch.voiceTranscribe?.autoTranscribe ?? current.voiceTranscribe.autoTranscribe,
         ttsProviders:
@@ -2009,6 +2031,10 @@ export class UserConfigService {
       ocr: {
         modelId: resources.ocr,
         filterModelId: resources.filter,
+        onlineConcurrency: recognitionConcurrency(
+          patch.ocr?.onlineConcurrency,
+          current.ocr.onlineConcurrency,
+        ),
       },
       mcp: {
         enabled: patch.mcp?.enabled ?? current.mcp.enabled,

@@ -1836,6 +1836,18 @@ export const bootstrapRouter = router({
 
   // ---- voice transcription models (设置 → 语音转录) ----
 
+  setRecognitionConcurrency: procedure
+    .input(
+      z.object({ kind: z.enum(['ocr', 'voice']), concurrency: z.number().int().min(1).max(32) }),
+    )
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({
+        [input.kind === 'ocr' ? 'ocr' : 'voiceTranscribe']: {
+          onlineConcurrency: input.concurrency,
+        },
+      });
+    }),
+
   /** The model registry, each entry enriched with on-disk / in-flight state. */
   voiceModels: procedure.query(() => {
     return requireBootstrap().voiceTranscribe.listModels();

@@ -1,0 +1,33 @@
+.weq-set-row-ctrl .weq-recognition-concurrency {
+  width: 88px;
+}
+
+.weq-recognition-settings .weq-model {
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  border-radius: 0;
+  background: transparent;
+}
+
+.weq-recognition-settings .weq-model:last-child {
+  border-bottom: 0;
+}
+
+.weq-recognition-model-group {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.weq-recognition-model-group + .weq-recognition-model-group {
+  border-top: 1px solid var(--weq-border-subtle);
+  padding-top: 14px;
+}
+
+.weq-recognition-model-group h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--weq-fg-primary);
+}

@@ -12,9 +12,7 @@
  *      QQ系统表情）/ 头像 / 装扮数据（子选项：气泡·字体·挂件）。
  *   4. 补全选项 —— 补全媒体资源（需在线 QQ + 已选导出媒体）、漫游消息、
  *      本地未缓存的装扮资源。
- *   5. 图片识别 —— 图片文字识别（自动 OCR）、在线识别与并发、筛图模型下载。
- *      单独一栏（左列、补全选项下面）：它不依赖「导出什么」，只跟「跑不跑识别」有关，
- *      而且面板里**只放筛图模型** —— 出文字的识别模型统一在「设置 → 模型与识别 → 图片识别」里下。
+ *   5. 图片识别 —— 图片文字识别（自动 OCR）、在线识别；模型与并发统一在设置调整。
  *   6. 扩展功能 —— 导出后自动保存、语音转写（需已配置转录模型）。
  */
 
@@ -33,14 +31,12 @@ import { useMultiSelection } from '../../hooks/useMultiSelection';
 import {
   CalendarClock,
   Check,
-  Download,
   FolderOpen,
   Heart,
   Image as ImageIcon,
   Loader2,
   ListFilter,
   RefreshCw,
-  ScanText,
   UserRound,
   Undo2,
   X,
@@ -48,7 +44,6 @@ import {
 } from 'lucide-react';
 import { Card, Row, Toggle } from '../../components/settings/controls';
 import { client } from '../../trpc/client';
-import { useToast } from '../../components/Toast';
 import { useDialog } from '../../components/Dialog';
 import { ocrReadiness, type OcrReadiness } from './preflight';
 import { useExportAuthorization, type ExportAuthorizationIndicatorState } from './authorization';
@@ -155,95 +150,6 @@ function MasterRow({
       />
     </div>
   );
-}
-
-/**
- * 图片文字识别里的一个模型小行：名字 / 说明 / 体积 + 「下载」按钮或下载进度条。
- * 复用设置页那套 `weq-model*` 样式（同一个应用里的模型卡片长得一样）。
- */
-function OcrModelRow({
-  name,
-  sizeLabel,
-  downloaded,
-  selected,
-  progress,
-  disabled,
-  onDownload,
-}: {
-  name: string;
-  sizeLabel: string;
-  downloaded: boolean;
-  selected: boolean;
-  /** 正在下载时的进度（0-100 + 字节数），未下载时为 null。 */
-  progress: { percent: number; downloadedBytes: number; totalBytes: number } | null;
-  disabled: boolean;
-  onDownload: () => void;
-}): ReactElement {
-  const pct = progress ? Math.round(progress.percent) : 0;
-  return (
-    <div className={`weq-model${selected ? ' is-selected' : ''}`}>
-      <div className="weq-model-main">
-        <div className="weq-model-head">
-          <span className="weq-model-name">{name}</span>
-          {downloaded ? <span className="weq-set-badge weq-set-badge-ok">已下载</span> : null}
-          {selected ? <span className="weq-set-badge weq-set-badge-ok">当前模型</span> : null}
-        </div>
-        <span className="weq-model-size weq-number">约 {sizeLabel}</span>
-        {progress ? (
-          <div className="weq-set-progress">
-            <div className="weq-set-progress-track">
-              <div className="weq-set-progress-fill" style={{ width: `${pct}%` }} />
-            </div>
-            <div className="weq-set-progress-meta weq-number">
-              <span>{pct}%</span>
-              <span>
-                {fmtMb(progress.downloadedBytes)} / {fmtMb(progress.totalBytes)}
-              </span>
-            </div>
-          </div>
-        ) : null}
-      </div>
-      <div className="weq-model-actions">
-        {downloaded ? null : progress ? (
-          <button type="button" className="weq-set-btn weq-set-btn-sm" disabled>
-            <Loader2 size={12} strokeWidth={2} className="weq-spin" aria-hidden />
-            下载中
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-sm"
-            onClick={onDownload}
-            disabled={disabled}
-          >
-            <Download size={12} strokeWidth={1.8} aria-hidden />
-            下载
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** 字节 → "x.x MB"（下载进度条用）。 */
-function fmtMb(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-/** 面板里要显示的一个 OCR 模型（识别 / 筛图各一类）。 */
-interface OcrModelRowData {
-  id: string;
-  kind: 'ocr' | 'filter';
-  name: string;
-  sizeLabel: string;
-  downloaded: boolean;
-}
-
-/** 正在下载的 OCR 模型进度。 */
-interface OcrModelProgress {
-  percent: number;
-  downloadedBytes: number;
-  totalBytes: number;
 }
 
 const optionsSnapshot = z.object({
@@ -359,7 +265,6 @@ export function ExportLightbox({
   useEscapeToClose(() => {
     if (!embedded && !hidden) onClose();
   });
-  const pushToast = useToast((s) => s.push);
   const [opts, setOpts] = usePageState<ExportOptions>(
     `export:options:${variant}:${contactScope}`,
     () => {
@@ -408,22 +313,6 @@ export function ExportLightbox({
   }, [authorization.needsElevation, onAuthorizationChange]);
   /** 图片文字识别的前置状态（在线可用 / 本地模型 / 筛图模型）。 */
   const [ocrReady, setOcrReady] = useState<OcrReadiness | null>(null);
-  /** OCR 模型清单（含已选中的模型 id）—— 面板里直接下载用。 */
-  const [ocrModels, setOcrModels] = useState<OcrModelRowData[]>([]);
-  /** 本机没有可用推理引擎时的原因（如 macOS Intel）—— 非空就不摆下载入口。 */
-  const [ocrEngineBlocker, setOcrEngineBlocker] = useState<string | null>(null);
-  /** 当前选中的 OCR 模型 id（识别 / 筛图各一个）。 */
-  const [ocrSelected, setOcrSelected] = useState<{ ocr: string; filter: string }>({
-    ocr: '',
-    filter: '',
-  });
-  /** 正在下载的 OCR 模型进度（key = 模型 id）。 */
-  const [ocrProgress, setOcrProgress] = useState<Record<string, OcrModelProgress>>({});
-  // 订阅只该建一次；这两个引用会被订阅回调用到，通过 ref 取最新值避免重建订阅。
-  const ocrModelsRef = useRef<OcrModelRowData[]>([]);
-  ocrModelsRef.current = ocrModels;
-  const pushToastRef = useRef(pushToast);
-  pushToastRef.current = pushToast;
   useEffect(() => {
     let cancelled = false;
     void client.account.getGroupAlbumAccessState.query().then((s) => {
@@ -434,36 +323,6 @@ export function ExportLightbox({
     void ocrReadiness().then((r) => {
       if (!cancelled) setOcrReady(r);
     });
-    void (async () => {
-      try {
-        const [models, settings] = await Promise.all([
-          client.bootstrap.ocrModels.query(),
-          client.bootstrap.getSettings.query(),
-        ]);
-        if (cancelled) return;
-        setOcrEngineBlocker(models.engineBlocker);
-        setOcrModels(
-          models.models
-            // 面板里只放**筛图**模型：它是在线 / 离线共有的前置步骤，下不下都不影响
-            // 「有没有在识别」这件事。出文字那份识别模型只在「设置 → 模型与识别 → 图片识别」里下 ——
-            // 放在这里会让人以为「下了它就能纯离线跑」，从而把在线开关的逻辑搅乱。
-            .filter((m) => m.kind === 'filter')
-            .map((m) => ({
-              id: m.id,
-              kind: m.kind as 'ocr' | 'filter',
-              name: m.name,
-              sizeLabel: m.sizeLabel,
-              downloaded: m.downloaded,
-            })),
-        );
-        setOcrSelected({
-          ocr: settings.ocr.modelId,
-          filter: settings.ocr.filterModelId,
-        });
-      } catch {
-        /* 模型清单读不到就不显示下载区 */
-      }
-    })();
     void (async () => {
       try {
         const settings = await client.bootstrap.getSettings.query();
@@ -483,115 +342,6 @@ export function ExportLightbox({
       cancelled = true;
     };
   }, []);
-
-  // 后台在成功终态前已自动选用模型，这里只刷新资源与就绪状态。
-  useEffect(() => {
-    const sub = client.bootstrap.onOcrModelProgress.subscribe(undefined, {
-      onData: (p) => {
-        if (p.done) {
-          setOcrProgress((prev) => {
-            const next = { ...prev };
-            delete next[p.id];
-            return next;
-          });
-          void (async () => {
-            try {
-              const [models, readiness] = await Promise.all([
-                client.bootstrap.ocrModels.query(),
-                ocrReadiness(),
-              ]);
-              setOcrEngineBlocker(models.engineBlocker);
-              setOcrModels(
-                models.models
-                  .filter((m) => m.kind === 'filter')
-                  .map((m) => ({
-                    id: m.id,
-                    kind: m.kind as 'ocr' | 'filter',
-                    name: m.name,
-                    sizeLabel: m.sizeLabel,
-                    downloaded: m.downloaded,
-                  })),
-              );
-              setOcrReady(readiness);
-            } catch (e) {
-              pushToastRef.current({
-                tone: 'error',
-                title: '模型状态刷新失败',
-                detail: e instanceof Error ? e.message : String(e),
-                ttl: 6000,
-              });
-            }
-          })();
-          return;
-        }
-        if (p.error) {
-          setOcrProgress((prev) => {
-            const next = { ...prev };
-            delete next[p.id];
-            return next;
-          });
-          pushToastRef.current({
-            tone: 'error',
-            title: '模型下载失败',
-            detail: p.error,
-            ttl: 6000,
-          });
-          return;
-        }
-        setOcrProgress((prev) => ({
-          ...prev,
-          [p.id]: {
-            percent: p.percent,
-            downloadedBytes: p.downloadedBytes,
-            totalBytes: p.totalBytes,
-          },
-        }));
-      },
-      onError: (err) => console.error('[ocr] progress subscription error', err),
-    });
-    return () => sub.unsubscribe();
-  }, []);
-
-  /**
-   * 在面板里下载一个筛图模型（下完自动设为当前模型）。
-   *
-   * 只认 `filter`：出文字的识别模型**不给在导出面板下载**（那会让人以为"下了就能纯离线"，
-   * 而它其实是「在线拿不到时的兜底」，该在「设置 → 模型与识别 → 图片识别」里单独决定），所以这里
-   * 兜一层 —— 万一哪天 UI 漏了一行，也不会从面板把那份模型拖下来。
-   */
-  async function downloadOcrModel(id: string): Promise<void> {
-    const model = ocrModelsRef.current.find((m) => m.id === id);
-    if (model && model.kind !== 'filter') {
-      pushToast({
-        tone: 'warning',
-        title: '识别模型请在设置页下载',
-        durationKind: 'success',
-        detail:
-          '导出面板只提供筛图模型；出文字的识别模型在「设置 → 模型与识别 → 图片识别」里下载。',
-        ttl: 6000,
-      });
-      return;
-    }
-    try {
-      setOcrProgress((prev) => ({
-        ...prev,
-        [id]: { percent: 0, downloadedBytes: 0, totalBytes: 0 },
-      }));
-      await client.bootstrap.downloadOcrModel.mutate({ id });
-    } catch (e) {
-      setOcrProgress((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      pushToast({
-        tone: 'error',
-        title: '启动下载失败',
-        detail: e instanceof Error ? e.message : String(e),
-        ttl: 6000,
-      });
-    }
-  }
 
   const isAlbum = variant === 'album';
   const isQzone = variant === 'qzone';
@@ -720,6 +470,7 @@ export function ExportLightbox({
     }
     setConfirming(true);
     try {
+      const settings = isMessageFlow ? await client.bootstrap.getSettings.query() : null;
       let selectedFormats = formats,
         selectedContent = contentPolicy,
         selectedChatlab = opts.chatlab;
@@ -751,6 +502,9 @@ export function ExportLightbox({
           : isMessageFlow
             ? {
                 ...opts,
+                ocrConcurrency: settings?.ocr.onlineConcurrency ?? opts.ocrConcurrency,
+                onlineConcurrency:
+                  settings?.voiceTranscribe.onlineConcurrency ?? opts.onlineConcurrency,
                 chatlab: selectedChatlab,
                 content: selectedContent,
                 ...exportContentFlags(selectedContent),
@@ -822,7 +576,7 @@ export function ExportLightbox({
         desc={
           ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable
             ? ocrReady.localEngineBlocker ||
-              '需要在线 QQ，或先在「设置 → 模型与识别 → 图片识别」下好本地识别模型'
+              '需要在线 QQ，或先在「设置 → AI 功能 → 图片识别」下好本地识别模型'
             : '识别图片里的文字，写出 ocr.json（含像素坐标框）并把文字回写进导出文件'
         }
         control={
@@ -848,63 +602,11 @@ export function ExportLightbox({
               }
             />
           ) : null}
-          {opts.onlineOcr ? (
-            <Row
-              label="识别并发"
-              desc="同时向 QQ 服务端发起的识别请求数"
-              control={
-                <span className="weq-exp-num">
-                  <input
-                    type="number"
-                    min={1}
-                    max={32}
-                    value={opts.ocrConcurrency}
-                    onChange={(e) =>
-                      patch({
-                        ocrConcurrency: Math.max(1, Math.min(32, Number(e.target.value) || 1)),
-                      })
-                    }
-                  />
-                </span>
-              }
-            />
-          ) : null}
-          {ocrReady && !ocrReady.localReady && !ocrEngineBlocker ? (
+          {ocrReady && !ocrReady.localReady && !ocrReady.localEngineBlocker ? (
             <p className="weq-exp-block-hint">
-              没下本地识别模型：在线那条腿拿不到的图不会回退，可能会少字。识别模型在 「设置 →
-              模型与识别 → 图片识别」里下载。
+              未下载本地识别模型，在线识别失败时无法回退；可在「设置 → AI 功能 → 图片识别」下载。
             </p>
           ) : null}
-          <div className="weq-exp-ocr-models">
-            <p className="weq-exp-block-hint">
-              <ScanText size={12} aria-hidden />{' '}
-              {ocrEngineBlocker ??
-                (ocrReady?.filterReady
-                  ? '已开启预筛选：先用超轻量模型甩掉没有文字的图，快很多。'
-                  : '建议下载筛图模型（1.7 MB）：先甩掉风景 / 人像这类没有文字的图，识别会快很多。')}
-            </p>
-            {ocrEngineBlocker
-              ? null
-              : ocrModels.map((m) => (
-                  <OcrModelRow
-                    key={m.id}
-                    name={`${m.name}（筛图）`}
-                    sizeLabel={m.sizeLabel}
-                    downloaded={m.downloaded}
-                    selected={ocrSelected.filter === m.id}
-                    progress={ocrProgress[m.id] ?? null}
-                    disabled={Boolean(ocrProgress[m.id])}
-                    onDownload={() => void downloadOcrModel(m.id)}
-                  />
-                ))}
-            {ocrEngineBlocker ? null : (
-              <p className="weq-exp-block-hint">
-                「筛图」只判断图里有没有文字（识别前先筛一遍）；不下载也能识别，只是每张图
-                都会跑一遍识别模型。下载完成会自动设为当前模型。出文字的**识别模型**在 「设置 →
-                图片识别」里下载：它是在线拿不到时的兜底，两条腿的逻辑不放在这里选。
-              </p>
-            )}
-          </div>
         </>
       ) : null}
     </div>
@@ -1261,30 +963,9 @@ export function ExportLightbox({
                           }
                         />
                       ) : null}
-                      {opts.transcribeVoice && opts.onlineTranscribe ? (
-                        <Row
-                          label="转录并发"
-                          desc="同时向 QQ 发起的转写请求数"
-                          control={
-                            <span className="weq-exp-num">
-                              <input
-                                type="number"
-                                min={1}
-                                max={32}
-                                value={opts.onlineConcurrency}
-                                onChange={(e) =>
-                                  patch({
-                                    onlineConcurrency: Math.max(
-                                      1,
-                                      Math.min(32, Number(e.target.value) || 1),
-                                    ),
-                                  })
-                                }
-                              />
-                            </span>
-                          }
-                        />
-                      ) : null}
+                      <p className="weq-exp-block-hint">
+                        识别并发、筛图模型和转录并发请在「设置 → AI 功能」中调整。
+                      </p>
                       <Row
                         label="ChatLab 格式"
                         desc={
