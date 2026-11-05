@@ -4668,7 +4668,7 @@ function MainWorkspace(): ReactElement {
           botUids,
         );
       return {
-        id: item.uin,
+        id: item.uid,
         identityLabel: 'QQ',
         identityValue: item.uin,
         username: item.uin,
