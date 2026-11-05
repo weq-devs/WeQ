@@ -13,9 +13,52 @@ export interface OnlineAccess {
 }
 
 export interface Restriction {
-  code: 'offline' | 'disabled' | 'sip' | 'credentials' | 'checking' | 'authorization';
+  code:
+    | 'offline'
+    | 'disabled'
+    | 'sip'
+    | 'credentials'
+    | 'checking'
+    | 'authorization'
+    | 'data-access';
   title: string;
   guidance: string;
+}
+
+export function dataAccessRestriction(status?: string): Restriction[] {
+  if (status !== 'denied' && status !== 'error') return [];
+  return [
+    {
+      code: 'data-access',
+      title: status === 'denied' ? 'QQ 数据读取受限' : 'QQ 数据读取检测失败',
+      guidance: '',
+    },
+  ];
+}
+
+/** 启动页未选账号，进程在运行与账号已登录是两项不同事实。 */
+export function startupRestrictionReasons(input: {
+  probe?: { count: number | null; runningCount?: number | null };
+  dataStatus?: string;
+  failed?: boolean;
+}): Restriction[] {
+  const reasons = dataAccessRestriction(input.dataStatus);
+  if (input.failed || input.probe?.count === null) {
+    reasons.push({
+      code: 'checking',
+      title: 'QQ 在线状态待确认',
+      guidance: input.probe?.runningCount
+        ? '已检测到 QQ 正在运行，但暂时无法确认账号登录状态；请先处理数据读取或授权问题后重新检查。'
+        : '暂时无法读取 QQ 的登录状态，请重新检查。',
+    });
+  } else if (input.probe?.count === 0) {
+    reasons.push({
+      code: 'offline',
+      title: 'QQ 不在线',
+      guidance: '请在本机 QQ 登录当前账号，登录后会自动重新检查。',
+    });
+  }
+  return reasons;
 }
 
 /** 只依据已确认的能力判断；没有密码请求不等于需要提权。 */

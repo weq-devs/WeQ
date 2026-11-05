@@ -636,6 +636,10 @@ export const wonderfulToolsRouter = router({
  */
 function assertNoQqRunning(): void {
   const probe = requireBootstrap().globalConfig.probeOnline();
+  if (probe.count === null)
+    throw new Error(
+      '暂时无法确认 QQ 是否已退出，请恢复 QQ 数据读取权限并重新检查后再修改登录数据。',
+    );
   if (probe.count > 0) {
     throw new Error(
       `检测到本机有 ${probe.count} 个 QQ 实例在运行，修改登录数据会被 QQ 覆盖。请先完全退出 QQ 再试。`,

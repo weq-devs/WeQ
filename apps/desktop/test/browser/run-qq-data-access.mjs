@@ -55,47 +55,65 @@ try {
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-data-access.html`,
   );
+  await page.getByRole('button', { name: '受限模式', exact: true }).waitFor();
+  if (await page.locator('.weq-account-content .weq-qq-data-access').count())
+    throw new Error('授权提示不得占用账号页布局');
+  await page.setViewportSize({ width: 390, height: 760 });
+  if (process.env.WEQ_ACCESS_ARTIFACTS) {
+    await mkdir(process.env.WEQ_ACCESS_ARTIFACTS, { recursive: true });
+    await page.screenshot({
+      path: resolve(process.env.WEQ_ACCESS_ARTIFACTS, '390-account-page.png'),
+    });
+  }
+  await page.getByRole('button', { name: '受限模式', exact: true }).click();
   await page.getByRole('heading', { name: 'QQ 数据读取受限' }).waitFor();
+  if (await page.getByText('QQ 不在线', { exact: true }).count())
+    throw new Error('状态不可读不能显示 QQ 不在线');
+  await page.getByText('已检测到 QQ 正在运行', { exact: false }).waitFor();
   const output = process.env.WEQ_ACCESS_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   let cases = 0;
-  for (const width of [1180, 390]) {
-    await page.setViewportSize({ width, height: 760 });
-    for (const theme of ['light', 'dark', 'system']) {
-      await page.emulateMedia({
-        colorScheme: theme === 'light' ? 'light' : 'dark',
-        reducedMotion: 'reduce',
-      });
-      for (const accent of ['#075c30', '#fff3a1']) {
-        for (const background of ['plain', 'telegram']) {
-          await page.evaluate(
-            ({ theme, accent, background }) => {
-              const store = window.accessQa.store.getState();
-              store.setPreference(theme);
-              store.setAccent(accent);
-              store.setBackground(background);
-            },
-            { theme, accent, background },
-          );
-          const overflow = await page.evaluate(() => {
-            const panel = document.querySelector('.weq-qq-data-access');
-            return (
-              panel.scrollWidth > panel.clientWidth + 1 ||
-              document.documentElement.scrollWidth > innerWidth
+  for (const mode of ['existing', 'new']) {
+    await page.evaluate((mode) => window.accessQa.viewStore.getState().enterSelect(mode), mode);
+    for (const width of [1180, 390]) {
+      await page.setViewportSize({ width, height: 760 });
+      for (const theme of ['light', 'dark', 'system']) {
+        await page.emulateMedia({
+          colorScheme: theme === 'light' ? 'light' : 'dark',
+          reducedMotion: 'reduce',
+        });
+        for (const accent of ['#075c30', '#fff3a1']) {
+          for (const background of ['plain', 'telegram']) {
+            await page.evaluate(
+              ({ theme, accent, background }) => {
+                const store = window.accessQa.store.getState();
+                store.setPreference(theme);
+                store.setAccent(accent);
+                store.setBackground(background);
+              },
+              { theme, accent, background },
             );
-          });
-          if (overflow) throw new Error(`布局溢出: ${width} ${theme} ${accent} ${background}`);
-          if (output && accent === '#075c30' && background === 'plain')
-            await page.screenshot({ path: resolve(output, `${width}-${theme}.png`) });
-          cases++;
+            const overflow = await page.evaluate(() => {
+              const panel = document.querySelector('.weq-qq-data-access');
+              return (
+                panel.scrollWidth > panel.clientWidth + 1 ||
+                document.documentElement.scrollWidth > innerWidth
+              );
+            });
+            if (overflow) throw new Error(`布局溢出: ${width} ${theme} ${accent} ${background}`);
+            if (output && accent === '#075c30' && background === 'plain')
+              await page.screenshot({ path: resolve(output, `${mode}-${width}-${theme}.png`) });
+            cases++;
+          }
         }
       }
     }
   }
-  await page.getByRole('button', { name: '重新检测', exact: true }).click();
+  await page.getByRole('button', { name: '重新检查', exact: true }).click();
   await page.getByText('当前进程仍无法读取。', { exact: false }).waitFor();
   await page.getByRole('button', { name: '打开系统设置', exact: true }).click();
   await page.getByText('合成的系统设置打开失败', { exact: false }).waitFor();
+  await page.getByRole('button', { name: '关闭详情', exact: true }).click();
   if (!(await page.getByRole('button', { name: '扫码登录其他账号', exact: true }).isDisabled()))
     throw new Error('读取受限时不能继续扫码取密钥');
   await page.getByRole('button', { name: '返回账号主页', exact: true }).click();

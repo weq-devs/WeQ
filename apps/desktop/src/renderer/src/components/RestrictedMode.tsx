@@ -2,7 +2,13 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { LongTermAuthorizationLink } from './LongTermAuthorizationLink';
 import { client, trpc } from '../trpc/client';
-import { restrictionReasons } from '../lib/restrictedMode';
+import {
+  restrictionReasons,
+  startupRestrictionReasons,
+  dataAccessRestriction,
+} from '../lib/restrictedMode';
+import { IS_MAC } from '../lib/target';
+import { QqDataAccessNotice } from '../views/bootstrap/QqDataAccessNotice';
 import { useRestrictedMode, type AuthorizationRequest } from '../state/restrictedMode';
 import { useViewState } from '../state/view';
 import { useToast } from './Toast';
@@ -205,6 +211,7 @@ export function RestrictedModeHost() {
   const [busy, setBusy] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState('');
+  const [dataRetried, setDataRetried] = useState(false);
   const operation = useRef(0);
   const operationBusy = useRef(false);
   const launchOperation = useRef(0);
@@ -252,6 +259,7 @@ export function RestrictedModeHost() {
     setBusy(false);
     setLaunching(false);
     setError('');
+    setDataRetried(false);
     previous.current = '';
     recoveryPending.current = false;
     useToast.getState().resolve(NOTICE_KEY);
@@ -271,27 +279,34 @@ export function RestrictedModeHost() {
     enabled: !active,
     refetchInterval: 5000,
   });
+  const dataAccess = trpc.bootstrap.qqDataAccess.useQuery(undefined, {
+    enabled: IS_MAC,
+    retry: false,
+    refetchOnWindowFocus: false,
+    staleTime: 5000,
+  });
   useEffect(() => {
-    const next = active
+    let next = active
       ? restrictionReasons({
           access: accessMatches ? access.data : undefined,
           sipEnabled: sip.data,
           failed: access.isError || !accessMatches,
         })
-      : restrictionReasons({
-          access:
-            online.data?.count === 0
-              ? {
-                  qqOnline: false,
-                  attachEnabled: true,
-                  hasA2: false,
-                  hasD2: false,
-                  hasD2Key: false,
-                  hasGuid: false,
-                }
-              : undefined,
+      : startupRestrictionReasons({
+          probe: online.data,
+          dataStatus: dataAccess.data?.status,
           failed: online.isError,
         });
+    if (active) {
+      const disk = dataAccessRestriction(dataAccess.data?.status);
+      if (disk.length) {
+        // 数据目录不可读时，失败的账号归属探测不能证明 QQ 已离线。
+        next = next.filter((reason) => reason.code !== 'offline');
+        next.unshift(...disk);
+      }
+    }
+    if (dataAccess.isError && !next.some((reason) => reason.code === 'checking'))
+      next.push({ code: 'checking', title: '数据读取状态检查失败', guidance: '请重新检查。' });
     useRestrictedMode.getState().setReasons(next, sourceKey);
   }, [
     active,
@@ -302,6 +317,8 @@ export function RestrictedModeHost() {
     sip.data,
     online.data,
     online.isError,
+    dataAccess.data,
+    dataAccess.isError,
     sourceKey,
   ]);
   const fullModeConfirmed = active
@@ -309,7 +326,9 @@ export function RestrictedModeHost() {
         accessMatches &&
           access.data &&
           !access.isError &&
-          restrictionReasons({ access: access.data, sipEnabled: sip.data }).length === 0,
+          !dataAccess.isError &&
+          restrictionReasons({ access: access.data, sipEnabled: sip.data }).length === 0 &&
+          dataAccessRestriction(dataAccess.data?.status).length === 0,
       )
     : false;
   useEffect(() => {
@@ -319,6 +338,7 @@ export function RestrictedModeHost() {
       !access.data?.qqOnline ||
       !access.data.attachEnabled ||
       access.isError ||
+      dataAccessRestriction(dataAccess.data?.status).length > 0 ||
       restrictionReasons({ access: access.data, sipEnabled: sip.data }).some(
         (reason) => reason.code === 'sip',
       );
@@ -337,6 +357,7 @@ export function RestrictedModeHost() {
     access.isError,
     access.dataUpdatedAt,
     access.errorUpdatedAt,
+    dataAccess.data,
     sip.data,
     fullModeConfirmed,
     enteringSince,
@@ -412,6 +433,7 @@ export function RestrictedModeHost() {
     }
     setError('');
     useRestrictedMode.getState().setOpen(false);
+    setDataRetried(false);
   }, [uin]);
   useEffect(() => {
     if (!open) return;
@@ -470,12 +492,27 @@ export function RestrictedModeHost() {
     const current = () => operation.current === id && currentSource.current === binding;
     setBusy(true);
     setError('');
-    if (active) useRestrictedMode.getState().beginEntering();
+    if (active && !reasons.some((reason) => reason.code === 'data-access'))
+      useRestrictedMode.getState().beginEntering();
     try {
-      if (enable && source) await client.account.requestFullMode.mutate(source);
+      const disk = IS_MAC ? await dataAccess.refetch() : null;
+      if (!current()) return;
+      if (disk?.error) throw disk.error;
+      if (disk) setDataRetried(true);
+      const dataBlocked = disk && (disk.data?.status === 'denied' || disk.data?.status === 'error');
+      if (disk && !dataBlocked) {
+        await Promise.all([
+          utils.bootstrap.listAccounts.invalidate(),
+          utils.bootstrap.listAccountConfigs.invalidate(),
+          utils.bootstrap.describeInstall.invalidate(),
+        ]);
+      }
+      if (!current()) return;
+      if (enable && source && !dataBlocked) await client.account.requestFullMode.mutate(source);
       if (!current()) return;
       if (
         active &&
+        !dataBlocked &&
         accessMatches &&
         (enable || (access.data?.qqOnline && access.data.attachEnabled))
       ) {
@@ -570,13 +607,18 @@ export function RestrictedModeHost() {
           <div className="weq-restricted-body">
             {entering && <p role="status">正在准备在线会话，请稍候。</p>}
             {reasons
-              .filter((reason) => !awaitingAuthorization || reason.code !== 'credentials')
+              .filter(
+                (reason) =>
+                  reason.code !== 'data-access' &&
+                  (!awaitingAuthorization || reason.code !== 'credentials'),
+              )
               .map((reason) => (
                 <div className="weq-restricted-reason" key={reason.code}>
                   <h3>{reason.title}</h3>
                   <p>{reason.guidance}</p>
                 </div>
               ))}
+            <QqDataAccessNotice showRetry={false} checked={dataRetried} />
             {requests.map((request, index) => (
               <AuthorizationForm
                 key={`${request.kind}:${request.token}`}

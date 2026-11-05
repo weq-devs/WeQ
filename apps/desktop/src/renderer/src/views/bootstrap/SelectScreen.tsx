@@ -19,7 +19,6 @@ import { AccountSelector } from './AccountSelector';
 import { LoginPanel } from './LoginPanel';
 import { StaticBackupPanel } from './StaticBackupPanel';
 import { StatsPanel } from './StatsPanel';
-import { QqDataAccessNotice } from './QqDataAccessNotice';
 import { IS_MAC } from '../../lib/target';
 import type { UiAccount } from './types';
 import logoUrl from '@resources/brand/logo.png';
@@ -145,7 +144,6 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
         </h1>
       </header>
       <div className="weq-account-content">
-        {mode !== 'backup' && <QqDataAccessNotice />}
         <section
           id="account-source-panel"
           aria-labelledby="account-page-title"

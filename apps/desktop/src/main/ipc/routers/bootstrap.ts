@@ -97,8 +97,9 @@ import {
 import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
 import { isDbRepairBusy } from './db_repair';
-import { launchQq } from '../../qq_launch';
+import { launchQq, runningQqCount } from '../../qq_launch';
 import { checkQqDataAccess, QQ_DATA_ACCESS_SETTINGS } from '../../qq_data_access';
+import { macLaunchApplication } from '../../mac_launch_application';
 
 /** Result of the QQ data-directory picker. */
 export interface PickRootResult {
@@ -367,6 +368,7 @@ export const bootstrapRouter = router({
       kind: desktop ? requirePlatform().kind : 'web',
       roots: desktop ? requirePlatform().tencentFilesRoots() : [],
       executable: getHost().currentExePath(),
+      launchApplicationPath: desktop ? macLaunchApplication() : null,
     });
   }),
 
@@ -422,8 +424,13 @@ export const bootstrapRouter = router({
   /** Online-instance probe (with the single-process uin-iteration refinement). */
   probeOnline: procedure
     .input(z.object({ knownUins: z.array(z.string()).default([]) }).optional())
-    .query(({ input }) => {
-      return requireBootstrap().globalConfig.probeOnline(input?.knownUins ?? []);
+    .query(async ({ input }) => {
+      const probe = requireBootstrap().globalConfig.probeOnline(input?.knownUins ?? []);
+      let runningCount: number | null = null;
+      if (probe.count === null) {
+        runningCount = await runningQqCount(requirePlatform().kind);
+      }
+      return { ...probe, runningCount };
     }),
 
   /** Count of user-data directories under the Tencent Files root. */

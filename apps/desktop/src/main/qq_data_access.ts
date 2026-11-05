@@ -7,6 +7,7 @@ export const QQ_DATA_ACCESS_SETTINGS =
 export interface QqDataAccess {
   status: 'unsupported' | 'readable' | 'not-found' | 'denied' | 'error';
   applicationPath: string;
+  launchApplicationPath?: string | null;
   issues: { path: string; code: string }[];
 }
 
@@ -15,6 +16,7 @@ export function checkQqDataAccess(options: {
   kind: string;
   roots: string[];
   executable: string;
+  launchApplicationPath?: string | null;
 }): QqDataAccess {
   const result: QqDataAccess = {
     status: 'unsupported',
@@ -22,6 +24,7 @@ export function checkQqDataAccess(options: {
       ? dirname(dirname(dirname(options.executable)))
       : options.executable,
     issues: [],
+    launchApplicationPath: options.launchApplicationPath ?? null,
   };
   if (options.kind !== 'darwin') return result;
   let readable = false;
