@@ -25,6 +25,7 @@ export {
   scheduleDatabase,
   promoteDatabaseSignal,
   withDatabasePriority,
+  databaseRequestSignal,
   databasePerformance,
   recordMessagePartition,
   recordMessageWork,
