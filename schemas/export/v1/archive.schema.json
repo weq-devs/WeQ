@@ -8,30 +8,13 @@
       "type": "object",
       "required": ["records", "observations", "resources"],
       "properties": {
-        "records": { "type": "array" },
+        "records": { "type": "array", "items": { "$ref": "#/$defs/record" } },
         "observations": {
           "type": "array",
           "items": { "$ref": "common.schema.json#/$defs/observation" }
         },
-        "resources": { "type": "array" }
-      },
-      "allOf": [
-        {
-          "if": { "properties": { "profile": { "const": "basic" } } },
-          "then": {
-            "properties": {
-              "records": { "items": { "$ref": "#/$defs/basicRecord" } },
-              "resources": { "items": { "$ref": "#/$defs/basicResource" } }
-            }
-          },
-          "else": {
-            "properties": {
-              "records": { "items": { "$ref": "#/$defs/fullRecord" } },
-              "resources": { "items": { "$ref": "#/$defs/fullResource" } }
-            }
-          }
-        }
-      ]
+        "resources": { "type": "array", "items": { "$ref": "#/$defs/resource" } }
+      }
     }
   ],
   "unevaluatedProperties": false,
@@ -42,7 +25,10 @@
       "properties": {
         "format": { "const": "weq-export" },
         "version": { "const": "1.0" },
-        "profile": { "enum": ["basic", "full"] },
+        "profile": {
+          "enum": ["basic", "full"],
+          "description": "首次导出的内容范围选项，不参与格式分派，不限制后续记录是否含 native，也不证明取得覆盖完整。"
+        },
         "archiveId": { "$ref": "common.schema.json#/$defs/id" },
         "scope": {
           "type": "object",
@@ -91,37 +77,22 @@
         }
       }
     },
-    "basicRecord": {
+    "record": {
       "oneOf": [
-        { "$ref": "message.basic.schema.json" },
-        { "$ref": "qzone.basic.schema.json" },
-        { "$ref": "collection.basic.schema.json" },
-        { "$ref": "mail.basic.schema.json" },
-        { "$ref": "directory.basic.schema.json" },
-        { "$ref": "generated.basic.schema.json" },
-        { "$ref": "resource-directory.basic.schema.json" }
+        { "$ref": "message.schema.json" },
+        { "$ref": "qzone.schema.json" },
+        { "$ref": "collection.schema.json" },
+        { "$ref": "mail.schema.json" },
+        { "$ref": "directory.schema.json" },
+        { "$ref": "generated.schema.json" },
+        { "$ref": "resource-directory.schema.json" }
       ]
     },
-    "fullRecord": {
-      "oneOf": [
-        { "$ref": "message.full.schema.json" },
-        { "$ref": "qzone.full.schema.json" },
-        { "$ref": "collection.full.schema.json" },
-        { "$ref": "mail.full.schema.json" },
-        { "$ref": "directory.full.schema.json" },
-        { "$ref": "generated.full.schema.json" },
-        { "$ref": "resource-directory.full.schema.json" }
-      ]
-    },
-    "basicResource": {
-      "allOf": [{ "$ref": "common.schema.json#/$defs/resource" }],
-      "unevaluatedProperties": false
-    },
-    "fullResource": {
+    "resource": {
       "allOf": [
         { "$ref": "common.schema.json#/$defs/resource" },
         {
-          "required": ["native", "source"],
+          "dependentRequired": { "native": ["source"], "source": ["native"] },
           "properties": {
             "native": { "$ref": "common.schema.json#/$defs/native" },
             "source": { "$ref": "common.schema.json#/$defs/source" }

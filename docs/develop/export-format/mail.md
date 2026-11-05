@@ -1,6 +1,6 @@
 # 邮箱
 
-状态：待实现设计。入口：`mail.basic.schema.json` / `mail.full.schema.json`。
+状态：待实现设计。统一入口：`mail.schema.json`；basic/full 仅为导出内容范围。
 
 ## 基本内容字段
 

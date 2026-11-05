@@ -32,6 +32,45 @@ import {
 
 const load = (name) => readFileSync(new URL(`examples/${name}`, import.meta.url), 'utf8');
 const clone = structuredClone;
+
+test('basic/full 共用领域 schema，profile 不限制记录是否携带 native', () => {
+  for (const profile of ['basic', 'full']) {
+    for (const source of [basicFixture(), fullFixture()]) {
+      source.profile = profile;
+      validateArchive(source);
+      for (const record of source.records) checkShape(`${record.kind}.schema.json`, record);
+      assert.deepEqual(decodeLog(encodeLog(source)).document, source);
+    }
+  }
+});
+
+test('同一归档补充 full 后继续 basic，不改身份、不丢历史附加数据', () => {
+  const basic = basicFixture();
+  const full = fullFixture();
+  full.archiveId = basic.archiveId;
+  full.observations.forEach((item) => {
+    item.id += '-full';
+    item.profile = 'full';
+  });
+  const merged = appendObjects(basic, full);
+  assert.equal(merged.archiveId, basic.archiveId);
+  assert.equal(merged.profile, basic.profile);
+  assert.deepEqual(merged.records.slice(0, basic.records.length), basic.records);
+  assert.equal(merged.records.filter((record) => record.native).length, full.records.length);
+  const repeat = clone(basic);
+  repeat.observations.forEach((item) => {
+    item.id += '-basic-again';
+    item.profile = 'basic';
+  });
+  const next = appendObjects(merged, repeat);
+  assert.deepEqual(next.records, merged.records);
+  assert.deepEqual(decodeLog(encodeLog(next)).document, next);
+  assert.equal(projectBasic(next).archiveId, next.archiveId);
+  assert.deepEqual(
+    merged.records.filter((record) => record.native),
+    full.records,
+  );
+});
 function edit(document, change) {
   const output = clone(document);
   change(output);
@@ -61,7 +100,7 @@ function messageVariant(base, text, suffix) {
 }
 
 test('全部 schema 自校验、引用闭合并预编译', () => {
-  assert.equal(schemaFiles.length, 19);
+  assert.equal(schemaFiles.length, 12);
   assert.equal(namespace, 'https://weq.local/schemas/export/v1/');
 });
 
@@ -69,7 +108,7 @@ for (const profile of ['basic', 'full']) {
   const archive = profile === 'basic' ? basicFixture() : fullFixture();
   for (const [index, record] of archive.records.entries()) {
     test(`${profile} 正例 ${record.kind}/${record.data.type ?? record.data.targetKind ?? record.data.conversation?.kind ?? 'mail'} #${index}`, () => {
-      checkShape(`${record.kind}.${profile}.schema.json`, record);
+      checkShape(`${record.kind}.schema.json`, record);
     });
   }
   test(`${profile} 静态 JSON/JSONL 与夹具相同且语义等价`, () => {
@@ -153,7 +192,7 @@ for (const profile of ['basic', 'full']) {
   });
 }
 
-test('兼容读取不放宽已有字段、档位、枚举、主版本及提交协议', () => {
+test('兼容读取不放宽已有字段、native 结构、枚举、主版本及提交协议', () => {
   for (const change of [
     (a) => {
       a.version = '2.0';
@@ -171,7 +210,7 @@ test('兼容读取不放宽已有字段、档位、枚举、主版本及提交�
       a.records[1].data.content[0].type = 'future-element';
     },
     (a) => {
-      a.records[1].native = emptyNative();
+      a.records[1].native = { attributes: [] };
     },
     (a) => {
       a.resources[0].native = emptyNative();
@@ -400,9 +439,9 @@ const negatives = [
     },
   ],
   [
-    'basic 混入 full',
+    '可选 native 缺少必填残余数组',
     (a) => {
-      a.records[0].native = emptyNative();
+      a.records[0].native = { attributes: [] };
     },
   ],
 ];
@@ -485,9 +524,9 @@ const fullNegatives = [
     },
   ],
   [
-    '缺 native',
+    'native 缺少必填属性数组',
     (a) => {
-      delete a.records[0].native;
+      delete a.records[0].native.attributes;
     },
   ],
   [
@@ -633,9 +672,10 @@ test('明确删除保存新状态与旧正文；未观察不视为删除', () =>
     basic,
   );
 });
-test('档位升级、不兼容版本与账号不能原位混写', () => {
+test('profile 不决定格式兼容，不兼容版本与账号仍不能原位混写', () => {
   const basic = basicFixture();
-  assert.throws(() => appendObjects(basic, { ...basic, profile: 'full' }));
+  assert.deepEqual(appendObjects(basic, { ...basic, profile: 'full' }), basic);
+  assert.throws(() => appendObjects(basic, { ...basic, profile: 'invalid' }), /内容范围/);
   assert.throws(() => appendObjects(basic, { ...basic, version: '2.0' }));
   assert.throws(() =>
     appendObjects(basic, { ...basic, scope: { ...basic.scope, account: actor } }),
@@ -687,7 +727,7 @@ test('JSONL 两批追加、链、计数和复用，坏提交不得当尾部恢�
     assert.throws(() => decodeLog(log + suffix(broken)));
   assert.throws(() => decodeLog(log.replace('"msg-c2c"', '"corrupted"')));
 });
-test('JSONL 禁止交错批次、重复 header、混档与未来引用', () => {
+test('JSONL 允许同格式补充 native，仍禁止交错批次、重复 header 与未来引用', () => {
   const basic = basicFixture();
   const log = encodeLog(basic);
   const events = [
@@ -696,11 +736,21 @@ test('JSONL 禁止交错批次、重复 header、混档与未来引用', () => {
   ];
   assert.throws(() => decodeLog(log + events.map((e) => `${canonical(e)}\n`).join('')));
   assert.throws(() => decodeLog(log + log));
-  const fullEvents = [{ type: 'revision', batchId: 'b', record: fullFixture().records[0] }];
+  const full = fullFixture();
+  const fullEvents = [
+    { type: 'revision', batchId: 'b', record: full.records[0] },
+    {
+      type: 'observation',
+      batchId: 'b',
+      observation: { ...full.observations[0], id: 'full-observation', profile: 'full' },
+    },
+  ];
   const fullCommit = makeCommit(fullEvents, '2', decodeLog(log).commitHash);
-  assert.throws(() =>
-    decodeLog(log + [...fullEvents, fullCommit].map((e) => `${canonical(e)}\n`).join('')),
-  );
+  const enriched = decodeLog(
+    log + [...fullEvents, fullCommit].map((e) => `${canonical(e)}\n`).join(''),
+  ).document;
+  assert.equal(enriched.profile, basic.profile);
+  assert.deepEqual(enriched.records.at(-1), full.records[0]);
   const future = [
     {
       type: 'observation',

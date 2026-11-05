@@ -1,19 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://weq.local/schemas/export/v1/mail.full.schema.json",
-  "title": "邮箱全部数据",
+  "$id": "https://weq.local/schemas/export/v1/mail.schema.json",
+  "title": "邮箱记录（基本内容与可选附加数据）",
   "allOf": [
     {
       "$ref": "common.schema.json#/$defs/envelope"
     },
     {
-      "required": ["native"],
       "properties": {
         "kind": {
           "const": "mail"
         },
         "data": {
-          "$ref": "mail.basic.schema.json#/$defs/data"
+          "$ref": "#/$defs/data"
         },
         "native": {
           "allOf": [
@@ -215,5 +214,106 @@
       }
     }
   ],
-  "unevaluatedProperties": false
+  "unevaluatedProperties": false,
+  "$defs": {
+    "data": {
+      "type": "object",
+      "required": [
+        "mailId",
+        "sender",
+        "to",
+        "cc",
+        "bcc",
+        "sentAt",
+        "subject",
+        "content",
+        "attachments"
+      ],
+      "properties": {
+        "mailId": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "messageId": {
+          "type": ["string", "null"]
+        },
+        "sender": {
+          "$ref": "common.schema.json#/$defs/actor"
+        },
+        "to": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/actor"
+          }
+        },
+        "cc": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/actor"
+          }
+        },
+        "bcc": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/actor"
+          }
+        },
+        "replyTo": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/actor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sentAt": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subject": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": ["string", "null"]
+        },
+        "inReplyTo": {
+          "type": ["string", "null"]
+        },
+        "content": {
+          "$ref": "common.schema.json#/$defs/content"
+        },
+        "attachments": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common.schema.json#/$defs/id"
+          }
+        },
+        "inlineResources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["cid", "resourceId"],
+            "properties": {
+              "cid": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "resourceId": {
+                "$ref": "common.schema.json#/$defs/id"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }

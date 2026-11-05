@@ -12,22 +12,23 @@
 | common.schema.json | 共享 Actor/Time/Content/Value/Observation/Resource/Native 等类型 |
 | legacy.schema.json | 已登记历史属性名称、类型和解释状态约束 |
 | archive-set.schema.json | 多账号/分区归档引用、跨归档关系和共享资源清单，不含正文 |
-| message.basic/full.schema.json | 普通消息、数据线、服务号、公众号、频道私聊的单个 Record |
-| qzone.basic/full.schema.json | 说说、评论回复、转发、相册和媒体 Record |
-| collection.basic/full.schema.json | 八类收藏及未知类型 Record |
-| mail.basic/full.schema.json | 每封邮件 Record |
-| directory.basic/full.schema.json | 联系人、群、成员和分类 Record |
-| generated.basic/full.schema.json | 本地克隆/助手消息 Record |
-| resource-directory.basic/full.schema.json | 文件、相册、表情/装扮及现成产物目录 Record |
+| message.schema.json | 普通消息、数据线、服务号、公众号、频道私聊的单个 Record |
+| qzone.schema.json | 说说、评论回复、转发、相册和媒体 Record |
+| collection.schema.json | 八类收藏及未知类型 Record |
+| mail.schema.json | 每封邮件 Record |
+| directory.schema.json | 联系人、群、成员和分类 Record |
+| generated.schema.json | 本地克隆/助手消息 Record |
+| resource-directory.schema.json | 文件、相册、表情/装扮及现成产物目录 Record |
 
-`basic/full` 表示两个独立文件，不是包含斜线的文件名。basic 文件的 `$defs.data` 是
-领域基本字段；full 引用同一 data 定义，再增加 native。闭合对象用 unevaluatedProperties
-实现跨 allOf 的写入检查，不能将 full 当作可附任意 raw 字段的宽松外壳。
+每个领域只有一个 schema，`$defs.data` 保存完整语义内容，native 是可选附加信息；
+basic/full 只是导出时的内容范围选择，不是两套格式。已删除尚未发布草案中的 `.basic`/
+`.full` 分支，不保留双套 schema 或读取器。闭合对象用 unevaluatedProperties 实现跨 allOf
+的写入检查；native 存在时仍校验 attributes/residuals 及已知属性类型，不能附任意 raw。
 闭合 writer schema 不等于 reader 遇到未知可选字段就拒绝：两条校验路径见下文。
 
 所有 `$id` 使用 `https://weq.local/schemas/export/v1/` 标识命名空间，**不做网络请求**。
-将全部 19 个 schema 一次注册到支持 Draft 2020-12 的校验器，再校验入口。
-known attributes 的 Value 类型也由对应 full schema 检查；未知源字段使用 typed Value
+将全部 12 个 schema 一次注册到支持 Draft 2020-12 的校验器，再校验入口。
+known attributes 的 Value 类型由对应领域的同一个 schema 检查；未知源字段使用 typed Value
 保留，字段意义和互斥来源必须结合映射文档核验。
 
 ## 合成示例
@@ -37,7 +38,8 @@ known attributes 的 Value 类型也由对应 full schema 检查；未知源字�
 - `examples/media/` 只有一个内容为 `abc` 加 LF 的 4 字节合成文本，包含真实 hash/size 回执。
 
 每档 43 个 Record，覆盖 7 个领域及其当前子类型。JSON 与 JSONL 是用户显式同时选择
-两种格式的示例，不表示运行时必须保存两份。两个档位使用不同 archiveId。文件中的账号、
+两种格式的示例，不表示运行时必须保存两份。示例分别创建了两个 archiveId，并非内容范围
+切换必须换身份；同一归档可先 basic、再补 full，或在后续 basic 扫描中保留旧 full。文件中的账号、
 地址、正文、模型和资源都为合成数据，example.invalid 不需访问。
 
 新增 `historical-fixtures.mjs` 提供历史全量合成样例（测试同时投影 basic 并往返 JSONL），
@@ -67,7 +69,7 @@ Ajv 使用标准 schema 形状约束；关闭其跨 allOf 无法完整推断的 
 ## 兼容校验入口
 
 - `validateArchive(document)` / `checkShape(name, value)`：严格 1.0 写入校验，拒绝未声明字段。
-- `readArchive(document)`：兼容读取 1.x，仍检查必填、已知类型/枚举、档位、摘要与引用，
+- `readArchive(document)`：兼容读取 1.x，仍检查必填、已知类型/枚举、native 结构、摘要与引用，
   返回原结构，不删除或修改未知属性。未知主版本拒绝。
 - `decodeLog(text)` 默认兼容读取，仍严格检查 JSONL 行外壳、提交摘要、前链与顺序。
 - `encodeLog(document, {mode:'read'})` / `appendObjects(base, addition, {mode:'read'})`
@@ -75,6 +77,12 @@ Ajv 使用标准 schema 形状约束；关闭其跨 allOf 无法完整推断的 
   不是赋予旧 writer 生成未知版本内容的能力。省略 mode 仍执行严格写入检查。
 - `validateArchiveSet(set, documents, {mode:'read'})` 同样保留集合属性并校验成员引用。
 - `projectBasic` 只对已知 1.0 执行有损投影；未知小版本不擅自投影。
+  默认保留 archiveId，可显式指定新身份，但不修改或覆盖输入 full。
+
+header.profile 只记录首次导出的内容范围，不决定 native 的合法性；后续扫描可记录
+observation.profile，缺席表示未记录。appendObjects 不因 basic/full 不同拒绝追加，
+保留原 header、对象身份、历史版本和附加信息。schema 的结构通过不能证明 full 提取器
+已经枚举并保存全部来源字段；字段覆盖仍按历史契约逐项核验。
 
 兼容读取用同一组 schema 派生 reader 校验器，只打开可选属性，不删除数据，不增加依赖。
 新内容仍使用严格 writer 校验。时间精度与 base64 padding bits 由各自 schema 检查，

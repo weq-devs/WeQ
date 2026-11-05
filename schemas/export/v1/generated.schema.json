@@ -1,19 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://weq.local/schemas/export/v1/generated.full.schema.json",
-  "title": "本地生成对话全部数据",
+  "$id": "https://weq.local/schemas/export/v1/generated.schema.json",
+  "title": "本地生成对话记录（基本内容与可选附加数据）",
   "allOf": [
     {
       "$ref": "common.schema.json#/$defs/envelope"
     },
     {
-      "required": ["native"],
       "properties": {
         "kind": {
           "const": "generated"
         },
         "data": {
-          "$ref": "generated.basic.schema.json#/$defs/data"
+          "$ref": "#/$defs/data"
         },
         "native": {
           "allOf": [
@@ -115,5 +114,100 @@
       }
     }
   ],
-  "unevaluatedProperties": false
+  "unevaluatedProperties": false,
+  "$defs": {
+    "data": {
+      "type": "object",
+      "required": [
+        "origin",
+        "targetKind",
+        "ownerId",
+        "sessionId",
+        "messageId",
+        "sender",
+        "role",
+        "sentAt",
+        "content",
+        "process"
+      ],
+      "properties": {
+        "origin": {
+          "const": "local-generated"
+        },
+        "targetKind": {
+          "enum": ["persona", "group", "assistant"]
+        },
+        "ownerId": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "sessionId": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "messageId": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "sender": {
+          "$ref": "common.schema.json#/$defs/actor"
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sentAt": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "content": {
+          "$ref": "common.schema.json#/$defs/content"
+        },
+        "process": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/value"
+          }
+        },
+        "replyToId": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "mentions": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/id"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "targetKind": {
+                "const": "assistant"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "sessionId": {
+                "$ref": "common.schema.json#/$defs/id"
+              }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
 }

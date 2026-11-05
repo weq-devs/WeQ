@@ -1,6 +1,6 @@
 # 联系人、群与成员
 
-状态：待实现设计。入口：`directory.basic.schema.json` / `directory.full.schema.json`。
+状态：待实现设计。统一入口：`directory.schema.json`；basic/full 仅为导出内容范围。
 
 | data 字段 | 必填 | 含义 |
 | --- | --- | --- |

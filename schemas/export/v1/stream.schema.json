@@ -21,12 +21,7 @@
       "properties": {
         "type": { "const": "revision" },
         "batchId": { "$ref": "common.schema.json#/$defs/id" },
-        "record": {
-          "oneOf": [
-            { "$ref": "archive.schema.json#/$defs/basicRecord" },
-            { "$ref": "archive.schema.json#/$defs/fullRecord" }
-          ]
-        }
+        "record": { "$ref": "archive.schema.json#/$defs/record" }
       },
       "additionalProperties": false
     },
@@ -46,12 +41,7 @@
       "properties": {
         "type": { "const": "resource" },
         "batchId": { "$ref": "common.schema.json#/$defs/id" },
-        "resource": {
-          "oneOf": [
-            { "$ref": "archive.schema.json#/$defs/basicResource" },
-            { "$ref": "archive.schema.json#/$defs/fullResource" }
-          ]
-        }
+        "resource": { "$ref": "archive.schema.json#/$defs/resource" }
       },
       "additionalProperties": false
     },

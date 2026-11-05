@@ -1,19 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://weq.local/schemas/export/v1/directory.full.schema.json",
-  "title": "联系人、群与成员全部数据",
+  "$id": "https://weq.local/schemas/export/v1/directory.schema.json",
+  "title": "联系人、群与成员记录（基本内容与可选附加数据）",
   "allOf": [
     {
       "$ref": "common.schema.json#/$defs/envelope"
     },
     {
-      "required": ["native"],
       "properties": {
         "kind": {
           "const": "directory"
         },
         "data": {
-          "$ref": "directory.basic.schema.json#/$defs/data"
+          "$ref": "#/$defs/data"
         },
         "native": {
           "allOf": [
@@ -495,5 +494,60 @@
       }
     }
   ],
-  "unevaluatedProperties": false
+  "unevaluatedProperties": false,
+  "$defs": {
+    "data": {
+      "type": "object",
+      "required": ["type", "subject", "name"],
+      "properties": {
+        "type": {
+          "enum": ["contact", "group", "member", "category"]
+        },
+        "subject": {
+          "$ref": "common.schema.json#/$defs/actor"
+        },
+        "name": {
+          "type": "string"
+        },
+        "remark": {
+          "type": "string"
+        },
+        "parentId": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "categoryIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common.schema.json#/$defs/id"
+          }
+        },
+        "role": {
+          "type": "string"
+        },
+        "avatarResources": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common.schema.json#/$defs/id"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "member"
+              }
+            }
+          },
+          "then": {
+            "required": ["parentId"]
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
 }

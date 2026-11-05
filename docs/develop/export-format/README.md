@@ -35,7 +35,8 @@
 - [源码覆盖矩阵](coverage.md)、[合成验证与回执](validation.md)
 - [机器 schema 与示例](../../../schemas/export/v1/README.md)
 
-七个领域各有 basic/full 入口，共用 JSON 文档和 JSONL 行 schema。schema 中的
+七个领域各有一个统一入口，basic/full 只是导出内容范围，共用 JSON 文档和 JSONL 行 schema。
+native 为可选附加数据，profile 不参与格式分派；full 的字段提取要求仍须完整落实。schema 中的
 `https://weq.local/schemas/export/v1/` 是标识命名空间，不是需要联网访问的服务；
 验证器应一次注册本目录文件，离线解析相对 `$ref`。
 
