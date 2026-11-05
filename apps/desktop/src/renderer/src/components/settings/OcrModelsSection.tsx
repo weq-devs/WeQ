@@ -222,8 +222,11 @@ export function OcrModelsSection(): ReactElement {
   const [progress, setProgress] = useState<LiveProgress | null>(null);
 
   // 订阅只建一次；refetch/showError 通过 ref 取最新引用，避免它们的身份变化把流重连。
-  const refetchModelsRef = useRef(models.refetch);
-  refetchModelsRef.current = models.refetch;
+  const refetchModelsRef = useRef<() => void>(() => {});
+  refetchModelsRef.current = () => {
+    void models.refetch();
+    void utils.bootstrap.getSettings.invalidate();
+  };
   const showErrorRef = useRef(showError);
   showErrorRef.current = showError;
 

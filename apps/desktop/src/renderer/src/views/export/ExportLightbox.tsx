@@ -531,8 +531,7 @@ export function ExportLightbox({
     };
   }, []);
 
-  // OCR 模型下载进度（与设置页同一个订阅流）：下完就**顺手设为当前模型**，
-  // 用户点「下载」即完成「下载 + 选用」两步（没有模型的场景就是奔着这个来的）。
+  // 后台在成功终态前已自动选用模型，这里只刷新资源与就绪状态。
   useEffect(() => {
     const sub = client.bootstrap.onOcrModelProgress.subscribe(undefined, {
       onData: (p) => {
@@ -542,11 +541,8 @@ export function ExportLightbox({
             delete next[p.id];
             return next;
           });
-          const model = ocrModelsRef.current.find((m) => m.id === p.id);
           void (async () => {
             try {
-              if (model)
-                await client.bootstrap.setOcrModel.mutate({ kind: model.kind, modelId: p.id });
               const [models, readiness] = await Promise.all([
                 client.bootstrap.ocrModels.query(),
                 ocrReadiness(),
@@ -567,7 +563,7 @@ export function ExportLightbox({
             } catch (e) {
               pushToastRef.current({
                 tone: 'error',
-                title: '模型选用失败',
+                title: '模型状态刷新失败',
                 detail: e instanceof Error ? e.message : String(e),
                 ttl: 6000,
               });

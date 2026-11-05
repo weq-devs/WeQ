@@ -53,6 +53,7 @@ import { sampleHitokoto } from '../hitokoto';
 import { getQqProtocolExe } from './qq_protocol_cache';
 import { searchAccountContent } from '../search_content';
 import { createSourceSearchQuery } from '../source_search';
+import { createLocalModelResources } from './local_model_resources';
 import { createSearchIndexRetirement } from '../source_search_retirement';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
@@ -71,8 +72,8 @@ import {
   MediaCacheService,
   LinkPreviewService,
   AgentLabConfigService,
-  VoiceTranscribeService,
-  OcrModelService,
+  type VoiceTranscribeService,
+  type OcrModelService,
   TtsService,
   getVoiceModel,
   MsgService,
@@ -1225,8 +1226,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         scope: 'connection-test',
       }),
     ),
-    voiceTranscribe: new VoiceTranscribeService(platform),
-    ocrModels: new OcrModelService(platform),
+    ...createLocalModelResources(platform, userConfig),
     tts: new TtsService((u) =>
       apiUsage.record({ ...u, ts: u.startedAt ?? Date.now(), scope: 'tts' }),
     ),
