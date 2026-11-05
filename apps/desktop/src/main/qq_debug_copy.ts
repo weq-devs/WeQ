@@ -16,6 +16,7 @@ const markerSchema = z.object({
   format: z.literal(1),
   source: z.string(),
   sourceVersion: z.string(),
+  signingVersion: z.literal(1).optional(),
 });
 type Command = (
   command: string,
@@ -112,6 +113,11 @@ export class QqDebugCopyManager {
     if ((await lstat(path)).isSymbolicLink())
       throw new Error('副本路径是软链接，请使用普通应用目录。');
     await this.version(path);
+    const marker = markerSchema.parse(
+      JSON.parse(await readFile(join(path, 'Contents/Resources', markerName), 'utf8')),
+    );
+    if (!marker.signingVersion)
+      throw new Error('副本使用旧签名方式，可能导致 QQ 子进程启动失败，请重新准备副本。');
     await this.command('/usr/bin/codesign', [
       '--verify',
       ...(deep ? ['--deep'] : []),
@@ -252,12 +258,12 @@ export class QqDebugCopyManager {
       await writeFile(plist, xml, { mode: 0o600 });
       await writeFile(
         join(next, 'Contents/Resources', markerName),
-        JSON.stringify({ format: 1, source, sourceVersion: version }),
+        JSON.stringify({ format: 1, source, sourceVersion: version, signingVersion: 1 }),
       );
       this.phase = 'signing';
+      // 不递归重签：保留 Helper 的沙盒继承、原签名及热更新框架的 Team ID 匹配。
       await this.command('/usr/bin/codesign', [
         '--force',
-        '--deep',
         '--options',
         'runtime',
         '--entitlements',
