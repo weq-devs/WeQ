@@ -31,6 +31,7 @@ import {
   TOTP_STATUS_QUERY_KEY,
 } from '../../lib/appLockStatus';
 import { TotpBindDialog } from './TotpBindDialog';
+import '../../styles/app-lock-settings.css';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -199,107 +200,136 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
             应用锁已开启但验证器尚未绑定，请先在下方完成绑定，否则将无法上锁。
           </p>
         ) : null}
-      </Card>
-
-      <Card title="解锁方式" settingId="unlock-method">
-        <div className="weq-applock-methods" role="radiogroup" aria-label="解锁方式">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={method === 'totp'}
-            className={`weq-applock-method${method === 'totp' ? ' is-active' : ''}`}
-            onClick={() => void onSetMethod('totp')}
-            disabled={settings.isLoading || setMethod.isLoading}
-          >
-            <span className="weq-applock-method-icon">
-              <Smartphone size={18} strokeWidth={1.8} aria-hidden />
-            </span>
-            <span className="weq-applock-method-main">
-              <strong>WeQ 验证器</strong>
-              <small>RFC 6238 动态验证码 · 默认方式，无需系统能力</small>
-            </span>
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={method === 'system'}
-            className={`weq-applock-method${method === 'system' ? ' is-active' : ''}`}
-            onClick={() => void onSetMethod('system')}
-            disabled={settings.isLoading || setMethod.isLoading || !systemAvailable}
-            title={
-              systemAvailable
-                ? undefined
-                : (systemAuthQuery.data?.error ?? '当前设备系统认证不可用')
-            }
-          >
-            <span className="weq-applock-method-icon">
-              <Fingerprint size={18} strokeWidth={1.8} aria-hidden />
-            </span>
-            <span className="weq-applock-method-main">
-              <strong>Windows Hello / Touch ID</strong>
-              <small>
-                {systemAvailable
-                  ? '使用系统生物认证解锁'
-                  : (systemAuthQuery.data?.error ?? '当前设备不支持系统认证')}
-              </small>
-            </span>
-          </button>
-        </div>
-      </Card>
-
-      {method === 'totp' ? (
-        <Card
-          title="WeQ 验证器"
-          action={
-            totpConfigured ? (
-              <span className="weq-applock-bound-badge">
-                <Check size={12} strokeWidth={2.4} aria-hidden />
-                已绑定
+        <div className="weq-applock-settings-group" data-setting-id="unlock-method">
+          <div className="weq-set-card-title">解锁方式</div>
+          <div className="weq-applock-methods" role="radiogroup" aria-label="解锁方式">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={method === 'totp'}
+              className={`weq-applock-method${method === 'totp' ? ' is-active' : ''}`}
+              onClick={() => void onSetMethod('totp')}
+              disabled={settings.isLoading || setMethod.isLoading}
+            >
+              <span className="weq-applock-method-icon">
+                <Smartphone size={18} strokeWidth={1.8} aria-hidden />
               </span>
-            ) : undefined
-          }
-        >
-          {totpConfigured ? (
-            <div className="weq-applock-bound">
-              <Row
-                label="绑定状态"
-                desc="解锁时输入验证器 App 中的 6 位动态验证码即可。"
-                control={
-                  <span className="weq-applock-bound-ok">
-                    <Check size={13} strokeWidth={2.2} aria-hidden />
-                    已绑定
-                  </span>
-                }
-              />
-              <div className="weq-set-btn-group">
-                <button type="button" className="weq-set-btn" onClick={() => void onRebind()}>
-                  <RefreshCw size={13} aria-hidden />
-                  重新绑定
-                </button>
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-soft"
-                  onClick={() => void onUnbind()}
-                >
-                  <Unlink size={13} aria-hidden />
-                  解除绑定
+              <span className="weq-applock-method-main">
+                <strong>WeQ 验证器</strong>
+                <small>RFC 6238 动态验证码 · 默认方式，无需系统能力</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={method === 'system'}
+              className={`weq-applock-method${method === 'system' ? ' is-active' : ''}`}
+              onClick={() => void onSetMethod('system')}
+              disabled={settings.isLoading || setMethod.isLoading || !systemAvailable}
+              title={
+                systemAvailable
+                  ? undefined
+                  : (systemAuthQuery.data?.error ?? '当前设备系统认证不可用')
+              }
+            >
+              <span className="weq-applock-method-icon">
+                <Fingerprint size={18} strokeWidth={1.8} aria-hidden />
+              </span>
+              <span className="weq-applock-method-main">
+                <strong>Windows Hello / Touch ID</strong>
+                <small>
+                  {systemAvailable
+                    ? '使用系统生物认证解锁'
+                    : (systemAuthQuery.data?.error ?? '当前设备不支持系统认证')}
+                </small>
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {method === 'totp' ? (
+          <div className="weq-applock-settings-group">
+            <div className="weq-set-card-head">
+              <div className="weq-set-card-title">WeQ 验证器</div>
+              {totpConfigured ? (
+                <span className="weq-applock-bound-badge">
+                  <Check size={12} strokeWidth={2.4} aria-hidden />
+                  已绑定
+                </span>
+              ) : null}
+            </div>
+            {totpConfigured ? (
+              <div className="weq-applock-bound">
+                <Row
+                  label="绑定状态"
+                  desc="解锁时输入验证器 App 中的 6 位动态验证码即可。"
+                  control={
+                    <span className="weq-applock-bound-ok">
+                      <Check size={13} strokeWidth={2.2} aria-hidden />
+                      已绑定
+                    </span>
+                  }
+                />
+                <div className="weq-set-btn-group">
+                  <button type="button" className="weq-set-btn" onClick={() => void onRebind()}>
+                    <RefreshCw size={13} aria-hidden />
+                    重新绑定
+                  </button>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft"
+                    onClick={() => void onUnbind()}
+                  >
+                    <Unlink size={13} aria-hidden />
+                    解除绑定
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="weq-applock-setup-empty">
+                <p className="weq-set-desc">
+                  绑定后即可在验证器 App（Google Authenticator / Microsoft Authenticator / 1Password
+                  等）中生成动态验证码用于解锁。
+                </p>
+                <button type="button" className="weq-set-btn" onClick={() => setBindOpen(true)}>
+                  <KeyRound size={13} aria-hidden />
+                  开始绑定
                 </button>
               </div>
-            </div>
-          ) : (
-            <div className="weq-applock-setup-empty">
-              <p className="weq-set-desc">
-                绑定后即可在验证器 App（Google Authenticator / Microsoft Authenticator / 1Password
-                等）中生成动态验证码用于解锁。
-              </p>
-              <button type="button" className="weq-set-btn" onClick={() => setBindOpen(true)}>
-                <KeyRound size={13} aria-hidden />
-                开始绑定
-              </button>
-            </div>
-          )}
-        </Card>
-      ) : null}
+            )}
+          </div>
+        ) : null}
+
+        <div className="weq-applock-settings-group" data-setting-id="auto-lock">
+          <Row
+            label="空闲自动锁定"
+            desc={
+              canAutoLock
+                ? '超过所选时长无操作后自动锁定，解锁需用当前解锁方式验证。'
+                : autoLockBlockReason || '满足解锁条件后可开启自动锁定。'
+            }
+            control={
+              <div className="weq-set-seg" role="radiogroup" aria-label="空闲自动锁定时长">
+                {AUTO_LOCK_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={autoLockMinutes === opt.value}
+                    className={`weq-set-seg-item${autoLockMinutes === opt.value ? ' is-on' : ''}`}
+                    disabled={
+                      settings.isLoading || setAutoLock.isLoading || (opt.value > 0 && !canAutoLock)
+                    }
+                    onClick={() => void onSetAutoLock(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            }
+          />
+        </div>
+      </Card>
 
       {bindOpen ? (
         <TotpBindDialog
@@ -314,36 +344,6 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
           }}
         />
       ) : null}
-
-      <Card title="空闲自动锁定" settingId="auto-lock">
-        <Row
-          label="空闲自动锁定"
-          desc={
-            canAutoLock
-              ? '超过所选时长无操作后自动锁定，解锁需用当前解锁方式验证。'
-              : autoLockBlockReason || '满足解锁条件后可开启自动锁定。'
-          }
-          control={
-            <div className="weq-set-seg" role="radiogroup" aria-label="空闲自动锁定时长">
-              {AUTO_LOCK_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={autoLockMinutes === opt.value}
-                  className={`weq-set-seg-item${autoLockMinutes === opt.value ? ' is-on' : ''}`}
-                  disabled={
-                    settings.isLoading || setAutoLock.isLoading || (opt.value > 0 && !canAutoLock)
-                  }
-                  onClick={() => void onSetAutoLock(opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          }
-        />
-      </Card>
     </div>
   );
 }
