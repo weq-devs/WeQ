@@ -37,16 +37,44 @@
 }
 
 .weq-settings-body [data-search-highlight='true'] {
+  --weq-search-highlight-bg: color-mix(
+    in srgb,
+    var(--weq-accent-effective) 10%,
+    var(--weq-bg-surface)
+  );
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: -2px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-surface));
+  background: var(--weq-search-highlight-bg);
   scroll-margin-block: 16px;
+  animation: weq-settings-search-highlight 2s ease-out forwards;
 }
 
 html[data-theme='dark'] .weq-settings-body [data-search-highlight='true'] {
-  background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
+  --weq-search-highlight-bg: color-mix(
+    in srgb,
+    var(--weq-accent-effective) 18%,
+    var(--weq-bg-surface)
+  );
 }
 
 html[data-theme='dark'] .weq-app-search-expand:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+
+@keyframes weq-settings-search-highlight {
+  0%,
+  70% {
+    outline-color: var(--weq-accent-effective);
+    background-color: var(--weq-search-highlight-bg);
+  }
+  100% {
+    outline-color: transparent;
+    background-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-settings-body [data-search-highlight='true'] {
+    animation: none;
+  }
 }
