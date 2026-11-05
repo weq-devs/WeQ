@@ -1,0 +1,364 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weq.local/schemas/export/v1/common.schema.json",
+  "title": "WeQ 导出共用类型（待实现设计）",
+  "$defs": {
+    "id": { "type": "string", "minLength": 1 },
+    "integer": { "type": "string", "pattern": "^(0|-?[1-9][0-9]*)$" },
+    "unsigned": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "pointer": { "type": "string", "pattern": "^(?:/(?:[^~/]|~[01])*)*$" },
+    "path": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\:%?#])(?!.*//)[^\\u0000-\\u001f]+$"
+    },
+    "time": {
+      "type": "object",
+      "required": ["unixSeconds", "precision"],
+      "properties": {
+        "unixSeconds": { "type": "string", "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,9})?$" },
+        "precision": { "enum": ["second", "millisecond", "microsecond", "nanosecond"] }
+      },
+      "additionalProperties": false
+    },
+    "actor": {
+      "type": "object",
+      "required": ["identities"],
+      "properties": {
+        "identities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["namespace", "value"],
+            "properties": {
+              "namespace": {
+                "enum": ["qq-uin", "qq-uid", "guild-tiny", "email", "local", "source"]
+              },
+              "value": { "$ref": "#/$defs/id" }
+            },
+            "additionalProperties": false
+          },
+          "uniqueItems": true
+        },
+        "name": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "conversation": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": {
+          "enum": ["c2c", "group", "service", "official", "data-line", "guild-direct", "generated"]
+        },
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string" },
+        "guildId": { "$ref": "#/$defs/id" }
+      },
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["acquisition", "parsing"],
+      "properties": {
+        "acquisition": { "enum": ["complete-for-selection", "partial", "unknown"] },
+        "parsing": { "enum": ["complete", "partial", "opaque"] },
+        "issues": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "json": {
+      "anyOf": [
+        { "type": ["null", "boolean", "string", "number"] },
+        { "type": "array", "items": { "$ref": "#/$defs/json" } },
+        { "type": "object", "additionalProperties": { "$ref": "#/$defs/json" } }
+      ]
+    },
+    "value": {
+      "type": "object",
+      "required": ["type", "value"],
+      "properties": {
+        "type": { "enum": ["null", "boolean", "integer", "float", "text", "bytes", "json"] },
+        "value": {},
+        "encoding": { "const": "base64" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "null" } } },
+          "then": { "properties": { "value": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "boolean" } } },
+          "then": { "properties": { "value": { "type": "boolean" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "integer" } } },
+          "then": { "properties": { "value": { "$ref": "#/$defs/integer" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "float" } } },
+          "then": { "properties": { "value": { "type": "number" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "text" } } },
+          "then": { "properties": { "value": { "type": "string" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "json" } } },
+          "then": { "properties": { "value": { "$ref": "#/$defs/json" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "bytes" } } },
+          "then": {
+            "required": ["encoding"],
+            "properties": {
+              "value": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+              }
+            }
+          },
+          "else": { "not": { "required": ["encoding"] } }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "native": {
+      "type": "object",
+      "required": ["attributes", "residuals"],
+      "properties": {
+        "attributes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["target", "name", "value"],
+            "properties": {
+              "target": { "$ref": "#/$defs/pointer" },
+              "name": { "$ref": "#/$defs/id" },
+              "value": { "$ref": "#/$defs/value" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "residuals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["source", "path", "reason", "value"],
+            "properties": {
+              "source": { "$ref": "#/$defs/id" },
+              "path": { "$ref": "#/$defs/id" },
+              "reason": {
+                "enum": [
+                  "unknown-field",
+                  "wire-type-mismatch",
+                  "decode-failed",
+                  "unconsumed-tail",
+                  "opaque-content"
+                ]
+              },
+              "wireType": { "type": "integer", "minimum": 0, "maximum": 5 },
+              "offset": { "$ref": "#/$defs/unsigned" },
+              "length": { "$ref": "#/$defs/unsigned" },
+              "occurrence": { "type": "integer", "minimum": 0 },
+              "value": { "$ref": "#/$defs/value" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "content": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/element" }
+    },
+    "element": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "text"],
+          "properties": {
+            "type": { "const": "text" },
+            "text": { "type": "string" },
+            "format": { "enum": ["plain", "html", "markdown", "xml"] }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "actor"],
+          "properties": {
+            "type": { "const": "mention" },
+            "actor": { "$ref": "#/$defs/actor" },
+            "all": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "mediaType", "resourceIds"],
+          "properties": {
+            "type": { "const": "media" },
+            "mediaType": { "enum": ["image", "audio", "video", "file", "sticker", "live-photo"] },
+            "resourceIds": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/id" }
+            },
+            "caption": { "type": "string" },
+            "durationSeconds": { "type": "number", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "target", "status"],
+          "properties": {
+            "type": { "const": "reference" },
+            "target": { "$ref": "#/$defs/id" },
+            "status": { "enum": ["resolved", "unavailable", "cycle", "depth-limited"] },
+            "quote": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "status", "records"],
+          "properties": {
+            "type": { "const": "forward" },
+            "status": { "enum": ["complete", "partial", "unavailable"] },
+            "resourceId": { "$ref": "#/$defs/id" },
+            "title": { "type": "string" },
+            "records": { "type": "array", "items": { "$ref": "#/$defs/embedded" } }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "kind", "value"],
+          "properties": {
+            "type": { "const": "structured" },
+            "kind": { "$ref": "#/$defs/id" },
+            "value": { "$ref": "#/$defs/value" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "sourceType", "reason"],
+          "properties": {
+            "type": { "const": "unknown" },
+            "sourceType": { "type": "string" },
+            "reason": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "embedded": {
+      "type": "object",
+      "required": ["id", "sender", "sentAt", "seq", "content"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "sender": { "$ref": "#/$defs/actor" },
+        "sentAt": { "anyOf": [{ "$ref": "#/$defs/time" }, { "type": "null" }] },
+        "seq": { "anyOf": [{ "$ref": "#/$defs/integer" }, { "type": "null" }] },
+        "content": { "$ref": "#/$defs/content" }
+      },
+      "additionalProperties": false
+    },
+    "envelope": {
+      "type": "object",
+      "required": ["id", "kind", "revision", "state", "coverage", "data"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": {
+          "enum": [
+            "message",
+            "qzone",
+            "collection",
+            "mail",
+            "directory",
+            "generated",
+            "resource-directory"
+          ]
+        },
+        "revision": { "$ref": "#/$defs/hash" },
+        "state": { "enum": ["present", "deleted"] },
+        "coverage": { "$ref": "#/$defs/coverage" },
+        "data": { "type": "object" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["id", "kind", "locator"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["database", "cache", "remote", "legacy-import", "local-generated"] },
+        "locator": { "$ref": "#/$defs/id" },
+        "modifiedAt": { "anyOf": [{ "$ref": "#/$defs/time" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "observation": {
+      "type": "object",
+      "required": ["id", "recordId", "revision", "observedAt", "source"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "recordId": { "$ref": "#/$defs/id" },
+        "revision": { "$ref": "#/$defs/hash" },
+        "observedAt": { "$ref": "#/$defs/time" },
+        "source": { "$ref": "#/$defs/source" },
+        "selection": { "$ref": "#/$defs/value" },
+        "mappings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["from", "to", "transform"],
+            "properties": {
+              "from": { "$ref": "#/$defs/id" },
+              "to": { "$ref": "#/$defs/pointer" },
+              "transform": { "$ref": "#/$defs/id" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "resource": {
+      "type": "object",
+      "required": ["id", "role", "status", "observedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "role": {
+          "enum": ["original", "preview", "thumbnail", "cover", "unverified", "auxiliary"]
+        },
+        "status": { "enum": ["saved", "not-requested", "missing", "failed", "unavailable"] },
+        "observedAt": { "$ref": "#/$defs/time" },
+        "name": { "type": "string" },
+        "mime": { "type": "string" },
+        "url": { "type": "string", "format": "uri" },
+        "size": { "$ref": "#/$defs/unsigned" },
+        "path": { "$ref": "#/$defs/path" },
+        "sha256": { "$ref": "#/$defs/hash" },
+        "width": { "type": "integer", "minimum": 0 },
+        "height": { "type": "integer", "minimum": 0 },
+        "error": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "saved" } } },
+          "then": { "required": ["path", "sha256", "size"] },
+          "else": { "not": { "anyOf": [{ "required": ["path"] }, { "required": ["sha256"] }] } }
+        }
+      ]
+    }
+  }
+}

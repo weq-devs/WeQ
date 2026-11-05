@@ -1,0 +1,2670 @@
+{
+  "format": "weq-export",
+  "version": "1.0",
+  "profile": "basic",
+  "archiveId": "synthetic-archive",
+  "scope": {
+    "account": {
+      "identities": [
+        {
+          "namespace": "local",
+          "value": "fixture-account"
+        }
+      ]
+    },
+    "selection": {
+      "type": "json",
+      "value": {
+        "mode": "synthetic-selected-objects"
+      }
+    }
+  },
+  "formats": ["json", "jsonl"],
+  "incremental": {
+    "enabled": true,
+    "authority": "jsonl"
+  },
+  "records": [
+    {
+      "id": "message:976ddd5084c1916ecc6dc82e10fb766d7bb4a20a5688d6e618f3e2f66528a385",
+      "kind": "message",
+      "revision": "34fda666160ee415cf0c6c6a0683636c158f9e55d1a47e51e4550be4198fb433",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "partial"
+      },
+      "data": {
+        "conversation": {
+          "kind": "c2c",
+          "id": "conversation-c2c"
+        },
+        "messageId": "msg-c2c",
+        "sender": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "sentAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "seq": "9007199254740993",
+        "content": [
+          {
+            "type": "text",
+            "text": "原正文\n第二行"
+          },
+          {
+            "type": "media",
+            "mediaType": "file",
+            "resourceIds": ["asset-original"]
+          },
+          {
+            "type": "forward",
+            "status": "complete",
+            "title": "嵌套转发",
+            "records": [
+              {
+                "id": "embedded-1",
+                "sender": {
+                  "identities": [
+                    {
+                      "namespace": "local",
+                      "value": "fixture-sender"
+                    }
+                  ],
+                  "name": "合成发送者"
+                },
+                "sentAt": null,
+                "seq": null,
+                "content": [
+                  {
+                    "type": "forward",
+                    "status": "complete",
+                    "records": [
+                      {
+                        "id": "embedded-2",
+                        "sender": {
+                          "identities": [
+                            {
+                              "namespace": "local",
+                              "value": "fixture-sender"
+                            }
+                          ],
+                          "name": "合成发送者"
+                        },
+                        "sentAt": {
+                          "unixSeconds": "1793856000",
+                          "precision": "second"
+                        },
+                        "seq": "2",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "内部消息"
+                          },
+                          {
+                            "type": "media",
+                            "mediaType": "image",
+                            "resourceIds": ["asset-inline"]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "reference",
+            "target": "embedded-2",
+            "status": "resolved"
+          }
+        ]
+      }
+    },
+    {
+      "id": "message:aeed41f2f9b4988bb06fbae8bd8ab6fb15b450dcef8d38b1d275be396cf666a9",
+      "kind": "message",
+      "revision": "24e110af29c84fb9ac819cc1a2e6e1be4c485fdccf3458f00050e72471ccccf1",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "conversation": {
+          "kind": "group",
+          "id": "conversation-group"
+        },
+        "messageId": "msg-group",
+        "sender": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "sentAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "seq": "9007199254740993",
+        "content": [
+          {
+            "type": "text",
+            "text": "原正文\n第二行"
+          },
+          {
+            "type": "media",
+            "mediaType": "file",
+            "resourceIds": ["asset-original"]
+          },
+          {
+            "type": "forward",
+            "status": "complete",
+            "title": "嵌套转发",
+            "records": [
+              {
+                "id": "embedded-1",
+                "sender": {
+                  "identities": [
+                    {
+                      "namespace": "local",
+                      "value": "fixture-sender"
+                    }
+                  ],
+                  "name": "合成发送者"
+                },
+                "sentAt": null,
+                "seq": null,
+                "content": [
+                  {
+                    "type": "forward",
+                    "status": "complete",
+                    "records": [
+                      {
+                        "id": "embedded-2",
+                        "sender": {
+                          "identities": [
+                            {
+                              "namespace": "local",
+                              "value": "fixture-sender"
+                            }
+                          ],
+                          "name": "合成发送者"
+                        },
+                        "sentAt": {
+                          "unixSeconds": "1793856000",
+                          "precision": "second"
+                        },
+                        "seq": "2",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "内部消息"
+                          },
+                          {
+                            "type": "media",
+                            "mediaType": "image",
+                            "resourceIds": ["asset-inline"]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "reference",
+            "target": "embedded-2",
+            "status": "resolved"
+          }
+        ]
+      }
+    },
+    {
+      "id": "message:8aec297883e9fcfa780e81a506d1d72aa4f15ef3443a6351610a83101b5f58da",
+      "kind": "message",
+      "revision": "5283c2a4682d837eea3d6bd6e8b13093e2cca48c9e7ee8367e80e12b69b96004",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "conversation": {
+          "kind": "service",
+          "id": "conversation-service"
+        },
+        "messageId": "msg-service",
+        "sender": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "sentAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "seq": "9007199254740993",
+        "content": [
+          {
+            "type": "text",
+            "text": "原正文\n第二行"
+          },
+          {
+            "type": "media",
+            "mediaType": "file",
+            "resourceIds": ["asset-original"]
+          },
+          {
+            "type": "forward",
+            "status": "complete",
+            "title": "嵌套转发",
+            "records": [
+              {
+                "id": "embedded-1",
+                "sender": {
+                  "identities": [
+                    {
+                      "namespace": "local",
+                      "value": "fixture-sender"
+                    }
+                  ],
+                  "name": "合成发送者"
+                },
+                "sentAt": null,
+                "seq": null,
+                "content": [
+                  {
+                    "type": "forward",
+                    "status": "complete",
+                    "records": [
+                      {
+                        "id": "embedded-2",
+                        "sender": {
+                          "identities": [
+                            {
+                              "namespace": "local",
+                              "value": "fixture-sender"
+                            }
+                          ],
+                          "name": "合成发送者"
+                        },
+                        "sentAt": {
+                          "unixSeconds": "1793856000",
+                          "precision": "second"
+                        },
+                        "seq": "2",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "内部消息"
+                          },
+                          {
+                            "type": "media",
+                            "mediaType": "image",
+                            "resourceIds": ["asset-inline"]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "reference",
+            "target": "embedded-2",
+            "status": "resolved"
+          }
+        ]
+      }
+    },
+    {
+      "id": "message:bec28097fdab124eaf9abcdd39075bc961685136107c1e6ba257be9770ea731e",
+      "kind": "message",
+      "revision": "5cdfe53e18cfda8411758017764ebc0a3fbf98aafc25d93e09537ecc857b239f",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "conversation": {
+          "kind": "official",
+          "id": "conversation-official"
+        },
+        "messageId": "msg-official",
+        "sender": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "sentAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "seq": "9007199254740993",
+        "content": [
+          {
+            "type": "text",
+            "text": "原正文\n第二行"
+          },
+          {
+            "type": "media",
+            "mediaType": "file",
+            "resourceIds": ["asset-original"]
+          },
+          {
+            "type": "forward",
+            "status": "complete",
+            "title": "嵌套转发",
+            "records": [
+              {
+                "id": "embedded-1",
+                "sender": {
+                  "identities": [
+                    {
+                      "namespace": "local",
+                      "value": "fixture-sender"
+                    }
+                  ],
+                  "name": "合成发送者"
+                },
+                "sentAt": null,
+                "seq": null,
+                "content": [
+                  {
+                    "type": "forward",
+                    "status": "complete",
+                    "records": [
+                      {
+                        "id": "embedded-2",
+                        "sender": {
+                          "identities": [
+                            {
+                              "namespace": "local",
+                              "value": "fixture-sender"
+                            }
+                          ],
+                          "name": "合成发送者"
+                        },
+                        "sentAt": {
+                          "unixSeconds": "1793856000",
+                          "precision": "second"
+                        },
+                        "seq": "2",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "内部消息"
+                          },
+                          {
+                            "type": "media",
+                            "mediaType": "image",
+                            "resourceIds": ["asset-inline"]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "reference",
+            "target": "embedded-2",
+            "status": "resolved"
+          }
+        ]
+      }
+    },
+    {
+      "id": "message:0c48b4ce64d09fd97dc8b456ad58210d120abbf7ed588f6adf4ec9607038113c",
+      "kind": "message",
+      "revision": "f6c5973b5e2d0fcaacbbf0450212509d065f6aa0969eac67333fb153d7f5f52b",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "conversation": {
+          "kind": "data-line",
+          "id": "conversation-data-line"
+        },
+        "messageId": "msg-data-line",
+        "sender": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "sentAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "seq": "9007199254740993",
+        "content": [
+          {
+            "type": "text",
+            "text": "原正文\n第二行"
+          },
+          {
+            "type": "media",
+            "mediaType": "file",
+            "resourceIds": ["asset-original"]
+          },
+          {
+            "type": "forward",
+            "status": "complete",
+            "title": "嵌套转发",
+            "records": [
+              {
+                "id": "embedded-1",
+                "sender": {
+                  "identities": [
+                    {
+                      "namespace": "local",
+                      "value": "fixture-sender"
+                    }
+                  ],
+                  "name": "合成发送者"
+                },
+                "sentAt": null,
+                "seq": null,
+                "content": [
+                  {
+                    "type": "forward",
+                    "status": "complete",
+                    "records": [
+                      {
+                        "id": "embedded-2",
+                        "sender": {
+                          "identities": [
+                            {
+                              "namespace": "local",
+                              "value": "fixture-sender"
+                            }
+                          ],
+                          "name": "合成发送者"
+                        },
+                        "sentAt": {
+                          "unixSeconds": "1793856000",
+                          "precision": "second"
+                        },
+                        "seq": "2",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "内部消息"
+                          },
+                          {
+                            "type": "media",
+                            "mediaType": "image",
+                            "resourceIds": ["asset-inline"]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "reference",
+            "target": "embedded-2",
+            "status": "resolved"
+          }
+        ]
+      }
+    },
+    {
+      "id": "message:018681253ea49dcaf7f136ab380acde15cda3816fb9e2ff480b0f873b7713b5c",
+      "kind": "message",
+      "revision": "384d0ef40ffc278e622d4e6681a46bae2d4a204d59964f96d4fd7db1098cc325",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "conversation": {
+          "kind": "guild-direct",
+          "id": "conversation-guild-direct"
+        },
+        "messageId": "msg-guild-direct",
+        "sender": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "sentAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "seq": "9007199254740993",
+        "content": [
+          {
+            "type": "text",
+            "text": "原正文\n第二行"
+          },
+          {
+            "type": "media",
+            "mediaType": "file",
+            "resourceIds": ["asset-original"]
+          },
+          {
+            "type": "forward",
+            "status": "complete",
+            "title": "嵌套转发",
+            "records": [
+              {
+                "id": "embedded-1",
+                "sender": {
+                  "identities": [
+                    {
+                      "namespace": "local",
+                      "value": "fixture-sender"
+                    }
+                  ],
+                  "name": "合成发送者"
+                },
+                "sentAt": null,
+                "seq": null,
+                "content": [
+                  {
+                    "type": "forward",
+                    "status": "complete",
+                    "records": [
+                      {
+                        "id": "embedded-2",
+                        "sender": {
+                          "identities": [
+                            {
+                              "namespace": "local",
+                              "value": "fixture-sender"
+                            }
+                          ],
+                          "name": "合成发送者"
+                        },
+                        "sentAt": {
+                          "unixSeconds": "1793856000",
+                          "precision": "second"
+                        },
+                        "seq": "2",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "内部消息"
+                          },
+                          {
+                            "type": "media",
+                            "mediaType": "image",
+                            "resourceIds": ["asset-inline"]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "reference",
+            "target": "embedded-2",
+            "status": "resolved"
+          }
+        ]
+      }
+    },
+    {
+      "id": "qzone:59bcafef85aee5ce99752c3bde5e3c74ad200ec01a1cde82abae0382459f4c52",
+      "kind": "qzone",
+      "revision": "0a5c14168acacc52def61a930b6b2ebe2752a541b964cb9756d017b7d4708c29",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "post",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "sourceId": "qzone-post",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "post正文"
+          }
+        ],
+        "counts": {
+          "comments": "2",
+          "likes": null,
+          "reposts": "0"
+        }
+      }
+    },
+    {
+      "id": "qzone:7d846f459826c71b3a550d903655c2e21045f82574ec2a53f64e19a306a3b012",
+      "kind": "qzone",
+      "revision": "8b0bc8da902d7ef4c133374a8d8eb443dddfcc681711b63c40cddf427e6da5ab",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "comment",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "sourceId": "qzone-comment",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "comment正文"
+          }
+        ],
+        "parentId": "qzone:59bcafef85aee5ce99752c3bde5e3c74ad200ec01a1cde82abae0382459f4c52"
+      }
+    },
+    {
+      "id": "qzone:ba9b23df69a8d14fa409a82a933a3f1ef4e8c4b333534aa187068b1ffd59cb8b",
+      "kind": "qzone",
+      "revision": "76d9014b5f3f20e408b18c6a7df95b6b9ea319c216492563abd8175212611a25",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "reply",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "sourceId": "qzone-reply",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "reply正文"
+          }
+        ],
+        "parentId": "qzone:7d846f459826c71b3a550d903655c2e21045f82574ec2a53f64e19a306a3b012"
+      }
+    },
+    {
+      "id": "qzone:3a2519e1bbfd0b951be4c552386737aa4d45a3c09e9baeebb1c1d93c5ca95b63",
+      "kind": "qzone",
+      "revision": "39160c941c3bdf7b4c93ce314261770080ddbe63d9cca2e3a4c87a08e17ac48c",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "album",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "sourceId": "qzone-album",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "album正文"
+          }
+        ]
+      }
+    },
+    {
+      "id": "qzone:974fa22aecca374848240a29f56efe9adc0520a719bba8fef1987ac73e81692e",
+      "kind": "qzone",
+      "revision": "5d1616301219a6cda6f54b6f4b57f9c130aacce8c293ed73a590e8eec1bd2890",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "photo",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "sourceId": "qzone-photo",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "photo正文"
+          },
+          {
+            "type": "media",
+            "mediaType": "image",
+            "resourceIds": ["asset-inline"]
+          }
+        ],
+        "parentId": "qzone:3a2519e1bbfd0b951be4c552386737aa4d45a3c09e9baeebb1c1d93c5ca95b63"
+      }
+    },
+    {
+      "id": "qzone:f6253a44ad203a6ae727be1a4817531c16307892495c343bc575bf39dbeb0d57",
+      "kind": "qzone",
+      "revision": "beba3c093c9a541b907b74ee54c24dc62a58b5294ab63f5291b4ce0515800e65",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "video",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "sourceId": "qzone-video",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "video正文"
+          },
+          {
+            "type": "media",
+            "mediaType": "video",
+            "resourceIds": ["asset-video"]
+          }
+        ],
+        "parentId": "qzone:3a2519e1bbfd0b951be4c552386737aa4d45a3c09e9baeebb1c1d93c5ca95b63"
+      }
+    },
+    {
+      "id": "qzone:1d0ec0fe44a9b0addb838d427d048b3a3d4f67a2aa6ea99bdd9777b31e13a148",
+      "kind": "qzone",
+      "revision": "8698e4ececce62b1085ed22368ba6cc0c3ffc621fac9ac8e5db028f76e37197c",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "repost",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "sourceId": "qzone-repost",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "repost正文"
+          }
+        ],
+        "repostId": "qzone:59bcafef85aee5ce99752c3bde5e3c74ad200ec01a1cde82abae0382459f4c52"
+      }
+    },
+    {
+      "id": "collection:14b3b245ebef1d450cbb2bcfe21604ab75486b4366717e0dc5237a479d223e36",
+      "kind": "collection",
+      "revision": "db28f85f8c2ecee8deb794d1a15fdbcdceafb11ff3bfadccdbd9a52edb6b5290",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "cid": "cid-text",
+        "type": "text",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "collectedAt": {
+          "unixSeconds": "1793856100",
+          "precision": "second"
+        },
+        "bodyStatus": "complete",
+        "content": [
+          {
+            "type": "text",
+            "text": "收藏全文"
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection:5ec2a5cc87a27992d3602c9001543083784f47029acf24f2722853d894e1e707",
+      "kind": "collection",
+      "revision": "bc820c480dfde45417ea605c2d8e2dec521412815f0871b7f564a27984282d5b",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "cid": "cid-link",
+        "type": "link",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "collectedAt": {
+          "unixSeconds": "1793856100",
+          "precision": "second"
+        },
+        "bodyStatus": "complete",
+        "content": [
+          {
+            "type": "structured",
+            "kind": "link",
+            "value": {
+              "type": "json",
+              "value": {
+                "url": "https://example.invalid/article",
+                "publisher": "合成来源",
+                "brief": "独立摘要"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection:76cca2a4d13e5cccf60be18383fb3af7b21a51161e91bf07d96e6ffac035e1b6",
+      "kind": "collection",
+      "revision": "60832a228c0164983c8170538a55f3202e8fb65ce5dd8b750e9f8d9b9f636345",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "cid": "cid-gallery",
+        "type": "gallery",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "collectedAt": {
+          "unixSeconds": "1793856100",
+          "precision": "second"
+        },
+        "bodyStatus": "complete",
+        "content": [
+          {
+            "type": "media",
+            "mediaType": "image",
+            "resourceIds": ["asset-original"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection:9c1017afc2cfb5559925601dece26fc7dfbcb395bde291e07f655521a18d1b74",
+      "kind": "collection",
+      "revision": "e4f6e4d1f90a97d3095b4c2b7a13f18854b5502667b028611c4043d24421b163",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "cid": "cid-audio",
+        "type": "audio",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "collectedAt": {
+          "unixSeconds": "1793856100",
+          "precision": "second"
+        },
+        "bodyStatus": "complete",
+        "content": [
+          {
+            "type": "media",
+            "mediaType": "audio",
+            "resourceIds": ["asset-original"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection:56ad6759feeb1319164bd14066ca9ea8d3eb721f03f4c830fbcd14d170824319",
+      "kind": "collection",
+      "revision": "3472bd9970f4050611f16941a67df90a80778fd848a1c234a8ff577f07c7dde8",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "cid": "cid-video",
+        "type": "video",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "collectedAt": {
+          "unixSeconds": "1793856100",
+          "precision": "second"
+        },
+        "bodyStatus": "complete",
+        "content": [
+          {
+            "type": "media",
+            "mediaType": "video",
+            "resourceIds": ["asset-video"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection:14a2e783fd8466ef4a58330ba6cad5653a12ce38d71fca4c34f199bab8b4635f",
+      "kind": "collection",
+      "revision": "bb2540a050321cc5671a3962dffd5947cc7cf04b5ece14634c5a01cdd4a5ccc2",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "cid": "cid-file",
+        "type": "file",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "collectedAt": {
+          "unixSeconds": "1793856100",
+          "precision": "second"
+        },
+        "bodyStatus": "complete",
+        "content": [
+          {
+            "type": "media",
+            "mediaType": "file",
+            "resourceIds": ["asset-original"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection:02a7f3d37b82159a6bed6e038f24f7b9296cca8b205cc775ff7fda0ab5542147",
+      "kind": "collection",
+      "revision": "dd63eb0d7ac25c7ad5dd18438324db15c27e244f18744192262295aea20f37db",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "cid": "cid-location",
+        "type": "location",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "collectedAt": {
+          "unixSeconds": "1793856100",
+          "precision": "second"
+        },
+        "bodyStatus": "complete",
+        "content": [
+          {
+            "type": "structured",
+            "kind": "location",
+            "value": {
+              "type": "json",
+              "value": {
+                "latitude": 24.5,
+                "longitude": 118.1,
+                "address": "合成地址"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection:8fe2eedb0ec861c2059029d0c1a2acfe9fe9f05932daf07880b3ee64d44f4119",
+      "kind": "collection",
+      "revision": "93ce25c47d000589b89e1535f796e34dbf637cf13d52ace2341cc3ac3962973d",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "cid": "cid-richMedia",
+        "type": "richMedia",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "collectedAt": {
+          "unixSeconds": "1793856100",
+          "precision": "second"
+        },
+        "bodyStatus": "complete",
+        "content": [
+          {
+            "type": "text",
+            "format": "html",
+            "text": "<p>收藏全文<img src=\"cid:inline-1\"></p>"
+          },
+          {
+            "type": "media",
+            "mediaType": "image",
+            "resourceIds": ["asset-inline"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection:332c152e2470be52fab2cd1531bd9d9dd72982349b6d6c6a06d610f037dcb33f",
+      "kind": "collection",
+      "revision": "60664576e2f21b94069ca64f604cfb329e9c898e2f6607b53098bde561b062bd",
+      "state": "present",
+      "coverage": {
+        "acquisition": "partial",
+        "parsing": "opaque",
+        "issues": ["synthetic-unparsed-content"]
+      },
+      "data": {
+        "cid": "cid-unknown",
+        "type": "unknown",
+        "author": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "createdAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "collectedAt": {
+          "unixSeconds": "1793856100",
+          "precision": "second"
+        },
+        "bodyStatus": "opaque",
+        "content": [
+          {
+            "type": "unknown",
+            "sourceType": "999",
+            "reason": "合成未识别类型"
+          }
+        ]
+      }
+    },
+    {
+      "id": "mail:aee5068e80bbd28ba6e362521c236f8fd8990924a7c0bcc0f4054f7007fa8da4",
+      "kind": "mail",
+      "revision": "0f902ada2f9376f01b5a5f5568fc9bef2ba252ee82d1f592bb02859b1680e3de",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "mailId": "opaque-mail-1",
+        "messageId": "<synthetic@example.invalid>",
+        "sender": {
+          "identities": [
+            {
+              "namespace": "email",
+              "value": "sender@example.invalid"
+            }
+          ]
+        },
+        "to": [
+          {
+            "identities": [
+              {
+                "namespace": "local",
+                "value": "fixture-sender"
+              }
+            ],
+            "name": "合成发送者"
+          }
+        ],
+        "cc": [],
+        "bcc": [],
+        "replyTo": null,
+        "sentAt": {
+          "unixSeconds": "1793856000",
+          "precision": "second"
+        },
+        "subject": "合成邮件",
+        "threadId": "thread-1",
+        "inReplyTo": null,
+        "content": [
+          {
+            "type": "text",
+            "format": "html",
+            "text": "<p>原始正文<img src=\"cid:inline-1\"></p>"
+          }
+        ],
+        "attachments": ["asset-original"],
+        "inlineResources": [
+          {
+            "cid": "inline-1",
+            "resourceId": "asset-inline"
+          }
+        ]
+      }
+    },
+    {
+      "id": "directory:c8b5192bfcaeee49ce7a1d7982bd7c3e4038d3a9ed4741bf2832d0196364ec09",
+      "kind": "directory",
+      "revision": "fca48b55fd7394293a72faeb8fa370127763c73ade0b73509deda1d2daa7dfb4",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "contact",
+        "subject": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成contact",
+        "remark": "",
+        "categoryIds": [
+          "directory:f07af8479405f14b5b76f7c51d30ca80cb39f2bd5c3447b17c2d2b8e1d97b805"
+        ]
+      }
+    },
+    {
+      "id": "directory:eea4baf98dcdece0c6ca36e1a943db334a4359cf73e5c54322ae70986cb066d6",
+      "kind": "directory",
+      "revision": "fd4e664c564dcda098d191ff508cdac92adc283e835be3d1dddbf771ca82ee03",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "group",
+        "subject": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成group",
+        "remark": ""
+      }
+    },
+    {
+      "id": "directory:d600b8c07fd2f1b323c712e69387132622e0c2647783464380cb386d6cc312f6",
+      "kind": "directory",
+      "revision": "03c62859472ffa1ed2a0f420b699cbf7cfec91bdf800c14e1d3eedeafa5a59b0",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "member",
+        "subject": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成member",
+        "remark": "",
+        "parentId": "directory:eea4baf98dcdece0c6ca36e1a943db334a4359cf73e5c54322ae70986cb066d6"
+      }
+    },
+    {
+      "id": "directory:f07af8479405f14b5b76f7c51d30ca80cb39f2bd5c3447b17c2d2b8e1d97b805",
+      "kind": "directory",
+      "revision": "31d8795b2a74faaade426486e7b50325942e101be72d7bce2e9b09011f946bfa",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "category",
+        "subject": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成category",
+        "remark": ""
+      }
+    },
+    {
+      "id": "generated:5f4182e45e8eeea7d0b1e1667d1bf7b0ac42b70b29b7f735abbb632871dde0ef",
+      "kind": "generated",
+      "revision": "9cce385c672a5d6d2ff132f848cb1eae46a0553041caa897f980c41a341d0dea",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "origin": "local-generated",
+        "targetKind": "persona",
+        "ownerId": "persona",
+        "sessionId": null,
+        "messageId": "generated-1",
+        "sender": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "role": "assistant",
+        "sentAt": {
+          "unixSeconds": "1793856000.125",
+          "precision": "millisecond"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "生成正文"
+          },
+          {
+            "type": "media",
+            "mediaType": "file",
+            "resourceIds": ["asset-original"]
+          }
+        ],
+        "process": [
+          {
+            "type": "json",
+            "value": {
+              "kind": "tool",
+              "name": "synthetic-tool",
+              "input": {
+                "query": "合成输入"
+              },
+              "result": "合成输出"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "generated:1537468ae0e52673586aa112de5e1ad9f6594feeac1674537fc021432929a73c",
+      "kind": "generated",
+      "revision": "54afaa0c8a8aa19c8f9fac5992381e2fdd2fc8378e7a7b69ab248ddc01f8d01a",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "origin": "local-generated",
+        "targetKind": "group",
+        "ownerId": "group",
+        "sessionId": "session-1",
+        "messageId": "generated-1",
+        "sender": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "role": "assistant",
+        "sentAt": {
+          "unixSeconds": "1793856000.125",
+          "precision": "millisecond"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "生成正文"
+          },
+          {
+            "type": "media",
+            "mediaType": "file",
+            "resourceIds": ["asset-original"]
+          }
+        ],
+        "process": [
+          {
+            "type": "json",
+            "value": {
+              "kind": "tool",
+              "name": "synthetic-tool",
+              "input": {
+                "query": "合成输入"
+              },
+              "result": "合成输出"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "generated:94ad932cec64962421c042eea1df5d8cef4f7fc22834103ff1bd839bbdf58699",
+      "kind": "generated",
+      "revision": "a58031d839ca4c46c2899d3c429ff2e78f414240a0a488a57036155181bbf85a",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "origin": "local-generated",
+        "targetKind": "assistant",
+        "ownerId": "assistant",
+        "sessionId": "session-1",
+        "messageId": "generated-1",
+        "sender": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "role": "assistant",
+        "sentAt": {
+          "unixSeconds": "1793856000.125",
+          "precision": "millisecond"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "生成正文"
+          },
+          {
+            "type": "media",
+            "mediaType": "file",
+            "resourceIds": ["asset-original"]
+          }
+        ],
+        "process": [
+          {
+            "type": "json",
+            "value": {
+              "kind": "tool",
+              "name": "synthetic-tool",
+              "input": {
+                "query": "合成输入"
+              },
+              "result": "合成输出"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "resource-directory:9f469ded8e72f32734f11f26a7d9ab8efaa52b4dc85cf0944ab688c7896e5583",
+      "kind": "resource-directory",
+      "revision": "68563df8091fa046fa54238fdc47b13c32fa3a3d45f7a59c6c1f45edf96c186e",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "folder",
+        "sourceId": "resource-folder",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成folder",
+        "resourceIds": ["asset-original"]
+      }
+    },
+    {
+      "id": "resource-directory:961f3678514c01e40543739d57cf80cc5989fcf176266b4214f6f150195b9898",
+      "kind": "resource-directory",
+      "revision": "48d9a4691ec0086fc53a5ce8dfdfe0b4bd1af02f3445d9f9904570a8f24d0938",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "file",
+        "sourceId": "resource-file",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成file",
+        "parentId": "resource-directory:9f469ded8e72f32734f11f26a7d9ab8efaa52b4dc85cf0944ab688c7896e5583",
+        "resourceIds": ["asset-original"]
+      }
+    },
+    {
+      "id": "resource-directory:2854b070b69310239d6eaa92f8f1da92ec2ef01be32d675a9c680018cb147ce2",
+      "kind": "resource-directory",
+      "revision": "6c5c4a0ddd434b29008cc11fb81352df2538fb3668ce6870a35d8baa17896dc3",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "album",
+        "sourceId": "resource-album",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成album",
+        "resourceIds": ["asset-original"]
+      }
+    },
+    {
+      "id": "resource-directory:b0b4c3a1d2ff6ca9dfaae32deb973da1c6dfaaf7a8899c46538dff8e389f62ad",
+      "kind": "resource-directory",
+      "revision": "05c419c0120dae0ab2f877b4a1b540bceb4b964664393a5af03ad3e4f3e17dcb",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "photo",
+        "sourceId": "resource-photo",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成photo",
+        "resourceIds": ["asset-original"]
+      }
+    },
+    {
+      "id": "resource-directory:7a5ace104efa1a130e81026e57b9abf170babf7b7059e262ca1b0b2ddc97a8f9",
+      "kind": "resource-directory",
+      "revision": "0e0317dbcc435b1e3221bb0faed94066917bf2b04f18e329e2468d57f760e03f",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "video",
+        "sourceId": "resource-video",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成video",
+        "resourceIds": ["asset-original"]
+      }
+    },
+    {
+      "id": "resource-directory:dbd6bad3d41ecd81cbda05a0242b6beecafb66e9f72f89ea83f8431576e9afa6",
+      "kind": "resource-directory",
+      "revision": "2ad4bf388689a57a08836adbb4038e859c64c3b2731685170a45d8742c0c6ebe",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "emoji-pack",
+        "sourceId": "resource-emoji-pack",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成emoji-pack",
+        "resourceIds": ["asset-original"]
+      }
+    },
+    {
+      "id": "resource-directory:719687d06d703598aad3f9e35334f83b9823ff504790cb60b72d5c6d4761750e",
+      "kind": "resource-directory",
+      "revision": "d06853ada075fd37f40774ca2f027ad9ec1c3bdddd32493c87f15b2170cbc716",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "emoji",
+        "sourceId": "resource-emoji",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成emoji",
+        "resourceIds": ["asset-original"]
+      }
+    },
+    {
+      "id": "resource-directory:f38a499a5b3ddffc9328e38221bfd9e7a424fb7778688539e91d0cd33c185e0d",
+      "kind": "resource-directory",
+      "revision": "cfe6875836eaa9962aac2dc066d02f0b07976d5cf75e8e7a1fb1cba455a7a48a",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "bubble",
+        "sourceId": "resource-bubble",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成bubble",
+        "resourceIds": ["asset-original"]
+      }
+    },
+    {
+      "id": "resource-directory:ffe7c1f2b06bcacd77a26a77f1d91f8a76ea1e602b543d0cc2dbed7e30f44f03",
+      "kind": "resource-directory",
+      "revision": "469a29dc7e07c8cbd04c26bdb8c4b9cb2193297696bc14afe23b4dbc727a99de",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "font",
+        "sourceId": "resource-font",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成font",
+        "resourceIds": ["asset-original"]
+      }
+    },
+    {
+      "id": "resource-directory:b70d02a75985baf036ed18d9a97744a4ab051239537ef9571ef20931e4a447f3",
+      "kind": "resource-directory",
+      "revision": "f6b1e5e240bba5f470b567e83d0c182f912055d3af92ad6d9c34e40688d52d08",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "widget",
+        "sourceId": "resource-widget",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成widget",
+        "resourceIds": ["asset-original"]
+      }
+    },
+    {
+      "id": "resource-directory:47bcfa7a2244512b2e26083e5c73ed21572f5e4f515a1af59ef4565839502103",
+      "kind": "resource-directory",
+      "revision": "8315897abe64044305f6fc7a6197409db78a424854a483fb18cc5b7c89d09354",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "artifact",
+        "sourceId": "resource-artifact",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成artifact",
+        "resourceIds": ["asset-original"]
+      }
+    },
+    {
+      "id": "resource-directory:39f62d330497d2767c1447ebab5868ff3579627cb6db5a359c56eb93721f253a",
+      "kind": "resource-directory",
+      "revision": "d507e4f5eb4c9b058d33da6acefcecaf212ae011b07eee7d16b04ecd6d2d15d8",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "report",
+        "sourceId": "resource-report",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成report",
+        "resourceIds": ["asset-original"]
+      }
+    },
+    {
+      "id": "resource-directory:4dd437e9a98f4681c018e1f2b40e625e3f261881815c08f28915ed1d9c263449",
+      "kind": "resource-directory",
+      "revision": "68682e111a6587b5398ac6b9f9af040f9c443c51fa2f09e4d8ee591dfd4a4f1f",
+      "state": "present",
+      "coverage": {
+        "acquisition": "complete-for-selection",
+        "parsing": "complete"
+      },
+      "data": {
+        "type": "bot-package",
+        "sourceId": "resource-bot-package",
+        "owner": {
+          "identities": [
+            {
+              "namespace": "local",
+              "value": "fixture-sender"
+            }
+          ],
+          "name": "合成发送者"
+        },
+        "name": "合成bot-package",
+        "resourceIds": ["asset-original"]
+      }
+    }
+  ],
+  "observations": [
+    {
+      "id": "observation-0",
+      "recordId": "message:976ddd5084c1916ecc6dc82e10fb766d7bb4a20a5688d6e618f3e2f66528a385",
+      "revision": "34fda666160ee415cf0c6c6a0683636c158f9e55d1a47e51e4550be4198fb433",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-0",
+        "kind": "cache",
+        "locator": "synthetic/message/0",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-1",
+      "recordId": "message:aeed41f2f9b4988bb06fbae8bd8ab6fb15b450dcef8d38b1d275be396cf666a9",
+      "revision": "24e110af29c84fb9ac819cc1a2e6e1be4c485fdccf3458f00050e72471ccccf1",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-1",
+        "kind": "cache",
+        "locator": "synthetic/message/1",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-2",
+      "recordId": "message:8aec297883e9fcfa780e81a506d1d72aa4f15ef3443a6351610a83101b5f58da",
+      "revision": "5283c2a4682d837eea3d6bd6e8b13093e2cca48c9e7ee8367e80e12b69b96004",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-2",
+        "kind": "cache",
+        "locator": "synthetic/message/2",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-3",
+      "recordId": "message:bec28097fdab124eaf9abcdd39075bc961685136107c1e6ba257be9770ea731e",
+      "revision": "5cdfe53e18cfda8411758017764ebc0a3fbf98aafc25d93e09537ecc857b239f",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-3",
+        "kind": "cache",
+        "locator": "synthetic/message/3",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-4",
+      "recordId": "message:0c48b4ce64d09fd97dc8b456ad58210d120abbf7ed588f6adf4ec9607038113c",
+      "revision": "f6c5973b5e2d0fcaacbbf0450212509d065f6aa0969eac67333fb153d7f5f52b",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-4",
+        "kind": "cache",
+        "locator": "synthetic/message/4",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-5",
+      "recordId": "message:018681253ea49dcaf7f136ab380acde15cda3816fb9e2ff480b0f873b7713b5c",
+      "revision": "384d0ef40ffc278e622d4e6681a46bae2d4a204d59964f96d4fd7db1098cc325",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-5",
+        "kind": "cache",
+        "locator": "synthetic/message/5",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-6",
+      "recordId": "qzone:59bcafef85aee5ce99752c3bde5e3c74ad200ec01a1cde82abae0382459f4c52",
+      "revision": "0a5c14168acacc52def61a930b6b2ebe2752a541b964cb9756d017b7d4708c29",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-6",
+        "kind": "cache",
+        "locator": "synthetic/qzone/6",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-7",
+      "recordId": "qzone:7d846f459826c71b3a550d903655c2e21045f82574ec2a53f64e19a306a3b012",
+      "revision": "8b0bc8da902d7ef4c133374a8d8eb443dddfcc681711b63c40cddf427e6da5ab",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-7",
+        "kind": "cache",
+        "locator": "synthetic/qzone/7",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-8",
+      "recordId": "qzone:ba9b23df69a8d14fa409a82a933a3f1ef4e8c4b333534aa187068b1ffd59cb8b",
+      "revision": "76d9014b5f3f20e408b18c6a7df95b6b9ea319c216492563abd8175212611a25",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-8",
+        "kind": "cache",
+        "locator": "synthetic/qzone/8",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-9",
+      "recordId": "qzone:3a2519e1bbfd0b951be4c552386737aa4d45a3c09e9baeebb1c1d93c5ca95b63",
+      "revision": "39160c941c3bdf7b4c93ce314261770080ddbe63d9cca2e3a4c87a08e17ac48c",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-9",
+        "kind": "cache",
+        "locator": "synthetic/qzone/9",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-10",
+      "recordId": "qzone:974fa22aecca374848240a29f56efe9adc0520a719bba8fef1987ac73e81692e",
+      "revision": "5d1616301219a6cda6f54b6f4b57f9c130aacce8c293ed73a590e8eec1bd2890",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-10",
+        "kind": "cache",
+        "locator": "synthetic/qzone/10",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-11",
+      "recordId": "qzone:f6253a44ad203a6ae727be1a4817531c16307892495c343bc575bf39dbeb0d57",
+      "revision": "beba3c093c9a541b907b74ee54c24dc62a58b5294ab63f5291b4ce0515800e65",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-11",
+        "kind": "cache",
+        "locator": "synthetic/qzone/11",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-12",
+      "recordId": "qzone:1d0ec0fe44a9b0addb838d427d048b3a3d4f67a2aa6ea99bdd9777b31e13a148",
+      "revision": "8698e4ececce62b1085ed22368ba6cc0c3ffc621fac9ac8e5db028f76e37197c",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-12",
+        "kind": "cache",
+        "locator": "synthetic/qzone/12",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-13",
+      "recordId": "collection:14b3b245ebef1d450cbb2bcfe21604ab75486b4366717e0dc5237a479d223e36",
+      "revision": "db28f85f8c2ecee8deb794d1a15fdbcdceafb11ff3bfadccdbd9a52edb6b5290",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-13",
+        "kind": "cache",
+        "locator": "synthetic/collection/13",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-14",
+      "recordId": "collection:5ec2a5cc87a27992d3602c9001543083784f47029acf24f2722853d894e1e707",
+      "revision": "bc820c480dfde45417ea605c2d8e2dec521412815f0871b7f564a27984282d5b",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-14",
+        "kind": "cache",
+        "locator": "synthetic/collection/14",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-15",
+      "recordId": "collection:76cca2a4d13e5cccf60be18383fb3af7b21a51161e91bf07d96e6ffac035e1b6",
+      "revision": "60832a228c0164983c8170538a55f3202e8fb65ce5dd8b750e9f8d9b9f636345",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-15",
+        "kind": "cache",
+        "locator": "synthetic/collection/15",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-16",
+      "recordId": "collection:9c1017afc2cfb5559925601dece26fc7dfbcb395bde291e07f655521a18d1b74",
+      "revision": "e4f6e4d1f90a97d3095b4c2b7a13f18854b5502667b028611c4043d24421b163",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-16",
+        "kind": "cache",
+        "locator": "synthetic/collection/16",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-17",
+      "recordId": "collection:56ad6759feeb1319164bd14066ca9ea8d3eb721f03f4c830fbcd14d170824319",
+      "revision": "3472bd9970f4050611f16941a67df90a80778fd848a1c234a8ff577f07c7dde8",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-17",
+        "kind": "cache",
+        "locator": "synthetic/collection/17",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-18",
+      "recordId": "collection:14a2e783fd8466ef4a58330ba6cad5653a12ce38d71fca4c34f199bab8b4635f",
+      "revision": "bb2540a050321cc5671a3962dffd5947cc7cf04b5ece14634c5a01cdd4a5ccc2",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-18",
+        "kind": "cache",
+        "locator": "synthetic/collection/18",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-19",
+      "recordId": "collection:02a7f3d37b82159a6bed6e038f24f7b9296cca8b205cc775ff7fda0ab5542147",
+      "revision": "dd63eb0d7ac25c7ad5dd18438324db15c27e244f18744192262295aea20f37db",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-19",
+        "kind": "cache",
+        "locator": "synthetic/collection/19",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-20",
+      "recordId": "collection:8fe2eedb0ec861c2059029d0c1a2acfe9fe9f05932daf07880b3ee64d44f4119",
+      "revision": "93ce25c47d000589b89e1535f796e34dbf637cf13d52ace2341cc3ac3962973d",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-20",
+        "kind": "cache",
+        "locator": "synthetic/collection/20",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-21",
+      "recordId": "collection:332c152e2470be52fab2cd1531bd9d9dd72982349b6d6c6a06d610f037dcb33f",
+      "revision": "60664576e2f21b94069ca64f604cfb329e9c898e2f6607b53098bde561b062bd",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-21",
+        "kind": "cache",
+        "locator": "synthetic/collection/21",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-22",
+      "recordId": "mail:aee5068e80bbd28ba6e362521c236f8fd8990924a7c0bcc0f4054f7007fa8da4",
+      "revision": "0f902ada2f9376f01b5a5f5568fc9bef2ba252ee82d1f592bb02859b1680e3de",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-22",
+        "kind": "cache",
+        "locator": "synthetic/mail/22",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-23",
+      "recordId": "directory:c8b5192bfcaeee49ce7a1d7982bd7c3e4038d3a9ed4741bf2832d0196364ec09",
+      "revision": "fca48b55fd7394293a72faeb8fa370127763c73ade0b73509deda1d2daa7dfb4",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-23",
+        "kind": "cache",
+        "locator": "synthetic/directory/23",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-24",
+      "recordId": "directory:eea4baf98dcdece0c6ca36e1a943db334a4359cf73e5c54322ae70986cb066d6",
+      "revision": "fd4e664c564dcda098d191ff508cdac92adc283e835be3d1dddbf771ca82ee03",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-24",
+        "kind": "cache",
+        "locator": "synthetic/directory/24",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-25",
+      "recordId": "directory:d600b8c07fd2f1b323c712e69387132622e0c2647783464380cb386d6cc312f6",
+      "revision": "03c62859472ffa1ed2a0f420b699cbf7cfec91bdf800c14e1d3eedeafa5a59b0",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-25",
+        "kind": "cache",
+        "locator": "synthetic/directory/25",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-26",
+      "recordId": "directory:f07af8479405f14b5b76f7c51d30ca80cb39f2bd5c3447b17c2d2b8e1d97b805",
+      "revision": "31d8795b2a74faaade426486e7b50325942e101be72d7bce2e9b09011f946bfa",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-26",
+        "kind": "cache",
+        "locator": "synthetic/directory/26",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-27",
+      "recordId": "generated:5f4182e45e8eeea7d0b1e1667d1bf7b0ac42b70b29b7f735abbb632871dde0ef",
+      "revision": "9cce385c672a5d6d2ff132f848cb1eae46a0553041caa897f980c41a341d0dea",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-27",
+        "kind": "local-generated",
+        "locator": "synthetic/generated/27",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-28",
+      "recordId": "generated:1537468ae0e52673586aa112de5e1ad9f6594feeac1674537fc021432929a73c",
+      "revision": "54afaa0c8a8aa19c8f9fac5992381e2fdd2fc8378e7a7b69ab248ddc01f8d01a",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-28",
+        "kind": "local-generated",
+        "locator": "synthetic/generated/28",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-29",
+      "recordId": "generated:94ad932cec64962421c042eea1df5d8cef4f7fc22834103ff1bd839bbdf58699",
+      "revision": "a58031d839ca4c46c2899d3c429ff2e78f414240a0a488a57036155181bbf85a",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-29",
+        "kind": "local-generated",
+        "locator": "synthetic/generated/29",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-30",
+      "recordId": "resource-directory:9f469ded8e72f32734f11f26a7d9ab8efaa52b4dc85cf0944ab688c7896e5583",
+      "revision": "68563df8091fa046fa54238fdc47b13c32fa3a3d45f7a59c6c1f45edf96c186e",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-30",
+        "kind": "cache",
+        "locator": "synthetic/resource-directory/30",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-31",
+      "recordId": "resource-directory:961f3678514c01e40543739d57cf80cc5989fcf176266b4214f6f150195b9898",
+      "revision": "48d9a4691ec0086fc53a5ce8dfdfe0b4bd1af02f3445d9f9904570a8f24d0938",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-31",
+        "kind": "cache",
+        "locator": "synthetic/resource-directory/31",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-32",
+      "recordId": "resource-directory:2854b070b69310239d6eaa92f8f1da92ec2ef01be32d675a9c680018cb147ce2",
+      "revision": "6c5c4a0ddd434b29008cc11fb81352df2538fb3668ce6870a35d8baa17896dc3",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-32",
+        "kind": "cache",
+        "locator": "synthetic/resource-directory/32",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-33",
+      "recordId": "resource-directory:b0b4c3a1d2ff6ca9dfaae32deb973da1c6dfaaf7a8899c46538dff8e389f62ad",
+      "revision": "05c419c0120dae0ab2f877b4a1b540bceb4b964664393a5af03ad3e4f3e17dcb",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-33",
+        "kind": "cache",
+        "locator": "synthetic/resource-directory/33",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-34",
+      "recordId": "resource-directory:7a5ace104efa1a130e81026e57b9abf170babf7b7059e262ca1b0b2ddc97a8f9",
+      "revision": "0e0317dbcc435b1e3221bb0faed94066917bf2b04f18e329e2468d57f760e03f",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-34",
+        "kind": "cache",
+        "locator": "synthetic/resource-directory/34",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-35",
+      "recordId": "resource-directory:dbd6bad3d41ecd81cbda05a0242b6beecafb66e9f72f89ea83f8431576e9afa6",
+      "revision": "2ad4bf388689a57a08836adbb4038e859c64c3b2731685170a45d8742c0c6ebe",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-35",
+        "kind": "cache",
+        "locator": "synthetic/resource-directory/35",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-36",
+      "recordId": "resource-directory:719687d06d703598aad3f9e35334f83b9823ff504790cb60b72d5c6d4761750e",
+      "revision": "d06853ada075fd37f40774ca2f027ad9ec1c3bdddd32493c87f15b2170cbc716",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-36",
+        "kind": "cache",
+        "locator": "synthetic/resource-directory/36",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-37",
+      "recordId": "resource-directory:f38a499a5b3ddffc9328e38221bfd9e7a424fb7778688539e91d0cd33c185e0d",
+      "revision": "cfe6875836eaa9962aac2dc066d02f0b07976d5cf75e8e7a1fb1cba455a7a48a",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-37",
+        "kind": "cache",
+        "locator": "synthetic/resource-directory/37",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-38",
+      "recordId": "resource-directory:ffe7c1f2b06bcacd77a26a77f1d91f8a76ea1e602b543d0cc2dbed7e30f44f03",
+      "revision": "469a29dc7e07c8cbd04c26bdb8c4b9cb2193297696bc14afe23b4dbc727a99de",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-38",
+        "kind": "cache",
+        "locator": "synthetic/resource-directory/38",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-39",
+      "recordId": "resource-directory:b70d02a75985baf036ed18d9a97744a4ab051239537ef9571ef20931e4a447f3",
+      "revision": "f6b1e5e240bba5f470b567e83d0c182f912055d3af92ad6d9c34e40688d52d08",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-39",
+        "kind": "cache",
+        "locator": "synthetic/resource-directory/39",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-40",
+      "recordId": "resource-directory:47bcfa7a2244512b2e26083e5c73ed21572f5e4f515a1af59ef4565839502103",
+      "revision": "8315897abe64044305f6fc7a6197409db78a424854a483fb18cc5b7c89d09354",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-40",
+        "kind": "cache",
+        "locator": "synthetic/resource-directory/40",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-41",
+      "recordId": "resource-directory:39f62d330497d2767c1447ebab5868ff3579627cb6db5a359c56eb93721f253a",
+      "revision": "d507e4f5eb4c9b058d33da6acefcecaf212ae011b07eee7d16b04ecd6d2d15d8",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-41",
+        "kind": "cache",
+        "locator": "synthetic/resource-directory/41",
+        "modifiedAt": null
+      }
+    },
+    {
+      "id": "observation-42",
+      "recordId": "resource-directory:4dd437e9a98f4681c018e1f2b40e625e3f261881815c08f28915ed1d9c263449",
+      "revision": "68682e111a6587b5398ac6b9f9af040f9c443c51fa2f09e4d8ee591dfd4a4f1f",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "source": {
+        "id": "source-42",
+        "kind": "cache",
+        "locator": "synthetic/resource-directory/42",
+        "modifiedAt": null
+      }
+    }
+  ],
+  "resources": [
+    {
+      "id": "asset-original",
+      "role": "original",
+      "status": "saved",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "name": "synthetic.txt",
+      "mime": "text/plain",
+      "size": "4",
+      "path": "media/edeaaff3f1774ad2888673770c6d64097e391bc362d7d6fb34982ddf0efd18cb",
+      "sha256": "edeaaff3f1774ad2888673770c6d64097e391bc362d7d6fb34982ddf0efd18cb"
+    },
+    {
+      "id": "asset-inline",
+      "role": "original",
+      "status": "not-requested",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "name": "inline.png",
+      "url": "https://example.invalid/inline.png"
+    },
+    {
+      "id": "asset-video",
+      "role": "original",
+      "status": "unavailable",
+      "observedAt": {
+        "unixSeconds": "1793856000",
+        "precision": "second"
+      },
+      "name": "video.mp4",
+      "error": "合成不可访问视频"
+    }
+  ]
+}

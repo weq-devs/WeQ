@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weq.local/schemas/export/v1/message.basic.schema.json",
+  "title": "消息基本内容",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "message"
+        },
+        "data": {
+          "$ref": "#/$defs/data"
+        }
+      }
+    }
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "data": {
+      "type": "object",
+      "required": ["conversation", "messageId", "sender", "sentAt", "seq", "content"],
+      "properties": {
+        "conversation": {
+          "$ref": "common.schema.json#/$defs/conversation"
+        },
+        "messageId": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "sender": {
+          "$ref": "common.schema.json#/$defs/actor"
+        },
+        "sentAt": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "seq": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "content": {
+          "$ref": "common.schema.json#/$defs/content"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

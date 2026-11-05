@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weq.local/schemas/export/v1/qzone.basic.schema.json",
+  "title": "空间基本内容",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "qzone"
+        },
+        "data": {
+          "$ref": "#/$defs/data"
+        }
+      }
+    }
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "data": {
+      "type": "object",
+      "required": ["type", "owner", "sourceId", "author", "createdAt", "content"],
+      "properties": {
+        "type": {
+          "enum": ["post", "comment", "reply", "album", "photo", "video", "repost"]
+        },
+        "owner": {
+          "$ref": "common.schema.json#/$defs/actor"
+        },
+        "sourceId": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "author": {
+          "$ref": "common.schema.json#/$defs/actor"
+        },
+        "createdAt": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "parentId": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "repostId": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "replyTo": {
+          "$ref": "common.schema.json#/$defs/actor"
+        },
+        "content": {
+          "$ref": "common.schema.json#/$defs/content"
+        },
+        "counts": {
+          "type": "object",
+          "properties": {
+            "comments": {
+              "anyOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/unsigned"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "likes": {
+              "anyOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/unsigned"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reposts": {
+              "anyOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/unsigned"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "media": {
+              "anyOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/unsigned"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": ["comment", "reply", "photo", "video"]
+              }
+            }
+          },
+          "then": {
+            "required": ["parentId"]
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

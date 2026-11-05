@@ -21,6 +21,8 @@ pnpm dev
 
 ### 内容与工具
 
+- [导出格式设计与双档 Schema](./export-format/README.md)：待实现设计；基本内容、全部数据、未知残余及无独立正文基线的增量契约。
+
 - [界面与工具设计约定](./ux-discussion-20261017.md)：内容优先、选择草稿、任务身份和平台边界。
 - [后台任务接入](./background-task-integration-20261029.md)：模型、更新、维护、导入、转发、上传及资源操作的统一进度与回执。
 - [内容能力与缺口](./content-capability-census-20261018.md)：区分已接入父级与尚未覆盖的子内容。
