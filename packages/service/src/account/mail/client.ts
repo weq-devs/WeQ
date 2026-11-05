@@ -476,11 +476,19 @@ export class QQMailService {
         folderId: count(entry.mailboxid ?? entry.mailbox_id) || 1,
       };
     });
-    if (prime || !this.noticeQueryPrimed) {
-      this.cursor.prime(notices.map((entry) => entry.id));
-      this.noticeQueryPrimed = true;
-    } else for (const notice of notices) if (this.cursor.accept(notice.id)) this.announce(notice);
-    this.update({ state: 'ready', error: null, unread: count(body.unread), lastSync: Date.now() });
+    // 未取得提醒列表时保留游标，恢复后再建立基线或继续去重。
+    if (body.notificationUnavailable !== true) {
+      if (prime || !this.noticeQueryPrimed) {
+        this.cursor.prime(notices.map((entry) => entry.id));
+        this.noticeQueryPrimed = true;
+      } else for (const notice of notices) if (this.cursor.accept(notice.id)) this.announce(notice);
+    }
+    this.update({
+      state: 'ready',
+      error: body.notificationUnavailable === true ? '邮箱已连接，提醒同步暂不可用。' : null,
+      unread: count(body.unread),
+      lastSync: Date.now(),
+    });
     if (this.backgroundEnabled) {
       if (this.pollTimer) clearTimeout(this.pollTimer);
       const seconds =
