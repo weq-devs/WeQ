@@ -21,6 +21,7 @@ const fixture = vi.hoisted(() => ({
   listeners: new Map<string, { path: string; onData: (value: Progress) => void }>(),
   enabled: new Map<string, boolean>(),
   refetch: vi.fn(),
+  invalidate: vi.fn(),
   mutate: vi.fn(async () => true),
   downloaded: false,
   downloading: true,
@@ -29,6 +30,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (path: string[] = []): unknown =>
     new Proxy(() => proxy(path), {
       get: (_target, key) => {
+        if (key === 'useUtils') return () => proxy();
         if (key === 'useQuery')
           return (_input: unknown, options: { enabled?: boolean }) => {
             const name = path.at(-1)!;
@@ -60,6 +62,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             };
           };
         if (key === 'useMutation') return () => ({ mutateAsync: fixture.mutate, isLoading: false });
+        if (key === 'invalidate') return () => fixture.invalidate(path.join('.'));
         if (key === 'subscribe')
           return (_input: unknown, options: { onData: (value: Progress) => void }) => {
             const id = `${path.join('.')}:${fixture.listeners.size}`;
@@ -76,6 +79,7 @@ beforeEach(() => {
   fixture.listeners.clear();
   fixture.enabled.clear();
   fixture.refetch.mockClear();
+  fixture.invalidate.mockClear();
   fixture.mutate.mockClear();
   fixture.downloaded = false;
   fixture.downloading = true;
@@ -100,6 +104,17 @@ function mount(content: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
   };
 }
 describe('隐藏设置页的进度资源', () => {
+  it.each([VoiceTranscribeSection, OcrModelsSection])('下载完成刷新模型和共享设置', (Component) => {
+    const f = mount(h(Component));
+    try {
+      act(() => [...fixture.listeners.values()][0]!.onData({ done: true }));
+      expect(fixture.refetch).toHaveBeenCalledOnce();
+      expect(fixture.invalidate).toHaveBeenCalledWith('bootstrap.getSettings');
+      expect(fixture.mutate).not.toHaveBeenCalled();
+    } finally {
+      f.dispose();
+    }
+  });
   it.each([
     ['voice', VoiceTranscribeSection],
     ['ocr', OcrModelsSection],
