@@ -487,7 +487,8 @@ it('来源变化后按已保存消息继续，不因 QQ 正常写入阻断续作
 });
 
 it('暂停收尾生成可保存的有效 JSON，续作与增量不重复消息', async () => {
-  const f = fixture();
+  // 进度每千条提交一次，保留暂停批次后的尾页。
+  const f = fixture(1001);
   let paused = false;
   f.manager.on('progress', () => {
     const t = f.manager.listTasks()[0];
@@ -501,7 +502,7 @@ it('暂停收尾生成可保存的有效 JSON，续作与增量不重复消息',
     conv: '777',
     name: '暂停快照',
     format: 'json',
-    total: 3000,
+    total: f.rows.length,
   });
   await wait(() => f.manager.listTasks()[0]?.canResume === true);
   const task = f.manager.getTask(id)!;
@@ -533,8 +534,12 @@ it('暂停收尾生成可保存的有效 JSON，续作与增量不重复消息',
   await wait(() => ['completed', 'failed'].includes(task.status));
   expect(task.error).toBeUndefined();
   expect(task.status).toBe('completed');
-  expect(f.manager.getTask(id)?.current).toBe(3000);
-});
+  expect(f.manager.getTask(id)?.current).toBe(f.rows.length);
+  const { archive } = await readArchiveFile(task.filePath!, 'json');
+  const messages = archive.records.filter((record) => record.kind === 'message');
+  expect(messages).toHaveLength(f.rows.length);
+  expect(new Set(messages.map((record) => record.id)).size).toBe(f.rows.length);
+}, 30000);
 
 it('增量导出补入新消息，保留源库已删除的旧记录，重复执行不增加副本', async () => {
   const f = fixture(3);

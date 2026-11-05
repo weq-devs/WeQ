@@ -24,6 +24,7 @@ vi.mock('../src/main/context/app_context', () => {
       account: { context: { uin: rpc.uin } },
       services,
       bootstrap: {
+        ocrModels: { listByKind: () => [] },
         userConfig: {
           getSettings: () => ({ autoAttachQq: true }),
           getLocalModelId: () => null,

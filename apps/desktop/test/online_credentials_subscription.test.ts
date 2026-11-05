@@ -13,6 +13,7 @@ vi.mock('../src/main/context/app_context', async () => {
   return {
     getAppContext: () => ({
       bootstrap: {
+        ocrModels: { listByKind: () => [] },
         userConfig: {
           getSettings: () => ({ autoAttachQq: fixture.automatic }),
           getLocalModelId: () => null,
