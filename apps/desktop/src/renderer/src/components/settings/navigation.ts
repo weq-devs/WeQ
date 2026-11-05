@@ -2,11 +2,12 @@
 import { AI_SETTING_ITEMS } from './aiSettingsCatalog';
 export const SETTINGS_PAGE_LABELS = {
   appearance: '主题与背景',
-  home: '主页',
   global: '提醒与窗口',
-  startup: '启动',
+  startup: '启动与主页',
   'weq-storage': 'WeQ 存储管理',
-  'chat-messages': '聊天消息',
+  'chat-messages': '阅读与未读',
+  'message-display': '消息显示',
+  'chat-interaction': '互动与防撤回',
   'call-recording': '通话录音',
   qzone: 'QQ 空间',
   mail: 'QQ 邮箱',
@@ -44,11 +45,11 @@ export const SETTINGS_PAGE_LABELS = {
 export type SettingsPageId = keyof typeof SETTINGS_PAGE_LABELS;
 export type SectionId =
   | SettingsPageId
+  | 'anti-recall'
+  | 'home'
   | 'applock'
   | 'saving'
   | 'storage'
-  | 'message-display'
-  | 'anti-recall'
   | 'media'
   | 'rkey'
   | 'database'
@@ -65,12 +66,19 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'general',
     label: '常规',
-    sections: ['startup', 'home', 'appearance', 'global', 'weq-storage', 'privacy'],
+    sections: ['startup', 'appearance', 'global', 'weq-storage', 'privacy'],
   },
   {
     id: 'basic',
     label: '基础功能',
-    sections: ['chat-messages', 'call-recording', 'qzone', 'mail'],
+    sections: [
+      'chat-messages',
+      'message-display',
+      'chat-interaction',
+      'call-recording',
+      'qzone',
+      'mail',
+    ],
   },
   {
     id: 'models',
@@ -141,6 +149,30 @@ export interface ResolvedSettingsTarget extends SettingsTarget {
   section: SettingsPageId;
 }
 
+/** 旧聊天设置条目按稳定身份归位，页面导航与搜索使用同一份目录。 */
+function chatMessagePageFor(settingId: string): SettingsPageId {
+  if (['typing-status', 'send-with-qq-font'].includes(settingId)) return 'chat-interaction';
+  if (
+    [
+      'custom-message-display',
+      'message-seq',
+      'message-time',
+      'avatar-pendant',
+      'message-bubble',
+      'message-font',
+      'chat-qqshow',
+      'chat-qqshow-days',
+      'text-markdown',
+      'link-preview',
+      'link-screenshot',
+      'auto-transcribe-voice',
+      'chat-image-cache',
+    ].includes(settingId)
+  )
+    return 'message-display';
+  return 'chat-messages';
+}
+
 interface ItemRedirect {
   readonly id: string;
   readonly section: SettingsPageId;
@@ -164,6 +196,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   { id: 'llm-providers', section: 'agentlab', label: '已保存的 provider', from: ['agentlab'] },
   { id: 'llm-default-model', section: 'agentlab', label: '默认模型', from: ['agentlab'] },
   { id: 'tts-providers', section: 'agentlab', label: 'TTS 语音合成', from: ['agentlab', 'tts'] },
+  {
+    id: 'home-settings',
+    section: 'startup',
+    label: '主页',
+    aliases: ['主页显示'],
+    from: ['home', 'startup'],
+  },
   ...(
     [
       ['home-tags', '个性标签'],
@@ -171,7 +210,9 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['home-hitokoto', '一言'],
       ['home-blocked-words', '一言屏蔽词'],
     ] as const
-  ).map(([id, label]): ItemRedirect => ({ id, label, section: 'home', from: ['home'] })),
+  ).map(
+    ([id, label]): ItemRedirect => ({ id, label, section: 'startup', from: ['home', 'startup'] }),
+  ),
   {
     id: 'qqnt-capture',
     section: 'diagnostics',
@@ -234,7 +275,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['assistant-port', 'assistant', 'QQ 公众号推送端口', '公众号端口'],
       ['qq-profile', 'qq-accounts', 'QQ 资料', 'QQ 昵称', '性别', '个性签名', '更换头像'],
       ['qq-status', 'qq-accounts', 'QQ 状态', '在线状态', '自定义状态', '状态表情'],
-      ['chat-image-cache', 'chat-messages', '图片预览内存预算', '图片与表情', '内存缓存'],
+      ['chat-image-cache', 'message-display', '图片预览内存预算', '图片与表情', '内存缓存'],
     ] as const
   ).map(
     ([id, section, label, ...aliases]): ItemRedirect => ({
@@ -242,7 +283,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       section,
       label,
       aliases,
-      from: [section],
+      from: id === 'chat-image-cache' ? ['chat-messages', section] : [section],
     }),
   ),
   ...(
@@ -370,8 +411,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       id,
       label,
       aliases,
-      section: 'chat-messages',
-      from: ['message-display', 'chat-messages'],
+      section: chatMessagePageFor(id),
+      from: ['message-display', 'chat-messages', 'chat-interaction'],
     }),
   ),
   {
@@ -409,10 +450,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'typing-status',
-    section: 'chat-messages',
+    section: 'chat-interaction',
     label: '向对方展示输入状态',
     aliases: ['默认发送正在输入状态', '发送正在输入状态'],
-    from: ['global', 'chat-messages'],
+    from: ['global', 'chat-messages', 'chat-interaction'],
   },
   {
     id: 'read-sync',
@@ -429,9 +470,9 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'anti-recall',
-    section: 'chat-messages',
+    section: 'chat-interaction',
     label: '防撤回',
-    from: ['anti-recall', 'chat-messages'],
+    from: ['anti-recall', 'chat-messages', 'chat-interaction'],
   },
   {
     id: 'linked-resources',
@@ -542,10 +583,10 @@ const SECTION_REDIRECTS: Partial<
   Record<SectionId, { section: SettingsPageId; settingId?: string }>
 > = {
   applock: { section: 'privacy', settingId: 'app-lock' },
+  home: { section: 'startup', settingId: 'home-settings' },
   saving: { section: 'weq-storage', settingId: 'default-save' },
   storage: { section: 'weq-storage' },
-  'message-display': { section: 'chat-messages' },
-  'anti-recall': { section: 'chat-messages', settingId: 'anti-recall' },
+  'anti-recall': { section: 'chat-interaction', settingId: 'anti-recall' },
   media: { section: 'accounts', settingId: 'linked-resources' },
   rkey: { section: 'credentials', settingId: 'external-rkey' },
   database: { section: 'database-tolerance' },

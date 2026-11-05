@@ -141,7 +141,7 @@ describe('语音消息转换入口', () => {
   it('设置页使用独立自动开关保存偏好，并沿用设置和菜单样式', async () => {
     expect(
       resolveSettingsTarget({ section: 'chat-messages', settingId: 'auto-transcribe-voice' }),
-    ).toMatchObject({ section: 'chat-messages', item: '语音消息自动转文字' });
+    ).toMatchObject({ section: 'message-display', item: '语音消息自动转文字' });
     expect(settingsGroupFor('chat-messages').label).toBe('基础功能');
     act(() =>
       root.render(

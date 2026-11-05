@@ -8,16 +8,16 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置的两级导航', () => {
-  it('常规先显示启动，再显示主页，启动保留原页面标识', () => {
+  it('常规首项合并为启动与主页，旧主页入口仍能定位', () => {
     expect(settingsGroupFor('startup').sections).toEqual([
       'startup',
-      'home',
       'appearance',
       'global',
       'weq-storage',
       'privacy',
     ]);
-    expect(SETTINGS_PAGE_LABELS.startup).toBe('启动');
+    expect(SETTINGS_PAGE_LABELS.startup).toBe('启动与主页');
+    expect(settingsSectionFor('home')).toBe('startup');
   });
   it('关于包含版本后的配置备份，旧帮助和更新提醒深链归到新页面', () => {
     expect(settingsGroupFor('version').sections).toEqual([
@@ -62,6 +62,8 @@ describe('设置的两级导航', () => {
     expect(settingsGroupFor('database').id).toBe('data');
     expect(settingsGroupFor('mail').sections).toEqual([
       'chat-messages',
+      'message-display',
+      'chat-interaction',
       'call-recording',
       'qzone',
       'mail',

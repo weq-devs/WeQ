@@ -20,13 +20,13 @@ import {
   Bot,
   Bug,
   BrainCircuit,
+  BookOpen,
   Check,
   ChevronRight,
   DatabaseZap,
   Globe,
   HardDrive,
   HelpCircle,
-  House,
   Lock,
   LockKeyhole,
   Mail,
@@ -41,6 +41,7 @@ import {
   ScanText,
   Server,
   Settings2,
+  Send,
   ScanSearch,
   ScrollText,
   Sun,
@@ -49,7 +50,6 @@ import {
   X,
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
-import { HomeSettingsSection } from './settings/HomeSettingsSection';
 import { HelpSection } from './settings/HelpSection';
 import { VersionSection } from './settings/VersionSection';
 import { QzoneSettingsSection } from './settings/QzoneSettingsSection';
@@ -126,7 +126,6 @@ interface SettingsSection {
 }
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
-  { id: 'home', label: '主页', icon: <House size={16} />, render: () => <HomeSettingsSection /> },
   {
     id: 'backup',
     label: '配置备份与恢复',
@@ -357,13 +356,35 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'chat-messages',
-    label: '聊天消息',
+    label: '阅读与未读',
+    icon: <BookOpen size={16} />,
+    render: () => (
+      <>
+        <AppearanceSection page="messages" category="reading" />
+        <AccountBasicsSection page="read" heading={false} />
+      </>
+    ),
+  },
+  {
+    id: 'message-display',
+    label: '消息显示',
     icon: <Monitor size={16} />,
-    render: () => <AppearanceSection page="messages" />,
+    render: () => <AppearanceSection page="messages" category="display" />,
+  },
+  {
+    id: 'chat-interaction',
+    label: '互动与防撤回',
+    icon: <Send size={16} />,
+    render: () => (
+      <>
+        <AppearanceSection page="messages" category="sending" />
+        <TypingStatusSettingsCard />
+      </>
+    ),
   },
   {
     id: 'startup',
-    label: '启动',
+    label: '启动与主页',
     icon: <Power size={16} />,
     render: () => <StartupSection />,
   },
@@ -584,29 +605,19 @@ export function SettingsDialog({
                       <SettingsNavigateContext.Provider
                         value={(section) => setActiveId(section as SettingsPageId)}
                       >
-                        {active.id === 'chat-messages' ? (
+                        {active.id === 'chat-interaction' ? (
                           <>
-                            <div className="weq-set">
-                              <SectionHeader
-                                title="聊天消息"
-                                icon={<Monitor size={16} strokeWidth={1.8} />}
+                            {active.render(onOpenMaintenance)}
+                            <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
+                              <AntiRecallDialog
+                                embedded
+                                onClose={() => {}}
+                                onOpenRecalls={onOpenRecalls}
+                                recallDetails={recallDetails}
+                                onCloseRecalls={onCloseRecalls}
+                                isCurrentSource={isCurrentSource}
                               />
-                            </div>
-                            <AccountBasicsSection page="read" heading={false} />
-                            <TypingStatusSettingsCard />
-                            <div>
-                              <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
-                                <AntiRecallDialog
-                                  embedded
-                                  onClose={() => {}}
-                                  onOpenRecalls={onOpenRecalls}
-                                  recallDetails={recallDetails}
-                                  onCloseRecalls={onCloseRecalls}
-                                  isCurrentSource={isCurrentSource}
-                                />
-                              </SettingsScopeContext.Provider>
-                            </div>
-                            <AppearanceSection page="messages" heading={false} />
+                            </SettingsScopeContext.Provider>
                           </>
                         ) : (
                           active.render(onOpenMaintenance)
@@ -643,9 +654,11 @@ function ModelUsageSection(): ReactElement {
 function AppearanceSection({
   page,
   heading = true,
+  category = 'reading',
 }: {
   page: 'theme' | 'messages';
   heading?: boolean;
+  category?: 'reading' | 'display' | 'sending';
 }): ReactElement {
   const active = useTabActive();
   const preference = useThemeStore((state) => state.preference);
@@ -736,8 +749,26 @@ function AppearanceSection({
     <section className="weq-settings-section">
       {heading && (
         <SectionHeader
-          icon={<Palette size={16} strokeWidth={1.8} />}
-          title={page === 'theme' ? '主题与背景' : '聊天消息'}
+          icon={
+            page === 'theme' ? (
+              <Palette size={16} strokeWidth={1.8} />
+            ) : category === 'reading' ? (
+              <BookOpen size={16} />
+            ) : category === 'sending' ? (
+              <Send size={16} />
+            ) : (
+              <Monitor size={16} />
+            )
+          }
+          title={
+            page === 'theme'
+              ? '主题与背景'
+              : category === 'reading'
+                ? '阅读与未读'
+                : category === 'sending'
+                  ? '互动与防撤回'
+                  : '消息显示'
+          }
         />
       )}
 
@@ -778,260 +809,304 @@ function AppearanceSection({
       )}
       {page === 'messages' && (
         <>
-          <div className="weq-settings-appearance-card" data-setting-id="message-unread-badge">
-            <div className="weq-settings-appearance-head">
-              <strong>在消息图标上显示红点</strong>
-              <Toggle
-                checked={settings.data?.showMessageUnreadBadge ?? true}
-                disabled={!settings.data || setShowMessageUnreadBadge.isLoading}
-                onChange={(enabled) => {
-                  setBadgeError(null);
-                  setShowMessageUnreadBadge.mutate(
-                    { enabled },
-                    {
-                      onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                      onError: (error) => setBadgeError(error.message),
-                    },
-                  );
-                }}
-                label="在消息图标上显示红点"
-              />
-            </div>
-            {badgeError ? <p role="alert">{badgeError}</p> : null}
-          </div>
-          {[
-            {
-              key: 'showContactUnreadCount' as const,
-              settingId: 'contact-unread-count',
-              label: '在联系人界面显示未读消息数',
-              fallback: false,
-              mutation: setShowContactUnreadCount,
-            },
-            {
-              key: 'showGroupAssistantMessageCount' as const,
-              settingId: 'group-assistant-count',
-              label: '群助手显示总消息数',
-              fallback: false,
-              mutation: setShowGroupAssistantMessageCount,
-            },
-            {
-              key: 'readFromFirstUnread' as const,
-              settingId: 'read-first-unread',
-              label: '从第一条新消息开始阅读',
-              fallback: false,
-              mutation: setReadFromFirstUnread,
-            },
-            {
-              key: 'autoFollowLatestMessages' as const,
-              settingId: 'auto-follow-latest-messages',
-              label: '自动跟随最新消息',
-              fallback: true,
-              mutation: setAutoFollowLatestMessages,
-            },
-            {
-              key: 'jumpToLatestAfterSend' as const,
-              settingId: 'jump-latest-after-send',
-              label: '发送消息后定位到最新消息',
-              fallback: true,
-              mutation: setJumpToLatestAfterSend,
-            },
-            {
-              key: 'showScrollToBottomButton' as const,
-              settingId: 'scroll-to-bottom-button',
-              label: '向下滚动时显示定位到底部按钮',
-              fallback: true,
-              mutation: setShowScrollToBottomButton,
-            },
-            {
-              key: 'sendWithQqFont' as const,
-              settingId: 'send-with-qq-font',
-              label: '使用 QQ 账号设置的个性字体发送消息',
-              fallback: true,
-              mutation: setSendWithQqFont,
-            },
-          ].map(({ key, settingId, label, fallback, mutation }) => (
-            <div className="weq-settings-appearance-card" key={key} data-setting-id={settingId}>
-              <div className="weq-settings-appearance-head">
-                <div>
-                  <strong>{label}</strong>
-                  {key === 'readFromFirstUnread' ? (
-                    <span>可能提高阅读过的会话的加载速度</span>
-                  ) : null}
-                </div>
-                <Toggle
-                  checked={settings.data?.[key] ?? fallback}
-                  disabled={!settings.data || mutation.isLoading}
-                  onChange={(enabled) => {
-                    setReadingError(null);
-                    mutation.mutate(
-                      { enabled },
-                      {
-                        onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                        onError: (error) => setReadingError(error.message),
-                      },
-                    );
-                  }}
-                  label={label}
-                />
-              </div>
-            </div>
-          ))}
-          {readingError ? <p role="alert">{readingError}</p> : null}
-          <VoiceAutoTranscribeSetting />
-          <ChatImageCacheSettings />
-          <Card title="自定义消息显示" settingId="custom-message-display">
-            <Row
-              settingId="message-seq"
-              label="显示消息序号（seq）"
-              control={
-                <Toggle
-                  checked={settings.data?.showMessageSeq ?? false}
-                  disabled={!settings.data || setShowMessageSeq.isLoading}
-                  onChange={(enabled) => {
-                    setSeqError(null);
-                    setShowMessageSeq.mutate(
-                      { enabled },
-                      {
-                        onSuccess: () => {
-                          void settings.refetch();
-                        },
-                        onError: (error) => setSeqError(error.message),
-                      },
-                    );
-                  }}
-                  label="显示消息序号（seq）"
-                />
-              }
-            />
-            {seqError ? <p role="alert">{seqError}</p> : null}
-            <Row
-              settingId="message-time"
-              label="显示发送时间（精确到秒）"
-              control={
-                <Toggle
-                  checked={settings.data?.showMessageTime ?? false}
-                  disabled={!settings.data || setShowMessageTime.isLoading}
-                  onChange={(enabled) => {
-                    setSeqError(null);
-                    setShowMessageTime.mutate(
-                      { enabled },
-                      {
-                        onSuccess: () => {
-                          void settings.refetch();
-                        },
-                        onError: (error) => setSeqError(error.message),
-                      },
-                    );
-                  }}
-                  label="显示发送时间（精确到秒）"
-                />
-              }
-            />
-            {[
-              {
-                key: 'showAvatarPendant' as const,
-                settingId: 'avatar-pendant',
-                label: '聊天头像挂件',
-                mutation: setShowAvatarPendant,
-              },
-              {
-                key: 'showMessageBubble' as const,
-                settingId: 'message-bubble',
-                label: '消息气泡',
-                mutation: setShowMessageBubble,
-              },
-              {
-                key: 'showMessageFont' as const,
-                settingId: 'message-font',
-                label: '消息字体',
-                mutation: setShowMessageFont,
-              },
-            ].map(({ key, settingId, label, mutation }) => (
+          {category === 'reading' && (
+            <Card title="未读提醒">
               <Row
-                key={key}
-                settingId={settingId}
-                label={label}
+                settingId="message-unread-badge"
+                label="在消息图标上显示红点"
                 control={
                   <Toggle
-                    checked={
-                      settings.data?.[key] ??
-                      (key === 'showAvatarPendant'
-                        ? true
-                        : (settings.data?.showMsgDecoration ?? true))
-                    }
-                    disabled={!settings.data || mutation.isLoading}
+                    checked={settings.data?.showMessageUnreadBadge ?? true}
+                    disabled={!settings.data || setShowMessageUnreadBadge.isLoading}
                     onChange={(enabled) => {
-                      setSeqError(null);
-                      mutation.mutate(
+                      setBadgeError(null);
+                      setShowMessageUnreadBadge.mutate(
                         { enabled },
                         {
                           onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                          onError: (error) => setSeqError(error.message),
+                          onError: (error) => setBadgeError(error.message),
                         },
                       );
                     }}
-                    label={label}
+                    label="在消息图标上显示红点"
                   />
                 }
               />
-            ))}
-            <QqShowSettings />
-            <Row
-              settingId="text-markdown"
-              label="纯文本消息自动渲染为 Markdown"
-              desc={
-                <>
-                  把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
-                  自己的功能，关闭后默认显示原文，仍可右键手动选择「显示
-                  Markdown」。单条消息的手动选择优先，QQ 原生 Markdown 消息不受影响。
-                </>
-              }
-              control={
-                <Toggle
-                  checked={textMarkdown}
-                  disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
-                  onChange={(next) => void onSetTextMarkdown(next)}
+              {badgeError ? <p role="alert">{badgeError}</p> : null}
+              {[
+                {
+                  key: 'showContactUnreadCount' as const,
+                  settingId: 'contact-unread-count',
+                  label: '在联系人界面显示未读消息数',
+                  mutation: setShowContactUnreadCount,
+                },
+                {
+                  key: 'showGroupAssistantMessageCount' as const,
+                  settingId: 'group-assistant-count',
+                  label: '群助手显示总消息数',
+                  mutation: setShowGroupAssistantMessageCount,
+                },
+              ].map(({ key, settingId, label, mutation }) => (
+                <Row
+                  key={key}
+                  settingId={settingId}
+                  label={label}
+                  control={
+                    <Toggle
+                      checked={settings.data?.[key] ?? false}
+                      disabled={!settings.data || mutation.isLoading}
+                      onChange={(enabled) => {
+                        setReadingError(null);
+                        mutation.mutate(
+                          { enabled },
+                          {
+                            onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
+                            onError: (error) => setReadingError(error.message),
+                          },
+                        );
+                      }}
+                      label={label}
+                    />
+                  }
+                />
+              ))}
+            </Card>
+          )}
+          {(category === 'reading' || category === 'sending') && (
+            <Card title={category === 'reading' ? '阅读与定位' : '发送消息'}>
+              {[
+                {
+                  key: 'readFromFirstUnread' as const,
+                  settingId: 'read-first-unread',
+                  label: '从第一条新消息开始阅读',
+                  fallback: false,
+                  mutation: setReadFromFirstUnread,
+                },
+                {
+                  key: 'autoFollowLatestMessages' as const,
+                  settingId: 'auto-follow-latest-messages',
+                  label: '自动跟随最新消息',
+                  fallback: true,
+                  mutation: setAutoFollowLatestMessages,
+                },
+                {
+                  key: 'jumpToLatestAfterSend' as const,
+                  settingId: 'jump-latest-after-send',
+                  label: '发送消息后定位到最新消息',
+                  fallback: true,
+                  mutation: setJumpToLatestAfterSend,
+                },
+                {
+                  key: 'showScrollToBottomButton' as const,
+                  settingId: 'scroll-to-bottom-button',
+                  label: '向下滚动时显示定位到底部按钮',
+                  fallback: true,
+                  mutation: setShowScrollToBottomButton,
+                },
+                {
+                  key: 'sendWithQqFont' as const,
+                  settingId: 'send-with-qq-font',
+                  label: '使用 QQ 账号设置的个性字体发送消息',
+                  fallback: true,
+                  mutation: setSendWithQqFont,
+                },
+              ]
+                .filter(({ key }) => (key === 'sendWithQqFont') === (category === 'sending'))
+                .map(({ key, settingId, label, fallback, mutation }) => (
+                  <Row
+                    key={key}
+                    settingId={settingId}
+                    label={label}
+                    desc={
+                      key === 'readFromFirstUnread' ? '可能提高阅读过的会话的加载速度' : undefined
+                    }
+                    control={
+                      <Toggle
+                        checked={settings.data?.[key] ?? fallback}
+                        disabled={!settings.data || mutation.isLoading}
+                        onChange={(enabled) => {
+                          setReadingError(null);
+                          mutation.mutate(
+                            { enabled },
+                            {
+                              onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
+                              onError: (error) => setReadingError(error.message),
+                            },
+                          );
+                        }}
+                        label={label}
+                      />
+                    }
+                  />
+                ))}
+            </Card>
+          )}
+          {readingError ? <p role="alert">{readingError}</p> : null}
+          {category === 'display' && (
+            <>
+              <Card title="时间与序号" settingId="custom-message-display">
+                <Row
+                  settingId="message-seq"
+                  label="显示消息序号（seq）"
+                  control={
+                    <Toggle
+                      checked={settings.data?.showMessageSeq ?? false}
+                      disabled={!settings.data || setShowMessageSeq.isLoading}
+                      onChange={(enabled) => {
+                        setSeqError(null);
+                        setShowMessageSeq.mutate(
+                          { enabled },
+                          {
+                            onSuccess: () => {
+                              void settings.refetch();
+                            },
+                            onError: (error) => setSeqError(error.message),
+                          },
+                        );
+                      }}
+                      label="显示消息序号（seq）"
+                    />
+                  }
+                />
+                {seqError ? <p role="alert">{seqError}</p> : null}
+                <Row
+                  settingId="message-time"
+                  label="显示发送时间（精确到秒）"
+                  control={
+                    <Toggle
+                      checked={settings.data?.showMessageTime ?? false}
+                      disabled={!settings.data || setShowMessageTime.isLoading}
+                      onChange={(enabled) => {
+                        setSeqError(null);
+                        setShowMessageTime.mutate(
+                          { enabled },
+                          {
+                            onSuccess: () => {
+                              void settings.refetch();
+                            },
+                            onError: (error) => setSeqError(error.message),
+                          },
+                        );
+                      }}
+                      label="显示发送时间（精确到秒）"
+                    />
+                  }
+                />
+              </Card>
+              <Card title="头像与装扮">
+                {[
+                  {
+                    key: 'showAvatarPendant' as const,
+                    settingId: 'avatar-pendant',
+                    label: '聊天头像挂件',
+                    mutation: setShowAvatarPendant,
+                  },
+                  {
+                    key: 'showMessageBubble' as const,
+                    settingId: 'message-bubble',
+                    label: '消息气泡',
+                    mutation: setShowMessageBubble,
+                  },
+                  {
+                    key: 'showMessageFont' as const,
+                    settingId: 'message-font',
+                    label: '消息字体',
+                    mutation: setShowMessageFont,
+                  },
+                ].map(({ key, settingId, label, mutation }) => (
+                  <Row
+                    key={key}
+                    settingId={settingId}
+                    label={label}
+                    control={
+                      <Toggle
+                        checked={
+                          settings.data?.[key] ??
+                          (key === 'showAvatarPendant'
+                            ? true
+                            : (settings.data?.showMsgDecoration ?? true))
+                        }
+                        disabled={!settings.data || mutation.isLoading}
+                        onChange={(enabled) => {
+                          setSeqError(null);
+                          mutation.mutate(
+                            { enabled },
+                            {
+                              onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
+                              onError: (error) => setSeqError(error.message),
+                            },
+                          );
+                        }}
+                        label={label}
+                      />
+                    }
+                  />
+                ))}
+                <QqShowSettings />
+              </Card>
+              <Card title="文本与链接">
+                <Row
+                  settingId="text-markdown"
                   label="纯文本消息自动渲染为 Markdown"
+                  desc={
+                    <>
+                      把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
+                      自己的功能，关闭后默认显示原文，仍可右键手动选择「显示
+                      Markdown」。单条消息的手动选择优先，QQ 原生 Markdown 消息不受影响。
+                    </>
+                  }
+                  control={
+                    <Toggle
+                      checked={textMarkdown}
+                      disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
+                      onChange={(next) => void onSetTextMarkdown(next)}
+                      label="纯文本消息自动渲染为 Markdown"
+                    />
+                  }
                 />
-              }
-            />
-            <Row
-              settingId="link-preview"
-              label="链接预览卡片"
-              desc={
-                <>
-                  一条消息只有一个链接时，抓取网页标题、简介和封面渲染成卡片。会按链接访问
-                  对应网页（结果本地缓存），关掉后链接仍标蓝可点，但完全不出网。
-                </>
-              }
-              control={
-                <Toggle
-                  checked={linkCard}
-                  disabled={settings.isLoading || setLinkPreview.isLoading}
-                  onChange={(next) => void onSetLinkCard(next)}
+                <Row
+                  settingId="link-preview"
                   label="链接预览卡片"
+                  desc={
+                    <>
+                      一条消息只有一个链接时，抓取网页标题、简介和封面渲染成卡片。会按链接访问
+                      对应网页（结果本地缓存），关掉后链接仍标蓝可点，但完全不出网。
+                    </>
+                  }
+                  control={
+                    <Toggle
+                      checked={linkCard}
+                      disabled={settings.isLoading || setLinkPreview.isLoading}
+                      onChange={(next) => void onSetLinkCard(next)}
+                      label="链接预览卡片"
+                    />
+                  }
                 />
-              }
-            />
-            <Row
-              settingId="link-screenshot"
-              label="无封面时网页截图"
-              desc={
-                <>
-                  网页没提供封面图时，在一个隔离的后台窗口里把它打开并截取首屏当封面。这会
-                  真正运行对方页面的脚本（沙盒内、不落盘、退出即清），默认关闭。
-                </>
-              }
-              control={
-                <Toggle
-                  checked={linkShot}
-                  disabled={!linkCard || settings.isLoading || setLinkPreview.isLoading}
-                  onChange={(next) => void onSetLinkShot(next)}
+                <Row
+                  settingId="link-screenshot"
                   label="无封面时网页截图"
+                  desc={
+                    <>
+                      网页没提供封面图时，在一个隔离的后台窗口里把它打开并截取首屏当封面。这会
+                      真正运行对方页面的脚本（沙盒内、不落盘、退出即清），默认关闭。
+                    </>
+                  }
+                  control={
+                    <Toggle
+                      checked={linkShot}
+                      disabled={!linkCard || settings.isLoading || setLinkPreview.isLoading}
+                      onChange={(next) => void onSetLinkShot(next)}
+                      label="无封面时网页截图"
+                    />
+                  }
                 />
-              }
-            />
-          </Card>
+              </Card>
+              <Card title="语音消息">
+                <VoiceAutoTranscribeSetting />
+              </Card>
+              <ChatImageCacheSettings />
+            </>
+          )}
         </>
       )}
     </section>
