@@ -428,6 +428,7 @@ export class ExportScheduler extends EventEmitter {
       const carryResources = true;
       try {
         const id = await this.deps.taskManager.startTask({
+          autoOpenTaskList: reason === 'manual',
           baselineDirectory:
             !t.chatlab && formats.some((format) => format === 'json' || format === 'jsonl')
               ? t.archives?.[`${c.kind}:${c.id}`]
