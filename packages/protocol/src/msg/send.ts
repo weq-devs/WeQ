@@ -214,7 +214,7 @@ function resolveRouting(params: SendMessageParams): RoutingPlan {
         trans0x211: {
           toUin: params.dataline.selfUin,
           ccCmd: 7,
-          uid: params.dataline.deviceUid,
+          uid: params.dataline.selfUid,
         },
       },
       contentHead: { type: 1, subType: 0 },

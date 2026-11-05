@@ -64,7 +64,10 @@ export function useQQWriteSession(scope: string) {
       state.hasA2 &&
       state.hasD2 &&
       state.hasD2Key &&
-      state.hasGuid,
+      state.hasGuid &&
+      state.ssoReady &&
+      state.source?.expectedAccountUin === binding.expectedAccountUin &&
+      state.source.expectedAccountConfigId === binding.expectedAccountConfigId,
   );
   const utils = trpc.useUtils();
 
