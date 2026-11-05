@@ -6391,7 +6391,9 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     const uids: string[] = [];
     for (const contact of recentContactsData) {
-      const ids = previewIdentityIds(contact.preview).filter((id) => id.startsWith('u_'));
+      const ids = previewIdentityIds(contact.preview, contact.senderUid).filter((id) =>
+        id.startsWith('u_'),
+      );
       uids.push(...ids);
       if (chatTypeKind(contact.chatType) === 'group' && /^\d+$/.test(contact.targetUid))
         resolvePreviewMembers(contact.targetUid, ids, new Set(), () => true);
