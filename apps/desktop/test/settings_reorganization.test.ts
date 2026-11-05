@@ -130,6 +130,16 @@ describe('设置归位后的实际页面', () => {
       for (const id of ['app-lock', 'unlock-method', 'auto-lock', 'privacy-mode']) {
         expect(f.body().querySelector(`[data-setting-id="${id}"]`)).not.toBeNull();
       }
+      const appLock = f.body().querySelector('[data-setting-id="app-lock"]')!;
+      expect(appLock.classList.contains('weq-set-card')).toBe(true);
+      expect(appLock.querySelector('.weq-set-card')).toBeNull();
+      for (const id of ['unlock-method', 'auto-lock']) {
+        expect(appLock.querySelector(`[data-setting-id="${id}"]`)).not.toBeNull();
+      }
+      expect(appLock.textContent).toContain('WeQ 验证器');
+      expect(appLock.querySelector('[aria-label="启用应用锁"]')).not.toBeNull();
+      expect(appLock.querySelector('button')?.closest('.weq-set-card')).toBe(appLock);
+      expect(f.body().querySelectorAll('.weq-set-card')).toHaveLength(2);
       f.render('backup');
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
         '关于 WeQ',
