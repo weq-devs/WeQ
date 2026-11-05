@@ -278,23 +278,6 @@ html[data-component-style='qqnt'][data-theme]
 
 html[data-component-style='qqnt'][data-theme]
   body
-  :is(.weq-set-btn, .primary-button, .secondary-button, .composer-send) {
-  min-height: 30px;
-  padding: 5px 11px;
-  font-size: 14px;
-  line-height: 18px;
-}
-
-html[data-component-style='qqnt'][data-theme]
-  body
-  :is(.weq-set-btn, .primary-button, .secondary-button, .composer-send):hover:not(:disabled) {
-  box-shadow: none;
-  transform: none;
-  filter: brightness(0.96);
-}
-
-html[data-component-style='qqnt'][data-theme]
-  body
   :is(.conversation-row, .contact-row):not(.is-multiselected) {
   border-radius: 8px;
 }
@@ -349,15 +332,17 @@ html[data-component-style='qqnt'][data-theme]
 [data-component-preview='qqnt'] .weq-style-preview-input {
   border-radius: 8px;
 }
+[data-component-preview='qqnt'] .weq-style-preview-button {
+  border-radius: 6px;
+  border-color: var(--weq-border-strong);
+  background: var(--weq-bg-surface);
+}
+[data-component-preview='qqnt'] .weq-style-preview-button.is-primary {
+  border-color: var(--weq-accent-solid);
+  background: var(--weq-accent-solid);
+}
 [data-component-preview='qqnt'] .weq-style-preview-item {
   border-radius: 6px;
-}
-
-html[data-component-style='qqnt'][data-theme][data-density='compact']
-  body
-  :is(.weq-set-btn, .primary-button, .secondary-button, .composer-send) {
-  min-height: 28px;
-  padding-block: 4px;
 }
 
 @media (max-width: 760px), (pointer: coarse) {
@@ -390,25 +375,5 @@ html[data-component-style='qqnt'][data-theme][data-density='compact']
     --weq-qqnt-row-content-height: 36px;
     --weq-qqnt-row-title-line: 18px;
     --weq-qqnt-row-preview-line: 14px;
-  }
-  html[data-component-style='qqnt'][data-theme][data-density]
-    body
-    :is(
-      .weq-set-btn,
-      .primary-button,
-      .secondary-button,
-      .composer-send,
-      .composer-send-expanded,
-      .composer-tools .composer-mobile-tool
-    ) {
-    min-height: 44px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  html[data-component-style='qqnt'][data-theme]
-    body
-    :is(.weq-set-btn, .primary-button, .secondary-button, .composer-send) {
-    transition: none;
   }
 }

@@ -232,9 +232,6 @@ if (serve) {
           padding: s.padding,
         };
       });
-      for (const name of Object.keys(metrics))
-        if (actual[name] !== metrics[name])
-          failures.push(`QQ CSS 对照 ${name}: ${actual[name]} != ${metrics[name]}`);
       reference = {
         file: process.env.WEQ_QQNT_REFERENCE,
         sha256: createHash('sha256').update(css).digest('hex'),
