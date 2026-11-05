@@ -5212,7 +5212,7 @@ function MainWorkspace(): ReactElement {
         .then((draft) =>
           setMergeForwardDraft({
             draft:
-              c.kind === 'group'
+              c.type === 'group'
                 ? { ...draft, title: draft.title || draftTitle(draft.nodes, 'group') }
                 : draft,
             senderMode: 'conversation',
