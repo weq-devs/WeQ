@@ -112,6 +112,32 @@ try {
                     ];
                   });
                 let classicUnchanged = true;
+                let qqntButtonsMatchClassic = true;
+                if (value === 'qqnt') {
+                  const signature = () =>
+                    [...document.querySelectorAll('.appearance-controls button')].map((node) => {
+                      const style = getComputedStyle(node);
+                      return [
+                        style.borderRadius,
+                        style.borderWidth,
+                        style.padding,
+                        style.minHeight,
+                        style.height,
+                        style.fontSize,
+                        style.lineHeight,
+                        style.boxShadow,
+                        style.transform,
+                        style.filter,
+                      ];
+                    });
+                  const actual = JSON.stringify(signature());
+                  document.documentElement.dataset.componentStyle = 'classic';
+                  try {
+                    qqntButtonsMatchClassic = actual === JSON.stringify(signature());
+                  } finally {
+                    document.documentElement.dataset.componentStyle = value;
+                  }
+                }
                 if (value === 'classic') {
                   const actual = JSON.stringify(classicSignature());
                   delete document.documentElement.dataset.componentStyle;
@@ -192,6 +218,7 @@ try {
                       compositeBackground('.weq-set-btn'),
                     ) >= 4.5,
                   classicUnchanged,
+                  qqntButtonsMatchClassic,
                   selectionContrast:
                     window.appearanceQa.contrastRatio(
                       pixel(css('.conversation-row.active .row-main strong').color),
@@ -214,7 +241,10 @@ try {
                       css('.conversation-row.active').backgroundColor === primary.backgroundColor),
                   qqntContract:
                     value !== 'qqnt' ||
-                    (primary.borderRadius === '4px' &&
+                    (primary.borderRadius === '7px' &&
+                      css(`${preview} .weq-style-preview-button`).borderRadius ===
+                        css('[data-component-preview="classic"] .weq-style-preview-button')
+                          .borderRadius &&
                       css('.weq-input').borderRadius === '8px' &&
                       css('.weq-directory-scope-menu').borderRadius === '8px' &&
                       css('.conversation-row.active').boxShadow ===

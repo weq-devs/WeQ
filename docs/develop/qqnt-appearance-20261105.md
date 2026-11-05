@@ -12,7 +12,7 @@
 
 | 对照对象 | 来源 | 实现 |
 | --- | --- | --- |
-| 普通按钮 | `pcqqkit.5360bf66.css` 的 `.q-button` | 圆角 4px，字号 14px，行高 18px，padding 5px 11px |
+| 普通按钮 | WeQ 经典预设的基础按钮样式 | 复用经典的圆角、尺寸、边框与交互效果，不再覆盖为 QQ 原生按钮几何 |
 | 输入框外壳 | 同文件 `.q-input` | 圆角 8px；焦点使用 WeQ 自定义主题色 |
 | 消息容器 | `31999.fc7b6fa1.css` / `78733.5e70559e.css` 的 `.msg-content-container` | 普通文本气泡圆角 12px；媒体、语音、卡片和纯代码不套此规则 |
 | 会话选中态 | 本机实际深浅界面及用户对照截图 | 中性灰表面，内缩 2px，不沿用经典预设的主题色侧边高亮 |
@@ -49,7 +49,7 @@ node apps/desktop/test/browser/run-qqnt-appearance.mjs
 
 可用 `WEQ_PLAYWRIGHT_IMPORT` 指向已有 Playwright，`WEQ_BROWSER_EXECUTABLE` 指定本机 Chromium 系浏览器，
 `WEQ_APPEARANCE_ARTIFACTS` 指定本地截图和 JSON 报告目录。
-`WEQ_QQNT_REFERENCE` 可指向本机提取的 `pcqqkit.5360bf66.css`，浏览器会独立渲染原始 QQ 按钮和输入框，与 WeQ 对照几何值，并记录原 CSS 的 SHA-256。
+`WEQ_QQNT_REFERENCE` 可指向本机提取的 `pcqqkit.5360bf66.css`，浏览器会独立渲染原始 QQ 按钮和输入框，记录几何值和原 CSS 的 SHA-256；按钮现已按用户要求改为经典样式，不再要求与 QQ 原始按钮相同。
 无该变量时仍执行界面回归，但不宣称做过原始 CSS 数值对照。
 
 整页夹具使用真实 `AppRail`、`ConversationList` 和 `ChatPane`，仅数据与后端替换为离线夹具。
