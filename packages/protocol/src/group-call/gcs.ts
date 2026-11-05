@@ -50,10 +50,21 @@ export interface GroupGcsHead {
   seq: number;
   /** `f3`：自己 uin。 */
   selfUin: number;
-  /** `f4`：认证后的会话时间戳；认证前为 0。 */
-  sessionTs: number;
-  /** `f5`：认证后的另一个单调值；认证前为 0。 */
-  clock: number;
+  /**
+   * `f4`：**流标识的前 4 字节**（大端）。
+   *
+   * 实测：流标识 `18 b6 06 aa 47 32 00` → `f4 = 0x18b606aa`；
+   * 另一通 `18 57 06 aa 67 7e 00` → `f4 = 0x185706aa`。
+   * 入房包**必须**带上它，发 0 服务端不认（这是之前入不了房的原因）。
+   */
+  streamPrefix: number;
+  /**
+   * `f5`：**流标识的第 5-6 字节左移 16 位再加 1**。
+   *
+   * 实测：`47 32` → `0x47320001`；`67 7e` → `0x677e0001`。
+   * 与 {@link streamPrefix} 一起由 {@link buildGroupGcsHead} 从流标识推出。
+   */
+  streamSuffix: number;
   /** `f6`：当前会话密钥（88B）；k2 下发后就是 k2。 */
   key: Uint8Array | null;
   /** `f7`：恒 15。 */
@@ -107,8 +118,8 @@ export function parseGroupGcsPacket(data: Uint8Array): GroupGcsPacket | null {
       sessionId: pbGetVarint(inner, 1) ?? 0,
       seq: pbGetVarint(inner, 2) ?? 0,
       selfUin: pbGetVarint(inner, 3) ?? 0,
-      sessionTs: pbGetVarint(inner, 4) ?? 0,
-      clock: pbGetVarint(inner, 5) ?? 0,
+      streamPrefix: pbGetVarint(inner, 4) ?? 0,
+      streamSuffix: pbGetVarint(inner, 5) ?? 0,
       key: pbGetBytes(inner, 6) ?? null,
       f7: pbGetVarint(inner, 7) ?? 0,
       f8: pbGetVarint(inner, 8) ?? 0,
@@ -128,6 +139,28 @@ export function parseGroupGcsPacket(data: Uint8Array): GroupGcsPacket | null {
 }
 
 /**
+ * 从 7 字节流标识推出 head 的 `f4` / `f5`。
+ *
+ * ```text
+ * stream = 18 b6 06 aa 47 32 00
+ * f4 = 0x18b606aa        （前 4 字节）
+ * f5 = 0x47320001        （第 5-6 字节 << 16 | 1）
+ * ```
+ *
+ * 两通抓包各自验证过。入房包必须带上这两个值，发 0 服务端不会回包。
+ */
+export function gcsFieldsFromStream(stream: Uint8Array): {
+  streamPrefix: number;
+  streamSuffix: number;
+} {
+  if (stream.length !== 7) throw new RangeError(`流标识必须是 7 字节，收到 ${stream.length}`);
+  return {
+    streamPrefix: ((stream[0]! << 24) | (stream[1]! << 16) | (stream[2]! << 8) | stream[3]!) >>> 0,
+    streamSuffix: (((stream[4]! << 8) | stream[5]!) << 16 | 1) >>> 0,
+  };
+}
+
+/**
  * 组 inner head。
  *
  * **字段顺序必须与抓包一致**：f1…f8、f11、f13、f16、f19…f23，最后才是未建模字段。
@@ -141,8 +174,8 @@ export function buildGroupGcsHead(head: GroupGcsHead): Uint8Array {
     pbVarint(1, head.sessionId),
     pbVarint(2, head.seq),
     pbVarint(3, head.selfUin),
-    pbVarint(4, head.sessionTs),
-    pbVarint(5, head.clock),
+    pbVarint(4, head.streamPrefix),
+    pbVarint(5, head.streamSuffix),
   ];
   if (head.key && head.key.length > 0) parts.push(pbBytes(6, head.key));
   parts.push(pbVarint(7, head.f7), pbVarint(8, head.f8));
