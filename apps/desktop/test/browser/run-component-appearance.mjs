@@ -53,8 +53,8 @@ try {
   const output = process.env.WEQ_APPEARANCE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   const failures = [];
-  if (styles.map((style) => style.value).join(',') !== 'classic,minimal,retro,qqnt')
-    failures.push('必须保留经典默认，以及简约、复古、QQ NT 三套预设');
+  if (styles.map((style) => style.value).join(',') !== 'qqnt,classic,minimal,retro')
+    failures.push('QQ NT 默认风格必须排在首位，并保留经典、简约、复古预设');
   let cases = 0;
   for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 920 });
@@ -250,7 +250,7 @@ try {
   await page.keyboard.press('ArrowRight');
   if (
     (await page
-      .getByRole('radio', { name: '经典（默认）', exact: true })
+      .getByRole('radio', { name: styles[0].label, exact: true })
       .getAttribute('aria-checked')) !== 'true'
   )
     failures.push('键盘循环选择');
