@@ -13,6 +13,7 @@ import { BaselinePicker } from '../src/renderer/src/views/export/BaselinePicker'
 
 const f = vi.hoisted(() => ({
   armed: false,
+  capture: { available: true, elevated: false, longTermAuthorized: false },
   access: {
     qqOnline: true,
     attachEnabled: true,
@@ -59,7 +60,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     },
     wonderfulTools: {
-      captureSupport: { query: async () => ({ available: true, elevated: false }) },
+      captureSupport: { query: async () => ({ ...f.capture }) },
     },
     bootstrap: {
       getSettings: {
@@ -80,6 +81,7 @@ vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   f.armed = false;
+  f.capture = { available: true, elevated: false, longTermAuthorized: false };
   f.access = {
     qqOnline: true,
     attachEnabled: true,
@@ -88,7 +90,7 @@ beforeEach(() => {
     hasD2Key: true,
     hasGuid: true,
   };
-  f.arm.mockClear();
+  f.arm.mockReset().mockResolvedValue({});
   f.baselines = [
     {
       directory: '/synthetic/baseline/.weq-export',
@@ -216,6 +218,97 @@ it('长期授权已连接时仍准备在线功能，但不再提示重复提权'
     armed: false,
   });
   expect(plan).toMatchObject({ capture: true, needed: true, elevate: false });
+});
+
+it.each(['longTermAuthorized', 'elevated'] as const)(
+  '%s 免密抓包直接准备并导出，不显示确认窗口，关闭时释放本次会话',
+  async (capability) => {
+    f.capture[capability] = true;
+    f.arm.mockImplementationOnce(async () => {
+      f.armed = true;
+      return {};
+    });
+    const view = mount();
+    try {
+      await flush();
+      expect(view.host.textContent).not.toContain('需要提权');
+      expect(f.arm).not.toHaveBeenCalled();
+      click(view.host, '导出');
+      await flush();
+      expect(f.arm).toHaveBeenCalledOnce();
+      expect(view.host.querySelector('[role="dialog"]')).toBeNull();
+      expect(view.result).toHaveBeenCalledWith(expect.objectContaining({ onlineTranscribe: true }));
+    } finally {
+      view.close();
+    }
+    expect(f.disarm).toHaveBeenCalledOnce();
+  },
+);
+
+it('免密准备失败时显示错误并允许跳过，不直接提交导出', async () => {
+  f.capture.longTermAuthorized = true;
+  f.arm.mockRejectedValueOnce(new Error('合成抓包失败'));
+  const view = mount();
+  try {
+    await flush();
+    click(view.host, '导出');
+    await flush();
+    expect(view.host.querySelector('[role="alert"]')?.textContent).toBe('合成抓包失败');
+    expect(view.result).not.toHaveBeenCalled();
+    click(view.host, '跳过需提权项目');
+    await flush();
+    expect(view.result).toHaveBeenCalledWith(expect.objectContaining({ onlineTranscribe: false }));
+  } finally {
+    view.close();
+  }
+});
+
+it('免密准备尚未完成就关闭时，不提交导出并释放随后就绪的会话', async () => {
+  f.capture.longTermAuthorized = true;
+  let finishArm: (() => void) | undefined;
+  f.arm.mockImplementationOnce(async () => {
+    await new Promise<void>((done) => {
+      finishArm = done;
+    });
+    f.armed = true;
+    return {};
+  });
+  const view = mount();
+  await flush();
+  click(view.host, '导出');
+  await flush();
+  expect(f.arm).toHaveBeenCalledOnce();
+  expect(view.host.querySelector('[role="dialog"]')).toBeNull();
+  expect(view.result).not.toHaveBeenCalled();
+  view.close();
+  finishArm?.();
+  await flush();
+  expect(f.disarm).toHaveBeenCalledOnce();
+  expect(view.result).not.toHaveBeenCalled();
+});
+
+it('权限助手失效回退密码请求时显示授权表单', async () => {
+  f.capture.longTermAuthorized = true;
+  let rejectArm: ((error: Error) => void) | undefined;
+  f.arm.mockImplementationOnce(async () => {
+    useRestrictedMode
+      .getState()
+      .request({ kind: 'password', token: 31, title: '导出抓包', message: 'synthetic' });
+    return await new Promise((_resolve, reject) => {
+      rejectArm = reject;
+    });
+  });
+  const view = mount();
+  try {
+    await flush();
+    click(view.host, '导出');
+    await flush();
+    expect(view.host.querySelector('[role="dialog"] input[type="password"]')).not.toBeNull();
+    expect(view.result).not.toHaveBeenCalled();
+  } finally {
+    rejectArm?.(new Error('cleanup'));
+    view.close();
+  }
 });
 
 it('提权请求在当前弹窗显示，跳过取消本次密码请求但保留已有请求', async () => {
