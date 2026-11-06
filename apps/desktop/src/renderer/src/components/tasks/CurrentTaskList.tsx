@@ -143,7 +143,7 @@ export function CurrentTaskList({
             {task.status === 'done' && onOpenClone ? (
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-soft"
                 onClick={() => onOpenClone(task.personaId)}
               >
                 <Users size={14} />
@@ -152,7 +152,7 @@ export function CurrentTaskList({
             ) : null}
             <button
               type="button"
-              className="weq-set-btn"
+              className="weq-set-btn weq-set-btn-soft"
               disabled={task.status === 'running'}
               onClick={() => dismissCloneTask(task.personaId)}
             >
@@ -263,9 +263,9 @@ export function CurrentTaskList({
           <div className="weq-long-task-actions">
             <button
               type="button"
-              className="weq-set-btn"
+              className="weq-set-btn weq-set-btn-soft"
               disabled={revealFlash.isLoading}
-              onClick={() => revealFlash.mutate()}
+              onClick={() => revealFlash.mutate({ taskId: task.id })}
             >
               <FolderOpen size={14} />
               打开下载目录
@@ -273,7 +273,7 @@ export function CurrentTaskList({
             {running || task.status === 'pending' ? (
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-soft"
                 disabled={cancelFlash.isLoading}
                 onClick={() => cancelFlash.mutate({ taskId: task.id })}
               >
@@ -408,21 +408,25 @@ export function CurrentTaskList({
         </span>
         <div className="weq-current-tasks-actions">
           {exports.some((task) => task.status === 'completed') ? (
-            <button type="button" className="weq-set-btn" onClick={onSaveAll}>
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft"
+              title="全部保存"
+              aria-label="全部保存"
+              onClick={onSaveAll}
+            >
               <Download size={14} />
-              全部保存
             </button>
           ) : null}
           <button
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-soft"
             title="清除已完成任务"
             aria-label="清除已完成任务"
             disabled={clearing || loading || !cleanupBinding || !completed.length}
             onClick={() => void clearCompleted()}
           >
             <Trash2 size={14} />
-            清除已完成
           </button>
         </div>
       </header>

@@ -14,7 +14,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AntiRecallDb } from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 
@@ -33,6 +33,7 @@ const LOG_DDL = `CREATE TABLE IF NOT EXISTS weq_recall_log (
 let dir: string;
 let dbPath: string;
 let db: AntiRecallDb;
+let nt: ReturnType<typeof createSqliteStub>;
 
 afterEach(() => {
   db.close();
@@ -46,7 +47,8 @@ function createFixture(withLogTable: boolean): void {
   dbPath = join(dir, 'nt_msg.db');
   const sql = fixtureDb(dbPath);
   if (withLogTable) sql.exec(LOG_DDL);
-  db = new AntiRecallDb(createSqliteStub(), { dbPath, key: 'fixture-key' });
+  nt = createSqliteStub();
+  db = new AntiRecallDb(nt, { dbPath, key: 'fixture-key' });
 }
 
 function insertRow(
@@ -71,6 +73,37 @@ function insertRow(
 }
 
 describe('AntiRecallDb recall log (offline fixture)', () => {
+  it('私聊与数据线标记合为一页查询，只探测一次表且保持会话和 ID 隔离', async () => {
+    createFixture(true);
+    const large = 7695126900078041334n;
+    insertRow(10, 'c2c', 'u_peer', 10);
+    insertRow(large, 'dataline', 'u_peer', 30);
+    insertRow(12, 'group', 'u_peer', 40);
+    insertRow(13, 'c2c', 'u_other', 50);
+    insertRow(14, 'c2c', 'u_peer', 60);
+    const execute = vi.spyOn(nt, 'executeSql');
+    const rows = await db.listRecalls(['c2c', 'dataline', 'c2c'], 'u_peer', [10n, large, 12n, 13n]);
+    expect(rows.map((row) => row.msgid)).toEqual([String(large), '10']);
+    expect(execute).toHaveBeenCalledTimes(2);
+    execute.mockClear();
+    expect(await db.listRecalls([], 'u_peer', [10n])).toEqual([]);
+    expect(await db.listRecalls(['c2c', 'dataline'], 'u_peer', [])).toEqual([]);
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it('合并标记读取保留分批和全量顺序，缺表之后新建表仍可立即读取', async () => {
+    createFixture(false);
+    expect(await db.listRecalls(['c2c', 'dataline'], 'u_peer')).toEqual([]);
+    fixtureDb(dbPath).exec(LOG_DDL);
+    for (let i = 1; i <= 270; i++) insertRow(i, i % 2 ? 'c2c' : 'dataline', 'u_peer', i);
+    const ids = Array.from({ length: 270 }, (_, i) => BigInt(i + 1));
+    const execute = vi.spyOn(nt, 'executeSql');
+    const rows = await db.listRecalls(['c2c', 'dataline'], 'u_peer', [...ids, 1n]);
+    expect(rows).toHaveLength(ids.length);
+    expect(rows[0]?.msgid).toBe('270');
+    expect(rows.at(-1)?.msgid).toBe('1');
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(await db.listRecalls(['c2c', 'dataline'], 'u_peer')).toEqual(rows);
+  });
   it('表不存在时三处读法都优雅返回空（用户从没开过防撤回）', async () => {
     createFixture(false);
 

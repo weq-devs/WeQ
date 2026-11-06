@@ -64,7 +64,10 @@ export function useQQWriteSession(scope: string) {
       state.hasA2 &&
       state.hasD2 &&
       state.hasD2Key &&
-      state.hasGuid,
+      state.hasGuid &&
+      state.ssoReady &&
+      state.source?.expectedAccountUin === binding.expectedAccountUin &&
+      state.source.expectedAccountConfigId === binding.expectedAccountConfigId,
   );
   const utils = trpc.useUtils();
 
@@ -102,7 +105,7 @@ export function useQQWriteSession(scope: string) {
     const toast = useToast.getState();
     let toastId: number | undefined;
     const finish = (title: string, tone: 'success' | 'warning' | 'error' | 'info') => {
-      const durationKind = tone === 'success' ? 'success' : 'failure';
+      const durationKind = tone === 'success' || tone === 'info' ? 'success' : 'failure';
       if (toastId === undefined) toastId = toast.push({ title, tone, durationKind });
       else toast.update(toastId, { title, tone, durationKind, loading: false });
     };

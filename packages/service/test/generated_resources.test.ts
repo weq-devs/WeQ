@@ -18,6 +18,7 @@ import {
 import type { GeneratedContentSnapshot } from '../src/account/generated_content';
 import { ExportTaskManager } from '../src/account/export/task_manager';
 import type { MsgService } from '../src/account/msg';
+import { object, readArchiveFile } from '../src/account/export/archive';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -147,15 +148,26 @@ it('实际多格式包复制选中资源一次，保留原记录并以相对路�
     expect(readFileSync(join(task.bundleDir!, entry.path), 'utf8')).toMatch(/^synthetic-/);
     expect(readFileSync(join(task.save!.path!, entry.path), 'utf8')).toMatch(/^synthetic-/);
   }
-  const json = JSON.parse(readFileSync(task.filePath!, 'utf8'));
-  expect(json.messages).toEqual(input.messages);
-  expect(json.resources).toEqual(manifest);
-  const lines = readFileSync(task.filePath!.replace(/\.json$/, '.jsonl'), 'utf8')
-    .trim()
-    .split('\n')
-    .map((line) => JSON.parse(line));
-  expect(lines[0].resources.complete).toBe(true);
-  expect(lines[1].resources.complete).toBe(false);
+  for (const format of ['json', 'jsonl'] as const) {
+    const { archive } = await readArchiveFile(
+      task.filePath!.replace(/\.json$/, `.${format}`),
+      format,
+    );
+    expect(archive.records.map((record) => record.data.messageId)).toEqual(
+      input.messages.map((message) => message.id),
+    );
+    expect(
+      archive.records.map((record) => object((record.data.content as unknown[])[0]).text),
+    ).toEqual(input.messages.map((message) => message.text));
+    expect(archive.resources.filter((resource) => resource.status === 'saved')).toHaveLength(2);
+    expect(archive.resources.filter((resource) => resource.status === 'missing')).toHaveLength(1);
+    for (const resource of archive.resources.filter((resource) => resource.status === 'saved')) {
+      expect(resource.path).not.toContain(dir);
+      expect(readFileSync(join(task.bundleDir!, String(resource.path)), 'utf8')).toMatch(
+        /^synthetic-/,
+      );
+    }
+  }
   expect(readFileSync(task.filePath!.replace(/\.json$/, '.txt'), 'utf8')).toContain('resources/');
   expect(manager.listTasks()[0]).not.toHaveProperty('generatedResourceCache');
   expect(manager.listTasks()[0]).not.toHaveProperty('generatedResourceReport');

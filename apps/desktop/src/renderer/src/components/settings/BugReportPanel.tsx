@@ -35,6 +35,7 @@ import {
 import { Streamdown } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { trpc, client } from '../../trpc/client';
+import { openExternalLink } from '../../lib/openExternalLink';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
@@ -282,7 +283,7 @@ export function BugReportPanel(): ReactElement {
     if (b) params.set('body', b);
     const query = params.toString();
     const url = query ? `${REPO_ISSUES}/new?${query}` : REPO_ISSUES;
-    const res = await client.help.openExternal.mutate({ url });
+    const res = await openExternalLink(url);
     if (!res.ok) {
       pushToast({ tone: 'error', title: '打开 GitHub 失败', detail: res.error });
     } else {
@@ -319,7 +320,7 @@ export function BugReportPanel(): ReactElement {
           },
         );
         if (ok) {
-          await client.help.openExternal.mutate({ url: 'https://cli.github.com/' });
+          await openExternalLink('https://cli.github.com/');
         }
         return;
       }
@@ -365,7 +366,7 @@ export function BugReportPanel(): ReactElement {
         return;
       }
       const folderRes = await client.help.openFolder.mutate({ path: res.folder ?? '' });
-      const linkRes = await client.help.openExternal.mutate({ url: QQ_DEEP_LINK });
+      const linkRes = await openExternalLink(QQ_DEEP_LINK);
       const parts: string[] = [];
       if (res.errors && res.errors.length > 0)
         parts.push(`部分文件未打包：${res.errors.join('；')}`);
@@ -405,7 +406,7 @@ export function BugReportPanel(): ReactElement {
             <button
               type="button"
               className="weq-help-inline"
-              onClick={() => void client.help.openExternal.mutate({ url: REPO_ISSUES })}
+              onClick={() => void openExternalLink(REPO_ISSUES)}
             >
               GitHub issue
             </button>{' '}

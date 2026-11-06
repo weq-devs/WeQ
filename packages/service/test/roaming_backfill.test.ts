@@ -97,6 +97,40 @@ function setup(seqs = [100n, 1n]) {
   return { path, manager, deps, fetch, history, make, done };
 }
 
+it('维护关闭等待在途漫游请求结束，不在返回后继续写任务快照', async () => {
+  const f = setup([3n, 1n]);
+  let release!: (result: GapFetchResult) => void;
+  const started = new Promise<void>((ready) => {
+    f.fetch.mockImplementationOnce(() => {
+      ready();
+      return new Promise<GapFetchResult>((resolve) => {
+        release = resolve;
+      });
+    });
+  });
+  const job = await f.manager.plan(options());
+  f.manager.start(job.id);
+  await started;
+  let closed = false;
+  const closing = f.manager.close().then(() => {
+    closed = true;
+  });
+  await Promise.resolve();
+  expect(closed).toBe(false);
+  release({
+    ok: true,
+    messages: [message(2)],
+    nextStartSeq: null,
+    fetched: 1,
+    networkRequested: true,
+  });
+  await closing;
+  expect(closed).toBe(true);
+  const snapshot = readFileSync(f.path, 'utf8');
+  await f.done();
+  expect(readFileSync(f.path, 'utf8')).toBe(snapshot);
+});
+
 describe('removed SDK transport', () => {
   it('rejects new SDK plans before reading sources or sending requests', async () => {
     const f = setup();

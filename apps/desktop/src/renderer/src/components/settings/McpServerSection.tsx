@@ -285,7 +285,7 @@ export function McpServerSection(): ReactElement {
           errors.map((e) => `${e.name}：${e.message ?? '未知错误'}`).join('\n'),
         );
       } else if (result.results.length === 0) {
-        pushToast({ tone: 'info', durationKind: 'failure', title: '没有可安装的客户端' });
+        pushToast({ tone: 'info', durationKind: 'success', title: '没有可安装的客户端' });
       } else {
         const parts: string[] = [];
         if (ok) parts.push(`${ok} 个成功`);

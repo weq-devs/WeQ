@@ -275,6 +275,13 @@ export class DressService {
     return Boolean(this.cache.getPendantSidecar(itemId));
   }
 
+  localBubble(itemId: number): BubbleSkin | null {
+    return this.cache.getBubbleSkin(itemId);
+  }
+  localPendant(itemId: number) {
+    return this.cache.getPendantSidecar(itemId);
+  }
+
   /** 切换生效的装扮。 */
   setActive(kind: 'bubble' | 'font' | 'widget', itemId: number): DressManifest {
     this.config.setActive(kind, itemId);
@@ -347,13 +354,13 @@ export class DressService {
   }
 
   /** 一款气泡的原始 config.json 字节（导出装扮打包用）。 */
-  bubbleConfig(itemId: number): Promise<Buffer | null> {
-    return this.cache.bubbleConfigFile(itemId);
+  bubbleConfig(itemId: number, localOnly = false): Promise<Buffer | null> {
+    return this.cache.bubbleConfigFile(itemId, localOnly);
   }
 
   /** 一款挂件的静态底图路径（动画帧拿不到时的兜底）。 */
-  pendantStaticFile(itemId: number): Promise<string | null> {
-    return this.cache.pendantStaticFile(itemId);
+  pendantStaticFile(itemId: number, localOnly = false): Promise<string | null> {
+    return this.cache.pendantStaticFile(itemId, localOnly);
   }
 
   /**

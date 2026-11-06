@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { pickAccountFile } from '../../lib/accountFilePicker';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { refreshUserAvatar } from '../../hooks/useAvatarUrl';
@@ -57,7 +58,6 @@ export function SelfQQControls() {
   const patch = trpc.account.qqWrite.selfProfile.useMutation();
   const avatar = trpc.account.qqWrite.selfAvatar.useMutation();
   const online = trpc.account.qqWrite.onlineStatus.useMutation();
-  const picker = trpc.account.pickSendFile.useMutation();
   const faces = trpc.account.getSystemFaces.useQuery(undefined, { staleTime: 60_000 });
   const [revision, setRevision] = useState(0);
   const [picking, setPicking] = useState(false);
@@ -146,7 +146,7 @@ export function SelfQQControls() {
     setPicking(true);
     setError('');
     try {
-      const file = await picker.mutateAsync({ kind: 'image' });
+      const file = await pickAccountFile('image', session.binding ?? undefined);
       if (file && currentIdentity.current === capturedIdentity) {
         const saved = await act(
           (binding) => avatar.mutateAsync({ ...binding, source: file.path }),

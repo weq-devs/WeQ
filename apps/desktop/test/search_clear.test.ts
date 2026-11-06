@@ -14,6 +14,48 @@ vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));
 vi.mock('../src/renderer/src/components/QQExactLookup', () => ({ QQExactLookup: () => null }));
 afterEach(() => vi.unstubAllGlobals());
 
+it.each([true, false])('点击外部空白使搜索框失焦，再次聚焦可重新展开（常驻：%s）', (persistent) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const onSearchFocus = vi.fn();
+  try {
+    act(() =>
+      root.render(
+        h(TitleBarSearch, {
+          persistent,
+          query: '合成',
+          onQueryChange: vi.fn(),
+          onSearchFocus,
+          results: h('div', { 'data-search-fixture': true }, '合成结果'),
+        }),
+      ),
+    );
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());
+    const input = host.querySelector('input')!;
+    expect(document.activeElement).toBe(input);
+    for (const target of [input, document.querySelector('[data-search-fixture]')!]) {
+      act(() => target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+      expect(document.activeElement).toBe(input);
+      expect(document.querySelector('.weq-titlebar-search-results')).not.toBeNull();
+    }
+    // 空白区域不可聚焦，不能依赖浏览器默认行为转移输入焦点。
+    act(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+    expect(document.activeElement).not.toBe(input);
+    expect(document.querySelector('.weq-titlebar-search-results')).toBeNull();
+    expect(input.value).toBe('合成');
+    if (persistent) act(() => input.focus());
+    else act(() => host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());
+    expect(document.activeElement).toBe(input);
+    expect(document.querySelector('.weq-titlebar-search-results')).not.toBeNull();
+    expect(onSearchFocus).toHaveBeenCalled();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it('已聚焦输入框清空后保留搜索范围及选择，点击外部仍收起', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -72,6 +114,7 @@ it('已聚焦输入框清空后保留搜索范围及选择，点击外部仍收�
     act(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
     act(() => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
     expect(scope()).toBeNull();
+    expect(document.activeElement).not.toBe(input);
   } finally {
     act(() => root.unmount());
     host.remove();

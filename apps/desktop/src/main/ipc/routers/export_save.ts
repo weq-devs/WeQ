@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { exportContentPolicyInput } from '../../../shared/export_content';
 import {
   sanitizeSegment,
   type ExportTask,
@@ -36,11 +37,12 @@ export const exportSavePolicyInput = z.object({
 
 const outputFormat = z.string().regex(EXPORT_EXTENSION_PATTERN);
 export const exportOutputPlanInput = z.object({
+  content: exportContentPolicyInput.optional(),
   kind: z.enum(['messages', 'contacts', 'bundle', 'file']),
   name: z.string().min(1),
   fileName: z.string().min(1).max(512).optional(),
   format: outputFormat.optional(),
-  formats: z.array(outputFormat).min(1).optional(),
+  formats: z.array(outputFormat).optional(),
   targetCount: z.number().int().positive().safe().optional(),
   contactScope: z.enum(['friends', 'group', 'groups']).optional(),
   exportAvatar: z.boolean().optional(),
@@ -69,6 +71,7 @@ export async function prepareExportDestination(
   output?: ExportOutputShape,
   current: () => void = () => {},
   locationKey = output?.kind === 'file' ? `export:file:${output.extension}` : 'export:directory',
+  directoryTitle = '选择本次导出保存位置',
 ): Promise<ExportSavePolicy | null> {
   current();
   if (input.mode !== 'preset' && input.mode !== 'before')
@@ -94,7 +97,7 @@ export async function prepareExportDestination(
       filePath = selected.path;
     } else {
       directory = await host.pickDirectory({
-        title: '选择本次导出保存位置',
+        title: directoryTitle,
         locationKey,
         defaultDirectory: defaultDirectory ?? undefined,
       });

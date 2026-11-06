@@ -254,7 +254,7 @@ export class DbRepairService {
     if (!history) {
       history = new DbRepairHistory(paths);
       this.histories.set(paths.root, history);
-    }
+    } else history.reload();
     return history;
   }
 
@@ -730,14 +730,12 @@ export class DbRepairService {
 
   /** 删掉一条记录的备份（释放空间）；记录保留并标记 `purgedAt`。 */
   deleteBackup(uin: string, recordId: string): { removed: boolean } {
+    if (this.running) throw new DbRepairError('busy', '已有修复或回滚在进行，请等待完成');
     const history = this.history(uin);
     const record = history.find(recordId);
     if (!record) throw new DbRepairError('not-found', `找不到修复记录：${recordId}`);
     if (!record.backupPath || record.purgedAt !== undefined) return { removed: false };
-    const path = record.backupPath;
-    removeDirQuietly(dirname(path));
-    history.update(recordId, { purgedAt: this.now().toISOString() });
-    return { removed: !existsSync(path) };
+    return history.deleteBackup(recordId, this.now().toISOString());
   }
 
   /**
@@ -747,6 +745,7 @@ export class DbRepairService {
    * 记录一并消失，之后不能再回滚到这一条。正在跑的修复**不**受影响 —— 新记录还没落盘。
    */
   deleteRecord(uin: string, recordId: string): { removed: boolean } {
+    if (this.running) throw new DbRepairError('busy', '已有修复或回滚在进行，请等待完成');
     const history = this.history(uin);
     const record = history.find(recordId);
     if (!record) throw new DbRepairError('not-found', `找不到修复记录：${recordId}`);

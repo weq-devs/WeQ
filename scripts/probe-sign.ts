@@ -18,12 +18,15 @@
  *   pnpm tsx scripts/probe-sign.ts --cmd 0x102a_1 --cmd 0x6d6_2
  *   pnpm tsx scripts/probe-sign.ts --cmd trpc.qqva.gift_midground_panel.GiftMidgroundPanel.SsoGetSceneItem
  *   pnpm tsx scripts/probe-sign.ts --json out.json
+ *   # 断连模式下探测：发包前一刻砍掉 QQ 的 MSF 长连接，并在等待窗口内持续压制
+ *   sudo pnpm tsx scripts/probe-sign.ts --disconnect --cmd MessageSvc.PbSendMsg
  *
- * 权限：抓包要 root 或 `CAP_NET_RAW`（Linux）。发包本身不需要。
+ * 权限：抓包要 root 或 `CAP_NET_RAW`（Linux）；`--disconnect` 走 `ss -K`，也要 root。
  */
 
 import { createConnection, type Socket } from 'node:net';
 import { readdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { loadNativeSafe } from '../packages/native/src';
 import type { CapturedFrame, NtHelperBinding } from '../packages/native/src';
 
@@ -371,6 +374,68 @@ function readSecInfo(reserved: Buffer | null): SecInfo | null {
   return { sign: size(1), token: size(2), extra: size(3) };
 }
 
+// ─────────────────────────── 断连 ───────────────────────────
+
+interface EstablishedConn {
+  /** `ss` 里的确切 peer 串，可直接喂给 `ss -K dst <peer>`。 */
+  peer: string;
+  localPort: number;
+}
+
+/** peer 是不是回环地址（`127.x` / `::1`）——本机服务不是 MSF 长连接。 */
+function isLoopbackPeer(peer: string): boolean {
+  return peer.startsWith('127.') || peer.startsWith('[::1]') || peer.startsWith('[::ffff:127.');
+}
+
+/**
+ * 列出 `pid` 当前到**远端**的 ESTAB 连接（`ss -tnp`）。
+ *
+ * 不按端口白名单筛：MSF 实测会落在 8080 / 14000 / 80 / 443 等多个端口，且服务端
+ * 随时会换。按「非回环 peer」筛更稳 —— QQ 主进程的回环连接都是本地服务（9210 之类），
+ * 真正的长连接一定打到外网。
+ */
+function listMsfConnections(pid: number): EstablishedConn[] {
+  let out: string;
+  try {
+    out = execFileSync('ss', ['-tnp'], { encoding: 'utf8' });
+  } catch {
+    return [];
+  }
+  const marker = `pid=${pid},`;
+  const found: EstablishedConn[] = [];
+  for (const line of out.split('\n')) {
+    if (!line.includes('ESTAB') || !line.includes(marker)) continue;
+    const cols = line.trim().split(/\s+/);
+    if (cols.length < 6) continue;
+    const peer = cols[4]!;
+    if (isLoopbackPeer(peer)) continue;
+    const localPort = Number(/]:(\d+)$/.exec(cols[3]!)?.[1] ?? 0);
+    found.push({ peer, localPort });
+  }
+  return found;
+}
+
+/**
+ * 砍掉 `pid` 所有到 MSF 端口的连接。
+ *
+ * `ss -K` 需要 root，脚本本身通常已用 sudo 跑（抓包也要），所以直接调。
+ * 返回砍掉的条数；没有连接 = 0（QQ 可能正处于重连窗口）。
+ */
+function killMsfConnections(pid: number): number {
+  const connections = listMsfConnections(pid);
+  if (connections.length === 0) return 0;
+  let killed = 0;
+  for (const { peer } of connections) {
+    try {
+      execFileSync('ss', ['-K', `dst ${peer}`], { stdio: 'ignore' });
+      killed += 1;
+    } catch {
+      // 竞态：连接刚好自己关了。
+    }
+  }
+  return killed;
+}
+
 // ─────────────────────────── pipe 客户端 ───────────────────────────
 
 function encodeFrame(frame: Partial<PipeFrame>): Buffer {
@@ -469,10 +534,16 @@ interface ProbeResult {
   cmd: string;
   sent: boolean;
   error?: string;
+  /** service 层协议号：12 = D2Auth，13 = Simple。 */
+  proto?: number;
+  /** encryptType（1 = D2Key）。 */
+  encryptType?: number;
   secInfo: SecInfo | null;
   reservedTags: number[] | null;
   replyStatus?: number;
   replyLength?: number;
+  /** 断连模式下本轮累计砍掉的 MSF 连接条数（0 = 扫描窗口内没看到连接）。 */
+  killedConnections?: number;
 }
 
 /**
@@ -563,6 +634,7 @@ async function probeOne(
   pid: number,
   probeCase: ProbeCase,
   requestId: number,
+  options: { disconnect?: boolean } = {},
 ): Promise<ProbeResult> {
   const result: ProbeResult = {
     cmd: probeCase.wire,
@@ -576,6 +648,17 @@ async function probeOne(
   let cursor = (await nt.takeFrames(pid, { maxFrames: 1 })).nextCursor;
   const captured: CapturedFrame[] = [];
   for (let attempt = 1; attempt <= 3; attempt += 1) {
+    // 断连模式：**紧贴发包前**砍一次。不持续压制 —— 连着砍会把 QQ 打进完整重连
+    // 流程（约 10s 内 hook 什么包都发不出去），反而拿不到帧。砍一次之后 QQ 一般
+    // 1s 内才重连，这一包正好落在「已断、未重连」的窗口里。
+    if (options.disconnect) {
+      const killed = killMsfConnections(pid);
+      result.killedConnections = (result.killedConnections ?? 0) + killed;
+      if (killed === 0) {
+        // 没有可砍的连接说明 QQ 正在重连，这一发多半也发不出去；等它回来。
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+      }
+    }
     pipe.send({
       op: PIPE_OP_SEND_REQUEST,
       requestId: requestId * 10 + attempt,
@@ -624,6 +707,8 @@ async function probeOne(
   result.sent = true;
 
   const frame = sent[0]!;
+  result.proto = frame.proto;
+  result.encryptType = frame.encryptType;
   const reserved = frame.plain ? readReserved(frame.plain, frame.proto) : null;
   if (reserved) {
     const tags = decodeFields(reserved);
@@ -700,19 +785,30 @@ async function main(): Promise<void> {
     await nt.takeFrames(pid, { cursor: warmCursor, waitMs: 800, maxFrames: 4096 });
   }
 
+  const disconnect = argv.includes('--disconnect');
+  if (disconnect) {
+    if ((process.getuid?.() ?? -1) !== 0) {
+      fail('--disconnect 需要 root（`ss -K` 砍连接要权限）：用 sudo 重跑');
+    }
+    log('断连模式：每条命令发包前砍掉 QQ 的 MSF 长连接，让这一包落在断连窗口里');
+  }
+
   const results: ProbeResult[] = [];
   let requestId = 10_000;
   try {
     for (const probeCase of cases) {
       requestId += 1;
-      const result = await probeOne(pipe, nt, pid, probeCase, requestId);
+      const result = await probeOne(pipe, nt, pid, probeCase, requestId, { disconnect });
       results.push(result);
       const status = result.secInfo
         ? `签名 sign=${result.secInfo.sign} token=${result.secInfo.token} extra=${result.secInfo.extra}`
         : result.sent
           ? '不签名'
           : `未发出${result.error ? `（${result.error}）` : ''}`;
-      console.log(`${result.cmd.padEnd(58)} ${status}`);
+      const proto = result.sent ? `p${result.proto}` : '---';
+      const killed =
+        result.killedConnections !== undefined ? ` [砍 ${result.killedConnections} 条]` : '';
+      console.log(`${result.cmd.padEnd(58)} ${proto.padEnd(4)} ${status}${killed}`);
     }
   } finally {
     pipe.close();
@@ -724,6 +820,26 @@ async function main(): Promise<void> {
   log(
     `共 ${results.length} 条：签名 ${signed.length}，不签名 ${results.filter((r) => r.sent && !r.secInfo).length}，未发出 ${results.filter((r) => !r.sent).length}`,
   );
+
+  const sentAll = results.filter((r) => r.sent);
+  const byProto = new Map<number, ProbeResult[]>();
+  for (const item of sentAll) {
+    const key = item.proto ?? -1;
+    const list = byProto.get(key) ?? [];
+    list.push(item);
+    byProto.set(key, list);
+  }
+  log('协议分布：');
+  for (const [proto, list] of [...byProto.entries()].sort((a, b) => a[0] - b[0])) {
+    console.log(`  ${proto === -1 ? '未知' : `协议 ${proto}`}: ${list.length} 条`);
+  }
+
+  const p13 = byProto.get(13) ?? [];
+  log(`走协议 13 的命令（${p13.length} 条；这些命令 WeQ 带 token 发可能失败）：`);
+  for (const item of p13) {
+    const mark = item.secInfo ? `签名 token=${item.secInfo.token}` : '不签名';
+    console.log(`  ${item.cmd.padEnd(58)} ${mark}`);
+  }
   if (signed.length > 0) {
     log('签名命令：');
     for (const item of signed) console.log(`  ${item.cmd}`);

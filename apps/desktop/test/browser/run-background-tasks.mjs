@@ -49,6 +49,8 @@ try {
   );
   await page.locator('.weq-long-task').first().waitFor();
   if ((await page.locator('.weq-long-task').count()) !== 8) throw new Error('未显示八类任务');
+  if (await page.getByText('旧闪传目录', { exact: true }).count())
+    throw new Error('任务列表不应显示旧闪传目录');
   if (output) await mkdir(output, { recursive: true });
   for (const [dark, width, accent, background] of [
     [false, 1100, '#075c30', 'plain'],
@@ -63,6 +65,12 @@ try {
       [dark, accent, background],
     );
     await page.getByRole('button', { name: /收藏表情导入/ }).click();
+    const cleanup = page.getByRole('button', { name: '清除已完成任务', exact: true });
+    const cleanupBox = await cleanup.boundingBox();
+    if (cleanupBox?.width !== 30 || cleanupBox.height !== 30)
+      throw new Error('任务工具栏按钮尺寸不统一');
+    if ((await cleanup.innerText()).trim()) throw new Error('工具栏应使用带提示的图标按钮');
+    await page.getByRole('button', { name: '移除任务', exact: true }).hover();
     await page
       .getByText('第 2 项：读回失败，保留未确认状态，不自动重传', { exact: true })
       .waitFor();

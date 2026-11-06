@@ -269,6 +269,8 @@ export interface RenderFaceElement {
 export interface RenderReplyElement {
   type: 'reply';
   data: BaseRenderData & {
+    /** 导出时的缓存来源摘要，不将 origMsgId 误当成缓存消息的原生 ID。 */
+    exportQuoteCache?: Record<string, string | number | null>;
     origSenderUid: string;
     // origReceiverUid: string;
     origMsgSeq: number;

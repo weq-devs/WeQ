@@ -23,6 +23,7 @@ function fixture() {
       return id;
     }),
     getTask: (id: string) => tasks.get(id),
+    formalArchivePath: vi.fn(() => join(root, 'archive.jsonl')),
     appendLog: vi.fn(),
   });
   let online = true;
@@ -87,6 +88,19 @@ it.each([false, true])('定时批次沿用创建时的完整性报告选择 %s',
   );
 });
 
+it('自动定时批次不展开任务列表，手动运行保留展开行为', async () => {
+  const automatic = fixture();
+  await vi.advanceTimersByTimeAsync(3_600_000);
+  expect(automatic.manager.startTask).toHaveBeenCalledWith(
+    expect.objectContaining({ autoOpenTaskList: false }),
+  );
+  const manual = fixture();
+  await manual.scheduler.runNow(manual.schedule.id);
+  expect(manual.manager.startTask).toHaveBeenCalledWith(
+    expect.objectContaining({ autoOpenTaskList: true }),
+  );
+});
+
 it('repeated manual skips cannot hide the active batch or reset the cadence', async () => {
   const f = fixture();
   const nextRun = f.schedule.nextRunAt;
@@ -124,6 +138,7 @@ it('settles a task that completed before its startup promise resolved', async ()
 
 it('offline retries are bounded and stop releases all wake timers', async () => {
   const f = fixture();
+  f.scheduler.update(f.schedule.id, { options: { ...f.schedule.options, completeMessages: true } });
   f.offline();
   await vi.advanceTimersByTimeAsync(3_605_000);
   expect(f.schedule.history.length).toBeLessThanOrEqual(6);
@@ -132,6 +147,22 @@ it('offline retries are bounded and stop releases all wake timers', async () => 
   expect(vi.getTimerCount()).toBe(0);
   await vi.advanceTimersByTimeAsync(3_600_000);
   expect(f.manager.startTask).not.toHaveBeenCalled();
+});
+
+it('纯本地定时导出在 QQ 离线时照常运行，不让旧补全开关覆盖内容策略', async () => {
+  const f = fixture();
+  const { selectAllExportContent } = await import('../src/common/export_content');
+  f.scheduler.update(f.schedule.id, {
+    options: {
+      ...f.schedule.options,
+      content: selectAllExportContent('local'),
+      completeMessages: true,
+    },
+  });
+  f.offline();
+  await f.scheduler.runNow(f.schedule.id);
+  expect(f.manager.startTask).toHaveBeenCalledTimes(1);
+  expect(f.schedule.history[0]?.outcome).toBe('running');
 });
 
 it('completion updates its original trigger without changing the next cadence', async () => {
@@ -145,4 +176,47 @@ it('completion updates its original trigger without changing the next cadence', 
   expect(f.schedule.history[0]?.outcome).toBe('completed');
   expect(f.schedule.nextRunAt).toBe(nextRun);
   expect(f.manager.listenerCount('progress')).toBe(0);
+});
+
+it('结构化定时任务保存成功后记住正式归档，下一轮复用同一路径与内容策略', async () => {
+  const f = fixture();
+  const { selectAllExportContent } = await import('../src/common/export_content');
+  const content = { ...selectAllExportContent('local'), font: 'cloud' as const };
+  f.scheduler.update(f.schedule.id, {
+    format: 'jsonl',
+    formats: ['jsonl'],
+    options: {
+      ...f.schedule.options,
+      exportMedia: true,
+      content,
+      completeAvatar: false,
+      completeDressKinds: { bubble: false, font: true, widget: false },
+    },
+  });
+  await f.scheduler.runNow(f.schedule.id);
+  const first = f.tasks.get('task-1')!;
+  Object.assign(first, {
+    kind: 'group',
+    conv: '777',
+    archiveId: 'original-archive',
+    status: 'completed',
+    save: { status: 'saved' },
+  });
+  f.manager.emit('progress', { taskId: first.id, status: 'completed' });
+  const path = join(f.root, 'archive.jsonl');
+  expect(f.schedule.archives).toEqual({ 'group:777': path });
+  expect(JSON.parse(readFileSync(join(f.root, 'schedules.json'), 'utf8'))[0].archives).toEqual({
+    'group:777': path,
+  });
+  await f.scheduler.runNow(f.schedule.id);
+  expect(f.manager.startTask).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      baselineDirectory: path,
+      content,
+      completeAvatar: false,
+      media: expect.objectContaining({
+        completeDressKinds: { bubble: false, font: true, widget: false },
+      }),
+    }),
+  );
 });

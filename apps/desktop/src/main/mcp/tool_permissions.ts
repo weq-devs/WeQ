@@ -20,6 +20,7 @@ const READ_ONLY_TOOLS = new Set([
   'search_buddies',
   'search_groups',
   'get_self_profile',
+  'get_message_performance',
   'find_contact',
   'list_group_members',
   'list_friends_by_intimacy',

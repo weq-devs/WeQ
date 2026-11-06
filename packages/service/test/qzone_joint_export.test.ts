@@ -8,6 +8,7 @@ import type { MsgService } from '../src/account/msg';
 import type { QzoneEmotion } from '../src/account/web/qzone';
 import type { QzoneAlbumPhoto } from '../src/account/web/qzone_album';
 import { QzoneMediaStore } from '../src/account/export/qzone_media_store';
+import { readArchive } from '../src/account/export/archive';
 
 const state = vi.hoisted(() => ({ urls: [] as string[], different: false, fail: false }));
 vi.mock('../src/account/media_url', async (original) => ({
@@ -130,16 +131,45 @@ it('同一任务导出别人空间的说说与相册，相同 URL 只下载一�
   expect(state.urls).toEqual([image]);
   const files = readdirSync(join(task.bundleDir!, 'media'));
   expect(files).toHaveLength(1);
-  const albums = JSON.parse(readFileSync(join(task.bundleDir!, 'albums', 'index.json'), 'utf8'));
-  expect(albums.albums[0].media[0].localPath).toBe(`media/${files[0]}`);
-  const posts = JSON.parse(readFileSync(join(task.bundleDir!, '合成空间.json'), 'utf8'));
-  expect(posts[0].localMedia[image]).toBe(albums.albums[0].media[0].localPath);
+  const albums = readArchive(
+    JSON.parse(readFileSync(join(task.bundleDir!, 'albums', 'index.json'), 'utf8')),
+  );
+  expect(albums.resources[0]?.path).toBe(`media/${files[0]}`);
+  const posts = readArchive(
+    JSON.parse(readFileSync(join(task.bundleDir!, '合成空间.json'), 'utf8')),
+  );
+  expect(posts.resources.find((resource) => resource.url === image)?.path).toBe(
+    albums.resources[0]?.path,
+  );
   expect(readFileSync(join(task.bundleDir!, 'albums', 'index.html'), 'utf8')).toContain(
     `../media/${files[0]}`,
   );
   expect(readFileSync(join(task.bundleDir!, '合成空间.html'), 'utf8')).toContain(
     `media/${files[0]}`,
   );
+});
+
+it('空间增量同时更新说说与相册分卷，复用整包媒体根，查看器能定位相册资源', async () => {
+  const { task, manager } = await run();
+  const saved = task.save!.path!;
+  const main = join(saved, '合成空间.json');
+  const album = join(saved, 'albums', 'index.json');
+  const oldMain = readArchive(JSON.parse(readFileSync(main, 'utf8')));
+  const oldAlbum = readArchive(JSON.parse(readFileSync(album, 'utf8')));
+  expect(manager.resumeTask(task.id, true)).toBe(true);
+  await vi.waitFor(() => expect(task.status).toMatch(/completed|failed/));
+  expect(task.error).toBeUndefined();
+  expect(task.filePath).toBe(main);
+  const afterMain = readArchive(JSON.parse(readFileSync(main, 'utf8')));
+  const afterAlbum = readArchive(JSON.parse(readFileSync(album, 'utf8')));
+  expect(afterMain.archiveId).toBe(oldMain.archiveId);
+  expect(afterAlbum.archiveId).toBe(oldAlbum.archiveId);
+  expect(afterMain.observations.length).toBeGreaterThan(oldMain.observations.length);
+  expect(afterAlbum.observations.length).toBeGreaterThan(oldAlbum.observations.length);
+  const { describeViewerFile } = await import('../src/account/export/viewer');
+  expect((await describeViewerFile(album)).root).toBe(saved);
+  for (const resource of afterAlbum.resources.filter((resource) => resource.status === 'saved'))
+    expect(readFileSync(join(saved, String(resource.path))).length).toBeGreaterThan(0);
 });
 it('不同 URL 的相同内容只保留一份文件，不按图片名字或 URL 路径猜相同', async () => {
   const { task } = await run({ otherUrl: 'https://synthetic.invalid/other.png?quality=original' });
@@ -175,11 +205,14 @@ it('失败下载不写入可复用池，后续相册允许重试', async () => {
 });
 it('相册视频仅能取得封面时保留复用图片，但不计为完整视频', async () => {
   const { task } = await run({ video: true });
-  const albums = JSON.parse(readFileSync(join(task.bundleDir!, 'albums', 'index.json'), 'utf8'));
-  expect(albums.albums[0].media[0]).toMatchObject({
-    downloadedAs: 'image',
-    error: '视频本体不可用，已保留封面。',
+  const albums = readArchive(
+    JSON.parse(readFileSync(join(task.bundleDir!, 'albums', 'index.json'), 'utf8')),
+  );
+  expect(albums.records.find((record) => record.data.type === 'video')?.coverage).toMatchObject({
+    acquisition: 'partial',
+    issues: ['视频本体不可用，已保留封面。'],
   });
+  expect(albums.resources[0]).toMatchObject({ role: 'cover', status: 'saved' });
   expect(task.stages.find((stage) => stage.key === 'file')?.failed).toBe(1);
   expect(state.urls).toEqual([image]);
 });

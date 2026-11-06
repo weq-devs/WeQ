@@ -5,7 +5,7 @@
  * 输入：resources/arks_resource/<app>/<timestamp>/index.js
  *   每个 index.js 用 `_setViewTemplate('<id>', `<XML>`)` 注册布局模板，
  *   用 Lua 的 `ViewModel:OnSetMetadata(value)` 定义 `data["field"] -> self.<node>` 绑定。
- * 输出：apps/desktop/src/renderer/src/components/ark/ark-cards.generated.json
+ * 输出：packages/service/src/common/ark-cards.generated.json
  *   { [app]: { defaultMetaKey, variants: { [metaKey]: { jump, slots, bindings } } } }
  *   - bindings: 机械提取的 { 节点id: metaField }（原始，未归一化）
  *   - slots:    自动归一化的 { 语义槽: metaField }（长尾 app 兜底用；
@@ -25,17 +25,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = join(__dirname, '..');
 const SRC_DIR = join(REPO, 'resources', 'arks_resource');
-const OUT = join(
-  REPO,
-  'apps',
-  'desktop',
-  'src',
-  'renderer',
-  'src',
-  'components',
-  'ark',
-  'ark-cards.generated.json',
-);
+const OUT = join(REPO, 'packages', 'service', 'src', 'common', 'ark-cards.generated.json');
 
 // ---- XML 模板：轻量 tokenizer，只取 id/tag/关键属性与层级 ------------------
 

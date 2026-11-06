@@ -59,9 +59,10 @@ process.on(
       } catch (error) {
         result = {
           at: new Date().toISOString(),
-          cleared: [],
-          freedBytes: 0,
+          cleared: plan.previousResult?.cleared ?? [],
+          freedBytes: plan.previousResult?.freedBytes ?? 0,
           failed: [
+            ...(plan.previousResult?.failed ?? []),
             { label: '退出后清除', error: error instanceof Error ? error.message : String(error) },
           ],
         };

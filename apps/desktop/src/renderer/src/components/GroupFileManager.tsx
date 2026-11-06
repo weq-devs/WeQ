@@ -24,6 +24,8 @@ import {
   X,
 } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
+import { IS_WEB } from '../lib/target';
+import { stageAccountFile } from '../lib/accountFilePicker';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { useTabActive } from './RetainedTabs';
@@ -515,7 +517,7 @@ function GroupFileManagerBody({
       if (current()) setSaving(false);
     }
   }
-  function drop(event: DragEvent, folderId = directory, folderName = '当前目录') {
+  async function drop(event: DragEvent, folderId = directory, folderName = '当前目录') {
     event.preventDefault();
     event.stopPropagation();
     try {
@@ -544,13 +546,20 @@ function GroupFileManagerBody({
           throw new Error('选择包含无权移动的文件');
         void openEditor('move', keys, folderId, folderName);
       } else {
-        const incoming = clipboardFiles(event.dataTransfer).map((file) => ({
-          fileName: file.name,
-          path: window.weq?.pathForFile?.(file) ?? '',
-        }));
+        const incoming = [];
+        for (const file of clipboardFiles(event.dataTransfer)) {
+          incoming.push(
+            IS_WEB
+              ? await stageAccountFile(file)
+              : {
+                  fileName: file.name,
+                  path: window.weq?.pathForFile?.(file) ?? '',
+                },
+          );
+        }
         if (!incoming.length || incoming.some((file) => !file.path))
           throw new Error('无法取得本机文件路径，请使用选择上传文件');
-        stage(incoming, folderId, folderName);
+        if (current()) stage(incoming, folderId, folderName);
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));

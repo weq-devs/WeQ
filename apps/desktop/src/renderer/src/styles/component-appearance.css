@@ -1,4 +1,4 @@
-/* 经典保留原有样式；两套新风格共享尺寸与密度，只改变控件形态和表面处理。 */
+/* 经典保留原有样式；组件预设共用形态 token，界面密度独立控制。 */
 :root,
 [data-component-preview] {
   --weq-skin-radius: 2px;
@@ -73,8 +73,8 @@ html[data-theme='dark'] [data-component-preview='retro'] {
     2px 2px 0 var(--weq-bg-app);
 }
 
-html[data-component-style][data-theme]:not([data-component-style='classic'])
-  body
+/* QQ NT 的按钮复用经典基础样式，其余控件仍使用当前预设。 */
+html[data-component-style][data-theme]:not([data-component-style='classic']) body
   :is(
     .weq-action-primary,
     .weq-action-soft,
@@ -101,8 +101,8 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-directory-toolbar button,
     .weq-settings-theme-option,
     .weq-density-options button
-  ) {
-  border-radius: var(--weq-skin-radius);
+  ):not(:where(html[data-component-style='qqnt'] button)) {
+  border-radius: var(--weq-control-radius, var(--weq-skin-radius));
   box-shadow: var(--weq-control-shadow, var(--weq-skin-shadow));
 }
 
@@ -122,6 +122,7 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
   ) {
   --weq-control-shadow: var(--weq-skin-input-shadow);
   --weq-control-border-width: var(--weq-skin-input-border-width);
+  --weq-control-radius: var(--weq-skin-input-radius, var(--weq-skin-radius));
 }
 
 html[data-component-style][data-theme]:not([data-component-style='classic'])
@@ -142,7 +143,7 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-set-row-ctrl select,
     .weq-set-row-ctrl textarea,
     .weq-directory-toolbar input
-  ):not(:disabled) {
+  ):not(:disabled):not(:where(html[data-component-style='qqnt'] button)) {
   border: solid var(--weq-skin-border);
   border-width: var(--weq-control-border-width, var(--weq-skin-border-width));
   background: var(--weq-skin-surface);
@@ -159,18 +160,22 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .message-context-menu,
     .profile-popover,
     .weq-directory-scope-menu,
+    .weq-merged-popover,
     .conversation-details,
     .group-info-panel,
     .weq-select,
     .weq-provider-modal
   ) {
   border: var(--weq-skin-border-width) solid var(--weq-skin-border);
-  border-radius: var(--weq-skin-radius);
+  border-radius: var(--weq-skin-popup-radius, var(--weq-skin-radius));
   background: var(--weq-skin-popup-surface);
   box-shadow: var(--weq-skin-popup-shadow);
 }
 
-html[data-component-style][data-theme]:not([data-component-style='classic'])
+html[data-component-style][data-theme]:not(
+    [data-component-style='classic'],
+    [data-component-style='qqnt']
+  )
   body
   :is(
     .weq-action-primary,
@@ -258,15 +263,24 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
   .weq-set-toggle-knob {
   background: var(--weq-accent-solid-foreground);
 }
-html[data-component-style][data-theme]:not([data-component-style='classic'])
+html[data-component-style][data-theme]:not(
+    [data-component-style='classic'],
+    [data-component-style='qqnt']
+  )
   body
   .weq-directory-scope-menu
   button[aria-checked='true'],
-html[data-component-style][data-theme]:not([data-component-style='classic'])
+html[data-component-style][data-theme]:not(
+    [data-component-style='classic'],
+    [data-component-style='qqnt']
+  )
   body
   .weq-directory-toolbar
   button:hover,
-html[data-component-style][data-theme]:not([data-component-style='classic'])
+html[data-component-style][data-theme]:not(
+    [data-component-style='classic'],
+    [data-component-style='qqnt']
+  )
   body
   .weq-directory-toolbar
   button[aria-pressed='true'] {
@@ -294,7 +308,7 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .secondary-button,
     .weq-set-btn,
     .weq-directory-toolbar input
-  ):focus-visible {
+  ):focus-visible:not(:where(html[data-component-style='qqnt'] button)) {
   outline: 2px solid var(--weq-accent-ink);
   outline-offset: 2px;
 }
@@ -303,7 +317,13 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
 html[data-density='compact'] {
   --weq-conversation-row-height: 54px;
 }
-html[data-density='compact'] body :is(.weq-conversation-window .conversation-row, .contact-row) {
+html[data-density='compact']
+  body
+  :is(
+    .weq-conversation-window .conversation-row,
+    .weq-conversation-list .conversation-row,
+    .contact-row
+  ) {
   height: var(--weq-conversation-row-height);
   min-height: var(--weq-conversation-row-height);
   padding: 5px 12px;
@@ -369,7 +389,10 @@ html[data-density='compact'] body table :is(th, td) {
   html[data-density='compact'] .app-shell-root.weq-web-shell {
     --weq-conversation-row-height: 64px;
   }
-  html[data-density='compact'] body .weq-web-shell .app-shell :is(.conversation-row, .contact-row) {
+  html[data-density='compact']
+    body
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
+    :is(.conversation-row, .contact-row) {
     height: var(--weq-conversation-row-height);
     min-height: var(--weq-conversation-row-height);
     padding: 5px 12px;
@@ -378,8 +401,7 @@ html[data-density='compact'] body table :is(th, td) {
   }
   html[data-density='compact']
     body
-    .weq-web-shell
-    .app-shell
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
     :is(.conversation-row, .contact-row)
     .avatar {
     width: 36px;
@@ -390,7 +412,7 @@ html[data-density='compact'] body table :is(th, td) {
 
 .weq-style-options {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 .weq-style-option {
@@ -582,7 +604,10 @@ html[data-density='compact'] body table :is(th, td) {
     :is(.weq-set-toggle-track, .weq-set-toggle-knob) {
     transition: none;
   }
-  html[data-component-style][data-theme]:not([data-component-style='classic'])
+  html[data-component-style][data-theme]:not(
+      [data-component-style='classic'],
+      [data-component-style='qqnt']
+    )
     body
     :is(
       .weq-action-primary,
@@ -592,7 +617,10 @@ html[data-density='compact'] body table :is(th, td) {
       .secondary-button,
       .weq-set-btn
     ):hover,
-  html[data-component-style][data-theme]:not([data-component-style='classic'])
+  html[data-component-style][data-theme]:not(
+      [data-component-style='classic'],
+      [data-component-style='qqnt']
+    )
     body
     :is(
       .weq-action-primary,

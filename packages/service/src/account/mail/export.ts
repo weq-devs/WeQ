@@ -6,6 +6,21 @@ import type { QQMailService } from './client';
 import { MailFailure, type MailExportFilter, type MailSummary } from './types';
 import { isMailThreadId } from './wire';
 import type { ResourceExportRunContext, ResourceExportSummary } from '../export/task_manager';
+import { DomainArchive } from '../export/archive_domain';
+import { stableId, type ArchiveOptions, type JsonObject } from '../export/archive';
+import { unixTime } from '../export/archive_value';
+import { archiveResource } from '../export/archive_resource';
+import type { MailAddress } from './types';
+
+export interface MailArchiveOptions extends ArchiveOptions {
+  format?: 'json' | 'jsonl';
+}
+function mailActor(address: MailAddress): JsonObject {
+  return {
+    identities: address.email ? [{ namespace: 'email', value: address.email }] : [],
+    name: address.name,
+  };
+}
 
 const BODY_TAGS = new Set([
   'p',
@@ -86,6 +101,7 @@ export async function exportMailMessages(
   check: () => void,
   filter: MailExportFilter = {},
   expandThreads = true,
+  archiveOptions: MailArchiveOptions = {},
 ): Promise<ResourceExportSummary> {
   const { directory, signal, progress } = context;
   const queue = [...new Set(ids)];
@@ -93,6 +109,11 @@ export async function exportMailMessages(
   const seen = new Set<string>();
   const manifest: Array<{ id: string; directory?: string; error?: string }> = [];
   const failed: ResourceExportSummary['failed'] = [];
+  const archive = new DomainArchive({
+    ...archiveOptions,
+    formats: [archiveOptions.format ?? 'json'],
+    selection: { ids: [...ids], filter: { ...filter } },
+  });
   const current = () => {
     signal.throwIfAborted();
     check();
@@ -123,6 +144,7 @@ export async function exportMailMessages(
       const target = join(directory, folder);
       await mkdir(target, { recursive: true });
       const attachments: Array<{ name: string; size: number; file?: string; error?: string }> = [];
+      const receipts: JsonObject[] = [];
       for (const [number, attachment] of detail.attachments.entries()) {
         current();
         const file = `${number + 1}-${sanitizeSegment(attachment.name, '附件', { maxLen: 100 })}`;
@@ -136,21 +158,76 @@ export async function exportMailMessages(
           await mail.download(attachment.id, path, signal);
           current();
           attachments.push({ name: attachment.name, size: attachment.size, file });
+          receipts.push(
+            await archiveResource(directory, `${folder}/${file}`, {
+              id: stableId('resource', archive.identity('mail', detail.id, attachment.id)),
+              role: 'original',
+              status: 'not-requested',
+              name: attachment.name,
+              observedAt: unixTime(Date.now(), true),
+            }),
+          );
         } catch (error) {
           current();
           await rm(path, { force: true });
           const message = error instanceof MailFailure ? error.message : '附件导出失败。';
           attachments.push({ name: attachment.name, size: attachment.size, error: message });
           failed.push({ fileName: `${folder}/${file}`, error: message });
+          receipts.push({
+            id: stableId('resource', archive.identity('mail', detail.id, attachment.id)),
+            role: 'original',
+            status: attachment.available ? 'failed' : 'unavailable',
+            name: attachment.name,
+            error: message,
+            observedAt: unixTime(Date.now(), true),
+          });
         }
       }
       current();
-      const { html, attachments: _tokens, ...metadata } = detail;
-      await writeFile(
-        join(target, 'message.json'),
-        JSON.stringify({ ...metadata, attachments }, null, 2),
-        { flag: 'wx' },
+      const {
+        html,
+        attachments: _tokens,
+        id: _id,
+        messageId: _messageId,
+        sender: _sender,
+        to: _to,
+        cc: _cc,
+        bcc: _bcc,
+        time: _time,
+        subject: _subject,
+        replyTo: _replyTo,
+        thread: _thread,
+        ...metadata
+      } = detail;
+      const entry = archive.add(
+        'mail',
+        archive.identity('mail', detail.id),
+        {
+          mailId: detail.id,
+          messageId: detail.messageId || null,
+          sender: mailActor(detail.sender),
+          to: detail.to.map(mailActor),
+          cc: detail.cc.map(mailActor),
+          bcc: detail.bcc.map(mailActor),
+          replyTo: detail.replyTo ? mailActor(detail.replyTo) : null,
+          sentAt: unixTime(detail.time),
+          subject: detail.subject,
+          content: [{ type: 'text', text: html, format: 'html' }],
+          attachments: receipts.map((receipt) => receipt.id!),
+        },
+        Object.fromEntries([
+          ...Object.entries(metadata).map(([field, value]) => [`source.${field}`, value]),
+          [
+            'source.attachmentProperties',
+            detail.attachments.map(({ id: attachmentId, name: _name, ...properties }) => ({
+              resourceId: stableId('resource', archive.identity('mail', detail.id, attachmentId)),
+              ...properties,
+            })),
+          ],
+        ]),
+        'remote',
       );
+      entry.resources = receipts;
       current();
       await writeFile(join(target, 'body.html'), exportMailBody(html), { flag: 'wx' });
       current();
@@ -164,7 +241,10 @@ export async function exportMailMessages(
     progress(index + 1, queue.length);
   }
   current();
-  await writeFile(join(directory, 'index.json'), JSON.stringify(manifest, null, 2), { flag: 'wx' });
+  await archive.write(
+    join(directory, `index.${archiveOptions.format ?? 'json'}`),
+    archiveOptions.format ?? 'json',
+  );
   current();
   return {
     total: manifest.length + failed.filter((item) => item.fileName.includes('/')).length,
@@ -179,6 +259,7 @@ export async function exportAllMailMessages(
   context: ResourceExportRunContext,
   check: () => void,
   filter: MailExportFilter = {},
+  archiveOptions: MailArchiveOptions = {},
 ): Promise<ResourceExportSummary> {
   const rows = await listMailExportItems(mail, context.signal, check);
   return exportMailMessages(
@@ -187,6 +268,8 @@ export async function exportAllMailMessages(
     context,
     check,
     filter,
+    true,
+    archiveOptions,
   );
 }
 

@@ -11,6 +11,7 @@ import {
 } from '../src/account/export/contacts_export';
 import { ExportTaskManager } from '../src/account/export/task_manager';
 import type { MsgService } from '../src/account/msg';
+import { object, readArchive } from '../src/account/export/archive';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -93,6 +94,7 @@ describe('群聊名单导出', () => {
       name: '合成群聊名单',
       format: 'json',
       formats: ['json', 'csv'],
+      profile: 'full',
       total: 0,
       contacts: { scope: 'groups', groupIds },
     });
@@ -102,13 +104,17 @@ describe('群聊名单导出', () => {
     expect(task.error).toBeUndefined();
     expect(task.status).toBe('completed');
     expect(task.formatCounts).toEqual({ json: 1, csv: 1 });
-    const rows = JSON.parse(readFileSync(task.filePath!, 'utf8'));
+    const rows = readArchive(JSON.parse(readFileSync(task.filePath!, 'utf8'))).records;
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      groupCode: '10001',
-      groupName: '合成群0',
+    expect(rows[0]!.data).toMatchObject({
+      subject: { identities: [{ namespace: 'source', value: 'group:10001' }] },
+      name: '合成群0',
       remark: '群备注',
-      ownerUid: 'u_owner',
+    });
+    expect(object(rows[0]!.native).attributes).toContainEqual({
+      target: '/data',
+      name: 'source.ownerUid',
+      value: { type: 'text', value: 'u_owner' },
     });
     expect(readFileSync(join(task.bundleDir!, '合成群聊名单.csv'), 'utf8')).toContain('群号');
     expect(f.listGroups).toHaveBeenCalledOnce();

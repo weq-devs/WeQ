@@ -9,18 +9,24 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: { account: { exportCalendar: { useQuery: () => ({ data: [] }) } } },
   client: {
     account: {
-      getGroupAlbumAccessState: { query: async () => ({ qqOnline: false, attachEnabled: false }) },
+      getGroupAlbumAccessState: { query: async () => ({ qqOnline: true, attachEnabled: true }) },
       onlineTranscribeDisarm: { mutate: async () => undefined },
     },
     bootstrap: {
       ocrModels: { query: async () => ({ models: [] }) },
-      getSettings: { query: async () => ({ ocr: {}, voiceTranscribe: {} }) },
+      getSettings: {
+        query: async () => ({
+          ocr: { onlineConcurrency: 8 },
+          voiceTranscribe: { modelId: 'test-voice', onlineConcurrency: 3 },
+        }),
+      },
+      voiceModels: { query: async () => [{ id: 'test-voice', downloaded: true }] },
       onOcrModelProgress: { subscribe: () => ({ unsubscribe: vi.fn() }) },
     },
   },
 }));
 vi.mock('../src/renderer/src/views/export/preflight', () => ({
-  ocrReadiness: async () => ({ filterReady: false }),
+  ocrReadiness: async () => ({ filterReady: false, localReady: true, onlineCapable: true }),
 }));
 afterEach(() => vi.unstubAllGlobals());
 
@@ -42,6 +48,12 @@ it.each([false, true])('设为默认按钮可撤销，确认时携带对应保�
           onEditList: vi.fn(),
           onClose: vi.fn(),
           onConfirm: confirm,
+          initialOptions: {
+            ocrImages: true,
+            transcribeVoice: true,
+            ocrConcurrency: 20,
+            onlineConcurrency: 20,
+          },
         }),
       ),
     );
@@ -50,6 +62,16 @@ it.each([false, true])('设为默认按钮可撤销，确认时携带对应保�
   try {
     render();
     await act(async () => {});
+    expect(
+      [...host.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
+    ).not.toContain('识别并发');
+    expect(
+      [...host.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
+    ).not.toContain('转录并发');
+    expect(host.querySelector('.weq-model')).toBeNull();
+    expect(host.textContent).toContain(
+      '识别并发、筛图模型和转录并发请在「设置 → AI 功能」中调整。',
+    );
     expect(host.textContent).not.toContain('设为此类内容的默认配置');
     expect(button('撤销')).toBeUndefined();
     act(() => button('设为默认').click());
@@ -72,7 +94,12 @@ it.each([false, true])('设为默认按钮可撤销，确认时携带对应保�
       );
     }
     await act(async () => button('开始导出').click());
-    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ saveAsDefault: !undo }));
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        saveAsDefault: !undo,
+        options: expect.objectContaining({ ocrConcurrency: 8, onlineConcurrency: 3 }),
+      }),
+    );
   } finally {
     act(() => root.unmount());
     host.remove();

@@ -27,7 +27,7 @@ export async function exportGroupToJson(
   opts: GroupExportOptions,
   deps?: SenderResolveDeps,
 ): Promise<ExportResult> {
-  if (deps) {
+  if (deps || !opts.legacyFormat) {
     return exportJsonConversation(
       msgs,
       {
@@ -36,10 +36,13 @@ export async function exportGroupToJson(
         name: opts.name,
         outputPath: opts.outputPath,
         format: 'json',
+        legacyFormat: opts.legacyFormat,
+        archive: opts.archive,
         range: opts.range,
         progressEvery: opts.progressEvery,
         onProgress: opts.onProgress,
         collectSenders: opts.collectSenders,
+        collectFaces: opts.collectFaces,
         withMediaPaths: opts.withMediaPaths,
         roam: opts.roam,
         dressLookup: opts.dressLookup,

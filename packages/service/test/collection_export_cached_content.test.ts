@@ -8,6 +8,7 @@ import {
   exportCollections,
   type CollectionExportRow,
 } from '../src/account/export/collection_export';
+import { readArchive } from '../src/account/export/archive';
 
 describe('collection export official-client cache', () => {
   let dir = '';
@@ -56,10 +57,13 @@ describe('collection export official-client cache', () => {
       { listCollections: async (_limit, offset) => (offset === 0 ? [row] : []) },
     );
 
-    const result = JSON.parse(await readFile(outputPath, 'utf8')) as Array<Record<string, string>>;
-    expect(result[0]?.body).toBe(full);
-    expect(result[0]?.fullContentFormat).toBe('html');
-    expect(result[0]?.contentStatus).toBe('详情已读取');
+    const result = readArchive(JSON.parse(await readFile(outputPath, 'utf8')));
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]!.data.content).toContainEqual({
+      type: 'text',
+      text: full,
+      format: 'html',
+    });
     expect(exported.coverage).toMatchObject({
       detailsReceived: 1,
       detailsUncovered: 0,
@@ -100,11 +104,17 @@ describe('collection export official-client cache', () => {
       },
       mediaDownloadState: 'not-requested',
     });
-    const mixedRows = JSON.parse(await readFile(outputPath, 'utf8'));
-    expect(mixedRows[3].body).toBe('');
-    expect(mixedRows[1].body).toBe('截断摘要');
-    expect(mixedRows[2].bodyCoverage).toBe('binary-unrendered');
-    expect(mixedRows[4].mediaCoverage).toBe('未下载，原件质量未核验');
+    const mixedRows = readArchive(JSON.parse(await readFile(outputPath, 'utf8'))).records;
+    expect(mixedRows).toHaveLength(5);
+    expect(mixedRows[3]!.data.content).toContainEqual({ type: 'text', text: '', format: 'plain' });
+    expect(mixedRows[1]!.data.bodyStatus).toBe('truncated');
+    expect(mixedRows[1]!.data.content).toContainEqual(
+      expect.objectContaining({ type: 'structured', kind: 'qq.collection.richMedia' }),
+    );
+    expect(mixedRows[2]!.data.content).toContainEqual(
+      expect.objectContaining({ type: 'structured', kind: 'qq.collection-binary' }),
+    );
+    expect(mixed.coverage.items[4]!.originalQuality).toBe('unverified');
 
     const filtered = await exportCollections(
       { format: 'json', outputPath, kinds: ['link'] },
@@ -151,7 +161,12 @@ describe('collection export official-client cache', () => {
     });
     const attachment = withMedia.coverage.attachments[0]!;
     expect(await readFile(join(dir, attachment.file!))).toEqual(bytes);
-    expect(JSON.parse(await readFile(outputPath, 'utf8'))[0].mediaCoverage).toContain('原件 1');
-    expect(JSON.parse(await readFile(outputPath, 'utf8'))[0].mediaFiles).toBe(attachment.file);
+    const saved = readArchive(JSON.parse(await readFile(outputPath, 'utf8')));
+    const original = saved.resources.find((resource) => resource.role === 'original');
+    expect(original?.status).toBe('saved');
+    expect(await readFile(join(dir, String(original!.path)))).toEqual(bytes);
+    expect(saved.records[0]!.data.content).toContainEqual(
+      expect.objectContaining({ type: 'media', resourceIds: [original!.id] }),
+    );
   });
 });

@@ -78,10 +78,28 @@ function mount(component: typeof HomeSettingsSection | typeof ChatHome) {
 }
 
 describe('主页显示与偏好', () => {
-  it('主页紧跟常规第一个标签页，搜索可定位屏蔽词', () => {
-    expect(SETTINGS_GROUPS[0]!.sections.slice(0, 2)).toEqual(['startup', 'home']);
+  it('主页开关与一言屏蔽词位于同一张卡片，保留定位标识', () => {
+    const view = mount(HomeSettingsSection);
+    try {
+      const cards = view.host.querySelectorAll('.weq-set-card');
+      expect(cards).toHaveLength(1);
+      expect(cards[0]!.querySelector('.weq-set-card-title')?.textContent).toBe('主页');
+      for (const id of ['home-tags', 'home-greeting', 'home-hitokoto', 'home-blocked-words']) {
+        expect(cards[0]!.querySelector(`[data-setting-id="${id}"]`)).not.toBeNull();
+      }
+      expect(cards[0]!.querySelector('.weq-set-card')).toBeNull();
+      expect(cards[0]!.querySelector('label')?.htmlFor).toBe(
+        cards[0]!.querySelector('textarea')?.id,
+      );
+    } finally {
+      view.close();
+    }
+  });
+  it('主页合并到启动页，搜索可定位屏蔽词', () => {
+    expect(SETTINGS_GROUPS[0]!.sections[0]).toBe('startup');
+    expect(SETTINGS_GROUPS[0]!.sections).not.toContain('home');
     expect(searchAppEntries('一言屏蔽词')[0]?.target).toMatchObject({
-      section: 'home',
+      section: 'startup',
       settingId: 'home-blocked-words',
     });
   });

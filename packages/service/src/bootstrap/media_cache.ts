@@ -146,6 +146,21 @@ export class MediaCacheService {
     return promise;
   }
 
+  /** 只读已有缓存，包括过期条目；导出不因 TTL 删图或隐式回源。 */
+  async getLocal(url: string, subdir: CacheSubdir = 'avatar'): Promise<MediaBlob | null> {
+    if (!isHttpUrl(url)) return null;
+    const base = this.basePath(url, subdir);
+    for (const ext of ['png', 'jpg', 'gif', 'webp']) {
+      try {
+        const data = await readFile(`${base}.${ext}`);
+        if (data.length) return { data, contentType: contentTypeForExt(ext), fromCache: true };
+      } catch {
+        /* 未缓存或不可读时尝试下一种格式。 */
+      }
+    }
+    return null;
+  }
+
   /**
    * 缓存条目的落盘时间（ms），没有条目时返回 null。
    *

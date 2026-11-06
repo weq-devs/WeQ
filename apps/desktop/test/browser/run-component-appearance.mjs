@@ -53,10 +53,10 @@ try {
   const output = process.env.WEQ_APPEARANCE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   const failures = [];
-  if (styles.map((style) => style.value).join(',') !== 'classic,minimal,retro')
-    failures.push('必须保留经典默认，以及简约、复古两套新风格');
+  if (styles.map((style) => style.value).join(',') !== 'qqnt,classic,minimal,retro')
+    failures.push('QQ NT 默认风格必须排在首位，并保留经典、简约、复古预设');
   let cases = 0;
-  for (const width of [1280, 390]) {
+  for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 920 });
     for (const theme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
@@ -101,6 +101,11 @@ try {
                     '.weq-directory-scope-menu',
                     '.conversation-row.active',
                     '.weq-set-toggle-track',
+                    '.weq-segmented',
+                    '.weq-collection-chip',
+                    '.weq-settings-nav-item',
+                    '.weq-dress-card',
+                    '.weq-workspace-menu',
                   ].map((selector) => {
                     const style = css(selector);
                     return [
@@ -112,6 +117,32 @@ try {
                     ];
                   });
                 let classicUnchanged = true;
+                let qqntButtonsMatchClassic = true;
+                if (value === 'qqnt') {
+                  const signature = () =>
+                    [...document.querySelectorAll('.appearance-controls button')].map((node) => {
+                      const style = getComputedStyle(node);
+                      return [
+                        style.borderRadius,
+                        style.borderWidth,
+                        style.padding,
+                        style.minHeight,
+                        style.height,
+                        style.fontSize,
+                        style.lineHeight,
+                        style.boxShadow,
+                        style.transform,
+                        style.filter,
+                      ];
+                    });
+                  const actual = JSON.stringify(signature());
+                  document.documentElement.dataset.componentStyle = 'classic';
+                  try {
+                    qqntButtonsMatchClassic = actual === JSON.stringify(signature());
+                  } finally {
+                    document.documentElement.dataset.componentStyle = value;
+                  }
+                }
                 if (value === 'classic') {
                   const actual = JSON.stringify(classicSignature());
                   delete document.documentElement.dataset.componentStyle;
@@ -154,7 +185,44 @@ try {
                     .map((v) => v.toString(16).padStart(2, '0'))
                     .join('')}`;
                 };
+                const retroChecks =
+                  value !== 'retro'
+                    ? {}
+                    : Object.fromEntries([
+                        ...[
+                          '.weq-segmented',
+                          '.weq-segmented > button',
+                          '.weq-collection-chip',
+                          '.weq-collection-search',
+                          '.weq-settings-nav-item',
+                          '.weq-dress-card',
+                          '.weq-workspace-menu',
+                          '.weq-workspace-actions > button',
+                          '.weq-hover-tooltip',
+                        ].map((selector) => [
+                          `retroRadius:${selector}`,
+                          css(selector).borderRadius === '0px',
+                        ]),
+                        ['retroPopupBorder', css('.weq-workspace-menu').borderTopWidth === '2px'],
+                        ['retroSearchWell', css('.weq-collection-search').boxShadow !== 'none'],
+                        [
+                          'retroSearchInner',
+                          css('.weq-collection-search input').boxShadow === 'none',
+                        ],
+                        ['retroPageBorder', css('.weq-collection-dialog').borderTopWidth === '0px'],
+                        ['retroPageShadow', css('.weq-collection-dialog').boxShadow === 'none'],
+                        ...[
+                          '.weq-segmented > button[aria-checked="true"]',
+                          '.weq-collection-chip.is-active',
+                          '.weq-settings-nav-item.is-active',
+                        ].map((selector) => [
+                          `retroSelection:${selector}`,
+                          css(selector).backgroundColor === primary.backgroundColor &&
+                            css(selector).color === primary.color,
+                        ]),
+                      ]);
                 return {
+                  ...retroChecks,
                   selected:
                     document.documentElement.dataset.componentStyle === value &&
                     document
@@ -169,7 +237,15 @@ try {
                   avatarFits: avatar.top >= rowRect.top && avatar.bottom <= rowRect.bottom,
                   expectedHeight:
                     row.getBoundingClientRect().height ===
-                    (density === 'compact' ? (width <= 720 ? 64 : 54) : width <= 760 ? 76 : 62),
+                    (density === 'compact'
+                      ? width <= 720
+                        ? 64
+                        : 54
+                      : width <= 760
+                        ? 76
+                        : value === 'qqnt'
+                          ? 64
+                          : 62),
                   previewGeometry:
                     value === 'classic' ||
                     css('.weq-input').borderRadius ===
@@ -184,6 +260,7 @@ try {
                       compositeBackground('.weq-set-btn'),
                     ) >= 4.5,
                   classicUnchanged,
+                  qqntButtonsMatchClassic,
                   selectionContrast:
                     window.appearanceQa.contrastRatio(
                       pixel(css('.conversation-row.active .row-main strong').color),
@@ -204,6 +281,16 @@ try {
                       css('.weq-input').boxShadow !== 'none' &&
                       css('.weq-directory-scope-menu').borderTopWidth === '2px' &&
                       css('.conversation-row.active').backgroundColor === primary.backgroundColor),
+                  qqntContract:
+                    value !== 'qqnt' ||
+                    (primary.borderRadius === '7px' &&
+                      css(`${preview} .weq-style-preview-button`).borderRadius ===
+                        css('[data-component-preview="classic"] .weq-style-preview-button')
+                          .borderRadius &&
+                      css('.weq-input').borderRadius === '8px' &&
+                      css('.weq-directory-scope-menu').borderRadius === '8px' &&
+                      css('.conversation-row.active').boxShadow ===
+                        css(`${preview} .weq-style-preview-item.is-selected`).boxShadow),
                   noOverflow: document.documentElement.scrollWidth <= innerWidth,
                   previewVisible: [...document.querySelectorAll('.weq-style-preview')].every(
                     (node) =>
@@ -230,11 +317,12 @@ try {
     }
   }
   // 键盘、实际滚动、刷新恢复与系统模式同样走真实组件。
-  await page.getByRole('radio', { name: '复古', exact: true }).focus();
+  const lastStyle = styles.at(-1);
+  await page.getByRole('radio', { name: lastStyle.label, exact: true }).focus();
   await page.keyboard.press('ArrowRight');
   if (
     (await page
-      .getByRole('radio', { name: '经典（默认）', exact: true })
+      .getByRole('radio', { name: styles[0].label, exact: true })
       .getAttribute('aria-checked')) !== 'true'
   )
     failures.push('键盘循环选择');
@@ -257,8 +345,9 @@ try {
   await page.reload();
   await page.waitForSelector('.conversation-row');
   if (
-    (await page.getByRole('radio', { name: '复古', exact: true }).getAttribute('aria-checked')) !==
-    'true'
+    (await page
+      .getByRole('radio', { name: lastStyle.label, exact: true })
+      .getAttribute('aria-checked')) !== 'true'
   )
     failures.push('刷新风格恢复');
   if (
@@ -271,7 +360,93 @@ try {
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
   await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
-  if (output) await page.screenshot({ path: resolve(output, 'mobile-retro.png'), fullPage: true });
+  if (output) await page.screenshot({ path: resolve(output, 'mobile-qqnt.png'), fullPage: true });
+  await page.getByRole('radio', { name: '复古', exact: true }).click();
+  const scope = page.getByRole('radiogroup', { name: '内容范围' });
+  await scope.getByRole('radio', { name: '全部内容', exact: true }).focus();
+  await page.keyboard.press('ArrowRight');
+  if (
+    (await scope.getByRole('radio', { name: '已选内容' }).getAttribute('aria-checked')) !== 'true'
+  )
+    failures.push('复古分段控件键盘选择');
+
+  // 同一套样式还需在真实聊天组件中成立，不能只对控件展示页生效。
+  await page.goto(url.replace('component-appearance.html', 'qqnt-appearance.html'));
+  await page.waitForSelector('.message-content');
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 920 });
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate(
+        ({ theme }) => {
+          const store = window.qqntQa.store.getState();
+          store.setPreference(theme);
+          store.setComponentStyle('retro');
+          store.setBackground('telegram');
+          store.setAccent(theme === 'light' ? '#075c30' : '#fff3a1');
+        },
+        { theme },
+      );
+      await page.waitForTimeout(30);
+      const checks = await page.evaluate(() => {
+        const css = (selector) => getComputedStyle(document.querySelector(selector));
+        const content = document.querySelector('.message-content');
+        const line = content.closest('.message-line');
+        const signature = () => {
+          const style = getComputedStyle(content);
+          return [
+            style.borderRadius,
+            style.borderWidth,
+            style.boxShadow,
+            style.backgroundColor,
+          ].join('|');
+        };
+        const unchanged = () => {
+          document.documentElement.dataset.componentStyle = 'classic';
+          const classic = signature();
+          document.documentElement.dataset.componentStyle = 'retro';
+          return signature() === classic;
+        };
+        const originalBubble = line.getAttribute('data-bubble');
+        line.setAttribute('data-bubble', 'synthetic');
+        const decoratedBubble = unchanged();
+        if (originalBubble === null) line.removeAttribute('data-bubble');
+        else line.setAttribute('data-bubble', originalBubble);
+        const media = [
+          'sticker-only',
+          'qq-card-only',
+          'qq-voice-only',
+          'markdown-image-only',
+          'code-only',
+        ].every((className) => {
+          content.classList.add(className);
+          try {
+            return unchanged();
+          } finally {
+            content.classList.remove(className);
+          }
+        });
+        return {
+          decoratedBubble,
+          media,
+          rail: css('.weq-rail-button').borderRadius === '0px',
+          railSelected:
+            css('.weq-rail-button[aria-current="page"]').backgroundColor ===
+            css('.conversation-row.active').backgroundColor,
+          bubble:
+            css('.message-content').borderRadius === '0px' &&
+            css('.message-content').borderTopWidth === '1px',
+          avatar: css('.message-line .avatar').borderRadius === '0px',
+          editor: css('.composer-editor').boxShadow !== 'none',
+          noOverflow: document.documentElement.scrollWidth <= innerWidth,
+        };
+      });
+      for (const [check, passed] of Object.entries(checks))
+        if (!passed) failures.push(`chat/${width}/${theme}: ${check}`);
+      if (output)
+        await page.screenshot({ path: resolve(output, `retro-chat-${theme}-${width}.png`) });
+      cases++;
+    }
+  }
   console.log(JSON.stringify({ cases, failures, errors }, null, 2));
   if (failures.length || errors.length) throw new Error([...failures, ...errors].join('\n'));
 } finally {

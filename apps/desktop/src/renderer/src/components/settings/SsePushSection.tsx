@@ -228,7 +228,12 @@ export function SsePushSection(): ReactElement {
   function onTest(): void {
     const pushUrl = form?.pushUrl.trim() ?? '';
     if (!pushUrl) {
-      pushToast({ tone: 'warning', title: '信息不完整', detail: '请先填写推送地址。' });
+      pushToast({
+        tone: 'warning',
+        durationKind: 'success',
+        title: '信息不完整',
+        detail: '请先填写推送地址。',
+      });
       return;
     }
     const accessToken = form?.accessToken.trim() ?? '';

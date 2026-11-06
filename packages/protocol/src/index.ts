@@ -168,6 +168,7 @@ export {
   cloudProfileResponse,
   commonGroupsResponse,
 } from './oidb/profile/cloud-profile';
+export { getFriendClue, FRIEND_CLUE_COMMAND, type FriendClue } from './oidb/profile/friend-clue';
 export {
   QQ_REGIONS,
   QQ_PROFESSIONS,

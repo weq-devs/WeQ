@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./message-plain-text": "./src/common/message_plain_text.ts",
+    "./ark-cards": "./src/common/arkCards.ts",
+    "./group-share-target": "./src/common/group_share_target.ts",
+    "./card-clipboard": "./src/common/cardClipboard.ts",
+    "./unicode-face-map": "./src/common/unicodeFaceMap.ts",
+    "./export-content": "./src/common/export_content.ts",
     ".": "./src/index.ts",
     "./mail": "./src/account/mail/index.ts",
     "./mail-wire": "./src/account/mail/wire.ts",
@@ -36,6 +42,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@streamparser/json": "^0.0.26",
     "@weq/account": "workspace:*",
     "@weq/agentlab": "workspace:*",
     "@weq/codec": "workspace:*",
@@ -43,6 +50,8 @@
     "@weq/native": "workspace:*",
     "@weq/platform": "workspace:*",
     "@weq/protocol": "workspace:*",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "exceljs": "^4.4.0",
     "marked": "^16.4.2",
     "parse5": "8.0.1",

@@ -832,11 +832,18 @@ jobs:
           RELEASE_NEEDS: ${{ toJSON(needs) }}
         run: node scripts/release-control.mjs publish
 
+
   # ========================== QQ 群通知 ==========================
   # 最终公开成功后才发送 QQ 群通知，正文仍来自 CHANGELOG 对应章节。
-  # 只发 Windows x86_64 的 desktop 安装包：先把 exe 压成压缩包，
-  # 再按压缩包大小做 200 MB 检查；通过后压缩包经分块上传直传 QQ
-  #（GitHub CDN 在大陆不可访问）。裸 exe 不再直发。
+  #
+  # 下载方式换成了「磁力种子 + web seed」，不再直发安装包：
+  #   - 单个产物早就超过 QQ 的 200 MB 附件上限（setup.exe 就 222 MB），
+  #     7z 压缩后仍然超限，分卷方案用户侧体验极差。
+  #   - 现在把全部产物打成一包 .torrent（约 20 KiB），作为附件发进群；
+  #     种子内嵌 GitHub Release 直链做 web seed（BEP 19），所以不需要
+  #     任何常驻做种者 —— 实测 aria2 169 MiB/s、哈希与原件一致。
+  #   - 消息正文只放 CHANGELOG 摘要 + 一个 Release 页面链接，不放长链接；
+  #     各平台下载用内联键盘的链接按钮（5 行 × 2 列）。
   qq-notify:
     needs: [publish, gate]
     if: needs.gate.outputs.release == 'true'
@@ -844,115 +851,125 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Prepare release info & package desktop installer
+      # 拉全量产物（约 2.6 GB）用来算 piece 哈希。
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          gh release download "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --dir dist/release
+
+      # 每个产物一个单文件种子。多文件种子映射不到平铺的 Release 资产：
+      # 客户端会把 url-list 拼成 <前缀>/<种子名>/<相对路径>，而 Release
+      # 上没有 <种子名>/ 这层目录，怎么配都 404（aria2 与 libtorrent 一致）。
+      - name: Build per-file torrents with web seed
+        id: torrents
+        run: |
+          set -euo pipefail
+          node scripts/make-torrent.mjs \
+            --dir dist/release \
+            --out-dir dist/torrents \
+            --url-base "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}" \
+            --piece-size 4MiB \
+            --exclude '^latest.*\.yml$,^.*\.blockmap$'
+
+      # 独立校验：从零解 bencode、重算 piece、核对 infohash 与 web seed URL。
+      - name: Verify torrents
+        run: |
+          set -euo pipefail
+          node scripts/verify-torrent.mjs \
+            --torrent-dir dist/torrents \
+            --dist dist/release \
+            --url-base "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+
+      # 种子总共约 20 KiB，打成一个 zip 发群最省事：一条文件消息搞定，
+      # 也省得用户在 14 个附件里翻。
+      - name: Pack torrents
+        run: |
+          set -euo pipefail
+          cd dist/torrents
+          # tag 是 v2.4.0，文件名里要的是去掉 v 的 2.4.0。
+          VER="${TAG#v}"
+          NAME="weQ-${VER}-torrents.zip"
+          zip -9 -q "$NAME" ./*.torrent MAGNETS.txt
+          ls -la "$NAME"
+        env:
+          TAG: ${{ github.ref_name }}
+
+      - name: Prepare message & keyboard
         id: prep
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           VERSION="${{ github.ref_name }}"
           VER="${VERSION#v}"
-          EXE="weQ-${VER}-setup.exe"
-          PKG="weQ-${VER}-win32-x64-setup.7z"
-          EXE_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}/${EXE}"
-          BASE_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}"
-          LINUX_X64_URL="${BASE_URL}/weQ-${VER}-linux-x86_64.AppImage"
-          LINUX_ARM64_URL="${BASE_URL}/weQ-${VER}-linux-arm64.AppImage"
-          MAC_X64_URL="${BASE_URL}/weQ-${VER}-mac-x64.dmg"
-          MAC_ARM64_URL="${BASE_URL}/weQ-${VER}-mac-arm64.dmg"
-          WEB_WIN_X64_URL="${BASE_URL}/weq-web-${VER}-win32-x64.tar.gz"
-          WEB_LINUX_X64_URL="${BASE_URL}/weq-web-${VER}-linux-x64.tar.gz"
-          WEB_LINUX_ARM64_URL="${BASE_URL}/weq-web-${VER}-linux-arm64.tar.gz"
-          WEB_DARWIN_X64_URL="${BASE_URL}/weq-web-${VER}-darwin-x64.tar.gz"
-          WEB_DARWIN_ARM64_URL="${BASE_URL}/weq-web-${VER}-darwin-arm64.tar.gz"
+          REPO="${{ github.repository }}"
+          BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
+          PAGE_URL="https://github.com/${REPO}/releases/tag/${VERSION}"
 
-          gh release download "${VERSION}" --pattern "${EXE}" --dir /tmp/release
-
-          # 先压缩：QQ 只发压缩包，不发 exe 裸文件。
-          # 7z 不保证预装在 runner 上，缺了就装一次。
-          if ! command -v 7z >/dev/null 2>&1; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq p7zip-full
-          fi
-          7z a -t7z -mx=9 -mmt=on "/tmp/release/${PKG}" "/tmp/release/${EXE}" >/dev/null
-
-          # 约定：QQ 通知的「详细更改」取 CHANGELOG.md 对应版本章节
-          # （与 WeQ 助手推文 / Release 说明同一数据源）。
+          # 正文仍来自 CHANGELOG 对应章节（与推文 / 系统通知同一数据源）。
           BODY=$(node scripts/extract-changelog.mjs "${VERSION}" CHANGELOG.md)
 
-          # 检查「压缩后」的大小，超过 200 MB 则不作为附件发送（QQ 限制）
-          PKG_SIZE=$(stat -c%s "/tmp/release/${PKG}")
-          if [ "$PKG_SIZE" -lt $((200 * 1024 * 1024)) ]; then
-            echo "send_file=true"  >> $GITHUB_OUTPUT
-          else
-            echo "send_file=false" >> $GITHUB_OUTPUT
-          fi
+          # 5 行 × 2 列：同一行左 desktop、右 web，横向对比最直观。
+          # QQ 内联键盘最多 5 行（超了报 40034029），所以不能再加。
+          KEYBOARD=$(cat <<EOF
+          win=${BASE_URL}/weQ-${VER}-setup.exe, web-win=${BASE_URL}/weq-web-${VER}-win32-x64.tar.gz
+          mac-arm=${BASE_URL}/weQ-${VER}-mac-arm64.dmg, web-mac-arm=${BASE_URL}/weq-web-${VER}-darwin-arm64.tar.gz
+          mac-intel=${BASE_URL}/weQ-${VER}-mac-x64.dmg, web-mac-intel=${BASE_URL}/weq-web-${VER}-darwin-x64.tar.gz
+          linux-x64=${BASE_URL}/weQ-${VER}-linux-x86_64.AppImage, web-linux-x64=${BASE_URL}/weq-web-${VER}-linux-x64.tar.gz
+          linux-arm=${BASE_URL}/weQ-${VER}-linux-arm64.AppImage, web-linux-arm=${BASE_URL}/weq-web-${VER}-linux-arm64.tar.gz
+          EOF
+          )
 
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "exe=${EXE}"         >> $GITHUB_OUTPUT
-          echo "pkg=${PKG}"         >> $GITHUB_OUTPUT
-          echo "exe_url=${EXE_URL}"             >> $GITHUB_OUTPUT
-          echo "linux_x64_url=${LINUX_X64_URL}" >> $GITHUB_OUTPUT
-          echo "linux_arm64_url=${LINUX_ARM64_URL}" >> $GITHUB_OUTPUT
-          echo "mac_x64_url=${MAC_X64_URL}" >> $GITHUB_OUTPUT
-          echo "mac_arm64_url=${MAC_ARM64_URL}" >> $GITHUB_OUTPUT
-          echo "web_win_x64_url=${WEB_WIN_X64_URL}"     >> $GITHUB_OUTPUT
-          echo "web_linux_x64_url=${WEB_LINUX_X64_URL}" >> $GITHUB_OUTPUT
-          echo "web_linux_arm64_url=${WEB_LINUX_ARM64_URL}" >> $GITHUB_OUTPUT
-          echo "web_darwin_x64_url=${WEB_DARWIN_X64_URL}" >> $GITHUB_OUTPUT
-          echo "web_darwin_arm64_url=${WEB_DARWIN_ARM64_URL}" >> $GITHUB_OUTPUT
-          { echo "body<<BODY_EOF"; echo "$BODY"; echo "BODY_EOF"; } >> $GITHUB_OUTPUT
+          {
+            echo "## WeQ ${VER} 发布"
+            echo ""
+            echo "详细更改如下："
+            echo "${BODY}"
+            echo ""
+            echo "---"
+            echo ""
+            echo "下方按钮直接下载对应平台；浏览器版需要自备 Node ≥22。"
+            echo "完整产物与校验信息见 [Release 页面](${PAGE_URL})"
+            echo ""
+            echo "**附件是 .torrent 种子包，已内嵌下载源，无需常驻做种；欢迎大家测试喵~**"
+          } > /tmp/message.md
 
-      - name: Send QQ notification (with package)
-        if: steps.prep.outputs.send_file == 'true'
-        # 2026-10-27 核对 action.yml / src/send.mjs：直接运行 Node，无运行时 npm 安装。
-        uses: H3CoF6/qq-notify-action@a0a39df9388de9f0b02b46f96ae6936d0732c8fd
+          echo "== 消息正文 =="
+          cat /tmp/message.md
+          echo
+          echo "== 键盘 =="
+          echo "$KEYBOARD"
+
+          # 多行值走 GITHUB_OUTPUT 的 heredoc 语法。
+          {
+            echo "ver=${VER}"
+            echo 'message<<MSG_EOF'
+            cat /tmp/message.md
+            echo 'MSG_EOF'
+            echo 'keyboard<<KB_EOF'
+            echo "$KEYBOARD"
+            echo 'KB_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check attachment exists
+        run: |
+          set -euo pipefail
+          test -f "dist/torrents/weQ-${{ steps.prep.outputs.ver }}-torrents.zip" \
+            || { echo "::error::找不到种子压缩包"; ls -la dist/torrents; exit 1; }
+
+      - name: Send QQ notification
+        uses: H3CoF6/qq-notify-action@b9b5bfc84ebd4323a5d844af07f1d20fb33aebe0
         with:
           appid: ${{ secrets.QQ_APPID }}
           secret: ${{ secrets.QQ_SECRET }}
           group_openid: ${{ secrets.QQ_GROUP_OPENID }}
-          message: |
-            ## WeQ 新版本 ${{ steps.prep.outputs.version }} 发布
-
-            详细更改如下：
-            ${{ steps.prep.outputs.body }}
-
-            ---
-
-            - Windows x86_64 安装包[下载链接](${{ steps.prep.outputs.exe_url }})
-            - Linux x64 AppImage [下载链接](${{ steps.prep.outputs.linux_x64_url }})
-            - Linux arm64 AppImage [下载链接](${{ steps.prep.outputs.linux_arm64_url }})
-            - macOS Intel dmg [下载链接](${{ steps.prep.outputs.mac_x64_url }})
-            - macOS Apple Silicon dmg [下载链接](${{ steps.prep.outputs.mac_arm64_url }})
-            - 浏览器版 Web：
-              Windows x64 [下载链接](${{ steps.prep.outputs.web_win_x64_url }}) 
-
-            **欢迎大家测试使用新的功能喵~**
-          file_path: /tmp/release/${{ steps.prep.outputs.pkg }}
+          message: ${{ steps.prep.outputs.message }}
+          keyboard: ${{ steps.prep.outputs.keyboard }}
+          file_path: dist/torrents/weQ-${{ steps.prep.outputs.ver }}-torrents.zip
           file_type: file
-          file_name: ${{ steps.prep.outputs.pkg }}
-
-      - name: Send QQ notification (package too large, link only)
-        if: steps.prep.outputs.send_file == 'false'
-        uses: H3CoF6/qq-notify-action@a0a39df9388de9f0b02b46f96ae6936d0732c8fd
-        with:
-          appid: ${{ secrets.QQ_APPID }}
-          secret: ${{ secrets.QQ_SECRET }}
-          group_openid: ${{ secrets.QQ_GROUP_OPENID }}
-          message: |
-            ## WeQ 新版本 ${{ steps.prep.outputs.version }} 发布
-
-            详细更改如下：
-            ${{ steps.prep.outputs.body }}
-
-            ---
-
-            - Windows x86_64 安装包 [下载链接](${{ steps.prep.outputs.exe_url }})
-            - Linux x64 AppImage [下载链接](${{ steps.prep.outputs.linux_x64_url }})
-            - Linux arm64 AppImage [下载链接](${{ steps.prep.outputs.linux_arm64_url }})
-            - macOS Intel dmg [下载链接](${{ steps.prep.outputs.mac_x64_url }})
-            - macOS Apple Silicon dmg [下载链接](${{ steps.prep.outputs.mac_arm64_url }})
-            - 浏览器版 Web：
-              Windows x64 [下载链接](${{ steps.prep.outputs.web_win_x64_url }}) 
-
-            **安装包体积超过上限了喵**
-            **欢迎大家测试使用新的功能喵~**
+          file_name: weQ-${{ steps.prep.outputs.ver }}-torrents.zip

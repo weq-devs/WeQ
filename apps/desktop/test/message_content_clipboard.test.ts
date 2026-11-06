@@ -154,12 +154,12 @@ describe('消息内容复制', () => {
   });
   it('完整序列化引用、系统表情、提及及贴纸，纯文本与富文本内容一致', () => {
     const value = messageContentClipboard(elements, '不完整的旧摘要');
-    expect(value.text).toBe('> 原话[微笑]\n前[大笑]@甲[贴纸]后');
+    expect(value.text).toBe('> 原话[微笑]\n前[大笑]@甲\n[表情包: 贴纸]\n后');
     expect(messageContentText(elements)).toBe(value.text);
     const root = new DOMParser().parseFromString(value.html, 'text/html');
     expect(root.querySelector('blockquote')?.textContent).toBe('原话[微笑]');
     expect(root.querySelector('[data-weq-at-uid]')?.textContent).toBe('@甲');
-    expect(root.body.textContent).toContain('前[大笑]@甲[贴纸]后');
+    expect(root.body.textContent).toContain('前[大笑]@甲[表情包: 贴纸]后');
     expect(readMentionClipboard(value.html)).toContainEqual(
       expect.objectContaining({ type: 'at' }),
     );
@@ -168,7 +168,7 @@ describe('消息内容复制', () => {
     expect(messageContentText([{ type: 'face', data: { faceId: 99 } }])).toBe('[表情99]');
     expect(messageContentText([{ type: 'reply', data: { origText: '旧引用' } }])).toBe('> 旧引用');
     expect(messageContentText([{ type: 'file', data: { fileName: '文件.txt' } }])).toBe(
-      '[文件] 文件.txt',
+      '[文件: 文件.txt]',
     );
     expect(messageContentText([elements[0]!], '正文')).toBe('> 原话[微笑]\n正文');
   });

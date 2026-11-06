@@ -1,9 +1,7 @@
 /**
  * 设置 → 语音转录.
  *
- * Account-independent: downloads & selects the offline transcription model used
- * by the chat 转文字 feature. The selected model id lives in the global config
- * (`bootstrap.getSettings().modelResources.voice`); empty = feature off.
+ * 模型与账号无关，供聊天语音转文字使用；完整下载后由后台自动启用。
  *
  * Download progress arrives over the `onVoiceModelProgress` subscription (one
  * shared stream for all models, keyed by model id). The model registry +
@@ -17,23 +15,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { z } from 'zod';
 import { usePageState } from '../PageSnapshots';
 import { pageValue } from '../../lib/pageSnapshots';
-import {
-  AudioLines,
-  Check,
-  Download,
-  Loader2,
-  Plus,
-  Play,
-  Save,
-  Trash2,
-  Volume2,
-  X,
-} from 'lucide-react';
+import { AudioLines, Download, Loader2, Plus, Play, Save, Trash2, Volume2, X } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { Modal, useDialog } from '../Dialog';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Card, QueryError, Row, SectionHeader } from './controls';
+import { RecognitionConcurrencySetting } from './RecognitionConcurrencySetting';
 import '../../styles/provider-settings.css';
 import { useDraftClose } from '../../lib/draftClose';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
@@ -87,15 +75,17 @@ export function VoiceTranscribeSection(): ReactElement {
 
   const download = trpc.bootstrap.downloadVoiceModel.useMutation();
   const remove = trpc.bootstrap.deleteVoiceModel.useMutation();
-  const setModel = trpc.bootstrap.setLocalModelResource.useMutation();
 
   const [progress, setProgress] = useState<LiveProgress | null>(null);
 
   // Subscribe to download progress (shared stream). On the terminal event
   // (done/error) clear the bar and refresh the model list.
   // 订阅只该建一次；refetch/showError 通过 ref 取最新引用，避免它们的身份变化把流重连。
-  const refetchModelsRef = useRef(models.refetch);
-  refetchModelsRef.current = models.refetch;
+  const refetchModelsRef = useRef<() => void>(() => {});
+  refetchModelsRef.current = () => {
+    void models.refetch();
+    void utils.bootstrap.getSettings.invalidate();
+  };
   const showErrorRef = useRef(showError);
   showErrorRef.current = showError;
 
@@ -135,8 +125,6 @@ export function VoiceTranscribeSection(): ReactElement {
     };
   }, [active]);
 
-  const selectedId = models.data?.selected.voice ?? '';
-
   async function onDownload(id: string): Promise<void> {
     try {
       setProgress({ id, percent: 0, downloadedBytes: 0, totalBytes: 0, speed: 0 });
@@ -158,36 +146,30 @@ export function VoiceTranscribeSection(): ReactElement {
     }
   }
 
-  async function onSelect(id: string): Promise<void> {
-    try {
-      // Toggle off if already selected.
-      await setModel.mutateAsync({ kind: 'voice', modelId: selectedId === id ? '' : id });
-      await models.refetch();
-      await utils.bootstrap.getSettings.invalidate();
-    } catch (e) {
-      showError('设置当前模型失败', errMsg(e));
-    }
-  }
-
   const modelList = models.data?.voice ?? [];
 
   return (
-    <div className="weq-set">
+    <div className="weq-set weq-recognition-settings">
       <SectionHeader icon={<AudioLines size={18} strokeWidth={1.8} />} title="语音识别" />
+      <Card title="QQ 在线转写">
+        <p className="weq-set-note">
+          由 QQ 服务端将语音转为文字，需要 QQ 在线，并在导出时准备官方转写抓包。
+        </p>
+        <RecognitionConcurrencySetting kind="voice" />
+      </Card>
 
-      <Card title="本地语音模型">
-        <p className="weq-set-note">识别在本机完成，不会将语音发送给 API 服务商。</p>
+      <Card title="本地语音识别">
+        <p className="weq-set-note">使用本机已下载的模型将语音转为文字，可离线使用。</p>
         {modelList.length === 0 ? (
           <div className="weq-set-empty">{models.isLoading ? '加载中…' : '暂无可用模型'}</div>
         ) : (
           <div className="weq-models">
             {modelList.map((m) => {
-              const isSelected = selectedId === m.id;
               const hasProgress = progress?.id === m.id;
               const isDownloading = hasProgress || m.downloading;
               const pct = hasProgress ? Math.round(progress!.percent) : 0;
               return (
-                <div key={m.id} className={`weq-model${isSelected ? ' is-selected' : ''}`}>
+                <div key={m.id} className="weq-model">
                   <div className="weq-model-icon">
                     <AudioLines size={18} strokeWidth={1.8} aria-hidden />
                   </div>
@@ -198,9 +180,6 @@ export function VoiceTranscribeSection(): ReactElement {
                         <span className="weq-set-badge weq-set-badge-ok">推荐</span>
                       ) : null}
                       {m.downloaded ? <span className="weq-set-badge">已下载</span> : null}
-                      {isSelected ? (
-                        <span className="weq-set-badge weq-set-badge-ok">当前模型</span>
-                      ) : null}
                     </div>
                     <span className="weq-model-desc">{m.desc}</span>
                     <span className="weq-model-size weq-number">
@@ -225,27 +204,16 @@ export function VoiceTranscribeSection(): ReactElement {
 
                   <div className="weq-model-actions">
                     {m.downloaded ? (
-                      <>
-                        <button
-                          type="button"
-                          className={`weq-set-btn weq-set-btn-sm${isSelected ? ' weq-set-btn-soft' : ''}`}
-                          onClick={() => void onSelect(m.id)}
-                          disabled={setModel.isLoading || models.isFetching || isDownloading}
-                        >
-                          <Check size={12} strokeWidth={2} aria-hidden />
-                          {isSelected ? '取消选用' : '设为当前'}
-                        </button>
-                        <button
-                          type="button"
-                          className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-                          onClick={() => void onDelete(m.id)}
-                          disabled={remove.isLoading || isDownloading}
-                          title="删除模型"
-                          aria-label="删除模型"
-                        >
-                          <Trash2 size={12} strokeWidth={1.8} aria-hidden />
-                        </button>
-                      </>
+                      <button
+                        type="button"
+                        className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                        onClick={() => void onDelete(m.id)}
+                        disabled={remove.isLoading || isDownloading}
+                        title="删除模型"
+                        aria-label="删除模型"
+                      >
+                        <Trash2 size={12} strokeWidth={1.8} aria-hidden />
+                      </button>
                     ) : isDownloading ? (
                       <button type="button" className="weq-set-btn weq-set-btn-sm" disabled>
                         <Loader2 size={12} strokeWidth={2} className="weq-spin" aria-hidden />
@@ -509,9 +477,12 @@ export function TtsProvidersCard(): ReactElement {
 
   function onTest(): void {
     if (!form.baseUrl.trim()) {
-      useToast
-        .getState()
-        .push({ tone: 'warning', title: '无法测试', detail: '请先填写服务地址（Base URL）。' });
+      useToast.getState().push({
+        tone: 'warning',
+        durationKind: 'success',
+        title: '无法测试',
+        detail: '请先填写服务地址（Base URL）。',
+      });
       return;
     }
     const input = toPayload(form.id);

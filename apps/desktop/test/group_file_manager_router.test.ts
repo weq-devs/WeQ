@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import { readFile, access } from 'node:fs/promises';
+import { webNotices, type WebNotice } from '../src/main/web/notices';
 
 const f = vi.hoisted(() => ({
   configId: 'source-a',
@@ -10,6 +11,8 @@ const f = vi.hoisted(() => ({
   list: vi.fn(),
   remember: vi.fn(),
   sendFile: vi.fn(),
+  trustPath: vi.fn(),
+  untrustPath: vi.fn(),
 }));
 vi.mock('../src/main/ocr/local', () => ({
   resolveLocalOcrModel: () => null,
@@ -21,6 +24,7 @@ vi.mock('../src/main/context/app_context', () => {
     groupFile: { list: f.list },
     contentSearch: { remember: f.remember },
     messageSend: { sendFile: f.sendFile },
+    fileResource: { trustPath: f.trustPath, untrustPath: f.untrustPath },
   };
   return {
     getAppContext: () => ({
@@ -44,6 +48,59 @@ beforeEach(() => {
   f.sendFile.mockResolvedValue({ ok: true });
 });
 describe('群文件管理器 IPC 来源', () => {
+  it('通用设备选文件无需在线 QQ，完整发布后才授权预览，丢弃时撤销信任', async () => {
+    const api = accountRouter.createCaller({});
+    f.pid = 0;
+    const upload = await api.pickedFileStart({ ...binding, size: 3, name: 'fixture.zip' });
+    let path = '';
+    try {
+      await expect(api.pickedFileFinish({ ...binding, uploadId: upload.id })).rejects.toThrow(
+        '完整',
+      );
+      expect(f.trustPath).not.toHaveBeenCalled();
+      await api.pickedFileChunk({ ...binding, uploadId: upload.id, offset: 0, base64: 'YWJj' });
+      const file = await api.pickedFileFinish({ ...binding, uploadId: upload.id });
+      path = file.path;
+      expect(file).toMatchObject({ fileName: 'fixture.zip', size: 3 });
+      expect(await readFile(path, 'utf8')).toBe('abc');
+      expect(f.trustPath).toHaveBeenCalledWith(path);
+      f.switched = true;
+      await expect(api.pickedFileFinish({ ...binding, uploadId: upload.id })).rejects.toThrow(
+        '失效',
+      );
+    } finally {
+      f.switched = false;
+      await api.pickedFileDiscard({ ...binding, uploadId: upload.id });
+    }
+    expect(f.untrustPath).toHaveBeenCalledWith(path);
+    await expect(access(path)).rejects.toThrow();
+  });
+  it('Web 提醒只投递订阅的账号与来源，切号停止，取消订阅释放监听', async () => {
+    const stream = await accountRouter.createCaller({}).onWebNotice(binding);
+    const received: WebNotice[] = [];
+    const before = webNotices.listenerCount('notice');
+    const sub = stream.subscribe({ next: (notice) => received.push(notice) });
+    const notice: WebNotice = {
+      uin: '10001',
+      configId: 'source-a',
+      kind: 'mail',
+      title: '邮件',
+      body: '收到新邮件。',
+    };
+    try {
+      webNotices.emit('notice', { ...notice, uin: '20002' });
+      webNotices.emit('notice', { ...notice, configId: 'source-b' });
+      expect(received).toHaveLength(0);
+      webNotices.emit('notice', notice);
+      expect(received).toEqual([notice]);
+      f.switched = true;
+      webNotices.emit('notice', notice);
+      expect(received).toHaveLength(1);
+    } finally {
+      sub.unsubscribe();
+    }
+    expect(webNotices.listenerCount('notice')).toBe(before);
+  });
   it('Web 分段附件复用原文件管线，成功和失败都回收临时文件', async () => {
     const api = accountRouter.createCaller({});
     for (const fail of [false, true]) {

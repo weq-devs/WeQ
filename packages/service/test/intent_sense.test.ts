@@ -1336,6 +1336,36 @@ describe('IntentSenseService', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it.each([undefined, {}, { featureSettingsVersion: 2 }])(
+    '新配置或缺少开关字段时，意图感知与推荐回复默认关闭：%j',
+    async (config) => {
+      if (config !== undefined) {
+        writeFileSync(join(dir, 'config.json'), JSON.stringify(config));
+      }
+      const session = makeSession([textMsg(1n, 'u_peer', '合成消息', 1000)]);
+      const analyze = vi.fn(async () => null);
+      const svc = new IntentSenseService(session, dir, {
+        localEngine: makeLocalPort(analyze),
+      });
+      expect(svc.getStatus()).toMatchObject({ enabled: false, suggestionsEnabled: false });
+      await svc.setConversationOverride('c2c', 'u_peer', true);
+      expect(svc.effectiveFor('c2c', 'u_peer')).toBe(false);
+      expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
+      expect(session.c2cMsgs.listLatest).not.toHaveBeenCalled();
+      expect(analyze).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { enabled: true, suggestionsEnabled: false },
+    { enabled: false, suggestionsEnabled: true },
+    { enabled: true, suggestionsEnabled: true },
+  ])('保留已保存的独立开关选择：%j', async (config) => {
+    const svc = new IntentSenseService(makeSession([]), dir);
+    await svc.setConfig(config);
+    expect(new IntentSenseService(makeSession([]), dir).getStatus()).toMatchObject(config);
+  });
+
   it('配置默认关闭；会话覆盖 false 强制关、清除后跟随全局', async () => {
     const svc = new IntentSenseService(makeSession([]), dir, {
       localEngine: makeLocalPort(async () => null),

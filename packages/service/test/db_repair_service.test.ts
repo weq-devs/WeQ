@@ -37,6 +37,7 @@ import {
   type DbRepairRecoverReport,
   type DbRepairWalCheckpoint,
 } from '../src/account/db_repair';
+import { DbRepairHistory } from '../src/account/db_repair/history';
 
 const ALGO: DatabaseAlgorithms = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' };
 /** 服务只认 uin —— 目录与密钥由 `resolveAccount` 解析，测试里就是这个假账号。 */
@@ -616,6 +617,8 @@ describe('DbRepairService.repair 中止 / 失败', () => {
 
     const first = h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
     expect(h.service.isBusy()).toBe(true);
+    expect(() => h.service.deleteBackup(REF, 'in-use')).toThrow('已有修复或回滚在进行');
+    expect(() => h.service.deleteRecord(REF, 'in-use')).toThrow('已有修复或回滚在进行');
     await expect(
       h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
     ).rejects.toMatchObject({ code: 'busy' });
@@ -722,6 +725,16 @@ describe('DbRepairService.restore', () => {
     await expect(async () => h.service.restore(REF, record.id)).rejects.toMatchObject({
       code: 'no-backup',
     });
+  });
+
+  it('空间清理更新备份状态后，已有服务不以旧内存覆盖记录', async () => {
+    const h = createHarness();
+    const record = await repairOnce(h);
+    h.service.listRecords(REF);
+    new DbRepairHistory(h.service.paths(REF)).deleteBackup(record.id);
+    expect(h.service.listRecords(REF).find((item) => item.id === record.id)?.purgedAt).toBeTruthy();
+    expect(h.service.restorePreview(REF, record.id).backupExists).toBe(false);
+    expect(existsSync(record.reportPath!)).toBe(true);
   });
 
   it('删除记录会连同备份一起清掉，之后再也找不到它', async () => {

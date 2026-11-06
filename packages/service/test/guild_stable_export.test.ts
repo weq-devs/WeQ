@@ -11,6 +11,7 @@ import { GuildMsgSource, type GuildExportTaskMeta } from '../src/account/export/
 import { iterateC2cMessages } from '../src/account/export/message_source';
 import { ExportTaskManager } from '../src/account/export/task_manager';
 import type { MsgService } from '../src/account/msg';
+import { readArchive } from '../src/account/export/archive';
 
 let root = '';
 afterEach(() => {
@@ -96,10 +97,8 @@ it('真实 SQLite 的同 seq 与 NULL seq 进入频道搜索、上下文和精�
   const task = manager.getTask(id)!;
   expect(task.error).toBeUndefined();
   expect(task.current).toBe(2);
-  const data = JSON.parse(readFileSync(task.filePath!, 'utf8'));
-  expect(
-    (Array.isArray(data) ? data : data.messages).map((row: { msgId: string }) => row.msgId),
-  ).toEqual(['-5', '2']);
+  const data = readArchive(JSON.parse(readFileSync(task.filePath!, 'utf8')));
+  expect(data.records.map((record) => record.data.messageId)).toEqual(['-5', '2']);
   expect(JSON.parse(readFileSync(task.reportPath!, 'utf8')).guild).toMatchObject({
     kind: 'guild-direct',
     nodeId: '100',

@@ -54,8 +54,8 @@ node apps/desktop/test/browser/run-style-consistency.mjs
 脚本结束后会关闭自己创建的浏览器和测试服务，不使用真实 QQ 数据。
 
 组件风格与独立密度使用 `node apps/desktop/test/browser/run-component-appearance.mjs`，
-覆盖经典默认与简约／复古两套新风格、两种密度、深浅色、六种背景和桌面／窄屏，检查经典样式不被覆盖、两套新风格的形态差异，以及键盘选择、刷新恢复、
-跟随系统和真实会话虚拟列表行高。Playwright 与浏览器路径沿用上述变量，
+覆盖 QQ NT 默认与经典／简约／复古风格、两种密度、深浅色、六种背景和桌面／窄屏，检查经典样式不被覆盖、各套风格的形态差异，以及键盘选择、刷新恢复、
+跟随系统和真实会话虚拟列表行高。复古额外检查分段选项、功能页导航和搜索框、任务浮层、提示框，以及真实 ChatPane 的消息气泡、头像与主导航；整页模式不继承弹窗外框和阴影。Playwright 与浏览器路径沿用上述变量，
 截图目录由 `WEQ_APPEARANCE_ARTIFACTS` 指定。
 
 会话进入与下沿保持回归使用真实 ChatPane 和意图感知组件，合成延迟结果，覆盖短列表与
@@ -65,6 +65,8 @@ node apps/desktop/test/browser/run-style-consistency.mjs
 ```bash
 node apps/desktop/test/browser/run-conversation-entry.mjs
 ```
+
+HTML 导出图片比例可运行 `node apps/desktop/test/browser/run-export-image-ratio.mjs` 回归，覆盖聊天图片、说明文字、表情、转发、Markdown、空间单图/多图以及桌面/窄屏与深浅色；仅使用内联合成图片，不联网、不读取 QQ。Playwright 与浏览器路径沿用上面的环境变量，`WEQ_IMAGE_RATIO_ARTIFACTS` 可指定截图目录。
 
 ## 合并与夹具
 

@@ -19,6 +19,10 @@ import {
 } from '@weq/codec/raw';
 import type { PbNode, PbValue } from '@weq/codec/raw';
 import { UnreadInfo } from '@weq/codec/proto/msg/48902';
+import { databaseRequestSignal } from '../query_schedule';
+import { toBigint } from './util';
+
+export const UNREAD_OUTGOING_PAGE_SIZE = 512;
 
 export interface UnreadInfoDbOptions {
   dbPath: string;
@@ -164,6 +168,7 @@ export class UnreadInfoDb {
     const result: UnreadInfoSnapshot[] = [];
     const batchSize = self ? 128 : 256;
     for (let offset = 0; offset < unique.length; offset += batchSize) {
+      databaseRequestSignal()?.throwIfAborted();
       const batch = unique.slice(offset, offset + batchSize);
       const rows = await this.qq.query(
         `WITH targets(chatType, uid, peer) AS (VALUES ${batch.map(() => '(?, ?, ?)').join(',')})
@@ -173,6 +178,7 @@ export class UnreadInfoDb {
          LEFT JOIN recent_contact_v3_table r ON r."40021" = t.uid AND r."40010" = t.chatType`,
         batch.flatMap((t) => [t.chatType, t.uid, `${t.chatType}_${t.uid}`]),
       );
+      databaseRequestSignal()?.throwIfAborted();
       const candidates: Array<{ snapshot: UnreadInfoSnapshot; partition: string | null }> = [];
       for (const row of rows) {
         const bytes = row[3];
@@ -207,7 +213,7 @@ export class UnreadInfoDb {
     return result;
   }
 
-  /** 只查未读区间的轻量列；优先走 (40027,40003) 索引，不读取正文或逐会话 IPC。 */
+  /** 索引分区分页读取轻量列，让首屏能在统计页之间进入同库队列。 */
   private async loadOutgoingSequences(
     candidates: Array<{ snapshot: UnreadInfoSnapshot; partition: string | null }>,
     self: { selfUid: string; selfUin: string },
@@ -221,6 +227,19 @@ export class UnreadInfoDb {
       );
       if (!targets.length) continue;
       const group = kind === 'group';
+      if (kind !== 'direct-fallback') {
+        for (const { snapshot, partition } of targets) {
+          databaseRequestSignal()?.throwIfAborted();
+          await this.loadOutgoingPartition(
+            snapshot,
+            group ? snapshot.uid : partition!,
+            group,
+            self,
+          );
+        }
+        continue;
+      }
+      // UID 回退保留单次读取，避免在无索引时逐页重复扫描全表。
       const table = group ? 'group_msg_table' : 'c2c_msg_table';
       const column = kind === 'direct-fallback' ? '40021' : '40027';
       const direction = group
@@ -243,9 +262,59 @@ export class UnreadInfoDb {
           ...(group ? [self.selfUid, self.selfUid, self.selfUin, self.selfUin] : []),
         ],
       );
+      databaseRequestSignal()?.throwIfAborted();
       for (const { snapshot } of targets) snapshot.outgoingSeqs = [];
       for (const row of rows) targets[Number(row[0])]!.snapshot.outgoingSeqs!.push(String(row[1]));
     }
+  }
+
+  private async loadOutgoingPartition(
+    snapshot: UnreadInfoSnapshot,
+    partition: string,
+    group: boolean,
+    self: { selfUid: string; selfUin: string },
+  ): Promise<void> {
+    const table = group ? 'group_msg_table' : 'c2c_msg_table';
+    const direction = group
+      ? `((? != '' AND m."40020" = ?) OR (CAST(? AS INTEGER) > 0 AND m."40033" = CAST(? AS INTEGER)))`
+      : `m."40020" != '' AND m."40020" != m."40021"`;
+    const outgoing = new Set<string>();
+    let afterSeq = String(snapshot.msgSeq);
+    const latest = BigInt(snapshot.latestSeq!);
+    let cursor: [bigint, bigint] | undefined;
+    for (;;) {
+      databaseRequestSignal()?.throwIfAborted();
+      // LIMIT 位于发送者筛选前；即使没有自己发言，也只交付一页真实消息。
+      // 同序号尾段单独按 rowid 续读，避免二元游标只按 seq 定位而重扫前页。
+      const rows = await this.qq.query(
+        `SELECT m.rowid, m."40003", CASE WHEN ${direction} THEN 1 ELSE 0 END
+         FROM ${table} m WHERE m."40027" = ?
+           AND ${cursor ? 'm."40003" = ? AND m.rowid > ?' : 'm."40003" > CAST(? AS INTEGER)'}
+           AND m."40003" <= CAST(? AS INTEGER)
+         ORDER BY m."40003",m.rowid LIMIT ?`,
+        [
+          ...(group ? [self.selfUid, self.selfUid, self.selfUin, self.selfUin] : []),
+          partition,
+          ...(cursor ?? [afterSeq]),
+          snapshot.latestSeq!,
+          BigInt(UNREAD_OUTGOING_PAGE_SIZE),
+        ],
+      );
+      databaseRequestSignal()?.throwIfAborted();
+      for (const row of rows) if (Number(row[2]) === 1) outgoing.add(String(row[1]));
+      if (rows.length < UNREAD_OUTGOING_PAGE_SIZE) {
+        if (!cursor || cursor[0] >= latest) break;
+        afterSeq = String(cursor[0]);
+        cursor = undefined;
+        continue;
+      }
+      const last = rows.at(-1)!;
+      const next: [bigint, bigint] = [toBigint(last[1]), toBigint(last[0])];
+      if (cursor ? next[0] !== cursor[0] || next[1] <= cursor[1] : next[0] <= BigInt(afterSeq))
+        throw new Error('未读统计分页游标未前进');
+      cursor = next;
+    }
+    snapshot.outgoingSeqs = [...outgoing];
   }
 
   /**

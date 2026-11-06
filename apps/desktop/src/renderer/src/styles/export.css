@@ -858,12 +858,15 @@
   color: var(--weq-fg-muted);
 }
 
-/* 图片文字识别的模型小卡片（筛图 / 识别各一行，复用设置页的 weq-model 样式） */
-.weq-exp-ocr-models {
+/* OCR 使用包装层，显式补齐原本由设置卡片直接子元素提供的行间距。 */
+.weq-exp-image-recognition {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 8px 0 2px;
+  gap: 14px;
+}
+
+.weq-exp-image-recognition > .weq-exp-block-hint {
+  margin: 0;
 }
 
 /* ===== 灯箱 · 补全选项（4.1 / 4.2 / 4.3 统一样式） ===== */

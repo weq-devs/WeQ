@@ -203,13 +203,9 @@ export interface Platform {
   resolveQqPidAsync?(uin: string): Promise<number | null>;
 
   /**
-   * macOS only: is 系统完整性保护（SIP）still on? Reading another process's memory
-   * goes through `task_for_pid`, which SIP + QQ's hardened runtime refuse even
-   * for root — so a caller can ask first and skip the memory scan (and its
-   * password prompt) entirely instead of failing later.
-   *
-   * `true` = on (reading is impossible), `false` = off (root can read),
-   * `null` = not macOS / couldn't tell. **Never treat `null` as "off".**
+   * macOS SIP 状态：true 开启、false 关闭、null 非 macOS 或无法确认。
+   * 不是读取能力判据：带 cs.debugger 的读取端可读取 get-task-allow 调试副本。
+   * 调用方先尝试实际读取，失败后才结合系统状态提供指引。
    */
   sipEnabled(): boolean | null;
 

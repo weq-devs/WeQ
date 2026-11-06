@@ -11,6 +11,8 @@ import { usePrivacyStore } from '../state/privacy';
 import { useToast } from './Toast';
 import '../styles/backup.css';
 
+const RUNTIME_ERROR_KEY = 'weq.runtime-file-error';
+
 /** 业务视图挂载前交接界面偏好；文件事务失败时不进入 Native／账号启动。 */
 export function BackupStartupGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<BackupStartupState | null>(null);
@@ -19,6 +21,22 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
   const [confirmSkip, setConfirmSkip] = useState(false);
   const [noticeDismissed, setNoticeDismissed] = useState(false);
   const generation = useRef(0);
+  useEffect(() => {
+    let revision: number | undefined;
+    const subscription = client.bootstrap.onRuntimeFilesChanged.subscribe(undefined, {
+      onData(state) {
+        if (revision !== undefined && state.revision !== revision) {
+          try {
+            if (state.error) sessionStorage.setItem(RUNTIME_ERROR_KEY, state.error);
+            else sessionStorage.removeItem(RUNTIME_ERROR_KEY);
+          } catch {}
+          window.location.reload();
+        }
+        revision = state.revision;
+      },
+    });
+    return () => subscription.unsubscribe();
+  }, []);
   const load = useCallback(async (recover = false) => {
     const seq = ++generation.current;
     setBusy(true);
@@ -47,6 +65,11 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
       if (result.ok) {
         useThemeStore.getState().hydrate();
         usePrivacyStore.getState().hydrate();
+        try {
+          const failure = sessionStorage.getItem(RUNTIME_ERROR_KEY);
+          sessionStorage.removeItem(RUNTIME_ERROR_KEY);
+          if (failure) setError(failure);
+        } catch {}
       } else setError(result.error || '文件恢复尚未完成');
     } catch (e) {
       if (seq !== generation.current) return;

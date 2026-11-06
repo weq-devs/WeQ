@@ -19,6 +19,8 @@ import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
 const mocked = vi.hoisted(() => ({
   config: { uin: '10001', configId: 'source-a' },
   online: true,
+  ssoReady: true,
+  accessConfigId: 'source-a',
   invalidate: vi.fn(async () => undefined),
   invalidateStatus: vi.fn(async () => undefined),
   invalidateMembers: vi.fn(async () => undefined),
@@ -36,6 +38,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             hasD2: true,
             hasD2Key: true,
             hasGuid: true,
+            ssoReady: mocked.ssoReady,
+            source: {
+              expectedAccountUin: mocked.config.uin,
+              expectedAccountConfigId: mocked.accessConfigId,
+            },
           },
         }),
       },
@@ -94,6 +101,8 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   mocked.config = { uin: '10001', configId: 'source-a' };
   mocked.online = true;
+  mocked.ssoReady = true;
+  mocked.accessConfigId = 'source-a';
   mocked.invalidate.mockReset().mockResolvedValue(undefined);
   mocked.invalidateStatus.mockReset().mockResolvedValue(undefined);
   mocked.invalidateMembers.mockReset().mockResolvedValue(undefined);
@@ -447,6 +456,47 @@ describe('QQ 写操作账号与生命周期', () => {
     render();
     return { ...f, render, session: () => session! };
   }
+  it('凭据已落盘但原生 SSO 尚未登记时不发请求，登记完成后恢复', async () => {
+    mocked.ssoReady = false;
+    const f = harness();
+    const action = vi.fn(async () => ({ state: 'unchanged' as const }));
+    expect(f.session().available).toBe(false);
+    await act(async () => {
+      expect(await f.session().run(action)).toBe(false);
+    });
+    expect(action).not.toHaveBeenCalled();
+    mocked.ssoReady = true;
+    f.render();
+    expect(f.session().available).toBe(true);
+    await act(async () => {
+      expect(await f.session().run(action)).toBe(true);
+    });
+    expect(action).toHaveBeenCalledOnce();
+  });
+  it('同号切换数据源后不沿用旧来源的 SSO 就绪快照', () => {
+    const f = harness();
+    expect(f.session().available).toBe(true);
+    mocked.config = { uin: '10001', configId: 'source-b' };
+    f.render();
+    expect(f.session().available).toBe(false);
+    mocked.accessConfigId = 'source-b';
+    f.render();
+    expect(f.session().available).toBe(true);
+  });
+  it('状态未改变是普通回执，使用成功时长且不继续读回', async () => {
+    const f = harness();
+    const refresh = vi.fn();
+    await act(async () => {
+      expect(await f.session().run(async () => ({ state: 'unchanged' }), refresh)).toBe(true);
+    });
+    expect(refresh).not.toHaveBeenCalled();
+    expect(useToast.getState().toasts[0]).toMatchObject({
+      tone: 'info',
+      durationKind: 'success',
+      loading: false,
+      ttl: 3000,
+    });
+  });
   it('提交后在同一条横幅显示加载，普通读回成功即可确认，不依赖写回执', async () => {
     const f = harness();
     let finish!: (value: boolean) => void;

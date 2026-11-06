@@ -61,6 +61,9 @@ export type ProgressCallback = (progress: ExportProgress) => void;
 
 /** Options shared by every group exporter. */
 export interface GroupExportOptions {
+  /** 仅旧任务恢复保留原文件形状；新导出不设置。 */
+  legacyFormat?: boolean;
+  archive?: import('./archive').ArchiveOptions;
   /** Group code (群号) to export. */
   groupCode: string;
   /** Conversation display name (used by enriched JSON meta). */

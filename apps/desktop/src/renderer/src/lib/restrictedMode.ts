@@ -13,9 +13,60 @@ export interface OnlineAccess {
 }
 
 export interface Restriction {
-  code: 'offline' | 'disabled' | 'sip' | 'credentials' | 'checking' | 'authorization';
+  code:
+    | 'offline'
+    | 'disabled'
+    | 'sip'
+    | 'credentials'
+    | 'checking'
+    | 'authorization'
+    | 'data-access';
   title: string;
   guidance: string;
+}
+
+export function dataAccessRestriction(status?: string): Restriction[] {
+  if (status !== 'denied' && status !== 'error') return [];
+  return [
+    {
+      code: 'data-access',
+      title: status === 'denied' ? 'QQ 数据读取受限' : 'QQ 数据读取检测失败',
+      guidance: '',
+    },
+  ];
+}
+
+function offlineRestriction(sipEnabled?: boolean | null): Restriction {
+  return {
+    code: 'offline',
+    title: 'QQ 不在线',
+    guidance:
+      sipEnabled === true
+        ? '请启动独立的 QQ 调试副本，并在副本中登录目标账号；尚未创建时请先创建副本。SIP 可以保持开启，登录后会自动重新检查。'
+        : '请在本机 QQ 登录当前账号，登录后会自动重新检查。',
+  };
+}
+
+/** 启动页未选账号，进程在运行与账号已登录是两项不同事实。 */
+export function startupRestrictionReasons(input: {
+  probe?: { count: number | null; runningCount?: number | null };
+  sipEnabled?: boolean | null;
+  dataStatus?: string;
+  failed?: boolean;
+}): Restriction[] {
+  const reasons = dataAccessRestriction(input.dataStatus);
+  if (input.failed || input.probe?.count === null) {
+    reasons.push({
+      code: 'checking',
+      title: 'QQ 在线状态待确认',
+      guidance: input.probe?.runningCount
+        ? '已检测到 QQ 正在运行，但暂时无法确认账号登录状态；请先处理数据读取或授权问题后重新检查。'
+        : '暂时无法读取 QQ 的登录状态，请重新检查。',
+    });
+  } else if (input.probe?.count === 0) {
+    reasons.push(offlineRestriction(input.sipEnabled));
+  }
+  return reasons;
 }
 
 /** 只依据已确认的能力判断；没有密码请求不等于需要提权。 */
@@ -30,12 +81,7 @@ export function restrictionReasons(input: {
       : [];
   const access = input.access;
   const reasons: Restriction[] = [];
-  if (!access.qqOnline)
-    reasons.push({
-      code: 'offline',
-      title: 'QQ 不在线',
-      guidance: '请在本机 QQ 登录当前账号，登录后会自动重新检查。',
-    });
+  if (!access.qqOnline) reasons.push(offlineRestriction(input.sipEnabled));
   if (!access.attachEnabled)
     reasons.push({
       code: 'disabled',
@@ -50,9 +96,9 @@ export function restrictionReasons(input: {
     if (input.sipEnabled === true && !sessionReady)
       reasons.push({
         code: 'sip',
-        title: 'SIP 未关闭',
+        title: 'QQ 调试读取尚未就绪',
         guidance:
-          'macOS 系统完整性保护阻止读取 QQ 内存，管理员密码无法绕过。可使用扫码登录；如选择关闭 SIP，需进入恢复模式操作，这会降低系统安全性。',
+          'SIP 可以保持开启。请创建并启动 QQ 调试副本，在副本中登录目标账号后重新检查；也可使用扫码登录。是否就绪以实际会话凭据为准。',
       });
     else
       reasons.push({

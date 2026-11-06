@@ -23,6 +23,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { getLogger, logErrorContext } from '@weq/service';
 import { AI_TOOLS } from './tools';
 import { isReadOnlyTool } from './tool_permissions';
+import { runtimeMaintenance } from '../runtime_maintenance';
 
 const logger = getLogger().child({ scope: 'mcp-server' });
 
@@ -58,7 +59,7 @@ function buildMcpServer(): McpServer {
       { description: t.description, inputSchema: t.input.shape },
       async (args: unknown) => {
         try {
-          const data = await t.run(args as never);
+          const data = await runtimeMaintenance.operation(async () => t.run(args as never));
           return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
         } catch (error) {
           return {

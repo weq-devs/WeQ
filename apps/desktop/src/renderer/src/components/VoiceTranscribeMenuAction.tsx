@@ -11,7 +11,7 @@ function VoiceAction({ input, onClose }: { input: VoiceTranscriptionInput; onClo
   return (
     <button
       type="button"
-      title={voice.available ? '转换为文字' : '请先在设置中选择本地语音模型'}
+      title={voice.available ? '转换为文字' : '请先在设置中下载本地语音模型'}
       disabled={!voice.available || voice.busy}
       onClick={() => {
         voice.run();

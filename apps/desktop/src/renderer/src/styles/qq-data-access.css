@@ -1,0 +1,21 @@
+.weq-qq-data-access {
+  min-width: 0;
+  margin-bottom: 16px;
+  color: var(--weq-fg-primary);
+  overflow-wrap: anywhere;
+}
+.weq-qq-data-access details {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-qq-data-access summary {
+  cursor: pointer;
+  color: color-mix(in srgb, var(--weq-accent-effective) 40%, var(--weq-fg-primary));
+}
+.weq-qq-data-access details p {
+  margin: 6px 0;
+}
+html[data-theme='dark'] .weq-qq-data-access {
+  color: var(--weq-fg-primary);
+}

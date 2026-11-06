@@ -530,14 +530,16 @@ function truncate(text: string, max: number): string {
 /**
  * 由一组预览消息生成卡片标题（QQ 同款）。
  *
- * 取不同的昵称去重：
+ * 群聊来源固定使用「群聊的聊天记录」，不受发送目标或发言人数影响。
+ * 其他来源取不同的昵称去重：
  *   - 0 个 → 「聊天记录」；
  *   - 1 ~ 2 个 → 「A的聊天记录」/「A和B的聊天记录」；
  *   - 3 个及以上 → 「群聊的聊天记录」（不再拼一串「A和B和C…」）。
  *
  * 与协议层 `deriveInnerSource` 同口径，乐观卡片和收端真卡片才不会看出差异。
  */
-export function draftTitle(nodes: MfNode[]): string {
+export function draftTitle(nodes: MfNode[], sourceKind?: 'c2c' | 'group'): string {
+  if (sourceKind === 'group') return '群聊的聊天记录';
   const names: string[] = [];
   const seen = new Set<string>();
   for (const node of nodes) {
@@ -617,14 +619,13 @@ function previewTextOfSegs(segs: MfSeg[]): string {
 /**
  * 草稿 → 外层卡片预览（乐观渲染用）。
  *
- * 发送成功后服务端会自己生成同口径的 `forwardSource` / `forwardNews`（见
- * `@weq/protocol` 的 buildForwardCardMeta），所以这里算出来的预览行和真卡片一致，
- * 同步到位时不会出现视觉跳变。
+ * 标题沿用草稿并透传到发送卡片；预览行与 `@weq/protocol` 的
+ * buildForwardCardMeta 同口径，同步到位时不会出现视觉跳变。
  */
 export function draftCardPreview(draft: MfDraft): MfCardPreview {
   const nodes = draft.nodes.filter((node) => node.segs.some(segHasContent));
   return {
-    source: draftTitle(nodes),
+    source: draft.title || draftTitle(nodes),
     summary: `查看${nodes.length}条转发消息`,
     tSum: nodes.length,
     news: nodes.slice(0, 4).map((node) => {

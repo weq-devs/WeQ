@@ -268,7 +268,7 @@ const deps: DbRepairDeps = {
     try {
       if (sameAccount) {
         closeSalvageConnections(ctx);
-        ctx.clearAccount();
+        void ctx.clearAccount();
         // `clearAccount` 会把会话里的每个 `Db` 都关掉，但**裸缓存的连接**（例如刚刚做
         // WAL 合并那条带密钥的写连接）不一定在它的范围内 —— 显式再关一次，Windows 上
         // 少一个 rename 被占用挡住的机会。

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { collectQzone, type QzoneExportDeps } from '../src/account/export/qzone_export';
 import { ExportTaskManager } from '../src/account/export/task_manager';
+import { readArchive } from '../src/account/export/archive';
 import { QzoneHistoryStore } from '../src/account/export/qzone_history';
 import type { MsgService } from '../src/account/msg';
 import type { QzoneEmotion } from '../src/account/web/qzone';
@@ -141,7 +142,9 @@ it('实际空间多格式任务保存 tid 快照，不导出未选历史，按�
   expect(task.current).toBe(2);
   expect(task.formatCounts).toEqual({ json: 2, txt: 2, html: 2 });
   expect(
-    JSON.parse(readFileSync(task.filePath!, 'utf8')).map((post: { tid: string }) => post.tid),
+    readArchive(JSON.parse(readFileSync(task.filePath!, 'utf8')))
+      .records.filter((record) => record.data.type === 'post')
+      .map((record) => record.data.sourceId),
   ).toEqual(['a', 'c']);
   expect(readdirSync(task.bundleDir!)).not.toContain('qzone-history.json');
   expect(readFileSync(join(task.bundleDir!, '合成空间.html'), 'utf8')).not.toContain('unselected');

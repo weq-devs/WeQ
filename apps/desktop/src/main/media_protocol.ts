@@ -419,7 +419,7 @@ async function dressRemoteResponse(src: string, theme: string | null): Promise<R
  * QQ 秀形象图(images.qqshow.gtimg.com)的落盘缓存代理。
  *
  * 与 dress 同款思路:渲染进程不直连 CDN,主进程代取 + 落盘,只放行 qqshow 域名。
- * 图片走 AvatarCacheService 的 `qqshow` 子目录(30 天 TTL,URL 自带版本号不会旧图)。
+ * 图片地址可能不变，磁盘有效期跟随 QQ 秀设置，浏览器每次加载需重新验证。
  */
 async function qqshowRemoteResponse(src: string): Promise<Response> {
   if (!/^https:\/\//i.test(src)) return notFound('qqshow asset needs https url');
@@ -429,13 +429,24 @@ async function qqshowRemoteResponse(src: string): Promise<Response> {
     host === 'images.qqshow.gtimg.com' ||
     host.endsWith('.qqshow.gtimg.com');
   if (!allowed) return notFound('qqshow host not allowed');
-  const cache = getAppContext().bootstrap?.avatarCache;
-  if (!cache) return notFound('qqshow cache unavailable');
+  const bootstrap = getAppContext().bootstrap;
+  const cache = bootstrap?.avatarCache;
+  if (!cache || !bootstrap) return notFound('qqshow cache unavailable');
   try {
-    const blob = await cache.get(src, 'qqshow');
+    const stale = await cache.getLocal(src, 'qqshow');
+    const ttl = bootstrap.userConfig.getSettings().qqShowCacheMinutes * 60_000;
+    const cachedAt = await cache.cachedAt(src, 'qqshow');
+    // 显式刷新不会先删除旧文件，离线时仍能反复回退。
+    const blob =
+      stale && cachedAt !== null && Date.now() - cachedAt < ttl
+        ? stale
+        : await cache.get(src, 'qqshow', 0).catch((error: unknown) => {
+            if (stale) return stale;
+            throw error;
+          });
     return new Response(new Uint8Array(blob.data), {
       status: 200,
-      headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },
+      headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'no-cache' },
     });
   } catch {
     return notFound('qqshow asset fetch failed');

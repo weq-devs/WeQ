@@ -134,7 +134,7 @@ export function IntentModelsSection({ embedded = false }: { embedded?: boolean }
             />
             <button
               type="button"
-              className="weq-set-btn"
+              className="weq-set-btn weq-set-btn-soft"
               disabled={busy}
               onClick={() => void run('download')}
             >
@@ -146,7 +146,7 @@ export function IntentModelsSection({ embedded = false }: { embedded?: boolean }
         {engine.data?.modelDownloaded ? (
           <button
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-soft"
             disabled={busy || start.isLoading || engine.data.engineReady}
             onClick={() => void run('start')}
           >

@@ -35,6 +35,53 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+it('运行中先清除闲置数据，仅将实际持有路径留作重启候选；未选项不受影响', async () => {
+  const f = fixture();
+  const idle = f.file('cache/export/output.txt');
+  const busy = f.file('cache/agentlab/synthetic/memory.json');
+  const other = f.file('cache/ocr/keep.txt');
+  const targets = selectStorageCleanupTargets(await f.service.listStorageUsage(), [
+    'export',
+    'agentlab',
+  ]);
+  const result = await executeStorageCleanup({
+    targets,
+    protectedPaths: [],
+    reportPath: f.reportPath,
+    busyPaths: [busy],
+  });
+  expect(existsSync(idle)).toBe(false);
+  expect(existsSync(busy)).toBe(true);
+  expect(existsSync(other)).toBe(true);
+  expect(result.failed).toEqual([
+    expect.objectContaining({ id: 'agentlab', retryAfterRestart: true }),
+  ]);
+  expect(result.cleared).toHaveLength(1);
+  const retry = await executeStorageCleanup({
+    targets: targets.filter((item) => item.id === 'agentlab'),
+    protectedPaths: [],
+    reportPath: f.reportPath,
+    previousResult: result,
+  });
+  expect(retry.failed).toEqual([]);
+  expect(retry.cleared).toHaveLength(2);
+  expect(retry.freedBytes).toBeGreaterThan(result.freedBytes);
+  expect(existsSync(busy)).toBe(false);
+});
+
+it('路径校验失败不被伪装成重启可解决的占用', async () => {
+  const f = fixture();
+  f.file('cache/export/output.txt');
+  const targets = selectStorageCleanupTargets(await f.service.listStorageUsage(), ['export']);
+  const result = await executeStorageCleanup({
+    targets,
+    protectedPaths: [targets[0]!.path],
+    reportPath: f.reportPath,
+    busyPaths: [],
+  });
+  expect(result.failed[0]).toMatchObject({ id: 'export', retryAfterRestart: false });
+});
+
 it('持久类型均有风险说明，缓存接口不接管；退出助手仅删除明确选择项并留下回执', async () => {
   const f = fixture();
   const originals = f.file('qq-original/nt_msg.db');
@@ -43,23 +90,22 @@ it('持久类型均有风险说明，缓存接口不接管；退出助手仅删�
     'agentlab',
     'roam-msg',
     'export',
-    'db_repair',
     'intent_sense',
     'api_usage',
-    'flash',
     'collection-history',
     'roaming-jobs',
     'deleted',
     'anti_recall',
     'db_tolerance',
     'weq-assistant',
-    'dbfix',
-    'dbfix2',
   ];
   for (const name of selected) f.file(`cache/${name}/data`);
+  const excluded = ['db_repair', 'dbfix', 'dbfix2', 'flash'];
+  for (const name of excluded) f.file(`cache/${name}/data`);
   f.file('models/model');
   f.file('config/accounts/synthetic.json');
   const items = await f.service.listStorageUsage();
+  for (const id of excluded) expect(() => selectStorageCleanupTargets(items, [id])).toThrow();
   const targets = items.filter(
     (item) => selected.includes(item.id) || ['models', 'config'].includes(item.label),
   );
@@ -79,6 +125,7 @@ it('持久类型均有风险说明，缓存接口不接管；退出助手仅删�
   });
   expect(result.failed).toEqual([]);
   expect(result.cleared).toHaveLength(selected.length);
+  for (const name of excluded) expect(existsSync(join(f.root, 'cache', name, 'data'))).toBe(true);
   for (const name of selected) expect(existsSync(join(f.root, 'cache', name))).toBe(false);
   expect(existsSync(originals)).toBe(true);
   expect(existsSync(join(f.root, 'models/model'))).toBe(true);
@@ -255,9 +302,10 @@ it('祖先目录被换成符号链接或 Windows junction 时，绝不越界清�
   expect(existsSync(original)).toBe(true);
 });
 
-it('宿主运行目录可退出后清除，应用安装根及维护状态始终只读', async () => {
+it('宿主只清除可再生缓存，运行身份、应用安装根及维护状态只读', async () => {
   const f = fixture();
   f.file('profile/Cookies');
+  f.file('profile/Cache/data');
   f.file('install/config/a');
   f.file('storage-maintenance/result.json');
   const items = await f.service.listStorageUsage([
@@ -265,8 +313,13 @@ it('宿主运行目录可退出后清除，应用安装根及维护状态始终�
     { path: join(f.root, 'install'), label: '应用安装资源', protected: true },
   ]);
   expect(items.find((item) => item.path === join(f.root, 'profile/Cookies'))).toMatchObject({
+    clearable: false,
+    requiresExit: false,
+    management: 'runtime',
+  });
+  expect(items.find((item) => item.path === join(f.root, 'profile/Cache'))).toMatchObject({
     clearable: true,
-    requiresExit: true,
+    category: 'cache',
   });
   expect(items.find((item) => item.path === join(f.root, 'install/config'))?.clearable).toBe(false);
   expect(items.find((item) => item.path === join(f.root, 'storage-maintenance'))?.clearable).toBe(
@@ -284,8 +337,9 @@ it('宿主目录与业务根重合时仍保护未知业务原件，托管 QQ 风
   ]);
   expect(items.find((item) => item.label === 'personal-original.bin')?.clearable).toBe(false);
   expect(items.find((item) => item.label === 'Cookies')).toMatchObject({
-    clearable: true,
-    requiresExit: true,
+    clearable: false,
+    requiresExit: false,
+    management: 'runtime',
   });
   expect(items.find((item) => item.path === join(f.root, 'managed-qq'))?.confirmation).toContain(
     '本地聊天数据库',

@@ -3,7 +3,30 @@ import { isDefaultModelSelection, modelSelectionKey } from '@weq/agentlab/model-
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
-import { QueryError } from './controls';
+import { Row, QueryError } from './controls';
+
+/** AI 功能页的相同模型项目保持相同位置、文案与默认模型选项。 */
+export function ApiModelRow({
+  settingId,
+  lastError,
+  ...props
+}: {
+  settingId: string;
+  lastError?: string | null;
+  value: AgentLabModelSelection | null;
+  onChange: (value: AgentLabModelSelection | null) => void;
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <Row
+      settingId={settingId}
+      label="服务商与模型"
+      desc={`使用所选服务商与模型处理消息文本。${lastError ? ` 最近调用失败：${lastError}` : ''}`}
+      control={<ApiModelSelect {...props} allowDefault />}
+    />
+  );
+}
 
 export function ApiModelSelect({
   value,

@@ -863,9 +863,9 @@ export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account
 export { PeerStatsService } from './account/peer_stats';
 export {
   ChatQqShowService,
-  DEFAULT_QQ_SHOW_CACHE_DAYS,
-  QQ_SHOW_CACHE_MAX_DAYS,
-  QQ_SHOW_CACHE_MIN_DAYS,
+  DEFAULT_QQ_SHOW_CACHE_MINUTES,
+  QQ_SHOW_CACHE_MAX_MINUTES,
+  QQ_SHOW_CACHE_MIN_MINUTES,
   QQ_SHOW_FETCH_CONCURRENCY,
 } from './account/qq_show';
 export type { ChatQqShowOptions, QqShowResolved } from './account/qq_show';
@@ -1249,6 +1249,7 @@ export { readWeqBackupFile } from './bootstrap/backup_clones';
 export { WEQ_BACKUP_PARTS, WEQ_BACKUP_LIMITS } from './bootstrap/backup_bundle';
 export type { WeqBackupPart, WeqBackupSummary } from './bootstrap/backup_bundle';
 export type { StorageRoot, StorageUsageItem } from './bootstrap/storage_usage';
+export { RUNTIME_DATA_NAMES as STORAGE_RUNTIME_DATA_NAMES } from './bootstrap/storage_usage';
 export {
   selectStorageCleanupTargets,
   executeStorageCleanup,

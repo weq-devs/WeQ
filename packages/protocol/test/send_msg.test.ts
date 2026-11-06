@@ -75,6 +75,7 @@ describe('buildSendRequest 请求拼装', () => {
       const built = buildSendRequest({
         dataline: {
           selfUin: 10001,
+          selfUid: 'u_self',
           deviceUid: 'u_Wcc5rknRRqRO8y5gxMD6sA',
           terminalType: 2,
         },
@@ -84,7 +85,7 @@ describe('buildSendRequest 请求拼装', () => {
         msgFlag: 1700000000,
       });
       expect(built.request.routingHead).toEqual({
-        trans0x211: { toUin: 10001, ccCmd: 7, uid: 'u_Wcc5rknRRqRO8y5gxMD6sA' },
+        trans0x211: { toUin: 10001, ccCmd: 7, uid: 'u_self' },
       });
       expect(built.request.messageBody).toHaveProperty('msgContent');
       expect(built.request.messageBody).not.toHaveProperty('richText');
@@ -102,7 +103,7 @@ describe('buildSendRequest 请求拼装', () => {
 
   it('设备文本的多段文本按原顺序拼接，保留 Unicode 和换行', () => {
     const built = buildSendRequest({
-      dataline: { selfUin: 10001, deviceUid: 'u_device', terminalType: 3 },
+      dataline: { selfUin: 10001, selfUid: 'u_self', deviceUid: 'u_device', terminalType: 3 },
       elements: [
         { kind: 'text', textContent: '你好\n' },
         { kind: 'text', textContent: '手机' },
@@ -113,7 +114,12 @@ describe('buildSendRequest 请求拼装', () => {
   });
 
   it('设备会话拒绝非文本、空文本、无效终端和混合路由，均在上传前失败', async () => {
-    const dataline = { selfUin: 10001, deviceUid: 'u_device', terminalType: 2 as const };
+    const dataline = {
+      selfUin: 10001,
+      selfUid: 'u_self',
+      deviceUid: 'u_device',
+      terminalType: 2 as const,
+    };
     for (const elements of [[], [{ kind: 'text' as const, textContent: '' }]])
       expect(() => buildSendRequest({ dataline, elements })).toThrow(/文本不能为空/);
     for (const change of [
@@ -134,6 +140,7 @@ describe('buildSendRequest 请求拼装', () => {
     for (const target of [
       { ...dataline, selfUin: 0 },
       { ...dataline, deviceUid: '' },
+      { ...dataline, selfUid: '' },
     ])
       expect(() => buildSendRequest({ dataline: target, elements: [TEXT] })).toThrow();
     const native = fakeNative(new Uint8Array([8, 0]));

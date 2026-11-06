@@ -8,8 +8,9 @@ import { useMultiSelection } from '../../hooks/useMultiSelection';
 import type { GroupAlbumWire } from '../../components/GroupAlbumDialog';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { ExportReportControl } from './ExportReportControl';
+import { ResourceArchiveControls, type ResourceArchiveOptions } from './StructuredExportControls';
 
-export interface AlbumExportResult {
+export interface AlbumExportResult extends ResourceArchiveOptions {
   includeIntegrityReport: boolean;
   selectedAlbums: GroupAlbumWire[];
   saveIntent?: ExportSavePolicy;
@@ -30,6 +31,11 @@ export function AlbumExportLightbox({
 }): ReactElement {
   useEscapeToClose(onClose);
   const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
+  const [archive, setArchive] = useState<ResourceArchiveOptions>({
+    metadataFormat: 'json',
+    profile: 'full',
+    incrementalSupport: true,
+  });
   const [albums, setAlbums] = useState<GroupAlbumWire[]>([]);
   const [loadingAlbums, setLoadingAlbums] = useState(true);
   const [albumError, setAlbumError] = useState<string | null>(null);
@@ -161,6 +167,11 @@ export function AlbumExportLightbox({
           </div>
         </div>
 
+        <ResourceArchiveControls
+          options={archive}
+          disabled={submitting}
+          onChange={(value) => setArchive((current) => ({ ...current, ...value }))}
+        />
         <ExportReportControl
           checked={includeIntegrityReport}
           onChange={setIncludeIntegrityReport}
@@ -176,7 +187,7 @@ export function AlbumExportLightbox({
             disabled={
               submitting || loadingAlbums || Boolean(albumError) || selectedAlbums.length === 0
             }
-            onClick={() => onConfirm({ selectedAlbums, includeIntegrityReport })}
+            onClick={() => onConfirm({ selectedAlbums, includeIntegrityReport, ...archive })}
           >
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             开始导出

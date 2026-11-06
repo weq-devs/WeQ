@@ -5,6 +5,9 @@ import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import { listExportBaselines } from './baseline';
 import { mediaRelPath } from './element_text';
 import { MFACE_SUBDIR, SYSFACE_SUBDIR } from './sysface_export';
+import { object as archiveObject } from './archive';
+import { streamArchiveViewerValues } from './archive_viewer';
+import { NotFormalArchiveError, readArchiveHeader } from './archive_stream';
 
 export interface ExportViewerConversation {
   kind: 'group' | 'c2c';
@@ -38,6 +41,7 @@ export interface ExportViewerSource {
   conversation: ExportViewerConversation | null;
   baselineDirectory?: string;
   committedOnly?: boolean;
+  notice?: string;
 }
 export const EXPORT_VIEWER_LIMITS = {
   jsonBytes: 64 * 1024 * 1024,
@@ -287,8 +291,38 @@ async function* values(
   signal?: AbortSignal,
 ) {
   if (source.format === 'jsonl') {
-    yield* lines(source.path, source.committedOnly === true, signal);
+    let first = true;
+    for await (const value of lines(source.path, source.committedOnly === true, signal)) {
+      if (
+        first &&
+        archiveObject(value).type === 'header' &&
+        archiveObject(archiveObject(value).header).format === 'weq-export'
+      ) {
+        yield* streamArchiveViewerValues(source.path, 'jsonl', signal);
+        return;
+      }
+      first = false;
+      yield value;
+    }
     return;
+  }
+  const prefixFile = await open(source.path, 'r');
+  const prefix = Buffer.alloc(4096);
+  let startsWithArray = false;
+  try {
+    const { bytesRead } = await prefixFile.read(prefix, 0, prefix.length, 0);
+    startsWithArray = prefix.subarray(0, bytesRead).toString('utf8').trimStart().startsWith('[');
+  } finally {
+    await prefixFile.close();
+  }
+  if (!startsWithArray) {
+    try {
+      await readArchiveHeader(source.path, 'json', signal);
+      yield* streamArchiveViewerValues(source.path, 'json', signal);
+      return;
+    } catch (error) {
+      if (!(error instanceof NotFormalArchiveError)) throw error;
+    }
   }
   const value = await jsonDocument(source.path, signal);
   const doc = record(value);
@@ -319,6 +353,17 @@ async function inspectViewerFile(path: string, committedOnly = false) {
     conversation: null,
     ...(committedOnly ? { committedOnly: true } : {}),
   };
+  if (basename(dirname(canonical)) === 'albums' && /^index\.jsonl?$/.test(basename(canonical))) {
+    try {
+      const header = await readArchiveHeader(canonical, source.format);
+      const selection = record(record(record(header.scope).selection).value);
+      // 空间相册分卷复用整个导出包的媒体根，不以 albums/ 作为资源根。
+      if (String(header.archiveId).startsWith('archive-part:') && selection.albums === true)
+        source.root = dirname(dirname(canonical));
+    } catch (error) {
+      if (!(error instanceof NotFormalArchiveError)) throw error;
+    }
+  }
   let seen = false;
   let container = false;
   let allowInference = true;
@@ -351,6 +396,7 @@ async function inspectViewerFile(path: string, committedOnly = false) {
         else declaredKinds.add(kind === 'group' ? 'group' : 'c2c');
       }
       source.name = scalar(meta.name).slice(0, 512) || source.name;
+      if (typeof meta.notice === 'string') source.notice = meta.notice;
       for (const field of ['conversationId', 'groupId', 'conv']) {
         const candidate = conversation({ ...meta, conversationId: meta[field] });
         if (candidate) candidates.push(candidate);

@@ -1,4 +1,3 @@
-﻿// @ts-nocheck
 import { useRef } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { parseMessageParts } from './emojiPacks';
@@ -159,13 +158,15 @@ function appendElementChip(editor: HTMLElement, raw: string) {
 
   // @ 元素还原成输入框里的 mention span（带 token，可无损再往返）——而不是退化成
   // 一枚普通文字 chip，否则重放草稿会把真正的 @ 变成纯文本。
-  if ((element as { kind?: string } | null)?.kind === 'at') {
+  if (element && typeof element === 'object' && 'kind' in element && element.kind === 'at') {
     const mention = document.createElement('span');
     mention.className = cn('composer-mention-token');
     mention.contentEditable = 'false';
     mention.dataset.chatMention = label;
-    if (typeof element.atTargetUid === 'string') mention.dataset.weqAtUid = element.atTargetUid;
-    if (element.atTargetUin != null) mention.dataset.weqAtUin = String(element.atTargetUin);
+    if ('atTargetUid' in element && typeof element.atTargetUid === 'string')
+      mention.dataset.weqAtUid = element.atTargetUid;
+    if ('atTargetUin' in element && element.atTargetUin != null)
+      mention.dataset.weqAtUin = String(element.atTargetUin);
     mention.dataset.chatToken = raw;
     mention.textContent = label;
     editor.append(mention);

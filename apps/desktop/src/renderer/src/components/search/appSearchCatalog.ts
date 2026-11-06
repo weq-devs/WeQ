@@ -40,12 +40,11 @@ export interface AppSearchEntry {
 // 这里只保存公开的界面名称与入口，不读取设置值、账号资料或凭据。
 const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
   global: ['窗口行为', '通知', '应用内横幅提醒'],
-  startup: ['开机启动', '系统登录项'],
-  home: ['主页显示'],
+  startup: ['启动', '开机启动', '系统登录项'],
   version: ['软件更新', '检查更新', '更新日志'],
   faq: ['帮助文档', '帮助'],
   'weq-storage': ['默认保存', '存储与网络', 'storage', 'saving'],
-  'chat-messages': ['消息显示', 'message-display'],
+  'chat-messages': ['聊天消息', '阅读设置', '未读设置'],
   'call-recording': ['通话与录音'],
   account: ['接入与监听', '账号接入与消息'],
   accounts: ['账号管理', '媒体来源', 'media'],
@@ -88,7 +87,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['appearance', '基础模式', '浅色模式', '深色模式', '暗色模式', '跟随系统'],
   ['appearance', '主题色', '强调色', '主色', '颜色'],
   ['appearance', '界面背景', '聊天背景', '壁纸'],
-  ['appearance', '组件风格', '皮肤', '默认风格', '经典', '简约', '复古'],
+  ['appearance', '组件风格', '皮肤', '默认风格', '经典', '简约', '复古', 'QQ NT', 'QQNT'],
   ['appearance', '界面密度', '舒适', '紧凑'],
   ['message-display', '从第一条新消息开始阅读', '第一条未读'],
   ['message-display', '发送消息后定位到最新消息', '发送后跳转'],

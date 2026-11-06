@@ -169,6 +169,12 @@ importers:
       '@biomejs/biome':
         specifier: ^2.5.4
         version: 2.5.4
+      ajv:
+        specifier: 8.20.0
+        version: 8.20.0
+      ajv-formats:
+        specifier: 3.0.1
+        version: 3.0.1
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
@@ -621,6 +627,9 @@ importers:
 
   packages/service:
     dependencies:
+      '@streamparser/json':
+        specifier: ^0.0.26
+        version: 0.0.26
       '@weq/account':
         specifier: workspace:*
         version: link:../account
@@ -642,6 +651,12 @@ importers:
       '@weq/protocol':
         specifier: workspace:*
         version: link:../protocol
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
+      ajv-formats:
+        specifier: ^3.0.1
+        version: 3.0.1
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
@@ -1876,6 +1891,9 @@ packages:
   '@sindresorhus/is@4.6.0':
     resolution: {integrity: sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw==}
     engines: {node: '>=10'}
+
+  '@streamparser/json@0.0.26':
+    resolution: {integrity: sha512-46597LNFI+MFdUnzX2QJWwmdTRdq0XVD+vVNJTtGVzIrnCuhG9pFo1OAzbNBqci8UJgk/X5KJZ6LcV+y7PTuDQ==}
 
   '@szmarczak/http-timer@4.0.6':
     resolution: {integrity: sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w==}
@@ -6223,6 +6241,8 @@ snapshots:
       string.prototype.codepointat: 0.2.1
 
   '@sindresorhus/is@4.6.0': {}
+
+  '@streamparser/json@0.0.26': {}
 
   '@szmarczak/http-timer@4.0.6':
     dependencies:

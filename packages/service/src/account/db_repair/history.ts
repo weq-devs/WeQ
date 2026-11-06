@@ -13,7 +13,7 @@
  * 无上限增长迟早吃掉用户磁盘。
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { JsonStore } from '../../common/json_store';
 import { fileBytes, removeDirQuietly } from './files';
@@ -48,13 +48,25 @@ function normalizeHistory(raw: unknown): HistoryFile {
 }
 
 export class DbRepairHistory {
-  private readonly store: JsonStore<HistoryFile>;
+  private store: JsonStore<HistoryFile>;
 
-  constructor(paths: DbRepairPaths) {
+  constructor(private readonly paths: DbRepairPaths) {
     this.store = new JsonStore<HistoryFile>(paths.history, () => ({ version: 1, records: [] }), {
       normalize: normalizeHistory,
       pretty: true,
     });
+  }
+
+  /** 空间清理也会更新同一份记录，业务入口重新加载，避免旧内存覆盖清理结果。 */
+  reload(): void {
+    this.store = new JsonStore<HistoryFile>(
+      this.paths.history,
+      () => ({ version: 1, records: [] }),
+      {
+        normalize: normalizeHistory,
+        pretty: true,
+      },
+    );
   }
 
   /** 全部记录，**最新在前**。 */
@@ -136,5 +148,31 @@ export class DbRepairHistory {
   backupExists(record: DbRepairRecord): boolean {
     if (!record.backupPath) return false;
     return fileBytes(record.backupPath) !== null;
+  }
+
+  /** 先确认文件确实删除，再标记记录；删除失败不得让界面误以为备份已清除。 */
+  deleteBackup(id: string, at = new Date().toISOString()): { removed: boolean } {
+    const store = new JsonStore<HistoryFile>(
+      this.paths.history,
+      () => ({ version: 1, records: [] }),
+      {
+        normalize: normalizeHistory,
+        pretty: true,
+        strict: true,
+      },
+    );
+    const record = store.data.records.find((record) => record.id === id);
+    if (!record) throw new Error('找不到修复记录，请刷新后重试');
+    if (!record.backupPath) return { removed: false };
+    rmSync(dirname(record.backupPath), { recursive: true, force: true });
+    if (existsSync(record.backupPath)) throw new Error('数据库备份仍存在，未更新修复记录');
+    store.replace({
+      ...store.data,
+      records: store.data.records.map((item) =>
+        item.id === id ? { ...item, purgedAt: at } : item,
+      ),
+    });
+    this.store = store;
+    return { removed: true };
   }
 }

@@ -30,6 +30,8 @@ import { QqAvatar } from '../QqAvatar';
 import { QqMessageContent, ConvContext, ForwardKindContext } from '../QqMessageContent';
 import { FaceEmoji } from '../FaceEmoji';
 import { client } from '../../trpc/client';
+import { IS_WEB } from '../../lib/target';
+import { pickAccountFile } from '../../lib/accountFilePicker';
 import type { Conversation, User } from '../../im-template/template/types';
 import { FacePicker } from './FacePicker';
 import { PeoplePicker, type Person } from './PeoplePicker';
@@ -177,8 +179,11 @@ export function AddMessageModal({
    */
   async function pickLocalImage(): Promise<void> {
     try {
+      const picked = IS_WEB ? await pickAccountFile('image') : undefined;
+      if (IS_WEB && !picked) return;
       const staged = await client.account.pickComposeImage.mutate({
         sendTime: picSegmentSendTime(segments),
+        path: picked?.path,
       });
       if (!staged) return; // 用户在文件框里点了取消
       addSegment({

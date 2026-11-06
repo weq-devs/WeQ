@@ -18,6 +18,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { pickedBrowserFiles } from '../../browser_files';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { observable } from '@trpc/server/observable';
@@ -320,17 +321,21 @@ export const dressupRouter = router({
    * 并立即生效。视频(mp4/webm/mov)由渲染层用 `<video>` 循环播放,见 ChatBackdrop。
    * 用户取消时返回当前清单(不报错,那不是失败)。
    */
-  pickBackground: procedure.mutation(async () => {
-    const services = requireServices();
-    const picked = await getHost().pickFile({
-      title: '选择聊天背景图 / 视频',
-      // 视频格式限制在 Chromium 能直接播的几种 —— 拷进来的文件原样用 `<video>` 播,
-      // 没有转码兜底,放不支持的格式只会得到一块黑。
-      extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'mp4', 'webm', 'mov'],
-    });
-    if (!picked) return services.dressInstall.read();
-    return services.dressInstall.setCustomBackground(picked);
-  }),
+  pickBackground: procedure
+    .input(z.object({ path: z.string().min(1) }).optional())
+    .mutation(async ({ input }) => {
+      const services = requireServices();
+      const picked =
+        (input?.path ? pickedBrowserFiles.requirePath(services, input.path) : undefined) ??
+        (await getHost().pickFile({
+          title: '选择聊天背景图 / 视频',
+          // 视频格式限制在 Chromium 能直接播的几种 —— 拷进来的文件原样用 `<video>` 播,
+          // 没有转码兜底,放不支持的格式只会得到一块黑。
+          extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'mp4', 'webm', 'mov'],
+        }));
+      if (!picked) return services.dressInstall.read();
+      return services.dressInstall.setCustomBackground(picked);
+    }),
 
   /** 切换背景来源(不用 / QQ 同款 / 自定义)。 */
   setBackground: procedure
@@ -565,8 +570,8 @@ export const dressupRouter = router({
   /**
    * 聊天消息里出现过的成员的 QQ 秀 URL（uin → 形象）。
    *
-   * 本地映射命中时不联网，直接返回；未命中才按并发 3 去查 QQ。离线时返回已缓存的
-   * 记录（过期记录也保留，图片 URL 自带版本号），完全没有的 uin 不出现在结果里。
+   * 本地映射命中时不联网，直接返回；未命中才逐个查 QQ。离线时返回已缓存的
+   * 记录（过期记录也保留），完全没有的 uin 不出现在结果里。
    */
   chatQqShows: procedure
     .input(z.object({ uins: z.array(z.string().regex(/^\d{5,20}$/)).max(120) }))

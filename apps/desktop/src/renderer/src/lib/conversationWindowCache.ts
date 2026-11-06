@@ -1,5 +1,7 @@
 import type { ConversationReadingPosition } from './conversationReadingPosition';
 
+export const CONVERSATION_WINDOW_LIMIT = 12;
+
 export interface ConversationWindow<T> {
   rows: T[];
   anchored: boolean;
@@ -18,14 +20,20 @@ export interface ConversationWindow<T> {
 export class ConversationWindowCache<T> {
   private readonly entries = new Map<
     string,
-    { value: ConversationWindow<T>; bytes: number; timer?: ReturnType<typeof setTimeout> }
+    {
+      value: ConversationWindow<T>;
+      speculative: boolean;
+      bytes: number;
+      timer?: ReturnType<typeof setTimeout>;
+    }
   >();
   private bytes = 0;
   private readonly positions = new Map<string, ConversationReadingPosition>();
   getPosition(key: string): ConversationReadingPosition | undefined {
     return this.positions.get(key);
   }
-  get(key: string): ConversationWindow<T> | undefined {
+  /** 后台检查不算用户访问，避免预取改变已阅读窗口的 LRU 顺序。 */
+  peek(key: string): ConversationWindow<T> | undefined {
     const entry = this.entries.get(key);
     if (!entry) return undefined;
     const age = Date.now() - entry.value.storedAt;
@@ -33,11 +41,27 @@ export class ConversationWindowCache<T> {
       this.remove(key);
       return undefined;
     }
-    this.entries.delete(key);
-    this.entries.set(key, entry);
     return entry.value;
   }
+  get(key: string): ConversationWindow<T> | undefined {
+    const value = this.peek(key);
+    const entry = this.entries.get(key);
+    if (!value || !entry) return undefined;
+    entry.speculative = false;
+    this.entries.delete(key);
+    this.entries.set(key, entry);
+    return value;
+  }
+  canPrefetch(key: string): boolean {
+    for (const candidate of this.entries.keys()) this.peek(candidate);
+    return (
+      this.entries.has(key) ||
+      this.entries.size < CONVERSATION_WINDOW_LIMIT ||
+      [...this.entries.values()].some((entry) => entry.speculative)
+    );
+  }
   put(key: string, value: ConversationWindow<T>, anchorIndex?: number): void {
+    const speculative = value.prefetched === true && (this.entries.get(key)?.speculative ?? true);
     this.remove(key);
     if (value.readingPosition) {
       this.positions.delete(key);
@@ -59,6 +83,7 @@ export class ConversationWindowCache<T> {
     };
     const entry = {
       value,
+      speculative,
       bytes: 0,
       timer: undefined as ReturnType<typeof setTimeout> | undefined,
     };
@@ -84,8 +109,10 @@ export class ConversationWindowCache<T> {
     this.trim();
   }
   private trim(): void {
-    while (this.entries.size > 12 || this.bytes > 12 * 1024 * 1024) {
-      const oldest = this.entries.keys().next().value;
+    while (this.entries.size > CONVERSATION_WINDOW_LIMIT || this.bytes > 12 * 1024 * 1024) {
+      const oldest =
+        [...this.entries].find(([, entry]) => entry.speculative)?.[0] ??
+        this.entries.keys().next().value;
       if (oldest === undefined) break;
       this.remove(oldest);
     }

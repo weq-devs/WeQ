@@ -18,6 +18,30 @@ export interface ExportWriter {
   end(): Promise<void>;
 }
 
+/** 已独占打开的归档文件按有界块写入；提交点显式 flush 后再 fsync。 */
+export function bufferedFileWriter(
+  file: { writeFile(data: string): Promise<void> },
+  limit = 65536,
+) {
+  let chunks: string[] = [],
+    bytes = 0;
+  const flush = async (): Promise<void> => {
+    if (!chunks.length) return;
+    const text = chunks.join('');
+    chunks = [];
+    bytes = 0;
+    await file.writeFile(text);
+  };
+  return {
+    async write(text: string): Promise<void> {
+      chunks.push(text);
+      bytes += Buffer.byteLength(text);
+      if (bytes >= limit) await flush();
+    },
+    flush,
+  };
+}
+
 export function createExportWriter(outputPath: string): ExportWriter {
   const stream = createWriteStream(outputPath, { encoding: 'utf-8' });
   let streamError: Error | null = null;

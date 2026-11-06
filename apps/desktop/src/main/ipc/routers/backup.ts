@@ -17,6 +17,9 @@ import { getBackupContext } from '../../context/backup_context';
 import { retryBackupRecovery } from '../../context/app_context';
 import { procedure } from '../trpc';
 import { backgroundTasks, runBackgroundTask } from '../../background_tasks';
+import { observable } from '@trpc/server/observable';
+import { runtimeMaintenance } from '../../runtime_maintenance';
+import { applyBackupLive } from '../../context/runtime_files';
 
 const selection = z.object({
   parts: z.array(z.enum(WEQ_BACKUP_PARTS)).min(1).max(4),
@@ -37,6 +40,16 @@ function ready() {
 }
 
 export const backupProcedures = {
+  onRuntimeFilesChanged: procedure.subscription(() =>
+    observable<ReturnType<typeof runtimeMaintenance.status>>((emit) => {
+      const handler = (state: ReturnType<typeof runtimeMaintenance.status>) => emit.next(state);
+      runtimeMaintenance.events.on('changed', handler);
+      handler(runtimeMaintenance.status());
+      return () => {
+        runtimeMaintenance.events.off('changed', handler);
+      };
+    }),
+  ),
   backupStartup: procedure
     .input(z.object({ clientId: z.string().uuid().optional() }).optional())
     .query(({ input }) => {
@@ -153,8 +166,8 @@ export const backupProcedures = {
   backupStage: procedure.input(z.object({ previewId: z.string() })).mutation(({ input }) =>
     runBackgroundTask(
       { kind: 'backup', name: '暂存 WeQ 恢复' },
-      () => ready().backups.stage(input.previewId),
-      () => ({ note: '恢复数据已暂存，等待重启应用；尚未应用到当前运行实例' }),
+      () => applyBackupLive(() => ready().backups.stage(input.previewId)),
+      () => ({ note: '备份已恢复，无需重启 WeQ' }),
     ),
   ),
   backupDefaults: procedure
@@ -162,10 +175,11 @@ export const backupProcedures = {
     .mutation(({ input }) =>
       runBackgroundTask(
         { kind: 'backup', name: '暂存恢复默认设置' },
-        () => ready().backups.stageDefaults(input?.clientId),
-        () => ({ note: '默认设置已暂存，等待重启应用' }),
+        () => applyBackupLive(() => ready().backups.stageDefaults(input?.clientId)),
+        () => ({ note: '默认设置已恢复，无需重启 WeQ' }),
       ),
     ),
+  backupApply: procedure.mutation(() => applyBackupLive()),
   backupDiscardPreview: procedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
     const ctx = getBackupContext();
     if (ctx.ok) ctx.backups.dispose(input.id);

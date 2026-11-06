@@ -12,33 +12,31 @@
  *      QQ系统表情）/ 头像 / 装扮数据（子选项：气泡·字体·挂件）。
  *   4. 补全选项 —— 补全媒体资源（需在线 QQ + 已选导出媒体）、漫游消息、
  *      本地未缓存的装扮资源。
- *   5. 图片识别 —— 图片文字识别（自动 OCR）、在线识别与并发、筛图模型下载。
- *      单独一栏（左列、补全选项下面）：它不依赖「导出什么」，只跟「跑不跑识别」有关，
- *      而且面板里**只放筛图模型** —— 出文字的识别模型统一在「设置 → 模型与识别 → 图片识别」里下。
+ *   5. 图片识别 —— 图片文字识别（自动 OCR）、在线识别；模型与并发统一在设置调整。
  *   6. 扩展功能 —— 导出后自动保存、语音转写（需已配置转录模型）。
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { z } from 'zod';
 import { usePageState } from '../../components/PageSnapshots';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import {
   CalendarClock,
   Check,
-  Download,
-  FileText,
-  Film,
   FolderOpen,
   Heart,
   Image as ImageIcon,
   Loader2,
   ListFilter,
-  MessageSquare,
-  Mic,
   RefreshCw,
-  ScanText,
-  Smile,
-  Sparkles,
   UserRound,
   Undo2,
   X,
@@ -46,28 +44,42 @@ import {
 } from 'lucide-react';
 import { Card, Row, Toggle } from '../../components/settings/controls';
 import { client } from '../../trpc/client';
-import { useToast } from '../../components/Toast';
+import { useDialog } from '../../components/Dialog';
 import { ocrReadiness, type OcrReadiness } from './preflight';
 import { useExportAuthorization, type ExportAuthorizationIndicatorState } from './authorization';
 import { BaselinePicker } from './BaselinePicker';
 import { ExportReportControl } from './ExportReportControl';
+import {
+  BusinessExportDetails,
+  ExportFormatHint,
+  structuredExportOptions,
+} from './StructuredExportControls';
+import { ExportContentSelector } from './ExportContentSelector';
+import {
+  normalizeExportContent,
+  exportContentFlags,
+  hasExportContent,
+  hasExportResources,
+  requiresStructuredExport,
+  addedStructuredContent,
+  withoutStructuredContent,
+  type ExportContentPolicy,
+} from '@weq/service/export-content';
+import { exportContentPolicyInput } from '../../../../shared/export_content';
 import '../../styles/chat-export-continuation.css';
 import { Segmented } from './widgets';
 import { TimeRangePicker } from './TimeRangePicker';
 import type { CalendarTarget } from '../../lib/messageCalendar';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
 import {
-  DEFAULT_MEDIA_KINDS,
   DEFAULT_OPTIONS,
   DEFAULT_SCHEDULE,
   FRIEND_FORMATS,
   FULL_FORMATS,
-  MEDIA_KIND_LABELS,
   MEMBER_FORMATS,
   QZONE_FORMATS,
   type ExportFormat,
   type ExportOptions,
-  type MediaKinds,
   type Schedule,
 } from './types';
 
@@ -75,7 +87,7 @@ export type LightboxVariant = 'full' | 'guild' | 'qzone' | 'scheduled' | 'album'
 
 /** 把（可能来自旧预设的）partial 选项补齐成完整 {@link ExportOptions}。 */
 function normalizeLightboxOptions(partial?: Partial<ExportOptions>): ExportOptions {
-  return {
+  const options = {
     ...DEFAULT_OPTIONS,
     ...partial,
     range: { ...DEFAULT_OPTIONS.range, ...partial?.range },
@@ -86,6 +98,8 @@ function normalizeLightboxOptions(partial?: Partial<ExportOptions>): ExportOptio
     // 同理：在线识别依赖当下 QQ 在线（离线时开关会被隐藏），不沿用上次的选择。
     onlineOcr: false,
   };
+  const content = normalizeExportContent(options.content, options);
+  return { ...options, profile: 'full', content, ...exportContentFlags(content) };
 }
 
 export interface LightboxResult {
@@ -98,63 +112,6 @@ export interface LightboxResult {
   options: ExportOptions;
   schedule?: Schedule;
   downloadPath?: string | null;
-}
-
-/** 每种媒体子选项的展示图标。 */
-const MEDIA_ICONS: Record<keyof MediaKinds, ReactElement> = {
-  image: <ImageIcon size={13} />,
-  voice: <Mic size={13} />,
-  video: <Film size={13} />,
-  file: <FileText size={13} />,
-  sysface: <Smile size={13} />,
-};
-
-/** 补全选项（4.1）的四种媒体。 */
-const COMPLETE_KINDS = [
-  { key: 'completeMedia' as const, label: '图片' },
-  { key: 'downloadPtt' as const, label: '语音' },
-  { key: 'downloadVideo' as const, label: '视频' },
-  { key: 'downloadFile' as const, label: '文件/群文件' },
-];
-
-/** 一个小型多选 chip 组。 */
-function KindChips({
-  options,
-  selected,
-  onChange,
-  disabled,
-}: {
-  options: Array<{ key: string; label: ReactNode }>;
-  selected: ReadonlySet<string>;
-  onChange: (next: Set<string>) => void;
-  disabled?: boolean;
-}): ReactElement {
-  const multi = useMultiSelection({
-    ids: options.map((option) => option.key),
-    selected,
-    onChange,
-    disabled,
-  });
-  return (
-    <div className={`weq-exp-kinds${disabled ? ' is-disabled' : ''}`} {...multi.rootProps}>
-      {options.map((opt) => {
-        const on = selected.has(opt.key);
-        return (
-          <button
-            key={opt.key}
-            type="button"
-            className={`weq-exp-kind${on ? ' is-on' : ''}`}
-            disabled={disabled}
-            {...multi.itemProps(opt.key)}
-            aria-pressed={on}
-          >
-            {on ? <Check size={12} /> : <span className="weq-exp-kind-dot" />}
-            {opt.label}
-          </button>
-        );
-      })}
-    </div>
-  );
 }
 
 /** 「大按钮」样式的主开关行：图标 + 标题 + 说明 + 开关。 */
@@ -195,126 +152,26 @@ function MasterRow({
   );
 }
 
-/** 补全选项的统一样式行：步骤徽标 + 标题/说明 + 右侧控件（chips 或开关）。 */
-function StepRow({
-  step,
-  title,
-  desc,
-  control,
-  wide,
-}: {
-  step: string;
-  title: ReactNode;
-  desc?: ReactNode;
-  control: ReactNode;
-  /** true = 控件独占下一行（chips 类多选项）。 */
-  wide?: boolean;
-}): ReactElement {
-  return (
-    <div className="weq-exp-step-row">
-      <div className="weq-exp-step-head">
-        <span className="weq-exp-block-step">{step}</span>
-        <span className="weq-exp-step-main">
-          <span className="weq-exp-step-title">{title}</span>
-          {desc ? <span className="weq-exp-step-desc">{desc}</span> : null}
-        </span>
-        {!wide ? <span className="weq-exp-step-ctrl">{control}</span> : null}
-      </div>
-      {wide ? <div className="weq-exp-step-wide">{control}</div> : null}
-    </div>
-  );
-}
-
-/**
- * 图片文字识别里的一个模型小行：名字 / 说明 / 体积 + 「下载」按钮或下载进度条。
- * 复用设置页那套 `weq-model*` 样式（同一个应用里的模型卡片长得一样）。
- */
-function OcrModelRow({
-  name,
-  sizeLabel,
-  downloaded,
-  selected,
-  progress,
-  disabled,
-  onDownload,
-}: {
-  name: string;
-  sizeLabel: string;
-  downloaded: boolean;
-  selected: boolean;
-  /** 正在下载时的进度（0-100 + 字节数），未下载时为 null。 */
-  progress: { percent: number; downloadedBytes: number; totalBytes: number } | null;
-  disabled: boolean;
-  onDownload: () => void;
-}): ReactElement {
-  const pct = progress ? Math.round(progress.percent) : 0;
-  return (
-    <div className={`weq-model${selected ? ' is-selected' : ''}`}>
-      <div className="weq-model-main">
-        <div className="weq-model-head">
-          <span className="weq-model-name">{name}</span>
-          {downloaded ? <span className="weq-set-badge weq-set-badge-ok">已下载</span> : null}
-          {selected ? <span className="weq-set-badge weq-set-badge-ok">当前模型</span> : null}
-        </div>
-        <span className="weq-model-size weq-number">约 {sizeLabel}</span>
-        {progress ? (
-          <div className="weq-set-progress">
-            <div className="weq-set-progress-track">
-              <div className="weq-set-progress-fill" style={{ width: `${pct}%` }} />
-            </div>
-            <div className="weq-set-progress-meta weq-number">
-              <span>{pct}%</span>
-              <span>
-                {fmtMb(progress.downloadedBytes)} / {fmtMb(progress.totalBytes)}
-              </span>
-            </div>
-          </div>
-        ) : null}
-      </div>
-      <div className="weq-model-actions">
-        {downloaded ? null : progress ? (
-          <button type="button" className="weq-set-btn weq-set-btn-sm" disabled>
-            <Loader2 size={12} strokeWidth={2} className="weq-spin" aria-hidden />
-            下载中
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-sm"
-            onClick={onDownload}
-            disabled={disabled}
-          >
-            <Download size={12} strokeWidth={1.8} aria-hidden />
-            下载
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** 字节 → "x.x MB"（下载进度条用）。 */
-function fmtMb(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-/** 面板里要显示的一个 OCR 模型（识别 / 筛图各一类）。 */
-interface OcrModelRowData {
-  id: string;
-  kind: 'ocr' | 'filter';
-  name: string;
-  sizeLabel: string;
-  downloaded: boolean;
-}
-
-/** 正在下载的 OCR 模型进度。 */
-interface OcrModelProgress {
-  percent: number;
-  downloadedBytes: number;
-  totalBytes: number;
-}
-
 const optionsSnapshot = z.object({
+  content: exportContentPolicyInput.optional(),
+  exportMessages: z.boolean().optional(),
+  completeAvatar: z.boolean().optional(),
+  completeDressKinds: z
+    .object({ bubble: z.boolean(), font: z.boolean(), widget: z.boolean() })
+    .optional(),
+  profile: z.enum(['basic', 'full']).optional(),
+  extra: z
+    .object({
+      qzoneInteractions: z.boolean(),
+      collectionProperties: z.boolean(),
+      mailProperties: z.boolean(),
+      generatedParameters: z.boolean(),
+      directoryProperties: z.boolean(),
+      resourceProperties: z.boolean(),
+    })
+    .partial()
+    .optional(),
+  incrementalSupport: z.boolean().optional(),
   includeIntegrityReport: z.boolean().optional(),
   range: z.object({
     preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
@@ -408,7 +265,6 @@ export function ExportLightbox({
   useEscapeToClose(() => {
     if (!embedded && !hidden) onClose();
   });
-  const pushToast = useToast((s) => s.push);
   const [opts, setOpts] = usePageState<ExportOptions>(
     `export:options:${variant}:${contactScope}`,
     () => {
@@ -420,6 +276,8 @@ export function ExportLightbox({
   );
   const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [requestingFormat, setRequestingFormat] = useState(false);
+  const confirmDialog = useDialog((state) => state.confirm);
   const [schedule, setSchedule] = usePageState<Schedule>(
     `export:schedule:${variant}`,
     initialSchedule,
@@ -455,22 +313,6 @@ export function ExportLightbox({
   }, [authorization.needsElevation, onAuthorizationChange]);
   /** 图片文字识别的前置状态（在线可用 / 本地模型 / 筛图模型）。 */
   const [ocrReady, setOcrReady] = useState<OcrReadiness | null>(null);
-  /** OCR 模型清单（含已选中的模型 id）—— 面板里直接下载用。 */
-  const [ocrModels, setOcrModels] = useState<OcrModelRowData[]>([]);
-  /** 本机没有可用推理引擎时的原因（如 macOS Intel）—— 非空就不摆下载入口。 */
-  const [ocrEngineBlocker, setOcrEngineBlocker] = useState<string | null>(null);
-  /** 当前选中的 OCR 模型 id（识别 / 筛图各一个）。 */
-  const [ocrSelected, setOcrSelected] = useState<{ ocr: string; filter: string }>({
-    ocr: '',
-    filter: '',
-  });
-  /** 正在下载的 OCR 模型进度（key = 模型 id）。 */
-  const [ocrProgress, setOcrProgress] = useState<Record<string, OcrModelProgress>>({});
-  // 订阅只该建一次；这两个引用会被订阅回调用到，通过 ref 取最新值避免重建订阅。
-  const ocrModelsRef = useRef<OcrModelRowData[]>([]);
-  ocrModelsRef.current = ocrModels;
-  const pushToastRef = useRef(pushToast);
-  pushToastRef.current = pushToast;
   useEffect(() => {
     let cancelled = false;
     void client.account.getGroupAlbumAccessState.query().then((s) => {
@@ -481,36 +323,6 @@ export function ExportLightbox({
     void ocrReadiness().then((r) => {
       if (!cancelled) setOcrReady(r);
     });
-    void (async () => {
-      try {
-        const [models, settings] = await Promise.all([
-          client.bootstrap.ocrModels.query(),
-          client.bootstrap.getSettings.query(),
-        ]);
-        if (cancelled) return;
-        setOcrEngineBlocker(models.engineBlocker);
-        setOcrModels(
-          models.models
-            // 面板里只放**筛图**模型：它是在线 / 离线共有的前置步骤，下不下都不影响
-            // 「有没有在识别」这件事。出文字那份识别模型只在「设置 → 模型与识别 → 图片识别」里下 ——
-            // 放在这里会让人以为「下了它就能纯离线跑」，从而把在线开关的逻辑搅乱。
-            .filter((m) => m.kind === 'filter')
-            .map((m) => ({
-              id: m.id,
-              kind: m.kind as 'ocr' | 'filter',
-              name: m.name,
-              sizeLabel: m.sizeLabel,
-              downloaded: m.downloaded,
-            })),
-        );
-        setOcrSelected({
-          ocr: settings.ocr.modelId,
-          filter: settings.ocr.filterModelId,
-        });
-      } catch {
-        /* 模型清单读不到就不显示下载区 */
-      }
-    })();
     void (async () => {
       try {
         const settings = await client.bootstrap.getSettings.query();
@@ -531,118 +343,6 @@ export function ExportLightbox({
     };
   }, []);
 
-  // OCR 模型下载进度（与设置页同一个订阅流）：下完就**顺手设为当前模型**，
-  // 用户点「下载」即完成「下载 + 选用」两步（没有模型的场景就是奔着这个来的）。
-  useEffect(() => {
-    const sub = client.bootstrap.onOcrModelProgress.subscribe(undefined, {
-      onData: (p) => {
-        if (p.done) {
-          setOcrProgress((prev) => {
-            const next = { ...prev };
-            delete next[p.id];
-            return next;
-          });
-          const model = ocrModelsRef.current.find((m) => m.id === p.id);
-          void (async () => {
-            try {
-              if (model)
-                await client.bootstrap.setOcrModel.mutate({ kind: model.kind, modelId: p.id });
-              const [models, readiness] = await Promise.all([
-                client.bootstrap.ocrModels.query(),
-                ocrReadiness(),
-              ]);
-              setOcrEngineBlocker(models.engineBlocker);
-              setOcrModels(
-                models.models
-                  .filter((m) => m.kind === 'filter')
-                  .map((m) => ({
-                    id: m.id,
-                    kind: m.kind as 'ocr' | 'filter',
-                    name: m.name,
-                    sizeLabel: m.sizeLabel,
-                    downloaded: m.downloaded,
-                  })),
-              );
-              setOcrReady(readiness);
-            } catch (e) {
-              pushToastRef.current({
-                tone: 'error',
-                title: '模型选用失败',
-                detail: e instanceof Error ? e.message : String(e),
-                ttl: 6000,
-              });
-            }
-          })();
-          return;
-        }
-        if (p.error) {
-          setOcrProgress((prev) => {
-            const next = { ...prev };
-            delete next[p.id];
-            return next;
-          });
-          pushToastRef.current({
-            tone: 'error',
-            title: '模型下载失败',
-            detail: p.error,
-            ttl: 6000,
-          });
-          return;
-        }
-        setOcrProgress((prev) => ({
-          ...prev,
-          [p.id]: {
-            percent: p.percent,
-            downloadedBytes: p.downloadedBytes,
-            totalBytes: p.totalBytes,
-          },
-        }));
-      },
-      onError: (err) => console.error('[ocr] progress subscription error', err),
-    });
-    return () => sub.unsubscribe();
-  }, []);
-
-  /**
-   * 在面板里下载一个筛图模型（下完自动设为当前模型）。
-   *
-   * 只认 `filter`：出文字的识别模型**不给在导出面板下载**（那会让人以为"下了就能纯离线"，
-   * 而它其实是「在线拿不到时的兜底」，该在「设置 → 模型与识别 → 图片识别」里单独决定），所以这里
-   * 兜一层 —— 万一哪天 UI 漏了一行，也不会从面板把那份模型拖下来。
-   */
-  async function downloadOcrModel(id: string): Promise<void> {
-    const model = ocrModelsRef.current.find((m) => m.id === id);
-    if (model && model.kind !== 'filter') {
-      pushToast({
-        tone: 'warning',
-        title: '识别模型请在设置页下载',
-        detail:
-          '导出面板只提供筛图模型；出文字的识别模型在「设置 → 模型与识别 → 图片识别」里下载。',
-        ttl: 6000,
-      });
-      return;
-    }
-    try {
-      setOcrProgress((prev) => ({
-        ...prev,
-        [id]: { percent: 0, downloadedBytes: 0, totalBytes: 0 },
-      }));
-      await client.bootstrap.downloadOcrModel.mutate({ id });
-    } catch (e) {
-      setOcrProgress((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      pushToast({
-        tone: 'error',
-        title: '启动下载失败',
-        detail: e instanceof Error ? e.message : String(e),
-        ttl: 6000,
-      });
-    }
-  }
-
   const isAlbum = variant === 'album';
   const isQzone = variant === 'qzone';
   const wantQzonePosts = qzoneContent ? qzoneContent !== 'albums' : opts.qzonePosts !== false;
@@ -651,6 +351,8 @@ export function ExportLightbox({
   const isScheduled = variant === 'scheduled';
   const isContacts = variant === 'contacts';
   const isMessageFlow = !isAlbum && !isQzone && !isContacts;
+  const contentPolicy = normalizeExportContent(opts.content, opts, isGuild);
+  const validationId = useId();
 
   /** 该变体可选的格式。 */
   const formatOptions = useMemo(
@@ -667,6 +369,7 @@ export function ExportLightbox({
   const [formats, setFormats] = usePageState<ExportFormat[]>(
     `export:formats:${variant}:${contactScope}`,
     () => {
+      if (initialFormats?.length === 0) return [];
       const allowed = initialFormats?.filter((f) => formatOptions.some((o) => o.value === f));
       return allowed && allowed.length > 0 ? allowed : [formatOptions[0]!.value];
     },
@@ -683,9 +386,47 @@ export function ExportLightbox({
   /** QQ 空间 HTML 导出靠本地配图 + 评论/点赞渲染：选中 HTML 时锁定
    *  「下载配图」与「评论与点赞」为开。 */
   const htmlForced = isQzone && formats.includes('html');
+  const selectionError =
+    !isAlbum &&
+    !formats.length &&
+    !(
+      isMessageFlow &&
+      (hasExportResources(contentPolicy) || requiresStructuredExport(contentPolicy))
+    )
+      ? '请至少选择一种导出格式'
+      : isMessageFlow && !hasExportContent(contentPolicy)
+        ? '请至少选择一项导出内容'
+        : null;
 
   function patch(next: Partial<ExportOptions>): void {
     setOpts((o) => ({ ...o, ...next }));
+  }
+
+  async function askForJson(): Promise<boolean> {
+    return confirmDialog(
+      '所选数据需要 JSON/JSONL',
+      '是否同时选中 WeQ JSON 格式？不添加时保留资源选择，不启用依赖结构化格式的数据。',
+      { okLabel: '选中 JSON', cancelLabel: '不添加 JSON', tone: 'info' },
+    );
+  }
+
+  async function changeContent(content: ExportContentPolicy): Promise<void> {
+    let next = content;
+    if (
+      (opts.chatlab || !formats.some((format) => format === 'json' || format === 'jsonl')) &&
+      addedStructuredContent(contentPolicy, next)
+    ) {
+      setRequestingFormat(true);
+      try {
+        if (await askForJson()) {
+          setFormats((current) => (current.includes('json') ? current : [...current, 'json']));
+          patch({ chatlab: false });
+        } else next = withoutStructuredContent(next);
+      } finally {
+        setRequestingFormat(false);
+      }
+    }
+    patch({ content: next, ...exportContentFlags(next) });
   }
 
   // 切到 HTML 时自动补开配图下载 + 评论/点赞拉取，避免产出渲染不全的 html。
@@ -716,7 +457,7 @@ export function ExportLightbox({
   }
 
   async function confirm(): Promise<void> {
-    if (confirming) return;
+    if (confirming || requestingFormat || submitting || disabled || selectionError) return;
     if (
       baselineDirectory &&
       baselineByConversation &&
@@ -729,6 +470,28 @@ export function ExportLightbox({
     }
     setConfirming(true);
     try {
+      const settings = isMessageFlow ? await client.bootstrap.getSettings.query() : null;
+      let selectedFormats = formats,
+        selectedContent = contentPolicy,
+        selectedChatlab = opts.chatlab;
+      if (
+        isMessageFlow &&
+        requiresStructuredExport(selectedContent) &&
+        (selectedChatlab ||
+          !selectedFormats.some((format) => format === 'json' || format === 'jsonl'))
+      ) {
+        if (await askForJson()) {
+          selectedFormats = selectedFormats.includes('json')
+            ? selectedFormats
+            : [...selectedFormats, 'json'];
+          selectedChatlab = false;
+          setFormats(selectedFormats);
+        } else {
+          selectedContent = withoutStructuredContent(selectedContent);
+          patch({ content: selectedContent, ...exportContentFlags(selectedContent) });
+        }
+      }
+      if (isMessageFlow && !selectedFormats.length && !hasExportResources(selectedContent)) return;
       const prepared = await authorization.prepare(
         isQzone && qzoneContent
           ? {
@@ -736,7 +499,17 @@ export function ExportLightbox({
               qzonePosts: qzoneContent !== 'albums',
               qzoneAlbums: qzoneContent !== 'posts',
             }
-          : opts,
+          : isMessageFlow
+            ? {
+                ...opts,
+                ocrConcurrency: settings?.ocr.onlineConcurrency ?? opts.ocrConcurrency,
+                onlineConcurrency:
+                  settings?.voiceTranscribe.onlineConcurrency ?? opts.onlineConcurrency,
+                chatlab: selectedChatlab,
+                content: selectedContent,
+                ...exportContentFlags(selectedContent),
+              }
+            : opts,
       );
       if (!prepared) return;
       setOpts(prepared);
@@ -747,11 +520,20 @@ export function ExportLightbox({
             void authorization.releaseCapture().catch(() => {});
           },
         },
-        baselineDirectory,
-        baselineByConversation,
+        baselineDirectory: selectedFormats.some((format) => format === 'json' || format === 'jsonl')
+          ? baselineDirectory
+          : undefined,
+        baselineByConversation: selectedFormats.some(
+          (format) => format === 'json' || format === 'jsonl',
+        )
+          ? baselineByConversation
+          : undefined,
         saveAsDefault,
-        formats,
-        options: prepared,
+        formats: selectedFormats,
+        options: {
+          ...prepared,
+          ...structuredExportOptions(prepared, selectedFormats, prepared.chatlab),
+        },
         schedule: isScheduled ? schedule : undefined,
         downloadPath: isAlbum ? path : undefined,
       });
@@ -760,16 +542,6 @@ export function ExportLightbox({
     }
   }
 
-  const selectedMediaKinds = new Set(
-    (Object.keys(MEDIA_KIND_LABELS) as Array<keyof MediaKinds>).filter((k) => opts.mediaKinds[k]),
-  );
-  const selectedDressKinds = new Set(
-    ['bubble', 'font', 'widget'].filter((k) => opts.dress[k as keyof typeof opts.dress]),
-  );
-  const hasDress = opts.dress.bubble || opts.dress.font || opts.dress.widget;
-  const selectedCompleteKinds = new Set(
-    COMPLETE_KINDS.filter((c) => opts[c.key]).map((c) => c.key),
-  );
   /** ChatLab 只支持 JSON / JSONL。 */
   const chatlabAllowed = formats.every((f) => f === 'json' || f === 'jsonl');
 
@@ -778,7 +550,8 @@ export function ExportLightbox({
       // 开启 ChatLab 时只保留 json / jsonl（优先 json）。
       const kept = formats.filter((f) => f === 'json' || f === 'jsonl');
       setFormats(kept.length > 0 ? kept : ['json']);
-      patch({ chatlab: true });
+      const content = withoutStructuredContent(contentPolicy);
+      patch({ chatlab: true, incrementalSupport: false, content, ...exportContentFlags(content) });
     } else {
       patch({ chatlab: false });
     }
@@ -791,15 +564,53 @@ export function ExportLightbox({
     selected: new Set(formats),
     disabled: submitting,
     onChange: (next) => {
-      if (!next.size) {
-        setFormats((current) => [...current]);
-        pushToast({ tone: 'warning', title: '至少保留一种导出格式', ttl: 3200 });
-        return;
-      }
       setFormats(formatOptions.map((format) => format.value).filter((value) => next.has(value)));
     },
     onExit: onClose,
   });
+
+  const imageRecognition = isMessageFlow ? (
+    <div className="weq-exp-image-recognition">
+      <Row
+        label="图片文字识别"
+        desc={
+          ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable
+            ? ocrReady.localEngineBlocker ||
+              '需要在线 QQ，或先在「设置 → AI 功能 → 图片识别」下好本地识别模型'
+            : '识别图片里的文字，写出 ocr.json（含像素坐标框）并把文字回写进导出文件'
+        }
+        control={
+          <Toggle
+            checked={opts.ocrImages}
+            disabled={Boolean(ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable)}
+            onChange={(v) => patch({ ocrImages: v, ...(v ? {} : { onlineOcr: false }) })}
+          />
+        }
+      />
+      {opts.ocrImages ? (
+        <>
+          {ocrReady?.onlineCapable ? (
+            <Row
+              label="在线识别"
+              desc={
+                opts.onlineOcr
+                  ? '已就绪：优先让 QQ 服务端识别（更快），没拿到的回退本地模型'
+                  : '优先让 QQ 服务端识别（需保持 QQ 在线；连续失败会自动回退本地模型）'
+              }
+              control={
+                <Toggle checked={opts.onlineOcr} onChange={(v) => patch({ onlineOcr: v })} />
+              }
+            />
+          ) : null}
+          {ocrReady && !ocrReady.localReady && !ocrReady.localEngineBlocker ? (
+            <p className="weq-exp-block-hint">
+              未下载本地识别模型，在线识别失败时无法回退；可在「设置 → AI 功能 → 图片识别」下载。
+            </p>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  ) : null;
 
   return (
     <div
@@ -876,11 +687,13 @@ export function ExportLightbox({
         </header>
 
         <div className="weq-exp-dialog-body">
-          {variant === 'full' ? (
+          {variant === 'full' &&
+          !opts.chatlab &&
+          formats.some((format) => format === 'json' || format === 'jsonl') ? (
             <div className="weq-export-baseline">
-              <span>增量基线文件夹</span>
+              <span>继续更新归档</span>
               <input
-                aria-label="增量基线文件夹"
+                aria-label="继续更新的归档文件或文件夹"
                 value={baselineDirectory ?? ''}
                 placeholder="未选择"
                 readOnly
@@ -999,180 +812,6 @@ export function ExportLightbox({
                     </div>
                   </Card>
                 )}
-
-                {/* 补全选项（仅完整消息 / 定时；空间/联系人/相册无消息补全维度） */}
-                {isMessageFlow ? (
-                  <Card title="补全选项">
-                    <StepRow
-                      step="4.1"
-                      title="补全缺失的媒体资源"
-                      desc={
-                        !opts.exportMedia || !qqOnline
-                          ? !opts.exportMedia
-                            ? '需先开启「导出内容 → 媒体资源」'
-                            : qqOnline === null
-                              ? '正在检查 QQ 在线状态…'
-                              : '需登录在线 QQ 实例后可用'
-                          : '本地缓存缺失时从云端补齐'
-                      }
-                      control={
-                        <KindChips
-                          options={COMPLETE_KINDS}
-                          selected={selectedCompleteKinds}
-                          onChange={(next) =>
-                            patch({
-                              completeMedia: next.has('completeMedia'),
-                              downloadPtt: next.has('downloadPtt'),
-                              downloadVideo: next.has('downloadVideo'),
-                              downloadFile: next.has('downloadFile'),
-                            })
-                          }
-                          disabled={!opts.exportMedia || !qqOnline}
-                        />
-                      }
-                      wide
-                    />
-                    <StepRow
-                      step="4.2"
-                      title={isGuild ? '拉取漫游消息' : '补充拉取的漫游消息'}
-                      desc={
-                        isGuild
-                          ? '频道私聊仅导出本机已有的消息记录，不支持漫游消息拉取'
-                          : '扫描本地缓存中的漫游消息一并导出（未在线时也会读取缓存数据库）'
-                      }
-                      control={
-                        <Toggle
-                          checked={isGuild ? false : opts.completeMessages}
-                          disabled={isGuild}
-                          onChange={(v) => patch({ completeMessages: v })}
-                        />
-                      }
-                    />
-                    <StepRow
-                      step="4.3"
-                      title="下载本地未缓存的装扮资源"
-                      desc={
-                        !hasDress
-                          ? '需先在「导出内容 → 装扮数据」勾选类别'
-                          : '装扮导出时在线补齐缺失资源（关闭则只导出已缓存的部分）'
-                      }
-                      control={
-                        <Toggle
-                          checked={opts.completeDress}
-                          disabled={!hasDress}
-                          onChange={(v) => patch({ completeDress: v })}
-                        />
-                      }
-                    />
-                  </Card>
-                ) : null}
-
-                {/* 图片文字识别 —— 独立一栏，跟「补全选项」并列（不再塞在「扩展功能」里） */}
-                {isMessageFlow ? (
-                  <Card title="图片识别">
-                    <Row
-                      label="图片文字识别"
-                      desc={
-                        ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable
-                          ? ocrReady.localEngineBlocker ||
-                            '需要在线 QQ，或先在「设置 → 模型与识别 → 图片识别」下好本地识别模型'
-                          : '识别图片里的文字，写出 ocr.json（含像素坐标框）并把文字回写进导出文件'
-                      }
-                      control={
-                        <Toggle
-                          checked={opts.ocrImages}
-                          disabled={Boolean(
-                            ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable,
-                          )}
-                          onChange={(v) =>
-                            patch({ ocrImages: v, ...(v ? {} : { onlineOcr: false }) })
-                          }
-                        />
-                      }
-                    />
-                    {opts.ocrImages ? (
-                      <>
-                        {ocrReady?.onlineCapable ? (
-                          <Row
-                            label="在线识别"
-                            desc={
-                              opts.onlineOcr
-                                ? '已就绪：优先让 QQ 服务端识别（更快），没拿到的回退本地模型'
-                                : '优先让 QQ 服务端识别（需保持 QQ 在线；连续失败会自动回退本地模型）'
-                            }
-                            control={
-                              <Toggle
-                                checked={opts.onlineOcr}
-                                onChange={(v) => patch({ onlineOcr: v })}
-                              />
-                            }
-                          />
-                        ) : null}
-                        {opts.onlineOcr ? (
-                          <Row
-                            label="识别并发"
-                            desc="同时向 QQ 服务端发起的识别请求数"
-                            control={
-                              <span className="weq-exp-num">
-                                <input
-                                  type="number"
-                                  min={1}
-                                  max={32}
-                                  value={opts.ocrConcurrency}
-                                  onChange={(e) =>
-                                    patch({
-                                      ocrConcurrency: Math.max(
-                                        1,
-                                        Math.min(32, Number(e.target.value) || 1),
-                                      ),
-                                    })
-                                  }
-                                />
-                              </span>
-                            }
-                          />
-                        ) : null}
-                        {ocrReady && !ocrReady.localReady && !ocrEngineBlocker ? (
-                          <p className="weq-exp-block-hint">
-                            没下本地识别模型：在线那条腿拿不到的图不会回退，可能会少字。识别模型在
-                            「设置 → 模型与识别 → 图片识别」里下载。
-                          </p>
-                        ) : null}
-                        <div className="weq-exp-ocr-models">
-                          <p className="weq-exp-block-hint">
-                            <ScanText size={12} aria-hidden />{' '}
-                            {ocrEngineBlocker ??
-                              (ocrReady?.filterReady
-                                ? '已开启预筛选：先用超轻量模型甩掉没有文字的图，快很多。'
-                                : '建议下载筛图模型（1.7 MB）：先甩掉风景 / 人像这类没有文字的图，识别会快很多。')}
-                          </p>
-                          {ocrEngineBlocker
-                            ? null
-                            : ocrModels.map((m) => (
-                                <OcrModelRow
-                                  key={m.id}
-                                  name={`${m.name}（筛图）`}
-                                  sizeLabel={m.sizeLabel}
-                                  downloaded={m.downloaded}
-                                  selected={ocrSelected.filter === m.id}
-                                  progress={ocrProgress[m.id] ?? null}
-                                  disabled={Boolean(ocrProgress[m.id])}
-                                  onDownload={() => void downloadOcrModel(m.id)}
-                                />
-                              ))}
-                          {ocrEngineBlocker ? null : (
-                            <p className="weq-exp-block-hint">
-                              「筛图」只判断图里有没有文字（识别前先筛一遍）；不下载也能识别，只是每张图
-                              都会跑一遍识别模型。下载完成会自动设为当前模型。出文字的**识别模型**在
-                              「设置 →
-                              图片识别」里下载：它是在线拿不到时的兜底，两条腿的逻辑不放在这里选。
-                            </p>
-                          )}
-                        </div>
-                      </>
-                    ) : null}
-                  </Card>
-                ) : null}
               </div>
 
               {/* 右列：格式 + 内容 + 扩展 */}
@@ -1191,7 +830,7 @@ export function ExportLightbox({
 
                 {/* 导出格式（多选；相册的格式仍走外部选择器） */}
                 {!isAlbum ? (
-                  <Card title="导出格式">
+                  <Card title="导出格式" action={opts.chatlab ? undefined : <ExportFormatHint />}>
                     <div className="weq-exp-format-grid" {...formatSelection.rootProps}>
                       {formatOptions.map((f) => {
                         const on = formats.includes(f.value);
@@ -1222,6 +861,20 @@ export function ExportLightbox({
                 {/* 导出内容 */}
                 {!isAlbum && !(isContacts && contactScope === 'groups') ? (
                   <Card title="导出内容">
+                    {variant === 'qzone' ? (
+                      <BusinessExportDetails
+                        domain="qzoneInteractions"
+                        formats={formats}
+                        onRequireJson={() =>
+                          setFormats((current) =>
+                            current.includes('json') ? current : [...current, 'json'],
+                          )
+                        }
+                        options={opts}
+                        disabled={submitting}
+                        onChange={patch}
+                      />
+                    ) : null}
                     {isQzone ? (
                       <>
                         <MasterRow
@@ -1260,198 +913,82 @@ export function ExportLightbox({
                         />
                       )
                     ) : (
-                      <>
-                        <MasterRow
-                          icon={<MessageSquare size={17} />}
-                          label="消息"
-                          desc="聊天记录正文（必选，始终导出）"
-                          checked
-                          disabled
-                          onChange={() => undefined}
-                          badge="必选"
-                        />
-                        <MasterRow
-                          icon={<ImageIcon size={17} />}
-                          label="媒体资源"
-                          desc="图片 / 语音 / 视频 / 文件 / QQ系统表情"
-                          checked={opts.exportMedia}
-                          onChange={(v) => {
-                            patch({
-                              exportMedia: v,
-                              // 开启时默认全选子类；关闭时清空。
-                              mediaKinds: v
-                                ? { ...DEFAULT_MEDIA_KINDS }
-                                : {
-                                    image: false,
-                                    voice: false,
-                                    video: false,
-                                    file: false,
-                                    sysface: false,
-                                  },
-                            });
-                          }}
-                        />
-                        {opts.exportMedia ? (
-                          <div className="weq-exp-kinds-wrap">
-                            <KindChips
-                              options={(
-                                Object.keys(MEDIA_KIND_LABELS) as Array<keyof MediaKinds>
-                              ).map((k) => ({
-                                key: k,
-                                label: (
-                                  <>
-                                    {MEDIA_ICONS[k]}
-                                    {MEDIA_KIND_LABELS[k]}
-                                  </>
-                                ),
-                              }))}
-                              selected={selectedMediaKinds}
-                              onChange={(next) =>
-                                patch({
-                                  mediaKinds: {
-                                    image: next.has('image'),
-                                    voice: next.has('voice'),
-                                    video: next.has('video'),
-                                    file: next.has('file'),
-                                    sysface: next.has('sysface'),
-                                  },
-                                })
-                              }
-                            />
-                          </div>
-                        ) : null}
-
-                        <MasterRow
-                          icon={<UserRound size={17} />}
-                          label="头像"
-                          desc="发送者头像存入 avatars/ 子目录"
-                          checked={opts.exportAvatar}
-                          onChange={(v) => patch({ exportAvatar: v })}
-                        />
-
-                        <MasterRow
-                          icon={<Sparkles size={17} />}
-                          label="装扮数据"
-                          desc="气泡 / 字体 / 挂件（仅会话实际使用到的款）"
-                          checked={opts.dress.bubble || opts.dress.font || opts.dress.widget}
-                          onChange={(v) =>
-                            patch({
-                              dress: v
-                                ? { bubble: true, font: true, widget: true }
-                                : { bubble: false, font: false, widget: false },
-                            })
-                          }
-                        />
-                        {opts.dress.bubble || opts.dress.font || opts.dress.widget ? (
-                          <div className="weq-exp-kinds-wrap">
-                            <KindChips
-                              options={[
-                                { key: 'bubble', label: '气泡' },
-                                { key: 'font', label: '字体' },
-                                { key: 'widget', label: '挂件' },
-                              ]}
-                              selected={selectedDressKinds}
-                              onChange={(next) =>
-                                patch({
-                                  dress: {
-                                    bubble: next.has('bubble'),
-                                    font: next.has('font'),
-                                    widget: next.has('widget'),
-                                  },
-                                })
-                              }
-                            />
-                          </div>
-                        ) : null}
-                      </>
+                      <ExportContentSelector
+                        value={contentPolicy}
+                        guild={isGuild}
+                        disabled={submitting || confirming || requestingFormat}
+                        onChange={(content) => {
+                          void changeContent(content);
+                        }}
+                      />
                     )}
                   </Card>
                 ) : null}
 
-                <ExportReportControl
-                  checked={opts.includeIntegrityReport ?? false}
-                  onChange={(v) => patch({ includeIntegrityReport: v })}
-                  disabled={submitting}
-                />
-
-                {/* 扩展功能 */}
-                {isMessageFlow ? (
-                  <Card title="扩展功能">
-                    <Row
-                      label="语音转写"
-                      desc={
-                        voiceModelReady === false
-                          ? '需先在「设置 → 语音转录」下载并选择模型'
-                          : '将语音消息转录为文字一并保存'
-                      }
-                      control={
-                        <Toggle
-                          checked={opts.transcribeVoice}
-                          disabled={voiceModelReady === false}
-                          onChange={(v) => patch({ transcribeVoice: v })}
-                        />
-                      }
-                    />
-                    {opts.transcribeVoice && qqOnline && attachEnabled ? (
+                <Card title="扩展功能">
+                  {imageRecognition}
+                  {isMessageFlow ? (
+                    <>
                       <Row
-                        label="在线转录"
+                        label="语音转写"
                         desc={
-                          opts.onlineTranscribe
-                            ? authorization.armed
-                              ? '已就绪：优先用 QQ 服务端转写，漏包 / 过期回退本地'
-                              : '待就绪：导出前准备官方转写抓包'
-                            : '优先用 QQ 服务端转写（需保持 QQ 在线）'
+                          voiceModelReady === false
+                            ? '需先在「设置 → AI 功能 → 语音识别」下载模型'
+                            : '将语音消息转录为文字一并保存'
                         }
                         control={
                           <Toggle
-                            checked={opts.onlineTranscribe}
-                            disabled={authorization.busy}
-                            onChange={(v) => void toggleOnlineTranscribe(v)}
+                            checked={opts.transcribeVoice}
+                            disabled={voiceModelReady === false}
+                            onChange={(v) => patch({ transcribeVoice: v })}
                           />
                         }
                       />
-                    ) : null}
-                    {opts.transcribeVoice && opts.onlineTranscribe ? (
-                      <Row
-                        label="转录并发"
-                        desc="同时向 QQ 发起的转写请求数"
-                        control={
-                          <span className="weq-exp-num">
-                            <input
-                              type="number"
-                              min={1}
-                              max={32}
-                              value={opts.onlineConcurrency}
-                              onChange={(e) =>
-                                patch({
-                                  onlineConcurrency: Math.max(
-                                    1,
-                                    Math.min(32, Number(e.target.value) || 1),
-                                  ),
-                                })
-                              }
+                      {opts.transcribeVoice && qqOnline && attachEnabled ? (
+                        <Row
+                          label="在线转录"
+                          desc={
+                            opts.onlineTranscribe
+                              ? authorization.armed
+                                ? '已就绪：优先用 QQ 服务端转写，漏包 / 过期回退本地'
+                                : '待就绪：导出前准备官方转写抓包'
+                              : '优先用 QQ 服务端转写（需保持 QQ 在线）'
+                          }
+                          control={
+                            <Toggle
+                              checked={opts.onlineTranscribe}
+                              disabled={authorization.busy}
+                              onChange={(v) => void toggleOnlineTranscribe(v)}
                             />
-                          </span>
+                          }
+                        />
+                      ) : null}
+                      <p className="weq-exp-block-hint">
+                        识别并发、筛图模型和转录并发请在「设置 → AI 功能」中调整。
+                      </p>
+                      <Row
+                        label="ChatLab 格式"
+                        desc={
+                          chatlabAllowed
+                            ? '导出为 ChatLab 交换格式（成员 / 角色 / 消息已标准化）'
+                            : '仅支持 JSON / JSONL 格式'
+                        }
+                        control={
+                          <Toggle
+                            checked={opts.chatlab}
+                            disabled={!chatlabAllowed}
+                            onChange={(v) => toggleChatlab(v)}
+                          />
                         }
                       />
-                    ) : null}
-                    <Row
-                      label="ChatLab 格式"
-                      desc={
-                        chatlabAllowed
-                          ? '导出为 ChatLab 交换格式（成员 / 角色 / 消息已标准化）'
-                          : '仅支持 JSON / JSONL 格式'
-                      }
-                      control={
-                        <Toggle
-                          checked={opts.chatlab}
-                          disabled={!chatlabAllowed}
-                          onChange={(v) => toggleChatlab(v)}
-                        />
-                      }
-                    />
-                  </Card>
-                ) : null}
+                    </>
+                  ) : null}
+                  <ExportReportControl
+                    checked={opts.includeIntegrityReport ?? false}
+                    onChange={(v) => patch({ includeIntegrityReport: v })}
+                    disabled={submitting}
+                  />
+                </Card>
 
                 {/* 定时设置 */}
                 {isScheduled ? (
@@ -1513,16 +1050,22 @@ export function ExportLightbox({
         </div>
 
         <footer className="weq-exp-dialog-foot">
-          <span className="weq-exp-dialog-foot-note">
-            {isMessageFlow
-              ? `${formats.length} 种格式${opts.exportMedia ? ' · 含媒体' : ''}${opts.exportAvatar ? ' · 头像' : ''}${
-                  opts.dress.bubble || opts.dress.font || opts.dress.widget ? ' · 装扮' : ''
-                }`
-              : isQzone
-                ? `${wantQzonePosts ? '空间' : ''}${wantQzonePosts && wantQzoneAlbums ? ' + ' : ''}${wantQzoneAlbums ? '相册' : ''} · ${formats.length} 种格式${opts.exportMedia ? ' · 含媒体' : ''}${wantQzonePosts && opts.qzoneInteractions ? ' · 含评论/赞' : ''}`
-                : isContacts
-                  ? `${formats.length} 种格式${opts.exportAvatar ? ' · 含头像' : ''}`
-                  : null}
+          <span
+            className="weq-exp-dialog-foot-note"
+            id={validationId}
+            role={selectionError ? 'status' : undefined}
+          >
+            {selectionError
+              ? selectionError
+              : isMessageFlow
+                ? `${formats.length ? `${formats.length} 种格式` : '仅资源'}${opts.exportMedia ? ' · 含媒体' : ''}${opts.exportAvatar ? ' · 头像' : ''}${
+                    opts.dress.bubble || opts.dress.font || opts.dress.widget ? ' · 装扮' : ''
+                  }`
+                : isQzone
+                  ? `${wantQzonePosts ? '空间' : ''}${wantQzonePosts && wantQzoneAlbums ? ' + ' : ''}${wantQzoneAlbums ? '相册' : ''} · ${formats.length} 种格式${opts.exportMedia ? ' · 含媒体' : ''}${wantQzonePosts && opts.qzoneInteractions ? ' · 含评论/赞' : ''}`
+                  : isContacts
+                    ? `${formats.length} 种格式${opts.exportAvatar ? ' · 含头像' : ''}`
+                    : null}
           </span>
           <button type="button" className="weq-exp-btn" onClick={onClose} disabled={submitting}>
             取消
@@ -1531,7 +1074,11 @@ export function ExportLightbox({
             type="button"
             className="weq-exp-btn is-primary"
             onClick={confirm}
-            disabled={submitting || disabled || confirming}
+            disabled={
+              submitting || disabled || confirming || requestingFormat || Boolean(selectionError)
+            }
+            title={selectionError ?? undefined}
+            aria-describedby={selectionError ? validationId : undefined}
           >
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             {isScheduled ? '创建定时任务' : '开始导出'}

@@ -23,6 +23,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         intentSense: {
           getStatus: { setData: fixture.setData },
           getProfile: { invalidate: fixture.invalidate },
+          listMessageAnalyses: { invalidate: fixture.invalidate },
+          getSuggestions: { invalidate: fixture.invalidate },
         },
       },
     }),
@@ -106,7 +108,7 @@ it('画像 API 只保存画像引用，运行方式不再包含跟随选项', as
   expect(fixture.save).toHaveBeenCalledWith({
     profileProviderRef: { providerId: 'synthetic', model: 'profile-model' },
   });
-  expect(fixture.invalidate).toHaveBeenCalledOnce();
+  expect(fixture.invalidate).toHaveBeenCalledTimes(3);
 });
 
 it('画像本地资源独立选择，在途时禁用控件', async () => {
