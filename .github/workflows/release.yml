@@ -891,10 +891,13 @@ jobs:
         run: |
           set -euo pipefail
           cd dist/torrents
-          zip -9 -q "weQ-${VER}-torrents.zip" ./*.torrent MAGNETS.txt
-          ls -la "weQ-${VER}-torrents.zip"
+          # tag 是 v2.4.0，文件名里要的是去掉 v 的 2.4.0。
+          VER="${TAG#v}"
+          NAME="weQ-${VER}-torrents.zip"
+          zip -9 -q "$NAME" ./*.torrent MAGNETS.txt
+          ls -la "$NAME"
         env:
-          VER: ${{ github.ref_name }}
+          TAG: ${{ github.ref_name }}
 
       - name: Prepare message & keyboard
         id: prep
