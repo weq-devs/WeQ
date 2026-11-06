@@ -960,7 +960,7 @@ jobs:
             || { echo "::error::找不到种子压缩包"; ls -la dist/torrents; exit 1; }
 
       - name: Send QQ notification
-        uses: H3CoF6/qq-notify-action@a0a39df9388de9f0b02b46f96ae6936d0732c8fd
+        uses: H3CoF6/qq-notify-action@b9b5bfc84ebd4323a5d844af07f1d20fb33aebe0
         with:
           appid: ${{ secrets.QQ_APPID }}
           secret: ${{ secrets.QQ_SECRET }}
