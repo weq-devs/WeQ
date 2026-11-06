@@ -59,7 +59,8 @@ function findInfoSlice(buf) {
   while (buf[p] !== 0x65) {
     const k = decode(buf, p);
     const v = decode(buf, k.next);
-    if (k.value.toString() === 'info') return { info: v.value, slice: buf.subarray(k.next, v.next) };
+    if (k.value.toString() === 'info')
+      return { info: v.value, slice: buf.subarray(k.next, v.next) };
     p = v.next;
   }
   throw new Error('找不到 info');
@@ -72,11 +73,15 @@ function verifyOne(torrentPath, distDir, urlBase) {
   const pieceLength = info.get('piece length');
   const piecesBlob = info.get('pieces');
   const declared = [];
-  for (let i = 0; i < piecesBlob.length; i += 20) declared.push(piecesBlob.subarray(i, i + 20).toString('hex'));
+  for (let i = 0; i < piecesBlob.length; i += 20)
+    declared.push(piecesBlob.subarray(i, i + 20).toString('hex'));
 
   let ok = true;
   const a = (cond, msg) => {
-    if (!cond) { console.error(`  ✗ ${msg}`); ok = false; } else console.log(`  ✓ ${msg}`);
+    if (!cond) {
+      console.error(`  ✗ ${msg}`);
+      ok = false;
+    } else console.log(`  ✓ ${msg}`);
   };
 
   // 1) 结构与元数据
@@ -92,7 +97,11 @@ function verifyOne(torrentPath, distDir, urlBase) {
   const size = Number(info.get('length'));
   const diskPath = join(distDir, name);
   let diskSize;
-  try { diskSize = statSync(diskPath).size; } catch { diskSize = -1; }
+  try {
+    diskSize = statSync(diskPath).size;
+  } catch {
+    diskSize = -1;
+  }
   a(diskSize === size, `产物目录里有同名文件且大小一致 (种子 ${size} / 磁盘 ${diskSize})`);
   if (diskSize < 0) return { ok: false, infohash: '', name };
 
@@ -100,9 +109,16 @@ function verifyOne(torrentPath, distDir, urlBase) {
   const data = readFileSync(diskPath);
   const expected = [];
   for (let off = 0; off < data.length; off += pieceLength) {
-    expected.push(createHash('sha1').update(data.subarray(off, Math.min(off + pieceLength, data.length))).digest('hex'));
+    expected.push(
+      createHash('sha1')
+        .update(data.subarray(off, Math.min(off + pieceLength, data.length)))
+        .digest('hex'),
+    );
   }
-  a(expected.length === declared.length, `piece 数量一致 (重算 ${expected.length} / 种子 ${declared.length})`);
+  a(
+    expected.length === declared.length,
+    `piece 数量一致 (重算 ${expected.length} / 种子 ${declared.length})`,
+  );
   const bad = expected.filter((h, i) => h !== declared[i]).length;
   a(bad === 0, `全部 ${expected.length} 个 piece 哈希匹配`);
 
@@ -111,7 +127,10 @@ function verifyOne(torrentPath, distDir, urlBase) {
   a(/^[0-9a-f]{40}$/.test(infoHash), `infohash = ${infoHash}`);
 
   // 5) 字典 key 必须按字节序升序（BEP 3），真实客户端会因此拒绝种子
-  for (const [map, label] of [[decode(raw, 0).value, '顶层'], [info, 'info']]) {
+  for (const [map, label] of [
+    [decode(raw, 0).value, '顶层'],
+    [info, 'info'],
+  ]) {
     const keys = [...map.keys()];
     const sorted = [...keys].sort((x, y) => Buffer.compare(Buffer.from(x), Buffer.from(y)));
     a(keys.join('\u0000') === sorted.join('\u0000'), `${label} key 有序: ${keys.join(', ')}`);
@@ -153,11 +172,15 @@ const distDir = arg('--dist');
 const urlBase = arg('--url-base');
 
 if (!torrentDir || !distDir) {
-  console.error('用法: node scripts/verify-torrent.mjs --torrent-dir <种子目录> --dist <产物目录> [--url-base URL前缀]');
+  console.error(
+    '用法: node scripts/verify-torrent.mjs --torrent-dir <种子目录> --dist <产物目录> [--url-base URL前缀]',
+  );
   process.exit(2);
 }
 
-const torrents = readdirSync(torrentDir).filter((f) => f.endsWith('.torrent')).sort();
+const torrents = readdirSync(torrentDir)
+  .filter((f) => f.endsWith('.torrent'))
+  .sort();
 if (torrents.length === 0) {
   console.error(`✗ ${torrentDir} 里没有 .torrent`);
   process.exit(1);
@@ -180,11 +203,14 @@ if (failures > 0) {
 console.log(`✓ ${torrents.length} 个种子全部通过校验`);
 
 if (process.env.GITHUB_OUTPUT) {
-  appendFileSync(process.env.GITHUB_OUTPUT, [
-    `torrent_count=${torrents.length}`,
-    'infohashes<<INFOHASH_EOF',
-    ...results.map((r) => `${r.name}\t${r.infohash}`),
-    'INFOHASH_EOF',
-    '',
-  ].join('\n'));
+  appendFileSync(
+    process.env.GITHUB_OUTPUT,
+    [
+      `torrent_count=${torrents.length}`,
+      'infohashes<<INFOHASH_EOF',
+      ...results.map((r) => `${r.name}\t${r.infohash}`),
+      'INFOHASH_EOF',
+      '',
+    ].join('\n'),
+  );
 }
