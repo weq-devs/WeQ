@@ -15,6 +15,7 @@
 
 import { observable } from '@trpc/server/observable';
 import { trackModelDownload } from '../../model_download_task';
+import { reconcileLocalModelResources } from '../../context/local_model_resources';
 import { z } from 'zod';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES } from '@weq/service/qzone-public-settings';
@@ -36,7 +37,7 @@ import {
   exportSavePolicyInput,
 } from './export_save';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
 import { applyOneBot, oneBotStatus } from '../../onebot/runtime';
@@ -96,8 +97,28 @@ import {
 } from '../../static_backup';
 import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
-import { isDbRepairBusy } from './db_repair';
-import { launchQq } from '../../qq_launch';
+import { assertRuntimeFilesIdle, runtimeFileBusyPaths } from '../../context/runtime_files';
+import { runtimeMaintenance } from '../../runtime_maintenance';
+import { launchQq, runningQqCount } from '../../qq_launch';
+import { QqDebugCopyManager } from '../../qq_debug_copy';
+import { QQ_DEBUG_COPY_PERMISSION_ACTIONS } from '../../../shared/qq_debug_copy';
+import { checkQqDataAccess, QQ_DATA_ACCESS_SETTINGS } from '../../qq_data_access';
+import { macLaunchApplication } from '../../mac_launch_application';
+
+const qqDebugCopy = new QqDebugCopyManager({
+  source: () => {
+    const executable = requirePlatform().qqExePath();
+    if (!executable) return null;
+    const bundle = dirname(dirname(dirname(executable)));
+    return bundle.endsWith('/QQ-WeQ.app') ? '/Applications/QQ.app' : bundle;
+  },
+});
+
+function requireDebugCopyDesktop(): QqDebugCopyManager {
+  if (!getHost().canReveal || requirePlatform().kind !== 'darwin')
+    throw new Error('请在运行 QQ 的 Mac 上打开 WeQ 桌面端管理调试副本。');
+  return qqDebugCopy;
+}
 
 /** Result of the QQ data-directory picker. */
 export interface PickRootResult {
@@ -225,6 +246,8 @@ function storageRoots(): StorageRoot[] {
     ...(host.exportRoot ? [{ path: host.exportRoot, label: 'Web 导出文件' }] : []),
   ];
 }
+
+const storageRestartCandidates = new Map<string, string>();
 
 export const bootstrapRouter = router({
   ...backupProcedures,
@@ -360,6 +383,23 @@ export const bootstrapRouter = router({
 
   // ---- detection (via global config cache) ----
 
+  qqDataAccess: procedure.query(() => {
+    const desktop = getHost().canReveal;
+    return checkQqDataAccess({
+      kind: desktop ? requirePlatform().kind : 'web',
+      roots: desktop ? requirePlatform().tencentFilesRoots() : [],
+      executable: getHost().currentExePath(),
+      launchApplicationPath: desktop ? macLaunchApplication() : null,
+    });
+  }),
+
+  openQqDataAccessSettings: procedure.mutation(async () => {
+    if (process.platform !== 'darwin' || !getHost().canReveal)
+      throw new Error('请在运行 WeQ 的 Mac 上打开系统设置 → 隐私与安全性 → 完全磁盘访问权限。');
+    await getHost().openExternal(QQ_DATA_ACCESS_SETTINGS);
+    return true;
+  }),
+
   /** Enriched, cached install info (paths + version + user-data + health flags). */
   describeInstall: procedure.query(() => {
     return requireBootstrap().globalConfig.describeInstall();
@@ -375,6 +415,17 @@ export const bootstrapRouter = router({
     await launchQq(requirePlatform());
     return true;
   }),
+
+  qqDebugCopyStatus: procedure.query(() => requireDebugCopyDesktop().status()),
+  qqDebugCopyAction: procedure
+    .input(z.object({ action: z.enum(['prepare', 'verify', 'launch', 'remove']) }))
+    .mutation(({ input }) => requireDebugCopyDesktop().perform(input.action)),
+  qqDebugCopyPermission: procedure
+    .input(z.object({ action: z.enum(QQ_DEBUG_COPY_PERMISSION_ACTIONS) }))
+    .mutation(async ({ input }) => {
+      await requireDebugCopyDesktop().permission(input.action, getHost());
+      return true;
+    }),
 
   listAccounts: procedure.query(() => {
     return requireBootstrap().detect.listAccounts();
@@ -397,16 +448,20 @@ export const bootstrapRouter = router({
    * macOS only: is 系统完整性保护（SIP）still on? `true` = on, `false` = off,
    * `null` = not macOS / couldn't tell.
    *
-   * 在线实例取密钥 / 读内存那条路要先问它：SIP 开着时 `task_for_pid` 连 root 都
-   * 拒（读不了 QQ 进程内存），问密码没有意义。
+   * 只提供系统状态；读取能力取决于目标和读取端的签名，不能单凭 SIP 判断。
    */
   sipEnabled: procedure.query(() => requirePlatform().sipEnabled()),
 
   /** Online-instance probe (with the single-process uin-iteration refinement). */
   probeOnline: procedure
     .input(z.object({ knownUins: z.array(z.string()).default([]) }).optional())
-    .query(({ input }) => {
-      return requireBootstrap().globalConfig.probeOnline(input?.knownUins ?? []);
+    .query(async ({ input }) => {
+      const probe = requireBootstrap().globalConfig.probeOnline(input?.knownUins ?? []);
+      let runningCount: number | null = null;
+      if (probe.count === null) {
+        runningCount = await runningQqCount(requirePlatform().kind);
+      }
+      return { ...probe, runningCount };
     }),
 
   /** Count of user-data directories under the Tencent Files root. */
@@ -834,12 +889,20 @@ export const bootstrapRouter = router({
     return true;
   }),
 
-  /** QQ 秀 URL 本地映射的有效期（天）。按需读取，改完立即影响后续查询。 */
-  setQqShowCacheDays: procedure
-    .input(z.object({ days: z.number().int().min(1).max(365) }))
+  /** QQ 秀 URL 本地映射的有效期（分钟）。 */
+  setQqShowCacheMinutes: procedure
+    .input(
+      z.object({
+        minutes: z
+          .number()
+          .int()
+          .min(1)
+          .max(365 * 1440),
+      }),
+    )
     .mutation(({ input }) => {
-      return requireBootstrap().userConfig.setSettings({ qqShowCacheDays: input.days })
-        .qqShowCacheDays;
+      return requireBootstrap().userConfig.setSettings({ qqShowCacheMinutes: input.minutes })
+        .qqShowCacheMinutes;
     }),
 
   /** 数据库损坏弹窗「不再提醒」开关（全局配置，重启后仍生效）。 */
@@ -1773,6 +1836,18 @@ export const bootstrapRouter = router({
 
   // ---- voice transcription models (设置 → 语音转录) ----
 
+  setRecognitionConcurrency: procedure
+    .input(
+      z.object({ kind: z.enum(['ocr', 'voice']), concurrency: z.number().int().min(1).max(32) }),
+    )
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({
+        [input.kind === 'ocr' ? 'ocr' : 'voiceTranscribe']: {
+          onlineConcurrency: input.concurrency,
+        },
+      });
+    }),
+
   /** The model registry, each entry enriched with on-disk / in-flight state. */
   voiceModels: procedure.query(() => {
     return requireBootstrap().voiceTranscribe.listModels();
@@ -1808,9 +1883,7 @@ export const bootstrapRouter = router({
   deleteVoiceModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
     const boot = requireBootstrap();
     const removed = boot.voiceTranscribe.deleteModel(input.id);
-    if (removed && boot.userConfig.getLocalModelId('voice') === input.id) {
-      boot.userConfig.setSettings({ modelResources: { voice: '' } });
-    }
+    if (removed) reconcileLocalModelResources(boot);
     return removed;
   }),
 
@@ -1874,15 +1947,7 @@ export const bootstrapRouter = router({
   deleteOcrModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
     const boot = requireBootstrap();
     const removed = boot.ocrModels.deleteModel(input.id);
-    if (removed) {
-      const refs = boot.userConfig.getSettings().modelResources;
-      boot.userConfig.setSettings({
-        modelResources: {
-          ocr: refs.ocr === input.id ? '' : refs.ocr,
-          filter: refs.filter === input.id ? '' : refs.filter,
-        },
-      });
-    }
+    if (removed) reconcileLocalModelResources(boot);
     return removed;
   }),
 
@@ -2161,33 +2226,64 @@ export const bootstrapRouter = router({
 
   storageCleanupResult: procedure.query(() => getHost().storageCleanupResult?.() ?? null),
 
-  clearStorageData: procedure
-    .input(z.object({ ids: z.array(z.string()).min(1), acknowledgeRisk: z.literal(true) }))
+  revealStorageItem: procedure
+    .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      const host = getHost();
-      if (!host.clearStorageAfterExit) throw new Error('请在电脑桌面端执行退出后清除');
-      if (isDbRepairBusy()) throw new Error('数据库修复或回滚仍在进行，请等待完成后再清除');
-      if (
-        getAppContext()
-          .services?.exportManager.listTasks()
-          .some((task) => task.status === 'running' || task.status === 'pending')
-      ) {
-        throw new Error('导出任务仍在进行，请先暂停或取消任务');
-      }
-      if (isIntentModelDownloading()) throw new Error('模型仍在下载，请等待完成后再清除');
-      const boot = requireBootstrap();
-      if (
-        [...boot.ocrModels.listModels(), ...boot.voiceTranscribe.listModels()].some(
-          (model) => model.downloading,
-        )
-      ) {
-        throw new Error('模型仍在下载，请等待完成后再清除');
-      }
-      const items = await requireBootstrap().userConfig.listStorageUsage(storageRoots());
-      const targets = selectStorageCleanupTargets(items, input.ids);
-      await host.clearStorageAfterExit(targets);
-      return { scheduled: true };
+      const item = (await requireBootstrap().userConfig.listStorageUsage(storageRoots())).find(
+        (item) => item.id === input.id,
+      );
+      if (!item) throw new Error('存储项目已变化，请刷新后重试');
+      await getHost().revealInFolder(item.path);
+      return { ok: true };
     }),
+
+  clearStorageData: procedure
+    .input(
+      z.object({
+        ids: z.array(z.string()).min(1),
+        acknowledgeRisk: z.literal(true),
+        afterExit: z.boolean().optional(),
+      }),
+    )
+    .mutation(({ input }) =>
+      runtimeMaintenance.run(async () => {
+        const host = getHost();
+        const items = await requireBootstrap().userConfig.listStorageUsage(storageRoots());
+        const targets = selectStorageCleanupTargets(items, input.ids);
+        if (!host.clearStorageNow || !host.clearStorageAfterExit) {
+          if (input.afterExit || targets.some((item) => item.requiresExit))
+            throw new Error('请在电脑桌面端清除所选数据');
+          const result = await requireBootstrap().userConfig.clearCache(input.ids, storageRoots());
+          return {
+            ...result,
+            scheduled: false,
+            restartIds: [],
+            failed: result.failed.map((id) => ({
+              id,
+              label: targets.find((item) => item.id === id)?.label ?? id,
+              error: '清理失败，请检查宿主日志',
+              retryAfterRestart: false,
+            })),
+          };
+        }
+        if (input.afterExit) {
+          assertRuntimeFilesIdle();
+          if (targets.some((item) => storageRestartCandidates.get(item.id) !== item.path))
+            throw new Error('请先执行直接清理，只能重试其中被占用的剩余项目');
+          await host.clearStorageAfterExit(targets);
+          return { scheduled: true, cleared: [], failed: [], freedBytes: 0, restartIds: [] };
+        }
+        const result = await host.clearStorageNow(targets, runtimeFileBusyPaths());
+        storageRestartCandidates.clear();
+        const restartIds = result.failed.flatMap((failure) => {
+          const item = targets.find((target) => target.id === failure.id);
+          if (!failure.retryAfterRestart || !item) return [];
+          storageRestartCandidates.set(item.id, item.path);
+          return [item.id];
+        });
+        return { ...result, scheduled: false, restartIds };
+      }),
+    ),
 
   /** 旧接口保留为可清理项的子集。 */
   listClearableCache: procedure.query(async () => {
@@ -2659,8 +2755,7 @@ export const bootstrapRouter = router({
 
   closeAccount: procedure.mutation(async () => {
     logger.info('router closing account', { event: 'router-close-account' });
-    await getAppContext().services?.unreadInfo.dispose();
-    getAppContext().clearAccount();
+    await getAppContext().clearAccount(true);
     return true;
   }),
 

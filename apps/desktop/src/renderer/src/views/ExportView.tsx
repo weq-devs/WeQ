@@ -35,6 +35,11 @@ import {
 import { trpc, client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { useExportReportDialog } from './export/ExportReportControl';
+import {
+  StructuredExportControls,
+  structuredExportOptions,
+  type StructuredExportOptions,
+} from './export/StructuredExportControls';
 import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { fixProfileAvatarUrl } from '../lib/avatarResolver';
@@ -283,7 +288,8 @@ function fmtSeconds(sec: number): string {
 }
 
 /** QQ 空间导出格式收窄：html 直通，其余非 txt 一律回退 json。 */
-function qzoneFormatOf(f: ExportFormat): 'json' | 'txt' | 'html' {
+function qzoneFormatOf(f: ExportFormat): 'json' | 'jsonl' | 'txt' | 'html' {
+  if (f === 'jsonl') return 'jsonl';
   if (f === 'txt') return 'txt';
   if (f === 'html') return 'html';
   return 'json';
@@ -698,6 +704,10 @@ export function ExportTool({
     setEditingList(false);
   }, [contentListRevision]);
   const [submitting, setSubmitting] = useState(false);
+  const [collectionStructured, setCollectionStructured] = useState<StructuredExportOptions>({
+    profile: 'basic',
+    incrementalSupport: false,
+  });
   /** 各模式最近一次导出的灯箱配置快照，打开面板时自动回填。 */
   const [exportPresets, setExportPresets] = useState<ExportPresets | null>(null);
   /** Media-completion failure detail, when the user opens a task's failure list. */
@@ -924,6 +934,9 @@ export function ExportTool({
       bundleDir: t.bundleDir,
       canResume: t.canResume,
       journalPath: t.journalPath,
+      canIncremental: t.canIncremental,
+      canFinalize: t.canFinalize,
+      resourceOnly: t.resourceOnly,
       partialReady: t.partialReady,
       isFinalizing: t.isFinalizing,
       mergeWarnings: t.mergeWarnings,
@@ -1192,6 +1205,8 @@ export function ExportTool({
           includeIntegrityReport: options.includeIntegrityReport ?? false,
           savePolicy,
           targetUin: t.uin,
+          profile: options.profile,
+          incrementalSupport: options.incrementalSupport,
           tids: options.qzonePosts === false ? undefined : t.tids,
           includePosts: options.qzonePosts !== false,
           includeAlbums: Boolean(options.qzoneAlbums),
@@ -1263,6 +1278,7 @@ export function ExportTool({
       // 多格式合并为同一个任务：所有格式写进同一 bundle，头像只带一份。
       if (contactScope === 'groups') {
         await client.account.startContactsExport.mutate({
+          ...structuredExportOptions(options, cfmts),
           ...binding,
           includeIntegrityReport: options.includeIntegrityReport ?? false,
           savePolicy,
@@ -1274,6 +1290,7 @@ export function ExportTool({
         });
       } else if (contactScope === 'friends') {
         await client.account.startContactsExport.mutate({
+          ...structuredExportOptions(options, cfmts),
           ...binding,
           includeIntegrityReport: options.includeIntegrityReport ?? false,
           savePolicy,
@@ -1292,6 +1309,7 @@ export function ExportTool({
         for (const g of selectedGroups) {
           if (!isCurrent()) return;
           await client.account.startContactsExport.mutate({
+            ...structuredExportOptions(options, cfmts),
             ...binding,
             includeIntegrityReport: options.includeIntegrityReport ?? false,
             savePolicy,
@@ -1318,7 +1336,8 @@ export function ExportTool({
   async function runCollectionExport(): Promise<void> {
     const intent = saveIntent.current;
     const binding = saveBinding;
-    const cfmt = format as 'json' | 'csv' | 'xlsx' | 'txt';
+    const cfmt = format as 'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt';
+    const structured = structuredExportOptions(collectionStructured, [cfmt]);
     const kinds = [...collectionKinds];
     const cids = [...(collectionIds ?? filteredCollectionIds)];
     if (cids.length === 0) return;
@@ -1332,6 +1351,7 @@ export function ExportTool({
       });
       if (!savePolicy) return;
       await client.account.startCollectionExport.mutate({
+        ...structured,
         ...binding,
         includeIntegrityReport,
         savePolicy,
@@ -1482,6 +1502,7 @@ export function ExportTool({
         if (!isCurrent()) return;
         const fmt0 = formats[0] ?? format;
         await client.account.guildDirectStartExport.mutate({
+          ...structuredExportOptions(options, formats, options.chatlab),
           ...binding,
           includeIntegrityReport: options.includeIntegrityReport ?? false,
           savePolicy,
@@ -1529,6 +1550,9 @@ export function ExportTool({
       const savePolicy = await prepareSave(intent, { kind: 'bundle', name });
       if (!savePolicy || !isCurrent()) return;
       await client.account.startGroupAlbumExport.mutate({
+        profile: result.profile,
+        incrementalSupport: result.incrementalSupport,
+        metadataFormat: result.metadataFormat,
         ...binding,
         includeIntegrityReport: result.includeIntegrityReport,
         name,
@@ -1566,6 +1590,9 @@ export function ExportTool({
       const savePolicy = await prepareSave(intent, { kind: 'bundle', name });
       if (!savePolicy || !isCurrent()) return;
       await client.account.startGroupFileExport.mutate({
+        profile: result.profile,
+        incrementalSupport: result.incrementalSupport,
+        metadataFormat: result.metadataFormat,
         ...binding,
         includeIntegrityReport: result.includeIntegrityReport,
         name,
@@ -1687,6 +1714,8 @@ export function ExportTool({
         chatlab: result.options.chatlab,
         schedule: result.schedule,
         options: {
+          profile: result.options.profile,
+          incrementalSupport: result.options.incrementalSupport,
           savePolicy,
           range: {
             preset: result.options.range.preset,
@@ -2064,12 +2093,10 @@ export function ExportTool({
                     scopeLabel={mode === 'qzone' ? '说说范围' : '消息范围'}
                     scopeUnit={mode === 'qzone' ? '条说说' : '条消息'}
                     onEditScope={
-                      (mode === 'full' && execution === 'now') ||
-                      (mode === 'qzone' && qzoneContent !== 'albums')
+                      mode === 'qzone' && qzoneContent !== 'albums'
                         ? (item) => {
                             setConvSelection(new Set([...convSelection, item.id]));
-                            if (mode === 'qzone') setSpaceScopeUin(item.id);
-                            else setScopeConversationId(item.id);
+                            setSpaceScopeUin(item.id);
                           }
                         : undefined
                     }
@@ -2139,10 +2166,6 @@ export function ExportTool({
                     selected={guildSelection}
                     onChange={setGuildSelection}
                     scopeSelections={guildMessageSelections}
-                    onEditScope={(item) => {
-                      setGuildSelection(new Set([...guildSelection, item.id]));
-                      setGuildScopeId(item.id);
-                    }}
                     emptyText="暂无频道私聊会话（需本机有 QQ 频道私聊记录）"
                   />
                   {guildScopeId && guildSelection.has(guildScopeId) ? (
@@ -2366,6 +2389,18 @@ export function ExportTool({
                       onChange={setFormat}
                       options={formatOptions}
                       small
+                    />
+                    <StructuredExportControls
+                      onRequireJson={() => setFormat('json')}
+                      domain={
+                        mode === 'collection' ? 'collectionProperties' : 'directoryProperties'
+                      }
+                      options={collectionStructured}
+                      formats={[format]}
+                      disabled={submitting}
+                      onChange={(value) =>
+                        setCollectionStructured((current) => ({ ...current, ...value }))
+                      }
                     />
                   </div>
                 ) : mode === 'full' || mode === 'qzone' || mode === 'guild' ? (

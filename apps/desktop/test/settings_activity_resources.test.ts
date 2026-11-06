@@ -1,5 +1,7 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VoiceTranscribeSection } from '../src/renderer/src/components/settings/VoiceTranscribeSection';
 import { OcrModelsSection } from '../src/renderer/src/components/settings/OcrModelsSection';
@@ -21,6 +23,7 @@ const fixture = vi.hoisted(() => ({
   listeners: new Map<string, { path: string; onData: (value: Progress) => void }>(),
   enabled: new Map<string, boolean>(),
   refetch: vi.fn(),
+  invalidate: vi.fn(),
   mutate: vi.fn(async () => true),
   downloaded: false,
   downloading: true,
@@ -29,6 +32,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (path: string[] = []): unknown =>
     new Proxy(() => proxy(path), {
       get: (_target, key) => {
+        if (key === 'useUtils') return () => proxy();
         if (key === 'useQuery')
           return (_input: unknown, options: { enabled?: boolean }) => {
             const name = path.at(-1)!;
@@ -48,7 +52,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                   ? {
                       selected: { voice: '', ocr: '', filter: '', intent: 'auto' },
                       voice: [{ ...model, id: 'voice-fixture' }],
-                      ocr: [{ ...model, id: 'ocr-fixture', kind: 'ocr' }],
+                      ocr: [
+                        { ...model, id: 'ocr-fixture', kind: 'ocr' },
+                        { ...model, id: 'filter-fixture', kind: 'filter' },
+                      ],
                       engineBlocker: null,
                     }
                   : name === 'getVersionInfo'
@@ -60,6 +67,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             };
           };
         if (key === 'useMutation') return () => ({ mutateAsync: fixture.mutate, isLoading: false });
+        if (key === 'invalidate') return () => fixture.invalidate(path.join('.'));
         if (key === 'subscribe')
           return (_input: unknown, options: { onData: (value: Progress) => void }) => {
             const id = `${path.join('.')}:${fixture.listeners.size}`;
@@ -76,6 +84,7 @@ beforeEach(() => {
   fixture.listeners.clear();
   fixture.enabled.clear();
   fixture.refetch.mockClear();
+  fixture.invalidate.mockClear();
   fixture.mutate.mockClear();
   fixture.downloaded = false;
   fixture.downloading = true;
@@ -100,6 +109,64 @@ function mount(content: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
   };
 }
 describe('隐藏设置页的进度资源', () => {
+  it.each([
+    ['voice', VoiceTranscribeSection, 'QQ 在线转写', '本地语音识别'],
+    ['ocr', OcrModelsSection, 'QQ 在线识别', '本地图片识别'],
+  ] as const)('%s 设置将在线能力与本地模型分别置于完整卡片', (kind, Component, online, local) => {
+    const f = mount(h(Component));
+    try {
+      const cards = [...f.host.querySelectorAll('.weq-set > .weq-set-card')];
+      expect(cards).toHaveLength(2);
+      expect(cards[0]!.querySelector('.weq-set-card-title')?.textContent).toBe(online);
+      expect(cards[1]!.querySelector('.weq-set-card-title')?.textContent).toBe(local);
+      expect(cards[0]!.querySelector('input[type="number"]')).not.toBeNull();
+      expect(cards[0]!.querySelector('.weq-model')).toBeNull();
+      expect(cards[1]!.querySelector('.weq-model')).not.toBeNull();
+      expect(cards[1]!.querySelector('.weq-set-card')).toBeNull();
+      if (kind === 'ocr') expect(cards[1]!.querySelectorAll('section')).toHaveLength(2);
+      const output = process.env.WEQ_EXPORT_LAYOUT_DIR;
+      if (output) {
+        mkdirSync(output, { recursive: true });
+        const styles = ['index.css', 'settings-controls.css', 'recognition-settings.css']
+          .map((file) => readFileSync(resolve('src/renderer/src/styles', file), 'utf8'))
+          .join('\n');
+        writeFileSync(
+          resolve(output, `${kind}-settings.html`),
+          `<!doctype html><html lang="zh-CN" data-theme="light"><meta charset="utf-8"><style>${styles}</style><style>body{margin:0;padding:24px;font-family:system-ui;background:var(--background)}*,*::before,*::after{box-sizing:border-box}main{max-width:740px;margin:auto}</style><body><main>${f.host.innerHTML}</main></body></html>`,
+        );
+      }
+    } finally {
+      f.dispose();
+    }
+  });
+  it.each([VoiceTranscribeSection, OcrModelsSection])(
+    '已下载模型不再显示选用或取消按钮',
+    (Component) => {
+      fixture.downloaded = true;
+      fixture.downloading = false;
+      const f = mount(h(Component));
+      try {
+        expect(f.host.textContent).toContain('已下载');
+        expect(f.host.textContent).not.toContain('设为当前');
+        expect(f.host.textContent).not.toContain('取消选用');
+        expect(f.host.textContent).not.toContain('不选 =');
+        expect(f.host.querySelector('button[aria-label="删除模型"]')).not.toBeNull();
+      } finally {
+        f.dispose();
+      }
+    },
+  );
+  it.each([VoiceTranscribeSection, OcrModelsSection])('下载完成刷新模型和共享设置', (Component) => {
+    const f = mount(h(Component));
+    try {
+      act(() => [...fixture.listeners.values()][0]!.onData({ done: true }));
+      expect(fixture.refetch).toHaveBeenCalledOnce();
+      expect(fixture.invalidate).toHaveBeenCalledWith('bootstrap.getSettings');
+      expect(fixture.mutate).not.toHaveBeenCalled();
+    } finally {
+      f.dispose();
+    }
+  });
   it.each([
     ['voice', VoiceTranscribeSection],
     ['ocr', OcrModelsSection],

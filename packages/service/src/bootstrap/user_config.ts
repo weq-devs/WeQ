@@ -43,6 +43,7 @@ import {
   type StorageRoot,
   type StorageUsageItem,
 } from './storage_usage';
+import { organizeStorageUsage } from './storage_inventory';
 import {
   DEFAULT_QZONE_PAGINATION,
   normalizeQzonePagination,
@@ -532,6 +533,8 @@ export interface VoiceTranscribeConfig {
   modelId: string;
   /** 浏览聊天时自动转换尚无文字的语音。 */
   autoTranscribe: boolean;
+  /** 导出时同时向 QQ 发起的在线转录请求数。 */
+  onlineConcurrency: number;
   /** TTS 服务商列表（用于克隆体发语音/语音克隆）。 */
   ttsProviders: TtsProviderConfig[];
 }
@@ -548,6 +551,14 @@ export interface VoiceTranscribeConfig {
 export interface OcrModelsConfig {
   modelId: string;
   filterModelId: string;
+  /** 导出时同时向 QQ 发起的在线识别请求数。 */
+  onlineConcurrency: number;
+}
+
+function recognitionConcurrency(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 32
+    ? value
+    : fallback;
 }
 
 /** 各功能引用的共享本地资源；模型文件仍由原有 ModelStore / 意图引擎管理。 */
@@ -689,9 +700,9 @@ export interface AppSettings {
   showWindowOnAutostart: boolean;
   /** 正常退出后重新启动的工作区栏目；异常恢复始终还原现场。 */
   startupPage: 'home' | 'messages' | 'last';
-  /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认关闭。 */
+  /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认开启。 */
   reportReadEnabled: boolean;
-  /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认关闭。 */
+  /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认开启。 */
   manualReadReportEnabled: boolean;
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁（仍可在左栏手动上锁）。
@@ -733,8 +744,10 @@ export interface AppSettings {
    * 形象 URL 按 uin 缓存在本地，个性主页也读这份缓存。
    */
   showChatQqShow: boolean;
-  /** QQ 秀形象 URL 本地映射的有效期（天）。默认 14，过期后重新向 QQ 查询。 */
-  qqShowCacheDays: number;
+  /** QQ 秀形象 URL 本地映射的有效期（分钟）。默认 5。 */
+  qqShowCacheMinutes: number;
+  /** 旧版天数配置，仅用于读取和恢复时迁移。 */
+  qqShowCacheDays?: number;
   linkPreview: LinkPreviewConfig;
   /**
    * 头像与聊天图片/视频封面直接由前端向 QQ CDN 取，不经本进程代理。
@@ -1054,11 +1067,15 @@ export interface SsePushConfig {
 export type { GroupKeywordRules } from '../account/group_keyword';
 export { normalizeGroupKeywordRules } from '../account/group_keyword';
 
-/** QQ 秀缓存有效期：只接受 1–365 的整数天，非法值交给调用方回落默认。 */
-function normalizeQqShowCacheDays(value: unknown): number | null {
+/** 旧默认 14 天迁移为 5 分钟，其他自定义天数保留。 */
+function normalizeQqShowCacheMinutes(value: unknown, legacyDays?: unknown): number | null {
+  if (value === undefined && typeof legacyDays === 'number' && Number.isFinite(legacyDays)) {
+    const days = Math.round(legacyDays);
+    return days >= 1 && days <= 365 ? (days === 14 ? 5 : days * 1440) : null;
+  }
   if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  const days = Math.round(value);
-  return days >= 1 && days <= 365 ? days : null;
+  const minutes = Math.round(value);
+  return minutes >= 1 && minutes <= 365 * 1440 ? minutes : null;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -1071,15 +1088,15 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   restrictedModeBannerEnabled: true,
   webServiceAutoStart: false,
   showWindowOnAutostart: false,
-  startupPage: 'last',
-  reportReadEnabled: false,
-  manualReadReportEnabled: false,
+  startupPage: 'home',
+  reportReadEnabled: true,
+  manualReadReportEnabled: true,
   autoLockMinutes: 0,
   appLock: { enabled: true, method: 'totp' },
   modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
-  voiceTranscribe: { modelId: '', autoTranscribe: false, ttsProviders: [] },
+  voiceTranscribe: { modelId: '', autoTranscribe: false, onlineConcurrency: 5, ttsProviders: [] },
   // 本地图片文字识别：两个用途各自独立选模型（都空 = 未启用）。
-  ocr: { modelId: '', filterModelId: '' },
+  ocr: { modelId: '', filterModelId: '', onlineConcurrency: 5 },
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
   mcp: { enabled: false, port: 48765, token: '' },
@@ -1098,7 +1115,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   renderTextMarkdown: true,
   showAvatarPendant: true,
   showChatQqShow: true,
-  qqShowCacheDays: 14,
+  qqShowCacheMinutes: 5,
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
   home: DEFAULT_HOME_SETTINGS,
@@ -1755,9 +1772,11 @@ export class UserConfigService {
       webServiceAutoStart: s?.webServiceAutoStart === true,
       showWindowOnAutostart: s?.showWindowOnAutostart === true,
       startupPage:
-        s?.startupPage === 'home' || s?.startupPage === 'messages' ? s.startupPage : 'last',
-      reportReadEnabled: s?.reportReadEnabled === true,
-      manualReadReportEnabled: s?.manualReadReportEnabled === true,
+        s?.startupPage === 'home' || s?.startupPage === 'messages' || s?.startupPage === 'last'
+          ? s.startupPage
+          : d.startupPage,
+      reportReadEnabled: s?.reportReadEnabled ?? d.reportReadEnabled,
+      manualReadReportEnabled: s?.manualReadReportEnabled ?? d.manualReadReportEnabled,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       appLock: {
         enabled: s?.appLock?.enabled ?? d.appLock.enabled,
@@ -1769,7 +1788,9 @@ export class UserConfigService {
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       showChatQqShow: s?.showChatQqShow ?? d.showChatQqShow,
-      qqShowCacheDays: normalizeQqShowCacheDays(s?.qqShowCacheDays) ?? d.qqShowCacheDays,
+      qqShowCacheMinutes:
+        normalizeQqShowCacheMinutes(s?.qqShowCacheMinutes, s?.qqShowCacheDays) ??
+        d.qqShowCacheMinutes,
       preferCdn: s?.preferCdn ?? d.preferCdn,
       home: normalizeHomeSettings(s?.home),
       typingStatus: normalizeTypingStatus(s?.typingStatus),
@@ -1827,6 +1848,10 @@ export class UserConfigService {
       modelResources: resources,
       voiceTranscribe: {
         modelId: resources.voice,
+        onlineConcurrency: recognitionConcurrency(
+          s?.voiceTranscribe?.onlineConcurrency,
+          d.voiceTranscribe.onlineConcurrency,
+        ),
         autoTranscribe:
           typeof s?.voiceTranscribe?.autoTranscribe === 'boolean'
             ? s.voiceTranscribe.autoTranscribe
@@ -1837,6 +1862,10 @@ export class UserConfigService {
       ocr: {
         modelId: resources.ocr,
         filterModelId: resources.filter,
+        onlineConcurrency: recognitionConcurrency(
+          s?.ocr?.onlineConcurrency,
+          d.ocr.onlineConcurrency,
+        ),
       },
       mcp: {
         enabled: s?.mcp?.enabled ?? d.mcp.enabled,
@@ -1902,7 +1931,9 @@ export class UserConfigService {
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       showChatQqShow: patch.showChatQqShow ?? current.showChatQqShow,
-      qqShowCacheDays: normalizeQqShowCacheDays(patch.qqShowCacheDays) ?? current.qqShowCacheDays,
+      qqShowCacheMinutes:
+        normalizeQqShowCacheMinutes(patch.qqShowCacheMinutes, patch.qqShowCacheDays) ??
+        current.qqShowCacheMinutes,
       preferCdn: patch.preferCdn ?? current.preferCdn,
       home: normalizeHomeSettings({ ...current.home, ...patch.home }),
       typingStatus: normalizeTypingStatus({ ...current.typingStatus, ...patch.typingStatus }),
@@ -1986,6 +2017,10 @@ export class UserConfigService {
       modelResources: resources,
       voiceTranscribe: {
         modelId: resources.voice,
+        onlineConcurrency: recognitionConcurrency(
+          patch.voiceTranscribe?.onlineConcurrency,
+          current.voiceTranscribe.onlineConcurrency,
+        ),
         autoTranscribe:
           patch.voiceTranscribe?.autoTranscribe ?? current.voiceTranscribe.autoTranscribe,
         ttsProviders:
@@ -1996,6 +2031,10 @@ export class UserConfigService {
       ocr: {
         modelId: resources.ocr,
         filterModelId: resources.filter,
+        onlineConcurrency: recognitionConcurrency(
+          patch.ocr?.onlineConcurrency,
+          current.ocr.onlineConcurrency,
+        ),
       },
       mcp: {
         enabled: patch.mcp?.enabled ?? current.mcp.enabled,
@@ -2209,7 +2248,9 @@ export class UserConfigService {
           },
         ]
       : [];
-    return listStorageUsage(this.root, this.cacheBaseDir(), [...extraRoots, ...repairRoots]);
+    return organizeStorageUsage(
+      await listStorageUsage(this.root, this.cacheBaseDir(), [...extraRoots, ...repairRoots]),
+    );
   }
 
   /** 兼容旧客户端，仍只返回可清理项。 */

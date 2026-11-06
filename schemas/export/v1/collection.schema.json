@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weq.local/schemas/export/v1/collection.schema.json",
+  "title": "收藏记录（基本内容与可选附加数据）",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "collection"
+        },
+        "data": {
+          "$ref": "#/$defs/data"
+        },
+        "native": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/native"
+            },
+            {
+              "properties": {
+                "attributes": {
+                  "items": {
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "typeCode"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "modifiedAt"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "authorProperties"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "contentProperties"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "detailProperties"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "sequence"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["integer", "text"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "data": {
+      "type": "object",
+      "required": ["cid", "type", "author", "createdAt", "collectedAt", "bodyStatus", "content"],
+      "properties": {
+        "cid": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "type": {
+          "enum": [
+            "text",
+            "link",
+            "gallery",
+            "audio",
+            "video",
+            "file",
+            "location",
+            "richMedia",
+            "unknown"
+          ]
+        },
+        "author": {
+          "$ref": "common.schema.json#/$defs/actor"
+        },
+        "origin": {
+          "$ref": "common.schema.json#/$defs/conversation"
+        },
+        "createdAt": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "collectedAt": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "bodyStatus": {
+          "enum": ["complete", "summary", "truncated", "opaque", "unknown"]
+        },
+        "content": {
+          "$ref": "common.schema.json#/$defs/content"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

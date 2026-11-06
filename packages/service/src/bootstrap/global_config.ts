@@ -45,8 +45,8 @@ export interface GlobalInstallInfo {
 
 /** Result of an online-instance probe. */
 export interface OnlineProbe {
-  /** Number of online QQ instances (main pids). */
-  count: number;
+  /** QQ 自报的实例数；状态文件不可读时为 null，不能当作已确认离线。 */
+  count: number | null;
   /**
    * Per-uin login state — populated only when exactly one QQ process is
    * running (the spec's mutex-lock refinement), else null.
@@ -200,9 +200,8 @@ export class GlobalConfigService {
    */
   probeOnline(knownUins: string[] = []): OnlineProbe {
     // QQ 自己记的在线实例数（`versions/setting.json` 的 `launcherCounts`）。
-    // 读不到就按 0 算 —— 不枚举进程兜底：QQ 是 Electron，一个实例会 fork 出
-    // 好几个同名进程，数进程数量本来就是错的。
-    const baseCount = this.platform.launcherCount() ?? 0;
+    // 读不到保留未知；进程存在也不能证明账号已登录。
+    const baseCount = this.platform.launcherCount();
 
     if (baseCount === 1 && knownUins.length > 0) {
       try {

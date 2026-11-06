@@ -7,8 +7,14 @@ import { GlobalSettingsSection } from '../src/renderer/src/components/settings/G
 
 const fixture = vi.hoisted(() => ({
   confirm: vi.fn(async (_title: string, _body: string, _options: unknown) => true),
-  clear: vi.fn(async () => ({ freedBytes: 1024, cleared: ['avatar'], failed: [] })),
-  exitClear: vi.fn(async () => ({ scheduled: true })),
+  clear: vi.fn(async (_input: unknown) => ({
+    freedBytes: 1024,
+    cleared: ['avatar'],
+    failed: [] as Array<{ id?: string; label: string; error: string; retryAfterRestart?: boolean }>,
+    scheduled: false,
+    restartIds: [] as string[],
+  })),
+  exitClear: vi.fn(async (_input: unknown) => ({ scheduled: true })),
   push: vi.fn(),
   refetch: vi.fn(),
   items: [
@@ -28,6 +34,7 @@ const fixture = vi.hoisted(() => ({
       bytes: 2048,
       clearable: false,
       reason: '持久数据',
+      category: 'persistent',
       incomplete: false,
     },
   ] as StorageUsageItem[],
@@ -46,12 +53,16 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             })
           : key === 'useMutation'
             ? () => ({
-                mutateAsync: path.at(-1) === 'clearStorageData' ? fixture.exitClear : fixture.clear,
+                mutateAsync:
+                  path.at(-1) === 'clearStorageData'
+                    ? (input: { afterExit?: boolean }) =>
+                        input.afterExit ? fixture.exitClear(input) : fixture.clear(input)
+                    : fixture.clear,
                 isLoading: false,
               })
             : proxy([...path, String(key)]),
     });
-  return { trpc: proxy() };
+  return { trpc: proxy(), client: proxy() };
 });
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: (selector: (state: unknown) => unknown) =>
@@ -67,15 +78,288 @@ afterEach(() => {
 });
 
 describe('WeQ 存储管理页面', () => {
-  it('风险数据不参与默认清理，明确选择后走清除并重启，取消不退出', async () => {
+  it('同类缓存只显示一行，选择后清除全部来源，空项目及空分类不显示', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const length = fixture.items.length;
+    fixture.items.push(
+      {
+        ...fixture.items[0]!,
+        id: 'old-avatar',
+        path: '/old/avatar',
+        label: '头像缓存（默认目录）',
+      },
+      {
+        ...fixture.items[0]!,
+        id: 'empty',
+        path: '/empty',
+        label: '空装扮',
+        bytes: 0,
+        category: 'dress',
+      },
+    );
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      expect(host.querySelectorAll('input[aria-label="头像缓存"]')).toHaveLength(1);
+      expect(host.textContent).not.toContain('空装扮');
+      expect(host.textContent).not.toContain('表情与装扮缓存');
+      act(() => host.querySelector<HTMLElement>('[data-weq-select-id="avatar"]')!.click());
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '开始清理')!
+          .click(),
+      );
+      expect(fixture.clear).toHaveBeenCalledWith({
+        ids: ['avatar', 'old-avatar'],
+        acknowledgeRisk: true,
+      });
+    } finally {
+      act(() => root.unmount());
+      fixture.items.splice(length);
+    }
+  });
+  it('数据库备份置顶并默认展开，配置与闪传成品不计入本页占用或默认清理', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const length = fixture.items.length;
+    fixture.items.push(
+      {
+        ...fixture.items[0]!,
+        id: 'database-backup',
+        label: '合成账号 · nt_msg.db',
+        category: 'db-backups',
+        action: 'db-backup',
+        requiresExit: true,
+        backup: {
+          account: '合成账号',
+          database: 'nt_msg.db',
+          at: '2026-11-05T00:00:00Z',
+          status: 'linked',
+        },
+      },
+      {
+        ...fixture.items[0]!,
+        id: 'config',
+        label: '账号与应用配置',
+        management: 'backup',
+        action: 'data',
+        requiresExit: true,
+        bytes: 1024 ** 3,
+      },
+      {
+        ...fixture.items[0]!,
+        id: 'flash',
+        label: '历史闪传下载',
+        management: 'downloads',
+        clearable: false,
+        bytes: 1024 ** 3,
+      },
+    );
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      const first = host.querySelector<HTMLDetailsElement>('.weq-storage-category')!;
+      expect(first.querySelector('summary')?.textContent).toContain('历史数据库备份');
+      expect(first.open).toBe(true);
+      expect(first.textContent).toContain('已关联修复记录');
+      expect(host.textContent).toContain('本页占用 4.0 KB');
+      expect(host.textContent).not.toContain('账号与应用配置');
+      expect(host.textContent).not.toContain('历史闪传下载');
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '开始清理')!
+          .click(),
+      );
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'], acknowledgeRisk: true });
+    } finally {
+      act(() => root.unmount());
+      fixture.items.splice(length);
+    }
+  });
+
+  it('配置操作只显示独立按钮，取消不清除，确认不混入缓存或运行状态', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const length = fixture.items.length;
+    fixture.items.push(
+      {
+        ...fixture.items[0]!,
+        id: 'config',
+        path: '/synthetic/config',
+        label: '账号与应用配置',
+        management: 'backup',
+        action: 'data',
+        requiresExit: true,
+        confirmation: '将删除账号配置，需要重新登录。',
+      },
+      {
+        ...fixture.items[0]!,
+        id: 'global-config',
+        path: '/synthetic/config.json',
+        label: '全局配置',
+        management: 'backup',
+        action: 'data',
+        requiresExit: true,
+        confirmation: '将重置全局设置。',
+      },
+      {
+        ...fixture.items[0]!,
+        id: 'runtime',
+        path: '/synthetic/profile/Preferences',
+        label: '桌面运行数据 / Preferences',
+        management: 'runtime',
+        clearable: false,
+      },
+    );
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          createElement(GlobalSettingsSection, {
+            section: 'storage',
+            heading: false,
+            storageManagement: 'configuration',
+          }),
+        ),
+      );
+      expect(host.textContent).not.toContain('头像缓存');
+      expect(host.textContent).not.toContain('缓存目录');
+      expect(host.textContent).not.toContain('本页占用');
+      expect(host.querySelector('input[type="checkbox"]')).toBeNull();
+      const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent === '清除账号与应用配置',
+      )!;
+      expect(button.disabled).toBe(false);
+      fixture.confirm.mockResolvedValueOnce(false);
+      await act(async () => button.click());
+      expect(fixture.clear).not.toHaveBeenCalled();
+      await act(async () => button.click());
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['config'], acknowledgeRisk: true });
+      const reset = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+        (node) => node.textContent === '重置全局配置',
+      )!;
+      await act(async () => reset.click());
+      expect(fixture.clear).toHaveBeenLastCalledWith({
+        ids: ['global-config'],
+        acknowledgeRisk: true,
+      });
+    } finally {
+      act(() => root.unmount());
+      fixture.items.splice(length);
+    }
+  });
+
+  it('直接清理先完成，取消重启保留剩余项，再次确认只重试被占用项目', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const length = fixture.items.length;
+    fixture.items.push({
+      ...fixture.items[0]!,
+      id: 'agentlab',
+      label: '克隆数据',
+      requiresExit: true,
+    });
+    fixture.clear.mockResolvedValueOnce({
+      scheduled: false,
+      freedBytes: 1024,
+      cleared: ['avatar'],
+      failed: [
+        { id: 'agentlab', label: '克隆数据', error: '当前运行实例占用', retryAfterRestart: true },
+      ],
+      restartIds: ['agentlab'],
+    });
+    fixture.confirm.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const click = async (label: string) =>
+      act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent?.trim() === label)!
+          .click(),
+      );
+    try {
+      act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      act(() => {
+        host.querySelector<HTMLElement>('[data-weq-select-id="avatar"]')!.click();
+        host.querySelector<HTMLElement>('[data-weq-select-id="agentlab"]')!.click();
+      });
+      await click('开始清理');
+      expect(fixture.clear).toHaveBeenCalledWith({
+        ids: ['avatar', 'agentlab'],
+        acknowledgeRisk: true,
+      });
+      expect(fixture.confirm).toHaveBeenLastCalledWith(
+        '剩余项目被占用',
+        expect.stringContaining('可直接清除的项目已经处理'),
+        expect.objectContaining({ cancelLabel: '暂不重启' }),
+      );
+      expect(fixture.exitClear).not.toHaveBeenCalled();
+      expect(host.querySelector<HTMLInputElement>('input[aria-label="头像缓存"]')!.checked).toBe(
+        false,
+      );
+      expect(host.querySelector<HTMLInputElement>('input[aria-label="克隆数据"]')!.checked).toBe(
+        true,
+      );
+      await click('重启并清除剩余项目');
+      expect(fixture.exitClear).toHaveBeenCalledWith({
+        ids: ['agentlab'],
+        acknowledgeRisk: true,
+        afterExit: true,
+      });
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      fixture.items.splice(length);
+    }
+  });
+
+  it('非占用失败显示原因，不提示或执行重启', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    fixture.clear.mockResolvedValueOnce({
+      scheduled: false,
+      freedBytes: 0,
+      cleared: [],
+      failed: [{ id: 'avatar', label: '头像缓存', error: '读取不完整', retryAfterRestart: false }],
+      restartIds: [],
+    });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '开始清理')!
+          .click(),
+      );
+      expect(fixture.confirm).toHaveBeenCalledTimes(1);
+      expect(fixture.exitClear).not.toHaveBeenCalled();
+      expect(fixture.push).toHaveBeenLastCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('读取不完整') }),
+      );
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+
+  it('风险数据不参与默认清理，明确选择后先直接清除，成功不提示重启', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const originalLength = fixture.items.length;
     fixture.items.push({
       ...fixture.items[0],
-      id: 'db_repair',
-      label: '数据库修复工作区',
-      path: '/synthetic/cache/db_repair',
+      id: 'backup:test',
+      label: '历史数据库备份 · nt_msg.db',
+      path: '/synthetic/cache/db_repair/account/backups/test',
+      category: 'db-backups',
+      action: 'db-backup',
       requiresExit: true,
       confirmation: '将删除修复备份，失去回滚能力，无法自动恢复。',
     });
@@ -85,32 +369,32 @@ describe('WeQ 存储管理页面', () => {
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
       const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-        (item) => item.textContent === '清理缓存',
+        (item) => item.textContent === '开始清理',
       )!;
       await act(async () => button.click());
-      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'] });
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'], acknowledgeRisk: true });
       expect(fixture.exitClear).not.toHaveBeenCalled();
       const checkbox = host.querySelector<HTMLInputElement>(
-        'input[aria-label="数据库修复工作区"]',
+        'input[aria-label="历史数据库备份 · nt_msg.db"]',
       )!;
       expect(checkbox.checked).toBe(false);
       act(() => checkbox.closest('label')!.click());
-      expect(button.textContent).toBe('清除并重启');
+      expect(button.textContent).toBe('开始清理');
       fixture.confirm.mockResolvedValueOnce(false);
       await act(async () => button.click());
       expect(fixture.exitClear).not.toHaveBeenCalled();
       expect(fixture.confirm.mock.calls.at(-1)?.[1]).toContain('失去回滚能力');
       expect(fixture.confirm).toHaveBeenLastCalledWith(
-        '清除并重启',
-        expect.stringContaining('清除完成后自动重新打开 WeQ'),
-        expect.objectContaining({ okLabel: '清除并重启' }),
+        '清除所选数据',
+        expect.stringContaining('先清除可直接清除的项目'),
+        expect.objectContaining({ okLabel: '清除' }),
       );
       await act(async () => button.click());
-      expect(fixture.exitClear).toHaveBeenCalledWith({ ids: ['db_repair'], acknowledgeRisk: true });
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['backup:test'], acknowledgeRisk: true });
+      expect(fixture.exitClear).not.toHaveBeenCalled();
       expect(fixture.push).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          title: '已安排清除并重启',
-          message: expect.stringContaining('自动重新打开 WeQ'),
+          title: '清理已完成',
         }),
       );
     } finally {
@@ -138,7 +422,7 @@ describe('WeQ 存储管理页面', () => {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
       act(() => host.querySelector<HTMLElement>('[data-weq-select-id="dress_shared"]')!.click());
       const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-        (item) => item.textContent === '清理所选',
+        (item) => item.textContent === '开始清理',
       )!;
       fixture.confirm.mockResolvedValueOnce(false);
       await act(async () => button.click());
@@ -146,7 +430,7 @@ describe('WeQ 存储管理页面', () => {
       expect(fixture.confirm.mock.calls[0][1]).toContain('重新进入账号');
       expect(fixture.confirm.mock.calls[0][1]).toContain('装扮设置不会删除');
       await act(async () => button.click());
-      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['dress_shared'] });
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['dress_shared'], acknowledgeRisk: true });
     } finally {
       act(() => root.unmount());
       host.remove();
@@ -163,23 +447,29 @@ describe('WeQ 存储管理页面', () => {
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
       expect(host.textContent).toContain('WeQ 存储管理');
-      expect(host.textContent).toContain('合计占用 3.0 KB');
+      expect(host.textContent).toContain('本页占用 3.0 KB');
       expect(host.textContent).toContain('可清理 1.0 KB');
       expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
       const readonly = host.querySelector<HTMLElement>('.is-readonly')!;
       const toolbar = host.querySelector('.weq-storage-toolbar')!;
       expect(toolbar.nextElementSibling?.classList.contains('weq-set-cache-list')).toBe(true);
-      const category = host.querySelector<HTMLDetailsElement>('.weq-storage-category')!;
+      const category = [...host.querySelectorAll<HTMLDetailsElement>('.weq-storage-category')].find(
+        (item) => item.textContent?.includes('图片识别结果'),
+      )!;
       expect(category.open).toBe(false);
-      expect(category.querySelector('summary')?.textContent).toContain('消息与搜索数据');
+      expect(category.querySelector('summary')?.textContent).toContain('持久数据');
       expect(readonly.textContent).toContain('图片识别结果');
       expect(readonly.querySelector('input')).toBeNull();
       expect(readonly.hasAttribute('data-weq-select-id')).toBe(false);
       const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-        (item) => item.textContent === '清理缓存',
+        (item) => item.textContent === '开始清理',
       )!;
+      const list = host.querySelector('.weq-set-cache-list')!;
+      expect(list.nextElementSibling?.contains(button)).toBe(true);
+      expect(button.parentElement?.nextElementSibling).toBeNull();
+      expect(toolbar.contains(button)).toBe(false);
       await act(async () => button.click());
-      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'] });
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'], acknowledgeRisk: true });
       expect(fixture.confirm.mock.calls[0]).not.toContain('图片识别结果');
       expect(fixture.refetch).toHaveBeenCalled();
     } finally {
@@ -202,13 +492,16 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
-      expect(host.textContent).toContain('合计占用 7.0 KB');
+      expect(host.textContent).toContain('本页占用 7.0 KB');
       expect(host.textContent).not.toContain('.DS_Store');
       expect(host.textContent).not.toContain('空缓存');
       const categories = [...host.querySelectorAll('.weq-storage-category')];
       expect(categories).toHaveLength(2);
-      expect(categories[0].querySelector('summary')?.textContent).toContain('4.0 KB');
-      expect(categories[0].querySelectorAll('.is-readonly')).toHaveLength(2);
+      const persistent = categories.find((item) =>
+        item.querySelector('summary')?.textContent?.includes('持久数据'),
+      )!;
+      expect(persistent.querySelector('summary')?.textContent).toContain('6.0 KB');
+      expect(persistent.querySelectorAll('.is-readonly')).toHaveLength(2);
       expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
     } finally {
       act(() => root.unmount());

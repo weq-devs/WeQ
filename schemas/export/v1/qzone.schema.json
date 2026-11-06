@@ -1,0 +1,351 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weq.local/schemas/export/v1/qzone.schema.json",
+  "title": "空间记录（基本内容与可选附加数据）",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "qzone"
+        },
+        "data": {
+          "$ref": "#/$defs/data"
+        },
+        "native": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/native"
+            },
+            {
+              "properties": {
+                "attributes": {
+                  "items": {
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "visibility"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "likes"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "interactionCoverage"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "sourceMedia"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "albumProperties"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "name": {
+                              "const": "mediaProperties"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "value": {
+                              "properties": {
+                                "type": {
+                                  "enum": ["json"]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "data": {
+      "type": "object",
+      "required": ["type", "owner", "sourceId", "author", "createdAt", "content"],
+      "properties": {
+        "type": {
+          "enum": [
+            "post",
+            "comment",
+            "reply",
+            "album",
+            "photo",
+            "video",
+            "repost",
+            "blog",
+            "guestbook",
+            "share",
+            "favorite",
+            "visit"
+          ]
+        },
+        "owner": {
+          "$ref": "common.schema.json#/$defs/actor"
+        },
+        "sourceId": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "author": {
+          "$ref": "common.schema.json#/$defs/actor"
+        },
+        "createdAt": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "targetId": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "uploadedAt": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "shotAt": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "location": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "latitude": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "longitude": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            }
+          },
+          "minProperties": 1,
+          "dependentRequired": {
+            "latitude": ["longitude"],
+            "longitude": ["latitude"]
+          },
+          "additionalProperties": false
+        },
+        "parentId": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "parentType": {
+          "enum": [
+            "post",
+            "comment",
+            "reply",
+            "album",
+            "photo",
+            "video",
+            "repost",
+            "blog",
+            "guestbook",
+            "share",
+            "favorite"
+          ]
+        },
+        "repostId": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "replyTo": {
+          "$ref": "common.schema.json#/$defs/actor"
+        },
+        "content": {
+          "$ref": "common.schema.json#/$defs/content"
+        },
+        "counts": {
+          "type": "object",
+          "properties": {
+            "comments": {
+              "anyOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/unsigned"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "likes": {
+              "anyOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/unsigned"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reposts": {
+              "anyOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/unsigned"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "media": {
+              "anyOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/unsigned"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "favorite"
+              }
+            }
+          },
+          "then": {
+            "required": ["targetId"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": ["comment", "reply", "photo", "video"]
+              }
+            }
+          },
+          "then": {
+            "required": ["parentId"]
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

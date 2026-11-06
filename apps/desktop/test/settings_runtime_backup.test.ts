@@ -61,7 +61,7 @@ it('缺少新增字段的旧配置/部分备份保留本机设置，默认值与
   expect(f.service.getSettings()).toMatchObject({
     autoAttachQq: true,
     restrictedModeBannerEnabled: DEFAULT_APP_SETTINGS.restrictedModeBannerEnabled,
-    reportReadEnabled: false,
+    reportReadEnabled: DEFAULT_APP_SETTINGS.reportReadEnabled,
     manualReadReportEnabled: true,
   });
   f.service.setSettings({ restrictedModeBannerEnabled: false });
@@ -69,7 +69,7 @@ it('缺少新增字段的旧配置/部分备份保留本机设置，默认值与
   expect(f.open().getSettings()).toMatchObject({
     autoAttachQq: true,
     restrictedModeBannerEnabled: false,
-    reportReadEnabled: false,
+    reportReadEnabled: DEFAULT_APP_SETTINGS.reportReadEnabled,
     manualReadReportEnabled: true,
   });
 });

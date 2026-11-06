@@ -137,7 +137,7 @@ export async function preflightVoiceTranscribe(dialog: AppDialogApi): Promise<bo
   if (!modelId) {
     await dialog.info(
       '未配置语音模型',
-      '「语音自动转写」需要先下载并选择一个转录模型。请前往「设置 → 语音转录」下载模型后重试，或关闭「语音自动转写」后继续导出。',
+      '「语音自动转写」需要先下载一个转录模型。请前往「设置 → AI 功能 → 语音识别」下载模型后重试，或关闭「语音自动转写」后继续导出。',
     );
     return false;
   }
@@ -221,22 +221,31 @@ export async function ocrReadiness(): Promise<OcrReadiness> {
         access.hasD2Key &&
         access.hasGuid,
     );
+    // 与实际执行共用主进程解析结果，避免下载完成时混读旧设置与新文件状态。
+    state.localEngineBlocker = access.ocrLocalBlocker ?? null;
+    state.localReady = !state.localEngineBlocker && Boolean(access.ocrLocalModelId);
+    state.filterReady = !state.localEngineBlocker && Boolean(access.ocrFilterModelId);
+    return state;
   } catch {
     /* 读不到就当离线；下面本地模型那条腿还能救 */
   }
   try {
-    const settings = await client.bootstrap.getSettings.query();
-    const models = await client.bootstrap.ocrModels.query();
-    const ocrId = settings.ocr.modelId;
-    const filterId = settings.ocr.filterModelId;
+    const models = await client.bootstrap.localModelResources.query();
+    const ocrId = models.selected.ocr;
+    const filterId = models.selected.filter;
     // 平台能力优先：引擎都跑不起来时，「模型下好了」不算数（主进程的
     // `resolveLocalOcrModel` / `resolveLocalOcrFilterModel` 是同一个口径）。
     state.localEngineBlocker = models.engineBlocker;
     state.localReady = Boolean(
-      !models.engineBlocker && ocrId && models.models.find((m) => m.id === ocrId)?.downloaded,
+      !models.engineBlocker &&
+        ocrId &&
+        models.ocr.find((m) => m.id === ocrId && m.kind === 'ocr' && !m.downloading)?.downloaded,
     );
     state.filterReady = Boolean(
-      !models.engineBlocker && filterId && models.models.find((m) => m.id === filterId)?.downloaded,
+      !models.engineBlocker &&
+        filterId &&
+        models.ocr.find((m) => m.id === filterId && m.kind === 'filter' && !m.downloading)
+          ?.downloaded,
     );
   } catch {
     /* 模型状态读不到按未就绪处理 */
@@ -263,9 +272,11 @@ export async function preflightOcrImages(dialog: AppDialogApi): Promise<boolean>
   if (!ready.filterReady) {
     // 预筛选是强烈建议项：没有它每张图都要跑一遍识别模型，导出会慢很多。
     const ok = await dialog.confirm(
-      '未下载筛图模型',
-      '没有筛图模型就没办法先甩掉风景 / 人像这类没有文字的图，每张图都会送进识别模型，' +
-        '导出会慢很多（只有 1.7 MB，导出面板的「图片识别」栏里可以直接下载）。是否继续导出？',
+      ready.localEngineBlocker ? '无法使用本地筛图' : '未下载筛图模型',
+      ready.localEngineBlocker
+        ? `${ready.localEngineBlocker}本次将跳过筛图，每张图片都会送进识别模型。是否继续导出？`
+        : '没有筛图模型就没办法先甩掉风景 / 人像这类没有文字的图，每张图都会送进识别模型，' +
+            '导出会慢很多（只有 1.7 MB，导出面板的「图片识别」栏里可以直接下载）。是否继续导出？',
       { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
     );
     if (!ok) return false;

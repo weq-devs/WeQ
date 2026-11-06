@@ -274,7 +274,9 @@ vi.mock('../src/renderer/src/views/export/ConversationPicker', async (importOrig
           { onClick: () => onChange(new Set(fixture.conversations.map((item) => item.targetUid))) },
           '夹具全选',
         ),
-        createElement('button', { onClick: () => onEditScope?.(props.items[0]!) }, '夹具调整范围'),
+        onEditScope
+          ? createElement('button', { onClick: () => onEditScope(props.items[0]!) }, '夹具调整范围')
+          : null,
       );
     },
   };
@@ -694,7 +696,7 @@ describe('统一导出实际界面', () => {
       f.close();
     }
   });
-  it('普通群与频道节点数值相同，往返模式也不复用另一来源的范围读取现场', async () => {
+  it('普通群精确范围切到频道后不提供范围按钮，返回仍保留原群范围', async () => {
     const original = fixture.conversations;
     fixture.conversations = [{ ...original[0]!, chatType: 2, targetUid: '100' }];
     const f = mount({
@@ -715,10 +717,8 @@ describe('统一导出实际界面', () => {
         'group',
       );
       mode('guild');
-      click(f.host, '夹具调整范围');
-      expect(f.host.querySelector('[data-scope-seed]')?.getAttribute('data-scope-seed')).toBe(
-        'guild',
-      );
+      expect(f.host.textContent).not.toContain('夹具调整范围');
+      expect(f.host.querySelector('[data-scope-seed]')).toBeNull();
       mode('full');
       expect(f.host.querySelector('[data-scope-seed]')?.getAttribute('data-scope-seed')).toBe(
         'group',
@@ -1082,7 +1082,7 @@ describe('统一导出实际界面', () => {
       f.close();
     }
   });
-  it('真实虚拟列表全选 1500 个会话后 DOM 有界，消息范围按需打开', async () => {
+  it('真实虚拟列表全选 1500 个会话后 DOM 有界，不展示消息范围按钮', async () => {
     const original = fixture.conversations;
     fixture.realPicker = true;
     fixture.conversations = Array.from({ length: 1500 }, (_, index) => ({
@@ -1098,19 +1098,14 @@ describe('统一导出实际界面', () => {
       expect(f.host.querySelectorAll('.weq-exp-row').length).toBeLessThan(40);
       expect(f.host.querySelectorAll('[data-scope-picker]')).toHaveLength(0);
       captureLayout(f.host, 'all-selected');
-      act(() =>
-        f.host
-          .querySelector<HTMLButtonElement>('[aria-label="调整 离线夹具会话 0 的消息范围"]')!
-          .click(),
-      );
-      expect(f.host.querySelectorAll('[data-scope-picker]')).toHaveLength(1);
+      expect(f.host.querySelector('.weq-export-edit-scope')).toBeNull();
     } finally {
       f.close();
       fixture.realPicker = false;
       fixture.conversations = original;
     }
   });
-  it('全选 1500 个会话不会挂载 1500 个消息范围；只编辑一个明确打开的会话', async () => {
+  it('全选 1500 个会话不挂载消息范围，也不提供逐会话范围入口', async () => {
     const original = fixture.conversations;
     fixture.conversations = Array.from({ length: 1500 }, (_, index) => ({
       ...original[0]!,
@@ -1124,8 +1119,7 @@ describe('统一导出实际界面', () => {
       expect(f.host.querySelectorAll('[data-scope-picker]')).toHaveLength(0);
       expect(f.host.querySelectorAll('.weq-message-scope-conversation')).toHaveLength(0);
       expect(f.host.textContent).toContain('已选 1500 个会话');
-      click(f.host, '夹具调整范围');
-      expect(f.host.querySelectorAll('[data-scope-picker]')).toHaveLength(1);
+      expect(f.host.textContent).not.toContain('夹具调整范围');
     } finally {
       f.close();
       fixture.conversations = original;

@@ -722,10 +722,10 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .face-emoji.mface{width:96px;height:96px;vertical-align:top;max-width:38%;margin:2px 0}
 @media(max-width:560px){.face-emoji.mface{width:72px;height:72px}}
 .face-glyph{font-size:1.25em;line-height:1;vertical-align:-0.15em}
-.media{max-width:240px;max-height:280px;border-radius:6px;display:block;margin:3px 0}
+.media{width:auto;height:auto;max-width:min(240px,100%);max-height:280px;object-fit:contain;align-self:flex-start;border-radius:6px;display:block;margin:3px 0}
 .media.emoji{max-width:90px;max-height:90px}
 .voice{display:inline-flex;flex-direction:column;gap:2px}.voice audio{height:34px}
-.pic-wrap{display:inline-flex;flex-direction:column;gap:2px}
+.pic-wrap{display:inline-flex;flex-direction:column;align-items:flex-start;max-width:100%;gap:2px}
 .cap{color:var(--sub)}
 .file{display:inline-flex;align-items:center;gap:6px;color:var(--accent);text-decoration:none;background:rgba(0,153,255,.08);border-radius:6px;padding:6px 9px}
 .file small{color:var(--sub)}
@@ -738,7 +738,7 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .fwd-name{color:var(--accent);font-size:12px;font-weight:600}
 .fwd-time{color:var(--sub);font-size:11px}
 .fwd-body{font-size:13px;word-break:break-word}
-.fwd .media{max-width:180px;max-height:180px}
+.fwd .media{max-width:min(180px,100%);max-height:180px}
 .ph{color:var(--sub)}
 .graytip-text{color:var(--sub);font-size:12px}
 .foot{text-align:center;color:var(--sub);font-size:12px;padding:16px}
@@ -757,7 +757,7 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .md-wrap blockquote{border-left:3px solid var(--accent);color:var(--sub);padding:2px 8px;margin:6px 0}
 .md-wrap a{color:var(--accent);text-decoration:none}
 .md-wrap a:hover{text-decoration:underline}
-.md-wrap img{max-width:240px;max-height:280px;border-radius:6px;display:block;margin:3px 0}
+.md-wrap img{width:auto;height:auto;max-width:min(240px,100%);max-height:280px;object-fit:contain;border-radius:6px;display:block;margin:3px 0}
 .md-wrap table{border-collapse:collapse;margin:6px 0;font-size:13px}
 .md-wrap th,.md-wrap td{border:1px solid var(--line);padding:4px 8px;text-align:left}
 .md-wrap th{background:rgba(140,140,140,.1);font-weight:600}

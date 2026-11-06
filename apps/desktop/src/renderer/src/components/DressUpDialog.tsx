@@ -59,6 +59,7 @@ import { acquireDecorationStyle } from '../lib/decorationResources';
 import { useDecorationSave } from './DecorationSaveControls';
 import { useMediaSave } from './MediaSaveControls';
 import { IS_WEB } from '../lib/target';
+import { pickAccountFile } from '../lib/accountFilePicker';
 import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
 import { WorkspacePage } from './WorkspacePages';
 import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
@@ -486,7 +487,9 @@ export function DressUpDialog({
   /** 选图 —— 主进程开系统文件框,拷进本账号目录后自动切到自定义。 */
   const chooseCustomFile = useCallback(async (): Promise<void> => {
     try {
-      await pickBackground.mutateAsync();
+      const picked = IS_WEB ? await pickAccountFile('file') : undefined;
+      if (IS_WEB && !picked) return;
+      await pickBackground.mutateAsync(picked ? { path: picked.path } : undefined);
       await refresh();
     } catch (e) {
       dialog.error('选择背景图失败', e instanceof Error ? e.message : String(e));

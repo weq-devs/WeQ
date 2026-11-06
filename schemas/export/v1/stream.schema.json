@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weq.local/schemas/export/v1/stream.schema.json",
+  "title": "WeQ JSONL 单行；跨行规则见增量契约",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["type", "header"],
+      "properties": {
+        "type": { "const": "header" },
+        "header": {
+          "allOf": [{ "$ref": "archive.schema.json#/$defs/header" }],
+          "unevaluatedProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["type", "batchId", "record"],
+      "properties": {
+        "type": { "const": "revision" },
+        "batchId": { "$ref": "common.schema.json#/$defs/id" },
+        "record": { "$ref": "archive.schema.json#/$defs/record" }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["type", "batchId", "observation"],
+      "properties": {
+        "type": { "const": "observation" },
+        "batchId": { "$ref": "common.schema.json#/$defs/id" },
+        "observation": { "$ref": "common.schema.json#/$defs/observation" }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["type", "batchId", "resource"],
+      "properties": {
+        "type": { "const": "resource" },
+        "batchId": { "$ref": "common.schema.json#/$defs/id" },
+        "resource": { "$ref": "archive.schema.json#/$defs/resource" }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["type", "batchId", "sequence", "entries", "sha256", "previous"],
+      "properties": {
+        "type": { "const": "commit" },
+        "batchId": { "$ref": "common.schema.json#/$defs/id" },
+        "sequence": { "$ref": "common.schema.json#/$defs/unsigned" },
+        "entries": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "common.schema.json#/$defs/hash" },
+        "previous": { "anyOf": [{ "$ref": "common.schema.json#/$defs/hash" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

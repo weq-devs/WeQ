@@ -282,12 +282,41 @@ it('只停止一个目标，不跳转也不停止其他群；所有队列结束�
     );
     await act(async () => vi.advanceTimersByTimeAsync(3500));
     expect(document.querySelector('[data-forward-target="second"]')).toBeNull();
+    expect(document.querySelector('[data-forward-target="qa-group"]')).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
   } finally {
     task?.controller.abort();
     await task?.done;
     act(() => root.unmount());
     host.remove();
+  }
+});
+
+it('发生实际失败后再主动停止，仍保留失败时长', async () => {
+  vi.useFakeTimers();
+  const task = startSequentialForward({
+    scope: { uin: 'fixture', configId: 'fixture-config' },
+    messages,
+    targets: [target],
+    options: { ...DEFAULT_FORWARD_OPTIONS, intervalMs: 1000 },
+    onSend: async () => {
+      throw new Error('合成发送失败');
+    },
+    onOpenTarget: vi.fn(),
+  });
+  try {
+    await vi.advanceTimersByTimeAsync(0);
+    task.controller.abort();
+    await task.done;
+    expect(useToast.getState().toasts.at(-1)).toMatchObject({
+      tone: 'warning',
+      durationKind: 'failure',
+      ttl: 0,
+    });
+    expect(String(useToast.getState().toasts.at(-1)?.detail)).toContain('合成发送失败');
+  } finally {
+    task.controller.abort();
+    await task.done;
   }
 });
 
@@ -446,6 +475,11 @@ it('等待期间可以停止，不再发送下一条；失败保留原因且不�
   pending.controller.abort();
   await pending.done;
   expect(send).not.toHaveBeenCalled();
+  expect(useToast.getState().toasts.at(-1)).toMatchObject({
+    tone: 'warning',
+    durationKind: 'success',
+    ttl: 3000,
+  });
   const failed = startSequentialForward({
     scope: { uin: 'fixture', configId: 'fixture-config' },
     messages,
@@ -459,6 +493,10 @@ it('等待期间可以停止，不再发送下一条；失败保留原因且不�
   await failed.done;
   expect(useToast.getState().toasts.at(-1)?.tone).toBe('warning');
   expect(useToast.getState().toasts.at(-1)?.detail).toContain('合成失败');
+  expect(useToast.getState().toasts.at(-1)).toMatchObject({
+    durationKind: 'failure',
+    ttl: 0,
+  });
   expect(localBackgroundTasks.snapshot().map((task) => task.status)).toEqual([
     'cancelled',
     'failed',

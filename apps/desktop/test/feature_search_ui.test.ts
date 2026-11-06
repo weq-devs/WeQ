@@ -6,6 +6,7 @@ import { contactSearchHit } from './support/search-fixtures';
 import {
   findSettingElement,
   revealSetting,
+  SETTINGS_SEARCH_HIGHLIGHT_MS,
 } from '../src/renderer/src/components/settings/searchTarget';
 import { Row, Toggle } from '../src/renderer/src/components/settings/controls';
 import type { SearchCategory } from '../src/renderer/src/components/search/types';
@@ -179,5 +180,38 @@ describe('功能与设置搜索界面', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(title.hasAttribute('data-search-highlight')).toBe(false);
     host.remove();
+  });
+
+  it('定位高亮自动清除，重复定位重新计时，离开时取消定时器', () => {
+    vi.useFakeTimers();
+    const host = document.createElement('div');
+    host.innerHTML = '<div data-setting-id="fixture">合成设置</div>';
+    document.body.append(host);
+    const target = host.firstElementChild as HTMLElement;
+    const setting = { settingId: 'fixture' };
+    try {
+      const dispose = revealSetting(host, setting);
+      vi.advanceTimersByTime(SETTINGS_SEARCH_HIGHLIGHT_MS - 1);
+      expect(target.dataset.searchHighlight).toBe('true');
+      vi.advanceTimersByTime(1);
+      expect(target.hasAttribute('data-search-highlight')).toBe(false);
+      expect(document.activeElement).toBe(target);
+      dispose();
+      expect(target.hasAttribute('tabindex')).toBe(false);
+
+      const cancel = revealSetting(host, setting);
+      vi.advanceTimersByTime(SETTINGS_SEARCH_HIGHLIGHT_MS / 2);
+      cancel();
+      expect(vi.getTimerCount()).toBe(0);
+      const repeat = revealSetting(host, setting);
+      vi.advanceTimersByTime(SETTINGS_SEARCH_HIGHLIGHT_MS / 2);
+      expect(target.dataset.searchHighlight).toBe('true');
+      vi.advanceTimersByTime(SETTINGS_SEARCH_HIGHLIGHT_MS / 2);
+      expect(target.hasAttribute('data-search-highlight')).toBe(false);
+      repeat();
+    } finally {
+      vi.useRealTimers();
+      host.remove();
+    }
   });
 });

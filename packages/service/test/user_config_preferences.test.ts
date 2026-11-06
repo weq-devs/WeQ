@@ -3,6 +3,38 @@ import { UserConfigService, DEFAULT_APP_SETTINGS } from '../src/bootstrap/user_c
 import { snapshotWeqSettings, validateWeqAppSettings } from '../src/bootstrap/backup_settings';
 import { configFixture as fixture } from './support/user_config';
 
+describe('QQ 秀分钟缓存配置', () => {
+  it.each([
+    [{}, 5],
+    [{ qqShowCacheDays: 14 }, 5],
+    [{ qqShowCacheDays: 2 }, 2880],
+    [{ qqShowCacheDays: 14, qqShowCacheMinutes: 8 }, 8],
+    [{ qqShowCacheMinutes: 0 }, 5],
+    [{ qqShowCacheMinutes: 525601 }, 5],
+  ])('迁移旧默认、保留自定义值并拒绝越界：%j', (settings, expected) => {
+    const f = fixture({ settings });
+    expect(f.open().getSettings().qqShowCacheMinutes).toBe(expected);
+    f.service.setSettings({ qqShowCacheMinutes: 3 });
+    expect(f.open().getSettings().qqShowCacheMinutes).toBe(3);
+    f.service.setSettings({ qqShowCacheMinutes: 0 });
+    expect(f.open().getSettings().qqShowCacheMinutes).toBe(3);
+  });
+
+  it('旧备份仍可验证与恢复，分钟设置可往返保存', () => {
+    const f = fixture();
+    expect(() => validateWeqAppSettings({ qqShowCacheDays: 14 })).not.toThrow();
+    f.service.setSettings({ qqShowCacheMinutes: 20 });
+    f.service.setSettings({ qqShowCacheDays: 14 });
+    expect(f.open().getSettings().qqShowCacheMinutes).toBe(5);
+    f.service.setSettings({ qqShowCacheMinutes: 1 });
+    const snapshot = snapshotWeqSettings(f.open().getSettings());
+    expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
+    const restored = fixture();
+    restored.service.setSettings(snapshot);
+    expect(restored.open().getSettings().qqShowCacheMinutes).toBe(1);
+  });
+});
+
 describe('聊天阅读偏好', () => {
   it('受限横幅默认开启，旧配置兼容，持久化与备份恢复保留独立偏好', () => {
     const f = fixture();
@@ -22,6 +54,26 @@ describe('聊天阅读偏好', () => {
     expect(restored.open().getSettings().restrictedModeBannerEnabled).toBe(false);
   });
   describe('已读上报偏好', () => {
+    it.each([undefined, {}])('新配置与缺少字段的旧配置默认开启两种同步：%j', (settings) => {
+      const f = fixture(settings === undefined ? undefined : { settings });
+      expect(DEFAULT_APP_SETTINGS.reportReadEnabled).toBe(true);
+      expect(DEFAULT_APP_SETTINGS.manualReadReportEnabled).toBe(true);
+      expect(f.open().getSettings()).toMatchObject({
+        reportReadEnabled: true,
+        manualReadReportEnabled: true,
+      });
+    });
+    it.each(['reportReadEnabled', 'manualReadReportEnabled'] as const)(
+      '缺少另一字段时仍保留显式关闭的 %s',
+      (key) => {
+        const f = fixture({ settings: { [key]: false } });
+        expect(f.open().getSettings()).toMatchObject({
+          reportReadEnabled: true,
+          manualReadReportEnabled: true,
+          [key]: false,
+        });
+      },
+    );
     it.each([
       [false, false],
       [true, true],
@@ -48,15 +100,16 @@ describe('聊天阅读偏好', () => {
         manualReadReportEnabled: false,
       });
     });
-    it('默认关闭，保存和重开后保留，与在线模式及其它设置独立', () => {
+    it('默认开启，保存和重开后保留，与在线模式及其它设置独立', () => {
       const { platform, service } = fixture();
-      expect(service.getSettings().reportReadEnabled).toBe(false);
-      expect(service.getSettings().manualReadReportEnabled).toBe(false);
-      service.setSettings({ reportReadEnabled: true });
-      expect(new UserConfigService(platform).getSettings().reportReadEnabled).toBe(true);
-      expect(new UserConfigService(platform).getSettings().manualReadReportEnabled).toBe(false);
-      service.setSettings({ manualReadReportEnabled: true });
+      expect(service.getSettings().reportReadEnabled).toBe(true);
+      expect(service.getSettings().manualReadReportEnabled).toBe(true);
+      service.setSettings({ reportReadEnabled: false });
+      expect(new UserConfigService(platform).getSettings().reportReadEnabled).toBe(false);
       expect(new UserConfigService(platform).getSettings().manualReadReportEnabled).toBe(true);
+      service.setSettings({ manualReadReportEnabled: false });
+      expect(new UserConfigService(platform).getSettings().manualReadReportEnabled).toBe(false);
+      service.setSettings({ reportReadEnabled: true, manualReadReportEnabled: true });
       service.setSettings({ autoAttachQq: false, realtimeEnabled: false });
       expect(service.getSettings().reportReadEnabled).toBe(true);
       service.setSettings({ reportReadEnabled: false });

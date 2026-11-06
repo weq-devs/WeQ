@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { is } from '@electron-toolkit/utils';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
 import { floatingWindowTypeOption } from './linux_window_backend';
-import { startAnalyticsSave } from './analytics_save';
+import { setAnalyticsRenderer, startAnalyticsSave } from './analytics_save';
 
 // 主进程产物是 ESM，`__dirname` 这个全局并不存在（同 index.ts / transcribe/engine.ts）。
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -294,6 +294,7 @@ async function runExport(payload: AnalyticsExportPayload): Promise<Buffer> {
 }
 
 export function registerAnalyticsExportIpc(): void {
+  setAnalyticsRenderer(runExport);
   /** 可见窗口：递交卡片快照，返回公共导出任务或取消结果。 */
   ipcMain.handle(
     'analytics-shot:render',

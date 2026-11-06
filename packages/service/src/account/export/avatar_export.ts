@@ -13,7 +13,7 @@
  * url), per the project convention.
  */
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AvatarCacheService } from '../../bootstrap/media_cache';
 
@@ -27,6 +27,8 @@ export interface AvatarExportResult {
 }
 
 interface AvatarExportOptions {
+  localOnly?: boolean;
+  localFile?: (uin: string) => Promise<string | null>;
   concurrency?: number;
   onProgress?: (done: number, total: number) => void;
   signal?: AbortSignal;
@@ -96,7 +98,10 @@ export async function exportGuildAvatars(
   await runWithConcurrency(rows, opts.concurrency ?? 8, async (row) => {
     if (opts.signal?.aborted) return;
     try {
-      const blob = await avatarCache.get(row.url!);
+      const blob = opts.localOnly
+        ? await avatarCache.getLocal(row.url!)
+        : await avatarCache.get(row.url!);
+      if (!blob) throw new Error('本地未缓存');
       if (opts.signal?.aborted) return;
       await writeFile(
         join(avatarsDir, `${row.id}.${extForContentType(blob.contentType)}`),
@@ -138,7 +143,13 @@ export async function exportAvatars(
   await runWithConcurrency(targets, opts.concurrency ?? 8, async (uin) => {
     if (opts.signal?.aborted) return;
     try {
-      const blob = await avatarCache.get(avatarUrlForUin(uin));
+      const local = await opts.localFile?.(uin);
+      const blob = local
+        ? { data: await readFile(local), contentType: extForLocalFile(local) }
+        : opts.localOnly
+          ? await avatarCache.getLocal(avatarUrlForUin(uin))
+          : await avatarCache.get(avatarUrlForUin(uin));
+      if (!blob) throw new Error('本地未缓存');
       if (opts.signal?.aborted) return;
       await writeFile(join(avatarsDir, `${uin}.${extForContentType(blob.contentType)}`), blob.data);
       result.ok += 1;
@@ -152,4 +163,9 @@ export async function exportAvatars(
   opts.signal?.throwIfAborted();
 
   return result;
+}
+
+function extForLocalFile(path: string): string {
+  const ext = path.split('.').at(-1)?.toLowerCase();
+  return ext === 'png' || ext === 'gif' || ext === 'webp' ? `image/${ext}` : 'image/jpeg';
 }

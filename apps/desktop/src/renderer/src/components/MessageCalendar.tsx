@@ -55,7 +55,10 @@ export function MessageCalendar({
         <select
           aria-label="年份"
           value={year}
-          onChange={(e) => setMonth(e.target.value + month.slice(4))}
+          onChange={(e) => {
+            initialized.current = true;
+            setMonth(e.target.value + month.slice(4));
+          }}
         >
           {years.map((y) => (
             <option key={y}>{y}</option>
@@ -64,7 +67,10 @@ export function MessageCalendar({
         <select
           aria-label="月份"
           value={mon}
-          onChange={(e) => setMonth(`${year}-${e.target.value.padStart(2, '0')}`)}
+          onChange={(e) => {
+            initialized.current = true;
+            setMonth(`${year}-${e.target.value.padStart(2, '0')}`);
+          }}
         >
           {Array.from({ length: 12 }, (_, i) => i + 1).map((monthNumber) => (
             <option key={monthNumber} value={monthNumber}>
@@ -98,10 +104,19 @@ export function MessageCalendar({
               data-density={messageDensity(count, maxCount)}
               className={`${selected ? 'is-selected' : ''} ${inRange ? 'is-range' : ''}`}
               aria-pressed={selected}
-              aria-label={`${day}，${count} 条消息`}
-              title={`${day}（北京时间）：${count.toLocaleString('zh-CN')} 条`}
-              disabled={busy || loading || (!allowEmpty && !count)}
-              onClick={() => onPick(day)}
+              aria-label={
+                loading && !counts.has(day) ? `${day}，消息数量统计中` : `${day}，${count} 条消息`
+              }
+              title={
+                loading && !counts.has(day)
+                  ? `${day}（北京时间）：消息数量统计中`
+                  : `${day}（北京时间）：${count.toLocaleString('zh-CN')} 条`
+              }
+              disabled={busy || (!allowEmpty && (loading || !count))}
+              onClick={() => {
+                initialized.current = true;
+                onPick(day);
+              }}
             >
               <span>{date}</span>
               <small>

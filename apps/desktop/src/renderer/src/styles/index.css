@@ -18,6 +18,7 @@
 @import './lightbox-actions.css';
 @import './appearance.css';
 @import './export-save-actions.css';
+@import './conversation-list-row.css';
 
 /* streamdown 代码块用 Tailwind `dark:` 工具类切换 shiki 明/暗配色，但本项目暗色靠
  * html[data-theme="dark"]（同时 theme.ts 会 toggle .dark 类）。把 `dark:` variant 桥接到这两个
@@ -4429,59 +4430,6 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   bottom: 0;
   left: 14px;
   box-shadow: 6px 0 0 color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
-}
-
-.app-shell .conversation-row,
-.app-shell .contact-row {
-  box-sizing: border-box;
-  height: 62px;
-  min-height: 62px;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
-  gap: 9px;
-  padding: 7px 13px;
-}
-
-.app-shell .conversation-row .avatar,
-.app-shell .contact-row .avatar {
-  width: 38px;
-  height: 38px;
-  font-size: 12px;
-}
-
-.app-shell .conversation-row .row-main,
-.app-shell .contact-row .row-main {
-  gap: 3px;
-}
-
-.app-shell .conversation-row .row-main strong,
-.app-shell .contact-row .row-main strong {
-  font-size: 14px;
-  line-height: 1.1;
-}
-
-.app-shell .conversation-row .row-preview-line,
-.app-shell .contact-row .row-main > span {
-  font-size: 11.5px;
-  line-height: 1.12;
-}
-
-.app-shell .conversation-row .row-meta {
-  font-size: 10px;
-  line-height: 1.1;
-}
-
-.app-shell .conversation-row .row-unread,
-.app-shell .weq-contact-directory .row-unread {
-  right: 13px;
-  bottom: 10px;
-  min-width: 15px;
-  height: 15px;
-  font-size: 9.5px;
-}
-
-.app-shell .conversation-row .row-muted {
-  right: 13px;
-  bottom: 10px;
 }
 
 .app-shell .contact-row > svg {
@@ -20410,7 +20358,7 @@ html[data-theme='dark'] .weq-graytip-band {
   max-height: calc(100vh - 100px);
 }
 
-.weq-merged-popover-item {
+.weq-merged-popover-item:not(.conversation-row) {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -20424,7 +20372,7 @@ html[data-theme='dark'] .weq-graytip-band {
   transition: background 0.12s ease;
 }
 
-.weq-merged-popover-item:hover {
+.weq-merged-popover-item:not(.conversation-row):hover {
   background: color-mix(in srgb, var(--weq-accent-effective, #0099f7) 6%, transparent);
 }
 

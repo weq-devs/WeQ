@@ -11,6 +11,18 @@ import {
 } from '../src/account/export/contacts_export';
 import { ExportTaskManager } from '../src/account/export/task_manager';
 import type { MsgService } from '../src/account/msg';
+import { object, readArchive } from '../src/account/export/archive';
+
+function exportedUids(path: string) {
+  return readArchive(JSON.parse(readFileSync(path, 'utf8')))
+    .records.filter((row) => row.data.type === 'contact' || row.data.type === 'member')
+    .map(
+      (row) =>
+        (object(row.data.subject).identities as Array<{ namespace: string; value: string }>).find(
+          (identity) => identity.namespace === 'qq-uid',
+        )?.value,
+    );
+}
 
 const roots: string[] = [];
 function output() {
@@ -54,6 +66,35 @@ function fixture() {
 }
 
 describe('联系人精确条目导出', () => {
+  it('名单增量复用用户重命名后的单文件，不重新另存一份名单', async () => {
+    const { deps } = fixture(),
+      cache = dirname(output());
+    const manager = new ExportTaskManager(
+      {} as MsgService,
+      cache,
+      withExportSaveDirectory(cache, { contacts: deps }),
+    );
+    const id = await manager.startTask({
+      kind: 'c2c',
+      conv: '',
+      name: '合成名单',
+      format: 'json',
+      total: 0,
+      contacts: { scope: 'friends' },
+    });
+    await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
+    const path = join(cache, '用户名单.json');
+    await manager.saveTaskOutput(id, undefined, path);
+    const before = readArchive(JSON.parse(readFileSync(path, 'utf8')));
+    expect(manager.resumeTask(id, true)).toBe(true);
+    await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
+    expect(manager.getTask(id)?.error).toBeUndefined();
+    expect(manager.getTask(id)?.filePath).toBe(realpathSync(path));
+    const after = readArchive(JSON.parse(readFileSync(path, 'utf8')));
+    expect(after.archiveId).toBe(before.archiveId);
+    expect(after.records).toHaveLength(before.records.length);
+    expect(after.observations).toHaveLength(before.observations.length * 2);
+  });
   it('单文件任务另存后记录真实路径，后续另存失败保留已生成结果和上次保存位置', async () => {
     const { deps } = fixture(),
       cache = dirname(output());
@@ -101,10 +142,19 @@ describe('联系人精确条目导出', () => {
     };
     deps.listGroupMembers = async () => [row];
     const outputPath = output();
-    await exportGroupMembers({ groupCode: '10001', format: 'json', outputPath, uids: ['b'] }, deps);
-    const result = JSON.parse(readFileSync(outputPath, 'utf8'))[0];
-    expect(result.joinTime).toBe('2026-10-18 01:02');
-    expect(result.lastSpeakTime).toBe('2026-10-18 01:03');
+    await exportGroupMembers({ groupCode: '10001', format: 'txt', outputPath, uids: ['b'] }, deps);
+    expect(readFileSync(outputPath, 'utf8')).toContain('2026-10-18 01:02');
+    expect(readFileSync(outputPath, 'utf8')).toContain('2026-10-18 01:03');
+    await exportGroupMembers(
+      { groupCode: '10001', format: 'json', outputPath, uids: ['b'], archive: { profile: 'full' } },
+      deps,
+    );
+    const full = readArchive(JSON.parse(readFileSync(outputPath, 'utf8')));
+    expect(object(full.records[0]!.native).attributes).toContainEqual({
+      target: '/data',
+      name: 'source.joinTime',
+      value: { type: 'integer', value: String(joinTime) },
+    });
     expect(row.joinTime).toBe(joinTime);
   });
   it('超出日历范围的原始时间不导致整批导出失败，也不伪造有效日期', async () => {
@@ -123,10 +173,20 @@ describe('联系人精确条目导出', () => {
       },
     ];
     const outputPath = output();
-    await exportGroupMembers({ groupCode: '10001', format: 'json', outputPath, uids: ['b'] }, deps);
-    const result = JSON.parse(readFileSync(outputPath, 'utf8'))[0];
-    expect(result.joinTime).toBe(String(Number.MAX_SAFE_INTEGER));
-    expect(result.lastSpeakTime).toBe('');
+    await exportGroupMembers({ groupCode: '10001', format: 'txt', outputPath, uids: ['b'] }, deps);
+    expect(readFileSync(outputPath, 'utf8')).toContain(String(Number.MAX_SAFE_INTEGER));
+    await exportGroupMembers(
+      { groupCode: '10001', format: 'json', outputPath, uids: ['b'], archive: { profile: 'full' } },
+      deps,
+    );
+    expect(
+      object(readArchive(JSON.parse(readFileSync(outputPath, 'utf8'))).records[0]!.native)
+        .attributes,
+    ).toContainEqual({
+      target: '/data',
+      name: 'source.joinTime',
+      value: { type: 'integer', value: String(Number.MAX_SAFE_INTEGER) },
+    });
   });
   it('写入阶段通知触发取消时，不再启动文件写入', async () => {
     const { deps } = fixture();
@@ -260,11 +320,7 @@ describe('联系人精确条目导出', () => {
     expect(restored.resumeTask(id)).toBe(true);
     await (restored as unknown as { queue: Promise<void> }).queue;
     expect(restored.getTask(id)?.status).toBe('completed');
-    expect(
-      JSON.parse(readFileSync(restored.getTask(id)!.filePath!, 'utf8')).map(
-        (row: { uid: string }) => row.uid,
-      ),
-    ).toEqual(['b']);
+    expect(exportedUids(restored.getTask(id)!.filePath!)).toEqual(['b']);
   });
   it('相同名称的联系人任务各自保留产物，不覆盖先前文件', async () => {
     const { deps } = fixture();
@@ -300,11 +356,7 @@ describe('联系人精确条目导出', () => {
     });
     expect(manager.getTask(second)!.filePath).not.toBe(firstPath);
     expect(readFileSync(firstPath, 'utf8')).toBe(before);
-    expect(
-      JSON.parse(readFileSync(manager.getTask(second)!.filePath!, 'utf8')).map(
-        (row: { uid: string }) => row.uid,
-      ),
-    ).toEqual(['a']);
+    expect(exportedUids(manager.getTask(second)!.filePath!)).toEqual(['a']);
   });
   it.each(['b', 'missing'])(
     '读取目标 %s 期间取消不记为身份缺失失败，不继续补资料或写联系人文件',
@@ -376,9 +428,7 @@ describe('联系人精确条目导出', () => {
     const task = manager.getTask(id)!;
     expect(task.error).toBeUndefined();
     expect(task.status).toBe('completed');
-    expect(
-      JSON.parse(readFileSync(task.filePath!, 'utf8')).map((row: { uid: string }) => row.uid),
-    ).toEqual(['b']);
+    expect(exportedUids(task.filePath!)).toEqual(['b']);
     expect(JSON.parse(readFileSync(task.reportPath!, 'utf8')).contacts).toEqual({
       scope: 'friends',
       uids: ['b'],
@@ -399,9 +449,7 @@ describe('联系人精确条目导出', () => {
     expect(
       await exportFriends({ format: 'json', outputPath, uids: ['b'], collectUins: uins }, deps),
     ).toMatchObject({ count: 1 });
-    expect(
-      JSON.parse(readFileSync(outputPath, 'utf8')).map((row: { uid: string }) => row.uid),
-    ).toEqual(['b']);
+    expect(exportedUids(outputPath)).toEqual(['b']);
     expect(profiles).toHaveBeenCalledWith(['b']);
     expect([...uins]).toEqual(['10002']);
   });
@@ -414,7 +462,7 @@ describe('联系人精确条目导出', () => {
     expect(await exportFriends({ format: 'json', outputPath: path, uids: [] }, deps)).toMatchObject(
       { count: 0 },
     );
-    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual([]);
+    expect(readArchive(JSON.parse(readFileSync(path, 'utf8'))).records).toEqual([]);
   });
   it('群成员支持不连续的 UID 集合，不导出中间成员', async () => {
     const { deps } = fixture();
@@ -424,9 +472,7 @@ describe('联系人精确条目导出', () => {
       deps,
     );
     expect(result.count).toBe(2);
-    expect(
-      JSON.parse(readFileSync(outputPath, 'utf8')).map((row: { uid: string }) => row.uid),
-    ).toEqual(['a', 'c']);
+    expect(exportedUids(outputPath)).toEqual(['a', 'c']);
   });
   it('选中项已消失时明确失败，不产生看似成功的空文件或扩大范围', async () => {
     const { deps } = fixture();

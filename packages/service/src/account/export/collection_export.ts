@@ -15,6 +15,8 @@ import { writeTable, type Col, type TableFormat } from './table_writer';
 import { dirname, join } from 'node:path';
 import type { CollectionMediaExportEntry } from '../collection_media';
 import type { CollectionHistorySummary } from '../collection_history';
+import { writeCollectionArchive } from './archive_domain';
+import type { ArchiveOptions } from './archive';
 
 /** 收藏图片：collector-CDN uri 加固有尺寸。 */
 export interface CollectionExportPic {
@@ -390,6 +392,7 @@ const COLLECTION_COLS: Array<Col<CollectionExportRow>> = [
 ];
 
 export interface ExportCollectionsOpts {
+  archive?: ArchiveOptions;
   format: CollectionFormat;
   outputPath: string;
   /** 只导出这些 kind（空 / 省略 = 全部）。 */
@@ -548,7 +551,9 @@ export async function exportCollections(
         });
     }
   }
-  await writeTable(opts.format, COLLECTION_COLS, rows, opts.outputPath, '收藏');
+  if (opts.format === 'json' || opts.format === 'jsonl')
+    await writeCollectionArchive(rows, coverage, opts.outputPath, opts.format, opts.archive);
+  else await writeTable(opts.format, COLLECTION_COLS, rows, opts.outputPath, '收藏');
   opts.signal?.throwIfAborted();
   return { filePath: opts.outputPath, count: rows.length, coverage };
 }

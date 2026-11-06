@@ -155,6 +155,16 @@ test('profile prefetch collects only identities from person nodes', () => {
   assert.deepEqual(previewIdentityIds(preview), ['u_alice', 'u_self']);
   assert.deepEqual(previewIdentityIds({ kind: 'text', textContent: 'u_not_a_person' }), []);
 });
+test('普通消息和空预览也补全发送者，灰条中的同一身份不重复补全', () => {
+  assert.deepEqual(
+    previewIdentityIds({ kind: 'text', textContent: 'u_not_a_person' }, 'u_sender'),
+    ['u_sender'],
+  );
+  assert.deepEqual(previewIdentityIds({ kind: 'face', faceId: 76 }, 'u_sender'), ['u_sender']);
+  assert.deepEqual(previewIdentityIds(null, 'u_sender'), ['u_sender']);
+  assert.deepEqual(previewIdentityIds(preview, 'u_alice'), ['u_alice', 'u_self']);
+  assert.deepEqual(previewIdentityIds(null, ''), []);
+});
 test('malformed preview identities never reach the UID resolver or crash rendering', () => {
   const bad = {
     kind: 'grayTipPoke',

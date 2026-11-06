@@ -23,6 +23,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   linuxSudoErrorHint,
+  readSipEnabled,
   readYamaPtraceScope,
   resolveNtHelperPath,
   resolveSudoPath,
@@ -30,7 +31,7 @@ import {
 } from '@weq/native';
 import type { KeyScanProgress, KeyScanResult } from '@weq/native';
 import { getLogger } from '@weq/service';
-import { installInvisibleToRoot } from './attach_elevation';
+import { installInvisibleToRoot, SIP_ENABLED_MESSAGE } from './attach_elevation';
 import { requestSudoPassword } from './sudo_prompt';
 import { tryLongTermKeyScan } from './authorization/client';
 
@@ -228,6 +229,10 @@ export async function scanKeyElevated(options: ElevatedKeyScanOptions): Promise<
   } catch {
     // 长期授权不可用时继续原来的临时授权，不将其当作扫描成功。
   }
+
+  // 直接扫描由调用方先执行；SIP 开启时仍允许上面的带调试权限助手兜底。
+  if (process.platform === 'darwin' && readSipEnabled() === true)
+    throw new Error(SIP_ENABLED_MESSAGE);
 
   let password = '';
   if (!(await sudoCredentialsCached())) {

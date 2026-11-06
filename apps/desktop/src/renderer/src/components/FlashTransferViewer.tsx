@@ -337,6 +337,7 @@ export function FlashTransferViewer({
           zipFileId: it.zipFileId,
         })),
       });
+      if (res.cancelled) return;
       setSelected(new Map());
       if (res.started > 0) {
         pushToast({ tone: 'success', message: `已创建下载任务 · ${res.started} 个文件` });

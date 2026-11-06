@@ -1,8 +1,8 @@
-import { mkdir, open, rename, rm } from 'node:fs/promises';
+import { mkdir, open, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { downloadUrlToFile, type DownloadOutcome } from '../media_url';
-import { sniffImageExt } from './emoji_export';
+import { publishArchiveResourceFile } from './archive_resource';
 
 export type QzoneStoredMedia =
   | (Extract<DownloadOutcome, { ok: true }> & { fileName: string })
@@ -41,22 +41,18 @@ export class QzoneMediaStore {
       const existing = this.contents.get(outcome.sha256);
       if (existing) return await existing;
       const publish = (async (): Promise<QzoneStoredMedia> => {
+        const fileName = outcome.sha256;
         const handle = await open(temporary, 'r');
-        let extension: string;
         try {
-          const head = Buffer.alloc(32);
-          const { bytesRead } = await handle.read(head, 0, head.length, 0);
-          extension =
-            kind === 'image'
-              ? (sniffImageExt(head.subarray(0, bytesRead)) ?? '.jpg')
-              : head[0] === 0x1a
-                ? '.webm'
-                : '.mp4';
+          await handle.sync();
         } finally {
           await handle.close();
         }
-        const fileName = `${outcome.sha256}${extension}`;
-        await rename(temporary, join(this.root, fileName));
+        const destination = join(this.root, fileName);
+        await publishArchiveResourceFile(temporary, destination, {
+          sha256: outcome.sha256,
+          size: String(outcome.bytes),
+        });
         return { ...outcome, fileName };
       })();
       this.contents.set(outcome.sha256, publish);

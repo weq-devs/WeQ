@@ -13,6 +13,7 @@ import { BaselinePicker } from '../src/renderer/src/views/export/BaselinePicker'
 
 const f = vi.hoisted(() => ({
   armed: false,
+  capture: { available: true, elevated: false, longTermAuthorized: false },
   access: {
     qqOnline: true,
     attachEnabled: true,
@@ -59,7 +60,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     },
     wonderfulTools: {
-      captureSupport: { query: async () => ({ available: true, elevated: false }) },
+      captureSupport: { query: async () => ({ ...f.capture }) },
     },
     bootstrap: {
       getSettings: {
@@ -80,6 +81,7 @@ vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   f.armed = false;
+  f.capture = { available: true, elevated: false, longTermAuthorized: false };
   f.access = {
     qqOnline: true,
     attachEnabled: true,
@@ -88,7 +90,7 @@ beforeEach(() => {
     hasD2Key: true,
     hasGuid: true,
   };
-  f.arm.mockClear();
+  f.arm.mockReset().mockResolvedValue({});
   f.baselines = [
     {
       directory: '/synthetic/baseline/.weq-export',
@@ -218,6 +220,97 @@ it('长期授权已连接时仍准备在线功能，但不再提示重复提权'
   expect(plan).toMatchObject({ capture: true, needed: true, elevate: false });
 });
 
+it.each(['longTermAuthorized', 'elevated'] as const)(
+  '%s 免密抓包直接准备并导出，不显示确认窗口，关闭时释放本次会话',
+  async (capability) => {
+    f.capture[capability] = true;
+    f.arm.mockImplementationOnce(async () => {
+      f.armed = true;
+      return {};
+    });
+    const view = mount();
+    try {
+      await flush();
+      expect(view.host.textContent).not.toContain('需要提权');
+      expect(f.arm).not.toHaveBeenCalled();
+      click(view.host, '导出');
+      await flush();
+      expect(f.arm).toHaveBeenCalledOnce();
+      expect(view.host.querySelector('[role="dialog"]')).toBeNull();
+      expect(view.result).toHaveBeenCalledWith(expect.objectContaining({ onlineTranscribe: true }));
+    } finally {
+      view.close();
+    }
+    expect(f.disarm).toHaveBeenCalledOnce();
+  },
+);
+
+it('免密准备失败时显示错误并允许跳过，不直接提交导出', async () => {
+  f.capture.longTermAuthorized = true;
+  f.arm.mockRejectedValueOnce(new Error('合成抓包失败'));
+  const view = mount();
+  try {
+    await flush();
+    click(view.host, '导出');
+    await flush();
+    expect(view.host.querySelector('[role="alert"]')?.textContent).toBe('合成抓包失败');
+    expect(view.result).not.toHaveBeenCalled();
+    click(view.host, '跳过需提权项目');
+    await flush();
+    expect(view.result).toHaveBeenCalledWith(expect.objectContaining({ onlineTranscribe: false }));
+  } finally {
+    view.close();
+  }
+});
+
+it('免密准备尚未完成就关闭时，不提交导出并释放随后就绪的会话', async () => {
+  f.capture.longTermAuthorized = true;
+  let finishArm: (() => void) | undefined;
+  f.arm.mockImplementationOnce(async () => {
+    await new Promise<void>((done) => {
+      finishArm = done;
+    });
+    f.armed = true;
+    return {};
+  });
+  const view = mount();
+  await flush();
+  click(view.host, '导出');
+  await flush();
+  expect(f.arm).toHaveBeenCalledOnce();
+  expect(view.host.querySelector('[role="dialog"]')).toBeNull();
+  expect(view.result).not.toHaveBeenCalled();
+  view.close();
+  finishArm?.();
+  await flush();
+  expect(f.disarm).toHaveBeenCalledOnce();
+  expect(view.result).not.toHaveBeenCalled();
+});
+
+it('权限助手失效回退密码请求时显示授权表单', async () => {
+  f.capture.longTermAuthorized = true;
+  let rejectArm: ((error: Error) => void) | undefined;
+  f.arm.mockImplementationOnce(async () => {
+    useRestrictedMode
+      .getState()
+      .request({ kind: 'password', token: 31, title: '导出抓包', message: 'synthetic' });
+    return await new Promise((_resolve, reject) => {
+      rejectArm = reject;
+    });
+  });
+  const view = mount();
+  try {
+    await flush();
+    click(view.host, '导出');
+    await flush();
+    expect(view.host.querySelector('[role="dialog"] input[type="password"]')).not.toBeNull();
+    expect(view.result).not.toHaveBeenCalled();
+  } finally {
+    rejectArm?.(new Error('cleanup'));
+    view.close();
+  }
+});
+
 it('提权请求在当前弹窗显示，跳过取消本次密码请求但保留已有请求', async () => {
   useRestrictedMode
     .getState()
@@ -251,6 +344,39 @@ it('提权请求在当前弹窗显示，跳过取消本次密码请求但保留�
   } finally {
     rejectArm?.(new Error('cleanup'));
     view.close();
+  }
+});
+it('导出弹窗中多项授权请求共用一个长期授权管理入口', async () => {
+  Object.defineProperty(window, 'weq', { configurable: true, value: { authorization: {} } });
+  let rejectArm: ((error: Error) => void) | undefined;
+  f.arm.mockImplementationOnce(async () => {
+    useRestrictedMode
+      .getState()
+      .request({ kind: 'password', token: 21, title: '导出抓包', message: 'synthetic' });
+    useRestrictedMode
+      .getState()
+      .request({ kind: 'ptrace', token: 22, title: '导出读取', message: 'synthetic' });
+    return await new Promise((_resolve, reject) => {
+      rejectArm = reject;
+    });
+  });
+  const view = mount();
+  try {
+    await flush();
+    click(view.host, '导出');
+    await flush();
+    click(view.host, '提权并继续');
+    await flush();
+    expect(view.host.querySelectorAll('input[type="password"]')).toHaveLength(2);
+    expect(
+      [...view.host.querySelectorAll('button')].filter(
+        (button) => button.textContent === '管理长期授权',
+      ),
+    ).toHaveLength(1);
+  } finally {
+    rejectArm?.(new Error('cleanup'));
+    view.close();
+    Object.defineProperty(window, 'weq', { configurable: true, value: undefined });
   }
 });
 
@@ -305,9 +431,9 @@ it('真实导出配置窗口选择基线后将文件夹带入本次确认', asyn
     expect(host.textContent).toContain('约 9 条');
     click(host, '使用所选基线');
     await flush();
-    expect(host.querySelector<HTMLInputElement>('[aria-label="增量基线文件夹"]')?.value).toBe(
-      '/synthetic/baseline',
-    );
+    expect(
+      host.querySelector<HTMLInputElement>('[aria-label="继续更新的归档文件或文件夹"]')?.value,
+    ).toBe('/synthetic/baseline');
     click(host, '开始导出');
     await flush();
     expect(confirm).toHaveBeenCalledWith(
@@ -341,9 +467,9 @@ it('查看器带入的增量基线保留到真实导出配置确认，不重新�
       ),
     );
     await flush();
-    expect(host.querySelector<HTMLInputElement>('[aria-label="增量基线文件夹"]')?.value).toBe(
-      '/synthetic/baseline/.weq-export',
-    );
+    expect(
+      host.querySelector<HTMLInputElement>('[aria-label="继续更新的归档文件或文件夹"]')?.value,
+    ).toBe('/synthetic/baseline/.weq-export');
     click(host, '开始导出');
     await flush();
     expect(confirm).toHaveBeenCalledWith(

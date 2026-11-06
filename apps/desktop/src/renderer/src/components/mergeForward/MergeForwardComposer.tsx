@@ -69,6 +69,7 @@ import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useOverlayLayer } from '../../lib/overlayStack';
 import { localFileUrl } from '../../lib/resourceUrl';
 import { trpc } from '../../trpc/client';
+import { pickAccountFile } from '../../lib/accountFilePicker';
 import { cn } from '../../im-template/template/classNames';
 import { dedupePersons, SenderPicker, type MfPerson } from './SenderPicker';
 import { MsgDressEditor } from './MsgDressEditor';
@@ -1123,10 +1124,9 @@ function usePickFile(): {
     kind: 'image' | 'record' | 'video' | 'file',
   ) => Promise<{ path: string; fileName: string; size: number } | null>;
 } {
-  const mut = trpc.account.pickSendFile.useMutation();
   return {
     pick: async (kind) => {
-      const res = await mut.mutateAsync({ kind });
+      const res = await pickAccountFile(kind);
       return res ?? null;
     },
   };

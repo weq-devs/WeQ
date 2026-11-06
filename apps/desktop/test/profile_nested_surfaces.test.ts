@@ -51,6 +51,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         useQuery: () => ({ data: { qqOnline: true }, isLoading: false }),
       },
       qqWrite: {
+        friendClue: { useQuery: () => ({ data: undefined, isFetching: false }) },
         commonRelationships: {
           useQuery: () => ({
             data: { friendCount: 0, groups: [{ groupCode: '10002', name: '合成共同群' }] },

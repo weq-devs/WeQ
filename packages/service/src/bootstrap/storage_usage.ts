@@ -19,8 +19,31 @@ export interface StorageUsageItem {
   clearable: boolean;
   reason: string;
   incomplete: boolean;
+  /** 统计拆分时仍须保留原根的排除范围，不再次累计嵌套数据根。 */
+  excludedPaths?: string[];
+  protected?: boolean;
   /** 混合目录只清理下载器拥有的文件，不能整目录删除。 */
-  cleanupKind?: 'dress-previews' | 'dress-shared' | 'dress-data';
+  cleanupKind?: 'dress-previews' | 'dress-shared' | 'dress-data' | 'db-backup';
+  category?:
+    | 'db-backups'
+    | 'media'
+    | 'dress'
+    | 'cache'
+    | 'persistent'
+    | 'program-backups'
+    | 'repair-history'
+    | 'repair-work'
+    | 'unknown';
+  management?: 'cleanup' | 'backup' | 'downloads' | 'repair' | 'runtime';
+  action?: 'cache' | 'data' | 'db-backup' | 'program-backup' | 'none';
+  backup?: {
+    account: string;
+    database: string;
+    at: string;
+    status: 'linked' | 'orphan' | 'unrecognized';
+    historyPath?: string;
+    recordId?: string;
+  };
   /** 清理确认中需要额外告知的影响。 */
   confirmation?: string;
   requiresExit?: boolean;
@@ -76,7 +99,7 @@ const DATA_LABELS: Readonly<Record<string, string>> = {
   restore: '设置恢复暂存数据',
 };
 
-const RUNTIME_DATA_NAMES = new Set([
+export const RUNTIME_DATA_NAMES: ReadonlySet<string> = new Set([
   'Cache',
   'Code Cache',
   'GPUCache',
@@ -122,6 +145,17 @@ const RUNTIME_DATA_NAMES = new Set([
   'Web Data',
   'Web Data-journal',
   'Extension State',
+]);
+
+/** 仅包含可重新生成的桌面缓存，不包含登录、连接身份及界面偏好。 */
+export const RUNTIME_CACHE_NAMES: ReadonlySet<string> = new Set([
+  'Cache',
+  'Code Cache',
+  'GPUCache',
+  'DawnGraphiteCache',
+  'DawnWebGPUCache',
+  'GrShaderCache',
+  'ShaderCache',
 ]);
 
 const DATA_RISKS: Readonly<Record<string, string>> = {
@@ -238,7 +272,7 @@ export async function listStorageUsage(
           clearable: !root.protected && root.clearableAfterExit === true && !info.isSymbolicLink(),
           requiresExit: !root.protected && root.clearableAfterExit === true,
           reason: root.clearableAfterExit
-            ? '退出应用后清除；文件无法保证恢复'
+            ? '清除前需确认；文件无法保证恢复'
             : '应用安装资源，请通过系统卸载管理',
           ...(root.clearableAfterExit
             ? {
@@ -324,10 +358,13 @@ export async function listStorageUsage(
               : label,
         path,
         bytes: size.bytes,
+        excludedPaths: nested,
+        protected: root.protected,
+        ...(RUNTIME_DATA_NAMES.has(name) ? { management: 'backup' as const } : {}),
         clearable,
         requiresExit: persistent,
         reason: persistent
-          ? '退出应用后清除；请先确认风险并保留需要的副本'
+          ? '清除前需确认；请保留需要的副本，占用项可重启后继续'
           : clearable
             ? name === 'dress_shared'
               ? '清理已下载的字体、气泡与挂件，保留账号装扮设置'

@@ -151,7 +151,7 @@ export function QzoneShareLightbox({
     if (shareInFlight) {
       pushToast({
         tone: 'info',
-        durationKind: 'failure',
+        durationKind: 'success',
         title: '上一次分享还没发完',
         detail: '截图与上传正在后台跑，状态就在那条「正在分享」的提示里。',
       });

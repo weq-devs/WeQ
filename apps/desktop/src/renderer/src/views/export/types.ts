@@ -58,6 +58,7 @@ export const CHATLAB_FORMATS: Array<{ value: ExportFormat; label: string }> = [
 /** QQ 空间导出：JSON / TXT / HTML（HTML 会强制下载配图到 media/ 并本地引用）。 */
 export const QZONE_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'json', label: 'JSON' },
+  { value: 'jsonl', label: 'JSONL' },
   { value: 'txt', label: 'TXT' },
   { value: 'html', label: 'HTML' },
 ];
@@ -84,6 +85,7 @@ export const MEMBER_FORMATS: Array<{ value: ExportFormat; label: string }> = [
 /** 导出收藏：表格类四种（图片仅写 CDN URL，不下载）。 */
 export const COLLECTION_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'json', label: 'JSON' },
+  { value: 'jsonl', label: 'JSONL' },
   { value: 'csv', label: 'CSV' },
   { value: 'xlsx', label: 'XLSX' },
   { value: 'txt', label: 'TXT' },
@@ -161,6 +163,13 @@ export const MEDIA_KIND_LABELS: Record<keyof MediaKinds, string> = {
 
 /** Media / content options collected in the export lightbox. */
 export interface ExportOptions {
+  content?: import('@weq/service/export-content').ExportContentPolicy;
+  exportMessages?: boolean;
+  completeAvatar?: boolean;
+  completeDressKinds?: DressKinds;
+  profile?: 'basic' | 'full';
+  extra?: import('@weq/service/export-content').ExportExtraOptions;
+  incrementalSupport?: boolean;
   includeIntegrityReport?: boolean;
   range: TimeRange;
   /** Export media files alongside the messages. */
@@ -216,6 +225,8 @@ export interface ExportOptions {
 }
 
 export const DEFAULT_OPTIONS: ExportOptions = {
+  profile: 'full',
+  incrementalSupport: false,
   includeIntegrityReport: false,
   range: DEFAULT_RANGE,
   exportMedia: true,
@@ -266,6 +277,12 @@ export interface ScheduleRange {
 
 /** Media / content switches baked into a scheduled template. */
 export interface ScheduleOptions {
+  content?: import('@weq/service/export-content').ExportContentPolicy;
+  exportMessages?: boolean;
+  completeAvatar?: boolean;
+  completeDressKinds?: DressKinds;
+  profile?: 'basic' | 'full';
+  incrementalSupport?: boolean;
   savePolicy?: import('@weq/service').ExportSavePolicy;
   range: ScheduleRange;
   exportMedia: boolean;

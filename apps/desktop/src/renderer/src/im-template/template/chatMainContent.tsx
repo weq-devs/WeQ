@@ -1,25 +1,13 @@
-﻿// @ts-nocheck
 import {
   ContactProfileDialog,
   ContactProfilePane,
   GroupProfileDialog,
   GroupProfilePane,
 } from './profilePanes';
-import { ChatPane } from './chatPane';
-import type { ConversationReadingPosition } from '../../lib/conversationReadingPosition';
-import type { LocalMediaRef } from './composerSend';
-import type { RepeatElement } from '../../lib/messageRepeat';
-import type { LoadSelectionMessages } from '../../lib/messageSelection';
-import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
-import type { FlashSendPayload } from './flashComposer';
-import type { BubbleVideoSendPayload, FlashPhotoSendPayload } from './chatPane';
-import type { RedPacketDraft } from './redPacketPanel';
+import { ChatPane, type ChatPaneProps } from './chatPane';
 import { ToolDetailPane } from './toolsPane';
 import { RetainedTabs, TabActivity } from '../../components/RetainedTabs';
-import type { ComposerActionRegistry } from './composerActions';
 import type { ConversationDetailActionRegistry } from './conversationDetailActions';
-import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
-import type { MessageRenderer } from './messageRenderers';
 import type { ProfileActionRegistry } from './profileActions';
 import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
 import type { ToolPaneGroup, ToolPaneItem } from './toolRegistry';
@@ -30,15 +18,9 @@ import type {
   ConversationDrafts,
   ConversationPreference,
   MainView,
-  Message,
-  MessageAction,
-  GroupMember,
-  UnreadDock,
-  User,
 } from './types';
 
 type GroupConversation = Extract<Conversation, { type: 'group' }>;
-type DirectConversation = Extract<Conversation, { type: 'direct' }>;
 
 export function ChatMainContent({
   user,
@@ -136,11 +118,81 @@ export function ChatMainContent({
   unreadDock,
   missingJumpSeq,
   resolvedGapIds,
-}: {
-  user: User;
+}: Pick<
+  ChatPaneProps,
+  | 'user'
+  | 'messages'
+  | 'composerActions'
+  | 'messageRenderers'
+  | 'loadingNewer'
+  | 'initialReadingPosition'
+  | 'atLatest'
+  | 'latestMessageSeq'
+  | 'onPreviewLatest'
+  | 'onJumpToLatest'
+  | 'onReadCurrentConversation'
+  | 'onLoadMoreGroupMembers'
+  | 'groupMembersLoading'
+  | 'groupMembersError'
+  | 'groupMemberSearch'
+  | 'onGroupMemberSearchChange'
+  | 'onLoadMoreGroupMemberSearch'
+  | 'profileLoading'
+  | 'sendAvailable'
+  | 'onSend'
+  | 'onRepeatMessage'
+  | 'onResolveMentions'
+  | 'onSearchMentionMembers'
+  | 'onStartCall'
+  | 'onSendArk'
+  | 'arkLocation'
+  | 'arkContacts'
+  | 'defaultSignupGroupCode'
+  | 'onSendFlash'
+  | 'onSendFlashPhoto'
+  | 'onSendBubbleVideo'
+  | 'onSendRedPacket'
+  | 'onMessageAction'
+  | 'onDraftChange'
+  | 'onDraftClear'
+  | 'onEditRaw'
+  | 'onDeleteMessage'
+  | 'onDismissUnsentMessage'
+  | 'onStartOutgoingMessage'
+  | 'onOpenGroupAlbums'
+  | 'onOpenGroupFiles'
+  | 'onOpenGroupAnnouncements'
+  | 'groupTodos'
+  | 'onOpenGroupSign'
+  | 'onOpenGroupEssence'
+  | 'onOpenGroupInfoDetail'
+  | 'onRenameGroupMember'
+  | 'onChangeGroupMemberTitle'
+  | 'onKickGroupMember'
+  | 'onOpenConversationSettings'
+  | 'onOpenGroupBug'
+  | 'onOpenGroupLeftMembers'
+  | 'groupBugOnline'
+  | 'onOpenGroupMember'
+  | 'onAddMessage'
+  | 'onViewDeleted'
+  | 'onViewRecalled'
+  | 'onOpenGapMessages'
+  | 'onLoadSelectionMessages'
+  | 'onSearchChatRecords'
+  | 'onOpenRoamingBackfill'
+  | 'deletedIds'
+  | 'hiddenDeletedIds'
+  | 'onRestoreMessage'
+  | 'onMergeForward'
+  | 'onAddToComposition'
+  | 'onForwardMessages'
+  | 'unreadDock'
+  | 'missingJumpSeq'
+  | 'resolvedGapIds'
+> & {
   view: MainView;
   contactTab?: ContactTab;
-  /** App-provided content for the contacts main area (the relation graph). */
   relationGraphSlot?: React.ReactNode;
   contactOverviewOpen?: boolean;
   selectedContact?: Contact;
@@ -151,143 +203,17 @@ export function ChatMainContent({
   selectedGroupConversation?: GroupConversation;
   contactGroupDetails?: React.ReactNode;
   activeConversation?: Conversation;
-  messages: Message[];
-  composerActions?: Partial<ComposerActionRegistry>;
   conversationDetailActions?: Partial<ConversationDetailActionRegistry>;
-  messageRenderers?: MessageRenderer[];
   profileActions?: Partial<ProfileActionRegistry>;
   toolRegistry?: ToolPaneGroup[];
   selectedToolId?: string | null;
   loadingMessages: boolean;
-  loadingNewer?: boolean;
-  initialReadingPosition?: ConversationReadingPosition;
-  /** Whether `messages` is the live latest-anchored window (see ChatPane). */
-  atLatest?: boolean;
-  latestMessageSeq?: string;
-  onPreviewLatest?: (conversation: Conversation) => void;
-  onJumpToLatest?: () => Promise<boolean>;
-  onReadCurrentConversation?: (conversation: Conversation) => void;
   conversationPrefs: Record<string, ConversationPreference>;
   drafts: ConversationDrafts;
   query?: string;
   onBackContact: () => void;
   onBackGroup: () => void;
-  onLoadMoreGroupMembers?: () => void;
-  groupMembersLoading?: boolean;
-  groupMembersError?: string | null;
-  /** 群资料面板的群内成员搜索（服务端搜全群）—— 关键字、命中成员与分页状态。 */
-  groupMemberSearch?: GroupMemberSearchView | null;
-  /** 群内成员搜索关键字变化（受控输入）。 */
-  onGroupMemberSearchChange?: (keyword: string) => void;
-  /** 追加下一页搜索命中。 */
-  onLoadMoreGroupMemberSearch?: () => void;
-  /** 群详情（群资料）拉取中，群资料区显示 skeleton。 */
-  profileLoading?: boolean;
-  /** 当前账号是否有可用于发消息的、在线且允许注入的 QQ 实例。 */
-  sendAvailable?: boolean;
-  onSend: (body: string, locals?: LocalMediaRef[]) => Promise<void>;
-  onRepeatMessage?: (message: Message, conversation: Conversation) => Promise<void>;
-  onResolveMentions?: (
-    elements: RepeatElement[],
-    conversation: Conversation,
-  ) => Promise<RepeatElement[]>;
-  onSearchMentionMembers?: (query: string, conversation: Conversation) => Promise<GroupMember[]>;
-  /** 发起语音通话（仅私聊）。 */
-  onStartCall?: (
-    conversation: Extract<Conversation, { type: 'direct' }>,
-    media: 'audio' | 'video',
-  ) => Promise<void>;
-  /** Ark 卡片面板「发送」；不传则工具栏那个按钮点开也发不出去。 */
-  onSendArk?: (conversation: Conversation, payload: ArkPayload) => Promise<void>;
-  /** 位置菜单 →「发送位置」要用的地点搜索 / 逆地址解析（应用层注入）。 */
-  arkLocation?: ArkLocationProvider;
-  /** 推荐好友 / 群 的候选列表（应用层注入；不传就只能手填号码）。 */
-  arkContacts?: ArkContactSource;
-  /** 「报名」那栏的默认目标群号（在群聊里打开时预填当前群号）。 */
-  defaultSignupGroupCode?: string;
-  /** 闪传文件框「发送」（应用层补目标会话再走 IPC）。 */
-  onSendFlash?: (conversation: Conversation, payload: FlashSendPayload) => Promise<void>;
-  /** 闪照「选图即发」（老式图片上传，与闪传同一套应用层通路）。 */
-  onSendFlashPhoto?: (conversation: Conversation, payload: FlashPhotoSendPayload) => Promise<void>;
-  /** 泡泡消息「选视频即发」（视频 + businessType=14，与闪照同一套应用层通路）。 */
-  onSendBubbleVideo?: (
-    conversation: Conversation,
-    payload: BubbleVideoSendPayload,
-  ) => Promise<void>;
-  /** 红包面板「发红包」（应用层补目标会话再走 IPC，成功后弹二维码灯箱）。 */
-  onSendRedPacket?: (conversation: Conversation, draft: RedPacketDraft) => Promise<void>;
-  onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
-  onDraftChange: (conversationId: string, value: string) => void;
-  onDraftClear: (conversationId: string) => void;
   onBackConversation: () => void;
-  onEditRaw?: (message: Message) => void;
-  onDeleteMessage?: (
-    message: Message,
-    conversation: Conversation,
-    hidden?: boolean,
-  ) => void | Promise<void>;
-  /** 「可能未送达」占位的一键移除（见 MessageBubble 的同名 prop）。 */
-  onDismissUnsentMessage?: (message: Message) => void;
-  onStartOutgoingMessage?: (message: Message) => void;
-  onOpenGroupAlbums?: (conversation: GroupConversation) => void;
-  onOpenGroupFiles?: (conversation: GroupConversation) => void;
-  onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
-  groupTodos?: React.ReactNode;
-  onOpenGroupSign?: (conversation: GroupConversation) => void;
-  onOpenGroupEssence?: (conversation: GroupConversation) => void;
-  /** 群资料面板「群资料」入口：卡片本体在应用层（components/GroupInfoDetailDialog）。 */
-  onOpenGroupInfoDetail?: (
-    conversation: GroupConversation,
-    detail: import('./groupInfoPanel').GroupInfoDetail,
-  ) => void;
-  /** 群管理「修改群昵称」：应用层弹窗（与群公告 / 群精华同层）。 */
-  onRenameGroupMember?: (conversation: GroupConversation, sender: User, targetUid: string) => void;
-  onChangeGroupMemberTitle?: (
-    conversation: GroupConversation,
-    sender: User,
-    targetUid: string,
-  ) => void;
-  /** 群管理「踢出群聊」：应用层二次确认。 */
-  onKickGroupMember?: (conversation: GroupConversation, sender: User, targetUid: string) => void;
-  /** 顶栏设置按钮：群聊 / 私聊各自的会话设置（防撤回 + 群提醒词）。 */
-  onOpenConversationSettings?: (
-    conversation: GroupConversation | DirectConversation,
-    anchor?: HTMLElement,
-  ) => void;
-  onOpenGroupBug?: (conversation: GroupConversation) => void;
-  /** 群资料面板「已退群」入口：应用层负责数据与灯箱（与群公告 / 群精华同层）。 */
-  onOpenGroupLeftMembers?: (conversation: GroupConversation) => void;
-  /** QQ 在线状态 —— 决定「反馈 bug」图标亮/灰。 */
-  groupBugOnline?: boolean;
-  onOpenGroupMember?: (member: User, anchor: { x: number; y: number }) => void;
-  onAddMessage?: (conversation: Conversation) => void;
-  onViewDeleted?: (conversation: Conversation) => void;
-  onViewRecalled?: (conversation: Conversation) => void;
-  onOpenGapMessages?: (gap: {
-    conversation: Conversation;
-    previousSeq: string;
-    currentSeq: string;
-    count: number;
-  }) => void;
-  onLoadSelectionMessages?: LoadSelectionMessages;
-  /** 顶栏「搜索聊天记录」按钮：在当前会话内搜索并跳转。 */
-  onSearchChatRecords?: (conversation: Conversation) => void;
-  onOpenRoamingBackfill?: (conversation: Conversation) => void;
-  /** msgIds WeQ deleted in the active conversation (in-place overlay). */
-  deletedIds?: Set<string>;
-  hiddenDeletedIds?: Set<string>;
-  /** Restore one WeQ-deleted message (overlay hover button). */
-  onRestoreMessage?: (msgId: string) => Promise<void>;
-  /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
-  onMergeForward?: (messages: Message[], conversation: Conversation) => void;
-  onAddToComposition?: (messages: Message[]) => void;
-  onForwardMessages?: (messages: Message[], conversation: Conversation) => void;
-  /** 未读跳转坞快照（打开会话时读进内存；见 ChatPane 的 unreadDock）。 */
-  unreadDock?: UnreadDock | null;
-  /** 最近一次跳转落空的目标 seq（见 ChatPane 的 missingJumpSeq）。 */
-  missingJumpSeq?: string | null;
-  /** 本次已确认「服务端没有对应消息」的缺口 id（见 ChatPane 的 resolvedGapIds）。 */
-  resolvedGapIds?: ReadonlySet<string>;
   onOpenTool?: (item: ToolPaneItem) => void;
   onSelectTool?: (item: ToolPaneItem) => void;
 }) {

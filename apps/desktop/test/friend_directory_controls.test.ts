@@ -10,11 +10,12 @@ const state = vi.hoisted(() => ({
   mutate: vi.fn(async (_input: unknown) => ({ state: 'confirmed' })),
   refetch: vi.fn(async () => ({})),
   error: null as Error | null,
+  available: true,
 }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({
     binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source' },
-    available: true,
+    available: state.available,
   }),
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
@@ -53,10 +54,31 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.error = null;
+  state.available = true;
   state.mutate.mockClear();
   state.refetch.mockClear();
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it('等待当前 SSO 会话时不展示上轮分组读取错误', () => {
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  function Controls() {
+    const directory = useFriendDirectory();
+    return h('output', null, directory?.error ?? '无错误');
+  }
+  state.error = new Error('pid 123 还没有登记 SSO 会话');
+  state.available = false;
+  try {
+    act(() => root.render(h(FriendDirectoryControls, null, h(Controls))));
+    expect(host.textContent).toBe('无错误');
+    state.available = true;
+    act(() => root.render(h(FriendDirectoryControls, null, h(Controls))));
+    expect(host.textContent).toContain('还没有登记');
+  } finally {
+    act(() => root.unmount());
+  }
+});
 
 it.each([
   [0, 5, 'after', [5, 0, 9]],

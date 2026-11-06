@@ -42,6 +42,8 @@ import { useDialog } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { LongTermAuthorizationSection } from './LongTermAuthorizationSection';
+import { QqDebugCopy } from '../QqDebugCopy';
+import { IS_WEB } from '../../lib/target';
 
 /** rkey `type_` → human label. Mirrors media_download.ts scene constants. */
 const RKEY_TYPE_LABEL: Record<number, string> = {
@@ -698,7 +700,7 @@ export function AccountBasicsSection({
                 同步已读状态到 QQ
               </span>
             }
-            desc="向 QQ 上报在 WeQ 阅读和手动标记的位置，可能清除其他端的未读提醒。默认关闭，仅在线完整模式生效；标为未读只在本地生效，不能恢复其他端已清除的提醒。"
+            desc="向 QQ 上报在 WeQ 阅读和手动标记的位置，可能清除其他端的未读提醒。默认开启，仅在线完整模式生效；标为未读只在本地生效，不能恢复其他端已清除的提醒。"
             control={
               <Toggle
                 checked={reportRead || manualReadReport}
@@ -725,6 +727,11 @@ export function AccountBasicsSection({
         <>
           {/* 自动进入策略与本来源运行请求分离 */}
           <LongTermAuthorizationSection />
+          {isMac && !IS_WEB && (
+            <Card title="QQ 调试副本" settingId="qq-debug-copy">
+              <QqDebugCopy />
+            </Card>
+          )}
           <Card>
             <Row
               settingId="auto-full-mode"
@@ -736,7 +743,7 @@ export function AccountBasicsSection({
               }
               desc={
                 isMac
-                  ? 'macOS 读取 QQ 内存需要管理员权限，且目标未开启强化运行时保护（QQ 已开启，因此需要先关闭 SIP）。开启后自动尝试采集 rKey / ClientKey 等凭证；关闭后仍可为当前来源手动启用，手动请求仅在本次运行有效。'
+                  ? 'macOS 可保持 SIP 开启并使用 QQ 调试副本。开启后自动尝试采集 rKey / ClientKey 等凭证；关闭后仍可为当前来源手动启用，手动请求仅在本次运行有效。'
                   : '开启后自动尝试读取登录中的 QQ 进程内存，采集 rKey / ClientKey 等凭证并启用在线能力。关闭后不再自动尝试，仍可在受限模式详情中为当前来源手动启用；手动请求仅在本次运行有效。'
               }
               control={

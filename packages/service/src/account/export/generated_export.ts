@@ -1,18 +1,12 @@
 import type { GeneratedContentSnapshot } from '../generated_content';
-import { writeFileStream, writeTable, type Col, type TableFormat } from './table_writer';
+import { writeTable, type Col, type TableFormat } from './table_writer';
 import type { GeneratedResourceManifest } from './generated_resources';
+import { writeGeneratedArchive } from './archive_domain';
+import type { ArchiveOptions } from './archive';
 
 export const GENERATED_EXPORT_FORMATS = ['json', 'jsonl', 'txt', 'csv', 'xlsx'] as const;
 export type GeneratedExportFormat = (typeof GENERATED_EXPORT_FORMATS)[number];
 type Row = GeneratedContentSnapshot['messages'][number];
-
-function messageResources(
-  resources: GeneratedResourceManifest,
-  id: string,
-): GeneratedResourceManifest {
-  const entries = resources.entries.filter((entry) => entry.messageIds.includes(id));
-  return { ...resources, complete: entries.every((entry) => entry.status === 'copied'), entries };
-}
 
 /** 本地生成记录使用独立 schema，绝不伪装成 QQ/ChatLab 服务器消息。 */
 export async function writeGeneratedContent(
@@ -20,31 +14,11 @@ export async function writeGeneratedContent(
   format: TableFormat,
   path: string,
   resources?: GeneratedResourceManifest,
+  archive?: ArchiveOptions,
 ): Promise<void> {
-  const { messages, ...source } = snapshot;
-  if (format === 'json') {
-    await writeFileStream(
-      path,
-      JSON.stringify(
-        { schema: 'weq-generated-content/1', ...snapshot, ...(resources ? { resources } : {}) },
-        null,
-        2,
-      ),
-    );
-    return;
-  }
-  if (format === 'jsonl') {
-    const lines = messages.map((message) =>
-      JSON.stringify({
-        schema: 'weq-generated-message/1',
-        ...source,
-        message,
-        ...(resources ? { resources: messageResources(resources, message.id) } : {}),
-      }),
-    );
-    await writeFileStream(path, lines.length ? `${lines.join('\n')}\n` : '');
-    return;
-  }
+  if (format === 'json' || format === 'jsonl')
+    return writeGeneratedArchive(snapshot, path, format, archive, resources);
+  const { messages } = snapshot;
   const cols: Array<Col<Row>> = [
     { key: 'origin', header: '来源', get: () => 'local-generated' },
     { key: 'kind', header: '对话种类', get: () => snapshot.target.kind },
@@ -73,7 +47,9 @@ export async function writeGeneratedContent(
           },
         ]
       : []),
-    { key: 'details', header: '完整记录（JSON）', get: (row) => JSON.stringify(row) },
+    ...(archive?.extra?.generatedParameters === true
+      ? [{ key: 'details', header: '完整记录（JSON）', get: (row: Row) => JSON.stringify(row) }]
+      : []),
   ];
   await writeTable(format, cols, messages, path, '本地生成对话');
 }

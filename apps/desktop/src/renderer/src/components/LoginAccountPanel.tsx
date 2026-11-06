@@ -54,7 +54,7 @@ interface LoginAccountRow {
 interface OverviewView {
   accounts: LoginAccountRow[];
   guid: string | null;
-  qqInstanceCount: number;
+  qqInstanceCount: number | null;
   canWrite: boolean;
   dataRoot: string | null;
   supported: boolean;
@@ -234,8 +234,13 @@ export function LoginAccountPanel(): ReactElement {
         <div className="weq-login-acc-gate is-blocked">
           <AlertTriangle size={14} strokeWidth={1.9} />
           <span>
-            检测到 {overview?.qqInstanceCount ?? '若干'} 个 QQ 实例正在运行 —— 请先
-            <b>完全退出 QQ</b>。
+            {overview?.qqInstanceCount == null ? (
+              'QQ 运行状态尚未确认，请先恢复数据读取权限并重新检查。'
+            ) : (
+              <>
+                检测到 {overview.qqInstanceCount} 个 QQ 实例正在运行，请先<b>完全退出 QQ</b>。
+              </>
+            )}
           </span>
         </div>
       )}

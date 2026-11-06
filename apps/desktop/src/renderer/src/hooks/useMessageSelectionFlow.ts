@@ -284,7 +284,11 @@ export function useMessageSelectionFlow({
       selection.selectedIdsRef.current = next;
       selection.setSelectedIds(next);
       if ([...next].some((id) => parseSelectionGap(id))) {
-        useToast.getState().push({ tone: 'warning', title: `所选缺口尚未补全，未执行${action}` });
+        useToast.getState().push({
+          tone: 'warning',
+          durationKind: 'success',
+          title: `所选缺口尚未补全，未执行${action}`,
+        });
         return null;
       }
       return selectedFrom(next);

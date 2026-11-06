@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weq.local/schemas/export/v1/archive.schema.json",
+  "title": "WeQ JSON 正式归档（待实现设计）",
+  "allOf": [
+    { "$ref": "#/$defs/header" },
+    {
+      "type": "object",
+      "required": ["records", "observations", "resources"],
+      "properties": {
+        "records": { "type": "array", "items": { "$ref": "#/$defs/record" } },
+        "observations": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/observation" }
+        },
+        "resources": { "type": "array", "items": { "$ref": "#/$defs/resource" } }
+      }
+    }
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "header": {
+      "type": "object",
+      "required": ["format", "version", "profile", "archiveId", "scope", "formats", "incremental"],
+      "properties": {
+        "format": { "const": "weq-export" },
+        "version": { "const": "1.0" },
+        "profile": {
+          "enum": ["basic", "full"],
+          "description": "首次导出的内容范围选项，不参与格式分派，不限制后续记录是否含 native，也不证明取得覆盖完整。"
+        },
+        "archiveId": { "$ref": "common.schema.json#/$defs/id" },
+        "scope": {
+          "type": "object",
+          "required": ["account", "selection"],
+          "properties": {
+            "account": { "$ref": "common.schema.json#/$defs/actor" },
+            "partition": { "$ref": "common.schema.json#/$defs/id" },
+            "selection": { "$ref": "common.schema.json#/$defs/value" }
+          },
+          "additionalProperties": false
+        },
+        "formats": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["json", "jsonl"] }
+        },
+        "incremental": {
+          "type": "object",
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "authority": { "enum": ["json", "jsonl"] }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": true } } },
+              "then": { "required": ["authority"] },
+              "else": { "not": { "required": ["authority"] } }
+            }
+          ],
+          "additionalProperties": false
+        },
+        "externalReferences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "reason"],
+            "properties": {
+              "id": { "$ref": "common.schema.json#/$defs/id" },
+              "kind": { "$ref": "common.schema.json#/$defs/id" },
+              "reason": { "enum": ["not-selected", "unavailable"] }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "record": {
+      "oneOf": [
+        { "$ref": "message.schema.json" },
+        { "$ref": "qzone.schema.json" },
+        { "$ref": "collection.schema.json" },
+        { "$ref": "mail.schema.json" },
+        { "$ref": "directory.schema.json" },
+        { "$ref": "generated.schema.json" },
+        { "$ref": "resource-directory.schema.json" }
+      ]
+    },
+    "resource": {
+      "allOf": [
+        { "$ref": "common.schema.json#/$defs/resource" },
+        {
+          "dependentRequired": { "native": ["source"], "source": ["native"] },
+          "properties": {
+            "native": { "$ref": "common.schema.json#/$defs/native" },
+            "source": { "$ref": "common.schema.json#/$defs/source" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

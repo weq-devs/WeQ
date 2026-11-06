@@ -497,7 +497,7 @@ describe('MessageSendService.sendText（离线集成）', () => {
       messageBody?: Record<string, unknown>;
     };
     expect(body.routingHead).toEqual({
-      trans0x211: { toUin: 10001n, ccCmd: 7, uid: target.targetId },
+      trans0x211: { toUin: 10001n, ccCmd: 7, uid: 'u_me' },
     });
     expect(body.messageBody?.msgContent).toBeInstanceOf(Uint8Array);
     expect(body.messageBody?.richText).toBeUndefined();
@@ -529,12 +529,21 @@ describe('MessageSendService.sendText（离线集成）', () => {
       routingHead?: Record<string, unknown>;
       messageBody: { msgContent: Uint8Array };
     };
-    expect(body.routingHead).toEqual({ trans0x211: { toUin: 10001n, ccCmd: 7, uid } });
+    expect(body.routingHead).toEqual({ trans0x211: { toUin: 10001n, ccCmd: 7, uid: 'u_me' } });
     // header field 10 是目的终端类型，generic 文本不会带这对字节。
     expect(Buffer.from(body.messageBody.msgContent).includes(Buffer.from([0x50, terminal]))).toBe(
       true,
     );
     expect(saved).toBe(0);
+  });
+
+  it('设备发送缺少本人真实 UID 时不发包，不用设备伪 UID 代替', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession({ selfUid: '' }), () => 1);
+    await expect(
+      svc.sendText({ peerType: 'c2c', targetId: 'u_Wcc5rknRRqRO8y5gxMD6sA', text: '手机' }),
+    ).rejects.toThrow(/本人.*UID/);
+    expect(native.calls).toHaveLength(0);
   });
 
   it('设备媒体和群临时路由在网络前拒绝，不转成给本人发普通消息', async () => {
@@ -1392,6 +1401,24 @@ describe('sendForward（合并转发，离线）', () => {
     expect(cardJson.meta?.detail?.source).toBe('小明的聊天记录');
     expect(cardJson.meta?.detail?.summary).toBe('查看1条转发消息');
     expect(cardJson.meta?.detail?.news).toEqual([{ text: '小明: 你好' }]);
+  });
+
+  it.each(['group', 'c2c'] as const)('群记录转发到 %s 时保留群聊标题', async (peerType) => {
+    const native = forwardNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    await svc.sendForward({
+      peerType,
+      targetId: peerType === 'group' ? '42' : '20002',
+      title: '群聊的聊天记录',
+      nodes: [{ nickname: '小明', elements: [{ kind: 'text', textContent: '你好' }] }],
+    });
+    const request = decode(SEND_MESSAGE_REQUEST, native.calls[1]!.body) as {
+      messageBody: { richText: { elems: { lightApp: { data: Uint8Array } }[] } };
+    };
+    const data = request.messageBody.richText.elems[0]!.lightApp.data;
+    const card = JSON.parse(inflateSync(Buffer.from(data).subarray(1)).toString('utf8'));
+    expect(card.meta.detail.source).toBe('群聊的聊天记录');
+    expect(card.meta.detail.news).toEqual([{ text: '小明: 你好' }]);
   });
 
   it('私聊：长消息用自己 uid 的槽位，卡片走 c2c 路由', async () => {

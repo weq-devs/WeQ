@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
-import { Toggle } from './controls';
+import { Row, Toggle } from './controls';
 
 export function VoiceAutoTranscribeSetting() {
   const active = useTabActive();
@@ -18,18 +18,18 @@ export function VoiceAutoTranscribeSetting() {
       setError(error instanceof Error ? error.message : String(error));
     }
   }
+  const toggle = (
+    <Toggle
+      label="语音消息自动转文字"
+      checked={settings.data?.voiceTranscribe?.autoTranscribe ?? false}
+      disabled={!settings.data || mutation.isLoading}
+      onChange={(enabled) => void save(enabled)}
+    />
+  );
   return (
-    <div className="weq-settings-appearance-card" data-setting-id="auto-transcribe-voice">
-      <div className="weq-settings-appearance-head">
-        <strong>语音消息自动转文字</strong>
-        <Toggle
-          label="语音消息自动转文字"
-          checked={settings.data?.voiceTranscribe?.autoTranscribe ?? false}
-          disabled={!settings.data || mutation.isLoading}
-          onChange={(enabled) => void save(enabled)}
-        />
-      </div>
+    <>
+      <Row settingId="auto-transcribe-voice" label="语音消息自动转文字" control={toggle} />
       {error ? <p role="alert">{error}</p> : null}
-    </div>
+    </>
   );
 }

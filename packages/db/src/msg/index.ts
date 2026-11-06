@@ -33,7 +33,7 @@ export type {
   SourceSearchTable,
 } from './source_search';
 
-export { UnreadInfoDb } from './unread_info';
+export { UnreadInfoDb, UNREAD_OUTGOING_PAGE_SIZE } from './unread_info';
 export type {
   UnreadInfoDbOptions,
   UnreadInfoResult,

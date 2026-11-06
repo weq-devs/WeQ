@@ -47,6 +47,8 @@ import '../styles/rail-account.css';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useMenuCapture } from '../hooks/useMenuCapture';
 import { captureMenuScreenshot } from '../lib/menuScreenshot';
+import { captureWebWindow } from '../lib/webScreenshot';
+import { IS_WEB } from '../lib/target';
 import '../styles/menu-capture.css';
 
 function errMsg(e: unknown): string {
@@ -59,7 +61,7 @@ function MenuCaptureButton({ onCapture }: { onCapture: () => Promise<void> }): R
     <button
       type="button"
       className="weq-workspace-control weq-menu-capture-button"
-      title="截图当前窗口（复制到剪贴板）"
+      title={IS_WEB ? '截图当前界面' : '截图当前窗口（复制到剪贴板）'}
       aria-label="截图当前窗口"
       {...menuCapture}
     >
@@ -177,18 +179,30 @@ export function RailAccountFooter({
   async function captureNow(): Promise<void> {
     if (capturePending.current) return;
     const bridge = shellBridge();
-    if (!bridge) return;
     capturePending.current = true;
     try {
       const res = await captureMenuScreenshot(
-        () => bridge.capture.window(),
+        () =>
+          bridge
+            ? bridge.capture
+                .window()
+                .then((result) => ({ ...result, delivery: 'clipboard' as const }))
+            : captureWebWindow(),
         () => {
           setOpen(false);
           useWorkspaceMenu.getState().close();
         },
       );
       if (res.ok) {
-        pushToast({ tone: 'success', title: '截图已复制', message: '窗口截图已写入剪贴板' });
+        pushToast({
+          tone: 'success',
+          title:
+            res.delivery === 'native'
+              ? '截图已生成'
+              : res.delivery === 'download'
+                ? '截图已生成并请求下载'
+                : '截图已复制',
+        });
       } else {
         showError('截图失败', res.error ?? '未知错误');
       }
@@ -316,9 +330,7 @@ export function RailAccountFooter({
           <QqAvatar uin={currentUin} url={currentAvatarUrl ?? null} size={36} />
         </button>
       </div>
-      <DesktopOnly>
-        <MenuCaptureButton onCapture={captureNow} />
-      </DesktopOnly>
+      <MenuCaptureButton onCapture={captureNow} />
       <button
         type="button"
         className="weq-workspace-control"

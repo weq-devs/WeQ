@@ -149,14 +149,17 @@ export function useExportAuthorization(options: ExportOptions, enabled: boolean)
       const current = await readReadiness(value.transcribeVoice && value.onlineTranscribe);
       if (!alive.current) return null;
       setState(current);
-      if (!exportAuthorizationPlan(value, current).needed) return value;
+      const plan = exportAuthorizationPlan(value, current);
+      if (!plan.needed) return value;
       known.current = new Set(
         useRestrictedMode.getState().requests.map((r) => `${r.kind}:${r.token}`),
       );
       setError('');
-      setPending({ options: structuredClone(value), state: current });
+      const snapshot = { options: structuredClone(value), state: current };
       return await new Promise<ExportOptions | null>((done) => {
         resolve.current = done;
+        if (plan.elevate) setPending(snapshot);
+        else void authorize(snapshot);
       });
     } catch (e) {
       useToast.getState().push({ tone: 'error', title: '检查导出授权失败', detail: String(e) });
@@ -165,9 +168,8 @@ export function useExportAuthorization(options: ExportOptions, enabled: boolean)
       preparing.current = false;
     }
   }
-  async function authorize() {
-    if (!pending || busy) return;
-    const snapshot = pending;
+  async function authorize(snapshot = pending) {
+    if (!snapshot || busy) return;
     const plan = exportAuthorizationPlan(snapshot.options, snapshot.state);
     cancelled.current = false;
     operationActive.current = true;
@@ -176,6 +178,7 @@ export function useExportAuthorization(options: ExportOptions, enabled: boolean)
     const unsubscribe = useRestrictedMode.subscribe(() => {
       if (cancelled.current || !alive.current)
         for (const request of owned()) cancelAuthorizationRequest(request);
+      else if (owned().length) setPending(snapshot);
     });
     try {
       if (plan.roaming || plan.ocr || plan.media) {
@@ -204,7 +207,10 @@ export function useExportAuthorization(options: ExportOptions, enabled: boolean)
       setState(refreshed);
       settle(snapshot.options);
     } catch (e) {
-      if (!cancelled.current && alive.current) setError(e instanceof Error ? e.message : String(e));
+      if (!cancelled.current && alive.current) {
+        setPending(snapshot);
+        setError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
       operationActive.current = false;
       unsubscribe();
@@ -256,10 +262,13 @@ export function useExportAuthorization(options: ExportOptions, enabled: boolean)
               </ul>
               {requests
                 .filter(() => busy)
-                .map((request) => (
+                .map((request, index) => (
                   <AuthorizationForm
                     key={`${request.kind}:${request.token}`}
                     request={request}
+                    showLongTermAuthorization={
+                      index === requests.findLastIndex((item) => !item.title.includes('长期授权'))
+                    }
                     onOpenLongTermAuthorization={() => settle(null)}
                   />
                 ))}

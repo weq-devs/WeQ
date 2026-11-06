@@ -21,9 +21,11 @@
 
 import { mkdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
-import { createHash } from 'node:crypto';
 import { downloadUrlToFile } from '../media_url';
 import { writeFileStream } from './table_writer';
+import { writeQzoneArchive } from './archive_domain';
+import { fileDigest } from './archive_resource';
+import type { ArchiveOptions } from './archive';
 import type { QzoneEmotion, QzoneEmotionVideo, QzoneMsgListResult } from '../web/qzone';
 import type {
   QzoneComment,
@@ -86,7 +88,7 @@ export interface QzoneExportDeps extends Partial<QzoneAlbumExportDeps> {
 }
 
 /** 说说导出可选产物格式。 */
-export type QzoneFormat = 'json' | 'txt' | 'html';
+export type QzoneFormat = 'json' | 'jsonl' | 'txt' | 'html';
 
 export interface QzoneExportOpts {
   tids?: string[];
@@ -203,6 +205,7 @@ export interface QzoneCollectOpts extends QzonePaginationOptions {
 
 /** {@link writeQzone} 的入参。 */
 export interface QzoneWriteOpts {
+  archive?: ArchiveOptions;
   /** 展示名（HTML 资料头 / 标题用）。 */
   name: string;
   /** 目标空间 uin（HTML 资料头用）。 */
@@ -604,8 +607,7 @@ const QZONE_HTML_STYLE = `
   .pictures { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 6px; margin-top: 10px; }
   .pictures.is-one { grid-template-columns: minmax(0, 1fr); }
   .pictures a { display: block; border-radius: 8px; overflow: hidden; background: #eef2f7; }
-  .pictures img { display: block; width: 100%; height: 210px; object-fit: cover; }
-  .pictures.is-one img { height: auto; max-height: 720px; object-fit: contain; }
+  .pictures img { display: block; width: auto; height: auto; max-width: 100%; max-height: 720px; object-fit: contain; }
   .pictures video.media-video { display: block; width: 100%; height: 210px; object-fit: contain; background: #0d1117; border-radius: 8px; }
   .pictures.is-one video.media-video { height: auto; max-height: 720px; }
   .pictures a.video-link { position: relative; }
@@ -633,7 +635,6 @@ const QZONE_HTML_STYLE = `
     .wrap { padding: 12px 8px 32px; }
     .card, .profile { padding: 13px 14px; border-radius: 14px; }
     .pictures { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
-    .pictures img { height: 140px; }
     .pictures video.media-video { height: 140px; }
   }
 `;
@@ -1558,8 +1559,8 @@ export async function writeQzone(
 ): Promise<void> {
   const rows = data.rows;
   const body =
-    format === 'json'
-      ? JSON.stringify(rows, null, 2)
+    format === 'json' || format === 'jsonl'
+      ? null
       : format === 'html'
         ? buildHtmlDoc(
             opts.name,
@@ -1578,8 +1579,9 @@ export async function writeQzone(
               .join('\n'),
           )
         : rows.map(emotionToTxt).join('\n');
-  await writeFileStream(opts.outputPath, body);
-  const bodySha256 = createHash('sha256').update(body).digest('hex');
+  if (format === 'json' || format === 'jsonl') await writeQzoneArchive(data, opts, format);
+  else await writeFileStream(opts.outputPath, body!);
+  const bodySha256 = (await fileDigest(opts.outputPath)).sha256;
   await writeFileStream(
     `${opts.outputPath}.coverage.json`,
     JSON.stringify(

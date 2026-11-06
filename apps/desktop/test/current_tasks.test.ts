@@ -176,6 +176,10 @@ describe('统一当前任务', () => {
         ),
       );
       expect(host.textContent).toContain('合成逐条转发');
+      expect(host.textContent).not.toContain('旧闪传目录');
+      expect(
+        host.querySelector('[aria-label="清除已完成任务"]')?.classList.contains('weq-set-btn-soft'),
+      ).toBe(true);
       expect(host.textContent).not.toContain('其他账号转发');
       act(() =>
         [...host.querySelectorAll<HTMLButtonElement>('.weq-long-task')]

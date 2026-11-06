@@ -1,12 +1,15 @@
 import { create } from 'zustand';
 import { accentColors, normalizeHex } from '../../../shared/theme_colors';
 import '../styles/component-appearance.css';
+import '../styles/qqnt-appearance.css';
+import '../styles/retro-appearance.css';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type ThemeResolved = 'light' | 'dark';
 export type ThemeBackground = 'plain' | 'paper' | 'grid' | 'dots' | 'wash' | 'telegram';
 export const componentStyles = [
-  { value: 'classic', label: '经典（默认）' },
+  { value: 'qqnt', label: 'QQ NT（默认）' },
+  { value: 'classic', label: '经典' },
   { value: 'minimal', label: '简约' },
   { value: 'retro', label: '复古' },
 ] as const;
@@ -88,18 +91,18 @@ function readAccent(): string {
 function readBackground(): ThemeBackground {
   try {
     const value = window.localStorage.getItem(storageKeys.background);
-    return isThemeBackground(value) ? value : 'paper';
+    return isThemeBackground(value) ? value : 'plain';
   } catch {
-    return 'paper';
+    return 'plain';
   }
 }
 
 function readComponentStyle(): ThemeComponentStyle {
   try {
     const value = window.localStorage.getItem(storageKeys.componentStyle);
-    return isThemeComponentStyle(value) ? value : 'classic';
+    return isThemeComponentStyle(value) ? value : 'qqnt';
   } catch {
-    return 'classic';
+    return 'qqnt';
   }
 }
 
@@ -231,8 +234,8 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   preference: 'system',
   resolved: 'light',
   accent: '',
-  background: 'paper',
-  componentStyle: 'classic',
+  background: 'plain',
+  componentStyle: 'qqnt',
   density: 'comfortable',
   initialized: false,
   setPreference: (preference) => {

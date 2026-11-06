@@ -88,7 +88,11 @@ export function BackgroundTaskDetails({
       ) : null}
       <div className="weq-long-task-actions">
         {task.download ? (
-          <a className="weq-set-btn" href={task.download.url} download={task.download.name}>
+          <a
+            className="weq-set-btn weq-set-btn-soft"
+            href={task.download.url}
+            download={task.download.name}
+          >
             <Download size={14} />
             下载到浏览器
           </a>
@@ -97,7 +101,7 @@ export function BackgroundTaskDetails({
           <button
             key={action.id}
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-soft"
             disabled={busy}
             onClick={() =>
               void act(() =>
@@ -120,7 +124,7 @@ export function BackgroundTaskDetails({
         {task.kind === 'update' && task.status === 'completed' && !IS_WEB ? (
           <button
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-soft"
             disabled={busy}
             onClick={() => void act(() => client.update.install.mutate())}
           >
@@ -131,7 +135,7 @@ export function BackgroundTaskDetails({
         {task.status !== 'running' ? (
           <button
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-soft"
             disabled={busy}
             onClick={() => void act(() => removeBackgroundTask(entry, scope))}
           >

@@ -128,7 +128,11 @@ describe('UnreadInfoDb.getUnreadInfo', () => {
     const many = await reader.getUnreadInfos(extraTargets, { selfUid: 'u_self', selfUin: '10001' });
     expect(many).toHaveLength(extraTargets.length);
     expect(many.every((row) => row.outgoingSeqs?.join() === '1733')).toBe(true);
-    expect(query).toHaveBeenCalledTimes(6);
+    const watermarks = query.mock.calls.filter(([, sql]) =>
+      sql.includes('LEFT JOIN msg_unread_info_table'),
+    );
+    expect(watermarks.length).toBeGreaterThan(1);
+    expect(query).toHaveBeenCalledTimes(extraTargets.length + watermarks.length);
     for (const call of query.mock.calls) expect(call[2]!.length).toBeLessThan(999);
     reader.close();
   });

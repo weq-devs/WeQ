@@ -1,4 +1,9 @@
 import { useMemo, useState } from 'react';
+import {
+  StructuredExportControls,
+  structuredExportOptions,
+  type StructuredExportOptions,
+} from './StructuredExportControls';
 import { Download, RotateCw, Search, Sparkles, Users } from 'lucide-react';
 import type {
   ExportSavePolicy,
@@ -89,6 +94,10 @@ export function GeneratedExportPane({
   });
   const [keyword, setKeyword] = useState('');
   const [formats, setFormats] = useState(new Set<BackendFormat>(['json']));
+  const [structured, setStructured] = useState<StructuredExportOptions>({
+    profile: 'basic',
+    incrementalSupport: false,
+  });
   const [busy, setBusy] = useState(false);
   const report = useExportReportDialog();
   const [error, setError] = useState('');
@@ -218,6 +227,7 @@ export function GeneratedExportPane({
       target: { ...target },
       messageIds: ids === undefined ? undefined : [...ids],
       formats: [...formats],
+      ...structuredExportOptions(structured, [...formats]),
     };
     setBusy(true);
     setError('');
@@ -413,6 +423,14 @@ export function GeneratedExportPane({
         </div>
       </div>
       {error ? <p role="alert">{error}</p> : null}
+      <StructuredExportControls
+        domain="generatedParameters"
+        onRequireJson={() => setFormats((current) => new Set(current).add('json'))}
+        options={structured}
+        formats={[...formats]}
+        disabled={busy}
+        onChange={(value) => setStructured((current) => ({ ...current, ...value }))}
+      />
       <footer className="weq-generated-export-foot">
         <div role="group" aria-label="生成对话导出格式" {...formatMulti.rootProps}>
           {FORMATS.map((format) => (

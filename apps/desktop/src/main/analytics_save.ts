@@ -5,6 +5,20 @@ import { getAppContext } from './context/app_context';
 import { exportSavePolicyInput, prepareExportDestination } from './ipc/routers/export_save';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
 
+let analyticsRenderer: ((payload: AnalyticsExportPayload) => Promise<Buffer>) | undefined;
+export function setAnalyticsRenderer(
+  render: (payload: AnalyticsExportPayload) => Promise<Buffer>,
+): void {
+  analyticsRenderer = render;
+}
+export function saveAnalyticsFromWeb(
+  payload: AnalyticsExportPayload,
+): Promise<AnalyticsExportResult> {
+  if (!analyticsRenderer)
+    throw new Error('当前独立 Web 服务没有图片渲染引擎，请连接桌面端开启的 Web 服务。');
+  return startAnalyticsSave(payload, analyticsRenderer);
+}
+
 /** 固定本次统计快照；选好位置后才排队捕获长图。 */
 export async function startAnalyticsSave(
   payload: AnalyticsExportPayload,

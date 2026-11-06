@@ -16,6 +16,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { trpc } from '../trpc/client';
+import { pickAccountFile } from '../lib/accountFilePicker';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useFriendSpecialCare } from '../hooks/useFriendSpecialCare';
@@ -117,7 +118,6 @@ export function QQConversationControls({
   const card = trpc.account.qqWrite.groupMemberCard.useMutation();
   const title = trpc.account.qqWrite.groupSpecialTitle.useMutation();
   const avatar = trpc.account.qqWrite.groupAvatar.useMutation();
-  const picker = trpc.account.pickSendFile.useMutation();
   const confirm = useDialog((state) => state.confirm);
   const [revision, setRevision] = useState(0);
   const [picking, setPicking] = useState(false);
@@ -206,7 +206,7 @@ export function QQConversationControls({
     setPicking(true);
     setPickerError('');
     try {
-      const file = await picker.mutateAsync({ kind: 'image' });
+      const file = await pickAccountFile('image', session.binding ?? undefined);
       if (file) {
         const saved = await act((binding) =>
           avatar.mutateAsync({ ...binding, groupId: Number(conv), source: file.path }),

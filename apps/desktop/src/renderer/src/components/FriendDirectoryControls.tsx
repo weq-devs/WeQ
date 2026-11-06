@@ -113,9 +113,10 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
         assignments,
         busy,
         available: session.available && !roster.error && Boolean(categories),
-        error:
-          roster.error?.message ??
-          (session.available && roster.data && !categories ? '云端未返回好友分组目录' : undefined),
+        error: session.available
+          ? (roster.error?.message ??
+            (roster.data && !categories ? '云端未返回好友分组目录' : undefined))
+          : undefined,
         retry: () => void roster.refetch(),
         create: () => edit('create'),
         edit,

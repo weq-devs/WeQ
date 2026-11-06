@@ -43,7 +43,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 beforeEach(() => vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true));
 afterEach(() => vi.unstubAllGlobals());
 
-it('新建克隆不自动启用默认模型，聊天、向量与视觉可分别显式继承', () => {
+it.each([false, true])('新建克隆预选默认聊天模型，不受模型列表是否为空影响（%s）', (hasModels) => {
   const host = document.createElement('div');
   const root = createRoot(host);
   const start = vi.fn();
@@ -63,16 +63,32 @@ it('新建克隆不自动启用默认模型，聊天、向量与视觉可分别�
         createElement(NewCloneModal, {
           buddies: [{ uid: 'u_synthetic', uin: '10001', label: '合成好友' }],
           initialSelectedUids: ['u_synthetic'],
-          flatModels: { chat: [], embedding: [], vision: [] },
+          flatModels: {
+            chat: hasModels
+              ? [
+                  {
+                    key: 'synthetic/chat',
+                    providerId: 'synthetic',
+                    model: 'chat',
+                    label: '合成模型',
+                  },
+                ]
+              : [],
+            embedding: [],
+            vision: [],
+          },
           onClose: vi.fn(),
           onStart: start,
         }),
       ),
     );
     act(() => button('下一步').click());
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="克隆聊天模型"]')!.value).toBe('');
-    expect(button('开始克隆').disabled).toBe(true);
-    choose('克隆聊天模型');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="克隆聊天模型"]')!.value).toBe(
+      DEFAULT_MODEL_SELECTION_KEY,
+    );
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="克隆向量模型"]')!.value).toBe('');
+    expect(host.querySelector('[aria-label="克隆视觉模型"]')).toBeNull();
+    expect(button('开始克隆').disabled).toBe(false);
     act(() => button('开始克隆').click());
     expect(start.mock.calls[0]![0].params.models).toEqual({ chat: { useDefault: true } });
     choose('克隆向量模型');

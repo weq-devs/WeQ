@@ -23,6 +23,7 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import { readMessageSourceRows } from './export_source';
 import { nativeHistoryCursor } from './history';
 import type {
   C2cInitiationTally,
@@ -61,7 +62,23 @@ import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 //           history (see C2cMsg.msgRandom);
 //   40005 = the sender-local client sequence = the wire `contentHead.sequence`
 //           (tag 5) that a private-chat reply must quote (see C2cMsg.clientSeq).
-const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012","40801","40002","40005","40013"`;
+const SELECT_COLUMN_NAMES = [
+  '40001',
+  '40020',
+  '40021',
+  '40030',
+  '40033',
+  '40050',
+  '40800',
+  '40003',
+  '40011',
+  '40012',
+  '40801',
+  '40002',
+  '40005',
+  '40013',
+] as const;
+const SELECT_COLUMNS = SELECT_COLUMN_NAMES.map((column) => `"${column}"`).join(',');
 
 /**
  * 会话切分阈值：沉默超过这个时长，下一次说话就是一场新对话。私聊总结
@@ -119,6 +136,22 @@ export class C2cMsgDb {
   }
   get sourcePath(): string {
     return this.qq.dbPath;
+  }
+  async exportSourceRows(part: C2cPartition, ids: readonly string[], full = true) {
+    const column = 'sortNo' in part ? '40027' : 'appId' in part ? '40035' : '40021';
+    const value = 'sortNo' in part ? part.sortNo : 'appId' in part ? part.appId : part.uid;
+    const rows = await readMessageSourceRows(
+      this.qq,
+      this.table,
+      column,
+      value,
+      ids,
+      full ? undefined : [...new Set([...SELECT_COLUMN_NAMES, column])],
+    );
+    return rows.map((source) => ({
+      ...source,
+      message: rowToC2cMsg(SELECT_COLUMN_NAMES.map((column) => source.columns[column] ?? null)),
+    }));
   }
 
   calendar(part: C2cPartition) {

@@ -40,19 +40,17 @@ it('发布工作流默认只读，只有实际发布产物或说明的 job 可�
   }
 });
 
-it('两个 QQ 通知分支均固定完整提交，保留消息、附件和显式凭据输入', () => {
+it('QQ 通知固定完整提交，保留消息、附件和显式凭据输入', () => {
   const steps = (workflow.jobs['qq-notify']?.steps ?? []).filter((step) =>
     step.uses?.startsWith('H3CoF6/qq-notify-action@'),
   );
-  expect(steps).toHaveLength(2);
+  expect(steps).toHaveLength(1);
   for (const step of steps) {
     expect(step.uses).toMatch(/^H3CoF6\/qq-notify-action@[0-9a-f]{40}$/);
     expect(step.with?.appid).toMatch(/^\$\{\{\s*secrets\.QQ_APPID\s*\}\}$/);
     expect(step.with?.secret).toMatch(/^\$\{\{\s*secrets\.QQ_SECRET\s*\}\}$/);
     expect(step.with?.group_openid).toMatch(/^\$\{\{\s*secrets\.QQ_GROUP_OPENID\s*\}\}$/);
-    expect(step.with?.message).toContain('steps.prep.outputs.body');
+    expect(step.with?.message).toContain('steps.prep.outputs.message');
+    expect(step.with?.file_path).toContain('steps.prep.outputs.ver');
   }
-  expect(steps[0]!.uses).toBe(steps[1]!.uses);
-  expect(steps[0]!.with?.file_path).toContain('steps.prep.outputs.pkg');
-  expect(steps[1]!.with?.file_path).toBeUndefined();
 });

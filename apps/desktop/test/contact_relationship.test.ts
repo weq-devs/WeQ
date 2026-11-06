@@ -12,7 +12,7 @@ import {
   GroupProfileDialog,
 } from '../src/renderer/src/im-template/template/profilePanes';
 import { PersonRelationshipStatus } from '../src/renderer/src/components/RelationshipStatus';
-import { GroupList } from '../src/renderer/src/im-template/template/conversationLists';
+import { ContactList, GroupList } from '../src/renderer/src/im-template/template/conversationLists';
 import { GroupSettingsPanel } from '../src/renderer/src/im-template/template/groupSettingsPanel';
 import type { Contact, GroupConversation } from '../src/renderer/src/im-template/template/types';
 
@@ -21,6 +21,9 @@ vi.mock('../src/renderer/src/components/ContactWorkspace', () => ({
 }));
 vi.mock('../src/renderer/src/components/qq-actions/CommonRelationships', () => ({
   CommonRelationships: () => null,
+}));
+vi.mock('../src/renderer/src/components/qq-actions/FriendClue', () => ({
+  FriendClue: ({ uid }: { uid: string }) => h('div', { 'data-friend-clue': uid }),
 }));
 vi.mock('../src/renderer/src/components/qq-actions/ProfileLikesRow', () => ({
   ProfileLikesRow: () => null,
@@ -120,6 +123,9 @@ it.each([false, true])(
     expect(scope.querySelector('[data-relationship="friend"]')?.textContent).toContain('我的好友');
     expect(scope.querySelector('[data-relationship="friend"]')?.textContent).toContain('同学');
     expect(scope.querySelector('[aria-label="联系人资料"]')).not.toBeNull();
+    expect(scope.querySelector('[data-friend-clue]')?.getAttribute('data-friend-clue')).toBe(
+      person.id,
+    );
   },
 );
 
@@ -130,6 +136,27 @@ it('名册刷新实时改变关系，非好友和未知都不显示好友分组'
   expect(host.textContent).toBe('非好友');
   render(null);
   expect(host.textContent).toBe('关系待确认');
+});
+
+it('联系人列表不显示好友关系标识，保留姓名和签名', () => {
+  const stranger = { ...person, id: 'u_stranger', displayName: '合成访客', signature: '访客签名' };
+  const { host } = mount(
+    h(ContactList, {
+      contacts: [{ ...person, signature: '好友签名' }],
+      trailingSections: [{ id: 'history:test', name: '历史联系人', items: [stranger] }],
+      activeContactId: person.id,
+      onSelect: vi.fn(),
+    }),
+  );
+  act(() => {
+    for (const header of host.querySelectorAll<HTMLButtonElement>('.contact-cat-header'))
+      header.click();
+  });
+  expect(host.querySelectorAll('.contact-row')).toHaveLength(2);
+  expect(host.querySelector('.contact-row [data-relationship]')).toBeNull();
+  expect(host.textContent).not.toContain('非好友');
+  for (const text of [person.displayName, stranger.displayName, '好友签名', '访客签名'])
+    expect(host.textContent).toContain(text);
 });
 
 it.each(['20001', '20002', '20003'])('群名片 %s 显示关系，群外不显示旧管理身份', (code) => {

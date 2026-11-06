@@ -33,6 +33,7 @@ import {
 import { startElevatedCaptureWorker, type ElevatedCaptureWorker } from './capture_elevation';
 import { CaptureOwnership } from './capture_ownership';
 import { connectLongTermAuthorization } from './authorization/client';
+import { requireCaptureProcessScope } from './capture_process_scope';
 
 const logger = getLogger().child({ scope: 'capture-session' });
 
@@ -263,6 +264,7 @@ export async function startAccountCapture(
             // `d2key` 会被静默忽略 → 密文全部解不开。
             d2Key,
           });
+          requireCaptureProcessScope(platform.kind, session.linktype, opts.port);
           return { pid, sessionId: request.id, elevated: false, hasD2Key: Boolean(d2Key), session };
         }
 
@@ -274,6 +276,7 @@ export async function startAccountCapture(
           port: opts.port,
           d2key: d2Key,
         });
+        requireCaptureProcessScope(platform.kind, session.linktype, opts.port);
         return { pid, sessionId: request.id, elevated: true, hasD2Key: Boolean(d2Key), session };
       },
       () => stopCaptureBackend(pid),

@@ -1,10 +1,11 @@
 // @vitest-environment node
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager, type MsgService } from '@weq/service';
-import { MailFailure } from '@weq/service/mail';
+import { MailFailure, type MailDetail } from '@weq/service/mail';
+import { readArchive } from '../../../packages/service/src/account/export/archive';
 import { mailRouter } from '../src/main/ipc/routers/mail';
 
 const state = vi.hoisted(() => ({ configId: 'source-a', services: {} as object }));
@@ -14,6 +15,26 @@ vi.mock('../src/main/context/app_context', () => ({
 const attachmentId = '11111111-1111-4111-8111-111111111111';
 const input = { selfUin: '10001', expectedAccountConfigId: 'source-a', id: attachmentId };
 const attachment = { name: '合成附件.TXT', size: 7, available: true };
+const detail: MailDetail = {
+  id: 'mail-fixture',
+  folderId: 1,
+  messageId: 'synthetic-message',
+  subject: '合成邮件',
+  snippet: '',
+  sender: { name: '合成发件人', email: 'sender@example.invalid' },
+  to: [],
+  cc: [],
+  bcc: [],
+  time: 100,
+  size: 7,
+  unread: true,
+  starred: false,
+  hasAttachments: false,
+  draft: false,
+  replyTo: null,
+  html: '<p>正文</p>',
+  attachments: [],
+};
 const download = vi.fn(async (_id: string, path: string, signal?: AbortSignal) => {
   signal?.throwIfAborted();
   writeFileSync(path, 'fixture');
@@ -55,13 +76,7 @@ it('附件令牌固定身份，按原扩展名保存且不覆盖同名文件', a
   expect(readFileSync(target, 'utf8')).toBe('personal');
 });
 it('整封邮件复用公共目录任务，旧来源不入队，完成后保留正文与元数据', async () => {
-  const read = vi.fn(async () => ({
-    id: 'mail-fixture',
-    subject: '合成邮件',
-    html: '<p>正文</p>',
-    attachments: [],
-    unread: true,
-  }));
+  const read = vi.fn(async () => structuredClone(detail));
   Object.assign((state.services as { mail: object }).mail, { read });
   const api = mailRouter.createCaller({});
   await expect(
@@ -81,10 +96,12 @@ it('整封邮件复用公共目录任务，旧来源不入队，完成后保留�
   await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
   const task = manager.getTask(id)!;
   expect(task.resource?.kind).toBe('mail-messages');
-  const entries = JSON.parse(readFileSync(join(task.bundleDir!, 'files', 'index.json'), 'utf8'));
-  expect(
-    readFileSync(join(task.bundleDir!, 'files', entries[0].directory, 'body.html'), 'utf8'),
-  ).toContain('正文');
+  const directory = join(task.bundleDir!, 'files');
+  const archive = readArchive(JSON.parse(readFileSync(join(directory, 'index.json'), 'utf8')));
+  expect(archive.records).toHaveLength(1);
+  expect(archive.records[0]!.data.mailId).toBe(detail.id);
+  const folder = readdirSync(directory).find((name) => name.startsWith('0001-'))!;
+  expect(readFileSync(join(directory, folder, 'body.html'), 'utf8')).toContain('正文');
   expect(read).toHaveBeenCalledWith('mail-fixture', expect.any(AbortSignal), false);
 });
 it('全量与筛选通过公共任务执行，非法日期范围不创建任务', async () => {
@@ -108,7 +125,7 @@ it('全量与筛选通过公共任务执行，非法日期范围不创建任务'
   Object.assign((state.services as { mail: object }).mail, {
     folders: vi.fn(async () => [{ id: 1, locked: false }]),
     list: vi.fn(async () => ({ items: [summary], hasMore: false })),
-    read: vi.fn(async () => ({ ...summary, html: '<p>全量正文</p>', attachments: [] })),
+    read: vi.fn(async () => ({ ...structuredClone(detail), ...summary, html: '<p>全量正文</p>' })),
   });
   const id = await api.exportMessages({
     selfUin: '10001',
@@ -120,9 +137,16 @@ it('全量与筛选通过公共任务执行，非法日期范围不创建任务'
   await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
   const task = manager.getTask(id)!;
   expect(task.resource?.kind).toBe('mail-messages');
-  expect(JSON.parse(readFileSync(join(task.bundleDir!, 'files', 'index.json'), 'utf8'))).toEqual([
-    { id: 'all-mail', directory: expect.any(String) },
-  ]);
+  const archive = readArchive(
+    JSON.parse(readFileSync(join(task.bundleDir!, 'files', 'index.json'), 'utf8')),
+  );
+  expect(archive.records).toHaveLength(1);
+  expect(archive.records[0]!.data.mailId).toBe(summary.id);
+  expect(archive.records[0]!.data.content).toContainEqual({
+    type: 'text',
+    text: '<p>全量正文</p>',
+    format: 'html',
+  });
 });
 it('预览只列出匹配邮件且不建任务，切换来源后拒绝预览', async () => {
   const api = mailRouter.createCaller({});

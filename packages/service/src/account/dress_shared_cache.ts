@@ -932,7 +932,10 @@ export class DressSharedCache {
    * 与安装流程共用「本地 bundle → protocol」的换链顺序：先查本地离线索引
    * （nt_helper 的 queryDressResourceUrl），没有再发 scupdate 包问在线实例。
    */
-  async bubbleConfigFile(itemId: number): Promise<Buffer | null> {
+  async bubbleConfigFile(itemId: number, localOnly = false): Promise<Buffer | null> {
+    const cached = join(this.bubblesDir, `${itemId}-config.json`);
+    if (existsSync(cached)) return readFileSync(cached);
+    if (localOnly) return null;
     const local = this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'config.json');
     let url = local?.url ?? null;
     if (!url) {
@@ -949,7 +952,10 @@ export class DressSharedCache {
     try {
       const r = await fetch(url);
       if (!r.ok) return null;
-      return Buffer.from(await r.arrayBuffer());
+      const bytes = Buffer.from(await r.arrayBuffer());
+      mkdirSync(this.bubblesDir, { recursive: true });
+      writeFileSync(cached, bytes);
+      return bytes;
     } catch {
       return null;
     }
@@ -961,9 +967,10 @@ export class DressSharedCache {
    * 只在动画帧解析失败时作兜底（msg_decoration 的「猜测拼接」对导出没有意义，
    * 这里走真实换链拿可下载的资源）。
    */
-  async pendantStaticFile(itemId: number): Promise<string | null> {
+  async pendantStaticFile(itemId: number, localOnly = false): Promise<string | null> {
     const dest = join(this.pendantsDir, `${itemId}-static.png`);
     if (existsSync(dest)) return dest;
+    if (localOnly) return null;
 
     const local = this.ntHelper.queryDressResourceUrl('widget', String(itemId), 'aio_50.png');
     let url = local?.url ?? null;

@@ -22,6 +22,9 @@ import { z } from 'zod';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
 import { withBrowserFile } from '../lib/browserFileUpload';
+import { stageAccountFile } from '../lib/accountFilePicker';
+import { WEB_NOTICE_OPEN } from '../components/WebNotifications';
+import type { WebNotice } from '../../../main/web/notices';
 import {
   createReplyPreviewIndex,
   findReplyPreview,
@@ -2731,8 +2734,12 @@ function MainWorkspace(): ReactElement {
           messageScope && messageScopeRef.current === messageScope && messageBindingRef.current,
         ),
       version: () => dbRevisionRef.current,
+      canPrefetch: (target) =>
+        conversationWindows.canPrefetch(
+          conversationWindowKey(messageScope, target.kind, target.conv),
+        ),
       fresh: (target) => {
-        const cached = conversationWindows.get(
+        const cached = conversationWindows.peek(
           conversationWindowKey(messageScope, target.kind, target.conv),
         );
         return Boolean(
@@ -3762,7 +3769,7 @@ function MainWorkspace(): ReactElement {
             });
             pushToast({
               tone: 'info',
-              durationKind: 'failure',
+              durationKind: 'success',
               message: '该缺口未拉取到可用记录，消息可能已过期或未开启漫游。',
             });
             return;
@@ -3771,7 +3778,7 @@ function MainWorkspace(): ReactElement {
         }
         pushToast({
           tone: 'info',
-          durationKind: 'failure',
+          durationKind: 'success',
           message: '已检查 240 个消息序号，暂未找到记录；可再次点击继续。',
         });
       } catch (error) {
@@ -4661,7 +4668,7 @@ function MainWorkspace(): ReactElement {
           botUids,
         );
       return {
-        id: item.uin,
+        id: item.uid,
         identityLabel: 'QQ',
         identityValue: item.uin,
         username: item.uin,
@@ -5205,7 +5212,16 @@ function MainWorkspace(): ReactElement {
       if (messages.length === 0) return;
       const members = mergeForwardMembersOf(c);
       void buildMergeForwardDraft(messages)
-        .then((draft) => setMergeForwardDraft({ draft, senderMode: 'conversation', members }))
+        .then((draft) =>
+          setMergeForwardDraft({
+            draft:
+              c.type === 'group'
+                ? { ...draft, title: draft.title || draftTitle(draft.nodes, 'group') }
+                : draft,
+            senderMode: 'conversation',
+            members,
+          }),
+        )
         .catch((error) =>
           pushToast({
             tone: 'error',
@@ -5270,6 +5286,7 @@ function MainWorkspace(): ReactElement {
           ...binding,
           peerType,
           targetId: target.conv,
+          title: draft.title || undefined,
           nodes,
         });
         if (!outcome.ok) {
@@ -6374,7 +6391,9 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     const uids: string[] = [];
     for (const contact of recentContactsData) {
-      const ids = previewIdentityIds(contact.preview).filter((id) => id.startsWith('u_'));
+      const ids = previewIdentityIds(contact.preview, contact.senderUid).filter((id) =>
+        id.startsWith('u_'),
+      );
       uids.push(...ids);
       if (chatTypeKind(contact.chatType) === 'group' && /^\d+$/.test(contact.targetUid))
         resolvePreviewMembers(contact.targetUid, ids, new Set(), () => true);
@@ -7228,7 +7247,11 @@ function MainWorkspace(): ReactElement {
         : [],
     );
     if (targets.length !== rows.length || targets.length > 4096) {
-      pushToast({ tone: 'warning', title: '请选择不超过 4096 个真实聊天会话' });
+      pushToast({
+        tone: 'warning',
+        durationKind: 'success',
+        title: '请选择不超过 4096 个真实聊天会话',
+      });
       return;
     }
     readStateBusyRef.current = true;
@@ -7303,7 +7326,7 @@ function MainWorkspace(): ReactElement {
   async function undoConversationReadState(undo = readUndoRef.current) {
     if (!undo || undo.accountUin !== openedUin || readStateBusyRef.current) return;
     if (readUndoRef.current?.token !== undo.token) {
-      pushToast({ tone: 'info', durationKind: 'failure', title: '请撤销最近一次标记' });
+      pushToast({ tone: 'info', durationKind: 'success', title: '请撤销最近一次标记' });
       return;
     }
     readStateBusyRef.current = true;
@@ -7649,7 +7672,7 @@ function MainWorkspace(): ReactElement {
           setMissingJumpSeq(targetSeq);
           pushToast({
             tone: 'info',
-            durationKind: 'failure',
+            durationKind: 'success',
             title: '未找到该条消息',
             detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
           });
@@ -7688,7 +7711,7 @@ function MainWorkspace(): ReactElement {
       const notFound = (): void => {
         pushToast({
           tone: 'info',
-          durationKind: 'failure',
+          durationKind: 'success',
           title: '未找到该条消息',
           detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
         });
@@ -7776,7 +7799,7 @@ function MainWorkspace(): ReactElement {
         if (toastOnMissingSeq) {
           pushToast({
             tone: 'info',
-            durationKind: 'failure',
+            durationKind: 'success',
             title: '未找到该消息位置',
             detail: '该消息可能已被撤回或删除。',
           });
@@ -8021,6 +8044,24 @@ function MainWorkspace(): ReactElement {
       sub.unsubscribe();
     };
   }, [jumpToConvSeq]);
+
+  useEffect(() => {
+    if (!IS_WEB) return;
+    const open = (event: Event) => {
+      const notice = (event as CustomEvent<WebNotice>).detail;
+      if (
+        !notice ||
+        notice.uin !== user.identityValue ||
+        notice.configId !== noticeConfig.data?.configId
+      )
+        return;
+      if (notice.kind === 'mail') openMailView();
+      else if (notice.target)
+        jumpToConvSeq(notice.target.kind, notice.target.conv, notice.target.seq);
+    };
+    window.addEventListener(WEB_NOTICE_OPEN, open);
+    return () => window.removeEventListener(WEB_NOTICE_OPEN, open);
+  }, [jumpToConvSeq, openMailView, user.identityValue, noticeConfig.data?.configId]);
 
   // 撤回通知被点击：主进程唤起窗口并记下「打开该会话、跳到该 seq」，这里领走。
   // 私聊 / 群聊共用同一条跳转（与群关键词通知同一套机制）。
@@ -8529,7 +8570,7 @@ function MainWorkspace(): ReactElement {
       if (!pinSession.available || pinSession.busy) {
         pushToast({
           tone: 'info',
-          durationKind: 'failure',
+          durationKind: pinSession.busy ? 'success' : 'failure',
           title: pinSession.busy ? '请等待当前置顶操作完成' : 'QQ 在线能力未就绪，未改变置顶状态',
         });
         return;
@@ -8777,7 +8818,11 @@ function MainWorkspace(): ReactElement {
   } | null>(null);
   const openForwardTarget = (target: MfTarget) => {
     if (useViewState.getState().openedUin !== user.identityValue) {
-      pushToast({ tone: 'warning', message: '请先切回转发时的账号再打开对话' });
+      pushToast({
+        tone: 'warning',
+        durationKind: 'success',
+        message: '请先切回转发时的账号再打开对话',
+      });
       return;
     }
     shell.openConversation(target.id);
@@ -9042,7 +9087,7 @@ function MainWorkspace(): ReactElement {
     if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
     const conversation = destination ?? selectedConversation;
     if (!conversation) {
-      pushToast({ tone: 'warning', message: '没有选中的会话' });
+      pushToast({ tone: 'warning', durationKind: 'success', message: '没有选中的会话' });
       throw new Error('no conversation');
     }
     if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
@@ -9058,6 +9103,7 @@ function MainWorkspace(): ReactElement {
       pushToast({
         tone: 'warning',
         message: '这个会话不支持发送消息',
+        durationKind: 'success',
         detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
       });
       throw new Error('unsupported conversation');
@@ -9177,6 +9223,7 @@ function MainWorkspace(): ReactElement {
           pushToast({
             tone: 'warning',
             message: '群临时会话暂不支持发文件',
+            durationKind: 'success',
             detail: '文件走的是私聊专用的 trans0x211 管线，临时会话还没有对应实现。',
           });
           throw new Error('temp session file unsupported');
@@ -9190,7 +9237,15 @@ function MainWorkspace(): ReactElement {
             ...source,
             fileName: plan.fileName,
           });
-        if (plan.path !== undefined) outcome = await sendFile({ path: plan.path });
+        if (plan.file !== undefined) {
+          if (!expectedAccountConfigId) throw new Error('账号来源未就绪，请重新打开会话');
+          const staged = await stageAccountFile(plan.file, {
+            expectedAccountUin: user.identityValue,
+            expectedAccountConfigId,
+          });
+          if (!isCurrent()) throw new Error('账号或会话已切换，未发送文件');
+          outcome = await sendFile({ path: staged.path });
+        } else if (plan.path !== undefined) outcome = await sendFile({ path: plan.path });
         else {
           if (!expectedAccountConfigId) throw new Error('账号来源未就绪，请重新打开会话');
           outcome = await withBrowserFile(
@@ -9221,6 +9276,7 @@ function MainWorkspace(): ReactElement {
           pushToast({
             tone: 'warning',
             message: 'AI 声聊只支持群聊',
+            durationKind: 'success',
             detail: '私聊没有这个能力，内容已为你保留在输入框里。',
           });
           throw new Error('ai voice requires group');
@@ -9439,6 +9495,7 @@ function MainWorkspace(): ReactElement {
       pushToast({
         tone: 'warning',
         message: '这个会话不支持发送闪照',
+        durationKind: 'success',
         detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
       });
       throw new Error('unsupported conversation');
@@ -9448,6 +9505,7 @@ function MainWorkspace(): ReactElement {
       pushToast({
         tone: 'warning',
         message: '群临时会话暂不支持发闪照',
+        durationKind: 'success',
         detail: '闪照的老式图片上传还没有对应的临时会话实现。',
       });
       throw new Error('temp session flash photo unsupported');
@@ -9564,6 +9622,7 @@ function MainWorkspace(): ReactElement {
       pushToast({
         tone: 'warning',
         message: '这个会话不支持发送泡泡消息',
+        durationKind: 'success',
         detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
       });
       throw new Error('unsupported conversation');
@@ -9572,6 +9631,7 @@ function MainWorkspace(): ReactElement {
       pushToast({
         tone: 'warning',
         message: '群临时会话暂不支持发泡泡消息',
+        durationKind: 'success',
         detail: '泡泡走 NTV2 视频上传，临时会话这条还没验过。',
       });
       throw new Error('temp session bubble unsupported');
@@ -9677,6 +9737,7 @@ function MainWorkspace(): ReactElement {
       pushToast({
         tone: 'warning',
         message: '这个会话不支持发送闪传',
+        durationKind: 'success',
         detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
       });
       throw new Error('unsupported conversation');
@@ -9780,6 +9841,7 @@ function MainWorkspace(): ReactElement {
       pushToast({
         tone: 'warning',
         message: '这个会话不支持发红包',
+        durationKind: 'success',
         detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
       });
       throw new Error('unsupported conversation');
@@ -9848,6 +9910,7 @@ function MainWorkspace(): ReactElement {
       pushToast({
         tone: 'warning',
         message: '这个会话不支持发送卡片',
+        durationKind: 'success',
         detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
       });
       throw new Error('unsupported conversation');

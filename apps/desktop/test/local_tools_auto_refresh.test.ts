@@ -100,6 +100,21 @@ it('密钥工具只自动读取账号概况，隐藏不继续读取，恢复不�
   expect(rpc.scan).not.toHaveBeenCalled();
 });
 
+it('登录资料工具将不可读的运行状态显示为未知，而非若干实例在线', async () => {
+  rpc.login.mockResolvedValue({
+    accounts: [],
+    guid: null,
+    qqInstanceCount: null,
+    canWrite: false,
+    supported: true,
+    dataRoot: null,
+  });
+  const view = await mount(h(LoginAccountPanel));
+  expect(view.host.textContent).toContain('QQ 运行状态尚未确认');
+  expect(view.host.textContent).not.toContain('若干');
+  expect(view.host.textContent).not.toContain('当前没有 QQ 在运行');
+});
+
 it('本地登录账号管理在断网时仍可读取，恢复仅更新列表', async () => {
   const view = await mount(h(LoginAccountPanel));
   expect(rpc.login).toHaveBeenCalledTimes(1);

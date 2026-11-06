@@ -67,7 +67,6 @@ export interface StartCloneArgs {
 export function NewCloneModal({
   buddies,
   initialSelectedUids,
-  flatModels,
   onClose,
   onStart,
 }: {
@@ -91,10 +90,7 @@ export function NewCloneModal({
   });
   const [query, setQuery] = useState('');
   const [name, setName] = useState('');
-  const [chatSel, setChatSel] = useState<AgentLabModelSelection | null>(() => {
-    const first = flatModels.chat[0];
-    return first ? { providerId: first.providerId, model: first.model } : null;
-  });
+  const [chatSel, setChatSel] = useState<AgentLabModelSelection | null>({ useDefault: true });
   const [embSel, setEmbSel] = useState<AgentLabModelSelection | null>(null);
   const [analyzeStickers, setAnalyzeStickers] = useState(false);
   const [visSel, setVisSel] = useState<AgentLabModelSelection | null>(null);

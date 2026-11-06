@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ChatQqShowService,
-  DEFAULT_QQ_SHOW_CACHE_DAYS,
+  DEFAULT_QQ_SHOW_CACHE_MINUTES,
   type QqShowResolved,
 } from '../src/account/qq_show';
 
@@ -25,15 +25,13 @@ afterEach(() => {
 function harness(options: {
   fetchShow: (uin: string) => Promise<QqShowResolved>;
   now?: () => number;
-  ttlDays?: () => number;
-  concurrency?: number;
+  ttlMinutes?: () => number;
 }) {
   return new ChatQqShowService({
     storePath,
     fetchShow: options.fetchShow,
     now: options.now,
-    ttlDays: options.ttlDays ?? (() => DEFAULT_QQ_SHOW_CACHE_DAYS),
-    concurrency: options.concurrency,
+    ttlMinutes: options.ttlMinutes ?? (() => DEFAULT_QQ_SHOW_CACHE_MINUTES),
   });
 }
 
@@ -43,7 +41,7 @@ const show = (uin: string): QqShowResolved => ({
 });
 
 describe('ChatQqShowService', () => {
-  it('并发不超过 3、同一 uin 只查一次，并缓存无 QQ 秀的结果', async () => {
+  it('所有批次和个性主页共用串行队列、同一 uin 只查一次，并缓存无 QQ 秀的结果', async () => {
     let running = 0;
     let peak = 0;
     const calls: string[] = [];
@@ -58,7 +56,7 @@ describe('ChatQqShowService', () => {
       },
     });
 
-    const result = await service.resolve([
+    const batch = service.resolve([
       '10001',
       '10001',
       '10002',
@@ -69,18 +67,29 @@ describe('ChatQqShowService', () => {
       'not-a-uin',
     ]);
 
-    expect(peak).toBeLessThanOrEqual(3);
-    expect(calls.slice().sort()).toEqual(['10001', '10002', '10003', '10004', '10005', '20002']);
-    expect(result['10001']).toEqual(show('10001'));
-    expect(result['20002']).toEqual({ hasShow: false, url: '' });
+    await Promise.all([service.resolve(['10001', '30001']), service.resolveOne('40001')]);
+    const result = await batch;
+    expect(peak).toBe(1);
+    expect(calls.slice().sort()).toEqual([
+      '10001',
+      '10002',
+      '10003',
+      '10004',
+      '10005',
+      '20002',
+      '30001',
+      '40001',
+    ]);
+    expect(result['10001']).toMatchObject(show('10001'));
+    expect(result['20002']).toMatchObject({ hasShow: false, url: '' });
     expect(result['not-a-uin']).toBeUndefined();
 
     // 第二次全命中缓存，不再联网。
     calls.length = 0;
     const again = await service.resolve(['10001', '20002']);
     expect(calls).toEqual([]);
-    expect(again['10001']).toEqual(show('10001'));
-    expect(again['20002']).toEqual({ hasShow: false, url: '' });
+    expect(again['10001']).toMatchObject(show('10001'));
+    expect(again['20002']).toMatchObject({ hasShow: false, url: '' });
   });
 
   it('映射落盘并可在新实例中读取，过期后重新查询', async () => {
@@ -108,31 +117,32 @@ describe('ChatQqShowService', () => {
         return { hasShow: false, url: '' };
       },
     });
-    expect(reopened.cached('30001')).toEqual(show('30001'));
+    expect(reopened.cached('30001')).toMatchObject(show('30001'));
 
-    // 默认 14 天：第 13 天仍命中，第 15 天重新查询。
-    now += 13 * DAY;
-    expect(reopened.cached('30001')).toEqual(show('30001'));
-    now += 2 * DAY;
+    const expiresAt = now + DEFAULT_QQ_SHOW_CACHE_MINUTES * 60_000;
+    expect(reopened.cached('30001')?.expiresAt).toBe(expiresAt);
+    now = expiresAt - 1;
+    expect(reopened.cached('30001')).not.toBeNull();
+    now = expiresAt;
     expect(reopened.cached('30001')).toBeNull();
 
     const refreshed = await reopened.resolve(['30001']);
     expect(calls).toBe(2);
-    expect(refreshed['30001']).toEqual({ hasShow: false, url: '' });
+    expect(refreshed['30001']).toMatchObject({ hasShow: false, url: '' });
   });
 
   it('有效期按设置读取，缩短后立即生效', async () => {
     let now = Date.UTC(2026, 9, 1);
-    let days = 14;
+    let minutes = 14;
     const service = harness({
       now: () => now,
-      ttlDays: () => days,
+      ttlMinutes: () => minutes,
       fetchShow: async (uin) => show(uin),
     });
     await service.resolve(['40001']);
-    now += 2 * DAY;
+    now += 2 * 60_000;
     expect(service.cached('40001')).not.toBeNull();
-    days = 1;
+    minutes = 1;
     expect(service.cached('40001')).toBeNull();
   });
 
@@ -141,7 +151,7 @@ describe('ChatQqShowService', () => {
     let fail = false;
     const service = harness({
       now: () => now,
-      ttlDays: () => 1,
+      ttlMinutes: () => 1,
       fetchShow: async (uin) => {
         if (fail) throw new Error('QQ 离线');
         return show(uin);
@@ -152,8 +162,8 @@ describe('ChatQqShowService', () => {
     now += 2 * DAY;
     fail = true;
     const stale = await service.resolve(['50001']);
-    expect(stale['50001']).toEqual(show('50001'));
-    expect(await service.resolveOne('50001')).toEqual(show('50001'));
+    expect(stale['50001']).toMatchObject({ ...show('50001'), expiresAt: now + 30_000 });
+    expect(await service.resolveOne('50001')).toMatchObject(show('50001'));
 
     // 未缓存过的 uin 失败后不出现在结果里，也不写坏记录。
     const missing = await service.resolve(['50002']);

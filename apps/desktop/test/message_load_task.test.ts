@@ -46,6 +46,11 @@ it.each(['停止按钮', '外部取消'] as const)(
       expect(settled).toHaveBeenCalledWith(signal.reason);
       expect(host.textContent).toContain('已停止 · 已加载 0 条消息');
       expect(host.querySelector('[aria-label="停止消息加载"]')).toBeNull();
+      expect(useToast.getState().toasts[0]).toMatchObject({
+        tone: 'warning',
+        durationKind: 'success',
+        ttl: 3000,
+      });
       await act(async () => release());
       await task;
       expect(host.textContent).toContain('已停止 · 已加载 0 条消息');
@@ -58,3 +63,16 @@ it.each(['停止按钮', '外部取消'] as const)(
     }
   },
 );
+
+it('实际加载失败仍使用失败时长', async () => {
+  await expect(
+    runMessageLoadTask('加载范围消息', async () => {
+      throw new Error('合成查询失败');
+    }),
+  ).rejects.toThrow('合成查询失败');
+  expect(useToast.getState().toasts[0]).toMatchObject({
+    tone: 'warning',
+    durationKind: 'failure',
+    ttl: 0,
+  });
+});

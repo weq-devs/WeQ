@@ -193,6 +193,7 @@ export function startSequentialForward({
     localBackgroundTasks.setActions(taskId, [openAction]);
     toast.update(id, {
       tone: stopped || failed ? 'warning' : 'success',
+      durationKind: failed || (stopped && !local.signal.aborted) ? 'failure' : 'success',
       title: progress(),
       detail: [stopped, ...failures].filter(Boolean).join('\n') || undefined,
       ttl: 0,

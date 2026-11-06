@@ -46,8 +46,8 @@ describe('通知倒计时', () => {
   it('提示样式的失败使用失败设置，修改设置后仍保持失败分类', () => {
     const store = useToast.getState();
     store.setDurations({ successSeconds: 2, failureSeconds: 7 });
-    store.push({ tone: 'info', durationKind: 'failure', title: '未找到该消息', ttl: 10000 });
-    expect(toast()).toMatchObject({ tone: 'info', title: '未找到该消息', ttl: 7000 });
+    store.push({ tone: 'info', durationKind: 'failure', title: '读取消息失败', ttl: 10000 });
+    expect(toast()).toMatchObject({ tone: 'info', title: '读取消息失败', ttl: 7000 });
     store.update(toast().id, { detail: '原有原因' });
     store.setDurations({ successSeconds: 4, failureSeconds: -1 });
     expect(toast().ttl).toBe(0);

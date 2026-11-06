@@ -200,8 +200,10 @@ export async function exportDressAssets(
   kinds: DressExportKinds,
   onProgress?: (done: number, total: number, note: string) => void,
   /** 是否在线补全本地未缓存的资源（4.3）。关闭时只导出已缓存部分。 */
-  complete = true,
+  complete: boolean | Partial<DressExportKinds> = true,
 ): Promise<DressExportResult> {
+  const canDownload = (kind: keyof DressExportKinds) =>
+    typeof complete === 'boolean' ? complete : complete[kind] === true;
   const logger = getLogger().child({ scope: 'dress-export' });
   const root = join(outDir, DRESS_DIR);
   mkdirSync(root, { recursive: true });
@@ -227,14 +229,22 @@ export async function exportDressAssets(
     for (const itemId of [...usage.bubbles].sort((a, b) => a - b)) {
       jobs.push(async () => {
         try {
-          if (!complete && !dressInstall.hasLocal('bubble', itemId)) {
+          if (!canDownload('bubble') && !dressInstall.hasLocal('bubble', itemId)) {
             failures.push({ kind: 'bubble', itemId, error: '本地未缓存（未开启补全下载）' });
             tick(`气泡 ${itemId} 未缓存`);
             return;
           }
-          const skin = await dressInstall.fetchBubble(itemId);
+          const skin = canDownload('bubble')
+            ? await dressInstall.fetchBubble(itemId)
+            : dressInstall.localBubble(itemId);
           if (!skin) throw new Error('装扮服务未能解析该气泡');
-          const entry = await exportBubble(dressInstall, root, itemId, skin);
+          const entry = await exportBubble(
+            dressInstall,
+            root,
+            itemId,
+            skin,
+            !canDownload('bubble'),
+          );
           manifest.bubbles.push(entry);
           tick(`气泡 ${itemId}`);
         } catch (e) {
@@ -253,12 +263,15 @@ export async function exportDressAssets(
     for (const itemId of [...usage.fonts].sort((a, b) => a - b)) {
       jobs.push(async () => {
         try {
-          if (!complete && !dressInstall.hasLocal('font', itemId)) {
+          if (!canDownload('font') && !dressInstall.hasLocal('font', itemId)) {
             failures.push({ kind: 'font', itemId, error: '本地未缓存（未开启补全下载）' });
             tick(`字体 ${itemId} 未缓存`);
             return;
           }
-          const font = await dressInstall.fetchFont(itemId);
+          const font = canDownload('font')
+            ? await dressInstall.fetchFont(itemId)
+            : dressInstall.fontDerived(itemId);
+          if (!font) throw new Error('本地未缓存字体');
           const dir = join(root, 'font');
           mkdirSync(dir, { recursive: true });
           const rel = `dress/font/${itemId}.ttf`;
@@ -281,12 +294,12 @@ export async function exportDressAssets(
     for (const itemId of [...usage.widgets].sort((a, b) => a - b)) {
       jobs.push(async () => {
         try {
-          if (!complete && !dressInstall.hasLocal('widget', itemId)) {
+          if (!canDownload('widget') && !dressInstall.hasLocal('widget', itemId)) {
             failures.push({ kind: 'widget', itemId, error: '本地未缓存（未开启补全下载）' });
             tick(`挂件 ${itemId} 未缓存`);
             return;
           }
-          const entry = await exportWidget(dressInstall, root, itemId);
+          const entry = await exportWidget(dressInstall, root, itemId, !canDownload('widget'));
           manifest.widgets.push(entry);
           tick(`挂件 ${itemId}`);
         } catch (e) {
@@ -323,6 +336,7 @@ async function exportBubble(
   root: string,
   itemId: number,
   skin: BubbleSkin,
+  localOnly = false,
 ): Promise<DressBubbleManifest> {
   const dir = join(root, 'bubble', String(itemId));
   mkdirSync(dir, { recursive: true });
@@ -332,7 +346,7 @@ async function exportBubble(
 
   // 2. config.json（动画定义 / 配色 / 九宫格参数）—— 用户明确要求打包。
   try {
-    const cfg = await dressInstall.bubbleConfig(itemId);
+    const cfg = await dressInstall.bubbleConfig(itemId, localOnly);
     if (cfg) writeFileSync(join(dir, 'config.json'), cfg);
   } catch (e) {
     getLogger()
@@ -412,12 +426,15 @@ async function exportWidget(
   dressInstall: DressService,
   root: string,
   itemId: number,
+  localOnly = false,
 ): Promise<DressWidgetManifest> {
   const dir = join(root, 'widget', String(itemId));
   mkdirSync(dir, { recursive: true });
 
   // 1. 动画帧原样导出。
-  const anim = await dressInstall.resolvePendantAnimation(itemId);
+  const anim = localOnly
+    ? dressInstall.localPendant(itemId)
+    : await dressInstall.resolvePendantAnimation(itemId);
   let frames: string[] | null = null;
   let frameTimeMs: number | undefined;
   let repeat: number | undefined;
@@ -453,7 +470,7 @@ async function exportWidget(
 
   // 2. 静态底图（aio_50.png）：有动画也一并导出，HTML 预览用它。
   let preview: string | null = null;
-  const staticFile = await dressInstall.pendantStaticFile(itemId);
+  const staticFile = await dressInstall.pendantStaticFile(itemId, localOnly);
   if (staticFile) {
     copyFileSync(staticFile, join(dir, 'widget.png'));
     preview = `dress/widget/${itemId}/widget.png`;

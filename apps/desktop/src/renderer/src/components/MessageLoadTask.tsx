@@ -55,6 +55,7 @@ export async function runMessageLoadTask<T>(
   } catch (error) {
     toast.update(id, {
       tone: 'warning',
+      durationKind: controller.signal.aborted ? 'success' : 'failure',
       title: `${controller.signal.aborted ? '已停止' : `${label}失败`} · 已加载 ${count} 条消息`,
       detail: controller.signal.aborted
         ? null

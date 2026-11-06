@@ -1,7 +1,11 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { restrictionReasons, type OnlineAccess } from '../src/renderer/src/lib/restrictedMode';
+import {
+  restrictionReasons,
+  startupRestrictionReasons,
+  type OnlineAccess,
+} from '../src/renderer/src/lib/restrictedMode';
 import { useRestrictedMode } from '../src/renderer/src/state/restrictedMode';
 import {
   RestrictedModeHost,
@@ -10,6 +14,10 @@ import {
 } from '../src/renderer/src/components/RestrictedMode';
 import { useViewState } from '../src/renderer/src/state/view';
 import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
+import { DialogHost, useDialog } from '../src/renderer/src/components/Dialog';
+import type { QqDataAccess } from '../src/main/qq_data_access';
+import type { QqDebugCopyStatus } from '../src/shared/qq_debug_copy';
+vi.mock('../src/renderer/src/lib/target', () => ({ IS_MAC: true, IS_WEB: false }));
 
 const ready: OnlineAccess = {
   qqOnline: true,
@@ -24,11 +32,17 @@ const mock = vi.hoisted(() => ({
   updatedAt: 0,
   failed: false,
   sip: null as boolean | null,
-  onlineCount: 1,
+  onlineCount: 1 as number | null,
+  runningCount: null as number | null,
+  dataAccess: { status: 'unsupported', applicationPath: '', issues: [] } as QqDataAccess,
+  dataRefetch: vi.fn(),
+  invalidateBootstrap: vi.fn(async () => {}),
+  openSettings: vi.fn(async () => true),
   onlineFailed: false,
   banner: true,
   settingsLoading: false,
   launchQq: vi.fn(async () => true),
+  debugAction: vi.fn(async () => ({})),
   requestFull: vi.fn(),
   refreshRkeys: vi.fn(),
   refetch: vi.fn(async () => ({})),
@@ -37,10 +51,16 @@ const mock = vi.hoisted(() => ({
   credentialsReady: undefined as undefined | (() => void),
   unsubscribe: vi.fn(),
   invalidateAccess: vi.fn(async () => {}),
+  invalidateDebug: vi.fn(async () => {}),
+  debugState: 'missing' as QqDebugCopyStatus['state'],
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
-    bootstrap: { launchQq: { mutate: mock.launchQq } },
+    bootstrap: {
+      launchQq: { mutate: mock.launchQq },
+      qqDebugCopyAction: { mutate: mock.debugAction },
+      openQqDataAccessSettings: { mutate: mock.openSettings },
+    },
     account: {
       requestFullMode: { mutate: mock.requestFull },
       refreshRkeys: { mutate: mock.refreshRkeys },
@@ -65,6 +85,28 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     },
     bootstrap: {
+      qqDebugCopyStatus: {
+        useQuery: () => ({
+          data: {
+            phase: 'idle',
+            state: mock.debugState,
+            sourceVersion: '7.0.1-1',
+            path: '/synthetic/QQ-WeQ.app',
+            readerReady: false,
+            runningPids: [],
+            message: '合成副本状态',
+          },
+          refetch: mock.refetch,
+        }),
+      },
+      qqDataAccess: {
+        useQuery: () => ({
+          data: mock.dataAccess,
+          isFetching: false,
+          isError: false,
+          refetch: mock.dataRefetch,
+        }),
+      },
       getSettings: {
         useQuery: () => ({
           data: { restrictedModeBannerEnabled: mock.banner },
@@ -74,7 +116,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       sipEnabled: { useQuery: () => ({ data: mock.sip, refetch: mock.refetch }) },
       probeOnline: {
         useQuery: () => ({
-          data: { count: mock.onlineCount },
+          data: { count: mock.onlineCount, runningCount: mock.runningCount },
           isError: mock.onlineFailed,
           refetch: mock.refetch,
         }),
@@ -82,9 +124,37 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
 }));
-const utils = { account: { getGroupAlbumAccessState: { invalidate: mock.invalidateAccess } } };
+const utils = {
+  account: { getGroupAlbumAccessState: { invalidate: mock.invalidateAccess } },
+  bootstrap: {
+    listAccounts: { invalidate: mock.invalidateBootstrap },
+    listAccountConfigs: { invalidate: mock.invalidateBootstrap },
+    describeInstall: { invalidate: mock.invalidateBootstrap },
+    qqDebugCopyStatus: { invalidate: mock.invalidateDebug },
+  },
+};
 
 describe('受限原因按实际能力判定', () => {
+  it.each([true, false, null, undefined])('离线登录引导跟随 SIP 状态：%s', (sipEnabled) => {
+    const inputs = [
+      startupRestrictionReasons({ probe: { count: 0 }, sipEnabled }),
+      restrictionReasons({ access: { ...ready, qqOnline: false }, sipEnabled }),
+    ];
+    for (const reasons of inputs) {
+      expect(reasons.map((reason) => reason.code)).toEqual(['offline']);
+      expect(reasons[0]?.guidance.includes('QQ 调试副本')).toBe(sipEnabled === true);
+    }
+  });
+  it('启动状态文件未知但 QQ 进程存在时，不显示不在线；数据读取受限独立列出', () => {
+    const reasons = startupRestrictionReasons({
+      probe: { count: null, runningCount: 1 },
+      dataStatus: 'denied',
+    });
+    expect(reasons.map((reason) => reason.code)).toContain('data-access');
+    expect(reasons.map((reason) => reason.code)).not.toContain('offline');
+    expect(reasons.find((reason) => reason.code === 'checking')?.guidance).toContain('QQ 正在运行');
+    expect(startupRestrictionReasons({ probe: { count: 0 } })[0]?.code).toBe('offline');
+  });
   it('macOS SIP 开启但凭据可用时不误判；Linux / Windows 无 SIP 原因', () => {
     expect(restrictionReasons({ access: ready, sipEnabled: true })).toEqual([]);
     for (const sipEnabled of [false, null, undefined])
@@ -122,6 +192,7 @@ describe('受限原因按实际能力判定', () => {
 
 let cleanup = () => {};
 beforeEach(() => {
+  Object.defineProperty(window, 'weq', { configurable: true, value: undefined });
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   Object.defineProperty(window, 'electron', {
     configurable: true,
@@ -140,10 +211,16 @@ beforeEach(() => {
   mock.failed = false;
   mock.sip = null;
   mock.onlineCount = 1;
+  mock.runningCount = null;
+  mock.dataAccess = { status: 'unsupported', applicationPath: '', issues: [] };
+  mock.dataRefetch.mockReset().mockImplementation(async () => ({ data: mock.dataAccess }));
+  mock.invalidateBootstrap.mockClear();
+  mock.openSettings.mockClear();
   mock.onlineFailed = false;
   mock.banner = true;
   mock.settingsLoading = false;
   mock.launchQq.mockReset().mockResolvedValue(true);
+  mock.debugAction.mockReset().mockResolvedValue({});
   mock.requestFull.mockReset().mockResolvedValue({ requested: true });
   mock.refreshRkeys.mockReset().mockResolvedValue(false);
   mock.refetch.mockClear();
@@ -152,6 +229,8 @@ beforeEach(() => {
   mock.credentialsReady = undefined;
   mock.unsubscribe.mockClear();
   mock.invalidateAccess.mockReset();
+  mock.invalidateDebug.mockReset().mockResolvedValue(undefined);
+  mock.debugState = 'missing';
   useViewState.setState({ view: 'main', openedUin: '10001' });
   useRestrictedMode.setState({
     reasons: [],
@@ -166,7 +245,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-function fixture(showToasts = false) {
+function fixture(showToasts = false, showDialogs = false) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -180,6 +259,7 @@ function fixture(showToasts = false) {
           h(RestrictedModeIndicator),
           h(RestrictedModeHost, { key: revision }),
           showToasts ? h(ToastHost) : null,
+          showDialogs ? h(DialogHost) : null,
         ),
       ),
     );
@@ -200,6 +280,48 @@ function fixture(showToasts = false) {
 function event(channel: string, payload: unknown) {
   act(() => mock.listeners.get(channel)?.({}, payload));
 }
+
+it.each(['取消', 'Escape', '移除副本'])(
+  '受限详情上的移除确认框处理 %s，不关闭底层详情',
+  async (action) => {
+    mock.access = { ...ready, attachEnabled: false };
+    const f = fixture(false, true);
+    act(() => useRestrictedMode.getState().setOpen(true));
+    const panel = f.host.querySelector<HTMLElement>('.weq-restricted-panel')!;
+    let result: Promise<boolean> | undefined;
+    act(() => {
+      result = useDialog
+        .getState()
+        .confirm('移除 QQ 调试副本', '合成确认', { okLabel: '移除副本' });
+    });
+    const dialog = document.querySelector<HTMLElement>('.weq-message-modal')!;
+    expect(Number(dialog.closest<HTMLElement>('.weq-dialog-layer')!.style.zIndex)).toBeGreaterThan(
+      Number(panel.style.zIndex),
+    );
+    await act(async () => {
+      if (action === 'Escape')
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+        );
+      else {
+        const button = [...dialog.querySelectorAll('button')].find(
+          (item) => item.textContent === action,
+        )!;
+        button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+        button.click();
+      }
+    });
+    expect(await result).toBe(action === '移除副本');
+    expect(useRestrictedMode.getState().open).toBe(true);
+    expect(f.host.contains(panel)).toBe(true);
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    });
+    expect(useRestrictedMode.getState().open).toBe(false);
+  },
+);
 
 it('手动启用提交完整来源，不修改自动偏好；普通重新检查不升级为手动请求', async () => {
   const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-live' };
@@ -224,6 +346,72 @@ it('手动启用提交完整来源，不修改自动偏好；普通重新检查�
   expect(f.host.textContent).toContain('尚未恢复完整功能');
   expect(useToast.getState().toasts.some((toast) => toast.title === '已启用完整功能')).toBe(false);
 });
+it.each(['missing', 'ready', 'outdated', 'invalid', 'unmanaged'] as const)(
+  'SIP 副本 %s 状态的嵌入面板只显示一个重新检查，点击同时刷新副本和在线状态',
+  async (state) => {
+    mock.sip = true;
+    mock.debugState = state;
+    mock.access = { ...ready, hasD2: false };
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('button')].filter(
+      (button) => button.textContent === '重新检查',
+    );
+    expect(buttons).toHaveLength(1);
+    await act(async () => buttons[0]!.click());
+    expect(mock.invalidateDebug).toHaveBeenCalledOnce();
+    expect(mock.refreshRkeys).toHaveBeenCalledOnce();
+    expect(mock.requestFull).not.toHaveBeenCalled();
+  },
+);
+it('副本、数据读取提示和多项授权同时出现时，通用检查及长期授权入口仍各只有一份', async () => {
+  Object.defineProperty(window, 'weq', { configurable: true, value: { authorization: {} } });
+  mock.sip = true;
+  mock.access = { ...ready, hasD2: false };
+  mock.dataAccess = { status: 'denied', applicationPath: '/synthetic/WeQ.app', issues: [] };
+  const f = fixture();
+  event('elev:request-password', { token: 41 });
+  event('attach:confirm-hint', { token: 42 });
+  act(() => useRestrictedMode.getState().setOpen(true));
+  const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('button')];
+  expect(buttons.filter((button) => button.textContent === '重新检查')).toHaveLength(1);
+  expect(buttons.filter((button) => button.textContent === '重新检测')).toHaveLength(0);
+  expect(buttons.filter((button) => button.textContent === '管理长期授权')).toHaveLength(1);
+  await act(async () => buttons.find((button) => button.textContent === '重新检查')!.click());
+  expect(mock.invalidateDebug).toHaveBeenCalledOnce();
+  expect(mock.dataRefetch).toHaveBeenCalledOnce();
+  expect(mock.send).not.toHaveBeenCalled();
+  expect(useRestrictedMode.getState().requests).toHaveLength(2);
+});
+it('等待副本刷新时切换来源，不把旧来源检查继续应用到新账号', async () => {
+  mock.sip = true;
+  mock.access = {
+    ...ready,
+    hasD2: false,
+    source: { expectedAccountUin: '10001', expectedAccountConfigId: 'old' },
+  };
+  let finish = () => {};
+  mock.invalidateDebug.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const f = fixture();
+  act(() => useRestrictedMode.getState().setOpen(true));
+  await act(async () =>
+    [...f.host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === '重新检查')!
+      .click(),
+  );
+  mock.access = {
+    ...mock.access,
+    source: { expectedAccountUin: '10001', expectedAccountConfigId: 'new' },
+  };
+  f.render();
+  await act(async () => finish());
+  expect(mock.refreshRkeys).not.toHaveBeenCalled();
+});
 it('同号切源丢弃手动请求的迟到结果，不在新来源继续采集', async () => {
   const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-live' };
   mock.access = { ...ready, attachEnabled: false, source };
@@ -236,7 +424,7 @@ it('同号切源丢弃手动请求的迟到结果，不在新来源继续采集'
   );
   const f = fixture();
   act(() => useRestrictedMode.getState().setOpen(true));
-  act(() =>
+  await act(async () =>
     [...f.host.querySelectorAll<HTMLButtonElement>('button')]
       .find((button) => button.textContent === '启用完整功能')!
       .click(),
@@ -249,6 +437,56 @@ it('同号切源丢弃手动请求的迟到结果，不在新来源继续采集'
   await act(async () => finish({ requested: true }));
   expect(mock.refreshRkeys).not.toHaveBeenCalled();
   expect(f.host.textContent).not.toContain('尚未恢复完整功能');
+});
+
+it('启动数据授权只在受限模式详情显示，运行中的 QQ 不显示为离线', async () => {
+  useViewState.setState({ view: 'startup', openedUin: null });
+  mock.onlineCount = null;
+  mock.runningCount = 1;
+  mock.dataAccess = {
+    status: 'denied',
+    applicationPath: '/fixture/Electron.app',
+    launchApplicationPath: '/System/Applications/Utilities/Terminal.app',
+    issues: [{ path: '/fixture/QQ', code: 'EPERM' }],
+  };
+  const f = fixture();
+  expect(f.host.querySelector('.weq-qq-data-access')).toBeNull();
+  expect(useRestrictedMode.getState().reasons.map((r) => r.code)).toEqual([
+    'data-access',
+    'checking',
+  ]);
+  act(() => useRestrictedMode.getState().setOpen(true));
+  expect(f.host.querySelector('[role="dialog"] .weq-qq-data-access')).not.toBeNull();
+  expect(f.host.textContent).toContain('QQ 正在运行');
+  expect(f.host.textContent).not.toContain('QQ 不在线');
+  expect(f.host.textContent).toContain('/System/Applications/Utilities/Terminal.app');
+  expect(
+    [...f.host.querySelectorAll('button')].filter((b) => b.textContent === '重新检查'),
+  ).toHaveLength(1);
+  await act(async () =>
+    [...f.host.querySelectorAll('button')].find((b) => b.textContent === '打开系统设置')!.click(),
+  );
+  expect(mock.openSettings).toHaveBeenCalledOnce();
+});
+
+it('受限模式统一重试在数据恢复后刷新账号并收起提示，不虚报完整功能', async () => {
+  useViewState.setState({ view: 'startup', openedUin: null });
+  mock.onlineCount = null;
+  mock.dataAccess = { status: 'denied', applicationPath: '/fixture/Electron.app', issues: [] };
+  mock.dataRefetch.mockImplementation(async () => {
+    mock.dataAccess = { ...mock.dataAccess, status: 'readable' };
+    mock.onlineCount = 1;
+    return { data: mock.dataAccess };
+  });
+  const f = fixture(true);
+  act(() => useRestrictedMode.getState().setOpen(true));
+  await act(async () =>
+    [...f.host.querySelectorAll('button')].find((b) => b.textContent === '重新检查')!.click(),
+  );
+  expect(mock.invalidateBootstrap).toHaveBeenCalledTimes(3);
+  expect(useRestrictedMode.getState().reasons).toEqual([]);
+  expect(f.host.querySelector('[role="dialog"]')).toBeNull();
+  expect(useToast.getState().toasts.some((toast) => toast.title === '已启用完整功能')).toBe(false);
 });
 it('切到已完整的新来源不继承旧来源的恢复成功通知', () => {
   const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-a' };
@@ -383,6 +621,33 @@ describe('受限模式启动 QQ', () => {
   function launchButton(host: HTMLElement) {
     return [...host.querySelectorAll('button')].find((button) => button.textContent === '启动 QQ');
   }
+  it.each([
+    ['main', 'missing'],
+    ['main', 'ready'],
+    ['startup', 'missing'],
+    ['startup', 'ready'],
+  ] as const)('%s 页 SIP 开启且离线时使用 %s 调试副本入口', async (view, state) => {
+    mock.sip = true;
+    mock.access = { ...ready, qqOnline: false };
+    mock.onlineCount = 0;
+    mock.debugState = state;
+    useViewState.setState({ view, openedUin: view === 'main' ? '10001' : null });
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    expect(launchButton(f.host)).toBeUndefined();
+    expect(f.host.textContent).toContain('独立的 QQ 调试副本');
+    const button = [...f.host.querySelectorAll('button')].find(
+      (item) => item.textContent === (state === 'missing' ? '创建副本' : '启动副本'),
+    );
+    expect(button?.disabled).toBe(false);
+    await act(async () => button!.click());
+    expect(mock.debugAction).toHaveBeenCalledWith({
+      action: state === 'missing' ? 'prepare' : 'launch',
+    });
+    expect(mock.launchQq).not.toHaveBeenCalled();
+    expect(f.host.textContent).toContain('QQ 不在线');
+    expect(useRestrictedMode.getState().enteringSince).toBeNull();
+  });
   it.each(['main', 'startup'] as const)(
     '%s 页确认 QQ 离线时可启动，启动不冒充登录成功',
     async (view) => {
@@ -450,6 +715,7 @@ describe('受限模式启动 QQ', () => {
 
 describe('非阻塞提权入口', () => {
   it('重新检查与提权共用一行操作区，多项授权时只显示一次且不提交表单', async () => {
+    Object.defineProperty(window, 'weq', { configurable: true, value: { authorization: {} } });
     const f = fixture();
     event('elev:request-password', { token: 41 });
     event('attach:confirm-hint', { token: 42 });
@@ -458,6 +724,11 @@ describe('非阻塞提权入口', () => {
       (button) => button.textContent === '重新检查',
     );
     expect(buttons).toHaveLength(1);
+    expect(
+      [...f.host.querySelectorAll('button')].filter(
+        (button) => button.textContent === '管理长期授权',
+      ),
+    ).toHaveLength(1);
     const row = buttons[0]!.closest('.weq-restricted-actions')!;
     expect(row.querySelector('[type="submit"]')?.textContent).toBe('提权');
     expect(row.closest('form')).not.toBeNull();

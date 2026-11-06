@@ -69,7 +69,7 @@ function mount() {
       root.render(
         createElement(SettingsDialog, {
           open: true,
-          initialSection: 'message-display',
+          initialSection: 'chat-messages',
           onClose: vi.fn(),
           onOpenMaintenance: vi.fn(),
           onOpenRecalls: vi.fn(),
@@ -80,6 +80,20 @@ function mount() {
   return {
     host,
     render,
+    toggle: (label: string) => {
+      const page =
+        label === '使用 QQ 账号设置的个性字体发送消息'
+          ? '互动与防撤回'
+          : ['消息气泡', '消息字体', '聊天头像挂件', '聊天 QQ 秀替换头像'].includes(label)
+            ? '消息显示'
+            : '阅读与未读';
+      act(() =>
+        [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
+          .find((button) => button.textContent === page)!
+          .click(),
+      );
+      return host.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${label}"]`)!;
+    },
     close: () => {
       act(() => root.unmount());
       host.remove();
@@ -104,12 +118,15 @@ const toggles = [
 
 it('消息开关分别按默认值展示、保存、刷新共享设置，重开后可恢复与再次开启', () => {
   let f = mount();
-  const toggle = (label: string) =>
-    f.host.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${label}"]`)!;
+  const toggle = (label: string) => f.toggle(label);
   try {
     const setting = f.host.querySelector('[data-setting-id="read-first-unread"]');
-    expect(setting?.querySelector('strong')?.textContent).toBe('从第一条新消息开始阅读');
-    expect(setting?.querySelector('span')?.textContent).toBe('可能提高阅读过的会话的加载速度');
+    expect(setting?.querySelector('.weq-set-row-label')?.textContent).toBe(
+      '从第一条新消息开始阅读',
+    );
+    expect(setting?.querySelector('.weq-set-row-desc')?.textContent).toBe(
+      '可能提高阅读过的会话的加载速度',
+    );
     for (const [label, key, defaultValue] of toggles) {
       vi.clearAllMocks();
       expect(toggle(label).getAttribute('aria-checked'), label).toBe(String(defaultValue));
@@ -143,9 +160,7 @@ it('每个消息开关保存失败均保留原值并提示，保存期间不能�
   try {
     fixture.failed = true;
     for (const [label, key, defaultValue] of toggles) {
-      const toggle = f.host.querySelector<HTMLButtonElement>(
-        `[role="switch"][aria-label="${label}"]`,
-      )!;
+      const toggle = f.toggle(label);
       vi.clearAllMocks();
       expect(f.host.querySelector('[role="alert"]'), label).toBeNull();
       act(() => toggle.click());
@@ -174,9 +189,7 @@ it('每个消息开关保存失败均保留原值并提示，保存期间不能�
     f.render();
     vi.clearAllMocks();
     for (const [label] of toggles) {
-      const toggle = f.host.querySelector<HTMLButtonElement>(
-        `[role="switch"][aria-label="${label}"]`,
-      )!;
+      const toggle = f.toggle(label);
       expect(toggle.disabled, label).toBe(true);
       act(() => toggle.click());
     }

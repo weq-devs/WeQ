@@ -30,6 +30,7 @@ export interface ResolvedGroupMember {
   card: string;
   /** Global QQ nick. */
   nick: string;
+  remark?: string;
   /** 0 = member, 1 = admin (owner is identified separately by uid). */
   adminFlag: number;
 }
@@ -46,13 +47,20 @@ export interface SenderResolveDeps {
   /** Group: name + owner uid for the meta block. */
   groupMeta?: (groupCode: string) => Promise<{ name: string; ownerUid: string } | null>;
   /** c2c: resolve one uid → its uin + nick (+ 可选公开头像覆盖，频道私聊用)。 */
-  resolveProfile?: (uid: string) => Promise<{ uin: string; nick: string; avatar?: string } | null>;
+  resolveProfile?: (
+    uid: string,
+  ) => Promise<{ uin: string; nick: string; remark?: string; avatar?: string } | null>;
   /** The exporting (self) account: uid + uin + nick (+ 可选公开头像覆盖，频道私聊用)。 */
   self?: () => Promise<{ uid: string; uin: string; nick: string; avatar?: string } | null>;
 }
 
 /** A sender's resolved identity, cached per uid for the message pass. */
 export interface ResolvedSender {
+  /** 真实 QQ 号；与可能回退到频道身份的 platformId 区分。 */
+  uin?: string;
+  /** 实际读到的名称；与仅用于显示的账号 ID 回退分开。 */
+  sourceName?: string;
+  displayName?: string;
   /** platformId — the value used for `sender` / `members[].platformId` (uin, or uid fallback). */
   platformId: string;
   /** accountName (global nick, or a best-effort fallback). */
@@ -131,6 +139,9 @@ export async function resolveGroupSenders(
     const role: ResolvedSender['role'] =
       uid === ownerUid ? 'owner' : t?.adminFlag === 1 ? 'admin' : undefined;
     out.set(uid, {
+      uin: uin && uin !== '0' ? uin : undefined,
+      ...(t ? { sourceName: t.nick || t.card } : {}),
+      displayName: t?.card?.trim() || t?.remark?.trim() || t?.nick?.trim() || undefined,
       platformId,
       accountName: t?.nick || t?.card || (uin && uin !== '0' ? uin : uid),
       groupNickname: t?.card || undefined,
@@ -152,6 +163,8 @@ export async function resolveC2cSenders(
   if (self) {
     const platformId = self.uin && self.uin !== '0' ? self.uin : self.uid;
     senders.set(self.uid, {
+      uin: self.uin && self.uin !== '0' ? self.uin : undefined,
+      sourceName: self.nick,
       platformId,
       accountName: self.nick || platformId,
       ...(self.avatar ? { avatar: self.avatar } : {}),
@@ -163,6 +176,9 @@ export async function resolveC2cSenders(
   const peerUin = peer?.uin && peer.uin !== '0' ? peer.uin : conv;
   if (!senders.has(conv)) {
     senders.set(conv, {
+      uin: peer?.uin && peer.uin !== '0' ? peer.uin : undefined,
+      ...(peer ? { sourceName: peer.nick } : {}),
+      displayName: peer?.remark?.trim() || peer?.nick?.trim() || undefined,
       platformId: peerUin,
       accountName: peer?.nick || peerUin,
       ...(peer?.avatar ? { avatar: peer.avatar } : {}),

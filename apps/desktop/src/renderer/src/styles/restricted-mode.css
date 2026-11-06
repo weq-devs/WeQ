@@ -43,7 +43,6 @@
   position: fixed;
   top: 46px;
   right: 12px;
-  z-index: 2400;
   width: min(390px, calc(100vw - 24px));
   max-height: calc(100dvh - 58px);
   display: flex;
@@ -121,6 +120,9 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+.weq-restricted-body > .weq-qq-debug + .weq-restricted-actions {
+  margin-top: 12px;
 }
 html[data-theme='dark'] .weq-restricted-panel {
   background: var(--weq-bg-elevated);

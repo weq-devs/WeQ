@@ -534,6 +534,11 @@ export class RoamingBackfillManager {
     if (this.active) this.pause(this.active);
   }
 
+  async close(): Promise<void> {
+    this.dispose();
+    await flights.get(this.path);
+  }
+
   private async run(job: RoamingJob, signal: AbortSignal): Promise<void> {
     let runRequests = 0;
     try {

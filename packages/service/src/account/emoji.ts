@@ -806,7 +806,12 @@ export class EmojiService {
    * 3. Download from QQ's CDN (GIF 300/200 -> PNG 300/200) as plaintext and save.
    * 4. Return the path to the cached file, or null if all attempts fail.
    */
-  async getMarketFace(itemId: string, emojiHash: string): Promise<string | null> {
+  async getMarketFace(
+    itemId: string,
+    emojiHash: string,
+    localOnly = false,
+  ): Promise<string | null> {
+    if (!/^\d+$/.test(itemId) || !/^[0-9a-f]+$/i.test(emojiHash)) return null;
     const weqCacheDir = join(this.platform.appDataRoot(), 'cache', 'marketface');
     const gifCachePath = join(weqCacheDir, `${emojiHash}.gif`);
     const pngCachePath = join(weqCacheDir, `${emojiHash}.png`);
@@ -851,6 +856,7 @@ export class EmojiService {
       }
     }
 
+    if (localOnly) return null;
     // 3. Fallback to CDN. CDN bytes are PLAINTEXT — unlike QQ's local encrypted
     // GIF (step 2a) they are NOT XOR-encrypted, so they're saved as-is.
     const hashPrefix = emojiHash.slice(0, 2);
@@ -871,6 +877,31 @@ export class EmojiService {
     }
 
     return null;
+  }
+
+  async localMarketFaceVariants(itemId: string, emojiHash: string): Promise<string[]> {
+    if (!/^\d+$/.test(itemId) || !/^[0-9a-f]+$/i.test(emojiHash)) return [];
+    const first = await this.getMarketFace(itemId, emojiHash, true);
+    const files = new Set<string>(first ? [first] : []);
+    const cached = join(this.platform.appDataRoot(), 'cache', 'marketface');
+    for (const ext of ['gif', 'png'])
+      if (isFile(join(cached, `${emojiHash}.${ext}`)))
+        files.add(join(cached, `${emojiHash}.${ext}`));
+    const root = this.platform.marketFaceDir(this.session.context.uin);
+    if (root) {
+      const directory = join(root, itemId);
+      try {
+        for (const name of readdirSync(directory))
+          if (
+            [`${emojiHash}.png`, `${emojiHash}_aio.png`, `${emojiHash}_thu.png`].includes(name) &&
+            isFile(join(directory, name))
+          )
+            files.add(join(directory, name));
+      } catch {
+        /* 本地目录不存在。 */
+      }
+    }
+    return [...files].sort();
   }
 
   /**

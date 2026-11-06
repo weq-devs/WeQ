@@ -60,6 +60,36 @@ html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
   max-width: 100%;
 }
 
+/* 网格卡片和纵向表单中的操作仍按内容定宽，不继承容器的拉伸。 */
+.weq-set .weq-set-btn {
+  justify-self: start;
+  align-self: start;
+  justify-content: center;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  height: auto;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.weq-set :is(.weq-set-btn-group, .weq-set-actions, .weq-set-card-action) {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-set .weq-set-card-head {
+  flex-wrap: wrap;
+}
+
+.weq-set .weq-set-btn > svg {
+  flex: none;
+}
+
 html[data-theme] body .weq-set-chk {
   background: var(--weq-bg-surface);
   color: var(--weq-fg-secondary);

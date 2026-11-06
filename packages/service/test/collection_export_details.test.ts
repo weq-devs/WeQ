@@ -6,6 +6,13 @@ import {
   exportCollections,
   type CollectionExportRow,
 } from '../src/account/export/collection_export';
+import { object, readArchive } from '../src/account/export/archive';
+function exportedRows(path: string) {
+  return readArchive(JSON.parse(readFileSync(path, 'utf8'))).records.map((row) => row.data);
+}
+function firstText(path: string, index = 0) {
+  return object((exportedRows(path)[index]!.content as unknown[])[0]).text;
+}
 let root = '';
 afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true });
@@ -43,11 +50,16 @@ describe('collection export detail hydration', () => {
     const outputPath = output();
     const source = rows(1);
     source[0]!.createTime = Date.parse('2026-10-16T17:02:03Z');
+    await exportCollections({ format: 'txt', outputPath }, { listCollections: async () => source });
+    expect(readFileSync(outputPath, 'utf8')).toContain('2026-10-17 01:02');
     await exportCollections(
       { format: 'json', outputPath },
       { listCollections: async () => source },
     );
-    expect(JSON.parse(readFileSync(outputPath, 'utf8'))[0].createTime).toBe('2026-10-17 01:02');
+    expect(exportedRows(outputPath)[0]!.createdAt).toEqual({
+      unixSeconds: `${Date.parse('2026-10-16T17:02:03Z') / 1000}.000`,
+      precision: 'millisecond',
+    });
     expect(source[0]!.createTime).toBe(Date.parse('2026-10-16T17:02:03Z'));
   });
   it('exports only exact selected CIDs and never fetches unrelated details', async () => {
@@ -66,9 +78,7 @@ describe('collection export detail hydration', () => {
     );
     expect(result.count).toBe(1);
     expect(fetchDetails).toHaveBeenCalledWith(['cid-1'], undefined);
-    expect(
-      JSON.parse(readFileSync(outputPath, 'utf8')).map((row: { cid: string }) => row.cid),
-    ).toEqual(['cid-1']);
+    expect(exportedRows(outputPath).map((row) => row.cid)).toEqual(['cid-1']);
   });
   it('does not turn a missing selected CID into an apparently successful empty export', async () => {
     await expect(
@@ -99,7 +109,7 @@ describe('collection export detail hydration', () => {
       detailsFailed: 0,
       originalsComplete: false,
     });
-    expect(JSON.parse(readFileSync(outputPath, 'utf8'))[44].body).toBe('full cid-44');
+    expect(firstText(outputPath, 44)).toBe('full cid-44');
   });
   it('keeps summaries and separates failed requests from skipped offline rows', async () => {
     const outputPath = output();
@@ -117,7 +127,7 @@ describe('collection export detail hydration', () => {
       detailsUncovered: 45,
     });
     expect(result.coverage.items[20]?.detail).toBe('uncovered');
-    expect(JSON.parse(readFileSync(outputPath, 'utf8'))[0].body).toBe('summary');
+    expect(firstText(outputPath)).toBe('summary');
   });
   it('rejects mismatched batches without applying wrong-account or wrong-CID bodies', async () => {
     const outputPath = output();
@@ -137,7 +147,7 @@ describe('collection export detail hydration', () => {
     );
     expect(result.coverage.detailsFailed).toBe(2);
     expect(
-      JSON.parse(readFileSync(outputPath, 'utf8')).map((row: { body: string }) => row.body),
+      exportedRows(outputPath).map((row) => object((row.content as unknown[])[0]).text),
     ).toEqual(['summary', 'summary']);
   });
   it('does not hydrate cached bodies or publish after cancellation', async () => {

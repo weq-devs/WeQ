@@ -6,8 +6,8 @@
  *
  * 详情区展示该任务的每个子任务进度条（右侧只显示百分比，不显示进度名称），
  * 每个子任务进度条下方挂自己的滚动日志（Docker TUI 风格）；子任务完成后日志
- * 自动收起。任务级日志（扫描摘要 / 起止 / 错误）固定在详情底部，同样在任务
- * 完成后自动隐藏。
+ * 自动收起，仍可手动展开。任务级日志（扫描摘要 / 起止 / 错误）固定在详情
+ * 底部，任务完成后也可展开查看。
  */
 
 import { useEffect, useState, type ReactElement } from 'react';
@@ -111,6 +111,9 @@ export interface UiTask {
   save?: import('@weq/service').ExportSaveState;
   canResume?: boolean;
   journalPath?: string;
+  canIncremental?: boolean;
+  canFinalize?: boolean;
+  resourceOnly?: boolean;
   partialReady?: boolean;
   isFinalizing?: boolean;
   mergeWarnings?: import('@weq/service').ExportTask['mergeWarnings'];
@@ -177,6 +180,7 @@ export function taskPct(t: UiTask): number {
 
 /** 任务类型标签（卡片 title / 详情 meta）。 */
 export function taskTypeLabel(t: UiTask): string {
+  if (t.resourceOnly) return '资源导出';
   if (t.resource?.kind === 'database') return '数据库明文导出';
   if (t.resource?.kind === 'assistant-artifact') return '助手报告保存';
   if (t.resource?.kind === 'market-image') return '商城单张表情保存';
@@ -213,6 +217,7 @@ export function taskIcon(t: UiTask): ReactElement {
 
 /** 详情 meta 用的格式标签：`HTML + JSON`。 */
 function fmtFormats(t: UiTask): string {
+  if (t.resourceOnly) return '仅资源';
   return (t.formats?.length ? t.formats : [t.format]).join(' + ').toUpperCase();
 }
 
@@ -314,8 +319,11 @@ function StageRow({
 }): ReactElement {
   const [open, setOpen] = useState(false);
   const pct = stagePct(stage);
-  // 运行中 / 失败时可展开日志；完成 / 跳过自动收起（按钮禁用）。
-  const canOpen = stage.status === 'running' || stage.status === 'failed';
+  // 完成 / 跳过时自动收起，但保留手动展开入口。
+  const canOpen = stage.status !== 'pending';
+  useEffect(() => {
+    if (stage.status === 'completed' || stage.status === 'skipped') setOpen(false);
+  }, [stage.status]);
   const showLog = canOpen && open;
   const failures = stage.failures ?? [];
   return (
@@ -363,7 +371,7 @@ function StageRow({
             aria-expanded={canOpen && open}
             onClick={() => setOpen((v) => !v)}
           >
-            <ChevronDown size={13} className={open ? 'is-open' : ''} />
+            <ChevronDown size={13} className={showLog ? 'is-open' : ''} />
           </button>
         </span>
       </div>
@@ -464,9 +472,15 @@ function TaskDetail({
   const logs = t.logs ?? [];
   const stageLogs = (key: string): UiLogLine[] => logs.filter((l) => l.stage === key);
   const taskLogs = logs.filter((l) => l.stage === 'task');
-  // 任务级日志在任务收尾后隐藏（与子任务日志一致）。
-  const showTaskLog = t.status === 'running' || t.status === 'paused' || t.status === 'failed';
+  const showTaskLog =
+    t.status === 'running' ||
+    t.status === 'paused' ||
+    t.status === 'failed' ||
+    t.status === 'completed';
   const [taskLogOpen, setTaskLogOpen] = useState(false);
+  useEffect(() => {
+    if (t.status === 'completed' || t.status === 'cancelled') setTaskLogOpen(false);
+  }, [t.status]);
   // 待执行的可跳过阶段也显示，让用户能提前略过它。
   const mounted = (t.stages ?? []).filter(
     (s) =>
@@ -520,7 +534,7 @@ function TaskDetail({
         </span>
         <strong className="weq-exp-detail-overall">{overall}%</strong>
         <div className="weq-exp-detail-actions">
-          {t.status === 'paused' && t.journalPath && onFinalize ? (
+          {t.status === 'paused' && (t.canFinalize || t.journalPath) && onFinalize ? (
             <button
               type="button"
               title={t.isFinalizing ? '收尾中' : t.partialReady ? '已收尾' : '收尾'}
@@ -531,7 +545,7 @@ function TaskDetail({
               {t.isFinalizing ? <Loader2 size={15} /> : <Check size={15} />}
             </button>
           ) : null}
-          {t.status === 'completed' && t.journalPath && onIncremental ? (
+          {t.status === 'completed' && (t.canIncremental || t.journalPath) && onIncremental ? (
             <button
               type="button"
               title="增量导出"
@@ -545,8 +559,20 @@ function TaskDetail({
           {t.canResume && onResume ? (
             <button
               type="button"
-              title={t.resumeMode === 'restart' ? '按原范围重新执行' : '继续导出'}
-              aria-label={t.resumeMode === 'restart' ? '重新执行导出' : '继续导出'}
+              title={
+                t.status === 'completed'
+                  ? '补传已跳过项目'
+                  : t.resumeMode === 'restart'
+                    ? '按原范围重新执行'
+                    : '继续导出'
+              }
+              aria-label={
+                t.status === 'completed'
+                  ? '补传已跳过项目'
+                  : t.resumeMode === 'restart'
+                    ? '重新执行导出'
+                    : '继续导出'
+              }
               onClick={() => onResume(t)}
             >
               {t.resumeMode === 'restart' ? <RotateCw size={15} /> : <Play size={15} />}

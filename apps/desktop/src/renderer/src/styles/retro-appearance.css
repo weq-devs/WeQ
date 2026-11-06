@@ -1,0 +1,329 @@
+/* 复古沿用现有主题色与画布，只统一共用界面形态，不修改分栏、行高及媒体正文。 */
+html[data-component-style='retro'][data-theme] {
+  --radius: 0px;
+  --weq-retro-highlight: var(--weq-bg-surface);
+  --weq-retro-lowlight: var(--weq-border-strong);
+  --weq-retro-frame:
+    inset 1px 1px var(--weq-retro-highlight), inset -1px -1px var(--weq-retro-lowlight);
+  --weq-retro-well:
+    inset 1px 1px var(--weq-retro-lowlight), inset -1px -1px var(--weq-retro-highlight);
+}
+
+html[data-component-style='retro'][data-theme='dark'] {
+  --weq-retro-highlight: var(--weq-border-strong);
+  --weq-retro-lowlight: var(--weq-bg-app);
+}
+
+/* 页面保持无外框；标题与工具栏用同一条立体分隔线，画布仍透出用户背景。 */
+html[data-component-style='retro'][data-theme] body
+  :is(
+    .app-title-bar,
+    .app-rail,
+    .sidebar,
+    .weq-settings-nav,
+    .weq-settings-subnav,
+    .weq-wtools-nav,
+    .weq-qzn-header,
+    .weq-qzn-navigation,
+    .weq-mail-topbar,
+    .weq-collection-head,
+    .weq-collection-filters,
+    .weq-market-head,
+    .weq-dress-head,
+    .weq-dress-toolbar,
+    .weq-wtools-pane-head,
+    .weq-workspace-menu-head,
+    .weq-exp-top
+  ) {
+  border-color: var(--weq-skin-border);
+  background: color-mix(in srgb, var(--weq-bg-elevated) 92%, transparent);
+  box-shadow: var(--weq-retro-frame);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* 导航和分段选项保留尺寸，状态变化不增加边框或改变排列。 */
+html[data-component-style='retro'][data-theme] body
+  :is(
+    .weq-rail-button,
+    .weq-rail-control,
+    .weq-settings-nav-item,
+    .weq-settings-subnav-item,
+    .weq-wtools-nav-item,
+    .weq-collection-chip,
+    .weq-dress-chip,
+    .weq-dress-kind,
+    .weq-dress-scope-btn,
+    .weq-emb-fee-row .weq-mpd-fee-chip,
+    .weq-qzn-navigation button,
+    .weq-segmented > button,
+    .weq-density-options button,
+    .contact-tab-switch button,
+    .mode-button
+  ) {
+  border-radius: 0;
+  box-shadow: var(--weq-retro-frame);
+  transition: none;
+}
+
+html[data-component-style='retro'][data-theme]
+  body
+  :is(.weq-segmented, .weq-density-options, .contact-tab-switch) {
+  border: 1px solid var(--weq-skin-border);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--weq-bg-elevated) 85%, transparent);
+  box-shadow: var(--weq-retro-well);
+}
+
+html[data-component-style='retro'][data-theme]
+  body
+  :is(
+    .weq-rail-button:is([aria-current='page'], [aria-expanded='true']),
+    .weq-settings-nav-item.is-active,
+    .weq-settings-subnav-item.is-active,
+    .weq-wtools-nav-item.is-active,
+    .weq-collection-chip.is-active,
+    .weq-dress-chip.is-active,
+    .weq-dress-kind.is-active,
+    .weq-dress-scope-btn.is-active,
+    .weq-emb-fee-row .weq-mpd-fee-chip.is-active,
+    .weq-qzn-navigation button[aria-current='page'],
+    .weq-segmented > button[aria-checked='true'],
+    .weq-density-options button[aria-checked='true'],
+    .contact-tab-switch button.active,
+    .mode-button.active
+  ):not(:disabled) {
+  background: var(--weq-skin-selection);
+  color: var(--weq-skin-selection-fg);
+  border-color: var(--weq-skin-border);
+  box-shadow: var(--weq-skin-selection-shadow);
+}
+
+/* 功能页自有的工具按钮与表单也复用同一套凸起 / 凹陷形态。 */
+html[data-component-style='retro'][data-theme] body
+  :is(
+    .composer-tools button,
+    .chat-actions button,
+    .weq-workspace-menu-head button,
+    .weq-workspace-actions > button,
+    .weq-workspace-control,
+    .weq-collection-head button,
+    .weq-dress-head button,
+    .weq-dress-toolbar button,
+    .weq-qzn-tools button,
+    .weq-mail-topbar button,
+    .weq-wtools-rv-btn,
+    .weq-wtools-refresh,
+    .weq-wtools-pick,
+    .weq-emb-download,
+    .weq-exp-file-toolbar button,
+    .weq-exp-sched-card-actions button
+  ) {
+  border-radius: 0;
+  box-shadow: var(--weq-retro-frame);
+}
+
+html[data-component-style='retro'][data-theme]
+  body
+  :is(
+    .weq-collection-search,
+    .weq-dress-search,
+    .weq-dress-scope,
+    .weq-titlebar-search,
+    .weq-search-more-input,
+    .weq-exp-search,
+    .weq-wtools-rv-input,
+    .weq-wtools-rv-textarea,
+    .weq-wtools-rv-json,
+    .weq-schedule-settings input:not([type='checkbox']):not([type='radio']),
+    .weq-schedule-settings select,
+    .composer textarea
+  ) {
+  border: 2px solid var(--weq-skin-border);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--weq-bg-surface) 85%, transparent);
+  color: var(--weq-fg-primary);
+  box-shadow: var(--weq-skin-input-shadow);
+}
+
+/* 搜索框的外层负责凹框，内层输入保持透明，避免双框。 */
+html[data-component-style='retro'][data-theme] body
+  :is(.search-box, .weq-collection-search, .weq-dress-search, .weq-titlebar-search, .weq-exp-search)
+  input {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html[data-component-style='retro'][data-theme] body .composer-editor {
+  border-radius: 0;
+  box-shadow: var(--weq-retro-well);
+}
+
+html[data-component-style='retro'][data-theme]
+  body
+  :is(
+    .weq-set-card,
+    .weq-settings-appearance-card,
+    .weq-style-option,
+    .weq-settings-theme-option,
+    .weq-dress-card,
+    .weq-wtools-card,
+    .weq-exp-sched-card,
+    .weq-long-task
+  ) {
+  border: 1px solid var(--weq-skin-border);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--weq-bg-elevated) 82%, transparent);
+  box-shadow: var(--weq-retro-well);
+}
+
+/* 弹窗与传送到 body 的菜单统一硬阴影；不为整页正文增加第二层外框。 */
+html[data-component-style='retro'][data-theme] body
+  :is(
+    .weq-modal:not(
+      :where(
+        .weq-workspace-page > *,
+        .weq-workspace-page > [data-page-snapshot] > *,
+        .weq-tool-modal > *
+      )
+    ),
+    .weq-tool-modal,
+    .weq-nonmodal-layer[tabindex] > :first-child,
+    .weq-hover-tooltip,
+    .weq-search-dropdown,
+    .weq-titlebar-search-results,
+    .weq-rail-account-popover,
+    .weq-rail-account-ctx-menu,
+    .avatar-context-submenu,
+    .mention-menu,
+    .weq-toast
+  ) {
+  border: 2px solid var(--weq-skin-border);
+  border-radius: 0;
+  background: var(--weq-skin-popup-surface);
+  color: var(--weq-fg-primary);
+  box-shadow: var(--weq-skin-popup-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html[data-component-style='retro'][data-theme]
+  body
+  :is(
+    .weq-workspace-page > :first-child,
+    .weq-workspace-page > [data-page-snapshot] > :first-child
+  ) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html[data-component-style='retro'][data-theme]
+  body
+  :is(.message-context-menu, .weq-directory-scope-menu, .weq-rail-account-ctx-menu, .weq-select)
+  :is(button, [role='option'], [role='menuitem']) {
+  border-radius: 0;
+}
+
+html[data-component-style='retro'][data-theme]
+  body
+  :is(.message-context-menu, .weq-directory-scope-menu, .weq-rail-account-ctx-menu, .weq-select)
+  :is(button, [role='option'], [role='menuitem']):is(:hover, [aria-selected='true']):not(
+    :disabled
+  ) {
+  background: var(--weq-skin-selection);
+  color: var(--weq-skin-selection-fg);
+}
+
+/* 文本消息使用方形薄框；纯图片、表情、语音和卡片仍由各自渲染器负责。 */
+html[data-component-style='retro'][data-theme] body
+  .message-line:not([data-bubble])
+  .message-content:not(
+    .qq-card-only,
+    .qq-voice-only,
+    .sticker-only,
+    .markdown-image-only,
+    .code-only
+  ) {
+  border: 1px solid var(--weq-skin-border);
+  border-radius: 0;
+  box-shadow: var(--weq-retro-frame);
+}
+
+html[data-component-style='retro'][data-theme]
+  body
+  :is(
+    .conversation-row,
+    .contact-row,
+    .message-name,
+    .message-time-divider,
+    .row-unread,
+    .rail-message-badge,
+    .rail-badge-mail,
+    .weq-settings-scope,
+    .weq-workspace-status-count
+  ) {
+  border-radius: 0;
+}
+
+html[data-component-style='retro'][data-theme]
+  body
+  :is(.message-avatar-button, .message-avatar-wrap, .rail-avatar, .weq-rail-account-avatar)
+  :is(.avatar, img, .weq-avatar-fallback),
+html[data-component-style='retro'][data-theme]
+  body
+  :is(.conversation-row, .contact-row)
+  .avatar
+  img,
+html[data-component-style='retro'][data-theme]
+  body
+  :is(.message-avatar-button, .message-avatar-wrap, .rail-avatar, .weq-rail-account-avatar) {
+  border-radius: 0;
+}
+
+html[data-component-style='retro'][data-theme]
+  body
+  .contact-row.active:not(.is-multiselected)
+  :is(
+    .contact-card-nickname,
+    .contact-card-nickname > span,
+    .contact-card-status,
+    .contact-card-signature
+  ) {
+  color: var(--weq-skin-selection-fg);
+}
+
+html[data-component-style='retro'][data-theme]
+  body
+  :is(.weq-segmented > button, .weq-rail-button, .weq-workspace-actions > button):active:not(
+    :disabled
+  ) {
+  box-shadow: var(--weq-retro-well);
+}
+
+html[data-component-style='retro'][data-theme]
+  body
+  :is(
+    .weq-segmented > button,
+    .weq-rail-button,
+    .weq-settings-nav-item,
+    .weq-settings-subnav-item,
+    .weq-collection-search,
+    .weq-dress-search,
+    .composer textarea
+  ):focus-visible {
+  outline: 2px solid var(--weq-accent-ink);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-component-style='retro'][data-theme]
+    body
+    :is(.weq-segmented > button, .weq-rail-button, .weq-style-option, .weq-dress-card) {
+    transition: none;
+    transform: none;
+  }
+}

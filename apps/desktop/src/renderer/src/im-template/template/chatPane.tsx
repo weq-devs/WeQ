@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+import { useChatTimelineNavigation } from './useChatTimelineNavigation';
 import {
   useContentMultiSelect,
   useRequestContentExport,
@@ -16,7 +16,6 @@ import { ChatHeader } from '../../components/ChatHeader';
 import { MessageSelectionBar } from '../../components/MessageSelectionBar';
 import { useMediaSave } from '../../components/MediaSaveControls';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
-import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
 import { useStableCallback } from '../../hooks/useStableCallback';
 import { timelineViewport } from '../../lib/timelineViewport';
 import '../../styles/message-selection-toolbar.css';
@@ -102,7 +101,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ReplyJumpContext, type ReplyJumpTarget } from '../../components/QqMessageContent';
+import { ReplyJumpContext } from '../../components/QqMessageContent';
 import { openLightbox } from '../../components/ImageLightbox';
 import { releaseObjectUrl } from '../../lib/objectUrl';
 import '../../styles/composer-image-preview.css';
@@ -115,7 +114,7 @@ import type {
   ClipboardEvent as ReactClipboardEvent,
   CSSProperties,
   DragEvent as ReactDragEvent,
-  KeyboardEvent,
+  KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   RefObject,
 } from 'react';
@@ -222,6 +221,7 @@ import {
   removeUnusedComposerImages,
 } from '../../lib/composerDraftMedia';
 import { planNeedsLocalMedia, type LocalMediaRef } from './composerSend';
+import { composerSubmission, type ComposerSubmitOptions } from './composerSubmission';
 import { prepareReeditDraft } from './composerReedit';
 import {
   ComposerResizeHandle,
@@ -271,10 +271,7 @@ import { readMentionClipboard, writeMentionClipboard } from '../../lib/mentionCl
 import '../../styles/message-repeat.css';
 import '../../styles/new-message-preview.css';
 import '../../styles/conversation-loading.css';
-import {
-  restoreReadingPosition,
-  type ConversationReadingPosition,
-} from '../../lib/conversationReadingPosition';
+import type { ConversationReadingPosition } from '../../lib/conversationReadingPosition';
 import { MessageTimeDivider, shouldShowMessageTime } from './messageTime';
 import { MessageGapDivider, isSeqBetween, messageGapCount } from './messageGap';
 import { defaultConversationPreference } from './preferences';
@@ -317,19 +314,6 @@ type MentionMenuState = {
   query: string;
   activeIndex: number;
   members: GroupMember[];
-};
-
-type UnreadJumpState = {
-  conversationId: string;
-  remaining: number;
-  startScrollTop?: number;
-  targetScrollTop?: number;
-  total: number;
-};
-
-type UnreadJumpSeed = {
-  conversationId: string;
-  total: number;
 };
 
 function loadGroupInfoCollapsed() {
@@ -397,22 +381,13 @@ function pureImageUrl(message: Message) {
   const elements = (message.qqElements ?? []).filter(
     (element) => !(element.type === 'text' && !String(element.data?.textContent ?? '').trim()),
   );
-  return elements.length === 1 && elements[0].type === 'pic'
+  return elements.length === 1 && elements[0]?.type === 'pic'
     ? getMessageDownloadUrl(message)
     : undefined;
 }
 
 function formatUnreadJumpCount(value: number) {
   return value > 99 ? '99+' : String(value);
-}
-
-/** 新消息提示只统计他人发送的追加消息，不把自己的乐观消息或落库确认计入。 */
-function countAppendedMessages(lastId: string | null, messages: Message[], selfId: string) {
-  const index = lastId ? messages.findIndex((message) => message.id === lastId) : -1;
-  let count = 0;
-  for (let i = index < 0 ? Math.max(0, messages.length - 1) : index + 1; i < messages.length; i++)
-    if (messages[i]!.senderId !== selfId) count++;
-  return count;
 }
 
 function isMobileComposerViewport() {
@@ -450,90 +425,7 @@ function formatMuteDuration(seconds: number): string {
   return MUTE_DURATION_LABELS[seconds] ?? `${Math.round(seconds / 60)} 分钟`;
 }
 
-export function ChatPane({
-  user,
-  conversation,
-  messages,
-  composerActions,
-  messageRenderers,
-  loading,
-  loadingNewer = false,
-  initialReadingPosition,
-  atLatest = true,
-  latestMessageSeq,
-  onPreviewLatest,
-  onJumpToLatest,
-  onReadCurrentConversation,
-  preference,
-  onLoadMoreGroupMembers,
-  onAddGroupMember,
-  groupMembersLoading,
-  groupMembersError,
-  groupMemberSearch,
-  onGroupMemberSearchChange,
-  onLoadMoreGroupMemberSearch,
-  profileLoading,
-  sendAvailable = true,
-  onSend,
-  onRepeatMessage,
-  onResolveMentions,
-  onSearchMentionMembers,
-  onStartCall,
-  onSendArk,
-  onSendFlash,
-  onSendFlashPhoto,
-  onSendBubbleVideo,
-  onSendRedPacket,
-  arkLocation,
-  arkContacts,
-  defaultSignupGroupCode,
-  onMessageAction,
-  draft,
-  onDraftChange,
-  onDraftClear,
-  onBack,
-  onEditRaw,
-  onDeleteMessage,
-  onDismissUnsentMessage,
-  onStartOutgoingMessage,
-  onOpenGroupAlbums,
-  onOpenGroupFiles,
-  onOpenGroupAnnouncements,
-  groupTodos,
-  onOpenGroupSign,
-  onOpenGroupEssence,
-  onOpenGroupInfoDetail,
-  onRenameGroupMember,
-  onChangeGroupMemberTitle,
-  onKickGroupMember,
-  onOpenConversationSettings,
-  onOpenGroupBug,
-  onOpenGroupLeftMembers,
-  groupBugOnline,
-  onOpenGroupMember,
-  onAddMessage,
-  onViewDeleted,
-  onViewRecalled,
-  onOpenGapMessages,
-  onLoadSelectionMessages,
-  onSearchChatRecords,
-  onOpenRoamingBackfill,
-  deletedIds,
-  hiddenDeletedIds,
-  onRestoreMessage,
-  onMergeForward,
-  onAddToComposition,
-  onForwardMessages,
-  unreadDock,
-  missingJumpSeq,
-  resolvedGapIds,
-  headerActions,
-  settingsLabel = '会话设置',
-  jumpRequest,
-  sendBlockedReason,
-  readOnly = false,
-  loadError,
-}: {
+export type ChatPaneProps = {
   loadError?: string;
   /** 数据源适配扩展入口，不替换聊天页面、输入区或消息列表。 */
   headerActions?: React.ReactNode;
@@ -727,7 +619,92 @@ export function ChatPane({
    * 记下来传进来，这里就不再渲染对应提示条；刷新 / 重开会话后重新判断。
    */
   resolvedGapIds?: ReadonlySet<string>;
-}) {
+};
+
+export function ChatPane({
+  user,
+  conversation,
+  messages,
+  composerActions,
+  messageRenderers,
+  loading,
+  loadingNewer = false,
+  initialReadingPosition,
+  atLatest = true,
+  latestMessageSeq,
+  onPreviewLatest,
+  onJumpToLatest,
+  onReadCurrentConversation,
+  preference,
+  onLoadMoreGroupMembers,
+  onAddGroupMember,
+  groupMembersLoading,
+  groupMembersError,
+  groupMemberSearch,
+  onGroupMemberSearchChange,
+  onLoadMoreGroupMemberSearch,
+  profileLoading,
+  sendAvailable = true,
+  onSend,
+  onRepeatMessage,
+  onResolveMentions,
+  onSearchMentionMembers,
+  onStartCall,
+  onSendArk,
+  onSendFlash,
+  onSendFlashPhoto,
+  onSendBubbleVideo,
+  onSendRedPacket,
+  arkLocation,
+  arkContacts,
+  defaultSignupGroupCode,
+  onMessageAction,
+  draft,
+  onDraftChange,
+  onDraftClear,
+  onBack,
+  onEditRaw,
+  onDeleteMessage,
+  onDismissUnsentMessage,
+  onStartOutgoingMessage,
+  onOpenGroupAlbums,
+  onOpenGroupFiles,
+  onOpenGroupAnnouncements,
+  groupTodos,
+  onOpenGroupSign,
+  onOpenGroupEssence,
+  onOpenGroupInfoDetail,
+  onRenameGroupMember,
+  onChangeGroupMemberTitle,
+  onKickGroupMember,
+  onOpenConversationSettings,
+  onOpenGroupBug,
+  onOpenGroupLeftMembers,
+  groupBugOnline,
+  onOpenGroupMember,
+  onAddMessage,
+  onViewDeleted,
+  onViewRecalled,
+  onOpenGapMessages,
+  onLoadSelectionMessages,
+  onSearchChatRecords,
+  onOpenRoamingBackfill,
+  deletedIds,
+  hiddenDeletedIds,
+  onRestoreMessage,
+  onMergeForward,
+  onAddToComposition,
+  onForwardMessages,
+  unreadDock,
+  missingJumpSeq,
+  resolvedGapIds,
+  headerActions,
+  settingsLabel = '会话设置',
+  jumpRequest,
+  sendBlockedReason,
+  readOnly = false,
+  loadError,
+}: ChatPaneProps) {
   const generated = Boolean(conversation?.generated);
   const exportSelection = conversationExportSelection(conversation);
   const qqUnavailable = generated ? '克隆会话暂不支持此 QQ 功能' : undefined;
@@ -795,7 +772,9 @@ export function ChatPane({
   const emojiSendTarget = conversation
     ? conversation.type === 'group'
       ? { peerType: 'group' as const, targetId: conversation.group.identityValue }
-      : { peerType: 'c2c' as const, targetId: conversation.otherUser.identityValue }
+      : conversation.type === 'direct'
+        ? { peerType: 'c2c' as const, targetId: conversation.otherUser.identityValue }
+        : null
     : null;
   const [composerMenu, setComposerMenu] = useState<{
     kind: 'file';
@@ -934,8 +913,6 @@ export function ChatPane({
     };
   }
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null);
-  const [jumpMissing, setJumpMissing] = useState(false);
-  const locatedJump = useRef<typeof jumpRequest>(undefined);
   // 右键头像 → 「@他 / 戳一戳」轻互动菜单。
   const [avatarMenu, setAvatarMenu] = useState<AvatarContextMenuState | null>(null);
   /** 通话按钮的选择菜单（语音 / 视频）。锚点是被点的那个按钮。 */
@@ -995,7 +972,7 @@ export function ChatPane({
   };
   const exportMessageIds = (ids: string[]) => {
     if (ids.some((id) => parseSelectionGap(id))) {
-      pushToast({ tone: 'warning', title: '请先补全或取消所选消息缺口' });
+      pushToast({ tone: 'warning', durationKind: 'success', title: '请先补全或取消所选消息缺口' });
       return;
     }
     const scope = exportSelection;
@@ -1016,24 +993,6 @@ export function ChatPane({
     Boolean(mentionMenu && tabActive && conversation?.type === 'group' && !generated),
     Number(conversation?.group?.identityValue),
   );
-  const [unreadJump, setUnreadJump] = useState<UnreadJumpState | null>(null);
-  // 未读跳转坞：当前跳到第几个跳转点（越界即整串收起）。换了会话就归零。
-  const [dockIndex, setDockIndex] = useState(0);
-  // Count of newly-arrived (live) messages while the user is reading history.
-  // Surfaces the floating "jump to bottom" pill; cleared once at the bottom.
-  const [newMessagePill, setNewMessagePill] = useState(0);
-  const [showBottomJump, setShowBottomJump] = useState(false);
-  const lastScrollTopRef = useRef(0);
-  const latestSeqRef = useRef<{
-    conversationId: string | undefined;
-    seq: string | undefined;
-    unread: number;
-  }>({
-    conversationId: undefined,
-    seq: undefined,
-    unread: 0,
-  });
-  const [jumpingToLatest, setJumpingToLatest] = useState(false);
   const [clearMessagesConfirmOpen, setClearMessagesConfirmOpen] = useState(false);
   const [titleProfileGroupId, setTitleProfileGroupId] = useState<string | null>(null);
   const [cloneMemberProfile, setCloneMemberProfile] = useState<{
@@ -1117,59 +1076,6 @@ export function ChatPane({
   const composerEditorRef = useRef<HTMLDivElement | null>(null);
   const expandedComposerEditorRef = useRef<HTMLDivElement | null>(null);
   const composerSelectionRef = useRef<Range | null>(null);
-  const messageScrollRef = useRef<HTMLDivElement | null>(null);
-  const timelineContentRef = useRef<HTMLDivElement | null>(null);
-  const endRef = useRef<HTMLDivElement | null>(null);
-  // Tracks whether the view is pinned to the bottom of the message list.
-  // Drives auto-scroll-on-new-message vs. "new messages" pill behaviour.
-  const atBottomRef = useRef(true);
-  const readingPositionApplied = useRef(false);
-  const readGestureUntil = useRef(0);
-  const jumpToSeq = useCallback(
-    (target: ReplyJumpTarget) => {
-      // 滚动事件晚于消息刷新提交；先退出贴底，避免原消息刚定位就被刷新拉回末尾。
-      atBottomRef.current = false;
-      readGestureUntil.current = 0;
-      return parentJumpToSeq(target);
-    },
-    [parentJumpToSeq],
-  );
-  const lastReadSignal = useRef({ key: '', at: 0 });
-  const readContextRef = useRef({
-    tabActive,
-    atLatest,
-    loading,
-    conversation,
-    onReadCurrentConversation,
-    lastId: messages.at(-1)?.id,
-  });
-  readContextRef.current = {
-    tabActive,
-    atLatest,
-    loading,
-    conversation,
-    onReadCurrentConversation,
-    lastId: messages.at(-1)?.id,
-  };
-  // Last message id we auto-scrolled / accounted for, to detect new arrivals.
-  const lastMessageIdRef = useRef<string | null>(null);
-  // Conversation id the scroll-tracking refs above currently describe.
-  const scrollConversationRef = useRef<string | null>(null);
-  const bottomAfterLoadingRef = useRef(false);
-  const scrollAtLatestRef = useRef(atLatest);
-  const bottomLayoutRef = useRef<{
-    height: number;
-    viewportHeight: number;
-    revision: number | undefined;
-  } | null>(null);
-  const unreadSeedRef = useRef<UnreadJumpSeed | null>(null);
-  const unreadConversationRef = useRef<string | null>(null);
-  const unreadScrollFrameRef = useRef<number | null>(null);
-
-  // 换会话（或上层重下了新的一份快照）时，跳转坞从第一个跳转点重新开始。
-  useEffect(() => {
-    setDockIndex(0);
-  }, [conversation?.id, unreadDock]);
   const deletedKeys = useMemo(
     () => new Set([...(deletedIds ?? [])].map(deletionIdentity)),
     [deletedIds],
@@ -1206,7 +1112,7 @@ export function ChatPane({
   const intentSupported = Boolean(
     !generated &&
       conversation &&
-      conversation.chatType !== 8 &&
+      (conversation.type !== 'direct' || conversation.chatType !== 8) &&
       !conversation.id.startsWith('dataline:') &&
       conversation.id !== 'weq-assistant',
   );
@@ -1236,7 +1142,7 @@ export function ChatPane({
   );
   // 选中的消息（按时间线顺序）—— 合并转发 / 删除 / 复制 JSON 都用它。
   const selectionFlow = useMessageSelectionFlow({
-    conversation,
+    conversation: conversation ?? null,
     messages: generated
       ? visibleMessages.filter((message) => !message.generatedPending)
       : visibleMessages,
@@ -1247,17 +1153,52 @@ export function ChatPane({
   });
   selectionCancelRef.current = selectionFlow.cancel;
   const selectionOrder = selectionFlow.order;
-  const timelineIds = useMemo(
-    () => visibleMessages.map((message) => message.id),
-    [visibleMessages],
-  );
-  const timeline = useVirtualTimeline({
-    ids: timelineIds,
-    orderedIds: selectionOrder,
-    scrollRef: messageScrollRef,
-    // 数据源切换由宿主 ChatMainContent 的 messageScope key 重新挂载；不绑定按需加载的撤回资料。
-    scope: `${user.id}:${conversation?.id}`,
-    active: tabActive,
+
+  const {
+    leaveBottom,
+    dockIndex,
+    dockStop,
+    dockVisible,
+    endRef,
+    handleMessageScroll,
+    handleReadGesture,
+    isScrolledToBottom,
+    jumpAfterSuccessfulSend,
+    jumpDockStop,
+    jumpMissing,
+    jumpToBottomAndRead,
+    jumpToFirstUnreadMessage,
+    jumpToSeq,
+    jumpingToLatest,
+    messageScrollRef,
+    newMessagePill,
+    isActiveConversation,
+    resetReadGesture,
+    requestReadAtBottom,
+    clearUnreadJump,
+    showBottomJump,
+    timeline,
+    timelineContentRef,
+    unreadJump,
+  } = useChatTimelineNavigation({
+    atLatest,
+    conversation,
+    initialReadingPosition,
+    jumpRequest,
+    latestMessageSeq,
+    loadError,
+    loading,
+    loadingNewer,
+    timelineSettings: mediaSettings.data,
+    messages,
+    onJumpToLatest,
+    onReadCurrentConversation,
+    parentJumpToSeq,
+    selectionOrder,
+    tabActive,
+    unreadDock,
+    user,
+    visibleMessages,
   });
   const rowRestore = useStableCallback(onRestoreMessage);
   const rowContext = useStableCallback(openMessageMenu);
@@ -1321,12 +1262,14 @@ export function ChatPane({
     setContextMenu(null);
     if (!conversation || !tabActive || selectionBlockedReason || !selectionMode) return;
     if (action === 'export') exportMessageIds(messages.map((message) => message.id));
-    else if (action === 'analysis')
-      requestAnalysis?.(
-        conversationAnalysisTarget(conversation),
-        messages.map((message) => message.id),
-      );
-    else if (action === 'recall') await recallSelectedMessages(messages);
+    else if (action === 'analysis') {
+      const target = conversationAnalysisTarget(conversation);
+      if (target)
+        requestAnalysis?.(
+          target,
+          messages.map((message) => message.id),
+        );
+    } else if (action === 'recall') await recallSelectedMessages(messages);
     else {
       if (deletionBusy) return;
       const hidden = await confirmMessageDeletion(messages.length);
@@ -1414,7 +1357,7 @@ export function ChatPane({
         align: 'center',
         focus: true,
       });
-  }, [multi.focusRequest]);
+  }, [multi.focusRequest, messageScrollRef]);
   const marquee = useMessageMarquee({
     conversationKey: conversation?.id,
     enabled:
@@ -1445,7 +1388,7 @@ export function ChatPane({
   const copySelectedMessagesText = useCallback(async () => {
     if (!conversation) return;
     if (selectionBlockedReason) {
-      pushToast({ tone: 'warning', title: selectionBlockedReason });
+      pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
       return;
     }
     const picked = await selectionFlow.prepare('复制');
@@ -1462,8 +1405,9 @@ export function ChatPane({
     }
   }, [conversation, selectionFlow.prepare, user, pushToast, selectionBlockedReason]);
   const copySelectedMessagesRich = useCallback(async () => {
+    if (!conversation) return;
     if (selectionBlockedReason) {
-      pushToast({ tone: 'warning', title: selectionBlockedReason });
+      pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
       return;
     }
     const picked = await selectionFlow.prepare('复制');
@@ -1505,12 +1449,6 @@ export function ChatPane({
     copySelectedMessagesText,
     copySelectedMessagesRich,
   ]);
-
-  // 下面几个 effect 只该在会话/消息变化时跑，但正文里要调用这些每次渲染都重建的
-  // 函数。用 ref 转发拿最新实现，避免把它们塞进依赖导致 effect 每次渲染重跑。
-  const scrollMessagesToBottomRef = useRef<() => void>(() => {});
-  const jumpToBottomAndReadRef = useRef<() => Promise<void>>(async () => {});
-  const updateUnreadJumpRemainingRef = useRef<() => void>(() => {});
   const scheduleMobileComposerMeasureRef = useRef<(editor?: HTMLElement | null) => void>(() => {});
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -1519,262 +1457,6 @@ export function ChatPane({
   const setComposerBodyRef = useRef(setComposerBody);
   setComposerBodyRef.current = setComposerBody;
   const draftConversationId = conversation?.id;
-
-  useLayoutEffect(() => {
-    const conversationId = conversation?.id ?? null;
-    if (unreadConversationRef.current === conversationId) {
-      return;
-    }
-
-    unreadConversationRef.current = conversationId;
-    setUnreadJump(null);
-    const total = Math.max(0, conversation?.unreadCount ?? 0);
-    unreadSeedRef.current =
-      conversationId && total > 0
-        ? {
-            conversationId,
-            total,
-          }
-        : null;
-  }, [conversation?.id, conversation?.unreadCount]);
-
-  useLayoutEffect(() => {
-    const seed = unreadSeedRef.current;
-    if (
-      !seed ||
-      seed.conversationId !== conversation?.id ||
-      loading ||
-      visibleMessages.length === 0
-    ) {
-      return;
-    }
-
-    const total = Math.min(seed.total, visibleMessages.length);
-    unreadSeedRef.current = null;
-    setUnreadJump(
-      total > 0
-        ? {
-            conversationId: seed.conversationId,
-            remaining: total,
-            total,
-          }
-        : null,
-    );
-  }, [conversation?.id, loading, visibleMessages]);
-
-  useLayoutEffect(() => {
-    if (!tabActive) return;
-    const conversationId = conversation?.id ?? null;
-    const newestId = visibleMessages[visibleMessages.length - 1]?.id ?? null;
-    const wasAtLatest = scrollAtLatestRef.current;
-    scrollAtLatestRef.current = atLatest;
-    if (loading || (loadingNewer && wasAtLatest))
-      bottomAfterLoadingRef.current = !initialReadingPosition;
-
-    // Conversation switched (or first paint): jump to bottom, reset trackers.
-    if (scrollConversationRef.current !== conversationId) {
-      scrollConversationRef.current = conversationId;
-      lastMessageIdRef.current = newestId;
-      readingPositionApplied.current = false;
-      bottomLayoutRef.current = null;
-      bottomAfterLoadingRef.current = !initialReadingPosition && (loading || loadingNewer);
-      atBottomRef.current = !initialReadingPosition;
-      setNewMessagePill(0);
-      setShowBottomJump(false);
-      lastScrollTopRef.current = 0;
-      if (initialReadingPosition || (loading && visibleMessages.length === 0)) {
-        if (!loading && messageScrollRef.current && initialReadingPosition) {
-          restoreReadingPosition(messageScrollRef.current, initialReadingPosition);
-          lastScrollTopRef.current = messageScrollRef.current.scrollTop;
-          readingPositionApplied.current = true;
-        }
-        return;
-      }
-      scrollMessagesToBottomRef.current();
-      const viewport = messageScrollRef.current && timelineViewport(messageScrollRef.current);
-      const revision = viewport?.scrollRevision?.();
-      const frame = window.requestAnimationFrame(() => {
-        const current = readContextRef.current;
-        if (
-          revision === viewport?.scrollRevision?.() &&
-          atBottomRef.current &&
-          current.tabActive &&
-          current.atLatest &&
-          current.conversation?.id === conversationId
-        )
-          scrollMessagesToBottomRef.current();
-      });
-      return () => window.cancelAnimationFrame(frame);
-    }
-
-    if (
-      initialReadingPosition &&
-      !readingPositionApplied.current &&
-      !loading &&
-      messageScrollRef.current
-    ) {
-      restoreReadingPosition(messageScrollRef.current, initialReadingPosition);
-      lastScrollTopRef.current = messageScrollRef.current.scrollTop;
-      readingPositionApplied.current = true;
-      atBottomRef.current = false;
-      lastMessageIdRef.current = newestId;
-      return;
-    }
-    if (loading || loadingNewer) {
-      // 首屏分批交付时也要贴底，不能等所有来源加载结束才定位。
-      if (!initialReadingPosition && atBottomRef.current && atLatest && newestId !== null)
-        scrollMessagesToBottomRef.current();
-      return;
-    }
-    const bottomAfterLoading = bottomAfterLoadingRef.current;
-    bottomAfterLoadingRef.current = false;
-    // 首屏或尾页缓存校准完成属于进入定位，不受后续新消息跟随偏好控制。
-    // 重置尾部追踪，兼容整页替换及乐观尾部 id 不变；用户已离开底部时不动。
-    if (bottomAfterLoading && !initialReadingPosition && atBottomRef.current && atLatest)
-      lastMessageIdRef.current = null;
-
-    // 尾部 id 没变，但列表内容可能变了。典型情况：打开会话时末尾挂着「数据库里还没有」
-    // 的乐观消息，它先成为尾部，随后真实历史在它**上面**补全 —— 尾部 id 一直没变，
-    // 早退就会停在第一页中间而不是底部。仍钉在底部（且是实时窗口）时就跟着贴底；
-    // 用户在看历史（atBottom=false）或脱离实时窗口时不动。
-    if (newestId === lastMessageIdRef.current) {
-      if (
-        atBottomRef.current &&
-        atLatest &&
-        mediaSettings.data?.autoFollowLatestMessages !== false
-      ) {
-        scrollMessagesToBottomRef.current();
-      }
-      return;
-    }
-
-    const prevId = lastMessageIdRef.current;
-    // The window was swapped wholesale (reply-jump rebuild) when the previous
-    // tail is no longer present — that's not a live arrival.
-    const replaced = prevId !== null && !visibleMessages.some((message) => message.id === prevId);
-    const appended = countAppendedMessages(prevId, visibleMessages, user.id);
-    lastMessageIdRef.current = newestId;
-
-    // Detached history window (reply-jump context or downward history paging):
-    // tail changes are programmatic. Don't pill, don't yank to the bottom — the
-    // host positions the view itself.
-    if (replaced || !atLatest) {
-      return;
-    }
-
-    // 首次加载仍定位底部；后续新消息是否贴底由偏好决定。
-    if (
-      atBottomRef.current &&
-      (prevId === null || mediaSettings.data?.autoFollowLatestMessages !== false)
-    ) {
-      setNewMessagePill(0);
-      scrollMessagesToBottomRef.current();
-      const viewport = messageScrollRef.current && timelineViewport(messageScrollRef.current);
-      const revision = viewport?.scrollRevision?.();
-      const frame = window.requestAnimationFrame(() => {
-        const current = readContextRef.current;
-        if (
-          revision === viewport?.scrollRevision?.() &&
-          atBottomRef.current &&
-          current.tabActive &&
-          current.atLatest &&
-          current.conversation?.id === conversationId
-        )
-          scrollMessagesToBottomRef.current();
-      });
-      return () => window.cancelAnimationFrame(frame);
-    }
-
-    // 阅读历史或关闭自动跟随时保留当前位置，仍提示他人发送的新消息。
-    atBottomRef.current = false;
-    setNewMessagePill((current) => current + appended);
-    return;
-  }, [
-    tabActive,
-    visibleMessages,
-    conversation?.id,
-    loading,
-    loadingNewer,
-    atLatest,
-    initialReadingPosition,
-    user.id,
-    mediaSettings.data?.autoFollowLatestMessages,
-  ]);
-
-  useLayoutEffect(() => {
-    const scroll = messageScrollRef.current;
-    const content = timelineContentRef.current;
-    if (!tabActive || !scroll || !content) return;
-    // 意图标签、图片及建议回复异步改变内容或视口高度时，延续原来的下沿位置。
-    // 新消息是否跟随仍由上面的 effect 决定；阅读历史和恢复锚点时不接管。
-    let frame: number | undefined;
-    const observer = new ResizeObserver(() => {
-      if (frame !== undefined) return;
-      const viewport = timelineViewport(scroll);
-      const revision = viewport?.scrollRevision?.();
-      frame = window.requestAnimationFrame(() => {
-        frame = undefined;
-        const current = readContextRef.current;
-        if (
-          revision === viewport?.scrollRevision?.() &&
-          bottomLayoutRef.current?.revision === viewport?.scrollRevision?.() &&
-          atBottomRef.current &&
-          current.tabActive &&
-          current.atLatest &&
-          scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop > 1
-        )
-          scrollMessagesToBottomRef.current();
-      });
-    });
-    observer.observe(scroll);
-    observer.observe(content);
-    return () => {
-      observer.disconnect();
-      if (frame !== undefined) window.cancelAnimationFrame(frame);
-    };
-  }, [tabActive, loading, conversation?.id, visibleMessages.length]);
-
-  // 历史窗口不追加实时消息；沿用服务端已排除自己的入站未读数，不用序号差猜条数。
-  useEffect(() => {
-    const previous = latestSeqRef.current;
-    if (
-      previous.conversationId === conversation?.id &&
-      previous.seq &&
-      latestMessageSeq &&
-      /^\d+$/.test(previous.seq) &&
-      /^\d+$/.test(latestMessageSeq) &&
-      BigInt(latestMessageSeq) < BigInt(previous.seq)
-    )
-      return;
-    const unread = Math.max(0, conversation?.unreadCount ?? 0);
-    latestSeqRef.current = { conversationId: conversation?.id, seq: latestMessageSeq, unread };
-    if (atLatest || previous.conversationId !== conversation?.id) return;
-    const delta = unread - previous.unread;
-    if (delta > 0) setNewMessagePill((count) => count + Math.min(delta, 100));
-  }, [conversation?.id, conversation?.unreadCount, latestMessageSeq, atLatest]);
-
-  // updateUnreadJumpRemaining 会写回 unreadJump.remaining，所以这里只认「换会话 /
-  // 换未读总数」这两个稳定信号，不能整体依赖 unreadJump，否则每次滚动都要多跑一轮。
-  const unreadJumpKey = unreadJump ? `${unreadJump.conversationId}:${unreadJump.total}` : null;
-
-  useLayoutEffect(() => {
-    if (!tabActive || !unreadJumpKey) {
-      return;
-    }
-
-    updateUnreadJumpRemainingRef.current();
-    const frame = window.requestAnimationFrame(() => updateUnreadJumpRemainingRef.current());
-    return () => window.cancelAnimationFrame(frame);
-  }, [tabActive, unreadJumpKey, visibleMessages, loading]);
-
-  useEffect(
-    () => () => {
-      if (unreadScrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(unreadScrollFrameRef.current);
-      }
-    },
-    [],
-  );
 
   useEffect(() => {
     setEmojiOpen(false);
@@ -1790,24 +1472,6 @@ export function ChatPane({
     setMobileComposerExpanded(false);
     setHiddenMessageIds(loadHiddenMessageIds(conversation?.id));
   }, [conversation?.id]);
-
-  useEffect(() => {
-    if (!jumpRequest || loading || loadError) {
-      setJumpMissing(false);
-      if (!jumpRequest) locatedJump.current = undefined;
-      return;
-    }
-    if (locatedJump.current === jumpRequest) return;
-    const frame = requestAnimationFrame(() => {
-      const target = [
-        ...(messageScrollRef.current?.querySelectorAll<HTMLElement>('[data-message-id]') ?? []),
-      ].find((node) => node.dataset.messageId === jumpRequest.messageId);
-      setJumpMissing(!target);
-      if (target) locatedJump.current = jumpRequest;
-      target?.scrollIntoView({ block: 'center', behavior: 'instant' });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [jumpRequest, loading, loadError, messages]);
 
   useEffect(() => {
     const editor = composerEditorRef.current;
@@ -1956,7 +1620,7 @@ export function ChatPane({
         window.cancelAnimationFrame(frame);
       }
     };
-  }, [tabActive, contextMenuMessageId, contextMenuVariant]);
+  }, [tabActive, contextMenuMessageId, contextMenuVariant, messageScrollRef]);
 
   useLayoutEffect(() => {
     if (!tabActive || !emojiOpen) {
@@ -2480,13 +2144,7 @@ export function ChatPane({
     const id = conversation?.id;
     openLightbox(image.currentSrc || image.src, image.alt, null, owner, () => {
       owner.defaultView?.requestAnimationFrame(() => {
-        if (
-          !editor.isConnected ||
-          owner.defaultView?.closed ||
-          readContextRef.current.conversation?.id !== id ||
-          !readContextRef.current.tabActive
-        )
-          return;
+        if (!editor.isConnected || owner.defaultView?.closed || !isActiveConversation(id)) return;
         if (
           range &&
           isNodeInside(editor, range.startContainer) &&
@@ -2595,6 +2253,7 @@ export function ChatPane({
    * 戳自己也会戳到对方。
    */
   function pokeAvatar(sender: User) {
+    if (!conversation || (conversation.type !== 'group' && conversation.type !== 'direct')) return;
     setAvatarMenu(null);
     if (!conversation) {
       return;
@@ -2730,10 +2389,12 @@ export function ChatPane({
     if (!isSelfAvatar(sender)) {
       const identities = [
         ...new Set(
-          [sender.id, sender.uid].filter((identity) => /^u_[A-Za-z0-9_-]+$/.test(identity ?? '')),
+          [sender.id, sender.uid].filter((identity): identity is string =>
+            Boolean(identity && /^u_[A-Za-z0-9_-]+$/.test(identity)),
+          ),
         ),
       ];
-      return identities.length === 1 ? identities[0] : null;
+      return identities.length === 1 ? (identities[0] ?? null) : null;
     }
     if (user.uid) {
       return user.uid;
@@ -2766,7 +2427,12 @@ export function ChatPane({
     const targetMember = conversation.members.find((member) =>
       selfIdentityValues(member).some((identity) => selfIdentityValues(sender).includes(identity)),
     );
-    const targetRole = isSelfAvatar(sender) ? myRole : (targetMember?.role ?? sender.role);
+    const senderRole =
+      'role' in sender &&
+      (sender.role === 'owner' || sender.role === 'admin' || sender.role === 'member')
+        ? sender.role
+        : undefined;
+    const targetRole = isSelfAvatar(sender) ? myRole : (targetMember?.role ?? senderRole);
     const editing = groupMemberEditing(myRole, targetRole, isSelfAvatar(sender));
     const validUid = Boolean(targetUid && /^u_[A-Za-z0-9_-]+$/.test(targetUid));
     if (isSelfAvatar(sender)) {
@@ -2783,7 +2449,7 @@ export function ChatPane({
       return null;
     }
     const rank: Record<GroupMemberRole, number> = { owner: 2, admin: 1, member: 0 };
-    const canModerate = targetRole !== undefined && rank[myRole] > rank[targetRole];
+    const canModerate = targetRole != null && rank[myRole] > rank[targetRole];
     return {
       showChangeCard: editing.card && validUid,
       showChangeTitle: editing.title && validUid,
@@ -2865,7 +2531,11 @@ export function ChatPane({
     message = current;
     const availability = recallAvailability(message);
     if (!availability.show || availability.reason) return Promise.resolve(false);
-    if (!conversation || moderationBlockedReason) {
+    if (
+      !conversation ||
+      (conversation.type !== 'group' && conversation.type !== 'direct') ||
+      moderationBlockedReason
+    ) {
       return Promise.resolve(false);
     }
     const seq = Number((message as { msgSeq?: unknown }).msgSeq);
@@ -2908,22 +2578,18 @@ export function ChatPane({
         .finally(finish);
     }
     return new Promise((resolve) => {
-      recallMessage.mutate(
-        { ...params, ...options?.binding },
-        {
-          onSettled: finish,
-          onSuccess: () => resolve(true),
-          onError: (error) => {
-            if (!options?.quiet)
-              pushToast({
-                tone: 'error',
-                title: '撤回失败',
-                detail: error instanceof Error ? error.message : String(error),
-              });
-            resolve(false);
-          },
+      recallMessage.mutate(params, {
+        onSettled: finish,
+        onSuccess: () => resolve(true),
+        onError: (error) => {
+          pushToast({
+            tone: 'error',
+            title: '撤回失败',
+            detail: error instanceof Error ? error.message : String(error),
+          });
+          resolve(false);
         },
-      );
+      });
     });
   }
 
@@ -3280,6 +2946,15 @@ export function ChatPane({
         out.push({ key, path, name: attachment.name, ...(previewUrl ? { previewUrl } : {}) });
         continue;
       }
+      if (attachment.kind === 'file') {
+        out.push({
+          key,
+          file: attachment.file,
+          name: attachment.name,
+          ...(previewUrl ? { previewUrl } : {}),
+        });
+        continue;
+      }
       try {
         out.push({
           key,
@@ -3295,20 +2970,13 @@ export function ChatPane({
   }
 
   async function submitMessage(
-    options: {
-      extraTokens?: string[];
-      text?: string;
-      keepBody?: boolean;
-      /** 独立发送（链接卡片）：本次不带引用，引用条的清理也在调用方。 */
-      omitQuote?: boolean;
+    options: ComposerSubmitOptions & {
       /** 本条第额外本地媒体句柄（如语音条）。 */
       locals?: LocalMediaRef[];
     } = {},
   ) {
     const editor = currentComposerEditor();
     const draftBody = editor ? serializeComposer(editor) : body;
-    const nextBody = options.text ?? draftBody;
-    const trimmed = nextBody.trim();
     const singleToken = mediaAttachment
       ? attachmentToken(mediaAttachment)
       : pendingSuperEmoji
@@ -3317,15 +2985,15 @@ export function ChatPane({
     // 引用元素必须排在最前面（与 service 的 buildTextElements 一致）：
     // 它描述的是「本消息在回复哪一条」，不是正文的一部分。
     const quote = options.omitQuote ? null : pendingQuote;
-    const tokens = [
-      ...(quote ? [composerQuoteToken(quote)] : []),
-      ...(singleToken ? [singleToken] : []),
-      ...(options.extraTokens ?? []),
-    ];
-    const text = singleToken ? '' : trimmed;
+    const { payloadBody, empty, clearsBody } = composerSubmission({
+      body: draftBody,
+      singleToken,
+      quoteToken: quote ? composerQuoteToken(quote) : null,
+      options,
+    });
     if (
       !conversation ||
-      (!text && tokens.length === 0) ||
+      empty ||
       !sendAvailable ||
       readOnly ||
       currentPreference.blocked ||
@@ -3336,10 +3004,8 @@ export function ChatPane({
       return;
     }
 
-    const payloadBody = `${text}${tokens.join('')}`;
     const request = { conversationId: conversation.id };
     composerSendRef.current = request;
-    const clearsBody = !singleToken && !options.keepBody;
     const sentImages = clearsBody ? [...inlineImagesRef.current] : [];
     const sentReeditUrls = clearsBody ? [...reeditObjectUrlsRef.current] : [];
     const initialFocus = document.activeElement;
@@ -3362,7 +3028,7 @@ export function ChatPane({
     };
     const readAfterSend = atLatest && isScrolledToBottom(2);
     if (readAfterSend) requestReadAtBottom();
-    readGestureUntil.current = 0;
+    resetReadGesture();
     setSending(true);
     void jumpAfterSuccessfulSend(conversation).catch((error) => {
       console.error('[composer] jump to latest failed:', error);
@@ -3419,7 +3085,8 @@ export function ChatPane({
       // 失败通过原消息重试，不回填或覆盖下一条草稿。
       if (generated && clearsBody && isCurrentComposer() && !bodyRef.current.trim()) {
         setComposerBody(draftBody);
-        restoreComposer(composerEditorRef.current, draftBody);
+        const editor = composerEditorRef.current;
+        if (editor) restoreComposer(editor, draftBody);
       }
       console.error('[composer] send failed:', error);
     } finally {
@@ -3467,7 +3134,7 @@ export function ChatPane({
    * 浏览器能解的都能收），所以内置了一个格式转换器、不需要 ffmpeg。
    */
   async function sendAudioFile(bytes: Uint8Array, _fileName: string) {
-    const blob = new Blob([bytes]);
+    const blob = new Blob([bytes.slice().buffer]);
     const url = URL.createObjectURL(blob);
     const clip: VoiceClip = {
       id: createMediaId('audio'),
@@ -3567,7 +3234,9 @@ export function ChatPane({
     bytes: Uint8Array,
     mime: string,
   ): Promise<{ duration: number; width: number; height: number }> {
-    const url = URL.createObjectURL(new Blob([bytes], { type: mime || 'video/mp4' }));
+    const url = URL.createObjectURL(
+      new Blob([bytes.slice().buffer], { type: mime || 'video/mp4' }),
+    );
     try {
       return await new Promise((resolve) => {
         const video = document.createElement('video');
@@ -3750,7 +3419,7 @@ export function ChatPane({
    * 内容变化的按键不用走这里 —— `onInput` 的 `syncComposerBody` 已经扫过一遍。
    * 但「只挪光标」的按键不产生 input 事件，菜单会滞留在原处，所以单独补一次。
    */
-  function rescanMentionOnKeyUp(event: KeyboardEvent<HTMLDivElement>) {
+  function rescanMentionOnKeyUp(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.nativeEvent.isComposing) return;
     if (!MENTION_RESCAN_KEYS.has(event.key)) return;
     // 用事件源而不是 currentComposerEditor()：桌面的窄输入框与移动端展开态是两个
@@ -3759,7 +3428,7 @@ export function ChatPane({
     updateMentionMenu(event.currentTarget);
   }
 
-  function handleComposerKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+  function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (readOnly) {
       event.preventDefault();
       return;
@@ -3863,7 +3532,7 @@ export function ChatPane({
     if (generated) {
       event.preventDefault();
       insertComposerText(event.clipboardData.getData('text/plain'));
-      if (event.clipboardData.files.length) setAttachmentError(qqUnavailable);
+      if (event.clipboardData.files.length) setAttachmentError(qqUnavailable ?? null);
       return;
     }
     const snapshot = readComposerClipboard(event.clipboardData);
@@ -3873,6 +3542,7 @@ export function ChatPane({
       const selection = editor.ownerDocument.defaultView?.getSelection();
       const range = selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
       const conversationId = conversation?.id;
+      if (!conversationId) return;
       const retained = snapshot.images.map((image) =>
         inlineImagesRef.current.find((item) => item.file === image.file),
       );
@@ -3890,7 +3560,7 @@ export function ChatPane({
             void removeComposerImages(
               user.identityValue,
               conversationId,
-              created.map((image) => image.draftAssetId).filter(Boolean),
+              created.flatMap((image) => (image.draftAssetId ? [image.draftAssetId] : [])),
             ).catch(() => {});
             throw error;
           }
@@ -3903,7 +3573,7 @@ export function ChatPane({
             void removeComposerImages(
               user.identityValue,
               conversationId,
-              created.map((image) => image.draftAssetId).filter(Boolean),
+              created.flatMap((image) => (image.draftAssetId ? [image.draftAssetId] : [])),
             ).catch(() => {});
             return;
           }
@@ -4064,6 +3734,7 @@ export function ChatPane({
       pushToast({
         tone: 'warning',
         title: 'SVG 按文件发送',
+        durationKind: 'success',
         detail: 'QQ 服务端不收 SVG 图片，已改为文件附件发送。',
       });
     }
@@ -4079,7 +3750,9 @@ export function ChatPane({
 
     if (media.length > 0) {
       // 视频 / 文件只能单独发：优先挂上它，同一批里的图片这次就不收了。
-      setMedia(await createAttachment(media[0], sendAs));
+      const first = media[0];
+      if (!first) return;
+      setMedia(await createAttachment(first, sendAs));
       // 表情 / 语音 / 更多 / 链接面板跟卡片互斥，一并收起来。
       setEmojiOpen(false);
       setToolsOpen(false);
@@ -4113,7 +3786,7 @@ export function ChatPane({
       void removeComposerImages(
         user.identityValue,
         sourceConversation ?? '',
-        created.map((image) => image.draftAssetId).filter(Boolean),
+        created.flatMap((image) => (image.draftAssetId ? [image.draftAssetId] : [])),
       ).catch(() => {});
       pushToast({
         tone: 'error',
@@ -4130,7 +3803,7 @@ export function ChatPane({
       void removeComposerImages(
         user.identityValue,
         sourceConversation ?? '',
-        created.map((image) => image.draftAssetId).filter(Boolean),
+        created.flatMap((image) => (image.draftAssetId ? [image.draftAssetId] : [])),
       ).catch(() => {});
       return;
     }
@@ -4173,7 +3846,7 @@ export function ChatPane({
     // 用 `isImageFile` 而不是 MIME 前缀：SVG 也是 `image/*`，但它不是 QQ 收的
     // 图片格式（协议层会在上传前挡掉），这里提前给出提示。
     if (!isImageFile(file)) {
-      pushToast({ tone: 'warning', message: '闪照只能发送图片' });
+      pushToast({ tone: 'warning', durationKind: 'success', message: '闪照只能发送图片' });
       return;
     }
     void sendFlashPhoto(file).catch((error: unknown) => {
@@ -4191,7 +3864,7 @@ export function ChatPane({
     event.target.value = '';
     if (!file) return;
     if (!file.type.startsWith('video/')) {
-      pushToast({ tone: 'warning', message: '泡泡消息只能发送视频' });
+      pushToast({ tone: 'warning', durationKind: 'success', message: '泡泡消息只能发送视频' });
       return;
     }
     void sendBubbleVideo(file).catch((error: unknown) => {
@@ -4236,7 +3909,7 @@ export function ChatPane({
   function handleComposerDrop(event: ReactDragEvent<HTMLDivElement>) {
     if (generated) {
       event.preventDefault();
-      setAttachmentError(qqUnavailable);
+      setAttachmentError(qqUnavailable ?? null);
       return;
     }
     if (!dataTransferHasFiles(event.dataTransfer)) {
@@ -4395,6 +4068,7 @@ export function ChatPane({
   }
 
   async function forwardSelected() {
+    if (!conversation) return;
     const picked = await selectionFlow.prepare('逐条转发');
     if (picked?.length) onForwardMessages?.(picked, conversation);
   }
@@ -4410,7 +4084,7 @@ export function ChatPane({
 
   async function copySelectedMessagesJson() {
     if (selectionBlockedReason) {
-      pushToast({ tone: 'warning', title: selectionBlockedReason });
+      pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
       return;
     }
     const picked = await selectionFlow.prepare('复制');
@@ -4485,7 +4159,7 @@ export function ChatPane({
     reeditAbortRef.current?.abort();
     const controller = new AbortController();
     reeditAbortRef.current = controller;
-    let prepared: Awaited<ReturnType<typeof prepareReeditDraft>>;
+    let prepared: Awaited<ReturnType<typeof prepareReeditDraft>> | undefined;
     let preserved: Awaited<ReturnType<typeof preserveReeditImages>> | undefined;
     try {
       prepared = await prepareReeditDraft(message, messageElements(message), controller.signal);
@@ -4553,7 +4227,7 @@ export function ChatPane({
     return true;
   }
 
-  function scheduleMobileComposerMeasure(editor = composerEditorRef.current) {
+  function scheduleMobileComposerMeasure(editor: HTMLElement | null = composerEditorRef.current) {
     if (!editor) {
       return;
     }
@@ -4583,7 +4257,7 @@ export function ChatPane({
   }
   scheduleMobileComposerMeasureRef.current = scheduleMobileComposerMeasure;
 
-  function measureComposerContentHeight(editor: HTMLDivElement) {
+  function measureComposerContentHeight(editor: HTMLElement) {
     const rect = editor.getBoundingClientRect();
     const clone = editor.cloneNode(true) as HTMLDivElement;
 
@@ -4847,253 +4521,6 @@ export function ChatPane({
     });
   }
 
-  function scrollMessagesToBottom() {
-    const scroll = messageScrollRef.current;
-    if (!scroll) {
-      return;
-    }
-    readGestureUntil.current = 0;
-    const viewport = timelineViewport(scroll);
-    if (viewport) viewport.bottom();
-    else scroll.scrollTop = scroll.scrollHeight;
-    atBottomRef.current = true;
-    bottomLayoutRef.current = {
-      height: scroll.scrollHeight,
-      viewportHeight: scroll.clientHeight,
-      revision: viewport?.scrollRevision?.(),
-    };
-    lastScrollTopRef.current = scroll.scrollTop;
-    setShowBottomJump(false);
-    setNewMessagePill(0);
-  }
-  scrollMessagesToBottomRef.current = scrollMessagesToBottom;
-
-  async function jumpAfterSuccessfulSend(sentConversation: Conversation) {
-    if (
-      mediaSettings.data?.jumpToLatestAfterSend === false ||
-      readContextRef.current.conversation?.id !== sentConversation.id ||
-      !readContextRef.current.tabActive
-    )
-      return;
-    await jumpToBottomAndReadRef.current();
-  }
-
-  async function jumpToBottomAndRead() {
-    if (jumpingToLatest) return;
-    if (!atLatest) {
-      if (!onJumpToLatest) return;
-      setJumpingToLatest(true);
-      try {
-        if (!(await onJumpToLatest())) return;
-        // 等最新窗口提交后再定位；失败时保留提示，供用户重试。
-        window.requestAnimationFrame(() => {
-          const current = readContextRef.current;
-          if (
-            current.conversation?.id !== conversation?.id ||
-            !current.atLatest ||
-            !current.tabActive
-          )
-            return;
-          scrollMessagesToBottomRef.current();
-          requestReadAtBottom();
-        });
-      } finally {
-        setJumpingToLatest(false);
-      }
-      return;
-    }
-    scrollMessagesToBottom();
-    // 显式跳转后再按最新窗口/账号/可见性守卫发已读，不依赖后续滚动事件。
-    requestReadAtBottom();
-  }
-  jumpToBottomAndReadRef.current = jumpToBottomAndRead;
-
-  function isScrolledToBottom(tolerance = 48) {
-    const scroll = messageScrollRef.current;
-    if (!scroll) {
-      return true;
-    }
-    // Tolerance covers sub-pixel rounding and short content.
-    return scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= tolerance;
-  }
-
-  function requestReadAtBottom() {
-    const current = readContextRef.current;
-    if (
-      !current.onReadCurrentConversation ||
-      !current.conversation ||
-      current.conversation.id !== conversation?.id ||
-      !current.tabActive ||
-      !current.atLatest ||
-      current.loading ||
-      !messageScrollRef.current ||
-      document.visibilityState === 'hidden' ||
-      !isScrolledToBottom(2)
-    )
-      return;
-    const key = `${current.conversation.id}:${current.conversation.updatedAt}:${current.conversation.unreadCount}:${current.lastId}`;
-    const now = performance.now();
-    if (lastReadSignal.current.key === key && now - lastReadSignal.current.at < 300) return;
-    lastReadSignal.current = { key, at: now };
-    current.onReadCurrentConversation(current.conversation);
-  }
-
-  function handleReadGesture(event: { target: EventTarget | null }) {
-    if (event.target instanceof Element && event.target.closest('.message-scroll'))
-      readGestureUntil.current = performance.now() + 1000;
-    requestReadAtBottom();
-  }
-
-  function handleMessageScroll() {
-    if (!readContextRef.current.tabActive || document.visibilityState === 'hidden') return;
-    const scroll = messageScrollRef.current;
-    if (!scroll) return;
-    const bottom = isScrolledToBottom();
-    const layout = bottomLayoutRef.current;
-    const revision = timelineViewport(scroll)?.scrollRevision?.();
-    // 原生布局锚定也会派发 scroll；高度已变且没有新手势时，不当作用户离开底部。
-    const bottomResized =
-      atBottomRef.current &&
-      layout !== null &&
-      layout.height > 0 &&
-      layout.viewportHeight > 0 &&
-      layout.revision === revision &&
-      (layout.height !== scroll.scrollHeight || layout.viewportHeight !== scroll.clientHeight);
-    const delta = scroll.scrollTop - lastScrollTopRef.current;
-    lastScrollTopRef.current = scroll.scrollTop;
-    if (bottom && atLatest) setShowBottomJump(false);
-    else if (Math.abs(delta) > 1) setShowBottomJump(delta > 0);
-    if (
-      !bottomResized &&
-      (!bottom || !initialReadingPosition || readGestureUntil.current > performance.now())
-    ) {
-      atBottomRef.current = bottom;
-    }
-    if (bottom && atLatest)
-      bottomLayoutRef.current = {
-        height: scroll.scrollHeight,
-        viewportHeight: scroll.clientHeight,
-        revision,
-      };
-    if (bottom && readGestureUntil.current > performance.now()) requestReadAtBottom();
-    if (bottom && atLatest && newMessagePill > 0) {
-      setNewMessagePill(0);
-    }
-
-    if (!unreadJump || unreadScrollFrameRef.current !== null) {
-      return;
-    }
-
-    unreadScrollFrameRef.current = window.requestAnimationFrame(() => {
-      unreadScrollFrameRef.current = null;
-      updateUnreadJumpRemaining();
-    });
-  }
-
-  function updateUnreadJumpRemaining() {
-    const scroll = messageScrollRef.current;
-    if (!scroll || !unreadJump) {
-      return;
-    }
-
-    const firstUnread = unreadMessageElements(unreadJump)[0];
-    const unreadId = visibleMessages[Math.max(0, visibleMessages.length - unreadJump.total)]?.id;
-    const virtualOffset = unreadId ? timelineViewport(scroll)?.offset(unreadId) : undefined;
-    if (!firstUnread && virtualOffset === undefined) {
-      setUnreadJump(null);
-      return;
-    }
-
-    const scrollRect = scroll.getBoundingClientRect();
-    const firstUnreadTop =
-      virtualOffset !== undefined
-        ? scrollRect.top + virtualOffset - scroll.scrollTop
-        : firstUnread.getBoundingClientRect().top;
-    const targetScrollTop =
-      unreadJump.targetScrollTop ??
-      Math.max(0, scroll.scrollTop + firstUnreadTop - scrollRect.top - 12);
-    const startScrollTop = unreadJump.startScrollTop ?? scroll.scrollTop;
-
-    if (targetScrollTop >= startScrollTop - 1 || scroll.scrollTop <= targetScrollTop + 1) {
-      setUnreadJump(null);
-      return;
-    }
-
-    const progress = (scroll.scrollTop - targetScrollTop) / (startScrollTop - targetScrollTop);
-    const remaining = Math.max(1, Math.ceil(unreadJump.total * Math.min(1, progress)));
-
-    setUnreadJump((current) => {
-      if (!current || current.conversationId !== unreadJump.conversationId) {
-        return current;
-      }
-      return current.remaining === remaining &&
-        current.startScrollTop === startScrollTop &&
-        current.targetScrollTop === targetScrollTop
-        ? current
-        : {
-            ...current,
-            remaining,
-            startScrollTop,
-            targetScrollTop,
-          };
-    });
-  }
-  updateUnreadJumpRemainingRef.current = updateUnreadJumpRemaining;
-
-  function unreadMessageElements(state = unreadJump) {
-    const scroll = messageScrollRef.current;
-    if (!scroll || !state) {
-      return [];
-    }
-
-    const ids = new Set(visibleMessages.slice(-state.total).map((message) => message.id));
-
-    return Array.from(
-      scroll.querySelectorAll<HTMLElement>('.message-line[data-message-id]'),
-    ).filter((element) => ids.has(element.dataset.messageId ?? ''));
-  }
-
-  function jumpToFirstUnreadMessage() {
-    const scroll = messageScrollRef.current;
-    const id =
-      unreadJump && visibleMessages[Math.max(0, visibleMessages.length - unreadJump.total)]?.id;
-    if (scroll && id && timelineViewport(scroll)?.scrollTo(id, { align: 'start' })) {
-      setUnreadJump(null);
-      return;
-    }
-    const firstUnread = unreadMessageElements()[0];
-    if (!firstUnread) {
-      setUnreadJump(null);
-      return;
-    }
-
-    firstUnread.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-    });
-    setUnreadJump(null);
-  }
-
-  // ── 未读跳转坞 ──────────────────────────────────────────────────────────
-  // 打开会话时上层已经把未读/高亮读进内存并清了库，这里只负责按顺序引导：
-  // 每点一下跳一个目标（高亮按 seq 从大到小，最后是「新的 N 条未读消息」），
-  // 跳完自动消失。
-  const dockStop = unreadDock?.stops[dockIndex] ?? null;
-  const dockVisible = Boolean(dockStop);
-
-  async function jumpDockStop(): Promise<void> {
-    if (!dockStop || !unreadDock) return;
-    const nextIndex = dockIndex + 1;
-    // 先推进游标再跳：跳转要走「快慢路径」（可能要重建窗口、异步），期间用户
-    // 再点应该是下一条，而不是重跳当前这条。
-    setDockIndex(nextIndex);
-    try {
-      await jumpToSeq({ seq: dockStop.seq });
-    } catch (err) {
-      console.error('[unread-dock] jump failed', err);
-    }
-  }
-
   function toggleGroupInfoCollapsed() {
     setGroupInfoCollapsed((current) => {
       const next = !current;
@@ -5185,11 +4612,16 @@ export function ChatPane({
     saveHiddenMessageIds(conversation.id, next);
     setHiddenMessageIds(next);
     setContextMenu(null);
-    setUnreadJump(null);
+    clearUnreadJump();
     setClearMessagesConfirmOpen(false);
   }
 
-  function downloadMessageImage(url: string, _message, intent, browser = false) {
+  function downloadMessageImage(
+    url: string,
+    _message: Message,
+    intent?: Parameters<typeof mediaSave.run>[1],
+    browser = false,
+  ) {
     setContextMenu(null);
     void mediaSave.run({ kind: 'url', url, name: imageFilenameFromUrl(url) }, intent, browser);
   }
@@ -5292,13 +4724,15 @@ export function ChatPane({
   const locationSharePeer =
     conversation.type === 'group'
       ? Number(conversation.group.id)
-      : Number(conversation.otherUser.identityValue);
+      : conversation.type === 'direct'
+        ? Number(conversation.otherUser.identityValue)
+        : 0;
   const locationShareSelfUin = Number(user.identityValue);
   const mediaSendDisabled = Boolean(sendGateReason);
   const repeatMessage = repeatTarget(messages, atLatest);
   function messageCanRepeat(message: Message) {
     return (
-      (conversation.type === 'group' || conversation.type === 'direct') &&
+      (conversation?.type === 'group' || conversation?.type === 'direct') &&
       !grayTipOf(message) &&
       !deletedKeys.has(deletionIdentity(message.id)) &&
       canRepeatMessage(message)
@@ -5306,6 +4740,7 @@ export function ChatPane({
   }
   async function repeatMessageFor(message: Message) {
     if (
+      !conversation ||
       !messageCanRepeat(message) ||
       !onRepeatMessage ||
       repeatBusy.current ||
@@ -5447,8 +4882,7 @@ export function ChatPane({
       }}
       onClickCapture={handleReadGesture}
       onWheelCapture={(event) => {
-        if (event.deltaY < 0 && (event.target as Element).closest('.message-scroll'))
-          atBottomRef.current = false;
+        if (event.deltaY < 0 && (event.target as Element).closest('.message-scroll')) leaveBottom();
         handleReadGesture(event);
       }}
       onTouchMoveCapture={handleReadGesture}
@@ -5671,10 +5105,11 @@ export function ChatPane({
             (() => {
               // 灰条分流 + 气泡组装统一走 messageRow 的 MessageRow —— 转发窗口与合成转发
               // 预览用的是同一份实现，所以三处的画法不会再各写一套。
-              const out = [];
+              const out: React.ReactNode[] = [];
               timeline.items.forEach((virtualRow) => {
                 const index = virtualRow.index;
                 const message = visibleMessages[index];
+                if (!message) return;
                 const blockStart = out.length;
                 // A hole in the seq run means QQ has messages here that were
                 // never synced locally. Checked for every row (gray tips
@@ -5969,14 +5404,14 @@ export function ChatPane({
       ) : null}
 
       {/* biome-ignore lint/correctness/noConstantCondition: 暂时禁用的「跳转首条未读」按钮,保留待恢复 */}
-      {false && unreadJump && unreadJump.remaining > 0 ? (
+      {false ? (
         <button
           className={cn('unread-jump-button')}
           type="button"
           onClick={jumpToFirstUnreadMessage}
         >
           <ChevronsUp size={21} strokeWidth={2.8} />
-          <span>{formatUnreadJumpCount(unreadJump.remaining)}条新消息</span>
+          <span>{formatUnreadJumpCount(unreadJump?.remaining ?? 0)}条新消息</span>
         </button>
       ) : null}
 
@@ -6459,7 +5894,7 @@ export function ChatPane({
             <TypingStatus
               key={conversation.id}
               uid={conversation.otherUser.id}
-              name={conversation.name}
+              name={chatHeaderTitle(conversation)}
               editors={[composerEditorRef, expandedComposerEditorRef]}
             />
           )}
@@ -6571,14 +6006,14 @@ export function ChatPane({
         {giftOpen && conversation?.type === 'direct' ? (
           <GiftMallPanel
             peer={conversation.otherUser?.id ?? ''}
-            peerName={conversation.name}
+            peerName={chatHeaderTitle(conversation)}
             onClose={() => setGiftOpen(false)}
           />
         ) : null}
         {giftOpen && conversation?.type === 'group' ? (
           <GroupGiftPanel
             groupUin={Number(conversation.group.id)}
-            groupName={conversation.name}
+            groupName={chatHeaderTitle(conversation)}
             onClose={() => setGiftOpen(false)}
           />
         ) : null}
@@ -6614,7 +6049,7 @@ export function ChatPane({
             selfName={user.displayName || user.username}
             selfAvatarUrl={user.avatarUrl}
             selfUid={user.uid}
-            conversationName={conversation.name}
+            conversationName={chatHeaderTitle(conversation)}
             members={conversation.type === 'group' ? conversation.members : undefined}
             disabled={mediaSendDisabled}
             disabledHint={sendTitle}
@@ -7029,7 +6464,7 @@ export function ChatPane({
             !generated && conversation?.type === 'group' && directory?.onAnalyzeMember
               ? (member) => {
                   setAvatarMenu(null);
-                  directory.onAnalyzeMember(conversation, member);
+                  directory.onAnalyzeMember?.(conversation, member);
                 }
               : undefined
           }

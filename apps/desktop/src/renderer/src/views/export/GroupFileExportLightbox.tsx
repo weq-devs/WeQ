@@ -33,6 +33,7 @@ import { PickerListSkeleton } from './ExportSkeleton';
 import { fileIconUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { ExportReportControl } from './ExportReportControl';
+import { ResourceArchiveControls, type ResourceArchiveOptions } from './StructuredExportControls';
 import {
   fileExtIcon,
   formatFileTime,
@@ -52,7 +53,7 @@ export interface GroupFileEntry {
   path: string[];
 }
 
-export interface GroupFileExportResult {
+export interface GroupFileExportResult extends ResourceArchiveOptions {
   includeIntegrityReport: boolean;
   selectedFiles: GroupFileEntry[];
   saveIntent?: ExportSavePolicy;
@@ -100,6 +101,11 @@ export function GroupFileExportLightbox({
 }): ReactElement {
   useEscapeToClose(onClose);
   const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
+  const [archive, setArchive] = useState<ResourceArchiveOptions>({
+    metadataFormat: 'json',
+    profile: 'full',
+    incrementalSupport: true,
+  });
   const pushToast = useToast((s) => s.push);
   const [crumbs, setCrumbs] = useState<Crumb[]>([ROOT]);
   const [listing, setListing] = useState<GroupFileListing | null>(null);
@@ -446,6 +452,11 @@ export function GroupFileExportLightbox({
           </div>
         </div>
 
+        <ResourceArchiveControls
+          options={archive}
+          disabled={submitting}
+          onChange={(value) => setArchive((current) => ({ ...current, ...value }))}
+        />
         <ExportReportControl
           checked={includeIntegrityReport}
           onChange={setIncludeIntegrityReport}
@@ -465,7 +476,7 @@ export function GroupFileExportLightbox({
             disabled={
               submitting || selecting || loading || Boolean(error) || selectedFiles.length === 0
             }
-            onClick={() => onConfirm({ selectedFiles, includeIntegrityReport })}
+            onClick={() => onConfirm({ selectedFiles, includeIntegrityReport, ...archive })}
           >
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             开始导出

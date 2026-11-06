@@ -64,10 +64,12 @@ describe('message_selection', () => {
 
   describe('所选消息纯文本', () => {
     const demo = createTemplateDemoData();
+    const currentUser = { ...demo.user, identityLabel: 'QQ' };
     const conversation = demo.conversations.find((item) => item.type === 'group')!;
     const message = {
       ...demo.messages[0]!,
       senderId: demo.user.id,
+      sender: currentUser,
       createdAt: '2026-10-16T17:02:03Z',
       body: '第一行\n第二行',
     };
@@ -75,9 +77,11 @@ describe('message_selection', () => {
       const text = selectedMessagesText(
         [message, { ...message, id: 'second', body: '另一条' }],
         conversation,
-        demo.user,
+        currentUser,
       );
-      expect(text).toContain(`${demo.user.displayName} (2026-10-17 01:02:03)\n第一行\n第二行`);
+      expect(text).toContain(
+        `${demo.user.displayName} (${demo.user.identityValue}) · 2026-10-17 01:02:03\n第一行\n第二行`,
+      );
       expect(text.endsWith('另一条')).toBe(true);
       expect(text).not.toContain('"createdAt"');
     });
@@ -88,9 +92,18 @@ describe('message_selection', () => {
         body: '',
         qqElements: [{ type: 'pic', data: {} }],
       };
-      expect(selectedMessagesText([media], conversation, demo.user)).toContain(
-        '(时间未知)\n[图片]',
+      expect(selectedMessagesText([media], conversation, currentUser)).toContain(
+        ' · 时间未知\n[图片]',
       );
+    });
+    it('频道数字身份不冒充 QQ 号', () => {
+      expect(
+        selectedMessagesText(
+          [{ ...message, sender: { ...currentUser, identityLabel: '频道' } }],
+          conversation,
+          currentUser,
+        ),
+      ).toContain(`${currentUser.displayName} · 2026-10-17 01:02:03`);
     });
     it('未入库消息可打开只读菜单，协议动作区分发送中、失败与成功', () => {
       expect(isLocalOutgoingMessage({ ...message, id: 'optimistic-1' })).toBe(true);

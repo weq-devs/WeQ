@@ -12,8 +12,15 @@
  */
 
 import { z } from 'zod';
+import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
+import { withDatabaseRequest } from '@weq/db';
 import { clearCompletedTasks } from './clear_completed_tasks';
+import { readContactSpecialCare } from './contact_special_care';
+import { startFlashDownloads } from './flash_save';
 import { FileUploadStaging } from './album_video_staging';
+import { pickedBrowserFiles } from '../../browser_files';
+import { saveAnalyticsFromWeb } from '../../analytics_save';
+import { webNotices, type WebNotice } from '../../web/notices';
 import {
   BROWSER_FILE_CHUNK_BYTES,
   BROWSER_FILE_MAX_BYTES,
@@ -49,6 +56,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import {
   getAppContext,
+  requireBootstrap,
   closeSalvageConnections,
   dbEventBus,
   accountEventBus,
@@ -244,9 +252,11 @@ async function readMessageScope<T>(
 ): Promise<T> {
   const services = requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
   const configId = services.accountConfig?.getRecord()?.configId;
-  const result = await (input.readWindow
-    ? messageWindowsFor(services).run(input.readWindow, read, priority)
-    : withDatabasePriority(priority, read));
+  const result = await withDatabaseRequest('message.window', () =>
+    input.readWindow
+      ? messageWindowsFor(services).run(input.readWindow, read, priority)
+      : withDatabasePriority(priority, read),
+  );
   if (
     requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services ||
     services.accountConfig?.getRecord()?.configId !== configId
@@ -519,6 +529,18 @@ const exportQzoneAlbumMediaInput = z
   })
   .merge(exportAccountBindingInput);
 /** 导出装扮资源（气泡 / 字体 / 挂件），缺省不导出。 */
+const structuredExportInput = {
+  extra: exportExtraInput.optional(),
+  content: exportContentPolicyInput.optional(),
+  completeAvatar: z.boolean().optional(),
+  profile: z.enum(['basic', 'full']).optional(),
+  incrementalSupport: z.boolean().optional(),
+};
+const resourceArchiveInput = {
+  ...structuredExportInput,
+  metadataFormat: z.enum(['json', 'jsonl', 'none']).optional(),
+};
+
 const dressInput = z
   .object({
     bubble: z.boolean(),
@@ -1734,6 +1756,117 @@ const browserFiles = new FileUploadStaging(30 * 60000, {
 });
 
 export const accountRouter = router({
+  onWebNotice: procedure.input(browserFileBinding).subscription(({ input }) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    return observable<WebNotice>((emit) => {
+      const receive = (notice: WebNotice) => {
+        if (
+          getAppContext().services === services &&
+          notice.uin === input.expectedAccountUin &&
+          notice.configId === input.expectedAccountConfigId
+        )
+          emit.next(notice);
+      };
+      webNotices.on('notice', receive);
+      return () => webNotices.off('notice', receive);
+    });
+  }),
+  exportAnalyticsCard: procedure
+    .input(
+      z.object({
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1),
+        savePolicy: exportSavePolicyInput.optional(),
+        kind: z.enum(['buddy', 'group', 'member']),
+        title: z.string().min(1).max(512),
+        label: z.string().min(1).max(512),
+        periodLabel: z.string().optional(),
+        groupCode: z.string().optional(),
+        groupName: z.string().optional(),
+        peerUid: z.string().optional(),
+        memberCount: z.number().optional(),
+        avatarUrl: z.string().nullable().optional(),
+        member: z
+          .object({
+            uid: z.string(),
+            name: z.string(),
+            uin: z.string().nullable().optional(),
+            avatarUrl: z.string().nullable().optional(),
+          })
+          .optional(),
+        data: z.unknown(),
+      }),
+    )
+    .mutation(({ input }) => saveAnalyticsFromWeb(input)),
+  pickedFileStart: procedure
+    .input(
+      browserFileBinding.extend({
+        size: z
+          .number()
+          .int()
+          .positive()
+          .max(2 * 1024 ** 3),
+        name: z.string().min(1).max(255),
+      }),
+    )
+    .mutation(({ input }) =>
+      pickedBrowserFiles.start(
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+        input.size,
+        input.name,
+      ),
+    ),
+  pickedFileChunk: procedure
+    .input(
+      browserFileBinding.extend({
+        uploadId: z.string().uuid(),
+        offset: z.number().int().nonnegative(),
+        base64: z
+          .string()
+          .min(1)
+          .max(Math.ceil(BROWSER_FILE_CHUNK_BYTES / 3) * 4),
+      }),
+    )
+    .mutation(({ input }) => {
+      const bytes = Buffer.from(input.base64, 'base64');
+      if (bytes.toString('base64') !== input.base64) throw new Error('附件分段编码无效');
+      return pickedBrowserFiles.append(
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+        input.uploadId,
+        input.offset,
+        bytes,
+      );
+    }),
+  pickedFileFinish: procedure
+    .input(browserFileBinding.extend({ uploadId: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const path = pickedBrowserFiles.complete(services, input.uploadId);
+      const info = await stat(path);
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号已切换，请重新选择附件');
+      services.fileResource.trustPath(path);
+      pickedBrowserFiles.whenDiscarded(services, input.uploadId, () =>
+        services.fileResource.untrustPath(path),
+      );
+      return { path, fileName: basename(path), size: info.size };
+    }),
+  pickedFileDiscard: procedure
+    .input(browserFileBinding.extend({ uploadId: z.string().uuid() }))
+    .mutation(({ input }) =>
+      pickedBrowserFiles.discard(
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+        input.uploadId,
+      ),
+    ),
   /** 固定字段的性能快照：不包含消息正文、会话 ID、SQL、路径或凭据。 */
   messagePerformance: procedure.input(exportAccountBindingInput).query(({ input }) => {
     requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
@@ -3426,6 +3559,7 @@ export const accountRouter = router({
   startGeneratedExport: procedure
     .input(
       generatedAccountInput.extend({
+        ...structuredExportInput,
         target: generatedTargetInput,
         messageIds: z.array(z.string().min(1)).optional(),
         formats: z.array(z.enum(GENERATED_EXPORT_FORMATS)).min(1),
@@ -3451,6 +3585,9 @@ export const accountRouter = router({
         formats: input.formats,
         total: snapshot.messages.length,
         generated: snapshot,
+        extra: input.extra,
+        profile: input.profile,
+        incrementalSupport: input.incrementalSupport,
         includeIntegrityReport: input.includeIntegrityReport,
         savePolicy: input.savePolicy,
       });
@@ -3460,6 +3597,7 @@ export const accountRouter = router({
   guildDirectStartExport: procedure
     .input(
       z.object({
+        ...structuredExportInput,
         ...exportAccountBindingInput.shape,
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
@@ -3511,6 +3649,7 @@ export const accountRouter = router({
               .optional(),
             /** 下载本地未缓存的装扮资源。 */
             completeDress: z.boolean().optional(),
+            completeDressKinds: dressInput,
           })
           .optional(),
         /** Inclusive send-time window (unix seconds); null bound = open-ended. */
@@ -3533,6 +3672,10 @@ export const accountRouter = router({
       return services.exportManager.startTask({
         kind: 'c2c',
         conv: guild.peerTinyId,
+        content: input.content,
+        completeAvatar: input.completeAvatar,
+        profile: input.profile,
+        incrementalSupport: input.incrementalSupport,
         savePolicy: input.savePolicy,
         includeIntegrityReport: input.includeIntegrityReport,
         name: input.name,
@@ -3651,8 +3794,8 @@ export const accountRouter = router({
       const services = requireServices();
       if (String(getAppContext().account?.context.uin) !== input.selfUin)
         throw new Error('账号已切换，请重新读取特别关心。');
-      requireOnlineQqForWeb(services);
-      const result = await services.webQuery.getSpecialCare();
+      requireQqOnlineForAlbum(services);
+      const result = await readContactSpecialCare(services);
       if (getAppContext().services !== services)
         throw new Error('账号已切换，请重新读取特别关心。');
       return result;
@@ -4680,14 +4823,22 @@ export const accountRouter = router({
    * 用户在文件框里点取消时返回 null（不是失败）。
    */
   pickComposeImage: procedure
-    .input(z.object({ sendTime: z.number().int().positive().optional() }))
+    .input(
+      z.object({
+        sendTime: z.number().int().positive().optional(),
+        path: z.string().min(1).optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
-      const picked = await getHost().pickFile({
-        title: '选择一张图片',
-        extensions: [...COMPOSE_IMAGE_EXTENSIONS],
-      });
+      const services = requireServices();
+      const picked =
+        (input.path ? pickedBrowserFiles.requirePath(services, input.path) : undefined) ??
+        (await getHost().pickFile({
+          title: '选择一张图片',
+          extensions: [...COMPOSE_IMAGE_EXTENSIONS],
+        }));
       if (!picked) return null;
-      const staged = await requireServices().composeImage.stage(picked, input.sendTime);
+      const staged = await services.composeImage.stage(picked, input.sendTime);
       return {
         sendTime: staged.sendTime,
         element: elementsToEditable(staged.element),
@@ -4729,6 +4880,7 @@ export const accountRouter = router({
         expectedAccountConfigId: z.string().min(1).optional(),
         peerType: z.enum(['c2c', 'group']),
         targetId: z.string().min(1),
+        title: z.string().optional(),
         nodes: z.array(z.any()).min(1),
       }),
     )
@@ -4741,6 +4893,7 @@ export const accountRouter = router({
       return services.messageSend.sendForward({
         peerType: input.peerType,
         targetId: input.targetId,
+        title: input.title,
         nodes: input.nodes as never,
       });
     }),
@@ -6313,12 +6466,15 @@ export const accountRouter = router({
       z.object({
         filesetName: z.string().optional().default(''),
         selections: z.array(flashSelectionSchema).min(1),
+        directory: z.string().min(1).optional(),
       }),
     )
     .mutation(async ({ input }) => {
       const svc = requireServices().flashTransferFiles;
-      const filesetId = input.selections[0]!.filesetId;
-      return svc.downloads.start(input.filesetName, filesetId, input.selections);
+      return startFlashDownloads(input, svc.downloads, getHost(), () => {
+        if (requireServices().flashTransferFiles !== svc)
+          throw new Error('账号已切换，请重新开始下载');
+      });
     }),
 
   /** 全部下载任务（含历史，新在前）。 */
@@ -6339,11 +6495,23 @@ export const accountRouter = router({
   }),
 
   /** 在系统文件管理器里打开闪传下载根目录。 */
-  flashRevealDownloadDir: procedure.mutation(async () => {
-    const dir = requireServices().flashTransferFiles.downloads.rootDir;
-    await getHost().revealPath(dir);
-    return { ok: true };
-  }),
+  flashRevealDownloadDir: procedure
+    .input(z.object({ taskId: z.string().min(1) }).optional())
+    .mutation(async ({ input }) => {
+      const manager = requireServices().flashTransferFiles.downloads;
+      if (input?.taskId) {
+        const task = manager.list().find((task) => task.id === input.taskId);
+        if (!task?.files[0]) throw new Error('下载记录不存在');
+        await getHost().revealInFolder(task.files[0].targetPath);
+      } else {
+        const directories = (await requireBootstrap().userConfig.listStorageUsage()).filter(
+          (item) => item.management === 'downloads' && item.bytes > 0,
+        );
+        if (!directories.length) throw new Error('尚无历史闪传下载目录');
+        for (const directory of directories) await getHost().revealPath(directory.path);
+      }
+      return { ok: true };
+    }),
 
   /** 订阅单个下载任务的状态 / 进度变化。 */
   onFlashDownloadProgress: procedure.subscription(() => {
@@ -6691,6 +6859,7 @@ export const accountRouter = router({
         .omit({ outputDir: true })
         .merge(exportAccountBindingInput)
         .extend({
+          ...resourceArchiveInput,
           name: z.string().min(1),
           savePolicy: exportSavePolicyInput.optional(),
           includeIntegrityReport: z.boolean().optional(),
@@ -6705,6 +6874,16 @@ export const accountRouter = router({
       const selected = structuredClone(input);
       return services.exportManager.startResourceExport({
         kind: 'group-albums',
+        archive: {
+          extra: selected.extra,
+          profile: selected.profile,
+          incrementalSupport: selected.incrementalSupport,
+          formats: selected.metadataFormat === 'none' ? [] : [selected.metadataFormat ?? 'json'],
+          selection: {
+            groupCode: selected.groupCode,
+            albumIds: selected.albums.map((album) => album.id),
+          },
+        },
         name: selected.name,
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: selected.savePolicy,
@@ -6791,6 +6970,7 @@ export const accountRouter = router({
         .omit({ outputDir: true })
         .merge(exportAccountBindingInput)
         .extend({
+          ...resourceArchiveInput,
           name: z.string().min(1),
           savePolicy: exportSavePolicyInput.optional(),
           includeIntegrityReport: z.boolean().optional(),
@@ -6805,6 +6985,18 @@ export const accountRouter = router({
       const selected = structuredClone(input);
       return services.exportManager.startResourceExport({
         kind: 'group-files',
+        archive: {
+          extra: selected.extra,
+          profile: selected.profile,
+          incrementalSupport: selected.incrementalSupport,
+          formats: selected.metadataFormat === 'none' ? [] : [selected.metadataFormat ?? 'json'],
+          selection: {
+            groupCode: selected.groupCode,
+            ...(selected.files
+              ? { fileIds: selected.files.map((file) => file.fileId) }
+              : { all: true }),
+          },
+        },
         name: selected.name,
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: selected.savePolicy,
@@ -7053,6 +7245,7 @@ export const accountRouter = router({
   startExport: procedure
     .input(
       z.object({
+        ...structuredExportInput,
         ...exportAccountBindingInput.shape,
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
@@ -7104,6 +7297,7 @@ export const accountRouter = router({
               .optional(),
             /** 下载本地未缓存的装扮资源。 */
             completeDress: z.boolean().optional(),
+            completeDressKinds: dressInput,
           })
           .optional(),
         /** Inclusive send-time window (unix seconds); null bound = open-ended. */
@@ -7135,6 +7329,7 @@ export const accountRouter = router({
   startQzoneExport: procedure
     .input(
       z.object({
+        ...structuredExportInput,
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
         targetUin: z.string().min(1),
@@ -7144,9 +7339,9 @@ export const accountRouter = router({
         expectedAccountUin: z.string().min(1).optional(),
         expectedAccountConfigId: z.string().min(1).optional(),
         name: z.string().min(1),
-        format: z.enum(['json', 'txt', 'html']),
+        format: z.enum(['json', 'jsonl', 'txt', 'html']),
         /** 多格式导出：json / txt / html 一次任务全出。 */
-        formats: z.array(z.enum(['json', 'txt', 'html'])).optional(),
+        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'html'])).optional(),
         /** 补全互动：按 tid 拉取评论 + 点赞（空间动态页 HTML 解析，best-effort，需在线 QQ）。 */
         includeInteraction: z.boolean().optional(),
         downloadMedia: z.boolean(),
@@ -7164,6 +7359,9 @@ export const accountRouter = router({
       if (!input.includePosts && !input.includeAlbums) throw new Error('至少选择说说或相册。');
       return services.exportManager.startTask({
         qzone: true,
+        extra: input.extra,
+        profile: input.profile,
+        incrementalSupport: input.incrementalSupport,
         qzonePosts: input.includePosts,
         qzoneAlbums: input.includeAlbums,
         includeIntegrityReport: input.includeIntegrityReport,
@@ -7196,6 +7394,7 @@ export const accountRouter = router({
   startContactsExport: procedure
     .input(
       z.object({
+        ...structuredExportInput,
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
         scope: z.enum(['friends', 'group', 'groups']),
@@ -7241,9 +7440,12 @@ export const accountRouter = router({
           ...(input.uids ? { uids: input.uids } : {}),
           ...(input.groupIds ? { groupIds: input.groupIds } : {}),
         },
+        profile: input.profile,
+        incrementalSupport: input.incrementalSupport,
         kind: 'c2c',
         savePolicy: input.savePolicy,
         includeIntegrityReport: input.includeIntegrityReport,
+        extra: input.extra,
         conv: input.scope === 'group' ? input.groupCode! : '',
         name: input.name,
         format,
@@ -7275,11 +7477,12 @@ export const accountRouter = router({
   startCollectionExport: procedure
     .input(
       z.object({
+        ...structuredExportInput,
         ...exportAccountBindingInput.shape,
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
         name: z.string().min(1),
-        format: z.enum(['json', 'csv', 'xlsx', 'txt']),
+        format: z.enum(['json', 'jsonl', 'csv', 'xlsx', 'txt']),
         kinds: z.array(z.string()).optional(),
         cids: z.array(z.string().min(1)).min(1).optional(),
       }),
@@ -7294,6 +7497,9 @@ export const accountRouter = router({
           ...(input.kinds?.length ? { kinds: input.kinds } : {}),
           ...(input.cids ? { cids: input.cids } : {}),
         },
+        extra: input.extra,
+        profile: input.profile,
+        incrementalSupport: input.incrementalSupport,
         kind: 'c2c',
         savePolicy: input.savePolicy,
         conv: '',
@@ -7374,7 +7580,7 @@ export const accountRouter = router({
 
   listExportBaselines: procedure
     .input(z.object({ directory: z.string().min(1) }))
-    .query(({ input }) => requireServices().exportManager.listBaselines(input.directory)),
+    .query(({ input }) => requireServices().exportManager.listArchiveBaselines(input.directory)),
 
   saveExportTaskOutput: procedure
     .input(
@@ -7604,6 +7810,7 @@ export const accountRouter = router({
           intervalHours: z.number().int().min(1).max(168),
         }),
         options: z.object({
+          ...structuredExportInput,
           includeIntegrityReport: z.boolean().optional(),
           range: z.object({
             preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
@@ -7629,6 +7836,7 @@ export const accountRouter = router({
             })
             .optional(),
           completeDress: z.boolean().optional(),
+          completeDressKinds: dressInput,
           autoSave: z.boolean().optional(),
           savePolicy: exportSavePolicyInput.optional(),
         }),
@@ -7682,6 +7890,7 @@ export const accountRouter = router({
             .optional(),
           options: z
             .object({
+              ...structuredExportInput,
               includeIntegrityReport: z.boolean().optional(),
               range: z.object({
                 preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
@@ -7707,6 +7916,7 @@ export const accountRouter = router({
                 })
                 .optional(),
               completeDress: z.boolean().optional(),
+              completeDressKinds: dressInput,
               autoSave: z.boolean().optional(),
               savePolicy: exportSavePolicyInput.optional(),
             })
@@ -7881,7 +8091,7 @@ export const accountRouter = router({
       requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
 
       const modelId = boot.userConfig.getLocalModelId('voice');
-      if (!modelId) return { success: false, error: '未选择转录模型' };
+      if (!modelId) return { success: false, error: '请先下载本地语音模型' };
       const model = getVoiceModel(modelId);
       if (!model) return { success: false, error: '转录模型不存在' };
 

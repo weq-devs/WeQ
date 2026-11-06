@@ -5,13 +5,19 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { BackupStartupGate } from '../src/renderer/src/components/BackupStartupGate';
 import type { BackupStartupState } from '../src/renderer/src/lib/backupClientRestore';
 
-const api = vi.hoisted(() => ({ read: vi.fn(), recover: vi.fn(), status: vi.fn() }));
+const api = vi.hoisted(() => ({
+  read: vi.fn(),
+  recover: vi.fn(),
+  status: vi.fn(),
+  subscribe: vi.fn(),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     bootstrap: {
       backupStartup: { query: api.read },
       backupRetryRecovery: { mutate: api.recover },
       backupStatus: { query: api.status },
+      onRuntimeFilesChanged: { subscribe: api.subscribe },
     },
   },
 }));
@@ -19,11 +25,14 @@ const cleanups: (() => void)[] = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
+  vi.stubGlobal('sessionStorage', new Storage());
   vi.clearAllMocks();
+  api.subscribe.mockReturnValue({ unsubscribe() {} });
 });
 afterEach(() => {
   for (const close of cleanups.splice(0)) close();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 const healthy: BackupStartupState = {
   ok: true,
@@ -76,5 +85,28 @@ it('普通读取故障只重试读取，不重建健康的文件或业务上下�
     [...host.querySelectorAll('button')].find((node) => node.textContent === '重试恢复')!.click(),
   );
   expect(api.recover).not.toHaveBeenCalled();
+  expect(host.querySelector('[data-business]')).not.toBeNull();
+});
+
+it('运行态版本变化才刷新；失败原因跨界面刷新保留，重试读取后可继续', async () => {
+  api.read.mockResolvedValue(healthy);
+  const reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {});
+  await mount();
+  const events = api.subscribe.mock.calls[0]![1] as {
+    onData: (state: { state: string; revision: number; error?: string }) => void;
+  };
+  events.onData({ state: 'ready', revision: 0 });
+  events.onData({ state: 'ready', revision: 0 });
+  expect(reload).not.toHaveBeenCalled();
+  events.onData({ state: 'ready', revision: 1, error: '合成后台保存失败' });
+  expect(reload).toHaveBeenCalledOnce();
+  const host = await mount();
+  expect(host.textContent).toContain('合成后台保存失败');
+  expect(host.querySelector('[data-business]')).toBeNull();
+  await act(async () =>
+    [...host.querySelectorAll('button')]
+      .find((button) => button.textContent === '重试恢复')!
+      .click(),
+  );
   expect(host.querySelector('[data-business]')).not.toBeNull();
 });
