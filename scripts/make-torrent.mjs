@@ -61,11 +61,15 @@ export function parseSize(text) {
   const n = Number(m[1]);
   const unit = (m[2] ?? 'B').toUpperCase();
   const mul =
-    unit === 'B' ? 1
-    : unit === 'KIB' || unit === 'KB' ? 1024
-    : unit === 'MIB' || unit === 'MB' ? 1024 ** 2
-    : unit === 'GIB' || unit === 'GB' ? 1024 ** 3
-    : 1;
+    unit === 'B'
+      ? 1
+      : unit === 'KIB' || unit === 'KB'
+        ? 1024
+        : unit === 'MIB' || unit === 'MB'
+          ? 1024 ** 2
+          : unit === 'GIB' || unit === 'GB'
+            ? 1024 ** 3
+            : 1;
   return n * mul;
 }
 
@@ -135,7 +139,9 @@ export async function buildTorrent({ files, name, urlList, pieceLength, comment 
 
   const total = files.reduce((n, f) => n + f.size, 0);
   console.log(`文件数: ${files.length}  总大小: ${(total / 1024 / 1024).toFixed(1)} MiB`);
-  console.log(`分块大小: ${(pieceLength / 1024).toFixed(0)} KiB，约 ${Math.ceil(total / pieceLength)} 块`);
+  console.log(
+    `分块大小: ${(pieceLength / 1024).toFixed(0)} KiB，约 ${Math.ceil(total / pieceLength)} 块`,
+  );
 
   const pieces = await hashPieces(files, pieceLength);
 
@@ -148,12 +154,15 @@ export async function buildTorrent({ files, name, urlList, pieceLength, comment 
     // 单文件种子：info 里是 length 而不是 files。
     info.set('length', files[0].size);
   } else {
-    info.set('files', files.map((f) => {
-      const entry = new Map();
-      entry.set('length', f.size);
-      entry.set('path', f.rel.split('/'));
-      return entry;
-    }));
+    info.set(
+      'files',
+      files.map((f) => {
+        const entry = new Map();
+        entry.set('length', f.size);
+        entry.set('path', f.rel.split('/'));
+        return entry;
+      }),
+    );
   }
 
   const torrent = new Map();
@@ -243,7 +252,7 @@ if (isMain) {
   if (!dir || !outDir) {
     console.error(
       '用法: node scripts/make-torrent.mjs --dir <产物目录> --out-dir <输出目录> ' +
-      '[--url-base <web seed 前缀>] [--piece-size 1MiB] [--tracker URL] [--exclude 正则]',
+        '[--url-base <web seed 前缀>] [--piece-size 1MiB] [--tracker URL] [--exclude 正则]',
     );
     process.exit(2);
   }
@@ -271,7 +280,14 @@ if (isMain) {
     writeFileSync(path, r.encoded);
     const webSeeds = urlBase ? [`${urlBase.replace(/\/+$/, '')}/${r.rel}`] : [];
     const { magnet } = magnetFor(r.infoHash, r.rel, r.size, trackers, webSeeds);
-    lines.push({ rel: r.rel, size: r.size, infoHash: r.infoHash, magnet, path, torrentSize: r.encoded.length });
+    lines.push({
+      rel: r.rel,
+      size: r.size,
+      infoHash: r.infoHash,
+      magnet,
+      path,
+      torrentSize: r.encoded.length,
+    });
     totalBytes += r.size;
     totalTorrentBytes += r.encoded.length;
     console.log(`  → ${path}  (${(r.encoded.length / 1024).toFixed(1)} KiB)`);
@@ -279,28 +295,31 @@ if (isMain) {
   }
 
   // 汇总一份磁力清单，方便直接贴进 QQ 群或写进 Release 说明。
-  const manifest = lines
-    .map((l) => `${l.rel}\t${l.size}\t${l.magnet}`)
-    .join('\n');
+  const manifest = lines.map((l) => `${l.rel}\t${l.size}\t${l.magnet}`).join('\n');
   writeFileSync(join(outDir, 'MAGNETS.txt'), `${manifest}\n`);
 
   console.log('');
   console.log(`共 ${lines.length} 个产物，总大小 ${(totalBytes / 1024 / 1024).toFixed(1)} MiB`);
-  console.log(`种子总大小 ${(totalTorrentBytes / 1024).toFixed(1)} KiB，清单 ${join(outDir, 'MAGNETS.txt')}`);
+  console.log(
+    `种子总大小 ${(totalTorrentBytes / 1024).toFixed(1)} KiB，清单 ${join(outDir, 'MAGNETS.txt')}`,
+  );
 
   // 给 CI 用的 key=value 输出；本地跑时这些行也方便直接 eyeball。
   if (process.env.GITHUB_OUTPUT) {
     const { appendFileSync } = await import('node:fs');
-    appendFileSync(process.env.GITHUB_OUTPUT, [
-      `file_count=${lines.length}`,
-      `total_bytes=${totalBytes}`,
-      `torrent_total_bytes=${totalTorrentBytes}`,
-      `magnets_file=${join(outDir, 'MAGNETS.txt')}`,
-      // 多行输出：第一行给消息用，完整清单走 MAGNETS.txt。
-      'magnets<<MAGNETS_EOF',
-      ...lines.map((l) => `- ${l.rel}`),
-      'MAGNETS_EOF',
-      '',
-    ].join('\n'));
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      [
+        `file_count=${lines.length}`,
+        `total_bytes=${totalBytes}`,
+        `torrent_total_bytes=${totalTorrentBytes}`,
+        `magnets_file=${join(outDir, 'MAGNETS.txt')}`,
+        // 多行输出：第一行给消息用，完整清单走 MAGNETS.txt。
+        'magnets<<MAGNETS_EOF',
+        ...lines.map((l) => `- ${l.rel}`),
+        'MAGNETS_EOF',
+        '',
+      ].join('\n'),
+    );
   }
 }
