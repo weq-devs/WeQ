@@ -30,6 +30,36 @@
       "version": "7.0.3",
       "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.37/release/a8ffd03b/QQ_7.0.3_261103_01.dmg",
       "discoveredAt": "2026-11-08T11:13:35Z"
+    },
+    {
+      "platform": "windows-x64",
+      "version": "9.9.36",
+      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.36/release/e8e54bbb/QQ_9.9.36_260924_x64_01.exe",
+      "discoveredAt": "2026-11-08T11:22:05Z"
+    },
+    {
+      "platform": "linux-x64",
+      "version": "3.2.34",
+      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.36/release/9ee04bef/QQ_3.2.34_260924_amd64_01.deb",
+      "discoveredAt": "2026-11-08T11:22:05Z"
+    },
+    {
+      "platform": "linux-arm64",
+      "version": "3.2.34",
+      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.36/release/9ee04bef/QQ_3.2.34_260924_arm64_01.deb",
+      "discoveredAt": "2026-11-08T11:22:05Z"
+    },
+    {
+      "platform": "macos-x64",
+      "version": "7.0.2",
+      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.36/release/837fcb63/QQ_7.0.2_260924_01.dmg",
+      "discoveredAt": "2026-11-08T11:22:05Z"
+    },
+    {
+      "platform": "macos-arm64",
+      "version": "7.0.2",
+      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.36/release/837fcb63/QQ_7.0.2_260924_01.dmg",
+      "discoveredAt": "2026-11-08T11:22:05Z"
     }
   ]
 }
