@@ -1,0 +1,334 @@
+name: QQ version watch
+
+# 每晚抓 QQ 官网的 PC 版本清单 → 有新版就验证签名兼容性 → 用 commit 直接更新 main。
+#
+# 数据源与官网下载页一致（`im.qq.com` 用的 `pcConfig.json`），见
+# scripts/refresh-qq-versions.mjs 的头部注释。
+#
+# 两条独立的工作：
+#   1. `refresh`：所有版本都要跑 —— 抓清单、写 `versions/latest.json` 与
+#      `versions/supported.json` 的 pending 列表。
+#   2. `compat`：**只有新版本**才跑 —— 下载安装包、取出 wrapper.node、用 pinned
+#      nt_helper 产物跑 `checkSigner()`。失败就让 job 红，不自动修。
+#
+# 为什么 compat 失败「只红不修」：RVA 定位失败意味着 QQ 换了签名器结构，
+# 那必须人来看（VM 入口可能要重新逆）。自动改代码只会把问题藏起来。
+on:
+  schedule:
+    # UTC 16:00 = 北京时间 00:00。GitHub 的 cron 在高负载时可能延迟十几分钟。
+    - cron: '0 16 * * *'
+  workflow_dispatch:
+    inputs:
+      force_compat:
+        description: '即使版本没变也跑一遍签名兼容性验证'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: qq-version-watch
+  cancel-in-progress: false
+
+env:
+  # 版本清单与 CI 产物放在一起，避免各 job 重复抓。
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  refresh:
+    name: Refresh version catalog
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.refresh.outputs.changed }}
+      changes: ${{ steps.refresh.outputs.changes }}
+      versions: ${{ steps.refresh.outputs.versions }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fetch QQ versions
+        id: refresh
+        run: node scripts/refresh-qq-versions.mjs --write
+
+      - name: Commit if changed
+        if: steps.refresh.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- versions; then
+            echo "工作区没有实际差异（可能只是 updateDate 变了），跳过提交"
+            exit 0
+          fi
+          git config user.name  'weq-version-bot'
+          git config user.email 'weq-version-bot@users.noreply.github.com'
+          git add versions
+          git commit -m "chore(versions): 更新 QQ 版本清单 ${{ steps.refresh.outputs.versions }}
+
+          来源：https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json
+          变化：${{ steps.refresh.outputs.changes }}
+          由 .github/workflows/qq-version-watch.yml 自动生成。"
+          # main 上可能有新提交（例如同一天别人的改动），先 rebase 再推送。
+          git pull --rebase --autostash origin main
+          git push origin HEAD:main
+
+      - name: Summary
+        run: |
+          {
+            echo "## QQ 版本清单"
+            echo '```'
+            node scripts/refresh-qq-versions.mjs
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  compat:
+    name: Check signing on ${{ matrix.platform }}
+    needs: refresh
+    if: needs.refresh.outputs.changed == 'true' || inputs.force_compat
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-latest
+            native: nt_helper-win32-x64.node
+          - platform: linux-x64
+            runner: ubuntu-latest
+            native: nt_helper-linux-x64.node
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            native: nt_helper-linux-arm64.node
+          - platform: macos-x64
+            runner: macos-15-intel
+            native: nt_helper-darwin-x64.node
+          - platform: macos-arm64
+            runner: macos-15
+            native: nt_helper-darwin-arm64.node
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Resolve target version
+        id: target
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("fs");
+            const latest = JSON.parse(fs.readFileSync("versions/latest.json", "utf8"));
+            const supported = JSON.parse(fs.readFileSync("versions/supported.json", "utf8"));
+            const platform = process.env.PLATFORM;
+            const entry = latest.versions[platform];
+            if (!entry) { console.error("latest.json 里没有 " + platform); process.exit(1); }
+            const verified = (supported.platforms?.[platform] ?? []).some(
+              (v) => v.version === entry.version && v.sign?.ok,
+            );
+            const lines = [
+              "version=" + entry.version,
+              "url=" + (entry.url ?? ""),
+              "verified=" + verified,
+            ];
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n") + "\n");
+            console.log(lines.join("\n"));
+          '
+
+      - name: Fetch pinned nt_helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=$(node -e 'console.log(require("./native/pinned.json").tag)')
+          echo "pinned=$tag"
+          mkdir -p "$RUNNER_TEMP/native"
+          gh release download "$tag" --repo weq-devs/nt_helper_release \
+            --pattern '${{ matrix.native }}' --dir "$RUNNER_TEMP/native"
+          ls -lh "$RUNNER_TEMP/native"
+
+      - name: Download QQ installer
+        id: download
+        shell: bash
+        env:
+          URL: ${{ steps.target.outputs.url }}
+          VERSION: ${{ steps.target.outputs.version }}
+        run: |
+          set -uo pipefail
+          case "$URL" in
+            *.deb) ext=deb ;;
+            *.dmg) ext=dmg ;;
+            *.exe) ext=exe ;;
+            *) ext=bin ;;
+          esac
+          out="$RUNNER_TEMP/qq/installer.$ext"
+          mkdir -p "$RUNNER_TEMP/qq"
+          code=$(curl -sSL --retry 3 --retry-delay 5 -o "$out" -w '%{http_code}' "$URL" || echo 000)
+          size=$(wc -c < "$out" 2>/dev/null || echo 0)
+          echo "http=$code size=$size"
+          if [ "$code" != "200" ] || [ "$size" -lt 10000000 ]; then
+            # 腾讯 CDN 对新发布版本有一段时间的防盗链/灰度，不是我们判红的理由；
+            # 下个自然日会重试（版本号还在 latest.json 里）。
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::$VERSION 的安装包暂时下载不了（http=$code size=$size），跳过本轮验证"
+            {
+              echo "### ${{ matrix.platform }} $VERSION"
+              echo "安装包暂时不可下载（http=$code size=$size），本轮跳过。"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "path=$out" >> "$GITHUB_OUTPUT"
+
+      - name: Extract wrapper.node
+        id: extract
+        if: steps.download.outputs.available == 'true'
+        shell: bash
+        env:
+          PKG: ${{ steps.download.outputs.path }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          wrapper=$(node scripts/extract-qq-wrapper.mjs "$PKG" "$RUNNER_TEMP/unpack/$PLATFORM")
+          ls -lh "$wrapper"
+          echo "wrapper=$wrapper" >> "$GITHUB_OUTPUT"
+
+      - name: Run checkSigner
+        id: check
+        if: steps.extract.outputs.wrapper != ''
+        shell: bash
+        env:
+          WRAPPER: ${{ steps.extract.outputs.wrapper }}
+          NATIVE_MODULE: ${{ runner.temp }}/native/${{ matrix.native }}
+          VERSION: ${{ steps.target.outputs.version }}
+        run: |
+          set -uo pipefail
+          code=0
+          node --input-type=module -e '
+            import { createRequire } from "node:module";
+            const require = createRequire(process.cwd() + "/");
+            const nt = require(process.env.NATIVE_MODULE);
+            const result = { wrapper: process.env.WRAPPER, version: process.env.VERSION };
+            try {
+              result.report = nt.checkSigner(process.env.WRAPPER, 3);
+            } catch (error) {
+              result.error = String((error && error.message) || error);
+            }
+            const r = result.report;
+            // 「兼容」= sign_core 定位到了，并且三次签名都成功。
+            result.ok = Boolean(r && r.signCoreRva !== undefined && r.failures === 0 &&
+                             r.signLengths.length === 3);
+            // VM 单独标记：VM 定位失败时会退回完整签名函数，功能仍然可用，
+            // 所以不参与 ok，但必须在报告里明确写出来。
+            result.vmDirect = Boolean(r && r.vmRva !== undefined && r.pathUsed === "vm");
+            console.log(JSON.stringify(result, null, 2));
+            process.exit(result.ok ? 0 : 1);
+          ' | tee "$RUNNER_TEMP/qq/result.json"
+          code=${PIPESTATUS[0]}
+          {
+            echo "### ${{ matrix.platform }} $VERSION"
+            echo '```json'
+            cat "$RUNNER_TEMP/qq/result.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -ne 0 ]; then
+            echo "::error::${{ matrix.platform }} $VERSION 的签名兼容性验证失败"
+          fi
+          exit "$code"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signcheck-${{ matrix.platform }}
+          path: ${{ runner.temp }}/qq/result.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  record:
+    name: Record verified version
+    needs: [refresh, compat]
+    # compat 失败就不写 supported.json —— 只登记真正验证通过的组合。
+    if: success() && (needs.refresh.outputs.changed == 'true' || inputs.force_compat)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      # compat 的各 job 把报告放在 artifact 里；这里逐个取回来汇总。
+      # 每个平台的 artifact 落到 reports/<platform>/result.json。
+      # 不 merge-multiple：同名文件会互相覆盖，剩下的就只剩一个平台了。
+      - name: Download reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: signcheck-*
+          path: reports
+
+      - name: Merge into supported.json
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const file = "versions/supported.json";
+            const supported = JSON.parse(fs.readFileSync(file, "utf8"));
+            supported.platforms ??= {};
+
+            for (const platform of fs.readdirSync("reports")) {
+              const reportPath = `reports/${platform}/result.json`;
+              if (!fs.existsSync(reportPath)) continue;
+              const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+              if (!report.ok || !report.report) continue;
+              const r = report.report;
+              const key = platform;
+              const list = (supported.platforms[key] ??= []);
+              const entry = {
+                version: report.version,
+                verifiedAt: new Date().toISOString(),
+                sign: {
+                  ok: true,
+                  signCoreRva: r.signCoreRva,
+                  vmRva: r.vmRva ?? null,
+                  vmKind: r.vmKind ?? null,
+                  pathUsed: r.pathUsed ?? null,
+                  signLength: r.signLengths?.[0] ?? null,
+                  sampleSign: r.sampleSign ?? null,
+                },
+              };
+              const at = list.findIndex((v) => v.version === entry.version);
+              if (at >= 0) list[at] = entry;
+              else list.push(entry);
+              list.sort((a, b) => (a.version < b.version ? 1 : -1));
+              supported.pending = (supported.pending ?? []).filter(
+                (p) => !(p.platform === key && p.version === entry.version),
+              );
+            }
+
+            // pending 只在「已经验证过」时清掉；这一轮没跑到的平台原样保留。
+            fs.writeFileSync(file, JSON.stringify(supported, null, 2) + "\n");
+          '
+
+      - name: Commit
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- versions/supported.json; then
+            echo "supported.json 没有变化"
+            exit 0
+          fi
+          git config user.name  'weq-version-bot'
+          git config user.email 'weq-version-bot@users.noreply.github.com'
+          git add versions/supported.json
+          git commit -m "chore(versions): 登记已验证的 QQ 版本签名兼容性
+
+          由 .github/workflows/qq-version-watch.yml 自动生成。"
+          git pull --rebase --autostash origin main
+          git push origin HEAD:main
