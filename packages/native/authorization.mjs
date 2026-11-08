@@ -45,8 +45,7 @@ export function validateAuthorizationBuildInfo(info, platform, options = {}) {
     !AUTHORIZATION_TARGETS[platform] ||
     info?.target !== AUTHORIZATION_TARGETS[platform] ||
     info.protocol !== AUTHORIZATION_PROTOCOL ||
-    // 发布清单目前不透传 `interface`；缺字段时按兼容处理，二进制自报值仍严格比对。
-    (info.interface ?? AUTHORIZATION_INTERFACE) !== AUTHORIZATION_INTERFACE ||
+    info.interface !== AUTHORIZATION_INTERFACE ||
     !['attach', 'key-scan', 'capture'].every((name) => info.capabilities?.includes(name))
   )
     throw new Error(`权限助手目标、协议或接口不兼容：${platform}`);
