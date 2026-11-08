@@ -60,6 +60,7 @@ const CACHE_LABELS: Readonly<Record<string, string>> = {
   sysemoji: '系统表情缓存',
   collection: '收藏媒体缓存',
   qqshow: 'QQ 秀资源缓存',
+  redpack: '红包封面缓存',
   dress_shared: '共享装扮资源缓存',
 };
 

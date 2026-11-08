@@ -41,6 +41,7 @@ import {
   Image as ImageIcon,
   Gem,
   Gift,
+  Wallet,
   Upload,
   Trophy,
   X,
@@ -64,6 +65,7 @@ import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
 import { WorkspacePage } from './WorkspacePages';
 import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
 import { GiftWall } from './gift/GiftWall';
+import { RedPackSkinWall } from './gift/RedPackSkinWall';
 import '../styles/dressup.css';
 
 export type DressKind =
@@ -73,7 +75,8 @@ export type DressKind =
   | 'callbg'
   | 'background'
   | 'emoji'
-  | 'giftwall';
+  | 'giftwall'
+  | 'redpack';
 
 const KINDS: Array<{ id: DressKind; label: string; icon: ReactElement }> = [
   { id: 'bubble', label: '聊天气泡', icon: <Palette size={14} /> },
@@ -84,6 +87,8 @@ const KINDS: Array<{ id: DressKind; label: string; icon: ReactElement }> = [
   { id: 'emoji', label: '商城表情', icon: <Store size={14} /> },
   // 礼物墙是纯展示的只读一栏：数据来自礼物商城接口，不参与装扮安装。
   { id: 'giftwall', label: '我的礼物墙', icon: <Gift size={14} /> },
+  // 红包封面同样只读，且**完全离线**：只读仓库里的 resources/redpack/skins.json。
+  { id: 'redpack', label: '红包封面', icon: <Wallet size={14} /> },
 ];
 
 /** 商城那几类共用一套列表 UI;聊天背景和表情包是各自独立的形状。 */
@@ -873,6 +878,7 @@ export function DressUpDialog({
 
   function renderList(): ReactElement {
     if (kind === 'giftwall') return <GiftWall />;
+    if (kind === 'redpack') return <RedPackSkinWall />;
     if (kind === 'background') return renderBackground();
     if (kind === 'emoji')
       return (

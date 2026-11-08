@@ -1,0 +1,352 @@
+/* ──────────────────────────────────────────────────────────────────────────
+ * QQ 秀展柜（资料卡点头像打开）。
+ *
+ * 观感沿用礼物墙那一套：圆角卡片、浅灰画布、强调色只用在 hover / 当前项。
+ * 形象图是透明 PNG 的竖版全身像，所以卡片用固定宽高比 + contain，底下一层
+ * 棋盘格（浅色）让透明边缘看得清。
+ * 颜色一律走 design token，深色模式单独覆盖。
+ * ────────────────────────────────────────────────────────────────────────── */
+
+.weq-qqshow-gallery-scrim {
+  /* 自己把卡片摆到中间：OverlayLayer 的 `modal` 只给了一层空壳，居中由各浮层
+     自己的样式负责（资料卡那类 anchored popover 另走定位，不共用）。 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  /* 与资料卡一致的底色温度。 */
+  background:
+    radial-gradient(
+      ellipse at 32% 16%,
+      color-mix(in srgb, var(--weq-accent-effective) 9%, transparent),
+      transparent 46%
+    ),
+    color-mix(in srgb, var(--weq-fg-primary) 42%, transparent);
+  backdrop-filter: blur(5px);
+}
+
+html[data-theme='dark'] .weq-qqshow-gallery-scrim {
+  background:
+    radial-gradient(
+      ellipse at 32% 16%,
+      color-mix(in srgb, var(--weq-accent-effective) 12%, transparent),
+      transparent 46%
+    ),
+    rgba(8, 10, 12, 0.62);
+}
+
+.weq-qqshow-gallery {
+  display: flex;
+  flex-direction: column;
+  width: min(880px, calc(100vw - 64px));
+  max-height: min(760px, calc(100vh - 88px));
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 18px;
+  background: var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-card);
+  overflow: hidden;
+}
+
+html[data-theme='dark'] .weq-qqshow-gallery {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-border-subtle));
+}
+
+/* ── 头部 ─────────────────────────────────────────────────────────────── */
+
+.weq-qqshow-gallery-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  padding: 15px 18px 10px;
+}
+
+.weq-qqshow-gallery-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  color: var(--weq-fg-primary);
+}
+
+.weq-qqshow-gallery-title svg {
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+.weq-qqshow-gallery-title h2 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.weq-qqshow-gallery-sub {
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-qqshow-gallery-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.weq-qqshow-gallery-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-qqshow-gallery-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.weq-qqshow-gallery-btn:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-qqshow-gallery-close {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  cursor: pointer;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.weq-qqshow-gallery-close:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-qqshow-gallery-hint {
+  margin: 0;
+  padding: 0 18px 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 内容 ─────────────────────────────────────────────────────────────── */
+
+.weq-qqshow-gallery-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px 20px;
+}
+
+.weq-qqshow-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 12px;
+}
+
+.weq-qqshow-gallery-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 13px;
+  background: var(--weq-bg-surface);
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.weq-qqshow-gallery-card:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, var(--weq-border-subtle));
+  box-shadow: var(--weq-shadow-soft);
+  transform: translateY(-1px);
+}
+
+.weq-qqshow-gallery-card.is-current {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 62%, var(--weq-border-subtle));
+}
+
+.weq-qqshow-gallery-media {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 186 / 279;
+  padding: 8px;
+  /* 透明 PNG：浅色下给一层极淡的棋盘，避免边缘糊在白底里。 */
+  background:
+    repeating-conic-gradient(
+      color-mix(in srgb, var(--weq-fg-primary) 4%, transparent) 0% 25%,
+      transparent 0% 50%
+    )
+    50% / 14px 14px,
+    color-mix(in srgb, var(--weq-fg-primary) 2%, var(--weq-bg-surface));
+  overflow: hidden;
+}
+
+html[data-theme='dark'] .weq-qqshow-gallery-media {
+  background:
+    repeating-conic-gradient(color-mix(in srgb, #fff 5%, transparent) 0% 25%, transparent 0% 50%)
+    50% / 14px 14px,
+    color-mix(in srgb, #fff 4%, var(--weq-bg-surface));
+}
+
+.weq-qqshow-gallery-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.weq-qqshow-gallery-zoom {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 12%, transparent);
+  color: var(--weq-fg-primary);
+  opacity: 0;
+  transition: opacity 0.14s ease;
+}
+
+html[data-theme='dark'] .weq-qqshow-gallery-zoom {
+  background: color-mix(in srgb, #fff 14%, transparent);
+  color: #fff;
+}
+
+.weq-qqshow-gallery-card:hover .weq-qqshow-gallery-zoom {
+  opacity: 1;
+}
+
+.weq-qqshow-gallery-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 9px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-qqshow-gallery-meta strong {
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-qqshow-gallery-meta em {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 78%, var(--weq-fg-primary));
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* 扫描中的呼吸位 —— 尺寸与一张卡相当，别让网格塌掉又重排。 */
+.weq-qqshow-gallery-pending {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 186 / 279;
+  border: 1px dashed var(--weq-border-subtle);
+  border-radius: 13px;
+  color: var(--weq-fg-muted);
+}
+
+/* ── 空态 / 错误 ──────────────────────────────────────────────────────── */
+
+.weq-qqshow-gallery-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 260px;
+  text-align: center;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-qqshow-gallery-state p {
+  margin: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+}
+
+.weq-qqshow-gallery-state span {
+  max-width: 400px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.weq-qqshow-gallery-state button {
+  margin-top: 4px;
+  padding: 6px 18px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-qqshow-gallery-state button:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-qqshow-spin {
+  animation: weq-qqshow-spin 0.9s linear infinite;
+}
+
+@keyframes weq-qqshow-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-qqshow-spin {
+    animation: none;
+  }
+
+  .weq-qqshow-gallery-card:hover {
+    transform: none;
+  }
+}

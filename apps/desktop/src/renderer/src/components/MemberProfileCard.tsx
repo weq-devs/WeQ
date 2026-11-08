@@ -60,6 +60,7 @@ import { QQGroupMemberControls } from './QQGroupMemberControls';
 import { PersonRelationshipStatus } from './RelationshipStatus';
 import { useGroupRelationship, usePersonRelationship } from '../lib/contactRelationship';
 import { Avatar } from '../im-template/template/primitives';
+import { QqShowGallery } from './QqShowGallery';
 import { VirtualConversationBadge } from './VirtualConversationAvatar';
 import { cn } from '../im-template/template/classNames';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
@@ -128,6 +129,10 @@ export function MemberProfileCard({
   // 写这张表，所以经常是 null —— 那时只展示 v6 那份普通资料。
   const [loadedBotProfile, setBotProfile] = useState(null);
   const botProfile = localClone ? null : loadedBotProfile;
+  // QQ 秀展柜：点头像打开。`currentRevision` 来自已有的 QQ 秀查询（拿不到就 null），
+  // 只用来在展柜里标出「当前」那张，不参与扫描本身。
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [showRevision, setShowRevision] = useState(null);
   const cardRef = useRef(null);
   const [pos, setPos] = useState({ left: anchor.x + 14, top: anchor.y + 8, ready: false });
 
@@ -245,6 +250,26 @@ export function MemberProfileCard({
   // @、灰条等入口可能只有 UID；资料补全后统一补齐头像，也供下级灯箱复用。
   const avatarUrl =
     member.avatarUrl || resolveAvatar({ uin, profileAvatarUrl: profile?.avatarUrl });
+  // 展柜只需要「当前形象序号」这一个数字：有 QQ 秀才查，失败时静默 —— 展柜照样能扫，
+  // 只是不标「当前」那张。查询本身会命中服务层 5 分钟缓存，不会每次开卡都发包。
+  useEffect(() => {
+    setShowRevision(null);
+    if (localClone || !uin) return undefined;
+    let alive = true;
+    client.account.dressup.peerQqShow
+      .query({ uin })
+      .then((info) => {
+        if (!alive || !info?.hasShow || !info.url) return;
+        const match = /\/(\d+)\.png(?:\?|$)/.exec(info.url);
+        setShowRevision(match ? Number(match[1]) : null);
+      })
+      .catch(() => {
+        /* 没有 QQ 秀 / 离线 —— 不标「当前」即可 */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [uin, localClone]);
   const nickDiffers = profile?.nick && profile.nick !== name && profile.nick !== member.remark;
   const gender = genderLabel(profile?.gender);
   const genderAge = [gender, profile?.age ? `${profile.age} 岁` : null].filter(Boolean).join(' · ');
@@ -357,12 +382,32 @@ export function MemberProfileCard({
         ) : (
           <>
             <div className="weq-profile-hero">
-              <span
-                className={cn('weq-profile-avatar', member.clone && 'weq-clone-profile-avatar')}
-              >
-                <Avatar name={name} avatarUrl={avatarUrl} seed={localClone ? member.id : uid} />
-                {member.clone ? <VirtualConversationBadge /> : null}
-              </span>
+              {uin && !localClone ? (
+                <button
+                  type="button"
+                  className={cn(
+                    'weq-profile-avatar',
+                    'weq-profile-avatar-gallery',
+                    member.clone && 'weq-clone-profile-avatar',
+                  )}
+                  onClick={() => setGalleryOpen(true)}
+                  title="查看 QQ 秀展柜"
+                  aria-label={`查看 ${name} 的 QQ 秀展柜`}
+                >
+                  <Avatar name={name} avatarUrl={avatarUrl} seed={localClone ? member.id : uid} />
+                  {member.clone ? <VirtualConversationBadge /> : null}
+                  <span className="weq-profile-avatar-gallery-hint" aria-hidden>
+                    <Sparkles size={11} strokeWidth={2.2} />
+                  </span>
+                </button>
+              ) : (
+                <span
+                  className={cn('weq-profile-avatar', member.clone && 'weq-clone-profile-avatar')}
+                >
+                  <Avatar name={name} avatarUrl={avatarUrl} seed={localClone ? member.id : uid} />
+                  {member.clone ? <VirtualConversationBadge /> : null}
+                </span>
+              )}
               <strong className="weq-profile-name">{name}</strong>
               {!localClone ? <PersonRelationshipStatus person={{ ...member, ...profile }} /> : null}
               {nickDiffers ? <span className="weq-profile-nick">昵称 {profile.nick}</span> : null}
@@ -624,6 +669,15 @@ export function MemberProfileCard({
           </>
         )}
       </section>
+
+      {galleryOpen && uin && !localClone ? (
+        <QqShowGallery
+          uin={uin}
+          name={name}
+          currentRevision={showRevision}
+          onClose={() => setGalleryOpen(false)}
+        />
+      ) : null}
 
       {analyticsOpen && canAnalyze ? (
         <MemberAnalyticsDialog

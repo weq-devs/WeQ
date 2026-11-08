@@ -56,6 +56,19 @@ export function qqShowUrl(src: string, revision?: number): string {
   return mediaUrl('qqshow', { src, ...(revision ? { revision: String(revision) } : {}) });
 }
 
+/**
+ * 红包封面（个性装扮 → 红包封面展柜）。
+ *
+ * `variant` 缺省走旧行为（离线目录封面 → 在线现查 → aio 兜底）；展柜里传具体的
+ * 字段名表示**只认本地 skins.json**，取不到就 404，由前端回退占位。
+ */
+export function redPackSkinUrl(
+  skinId: number,
+  variant?: 'preview' | 'popup' | 'background' | 'image',
+): string {
+  return mediaUrl('redbag', { id: skinId, ...(variant ? { v: variant } : {}) });
+}
+
 /** `weq-avatar://fetch?src=…` — the disk-cached bridge for a remote image. */
 export function avatarFetchUrl(src: string): string {
   return `${AVATAR_PREFIX}fetch?src=${encodeURIComponent(src)}`;
