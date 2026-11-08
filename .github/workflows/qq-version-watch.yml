@@ -229,15 +229,25 @@ jobs:
           esac
           out="$RUNNER_TEMP/qq/installer.$ext"
           mkdir -p "$RUNNER_TEMP/qq"
-          code=$(curl -sSL --retry 3 --retry-delay 5 -o "$out" -w '%{http_code}' "$URL" || echo 000)
+
+          # pcConfig 给的地址直接 GET 会 403：官网页面也是先调内部接口换一个
+          # 带 ?sign=&t= 的短时链接。签名失败就当作「暂时拿不到」，下一天重试。
+          if ! signed=$(node scripts/sign-qq-download.mjs "$URL"); then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::${VERSION} 的下载地址签名失败（接口可能变了），本轮跳过"
+            exit 0
+          fi
+          echo "signed url acquired (len=${#signed})"
+
+          code=$(curl -sSL --retry 3 --retry-delay 5 -o "$out" -w '%{http_code}' "$signed" || echo 000)
           size=$(wc -c < "$out" 2>/dev/null || echo 0)
           echo "http=$code size=$size"
           if [ "$code" = "403" ] || [ "$code" = "404" ]; then
             echo "outcome=cdn-not-ready" >> "$GITHUB_OUTPUT"
-            # 腾讯对「刚发布」的版本有一段防盗链/灰度期：pcConfig.json 已经指向
-            # 新版本，但 CDN 上还拿不到。这不是我们的缺陷，下个自然日会重试
-            # （Plan compat 每天重新判定）。写成 warning，但 job 标成「跳过」，
-            # 不能假装验证过 —— 否则 supported.json 会缺项而没人发现。
+            # 签名过了但对象还不存在：腾讯在「刚发布」的窗口期会先更新
+            # pcConfig.json，隔一阵才把产物传到 CDN。这不是我们的缺陷，
+            # 下个自然日会重试（Plan compat 每天重新判定）。写成 warning，
+            # 但 job 标成「跳过」，不能假装验证过。
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo "reason=cdn-not-ready" >> "$GITHUB_OUTPUT"
             echo "::warning::${VERSION} 的安装包在 CDN 上还拿不到（http=${code}），本轮跳过，明天重试"
