@@ -127,11 +127,48 @@ function extractExe(installer, work) {
   const target = join(work, 'installed');
   mkdirSync(target, { recursive: true });
   log(`静默安装到 ${target}`);
-  // NSIS 的 /D= 必须是最后一个参数且**不加引号**。
-  const result = spawnSync(installer, ['/S', `/D=${target}`], { stdio: 'inherit' });
+
+  // NSIS 的 /D= 必须是**最后一个参数**、**不加引号**、**和 /S 在同一个字符串**里。
+  // 用参数数组单独传 /D= 会被拆开，QQ 就退回默认安装位置（实测装到
+  // `C:\Program Files\Tencent\QQNT`，而不是这里指定的目录）。
+  const installerArgs = `/S /D=${target}`;
+  log(`$ ${installer} ${installerArgs}`);
+  const result = spawnSync(installer, [installerArgs], { stdio: 'inherit' });
   if (result.error) throw result.error;
-  // NSIS 的返回值不可靠，以是否装出东西为准。
-  return target;
+  // NSIS 的退出码不可靠（可能先返回、后台再写文件），一律以「装出东西没有」为准。
+  return waitForInstall(target);
+}
+
+/**
+ * 等安装完成并返回实际安装根目录。
+ *
+ * `/D=` 不生效时 QQ 会装到 Program Files 之类的默认位置，所以要把这些候选
+ * 都看一遍 —— 只认 `/D=` 目录会在 CI 上稳定失败。
+ */
+function waitForInstall(target) {
+  const candidates = [
+    target,
+    join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Tencent', 'QQNT'),
+    join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Tencent', 'QQNT'),
+    join(process.env.LOCALAPPDATA ?? '', 'Programs', 'Tencent', 'QQNT'),
+  ].filter(Boolean);
+
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    for (const root of candidates) {
+      if (existsSync(root) && findWrapper(root)) {
+        log(`wrapper 在 ${root}`);
+        return root;
+      }
+    }
+    // 安装器是异步落盘的，先等一会儿再找。
+    sleepSync(5_000);
+  }
+  throw new Error(`安装后仍找不到 wrapper.node（找过：${candidates.join('、')}）`);
+}
+
+/** 同步 sleep；这里在 Node 主线程里跑，不引额外依赖。 */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 function main() {
