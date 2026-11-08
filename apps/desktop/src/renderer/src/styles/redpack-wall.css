@@ -1,0 +1,255 @@
+/* ──────────────────────────────────────────────────────────────────────────
+ * 红包封面展柜（个性装扮 → 红包封面）。
+ *
+ * 数据全部来自本地 resources/redpack/skins.json，图片经主进程代理落盘。
+ * 观感与礼物墙同一套：工具栏 + 卡片网格 + 骨架 / 空态，颜色全走 design token，
+ * 深色模式单独覆盖。封面是 2:3 竖图，卡片固定宽高比 + contain。
+ * ────────────────────────────────────────────────────────────────────────── */
+
+.weq-redpack-wall {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── 工具栏 ───────────────────────────────────────────────────────────── */
+
+.weq-redpack-wall-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+
+.weq-redpack-wall-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  max-width: 320px;
+  padding: 0 10px;
+  height: 30px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 3%, transparent);
+  color: var(--weq-fg-muted);
+  transition: border-color 0.14s ease;
+}
+
+.weq-redpack-wall-search:focus-within {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 46%, transparent);
+}
+
+.weq-redpack-wall-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.weq-redpack-wall-search input::placeholder {
+  color: var(--weq-fg-muted);
+}
+
+.weq-redpack-wall-clear {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-redpack-wall-clear:hover {
+  color: var(--weq-fg-primary);
+}
+
+.weq-redpack-wall-count {
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.weq-redpack-wall-count em {
+  font-style: normal;
+  opacity: 0.8;
+}
+
+/* ── 网格 ─────────────────────────────────────────────────────────────── */
+
+.weq-redpack-wall-body {
+  padding: 2px 2px 8px;
+}
+
+.weq-redpack-wall-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 12px;
+}
+
+.weq-redpack-wall-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 13px;
+  background: var(--weq-bg-surface);
+  overflow: hidden;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.weq-redpack-wall-card:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, var(--weq-border-subtle));
+  box-shadow: var(--weq-shadow-soft);
+  transform: translateY(-1px);
+}
+
+.weq-redpack-wall-card:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.weq-redpack-wall-media {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 2 / 3;
+  padding: 6px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 3%, var(--weq-bg-surface));
+  overflow: hidden;
+}
+
+html[data-theme='dark'] .weq-redpack-wall-media {
+  background: color-mix(in srgb, #fff 5%, var(--weq-bg-surface));
+}
+
+.weq-redpack-wall-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  border-radius: 8px;
+}
+
+.weq-redpack-wall-noimg {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--weq-fg-muted);
+}
+
+.weq-redpack-wall-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 10px 9px;
+  border-top: 1px solid var(--weq-border-subtle);
+  min-width: 0;
+}
+
+.weq-redpack-wall-meta strong {
+  flex: 1;
+  min-width: 0;
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-redpack-wall-meta small {
+  flex: none;
+  color: var(--weq-fg-muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 骨架 / 空态 ──────────────────────────────────────────────────────── */
+
+.weq-redpack-wall-skel {
+  aspect-ratio: 2 / 3;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 13px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--weq-fg-primary) 5%, transparent) 30%,
+    color-mix(in srgb, var(--weq-fg-primary) 9%, transparent) 46%,
+    color-mix(in srgb, var(--weq-fg-primary) 5%, transparent) 62%
+  );
+  background-size: 220% 100%;
+  animation: weq-redpack-wall-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes weq-redpack-wall-shimmer {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -30% 0;
+  }
+}
+
+.weq-redpack-wall-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 280px;
+  text-align: center;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-redpack-wall-state p {
+  margin: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+}
+
+.weq-redpack-wall-state span {
+  max-width: 440px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.weq-redpack-wall-state button {
+  margin-top: 4px;
+  padding: 6px 18px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-redpack-wall-state button:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-redpack-wall-skel {
+    animation: none;
+  }
+
+  .weq-redpack-wall-card:hover:not(:disabled) {
+    transform: none;
+  }
+}

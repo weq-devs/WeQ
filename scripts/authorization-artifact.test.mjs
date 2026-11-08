@@ -2,9 +2,11 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import {
   authorizationArtifact,
+  AUTHORIZATION_INTERFACE,
   AUTHORIZATION_PROTOCOL,
   AUTHORIZATION_TARGETS,
   validateAuthorizationBuildInfo,
+  validateAuthorizationContract,
   validateNativeBuildInfo,
 } from '../packages/native/authorization.mjs';
 test('旧清单不假造助手，新资产与原生平台目录共用分发', () => {
@@ -34,6 +36,7 @@ test('桌面 release 必须有有效、同源的助手，普通开发仍兼容�
   const buildTime = Math.floor(Date.now() / 1000) - 10;
   const info = {
     protocol: AUTHORIZATION_PROTOCOL,
+    interface: AUTHORIZATION_INTERFACE,
     target: AUTHORIZATION_TARGETS[platform],
     capabilities: ['attach', 'key-scan', 'capture'],
     buildTime,
@@ -71,6 +74,7 @@ test('桌面 release 必须有有效、同源的助手，普通开发仍兼容�
   for (const patch of [
     { target: AUTHORIZATION_TARGETS['darwin-x64'] },
     { protocol: AUTHORIZATION_PROTOCOL + 1 },
+    { interface: AUTHORIZATION_INTERFACE + 1 },
     { isDev: true },
     { expireTime: buildTime },
     { capabilities: ['attach'] },
@@ -91,6 +95,37 @@ test('桌面 release 必须有有效、同源的助手，普通开发仍兼容�
       expected: { ...info, buildTime: buildTime - 1 },
     }),
   );
+  const legacyExpected = { ...info };
+  delete legacyExpected.interface;
+  assert.doesNotThrow(() =>
+    validateAuthorizationBuildInfo(info, platform, {
+      production: true,
+      expected: legacyExpected,
+    }),
+  );
+  assert.throws(() =>
+    validateAuthorizationBuildInfo(info, platform, {
+      production: true,
+      expected: { ...legacyExpected, interface: AUTHORIZATION_INTERFACE + 1 },
+    }),
+  );
+  assert.doesNotThrow(() =>
+    validateAuthorizationContract(
+      {
+        ...info,
+        authorizationInterface: AUTHORIZATION_INTERFACE,
+        isDev: true,
+        buildTime: null,
+        expireTime: null,
+      },
+      info,
+      { required: true },
+    ),
+  );
+  assert.throws(() =>
+    validateAuthorizationContract({ ...info, authorizationInterface: 2 }, info, { required: true }),
+  );
+  assert.throws(() => validateAuthorizationContract({}, info, { required: true }));
 });
 test('拒绝路径逃逸、缺失校验和及异常体积', () => {
   for (const metadata of [

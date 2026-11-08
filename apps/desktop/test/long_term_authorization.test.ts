@@ -4,7 +4,10 @@ import { createServer, type Socket } from 'node:net';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORIZATION_PROTOCOL } from '../src/shared/long_term_authorization';
+import {
+  AUTHORIZATION_INTERFACE,
+  AUTHORIZATION_PROTOCOL,
+} from '../src/shared/long_term_authorization';
 import {
   type AuthorizationError,
   configureLongTermAuthorization,
@@ -21,6 +24,8 @@ afterEach(async () => {
 });
 async function fixture({
   protocol = AUTHORIZATION_PROTOCOL,
+  interfaceVersion = AUTHORIZATION_INTERFACE as number,
+  omitInterface = false,
   authorized = true,
   capabilities = ['attach', 'key-scan', 'capture'],
   validity = 'valid',
@@ -64,6 +69,7 @@ async function fixture({
           request.op === 'status'
             ? {
                 protocol,
+                interface: omitInterface ? undefined : interfaceVersion,
                 build: 'older-compatible-build',
                 capabilities,
                 validity,
@@ -99,7 +105,9 @@ async function fixture({
 describe('原生权限助手客户端', () => {
   it('有明确宿主通道时不把缺失通道标识的服务当成正式助手', async () => {
     const data = await fixture({ expectedDevelopment: false, omitDevelopment: true });
-    await expect(openLongTermAuthorization()).rejects.toMatchObject({ code: 'incompatible' });
+    await expect(openLongTermAuthorization()).rejects.toMatchObject({
+      code: 'channel-mismatch',
+    });
     expect(await tryLongTermAttach(123)).toBeNull();
     expect(data.requests.some((request) => request.op === 'attach')).toBe(false);
   });
@@ -110,7 +118,9 @@ describe('原生权限助手客户端', () => {
     '运行操作不能跨开发/正式通道：expected=%s actual=%s',
     async (expectedDevelopment, development) => {
       const data = await fixture({ expectedDevelopment, development });
-      await expect(openLongTermAuthorization()).rejects.toMatchObject({ code: 'incompatible' });
+      await expect(openLongTermAuthorization()).rejects.toMatchObject({
+        code: 'channel-mismatch',
+      });
       expect(await tryLongTermAttach(123)).toBeNull();
       expect(data.requests.some((request) => request.op === 'attach')).toBe(false);
     },
@@ -119,10 +129,13 @@ describe('原生权限助手客户端', () => {
     const data = await fixture();
     const { connection, info } = await openLongTermAuthorization();
     connection.close();
-    expect(data.requests[0]).toEqual({ protocol: AUTHORIZATION_PROTOCOL });
+    expect(data.requests[0]).toEqual({
+      protocol: AUTHORIZATION_PROTOCOL,
+      interface: AUTHORIZATION_INTERFACE,
+    });
     expect(info.build).toBe('older-compatible-build');
   });
-  it('兼容的旧助手可跨 app 更新复用，不按二进制 hash 强制重新授权', async () => {
+  it('接口版本相同的旧构建可跨 app 更新复用，不按二进制 hash 强制重新授权', async () => {
     await fixture();
     const result = await tryLongTermAttach(123);
     expect(result).toEqual({ a2: 'aabb', d2: 'ccdd', d2Key: '22'.repeat(16) });
@@ -131,7 +144,18 @@ describe('原生权限助手客户端', () => {
     '拒绝不兼容协议或缺少操作：%j',
     async (options) => {
       await fixture(options);
+      await expect(openLongTermAuthorization()).rejects.toMatchObject({ code: 'incompatible' });
+    },
+  );
+  it.each([{ interfaceVersion: AUTHORIZATION_INTERFACE + 1 }, { omitInterface: true }])(
+    '接口版本不一致或缺失时要求重新授权：%j',
+    async (options) => {
+      const data = await fixture(options);
+      await expect(openLongTermAuthorization()).rejects.toMatchObject({
+        code: 'interface-changed',
+      });
       expect(await connectLongTermAuthorization()).toBeNull();
+      expect(data.requests.some((request) => request.op === 'attach')).toBe(false);
     },
   );
   it('未授权由真实服务拒绝，临时授权回退可区分该原因', async () => {

@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "lastRun": "2026-11-04T17:19:22+08:00",
+  "lastRun": "2026-11-08T23:37:07+08:00",
   "types": {
     "font": [
       {
         "lo": 1,
         "hi": 9007199254740991,
-        "maxId": 61470,
-        "scannedTo": 62849
+        "maxId": 61501,
+        "scannedTo": 63070
       }
     ],
     "bubble": [
@@ -15,27 +15,27 @@
         "lo": 1,
         "hi": 1000000,
         "maxId": 57547,
-        "scannedTo": 60627
+        "scannedTo": 60827
       },
       {
         "lo": 1000000,
         "hi": 2000000,
         "maxId": 1000037,
-        "scannedTo": 1000677
+        "scannedTo": 1000877
       },
       {
         "lo": 2000000,
         "hi": 9007199254740991,
-        "maxId": 2184563,
-        "scannedTo": 2184792
+        "maxId": 2185009,
+        "scannedTo": 2185243
       }
     ],
     "widget": [
       {
         "lo": 1,
         "hi": 9007199254740991,
-        "maxId": 203085,
-        "scannedTo": 203323
+        "maxId": 203391,
+        "scannedTo": 203605
       }
     ]
   }

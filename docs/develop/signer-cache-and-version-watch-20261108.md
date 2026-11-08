@@ -134,17 +134,52 @@ https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json
 https://im.qq.com/proxy/domain/qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json
 ```
 
+<<<<<<< HEAD
+**CDN 有灰度期，别指望发布当天就能下**（2026-11-08 实测）：
+
+- `pcConfig.json` 里给的是 `QQNTV2/<ver>/release/<hash>/…`，**直接 `curl` 一律
+  403**（防盗链，浏览器里也拿不到，官网页面同样是靠 JS 拼参数）；
+- 同一批产物在 `QQNT/<ver>/beta/<hash>/` 下、用旧式命名
+  （`linuxqq_3.2.35-54395_amd64.deb`）能下 —— **但只对已经放开的版本有效**：
+  9.9.36 及以前都能下，9.9.37 发布当天 beta 路径也还是 404/403；
+- 更麻烦的是 **`pcConfig.json` 本身在边缘节点间不同步**：同一天我本地拿到
+  `9.9.37`，GitHub runner 拿到 `9.9.36`。
+
+所以：
+
+1. `versions/latest.json` 原样记录官网给的地址（作为「官方声明」留档），
+   **不猜 URL** —— 猜出来的 build 号拼错只会更糟；
+2. **版本只允许前进**（`mergeLatest`）：某次抓到旧版本时不覆盖已有记录，
+   否则清单会每晚抖动；
+3. 下载 403/404 记 warning + 跳过本轮，**不判红**；其它失败（网络错误、
+   返回 HTML、文件过小）判红；
+4. 每天按「该平台最新版**是否已验证**」重新决定跑不跑 compat（不是只在清单
+   变化那晚跑），所以灰度放开后自动补上一轮。
+=======
 **注意 CDN 的防盗链**：`pcConfig.json` 里给的是 `QQNTV2/<ver>/release/<hash>/…`
 路径，直接 `curl` 会 403（参考站也复现）。真正可下的是同一批版本的
 `QQNT/<ver>/beta/<hash>/linuxqq_<ver>-<build>_<arch>.deb` 形态 —— 现有
 `versions/latest.json` 记录的是**官网给的地址**（作为「官方声明」留档），
 `.github/workflows/qq-version-watch.yml` 的下载步骤对 403 记 warning 而不是判红：
 腾讯对新版本有一段灰度期，隔天通常会放开。
+>>>>>>> origin/main
 
 ### 流程
 
 ```
 schedule(UTC 16:00 / 北京 00:00)
+<<<<<<< HEAD
+  └─ refresh: 抓 pcConfig → 合并（只前进）→ 写 latest.json + pending
+                → 清单有变化就 commit 到 main
+                → plan: 算出「最新版还没验证」的平台列表 unverified
+       └─ unverified != []
+            └─ compat (matrix，只跑 unverified 里的平台)
+                 ├─ 从 weq-devs/nt_helper_release 拉 pinned 的预编译 .node（不编译）
+                 ├─ 校验产物带 checkSigner（缺就明确报错停止）
+                 ├─ 下载安装包 → scripts/extract-qq-wrapper.mjs 取整个 app 目录
+                 ├─ checkSigner(wrapper, 3) —— 三次签名必须全部成功
+                 └─ 签名失败 → job 红（不自动修）
+=======
   └─ refresh: 抓 pcConfig → 写 latest.json + pending → 有变化就 commit 到 main
        └─ changed == true
             └─ compat (matrix 五平台)
@@ -152,6 +187,7 @@ schedule(UTC 16:00 / 北京 00:00)
                  ├─ 下载安装包 → scripts/extract-qq-wrapper.mjs 取整个 app 目录
                  ├─ checkSigner(wrapper, 3) —— 三次签名必须全部成功
                  └─ 任何失败 → job 红（不自动修）
+>>>>>>> origin/main
             └─ record: 只把 ok 的组合并进 supported.json，再 commit 到 main
 ```
 
@@ -173,6 +209,9 @@ node -e 'const nt=require("./native/linux/x64/nt_helper.node");
 ## 七、已知边界
 
 - **AppImage / rpm 没接**：解包脚本只处理 deb / dmg / exe；官网主要发 deb。
+- **compat 依赖带 `checkSigner` 的 native 产物**：`native/pinned.json` 指向的
+  构建如果太老，两个 workflow 都会在「产物能力检查」这一步明确失败 —— 这是
+  有意的（比跑到一半报「不是函数」清楚）。升级路径见 `native/pinned.json` 的 note。
 - **macOS dmg 挂不上时的降级**：拿到的单文件缺 `ScreenCaptureAgent.framework`，
   动态签名会失败但静态定位可用 —— 脚本会如实报告失败，不假装通过。
 - **Windows 安装包必须在 Windows 上解**（NSIS `/S /D=`），本地 Linux 只能做静态分析。

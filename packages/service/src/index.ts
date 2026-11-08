@@ -95,6 +95,20 @@ export type {
   DirSizeProgress,
 } from './bootstrap/global_config';
 
+export {
+  warmupSigner,
+  describeSignerCache,
+  getSignerHints,
+  rememberSignerHints,
+  readSignerCache,
+} from './bootstrap/signer_cache';
+export type {
+  SignerCacheEntry,
+  SignerCacheStatus,
+  SignerWarmupResult,
+  SignerNative,
+} from './bootstrap/signer_cache';
+
 // ---- account ----
 export {
   AccountConfigService,
@@ -869,6 +883,17 @@ export {
   QQ_SHOW_FETCH_CONCURRENCY,
 } from './account/qq_show';
 export type { ChatQqShowOptions, QqShowResolved } from './account/qq_show';
+export {
+  EMPTY_STOP as QQSHOW_GALLERY_EMPTY_STOP,
+  MAX_PROBE as QQSHOW_GALLERY_MAX_PROBE,
+  QQSHOW_GALLERY_START,
+  scanQqShowGallery,
+} from './account/qq_show_gallery';
+export type {
+  QqShowGalleryEvent,
+  QqShowGalleryItem,
+  QqShowGalleryOptions,
+} from './account/qq_show_gallery';
 export {
   ShowEmojiCatalog,
   buildShowEmojiReserve,

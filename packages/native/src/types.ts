@@ -52,6 +52,11 @@ export interface NativeBuildInfo {
   validitySecs: number;
   /** True for local dev builds (no expiry check). */
   isDev: boolean;
+  /**
+   * 权限助手接口版本。WeQ 用它与已安装的长期授权助手比对；缺失说明是还没带
+   * 接口版本的旧 `.node`。
+   */
+  authorizationInterface?: number;
 }
 
 // ---------- QQ process / login detection ---------------------------------
@@ -134,6 +139,40 @@ export interface SignOutput {
   token: string;
   extra: string;
   sign: string;
+}
+
+/** `signerRvas` 的返回：已加载签名器的实际 RVA（见 `warmupSigner`）。 */
+export interface SignerRvas {
+  /** sign core 的 RVA；定位失败为 undefined。 */
+  signCoreRva?: number;
+  /** VM 入口的 RVA；没有可用 VM 时缺省（签名走完整签名函数）。 */
+  vmRva?: number;
+  /** 命中的切片描述，例如 `ELF64 (little-endian, x86-64)`。 */
+  describe?: string;
+}
+
+/** 签名器自检结果，镜像 `nt_helper` 的 `SignCheckReport`。 */
+export interface SignCheckReport {
+  /** 命中的切片描述，例如 `Mach-O 64 (x86-64)`。 */
+  describe: string;
+  /** sign_core 的 RVA；定位失败为缺省。 */
+  signCoreRva?: number;
+  signCoreError?: string;
+  signCoreMs: number;
+  /** VM 的 RVA；定位失败为缺省。 */
+  vmRva?: number;
+  /** `linux-vm-entry` / `macos-vm-dispatcher` / `windows-vm-dispatcher`。 */
+  vmKind?: string;
+  vmError?: string;
+  vmMs: number;
+  /** 实际签名路径：`vm` 或 `sign-core`；没跑签名时为缺省。 */
+  pathUsed?: string;
+  /** 每次签名的长度。 */
+  signLengths: number[];
+  /** 第一次成功签名的十六进制（便于肉眼核对）。 */
+  sampleSign?: string;
+  failures: number;
+  lastError?: string;
 }
 
 /**
@@ -846,6 +885,34 @@ export interface NtHelperBinding {
    */
   locateSignFunction(wrapperPath: string): number;
   /**
+   * 检查 `wrapper.node`：扫 sign core、扫 VM、连续签名 `repeat` 次。
+   *
+   * **只接受与本机架构相同的切片**——签名要真正执行代码，用错切片会崩进程；
+   * 定位失败但能签名时 `pathUsed` 会写成 `sign-core`（降级路径）。
+   *
+   * **可选**：老产物没有这个能力。
+   */
+  checkSigner?(wrapperPath: string, repeat?: number | null): SignCheckReport;
+  /**
+   * 预热签名器：在后台 dlopen `wrapper.node` 并把 sign core / VM 定位做完。
+   *
+   * 给了 `signCoreRva` / `vmRva`（上次扫描的缓存）就跳过静态扫描（实测 2.5–3 s
+   * 降到约 0.5 s）；缓存失效时 native 侧会静默重扫。**只加载、不签名**，所以
+   * 不会因为服务端/版本问题在这里失败；失败返回 `false` 而不是抛错。
+   *
+   * **可选**：老产物没有这个能力，调用方必须探测 `typeof nt.warmupSigner`。
+   */
+  warmupSigner?(
+    wrapperPath: string,
+    signCoreRva?: number | null,
+    vmRva?: number | null,
+  ): Promise<boolean>;
+  /**
+   * 查询已加载签名器的**实际** RVA（给上层把重扫结果写回缓存）。
+   * 该 `wrapper.node` 还没被加载过时返回 `null`。**可选**：老产物没有。
+   */
+  signerRvas?(wrapperPath: string): SignerRvas | null;
+  /**
    * 用 `wrapper.node` 的签名函数计算一次 SSO 安全信息。
    *
    * 首次调用会 dlopen/LoadLibrary 该模块（Linux 会预载 gnutls 并提供
@@ -876,8 +943,18 @@ export interface NtHelperBinding {
    *
    * `wrapperPath` 是 QQ 的 `wrapper.node`：所有需要签名的命令都靠它算
    * `SecToken/SecExtra/SecSign`；传 null 时只能发不需要签名的命令。
+   *
+   * `signCoreRva` / `vmRva` 是 {@link warmupSigner} / {@link checkSigner} 得到的
+   * 缓存值：给了就跳过静态扫描；失效时 native 侧会重扫，实际值用
+   * {@link signerRvas} 查。老产物会忽略这两个参数。
    */
-  setSsoSession(pid: number, session: SsoSessionConfig, wrapperPath?: string | null): Promise<void>;
+  setSsoSession(
+    pid: number,
+    session: SsoSessionConfig,
+    wrapperPath?: string | null,
+    signCoreRva?: number | null,
+    vmRva?: number | null,
+  ): Promise<void>;
   /**
    * 忘掉 pid 的会话物料（账号下线 / QQ 重启），并关掉可能存在的连接。
    * 返回是否真的有这条登记。

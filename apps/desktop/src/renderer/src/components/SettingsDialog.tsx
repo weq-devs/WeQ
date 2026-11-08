@@ -95,6 +95,7 @@ import { AntiRecallDialog } from './AntiRecallDialog';
 import { WorkspacePage } from './WorkspacePages';
 import { LoginAccountPanel } from './LoginAccountPanel';
 import { ReverseTool } from './ReverseTool';
+import { SignerStatusCard } from './settings/SignerStatusCard';
 import { IS_WEB } from '../lib/target';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
@@ -258,6 +259,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
             <ChevronRight size={16} aria-hidden />
           </button>
         </div>
+        <SignerStatusCard />
         <Card title="Protobuf / JCE 逆向" settingId="reverse-tool">
           <ReverseTool />
         </Card>

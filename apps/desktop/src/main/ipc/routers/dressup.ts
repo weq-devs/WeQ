@@ -24,7 +24,14 @@ import { join } from 'node:path';
 import { observable } from '@trpc/server/observable';
 import { describeExportOutput, exportOutputFileName, getHost } from '@weq/service';
 import { z } from 'zod';
-import { DressAppId, normalizeMallItems, toPeerDress, type DressMallItem } from '@weq/service';
+import {
+  DressAppId,
+  normalizeMallItems,
+  scanQqShowGallery,
+  toPeerDress,
+  type DressMallItem,
+  type QqShowGalleryEvent,
+} from '@weq/service';
 import {
   accountEventBus,
   getAppContext,
@@ -592,5 +599,48 @@ export const dressupRouter = router({
       } catch {
         throw new Error(PEER_QQ_SHOW_HINT);
       }
+    }),
+
+  /**
+   * QQ 秀展柜：扫描 `images/<uin>/101…` 的整段历史形象，边扫边推。
+   *
+   * 与 `0xFE1_3` 无关（那条只给当前形象）—— 这里直接枚举 CDN 上的版本号，
+   * 连续 10 个序号取不到才收尾。事件流：`item`（每命中一张就推）→ `progress`
+   * → `done`。取消订阅即 abort，扫描会尽快停下。
+   */
+  qqShowGallery: procedure
+    .input(z.object({ uin: z.string().regex(/^\d{5,20}$/) }))
+    .subscription(({ input }) => {
+      return observable<QqShowGalleryEvent>((emit) => {
+        const controller = new AbortController();
+        const cache = getAppContext().bootstrap?.avatarCache;
+        if (!cache) {
+          emit.next({
+            kind: 'done',
+            found: 0,
+            scanned: 0,
+            truncated: false,
+            error: '媒体缓存不可用，无法扫描 QQ 秀',
+          });
+          emit.complete();
+          return () => {};
+        }
+        void scanQqShowGallery(input.uin, {
+          cache,
+          signal: controller.signal,
+          emit: (event) => emit.next(event),
+        })
+          .catch((error: unknown) => {
+            emit.next({
+              kind: 'done',
+              found: 0,
+              scanned: 0,
+              truncated: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          })
+          .finally(() => emit.complete());
+        return () => controller.abort();
+      });
     }),
 });

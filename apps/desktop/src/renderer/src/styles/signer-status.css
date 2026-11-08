@@ -1,0 +1,57 @@
+/* 设置 → 诊断工具 → 「签名器」卡片。
+ *
+ * 只有一块键值表 + 两条提示，颜色全部走 design token，深浅模式共用一套规则；
+ * 深色差异只在需要压住对比度时显式覆盖（见文件末尾）。 */
+
+.weq-signer-kv {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 0;
+  padding: 4px 0 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-signer-kv dt {
+  font-size: 13px;
+  color: var(--weq-fg-secondary);
+  white-space: nowrap;
+}
+
+.weq-signer-kv dd {
+  margin: 0;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--weq-fg-primary);
+  overflow-wrap: anywhere;
+}
+
+/* 路径可能很长：一行省略，完整值留在 title 里。 */
+.weq-signer-kv .weq-signer-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 窄屏（设置面板被压到 520px 以下）时键值改上下排，避免右侧被挤成一条竖线。 */
+@media (max-width: 640px) {
+  .weq-signer-kv {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .weq-signer-kv dt {
+    margin-top: 6px;
+  }
+}
+
+/* 深色下 `--weq-fg-secondary` 已经足够区分，这里只把边框压淡一点，
+ * 免得在深色卡片上显得过白。 */
+html[data-theme='dark'] .weq-signer-kv {
+  border-top-color: color-mix(in srgb, var(--weq-border-subtle) 70%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-signer-kv {
+    transition: none;
+  }
+}

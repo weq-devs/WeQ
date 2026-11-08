@@ -6,6 +6,8 @@ export interface AuthorizationRequest extends Omit<CaptureWorkerRequest, 'op'> {
 }
 export interface AuthorizationHelperInfo {
   protocol: number;
+  /** 权限助手接口版本，见 `AUTHORIZATION_INTERFACE`。 */
+  interface?: number;
   build: string;
   validity?: 'valid' | 'expired';
   development?: boolean;

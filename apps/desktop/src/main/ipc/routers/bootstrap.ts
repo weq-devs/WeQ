@@ -28,7 +28,9 @@ import {
   type StorageRoot,
   type AppAutostartStatus,
   createOtherDeviceKeyContext,
+  describeSignerCache,
 } from '@weq/service';
+import { readQqVersion } from '@weq/platform';
 import {
   bindExportSaveRequest,
   exportOutputPlanInput,
@@ -54,6 +56,8 @@ import {
   emitDressChanged,
   isSsePushActive,
   rememberAccountUid,
+  awaitSignerWarmup,
+  rescanSigner as rescanSignerImpl,
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
 import { runLogRetentionSweep } from '../../log_retention';
@@ -414,6 +418,38 @@ export const bootstrapRouter = router({
   launchQq: procedure.mutation(async () => {
     await launchQq(requirePlatform());
     return true;
+  }),
+
+  // ---- 签名器（wrapper.node）诊断 ----
+  //
+  // 完整模式发包要借 `wrapper.node` 里的 VM / sign core 算 `SecSign`。RVA 随
+  // QQ 版本变化，所以定位结果按「版本 + 文件 hash」缓存；这里只读缓存状态，
+  // 真正的扫描在启动期后台做（或用户点「重新扫描」）。
+
+  /** 当前签名器状态：缓存是否命中、两条 RVA、上次确认时间。 */
+  signerStatus: procedure.query(async () => {
+    const platform = requirePlatform();
+    const wrapperPath = platform.qqWrapperNodePath();
+    const warmup = await awaitSignerWarmup();
+    return {
+      ...describeSignerCache(platform.appDataRoot(), wrapperPath, readQqVersion(wrapperPath)),
+      /** 启动期那次预热的结果（null = 没跑 / 失败）。 */
+      warmup,
+      /** 本次运行里实际走过的签名路径（来自预热/自检）。 */
+      supported: typeof platform.native.ntHelper.warmupSigner === 'function',
+    };
+  }),
+
+  /** 重新扫描 `wrapper.node`（命中缓存时只 dlopen + 校验），返回最新状态。 */
+  rescanSigner: procedure.mutation(async () => {
+    const platform = requirePlatform();
+    const wrapperPath = platform.qqWrapperNodePath();
+    const result = await rescanSignerImpl();
+    return {
+      ...describeSignerCache(platform.appDataRoot(), wrapperPath, readQqVersion(wrapperPath)),
+      warmup: result,
+      supported: typeof platform.native.ntHelper.warmupSigner === 'function',
+    };
   }),
 
   qqDebugCopyStatus: procedure.query(() => requireDebugCopyDesktop().status()),

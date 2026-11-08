@@ -88,8 +88,11 @@ export function authorizationFailure(
         : '暂存的权限助手在安装过程中被改动，出于安全考虑安装已中止。\n请重新打开 WeQ 后点「修复授权」重试。',
     );
 
-  if (detail.includes('invalid install identity or protocol'))
-    return withDetail('权限助手与当前 WeQ 版本不匹配，请更新原生组件后再试。');
+  if (
+    detail.includes('invalid install identity or protocol') ||
+    detail.includes('invalid install identity, protocol or interface')
+  )
+    return withDetail('权限助手的协议或接口与当前 WeQ 不匹配，请更新原生组件后再试。');
 
   if (detail.includes('administrator authorization required'))
     return withDetail('没有拿到管理员权限，安装未进行。请在系统授权窗口里选择允许后再试。');

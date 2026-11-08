@@ -1,5 +1,13 @@
 /** 旧 native manifest 可以没有助手；新助手必须有校验值，不能降级成无校验下载。 */
-export const AUTHORIZATION_PROTOCOL = 1;
+export const AUTHORIZATION_PROTOCOL = 2;
+/**
+ * 权限助手接口版本，必须与 nt_helper 的 `common::AUTHORIZATION_INTERFACE` 保持一致。
+ *
+ * 它和 `AUTHORIZATION_PROTOCOL` 分工不同：protocol 只保证连接能建立，interface 才
+ * 代表请求/响应字段与操作语义兼容。接口契约变化时递增这里和 native 侧常量，已安装
+ * 的旧助手会因此进入 `needs-repair`，而不是继续被静默使用。
+ */
+export const AUTHORIZATION_INTERFACE = 1;
 export const AUTHORIZATION_TARGETS = {
   'win32-x64': 'x86_64-pc-windows-msvc',
   'linux-x64': 'x86_64-unknown-linux-gnu',
@@ -37,12 +45,37 @@ export function validateAuthorizationBuildInfo(info, platform, options = {}) {
     !AUTHORIZATION_TARGETS[platform] ||
     info?.target !== AUTHORIZATION_TARGETS[platform] ||
     info.protocol !== AUTHORIZATION_PROTOCOL ||
+    info.interface !== AUTHORIZATION_INTERFACE ||
     !['attach', 'key-scan', 'capture'].every((name) => info.capabilities?.includes(name))
   )
-    throw new Error(`权限助手目标或协议不兼容：${platform}`);
-  if (options.expected && ['protocol', 'target'].some((key) => info[key] !== options.expected[key]))
-    throw new Error('权限助手构建信息与发布清单不一致');
+    throw new Error(`权限助手目标、协议或接口不兼容：${platform}`);
+  if (options.expected) {
+    // `interface` 是后加的元数据，已发布的旧清单可能没有它；缺失时仍由上面的常量
+    // 校验与 validateAuthorizationContract() 保证兼容，不能把缺字段当成不兼容。
+    const expectedKeys = ['protocol', 'target'];
+    if (options.expected.interface !== undefined) expectedKeys.push('interface');
+    if (expectedKeys.some((key) => info[key] !== options.expected[key]))
+      throw new Error('权限助手构建信息与发布清单不一致');
+  }
   validateNativeBuildInfo(info, options);
+}
+
+/**
+ * 校验「当前 `.node` 报出的接口版本」与「助手报出的接口版本」一致。
+ *
+ * 发布 / 打包检查里必须调用；老 `.node` 没有这个字段时，`required` 决定是拒绝还是
+ * 保持旧包兼容。
+ */
+export function validateAuthorizationContract(nativeInfo, helperInfo, { required = false } = {}) {
+  const interfaceVersion = nativeInfo?.authorizationInterface;
+  if (!Number.isSafeInteger(interfaceVersion) || interfaceVersion <= 0) {
+    if (required) throw new Error('普通原生模块缺少权限助手接口版本');
+    return;
+  }
+  if (interfaceVersion !== AUTHORIZATION_INTERFACE)
+    throw new Error('普通原生模块与客户端的权限助手接口版本不一致');
+  if (helperInfo?.interface !== interfaceVersion)
+    throw new Error('权限助手的接口版本与普通原生模块不一致');
 }
 
 export function authorizationArtifact(manifest, platform, directory, { required = false } = {}) {
