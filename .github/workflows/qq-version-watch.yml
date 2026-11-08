@@ -3,7 +3,7 @@ name: QQ version watch
 # 每晚抓 QQ 官网的 PC 版本清单 → 有新版就验证签名兼容性 → 用 commit 直接更新 main。
 #
 # 数据源与官网下载页一致（`im.qq.com` 用的 `pcConfig.json`），见
-# scripts/refresh-qq-versions.mjs 的头部注释。
+# scripts/refresh-qq-versions.mts 的头部注释。
 #
 # 两条独立的工作：
 #   1. `refresh`：所有版本都要跑 —— 抓清单、写 `versions/latest.json` 与
@@ -52,13 +52,20 @@ jobs:
         with:
           ref: main
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Fetch QQ versions
         id: refresh
-        run: node scripts/refresh-qq-versions.mjs --write
+        run: pnpm versions:refresh --write
 
       - name: Commit if changed
         if: steps.refresh.outputs.changed == 'true'
@@ -113,7 +120,7 @@ jobs:
           {
             echo "## QQ 版本清单"
             echo '```'
-            node scripts/refresh-qq-versions.mjs
+            pnpm versions:refresh
             echo '```'
             echo
             echo "未验证（本轮会尝试）：${{ steps.plan.outputs.unverified }}"
@@ -189,6 +196,19 @@ jobs:
           gh release download "$tag" --repo weq-devs/nt_helper_release \
             --pattern '${{ matrix.native }}' --dir "$RUNNER_TEMP/native"
           ls -lh "$RUNNER_TEMP/native"
+
+          # 产物必须带 checkSigner：它是这个 workflow 唯一依赖的接口。老构建
+          # 没有的话直接停在这里，比跑到一半报「不是函数」清楚。
+          node --input-type=module -e '
+            import { createRequire } from "node:module";
+            const require = createRequire(process.cwd() + "/");
+            const nt = require(process.env.RUNNER_TEMP + "/native/${{ matrix.native }}");
+            if (typeof nt.checkSigner !== "function") {
+              console.error("pinned nt_helper 产物缺少 checkSigner；先发布一份新构建再升级 native/pinned.json");
+              process.exit(1);
+            }
+            console.log("checkSigner ok; build:", JSON.stringify(nt.getBuildInfo?.() ?? null));
+          '
 
       - name: Download QQ installer
         id: download
