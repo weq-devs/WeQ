@@ -1,7 +1,7 @@
 {
-  "generatedAt": 1793784046,
-  "count": 836,
-  "range": [1039, 2683],
+  "generatedAt": 1794152251,
+  "count": 840,
+  "range": [1039, 2687],
   "skins": [
     {
       "id": 1039,
@@ -12541,6 +12541,66 @@
       "extra": "https://moggy-image-1251316161.file.myqcloud.com/img/202609/81e0b52bb80c3fa43ddef990c0425ac2.png",
       "jumpText": "领取同款封面",
       "jumpUrl": "https://i.qianbao.qq.com/wallet/applyRedpacketCover/index.html?_wv=33554432&skin_code=HphKpTHKhy6XD5Os6AsNqIYj3sEmVoGA",
+      "ttl": 43200
+    },
+    {
+      "id": 2684,
+      "name": "秋序可爱",
+      "state": 1,
+      "source": "腾讯设计开放平台",
+      "cover": "https://moggy-image-1251316161.file.myqcloud.com/img/202605/68172e266519567164a807f2dd580346.png",
+      "image": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/08c58099b0ec1ff4de4c2280299015de.png",
+      "preview": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/ff44c09cc9b0201387492d9c3f51925e.png",
+      "popup": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/9fec2a5f148f573a9dfb8bc37f96299f.png",
+      "background": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/4cccf76878fab2116a04710ad4ea9df1.png",
+      "extra": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/215c68f937787aae30dd76149b572e48.png",
+      "jumpText": "领取同款封面",
+      "jumpUrl": "https://i.qianbao.qq.com/wallet/applyRedpacketCover/index.html?_wv=33554432&skin_code=VWXKoDNCd7nJZQdhzdhYb3lHyjYJkwUH",
+      "ttl": 43200
+    },
+    {
+      "id": 2685,
+      "name": "秋日郊游",
+      "state": 1,
+      "source": "腾讯设计开放平台",
+      "cover": "https://moggy-image-1251316161.file.myqcloud.com/img/202605/68172e266519567164a807f2dd580346.png",
+      "image": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/4daf1a6a900125ddf4fdba52d14091b4.png",
+      "preview": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/cbef23ed13096be4ffac3c82c3a40669.png",
+      "popup": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/21178d0664ef89b33ac61de843080117.png",
+      "background": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/c7f7f23c93bc57f9432c87f2af162c52.png",
+      "extra": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/2ff1f2e1f27940f7054e0e250f43834a.png",
+      "jumpText": "领取同款封面",
+      "jumpUrl": "https://i.qianbao.qq.com/wallet/applyRedpacketCover/index.html?_wv=33554432&skin_code=nCO5vBwCVjzCiTLgUyCq1FQVhYXZcUdN",
+      "ttl": 43200
+    },
+    {
+      "id": 2686,
+      "name": "漫山黄花",
+      "state": 1,
+      "source": "腾讯设计开放平台",
+      "cover": "https://moggy-image-1251316161.file.myqcloud.com/img/202605/68172e266519567164a807f2dd580346.png",
+      "image": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/d6855e535253f95687feca20a6460723.png",
+      "preview": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/3ead96182e3913eb2c2d857fde62adf5.png",
+      "popup": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/5345803846f22f5c05c1dd1be511a0ba.png",
+      "background": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/36515c52f139eec3383d04612378c2a0.png",
+      "extra": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/c416f5a447cfa0cc8c819f3350c61153.png",
+      "jumpText": "领取同款封面",
+      "jumpUrl": "https://i.qianbao.qq.com/wallet/applyRedpacketCover/index.html?_wv=33554432&skin_code=RiZAi2mMtkPKlhX0YuEFEkdcOTx8gNkK",
+      "ttl": 43200
+    },
+    {
+      "id": 2687,
+      "name": "打个盹",
+      "state": 9,
+      "source": "腾讯设计开放平台",
+      "cover": "https://moggy-image-1251316161.file.myqcloud.com/img/202605/68172e266519567164a807f2dd580346.png",
+      "image": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/49275c5180d18aea47b455f8a1887a95.png",
+      "preview": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/ee7c9423461233fdd2a7d75e5427b275.png",
+      "popup": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/05d9944a3340d49a5eb91b34ace265a5.png",
+      "background": "https://moggy-1251316161.file.myqcloud.com/hbSkin/202611/b3ff9ebeb4e7b437.jpg",
+      "extra": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/f6be1bad826621d65d58ede7275d0bad.png",
+      "jumpText": "",
+      "jumpUrl": "",
       "ttl": 43200
     }
   ]
