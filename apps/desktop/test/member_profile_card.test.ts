@@ -22,6 +22,9 @@ vi.mock('@renderer/trpc/client', () => ({
       getProfile: { query: async () => null },
       getProfileByUin: { query: vi.fn(async () => null) },
       getBotProfile: { query: async () => null },
+      // 资料卡 hero 头像点开 QQ 秀展柜前，会先查一次「当前形象」用来标 #N。
+      // 单测里给「没有 QQ 秀」；展柜本身不挂载，与本文件的断言无关。
+      dressup: { peerQqShow: { query: async () => ({ hasShow: false, url: '' }) } },
     },
   },
   // 卡片底部的「互动画像」入口会读意图感知状态；这里给一个「未开启」的桩，

@@ -11,6 +11,7 @@ const DRESS_NAMES = new Set([
   'dress',
   'dress_shared',
   'qqshow',
+  'redpack',
   'marketface',
   'marketpack',
   'sysemoji',

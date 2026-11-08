@@ -105,6 +105,7 @@ import { mediaResourceRouter } from './media_resource';
 import { mediaSaveRouter } from './media_save';
 import { resourceCleanupRouter } from './resource_cleanup';
 import { dressupRouter } from './dressup';
+import { redpackRouter } from './redpack';
 import { giftMallRouter } from './gift_mall';
 import { groupGiftRouter } from './group_gift';
 import { qzoneRouter } from './qzone';
@@ -1936,6 +1937,8 @@ export const accountRouter = router({
   resourceCleanup: resourceCleanupRouter,
   // ---- 个性装扮（气泡九宫格 / 聊天字体）----
   dressup: dressupRouter,
+  // ---- 红包封面（纯本地 resources/redpack/skins.json，不联网）----
+  redpack: redpackRouter,
   // ---- 私聊礼物商城（首页 / 搜索 / 详情 / 礼物墙 / 赠送）----
   giftMall: giftMallRouter,
   // ---- 群礼物面板（只读）----

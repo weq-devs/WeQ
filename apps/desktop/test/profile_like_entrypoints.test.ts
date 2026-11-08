@@ -14,6 +14,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       getProfile: { query: async () => null },
       getBotProfile: { query: async () => null },
       qqActions: { profileLike: { mutate: write } },
+      // 资料卡 hero 头像点开 QQ 秀展柜前会先查一次当前形象；本用例只关心入口，
+      // 给「没有 QQ 秀」即可（展柜本身不挂载）。
+      dressup: { peerQqShow: { query: async () => ({ hasShow: false, url: '' }) } },
     },
   },
   trpc: {

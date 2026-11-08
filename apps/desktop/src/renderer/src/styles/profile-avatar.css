@@ -21,3 +21,77 @@
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
+
+/* ── 资料卡 hero 里那颗「点开 QQ 秀展柜」的头像 ───────────────────────────
+ * 它本身是 64×64 的方头像容器，不是圆形小图标，所以不复用上面那个通用包装器
+ * （那套会把它压成 max-content 的圆按钮）。
+ * ────────────────────────────────────────────────────────────────────── */
+
+.weq-profile-avatar-gallery {
+  position: relative;
+  display: inline-block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: transform 0.16s ease;
+}
+
+.weq-profile-avatar-gallery:hover {
+  transform: translateY(-1px);
+}
+
+.weq-profile-avatar-gallery:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+}
+
+.weq-profile-avatar-gallery:hover .avatar,
+.weq-profile-avatar-gallery:focus-visible .avatar {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 52%, transparent);
+}
+
+/* 右下角一枚极小标记：告诉用户这颗头像可以点，但不喧宾夺主。 */
+.weq-profile-avatar-gallery-hint {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  display: grid;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  border: 1.5px solid var(--weq-bg-surface);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--weq-accent-effective) 82%, var(--weq-bg-surface));
+  color: #fff;
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+  pointer-events: none;
+}
+
+.weq-profile-avatar-gallery:hover .weq-profile-avatar-gallery-hint,
+.weq-profile-avatar-gallery:focus-visible .weq-profile-avatar-gallery-hint {
+  opacity: 1;
+  transform: scale(1);
+}
+
+html[data-theme='dark'] .weq-profile-avatar-gallery-hint {
+  border-color: color-mix(in srgb, #fff 22%, var(--weq-bg-surface));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-profile-avatar-gallery:hover {
+    transform: none;
+  }
+
+  .weq-profile-avatar-gallery-hint {
+    transition: none;
+  }
+}

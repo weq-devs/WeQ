@@ -884,6 +884,17 @@ export {
 } from './account/qq_show';
 export type { ChatQqShowOptions, QqShowResolved } from './account/qq_show';
 export {
+  EMPTY_STOP as QQSHOW_GALLERY_EMPTY_STOP,
+  MAX_PROBE as QQSHOW_GALLERY_MAX_PROBE,
+  QQSHOW_GALLERY_START,
+  scanQqShowGallery,
+} from './account/qq_show_gallery';
+export type {
+  QqShowGalleryEvent,
+  QqShowGalleryItem,
+  QqShowGalleryOptions,
+} from './account/qq_show_gallery';
+export {
   ShowEmojiCatalog,
   buildShowEmojiReserve,
   findShowEmojiPack,

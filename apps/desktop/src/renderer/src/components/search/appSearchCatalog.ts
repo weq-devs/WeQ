@@ -279,6 +279,8 @@ export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = uniqueEntries([
       ['通话背景', 'callbg'],
       ['QQ 聊天背景', 'background', '聊天背景商城'],
       ['商城表情', 'emoji', '表情商城'],
+      ['我的礼物墙', 'giftwall', '礼物墙', '礼物'],
+      ['红包封面', 'redpack', '红包皮肤', '红包'],
     ] as const
   ).map(([title, dressKind, ...aliases]) =>
     feature(title, { kind: 'dressup', dressKind }, ...aliases),

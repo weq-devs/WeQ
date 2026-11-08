@@ -58,7 +58,7 @@ import {
 import { getAppContext } from './context/app_context';
 import { fullModeAllowed } from './context/full_mode';
 import { resolveResource } from './resource';
-import { resourceSkinCover } from './redpack_catalog';
+import { redPackSkinField, resourceSkinCover } from './redpack_catalog';
 import { decodeSilkToWav, isSilkFile } from './voice';
 import { CallRecordingStore, recordingsRootFor } from './call_recording_store';
 
@@ -571,11 +571,22 @@ async function routeMediaRequest(request: Request): Promise<Response> {
       const cache = getAppContext().bootstrap?.avatarCache;
       if (!cache) return notFound('redbag skin cache unavailable');
 
-      const attempts: Array<() => Promise<string | null>> = [
-        async () => resourceSkinCover(skinId),
-        () => onlineRedbagCover(skinId),
-        async () => `https://moggy-1251316161.file.myqcloud.com/redpackSkin/${skinId}/aio.png`,
-      ];
+      // 「个性装扮 → 红包封面」展柜传 `v=<字段名>`：严格只用本地 skins.json 里记的
+      // 那一条 URL，**不碰在线现查**（需求就是离线目录）。字段缺失直接 404，让前端
+      // 回退到别的图或占位，不会悄悄发一次服务端请求。
+      const variant = q.get('v');
+      const localOnly =
+        variant === 'preview' ||
+        variant === 'popup' ||
+        variant === 'background' ||
+        variant === 'image';
+      const attempts: Array<() => Promise<string | null>> = localOnly
+        ? [async () => redPackSkinField(skinId, variant)]
+        : [
+            async () => resourceSkinCover(skinId),
+            () => onlineRedbagCover(skinId),
+            async () => `https://moggy-1251316161.file.myqcloud.com/redpackSkin/${skinId}/aio.png`,
+          ];
       for (const resolve of attempts) {
         const src = await resolve();
         if (!src) continue;
