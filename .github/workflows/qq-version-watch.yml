@@ -315,6 +315,8 @@ jobs:
       # 什么都没有，record job 又按空目录处理，看起来像「跑完了没问题」。
       - name: Mark skipped
         if: steps.download.outputs.available != 'true'
+        # Windows runner 的默认 shell 是 pwsh：这里显式用 bash，别让 heredoc 落到 pwsh。
+        shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/qq"
           cat > "$RUNNER_TEMP/qq/result.json" <<EOF
