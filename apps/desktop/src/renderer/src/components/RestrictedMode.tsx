@@ -243,6 +243,23 @@ export function RestrictedModeHost() {
     staleTime: 4000,
     refetchOnWindowFocus: true,
   });
+  // 签名器降级（VM 定位失败 / 版本变了要重扫）后，签名会退回完整签名函数：
+  // 功能还能用，但慢，而且只发 SecSign。这种「能用但退化了」的状态必须明确
+  // 告诉用户，不能等他们去翻诊断页。只在完整模式确认后提示一次。
+  const signer = trpc.bootstrap.signerStatus.useQuery(undefined, {
+    enabled: active,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const signerDegraded = Boolean(
+    signer.data &&
+      (signer.data.state === 'stale' ||
+        signer.data.warmup?.outcome === 'failed' ||
+        (signer.data.state === 'hit' &&
+          signer.data.signCoreRva !== null &&
+          signer.data.vmRva === null)),
+  );
+  const signerWarned = useRef(false);
   const accessSource = access.data?.source;
   const accessMatches = !accessSource || accessSource.expectedAccountUin === uin;
   const sourceKey = JSON.stringify([
@@ -422,6 +439,18 @@ export function RestrictedModeHost() {
       if (recoveryPending.current && fullModeConfirmed) {
         useToast.getState().push({ tone: 'success', title: '已启用完整功能' });
         recoveryPending.current = false;
+        // 刚刚确认完整模式：顺手把签名器降级的情况说清楚。
+        if (signerDegraded && !signerWarned.current) {
+          signerWarned.current = true;
+          useToast.getState().push({
+            key: 'signer-degraded',
+            tone: 'warning',
+            title: '签名器已降级：改用完整签名函数',
+            detail: signer.data
+              ? `sign core RVA ${signer.data.signCoreRva === null ? '未定位' : `0x${signer.data.signCoreRva.toString(16)}`}，VM ${signer.data.vmRva === null ? '未定位' : `0x${signer.data.vmRva.toString(16)}`}。QQ 更新或 wrapper.node 被替换后需要重新扫描；可在「设置 → 诊断工具 → 签名器」里手动重扫。`
+              : undefined,
+          });
+        }
       }
     }
     previous.current = signature;
@@ -436,6 +465,8 @@ export function RestrictedModeHost() {
     globalSettings.isLoading,
     reasonSource,
     sourceKey,
+    signerDegraded,
+    signer.data,
   ]);
   useEffect(() => {
     if (previousUin.current !== uin) {

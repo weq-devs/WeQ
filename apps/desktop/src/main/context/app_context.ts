@@ -37,6 +37,7 @@ import {
   createDarwinPlatform,
   normalizeQqDataRoot,
   withResourceRoots,
+  readQqVersion,
   type Platform,
 } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
@@ -118,6 +119,8 @@ import {
   DressConfigService,
   MsgDecorationCacheService,
   TokenUsageStore,
+  warmupSigner,
+  type SignerWarmupResult,
   ConversationStore,
   DeletedMsgStore,
   AntiRecallService,
@@ -241,6 +244,13 @@ export const accountEventBus = new EventEmitter();
 const accountCacheRoots = new WeakMap<object, string>();
 const pendingAccountClosures = new Set<Promise<unknown>>();
 let bootstrapCacheRoot: string | undefined;
+/**
+ * 启动期签名器预热：`SignerWarmupResult` 或 `null`（失败 / 没有 wrapper）。
+ *
+ * 只给诊断接口读状态；发包路径不依赖它 —— 那边从 `signer_cache` 的内存提示
+ * 取 RVA，预热没跑完时退回 native 自己的扫描。
+ */
+let signerWarmup: Promise<SignerWarmupResult | null> | undefined;
 
 export function accountRuntimeCacheRoot(ctx: AppContext): string | undefined {
   return accountCacheRoots.get(ctx);
@@ -1241,6 +1251,24 @@ export function initAppContext(fileRoot?: string): AppContext {
   // （常驻托盘的应用可能几周不重启，而日志是按天切文件的）。0 = 永久保留。
   // 定时器是 unref 的，不阻止进程退出，因此这里不需要持有 stop 句柄。
   startLogRetention(() => userConfig.getSettings().logRetentionDays);
+
+  // 签名器预热：`wrapper.node` 有 140–200 MB，完整定位 sign core / VM 实测
+  // 2.5–3 秒。这个代价不该落在第一包需要签名的请求上 —— 启动后立刻在后台做，
+  // 缓存命中时只 dlopen + 校验（约 0.5 秒），不碰界面线程。
+  //
+  // 失败不阻断启动：真正的签名错误会在发包时带上下文报出来（诊断页也能手动重试）。
+  signerWarmup = warmupSigner(
+    platform.native.ntHelper,
+    platform.appDataRoot(),
+    platform.qqWrapperNodePath(),
+    readQqVersion(platform.qqWrapperNodePath()),
+  ).catch((error: unknown) => {
+    logger.warn('signer warmup failed (non-fatal)', {
+      event: 'signer-warmup',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  });
 
   // Reading a running QQ's memory needs a ptrace attach: on linux AND macOS that
   // is gated (linux: yama ptrace_scope / root + CAP_SYS_PTRACE; macOS: root and
@@ -3284,4 +3312,34 @@ export function requirePlatform(): Platform {
     throw new Error('Native bundle unavailable — QQ helper failed to initialize.');
   }
   return !ctx.accountIsStatic && ctx.resourcePlatform ? ctx.resourcePlatform : ctx.platform;
+}
+
+/** 启动期签名器预热的结果（还在跑时等它完成）。 */
+export async function awaitSignerWarmup(): Promise<SignerWarmupResult | null> {
+  if (!signerWarmup) return null;
+  return signerWarmup;
+}
+
+/**
+ * 重新预热签名器（诊断页「重新扫描」）。
+ *
+ * 与启动期那次同一套逻辑：命中缓存就只 dlopen + 校验，否则完整扫描并写回缓存。
+ */
+export async function rescanSigner(): Promise<SignerWarmupResult | null> {
+  const platform = requirePlatform();
+  signerWarmup = warmupSigner(
+    platform.native.ntHelper,
+    platform.appDataRoot(),
+    platform.qqWrapperNodePath(),
+    readQqVersion(platform.qqWrapperNodePath()),
+  ).catch((error: unknown) => {
+    getLogger()
+      .child({ scope: 'app-context' })
+      .warn('signer rescan failed', {
+        event: 'signer-warmup',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    return null;
+  });
+  return signerWarmup;
 }

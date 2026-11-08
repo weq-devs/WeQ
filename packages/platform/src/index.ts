@@ -8,6 +8,8 @@
 
 export type { Platform } from './types';
 export { weqAppDataRoot } from './app_data_root';
+// QQ 元数据（版本 / 启动器实例数）纯函数，跨平台共用同一份实现。
+export { readQqVersion, readLauncherCount } from './qq_meta';
 export { createWin32Platform } from './win32';
 export { createLinuxPlatform } from './linux';
 export { createDarwinPlatform } from './darwin';

@@ -16,6 +16,7 @@ import { statSync } from 'node:fs';
 import type { AppidInfo, NtHelperBinding, SessionMaterial } from '@weq/native';
 import type { Platform } from '@weq/platform';
 import type { AttachHook } from '../bootstrap/attach';
+import { getSignerHints } from '../bootstrap/signer_cache';
 import { getLogger } from '../common/logger';
 import { isCompleteSessionMaterial } from '../common/session_material';
 import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
@@ -286,6 +287,9 @@ export async function registerSsoSessionInTurn(
     const { subAppId, clientVersion, qua } = client.identity;
 
     if (!isCurrent()) return false;
+    // 预热得到的 RVA：命中就跳过 native 侧的静态扫描（~2.5 s）。没有就当
+    // 普通登记，native 会自己扫。
+    const hints = getSignerHints(client.wrapperPath);
     await nt.setSsoSession(
       pid,
       {
@@ -304,6 +308,8 @@ export async function registerSsoSessionInTurn(
         ...(material.secToken ? { secToken: material.secToken } : {}),
       },
       client.wrapperPath,
+      hints?.signCoreRva ?? null,
+      hints?.vmRva ?? null,
     );
     logger.info('stored session material for the native sso transport', {
       event: 'set-sso-session',

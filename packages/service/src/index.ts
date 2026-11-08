@@ -95,6 +95,20 @@ export type {
   DirSizeProgress,
 } from './bootstrap/global_config';
 
+export {
+  warmupSigner,
+  describeSignerCache,
+  getSignerHints,
+  rememberSignerHints,
+  readSignerCache,
+} from './bootstrap/signer_cache';
+export type {
+  SignerCacheEntry,
+  SignerCacheStatus,
+  SignerWarmupResult,
+  SignerNative,
+} from './bootstrap/signer_cache';
+
 // ---- account ----
 export {
   AccountConfigService,
