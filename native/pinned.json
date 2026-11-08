@@ -1,8 +1,8 @@
 {
-  "tag": "nt-helper-20261108-b52eb91",
-  "commit": "b52eb9196d756da8df067cf788445c77e4459130",
-  "builtAt": "2026-11-08T12:26:02.000Z",
-  "expiresAt": "2026-12-08T12:26:02.000Z",
+  "tag": "nt-helper-20261108-be9e6bc",
+  "commit": "be9e6bc9a256a9ca72c1f8b54576ff326f6ba201",
+  "builtAt": "2026-11-08T17:50:43.000Z",
+  "expiresAt": "2026-12-08T17:50:43.000Z",
   "pinnedAt": "2026-11-08",
   "note": "WeQ 认这一份 native 构建（pnpm native:fetch 默认取它）。升级：pnpm native:fetch --latest --verify 先验证新构建，再 pnpm native:fetch --latest --write-pin 写回这里并提交。"
 }
