@@ -75,8 +75,10 @@ jobs:
             echo "工作区没有实际差异（可能只是 updateDate 变了），跳过提交"
             exit 0
           fi
-          git config user.name  'weq-version-bot'
-          git config user.email 'weq-version-bot@users.noreply.github.com'
+          # 提交者用真实的 bot 身份（ninebird-bot 的 GitHub App），这样
+          # commit 上的头像/链接指向应用页，而不是一个编出来的邮箱。
+          git config user.name  'ninebird-bot[bot]'
+          git config user.email '317614958+ninebird-bot[bot]@users.noreply.github.com'
           git add versions
           git commit -m "chore(versions): 更新 QQ 版本清单 ${{ steps.refresh.outputs.versions }}
 
@@ -231,6 +233,7 @@ jobs:
           size=$(wc -c < "$out" 2>/dev/null || echo 0)
           echo "http=$code size=$size"
           if [ "$code" = "403" ] || [ "$code" = "404" ]; then
+            echo "outcome=cdn-not-ready" >> "$GITHUB_OUTPUT"
             # 腾讯对「刚发布」的版本有一段防盗链/灰度期：pcConfig.json 已经指向
             # 新版本，但 CDN 上还拿不到。这不是我们的缺陷，下个自然日会重试
             # （Plan compat 每天重新判定）。写成 warning，但 job 标成「跳过」，
@@ -308,6 +311,17 @@ jobs:
           fi
           exit "$code"
 
+      # 没产生报告（CDN 还没放开）时也要留个可追踪的标记：否则 artifact 里
+      # 什么都没有，record job 又按空目录处理，看起来像「跑完了没问题」。
+      - name: Mark skipped
+        if: steps.download.outputs.available != 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/qq"
+          cat > "$RUNNER_TEMP/qq/result.json" <<EOF
+          {"platform":"${{ matrix.platform }}","version":"${{ steps.target.outputs.version }}","ok":false,"skipped":"cdn-not-ready"}
+          EOF
+          echo "::warning::${{ matrix.platform }} ${{ steps.target.outputs.version }} 未验证：CDN 尚未放出该版本"
+
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
@@ -337,20 +351,35 @@ jobs:
         with:
           pattern: signcheck-*
           path: reports
+          # 没匹配到也要建目录：下面的合并脚本按目录遍历。
+          if-no-files-found: warn
 
       - name: Merge into supported.json
+        id: merge
         run: |
+          mkdir -p reports
           node --input-type=module -e '
             import fs from "node:fs";
             const file = "versions/supported.json";
             const supported = JSON.parse(fs.readFileSync(file, "utf8"));
             supported.platforms ??= {};
 
+            let verified = 0;
+            let skipped = 0;
             for (const platform of fs.readdirSync("reports")) {
               const reportPath = `reports/${platform}/result.json`;
               if (!fs.existsSync(reportPath)) continue;
               const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
-              if (!report.ok || !report.report) continue;
+              if (report.skipped) {
+                skipped += 1;
+                console.log(`${platform}: 跳过（${report.skipped}）`);
+                continue;
+              }
+              if (!report.ok || !report.report) {
+                console.log(`${platform}: 未通过验证，不登记`);
+                continue;
+              }
+              verified += 1;
               const r = report.report;
               const key = platform;
               const list = (supported.platforms[key] ??= []);
@@ -378,6 +407,9 @@ jobs:
 
             // pending 只在「已经验证过」时清掉；这一轮没跑到的平台原样保留。
             fs.writeFileSync(file, JSON.stringify(supported, null, 2) + "\n");
+            console.log(`verified=${verified} skipped=${skipped}`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `verified=${verified}\n`);
+          '
           '
 
       - name: Commit
@@ -387,8 +419,10 @@ jobs:
             echo "supported.json 没有变化"
             exit 0
           fi
-          git config user.name  'weq-version-bot'
-          git config user.email 'weq-version-bot@users.noreply.github.com'
+          # 提交者用真实的 bot 身份（ninebird-bot 的 GitHub App），这样
+          # commit 上的头像/链接指向应用页，而不是一个编出来的邮箱。
+          git config user.name  'ninebird-bot[bot]'
+          git config user.email '317614958+ninebird-bot[bot]@users.noreply.github.com'
           git add versions/supported.json
           git commit -m "chore(versions): 登记已验证的 QQ 版本签名兼容性
 
