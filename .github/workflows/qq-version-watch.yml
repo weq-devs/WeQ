@@ -355,10 +355,17 @@ jobs:
             // VM 单独标记：VM 定位失败时会退回完整签名函数，功能仍然可用，
             // 所以不参与 ok，但必须在报告里明确写出来。
             result.vmDirect = Boolean(r && r.vmRva !== undefined && r.pathUsed === "vm");
+            // 只把 JSON 写进文件：native 的 checkSigner 会往 stdout 打签名 hex，
+            // 一起 tee 进 result.json 会让下游 JSON.parse 直接炸（踩过一次）。
+            const fs = require("node:fs");
+            fs.writeFileSync(
+              process.env.RUNNER_TEMP + "/qq/result.json",
+              JSON.stringify(result, null, 2),
+            );
             console.log(JSON.stringify(result, null, 2));
             process.exit(result.ok ? 0 : 1);
-          ' | tee "$RUNNER_TEMP/qq/result.json"
-          code=${PIPESTATUS[0]}
+          '
+          code=$?
           {
             echo "### ${{ matrix.platform }} $VERSION"
             echo '```json'
