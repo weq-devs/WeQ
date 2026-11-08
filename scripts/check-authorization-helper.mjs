@@ -8,6 +8,7 @@ import {
   authorizationArtifact,
   authorizationExecutable,
   validateAuthorizationBuildInfo,
+  validateAuthorizationContract,
   validateNativeBuildInfo,
 } from '../packages/native/authorization.mjs';
 
@@ -68,6 +69,7 @@ export function verifyPackagedAuthorization(
   const addon = createRequire(import.meta.url)(join(dirname(file), 'nt_helper.node'));
   const addonInfo = addon.getBuildInfo();
   validateNativeBuildInfo(addonInfo, { production: true, expected: info });
+  validateAuthorizationContract(addonInfo, info, { required: true });
   return info;
 }
 

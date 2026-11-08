@@ -95,6 +95,14 @@ export function LongTermAuthorizationSection() {
           </span>
         }
       />
+      {status?.reason === 'interface-changed' && !error && (
+        <p className="weq-set-note weq-set-note-multiline weq-set-note-warn" role="alert">
+          <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
+          <span>
+            权限助手的接口已经变化，旧授权不会继续生效。请点「修复授权」重新启用，否则依赖长期授权的功能会提示需要授权。
+          </span>
+        </p>
+      )}
       {error && (
         <p
           className={`weq-set-note weq-set-note-multiline${

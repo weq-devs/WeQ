@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
+  AUTHORIZATION_INTERFACE,
   AUTHORIZATION_PROTOCOL,
   AUTHORIZATION_TARGETS,
   type AuthorizationBuildInfo,
@@ -85,6 +86,7 @@ async function fixture({
     if (!target) throw new Error('unsupported synthetic platform');
     return {
       protocol: AUTHORIZATION_PROTOCOL,
+      interface: AUTHORIZATION_INTERFACE,
       target,
       capabilities: ['attach', 'key-scan', 'capture'],
       isDev: dev,

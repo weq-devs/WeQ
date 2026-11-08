@@ -1,7 +1,10 @@
 import { open } from 'node:fs/promises';
 import { connect, type Socket } from 'node:net';
 import type { SessionMaterial, KeyScanResult, KeyScanProgress } from '@weq/native';
-import { AUTHORIZATION_PROTOCOL } from '../../shared/long_term_authorization';
+import {
+  AUTHORIZATION_INTERFACE,
+  AUTHORIZATION_PROTOCOL,
+} from '../../shared/long_term_authorization';
 import type { ElevatedCaptureWorker } from '../capture_elevation';
 import {
   MAX_AUTHORIZATION_REPLY,
@@ -105,7 +108,16 @@ export class AuthorizationConnection {
     });
   }
   authenticate(): Promise<unknown> {
-    return this.exchange(0, { protocol: AUTHORIZATION_PROTOCOL }, 3000);
+    return this.exchange(
+      0,
+      { protocol: AUTHORIZATION_PROTOCOL, interface: AUTHORIZATION_INTERFACE },
+      3000,
+    ).catch((error: unknown) => {
+      // 本地 socket 在握手阶段直接断开，最常见的原因是装的是旧协议助手（它看到
+      // 不认识的握手会主动关闭），不要把它伪装成「连接超时」。
+      if (error instanceof AuthorizationError && error.code !== 'unavailable') throw error;
+      throw new AuthorizationError('权限助手协议不兼容或未响应，请修复长期授权', 'incompatible');
+    });
   }
   request<T>(
     request: Omit<AuthorizationRequest, 'id'>,
@@ -134,6 +146,13 @@ export async function openLongTermAuthorization(): Promise<{
       !['attach', 'key-scan', 'capture'].every((name) => info.capabilities?.includes(name))
     )
       throw new AuthorizationError('权限助手协议不兼容，请在设置中更新助手', 'incompatible');
+    // 接口版本才是「请求/响应契约」的判据。只比 protocol 会让字段已经漂移的旧助手
+    // 继续显示 ready，直到某个新功能默默失败。
+    if (info.interface !== AUTHORIZATION_INTERFACE)
+      throw new AuthorizationError(
+        '权限助手接口已更新，请在设置中修复长期授权后重试',
+        'interface-changed',
+      );
     if (info.validity === 'expired')
       throw new AuthorizationError(
         '原生权限助手已过期，请更新原生组件后修复授权',
@@ -141,7 +160,7 @@ export async function openLongTermAuthorization(): Promise<{
       );
     const development = await configuration.development?.();
     if (development !== undefined && info.development !== development)
-      throw new AuthorizationError('权限助手的开发/正式通道不匹配', 'incompatible');
+      throw new AuthorizationError('权限助手的开发/正式通道不匹配', 'channel-mismatch');
     // 普通 app/.node 更新不使兼容的系统授权失效。
     return { connection, info };
   } catch (error) {

@@ -74,6 +74,7 @@ import { fileURLToPath } from 'node:url';
 import { isStale, manifestValidity, validityText } from '../packages/native/validity.mjs';
 import {
   authorizationArtifact,
+  validateAuthorizationContract,
   validateNativeBuildInfo,
 } from '../packages/native/authorization.mjs';
 import { verifyAuthorizationHelper } from './check-authorization-helper.mjs';
@@ -796,7 +797,8 @@ async function verifyHost(files, manifest) {
       expected: manifest.authorization[hostTag],
     });
     validateNativeBuildInfo(buildInfo, { expected: helperInfo });
-    log('--verify ✔ 权限助手构建信息与发布清单一致（未安装服务）');
+    validateAuthorizationContract(buildInfo, helperInfo, { required: true });
+    log('--verify ✔ 权限助手构建信息、接口版本与发布清单一致（未安装服务）');
   }
   return { code: 0, buildInfo };
 }

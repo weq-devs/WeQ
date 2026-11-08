@@ -239,7 +239,9 @@ export async function startElevatedCaptureWorker(
   const persistent = await tryLongTermCaptureWorker();
   if (persistent) return persistent;
   if (process.platform === 'win32')
-    throw new Error('长期授权不可用，请在设置中修复或使用现有 Windows 抓包授权。');
+    throw new Error(
+      '长期授权不可用或需要修复（接口更新后必须重新启用），请在「设置 → 长期授权」检查后再试。',
+    );
   let password = '';
   if (!(await sudoCredentialsCached())) {
     const entered = await requestSudoPassword(

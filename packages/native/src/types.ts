@@ -52,6 +52,11 @@ export interface NativeBuildInfo {
   validitySecs: number;
   /** True for local dev builds (no expiry check). */
   isDev: boolean;
+  /**
+   * 权限助手接口版本。WeQ 用它与已安装的长期授权助手比对；缺失说明是还没带
+   * 接口版本的旧 `.node`。
+   */
+  authorizationInterface?: number;
 }
 
 // ---------- QQ process / login detection ---------------------------------

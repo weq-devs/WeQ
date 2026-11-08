@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  AUTHORIZATION_INTERFACE,
   AUTHORIZATION_PROTOCOL,
   AUTHORIZATION_TARGETS,
   authorizationExecutable,
@@ -31,6 +32,7 @@ async function fixture(t) {
   const meta = { sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.length };
   const info = {
     protocol: AUTHORIZATION_PROTOCOL,
+    interface: AUTHORIZATION_INTERFACE,
     target: AUTHORIZATION_TARGETS[platform],
     buildTime,
     expireTime: buildTime + 3600,
@@ -76,6 +78,7 @@ test('离线整套校验后安装，并记录助手元数据与执行权限', as
   assert.equal(result.status, 0, result.stderr);
   const marker = JSON.parse(await readFile(join(data.install, 'native/.installed.json'), 'utf8'));
   assert.equal(marker.authorization[platform].protocol, AUTHORIZATION_PROTOCOL);
+  assert.equal(marker.authorization[platform].interface, AUTHORIZATION_INTERFACE);
   const helper = join(
     data.install,
     'native',

@@ -114,6 +114,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         }),
       },
       sipEnabled: { useQuery: () => ({ data: mock.sip, refetch: mock.refetch }) },
+      signerStatus: { useQuery: () => ({ data: undefined }) },
       probeOnline: {
         useQuery: () => ({
           data: { count: mock.onlineCount, runningCount: mock.runningCount },

@@ -11,8 +11,14 @@ import {
   validateAuthorizationBuildInfo,
   validateNativeBuildInfo,
 } from '@weq/native/authorization.mjs';
-import type { LongTermAuthorizationStatus } from '../../shared/long_term_authorization';
-import { AUTHORIZATION_PROTOCOL } from '../../shared/long_term_authorization';
+import type {
+  LongTermAuthorizationReason,
+  LongTermAuthorizationStatus,
+} from '../../shared/long_term_authorization';
+import {
+  AUTHORIZATION_INTERFACE,
+  AUTHORIZATION_PROTOCOL,
+} from '../../shared/long_term_authorization';
 import { requestSudoPassword } from '../sudo_prompt';
 import {
   AuthorizationError,
@@ -149,8 +155,16 @@ export class AuthorizationInstaller {
           : '原生权限助手已连接。仅授权当前系统用户的 QQ 内存读取与网卡抓包，不绕过系统保护。',
       };
     } catch (error) {
-      if (error instanceof AuthorizationError && error.code === 'not-authorized')
+      const code = error instanceof AuthorizationError ? error.code : undefined;
+      if (code === 'not-authorized')
         return { ...base, state: 'not-installed', message: '当前系统用户未启用此通道的长期授权。' };
+      if (code === 'authorization-stale')
+        return {
+          ...base,
+          state: 'needs-repair',
+          reason: 'interface-changed',
+          message: '权限助手接口已更新，请重新启用长期授权后再使用。',
+        };
       try {
         await stat(join(identity.root, 'manifest.json'));
       } catch {
@@ -162,13 +176,28 @@ export class AuthorizationInstaller {
             : '未启用长期授权，权限不足时仍使用临时授权。',
         };
       }
+      const reason: LongTermAuthorizationReason =
+        code === 'component-expired'
+          ? 'expired'
+          : code === 'interface-changed'
+            ? 'interface-changed'
+            : code === 'channel-mismatch'
+              ? 'channel-mismatch'
+              : code === 'incompatible'
+                ? 'incompatible'
+                : 'unresponsive';
       return {
         ...base,
         state: 'needs-repair',
+        reason,
         message:
-          error instanceof AuthorizationError && error.code === 'component-expired'
-            ? error.message
-            : '权限助手未响应或协议不兼容，请重新检查或修复授权。',
+          reason === 'expired'
+            ? '原生权限助手已过期，请更新原生组件后修复授权。'
+            : reason === 'interface-changed'
+              ? '权限助手接口与当前 WeQ 不一致，请修复长期授权后重新启用。'
+              : reason === 'channel-mismatch'
+                ? '助手运行通道与所选组件不一致，请重新检查或修复授权。'
+                : '权限助手未响应、协议不兼容或接口已更新，请检查后修复授权。',
       };
     }
   }
@@ -259,6 +288,7 @@ export class AuthorizationInstaller {
           manifest,
           JSON.stringify({
             protocol: AUTHORIZATION_PROTOCOL,
+            interface: AUTHORIZATION_INTERFACE,
             identity: identity.id,
             sha256: await fileDigest(helper),
           }),

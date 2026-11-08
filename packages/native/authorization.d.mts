@@ -1,4 +1,5 @@
-export const AUTHORIZATION_PROTOCOL: 1;
+export const AUTHORIZATION_PROTOCOL: 2;
+export const AUTHORIZATION_INTERFACE: 1;
 export const AUTHORIZATION_TARGETS: Readonly<Record<string, string>>;
 export function authorizationExecutable(platform: string): string;
 export interface NativeBuildInfo {
@@ -6,13 +7,20 @@ export interface NativeBuildInfo {
   expireTime?: number | null;
   validitySecs: number;
   isDev: boolean;
+  authorizationInterface?: number;
 }
 export interface AuthorizationBuildInfo extends NativeBuildInfo {
   protocol: number;
+  interface: number;
   target: string;
   capabilities: string[];
   channel?: 'development' | 'release';
 }
+export function validateAuthorizationContract(
+  nativeInfo: NativeBuildInfo | null | undefined,
+  helperInfo: AuthorizationBuildInfo | null | undefined,
+  options?: { required?: boolean },
+): void;
 export function validateNativeBuildInfo(
   info: unknown,
   options?: { production?: boolean; expected?: NativeBuildInfo; now?: number },
