@@ -134,6 +134,7 @@ https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json
 https://im.qq.com/proxy/domain/qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json
 ```
 
+<<<<<<< HEAD
 **CDN 有灰度期，别指望发布当天就能下**（2026-11-08 实测）：
 
 - `pcConfig.json` 里给的是 `QQNTV2/<ver>/release/<hash>/…`，**直接 `curl` 一律
@@ -154,11 +155,20 @@ https://im.qq.com/proxy/domain/qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcC
    返回 HTML、文件过小）判红；
 4. 每天按「该平台最新版**是否已验证**」重新决定跑不跑 compat（不是只在清单
    变化那晚跑），所以灰度放开后自动补上一轮。
+=======
+**注意 CDN 的防盗链**：`pcConfig.json` 里给的是 `QQNTV2/<ver>/release/<hash>/…`
+路径，直接 `curl` 会 403（参考站也复现）。真正可下的是同一批版本的
+`QQNT/<ver>/beta/<hash>/linuxqq_<ver>-<build>_<arch>.deb` 形态 —— 现有
+`versions/latest.json` 记录的是**官网给的地址**（作为「官方声明」留档），
+`.github/workflows/qq-version-watch.yml` 的下载步骤对 403 记 warning 而不是判红：
+腾讯对新版本有一段灰度期，隔天通常会放开。
+>>>>>>> origin/main
 
 ### 流程
 
 ```
 schedule(UTC 16:00 / 北京 00:00)
+<<<<<<< HEAD
   └─ refresh: 抓 pcConfig → 合并（只前进）→ 写 latest.json + pending
                 → 清单有变化就 commit 到 main
                 → plan: 算出「最新版还没验证」的平台列表 unverified
@@ -169,6 +179,15 @@ schedule(UTC 16:00 / 北京 00:00)
                  ├─ 下载安装包 → scripts/extract-qq-wrapper.mjs 取整个 app 目录
                  ├─ checkSigner(wrapper, 3) —— 三次签名必须全部成功
                  └─ 签名失败 → job 红（不自动修）
+=======
+  └─ refresh: 抓 pcConfig → 写 latest.json + pending → 有变化就 commit 到 main
+       └─ changed == true
+            └─ compat (matrix 五平台)
+                 ├─ 从 weq-devs/nt_helper_release 拉 pinned 的预编译 .node（不编译）
+                 ├─ 下载安装包 → scripts/extract-qq-wrapper.mjs 取整个 app 目录
+                 ├─ checkSigner(wrapper, 3) —— 三次签名必须全部成功
+                 └─ 任何失败 → job 红（不自动修）
+>>>>>>> origin/main
             └─ record: 只把 ok 的组合并进 supported.json，再 commit 到 main
 ```
 

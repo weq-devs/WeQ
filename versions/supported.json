@@ -1,35 +1,80 @@
 {
-  "platforms": {},
-  "pending": [
-    {
-      "platform": "windows-x64",
-      "version": "9.9.37",
-      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.37/release/a2ca1b61/QQ_9.9.37_261103_x64_01.exe",
-      "discoveredAt": "2026-11-08T11:13:35Z"
-    },
-    {
-      "platform": "linux-x64",
-      "version": "3.2.35",
-      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.37/release/816b3c79/QQ_3.2.35_261103_amd64_01.deb",
-      "discoveredAt": "2026-11-08T11:13:35Z"
-    },
-    {
-      "platform": "linux-arm64",
-      "version": "3.2.35",
-      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.37/release/816b3c79/QQ_3.2.35_261103_arm64_01.deb",
-      "discoveredAt": "2026-11-08T11:13:35Z"
-    },
-    {
-      "platform": "macos-x64",
-      "version": "7.0.3",
-      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.37/release/a8ffd03b/QQ_7.0.3_261103_01.dmg",
-      "discoveredAt": "2026-11-08T11:13:35Z"
-    },
-    {
-      "platform": "macos-arm64",
-      "version": "7.0.3",
-      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.37/release/a8ffd03b/QQ_7.0.3_261103_01.dmg",
-      "discoveredAt": "2026-11-08T11:13:35Z"
-    }
-  ]
+  "platforms": {
+    "linux-arm64": [
+      {
+        "version": "3.2.35",
+        "verifiedAt": "2026-11-08T15:16:34.284Z",
+        "sign": {
+          "ok": true,
+          "signCoreRva": 71401980,
+          "vmRva": 72245024,
+          "vmKind": "linux-vm-entry",
+          "pathUsed": "vm",
+          "signLength": 48,
+          "sampleSign": "B5B399F227AFFC44B81F9C7B233FC828892FA46A7FCA6FF11C9DEBF90C4EEC9A5D940B1EDAF6111D213FCCC5ECE97A55"
+        }
+      }
+    ],
+    "linux-x64": [
+      {
+        "version": "3.2.35",
+        "verifiedAt": "2026-11-08T15:16:34.288Z",
+        "sign": {
+          "ok": true,
+          "signCoreRva": 109404804,
+          "vmRva": 115675340,
+          "vmKind": "linux-vm-entry",
+          "pathUsed": "vm",
+          "signLength": 48,
+          "sampleSign": "CE9DEBD2AD3AECF7A7C9BBC515D850284C91A60FD42B1566727693FB2BA6591027FF98845C7F843C91207CC0D257A712"
+        }
+      }
+    ],
+    "macos-arm64": [
+      {
+        "version": "7.0.3",
+        "verifiedAt": "2026-11-08T15:16:34.288Z",
+        "sign": {
+          "ok": true,
+          "signCoreRva": 45445616,
+          "vmRva": 45773000,
+          "vmKind": "macos-vm-dispatcher",
+          "pathUsed": "vm",
+          "signLength": 28,
+          "sampleSign": "BF9BFE50B2570047DC577C85BFCB037ECADA4180E0C22ADBD293BC1B"
+        }
+      }
+    ],
+    "macos-x64": [
+      {
+        "version": "7.0.3",
+        "verifiedAt": "2026-11-08T15:16:34.288Z",
+        "sign": {
+          "ok": true,
+          "signCoreRva": 50827831,
+          "vmRva": 51134185,
+          "vmKind": "macos-vm-dispatcher",
+          "pathUsed": "vm",
+          "signLength": 28,
+          "sampleSign": "9DBC1B9427A4E054F8661A369DF45CB9767A059542652702F6C942B9"
+        }
+      }
+    ],
+    "windows-x64": [
+      {
+        "version": "9.9.37",
+        "verifiedAt": "2026-11-08T15:16:34.288Z",
+        "sign": {
+          "ok": true,
+          "signCoreRva": 12619376,
+          "vmRva": 49585650,
+          "vmKind": "windows-vm-dispatcher",
+          "pathUsed": "vm",
+          "signLength": 28,
+          "sampleSign": "DAA9C80AC38CEFFD27D23779DA92915960A7B6A05000B7CA40F965A6"
+        }
+      }
+    ]
+  },
+  "pending": []
 }
