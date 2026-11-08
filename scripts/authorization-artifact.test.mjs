@@ -95,6 +95,20 @@ test('桌面 release 必须有有效、同源的助手，普通开发仍兼容�
       expected: { ...info, buildTime: buildTime - 1 },
     }),
   );
+  const legacyExpected = { ...info };
+  delete legacyExpected.interface;
+  assert.doesNotThrow(() =>
+    validateAuthorizationBuildInfo(info, platform, {
+      production: true,
+      expected: legacyExpected,
+    }),
+  );
+  assert.throws(() =>
+    validateAuthorizationBuildInfo(info, platform, {
+      production: true,
+      expected: { ...legacyExpected, interface: AUTHORIZATION_INTERFACE + 1 },
+    }),
+  );
   assert.doesNotThrow(() =>
     validateAuthorizationContract(
       {

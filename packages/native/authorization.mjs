@@ -49,11 +49,14 @@ export function validateAuthorizationBuildInfo(info, platform, options = {}) {
     !['attach', 'key-scan', 'capture'].every((name) => info.capabilities?.includes(name))
   )
     throw new Error(`权限助手目标、协议或接口不兼容：${platform}`);
-  if (
-    options.expected &&
-    ['protocol', 'interface', 'target'].some((key) => info[key] !== options.expected[key])
-  )
-    throw new Error('权限助手构建信息与发布清单不一致');
+  if (options.expected) {
+    // `interface` 是后加的元数据，已发布的旧清单可能没有它；缺失时仍由上面的常量
+    // 校验与 validateAuthorizationContract() 保证兼容，不能把缺字段当成不兼容。
+    const expectedKeys = ['protocol', 'target'];
+    if (options.expected.interface !== undefined) expectedKeys.push('interface');
+    if (expectedKeys.some((key) => info[key] !== options.expected[key]))
+      throw new Error('权限助手构建信息与发布清单不一致');
+  }
   validateNativeBuildInfo(info, options);
 }
 

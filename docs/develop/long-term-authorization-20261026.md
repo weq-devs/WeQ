@@ -34,7 +34,7 @@
 
 平台键与 `platforms` 相同。Windows 资产名带 `.exe`。新字段存在时必须校验名称、大小和 SHA-256；缺失时保持旧包兼容，不构造未经校验的下载链接。助手与 `.node` 放在同一平台目录，由现有桌面打包目录规则收集，不再复制整套运行环境。
 
-上例只展示资产定位字段。正式清单还包含助手通过 `build-info` 自报的 `protocol`、`target`、`capabilities`、`buildTime`、`expireTime`、`validitySecs`、`isDev`；不在 WeQ 再定义有效期。发布构建要求 `isDev=false`，目标/协议兼容、未过期，且与 `.node` 的时间戳和有效期相同。
+上例只展示资产定位字段。正式清单还包含助手通过 `build-info` 自报的 `protocol`、`target`、`capabilities`、`buildTime`、`expireTime`、`validitySecs`、`isDev`；不在 WeQ 再定义有效期。发布构建要求 `isDev=false`，目标/协议兼容、未过期，且与 `.node` 的时间戳和有效期相同。`interface` 也由助手自报；清单允许省略该字段以兼容尚未重发清单的既有构建，若出现则必须与助手一致，最终接口兼容性仍以二进制自报值和 `.node` 的 `authorizationInterface` 为准。
 
 私有构建脚本生成单平台助手与清单片段；既有发布仓的本地工作流修改已接上构建、验证、上传白名单与总清单汇总，未新建远端仓库。源码实现、构建通过、资产发布、系统安装和跨平台真机验收是不同状态，不能互相替代；本次准备不自动推送、发布、更新锚点或安装系统服务。
 

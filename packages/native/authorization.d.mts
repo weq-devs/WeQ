@@ -16,6 +16,9 @@ export interface AuthorizationBuildInfo extends NativeBuildInfo {
   capabilities: string[];
   channel?: 'development' | 'release';
 }
+export type AuthorizationManifestBuildInfo = Omit<AuthorizationBuildInfo, 'interface'> & {
+  interface?: number;
+};
 export function validateAuthorizationContract(
   nativeInfo: NativeBuildInfo | null | undefined,
   helperInfo: AuthorizationBuildInfo | null | undefined,
@@ -28,7 +31,7 @@ export function validateNativeBuildInfo(
 export function validateAuthorizationBuildInfo(
   info: unknown,
   platform: string,
-  options?: { production?: boolean; expected?: AuthorizationBuildInfo; now?: number },
+  options?: { production?: boolean; expected?: AuthorizationManifestBuildInfo; now?: number },
 ): void;
 export function authorizationArtifact(
   manifest: unknown,
