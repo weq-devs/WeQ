@@ -85,6 +85,19 @@ describe('mergeLatest', () => {
     expect(mergeLatest(previous, fetched).versions['linux-x64'].version).toBe('3.2.35');
   });
 
+  it('内容没变时保留旧的 fetchedAt（脚本据此避免空提交）', () => {
+    // mergeLatest 本身不碰 fetchedAt；这条锁的是「调用方该怎么做」的契约：
+    // 没有变化时应当沿用 previous.fetchedAt。
+    const previous = latest({ 'linux-x64': { version: '3.2.35' } });
+    const fetched = {
+      ...latest({ 'linux-x64': { version: '3.2.35' } }),
+      fetchedAt: '2026-11-09T00:00:00Z',
+    };
+    expect(diffLatest(previous, fetched)).toEqual([]);
+    const merged = mergeLatest(previous, fetched);
+    expect(merged.versions['linux-x64'].version).toBe('3.2.35');
+  });
+
   it('没有历史记录时原样采用', () => {
     const fetched = latest({ 'macos-arm64': { version: '7.0.3' } });
     expect(mergeLatest(null, fetched).versions['macos-arm64'].version).toBe('7.0.3');

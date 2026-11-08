@@ -168,6 +168,10 @@ async function main() {
   const allChanges = diffLatest(previous, next);
   const changes = allChanges.filter((c) => c.kind !== 'regression');
 
+  // `fetchedAt` 每次都变。没有真实变化时沿用旧值，避免「内容没变但时间戳变了」
+  // 让 workflow 的 git diff 判定为有改动、产生一串无意义提交。
+  if (!allChanges.length && previous?.fetchedAt) next.fetchedAt = previous.fetchedAt;
+
   const summary = Object.entries(next.versions)
     .map(([platform, info]) => `  ${platform.padEnd(16)} ${info.version}`)
     .join('\n');
