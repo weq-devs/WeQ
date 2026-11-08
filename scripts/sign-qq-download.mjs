@@ -20,6 +20,8 @@
  * 签名与时间戳绑定（`t=` 是 unix 秒），**不要缓存**：每次下载前现签。
  */
 
+import { pathToFileURL } from 'node:url';
+
 const SIGN_ENDPOINT =
   'https://im.qq.com/http2rpc/gotrpc/noauth/trpc.qqntv2.urlsign.UrlSign/GetSign';
 const OIDB_HEADER = '{"uint32_command":"0x9b8e","uint32_service_type":1}';
@@ -86,6 +88,9 @@ async function main() {
   }
 }
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+// 用 pathToFileURL 而不是拼 `file://${argv[1]}`：Windows 的路径是 `D:\a\...`，
+// 拼出来的 URL 永远不等于 import.meta.url，于是 main() 静默不执行、进程正常退出、
+// stdout 为空 —— 这个 bug 已经在 CI 上把「签名成功」变成「空地址」踩过一次。
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main();
 }
