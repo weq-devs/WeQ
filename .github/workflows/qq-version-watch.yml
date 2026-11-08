@@ -267,9 +267,56 @@ jobs:
           echo "available=true" >> "$GITHUB_OUTPUT"
           echo "path=$out" >> "$GITHUB_OUTPUT"
 
-      - name: Extract wrapper.node
+      # Windows 的 exe 单独走 pwsh：Node 的 spawnSync 在 CI 上等安装器行为不稳
+      # （TITD 用 Start-Process -Wait 稳定 3 分钟跑完）。deb/dmg 仍用同一个
+      # 跨平台脚本，逻辑只维护一份。
+      - name: Extract wrapper.node (Windows)
+        id: extract_win
+        if: steps.download.outputs.available == 'true' && matrix.platform == 'windows-x64'
+        shell: pwsh
+        env:
+          PKG: ${{ steps.download.outputs.path }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target = Join-Path $env:RUNNER_TEMP 'unpack\windows-x64\installed'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Write-Host "[$(Get-Date -Format o)] 开始安装到 $target"
+          # NSIS 的 /D= 必须拼成单个字符串、不加引号。
+          $installerArgs = "/S /D=$target"
+          $p = Start-Process -FilePath $env:PKG -ArgumentList $installerArgs -Wait -PassThru
+          Write-Host "[$(Get-Date -Format o)] installer exit=$($p.ExitCode)"
+
+          $candidates = @(
+            $target,
+            "$env:ProgramFiles\Tencent\QQNT",
+            "$env:LOCALAPPDATA\Programs\Tencent\QQNT"
+          )
+          $appDir = $null
+          for ($attempt = 0; $attempt -lt 12 -and -not $appDir; $attempt++) {
+            foreach ($root in $candidates) {
+              $versions = Join-Path $root 'versions'
+              if (-not (Test-Path $versions)) { continue }
+              foreach ($v in Get-ChildItem $versions -Directory -ErrorAction SilentlyContinue) {
+                $candidate = Join-Path $v.FullName 'resources\app\wrapper.node'
+                if (Test-Path $candidate) {
+                  $appDir = Split-Path $candidate -Parent
+                  break
+                }
+              }
+              if ($appDir) { break }
+            }
+            if (-not $appDir) { Start-Sleep -Seconds 5 }
+          }
+          if (-not $appDir) {
+            Write-Host "::error::安装后没找到 wrapper.node（找过：$($candidates -join '、')）"
+            exit 1
+          }
+          Write-Host "[$(Get-Date -Format o)] wrapper 在 $appDir"
+          "wrapper=$appDir\wrapper.node" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Extract wrapper.node (Unix)
         id: extract
-        if: steps.download.outputs.available == 'true'
+        if: steps.download.outputs.available == 'true' && matrix.platform != 'windows-x64'
         shell: bash
         env:
           PKG: ${{ steps.download.outputs.path }}
@@ -282,10 +329,10 @@ jobs:
 
       - name: Run checkSigner
         id: check
-        if: steps.extract.outputs.wrapper != ''
+        if: steps.extract.outputs.wrapper != '' || steps.extract_win.outputs.wrapper != ''
         shell: bash
         env:
-          WRAPPER: ${{ steps.extract.outputs.wrapper }}
+          WRAPPER: ${{ steps.extract.outputs.wrapper || steps.extract_win.outputs.wrapper }}
           NATIVE_MODULE: ${{ runner.temp }}/native/${{ matrix.native }}
           VERSION: ${{ steps.target.outputs.version }}
         run: |
