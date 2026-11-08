@@ -132,9 +132,13 @@ function extractExe(installer, work) {
   // 用参数数组单独传 /D= 会被拆开，QQ 就退回默认安装位置。
   const installerArgs = `/S /D=${target}`;
   log(`$ ${installer} ${installerArgs}`);
+  log(`[${new Date().toISOString()}] 开始安装…`);
   const result = spawnSync(installer, [installerArgs], { stdio: 'inherit' });
   if (result.error) throw result.error;
-  log(`installer exit=${result.status}`);
+  // 带上时间戳：CI 上「慢」到底是安装耗时长还是等待落盘耗时，一眼能分出来。
+  log(
+    `[${new Date().toISOString()}] installer exit=${result.status} signal=${result.signal ?? '-'}`,
+  );
 
   // spawnSync 是同步等安装器退出的；`/D=` 生效时文件这时已经就位。
   // 先直接找一遍（快），只有找不到才短暂等待 —— 之前无脑轮询 30 次、
