@@ -118,7 +118,7 @@ VM 定位失败时签名会退回完整签名函数：功能还能用，但慢�
 
 | 文件 | 内容 | 谁写 |
 | --- | --- | --- |
-| `versions/latest.json` | 官网当前五平台最新版本 + 下载地址 | `scripts/refresh-qq-versions.mjs --write` |
+| `versions/latest.json` | 官网当前五平台最新版本 + 下载地址 | `pnpm versions:refresh --write` |
 | `versions/supported.json` | 已验证过的版本（带 sign 结果 / RVA / sha256）与待验证队列 | 同脚本写 `pending`；CI 验证通过后写 `platforms` |
 
 五个键是 `windows-x64` / `linux-x64` / `linux-arm64` / `macos-x64` / `macos-arm64`。
@@ -161,9 +161,9 @@ schedule(UTC 16:00 / 北京 00:00)
 ### 本地跑
 
 ```bash
-node scripts/refresh-qq-versions.mjs            # 只打印
-node scripts/refresh-qq-versions.mjs --write    # 落盘
-node scripts/refresh-qq-versions.mjs --check    # 落后官网则退出码 1
+pnpm versions:refresh          # 只打印
+pnpm versions:refresh --write  # 落盘
+pnpm versions:refresh --check  # 落后官网则退出码 1
 
 node scripts/extract-qq-wrapper.mjs ./QQ_3.2.35_amd64.deb /tmp/unpack
 node -e 'const nt=require("./native/linux/x64/nt_helper.node");

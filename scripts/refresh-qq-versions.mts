@@ -25,15 +25,20 @@
  * workflows/qq-version-watch.yml` 里做（那一步需要平台 runner）。
  *
  * 用法：
- *   node scripts/refresh-qq-versions.mjs                 # 抓取 + 打印差异
- *   node scripts/refresh-qq-versions.mjs --write         # 同时落盘
- *   node scripts/refresh-qq-versions.mjs --check         # 只比对，落后则退出码 1（CI）
- *   node scripts/refresh-qq-versions.mjs --source <url>  # 用镜像/备用地址
+ *   pnpm versions:refresh                  # 抓取 + 打印差异
+ *   pnpm versions:refresh --write          # 同时落盘
+ *   pnpm versions:refresh --check          # 只比对，落后则退出码 1（CI）
+ *   pnpm versions:refresh --source <url>   # 用镜像/备用地址
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  diffLatest,
+  mergeLatest,
+  registerPending,
+} from '../packages/service/src/bootstrap/qq_version_catalog';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const VERSIONS_DIR = join(ROOT, 'versions');
@@ -65,6 +70,16 @@ function normalizeVersion(raw) {
   const m = raw.trim().match(/^(\d+(?:\.\d+)+)/);
   return m ? m[1] : null;
 }
+
+/**
+ * 官方给的路径形如
+ *   …/QQNTV2/9.9.37/release/816b3c79/QQ_3.2.35_261103_amd64_01.deb
+ *
+ * 这个路径**不保证现在就能下**：实测新版本刚发布时 `QQNTV2/.../release` 直接
+ * 403（防盗链 / 灰度），同批产物在 `QQNT/<ver>/beta/` 下也还没放出来；过几天
+ * 往往就有了。所以这里**原样记录官网给的地址**，下载失败由 workflow 记 warning、
+ * 跳过本轮，第二天再试 —— 不去猜 URL（猜出来的 build 号拼错只会更糟）。
+ */
 
 /** `downloadUrl` 有时是字符串、有时是 `{ deb, rpm, appimage }`。 */
 function pickUrl(value, sub) {
@@ -133,50 +148,6 @@ function readJson(path, fallback) {
   }
 }
 
-/** 比对两份 latest，返回有变化的平台（新版本 / 新地址都算）。 */
-export function diffLatest(previous, next) {
-  const changes = [];
-  for (const [key, value] of Object.entries(next.versions)) {
-    const old = previous?.versions?.[key];
-    if (!old) {
-      changes.push({ key, from: null, to: value.version });
-      continue;
-    }
-    if (old.version !== value.version || (old.url && value.url && old.url !== value.url)) {
-      changes.push({ key, from: old.version, to: value.version });
-    }
-  }
-  return changes;
-}
-
-/**
- * 把新发现的版本登记进 `supported.json` 的 `pending` 列表。
- *
- * `supported.json` 是**已验证**的清单（每条带 wrapper.node 的 sha256 与两条
- * RVA），由 CI 验证通过后写入；这里只登记「官网说有、但我们还没验」的版本，
- * 避免 workflow 直接改已验证条目。
- */
-function registerPending(supported, latest) {
-  const pending = Array.isArray(supported.pending) ? supported.pending : [];
-  const known = new Set(pending.map((p) => `${p.platform}:${p.version}`));
-  for (const [platform, info] of Object.entries(latest.versions)) {
-    const key = `${platform}:${info.version}`;
-    if (known.has(key)) continue;
-    const verified = (supported.platforms?.[platform] ?? []).some(
-      (entry) => entry.version === info.version,
-    );
-    if (verified) continue;
-    pending.push({
-      platform,
-      version: info.version,
-      url: info.url,
-      discoveredAt: latest.fetchedAt,
-    });
-    known.add(key);
-  }
-  return { ...supported, pending };
-}
-
 function serialize(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
@@ -189,15 +160,25 @@ async function main() {
   const explicitSource = sourceIndex >= 0 ? args[sourceIndex + 1] : undefined;
 
   const { json, source } = await loadConfig(explicitSource);
-  const next = buildLatest(json, source);
+  const fetched = buildLatest(json, source);
   const previous = readJson(LATEST_FILE, null);
-  const changes = diffLatest(previous, next);
+  // 版本只允许前进：CDN 边缘节点不是同时更新的，某次抓到旧版本不能把已记录的
+  // 新版本顶掉。
+  const next = mergeLatest(previous, fetched);
+  const allChanges = diffLatest(previous, next);
+  const changes = allChanges.filter((c) => c.kind !== 'regression');
 
   const summary = Object.entries(next.versions)
     .map(([platform, info]) => `  ${platform.padEnd(16)} ${info.version}`)
     .join('\n');
 
   console.log(`QQ 版本清单（来源 ${source}）\n${summary}`);
+
+  const regressions = allChanges.filter((c) => c.kind === 'regression');
+  if (regressions.length) {
+    console.log('\n官网这次返回了更旧的版本（CDN 灰度），按已记录版本为准：');
+    for (const r of regressions) console.log(`  ${r.key}: 已记录 ${r.from}，本次 ${r.to}`);
+  }
 
   if (!changes.length) {
     console.log('\n和上次一致，没有新版本。');

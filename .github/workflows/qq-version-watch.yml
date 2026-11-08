@@ -3,7 +3,7 @@ name: QQ version watch
 # 每晚抓 QQ 官网的 PC 版本清单 → 有新版就验证签名兼容性 → 用 commit 直接更新 main。
 #
 # 数据源与官网下载页一致（`im.qq.com` 用的 `pcConfig.json`），见
-# scripts/refresh-qq-versions.mjs 的头部注释。
+# scripts/refresh-qq-versions.mts 的头部注释。
 #
 # 两条独立的工作：
 #   1. `refresh`：所有版本都要跑 —— 抓清单、写 `versions/latest.json` 与
@@ -44,18 +44,28 @@ jobs:
       changed: ${{ steps.refresh.outputs.changed }}
       changes: ${{ steps.refresh.outputs.changes }}
       versions: ${{ steps.refresh.outputs.versions }}
+      # 还没通过验证的最新版本平台。兼容性验证按这个跑，而不是只在「清单变了」
+      # 那一晚跑：CDN 放开、上一轮扫描失败都需要第二天重试。
+      unverified: ${{ steps.plan.outputs.unverified }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Fetch QQ versions
         id: refresh
-        run: node scripts/refresh-qq-versions.mjs --write
+        run: pnpm versions:refresh --write
 
       - name: Commit if changed
         if: steps.refresh.outputs.changed == 'true'
@@ -75,21 +85,51 @@ jobs:
           由 .github/workflows/qq-version-watch.yml 自动生成。"
           # main 上可能有新提交（例如同一天别人的改动），先 rebase 再推送。
           git pull --rebase --autostash origin main
-          git push origin HEAD:main
+          if ! git push origin HEAD:main; then
+            echo "::error::版本清单推送失败（main 可能刚被改动），需要人工确认"
+            exit 1
+          fi
+          echo "pushed: $(git rev-parse --short HEAD)"
+
+      # 决定哪些平台还要跑兼容性验证：只要「官网最新版」还没出现在
+      # supported.json 里就值得再试一次（CDN 灰度、上一轮失败都会走到这里）。
+      #
+      # 注意用工作区里的文件，而不是 `git show origin/main`:前一步刚落盘（以及
+      # 可能刚提交）的 latest.json 才是这一轮的事实。
+      - name: Plan compat
+        id: plan
+        run: |
+          set -euo pipefail
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const latest = JSON.parse(fs.readFileSync("versions/latest.json", "utf8"));
+            const supported = JSON.parse(fs.readFileSync("versions/supported.json", "utf8"));
+            const pending = [];
+            for (const [platform, info] of Object.entries(latest.versions)) {
+              const ok = (supported.platforms?.[platform] ?? []).some(
+                (v) => v.version === info.version && v.sign?.ok,
+              );
+              if (!ok) pending.push(platform);
+            }
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "unverified=" + JSON.stringify(pending) + "\n");
+            console.log("unverified platforms:", pending);
+          '
 
       - name: Summary
         run: |
           {
             echo "## QQ 版本清单"
             echo '```'
-            node scripts/refresh-qq-versions.mjs
+            pnpm versions:refresh
             echo '```'
+            echo
+            echo "未验证（本轮会尝试）：${{ steps.plan.outputs.unverified }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
   compat:
     name: Check signing on ${{ matrix.platform }}
     needs: refresh
-    if: needs.refresh.outputs.changed == 'true' || inputs.force_compat
+    if: needs.refresh.outputs.unverified != '[]' || inputs.force_compat
     strategy:
       fail-fast: false
       matrix:
@@ -125,22 +165,22 @@ jobs:
         shell: bash
         env:
           PLATFORM: ${{ matrix.platform }}
+          UNVERIFIED: ${{ needs.refresh.outputs.unverified }}
+          FORCE: ${{ inputs.force_compat }}
         run: |
           set -euo pipefail
-          node -e '
-            const fs = require("fs");
+          node --input-type=module -e '
+            import fs from "node:fs";
             const latest = JSON.parse(fs.readFileSync("versions/latest.json", "utf8"));
-            const supported = JSON.parse(fs.readFileSync("versions/supported.json", "utf8"));
             const platform = process.env.PLATFORM;
             const entry = latest.versions[platform];
             if (!entry) { console.error("latest.json 里没有 " + platform); process.exit(1); }
-            const verified = (supported.platforms?.[platform] ?? []).some(
-              (v) => v.version === entry.version && v.sign?.ok,
-            );
+            const wanted = JSON.parse(process.env.UNVERIFIED || "[]");
+            const skip = process.env.FORCE !== "true" && !wanted.includes(platform);
             const lines = [
               "version=" + entry.version,
               "url=" + (entry.url ?? ""),
-              "verified=" + verified,
+              "skip=" + skip,
             ];
             fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n") + "\n");
             console.log(lines.join("\n"));
@@ -157,9 +197,23 @@ jobs:
             --pattern '${{ matrix.native }}' --dir "$RUNNER_TEMP/native"
           ls -lh "$RUNNER_TEMP/native"
 
+          # 产物必须带 checkSigner：它是这个 workflow 唯一依赖的接口。老构建
+          # 没有的话直接停在这里，比跑到一半报「不是函数」清楚。
+          node --input-type=module -e '
+            import { createRequire } from "node:module";
+            const require = createRequire(process.cwd() + "/");
+            const nt = require(process.env.RUNNER_TEMP + "/native/${{ matrix.native }}");
+            if (typeof nt.checkSigner !== "function") {
+              console.error("pinned nt_helper 产物缺少 checkSigner；先发布一份新构建再升级 native/pinned.json");
+              process.exit(1);
+            }
+            console.log("checkSigner ok; build:", JSON.stringify(nt.getBuildInfo?.() ?? null));
+          '
+
       - name: Download QQ installer
         id: download
         shell: bash
+        if: steps.target.outputs.skip != 'true'
         env:
           URL: ${{ steps.target.outputs.url }}
           VERSION: ${{ steps.target.outputs.version }}
@@ -176,16 +230,24 @@ jobs:
           code=$(curl -sSL --retry 3 --retry-delay 5 -o "$out" -w '%{http_code}' "$URL" || echo 000)
           size=$(wc -c < "$out" 2>/dev/null || echo 0)
           echo "http=$code size=$size"
-          if [ "$code" != "200" ] || [ "$size" -lt 10000000 ]; then
-            # 腾讯 CDN 对新发布版本有一段时间的防盗链/灰度，不是我们判红的理由；
-            # 下个自然日会重试（版本号还在 latest.json 里）。
+          if [ "$code" = "403" ] || [ "$code" = "404" ]; then
+            # 腾讯对「刚发布」的版本有一段防盗链/灰度期：pcConfig.json 已经指向
+            # 新版本，但 CDN 上还拿不到。这不是我们的缺陷，下个自然日会重试
+            # （Plan compat 每天重新判定）。写成 warning，但 job 标成「跳过」，
+            # 不能假装验证过 —— 否则 supported.json 会缺项而没人发现。
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::$VERSION 的安装包暂时下载不了（http=$code size=$size），跳过本轮验证"
+            echo "reason=cdn-not-ready" >> "$GITHUB_OUTPUT"
+            echo "::warning::${VERSION} 的安装包在 CDN 上还拿不到（http=${code}），本轮跳过，明天重试"
             {
-              echo "### ${{ matrix.platform }} $VERSION"
-              echo "安装包暂时不可下载（http=$code size=$size），本轮跳过。"
+              echo "### ${{ matrix.platform }} ${VERSION}"
+              echo "CDN 尚未放出该版本（http=${code}），本轮跳过。"
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
+          fi
+          if [ "$code" != "200" ] || [ "$size" -lt 10000000 ]; then
+            # 其它情况是真失败：网络错误、返回了 HTML、文件明显不对。
+            echo "::error::${VERSION} 的安装包下载失败（http=${code} size=${size} url=${URL}）"
+            exit 1
           fi
           echo "available=true" >> "$GITHUB_OUTPUT"
           echo "path=$out" >> "$GITHUB_OUTPUT"
@@ -259,7 +321,8 @@ jobs:
     name: Record verified version
     needs: [refresh, compat]
     # compat 失败就不写 supported.json —— 只登记真正验证通过的组合。
-    if: success() && (needs.refresh.outputs.changed == 'true' || inputs.force_compat)
+    # 全部被跳过（CDN 还没放开）时也跳过，省一次空 commit。
+    if: success() && (needs.refresh.outputs.unverified != '[]' || inputs.force_compat)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
