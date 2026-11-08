@@ -66,6 +66,16 @@ function normalizeVersion(raw) {
   return m ? m[1] : null;
 }
 
+/**
+ * 官方给的路径形如
+ *   …/QQNTV2/9.9.37/release/816b3c79/QQ_3.2.35_261103_amd64_01.deb
+ *
+ * 这个路径**不保证现在就能下**：实测新版本刚发布时 `QQNTV2/.../release` 直接
+ * 403（防盗链 / 灰度），同批产物在 `QQNT/<ver>/beta/` 下也还没放出来；过几天
+ * 往往就有了。所以这里**原样记录官网给的地址**，下载失败由 workflow 记 warning、
+ * 跳过本轮，第二天再试 —— 不去猜 URL（猜出来的 build 号拼错只会更糟）。
+ */
+
 /** `downloadUrl` 有时是字符串、有时是 `{ deb, rpm, appimage }`。 */
 function pickUrl(value, sub) {
   if (typeof value === 'string') return value;
