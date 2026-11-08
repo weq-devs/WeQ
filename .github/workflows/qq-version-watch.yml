@@ -232,10 +232,12 @@ jobs:
 
           # pcConfig 给的地址直接 GET 会 403：官网页面也是先调内部接口换一个
           # 带 ?sign=&t= 的短时链接。签名失败就当作「暂时拿不到」，下一天重试。
-          if ! signed=$(node scripts/sign-qq-download.mjs "$URL"); then
+          # 空输出也要当失败：脚本若因入口判断/平台差异静默退出，退出码是 0
+          # 但什么都没做（Windows 上踩过），不能让它变成「下载空地址」。
+          if ! signed=$(node scripts/sign-qq-download.mjs "$URL") || [ -z "$signed" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::${VERSION} 的下载地址签名失败（接口可能变了），本轮跳过"
-            exit 0
+            echo "::error::${VERSION} 的下载地址签名失败（接口可能变了）"
+            exit 1
           fi
           echo "signed url acquired (len=${#signed})"
 
