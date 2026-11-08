@@ -358,63 +358,13 @@ jobs:
 
       - name: Merge into supported.json
         id: merge
-        run: |
-          mkdir -p reports
-          node --input-type=module -e '
-            import fs from "node:fs";
-            const file = "versions/supported.json";
-            const supported = JSON.parse(fs.readFileSync(file, "utf8"));
-            supported.platforms ??= {};
-
-            let verified = 0;
-            let skipped = 0;
-            for (const platform of fs.readdirSync("reports")) {
-              const reportPath = `reports/${platform}/result.json`;
-              if (!fs.existsSync(reportPath)) continue;
-              const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
-              if (report.skipped) {
-                skipped += 1;
-                console.log(`${platform}: 跳过（${report.skipped}）`);
-                continue;
-              }
-              if (!report.ok || !report.report) {
-                console.log(`${platform}: 未通过验证，不登记`);
-                continue;
-              }
-              verified += 1;
-              const r = report.report;
-              const key = platform;
-              const list = (supported.platforms[key] ??= []);
-              const entry = {
-                version: report.version,
-                verifiedAt: new Date().toISOString(),
-                sign: {
-                  ok: true,
-                  signCoreRva: r.signCoreRva,
-                  vmRva: r.vmRva ?? null,
-                  vmKind: r.vmKind ?? null,
-                  pathUsed: r.pathUsed ?? null,
-                  signLength: r.signLengths?.[0] ?? null,
-                  sampleSign: r.sampleSign ?? null,
-                },
-              };
-              const at = list.findIndex((v) => v.version === entry.version);
-              if (at >= 0) list[at] = entry;
-              else list.push(entry);
-              list.sort((a, b) => (a.version < b.version ? 1 : -1));
-              supported.pending = (supported.pending ?? []).filter(
-                (p) => !(p.platform === key && p.version === entry.version),
-              );
-            }
-
-            // pending 只在「已经验证过」时清掉；这一轮没跑到的平台原样保留。
-            fs.writeFileSync(file, JSON.stringify(supported, null, 2) + "\n");
-            console.log(`verified=${verified} skipped=${skipped}`);
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, `verified=${verified}\n`);
-          '
-          '
+        shell: bash
+        # 逻辑放在脚本里而不是内联 `node -e '...'`：内联脚本里既有中文又有
+        # 反引号模板字符串，很容易和 shell 的单引号打架（踩过一次）。
+        run: node scripts/merge-version-reports.mjs
 
       - name: Commit
+        if: steps.merge.outputs.verified != '0'
         run: |
           set -euo pipefail
           if git diff --quiet -- versions/supported.json; then
