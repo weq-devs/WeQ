@@ -1,0 +1,31 @@
+{
+  "fetchedAt": "2026-11-08T11:13:35Z",
+  "source": "https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json",
+  "versions": {
+    "windows-x64": {
+      "version": "9.9.37",
+      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.37/release/a2ca1b61/QQ_9.9.37_261103_x64_01.exe",
+      "updateDate": "2026-11-03"
+    },
+    "linux-x64": {
+      "version": "3.2.35",
+      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.37/release/816b3c79/QQ_3.2.35_261103_amd64_01.deb",
+      "updateDate": "2026-11-03"
+    },
+    "linux-arm64": {
+      "version": "3.2.35",
+      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.37/release/816b3c79/QQ_3.2.35_261103_arm64_01.deb",
+      "updateDate": "2026-11-03"
+    },
+    "macos-x64": {
+      "version": "7.0.3",
+      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.37/release/a8ffd03b/QQ_7.0.3_261103_01.dmg",
+      "updateDate": "2026-11-03"
+    },
+    "macos-arm64": {
+      "version": "7.0.3",
+      "url": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.37/release/a8ffd03b/QQ_7.0.3_261103_01.dmg",
+      "updateDate": "2026-11-03"
+    }
+  }
+}
