@@ -129,41 +129,59 @@ function extractExe(installer, work) {
   log(`静默安装到 ${target}`);
 
   // NSIS 的 /D= 必须是**最后一个参数**、**不加引号**、**和 /S 在同一个字符串**里。
-  // 用参数数组单独传 /D= 会被拆开，QQ 就退回默认安装位置（实测装到
-  // `C:\Program Files\Tencent\QQNT`，而不是这里指定的目录）。
+  // 用参数数组单独传 /D= 会被拆开，QQ 就退回默认安装位置。
   const installerArgs = `/S /D=${target}`;
   log(`$ ${installer} ${installerArgs}`);
   const result = spawnSync(installer, [installerArgs], { stdio: 'inherit' });
   if (result.error) throw result.error;
-  // NSIS 的退出码不可靠（可能先返回、后台再写文件），一律以「装出东西没有」为准。
-  return waitForInstall(target);
+  log(`installer exit=${result.status}`);
+
+  // spawnSync 是同步等安装器退出的；`/D=` 生效时文件这时已经就位。
+  // 先直接找一遍（快），只有找不到才短暂等待 —— 之前无脑轮询 30 次、
+  // 每次都递归扫整个 Program Files，在 CI 上表现为「卡住」。
+  const first = findInstalledWrapper(target);
+  if (first) return first;
+
+  log('第一次没找到 wrapper.node，等待安装器落盘（最多 60 秒）…');
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    sleepSync(5_000);
+    const found = findInstalledWrapper(target);
+    if (found) return found;
+  }
+  throw new Error(`安装后仍找不到 wrapper.node（找过：${installCandidates(target).join('、')}）`);
 }
 
-/**
- * 等安装完成并返回实际安装根目录。
- *
- * `/D=` 不生效时 QQ 会装到 Program Files 之类的默认位置，所以要把这些候选
- * 都看一遍 —— 只认 `/D=` 目录会在 CI 上稳定失败。
- */
-function waitForInstall(target) {
-  const candidates = [
+/** 可能被 QQ 装到的位置（`/D=` 不生效时用默认位置）。 */
+function installCandidates(target) {
+  return [
     target,
     join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Tencent', 'QQNT'),
     join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Tencent', 'QQNT'),
-    join(process.env.LOCALAPPDATA ?? '', 'Programs', 'Tencent', 'QQNT'),
+    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Programs', 'Tencent', 'QQNT'),
   ].filter(Boolean);
+}
 
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    for (const root of candidates) {
-      if (existsSync(root) && findWrapper(root)) {
-        log(`wrapper 在 ${root}`);
-        return root;
+/**
+ * 在候选位置里找 wrapper.node，返回**它的目录**（不是 wrapper 本身）。
+ *
+ * 先看固定路径 `<root>/versions/<ver>/resources/app/wrapper.node`（一次
+ * readdir，成本极低）；只有固定路径也没有时才做递归扫描。
+ */
+function findInstalledWrapper(target) {
+  for (const root of installCandidates(target)) {
+    const versionsDir = join(root, 'versions');
+    if (existsSync(versionsDir)) {
+      for (const name of readdirSync(versionsDir)) {
+        const appDir = join(versionsDir, name, 'resources', 'app');
+        const candidate = join(appDir, 'wrapper.node');
+        if (existsSync(candidate)) {
+          log(`wrapper 在 ${candidate}`);
+          return appDir;
+        }
       }
     }
-    // 安装器是异步落盘的，先等一会儿再找。
-    sleepSync(5_000);
   }
-  throw new Error(`安装后仍找不到 wrapper.node（找过：${candidates.join('、')}）`);
+  return null;
 }
 
 /** 同步 sleep；这里在 Node 主线程里跑，不引额外依赖。 */
