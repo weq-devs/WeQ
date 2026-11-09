@@ -68,6 +68,9 @@ const MEMBER_COLUMNS = [
 ];
 
 export class GroupMemberDb {
+  get dbPath(): string {
+    return this.qq.dbPath;
+  }
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: GroupMemberDbOptions) {

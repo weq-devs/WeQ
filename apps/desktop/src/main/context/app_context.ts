@@ -201,15 +201,17 @@ import {
   type AccountSession,
 } from '@weq/account';
 import { collectionItemToWire, collectionDetailToWire } from '../ipc/serde';
+import { mountGroupInfoWatch } from '../group_info_watch';
 
 /**
- * Process-wide bus for nt_msg.db changes, fed by the single `dbWatch` loop
+ * Process-wide bus for message / group-info changes, fed by the shared `dbWatch` loop
  * below. Events:
  *   - `'changed'` ({@link DbChange})    — every db change (debounced); drives
  *     the open conversation's seq-window re-query in the renderer.
  *   - `'new'`     ({@link NewMessages}) — only when a rowid-delta found newly
  *     inserted rows; reserved for unread / popup notifications.
  *   - 'roaming' — newly committed WeQ cache rows; never treated as QQ unread writes.
+ *   - 'group-info-changed' — 群资料库变化，独立刷新群资料与成员缓存。
  * The account router turns each into a tRPC subscription.
  */
 export const dbEventBus = new EventEmitter();
@@ -289,6 +291,7 @@ export function rememberAccountUid(uin: string, uid: string): void {
 const dbWatch = new DbWatchService();
 /** Handle for the currently-watched account db, if any. */
 let dbWatchHandle: DbWatchHandle | null = null;
+let groupInfoWatchHandle: DbWatchHandle | null = null;
 let dbChangeNotification: ReturnType<typeof createDbChangeNotification<DbChange>> | null = null;
 /** SSE 消息推送服务（随账号开关），null = 未启用 / 无账号。 */
 let ssePush: SsePushService | null = null;
@@ -444,7 +447,7 @@ function cancelAnnualReportWarmup(): void {
 }
 
 /**
- * Mount the nt_msg.db watcher for `session` (idempotent — no-op if already
+ * Mount the message / group-info watchers for `session` (idempotent — no-op if already
  * mounted). The hook fans every change into two bus events: a debounced
  * 'changed' (drives the open-conversation re-query) and 'new' (rowid-delta,
  * for notifications). Gated by the 实时消息 setting via {@link mountDbWatch}'s
@@ -452,6 +455,12 @@ function cancelAnnualReportWarmup(): void {
  */
 function mountDbWatch(session: AccountSession): void {
   if (dbWatchHandle) return;
+  groupInfoWatchHandle = mountGroupInfoWatch(
+    dbWatch,
+    session.groupMembers.dbPath,
+    () => getAppContext().account === session,
+    (change) => dbEventBus.emit('group-info-changed', change),
+  );
   const notification = createDbChangeNotification((file: DbChange) => {
     if (getAppContext().account !== session) return;
     dbEventBus.emit('changed', file);
@@ -481,6 +490,8 @@ function mountDbWatch(session: AccountSession): void {
 
 /** Stop watching the current account db, if any. */
 function unmountDbWatch(): void {
+  groupInfoWatchHandle?.unmount();
+  groupInfoWatchHandle = null;
   dbChangeNotification?.dispose();
   dbChangeNotification = null;
   dbWatchHandle?.unmount();
@@ -1423,8 +1434,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
       this.account?.dispose();
-      dbWatchHandle?.unmount();
-      dbWatchHandle = null;
+      unmountDbWatch();
       ssePush?.stop();
       ssePush = null;
       unmountGroupKeyword();
@@ -2286,8 +2296,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
       this.account?.dispose();
-      dbWatchHandle?.unmount();
-      dbWatchHandle = null;
+      unmountDbWatch();
       ssePush?.stop();
       ssePush = null;
       unmountGroupKeyword();

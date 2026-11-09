@@ -5207,6 +5207,21 @@ export const accountRouter = router({
     });
   }),
 
+  /** 群成员、名片、角色与群资料所在的群资料库发生变化。 */
+  onGroupInfoChanged: procedure.input(exportAccountBindingInput).subscription(({ input }) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    return observable<{ at: number }>((emit) => {
+      const handler = (change: DbChange): void => {
+        if (getAppContext().services === services) emit.next({ at: change.at });
+      };
+      dbEventBus.on('group-info-changed', handler);
+      return () => dbEventBus.off('group-info-changed', handler);
+    });
+  }),
+
   /** 本地未读差分已落地后立即通知目标，避免红点依赖全会话扫描。 */
   onUnreadChanged: procedure.input(exportAccountBindingInput).subscription(({ input }) => {
     const services = requireExpectedAccount(

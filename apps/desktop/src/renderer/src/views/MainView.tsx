@@ -168,6 +168,7 @@ import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useCloneTaskRefresh } from '../hooks/useCloneTaskRefresh';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
+import { readFreshGroupMemberPage, activeGroupMembers } from '../lib/groupMemberRefresh';
 import { useDressSkin } from '../hooks/useDressSkin';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { WorkspaceMenuButton, WorkspaceSettingsButton } from '../components/WorkspaceMenuButton';
@@ -644,6 +645,7 @@ type GroupMemberWire = {
   lastSpeakTime?: number;
   muteUntil?: number;
   adminFlag: number;
+  memberFlag?: number;
   customTitle?: string;
   memberLevel?: number;
 };
@@ -1265,6 +1267,7 @@ function groupMemberWireToMember(
     muteUntil: secondsToIsoTime(m.muteUntil),
     customTitle: m.customTitle || null,
     memberLevel: m.memberLevel,
+    memberFlag: m.memberFlag,
     levelName: levelNameFor(ctx.levelConfigs, m.memberLevel),
   };
 }
@@ -3911,6 +3914,7 @@ function MainWorkspace(): ReactElement {
   const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
   const [groupMemberLoading, setGroupMemberLoading] = useState<Record<string, boolean>>({});
   const [groupMemberError, setGroupMemberError] = useState<Record<string, string>>({});
+  const [groupInfoRevision, setGroupInfoRevision] = useState(0);
   const groupMemberLoadingRef = useRef<Record<string, boolean>>({});
   // Off-page message senders resolved on demand (groupCode → uid → member),
   // batched + deduped by useGroupMemberResolver. Kept separate from the global
@@ -3919,11 +3923,13 @@ function MainWorkspace(): ReactElement {
     missingMembers,
     resolveMembers,
     updateMembers: updateCachedMembers,
+    invalidate: invalidateCachedMembers,
   } = useGroupMemberResolver<GroupMemberWire>();
   const {
     missingMembers: previewMembers,
     resolveMembers: resolvePreviewMembers,
     updateMembers: updatePreviewMembers,
+    invalidate: invalidatePreviewMembers,
   } = useGroupMemberResolver<GroupMemberWire>();
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
@@ -5436,6 +5442,8 @@ function MainWorkspace(): ReactElement {
   // 联系人群详情使用独立目标，复用成员分页缓存，不借用聊天页当前群的成员或搜索。
   const groupDetailCode =
     shell.view === 'contacts' ? (shell.selectedGroupConversationId ?? '') : '';
+  const groupMemberTargets = useRef(new Set<string>());
+  groupMemberTargets.current = new Set([isGroup ? selectedUid : '', groupDetailCode]);
   const contactGroupProfile = trpc.account.getGroupDetail.useQuery(
     { groupCode: groupDetailCode },
     { enabled: Boolean(groupDetailCode) },
@@ -5456,6 +5464,7 @@ function MainWorkspace(): ReactElement {
     groupDetailCode || undefined,
     contactMemberKeyword,
     mapContactGroupMember,
+    groupInfoRevision,
   );
   const selectedGroupConversationForDetail = useMemo(() => {
     const conv = shell.selectedGroupConversation;
@@ -5463,7 +5472,10 @@ function MainWorkspace(): ReactElement {
     const detail = contactGroupProfile.data;
     const resolved = detail ? groupDetailToConversation(detail, conv, user) : conv;
     if (resolved.type !== 'group') return conv;
-    return { ...resolved, members: (groupMemberPages[conv.id] ?? []).map(mapContactGroupMember) };
+    return {
+      ...resolved,
+      members: activeGroupMembers((groupMemberPages[conv.id] ?? []).map(mapContactGroupMember)),
+    };
   }, [
     shell.selectedGroupConversation,
     contactGroupProfile.data,
@@ -6094,25 +6106,26 @@ function MainWorkspace(): ReactElement {
         return { ...current, [groupCode]: true };
       });
 
+      let version = memberPageVersions.current.get(groupCode) ?? 0;
+      memberPageVersions.current.set(groupCode, version);
       try {
-        let version = memberPageVersions.current.get(groupCode) ?? 0;
-        let page = await client.account.listGroupMembers.query({
-          groupCode,
-          limit: GROUP_MEMBER_PAGE_SIZE,
+        const result = await readFreshGroupMemberPage(
           offset,
-        });
-        // 名片保存发生在分页读取途中时，最多补读一次，旧分页不能盖回新名片。
-        if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) {
-          version = memberPageVersions.current.get(groupCode) ?? 0;
-          page = await client.account.listGroupMembers.query({
-            groupCode,
-            limit: GROUP_MEMBER_PAGE_SIZE,
-            offset,
-          });
-        }
+          () => memberPageVersions.current.get(groupCode) ?? 0,
+          (pageOffset) =>
+            client.account.listGroupMembers.query({
+              groupCode,
+              limit: GROUP_MEMBER_PAGE_SIZE,
+              offset: pageOffset,
+            }),
+        );
+        if (!result) return;
+        version = result.version;
         if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) return;
+        const page = result.page;
+        offset = result.offset;
 
-        if (selectionRef.current?.id !== groupCode) {
+        if (!groupMemberTargets.current.has(groupCode)) {
           // User switched away during loading - cleanup and bail
           groupMemberLoadingRef.current = {
             ...groupMemberLoadingRef.current,
@@ -6123,6 +6136,7 @@ function MainWorkspace(): ReactElement {
         }
 
         setGroupMemberPages((current) => {
+          if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) return current;
           const existing = offset === 0 ? [] : (current[groupCode] ?? []);
           const known = new Set(existing.map((member) => member.uid));
           const fresh = page.filter((member) => !known.has(member.uid));
@@ -6143,6 +6157,7 @@ function MainWorkspace(): ReactElement {
         }
       } catch (err) {
         console.error('[group-members] listGroupMembers failed', err);
+        if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) return;
         const errorMessage = err instanceof Error ? err.message : String(err);
         setGroupMemberError((current) => ({ ...current, [groupCode]: errorMessage }));
         setGroupMemberHasMore((current) => ({ ...current, [groupCode]: false }));
@@ -6156,6 +6171,54 @@ function MainWorkspace(): ReactElement {
     },
     [],
   );
+
+  useEffect(() => {
+    const binding = messageBindingRef.current;
+    if (!messageScope || !binding) return;
+    const refresh = createUnreadRefresh(async () => {
+      if (messageScopeRef.current !== messageScope) return true;
+      for (const code of memberPageVersions.current.keys()) {
+        memberPageVersions.current.set(code, (memberPageVersions.current.get(code) ?? 0) + 1);
+      }
+      setGroupMemberPages({});
+      setGroupMemberHasMore({});
+      setGroupMemberError({});
+      invalidateCachedMembers();
+      invalidatePreviewMembers();
+      setGroupInfoRevision((revision) => revision + 1);
+      await Promise.all([
+        utils.account.getGroupDetail.invalidate(),
+        utils.account.getGroupExt.invalidate(),
+        utils.account.getGroupMemberLevelInfo.invalidate(),
+        utils.account.listGroupLeftMembers.invalidate(),
+        utils.account.listAllGroups.invalidate(),
+      ]);
+      return true;
+    });
+    const sub = client.account.onGroupInfoChanged.subscribe(binding, {
+      onData() {
+        if (messageScopeRef.current === messageScope) refresh.request();
+      },
+      onError(error) {
+        console.error('[group-members] 群资料变更订阅失败', error);
+      },
+    });
+    return () => {
+      refresh.dispose();
+      sub.unsubscribe();
+    };
+  }, [messageScope, utils, invalidateCachedMembers, invalidatePreviewMembers]);
+
+  useEffect(() => {
+    if (groupDetailCode && !groupMemberPages[groupDetailCode] && !groupMemberError[groupDetailCode])
+      void loadGroupMembersPage(groupDetailCode, 0);
+  }, [
+    groupDetailCode,
+    groupMemberPages,
+    groupMemberError,
+    groupMemberLoading,
+    loadGroupMembersPage,
+  ]);
 
   const peerUpdateSource = useRef(noticeAccountKey);
   peerUpdateSource.current = noticeAccountKey;
@@ -6171,20 +6234,19 @@ function MainWorkspace(): ReactElement {
           );
           return;
         }
-        memberPageVersions.current.set(
-          target.groupCode,
-          (memberPageVersions.current.get(target.groupCode) ?? 0) + 1,
-        );
+        const version = (memberPageVersions.current.get(target.groupCode) ?? 0) + 1;
+        memberPageVersions.current.set(target.groupCode, version);
         const member = await client.account.qqWrite.memberDetails.query({
           ...binding,
           groupId: Number(target.groupCode),
           uid: target.uid,
         });
         const rows = member ? [member] : [];
-        if (!current()) return;
+        if (!current() || version !== memberPageVersions.current.get(target.groupCode)) return;
         setGroupMemberPages((previous) => {
           const loaded = previous[target.groupCode];
-          if (!current() || !loaded) return previous;
+          if (!current() || !loaded || version !== memberPageVersions.current.get(target.groupCode))
+            return previous;
           return {
             ...previous,
             [target.groupCode]: replaceLoadedMembers(loaded, rows),
@@ -6315,6 +6377,7 @@ function MainWorkspace(): ReactElement {
     isGroup ? selectedUid : undefined,
     memberSearchKeyword,
     mapGroupMemberWire,
+    groupInfoRevision,
   );
   const memberSearch = useMemo(
     () => (isGroup && selectedUid ? groupMemberSearch.view : null),
@@ -7016,7 +7079,7 @@ function MainWorkspace(): ReactElement {
 
     return {
       ...selectedConversation,
-      members: currentGroupMembers,
+      members: activeGroupMembers(currentGroupMembers),
       group: {
         ...selectedConversation.group!,
         name: detail?.groupName || selectedConversation.group!.name,

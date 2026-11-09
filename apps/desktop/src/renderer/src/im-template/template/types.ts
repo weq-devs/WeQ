@@ -99,6 +99,7 @@ export type ContactSection = {
 };
 
 export type GroupMember = User & {
+  memberFlag?: number;
   card?: string;
   remark?: string;
   nick?: string;

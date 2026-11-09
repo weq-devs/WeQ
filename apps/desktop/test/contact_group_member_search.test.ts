@@ -43,11 +43,12 @@ function mount(groupCode: string) {
   document.body.append(host);
   const root = createRoot(host);
   let current: GroupMemberSearch;
-  function Probe({ code }: { code: string }) {
-    current = useGroupMemberSearch<Member>(code, '合成', mapMember);
+  function Probe({ code, revision }: { code: string; revision: number }) {
+    current = useGroupMemberSearch<Member>(code, '合成', mapMember, revision);
     return null;
   }
-  const render = (code: string) => act(() => root.render(h(Probe, { code })));
+  const render = (code: string, revision = 0) =>
+    act(() => root.render(h(Probe, { code, revision })));
   render(groupCode);
   cleanups.push(() => {
     act(() => root.unmount());
@@ -80,6 +81,31 @@ it('联系人切群后，迟到的旧群搜索不能覆盖当前成员', async (
   });
   expect(probe.state().view.members.map((row) => row.id)).toEqual([member(2).id]);
   expect(rpc.search.mock.calls.map(([input]) => input.groupCode)).toEqual(['10001', '10002']);
+});
+
+it('群成员变更后，相同关键字重新查询，迟到的旧结果不能回填', async () => {
+  let finishOld!: (value: { members: Member[]; total: number }) => void;
+  rpc.search
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishOld = resolve;
+        }),
+    )
+    .mockResolvedValueOnce({ members: [member(2)], total: 1 });
+  const probe = mount('10001');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250);
+  });
+  probe.render('10001', 1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250);
+  });
+  await act(async () => {
+    finishOld({ members: [member(1)], total: 1 });
+  });
+  expect(probe.state().view.members.map((row) => row.id)).toEqual([member(2).id]);
+  expect(rpc.search).toHaveBeenCalledTimes(2);
 });
 
 it('复用全群搜索分页，不把首屏结果当作全部成员', async () => {

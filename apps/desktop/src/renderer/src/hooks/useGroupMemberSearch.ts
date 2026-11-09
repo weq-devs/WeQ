@@ -51,6 +51,7 @@ export function useGroupMemberSearch<T extends { uid: string }>(
   groupCode: string | undefined,
   keyword: string,
   mapWire: (member: T) => GroupMember,
+  revision = 0,
 ): GroupMemberSearch {
   const [items, setItems] = useState<T[]>([]);
   const [total, setTotal] = useState(0);
@@ -64,7 +65,7 @@ export function useGroupMemberSearch<T extends { uid: string }>(
 
   const query = groupCode ?? '';
   const needle = keyword.trim();
-  const key = `${query}\u0000${needle}`;
+  const key = `${query}\u0000${needle}\u0000${revision}`;
 
   const fetchPage = useCallback(
     async (run: number, code: string, kw: string, offset: number, append: boolean) => {
@@ -82,7 +83,7 @@ export function useGroupMemberSearch<T extends { uid: string }>(
         const members = page.members as unknown as T[];
         setTotal(page.total);
         setError(null);
-        setResultKey(`${code}\u0000${kw}`);
+        setResultKey(`${code}\u0000${kw}\u0000${revision}`);
         setItems((prev) => {
           if (!append) return members;
           const seen = new Set(prev.map((member) => member.uid));
@@ -103,7 +104,7 @@ export function useGroupMemberSearch<T extends { uid: string }>(
         }
       }
     },
-    [],
+    [revision],
   );
 
   useEffect(() => {
@@ -123,7 +124,10 @@ export function useGroupMemberSearch<T extends { uid: string }>(
       () => void fetchPage(run, query, needle, 0, false),
       DEBOUNCE_MS,
     );
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      runRef.current++;
+    };
   }, [query, needle, fetchPage]);
 
   const loadMore = useCallback((): void => {

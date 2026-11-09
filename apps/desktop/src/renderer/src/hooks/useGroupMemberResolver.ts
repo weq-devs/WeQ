@@ -31,6 +31,7 @@ export interface GroupMemberResolver<T> {
     isCurrent: () => boolean,
   ) => void;
   updateMembers: (groupCode: string, members: readonly T[]) => void;
+  invalidate: () => void;
 }
 
 export function useGroupMemberResolver<T extends { uid: string }>(): GroupMemberResolver<T> {
@@ -39,6 +40,13 @@ export function useGroupMemberResolver<T extends { uid: string }>(): GroupMember
   // / 禁言对象），避免每次渲染重复请求。用 ref 以便在同一轮内即时去重。
   const attemptedRef = useRef<Record<string, Set<string>>>({});
   const versions = useRef(new Map<string, number>());
+  const generation = useRef(0);
+  const invalidate = useCallback(() => {
+    generation.current++;
+    attemptedRef.current = {};
+    versions.current.clear();
+    setMissingMembers({});
+  }, []);
   const updateMembers = useCallback((groupCode: string, members: readonly T[]) => {
     for (const member of members) {
       const key = `${groupCode}:${member.uid}`;
@@ -75,18 +83,21 @@ export function useGroupMemberResolver<T extends { uid: string }>(): GroupMember
         captured.set(uid, versions.current.get(`${groupCode}:${uid}`) ?? 0);
       }
       if (missing.length === 0) return;
+      const started = generation.current;
 
       void (async () => {
         for (let i = 0; i < missing.length; i += CHUNK) {
+          if (started !== generation.current) return;
           const chunk = missing.slice(i, i + CHUNK);
           try {
             const members = await client.account.getGroupMembersByUids.query({
               groupCode,
               uids: chunk,
             });
-            if (!isCurrent()) return;
+            if (!isCurrent() || started !== generation.current) return;
             if (members.length > 0) {
               setMissingMembers((prev) => {
+                if (started !== generation.current) return prev;
                 const groupCache = { ...(prev[groupCode] ?? {}) };
                 for (const member of members as unknown as T[]) {
                   if (
@@ -109,5 +120,5 @@ export function useGroupMemberResolver<T extends { uid: string }>(): GroupMember
     [],
   );
 
-  return { missingMembers, resolveMembers, updateMembers };
+  return { missingMembers, resolveMembers, updateMembers, invalidate };
 }

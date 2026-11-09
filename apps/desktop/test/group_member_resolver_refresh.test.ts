@@ -16,6 +16,37 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   vi.unstubAllGlobals();
 });
+
+it('群资料失效后清空旧成员和未命中记录，阻止迟到补全并允许重查', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let finish!: (members: Member[]) => void;
+  mock.query
+    .mockReset()
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    )
+    .mockResolvedValueOnce([{ uid: 'u_peer', card: '新成员' }]);
+  let resolver!: GroupMemberResolver<Member>;
+  const root = createRoot(document.createElement('div'));
+  function Probe() {
+    resolver = useGroupMemberResolver<Member>();
+    return null;
+  }
+  act(() => root.render(h(Probe)));
+  cleanups.push(() => act(() => root.unmount()));
+  act(() => {
+    resolver.updateMembers('123', [{ uid: 'u_left', card: '已退群' }]);
+    resolver.resolveMembers('123', ['u_peer'], new Set(), () => true);
+    resolver.invalidate();
+  });
+  await act(async () => finish([{ uid: 'u_peer', card: '旧成员' }]));
+  expect(resolver.missingMembers).toEqual({});
+  await act(async () => resolver.resolveMembers('123', ['u_peer'], new Set(), () => true));
+  expect(resolver.missingMembers['123'].u_peer.card).toBe('新成员');
+});
 it('名片读回定向更新群缓存，迟到补全不能覆盖新值，也不影响其他群', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   let finish!: (members: Member[]) => void;
