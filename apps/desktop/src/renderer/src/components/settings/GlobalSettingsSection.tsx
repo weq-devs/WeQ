@@ -57,18 +57,6 @@ function backupDescription(item: StorageUsageItem): string | null {
 }
 
 /** Human-readable byte size for the cache-cleanup card. */
-function formatBytes(bytes: number): string {
-  if (!bytes || bytes < 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(unit === 0 ? 0 : value >= 100 ? 0 : 1)} ${units[unit]}`;
-}
-
 /** 点击关闭按钮（标题栏 ✕）时的行为。 */
 const CLOSE_BEHAVIOR_OPTIONS: ReadonlyArray<{ value: WindowCloseBehavior; label: string }> = [
   { value: 'ask', label: '每次询问' },
@@ -1027,3 +1015,4 @@ export function GlobalSettingsSection({
   );
 }
 import { SegmentedControl } from '../SegmentedControl';
+import { formatBytes } from '../../lib/format';

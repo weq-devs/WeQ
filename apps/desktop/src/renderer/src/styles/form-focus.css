@@ -45,3 +45,22 @@ html[data-theme]
   ):where(:not(.is-error, [aria-invalid='true'])):focus {
   border-color: var(--weq-accent-effective);
 }
+
+/* 焦点提示的补充：文本控件不叠系统外圈，但下面这些位置原先连边框变化都
+ * 没有（主输入框透明无边框、默认皮肤搜索框靠容器，没有 focus-within 样式），
+ * 键盘操作时看不到焦点。这里只补可见焦点，不改变鼠标/静止外观。 */
+/* 只在键盘操作后显示主输入框焦点环：鼠标点选 / 打开会话的自动聚焦保持原样。 */
+html[data-theme][data-weq-input-modality='keyboard'] body .composer-editor:focus-visible {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+html[data-theme][data-weq-input-modality='keyboard'] body .search-box:has(input:focus-visible) {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+}
+
+/* QQ NT 预设本来就有 focus-within 边框，再加一圈会糊，保持它自己的样式。 */
+html[data-component-style='qqnt'] body .search-box:has(input:focus-visible) {
+  box-shadow: none;
+}

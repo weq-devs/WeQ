@@ -462,6 +462,11 @@ html[data-theme='dark'] .weq-chat-backdrop {
   background: transparent;
 }
 
+.message-scroll:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  outline-offset: -2px;
+}
+
 .message-scroll::-webkit-scrollbar {
   width: 8px;
 }
@@ -632,6 +637,31 @@ html[data-theme='dark'] .weq-chat-backdrop {
   gap: 10px;
 }
 
+/* 键盘把焦点落到某条消息时，只给气泡/正文描边，不整行拉一条通栏轮廓。 */
+.message-line:focus-visible {
+  outline: none;
+}
+
+.message-line:focus-visible .message-content {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: 2px;
+}
+
+.message-line:focus-visible .message-avatar-button {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: 1px;
+}
+
+.weq-system-message-row:focus-visible {
+  outline: none;
+}
+
+.weq-system-message-row:focus-visible .weq-system-message-content {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 .message-line.mine {
   justify-content: flex-end;
 }
@@ -738,8 +768,8 @@ html[data-theme='dark'] .weq-qqshow-avatar img {
   margin: 4px 0;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.34);
-  color: #a8a8a8;
+  background: color-mix(in srgb, var(--weq-bg-surface, #ffffff) 34%, transparent);
+  color: var(--weq-fg-secondary);
   font-size: 11px;
   font-weight: 400;
   line-height: 1.25;
@@ -803,7 +833,7 @@ html[data-theme='dark'] .weq-qqshow-avatar img {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: #9a9a9a;
+  color: var(--weq-fg-secondary);
   font-size: 13px;
   font-weight: 500;
 }

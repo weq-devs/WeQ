@@ -195,6 +195,7 @@ export function SidebarHeader({
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
               onFocus={() => onSearchFocus?.()}
+              aria-label="搜索会话、联系人和群"
               placeholder="搜索"
             />
           </label>

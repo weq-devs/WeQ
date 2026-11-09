@@ -1,3 +1,4 @@
+import { formatBytes } from './format';
 /**
  * 群文件的共享展示工具 —— 聊天页「群文件」卡片和导出中心的群文件灯箱共用，
  * 保证两边的类型图标 / 尺寸 / 时间格式完全一致。
@@ -110,13 +111,9 @@ export function fileExtIcon(fileName: string): string {
   return map[ext] ?? 'unknown.png';
 }
 
-/** 人类可读文件大小。 */
+/** 人类可读文件大小；统一走 lib/format，避免各页面精度不一致。 */
 export function formatSize(bytes: number): string {
-  if (bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
-  const value = bytes / 1024 ** i;
-  return `${value >= 100 || i === 0 ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
+  return formatBytes(bytes);
 }
 
 const fileTimeFormatter = new Intl.DateTimeFormat('sv-SE', {

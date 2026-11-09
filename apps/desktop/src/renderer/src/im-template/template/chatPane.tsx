@@ -18,7 +18,9 @@ import { useMediaSave } from '../../components/MediaSaveControls';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import { useStableCallback } from '../../hooks/useStableCallback';
 import { useMobileWebLayout } from '../../hooks/useMobileWebViewport';
-import { timelineViewport } from '../../lib/timelineViewport';
+import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
+import { adjacentMessageId } from '../../lib/messageKeyboardNav';
+import '../../lib/inputModality';
 import { IS_WEB } from '../../lib/target';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
@@ -4155,6 +4157,94 @@ export function ChatPane({
     }
   }
 
+  /**
+   * 键盘浏览消息。聊天区容器可聚焦；方向键在消息行之间移动焦点，
+   * Enter / Shift+F10 / 菜单键打开当前消息的操作菜单，Esc 回到聊天区。
+   * 消息行本身 tabIndex=-1，不额外制造大量 Tab 站点。
+   */
+  function timelineFocusedRow(): HTMLElement | null {
+    const scroll = messageScrollRef.current;
+    const active = document.activeElement;
+    if (!scroll || !(active instanceof HTMLElement)) return null;
+    const row = active.closest<HTMLElement>('[data-message-id]');
+    return row && scroll.contains(row) ? row : null;
+  }
+
+  function focusTimelineRow(id: string, attempts = 0): void {
+    const scroll = messageScrollRef.current;
+    if (!scroll) return;
+    const find = () =>
+      [...scroll.querySelectorAll<HTMLElement>('[data-message-id]')].find(
+        (element) => element.dataset.messageId === id,
+      );
+    const row = find();
+    if (row) {
+      row.focus({ preventScroll: true });
+      row.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    // 虚拟列表里下一行可能还没挂载：先滚到该条，再等一帧继续找。
+    if (attempts === 0) revealTimelineMessage(scroll, id);
+    if (attempts > 12) return;
+    window.setTimeout(() => focusTimelineRow(id, attempts + 1), attempts === 0 ? 16 : 40);
+  }
+
+  function handleTimelineKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+    const ids = visibleMessages.map((message) => message.id);
+    if (!ids.length) return;
+    const focused = timelineFocusedRow();
+    const currentId = focused?.dataset.messageId;
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!currentId) {
+        focusTimelineRow(event.key === 'ArrowDown' ? ids[0]! : ids[ids.length - 1]!);
+        return;
+      }
+      const next = adjacentMessageId(ids, currentId, event.key === 'ArrowDown' ? 1 : -1);
+      if (next) focusTimelineRow(next);
+      return;
+    }
+    if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      focusTimelineRow(event.key === 'Home' ? ids[0]! : ids[ids.length - 1]!);
+      return;
+    }
+    if (!focused) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        focusTimelineRow(ids[0]!);
+      }
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      focused.blur();
+      messageScrollRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (
+      event.key === 'Enter' ||
+      event.key === 'ContextMenu' ||
+      (event.shiftKey && event.key === 'F10')
+    ) {
+      event.preventDefault();
+      // 复用鼠标右键路径：菜单定位、锚点跟踪和多选/引用状态都按同一入口处理。
+      const target = focused.querySelector<HTMLElement>('.message-bubble') ?? focused;
+      const rect = target.getBoundingClientRect();
+      target.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          button: 2,
+          clientX: rect.left + Math.min(24, rect.width / 2),
+          clientY: rect.top + Math.min(24, rect.height / 2),
+        }),
+      );
+    }
+  }
+
   function openMessageMenu(event: ReactMouseEvent, message: Message) {
     event.preventDefault();
     const selection = window.getSelection();
@@ -4198,6 +4288,7 @@ export function ChatPane({
       x: Math.min(event.clientX, window.innerWidth - 126),
       y: Math.min(event.clientY, window.innerHeight - 84),
       variant: 'desktop',
+      originElement: anchorEl ?? (event.currentTarget as HTMLElement),
       anchorOffsetX: anchorRect ? event.clientX - anchorRect.left : undefined,
       anchorOffsetY: anchorRect ? event.clientY - anchorRect.top : undefined,
     });
@@ -4218,6 +4309,7 @@ export function ChatPane({
       x: Math.min(Math.max(point.x, menuHalfWidth), window.innerWidth - menuHalfWidth),
       y: Math.min(Math.max(point.y + 10, 92), maxTop),
       variant: 'mobile',
+      originElement: document.activeElement instanceof HTMLElement ? document.activeElement : null,
     });
   }
 
@@ -5349,6 +5441,9 @@ export function ChatPane({
             marquee.dragging && 'is-marquee-selecting',
           )}
           ref={messageScrollRef}
+          tabIndex={0}
+          aria-label="聊天消息，方向键浏览消息，回车打开消息操作"
+          onKeyDown={handleTimelineKeyDown}
           onScroll={handleMessageScroll}
           {...marquee.handlers}
         >
@@ -5358,7 +5453,12 @@ export function ChatPane({
             <div className="weq-message-marquee" aria-hidden style={marquee.box} />
           ) : null}
           {loading && visibleMessages.length === 0 ? (
-            <ChatMessagesSkeleton />
+            <>
+              <span className="sr-only" role="status">
+                正在加载消息
+              </span>
+              <ChatMessagesSkeleton />
+            </>
           ) : visibleMessages.length === 0 && !loadingNewer && !loadError ? (
             <EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
           ) : (
@@ -6410,6 +6510,7 @@ export function ChatPane({
               className={cn('composer-editor mobile-composer-expanded-editor')}
               role="textbox"
               aria-multiline="true"
+              aria-label="消息"
               aria-disabled={readOnly || currentPreference.blocked}
               contentEditable={!readOnly && !currentPreference.blocked}
               suppressContentEditableWarning

@@ -3,6 +3,7 @@
  * 查看保留既有隔离 HTML 查看器；保存复用全局偏好与任务回执，不重新调用模型。
  */
 
+import { formatBytes } from '../../lib/format';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import {
   Download,
@@ -36,12 +37,6 @@ function kindLabel(kind: AssistantArtifact['kind']): string {
   if (kind === 'html') return 'HTML 报告';
   if (kind === 'markdown') return 'Markdown';
   return '文本';
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifact }): ReactElement {

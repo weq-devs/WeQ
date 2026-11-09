@@ -23,6 +23,7 @@ import { cachedAvatarUrl } from '../lib/avatarCache';
 import { FlashShareDialog } from './FlashShareDialog';
 import { FlashTransferViewer } from './FlashTransferViewer';
 import { useToast } from './Toast';
+import { formatBytes } from '../lib/format';
 
 // ---- parsing (ported from the demo) --------------------------------------
 
@@ -100,18 +101,6 @@ export function flashTransferTitle(markdownContent: string): string | null {
 // ---- desc fallback from the real flashTransferInfo -----------------------
 
 const FLASH_EXPIRE_DAYS = 14;
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let v = bytes;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i += 1;
-  }
-  return `${i === 0 ? v.toFixed(0) : v.toFixed(2)} ${units[i]}`;
-}
 
 /** "X 天后过期" computed from createTime (seconds); falls back to the 14d default. */
 function expiryText(createTimeSec: number): string {
