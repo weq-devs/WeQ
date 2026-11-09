@@ -9,6 +9,7 @@ import { type CalendarMetadataDb, withDatabasePriority, withDatabaseReadBudget }
 import {
   CALENDAR_CACHE_BYTES,
   ConversationCalendarJob,
+  calendarMonthDays,
   calendarTargetKey,
   type CalendarTarget,
   type CalendarKind,
@@ -19,6 +20,7 @@ import { exportAccountBindingInput } from './export_save';
 import { c2cMsgToWire, groupMsgToWire, type ChatMsgWire } from '../serde';
 import { roamingMsgToWire } from '../roaming_message_wire';
 import { timelineRowKey } from '@weq/service/roaming-timeline';
+import { backgroundTasks } from '../../background_tasks';
 
 const targetInput = z.object({
   kind: z.enum([
@@ -45,6 +47,8 @@ const dayInput = z
   .regex(/^\d{4}-\d{2}-\d{2}$/)
   .optional();
 interface Entry {
+  taskId: string;
+  day?: string;
   job: ConversationCalendarJob;
   session: AccountSession;
   services: AccountServices;
@@ -52,6 +56,49 @@ interface Entry {
   targets: CalendarTarget[];
 }
 const sessions = new WeakMap<AccountSession, Map<string, Entry>>();
+
+function syncTask(value: Entry) {
+  const snapshot = value.job.snapshot(value.day, 0, true);
+  const { completedSources: done, totalSources: total, failedSources: failed } = snapshot.progress;
+  const complete = done === total && snapshot.complete;
+  const status = complete
+    ? 'completed'
+    : snapshot.cancelled
+      ? 'cancelled'
+      : failed && done + failed === total
+        ? 'paused'
+        : 'running';
+  const previous = backgroundTasks.snapshot().find((task) => task.id === value.taskId);
+  if (!previous) return;
+  if (previous.status !== 'running' && status === 'running') backgroundTasks.resume(value.taskId);
+  const patch = {
+    progress: total ? (done / total) * 100 : 100,
+    note: `已完成 ${done}/${total} 个日期来源${failed ? `，${failed} 个暂停` : ''}`,
+    logs: snapshot.logs,
+    subtasks: [
+      { label: '本月日期来源', done, total, failed },
+      ...(snapshot.dayProgress
+        ? [
+            {
+              label: `${value.day} 来源`,
+              done: snapshot.dayProgress.completedSources,
+              total: snapshot.dayProgress.totalSources,
+              failed: 0,
+            },
+          ]
+        : []),
+    ],
+  };
+  if (status === 'running') backgroundTasks.update(value.taskId, patch);
+  else backgroundTasks.finish(value.taskId, status, patch);
+  if ((status === 'running') !== previous.actions.some((action) => action.id === 'stop'))
+    backgroundTasks.setActions(
+      value.taskId,
+      status === 'running'
+        ? [{ id: 'stop', label: '停止统计', run: () => value.job.cancel() }]
+        : [],
+    );
+}
 
 function current(input: { expectedAccountUin?: string; expectedAccountConfigId?: string }) {
   const ctx = getAppContext();
@@ -88,10 +135,13 @@ export const conversationCalendarRouter = router({
       exportAccountBindingInput.extend({
         month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
         targets: z.array(targetInput).max(12000),
+        day: dayInput,
       }),
     )
     .mutation(({ input }) => {
       const { session, services, native } = current(input);
+      if (input.day && !calendarMonthDays(input.month).some((value) => value.day === input.day))
+        throw new Error('日期不属于当前月份');
       let cache = sessions.get(session);
       if (!cache) {
         cache = new Map();
@@ -130,7 +180,14 @@ export const conversationCalendarRouter = router({
         return true;
       };
       const job = new ConversationCalendarJob(input.month, unique, sources, reserve);
-      cache.set(id, { ...value, job });
+      const taskId = backgroundTasks.start({
+        name: `会话日历 · ${input.month}`,
+        kind: 'calendar',
+        scope: { uin: session.context.uin, configId: services.accountConfig.getRecord()?.configId },
+      });
+      const tracked: Entry = { ...value, job, taskId, day: input.day };
+      cache.set(id, tracked);
+      job.controller.signal.addEventListener('abort', () => syncTask(tracked), { once: true });
       while (cache.size > 12) {
         const first = cache.keys().next().value!;
         cache.get(first)?.job.cancel();
@@ -141,12 +198,15 @@ export const conversationCalendarRouter = router({
         () =>
           withDatabaseReadBudget(
             10,
-            () => job.keepAlive(),
+            () => job.keepAlive(input.day),
             (ms) => job.observeRead(ms),
+            () => job.noteWaiting(),
           ),
         job.controller.signal,
       );
-      return { id };
+      syncTask(tracked);
+      void job.settled().then(() => syncTask(tracked));
+      return { id, taskId };
     }),
   poll: procedure
     .input(
@@ -154,12 +214,15 @@ export const conversationCalendarRouter = router({
         day: dayInput,
         offset: z.number().int().min(0).default(0),
         retry: z.boolean().default(false),
+        includeLogs: z.boolean().default(false),
       }),
     )
     .query(({ input }) => {
       const value = entry(input);
       if (input.day && !input.day.startsWith(`${value.job.month}-`))
         throw new Error('日期不属于当前月份');
+      const changed = value.day !== input.day || input.retry;
+      value.day = input.day;
       withDatabasePriority(
         'background',
         () =>
@@ -167,10 +230,13 @@ export const conversationCalendarRouter = router({
             10,
             () => value.job.keepAlive(input.day, input.retry),
             (ms) => value.job.observeRead(ms),
+            () => value.job.noteWaiting(),
           ),
         value.job.controller.signal,
       );
-      return value.job.snapshot(input.day, input.offset);
+      syncTask(value);
+      if (changed) void value.job.settled().then(() => syncTask(value));
+      return value.job.snapshot(input.day, input.offset, input.includeLogs);
     }),
   stop: procedure.input(requestInput).mutation(({ input }) => {
     entry(input).job.cancel();

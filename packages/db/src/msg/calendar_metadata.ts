@@ -89,7 +89,12 @@ export class CalendarMetadataDb {
     cursor: CalendarCursor | undefined,
     limit: number,
     ark = false,
-  ): Promise<{ items: CalendarMetadata[]; cursor: CalendarCursor | undefined; done: boolean }> {
+  ): Promise<{
+    items: CalendarMetadata[];
+    cursor: CalendarCursor | undefined;
+    done: boolean;
+    scanned: number;
+  }> {
     const indexed = await this.timeIndex();
     const params: SqlValue[] = [];
     let where = '';
@@ -117,6 +122,7 @@ export class CalendarMetadataDb {
     );
     const last = rows.at(-1);
     return {
+      scanned: rows.length,
       items: rows
         .filter((row) => Number(row[2]) >= start && Number(row[2]) < end)
         .map((row) => ({

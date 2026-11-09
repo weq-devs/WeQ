@@ -30,13 +30,15 @@ const priority = new AsyncLocalStorage<{ priority: DatabasePriority; signal?: Ab
 const readBudget = new AsyncLocalStorage<{
   milliseconds: number;
   onRead?: (milliseconds: number) => void;
+  onWait?: () => void;
 }>();
 export function withDatabaseReadBudget<T>(
   budgetMs: number,
   run: () => T,
   onRead?: (milliseconds: number) => void,
+  onWait?: () => void,
 ): T {
-  return readBudget.run({ milliseconds: budgetMs, onRead }, run);
+  return readBudget.run({ milliseconds: budgetMs, onRead, onWait }, run);
 }
 export function databaseReadBudget() {
   return readBudget.getStore();
@@ -342,8 +344,10 @@ export async function waitForDatabaseQuiet(
   dbPath: string,
   current: () => boolean,
   quietMs = 5000,
+  onWait?: () => void,
 ): Promise<boolean> {
   const key = resolve(dbPath);
+  let notified = false;
   while (current()) {
     const active = [...queues.values()].some(
       (queue) =>
@@ -352,6 +356,10 @@ export async function waitForDatabaseQuiet(
     );
     const data = metric(key);
     if (!active && performance.now() - data.lastInteractiveAt >= quietMs) return true;
+    if (!notified) {
+      onWait?.();
+      notified = true;
+    }
     await new Promise<void>((done) => setTimeout(done, 100));
   }
   return false;

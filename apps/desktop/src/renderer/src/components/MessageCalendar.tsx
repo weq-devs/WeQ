@@ -4,6 +4,7 @@ import { beijingDay, messageDensity, type MessageDay } from '../lib/messageCalen
 import '../styles/message-calendar.css';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+const compactCount = Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 });
 
 export function MessageCalendar({
   days = [],
@@ -122,10 +123,18 @@ export function MessageCalendar({
               data-density={messageDensity(count, maxCount)}
               className={`${selected ? 'is-selected' : ''} ${inRange ? 'is-range' : ''}`}
               aria-pressed={selected}
-              aria-label={pending ? `${day}，消息数量统计中` : `${day}，${count} 条消息`}
+              aria-label={
+                pending
+                  ? count > 0
+                    ? `${day}，已计 ${count} 条，尚未完成`
+                    : `${day}，消息数量统计中`
+                  : `${day}，${count} 条消息`
+              }
               title={
                 pending
-                  ? `${day}（北京时间）：消息数量统计中`
+                  ? count > 0
+                    ? `${day}（北京时间）：已计 ${count.toLocaleString('zh-CN')} 条，尚未完成`
+                    : `${day}（北京时间）：消息数量统计中`
                   : `${day}（北京时间）：${count.toLocaleString('zh-CN')} 条`
               }
               disabled={busy || (!allowEmpty && (loading || !count))}
@@ -137,12 +146,11 @@ export function MessageCalendar({
               <span>{date}</span>
               <small>
                 {pending
-                  ? '…'
+                  ? count > 0
+                    ? `${compactCount.format(count)}+`
+                    : '…'
                   : count
-                    ? Intl.NumberFormat('zh-CN', {
-                        notation: 'compact',
-                        maximumFractionDigits: 1,
-                      }).format(count)
+                    ? compactCount.format(count)
                     : dayStatus
                       ? '0'
                       : ''}

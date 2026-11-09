@@ -11,12 +11,17 @@ export const backgroundTasksRouter = router({
     backgroundTasks
       .snapshot()
       .filter((task) => backgroundTaskVisible(task, input))
-      .map(({ details: _details, ...task }) => task),
+      .map(({ details: _details, logs: _logs, ...task }) => task),
   ),
   details: procedure.input(ref.extend({ updatedAt: z.number() })).query(({ input }) => {
     const task = backgroundTasks.snapshot().find((task) => task.id === input.id);
     if (!task || !backgroundTaskVisible(task, input.scope)) throw new Error('任务已失效');
     return task.details ?? [];
+  }),
+  logs: procedure.input(ref.extend({ updatedAt: z.number() })).query(({ input }) => {
+    const task = backgroundTasks.snapshot().find((task) => task.id === input.id);
+    if (!task || !backgroundTaskVisible(task, input.scope)) throw new Error('任务已失效');
+    return task.logs ?? [];
   }),
   act: procedure.input(ref.extend({ action: z.string() })).mutation(async ({ input, ctx }) => {
     const task = backgroundTasks.snapshot().find((task) => task.id === input.id);

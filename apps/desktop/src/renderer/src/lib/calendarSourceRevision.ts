@@ -1,3 +1,10 @@
+import { calendarTargetKey, type CalendarTarget } from '@weq/service/conversation-calendar';
+
+/** 统计范围是身份集合；会话活动排序和展示资料变化不应丢弃扫描进度。 */
+export function calendarTargetSetKey(targets: readonly CalendarTarget[]): string {
+  return JSON.stringify([...new Set(targets.map(calendarTargetKey))].sort());
+}
+
 interface CloneActivity {
   id: string;
   updatedAt: number;

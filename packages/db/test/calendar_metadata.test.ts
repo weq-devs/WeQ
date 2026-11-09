@@ -67,3 +67,10 @@ it('大范围过滤转为元数据续查，不拼接巨量 SQL 参数', async ()
   ).toBeNull();
   expect(spy).not.toHaveBeenCalled();
 });
+it.each([true, false])('扫描数量来自实际读取行，不为进度增加 COUNT（索引=%s）', async (indexed) => {
+  const { reader, nt } = fixture(indexed);
+  const spy = vi.spyOn(nt, 'executeSql');
+  const page = await reader.page(100, 102, undefined, 2);
+  expect(page.scanned).toBe(2);
+  expect(spy.mock.calls.some(([, sql]) => sql.includes('COUNT(*)'))).toBe(false);
+});

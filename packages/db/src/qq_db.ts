@@ -77,7 +77,7 @@ export class QqDb {
       if (!read) throw new Error('日历需要支持短预算读取的原生组件');
       const signal = databaseRequestSignal();
       const current = () => !signal?.aborted;
-      if (!(await waitForDatabaseQuiet(this.dbPath, current, 500)))
+      if (!(await waitForDatabaseQuiet(this.dbPath, current, 500, budget.onWait)))
         throw new DOMException('日历统计已取消', 'AbortError');
       await new Promise<void>((done) => setTimeout(done, 20));
       return scheduleDatabase(

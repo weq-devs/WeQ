@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, ScrollText, X } from 'lucide-react';
 import {
   CALENDAR_SOURCE_LABELS,
   filterCalendarTargets,
+  calendarTargetKey,
   type CalendarAnchor,
   type CalendarTarget,
   type ConversationCalendarJob,
@@ -11,8 +12,11 @@ import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { client } from '../trpc/client';
 import { beijingDay } from '../lib/messageCalendar';
 import { calendarTargetsWithHiddenMessages } from '../lib/calendarHiddenMessages';
+import { calendarTargetSetKey } from '../lib/calendarSourceRevision';
 import { Modal } from './Dialog';
 import { MessageCalendar } from './MessageCalendar';
+import { CalendarScanProgress } from './CalendarScanProgress';
+import { TaskLogConsole } from './TaskLogConsole';
 import { useTabActive } from './RetainedTabs';
 import '../styles/conversation-overview-calendar.css';
 
@@ -45,6 +49,7 @@ export function ConversationOverviewCalendar({
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
   const [revision, setRevision] = useState(0);
   const [dirty, setDirty] = useState(false);
   const [autoRefreshPending, setAutoRefreshPending] = useState(false);
@@ -70,7 +75,15 @@ export function ConversationOverviewCalendar({
     () => filterCalendarTargets(targets, scope, query),
     [targets, scope, query],
   );
-  const selectionKey = useMemo(() => JSON.stringify(selected), [selected]);
+  const selectionKey = useMemo(() => calendarTargetSetKey(selected), [selected]);
+  const selectedByKey = useMemo(
+    () => new Map(selected.map((target) => [calendarTargetKey(target), target])),
+    [selected],
+  );
+  const latestTargets = useRef(selected);
+  latestTargets.current = selected;
+  const latestDay = useRef(day);
+  latestDay.current = day;
   const request = useMemo(
     () => ({ month, selectionKey, binding, ready, active, visible, revision }),
     [month, selectionKey, binding, ready, active, visible, revision],
@@ -122,7 +135,7 @@ export function ConversationOverviewCalendar({
     };
   }, []);
   useEffect(() => {
-    const { month, selectionKey, binding, ready, active, visible } = request;
+    const { month, binding, ready, active, visible } = request;
     setSnapshot(undefined);
     setJob(undefined);
     setError('');
@@ -133,12 +146,17 @@ export function ConversationOverviewCalendar({
     let task: string | undefined;
     const start = async () => {
       const targets = await calendarTargetsWithHiddenMessages(
-        JSON.parse(selectionKey) as CalendarTarget[],
+        latestTargets.current,
         localStorage,
         () => !cancelled && currentRequest.current === request,
       );
       if (cancelled || currentRequest.current !== request) return undefined;
-      return client.account.calendarOverview.start.mutate({ ...binding, month, targets });
+      return client.account.calendarOverview.start.mutate({
+        ...binding,
+        month,
+        targets,
+        day: latestDay.current.startsWith(`${month}-`) ? latestDay.current : undefined,
+      });
     };
     void start()
       .then((result) => {
@@ -171,6 +189,7 @@ export function ConversationOverviewCalendar({
           id,
           day: day.startsWith(month) ? day : undefined,
           offset,
+          includeLogs: showLogs,
         });
         if (cancelled || currentRequest.current !== request) return;
         setSnapshot(result);
@@ -192,7 +211,7 @@ export function ConversationOverviewCalendar({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [id, binding, day, offset, month, visible, active, request]);
+  }, [id, binding, day, offset, month, visible, active, request, showLogs]);
   const errors = [
     ...new Set(
       [directoryError, error, ...(snapshot?.days.flatMap((value) => value.errors) ?? [])].filter(
@@ -217,7 +236,11 @@ export function ConversationOverviewCalendar({
         anchor,
       });
       if (!live.current || latestId.current !== id) return;
-      onLocate(result.target, result.anchor, result.record);
+      onLocate(
+        selectedByKey.get(calendarTargetKey(result.target)) ?? result.target,
+        result.anchor,
+        result.record,
+      );
       onClose();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -238,6 +261,16 @@ export function ConversationOverviewCalendar({
           <button
             type="button"
             className="icon-button"
+            title="任务日志"
+            aria-label="任务日志"
+            aria-pressed={showLogs}
+            onClick={() => setShowLogs((value) => !value)}
+          >
+            <ScrollText size={16} />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
             title={dirty ? '数据有变更，重新统计' : '重新统计'}
             aria-label="重新统计"
             onClick={() => setRevision((value) => value + 1)}
@@ -254,6 +287,16 @@ export function ConversationOverviewCalendar({
             <X size={16} />
           </button>
         </header>
+        <CalendarScanProgress
+          day={day}
+          progress={snapshot?.progress}
+          dayProgress={snapshot?.dayProgress}
+        />
+        {showLogs ? (
+          <div className="weq-overview-calendar-log">
+            <TaskLogConsole lines={snapshot?.logs ?? []} collapsed={false} history />
+          </div>
+        ) : null}
         <div className="weq-overview-calendar-body">
           <MessageCalendar
             month={month}
@@ -306,35 +349,43 @@ export function ConversationOverviewCalendar({
                     : snapshot?.cancelled
                       ? '统计已暂停，请点击刷新重试'
                       : !snapshot?.complete
-                        ? '正在统计当天会话…'
+                        ? snapshot?.dayProgress
+                          ? `正在统计 · 已完成 ${snapshot.dayProgress.completedSources}/${snapshot.dayProgress.totalSources} 个来源 · 已计 ${snapshot.dayProgress.count.toLocaleString('zh-CN')} 条`
+                          : '正在统计当天会话…'
                         : `${snapshot.totalRows} 个会话`}
             </p>
             <div className="weq-overview-calendar-rows" aria-busy={!snapshot?.complete}>
-              {snapshot?.rows.map((row) => (
-                <button
-                  key={`${row.target.kind}:${row.target.conv}`}
-                  type="button"
-                  className="weq-overview-calendar-row"
-                  disabled={busy}
-                  onClick={() => void locate(row.target, row.anchor)}
-                >
-                  {row.target.avatar ? (
-                    <img src={row.target.avatar} alt="" />
-                  ) : (
-                    <span className="weq-overview-calendar-avatar" aria-hidden>
-                      {Array.from(row.target.name)[0]}
+              {snapshot?.rows.map((stored) => {
+                const row = {
+                  ...stored,
+                  target: selectedByKey.get(calendarTargetKey(stored.target)) ?? stored.target,
+                };
+                return (
+                  <button
+                    key={`${row.target.kind}:${row.target.conv}`}
+                    type="button"
+                    className="weq-overview-calendar-row"
+                    disabled={busy}
+                    onClick={() => void locate(row.target, row.anchor)}
+                  >
+                    {row.target.avatar ? (
+                      <img src={row.target.avatar} alt="" />
+                    ) : (
+                      <span className="weq-overview-calendar-avatar" aria-hidden>
+                        {Array.from(row.target.name)[0]}
+                      </span>
+                    )}
+                    <span className="weq-overview-calendar-name">
+                      <strong title={row.target.name}>{row.target.name}</strong>
+                      <small>{CALENDAR_SOURCE_LABELS[row.target.kind]}</small>
                     </span>
-                  )}
-                  <span className="weq-overview-calendar-name">
-                    <strong title={row.target.name}>{row.target.name}</strong>
-                    <small>{CALENDAR_SOURCE_LABELS[row.target.kind]}</small>
-                  </span>
-                  <span title={`${row.count.toLocaleString('zh-CN')} 条`}>
-                    {row.count.toLocaleString('zh-CN')}
-                    {snapshot.complete ? '' : '+'}
-                  </span>
-                </button>
-              ))}
+                    <span title={`${row.count.toLocaleString('zh-CN')} 条`}>
+                      {row.count.toLocaleString('zh-CN')}
+                      {snapshot.complete ? '' : '+'}
+                    </span>
+                  </button>
+                );
+              })}
               {!directoryError && snapshot?.complete && !snapshot.rows.length ? (
                 <p>当天没有消息</p>
               ) : null}

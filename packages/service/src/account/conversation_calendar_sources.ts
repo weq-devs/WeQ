@@ -97,7 +97,17 @@ function generatedSource(
         cursor.offset + limit < messages.length
           ? { ...cursor, offset: cursor.offset + limit }
           : { bucket: cursor.bucket + 1, offset: 0 };
-      return { rows, cursor: next, done: next.bucket >= buckets.length };
+      return {
+        rows,
+        cursor: next,
+        done: next.bucket >= buckets.length,
+        progress: {
+          phase: `子会话 ${cursor.bucket + 1}/${buckets.length}`,
+          processed: Math.min(cursor.offset + limit, messages.length),
+          total: messages.length,
+          unit: '条元数据',
+        },
+      };
     },
   };
 }
@@ -169,11 +179,12 @@ export function createCalendarSources(
       return cachedTargets;
     };
     type SourceCursor =
-      | { phase: 'native'; native?: CalendarCursor }
+      | { phase: 'native'; native?: CalendarCursor; scanned?: number }
       | {
           phase: 'cached';
           target: number;
           cached?: { msgSeq: number; sendTime: number; msgId: string };
+          scanned?: number;
         };
     return {
       kind,
@@ -232,6 +243,8 @@ export function createCalendarSources(
                 },
               }
             : { phase: 'cached', target: state.target + 1 };
+          const scanned = (state.scanned ?? 0) + messages.length;
+          next.scanned = scanned;
           return {
             rows: merged.map((message) => ({
               conv: target.conv,
@@ -244,6 +257,13 @@ export function createCalendarSources(
             })),
             cursor: next,
             done: next.target >= cacheTargets.length,
+            progress: {
+              phase: '漫游缓存',
+              processed: next.target,
+              total: cacheTargets.length,
+              unit: '个会话',
+              recordsScanned: scanned,
+            },
           };
         }
         const page = await reader.page(
@@ -253,12 +273,19 @@ export function createCalendarSources(
           limit,
           ark,
         );
+        const scanned = (state?.phase === 'native' ? (state.scanned ?? 0) : 0) + page.scanned;
         return {
           cursor:
             page.done && cached
               ? { phase: 'cached', target: 0 }
-              : { phase: 'native', native: page.cursor },
+              : { phase: 'native', native: page.cursor, scanned },
           done: page.done && !cached,
+          progress: {
+            phase: '本地元数据',
+            processed: scanned,
+            total: page.done ? scanned : undefined,
+            unit: '条元数据',
+          },
           rows: page.items
             .filter((row) => row.visible && !hidden.has(row.id))
             .map((row) => ({

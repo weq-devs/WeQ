@@ -1,7 +1,7 @@
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { calendarMonthDays } from '@weq/service/conversation-calendar';
+import { calendarMonthDays, type CalendarTarget } from '@weq/service/conversation-calendar';
 import { ConversationOverviewCalendar } from '../src/renderer/src/components/ConversationOverviewCalendar';
 import { calendarCloneRevision } from '../src/renderer/src/lib/calendarSourceRevision';
 
@@ -63,15 +63,18 @@ async function tick(ms = 0) {
     await vi.advanceTimersByTimeAsync(ms);
   });
 }
-function mount() {
+const defaultTargets: CalendarTarget[] = [
+  { kind: 'group', conv: '42', name: 'fixture', avatar: null, ancestors: [] },
+];
+function mount(initialTargets = defaultTargets) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = (sourceRevision: string) =>
+  const render = (sourceRevision: string, targets = initialTargets) =>
     act(() =>
       root.render(
         createElement(ConversationOverviewCalendar, {
-          targets: [{ kind: 'group', conv: '42', name: 'fixture', avatar: null, ancestors: [] }],
+          targets,
           scope: 'all',
           query: '',
           ready: true,
@@ -103,6 +106,31 @@ it('扫描期间的数据通知不遮住已完成数字，也不陷入等待重�
     expect(date?.querySelector('small')?.textContent).toBe('42');
     expect(view.host.textContent).not.toContain('等待重新统计');
     expect(fixture.start).toHaveBeenCalledTimes(1);
+  } finally {
+    view.close();
+  }
+});
+it('会话因新消息重排、头像和名称更新不会重建相同统计范围', async () => {
+  const a = defaultTargets[0]!,
+    b = { ...a, conv: '43', name: 'second' };
+  const view = mount([a, b]);
+  try {
+    await tick();
+    view.render('b', [b, { ...a, name: 'renamed', avatar: 'https://example.invalid/avatar' }]);
+    await tick(1000);
+    expect(fixture.start).toHaveBeenCalledTimes(1);
+    view.render('c', [b]);
+    await tick();
+    expect(fixture.start).toHaveBeenCalledTimes(2);
+  } finally {
+    view.close();
+  }
+});
+it('创建任务即传入选中日，而不是先启动月底扫描再等轮询纠正', async () => {
+  const view = mount();
+  try {
+    await tick();
+    expect(fixture.start.mock.lastCall?.[0]).toMatchObject({ month: '2026-11', day: '2026-11-10' });
   } finally {
     view.close();
   }

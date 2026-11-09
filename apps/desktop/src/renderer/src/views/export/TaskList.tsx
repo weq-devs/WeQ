@@ -38,6 +38,7 @@ import {
   SkipForward,
 } from 'lucide-react';
 import { fmtCount } from './types';
+import { TaskLogConsole as LogConsole } from '../../components/TaskLogConsole';
 import '../../styles/chat-export-continuation.css';
 
 export type StageStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'failed';
@@ -238,13 +239,6 @@ function StatusIcon({ status }: { status: UiTask['status'] }): ReactElement {
   }
 }
 
-/** HH:MM:SS.mmm 风格时间戳（Docker TUI 观感）。 */
-function fmtLogTime(ts: number): string {
-  const d = new Date(ts);
-  const p = (n: number, w = 2): string => String(n).padStart(w, '0');
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
-}
-
 /**
  * 波浪填充（viewBox 0 0 32 300，元素高度 = 父级 300%，动画竖向平移一个波长
  * 即 66.67%，无缝循环）。右缘为平滑正弦曲线：波峰探出填充边界、波谷切回
@@ -273,37 +267,6 @@ const WAVE_LINE_B_PATH =
   'C30 158.3 28.5 166.7 28.5 175 C28.5 183.3 30 191.7 30.5 200 ' +
   'C31 208.3 32.5 216.7 32.5 225 C32.5 233.3 31 241.7 30.5 250 ' +
   'C30 258.3 28.5 266.7 28.5 275 C28.5 283.3 30 291.7 30.5 300';
-
-/** 日志终端最多展示的最近行数（新的直接把旧的刷出去，不可滚动，如 docker pull）。 */
-const MAX_VISIBLE_LOGS = 5;
-
-/**
- * 终端日志：只展示最近 {@link MAX_VISIBLE_LOGS} 行，不允许滚动，新的行把旧的
- * 顶出去（docker pull 风格）；collapsed 时高度塌陷淡出。
- */
-function LogConsole({
-  lines,
-  collapsed,
-}: {
-  lines: UiLogLine[];
-  collapsed: boolean;
-}): ReactElement {
-  const visible = lines.slice(-MAX_VISIBLE_LOGS);
-  return (
-    <div className={`weq-exp-log${collapsed ? ' is-hidden' : ''}`} aria-hidden={collapsed}>
-      {visible.length === 0 ? (
-        <div className="weq-exp-log-empty">— 暂无日志 —</div>
-      ) : (
-        visible.map((l) => (
-          <div key={l.seq} className={`weq-exp-log-line is-${l.level}`}>
-            <span className="weq-exp-log-time">{fmtLogTime(l.ts)}</span>
-            <span className="weq-exp-log-text">{l.text}</span>
-          </div>
-        ))
-      )}
-    </div>
-  );
-}
 
 /** 一个子任务阶段：名称 + 进度条 + 右侧百分比 + 下拉按钮（展开显示最近日志）。 */
 function StageRow({

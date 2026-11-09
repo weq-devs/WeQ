@@ -32,3 +32,16 @@ it('已确认的空日期才显示零', () => {
   );
   expect(html).toContain('2026-11-01，0 条消息');
 });
+it('未完成但已有部分计数时显示累计数字与加号，不冒称全部完成', () => {
+  const html = renderToStaticMarkup(
+    createElement(MessageCalendar, {
+      month: '2026-11',
+      days: [{ day: '2026-11-01', count: 42 }],
+      dayStatus: { '2026-11-01': { complete: false } },
+      allowEmpty: true,
+      onPick: () => {},
+    }),
+  );
+  expect(html).toContain('42+');
+  expect(html).toContain('已计 42 条，尚未完成');
+});

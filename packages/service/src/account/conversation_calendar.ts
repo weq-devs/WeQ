@@ -32,7 +32,23 @@ export interface CalendarBatch {
   rows: Array<{ conv: string; time: number; anchor: CalendarAnchor }>;
   cursor?: unknown;
   done: boolean;
+  progress?: CalendarScanProgress;
 }
+export interface CalendarScanProgress {
+  phase: string;
+  processed: number;
+  total?: number;
+  unit: string;
+  recordsScanned?: number;
+}
+export interface CalendarLogLine {
+  ts: number;
+  seq: number;
+  stage: string;
+  level: 'info' | 'warn' | 'error';
+  text: string;
+}
+export const CALENDAR_LOG_LIMIT = 200;
 export interface CalendarSource {
   kind: CalendarKind;
   count?(start: number, end: number): Promise<number | null>;
@@ -40,6 +56,16 @@ export interface CalendarSource {
 }
 export const CALENDAR_CACHE_BYTES = 8 * 1024 * 1024;
 export const CALENDAR_BATCH_SIZE = 256;
+export const CALENDAR_SOURCE_ORDER: readonly CalendarKind[] = [
+  'c2c',
+  'group',
+  'dataline',
+  'official',
+  'service',
+  'guild',
+  'persona',
+  'cloneGroup',
+];
 export const CALENDAR_SOURCE_LABELS: Record<CalendarKind, string> = {
   c2c: '私聊',
   group: '群聊',
@@ -116,6 +142,7 @@ interface Work {
   failures: number;
   error?: string;
   rows: Map<string, CalendarRow>;
+  progress?: CalendarScanProgress;
 }
 
 /** 单个弹窗的可续查任务；调用方控制调度和 lease，不建立常驻统计服务。 */
@@ -142,6 +169,50 @@ export class ConversationCalendarJob {
   private bytes = 0;
   private readonly order = new Map<string, Map<string, number>>();
   private orderSequence = 0;
+  private activeWork: Work | undefined;
+  private readonly logs: CalendarLogLine[] = [];
+  private logSeq = 0;
+  private lastLogKey: string | undefined;
+  private log(level: CalendarLogLine['level'], stage: string, text: string, key?: string): void {
+    const previous = this.logs.at(-1);
+    const row = {
+      ts: Date.now(),
+      seq: previous && key && key === this.lastLogKey ? previous.seq : ++this.logSeq,
+      stage,
+      level,
+      text: text.slice(0, 512),
+    };
+    if (previous && key && key === this.lastLogKey) this.logs[this.logs.length - 1] = row;
+    else {
+      this.logs.push(row);
+      if (this.logs.length > CALENDAR_LOG_LIMIT) this.logs.shift();
+    }
+    this.lastLogKey = key;
+  }
+  private logWork(task: Work): void {
+    const progress = task.progress;
+    const phase = progress?.phase ?? '读取统计信息';
+    const count = task.count.toLocaleString('zh-CN');
+    const scanned = progress
+      ? `；已处理 ${progress.processed.toLocaleString('zh-CN')}${progress.total !== undefined ? `/${progress.total.toLocaleString('zh-CN')}` : ''} ${progress.unit}${progress.recordsScanned !== undefined ? `，已读 ${progress.recordsScanned.toLocaleString('zh-CN')} 条元数据` : ''}`
+      : '';
+    this.log(
+      task.error ? 'warn' : 'info',
+      task.source.kind,
+      `${task.day} · ${CALENDAR_SOURCE_LABELS[task.source.kind]} · ${phase}｜已计 ${count} 条消息${scanned}；${task.error ?? (task.detailed || (task.counted && task.day !== this.selectedDay) ? '完成' : '进行中')}`,
+      task.error ? undefined : `${task.day}:${task.source.kind}:progress`,
+    );
+  }
+  noteWaiting(): void {
+    const task = this.activeWork;
+    if (task && !this.controller.signal.aborted)
+      this.log(
+        'info',
+        task.source.kind,
+        `${task.day} · ${CALENDAR_SOURCE_LABELS[task.source.kind]}｜等待数据库空闲；已计 ${task.count.toLocaleString('zh-CN')} 条消息`,
+        `${task.day}:${task.source.kind}:progress`,
+      );
+  }
   constructor(
     readonly month: string,
     targets: CalendarTarget[],
@@ -149,21 +220,31 @@ export class ConversationCalendarJob {
     private readonly reserve?: (bytes: number) => boolean,
   ) {
     this.targets = new Map(targets.map((target) => [calendarTargetKey(target), target]));
-    this.bytes = new TextEncoder().encode(JSON.stringify(targets)).byteLength;
+    this.bytes =
+      new TextEncoder().encode(JSON.stringify(targets)).byteLength + CALENDAR_LOG_LIMIT * 1536;
     if (this.bytes > CALENDAR_CACHE_BYTES || (reserve && !reserve(this.bytes)))
       throw new Error('日历会话范围超过缓存上限');
     const days = calendarMonthDays(month).reverse();
     this.work = days.flatMap((day) =>
-      sources.map((source) => ({
-        ...day,
-        source,
-        counted: false,
-        detailed: false,
-        count: 0,
-        limit: CALENDAR_BATCH_SIZE,
-        failures: 0,
-        rows: new Map(),
-      })),
+      [...sources]
+        .sort(
+          (a, b) => CALENDAR_SOURCE_ORDER.indexOf(a.kind) - CALENDAR_SOURCE_ORDER.indexOf(b.kind),
+        )
+        .map((source) => ({
+          ...day,
+          source,
+          counted: false,
+          detailed: false,
+          count: 0,
+          limit: CALENDAR_BATCH_SIZE,
+          failures: 0,
+          rows: new Map(),
+        })),
+    );
+    this.log(
+      'info',
+      'task',
+      `创建 ${month} 会话统计｜${this.targets.size.toLocaleString('zh-CN')} 个会话，${sources.length} 类来源，${days.length} 个日期`,
     );
   }
   keepAlive(day?: string, retry = false): void {
@@ -172,10 +253,26 @@ export class ConversationCalendarJob {
     this.leaseTimer = setTimeout(() => {
       if (this.running) this.cancel();
     }, 5000);
-    if (day !== this.selectedDay)
+    if (day !== this.selectedDay) {
+      if (day) this.log('info', 'task', `优先统计 ${day}；完成后按近的过去日期、未来日期继续`);
       for (const task of this.work) {
         if (task.day !== day && task.counted && task.detailed) this.clearDetails(task);
       }
+      if (day)
+        this.work.sort((a, b) => {
+          if (a.day === b.day)
+            return (
+              CALENDAR_SOURCE_ORDER.indexOf(a.source.kind) -
+              CALENDAR_SOURCE_ORDER.indexOf(b.source.kind)
+            );
+          if (a.day === day) return -1;
+          if (b.day === day) return 1;
+          const aPast = a.day < day,
+            bPast = b.day < day;
+          if (aPast !== bPast) return aPast ? -1 : 1;
+          return aPast ? b.day.localeCompare(a.day) : a.day.localeCompare(b.day);
+        });
+    }
     this.selectedDay = day;
     if (retry)
       for (const work of this.work) {
@@ -185,6 +282,13 @@ export class ConversationCalendarJob {
     this.start();
   }
   cancel(): void {
+    if (this.controller.signal.aborted) return;
+    if (
+      this.work.some(
+        (task) => !task.counted || task.error || (task.day === this.selectedDay && !task.detailed),
+      )
+    )
+      this.log('info', 'task', '停止统计，保留已经完成的计数和日志');
     clearTimeout(this.leaseTimer);
     this.controller.abort();
   }
@@ -202,9 +306,29 @@ export class ConversationCalendarJob {
     return !this.controller.signal.aborted && Date.now() < this.leaseUntil;
   }
   private start(): void {
-    this.running ??= this.run().finally(() => {
-      this.running = undefined;
+    if (this.running || this.controller.signal.aborted) return;
+    if (
+      !this.work.some(
+        (task) =>
+          !task.error && (!task.counted || (task.day === this.selectedDay && !task.detailed)),
+      )
+    ) {
       clearTimeout(this.leaseTimer);
+      return;
+    }
+    this.running = this.run().finally(() => {
+      this.running = undefined;
+      this.activeWork = undefined;
+      clearTimeout(this.leaseTimer);
+      if (!this.controller.signal.aborted) {
+        const done = this.work.filter((task) => task.counted && !task.error).length;
+        const failed = this.work.filter((task) => task.error).length;
+        this.log(
+          failed ? 'warn' : 'info',
+          'task',
+          `${failed ? '部分统计已暂停' : '本轮统计完成'}｜完成 ${done}/${this.work.length} 个日期来源${failed ? `，${failed} 个未完成` : ''}`,
+        );
+      }
     });
   }
   async settled(): Promise<void> {
@@ -225,6 +349,13 @@ export class ConversationCalendarJob {
         this.work.find((work) => work.day === this.selectedDay && !work.detailed && !work.error) ??
         this.work.find((work) => !work.counted && !work.error);
       if (!task) return;
+      if (this.activeWork !== task)
+        this.log(
+          'info',
+          task.source.kind,
+          `${task.day} · ${CALENDAR_SOURCE_LABELS[task.source.kind]}｜开始读取`,
+        );
+      this.activeWork = task;
       const began = performance.now();
       try {
         if (
@@ -288,6 +419,7 @@ export class ConversationCalendarJob {
           }
         }
         task.cursor = page.cursor;
+        task.progress = page.progress;
         task.failures = 0;
         if (!task.counted || page.done)
           task.count = [...task.rows.values()].reduce((sum, row) => sum + row.count, 0);
@@ -307,6 +439,11 @@ export class ConversationCalendarJob {
           // 计数超预算后直接进入可续查元数据路径，不反复重跑同一条 COUNT。
           task.source = { ...task.source, count: undefined };
           task.limit = Math.max(1, Math.floor(task.limit / 2));
+          this.log(
+            'warn',
+            task.source.kind,
+            `${task.day} · ${CALENDAR_SOURCE_LABELS[task.source.kind]}｜读取超出预算，缩小到每批 ${task.limit} 条后续查，已完成计数不清零`,
+          );
           if (++task.failures < 3) continue;
         }
         task.error = /timeout/.test(String(error))
@@ -316,6 +453,7 @@ export class ConversationCalendarJob {
             : '统计失败';
         this.metrics.pauses++;
       } finally {
+        if (this.current()) this.logWork(task);
         this.metrics.batches++;
         this.metrics.maxBatchMs = Math.max(this.metrics.maxBatchMs, performance.now() - began);
         await new Promise<void>((done) => setTimeout(done, 20));
@@ -323,7 +461,7 @@ export class ConversationCalendarJob {
     }
     this.cancel();
   }
-  snapshot(day?: string, offset = 0) {
+  snapshot(day?: string, offset = 0, includeLogs = false) {
     const days = calendarMonthDays(this.month).map(({ day: value }) => {
       const work = this.work.filter((item) => item.day === value);
       return {
@@ -352,6 +490,27 @@ export class ConversationCalendarJob {
       );
     return {
       days,
+      progress: {
+        completedSources: this.work.filter((item) => item.counted && !item.error).length,
+        totalSources: this.work.length,
+        failedSources: this.work.filter((item) => item.error).length,
+      },
+      logs: includeLogs ? [...this.logs] : undefined,
+      activeScan:
+        this.activeWork && this.current() && !this.activeWork.error
+          ? {
+              day: this.activeWork.day,
+              kind: this.activeWork.source.kind,
+              progress: this.activeWork.progress,
+            }
+          : undefined,
+      dayProgress: day
+        ? {
+            completedSources: work.filter((item) => item.detailed).length,
+            totalSources: work.length,
+            count: work.reduce((sum, item) => sum + item.count, 0),
+          }
+        : undefined,
       rows: rows.slice(offset, offset + 50),
       totalRows: rows.length,
       complete,

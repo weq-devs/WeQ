@@ -25,6 +25,69 @@
   flex: 1;
   font-size: 16px;
 }
+.weq-overview-calendar-progress {
+  flex-shrink: 0;
+  display: grid;
+  gap: 5px;
+  padding-bottom: 12px;
+  font-size: 11px;
+  color: var(--weq-fg-secondary);
+}
+.weq-overview-calendar-progress section > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 5px;
+}
+.weq-overview-calendar-log {
+  flex-shrink: 0;
+  min-width: 0;
+}
+.weq-overview-calendar-log .weq-exp-log {
+  margin: 0 0 12px;
+  height: 110px;
+  overflow-y: auto;
+}
+.weq-overview-calendar-progress > .weq-exp-log {
+  margin: 0;
+  overflow-y: auto;
+}
+.weq-overview-calendar-progress strong {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.weq-overview-calendar-progress progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  border: 0;
+  border-radius: 2px;
+  overflow: hidden;
+  accent-color: var(--weq-accent-effective);
+}
+.weq-overview-calendar-progress progress::-webkit-progress-bar {
+  background: var(--muted);
+}
+.weq-overview-calendar-progress progress::-webkit-progress-value {
+  background: var(--weq-accent-effective);
+}
+.weq-overview-calendar-progress progress::-moz-progress-bar {
+  background: var(--weq-accent-effective);
+}
+.weq-overview-calendar-progress > .weq-overview-calendar-scan-label {
+  flex-wrap: wrap;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+.weq-overview-calendar-scan-label small {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+html[data-theme='dark'] .weq-overview-calendar-progress progress::-webkit-progress-bar {
+  background: var(--weq-border-strong);
+}
 .weq-overview-calendar-body {
   flex: 1;
   min-height: 0;
@@ -130,6 +193,12 @@ html[data-theme='dark'] .weq-overview-calendar-row {
   border-color: var(--weq-border-strong);
 }
 @media (max-width: 620px) {
+  .weq-overview-calendar-log .weq-exp-log-line {
+    display: block;
+  }
+  .weq-overview-calendar-log .weq-exp-log-time {
+    display: block;
+  }
   .weq-overview-calendar-body {
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;

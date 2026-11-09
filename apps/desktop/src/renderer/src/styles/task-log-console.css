@@ -1,0 +1,91 @@
+.weq-exp-log {
+  height: 104px;
+  margin: 0 0 6px 26px;
+  padding: 6px 9px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 7px;
+  background: #0d1420;
+  color: #c8d3e0;
+  font:
+    11px / 1.65 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    'Liberation Mono',
+    monospace;
+  transition:
+    height 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 220ms ease,
+    margin 280ms ease,
+    padding 280ms ease;
+}
+
+.weq-exp-log.is-hidden {
+  height: 0;
+  margin: 0;
+  padding: 0 9px;
+  opacity: 0;
+  border-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.weq-exp-log-empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: #52627a;
+}
+
+.weq-exp-log-more {
+  padding: 1px 0 4px;
+  color: #5f7287;
+  font-style: italic;
+}
+
+.weq-exp-log-line {
+  display: flex;
+  gap: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.weq-exp-log-time {
+  flex: none;
+  color: #5f7287;
+}
+
+.weq-exp-log-line.is-warn .weq-exp-log-text {
+  color: #e2b35a;
+}
+
+.weq-exp-log-line.is-error .weq-exp-log-text {
+  color: #ef6b6b;
+}
+
+.weq-task-log-history {
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: var(--weq-fg-secondary);
+}
+.weq-task-log-history summary {
+  cursor: pointer;
+}
+.weq-task-log-history ol {
+  max-height: 160px;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding-left: 22px;
+  overflow-wrap: anywhere;
+}
+.weq-task-log-history time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.weq-task-log-history .is-warn {
+  color: var(--weq-warn-fg);
+}
+.weq-task-log-history .is-error {
+  color: var(--destructive);
+}

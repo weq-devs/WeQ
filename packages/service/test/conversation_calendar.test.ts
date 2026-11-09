@@ -39,6 +39,74 @@ it('北京时间跨月与闰年边界准确，不使用本机时区', () => {
   expect(calendarMonthDays('2026-11')[0]?.start).toBe(Date.parse('2026-10-31T16:00:00Z') / 1000);
   expect(() => calendarMonthDays('2026-13')).toThrow();
 });
+it('日志动态更新批次数量、不刷屏，并保留有界的完成回执', async () => {
+  let processed = 0;
+  const job = new ConversationCalendarJob(
+    '2026-11',
+    [target],
+    [
+      {
+        kind: 'c2c',
+        count: async () => 0,
+        page: async () => {
+          processed++;
+          return {
+            rows: [message(String(processed))],
+            cursor: processed,
+            done: processed === 3,
+            progress: { phase: '本地元数据', processed, unit: '条元数据' },
+          };
+        },
+      },
+    ],
+  );
+  job.keepAlive(day);
+  await vi.advanceTimersByTimeAsync(0);
+  const initial = job.snapshot(day, 0, true).logs!.at(-1)!;
+  expect(initial.text).toContain('已计 1 条消息');
+  await vi.advanceTimersByTimeAsync(20);
+  const next = job.snapshot(day, 0, true).logs!.at(-1)!;
+  expect(next.seq).toBe(initial.seq);
+  expect(next.text).toContain('已计 2 条消息');
+  expect(job.snapshot(day).logs).toBeUndefined();
+  await finish(job);
+  const snapshot = job.snapshot(day, 0, true);
+  expect(snapshot.logs!.length).toBeLessThanOrEqual(200);
+  expect(snapshot.logs!.at(-1)!.text).toContain('本轮统计完成');
+  expect(snapshot.progress).toEqual({ completedSources: 30, totalSources: 30, failedSources: 0 });
+});
+it('选中日最先统计，随后先近的过去再未来，来源顺序固定', async () => {
+  const calls: string[] = [];
+  const record = (kind: string, start: number) =>
+    calls.push(`${new Date((start + 8 * 3600) * 1000).toISOString().slice(0, 10)}:${kind}`);
+  const sources: CalendarSource[] = (['group', 'c2c'] as const).map((kind) => ({
+    kind,
+    count: async (start) => {
+      record(kind, start);
+      return 0;
+    },
+    page: async (start) => {
+      record(kind, start);
+      return { rows: [], done: true };
+    },
+  }));
+  const job = new ConversationCalendarJob('2026-11', [], sources);
+  job.keepAlive('2026-11-10');
+  await finish(job);
+  expect(calls.slice(0, 6)).toEqual([
+    '2026-11-10:c2c',
+    '2026-11-10:group',
+    '2026-11-09:c2c',
+    '2026-11-09:group',
+    '2026-11-08:c2c',
+    '2026-11-08:group',
+  ]);
+  expect(calls.indexOf('2026-11-01:c2c')).toBeLessThan(calls.indexOf('2026-11-11:c2c'));
+  expect(job.snapshot('2026-11-10').dayProgress).toMatchObject({
+    completedSources: 2,
+    totalSources: 2,
+  });
+});
 it('缓存空间不足时整批不提交，不产生部分提交后的重数', async () => {
   let reservations = 0;
   const job = new ConversationCalendarJob(
