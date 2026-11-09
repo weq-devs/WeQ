@@ -9,7 +9,6 @@ import {
   LayoutGrid,
   Mail,
   MessageCircle,
-  Plus,
   Palette,
   Settings,
   Sparkles,
@@ -22,6 +21,7 @@ import { Avatar } from '../im-template/template/primitives';
 import type { MainView, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
 import { TitleBarSearch } from './TitleBarSearch';
+import { OnlineStatus } from './OnlineStatus';
 import '../styles/mobile-web.css';
 
 export function MobileWebNavigation({
@@ -72,38 +72,23 @@ export function MobileWebNavigation({
   accountControls?: ReactNode;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const [actionsOpen, setActionsOpen] = useState(false);
   useEffect(() => {
     setMoreOpen(false);
-    setActionsOpen(false);
   }, [view, hidden]);
   useEffect(() => {
-    if (!actionsOpen && !moreOpen) return;
+    if (!moreOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setActionsOpen(false);
         setMoreOpen(false);
       }
     };
     document.addEventListener('keydown', closeOnEscape);
     return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [actionsOpen, moreOpen]);
+  }, [moreOpen]);
   const primary = view === 'messages' || view === 'contacts' || view === 'qzone';
   const active = moreOpen || !primary ? 'more' : view;
-  const titles: Partial<Record<MainView, string>> = {
-    messages: '消息',
-    contacts: '联系人',
-    qzone: 'QQ 空间',
-    mail: 'QQ 邮箱',
-    channel: 'QQ 频道',
-    collections: '我的收藏',
-    annual: '年度报告',
-    home: '主页',
-    tools: '应用',
-  };
   const select = (next: MainView) => {
     setMoreOpen(false);
-    setActionsOpen(false);
     onViewChange(next);
   };
   const entries = [
@@ -127,7 +112,6 @@ export function MobileWebNavigation({
   ].filter((entry) => entry.action);
   const run = (action: () => void) => {
     setMoreOpen(false);
-    setActionsOpen(false);
     action();
   };
 
@@ -147,7 +131,18 @@ export function MobileWebNavigation({
             seed={user.identityValue}
           />
         </button>
-        <strong>{moreOpen ? '更多' : (titles[view] ?? 'WeQ')}</strong>
+        <div className="weq-mobile-identity">
+          <strong title={displayUserName(user)}>{displayUserName(user)}</strong>
+          {user.uid && (
+            <OnlineStatus
+              key={user.uid}
+              uid={user.uid}
+              className="weq-mobile-online-status"
+              refetchInterval={15_000}
+              showBaseStatus
+            />
+          )}
+        </div>
         <TitleBarSearch
           query={query}
           onQueryChange={onQueryChange}
@@ -155,45 +150,7 @@ export function MobileWebNavigation({
           onReturn={onSearchReturn}
           results={searchPanel}
         />
-        {actions.length > 0 && (
-          <button
-            type="button"
-            className="weq-mobile-actions-toggle"
-            aria-label="联系人操作"
-            title="联系人操作"
-            aria-expanded={actionsOpen}
-            aria-controls="weq-mobile-contact-actions"
-            onClick={() => {
-              setMoreOpen(false);
-              setActionsOpen((open) => !open);
-            }}
-          >
-            <Plus size={22} aria-hidden />
-          </button>
-        )}
       </header>
-      {actionsOpen && (
-        <>
-          <button
-            type="button"
-            className="weq-mobile-actions-dismiss"
-            aria-label="关闭联系人操作"
-            onClick={() => setActionsOpen(false)}
-          />
-          <section
-            id="weq-mobile-contact-actions"
-            className="weq-mobile-contact-actions"
-            aria-label="联系人操作列表"
-          >
-            {actions.map(({ label, icon: Icon, action }) => (
-              <button key={label} type="button" onClick={() => run(action!)}>
-                <Icon size={20} aria-hidden />
-                <span>{label}</span>
-              </button>
-            ))}
-          </section>
-        </>
-      )}
       {moreOpen && (
         <section className="weq-mobile-more" aria-label="更多功能">
           <div className="weq-mobile-more-account">
@@ -221,6 +178,13 @@ export function MobileWebNavigation({
               <ChevronRight size={18} aria-hidden />
             </button>
           ))}
+          {actions.map(({ label, icon: Icon, action }) => (
+            <button key={label} type="button" onClick={() => run(action!)}>
+              <Icon size={22} aria-hidden />
+              <span>{label}</span>
+              <ChevronRight size={18} aria-hidden />
+            </button>
+          ))}
           {accountControls && (
             <div className="weq-mobile-more-utilities" aria-label="账号与快捷控制">
               {accountControls}
@@ -245,7 +209,6 @@ export function MobileWebNavigation({
               if (id === 'messages' && active === 'messages' && onMessageBadgeClick) {
                 onMessageBadgeClick();
               } else if (id === 'more') {
-                setActionsOpen(false);
                 setMoreOpen((open) => !open);
               } else select(id as 'messages' | 'contacts' | 'qzone');
             }}

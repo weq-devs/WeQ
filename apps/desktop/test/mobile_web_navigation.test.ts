@@ -2,7 +2,15 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MobileWebNavigation } from '../src/renderer/src/components/MobileWebNavigation';
-vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));
+import { OnlineStatus } from '../src/renderer/src/components/OnlineStatus';
+const { onlineStatusQuery } = vi.hoisted(() => ({ onlineStatusQuery: vi.fn() }));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: { account: { getOnlineStatus: { useQuery: onlineStatusQuery } } },
+  client: {},
+}));
+vi.mock('../src/renderer/src/components/FaceEmoji', () => ({
+  FaceEmoji: () => createElement('img', { alt: '合成状态表情' }),
+}));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let host: HTMLDivElement;
@@ -30,6 +38,7 @@ const props = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  onlineStatusQuery.mockReturnValue({ data: null });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -94,7 +103,7 @@ it('原有账号和快捷控制保留在更多页，不放进拥挤的底栏', a
   expect(host.querySelectorAll('nav > button')).toHaveLength(4);
 });
 
-it('手机资料与联系人操作复用桌面回调，操作后收起菜单', async () => {
+it('顶栏移除加号，资料与更多中的联系人操作复用原有回调', async () => {
   const onOpenProfile = vi.fn(),
     onLookupUser = vi.fn(),
     onLookupGroup = vi.fn();
@@ -114,22 +123,124 @@ it('手机资料与联系人操作复用桌面回调，操作后收起菜单', a
   );
   await click('编辑 QQ 资料');
   expect(onOpenProfile).toHaveBeenCalledOnce();
+  expect(host.querySelector('.weq-mobile-actions-toggle')).toBeNull();
   for (const [label, action] of [
     ['QQ 号搜索', onLookupUser],
     ['群号搜索', onLookupGroup],
     ['好友通知', onOpenFriendNotices],
     ['群通知', onOpenGroupNotices],
   ] as const) {
-    await click('联系人操作');
+    await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
     await click(label);
     expect(action).toHaveBeenCalledOnce();
-    expect(host.querySelector('#weq-mobile-contact-actions')).toBeNull();
+    expect(host.querySelector('[aria-label="更多功能"]')).toBeNull();
   }
-  await click('联系人操作');
+  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
   await act(async () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
   });
-  expect(host.querySelector('#weq-mobile-contact-actions')).toBeNull();
+  expect(host.querySelector('[aria-label="更多功能"]')).toBeNull();
+});
+
+it('各页面和更多页顶栏始终显示昵称，不再显示页面标题', async () => {
+  for (const view of ['messages', 'contacts', 'qzone', 'mail', 'tools'] as const) {
+    await act(async () => root.render(createElement(MobileWebNavigation, { ...props, view })));
+    expect(host.querySelector('.weq-mobile-identity > strong')?.textContent).toBe('合成账号');
+    expect(host.querySelector('.weq-mobile-header > strong')).toBeNull();
+  }
+  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
+  expect(host.querySelector('.weq-mobile-identity > strong')?.textContent).toBe('合成账号');
+});
+
+it.each([
+  {
+    type: 10,
+    typeName: '在线',
+    subType: 0,
+    subTypeName: '',
+    displayStatus: '在线',
+    expected: '在线',
+  },
+  {
+    type: 0,
+    typeName: '离线',
+    subType: 0,
+    subTypeName: '',
+    displayStatus: '离线',
+    expected: '离线',
+  },
+  {
+    type: 30,
+    typeName: '离开',
+    subType: 0,
+    subTypeName: '',
+    displayStatus: '离开',
+    expected: '离开',
+  },
+  {
+    type: 10,
+    typeName: '在线',
+    subType: 1028,
+    subTypeName: '听歌中',
+    displayStatus: '在线 - 听歌中',
+    expected: '在线·听歌中',
+  },
+  {
+    type: 10,
+    typeName: '在线',
+    subType: 2000,
+    subTypeName: '',
+    displayStatus: 'awa',
+    customStatus: { faceId: 66, faceType: 1, text: 'awa' },
+    expected: '在线·awa',
+  },
+])('顶栏显示实际状态：$expected', async ({ expected, ...status }) => {
+  onlineStatusQuery.mockReturnValue({ data: { ...status, uid: 'u_fixture' } });
+  await act(async () =>
+    root.render(
+      createElement(MobileWebNavigation, {
+        ...props,
+        user: { ...props.user, uid: 'u_fixture' },
+      }),
+    ),
+  );
+  expect(host.querySelector('.weq-mobile-online-status')?.textContent).toBe(expected);
+  expect(onlineStatusQuery).toHaveBeenCalledWith(
+    { uid: 'u_fixture' },
+    { refetchInterval: 15_000, refetchOnMount: 'always' },
+  );
+});
+
+it.each([null, { uid: 'u_other', typeName: '在线' }, { uid: 'u_fixture', typeName: '未知' }])(
+  '状态缺失、未知或属于其他账号时不误报在线',
+  async (data) => {
+    onlineStatusQuery.mockReturnValue({ data });
+    await act(async () =>
+      root.render(
+        createElement(MobileWebNavigation, {
+          ...props,
+          user: { ...props.user, uid: 'u_fixture' },
+        }),
+      ),
+    );
+    expect(host.querySelector('.weq-mobile-online-status')).toBeNull();
+  },
+);
+
+it('桌面等现有入口未启用基础状态展示时保持原有文案', async () => {
+  onlineStatusQuery.mockReturnValue({
+    data: {
+      uid: 'u_fixture',
+      type: 10,
+      typeName: '在线',
+      subType: 2000,
+      subTypeName: '',
+      displayStatus: 'awa',
+      customStatus: { faceId: 66, faceType: 1, text: 'awa' },
+    },
+  });
+  await act(async () => root.render(createElement(OnlineStatus, { uid: 'u_fixture' })));
+  expect(host.textContent).toBe('awa');
 });
 
 it.each([0, 123])('消息汇总数为 %s 时再次点击消息入口仍可定位', async (messageBadgeCount) => {

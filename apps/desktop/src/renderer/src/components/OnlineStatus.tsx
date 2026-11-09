@@ -61,10 +61,12 @@ export function OnlineStatus({
   uid,
   className,
   refetchInterval,
+  showBaseStatus = false,
 }: {
   uid: string;
   className?: string;
   refetchInterval?: number;
+  showBaseStatus?: boolean;
 }) {
   const { data: status } = trpc.account.getOnlineStatus.useQuery(
     { uid },
@@ -72,6 +74,9 @@ export function OnlineStatus({
   );
 
   if (!status || status.typeName === '未知' || (status.uid && status.uid !== uid)) return null;
+
+  const detail = showBaseStatus ? status.subTypeName || status.displayStatus : status.displayStatus;
+  const hasDetail = showBaseStatus && detail !== status.typeName;
 
   return (
     <span
@@ -85,12 +90,19 @@ export function OnlineStatus({
         color: 'var(--weq-fg-secondary)',
       }}
     >
+      {hasDetail && (
+        <>
+          <OnlineStatusIcon type={status.type} />
+          <span>{status.typeName}</span>
+          <span aria-hidden>·</span>
+        </>
+      )}
       {status.type === 10 && status.subType === 2000 && status.customStatus?.faceType === 1 ? (
         <FaceEmoji element={{ faceId: status.customStatus.faceId }} size={16} />
       ) : (
         <OnlineStatusIcon type={status.type} subType={status.subType} />
       )}
-      <span>{status.displayStatus}</span>
+      <span>{detail}</span>
     </span>
   );
 }
