@@ -117,6 +117,26 @@ try {
     if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-toolbar.png`) });
     await page.locator('.composer-tools button[title="表情"]').click();
     assert(await page.locator('.emoji-panel').isVisible(), 'Emoji panel did not open directly');
+    await page
+      .locator('.emoji-panel')
+      .evaluate((panel) =>
+        panel.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true })),
+      );
+    assert(await page.locator('.emoji-panel').isVisible(), 'Inside press closed emoji panel');
+    const scrollBox = await page.locator('.message-scroll').boundingBox();
+    await page.mouse.click(scrollBox.x + 4, scrollBox.y + 20);
+    assert(
+      !(await page.locator('.emoji-panel').isVisible()),
+      `Marquee gutter press did not dismiss emoji panel at ${width}px`,
+    );
+    await page.locator('.composer-tools button[title="表情"]').click();
+    assert(await page.locator('.emoji-panel').isVisible(), 'Emoji panel did not reopen');
+    await page.locator('.composer-tools button[title="表情"]').click();
+    assert(
+      !(await page.locator('.emoji-panel').isVisible()),
+      'Emoji trigger did not toggle closed',
+    );
+    await page.locator('.composer-tools button[title="表情"]').click();
     if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-emoji.png`) });
     await page.locator('.emoji-tabs button[title="弹射表情"]').click();
     const bounce = page.locator('.emoji-panel .bounce-panel');

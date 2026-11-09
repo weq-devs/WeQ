@@ -78,7 +78,7 @@ export function ReactionPicker({
   }, [anchor.x, anchor.y]);
 
   useEffect(() => {
-    function closeFromOutside(event: globalThis.MouseEvent) {
+    function closeFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (target instanceof Node && panelRef.current?.contains(target)) return;
       onClose();
@@ -86,10 +86,10 @@ export function ReactionPicker({
     function closeOnEscape(event: globalThis.KeyboardEvent) {
       if (event.key === 'Escape') onClose();
     }
-    document.addEventListener('mousedown', closeFromOutside);
+    document.addEventListener('pointerdown', closeFromOutside, true);
     document.addEventListener('keydown', closeOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeFromOutside);
+      document.removeEventListener('pointerdown', closeFromOutside, true);
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [onClose]);

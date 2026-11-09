@@ -1680,7 +1680,7 @@ export function ChatPane({
       return;
     }
 
-    function closeEmojiFromOutside(event: globalThis.MouseEvent) {
+    function closeEmojiFromOutside(event: globalThis.PointerEvent) {
       if (hasActiveModal()) return;
       const target = event.target;
       if (!(target instanceof Node)) {
@@ -1704,10 +1704,10 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeEmojiFromOutside);
+    document.addEventListener('pointerdown', closeEmojiFromOutside, true);
     document.addEventListener('keydown', closeEmojiOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeEmojiFromOutside);
+      document.removeEventListener('pointerdown', closeEmojiFromOutside, true);
       document.removeEventListener('keydown', closeEmojiOnEscape);
     };
   }, [tabActive, emojiOpen]);
@@ -1717,7 +1717,7 @@ export function ChatPane({
       return;
     }
 
-    function closeToolsFromOutside(event: globalThis.MouseEvent) {
+    function closeToolsFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -1739,10 +1739,10 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeToolsFromOutside);
+    document.addEventListener('pointerdown', closeToolsFromOutside, true);
     document.addEventListener('keydown', closeToolsOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeToolsFromOutside);
+      document.removeEventListener('pointerdown', closeToolsFromOutside, true);
       document.removeEventListener('keydown', closeToolsOnEscape);
     };
   }, [tabActive, toolsOpen]);
@@ -1753,7 +1753,7 @@ export function ChatPane({
     }
 
     // 正在录音（含请求麦克风）时不能因为点到外面就把这条丢掉。
-    function closeVoiceFromOutside(event: globalThis.MouseEvent) {
+    function closeVoiceFromOutside(event: globalThis.PointerEvent) {
       if (voiceBusyRef.current) return;
       const target = event.target;
       if (!(target instanceof Node)) return;
@@ -1768,10 +1768,10 @@ export function ChatPane({
       setVoiceOpen(false);
     }
 
-    document.addEventListener('mousedown', closeVoiceFromOutside);
+    document.addEventListener('pointerdown', closeVoiceFromOutside, true);
     document.addEventListener('keydown', closeVoiceOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeVoiceFromOutside);
+      document.removeEventListener('pointerdown', closeVoiceFromOutside, true);
       document.removeEventListener('keydown', closeVoiceOnEscape);
     };
   }, [tabActive, voiceOpen]);
@@ -1781,7 +1781,7 @@ export function ChatPane({
   useLayoutEffect(() => {
     if (!tabActive || !flashOpen) return;
 
-    function closeFlashFromOutside(event: globalThis.MouseEvent) {
+    function closeFlashFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (flashPanelRef.current?.contains(target) || flashButtonRef.current?.contains(target)) {
@@ -1802,11 +1802,11 @@ export function ChatPane({
       setFlashOpen(false);
     }
 
-    document.addEventListener('mousedown', closeFlashFromOutside);
+    document.addEventListener('pointerdown', closeFlashFromOutside, true);
     document.addEventListener('keydown', closeFlashOnEscape);
     // 灯箱打开时不允许误关：合成/发送中也不关（见 FlashComposer 自己的 Esc 处理）。
     return () => {
-      document.removeEventListener('mousedown', closeFlashFromOutside);
+      document.removeEventListener('pointerdown', closeFlashFromOutside, true);
       document.removeEventListener('keydown', closeFlashOnEscape);
     };
   }, [tabActive, flashOpen]);
@@ -1816,7 +1816,7 @@ export function ChatPane({
       return;
     }
 
-    function closeLinkFromOutside(event: globalThis.MouseEvent) {
+    function closeLinkFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -1841,10 +1841,10 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeLinkFromOutside);
+    document.addEventListener('pointerdown', closeLinkFromOutside, true);
     document.addEventListener('keydown', closeLinkOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeLinkFromOutside);
+      document.removeEventListener('pointerdown', closeLinkFromOutside, true);
       document.removeEventListener('keydown', closeLinkOnEscape);
     };
   }, [tabActive, arkOpen]);
@@ -1854,7 +1854,7 @@ export function ChatPane({
       return;
     }
 
-    function closeAiVoiceFromOutside(event: globalThis.MouseEvent) {
+    function closeAiVoiceFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -1876,10 +1876,10 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeAiVoiceFromOutside);
+    document.addEventListener('pointerdown', closeAiVoiceFromOutside, true);
     document.addEventListener('keydown', closeAiVoiceOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeAiVoiceFromOutside);
+      document.removeEventListener('pointerdown', closeAiVoiceFromOutside, true);
       document.removeEventListener('keydown', closeAiVoiceOnEscape);
     };
   }, [tabActive, aiVoiceOpen]);
@@ -1889,7 +1889,7 @@ export function ChatPane({
       return;
     }
 
-    function closeRedPacketFromOutside(event: globalThis.MouseEvent) {
+    function closeRedPacketFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -1909,10 +1909,10 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeRedPacketFromOutside);
+    document.addEventListener('pointerdown', closeRedPacketFromOutside, true);
     document.addEventListener('keydown', closeRedPacketOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeRedPacketFromOutside);
+      document.removeEventListener('pointerdown', closeRedPacketFromOutside, true);
       document.removeEventListener('keydown', closeRedPacketOnEscape);
     };
   }, [tabActive, redPacketOpen]);
@@ -1929,7 +1929,7 @@ export function ChatPane({
       return;
     }
 
-    function closeLocationCardFromOutside(event: globalThis.MouseEvent) {
+    function closeLocationCardFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node) || isLocationTrigger(target)) {
         return;
@@ -1946,10 +1946,10 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeLocationCardFromOutside);
+    document.addEventListener('pointerdown', closeLocationCardFromOutside, true);
     document.addEventListener('keydown', closeLocationCardOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeLocationCardFromOutside);
+      document.removeEventListener('pointerdown', closeLocationCardFromOutside, true);
       document.removeEventListener('keydown', closeLocationCardOnEscape);
     };
   }, [tabActive, locationCardOpen, isLocationTrigger]);
@@ -1960,7 +1960,7 @@ export function ChatPane({
       return;
     }
 
-    function closeLocationShareFromOutside(event: globalThis.MouseEvent) {
+    function closeLocationShareFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -1977,10 +1977,10 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeLocationShareFromOutside);
+    document.addEventListener('pointerdown', closeLocationShareFromOutside, true);
     document.addEventListener('keydown', closeLocationShareOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeLocationShareFromOutside);
+      document.removeEventListener('pointerdown', closeLocationShareFromOutside, true);
       document.removeEventListener('keydown', closeLocationShareOnEscape);
     };
   }, [tabActive, locationShareOpen, isLocationTrigger]);
@@ -2120,7 +2120,7 @@ export function ChatPane({
       return;
     }
 
-    function closeMentionFromOutside(event: globalThis.MouseEvent) {
+    function closeMentionFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -2135,9 +2135,9 @@ export function ChatPane({
       setMentionMenu(null);
     }
 
-    document.addEventListener('mousedown', closeMentionFromOutside);
+    document.addEventListener('pointerdown', closeMentionFromOutside, true);
     return () => {
-      document.removeEventListener('mousedown', closeMentionFromOutside);
+      document.removeEventListener('pointerdown', closeMentionFromOutside, true);
     };
   }, [tabActive, mentionMenu]);
 

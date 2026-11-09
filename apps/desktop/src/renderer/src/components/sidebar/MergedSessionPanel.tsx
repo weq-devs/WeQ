@@ -206,18 +206,18 @@ export function MergedSessionPanel({
 
   // 点击面板外部关闭
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleClickOutside = (e: PointerEvent) => {
       if (actionMenu || batch.confirming) return;
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         onBack();
       }
     };
     const timer = setTimeout(() => {
-      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('pointerdown', handleClickOutside, true);
     }, 100);
     return () => {
       clearTimeout(timer);
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('pointerdown', handleClickOutside, true);
     };
   }, [onBack, actionMenu, batch.confirming]);
 

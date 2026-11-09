@@ -230,7 +230,7 @@ function ComposerSelect({
 
   useEffect(() => {
     if (!open) return undefined;
-    function onDocDown(e: MouseEvent): void {
+    function onDocDown(e: PointerEvent): void {
       const t = e.target as Node;
       if (triggerRef.current?.contains(t) || popRef.current?.contains(t)) return;
       setOpen(false);
@@ -238,10 +238,10 @@ function ComposerSelect({
     function onKey(e: KeyboardEvent): void {
       if (e.key === 'Escape') setOpen(false);
     }
-    document.addEventListener('mousedown', onDocDown);
+    document.addEventListener('pointerdown', onDocDown, true);
     document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('mousedown', onDocDown);
+      document.removeEventListener('pointerdown', onDocDown, true);
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);

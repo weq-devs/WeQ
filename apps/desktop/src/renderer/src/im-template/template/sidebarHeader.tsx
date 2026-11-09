@@ -83,7 +83,7 @@ export function SidebarHeader({
       return;
     }
 
-    function closeOnOutside(event: MouseEvent) {
+    function closeOnOutside(event: PointerEvent) {
       const target = event.target;
       if (target instanceof Element && target.closest('.sidebar-add-wrap')) {
         return;
@@ -99,10 +99,10 @@ export function SidebarHeader({
       }
     }
 
-    document.addEventListener('mousedown', closeOnOutside);
+    document.addEventListener('pointerdown', closeOnOutside, true);
     document.addEventListener('keydown', closeOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeOnOutside);
+      document.removeEventListener('pointerdown', closeOnOutside, true);
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [addOpen]);
