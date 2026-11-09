@@ -1082,9 +1082,8 @@ export function ChatPane({
   const flashButtonRef = useRef<HTMLButtonElement | null>(null);
   const locationSharePanelRef = useRef<HTMLDivElement | null>(null);
   const locationCardPanelRef = useRef<HTMLDivElement | null>(null);
-  /** 工具栏那个「位置」按钮 —— 桌面端 / 手机端各渲染一个，点外关闭两者都要认。 */
-  const locationMenuDesktopButtonRef = useRef<HTMLButtonElement | null>(null);
-  const locationMenuMobileButtonRef = useRef<HTMLButtonElement | null>(null);
+  /** 桌面端与手机端共用的位置按钮，点外关闭时排除自身。 */
+  const locationMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // 闪照是「选一张图 → 立刻按闪照发出去」的一条独立通路（不进草稿、不内联成图）。
@@ -1918,18 +1917,9 @@ export function ChatPane({
     };
   }, [tabActive, redPacketOpen]);
 
-  /**
-   * 「位置」菜单 / 两个位置面板的点外关闭。
-   *
-   * 工具栏那个位置按钮桌面端与手机端各渲染一个，两者都要算「点在自己身上」——
-   * 不然点开菜单再点同一个按钮想收起时，会被当成点了外面。
-   */
+  /** 「位置」菜单 / 两个位置面板的点外关闭。 */
   const isLocationTrigger = useCallback(
-    (target: Node): boolean =>
-      Boolean(
-        locationMenuDesktopButtonRef.current?.contains(target) ||
-          locationMenuMobileButtonRef.current?.contains(target),
-      ),
+    (target: Node): boolean => Boolean(locationMenuButtonRef.current?.contains(target)),
     [],
   );
 
@@ -5952,34 +5942,6 @@ export function ChatPane({
         />
         <ComposerDropVeil visible={dropActive} />
         <div className={cn('composer-tools')}>
-          {composerActionRegistry.mobileToolbar.map((action) => (
-            <ComposerToolbarActionButton
-              key={action.id}
-              action={action}
-              className={cn('composer-tool', 'composer-mobile-tool')}
-              context={composerActionContext}
-              iconSize={27}
-              onClick={runComposerAction}
-            />
-          ))}
-          {/* 位置（手机端）：与桌面端同一个菜单 + 同一套面板，只是工具栏样式不同。 */}
-          <button
-            ref={locationMenuMobileButtonRef}
-            type="button"
-            className={cn(
-              'composer-tool',
-              'composer-mobile-tool',
-              (locationMenu || locationCardOpen || locationShareOpen) && 'active',
-            )}
-            title={qqUnavailable || '位置'}
-            aria-label="位置"
-            aria-haspopup="menu"
-            aria-expanded={locationMenu !== null}
-            disabled={readOnly || generated || currentPreference.blocked || sending}
-            onClick={openLocationMenu}
-          >
-            <MapPin size={21} strokeWidth={1.5} />
-          </button>
           <button
             ref={emojiButtonRef}
             type="button"
@@ -6079,7 +6041,7 @@ export function ChatPane({
           </button>
           {/* 位置：点开两项 —— 发送位置（静态卡片）/ 共享位置（实时、房间靠上报续命）。 */}
           <button
-            ref={locationMenuDesktopButtonRef}
+            ref={locationMenuButtonRef}
             type="button"
             className={cn(
               'composer-tool',
@@ -6110,7 +6072,7 @@ export function ChatPane({
             <button
               ref={toolsButtonRef}
               type="button"
-              className={cn('composer-tool', 'composer-mobile-tool', toolsOpen && 'active')}
+              className={cn('composer-tool', toolsOpen && 'active')}
               title="更多功能"
               disabled={currentPreference.blocked}
               onClick={toggleToolsPanel}

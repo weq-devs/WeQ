@@ -231,6 +231,7 @@ function Fixture() {
       onDraftChange() {},
       onDraftClear() {},
       onBack() {},
+      onStartCall: params.has('composer-actions') ? () => {} : undefined,
     }),
   );
 }

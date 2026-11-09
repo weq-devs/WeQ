@@ -53,6 +53,7 @@ async function mount(group = false, draft = '') {
         onDraftChange: vi.fn(),
         onBack: vi.fn(),
         onSend: send,
+        onStartCall: vi.fn(),
         ...{ onSendWindowShake: vi.fn(async () => {}) },
       }),
     ),
@@ -75,6 +76,25 @@ function choose(label: string) {
   expect(button, label).toBeDefined();
   act(() => button!.click());
 }
+
+it('输入框工具栏共用桌面端按钮列表，位置只保留一个入口且可再次点击收起', async () => {
+  const { host } = await mount();
+  const toolbar = host.querySelector('.composer-tools')!;
+  expect([...toolbar.querySelectorAll('button')].map((button) => button.title)).toEqual([
+    '表情',
+    '红包 / 礼物',
+    '通话',
+    '语音',
+    '发送图片或文件',
+    '发送 Ark 卡片',
+    '位置',
+  ]);
+  expect(toolbar.querySelector('.composer-mobile-tool')).toBeNull();
+  clickTitle(toolbar, '位置');
+  expect(document.querySelector('[role="menu"][aria-label="位置"]')).not.toBeNull();
+  clickTitle(toolbar, '位置');
+  expect(document.querySelector('[role="menu"][aria-label="位置"]')).toBeNull();
+});
 
 it.each([false, true])('私聊互动表情保留发送，不再提供窗口抖动；展开=%s', async (expanded) => {
   const { host, send } = await mount(false, '未发送的文字');

@@ -1014,13 +1014,21 @@
     grid-template-rows: var(--mobile-composer-editor-height, 42px) 48px;
     gap: 0;
     padding: 8px 12px calc(6px + env(safe-area-inset-bottom, 0px));
-    overflow: hidden;
+    overflow: visible;
     border-top: 0;
     background: #f7f7f7;
   }
 
   .composer-resize {
     display: none;
+  }
+
+  .composer > .ark-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .composer > .ark-panel .ark-close {
+    flex-shrink: 0;
   }
 
   .composer-editor {
@@ -1275,8 +1283,10 @@
   .composer-tools {
     display: flex;
     grid-row: 2;
+    min-width: 0;
     align-items: stretch;
     gap: 0;
+    overflow-x: auto;
     padding: 0;
   }
 
@@ -1285,9 +1295,10 @@
   }
 
   .composer-tools button {
-    /* 表情 / 弹射 / 更多（如需），外加应用层可追加的扩展键 —— 有几枚就均分几份。 */
+    /* 沿用桌面端按钮列表；窄屏保留触控尺寸，扩展按钮较多时横向滚动。 */
     flex: 1 1 0;
     width: auto;
+    min-width: 40px;
     height: auto;
     min-height: 40px;
     border-radius: 12px;
@@ -1318,7 +1329,7 @@
   }
 
   .composer-tools .composer-desktop-tool {
-    display: none;
+    display: grid;
   }
 
   /* 桌面端的「发送」按钮直接挂在 .composer 下（不在 .composer-tools 里），
