@@ -20,6 +20,7 @@ export function MessageCalendar({
   onMonthChange,
   dayStatus,
   yearOptions,
+  statusText,
 }: {
   days?: readonly MessageDay[];
   start?: string;
@@ -35,6 +36,7 @@ export function MessageCalendar({
   onMonthChange?: (month: string) => void;
   dayStatus?: Record<string, { complete: boolean }>;
   yearOptions?: string[];
+  statusText?: string;
 }) {
   const [localMonth, setLocalMonth] = useState((start || beijingDay()).slice(0, 7));
   const month = controlledMonth ?? localMonth;
@@ -150,9 +152,10 @@ export function MessageCalendar({
         })}
       </div>
       <div className="weq-density-calendar-status" role="status">
-        {loading
-          ? '正在读取消息数量…'
-          : `北京时间 · ${days.filter((day) => day.count > 0).length} 个有记录日期`}
+        {statusText ??
+          (loading
+            ? '正在读取消息数量…'
+            : `北京时间 · ${days.filter((day) => day.count > 0).length} 个有记录日期`)}
       </div>
       {error ? <p role="alert">{error}</p> : null}
     </div>

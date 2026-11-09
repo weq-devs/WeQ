@@ -252,6 +252,19 @@ export function ConversationOverviewCalendar({
               setOffset(0);
             }}
             loading={!ready || !snapshot}
+            statusText={
+              !snapshot
+                ? '正在读取消息数量…'
+                : errors.length
+                  ? '部分日期统计未完成'
+                  : dirty
+                    ? '记录已更新，等待重新统计'
+                    : !snapshot.days.every((value) => value.complete)
+                      ? snapshot.metrics.reads
+                        ? '正在统计消息数量…'
+                        : '等待数据库空闲…'
+                      : undefined
+            }
           />
           <section className="weq-overview-calendar-conversations" aria-label="当天会话">
             <h4>{day}</h4>
