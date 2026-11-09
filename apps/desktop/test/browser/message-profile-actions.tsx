@@ -16,6 +16,7 @@ const user: User = {
   identityValue: '10001',
   username: 'fixture',
   displayName: '合成成员',
+  nick: '合成成员',
   avatarUrl: null,
 };
 const conversation: GroupConversation = {
@@ -61,13 +62,21 @@ function Fixture() {
                 embedded
                 conversation={conversation}
                 user={user}
-                messages={[]}
+                messages={[
+                  {
+                    id: 'preview-fixture',
+                    conversationId: conversation.id,
+                    senderId: user.id,
+                    body: '合成预览消息',
+                    createdAt: '2026-11-09T12:00:00+08:00',
+                  },
+                ]}
                 loading={false}
                 loadingMore={false}
                 error={null}
                 hasMore={false}
                 moreFailed={false}
-                totalCount={0}
+                totalCount={1}
                 onLoadMore={() => {}}
                 onClose={() => setPreview(false)}
               />

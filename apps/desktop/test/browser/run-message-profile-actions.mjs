@@ -64,6 +64,17 @@ try {
         assert(bounds && bounds.x >= -1 && bounds.x + bounds.width <= width + 1);
         const preview = await profile.locator('.weq-contact-chat-preview').boundingBox();
         assert(preview && preview.height > 100 && preview.y + preview.height <= 845);
+        const scroll = profile.locator('.weq-private-preview-scroll');
+        const scrollTop = await scroll.evaluate((element) => element.scrollTop);
+        await profile.locator('.message-avatar-button').click();
+        const member = page.getByRole('dialog', { name: '用户资料', exact: true });
+        await member.waitFor();
+        await member.evaluate(async (element) => {
+          await Promise.all(element.getAnimations().map((animation) => animation.finished));
+        });
+        assert((await member.textContent()).includes('合成成员'));
+        const memberBounds = await member.boundingBox();
+        assert(memberBounds && memberBounds.x >= 0 && memberBounds.x + memberBounds.width <= width);
         if (output)
           await page.screenshot({
             path: resolve(
@@ -71,6 +82,9 @@ try {
               `${width}-${dark ? 'dark' : 'light'}-${popover ? 'popover' : 'embedded'}.png`,
             ),
           });
+        await member.getByRole('button', { name: '关闭', exact: true }).click();
+        assert.equal(await member.count(), 0);
+        assert.equal(await scroll.evaluate((element) => element.scrollTop), scrollTop);
         await profile.getByRole('button', { name: '返回资料', exact: true }).click();
         assert.equal(await profile.locator('.weq-contact-chat-preview').count(), 0);
         await profile.getByRole('button', { name: '查看消息', exact: true }).click();
