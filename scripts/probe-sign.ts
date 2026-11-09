@@ -779,8 +779,7 @@ async function main(): Promise<void> {
 
   const runtimeDir = opt('--runtime-dir');
   const controlPath = runtimeDir
-    ? (findControlSocketInDir(runtimeDir, pid) ??
-      `${runtimeDir}/mojo.${pid}.control.sock`)
+    ? (findControlSocketInDir(runtimeDir, pid) ?? `${runtimeDir}/mojo.${pid}.control.sock`)
     : (findControlSocket(pid) ??
       fail(
         `找不到 pid=${pid} 的 hook control socket；` +
