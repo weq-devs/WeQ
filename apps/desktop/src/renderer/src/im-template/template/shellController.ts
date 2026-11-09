@@ -1,6 +1,6 @@
-﻿// @ts-nocheck
+�// @ts-nocheck
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { loadLayoutNumber, saveLayoutNumber } from './layoutStorage';
+import { DEFAULT_SIDEBAR_WIDTH, loadLayoutNumber, saveLayoutNumber } from './layoutStorage';
 import { defaultConversationPreference } from './preferences';
 import { usePageState } from '../../components/PageSnapshots';
 import { pageValue } from '../../lib/pageSnapshots';
@@ -138,7 +138,7 @@ export function useChatShellController({
     pageValue.optionalString,
   );
   const [sidebarWidth, setSidebarWidth] = useState(() =>
-    loadLayoutNumber(sidebarWidthStorageKey, 362, 220, 520),
+    loadLayoutNumber(sidebarWidthStorageKey, DEFAULT_SIDEBAR_WIDTH, 220, 520),
   );
   const backStateRef = useRef<ShellSelectionState>({
     activeConversationId,

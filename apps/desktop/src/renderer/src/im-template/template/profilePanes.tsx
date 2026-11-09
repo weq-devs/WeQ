@@ -59,29 +59,11 @@ import {
 import { usePersonRelationship } from '../../lib/contactRelationship';
 
 export { relationMeta } from '../../lib/profileRelations';
+import { zodiac } from '../../lib/contactListOrder';
 
 /** 由出生月日推算星座名（标准日期分界）。缺月或日时返回 null。 */
 export function constellationOf(month?: number, day?: number) {
-  if (!month || !day) {
-    return null;
-  }
-  const table: Array<[cutoff: number, name: string]> = [
-    [20, '水瓶座'],
-    [19, '双鱼座'],
-    [21, '白羊座'],
-    [20, '金牛座'],
-    [21, '双子座'],
-    [22, '巨蟹座'],
-    [23, '狮子座'],
-    [23, '处女座'],
-    [23, '天秤座'],
-    [24, '天蝎座'],
-    [23, '射手座'],
-    [22, '摩羯座'],
-  ];
-  const idx = month - 1;
-  const entry = day < table[idx][0] ? table[(idx + 11) % 12] : table[idx];
-  return entry[1];
+  return zodiac(month, day);
 }
 
 export function birthdayText(year?: number, month?: number, day?: number) {

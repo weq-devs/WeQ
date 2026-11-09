@@ -269,16 +269,18 @@ const WAVE_LINE_B_PATH =
   'C30 258.3 28.5 266.7 28.5 275 C28.5 283.3 30 291.7 30.5 300';
 
 /** 一个子任务阶段：名称 + 进度条 + 右侧百分比 + 下拉按钮（展开显示最近日志）。 */
-function StageRow({
+export function StageRow({
   stage,
   logs,
   onShowFailures,
   onSkip,
+  paused = false,
 }: {
   stage: UiStage;
   logs: UiLogLine[];
   onShowFailures: (failures: UiFailure[]) => void;
   onSkip?: () => void;
+  paused?: boolean;
 }): ReactElement {
   const [open, setOpen] = useState(false);
   const pct = stagePct(stage);
@@ -307,7 +309,7 @@ function StageRow({
         ) : null}
         <span className="weq-exp-detail-stage-bar">
           <span
-            className={`weq-exp-detail-stage-fill${stage.status === 'running' ? ' is-active' : ''}`}
+            className={`weq-exp-detail-stage-fill${stage.status === 'running' && !paused ? ' is-active' : ''}`}
             style={{ width: `${pct}%` }}
           />
         </span>

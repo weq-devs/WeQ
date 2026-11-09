@@ -20,6 +20,21 @@ import {
 } from '../src/renderer/src/state/contentSelection';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));
+vi.mock('../src/renderer/src/hooks/useContactDirectoryOrder', () => ({
+  useFrozenDirectory: (value: unknown) => value,
+  useContactDirectoryOrder: (kind: string) => ({
+    preferences: {
+      grouping: kind === 'friends' ? 'qq' : 'notify',
+      sort: 'remark',
+      descending: false,
+    },
+    rows: {},
+    regions: [],
+    groupingOptions: {},
+    sortOptions: {},
+    change: vi.fn(),
+  }),
+}));
 vi.mock('../src/renderer/src/hooks/useFriendSpecialCare', () => ({
   useFriendSpecialCare: () => ({ enabled: false, disabled: false, change: vi.fn() }),
 }));
@@ -64,7 +79,7 @@ it.each([false, true])('好友 Shift 连选不跳过重复分组中的密友，�
             contacts,
             specialSections: [
               { id: 'special:care', name: '特别关心', items: [contacts[2]!] },
-              { id: 'special:intimate', name: '亲密关系', items: [contacts[1]!] },
+              { id: 'special:test-care', name: '特别关心测试副本', items: [contacts[1]!] },
             ],
             activeContactId: null,
             onSelect,

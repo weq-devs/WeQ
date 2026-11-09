@@ -1,3 +1,4 @@
+import type { ContactMetricsService } from './contact_metrics';
 /**
  * GroupInfoService — fetch metadata related to groups (essence messages, members, etc.).
  */
@@ -281,6 +282,14 @@ const MEMBER_SCAN_LIMIT = 5000;
 const MIN_SHARED_GROUPS = 2;
 
 export class GroupInfoService {
+  contactMetrics?: ContactMetricsService;
+
+  contactMembersObserved?: (groupId: number, members: GroupMemberListItem[]) => Promise<void>;
+
+  contactMembershipSnapshot(friendUids: string[]) {
+    return this.session.groupMembers.contactMembershipSnapshot(friendUids);
+  }
+
   private readonly groupNotifyService: GroupNotifyService;
   /** Per-session relation-graph cache (group membership is near-static). */
   private relationGraphCache: RelationGraphData | null = null;
@@ -347,7 +356,7 @@ export class GroupInfoService {
    */
   async fetchOnlineMembers(
     groupId: number,
-    options: { force?: boolean } = {},
+    options: { force?: boolean; priority?: number; observe?: boolean } = {},
   ): Promise<GroupMemberListItem[]> {
     if (!this.online) throw new Error('该账号当前不在线，无法拉取在线群成员。');
     const cached = this.onlineMembersCache.get(groupId);
@@ -369,15 +378,24 @@ export class GroupInfoService {
       let token = '';
       for (let page = 0; page < ONLINE_MEMBERS_MAX_PAGES; page += 1) {
         if (resolvePid() !== pid) throw new Error('QQ 运行时已切换');
-        const result = await FetchGroupMemberListPage.invoke(nt, pid, {
-          groupId,
-          ...(token ? { token } : {}),
-        });
+        const fetchPage = () =>
+          FetchGroupMemberListPage.invoke(nt, pid, {
+            groupId,
+            ...(token ? { token } : {}),
+          });
+        const result = this.contactMetrics
+          ? await this.contactMetrics.schedule(
+              `members:${groupId}:${token}`,
+              fetchPage,
+              options.priority,
+            )
+          : await fetchPage();
         all.push(...result.members);
         if (resolvePid() !== pid) throw new Error('QQ 运行时已切换');
         if (!result.token) {
           const members = [...new Map(all.map((member) => [String(member.uin), member])).values()];
           this.onlineMembersCache.set(groupId, { at: Date.now(), pid, members });
+          if (options.observe !== false) await this.contactMembersObserved?.(groupId, members);
           return members;
         }
         if (tokens.has(result.token)) throw new Error('群成员分页游标重复，未返回截断名单');
@@ -660,7 +678,12 @@ export class GroupInfoService {
    * Get extended metadata (活跃度/幸运字符/群主uin等) for a single group.
    */
   async getGroupExt(groupCode: bigint): Promise<GroupExt | null> {
-    return this.session.groupExt.getExt(groupCode);
+    const result = await this.session.groupExt.getExt(groupCode);
+    if (result)
+      await this.contactMetrics?.record(`group:${groupCode}`, {
+        activityScore: result.activityScore,
+      });
+    return result;
   }
 
   /**
@@ -821,7 +844,12 @@ export class GroupInfoService {
    * List ext metadata for all groups (活跃度排行等场景).
    */
   async listAllGroupsExt(limit = 500, offset = 0): Promise<GroupExt[]> {
-    return this.session.groupExt.listAll(limit, offset);
+    const rows = await this.session.groupExt.listAll(limit, offset);
+    for (const row of rows)
+      await this.contactMetrics?.recordIfChanged(`group:${row.groupCode}`, {
+        activityScore: row.activityScore,
+      });
+    return rows;
   }
 
   /**

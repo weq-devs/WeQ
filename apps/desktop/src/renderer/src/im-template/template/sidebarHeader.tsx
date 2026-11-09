@@ -1,16 +1,8 @@
 // @ts-nocheck
-import {
-  Plus,
-  Search,
-  UserPlus,
-  UsersRound,
-  RefreshCw,
-  Download,
-  Users,
-  UserRound,
-} from 'lucide-react';
+import { Plus, Search, UserPlus, UsersRound, Download, Users, UserRound } from 'lucide-react';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { ContactDirectoryContext } from '../../lib/conversationDirectory';
+import { ContactRefreshButton } from '../../components/ContactRefreshButton';
 import { FriendGroupCreateMenu } from '../../components/FriendGroupCreateMenu';
 import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
@@ -247,16 +239,7 @@ export function SidebarHeader({
               </button>
             )}
             {onRefreshContacts ? (
-              <button
-                type="button"
-                onClick={onRefreshContacts}
-                disabled={refreshingContacts}
-                aria-label={refreshingContacts ? '正在刷新联系人' : '刷新联系人列表'}
-                title={refreshingContacts ? '正在刷新联系人' : '刷新联系人列表'}
-                aria-busy={refreshingContacts}
-              >
-                <RefreshCw size={15} className={refreshingContacts ? 'spin' : undefined} />
-              </button>
+              <ContactRefreshButton onRefresh={onRefreshContacts} refreshing={refreshingContacts} />
             ) : null}
           </DirectoryToolbar>
           {exportMenu && requestExport && (

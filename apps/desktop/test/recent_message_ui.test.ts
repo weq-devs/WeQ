@@ -2,6 +2,10 @@ import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock(
+  '../src/renderer/src/hooks/useContactDirectoryOrder',
+  () => import('./support/contact-order.stub'),
+);
 import {
   ConversationList,
   ContactList,
@@ -723,6 +727,9 @@ describe('新增消息交互', () => {
       const tools = fixture.host.querySelector('.contact-tools')!;
       expect(tools.firstElementChild?.classList.contains('weq-directory-toolbar')).toBe(true);
       act(() => button(fixture.host, '刷新联系人列表').click());
+      expect(refresh).not.toHaveBeenCalled();
+      act(() => button(document, '不更新').click());
+      act(() => button(document, '刷新').click());
       expect(refresh).toHaveBeenCalledOnce();
       act(() => button(fixture.host, '多选联系人').click());
       act(() => fixture.host.querySelector<HTMLButtonElement>('.contact-cat-header')!.click());

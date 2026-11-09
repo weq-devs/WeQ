@@ -1,11 +1,13 @@
-﻿// @ts-nocheck
+�// @ts-nocheck
 export function loadLayoutNumber(key: string, fallback: number, min: number, max: number) {
   if (typeof window === 'undefined') {
     return fallback;
   }
 
   try {
-    const value = Number(window.localStorage.getItem(key));
+    const raw = window.localStorage.getItem(key);
+    if (raw === null || raw.trim() === '') return fallback;
+    const value = Number(raw);
     if (!Number.isFinite(value)) {
       return fallback;
     }
@@ -14,6 +16,8 @@ export function loadLayoutNumber(key: string, fallback: number, min: number, max
     return fallback;
   }
 }
+
+export const DEFAULT_SIDEBAR_WIDTH = 240;
 
 export function saveLayoutNumber(key: string, value: number) {
   try {

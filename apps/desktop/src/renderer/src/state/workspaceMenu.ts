@@ -23,6 +23,8 @@ interface WorkspaceMenuState {
   assistant: AssistantActivity;
   assistantUnread: boolean;
   taskOpenRequest: number;
+  taskFocusId: string | null;
+  focusTask: (id: string) => void;
   openTasks: () => void;
   mobileToolRequest: { tool: MobileWorkspaceTool } | null;
   openMobileTool: (tool: MobileWorkspaceTool) => void;
@@ -46,7 +48,11 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
   assistant: 'idle',
   assistantUnread: false,
   taskOpenRequest: 0,
-  openTasks: () => set((state) => ({ taskOpenRequest: state.taskOpenRequest + 1 })),
+  taskFocusId: null,
+  focusTask: (id) =>
+    set((state) => ({ taskFocusId: id, taskOpenRequest: state.taskOpenRequest + 1 })),
+  openTasks: () =>
+    set((state) => ({ taskFocusId: null, taskOpenRequest: state.taskOpenRequest + 1 })),
   mobileToolRequest: null,
   openMobileTool: (tool) => set({ mobileToolRequest: { tool } }),
   taskScope: null,

@@ -205,6 +205,7 @@ import {
 } from '@weq/account';
 import { collectionItemToWire, collectionDetailToWire } from '../ipc/serde';
 import { mountGroupInfoWatch } from '../group_info_watch';
+import { ContactDirectoryRuntime } from './contact_metrics';
 
 /**
  * Process-wide bus for message / group-info changes, fed by the shared `dbWatch` loop
@@ -878,6 +879,7 @@ export interface BootstrapServices {
 
 /** Services that are re-created whenever an account session opens. */
 export interface AccountServices {
+  contactDirectory?: ContactDirectoryRuntime;
   msgs: MsgService;
   recentContacts: RecentContactService;
   /** QQ 频道私聊会话与消息（guild_msg.db / guild1.db，静态本地读取）。 */
@@ -1472,6 +1474,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
+      await this.services?.contactDirectory?.dispose();
       this.account?.dispose();
       unmountDbWatch();
       ssePush?.stop();
@@ -2160,6 +2163,15 @@ export function initAppContext(fileRoot?: string): AppContext {
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };
+      this.services.contactDirectory = new ContactDirectoryRuntime(
+        this.services,
+        session,
+        userConfig.cacheDir(join('contacts', exportConfigId, session.context.uin)),
+        dbWatch,
+        () => fullModeAllowed(this, session) && Boolean(accountConfig.getRecord()?.qqOnline),
+        () => this.account === session,
+        exportConfigId,
+      );
       generatedSources = { agentLab: this.services.agentLab, assistant: this.services.assistant };
       // Scheduled export manager — fires saved templates through the export
       // manager on a single setTimeout wake. Per-account cache mirrors the
@@ -2343,6 +2355,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
+      await this.services?.contactDirectory?.dispose();
       this.account?.dispose();
       unmountDbWatch();
       ssePush?.stop();
@@ -2952,6 +2965,15 @@ export function initAppContext(fileRoot?: string): AppContext {
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };
+      this.services.contactDirectory = new ContactDirectoryRuntime(
+        this.services,
+        session,
+        userConfig.cacheDir(join('contacts', exportConfigId, session.context.uin)),
+        dbWatch,
+        () => fullModeAllowed(this, session) && Boolean(accountConfig.getRecord()?.qqOnline),
+        () => this.account === session,
+        exportConfigId,
+      );
       generatedSources = { agentLab: this.services.agentLab, assistant: this.services.assistant };
 
       // Persist metadata keyed by the decrypted-db directory, so re-opening
@@ -3092,6 +3114,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       unmountAntiRecallMonitor();
       const roamingClosed = this.services?.roamingBackfill.close();
       const favoriteImportClosed = this.services?.favoriteEmojiImport.dispose();
+      const contactsClosed = this.services?.contactDirectory?.dispose();
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
       this.services?.unifiedSearch.dispose();
@@ -3111,6 +3134,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountCacheRoots.delete(this);
       if (waitForPending) uidRegistry.clear();
       const closing = Promise.allSettled([
+        contactsClosed,
         mcpClosed,
         externalMcpClosed,
         roamingClosed,

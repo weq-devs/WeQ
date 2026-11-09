@@ -1,4 +1,5 @@
 import type { Buddy, Category } from '@weq/db';
+import type { ContactMetricsService } from './contact_metrics';
 import {
   ClearFriendRemark,
   SetFriendRemark,
@@ -48,6 +49,7 @@ export interface AccountWriteOutcome {
 
 /** 编排账号操作及配套读回；不写 QQ 原库、不自动重发写请求。 */
 export class AccountWriteService {
+  contactMetrics?: ContactMetricsService;
   constructor(
     private readonly nt: PacketNative,
     private readonly identity: AccountWriteIdentity,
@@ -71,8 +73,13 @@ export class AccountWriteService {
         category: group.categoryName,
       };
     }
-    const profile = await getCloudProfile(this.nt, pid, target, [105, 20002]);
+    const fetch = () => getCloudProfile(this.nt, pid, target, [105, 20002]);
+    const profile = this.contactMetrics
+      ? await this.contactMetrics.schedule(`exact-profile:${target}`, fetch)
+      : await fetch();
     this.assertCurrentPid(pid);
+    const level = profile.numbers.get(105);
+    if (level !== undefined) await this.contactMetrics?.record(`friend:${target}`, { level });
     const nick = profile.bytes.get(20002);
     return {
       kind,
@@ -83,19 +90,42 @@ export class AccountWriteService {
     };
   }
 
-  async commonRelationships(target: string) {
+  async commonRelationships(target: string, priority = 0) {
     const pid = this.resolvePid();
     const [friends, groups] = await Promise.allSettled([
-      getCommonFriendCount(this.nt, pid, this.identity.uin, target),
-      Promise.resolve().then(() =>
-        getCommonGroups(
-          this.nt,
-          pid,
-          this.identity.uin,
-          target,
-          this.identity.clientVersion?.() ?? '',
-        ),
-      ),
+      this.contactMetrics
+        ? this.contactMetrics.query(
+            `friend:${target}`,
+            ['commonFriends'],
+            () => getCommonFriendCount(this.nt, pid, this.identity.uin, target),
+            (value) => ({ commonFriends: value }),
+            priority,
+          )
+        : getCommonFriendCount(this.nt, pid, this.identity.uin, target),
+      this.contactMetrics
+        ? this.contactMetrics.query(
+            `friend:${target}`,
+            ['commonGroups'],
+            () =>
+              getCommonGroups(
+                this.nt,
+                pid,
+                this.identity.uin,
+                target,
+                this.identity.clientVersion?.() ?? '',
+              ),
+            (value) => ({ commonGroups: value }),
+            priority,
+          )
+        : Promise.resolve().then(() =>
+            getCommonGroups(
+              this.nt,
+              pid,
+              this.identity.uin,
+              target,
+              this.identity.clientVersion?.() ?? '',
+            ),
+          ),
     ]);
     this.assertCurrentPid(pid);
     return {
@@ -106,12 +136,20 @@ export class AccountWriteService {
     };
   }
 
-  async friendClue(uid: string) {
+  async friendClue(uid: string, priority = 0) {
     const pid = this.resolvePid();
     const buddy = await this.friend(uid);
     this.assertCurrentPid(pid);
     if (buddy.uid !== uid || uid === this.identity.selfUid) throw new Error('好友线索读取目标无效');
-    const result = await getFriendClue(this.nt, pid, String(buddy.uin));
+    const result = this.contactMetrics
+      ? await this.contactMetrics.query(
+          `friend:${buddy.uin}`,
+          ['addedAt', 'direction'],
+          () => getFriendClue(this.nt, pid, String(buddy.uin)),
+          (value) => ({ addedAt: value.addedAt, direction: value.direction }),
+          priority,
+        )
+      : await getFriendClue(this.nt, pid, String(buddy.uin));
     this.assertCurrentPid(pid);
     return { uid, ...result };
   }

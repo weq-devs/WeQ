@@ -88,6 +88,7 @@ import {
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { createQQWriteRouter } from './qq_write';
+import { createContactMetricsRouter } from './contact_metrics';
 import { createQQActionsRouter } from './qq_actions';
 import { dbExplorerRouter } from './db_explorer';
 import { annualReportRouter } from './annual_report';
@@ -1753,6 +1754,14 @@ const browserFiles = new FileUploadStaging(30 * 60000, {
 });
 
 export const accountRouter = router({
+  contactMetrics: createContactMetricsRouter((input) => {
+    const runtime = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    ).contactDirectory;
+    if (!runtime) throw new Error('联系人缓存尚未就绪');
+    return runtime;
+  }),
   calendarOverview: conversationCalendarRouter,
   onWebNotice: procedure.input(browserFileBinding).subscription(({ input }) => {
     const services = requireExpectedAccount(

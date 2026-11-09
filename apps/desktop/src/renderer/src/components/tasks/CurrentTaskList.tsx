@@ -115,6 +115,9 @@ export function CurrentTaskList({
     onError: (error) => showError('打开下载目录失败', error.message),
   });
   const [selected, setSelected] = useState<string | null | undefined>(undefined);
+  const taskFocusId = useWorkspaceMenu((state) => state.taskFocusId);
+  const taskOpenRequest = useWorkspaceMenu((state) => state.taskOpenRequest);
+  const appliedFocus = useRef<string | null>(null);
   useEffect(() => {
     if (autoSelectId) setSelected(`export:${autoSelectId}`);
   }, [autoSelectId]);
@@ -519,6 +522,17 @@ export function CurrentTaskList({
     });
   }
   const ordered = orderLongTasks(items);
+  useEffect(() => {
+    const request = `${taskOpenRequest}:${taskFocusId}`;
+    if (
+      appliedFocus.current !== request &&
+      taskFocusId &&
+      items.some((task) => task.id === taskFocusId)
+    ) {
+      appliedFocus.current = request;
+      setSelected(taskFocusId);
+    }
+  }, [taskFocusId, taskOpenRequest, items]);
   useEffect(() => {
     if (selected !== null && !ordered.some((task) => task.id === selected) && ordered[0])
       setSelected(ordered[0].id);

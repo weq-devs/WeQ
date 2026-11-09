@@ -2,7 +2,7 @@
   .app-shell {
     grid-template-columns:
       var(--im-rail-width, 72px)
-      var(--sidebar-width, 340px)
+      var(--sidebar-width, 240px)
       minmax(0, 1fr);
   }
 }

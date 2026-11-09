@@ -1,5 +1,6 @@
 export type BackgroundTaskKind =
   | 'calendar'
+  | 'contacts'
   | 'model'
   | 'update'
   | 'database'

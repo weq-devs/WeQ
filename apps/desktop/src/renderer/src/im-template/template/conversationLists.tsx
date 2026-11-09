@@ -40,6 +40,9 @@ import {
 } from 'react';
 import { conversationPinned } from '@weq/service/conversation-order';
 import { sortConversationRows } from '../../lib/conversationListOrder';
+import { groupFriends, sortFriends, sortGroups } from '../../lib/contactListOrder';
+import { useContactDirectoryOrder, useFrozenDirectory } from '../../hooks/useContactDirectoryOrder';
+import { ContactDirectoryOrder } from '../../components/ContactDirectoryOrder';
 import { conversationListSearchText } from '../../lib/conversationListSearchText';
 import { formatConversationTime } from '../../lib/conversationTime';
 export { formatConversationTime } from '../../lib/conversationTime';
@@ -1008,19 +1011,43 @@ export function GroupList({
       ),
     [conversations, needle],
   );
-  const [basis, setBasis] = useState(() => {
-    try {
-      const saved = localStorage.getItem('weq.groups.grouping');
-      return ['notify', 'identity', 'size'].includes(saved ?? '') ? saved : 'notify';
-    } catch {
-      return 'notify';
-    }
-  });
-  const categories = useMemo(() => {
-    const groups = searchable.filter(
-      (conversation) =>
-        conversation.type === 'group' &&
-        groupRelationship(conversation.group, relationships) === 'member',
+  const groupSelection = useContentMultiSelect({ kind: 'contacts', container: 'groups' });
+  const metricEntities = useMemo(
+    () =>
+      conversations
+        .filter(
+          (row) => row.type === 'group' && groupRelationship(row.group, relationships) === 'member',
+        )
+        .map((row) => [`group:${row.id}`]),
+    [conversations, relationships],
+  );
+  const order = useContactDirectoryOrder('groups', groupSelection.selectionMode, metricEntities);
+  const basis = order.preferences.grouping;
+  const computedCategories = useMemo(() => {
+    if (basis === 'none')
+      return [
+        {
+          mode: 'none',
+          label: '',
+          items: sortGroups(
+            searchable.filter((row) => row.type === 'group'),
+            order.preferences.sort,
+            order.preferences.descending,
+            order.rows,
+            order.rawGroupNames,
+          ),
+        },
+      ];
+    const groups = sortGroups(
+      searchable.filter(
+        (conversation) =>
+          conversation.type === 'group' &&
+          groupRelationship(conversation.group, relationships) === 'member',
+      ),
+      order.preferences.sort,
+      order.preferences.descending,
+      order.rows,
+      order.rawGroupNames,
     );
     if (basis === 'identity')
       return [
@@ -1059,33 +1086,22 @@ export function GroupList({
             ]
           : []),
       ];
-    if (basis === 'size') {
-      const limits = [10, 40, 70, 100, 200, 500, 1000, Infinity];
-      const labels = [
-        '10 人以内',
-        '11–40 人',
-        '41–70 人',
-        '71–100 人',
-        '101–200 人',
-        '201–500 人',
-        '501–1000 人',
-        '1000 人以上',
-      ];
+    if (basis === 'capacity') {
+      const capacities = [
+        ...new Set(groups.map((row) => row.group.maxMemberCount).filter((value) => value > 0)),
+      ].sort((a, b) => a - b);
       return [
-        ...limits.map((max, index) => ({
-          mode: `size:${index}`,
-          label: labels[index],
-          items: groups.filter(
-            (group) =>
-              group.group.memberCount > (limits[index - 1] ?? 0) && group.group.memberCount <= max,
-          ),
+        ...capacities.map((capacity) => ({
+          mode: `capacity:${capacity}`,
+          label: `${capacity} 人群`,
+          items: groups.filter((row) => row.group.maxMemberCount === capacity),
         })),
-        ...(groups.some((group) => !(group.group.memberCount > 0))
+        ...(groups.some((group) => !(group.group.maxMemberCount > 0))
           ? [
               {
-                mode: 'size-unknown',
-                label: '人数未读取',
-                items: groups.filter((group) => !(group.group.memberCount > 0)),
+                mode: 'capacity-unknown',
+                label: '群容量未知',
+                items: groups.filter((group) => !(group.group.maxMemberCount > 0)),
               },
             ]
           : []),
@@ -1097,34 +1113,78 @@ export function GroupList({
         (conversation) => groupNotificationMode(conversation.notifyLevel) === section.mode,
       ),
     }));
-  }, [searchable, basis, relationships]);
+  }, [
+    searchable,
+    basis,
+    relationships,
+    order.preferences.sort,
+    order.preferences.descending,
+    order.rows,
+    order.rawGroupNames,
+  ]);
+  const categories = useFrozenDirectory(
+    computedCategories,
+    groupSelection.selectionMode,
+    `${order.scopeKey}:${JSON.stringify(order.preferences)}:${needle}`,
+  );
   const historicalCategory = useMemo(
     () => ({
       mode: 'historical',
       label: '历史群聊',
-      items: searchable.filter(
-        (conversation) =>
-          conversation.type === 'group' &&
-          groupRelationship(conversation.group, relationships) === 'nonmember',
+      items: sortGroups(
+        searchable.filter(
+          (conversation) =>
+            conversation.type === 'group' &&
+            groupRelationship(conversation.group, relationships) === 'nonmember',
+        ),
+        order.preferences.sort,
+        order.preferences.descending,
+        order.rows,
+        order.rawGroupNames,
       ),
     }),
-    [searchable, relationships],
+    [
+      searchable,
+      relationships,
+      order.preferences.sort,
+      order.preferences.descending,
+      order.rows,
+      order.rawGroupNames,
+    ],
   );
   const unknownCategory = useMemo(
     () => ({
       mode: 'membership-unknown',
       label: '其他群聊',
-      items: searchable.filter(
-        (conversation) =>
-          conversation.type === 'group' &&
-          groupRelationship(conversation.group, relationships) === 'unknown',
+      items: sortGroups(
+        searchable.filter(
+          (conversation) =>
+            conversation.type === 'group' &&
+            groupRelationship(conversation.group, relationships) === 'unknown',
+        ),
+        order.preferences.sort,
+        order.preferences.descending,
+        order.rows,
+        order.rawGroupNames,
       ),
     }),
-    [searchable, relationships],
+    [
+      searchable,
+      relationships,
+      order.preferences.sort,
+      order.preferences.descending,
+      order.rows,
+      order.rawGroupNames,
+    ],
   );
-  const groupSelection = useContentMultiSelect({ kind: 'contacts', container: 'groups' });
   const multi = useMultiSelection({
-    ids: searchable.filter((item) => item.type === 'group').map((item) => item.id),
+    ids: [
+      ...new Set(
+        [...categories, ...(basis === 'none' ? [] : [historicalCategory, unknownCategory])].flatMap(
+          (category) => category.items.map((row) => row.id),
+        ),
+      ),
+    ],
     selected: groupSelection.selectedIds,
     onChange: groupSelection.setSelectedIds,
     anchorRef: groupSelection.anchorRef,
@@ -1143,24 +1203,7 @@ export function GroupList({
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
-        <label className="weq-group-list-basis">
-          分组依据
-          <select
-            value={basis ?? 'notify'}
-            onChange={(event) => {
-              setBasis(event.target.value);
-              try {
-                localStorage.setItem('weq.groups.grouping', event.target.value);
-              } catch {
-                /* UI choice is optional. */
-              }
-            }}
-          >
-            <option value="notify">按消息提醒方式</option>
-            <option value="identity">按我的身份</option>
-            <option value="size">按群人数</option>
-          </select>
-        </label>
+        <ContactDirectoryOrder order={order} />
         {categories.map((category) => (
           <GroupNotificationSection
             key={category.mode}
@@ -1173,7 +1216,7 @@ export function GroupList({
           />
         ))}
         <GroupNotificationSection
-          category={historicalCategory}
+          category={basis === 'none' ? { ...historicalCategory, items: [] } : historicalCategory}
           activeConversationId={activeConversationId}
           onSelect={onSelect}
           selection={groupSelection}
@@ -1181,7 +1224,7 @@ export function GroupList({
           onMenu={setActionMenu}
         />
         <GroupNotificationSection
-          category={unknownCategory}
+          category={basis === 'none' ? { ...unknownCategory, items: [] } : unknownCategory}
           activeConversationId={activeConversationId}
           onSelect={onSelect}
           selection={groupSelection}
@@ -1270,7 +1313,8 @@ function GroupNotificationSection({
   useEffect(() => {
     if (containsActive) setOpen(true);
   }, [containsActive]);
-  const expanded = open || Boolean(directory?.query) || selection.selectionMode;
+  const expanded =
+    category.mode === 'none' || open || Boolean(directory?.query) || selection.selectionMode;
   const visibleCount = useProgressiveRowCount(expanded ? category.items.length : 0);
   if (category.items.length === 0) return null;
   return (
@@ -1278,6 +1322,7 @@ function GroupNotificationSection({
       <button
         type="button"
         className="contact-cat-header"
+        hidden={category.mode === 'none'}
         aria-expanded={expanded}
         onClick={() => setOpen((current) => !current)}
       >
@@ -1443,6 +1488,11 @@ export function ContactList({
   );
   const batch = useConversationBatchActions(conversationRows);
   const selection = useContentMultiSelect({ kind: 'contacts', container: 'friends' });
+  const metricEntities = useMemo(
+    () => contacts.map((contact) => [`friend:${contact.identityValue}`, `friend:${contact.id}`]),
+    [contacts],
+  );
+  const order = useContactDirectoryOrder('friends', selection.selectionMode, metricEntities);
   const needle = directory?.query.trim().toLocaleLowerCase() ?? '';
   const matches = useCallback(
     (contact: Contact) =>
@@ -1454,8 +1504,28 @@ export function ContactList({
   );
   const filtered = useMemo(() => contacts.filter(matches), [contacts, matches]);
 
-  // 特殊分组固定在两端；普通分组按云端排序，组内保持原顺序。
-  const categories = useMemo(() => {
+  // 派生分组使用字符串 ID，不能触发 QQ 分组的编辑与拖拽。
+  const computedCategories = useMemo(() => {
+    if (order.preferences.grouping === 'none') {
+      const all = [
+        ...new Map(
+          [
+            ...filtered,
+            ...specialSections
+              .filter((section) => !['special:care', 'special:intimate'].includes(section.id))
+              .flatMap((section) => section.items.filter(matches)),
+            ...trailingSections.flatMap((section) => section.items.filter(matches)),
+          ].map((contact) => [contact.id, contact]),
+        ).values(),
+      ];
+      return [
+        {
+          id: 'derived:none',
+          name: '',
+          items: sortFriends(all, order.preferences.sort, order.preferences.descending, order.rows),
+        },
+      ];
+    }
     const map = new Map<number, { id: number; name: string; items: Contact[]; order: number }>();
     (friendDirectory?.categories ?? categoryDefinitions).forEach((category, index) => {
       map.set(category.id, {
@@ -1476,11 +1546,30 @@ export function ContactList({
         });
       map.get(id)!.items.push(contact);
     }
+    const ordinary =
+      order.preferences.grouping === 'qq'
+        ? [...map.values()].sort((first, second) => first.order - second.order)
+        : groupFriends(filtered, order.preferences.grouping, order.rows, order.regions);
     return [
-      ...specialSections.map((section) => ({ ...section, items: section.items.filter(matches) })),
-      ...[...map.values()].sort((first, second) => first.order - second.order),
+      ...specialSections
+        .filter(
+          (section) =>
+            section.id !== 'special:intimate' &&
+            (section.id !== 'special:care' ||
+              ['qq', 'relation'].includes(order.preferences.grouping)),
+        )
+        .map((section) => ({ ...section, items: section.items.filter(matches) })),
+      ...ordinary,
       ...trailingSections.map((section) => ({ ...section, items: section.items.filter(matches) })),
-    ];
+    ].map((section) => ({
+      ...section,
+      items: sortFriends(
+        section.items,
+        order.preferences.sort,
+        order.preferences.descending,
+        order.rows,
+      ),
+    }));
   }, [
     filtered,
     categoryDefinitions,
@@ -1489,7 +1578,15 @@ export function ContactList({
     matches,
     friendDirectory?.categories,
     friendDirectory?.assignments,
+    order.preferences,
+    order.rows,
+    order.regions,
   ]);
+  const categories = useFrozenDirectory(
+    computedCategories,
+    selection.selectionMode,
+    `${order.scopeKey}:${JSON.stringify(order.preferences)}:${needle}`,
+  );
   // 同一好友在特别关心、亲密关系及普通分组中各有独立的范围位置。
   const selectionRows = useMemo(
     () =>
@@ -1533,6 +1630,7 @@ export function ContactList({
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
+        <ContactDirectoryOrder order={order} />
         {friendDirectory?.error && (
           <div className="contact-cat-description" role="alert">
             <small>好友分组读取失败：{friendDirectory.error}</small>
@@ -1547,7 +1645,10 @@ export function ContactList({
           </div>
         )}
         {categories.map((category) => {
-          const open = Boolean(expanded[category.id]) || Boolean(needle);
+          const open =
+            order.preferences.grouping === 'none' ||
+            Boolean(expanded[category.id]) ||
+            Boolean(needle);
           return (
             <div
               className={cn(
@@ -1620,6 +1721,7 @@ export function ContactList({
               <button
                 type="button"
                 className={cn('contact-cat-header')}
+                hidden={order.preferences.grouping === 'none'}
                 draggable={
                   typeof category.id === 'number' &&
                   friendDirectory?.available &&
@@ -1713,6 +1815,7 @@ export function ContactList({
                         {...multi.itemProps(JSON.stringify([category.id, contact.id]))}
                         draggable={
                           contacts.some((row) => row.id === contact.id) &&
+                          order.preferences.grouping === 'qq' &&
                           friendDirectory?.available &&
                           !friendDirectory.busy
                         }
@@ -1892,7 +1995,10 @@ export function ContactList({
                   {
                     label: '移动分组',
                     icon: <FolderInput size={16} />,
-                    disabled: !friendDirectory?.available || friendDirectory.busy,
+                    disabled:
+                      order.preferences.grouping !== 'qq' ||
+                      !friendDirectory?.available ||
+                      friendDirectory.busy,
                     reason: friendDirectory?.error,
                     action: () => friendDirectory?.move(actionMenu.ids),
                   },

@@ -1287,3 +1287,13 @@ export {
   readStorageCleanupResult,
 } from './bootstrap/storage_cleanup';
 export type { StorageCleanupPlan, StorageCleanupResult } from './bootstrap/storage_cleanup';
+
+export { ContactMetricsService, ContactMetricsOfflineError } from './account/contact_metrics';
+
+export type {
+  ContactMetric,
+  ContactMetricRows,
+  ContactMetricsSnapshot,
+  ContactMetricsProgress,
+  ContactMetricJob,
+} from './account/contact_metrics';
