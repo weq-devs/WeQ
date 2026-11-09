@@ -54,7 +54,7 @@ function SourceGroup({ code, source }: { code: string; source: string | null }) 
   }
   return (
     <>
-      <div className="weq-profile-row weq-profile-row--block">
+      <div className="weq-profile-row">
         <span className="weq-profile-row-label">
           <MapPin size={13} />
           添加来源
@@ -68,7 +68,7 @@ function SourceGroup({ code, source }: { code: string; source: string | null }) 
           onClick={(event) => setAnchor(event.currentTarget)}
         >
           <GroupAvatar code={code} size={24} />
-          <span>{source || '未知'}</span>
+          <span title={source || '未知'}>{source || '未知'}</span>
         </button>
       </div>
       {anchor && (
@@ -139,15 +139,17 @@ function FriendClueBody({ uid }: { uid: string }) {
               value={data.source || '未知'}
             />
           )}
-          <ProfileRow
-            sensitive
-            multiline
-            icon={<MessageSquare size={13} />}
-            label="验证消息"
-            value={
-              data.verificationMessage === null ? '未知' : data.verificationMessage || '无验证消息'
-            }
-          />
+          <div className="weq-profile-row">
+            <span className="weq-profile-row-label">
+              <MessageSquare size={13} />
+              验证消息
+            </span>
+            <p className="weq-profile-row-text weq-friend-verification" data-privacy-sensitive>
+              {data.verificationMessage === null
+                ? '未知'
+                : data.verificationMessage || '无验证消息'}
+            </p>
+          </div>
         </>
       )}
     </>

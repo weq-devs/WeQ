@@ -1,11 +1,13 @@
 .weq-friend-source-group {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   width: fit-content;
-  max-width: 100%;
+  max-width: 64%;
   min-width: 0;
-  padding: 4px;
+  margin-left: auto;
+  padding: 4px 0;
   border: 0;
   border-radius: 4px;
   background: transparent;
@@ -14,7 +16,7 @@
   font-size: 12.5px;
   font-weight: 500;
   line-height: 1.55;
-  text-align: left;
+  text-align: right;
   cursor: pointer;
 }
 
@@ -29,7 +31,9 @@
 
 .weq-friend-source-group > span:last-child {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .weq-friend-source-group:hover {
@@ -39,4 +43,12 @@
 .weq-friend-source-group:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
+}
+
+.weq-friend-verification {
+  min-width: 0;
+  max-width: 64%;
+  margin-left: auto;
+  padding-block: 4px;
+  text-align: right;
 }
