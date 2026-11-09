@@ -215,10 +215,20 @@ export function useChatShellController({
     setContactNotice,
   ]);
 
-  const activeConversation = useMemo(
+  const listedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === activeConversationId),
     [activeConversationId, conversations],
   );
+  // 目录刷新不等于关闭会话；保留最近打开的资料，返回重进也无需等待目录。
+  const openedConversation = useRef<Conversation | undefined>(undefined);
+  const activeConversation =
+    listedConversation ??
+    (openedConversation.current?.id === activeConversationId
+      ? openedConversation.current
+      : undefined);
+  useLayoutEffect(() => {
+    if (activeConversation) openedConversation.current = activeConversation;
+  }, [activeConversation]);
   const selectedContact = useMemo(
     () =>
       contactTab === 'friends'

@@ -5841,6 +5841,13 @@ function MainWorkspace(): ReactElement {
       cached,
       displaySettings.data?.readFromFirstUnread ?? false,
     );
+    // 新窗口提交前就拒收旧读取；不能等 passive effect 换 selection，
+    // 否则这段间隙收到的旧首屏／实时刷新仍能覆盖新会话。
+    selectionRef.current = null;
+    windowRef.current = {
+      minSeq: restored?.rows[0]?.msgSeq ?? null,
+      anchored: restored?.anchored ?? true,
+    };
     setTrackedMessageScope(messageScope);
     setTrackedConversationId(shell.activeConversationId);
     setLoaded(restored?.rows ?? []);
@@ -7515,11 +7522,17 @@ function MainWorkspace(): ReactElement {
     // 恢复的会话可能在后续分页、隐藏/删除目录中，不能用尚未读齐的目录清掉选择。
     if (
       !contacts.isSuccess ||
+      contacts.isFetching ||
+      recentHead.isFetching ||
       contacts.hasNextPage ||
       !hiddenSessions.isSuccess ||
+      hiddenSessions.isFetching ||
       !deletedSessions.isSuccess ||
+      deletedSessions.isFetching ||
       !allGroups.isSuccess ||
-      !topContacts.isSuccess
+      allGroups.isFetching ||
+      !topContacts.isSuccess ||
+      topContacts.isFetching
     )
       return;
     // Don't auto-open the first conversation: land on the empty placeholder and
@@ -7537,11 +7550,17 @@ function MainWorkspace(): ReactElement {
     }
   }, [
     contacts.isSuccess,
+    contacts.isFetching,
+    recentHead.isFetching,
     contacts.hasNextPage,
     hiddenSessions.isSuccess,
+    hiddenSessions.isFetching,
     deletedSessions.isSuccess,
+    deletedSessions.isFetching,
     allGroups.isSuccess,
+    allGroups.isFetching,
     topContacts.isSuccess,
+    topContacts.isFetching,
     conversations,
     hiddenConversationsById,
     deletedConversationsById,
