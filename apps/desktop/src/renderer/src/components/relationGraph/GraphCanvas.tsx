@@ -1,11 +1,11 @@
 // @ts-nocheck
-import { useEffect, useRef, useState } from 'react';
-import type { Simulation } from 'd3';
-import { Scan } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { RefreshCw, Scan } from 'lucide-react';
 import { usePrivacyStore } from '../../state/privacy';
 import { communityColor, graphNodeLabel } from './graphModel';
 import type { BuiltGraph, GNode } from './types';
-import { createGraphSimulation, fitGraphView, type GraphView } from './graphLayout';
+import { fitGraphView, type GraphView } from './graphLayout';
+import { createGraphSimulationClient } from './graphSimulationClient';
 import { indexGraphHit, indexGraphRender, type RenderEdge } from './graphRender';
 
 export function GraphCanvas({
@@ -24,7 +24,7 @@ export function GraphCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
 
-  const simulationRef = useRef<Simulation<GNode, undefined> | null>(null);
+  const simulationRef = useRef<ReturnType<typeof createGraphSimulationClient> | null>(null);
 
   const viewRef = useRef<GraphView>({ scale: 1, x: 0, y: 0 });
   const sizeRef = useRef({ w: 0, h: 0, dpr: 1 });
@@ -43,6 +43,8 @@ export function GraphCanvas({
   const movedRef = useRef(0);
 
   const [hoverNode, setHoverNode] = useState<GNode | null>(null);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   // 动画与 ResizeObserver 通过 ref 使用最新渲染，不反复重建模拟。
   const drawRef = useRef<() => void>(() => {});
@@ -50,13 +52,13 @@ export function GraphCanvas({
 
   // Coalesce redraws into one per frame — when many avatars finish loading at
   // once we don't want a draw() per image.
-  function scheduleDraw(): void {
+  const scheduleDraw = useCallback((): void => {
     if (drawRafRef.current) return;
     drawRafRef.current = requestAnimationFrame(() => {
       drawRafRef.current = 0;
       drawRef.current();
     });
-  }
+  }, []);
 
   function getImage(url: string): HTMLImageElement | null {
     if (!url) return null;
@@ -101,20 +103,26 @@ export function GraphCanvas({
 
   useEffect(() => {
     const prevSim = simulationRef.current;
+    const previous = prevSim?.nodes().map(({ id, x, y, vx, vy }) => ({ id, x, y, vx, vy })) ?? [];
     prevSim?.stop();
-    const sim = createGraphSimulation(graph, prevSim?.nodes());
-    simulationRef.current = sim;
+    dragNodeRef.current = null;
+    panRef.current = null;
+    hoverRef.current = null;
+    setHoverNode(null);
+    setSimulationError(null);
     renderIndexRef.current = indexGraphRender(graph);
     hitIndexRef.current = null;
-    sim.on('tick', () => {
-      hitIndexRef.current = null;
-      if (autoFitRef.current) fitViewRef.current();
-      else drawRef.current();
-    });
-    sim.on('end', () => {
-      if (autoFitRef.current) fitViewRef.current();
-    });
-    if (autoFitRef.current) fitViewRef.current();
+    const sim = createGraphSimulationClient(
+      graph,
+      previous,
+      () => {
+        hitIndexRef.current = null;
+        if (autoFitRef.current) fitViewRef.current();
+        else scheduleDraw();
+      },
+      setSimulationError,
+    );
+    simulationRef.current = sim;
 
     return () => {
       sim.stop();
@@ -123,7 +131,7 @@ export function GraphCanvas({
         drawRafRef.current = 0;
       }
     };
-  }, [graph]);
+  }, [graph, attempt, scheduleDraw]);
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -311,9 +319,8 @@ export function GraphCanvas({
     if (hit) {
       dragNodeRef.current = hit;
       const world = screenToWorld(sx, sy);
-      hit.fx = world.x;
-      hit.fy = world.y;
-      simulationRef.current?.alphaTarget(0.3).restart();
+      simulationRef.current?.pin(hit.id, world.x, world.y);
+      hitIndexRef.current = null;
     } else {
       panRef.current = { x: e.clientX, y: e.clientY };
     }
@@ -329,8 +336,9 @@ export function GraphCanvas({
       if (movedRef.current < 4) return;
       autoFitRef.current = false;
       const w = screenToWorld(sx, sy);
-      dragNodeRef.current.fx = w.x;
-      dragNodeRef.current.fy = w.y;
+      simulationRef.current?.pin(dragNodeRef.current.id, w.x, w.y);
+      hitIndexRef.current = null;
+      scheduleDraw();
       return;
     }
     if (panRef.current) {
@@ -360,10 +368,7 @@ export function GraphCanvas({
   function endPointer(e: React.PointerEvent<HTMLDivElement>, cancelled = false) {
     const node = dragNodeRef.current;
     if (node) {
-      node.fx = null;
-      node.fy = null;
-
-      simulationRef.current?.alphaTarget(0);
+      simulationRef.current?.release(node.id);
     }
     const clicked = !cancelled && movedRef.current < 4 && (node || panRef.current);
     dragNodeRef.current = null;
@@ -409,6 +414,22 @@ export function GraphCanvas({
       onWheel={onWheel}
     >
       <canvas ref={canvasRef} className="weq-graph-canvas" />
+      {simulationError ? (
+        <div className="weq-graph-state" role="alert">
+          <span>图谱布局失败：{simulationError}</span>
+          <button
+            className="weq-graph-icon-btn"
+            type="button"
+            title="重试图谱布局"
+            aria-label="重试图谱布局"
+            onPointerDown={(event) => event.stopPropagation()}
+            onPointerUp={(event) => event.stopPropagation()}
+            onClick={() => setAttempt((value) => value + 1)}
+          >
+            <RefreshCw size={18} />
+          </button>
+        </div>
+      ) : null}
       <button
         className="weq-graph-fit"
         type="button"

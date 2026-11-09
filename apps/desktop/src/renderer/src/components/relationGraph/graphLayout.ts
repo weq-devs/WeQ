@@ -7,8 +7,10 @@ export interface GraphView {
   y: number;
 }
 
+export type GraphPosition = Pick<GNode, 'id' | 'x' | 'y' | 'vx' | 'vy'>;
+
 /** 保留紧凑的初始占位；连续受力沿用原版 D3 图谱参数。 */
-export function createGraphSimulation(graph: BuiltGraph, previous: GNode[] = []) {
+export function createGraphSimulation(graph: BuiltGraph, previous: GraphPosition[] = []) {
   const clusters = new Map<string, GNode[]>();
   for (const node of graph.nodes) {
     const key = node.kind === 'self' ? 'self' : `community-${node.community}`;

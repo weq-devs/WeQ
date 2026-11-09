@@ -28,9 +28,24 @@
 
 D3 已有 Barnes–Hut 斥力和空间碰撞索引；本次不替换布局算法。完整密集图的边数 E 最坏为 O(N²)，力链接和完整连线遍历仍为 O(E)，不能用交集计数加速等同于无限节点容量。
 
+## Worker 力模拟
+
+群友圈子与群聊网络的初始占位和 D3 力模拟运行在独立 Web Worker 中，渲染主线程只负责 Canvas、取景、命中和指针操作。沿用 `createGraphSimulation` 的完整边集、力参数、默认冷却及拖动加热行为，不抽样布局边，也不改变交集口径。构图与圈子计算仍在主线程，本次不迁移。
+
+- 每次图变化创建一个 Worker，初始化时发送图数据和仍存在节点的位置、速度。旧 Worker 在切图、重试或卸载时终止，已排队的旧回调不再写回。
+- 每个节点用四个 Float64 保存 x/y/vx/vy；一个坐标缓冲通过 transfer 往返复用，最多一帧在途。消费较慢时 Worker 继续模拟但只保留最新状态，回收后补发最新坐标，结束状态也不会丢失。
+- 主线程即时移动被拖节点并发送固定坐标，释放后恢复原冷却。命令版本随帧返回，被拖节点保持当前指针位置，释放前的旧帧不回写已释放节点，但仍更新其他节点，避免快速拖动让整图停帧；模拟位置不通过 React state 逐帧传递。
+- Worker 启动、执行或消息传递失败会显示布局错误及重试入口，不静默回退主线程物理计算。
+
+迁移线程用于减少物理计算阻塞交互，并不降低完整密集图的物理复杂度，也不保证布局本身更快。主线程构图、首次结构化克隆和完整连线绘制仍可能产生开销。
+
 ## 验证入口
 
 桌面端定向 Vitest：`relation_graph_algorithms`、`relation_graph_performance`、`overlap_model`、`relation_graph_layout`、`relation_graph_entry`。
+
+`relation_graph_worker` 验证物理轨迹、双精度缓冲转移、单帧背压、结束帧、拖动版本、错误及终止；`relation_graph_motion` 和 `relation_graph_autofit` 继续覆盖原力参数与取景行为。
+
+`test/browser/run-relation-worker.mjs` 使用 200/500/1000 节点的完整密集图验证真实 Worker、点击拖动、切图/卸载及失败重试，输出主线程动画帧间隔，不设机器相关的毫秒门禁。默认验证开发模式；`WEQ_RELATION_PRODUCTION=1` 验证生产构建与严格 CSP；`WEQ_RELATION_ELECTRON=1` 用隔离的临时 Electron 配置验证生产构建的 `file://` Worker，结束后关闭测试进程并删除本轮生成物。浏览器运行时参数沿用下述布局脚本。
 
 浏览器验证复用 `test/browser/run-relation-layout.mjs`：默认跑深浅主题及窄屏布局，`WEQ_RELATION_PERFORMANCE=1` 跑 200/500/1000 节点；`WEQ_RELATION_BASELINE_REF=<commit>` 从指定提交加载旧图构建和绘制实现，使用同一夹具对照。`WEQ_PLAYWRIGHT_IMPORT`、`WEQ_BROWSER_EXECUTABLE` 可指定已有运行时，`WEQ_RELATION_ARTIFACTS` 可保存截图。
 

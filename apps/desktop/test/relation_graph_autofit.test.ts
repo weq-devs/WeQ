@@ -23,6 +23,32 @@ vi.mock('../src/renderer/src/components/relationGraph/graphLayout', async (impor
   };
 });
 
+vi.mock('../src/renderer/src/components/relationGraph/graphSimulationClient', () => ({
+  createGraphSimulationClient: (
+    graph: BuiltGraph,
+    previous: GNode[],
+    onFrame: (ended: boolean) => void,
+  ) => {
+    const sim = createGraphSimulation(graph, previous);
+    sim.on('tick', () => onFrame(false));
+    sim.on('end', () => onFrame(true));
+    return {
+      nodes: () => sim.nodes(),
+      stop: () => sim.stop(),
+      pin(id: string, x: number, y: number) {
+        const node = graph.nodes.find((item) => item.id === id)!;
+        node.fx = x;
+        node.fy = y;
+      },
+      release(id: string) {
+        const node = graph.nodes.find((item) => item.id === id)!;
+        node.fx = null;
+        node.fy = null;
+      },
+    };
+  },
+}));
+
 let host: HTMLDivElement;
 let root: Root;
 let resize: () => void;

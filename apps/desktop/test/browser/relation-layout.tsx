@@ -67,6 +67,7 @@ function Fixture() {
     params.get('mode') === 'groups' ? 'groups' : 'people',
   );
   const [sparse, setSparse] = useState(false);
+  const [mounted, setMounted] = useState(true);
   const [limit, setLimit] = useState(params.has('count') ? count : 100);
   const graph = useMemo(() => {
     const start = performance.now();
@@ -100,18 +101,25 @@ function Fixture() {
             <button type="button" onClick={() => setLimit(limit === 100 ? 200 : 100)}>
               切换数量
             </button>
+            {params.has('worker') ? (
+              <button type="button" onClick={() => setMounted(!mounted)}>
+                切换图谱
+              </button>
+            ) : null}
           </div>
           <span className="weq-graph-overlay-stat">
             {graph.nodes.length} 节点 · {graph.edges.length} 连线
           </span>
         </div>
-        <GraphCanvas
-          graph={graph}
-          selectedId={null}
-          onSelect={(node) => {
-            Object.assign(window.relationLayoutQa, { selected: node?.id ?? null });
-          }}
-        />
+        {mounted ? (
+          <GraphCanvas
+            graph={graph}
+            selectedId={null}
+            onSelect={(node) => {
+              Object.assign(window.relationLayoutQa, { selected: node?.id ?? null });
+            }}
+          />
+        ) : null}
       </div>
     </section>
   );
