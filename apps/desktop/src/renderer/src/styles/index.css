@@ -4014,9 +4014,13 @@ html[data-theme='dark'] .app-title-bar-logo-wrap.is-active {
   background: rgba(100, 180, 255, 0.2);
 }
 
+.app-title-bar-logo,
+.app-title-bar-user .avatar {
+  width: 30px;
+  height: 30px;
+}
+
 .app-title-bar-logo {
-  width: 28px;
-  height: 28px;
   filter: drop-shadow(0 2px 4px rgba(0, 122, 204, 0.15));
   transition: transform 0.16s ease;
 }
@@ -4044,8 +4048,6 @@ html[data-theme='dark'] .app-title-bar-user {
 }
 
 .app-title-bar-user .avatar {
-  width: 30px;
-  height: 30px;
   font-size: 12px;
 }
 
