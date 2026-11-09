@@ -11,6 +11,10 @@
   background: var(--weq-bg-surface);
   border-bottom: 1px solid var(--weq-border-subtle);
 }
+.weq-conversation-directory > .weq-directory-toolbar,
+.sidebar-header-contacts .weq-directory-toolbar {
+  justify-content: space-between;
+}
 .weq-directory-toolbar button {
   display: flex;
   align-items: center;
