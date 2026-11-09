@@ -79,6 +79,7 @@ import {
 } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { isMineMessage } from '../lib/messageDirection';
+import { messageSender, optimisticMessageSender, mergeMessageMembers } from '../lib/messageSender';
 import { isLocalOutgoingMessage } from '../lib/messageSelection';
 import { messageBatchBlockReason } from '../lib/messageBatchAction';
 import { deletionIdentity } from '../lib/messageDeletion';
@@ -1429,58 +1430,6 @@ function contactToConversation(
   }
 
   return null;
-}
-
-/** 按发送者身份解析气泡用户；群聊保留自己的群名片与等级。 */
-function messageSender(
-  message: MessageWire,
-  conversation: Conversation,
-  user: User,
-  memberMap?: Map<string, GroupMember>,
-  botUids?: Set<string>,
-): User {
-  const isMine = isMineMessage(message, conversation, user);
-  if (isMine && conversation.type === 'direct') return user;
-
-  // For group messages, even if it's mine, get member info from memberMap
-  if (conversation.type === 'group') {
-    const member = memberMap?.get(message.senderUid);
-    const isUinOnly = !member;
-
-    return {
-      id: isMine ? user.id : message.senderUid || `sender:${message.senderUin}`,
-      identityLabel: isMine
-        ? user.identityLabel
-        : message.senderUin && message.senderUin !== '0'
-          ? 'QQ'
-          : 'UID',
-      identityValue: isMine
-        ? user.identityValue
-        : message.senderUin && message.senderUin !== '0'
-          ? message.senderUin
-          : message.senderUid,
-      username: isMine ? user.username : message.senderUid || message.senderUin,
-      card: member?.card,
-      remark: member?.remark,
-      nick: member?.nick,
-      displayName:
-        member?.displayName ||
-        (isMine
-          ? user.displayName
-          : message.senderUin && message.senderUin !== '0'
-            ? message.senderUin
-            : 'Member'),
-      avatarUrl: isMine ? user.avatarUrl : member?.avatarUrl || senderAvatarSrc(message.senderUin),
-      kind: !isMine && botUids?.has(message.senderUid) ? 'bot' : 'human',
-      role: !isUinOnly ? member?.role : undefined,
-      customTitle: !isUinOnly ? member?.customTitle : undefined,
-      levelName: !isUinOnly ? member?.levelName : undefined,
-      memberLevel: !isUinOnly ? member?.memberLevel : undefined,
-    } as User;
-  }
-
-  if (isMine) return user;
-  return conversation.type === 'direct' ? conversation.otherUser : user;
 }
 
 /**
@@ -3912,6 +3861,8 @@ function MainWorkspace(): ReactElement {
   const unreadBadgesRef = useRef({ counts: unreadByConv, highlights: highlightsByConv });
   unreadBadgesRef.current = { counts: unreadByConv, highlights: highlightsByConv };
   const [groupMemberPages, setGroupMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
+  // 分页失效时仅保留发言人的展示快照，不将历史成员重新加入当前名单。
+  const [senderMemberPages, setSenderMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
   const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
   const [groupMemberLoading, setGroupMemberLoading] = useState<Record<string, boolean>>({});
   const [groupMemberError, setGroupMemberError] = useState<Record<string, string>>({});
@@ -6143,6 +6094,13 @@ function MainWorkspace(): ReactElement {
           const fresh = page.filter((member) => !known.has(member.uid));
           return { ...current, [groupCode]: [...existing, ...fresh] };
         });
+        setSenderMemberPages((current) => {
+          if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) return current;
+          return {
+            ...current,
+            [groupCode]: mergeMessageMembers(current[groupCode] ?? [], page),
+          };
+        });
         setGroupMemberHasMore((current) => ({
           ...current,
           [groupCode]: page.length >= GROUP_MEMBER_PAGE_SIZE,
@@ -6366,6 +6324,17 @@ function MainWorkspace(): ReactElement {
     mapGroupMemberWire,
   ]);
 
+  const messageGroupMembers = useMemo(() => {
+    const members = new Map(
+      (senderMemberPages[selectedUid] ?? []).map((wire) => {
+        const member = mapGroupMemberWire(wire);
+        return [member.id, member] as const;
+      }),
+    );
+    for (const member of currentGroupMembers) members.set(member.id, member);
+    return members;
+  }, [senderMemberPages, selectedUid, mapGroupMemberWire, currentGroupMembers]);
+
   /**
    * 群资料面板的群内成员搜索。以前面板只在已加载的成员分页里做客户端过滤，
    * 结果是「搜不到后面几页的人」，而且过滤后列表短于容器、没有滚动条，连
@@ -6391,17 +6360,26 @@ function MainWorkspace(): ReactElement {
   // (known page + already-attempted) lives in the resolver, so this effect just
   // hands it every referenced uid.
   useEffect(() => {
-    if (!selectedUid || !isGroup || loaded.length === 0) return;
+    if (!selectedUid || !isGroup) return;
     const groupCode = selectedUid;
     const known = new Set(selectedGroupMemberWires.map((m) => m.uid));
     const referencedUids = [
+      user.uid ?? '',
       ...loaded.map((m) => m.senderUid),
       // Gray-tip payloads reference members by uid inside their element bodies
       // (poke/invite XML, mute info) — resolve those too, not just senders.
       ...loaded.flatMap((m) => extractGrayTipUids(m.elements)),
     ];
     resolveMembers(groupCode, referencedUids, known, () => selectionRef.current?.id === groupCode);
-  }, [loaded, selectedUid, isGroup, selectedGroupMemberWires, resolveMembers]);
+  }, [
+    loaded,
+    selectedUid,
+    isGroup,
+    selectedGroupMemberWires,
+    resolveMembers,
+    user.uid,
+    groupInfoRevision,
+  ]);
 
   // 「删除列表」/「撤回列表」里的发送者同样可能落在已加载成员分页之外（甚至已退群），
   // 上面的 effect 只喂了聊天窗口，看不到这两个面板的数据 —— 不补的话气泡昵称会退化成
@@ -6444,6 +6422,7 @@ function MainWorkspace(): ReactElement {
     recalledWires,
     selectedUid,
     selectedGroupMemberWires,
+    groupInfoRevision,
     resolveMembers,
     resolveProfiles,
   ]);
@@ -6488,6 +6467,7 @@ function MainWorkspace(): ReactElement {
     hiddenSessions.data,
     deletedSessions.data,
     recentContactsData,
+    groupInfoRevision,
     resolvePreviewMembers,
     resolveProfiles,
   ]);
@@ -6605,14 +6585,15 @@ function MainWorkspace(): ReactElement {
   const templateContext = messageTemplateContext(selectedConversation);
   const messageTemplateCache = useMemo(
     () => new WeakMap<MessageWire, Message>(),
-    [templateContext, user, currentGroupMembers, botUids],
+    [templateContext, user, messageGroupMembers, botUids],
   );
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
     const mappingStarted = performance.now();
 
     // Create a fast lookup map for member info
-    const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
+    const memberMap = messageGroupMembers;
+    const optimisticSender = optimisticMessageSender(selectedConversation, user, memberMap);
     const replyIndex = createReplyPreviewIndex(loadedMessageWires);
 
     const real = loadedMessageWires
@@ -6637,15 +6618,15 @@ function MainWorkspace(): ReactElement {
     // 乐观渲染的合并转发（见 {@link mergeOptimisticInto}）。
     const pending = optimisticForwards
       .filter((item) => item.convId === selectedConversation.id && !forwardMatches.has(item.id))
-      .map((item) => optimisticToTemplate(item, selectedConversation, user));
+      .map((item) => optimisticToTemplate(item, selectedConversation, optimisticSender));
     // 乐观 Ark 卡片（同上）。
     const pendingArks = optimisticArks
       .filter((item) => item.convId === selectedConversation.id)
-      .map((item) => optimisticArkToTemplate(item, selectedConversation, user));
+      .map((item) => optimisticArkToTemplate(item, selectedConversation, optimisticSender));
     // 乐观普通消息（文本 / @ / 表情 / 图片 / 语音 / 文件…）。
     const pendingMessages = optimisticMessages
       .filter((item) => item.convId === selectedConversation.id)
-      .map((item) => optimisticMessageToTemplate(item, selectedConversation, user));
+      .map((item) => optimisticMessageToTemplate(item, selectedConversation, optimisticSender));
     // 确认过的序号按原规则插入；失败按创建时间定位，其余无可靠位置的占位仍留在末尾。
     const mapped = mergeOptimisticInto(real, [...pending, ...pendingArks, ...pendingMessages]);
     recordMessagePhase('mapping', performance.now() - mappingStarted);
@@ -6654,7 +6635,7 @@ function MainWorkspace(): ReactElement {
     loadedMessageWires,
     selectedConversation,
     user,
-    currentGroupMembers,
+    messageGroupMembers,
     botUids,
     optimisticForwards,
     optimisticArks,
@@ -7039,14 +7020,17 @@ function MainWorkspace(): ReactElement {
   // missingMembers（见上面的解析 effect）。
   const memberMapForGroup = useCallback(
     (groupCode: string): Map<string, GroupMember> => {
-      if (groupCode === selectedUid) return new Map(currentGroupMembers.map((m) => [m.id, m]));
+      if (groupCode === selectedUid) return messageGroupMembers;
       return new Map(
-        Object.values(missingMembers[groupCode] ?? {})
+        mergeMessageMembers(
+          senderMemberPages[groupCode] ?? [],
+          Object.values(missingMembers[groupCode] ?? {}),
+        )
           .map((wire) => mapGroupMemberForGroup(wire, groupCode))
           .map((member) => [member.id, member]),
       );
     },
-    [selectedUid, currentGroupMembers, missingMembers, mapGroupMemberForGroup],
+    [selectedUid, messageGroupMembers, senderMemberPages, missingMembers, mapGroupMemberForGroup],
   );
 
   const deletedTemplateMessages = useMemo(() => {

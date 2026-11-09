@@ -31,6 +31,7 @@ export interface GroupMemberResolver<T> {
     isCurrent: () => boolean,
   ) => void;
   updateMembers: (groupCode: string, members: readonly T[]) => void;
+  /** 使查询记录失效，但保留上次资料，直到后台补全成功后替换。 */
   invalidate: () => void;
 }
 
@@ -45,7 +46,6 @@ export function useGroupMemberResolver<T extends { uid: string }>(): GroupMember
     generation.current++;
     attemptedRef.current = {};
     versions.current.clear();
-    setMissingMembers({});
   }, []);
   const updateMembers = useCallback((groupCode: string, members: readonly T[]) => {
     for (const member of members) {
@@ -94,7 +94,11 @@ export function useGroupMemberResolver<T extends { uid: string }>(): GroupMember
               groupCode,
               uids: chunk,
             });
-            if (!isCurrent() || started !== generation.current) return;
+            if (started !== generation.current) return;
+            if (!isCurrent()) {
+              for (const uid of missing.slice(i)) attempted.delete(uid);
+              return;
+            }
             if (members.length > 0) {
               setMissingMembers((prev) => {
                 if (started !== generation.current) return prev;
