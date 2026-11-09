@@ -13,9 +13,7 @@ import { SidebarHeader, SidebarResizeHandle } from './sidebar';
 import { SelfProfileDialog, TitleBar } from './TitleBar';
 import { IS_MAC, IS_WEB } from '../../lib/target';
 import { MobileWebNavigation } from '../../components/MobileWebNavigation';
-import { RemoteShellMenus } from '../../components/RemoteShellMenus';
 import { MobileNavigationRuntime } from '../../components/MobileNavigationRuntime';
-import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
 import type { ContactNoticeView, ContactTab, MainView, SettingsTab, User } from './types';
 
 export function ChatShell({
@@ -106,7 +104,6 @@ export function ChatShell({
 }) {
   const pageOpen = useWorkspacePageOpen();
   const [selfProfileOpen, setSelfProfileOpen] = useState(false);
-  const [lookupOpen, setLookupOpen] = useState<QQExactLookupKind | null>(null);
   const root = useRef<HTMLDivElement>(null);
   useMobileWebViewport(root, IS_WEB);
   const mainPageOpen = useWorkspaceMainPageOpen();
@@ -116,7 +113,8 @@ export function ChatShell({
     '--sidebar-width': `${sidebarHidden ? 0 : sidebarWidth}px`,
   } as CSSProperties;
   const mobileDetail = pageOpen || ((view === 'messages' || view === 'contacts') && mainOpen);
-  const mobileWorkspace = view !== 'messages' && view !== 'contacts' && view !== 'tools';
+  const mobileWorkspace =
+    view !== 'messages' && view !== 'contacts' && view !== 'tools' && view !== 'more';
 
   return (
     <div
@@ -126,7 +124,6 @@ export function ChatShell({
       data-mobile-workspace={mobileWorkspace || undefined}
       data-weq-diagnostic-view={import.meta.env.DEV ? view : undefined}
     >
-      {IS_WEB && <RemoteShellMenus root={root} />}
       {IS_WEB && <MobileNavigationRuntime root={root} />}
       {IS_WEB && (
         <MobileWebNavigation
@@ -147,10 +144,6 @@ export function ChatShell({
           onOpenDressUp={onOpenDressUp}
           onOpenCollection={onOpenCollection}
           onOpenProfile={() => setSelfProfileOpen(true)}
-          onLookupUser={() => setLookupOpen('user')}
-          onLookupGroup={() => setLookupOpen('group')}
-          onOpenFriendNotices={onOpenFriendNotices}
-          onOpenGroupNotices={onOpenGroupNotices}
           accountControls={
             typeof railFooterContent === 'function' ? railFooterContent(null) : railFooterContent
           }
@@ -238,9 +231,6 @@ export function ChatShell({
         </main>
       </div>
       {children}
-      {lookupOpen && (
-        <QQExactLookup key={lookupOpen} kind={lookupOpen} onClose={() => setLookupOpen(null)} />
-      )}
       {selfProfileOpen && (
         <SelfProfileDialog
           key={`${user.id}:${user.identityValue}`}

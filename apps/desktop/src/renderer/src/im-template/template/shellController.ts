@@ -79,6 +79,7 @@ export function useChatShellController({
       'home',
       'messages',
       'contacts',
+      'more',
       'collections',
       'guild-direct',
       'export',

@@ -1,7 +1,7 @@
-import { act, createElement } from 'react';
+import { act, createElement, useLayoutEffect, useState, type ComponentProps } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { MobileWebNavigation } from '../src/renderer/src/components/MobileWebNavigation';
+import { MobileWebNavigation as Navigation } from '../src/renderer/src/components/MobileWebNavigation';
 import { OnlineStatus } from '../src/renderer/src/components/OnlineStatus';
 import { ChatHeader } from '../src/renderer/src/components/ChatHeader';
 const { onlineStatusQuery } = vi.hoisted(() => ({ onlineStatusQuery: vi.fn() }));
@@ -14,6 +14,18 @@ vi.mock('../src/renderer/src/components/FaceEmoji', () => ({
 }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+function MobileWebNavigation(props: ComponentProps<typeof Navigation>) {
+  const [view, setView] = useState(props.view);
+  useLayoutEffect(() => setView(props.view), [props.view]);
+  return createElement(Navigation, {
+    ...props,
+    view,
+    onViewChange: (next) => {
+      setView(next);
+      props.onViewChange(next);
+    },
+  });
+}
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 const props = {
@@ -87,60 +99,35 @@ it('搜索在手机标题中可展开，聊天详情隐藏整套主导航', asyn
   expect(host.querySelector<HTMLElement>('.weq-mobile-navigation')!.hidden).toBe(true);
 });
 
-it('原有账号和快捷控制保留在更多页，不放进拥挤的底栏', async () => {
-  const switchAccount = vi.fn();
-  await act(async () =>
-    root.render(
-      createElement(MobileWebNavigation, {
-        ...props,
-        accountControls: createElement('button', { onClick: switchAccount }, '切换账号'),
-      }),
-    ),
-  );
-  expect(host.textContent).not.toContain('切换账号');
+it('更多中的收藏入口复用现有回调，不增加底栏入口', async () => {
+  await act(async () => root.render(createElement(MobileWebNavigation, props)));
+  expect(host.textContent).not.toContain('我的收藏');
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
-  await click('切换账号');
-  expect(switchAccount).toHaveBeenCalledOnce();
+  await click('我的收藏');
+  expect(props.onOpenCollection).toHaveBeenCalledOnce();
   expect(host.querySelectorAll('nav > button')).toHaveLength(4);
 });
 
-it('顶栏移除加号，资料与更多中的联系人操作复用原有回调', async () => {
-  const onOpenProfile = vi.fn(),
-    onLookupUser = vi.fn(),
-    onLookupGroup = vi.fn();
-  const onOpenFriendNotices = vi.fn(),
-    onOpenGroupNotices = vi.fn();
+it('更多精简重复功能，QQ 资料仍从顶栏头像进入', async () => {
+  const onOpenProfile = vi.fn();
   await act(async () =>
     root.render(
       createElement(MobileWebNavigation, {
         ...props,
         onOpenProfile,
-        onLookupUser,
-        onLookupGroup,
-        onOpenFriendNotices,
-        onOpenGroupNotices,
       }),
     ),
   );
   await click('编辑 QQ 资料');
   expect(onOpenProfile).toHaveBeenCalledOnce();
   expect(host.querySelector('.weq-mobile-actions-toggle')).toBeNull();
-  for (const [label, action] of [
-    ['QQ 号搜索', onLookupUser],
-    ['群号搜索', onLookupGroup],
-    ['好友通知', onOpenFriendNotices],
-    ['群通知', onOpenGroupNotices],
-  ] as const) {
-    await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
-    await click(label);
-    expect(action).toHaveBeenCalledOnce();
-    expect(host.querySelector('[aria-label="更多功能"]')).toBeNull();
-  }
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
-  await act(async () => {
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-  });
-  expect(host.querySelector('[aria-label="更多功能"]')).toBeNull();
+  const more = host.querySelector('[aria-label="更多功能"]')!;
+  for (const label of ['QQ 资料与状态', '应用', 'QQ 号搜索', '群号搜索', '好友通知', '群通知'])
+    expect(more.textContent).not.toContain(label);
+  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
+  expect(host.querySelector('[aria-label="更多功能"]')).toBe(more);
+  expect(props.onViewChange).toHaveBeenCalledTimes(1);
 });
 
 it('各页面和更多页顶栏始终显示昵称，不再显示页面标题', async () => {
@@ -372,7 +359,7 @@ it.each([0, 123])('消息汇总数为 %s 时再次点击消息入口仍可定位
   expect(props.onViewChange).not.toHaveBeenCalled();
 });
 
-it('外部导航或进入详情后，不保留遮挡新页面的更多菜单', async () => {
+it('外部导航更新根页面，进入详情后关闭详情仍回到更多且不闪回', async () => {
   await act(async () => root.render(createElement(MobileWebNavigation, props)));
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
   await act(async () =>
@@ -386,5 +373,5 @@ it('外部导航或进入详情后，不保留遮挡新页面的更多菜单', a
   await act(async () =>
     root.render(createElement(MobileWebNavigation, { ...props, view: 'qzone' })),
   );
-  expect(host.querySelector('[aria-label="更多功能"]')).toBeNull();
+  expect(host.querySelector('[aria-label="更多功能"]')).not.toBeNull();
 });

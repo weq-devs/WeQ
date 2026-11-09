@@ -459,6 +459,7 @@ export type MainView =
   | 'home'
   | 'messages'
   | 'contacts'
+  | 'more'
   | 'collections'
   | 'guild-direct'
   | 'export'

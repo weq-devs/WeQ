@@ -14,6 +14,17 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
     let frame = 0;
     let animation: Animation | undefined;
     let completing = false;
+    let tabDirection = 0;
+    const contentTarget = () =>
+      element.querySelector<HTMLElement>('.weq-mobile-more') ??
+      (element.hasAttribute('data-mobile-workspace')
+        ? element.querySelector<HTMLElement>('.chat-main')
+        : element.querySelector<HTMLElement>('.sidebar-body, .sidebar'));
+    const adjacentTab = (direction: number) => {
+      const tabs = [...element.querySelectorAll<HTMLButtonElement>('.weq-mobile-tabs > button')];
+      const current = tabs.findIndex((tab) => tab.getAttribute('aria-current') === 'page');
+      return current < 0 ? undefined : tabs[current + direction];
+    };
     let swipe:
       | {
           x: number;
@@ -22,6 +33,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
           started: number;
           target: HTMLElement;
           dragging: boolean;
+          kind: 'back' | 'tab';
         }
       | undefined;
     const clearSwipe = () => {
@@ -63,17 +75,17 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         const target =
-          direction === 'root'
-            ? element.querySelector<HTMLElement>('.app-shell')
-            : (mobileBackTarget() ?? element.querySelector<HTMLElement>('.app-shell'));
+          direction === 'root' ? contentTarget() : (mobileBackTarget() ?? contentTarget());
         if (!target) return;
+        const horizontal = direction === 'root' ? tabDirection : direction === 'back' ? -1 : 1;
+        tabDirection = 0;
         animate(
           target,
-          reduced.matches || direction === 'root'
+          reduced.matches || !horizontal
             ? [{ opacity: 0.65 }, { opacity: 1 }]
             : [
                 {
-                  transform: `translateX(${direction === 'back' ? '-12%' : '12%'})`,
+                  transform: `translateX(${horizontal * 12}%)`,
                   opacity: 0.75,
                 },
                 { transform: 'translateX(0)', opacity: 1 },
@@ -86,12 +98,19 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       if (!mobile.matches || event.touches.length !== 1 || completing || topSurface(document))
         return;
       const touch = event.touches[0]!;
-      const target = mobileBackTarget();
-      if (!target || touch.clientX > 24) return;
+      const backTarget = mobileBackTarget();
+      const navigation = element.querySelector('.weq-mobile-navigation');
+      const rootPage =
+        navigation &&
+        !navigation.hasAttribute('hidden') &&
+        !element.hasAttribute('data-mobile-detail');
+      const kind = backTarget && touch.clientX <= 24 ? 'back' : rootPage ? 'tab' : null;
+      const target = kind === 'back' ? backTarget : contentTarget();
+      if (!kind || !target) return;
       let origin = event.target instanceof Element ? event.target : null;
       if (
         origin?.closest(
-          'input, textarea, select, [contenteditable="true"], [role="slider"], [data-no-swipe-back]',
+          'input, textarea, select, [contenteditable="true"], [role="slider"], [data-no-swipe-back], .weq-mobile-header, .weq-mobile-tabs',
         )
       )
         return;
@@ -111,6 +130,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
         started: performance.now(),
         target,
         dragging: false,
+        kind,
       };
     };
     const move = (event: TouchEvent) => {
@@ -123,11 +143,15 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       const dx = touch.clientX - swipe.x,
         dy = Math.abs(touch.clientY - swipe.y);
       if (!swipe.dragging) {
-        if (dy > 10 || dx < -8) {
+        if (dy > 10 || (swipe.kind === 'back' && dx < -8)) {
           clearSwipe();
           return;
         }
-        if (dx < 8 || dx <= dy) return;
+        if (Math.abs(dx) < 8 || Math.abs(dx) <= dy) return;
+        if (swipe.kind === 'tab' && !adjacentTab(dx < 0 ? 1 : -1)) {
+          clearSwipe();
+          return;
+        }
         swipe.dragging = true;
         element.dataset.mobileSwiping = 'true';
       }
@@ -136,10 +160,13 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
         return;
       }
       event.preventDefault();
-      swipe.distance = Math.max(0, Math.min(dx, element.clientWidth));
+      swipe.distance = Math.max(
+        swipe.kind === 'back' ? 0 : -element.clientWidth,
+        Math.min(dx, element.clientWidth),
+      );
       if (reduced.matches)
         swipe.target.style.opacity = String(
-          1 - (swipe.distance / Math.max(element.clientWidth, 1)) * 0.4,
+          1 - (Math.abs(swipe.distance) / Math.max(element.clientWidth, 1)) * 0.4,
         );
       else swipe.target.style.transform = `translateX(${swipe.distance}px)`;
     };
@@ -153,21 +180,32 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       const commit =
         !cancelled &&
         shouldCompleteMobileSwipe(
-          current.distance,
+          Math.abs(current.distance),
           performance.now() - current.started,
           element.clientWidth,
         );
+      const sign = current.distance < 0 ? -1 : 1;
+      const next = current.kind === 'tab' ? adjacentTab(-sign) : undefined;
+      const accepted = commit && (current.kind === 'back' || Boolean(next));
+      const endDistance = accepted ? sign * element.clientWidth : 0;
       const frames = reduced.matches
-        ? [{ opacity: current.target.style.opacity || 1 }, { opacity: commit ? 0.6 : 1 }]
+        ? [{ opacity: current.target.style.opacity || 1 }, { opacity: accepted ? 0.6 : 1 }]
         : [
             { transform: `translateX(${current.distance}px)` },
-            { transform: `translateX(${commit ? element.clientWidth : 0}px)` },
+            { transform: `translateX(${endDistance}px)` },
           ];
-      completing = commit;
-      if (reduced.matches) current.target.style.opacity = commit ? '0.6' : '1';
-      else current.target.style.transform = `translateX(${commit ? element.clientWidth : 0}px)`;
+      completing = accepted;
+      if (reduced.matches) current.target.style.opacity = accepted ? '0.6' : '1';
+      else current.target.style.transform = `translateX(${endDistance}px)`;
       animate(current.target, frames, 200, () => {
-        if (commit && mobileBack()) return;
+        if (accepted && current.kind === 'tab' && next) {
+          tabDirection = -sign;
+          completing = false;
+          clearSwipe();
+          next.click();
+          return;
+        }
+        if (accepted && mobileBack()) return;
         completing = false;
         clearSwipe();
       });

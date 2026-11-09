@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import {
   Bookmark,
   ChevronRight,
@@ -6,21 +6,18 @@ import {
   Grid2X2,
   Hash,
   House,
-  LayoutGrid,
   Mail,
   MessageCircle,
   Palette,
   Settings,
   Sparkles,
   Star,
-  UserRoundPen,
-  UserRoundPlus,
-  UsersRound,
 } from 'lucide-react';
 import { Avatar } from '../im-template/template/primitives';
 import type { MainView, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
 import { TitleBarSearch } from './TitleBarSearch';
+import { RemoteShellMenuButton } from './RemoteShellMenus';
 import { OnlineStatus } from './OnlineStatus';
 import '../styles/mobile-web.css';
 
@@ -42,10 +39,6 @@ export function MobileWebNavigation({
   onOpenDressUp,
   onOpenCollection,
   onOpenProfile,
-  onLookupUser,
-  onLookupGroup,
-  onOpenFriendNotices,
-  onOpenGroupNotices,
   accountControls,
 }: {
   user: User;
@@ -65,55 +58,32 @@ export function MobileWebNavigation({
   onOpenDressUp: () => void;
   onOpenCollection: () => void;
   onOpenProfile?: () => void;
-  onLookupUser?: () => void;
-  onLookupGroup?: () => void;
-  onOpenFriendNotices?: () => void;
-  onOpenGroupNotices?: () => void;
   accountControls?: ReactNode;
 }) {
-  const [moreOpen, setMoreOpen] = useState(false);
-  useEffect(() => {
-    setMoreOpen(false);
-  }, [view, hidden]);
+  const moreOpen = view === 'more';
   useEffect(() => {
     if (!moreOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setMoreOpen(false);
-      }
+    const mobile = window.matchMedia('(max-width: 760px)');
+    const leaveMobile = (event: MediaQueryListEvent) => {
+      if (!event.matches) onViewChange('messages');
     };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [moreOpen]);
+    mobile.addEventListener('change', leaveMobile);
+    return () => mobile.removeEventListener('change', leaveMobile);
+  }, [moreOpen, onViewChange]);
   const primary = view === 'messages' || view === 'contacts' || view === 'qzone';
   const active = moreOpen || !primary ? 'more' : view;
   const select = (next: MainView) => {
-    setMoreOpen(false);
-    onViewChange(next);
+    if (next !== view) onViewChange(next);
   };
   const entries = [
-    ...(onOpenProfile
-      ? [{ label: 'QQ 资料与状态', icon: UserRoundPen, action: onOpenProfile }]
-      : []),
     { label: '主页', icon: House, action: () => select('home') },
     { label: 'QQ 邮箱', icon: Mail, badge: mailBadgeCount, action: () => select('mail') },
     { label: 'QQ 频道', icon: Hash, action: () => select('channel') },
     { label: '我的收藏', icon: Bookmark, action: onOpenCollection },
     { label: '年度报告', icon: Sparkles, action: () => select('annual') },
     { label: '个性装扮', icon: Palette, action: onOpenDressUp },
-    { label: '应用', icon: LayoutGrid, action: () => select('tools') },
     { label: '设置', icon: Settings, action: onOpenSettings },
   ];
-  const actions = [
-    { label: 'QQ 号搜索', icon: UserRoundPlus, action: onLookupUser },
-    { label: '群号搜索', icon: UsersRound, action: onLookupGroup },
-    { label: '好友通知', icon: ContactRound, action: onOpenFriendNotices },
-    { label: '群通知', icon: UsersRound, action: onOpenGroupNotices },
-  ].filter((entry) => entry.action);
-  const run = (action: () => void) => {
-    setMoreOpen(false);
-    action();
-  };
 
   return (
     <div className="weq-mobile-navigation" hidden={hidden}>
@@ -150,6 +120,7 @@ export function MobileWebNavigation({
           onReturn={onSearchReturn}
           results={searchPanel}
         />
+        <RemoteShellMenuButton />
       </header>
       {moreOpen && (
         <section className="weq-mobile-more" aria-label="更多功能">
@@ -169,19 +140,12 @@ export function MobileWebNavigation({
               key={label}
               type="button"
               onClick={() => {
-                run(action);
+                action();
               }}
             >
               <Icon size={22} aria-hidden />
               <span>{label}</span>
               {badge ? <MobileBadge count={badge} /> : null}
-              <ChevronRight size={18} aria-hidden />
-            </button>
-          ))}
-          {actions.map(({ label, icon: Icon, action }) => (
-            <button key={label} type="button" onClick={() => run(action!)}>
-              <Icon size={22} aria-hidden />
-              <span>{label}</span>
               <ChevronRight size={18} aria-hidden />
             </button>
           ))}
@@ -203,14 +167,13 @@ export function MobileWebNavigation({
             key={id}
             type="button"
             aria-current={active === id ? 'page' : undefined}
+            data-mobile-tab={id}
             aria-expanded={id === 'more' ? moreOpen : undefined}
             aria-label={badge > 0 ? `${label}，${badge} 条未读` : label}
             onClick={() => {
               if (id === 'messages' && active === 'messages' && onMessageBadgeClick) {
                 onMessageBadgeClick();
-              } else if (id === 'more') {
-                setMoreOpen((open) => !open);
-              } else select(id as 'messages' | 'contacts' | 'qzone');
+              } else select(id as 'messages' | 'contacts' | 'qzone' | 'more');
             }}
           >
             <span className="weq-mobile-tab-icon">

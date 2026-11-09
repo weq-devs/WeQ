@@ -26,8 +26,4 @@
     outline: 2px solid var(--weq-accent-effective);
     outline-offset: -2px;
   }
-
-  .weq-mobile-settings-header > strong {
-    flex: 1;
-  }
 }

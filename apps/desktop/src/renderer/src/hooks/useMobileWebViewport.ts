@@ -18,6 +18,7 @@ export function useMobileWebLayout() {
 export function observeMobileWebViewport(element: HTMLElement): () => void {
   const viewport = window.visualViewport;
   const mobile = window.matchMedia('(max-width: 760px)');
+  let leavingKeyboard = false;
   const clear = () => {
     element.style.removeProperty('--weq-mobile-viewport-height');
     element.style.removeProperty('--weq-mobile-viewport-top');
@@ -28,21 +29,39 @@ export function observeMobileWebViewport(element: HTMLElement): () => void {
       return;
     }
     if (viewport && Math.abs(viewport.scale - 1) > 0.01) return;
-    const height = viewport?.height ?? window.innerHeight;
+    const editing = document.activeElement?.matches('input, textarea, [contenteditable="true"]');
+    if (editing || (viewport?.height ?? window.innerHeight) >= window.innerHeight - 1)
+      leavingKeyboard = false;
+    const height = leavingKeyboard
+      ? Math.max(viewport?.height ?? 0, window.innerHeight)
+      : (viewport?.height ?? window.innerHeight);
     if (height <= 0) return;
     element.style.setProperty('--weq-mobile-viewport-height', `${height}px`);
-    element.style.setProperty('--weq-mobile-viewport-top', `${viewport?.offsetTop ?? 0}px`);
+    element.style.setProperty(
+      '--weq-mobile-viewport-top',
+      `${leavingKeyboard ? 0 : (viewport?.offsetTop ?? 0)}px`,
+    );
+  };
+  const navigate = () => {
+    if (!element.classList.contains('app-shell-root')) return;
+    // 离开编辑页时键盘的 viewport 事件可能晚于页面切换，不把短暂的小视口带回列表。
+    leavingKeyboard = !document.activeElement?.matches('input, textarea, [contenteditable="true"]');
+    update();
   };
   update();
   viewport?.addEventListener('resize', update);
   viewport?.addEventListener('scroll', update);
   window.addEventListener('resize', update);
   mobile.addEventListener('change', update);
+  window.addEventListener('weq-mobile-navigate', navigate);
+  element.addEventListener('focusin', update);
   return () => {
     viewport?.removeEventListener('resize', update);
     viewport?.removeEventListener('scroll', update);
     window.removeEventListener('resize', update);
     mobile.removeEventListener('change', update);
+    window.removeEventListener('weq-mobile-navigate', navigate);
+    element.removeEventListener('focusin', update);
     clear();
   };
 }

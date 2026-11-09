@@ -37,6 +37,7 @@ function syncHistory() {
 }
 
 function consumeBack() {
+  blurMobileEditor();
   const consumed = stack.back();
   if (consumed) signal('back');
   syncHistory();
@@ -77,9 +78,16 @@ export function pushMobileBack(back: () => void, target?: () => HTMLElement | nu
 
 export function resetMobileRoot() {
   if (!isMobileNavigation()) return;
+  blurMobileEditor();
   stack.clear();
   signal('root');
   syncHistory();
+}
+
+function blurMobileEditor() {
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && active.matches('input, textarea, [contenteditable="true"]'))
+    active.blur();
 }
 
 export function useMobileBack(
@@ -105,6 +113,8 @@ export function useMobileBack(
 
 export function attachMobileHistory() {
   attached = true;
+  const scrollRestoration = window.history.scrollRestoration;
+  window.history.scrollRestoration = 'manual';
   const onPop = (event: PopStateEvent) => {
     if (event.state?.weqMobileGuard === marker) {
       guardInstalled = true;
@@ -133,5 +143,6 @@ export function attachMobileHistory() {
     guardInstalled = false;
     backing = false;
     returningToRoot = false;
+    window.history.scrollRestoration = scrollRestoration;
   };
 }

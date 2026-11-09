@@ -3,6 +3,29 @@ import { observeMobileWebViewport } from '../src/renderer/src/hooks/useMobileWeb
 
 afterEach(() => vi.unstubAllGlobals());
 
+it('返回列表时不沿用键盘退出前的小视口和偏移，重新编辑后仍正确适配键盘', () => {
+  const viewport = Object.assign(new EventTarget(), { height: 320, offsetTop: 96, scale: 1 });
+  vi.stubGlobal('visualViewport', viewport);
+  vi.stubGlobal('innerHeight', 844);
+  vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: true }));
+  const element = document.createElement('div');
+  element.className = 'app-shell-root';
+  const editor = document.createElement('textarea');
+  element.append(editor);
+  document.body.append(element);
+  editor.focus();
+  const stop = observeMobileWebViewport(element);
+  expect(element.style.getPropertyValue('--weq-mobile-viewport-height')).toBe('320px');
+  editor.blur();
+  window.dispatchEvent(new CustomEvent('weq-mobile-navigate', { detail: 'back' }));
+  expect(element.style.getPropertyValue('--weq-mobile-viewport-height')).toBe('844px');
+  expect(element.style.getPropertyValue('--weq-mobile-viewport-top')).toBe('0px');
+  editor.focus();
+  expect(element.style.getPropertyValue('--weq-mobile-viewport-height')).toBe('320px');
+  stop();
+  element.remove();
+});
+
 it('键盘只改变可视视口时同步高度和偏移，放大和无效尺寸不会重排', () => {
   const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0, scale: 1 });
   const media = Object.assign(new EventTarget(), { matches: true });
