@@ -17,7 +17,6 @@ export interface LongTaskItem {
   status: LongTaskStatus;
   statusLabel?: string;
   progress?: number;
-  hideProgress?: boolean;
   note?: string;
   icon: ReactNode;
   detail: ReactNode;
@@ -65,7 +64,7 @@ export function LongTaskRow({
     cancelled: Ban,
   }[task.status];
   const progress =
-    !task.hideProgress && task.progress !== undefined && Number.isFinite(task.progress)
+    task.progress !== undefined && Number.isFinite(task.progress)
       ? Math.max(0, Math.min(100, Math.round(task.progress)))
       : undefined;
   const row = (
@@ -84,7 +83,7 @@ export function LongTaskRow({
           {task.kind}
           {task.note ? ` · ${task.note}` : ''}
         </span>
-        {!task.hideProgress && (task.status === 'running' || task.status === 'paused') ? (
+        {task.status === 'running' || task.status === 'paused' ? (
           <progress max={100} value={progress} aria-label={`${task.name}进度`} />
         ) : null}
       </span>

@@ -169,7 +169,7 @@ afterEach(() => {
 });
 
 describe('统一当前任务', () => {
-  it('联系人任务不显示总进度、百分比和汇总计数', () => {
+  it('联系人任务保留总进度、百分比和汇总计数', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     localBackgroundTasks.start({
       kind: 'contacts',
@@ -188,9 +188,9 @@ describe('统一当前任务', () => {
       const row = [...host.querySelectorAll('.weq-long-task')].find((node) =>
         node.textContent?.includes('合成联系人刷新'),
       )!;
-      expect(row.querySelector('progress')).toBeNull();
-      expect(row.textContent).not.toContain('35%');
-      expect(row.textContent).not.toContain('7/20');
+      expect(row.querySelector('progress')?.value).toBe(35);
+      expect(row.textContent).toContain('35%');
+      expect(row.textContent).toContain('7/20');
     } finally {
       act(() => root.unmount());
     }
