@@ -118,6 +118,7 @@ const DEFAULT_OIDB_CASES: readonly string[] = [
   'e37_1200',
   'e37_1700',
   'eac_1',
+  'eac_2',
   'eb7_1',
   'ed3_1',
   'f16_1',
@@ -145,6 +146,7 @@ const DEFAULT_OIDB_CASES: readonly string[] = [
   '112e_1',
   '11c4_100',
   '11c5_100',
+  '11e9_100',
   '11e9_200',
   '11ea_100',
   '11ea_200',
@@ -227,6 +229,10 @@ const DEFAULT_RAW_CASES: readonly string[] = [
   'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoCreateRoom',
   'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoEnterRoom',
   'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoDeleteUser',
+  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoInviteRoom',
+  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoQueryRoom',
+  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoMultiTerminalSync',
+  'trpc.qqva.gift_midground_panel.GiftMidgroundPanel.SsoGetSceneItem',
 ];
 
 // ─────────────────────────── protobuf 小工具 ───────────────────────────

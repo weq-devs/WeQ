@@ -1,5 +1,6 @@
 import regionRows from './qq-regions.json';
 import { encode, message } from '../../protobuf';
+import { SIGN_NON_LINUX } from '../../sign-policy';
 import { sendOidb, type PacketNative } from '../../transport';
 import { requireUin } from '../write-validation';
 import { getCloudProfile } from './cloud-profile';
@@ -144,9 +145,9 @@ export async function readEditableProfile(
   });
   const [modernResult, legacyResult] = await Promise.allSettled([
     getCloudProfile(nt, pid, uin, [20031, 20032]),
-    invokeLegacyOidb(nt, pid, 0x480, 9, 'OidbSvc.0x480_9_IMCore', request).then((bytes) =>
-      parseLegacyProfileBody(bytes, uin),
-    ),
+    invokeLegacyOidb(nt, pid, 0x480, 9, 'OidbSvc.0x480_9_IMCore', request, {
+      needSign: SIGN_NON_LINUX,
+    }).then((bytes) => parseLegacyProfileBody(bytes, uin)),
   ]);
   const errors: Partial<Record<keyof EditableProfilePatch, string>> = {};
   const modern = modernResult.status === 'fulfilled' ? modernResult.value : null;

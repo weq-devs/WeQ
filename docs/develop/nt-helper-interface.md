@@ -365,6 +365,10 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 | `resetPacketSequence()` / `currentPacketSequence()` | — | `number` | 全局发包序号。重连 / 换会话时先 `resetPacketSequence()` 回收起点；`currentPacketSequence()` 仅供诊断。 |
 | `locateSignFunction(wrapperPath)` / `signPacket(wrapperPath, cmd, src, seq)` | `wrapper.node` 路径 + 命令 + 明文 + 序号 | RVA / `SignOutput` | `wrapper.node` 签名函数的定位与调用：`needSign` 的命令靠它算 `SecSign`（以及本进程里恒为空的 `SecToken / SecExtra`）。离线逐字节核对抓包用 `buildSsoPacket(req)`。 |
 
+> `sendOidbPacket` / `sendPacket` 的 `needSign` 只收**当前平台**的布尔值。QQ 的签名集合
+> 按平台不同（Linux / Windows），`@weq/protocol` 的 `needSignFor` 会先解析 spec 的跨平台
+> 声明再传进来；不要在这里按白名单或并集推导。
+
 > **业务命令不在 native**：clientKey / 下载 rkey / decryptKey / skey / p_skey / bkn 的请求构造
 > 与解析已经在 `@weq/protocol` + `@weq/service`（`account/online_ticket.ts`）里实现，只通过
 > 上面的两个通用接口发包。新增「走后门业务」继续走 `sendOidbPacket` / `sendPacket` + TS schema，

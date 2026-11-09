@@ -1,4 +1,5 @@
 import { decode, encode, message } from '../protobuf';
+import { needSignFor, type NeedSign } from '../sign-policy';
 import { sendPacket, type TrpcNative } from '../transport';
 
 export const legacyOidbEnvelope = message([
@@ -9,6 +10,12 @@ export const legacyOidbEnvelope = message([
   { name: 'errorMessage', tag: 5, type: 'string' },
   { name: 'clientVersion', tag: 6, type: 'string' },
 ]);
+export interface LegacyOidbOptions {
+  clientVersion?: string;
+  /** 该 `sso` 命令的签名策略；缺省不签。 */
+  needSign?: NeedSign;
+}
+
 export async function invokeLegacyOidb(
   nt: TrpcNative,
   pid: number,
@@ -16,14 +23,19 @@ export async function invokeLegacyOidb(
   serviceType: number,
   sso: string,
   body: Uint8Array,
-  clientVersion?: string,
+  options: LegacyOidbOptions = {},
 ) {
   const reply = await sendPacket(
     nt,
     pid,
     sso,
-    encode(legacyOidbEnvelope, { command, serviceType, body, clientVersion }),
-    false,
+    encode(legacyOidbEnvelope, {
+      command,
+      serviceType,
+      body,
+      clientVersion: options.clientVersion,
+    }),
+    needSignFor(options.needSign ?? false),
   );
   if (!reply.length || reply.length > 1024 * 1024) throw new Error('旧 OIDB 响应为空或超限');
   const response = decode(legacyOidbEnvelope, reply);

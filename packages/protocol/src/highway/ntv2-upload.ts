@@ -16,6 +16,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { decode, encode } from '../protobuf';
+import { needSignFor } from '../sign-policy';
 import { sendOidb, type OidbNative, type TrpcNative } from '../transport';
 import {
   BufferChunkSource,
@@ -138,8 +139,10 @@ async function requestUpload(
     },
   });
 
-  // 命令来自 `params.oidbCmd`（动态）。抓包（/tmp/capture.log）里上传申请命令
-  // `OidbSvcTrpcTcp.0x11c4_100` 不带 tag 24，故按抓包不签名。
+  // 命令来自 `params.oidbCmd`（动态）。Linux 实测全部不签；Windows 只给图片
+  // `0x11c4_100` / `0x11c5_100` 签，语音 / 视频（`0x126d/126e_100`、`0x11ea_100`）
+  // 不签。`0x11e9_100` 还没实测，先按同族的 `0x11ea_100` 处理。
+  const signOnWindows = params.oidbCmd === 0x11c4 || params.oidbCmd === 0x11c5;
   const respBytes = await sendOidb(
     nt,
     pid,
@@ -149,7 +152,7 @@ async function requestUpload(
       body,
       isUid: true,
     },
-    false,
+    needSignFor({ linux: false, win32: signOnWindows }),
   );
   const resp = decode(NTV2_UPLOAD_RESP_TOP, respBytes) as {
     respHead?: { retCode?: number; message?: string };

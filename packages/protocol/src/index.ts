@@ -29,8 +29,13 @@ export { encode, decode, message } from './protobuf';
 export type { ProtoMessage, ProtoField, ScalarType } from './protobuf';
 
 export { sendOidb, sendPacket } from './transport';
-/** 签名策略已于 2026-11-03 移除白名单推导，改由每个 spec 显式声明 `needSign`。 */
+/**
+ * 签名策略已于 2026-11-03 移除白名单推导，改由每个 spec 显式声明 `needSign`；
+ * 2026-11-09 起按平台区分（Linux 与 Windows / macOS 的签名集合不同）。
+ */
 export type { PacketNative, OidbNative, TrpcNative, OidbRequest } from './transport';
+export { needSignFor, SIGN_NON_LINUX } from './sign-policy';
+export type { NeedSign } from './sign-policy';
 
 export { invokeOidb, invokeTrpc } from './oidb/invoke';
 export type { OidbSpec, TrpcSpec } from './oidb/invoke';

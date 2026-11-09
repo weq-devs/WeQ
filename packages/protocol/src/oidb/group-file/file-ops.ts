@@ -3,13 +3,12 @@
 // 搬运自 SnowLuma `oidb-services/group-file/{delete,move,rename}-group-file.ts` /
 // `*-group-folder.ts` / `get-group-file-{count,space}.ts`。
 //
-// 签名：LagrangeV2 白名单里只有 0x6d6_2 / 0x6d6_3 / 0x6d9_2 / 0x6d9_4；0x6D7 在
-// 名单里只有 `OidbSvc.` 写法（native 发 `OidbSvcTrpcTcp.`，实际不命中），0x6D8 一个
-// 都没有。所以除 `DeleteGroupFile`（0x6d6_3）外全部不签 —— 交给 `invokeOidb` 按
-// 白名单自动推导，以下只在需要显式覆盖时标注。
+// 签名（scripts/probe-sign.ts）：0x6d6_4/5、0x6d7_*、0x6d8_* 三端都不签；
+// 0x6d6_3 是 Linux 不签、Windows 签（macOS 实测前跟 Windows）。
 //
 // 所有 `uinForm = true`：群文件这一族在 NTQQ 里走 UIN 形态的 OIDB 信封。
 
+import { SIGN_NON_LINUX } from '../../sign-policy';
 import { invokeOidb, type OidbSpec } from '../invoke';
 import type { OidbNative } from '../../transport';
 import {
@@ -60,8 +59,8 @@ export interface DeleteGroupFileParams {
 export namespace DeleteGroupFile {
   export const command = 0x6d6;
   export const subCommand = 3;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
+  export const needSign = SIGN_NON_LINUX;
   export const uinForm = true;
   export const reqSchema = OIDB_GROUP_FILE_DELETE_REQ_VIEW;
   export const respSchema = OIDB_GROUP_FILE_DELETE_RESP;

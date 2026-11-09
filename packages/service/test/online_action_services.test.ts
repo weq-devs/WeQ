@@ -20,6 +20,7 @@ import {
   GroupTodo,
   LeaveGroup,
   SetGroupRequest,
+  needSignFor,
   type GroupMemberListItem,
 } from '@weq/protocol';
 import { GroupModerationService } from '../src/account/group_moderation';
@@ -189,7 +190,11 @@ describe('GroupNotifyService', () => {
     const list = await svc.fetchOnlineRequests();
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({ groupId: 123, sequence: 11, eventType: 2 });
-    expect(nt.calls[0]).toMatchObject({ command: 0x10c0, subCommand: 1, needSign: false });
+    expect(nt.calls[0]).toMatchObject({
+      command: 0x10c0,
+      subCommand: 1,
+      needSign: needSignFor(FetchGroupRequests.needSign),
+    });
   });
 
   it('handleOnlineRequest：空理由写空格，并透传 operateTransInfo', async () => {

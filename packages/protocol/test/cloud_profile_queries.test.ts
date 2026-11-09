@@ -7,6 +7,8 @@ import {
   getCloudProfile,
   commonGroupsResponse,
   cloudProfileResponse,
+  GetUserQqLevel,
+  needSignFor,
 } from '../src/index';
 import { legacyOidbEnvelope } from '../src/oidb/legacy';
 
@@ -29,7 +31,8 @@ describe('云端精确资料与共同关系', () => {
     expect((await getCloudProfile(nt, 1, '10002', [105, 20002])).numbers.get(105)).toBe(9);
     const call = sendOidbPacket.mock.calls[0] as unknown as unknown[];
     expect(call.slice(0, 3)).toEqual([1, 0xfe1, 2]);
-    expect(call.slice(4)).toEqual([true, true]);
+    // 0xfe1_2 Linux 不签、Windows 签；别在调用点写死 true。
+    expect(call.slice(4)).toEqual([true, needSignFor(GetUserQqLevel.needSign)]);
     await expect(getCloudProfile(nt, 1, '10003', [105])).rejects.toThrow('不匹配');
   });
   it.each([5, 0, -1])(

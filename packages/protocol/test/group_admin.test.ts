@@ -23,6 +23,7 @@ import {
   SetGroupMemberCard,
   SetGroupName,
   SetGroupSpecialTitle,
+  needSignFor,
 } from '../src/index';
 
 const hexToBytes = (hex: string): Uint8Array =>
@@ -181,10 +182,11 @@ describe('SetGroupMemberCard (0x8FC_3)', () => {
     );
     expect(bytes).toEqual(hexToBytes('08 64 1a 07 0a 03 75 5f 78 42 00'));
   });
-  it('body@3 / targetName@8（不是 2），needSign=false', () => {
+  it('body@3 / targetName@8（不是 2），Linux 不签 / Windows 签', () => {
     expect(SetGroupMemberCard.command).toBe(0x8fc);
     expect(SetGroupMemberCard.subCommand).toBe(3);
-    expect(SetGroupMemberCard.needSign).toBe(false);
+    expect(needSignFor(SetGroupMemberCard.needSign, 'linux')).toBe(false);
+    expect(needSignFor(SetGroupMemberCard.needSign, 'win32')).toBe(true);
     const bytes = encode(
       SetGroupMemberCard.reqSchema,
       SetGroupMemberCard.serialize({ groupId: 100, targetUid: 'u_x', card: '卡片' }),

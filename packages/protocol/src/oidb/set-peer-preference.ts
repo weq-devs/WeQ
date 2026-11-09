@@ -1,4 +1,5 @@
 import { message } from '../protobuf';
+import { SIGN_NON_LINUX } from '../sign-policy';
 import { invokeOidb } from './invoke';
 import { requireUid, requireUint32, responseObject } from './write-validation';
 import type { OidbNative } from '../transport';
@@ -119,8 +120,8 @@ export interface SetGroupMessagePolicyParams {
 export namespace SetGroupMessagePolicy {
   export const command = 0xa80;
   export const subCommand = 1;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
+  export const needSign = SIGN_NON_LINUX;
   export const reqSchema = message([
     {
       name: 'body',

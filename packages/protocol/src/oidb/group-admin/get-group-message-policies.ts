@@ -1,4 +1,5 @@
 import { message } from '../../protobuf';
+import { SIGN_NON_LINUX } from '../../sign-policy';
 import { invokeOidb } from '../invoke';
 import { GROUP_MESSAGE_POLICIES, type GroupMessagePolicy } from '../set-peer-preference';
 import { requireUint32 } from '../write-validation';
@@ -14,8 +15,8 @@ export interface GroupMessagePolicySnapshot {
 export namespace GetGroupMessagePolicies {
   export const command = 0xfe5;
   export const subCommand = 2;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
+  export const needSign = SIGN_NON_LINUX;
   export const reqSchema = message([
     {
       name: 'config',

@@ -4,14 +4,14 @@
 //   `oidb-services/contacts/fetch-group-requests.ts`
 //   `oidb-services/group-admin/set-add-request.ts`
 //
-// 签名（真机实测，`scripts/probe-sign.ts`，三次一致）：`0x10c0_1/2` **不签**，
-// `0x10c8_1/2` **签**。LagrangeV2 白名单把这两族都收录了，但 QQ 自己只给 0x10c8 加
-// tag 24，所以两边要分开标。
+// 签名（`scripts/probe-sign.ts`）：`0x10c0_1/2` Linux 不签、Windows 签；
+// `0x10c8_1/2` 三端都签。macOS 实测前跟 Windows。
 //
 // ⚠️ `setAddRequest` 的 `message`（拒绝理由）**空值必须写 `" "`**，不能省略 ——
 // 官方客户端就是这么发的；省略会被服务端拒。
 
 import { decode, message } from '../../protobuf';
+import { SIGN_NON_LINUX } from '../../sign-policy';
 import { invokeOidb, type OidbSpec } from '../invoke';
 import { toInt } from '../shared';
 import type { OidbNative } from '../../transport';
@@ -201,8 +201,8 @@ function parseRequests(body: Record<string, unknown>, filtered: boolean): GroupR
 
 export namespace FetchGroupRequests {
   export const command = 0x10c0;
-  /** 真机实测不会签名（scripts/probe-sign.ts），主 / 过滤两个子命令都不签。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126），主 / 过滤两个子命令一致。 */
+  export const needSign = SIGN_NON_LINUX;
   export const uinForm = true;
   export const reqSchema = GROUP_REQUEST_LIST_REQ;
   // uinForm=true 时用户字段 tag 1 是 uint32，必须用 UIN 形态的 schema。
@@ -233,8 +233,8 @@ export namespace FetchGroupRequests {
 export namespace FetchFilteredGroupRequests {
   export const command = 0x10c0;
   export const subCommand = 2;
-  /** 同 {@link FetchGroupRequests}：真机实测不签名。 */
-  export const needSign = false;
+  /** 同 {@link FetchGroupRequests}：Linux 不签、Windows 签。 */
+  export const needSign = SIGN_NON_LINUX;
   export const uinForm = true;
   export const reqSchema = GROUP_REQUEST_LIST_REQ;
   export const respSchema = GROUP_REQUEST_RESP_BY_UIN;

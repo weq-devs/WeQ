@@ -6,13 +6,13 @@
 //    get-group-category-tags,add-group-category-tag,delete-group-category-tag}.ts`
 //   `oidb-services/contacts/fetch-group-member-list-page.ts`
 //
-// 签名（LangrangeV2 白名单）：
-//   - 0x89a_0 → **true**（名单有 `OidbSvcTrpcTcp.0x89a_0`）
-//   - 0x1097 / 0x8a7 / 0x967c / 0x967d / 0x967e → 全部 false
-//   - 0xfe7_3 → **true**（名单有 `OidbSvcTrpcTcp.0xfe7_3`）
-// 除 0x89a_0 / 0xfe7_3 外都不显式标注，交给 `invokeOidb` 按白名单推导。
+// 签名（scripts/probe-sign.ts）：
+//   - 0x89a_0 → 三端都签
+//   - 0x1097 / 0x8a7 / 0x967c / 0x967d / 0x967e → 全部不签
+//   - 0xfe7_3 → Linux 不签、Windows 签（macOS 实测前跟 Windows）
 
 import { decode, message } from '../../protobuf';
+import { SIGN_NON_LINUX } from '../../sign-policy';
 import { invokeOidb, type OidbSpec } from '../invoke';
 import { toInt } from '../shared';
 import type { OidbNative } from '../../transport';
@@ -442,8 +442,8 @@ export interface FetchGroupMemberListParams {
 export namespace FetchGroupMemberListPage {
   export const command = 0xfe7;
   export const subCommand = 3;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
+  export const needSign = SIGN_NON_LINUX;
   export const reqSchema = MEMBER_LIST_REQ;
   export const respSchema = MEMBER_LIST_RESP;
 

@@ -53,6 +53,7 @@ function logSign(cmd: string, needSign: boolean): void {
  *
  * `needSign` 由调用方按命令**逐个标注**（不在 native 里硬编码白名单）：`true` 表示
  * 该命令要附带 `SecToken/SecExtra/SecSign`，原生侧用 `wrapper.node` 的签名函数算。
+ * 跨平台差异由 spec 层的 `needSignFor` 先解析成当前平台的布尔值再传进来。
  */
 export async function sendOidb(
   nt: OidbNative,

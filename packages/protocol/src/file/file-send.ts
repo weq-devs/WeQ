@@ -48,6 +48,7 @@ import {
 } from '../oidb/file-upload-schemas';
 import { cleanNtLocalPath, ensureRetCodeZero, toInt } from '../oidb/shared';
 import { encode, message } from '../protobuf';
+import { SIGN_NON_LINUX } from '../sign-policy';
 import { sendC2cFileMessage, type SendMessageReceipt } from '../msg/send';
 import { FILE_EXTRA } from '../msg/schemas';
 import type { OidbNative, TrpcNative } from '../transport';
@@ -301,8 +302,8 @@ interface PrivateFileUploadParams {
 const UploadPrivateFile = {
   command: 0xe37,
   subCommand: 1700,
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  needSign: false,
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
+  needSign: SIGN_NON_LINUX,
   reqSchema: OIDB_PRIVATE_FILE_UPLOAD_REQ,
   respSchema: OIDB_PRIVATE_FILE_UPLOAD_RESP,
   serialize: (p: PrivateFileUploadParams): Record<string, unknown> => ({
@@ -348,8 +349,8 @@ interface FinalizeMetadata {
 const FinalizeOfflineFile = {
   command: 0xe37,
   subCommand: 800,
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  needSign: false,
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
+  needSign: SIGN_NON_LINUX,
   reqSchema: OIDB_OFFLINE_FILE_FINALIZE_REQ,
   respSchema: OIDB_OFFLINE_FILE_FINALIZE_RESP,
   serialize: (p: FinalizeParams): Record<string, unknown> => ({
