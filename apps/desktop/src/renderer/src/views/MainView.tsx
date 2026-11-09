@@ -406,7 +406,7 @@ const RelationGraphView = lazy(() =>
   })),
 );
 const workspaceLoading = (
-  <div role="status" className="p-6 text-sm text-muted-foreground">
+  <div role="status" data-weq-startup-pending className="p-6 text-sm text-muted-foreground">
     正在加载…
   </div>
 );

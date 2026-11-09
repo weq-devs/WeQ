@@ -76,6 +76,7 @@ beforeEach(() => {
   api.currentError = false;
   vi.clearAllMocks();
   api.remoteWarmup.mockReset().mockResolvedValue(undefined);
+  api.utils.account.getAccountConfig.fetch.mockReset().mockResolvedValue({});
   useViewState.setState({ view: 'bootstrap', openedUin: null, homeStage: 'booting' });
   host = document.createElement('div');
   document.body.append(host);
@@ -92,7 +93,7 @@ async function render() {
   });
 }
 
-it('Web 复用实际已打开账号，只预载身份，不验密钥、重开库或等待完整目录预热', async () => {
+it('Web 复用实际已打开账号，只读必要配置，不等待身份或目录预热', async () => {
   await render();
   expect(useViewState.getState()).toMatchObject({
     view: 'main',
@@ -101,18 +102,19 @@ it('Web 复用实际已打开账号，只预载身份，不验密钥、重开库
   });
   expect(api.mutate).not.toHaveBeenCalled();
   expect(api.warmup).not.toHaveBeenCalled();
-  expect(api.remoteWarmup).toHaveBeenCalledOnce();
+  expect(api.remoteWarmup).not.toHaveBeenCalled();
+  expect(api.utils.account.getAccountConfig.fetch).toHaveBeenCalledOnce();
 });
-it('Remote 身份资料尚未就绪时保留载入页，不先进入显示 WeQ 兜底值的主界面', async () => {
+it('Remote 必要账号配置尚未就绪时不能先挂载工作区', async () => {
   let finish!: () => void;
-  api.remoteWarmup.mockImplementationOnce(
+  api.utils.account.getAccountConfig.fetch.mockImplementationOnce(
     () =>
-      new Promise<void>((resolve) => {
-        finish = resolve;
+      new Promise((resolve) => {
+        finish = () => resolve({});
       }),
   );
   await render();
-  expect(api.remoteWarmup).toHaveBeenCalledOnce();
+  expect(api.remoteWarmup).not.toHaveBeenCalled();
   expect(useViewState.getState()).toMatchObject({ view: 'bootstrap', openedUin: null });
   await act(async () => finish());
   expect(useViewState.getState()).toMatchObject({ view: 'main', openedUin: '10002' });
@@ -137,6 +139,6 @@ it.each([true, false])('没有后台账号时保留原自动进入流程：web=%
   api.current = null;
   await render();
   expect(api.mutate).toHaveBeenCalledTimes(2);
-  expect(api.warmup).toHaveBeenCalledOnce();
+  expect(api.warmup).toHaveBeenCalledTimes(web ? 0 : 1);
   expect(useViewState.getState()).toMatchObject({ view: 'main', openedUin: '10001' });
 });

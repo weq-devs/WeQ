@@ -4,8 +4,9 @@ import { useViewState } from '../state/view';
 import { useAccountSwitch } from '../state/accountSwitch';
 import { publishRemoteStartup } from '../lib/remoteStartup';
 import { IS_WEB } from '../lib/target';
+import { observeRemoteStartupSurface } from '../lib/remoteStartupSurface';
 
-/** 复用首屏查询缓存；HTML 完成不代表恢复检查、账号探测和首屏数据已完成。 */
+/** 启动只等待必要配置与真实界面，业务列表在界面内异步加载。 */
 export function RemoteStartupReporter() {
   const view = useViewState((state) => state.view);
   const stage = useViewState((state) => state.homeStage);
@@ -16,12 +17,9 @@ export function RemoteStartupReporter() {
     enabled: IS_WEB && view === 'bootstrap' && stage !== 'booting' && native.data === null,
   });
   const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled });
-  const profile = trpc.account.getSelfProfile.useQuery(undefined, { enabled });
-  const recent = trpc.account.listRecentContacts.useQuery(undefined, { enabled });
   useEffect(() => {
     if (!IS_WEB) return;
-    const error =
-      native.error || (enabled ? config.error || profile.error || recent.error : install.error);
+    const error = native.error || (enabled ? config.error : install.error);
     if (error) {
       publishRemoteStartup({ state: 'error', message: error.message });
     } else if (native.data) {
@@ -30,12 +28,27 @@ export function RemoteStartupReporter() {
       switching ||
       stage === 'booting' ||
       (view === 'bootstrap' && !install.isSuccess) ||
-      (enabled && (config.isLoading || profile.isLoading || recent.isLoading))
+      (enabled && config.isLoading)
     ) {
-      publishRemoteStartup({ state: 'loading', message: '正在准备 WeQ 页面' });
+      publishRemoteStartup({
+        state: 'loading',
+        message:
+          native.data === undefined
+            ? '正在检查网页启动环境'
+            : stage === 'booting'
+              ? '正在恢复账号工作区'
+              : '正在初始化工作区',
+      });
     } else {
-      // 无已打开账号时，账号选择页本身就是可操作的正式页面。
-      publishRemoteStartup({ state: 'ready' });
+      publishRemoteStartup({ state: 'loading', message: '正在绘制 WeQ 界面' });
+      const root = document.getElementById('root');
+      if (!root) return;
+      return observeRemoteStartupSurface(
+        root,
+        view === 'main' ? '.app-shell-root' : '.weq-account-workspace',
+        () => publishRemoteStartup({ state: 'ready' }),
+        (message) => publishRemoteStartup({ state: 'loading', message }),
+      );
     }
   }, [
     view,
@@ -44,10 +57,6 @@ export function RemoteStartupReporter() {
     enabled,
     config.error,
     config.isLoading,
-    profile.error,
-    profile.isLoading,
-    recent.error,
-    recent.isLoading,
     native.error,
     native.data,
     install.error,

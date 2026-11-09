@@ -22,11 +22,7 @@ import { RestrictedModeIndicator } from '../components/RestrictedMode';
 import { SelectScreen } from './bootstrap/SelectScreen';
 import { WarmupSplash } from '../components/WarmupSplash';
 import { NativeExpiredDialog } from '../components/NativeExpiredDialog';
-import {
-  runAccountWarmup,
-  runRemoteIdentityWarmup,
-  type WarmupProgress,
-} from '../lib/accountWarmup';
+import { runAccountWarmup, type WarmupProgress } from '../lib/accountWarmup';
 import { setWindowLayout } from '../lib/windowLayout';
 import { DesktopOnly, IS_MAC, IS_WEB, shellBridge } from '../lib/target';
 import logoUrl from '@resources/brand/logo.png';
@@ -144,10 +140,9 @@ export function BootstrapView(): ReactElement {
         booted.current = true;
         const uin = currentAccount.data.uin;
         void (async () => {
-          if (IS_WEB) {
-            await runRemoteIdentityWarmup(utils, setWarmup);
-          } else {
-            await utils.account.getAccountConfig.fetch();
+          await utils.account.getAccountConfig.fetch();
+          // Web 只等待挂载必需配置，身份与会话列表在工作区内异步读取。
+          if (!IS_WEB) {
             await runAccountWarmup(utils, setWarmup);
           }
           setOpenedUin(uin);
@@ -229,7 +224,7 @@ export function BootstrapView(): ReactElement {
         //     左栏上下贴边的按钮在这个高度会重叠。提前调好就不会有这一帧。
         //  2. 预热 MainView 那 8 个查询，否则首屏是空白头像 + 默认昵称 "WeQ"。
         setWindowLayout('chat');
-        await runAccountWarmup(utils, setWarmup);
+        if (!IS_WEB) await runAccountWarmup(utils, setWarmup);
 
         // Land on 'home' so closing the account later returns to the landing
         // screen rather than re-running the (now consumed) boot splash.
