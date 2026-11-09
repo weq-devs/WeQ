@@ -109,6 +109,17 @@ test('助手损坏时不先替换 .node；验证失败不写版本锚点', async
   await assert.rejects(readFile(join(data.install, 'native/pinned.json')));
 });
 
+test('发布清单缺少 interface 时仍能通过 release 校验，字段出现则须一致', async (t) => {
+  const data = await fixture(t);
+  delete data.manifest.authorization[platform].interface;
+  await writeFile(join(data.assets, 'manifest.json'), JSON.stringify(data.manifest));
+  const result = fetch(data, ['--require-authorization']);
+  assert.equal(result.status, 0, result.stderr);
+  data.manifest.authorization[platform].interface = AUTHORIZATION_INTERFACE + 1;
+  await writeFile(join(data.assets, 'manifest.json'), JSON.stringify(data.manifest));
+  assert.notEqual(fetch(data, ['--require-authorization']).status, 0);
+});
+
 test('旧清单兼容开发，但不能通过桌面 release；Web 可不取助手', async (t) => {
   const data = await fixture(t);
   delete data.manifest.authorization;
