@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { OverlayLayer } from './OverlayLayer';
 import '../styles/conversation-actions.css';
 import { useRenderDocument } from '../lib/renderDocument';
+import { RemoteShellMenuItem } from './RemoteShellMenus';
 
 export function ConversationActionsMenu({
   x,
@@ -102,6 +103,7 @@ export function ConversationActionsMenu({
             <span>{item.label}</span>
           </button>
         ))}
+        {dropdown && label === '会话操作' && <RemoteShellMenuItem onClose={onClose} />}
       </div>
     </OverlayLayer>
   );

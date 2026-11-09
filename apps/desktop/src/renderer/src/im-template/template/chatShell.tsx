@@ -13,6 +13,7 @@ import { SidebarHeader, SidebarResizeHandle } from './sidebar';
 import { SelfProfileDialog, TitleBar } from './TitleBar';
 import { IS_MAC, IS_WEB } from '../../lib/target';
 import { MobileWebNavigation } from '../../components/MobileWebNavigation';
+import { RemoteShellMenus } from '../../components/RemoteShellMenus';
 import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
 import type { ContactNoticeView, ContactTab, MainView, SettingsTab, User } from './types';
 
@@ -124,6 +125,7 @@ export function ChatShell({
       data-mobile-workspace={mobileWorkspace || undefined}
       data-weq-diagnostic-view={import.meta.env.DEV ? view : undefined}
     >
+      {IS_WEB && <RemoteShellMenus root={root} />}
       {IS_WEB && (
         <MobileWebNavigation
           user={user}
