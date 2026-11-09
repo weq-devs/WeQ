@@ -154,6 +154,7 @@ function QzonePage({
 export const QzoneWorkspace = memo(function QzoneWorkspace({
   active,
   readEnabled = active,
+  previewOnly = false,
   selfUin,
   nickname,
   spaceRequest,
@@ -161,6 +162,7 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
 }: {
   active: boolean;
   readEnabled?: boolean;
+  previewOnly?: boolean;
   selfUin: string;
   nickname: string;
   spaceRequest?: QzoneSpaceRequest | null;
@@ -170,8 +172,16 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
   const [loaded, setLoaded] = useState(readEnabled);
   if (readEnabled && !loaded) setLoaded(true);
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
-    enabled: active && parentActive && readEnabled,
+    enabled: active && parentActive && readEnabled && !previewOnly,
   });
+  if (previewOnly || (active && parentActive && !loaded && !readEnabled))
+    return (
+      <TabActivity active={false}>
+        <PageSnapshotScope name="qzone-preview">
+          <QzoneView active={false} loadingPreview selfUin={selfUin} nickname={nickname} />
+        </PageSnapshotScope>
+      </TabActivity>
+    );
   return active && parentActive && (loaded || readEnabled) ? (
     <TabActivity active={readEnabled}>
       <PageSnapshotScope name="qzone">
@@ -337,6 +347,7 @@ export function QzoneView({
   selfUin,
   nickname,
   active = true,
+  loadingPreview = false,
   spaceRequest,
   onSpaceChange,
   personClickAction = 'space',
@@ -344,6 +355,7 @@ export function QzoneView({
   selfUin: string;
   nickname: string;
   active?: boolean;
+  loadingPreview?: boolean;
   spaceRequest?: QzoneSpaceRequest | null;
   /** 当前正在看谁的空间（自己或好友的 QQ 号），供浮动工具按当前位置导出。 */
   onSpaceChange?: (uin: string) => void;
@@ -490,7 +502,11 @@ export function QzoneView({
   }, [active, selfUin, spaceRequest, openSpace, handledRequest, setHandledRequest]);
   const workspace = (
     <QzonePeopleContext.Provider value={people}>
-      <section className="weq-qzn" aria-label="QQ 空间">
+      <section
+        className="weq-qzn"
+        aria-label="QQ 空间"
+        data-qzone-loading-preview={loadingPreview || undefined}
+      >
         <header className="weq-qzn-header">
           <div className="weq-qzn-identity">
             <QzoneProfileAvatar uin={selfUin} nickname={nickname} size={36} />
@@ -632,6 +648,17 @@ export function QzoneView({
           <p className="weq-qzn-status" role="alert">
             {targetError}
           </p>
+        ) : null}
+        {loadingPreview ? (
+          <div className="weq-mobile-qzone-skeleton" aria-hidden="true">
+            {[0, 1, 2].map((row) => (
+              <div key={row}>
+                <i />
+                <span />
+                <span />
+              </div>
+            ))}
+          </div>
         ) : null}
         {visited.includes('feeds') || tab === 'feeds' ? (
           <QzonePage active={active && tab === 'feeds'} refreshKey={refreshes.feeds ?? 0}>

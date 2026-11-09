@@ -15,6 +15,7 @@ import { SelfProfileDialog, TitleBar } from './TitleBar';
 import { IS_MAC, IS_WEB } from '../../lib/target';
 import { MobileWebNavigation } from '../../components/MobileWebNavigation';
 import { MobileNavigationRuntime } from '../../components/MobileNavigationRuntime';
+import { MobileRootPreviews } from '../../components/MobileRootPreviews';
 import type { ContactNoticeView, ContactTab, MainView, SettingsTab, User } from './types';
 
 export function ChatShell({
@@ -117,6 +118,27 @@ export function ChatShell({
   const mobileWorkspace =
     Boolean(mobilePage) ||
     (view !== 'messages' && view !== 'contacts' && view !== 'tools' && view !== 'more');
+  const renderSidebarHeader = (page: MainView, preview = false) => (
+    <SidebarHeader
+      user={user}
+      showSearch={false}
+      view={page}
+      query={query}
+      onQueryChange={onQueryChange}
+      onOpenProfile={onOpenProfile}
+      onOpenFriendNotices={onOpenFriendNotices}
+      onOpenGroupNotices={onOpenGroupNotices}
+      contactTab={contactTab}
+      onContactTabChange={onContactTabChange}
+      onRefreshContacts={onRefreshContacts}
+      refreshingContacts={refreshingContacts}
+      activeNotice={activeNotice}
+      searchPanel={preview ? undefined : searchPanel}
+      onSearchFocus={onSearchFocus}
+      friendNoticeCount={friendNoticeCount}
+      groupNoticeCount={groupNoticeCount}
+    />
+  );
 
   return (
     <div
@@ -124,6 +146,7 @@ export function ChatShell({
       className={cn('app-shell-root', IS_MAC && 'is-mac', IS_WEB && 'weq-web-shell')}
       data-mobile-detail={mobileDetail || undefined}
       data-mobile-workspace={mobileWorkspace || undefined}
+      data-mobile-root-view={view}
       data-weq-diagnostic-view={import.meta.env.DEV ? view : undefined}
     >
       {IS_WEB && <MobileNavigationRuntime root={root} />}
@@ -197,25 +220,7 @@ export function ChatShell({
             view === 'channel' && 'is-channel-view',
           )}
         >
-          <SidebarHeader
-            user={user}
-            showSearch={false}
-            view={view}
-            query={query}
-            onQueryChange={onQueryChange}
-            onOpenProfile={onOpenProfile}
-            onOpenFriendNotices={onOpenFriendNotices}
-            onOpenGroupNotices={onOpenGroupNotices}
-            contactTab={contactTab}
-            onContactTabChange={onContactTabChange}
-            onRefreshContacts={onRefreshContacts}
-            refreshingContacts={refreshingContacts}
-            activeNotice={activeNotice}
-            searchPanel={searchPanel}
-            onSearchFocus={onSearchFocus}
-            friendNoticeCount={friendNoticeCount}
-            groupNoticeCount={groupNoticeCount}
-          />
+          {renderSidebarHeader(view)}
           <div className={cn('sidebar-body', view === 'agentlab' && 'is-agentlab-sidebar')}>
             {sidebarContent}
           </div>
@@ -227,6 +232,9 @@ export function ChatShell({
           {mainContent}
         </main>
       </div>
+      {IS_WEB && (
+        <MobileRootPreviews user={user} renderHeader={(page) => renderSidebarHeader(page, true)} />
+      )}
       {children}
       {selfProfileOpen && (
         <SelfProfileDialog

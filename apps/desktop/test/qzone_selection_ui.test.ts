@@ -112,6 +112,25 @@ it('空间预热不读内容，停稳才读；再次滑动暂停读取但不清�
     f.close();
   }
 });
+it('侧滑用的空间预览已有真实栏目和骨架，但不读取动态或说说', async () => {
+  const f = mount(
+    createElement(QzoneWorkspace, {
+      active: false,
+      previewOnly: true,
+      selfUin: '10001',
+      nickname: '合成自己',
+    }),
+  );
+  try {
+    await act(async () => {});
+    expect(f.host.querySelector('[data-qzone-loading-preview]')).not.toBeNull();
+    expect(f.host.textContent).toContain('好友动态');
+    expect(f.host.querySelectorAll('.weq-mobile-qzone-skeleton > div')).toHaveLength(3);
+    expect(fixture.posts).not.toHaveBeenCalled();
+  } finally {
+    f.close();
+  }
+});
 it('已在对方空间时，说说头像与昵称一律打开名片', async () => {
   const profile = vi.fn();
   const f = mount(

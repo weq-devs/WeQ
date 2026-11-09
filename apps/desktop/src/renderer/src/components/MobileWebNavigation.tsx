@@ -105,6 +105,25 @@ export function MobileWebNavigation({
     { label: '合成聊天记录', icon: FileStack, action: () => openTool('composition') },
     { label: '设置', icon: Settings, action: onOpenSettings },
   ];
+  const moreContent = (
+    <section className="weq-mobile-more" aria-label="更多功能">
+      <div className="weq-mobile-more-account">
+        <Avatar name={displayUserName(user)} avatarUrl={user.avatarUrl} seed={user.identityValue} />
+        <div>
+          <strong>{displayUserName(user)}</strong>
+          <span>{user.identityValue}</span>
+        </div>
+      </div>
+      {entries.map(({ label, icon: Icon, badge, action }) => (
+        <button key={label} type="button" onClick={action}>
+          <Icon size={22} aria-hidden />
+          <span>{label}</span>
+          {badge ? <MobileBadge count={badge} /> : null}
+          <ChevronRight size={18} aria-hidden />
+        </button>
+      ))}
+    </section>
+  );
 
   return (
     <div className="weq-mobile-navigation" hidden={hidden}>
@@ -142,34 +161,11 @@ export function MobileWebNavigation({
         />
         <RemoteShellMenuButton />
       </header>
-      {moreOpen && (
-        <section className="weq-mobile-more" aria-label="更多功能">
-          <div className="weq-mobile-more-account">
-            <Avatar
-              name={displayUserName(user)}
-              avatarUrl={user.avatarUrl}
-              seed={user.identityValue}
-            />
-            <div>
-              <strong>{displayUserName(user)}</strong>
-              <span>{user.identityValue}</span>
-            </div>
-          </div>
-          {entries.map(({ label, icon: Icon, badge, action }) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => {
-                action();
-              }}
-            >
-              <Icon size={22} aria-hidden />
-              <span>{label}</span>
-              {badge ? <MobileBadge count={badge} /> : null}
-              <ChevronRight size={18} aria-hidden />
-            </button>
-          ))}
-        </section>
+      {moreOpen ? moreContent : null}
+      {mobile && (
+        <div hidden inert aria-hidden="true" data-mobile-root-preview="more">
+          {moreContent}
+        </div>
       )}
       <nav className="weq-mobile-tabs" aria-label="主导航">
         {[

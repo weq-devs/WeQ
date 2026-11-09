@@ -30,6 +30,7 @@ export function MobileSidebarPages({
       key={key}
       hidden={key !== activeKey}
       data-mobile-sidebar-active={key === activeKey}
+      data-mobile-sidebar-page={key}
       style={{
         display: key === activeKey ? 'flex' : 'none',
         flex: 1,
