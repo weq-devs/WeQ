@@ -508,11 +508,7 @@ export function CurrentTaskList({
       status: task.status,
       statusLabel: task.statusLabel,
       progress: task.progress,
-      hideProgress: task.kind === 'contacts',
-      note:
-        task.kind === 'contacts' && !(task.status === 'failed' && !task.subtasks?.length)
-          ? undefined
-          : task.note,
+      note: task.note,
       icon: <Icon size={16} />,
       quickActions: actions.length ? <TaskQuickActions actions={actions} /> : null,
       detail: (

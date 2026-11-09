@@ -103,7 +103,7 @@ it('日志默认展开，完成后仍保留，并允许分别手动收起', () =
   expect([...toggles].map((node) => node.getAttribute('aria-expanded'))).toEqual(['false', 'true']);
 });
 
-it('隐藏联系人任务总进度，不影响其他任务和导出日志的默认行为', () => {
+it('联系人任务保留总进度，不影响导出日志的默认行为', () => {
   const task = {
     id: 'synthetic',
     name: '刷新联系人列表',
@@ -113,14 +113,9 @@ it('隐藏联系人任务总进度，不影响其他任务和导出日志的默�
     icon: null,
     detail: null,
   };
-  const hidden = renderToStaticMarkup(
-    h(LongTaskRow, { task: { ...task, hideProgress: true }, active: false, onSelect: () => {} }),
-  );
-  expect(hidden).not.toContain('<progress');
-  expect(hidden).not.toContain('50%');
-  expect(
-    renderToStaticMarkup(h(LongTaskRow, { task, active: false, onSelect: () => {} })),
-  ).toContain('<progress');
+  const row = renderToStaticMarkup(h(LongTaskRow, { task, active: false, onSelect: () => {} }));
+  expect(row).toContain('<progress');
+  expect(row).toContain('50%');
   const stage = renderToStaticMarkup(
     h(StageRow, {
       stage: { key: 'message', label: '消息', status: 'running', current: 1, total: 2 },
