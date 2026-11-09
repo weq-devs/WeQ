@@ -293,12 +293,9 @@ export function DialogHost(): ReactElement | null {
 
   return (
     <Modal
-      presentation={
-        current.confirm || current.password || !current.dismissible ? 'modal' : 'popover'
-      }
-      // 确认 / 密码框属于全局交互，不能被“最后一次点击的按钮”锚定到任务窗、浮窗里，
-      // 否则会贴着触发点落在浮窗下缘（观感上像被浮窗压住）。
-      centered={Boolean(current.confirm || current.password || !current.dismissible)}
+      presentation={current.confirm || current.password || !current.dismissible ? 'modal' : 'panel'}
+      // 全局消息框始终相对窗口居中，不沿用任务窗或浮窗里的最后一次点击位置。
+      centered
       onClose={handleClose}
       dismissOnOutside={!current.confirm && !current.password}
       labelledBy="weq-dialog-title"

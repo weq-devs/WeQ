@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { CurrentTaskList } from '../../src/renderer/src/components/tasks/CurrentTaskList';
-import { DialogHost } from '../../src/renderer/src/components/Dialog';
+import { DialogHost, useDialog } from '../../src/renderer/src/components/Dialog';
+import { OverlayAnchorProvider } from '../../src/renderer/src/lib/overlayAnchor';
 import { useThemeStore } from '../../src/renderer/src/state/theme';
 import type { UiTask } from '../../src/renderer/src/views/export/TaskList';
 import '../../src/renderer/src/styles/index.css';
@@ -27,7 +28,7 @@ window.cleanupTheme = (dark, accent) => {
   useThemeStore.getState().setAccent(accent);
 };
 createRoot(document.getElementById('root')!).render(
-  <>
+  <OverlayAnchorProvider>
     <style>{`html,body,#root{margin:0;min-height:100%;background:var(--background)}main{max-width:680px;margin:16px auto;background:var(--weq-chat-bg)}`}</style>
     <main>
       <CurrentTaskList
@@ -42,6 +43,14 @@ createRoot(document.getElementById('root')!).render(
         renderExport={(item) => <p>{item.name}</p>}
       />
     </main>
+    <aside style={{ position: 'fixed', right: 16, bottom: 16 }}>
+      <button onClick={() => useDialog.getState().showInfo('清除完成', '已清除 2 项任务。')}>
+        信息提示
+      </button>
+      <button onClick={() => useDialog.getState().showError('清除失败', '请查看最新任务状态。')}>
+        错误提示
+      </button>
+    </aside>
     <DialogHost />
-  </>,
+  </OverlayAnchorProvider>,
 );

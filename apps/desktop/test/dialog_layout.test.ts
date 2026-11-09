@@ -33,6 +33,16 @@ describe('公共消息框的受限布局', () => {
     expect(modal?.querySelector('.weq-dialog-foot')?.textContent).toBe('我知道了');
   });
 
+  it.each(['showInfo', 'showError'] as const)('全局 %s 提示使用居中非模态面板', (method) => {
+    act(() => useDialog.getState()[method]('清除完成', '已清除 2 项任务。'));
+    const modal = document.querySelector('.weq-message-modal')!;
+    expect(modal.closest('.weq-centered-panel.weq-nonmodal-layer')).not.toBeNull();
+    expect(modal.closest('.is-popover, .is-anchored-popover')).toBeNull();
+    expect(modal.hasAttribute('aria-modal')).toBe(false);
+    act(() => modal.querySelector<HTMLButtonElement>('.weq-action-primary')!.click());
+    expect(document.querySelector('.weq-message-modal')).toBeNull();
+  });
+
   it.each([false, true])('长文案确认仍准确返回选择：%s', async (accepted) => {
     let pending: Promise<boolean>;
     act(() => {

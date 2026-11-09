@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -79,9 +80,30 @@ try {
     await page
       .getByRole('button', { name: '清除已结束任务', exact: true })
       .waitFor({ state: 'visible' });
+    for (const name of ['信息提示', '错误提示']) {
+      // 真实点击右下角入口，验证提示不沿用触发点，也不退回靠右浮层布局。
+      await page.getByRole('button', { name, exact: true }).click();
+      const dialog = page.getByRole('dialog');
+      await dialog.waitFor();
+      const bounds = await dialog.boundingBox();
+      assert.ok(Math.abs(bounds.x + bounds.width / 2 - width / 2) <= 1, '提示水平居中');
+      assert.ok(Math.abs(bounds.y + bounds.height / 2 - 400) <= 1, '提示垂直居中');
+      assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, '窄屏提示不溢出');
+      assert.equal(await dialog.getAttribute('aria-modal'), null, '信息提示保持非模态');
+      if (output)
+        await page.screenshot({
+          path: resolve(output, `task-cleanup-${name}-${dark ? 'dark' : 'light'}-${width}.png`),
+        });
+      await page.getByRole('button', { name: '我知道了', exact: true }).click();
+      await dialog.waitFor({ state: 'detached' });
+      await page.getByRole('button', { name, exact: true }).click();
+      await dialog.waitFor();
+      await page.mouse.click(4, 400);
+      await dialog.waitFor({ state: 'detached' });
+    }
   }
   if (errors.length) throw new Error(errors.join('\n'));
-  console.log('任务清除：4 组深浅主题、主题色及桌面/窄屏确认框检查通过');
+  console.log('任务清除：4 组深浅主题、主题色、桌面/窄屏确认框及信息/错误提示居中与关闭检查通过');
 } finally {
   await browser?.close();
   await server.close();
