@@ -1447,6 +1447,11 @@ html[data-theme='dark'] .link-card-preview-card {
     grid-row: 2;
   }
 
+  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
+    > .composer-tools {
+    grid-row: 3;
+  }
+
   /* 面板打开时引用条让位（display:none）：待发送的引用还在，发送时依旧带上，
      只是不跟面板挤同一格。 */
   .composer.has-quote:has(> .emoji-panel) > .composer-quote,

@@ -6,6 +6,14 @@ import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 
+const target = vi.hoisted(() => ({ web: false }));
+vi.mock('../src/renderer/src/lib/target', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/lib/target')>()),
+  get IS_WEB() {
+    return target.web;
+  },
+}));
+
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
     new Proxy(() => proxy(), {
@@ -19,7 +27,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   return { trpc: proxy(), client: proxy() };
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  target.web = false;
+  vi.unstubAllGlobals();
+});
 
 function fixture() {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -57,6 +68,46 @@ function fixture() {
 }
 
 describe('进入会话自动聚焦', () => {
+  it('手机进入会话先收起输入区，不受旧展开偏好影响，也不抢焦点', () => {
+    const f = fixture();
+    target.web = true;
+    vi.stubGlobal('matchMedia', (query: string) =>
+      Object.assign(new EventTarget(), { matches: query === '(max-width: 760px)' }),
+    );
+    localStorage.setItem('chat-template.layout.composerCollapsed', '0');
+    try {
+      act(() => f.otherInput.focus());
+      f.render();
+      expect(f.host.querySelector('.chat-pane')?.classList.contains('composer-collapsed')).toBe(
+        true,
+      );
+      expect(document.activeElement).toBe(f.otherInput);
+      expect(f.editor().textContent).toBe('已有草稿');
+      const toggle = () => f.host.querySelector<HTMLButtonElement>('.mobile-composer-toggle')!;
+      expect(toggle().getAttribute('aria-expanded')).toBe('false');
+      act(() => toggle().click());
+      expect(toggle().getAttribute('aria-expanded')).toBe('true');
+      expect(f.editor().textContent).toBe('已有草稿');
+      act(() => {
+        f.editor().textContent = '手机上继续输入';
+        f.editor().dispatchEvent(new InputEvent('input', { bubbles: true }));
+        toggle().click();
+      });
+      expect(toggle().getAttribute('aria-expanded')).toBe('false');
+      act(() => toggle().click());
+      expect(f.editor().textContent).toBe('手机上继续输入');
+      f.render({ loading: true });
+      expect(toggle().getAttribute('aria-expanded')).toBe('true');
+      f.render({ conversation: { ...f.props.conversation, id: 'next-mobile' }, draft: '新草稿' });
+      expect(toggle().getAttribute('aria-expanded')).toBe('false');
+      expect(f.editor().textContent).toBe('新草稿');
+      expect(localStorage.getItem('chat-template.layout.composerCollapsed')).toBe('0');
+      expect(document.activeElement).toBe(f.otherInput);
+    } finally {
+      f.dispose();
+    }
+  });
+
   it.each(['resolve', 'reject'] as const)(
     '发送迟到的 %s 不清空后续输入或其他会话草稿',
     async (outcome) => {

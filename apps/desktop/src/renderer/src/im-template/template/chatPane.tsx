@@ -18,6 +18,7 @@ import { useMediaSave } from '../../components/MediaSaveControls';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import { useStableCallback } from '../../hooks/useStableCallback';
 import { timelineViewport } from '../../lib/timelineViewport';
+import { IS_WEB } from '../../lib/target';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
 import '../../styles/group-call-soon.css';
@@ -336,7 +337,12 @@ function saveGroupInfoCollapsed(value: boolean) {
 }
 
 function loadComposerCollapsed() {
+  if (isMobileWebComposer()) return true;
   return localStorage.getItem(composerCollapsedStorageKey) === '1';
+}
+
+function isMobileWebComposer() {
+  return IS_WEB && window.matchMedia('(max-width: 760px)').matches;
 }
 
 function saveComposerCollapsed(value: boolean) {
@@ -770,7 +776,7 @@ export function ChatPane({
     return () => query.removeEventListener('change', update);
   }, []);
   const sidecarOpen = useWorkspaceSidecarOpen();
-  // 桌面端可把整条输入区收起来（只留底边一个把手），和群资料栏同一套交互。
+  // 桌面沿用收纳偏好；手机每次进入会话先阅读，按需展开输入区。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
   const [emojiOpen, setEmojiOpen] = useState(false);
   /**
@@ -1526,8 +1532,19 @@ export function ChatPane({
     }
   }, [conversation?.id, user.id, draft]);
 
+  useLayoutEffect(() => {
+    if (!isMobileWebComposer()) return;
+    setComposerCollapsed(true);
+    setMobileComposerExpanded(false);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setMentionMenu(null);
+    composerEditorRef.current?.blur();
+  }, [conversation?.id, tabActive]);
+
   useEffect(() => {
-    if (!tabActive) return;
+    if (!tabActive || isMobileWebComposer()) return;
     const editor = composerEditorRef.current;
     if (editor?.contentEditable !== 'true') return;
     focusComposerEnd(editor);
@@ -2276,6 +2293,7 @@ export function ChatPane({
   /** 头像菜单「@他」：把 `@昵称 ` 写进输入框（没有活动的 @ 触发词就插在光标处）。 */
   function mentionAvatar(sender: User) {
     setAvatarMenu(null);
+    if (isMobileWebComposer()) setComposerCollapsed(false);
     insertMention(sender as GroupMember);
     window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
   }
@@ -2936,6 +2954,7 @@ export function ChatPane({
     setPendingSuperEmoji(null);
     setAttachmentError(null);
     setPendingQuote(quote);
+    if (isMobileWebComposer()) setComposerCollapsed(false);
     // 引用条要占正文上面那一行，表情 / 语音 / 更多 / 链接面板先收起来。
     setEmojiOpen(false);
     setToolsOpen(false);
@@ -4396,6 +4415,7 @@ export function ChatPane({
       (url) => !preserved?.images.some((image) => image.url === url),
     );
     setComposerBody(text);
+    if (isMobileWebComposer()) setComposerCollapsed(false);
     for (const target of [composerEditorRef.current, expandedComposerEditorRef.current]) {
       if (target) restoreComposer(target, text);
     }
@@ -4722,7 +4742,7 @@ export function ChatPane({
   function toggleComposerCollapsed() {
     const next = !composerCollapsed;
     setComposerCollapsed(next);
-    saveComposerCollapsed(next);
+    if (!isMobileWebComposer()) saveComposerCollapsed(next);
     if (next) {
       setEmojiOpen(false);
       setToolsOpen(false);
@@ -5166,6 +5186,16 @@ export function ChatPane({
         }
         actions={
           <>
+            <button
+              className="icon-button mobile-composer-toggle"
+              type="button"
+              title={composerCollapsed ? '展开输入框' : '收起输入框'}
+              aria-label={composerCollapsed ? '展开输入框' : '收起输入框'}
+              aria-expanded={!composerCollapsed}
+              onClick={toggleComposerCollapsed}
+            >
+              {composerCollapsed ? <MessageSquareText size={18} /> : <ChevronDown size={18} />}
+            </button>
             {intentSupported &&
             conversation.type === 'direct' &&
             conversation.otherUser &&

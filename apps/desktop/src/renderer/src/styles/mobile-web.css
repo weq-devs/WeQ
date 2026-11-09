@@ -288,8 +288,31 @@
     border-bottom-color: var(--weq-border-subtle);
   }
 
+  /* 双行工具栏也要计入安全区；每行须容纳 44px 的触控按钮。 */
+  .weq-web-shell .chat-pane:has(.chat-header-roaming-action, .weq-conversation-message-actions) {
+    --chat-header-height: calc(96px + env(safe-area-inset-top, 0px)) !important;
+  }
+
+  .weq-web-shell
+    .chat-pane:has(.chat-header-roaming-action, .weq-conversation-message-actions)
+    > .chat-header {
+    grid-template-rows: 48px minmax(0, 1fr);
+  }
+
   .weq-web-shell .chat-header .chat-actions {
     min-width: 0;
+  }
+
+  .weq-web-shell .chat-actions .mobile-composer-toggle {
+    display: inline-grid;
+  }
+
+  .weq-web-shell .chat-pane.composer-collapsed {
+    --composer-height: 0px !important;
+  }
+
+  .weq-web-shell .chat-pane.composer-collapsed > .composer {
+    display: none;
   }
 
   .weq-web-shell .chat-header :is(.back-button, .icon-button) {
@@ -300,6 +323,12 @@
 
   .weq-web-shell .message-scroll {
     background: var(--weq-chat-bg, var(--background));
+  }
+
+  .weq-web-shell .message-name {
+    min-width: 0;
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
   }
 
   .weq-web-shell .composer {

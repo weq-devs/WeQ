@@ -356,6 +356,10 @@ html[data-theme='dark'] .weq-chat-backdrop {
   display: none;
 }
 
+.chat-actions .mobile-composer-toggle {
+  display: none;
+}
+
 .chat-title {
   display: flex;
   min-width: 0;
@@ -738,6 +742,7 @@ html[data-theme='dark'] .weq-qqshow-avatar img {
 
 .message-bubble {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   max-width: 75%;
   gap: 5px;

@@ -32,6 +32,10 @@ Web 仍通过 `apps/web/vite.config.ts` 复用桌面 React renderer。`ChatShell
 手机 CSS 行高与虚拟列表步长共用该值，宽屏回退原有 62px。不能只增大按钮高度，
 否则绝对定位的下一行仍会按旧步长排列，覆盖前一行的点击区域。
 
+手机 Web / Remote 初次进入、切换或重新激活会话时默认收起输入区，不自动聚焦。
+顶栏的消息输入图标可手动展开/收起；引用、@成员和重新编辑属于主动输入操作，
+可展开输入区。收起不清除草稿，不写入桌面端的输入区收纳偏好。
+
 ## 验证范围
 
 - 离线组件测试：四个主入口、未读封顶、更多原有 handler、搜索与隐藏状态。
@@ -44,3 +48,22 @@ Web 仍通过 `apps/web/vite.config.ts` 复用桌面 React renderer。`ChatShell
 
 浏览器模拟和可视视口事件注入不等于 iPhone/Android 真机键盘验收；真实 QQ 操作、
 相机、Tailscale 网络和原生壳安装不属于本次布局测试的通过声明。
+
+## 聊天布局回归
+
+`scripts/mobile-chat-layout.test.mjs` 使用真实样式与合成 DOM，在 WebKit 中检查
+320/402/430/760px、浅深色、默认/QQNT 外观、有无顶部安全区、单/双行顶栏、
+回复建议、引用输入与收起状态，以及短屏下的标题可见性、工具栏点击命中和长消息限宽；
+另检查 1180px 桌面长引用限宽与顶栏高度。
+桌面 WebKit 不会生成 iPhone 刘海，测试显式替换安全区值；短屏只验证缩小后的布局，
+不替代真机键盘事件验证。
+
+使用本机已有 Playwright 及其匹配的 WebKit，不增加产品依赖：
+
+```sh
+WEQ_PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.js \
+  node --test scripts/mobile-chat-layout.test.mjs
+```
+
+需要显式选择浏览器运行时，可追加 `WEQ_WEBKIT_EXECUTABLE=/absolute/path/to/pw_run.sh`。
+测试结束自动关闭本轮浏览器；只用合成消息，不连接业务服务或 QQ。
