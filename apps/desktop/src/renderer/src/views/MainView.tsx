@@ -231,6 +231,8 @@ import {
   GroupMemberTitleDialog,
 } from '../components/GroupMemberModerationDialogs';
 import { MemberProfileCard } from '../components/MemberProfileCard';
+import { GroupProfileDialog } from '../im-template/template/profilePanes';
+import { sharedGroupConversation } from '../components/ark/groupShareCard';
 import { openRedBagQrcode } from '../components/RedBagQrcodeDialog';
 import {
   GroupLeftMembersDialog,
@@ -3232,6 +3234,11 @@ function MainWorkspace(): ReactElement {
     /** 从关系图谱进来：带上共同群，资料卡的「聊天分析」才有群可分析。 */
     groupCode?: string;
     groupName?: string;
+  } | null>(null);
+  const [numberGroupCard, setNumberGroupCard] = useState<{
+    accountUin: string | null;
+    conversation: Extract<Conversation, { type: 'group' }>;
+    anchor: HTMLElement;
   } | null>(null);
 
   const [editorState, setEditorState] = useState<{
@@ -10905,6 +10912,36 @@ function MainWorkspace(): ReactElement {
               (searchQuery || searchFocused) && !searchDismissed ? (
                 <SearchDropdown
                   keyword={searchQuery}
+                  numberLookupKeyword={shell.query}
+                  onOpenNumberProfile={(profile, anchor) => {
+                    if (profile.kind === 'group') {
+                      setMemberCard(null);
+                      setNumberGroupCard({
+                        accountUin: openedUin,
+                        conversation: sharedGroupConversation({
+                          code: profile.id,
+                          name: profile.name || profile.id,
+                          avatar: avatarFromGroupCode(profile.id) ?? '',
+                        }),
+                        anchor,
+                      });
+                    } else {
+                      setNumberGroupCard(null);
+                      const rect = anchor.getBoundingClientRect();
+                      setMemberCard({
+                        member: {
+                          id: '',
+                          username: profile.id,
+                          identityLabel: 'QQ',
+                          identityValue: profile.id,
+                          displayName: profile.name || profile.id,
+                          avatarUrl: avatarFromUin(profile.id),
+                        },
+                        anchor: { x: rect.right, y: rect.bottom },
+                        groupContext: null,
+                      });
+                    }
+                  }}
                   quick={globalSearch.quick}
                   quickLoading={globalSearch.quickLoading}
                   slow={globalSearch.slow}
@@ -11743,6 +11780,14 @@ function MainWorkspace(): ReactElement {
                 }
                 jumpToSeq({ seq });
               }}
+            />
+          ) : null}
+          {numberGroupCard && numberGroupCard.accountUin === openedUin ? (
+            <GroupProfileDialog
+              conversation={numberGroupCard.conversation}
+              anchor={numberGroupCard.anchor}
+              detailsKnown={false}
+              onClose={() => setNumberGroupCard(null)}
             />
           ) : null}
           {memberCard ? (

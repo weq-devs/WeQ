@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { isLookupNumber } from '../../hooks/useNumberLookup';
-import { NumberLookupResults } from './NumberLookupResults';
+import { NumberLookupResults, type OpenNumberProfile } from './NumberLookupResults';
 import '../../styles/search-scope.css';
 import { SearchResultCard } from './SearchResultCard';
 import { SearchSectionSkeleton } from './SearchSkeleton';
@@ -83,6 +83,8 @@ const scopeOptions = SEARCH_CATEGORY_ORDER.map((category) => ({
 
 export function SearchDropdown({
   keyword,
+  numberLookupKeyword = keyword,
+  onOpenNumberProfile,
   quick,
   quickLoading,
   slow,
@@ -104,6 +106,8 @@ export function SearchDropdown({
   onNumberLookupEnabledChange,
 }: {
   keyword: string;
+  numberLookupKeyword?: string;
+  onOpenNumberProfile?: OpenNumberProfile;
   quick: QuickSearchResult | null;
   quickLoading: boolean;
   slow: SlowSearchResult | null;
@@ -327,8 +331,8 @@ export function SearchDropdown({
         <>
           <div className="weq-search-index-hint">
             来源：{appSearchEnabled ? '应用功能与设置 · ' : ''}
-            {numberLookupEnabled && isLookupNumber(keyword) ? 'QQ 在线资料 · ' : ''}当前账号 ·
-            本地可检索记录
+            {numberLookupEnabled && isLookupNumber(numberLookupKeyword) ? 'QQ 在线资料 · ' : ''}
+            当前账号 · 本地可检索记录
           </div>
           {indexBuilding ? (
             <div className="weq-search-index-hint">
@@ -339,8 +343,11 @@ export function SearchDropdown({
             {categories.length === 0 && !appSearchEnabled && !numberLookupEnabled ? (
               <div className="weq-search-empty">未选择搜索范围</div>
             ) : null}
-            {numberLookupEnabled && isLookupNumber(keyword) ? (
-              <NumberLookupResults keyword={keyword} />
+            {numberLookupEnabled && isLookupNumber(numberLookupKeyword) ? (
+              <NumberLookupResults
+                keyword={numberLookupKeyword}
+                onOpenProfile={onOpenNumberProfile}
+              />
             ) : null}
             {orderedCategories.map((category) => {
               if (category === 'app')

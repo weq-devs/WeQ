@@ -3,12 +3,14 @@ import { client } from '../trpc/client';
 import { useQQWriteSession, type QQWriteBinding } from './useQQWriteSession';
 
 export function isLookupNumber(keyword: string): boolean {
-  const number = keyword.trim();
-  return /^[1-9]\d{0,9}$/.test(number) && BigInt(number) <= 0xffffffffn;
+  return /^[1-9]\d{0,9}$/.test(keyword) && BigInt(keyword) <= 0xffffffffn;
 }
 
-type Profile = Awaited<ReturnType<typeof client.account.qqWrite.exactProfile.query>>;
-type LookupState = { key: string; data?: Profile; error?: string };
+export const NUMBER_LOOKUP_IDLE_MS = 1001;
+export type NumberLookupProfile = Awaited<
+  ReturnType<typeof client.account.qqWrite.exactProfile.query>
+>;
+type LookupState = { key: string; data?: NumberLookupProfile; error?: string };
 
 function useProfileLookup(
   kind: 'user' | 'group',
@@ -45,7 +47,7 @@ function useProfileLookup(
               setState({ key, error: error instanceof Error ? error.message : '查询失败' });
           },
         );
-    }, 200);
+    }, NUMBER_LOOKUP_IDLE_MS);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
@@ -62,7 +64,7 @@ function useProfileLookup(
 
 export function useNumberLookup(keyword: string) {
   const session = useQQWriteSession('global-number-lookup');
-  const target = keyword.trim();
+  const target = keyword;
   const user = useProfileLookup('user', target, session.binding, session.available);
   const group = useProfileLookup('group', target, session.binding, session.available);
   return { available: session.available, user, group };

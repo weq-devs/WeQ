@@ -3,7 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useNumberLookup, isLookupNumber } from '../src/renderer/src/hooks/useNumberLookup';
+import {
+  useNumberLookup,
+  isLookupNumber,
+  NUMBER_LOOKUP_IDLE_MS,
+} from '../src/renderer/src/hooks/useNumberLookup';
 import { NumberLookupResults } from '../src/renderer/src/components/search/NumberLookupResults';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
 import { TitleBarSearch } from '../src/renderer/src/components/TitleBarSearch';
@@ -51,37 +55,49 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
-const tick = (ms = 200) =>
+const tick = (ms = NUMBER_LOOKUP_IDLE_MS) =>
   act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
   });
-const render = (keyword = '10002') => act(() => root.render(h(NumberLookupResults, { keyword })));
+const render = (keyword = '10002') =>
+  act(() => root.render(h(NumberLookupResults, { keyword, onOpenProfile: vi.fn() })));
 
 describe('号码查询', () => {
-  it.each(['', 'abc', '0', '010002', '-1', '4294967296', '12345678901'])(
-    '无效号码不请求：%s',
-    async (keyword) => {
-      expect(isLookupNumber(keyword)).toBe(false);
-      function Harness() {
-        useNumberLookup(keyword);
-        return null;
-      }
-      act(() => root.render(h(Harness)));
-      await tick();
-      expect(mocks.query).not.toHaveBeenCalled();
-    },
-  );
-  it('沿用接口的有效范围并去除首尾空白', () => {
-    expect(isLookupNumber(' 10002 ')).toBe(true);
+  it.each([
+    '',
+    'abc',
+    '0',
+    '010002',
+    '-1',
+    '4294967296',
+    '12345678901',
+    ' 10002 ',
+    '10002 ',
+    '10002\n',
+    '10002a',
+    '１２３４５',
+    '1.2',
+  ])('无效号码不请求：%s', async (keyword) => {
+    expect(isLookupNumber(keyword)).toBe(false);
+    function Harness() {
+      useNumberLookup(keyword);
+      return null;
+    }
+    act(() => root.render(h(Harness)));
+    await tick();
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+  it('沿用接口的有效范围且输入原文必须全部为数字', () => {
+    expect(isLookupNumber('10002')).toBe(true);
     expect(isLookupNumber('1')).toBe(true);
     expect(isLookupNumber('4294967295')).toBe(true);
   });
-  it('200ms 防抖后同时查询两类资料并直接显示', async () => {
-    render(' 10002 ');
-    await tick(199);
+  it('输入稳定超过 1 秒才同时查询两类资料并直接显示', async () => {
+    render('10002');
+    await tick(1000);
     expect(mocks.query).not.toHaveBeenCalled();
     render('10003');
-    await tick(199);
+    await tick(1000);
     expect(mocks.query).not.toHaveBeenCalled();
     await tick(1);
     expect(mocks.query.mock.calls.map(([input]) => [input.kind, input.target])).toEqual([
@@ -101,6 +117,86 @@ describe('号码查询', () => {
         `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${styles}</style><style>body{margin:0;font-family:system-ui;background:var(--background);color:var(--foreground)}main{width:min(720px,calc(100vw - 16px));margin:8px;background:var(--weq-bg-surface)}</style><body><main>${host.innerHTML}</main></body></html>`,
       );
     }
+  });
+  it('头像和昵称分别打开对应资料，头像失败时保留文字占位及名片入口', async () => {
+    const open = vi.fn();
+    act(() => root.render(h(NumberLookupResults, { keyword: '10002', onOpenProfile: open })));
+    await tick();
+    for (const [kind, label] of [
+      ['user', '用户'],
+      ['group', '群聊'],
+    ] as const) {
+      const avatar = host.querySelector<HTMLButtonElement>(`[aria-label="查看${label}头像名片"]`)!;
+      const name = host.querySelector<HTMLButtonElement>(`[aria-label="查看${label}昵称名片"]`)!;
+      const image = avatar.querySelector('img')!;
+      expect(image.getAttribute('src')).toContain(kind === 'user' ? 'uin=10002' : 'uid=10002');
+      act(() => avatar.click());
+      expect(open).toHaveBeenLastCalledWith(profile(kind), avatar);
+      act(() => name.click());
+      expect(open).toHaveBeenLastCalledWith(profile(kind), name);
+      act(() => image.dispatchEvent(new Event('error')));
+      expect(avatar.querySelector('img')).toBeNull();
+      expect(avatar.textContent).toBe('合');
+      act(() => avatar.click());
+      expect(open).toHaveBeenLastCalledWith(profile(kind), avatar);
+    }
+    expect(open).toHaveBeenCalledTimes(6);
+  });
+  it('数字输入变为文字、空白或清空时取消计时并立即隔离旧资料', async () => {
+    render();
+    await tick();
+    expect(host.textContent).toContain('合成资料');
+    for (const keyword of ['10002a', '10002 ', '']) {
+      render('10003');
+      await tick(800);
+      render(keyword);
+      expect(host.textContent).not.toContain('合成资料');
+      await tick();
+    }
+    expect(mocks.query).toHaveBeenCalledTimes(2);
+  });
+  it('卸载前未满一秒不发送请求', async () => {
+    render();
+    await tick(1000);
+    act(() => root.render(null));
+    await tick();
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+  it('全局搜索结果将头像和昵称名片操作传给应用层', async () => {
+    const open = vi.fn();
+    act(() =>
+      root.render(
+        h(SearchDropdown, {
+          keyword: '10002',
+          numberLookupEnabled: true,
+          onOpenNumberProfile: open,
+          categories: [],
+          onCategoriesChange: vi.fn(),
+          quick: null,
+          quickLoading: false,
+          slow: null,
+          slowLoading: false,
+          onSelect: vi.fn(),
+          onMore: vi.fn(),
+        }),
+      ),
+    );
+    await tick(1000);
+    expect(mocks.query).not.toHaveBeenCalled();
+    await tick(1);
+    for (const [kind, label] of [
+      ['user', '用户'],
+      ['group', '群聊'],
+    ] as const) {
+      for (const field of ['头像', '昵称']) {
+        const button = host.querySelector<HTMLButtonElement>(
+          `[aria-label="查看${label}${field}名片"]`,
+        )!;
+        act(() => button.click());
+        expect(open).toHaveBeenLastCalledWith(profile(kind), button);
+      }
+    }
+    expect(open).toHaveBeenCalledTimes(4);
   });
   it('一路失败不遮住另一路，重试只请求失败一路', async () => {
     mocks.query.mockImplementation(({ kind }: { kind: 'user' | 'group' }) =>
@@ -172,7 +268,8 @@ describe('号码查询', () => {
     mocks.query.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
     const panel = (enabled: boolean, keyword = '10002') =>
       h(SearchDropdown, {
-        keyword,
+        keyword: keyword.trim(),
+        numberLookupKeyword: keyword,
         categories: [],
         onCategoriesChange: vi.fn(),
         quick: null,
@@ -210,6 +307,10 @@ describe('号码查询', () => {
     });
     expect(document.body.textContent).not.toContain('旧资料');
     act(() => root.render(search(true, '文字')));
+    await tick();
+    expect(document.querySelector('[aria-label="QQ号/群号"]')).toBeNull();
+    expect(mocks.query).toHaveBeenCalledTimes(2);
+    act(() => root.render(search(true, '10002 ')));
     await tick();
     expect(document.querySelector('[aria-label="QQ号/群号"]')).toBeNull();
     expect(mocks.query).toHaveBeenCalledTimes(2);

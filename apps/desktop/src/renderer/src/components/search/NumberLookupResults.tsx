@@ -1,7 +1,16 @@
 import { RotateCw, UserRound, UsersRound } from 'lucide-react';
-import { useNumberLookup } from '../../hooks/useNumberLookup';
+import { useNumberLookup, type NumberLookupProfile } from '../../hooks/useNumberLookup';
+import { SearchAvatar, c2cAvatarSrc, groupAvatarSrc } from './SearchResultCard';
 
-export function NumberLookupResults({ keyword }: { keyword: string }) {
+export type OpenNumberProfile = (profile: NumberLookupProfile, anchor: HTMLElement) => void;
+
+export function NumberLookupResults({
+  keyword,
+  onOpenProfile,
+}: {
+  keyword: string;
+  onOpenProfile?: OpenNumberProfile;
+}) {
   const lookup = useNumberLookup(keyword);
   return (
     <section className="weq-search-section" aria-label="QQ号/群号">
@@ -24,7 +33,29 @@ export function NumberLookupResults({ keyword }: { keyword: string }) {
               aria-label={`${label}查询结果`}
               aria-busy={result.loading}
             >
-              <Icon size={18} aria-hidden />
+              {result.data ? (
+                <button
+                  type="button"
+                  className="weq-number-lookup-avatar"
+                  title={`查看${label}名片`}
+                  aria-label={`查看${label}头像名片`}
+                  disabled={!onOpenProfile}
+                  onClick={(event) => onOpenProfile?.(result.data!, event.currentTarget)}
+                >
+                  <SearchAvatar
+                    url={
+                      kind === 'user'
+                        ? c2cAvatarSrc(result.data.id)
+                        : groupAvatarSrc(result.data.id)
+                    }
+                    fallbackText={(result.data.name || label).slice(0, 1)}
+                  />
+                </button>
+              ) : (
+                <span className="weq-number-lookup-placeholder">
+                  <Icon size={18} aria-hidden />
+                </span>
+              )}
               <div className="weq-number-lookup-details">
                 <span className="weq-number-lookup-kind">{label}</span>
                 {result.loading ? <span role="status">搜索中…</span> : null}
@@ -43,7 +74,16 @@ export function NumberLookupResults({ keyword }: { keyword: string }) {
                 ) : null}
                 {result.data ? (
                   <>
-                    <strong>{result.data.name || (kind === 'user' ? '用户资料' : '群资料')}</strong>
+                    <button
+                      type="button"
+                      className="weq-number-lookup-name"
+                      title={`查看${label}名片`}
+                      aria-label={`查看${label}昵称名片`}
+                      disabled={!onOpenProfile}
+                      onClick={(event) => onOpenProfile?.(result.data!, event.currentTarget)}
+                    >
+                      {result.data.name || (kind === 'user' ? '用户资料' : '群资料')}
+                    </button>
                     <span>{result.data.id}</span>
                     {result.data.level !== null ? <span>QQ 等级：{result.data.level}</span> : null}
                     {result.data.category ? <span>群分类：{result.data.category}</span> : null}

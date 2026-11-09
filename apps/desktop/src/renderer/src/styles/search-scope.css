@@ -94,9 +94,12 @@
   color: var(--weq-fg-primary);
   font-size: 13px;
 }
-.weq-number-lookup-result > svg {
+.weq-number-lookup-placeholder {
+  display: grid;
+  place-items: center;
   flex: none;
-  margin-top: 2px;
+  width: 36px;
+  height: 36px;
   color: var(--weq-fg-secondary);
 }
 .weq-number-lookup-details {
@@ -105,6 +108,47 @@
   gap: 3px;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.weq-number-lookup-avatar,
+.weq-number-lookup-name {
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.weq-number-lookup-avatar {
+  flex: none;
+  width: 36px;
+  height: 36px;
+}
+.weq-number-lookup-avatar .weq-search-avatar {
+  width: 36px;
+  height: 36px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+}
+.weq-number-lookup-avatar .weq-search-avatar-fallback {
+  color: var(--weq-fg-secondary);
+}
+.weq-number-lookup-name {
+  align-self: flex-start;
+  max-width: 100%;
+  font-weight: 600;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.weq-number-lookup-name:hover {
+  color: var(--weq-accent-effective);
+}
+.weq-number-lookup-avatar:hover {
+  opacity: 0.85;
+}
+.weq-number-lookup-avatar:focus-visible,
+.weq-number-lookup-name:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
 }
 .weq-number-lookup-kind {
   color: var(--weq-fg-secondary);
