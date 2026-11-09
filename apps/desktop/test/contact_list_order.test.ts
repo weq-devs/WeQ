@@ -7,6 +7,7 @@ import {
   FRIEND_SORTS,
   GROUP_SORTS,
   zodiac,
+  defaultDescending,
   type FriendSort,
   type GroupSort,
 } from '../src/renderer/src/lib/contactListOrder';
@@ -136,7 +137,15 @@ it.each(Object.keys(FRIEND_SORTS) as FriendSort[])('好友全部排序依据可�
     sortFriends(
       [
         friend('none'),
-        friend('a', { remark: '阿', nick: '阿', age: 20, intimacy: 1, birthMonth: 1, birthDay: 1 }),
+        friend('a', {
+          identityValue: '123',
+          remark: '阿',
+          nick: '阿',
+          age: 20,
+          intimacy: 1,
+          birthMonth: 1,
+          birthDay: 1,
+        }),
       ],
       sort,
       true,
@@ -152,13 +161,54 @@ it.each(Object.keys(GROUP_SORTS) as GroupSort[])('群全部排序依据可用且
     sortGroups(
       [
         group('none', { memberCount: 0 }),
-        group('a', { remark: '阿', name: '阿', memberCount: 2, createTime: '2020-01-01' }),
+        group('a', {
+          identityValue: '123',
+          remark: '阿',
+          name: '阿',
+          memberCount: 2,
+          createTime: '2020-01-01',
+        }),
       ],
       sort,
       true,
       metrics,
     )[0]?.id,
   ).toBe('a');
+});
+
+it('QQ 号和群号按数值而非字典序排列，不转换为浮点数，未知号码双向沉底', () => {
+  const ids = ['100', '9', '9007199254740993', '9007199254740992', '0', 'u_unknown'];
+  const expected = ['9', '100', '9007199254740992', '9007199254740993'];
+  for (const descending of [false, true]) {
+    const known = descending ? [...expected].reverse() : expected;
+    expect(
+      sortFriends(
+        ids.map((id) => friend(id)),
+        'uin',
+        descending,
+        {},
+      )
+        .slice(0, 4)
+        .map((row) => row.id),
+    ).toEqual(known);
+    expect(
+      sortGroups(
+        ids.map((id) => group(id)),
+        'groupCode',
+        descending,
+        {},
+      )
+        .slice(0, 4)
+        .map((row) => row.id),
+    ).toEqual(known);
+  }
+  expect(defaultDescending('uin')).toBe(false);
+  expect(defaultDescending('groupCode')).toBe(false);
+  expect(
+    sortFriends([friend('1', { identityLabel: '设备' }), friend('100')], 'uin', false, {}).map(
+      (row) => row.id,
+    ),
+  ).toEqual(['100', '1']);
 });
 it('派生分组使用非 QQ ID，预设关系不当作已建立关系', () => {
   const groups = groupFriends(

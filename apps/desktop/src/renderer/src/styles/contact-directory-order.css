@@ -13,6 +13,14 @@
   gap: 4px;
   font-size: 11px;
 }
+.weq-contact-directory .weq-directory-sort-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .weq-contact-directory .contact-cat-header[hidden] {
   display: none;
 }

@@ -5,6 +5,7 @@ import { intimateRelationOf } from './profileRelations';
 export const FRIEND_SORTS = {
   remark: '备注',
   nick: '昵称',
+  uin: 'QQ 号',
   age: '年龄',
   birthday: '生日',
   intimacy: '亲密度',
@@ -27,6 +28,7 @@ export const FRIEND_GROUPS = {
 export const GROUP_SORTS = {
   remark: '备注',
   name: '群名',
+  groupCode: '群号',
   memberCount: '人数',
   activityScore: '活跃度',
   createTime: '创建时间',
@@ -59,7 +61,14 @@ const text = (value?: string | null) => value?.trim() || null;
 const positive = (value?: number) =>
   value !== undefined && Number.isFinite(value) && value > 0 ? value : null;
 export function defaultDescending(sort: string) {
-  return !['remark', 'nick', 'name', 'birthday'].includes(sort);
+  return !['remark', 'nick', 'name', 'birthday', 'uin', 'groupCode'].includes(sort);
+}
+export function directoryNumber(value: string) {
+  const number = value.trim();
+  return /^[1-9]\d*$/.test(number) ? number : null;
+}
+export function friendDirectoryNumber(contact: Contact) {
+  return contact.identityLabel === 'QQ' ? directoryNumber(contact.identityValue) : null;
 }
 export function metricValue(rows: ContactMetricRows, id: string, metric: ContactMetric) {
   return rows[id]?.[metric]?.value ?? null;
@@ -121,6 +130,7 @@ export function sortFriends(
   const value = (contact: Contact): string | number | null => {
     if (sort === 'remark') return text(contact.remark) ?? text(contact.nick);
     if (sort === 'nick') return text(contact.nick);
+    if (sort === 'uin') return friendDirectoryNumber(contact);
     if (sort === 'age' || sort === 'intimacy') return positive(contact[sort]);
     if (sort === 'birthday') return birthday(contact.birthMonth, contact.birthDay);
     const result = friendMetric(rows, contact, sort);
@@ -149,6 +159,7 @@ export function sortGroups(
         : text(group.name);
     if (sort === 'remark') return text(group.remark) ?? name;
     if (sort === 'name') return name;
+    if (sort === 'groupCode') return directoryNumber(group.identityValue);
     if (sort === 'memberCount') return positive(group.memberCount);
     if (sort === 'createTime') {
       const time = Date.parse(group.createTime ?? '');

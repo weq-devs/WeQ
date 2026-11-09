@@ -41,6 +41,12 @@ import {
 import { conversationPinned } from '@weq/service/conversation-order';
 import { sortConversationRows } from '../../lib/conversationListOrder';
 import { groupFriends, sortFriends, sortGroups } from '../../lib/contactListOrder';
+import {
+  friendDirectoryTitle,
+  friendSortDetail,
+  groupDirectoryTitle,
+  groupSortDetail,
+} from '../../lib/contactDirectoryPresentation';
 import { useContactDirectoryOrder, useFrozenDirectory } from '../../hooks/useContactDirectoryOrder';
 import { ContactDirectoryOrder } from '../../components/ContactDirectoryOrder';
 import { conversationListSearchText } from '../../lib/conversationListSearchText';
@@ -1213,6 +1219,7 @@ export function GroupList({
             selection={groupSelection}
             multi={multi}
             onMenu={setActionMenu}
+            order={order}
           />
         ))}
         <GroupNotificationSection
@@ -1222,6 +1229,7 @@ export function GroupList({
           selection={groupSelection}
           multi={multi}
           onMenu={setActionMenu}
+          order={order}
         />
         <GroupNotificationSection
           category={basis === 'none' ? { ...unknownCategory, items: [] } : unknownCategory}
@@ -1230,6 +1238,7 @@ export function GroupList({
           selection={groupSelection}
           multi={multi}
           onMenu={setActionMenu}
+          order={order}
         />
       </div>
       {groupSelection.selectionMode ? (
@@ -1303,6 +1312,7 @@ function GroupNotificationSection({
   selection,
   multi,
   onMenu,
+  order,
 }) {
   const directory = useContext(ContactDirectoryContext);
   const conversationDirectory = useContext(ConversationDirectoryContext);
@@ -1331,82 +1341,98 @@ function GroupNotificationSection({
         <span className="contact-cat-count">{category.items.length}</span>
       </button>
       {expanded
-        ? category.items.slice(0, visibleCount).map((conversation) => (
-            <button
-              type="button"
-              key={conversation.id}
-              className={cn(
-                listRowClass(
-                  !selection.selectionMode && conversation.id === activeConversationId,
-                  'contact-row',
-                ),
-                'contact-cat-row',
-                selection.selectionMode &&
-                  selection.selectedIds.has(conversation.id) &&
-                  'is-multiselected',
-              )}
-              aria-pressed={
-                selection.selectionMode ? selection.selectedIds.has(conversation.id) : undefined
-              }
-              {...multi.itemProps(conversation.id)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                onMenu({
-                  conversation,
-                  ids:
-                    selection.selectionMode && selection.selectedIds.has(conversation.id)
-                      ? [...selection.selectedIds]
-                      : [conversation.id],
-                  x: event.clientX,
-                  y: event.clientY,
-                });
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
-                event.preventDefault();
-                const rect = event.currentTarget.getBoundingClientRect();
-                onMenu({
-                  conversation,
-                  ids:
-                    selection.selectionMode && selection.selectedIds.has(conversation.id)
-                      ? [...selection.selectedIds]
-                      : [conversation.id],
-                  x: rect.left + 20,
-                  y: rect.top + 20,
-                });
-              }}
-              onClick={(event) => onSelect(conversation.id, event)}
-            >
-              <Avatar
-                name={displayGroupName(conversation.group)}
-                avatarUrl={conversation.group.avatarUrl}
-                seed={conversation.id}
-              />
-              <span className="row-main">
-                <strong>
-                  <span className="row-title-text">{displayGroupName(conversation.group)}</span>
-                </strong>
-                <span>
-                  {conversation.group.memberCount > 0
-                    ? `${conversation.group.memberCount} 位成员`
-                    : '人数未读取'}
+        ? category.items.slice(0, visibleCount).map((conversation) => {
+            const title = groupDirectoryTitle(
+              conversation.group,
+              order.preferences.sort,
+              order.rawGroupNames,
+            );
+            const detail = groupSortDetail(conversation.group, order.preferences.sort, order.rows);
+            return (
+              <button
+                type="button"
+                key={conversation.id}
+                className={cn(
+                  listRowClass(
+                    !selection.selectionMode && conversation.id === activeConversationId,
+                    'contact-row',
+                  ),
+                  'contact-cat-row',
+                  selection.selectionMode &&
+                    selection.selectedIds.has(conversation.id) &&
+                    'is-multiselected',
+                )}
+                aria-pressed={
+                  selection.selectionMode ? selection.selectedIds.has(conversation.id) : undefined
+                }
+                {...multi.itemProps(conversation.id)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  onMenu({
+                    conversation,
+                    ids:
+                      selection.selectionMode && selection.selectedIds.has(conversation.id)
+                        ? [...selection.selectedIds]
+                        : [conversation.id],
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                    return;
+                  event.preventDefault();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  onMenu({
+                    conversation,
+                    ids:
+                      selection.selectionMode && selection.selectedIds.has(conversation.id)
+                        ? [...selection.selectedIds]
+                        : [conversation.id],
+                    x: rect.left + 20,
+                    y: rect.top + 20,
+                  });
+                }}
+                onClick={(event) => onSelect(conversation.id, event)}
+              >
+                <Avatar
+                  name={displayGroupName(conversation.group)}
+                  avatarUrl={conversation.group.avatarUrl}
+                  seed={conversation.id}
+                />
+                <span className="row-main">
+                  <strong>
+                    <span className="row-title-text" title={title}>
+                      {title}
+                    </span>
+                  </strong>
+                  <span
+                    className={detail ? 'weq-directory-sort-detail' : undefined}
+                    title={detail?.title ? `${detail.text}\n${detail.title}` : detail?.text}
+                  >
+                    {detail
+                      ? detail.text
+                      : conversation.group.memberCount > 0
+                        ? `${conversation.group.memberCount} 位成员`
+                        : '人数未读取'}
+                  </span>
                 </span>
-              </span>
-              {conversationDirectory?.showContactUnreadCount &&
-              (conversation.unreadCount ?? 0) > 0 ? (
-                <span
-                  className={unreadClass(
-                    Boolean(
-                      conversationDirectory?.preferences?.[conversation.id]?.muted ??
-                        conversation.preference?.muted,
-                    ),
-                  )}
-                >
-                  {formatBadgeCount(conversation.unreadCount)}
-                </span>
-              ) : null}
-            </button>
-          ))
+                {conversationDirectory?.showContactUnreadCount &&
+                (conversation.unreadCount ?? 0) > 0 ? (
+                  <span
+                    className={unreadClass(
+                      Boolean(
+                        conversationDirectory?.preferences?.[conversation.id]?.muted ??
+                          conversation.preference?.muted,
+                      ),
+                    )}
+                  >
+                    {formatBadgeCount(conversation.unreadCount)}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })
         : null}
     </div>
   );
@@ -1794,6 +1820,8 @@ export function ContactList({
                 ? category.items.map((contact) => {
                     const conversation = conversationByContact.get(contact.id);
                     const relation = intimateRelationOf(contact);
+                    const title = friendDirectoryTitle(contact, order.preferences.sort);
+                    const detail = friendSortDetail(contact, order.preferences.sort, order.rows);
                     return (
                       <button
                         key={contact.id}
@@ -1888,7 +1916,9 @@ export function ContactList({
                         </span>
                         <span className={cn('row-main', 'contact-card-main')}>
                           <span className={cn('contact-card-nickname')}>
-                            <span className="row-title-text">{displayUserName(contact)}</span>
+                            <span className="row-title-text" title={title}>
+                              {title}
+                            </span>
                             {contact.kind === 'bot' ? (
                               <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
                                 <Bot size={12} strokeWidth={2.4} />
@@ -1896,21 +1926,34 @@ export function ContactList({
                             ) : null}
                           </span>
                           <span className={cn('contact-card-bottom')}>
-                            {contact.onlineStatusObj &&
-                            contact.onlineStatusObj.typeName !== '未知' ? (
-                              <span className={cn('contact-card-status')}>
-                                <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
-                                <span>[{contact.onlineStatusObj.displayStatus}]</span>
+                            {detail ? (
+                              <span
+                                className="contact-card-signature weq-directory-sort-detail"
+                                title={
+                                  detail.title ? `${detail.text}\n${detail.title}` : detail.text
+                                }
+                              >
+                                {detail.text}
                               </span>
-                            ) : null}
-                            {contact.kind !== 'bot' &&
-                            contact.identityLabel !== '设备' &&
-                            category.id !== 'special:devices' &&
-                            category.id !== 'special:bots' ? (
-                              <span className={cn('contact-card-signature')}>
-                                {contact.signature || '这个人很懒，什么都没留下'}
-                              </span>
-                            ) : null}
+                            ) : (
+                              <>
+                                {contact.onlineStatusObj &&
+                                contact.onlineStatusObj.typeName !== '未知' ? (
+                                  <span className={cn('contact-card-status')}>
+                                    <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
+                                    <span>[{contact.onlineStatusObj.displayStatus}]</span>
+                                  </span>
+                                ) : null}
+                                {contact.kind !== 'bot' &&
+                                contact.identityLabel !== '设备' &&
+                                category.id !== 'special:devices' &&
+                                category.id !== 'special:bots' ? (
+                                  <span className={cn('contact-card-signature')}>
+                                    {contact.signature || '这个人很懒，什么都没留下'}
+                                  </span>
+                                ) : null}
+                              </>
+                            )}
                           </span>
                         </span>
                         {conversationDirectory?.showContactUnreadCount &&
