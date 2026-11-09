@@ -15,6 +15,11 @@ Web 仍通过 `apps/web/vite.config.ts` 复用桌面 React renderer。`ChatShell
 状态缺失或未知时不显示在线标记。原加号菜单中的 QQ 号搜索、群号搜索、好友通知与
 群通知保留在「更多」中。展开全局搜索时暂时隐藏昵称和状态，为搜索输入留出空间。
 
+Web / Remote 恢复已打开账号时，`BootstrapView` 在载入页通过 `runRemoteIdentityWarmup`
+预载账号资料，再按资料 uid 预载在线状态，写入主界面复用的 React Query 缓存。
+预载强制读取当前资料，不沿用过期昵称；只等待这两项，不等待完整会话和联系人目录，
+避免主界面先显示「WeQ」再跳成真实资料。沿用已有的失败处理与有界等待。
+
 设置复用 `SettingsDialog` 的分类、二级标签和渲染函数，只增加手机分类列表与
 返回层级。指定 `initialSection` 时直接进入目标内容，普通设置入口先显示分类。
 

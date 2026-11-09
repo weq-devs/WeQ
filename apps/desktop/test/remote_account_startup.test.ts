@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   currentError: false,
   mutate: vi.fn(async () => ({ success: true })),
   warmup: vi.fn(async () => {}),
+  remoteWarmup: vi.fn(async () => {}),
   error: vi.fn(),
   utils: { account: { getAccountConfig: { fetch: vi.fn(async () => ({})) } } },
 }));
@@ -25,7 +26,10 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: () => api.error,
 }));
 vi.mock('../src/renderer/src/lib/windowLayout', () => ({ setWindowLayout: vi.fn() }));
-vi.mock('../src/renderer/src/lib/accountWarmup', () => ({ runAccountWarmup: api.warmup }));
+vi.mock('../src/renderer/src/lib/accountWarmup', () => ({
+  runAccountWarmup: api.warmup,
+  runRemoteIdentityWarmup: api.remoteWarmup,
+}));
 vi.mock('../src/renderer/src/views/bootstrap/SelectScreen', () => ({ SelectScreen: () => null }));
 vi.mock('../src/renderer/src/components/settings/BackupSection', () => ({
   BackupSection: () => null,
@@ -71,6 +75,7 @@ beforeEach(() => {
   api.current = { uin: '10002' };
   api.currentError = false;
   vi.clearAllMocks();
+  api.remoteWarmup.mockReset().mockResolvedValue(undefined);
   useViewState.setState({ view: 'bootstrap', openedUin: null, homeStage: 'booting' });
   host = document.createElement('div');
   document.body.append(host);
@@ -87,7 +92,7 @@ async function render() {
   });
 }
 
-it('Web 复用实际已打开账号，不切回自动进入目标，也不验密钥、重开库或等待预热', async () => {
+it('Web 复用实际已打开账号，只预载身份，不验密钥、重开库或等待完整目录预热', async () => {
   await render();
   expect(useViewState.getState()).toMatchObject({
     view: 'main',
@@ -96,6 +101,21 @@ it('Web 复用实际已打开账号，不切回自动进入目标，也不验密
   });
   expect(api.mutate).not.toHaveBeenCalled();
   expect(api.warmup).not.toHaveBeenCalled();
+  expect(api.remoteWarmup).toHaveBeenCalledOnce();
+});
+it('Remote 身份资料尚未就绪时保留载入页，不先进入显示 WeQ 兜底值的主界面', async () => {
+  let finish!: () => void;
+  api.remoteWarmup.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await render();
+  expect(api.remoteWarmup).toHaveBeenCalledOnce();
+  expect(useViewState.getState()).toMatchObject({ view: 'bootstrap', openedUin: null });
+  await act(async () => finish());
+  expect(useViewState.getState()).toMatchObject({ view: 'main', openedUin: '10002' });
 });
 it('当前会话读取失败时不擅自重开账号', async () => {
   api.currentError = true;
@@ -109,6 +129,7 @@ it('桌面重载接回后台实际账号，预热但不验密钥、不重开库�
   await render();
   expect(api.mutate).not.toHaveBeenCalled();
   expect(api.warmup).toHaveBeenCalledOnce();
+  expect(api.remoteWarmup).not.toHaveBeenCalled();
   expect(useViewState.getState()).toMatchObject({ view: 'main', openedUin: '10002' });
 });
 it.each([true, false])('没有后台账号时保留原自动进入流程：web=%s', async (web) => {

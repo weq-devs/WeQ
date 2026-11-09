@@ -22,7 +22,11 @@ import { RestrictedModeIndicator } from '../components/RestrictedMode';
 import { SelectScreen } from './bootstrap/SelectScreen';
 import { WarmupSplash } from '../components/WarmupSplash';
 import { NativeExpiredDialog } from '../components/NativeExpiredDialog';
-import { runAccountWarmup, type WarmupProgress } from '../lib/accountWarmup';
+import {
+  runAccountWarmup,
+  runRemoteIdentityWarmup,
+  type WarmupProgress,
+} from '../lib/accountWarmup';
 import { setWindowLayout } from '../lib/windowLayout';
 import { DesktopOnly, IS_MAC, IS_WEB, shellBridge } from '../lib/target';
 import logoUrl from '@resources/brand/logo.png';
@@ -140,7 +144,9 @@ export function BootstrapView(): ReactElement {
         booted.current = true;
         const uin = currentAccount.data.uin;
         void (async () => {
-          if (!IS_WEB) {
+          if (IS_WEB) {
+            await runRemoteIdentityWarmup(utils, setWarmup);
+          } else {
             await utils.account.getAccountConfig.fetch();
             await runAccountWarmup(utils, setWarmup);
           }
