@@ -45,6 +45,8 @@
  *   NT_HELPER_RELEASE_REPO      发布仓，默认 weq-devs/nt_helper_release
  *   NT_HELPER_RELEASE_BASE_URL  下载前缀（镜像 / 代理），默认 GitHub Releases
  *   NT_HELPER_VERSION           钉死 tag（等价于 --version；CI 里临时试构建用）
+ *   NT_HELPER_RETRIES           单次请求最多尝试几次，默认 8（含第一次）
+ *   NT_HELPER_HTTP_TIMEOUT_MS   单次请求无响应多久算超时，默认 60000
  *   HTTPS_PROXY / HTTP_PROXY    出网代理（含 NO_PROXY）。Node 内置 fetch 不认这几个，
  *                               这里自己读：Clash 之类只开 HTTP 代理、没开 TUN 时必需。
  */
@@ -78,6 +80,7 @@ import {
   validateNativeBuildInfo,
 } from '../packages/native/authorization.mjs';
 import { verifyAuthorizationHelper } from './check-authorization-helper.mjs';
+import { RETRYABLE_HTTP_STATUS, RetryableHttpError, withRetry } from './retry.mjs';
 
 // ─────────────────────────── 常量 ───────────────────────────
 
@@ -154,6 +157,15 @@ const baseUrl = (
 ).replace(/\/+$/, '');
 
 const hostTag = `${process.platform}-${process.arch}`;
+
+/** GitHub Releases 的下载链路会间歇性 504；重试次数与超时都留了环境变量口子。 */
+const retryAttempts = positiveInt(process.env.NT_HELPER_RETRIES, 8);
+const requestTimeoutMs = positiveInt(process.env.NT_HELPER_HTTP_TIMEOUT_MS, 60_000);
+
+function positiveInt(raw, fallback) {
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
 
 /**
  * 读版本锚（`native/pinned.json`）。
@@ -380,6 +392,14 @@ async function httpGet(url, redirects = 8) {
       resolve,
     );
     req.once('error', reject);
+    // 只卡「无响应」：下载大文件时数据一直在流，socket 超时会不断重置。
+    req.setTimeout(requestTimeoutMs, () => {
+      req.destroy(
+        Object.assign(new Error(`请求超时（${requestTimeoutMs / 1000}s 无响应）：${url}`), {
+          code: 'ETIMEDOUT',
+        }),
+      );
+    });
     req.end();
   });
   const location = res.headers.location;
@@ -388,6 +408,42 @@ async function httpGet(url, redirects = 8) {
     return httpGet(new URL(location, target).toString(), redirects - 1);
   }
   return res;
+}
+
+/** 给每一次重试打一行日志（进度条在 TTY 下还没换行，先收干净）。 */
+function logRetry(label, error, attempt, attempts, delayMs) {
+  if (IS_TTY) process.stdout.write('\n');
+  const reason = error instanceof Error ? error.message : String(error);
+  console.error(
+    `  ↻ ${label} 第 ${attempt}/${attempts} 次失败：${reason}；${(delayMs / 1000).toFixed(1)}s 后重试`,
+  );
+}
+
+/**
+ * `httpGet` + 对 5xx / 网络错误重试。
+ *
+ * 上游是 GitHub Releases：`/releases/download/...` 会 302 到 CDN，整条链路都可能
+ * 突然回 504。一次失败就放弃会让 CI / 发版随机挂掉，所以这里把「发请求 + 检查状态码」
+ * 当成一次尝试整体重试。
+ */
+async function httpGetWithRetry(url, { label = url, redirects = 8 } = {}) {
+  return withRetry(
+    async () => {
+      const res = await httpGet(url, redirects);
+      if (RETRYABLE_HTTP_STATUS.has(res.statusCode)) {
+        // 丢掉响应体前先兜住后续 socket 错误，避免变成 unhandled 'error'。
+        res.once('error', () => {});
+        res.resume();
+        throw new RetryableHttpError(res.statusCode, res.statusMessage, url);
+      }
+      return res;
+    },
+    {
+      attempts: retryAttempts,
+      onRetry: (error, attempt, attempts, delayMs) =>
+        logRetry(label, error, attempt, attempts, delayMs),
+    },
+  );
 }
 
 /** 把响应体整段读成字符串（manifest / latest.json 都很小）。 */
@@ -399,11 +455,23 @@ async function readBody(res) {
 }
 
 async function download(url, dest, { label, size } = {}) {
+  await withRetry(() => downloadOnce(url, dest, { label, size }), {
+    attempts: retryAttempts,
+    onRetry: (error, attempt, attempts, delayMs) =>
+      logRetry(label ?? url, error, attempt, attempts, delayMs),
+  });
+}
+
+async function downloadOnce(url, dest, { label, size } = {}) {
   // 必须走 httpGet 而不是内置 fetch：内置 fetch 不认 HTTP(S)_PROXY，
   // 在只挂本地代理（如 Clash 7897）的环境里会直连超时，只报一句 `fetch failed`。
   const res = await httpGet(url);
   if (res.statusCode < 200 || res.statusCode >= 300) {
+    res.once('error', () => {});
     res.resume();
+    if (RETRYABLE_HTTP_STATUS.has(res.statusCode)) {
+      throw new RetryableHttpError(res.statusCode, res.statusMessage, url);
+    }
     throw new Error(`下载失败 ${res.statusCode} ${res.statusMessage ?? ''}：${url}`);
   }
   const contentLength = Number(res.headers['content-length']) || 0;
@@ -448,7 +516,7 @@ async function loadManifest(version) {
     return { manifest: JSON.parse(await readFile(file, 'utf8')), localDir: fromDir };
   }
   const url = manifestUrl(version);
-  const res = await httpGet(url);
+  const res = await httpGetWithRetry(url, { label: `manifest（${version}）` });
   if (res.statusCode < 200 || res.statusCode >= 300) {
     res.resume();
     throw new Error(
@@ -470,7 +538,7 @@ function manifestUrl(version) {
 /** 上游 latest 的 tag；拿不到（离线 / 限流）就返回 `undefined`。 */
 async function fetchLatestTag() {
   try {
-    const res = await httpGet(manifestUrl('latest'));
+    const res = await httpGetWithRetry(manifestUrl('latest'), { label: '上游 latest' });
     if (res.statusCode < 200 || res.statusCode >= 300) {
       res.resume();
       return undefined;

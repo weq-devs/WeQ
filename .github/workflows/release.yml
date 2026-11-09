@@ -936,7 +936,7 @@ jobs:
             echo "下方按钮直接下载对应平台；浏览器版需要自备 Node ≥22。"
             echo "完整产物与校验信息见 [Release 页面](${PAGE_URL})"
             echo ""
-            echo "**附件是 .torrent 种子包，已内嵌下载源，无需常驻做种；欢迎大家测试喵~**"
+            echo "**附件是 .torrent 种子包;  欢迎大家测试喵~**"
           } > /tmp/message.md
 
           echo "== 消息正文 =="
