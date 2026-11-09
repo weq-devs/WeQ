@@ -28,6 +28,8 @@
 
 .weq-notice-dialog .weq-notice-scroll {
   grid-template-columns: minmax(0, 1fr);
+  /* 列表空间不足时滚动，不把含审核按钮的卡片压缩到最小高度。 */
+  grid-auto-rows: max-content;
 }
 
 .weq-notice-dialog .notice-card-request > .notice-request-actions {
