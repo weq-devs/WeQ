@@ -50,17 +50,35 @@ try {
   );
   await page.waitForSelector('.weq-mobile-more');
   const names = ['任务', 'WeQ 助手', '分析与报告', '导出', '导出查看器', '合成聊天记录'];
+  const swipeBack = async (selector) => {
+    await page.evaluate(async (selector) => {
+      const target = document.querySelector(selector);
+      const dispatch = (name, x, end = false) => {
+        const touch = { identifier: 1, target, clientX: x, clientY: 280 };
+        const event = new Event(name, { bubbles: true, cancelable: true });
+        Object.defineProperties(event, {
+          touches: { value: end ? [] : [touch] },
+          changedTouches: { value: [touch] },
+        });
+        target.dispatchEvent(event);
+      };
+      dispatch('touchstart', 4);
+      dispatch('touchmove', 164);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      dispatch('touchend', 164, true);
+    }, selector);
+  };
   const output = process.env.WEQ_MOBILE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   const chrome = async () => {
     assert.ok(await page.locator('.weq-mobile-header').isVisible());
     assert.ok(await page.locator('.weq-mobile-tabs').isVisible());
-    const bounds = await page.locator('.chat-main').boundingBox();
+    const bounds = await page.locator('.app-shell > .chat-main').boundingBox();
     const top = await page.locator('.weq-mobile-header').boundingBox();
     const bottom = await page.locator('.weq-mobile-tabs').boundingBox();
     assert.ok(Math.abs(bounds.y - top.y - top.height) < 1);
     assert.ok(Math.abs(bounds.y + bounds.height - bottom.y) < 1);
-    assert.equal(await page.locator('.weq-mobile-more').count(), 0);
+    assert.equal(await page.locator('.weq-mobile-navigation > .weq-mobile-more').count(), 0);
   };
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 844 });
@@ -82,6 +100,25 @@ try {
       if (output)
         await page.screenshot({ path: resolve(output, `more-list-${width}-${theme}.png`) });
       assert.equal(await page.locator('.weq-mobile-more .weq-workspace-menu-trigger').count(), 0);
+      for (const [name, view] of [
+        ['主页', 'home'],
+        ['QQ 邮箱', 'mail'],
+        ['QQ 频道', 'channel'],
+        ['年度报告', 'annual'],
+      ]) {
+        await page.locator('.weq-mobile-more').getByRole('button', { name, exact: true }).click();
+        await page.locator(`[data-secondary-page="${view}"]`).waitFor();
+        if (view === 'mail') {
+          await page.locator('.weq-mail-primary').click();
+          await page.getByRole('region', { name: '写邮件', exact: true }).waitFor();
+          await swipeBack('.weq-mail-composer');
+          await page.locator('.weq-mail-composer').waitFor({ state: 'detached' });
+          assert.ok(await page.getByRole('region', { name: 'QQ 邮箱', exact: true }).isVisible());
+        }
+        await swipeBack('.app-shell > .chat-main');
+        await page.waitForSelector('.weq-mobile-navigation > .weq-mobile-more');
+        assert.equal(await page.evaluate(() => window.weqMobileNavigation.back()), false);
+      }
       for (const name of names) {
         await page.locator('.weq-mobile-more').getByRole('button', { name, exact: true }).click();
         await page.locator(`.weq-workspace-page[aria-label="${name}"]`).waitFor();
@@ -95,22 +132,7 @@ try {
           await page.screenshot({
             path: resolve(output, `more-${names.indexOf(name)}-${width}-${theme}.png`),
           });
-        await page.evaluate(async () => {
-          const target = document.querySelector('.weq-workspace-page:not([hidden])');
-          const dispatch = (name, x, end = false) => {
-            const touch = { identifier: 1, target, clientX: x, clientY: 280 };
-            const event = new Event(name, { bubbles: true, cancelable: true });
-            Object.defineProperties(event, {
-              touches: { value: end ? [] : [touch] },
-              changedTouches: { value: [touch] },
-            });
-            target.dispatchEvent(event);
-          };
-          dispatch('touchstart', 4);
-          dispatch('touchmove', 164);
-          await new Promise((resolve) => setTimeout(resolve, 150));
-          dispatch('touchend', 164, true);
-        });
+        await swipeBack('.weq-workspace-page:not([hidden])');
         await page.waitForSelector('.weq-mobile-more');
         assert.equal(await page.locator(`.weq-workspace-page[aria-label="${name}"]`).count(), 0);
       }
@@ -144,7 +166,7 @@ try {
   assert.equal(await page.locator('.weq-workspace-page').count(), 0);
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: 六个真实工具并列入口、320/390 深浅色、顶底栏边界、逐页侧滑返回、同标签返回、跨标签关闭及系统返回',
+    'PASS: 更多四个次级页面与六个工具、真实邮箱写信分层侧滑、320/390 深浅色、顶底栏边界、同标签返回、跨标签关闭及系统返回',
   );
 } finally {
   await browser?.close();

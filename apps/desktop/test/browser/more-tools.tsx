@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatShell } from '../../src/renderer/src/im-template/template/chatShell';
@@ -8,6 +7,11 @@ import { WorkspaceMenuButton } from '../../src/renderer/src/components/Workspace
 import { CompositionWorkspace } from '../../src/renderer/src/components/mergeForward/CompositionWorkspace';
 import { useCompositionWindow } from '../../src/renderer/src/hooks/useCompositionWindow';
 import { useViewState } from '../../src/renderer/src/state/view';
+import { MailWorkspace } from '../../src/renderer/src/views/MailView';
+import {
+  useChatShellController,
+  noopChatShellHistoryAdapter,
+} from '../../src/renderer/src/im-template/template/shellController';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import type { MainView } from '../../src/renderer/src/im-template/template/types';
 import '../../src/renderer/src/styles/index.css';
@@ -30,7 +34,16 @@ Object.assign(window, {
 });
 
 function Fixture() {
-  const [view, setView] = useState<MainView>('more');
+  const shell = useChatShellController({
+    conversations: [],
+    contacts: [],
+    conversationPrefs: {},
+    initialActiveConversationId: null,
+    initialView: 'more',
+    sidebarWidthStorageKey: 'fixture:more-width',
+    history: noopChatShellHistoryAdapter,
+  });
+  const view: MainView = shell.view;
   const composition = useCompositionWindow();
   return (
     <WorkspacePages navigationKey={view}>
@@ -43,7 +56,7 @@ function Fixture() {
         sidebarWidth={320}
         query=""
         onQueryChange={noop}
-        onViewChange={setView}
+        onViewChange={shell.switchView}
         messageBadgeCount={0}
         contactBadgeCount={0}
         friendNoticeCount={0}
@@ -66,7 +79,8 @@ function Fixture() {
         sidebarContent={null}
         mainContent={
           <WorkspaceContent>
-            <p>合成业务页</p>
+            <p data-secondary-page={view}>合成业务页</p>
+            {view === 'mail' && <MailWorkspace active selfUin="10001" onUnreadChange={noop} />}
           </WorkspaceContent>
         }
       />

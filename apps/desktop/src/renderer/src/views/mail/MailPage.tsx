@@ -62,6 +62,7 @@ import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../../lib/autoRead';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useRequestContentExport } from '../../state/contentSelection';
+import { useMobileBack } from '../../hooks/useMobileNavigation';
 
 const initialStatus: MailStatus = {
   state: 'disconnected',
@@ -122,6 +123,24 @@ export function MailPage({
     [detail, setDetail] = useState<MailDetail | null>(null),
     [reading, setReading] = useState(false);
   const [threadRoot, setThreadRoot] = useState<string | null>(null);
+  const reader = useRef<HTMLDivElement>(null);
+  const backToList = () => {
+    setThreadRoot(null);
+    setSelectedId(null);
+    setDetail(null);
+  };
+  useMobileBack(
+    active && status.state === 'ready' && Boolean(selectedId),
+    backToList,
+    30,
+    () => reader.current,
+  );
+  useMobileBack(
+    active && status.state === 'ready' && Boolean(threadRoot && selectedId !== threadRoot),
+    () => setSelectedId(threadRoot),
+    40,
+    () => reader.current,
+  );
   const [checked, setChecked] = useState<string[]>([]),
     [actionBusy, setActionBusy] = useState(false);
   const selectionAnchor = useRef<string | null>(null);
@@ -864,7 +883,7 @@ export function MailPage({
               </button>
             </footer>
           </section>
-          <div className="weq-mail-reader-shell">
+          <div ref={reader} className="weq-mail-reader-shell">
             {draft ? (
               <MailComposer
                 key={draft.key}
@@ -898,10 +917,7 @@ export function MailPage({
                   className="weq-mail-mobile-back"
                   title="返回邮件列表"
                   aria-label="返回邮件列表"
-                  onClick={() => {
-                    setSelectedId(null);
-                    setDetail(null);
-                  }}
+                  onClick={backToList}
                 >
                   <ArrowLeft size={17} />
                 </button>

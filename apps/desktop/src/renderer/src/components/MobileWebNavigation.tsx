@@ -30,6 +30,8 @@ import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { preloadMobilePages } from '../lib/mobilePageLoading';
 import { mobilePageLoaders } from './lazyWorkspaces';
+import { registerMobileBack } from '../hooks/useMobileNavigation';
+import { mobileRootTab } from '../lib/mobileRootTransition';
 import '../styles/mobile-web.css';
 
 export function MobileWebNavigation({
@@ -69,6 +71,16 @@ export function MobileWebNavigation({
 }) {
   const mobilePage = useWorkspaceMobilePage();
   const mobile = useMobileWebLayout();
+  useEffect(() => {
+    if (!mobile || mobileRootTab(view)) return;
+    return registerMobileBack({
+      id: 'mobile-more-page',
+      priority: 5,
+      retained: true,
+      back: () => onViewChange('more'),
+      target: () => document.querySelector<HTMLElement>('.weq-web-shell .app-shell > .chat-main'),
+    });
+  }, [mobile, view, onViewChange]);
   useEffect(() => {
     if (mobile) return preloadMobilePages(mobilePageLoaders);
     return undefined;

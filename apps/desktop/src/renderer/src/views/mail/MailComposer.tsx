@@ -6,6 +6,7 @@ import { useDialog } from '../../components/Dialog';
 import { useToast } from '../../components/Toast';
 import { IS_WEB } from '../../lib/target';
 import { registerMailDraft } from '../../state/mailDraft';
+import { useMobileBack } from '../../hooks/useMobileNavigation';
 import type { MailApi } from './api';
 import {
   formatMailSize,
@@ -66,6 +67,7 @@ export function MailComposer({
   const [linkOpen, setLinkOpen] = useState(false),
     [link, setLink] = useState('');
   const editor = useRef<HTMLDivElement>(null);
+  const pane = useRef<HTMLElement>(null);
   const range = useRef<Range | null>(null);
   const active = useRef(true),
     lock = useRef(false),
@@ -139,6 +141,12 @@ export function MailComposer({
       return;
     onClose();
   }
+  useMobileBack(
+    !hidden,
+    () => void close(),
+    50,
+    () => pane.current,
+  );
 
   function format(command: string, value?: string): void {
     const element = editor.current;
@@ -230,7 +238,7 @@ export function MailComposer({
   }
 
   return (
-    <section className="weq-mail-composer" hidden={hidden} aria-label="写邮件">
+    <section ref={pane} className="weq-mail-composer" hidden={hidden} aria-label="写邮件">
       <header className="weq-mail-pane-heading">
         <h2>
           {draft.draftId

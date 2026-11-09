@@ -9,6 +9,12 @@ import { MailPage } from '../src/renderer/src/views/mail/MailPage';
 import type { MailApi } from '../src/renderer/src/views/mail/api';
 import type { ExportSavePolicy } from '@weq/service';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import {
+  mobileBack,
+  mobileBackTarget,
+  pushMobileBack,
+} from '../src/renderer/src/hooks/useMobileNavigation';
+import { useDialog } from '../src/renderer/src/components/Dialog';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -101,6 +107,10 @@ function fixture() {
 }
 beforeEach(() => {
   vi.stubGlobal('localStorage', new Storage());
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({ matches: false }) as MediaQueryList),
+  );
   saveState.current = true;
   saveState.web = false;
   saveState.requestExport.mockReset();
@@ -365,6 +375,116 @@ async function attachmentView() {
   }
   return { ...view, api };
 }
+
+describe('邮箱移动返回层级', () => {
+  beforeEach(() => {
+    saveState.web = true;
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query) => ({ matches: query === '(max-width: 760px)' }) as MediaQueryList,
+    );
+  });
+
+  it('阅读返回列表，再返回邮箱父页；后台邮箱不占用返回入口', async () => {
+    const leave = vi.fn();
+    const remove = pushMobileBack(leave, () => document.body, 5);
+    const view = await attachmentView();
+    try {
+      expect(mobileBackTarget()).toBe(view.host.querySelector('.weq-mail-reader-shell'));
+      await act(async () => {
+        expect(mobileBack()).toBe(true);
+      });
+      expect(view.host.querySelector('.weq-mail-workspace')?.getAttribute('data-detail')).toBe(
+        'false',
+      );
+      expect(leave).not.toHaveBeenCalled();
+      await act(async () => {
+        expect(mobileBack()).toBe(true);
+      });
+      expect(leave).toHaveBeenCalledOnce();
+      await act(async () =>
+        view.host.querySelector<HTMLButtonElement>('.weq-mail-row-main')!.click(),
+      );
+      await view.setActive(false);
+      expect(mobileBack()).toBe(false);
+    } finally {
+      view.close();
+      remove();
+    }
+  });
+
+  it('写信先确认未保存内容，取消后仍可返回，关闭后回到原邮件', async () => {
+    const view = await attachmentView();
+    const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(false);
+    try {
+      await act(async () => {
+        const reply = [...view.host.querySelectorAll('button')].find(
+          (button) => button.textContent === '回复',
+        )!;
+        reply.click();
+      });
+      expect(mobileBackTarget()).toBe(view.host.querySelector('.weq-mail-composer'));
+      await act(async () => {
+        expect(mobileBack()).toBe(true);
+      });
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(view.host.querySelector<HTMLElement>('.weq-mail-composer')?.hidden).toBe(false);
+      confirm.mockResolvedValue(true);
+      await act(async () => {
+        expect(mobileBack()).toBe(true);
+      });
+      expect(view.host.querySelector('.weq-mail-composer')).toBeNull();
+      expect(view.host.querySelector('.weq-mail-workspace')?.getAttribute('data-detail')).toBe(
+        'true',
+      );
+      await act(async () => {
+        expect(mobileBack()).toBe(true);
+      });
+      expect(view.host.querySelector('.weq-mail-workspace')?.getAttribute('data-detail')).toBe(
+        'false',
+      );
+      expect(view.api.send).not.toHaveBeenCalled();
+    } finally {
+      view.close();
+    }
+  });
+
+  it('会话子邮件先返回会话，再返回列表，不跨层退出邮箱', async () => {
+    const { api } = fixture();
+    const summary = page().items[0]!;
+    vi.mocked(api.read).mockImplementation(async (id) => ({
+      ...summary,
+      id,
+      html: '<p>合成正文</p>',
+      replyTo: null,
+      attachments: [],
+      ...(id === summary.id ? { thread: [{ ...summary, id: 'thread-child' }] } : {}),
+    }));
+    const view = await mount(api);
+    try {
+      await act(async () =>
+        view.host.querySelector<HTMLButtonElement>('.weq-mail-row-main')!.click(),
+      );
+      await act(async () =>
+        view.host.querySelector<HTMLButtonElement>('.weq-mail-thread button')!.click(),
+      );
+      expect(api.read).toHaveBeenLastCalledWith('thread-child', expect.any(AbortSignal));
+      await act(async () => {
+        expect(mobileBack()).toBe(true);
+      });
+      expect(api.read).toHaveBeenLastCalledWith(summary.id, expect.any(AbortSignal));
+      expect(view.host.querySelector('.weq-mail-thread')).not.toBeNull();
+      await act(async () => {
+        expect(mobileBack()).toBe(true);
+      });
+      expect(view.host.querySelector('.weq-mail-workspace')?.getAttribute('data-detail')).toBe(
+        'false',
+      );
+      expect(mobileBack()).toBe(false);
+    } finally {
+      view.close();
+    }
+  });
+});
 
 describe('邮箱修饰键多选', () => {
   async function selectionView() {
