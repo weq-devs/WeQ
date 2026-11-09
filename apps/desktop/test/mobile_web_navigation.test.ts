@@ -96,7 +96,12 @@ it('搜索在手机标题中可展开，聊天详情隐藏整套主导航', asyn
   await act(async () =>
     root.render(createElement(MobileWebNavigation, { ...props, hidden: true })),
   );
-  expect(host.querySelector<HTMLElement>('.weq-mobile-navigation')!.hidden).toBe(true);
+  const navigation = host.querySelector<HTMLElement>('.weq-mobile-navigation')!;
+  expect(navigation.hasAttribute('inert')).toBe(true);
+  expect(navigation.getAttribute('aria-hidden')).toBe('true');
+  await act(async () => root.render(createElement(MobileWebNavigation, props)));
+  expect(navigation.hasAttribute('inert')).toBe(false);
+  expect(navigation.getAttribute('aria-hidden')).toBe('false');
 });
 
 it('更多中的收藏入口复用现有回调，不增加底栏入口', async () => {

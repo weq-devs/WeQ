@@ -32,8 +32,14 @@
     background: var(--weq-chat-bg, var(--background));
   }
 
-  .weq-web-shell .weq-mobile-navigation:not([hidden]) {
+  .weq-web-shell .weq-mobile-navigation {
     display: contents;
+  }
+
+  /* 详情页只隐藏导航，不移除布局，侧滑露出的列表保持原来的上下边界。 */
+  .weq-web-shell .weq-mobile-navigation[aria-hidden='true'] {
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .weq-mobile-header {
@@ -238,6 +244,7 @@
 
   .weq-web-shell[data-mobile-detail] .app-shell .chat-main {
     inset: 0;
+    z-index: 45;
     visibility: visible;
     transform: none;
     pointer-events: auto;

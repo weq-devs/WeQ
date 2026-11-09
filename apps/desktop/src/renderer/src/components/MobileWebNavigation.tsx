@@ -138,7 +138,7 @@ export function MobileWebNavigation({
   );
 
   return (
-    <div className="weq-mobile-navigation" hidden={hidden}>
+    <div className="weq-mobile-navigation" inert={hidden} aria-hidden={hidden}>
       <header className="weq-mobile-header">
         <button
           type="button"

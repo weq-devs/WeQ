@@ -110,6 +110,8 @@ function Fixture() {
       ref={root}
       className="app-shell-root weq-web-shell"
       data-mobile-detail={shell.mainOpen || settings || undefined}
+      data-mobile-root-view={shell.view}
+      data-mobile-workspace={shell.view === 'qzone' || undefined}
     >
       <MobileNavigationRuntime root={root} />
       <MobileWebNavigation
@@ -126,17 +128,24 @@ function Fixture() {
         onOpenCollection={noop}
       />
       <WorkspacePages navigationKey={shell.view}>
-        <WorkspaceContent>
-          <div className="app-shell">
-            <aside className="sidebar">
-              <button
-                className="fixture-conversation"
-                onClick={() => shell.selectConversation('fixture-chat')}
-              >
-                合成会话
-              </button>
-            </aside>
-            <main className="chat-main">
+        <div className="app-shell">
+          <aside className="sidebar">
+            <div className="sidebar-body">
+              <div data-mobile-sidebar-page="messages" hidden={shell.view !== 'messages'}>
+                <button
+                  className="fixture-conversation"
+                  onClick={() => shell.selectConversation('fixture-chat')}
+                >
+                  合成会话
+                </button>
+              </div>
+              <div data-mobile-sidebar-page="contacts" hidden={shell.view !== 'contacts'}>
+                合成联系人
+              </div>
+            </div>
+          </aside>
+          <main className="chat-main">
+            <WorkspaceContent>
               <ChatHeader
                 title="合成会话"
                 actions={
@@ -155,11 +164,23 @@ function Fixture() {
                 <textarea aria-label="消息草稿" defaultValue="未发送的消息" />
                 <button onClick={() => setSettings(true)}>打开设置</button>
               </div>
-            </main>
-          </div>
-        </WorkspaceContent>
+            </WorkspaceContent>
+          </main>
+        </div>
         {settings && <SettingsPage close={() => setSettings(false)} />}
       </WorkspacePages>
+      <div hidden inert aria-hidden="true">
+        {(['messages', 'contacts'] as const).map((view) => (
+          <div key={view} data-mobile-root-preview={view}>
+            <aside className="sidebar">
+              <div className="sidebar-body" />
+            </aside>
+          </div>
+        ))}
+        <div data-mobile-root-preview="qzone">
+          <main className="chat-main">合成空间</main>
+        </div>
+      </div>
       {menu && (
         <ConversationActionsMenu
           dropdown

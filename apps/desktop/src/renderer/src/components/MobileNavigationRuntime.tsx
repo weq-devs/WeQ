@@ -174,7 +174,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       const rootPage =
         mobileRootTab(element.dataset.mobileRootView) &&
         navigation &&
-        !navigation.hasAttribute('hidden') &&
+        navigation.getAttribute('aria-hidden') !== 'true' &&
         !element.hasAttribute('data-mobile-detail');
       const kind = backTarget && touch.clientX <= 24 ? 'back' : rootPage ? 'tab' : null;
       const target = kind === 'back' ? backTarget : contentTarget();

@@ -36,6 +36,8 @@ try {
       : {}),
   });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  const output = process.env.WEQ_MOBILE_ARTIFACTS;
+  if (output) await mkdir(output, { recursive: true });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/*', (route) =>
@@ -43,6 +45,7 @@ try {
   );
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/remote-navigation.html`,
+    { timeout: 120_000 },
   );
   await page.waitForSelector('.fixture-conversation');
   for (const width of [320, 390]) {
@@ -80,9 +83,9 @@ try {
   await page.getByText('合成会话', { exact: true }).first().click();
   await page.waitForSelector('.app-shell-root[data-mobile-detail]');
   await page.getByRole('textbox', { name: '消息草稿' }).fill('返回后保留的草稿');
-  const swipe = async (distance, start = 4, target = '.chat-main') =>
-    page.evaluate(
-      async ({ distance, start, target }) => {
+  const swipe = async (distance, start = 4, target = '.chat-main') => {
+    const result = await page.evaluate(
+      ({ distance, start, target }) => {
         const root = document.querySelector('.app-shell-root');
         const dispatch = (name, x, end = false) => {
           const touch = { identifier: 1, target: root, clientX: x, clientY: 280 };
@@ -96,13 +99,52 @@ try {
         dispatch('touchstart', start);
         dispatch('touchmove', start + distance);
         const transform = document.querySelector(target).style.transform;
-        // 短距离慢拖必须取消，不能因合成事件速度过高误算为快甩。
-        await new Promise((resolve) => setTimeout(resolve, 150));
-        dispatch('touchend', start + distance, true);
-        return transform;
+        const bounds = (selector) => {
+          const node = document.querySelector(selector);
+          const rect = node.getBoundingClientRect();
+          return {
+            top: rect.top,
+            bottom: rect.bottom,
+            visibility: getComputedStyle(node).visibility,
+          };
+        };
+        const layout = {
+          header: bounds('.weq-mobile-header'),
+          sidebar: bounds('.sidebar'),
+          tabs: bounds('.weq-mobile-tabs'),
+          chatOnTop: Boolean(document.elementFromPoint(innerWidth - 1, 20)?.closest('.chat-main')),
+        };
+        return { transform, layout };
       },
       { distance, start, target },
     );
+    if (output && target === '.chat-main' && distance >= 160) {
+      const theme = await page.locator('html').getAttribute('data-theme');
+      await page.screenshot({
+        path: resolve(output, `remote-back-drag-${page.viewportSize().width}-${theme}.png`),
+      });
+    }
+    // 短距离慢拖必须取消，不能因合成事件速度过高误算为快甩。
+    await page.waitForTimeout(150);
+    await page.evaluate((x) => {
+      const root = document.querySelector('.app-shell-root');
+      const event = new Event('touchend', { bubbles: true, cancelable: true });
+      Object.defineProperties(event, {
+        touches: { value: [] },
+        changedTouches: { value: [{ identifier: 1, target: root, clientX: x, clientY: 280 }] },
+      });
+      root.dispatchEvent(event);
+    }, start + distance);
+    if (target === '.chat-main') {
+      const { header, sidebar, tabs, chatOnTop } = result.layout;
+      assert.equal(header.visibility, 'visible', JSON.stringify(result.layout));
+      assert.ok(Math.abs(header.bottom - sidebar.top) < 1, JSON.stringify(result.layout));
+      assert.ok(Math.abs(sidebar.bottom - tabs.top) < 1, JSON.stringify(result.layout));
+      assert.equal(tabs.bottom, 844, JSON.stringify(result.layout));
+      assert.ok(chatOnTop, JSON.stringify(result.layout));
+    }
+    return result.transform;
+  };
   assert.equal(await swipe(20), 'translateX(20px)');
   await page.waitForTimeout(250);
   assert.equal(await page.locator('.app-shell-root').getAttribute('data-mobile-detail'), 'true');
@@ -125,6 +167,35 @@ try {
   await page.waitForFunction(
     () => !document.querySelector('.app-shell-root').hasAttribute('data-mobile-detail'),
   );
+  for (const width of [320, 390, 430]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => {
+        window.remoteNavigationQa.theme(theme);
+        const root = document.querySelector('.app-shell-root');
+        // 覆盖刘海及底部手势区，避免桌面 WebKit 的零安全区掩盖高度问题。
+        root.style.setProperty('--weq-mobile-header-height', '115px');
+        root.style.setProperty('--weq-mobile-tabs-height', '94px');
+      }, theme);
+      await page.locator('.fixture-conversation').click();
+      await page.waitForSelector('.app-shell-root[data-mobile-detail]');
+      assert.equal(await page.locator('.weq-mobile-navigation').getAttribute('inert'), '');
+      await swipe(160);
+      await page.waitForFunction(
+        () => !document.querySelector('.app-shell-root').hasAttribute('data-mobile-detail'),
+      );
+      const bounds = await page.locator('.app-shell > .sidebar').boundingBox();
+      assert.equal(bounds.y, 115);
+      assert.equal(bounds.y + bounds.height, 750);
+      assert.equal(await page.locator('.weq-mobile-navigation').getAttribute('inert'), null);
+    }
+  }
+  await page.evaluate(() => {
+    const root = document.querySelector('.app-shell-root');
+    root.style.removeProperty('--weq-mobile-header-height');
+    root.style.removeProperty('--weq-mobile-tabs-height');
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => window.weqMobileNavigation.back()), false);
   await page.locator('.fixture-conversation').click();
   await page.getByRole('textbox', { name: '消息草稿' }).focus();
@@ -169,27 +240,24 @@ try {
   await page.getByRole('button', { name: '更多', exact: true }).click();
   await page.getByRole('button', { name: '更多', exact: true }).click();
   await page.waitForTimeout(250);
-  assert.ok(await page.locator('[aria-label="更多功能"]').isVisible());
+  const morePage = page.locator('.weq-mobile-navigation > .weq-mobile-more');
+  assert.ok(await morePage.isVisible());
   for (const name of ['QQ 资料与状态', '应用', 'QQ 号搜索', '群号搜索', '好友通知', '群通知']) {
-    assert.equal(
-      await page.locator('.weq-mobile-more').getByRole('button', { name, exact: true }).count(),
-      0,
-    );
+    assert.equal(await morePage.getByRole('button', { name, exact: true }).count(), 0);
   }
-  await page.locator('.weq-mobile-more').getByRole('button', { name: '设置', exact: true }).click();
+  await morePage.getByRole('button', { name: '设置', exact: true }).click();
   await page.waitForSelector('.fixture-settings');
   await page.evaluate(() => window.weqMobileNavigation.back());
   await page.waitForSelector('.fixture-settings', { state: 'detached' });
-  assert.ok(await page.locator('[aria-label="更多功能"]').isVisible());
+  assert.ok(await morePage.isVisible());
   for (const tab of ['qzone', 'contacts', 'messages']) {
-    const target = (await page.locator('.weq-mobile-more').count())
-      ? '.weq-mobile-more'
+    const target = (await morePage.count())
+      ? '.weq-mobile-navigation > .weq-mobile-more'
       : '.sidebar';
     await swipe(160, 100, target);
     await page.waitForSelector(`[data-mobile-tab="${tab}"][aria-current="page"]`);
   }
   assert.equal(await page.evaluate(() => window.weqMobileNavigation.back()), false);
-  const output = process.env.WEQ_MOBILE_ARTIFACTS;
   await page.getByRole('button', { name: '更多', exact: true }).click();
   await page.setViewportSize({ width: 1180, height: 844 });
   await page.waitForFunction(
@@ -197,7 +265,6 @@ try {
       document.querySelector('[data-mobile-tab="messages"]').getAttribute('aria-current') ===
       'page',
   );
-  if (output) await mkdir(output, { recursive: true });
   for (const width of [320, 390, 1180]) {
     await page.setViewportSize({ width, height: 844 });
     for (const theme of ['light', 'dark']) {
@@ -245,7 +312,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: WebKit 主标签双向滑动、更多重复点击与详情返回、精简入口、键盘返回逐帧布局、连接菜单、侧滑完成/取消、草稿保留、320/390/1180 深浅色与减少动态效果',
+    'PASS: WebKit 主标签双向滑动、更多重复点击与详情返回、键盘返回逐帧布局、侧滑完成/取消与草稿保留、320/390/430 深浅色安全区返回布局、320/390/1180 页面与减少动态效果',
   );
 } finally {
   await browser?.close();

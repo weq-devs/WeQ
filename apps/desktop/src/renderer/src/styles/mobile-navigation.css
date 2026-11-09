@@ -80,4 +80,9 @@
   .weq-web-shell[data-mobile-swiping][data-mobile-detail] .sidebar {
     visibility: visible;
   }
+
+  .weq-web-shell[data-mobile-swiping][data-mobile-detail]
+    .weq-mobile-navigation[aria-hidden='true'] {
+    visibility: visible;
+  }
 }
