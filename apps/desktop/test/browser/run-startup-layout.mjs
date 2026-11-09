@@ -72,6 +72,46 @@ try {
     await page.setViewportSize({ width, height });
     for (const theme of ['light', 'dark']) {
       await page.evaluate((theme) => window.startupQa.theme.getState().setPreference(theme), theme);
+      for (const status of ['restricted', 'entering', 'authorization']) {
+        await page.evaluate(
+          (status) =>
+            window.startupQa.restricted.setState({
+              enteringSince: status === 'entering' ? Date.now() : null,
+              requests:
+                status === 'authorization'
+                  ? [{ kind: 'password', token: 1, title: '管理员授权', message: '合成授权请求' }]
+                  : [],
+            }),
+          status,
+        );
+        const indicator = page.locator('.weq-restricted-indicator');
+        const dragOverlaps = await indicator.evaluate((button) => {
+          const box = button.getBoundingClientRect();
+          return [...document.querySelectorAll('*')]
+            .filter(
+              (element) =>
+                getComputedStyle(element).getPropertyValue('-webkit-app-region') === 'drag',
+            )
+            .filter((element) => {
+              const drag = element.getBoundingClientRect();
+              return (
+                drag.left < box.right &&
+                drag.right > box.left &&
+                drag.top < box.bottom &&
+                drag.bottom > box.top
+              );
+            })
+            .map((element) => element.className);
+        });
+        assert.deepEqual(dragOverlaps, [], '原生窗口拖动区不能覆盖受限模式按钮');
+        await indicator.click();
+        assert.equal(await page.evaluate(() => window.startupQa.restricted.getState().open), true);
+        await indicator.click();
+        assert.equal(await page.evaluate(() => window.startupQa.restricted.getState().open), false);
+      }
+      await page.evaluate(() =>
+        window.startupQa.restricted.setState({ enteringSince: null, requests: [] }),
+      );
       const log = page.getByRole('button', { name: '打开日志目录', exact: true });
       await log.click();
       await page.evaluate(() => {
@@ -158,7 +198,9 @@ try {
     'Web 手机端仍保留底栏避让',
   );
   assert.deepEqual(errors, []);
-  console.log('通过 8 组账号页尺寸与深浅主题检查：日志按钮、受限状态、底部操作栏及横幅。');
+  console.log(
+    '通过 8 组账号页尺寸与深浅主题检查：三种受限状态的拖动区隔离与点击、日志按钮、底部操作栏及横幅。',
+  );
 } finally {
   await browser?.close();
   await server.close();

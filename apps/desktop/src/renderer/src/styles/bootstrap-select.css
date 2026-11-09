@@ -498,6 +498,10 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
   width: 100%;
   padding: 28px 100px 20px 32px;
   border-bottom: 1px solid var(--weq-border-subtle);
+  -webkit-app-region: no-drag;
+}
+/* 页头与 Shell 工具栏重叠；Electron 的原生拖动命中不受 z-index 隔离。 */
+.weq-account-brand {
   -webkit-app-region: drag;
 }
 .weq-account-brand {
