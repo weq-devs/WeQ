@@ -54,12 +54,20 @@ export function useActiveFontFx(): FontFxSkin | null {
 }
 
 /** 广播生效挂件。必须包住 ForwardWindowHost（转发窗口里的头像同样要叠）。 */
-export function ActiveWidgetProvider({ children }: { children: ReactNode }): ReactElement {
+export function ActiveWidgetProvider({
+  accountOpen,
+  children,
+}: {
+  accountOpen: boolean;
+  children: ReactNode;
+}): ReactElement {
   const state = trpc.account.dressup.getState.useQuery(undefined, {
+    enabled: accountOpen,
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
-  const manifest = state.data?.manifest;
+  // 首页与切号过渡期间不读取账号，也不向常驻浮层广播缓存中的旧装扮。
+  const manifest = accountOpen ? state.data?.manifest : undefined;
   return (
     <ActiveWidgetContext.Provider
       value={{

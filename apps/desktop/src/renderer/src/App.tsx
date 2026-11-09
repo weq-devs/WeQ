@@ -206,7 +206,7 @@ export default function App(): ReactElement {
       <TextMarkdownProvider cacheScope={view === 'main' && !switching ? (openedUin ?? '') : ''}>
         <SelfPendantProvider accountOpen={view === 'main' && !switching}>
           {/* 生效挂件与自己的静态挂件同层级广播,也必须盖住转发窗口。 */}
-          <ActiveWidgetProvider>
+          <ActiveWidgetProvider accountOpen={view === 'main' && !switching}>
             {switching ? (
               <main className="weq-home-shell h-screen overflow-hidden font-sans text-[#142235]">
                 <WarmupSplash progress={switchProgress} hint={switchHint} />
