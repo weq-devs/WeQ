@@ -4,13 +4,13 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { prepareDevElectron } from './prepare-dev-electron.mjs';
 
 const run = promisify(execFile);
 
-async function fixture(t) {
+async function fixture(t, { signed = true } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'weq-dev-electron-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const source = join(directory, 'source/Electron.app');
@@ -23,13 +23,29 @@ async function fixture(t) {
 <plist version="1.0"><dict><key>CFBundleExecutable</key><string>Electron</string>
 <key>CFBundleIdentifier</key><string>app.weq.synthetic-dev</string></dict></plist>`,
   );
-  await run('/usr/bin/codesign', ['--force', '--sign', '-', source]);
-  const helper = join(source, 'Contents/Frameworks/fixture-helper');
-  await mkdir(join(source, 'Contents/Frameworks'));
-  await copyFile('/bin/echo', helper);
-  await run('/usr/bin/codesign', ['--force', '--sign', '-', helper]);
-  await run('/usr/bin/codesign', ['--force', '--sign', '-', source]);
-  return { executable, directory: join(directory, 'prepared'), platform: 'darwin' };
+  // 嵌套项用 .app 布局，`codesign --deep` 只对可识别的 bundle 递归签名。
+  const helper = join(source, 'Contents/Frameworks/Fixture Helper.app');
+  const helperExec = join(helper, 'Contents/MacOS/Fixture Helper');
+  await mkdir(dirname(helperExec), { recursive: true });
+  await copyFile('/bin/echo', helperExec);
+  await writeFile(
+    join(helper, 'Contents/Info.plist'),
+    `<?xml version="1.0"?>
+<plist version="1.0"><dict><key>CFBundleExecutable</key><string>Fixture Helper</string>
+<key>CFBundleIdentifier</key><string>app.weq.synthetic-dev.helper</string></dict></plist>`,
+  );
+  // 真实 Helper 都带 Resources；缺了 codesign 会因为"签名声明有资源"拒绝验证。
+  await mkdir(join(helper, 'Contents/Resources'), { recursive: true });
+  if (signed) {
+    await run('/usr/bin/codesign', ['--force', '--sign', '-', helper]);
+    await run('/usr/bin/codesign', ['--force', '--sign', '-', source]);
+  } else {
+    // /bin/echo 自带 Apple 平台签名，必须剥掉才能模拟"整包未签名"的发行物。
+    for (const path of [helperExec, executable]) {
+      await run('/usr/bin/codesign', ['--remove-signature', path]);
+    }
+  }
+  return { executable, source, directory: join(directory, 'prepared'), platform: 'darwin' };
 }
 
 test('开发入口先准备带调试权限的宿主，保留原开发账号目录参数', async () => {
@@ -55,9 +71,10 @@ test('真实系统签名补齐主进程权限，源文件保真，重复启动�
   const target = await prepareDevElectron(options);
   assert.notEqual(target, options.executable);
   assert.deepEqual(await readFile(options.executable), original);
+  const relativeHelper = 'Contents/Frameworks/Fixture Helper.app/Contents/MacOS/Fixture Helper';
   assert.deepEqual(
-    await readFile(join(options.directory, 'Electron.app/Contents/Frameworks/fixture-helper')),
-    await readFile(join(options.executable, '../../Frameworks/fixture-helper')),
+    await readFile(join(options.directory, 'Electron.app', relativeHelper)),
+    await readFile(join(options.source, relativeHelper)),
   );
   const { stdout } = await run('/usr/bin/codesign', ['-d', '--entitlements', '-', target]);
   assert.match(stdout, /com\.apple\.security\.cs\.debugger/);
@@ -123,6 +140,27 @@ test('损坏缓存重新准备；源二进制和权限清单变化均使缓存�
   );
   await prepareDevElectron({ ...options, entitlementPath });
   assert.notEqual((await stat(target)).ino, changed.ino);
+});
+
+test('未签名的发行物整包补签，嵌套 Helper 同样获得调试权限', {
+  skip: process.platform !== 'darwin',
+}, async (t) => {
+  const options = await fixture(t, { signed: false });
+  const target = await prepareDevElectron(options);
+  await run('/usr/bin/codesign', [
+    '--verify',
+    '--deep',
+    '--strict',
+    join(options.directory, 'Electron.app'),
+  ]);
+  const helper = join(
+    options.directory,
+    'Electron.app/Contents/Frameworks/Fixture Helper.app/Contents/MacOS/Fixture Helper',
+  );
+  for (const path of [target, helper]) {
+    const { stdout } = await run('/usr/bin/codesign', ['-d', '--entitlements', '-', path]);
+    assert.match(stdout, /com\.apple\.security\.cs\.debugger/);
+  }
 });
 
 test('未知应用及遗留锁不覆盖；签名失败清理本轮暂存并保留原缓存', {
