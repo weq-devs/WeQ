@@ -32,6 +32,15 @@ function run(command, args, { input } = {}) {
 }
 const debuggerKey = 'com.apple.security.cs.debugger';
 
+/** 解析依赖包的可执行入口。Windows 上 pnpm 只有 `.CMD`，spawn 找不到，故不经过 pnpm。 */
+async function resolveBin(specifier, binName) {
+  const packagePath = require.resolve(`${specifier}/package.json`);
+  const { bin } = JSON.parse(await readFile(packagePath, 'utf8'));
+  const entry = typeof bin === 'string' ? bin : bin?.[binName];
+  if (!entry) throw new Error(`找不到 ${specifier} 的可执行入口。`);
+  return join(dirname(packagePath), entry);
+}
+
 async function hash(path) {
   const digest = createHash('sha256');
   for await (const chunk of createReadStream(path)) digest.update(chunk);
@@ -189,11 +198,15 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     else {
       const env = { ...process.env, ELECTRON_EXEC_PATH: executable };
       delete env.ELECTRON_RUN_AS_NODE;
-      const child = spawn('pnpm', ['exec', 'electron-vite', 'dev', ...process.argv.slice(3)], {
-        cwd: desktop,
-        env,
-        stdio: 'inherit',
-      });
+      const child = spawn(
+        process.execPath,
+        [await resolveBin('electron-vite', 'electron-vite'), 'dev', ...process.argv.slice(3)],
+        {
+          cwd: desktop,
+          env,
+          stdio: 'inherit',
+        },
+      );
       child.on('error', (error) => {
         console.error(error.message);
         process.exitCode = 1;
