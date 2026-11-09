@@ -32,6 +32,8 @@ files:
   # 所以整包从 asar 里剔掉。
   - "!node_modules/onnxruntime-node/**"
 extraResources:
+  - from: out/main/imageWorker.mjs
+    to: out/main/imageWorker.mjs
   - from: out/main/backupProbeWorker.mjs
     to: out/main/backupProbeWorker.mjs
   - from: out/main/dbCheckupWorker.mjs

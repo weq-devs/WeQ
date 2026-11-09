@@ -2,6 +2,9 @@
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
 import { createImagePreviewer, PREVIEW_MAX_SIDE } from '../src/main/image_preview';
+import { setupImageWorker } from './support/image-worker';
+
+setupImageWorker();
 
 describe('受限图片预览', () => {
   it('大原图变成真实小图，不修改输入；透明、旋转和损坏输入有明确结果', async () => {

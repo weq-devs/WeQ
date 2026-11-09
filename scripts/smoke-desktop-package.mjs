@@ -179,7 +179,7 @@ async function probeWorker(name, plan, expected, params) {
       child.once('close', (code) => reject(new Error(`${name} 提前退出：${code} ${stderr}`)));
       child.send(params ?? { type: 'prepare', plan, parentPid: process.pid });
     });
-    assert.equal(message.type, expected, JSON.stringify(message));
+    if (expected !== undefined) assert.equal(message.type, expected, JSON.stringify(message));
     return message;
   } finally {
     clearTimeout(timer);
@@ -194,6 +194,17 @@ const transcription = await probeWorker('transcribeWorker.mjs', {}, 'final', {
 });
 assert.equal(transcription.text, '');
 console.log('PASS 转写 worker 实体启动、原生依赖加载及 IPC 往返（不下载模型）');
+const image = await probeWorker('imageWorker.mjs', {}, undefined, {
+  id: 1,
+  operation: 'preview',
+  input: png,
+  maxPixels: 100,
+  preserveAnimation: true,
+});
+assert.equal(image.id, 1);
+assert.ok(Buffer.isBuffer(image.result), JSON.stringify(image));
+assert.equal((await sharp(image.result).metadata()).format, 'webp');
+console.log('PASS 图片 worker 实体启动、解包依赖加载及真实缩图 IPC 往返');
 await probeWorker('storageCleanupWorker.mjs', {}, 'ready');
 if (process.platform === 'darwin') await probeWorker('macUpdateWorker.mjs', {}, 'error');
 console.log('PASS 备份/清理/更新 worker 依赖闭包（未提交任何操作）');

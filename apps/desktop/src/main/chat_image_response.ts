@@ -1,5 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
-import sharp from 'sharp';
+import { imageMetadata } from './image_processor';
 import { createImagePreviewer } from './image_preview';
 import { fileResponse } from './file_response';
 
@@ -38,9 +38,7 @@ export async function chatImageResponse(
       try {
         const info = await stat(path);
         if (info.size <= MAX_ANIMATED_BYTES) {
-          const metadata = await sharp(path, {
-            limitInputPixels: MAX_ANIMATED_FRAME_PIXELS,
-          }).metadata();
+          const metadata = await imageMetadata(path, MAX_ANIMATED_FRAME_PIXELS);
           const framePixels = (metadata.width ?? 0) * (metadata.pageHeight ?? metadata.height ?? 0);
           safeAnimation =
             framePixels > 0 &&
