@@ -247,7 +247,7 @@ export function WorkspaceTools({
     background: background.tasks.map((entry) => ({ ...entry.task, id: backgroundTaskId(entry) })),
   });
   useEffect(() => {
-    if (taskDataReady) syncTasks(accountScope, taskItems);
+    if (accountScope && taskDataReady) syncTasks(accountScope, taskItems);
   }, [accountScope, taskItems, taskDataReady, syncTasks]);
   useEffect(
     () => () => {
