@@ -42,6 +42,31 @@
   display: block;
 }
 
+.weq-graph-fit {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+}
+
+.weq-graph-fit:hover {
+  color: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-graph-fit:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
 /* ---- floating overlay (top-left of the canvas): mode + refresh + stat ---- */
 .weq-graph-overlay {
   position: absolute;

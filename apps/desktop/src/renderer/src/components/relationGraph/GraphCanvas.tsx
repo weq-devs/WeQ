@@ -1,15 +1,11 @@
 // @ts-nocheck
 import { useEffect, useRef, useState } from 'react';
-import * as d3 from 'd3';
+import type { Simulation } from 'd3';
+import { Scan } from 'lucide-react';
 import { usePrivacyStore } from '../../state/privacy';
 import { communityColor, SELF_ID } from './graphModel';
 import type { BuiltGraph, GNode } from './types';
-
-interface View {
-  scale: number;
-  x: number;
-  y: number;
-}
+import { createGraphSimulation, fitGraphView, type GraphView } from './graphLayout';
 
 export function GraphCanvas({
   graph,
@@ -25,12 +21,13 @@ export function GraphCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
 
-  const simulationRef = useRef<d3.Simulation<GNode, any> | null>(null);
+  const simulationRef = useRef<Simulation<GNode, undefined> | null>(null);
 
-  const viewRef = useRef<View>({ scale: 0.85, x: 0, y: 0 });
+  const viewRef = useRef<GraphView>({ scale: 1, x: 0, y: 0 });
   const sizeRef = useRef({ w: 0, h: 0, dpr: 1 });
   const imgCache = useRef<Map<string, HTMLImageElement>>(new Map());
-  const didInitViewRef = useRef(false);
+  const autoFitRef = useRef(true);
+  const graphKeyRef = useRef('');
   const drawRafRef = useRef(0);
 
   const hoverRef = useRef<GNode | null>(null);
@@ -43,10 +40,9 @@ export function GraphCanvas({
 
   const [hoverNode, setHoverNode] = useState<GNode | null>(null);
 
-  // draw / centerView 每次渲染都是新函数。effect 只该在 graph 变化（或挂载）时重跑，
-  // 所以通过 ref 转发取最新实现，而不是把它们当依赖。
+  // 动画与 ResizeObserver 通过 ref 使用最新渲染，不反复重建模拟。
   const drawRef = useRef<() => void>(() => {});
-  const centerViewRef = useRef<() => void>(() => {});
+  const fitViewRef = useRef<() => void>(() => {});
 
   // Coalesce redraws into one per frame — when many avatars finish loading at
   // once we don't want a draw() per image.
@@ -73,13 +69,18 @@ export function GraphCanvas({
     return null;
   }
 
-  function centerView(): void {
+  function fitView(): void {
     const { w, h } = sizeRef.current;
-    const s = viewRef.current.scale;
-    viewRef.current.x = (w / 2) * (1 - s);
-    viewRef.current.y = (h / 2) * (1 - s);
+    const wrap = wrapRef.current;
+    const overlay = wrap?.parentElement?.querySelector('.weq-graph-overlay');
+    const top =
+      overlay && wrap
+        ? overlay.getBoundingClientRect().bottom - wrap.getBoundingClientRect().top + 12
+        : 96;
+    viewRef.current = fitGraphView(simulationRef.current?.nodes() ?? [], w, h, top);
+    drawRef.current();
   }
-  centerViewRef.current = centerView;
+  fitViewRef.current = fitView;
 
   function screenToWorld(sx: number, sy: number): { x: number; y: number } {
     const v = viewRef.current;
@@ -101,63 +102,29 @@ export function GraphCanvas({
   }
 
   useEffect(() => {
-    const { w, h } = sizeRef.current;
     const prevSim = simulationRef.current;
-
-    if (prevSim) {
-      const prevNodes = new Map(prevSim.nodes().map((n) => [n.id, n]));
-      for (const n of graph.nodes) {
-        const p = prevNodes.get(n.id);
-        if (p && p.x != null && p.y != null) {
-          n.x = p.x;
-          n.y = p.y;
-          n.vx = p.vx;
-          n.vy = p.vy;
-        }
-      }
-      prevSim.stop();
+    const key = graph.nodes
+      .map((node) => `${node.kind}:${node.id}`)
+      .sort()
+      .join('|');
+    if (graphKeyRef.current !== key) {
+      graphKeyRef.current = key;
+      autoFitRef.current = true;
     }
-
-    // Mirror d3's default link strength (1 / min incident-degree) so person↔
-    // person clustering keeps its feel, but let an edge override it via
-    // `e.strength` — that's how the "me" hub and the intimacy pull work.
-    const degree = new Map<string, number>();
-    const bump = (id: string) => degree.set(id, (degree.get(id) ?? 0) + 1);
-    for (const e of graph.edges) {
-      bump(typeof e.source === 'object' ? e.source.id : e.source);
-      bump(typeof e.target === 'object' ? e.target.id : e.target);
-    }
-    const linkStrength = (e: any) => {
-      if (e.strength != null) return e.strength;
-      const s = typeof e.source === 'object' ? e.source.id : e.source;
-      const t = typeof e.target === 'object' ? e.target.id : e.target;
-      return 1 / Math.min(degree.get(s) ?? 1, degree.get(t) ?? 1);
-    };
-
-    const sim = d3
-      .forceSimulation<GNode>(graph.nodes)
-      .force(
-        'link',
-        d3
-          .forceLink(graph.edges)
-          .id((d: any) => d.id)
-          .distance((d: any) => d.dist)
-          .strength(linkStrength),
-      )
-      .force('charge', d3.forceManyBody().strength(-300))
-
-      .force(
-        'collide',
-        d3
-          .forceCollide<GNode>()
-          .radius((d) => d.radius + 3)
-          .iterations(2),
-      )
-      .force('center', d3.forceCenter(w / 2 || 400, h / 2 || 300));
-
-    sim.on('tick', () => drawRef.current());
-
+    prevSim?.stop();
+    const sim = createGraphSimulation(graph, prevSim?.nodes());
     simulationRef.current = sim;
+    let fitted = false;
+    sim.on('tick', () => {
+      if (!fitted && sim.alpha() < 0.18 && autoFitRef.current) {
+        fitted = true;
+        fitViewRef.current();
+      } else drawRef.current();
+    });
+    sim.on('end', () => {
+      if (autoFitRef.current) fitViewRef.current();
+    });
+    if (autoFitRef.current) fitViewRef.current();
 
     return () => {
       sim.stop();
@@ -185,13 +152,11 @@ export function GraphCanvas({
       canvas.style.width = `${rect.width}px`;
       canvas.style.height = `${rect.height}px`;
 
-      // 告诉 D3 物理中心变了
-      simulationRef.current?.force('center', d3.forceCenter(rect.width / 2, rect.height / 2));
-      simulationRef.current?.alpha(0.3).restart();
-
-      if (!didInitViewRef.current && rect.width > 0) {
-        didInitViewRef.current = true;
-        centerViewRef.current();
+      if (autoFitRef.current) fitViewRef.current();
+      else {
+        viewRef.current.x += (rect.width - previous.w) / 2;
+        viewRef.current.y += (rect.height - previous.h) / 2;
+        drawRef.current();
       }
     }
 
@@ -321,6 +286,7 @@ export function GraphCanvas({
   }, [privacy]);
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    autoFitRef.current = false;
     const rect = wrapRef.current!.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
@@ -332,7 +298,6 @@ export function GraphCanvas({
       const w = screenToWorld(sx, sy);
       hit.fx = w.x;
       hit.fy = w.y;
-      // 完美还原你 D3 demo 的手感，给系统注入持续活性能量
       simulationRef.current?.alphaTarget(0.3).restart();
     } else {
       panRef.current = { x: e.clientX, y: e.clientY };
@@ -393,12 +358,13 @@ export function GraphCanvas({
   }
 
   function onWheel(e: React.WheelEvent<HTMLDivElement>) {
+    autoFitRef.current = false;
     const rect = wrapRef.current!.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
     const v = viewRef.current;
     const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-    const next = Math.min(Math.max(v.scale * factor, 0.2), 4);
+    const next = Math.min(Math.max(v.scale * factor, 0.02), 4);
     const wx = (mx - v.x) / v.scale;
     const wy = (my - v.y) / v.scale;
     v.scale = next;
@@ -423,6 +389,21 @@ export function GraphCanvas({
       onWheel={onWheel}
     >
       <canvas ref={canvasRef} className="weq-graph-canvas" />
+      <button
+        className="weq-graph-fit"
+        type="button"
+        title="适应全部"
+        aria-label="适应全部"
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
+        onWheel={(event) => event.stopPropagation()}
+        onClick={() => {
+          autoFitRef.current = true;
+          fitView();
+        }}
+      >
+        <Scan size={18} />
+      </button>
       <div
         ref={tooltipRef}
         className="weq-graph-tooltip"

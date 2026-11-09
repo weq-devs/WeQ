@@ -1,0 +1,93 @@
+import { useMemo, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { GraphCanvas } from '../../src/renderer/src/components/relationGraph/GraphCanvas';
+import { buildGraph } from '../../src/renderer/src/components/relationGraph/graphModel';
+import type {
+  GraphSettings,
+  RelationGraphData,
+} from '../../src/renderer/src/components/relationGraph/types';
+import { useThemeStore } from '../../src/renderer/src/state/theme';
+import '../../src/renderer/src/styles/index.css';
+import '../../src/renderer/src/components/relationGraph/relationGraph.css';
+
+const settings: GraphSettings = {
+  mode: 'people',
+  nodeLimit: 100,
+  minCommon: 2,
+  friendsOnly: false,
+  intimacySize: true,
+  intimacyPull: false,
+  groupLevelSize: false,
+  groupLevelPull: false,
+  groupFilterMode: 'all',
+  groupFilter: [],
+  overlapGroupLimit: 30,
+  overlapThreshold: 3,
+  overlapDirection: 'large',
+  overlapSort: 'overlap',
+  showAvatars: false,
+  showValues: true,
+};
+const data: RelationGraphData = {
+  selfUin: '',
+  scannedGroups: 8,
+  builtAt: 0,
+  nodes: Array.from({ length: 200 }, (_, i) => ({
+    uid: `person-${i}`,
+    uin: '',
+    nick: `成员 ${i}`,
+    card: '',
+    groupCount: 2,
+    groupCodes: [`group-${Math.floor(i / 50) * 2}`, `group-${Math.floor(i / 50) * 2 + 1}`],
+    intimacy: i % 4 === 0 ? 1800 : 100,
+    isFriend: i % 3 === 0,
+  })),
+  groups: Array.from({ length: 8 }, (_, i) => ({
+    code: `group-${i}`,
+    name: `群聊 ${i}`,
+    memberCount: 50,
+    sharedCount: 50,
+    myLevel: 20,
+  })),
+};
+
+Object.assign(window, { relationLayoutQa: { theme: useThemeStore } });
+function Fixture() {
+  const [mode, setMode] = useState<'people' | 'groups'>('people');
+  const [sparse, setSparse] = useState(false);
+  const [limit, setLimit] = useState(100);
+  const graph = useMemo(() => {
+    const result = buildGraph(data, {
+      ...settings,
+      mode,
+      nodeLimit: limit,
+      minCommon: sparse ? 60 : 2,
+    });
+    for (const node of result.nodes) node.avatarUrl = null;
+    return result;
+  }, [mode, sparse, limit]);
+  return (
+    <section className="weq-graph-embed" style={{ height: '100dvh', gridTemplateRows: '1fr' }}>
+      <div className="weq-graph-stage">
+        <div className="weq-graph-overlay">
+          <div className="weq-graph-overlay-bar">
+            <button type="button" onClick={() => setMode(mode === 'people' ? 'groups' : 'people')}>
+              切换模式
+            </button>
+            <button type="button" onClick={() => setSparse(!sparse)}>
+              切换疏密
+            </button>
+            <button type="button" onClick={() => setLimit(limit === 100 ? 200 : 100)}>
+              切换数量
+            </button>
+          </div>
+          <span className="weq-graph-overlay-stat">
+            {graph.nodes.length} 节点 · {graph.edges.length} 连线
+          </span>
+        </div>
+        <GraphCanvas graph={graph} selectedId={null} onSelect={() => {}} />
+      </div>
+    </section>
+  );
+}
+createRoot(document.getElementById('root')!).render(<Fixture />);
