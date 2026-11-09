@@ -179,6 +179,38 @@ it.each([
     expected: '离开',
   },
   {
+    type: 50,
+    typeName: '忙碌',
+    subType: 0,
+    subTypeName: '',
+    displayStatus: '忙碌',
+    expected: '忙碌',
+  },
+  {
+    type: 70,
+    typeName: '勿扰',
+    subType: 0,
+    subTypeName: '',
+    displayStatus: '勿扰',
+    expected: '勿扰',
+  },
+  {
+    type: 40,
+    typeName: '隐身',
+    subType: 0,
+    subTypeName: '',
+    displayStatus: '隐身',
+    expected: '隐身',
+  },
+  {
+    type: 60,
+    typeName: 'Q我吧',
+    subType: 0,
+    subTypeName: '',
+    displayStatus: 'Q我吧',
+    expected: 'Q我吧',
+  },
+  {
     type: 10,
     typeName: '在线',
     subType: 1028,
@@ -271,6 +303,57 @@ it('会话标题为手机保留基础状态与自定义状态，桌面维持原�
   expect(host.querySelector('.chat-status-desktop')?.textContent).toBe('今天是晴天');
   expect(host.querySelector('.chat-status-mobile')?.textContent).toBe('在线·今天是晴天');
   expect(host.querySelector('.chat-status-mobile img')?.getAttribute('alt')).toBe('合成状态表情');
+});
+
+it.each(['self', 'peer'])('%s 状态变化后更新实际文案，缺失时不保留在线', async (target) => {
+  const uid = `u_${target}`;
+  const render = async () => {
+    await act(async () =>
+      root.render(
+        target === 'self'
+          ? createElement(MobileWebNavigation, { ...props, user: { ...props.user, uid } })
+          : createElement(ChatHeader, {
+              title: '合成联系人',
+              mobileStatus: createElement(OnlineStatus, {
+                uid,
+                showBaseStatus: true,
+                refetchInterval: 15_000,
+              }),
+              actions: null,
+              onBack: vi.fn(),
+            }),
+      ),
+    );
+  };
+  const selector = target === 'self' ? '.weq-mobile-online-status' : '.chat-status-mobile';
+  for (const [type, typeName] of [
+    [10, '在线'],
+    [0, '离线'],
+    [30, '离开'],
+    [50, '忙碌'],
+    [70, '勿扰'],
+    [40, '隐身'],
+    [60, 'Q我吧'],
+  ] as const) {
+    onlineStatusQuery.mockReturnValue({
+      data: { uid, type, typeName, subType: 0, subTypeName: '', displayStatus: typeName },
+    });
+    await render();
+    expect(host.querySelector(selector)?.textContent).toBe(typeName);
+  }
+  for (const data of [
+    null,
+    { uid, type: 999, typeName: '未知', displayStatus: '未知' },
+    { uid: 'u_other', type: 10, typeName: '在线', displayStatus: '在线' },
+  ]) {
+    onlineStatusQuery.mockReturnValue({ data });
+    await render();
+    expect(host.querySelector(selector)?.textContent ?? '').toBe('');
+  }
+  expect(onlineStatusQuery).toHaveBeenCalledWith(
+    { uid },
+    { refetchInterval: 15_000, refetchOnMount: 'always' },
+  );
 });
 
 it.each([0, 123])('消息汇总数为 %s 时再次点击消息入口仍可定位', async (messageBadgeCount) => {

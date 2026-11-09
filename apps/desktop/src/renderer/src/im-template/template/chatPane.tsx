@@ -5177,7 +5177,11 @@ export function ChatPane({
         }
         mobileStatus={
           !generated && conversation.type === 'direct' ? (
-            <OnlineStatus uid={conversation.otherUser.id} showBaseStatus />
+            <OnlineStatus
+              uid={conversation.otherUser.id}
+              showBaseStatus
+              refetchInterval={15_000}
+            />
           ) : null
         }
         actions={
