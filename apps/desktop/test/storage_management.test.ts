@@ -165,7 +165,7 @@ describe('WeQ 存储管理页面', () => {
       expect(first.querySelector('summary')?.textContent).toContain('历史数据库备份');
       expect(first.open).toBe(true);
       expect(first.textContent).toContain('已关联修复记录');
-      expect(host.textContent).toContain('本页占用 4.0 KB');
+      expect(host.textContent).toContain('本页占用 4 KB');
       expect(host.textContent).not.toContain('账号与应用配置');
       expect(host.textContent).not.toContain('历史闪传下载');
       await act(async () =>
@@ -447,8 +447,8 @@ describe('WeQ 存储管理页面', () => {
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
       expect(host.textContent).toContain('WeQ 存储管理');
-      expect(host.textContent).toContain('本页占用 3.0 KB');
-      expect(host.textContent).toContain('可清理 1.0 KB');
+      expect(host.textContent).toContain('本页占用 3 KB');
+      expect(host.textContent).toContain('可清理 1 KB');
       expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
       const readonly = host.querySelector<HTMLElement>('.is-readonly')!;
       const toolbar = host.querySelector('.weq-storage-toolbar')!;
@@ -492,7 +492,7 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
-      expect(host.textContent).toContain('本页占用 7.0 KB');
+      expect(host.textContent).toContain('本页占用 7 KB');
       expect(host.textContent).not.toContain('.DS_Store');
       expect(host.textContent).not.toContain('空缓存');
       const categories = [...host.querySelectorAll('.weq-storage-category')];
@@ -500,7 +500,7 @@ describe('WeQ 存储管理页面', () => {
       const persistent = categories.find((item) =>
         item.querySelector('summary')?.textContent?.includes('持久数据'),
       )!;
-      expect(persistent.querySelector('summary')?.textContent).toContain('6.0 KB');
+      expect(persistent.querySelector('summary')?.textContent).toContain('6 KB');
       expect(persistent.querySelectorAll('.is-readonly')).toHaveLength(2);
       expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
     } finally {

@@ -103,15 +103,20 @@ it('统计内容聚焦后 Escape 不清空记忆选择，也不拦住外层关�
   const view = mount();
   try {
     await tick();
-    const option = [...view.host.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent === '私聊')!;
+    const option = [...view.host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (item) => item.textContent === '私聊',
+    )!;
     act(() => option.focus());
     const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
-    act(() => option.dispatchEvent(event)); await tick();
+    act(() => option.dispatchEvent(event));
+    await tick();
     expect(event.defaultPrevented).toBe(false);
     expect(option.getAttribute('aria-pressed')).toBe('true');
     expect(fixture.poll.mock.lastCall?.[0].kinds).toContain('c2c');
     expect(fixture.start).toHaveBeenCalledTimes(1);
-  } finally { view.close(); }
+  } finally {
+    view.close();
+  }
 });
 it('空选择不显示零条完成或满进度，重新选择后在同一任务中获取', async () => {
   setCalendarKinds([]);

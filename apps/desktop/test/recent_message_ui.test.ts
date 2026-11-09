@@ -26,16 +26,19 @@ import { MemberProfileCard } from '../src/renderer/src/components/MemberProfileC
 import { Modal } from '../src/renderer/src/components/Dialog';
 import { WorkspaceContent, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
+import { useViewState } from '../src/renderer/src/state/view';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
     new Proxy(() => proxy(), {
       get: (_target, key) =>
-        key === 'useQuery'
-          ? () => ({ data: undefined, isLoading: false })
-          : key === 'useMutation'
-            ? () => ({ mutate: vi.fn(), isLoading: false })
-            : proxy(),
+        key === 'getAccountConfig'
+          ? { useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }) }
+          : key === 'useQuery'
+            ? () => ({ data: undefined, isLoading: false })
+            : key === 'useMutation'
+              ? () => ({ mutate: vi.fn(), isLoading: false })
+              : proxy(),
     });
   return { trpc: proxy(), client: proxy() };
 });
@@ -689,6 +692,8 @@ describe('新增消息交互', () => {
     }
   });
   it('联系人搜索、多选、刷新在通知上方同一工具行，点击用高亮选择不打开名片', () => {
+    const previousUin = useViewState.getState().openedUin;
+    useViewState.setState({ openedUin: '10001' });
     const fixture = mount();
     const demo = createTemplateDemoData();
     const refresh = vi.fn(),
@@ -726,6 +731,7 @@ describe('新增消息交互', () => {
       fixture.render(h(Contacts));
       const tools = fixture.host.querySelector('.contact-tools')!;
       expect(tools.firstElementChild?.classList.contains('weq-directory-toolbar')).toBe(true);
+      expect(button(fixture.host, '刷新联系人列表').disabled).toBe(false);
       act(() => button(fixture.host, '刷新联系人列表').click());
       expect(refresh).not.toHaveBeenCalled();
       act(() => button(document, '不更新').click());
@@ -746,6 +752,7 @@ describe('新增消息交互', () => {
       expect(fixture.host.querySelector('[aria-label="多选联系人"]')).toBeNull();
     } finally {
       fixture.close();
+      useViewState.setState({ openedUin: previousUin });
     }
   });
   it('QQ 动态说说卡片识别真实 schema 并内部定位，不只支持 Ark 链接', () => {

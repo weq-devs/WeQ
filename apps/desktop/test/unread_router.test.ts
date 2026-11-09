@@ -26,6 +26,7 @@ vi.mock('../src/main/context/app_context', async () => {
     },
   };
   return {
+    accountEventBus: new EventEmitter(),
     dbEventBus: new EventEmitter(),
     getAppContext: () => ({
       account: { context: { uin: fixture.uin } },

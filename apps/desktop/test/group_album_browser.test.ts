@@ -104,6 +104,7 @@ function picture(id: string, kind: 'image' | 'video' = 'image') {
 let dispose: (() => void) | undefined;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: false }));
   useViewState.setState({ openedUin: '10001' });
   state.configId = 'source-a';
   state.web = false;

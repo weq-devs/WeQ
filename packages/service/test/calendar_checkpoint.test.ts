@@ -201,10 +201,18 @@ it('整月重试不清空已完成数量，检查点恢复后仍能展示已算�
 });
 it('暂停当月不停止当前日，当前日完成后不自动扩展到其他日期', async () => {
   const count = vi.fn(async () => 0);
-  const page = vi.fn(async (_s: number, _e: number, cursor: unknown): Promise<CalendarBatch> => ({ rows: [row(cursor ? '2' : '1')], cursor: 1, done: Boolean(cursor) }));
+  const page = vi.fn(
+    async (_s: number, _e: number, cursor: unknown): Promise<CalendarBatch> => ({
+      rows: [row(cursor ? '2' : '1')],
+      cursor: 1,
+      done: Boolean(cursor),
+    }),
+  );
   const job = make({ kind: 'c2c', count, page });
-  job.keepAlive(day); await vi.advanceTimersByTimeAsync(0);
-  job.control('month', 'pause'); await finish(job);
+  job.keepAlive(day);
+  await vi.advanceTimersByTimeAsync(0);
+  job.control('month', 'pause');
+  await finish(job);
   expect(page).toHaveBeenCalledTimes(2);
   expect(count).not.toHaveBeenCalled();
   expect(job.snapshot(day).rows[0]?.count).toBe(2);

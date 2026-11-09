@@ -93,7 +93,14 @@ vi.mock('../src/renderer/src/trpc/client', () => {
       },
     },
     trpc: {
+      useUtils: () => ({
+        account: { contactMetrics: { snapshot: { invalidate: vi.fn() } } },
+      }),
       account: {
+        contactMetrics: {
+          snapshot: { useQuery: () => ({ data: undefined }) },
+          changed: { useSubscription: vi.fn() },
+        },
         getProfileByUin: {
           useQuery: ({ uin }: { uin: string }) => ({
             data: state.profiles.find((row) => row.uin === uin),

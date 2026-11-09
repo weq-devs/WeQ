@@ -303,19 +303,19 @@ import {
   ConversationDirectoryContext,
   ContactDirectoryContext,
   guildConversationRow,
-} from '../lib/conversationDirectory';
   virtualConversationRow,
+} from '../lib/conversationDirectory';
 import { displayGroupName, displayUserName } from '../im-template/template/user';
 import { isDatalineUid } from '@weq/codec';
 import type { CalendarTarget as OverviewCalendarTarget } from '@weq/service/conversation-calendar';
 import { ConversationOverviewCalendar } from '../components/ConversationOverviewCalendar';
 import { CalendarNavigationContext, type CalendarNavigate } from '../lib/calendarNavigation';
 import { conversationListSearchText } from '../lib/conversationListSearchText';
+import { calendarCloneRevision } from '../lib/calendarSourceRevision';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
 import { WorkspaceTools } from '../components/WorkspaceTools';
 import type { AppSearchEntry, ToolSearchRequest } from '../components/search/appSearchCatalog';
 import type { DressKind } from '../components/DressUpDialog';
-import { calendarCloneRevision } from '../lib/calendarSourceRevision';
 import type { SettingsSearchTarget } from '../components/settings/searchTarget';
 import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
 import { displayGroupMemberName } from '../im-template/template/user';
@@ -2638,8 +2638,8 @@ function MainWorkspace(): ReactElement {
     kind: 'official' | 'service';
     conversationId: string;
     title: string;
-  } | null>(null);
     anchorId?: string;
+  } | null>(null);
 
   // Seq-window message model: a single ASC (oldest→newest) list for the open
   // conversation, plus whether it still reaches the latest message and whether
@@ -2879,17 +2879,17 @@ function MainWorkspace(): ReactElement {
   }, [messageActivity.enabled, messageActivity.revision, refreshWindow]);
 
   const [unreadRevision, setUnreadRevision] = useState(0);
-
   const [calendarDataRevision, setCalendarDataRevision] = useState(0);
   const calendarOpenRef = useRef(false);
+
   useEffect(() => {
     const binding = messageBindingRef.current;
     if (!messageScope || !binding) return;
     const sub = client.account.onRoamingMessages.subscribe(binding, {
       onData(change) {
         if (messageScopeRef.current !== messageScope) return;
-        conversationWindows.markDirty(
         if (calendarOpenRef.current) setCalendarDataRevision((revision) => revision + 1);
+        conversationWindows.markDirty(
           conversationWindowKey(messageScope, change.kind, change.conv),
         );
         // WeQ 发送缓存不会改 QQ 库，也就不会触发 onDbChanged。
@@ -5712,8 +5712,7 @@ function MainWorkspace(): ReactElement {
           rows
             .filter(
               (row) =>
-                row.countPending &&
-                countCache.needsCount(row, databaseRevision, guard.accepts),
+                row.countPending && countCache.needsCount(row, databaseRevision, guard.accepts),
             )
             .map((row) => ({
               chatType: row.chatType as Target['chatType'],
@@ -11200,6 +11199,7 @@ function MainWorkspace(): ReactElement {
                   {shell.view === 'messages' && arkFeedState ? (
                     <ArkFeedView
                       conversationId={arkFeedState.conversationId}
+                      anchorId={arkFeedState.anchorId}
                       title={arkFeedState.title}
                       onBack={() => {
                         setArkFeedState(null);
@@ -11225,7 +11225,6 @@ function MainWorkspace(): ReactElement {
                         createRequest={cloneCreateRequest}
                         openGroupRequest={cloneGroupRequest}
                         embedded
-                      anchorId={arkFeedState.anchorId}
                         onBackToDirectory={() => {
                           setVirtualOpen(null);
                           shell.backConversation();
@@ -12090,32 +12089,6 @@ function MainWorkspace(): ReactElement {
               }}
             />
           ) : null}
-          {chatRecordsTarget ? (
-            <ChatRecordsModal
-              initialHit={chatRecordsTarget.hit}
-              initialKeyword={chatRecordsTarget.keyword}
-              fixed={chatRecordsTarget.fixed}
-              renderers={messageRenderers}
-              onClose={() => setChatRecordsTarget(null)}
-              onJumpMessage={({ source, targetUid, msgSeq }) =>
-                jumpToConvSeq(source === 'group' ? 'group' : 'c2c', targetUid, msgSeq)
-              }
-            />
-          ) : null}
-        </ConvContext.Provider>
-      </ForwardKindContext.Provider>
-    </ReplyJumpContext.Provider>
-  );
-  return (
-    <ContactWorkspaceNavigationContext.Provider
-      value={(target) => {
-        if (shell.view === 'messages') flushAllDirtyDrafts();
-        setMemberCard(null);
-        setPrivatePreview(null);
-        setArkFeedState(null);
-        setSurfaceNavigation((value) => value + 1);
-        if (target.kind === 'person') {
-          const contact = profileContacts.find(
           {overviewCalendar ? (
             <ConversationOverviewCalendar
               targets={overviewCalendarTargets}
@@ -12154,6 +12127,32 @@ function MainWorkspace(): ReactElement {
               onLocate={locateCalendarMessage}
             />
           ) : null}
+          {chatRecordsTarget ? (
+            <ChatRecordsModal
+              initialHit={chatRecordsTarget.hit}
+              initialKeyword={chatRecordsTarget.keyword}
+              fixed={chatRecordsTarget.fixed}
+              renderers={messageRenderers}
+              onClose={() => setChatRecordsTarget(null)}
+              onJumpMessage={({ source, targetUid, msgSeq }) =>
+                jumpToConvSeq(source === 'group' ? 'group' : 'c2c', targetUid, msgSeq)
+              }
+            />
+          ) : null}
+        </ConvContext.Provider>
+      </ForwardKindContext.Provider>
+    </ReplyJumpContext.Provider>
+  );
+  return (
+    <ContactWorkspaceNavigationContext.Provider
+      value={(target) => {
+        if (shell.view === 'messages') flushAllDirtyDrafts();
+        setMemberCard(null);
+        setPrivatePreview(null);
+        setArkFeedState(null);
+        setSurfaceNavigation((value) => value + 1);
+        if (target.kind === 'person') {
+          const contact = profileContacts.find(
             (person) =>
               person.id === target.contact.id ||
               (person.identityLabel === 'QQ' &&
@@ -12274,6 +12273,7 @@ function MainWorkspace(): ReactElement {
                     readStateBusy,
                     onVisibleConversations: prefetchVisible,
                     onConversationIntent: prefetchIntent,
+                    onCalendar: (query) => setOverviewCalendar({ query }),
                     onVirtual: (item) => {
                       flushAllDirtyDrafts();
                       setCloneSearchTarget(null);
@@ -12300,7 +12300,6 @@ function MainWorkspace(): ReactElement {
                                 ...specialContactSections.flatMap((section) => section.items),
                                 ...historicalContactSections.flatMap((section) => section.items),
                               ]
-                    onCalendar: (query) => setOverviewCalendar({ query }),
                                 .filter(
                                   (contact) =>
                                     !contactDirectoryQuery ||

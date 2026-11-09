@@ -37,10 +37,19 @@ function sourceHandler<T>(relative: string, name: string, context: Record<string
 }
 
 function searchHandler(context: Record<string, unknown>) {
+  const openAppSearchEntryNow = sourceHandler<(entry: AppSearchEntry) => void>(
+    '../src/renderer/src/views/MainView.tsx',
+    'openAppSearchEntryNow',
+    context,
+  );
   return sourceHandler<(entry: AppSearchEntry) => void>(
     '../src/renderer/src/views/MainView.tsx',
     'openAppSearchEntry',
-    context,
+    {
+      settingsNavigation: { navigate: (action: () => void) => action() },
+      ...context,
+      openAppSearchEntryNow,
+    },
   );
 }
 
@@ -56,6 +65,17 @@ function navigationContext() {
 }
 
 describe('功能搜索实际导航', () => {
+  it('导航确认未放行时不切换工具或清除设置现场', () => {
+    const context = {
+      ...navigationContext(),
+      settingsNavigation: { navigate: vi.fn() },
+      setToolSearchRequest: vi.fn(),
+    };
+    searchHandler(context)(searchAppEntries('群文件导出')[0]!);
+    expect(context.settingsNavigation.navigate).toHaveBeenCalledOnce();
+    expect(context.setToolSearchRequest).not.toHaveBeenCalled();
+    expect(context.setSettingsOpen).not.toHaveBeenCalled();
+  });
   it('群搜索进入临时会话时分别保留真实群名和备注，供群名片使用', () => {
     const setTemporaryConversations = vi.fn();
     const jumpToConvSeq = vi.fn();
