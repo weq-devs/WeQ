@@ -26,7 +26,7 @@ it('日历日志按需读取且按账号数据源隔离，普通任务列表不�
   ).rejects.toThrow('失效');
 });
 
-it('复用导出日志的最近五行与级别样式，完整回执保留全部有界记录及北京时间', () => {
+it('复用导出日志的最近五行与级别样式及北京时间，不显示完整日志入口', () => {
   const lines = Array.from({ length: 8 }, (_, seq) => ({
     ts: 0,
     seq,
@@ -39,7 +39,7 @@ it('复用导出日志的最近五行与级别样式，完整回执保留全部�
     createElement(TaskLogConsole, { lines, collapsed: false, history: true }),
   );
   expect(host.querySelectorAll('.weq-exp-log-line')).toHaveLength(5);
-  expect(host.querySelectorAll('.weq-task-log-history li')).toHaveLength(8);
+  expect(host.querySelector('.weq-task-log-history')).toBeNull();
   expect(host.querySelector('.weq-exp-log-time')?.textContent).toBe('08:00:00.000');
   expect(host.querySelector('.weq-exp-log-line')?.className).toContain('is-warn');
 });
