@@ -59,18 +59,24 @@ try {
     ['system', 390, 'dots', '#000000'],
     ['light', 1280, 'wash', '#8b5cf6'],
     ['dark', 390, 'telegram', '#73cab8'],
+    ['light', 1280, 'plain', '#075c30', true],
+    ['dark', 800, 'grid', '#fff3a1', true],
+    ['light', 320, 'plain', '#075c30', true],
   ];
-  for (const [theme, width, background, accent] of cases) {
+  for (const [theme, width, background, accent, fullWidth] of cases) {
     await page.setViewportSize({ width, height: 900 });
     await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
     await page.evaluate(
-      ({ theme, background, accent }) => {
+      ({ theme, background, accent, fullWidth }) => {
         const store = window.relationshipQa.store.getState();
         store.setAccent(accent);
         store.setBackground(background);
         store.setPreference(theme);
+        document.querySelector('.relationship-grid').style.gridTemplateColumns = fullWidth
+          ? 'minmax(0, 1fr)'
+          : '';
       },
-      { theme, background, accent },
+      { theme, background, accent, fullWidth },
     );
     const result = await page.evaluate(() => {
       const badges = [...document.querySelectorAll('.weq-relationship-status')];
@@ -99,7 +105,21 @@ try {
         const badge = title.querySelector('.weq-relationship-status')?.getBoundingClientRect();
         return name && badge && name.right > badge.left + 1;
       });
+      const actions = [
+        ...document.querySelectorAll(
+          '.weq-contact-identity > .weq-contact-identity-actions, .weq-contact-identity > .weq-profile-actions',
+        ),
+      ];
+      const misalignedActions = actions.filter((action) => {
+        const bounds = action.getBoundingClientRect();
+        const header = action.parentElement.getBoundingClientRect();
+        const buttons = [...action.querySelectorAll('button')];
+        const right = Math.max(...buttons.map((button) => button.getBoundingClientRect().right));
+        return Math.abs(bounds.right - header.right) > 1 || Math.abs(right - header.right) > 1;
+      });
       return {
+        actionGroups: actions.length,
+        misalignedActions: misalignedActions.length,
         clipped: clipped.length,
         wrongColor,
         overlapping,
@@ -112,6 +132,8 @@ try {
       result.wrongColor ||
       result.overlapping ||
       result.overflow ||
+      result.actionGroups !== 5 ||
+      result.misalignedActions ||
       !['friend', 'nonfriend', 'member', 'nonmember'].every((state) =>
         result.states.includes(state),
       )
@@ -119,7 +141,7 @@ try {
       throw new Error(`${theme}/${width}/${background}: ${JSON.stringify(result)}`);
     if (output)
       await page.screenshot({
-        path: resolve(output, `${theme}-${width}-${background}.png`),
+        path: resolve(output, `${theme}-${width}-${background}${fullWidth ? '-full' : ''}.png`),
         fullPage: true,
       });
     console.log(`PASS ${theme}/${width}/${background}`);

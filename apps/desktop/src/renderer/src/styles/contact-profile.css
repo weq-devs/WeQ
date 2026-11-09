@@ -344,6 +344,12 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
   margin: 0;
 }
 
+.weq-contact-identity-actions,
+.weq-contact-identity > .weq-profile-actions {
+  justify-content: flex-end;
+  margin-inline-start: auto;
+}
+
 .weq-contact-identity .weq-profile-perhome {
   flex: 0 1 auto;
   min-height: 34px;
