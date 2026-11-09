@@ -33,8 +33,15 @@
 }
 
 .weq-intent-pill {
-  display: inline-flex;
+  display: inline-grid;
+  grid-template-columns: 11px auto;
   align-items: center;
+  justify-content: center;
+  justify-items: center;
+  box-sizing: border-box;
+  width: 52px;
+  height: 21px;
+  flex-shrink: 0;
   gap: 3px;
   padding: 1px 7px;
   border-radius: 999px;
@@ -159,7 +166,6 @@ html[data-theme='dark'] .weq-intent-pill[data-emotion='embarrassed'] {
 
 /* 分析中的 shimmer 占位胶囊（同 .skel-block 的高光手法）。 */
 .weq-intent-pill.is-loading {
-  min-width: 58px;
   color: transparent !important;
   background: color-mix(in srgb, var(--weq-fg-muted) 14%, transparent);
   border-color: color-mix(in srgb, var(--weq-fg-muted) 26%, transparent);

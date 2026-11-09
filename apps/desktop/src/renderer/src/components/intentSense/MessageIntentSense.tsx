@@ -106,8 +106,8 @@ function IntentPill({
 }
 
 /** 分析中的 shimmer 占位（只给常驻行用）。 */
-function IntentPillLoading({ width }: { width: number }) {
-  return <span className="weq-intent-pill is-loading" style={{ minWidth: width }} aria-hidden />;
+function IntentPillLoading() {
+  return <span className="weq-intent-pill is-loading" aria-hidden />;
 }
 
 /** 一对胶囊：意图 + 情绪。 */
@@ -337,8 +337,8 @@ export function MessageIntentSense({
           （引擎不可用 / 纯媒体消息 / 分析失败都不再永挂 shimmer）。 */}
       {persistentDisplay && analyzable !== false && !result && pending && !unavailable ? (
         <span className="weq-intent-chips">
-          <IntentPillLoading width={52} />
-          <IntentPillLoading width={40} />
+          <IntentPillLoading />
+          <IntentPillLoading />
         </span>
       ) : null}
       {persistentDisplay && result ? (
