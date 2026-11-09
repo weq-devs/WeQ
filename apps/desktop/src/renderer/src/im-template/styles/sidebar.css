@@ -196,31 +196,6 @@
   margin: 16px 18px 0;
 }
 
-.contact-tools > button {
-  display: flex;
-  min-height: 38px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--weq-bg-surface, #f8f8f8) 88%, var(--weq-bg-app, #f8f8f8));
-  color: var(--weq-fg-secondary, #555555);
-  font-size: 15px;
-  font-weight: 400;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.contact-tools > button:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
-}
-
-.contact-tools > button.active {
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-  color: var(--weq-accent-effective, #0099f7);
-}
-
 .notice-entry-label {
   display: inline-flex;
   min-width: 0;
@@ -233,8 +208,8 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 4px;
-  margin: 16px 18px 0;
-  padding: 4px;
+  margin: 8px 12px 0;
+  padding: 3px;
   border-radius: 7px;
   border: 0;
   background: color-mix(in srgb, var(--weq-bg-surface, #f3f3f3) 82%, var(--weq-bg-app, #f3f3f3));
@@ -248,19 +223,39 @@
 }
 
 .contact-tab-switch button {
-  min-height: 32px;
+  min-height: 28px;
   border: 0;
   border-radius: 5px;
   background: transparent;
   color: var(--weq-fg-secondary, #777777);
-  font-size: 15px;
+  font: inherit;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.contact-tab-switch button:hover:not(.active) {
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+  color: var(--weq-fg-primary);
 }
 
 .contact-tab-switch button.active {
-  background: var(--card, #ffffff);
-  color: var(--weq-accent-effective, #0099f7);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
+}
+
+.contact-tab-switch button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .contact-tab-switch button {
+    transition: none;
+  }
 }
 
 .sidebar-body {
@@ -314,20 +309,20 @@
   padding: 0 16px;
   border: 0;
   background: transparent;
-  color: #6a7d90;
-  font-size: 12.5px;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   user-select: none;
 }
 
 .contact-cat-header:hover {
-  color: #21384f;
+  color: var(--weq-fg-primary);
 }
 
 .contact-cat-caret {
   flex: none;
-  color: #9aa3ad;
+  color: var(--weq-fg-muted);
   transition: transform 160ms ease;
 }
 
@@ -345,7 +340,7 @@
 
 .contact-cat-count {
   flex: none;
-  color: #9aa3ad;
+  color: var(--weq-fg-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
@@ -358,12 +353,16 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 16px 8px 37px;
-  color: var(--weq-text-muted, #9aa3ad);
+  margin: 2px 12px 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--destructive) 8%, transparent);
+  color: var(--weq-fg-secondary);
 }
 
 .contact-cat-description small {
-  font-size: 11px;
+  font-size: 11.5px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
@@ -390,19 +389,6 @@
 .contact-list-controls .contact-tab-switch {
   flex: 1;
   min-width: 0;
-}
-
-html[data-theme='dark'] .contact-cat-header {
-  color: #8b95a1;
-}
-
-html[data-theme='dark'] .contact-cat-header:hover {
-  color: #dfe2e7;
-}
-
-html[data-theme='dark'] .contact-cat-caret,
-html[data-theme='dark'] .contact-cat-count {
-  color: #6f7884;
 }
 
 .conversation-row,
