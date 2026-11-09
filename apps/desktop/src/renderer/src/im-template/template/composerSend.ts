@@ -23,6 +23,8 @@
 
 import { parseMessageParts, type EmojiItem } from './emojiPacks';
 import { tokenToElement } from './draftElements';
+import { repeatNeedsStickerCatalog, repeatSendPlan } from '../../lib/messageRepeat';
+import { plainElementText } from '@weq/service/message-plain-text';
 
 /**
  * 一个待发送的本地媒体句柄。
@@ -83,6 +85,21 @@ export function planNeedsLocalMedia(body: string): boolean {
     if (kind === 'pic' || kind === 'video' || kind === 'ptt' || kind === 'file') return true;
   }
   return false;
+}
+
+/** 复制来的超级／随机表情仍需原贴纸目录，不降级为普通小黄脸。 */
+export function composerNeedsStickerCatalog(body: string): boolean {
+  return (
+    body.includes(':big') ||
+    parseMessageParts(body).some((part) => {
+      if (part.type !== 'element') return false;
+      const element = tokenToElement(part.raw) as Record<string, unknown> | null;
+      return (
+        element?.weqCopiedElement === true &&
+        repeatNeedsStickerCatalog([{ type: String(element.kind), data: element }])
+      );
+    })
+  );
 }
 
 /**
@@ -185,7 +202,13 @@ function mapEmoji(item: EmojiItem, superStickers: Map<string, SuperStickerEntry>
 function mapWireElement(
   element: Record<string, unknown>,
   localByKey: Map<string, LocalMediaRef>,
+  superStickers: Map<string, SuperStickerEntry>,
 ): ComposerSendPlan | unknown {
+  if (element.weqCopiedElement === true) {
+    const { kind, weqCopiedElement: _copied, ...data } = element;
+    const plan = repeatSendPlan([{ type: String(kind), data }], superStickers, false);
+    return plan.kind === 'elements' ? plan.elements[0] : plan;
+  }
   switch (element.kind) {
     case 'text':
     case 'at':
@@ -325,7 +348,7 @@ export function buildComposerSendPlan(input: {
       elements.push({ kind: 'text', textContent: part.raw });
       continue;
     }
-    const mapped = mapWireElement(element, localByKey);
+    const mapped = mapWireElement(element, localByKey, input.superStickers);
     if (isPlan(mapped)) return mapped;
     elements.push(mapped);
   }
@@ -537,7 +560,16 @@ function renderElementOf(
   element: Record<string, unknown>,
   localByKey: Map<string, LocalMediaRef>,
 ): (Record<string, unknown> & { text?: string }) | null {
+  if (element.weqCopiedElement === true) {
+    const { kind, weqCopiedElement: _copied, ...data } = element;
+    return { type: String(kind), data, text: plainElementText({ type: String(kind), data }) };
+  }
   switch (element.kind) {
+    case 'ark':
+    case 'markdown': {
+      const { kind, ...data } = element;
+      return { type: String(kind), data, text: plainElementText({ type: String(kind), data }) };
+    }
     case 'text':
       return {
         type: 'text',

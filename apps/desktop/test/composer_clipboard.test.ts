@@ -18,6 +18,8 @@ import {
   attachmentToken,
   type ComposerAttachment,
 } from '../src/renderer/src/im-template/template/composerMedia';
+import { originalMessageClipboard } from '../src/renderer/src/lib/originalMessageClipboard';
+import * as originalClipboard from '../src/renderer/src/lib/originalMessageClipboard';
 
 const systemClipboard = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
 vi.mock('../src/renderer/src/lib/mediaExport', () => ({ exportMedia: systemClipboard }));
@@ -192,3 +194,135 @@ it.each([
     }
   },
 );
+
+it('整条引用与卡片粘贴为原始草稿，引用显示在引用条，粘贴不会发送或替换现有正文', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  const demo = createTemplateDemoData();
+  const conversation = demo.conversations[0]!;
+  const card = {
+    type: 'ark',
+    data: { arkData: '{"app":"synthetic.app","meta":{"news":{"title":"合成卡片"}}}' },
+  };
+  const value = originalMessageClipboard(
+    [
+      {
+        createdAt: '2026-11-09T10:00:00+08:00',
+        body: '答复',
+        qqElements: [
+          {
+            type: 'reply',
+            data: {
+              origMsgSeq: 17,
+              origSenderName: '原作者',
+              origElements: [{ type: 'text', data: { textContent: '原话' } }],
+            },
+          },
+          { type: 'text', data: { textContent: '答复' } },
+          card,
+        ],
+      },
+    ],
+    { account: demo.user.identityValue, conversation: conversation.id },
+    { text: '> 原话\n答复\n[卡片]', html: '' },
+  );
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const send = vi.fn();
+  try {
+    await act(async () =>
+      root.render(
+        h(ChatPane, {
+          user: demo.user,
+          conversation,
+          messages: [],
+          draft: '已有正文',
+          loading: false,
+          onDraftChange: vi.fn(),
+          onBack: vi.fn(),
+          onSend: send,
+        }),
+      ),
+    );
+    const editor = host.querySelector<HTMLDivElement>('.composer-editor')!;
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    const data = new DataTransfer();
+    data.setData('text/plain', value.text);
+    data.setData('text/html', value.html);
+    const paste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', { value: data });
+    await act(async () => editor.dispatchEvent(paste));
+    expect(paste.defaultPrevented).toBe(true);
+    expect(composerTextToElements(serializeComposer(editor))).toEqual([
+      { kind: 'text', textContent: '已有正文答复' },
+      { kind: 'ark', arkData: card.data.arkData },
+    ]);
+    expect(host.querySelector('[aria-label="待发送的引用"]')?.textContent).toContain('原作者原话');
+    expect(send).not.toHaveBeenCalled();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('异步粘贴期间继续输入不会覆盖新正文，未插入的预览会释放', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  const demo = createTemplateDemoData();
+  const conversation = demo.conversations[0]!;
+  const value = originalMessageClipboard(
+    [{ body: '复制内容', createdAt: conversation.updatedAt }],
+    { account: demo.user.identityValue, conversation: conversation.id },
+    { text: '复制内容', html: '' },
+  );
+  let finish!: (
+    draft: Awaited<ReturnType<typeof originalClipboard.prepareOriginalMessageClipboard>>,
+  ) => void;
+  vi.spyOn(originalClipboard, 'prepareOriginalMessageClipboard').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const revoke = vi.spyOn(URL, 'revokeObjectURL');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        h(ChatPane, {
+          user: demo.user,
+          conversation,
+          messages: [],
+          draft: '',
+          loading: false,
+          onDraftChange: vi.fn(),
+          onBack: vi.fn(),
+        }),
+      ),
+    );
+    const editor = host.querySelector<HTMLDivElement>('.composer-editor')!;
+    const data = new DataTransfer();
+    data.setData('text/plain', value.text);
+    data.setData('text/html', value.html);
+    const paste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', { value: data });
+    await act(async () => editor.dispatchEvent(paste));
+    await act(async () => {
+      editor.textContent = '后续输入';
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      finish({ body: '复制内容', locals: [], objectUrls: ['blob:unused-paste'] });
+    });
+    expect(serializeComposer(editor)).toBe('后续输入');
+    expect(revoke).toHaveBeenCalledWith('blob:unused-paste');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});

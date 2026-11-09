@@ -211,7 +211,12 @@ import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
 import { chatHeaderTitle, isBotConversation, resolveMessageSender } from './conversationDisplay';
 import { createEmojiToken, parseMessageParts } from './emojiPacks';
 import type { EmojiItem } from './emojiPacks';
-import { elementToToken, elementsToComposerText, tokenToElement } from './draftElements';
+import {
+  elementToToken,
+  elementsToComposerText,
+  tokenToElement,
+  composerTextToElements,
+} from './draftElements';
 import {
   composerAssetIds,
   preserveComposerImages,
@@ -262,12 +267,18 @@ import { mediaUrl } from '../../lib/resourceUrl';
 import { exportMedia } from '../../lib/mediaExport';
 import {
   messageContentClipboard,
+  messageContentText,
   messageNodeClipboard,
   messageRichClipboard,
   selectedMessageClipboard,
 } from '../../lib/messageClipboard';
 import type { RepeatElement } from '../../lib/messageRepeat';
 import { readMentionClipboard, writeMentionClipboard } from '../../lib/mentionClipboard';
+import {
+  originalMessageClipboard,
+  readOriginalMessageClipboard,
+  prepareOriginalMessageClipboard,
+} from '../../lib/originalMessageClipboard';
 import '../../styles/message-repeat.css';
 import '../../styles/new-message-preview.css';
 import '../../styles/conversation-loading.css';
@@ -819,6 +830,8 @@ export function ChatPane({
   const [pendingSuperEmoji, setPendingSuperEmoji] = useState<EmojiItem | null>(null);
   // 右键「引用」挂上的待发送引用：显示在输入框上方，与「只能单独发」的卡片互斥。
   const [pendingQuote, setPendingQuote] = useState<ComposerQuote | null>(null);
+  const pendingQuoteRef = useRef(pendingQuote);
+  pendingQuoteRef.current = pendingQuote;
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState(false);
   const emojiUtils = trpc.useUtils();
@@ -1394,8 +1407,15 @@ export function ChatPane({
     const picked = await selectionFlow.prepare('复制');
     if (!picked?.length) return;
     try {
-      const copied = await copyTextToClipboard(selectedMessagesText(picked, conversation, user));
+      const copied = await writeMentionClipboard(
+        originalMessageClipboard(
+          picked,
+          { account: user.identityValue, conversation: conversation.id },
+          { text: selectedMessagesText(picked, conversation, user), html: '' },
+        ),
+      );
       if (!copied) throw new Error('未能写入剪贴板，请重新复制。');
+      pushToast({ tone: 'success', title: `已复制 ${picked.length} 条消息` });
     } catch (error) {
       pushToast({
         tone: 'error',
@@ -1420,8 +1440,25 @@ export function ChatPane({
         elements: message.qqElements,
       })),
     );
-    if (!(await writeMentionClipboard(value)))
-      pushToast({ tone: 'error', message: '复制富文本失败' });
+    try {
+      if (
+        !(await writeMentionClipboard(
+          originalMessageClipboard(
+            picked,
+            { account: user.identityValue, conversation: conversation.id },
+            value,
+          ),
+        ))
+      )
+        throw new Error('未能写入剪贴板，请重新复制。');
+      pushToast({ tone: 'success', title: `已复制 ${picked.length} 条消息` });
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        title: '复制富文本失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
   }, [conversation, selectionFlow.prepare, user, pushToast, selectionBlockedReason]);
   useLayoutEffect(() => {
     if (!tabActive || !selectionMode) return;
@@ -3529,6 +3566,145 @@ export function ChatPane({
   }
 
   function handleComposerPaste(event: ReactClipboardEvent<HTMLDivElement>) {
+    const original = readOriginalMessageClipboard(
+      event.clipboardData.getData('text/html'),
+      user.identityValue,
+    );
+    if (original && conversation) {
+      event.preventDefault();
+      const editor = event.currentTarget;
+      const selection = editor.ownerDocument.defaultView?.getSelection();
+      const range = selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+      const conversationId = conversation.id;
+      const previous = serializeComposer(editor);
+      const previousAttachment = mediaAttachmentRef.current;
+      reeditAbortRef.current?.abort();
+      const controller = new AbortController();
+      reeditAbortRef.current = controller;
+      const unchanged = () =>
+        !controller.signal.aborted &&
+        editor.isConnected &&
+        currentComposerEditor() === editor &&
+        mentionConversation.current === conversationId &&
+        serializeComposer(editor) === previous &&
+        mediaAttachmentRef.current === previousAttachment &&
+        pendingQuoteRef.current === pendingQuote &&
+        composerSendRef.current === null;
+      void (async () => {
+        let prepared: Awaited<ReturnType<typeof prepareOriginalMessageClipboard>> | undefined;
+        let preserved: Awaited<ReturnType<typeof preserveReeditImages>> | undefined;
+        let inserted = false;
+        try {
+          prepared = await prepareOriginalMessageClipboard(
+            original,
+            conversationId,
+            controller.signal,
+          );
+          const pastedElements = composerTextToElements(prepared.body) as Record<string, unknown>[];
+          if (pastedElements.some((element) => element.kind === 'at')) {
+            if (conversation.type === 'group' && onResolveMentions) {
+              const resolved = await onResolveMentions(
+                pastedElements.map(({ kind, ...data }) => ({ type: String(kind), data })),
+                conversation,
+              );
+              prepared.body = elementsToComposerText(
+                resolved.map((element) => ({ ...element.data, kind: element.type })),
+              );
+            } else if (conversation.type !== 'group') {
+              prepared.body = elementsToComposerText(
+                pastedElements.map((element) =>
+                  element.kind === 'at'
+                    ? { kind: 'text', textContent: element.textContent }
+                    : element,
+                ),
+              );
+            }
+          }
+          const pictureCount = composerTextToElements(prepared.body).filter(
+            (element) => (element as { kind?: string }).kind === 'pic',
+          ).length;
+          if (inlineImagesRef.current.length + pictureCount > MAX_COMPOSER_ATTACHMENTS)
+            throw new Error(`最多只能插 ${MAX_COMPOSER_ATTACHMENTS} 张图片`);
+          preserved = await preserveReeditImages(
+            user.identityValue,
+            conversationId,
+            prepared.body,
+            prepared.locals,
+            controller.signal,
+          );
+          if (!unchanged()) return;
+          let pastedBody = preserved.body;
+          let pastedQuote: ComposerQuote | null = null;
+          if (
+            original.messages.length === 1 &&
+            !pendingQuote &&
+            !mediaAttachmentRef.current &&
+            !pendingSuperEmoji
+          ) {
+            const elements = composerTextToElements(pastedBody) as Record<string, unknown>[];
+            const reply = elements.find((element) => element.kind === 'reply');
+            if (reply) {
+              const quoted = original.messages[0]?.qqElements?.find(
+                (element) => element.type === 'reply',
+              )?.data;
+              pastedQuote = {
+                msgSeq: Number(reply.origMsgIndex ?? reply.origMsgSeq),
+                senderName: String(quoted?.origSenderName ?? quoted?.origSenderUin ?? ''),
+                preview: messageContentText(
+                  Array.isArray(quoted?.origElements) ? quoted.origElements : [],
+                  String(quoted?.origText ?? '引用消息'),
+                ),
+                originalElement: reply,
+              };
+              pastedBody = elementsToComposerText(elements.filter((element) => element !== reply));
+            }
+          }
+          const holder = document.createElement('div');
+          restoreComposer(holder, pastedBody);
+          const fragment = document.createDocumentFragment();
+          fragment.append(...holder.childNodes);
+          if (
+            range &&
+            editor.contains(range.startContainer) &&
+            editor.contains(range.endContainer)
+          ) {
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+          }
+          insertComposerNode(editor, fragment, range);
+          inlineImagesRef.current.push(...preserved.images);
+          inlineImageScope.current = { account: user.identityValue, conversation: conversationId };
+          reeditLocalsRef.current.push(...prepared.locals);
+          reeditObjectUrlsRef.current.push(
+            ...prepared.objectUrls.filter(
+              (url) => !preserved?.images.some((image) => image.url === url),
+            ),
+          );
+          if (pastedQuote) setPendingQuote(pastedQuote);
+          inserted = true;
+          syncComposerBody(editor);
+        } catch (error) {
+          if (unchanged())
+            pushToast({
+              tone: 'error',
+              title: '粘贴消息失败',
+              detail: error instanceof Error ? error.message : String(error),
+            });
+        } finally {
+          if (!inserted) {
+            for (const url of prepared?.objectUrls ?? []) releaseObjectUrl(url);
+            void removeComposerImages(
+              user.identityValue,
+              conversationId,
+              preserved?.images.flatMap((image) =>
+                image.draftAssetId ? [image.draftAssetId] : [],
+              ) ?? [],
+            ).catch(() => {});
+          }
+        }
+      })();
+      return;
+    }
     if (generated) {
       event.preventDefault();
       insertComposerText(event.clipboardData.getData('text/plain'));
@@ -4104,7 +4280,17 @@ export function ChatPane({
         elements: qqElements,
       };
     });
-    void copyTextToClipboard(JSON.stringify(payload, null, 2));
+    try {
+      if (!(await copyTextToClipboard(JSON.stringify(payload, null, 2))))
+        throw new Error('未能写入剪贴板，请重新复制。');
+      pushToast({ tone: 'success', title: `已复制 ${picked.length} 条消息（JSON）` });
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        title: '复制失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   function updateComposerHeight(height: number) {
@@ -4555,8 +4741,22 @@ export function ChatPane({
       return;
     }
     const body = message.body?.trim() ? message.body : `msgid=${message.msgId ?? message.id}`;
-    const rich = selected ?? messageContentClipboard(message.qqElements, body);
-    if (!(await writeMentionClipboard(rich))) await copyTextToClipboard(rich.text);
+    try {
+      const rich =
+        selected ??
+        originalMessageClipboard(
+          [message],
+          { account: user.identityValue, conversation: conversation?.id ?? message.conversationId },
+          messageContentClipboard(message.qqElements, body),
+        );
+      if (!(await writeMentionClipboard(rich))) throw new Error('未能写入剪贴板，请重新复制。');
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        title: '复制失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
     setContextMenu(null);
   }
 

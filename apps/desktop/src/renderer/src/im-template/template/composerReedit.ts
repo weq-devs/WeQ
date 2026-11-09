@@ -6,7 +6,7 @@ import { toReplyOrigElements } from '../../components/compose/composeModel';
 
 /** 从历史消息准备完整草稿；资源不可用时整次拒绝，不能只恢复文字。 */
 export async function prepareReeditDraft(
-  message: Message,
+  message: Pick<Message, 'body' | 'createdAt' | 'composerDraft'>,
   elements: RepeatElement[],
   signal: AbortSignal,
 ): Promise<{ body: string; locals: LocalMediaRef[]; objectUrls: string[] }> {

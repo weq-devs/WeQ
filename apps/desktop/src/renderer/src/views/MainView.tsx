@@ -347,6 +347,7 @@ import {
 import { buildUnreadDock } from '../im-template/template/unreadDock';
 import {
   buildComposerSendPlan,
+  composerNeedsStickerCatalog,
   buildOptimisticRender,
   composerSendError,
   decodeRecordingToWav,
@@ -9172,9 +9173,9 @@ function MainWorkspace(): ReactElement {
       throw new Error('unsupported conversation');
     }
 
-    // 只有带超级表情（`:big`）时才去拉目录；普通消息不为它多打一次 IPC。
+    // 选择或粘贴超级表情时才拉目录；普通消息不为它多打一次 IPC。
     const superStickers = new Map<string, ComposerSuperSticker>();
-    if (body.includes(':big')) {
+    if (composerNeedsStickerCatalog(body)) {
       try {
         collectSuperStickers(await client.account.emojiPanel.overview.query(), superStickers);
       } catch {
