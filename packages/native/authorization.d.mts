@@ -31,7 +31,13 @@ export function validateNativeBuildInfo(
 export function validateAuthorizationBuildInfo(
   info: unknown,
   platform: string,
-  options?: { production?: boolean; expected?: AuthorizationManifestBuildInfo; now?: number },
+  options?: {
+    production?: boolean;
+    expected?: AuthorizationManifestBuildInfo;
+    /** 校验对象来自发布清单：`interface` 可缺省，出现时仍须与常量一致。 */
+    manifest?: boolean;
+    now?: number;
+  },
 ): void;
 export function authorizationArtifact(
   manifest: unknown,

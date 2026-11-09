@@ -41,17 +41,24 @@ export function validateNativeBuildInfo(
 }
 
 export function validateAuthorizationBuildInfo(info, platform, options = {}) {
+  // `interface` 是后加的元数据，来源不同，严格程度也不同：
+  // - 二进制 `build-info` 一定自报，必须等于常量（默认行为）；
+  // - 发布清单是发布仓白名单聚合出来的，既有清单还没透传该字段。`manifest: true`
+  //   下允许缺省，最终一致性由 validateAuthorizationContract() 拿 `.node` 与助手的
+  //   自报值兜底；一旦清单里出现该字段，仍必须与常量一致。
+  const interfaceOk = options.manifest
+    ? info?.interface === undefined || info.interface === AUTHORIZATION_INTERFACE
+    : info?.interface === AUTHORIZATION_INTERFACE;
   if (
     !AUTHORIZATION_TARGETS[platform] ||
     info?.target !== AUTHORIZATION_TARGETS[platform] ||
     info.protocol !== AUTHORIZATION_PROTOCOL ||
-    info.interface !== AUTHORIZATION_INTERFACE ||
+    !interfaceOk ||
     !['attach', 'key-scan', 'capture'].every((name) => info.capabilities?.includes(name))
   )
     throw new Error(`权限助手目标、协议或接口不兼容：${platform}`);
   if (options.expected) {
-    // `interface` 是后加的元数据，已发布的旧清单可能没有它；缺失时仍由上面的常量
-    // 校验与 validateAuthorizationContract() 保证兼容，不能把缺字段当成不兼容。
+    // 清单缺 `interface` 时跳过该键的比对，不能把缺字段当成不兼容。
     const expectedKeys = ['protocol', 'target'];
     if (options.expected.interface !== undefined) expectedKeys.push('interface');
     if (expectedKeys.some((key) => info[key] !== options.expected[key]))
@@ -95,7 +102,7 @@ export function authorizationArtifact(manifest, platform, directory, { required 
   )
     throw new Error(`权限助手清单无效：${platform}`);
   if (required) {
-    validateAuthorizationBuildInfo(meta, platform, { production: true });
+    validateAuthorizationBuildInfo(meta, platform, { production: true, manifest: true });
     if (
       Date.parse(manifest.buildTime) / 1000 !== meta.buildTime ||
       Date.parse(manifest.expiresAt) / 1000 !== meta.expireTime

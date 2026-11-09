@@ -95,6 +95,21 @@ test('桌面 release 必须有有效、同源的助手，普通开发仍兼容�
       expected: { ...info, buildTime: buildTime - 1 },
     }),
   );
+  // 发布清单目前不含 `interface`：manifest 模式放行缺省，出现时仍须与常量一致；
+  // 二进制自报值（默认模式）缺字段仍然拒绝。
+  const manifestInfo = { ...info };
+  delete manifestInfo.interface;
+  assert.doesNotThrow(() =>
+    validateAuthorizationBuildInfo(manifestInfo, platform, { production: true, manifest: true }),
+  );
+  assert.throws(() =>
+    validateAuthorizationBuildInfo(
+      { ...manifestInfo, interface: AUTHORIZATION_INTERFACE + 1 },
+      platform,
+      { production: true, manifest: true },
+    ),
+  );
+  assert.throws(() => validateAuthorizationBuildInfo(manifestInfo, platform, { production: true }));
   const legacyExpected = { ...info };
   delete legacyExpected.interface;
   assert.doesNotThrow(() =>
