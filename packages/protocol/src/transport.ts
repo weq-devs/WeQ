@@ -19,7 +19,6 @@
 
 import type { NtHelperBinding } from '@weq/native';
 import { signRedBagRequest as signRedBagRequestTs } from './redbag/sign';
-import os from 'node:os';
 
 /** The native methods this layer uses. */
 export type PacketNative = Pick<NtHelperBinding, 'sendOidbPacket' | 'sendPacket'>;
@@ -41,13 +40,6 @@ export interface OidbRequest {
   isUid?: boolean;
 }
 
-/** 需要签名的包在终端留一行前缀，签名值由原生侧另行打印。 */
-function logSign(cmd: string, needSign: boolean): void {
-  if (!needSign) return;
-  if (os.platform() === 'win32') return; // win32看不见wrapper.node 打印的sign  或许和两个unix系统的dlopen有关？  这里简单处理，未来有需要的时候再透传os
-  console.log(`${new Date().toISOString()} ${cmd} 签名：`);
-}
-
 /**
  * Send an OIDB request and return the decoded inner reply body.
  *
@@ -61,7 +53,6 @@ export async function sendOidb(
   req: OidbRequest,
   needSign: boolean,
 ): Promise<Uint8Array> {
-  logSign(`OidbSvcTrpcTcp.0x${req.command.toString(16)}_${req.subCommand}`, needSign);
   const reply = await nt.sendOidbPacket(
     pid,
     req.command,
@@ -86,7 +77,6 @@ export async function sendPacket(
   body: Uint8Array,
   needSign: boolean,
 ): Promise<Uint8Array> {
-  logSign(cmd, needSign);
   const reply = await nt.sendPacket(pid, cmd, Buffer.from(body), needSign);
   return new Uint8Array(reply);
 }
