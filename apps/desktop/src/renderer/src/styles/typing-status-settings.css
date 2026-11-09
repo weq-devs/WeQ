@@ -3,8 +3,7 @@
   overflow-wrap: anywhere;
 }
 
-.weq-typing-settings .weq-set-row-label,
-.weq-typing-settings-heading {
+.weq-typing-settings .weq-set-row-label {
   color: var(--weq-fg-primary);
 }
 
@@ -12,30 +11,37 @@
   color: var(--weq-fg-secondary);
 }
 
-.weq-typing-settings-heading {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.weq-typing-settings-conversations {
-  display: grid;
-  gap: 10px;
-  padding-top: 12px;
-  margin-top: 4px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
-.weq-typing-settings-head {
+.weq-typing-settings-tool {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.weq-typing-settings-tool-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.weq-typing-settings-picker {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
 html[data-theme='dark'] .weq-typing-settings .weq-set-row-label,
-html[data-theme='dark'] .weq-typing-settings-heading {
+html[data-theme='dark'] .weq-typing-settings-tool {
   color: var(--weq-fg-primary);
+}
+
+@media (max-width: 650px) {
+  .weq-typing-settings-tool-body {
+    padding: 12px;
+  }
 }
 
 html[data-theme='dark'] .weq-typing-settings .weq-set-row-desc {

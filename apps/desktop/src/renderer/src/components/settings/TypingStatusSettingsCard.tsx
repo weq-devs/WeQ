@@ -3,16 +3,19 @@
  *
  * 语义是「默认向对方展示输入状态，按需隐藏」：
  *   • 启用范围：关闭 / 按会话勾选 / 永久全选；
- *   • 按会话勾选时列出「隐藏正在输入状态的会话」，只影响私聊的输入状态广播。
+ *   • 按会话勾选时显示数量摘要，点击「编辑会话」打开私聊选择工具。
  *
  * 私聊输入框不再有单会话开关按钮，添加 / 移除隐藏会话都在这里完成。
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Keyboard, Save } from 'lucide-react';
+import { Keyboard, Pencil, Save } from 'lucide-react';
 import { classifyChatType } from '@weq/codec';
 import { useTypingStatusSettings } from '../../hooks/useTypingStatusSettings';
 import { useTabActive } from '../RetainedTabs';
+import { ToolSurface } from '../ToolSurface';
+import { PageShell } from '../PageShell';
+import { useAppLock } from '../../state/lock';
 import { trpc } from '../../trpc/client';
 import { Card, Row, QueryError } from './controls';
 import { ConversationPicker } from '../../views/export/ConversationPicker';
@@ -56,14 +59,31 @@ export function TypingStatusSettingsCard() {
   const preferences = useTypingStatusSettings();
   const { query, disabled } = preferences;
   const active = useTabActive();
+  const locked = useAppLock((state) => state.locked);
   const account = trpc.account.getAccountConfig.useQuery(undefined, { enabled: active });
   const mode: TypingMode = query.data?.mode ?? 'off';
 
   const accountUin = account.data?.uin;
   const accountConfigId = account.data?.configId;
+  const sourceKey = JSON.stringify([accountUin, accountConfigId]);
+  const [editorSource, setEditorSource] = useState<string | null>(null);
+  const editing = editorSource === sourceKey && active && !locked && mode === 'selected';
+  const unavailable =
+    disabled ||
+    query.isLoading ||
+    !accountUin ||
+    !accountConfigId ||
+    account.isError ||
+    !active ||
+    locked;
+
+  useEffect(() => {
+    if (!active || locked || mode !== 'selected' || editorSource !== sourceKey)
+      setEditorSource(null);
+  }, [active, locked, mode, editorSource, sourceKey]);
 
   const conversations = trpc.account.listConversationsWithCount.useQuery(undefined, {
-    enabled: active && mode === 'selected',
+    enabled: editing,
     refetchOnWindowFocus: false,
   });
 
@@ -95,12 +115,14 @@ export function TypingStatusSettingsCard() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   useEffect(() => {
-    setSelected((current) => (sameIds(current, savedIds) ? current : new Set(savedIds)));
-  }, [savedIds]);
+    if (!editing)
+      setSelected((current) => (sameIds(current, savedIds) ? current : new Set(savedIds)));
+  }, [savedIds, editing]);
 
   const dirty = useMemo(() => !sameIds(selected, savedIds), [selected, savedIds]);
 
   async function onSave(): Promise<void> {
+    if (unavailable || !editing || conversations.isLoading || conversations.error) return;
     if (!accountUin || !accountConfigId) return;
     const others = (query.data?.hidden ?? []).filter(
       (item) => item.accountUin !== accountUin || item.accountConfigId !== accountConfigId,
@@ -110,7 +132,15 @@ export function TypingStatusSettingsCard() {
       accountUin,
       accountConfigId,
       uid,
-      name: byId.get(uid)?.name ?? uid,
+      name:
+        byId.get(uid)?.name ??
+        query.data?.hidden.find(
+          (item) =>
+            item.accountUin === accountUin &&
+            item.accountConfigId === accountConfigId &&
+            item.uid === uid,
+        )?.name ??
+        uid,
     }));
     await preferences.setHidden([...others, ...add]);
   }
@@ -132,7 +162,7 @@ export function TypingStatusSettingsCard() {
             mode === 'all'
               ? '所有私聊都不再向对方展示正在输入状态。'
               : mode === 'selected'
-                ? '只隐藏下面勾选的会话，其他会话仍展示正在输入状态。'
+                ? '只隐藏已选择的会话，其他会话仍展示正在输入状态。'
                 : '默认向对方展示正在输入状态。'
           }
           control={
@@ -154,42 +184,30 @@ export function TypingStatusSettingsCard() {
           }
         />
         {mode === 'selected' ? (
-          <div className="weq-typing-settings-conversations" data-setting-id="typing-status-hidden">
-            <div className="weq-typing-settings-head">
-              <span className="weq-typing-settings-heading">隐藏正在输入状态的会话</span>
-              <button
-                type="button"
-                className="weq-set-btn"
-                disabled={disabled || !dirty || !accountUin || !accountConfigId}
-                onClick={() => void onSave()}
-              >
-                <Save size={14} aria-hidden="true" />
-                {dirty ? '保存选择' : '已保存'}
-              </button>
-            </div>
-            {conversations.error ? (
-              <QueryError
-                message={conversations.error.message}
-                retryLabel="重试读取会话"
-                retrying={conversations.isFetching}
-                onRetry={() => void conversations.refetch()}
-              />
-            ) : null}
-            {!accountUin || !accountConfigId ? (
-              <div className="weq-set-empty" role="status">
-                当前没有打开的账号，暂时无法编辑隐藏会话。
-              </div>
-            ) : (
-              <div className="weq-set-picker">
-                <ConversationPicker
-                  items={items}
-                  loading={conversations.isLoading}
-                  selected={selected}
-                  onChange={setSelected}
-                  emptyText="暂无可隐藏的私聊会话"
-                />
-              </div>
-            )}
+          <div data-setting-id="typing-status-hidden">
+            <Row
+              label="隐藏正在输入状态的会话"
+              desc={
+                !accountUin || !accountConfigId
+                  ? '当前没有打开的账号，暂时无法编辑隐藏会话。'
+                  : `已选择 ${savedIds.size} 个会话。`
+              }
+              control={
+                <button
+                  type="button"
+                  className="weq-set-btn"
+                  disabled={unavailable}
+                  aria-label="编辑隐藏正在输入状态的会话"
+                  onClick={() => {
+                    setSelected(new Set(savedIds));
+                    setEditorSource(sourceKey);
+                  }}
+                >
+                  <Pencil size={14} aria-hidden="true" />
+                  编辑会话
+                </button>
+              }
+            />
           </div>
         ) : null}
         {query.isLoading ? (
@@ -198,6 +216,55 @@ export function TypingStatusSettingsCard() {
           </div>
         ) : null}
       </Card>
+      {editing ? (
+        <ToolSurface
+          title="隐藏正在输入状态的会话"
+          presentation="modal"
+          draft={dirty ? [...selected].sort() : null}
+          busy={preferences.busy}
+          onClose={() => setEditorSource(null)}
+        >
+          {(requestClose) => (
+            <div className="weq-typing-settings-tool">
+              <PageShell
+                title="隐藏正在输入状态的会话"
+                onClose={requestClose}
+                actions={
+                  <button
+                    type="button"
+                    className="weq-set-btn"
+                    disabled={unavailable || conversations.isLoading || !!conversations.error}
+                    onClick={() => void onSave()}
+                  >
+                    <Save size={14} aria-hidden="true" />
+                    保存选择
+                  </button>
+                }
+              >
+                <div className="weq-typing-settings-tool-body">
+                  {conversations.error ? (
+                    <QueryError
+                      message={conversations.error.message}
+                      retryLabel="重试读取会话"
+                      retrying={conversations.isFetching}
+                      onRetry={() => void conversations.refetch()}
+                    />
+                  ) : null}
+                  <fieldset disabled={unavailable} className="weq-typing-settings-picker">
+                    <ConversationPicker
+                      items={items}
+                      loading={conversations.isLoading}
+                      selected={selected}
+                      onChange={setSelected}
+                      emptyText="暂无可隐藏的私聊会话"
+                    />
+                  </fieldset>
+                </div>
+              </PageShell>
+            </div>
+          )}
+        </ToolSurface>
+      ) : null}
     </div>
   );
 }
