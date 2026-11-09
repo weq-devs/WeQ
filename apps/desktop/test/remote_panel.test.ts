@@ -198,9 +198,13 @@ describe('电脑端远程连接面板', () => {
         ?.click(),
     );
     expect(onTailscale).toHaveBeenCalledWith(true);
-    expect(container.textContent).toContain('内网穿透');
-    expect(container.textContent).toContain('App 已内置 Tailscale');
-    expect(container.textContent).toContain('Key 加入电脑所在的 Tailscale 网络');
+    expect(container.textContent).not.toContain('通过 Tailscale 跨网络连接');
+    const hint = container.querySelector('.weq-remote-consent')?.getAttribute('title');
+    expect(hint).toContain('通过 Tailscale 跨网络连接');
+    expect(hint).toContain('内网穿透');
+    expect(hint).toContain('App 已内置 Tailscale');
+    expect(hint).toContain('Key 加入电脑所在的 Tailscale 网络');
+    expect(container.querySelector('input[type="checkbox"]')?.getAttribute('title')).toBe(hint);
   });
 
   it('并列展示局域网和 WeQ 专用节点，不采用系统 Tailscale 的地址', async () => {

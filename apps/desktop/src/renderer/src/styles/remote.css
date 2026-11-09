@@ -254,10 +254,13 @@
 }
 .weq-remote-consent {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
+  margin: 0;
 }
 .weq-remote-consent input {
+  margin: 0;
+  flex-shrink: 0;
   accent-color: var(--weq-accent-effective);
 }
 .weq-remote-bootstrap p {

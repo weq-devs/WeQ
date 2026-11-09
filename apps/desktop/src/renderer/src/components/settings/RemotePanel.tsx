@@ -23,6 +23,12 @@ import {
   type RemoteConnectionMode,
 } from '../../../../shared/remote_bootstrap';
 
+const TAILSCALE_KEY_HINT = [
+  '通过 Tailscale 跨网络连接',
+  'Tailscale 提供内网穿透，让手机和电脑不在同一个 Wi-Fi 下时，也能连接 WeQ，无需公网 IP 或手动配置端口转发。',
+  'WeQ Remote App 已内置 Tailscale，无需另外安装客户端。勾选「嵌入 Tailscale Key」后，扫码时 App 会使用 Key 加入电脑所在的 Tailscale 网络，完成跨网络连接所需的配置。',
+].join('\n\n');
+
 export interface RemoteStatus {
   available: boolean;
   helperInstalled: boolean;
@@ -224,9 +230,10 @@ export function RemotePanel({
               {qr ? <RefreshCw size={14} /> : <QrCode size={14} />}
               生成配对码
             </button>
-            <label className="weq-remote-consent">
+            <label className="weq-remote-consent" title={TAILSCALE_KEY_HINT}>
               <input
                 type="checkbox"
+                title={TAILSCALE_KEY_HINT}
                 checked={embedKey}
                 disabled={busy}
                 onChange={(event) => setEmbedKey(event.target.checked)}
@@ -234,28 +241,9 @@ export function RemotePanel({
               嵌入 Tailscale Key
             </label>
           </div>
-          <div className="weq-remote-bootstrap">
-            <h4>通过 Tailscale 跨网络连接</h4>
-            <p>
-              Tailscale 提供内网穿透，让手机和电脑不在同一个 Wi-Fi 下时，也能连接 WeQ，无需公网 IP
-              或手动配置端口转发。
-            </p>
-            <p>
-              WeQ Remote App 已内置 Tailscale，无需另外安装客户端。勾选「嵌入 Tailscale
-              Key」后，扫码时 App 会使用 Key 加入电脑所在的 Tailscale
-              网络，完成跨网络连接所需的配置。
-            </p>
-            <a
-              href="https://login.tailscale.com/admin/settings/keys"
-              target="_blank"
-              rel="noreferrer"
-            >
-              创建 Tailscale Key <ExternalLink size={12} />
-            </a>
-            {embedKey && !tailscaleAddress ? (
-              <p>请先启动并登录上方的 WeQ 专用 Tailscale 服务。</p>
-            ) : null}
-          </div>
+          {embedKey && !tailscaleAddress ? (
+            <p className="weq-remote-muted">请先启动并登录上方的 WeQ 专用 Tailscale 服务。</p>
+          ) : null}
           {keyPrompt && active ? (
             <Modal
               title="输入 Tailscale Key"
