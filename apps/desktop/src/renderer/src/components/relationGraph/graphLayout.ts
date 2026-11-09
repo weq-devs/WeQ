@@ -52,8 +52,10 @@ export function createGraphSimulation(graph: BuiltGraph, previous: GNode[] = [])
       degree.set(key, (degree.get(key) ?? 0) + 1);
     }
   }
+  // 约两秒内冷却完毕，避免碰撞力让密集节点长时间微动。
   return d3
     .forceSimulation(graph.nodes)
+    .alphaDecay(1 - 0.001 ** (1 / 120))
     .force(
       'link',
       d3

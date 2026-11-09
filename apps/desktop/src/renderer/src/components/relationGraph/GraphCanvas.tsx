@@ -295,10 +295,6 @@ export function GraphCanvas({
     const hit = nodeAt(sx, sy);
     if (hit) {
       dragNodeRef.current = hit;
-      const w = screenToWorld(sx, sy);
-      hit.fx = w.x;
-      hit.fy = w.y;
-      simulationRef.current?.alphaTarget(0.3).restart();
     } else {
       panRef.current = { x: e.clientX, y: e.clientY };
     }
@@ -311,9 +307,13 @@ export function GraphCanvas({
 
     if (dragNodeRef.current) {
       movedRef.current += Math.abs(e.movementX) + Math.abs(e.movementY);
+      if (movedRef.current < 4) return;
       const w = screenToWorld(sx, sy);
       dragNodeRef.current.fx = w.x;
       dragNodeRef.current.fy = w.y;
+      // 只在实际拖动时补充有限能量；丢失释放事件也能自行冷却。
+      const simulation = simulationRef.current;
+      simulation?.alpha(Math.max(simulation.alpha(), 0.3)).restart();
       return;
     }
     if (panRef.current) {
@@ -381,6 +381,7 @@ export function GraphCanvas({
       onPointerMove={onPointerMove}
       onPointerUp={(e) => endPointer(e)}
       onPointerCancel={(e) => endPointer(e, true)}
+      onLostPointerCapture={(e) => endPointer(e, true)}
       onPointerLeave={(e) => {
         endPointer(e, true);
         hoverRef.current = null;
