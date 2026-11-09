@@ -96,7 +96,7 @@ WeQ 已有 `@weq/protocol` 的 `sendPacket`、protobuf 编解码及 native 通�
 | `uint32_add_frd_type` | 验证信息标题 | 2 显示「我添加他时的信息」；页面其他值显示「他添加我时的信息」 |
 | `str_add_frd_source_wording` | 来源 | 直接显示服务端给出的文案，不是本地枚举推导 |
 | `str_add_frd_message` | 附加信息 | 添加验证文字；页面还处理「问题／回答」格式 |
-| `uint64_group_id` | 来源群跳转目标 | 页面与 `bool_group_jump` 一起决定能否打开群资料 |
+| `uint64_group_id` | 来源群跳转目标 | 内部群 UIN；官方页面将原值传给 `showProfile({uin, uinType:1})`，WeQ 使用公开群号前须按历史号段转换 |
 | `bool_group_jump` | 来源点击行为 | 服务端给出的群资料可跳转标志，不由当前是否在群推测 |
 | `uint32_comm_group_num` | 共同群聊数量 | 只给数量；点击后通过客户端另开共同群列表 |
 | `str_nickname` | 昵称 | 好友昵称 |
@@ -113,6 +113,8 @@ WeQ 已有 `@weq/protocol` 的 `sendPacket`、protobuf 编解码及 native 通�
 产品模型应保留原始值，只有明确的 1/2 生成方向，其他为未知。
 
 ### 时间及来源的精度
+
+- 2026-11-10 根据用户提供的两组错误值核对：原值分别与公开群号相差 `3890 × 1000000`、`1943 × 1000000`，符合内部群 UIN 的历史号段映射。协议解析现按 [oicq 的 `uin2code`](https://github.com/takayama-lily/oicq/blob/master/lib/common.js) 转换 `uint64_group_id` 后输出 `sourceGroupCode`，不改来源文案；未命中转换号段的原值保持不变，使用 bigint 避免 uint64 精度丢失。该转换仅用于此线索字段，不套用到其他已返回公开群号的接口。
 
 - 原始时间为秒，官方页面仅展示年月日；WeQ 可以保留原值和带明确时区的展示值。
 - 用户于 2026-11-06 明确补充：时间为最近一次添加时间，WeQ 中统一标为「添加时间」。
