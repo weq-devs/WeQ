@@ -121,7 +121,9 @@ export function BackgroundTaskDetails({
         <p role="alert">详情读取失败：{hostDetails.error.message}</p>
       ) : null}
       {task.kind === 'contacts' ? (
-        taskLogs.error ? <p role="alert">日志读取失败：{taskLogs.error.message}</p> : null
+        taskLogs.error ? (
+          <p role="alert">日志读取失败：{taskLogs.error.message}</p>
+        ) : null
       ) : details?.length ? (
         <div>
           <ul className="weq-background-task-results">
