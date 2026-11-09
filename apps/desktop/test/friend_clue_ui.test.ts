@@ -157,16 +157,24 @@ it.each([true, false])(
     }
   },
 );
-it('非群来源保留接口原文，不查询群资料', () => {
-  state.data = { ...data(), source: '通过 QQ 号搜索', sourceGroupCode: null };
-  const f = render();
-  try {
-    expect(f.host.textContent).toContain('通过 QQ 号搜索');
-    expect(state.groupQuery).not.toHaveBeenCalled();
-  } finally {
-    f.close();
-  }
-});
+it.each(['通过 QQ 号搜索', 'QQ空间', '其他来源'.repeat(40), null])(
+  '非群来源 %s 与标签同排，保留接口原文，不查询群资料',
+  (source) => {
+    state.data = { ...data(), source, sourceGroupCode: null };
+    const f = render();
+    try {
+      const label = [...f.host.querySelectorAll('.weq-profile-row-label')].find(
+        (item) => item.textContent === '添加来源',
+      )!;
+      expect(label.parentElement?.classList.contains('weq-profile-row--block')).toBe(false);
+      expect(label.nextElementSibling?.tagName).toBe('STRONG');
+      expect(label.nextElementSibling?.textContent).toBe(source || '未知');
+      expect(state.groupQuery).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  },
+);
 it('线索接口缺失来源时显示未知，不用群资料或本地群名替换', () => {
   state.data = { ...data(), source: null };
   const f = render(true);

@@ -133,7 +133,6 @@ function FriendClueBody({ uid }: { uid: string }) {
           ) : (
             <ProfileRow
               sensitive
-              multiline
               icon={<MapPin size={13} />}
               label="添加来源"
               value={data.source || '未知'}
