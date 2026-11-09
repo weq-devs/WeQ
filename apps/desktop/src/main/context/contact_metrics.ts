@@ -382,8 +382,8 @@ export class ContactDirectoryRuntime {
         target === 'groupMembers'
           ? '更新全部群成员并重算群交集'
           : missingOnly
-            ? '补齐联系人指标缓存'
-            : '联系人排序与分组缓存重建',
+            ? '补齐信息与线索缓存'
+            : '重建信息与线索缓存',
       kind: 'contacts',
       scope: this.scope,
       statusLabel: '本地资料',

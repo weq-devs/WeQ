@@ -29,7 +29,7 @@ import '../../styles/contact-directory-order.css';
 
 export const BACKGROUND_TASK_LABELS = {
   calendar: '会话日历',
-  contacts: '联系人缓存',
+  contacts: '信息与线索缓存',
   model: '模型下载',
   update: '软件更新',
   database: '数据库维护',

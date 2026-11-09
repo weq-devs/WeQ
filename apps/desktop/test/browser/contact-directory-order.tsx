@@ -101,7 +101,7 @@ createRoot(document.getElementById('root')!).render(
           </section>
         </div>
         <section data-kind="tasks">
-          <h2>联系人缓存任务</h2>
+          <h2>信息与线索缓存任务</h2>
           <BackgroundTaskDetails
             scope={{ uin: '99999', configId: 'contact-order-fixture' }}
             refresh={async () => {}}
@@ -110,7 +110,7 @@ createRoot(document.getElementById('root')!).render(
               task: {
                 id: 'synthetic-task',
                 kind: 'contacts',
-                name: '联系人排序与分组缓存重建',
+                name: '重建信息与线索缓存',
                 status: 'running',
                 progress: 50,
                 startedAt: 1,

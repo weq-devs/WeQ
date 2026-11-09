@@ -73,7 +73,7 @@ try {
     'none',
   ]) {
     await friends.getByLabel('分组依据').selectOption(basis);
-    const stale = page.getByRole('dialog', { name: '更新联系人缓存', exact: true });
+    const stale = page.getByRole('dialog', { name: '更新信息与线索缓存', exact: true });
     if (await stale.count()) {
       await stale.getByRole('radio', { name: '不更新', exact: true }).click();
       await stale.getByRole('button', { name: '确定', exact: true }).click();
@@ -155,7 +155,7 @@ try {
       await dialog.waitFor();
       await page.waitForFunction(
         () =>
-          document.querySelector('[aria-label="缓存更新范围"] [aria-checked="true"]')
+          document.querySelector('[aria-label="信息与线索缓存更新范围"] [aria-checked="true"]')
             ?.textContent === '不更新',
       );
       const bounds = await dialog.evaluate((element) => {

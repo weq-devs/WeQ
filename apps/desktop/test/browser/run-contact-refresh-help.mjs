@@ -59,7 +59,7 @@ try {
       await page.getByRole('button', { name: '刷新联系人列表', exact: true }).click();
       const dialog = page.getByRole('dialog', { name: '刷新联系人', exact: true });
       await dialog.waitFor();
-      const help = dialog.getByText('选择联系人排序与分组缓存的更新范围。', { exact: true });
+      const help = dialog.getByText('选择信息与线索缓存的更新范围。', { exact: true });
       assert.equal(await help.isVisible(), true);
       assert.equal(await dialog.locator('dl').count(), 0);
       for (const name of ['超 24h 未更新', '全部', '不更新']) {
@@ -88,19 +88,19 @@ try {
       const sort = page.locator('[data-kind="friends"]').getByLabel('排序依据');
       await sort.selectOption('age');
       await sort.selectOption('level');
-      const stale = page.getByRole('dialog', { name: '更新联系人缓存', exact: true });
+      const stale = page.getByRole('dialog', { name: '更新信息与线索缓存', exact: true });
       await stale.waitFor();
       assert.equal(
         await stale
-          .getByText('该依据的缓存已超过 7 天或尚未建立，是否更新？', { exact: true })
+          .getByText('所选依据的信息与线索缓存已超过 7 天或尚未建立，是否更新？', { exact: true })
           .isVisible(),
         true,
       );
-      const prompt = stale.getByText('选择联系人排序与分组缓存的更新范围。', { exact: true });
+      const prompt = stale.getByText('选择信息与线索缓存的更新范围。', { exact: true });
       assert.equal(await prompt.isVisible(), true);
       assert.equal(
         await prompt.evaluate((element) => element.nextElementSibling?.getAttribute('aria-label')),
-        '缓存更新范围',
+        '信息与线索缓存更新范围',
       );
       assert.equal(await stale.locator('dl').count(), 0);
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}-stale.png`) });

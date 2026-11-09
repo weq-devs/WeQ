@@ -78,7 +78,10 @@ export function ContactCacheRefreshDialog({
       }
     } catch (error) {
       onClose();
-      showError('缓存重建启动失败', error instanceof Error ? error.message : String(error));
+      showError(
+        '信息与线索缓存重建启动失败',
+        error instanceof Error ? error.message : String(error),
+      );
     }
   };
   return (
@@ -95,17 +98,17 @@ export function ContactCacheRefreshDialog({
             <RefreshCw size={20} aria-hidden />
           </span>
           <h3 id="contact-refresh-title" className="weq-dialog-title">
-            {stale ? '更新联系人缓存' : '刷新联系人'}
+            {stale ? '更新信息与线索缓存' : '刷新联系人'}
           </h3>
           <button type="button" className="weq-dialog-x" aria-label="关闭" onClick={onClose}>
             <X size={16} aria-hidden />
           </button>
         </div>
         <div className="weq-dialog-body">
-          {stale && <p>该依据的缓存已超过 7 天或尚未建立，是否更新？</p>}
-          <p>选择联系人排序与分组缓存的更新范围。</p>
+          {stale && <p>所选依据的信息与线索缓存已超过 7 天或尚未建立，是否更新？</p>}
+          <p>选择信息与线索缓存的更新范围。</p>
           <SegmentedControl
-            label="缓存更新范围"
+            label="信息与线索缓存更新范围"
             disabled={rebuild.isLoading}
             value={range}
             options={[

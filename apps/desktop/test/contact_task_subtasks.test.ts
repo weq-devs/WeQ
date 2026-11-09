@@ -107,7 +107,7 @@ it('联系人任务保留总进度，不影响导出日志的默认行为', () =
   const task = {
     id: 'synthetic',
     name: '刷新联系人列表',
-    kind: '联系人缓存',
+    kind: '信息与线索缓存',
     status: 'running' as const,
     progress: 50,
     icon: null,

@@ -1759,7 +1759,7 @@ export const accountRouter = router({
       input.expectedAccountUin,
       input.expectedAccountConfigId,
     ).contactDirectory;
-    if (!runtime) throw new Error('联系人缓存尚未就绪');
+    if (!runtime) throw new Error('信息与线索缓存尚未就绪');
     return runtime;
   }),
   calendarOverview: conversationCalendarRouter,
