@@ -279,8 +279,6 @@ const EXCLUDED_UINS = new Set<string>(['2854196310']);
 const MEMBER_SCAN_LIMIT = 5000;
 /** Only users sharing at least this many of my groups become nodes. */
 const MIN_SHARED_GROUPS = 2;
-/** Hard cap on returned nodes (frontend slider tops out at 500). */
-const MAX_NODES = 600;
 
 export class GroupInfoService {
   private readonly groupNotifyService: GroupNotifyService;
@@ -468,7 +466,8 @@ export class GroupInfoService {
     if (selfUin) excluded.add(selfUin);
 
     // 1) My groups (code → name / memberCount).
-    const groupDetails = await this.session.groupDetail.listAll(2000, 0);
+    // SQLite LIMIT -1 读取全部记录；统计数据不跟随前端展示数量截断。
+    const groupDetails = await this.session.groupDetail.listAll(-1, 0);
     const groupMeta = new Map<string, { name: string; memberCount: number }>();
     for (const g of groupDetails) {
       groupMeta.set(g.groupCode.toString(), {
@@ -492,10 +491,7 @@ export class GroupInfoService {
         memberLevel: number;
       }>;
       try {
-        members = await this.session.groupMembers.listMemberBriefsInGroup(
-          BigInt(code),
-          MEMBER_SCAN_LIMIT,
-        );
+        members = await this.session.groupMembers.listMemberBriefsInGroup(BigInt(code), -1);
       } catch {
         continue;
       }
@@ -515,8 +511,8 @@ export class GroupInfoService {
       }
     }
 
-    // 3) Keep users sharing ≥ MIN_SHARED_GROUPS, sort by shared count, cap.
-    let nodes: RelationGraphNode[] = [];
+    // 3) Keep all users sharing ≥ MIN_SHARED_GROUPS, sort by shared count.
+    const nodes: RelationGraphNode[] = [];
     for (const [uid, info] of agg) {
       if (info.groups.size < MIN_SHARED_GROUPS) continue;
       nodes.push({
@@ -531,7 +527,6 @@ export class GroupInfoService {
       });
     }
     nodes.sort((a, b) => b.groupCount - a.groupCount);
-    nodes = nodes.slice(0, MAX_NODES);
 
     // 4) Enrich with profile intimacy / friend flag (one batched query).
     const profiles = await this.session.profileInfo.profilesByUids(nodes.map((n) => n.uid));
