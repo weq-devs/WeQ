@@ -20,6 +20,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, existsSyn
 import { mkdir, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
+import { DEFAULT_SERVICE_PORTS } from '../common/service_ports';
 import type { AgentLabModelRef, AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
 import { normalizeAccountConfig } from '../account/user_config';
@@ -537,7 +538,7 @@ function normalizeOneBotConfig(
     id: 'ws-default',
     name: 'WebSocket 服务器',
     enabled: false,
-    port: 48766,
+    port: DEFAULT_SERVICE_PORTS['onebot-ws'],
     token: '',
   };
   const port = normalizeOneBotPort(raw?.port) ?? legacy.port;
@@ -1125,16 +1126,22 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   ocr: { modelId: '', filterModelId: '', onlineConcurrency: 5 },
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
-  mcp: { enabled: false, port: 48765, token: '' },
+  mcp: { enabled: false, port: DEFAULT_SERVICE_PORTS.mcp, token: '' },
   oneBot: {
     enabled: false,
     webSocketServers: [
-      { id: 'ws-default', name: 'WebSocket 服务器', enabled: false, port: 48766, token: '' },
+      {
+        id: 'ws-default',
+        name: 'WebSocket 服务器',
+        enabled: false,
+        port: DEFAULT_SERVICE_PORTS['onebot-ws'],
+        token: '',
+      },
     ],
     httpServers: [],
   },
   // 20000+ 不常用端口；若被占用，宿主内的助手资源服务自动向上探测。
-  weqAssistant: { enabled: false, port: 27182 },
+  weqAssistant: { enabled: false, port: DEFAULT_SERVICE_PORTS['weq-assistant'] },
   agentLab: { providers: [], defaultModel: null },
   windowCloseBehavior: 'tray',
   /** 已废弃，仅为旧配置兼容保留；不再控制任何行为（见类型注释）。 */

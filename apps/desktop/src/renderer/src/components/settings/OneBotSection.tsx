@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
+import { nextOneBotPort } from '@weq/service/service-ports';
 import {
   Copy,
   Eye,
@@ -43,10 +44,7 @@ function generatedToken(): string {
 }
 
 function nextPort(servers: readonly { port: number }[], type: ServerType): string {
-  const used = new Set(servers.map((server) => server.port));
-  let port = type === 'ws' ? 48766 : 48767;
-  while (used.has(port)) port += 1;
-  return String(port);
+  return String(nextOneBotPort(new Set(servers.map((server) => server.port)), type));
 }
 
 export function OneBotSection(): ReactElement {

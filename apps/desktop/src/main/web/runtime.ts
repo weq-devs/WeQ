@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { DEFAULT_SERVICE_PORTS } from '@weq/service/service-ports';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Server, IncomingMessage } from 'node:http';
@@ -89,7 +90,7 @@ export class DesktopWebRuntime {
         renderer: config.renderer,
       });
       const { server, port } = await startServer({
-        port: 7690,
+        port: DEFAULT_SERVICE_PORTS.web,
         host: '127.0.0.1',
         publicDir: config.publicDir,
         auth: gate,

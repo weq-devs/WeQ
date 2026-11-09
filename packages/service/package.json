@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./service-ports": "./src/common/service_ports.ts",
     "./message-plain-text": "./src/common/message_plain_text.ts",
     "./ark-cards": "./src/common/arkCards.ts",
     "./group-share-target": "./src/common/group_share_target.ts",

@@ -17,6 +17,7 @@
  */
 
 import http from 'node:http';
+import { servicePortCandidates } from '@weq/service/service-ports';
 import { withHost, type HostBridge } from '@weq/service';
 import { type AuthGate, AuthUnavailableError, peerKey } from './auth';
 import { LOGIN_PAGE } from './login_page';
@@ -190,15 +191,16 @@ export async function startServer(
     });
   });
 
-  for (let i = 0; i < PORT_FALLBACK_ATTEMPTS; i += 1) {
-    const port = opts.port + i;
-    if (port > 65535) break;
-    if (await tryListen(server, port, opts.host)) return { server, port };
-    if (i > 0) console.warn(`[web] port ${port} in use, trying next`);
+  const candidates = servicePortCandidates('web', opts.port, PORT_FALLBACK_ATTEMPTS);
+  for (const port of candidates) {
+    if (await tryListen(server, port, opts.host)) {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Web 监听地址无效');
+      return { server, port: address.port };
+    }
+    console.warn(`[web] port ${port} in use, trying next`);
   }
 
   server.close();
-  throw new Error(
-    `端口 ${opts.port}–${Math.min(opts.port + PORT_FALLBACK_ATTEMPTS - 1, 65535)} 都被占用，无法启动。`,
-  );
+  throw new Error(`候选端口 ${candidates.join('、')} 都被占用，无法启动。`);
 }

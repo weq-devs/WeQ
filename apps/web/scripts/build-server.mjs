@@ -144,7 +144,7 @@ writeFileSync(
     '环境变量：',
     '  WEQ_TOKEN       访问令牌。绑定到非本机地址时必须显式设置。',
     '  WEQ_HOST        监听地址，默认 127.0.0.1。设为 0.0.0.0 才对外可见。',
-    '  WEQ_PORT        端口，默认 7690；被占用时自动向后探测。',
+    '  WEQ_PORT        首选端口，默认 7690；最多尝试 10 个候选端口，回退跳过其他 WeQ 服务预留范围。',
     '  WEQ_EXPORT_DIR  导出目录，默认 ./weq-exports',
     '  WEQ_DATA_DIR    日志父目录，默认 ./weq-data；日志写入 logs/ 子目录',
     '',
