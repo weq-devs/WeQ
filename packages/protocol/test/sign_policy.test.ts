@@ -19,6 +19,7 @@ import {
   needSignFor,
   SetGroupMemberCard,
   SetGroupMessagePolicy,
+  SetReaction,
   SIGN_NON_LINUX,
 } from '../src/index';
 
@@ -30,13 +31,10 @@ describe('needSignFor', () => {
     }
   });
 
-  it('平台对象未声明 win32 / darwin 时分别回落到 linux / win32', () => {
-    expect(needSignFor({ linux: false }, 'linux')).toBe(false);
-    expect(needSignFor({ linux: false }, 'win32')).toBe(false);
-    expect(needSignFor({ linux: false }, 'darwin')).toBe(false);
-
-    expect(needSignFor({ linux: false, win32: true }, 'win32')).toBe(true);
-    expect(needSignFor({ linux: false, win32: true }, 'darwin')).toBe(true);
+  it('平台对象逐端取值，不再互相回落', () => {
+    expect(needSignFor({ linux: true, win32: false, darwin: false }, 'linux')).toBe(true);
+    expect(needSignFor({ linux: true, win32: false, darwin: false }, 'win32')).toBe(false);
+    expect(needSignFor({ linux: true, win32: false, darwin: false }, 'darwin')).toBe(false);
 
     expect(needSignFor({ linux: true, win32: false, darwin: true }, 'darwin')).toBe(true);
   });
@@ -75,5 +73,13 @@ describe.each(NON_LINUX_SIGNED_SPECS)('%s 的跨平台签名声明', (_name, pol
     expect(needSignFor(policy, 'linux')).toBe(false);
     expect(needSignFor(policy, 'win32')).toBe(true);
     expect(needSignFor(policy, 'darwin')).toBe(true);
+  });
+});
+
+describe('macOS 实测与 Windows 不一致的命令', () => {
+  it('0x9082 SetReaction：Linux / Windows 签，macOS 不签', () => {
+    expect(needSignFor(SetReaction.needSign, 'linux')).toBe(true);
+    expect(needSignFor(SetReaction.needSign, 'win32')).toBe(true);
+    expect(needSignFor(SetReaction.needSign, 'darwin')).toBe(false);
   });
 });

@@ -581,6 +581,11 @@ export function parseCase(spec: string): ProbeCase {
  *
  * 注意 `sudo` 会重置 `XDG_RUNTIME_DIR`，且 `getuid()` 变成 0，所以不能只靠这两个
  * 推断：`/run/user/<uid>` 和 `/tmp/snowluma-<uid>` 都按可见的 uid 枚举一遍。
+ *
+ * macOS 的 hook 把 socket 放在 `$TMPDIR/snowluma-hook/` 下（见 nnphook
+ * `runtime_dir()`），文件名带 `snowluma-hook` 前缀。sudo 会改写 `TMPDIR`，但
+ * socket 仍留在原用户的 per-user 临时目录里，所以额外枚举 per-user 的
+ * `T/snowluma-hook` 与 `T` 目录。
  */
 function findRuntimeDirs(): string[] {
   const candidates = new Set<string>();
@@ -594,6 +599,26 @@ function findRuntimeDirs(): string[] {
     candidates.add(`/tmp/snowluma-${uid}`);
     candidates.add(`/tmp/qq-rtld-${uid}`);
   }
+  if (process.platform === 'darwin') {
+    let roots: string[] = [];
+    try {
+      roots = readdirSync('/var/folders');
+    } catch {
+      roots = [];
+    }
+    for (const a of roots) {
+      let inner: string[] = [];
+      try {
+        inner = readdirSync(`/var/folders/${a}`);
+      } catch {
+        continue;
+      }
+      for (const b of inner) {
+        candidates.add(`/var/folders/${a}/${b}/T/snowluma-hook`);
+        candidates.add(`/var/folders/${a}/${b}/T`);
+      }
+    }
+  }
   return [...candidates].filter((dir) => {
     try {
       readdirSync(dir);
@@ -604,18 +629,31 @@ function findRuntimeDirs(): string[] {
   });
 }
 
+/** Hook socket 名：Linux 为 `mojo.<pid>.control.sock`，macOS 带 `snowluma-hook` 前缀。 */
+const CONTROL_SOCKET_RE = /^(?:snowluma-hook)?mojo\.(\d+)\.control\.sock$/;
+
 /** 在已知 runtime 目录里找指定 pid 的 control socket。 */
 function findControlSocket(pid: number): string | null {
-  const name = `mojo.${pid}.control.sock`;
   for (const dir of findRuntimeDirs()) {
-    try {
-      if (readdirSync(dir).includes(name)) return `${dir}/${name}`;
-    } catch {}
+    const hit = findControlSocketInDir(dir, pid);
+    if (hit) return hit;
   }
   return null;
 }
 
-/** 从 runtime 目录里的 `mojo.<pid>.control.sock` 推断 pid。 */
+/** 在单个目录里按 pid 匹配 control socket（兼容 macOS 前缀）。 */
+function findControlSocketInDir(dir: string, pid: number): string | null {
+  try {
+    const match = readdirSync(dir).find(
+      (name) => CONTROL_SOCKET_RE.exec(name)?.[1] === String(pid),
+    );
+    return match ? `${dir}/${match}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 从 runtime 目录里的 `[snowluma-hook]mojo.<pid>.control.sock` 推断 pid。 */
 function discoverPid(): number | null {
   for (const dir of findRuntimeDirs()) {
     let entries: string[];
@@ -625,7 +663,7 @@ function discoverPid(): number | null {
       continue;
     }
     const pids = entries
-      .map((name) => /^mojo\.(\d+)\.control\.sock$/.exec(name)?.[1])
+      .map((name) => CONTROL_SOCKET_RE.exec(name)?.[1])
       .filter((value): value is string => Boolean(value))
       .map((value) => Number(value))
       .sort((a, b) => a - b);
@@ -696,14 +734,19 @@ async function probeOne(
       Boolean(frame.plain),
   );
 
-  const error = pipe.find(PIPE_OP_ERROR, requestId);
+  // 每次 attempt 用 requestId*10+attempt，错误/回复也按这个 id 回。
+  let error = null;
+  let reply = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    error = error ?? pipe.find(PIPE_OP_ERROR, requestId * 10 + attempt);
+    reply = reply ?? pipe.find(PIPE_OP_SEND_REPLY, requestId * 10 + attempt);
+  }
   if (error) {
     result.error = `${error.status} ${error.msg}`;
     // hook 侧拒绝时不会产生帧；把它当成「未发出」并带上原因，别只看有没有帧。
     if (sent.length === 0) return result;
   }
 
-  const reply = pipe.find(PIPE_OP_SEND_REPLY, requestId);
   if (reply) {
     result.replyStatus = reply.status;
     result.replyLength = reply.body.length;
@@ -736,7 +779,8 @@ async function main(): Promise<void> {
 
   const runtimeDir = opt('--runtime-dir');
   const controlPath = runtimeDir
-    ? `${runtimeDir}/mojo.${pid}.control.sock`
+    ? (findControlSocketInDir(runtimeDir, pid) ??
+      `${runtimeDir}/mojo.${pid}.control.sock`)
     : (findControlSocket(pid) ??
       fail(
         `找不到 pid=${pid} 的 hook control socket；` +
@@ -793,6 +837,9 @@ async function main(): Promise<void> {
 
   const disconnect = argv.includes('--disconnect');
   if (disconnect) {
+    if (process.platform !== 'linux') {
+      fail('--disconnect 依赖 `ss -K`，仅 Linux 支持；macOS/Windows 请去掉该参数');
+    }
     if ((process.getuid?.() ?? -1) !== 0) {
       fail('--disconnect 需要 root（`ss -K` 砍连接要权限）：用 sudo 重跑');
     }

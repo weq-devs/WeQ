@@ -15,10 +15,9 @@ Windows 42 条，而且全部差异都是「Linux 不签、Windows 会签」。
 ## 规则
 
 1. **三端一致**：`needSign` 继续写 `boolean`。
-2. **Linux 与 Windows 不同**：写 `{ linux: false, win32: true }`，或者直接用
-   `SIGN_NON_LINUX`。
-3. **macOS 尚未实测**：先跟 Windows（`NeedSign.darwin` 缺省回落到 `win32`）；
-   实测后再按命令补 `darwin`。
+2. **平台有差异**：写 `{ linux, win32, darwin }`，**三个字段都必填**，不要回落到别的
+   平台（macOS 实测证明回落会算错）。
+3. 平台一致且多端都签时用 `SIGN_NON_LINUX`；三端不一致的单独声明。
 4. 分发时统一走 `sign-policy.ts` 的 `needSignFor(policy, platform?)`，不要在业务代码
    里手写 `process.platform` 判断。
 
@@ -60,16 +59,41 @@ Windows 42 条，而且全部差异都是「Linux 不签、Windows 会签」。
 `0xfe1_2` 三处调用（`get-user-qq-level`、`status`、`cloud-profile`）现在共用同一份
 策略：Linux 不签、Windows 签；删掉了 `cloud-profile.ts` 里写死的 `true`。
 
+### macOS（41 条，2026-11-09 实测，QQ 6.9.x / wrapper.node x86_64）
+
+macOS 的签名集合**既不是 Linux 的子集，也不完全等于 Windows**：
+
+- 覆盖 Windows 全部 23 条额外命令；
+- **额外签** `0x11e9_100`（私聊视频上传）——Windows 两轮探测都没覆盖这条，
+  旧文档推测"按同族 `0x11ea_100` 处理"（即不签）是错的，macOS 实测会签；
+- **不签** `0x9082_1` / `0x9082_2`（贴表情回应）——Linux 与 Windows 都签，
+  这是 macOS 版 QQ 的真实平台行为，命令正常发出、reserved 里就是没有 `SecInfo`，
+  复测稳定。
+
+据此把 `0x9082` 改为三端显式声明 `{ linux: true, win32: true, darwin: false }`，
+`ntv2-upload.ts` 的 `0x11e9_100` 三端（Windows 待补测）按签名处理。
+
+macOS 探测方法：注入 nnphook 的 `libqq_hook.dylib`（`DYLD_INSERT_LIBRARIES`，
+QQ.app 需 ad-hoc 重签并带 `allow-dyld-environment-variables` +
+`disable-library-validation`），socket 在 `$TMPDIR/snowluma-hook/` 下，名字带
+`snowluma-hook` 前缀。`scanSessionMaterial`（读 d2key）需要 `sudo`。
+
+关键：x86_64 上 `nt::MSFService` 是抽象基类，活对象是派生实例，vptr 指向派生
+vtable；hook 按「vtable[36] == SendSSO 包装器」识别派生 vtable，再按对象内
+ASCII uin 逐字节匹配挑出当前会话的那个实例。
+
 ### highway 动态命令
 
 `ntv2-upload.ts` 的上传申请命令来自 `params.oidbCmd`，不能用一个布尔覆盖：
 
 - Windows：图片 `0x11c4_100` / `0x11c5_100` 签；
 - Windows：语音 / 视频 `0x126d/126e_100`、`0x11ea_100` 不签；
+- macOS：图片 `0x11c4_100` / `0x11c5_100` 签，**私聊视频 `0x11e9_100` 也签**，
+  群视频 `0x11ea_100` 不签；
 - Linux：以上全部不签。
 
-`0x11e9_100`（私聊视频上传）两轮 Windows 探测都没有覆盖，先按同族 `0x11ea_100`
-处理，待补测。
+`0x11e9_100`（私聊视频上传）两轮 Windows 探测都没有覆盖，先按 macOS 实测的
+「签」处理，待 Windows 补测。
 
 ## 代码结构
 
