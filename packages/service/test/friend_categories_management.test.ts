@@ -94,23 +94,26 @@ function fixture() {
 describe('好友分组服务编排', () => {
   // 真实后续页的 tag102 只有 name@2；使用合成好友，不保存真实名册。
   const continuationDefault = Buffer.from('b2060e120ce68891e79a84e5a5bde58f8b', 'hex');
-  function pagedRoster(pages: Uint8Array[], localName = '自定义默认组') {
+  function pagedRoster(pages: Uint8Array[], localName: string | null = '自定义默认组') {
     let page = 0;
     const sendOidbPacket = vi.fn(async (_pid: number, command: number) => {
       expect(command).toBe(GetFriendSnsPage.command);
       return Buffer.from(pages[page++]!);
     });
+    const listCategories = vi.fn(async () =>
+      localName === null ? [] : [{ id: 0, name: localName, buddyCount: 2, sortOrder: 1 }],
+    );
     const service = new AccountWriteService(
       { sendOidbPacket, sendPacket: async () => Buffer.alloc(0) },
       {
         uin: '10001',
         selfUid: 'u_self',
         getBuddy: async () => null,
-        listCategories: async () => [{ id: 0, name: localName, buddyCount: 2, sortOrder: 1 }],
+        listCategories,
       },
       () => 1,
     );
-    return { service, sendOidbPacket };
+    return { service, sendOidbPacket, listCategories };
   }
   function firstDirectoryPage(id?: number, buddyCount = 2) {
     return encode(GetFriendSnsPage.respSchema, {
@@ -169,11 +172,85 @@ describe('好友分组服务编排', () => {
     ]);
     await expect(f.service.friendRoster()).rejects.toThrow('可确认');
   });
-  it('名称占位不能掩盖本地默认组不匹配或完整名册人数不符', async () => {
-    const wrongName = pagedRoster([firstDirectoryPage(), lastRosterPage()], '本地不同名');
-    await expect(wrongName.service.friendRoster()).rejects.toThrow('可确认');
-    const wrongCount = pagedRoster([firstDirectoryPage(undefined, 3), lastRosterPage()]);
+  it.each(['本地不同名', null])(
+    '云端完整目录和归属可确认默认组时不依赖本地缓存 %s',
+    async (localName) => {
+      const f = pagedRoster([firstDirectoryPage(), lastRosterPage()], localName);
+      expect((await f.service.friendRoster()).categories).toMatchObject([
+        { id: 0, idPresent: false, name: '自定义默认组', buddyCount: 2 },
+        { id: 5, name: '朋友' },
+      ]);
+      expect(f.listCategories).not.toHaveBeenCalled();
+    },
+  );
+  it('本地唯一同名默认组可确认身份时，目录人数滞后不阻断读取', async () => {
+    const f = pagedRoster([firstDirectoryPage(undefined, 3), lastRosterPage()]);
+    expect((await f.service.friendRoster()).categories).toMatchObject([
+      { id: 0, idPresent: false, buddyCount: 3 },
+      { id: 5 },
+    ]);
+  });
+  it('本地无法确认且完整名册人数不符时仍拒绝', async () => {
+    const wrongCount = pagedRoster([firstDirectoryPage(undefined, 3), lastRosterPage()], null);
     await expect(wrongCount.service.friendRoster()).rejects.toThrow('可确认');
+  });
+  it.each(['自定义默认组', null])(
+    '云端缺少人数时仅接受可唯一关联的本地默认组 %s',
+    async (localName) => {
+      const f = pagedRoster(
+        [
+          encode(GetFriendSnsPage.respSchema, {
+            isEnd: true,
+            friends: [{ uid: 'u_first', uin: 10002n }],
+            categories: [{ name: '自定义默认组' }],
+          }),
+        ],
+        localName,
+      );
+      if (localName === null) await expect(f.service.friendRoster()).rejects.toThrow('可确认');
+      else
+        expect((await f.service.friendRoster()).categories).toMatchObject([
+          { id: 0, buddyCount: null },
+        ]);
+      expect(f.listCategories).toHaveBeenCalledOnce();
+    },
+  );
+  it('云端存在无法关联到目录的非默认归属时不能单凭人数恢复缺失 ID', async () => {
+    const f = pagedRoster(
+      [
+        firstDirectoryPage(),
+        encode(GetFriendSnsPage.respSchema, {
+          isEnd: true,
+          friends: [
+            { uid: 'u_last', uin: 10003n },
+            { uid: 'u_unknown', uin: 10004n, categoryId: 99 },
+          ],
+        }),
+      ],
+      null,
+    );
+    await expect(f.service.friendRoster()).rejects.toThrow('可确认');
+  });
+  it.each(
+    [
+      [
+        { name: '自定义默认组', buddyCount: 1 },
+        { id: 0, name: '显式默认组' },
+      ],
+      [
+        { name: '自定义默认组', buddyCount: 1 },
+        { name: '另一缺失 ID', buddyCount: 1 },
+      ],
+    ].map((categories) => ({ categories })),
+  )('已有显式零 ID 或多个缺失 ID 时不能恢复默认组 %#', async ({ categories }) => {
+    const f = pagedRoster([
+      encode(GetFriendSnsPage.respSchema, {
+        isEnd: true,
+        friends: [{ uid: 'u_first', uin: 10002n }],
+        categories,
+      }),
+    ]);
+    await expect(f.service.friendRoster()).rejects.toThrow('可确认');
   });
   it('第一页的名称记录不能当作后续页占位丢弃', async () => {
     const f = pagedRoster([lastRosterPage()]);
@@ -205,7 +282,7 @@ describe('好友分组服务编排', () => {
       { id: 5, name: '朋友', sortOrder: 1 },
     ]);
   });
-  it('完整名册中的默认组缺省字段保留存在性，只在同账号目录能唯一关联时恢复操作身份', async () => {
+  it('完整名册中的默认组缺省字段保留存在性，云端确认后不受本地名称和排序滞后影响', async () => {
     const sendOidbPacket = async () =>
       Buffer.from(
         encode(GetFriendSnsPage.respSchema, {
@@ -237,7 +314,9 @@ describe('好友分组服务编排', () => {
     identity.listCategories = async () => [
       { id: 0, name: '另一个分组名', buddyCount: 1, sortOrder: 0 },
     ];
-    await expect(service.friendRoster()).rejects.toThrow('可确认');
+    expect((await service.friendRoster()).categories).toMatchObject([
+      { id: 0, name: '默认', idPresent: false },
+    ]);
   });
   it('非空删除先明确移组并读回，再删除与读回目录', async () => {
     const f = fixture();

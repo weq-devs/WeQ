@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { decode, encode, GetFriendSnsPage, SNS_FRIEND_DISTURB } from '@weq/protocol';
+import { decode, encode, GetFriendSnsPage, needSignFor, SNS_FRIEND_DISTURB } from '@weq/protocol';
 import { AccountWriteService } from '../src/account/account_write';
 
 const friend = { uid: 'u_friend', uin: 10002n, qid: '', categoryId: 0 };
@@ -49,11 +49,11 @@ describe('好友免打扰云端读回', () => {
     const f = fixture([{ selfUin: 10001n, isEnd: false, friends: [row()] }]);
     await expect(f.service.getFriendDisturb(friend.uid)).rejects.toThrow('尚未结束');
   });
-  it('分组目录省略 ID 不阻断免打扰或特别关心状态，分组管理仍独立校验', async () => {
+  it('分组目录 ID 无法确认不阻断免打扰或特别关心状态，分组管理仍独立校验', async () => {
     const page = {
       selfUin: 10001n,
       friends: [row(enabled)],
-      categories: [{ name: '合成分组', buddyCount: 1 }],
+      categories: [{ name: '合成分组', buddyCount: 2 }],
     };
     const f = fixture([page, page, page]);
     expect(await f.service.getFriendDisturb(friend.uid)).toEqual({
@@ -98,8 +98,7 @@ describe('好友免打扰云端读回', () => {
     const request = decode(GetFriendSnsPage.reqSchema, call[3]);
     expect(request.snsKeys).toContain(SNS_FRIEND_DISTURB);
     expect(call[4]).toBe(false);
-    // 0xfd4_1：真机实测 QQ 不签名（scripts/probe-sign.ts）。
-    expect(call[5]).toBe(false);
+    expect(call[5]).toBe(needSignFor(GetFriendSnsPage.needSign));
   });
   it('完整遍历分页并携带原始游标，不能找到目标就提前结束', async () => {
     const cookie = Uint8Array.of(7, 0, 8);

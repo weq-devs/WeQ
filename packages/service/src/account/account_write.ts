@@ -291,25 +291,31 @@ export class AccountWriteService {
       if (result.isEnd === true || !cookie?.length) {
         if (!includeDirectory) return { friends, categories: null };
         const rawCategories = [...categories.values()];
-        const local = rawCategories.some((row) => row.id === null)
-          ? await this.identity.listCategories()
-          : [];
-        this.assertCurrentPid(pid);
         const missing = rawCategories.filter((row) => row.id === null);
+        const memberCount = friends.filter((friend) => (friend.categoryId ?? 0) === 0).length;
+        const cloudConfirmed =
+          missing.length === 1 &&
+          missing[0]!.buddyCount === memberCount &&
+          friends.every(
+            (friend) =>
+              (friend.categoryId ?? 0) === 0 ||
+              rawCategories.some((entry) => entry.id === friend.categoryId),
+          );
+        const local = missing.length && !cloudConfirmed ? await this.identity.listCategories() : [];
+        this.assertCurrentPid(pid);
         const zeroSortOmitted =
           rawCategories.filter((row) => row.sortOrder === null).length === 1 &&
           !rawCategories.some((row) => row.sortOrder === 0);
         const resolved = rawCategories.map((row) => {
           const sortOrder = row.sortOrder ?? (zeroSortOmitted ? 0 : null);
           if (row.id !== null) return { ...row, sortOrder, id: row.id, idPresent: true };
-          // 只在完整名册中关联同账号本地默认组；不将任意缺失 ID 普遍补零。
+          // 零 ID 可被省略；本地唯一同名默认组或完整云端归属均可确认身份。
+          // 人数是独立的目录元数据，不能因其滞后否定已确认的本地身份。
           const candidates = local.filter((entry) => entry.id === 0 && entry.name === row.name);
-          const memberCount = friends.filter((friend) => (friend.categoryId ?? 0) === 0).length;
           if (
             missing.length !== 1 ||
             rawCategories.some((entry) => entry.id === 0) ||
-            candidates.length !== 1 ||
-            (row.buddyCount !== null && row.buddyCount !== memberCount)
+            (candidates.length !== 1 && !cloudConfirmed)
           )
             throw new Error('分组目录缺少可确认的 ID，请刷新本地联系人后重试');
           return { ...row, sortOrder, id: 0, idPresent: false };
