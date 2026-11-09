@@ -265,16 +265,17 @@ export class AccountWriteService {
       }
       if (result.categories !== undefined) categoriesPresent = true;
       for (const row of result.categories ?? []) {
-        // 完整目录之后，QQ 的后续页可能只带默认名称占位，不能覆盖已取得的目录。
+        // 后续页的默认名称占位也可能重复人数，不能覆盖已取得的完整目录。
         if (
           page > 0 &&
           result.categories?.length === 1 &&
           row.id === null &&
           row.name === '我的好友' &&
-          row.buddyCount === null &&
           row.sortOrder === null &&
           [...categories.values()].some(
-            (entry) => entry.id === 0 || (entry.id === null && entry.buddyCount !== null),
+            (entry) =>
+              (entry.id === 0 || (entry.id === null && entry.buddyCount !== null)) &&
+              (row.buddyCount === null || row.buddyCount === entry.buddyCount),
           )
         )
           continue;

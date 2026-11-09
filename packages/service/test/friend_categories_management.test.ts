@@ -158,6 +158,18 @@ describe('好友分组服务编排', () => {
     expect(roster.friends.every((row) => row.categoryId === 0)).toBe(true);
     expect(f.sendOidbPacket).toHaveBeenCalledTimes(5);
   });
+  it.each([undefined, 0])('并发读取时末页占位重复默认组人数仍沿用完整目录，ID=%s', async (id) => {
+    // 真机并发读名册时，末页 tag102 可能同时带 name@2 和 buddyCount@3。
+    const countedPlaceholder = encode(GetFriendSnsPage.respSchema, {
+      categories: [{ name: '我的好友', buddyCount: 2 }],
+    });
+    const f = pagedRoster([firstDirectoryPage(id), lastRosterPage(countedPlaceholder)]);
+    expect((await f.service.friendRoster()).categories).toEqual([
+      { id: 0, idPresent: id !== undefined, name: '自定义默认组', buddyCount: 2, sortOrder: 1 },
+      { id: 5, idPresent: true, name: '朋友', buddyCount: 0, sortOrder: 2 },
+    ]);
+    expect(f.sendOidbPacket).toHaveBeenCalledTimes(2);
+  });
   it.each(
     [
       [{ name: '未知分组' }],
