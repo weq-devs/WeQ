@@ -38,6 +38,7 @@ try {
   });
   const errors = [];
   const page = await browser.newPage();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.addInitScript(() => localStorage.clear());
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/*', (route) =>
@@ -49,6 +50,26 @@ try {
   for (const width of [390, 1180]) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width, height: 844 });
+      await page.goto(
+        `http://127.0.0.1:${server.httpServer.address().port}/test/browser/settings-navigation.html?display=1`,
+      );
+      await page.evaluate((theme) => {
+        window.settingsNavigationQa.theme.getState().setPreference(theme);
+      }, theme);
+      const metadata = page.locator('[data-setting-id="custom-message-display"]');
+      assert.deepEqual(await metadata.locator('.weq-set-row-label').allTextContents(), [
+        '显示消息序号（seq）',
+        '显示发送日期',
+        '显示发送时间',
+      ]);
+      for (const id of ['message-date', 'message-time']) {
+        const row = metadata.locator(`[data-setting-id="${id}"]`);
+        const label = await row.locator('.weq-set-row-label').boundingBox();
+        const toggle = await row.getByRole('switch').boundingBox();
+        assert(label && toggle && label.x + label.width <= toggle.x);
+      }
+      if (output)
+        await page.screenshot({ path: resolve(output, `message-display-${width}-${theme}.png`) });
       await page.goto(
         `http://127.0.0.1:${server.httpServer.address().port}/test/browser/settings-navigation.html`,
       );

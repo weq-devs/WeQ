@@ -863,6 +863,7 @@ function AppearanceSection({
   const setShowMessageFont = trpc.bootstrap.setShowMessageFont.useMutation();
   const setShowMessageSeq = trpc.bootstrap.setShowMessageSeq.useMutation();
   const setShowMessageTime = trpc.bootstrap.setShowMessageTime.useMutation();
+  const setShowMessageDate = trpc.bootstrap.setShowMessageDate.useMutation();
   const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
   const setShowContactUnreadCount = trpc.bootstrap.setShowContactUnreadCount.useMutation();
   const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
@@ -1150,8 +1151,31 @@ function AppearanceSection({
                 />
                 {seqError ? <p role="alert">{seqError}</p> : null}
                 <Row
+                  settingId="message-date"
+                  label="显示发送日期"
+                  control={
+                    <Toggle
+                      checked={settings.data?.showMessageDate ?? false}
+                      disabled={!settings.data || setShowMessageDate.isLoading}
+                      onChange={(enabled) => {
+                        setSeqError(null);
+                        setShowMessageDate.mutate(
+                          { enabled },
+                          {
+                            onSuccess: () => {
+                              void settings.refetch();
+                            },
+                            onError: (error) => setSeqError(error.message),
+                          },
+                        );
+                      }}
+                      label="显示发送日期"
+                    />
+                  }
+                />
+                <Row
                   settingId="message-time"
-                  label="显示发送时间（精确到秒）"
+                  label="显示发送时间"
                   control={
                     <Toggle
                       checked={settings.data?.showMessageTime ?? false}
@@ -1168,7 +1192,7 @@ function AppearanceSection({
                           },
                         );
                       }}
-                      label="显示发送时间（精确到秒）"
+                      label="显示发送时间"
                     />
                   }
                 />

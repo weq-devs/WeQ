@@ -229,7 +229,8 @@ describe('设置归位后的实际页面', () => {
         [...display.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
       ).toEqual([
         '显示消息序号（seq）',
-        '显示发送时间（精确到秒）',
+        '显示发送日期',
+        '显示发送时间',
         '聊天头像挂件',
         '消息气泡',
         '消息字体',

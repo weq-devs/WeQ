@@ -1052,6 +1052,11 @@ export const bootstrapRouter = router({
     return true;
   }),
 
+  setShowMessageDate: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ showMessageDate: input.enabled });
+    return true;
+  }),
+
   setShowMessageTime: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
     requireBootstrap().userConfig.setSettings({ showMessageTime: input.enabled });
     return true;

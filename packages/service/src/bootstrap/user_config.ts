@@ -800,6 +800,8 @@ export interface AppSettings {
   showMessageFont: boolean;
   /** Show the original conversation sequence beside each message. */
   showMessageSeq: boolean;
+  /** 逐条显示 yyyy-mm-dd 格式的北京时间日期，与时间开关独立。 */
+  showMessageDate: boolean;
   /** 逐条显示精确到秒的北京时间，与序号开关独立。 */
   showMessageTime: boolean;
   /** 左栏「消息」入口显示汇总未读角标，不改变阅读状态。 */
@@ -1158,6 +1160,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showMessageBubble: true,
   showMessageFont: true,
   showMessageSeq: false,
+  showMessageDate: false,
   showMessageTime: false,
   showMessageUnreadBadge: true,
   showContactUnreadCount: false,
@@ -1832,6 +1835,7 @@ export class UserConfigService {
       showMessageBubble: s?.showMessageBubble ?? s?.showMsgDecoration ?? d.showMessageBubble,
       showMessageFont: s?.showMessageFont ?? s?.showMsgDecoration ?? d.showMessageFont,
       showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
+      showMessageDate: s?.showMessageDate ?? d.showMessageDate,
       showMessageTime: s?.showMessageTime ?? d.showMessageTime,
       showMessageUnreadBadge: s?.showMessageUnreadBadge ?? d.showMessageUnreadBadge,
       showContactUnreadCount: s?.showContactUnreadCount ?? d.showContactUnreadCount,
@@ -1976,6 +1980,7 @@ export class UserConfigService {
         patch.showMessageBubble ?? patch.showMsgDecoration ?? current.showMessageBubble,
       showMessageFont: patch.showMessageFont ?? patch.showMsgDecoration ?? current.showMessageFont,
       showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
+      showMessageDate: patch.showMessageDate ?? current.showMessageDate,
       showMessageTime: patch.showMessageTime ?? current.showMessageTime,
       showMessageUnreadBadge: patch.showMessageUnreadBadge ?? current.showMessageUnreadBadge,
       showContactUnreadCount: patch.showContactUnreadCount ?? current.showContactUnreadCount,

@@ -403,20 +403,27 @@ describe('offline roaming timeline cache pages', () => {
       [],
     );
   });
-  it('persists the seq display toggle and preserves unrelated settings', () => {
+  it('独立保存序号、日期和时间开关，保留其他设置', () => {
     const { root } = setup();
     const platform = { appDataRoot: () => root } as Platform;
     const config = new UserConfigService(platform);
     expect(config.getSettings().showMessageSeq).toBe(false);
+    expect(config.getSettings().showMessageDate).toBe(false);
     expect(config.getSettings().showMessageTime).toBe(false);
     config.setSettings({ showMessageSeq: true });
+    config.setSettings({ showMessageDate: true });
     config.setSettings({ showMessageTime: true });
     config.setSettings({ preferCdn: true });
     const reopened = new UserConfigService(platform);
     expect(reopened.getSettings().showMessageSeq).toBe(true);
+    expect(reopened.getSettings().showMessageDate).toBe(true);
     expect(reopened.getSettings().showMessageTime).toBe(true);
     reopened.setSettings({ showMessageSeq: false });
     expect(new UserConfigService(platform).getSettings().showMessageSeq).toBe(false);
+    reopened.setSettings({ showMessageDate: false });
+    const reloaded = new UserConfigService(platform).getSettings();
+    expect(reloaded.showMessageDate).toBe(false);
+    expect(reloaded.showMessageTime).toBe(true);
     expect(reopened.getSettings().preferCdn).toBe(true);
   });
 });

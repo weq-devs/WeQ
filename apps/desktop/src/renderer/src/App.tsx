@@ -46,7 +46,11 @@ import { setWindowLayout } from './lib/windowLayout';
 import { ensureThemeInitialized } from './state/theme';
 import { usePrivacyStore } from './state/privacy';
 import { useAccountSwitch } from './state/accountSwitch';
-import { ShowMessageSeqContext, ShowMessageTimeContext } from './components/MessageProvenance';
+import {
+  ShowMessageDateContext,
+  ShowMessageSeqContext,
+  ShowMessageTimeContext,
+} from './components/MessageProvenance';
 import { ContentSelectionProvider } from './state/contentSelection';
 import { ChatImageCacheProvider } from './components/ChatImageCacheProvider';
 import { DEFAULT_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
@@ -89,14 +93,16 @@ function TextMarkdownProvider({
         <ChatQqShowEnabledContext.Provider value={settings.data?.showChatQqShow ?? true}>
           <MsgDecorationEnabledContext.Provider value={messageDecoration}>
             <ShowMessageSeqContext.Provider value={settings.data?.showMessageSeq ?? false}>
-              <ShowMessageTimeContext.Provider value={settings.data?.showMessageTime ?? false}>
-                <ChatImageCacheProvider
-                  scope={cacheScope}
-                  budgetMiB={settings.data?.chatImageCacheMiB ?? DEFAULT_CHAT_IMAGE_CACHE_MIB}
-                >
-                  {children}
-                </ChatImageCacheProvider>
-              </ShowMessageTimeContext.Provider>
+              <ShowMessageDateContext.Provider value={settings.data?.showMessageDate ?? false}>
+                <ShowMessageTimeContext.Provider value={settings.data?.showMessageTime ?? false}>
+                  <ChatImageCacheProvider
+                    scope={cacheScope}
+                    budgetMiB={settings.data?.chatImageCacheMiB ?? DEFAULT_CHAT_IMAGE_CACHE_MIB}
+                  >
+                    {children}
+                  </ChatImageCacheProvider>
+                </ShowMessageTimeContext.Provider>
+              </ShowMessageDateContext.Provider>
             </ShowMessageSeqContext.Provider>
           </MsgDecorationEnabledContext.Provider>
         </ChatQqShowEnabledContext.Provider>

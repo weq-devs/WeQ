@@ -7,6 +7,7 @@ import { WorkspacePages, WorkspaceContent } from '../../src/renderer/src/compone
 import { useSettingsNavigation } from '../../src/renderer/src/hooks/useSettingsNavigation';
 import { useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
+import '../../src/renderer/src/styles/mobile-web.css';
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 Object.assign(window, { settingsNavigationQa: { theme: useThemeStore } });
@@ -19,7 +20,10 @@ function Fixture() {
     <QueryClientProvider client={queryClient}>
       <PageSnapshots scope="settings-navigation-fixture">
         <WorkspacePages navigationKey={view}>
-          <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column' }}>
+          <div
+            className="weq-web-shell"
+            style={{ height: '100dvh', display: 'flex', flexDirection: 'column' }}
+          >
             <nav aria-label="测试导航">
               <button type="button" onClick={() => navigation.navigate(() => setView('messages'))}>
                 消息
@@ -34,7 +38,7 @@ function Fixture() {
             {open && (
               <SettingsDialog
                 open
-                initialSection="onebot"
+                initialSection={location.search === '?display=1' ? 'message-display' : 'onebot'}
                 onClose={() => setOpen(false)}
                 navigationGuard={navigation.guard}
                 onOpenMaintenance={() => {}}

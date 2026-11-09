@@ -156,6 +156,7 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
     [
       'custom-message-display',
       'message-seq',
+      'message-date',
       'message-time',
       'avatar-pendant',
       'message-bubble',
@@ -403,7 +404,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['auto-transcribe-voice', '语音消息自动转文字', '语音自动识别'],
       ['custom-message-display', '自定义消息显示'],
       ['message-seq', '显示消息序号（seq）'],
-      ['message-time', '显示发送时间（精确到秒）'],
+      ['message-date', '显示发送日期'],
+      ['message-time', '显示发送时间', '显示发送时间（精确到秒）'],
       ['avatar-pendant', '聊天头像挂件'],
       ['chat-qqshow', '聊天 QQ 秀替换头像', 'QQ 秀'],
       ['chat-qqshow-days', 'QQ 秀缓存有效期'],
