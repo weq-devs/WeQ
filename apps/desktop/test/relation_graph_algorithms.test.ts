@@ -135,10 +135,10 @@ describe('群交集模型与渲染索引', () => {
     expect(model.pairs.every((pair) => pair.weight === 16 && pair.ratio === 1)).toBe(true);
     expect(model.totalPeople).toBe(16);
   });
-  it('500 个节点保留全部精确关系，筛选仍发生在计数之前', () => {
-    const data = fixture(500, 300, 6);
-    const graph = buildGraph(data, settings);
-    expect(graph.nodes).toHaveLength(501);
+  it.each([500, 1000])('%i 个节点保留全部精确关系，筛选仍发生在计数之前', (count) => {
+    const data = fixture(count, 300, 6);
+    const graph = buildGraph(data, { ...settings, nodeLimit: count });
+    expect(graph.nodes).toHaveLength(count + 1);
     expect(
       graph.edges
         .filter((edge) => edge.source !== '__self__')

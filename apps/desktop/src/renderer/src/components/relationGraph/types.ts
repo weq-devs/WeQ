@@ -38,7 +38,7 @@ export type OverlapDirection = 'large' | 'small';
 /** All user-tunable knobs from the control panel. */
 export interface GraphSettings {
   mode: GraphMode;
-  /** Max nodes drawn (≤ 500). */
+  /** Max nodes drawn (≤ 1000). */
   nodeLimit: number;
   /** Edge threshold: shared groups (people) or shared members (groups). */
   minCommon: number;
