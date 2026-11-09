@@ -19,7 +19,6 @@ import { CaptureWindowHost } from './components/CaptureWindow';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { JoinGroupDialog } from './components/JoinGroupDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
-import { QuitConfirmDialog } from './components/QuitConfirmDialog';
 import { RestrictedModeHost } from './components/RestrictedMode';
 import { DesktopOnly, IS_WEB } from './lib/target';
 import { WebNotifications } from './components/WebNotifications';
@@ -236,7 +235,6 @@ export default function App(): ReactElement {
             <CaptureWindowHost />
             <DesktopOnly>
               <CloseConfirmDialog />
-              <QuitConfirmDialog />
             </DesktopOnly>
             <RestrictedModeHost />
             <DesktopOnly>

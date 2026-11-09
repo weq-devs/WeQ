@@ -12,8 +12,7 @@ const state = vi.hoisted(() => ({
   web: false,
   remote: false,
   sse: false,
-  suppressed: false,
-  bootstrapThrows: false,
+  webThrows: false,
 }));
 
 vi.mock('../src/main/mcp/server', () => ({ isMcpRunning: () => state.mcp }));
@@ -24,26 +23,22 @@ vi.mock('../src/main/weq_assistant/server', () => ({
   assistantResourceServer: { status: () => ({ running: state.assistant, port: 27182 }) },
 }));
 vi.mock('../src/main/web/runtime', () => ({
-  desktopWebRuntime: { status: () => ({ enabled: state.web }) },
+  desktopWebRuntime: {
+    status: () => {
+      if (state.webThrows) throw new Error('web runtime not ready');
+      return { enabled: state.web };
+    },
+  },
 }));
 vi.mock('../src/main/remote/runtime', () => ({
   remoteRuntime: { status: () => ({ enabled: state.remote }) },
 }));
 vi.mock('../src/main/context/app_context', () => ({
   isSsePushActive: () => state.sse,
-  getAppContext: () => {
-    if (state.bootstrapThrows) throw new Error('native not ready');
-    return {
-      bootstrap: {
-        userConfig: { getSettings: () => ({ quitConfirmSuppressed: state.suppressed }) },
-      },
-    };
-  },
 }));
 
-const { backgroundServicesRunning, needsQuitConfirmation } = await import(
-  '../src/main/background_services'
-);
+const backgroundServices = await import('../src/main/background_services');
+const { backgroundServicesRunning } = backgroundServices;
 
 beforeEach(() => {
   state.mcp = false;
@@ -52,8 +47,7 @@ beforeEach(() => {
   state.web = false;
   state.remote = false;
   state.sse = false;
-  state.suppressed = false;
-  state.bootstrapThrows = false;
+  state.webThrows = false;
 });
 
 describe('当前运行中的后台服务', () => {
@@ -82,33 +76,17 @@ describe('当前运行中的后台服务', () => {
 
   it('某个状态函数抛错时当作没在跑，不影响其余服务', () => {
     state.mcp = true;
+    state.web = true;
     state.remote = true;
-    // 让 web 的状态访问抛错：把它换成会炸的桩不方便，这里改用 bootstrap 抛错
-    // 验证「整体不炸」这条兜底路径。
-    state.bootstrapThrows = true;
+    state.webThrows = true;
     expect(backgroundServicesRunning().map((s) => s.id)).toEqual(['mcp', 'remote']);
   });
 });
 
-describe('退出前是否需要确认', () => {
-  it('没有服务在跑时不确认', () => {
-    expect(needsQuitConfirmation()).toBe(false);
-  });
-
-  it('有服务在跑就要确认', () => {
-    state.onebot = true;
-    expect(needsQuitConfirmation()).toBe(true);
-  });
-
-  it('勾过不再询问后即使有服务也不确认', () => {
-    state.mcp = true;
-    state.suppressed = true;
-    expect(needsQuitConfirmation()).toBe(false);
-  });
-
-  it('bootstrap 不可用（原生加载失败）时不拦退出', () => {
-    state.mcp = true;
-    state.bootstrapThrows = true;
-    expect(needsQuitConfirmation()).toBe(false);
+describe('退出不再经过确认', () => {
+  it('模块不再提供「退出前是否需要确认」的判据', () => {
+    // 回归守卫：Dock / Cmd+Q / 托盘退出必须直通。若有人把确认逻辑加回来，
+    // 这个用例会失败，提醒同时更新关窗确认框与文档，而不是悄悄拦掉退出。
+    expect('needsQuitConfirmation' in backgroundServices).toBe(false);
   });
 });

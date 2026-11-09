@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url';
 import { STORAGE_RUNTIME_DATA_NAMES, type StorageUsageItem } from '@weq/service';
 import { executeStorageCleanup, readStorageCleanupResult } from '@weq/service/storage-cleanup';
 import { resolveChildWorkerPath } from './worker_path';
-import { skipNextQuitConfirmation } from './app_quit_confirmation';
 import { isStorageCleanupWorkerProcess } from './storage_cleanup_process';
 import { createStorageCleanupRestart } from './storage_cleanup_restart';
 
@@ -174,8 +173,5 @@ export async function clearStorageAfterExit(targets: StorageUsageItem[]): Promis
     pending = false;
     app.removeListener('will-quit', commit);
   });
-  setTimeout(() => {
-    skipNextQuitConfirmation();
-    app.quit();
-  }, 200);
+  setTimeout(() => app.quit(), 200);
 }

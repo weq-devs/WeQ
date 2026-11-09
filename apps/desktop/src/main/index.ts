@@ -52,7 +52,7 @@ import { getAppContext } from './context/app_context';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
-import { checkForUpdate, installUpdateActions, isInstallingUpdate } from './update/updater';
+import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { remoteRuntime } from './remote/runtime';
 import { desktopWebRuntime } from './web/runtime';
@@ -79,7 +79,6 @@ import {
   registerAppQuitPreparation,
   registerWindowUnloadConfirmation,
 } from './app_quit_lifecycle';
-import { registerAppQuitConfirmation } from './app_quit_confirmation';
 import { createRendererRecovery } from './renderer_recovery';
 import { registerRendererRecoveryIpc } from './renderer_recovery_ipc';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
@@ -88,8 +87,7 @@ import { macApplicationMenu, nativeMenuLabels } from './application_menu';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
 import { registerCallVideoIpc } from './call_video_ipc';
 import { registerAttachHintIpc } from './attach_hint_ipc';
-import { backgroundServicesRunning, needsQuitConfirmation } from './background_services';
-import { promptQuitConfirm, registerQuitConfirmIpc } from './quit_confirm_ipc';
+import { backgroundServicesRunning } from './background_services';
 import { registerElevationIpc } from './elevation_ipc';
 import { registerLongTermAuthorizationIpc } from './authorization/ipc';
 import {
@@ -145,9 +143,8 @@ const compositionWindows = new Map<number, BrowserWindow>();
 /** System-tray icon; null until built (or if creation failed). */
 let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
- *  and lets the window actually close (托盘退出 / 确认框「完全退出」/ before-quit). */
+ *  and lets the window actually close (托盘退出 / Cmd+Q / before-quit). */
 let isQuitting = false;
-let resetQuitConfirmation: () => void = () => {};
 let stopRendererDiagnostics: (() => void) | null = null;
 let mainWindowRequested = false;
 const rendererRecoveries = new Map<number, ReturnType<typeof createRendererRecovery>>();
@@ -622,8 +619,12 @@ function createWindow(showInitially = true): BrowserWindow {
       return;
     }
     // 'ask' — or 'tray' but the tray failed to build → fall back to asking.
+    // 有后台服务在跑时一并带上名单：完全退出会让这些服务停止，用户在
+    // 「关窗」这个模糊动作上需要知道代价；真正的退出动作（Dock / Cmd+Q /
+    // 托盘「退出 WeQ」）不经过这里，直接退出。
     win.webContents.send('window:confirm-close', {
       canMinimizeToTray: Boolean(tray),
+      services: backgroundServicesRunning().map((service) => service.label),
     });
   });
 
@@ -832,7 +833,6 @@ void app.whenReady().then(async () => {
   registerFlashShareIpc();
   registerWeqAssistantIpc();
   registerAttachHintIpc();
-  registerQuitConfirmIpc();
   registerElevationIpc();
   registerLongTermAuthorizationIpc();
   registerEditUndoIpc();
@@ -854,7 +854,6 @@ void app.whenReady().then(async () => {
       cancelled: () => {
         isQuitting = false;
         resetQuitPreparation();
-        resetQuitConfirmation();
       },
     });
   });
@@ -908,36 +907,16 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' && isQuitting) app.quit();
 });
 
-// A real quit is underway (tray「退出」/ 确认框「完全退出」/ Cmd+Q / OS shutdown):
+// A real quit is underway (tray「退出」/ Cmd+Q / Dock 菜单退出 / OS shutdown):
 // 只放行窗口关闭；未保存内容仍可能取消退出，暂不停止服务或销毁托盘。
+// 退出不再弹「确认 / 最小化到托盘」：用户选的就是退出，后台服务随 `will-quit`
+// 统一释放，「会停掉哪些服务」的信息在关窗确认框和「后台服务」页常驻展示。
 const resetQuitPreparation = registerAppQuitPreparation(app, autoUpdater, () => {
   isQuitting = true;
 });
 
 // 后台服务随应用结束；次实例退出不能关闭主实例拥有的服务。
 if (hasSingleInstanceLock) {
-  resetQuitConfirmation = registerAppQuitConfirmation(app, autoUpdater, {
-    needsConfirmation: needsQuitConfirmation,
-    bypass: () => isInstallingUpdate(),
-    showDialog: () =>
-      promptQuitConfirm(backgroundServicesRunning().map((service) => service.label)),
-    onRemember: () => {
-      try {
-        getAppContext().bootstrap?.userConfig.setSettings({ quitConfirmSuppressed: true });
-      } catch (error) {
-        logger.warn('failed to remember quit confirmation', {
-          event: 'quit-confirm-remember-failed',
-          error: String(error),
-        });
-      }
-    },
-    hideWindow: () => getMainWindow()?.hide(),
-    failed: (error) =>
-      logger.warn('quit confirmation failed', {
-        event: 'quit-confirmation-failed',
-        error: String(error),
-      }),
-  });
   registerAppQuitCleanup(
     app,
     async () => {
