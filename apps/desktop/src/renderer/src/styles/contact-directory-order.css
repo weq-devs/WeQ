@@ -59,22 +59,6 @@ html[data-theme='dark'] .weq-directory-order {
   gap: 8px;
   padding-top: 16px;
 }
-.weq-contact-refresh-help {
-  display: grid;
-  gap: 10px;
-  margin: 16px 0 0;
-  overflow-wrap: anywhere;
-  font-size: 13px;
-  line-height: 1.6;
-}
-.weq-contact-refresh-help dt {
-  color: var(--weq-fg-primary);
-  font-weight: 600;
-}
-.weq-contact-refresh-help dd {
-  margin: 2px 0 0;
-  color: var(--weq-fg-secondary);
-}
 .weq-contact-task-log h3 {
   margin: 16px 0 8px;
   font-size: 13px;

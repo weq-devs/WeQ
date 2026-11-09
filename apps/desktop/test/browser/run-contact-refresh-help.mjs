@@ -59,15 +59,9 @@ try {
       await page.getByRole('button', { name: '刷新联系人列表', exact: true }).click();
       const dialog = page.getByRole('dialog', { name: '刷新联系人', exact: true });
       await dialog.waitFor();
-      const help = dialog.locator('.weq-contact-refresh-help');
-      assert.deepEqual(await help.locator('dt').allTextContents(), [
-        '超 24h 未更新',
-        '全部',
-        '不更新',
-      ]);
-      assert.match(await help.textContent(), /补齐缺失的缓存/);
-      assert.match(await help.textContent(), /所有好友与群聊/);
-      assert.match(await help.textContent(), /不启动缓存更新任务/);
+      const help = dialog.getByText('选择联系人排序与分组缓存的更新范围。', { exact: true });
+      assert.equal(await help.isVisible(), true);
+      assert.equal(await dialog.locator('dl').count(), 0);
       for (const name of ['超 24h 未更新', '全部', '不更新']) {
         await dialog.getByRole('radio', { name, exact: true }).click();
         assert.equal(
@@ -91,9 +85,29 @@ try {
       );
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}.png`) });
       await dialog.getByRole('button', { name: '取消', exact: true }).click();
+      const sort = page.locator('[data-kind="friends"]').getByLabel('排序依据');
+      await sort.selectOption('age');
+      await sort.selectOption('level');
+      const stale = page.getByRole('dialog', { name: '更新联系人缓存', exact: true });
+      await stale.waitFor();
+      assert.equal(
+        await stale
+          .getByText('该依据的缓存已超过 7 天或尚未建立，是否更新？', { exact: true })
+          .isVisible(),
+        true,
+      );
+      const prompt = stale.getByText('选择联系人排序与分组缓存的更新范围。', { exact: true });
+      assert.equal(await prompt.isVisible(), true);
+      assert.equal(
+        await prompt.evaluate((element) => element.nextElementSibling?.getAttribute('aria-label')),
+        '缓存更新范围',
+      );
+      assert.equal(await stale.locator('dl').count(), 0);
+      if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}-stale.png`) });
+      await stale.getByRole('button', { name: '取消', exact: true }).click();
     }
   assert.deepEqual(errors, []);
-  console.log('联系人缓存三项说明、选项切换、320/390/1180px 浅深主题验证通过');
+  console.log('主动刷新与缓存过期弹窗的选项前提示、选项切换、320/390/1180px 浅深主题验证通过');
 } finally {
   await browser?.close();
   await server.close();

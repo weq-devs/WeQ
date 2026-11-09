@@ -102,11 +102,8 @@ export function ContactCacheRefreshDialog({
           </button>
         </div>
         <div className="weq-dialog-body">
-          <p>
-            {stale
-              ? '该依据的缓存已超过 7 天或尚未建立，是否更新？'
-              : '选择联系人排序与分组缓存的更新范围。'}
-          </p>
+          {stale && <p>该依据的缓存已超过 7 天或尚未建立，是否更新？</p>}
+          <p>选择联系人排序与分组缓存的更新范围。</p>
           <SegmentedControl
             label="缓存更新范围"
             disabled={rebuild.isLoading}
@@ -126,20 +123,6 @@ export function ContactCacheRefreshDialog({
                 }
             }}
           />
-          <dl className="weq-contact-refresh-help">
-            <div>
-              <dt>超 24h 未更新</dt>
-              <dd>补齐缺失的缓存，并更新超过 24 小时未更新的缓存；最近更新的保留。</dd>
-            </div>
-            <div>
-              <dt>全部</dt>
-              <dd>重新计算所有好友与群聊的排序、分组缓存，不论上次更新时间。</dd>
-            </div>
-            <div>
-              <dt>不更新</dt>
-              <dd>继续使用现有缓存，不启动缓存更新任务；缺失或过期的数据保持原样。</dd>
-            </div>
-          </dl>
           {config.error && <p role="alert">账号信息读取失败：{config.error.message}</p>}
         </div>
         <div className="weq-dialog-foot weq-contact-refresh-actions">
