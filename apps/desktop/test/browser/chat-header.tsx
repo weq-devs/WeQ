@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { CloudSun } from 'lucide-react';
 import { createRoot } from 'react-dom/client';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import { ConversationDirectoryContext } from '../../src/renderer/src/lib/conversationDirectory';
 import { PROJECT_GROUP_IDS } from '../../src/shared/project_groups';
+import { ChatHeader } from '../../src/renderer/src/components/ChatHeader';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
 
@@ -15,6 +17,7 @@ const record = (name: string) => () => calls.push(name);
 function Fixture() {
   const [kind, setKind] = useState<'direct' | 'group'>('direct');
   const [active, setActive] = useState(true);
+  const [alignment, setAlignment] = useState(false);
   const source = demo.conversations.find((row) => row.type === kind)!;
   const conversation =
     source.type === 'group'
@@ -38,7 +41,28 @@ function Fixture() {
             },
           }
         : source;
-  Object.assign(window, { chatHeaderQa: { calls, kind: setKind, active: setActive } });
+  Object.assign(window, {
+    chatHeaderQa: { calls, kind: setKind, active: setActive, alignment: setAlignment },
+  });
+  if (alignment) {
+    const status = (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+        <CloudSun size={16} aria-hidden />
+        <span>在线 - 今日天气</span>
+      </span>
+    );
+    return (
+      <section className="chat-pane">
+        <ChatHeader
+          title={<span className="chat-title-text">测试联系人</span>}
+          status={status}
+          mobileStatus={status}
+          actions={null}
+          onBack={noop}
+        />
+      </section>
+    );
+  }
   return (
     <div className="weq-web-shell" style={{ height: '100dvh' }}>
       <ConversationDirectoryContext.Provider

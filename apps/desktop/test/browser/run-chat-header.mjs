@@ -196,6 +196,32 @@ try {
     '桌面设置被移除',
   );
   assert((await more().count()) === 0 && (await menu().count()) === 0, '桌面仍保留手机菜单');
+  await page.evaluate(() => window.chatHeaderQa.alignment(true));
+  for (const componentStyle of ['default', 'qqnt']) {
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate(
+        ({ componentStyle, theme }) => {
+          document.documentElement.dataset.componentStyle = componentStyle;
+          document.documentElement.dataset.theme = theme;
+        },
+        { componentStyle, theme },
+      );
+      const alignment = await page.locator('.chat-title').evaluate((title) => {
+        const name = title.querySelector('strong').getBoundingClientRect();
+        const status = title.querySelector('.chat-status-desktop > span').getBoundingClientRect();
+        return Math.abs(name.y + name.height / 2 - status.y - status.height / 2);
+      });
+      assert(
+        alignment <= 0.5,
+        `昵称与状态未居中对齐：${componentStyle}/${theme} 偏差 ${alignment}px`,
+      );
+      results.push({ componentStyle, theme, centerOffset: alignment });
+      if (output)
+        await page.locator('.chat-header').screenshot({
+          path: resolve(output, `alignment-${componentStyle}-${theme}.png`),
+        });
+    }
+  }
   assert(errors.length === 0, errors.join('\n'));
   console.log(JSON.stringify({ cases: results.length, results, errors }, null, 2));
 } finally {
