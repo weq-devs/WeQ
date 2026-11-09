@@ -7,10 +7,11 @@ import {
   ListX,
   Loader2,
   MessageSquareText,
+  MoreHorizontal,
   Pause,
   Users,
 } from 'lucide-react';
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState, type ComponentProps } from 'react';
 import type { Conversation } from '../im-template/template/types';
 import {
   conversationAnalysisTarget,
@@ -30,12 +31,16 @@ export function ConversationMessageActions({
   onDeleted,
   onRecalled,
   onAdd,
+  compact = false,
+  additionalActions = [],
 }: {
   conversation: Conversation;
   onRoaming?: (conversation: Conversation) => void;
   onDeleted?: (conversation: Conversation) => void;
   onRecalled?: (conversation: Conversation) => void;
   onAdd?: (conversation: Conversation) => void;
+  compact?: boolean;
+  additionalActions?: ComponentProps<typeof ConversationActionsMenu>['actions'];
 }) {
   const directory = useContext(ConversationDirectoryContext);
   const requestExport = useRequestContentExport();
@@ -46,7 +51,7 @@ export function ConversationMessageActions({
   const active = useTabActive();
   const trigger = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  useEffect(() => setMenu(null), [conversation.id, active]);
+  useEffect(() => setMenu(null), [conversation.id, active, compact]);
   const state = trpc.account.roamingBackfill.list.useQuery(undefined, {
     enabled: active && Boolean(target && onRoaming),
     refetchInterval: active && target && onRoaming ? 1000 : false,
@@ -159,11 +164,16 @@ export function ConversationMessageActions({
           },
         ]
       : []),
+    ...additionalActions,
   ];
   if (!actions.length) return null;
   const open = () => {
     const rect = trigger.current?.getBoundingClientRect();
-    if (rect) setMenu({ x: rect.left, y: rect.bottom + 4 });
+    const header = compact
+      ? trigger.current?.closest('.chat-header')?.getBoundingClientRect()
+      : null;
+    if (rect)
+      setMenu({ x: compact ? rect.right : rect.left, y: (header?.bottom ?? rect.bottom) + 4 });
   };
   return (
     <>
@@ -171,8 +181,14 @@ export function ConversationMessageActions({
         ref={trigger}
         type="button"
         className="icon-button group-header-info-action weq-conversation-message-actions"
-        title={status ? `消息管理 · 漫游拉取任务 ${status}` : '消息管理'}
-        aria-label="消息管理"
+        title={
+          status
+            ? `${compact ? '更多' : '消息管理'} · 漫游拉取任务 ${status}`
+            : compact
+              ? '更多'
+              : '消息管理'
+        }
+        aria-label={compact ? '更多会话操作' : '消息管理'}
         aria-haspopup="menu"
         aria-expanded={Boolean(menu)}
         onClick={() => (menu ? setMenu(null) : open())}
@@ -183,18 +199,25 @@ export function ConversationMessageActions({
           }
         }}
       >
-        {running ? <Loader2 size={18} /> : <MessageSquareText size={18} />}
+        {compact ? (
+          <MoreHorizontal size={18} />
+        ) : running ? (
+          <Loader2 size={18} />
+        ) : (
+          <MessageSquareText size={18} />
+        )}
         {job?.status === 'paused' || job?.status === 'pausing' ? (
           <span className="weq-roaming-paused-indicator" aria-hidden="true">
             <Pause size={9} strokeWidth={3} />
           </span>
-        ) : running ? (
+        ) : running && !compact ? (
           <small>{status}</small>
         ) : null}
       </button>
       {menu ? (
         <ConversationActionsMenu
-          label="消息管理"
+          label={compact ? '会话操作' : '消息管理'}
+          dropdown={compact}
           x={menu.x}
           y={menu.y}
           actions={actions}

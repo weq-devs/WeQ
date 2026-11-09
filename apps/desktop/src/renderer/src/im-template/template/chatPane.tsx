@@ -17,6 +17,7 @@ import { MessageSelectionBar } from '../../components/MessageSelectionBar';
 import { useMediaSave } from '../../components/MediaSaveControls';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import { useStableCallback } from '../../hooks/useStableCallback';
+import { useMobileWebLayout } from '../../hooks/useMobileWebViewport';
 import { timelineViewport } from '../../lib/timelineViewport';
 import { IS_WEB } from '../../lib/target';
 import '../../styles/message-selection-toolbar.css';
@@ -1126,6 +1127,7 @@ export function ChatPane({
     () => hiddenDeletionLookup(messages, hiddenDeletedIds ?? new Set()),
     [messages, hiddenDeletedIds],
   );
+  const compactHeader = useMobileWebLayout();
   // 分析和回复使用不同目标，自己的消息不触发推荐；跳过灰条、撤回和删除。
   const intentSupported = Boolean(
     !generated &&
@@ -5071,11 +5073,19 @@ export function ChatPane({
     void action.onClick?.(composerActionContext);
   }
 
+  const headerAffinity =
+    intentSupported && conversation.type === 'direct' && !isBotConversation(conversation) ? (
+      <AffinityPill
+        peerUid={conversation.otherUser.id}
+        peerName={displayUserName(conversation.otherUser)}
+      />
+    ) : null;
   const pane = (
     <section
       {...multi.rootProps}
       className={cn(
         'chat-pane',
+        compactHeader && 'has-compact-header',
         conversation.type === 'group' ? 'with-group-info' : '',
         conversation.type === 'group' && (groupInfoCollapsed || sidecarOpen)
           ? 'group-info-collapsed'
@@ -5168,6 +5178,7 @@ export function ChatPane({
                 referrerPolicy="no-referrer"
               />
             ) : null}
+            {compactHeader ? headerAffinity : null}
           </>
         }
         status={
@@ -5177,24 +5188,12 @@ export function ChatPane({
         }
         mobileStatus={
           !generated && conversation.type === 'direct' ? (
-            <OnlineStatus
-              uid={conversation.otherUser.id}
-              showBaseStatus
-              refetchInterval={15_000}
-            />
+            <OnlineStatus uid={conversation.otherUser.id} showBaseStatus refetchInterval={15_000} />
           ) : null
         }
         actions={
           <>
-            {intentSupported &&
-            conversation.type === 'direct' &&
-            conversation.otherUser &&
-            !isBotConversation(conversation) ? (
-              <AffinityPill
-                peerUid={conversation.otherUser.id}
-                peerName={displayUserName(conversation.otherUser)}
-              />
-            ) : null}
+            {!compactHeader ? headerAffinity : null}
             {onSearchChatRecords &&
             (conversation.type === 'group' || conversation.type === 'direct') ? (
               <button
@@ -5218,9 +5217,49 @@ export function ChatPane({
                 onAdd={onAddMessage}
                 onDeleted={onViewDeleted}
                 onRecalled={onViewRecalled}
+                compact={compactHeader}
+                additionalActions={
+                  compactHeader
+                    ? [
+                        ...(conversation.type === 'group' && !sidecarOpen
+                          ? [
+                              {
+                                label: '群资料',
+                                icon: <UsersRound size={16} />,
+                                action: () => setMobileGroupInfoOpen((previous) => !previous),
+                              },
+                            ]
+                          : []),
+                        ...(!generated &&
+                        conversation.type === 'group' &&
+                        onOpenGroupBug &&
+                        PROJECT_GROUP_IDS.includes(conversation.id)
+                          ? [
+                              {
+                                label: '反馈 Bug',
+                                icon: <Bug size={16} />,
+                                action: () => onOpenGroupBug(conversation),
+                                disabled: !groupBugOnline,
+                                reason: groupBugOnline ? undefined : '受限模式下无法反馈 Bug',
+                              },
+                            ]
+                          : []),
+                        ...(onOpenConversationSettings
+                          ? [
+                              {
+                                label: settingsLabel,
+                                icon: <Settings2 size={16} />,
+                                action: () => onOpenConversationSettings(conversation),
+                                separatorBefore: true,
+                              },
+                            ]
+                          : []),
+                      ]
+                    : []
+                }
               />
             ) : null}
-            {conversation.type === 'group' ? (
+            {!compactHeader && conversation.type === 'group' ? (
               <>
                 {!sidecarOpen ? (
                   <button
@@ -5251,7 +5290,8 @@ export function ChatPane({
                 ) : null}
               </>
             ) : null}
-            {onOpenConversationSettings &&
+            {!compactHeader &&
+            onOpenConversationSettings &&
             (conversation.type === 'group' || conversation.type === 'direct') ? (
               <button
                 className={cn('icon-button', 'group-header-info-action')}

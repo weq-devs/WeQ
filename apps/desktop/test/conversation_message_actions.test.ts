@@ -1,4 +1,4 @@
-import { act, createElement as h, type ReactNode } from 'react';
+import { act, createElement as h, type ReactNode, type ComponentProps } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConversationMessageActions } from '../src/renderer/src/components/ConversationMessageActions';
@@ -19,7 +19,10 @@ vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
 beforeEach(() => vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true));
 afterEach(() => vi.unstubAllGlobals());
 
-function mount(conversation: Conversation) {
+function mount(
+  conversation: Conversation,
+  options: Partial<ComponentProps<typeof ConversationMessageActions>> = {},
+) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -28,7 +31,7 @@ function mount(conversation: Conversation) {
   function Probe() {
     return h('output', null, JSON.stringify(useContentExportRequest()?.selection ?? null));
   }
-  const render = (row: Conversation) =>
+  const render = (row: Conversation, props = options) =>
     act(() =>
       root.render(
         h(
@@ -37,7 +40,7 @@ function mount(conversation: Conversation) {
           h(
             ConversationDirectoryContext.Provider,
             { value: { virtual: [], onVirtual: vi.fn(), onCreate: vi.fn(), onAnalyze } },
-            h(ConversationMessageActions, { conversation: row, onRoaming }),
+            h(ConversationMessageActions, { conversation: row, onRoaming, ...props }),
           ),
           h(Probe),
         ),
@@ -50,7 +53,9 @@ function mount(conversation: Conversation) {
     onRoaming,
     render,
     open: () =>
-      act(() => host.querySelector<HTMLButtonElement>('[aria-label="消息管理"]')!.click()),
+      act(() =>
+        host.querySelector<HTMLButtonElement>('.weq-conversation-message-actions')!.click(),
+      ),
     click: (label: string) =>
       act(() =>
         [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
@@ -125,6 +130,32 @@ describe('会话消息管理菜单', () => {
     const f = mount({ ...group, id: 'virtual:group' });
     try {
       expect(f.host.querySelector('[aria-label="消息管理"]')).toBeNull();
+    } finally {
+      f.close();
+    }
+  });
+  it('手机更多直接合并会话操作，执行后关闭且切换桌面布局不残留菜单', () => {
+    const settings = vi.fn();
+    const f = mount(group, {
+      compact: true,
+      additionalActions: [{ label: '会话设置', icon: null, action: settings }],
+    });
+    try {
+      expect(f.host.querySelector('[aria-label="更多会话操作"] .lucide-ellipsis')).not.toBeNull();
+      f.open();
+      expect(f.host.querySelector('[role="menu"]')?.classList.contains('is-header-dropdown')).toBe(
+        true,
+      );
+      expect(
+        [...f.host.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent),
+      ).toEqual(['分析', '导出', '导出名单', '拉取漫游消息', '会话设置']);
+      f.click('会话设置');
+      expect(settings).toHaveBeenCalledOnce();
+      expect(f.host.querySelector('[role="menu"]')).toBeNull();
+      f.open();
+      f.render(group, { compact: false });
+      expect(f.host.querySelector('[role="menu"]')).toBeNull();
+      expect(f.host.querySelector('[aria-label="消息管理"]')).not.toBeNull();
     } finally {
       f.close();
     }

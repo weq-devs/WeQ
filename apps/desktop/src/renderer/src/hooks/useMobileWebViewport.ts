@@ -1,4 +1,18 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useSyncExternalStore, type RefObject } from 'react';
+import { IS_WEB } from '../lib/target';
+
+const mobileWebQuery = '(max-width: 760px)';
+const subscribeMobileWeb = (notify: () => void) => {
+  if (!IS_WEB) return () => {};
+  const media = window.matchMedia(mobileWebQuery);
+  media.addEventListener('change', notify);
+  return () => media.removeEventListener('change', notify);
+};
+const mobileWebSnapshot = () => IS_WEB && window.matchMedia(mobileWebQuery).matches;
+
+export function useMobileWebLayout() {
+  return useSyncExternalStore(subscribeMobileWeb, mobileWebSnapshot, () => false);
+}
 
 /** 软键盘可能只缩小 visual viewport；双指缩放时不重排，以保留浏览器放大阅读。 */
 export function observeMobileWebViewport(element: HTMLElement): () => void {

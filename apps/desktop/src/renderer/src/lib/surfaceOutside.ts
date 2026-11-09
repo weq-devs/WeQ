@@ -15,10 +15,13 @@ function consumeOutsidePress(document: Document, event: PointerEvent) {
   };
   const cleanup = () => {
     document.removeEventListener('click', consumeClick, true);
+    document.removeEventListener('pointerdown', cleanup, true);
     document.defaultView?.clearTimeout(timer);
   };
   const timer = document.defaultView?.setTimeout(cleanup, 1000);
   document.addEventListener('click', consumeClick, true);
+  // WebKit 可能因 preventDefault 取消尾随 click；新的按下不属于上次手势。
+  document.addEventListener('pointerdown', cleanup, true);
 }
 
 export function useSurfaceOutside(

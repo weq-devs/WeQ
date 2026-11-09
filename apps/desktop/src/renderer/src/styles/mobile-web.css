@@ -293,34 +293,20 @@
     display: none;
   }
 
-  .weq-web-shell .chat-status-mobile > span,
-  .weq-web-shell .chat-status-mobile .weq-mobile-conversation-status > span {
+  .weq-web-shell .chat-status-mobile > span {
     max-width: 100%;
     vertical-align: top;
   }
 
-  .weq-web-shell .chat-status-mobile > span > :not(:last-child),
-  .weq-web-shell .chat-status-mobile .weq-mobile-conversation-status > span > :not(:last-child) {
+  .weq-web-shell .chat-status-mobile > span > :not(:last-child) {
     flex-shrink: 0;
   }
 
-  .weq-web-shell .chat-status-mobile > span > span:last-child,
-  .weq-web-shell .chat-status-mobile .weq-mobile-conversation-status > span > span:last-child {
+  .weq-web-shell .chat-status-mobile > span > span:last-child {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  /* 双行工具栏也要计入安全区；每行须容纳 44px 的触控按钮。 */
-  .weq-web-shell .chat-pane:has(.chat-header-roaming-action, .weq-conversation-message-actions) {
-    --chat-header-height: calc(108px + env(safe-area-inset-top, 0px)) !important;
-  }
-
-  .weq-web-shell
-    .chat-pane:has(.chat-header-roaming-action, .weq-conversation-message-actions)
-    > .chat-header {
-    grid-template-rows: 64px minmax(0, 1fr);
   }
 
   .weq-web-shell .chat-header .chat-actions {
