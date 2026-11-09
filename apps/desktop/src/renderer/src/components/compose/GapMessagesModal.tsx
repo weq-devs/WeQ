@@ -187,7 +187,7 @@ export function GapMessagesModal({
           ) : null}
           <div className="weq-compose-titlewrap">
             <strong id="weq-gap-messages-title" className="weq-compose-title">
-              {title ?? (preview ? '预览私聊' : '缺失消息')}
+              {title ?? (preview ? '预览消息' : '缺失消息')}
             </strong>
             <span className="weq-compose-sub">{subtitle}</span>
           </div>

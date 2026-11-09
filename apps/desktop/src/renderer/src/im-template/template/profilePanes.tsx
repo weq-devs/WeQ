@@ -30,7 +30,7 @@ import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { datalineName, isDatalineUid } from '@weq/codec';
 import { deviceAvatarDataUri } from '../../lib/deviceAvatar';
 import { OverlayLayer, type OverlayLayerProps } from '../../components/OverlayLayer';
-import { ChatNavigationContext } from '../../lib/chatNavigation';
+import { ChatNavigationContext, GroupMessagePreviewContext } from '../../lib/chatNavigation';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
 import { openLightbox } from '../../components/ImageLightbox';
 import { ContactWorkspace } from '../../components/ContactWorkspace';
@@ -604,7 +604,7 @@ export function ContactProfileDialog({
         }}
       >
         <MessageSquare size={13} />
-        查看私聊
+        查看消息
       </button>
     </div>
   ) : null;
@@ -661,7 +661,7 @@ export function ContactProfileDialog({
                       onClick={() => onPreviewChat(profile)}
                     >
                       <Eye size={13} />
-                      预览私聊
+                      预览消息
                     </button>
                   </div>
                 ) : null}
@@ -815,6 +815,7 @@ export function GroupProfileDialog({
 }) {
   const openChat = useContext(ChatNavigationContext);
   const openWorkspace = useContext(ContactWorkspaceNavigationContext);
+  const groupPreview = useContext(GroupMessagePreviewContext);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -828,6 +829,12 @@ export function GroupProfileDialog({
   const members = (conversation.members ?? []).slice(0, 14);
   const MemberIdentity = onOpenMember ? 'button' : 'span';
   const identityValue = conversation.generated?.ownerId ?? group.identityValue;
+  const previewContent =
+    groupPreview?.conversationId === conversation.id ? groupPreview.content : null;
+  const close = () => {
+    if (previewContent) groupPreview?.close();
+    onClose();
+  };
 
   async function copyCode() {
     const ok = await copyTextToClipboard(identityValue);
@@ -844,14 +851,14 @@ export function GroupProfileDialog({
       anchor={anchor}
       presentation="popover"
       className="weq-profile-layer weq-group-profile-layer"
-      onClose={onClose}
+      onClose={close}
     >
       <section
-        className={
-          embedded
-            ? 'weq-profile-dialog weq-contact-profile-content'
-            : 'weq-profile-dialog weq-anim-pop'
-        }
+        className={cn(
+          'weq-profile-dialog',
+          embedded ? 'weq-contact-profile-content' : 'weq-anim-pop',
+          previewContent && 'is-previewing-chat',
+        )}
         role={embedded ? 'region' : 'dialog'}
         aria-label="群资料"
         onMouseDown={(event) => event.stopPropagation()}
@@ -865,7 +872,7 @@ export function GroupProfileDialog({
                 title="展开群聊详情"
                 aria-label="展开群聊详情"
                 onClick={() => {
-                  onClose();
+                  close();
                   openWorkspace({ kind: 'group', conversation });
                 }}
               >
@@ -877,7 +884,7 @@ export function GroupProfileDialog({
               type="button"
               title="关闭"
               aria-label="关闭"
-              onClick={onClose}
+              onClick={close}
             >
               <X size={16} />
             </button>
@@ -909,24 +916,39 @@ export function GroupProfileDialog({
             ) : null}
           </div>
 
-          {onOpenChat || (openChat && !conversation.generated) ? (
+          {onOpenChat || ((openChat || groupPreview) && !conversation.generated) ? (
             <div className="weq-profile-actions">
-              <button
-                className="weq-profile-perhome"
-                type="button"
-                onClick={() => {
-                  if (!embedded) onClose();
-                  if (onOpenChat) onOpenChat();
-                  else openChat?.({ kind: 'group', conversation });
-                }}
-              >
-                <MessageSquare size={13} />
-                查看群聊消息
-              </button>
+              {onOpenChat || (openChat && !conversation.generated) ? (
+                <button
+                  className="weq-profile-perhome"
+                  type="button"
+                  onClick={() => {
+                    if (previewContent) groupPreview?.close();
+                    if (!embedded) onClose();
+                    if (onOpenChat) onOpenChat();
+                    else openChat?.({ kind: 'group', conversation });
+                  }}
+                >
+                  <MessageSquare size={13} />
+                  查看消息
+                </button>
+              ) : null}
+              {groupPreview && !conversation.generated ? (
+                <button
+                  className="weq-profile-perhome"
+                  type="button"
+                  onClick={() => groupPreview.open(conversation)}
+                >
+                  <Eye size={13} />
+                  预览消息
+                </button>
+              ) : null}
             </div>
           ) : null}
         </ProfileIdentity>
-        {embedded && details ? (
+        {previewContent ? (
+          <div className="weq-contact-chat-preview">{previewContent}</div>
+        ) : embedded && details ? (
           details
         ) : (
           <>

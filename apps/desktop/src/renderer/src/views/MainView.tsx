@@ -313,7 +313,11 @@ import { calendarCloneRevision } from '../lib/calendarSourceRevision';
 import type { SettingsSearchTarget } from '../components/settings/searchTarget';
 import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
 import { displayGroupMemberName } from '../im-template/template/user';
-import { ChatNavigationContext, type ProfileChatTarget } from '../lib/chatNavigation';
+import {
+  ChatNavigationContext,
+  GroupMessagePreviewContext,
+  type ProfileChatTarget,
+} from '../lib/chatNavigation';
 import { MailWorkspace } from './MailView';
 import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
 import { PageSnapshots, usePageState } from '../components/PageSnapshots';
@@ -10488,7 +10492,7 @@ function MainWorkspace(): ReactElement {
 
   const [privatePreview, setPrivatePreview] = useState<{
     account: string;
-    source: 'member' | 'latest' | 'contact';
+    source: 'member' | 'latest' | 'contact' | 'group-profile';
     contactScope: string | null;
     conversation: Conversation;
     rows: MessageWire[];
@@ -10501,6 +10505,7 @@ function MainWorkspace(): ReactElement {
   const contactPreviewScope = JSON.stringify([
     shell.view,
     shell.contactTab,
+    shell.selectedGroupConversationId,
     shell.selectedContactId,
     shell.contactWorkspaceTab,
     shell.contactOverviewOpen,
@@ -10511,7 +10516,10 @@ function MainWorkspace(): ReactElement {
     setPrivatePreview(null);
   }, [memberCard?.member.id, memberCard?.member.identityValue, user.identityValue]);
   useEffect(() => {
-    if (privatePreview?.source !== 'contact' || privatePreview.contactScope === contactPreviewScope)
+    if (
+      (privatePreview?.source !== 'contact' && privatePreview?.source !== 'group-profile') ||
+      privatePreview.contactScope === contactPreviewScope
+    )
       return;
     previewRequest.current++;
     setPrivatePreview(null);
@@ -10540,10 +10548,11 @@ function MainWorkspace(): ReactElement {
   }
   async function previewConversation(
     conversation: Conversation,
-    source: 'member' | 'latest' | 'contact',
+    source: 'member' | 'latest' | 'contact' | 'group-profile',
   ) {
     const account = user.identityValue;
-    const contactScope = source === 'contact' ? contactPreviewScope : null;
+    const contactScope =
+      source === 'contact' || source === 'group-profile' ? contactPreviewScope : null;
     const request = ++previewRequest.current;
     setPrivatePreview({
       account,
@@ -12261,7 +12270,26 @@ function MainWorkspace(): ReactElement {
                         />
                         <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
                           <RelationshipDirectoryContext.Provider value={relationshipDirectory}>
-                            {chatContent}
+                            <GroupMessagePreviewContext.Provider
+                              value={{
+                                open: (conversation) =>
+                                  void previewConversation(conversation, 'group-profile'),
+                                close: () => {
+                                  previewRequest.current++;
+                                  setPrivatePreview(null);
+                                },
+                                conversationId:
+                                  privatePreview?.source === 'group-profile'
+                                    ? privatePreview.conversation.id
+                                    : null,
+                                content:
+                                  privatePreview?.source === 'group-profile'
+                                    ? conversationPreviewContent
+                                    : null,
+                              }}
+                            >
+                              {chatContent}
+                            </GroupMessagePreviewContext.Provider>
                           </RelationshipDirectoryContext.Provider>
                         </GroupAlbumCardNavigationProvider>
                       </WorkspacePages>

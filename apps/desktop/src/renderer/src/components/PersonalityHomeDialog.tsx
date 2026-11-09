@@ -223,7 +223,7 @@ export function PersonalityHomeDialog({
               }}
             >
               <Star size={13} />
-              {onOpenChat ? '查看私聊' : '查看空间'}
+              {onOpenChat ? '查看消息' : '查看空间'}
             </button>
           </div>
         ) : null}

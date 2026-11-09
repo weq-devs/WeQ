@@ -671,12 +671,12 @@ describe('新增消息交互', () => {
     try {
       fixture.render(h(Card));
       const modal = document.querySelector('.weq-member-pop')!;
-      act(() => button(modal, '预览私聊').click());
+      act(() => button(modal, '预览消息').click());
       expect(preview).toHaveBeenCalledOnce();
       expect(close).not.toHaveBeenCalled();
       expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
       expect(document.querySelector('.weq-window-layer')).toBeNull();
-      expect(modal.textContent).toContain('预览私聊');
+      expect(modal.textContent).toContain('预览消息');
       expect(modal.textContent).toContain('没有本地聊天记录');
       expect(modal.querySelector('textarea, [contenteditable="true"]')).toBeNull();
       act(() => button(modal, '返回资料').click());

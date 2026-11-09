@@ -7,7 +7,10 @@ import {
 } from '../src/renderer/src/im-template/template/profilePanes';
 import type { Contact, GroupConversation } from '../src/renderer/src/im-template/template/types';
 import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
-import { ChatNavigationContext } from '../src/renderer/src/lib/chatNavigation';
+import {
+  ChatNavigationContext,
+  GroupMessagePreviewContext,
+} from '../src/renderer/src/lib/chatNavigation';
 import { QzoneNavigationContext } from '../src/renderer/src/lib/qzoneNavigation';
 import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import { ChatMainContent } from '../src/renderer/src/im-template/template/chatMainContent';
@@ -268,9 +271,9 @@ it.each([false, true])('共同群查看消息关闭列表及浮层好友名片�
     act(() =>
       document.querySelector<HTMLButtonElement>('[aria-label="查看 合成共同群 的群名片"]')!.click(),
     );
-    const entry = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent === '查看群聊消息',
-    )!;
+    const entry = [
+      ...document.querySelectorAll<HTMLButtonElement>('[aria-label="群资料"] button'),
+    ].find((button) => button.textContent === '查看消息')!;
     expect(entry).toBeDefined();
     act(() => entry.click());
     expect(navigate).toHaveBeenCalledWith({
@@ -425,7 +428,7 @@ it.each([false, true])('好友资料的私聊操作使用当前对象，内嵌=%
       ),
     );
     const entry = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-      button.textContent?.includes('查看私聊'),
+      button.textContent?.includes('查看消息'),
     )!;
     expect(entry).toBeDefined();
     act(() => entry.click());
@@ -476,7 +479,73 @@ it.each(['资料', '个性主页'] as const)('联系人%s跳转空间不清除�
   }
 });
 
-it('联系人好友操作可在原位预览私聊并返回资料，不触发聊天导航或群交集', () => {
+it.each([true, false])('群资料 embedded=%s 提供统一消息操作并原位预览和返回资料', (embedded) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const open = vi.fn();
+  const close = vi.fn();
+  const preview = vi.fn();
+  function Harness() {
+    const [previewing, setPreviewing] = useState(false);
+    return h(
+      ChatNavigationContext.Provider,
+      { value: open },
+      h(
+        GroupMessagePreviewContext.Provider,
+        {
+          value: {
+            open: (conversation) => {
+              preview(conversation);
+              setPreviewing(true);
+            },
+            close: () => setPreviewing(false),
+            conversationId: previewing ? groupFixture.id : null,
+            content: previewing
+              ? h('section', { 'aria-label': '合成群消息预览' }, [
+                  h('button', { key: 'back', onClick: () => setPreviewing(false) }, '返回资料'),
+                  '合成群消息',
+                ])
+              : null,
+          },
+        },
+        h(GroupProfileDialog, {
+          embedded,
+          conversation: groupFixture,
+          details: h('section', { 'aria-label': '合成群详情' }, '群资料内容'),
+          onClose: close,
+        }),
+      ),
+    );
+  }
+  const button = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>('[aria-label="群资料"] button')].find(
+      (item) => item.textContent === label,
+    )!;
+  try {
+    act(() => root.render(h(Harness)));
+    expect(button('查看消息')).toBeDefined();
+    act(() => button('预览消息').click());
+    expect(preview).toHaveBeenCalledWith(groupFixture);
+    expect(document.querySelector('[aria-label="合成群消息预览"]')).not.toBeNull();
+    expect(document.querySelector('.is-previewing-chat')).not.toBeNull();
+    expect(document.querySelector('[aria-label="合成群详情"]')).toBeNull();
+    expect(open).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    act(() => button('返回资料').click());
+    expect(document.querySelector('.is-previewing-chat')).toBeNull();
+    if (embedded) expect(host.querySelector('[aria-label="合成群详情"]')).not.toBeNull();
+    act(() => button('查看消息').click());
+    expect(open).toHaveBeenCalledWith({ kind: 'group', conversation: groupFixture });
+    expect(close).toHaveBeenCalledTimes(embedded ? 0 : 1);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('联系人好友操作可在原位预览消息并返回资料，不触发聊天导航或群交集', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -503,7 +572,7 @@ it('联系人好友操作可在原位预览私聊并返回资料，不触发聊�
   try {
     render();
     const entry = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent === '预览私聊',
+      (button) => button.textContent === '预览消息',
     );
     expect(entry).toBeDefined();
     act(() => entry!.click());

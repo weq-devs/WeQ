@@ -599,7 +599,7 @@ export function MemberProfileCard({
                     }}
                   >
                     <MessageSquare size={13} aria-hidden="true" />
-                    查看私聊
+                    查看消息
                   </button>
                 ) : null}
                 {onPreviewChat ? (
@@ -611,7 +611,7 @@ export function MemberProfileCard({
                     }}
                   >
                     <Eye size={13} aria-hidden="true" />
-                    预览私聊
+                    预览消息
                   </button>
                 ) : null}
                 {!localClone && uin && openSpace ? (

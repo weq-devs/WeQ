@@ -122,7 +122,7 @@ describe('群名片消息', () => {
     expect(f.openChat).not.toHaveBeenCalled();
     expect(f.parentClick).not.toHaveBeenCalled();
     const open = [...dialog.querySelectorAll('button')].find((button) =>
-      button.textContent?.includes('查看群聊消息'),
+      button.textContent?.includes('查看消息'),
     )!;
     act(() => open.click());
     expect(f.openChat).toHaveBeenCalledWith({ kind: 'group', conversation: f.conversation });
@@ -143,7 +143,7 @@ describe('群名片消息', () => {
     act(() => card.click());
     const open = [
       ...document.querySelectorAll<HTMLButtonElement>('[aria-label="群资料"] button'),
-    ].find((button) => button.textContent?.includes('查看群聊消息'))!;
+    ].find((button) => button.textContent?.includes('查看消息'))!;
     act(() => open.click());
     expect(f.openChat).toHaveBeenCalledWith({
       kind: 'group',
