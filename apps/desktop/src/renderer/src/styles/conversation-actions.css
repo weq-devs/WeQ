@@ -193,7 +193,7 @@ html[data-theme='dark'] .weq-group-content-actions button {
     min-width: 0;
     width: 100%;
     overflow-x: auto;
-    justify-content: flex-start;
+    justify-content: space-between;
     scrollbar-width: thin;
   }
   .chat-pane:has(.chat-header-roaming-action, .weq-conversation-message-actions)

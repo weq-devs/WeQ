@@ -68,40 +68,35 @@ function fixture() {
 }
 
 describe('进入会话自动聚焦', () => {
-  it('手机进入会话先收起输入区，不受旧展开偏好影响，也不抢焦点', () => {
+  it.each(['0', '1'])('手机输入区常驻，忽略旧收起偏好 %s 且不抢焦点', (saved) => {
     const f = fixture();
     target.web = true;
     vi.stubGlobal('matchMedia', (query: string) =>
       Object.assign(new EventTarget(), { matches: query === '(max-width: 760px)' }),
     );
-    localStorage.setItem('chat-template.layout.composerCollapsed', '0');
+    localStorage.setItem('chat-template.layout.composerCollapsed', saved);
     try {
       act(() => f.otherInput.focus());
       f.render();
       expect(f.host.querySelector('.chat-pane')?.classList.contains('composer-collapsed')).toBe(
-        true,
+        false,
       );
       expect(document.activeElement).toBe(f.otherInput);
       expect(f.editor().textContent).toBe('已有草稿');
-      const toggle = () => f.host.querySelector<HTMLButtonElement>('.mobile-composer-toggle')!;
-      expect(toggle().getAttribute('aria-expanded')).toBe('false');
-      act(() => toggle().click());
-      expect(toggle().getAttribute('aria-expanded')).toBe('true');
-      expect(f.editor().textContent).toBe('已有草稿');
+      expect(f.host.querySelector('.mobile-composer-toggle')).toBeNull();
+      expect(f.host.querySelector('.composer-toggle')).toBeNull();
       act(() => {
         f.editor().textContent = '手机上继续输入';
         f.editor().dispatchEvent(new InputEvent('input', { bubbles: true }));
-        toggle().click();
       });
-      expect(toggle().getAttribute('aria-expanded')).toBe('false');
-      act(() => toggle().click());
-      expect(f.editor().textContent).toBe('手机上继续输入');
       f.render({ loading: true });
-      expect(toggle().getAttribute('aria-expanded')).toBe('true');
+      expect(f.editor().textContent).toBe('手机上继续输入');
       f.render({ conversation: { ...f.props.conversation, id: 'next-mobile' }, draft: '新草稿' });
-      expect(toggle().getAttribute('aria-expanded')).toBe('false');
+      expect(f.host.querySelector('.chat-pane')?.classList.contains('composer-collapsed')).toBe(
+        false,
+      );
       expect(f.editor().textContent).toBe('新草稿');
-      expect(localStorage.getItem('chat-template.layout.composerCollapsed')).toBe('0');
+      expect(localStorage.getItem('chat-template.layout.composerCollapsed')).toBe(saved);
       expect(document.activeElement).toBe(f.otherInput);
     } finally {
       f.dispose();

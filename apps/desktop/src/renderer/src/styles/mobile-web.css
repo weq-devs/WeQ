@@ -303,18 +303,6 @@
     min-width: 0;
   }
 
-  .weq-web-shell .chat-actions .mobile-composer-toggle {
-    display: inline-grid;
-  }
-
-  .weq-web-shell .chat-pane.composer-collapsed {
-    --composer-height: 0px !important;
-  }
-
-  .weq-web-shell .chat-pane.composer-collapsed > .composer {
-    display: none;
-  }
-
   .weq-web-shell .chat-header :is(.back-button, .icon-button) {
     width: 44px;
     height: 44px;

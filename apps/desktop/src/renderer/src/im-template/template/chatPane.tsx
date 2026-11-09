@@ -337,7 +337,7 @@ function saveGroupInfoCollapsed(value: boolean) {
 }
 
 function loadComposerCollapsed() {
-  if (isMobileWebComposer()) return true;
+  if (isMobileWebComposer()) return false;
   return localStorage.getItem(composerCollapsedStorageKey) === '1';
 }
 
@@ -776,7 +776,7 @@ export function ChatPane({
     return () => query.removeEventListener('change', update);
   }, []);
   const sidecarOpen = useWorkspaceSidecarOpen();
-  // 桌面沿用收纳偏好；手机每次进入会话先阅读，按需展开输入区。
+  // 桌面沿用收纳偏好；手机输入区常驻，但进入会话不自动聚焦。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
   const [emojiOpen, setEmojiOpen] = useState(false);
   /**
@@ -1534,7 +1534,7 @@ export function ChatPane({
 
   useLayoutEffect(() => {
     if (!isMobileWebComposer()) return;
-    setComposerCollapsed(true);
+    setComposerCollapsed(false);
     setMobileComposerExpanded(false);
     setEmojiOpen(false);
     setToolsOpen(false);
@@ -4740,9 +4740,10 @@ export function ChatPane({
    * @ 菜单）—— 它们都锚在输入区上，输入区没了就会悬在半空。
    */
   function toggleComposerCollapsed() {
+    if (isMobileWebComposer()) return;
     const next = !composerCollapsed;
     setComposerCollapsed(next);
-    if (!isMobileWebComposer()) saveComposerCollapsed(next);
+    saveComposerCollapsed(next);
     if (next) {
       setEmojiOpen(false);
       setToolsOpen(false);
@@ -5186,16 +5187,6 @@ export function ChatPane({
         }
         actions={
           <>
-            <button
-              className="icon-button mobile-composer-toggle"
-              type="button"
-              title={composerCollapsed ? '展开输入框' : '收起输入框'}
-              aria-label={composerCollapsed ? '展开输入框' : '收起输入框'}
-              aria-expanded={!composerCollapsed}
-              onClick={toggleComposerCollapsed}
-            >
-              {composerCollapsed ? <MessageSquareText size={18} /> : <ChevronDown size={18} />}
-            </button>
             {intentSupported &&
             conversation.type === 'direct' &&
             conversation.otherUser &&
@@ -5724,16 +5715,18 @@ export function ChatPane({
       {/* 收纳输入区的把手 —— 与群资料栏同一个交互：贴在两个区域的交界线上，
           平时隐形，压上去（或键盘聚焦）才浮出来；收起来以后整条输入区从布局里
           消失，只剩它在底边，负责把输入框再请回来。 */}
-      <button
-        className={cn('composer-toggle')}
-        type="button"
-        title={composerCollapsed ? '展开输入框' : '收起输入框'}
-        aria-label={composerCollapsed ? '展开输入框' : '收起输入框'}
-        aria-expanded={!composerCollapsed}
-        onClick={toggleComposerCollapsed}
-      >
-        {composerCollapsed ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-      </button>
+      {!isMobileWebComposer() ? (
+        <button
+          className={cn('composer-toggle')}
+          type="button"
+          title={composerCollapsed ? '展开输入框' : '收起输入框'}
+          aria-label={composerCollapsed ? '展开输入框' : '收起输入框'}
+          aria-expanded={!composerCollapsed}
+          onClick={toggleComposerCollapsed}
+        >
+          {composerCollapsed ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </button>
+      ) : null}
 
       {/* 意图感知的回复建议：开启时出现在输入框上方，点击填入编辑器草稿。 */}
       {intentSupported &&

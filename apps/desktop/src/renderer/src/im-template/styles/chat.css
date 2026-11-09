@@ -356,10 +356,6 @@ html[data-theme='dark'] .weq-chat-backdrop {
   display: none;
 }
 
-.chat-actions .mobile-composer-toggle {
-  display: none;
-}
-
 .chat-title {
   display: flex;
   min-width: 0;
