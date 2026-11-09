@@ -33,6 +33,7 @@ export function useMultiSelection<K extends string | number>({
   anchorRef,
   beforeSelect,
   getSelectionId,
+  escapeClearsSelection = true,
 }: {
   ids: readonly K[];
   selected: ReadonlySet<K>;
@@ -47,6 +48,7 @@ export function useMultiSelection<K extends string | number>({
   beforeSelect?: (id: K, modifiers: SelectionModifiers) => boolean;
   /** 同一对象可在多行出现：范围锚定行，选择和计数仍使用对象身份。 */
   getSelectionId?: (id: K) => K;
+  escapeClearsSelection?: boolean;
 }) {
   const document = useRenderDocument();
   const ElementClass = document.defaultView?.HTMLElement ?? HTMLElement;
@@ -232,6 +234,7 @@ export function useMultiSelection<K extends string | number>({
     }
     if (!enabled) return false;
     if (event.key === 'Escape') {
+      if (!escapeClearsSelection) return false;
       if (!onExit && current.current.size === 0) return false;
       event.preventDefault();
       event.stopPropagation();

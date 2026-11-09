@@ -1,13 +1,19 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { conversationCalendarRouter } from '../src/main/ipc/routers/conversation_calendar';
 import { backgroundTasks } from '../src/main/background_tasks';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { waitForCalendarWrites } from '@weq/service/conversation-calendar-store';
 
 const fixture = vi.hoisted(() => ({
-  session: { context: { uin: 'fixture' } },
+  session: { context: { uin: 'fixture' }, msgDbPath: '/fixture/messages.db' },
+  root: undefined as string | undefined,
   closing: undefined as ((session: unknown) => void) | undefined,
   read: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => ({
+  accountRuntimeCacheRoot: () => fixture.root,
   getAppContext: () => ({
     account: fixture.session,
     services: { accountConfig: { getRecord: () => ({ configId: 'live' }) } },
@@ -28,13 +34,51 @@ beforeEach(() => {
   vi.useFakeTimers();
   fixture.read.mockReset();
 });
-afterEach(() => {
+afterEach(async () => {
   fixture.closing?.(fixture.session);
+  await waitForCalendarWrites();
+  if (fixture.root) await rm(fixture.root, { recursive: true, force: true });
+  fixture.root = undefined;
   for (const task of backgroundTasks.snapshot()) {
     backgroundTasks.finish(task.id, 'cancelled');
     backgroundTasks.remove(task.id);
   }
   vi.useRealTimers();
+});
+
+it('账号关闭保存后，新账号实例打开同一来源恢复结果，不再调用已完成来源；进度按钮也沿用句柄', async () => {
+  fixture.root = await mkdtemp(join(tmpdir(), 'weq-calendar-router-'));
+  const date = '2026-10-08',
+    time = Date.parse(`${date}T00:00:00+08:00`) / 1000;
+  const target = { kind: 'c2c' as const, conv: 'peer', name: '测试', avatar: null, ancestors: [] };
+  fixture.read.mockResolvedValue({
+    rows: [{ conv: target.conv, time, anchor: { id: '1', seq: '1', time } }],
+    done: true,
+  });
+  const caller = conversationCalendarRouter.createCaller({});
+  const input = { ...binding, month: '2026-10', day: date, targets: [target] };
+  const first = await caller.start(input);
+  await vi.runAllTimersAsync();
+  await caller.stop({ ...binding, id: first.id });
+  fixture.closing?.(fixture.session);
+  await waitForCalendarWrites();
+  fixture.session = { ...fixture.session };
+  const next = await caller.start(input);
+  const restored = await caller.poll({ ...binding, id: next.id, day: date });
+  expect(restored.rows[0]?.count).toBe(1);
+  expect(fixture.read).toHaveBeenCalledTimes(1);
+  const retried = await caller.control({
+    ...binding,
+    id: next.id,
+    scope: 'day',
+    action: 'retry',
+    day: date,
+  });
+  expect(retried.rows[0]?.count).toBe(1);
+  expect((await caller.start(input)).id).toBe(next.id);
+  await vi.runAllTimersAsync();
+  expect(fixture.read).toHaveBeenCalledTimes(2);
+  await caller.stop({ ...binding, id: next.id });
 });
 
 it('同月同范围重开复用原统计和后台任务；切换来源选择不创建新任务', async () => {

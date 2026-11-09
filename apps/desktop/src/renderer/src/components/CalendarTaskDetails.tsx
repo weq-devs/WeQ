@@ -1,5 +1,9 @@
 import { useContext, useState } from 'react';
-import type { CalendarAnchor, CalendarTarget } from '@weq/service/conversation-calendar';
+import type {
+  CalendarAnchor,
+  CalendarTarget,
+  CalendarControlAction,
+} from '@weq/service/conversation-calendar';
 import type { BackgroundTaskScope } from '../../../shared/background_task';
 import { client, trpc } from '../trpc/client';
 import { useCalendarKinds } from '../hooks/useCalendarKinds';
@@ -26,7 +30,14 @@ export function CalendarTaskDetails({
   const binding = { expectedAccountUin: scope?.uin, expectedAccountConfigId: scope?.configId };
   const query = trpc.account.calendarOverview.task.useQuery(
     { ...binding, taskId, day, kinds, limit, includeLogs: open },
-    { enabled: Boolean(scope), refetchInterval: running ? 1000 : false, cacheTime: 0 },
+    {
+      enabled: Boolean(scope),
+      refetchInterval: (data) =>
+        running || (data?.snapshot.hasPending && data.snapshot.controls.day.state === 'running')
+          ? 1000
+          : false,
+      cacheTime: 0,
+    },
   );
   const value = query.data;
   const selectedDay = day ?? value?.day ?? `${value?.month ?? ''}-01`;
@@ -47,9 +58,29 @@ export function CalendarTaskDetails({
       setBusy(false);
     }
   }
+  async function control(scope: 'month' | 'day', action: CalendarControlAction, day?: string) {
+    if (!value || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await client.account.calendarOverview.control.mutate({
+        ...binding,
+        id: value.id,
+        scope,
+        action,
+        day,
+      });
+      await query.refetch();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <div className="weq-calendar-task-details" data-privacy-sensitive>
       <CalendarStatistics
+        onControl={(scope, action, day) => void control(scope, action, day)}
         snapshot={value?.snapshot}
         day={selectedDay}
         month={value?.month}
@@ -59,7 +90,8 @@ export function CalendarTaskDetails({
         }}
         id={value?.id}
         targets={targets}
-        busy={busy || !navigate}
+        busy={busy}
+        locateDisabled={!navigate}
         error={error || query.error?.message}
         logOpen={open}
         onLogOpenChange={setOpen}

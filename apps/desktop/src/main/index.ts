@@ -1,4 +1,5 @@
 import { controlCompositionWindow } from './composition_window';
+import { flushConversationCalendarResults } from './ipc/routers/conversation_calendar';
 import { applicationToolPopupOptions } from './tool_window';
 import { installCallDisplayMediaHandler } from './call_display_media';
 import { floatingWindowTypeOption, ozoneRelaunchArgs } from './linux_window_backend';
@@ -912,6 +913,7 @@ if (hasSingleInstanceLock) {
     app,
     async () => {
       await Promise.all([
+        flushConversationCalendarResults(),
         databaseCheckups.cancelAll(),
         assistantResourceServer.shutdown(),
         getAppContext().services?.unreadInfo.dispose(),

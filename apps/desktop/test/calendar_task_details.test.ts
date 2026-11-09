@@ -5,10 +5,22 @@ import { CALENDAR_SOURCE_ORDER, calendarMonthDays } from '@weq/service/conversat
 import { CalendarTaskDetails } from '../src/renderer/src/components/CalendarTaskDetails';
 import { CalendarNavigationContext } from '../src/renderer/src/lib/calendarNavigation';
 
-const fixture = vi.hoisted(() => ({ query: vi.fn(), locate: vi.fn() }));
+const fixture = vi.hoisted(() => ({
+  query: vi.fn(),
+  locate: vi.fn(),
+  control: vi.fn(),
+  refetch: vi.fn(),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: { account: { calendarOverview: { task: { useQuery: fixture.query } } } },
-  client: { account: { calendarOverview: { locate: { mutate: fixture.locate } } } },
+  client: {
+    account: {
+      calendarOverview: {
+        locate: { mutate: fixture.locate },
+        control: { mutate: fixture.control },
+      },
+    },
+  },
 }));
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
@@ -50,6 +62,10 @@ it('任务详情包含日期、六组选择、当前扫描、双进度、按需�
       day: input.day ?? '2026-11-08',
       snapshot: {
         enabledKinds: [...CALENDAR_SOURCE_ORDER],
+        controls: {
+          month: { state: 'running', disabled: false },
+          day: { state: 'running', disabled: false },
+        },
         days,
         progress: { completedSources: 2, totalSources: 60, failedSources: 0 },
         dayProgress: { completedSources: 1, totalSources: 2, count: 10 },
@@ -70,8 +86,11 @@ it('任务详情包含日期、六组选择、当前扫描、双进度、按需�
       },
     },
     error: null,
+    refetch: fixture.refetch,
   }));
   fixture.locate.mockResolvedValue({ target, anchor });
+  fixture.control.mockResolvedValue(true);
+  fixture.refetch.mockResolvedValue(undefined);
   const navigate = vi.fn();
   const host = document.createElement('div');
   document.body.append(host);
@@ -94,6 +113,12 @@ it('任务详情包含日期、六组选择、当前扫描、双进度、按需�
     expect(host.querySelector('.weq-density-calendar-grid')).toBeNull();
     expect(host.querySelectorAll('[aria-label="统计内容"] button')).toHaveLength(7);
     expect(host.querySelectorAll('progress')).toHaveLength(2);
+    const pauseDay = host.querySelector<HTMLButtonElement>('[aria-label="暂停2026-11-09统计"]')!;
+    await act(async () => pauseDay.click());
+    expect(fixture.control).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'day', action: 'pause', day: '2026-11-09', id: 'job' }),
+    );
+    expect(fixture.refetch).toHaveBeenCalled();
     expect(
       host.querySelector('progress[aria-label="2026-11-09 进度"]')?.getAttribute('value'),
     ).toBe('0');

@@ -67,6 +67,39 @@
   overflow: hidden;
   accent-color: var(--weq-accent-effective);
 }
+.weq-calendar-progress-track {
+  align-items: center;
+}
+.weq-calendar-progress-track progress {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.weq-calendar-progress-control {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+.weq-calendar-progress-control:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
+}
+.weq-calendar-progress-control:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.weq-calendar-progress-control:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
 .weq-overview-calendar-progress progress::-webkit-progress-bar {
   background: var(--muted);
 }

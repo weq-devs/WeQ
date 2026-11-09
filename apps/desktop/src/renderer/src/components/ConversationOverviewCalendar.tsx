@@ -6,6 +6,7 @@ import {
   type CalendarAnchor,
   type CalendarTarget,
   type ConversationCalendarJob,
+  type CalendarControlAction,
 } from '@weq/service/conversation-calendar';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { client } from '../trpc/client';
@@ -50,6 +51,7 @@ export function ConversationOverviewCalendar({
   const [busy, setBusy] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [controlRevision, setControlRevision] = useState(0);
   const [dirty, setDirty] = useState(false);
   const [autoRefreshPending, setAutoRefreshPending] = useState(false);
   const [visible, setVisible] = useState(document.visibilityState === 'visible');
@@ -58,6 +60,7 @@ export function ConversationOverviewCalendar({
   const backgroundIds = useRef(new Set<string>());
   const [kinds] = useCalendarKinds();
   const latestKinds = useRef(kinds);
+  const sentRefreshRevision = useRef(0);
   latestKinds.current = kinds;
   useEffect(() => {
     live.current = true;
@@ -102,6 +105,8 @@ export function ConversationOverviewCalendar({
   completed.current = Boolean(
     snapshot &&
       !snapshot.cancelled &&
+      !snapshot.hasPending &&
+      snapshot.controls?.month.state !== 'paused' &&
       snapshot.days.every((value) => value.complete && !value.errors.length) &&
       snapshot.complete,
   );
@@ -155,12 +160,14 @@ export function ConversationOverviewCalendar({
         () => !cancelled && currentRequest.current === request,
       );
       if (cancelled || currentRequest.current !== request) return undefined;
+      const refresh = request.revision > sentRefreshRevision.current;
+      sentRefreshRevision.current = request.revision;
       return client.account.calendarOverview.start.mutate({
         ...binding,
         month,
         targets,
         kinds: latestKinds.current,
-        refresh: request.revision > 0,
+        refresh,
         day: latestDay.current.startsWith(`${month}-`) ? latestDay.current : undefined,
       });
     };
@@ -206,7 +213,9 @@ export function ConversationOverviewCalendar({
         setSnapshot(result);
         if (
           !result.cancelled &&
-          (!result.days.every((value) => value.complete || value.errors.length) ||
+          result.controls?.month.state !== 'empty' &&
+          (result.hasPending ||
+            !result.days.every((value) => value.complete || value.errors.length) ||
             (day.startsWith(month) &&
               !result.complete &&
               !result.days.find((value) => value.day === day)?.errors.length))
@@ -222,7 +231,45 @@ export function ConversationOverviewCalendar({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [id, binding, day, rowLimit, month, visible, active, request, logOpen, kinds]);
+  }, [
+    id,
+    binding,
+    day,
+    rowLimit,
+    month,
+    visible,
+    active,
+    request,
+    logOpen,
+    kinds,
+    controlRevision,
+  ]);
+  async function control(
+    scope: 'month' | 'day',
+    action: CalendarControlAction,
+    selectedDay?: string,
+  ) {
+    if (!id || !binding || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await client.account.calendarOverview.control.mutate({
+        ...binding,
+        id,
+        scope,
+        action,
+        day: selectedDay,
+      });
+      if (live.current && latestId.current === id) {
+        setSnapshot(result);
+        setControlRevision((value) => value + 1);
+      }
+    } catch (failure) {
+      if (live.current) setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      if (live.current) setBusy(false);
+    }
+  }
   const errors = [
     ...new Set(
       [directoryError, error, ...(snapshot?.days.flatMap((value) => value.errors) ?? [])].filter(
@@ -233,7 +280,11 @@ export function ConversationOverviewCalendar({
   const status = Object.fromEntries(
     (snapshot?.days ?? []).map((value) => [
       value.day,
-      { complete: value.complete && !directoryError },
+      {
+        complete: value.complete && !directoryError,
+        reason: value.emptyReason,
+        paused: value.paused,
+      },
     ]),
   );
   async function locate(target: CalendarTarget, anchor: CalendarAnchor) {
@@ -289,7 +340,12 @@ export function ConversationOverviewCalendar({
             type="button"
             className="weq-set-btn weq-set-btn-soft"
             title="将当月统计加入任务列表，在后台继续"
-            disabled={!id || busy || Boolean(snapshot?.cancelled)}
+            disabled={
+              !id ||
+              busy ||
+              Boolean(snapshot?.cancelled) ||
+              snapshot?.controls?.month.state === 'empty'
+            }
             onClick={() => void background()}
           >
             <ListTodo size={16} />
@@ -344,6 +400,7 @@ export function ConversationOverviewCalendar({
             }
           />
           <CalendarStatistics
+            onControl={(scope, action, day) => void control(scope, action, day)}
             snapshot={snapshot}
             day={day}
             id={id}

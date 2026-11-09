@@ -4,6 +4,7 @@ import {
   type CalendarTarget,
   type CalendarAnchor,
   type ConversationCalendarJob,
+  type CalendarControlAction,
 } from '@weq/service/conversation-calendar';
 import { useCalendarKinds } from '../hooks/useCalendarKinds';
 import { useMultiSelection } from '../hooks/useMultiSelection';
@@ -35,12 +36,16 @@ const contentOptions = [
 const contentIds = contentOptions.map((option) => option.id);
 export function calendarReadLabel(snapshot?: CalendarSnapshot): string | undefined {
   if (!snapshot) return '正在读取统计进度…';
+  if (snapshot.emptyReason) return snapshot.emptyReason;
   if (snapshot.cancelled) return '统计已暂停';
   if (snapshot.enabledKinds && !snapshot.enabledKinds.length) return '未选择统计内容';
   const state = snapshot.readState?.state;
   if (state === 'idle') return '正在为其他数据库读取让路…';
   if (state === 'queued') return '等待前序数据库查询结束…';
   if (state === 'reading') return '正在读取数据库…';
+  if (!snapshot.activeScan && snapshot.controls?.day.state === 'paused') return '该日统计已暂停';
+  if (!snapshot.activeScan && snapshot.controls?.month.state === 'paused') return '当月统计已暂停';
+  if (snapshot.refreshing) return '正在重新获取统计…';
   if (!snapshot.days.every((value) => value.complete)) return '正在统计消息数量…';
   return undefined;
 }
@@ -57,6 +62,8 @@ export function CalendarStatistics({
   onLoadMore,
   month,
   onDayChange,
+  onControl,
+  locateDisabled = false,
 }: {
   snapshot?: CalendarSnapshot;
   day: string;
@@ -70,10 +77,13 @@ export function CalendarStatistics({
   onLoadMore: () => void;
   month?: string;
   onDayChange?: (day: string) => void;
+  onControl?: (scope: 'month' | 'day', action: CalendarControlAction, day?: string) => void;
+  locateDisabled?: boolean;
 }) {
   const [kinds, setKinds] = useCalendarKinds();
   const allSelected = CALENDAR_SOURCE_ORDER.every((kind) => kinds.includes(kind));
   const selection = useMultiSelection({
+    escapeClearsSelection: false,
     ids: contentIds,
     selected: new Set(
       contentOptions
@@ -120,6 +130,9 @@ export function CalendarStatistics({
       <CalendarScanProgress
         day={snapshot?.scanDayProgress?.day ?? snapshot?.activeScan?.day ?? day}
         progress={snapshot?.progress}
+        controls={snapshot?.controls}
+        busy={busy}
+        onControl={onControl}
         dayProgress={
           snapshot?.scanDayProgress ??
           (snapshot?.activeScan && snapshot.activeScan.day !== day
@@ -166,26 +179,34 @@ export function CalendarStatistics({
       ) : (
         <h4 className="weq-calendar-list-date">{day}</h4>
       )}
-      {snapshot?.dayProgress ? (
+      {snapshot?.dayProgress && !snapshot.emptyReason ? (
         <p>
           {snapshot.complete
             ? `${snapshot.totalRows} 个会话`
             : `已完成 ${snapshot.dayProgress.completedSources}/${snapshot.dayProgress.totalSources} 个来源`}{' '}
           · 已计 {snapshot.dayProgress.count.toLocaleString('zh-CN')} 条
+          {snapshot.dayProgress.paused ? ' · 该日已暂停' : ''}
         </p>
       ) : null}
       <CalendarConversationList
         key={`${id}:${day}`}
         rows={snapshot?.rows ?? []}
         total={snapshot?.totalRows ?? 0}
-        complete={Boolean(snapshot?.complete)}
-        busy={busy}
-        showEmpty={!error && kinds.length > 0}
+        complete={Boolean(snapshot?.complete || snapshot?.emptyReason)}
+        busy={busy || locateDisabled}
+        showEmpty={!error && kinds.length > 0 && !snapshot?.emptyReason}
         targets={targets}
         onLocate={onLocate}
         onLoadMore={onLoadMore}
       />
-      {[...new Set(snapshot?.days.flatMap((item) => item.errors) ?? [])].map((message) => (
+      {[
+        ...new Set(
+          [
+            snapshot?.persistenceError,
+            ...(snapshot?.days.flatMap((item) => item.errors) ?? []),
+          ].filter(Boolean),
+        ),
+      ].map((message) => (
         <p role="alert" key={message}>
           {message}
         </p>

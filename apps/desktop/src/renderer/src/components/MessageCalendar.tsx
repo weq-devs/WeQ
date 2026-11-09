@@ -36,7 +36,7 @@ export function MessageCalendar({
   trailing?: ReactNode;
   month?: string;
   onMonthChange?: (month: string) => void;
-  dayStatus?: Record<string, { complete: boolean }>;
+  dayStatus?: Record<string, { complete: boolean; reason?: string; paused?: boolean }>;
   yearOptions?: string[];
   statusText?: string;
   maxDay?: string;
@@ -119,6 +119,8 @@ export function MessageCalendar({
           if (date < 1 || date > length) return <span key={key} />;
           const day = `${month}-${String(date).padStart(2, '0')}`;
           const future = Boolean(maxDay && day > maxDay);
+          const reason = dayStatus?.[day]?.reason;
+          const paused = dayStatus?.[day]?.paused;
           const count = counts.get(day) ?? 0;
           const pending = dayStatus ? !dayStatus[day]?.complete : loading && !counts.has(day);
           const selected = day === start || day === end;
@@ -133,20 +135,28 @@ export function MessageCalendar({
               aria-label={
                 future
                   ? `${day}，未来日期不统计`
-                  : pending
-                    ? count > 0
-                      ? `${day}，已计 ${count} 条，尚未完成`
-                      : `${day}，消息数量统计中`
-                    : `${day}，${count} 条消息`
+                  : reason
+                    ? `${day}，${reason}`
+                    : paused
+                      ? `${day}，统计已暂停`
+                      : pending
+                        ? count > 0
+                          ? `${day}，已计 ${count} 条，尚未完成`
+                          : `${day}，消息数量统计中`
+                        : `${day}，${count} 条消息`
               }
               title={
                 future
                   ? `${day}（北京时间）：未来日期不统计`
-                  : pending
-                    ? count > 0
-                      ? `${day}（北京时间）：已计 ${count.toLocaleString('zh-CN')} 条，尚未完成`
-                      : `${day}（北京时间）：消息数量统计中`
-                    : `${day}（北京时间）：${count.toLocaleString('zh-CN')} 条`
+                  : reason
+                    ? `${day}（北京时间）：${reason}`
+                    : paused
+                      ? `${day}（北京时间）：统计已暂停`
+                      : pending
+                        ? count > 0
+                          ? `${day}（北京时间）：已计 ${count.toLocaleString('zh-CN')} 条，尚未完成`
+                          : `${day}（北京时间）：消息数量统计中`
+                        : `${day}（北京时间）：${count.toLocaleString('zh-CN')} 条`
               }
               disabled={future || busy || (!allowEmpty && (loading || !count))}
               onClick={() => {
@@ -156,12 +166,14 @@ export function MessageCalendar({
             >
               <span>{date}</span>
               <small>
-                {future
+                {future || reason
                   ? ''
                   : pending
                     ? count > 0
                       ? `${compactCount.format(count)}+`
-                      : '…'
+                      : paused
+                        ? '暂停'
+                        : '…'
                     : count
                       ? compactCount.format(count)
                       : dayStatus

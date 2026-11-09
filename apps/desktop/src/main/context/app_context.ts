@@ -31,6 +31,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { AnnualReportIndexDb, withDatabasePriority, waitForDatabaseQuiet } from '@weq/db';
+import { waitForCalendarWrites } from '@weq/service/conversation-calendar-store';
 import { QQMailService, type MailNotice } from '@weq/service/mail';
 import {
   createWin32Platform,
@@ -3134,6 +3135,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountCacheRoots.delete(this);
       if (waitForPending) uidRegistry.clear();
       const closing = Promise.allSettled([
+        waitForCalendarWrites(),
         contactsClosed,
         mcpClosed,
         externalMcpClosed,

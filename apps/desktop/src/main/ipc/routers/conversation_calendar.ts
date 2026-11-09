@@ -4,18 +4,26 @@ import {
   generatedMessages,
 } from '@weq/service/conversation-calendar-sources';
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+import { CalendarCheckpointStore } from '@weq/service/conversation-calendar-store';
 import type { AccountSession } from '@weq/account';
 import { type CalendarMetadataDb, withDatabasePriority, withDatabaseReadBudget } from '@weq/db';
 import {
   CALENDAR_CACHE_BYTES,
   ConversationCalendarJob,
   calendarMonthDays,
+  calendarToday,
   calendarTargetKey,
   CALENDAR_SOURCE_ORDER,
   type CalendarTarget,
   type CalendarKind,
 } from '@weq/service/conversation-calendar';
-import { getAppContext, accountEventBus, type AccountServices } from '../../context/app_context';
+import {
+  getAppContext,
+  accountEventBus,
+  accountRuntimeCacheRoot,
+  type AccountServices,
+} from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { exportAccountBindingInput } from './export_save';
 import { c2cMsgToWire, groupMsgToWire, type ChatMsgWire } from '../serde';
@@ -48,6 +56,9 @@ const dayInput = z
   .regex(/^\d{4}-\d{2}-\d{2}$/)
   .optional();
 interface Entry {
+  loaded: boolean;
+  ready?: Promise<void>;
+  store?: CalendarCheckpointStore;
   key: string;
   taskId?: string;
   day?: string;
@@ -58,6 +69,24 @@ interface Entry {
   targets: CalendarTarget[];
 }
 const sessions = new WeakMap<AccountSession, Map<string, Entry>>();
+export async function flushConversationCalendarResults(): Promise<void> {
+  const session = getAppContext().account;
+  if (!session) return;
+  const values = [...(sessions.get(session)?.values() ?? [])];
+  for (const value of values) value.job.cancel();
+  await Promise.all(
+    values.map(async (value) => {
+      await value.ready;
+      await value.store?.flush();
+    }),
+  );
+}
+function retire(value: Entry | undefined) {
+  if (!value) return;
+  value.job.cancel();
+  if (value.loaded) void value.store?.flush().catch(() => {});
+  else void value.ready?.then(() => value.store?.flush()).catch(() => {});
+}
 const kindsInput = z.array(targetInput.shape.kind).max(CALENDAR_SOURCE_ORDER.length).optional();
 function runJob(value: Entry, day = value.day, retry = false) {
   withDatabasePriority(
@@ -74,27 +103,32 @@ function runJob(value: Entry, day = value.day, retry = false) {
   );
 }
 accountEventBus.on('closing', (session: AccountSession | null) => {
-  if (session) for (const value of sessions.get(session)?.values() ?? []) value.job.cancel();
+  if (session)
+    for (const value of sessions.get(session)?.values() ?? []) {
+      retire(value);
+    }
 });
 
 function syncTask(value: Entry) {
   if (!value.taskId) return;
   const snapshot = value.job.snapshot(value.day, 0, true);
   const { completedSources: done, totalSources: total, failedSources: failed } = snapshot.progress;
-  const complete = done === total && snapshot.complete;
+  const complete = done === total && snapshot.complete && !snapshot.hasPending;
   const status = complete
     ? 'completed'
     : snapshot.cancelled
       ? 'cancelled'
-      : failed && done + failed === total
+      : !snapshot.canRun || snapshot.controls.month.state === 'empty'
         ? 'paused'
         : 'running';
   const previous = backgroundTasks.snapshot().find((task) => task.id === value.taskId);
   if (!previous) return;
   if (previous.status !== 'running' && status === 'running') backgroundTasks.resume(value.taskId);
   const patch = {
-    progress: total ? (done / total) * 100 : 100,
-    note: `已完成 ${done}/${total} 个日期来源${failed ? `，${failed} 个暂停` : ''}`,
+    progress: total ? (done / total) * 100 : 0,
+    note:
+      snapshot.emptyReason ??
+      `已完成 ${done}/${total} 个日期来源${failed ? `，${failed} 个暂停` : ''}`,
     logs: snapshot.logs,
     subtasks: [
       { label: '本月日期来源', done, total, failed },
@@ -144,7 +178,7 @@ function entry(input: z.infer<typeof requestInput>): Entry {
     [...cache.values()].reduce((sum, item) => sum + item.job.memoryBytes, 0) > CALENDAR_CACHE_BYTES
   ) {
     const first = cache.keys().next().value!;
-    cache.get(first)?.job.cancel();
+    retire(cache.get(first));
     cache.delete(first);
   }
   return value;
@@ -187,6 +221,8 @@ export const conversationCalendarRouter = router({
       const existing = [...cache].find(([, value]) => value.key === key);
       if (existing) {
         const [id, value] = existing;
+        await value.ready;
+        if (current(input).session !== session) throw new Error('账号或数据源已切换');
         if (input.refresh) value.job.cancel();
         if (value.job.controller.signal.aborted) {
           await value.job.settled();
@@ -198,7 +234,7 @@ export const conversationCalendarRouter = router({
         }
         if (input.refresh) value.job.invalidate();
         value.job.setKinds(input.kinds ?? [...CALENDAR_SOURCE_ORDER]);
-        runJob(value, value.day, true);
+        runJob(value, value.day);
         syncTask(value);
         return { id, day: value.day, background: value.job.inBackground };
       }
@@ -226,7 +262,7 @@ export const conversationCalendarRouter = router({
         ) {
           const victim = [...pool.keys()].find((key) => key !== id);
           if (!victim) return false;
-          pool.get(victim)?.job.cancel();
+          retire(pool.get(victim));
           pool.delete(victim);
         }
         return true;
@@ -234,14 +270,43 @@ export const conversationCalendarRouter = router({
       let tracked: Entry | undefined;
       let lastSync = 0;
       const job = new ConversationCalendarJob(input.month, unique, sources, reserve, () => {
+        if (tracked?.loaded) tracked.store?.schedule();
         if (tracked?.taskId && Date.now() - lastSync >= 500) {
           lastSync = Date.now();
           syncTask(tracked);
         }
       });
-      tracked = { ...value, key, job, day: input.day };
+      tracked = { ...value, key, job, day: input.day, loaded: true };
       cache.set(id, tracked);
       const entry = tracked;
+      const root = accountRuntimeCacheRoot(getAppContext());
+      if (root) {
+        entry.loaded = false;
+        const store = new CalendarCheckpointStore(
+          root,
+          JSON.stringify([
+            session.context.uin,
+            services.accountConfig.getRecord()?.configId,
+            resolve(session.msgDbPath),
+            key,
+          ]),
+          () => job.checkpoint(),
+          (message) => {
+            job.persistenceError = message;
+          },
+        );
+        entry.store = store;
+        entry.ready = (async () => {
+          const saved = await store.load();
+          if (saved !== undefined && !job.restore(saved))
+            store.block('统计结果格式无效，原文件已保留');
+          entry.day = job.day ?? input.day;
+          entry.loaded = true;
+        })();
+        await entry.ready;
+        if (current(input).session !== session) throw new Error('账号或数据源已切换');
+        if (cache.get(id) !== entry) throw new Error('日历缓存已变更，请重新打开');
+      }
       job.controller.signal.addEventListener(
         'abort',
         () => {
@@ -251,11 +316,12 @@ export const conversationCalendarRouter = router({
       );
       while (cache.size > 12) {
         const first = cache.keys().next().value!;
-        cache.get(first)?.job.cancel();
+        retire(cache.get(first));
         cache.delete(first);
       }
       job.setKinds(input.kinds ?? [...CALENDAR_SOURCE_ORDER]);
       runJob(tracked);
+      entry.store?.schedule();
       return { id, day: tracked.day, background: false };
     }),
   background: procedure.input(requestInput).mutation(({ input }) => {
@@ -331,7 +397,12 @@ export const conversationCalendarRouter = router({
       const [id, value] = found;
       if (input.day && !calendarMonthDays(value.job.month).some(({ day }) => day === input.day))
         throw new Error('日期不属于当前月份');
-      if (input.day) value.day = input.day;
+      value.day =
+        input.day ??
+        value.day ??
+        (value.job.month === calendarToday().slice(0, 7)
+          ? calendarToday()
+          : `${value.job.month}-01`);
       if (input.kinds) value.job.setKinds(input.kinds);
       runJob(value);
       syncTask(value);
@@ -343,9 +414,35 @@ export const conversationCalendarRouter = router({
       };
     }),
   stop: procedure.input(requestInput).mutation(({ input }) => {
-    entry(input).job.cancel();
-    return true;
+    const value = entry(input);
+    value.job.cancel();
+    return value.store?.flush().then(() => true) ?? true;
   }),
+  control: procedure
+    .input(
+      requestInput.extend({
+        scope: z.enum(['month', 'day']),
+        action: z.enum(['pause', 'continue', 'retry']),
+        day: dayInput,
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const value = entry(input);
+      if (value.job.controller.signal.aborted && input.action !== 'pause') {
+        await value.job.settled();
+        if (current(input).session !== value.session) throw new Error('账号或数据源已切换');
+        value.job.resume();
+        value.job.controller.signal.addEventListener('abort', () => syncTask(value), {
+          once: true,
+        });
+      }
+      value.job.control(input.scope, input.action, input.day);
+      runJob(value);
+      syncTask(value);
+      void value.job.settled().then(() => syncTask(value));
+      await value.store?.flush();
+      return value.job.snapshot(value.day);
+    }),
   locate: procedure
     .input(
       requestInput.extend({

@@ -133,6 +133,7 @@ export function filterCalendarTargets(
 }
 
 interface Work {
+  generation: number;
   source: CalendarSource;
   day: string;
   start: number;
@@ -146,12 +147,353 @@ interface Work {
   error?: string;
   rows: Map<string, CalendarRow>;
   progress?: CalendarScanProgress;
+  refresh?: Work;
+}
+
+export type CalendarControlAction = 'pause' | 'continue' | 'retry';
+export type CalendarControlState = 'running' | 'paused' | 'complete' | 'failed' | 'empty';
+export interface CalendarSavedWork {
+  kind: CalendarKind;
+  day: string;
+  counted: boolean;
+  detailed: boolean;
+  count: number;
+  cursor?: unknown;
+  limit: number;
+  failures: number;
+  error?: string;
+  progress?: CalendarScanProgress;
+  fallback: boolean;
+  rows: Array<{ key: string; count: number; anchor: CalendarAnchor }>;
+  refresh?: CalendarSavedWork;
+}
+export interface CalendarCheckpoint {
+  schema: 1;
+  month: string;
+  day?: string;
+  kinds: CalendarKind[];
+  monthPaused: boolean;
+  pausedDays: string[];
+  work: CalendarSavedWork[];
+  logs?: CalendarLogLine[];
+  scan?: { day: string; kind: CalendarKind };
+  dayFocus?: string;
+}
+function record(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+function natural(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+function cursorValue(value: unknown, depth = 0): boolean {
+  if (depth > 5) return false;
+  if (value === undefined || value === null || typeof value === 'boolean') return true;
+  if (typeof value === 'string') return value.length <= 2048;
+  if (typeof value === 'number') return Number.isFinite(value);
+  return (
+    record(value) &&
+    Object.keys(value).length <= 16 &&
+    Object.entries(value).every(
+      ([key, item]) => key !== '__proto__' && cursorValue(item, depth + 1),
+    )
+  );
 }
 
 /** 单个弹窗的可续查任务；调用方控制调度和 lease，不建立常驻统计服务。 */
 export class ConversationCalendarJob {
   controller = new AbortController();
   private enabled = new Set<CalendarKind>(CALENDAR_SOURCE_ORDER);
+  private monthPaused = false;
+  private dayFocus: string | undefined;
+  private readonly pausedDays = new Set<string>();
+  persistenceError: string | undefined;
+  get day(): string | undefined {
+    return this.selectedDay;
+  }
+  private needsWork(task: Work): boolean {
+    return (
+      Boolean(task.refresh) || !task.counted || (task.day === this.selectedDay && !task.detailed)
+    );
+  }
+  private nextWork(): Work | undefined {
+    const pending = this.work.filter(
+      (task) =>
+        this.available(task) &&
+        this.needsWork(task) &&
+        !this.pausedDays.has(task.day) &&
+        (!this.monthPaused || task.day === this.dayFocus) &&
+        !(task.refresh ?? task).error,
+    );
+    return (
+      pending.find((task) => task.refresh) ??
+      pending.find((task) => task.day === this.selectedDay) ??
+      pending[0]
+    );
+  }
+  control(scope: 'month' | 'day', action: CalendarControlAction, day?: string): void {
+    if (
+      scope === 'day' &&
+      (!day ||
+        !calendarMonthDays(this.month).some((item) => item.day === day) ||
+        day > calendarToday())
+    )
+      throw new Error('请选择不晚于今天的本月日期');
+    if (action === 'pause') {
+      if (scope === 'month') {
+        this.dayFocus =
+          this.activeWork?.day ??
+          this.snapshot(this.selectedDay).scanDayProgress?.day ??
+          this.selectedDay;
+        this.monthPaused = true;
+      } else {
+        this.dayFocus = day;
+        this.pausedDays.add(day!);
+      }
+    } else if (action === 'continue') {
+      if (scope === 'month') {
+        this.monthPaused = false;
+      } else {
+        this.dayFocus = day;
+        this.pausedDays.delete(day!);
+      }
+    } else {
+      if (scope === 'month') {
+        this.monthPaused = false;
+      } else {
+        this.dayFocus = day;
+        this.pausedDays.delete(day!);
+      }
+      for (const task of this.work) {
+        if (!this.available(task) || (scope === 'day' && task.day !== day)) continue;
+        if (task.refresh) this.releaseRows(task.refresh);
+        task.generation++;
+        task.error = undefined;
+        task.refresh = {
+          ...task,
+          counted: false,
+          detailed: false,
+          count: 0,
+          cursor: undefined,
+          rows: new Map(),
+          progress: undefined,
+          failures: 0,
+          error: undefined,
+          refresh: undefined,
+        };
+      }
+    }
+    const label = { pause: '暂停', continue: '继续', retry: '重新获取' }[action];
+    this.log(
+      'info',
+      'task',
+      `${label}${scope === 'month' ? this.month : day}统计${action === 'retry' ? '，保留原结果直到该来源读取完成' : ''}`,
+    );
+  }
+  checkpoint(): CalendarCheckpoint {
+    const save = (task: Work): CalendarSavedWork => ({
+      kind: task.source.kind,
+      day: task.day,
+      counted: task.counted,
+      detailed: task.detailed,
+      count: task.count,
+      cursor: task.cursor,
+      limit: task.limit,
+      failures: task.failures,
+      error: task.error,
+      progress: task.progress,
+      fallback: !task.source.count,
+      rows: [...task.rows].map(([key, row]) => ({ key, count: row.count, anchor: row.anchor })),
+      refresh: task.refresh ? save(task.refresh) : undefined,
+    });
+    return {
+      schema: 1,
+      month: this.month,
+      day: this.selectedDay,
+      kinds: [...this.enabled],
+      monthPaused: this.monthPaused,
+      pausedDays: [...this.pausedDays],
+      work: this.work.map(save),
+      logs: [...this.logs],
+      scan: this.lastScan ? { day: this.lastScan.day, kind: this.lastScan.source.kind } : undefined,
+      dayFocus: this.dayFocus,
+    };
+  }
+  restore(raw: unknown): boolean {
+    // 先校验全部来源、行和双缓冲预算，再一次性恢复，坏检查点不能部分覆盖结果。
+    if (
+      !record(raw) ||
+      raw.schema !== 1 ||
+      raw.month !== this.month ||
+      typeof raw.monthPaused !== 'boolean' ||
+      !Array.isArray(raw.kinds) ||
+      raw.kinds.length > CALENDAR_SOURCE_ORDER.length ||
+      !raw.kinds.every((kind) => CALENDAR_SOURCE_ORDER.some((known) => known === kind)) ||
+      !Array.isArray(raw.pausedDays) ||
+      raw.pausedDays.length > 31 ||
+      !Array.isArray(raw.work) ||
+      raw.work.length > this.work.length
+    )
+      return false;
+    const days = new Set(calendarMonthDays(this.month).map((item) => item.day));
+    const scanValue = raw.scan;
+    const scan = record(scanValue)
+      ? this.work.find((task) => task.day === scanValue.day && task.source.kind === scanValue.kind)
+      : undefined;
+    if (raw.scan !== undefined && !scan) return false;
+    if (
+      raw.logs !== undefined &&
+      (!Array.isArray(raw.logs) ||
+        raw.logs.length > CALENDAR_LOG_LIMIT ||
+        !raw.logs.every(
+          (line) =>
+            record(line) &&
+            natural(line.ts) &&
+            natural(line.seq) &&
+            typeof line.stage === 'string' &&
+            line.stage.length <= 64 &&
+            typeof line.level === 'string' &&
+            ['info', 'warn', 'error'].includes(line.level) &&
+            typeof line.text === 'string' &&
+            line.text.length <= 512,
+        ))
+    )
+      return false;
+    if (
+      (raw.day !== undefined && (typeof raw.day !== 'string' || !days.has(raw.day))) ||
+      (raw.dayFocus !== undefined &&
+        (typeof raw.dayFocus !== 'string' || !days.has(raw.dayFocus))) ||
+      !raw.pausedDays.every((day) => typeof day === 'string' && days.has(day))
+    )
+      return false;
+    const saved: Array<[Work, Work]> = [];
+    let bytes = 0;
+    const load = (value: unknown, base: Work, nested = false): Work | undefined => {
+      if (
+        !record(value) ||
+        value.kind !== base.source.kind ||
+        value.day !== base.day ||
+        typeof value.counted !== 'boolean' ||
+        typeof value.detailed !== 'boolean' ||
+        !natural(value.count) ||
+        !natural(value.limit) ||
+        value.limit < 1 ||
+        value.limit > CALENDAR_BATCH_SIZE ||
+        !natural(value.failures) ||
+        value.failures > 3 ||
+        typeof value.fallback !== 'boolean' ||
+        !Array.isArray(value.rows) ||
+        value.rows.length > this.targets.size ||
+        (value.error !== undefined &&
+          (typeof value.error !== 'string' || value.error.length > 1024)) ||
+        !cursorValue(value.cursor)
+      )
+        return undefined;
+      const rows = new Map<string, CalendarRow>();
+      for (const row of value.rows) {
+        if (
+          !record(row) ||
+          typeof row.key !== 'string' ||
+          !row.key.startsWith(`${base.source.kind}:`) ||
+          !natural(row.count) ||
+          row.count === 0 ||
+          !record(row.anchor)
+        )
+          return undefined;
+        const target = this.targets.get(row.key),
+          anchor = row.anchor;
+        if (
+          !target ||
+          rows.has(row.key) ||
+          typeof anchor.id !== 'string' ||
+          anchor.id.length > 256 ||
+          typeof anchor.seq !== 'string' ||
+          anchor.seq.length > 64 ||
+          typeof anchor.time !== 'number' ||
+          !Number.isFinite(anchor.time) ||
+          anchor.time < base.start ||
+          anchor.time >= base.end ||
+          (anchor.sessionId !== undefined &&
+            anchor.sessionId !== null &&
+            typeof anchor.sessionId !== 'string')
+        )
+          return undefined;
+        rows.set(row.key, {
+          target,
+          count: row.count,
+          anchor: {
+            id: anchor.id,
+            seq: anchor.seq,
+            time: anchor.time,
+            sessionId: anchor.sessionId as string | null | undefined,
+          },
+        });
+        bytes += 512 + target.name.length * 2;
+      }
+      if (
+        value.detailed &&
+        (!value.counted ||
+          [...rows.values()].reduce((sum, row) => sum + row.count, 0) !== value.count)
+      )
+        return undefined;
+      const result: Work = {
+        ...base,
+        counted: value.counted,
+        detailed: value.detailed,
+        count: value.count,
+        cursor: value.cursor,
+        limit: value.limit,
+        failures: value.failures,
+        error: value.error as string | undefined,
+        rows,
+        progress: undefined,
+        refresh: undefined,
+        source: value.fallback ? { ...base.source, count: undefined } : base.source,
+      };
+      if (value.refresh !== undefined) {
+        if (nested) return undefined;
+        result.refresh = load(value.refresh, base, true);
+        if (!result.refresh) return undefined;
+      }
+      return result;
+    };
+    const seen = new Set<string>();
+    for (const value of raw.work) {
+      if (!record(value)) return false;
+      const key = `${value.day}:${value.kind}`;
+      const base = this.work.find(
+        (task) => task.day === value.day && task.source.kind === value.kind,
+      );
+      if (!base || seen.has(key)) return false;
+      seen.add(key);
+      const loaded = load(value, base);
+      if (!loaded) return false;
+      saved.push([base, loaded]);
+    }
+    if (this.bytes + bytes > CALENDAR_CACHE_BYTES || (this.reserve && !this.reserve(bytes)))
+      return false;
+    for (const [base, loaded] of saved) Object.assign(base, loaded);
+    const restoredOrder = new Set(saved.map(([base]) => base));
+    this.work.splice(
+      0,
+      this.work.length,
+      ...saved.map(([base]) => base),
+      ...this.work.filter((task) => !restoredOrder.has(task)),
+    );
+    this.lastScan = scan ? (scan.refresh ?? scan) : undefined;
+    this.bytes += bytes;
+    this.enabled = new Set(raw.kinds as CalendarKind[]);
+    this.monthPaused = raw.monthPaused;
+    for (const day of raw.pausedDays) this.pausedDays.add(day as string);
+    this.selectedDay = raw.day as string | undefined;
+    this.dayFocus = (raw.dayFocus ?? (scan ? scan.day : raw.day)) as string | undefined;
+    if (Array.isArray(raw.logs)) {
+      this.logs.splice(0, this.logs.length, ...(raw.logs as CalendarLogLine[]));
+      this.logSeq = this.logs.reduce((max, line) => Math.max(max, line.seq), 0);
+      this.lastLogKey = undefined;
+    }
+    this.log('info', 'task', '已恢复持久化统计结果与进度');
+    return true;
+  }
   private readState: { state: 'idle' | 'queued' | 'reading'; since: number } | undefined;
   observeState(state: 'idle' | 'queued' | 'reading' | undefined): void {
     this.readState = state ? { state, since: Date.now() } : undefined;
@@ -171,7 +513,9 @@ export class ConversationCalendarJob {
     }
   }
   setKinds(kinds: CalendarKind[]): void {
+    if (kinds.length === this.enabled.size && kinds.every((kind) => this.enabled.has(kind))) return;
     this.enabled = new Set(kinds);
+    this.log('info', 'task', '统计内容已更新');
   }
   get inBackground(): boolean {
     return this.background;
@@ -181,15 +525,7 @@ export class ConversationCalendarJob {
     if (this.controller.signal.aborted) this.controller = new AbortController();
   }
   invalidate(): void {
-    for (const task of this.work) {
-      this.clearDetails(task);
-      task.counted = false;
-      task.count = 0;
-      task.failures = 0;
-      task.error = undefined;
-      task.progress = undefined;
-    }
-    this.log('info', 'task', '数据已更新，在原任务中重新统计');
+    this.control('month', 'retry');
   }
   readonly metrics = {
     batches: 0,
@@ -274,6 +610,7 @@ export class ConversationCalendarJob {
           (a, b) => CALENDAR_SOURCE_ORDER.indexOf(a.kind) - CALENDAR_SOURCE_ORDER.indexOf(b.kind),
         )
         .map((source) => ({
+          generation: 0,
           ...day,
           source,
           counted: false,
@@ -299,10 +636,12 @@ export class ConversationCalendarJob {
         if (this.running) this.cancel();
       }, 5000);
     if (day !== this.selectedDay) {
-      if (day) this.log('info', 'task', `优先统计 ${day}；完成后继续统计截至今天的其他日期`);
-      for (const task of this.work) {
-        if (task.day !== day && task.counted && task.detailed) this.clearDetails(task);
-      }
+      this.dayFocus = day;
+      this.log(
+        'info',
+        'task',
+        day ? `优先统计 ${day}；完成后继续统计截至今天的其他日期` : '继续统计本月日期',
+      );
       if (day)
         this.work.sort((a, b) => {
           if (a.day === b.day)
@@ -359,14 +698,8 @@ export class ConversationCalendarJob {
   }
   private start(): void {
     if (this.running || this.controller.signal.aborted) return;
-    if (
-      !this.work.some(
-        (task) =>
-          this.available(task) &&
-          !task.error &&
-          (!task.counted || (task.day === this.selectedDay && !task.detailed)),
-      )
-    ) {
+    const next = this.nextWork();
+    if (!next) {
       clearTimeout(this.leaseTimer);
       return;
     }
@@ -379,10 +712,13 @@ export class ConversationCalendarJob {
         const available = this.work.filter((task) => this.available(task));
         const done = available.filter((task) => task.counted && !task.error).length;
         const failed = available.filter((task) => task.error).length;
+        const paused =
+          this.monthPaused ||
+          available.some((task) => this.needsWork(task) && this.pausedDays.has(task.day));
         this.log(
           failed ? 'warn' : 'info',
           'task',
-          `${failed ? '部分统计已暂停' : '本轮统计完成'}｜完成 ${done}/${available.length} 个日期来源${failed ? `，${failed} 个未完成` : ''}`,
+          `${paused ? '统计已暂停' : failed ? '部分统计已暂停' : '本轮统计完成'}｜完成 ${done}/${available.length} 个日期来源${failed ? `，${failed} 个未完成` : ''}`,
         );
       }
     });
@@ -390,23 +726,18 @@ export class ConversationCalendarJob {
   async settled(): Promise<void> {
     await this.running;
   }
-  private clearDetails(task: Work): void {
-    for (const [key, row] of task.rows) {
+  private releaseRows(task: Work): void {
+    for (const row of task.rows.values()) {
       this.bytes -= 512 + row.target.name.length * 2;
-      this.order.get(task.day)?.delete(key);
     }
     task.rows.clear();
-    task.cursor = undefined;
-    task.detailed = false;
   }
   private async run(): Promise<void> {
     while (this.current()) {
-      const task =
-        this.work.find(
-          (work) =>
-            this.available(work) && work.day === this.selectedDay && !work.detailed && !work.error,
-        ) ?? this.work.find((work) => this.available(work) && !work.counted && !work.error);
-      if (!task) return;
+      const owner = this.nextWork();
+      if (!owner) return;
+      const task = owner.refresh ?? owner;
+      const generation = owner.generation;
       if (this.activeWork !== task)
         this.log(
           'info',
@@ -421,11 +752,13 @@ export class ConversationCalendarJob {
           !task.counted &&
           !task.cursor &&
           !task.rows.size &&
+          !owner.refresh &&
           task.day !== this.selectedDay &&
           task.source.count
         ) {
           const count = await task.source.count(task.start, task.end);
           if (!this.current()) return;
+          if (owner.generation !== generation) continue;
           if (count !== null) {
             task.count = count;
             task.counted = true;
@@ -434,6 +767,7 @@ export class ConversationCalendarJob {
         }
         const page = await task.source.page(task.start, task.end, task.cursor, task.limit);
         if (!this.current()) return;
+        if (owner.generation !== generation) continue;
         const applicable = page.rows.filter(
           (message) => message.time >= task.start && message.time < task.end,
         );
@@ -485,10 +819,14 @@ export class ConversationCalendarJob {
         if (page.done) {
           task.counted = true;
           task.detailed = true;
-          if (task.day !== this.selectedDay) this.clearDetails(task);
+          if (owner.refresh === task) {
+            this.releaseRows(owner);
+            Object.assign(owner, task, { refresh: undefined });
+          }
         }
       } catch (error) {
         if (!this.current()) return;
+        if (owner.generation !== generation) continue;
         if (error instanceof Error && error.name === 'AbortError') {
           this.cancel();
           return;
@@ -506,7 +844,7 @@ export class ConversationCalendarJob {
           if (++task.failures < 3) continue;
         }
         task.error = /timeout/.test(String(error))
-          ? '统计已暂停，重新打开日历重试'
+          ? '读取超出预算，统计已暂停'
           : error instanceof Error
             ? error.message
             : '统计失败';
@@ -522,22 +860,65 @@ export class ConversationCalendarJob {
   }
   snapshot(day?: string, offset = 0, includeLogs = false, limit = 50) {
     const enabledWork = this.work.filter((item) => this.available(item));
+    const emptyReason = !this.enabled.size
+      ? '未选择统计内容'
+      : !enabledWork.length
+        ? '当前范围没有可统计的来源'
+        : undefined;
     const days = calendarMonthDays(this.month).map(({ day: value }) => {
       const work = enabledWork.filter((item) => item.day === value);
       return {
         day: value,
         unavailable: value > calendarToday(),
+        paused: this.pausedDays.has(value),
         count: work.reduce((sum, item) => sum + item.count, 0),
-        complete: work.every((item) => item.counted),
-        errors: [...new Set(work.flatMap((item) => (item.error ? [item.error] : [])))],
+        complete:
+          value > calendarToday() || (work.length > 0 && work.every((item) => item.counted)),
+        emptyReason: value > calendarToday() ? undefined : emptyReason,
+        errors: [
+          ...new Set(
+            work.flatMap((item) =>
+              [item.error, item.refresh?.error].filter((value): value is string => Boolean(value)),
+            ),
+          ),
+        ],
       };
     });
     const work = enabledWork.filter((item) => item.day === day);
-    const scanDay = this.lastScan && this.available(this.lastScan) ? this.lastScan.day : undefined;
+    const pausedDay =
+      enabledWork.find(
+        (item) =>
+          this.needsWork(item) && this.pausedDays.has(item.day) && item.day === this.dayFocus,
+      ) ?? enabledWork.find((item) => this.needsWork(item) && this.pausedDays.has(item.day));
+    const scanDay =
+      this.activeWork && this.available(this.activeWork)
+        ? this.activeWork.day
+        : this.monthPaused && this.dayFocus
+          ? this.dayFocus
+          : !this.nextWork() && pausedDay
+            ? pausedDay.day
+            : this.lastScan && this.available(this.lastScan)
+              ? this.lastScan.day
+              : undefined;
     const scanWork = enabledWork.filter((item) => item.day === scanDay);
     if (day && !days.some((value) => value.day === day)) throw new Error('日历日期无效');
-    const complete = work.every((item) => item.detailed);
+    const complete = day
+      ? work.length > 0 && work.every((item) => item.detailed)
+      : enabledWork.length > 0 && enabledWork.every((item) => item.counted);
     const rows = work.flatMap((item) => [...item.rows.values()]);
+    const state = (scope?: string): CalendarControlState => {
+      if (!enabledWork.some((item) => !scope || item.day === scope)) return 'empty';
+      const pending = enabledWork.filter(
+        (item) => (!scope || item.day === scope) && this.needsWork(item),
+      );
+      if (scope && this.pausedDays.has(scope)) return 'paused';
+      if (!pending.length) return 'complete';
+      if (this.controller.signal.aborted || (!scope && this.monthPaused)) return 'paused';
+      const failures = scope ? pending : pending.filter((item) => !this.pausedDays.has(item.day));
+      return failures.length > 0 && failures.every((item) => (item.refresh ?? item).error)
+        ? 'failed'
+        : 'running';
+    };
     if (complete)
       rows.sort(
         (a, b) =>
@@ -552,6 +933,18 @@ export class ConversationCalendarJob {
           (this.order.get(day ?? '')?.get(calendarTargetKey(b.target)) ?? 0),
       );
     return {
+      emptyReason,
+      controls: {
+        month: { state: state(), disabled: !enabledWork.length },
+        day: {
+          state: state(scanDay ?? day),
+          disabled: !enabledWork.some((item) => item.day === (scanDay ?? day)),
+        },
+      },
+      hasPending: enabledWork.some((item) => this.needsWork(item)),
+      canRun: !this.controller.signal.aborted && Boolean(this.nextWork()),
+      refreshing: enabledWork.some((item) => Boolean(item.refresh)),
+      persistenceError: this.persistenceError,
       enabledKinds: [...this.enabled],
       scanDayProgress: scanDay
         ? {
@@ -568,7 +961,7 @@ export class ConversationCalendarJob {
       progress: {
         completedSources: enabledWork.filter((item) => item.counted && !item.error).length,
         totalSources: enabledWork.length,
-        failedSources: enabledWork.filter((item) => item.error).length,
+        failedSources: enabledWork.filter((item) => item.error || item.refresh?.error).length,
       },
       logs: includeLogs ? [...this.logs] : undefined,
       activeScan:
@@ -584,6 +977,7 @@ export class ConversationCalendarJob {
           : undefined,
       dayProgress: day
         ? {
+            paused: this.pausedDays.has(day),
             completedSources: work.filter((item) => item.detailed).length,
             totalSources: work.length,
             count: work.reduce((sum, item) => sum + item.count, 0),

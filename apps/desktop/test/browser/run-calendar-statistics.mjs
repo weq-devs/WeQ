@@ -76,6 +76,18 @@ try {
         );
       }, dark);
       await page.getByRole('button', { name: '任务日志', exact: true }).click();
+      await page.getByRole('button', { name: '暂停当月统计', exact: true }).click();
+      await page.getByRole('button', { name: '继续当月统计', exact: true }).waitFor();
+      if (
+        !(await page.getByRole('button', { name: '暂停2026-11-09统计', exact: true }).isEnabled())
+      )
+        throw new Error('月暂停错误地禁用了日控制');
+      await page.getByRole('button', { name: '暂停2026-11-09统计', exact: true }).click();
+      await page.getByRole('button', { name: '继续2026-11-09统计', exact: true }).click();
+      await page.getByRole('button', { name: '继续当月统计', exact: true }).waitFor();
+      await page.getByRole('button', { name: '继续当月统计', exact: true }).click();
+      await page.getByRole('button', { name: '暂停2026-11-09统计', exact: true }).click();
+      await page.getByRole('button', { name: '继续2026-11-09统计', exact: true }).click();
       await page
         .getByRole('group', { name: '统计内容', exact: true })
         .getByRole('button', { name: '公众号/服务号', exact: true })
@@ -84,6 +96,10 @@ try {
       if ((await option.getAttribute('aria-pressed')) !== 'false')
         throw new Error('组合来源不能取消');
       await option.click();
+      await option.focus();
+      await page.keyboard.press('Escape');
+      if ((await option.getAttribute('aria-pressed')) !== 'true')
+        throw new Error('Escape 清空了已记忆的统计来源');
       await page.locator('.weq-overview-calendar-row').first().click();
       if ((await page.locator('body').getAttribute('data-located')) !== 'true')
         throw new Error('定位未触发');
@@ -106,6 +122,21 @@ try {
   await mine.click();
   await page.reload();
   if ((await mine.getAttribute('aria-pressed')) !== 'false') throw new Error('选择未记忆');
+  await page.goto(
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/calendar-statistics.html?completed=1`,
+  );
+  const monthRetry = page.getByRole('button', { name: '重试当月统计', exact: true });
+  await monthRetry.waitFor();
+  if (!(await monthRetry.isEnabled())) throw new Error('完成后当月重试被禁用');
+  const oldRow = await page.locator('.weq-overview-calendar-row').first().innerText();
+  await monthRetry.click();
+  await page.getByRole('button', { name: '暂停当月统计', exact: true }).waitFor();
+  const dayRetry = page.getByRole('button', { name: '重试2026-11-09统计', exact: true });
+  if (!(await dayRetry.isEnabled())) throw new Error('完成后当日重试被禁用');
+  await dayRetry.click();
+  await page.getByRole('button', { name: '暂停2026-11-09统计', exact: true }).waitFor();
+  if ((await page.locator('.weq-overview-calendar-row').first().innerText()) !== oldRow)
+    throw new Error('重试时清除了原有结果');
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(
     JSON.stringify({

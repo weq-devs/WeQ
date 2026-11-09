@@ -8,12 +8,15 @@ import {
 } from '@weq/service/conversation-calendar';
 import { ConversationOverviewCalendar } from '../src/renderer/src/components/ConversationOverviewCalendar';
 import { calendarCloneRevision } from '../src/renderer/src/lib/calendarSourceRevision';
+import { setCalendarKinds } from '../src/renderer/src/hooks/useCalendarKinds';
+import type { CalendarControlState } from '@weq/service/conversation-calendar';
 
 const fixture = vi.hoisted(() => ({
   start: vi.fn(),
   stop: vi.fn(),
   poll: vi.fn(),
   background: vi.fn(),
+  control: vi.fn(),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
@@ -24,6 +27,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         poll: { query: fixture.poll },
         locate: { mutate: vi.fn() },
         background: { mutate: fixture.background },
+        control: { mutate: fixture.control },
       },
     },
   },
@@ -36,6 +40,15 @@ vi.mock('../src/renderer/src/components/RetainedTabs', () => ({ useTabActive: ()
 const month = '2026-11';
 function snapshot(complete: boolean, selectedMonth = month) {
   return {
+    controls: {
+      month: {
+        state: (complete ? 'complete' : 'running') as CalendarControlState,
+        disabled: false,
+      },
+      day: { state: (complete ? 'complete' : 'running') as CalendarControlState, disabled: false },
+    },
+    hasPending: !complete,
+    emptyReason: undefined as string | undefined,
     enabledKinds: [...CALENDAR_SOURCE_ORDER],
     readState: undefined as { state: 'idle' | 'queued' | 'reading'; since: number } | undefined,
     days: calendarMonthDays(selectedMonth).map(({ day }) => ({
@@ -71,6 +84,7 @@ beforeEach(() => {
     .mockImplementation(async () => ({ id: `job-${fixture.start.mock.calls.length}` }));
   fixture.stop.mockReset().mockResolvedValue(true);
   fixture.poll.mockReset().mockImplementation(async () => structuredClone(state));
+  fixture.control.mockReset().mockImplementation(async () => structuredClone(state));
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -85,6 +99,82 @@ async function tick(ms = 0) {
 const defaultTargets: CalendarTarget[] = [
   { kind: 'group', conv: '42', name: 'fixture', avatar: null, ancestors: [] },
 ];
+it('统计内容聚焦后 Escape 不清空记忆选择，也不拦住外层关闭处理', async () => {
+  const view = mount();
+  try {
+    await tick();
+    const option = [...view.host.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent === '私聊')!;
+    act(() => option.focus());
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    act(() => option.dispatchEvent(event)); await tick();
+    expect(event.defaultPrevented).toBe(false);
+    expect(option.getAttribute('aria-pressed')).toBe('true');
+    expect(fixture.poll.mock.lastCall?.[0].kinds).toContain('c2c');
+    expect(fixture.start).toHaveBeenCalledTimes(1);
+  } finally { view.close(); }
+});
+it('空选择不显示零条完成或满进度，重新选择后在同一任务中获取', async () => {
+  setCalendarKinds([]);
+  state.enabledKinds = [];
+  state.emptyReason = '未选择统计内容';
+  state.controls = {
+    month: { state: 'empty', disabled: true },
+    day: { state: 'empty', disabled: true },
+  };
+  state.hasPending = false;
+  state.days = state.days.map((item) => ({
+    ...item,
+    count: 0,
+    complete: false,
+    emptyReason: '未选择统计内容',
+  }));
+  const view = mount();
+  try {
+    await tick();
+    expect(view.host.textContent).toContain('未选择统计内容');
+    expect(view.host.textContent).not.toContain('当天没有消息');
+    expect(
+      view.host
+        .querySelector<HTMLButtonElement>('[aria-label="2026-11-10，未选择统计内容"]')
+        ?.querySelector('small')?.textContent,
+    ).toBe('');
+    expect(
+      [...view.host.querySelectorAll('progress')].every(
+        (item) => item.getAttribute('value') === '0',
+      ),
+    ).toBe(true);
+    const calls = fixture.poll.mock.calls.length;
+    await tick(2000);
+    expect(fixture.poll).toHaveBeenCalledTimes(calls);
+    state = snapshot(false);
+    act(() => setCalendarKinds(['c2c']));
+    await tick();
+    expect(fixture.start).toHaveBeenCalledTimes(1);
+    expect(fixture.poll.mock.lastCall?.[0].kinds).toEqual(['c2c']);
+  } finally {
+    view.close();
+  }
+});
+it('完成后从进度条重试沿用原句柄，并重新开始轮询而不创建新任务', async () => {
+  state = snapshot(true);
+  const view = mount();
+  try {
+    await tick();
+    state = snapshot(false);
+    const retry = view.host.querySelector<HTMLButtonElement>('[aria-label="重试当月统计"]')!;
+    act(() => retry.click());
+    await tick();
+    expect(fixture.control).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'job-1', scope: 'month', action: 'retry' }),
+    );
+    expect(fixture.start).toHaveBeenCalledTimes(1);
+    const reads = fixture.poll.mock.calls.length;
+    await tick(1000);
+    expect(fixture.poll.mock.calls.length).toBeGreaterThan(reads);
+  } finally {
+    view.close();
+  }
+});
 it('北京时间今天之后置灰且不可选择，不显示待统计省略号或未来计数', async () => {
   const view = mount();
   try {

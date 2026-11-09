@@ -2,6 +2,8 @@ import {
   calendarMonthDays,
   type CalendarKind,
   type CalendarTarget,
+  type CalendarControlState,
+  type CalendarControlAction,
 } from '@weq/service/conversation-calendar';
 
 const target: CalendarTarget = {
@@ -12,8 +14,28 @@ const target: CalendarTarget = {
   ancestors: [],
 };
 const anchor = { id: '1', seq: '1', time: 1 };
+const completed = new URLSearchParams(location.search).has('completed');
+const controls: { month: CalendarControlState; day: CalendarControlState } = {
+  month: completed ? 'complete' : 'running',
+  day: completed ? 'complete' : 'running',
+};
 export const client = {
-  account: { calendarOverview: { locate: { mutate: async () => ({ target, anchor }) } } },
+  account: {
+    calendarOverview: {
+      locate: { mutate: async () => ({ target, anchor }) },
+      control: {
+        mutate: async ({
+          scope,
+          action,
+        }: {
+          scope: 'month' | 'day';
+          action: CalendarControlAction;
+        }) => {
+          controls[scope] = action === 'pause' ? 'paused' : 'running';
+        },
+      },
+    },
+  },
 };
 export const trpc = {
   account: {
@@ -40,23 +62,44 @@ export const trpc = {
               day: input.day ?? '2026-11-08',
               snapshot: {
                 enabledKinds: input.kinds,
+                controls: {
+                  month: {
+                    state: input.kinds.length ? controls.month : 'empty',
+                    disabled: !input.kinds.length,
+                  },
+                  day: {
+                    state: input.kinds.length ? controls.day : 'empty',
+                    disabled: !input.kinds.length,
+                  },
+                },
+                hasPending:
+                  input.kinds.length > 0 &&
+                  (!completed || controls.month === 'running' || controls.day === 'running'),
+                emptyReason: input.kinds.length ? undefined : '未选择统计内容',
                 days: calendarMonthDays('2026-11').map(({ day }) => ({
                   day,
                   count: c2c ? 42 : 0,
-                  complete: false,
+                  complete: completed,
                   errors: [],
                 })),
                 progress: {
-                  completedSources: 2,
+                  completedSources: completed
+                    ? input.kinds.length * 30
+                    : Math.min(2, input.kinds.length * 30),
                   totalSources: input.kinds.length * 30,
                   failedSources: 0,
                 },
                 dayProgress: {
-                  completedSources: 1,
+                  completedSources: completed
+                    ? input.kinds.length
+                    : Math.min(1, input.kinds.length),
                   totalSources: input.kinds.length,
                   count: c2c ? 142 : 0,
                 },
-                readState: { state: 'queued' as const, since: 0 },
+                readState:
+                  completed && controls.month === 'complete' && controls.day === 'complete'
+                    ? undefined
+                    : { state: 'queued' as const, since: 0 },
                 scanDayProgress: {
                   day: '2026-11-09',
                   completedSources: 0,
@@ -68,7 +111,7 @@ export const trpc = {
                   kind: 'c2c' as const,
                   progress: { phase: '漫游缓存', processed: 4, total: 26, unit: '个会话' },
                 },
-                complete: false,
+                complete: completed,
                 cancelled: false,
                 rows: rows.slice(0, input.limit),
                 totalRows: rows.length,
@@ -86,6 +129,7 @@ export const trpc = {
               },
             },
             error: null,
+            refetch: async () => undefined,
           };
         },
       },

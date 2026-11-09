@@ -457,7 +457,7 @@ it('明确转入后台才可在不续租时继续超过五秒，完成后不残�
   expect(changed).toHaveBeenCalled();
   expect(vi.getTimerCount()).toBe(0);
 });
-it('仅有快速计数时不冒称当天会话列表完整，空来源可以确认为零', async () => {
+it('仅有快速计数时不冒称当天会话列表完整，空来源也不冒称查询完成', async () => {
   const job = new ConversationCalendarJob(
     '2026-11',
     [target],
@@ -470,6 +470,7 @@ it('仅有快速计数时不冒称当天会话列表完整，空来源可以确�
   expect(
     new ConversationCalendarJob('2026-11', [], [])
       .snapshot(day)
-      .days.every((row) => row.complete && row.count === 0),
-  ).toBe(true);
+      .days.filter((row) => !row.unavailable)
+      .every((row) => row.complete),
+  ).toBe(false);
 });
