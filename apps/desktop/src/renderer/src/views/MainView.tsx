@@ -178,6 +178,7 @@ import { readFreshGroupMemberPage, activeGroupMembers } from '../lib/groupMember
 import { useDressSkin } from '../hooks/useDressSkin';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { WorkspaceMenuButton, WorkspaceSettingsButton } from '../components/WorkspaceMenuButton';
+import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 import type { SectionId as SettingsDialogSectionId } from '../components/SettingsDialog';
 import type { MaintenanceTool } from '../components/settings/DataMaintenanceSection';
 import {
@@ -3049,6 +3050,7 @@ function MainWorkspace(): ReactElement {
    * 之前就要用 —— 用 ref 转发拿最新实现，避免把两个 useCallback 的依赖搅在一起。
    */
   const flushDraftRef = useRef<(conversationId: string) => void>(() => {});
+  const settingsNavigation = useSettingsNavigation();
   const [settingsOpen, setSettingsOpen] = usePageState(
     'workspace:settings',
     false,
@@ -5324,38 +5326,39 @@ function MainWorkspace(): ReactElement {
   }, []);
 
   const handleSelectConversation = useCallback(
-    (conversationId: string, event?: React.MouseEvent) => {
-      if (conversationId.startsWith('guild:')) {
-        setGuildSearchTarget({
-          kind: 'guildMessage',
-          nodeId: conversationId.slice(6),
-          msgId: '',
-          msgSeq: '',
-          revision: crypto.randomUUID(),
-        });
-        shell.switchView('channel');
-        return;
-      }
-      const conv = conversations.find((c) => c.id === conversationId);
-      if (conv?.type === 'merged') {
-        // 只是打开会话选择器面板，当前页面（包括正在看的 ARK Feed）先保持不动——
-        // 之前在这里无条件 setArkFeedState(null) 会导致点选择器就直接退出消息页。
-        const x = event?.clientX ?? window.innerWidth / 2;
-        const y = event?.clientY ?? window.innerHeight / 2;
-        setMergedPanel({ kind: conv.mergedKind, anchorX: x, anchorY: y });
-        return;
-      }
-      // 真正切换到一个普通会话时才关闭 ARK Feed。
-      // 先同步回填一次草稿，这样切换那一帧 ChatPane 就能拿到目标会话的正文（它只在
-      // conversation.id 变化时读一次 draft）。真正的落库不在这里做 —— 统一交给下面
-      // 监听 `shell.activeConversationId` 的 effect 收口，「返回 / 搜索跳转 / 选择器
-      // 进入」这些不走本函数的路径也能覆盖到。
-      syncDraftsFromPending();
-      setArkFeedState(null);
-      setSurfaceNavigation((value) => value + 1);
-      shell.selectConversation(conversationId);
-    },
-    [conversations, shell, syncDraftsFromPending],
+    (conversationId: string, event?: React.MouseEvent) =>
+      settingsNavigation.navigate(() => {
+        if (conversationId.startsWith('guild:')) {
+          setGuildSearchTarget({
+            kind: 'guildMessage',
+            nodeId: conversationId.slice(6),
+            msgId: '',
+            msgSeq: '',
+            revision: crypto.randomUUID(),
+          });
+          shell.switchView('channel');
+          return;
+        }
+        const conv = conversations.find((c) => c.id === conversationId);
+        if (conv?.type === 'merged') {
+          // 只是打开会话选择器面板，当前页面（包括正在看的 ARK Feed）先保持不动——
+          // 之前在这里无条件 setArkFeedState(null) 会导致点选择器就直接退出消息页。
+          const x = event?.clientX ?? window.innerWidth / 2;
+          const y = event?.clientY ?? window.innerHeight / 2;
+          setMergedPanel({ kind: conv.mergedKind, anchorX: x, anchorY: y });
+          return;
+        }
+        // 真正切换到一个普通会话时才关闭 ARK Feed。
+        // 先同步回填一次草稿，这样切换那一帧 ChatPane 就能拿到目标会话的正文（它只在
+        // conversation.id 变化时读一次 draft）。真正的落库不在这里做 —— 统一交给下面
+        // 监听 `shell.activeConversationId` 的 effect 收口，「返回 / 搜索跳转 / 选择器
+        // 进入」这些不走本函数的路径也能覆盖到。
+        syncDraftsFromPending();
+        setArkFeedState(null);
+        setSurfaceNavigation((value) => value + 1);
+        shell.selectConversation(conversationId);
+      }),
+    [conversations, shell, syncDraftsFromPending, settingsNavigation],
   );
 
   /**
@@ -10727,7 +10730,7 @@ function MainWorkspace(): ReactElement {
     />
   ) : null;
 
-  const openAppSearchEntry = (entry: AppSearchEntry) => {
+  const openAppSearchEntryNow = (entry: AppSearchEntry) => {
     setSearchDismissed(true);
     setSearchFocused(false);
     setSettingsOpen(false);
@@ -10783,6 +10786,11 @@ function MainWorkspace(): ReactElement {
     }
   };
 
+  const openAppSearchEntry = (entry: AppSearchEntry) => {
+    if (entry.target.kind === 'setting') openAppSearchEntryNow(entry);
+    else settingsNavigation.navigate(() => openAppSearchEntryNow(entry));
+  };
+
   const chatContent = (
     <ReplyJumpContext.Provider value={jumpToSeq}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
@@ -10807,53 +10815,61 @@ function MainWorkspace(): ReactElement {
               displaySettings.data?.showMessageUnreadBadge === false ? 0 : shell.messageUnreadCount
             }
             contactBadgeCount={friendNoticeCount + groupNoticeCount}
-            onMessageBadgeClick={() => {
-              const target = firstUnreadConversation(
-                sidebarConversations,
-                conversationPrefs,
-                displaySettings.data?.showGroupAssistantMessageCount ?? false,
-              );
-              if (!target) return;
-              setSurfaceNavigation((value) => value + 1);
-              setSettingsOpen(false);
-              setMaintenanceTool(null);
-              setDressUpOpen(false);
-              setArkFeedState(null);
-              shell.setQuery('');
-              shell.switchView('messages');
-              if (isMobileShell()) shell.backConversation();
-              setConversationLocate((previous) => ({
-                id: target.id,
-                revision: Math.max(Date.now(), (previous?.revision ?? 0) + 1),
-              }));
-            }}
+            onMessageBadgeClick={() =>
+              settingsNavigation.navigate(() => {
+                const target = firstUnreadConversation(
+                  sidebarConversations,
+                  conversationPrefs,
+                  displaySettings.data?.showGroupAssistantMessageCount ?? false,
+                );
+                if (!target) return;
+                setSurfaceNavigation((value) => value + 1);
+                setSettingsOpen(false);
+                setMaintenanceTool(null);
+                setDressUpOpen(false);
+                setArkFeedState(null);
+                shell.setQuery('');
+                shell.switchView('messages');
+                if (isMobileShell()) shell.backConversation();
+                setConversationLocate((previous) => ({
+                  id: target.id,
+                  revision: Math.max(Date.now(), (previous?.revision ?? 0) + 1),
+                }));
+              })
+            }
             mailBadgeCount={mailPreferences.data?.showUnread === false ? 0 : mailUnread}
             showTools={false}
             railFooterContent={() => <WorkspaceMenuButton />}
             friendNoticeCount={friendNoticeCount}
             groupNoticeCount={groupNoticeCount}
-            onViewChange={(view) => {
-              setSurfaceNavigation((value) => value + 1);
-              // 离开消息页 —— 另一个草稿落库时机。
-              if (shell.view === 'messages' && view !== 'messages') {
-                flushAllDirtyDrafts();
-              }
-              shell.switchView(view);
-            }}
-            onGoHome={() => {
-              setSurfaceNavigation((value) => value + 1);
-              if (shell.view === 'messages') {
-                flushAllDirtyDrafts();
-              }
-              shell.switchView('home');
-            }}
+            onViewChange={(view) =>
+              settingsNavigation.navigate(() => {
+                setSurfaceNavigation((value) => value + 1);
+                // 离开消息页 —— 另一个草稿落库时机。
+                if (shell.view === 'messages' && view !== 'messages') {
+                  flushAllDirtyDrafts();
+                }
+                shell.switchView(view);
+              })
+            }
+            onGoHome={() =>
+              settingsNavigation.navigate(() => {
+                setSurfaceNavigation((value) => value + 1);
+                if (shell.view === 'messages') {
+                  flushAllDirtyDrafts();
+                }
+                shell.switchView('home');
+              })
+            }
             onOpenSettings={() => {
               setDressUpOpen(false);
               setMaintenanceTool(null);
               setSettingsSection(undefined);
               setSettingsOpen(true);
             }}
-            onOpenCollection={() => shell.switchView('collections')}
+            onOpenCollection={() =>
+              settingsNavigation.navigate(() => shell.switchView('collections'))
+            }
             onOpenWonderfulTools={() => {
               setSettingsSection('diagnostics');
               setSettingsOpen(true);
@@ -10864,12 +10880,14 @@ function MainWorkspace(): ReactElement {
             }}
             onOpenDbRepair={() => openMaintenance('db-repair')}
             onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
-            onOpenDressUp={() => {
-              setSettingsOpen(false);
-              setDressUpEmojiTarget(null);
-              setDressUpSearchKind('bubble');
-              setDressUpOpen(true);
-            }}
+            onOpenDressUp={() =>
+              settingsNavigation.navigate(() => {
+                setSettingsOpen(false);
+                setDressUpEmojiTarget(null);
+                setDressUpSearchKind('bubble');
+                setDressUpOpen(true);
+              })
+            }
             onOpenProfile={noopAsync}
             onOpenAbout={noopAsync}
             onOpenInvite={noopAsync}
@@ -10936,8 +10954,12 @@ function MainWorkspace(): ReactElement {
                 />
               ) : null
             }
-            onOpenFriendNotices={() => shell.openContactNotice('friend')}
-            onOpenGroupNotices={() => shell.openContactNotice('group')}
+            onOpenFriendNotices={() =>
+              settingsNavigation.navigate(() => shell.openContactNotice('friend'))
+            }
+            onOpenGroupNotices={() =>
+              settingsNavigation.navigate(() => shell.openContactNotice('group'))
+            }
             onContactTabChange={shell.changeContactTab}
             onRefreshContacts={() => {
               void refreshContacts();
@@ -10982,14 +11004,18 @@ function MainWorkspace(): ReactElement {
                       conversationsLoadingMore={contactsLoadingMore}
                       query={shell.query}
                       onSelectConversation={handleSelectConversation}
-                      onSelectContact={(id) => {
-                        setSurfaceNavigation((value) => value + 1);
-                        shell.selectContact(id);
-                      }}
-                      onSelectGroup={(id) => {
-                        setSurfaceNavigation((value) => value + 1);
-                        shell.selectGroup(id);
-                      }}
+                      onSelectContact={(id) =>
+                        settingsNavigation.navigate(() => {
+                          setSurfaceNavigation((value) => value + 1);
+                          shell.selectContact(id);
+                        })
+                      }
+                      onSelectGroup={(id) =>
+                        settingsNavigation.navigate(() => {
+                          setSurfaceNavigation((value) => value + 1);
+                          shell.selectGroup(id);
+                        })
+                      }
                       activateToolsOnSelect={false}
                     />
                     <OverlayScrollbar
@@ -11447,6 +11473,7 @@ function MainWorkspace(): ReactElement {
             <SettingsDialog
               key={`settings:${messageScope}`}
               open={settingsOpen}
+              navigationGuard={settingsNavigation.guard}
               onClose={() => setSettingsOpen(false)}
               initialSection={settingsSection}
               searchTarget={settingsSearchTarget}

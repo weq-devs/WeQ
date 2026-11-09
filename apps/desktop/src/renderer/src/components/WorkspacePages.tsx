@@ -24,6 +24,7 @@ type Page = {
   title: string;
   placement: Placement;
   close: () => void;
+  navigate?: () => void;
   retainOnNavigate?: boolean;
   closable?: boolean;
   standalone?: boolean;
@@ -97,7 +98,8 @@ export function WorkspacePages({
   useEffect(() => {
     if (previousNavigation.current === navigationKey) return;
     previousNavigation.current = navigationKey;
-    for (const page of pagesRef.current) if (!page.retainOnNavigate) page.close();
+    for (const page of pagesRef.current)
+      if (!page.retainOnNavigate) (page.navigate ?? page.close)();
     select(null);
     navigateRef.current?.();
   }, [navigationKey]);
@@ -165,6 +167,8 @@ export function WorkspaceContent({ children }: { children: ReactNode }) {
 export function WorkspacePage({
   title,
   onClose,
+  onNavigate,
+  onBack,
   children,
   placement = 'main',
   retainOnNavigate = false,
@@ -173,6 +177,8 @@ export function WorkspacePage({
 }: {
   title: string;
   onClose?: () => void;
+  onNavigate?: () => void;
+  onBack?: () => void;
   children: ReactNode;
   placement?: Placement;
   retainOnNavigate?: boolean;
@@ -183,6 +189,10 @@ export function WorkspacePage({
   const id = useId();
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const navigateRef = useRef(onNavigate);
+  navigateRef.current = onNavigate;
+  const backRef = useRef(onBack);
+  backRef.current = onBack;
   const ref = useRef<HTMLDivElement>(null);
   const register = context?.register;
   useLayoutEffect(
@@ -195,6 +205,7 @@ export function WorkspacePage({
         standalone,
         mobileChrome,
         close: () => closeRef.current?.(),
+        navigate: () => (navigateRef.current ?? closeRef.current)?.(),
       }),
     [register, id, title, placement, retainOnNavigate, standalone, mobileChrome],
   );
@@ -210,7 +221,7 @@ export function WorkspacePage({
       !context?.pages.some((page) => page.placement === 'main' && page.id === context.active));
   useMobileBack(
     active && Boolean(onClose),
-    () => closeRef.current?.(),
+    () => (backRef.current ?? closeRef.current)?.(),
     20,
     () => ref.current,
   );

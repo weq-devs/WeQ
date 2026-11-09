@@ -5,6 +5,7 @@
  */
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -15,6 +16,7 @@ import {
 } from 'react';
 import {
   Activity,
+  AlertTriangle,
   ArrowLeft,
   AudioLines,
   Bot,
@@ -104,9 +106,17 @@ import '../styles/settings-navigation.css';
 import '../styles/app-search.css';
 import type { SettingsSearchTarget } from './settings/searchTarget';
 import { RetainedTabs, TabActivity, useTabActive } from './RetainedTabs';
-import { PageSnapshotsFallback, usePageSnapshotReset, usePageState } from './PageSnapshots';
+import {
+  PageSnapshotsFallback,
+  usePageSnapshotKey,
+  usePageSnapshotReset,
+  usePageState,
+} from './PageSnapshots';
+import { pageSnapshots } from '../lib/pageSnapshots';
 import { DraftCloseContext, useDraftClose } from '../lib/draftClose';
 import { useToast } from './Toast';
+import { Modal } from './Dialog';
+import type { SettingsNavigation } from '../hooks/useSettingsNavigation';
 import { z } from 'zod';
 import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
 import { useAppLock } from '../state/lock';
@@ -465,6 +475,7 @@ function SettingsContent({
   recallDetails,
   onCloseRecalls,
   isCurrentSource,
+  navigationGuard,
 }: {
   open: boolean;
   onClose: () => void;
@@ -479,6 +490,7 @@ function SettingsContent({
   recallDetails?: ReactNode;
   onCloseRecalls?: () => void;
   isCurrentSource?: () => boolean;
+  navigationGuard?: { current: SettingsNavigation | null };
 }): ReactElement | null {
   const target = useMemo(
     () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'startup' }),
@@ -504,11 +516,55 @@ function SettingsContent({
   const group = settingsGroupFor(activeId);
   const groupSections = group.sections.map((id) => sections.find((section) => section.id === id)!);
   const snapshots = usePageSnapshotReset('workspace:main:设置');
+  const activeKey = usePageSnapshotKey('settings:active');
+  useEffect(() => {
+    if (!open || !activeKey) return;
+    try {
+      pageSnapshots.write(activeKey, activeId);
+    } catch {
+      useToast.getState().push({ tone: 'error', title: '设置页面位置保存失败' });
+    }
+  }, [open, activeKey, activeId]);
+  const activeSnapshots = usePageSnapshotReset('workspace:main:设置', `settings:${activeId}`);
   const [closing, setClosing] = useState(false);
   const guard = useDraftClose(() => setClosing(true), null);
+  const [pendingNavigation, setPendingNavigation] = useState<{ navigate: () => void } | null>(null);
+  const snapshotDraft = useCallback(
+    () => ({ dirty: snapshots.hasDrafts(), busy: false }),
+    [snapshots],
+  );
+  const requestNavigation = useCallback<SettingsNavigation>(
+    (navigate) => {
+      const drafts = [...guard.drafts]
+        .filter((read) => read !== snapshotDraft)
+        .map((read) => read());
+      if (drafts.some((draft) => draft.busy)) return;
+      if (!activeSnapshots.hasDrafts() && !drafts.some((draft) => draft.dirty)) {
+        navigate();
+        return;
+      }
+      setPendingNavigation((current) => current ?? { navigate });
+    },
+    [activeSnapshots, guard.drafts, snapshotDraft],
+  );
+  const switchSection = useCallback(
+    (section: SettingsPageId) => {
+      if (section !== activeId) requestNavigation(() => setActiveId(section));
+    },
+    [activeId, requestNavigation, setActiveId],
+  );
+  const switchSectionRef = useRef(switchSection);
+  switchSectionRef.current = switchSection;
+  useEffect(() => {
+    if (!open || !navigationGuard) return;
+    navigationGuard.current = requestNavigation;
+    return () => {
+      if (navigationGuard.current === requestNavigation) navigationGuard.current = null;
+    };
+  }, [open, navigationGuard, requestNavigation]);
   useMobileBack(
     open && !closing && mobileCategoryOpen,
-    () => setMobileCategoryOpen(false),
+    () => requestNavigation(() => setMobileCategoryOpen(false)),
     30,
     () => navRef.current?.parentElement ?? null,
   );
@@ -530,17 +586,16 @@ function SettingsContent({
     setClosing(false);
   }, [closing, snapshots, setActiveId, onClose]);
   useEffect(() => {
-    const read = () => ({ dirty: snapshots.hasDrafts(), busy: false });
-    guard.drafts.add(read);
+    guard.drafts.add(snapshotDraft);
     return () => {
-      guard.drafts.delete(read);
+      guard.drafts.delete(snapshotDraft);
     };
-  }, [guard.drafts, snapshots.hasDrafts]);
+  }, [guard.drafts, snapshotDraft]);
 
   useEffect(() => {
-    if (open && (initialSection || searchTarget)) setActiveId(target.section);
+    if (open && (initialSection || searchTarget)) switchSectionRef.current(target.section);
     if (open) setMobileCategoryOpen(Boolean(initialSection || searchTarget));
-  }, [open, initialSection, searchTarget, target, setActiveId]);
+  }, [open, initialSection, searchTarget, target]);
 
   useEffect(() => {
     if (open) {
@@ -559,7 +614,13 @@ function SettingsContent({
 
   return (
     <DraftCloseContext.Provider value={guard.drafts}>
-      <WorkspacePage title="设置" onClose={guard.requestClose} standalone>
+      <WorkspacePage
+        title="设置"
+        onClose={guard.requestClose}
+        onNavigate={onClose}
+        onBack={() => requestNavigation(onClose)}
+        standalone
+      >
         <section
           className={`weq-settings-dialog${IS_WEB ? ' weq-mobile-settings' : ''}`}
           data-mobile-category={mobileCategoryOpen || undefined}
@@ -575,7 +636,9 @@ function SettingsContent({
                 title="返回"
                 onClick={() =>
                   mobileBack() ||
-                  (mobileCategoryOpen ? setMobileCategoryOpen(false) : guard.requestClose())
+                  (mobileCategoryOpen
+                    ? requestNavigation(() => setMobileCategoryOpen(false))
+                    : requestNavigation(onClose))
                 }
               >
                 <ArrowLeft size={22} />
@@ -604,8 +667,14 @@ function SettingsContent({
                     className={`weq-settings-nav-item${s.id === group.id ? ' is-active' : ''}`}
                     aria-current={s.id === group.id ? 'page' : undefined}
                     onClick={() => {
-                      setActiveId(s.sections[0]!);
-                      setMobileCategoryOpen(true);
+                      if (s.sections[0] === activeId) {
+                        setMobileCategoryOpen(true);
+                        return;
+                      }
+                      requestNavigation(() => {
+                        setActiveId(s.sections[0]!);
+                        setMobileCategoryOpen(true);
+                      });
                     }}
                   >
                     <span className="weq-settings-nav-icon">
@@ -631,7 +700,7 @@ function SettingsContent({
                   type="button"
                   className={`weq-settings-subnav-item${section.id === activeId ? ' is-active' : ''}`}
                   aria-current={section.id === activeId ? 'page' : undefined}
-                  onClick={() => setActiveId(section.id)}
+                  onClick={() => switchSection(section.id)}
                 >
                   <span className="weq-settings-subnav-icon" aria-hidden="true">
                     {section.icon}
@@ -654,7 +723,7 @@ function SettingsContent({
                     >
                       <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
                         <SettingsNavigateContext.Provider
-                          value={(section) => setActiveId(section as SettingsPageId)}
+                          value={(section) => switchSection(section as SettingsPageId)}
                         >
                           {active.id === 'chat-interaction' ? (
                             <>
@@ -683,6 +752,65 @@ function SettingsContent({
           </div>
         </section>
       </WorkspacePage>
+      {pendingNavigation && (
+        <Modal
+          onClose={() => setPendingNavigation(null)}
+          className="weq-message-modal"
+          labelledBy="weq-settings-leave-title"
+        >
+          <div className="weq-dialog weq-dialog-warning">
+            <div className="weq-dialog-head">
+              <span className="weq-dialog-icon" aria-hidden>
+                <AlertTriangle size={20} strokeWidth={1.85} />
+              </span>
+              <h3 id="weq-settings-leave-title" className="weq-dialog-title">
+                当前设置尚未保存
+              </h3>
+              <button
+                type="button"
+                className="weq-dialog-x"
+                aria-label="继续编辑"
+                onClick={() => setPendingNavigation(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="weq-dialog-body">
+              先留在当前页保存，或暂时离开。暂时离开会保留未保存内容，返回后可继续编辑。
+            </div>
+            <div className="weq-dialog-foot">
+              <button
+                type="button"
+                className="weq-action-soft"
+                onClick={() => {
+                  const navigate = pendingNavigation.navigate;
+                  setPendingNavigation(null);
+                  navigate();
+                }}
+              >
+                暂时离开
+              </button>
+              <button
+                type="button"
+                className="weq-action-primary"
+                onClick={() => {
+                  setPendingNavigation(null);
+                  const body = navRef.current?.parentElement?.querySelector('.weq-settings-body');
+                  const save = [
+                    ...(body?.querySelectorAll<HTMLButtonElement>('button') ?? []),
+                  ].find((button) => !button.disabled && button.textContent?.includes('保存'));
+                  const control =
+                    save ?? body?.querySelector<HTMLElement>('input, textarea, select');
+                  control?.scrollIntoView?.({ block: 'center' });
+                  control?.focus();
+                }}
+              >
+                先保存
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </DraftCloseContext.Provider>
   );
 }

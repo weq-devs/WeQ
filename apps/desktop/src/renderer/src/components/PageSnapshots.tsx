@@ -44,10 +44,11 @@ export function usePageSnapshotKey(name: string): string | null {
 }
 
 /** 明确关闭页面时检查并清除本页及嵌套页现场，不影响其它工作区。 */
-export function usePageSnapshotReset(name: string) {
+export function usePageSnapshotReset(name: string, child?: string) {
   const context = useContext(SnapshotContext);
   return useMemo(() => {
-    const scope = context ? JSON.stringify([context.key, name]) : null;
+    const parent = context ? JSON.stringify([context.key, name]) : null;
+    const scope = parent && child ? JSON.stringify([parent, child]) : parent;
     return {
       hasDrafts: () =>
         Boolean(
@@ -63,7 +64,7 @@ export function usePageSnapshotReset(name: string) {
           if (belongsToScope(key, scope)) context.fallback.delete(key);
       },
     };
-  }, [context, name]);
+  }, [context, name, child]);
 }
 
 export function PageSnapshots({

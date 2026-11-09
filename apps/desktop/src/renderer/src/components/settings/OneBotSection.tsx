@@ -22,6 +22,8 @@ import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { useDraftProtection } from '../../lib/draftClose';
+import { z } from 'zod';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
 import '../../styles/settings-onebot.css';
 
@@ -36,6 +38,17 @@ interface ServerDraft {
   enabled: boolean;
   enableCors: boolean;
 }
+const serverDraftSchema = z
+  .object({
+    id: z.string(),
+    type: z.enum(['ws', 'http']),
+    name: z.string(),
+    port: z.string(),
+    token: z.string(),
+    enabled: z.boolean(),
+    enableCors: z.boolean(),
+  })
+  .nullable();
 
 function generatedToken(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
@@ -62,7 +75,13 @@ export function OneBotSection(): ReactElement {
   const regenerateToken = trpc.bootstrap.regenerateOneBotServerToken.useMutation();
   const showError = useDialog((s) => s.showError);
   const toast = useToast((s) => s.push);
-  const [draft, setDraft] = useState<ServerDraft | null>(null);
+  const [draft, setDraft] = usePageState<ServerDraft | null>(
+    'onebot:draft',
+    null,
+    serverDraftSchema,
+    true,
+  );
+  usePageDraftConfirmation('onebot:draft', null);
   const [revealToken, setRevealToken] = useState(false);
   useEffect(() => {
     if (!active) setRevealToken(false);
@@ -76,7 +95,8 @@ export function OneBotSection(): ReactElement {
     deleteServer.isLoading ||
     setServerEnabled.isLoading ||
     regenerateToken.isLoading;
-  useDraftProtection(draft !== null, busy);
+  const protection = useDraftProtection(draft !== null, busy);
+  useEffect(() => protection.reset(false), [protection.reset]);
 
   async function refetch(): Promise<void> {
     await status.refetch();
