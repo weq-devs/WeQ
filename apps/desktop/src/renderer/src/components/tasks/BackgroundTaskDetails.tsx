@@ -22,9 +22,10 @@ import { removeBackgroundTask, type BackgroundTaskEntry } from '../../hooks/useB
 import type { BackgroundTaskScope } from '../../../../shared/background_task';
 import { IS_WEB } from '../../lib/target';
 import { useDialog } from '../Dialog';
-import { StageRow, type UiLogLine, type UiStage } from '../../views/export/TaskList';
+import type { UiLogLine } from '../../views/export/TaskList';
 import { TaskLogConsole as LogConsole } from '../TaskLogConsole';
 import { CalendarTaskDetails } from '../CalendarTaskDetails';
+import { ContactTaskStages } from './ContactTaskStages';
 import '../../styles/export.css';
 import '../../styles/conversation-overview-calendar.css';
 import '../../styles/contact-directory-order.css';
@@ -106,47 +107,15 @@ export function BackgroundTaskDetails({
           running={task.status === 'running'}
         />
       ) : null}
-      {task.kind === 'contacts' && (
-        <div className="weq-exp-detail-stages" data-privacy-sensitive>
-          {task.subtasks?.map((lane) => {
-            const key = lane.label === '好友' ? 'friends' : 'groups';
-            const status: UiStage['status'] =
-              lane.total === 0
-                ? 'skipped'
-                : lane.done >= lane.total
-                  ? lane.failed
-                    ? 'failed'
-                    : 'completed'
-                  : 'running';
-            const logs = contactLogs.filter((line) => line.stage === key);
-            const failures = lane.failed
-              ? logs
-                  .filter((line) => line.level === 'error' && line.text.startsWith('失败：'))
-                  .slice(-lane.failed)
-                  .map((line) => ({ stage: key, fileName: lane.label, error: line.text }))
-              : [];
-            return (
-              <StageRow
-                key={key}
-                stage={{
-                  key,
-                  label: `${lane.label} ${lane.done}/${lane.total}`,
-                  current: lane.done,
-                  total: lane.total,
-                  failed: lane.failed,
-                  failures,
-                  status,
-                }}
-                logs={logs}
-                paused={task.status === 'paused' || task.status === 'cancelled'}
-                onShowFailures={(items) =>
-                  showError(`${lane.label}读取失败`, items.map((item) => item.error).join('\n'))
-                }
-              />
-            );
-          })}
-        </div>
-      )}
+      {task.kind === 'contacts' ? (
+        <ContactTaskStages
+          task={task}
+          logs={contactLogs}
+          onShowFailures={(label, items) =>
+            showError(`${label}读取失败`, items.map((item) => item.error).join('\n'))
+          }
+        />
+      ) : null}
       {task.note ? <p role={task.status === 'failed' ? 'alert' : undefined}>{task.note}</p> : null}
       {hostDetails.error && entry.source === 'host' ? (
         <p role="alert">详情读取失败：{hostDetails.error.message}</p>
