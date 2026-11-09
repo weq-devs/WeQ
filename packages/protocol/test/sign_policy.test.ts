@@ -159,3 +159,26 @@ describe('probe-sign.ts 命令表与签名表对齐', () => {
     }
   });
 });
+
+describe('不签名的命令不报告 mode', () => {
+  it('0x9082_1/2：macOS 不签名，模式未知，resolved mode 必须是 3', () => {
+    // #126 只测出 macOS 对贴表情不签名，没有任何 mode 实测依据。
+    for (const cmd of ['OidbSvcTrpcTcp.0x9082_1', 'OidbSvcTrpcTcp.0x9082_2']) {
+      const darwin = resolveSign(cmd, 'darwin');
+      expect(darwin.needSign).toBe(false);
+      expect(darwin.mode).toBe(3);
+      // Windows / Linux 仍签，mode 各自正确。
+      expect(resolveSign(cmd, 'win32')).toEqual({ needSign: true, mode: 2 });
+      expect(resolveSign(cmd, 'linux')).toEqual({ needSign: true, mode: 3 });
+    }
+  });
+
+  it('表里所有在某个平台不签名的命令，该平台解析出的 mode 都是 3', () => {
+    for (const cmd of Object.keys(SIGN_RULES)) {
+      for (const platform of ['linux', 'win32', 'darwin'] as const) {
+        const { needSign, mode } = resolveSign(cmd, platform);
+        if (!needSign) expect(mode, `${cmd}@${platform}`).toBe(3);
+      }
+    }
+  });
+});

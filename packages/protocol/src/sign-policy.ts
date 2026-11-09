@@ -160,7 +160,11 @@ export function resolveSign(
     }
     return { needSign: false, mode: 3 };
   }
-  // mode 只在 macOS / Windows 的 VM ABI 里有；Linux 恒为 3。
-  const mode: SignMode = platform !== 'linux' && rule.mode2 ? 2 : 3;
-  return { needSign: needSignOn(rule.sign, platform), mode };
+  const needSign = needSignOn(rule.sign, platform);
+  // 不签名时 native 根本不调签名器（`sec_info` 直接返回 None），mode 无从生效。
+  // 这种情况一律给 3，不要报一个「这条命令在 macOS 上是 mode=2」但实际上从未
+  // 被使用、也没有实测依据的值 —— `0x9082_1/2` 就是这种：macOS 不签，mode 未知。
+  // 其余情况：mode 只在 macOS / Windows 的 VM ABI 里有，Linux 恒为 3。
+  const mode: SignMode = needSign && platform !== 'linux' && rule.mode2 ? 2 : 3;
+  return { needSign, mode };
 }

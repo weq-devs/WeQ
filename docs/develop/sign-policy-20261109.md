@@ -113,7 +113,10 @@ oidbCommand(command, subCommand) -> 'OidbSvcTrpcTcp.0x6d6_2'
 ```
 
 - `sign`：`'all'` / `'non-linux'` / `'not-darwin'`，或三端逐端对象 `{ linux, win32, darwin }`。
-- `mode2`：该命令用完整签名（VM mode = 2，见本文件后面的 mode 分组）。Linux 恒按 3。
+- `mode2`：该命令用完整签名（VM mode = 2，见本文件后面的 mode 分组）。Linux 恒按 3；
+  **该命令在这个平台上不签名时也按 3** —— native 的 `sec_info` 直接返回 None，
+  mode 根本不会被用到，报 2 等于宣称一个没有依据的值（`0x9082_1/2` 在 macOS 就是
+  这种情况：不签名，mode 未知）。
 - **不签名的命令不登记**：查不到即 `{ needSign: false, mode: 3 }`，并打一条 warn。
 - `transport.ts` 是**唯一**分发点：`sendOidb` / `sendPacket` 自己按命令查表，调用方
   默认什么都不用传。`override` 只给 `scripts/sso_send.ts` 的 `--sign` / `--no-sign`。
@@ -134,7 +137,8 @@ oidbCommand(command, subCommand) -> 'OidbSvcTrpcTcp.0x6d6_2'
 macOS 13 条，交集 13 条（差集是 macOS 不签的 `0x9082_1/2`）。这 13 条在表里标
 `mode2: true`：
 
-`MessageSvc.PbSendMsg`、`0x6d9_4`、`0x89a_15`、`0x9082_1/2`（仅 Win）、`0x93d7_1`、
+`MessageSvc.PbSendMsg`、`0x6d9_4`、`0x89a_15`、`0x9082_1/2`（**仅 Windows**，macOS
+不签名所以 mode 未知）、`0x93d7_1`、
 `0x10c8_1/2`、`0x112a_2`、`0x112e_1`、`0x11ec_1`、
 `trpc.msg.msg_svc.MsgService.SsoReadedReport`、`...SsoC2CRecallMsg`、
 `trpc.group.long_msg_interface.MsgService.SsoSendLongMsg`、
