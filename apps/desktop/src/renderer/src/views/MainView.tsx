@@ -167,7 +167,10 @@ import { composerDraftRecovery } from '../lib/composerDraftRecovery';
 import { composerAssetIds } from '../lib/composerDraftMedia';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useCloneTaskRefresh } from '../hooks/useCloneTaskRefresh';
-import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
+import {
+  GROUP_MEMBER_PREVIEW_REFRESH_MS,
+  useGroupMemberResolver,
+} from '../hooks/useGroupMemberResolver';
 import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
 import { readFreshGroupMemberPage, activeGroupMembers } from '../lib/groupMemberRefresh';
 import { useDressSkin } from '../hooks/useDressSkin';
@@ -3884,7 +3887,7 @@ function MainWorkspace(): ReactElement {
     resolveMembers: resolvePreviewMembers,
     updateMembers: updatePreviewMembers,
     invalidate: invalidatePreviewMembers,
-  } = useGroupMemberResolver<GroupMemberWire>();
+  } = useGroupMemberResolver<GroupMemberWire>(GROUP_MEMBER_PREVIEW_REFRESH_MS);
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
 
