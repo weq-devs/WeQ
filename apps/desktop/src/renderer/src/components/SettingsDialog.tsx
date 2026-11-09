@@ -97,13 +97,16 @@ import { LoginAccountPanel } from './LoginAccountPanel';
 import { ReverseTool } from './ReverseTool';
 import { SignerStatusCard } from './settings/SignerStatusCard';
 import { IS_WEB } from '../lib/target';
+import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
 import '../styles/settings-navigation.css';
 import '../styles/app-search.css';
 import type { SettingsSearchTarget } from './settings/searchTarget';
 import { RetainedTabs, TabActivity, useTabActive } from './RetainedTabs';
-import { PageSnapshotsFallback, usePageState } from './PageSnapshots';
+import { PageSnapshotsFallback, usePageSnapshotReset, usePageState } from './PageSnapshots';
+import { DraftCloseContext, useDraftClose } from '../lib/draftClose';
+import { useToast } from './Toast';
 import { z } from 'zod';
 import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
 import { useAppLock } from '../state/lock';
@@ -444,7 +447,15 @@ const ACCENT_PRESETS = [
   '#8b5cf6',
 ];
 
-export function SettingsDialog({
+export function SettingsDialog(props: Parameters<typeof SettingsContent>[0]): ReactElement {
+  return (
+    <PageSnapshotsFallback scope="bootstrap-settings">
+      <SettingsContent {...props} />
+    </PageSnapshotsFallback>
+  );
+}
+
+function SettingsContent({
   open,
   onClose,
   initialSection,
@@ -492,6 +503,34 @@ export function SettingsDialog({
   const sections = SETTINGS_SECTIONS;
   const group = settingsGroupFor(activeId);
   const groupSections = group.sections.map((id) => sections.find((section) => section.id === id)!);
+  const snapshots = usePageSnapshotReset('workspace:main:设置');
+  const [closing, setClosing] = useState(false);
+  const guard = useDraftClose(() => setClosing(true), null);
+  useMobileBack(open && !closing && mobileCategoryOpen, () => setMobileCategoryOpen(false), 30, () => navRef.current?.parentElement ?? null);
+  useEffect(() => {
+    if (!closing) return;
+    // 子页先卸载并写回滚动快照，再统一清除，避免关闭后旧位置重新写入。
+    try {
+      snapshots.reset();
+    } catch {
+      useToast
+        .getState()
+        .push({ tone: 'error', title: '设置页面状态清除失败', detail: '请检查本机存储后重试。' });
+      setClosing(false);
+      return;
+    }
+    setActiveId('startup');
+    setMobileCategoryOpen(false);
+    onClose();
+    setClosing(false);
+  }, [closing, snapshots, setActiveId, onClose]);
+  useEffect(() => {
+    const read = () => ({ dirty: snapshots.hasDrafts(), busy: false });
+    guard.drafts.add(read);
+    return () => {
+      guard.drafts.delete(read);
+    };
+  }, [guard.drafts, snapshots.hasDrafts]);
 
   useEffect(() => {
     if (open && (initialSection || searchTarget)) setActiveId(target.section);
@@ -509,132 +548,136 @@ export function SettingsDialog({
     }
   }, [open, activeId]);
 
-  if (!open) return null;
+  if (!open || closing) return null;
 
   const active = sections.find((s) => s.id === activeId) ?? sections[0] ?? SETTINGS_SECTIONS[0]!;
 
   return (
-    <WorkspacePage title="设置" onClose={onClose} standalone>
-      <section
-        className={`weq-settings-dialog${IS_WEB ? ' weq-mobile-settings' : ''}`}
-        data-mobile-category={mobileCategoryOpen || undefined}
-        role="region"
-        aria-labelledby="weq-settings-title"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {IS_WEB && (
-          <header className="weq-mobile-settings-header">
-            <button
-              type="button"
-              aria-label={mobileCategoryOpen ? '返回设置分类' : '返回'}
-              title="返回"
-              onClick={() => (mobileCategoryOpen ? setMobileCategoryOpen(false) : onClose())}
-            >
-              <ArrowLeft size={22} />
-            </button>
-            <strong>{mobileCategoryOpen ? group.label : '设置'}</strong>
-          </header>
-        )}
-        <button
-          className="weq-settings-close"
-          type="button"
-          title="关闭"
-          aria-label="关闭"
-          onClick={onClose}
+    <DraftCloseContext.Provider value={guard.drafts}>
+      <WorkspacePage title="设置" onClose={guard.requestClose} standalone>
+        <section
+          className={`weq-settings-dialog${IS_WEB ? ' weq-mobile-settings' : ''}`}
+          data-mobile-category={mobileCategoryOpen || undefined}
+          role="region"
+          aria-labelledby="weq-settings-title"
+          onMouseDown={(e) => e.stopPropagation()}
         >
-          <X size={18} />
-        </button>
-        <nav ref={navRef} className="weq-settings-nav" aria-label="设置分类">
-          <h2 id="weq-settings-title" className="weq-settings-nav-title">
-            设置
-          </h2>
-          <ul>
-            {SETTINGS_GROUPS.map((s) => (
-              <li key={s.id}>
-                <button
-                  type="button"
-                  className={`weq-settings-nav-item${s.id === group.id ? ' is-active' : ''}`}
-                  aria-current={s.id === group.id ? 'page' : undefined}
-                  onClick={() => {
-                    setActiveId(s.sections[0]!);
-                    setMobileCategoryOpen(true);
-                  }}
-                >
-                  <span className="weq-settings-nav-icon">
-                    {sections.find((section) => section.id === s.sections[0])!.icon}
-                  </span>
-                  <span className="weq-settings-nav-label">
-                    {s.label}
-                    {updateAvailable && s.sections.includes('version') ? (
-                      <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
-                    ) : null}
-                  </span>
-                  {IS_WEB && <ChevronRight className="weq-mobile-settings-chevron" size={18} />}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
-        <div className="weq-settings-content">
-          <nav ref={subnavRef} className="weq-settings-subnav" aria-label={`${group.label}分类`}>
-            {groupSections.map((section) => (
+          {IS_WEB && (
+            <header className="weq-mobile-settings-header">
               <button
-                key={section.id}
                 type="button"
-                className={`weq-settings-subnav-item${section.id === activeId ? ' is-active' : ''}`}
-                aria-current={section.id === activeId ? 'page' : undefined}
-                onClick={() => setActiveId(section.id)}
+                aria-label={mobileCategoryOpen ? '返回设置分类' : '返回'}
+                title="返回"
+                onClick={() =>
+                  mobileBack() || (mobileCategoryOpen ? setMobileCategoryOpen(false) : guard.requestClose())
+                }
               >
-                <span className="weq-settings-subnav-icon" aria-hidden="true">
-                  {section.icon}
-                </span>
-                <span className="weq-settings-subnav-label">{section.label}</span>
-                {updateAvailable && section.id === 'version' ? (
-                  <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
-                ) : null}
+                <ArrowLeft size={22} />
               </button>
-            ))}
-          </nav>
-          <div className="weq-settings-pages">
-            <TabActivity active={!locked}>
-              <PageSnapshotsFallback scope="bootstrap-settings">
-                <RetainedTabs snapshotKey="settings" activeKey={active.id}>
-                  <RetainedSettingsPage
-                    pageId={active.id}
-                    target={target}
-                    revision={searchTarget?.revision}
+              <strong>{mobileCategoryOpen ? group.label : '设置'}</strong>
+            </header>
+          )}
+          <button
+            className="weq-settings-close"
+            type="button"
+            title="关闭"
+            aria-label="关闭"
+            onClick={guard.requestClose}
+          >
+            <X size={18} />
+          </button>
+          <nav ref={navRef} className="weq-settings-nav" aria-label="设置分类">
+            <h2 id="weq-settings-title" className="weq-settings-nav-title">
+              设置
+            </h2>
+            <ul>
+              {SETTINGS_GROUPS.map((s) => (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    className={`weq-settings-nav-item${s.id === group.id ? ' is-active' : ''}`}
+                    aria-current={s.id === group.id ? 'page' : undefined}
+                    onClick={() => {
+                      setActiveId(s.sections[0]!);
+                      setMobileCategoryOpen(true);
+                    }}
                   >
-                    <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
-                      <SettingsNavigateContext.Provider
-                        value={(section) => setActiveId(section as SettingsPageId)}
-                      >
-                        {active.id === 'chat-interaction' ? (
-                          <>
-                            {active.render(onOpenMaintenance)}
-                            <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
-                              <AntiRecallDialog
-                                embedded
-                                onClose={() => {}}
-                                onOpenRecalls={onOpenRecalls}
-                                recallDetails={recallDetails}
-                                onCloseRecalls={onCloseRecalls}
-                                isCurrentSource={isCurrentSource}
-                              />
-                            </SettingsScopeContext.Provider>
-                          </>
-                        ) : (
-                          active.render(onOpenMaintenance)
-                        )}
-                      </SettingsNavigateContext.Provider>
-                    </SettingsScopeContext.Provider>
-                  </RetainedSettingsPage>
-                </RetainedTabs>
-              </PageSnapshotsFallback>
-            </TabActivity>
+                    <span className="weq-settings-nav-icon">
+                      {sections.find((section) => section.id === s.sections[0])!.icon}
+                    </span>
+                    <span className="weq-settings-nav-label">
+                      {s.label}
+                      {updateAvailable && s.sections.includes('version') ? (
+                        <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
+                      ) : null}
+                    </span>
+                    {IS_WEB && <ChevronRight className="weq-mobile-settings-chevron" size={18} />}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          <div className="weq-settings-content">
+            <nav ref={subnavRef} className="weq-settings-subnav" aria-label={`${group.label}分类`}>
+              {groupSections.map((section) => (
+                <button
+                  key={section.id}
+                  type="button"
+                  className={`weq-settings-subnav-item${section.id === activeId ? ' is-active' : ''}`}
+                  aria-current={section.id === activeId ? 'page' : undefined}
+                  onClick={() => setActiveId(section.id)}
+                >
+                  <span className="weq-settings-subnav-icon" aria-hidden="true">
+                    {section.icon}
+                  </span>
+                  <span className="weq-settings-subnav-label">{section.label}</span>
+                  {updateAvailable && section.id === 'version' ? (
+                    <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
+                  ) : null}
+                </button>
+              ))}
+            </nav>
+            <div className="weq-settings-pages">
+              <TabActivity active={!locked}>
+                <PageSnapshotsFallback scope="bootstrap-settings">
+                  <RetainedTabs snapshotKey="settings" activeKey={active.id}>
+                    <RetainedSettingsPage
+                      pageId={active.id}
+                      target={target}
+                      revision={searchTarget?.revision}
+                    >
+                      <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
+                        <SettingsNavigateContext.Provider
+                          value={(section) => setActiveId(section as SettingsPageId)}
+                        >
+                          {active.id === 'chat-interaction' ? (
+                            <>
+                              {active.render(onOpenMaintenance)}
+                              <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
+                                <AntiRecallDialog
+                                  embedded
+                                  onClose={() => {}}
+                                  onOpenRecalls={onOpenRecalls}
+                                  recallDetails={recallDetails}
+                                  onCloseRecalls={onCloseRecalls}
+                                  isCurrentSource={isCurrentSource}
+                                />
+                              </SettingsScopeContext.Provider>
+                            </>
+                          ) : (
+                            active.render(onOpenMaintenance)
+                          )}
+                        </SettingsNavigateContext.Provider>
+                      </SettingsScopeContext.Provider>
+                    </RetainedSettingsPage>
+                  </RetainedTabs>
+                </PageSnapshotsFallback>
+              </TabActivity>
+            </div>
           </div>
-        </div>
-      </section>
-    </WorkspacePage>
+        </section>
+      </WorkspacePage>
+    </DraftCloseContext.Provider>
   );
 }
 

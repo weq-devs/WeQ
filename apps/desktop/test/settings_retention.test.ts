@@ -10,6 +10,7 @@ import { useAppLock } from '../src/renderer/src/state/lock';
 import { useViewState } from '../src/renderer/src/state/view';
 import type { SettingsSearchTarget } from '../src/renderer/src/components/settings/searchTarget';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { useDialog } from '../src/renderer/src/components/Dialog';
 
 const fixture = vi.hoisted(() => ({
   queries: new Map<string, { path: string; active: boolean; enabled: boolean }>(),
@@ -99,6 +100,7 @@ afterEach(() => {
   fixture.listeners.clear();
   vi.unstubAllGlobals();
   fixture.mcpPort = undefined;
+  useDialog.getState().close();
 });
 function mount(initialSection: SectionId = 'global') {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -108,6 +110,7 @@ function mount(initialSection: SectionId = 'global') {
   document.body.append(host);
   const root = createRoot(host);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const onClose = vi.fn();
   const render = (
     section: SectionId | undefined,
     searchTarget?: SettingsSearchTarget,
@@ -126,7 +129,7 @@ function mount(initialSection: SectionId = 'global') {
               open: true,
               initialSection: section,
               searchTarget,
-              onClose: vi.fn(),
+              onClose,
               onOpenMaintenance: vi.fn(),
               onOpenRecalls: vi.fn(),
             }),
@@ -138,6 +141,7 @@ function mount(initialSection: SectionId = 'global') {
   return {
     host,
     render,
+    onClose,
     body: () => host.querySelector<HTMLElement>('.weq-settings-body')!,
     dispose: () => {
       act(() => root.unmount());
@@ -154,6 +158,89 @@ function inputValue(input: HTMLInputElement, value: string) {
 }
 
 describe('设置二级页现场与活动生命周期', () => {
+  it('右上角关闭清除路径，普通重开回到默认页，显式深链仍可定位', () => {
+    const f = mount('mcp');
+    try {
+      f.render('appearance');
+      f.render('mcp');
+      act(() => f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
+      expect(f.onClose).toHaveBeenCalledOnce();
+      f.render(undefined, undefined, 1);
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        '启动与主页',
+      );
+      f.render('mcp', undefined, 2);
+      expect(f.body().querySelector('[aria-label="MCP 端口"]')).not.toBeNull();
+    } finally {
+      f.dispose();
+    }
+  });
+  it('关闭不恢复旧滚动与搜索高亮', () => {
+    const f = mount('global');
+    try {
+      f.render('global', { section: 'global', item: '成功通知停留时长', revision: 1 });
+      act(() => {
+        f.body().scrollTop = 143;
+        f.body().dispatchEvent(new Event('scroll', { bubbles: true }));
+        f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click();
+      });
+      expect(f.onClose).toHaveBeenCalledOnce();
+      f.render('global', undefined, 1);
+      expect(f.body().scrollTop).toBe(0);
+      expect(f.body().querySelector('[data-search-highlight]')).toBeNull();
+    } finally {
+      f.dispose();
+    }
+  });
+  it('未保存的 OneBot 内嵌编辑同样需要确认', () => {
+    const f = mount('onebot');
+    try {
+      const create = [...f.body().querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+        button.textContent?.includes('WebSocket'),
+      )!;
+      act(() => create.click());
+      act(() => f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
+      expect(f.onClose).not.toHaveBeenCalled();
+      expect(useDialog.getState().current?.title).toBe('放弃未保存的修改？');
+    } finally {
+      f.dispose();
+    }
+  });
+  it('关闭检查已离开页面的草稿，取消保留路径与输入，放弃后清除草稿', async () => {
+    fixture.mcpPort = 48765;
+    const f = mount('mcp');
+    try {
+      inputValue(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!, '4567');
+      f.render('appearance');
+      act(() => f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
+      expect(f.onClose).not.toHaveBeenCalled();
+      expect(useDialog.getState().current?.title).toBe('放弃未保存的修改？');
+      await act(async () => {
+        useDialog.getState().close();
+      });
+      expect(f.onClose).not.toHaveBeenCalled();
+      f.render('mcp');
+      expect(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!.value).toBe(
+        '4567',
+      );
+      act(() => f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
+      await act(async () => {
+        useDialog.getState().current?.confirm?.resolve(true);
+        useDialog.getState().close();
+      });
+      expect(f.onClose).toHaveBeenCalledOnce();
+      f.render(undefined, undefined, 1);
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        '启动与主页',
+      );
+      f.render('mcp');
+      expect(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!.value).toBe(
+        '48765',
+      );
+    } finally {
+      f.dispose();
+    }
+  });
   it('重建设置页时没有显式跳转目标，恢复上次分类而非覆盖成外观页', () => {
     const f = mount('appearance');
     try {

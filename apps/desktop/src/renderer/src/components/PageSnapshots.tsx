@@ -13,7 +13,7 @@ import {
 } from 'react';
 import type { z } from 'zod';
 import superjson from 'superjson';
-import { pageSnapshots } from '../lib/pageSnapshots';
+import { belongsToScope, pageSnapshots } from '../lib/pageSnapshots';
 import { PageDataCache } from '../lib/pageDataCache';
 import { useToast } from './Toast';
 
@@ -41,6 +41,29 @@ export function usePageDataCache() {
 export function usePageSnapshotKey(name: string): string | null {
   const scope = useContext(SnapshotContext);
   return scope ? JSON.stringify([scope.key, name]) : null;
+}
+
+/** 明确关闭页面时检查并清除本页及嵌套页现场，不影响其它工作区。 */
+export function usePageSnapshotReset(name: string) {
+  const context = useContext(SnapshotContext);
+  return useMemo(() => {
+    const scope = context ? JSON.stringify([context.key, name]) : null;
+    return {
+      hasDrafts: () =>
+        Boolean(
+          context &&
+            scope &&
+            (pageSnapshots.hasDrafts(scope) ||
+              [...context.fallback.keys()].some((key) => belongsToScope(key, scope))),
+        ),
+      reset: () => {
+        if (!context || !scope) return;
+        pageSnapshots.resetScope(scope, true);
+        for (const key of context.fallback.keys())
+          if (belongsToScope(key, scope)) context.fallback.delete(key);
+      },
+    };
+  }, [context, name]);
 }
 
 export function PageSnapshots({

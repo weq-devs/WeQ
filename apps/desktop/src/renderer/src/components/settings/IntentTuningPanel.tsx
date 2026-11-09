@@ -1,6 +1,6 @@
 import { useContext, useEffect, useMemo, useRef } from 'react';
 import { z } from 'zod';
-import { usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
 import { RotateCcw, Save } from 'lucide-react';
 import {
   INTENT_TUNING,
@@ -71,6 +71,12 @@ function TuningFields({
     });
     baseline.current = next;
   }, [keys, status.data, setDraft]);
+  usePageDraftConfirmation(
+    `tuning:${group}`,
+    status.data
+      ? Object.fromEntries(keys.map((key) => [key, String(status.data![key])]))
+      : undefined,
+  );
   const ready = keys.every((key) => isIntentTuningValue(key, status.data?.[key]));
   const valid = keys.every(
     (key) => draft[key]?.trim() && isIntentTuningValue(key, Number(draft[key])),

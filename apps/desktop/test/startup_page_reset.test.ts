@@ -11,6 +11,24 @@ import { pageSnapshots, pageValue } from '../src/renderer/src/lib/pageSnapshots'
 
 afterEach(() => vi.unstubAllGlobals());
 
+it('明确放弃设置现场仅清除对应作用域的快照和草稿', () => {
+  vi.stubGlobal('localStorage', new Storage());
+  const scope = JSON.stringify(['account', 'workspace:main:设置']);
+  const nested = JSON.stringify([scope, 'settings:mcp']);
+  const draftKey = JSON.stringify([nested, 'mcp:port']);
+  const positionKey = JSON.stringify([nested, 'scroll']);
+  const otherKey = JSON.stringify(['other-account', 'draft']);
+  pageSnapshots.write(draftKey, '4567', true);
+  pageSnapshots.write(positionKey, 123);
+  pageSnapshots.write(otherKey, '保留草稿', true);
+  expect(pageSnapshots.hasDrafts(scope)).toBe(true);
+  pageSnapshots.resetScope(scope, true);
+  expect(pageSnapshots.hasDrafts(scope)).toBe(false);
+  expect(pageSnapshots.read(draftKey, pageValue.string, true)).toBeUndefined();
+  expect(pageSnapshots.read(positionKey, pageValue.number)).toBeUndefined();
+  expect(pageSnapshots.read(otherKey, pageValue.string, true)).toBe('保留草稿');
+});
+
 it('指定启动页在挂载前重置所有层级的页面现场，不影响其他账号、草稿和设置', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());

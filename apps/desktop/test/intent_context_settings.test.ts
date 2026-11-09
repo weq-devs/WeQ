@@ -1,6 +1,9 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { Storage } from 'happy-dom';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { pageSnapshots } from '../src/renderer/src/lib/pageSnapshots';
 import { IntentSenseSection } from '../src/renderer/src/components/settings/IntentSenseSection';
 import { ReplySuggestionsSection } from '../src/renderer/src/components/settings/ReplySuggestionsSection';
 import { AI_SETTING_ITEMS } from '../src/renderer/src/components/settings/aiSettingsCatalog';
@@ -179,6 +182,32 @@ function renderFixture(open = true) {
   const save = () => host.querySelector<HTMLButtonElement>('form button[type="submit"]')!;
   return { host, render, input, edit, save };
 }
+
+it('服务端初始参数不误报未保存，用户改动仍保留草稿标记', () => {
+  vi.stubGlobal('localStorage', new Storage());
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        createElement(
+          PageSnapshots,
+          { scope: 'intent-fixture' },
+          createElement(IntentSenseSection),
+        ),
+      ),
+    );
+    expect(pageSnapshots.hasDrafts('intent-fixture')).toBe(false);
+    const input = host.querySelector<HTMLInputElement>('[aria-label="意图感知上文条数"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '3');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(pageSnapshots.hasDrafts('intent-fixture')).toBe(true);
+  } finally {
+    act(() => root.unmount());
+  }
+});
 
 it('分别编辑两个条数，只提交对应配置并刷新相关缓存，支持零条上文', async () => {
   const f = renderFixture();

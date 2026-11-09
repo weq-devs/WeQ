@@ -20,6 +20,7 @@ import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
+import { useDraftProtection } from '../../lib/draftClose';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
 import '../../styles/settings-onebot.css';
 
@@ -77,6 +78,7 @@ export function OneBotSection(): ReactElement {
     deleteServer.isLoading ||
     setServerEnabled.isLoading ||
     regenerateToken.isLoading;
+  useDraftProtection(draft !== null, busy);
 
   async function refetch(): Promise<void> {
     await status.refetch();
