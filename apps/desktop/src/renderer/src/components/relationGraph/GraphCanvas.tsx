@@ -3,24 +3,21 @@ import { useEffect, useRef, useState } from 'react';
 import type { Simulation } from 'd3';
 import { Scan } from 'lucide-react';
 import { usePrivacyStore } from '../../state/privacy';
-import { communityColor } from './graphModel';
+import { communityColor, graphNodeLabel } from './graphModel';
 import type { BuiltGraph, GNode } from './types';
-import {
-  createGraphSimulation,
-  fitGraphView,
-  GRAPH_DRAG_ALPHA,
-  type GraphView,
-} from './graphLayout';
+import { createGraphSimulation, fitGraphView, type GraphView } from './graphLayout';
 import { indexGraphHit, indexGraphRender, type RenderEdge } from './graphRender';
 
 export function GraphCanvas({
   graph,
   selectedId,
   onSelect,
+  showRemarks = false,
 }: {
   graph: BuiltGraph;
   selectedId: string | null;
   onSelect: (node: GNode | null, anchor: { x: number; y: number }) => void;
+  showRemarks?: boolean;
 }) {
   const privacy = usePrivacyStore((state) => state.effective);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -287,7 +284,8 @@ export function GraphCanvas({
         ctx.globalAlpha = 1;
         const fontPx = Math.max(10, 11 / v.scale);
         ctx.font = `500 ${fontPx}px var(--font-sans, sans-serif)`;
-        const label = n.label.length > 12 ? `${n.label.slice(0, 12)}…` : n.label;
+        const name = graphNodeLabel(n, showRemarks);
+        const label = name.length > 12 ? `${name.slice(0, 12)}…` : name;
         ctx.lineWidth = 3 / v.scale;
         ctx.strokeStyle = labelHalo;
         ctx.strokeText(label, n.x, n.y + r + fontPx * 0.9);
@@ -301,7 +299,7 @@ export function GraphCanvas({
 
   useEffect(() => {
     drawRef.current();
-  }, [privacy, selectedId]);
+  }, [privacy, selectedId, showRemarks]);
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     const rect = wrapRef.current!.getBoundingClientRect();
@@ -312,6 +310,10 @@ export function GraphCanvas({
     const hit = nodeAt(sx, sy);
     if (hit) {
       dragNodeRef.current = hit;
+      const world = screenToWorld(sx, sy);
+      hit.fx = world.x;
+      hit.fy = world.y;
+      simulationRef.current?.alphaTarget(0.3).restart();
     } else {
       panRef.current = { x: e.clientX, y: e.clientY };
     }
@@ -329,9 +331,6 @@ export function GraphCanvas({
       const w = screenToWorld(sx, sy);
       dragNodeRef.current.fx = w.x;
       dragNodeRef.current.fy = w.y;
-      // 轻微加热即可跟随拖动，不把已稳定的整张图重新激活到高能态。
-      const simulation = simulationRef.current;
-      simulation?.alpha(Math.max(simulation.alpha(), GRAPH_DRAG_ALPHA)).restart();
       return;
     }
     if (panRef.current) {

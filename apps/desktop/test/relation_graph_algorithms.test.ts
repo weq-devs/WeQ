@@ -9,6 +9,7 @@ import {
 import {
   buildGraph,
   buildOverlapModel,
+  graphNodeLabel,
 } from '../src/renderer/src/components/relationGraph/graphModel';
 import type {
   GraphSettings,
@@ -125,6 +126,17 @@ describe('精确自适应交集', () => {
 });
 
 describe('群交集模型与渲染索引', () => {
+  it('备注与昵称分别保留，名称开关不影响群名且兼容无备注的旧数据', () => {
+    const data = fixture(2, 4, 2);
+    data.nodes[0].remark = ' 我的备注 ';
+    const graph = buildGraph(data, settings);
+    const person = graph.nodes[0];
+    expect(person.label).toBe(data.nodes[0].nick);
+    expect(graphNodeLabel(person, true)).toBe('我的备注');
+    expect(graphNodeLabel(person, false)).toBe(data.nodes[0].nick);
+    expect(graphNodeLabel(graph.nodes[1], true)).toBe(data.nodes[1].nick);
+    expect(graphNodeLabel({ kind: 'group', label: '群名', remark: '不适用' }, true)).toBe('群名');
+  });
   it('大量未显示的群不展开全量群对，排序仍计入全部重合贡献', () => {
     const model = buildOverlapModel(fixture(16, 512, 512), settings);
     expect(model.groups.map((group) => group.code)).toEqual(['g0', 'g1', 'g2']);

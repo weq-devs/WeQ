@@ -13,7 +13,12 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function fixture(groupCount: number, memberCount: number) {
+type GraphProfile = Pick<
+  Awaited<ReturnType<AccountSession['profileInfo']['profilesByUids']>>[number],
+  'uid' | 'uin' | 'nick' | 'remark' | 'intimacy' | 'isFriend'
+>;
+
+function fixture(groupCount: number, memberCount: number, profiles: GraphProfile[] = []) {
   const dir = mkdtempSync(join(tmpdir(), 'weq-relation-limits-'));
   dirs.push(dir);
   const dbPath = join(dir, 'fixture.db');
@@ -42,10 +47,25 @@ function fixture(groupCount: number, memberCount: number) {
     context: { uin: 42 },
     groupDetail: new GroupDetailDb(nt, { dbPath }),
     groupMembers: new GroupMemberDb(nt, { dbPath }),
-    profileInfo: { profilesByUids: async () => [] },
+    profileInfo: { profilesByUids: async () => profiles },
   } as unknown as AccountSession;
   return { service: new GroupInfoService(session), sql };
 }
+
+it('图谱分别返回真实昵称与备注，不把备注覆盖进昵称', async () => {
+  const { service } = fixture(2, 1, [
+    {
+      uid: 'u_member_1',
+      uin: 100001n,
+      nick: '真实昵称',
+      remark: '我的备注',
+      intimacy: 100,
+      isFriend: true,
+    },
+  ]);
+  const data = await service.getRelationGraph();
+  expect(data.nodes[0]).toMatchObject({ nick: '真实昵称', remark: '我的备注' });
+});
 
 it('扫描超过 2000 个群，末尾群参与交集统计', async () => {
   const { service } = fixture(2001, 1);

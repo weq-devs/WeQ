@@ -2,7 +2,12 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { RelationGraphView } from '../src/renderer/src/components/relationGraph/RelationGraphView';
-import type { RelationGraphData } from '../src/renderer/src/components/relationGraph/types';
+import type {
+  BuiltGraph,
+  RelationGraphData,
+} from '../src/renderer/src/components/relationGraph/types';
+
+const renderedGraphs = vi.hoisted(() => [] as BuiltGraph[]);
 
 const query = vi.hoisted(() => ({
   data: undefined as RelationGraphData | undefined,
@@ -26,8 +31,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 
 // 布局引擎不参与入口判断，避免在 DOM 单测中启动动画或读取画布。
 vi.mock('../src/renderer/src/components/relationGraph/GraphCanvas', () => ({
-  GraphCanvas: ({ graph, onSelect }) =>
-    h(
+  GraphCanvas: ({ graph, onSelect, showRemarks }) => {
+    renderedGraphs.push(graph);
+    return h(
       'div',
       { 'data-testid': 'graph-canvas' },
       graph.nodes.map((node) =>
@@ -38,10 +44,11 @@ vi.mock('../src/renderer/src/components/relationGraph/GraphCanvas', () => ({
             'data-kind': node.kind,
             onClick: () => onSelect(node, { x: 320, y: 240 }),
           },
-          node.label,
+          showRemarks && node.kind === 'person' ? node.remark || node.label : node.label,
         ),
       ),
-    ),
+    );
+  },
 }));
 
 vi.mock('../src/renderer/src/im-template/template/profilePanes', () => ({
@@ -62,6 +69,58 @@ afterEach(() => {
   vi.unstubAllGlobals();
   memberRefresh.refreshing = false;
   memberRefresh.refresh.mockClear();
+  renderedGraphs.length = 0;
+});
+
+it('显示备注名即时切换且不重建布局，选项按范围、显示与权重、筛选分组', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  query.isLoading = false;
+  query.data = {
+    selfUin: '',
+    nodes: [
+      {
+        uid: 'u_named',
+        uin: '',
+        nick: '原昵称',
+        remark: '我的备注',
+        card: '',
+        groupCount: 2,
+        groupCodes: ['g1', 'g2'],
+        intimacy: 0,
+        isFriend: true,
+      },
+    ],
+    groups: [],
+    scannedGroups: 2,
+    builtAt: 0,
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() => root.render(h(RelationGraphView)));
+    act(() => host.querySelector<HTMLButtonElement>('.weq-relhome-cta')!.click());
+    const graph = renderedGraphs.at(-1);
+    expect(host.querySelector('[data-kind="person"]')?.textContent).toBe('原昵称');
+    const toggle = [...host.querySelectorAll<HTMLButtonElement>('[role="switch"]')].find(
+      (button) => button.textContent === '显示备注名',
+    )!;
+    act(() => toggle.click());
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(host.querySelector('[data-kind="person"]')?.textContent).toBe('我的备注');
+    expect(renderedGraphs.at(-1)).toBe(graph);
+    expect(
+      [...host.querySelectorAll('.weq-graph-controls .weq-graph-col-label')].map(
+        (node) => node.textContent,
+      ),
+    ).toEqual(['范围', '显示与权重', '筛选']);
+    act(() => toggle.click());
+    expect(host.querySelector('[data-kind="person"]')?.textContent).toBe('原昵称');
+    expect(renderedGraphs.at(-1)).toBe(graph);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
 });
 
 it.each([false, true])('首页和图谱共用群成员刷新，更新时保留原结果，图谱=%s', (entered) => {

@@ -7,9 +7,7 @@ export interface GraphView {
   y: number;
 }
 
-export const GRAPH_DRAG_ALPHA = 0.03;
-
-/** 圈子独立占位；斥力只影响附近节点，不再把无连接的圈子推向远处。 */
+/** 保留紧凑的初始占位；连续受力沿用原版 D3 图谱参数。 */
 export function createGraphSimulation(graph: BuiltGraph, previous: GNode[] = []) {
   const clusters = new Map<string, GNode[]>();
   for (const node of graph.nodes) {
@@ -25,14 +23,12 @@ export function createGraphSimulation(graph: BuiltGraph, previous: GNode[] = [])
     y: 0,
   }));
   d3.packSiblings(circles);
-  const targets = new Map<string, { x: number; y: number }>();
   const positions = new Map(previous.map((node) => [node.id, node]));
   for (const circle of circles) {
     circle.members.forEach((node, i) => {
-      targets.set(node.id, circle);
       const old = positions.get(node.id);
       if (old && Number.isFinite(old.x) && Number.isFinite(old.y)) {
-        Object.assign(node, { x: old.x, y: old.y, vx: 0, vy: 0 });
+        Object.assign(node, { x: old.x, y: old.y, vx: old.vx, vy: old.vy });
       } else {
         const angle = i * Math.PI * (3 - Math.sqrt(5));
         const radius = Math.sqrt(i + 0.5) * (node.radius * 2 + 12);
@@ -47,8 +43,6 @@ export function createGraphSimulation(graph: BuiltGraph, previous: GNode[] = [])
   }
 
   const id = (endpoint: string | GNode) => (typeof endpoint === 'string' ? endpoint : endpoint.id);
-  const radii = new Map(graph.nodes.map((node) => [node.id, node.radius + 8]));
-  // 按度数限制每条弹簧；固定下限和高权重都会使密集图的总拉力失控。
   const degree = new Map<string, number>();
   for (const edge of graph.edges) {
     for (const endpoint of [edge.source, edge.target]) {
@@ -56,39 +50,29 @@ export function createGraphSimulation(graph: BuiltGraph, previous: GNode[] = [])
       degree.set(key, (degree.get(key) ?? 0) + 1);
     }
   }
-  // 约两秒内冷却完毕，避免碰撞力让密集节点长时间微动。
   return d3
     .forceSimulation(graph.nodes)
-    .alphaDecay(1 - 0.001 ** (1 / 120))
-    .velocityDecay(0.85)
     .force(
       'link',
       d3
         .forceLink<GNode, GEdge>(graph.edges)
         .id((node) => node.id)
-        .distance((edge) =>
-          Math.max(edge.dist, radii.get(id(edge.source))! + radii.get(id(edge.target))!),
-        )
+        .distance((edge) => edge.dist)
         .strength(
           (edge) =>
-            0.2 *
-            Math.min(
-              edge.strength ?? 1,
-              1 / Math.min(degree.get(id(edge.source)) ?? 1, degree.get(id(edge.target)) ?? 1),
-            ),
+            edge.strength ??
+            1 / Math.min(degree.get(id(edge.source)) ?? 1, degree.get(id(edge.target)) ?? 1),
         ),
     )
-    .force('charge', d3.forceManyBody<GNode>().strength(-70).distanceMin(24).distanceMax(180))
+    .force('charge', d3.forceManyBody<GNode>().strength(-300))
     .force(
       'collide',
       d3
         .forceCollide<GNode>()
-        .radius((node) => radii.get(node.id)!)
-        .strength(0.5)
+        .radius((node) => node.radius + 3)
         .iterations(2),
     )
-    .force('x', d3.forceX<GNode>((node) => targets.get(node.id)!.x).strength(0.055))
-    .force('y', d3.forceY<GNode>((node) => targets.get(node.id)!.y).strength(0.055));
+    .force('center', d3.forceCenter<GNode>(0, 0));
 }
 
 /** 预留顶部工具栏、底部操作钮及头像下方的标签，不依赖图形恰好在画布中心。 */

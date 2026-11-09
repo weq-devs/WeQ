@@ -10,6 +10,13 @@ import type { BuiltGraph, GEdge, GNode, GraphSettings, RawNode, RelationGraphDat
 const NON_FRIEND_WEIGHT = 80;
 const FRIEND_BASE_WEIGHT = 100;
 
+export function graphNodeLabel(
+  node: Pick<GNode, 'kind' | 'label' | 'remark'>,
+  showRemarks: boolean,
+): string {
+  return node.kind === 'person' && showRemarks ? node.remark?.trim() || node.label : node.label;
+}
+
 /** The synthetic "me" node id (present in both modes, pinned to centre). */
 export const SELF_ID = '__self__';
 const SELF_RADIUS = 26;
@@ -121,6 +128,7 @@ function buildPeople(data: RelationGraphData, settings: GraphSettings): BuiltGra
       id: p.raw.uid,
       kind: 'person',
       label: p.raw.nick || p.raw.card || p.raw.uin || p.raw.uid,
+      remark: p.raw.remark,
       avatarUrl: personAvatar(p.raw.uin),
       community: 0,
       weight: intimacyWeight,

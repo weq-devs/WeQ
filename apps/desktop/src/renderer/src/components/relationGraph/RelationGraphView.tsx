@@ -56,8 +56,8 @@ const COMMON_THRESHOLD_RANGES: Record<
   'people' | 'groups',
   { min: number; max: number; label: string }
 > = {
-  people: { min: 2, max: 10, label: '连线阈值 · 共同群' },
-  groups: { min: 5, max: 30, label: '连线阈值 · 共同好友' },
+  people: { min: 2, max: 10, label: '共同群阈值' },
+  groups: { min: 5, max: 30, label: '共同成员阈值' },
 };
 
 const DEFAULT_SETTINGS: GraphSettings = {
@@ -98,6 +98,7 @@ export function RelationGraphView({
 } = {}) {
   const [entered, setEntered] = useState(false);
   const [settings, setSettings] = useState<GraphSettings>(DEFAULT_SETTINGS);
+  const [showRemarks, setShowRemarks] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [groupCardId, setGroupCardId] = useState<string | null>(null);
   const groupAnchorRef = useRef<HTMLSpanElement | null>(null);
@@ -258,6 +259,7 @@ export function RelationGraphView({
         ) : graph ? (
           <GraphCanvas
             graph={graph}
+            showRemarks={showRemarks}
             selectedId={selectedId}
             onSelect={(node, anchor) => {
               setSelectedId(node && node.kind !== 'self' ? node.id : null);
@@ -313,7 +315,7 @@ export function RelationGraphView({
         ) : null}
       </div>
 
-      <div className="weq-graph-controls">
+      <div className={`weq-graph-controls${overlapMode ? ' is-overlap' : ''}`}>
         {overlapMode && overlap ? (
           <>
             <div className="weq-graph-col weq-graph-col-sliders">
@@ -388,6 +390,7 @@ export function RelationGraphView({
         ) : (
           <>
             <div className="weq-graph-col weq-graph-col-sliders">
+              <span className="weq-graph-col-label">范围</span>
               <RangeControl
                 value={settings.nodeLimit}
                 min={10}
@@ -411,12 +414,8 @@ export function RelationGraphView({
 
             {mode === 'people' ? (
               <div className="weq-graph-col">
-                <span className="weq-graph-col-label">好友权重</span>
-                <Toggle
-                  label="仅显示好友"
-                  checked={settings.friendsOnly}
-                  onChange={(value) => patch({ friendsOnly: value })}
-                />
+                <span className="weq-graph-col-label">显示与权重</span>
+                <Toggle label="显示备注名" checked={showRemarks} onChange={setShowRemarks} />
                 <Toggle
                   label="亲密度决定大小"
                   checked={settings.intimacySize}
@@ -430,7 +429,7 @@ export function RelationGraphView({
               </div>
             ) : (
               <div className="weq-graph-col">
-                <span className="weq-graph-col-label">群聊权重</span>
+                <span className="weq-graph-col-label">显示与权重</span>
                 <Toggle
                   label="等级决定大小"
                   checked={settings.groupLevelSize}
@@ -447,8 +446,15 @@ export function RelationGraphView({
             <div className="weq-graph-col weq-graph-col-filter">
               <span className="weq-graph-col-label">
                 <LayoutGrid size={13} />
-                群过滤
+                筛选
               </span>
+              {mode === 'people' ? (
+                <Toggle
+                  label="仅显示好友"
+                  checked={settings.friendsOnly}
+                  onChange={(value) => patch({ friendsOnly: value })}
+                />
+              ) : null}
               <Segmented
                 small
                 value={settings.groupFilterMode}
@@ -465,13 +471,6 @@ export function RelationGraphView({
                 onClick={() => setPickerOpen(true)}
                 disabled={!filterActive || groupOptions.length === 0}
               />
-              <p className="weq-graph-hint">
-                {settings.groupFilterMode === 'whitelist'
-                  ? '只统计选中的群。'
-                  : settings.groupFilterMode === 'blacklist'
-                    ? '排除选中的群。'
-                    : '纳入全部群聊参与计算。'}
-              </p>
             </div>
           </>
         )}

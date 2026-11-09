@@ -246,6 +246,7 @@ export interface RelationGraphNode {
   uid: string;
   uin: string;
   nick: string;
+  remark?: string;
   card: string;
   /** Number of my groups this user is also in. */
   groupCount: number;
@@ -593,6 +594,7 @@ export class GroupInfoService {
       if (!profile) continue;
       node.intimacy = profile.intimacy || 0;
       node.isFriend = profile.isFriend;
+      node.remark = profile.remark || '';
       if (profile.nick) node.nick = profile.nick;
       if (!node.uin && profile.uin) node.uin = profile.uin.toString();
     }

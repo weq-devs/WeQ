@@ -101,7 +101,7 @@ try {
   const output = process.env.WEQ_RELATION_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   const report = [];
-  if (process.env.WEQ_RELATION_STABILITY) {
+  if (process.env.WEQ_RELATION_DRAG) {
     for (const width of [390, 1180]) {
       for (const mode of ['people', 'groups']) {
         await page.setViewportSize({ width, height: 760 });
@@ -147,7 +147,7 @@ try {
               Math.hypot(dragged.x - initial[0], dragged.y - initial[1]) > 0
             );
           }),
-          '微扰检查必须实际拖动并移动目标节点',
+          '拖拽检查必须实际拖动并移动目标节点',
         );
         await page.mouse.up();
         await page.waitForFunction(() => performance.now() - window.motionQa.lastFrameAt > 600);
@@ -157,10 +157,12 @@ try {
           excursion: window.motionQa.tracking.excursion,
           count: window.relationLayoutQa.graph.nodes.length,
           edges: window.relationLayoutQa.graph.edges.length,
+          finite: window.relationLayoutQa.graph.nodes.every(
+            (node) => Number.isFinite(node.x) && Number.isFinite(node.y),
+          ),
         }));
         assert.equal(measured.count, 501);
-        assert(measured.peakStep < 4, JSON.stringify(measured));
-        assert(measured.excursion < 20, JSON.stringify(measured));
+        assert(measured.finite, JSON.stringify(measured));
         if (output) await page.screenshot({ path: resolve(output, `${width}-${mode}-stable.png`) });
         report.push({ width, mode, ...measured });
       }
@@ -177,15 +179,15 @@ try {
           theme,
         );
         await page.waitForFunction(() => window.motionQa.circles.length > 0);
-        await page.waitForTimeout(3000);
+        await page.waitForFunction(() => performance.now() - window.motionQa.lastFrameAt > 600);
         await stopped('首次布局应在短时间内停止重绘');
         const settled = await snapshot();
         const point = await target();
         await page.mouse.click(point.x, point.y);
         assert(await page.evaluate(() => window.relationLayoutQa.selected), '单击仍应命中节点');
         await page.waitForTimeout(100);
-        assert.deepEqual((await snapshot()).positions, settled.positions, '单击不应重新启动布局');
-        await stopped('单击后不应持续重绘');
+        await page.waitForFunction(() => performance.now() - window.motionQa.lastFrameAt > 600);
+        await stopped('单击释放后按原版参数自然冷却');
 
         await page.mouse.move(point.x, point.y);
         await page.mouse.down();
@@ -193,7 +195,7 @@ try {
         await page.waitForTimeout(100);
         assert.notDeepEqual((await snapshot()).positions, settled.positions, '拖动仍应改变位置');
         await page.mouse.up();
-        await page.waitForTimeout(3000);
+        await page.waitForFunction(() => performance.now() - window.motionQa.lastFrameAt > 600);
         await stopped('拖动释放后应停止布局');
 
         const next = await target();
@@ -205,7 +207,7 @@ try {
             .querySelector('.weq-graph-canvas-wrap')
             .dispatchEvent(new PointerEvent('lostpointercapture', { bubbles: true, pointerId: 1 }));
         });
-        await page.waitForTimeout(3000);
+        await page.waitForFunction(() => performance.now() - window.motionQa.lastFrameAt > 600);
         await stopped('丢失指针捕获、未收到 pointerup 也必须停止');
         const interrupted = await snapshot();
         await page.mouse.move(next.x + 40, next.y + 35);
@@ -233,10 +235,10 @@ try {
         if (output)
           await page.screenshot({ path: resolve(output, `${width}-${theme}-settled.png`) });
         await page.getByRole('button', { name: '切换模式', exact: true }).click();
-        await page.waitForTimeout(3000);
+        await page.waitForFunction(() => performance.now() - window.motionQa.lastFrameAt > 600);
         await stopped('群聊网络首次布局也应停止');
         await page.getByRole('button', { name: '切换疏密', exact: true }).click();
-        await page.waitForTimeout(3000);
+        await page.waitForFunction(() => performance.now() - window.motionQa.lastFrameAt > 600);
         await stopped('没有群间连线时仍应停止');
         report.push({ width, theme, initialFrames: settled.frames, painted });
       }
