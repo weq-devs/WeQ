@@ -81,7 +81,13 @@ import {
 } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { isMineMessage } from '../lib/messageDirection';
-import { messageSender, optimisticMessageSender, mergeMessageMembers } from '../lib/messageSender';
+import {
+  messageSender,
+  optimisticMessageSender,
+  mergeMessageMembers,
+  localProfileUser,
+  type SenderProfile,
+} from '../lib/messageSender';
 import { isLocalOutgoingMessage } from '../lib/messageSelection';
 import { messageBatchBlockReason } from '../lib/messageBatchAction';
 import { deletionIdentity } from '../lib/messageDeletion';
@@ -1625,8 +1631,9 @@ function messageToTemplate(
   memberMap?: Map<string, GroupMember>,
   botUids?: Set<string>,
   replySources?: MessageWire[] | ReplyPreviewIndex,
+  profiles?: ReadonlyMap<string, SenderProfile>,
 ): Message {
-  const sender = messageSender(message, conversation, user, memberMap, botUids);
+  const sender = messageSender(message, conversation, user, memberMap, botUids, profiles);
   // For any `reply` element in the message, resolve the ORIGINAL message
   // sender's display name (memberMap → self → otherUser → uin/uid fallbacks)
   // and stash it on the reply's data as `origSenderDisplayName` so
@@ -6380,14 +6387,17 @@ function MainWorkspace(): ReactElement {
 
   const messageGroupMembers = useMemo(() => {
     const members = new Map(
-      (senderMemberPages[selectedUid] ?? []).map((wire) => {
+      mergeMessageMembers(
+        senderMemberPages[selectedUid] ?? [],
+        Object.values(missingMembers[selectedUid] ?? {}),
+      ).map((wire) => {
         const member = mapGroupMemberWire(wire);
         return [member.id, member] as const;
       }),
     );
     for (const member of currentGroupMembers) members.set(member.id, member);
     return members;
-  }, [senderMemberPages, selectedUid, mapGroupMemberWire, currentGroupMembers]);
+  }, [senderMemberPages, missingMembers, selectedUid, mapGroupMemberWire, currentGroupMembers]);
 
   /**
    * 群资料面板的群内成员搜索。以前面板只在已加载的成员分页里做客户端过滤，
@@ -6425,12 +6435,14 @@ function MainWorkspace(): ReactElement {
       ...loaded.flatMap((m) => extractGrayTipUids(m.elements)),
     ];
     resolveMembers(groupCode, referencedUids, known, () => selectionRef.current?.id === groupCode);
+    resolveProfiles(referencedUids);
   }, [
     loaded,
     selectedUid,
     isGroup,
     selectedGroupMemberWires,
     resolveMembers,
+    resolveProfiles,
     user.uid,
     groupInfoRevision,
   ]);
@@ -6547,7 +6559,17 @@ function MainWorkspace(): ReactElement {
             : undefined;
         const rows = page.filter((row) => BigInt(row.msgSeq) >= start && BigInt(row.msgSeq) <= end);
         onPage(
-          rows.map((row) => messageToTemplate(row, request.conversation, user, members, botUids)),
+          rows.map((row) =>
+            messageToTemplate(
+              row,
+              request.conversation,
+              user,
+              members,
+              botUids,
+              undefined,
+              profileByUid,
+            ),
+          ),
         );
         if (selectionRef.current?.id !== request.conversation.id) return;
         setLoaded((current) => {
@@ -6620,7 +6642,7 @@ function MainWorkspace(): ReactElement {
         }
       }
     },
-    [convFetchKey, user, botUids],
+    [convFetchKey, user, botUids, profileByUid],
   );
 
   const forwardMatches = useMemo(
@@ -6639,7 +6661,7 @@ function MainWorkspace(): ReactElement {
   const templateContext = messageTemplateContext(selectedConversation);
   const messageTemplateCache = useMemo(
     () => new WeakMap<MessageWire, Message>(),
-    [templateContext, user, messageGroupMembers, botUids],
+    [templateContext, user, messageGroupMembers, botUids, profileByUid],
   );
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
@@ -6665,6 +6687,7 @@ function MainWorkspace(): ReactElement {
           memberMap,
           botUids,
           replyIndex,
+          profileByUid,
         );
         messageTemplateCache.set(message, mapped);
         return mapped;
@@ -6696,6 +6719,7 @@ function MainWorkspace(): ReactElement {
     optimisticMessages,
     forwardMatches,
     messageTemplateCache,
+    profileByUid,
   ]);
 
   /**
@@ -7095,8 +7119,10 @@ function MainWorkspace(): ReactElement {
         : new Map<string, GroupMember>();
     return deletedWires
       .filter((message) => isRenderableMessage(message))
-      .map((message) => messageToTemplate(message, deletedConv, user, memberMap, botUids));
-  }, [deletedWires, deletedConv, user, botUids, memberMapForGroup]);
+      .map((message) =>
+        messageToTemplate(message, deletedConv, user, memberMap, botUids, undefined, profileByUid),
+      );
+  }, [deletedWires, deletedConv, user, botUids, memberMapForGroup, profileByUid]);
 
   // Recalled messages through the SAME template pipeline (bubbles match the chat
   // + carry the 撤回 tag). Same member source as the deleted panel.
@@ -7108,8 +7134,10 @@ function MainWorkspace(): ReactElement {
         : new Map<string, GroupMember>();
     return recalledWires
       .filter((message) => isRenderableMessage(message))
-      .map((message) => messageToTemplate(message, recalledConv, user, memberMap, botUids));
-  }, [recalledWires, recalledConv, user, botUids, memberMapForGroup]);
+      .map((message) =>
+        messageToTemplate(message, recalledConv, user, memberMap, botUids, undefined, profileByUid),
+      );
+  }, [recalledWires, recalledConv, user, botUids, memberMapForGroup, profileByUid]);
 
   const activeConversation = useMemo(() => {
     if (!selectedConversation) return undefined;
@@ -10455,6 +10483,9 @@ function MainWorkspace(): ReactElement {
         pushToast({ tone: 'info', durationKind: 'failure', title: '暂时无法确定此人的会话身份' });
         return;
       }
+      const local =
+        profileByUid.get(peer.id) ?? (await client.account.getProfile.query({ uid: peer.id }));
+      peer = localProfileUser(peer, local ?? undefined);
       candidate = {
         id: peer.id,
         type: 'direct',
@@ -10582,6 +10613,13 @@ function MainWorkspace(): ReactElement {
           };
       }
       if (!conversation.id) throw new Error('缺少会话身份');
+      if (conversation.type === 'direct') {
+        const peer = conversation.otherUser;
+        const local =
+          profileByUid.get(peer.uid || peer.id) ??
+          (await client.account.getProfile.query({ uid: peer.uid || peer.id }));
+        conversation = { ...conversation, otherUser: localProfileUser(peer, local ?? undefined) };
+      }
       if (request !== previewRequest.current || useViewState.getState().openedUin !== account)
         return;
       const rows = await client.account.listLatest.query({
@@ -10652,6 +10690,17 @@ function MainWorkspace(): ReactElement {
   }
 
   useEffect(() => {
+    resolveProfiles(loaded.map((message) => message.senderUid));
+  }, [loaded, resolveProfiles]);
+
+  useEffect(() => {
+    if (!privatePreview) return;
+    resolveProfiles([
+      ...privatePreview.rows.map((row) => row.senderUid),
+      ...(privatePreview.conversation.type === 'direct'
+        ? [privatePreview.conversation.otherUser.id]
+        : []),
+    ]);
     if (privatePreview?.conversation.type !== 'group') return;
     const group = privatePreview.conversation;
     const account = privatePreview.account;
@@ -10660,16 +10709,29 @@ function MainWorkspace(): ReactElement {
         (member) => member.id,
       ),
     );
+    const uids = privatePreview.rows.flatMap((row) => [
+      row.senderUid,
+      ...extractGrayTipUids(row.elements),
+    ]);
+    resolveProfiles(uids);
     resolvePreviewMembers(
       group.id,
-      privatePreview.rows.flatMap((row) => [row.senderUid, ...extractGrayTipUids(row.elements)]),
+      uids,
       known,
       () => useViewState.getState().openedUin === account,
     );
-  }, [privatePreview, currentGroupMembers, selectedUid, resolvePreviewMembers]);
+  }, [privatePreview, currentGroupMembers, selectedUid, resolvePreviewMembers, resolveProfiles]);
 
   const resolvedPreviewConversation = useMemo(() => {
     const conversation = privatePreview?.conversation;
+    if (conversation?.type === 'direct')
+      return {
+        ...conversation,
+        otherUser: localProfileUser(
+          conversation.otherUser,
+          profileByUid.get(conversation.otherUser.uid || conversation.otherUser.id),
+        ),
+      };
     if (conversation?.type !== 'group') return conversation;
     const members = new Map(
       [
@@ -10685,6 +10747,7 @@ function MainWorkspace(): ReactElement {
     currentGroupMembers,
     previewMembers,
     mapGroupMemberWire,
+    profileByUid,
   ]);
 
   const previewMemberMap = useMemo(
@@ -10709,6 +10772,7 @@ function MainWorkspace(): ReactElement {
             previewMemberMap,
             botUids,
             privatePreview.rows,
+            profileByUid,
           ),
         )}
         renderers={messageRenderers}
@@ -11962,7 +12026,15 @@ function MainWorkspace(): ReactElement {
               conversation={unplacedRoaming.conversation}
               user={user}
               messages={unplacedRoaming.messages.map((row) =>
-                messageToTemplate(row, unplacedRoaming.conversation, user, undefined, botUids),
+                messageToTemplate(
+                  row,
+                  unplacedRoaming.conversation,
+                  user,
+                  undefined,
+                  botUids,
+                  undefined,
+                  profileByUid,
+                ),
               )}
               renderers={messageRenderers}
               loading={false}

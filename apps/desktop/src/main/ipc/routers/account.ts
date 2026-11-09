@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
 import { withDatabaseRequest } from '@weq/db';
 import { clearFinishedTasks } from './clear_finished_tasks';
+import { cardDisplayNames } from './card_display_names';
 import { readContactSpecialCare } from './contact_special_care';
 import { startFlashDownloads } from './flash_save';
 import { FileUploadStaging } from './album_video_staging';
@@ -3839,6 +3840,34 @@ export const accountRouter = router({
     const notifies = await requireServices().groupInfo.listGroupNotifies(page.limit, page.offset);
     return notifies.map(groupNotifyToWire);
   }),
+
+  /** 名片专用的云端名称投影；普通资料及会话读取仍只使用本地库。 */
+  getCardDisplayNames: procedure
+    .input(
+      z.object({ kind: z.enum(['user', 'group']), target: z.string().regex(/^[1-9]\d{0,9}$/) }),
+    )
+    .query(async ({ input }) => {
+      const services = requireServices();
+      requireQqOnlineForAlbum(services);
+      const readNick = async () =>
+        (await services.accountWrite.exactProfile(input.kind, input.target)).name;
+      const local =
+        input.kind === 'user' ? await services.profile.getProfileByUin(BigInt(input.target)) : null;
+      const names = local
+        ? await cardDisplayNames(
+            local,
+            readNick,
+            local.isFriend
+              ? async () => (await services.accountWrite.getFriendRemark(local.uid)).remark
+              : undefined,
+          )
+        : { nick: await readNick() };
+      if (requireServices() !== services) throw new Error('账号已切换，请重新读取资料');
+      return {
+        name: names?.nick ?? '',
+        remark: names && 'remark' in names ? names.remark : undefined,
+      };
+    }),
 
   /** Get detailed profile by NT uid. */
   getProfile: procedure.input(z.object({ uid: z.string().min(1) })).query(async ({ input }) => {

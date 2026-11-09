@@ -54,6 +54,7 @@ import { CommonRelationships } from './qq-actions/CommonRelationships';
 import { FriendClue } from './qq-actions/FriendClue';
 import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
 import { ContactWorkspaceNavigationContext } from '../lib/profileNavigation';
+import { useCardDisplayNames } from '../hooks/useCardDisplayNames';
 import type { AnalysisTarget } from '../views/analysis/model';
 import { OverlayLayer } from './OverlayLayer';
 import { QQGroupMemberControls } from './QQGroupMemberControls';
@@ -147,6 +148,7 @@ export function MemberProfileCard({
     isFriend: profile?.isFriend ?? member.isFriend,
   });
   const canAnalyze = !localClone && Boolean(groupCode && uid);
+  const cloudNames = useCardDisplayNames('user', profile?.uin || member.identityValue, !localClone);
 
   // 补全陌生人资料字段。
   useEffect(() => {
@@ -232,7 +234,11 @@ export function MemberProfileCard({
 
   const name = localClone
     ? displayUserName(member)
-    : profile?.nick?.trim() || member.nick?.trim() || member.identityValue || member.username;
+    : (cloudNames ? cloudNames.name.trim() : profile?.nick?.trim() || member.nick?.trim()) ||
+      member.identityValue ||
+      member.username;
+  const remark =
+    cloudNames?.remark !== undefined ? cloudNames.remark : profile ? profile.remark : member.remark;
   const role = ROLE_META[member.role];
   const uin = localClone
     ? null
@@ -511,13 +517,8 @@ export function MemberProfileCard({
               {lastSpeak ? (
                 <ProfileRow icon={<Clock size={13} />} label="最后发言" value={lastSpeak} />
               ) : null}
-              {profile?.remark || member.remark ? (
-                <ProfileRow
-                  sensitive
-                  icon={<UserIcon size={13} />}
-                  label="备注"
-                  value={profile?.remark || member.remark}
-                />
+              {remark ? (
+                <ProfileRow sensitive icon={<UserIcon size={13} />} label="备注" value={remark} />
               ) : null}
               {profile?.qid ? (
                 <ProfileRow

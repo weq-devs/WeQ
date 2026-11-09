@@ -61,6 +61,7 @@ import { usePersonRelationship } from '../../lib/contactRelationship';
 
 export { relationMeta } from '../../lib/profileRelations';
 import { zodiac } from '../../lib/contactListOrder';
+import { useCardDisplayNames } from '../../hooks/useCardDisplayNames';
 
 /** 由出生月日推算星座名（标准日期分界）。缺月或日时返回 null。 */
 export function constellationOf(month?: number, day?: number) {
@@ -321,6 +322,13 @@ export function ContactProfileDialog({
   const [copied, setCopied] = useState(false);
 
   const relationship = usePersonRelationship(contact ?? {});
+  const cloudNames = useCardDisplayNames(
+    'user',
+    contact?.identityValue ?? '',
+    Boolean(
+      contact && !contact.clone && contact.identityLabel !== '设备' && !isDatalineUid(contact.id),
+    ),
+  );
 
   useEffect(() => {
     setCopied(false);
@@ -362,8 +370,10 @@ export function ContactProfileDialog({
   const intimacy = profile.intimacy ? Number(profile.intimacy).toLocaleString('en-US') : null;
   const name = profile.clone
     ? displayUserName(profile)
-    : profile.nick?.trim() || profile.identityValue || profile.username;
-  const remark = profile.remark?.trim();
+    : (cloudNames ? cloudNames.name.trim() : profile.nick?.trim()) ||
+      profile.identityValue ||
+      profile.username;
+  const remark = (cloudNames ? cloudNames.remark : profile.remark)?.trim();
 
   // 21000 列扩展资料：已开通的特权（未开通的灰图标没必要展示）、所在地、
   // 教育经历、兴趣标签、精选图片。
@@ -816,6 +826,11 @@ export function GroupProfileDialog({
   const openChat = useContext(ChatNavigationContext);
   const openWorkspace = useContext(ContactWorkspaceNavigationContext);
   const groupPreview = useContext(GroupMessagePreviewContext);
+  const cloudNames = useCardDisplayNames(
+    'group',
+    conversation?.group.identityValue ?? '',
+    Boolean(conversation && !conversation.generated),
+  );
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -825,7 +840,9 @@ export function GroupProfileDialog({
   if (!conversation) {
     return null;
   }
-  const group = conversation.group;
+  const group = cloudNames
+    ? { ...conversation.group, name: cloudNames.name || conversation.group.identityValue }
+    : conversation.group;
   const members = (conversation.members ?? []).slice(0, 14);
   const MemberIdentity = onOpenMember ? 'button' : 'span';
   const identityValue = conversation.generated?.ownerId ?? group.identityValue;
