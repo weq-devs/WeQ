@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { createRequire } from 'node:module';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -41,6 +42,17 @@ const rendererOnly = [
 ];
 
 const require = createRequire(import.meta.url);
+
+function findPackageDirectory(entry: string): string {
+  let directory = dirname(entry);
+  while (!existsSync(join(directory, 'package.json'))) {
+    const parent = dirname(directory);
+    if (parent === directory) throw new Error(`无法定位依赖包目录: ${entry}`);
+    directory = parent;
+  }
+  return directory;
+}
+
 const builderRequire = createRequire(require.resolve('electron-builder/package.json'));
 const appBuilderRequire = createRequire(builderRequire.resolve('app-builder-lib/package.json'));
 const { load } = appBuilderRequire('js-yaml') as { load: (source: string) => unknown };
@@ -98,7 +110,8 @@ describe('桌面发行包瘦身', () => {
     // pnpm 下 sharp 的真实路径在 node_modules/.pnpm 里，libvips 是它的同级包。
     // 2.5.3 的 Linux AppImage 就是因为这里没匹配上、libvips-cpp.so.8.18.7 留在
     // asar 内，启动即 dlopen 失败。
-    const sharpDirectory = realpathSync(dirname(require.resolve('sharp/package.json')));
+    // sharp 的 exports 不暴露 package.json，从入口文件向上定位包目录。
+    const sharpDirectory = findPackageDirectory(realpathSync(require.resolve('sharp')));
     const imgDirectory = join(dirname(sharpDirectory), '@img');
     const libvips = readdirSync(imgDirectory).filter((name) => name.startsWith('sharp-libvips-'));
     expect(libvips.length, '宿主没装 sharp 的 libvips 可选依赖').toBeGreaterThan(0);
