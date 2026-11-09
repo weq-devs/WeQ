@@ -721,12 +721,11 @@ export interface AppSettings {
   /** 点击关闭按钮时的行为。默认 'tray'（最小化到托盘，后台服务继续运行）。 */
   windowCloseBehavior: WindowCloseBehavior;
   /**
-   * 完全退出时不再询问「后台服务会停止」。
+   * 已废弃（2026-11-09 起退出不再确认）。
    *
-   * 只在 `windowCloseBehavior` 之外生效：它管的是 `before-quit`（托盘退出 / Cmd+Q /
-   * 系统关机），不改变点 ✕ 的关窗行为。勾过之后即使又开启新服务也不重新弹——
-   * 用户的意图是「我知道退出会停服务，别再问了」，按服务集合失效会让开关一次服务就
-   * 复活弹窗，行为不可预测。当前运行的服务在「后台服务」页常驻展示，信息不丢失。
+   * 仅为兼容旧配置保留：读写链路还在（旧文件里的值不会校验失败、保存时也不丢），
+   * 但已没有任何代码读取它。退出（Dock / Cmd+Q / 托盘）现在直接结束进程；
+   * 「退出会停止哪些服务」改由关窗确认框与「后台服务」页展示。
    */
   quitConfirmSuppressed: boolean;
   /**
@@ -1111,6 +1110,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   weqAssistant: { enabled: false, port: 27182 },
   agentLab: { providers: [], defaultModel: null },
   windowCloseBehavior: 'tray',
+  /** 已废弃，仅为旧配置兼容保留；不再控制任何行为（见类型注释）。 */
   quitConfirmSuppressed: false,
   renderTextMarkdown: true,
   showAvatarPendant: true,

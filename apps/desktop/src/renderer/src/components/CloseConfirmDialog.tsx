@@ -2,9 +2,13 @@
  * 关闭确认框 —— 点击标题栏 ✕ 且「关闭行为」为 `ask` 时弹出.
  *
  * 主进程在 `win.on('close')` 里拦截关闭，向渲染层发 `window:confirm-close`
- * （携带 `canMinimizeToTray`）。用户选择后：
+ * （携带 `canMinimizeToTray` 与当前运行中的后台服务名单）。用户选择后：
  *   - 勾了「不再询问」→ 先持久化对应的 windowCloseBehavior；
  *   - 通过 `window:respond-close` 把动作（tray / quit / cancel）回传主进程。
+ *
+ * 这是**唯一**会询问「退出还是托盘」的地方：Dock 菜单退出、Cmd+Q、托盘
+ * 「退出 WeQ」都是明确指令，主进程直接退出，不再弹任何确认框。服务名单
+ * 放在这里，是因为「点 ✕」本身并不表达「结束进程」，用户需要知道代价。
  *
  * 复用 <Modal> 外壳（遮罩 / ESC / 动画）保持与全局弹窗一致；两个选项与「记住
  * 选择」沿用设置页的视觉语言（#0099ff 主色、细描边、小圆角）。
@@ -14,6 +18,7 @@ import { useEffect, useState, type ReactElement } from 'react';
 import { Minimize2, Power } from 'lucide-react';
 import { Modal } from './Dialog';
 import { trpc } from '../trpc/client';
+import '../styles/close-confirm.css';
 
 type CloseAction = 'tray' | 'quit' | 'cancel';
 
@@ -30,14 +35,16 @@ function ipc():
 export function CloseConfirmDialog(): ReactElement | null {
   const [open, setOpen] = useState(false);
   const [canTray, setCanTray] = useState(true);
+  const [services, setServices] = useState<string[]>([]);
   const [remember, setRemember] = useState(false);
   const setBehavior = trpc.bootstrap.setWindowCloseBehavior.useMutation();
   const utils = trpc.useUtils();
 
   useEffect(() => {
     const off = ipc()?.on('window:confirm-close', (...args: unknown[]) => {
-      const payload = args[1] as { canMinimizeToTray?: boolean } | undefined;
+      const payload = args[1] as { canMinimizeToTray?: boolean; services?: string[] } | undefined;
       setCanTray(payload?.canMinimizeToTray !== false);
+      setServices(Array.isArray(payload?.services) ? payload.services : []);
       setRemember(false);
       setOpen(true);
     });
@@ -80,6 +87,17 @@ export function CloseConfirmDialog(): ReactElement | null {
               : '当前系统托盘不可用，本次只能完全退出应用。'}
           </p>
         </header>
+
+        {services.length ? (
+          <div className="weq-close-services-wrap">
+            <p className="weq-close-services-title">完全退出将停止以下后台服务：</p>
+            <ul className="weq-close-services" aria-label="将停止的后台服务">
+              {services.map((service) => (
+                <li key={service}>{service}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         <div className="weq-close-options">
           {canTray ? (
