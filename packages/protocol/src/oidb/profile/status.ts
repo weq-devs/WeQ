@@ -13,7 +13,6 @@
 //   - 0xFE1_2 Linux 不签、Windows 签（macOS 实测前跟 Windows）。
 
 import { message } from '../../protobuf';
-import { SIGN_NON_LINUX } from '../../sign-policy';
 import { invokeOidb, invokeTrpc, type OidbSpec, type TrpcSpec } from '../invoke';
 import { toInt } from '../shared';
 import { requireInt32, requireUint32 } from '../write-validation';
@@ -61,7 +60,6 @@ export interface SetDiyOnlineStatusParams {
 export namespace SetOnlineStatus {
   export const cmd = SET_STATUS_CMD;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = SET_STATUS_REQ;
   export const respSchema = SET_STATUS_RESP;
 
@@ -106,7 +104,6 @@ export namespace SetOnlineStatus {
 export namespace SetDiyOnlineStatus {
   export const cmd = SET_STATUS_CMD;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = SET_STATUS_REQ;
   export const respSchema = SET_STATUS_RESP;
 
@@ -149,7 +146,6 @@ export namespace SetInputStatus {
   export const command = 0xcd4;
   export const subCommand = 1;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = INPUT_STATUS_REQ;
   export const respSchema = INPUT_STATUS_RESP;
 
@@ -237,7 +233,6 @@ export namespace GetUserOnlineStatus {
   export const command = 0xfe1;
   export const subCommand = 2;
   /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
-  export const needSign = SIGN_NON_LINUX;
   export const uinForm = true;
   export const reqSchema = STATUS_REQ;
   export const respSchema = STATUS_RESP;

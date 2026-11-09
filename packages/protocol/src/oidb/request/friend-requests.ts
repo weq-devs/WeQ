@@ -33,7 +33,6 @@ export namespace HandleFriendRequest {
   export const command = 0xb5d;
   export const subCommand = 44;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = FRIEND_REQUEST_REQ;
   export const respSchema = EMPTY_RESP;
 
@@ -113,7 +112,6 @@ export namespace FetchDoubtFriendRequests {
   export const command = 0xd69;
   export const subCommand = 0;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = DOUBT_LIST_REQ;
   export const respSchema = DOUBT_LIST_RESP;
@@ -166,7 +164,6 @@ export namespace RejectDoubtFriendRequest {
   export const command = 0xd69;
   export const subCommand = 0;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = DOUBT_REJECT_REQ;
   export const respSchema = EMPTY_RESP;
@@ -205,7 +202,6 @@ export namespace ApproveDoubtFriendRequest {
   export const command = 0xd72;
   export const subCommand = 0;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = DOUBT_APPROVE_REQ;
   export const respSchema = EMPTY_RESP;
 

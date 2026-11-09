@@ -30,7 +30,6 @@ export namespace SendGroupSign {
   export const command = 0xeb7;
   export const subCommand = 1;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = GROUP_SIGN_REQ;
   export const respSchema = GROUP_SIGN_RESP;
 

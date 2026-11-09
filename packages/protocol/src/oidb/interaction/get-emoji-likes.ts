@@ -91,7 +91,6 @@ export namespace GetEmojiLikes {
   export const command = 0x9083;
   export const subCommand = 1;
   /** 不签名：Lagrange 签名白名单里没有 0x908x（见文件头注释）。 */
-  export const needSign = false;
   export const reqSchema = EMOJI_LIKES_REQ;
   export const respSchema = EMOJI_LIKES_RESP;
 

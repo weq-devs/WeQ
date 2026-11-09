@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { decode, encode } from '../src/protobuf';
 import { GetEmojiLikes } from '../src/index';
 import type { GetEmojiLikesParams } from '../src/index';
+import { oidbCommand, resolveSign } from '../src/sign-policy';
 
 const hexToBytes = (hex: string): Uint8Array =>
   Uint8Array.from(
@@ -61,7 +62,9 @@ describe('GetEmojiLikes (0x9083_1)', () => {
   it('declares command 0x9083 / subCommand 1，并显式关掉签名', () => {
     expect(GetEmojiLikes.command).toBe(0x9083);
     expect(GetEmojiLikes.subCommand).toBe(1);
-    expect(GetEmojiLikes.needSign).toBe(false);
+    expect(
+      resolveSign(oidbCommand(GetEmojiLikes.command, GetEmojiLikes.subCommand ?? 1)).needSign,
+    ).toBe(false);
   });
 
   it('缺省 emojiType=1、count=10，首页 cookie 为空串', () => {

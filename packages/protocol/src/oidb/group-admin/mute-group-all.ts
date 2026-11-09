@@ -35,7 +35,6 @@ export interface MuteGroupAllParams {
 export namespace MuteGroupAll {
   export const command = 0x89a;
   export const subCommand = 0;
-  export const needSign = true;
   export const reqSchema = MUTE_ALL_REQ;
   export const respSchema = MUTE_ALL_RESP;
 

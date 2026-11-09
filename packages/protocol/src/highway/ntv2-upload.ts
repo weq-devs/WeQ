@@ -16,7 +16,6 @@
 
 import { randomBytes } from 'node:crypto';
 import { decode, encode } from '../protobuf';
-import { needSignFor } from '../sign-policy';
 import { sendOidb, type OidbNative, type TrpcNative } from '../transport';
 import {
   BufferChunkSource,
@@ -139,32 +138,14 @@ async function requestUpload(
     },
   });
 
-  // 命令来自 `params.oidbCmd`（动态）。三端实测（scripts/probe-sign.ts）：
-  //   Linux  ：全部不签。
-  //   Windows：图片 `0x11c4_100` / `0x11c5_100` 签；语音 / 视频（`0x126d/126e_100`、
-  //            `0x11ea_100`）不签；`0x11e9_100` 未测，按实测过的 macOS 结果同族处理。
-  //   macOS  ：图片 `0x11c4_100` / `0x11c5_100` 签；私聊视频 `0x11e9_100` 签；
-  //            群视频 `0x11ea_100` 不签。
-  // 所以三端不是同一集合，按命令逐个声明。
-  const isImage = params.oidbCmd === 0x11c4 || params.oidbCmd === 0x11c5;
-  // `0x11e9_100` 是私聊视频上传：macOS 实测签。Windows 未实测，暂与 macOS 一致，
-  // 补测后改这一行。
-  const isPrivateVideo = params.oidbCmd === 0x11e9;
-  const respBytes = await sendOidb(
-    nt,
-    pid,
-    {
-      command: params.oidbCmd,
-      subCommand: 100,
-      body,
-      isUid: true,
-    },
-    needSignFor({
-      linux: false,
-      win32: isImage || isPrivateVideo,
-      darwin: isImage || isPrivateVideo,
-    }),
-  );
+  // 命令来自 `params.oidbCmd`（动态），签名策略按 `OidbSvcTrpcTcp.0x<cmd>_100`
+  // 查中央表：图片签、语音与群视频不签、私聊视频签（见 sign-policy.ts）。
+  const respBytes = await sendOidb(nt, pid, {
+    command: params.oidbCmd,
+    subCommand: 100,
+    body,
+    isUid: true,
+  });
   const resp = decode(NTV2_UPLOAD_RESP_TOP, respBytes) as {
     respHead?: { retCode?: number; message?: string };
     upload?: Ntv2UploadResp;

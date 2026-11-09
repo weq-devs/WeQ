@@ -404,7 +404,6 @@ export function normalizeQueryRoom(rsp: Record<string, unknown>): GroupRoomState
 export const CreateGroupRoom: TrpcSpec<{ selfUid: string; groupId: number }, GroupRoom> = {
   cmd: GROUP_SSO_CMD.createRoom,
   /** 三份抓包离线核验：`reserved` 无 tag 24。 */
-  needSign: false,
   reqSchema: GROUP_CREATE_ROOM_REQ,
   respSchema: GROUP_CREATE_ROOM_RSP,
   serialize: ({ selfUid, groupId }) => ({
@@ -454,7 +453,6 @@ export const InviteToGroupRoom: TrpcSpec<
   { invited: Array<{ uid: string; accepted: boolean }> }
 > = {
   cmd: GROUP_SSO_CMD.inviteRoom,
-  needSign: false,
   reqSchema: GROUP_INVITE_ROOM_REQ,
   respSchema: GROUP_INVITE_ROOM_RSP,
   serialize: ({ targetUids, authKey, groupId, now }) => {
@@ -499,7 +497,6 @@ export const InviteToGroupRoom: TrpcSpec<
  */
 export const MultiTerminalSync: TrpcSpec<{ authKey: Uint8Array; groupId: number }, void> = {
   cmd: GROUP_SSO_CMD.multiTerminalSync,
-  needSign: false,
   reqSchema: GROUP_MULTI_TERMINAL_REQ,
   respSchema: message([]),
   serialize: ({ authKey, groupId }) => ({
@@ -524,7 +521,6 @@ export const QUERY_ROOM_WANTED = [1, 2, 6, 5, 10, 11, 12, 14, 16] as const;
 /** `SsoQueryRoom` —— 查房间成员与状态。 */
 export const QueryGroupRoom: TrpcSpec<{ groupId: number; authKey: Uint8Array }, GroupRoomState> = {
   cmd: GROUP_SSO_CMD.queryRoom,
-  needSign: false,
   reqSchema: GROUP_QUERY_ROOM_REQ,
   respSchema: GROUP_QUERY_ROOM_RSP,
   serialize: ({ authKey, groupId }) => ({

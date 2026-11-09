@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { decode, encode } from '../src/protobuf';
 import { RecallGroup, RecallPrivate } from '../src/index';
+import { resolveSign } from '../src/sign-policy';
 
 const hexToBytes = (hex: string): Uint8Array =>
   Uint8Array.from(
@@ -23,6 +24,7 @@ interface TrpcCall {
   cmd: string;
   body: Uint8Array;
   needSign: boolean;
+  mode?: number;
 }
 
 function makeNative() {
@@ -34,8 +36,9 @@ function makeNative() {
       cmd: string,
       body: Buffer,
       needSign: boolean,
+      mode?: number,
     ): Promise<Buffer> => {
-      calls.push({ pid, cmd, body: new Uint8Array(body), needSign });
+      calls.push({ pid, cmd, body: new Uint8Array(body), needSign, mode });
       return Buffer.alloc(0);
     },
   };
@@ -44,7 +47,7 @@ function makeNative() {
 describe('RecallGroup (SsoGroupRecallMsg)', () => {
   it('命令串 + needSign=false（不在白名单）', () => {
     expect(RecallGroup.cmd).toBe('trpc.msg.msg_svc.MsgService.SsoGroupRecallMsg');
-    expect(RecallGroup.needSign).toBe(false);
+    expect(resolveSign(RecallGroup.cmd).needSign).toBe(false);
   });
 
   it('编码：type@1 / groupUin@2 / info{ sequence@1 }@3 / settings@4', () => {
@@ -66,7 +69,7 @@ describe('RecallGroup (SsoGroupRecallMsg)', () => {
     const nt = makeNative();
     await RecallGroup.invoke(nt, 9, { groupId: 100, sequence: 5 });
     expect(nt.calls).toHaveLength(1);
-    expect(nt.calls[0]).toMatchObject({ pid: 9, cmd: RecallGroup.cmd, needSign: false });
+    expect(nt.calls[0]).toMatchObject({ pid: 9, cmd: RecallGroup.cmd, needSign: false, mode: 3 });
   });
 
   it('非法参数在编码前报错', () => {
@@ -78,7 +81,7 @@ describe('RecallGroup (SsoGroupRecallMsg)', () => {
 describe('RecallPrivate (SsoC2CRecallMsg)', () => {
   it('命令串 + needSign=true（白名单）', () => {
     expect(RecallPrivate.cmd).toBe('trpc.msg.msg_svc.MsgService.SsoC2CRecallMsg');
-    expect(RecallPrivate.needSign).toBe(true);
+    expect(resolveSign(RecallPrivate.cmd).needSign).toBe(true);
   });
 
   it('messageId = (0x01000000 << 32) | random，type=1，targetUid@3', () => {

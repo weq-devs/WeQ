@@ -12,27 +12,12 @@
  */
 
 import { decode, encode, type ProtoMessage } from '../protobuf';
-import { needSignFor, type NeedSign } from '../sign-policy';
 import { sendOidb, sendPacket, type OidbNative, type TrpcNative } from '../transport';
 
 /** A single OIDB command. */
 export interface OidbSpec<TParams, TResult> {
   command: number;
   subCommand?: number;
-  /**
-   * 该命令是否需要签名（`SecSign/SecToken/SecExtra`）——**必填**。
-   *
-   * 取值来自真机抓包：用注入的 QQ 发该命令，看 QQ 自己在 SSO reserved 里写不写
-   * tag 24（`SecInfo`）。QQ 的签名集合按平台不同（Linux 19 条 / Windows 42 条），
-   * 所以三端一致时写 `boolean`，有差异时写 {@link NeedSign} 的按平台对象；
-   * **禁止取并集**，Linux 上多发不必要的签名曾触发风控。
-   *
-   * 不再有「按名单推导」的兜底：旧实现照抄 LagrangeV2 的 `WhiteListCommand`，
-   * 与 PC 端实测不符（15 个只读命令被误判成要签），已随白名单一起移除。
-   * 白名单**不能**当依据：`0x9082_1/2`、`0x6d9_4` 在名单外但 QQ 会签，
-   * `0x5d6_6/19`、`0x8fc_3`、`0xa80_1`、`0x10c0_1/2` 在名单里但 QQ 不签。
-   */
-  needSign: NeedSign;
   /**
    * 从参数动态解析 sub-command（0x9082：1 = 贴表情，2 = 撤回）。优先于
    * {@link subCommand}。
@@ -60,17 +45,12 @@ export async function invokeOidb<TParams, TResult>(
     );
   }
   const reqBytes = encode(spec.reqSchema, spec.serialize(params));
-  const respBytes = await sendOidb(
-    nt,
-    pid,
-    {
-      command: spec.command,
-      subCommand,
-      body: reqBytes,
-      isUid: spec.uinForm ?? false,
-    },
-    needSignFor(spec.needSign),
-  );
+  const respBytes = await sendOidb(nt, pid, {
+    command: spec.command,
+    subCommand,
+    body: reqBytes,
+    isUid: spec.uinForm ?? false,
+  });
   return spec.deserialize(
     spec.decodeResponseBody
       ? spec.decodeResponseBody(respBytes)
@@ -81,8 +61,6 @@ export async function invokeOidb<TParams, TResult>(
 /** A trpc service reached via a raw SSO command string (no OIDB envelope). */
 export interface TrpcSpec<TParams, TResult> {
   cmd: string;
-  /** 同 {@link OidbSpec.needSign}：必填，取值来自真机抓包，按平台声明。 */
-  needSign: NeedSign;
   reqSchema: ProtoMessage;
   respSchema: ProtoMessage;
   serialize(params: TParams): Record<string, unknown>;
@@ -108,7 +86,7 @@ export async function invokeTrpc<TParams, TResult>(
   const reqBytes = spec.encodeRequest
     ? spec.encodeRequest(params)
     : encode(spec.reqSchema, spec.serialize(params));
-  const respBytes = await sendPacket(nt, pid, spec.cmd, reqBytes, needSignFor(spec.needSign));
+  const respBytes = await sendPacket(nt, pid, spec.cmd, reqBytes);
   if (spec.decodeResponse) return spec.decodeResponse(respBytes);
   return spec.deserialize(decode(spec.respSchema, respBytes));
 }

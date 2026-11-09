@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { decode, encode } from '../src/protobuf';
 import { GetRedPackSkin, RED_PACK_SKIN_TRACE_ID } from '../src/index';
 import type { RedPackSkinResponse } from '../src/index';
+import { resolveSign } from '../src/sign-policy';
 
 const hexToBytes = (hex: string): Uint8Array =>
   Uint8Array.from(
@@ -70,7 +71,8 @@ const MOGGY = 'https://moggy-image-1251316161.file.myqcloud.com';
 describe('GetRedPackSkin (trpc.qpay.red_pack_skin.Skin.SsoGetSkinInfo)', () => {
   it('声明命令字并显式关掉签名', () => {
     expect(GetRedPackSkin.cmd).toBe('trpc.qpay.red_pack_skin.Skin.SsoGetSkinInfo');
-    expect(GetRedPackSkin.needSign).toBe(false);
+    // 未登记 = 不签名；用中央表确认而不是看 spec 字段。
+    expect(resolveSign(GetRedPackSkin.cmd).needSign).toBe(false);
   });
 
   it('请求黄金字节：f1 全零 trace id + f3 skinId + f6=0（43 字节）', () => {

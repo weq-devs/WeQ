@@ -24,7 +24,6 @@ import { createHash } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import net from 'node:net';
 import { decode, encode } from '../protobuf';
-import { needSignFor, SIGN_NON_LINUX } from '../sign-policy';
 import { sendPacket, type TrpcNative } from '../transport';
 import {
   HTTP_CONN_REQ,
@@ -100,14 +99,8 @@ export async function fetchHighwaySession(nt: TrpcNative, pid: number): Promise<
       ver: '1.0.1',
     },
   });
-  // Linux 实测 `HttpConn.0x6ff_501` 不签名；Windows 实测会签（issue #126），按平台走。
-  const bytes = await sendPacket(
-    nt,
-    pid,
-    HIGHWAY_SESSION_CMD,
-    request,
-    needSignFor(SIGN_NON_LINUX),
-  );
+  // `HttpConn.0x6ff_501` 的签名叫中央表（Linux 不签，Windows / macOS 签）。
+  const bytes = await sendPacket(nt, pid, HIGHWAY_SESSION_CMD, request);
   const resp = decode(HTTP_CONN_RESP, bytes) as {
     httpConn?: {
       sigSession?: Uint8Array;

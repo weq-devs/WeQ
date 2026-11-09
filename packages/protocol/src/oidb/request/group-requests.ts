@@ -11,7 +11,6 @@
 // 官方客户端就是这么发的；省略会被服务端拒。
 
 import { decode, message } from '../../protobuf';
-import { SIGN_NON_LINUX } from '../../sign-policy';
 import { invokeOidb, type OidbSpec } from '../invoke';
 import { toInt } from '../shared';
 import type { OidbNative } from '../../transport';
@@ -202,7 +201,6 @@ function parseRequests(body: Record<string, unknown>, filtered: boolean): GroupR
 export namespace FetchGroupRequests {
   export const command = 0x10c0;
   /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126），主 / 过滤两个子命令一致。 */
-  export const needSign = SIGN_NON_LINUX;
   export const uinForm = true;
   export const reqSchema = GROUP_REQUEST_LIST_REQ;
   // uinForm=true 时用户字段 tag 1 是 uint32，必须用 UIN 形态的 schema。
@@ -234,7 +232,6 @@ export namespace FetchFilteredGroupRequests {
   export const command = 0x10c0;
   export const subCommand = 2;
   /** 同 {@link FetchGroupRequests}：Linux 不签、Windows 签。 */
-  export const needSign = SIGN_NON_LINUX;
   export const uinForm = true;
   export const reqSchema = GROUP_REQUEST_LIST_REQ;
   export const respSchema = GROUP_REQUEST_RESP_BY_UIN;
@@ -286,7 +283,6 @@ export interface SetGroupRequestParams {
 export namespace SetGroupRequest {
   export const command = 0x10c8;
   /** 真机实测会签名（scripts/probe-sign.ts），主 / 过滤两个子命令都签。 */
-  export const needSign = true;
   export const uinForm = true;
   export const reqSchema = GROUP_REQUEST_ACTION_REQ;
   export const respSchema = message([]);

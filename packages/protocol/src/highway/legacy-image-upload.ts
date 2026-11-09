@@ -189,7 +189,7 @@ export async function requestOffPicUpload(
 
   // 抓包里 `LongConn.OffPicUp` 不带 tag 24（不签名）。
   // body 直接给纯 protobuf —— SSO 帧（含长度前缀）由 native 自己组，不要自己加。
-  const reply = await sendPacket(nt, pid, OFF_PIC_UP_CMD, body, false);
+  const reply = await sendPacket(nt, pid, OFF_PIC_UP_CMD, body);
   const resp = decode(OFF_PIC_UP_RESP, stripLengthPrefix(reply)) as {
     field1?: number;
     body?: {

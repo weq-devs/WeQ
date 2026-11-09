@@ -50,7 +50,6 @@ export namespace GetBuddyRecommendArk {
   export const command = 0x12b6;
   export const subCommand = 0;
   /** 抓包（/tmp/capture.log）：`0x12b6_0` 不带 tag 24，不签名。 */
-  export const needSign = false;
   /** 普通 OIDB 信封（不是 uin-form）—— 0x9130_0 的旧结论已在 SnowLuma #149 修正。 */
   export const uinForm = false;
   export const reqSchema = BUDDY_ARK_REQ;
@@ -102,7 +101,6 @@ export namespace GetGroupRecommendArk {
   export const command = 0x8b7;
   export const subCommand = 5;
   /** 抓包（/tmp/capture.log）：`0x8b7_5` 不带 tag 24，不签名。 */
-  export const needSign = false;
   /** uin-form OIDB（信封 reserved=1）—— 与好友卡片那条不同，别抄错。 */
   export const uinForm = true;
   export const reqSchema = GROUP_ARK_REQ;

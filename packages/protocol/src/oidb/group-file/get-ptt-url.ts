@@ -5,7 +5,6 @@ import type { MediaIndexNode } from '../media-schemas';
 import { NTV2_RICH_MEDIA_REQ, NTV2_RICH_MEDIA_RESP } from '../media-schemas';
 import { buildNtv2DownloadReq, parseNtv2DownloadUrl } from '../ntv2';
 import { invokeOidb, type OidbSpec } from '../invoke';
-import { SIGN_NON_LINUX } from '../../sign-policy';
 import type { OidbNative } from '../../transport';
 
 const PTT_REQUEST_ID = 4;
@@ -14,7 +13,6 @@ export namespace GetGroupPttUrl {
   export const command = 0x126e;
   export const subCommand = 200;
   /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
-  export const needSign = SIGN_NON_LINUX;
   export const uinForm = true;
   export const reqSchema = NTV2_RICH_MEDIA_REQ;
   export const respSchema = NTV2_RICH_MEDIA_RESP;
@@ -41,7 +39,6 @@ export namespace GetPrivatePttUrl {
   export const command = 0x126d;
   export const subCommand = 200;
   /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
-  export const needSign = SIGN_NON_LINUX;
   export const uinForm = true;
   export const reqSchema = NTV2_RICH_MEDIA_REQ;
   export const respSchema = NTV2_RICH_MEDIA_RESP;

@@ -52,7 +52,6 @@ export async function getFriendClue(
     pid,
     FRIEND_CLUE_COMMAND,
     encode(request, { type: 0, data: JSON.stringify({ uint64_friend_uin: Number(target) }) }),
-    false,
   );
   if (!bytes.length || bytes.length > 262144) throw new Error('好友线索响应长度无效');
   // 共用严格的原始 wire 遍历，先拒绝截断、错类型及重复单值，再按 schema 解码。

@@ -296,7 +296,6 @@ export function parsePttTransPush(body: Uint8Array): PttTransPush | null {
 // ─────────────────────────── invoke（发请求） ───────────────────────────
 
 export namespace PttTrans {
-  export const needSign = false;
   export const reqSchema = PTT_TRANS_REQ;
   export const respSchema = PTT_TRANS_RESP;
 
@@ -309,7 +308,7 @@ export namespace PttTrans {
     voice: PttTransVoice,
   ): Promise<PttTransAck | null> {
     const cmd = pttTransCmd(voice.isGroup);
-    const respBytes = await sendPacket(nt, pid, cmd, encodePttTransReq(voice), needSign);
+    const respBytes = await sendPacket(nt, pid, cmd, encodePttTransReq(voice));
     return parsePttTransAck(respBytes, voice.isGroup);
   }
 
@@ -335,7 +334,6 @@ export namespace PttTrans {
       pid,
       {
         cmd: pttTransCmd(voice.isGroup),
-        needSign,
         reqSchema,
         respSchema,
         serialize,

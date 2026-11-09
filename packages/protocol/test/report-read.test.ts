@@ -26,7 +26,13 @@ describe('已读上报协议', () => {
     const sendPacket = vi.fn(async () => Buffer.alloc(0));
     const target = { kind: 'group' as const, groupUin: 100, sequence: 5 };
     expect(await ReportRead.invoke({ sendPacket }, 9, target)).toBe('acknowledged');
-    expect(sendPacket).toHaveBeenCalledWith(9, ReportRead.cmd, expect.any(Buffer), true);
+    expect(sendPacket).toHaveBeenCalledWith(
+      9,
+      ReportRead.cmd,
+      expect.any(Buffer),
+      true,
+      process.platform === 'linux' ? 3 : 2,
+    );
     sendPacket.mockResolvedValueOnce(Buffer.from([8, 1]));
     expect(await ReportRead.invoke({ sendPacket }, 9, target)).toBe('unconfirmed');
   });

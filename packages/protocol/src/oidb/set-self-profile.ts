@@ -18,7 +18,6 @@ export interface SetSelfProfileParams extends SelfProfilePatch {
 export namespace SetSelfProfile {
   export const command = 0x112a;
   export const subCommand = 2;
-  export const needSign = true;
   export const reqSchema = message([
     { name: 'uin', tag: 1, type: 'uint64' },
     {

@@ -8,7 +8,6 @@
 //
 // 所有 `uinForm = true`：群文件这一族在 NTQQ 里走 UIN 形态的 OIDB 信封。
 
-import { SIGN_NON_LINUX } from '../../sign-policy';
 import { invokeOidb, type OidbSpec } from '../invoke';
 import type { OidbNative } from '../../transport';
 import {
@@ -60,7 +59,6 @@ export namespace DeleteGroupFile {
   export const command = 0x6d6;
   export const subCommand = 3;
   /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
-  export const needSign = SIGN_NON_LINUX;
   export const uinForm = true;
   export const reqSchema = OIDB_GROUP_FILE_DELETE_REQ_VIEW;
   export const respSchema = OIDB_GROUP_FILE_DELETE_RESP;
@@ -99,7 +97,6 @@ export namespace RenameGroupFile {
   export const command = 0x6d6;
   export const subCommand = 4;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = OIDB_GROUP_FILE_RENAME_REQ_VIEW;
   export const respSchema = OIDB_GROUP_FILE_RENAME_RESP;
@@ -145,7 +142,6 @@ export namespace MoveGroupFile {
   export const command = 0x6d6;
   export const subCommand = 5;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = OIDB_GROUP_FILE_MOVE_REQ_VIEW;
   export const respSchema = OIDB_GROUP_FILE_MOVE_RESP;
@@ -196,7 +192,6 @@ export namespace CreateGroupFolder {
   export const command = 0x6d7;
   export const subCommand = 0;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = OIDB_GROUP_FOLDER_CREATE_REQ_VIEW;
   export const respSchema = OIDB_GROUP_FOLDER_CREATE_RESP;
@@ -250,7 +245,6 @@ export namespace DeleteGroupFolder {
   export const command = 0x6d7;
   export const subCommand = 1;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = OIDB_GROUP_FOLDER_DELETE_REQ_VIEW;
   export const respSchema = OIDB_GROUP_FOLDER_DELETE_RESP;
@@ -286,7 +280,6 @@ export namespace RenameGroupFolder {
   export const command = 0x6d7;
   export const subCommand = 2;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = OIDB_GROUP_FOLDER_RENAME_REQ_VIEW;
   export const respSchema = OIDB_GROUP_FOLDER_RENAME_RESP;
@@ -332,7 +325,6 @@ export namespace GetGroupFileCount {
   export const command = 0x6d8;
   export const subCommand = 2;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = OIDB_GROUP_FILE_COUNT_VIEW_REQ;
   export const respSchema = OIDB_GROUP_FILE_COUNT_VIEW_RESP;
 
@@ -371,7 +363,6 @@ export namespace GetGroupFileSpace {
   export const command = 0x6d8;
   export const subCommand = 3;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = OIDB_GROUP_FILE_SPACE_VIEW_REQ;
   export const respSchema = OIDB_GROUP_FILE_SPACE_VIEW_RESP;
 

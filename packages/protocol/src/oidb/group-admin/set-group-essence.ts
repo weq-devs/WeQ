@@ -40,7 +40,6 @@ export namespace SetGroupEssence {
   export const command = 0xeac;
   /** 由 {@link resolvedSubCommand} 动态决定（1 设 / 2 撤）。 */
   export const subCommand = 1;
-  export const needSign = false;
   export const reqSchema = ESSENCE_REQ;
   export const respSchema = ESSENCE_RESP;
 

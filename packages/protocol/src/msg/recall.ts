@@ -58,7 +58,6 @@ export interface RecallGroupParams {
 
 export namespace RecallGroup {
   export const cmd = 'trpc.msg.msg_svc.MsgService.SsoGroupRecallMsg';
-  export const needSign = false;
   export const reqSchema = GROUP_RECALL_REQ;
   export const respSchema = GROUP_RECALL_RESP;
 
@@ -126,7 +125,6 @@ const C2C_MESSAGE_ID_HIGH = 0x01000000n << 32n;
 
 export namespace RecallPrivate {
   export const cmd = 'trpc.msg.msg_svc.MsgService.SsoC2CRecallMsg';
-  export const needSign = true;
   export const reqSchema = C2C_RECALL_REQ;
   export const respSchema = C2C_RECALL_RESP;
 

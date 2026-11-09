@@ -32,14 +32,16 @@ src/oidb/misc/          OCR / 解密密钥 / clientKey / rkey / pskey / Ark / AI
 在线状态写入统一使用 `oidb/profile/status.ts` 的 `SetOnlineStatus`，根导出、账号写操作和在线状态服务共用同一实现；旧 `oidb/set-self-profile.ts` 路径仅重导出，不再维护第二套状态协议。`StatusService.SetStatus` 不在白名单中，不额外签名。普通状态的默认电量值沿用上游 100，显式传入的扩展状态、电量 0 保留上 wire；旧 `{ custom: { faceId, wording, faceType } }` 参数兼容映射到 `customExt`，与 `SetDiyOnlineStatus` 共用校验和回包处理。非零 `errCode` 不论有无错误文案均抛错，成功文案 `set status success` 不被误判为失败。
 
 > **2026-11-03 起白名单推导已移除**：`src/sign/whitelist.ts`（照抄 LagrangeV2
-> `BotSignProvider.cs` 的 `WhiteListCommand`）删除，`needSign` 改由每个 spec
-> **显式声明**，没有兜底。依据是 `scripts/probe-sign.ts` 的真机实测——连已注入的 QQ
+> `BotSignProvider.cs` 的 `WhiteListCommand`）删除，`needSign` 改为显式登记在签名表里，
+> 没有兜底（查不到即不签名并打 warn）。依据是 `scripts/probe-sign.ts` 的真机实测——连已注入的 QQ
 > 的 pipe 发包，抓包读 SSO reserved 的 tag 24（`SecInfo`），看 QQ 自己写不写。
 >
 > **2026-11-09 起按平台分别声明**：Linux 与 Windows 的签名集合不同（Linux 19 条 /
 > Windows 42 条），macOS 实测前先跟 Windows。**禁止取并集**——Linux 上多发不必要的
-> 签名曾触发风控。声明用 `sign-policy.ts` 的 `NeedSign`，分发时由 `needSignFor`
-> 按当前平台解析；实测记录见 [sign-policy-20261109.md](./sign-policy-20261109.md)。
+> 签名曾触发风控。**2026-11-09 晚重构**：策略集中到 `sign-policy.ts` 的 `SIGN_RULES`
+> 一张以 wire 命令为键的表里，spec 不再各自声明 `needSign`，`transport.ts` 统一查表
+> 得到 `(needSign, mode)`。实测记录见
+> [sign-policy-20261109.md](./sign-policy-20261109.md)。
 
 白名单**不可作为依据**，2026-11-05 复测（每条三次一致）发现两侧都不符：
 

@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { decode, encode, type ProtoMessage } from '../src/protobuf';
 import { SendGroupJoinRequest } from '../src/index';
 import type { SendGroupJoinRequestParams } from '../src/index';
+import { oidbCommand, resolveSign } from '../src/sign-policy';
 
 const hexToBytes = (hex: string): Uint8Array =>
   Uint8Array.from(
@@ -90,7 +91,10 @@ describe('SendGroupJoinRequest (0x11ec_1)', () => {
   it('声明 command 0x11ec / subCommand 1 / needSign true', () => {
     expect(SendGroupJoinRequest.command).toBe(0x11ec);
     expect(SendGroupJoinRequest.subCommand).toBe(1);
-    expect(SendGroupJoinRequest.needSign).toBe(true);
+    expect(
+      resolveSign(oidbCommand(SendGroupJoinRequest.command, SendGroupJoinRequest.subCommand ?? 1))
+        .needSign,
+    ).toBe(true);
   });
 
   it('能逐字段解出真机抓包的 request', () => {

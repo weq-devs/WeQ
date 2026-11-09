@@ -8,9 +8,9 @@ import {
   commonGroupsResponse,
   cloudProfileResponse,
   GetUserQqLevel,
-  needSignFor,
 } from '../src/index';
 import { legacyOidbEnvelope } from '../src/oidb/legacy';
+import { oidbCommand, resolveSign } from '../src/sign-policy';
 
 describe('云端精确资料与共同关系', () => {
   it('QQ 号资料使用 UIN 形式与签名，响应错号不能作为目标资料', async () => {
@@ -32,7 +32,11 @@ describe('云端精确资料与共同关系', () => {
     const call = sendOidbPacket.mock.calls[0] as unknown as unknown[];
     expect(call.slice(0, 3)).toEqual([1, 0xfe1, 2]);
     // 0xfe1_2 Linux 不签、Windows 签；别在调用点写死 true。
-    expect(call.slice(4)).toEqual([true, needSignFor(GetUserQqLevel.needSign)]);
+    expect(call.slice(4)).toEqual([
+      true,
+      resolveSign(oidbCommand(GetUserQqLevel.command, GetUserQqLevel.subCommand ?? 2)).needSign,
+      resolveSign(oidbCommand(GetUserQqLevel.command, GetUserQqLevel.subCommand ?? 2)).mode,
+    ]);
     await expect(getCloudProfile(nt, 1, '10003', [105])).rejects.toThrow('不匹配');
   });
   it.each([5, 0, -1])(

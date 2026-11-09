@@ -7,7 +7,6 @@ import type { MediaIndexNode } from '../media-schemas';
 import { NTV2_RICH_MEDIA_REQ, NTV2_RICH_MEDIA_RESP } from '../media-schemas';
 import { buildNtv2DownloadReq, parseNtv2DownloadUrl } from '../ntv2';
 import { invokeOidb, type OidbSpec } from '../invoke';
-import { SIGN_NON_LINUX } from '../../sign-policy';
 import type { OidbNative } from '../../transport';
 
 const GROUP_VIDEO_REQUEST_ID = 3;
@@ -17,7 +16,6 @@ export namespace GetGroupVideoUrl {
   export const command = 0x11ea;
   export const subCommand = 200;
   /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
-  export const needSign = SIGN_NON_LINUX;
   export const uinForm = true;
   export const reqSchema = NTV2_RICH_MEDIA_REQ;
   export const respSchema = NTV2_RICH_MEDIA_RESP;
@@ -50,7 +48,6 @@ export namespace GetPrivateVideoUrl {
   export const command = 0x11e9;
   export const subCommand = 200;
   /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
-  export const needSign = SIGN_NON_LINUX;
   export const uinForm = true;
   export const reqSchema = NTV2_RICH_MEDIA_REQ;
   export const respSchema = NTV2_RICH_MEDIA_RESP;

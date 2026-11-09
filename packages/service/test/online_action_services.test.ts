@@ -13,6 +13,8 @@ import {
   FetchGroupMemberListPage,
   GetGroupMessagePolicies,
   FetchGroupRequests,
+  oidbCommand,
+  resolveSign,
   ReadedReport,
   MoveGroupFile,
   RenameGroupFile,
@@ -20,7 +22,6 @@ import {
   GroupTodo,
   LeaveGroup,
   SetGroupRequest,
-  needSignFor,
   type GroupMemberListItem,
 } from '@weq/protocol';
 import { GroupModerationService } from '../src/account/group_moderation';
@@ -193,7 +194,7 @@ describe('GroupNotifyService', () => {
     expect(nt.calls[0]).toMatchObject({
       command: 0x10c0,
       subCommand: 1,
-      needSign: needSignFor(FetchGroupRequests.needSign),
+      needSign: resolveSign(oidbCommand(FetchGroupRequests.command, 1)).needSign,
     });
   });
 

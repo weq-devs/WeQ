@@ -114,7 +114,6 @@ export interface ForwardFetchResult {
 export namespace RecvLongMsg {
   export const cmd = SSO_RECV_LONG_MSG_CMD;
   /** 真机实测会签名（scripts/probe-sign.ts）。 */
-  export const needSign = true;
   export const reqSchema = RECV_LONG_MSG_REQ;
   export const respSchema = RECV_LONG_MSG_RESP;
 
@@ -150,7 +149,7 @@ export async function fetchForwardRaw(
 
   const reqBytes = encode(RECV_LONG_MSG_REQ, RecvLongMsg.serialize(params));
   // `SsoRecvLongMsg` 在签名清单里。
-  const rawResponse = await sendPacket(nt, pid, SSO_RECV_LONG_MSG_CMD, reqBytes, true);
+  const rawResponse = await sendPacket(nt, pid, SSO_RECV_LONG_MSG_CMD, reqBytes);
   const decodedResponse = decode(RECV_LONG_MSG_RESP, rawResponse) as Record<string, unknown>;
 
   const result = decodedResponse.result as { resId?: string; payload?: Uint8Array } | undefined;
