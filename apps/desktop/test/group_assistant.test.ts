@@ -161,7 +161,7 @@ describe('群助手', () => {
       );
       const times = (selector: string) =>
         Array.from(host.querySelectorAll(selector), (node) => node.textContent);
-      const expected = ['09:05', '昨天', '星期二', '2026/10/19', '2025/12/31'];
+      const expected = ['09:05', '昨天 23:59', '星期二', '2026/10/19', '2025/12/31'];
       expect(times('.weq-conversation-window .row-time-line')).toEqual(expected);
       expect(times('.weq-conversation-list .row-time-line')).toEqual(expected);
     } finally {

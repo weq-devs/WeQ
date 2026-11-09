@@ -610,6 +610,7 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
 
 .row-pinned {

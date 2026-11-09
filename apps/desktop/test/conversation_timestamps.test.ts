@@ -12,7 +12,9 @@ import {
 describe('conversation_time', () => {
   it('相对时间按日历日判断跨年昨天，缺失或无效时间不显示', () => {
     const now = new Date(2026, 0, 1, 0, 30);
-    expect(formatConversationTime(new Date(2025, 11, 31, 23, 59).toISOString(), now)).toBe('昨天');
+    expect(formatConversationTime(new Date(2025, 11, 31, 23, 59).toISOString(), now)).toBe(
+      '昨天 23:59',
+    );
     expect(formatConversationTime(undefined, now)).toBe('');
     expect(formatConversationTime('', now)).toBe('');
     expect(formatConversationTime('invalid', now)).toBe('');
