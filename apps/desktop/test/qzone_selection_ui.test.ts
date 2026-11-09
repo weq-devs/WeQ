@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
-import { QzoneView } from '../src/renderer/src/views/QzoneView';
+import { QzoneView, QzoneWorkspace } from '../src/renderer/src/views/QzoneView';
 import { QzoneProfileContext } from '../src/renderer/src/lib/qzoneNavigation';
 import {
   ContentSelectionProvider,
@@ -29,6 +29,7 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    bootstrap: { getSettings: { useQuery: () => ({ data: undefined }) } },
     useUtils: () => ({}),
     account: {
       getAccountConfig: { useQuery: () => ({ data: undefined }) },
@@ -77,12 +78,40 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
   act(() => root.render(element));
   return {
     host,
+    render: (element: Parameters<typeof root.render>[0]) => act(() => root.render(element)),
     close: () => {
       act(() => root.unmount());
       host.remove();
     },
   };
 }
+it('空间预热不读内容，停稳才读；再次滑动暂停读取但不清空已显示内容', async () => {
+  const page = (readEnabled: boolean) =>
+    createElement(QzoneWorkspace, {
+      active: true,
+      readEnabled,
+      selfUin: '10001',
+      nickname: '合成自己',
+      spaceRequest: { accountUin: '10001', uin: '10002', revision: 'settled-entry' },
+    });
+  const f = mount(page(false));
+  try {
+    await act(async () => {});
+    expect(fixture.posts).not.toHaveBeenCalled();
+    f.render(page(true));
+    await act(async () => {});
+    expect(fixture.posts).toHaveBeenCalled();
+    const content = f.host.querySelector('[data-qzone-tid="a"]');
+    expect(content).not.toBeNull();
+    const calls = fixture.posts.mock.calls.length;
+    f.render(page(false));
+    await act(async () => {});
+    expect(f.host.querySelector('[data-qzone-tid="a"]')).toBe(content);
+    expect(fixture.posts).toHaveBeenCalledTimes(calls);
+  } finally {
+    f.close();
+  }
+});
 it('已在对方空间时，说说头像与昵称一律打开名片', async () => {
   const profile = vi.fn();
   const f = mount(

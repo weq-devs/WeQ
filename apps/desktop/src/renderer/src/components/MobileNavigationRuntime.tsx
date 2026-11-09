@@ -2,6 +2,7 @@ import { useEffect, type RefObject } from 'react';
 import { attachMobileHistory, mobileBack, mobileBackTarget } from '../hooks/useMobileNavigation';
 import { shouldCompleteMobileSwipe } from '../lib/mobileNavigation';
 import { topSurface } from '../lib/surfaceEscape';
+import { setMobileNavigationBusy } from '../lib/mobilePageLoading';
 import '../styles/mobile-navigation.css';
 
 export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement | null> }) {
@@ -43,6 +44,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       }
       swipe = undefined;
       delete element.dataset.mobileSwiping;
+      setMobileNavigationBusy(false);
     };
     const animate = (
       target: HTMLElement,
@@ -51,7 +53,9 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       done?: () => void,
     ) => {
       animation?.cancel();
+      setMobileNavigationBusy(true);
       if (!target.animate) {
+        setMobileNavigationBusy(false);
         done?.();
         return;
       }
@@ -60,7 +64,10 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
         easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
       });
       animation.finished.then(
-        () => done?.(),
+        () => {
+          setMobileNavigationBusy(false);
+          done?.();
+        },
         () => {},
       );
     };
@@ -72,11 +79,15 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       }
       if (topSurface(document)) return;
       const direction = (event as CustomEvent<string>).detail;
+      setMobileNavigationBusy(true);
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         const target =
           direction === 'root' ? contentTarget() : (mobileBackTarget() ?? contentTarget());
-        if (!target) return;
+        if (!target) {
+          setMobileNavigationBusy(false);
+          return;
+        }
         const horizontal = direction === 'root' ? tabDirection : direction === 'back' ? -1 : 1;
         tabDirection = 0;
         animate(
@@ -153,6 +164,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
           return;
         }
         swipe.dragging = true;
+        setMobileNavigationBusy(true);
         element.dataset.mobileSwiping = 'true';
       }
       if (!event.cancelable) {

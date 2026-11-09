@@ -37,7 +37,7 @@ import { openExternalLink } from '../lib/openExternalLink';
 import { z } from 'zod';
 import { PageSnapshotScope, usePageDataCache, usePageState } from '../components/PageSnapshots';
 import { PageScrollSnapshot } from '../components/PageScrollSnapshot';
-import { useTabActive } from '../components/RetainedTabs';
+import { TabActivity, useTabActive } from '../components/RetainedTabs';
 import { pageValue } from '../lib/pageSnapshots';
 import { QzoneProfileAvatar, QzonePersonButton } from '../components/QzoneProfileAvatar';
 import {
@@ -150,37 +150,43 @@ function QzonePage({
   );
 }
 
-/** Mount on the first visit and retain only the current account's workspace. */
+/** 停稳后首次挂载；暂停读取时保留当前画面，离开工作区仍卸载。 */
 export const QzoneWorkspace = memo(function QzoneWorkspace({
   active,
+  readEnabled = active,
   selfUin,
   nickname,
   spaceRequest,
   onSpaceChange,
 }: {
   active: boolean;
+  readEnabled?: boolean;
   selfUin: string;
   nickname: string;
   spaceRequest?: QzoneSpaceRequest | null;
   onSpaceChange?: (uin: string) => void;
 }) {
   const parentActive = useTabActive();
+  const [loaded, setLoaded] = useState(readEnabled);
+  if (readEnabled && !loaded) setLoaded(true);
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
-    enabled: active && parentActive,
+    enabled: active && parentActive && readEnabled,
   });
-  return active && parentActive ? (
-    <PageSnapshotScope name="qzone">
-      <PageScrollSnapshot style={{ height: '100%', minHeight: 0 }}>
-        <QzoneView
-          active={active}
-          selfUin={selfUin}
-          nickname={nickname}
-          spaceRequest={spaceRequest}
-          onSpaceChange={onSpaceChange}
-          personClickAction={settings.data?.qzonePersonClickAction ?? 'space'}
-        />
-      </PageScrollSnapshot>
-    </PageSnapshotScope>
+  return active && parentActive && (loaded || readEnabled) ? (
+    <TabActivity active={readEnabled}>
+      <PageSnapshotScope name="qzone">
+        <PageScrollSnapshot style={{ height: '100%', minHeight: 0 }}>
+          <QzoneView
+            active={active}
+            selfUin={selfUin}
+            nickname={nickname}
+            spaceRequest={spaceRequest}
+            onSpaceChange={onSpaceChange}
+            personClickAction={settings.data?.qzonePersonClickAction ?? 'space'}
+          />
+        </PageScrollSnapshot>
+      </PageSnapshotScope>
+    </TabActivity>
   ) : null;
 });
 

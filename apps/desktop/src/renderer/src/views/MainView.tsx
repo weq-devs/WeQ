@@ -21,6 +21,8 @@ import React, {
 import { z } from 'zod';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
+import { useMobilePageSettled } from '../hooks/useMobilePageSettled';
+import { MobileSidebarPages } from '../components/MobileSidebarPages';
 import { withBrowserFile } from '../lib/browserFileUpload';
 import { stageAccountFile } from '../lib/accountFilePicker';
 import { WEB_NOTICE_OPEN } from '../components/WebNotifications';
@@ -189,6 +191,8 @@ import {
   ChannelView,
   DressUpDialog,
   GroupBugDialog,
+  AgentLabView,
+  AnnualReportView,
 } from '../components/lazyWorkspaces';
 import { useSettingsMaintenance } from '../hooks/useSettingsMaintenance';
 import { useRecalledMessages } from '../hooks/useRecalledMessages';
@@ -398,14 +402,6 @@ import {
   type DatabaseDamagedEvent,
 } from '../components/DatabaseDamagedDialog';
 
-const AgentLabView = lazy(() =>
-  import('./AgentLabView').then((module) => ({ default: module.AgentLabView })),
-);
-const AnnualReportView = lazy(() =>
-  import('./annual-report/AnnualReportView').then((module) => ({
-    default: module.AnnualReportView,
-  })),
-);
 const AnalysisReportPage = lazy(() =>
   import('./analysis/AnalysisReportPage').then((module) => ({
     default: module.AnalysisReportPage,
@@ -10314,6 +10310,10 @@ function MainWorkspace(): ReactElement {
     revision: number;
   } | null>(null);
   const sidebarView = shell.view === 'agentlab' ? 'messages' : shell.view;
+  const qzonePageReady = useMobilePageSettled(
+    shell.view === 'qzone' && !arkFeedState,
+    user.identityValue,
+  );
   const [contactDirectoryQuery, setContactDirectoryQuery] = useState('');
   const [overviewCalendar, setOverviewCalendar] = useState<{ query: string } | null>(null);
   calendarOpenRef.current = overviewCalendar !== null;
@@ -10985,65 +10985,73 @@ function MainWorkspace(): ReactElement {
             refreshingContacts={refreshingContacts}
             onSidebarWidthChange={shell.updateSidebarWidth}
             sidebarContent={
-              <RetainedTabs snapshotKey="sidebar" activeKey={sidebarView} scrollable>
-                {fullBleedView ? null : (
-                  <>
-                    <ChatSidebarContent
-                      user={user}
-                      view={sidebarView}
-                      contactTab={shell.contactTab}
-                      conversations={
-                        shell.view === 'contacts'
-                          ? contactDirectoryConversations
-                          : sidebarView === 'messages'
-                            ? sidebarConversations
-                            : conversations
-                      }
-                      activeConversationId={
-                        shell.view === 'agentlab' &&
-                        cloneSearchTarget &&
-                        cloneSearchTarget.kind !== 'assistant'
-                          ? `virtual:${cloneSearchTarget.kind}:${cloneSearchTarget.ownerId}`
-                          : shell.view === 'agentlab' && virtualOpen
-                            ? `virtual:${virtualOpen.kind}:${virtualOpen.id}`
-                            : shell.activeConversationId
-                      }
-                      selectedGroupConversationId={shell.selectedGroupConversationId}
-                      selectedContactId={shell.selectedContactId}
-                      conversationPrefs={conversationPrefs}
-                      drafts={drafts}
-                      contacts={buddyContacts}
-                      categoryDefinitions={(categories.data ?? []) as CategoryWire[]}
-                      specialContactSections={specialContactSections}
-                      historicalContactSections={historicalContactSections}
-                      loading={sidebarLoading}
-                      onLoadMoreConversations={loadMoreContacts}
-                      conversationsHasMore={contactsHasMore}
-                      conversationsLoadingMore={contactsLoadingMore}
-                      query={shell.query}
-                      onSelectConversation={handleSelectConversation}
-                      onSelectContact={(id) =>
-                        settingsNavigation.navigate(() => {
-                          setSurfaceNavigation((value) => value + 1);
-                          shell.selectContact(id);
-                        })
-                      }
-                      onSelectGroup={(id) =>
-                        settingsNavigation.navigate(() => {
-                          setSurfaceNavigation((value) => value + 1);
-                          shell.selectGroup(id);
-                        })
-                      }
-                      activateToolsOnSelect={false}
-                    />
-                    <OverlayScrollbar
-                      targetSelector=".app-shell .sidebar-body [data-retained-panel]:not([hidden])"
-                      className="weq-sidebar-scrollbar"
-                      refreshKey={`sidebar:${shell.view}:${shell.query}`}
-                    />
-                  </>
-                )}
-              </RetainedTabs>
+              <MobileSidebarPages
+                key={user.identityValue}
+                activeKey={sidebarView}
+                renderPage={(view) =>
+                  view === 'messages' || view === 'contacts' || !fullBleedView ? (
+                    <>
+                      <ChatSidebarContent
+                        user={user}
+                        view={view}
+                        contactTab={shell.contactTab}
+                        conversations={
+                          view === 'contacts'
+                            ? contactDirectoryConversations
+                            : view === 'messages'
+                              ? sidebarConversations
+                              : conversations
+                        }
+                        activeConversationId={
+                          shell.view === 'agentlab' &&
+                          cloneSearchTarget &&
+                          cloneSearchTarget.kind !== 'assistant'
+                            ? `virtual:${cloneSearchTarget.kind}:${cloneSearchTarget.ownerId}`
+                            : shell.view === 'agentlab' && virtualOpen
+                              ? `virtual:${virtualOpen.kind}:${virtualOpen.id}`
+                              : shell.activeConversationId
+                        }
+                        selectedGroupConversationId={shell.selectedGroupConversationId}
+                        selectedContactId={shell.selectedContactId}
+                        conversationPrefs={conversationPrefs}
+                        drafts={drafts}
+                        contacts={buddyContacts}
+                        categoryDefinitions={(categories.data ?? []) as CategoryWire[]}
+                        specialContactSections={specialContactSections}
+                        historicalContactSections={historicalContactSections}
+                        loading={sidebarLoading}
+                        onLoadMoreConversations={
+                          view === sidebarView ? loadMoreContacts : undefined
+                        }
+                        conversationsHasMore={contactsHasMore}
+                        conversationsLoadingMore={contactsLoadingMore}
+                        query={shell.query}
+                        onSelectConversation={handleSelectConversation}
+                        onSelectContact={(id) =>
+                          settingsNavigation.navigate(() => {
+                            setSurfaceNavigation((value) => value + 1);
+                            shell.selectContact(id);
+                          })
+                        }
+                        onSelectGroup={(id) =>
+                          settingsNavigation.navigate(() => {
+                            setSurfaceNavigation((value) => value + 1);
+                            shell.selectGroup(id);
+                          })
+                        }
+                        activateToolsOnSelect={false}
+                      />
+                      {view === sidebarView && (
+                        <OverlayScrollbar
+                          targetSelector='.app-shell .sidebar-body [data-mobile-sidebar-active="true"] [data-retained-panel]:not([hidden])'
+                          className="weq-sidebar-scrollbar"
+                          refreshKey={`sidebar:${shell.view}:${shell.query}`}
+                        />
+                      )}
+                    </>
+                  ) : null
+                }
+              />
             }
             mainContent={
               <WorkspaceContent>
@@ -11063,6 +11071,7 @@ function MainWorkspace(): ReactElement {
                   <QzoneWorkspace
                     key={user.identityValue}
                     active={shell.view === 'qzone' && !arkFeedState}
+                    readEnabled={qzonePageReady}
                     selfUin={user.identityValue}
                     nickname={user.displayName}
                     spaceRequest={qzoneSpaceRequest}

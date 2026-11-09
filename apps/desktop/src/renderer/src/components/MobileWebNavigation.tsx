@@ -27,6 +27,9 @@ import { RemoteShellMenuButton } from './RemoteShellMenus';
 import { OnlineStatus } from './OnlineStatus';
 import { useWorkspaceMobilePage } from './WorkspacePages';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
+import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
+import { preloadMobilePages } from '../lib/mobilePageLoading';
+import { mobilePageLoaders } from './lazyWorkspaces';
 import '../styles/mobile-web.css';
 
 export function MobileWebNavigation({
@@ -65,6 +68,11 @@ export function MobileWebNavigation({
   onOpenProfile?: () => void;
 }) {
   const mobilePage = useWorkspaceMobilePage();
+  const mobile = useMobileWebLayout();
+  useEffect(() => {
+    if (mobile) return preloadMobilePages(mobilePageLoaders);
+    return undefined;
+  }, [mobile]);
   const openTool = useWorkspaceMenu((state) => state.openMobileTool);
   const moreOpen = view === 'more' && !mobilePage;
   useEffect(() => {
