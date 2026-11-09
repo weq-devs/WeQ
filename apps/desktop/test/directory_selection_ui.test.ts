@@ -15,6 +15,7 @@ import {
 } from '../src/renderer/src/lib/conversationDirectory';
 import {
   ContentSelectionProvider,
+  useCurrentContentSelection,
   useContentExportRequest,
 } from '../src/renderer/src/state/contentSelection';
 
@@ -27,6 +28,95 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', new Storage());
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it.each([false, true])('好友 Shift 连选不跳过重复分组中的密友，反向=%s', (reverse) => {
+  const base = createTemplateDemoData().contacts[0]!;
+  const contacts = ['a', 'b', 'c', 'd'].map((id) => ({
+    ...base,
+    id,
+    displayName: `合成好友 ${id}`,
+    extRelation: id === 'b' ? { displayId: 26 } : undefined,
+  }));
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const onSelect = vi.fn();
+  function Probe() {
+    return h('output', null, JSON.stringify(useCurrentContentSelection()));
+  }
+  const selected = () =>
+    JSON.parse(host.querySelector('output')!.textContent!).scope.ids as string[];
+  const row = (category: number, index: number) =>
+    host.querySelectorAll('.contact-cat')[category]!.querySelectorAll('button.contact-row')[index]!;
+  const click = (element: Element, modifiers: MouseEventInit = {}) =>
+    act(() =>
+      element.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, ...modifiers }),
+      ),
+    );
+  try {
+    act(() =>
+      root.render(
+        h(
+          ContentSelectionProvider,
+          null,
+          h(ContactList, {
+            contacts,
+            specialSections: [
+              { id: 'special:care', name: '特别关心', items: [contacts[2]!] },
+              { id: 'special:intimate', name: '亲密关系', items: [contacts[1]!] },
+            ],
+            activeContactId: null,
+            onSelect,
+          }),
+          h(Probe),
+        ),
+      ),
+    );
+    // 特殊分组先保持折叠，在普通分组内选择完整范围。
+    click(host.querySelectorAll('.contact-cat-header')[2]!);
+    click(row(2, reverse ? 3 : 0), { ctrlKey: true });
+    click(row(2, reverse ? 0 : 3), { shiftKey: true });
+    expect(selected()).toEqual(['a', 'b', 'c', 'd']);
+    expect(host.querySelectorAll('.is-multiselected')).toHaveLength(4);
+    // 展开重复项后，从普通分组中的密友作为端点连选，不能跳到顶部的副本。
+    click(host.querySelectorAll('.contact-cat-header')[0]!);
+    click(host.querySelectorAll('.contact-cat-header')[1]!);
+    click(row(2, 1), { shiftKey: true });
+    expect(selected()).toEqual(reverse ? ['b', 'c', 'd'] : ['a', 'b']);
+    // 任一副本都能取消该好友，再用修饰键追加一个跨分组范围。
+    click(row(1, 0), { ctrlKey: true });
+    expect(selected()).not.toContain('b');
+    click(row(2, 1), { ctrlKey: true, shiftKey: true });
+    expect(new Set(selected())).toEqual(new Set(reverse ? ['a', 'b', 'c', 'd'] : ['a', 'b']));
+    expect(selected().filter((id) => id === 'b')).toHaveLength(1);
+    click(row(2, 0));
+    act(() =>
+      row(2, 0).dispatchEvent(
+        new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown', shiftKey: true }),
+      ),
+    );
+    expect(selected()).toEqual(['a', 'b']);
+    act(() =>
+      row(2, 1).dispatchEvent(
+        new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown', shiftKey: true }),
+      ),
+    );
+    expect(selected()).toEqual(['a', 'b', 'c']);
+    expect(row(1, 0).getAttribute('aria-pressed')).toBe('true');
+    expect(row(2, 1).getAttribute('aria-pressed')).toBe('true');
+    act(() =>
+      row(2, 1).dispatchEvent(
+        new KeyboardEvent('keydown', { bubbles: true, key: 'a', metaKey: true }),
+      ),
+    );
+    expect(selected()).toEqual(['a', 'b', 'c', 'd']);
+    expect(onSelect).not.toHaveBeenCalled();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 
 it.each(['会话', '联系人'])('%s 搜索复用原添加按钮和图标，关闭或 Escape 后恢复', (noun) => {
   const host = document.createElement('div');

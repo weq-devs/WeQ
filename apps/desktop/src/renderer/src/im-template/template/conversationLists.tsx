@@ -1490,15 +1490,24 @@ export function ContactList({
     friendDirectory?.categories,
     friendDirectory?.assignments,
   ]);
-  const selectionIds = useMemo(
-    () => [...new Set(categories.flatMap((category) => category.items.map((item) => item.id)))],
+  // 同一好友在特别关心、亲密关系及普通分组中各有独立的范围位置。
+  const selectionRows = useMemo(
+    () =>
+      new Map(
+        categories.flatMap((category) =>
+          category.items.map((item) => [JSON.stringify([category.id, item.id]), item.id]),
+        ),
+      ),
     [categories],
   );
+  const selectionIds = useMemo(() => [...selectionRows.keys()], [selectionRows]);
+  const getSelectionId = useCallback((id: string) => selectionRows.get(id)!, [selectionRows]);
 
   // 默认全部折叠。
   const [expanded, setExpanded] = useState<Record<string | number, boolean>>({});
   const multi = useMultiSelection({
     ids: selectionIds,
+    getSelectionId,
     selected: selection.selectedIds,
     onChange: selection.setSelectedIds,
     anchorRef: selection.anchorRef,
@@ -1701,7 +1710,7 @@ export function ContactList({
                             ? selection.selectedIds.has(contact.id)
                             : undefined
                         }
-                        {...multi.itemProps(contact.id)}
+                        {...multi.itemProps(JSON.stringify([category.id, contact.id]))}
                         draggable={
                           contacts.some((row) => row.id === contact.id) &&
                           friendDirectory?.available &&
