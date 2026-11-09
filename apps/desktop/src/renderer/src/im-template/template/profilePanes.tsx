@@ -811,6 +811,7 @@ export function ContactProfileDialog({
  */
 export function GroupProfileDialog({
   conversation,
+  anchor,
   onClose,
   detailsKnown = true,
   embedded = false,
@@ -819,6 +820,7 @@ export function GroupProfileDialog({
   onOpenChat,
 }: {
   conversation: Extract<Conversation, { type: 'group' }> | undefined;
+  anchor?: HTMLElement | null;
   onClose: () => void;
   detailsKnown?: boolean;
   embedded?: boolean;
@@ -854,6 +856,7 @@ export function GroupProfileDialog({
     <ProfileSurface
       embedded={embedded}
       title="群资料"
+      anchor={anchor}
       presentation="popover"
       className="weq-profile-layer weq-group-profile-layer"
       onClose={onClose}

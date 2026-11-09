@@ -15,13 +15,10 @@ export function GraphCanvas({
   graph,
   selectedId,
   onSelect,
-  onOpenPerson,
 }: {
   graph: BuiltGraph;
   selectedId: string | null;
-  onSelect: (node: GNode | null) => void;
-  /** 双击人节点：交给应用层打开资料卡。 */
-  onOpenPerson?: (node: GNode, anchor: { x: number; y: number }) => void;
+  onSelect: (node: GNode | null, anchor: { x: number; y: number }) => void;
 }) {
   const privacy = usePrivacyStore((state) => state.effective);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -376,19 +373,23 @@ export function GraphCanvas({
     if (wrapRef.current) wrapRef.current.style.cursor = hit ? 'pointer' : 'grab';
   }
 
-  function endPointer(_e: React.PointerEvent<HTMLDivElement>) {
+  function endPointer(e: React.PointerEvent<HTMLDivElement>, cancelled = false) {
     const node = dragNodeRef.current;
     if (node) {
-      if (movedRef.current < 4) onSelect(node);
       node.fx = null;
       node.fy = null;
 
       simulationRef.current?.alphaTarget(0);
-    } else if (panRef.current && movedRef.current < 4) {
-      onSelect(null);
     }
+    const clicked = !cancelled && movedRef.current < 4 && (node || panRef.current);
     dragNodeRef.current = null;
     panRef.current = null;
+    if (clicked) {
+      hoverRef.current = null;
+      setHoverNode(null);
+      onSelect(node, { x: e.clientX, y: e.clientY });
+      scheduleDraw();
+    }
   }
 
   function onWheel(e: React.WheelEvent<HTMLDivElement>) {
@@ -412,19 +413,10 @@ export function GraphCanvas({
       className="weq-graph-canvas-wrap"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={endPointer}
-      onDoubleClick={(e) => {
-        // 双击人节点打开资料卡（群节点没有资料卡，保持只做选中）。
-        if (!onOpenPerson) return;
-        const rect = wrapRef.current?.getBoundingClientRect();
-        if (!rect) return;
-        const hit = nodeAt(e.clientX - rect.left, e.clientY - rect.top);
-        if (hit && hit.kind === 'person' && hit.uin) {
-          onOpenPerson(hit, { x: e.clientX, y: e.clientY });
-        }
-      }}
+      onPointerUp={(e) => endPointer(e)}
+      onPointerCancel={(e) => endPointer(e, true)}
       onPointerLeave={(e) => {
-        endPointer(e);
+        endPointer(e, true);
         hoverRef.current = null;
         setHoverNode(null);
       }}
@@ -443,7 +435,6 @@ export function GraphCanvas({
               <span>
                 {hoverNode.isFriend ? '好友' : '群友'} · 共 {hoverNode.groupCount} 群
                 {hoverNode.intimacy ? ` · 亲密度 ${hoverNode.intimacy}` : ''}
-                {onOpenPerson ? ' · 双击看资料' : ''}
               </span>
             ) : (
               <span>

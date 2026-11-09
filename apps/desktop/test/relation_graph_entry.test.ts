@@ -21,7 +21,36 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 
 // 布局引擎不参与入口判断，避免在 DOM 单测中启动动画或读取画布。
 vi.mock('../src/renderer/src/components/relationGraph/GraphCanvas', () => ({
-  GraphCanvas: () => h('div', { 'data-testid': 'graph-canvas' }),
+  GraphCanvas: ({ graph, onSelect }) =>
+    h(
+      'div',
+      { 'data-testid': 'graph-canvas' },
+      graph.nodes.map((node) =>
+        h(
+          'button',
+          {
+            key: node.id,
+            'data-kind': node.kind,
+            onClick: () => onSelect(node, { x: 320, y: 240 }),
+          },
+          node.label,
+        ),
+      ),
+    ),
+}));
+
+vi.mock('../src/renderer/src/im-template/template/profilePanes', () => ({
+  GroupProfileDialog: ({ conversation, anchor, onClose }) =>
+    h(
+      'div',
+      {
+        'data-testid': 'group-profile',
+        'data-anchor-left': anchor?.style.left,
+        'data-anchor-top': anchor?.style.top,
+      },
+      conversation.group.name,
+      h('button', { onClick: onClose }, '关闭群名片'),
+    ),
 }));
 
 afterEach(() => vi.unstubAllGlobals());
@@ -67,6 +96,57 @@ it('群交集保留统计首页，加载完成后可进入图谱并主动返回'
     expect(host.querySelector('.weq-relhome')).not.toBeNull();
     act(() => host.querySelector<HTMLButtonElement>('.weq-relhome-cta')!.click());
     expect(host.querySelector('[data-testid="graph-canvas"]')).not.toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('单击群友或群头像直接打开旁边的标准名片，不再显示右上角信息卡', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  query.isLoading = false;
+  query.data = {
+    selfUin: '10001',
+    nodes: [
+      {
+        uid: 'u_fixture',
+        uin: '10002',
+        nick: '合成群友',
+        card: '群内名称',
+        groupCount: 2,
+        groupCodes: ['20001', '20002'],
+        intimacy: 0,
+        isFriend: true,
+      },
+    ],
+    groups: [{ code: '20001', name: '合成群聊', memberCount: 12, sharedCount: 1, myLevel: 3 }],
+    scannedGroups: 2,
+    builtAt: 0,
+  };
+  const onOpenMember = vi.fn();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const click = (selector: string) =>
+    act(() => host.querySelector<HTMLButtonElement>(selector)!.click());
+  try {
+    act(() => root.render(h(RelationGraphView, { onOpenMember })));
+    click('.weq-relhome-cta');
+    click('[data-kind="person"]');
+    expect(onOpenMember).toHaveBeenCalledWith(query.data.nodes[0], { x: 320, y: 240 });
+    expect(host.querySelector('.weq-graph-detail')).toBeNull();
+    click('[title="群聊网络"]');
+    click('[data-kind="group"]');
+    const card = host.querySelector('[data-testid="group-profile"]');
+    expect(card?.textContent).toContain('合成群聊');
+    expect(card?.getAttribute('data-anchor-left')).toBe('320px');
+    expect(card?.getAttribute('data-anchor-top')).toBe('240px');
+    expect(host.querySelector('.weq-graph-detail')).toBeNull();
+    click('[data-testid="group-profile"] button');
+    expect(host.querySelector('[data-testid="group-profile"]')).toBeNull();
+    click('[data-kind="group"]');
+    click('[title="群友圈子"]');
+    expect(host.querySelector('[data-testid="group-profile"]')).toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();
