@@ -51,7 +51,6 @@ import {
 } from '../../lib/conversationDirectory';
 import { VirtualConversationAvatar } from '../../components/VirtualConversationAvatar';
 import { groupRelationship, RelationshipDirectoryContext } from '../../lib/contactRelationship';
-import { GroupRelationshipStatus } from '../../components/RelationshipStatus';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
 import {
   conversationAnalysisTarget,
@@ -1102,8 +1101,7 @@ export function GroupList({
   const historicalCategory = useMemo(
     () => ({
       mode: 'historical',
-      label: '我不在群内',
-      historical: true,
+      label: '历史群聊',
       items: searchable.filter(
         (conversation) =>
           conversation.type === 'group' &&
@@ -1115,7 +1113,7 @@ export function GroupList({
   const unknownCategory = useMemo(
     () => ({
       mode: 'membership-unknown',
-      label: '入群状态待确认',
+      label: '其他群聊',
       items: searchable.filter(
         (conversation) =>
           conversation.type === 'group' &&
@@ -1342,16 +1340,11 @@ function GroupNotificationSection({
               <span className="row-main">
                 <strong>
                   <span className="row-title-text">{displayGroupName(conversation.group)}</span>
-                  {!conversation.generated ? (
-                    <GroupRelationshipStatus group={conversation.group} compact />
-                  ) : null}
                 </strong>
                 <span>
-                  {category.historical
-                    ? '已不在当前群列表'
-                    : conversation.group.memberCount > 0
-                      ? `${conversation.group.memberCount} 位成员`
-                      : '人数未读取'}
+                  {conversation.group.memberCount > 0
+                    ? `${conversation.group.memberCount} 位成员`
+                    : '人数未读取'}
                 </span>
               </span>
               {conversationDirectory?.showContactUnreadCount &&

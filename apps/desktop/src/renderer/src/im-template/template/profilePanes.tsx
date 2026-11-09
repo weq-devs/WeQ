@@ -908,7 +908,9 @@ export function GroupProfileDialog({
               {conversation.generated ? <VirtualConversationBadge group /> : null}
             </span>
             <strong className="weq-profile-name">{group.name}</strong>
-            {!conversation.generated ? <GroupRelationshipStatus group={group} /> : null}
+            {!embedded && !conversation.generated ? (
+              <GroupRelationshipStatus group={group} />
+            ) : null}
             <button className="weq-profile-id" type="button" onClick={copyCode} title="点击复制">
               <span>{conversation.generated ? 'ID' : '群号'}</span>
               <span className="weq-number">{identityValue}</span>
