@@ -33,6 +33,7 @@ export function MobileSidebarPages({
       style={{
         display: key === activeKey ? 'flex' : 'none',
         flex: 1,
+        height: '100%',
         minHeight: 0,
         minWidth: 0,
       }}
