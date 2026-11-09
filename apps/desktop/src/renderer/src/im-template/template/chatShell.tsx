@@ -6,6 +6,7 @@ import {
   useWorkspaceMainPageOpen,
   useWorkspacePageOpen,
   useWorkspaceSidecarOpen,
+  useWorkspaceMobilePage,
 } from '../../components/WorkspacePages';
 import { cn } from './classNames';
 import { AppRail } from './rail';
@@ -103,6 +104,7 @@ export function ChatShell({
   activeRailItem?: 'settings' | 'dressup';
 }) {
   const pageOpen = useWorkspacePageOpen();
+  const mobilePage = useWorkspaceMobilePage();
   const [selfProfileOpen, setSelfProfileOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   useMobileWebViewport(root, IS_WEB);
@@ -112,9 +114,11 @@ export function ChatShell({
   const shellStyle = {
     '--sidebar-width': `${sidebarHidden ? 0 : sidebarWidth}px`,
   } as CSSProperties;
-  const mobileDetail = pageOpen || ((view === 'messages' || view === 'contacts') && mainOpen);
+  const mobileDetail =
+    (pageOpen && !mobilePage) || ((view === 'messages' || view === 'contacts') && mainOpen);
   const mobileWorkspace =
-    view !== 'messages' && view !== 'contacts' && view !== 'tools' && view !== 'more';
+    Boolean(mobilePage) ||
+    (view !== 'messages' && view !== 'contacts' && view !== 'tools' && view !== 'more');
 
   return (
     <div
@@ -144,9 +148,6 @@ export function ChatShell({
           onOpenDressUp={onOpenDressUp}
           onOpenCollection={onOpenCollection}
           onOpenProfile={() => setSelfProfileOpen(true)}
-          accountControls={
-            typeof railFooterContent === 'function' ? railFooterContent(null) : railFooterContent
-          }
         />
       )}
       <TitleBar

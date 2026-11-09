@@ -3,6 +3,13 @@ import type { AssistantActivity, WorkspaceTaskIndicator } from '../lib/workspace
 import { readWorkspaceResults, rememberWorkspaceResults } from '../lib/workspaceReadState';
 
 export const TASK_READ_LIMIT = 4096;
+export type MobileWorkspaceTool =
+  | 'tasks'
+  | 'assistant'
+  | 'analysis'
+  | 'export'
+  | 'viewer'
+  | 'composition';
 
 function retainTaskResults(results: Record<string, string>) {
   return Object.fromEntries(Object.entries(results).slice(-TASK_READ_LIMIT));
@@ -17,6 +24,8 @@ interface WorkspaceMenuState {
   assistantUnread: boolean;
   taskOpenRequest: number;
   openTasks: () => void;
+  mobileToolRequest: { tool: MobileWorkspaceTool } | null;
+  openMobileTool: (tool: MobileWorkspaceTool) => void;
   taskScope: string | null;
   taskItems: WorkspaceTaskIndicator[];
   readTaskResults: Record<string, string>;
@@ -38,6 +47,8 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
   assistantUnread: false,
   taskOpenRequest: 0,
   openTasks: () => set((state) => ({ taskOpenRequest: state.taskOpenRequest + 1 })),
+  mobileToolRequest: null,
+  openMobileTool: (tool) => set({ mobileToolRequest: { tool } }),
   taskScope: null,
   taskItems: [],
   readTaskResults: {},

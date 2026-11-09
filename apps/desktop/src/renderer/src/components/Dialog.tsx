@@ -152,6 +152,7 @@ export function Modal({
   centered = false,
   dismissOnOutside = true,
   portalTarget,
+  mobileChrome = false,
 }: {
   onClose?: () => void;
   children: ReactNode;
@@ -171,6 +172,7 @@ export function Modal({
   /** 安全验证、编辑正文等流程可显式禁用点外关闭。 */
   dismissOnOutside?: boolean;
   portalTarget?: Element | null;
+  mobileChrome?: boolean;
 }): ReactElement | null {
   const document = useRenderDocument();
   const tabActive = useTabActive();
@@ -228,6 +230,7 @@ export function Modal({
         title={title ?? '详情'}
         onClose={onClose}
         placement={presentation === 'sidecar' ? 'sidecar' : 'main'}
+        mobileChrome={mobileChrome}
       >
         <div
           className={`weq-modal${className ? ` ${className}` : ''}`}

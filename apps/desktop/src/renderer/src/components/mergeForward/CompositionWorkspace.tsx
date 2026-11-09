@@ -31,6 +31,8 @@ import { Modal } from '../Dialog';
 import { useToast } from '../Toast';
 import { HoverTooltip } from '../HoverTooltip';
 import { COMPOSITION_DISPOSE_EVENT } from '../../hooks/useCompositionWindow';
+import { useMobileWebLayout } from '../../hooks/useMobileWebViewport';
+import { WorkspacePage } from '../WorkspacePages';
 import {
   backupComposition,
   acknowledgeCompositionBackup,
@@ -101,6 +103,7 @@ export function CompositionWorkspace({
   ) => Promise<void>;
   onOpenTarget: (target: MfTarget) => void;
 }) {
+  const mobile = useMobileWebLayout();
   const locked = useAppLock((state) => state.locked);
   const visible = Boolean(popup || fallback) && !locked;
   useEffect(() => {
@@ -445,6 +448,17 @@ export function CompositionWorkspace({
     : undefined;
   const canDrop =
     !busy && draggedEntry !== undefined && !compositionInsertionError(working, draggedEntry, kind);
+  const close = () => {
+    if (busy) return;
+    void perform(async () => {
+      if (dirty && binding) await persist(structuredClone(working), binding);
+      if (dirtyRef.current) throw new Error('内容仍在更新，请稍后再关闭');
+      setDraft(working);
+      progressRef.current = null;
+      setProgress(null);
+      onClose();
+    });
+  };
   if (!visible) return null;
   const content = (
     <RenderDocumentContext.Provider value={ownerDocument}>
@@ -479,7 +493,7 @@ export function CompositionWorkspace({
               </CompositionButton>
             </>
           ) : null}
-          {fallback ? (
+          {fallback && !mobile ? (
             <CompositionButton
               type="button"
               title="打开独立窗口"
@@ -495,16 +509,7 @@ export function CompositionWorkspace({
             aria-label="关闭合成窗口"
             disabled={busy}
             disabledReason="正在处理当前操作，请稍后"
-            onClick={() =>
-              void perform(async () => {
-                if (dirty && binding) await persist(structuredClone(working), binding);
-                if (dirtyRef.current) throw new Error('内容仍在更新，请稍后再关闭');
-                setDraft(working);
-                progressRef.current = null;
-                setProgress(null);
-                onClose();
-              })
-            }
+            onClick={close}
           >
             <X size={18} />
           </CompositionButton>
@@ -1009,5 +1014,13 @@ export function CompositionWorkspace({
       ) : null}
     </RenderDocumentContext.Provider>
   );
-  return popup ? createPortal(content, popup.document.body) : content;
+  return popup ? (
+    createPortal(content, popup.document.body)
+  ) : mobile ? (
+    <WorkspacePage title="合成聊天记录" onClose={close} mobileChrome>
+      {content}
+    </WorkspacePage>
+  ) : (
+    content
+  );
 }

@@ -426,6 +426,30 @@
     max-width: none;
   }
 
+  .weq-web-shell .weq-workspace-page .weq-workspace-menu {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .weq-web-shell .weq-workspace-page :is(.weq-workspace-menu, .weq-tools-modal) {
+    max-width: none;
+    height: 100%;
+    max-height: none;
+  }
+
+  .weq-web-shell .weq-workspace-page .weq-composition-workspace.is-fallback {
+    position: relative;
+    inset: auto;
+    z-index: auto;
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
   .weq-web-shell .chat-main {
     transition: none;
   }

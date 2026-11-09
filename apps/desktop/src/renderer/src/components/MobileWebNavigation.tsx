@@ -12,6 +12,12 @@ import {
   Settings,
   Sparkles,
   Star,
+  ListTodo,
+  Bot,
+  BarChart3,
+  Download,
+  FolderOpen,
+  FileStack,
 } from 'lucide-react';
 import { Avatar } from '../im-template/template/primitives';
 import type { MainView, User } from '../im-template/template/types';
@@ -19,6 +25,8 @@ import { displayUserName } from '../im-template/template/user';
 import { TitleBarSearch } from './TitleBarSearch';
 import { RemoteShellMenuButton } from './RemoteShellMenus';
 import { OnlineStatus } from './OnlineStatus';
+import { useWorkspaceMobilePage } from './WorkspacePages';
+import { useWorkspaceMenu } from '../state/workspaceMenu';
 import '../styles/mobile-web.css';
 
 export function MobileWebNavigation({
@@ -39,7 +47,6 @@ export function MobileWebNavigation({
   onOpenDressUp,
   onOpenCollection,
   onOpenProfile,
-  accountControls,
 }: {
   user: User;
   view: MainView;
@@ -58,9 +65,10 @@ export function MobileWebNavigation({
   onOpenDressUp: () => void;
   onOpenCollection: () => void;
   onOpenProfile?: () => void;
-  accountControls?: ReactNode;
 }) {
-  const moreOpen = view === 'more';
+  const mobilePage = useWorkspaceMobilePage();
+  const openTool = useWorkspaceMenu((state) => state.openMobileTool);
+  const moreOpen = view === 'more' && !mobilePage;
   useEffect(() => {
     if (!moreOpen) return;
     const mobile = window.matchMedia('(max-width: 760px)');
@@ -73,6 +81,7 @@ export function MobileWebNavigation({
   const primary = view === 'messages' || view === 'contacts' || view === 'qzone';
   const active = moreOpen || !primary ? 'more' : view;
   const select = (next: MainView) => {
+    mobilePage?.close();
     if (next !== view) onViewChange(next);
   };
   const entries = [
@@ -82,6 +91,12 @@ export function MobileWebNavigation({
     { label: '我的收藏', icon: Bookmark, action: onOpenCollection },
     { label: '年度报告', icon: Sparkles, action: () => select('annual') },
     { label: '个性装扮', icon: Palette, action: onOpenDressUp },
+    { label: '任务', icon: ListTodo, action: () => openTool('tasks') },
+    { label: 'WeQ 助手', icon: Bot, action: () => openTool('assistant') },
+    { label: '分析与报告', icon: BarChart3, action: () => openTool('analysis') },
+    { label: '导出', icon: Download, action: () => openTool('export') },
+    { label: '导出查看器', icon: FolderOpen, action: () => openTool('viewer') },
+    { label: '合成聊天记录', icon: FileStack, action: () => openTool('composition') },
     { label: '设置', icon: Settings, action: onOpenSettings },
   ];
 
@@ -149,11 +164,6 @@ export function MobileWebNavigation({
               <ChevronRight size={18} aria-hidden />
             </button>
           ))}
-          {accountControls && (
-            <div className="weq-mobile-more-utilities" aria-label="账号与快捷控制">
-              {accountControls}
-            </div>
-          )}
         </section>
       )}
       <nav className="weq-mobile-tabs" aria-label="主导航">

@@ -27,6 +27,7 @@ type Page = {
   retainOnNavigate?: boolean;
   closable?: boolean;
   standalone?: boolean;
+  mobileChrome?: boolean;
 };
 const PagesContext = createContext<{
   host: HTMLDivElement | null;
@@ -51,6 +52,12 @@ export function useWorkspacePageOpen(): boolean {
   return Boolean(
     context?.pages.some((page) => page.id === context.active || page.placement === 'sidecar'),
   );
+}
+
+/** 「更多」下的工具页保留手机主顶栏和导航栏。 */
+export function useWorkspaceMobilePage() {
+  const context = useContext(PagesContext);
+  return context?.pages.find((page) => page.id === context.active && page.mobileChrome);
 }
 
 export function useWorkspaceMainPageOpen(): boolean {
@@ -162,6 +169,7 @@ export function WorkspacePage({
   placement = 'main',
   retainOnNavigate = false,
   standalone = false,
+  mobileChrome = false,
 }: {
   title: string;
   onClose?: () => void;
@@ -169,6 +177,7 @@ export function WorkspacePage({
   placement?: Placement;
   retainOnNavigate?: boolean;
   standalone?: boolean;
+  mobileChrome?: boolean;
 }) {
   const context = useContext(PagesContext);
   const id = useId();
@@ -184,9 +193,10 @@ export function WorkspacePage({
         placement,
         retainOnNavigate,
         standalone,
+        mobileChrome,
         close: () => closeRef.current?.(),
       }),
-    [register, id, title, placement, retainOnNavigate, standalone],
+    [register, id, title, placement, retainOnNavigate, standalone, mobileChrome],
   );
   const selected =
     placement === 'sidecar'
