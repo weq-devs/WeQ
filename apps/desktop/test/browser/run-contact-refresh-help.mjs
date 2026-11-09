@@ -87,7 +87,7 @@ try {
       await dialog.getByRole('button', { name: '取消', exact: true }).click();
       const sort = page.locator('[data-kind="friends"]').getByLabel('排序依据');
       await sort.selectOption('age');
-      await sort.selectOption('level');
+      await sort.selectOption('likeCount');
       const stale = page.getByRole('dialog', { name: '更新信息与线索缓存', exact: true });
       await stale.waitFor();
       assert.equal(
