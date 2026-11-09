@@ -206,6 +206,14 @@ schedule(UTC 16:00 / 北京 00:00)
 「只红不修」是刻意的：RVA 定位失败意味着 QQ 改了签名器结构，VM 入口可能要重新逆，
 自动改代码只会把问题藏起来。workflow 的职责是**把问题按时暴露给维护者**。
 
+### QQ 通知
+
+每晚只要探测到**新版本**（`kind === "upgrade"`），无论兼容性验证是通过、失败，
+还是 CDN 暂未放开，都会用和 Release 相同的 `qq-notify-action` 发一条简短
+Markdown 报告；没有新版本不发，避免每晚刷屏。报告由
+`scripts/qq-version-report.mjs` 汇总，正文只列本轮变化的平台和 compat 验证结论
+（包含旧 pending 的重试），按钮直达本轮 Actions 与 `versions/latest.json`。
+
 ### 本地跑
 
 ```bash

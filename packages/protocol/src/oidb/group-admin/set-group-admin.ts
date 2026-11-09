@@ -33,7 +33,6 @@ export interface SetGroupAdminParams {
 export namespace SetGroupAdmin {
   export const command = 0x1096;
   export const subCommand = 1;
-  export const needSign = false;
   export const reqSchema = SET_ADMIN_REQ;
   export const respSchema = SET_ADMIN_RESP;
 

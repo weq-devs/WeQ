@@ -14,8 +14,8 @@ import {
 } from '../src/renderer/src/state/contentSelection';
 
 const copied = vi.hoisted(() => vi.fn(async (_value: { text: string; html: string }) => true));
-vi.mock('../src/renderer/src/lib/mentionClipboard', async (original) => ({
-  ...(await original<object>()),
+vi.mock('../src/renderer/src/lib/mentionClipboard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/lib/mentionClipboard')>()),
   writeMentionClipboard: copied,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => import('./browser/clone-conversation.stub'));

@@ -698,14 +698,7 @@ async function uploadLevel(
     settings: settings ?? DEFAULT_SEND_SETTINGS,
   };
   const requestBytes = encode(SEND_LONG_MSG_REQ, request);
-  // `SsoSendLongMsg` 在签名清单里。
-  const responseBytes = await sendPacket(
-    ctx.nt,
-    ctx.pid,
-    SSO_SEND_LONG_MSG_CMD,
-    requestBytes,
-    true,
-  );
+  const responseBytes = await sendPacket(ctx.nt, ctx.pid, SSO_SEND_LONG_MSG_CMD, requestBytes);
   if (responseBytes.length === 0) {
     throw new Error('发送合并转发失败：服务端未返回响应体');
   }
@@ -731,7 +724,6 @@ async function uploadLevel(
 export namespace SendLongMsg {
   export const cmd = SSO_SEND_LONG_MSG_CMD;
   /** 真机实测会签名（scripts/probe-sign.ts）。 */
-  export const needSign = true;
   export const reqSchema = SEND_LONG_MSG_REQ;
   export const respSchema = SEND_LONG_MSG_RESP;
 

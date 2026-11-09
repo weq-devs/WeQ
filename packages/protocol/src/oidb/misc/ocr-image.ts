@@ -287,7 +287,6 @@ export namespace OcrImage {
   export const command = 0xe07;
   export const subCommand = 0;
   /** 实测重放不带 SecSign 也能拿结果。 */
-  export const needSign = false;
   export const reqSchema = OCR_REQ;
   export const respSchema = OCR_RESP;
 

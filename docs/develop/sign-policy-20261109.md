@@ -14,12 +14,14 @@ Windows 42 条，而且全部差异都是「Linux 不签、Windows 会签」。
 
 ## 规则
 
-1. **三端一致**：`needSign` 继续写 `boolean`。
-2. **平台有差异**：写 `{ linux, win32, darwin }`，**三个字段都必填**，不要回落到别的
-   平台（macOS 实测证明回落会算错）。
-3. 平台一致且多端都签时用 `SIGN_NON_LINUX`；三端不一致的单独声明。
-4. 分发时统一走 `sign-policy.ts` 的 `needSignFor(policy, platform?)`，不要在业务代码
-   里手写 `process.platform` 判断。
+1. **策略只在 `sign-policy.ts` 的 `SIGN_RULES` 里登记**，以 wire 命令为键；
+   spec、service、界面层都不再各自声明 needSign。
+2. **三端一致**用 `sign: 'all'` / `'non-linux'` / `'not-darwin'`；三端不一致才写
+   `{ linux, win32, darwin }`，**三个字段都必填**，不要回落到别的平台（macOS 实测
+   证明回落会算错）。
+3. **不签名的命令不登记**：查不到即不签名 + mode 3。新命令忘了登记会打 warn。
+4. 分发统一走 `transport.ts` -> `resolveSign(cmd, platform?)`，业务代码里**不要**
+   手写 `process.platform` 判断，也不要直接调 `nt.sendOidbPacket` / `nt.sendPacket`。
 
 ## 实测集合
 
@@ -95,23 +97,59 @@ ASCII uin 逐字节匹配挑出当前会话的那个实例。
 `0x11e9_100`（私聊视频上传）两轮 Windows 探测都没有覆盖，先按 macOS 实测的
 「签」处理，待 Windows 补测。
 
-## 代码结构
+## 代码结构（2026-11-09 重构后）
+
+策略集中在 `packages/protocol/src/sign-policy.ts` 的一张**以 wire 命令为键**的表里：
 
 ```ts
-// packages/protocol/src/sign-policy.ts
-export type NeedSign =
-  | boolean
-  | { linux: boolean; win32?: boolean; darwin?: boolean };
+export const SIGN_RULES = {
+  'MessageSvc.PbSendMsg': { sign: 'all', mode2: true },
+  'OidbSvcTrpcTcp.0x6d6_2': { sign: 'non-linux' },
+  'OidbSvcTrpcTcp.0x9082_1': { sign: 'not-darwin', mode2: true },
+} as const satisfies Record<string, SignRule>;
 
-export const SIGN_NON_LINUX: NeedSign = { linux: false, win32: true, darwin: true };
-
-export function needSignFor(policy: NeedSign, platform = process.platform): boolean;
+resolveSign(cmd, platform?) -> { needSign, mode }
+oidbCommand(command, subCommand) -> 'OidbSvcTrpcTcp.0x6d6_2'
 ```
 
-- `invokeOidb` / `invokeTrpc` 在分发时解析 `spec.needSign`；
-- `invokeLegacyOidb` 用 `options.needSign`，调用点显式声明；
-- `highway-client.ts` 的 `HttpConn.0x6ff_501`、`ntv2-upload.ts` 的上传申请直接调
-  `needSignFor`。
+- `sign`：`'all'` / `'non-linux'` / `'not-darwin'`，或三端逐端对象 `{ linux, win32, darwin }`。
+- `mode2`：该命令用完整签名（VM mode = 2，见本文件后面的 mode 分组）。Linux 恒按 3；
+  **该命令在这个平台上不签名时也按 3** —— native 的 `sec_info` 直接返回 None，
+  mode 根本不会被用到，报 2 等于宣称一个没有依据的值（`0x9082_1/2` 在 macOS 就是
+  这种情况：不签名，mode 未知）。
+- **不签名的命令不登记**：查不到即 `{ needSign: false, mode: 3 }`，并打一条 warn。
+- `transport.ts` 是**唯一**分发点：`sendOidb` / `sendPacket` 自己按命令查表，调用方
+  默认什么都不用传。`override` 只给 `scripts/sso_send.ts` 的 `--sign` / `--no-sign`。
+- spec 上不再有 `needSign` 字段；`invokeOidb` / `invokeTrpc` / `invokeLegacyOidb` 都只管
+  编码解码与发包。
+- 防漂移：`test/sign_policy.test.ts` 断言表里每条 OIDB 命令都能在
+  `scripts/probe-sign.ts` 的命令表里找到，保证新加的策略可复测。
+
+## 签名器 VM mode
+
+`mode` 是签名状态机的入参，**只在 macOS / Windows 的 VM ABI 里有**；Linux 传非默认值
+只会打一条 warn（见 nt_helper `src/sign/vm.rs`）。
+
+- `mode = 3`（默认）：精简签名，Windows 28 字节 / macOS 28 字节；
+- `mode = 2`：完整签名，Windows 96 字节 / macOS 92 字节。
+
+分组依据是 issue #126 的 macOS 全量实测（按 `SecInfo.sign` 长度分两档）：Windows 15 条、
+macOS 13 条，交集 13 条（差集是 macOS 不签的 `0x9082_1/2`）。这 13 条在表里标
+`mode2: true`：
+
+`MessageSvc.PbSendMsg`、`0x6d9_4`、`0x89a_15`、`0x9082_1/2`（**仅 Windows**，macOS
+不签名所以 mode 未知）、`0x93d7_1`、
+`0x10c8_1/2`、`0x112a_2`、`0x112e_1`、`0x11ec_1`、
+`trpc.msg.msg_svc.MsgService.SsoReadedReport`、`...SsoC2CRecallMsg`、
+`trpc.group.long_msg_interface.MsgService.SsoSendLongMsg`、
+`trpc.qqhb.qqhb_proxy.Handler.sso_handle`。
+
+> ⚠️ **该分组是按签名字节数推断的，不是服务端行为证据**。上线前需要逐条验证
+> 「mode=2 的完整签名能被服务端接受」；验证不过就把那一行的 `mode2` 去掉。
+
+nt_helper 侧接线：`signPacketWithToken` 早就支持 `mode`；`send_oidb_packet` /
+`send_packet` / `build_sso_packet` 的 `mode` 入参在 nt_helper v2.5.4 起才有。WeQ 要把
+`native/pinned.json` 更新到含该改动的构建，`mode=2` 才真正生效。
 
 ## 复核
 

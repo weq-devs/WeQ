@@ -98,7 +98,6 @@ export namespace SendGroupJoinRequest {
   export const command = 0x11ec;
   export const subCommand = 1;
   /** 真机实发用签名（native D2Auth sign=true），照抓包标 true。 */
-  export const needSign = true;
   export const reqSchema = JOIN_BODY;
   export const respSchema = JOIN_RESP;
 
@@ -146,12 +145,11 @@ export namespace SendGroupJoinRequest {
     pid: number,
     params: Params,
   ): Promise<'accepted' | 'unconfirmed'> {
-    const raw = await sendOidb(
-      nt,
-      pid,
-      { command, subCommand, body: encode(reqSchema, serialize(params)) },
-      needSign,
-    );
+    const raw = await sendOidb(nt, pid, {
+      command,
+      subCommand,
+      body: encode(reqSchema, serialize(params)),
+    });
     return raw.length === 0 || (raw.length === 2 && raw[0] === 0x12 && raw[1] === 0)
       ? 'accepted'
       : 'unconfirmed';

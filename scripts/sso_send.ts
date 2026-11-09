@@ -33,6 +33,7 @@
 
 import { readFileSync } from 'node:fs';
 import { loadNative } from '../packages/native/src';
+import { sendOidb, sendPacket } from '../packages/protocol/src/transport';
 import type { Platform } from '../packages/platform/src';
 import {
   createDarwinPlatform,
@@ -471,7 +472,16 @@ async function main(): Promise<void> {
   const list = has('--list');
   if (!cmdText && !list) fail('缺少 --cmd（命令字）。用 --help 看用法。');
   const cmd = cmdText ? parseCommand(cmdText) : null;
-  const sign = has('--sign');
+  // 缺省按中央签名表（`sign-policy.ts`）走；`--sign` / `--no-sign` 强制覆盖，
+  // 用于验证「服务端到底强不强制签名」这类问题。
+  const forceSign = has('--sign');
+  const forceNoSign = has('--no-sign');
+  if (forceSign && forceNoSign) fail('--sign 和 --no-sign 不能同时给');
+  const signOverride = forceSign
+    ? { needSign: true }
+    : forceNoSign
+      ? { needSign: false }
+      : undefined;
   const noToken = has('--no-token');
   const noExtra = has('--no-extra');
   const noVersion = has('--no-version');
@@ -481,8 +491,13 @@ async function main(): Promise<void> {
   if (cmd) {
     log(`平台 ${process.platform}/${process.arch}`);
     log(`命令字 ${describeCommand(cmd)}`);
+    const signText = forceSign
+      ? '强制开（--sign）'
+      : forceNoSign
+        ? '强制关（--no-sign）'
+        : '按签名表';
     log(
-      `签名 ${sign ? '开（--sign）' : '关（默认不签名）'}；` +
+      `签名 ${signText}；` +
         `SecToken ${noToken ? '不传（--no-token）' : '照常'}；` +
         `SecExtra ${noExtra ? '不传（--no-extra）' : '照常'}；isUid=${isUid}`,
     );
@@ -574,8 +589,18 @@ async function main(): Promise<void> {
   const startedAt = Date.now();
   const reply =
     cmd.kind === 'oidb'
-      ? await nt.sendOidbPacket(target.pid, cmd.command, cmd.subCommand, plan.body, isUid, sign)
-      : await nt.sendPacket(target.pid, cmd.cmd, plan.body, sign);
+      ? await sendOidb(
+          nt,
+          target.pid,
+          {
+            command: cmd.command,
+            subCommand: cmd.subCommand,
+            body: plan.body,
+            isUid,
+          },
+          signOverride,
+        )
+      : await sendPacket(nt, target.pid, cmd.cmd, plan.body, signOverride);
   const elapsed = Date.now() - startedAt;
 
   log(`已发包（${elapsed}ms），回包 ${reply.length} 字节`);

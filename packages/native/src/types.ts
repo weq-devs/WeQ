@@ -246,6 +246,11 @@ export interface SsoPacketRequest {
   sequence?: number | null;
   /** 是否需要签名（决定是否写 reserved tag 24）。 */
   needSign: boolean;
+  /**
+   * 签名器 VM mode（不传 = 精简签名 3）。只在 `needSign` 为 true、且平台是
+   * macOS / Windows 时生效；Linux 的 VM ABI 没有这个参数。
+   */
+  mode?: number | null;
   /** `wrapper.node` 路径；`needSign` 为 true 时必填。 */
   wrapperPath?: string | null;
 }
@@ -1108,8 +1113,9 @@ export interface NtHelperBinding {
    * `isUid` sets the UIN-form variant (reserved=1). Returns the inner reply body.
    *
    * 传输走原生 SSO：`pid` 必须先经 {@link setSsoSession} 登记过会话。
-   * `needSign` 由调用方按命令逐个标注（对齐 Lagrange 的需要签名白名单），
-   * 缺省 true。
+   * `needSign` / `mode` 由 `@weq/protocol` 的签名策略表解析后传入：
+   * `needSign` 缺省 true；`mode` 是签名器 VM mode（2 = 完整签名，3 = 精简，
+   * 缺省 3），只在 macOS / Windows 生效，Linux 的 VM ABI 没有这个参数。
    */
   sendOidbPacket(
     pid: number,
@@ -1118,6 +1124,7 @@ export interface NtHelperBinding {
     body: Buffer,
     isUid: boolean,
     needSign?: boolean,
+    mode?: number,
   ): Promise<Buffer>;
   /**
    * Send a raw SSO packet with an explicit command string (no OIDB envelope) —
@@ -1125,9 +1132,15 @@ export interface NtHelperBinding {
    * `QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList`. The body must
    * already be protobuf-encoded; the raw reply body is returned.
    *
-   * `needSign` 同 {@link sendOidbPacket}，缺省 true。
+   * `needSign` / `mode` 同 {@link sendOidbPacket}。
    */
-  sendPacket(pid: number, cmd: string, body: Buffer, needSign?: boolean): Promise<Buffer>;
+  sendPacket(
+    pid: number,
+    cmd: string,
+    body: Buffer,
+    needSign?: boolean,
+    mode?: number,
+  ): Promise<Buffer>;
 
   // --- 语音通话的媒体编码 ---
   /**

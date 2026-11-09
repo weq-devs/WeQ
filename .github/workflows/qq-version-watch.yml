@@ -44,6 +44,9 @@ jobs:
       changed: ${{ steps.refresh.outputs.changed }}
       changes: ${{ steps.refresh.outputs.changes }}
       versions: ${{ steps.refresh.outputs.versions }}
+      # 只关心「版本号前进 / 新平台」，URL 变化（同版本重发）不触发群通知。
+      has_upgrade: ${{ steps.plan_notify.outputs.has_upgrade }}
+      upgrades: ${{ steps.plan_notify.outputs.upgrades }}
       # 还没通过验证的最新版本平台。兼容性验证按这个跑，而不是只在「清单变了」
       # 那一晚跑：CDN 放开、上一轮扫描失败都需要第二天重试。
       unverified: ${{ steps.plan.outputs.unverified }}
@@ -66,6 +69,26 @@ jobs:
       - name: Fetch QQ versions
         id: refresh
         run: pnpm versions:refresh --write
+
+      # 放在推送之前：即使 main 推送失败（比如刚好有人同时提交），只要已经
+      # 探测到新版本，notify job 仍然能拿到升级列表发报告。
+      - name: Plan notification
+        id: plan_notify
+        env:
+          CHANGES: ${{ steps.refresh.outputs.changes }}
+        run: |
+          set -euo pipefail
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const changes = JSON.parse(process.env.CHANGES || "[]");
+            const upgrades = changes.filter((change) => change.kind === "upgrade");
+            console.log("upgrades:", JSON.stringify(upgrades));
+            fs.appendFileSync(
+              process.env.GITHUB_OUTPUT,
+              "has_upgrade=" + (upgrades.length > 0) + "\n" +
+                "upgrades=" + JSON.stringify(upgrades) + "\n",
+            );
+          '
 
       - name: Commit if changed
         if: steps.refresh.outputs.changed == 'true'
@@ -419,8 +442,8 @@ jobs:
         with:
           pattern: signcheck-*
           path: reports
-          # 没匹配到也要建目录：下面的合并脚本按目录遍历。
-          if-no-files-found: warn
+          # download-artifact@v4 没有 if-no-files-found；匹配不到时不会建目录，
+          # 下面的合并脚本本身就按「目录不存在」处理。
 
       - name: Merge into supported.json
         id: merge
@@ -447,3 +470,54 @@ jobs:
           由 .github/workflows/qq-version-watch.yml 自动生成。"
           git pull --rebase --autostash origin main
           git push origin HEAD:main
+
+  # ========================== QQ 群通知 ==========================
+  # 只有探测到**新版本**才发；验证成功、失败、CDN 还没放开都如实报告，
+  # 失败不会因为「怕打扰」被吞掉。没有新版本不发，避免每晚刷屏。
+  #
+  # 用 !cancelled() + 判断 refresh 的 has_upgrade：compat 失败时 job 默认
+  # 会被跳过，但这里必须继续跑，否则最需要看的失败报告反而收不到。
+  notify:
+    name: Notify QQ about new version
+    needs: [refresh, compat, record]
+    if: ${{ !cancelled() && needs.refresh.outputs.has_upgrade == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      # compat 的每个平台各上传一个 signcheck-<platform> artifact，这里只读
+      # 报告，不重新跑验证。被跳过 / 早退的平台没有报告，脚本会写成「未执行」。
+      # download-artifact@v4 没有 if-no-files-found：匹配不到时本身就会跳过，
+      # 正好对应「compat 没跑」的情况。
+      - name: Download reports
+        uses: actions/download-artifact@v4
+        # 下载失败也要把报告发出去：脚本会把缺失的报告写成「未产出」，
+        # 总比因为 artifact 服务抖动而整条通知消失强。
+        continue-on-error: true
+        with:
+          pattern: signcheck-*
+          path: reports
+
+      - name: Build report
+        id: report
+        env:
+          CHANGES: ${{ needs.refresh.outputs.upgrades }}
+          # 把「重试旧 pending」的结果也带进报告，避免新版本成功时把旧平台的
+          # 失败藏掉。
+          UNVERIFIED: ${{ needs.refresh.outputs.unverified }}
+          VERSIONS: ${{ needs.refresh.outputs.versions }}
+          COMPAT_RESULT: ${{ needs.compat.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VERSIONS_URL: ${{ github.server_url }}/${{ github.repository }}/blob/main/versions/latest.json
+        run: node scripts/qq-version-report.mjs
+
+      - name: Send QQ notification
+        uses: H3CoF6/qq-notify-action@b9b5bfc84ebd4323a5d844af07f1d20fb33aebe0
+        with:
+          appid: ${{ secrets.QQ_APPID }}
+          secret: ${{ secrets.QQ_SECRET }}
+          group_openid: ${{ secrets.QQ_GROUP_OPENID }}
+          message: ${{ steps.report.outputs.message }}
+          keyboard: ${{ steps.report.outputs.keyboard }}

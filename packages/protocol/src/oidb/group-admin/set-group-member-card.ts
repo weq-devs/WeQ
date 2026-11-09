@@ -13,7 +13,6 @@
 // macOS 尚未实测，先跟 Windows；不要取两平台并集（Linux 多签会触发风控）。
 
 import { message } from '../../protobuf';
-import { SIGN_NON_LINUX } from '../../sign-policy';
 import { invokeOidb, type OidbSpec } from '../invoke';
 import type { OidbNative } from '../../transport';
 import { requireUint32, requireUid } from '../write-validation';
@@ -43,7 +42,6 @@ export namespace SetGroupMemberCard {
   export const command = 0x8fc;
   export const subCommand = 3;
   /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
-  export const needSign = SIGN_NON_LINUX;
   export const reqSchema = RENAME_MEMBER_REQ;
   export const respSchema = RENAME_MEMBER_RESP;
 

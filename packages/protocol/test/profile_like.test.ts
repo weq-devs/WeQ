@@ -18,7 +18,7 @@ describe('资料卡点赞', () => {
     ).resolves.toBe('accepted');
     const call = sendOidbPacket.mock.calls[0]!;
     expect(call.slice(0, 3)).toEqual([101, 0x7e5, 104]);
-    expect(call.slice(4)).toEqual([false, false]);
+    expect(call.slice(4)).toEqual([false, false, 3]);
     expect(decode(SendProfileLike.reqSchema, call[3])).toEqual({
       targetUid: 'u_fixture',
       sourceId: PROFILE_LIKE_SOURCE_ID,

@@ -60,7 +60,6 @@ export interface SetReactionParams {
 export namespace SetReaction {
   export const command = 0x9082;
   /** Linux / Windows 签，macOS 不签（见文件头注释）。 */
-  export const needSign = { linux: true, win32: true, darwin: false } as const;
   export const reqSchema = REACTION_REQ;
   export const respSchema = REACTION_RESP;
 

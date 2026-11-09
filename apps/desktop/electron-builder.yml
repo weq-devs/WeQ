@@ -101,7 +101,13 @@ asarUnpack:
   # 转写 Node 子进程从实体目录加载 JS 包，平台原生绑定由 smartUnpack 放在同级。
   - "**/node_modules/sherpa-onnx-node/**/*"
   - node_modules/sharp/**/*
-  - node_modules/@img/**/*
+  # sharp 的 libvips 动态库必须显式解包：smartUnpack 只认 `.so` / `.dll` / `.dylib`
+  # / `.node` 结尾的文件，而 Linux 的库是带版本号的 `libvips-cpp.so.8.18.7`，
+  # 留在 asar 里 dlopen 会报 "libvips-cpp.so.8.18.7: 无法打开共享目标文件"（2.5.3
+  # 的 Linux AppImage 启动即崩在这里）。开头的 `**/` 不能省：pnpm 把包放在
+  # `node_modules/.pnpm/<pkg>@<ver>/node_modules/<pkg>`，electron-builder 传给
+  # asarUnpack 的路径是这一串，不带 `**/` 的 `node_modules/@img/**/*` 匹配不到。
+  - "**/node_modules/@img/**/*"
   # resvg 原生绑定在 asar 外加载；afterPack 移除非目标 Darwin 架构。
   - node_modules/@resvg/**/*
   # # The voice-transcription worker is forked as a child process (can't run from

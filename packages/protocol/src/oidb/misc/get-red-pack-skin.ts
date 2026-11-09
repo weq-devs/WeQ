@@ -149,7 +149,6 @@ function readImage(value: unknown): RedPackSkinImage {
 
 export namespace GetRedPackSkin {
   export const cmd = CMD;
-  export const needSign = false;
   export const reqSchema = REQ;
   export const respSchema = RESP;
 

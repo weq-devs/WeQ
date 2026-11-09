@@ -389,7 +389,6 @@ export const CreateRoom: TrpcSpec<
 > = {
   cmd: C2C_SSO_CMD.createRoom,
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  needSign: false,
   reqSchema: C2C_CREATE_ROOM_REQ,
   respSchema: C2C_CREATE_ROOM_RSP,
   // `ipStack` 是 fixed32，运行时表达不了，参数体逐字段手工拼。
@@ -455,7 +454,6 @@ export const InviteUser: TrpcSpec<
 > = {
   cmd: C2C_SSO_CMD.inviteUser,
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  needSign: false,
   reqSchema: C2C_INVITE_USER_REQ,
   respSchema: INVITE_USER_RSP,
   // 注意：`sessionId` 入参**不写进 common**。实测 QQ 的邀请请求里没有
@@ -483,7 +481,6 @@ export const InviteUser: TrpcSpec<
 export const Logout: TrpcSpec<{ selfUid: string; roomId: bigint; relationId: number }, void> = {
   cmd: C2C_SSO_CMD.logout,
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  needSign: false,
   reqSchema: C2C_LOGOUT_REQ,
   respSchema: message([]),
   serialize: ({ selfUid, roomId, relationId }) => ({

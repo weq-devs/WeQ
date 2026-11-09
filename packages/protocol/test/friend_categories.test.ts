@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { oidbCommand, resolveSign } from '../src/sign-policy';
 import {
   encode,
   decode,
@@ -41,7 +42,10 @@ describe('现代好友分组协议', () => {
   it('单好友回默认组显式编码 0，普通形式、不签名', () => {
     expect(MoveFriendCategory.command).toBe(0x10eb);
     expect(MoveFriendCategory.subCommand).toBe(1);
-    expect(MoveFriendCategory.needSign).toBe(false);
+    expect(
+      resolveSign(oidbCommand(MoveFriendCategory.command, MoveFriendCategory.subCommand ?? 0))
+        .needSign,
+    ).toBe(false);
     expect(
       Buffer.from(
         encode(

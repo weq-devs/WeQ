@@ -46,7 +46,6 @@ export interface KickGroupMemberParams {
 export namespace KickGroupMember {
   export const command = 0x8a0;
   export const subCommand = 1;
-  export const needSign = false;
   export const reqSchema = KICK_REQ;
   export const respSchema = KICK_RESP;
 

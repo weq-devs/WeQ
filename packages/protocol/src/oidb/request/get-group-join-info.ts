@@ -29,7 +29,6 @@ export namespace GetGroupJoinInfo {
   export const command = 0x88d;
   export const subCommand = 110;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = message([
     { name: 'appId', tag: 1, type: 'uint32' },
     {

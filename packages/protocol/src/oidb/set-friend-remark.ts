@@ -20,7 +20,6 @@ export interface SetFriendRemarkParams {
 export namespace SetFriendRemark {
   export const command = 0x912e;
   export const subCommand = 0;
-  export const needSign = false;
   export const reqSchema = message([
     { name: 'change', tag: 1, type: CHANGE },
     { name: 'scene', tag: 2, type: 'uint32', force: true },
@@ -66,7 +65,6 @@ export namespace SetFriendRemark {
 export namespace ClearFriendRemark {
   export const command = 0x912f;
   export const subCommand = 0;
-  export const needSign = false;
   export const reqSchema = message([{ name: 'target', tag: 1, type: TARGET }]);
   export const respSchema = message([]);
   export const serialize = (p: { uid: string }): Record<string, unknown> => ({

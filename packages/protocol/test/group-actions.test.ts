@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { decode, encode } from '../src/protobuf';
+import { resolveSign } from '../src/sign-policy';
 import {
   AddGroupCategoryTag,
   CreateGroupFolder,
@@ -37,12 +38,10 @@ import {
   SetOnlineStatus,
   SetSelfLongNick,
   ReadedReport,
-  needSignFor,
-  SIGN_NON_LINUX,
 } from '../src/index';
 
 /** Linux 不签、Windows / macOS 签；测试按当前平台断言实际发出的值。 */
-const NON_LINUX_SIGNED = needSignFor(SIGN_NON_LINUX);
+const NON_LINUX_SIGNED = resolveSign('OidbSvcTrpcTcp.0x6d6_2').needSign;
 
 const hexToBytes = (hex: string): Uint8Array =>
   Uint8Array.from(

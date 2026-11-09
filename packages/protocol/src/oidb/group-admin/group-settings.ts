@@ -12,7 +12,6 @@
 //   - 0xfe7_3 → Linux 不签、Windows 签（macOS 实测前跟 Windows）
 
 import { decode, message } from '../../protobuf';
-import { SIGN_NON_LINUX } from '../../sign-policy';
 import { invokeOidb, type OidbSpec } from '../invoke';
 import { toInt } from '../shared';
 import type { OidbNative } from '../../transport';
@@ -37,7 +36,6 @@ export namespace LeaveGroup {
   export const command = 0x1097;
   export const subCommand = 1;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = LEAVE_GROUP_REQ;
   export const respSchema = LEAVE_GROUP_RESP;
 
@@ -93,7 +91,6 @@ export interface SetGroupAddOptionParams {
 export namespace SetGroupAddOption {
   export const command = 0x89a;
   export const subCommand = 0;
-  export const needSign = true;
   export const reqSchema = ADD_OPTION_REQ;
   export const respSchema = ADD_OPTION_RESP;
 
@@ -153,7 +150,6 @@ export namespace GetGroupAtAllRemain {
   export const command = 0x8a7;
   export const subCommand = 0;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = AT_ALL_REQ;
   export const respSchema = AT_ALL_RESP;
 
@@ -265,7 +261,6 @@ export namespace GetGroupCategoryTags {
   export const command = 0x967c;
   export const subCommand = 0;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = GET_CATEGORY_TAGS_REQ;
   export const respSchema = GET_CATEGORY_TAGS_RESP;
   export function decodeResponseBody(bytes: Uint8Array): Record<string, unknown> {
@@ -315,7 +310,6 @@ export namespace AddGroupCategoryTag {
   export const command = 0x967d;
   export const subCommand = 0;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = CHANGE_CATEGORY_TAG_REQ;
   export const respSchema = EMPTY_RESP;
 
@@ -332,7 +326,6 @@ export namespace DeleteGroupCategoryTag {
   export const command = 0x967e;
   export const subCommand = 0;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = CHANGE_CATEGORY_TAG_REQ;
   export const respSchema = EMPTY_RESP;
 
@@ -443,7 +436,6 @@ export namespace FetchGroupMemberListPage {
   export const command = 0xfe7;
   export const subCommand = 3;
   /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
-  export const needSign = SIGN_NON_LINUX;
   export const reqSchema = MEMBER_LIST_REQ;
   export const respSchema = MEMBER_LIST_RESP;
 

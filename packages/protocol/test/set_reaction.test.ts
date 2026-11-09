@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { decode, encode } from '../src/protobuf';
-import { needSignFor, SetReaction } from '../src/index';
+import { oidbCommand, resolveSign, SetReaction } from '../src/index';
 import type { SetReactionParams } from '../src/index';
 
 const hexToBytes = (hex: string): Uint8Array =>
@@ -57,9 +57,9 @@ describe('SetReaction (0x9082)', () => {
   it('declares command 0x9082（sub 由 isSet 决定），签名按三端声明的平台取', () => {
     expect(SetReaction.command).toBe(0x9082);
     // 真机实测：Linux / Windows 签，macOS 不签。
-    expect(needSignFor(SetReaction.needSign, 'linux')).toBe(true);
-    expect(needSignFor(SetReaction.needSign, 'win32')).toBe(true);
-    expect(needSignFor(SetReaction.needSign, 'darwin')).toBe(false);
+    expect(resolveSign(oidbCommand(0x9082, 1), 'linux').needSign).toBe(true);
+    expect(resolveSign(oidbCommand(0x9082, 1), 'win32').needSign).toBe(true);
+    expect(resolveSign(oidbCommand(0x9082, 1), 'darwin').needSign).toBe(false);
     expect(SetReaction.resolveSubCommand(SET_QQ_FACE)).toBe(1);
     expect(SetReaction.resolveSubCommand({ ...SET_QQ_FACE, isSet: false })).toBe(2);
   });
@@ -92,8 +92,10 @@ describe('SetReaction (0x9082)', () => {
     expect(nt.calls.every((c) => c.command === 0x9082)).toBe(true);
     expect(nt.calls.every((c) => c.pid === 7 && c.isUid === false)).toBe(true);
     // 真机实测：Linux / Windows 两个子命令都带 SecInfo，macOS 都不带。
-    const expected = needSignFor(SetReaction.needSign);
-    expect(nt.calls.every((c) => c.needSign === expected)).toBe(true);
+    const expected = nt.calls.every(
+      (c) => c.needSign === resolveSign(oidbCommand(c.command, c.subCommand)).needSign,
+    );
+    expect(expected).toBe(true);
   });
 
   it('参数非法时在编码前报错', () => {

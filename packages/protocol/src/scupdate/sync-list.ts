@@ -39,7 +39,7 @@ export async function syncResourceList(
   });
 
   // `scupdate.handle` 不在签名清单里。
-  const raw = await sendPacket(nt, pid, SCUPDATE_CMD, body, false);
+  const raw = await sendPacket(nt, pid, SCUPDATE_CMD, body);
   const rsp = decode(SC_UPDATE_RSP, raw);
   const status = readRspStatus(rsp);
 

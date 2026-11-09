@@ -10,7 +10,6 @@
 // `[oidb] one of uid/openid is invaild`.
 
 import { message } from '../../protobuf';
-import { SIGN_NON_LINUX } from '../../sign-policy';
 import { toInt } from '../shared';
 import { invokeOidb, type OidbSpec } from '../invoke';
 import type { OidbNative } from '../../transport';
@@ -55,7 +54,6 @@ export namespace GetUserQqLevel {
   export const command = 0xfe1;
   export const subCommand = 2;
   /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
-  export const needSign = SIGN_NON_LINUX;
   export const uinForm = true;
   export const reqSchema = USER_INFO_REQ;
   export const respSchema = USER_INFO_RESP;

@@ -11,7 +11,6 @@ export interface SetFriendCategoryParams {
 export namespace SetFriendCategory {
   export const command = 0x1255;
   export const subCommand = 0;
-  export const needSign = false;
   export const uinForm = true;
   export const alreadyAppliedCode = 2_001_002;
   export const reqSchema = message([

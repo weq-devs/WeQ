@@ -41,7 +41,6 @@ export namespace SendPoke {
   export const command = 0xed3;
   export const subCommand = 1;
   // 0xed3_1 不在 LagrangeV2 签名白名单里，needSign = false。
-  export const needSign = false;
   export const reqSchema = POKE_REQ;
   export const respSchema = POKE_RESP;
 

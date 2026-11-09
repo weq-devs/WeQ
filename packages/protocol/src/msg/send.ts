@@ -439,7 +439,7 @@ export async function sendMessage(
   const uploads: SendMediaUploadReport[] = [];
   const built = await buildSendRequestWithMedia(params, (report) => uploads.push(report));
   // `MessageSvc.PbSendMsg` 在签名清单里。
-  const responseBytes = await sendPacket(nt, pid, SEND_MSG_CMD, built.bytes, true);
+  const responseBytes = await sendPacket(nt, pid, SEND_MSG_CMD, built.bytes);
   const response = parseSendResponse(responseBytes);
   const ok = responseBytes.length > 0 && response.result === 0;
   const timestamp = response.timestamp1 || Math.floor(Date.now() / 1000);
@@ -562,7 +562,7 @@ export async function sendC2cFileMessage(
 ): Promise<SendMessageReceipt> {
   const built = buildSendC2cFileRequest(params);
   // `MessageSvc.PbSendMsg` 在签名清单里。
-  const responseBytes = await sendPacket(nt, pid, SEND_MSG_CMD, built.bytes, true);
+  const responseBytes = await sendPacket(nt, pid, SEND_MSG_CMD, built.bytes);
   const response = parseSendResponse(responseBytes);
   const ok = responseBytes.length > 0 && response.result === 0;
 
@@ -602,7 +602,6 @@ export function sendGroupTempMessage(
 export namespace SendMsg {
   export const cmd = SEND_MSG_CMD;
   /** 真机实测会签名（scripts/probe-sign.ts）。 */
-  export const needSign = true;
   export const reqSchema = SEND_MESSAGE_REQUEST;
   export const respSchema = SEND_MESSAGE_RESPONSE;
 

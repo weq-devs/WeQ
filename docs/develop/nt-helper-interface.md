@@ -360,14 +360,15 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
-| `sendOidbPacket(pid, command, subCommand, body, isUid, needSign?)` | OIDB 命令/子命令/protobuf body/isUid | `Promise<Buffer>` | **通用 OIDB 发包**：任何 OIDB 请求都行，无需改 native。`isUid=true` 走 UIN-form 变体（reserved=1）。`needSign`（缺省 true）由调用方按命令逐个标注。 |
-| `sendPacket(pid, cmd, body, needSign?)` | 完整 SSO 命令串 + protobuf body | `Promise<Buffer>` | 通用原始发包，给**不是 OIDB 的 trpc 服务**用（命令串如 `QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList`）。`needSign` 同上。 |
+| `sendOidbPacket(pid, command, subCommand, body, isUid, needSign?, mode?)` | OIDB 命令/子命令/protobuf body/isUid | `Promise<Buffer>` | **通用 OIDB 发包**：任何 OIDB 请求都行，无需改 native。`isUid=true` 走 UIN-form 变体（reserved=1）。`needSign`（缺省 true）与 `mode`（签名器 VM mode，缺省 3）由 `@weq/protocol` 的签名表解析后传入。 |
+| `sendPacket(pid, cmd, body, needSign?, mode?)` | 完整 SSO 命令串 + protobuf body | `Promise<Buffer>` | 通用原始发包，给**不是 OIDB 的 trpc 服务**用（命令串如 `QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList`）。`needSign` / `mode` 同上。 |
 | `resetPacketSequence()` / `currentPacketSequence()` | — | `number` | 全局发包序号。重连 / 换会话时先 `resetPacketSequence()` 回收起点；`currentPacketSequence()` 仅供诊断。 |
 | `locateSignFunction(wrapperPath)` / `signPacket(wrapperPath, cmd, src, seq)` | `wrapper.node` 路径 + 命令 + 明文 + 序号 | RVA / `SignOutput` | `wrapper.node` 签名函数的定位与调用：`needSign` 的命令靠它算 `SecSign`（以及本进程里恒为空的 `SecToken / SecExtra`）。离线逐字节核对抓包用 `buildSsoPacket(req)`。 |
 
 > `sendOidbPacket` / `sendPacket` 的 `needSign` 只收**当前平台**的布尔值。QQ 的签名集合
-> 按平台不同（Linux / Windows），`@weq/protocol` 的 `needSignFor` 会先解析 spec 的跨平台
-> 声明再传进来；不要在这里按白名单或并集推导。
+> 按平台不同（Linux / Windows / macOS），`@weq/protocol` 的 `sign-policy.ts` 按 wire 命令
+> 查表再解析成本平台的值传进来；不要在这里按白名单或并集推导，业务代码也不要绕过
+> `transport.ts` 直接调这两个接口。
 
 > **业务命令不在 native**：clientKey / 下载 rkey / decryptKey / skey / p_skey / bkn 的请求构造
 > 与解析已经在 `@weq/protocol` + `@weq/service`（`account/online_ticket.ts`）里实现，只通过
