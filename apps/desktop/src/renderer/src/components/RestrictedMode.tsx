@@ -66,13 +66,7 @@ function useAuthorizationBridge() {
   }, []);
 }
 
-export function RestrictedModeIndicator({
-  startup = false,
-  persistent = false,
-}: {
-  startup?: boolean;
-  persistent?: boolean;
-}) {
+export function RestrictedModeIndicator({ persistent = false }: { persistent?: boolean }) {
   const reasons = useRestrictedMode((s) => s.reasons);
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
@@ -84,7 +78,7 @@ export function RestrictedModeIndicator({
   return (
     <button
       type="button"
-      className={`weq-restricted-indicator${startup ? ' is-startup' : ''}${entering ? ' is-entering' : ''}`}
+      className={`weq-restricted-indicator${entering ? ' is-entering' : ''}`}
       title={title}
       aria-haspopup="dialog"
       aria-expanded={open}
@@ -628,7 +622,6 @@ export function RestrictedModeHost() {
   );
   return (
     <>
-      {!active && <RestrictedModeIndicator startup />}
       {open && signature && (
         <section
           ref={panel}

@@ -33,12 +33,6 @@
     transform: rotate(360deg);
   }
 }
-.weq-restricted-indicator.is-startup {
-  position: fixed;
-  top: 16px;
-  right: 88px;
-  z-index: 80;
-}
 .weq-restricted-panel {
   position: fixed;
   top: 46px;

@@ -18,6 +18,7 @@ import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useDialog } from '../components/Dialog';
 import { useToast } from '../components/Toast';
+import { RestrictedModeIndicator } from '../components/RestrictedMode';
 import { SelectScreen } from './bootstrap/SelectScreen';
 import { WarmupSplash } from '../components/WarmupSplash';
 import { NativeExpiredDialog } from '../components/NativeExpiredDialog';
@@ -26,6 +27,7 @@ import { setWindowLayout } from '../lib/windowLayout';
 import { DesktopOnly, IS_MAC, IS_WEB, shellBridge } from '../lib/target';
 import logoUrl from '@resources/brand/logo.png';
 import { BackupSection } from '../components/settings/BackupSection';
+import '../styles/startup-shell.css';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -264,7 +266,7 @@ export function BootstrapView(): ReactElement {
   if (nativeErr) {
     if (backupOpen)
       return (
-        <Shell>
+        <BootstrapShell>
           <div className="weq-backup-native">
             <button type="button" className="weq-set-btn" onClick={() => setBackupOpen(false)}>
               <X size={14} />
@@ -272,10 +274,10 @@ export function BootstrapView(): ReactElement {
             </button>
             <BackupSection />
           </div>
-        </Shell>
+        </BootstrapShell>
       );
     return (
-      <Shell>
+      <BootstrapShell>
         <Centered>
           <img src={logoUrl} alt="" width={84} height={84} className="opacity-40 grayscale" />
           <p className="mt-4 text-[14px] text-muted-foreground">
@@ -292,34 +294,34 @@ export function BootstrapView(): ReactElement {
             onBackup={() => setBackupOpen(true)}
           />
         ) : null}
-      </Shell>
+      </BootstrapShell>
     );
   }
 
   if (homeStage === 'booting' || nativeStatus.isLoading) {
     return (
-      <Shell>
+      <BootstrapShell>
         <Splash progress={warmup} />
-      </Shell>
+      </BootstrapShell>
     );
   }
 
   if (!install.data) {
     return (
-      <Shell>
+      <BootstrapShell>
         <Splash />
-      </Shell>
+      </BootstrapShell>
     );
   }
 
   return (
-    <Shell>
+    <BootstrapShell>
       <SelectScreen install={install.data} />
-    </Shell>
+    </BootstrapShell>
   );
 }
 
-function Shell({ children }: { children: ReactNode }): ReactElement {
+export function BootstrapShell({ children }: { children: ReactNode }): ReactElement {
   const pushToast = useToast((s) => s.push);
   const showError = useDialog((s) => s.showError);
 
@@ -350,9 +352,10 @@ function Shell({ children }: { children: ReactNode }): ReactElement {
 
   return (
     <main className="weq-home-shell h-screen overflow-hidden font-sans text-foreground">
-      {/* 右上角只挂窗口级小按钮（打开日志目录 / 关闭）：绝对定位，落在内容之外，
+      {/* 受限状态和窗口级按钮共用右上角工具栏：绝对定位，落在内容之外，
           不占任何一屏的布局空间。 */}
-      <div className="absolute right-4 top-4 z-20 flex items-center gap-1.5">
+      <div className="weq-shell-actions">
+        <RestrictedModeIndicator />
         <DesktopOnly>
           <button
             type="button"

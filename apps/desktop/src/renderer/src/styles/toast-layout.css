@@ -32,7 +32,7 @@ html .weq-toast-host {
 }
 
 @media (max-width: 760px) {
-  html .weq-toast-host {
+  html .weq-toast-host.is-web {
     right: 12px;
     bottom: calc(76px + env(safe-area-inset-bottom, 0px));
     max-width: calc(100vw - 24px);

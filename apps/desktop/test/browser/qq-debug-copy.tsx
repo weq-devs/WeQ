@@ -43,7 +43,7 @@ createRoot(document.getElementById('root')!).render(
     </>
   ) : restricted ? (
     <>
-      {!startupOffline && <RestrictedModeIndicator />}
+      <RestrictedModeIndicator />
       <RestrictedModeHost />
       <DialogHost />
     </>
