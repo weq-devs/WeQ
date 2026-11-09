@@ -33,11 +33,47 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
 }
 function pointer(target: Element, type: string, options: PointerEventInit = {}) {
   act(() =>
-    target.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1, ...options })),
+    target.dispatchEvent(
+      new PointerEvent(type, { bubbles: true, pointerId: 1, pointerType: 'mouse', ...options }),
+    ),
   );
 }
 
 describe('标题栏全局搜索', () => {
+  it.each(['touch', 'pen'])('%s 按下前不因进入按钮展开，完成点击才固定并聚焦', (pointerType) => {
+    const view = mount(
+      createElement(TitleBarSearch, {
+        query: '',
+        onQueryChange: vi.fn(),
+        results: createElement('div', { 'data-pointer-result': true }, '结果'),
+      }),
+    );
+    try {
+      const button = view.host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!;
+      const input = view.host.querySelector('input')!;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        pointer(button, 'pointerover', { pointerType });
+        pointer(button, 'pointerdown', { pointerType });
+        expect(button.getAttribute('aria-expanded')).toBe('false');
+        expect(input.disabled).toBe(true);
+        expect(document.querySelector('.weq-titlebar-search-results')).toBeNull();
+        pointer(button, 'pointerup', { pointerType });
+        act(() => button.click());
+        pointer(button, 'pointerout', { pointerType });
+        expect(button.getAttribute('aria-pressed')).toBe('true');
+        expect(document.activeElement).toBe(input);
+        const panel = document.querySelector('.weq-titlebar-search-results')!;
+        pointer(panel, 'pointerover', { pointerType });
+        pointer(panel, 'pointerout', { pointerType });
+        expect(button.getAttribute('aria-expanded')).toBe('true');
+        pointer(document.body, 'pointerdown', { pointerType });
+        expect(button.getAttribute('aria-expanded')).toBe('false');
+      }
+    } finally {
+      view.dispose();
+    }
+  });
+
   it('常驻模式无需悬停即可输入，Escape 只关闭结果而不收起搜索栏', () => {
     const view = mount(
       createElement(TitleBarSearch, {

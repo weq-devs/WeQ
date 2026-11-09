@@ -52,7 +52,9 @@ describe('全局搜索增量接入不替换原功能', () => {
         ),
       );
       act(() =>
-        host.firstElementChild!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })),
+        host.firstElementChild!.dispatchEvent(
+          new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }),
+        ),
       );
       expect(document.querySelector('[data-local-search]')).not.toBeNull();
       expect(document.querySelector('.weq-cloud-lookup-entry')).toBeNull();
@@ -170,7 +172,9 @@ describe('全局搜索增量接入不替换原功能', () => {
         root.render(h(TitleBarSearch, { query: '', onQueryChange: vi.fn(), results: null })),
       );
       act(() =>
-        host.firstElementChild!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })),
+        host.firstElementChild!.dispatchEvent(
+          new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }),
+        ),
       );
       expect(document.querySelector('.weq-titlebar-search-results')).toBeNull();
       act(() => host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());

@@ -98,11 +98,13 @@ export function TitleBarSearch({
     <div
       ref={root}
       className={`weq-titlebar-search${persistent || expanded ? ' is-expanded' : ''}${persistent ? ' is-persistent' : ''}${onReturn ? ' has-return' : ''}`}
-      onPointerEnter={() => {
+      onPointerEnter={(event) => {
+        if (event.pointerType !== 'mouse') return;
         setHovered(true);
         setSuppressHover(false);
       }}
-      onPointerLeave={() => {
+      onPointerLeave={(event) => {
+        if (event.pointerType !== 'mouse') return;
         setHovered(false);
         setSuppressHover(false);
       }}
@@ -180,8 +182,12 @@ export function TitleBarSearch({
               ref={panel}
               className="weq-titlebar-search-results"
               style={{ ...position, zIndex: layer }}
-              onPointerEnter={() => setHovered(true)}
-              onPointerLeave={() => setHovered(false)}
+              onPointerEnter={(event) => {
+                if (event.pointerType === 'mouse') setHovered(true);
+              }}
+              onPointerLeave={(event) => {
+                if (event.pointerType === 'mouse') setHovered(false);
+              }}
               onClick={(event) => {
                 if (!(event.target instanceof Element) || !event.target.closest('[role="option"]'))
                   return;

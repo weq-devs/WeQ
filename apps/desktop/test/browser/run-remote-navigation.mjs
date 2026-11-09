@@ -45,6 +45,36 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/remote-navigation.html`,
   );
   await page.waitForSelector('.fixture-conversation');
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => window.remoteNavigationQa.theme(theme), theme);
+      const search = page.locator('.weq-mobile-header [aria-label="全局搜索"]');
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const before = await search.boundingBox();
+        await search.dispatchEvent('pointerover', { pointerType: 'touch', bubbles: true });
+        await search.dispatchEvent('pointerdown', { pointerType: 'touch', bubbles: true });
+        await page.waitForTimeout(100);
+        assert.equal(await search.getAttribute('aria-expanded'), 'false');
+        assert.deepEqual(await search.boundingBox(), before);
+        await search.dispatchEvent('pointerup', { pointerType: 'touch', bubbles: true });
+        await search.dispatchEvent('pointerout', { pointerType: 'touch', bubbles: true });
+        await search.tap();
+        await page.waitForFunction(
+          () => document.activeElement?.getAttribute('aria-label') === '搜索全部内容',
+        );
+        assert.equal(await search.getAttribute('aria-pressed'), 'true');
+        assert.equal(await page.locator('.weq-titlebar-search-results').count(), 1);
+        await page.locator('.fixture-conversation').dispatchEvent('pointerdown', {
+          pointerType: 'touch',
+          bubbles: true,
+        });
+        assert.equal(await search.getAttribute('aria-expanded'), 'false');
+        await page.waitForTimeout(200);
+      }
+    }
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('.weq-mobile-header [aria-label="连接菜单"]').click();
   assert.equal(await page.locator('body').getAttribute('data-menu-calls'), '1');
   await page.getByText('合成会话', { exact: true }).first().click();
@@ -135,7 +165,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: WebKit 菜单、会话与设置多级返回、侧滑完成/取消、草稿保留、根标签、320/390/1180 深浅色与减少动态效果',
+    'PASS: WebKit 触屏搜索按下不移位及重复打开、菜单、会话与设置多级返回、侧滑完成/取消、草稿保留、根标签、320/390/1180 深浅色与减少动态效果',
   );
 } finally {
   await browser?.close();
