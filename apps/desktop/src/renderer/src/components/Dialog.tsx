@@ -21,6 +21,8 @@ import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
 import { WindowSurface } from './WindowSurface';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
+import { useMobileWebViewport } from '../hooks/useMobileWebViewport';
+import { IS_WEB } from '../lib/target';
 import '../styles/dialog-layout.css';
 
 export type DialogTone = 'error' | 'warning' | 'info';
@@ -176,6 +178,10 @@ export function Modal({
   const windowed = presentation === 'floating' || presentation === 'anchored';
   const layer = useOverlayLayer(active && !windowed);
   const ref = useRef<HTMLDivElement>(null);
+  useMobileWebViewport(
+    ref,
+    IS_WEB && active && !windowed && presentation !== 'page' && presentation !== 'sidecar',
+  );
   const placement = useOverlayAnchor(
     ref,
     active && !windowed,
@@ -236,7 +242,7 @@ export function Modal({
     <div
       ref={ref}
       tabIndex={-1}
-      className={`weq-dialog-layer weq-anim-fade${layerClassName ? ` ${layerClassName}` : ''}${presentation !== 'modal' ? ' weq-nonmodal-layer' : ''}${presentation === 'panel' ? ' weq-centered-panel' : ''}${presentation === 'popover' ? ' is-popover' : ''}${placement.position ? ' is-anchored-popover' : ''}`}
+      className={`weq-dialog-layer weq-anim-fade${IS_WEB ? ' weq-web-dialog-layer' : ''}${layerClassName ? ` ${layerClassName}` : ''}${presentation !== 'modal' ? ' weq-nonmodal-layer' : ''}${presentation === 'panel' ? ' weq-centered-panel' : ''}${presentation === 'popover' ? ' is-popover' : ''}${placement.position ? ' is-anchored-popover' : ''}`}
       hidden={!active}
       inert={!active}
       style={{ ...placement.position, zIndex: layer, display: active ? undefined : 'none' }}

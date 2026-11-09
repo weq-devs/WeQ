@@ -29,6 +29,13 @@ Web 仍通过 `apps/web/vite.config.ts` 复用桌面 React renderer。`ChatShell
 [VisualViewport 属性与事件](https://developer.mozilla.org/en-US/docs/Web/API/VisualViewport)。
 搜索浮层也观察可视视口，限制结果列表高度。
 
+`Modal` 的 Web 遮罩也独立观察可视视口：弹窗通过 portal 挂在 `body`，不能依赖
+`ChatShell` 的局部变量。手机居中弹窗按可视高度、顶部偏移与安全区限制尺寸；
+锚定浮层保留原定位。QQ 资料编辑器在 760px 及以下统一采用上方标签、下方控件，
+地区选择分两列，按钮与下拉框至少 44px 高。WebKit 下显式使用 `menulist-button`
+外观与高度，避免原生下拉框忽略最小高度。写说说弹窗在短可视区域内可滚动至底部操作。
+QQ 号搜索等目录编辑弹窗限制最大高度并允许纵向滚动，长结果不会被裁切。
+
 现有 `index.css`、`page-chrome.css` 中的桌面规则可能晚于模板样式加载。
 手机修正通过 Web 外壳限定并提高必要的选择器优先级，尤其是根高度、会话行高、
 未读角标、设置分类布局；不修改全局桌面规则，不用 `dark:`。
@@ -72,3 +79,21 @@ WEQ_PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.js \
 
 需要显式选择浏览器运行时，可追加 `WEQ_WEBKIT_EXECUTABLE=/absolute/path/to/pw_run.sh`。
 测试结束自动关闭本轮浏览器；只用合成消息，不连接业务服务或 QQ。
+
+## 页面与弹窗回归
+
+`apps/desktop/test/browser/run-mobile-surfaces.mjs` 使用 Vite 的真实 CSS 构建和实际组件，
+通过合成 API 数据检查资料编辑、状态表情选择、QQ 号搜索及长结果、文本收藏、邮箱列表与写信、
+频道入口与私聊列表、空间入口与写说说，以及设置分类、外观、账号与消息显示子页。
+检查 320/390/430/760px 和 1180px 桌面、长短屏、浅深色、控件限宽、资料字段对齐与尺寸；
+另注入仅改变 visual viewport 的键盘场景，检查资料弹窗及写说说底部操作。
+
+```sh
+cd apps/desktop
+WEQ_PLAYWRIGHT_IMPORT=/absolute/path/to/playwright/index.mjs \
+WEQ_BROWSER_EXECUTABLE=/absolute/path/to/pw_run.sh \
+  node test/browser/run-mobile-surfaces.mjs
+```
+
+可用 `WEQ_MOBILE_ARTIFACTS` 指定截图目录，`WEQ_MOBILE_SURFACES=profile,lookup` 缩小检查范围。
+测试自动关闭服务和浏览器，不连接真实 QQ；空间、邮箱、频道的业务内容与真机键盘仍需实机验证。
