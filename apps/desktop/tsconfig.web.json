@@ -21,6 +21,7 @@
     "src/renderer/**/*.tsx",
     "src/renderer/**/*.json",
     "src/shared/**/*.ts",
+    "src/shared/**/*.json",
     "src/main/**/*.ts"
   ]
 }
