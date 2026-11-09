@@ -16,7 +16,7 @@ import {
   protocol,
   shell,
   screen,
-  Tray,
+  type Tray,
   type IpcMainEvent,
 } from 'electron';
 import fs from 'node:fs';
@@ -83,7 +83,8 @@ import { createRendererRecovery } from './renderer_recovery';
 import { registerRendererRecoveryIpc } from './renderer_recovery_ipc';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
 import { databaseCheckups } from './db_checkup';
-import { macApplicationMenu, nativeMenuLabels } from './application_menu';
+import { macApplicationMenu } from './application_menu';
+import { createSystemTray } from './system_tray';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
 import { registerCallVideoIpc } from './call_video_ipc';
 import { registerAttachHintIpc } from './attach_hint_ipc';
@@ -182,40 +183,15 @@ function resolveCloseBehavior(): WindowCloseBehavior {
   }
 }
 
-/**
- * Build the system tray once. The icon is the brand logo, downscaled to a
- * tray-appropriate size (16px on Windows; 18px template image on macOS so it
- * tracks the menu-bar's light/dark). Menu: 显示主窗口 / 退出 WeQ. Left-click and
- * double-click both re-reveal the window.
- */
+/** 创建一次系统托盘，点击时复用主窗口的显示/重建入口。 */
 function buildTray(): void {
   if (tray) return;
-  const labels = nativeMenuLabels(app.getPreferredSystemLanguages()[0] ?? app.getLocale());
-  const iconPath = resolveResource('brand', 'logo.png');
-  let image = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
-  if (!image.isEmpty()) {
-    image = image.resize(
-      process.platform === 'darwin' ? { width: 18, height: 18 } : { width: 16, height: 16 },
-    );
-    if (process.platform === 'darwin') image.setTemplateImage(true);
-  }
   try {
-    tray = new Tray(image);
-    tray.setToolTip('WeQ');
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        { label: labels.showWindow, click: openMainWindow },
-        { type: 'separator' },
-        {
-          label: labels.quit,
-          click: () => {
-            app.quit();
-          },
-        },
-      ]),
-    );
-    tray.on('click', openMainWindow);
-    tray.on('double-click', openMainWindow);
+    tray = createSystemTray({
+      locale: app.getPreferredSystemLanguages()[0] ?? app.getLocale(),
+      openMainWindow,
+      quit: () => app.quit(),
+    });
     logger.info('system tray created', { event: 'tray-create' });
   } catch (e) {
     logger.warn('failed to create system tray', {
