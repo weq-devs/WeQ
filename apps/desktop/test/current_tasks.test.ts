@@ -64,7 +64,7 @@ vi.mock('../src/renderer/src/views/agentlab/cloneTaskStore', () => {
   };
 });
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  client: { account: { clearCompletedTasks: { mutate: fixture.clear } } },
+  client: { account: { clearFinishedTasks: { mutate: fixture.clear } } },
   trpc: {
     backgroundTasks: {
       details: { useQuery: () => ({ data: [] }) },
@@ -178,7 +178,7 @@ describe('统一当前任务', () => {
       expect(host.textContent).toContain('合成逐条转发');
       expect(host.textContent).not.toContain('旧闪传目录');
       expect(
-        host.querySelector('[aria-label="清除已完成任务"]')?.classList.contains('weq-set-btn-soft'),
+        host.querySelector('[aria-label="清除已结束任务"]')?.classList.contains('weq-set-btn-soft'),
       ).toBe(true);
       expect(host.textContent).not.toContain('其他账号转发');
       act(() =>
@@ -196,7 +196,7 @@ describe('统一当前任务', () => {
       fixture.confirm.mockResolvedValueOnce(true);
       fixture.clear.mockResolvedValueOnce({ removed: 0, skipped: 0, errors: [] });
       await act(async () =>
-        host.querySelector<HTMLButtonElement>('[aria-label="清除已完成任务"]')!.click(),
+        host.querySelector<HTMLButtonElement>('[aria-label="清除已结束任务"]')!.click(),
       );
       expect(localBackgroundTasks.snapshot().some((task) => task.id === id)).toBe(false);
       expect(localBackgroundTasks.snapshot().some((task) => task.id === other)).toBe(true);
@@ -242,10 +242,10 @@ describe('统一当前任务', () => {
     fixture.clear.mockRejectedValueOnce(new Error('写入失败'));
     try {
       act(() => root.render(h(CurrentTaskList, props)));
-      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="清除已完成任务"]')!;
+      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="清除已结束任务"]')!;
       await act(async () => button().click());
       expect(fixture.confirm).toHaveBeenCalledWith(
-        '清除已完成任务',
+        '清除已结束任务',
         expect.stringContaining('确定清除 1 项'),
         expect.anything(),
       );
@@ -264,7 +264,7 @@ describe('统一当前任务', () => {
     }
   });
 
-  it('清除前确认项目数并提示未保存结果，取消不执行；确认只传完成任务快照', async () => {
+  it('清除前确认项目数并提示未保存结果，取消不执行；确认只传已结束任务快照', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     fixture.roamingStatus = 'completed';
     fixture.flashStatus = 'done';
@@ -292,6 +292,9 @@ describe('统一当前任务', () => {
             task,
             { ...task, id: 'saving', save: { status: 'saving' } },
             { ...task, id: 'failed', status: 'failed' },
+            { ...task, id: 'cancelled', status: 'cancelled' },
+            { ...task, id: 'interrupted', save: { status: 'interrupted' } },
+            { ...task, id: 'paused', status: 'paused' },
           ],
           onSaveAll: vi.fn(),
           renderExport: () => null,
@@ -299,26 +302,28 @@ describe('统一当前任务', () => {
       );
     try {
       act(() => render());
-      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="清除已完成任务"]')!;
+      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="清除已结束任务"]')!;
       await act(async () => button().click());
       expect(fixture.confirm).toHaveBeenCalledWith(
-        '清除已完成任务',
-        expect.stringContaining('确定清除 3 项'),
-        expect.objectContaining({ okLabel: '清除 3 项' }),
+        '清除已结束任务',
+        expect.stringContaining('确定清除 6 项'),
+        expect.objectContaining({ okLabel: '清除 6 项' }),
       );
-      expect(fixture.confirm.mock.calls[0]?.[1]).toContain('1 项导出尚未保存');
+      expect(fixture.confirm.mock.calls[0]?.[1]).toContain('2 项导出尚未保存');
       expect(fixture.clear).not.toHaveBeenCalled();
       fixture.confirm.mockResolvedValue(true);
+      fixture.clear.mockResolvedValueOnce({ removed: 6, skipped: 0, errors: [] });
       await act(async () => button().click());
       expect(fixture.clear).toHaveBeenCalledOnce();
+      // 失败、取消、保存中断都可清除；保存中与可续传的暂停任务保留。
       expect(fixture.clear).toHaveBeenCalledWith({
         ...binding,
-        exports: ['done'],
+        exports: ['done', 'failed', 'cancelled', 'interrupted'],
         roaming: ['same-id'],
         flash: ['same-id'],
       });
       expect(fixture.invalidate).toHaveBeenCalledTimes(4);
-      expect(fixture.info).toHaveBeenCalledWith('清除完成', '已清除 3 项任务。');
+      expect(fixture.info).toHaveBeenCalledWith('清除完成', '已清除 6 项任务。');
       let resolve = (_ok: boolean) => {};
       fixture.confirm.mockImplementationOnce(
         () =>
@@ -331,6 +336,64 @@ describe('统一当前任务', () => {
       act(() => render({ ...binding, expectedAccountConfigId: 'another-config' }));
       await act(async () => resolve(true));
       expect(fixture.clear).toHaveBeenCalledTimes(1);
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
+  it('只有失败/中断任务时也能清除，暂停与运行中的任务保留', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    fixture.roamingStatus = 'failed';
+    fixture.flashStatus = 'failed';
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const binding = {
+      expectedAccountUin: 'fixture-account',
+      expectedAccountConfigId: 'fixture-config',
+    };
+    const task: UiTask = {
+      id: 'failed',
+      name: '失败导出',
+      kind: 'c2c',
+      format: 'json',
+      status: 'failed',
+      progress: 40,
+      current: 1,
+      total: 2,
+    };
+    fixture.confirm.mockResolvedValue(true);
+    fixture.clear.mockResolvedValueOnce({ removed: 4, skipped: 0, errors: [] });
+    try {
+      act(() =>
+        root.render(
+          h(CurrentTaskList, {
+            cleanupBinding: binding,
+            exports: [
+              task,
+              { ...task, id: 'interrupted', status: 'completed', save: { status: 'interrupted' } },
+              { ...task, id: 'paused', status: 'paused' },
+              { ...task, id: 'running', status: 'running' },
+            ],
+            onSaveAll: vi.fn(),
+            renderExport: () => null,
+          }),
+        ),
+      );
+      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="清除已结束任务"]')!;
+      expect(button().disabled).toBe(false);
+      await act(async () => button().click());
+      expect(fixture.confirm).toHaveBeenCalledWith(
+        '清除已结束任务',
+        expect.stringContaining('确定清除 4 项'),
+        expect.objectContaining({ okLabel: '清除 4 项' }),
+      );
+      expect(fixture.clear).toHaveBeenCalledWith({
+        ...binding,
+        exports: ['failed', 'interrupted'],
+        roaming: ['same-id'],
+        flash: ['same-id'],
+      });
+      expect(fixture.info).toHaveBeenCalledWith('清除完成', '已清除 4 项任务。');
     } finally {
       act(() => root.unmount());
     }

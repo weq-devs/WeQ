@@ -57,9 +57,9 @@ try {
     await page.setViewportSize({ width, height: 800 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.evaluate(([dark, accent]) => window.cleanupTheme(dark, accent), [dark, accent]);
-    await page.getByRole('button', { name: '清除已完成任务', exact: true }).click();
-    await page.getByText('确定清除 1 项已完成任务？', { exact: false }).waitFor();
-    await page.getByText('其中 1 项导出尚未保存', { exact: false }).waitFor();
+    await page.getByRole('button', { name: '清除已结束任务', exact: true }).click();
+    await page.getByText('确定清除 3 项已结束任务？', { exact: false }).waitFor();
+    await page.getByText('其中 2 项导出尚未保存', { exact: false }).waitFor();
     const overflow = await page.evaluate(() =>
       [...document.querySelectorAll('button,[role="dialog"]')].some((element) => {
         const rect = element.getBoundingClientRect();
@@ -77,7 +77,7 @@ try {
       });
     await page.getByRole('button', { name: '保留', exact: true }).click();
     await page
-      .getByRole('button', { name: '清除已完成任务', exact: true })
+      .getByRole('button', { name: '清除已结束任务', exact: true })
       .waitFor({ state: 'visible' });
   }
   if (errors.length) throw new Error(errors.join('\n'));

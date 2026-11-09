@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
 import { withDatabaseRequest } from '@weq/db';
-import { clearCompletedTasks } from './clear_completed_tasks';
+import { clearFinishedTasks } from './clear_finished_tasks';
 import { readContactSpecialCare } from './contact_special_care';
 import { startFlashDownloads } from './flash_save';
 import { FileUploadStaging } from './album_video_staging';
@@ -7759,8 +7759,8 @@ export const accountRouter = router({
       return requireServices().exportManager.cancelTask(input.taskId);
     }),
 
-  /** 清除确认范围内的已完成任务，绑定账号及配置来源。 */
-  clearCompletedTasks: procedure
+  /** 清除确认范围内的已结束任务（完成/失败/取消），绑定账号及配置来源。 */
+  clearFinishedTasks: procedure
     .input(
       generatedAccountInput.extend({
         exports: z.array(z.string().min(1)),
@@ -7769,7 +7769,7 @@ export const accountRouter = router({
       }),
     )
     .mutation(({ input }) =>
-      clearCompletedTasks(
+      clearFinishedTasks(
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
         input,
       ),

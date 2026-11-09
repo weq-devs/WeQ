@@ -29,6 +29,14 @@ import type {
 
 const logger = getLogger().child({ scope: 'flash-transfer-download' });
 
+const DONE_FLASH_STATUSES: ReadonlySet<FlashTaskStatus> = new Set(['done']);
+/** 整次操作只有在没有待处理文件时才会被归并为这些状态。 */
+const FINISHED_FLASH_STATUSES: ReadonlySet<FlashTaskStatus> = new Set([
+  'done',
+  'failed',
+  'cancelled',
+]);
+
 const CONCURRENCY = 4;
 const DL_RETRIES = 3;
 const DL_BACKOFF_BASE_MS = 300;
@@ -276,38 +284,46 @@ export class FlashTransferDownloadManager extends EventEmitter {
 
   /** 清掉已结束（完成/失败/取消）的任务；进行中的保留。 */
   async clearFinished(): Promise<number> {
-    await this.loading;
-    const finished = new Set(
-      this.list()
-        .filter((t) => t.status === 'done' || t.status === 'failed' || t.status === 'cancelled')
-        .map((t) => t.id),
-    );
-    this.tasks = this.tasks.filter((task) => !finished.has(task.batchId ?? task.id));
-    const removed = finished.size;
-    if (removed > 0) await this.persist();
-    return removed;
+    return this.removeFinished(null, FINISHED_FLASH_STATUSES, false);
+  }
+
+  /** 统一任务入口仅清除确认时选中的已结束记录，不删除下载文件。 */
+  async clearFinishedSelection(taskIds: string[]): Promise<number> {
+    return this.removeFinished(new Set(taskIds), FINISHED_FLASH_STATUSES, true);
   }
 
   /** 统一任务入口仅清除已确认的成功记录，不删除下载文件。 */
   async clearCompleted(taskIds: string[]): Promise<number> {
+    return this.removeFinished(new Set(taskIds), DONE_FLASH_STATUSES, true);
+  }
+
+  /**
+   * 按整次下载操作移除记录：只认选中的 ID 与该次确认时的状态，之后完成或
+   * 仍在进行的操作不会被顺手清掉。`ids` 为 null 时清全部匹配状态。
+   */
+  private async removeFinished(
+    ids: Set<string> | null,
+    statuses: ReadonlySet<FlashTaskStatus>,
+    strict: boolean,
+  ): Promise<number> {
     await this.loading;
-    const ids = new Set(taskIds);
-    const completed = new Set(
+    const matched = new Set(
       this.list()
-        .filter((task) => ids.has(task.id) && task.status === 'done')
+        .filter((task) => (!ids || ids.has(task.id)) && statuses.has(task.status))
         .map((task) => task.id),
     );
-    const removed = this.tasks.filter((task) => completed.has(task.batchId ?? task.id));
+    if (!matched.size) return 0;
+    const removed = this.tasks.filter((task) => matched.has(task.batchId ?? task.id));
     if (!removed.length) return 0;
     const removedIds = new Set(removed.map((task) => task.id));
     this.tasks = this.tasks.filter((task) => !removedIds.has(task.id));
     try {
-      await this.persist(true);
+      await this.persist(strict);
     } catch (error) {
       this.tasks.push(...removed);
       throw error;
     }
-    return completed.size;
+    return matched.size;
   }
 
   // ---- 后台调度 ----------------------------------------------------------

@@ -329,9 +329,13 @@ export function CurrentTaskList({
     if (visible && active && !loading && unreadResults > 0) readTasks();
   }, [visible, active, loading, unreadResults, readTasks]);
   const hasError = exportError || roaming.error || flash.error || background.query.error;
-  const completed = items.filter((task) => task.status === 'completed');
-  const clearCompleted = async (): Promise<void> => {
-    if (clearingRef.current || !cleanupBinding || !completed.length) return;
+  /** 已结束的任务都可移除；进行中、等待和可续传的暂停任务保留。 */
+  const finished = items.filter(
+    (task) =>
+      task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled',
+  );
+  const clearFinished = async (): Promise<void> => {
+    if (clearingRef.current || !cleanupBinding || !finished.length) return;
     clearingRef.current = true;
     setClearing(true);
     const binding = { ...cleanupBinding };
@@ -339,21 +343,25 @@ export function CurrentTaskList({
       mounted.current &&
       bindingRef.current?.expectedAccountUin === binding.expectedAccountUin &&
       bindingRef.current?.expectedAccountConfigId === binding.expectedAccountConfigId;
-    const ids = new Set(completed.map((task) => task.id));
+    const ids = new Set(finished.map((task) => task.id));
+    // 只提醒仍可取回、值得先保存的完成结果；失败任务本就无法从列表取回。
     const unsaved = exports.filter(
-      (task) => ids.has(`export:${task.id}`) && task.save?.status !== 'saved',
+      (task) =>
+        ids.has(`export:${task.id}`) &&
+        task.status === 'completed' &&
+        task.save?.status !== 'saved',
     ).length;
     const cloneSelection = clones.filter(
       (task) => task.accountId === accountId && ids.has(`clone:${task.personaId}`),
     );
     try {
       const ok = await confirm(
-        '清除已完成任务',
-        `确定清除 ${completed.length} 项已完成任务？只移除任务记录和导出缓存，不删除已保存的文件、克隆体或聊天记录。${unsaved ? `其中 ${unsaved} 项导出尚未保存，清除后将无法从任务列表取回结果。` : ''}`,
-        { okLabel: `清除 ${completed.length} 项`, cancelLabel: '保留' },
+        '清除已结束任务',
+        `确定清除 ${finished.length} 项已结束任务？只移除任务记录和导出缓存，不删除已保存的文件、克隆体或聊天记录。${unsaved ? `其中 ${unsaved} 项导出尚未保存，清除后将无法从任务列表取回结果。` : ''}`,
+        { okLabel: `清除 ${finished.length} 项`, cancelLabel: '保留' },
       );
       if (!ok || !current()) return;
-      const result = await client.account.clearCompletedTasks.mutate({
+      const result = await client.account.clearFinishedTasks.mutate({
         ...binding,
         exports: exports.filter((task) => ids.has(`export:${task.id}`)).map((task) => task.id),
         roaming: (roaming.data?.jobs ?? [])
@@ -365,8 +373,8 @@ export function CurrentTaskList({
       });
       let removed = result.removed;
       for (const task of cloneSelection) {
-        // 同一克隆体可能已重新构建；只移除确认时的那次完成记录。
-        if (getCloneTasks().includes(task) && task.status === 'done') {
+        // 同一克隆体可能已重新构建；只移除确认时的那条结束记录。
+        if (getCloneTasks().includes(task) && task.status !== 'running') {
           dismissCloneTask(task.personaId);
           removed += 1;
         }
@@ -388,7 +396,7 @@ export function CurrentTaskList({
         utils.account.flashListDownloadTasks.invalidate(),
       ]);
       if (current()) {
-        const summary = `已清除 ${removed} 项任务。${completed.length - removed > 0 ? `其余 ${completed.length - removed} 项未清除，请查看最新任务状态。` : ''}`;
+        const summary = `已清除 ${removed} 项任务。${finished.length - removed > 0 ? `其余 ${finished.length - removed} 项未清除，请查看最新任务状态。` : ''}`;
         if (result.errors.length)
           showError('部分任务未清除', `${summary}\n${result.errors.join('\n')}`);
         else showInfo('清除完成', summary);
@@ -421,10 +429,10 @@ export function CurrentTaskList({
           <button
             type="button"
             className="weq-set-btn weq-set-btn-soft"
-            title="清除已完成任务"
-            aria-label="清除已完成任务"
-            disabled={clearing || loading || !cleanupBinding || !completed.length}
-            onClick={() => void clearCompleted()}
+            title="清除已结束任务"
+            aria-label="清除已结束任务"
+            disabled={clearing || loading || !cleanupBinding || !finished.length}
+            onClick={() => void clearFinished()}
           >
             <Trash2 size={14} />
           </button>

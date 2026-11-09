@@ -31,7 +31,12 @@ createRoot(document.getElementById('root')!).render(
     <style>{`html,body,#root{margin:0;min-height:100%;background:var(--background)}main{max-width:680px;margin:16px auto;background:var(--weq-chat-bg)}`}</style>
     <main>
       <CurrentTaskList
-        exports={[task, { ...task, id: 'running', name: '合成进行中任务', status: 'running' }]}
+        exports={[
+          task,
+          { ...task, id: 'failed', name: '合成失败任务', status: 'failed' },
+          { ...task, id: 'interrupted', name: '合成保存中断任务', save: { status: 'interrupted' } },
+          { ...task, id: 'running', name: '合成进行中任务', status: 'running' },
+        ]}
         cleanupBinding={{ expectedAccountUin: 'fixture', expectedAccountConfigId: 'fixture' }}
         onSaveAll={() => {}}
         renderExport={(item) => <p>{item.name}</p>}
