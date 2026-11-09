@@ -304,6 +304,7 @@ import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
 import { WorkspaceTools } from '../components/WorkspaceTools';
 import type { AppSearchEntry, ToolSearchRequest } from '../components/search/appSearchCatalog';
 import type { DressKind } from '../components/DressUpDialog';
+import { calendarCloneRevision } from '../lib/calendarSourceRevision';
 import type { SettingsSearchTarget } from '../components/settings/searchTarget';
 import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
 import { displayGroupMemberName } from '../im-template/template/user';
@@ -11981,7 +11982,7 @@ function MainWorkspace(): ReactElement {
           {overviewCalendar ? (
             <ConversationOverviewCalendar
               targets={overviewCalendarTargets}
-              sourceRevision={`${dbRevisionRef.current}:${calendarDataRevision}:${directoryPersonas.dataUpdatedAt}:${directoryGroups.dataUpdatedAt}`}
+              sourceRevision={`${dbRevisionRef.current}:${calendarDataRevision}:${calendarCloneRevision(directoryPersonas.data ?? [], directoryGroups.data ?? [])}`}
               scope={conversationScope}
               query={overviewCalendar.query}
               ready={

@@ -48,6 +48,7 @@ export function ConversationOverviewCalendar({
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
   const [dirty, setDirty] = useState(false);
+  const [autoRefreshPending, setAutoRefreshPending] = useState(false);
   const [visible, setVisible] = useState(document.visibilityState === 'visible');
   const active = useTabActive();
   const live = useRef(true);
@@ -73,18 +74,32 @@ export function ConversationOverviewCalendar({
     [targets, scope, query],
   );
   const selectionKey = useMemo(() => JSON.stringify(selected), [selected]);
+  const completed = useRef(false);
+  completed.current = Boolean(
+    snapshot &&
+      !snapshot.cancelled &&
+      snapshot.days.every((value) => value.complete && !value.errors.length) &&
+      snapshot.complete,
+  );
+  const observedSourceRevision = useRef(sourceRevision);
   useEffect(() => {
-    if (sourceRevision !== undefined) setDirty(true);
+    const previous = observedSourceRevision.current;
+    observedSourceRevision.current = sourceRevision;
+    if (previous !== undefined && sourceRevision !== undefined && previous !== sourceRevision) {
+      setDirty(true);
+      // 只刷新已结束的快照；扫描期间的通知不能让大库不断从头重扫。
+      if (completed.current) setAutoRefreshPending(true);
+    }
   }, [sourceRevision]);
-  const fullyCounted = snapshot?.days.every((value) => value.complete) && snapshot.complete;
   useEffect(() => {
-    if (!dirty || !fullyCounted || !active || !visible) return;
+    if (!autoRefreshPending || !active || !visible) return;
     const timer = setTimeout(() => {
+      setAutoRefreshPending(false);
       setDirty(false);
       setRevision((value) => value + 1);
     }, 5000);
     return () => clearTimeout(timer);
-  }, [dirty, fullyCounted, active, visible]);
+  }, [autoRefreshPending, active, visible]);
   useEffect(() => {
     const changed = () => setVisible(document.visibilityState === 'visible');
     const storageChanged = (event: StorageEvent) => {
@@ -103,6 +118,7 @@ export function ConversationOverviewCalendar({
     setId(undefined);
     setError('');
     setDirty(false);
+    setAutoRefreshPending(false);
     if (!active || !visible || !ready || !binding) return;
     let cancelled = false;
     let task: string | undefined;
@@ -176,7 +192,7 @@ export function ConversationOverviewCalendar({
   const status = Object.fromEntries(
     (snapshot?.days ?? []).map((value) => [
       value.day,
-      { complete: value.complete && !directoryError && !dirty },
+      { complete: value.complete && !directoryError },
     ]),
   );
   async function locate(target: CalendarTarget, anchor: CalendarAnchor) {
@@ -211,7 +227,7 @@ export function ConversationOverviewCalendar({
           <button
             type="button"
             className="icon-button"
-            title="重新统计"
+            title={dirty ? '数据有变更，重新统计' : '重新统计'}
             aria-label="重新统计"
             onClick={() => setRevision((value) => value + 1)}
           >
@@ -245,6 +261,7 @@ export function ConversationOverviewCalendar({
             start={day}
             allowEmpty
             onPick={(value) => {
+              setAutoRefreshPending(false);
               setSnapshot((current) =>
                 current ? { ...current, rows: [], totalRows: 0, complete: false } : current,
               );
@@ -257,12 +274,12 @@ export function ConversationOverviewCalendar({
                 ? '正在读取消息数量…'
                 : errors.length
                   ? '部分日期统计未完成'
-                  : dirty
-                    ? '记录已更新，等待重新统计'
-                    : !snapshot.days.every((value) => value.complete)
-                      ? snapshot.metrics.reads
-                        ? '正在统计消息数量…'
-                        : '等待数据库空闲…'
+                  : !snapshot.days.every((value) => value.complete)
+                    ? snapshot.metrics.reads
+                      ? '正在统计消息数量…'
+                      : '等待数据库空闲…'
+                    : dirty
+                      ? '数据有变更'
                       : undefined
             }
           />
@@ -337,7 +354,6 @@ export function ConversationOverviewCalendar({
           </section>
         </div>
         <div className="weq-overview-calendar-errors">
-          {dirty ? <p role="status">记录有更新，统计完成后将重新校准</p> : null}
           {errors.map((message) => (
             <p role="alert" key={message}>
               {message}
