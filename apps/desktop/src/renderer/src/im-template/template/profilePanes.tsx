@@ -814,6 +814,7 @@ export function GroupProfileDialog({
   anchor,
   onClose,
   detailsKnown = true,
+  memberCountKnown = detailsKnown,
   embedded = false,
   details,
   onOpenMember,
@@ -823,6 +824,7 @@ export function GroupProfileDialog({
   anchor?: HTMLElement | null;
   onClose: () => void;
   detailsKnown?: boolean;
+  memberCountKnown?: boolean;
   embedded?: boolean;
   details?: ReactNode;
   onOpenMember?: (member: ProfileUser, anchor: { x: number; y: number }) => void;
@@ -919,7 +921,7 @@ export function GroupProfileDialog({
               <span className="weq-number">{identityValue}</span>
               {copied ? <Check size={12} /> : <Copy size={12} />}
             </button>
-            {embedded && detailsKnown ? (
+            {embedded && memberCountKnown ? (
               <span className="weq-contact-group-summary">{group.memberCount} 位成员</span>
             ) : null}
           </div>
@@ -945,7 +947,7 @@ export function GroupProfileDialog({
           details
         ) : (
           <>
-            {detailsKnown ? (
+            {memberCountKnown ? (
               <div className="weq-profile-members">
                 <div className="weq-profile-members-head">
                   <Users size={13} />

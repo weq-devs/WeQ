@@ -1,15 +1,14 @@
-import {
-  CalendarDays,
-  ArrowLeftRight,
-  MapPin,
-  MessageSquare,
-  RefreshCw,
-  UsersRound,
-} from 'lucide-react';
+import { CalendarDays, ArrowLeftRight, MapPin, MessageSquare } from 'lucide-react';
+import { useContext, useState } from 'react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
-import { ProfileRow } from '../../im-template/template/profilePanes';
+import { GroupProfileDialog, ProfileRow } from '../../im-template/template/profilePanes';
+import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
+import { avatarFromGroupCode } from '../../lib/avatarResolver';
+import { GroupAvatar } from '../exportAvatars';
+import { sharedGroupConversation } from '../ark/groupShareCard';
 import { withQQAccountScope } from './shared';
+import '../../styles/friend-clue.css';
 
 const dateFormat = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai',
@@ -18,12 +17,75 @@ const dateFormat = new Intl.DateTimeFormat('zh-CN', {
   day: '2-digit',
 });
 
+function SourceGroup({ code }: { code: string }) {
+  const session = useQQWriteSession(`friend-clue-group:${code}`);
+  const directory = useContext(ConversationDirectoryContext);
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const groupId = Number(code);
+  const query = trpc.account.qqActions.groupJoinSettings.useQuery(
+    { ...session.binding!, groupId },
+    {
+      enabled:
+        session.available && Number.isInteger(groupId) && groupId > 0 && groupId <= 0xffffffff,
+      retry: 2,
+      retryDelay: 1000,
+      staleTime: 60000,
+      refetchOnWindowFocus: false,
+    },
+  );
+  const info = !query.error && query.data?.groupId === groupId ? query.data : null;
+  const known = directory?.real?.find((item) => item.type === 'group' && item.id === code);
+  const name = info?.name || (known?.type === 'group' ? known.group.name : null);
+  const conversation =
+    known?.type === 'group'
+      ? { ...known, group: { ...known.group, name: name || code } }
+      : sharedGroupConversation({
+          code,
+          name: name || code,
+          avatar: avatarFromGroupCode(code) ?? '',
+        });
+  if (info) {
+    conversation.group.memberCount = info.memberCount ?? conversation.group.memberCount;
+    conversation.group.maxMemberCount = info.maxMemberCount ?? conversation.group.maxMemberCount;
+  }
+  return (
+    <>
+      <div className="weq-profile-row weq-profile-row--block">
+        <span className="weq-profile-row-label">
+          <MapPin size={13} />
+          添加来源
+        </span>
+        <button
+          className="weq-friend-source-group"
+          type="button"
+          title="查看来源群名片"
+          aria-label="查看来源群名片"
+          data-privacy-sensitive
+          onClick={(event) => setAnchor(event.currentTarget)}
+        >
+          <GroupAvatar code={code} size={24} />
+          <span>{name || (query.isFetching ? '群名称读取中' : '群名称暂不可用')}</span>
+        </button>
+      </div>
+      {anchor && (
+        <GroupProfileDialog
+          conversation={conversation}
+          anchor={anchor}
+          detailsKnown={known?.type === 'group'}
+          memberCountKnown={info?.memberCount != null || known?.type === 'group'}
+          onClose={() => setAnchor(null)}
+        />
+      )}
+    </>
+  );
+}
+
 function FriendClueBody({ uid }: { uid: string }) {
   const session = useQQWriteSession(`friend-clue:${uid}`);
   const enabled = session.available && /^u_[A-Za-z0-9_-]+$/.test(uid);
   const query = trpc.account.qqWrite.friendClue.useQuery(
     { ...session.binding!, uid },
-    { enabled, retry: false, staleTime: 60000, refetchOnWindowFocus: false },
+    { enabled, retry: 2, retryDelay: 1000, staleTime: 60000, refetchOnWindowFocus: false },
   );
   const data = enabled && query.data?.uid === uid && !query.error ? query.data : null;
   const pending = query.isFetching;
@@ -43,18 +105,6 @@ function FriendClueBody({ uid }: { uid: string }) {
         value={
           data ? (data.addedAt === null ? '未知' : dateFormat.format(data.addedAt * 1000)) : empty
         }
-        action={
-          <button
-            type="button"
-            className="weq-profile-row-copy"
-            title="重新读取好友线索"
-            aria-label="重新读取好友线索"
-            disabled={!enabled || pending}
-            onClick={() => void query.refetch()}
-          >
-            <RefreshCw size={12} />
-          </button>
-        }
       />
       {data && (
         <>
@@ -70,20 +120,15 @@ function FriendClueBody({ uid }: { uid: string }) {
                   : '未知'
             }
           />
-          <ProfileRow
-            sensitive
-            multiline
-            icon={<MapPin size={13} />}
-            label="添加来源"
-            value={data.source || '未知'}
-          />
-          {data.sourceGroupCode && (
+          {data.sourceGroupCode ? (
+            <SourceGroup key={`${uid}:${data.sourceGroupCode}`} code={data.sourceGroupCode} />
+          ) : (
             <ProfileRow
               sensitive
-              mono
-              icon={<UsersRound size={13} />}
-              label="来源群号"
-              value={data.sourceGroupCode}
+              multiline
+              icon={<MapPin size={13} />}
+              label="添加来源"
+              value={data.source || '未知'}
             />
           )}
           <ProfileRow
