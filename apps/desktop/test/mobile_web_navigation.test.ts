@@ -81,8 +81,8 @@ it('更多保留全部次级入口，选中后关闭列表并调用原有操作'
   await act(async () => root.render(createElement(MobileWebNavigation, props)));
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
   expect(host.querySelector('[aria-label="更多功能"]')).not.toBeNull();
-  await click('QQ 频道');
-  expect(props.onViewChange).toHaveBeenCalledWith('channel');
+  await click('频道私聊');
+  expect(props.onViewChange).toHaveBeenCalledWith('guild-direct');
   expect(host.querySelector('[aria-label="更多功能"]')).toBeNull();
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
   await click('设置');

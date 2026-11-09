@@ -54,6 +54,7 @@ import { dressBackgroundUrl, dressFontUrl, dressUrl, isVideoBackground } from '.
 import { bubblePreviewCss } from '../lib/dressSkin';
 import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
 import { useNearViewport } from '../hooks/useNearViewport';
+import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { useVideoPlaybackSlot } from '../hooks/useVideoPlaybackSlot';
 import { fontFaces } from '../lib/fontFaces';
 import { acquireDecorationStyle } from '../lib/decorationResources';
@@ -272,6 +273,7 @@ export function DressUpDialog({
   initialEmojiPackId?: string;
   initialEmojiPackName?: string;
 }): ReactElement {
+  const mobile = useMobileWebLayout();
   const dialog = useAppDialog();
   const decorationSave = useDecorationSave();
   const mediaSave = useMediaSave();
@@ -992,7 +994,7 @@ export function DressUpDialog({
   }
 
   return (
-    <WorkspacePage title="个性装扮" onClose={onClose} standalone>
+    <WorkspacePage title="个性装扮" onClose={onClose} standalone mobileChrome={mobile}>
       {decorationSave.prompt}
       {mediaSave.prompt}
       <div className="weq-dress-dialog" role="region" aria-labelledby="weq-dress-title">

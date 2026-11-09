@@ -17,6 +17,35 @@ vi.mock('../src/renderer/src/im-template/template/sidebar', () => ({
 }));
 
 describe('主内容页的会话列表可见性', () => {
+  it.each([false, true])('保留手机导航的页面覆盖聊天详情状态（mainOpen=%s）', (mainOpen) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          h(
+            WorkspacePages,
+            { navigationKey: 'messages' },
+            h(ChatShell, {
+              view: 'messages',
+              mainOpen,
+              sidebarWidth: 240,
+              mainContent: h(WorkspaceContent, null, '原聊天'),
+            }),
+            h(WorkspacePage, { title: '个性装扮', standalone: true, mobileChrome: true }, '装扮'),
+          ),
+        ),
+      );
+      expect(host.querySelector('.app-shell-root')?.hasAttribute('data-mobile-detail')).toBe(false);
+      expect(host.querySelector('.app-shell-root')?.hasAttribute('data-mobile-workspace')).toBe(
+        true,
+      );
+    } finally {
+      act(() => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
   it('页面导航使用暂离回调，不触发显式关闭的清除流程', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');

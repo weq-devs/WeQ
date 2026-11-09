@@ -114,7 +114,7 @@ export function ChatShell({
     '--sidebar-width': `${sidebarHidden ? 0 : sidebarWidth}px`,
   } as CSSProperties;
   const mobileDetail =
-    (pageOpen && !mobilePage) || ((view === 'messages' || view === 'contacts') && mainOpen);
+    !mobilePage && (pageOpen || ((view === 'messages' || view === 'contacts') && mainOpen));
   const mobileWorkspace =
     Boolean(mobilePage) ||
     (view !== 'messages' && view !== 'contacts' && view !== 'tools' && view !== 'more');

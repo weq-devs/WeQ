@@ -100,14 +100,30 @@ try {
       if (output)
         await page.screenshot({ path: resolve(output, `more-list-${width}-${theme}.png`) });
       assert.equal(await page.locator('.weq-mobile-more .weq-workspace-menu-trigger').count(), 0);
+      await page
+        .locator('.weq-mobile-more')
+        .getByRole('button', { name: '个性装扮', exact: true })
+        .click();
+      await page.locator('.weq-dress-dialog').waitFor();
+      await chrome();
+      const dressBounds = await page.locator('.weq-dress-dialog').boundingBox();
+      const headerBounds = await page.locator('.weq-mobile-header').boundingBox();
+      const tabsBounds = await page.locator('.weq-mobile-tabs').boundingBox();
+      assert.ok(dressBounds.y >= headerBounds.y + headerBounds.height - 1);
+      assert.ok(dressBounds.y + dressBounds.height <= tabsBounds.y + 1);
+      if (output) await page.screenshot({ path: resolve(output, `dressup-${width}-${theme}.png`) });
+      await swipeBack('.weq-workspace-page:not([hidden])');
+      await page.waitForSelector('.weq-mobile-navigation > .weq-mobile-more');
+      assert.equal(await page.locator('.weq-dress-dialog').count(), 0);
       for (const [name, view] of [
         ['主页', 'home'],
         ['QQ 邮箱', 'mail'],
-        ['QQ 频道', 'channel'],
+        ['频道私聊', 'guild-direct'],
         ['年度报告', 'annual'],
       ]) {
         await page.locator('.weq-mobile-more').getByRole('button', { name, exact: true }).click();
         await page.locator(`[data-secondary-page="${view}"]`).waitFor();
+        if (view === 'guild-direct') assert.ok(await page.locator('.weq-guild-direct').isVisible());
         if (view === 'mail') {
           await page.locator('.weq-mail-primary').click();
           await page.getByRole('region', { name: '写邮件', exact: true }).waitFor();
@@ -160,13 +176,21 @@ try {
   await chrome();
   await page.evaluate(() => window.weqMobileNavigation.back());
   await page.waitForSelector('.weq-mobile-more');
+  await page.evaluate(() => window.moreToolsQa.openChat());
+  await page.locator('.app-shell-root[data-mobile-detail]').waitFor();
+  await page.evaluate(() => window.moreToolsQa.openDressUp());
+  await page.locator('.weq-dress-dialog').waitFor();
+  await chrome();
+  await page.locator('.weq-dress-close').click();
+  await page.locator('.weq-dress-dialog').waitFor({ state: 'detached' });
+  assert.equal(await page.locator('.weq-mobile-header').isVisible(), false);
   await page.setViewportSize({ width: 1180, height: 844 });
   await page.locator('.weq-workspace-menu-trigger:visible').click();
   assert.ok(await page.locator('.weq-dialog-layer:not([hidden]) .weq-workspace-menu').isVisible());
   assert.equal(await page.locator('.weq-workspace-page').count(), 0);
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: 更多四个次级页面与六个工具、真实邮箱写信分层侧滑、320/390 深浅色、顶底栏边界、同标签返回、跨标签关闭及系统返回',
+    'PASS: 个性装扮顶底栏与返回、频道私聊直达、更多四个次级页面与六个工具、真实邮箱写信分层侧滑、320/390 深浅色、顶底栏边界、同标签返回、跨标签关闭及系统返回',
   );
 } finally {
   await browser?.close();

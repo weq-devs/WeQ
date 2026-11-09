@@ -105,7 +105,7 @@ export function MobileWebNavigation({
   const entries = [
     { label: '主页', icon: House, action: () => select('home') },
     { label: 'QQ 邮箱', icon: Mail, badge: mailBadgeCount, action: () => select('mail') },
-    { label: 'QQ 频道', icon: Hash, action: () => select('channel') },
+    { label: '频道私聊', icon: Hash, action: () => select('guild-direct') },
     { label: '我的收藏', icon: Bookmark, action: onOpenCollection },
     { label: '年度报告', icon: Sparkles, action: () => select('annual') },
     { label: '个性装扮', icon: Palette, action: onOpenDressUp },

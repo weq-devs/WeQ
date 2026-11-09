@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatShell } from '../../src/renderer/src/im-template/template/chatShell';
@@ -8,6 +9,8 @@ import { CompositionWorkspace } from '../../src/renderer/src/components/mergeFor
 import { useCompositionWindow } from '../../src/renderer/src/hooks/useCompositionWindow';
 import { useViewState } from '../../src/renderer/src/state/view';
 import { MailWorkspace } from '../../src/renderer/src/views/MailView';
+import { ChannelView } from '../../src/renderer/src/views/ChannelView';
+import { DressUpDialog } from '../../src/renderer/src/components/DressUpDialog';
 import {
   useChatShellController,
   noopChatShellHistoryAdapter,
@@ -27,13 +30,10 @@ const user = {
 };
 ensureThemeInitialized();
 useViewState.setState({ openedUin: 'fixture' });
-Object.assign(window, {
-  moreToolsQa: {
-    theme: (value: 'light' | 'dark') => useThemeStore.getState().setPreference(value),
-  },
-});
 
 function Fixture() {
+  const [dressUpOpen, setDressUpOpen] = useState(false);
+  const [mainOpen, setMainOpen] = useState(false);
   const shell = useChatShellController({
     conversations: [],
     contacts: [],
@@ -45,6 +45,16 @@ function Fixture() {
   });
   const view: MainView = shell.view;
   const composition = useCompositionWindow();
+  Object.assign(window, {
+    moreToolsQa: {
+      theme: (value: 'light' | 'dark') => useThemeStore.getState().setPreference(value),
+      openChat: () => {
+        shell.switchView('messages');
+        setMainOpen(true);
+      },
+      openDressUp: () => setDressUpOpen(true),
+    },
+  });
   return (
     <WorkspacePages navigationKey={view}>
       <ChatShell
@@ -52,7 +62,7 @@ function Fixture() {
         view={view}
         contactTab="friends"
         activeNotice={null}
-        mainOpen={false}
+        mainOpen={mainOpen}
         sidebarWidth={320}
         query=""
         onQueryChange={noop}
@@ -63,7 +73,7 @@ function Fixture() {
         groupNoticeCount={0}
         onOpenSettings={noop}
         onOpenCollection={noop}
-        onOpenDressUp={noop}
+        onOpenDressUp={() => setDressUpOpen(true)}
         onOpenProfile={noop}
         onOpenAbout={noop}
         onOpenInvite={noop}
@@ -81,9 +91,13 @@ function Fixture() {
           <WorkspaceContent>
             <p data-secondary-page={view}>合成业务页</p>
             {view === 'mail' && <MailWorkspace active selfUin="10001" onUnreadChange={noop} />}
+            {(view === 'channel' || view === 'guild-direct') && (
+              <ChannelView selfUser={user} initialDirectOpen={view === 'guild-direct'} />
+            )}
           </WorkspaceContent>
         }
       />
+      {dressUpOpen && <DressUpDialog onClose={() => setDressUpOpen(false)} />}
       <WorkspaceTools
         accountScope="fixture"
         footerControls={null}
