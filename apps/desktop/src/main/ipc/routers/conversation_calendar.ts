@@ -14,7 +14,7 @@ import {
   type CalendarTarget,
   type CalendarKind,
 } from '@weq/service/conversation-calendar';
-import { getAppContext, type AccountServices } from '../../context/app_context';
+import { getAppContext, accountEventBus, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { exportAccountBindingInput } from './export_save';
 import { c2cMsgToWire, groupMsgToWire, type ChatMsgWire } from '../serde';
@@ -47,7 +47,7 @@ const dayInput = z
   .regex(/^\d{4}-\d{2}-\d{2}$/)
   .optional();
 interface Entry {
-  taskId: string;
+  taskId?: string;
   day?: string;
   job: ConversationCalendarJob;
   session: AccountSession;
@@ -56,8 +56,12 @@ interface Entry {
   targets: CalendarTarget[];
 }
 const sessions = new WeakMap<AccountSession, Map<string, Entry>>();
+accountEventBus.on('closing', (session: AccountSession | null) => {
+  if (session) for (const value of sessions.get(session)?.values() ?? []) value.job.cancel();
+});
 
 function syncTask(value: Entry) {
+  if (!value.taskId) return;
   const snapshot = value.job.snapshot(value.day, 0, true);
   const { completedSources: done, totalSources: total, failedSources: failed } = snapshot.progress;
   const complete = done === total && snapshot.complete;
@@ -179,15 +183,24 @@ export const conversationCalendarRouter = router({
         }
         return true;
       };
-      const job = new ConversationCalendarJob(input.month, unique, sources, reserve);
-      const taskId = backgroundTasks.start({
-        name: `会话日历 · ${input.month}`,
-        kind: 'calendar',
-        scope: { uin: session.context.uin, configId: services.accountConfig.getRecord()?.configId },
+      let tracked: Entry | undefined;
+      let lastSync = 0;
+      const job = new ConversationCalendarJob(input.month, unique, sources, reserve, () => {
+        if (tracked?.taskId && Date.now() - lastSync >= 500) {
+          lastSync = Date.now();
+          syncTask(tracked);
+        }
       });
-      const tracked: Entry = { ...value, job, taskId, day: input.day };
+      tracked = { ...value, job, day: input.day };
       cache.set(id, tracked);
-      job.controller.signal.addEventListener('abort', () => syncTask(tracked), { once: true });
+      const entry = tracked;
+      job.controller.signal.addEventListener(
+        'abort',
+        () => {
+          syncTask(entry);
+        },
+        { once: true },
+      );
       while (cache.size > 12) {
         const first = cache.keys().next().value!;
         cache.get(first)?.job.cancel();
@@ -204,15 +217,43 @@ export const conversationCalendarRouter = router({
           ),
         job.controller.signal,
       );
-      syncTask(tracked);
-      void job.settled().then(() => syncTask(tracked));
-      return { id, taskId };
+      return { id };
     }),
+  background: procedure.input(requestInput).mutation(({ input }) => {
+    const value = entry(input);
+    if (value.job.controller.signal.aborted) throw new Error('日历任务已停止，请重新打开日历');
+    if (!value.taskId)
+      value.taskId = backgroundTasks.start({
+        name: `会话日历 · ${value.job.month}`,
+        kind: 'calendar',
+        scope: {
+          uin: value.session.context.uin,
+          configId: value.services.accountConfig.getRecord()?.configId,
+        },
+      });
+    withDatabasePriority(
+      'background',
+      () =>
+        withDatabaseReadBudget(
+          10,
+          () => value.job.continueInBackground(),
+          (ms) => value.job.observeRead(ms),
+          () => value.job.noteWaiting(),
+        ),
+      value.job.controller.signal,
+    );
+    syncTask(value);
+    void value.job.settled().then(() => {
+      syncTask(value);
+    });
+    return { taskId: value.taskId };
+  }),
   poll: procedure
     .input(
       requestInput.extend({
         day: dayInput,
         offset: z.number().int().min(0).default(0),
+        limit: z.number().int().min(1).max(12000).default(50),
         retry: z.boolean().default(false),
         includeLogs: z.boolean().default(false),
       }),
@@ -236,7 +277,7 @@ export const conversationCalendarRouter = router({
       );
       syncTask(value);
       if (changed) void value.job.settled().then(() => syncTask(value));
-      return value.job.snapshot(input.day, input.offset, input.includeLogs);
+      return value.job.snapshot(input.day, input.offset, input.includeLogs, input.limit);
     }),
   stop: procedure.input(requestInput).mutation(({ input }) => {
     entry(input).job.cancel();

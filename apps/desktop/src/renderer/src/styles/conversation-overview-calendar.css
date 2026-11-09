@@ -40,16 +40,16 @@
   min-width: 0;
   margin-bottom: 5px;
 }
-.weq-overview-calendar-log {
-  flex-shrink: 0;
-  min-width: 0;
-}
-.weq-overview-calendar-log .weq-exp-log {
-  margin: 0 0 12px;
-  height: 110px;
+.weq-overview-calendar-progress > .weq-exp-log {
+  margin: 0;
   overflow-y: auto;
 }
-.weq-overview-calendar-progress > .weq-exp-log {
+.weq-overview-calendar-conversations > .weq-exp-detail-tasklog {
+  flex-shrink: 0;
+  min-width: 0;
+  margin-bottom: 12px;
+}
+.weq-overview-calendar-conversations > .weq-exp-detail-tasklog .weq-exp-log {
   margin: 0;
   overflow-y: auto;
 }
@@ -181,22 +181,14 @@ html[data-theme='dark'] .weq-overview-calendar-progress progress::-webkit-progre
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.weq-overview-calendar nav {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  margin-top: 8px;
-}
 html[data-theme='dark'] .weq-overview-calendar-row {
   border-color: var(--weq-border-strong);
 }
 @media (max-width: 620px) {
-  .weq-overview-calendar-log .weq-exp-log-line {
+  .weq-overview-calendar-conversations > .weq-exp-detail-tasklog .weq-exp-log-line {
     display: block;
   }
-  .weq-overview-calendar-log .weq-exp-log-time {
+  .weq-overview-calendar-conversations > .weq-exp-detail-tasklog .weq-exp-log-time {
     display: block;
   }
   .weq-overview-calendar-body {

@@ -3056,6 +3056,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Still no anti-recall triggers, no health check and no scheduler.
     },
     async clearAccount(waitForPending = false): Promise<void> {
+      accountEventBus.emit('closing', this.account);
       const closedAt = performance.now();
       const closingUin = this.account?.context.uin;
       const previousClosures = [...pendingAccountClosures];

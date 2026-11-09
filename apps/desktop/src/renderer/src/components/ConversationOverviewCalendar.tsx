@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, RefreshCw, ScrollText, X } from 'lucide-react';
+import { ListTodo, X } from 'lucide-react';
 import {
-  CALENDAR_SOURCE_LABELS,
   filterCalendarTargets,
   calendarTargetKey,
   type CalendarAnchor,
@@ -16,7 +15,8 @@ import { calendarTargetSetKey } from '../lib/calendarSourceRevision';
 import { Modal } from './Dialog';
 import { MessageCalendar } from './MessageCalendar';
 import { CalendarScanProgress } from './CalendarScanProgress';
-import { TaskLogConsole } from './TaskLogConsole';
+import { CalendarConversationList } from './CalendarConversationList';
+import { TaskLogDisclosure } from './TaskLogDisclosure';
 import { useTabActive } from './RetainedTabs';
 import '../styles/conversation-overview-calendar.css';
 
@@ -45,17 +45,18 @@ export function ConversationOverviewCalendar({
 }) {
   const [month, setMonth] = useState(beijingDay().slice(0, 7));
   const [day, setDay] = useState(beijingDay());
-  const [offset, setOffset] = useState(0);
+  const [rowLimit, setRowLimit] = useState(50);
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [showLogs, setShowLogs] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
   const [revision, setRevision] = useState(0);
   const [dirty, setDirty] = useState(false);
   const [autoRefreshPending, setAutoRefreshPending] = useState(false);
   const [visible, setVisible] = useState(document.visibilityState === 'visible');
   const active = useTabActive();
   const live = useRef(true);
+  const backgroundIds = useRef(new Set<string>());
   useEffect(() => {
     live.current = true;
     return () => {
@@ -137,6 +138,7 @@ export function ConversationOverviewCalendar({
   useEffect(() => {
     const { month, binding, ready, active, visible } = request;
     setSnapshot(undefined);
+    setRowLimit(50);
     setJob(undefined);
     setError('');
     setDirty(false);
@@ -174,7 +176,7 @@ export function ConversationOverviewCalendar({
       });
     return () => {
       cancelled = true;
-      if (task)
+      if (task && !backgroundIds.current.has(task))
         void client.account.calendarOverview.stop.mutate({ ...binding, id: task }).catch(() => {});
     };
   }, [request]);
@@ -188,8 +190,8 @@ export function ConversationOverviewCalendar({
           ...binding,
           id,
           day: day.startsWith(month) ? day : undefined,
-          offset,
-          includeLogs: showLogs,
+          limit: rowLimit,
+          includeLogs: logOpen,
         });
         if (cancelled || currentRequest.current !== request) return;
         setSnapshot(result);
@@ -211,7 +213,7 @@ export function ConversationOverviewCalendar({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [id, binding, day, offset, month, visible, active, request, showLogs]);
+  }, [id, binding, day, rowLimit, month, visible, active, request, logOpen]);
   const errors = [
     ...new Set(
       [directoryError, error, ...(snapshot?.days.flatMap((value) => value.errors) ?? [])].filter(
@@ -248,6 +250,22 @@ export function ConversationOverviewCalendar({
       setBusy(false);
     }
   }
+  async function background() {
+    if (!id || !binding || busy) return;
+    setBusy(true);
+    backgroundIds.current.add(id);
+    try {
+      await client.account.calendarOverview.background.mutate({ ...binding, id });
+      if (live.current && latestId.current === id) onClose();
+    } catch (failure) {
+      backgroundIds.current.delete(id);
+      if (live.current && latestId.current === id)
+        setError(failure instanceof Error ? failure.message : String(failure));
+      else void client.account.calendarOverview.stop.mutate({ ...binding, id }).catch(() => {});
+    } finally {
+      if (live.current) setBusy(false);
+    }
+  }
   return (
     <Modal
       onClose={onClose}
@@ -260,22 +278,13 @@ export function ConversationOverviewCalendar({
           <h3 id="conversation-overview-calendar-title">会话日历</h3>
           <button
             type="button"
-            className="icon-button"
-            title="任务日志"
-            aria-label="任务日志"
-            aria-pressed={showLogs}
-            onClick={() => setShowLogs((value) => !value)}
+            className="weq-set-btn weq-set-btn-soft"
+            title="将当月统计加入任务列表，在后台继续"
+            disabled={!id || busy || Boolean(snapshot?.cancelled)}
+            onClick={() => void background()}
           >
-            <ScrollText size={16} />
-          </button>
-          <button
-            type="button"
-            className="icon-button"
-            title={dirty ? '数据有变更，重新统计' : '重新统计'}
-            aria-label="重新统计"
-            onClick={() => setRevision((value) => value + 1)}
-          >
-            <RefreshCw size={16} />
+            <ListTodo size={16} />
+            后台进行
           </button>
           <button
             type="button"
@@ -287,16 +296,6 @@ export function ConversationOverviewCalendar({
             <X size={16} />
           </button>
         </header>
-        <CalendarScanProgress
-          day={day}
-          progress={snapshot?.progress}
-          dayProgress={snapshot?.dayProgress}
-        />
-        {showLogs ? (
-          <div className="weq-overview-calendar-log">
-            <TaskLogConsole lines={snapshot?.logs ?? []} collapsed={false} history />
-          </div>
-        ) : null}
         <div className="weq-overview-calendar-body">
           <MessageCalendar
             month={month}
@@ -304,7 +303,7 @@ export function ConversationOverviewCalendar({
               setSnapshot(undefined);
               setMonth(value);
               setDay(`${value}-01`);
-              setOffset(0);
+              setRowLimit(50);
             }}
             yearOptions={Array.from(
               { length: Number(beijingDay().slice(0, 4)) - 1968 },
@@ -320,7 +319,7 @@ export function ConversationOverviewCalendar({
                 current ? { ...current, rows: [], totalRows: 0, complete: false } : current,
               );
               setDay(value);
-              setOffset(0);
+              setRowLimit(50);
             }}
             loading={!ready || !snapshot}
             statusText={
@@ -339,6 +338,16 @@ export function ConversationOverviewCalendar({
           />
           <section className="weq-overview-calendar-conversations" aria-label="当天会话">
             <h4>{day}</h4>
+            <CalendarScanProgress
+              day={day}
+              progress={snapshot?.progress}
+              dayProgress={snapshot?.dayProgress}
+            />
+            <TaskLogDisclosure
+              open={logOpen}
+              onOpenChange={setLogOpen}
+              lines={snapshot?.logs ?? []}
+            />
             <p role="status">
               {!ready
                 ? '正在读取会话目录…'
@@ -347,72 +356,30 @@ export function ConversationOverviewCalendar({
                   : snapshot?.days.find((value) => value.day === day)?.errors.length
                     ? '部分来源统计已暂停'
                     : snapshot?.cancelled
-                      ? '统计已暂停，请点击刷新重试'
+                      ? '统计已暂停，请重新打开日历重试'
                       : !snapshot?.complete
                         ? snapshot?.dayProgress
                           ? `正在统计 · 已完成 ${snapshot.dayProgress.completedSources}/${snapshot.dayProgress.totalSources} 个来源 · 已计 ${snapshot.dayProgress.count.toLocaleString('zh-CN')} 条`
                           : '正在统计当天会话…'
                         : `${snapshot.totalRows} 个会话`}
             </p>
-            <div className="weq-overview-calendar-rows" aria-busy={!snapshot?.complete}>
-              {snapshot?.rows.map((stored) => {
-                const row = {
-                  ...stored,
-                  target: selectedByKey.get(calendarTargetKey(stored.target)) ?? stored.target,
-                };
-                return (
-                  <button
-                    key={`${row.target.kind}:${row.target.conv}`}
-                    type="button"
-                    className="weq-overview-calendar-row"
-                    disabled={busy}
-                    onClick={() => void locate(row.target, row.anchor)}
-                  >
-                    {row.target.avatar ? (
-                      <img src={row.target.avatar} alt="" />
-                    ) : (
-                      <span className="weq-overview-calendar-avatar" aria-hidden>
-                        {Array.from(row.target.name)[0]}
-                      </span>
-                    )}
-                    <span className="weq-overview-calendar-name">
-                      <strong title={row.target.name}>{row.target.name}</strong>
-                      <small>{CALENDAR_SOURCE_LABELS[row.target.kind]}</small>
-                    </span>
-                    <span title={`${row.count.toLocaleString('zh-CN')} 条`}>
-                      {row.count.toLocaleString('zh-CN')}
-                      {snapshot.complete ? '' : '+'}
-                    </span>
-                  </button>
-                );
-              })}
-              {!directoryError && snapshot?.complete && !snapshot.rows.length ? (
-                <p>当天没有消息</p>
-              ) : null}
-            </div>
-            <nav aria-label="会话分页">
-              <button
-                type="button"
-                className="icon-button"
-                title="上一页"
-                aria-label="上一页"
-                disabled={offset === 0}
-                onClick={() => setOffset((value) => Math.max(0, value - 50))}
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <span>{Math.floor(offset / 50) + 1}</span>
-              <button
-                type="button"
-                className="icon-button"
-                title="下一页"
-                aria-label="下一页"
-                disabled={!snapshot || offset + 50 >= snapshot.totalRows}
-                onClick={() => setOffset((value) => value + 50)}
-              >
-                <ChevronRight size={16} />
-              </button>
-            </nav>
+            <CalendarConversationList
+              key={`${id}:${day}`}
+              rows={snapshot?.rows ?? []}
+              total={snapshot?.totalRows ?? 0}
+              complete={Boolean(snapshot?.complete)}
+              busy={busy}
+              showEmpty={!directoryError}
+              targets={selectedByKey}
+              onLocate={(target, anchor) => void locate(target, anchor)}
+              onLoadMore={() =>
+                setRowLimit((limit) =>
+                  snapshot && snapshot.rows.length >= limit
+                    ? Math.min(limit + 50, snapshot.totalRows)
+                    : limit,
+                )
+              }
+            />
           </section>
         </div>
         <div className="weq-overview-calendar-errors">

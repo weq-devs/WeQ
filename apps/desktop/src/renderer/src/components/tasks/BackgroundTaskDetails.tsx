@@ -19,7 +19,7 @@ import { removeBackgroundTask, type BackgroundTaskEntry } from '../../hooks/useB
 import type { BackgroundTaskScope } from '../../../../shared/background_task';
 import { IS_WEB } from '../../lib/target';
 import { useDialog } from '../Dialog';
-import { TaskLogConsole } from '../TaskLogConsole';
+import { CalendarTaskLog } from '../CalendarTaskLog';
 import '../../styles/conversation-overview-calendar.css';
 
 export const BACKGROUND_TASK_LABELS = {
@@ -64,10 +64,6 @@ export function BackgroundTaskDetails({
     },
   );
   const details = entry.source === 'host' ? hostDetails.data : task.details;
-  const calendarLogs = trpc.backgroundTasks.logs.useQuery(
-    { id: task.id, scope, updatedAt: task.updatedAt },
-    { enabled: entry.source === 'host' && task.kind === 'calendar', cacheTime: 0 },
-  );
   const [busy, setBusy] = useState(false);
   const showError = useDialog((state) => state.showError);
   const act = async (run: () => Promise<unknown>) => {
@@ -84,11 +80,26 @@ export function BackgroundTaskDetails({
   };
   return (
     <div>
-      {task.kind === 'calendar' ? <div className="weq-overview-calendar-progress">
-        {task.subtasks?.map((stage) => <section key={stage.label}><div><span>{stage.label}</span><strong>{stage.done} / {stage.total}</strong></div><progress aria-label={stage.label} max={Math.max(1, stage.total)} value={stage.total ? stage.done : 1} /></section>)}
-        <TaskLogConsole lines={calendarLogs.data ?? []} collapsed={false} history />
-        {calendarLogs.error ? <p role="alert">日志读取失败：{calendarLogs.error.message}</p> : null}
-      </div> : null}
+      {task.kind === 'calendar' ? (
+        <div className="weq-overview-calendar-progress">
+          {task.subtasks?.map((stage) => (
+            <section key={stage.label}>
+              <div>
+                <span>{stage.label}</span>
+                <strong>
+                  {stage.done} / {stage.total}
+                </strong>
+              </div>
+              <progress
+                aria-label={stage.label}
+                max={Math.max(1, stage.total)}
+                value={stage.total ? stage.done : 1}
+              />
+            </section>
+          ))}
+          <CalendarTaskLog id={task.id} scope={scope} updatedAt={task.updatedAt} />
+        </div>
+      ) : null}
       {task.note ? <p role={task.status === 'failed' ? 'alert' : undefined}>{task.note}</p> : null}
       {hostDetails.error && entry.source === 'host' ? (
         <p role="alert">详情读取失败：{hostDetails.error.message}</p>

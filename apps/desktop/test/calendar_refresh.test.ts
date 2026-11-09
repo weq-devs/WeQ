@@ -5,7 +5,12 @@ import { calendarMonthDays, type CalendarTarget } from '@weq/service/conversatio
 import { ConversationOverviewCalendar } from '../src/renderer/src/components/ConversationOverviewCalendar';
 import { calendarCloneRevision } from '../src/renderer/src/lib/calendarSourceRevision';
 
-const fixture = vi.hoisted(() => ({ start: vi.fn(), stop: vi.fn(), poll: vi.fn() }));
+const fixture = vi.hoisted(() => ({
+  start: vi.fn(),
+  stop: vi.fn(),
+  poll: vi.fn(),
+  background: vi.fn(),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
@@ -14,6 +19,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         stop: { mutate: fixture.stop },
         poll: { query: fixture.poll },
         locate: { mutate: vi.fn() },
+        background: { mutate: fixture.background },
       },
     },
   },
@@ -47,6 +53,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
   state = snapshot(false);
+  fixture.background.mockReset().mockResolvedValue({ taskId: 'background-fixture' });
   fixture.start
     .mockReset()
     .mockImplementation(async () => ({ id: `job-${fixture.start.mock.calls.length}` }));
@@ -66,6 +73,73 @@ async function tick(ms = 0) {
 const defaultTargets: CalendarTarget[] = [
   { kind: 'group', conv: '42', name: 'fixture', avatar: null, ancestors: [] },
 ];
+it('日历使用连续滚动会话列表，不显示分页入口', async () => {
+  const view = mount();
+  try {
+    await tick();
+    expect(view.host.querySelector('[aria-label="会话分页"]')).toBeNull();
+    expect(view.host.querySelector('button[aria-label="任务日志"]')).toBeNull();
+  } finally {
+    view.close();
+  }
+});
+it('后台进行复用当前月份任务，关闭日历不再取消；普通关闭仍停止', async () => {
+  const view = mount();
+  try {
+    await tick();
+    expect(view.host.querySelector('[aria-label="重新统计"]')).toBeNull();
+    const button = [...view.host.querySelectorAll('button')].find((item) =>
+      item.textContent?.includes('后台进行'),
+    )!;
+    expect(button.disabled).toBe(false);
+    act(() => button.click());
+    await tick();
+    expect(fixture.background).toHaveBeenCalledTimes(1);
+    expect(fixture.background.mock.calls[0]?.[0].id).toBe('job-1');
+  } finally {
+    view.close();
+  }
+  expect(fixture.stop).not.toHaveBeenCalled();
+});
+it('后台交接失败时显示错误，直接关闭仍然停止任务', async () => {
+  fixture.background.mockRejectedValueOnce(new Error('交接失败'));
+  const view = mount();
+  try {
+    await tick();
+    const button = [...view.host.querySelectorAll('button')].find((item) =>
+      item.textContent?.includes('后台进行'),
+    )!;
+    act(() => button.click());
+    await tick();
+    expect(view.host.textContent).toContain('交接失败');
+    expect(button.disabled).toBe(false);
+  } finally {
+    view.close();
+  }
+  expect(fixture.stop).toHaveBeenCalledTimes(1);
+});
+it('日历中同样通过任务日志折叠栏展开，按需读取且不重建统计', async () => {
+  const view = mount();
+  try {
+    await tick();
+    const button = view.host.querySelector<HTMLButtonElement>('.weq-exp-detail-tasklog-head')!;
+    expect(button.closest('.weq-overview-calendar-conversations')).not.toBeNull();
+    expect(
+      view.host.querySelector(
+        '.weq-overview-calendar-conversations .weq-overview-calendar-progress',
+      ),
+    ).not.toBeNull();
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(fixture.poll.mock.calls.at(-1)?.[0].includeLogs).toBe(false);
+    act(() => button.click());
+    await tick();
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(fixture.poll.mock.calls.at(-1)?.[0].includeLogs).toBe(true);
+    expect(fixture.start).toHaveBeenCalledTimes(1);
+  } finally {
+    view.close();
+  }
+});
 function mount(initialTargets = defaultTargets) {
   const host = document.createElement('div');
   document.body.append(host);
@@ -189,19 +263,18 @@ it('相同内容的目录重新拉取和顺序改变不算更新，实际消息�
   expect(calendarCloneRevision([{ ...rows[0]!, preview: 'new' }, rows[1]!], [])).not.toBe(original);
 });
 
-it('扫描中的更新仍能手动刷新，关闭后没有轮询或自动重启', async () => {
+it('扫描中的数据变更不重开任务，直接关闭后停止且没有轮询或自动重启', async () => {
   const view = mount();
   await tick();
   view.render('b');
   await tick();
-  act(() => view.host.querySelector<HTMLButtonElement>('[aria-label="重新统计"]')!.click());
-  await tick();
-  expect(fixture.start).toHaveBeenCalledTimes(2);
+  expect(fixture.start).toHaveBeenCalledTimes(1);
   view.close();
   const calls = fixture.poll.mock.calls.length;
   await tick(15000);
   expect(fixture.poll).toHaveBeenCalledTimes(calls);
-  expect(fixture.start).toHaveBeenCalledTimes(2);
+  expect(fixture.start).toHaveBeenCalledTimes(1);
+  expect(fixture.stop).toHaveBeenCalledTimes(1);
 });
 
 function nextMonth(host: HTMLElement) {

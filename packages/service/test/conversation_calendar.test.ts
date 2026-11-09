@@ -199,6 +199,28 @@ it('逐批详情和每日计数一致，只计当前日期，正确处理 UUID �
   expect(snapshot.rows[0]?.count).toBe(2);
   expect(snapshot.rows[0]?.anchor.id).toBe('uuid-a');
 });
+it('滚动扩展返回窗口不触发重新扫描，保留完整排序及默认兼容窗口', async () => {
+  const targets = Array.from({ length: 180 }, (_, index) => ({
+    ...target,
+    conv: `peer-${String(index).padStart(3, '0')}`,
+  }));
+  const page = vi.fn(async () => ({
+    rows: targets.map((item, index) => message(String(index), start, item.conv)),
+    done: true,
+  }));
+  const job = new ConversationCalendarJob('2026-11', targets, [
+    { kind: 'c2c', page, count: async () => 0 },
+  ]);
+  job.keepAlive(day);
+  await finish(job);
+  expect(job.snapshot(day).rows).toHaveLength(50);
+  expect(job.snapshot(day, 0, false, 100).rows).toHaveLength(100);
+  const all = job.snapshot(day, 0, false, 200);
+  expect(all.rows).toHaveLength(180);
+  expect(all.totalRows).toBe(180);
+  expect(new Set(all.rows.map((row) => row.target.conv)).size).toBe(180);
+  expect(page).toHaveBeenCalledTimes(1);
+});
 it('COUNT 超时降级，分页超时不提交游标或重复条数', async () => {
   let attempts = 0;
   const page = vi.fn(async (_start, _end, cursor) => {
@@ -259,6 +281,35 @@ it('客户端不续租时，即使正在等待读取也会取消任务', async (
   await finish(job);
   expect(job.snapshot(day).cancelled).toBe(true);
   expect(page).toHaveBeenCalledTimes(1);
+});
+it('明确转入后台才可在不续租时继续超过五秒，完成后不残留周期任务', async () => {
+  let processed = 0;
+  const changed = vi.fn();
+  const job = new ConversationCalendarJob(
+    '2026-11',
+    [target],
+    [
+      {
+        kind: 'c2c',
+        count: async () => 0,
+        page: async () => {
+          processed++;
+          return { rows: [message(String(processed))], cursor: processed, done: processed === 300 };
+        },
+      },
+    ],
+    undefined,
+    changed,
+  );
+  job.keepAlive(day);
+  job.continueInBackground();
+  await finish(job);
+  expect(processed).toBe(300);
+  expect(job.snapshot(day).cancelled).toBe(false);
+  expect(job.snapshot(day).complete).toBe(true);
+  expect(job.snapshot(day).rows[0]?.count).toBe(300);
+  expect(changed).toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
 });
 it('仅有快速计数时不冒称当天会话列表完整，空来源可以确认为零', async () => {
   const job = new ConversationCalendarJob(

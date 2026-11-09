@@ -166,6 +166,7 @@ export class ConversationCalendarJob {
   private running: Promise<void> | undefined;
   private leaseTimer: ReturnType<typeof setTimeout> | undefined;
   private leaseUntil = Date.now() + 5000;
+  private background = false;
   private bytes = 0;
   private readonly order = new Map<string, Map<string, number>>();
   private orderSequence = 0;
@@ -188,6 +189,7 @@ export class ConversationCalendarJob {
       if (this.logs.length > CALENDAR_LOG_LIMIT) this.logs.shift();
     }
     this.lastLogKey = key;
+    this.onProgress?.();
   }
   private logWork(task: Work): void {
     const progress = task.progress;
@@ -218,6 +220,7 @@ export class ConversationCalendarJob {
     targets: CalendarTarget[],
     sources: CalendarSource[],
     private readonly reserve?: (bytes: number) => boolean,
+    private readonly onProgress?: () => void,
   ) {
     this.targets = new Map(targets.map((target) => [calendarTargetKey(target), target]));
     this.bytes =
@@ -250,9 +253,10 @@ export class ConversationCalendarJob {
   keepAlive(day?: string, retry = false): void {
     this.leaseUntil = Date.now() + 5000;
     clearTimeout(this.leaseTimer);
-    this.leaseTimer = setTimeout(() => {
-      if (this.running) this.cancel();
-    }, 5000);
+    if (!this.background)
+      this.leaseTimer = setTimeout(() => {
+        if (this.running) this.cancel();
+      }, 5000);
     if (day !== this.selectedDay) {
       if (day) this.log('info', 'task', `优先统计 ${day}；完成后按近的过去日期、未来日期继续`);
       for (const task of this.work) {
@@ -281,6 +285,13 @@ export class ConversationCalendarJob {
       }
     this.start();
   }
+  continueInBackground(): void {
+    if (this.controller.signal.aborted) throw new Error('日历任务已停止，请重新打开日历');
+    this.background = true;
+    clearTimeout(this.leaseTimer);
+    this.log('info', 'task', `${this.month} 统计转入后台，继续为前台读取让路`);
+    this.start();
+  }
   cancel(): void {
     if (this.controller.signal.aborted) return;
     if (
@@ -303,7 +314,7 @@ export class ConversationCalendarJob {
     })[0];
   }
   private current(): boolean {
-    return !this.controller.signal.aborted && Date.now() < this.leaseUntil;
+    return !this.controller.signal.aborted && (this.background || Date.now() < this.leaseUntil);
   }
   private start(): void {
     if (this.running || this.controller.signal.aborted) return;
@@ -447,7 +458,7 @@ export class ConversationCalendarJob {
           if (++task.failures < 3) continue;
         }
         task.error = /timeout/.test(String(error))
-          ? '统计已暂停，点击重试'
+          ? '统计已暂停，重新打开日历重试'
           : error instanceof Error
             ? error.message
             : '统计失败';
@@ -461,7 +472,7 @@ export class ConversationCalendarJob {
     }
     this.cancel();
   }
-  snapshot(day?: string, offset = 0, includeLogs = false) {
+  snapshot(day?: string, offset = 0, includeLogs = false, limit = 50) {
     const days = calendarMonthDays(this.month).map(({ day: value }) => {
       const work = this.work.filter((item) => item.day === value);
       return {
@@ -511,7 +522,7 @@ export class ConversationCalendarJob {
             count: work.reduce((sum, item) => sum + item.count, 0),
           }
         : undefined,
-      rows: rows.slice(offset, offset + 50),
+      rows: rows.slice(offset, offset + limit),
       totalRows: rows.length,
       complete,
       cancelled: this.controller.signal.aborted,
