@@ -153,12 +153,12 @@ export function RelationGraphView({
   }, [settings.mode]);
 
   const graph = useMemo(
-    () => (isOverlapMode(settings.mode) ? null : buildGraph(data, settings)),
-    [data, settings],
+    () => (!entered || isOverlapMode(settings.mode) ? null : buildGraph(data, settings)),
+    [data, settings, entered],
   );
   const overlap = useMemo(
-    () => (isOverlapMode(settings.mode) ? buildOverlapModel(data, settings) : null),
-    [data, settings],
+    () => (entered && isOverlapMode(settings.mode) ? buildOverlapModel(data, settings) : null),
+    [data, settings, entered],
   );
   const selectedGroup = data?.groups.find((group) => group.code === groupCardId);
   const knownGroup = directory?.real?.find(
@@ -407,7 +407,7 @@ export function RelationGraphView({
               <RangeControl
                 value={settings.nodeLimit}
                 min={10}
-                max={200}
+                max={500}
                 step={5}
                 onCommit={(value) => patch({ nodeLimit: value })}
                 label="节点数量"

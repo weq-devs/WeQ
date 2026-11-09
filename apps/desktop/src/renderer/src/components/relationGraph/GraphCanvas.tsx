@@ -3,9 +3,10 @@ import { useEffect, useRef, useState } from 'react';
 import type { Simulation } from 'd3';
 import { Scan } from 'lucide-react';
 import { usePrivacyStore } from '../../state/privacy';
-import { communityColor, SELF_ID } from './graphModel';
+import { communityColor } from './graphModel';
 import type { BuiltGraph, GNode } from './types';
 import { createGraphSimulation, fitGraphView, type GraphView } from './graphLayout';
+import { indexGraphHit, indexGraphRender, type RenderEdge } from './graphRender';
 
 export function GraphCanvas({
   graph,
@@ -29,6 +30,8 @@ export function GraphCanvas({
   const autoFitRef = useRef(true);
   const graphKeyRef = useRef('');
   const drawRafRef = useRef(0);
+  const renderIndexRef = useRef<ReturnType<typeof indexGraphRender> | null>(null);
+  const hitIndexRef = useRef<ReturnType<typeof indexGraphHit> | null>(null);
 
   const hoverRef = useRef<GNode | null>(null);
   const selectedRef = useRef<string | null>(selectedId);
@@ -91,14 +94,8 @@ export function GraphCanvas({
     const simulation = simulationRef.current;
     if (!simulation) return null;
     const { x, y } = screenToWorld(sx, sy);
-    const nodes = simulation.nodes();
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      const n = nodes[i];
-      const dx = n.x - x;
-      const dy = n.y - y;
-      if (dx * dx + dy * dy <= (n.radius + 2) * (n.radius + 2)) return n;
-    }
-    return null;
+    hitIndexRef.current ??= indexGraphHit(simulation.nodes());
+    return hitIndexRef.current(x, y);
   }
 
   useEffect(() => {
@@ -114,8 +111,11 @@ export function GraphCanvas({
     prevSim?.stop();
     const sim = createGraphSimulation(graph, prevSim?.nodes());
     simulationRef.current = sim;
+    renderIndexRef.current = indexGraphRender(graph);
+    hitIndexRef.current = null;
     let fitted = false;
     sim.on('tick', () => {
+      hitIndexRef.current = null;
       if (!fitted && sim.alpha() < 0.18 && autoFitRef.current) {
         fitted = true;
         fitViewRef.current();
@@ -187,46 +187,69 @@ export function GraphCanvas({
     ctx.scale(v.scale, v.scale);
 
     const nodes = simulation.nodes();
-    const index = new Map(nodes.map((n) => [n.id, n]));
+    const topology = renderIndexRef.current;
+    if (!topology) return;
     const focus = hoverRef.current?.id ?? selectedRef.current ?? null;
-    const focusNeighbours = new Set<string>();
+    const focusNeighbours = topology.adjacent.get(focus) ?? new Set<string>();
+    const left = -v.x / v.scale;
+    const right = (w - v.x) / v.scale;
+    const top = -v.y / v.scale;
+    const bottom = (h - v.y) / v.scale;
 
-    if (focus) {
-      for (const e of graph.edges) {
-        if (e.source.id === focus || e.source === focus)
-          focusNeighbours.add(e.target.id || e.target);
-        else if (e.target.id === focus || e.target === focus)
-          focusNeighbours.add(e.source.id || e.source);
-      }
-    }
-
-    for (const e of graph.edges) {
-      const s = typeof e.source === 'object' ? e.source : index.get(e.source);
-      const t = typeof e.target === 'object' ? e.target : index.get(e.target);
-      if (!s || !t) continue;
-
-      const active = focus && (s.id === focus || t.id === focus);
-      const isSelfEdge = s.id === SELF_ID || t.id === SELF_ID;
-
+    function strokeEdges(edges: RenderEdge[], excludeFocus = false) {
       ctx.beginPath();
-      ctx.moveTo(s.x, s.y);
-      ctx.lineTo(t.x, t.y);
-      ctx.strokeStyle = active
-        ? 'rgba(0,153,255,0.55)'
-        : isSelfEdge
-          ? 'rgba(120,140,165,0.07)'
-          : 'rgba(120,140,165,0.18)';
-      ctx.lineWidth = active
-        ? Math.min(1 + e.weight * 0.5, 4)
-        : isSelfEdge
-          ? 0.5
-          : Math.min(0.6 + e.weight * 0.25, 2.4);
-      ctx.stroke();
+      let count = 0;
+      for (const { source: s, target: t } of edges) {
+        if (excludeFocus && (s.id === focus || t.id === focus)) continue;
+        // 两端在视口同侧的线段不可能可见；保留穿过画布的线段。
+        if (
+          Math.max(s.x, t.x) < left - 4 ||
+          Math.min(s.x, t.x) > right + 4 ||
+          Math.max(s.y, t.y) < top - 4 ||
+          Math.min(s.y, t.y) > bottom + 4
+        )
+          continue;
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(t.x, t.y);
+        // 限制单条路径的大小，避免超密图在浏览器内构建巨型路径。
+        if (++count % 2048 === 0) {
+          ctx.stroke();
+          ctx.beginPath();
+        }
+      }
+      if (count % 2048) ctx.stroke();
+    }
+    for (const batch of topology.batches) {
+      ctx.strokeStyle = batch.self ? 'rgba(120,140,165,0.07)' : 'rgba(120,140,165,0.18)';
+      ctx.lineWidth = batch.width;
+      strokeEdges(batch.edges, Boolean(focus));
+    }
+    if (focus) {
+      const active = new Map<number, RenderEdge[]>();
+      for (const edge of topology.incident.get(focus) ?? []) {
+        const width = Math.min(1 + edge.weight * 0.5, 4);
+        const batch = active.get(width) ?? [];
+        batch.push(edge);
+        active.set(width, batch);
+      }
+      ctx.strokeStyle = 'rgba(0,153,255,0.55)';
+      for (const [width, edges] of active) {
+        ctx.lineWidth = width;
+        strokeEdges(edges);
+      }
     }
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     for (const n of nodes) {
+      const margin = n.radius + 80 / Math.min(v.scale, 1);
+      if (
+        n.x + margin < left ||
+        n.x - margin > right ||
+        n.y + margin < top ||
+        n.y - margin > bottom
+      )
+        continue;
       const isSelfNode = n.kind === 'self';
       const color = isSelfNode ? '#0a7fd0' : communityColor(n.community);
       const dim = focus && n.id !== focus && !focusNeighbours.has(n.id);
@@ -239,7 +262,9 @@ export function GraphCanvas({
       ctx.fillStyle = color;
       ctx.fill();
 
-      const img = !privacy && n.avatarUrl ? getImage(n.avatarUrl) : null;
+      const avatarVisible =
+        n.x + r >= left && n.x - r <= right && n.y + r >= top && n.y - r <= bottom;
+      const img = !privacy && avatarVisible && n.avatarUrl ? getImage(n.avatarUrl) : null;
       if (img) {
         ctx.save();
         ctx.beginPath();
@@ -283,7 +308,7 @@ export function GraphCanvas({
 
   useEffect(() => {
     drawRef.current();
-  }, [privacy]);
+  }, [privacy, selectedId]);
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     autoFitRef.current = false;
@@ -321,7 +346,7 @@ export function GraphCanvas({
       viewRef.current.x += e.clientX - panRef.current.x;
       viewRef.current.y += e.clientY - panRef.current.y;
       panRef.current = { x: e.clientX, y: e.clientY };
-      draw();
+      scheduleDraw();
       return;
     }
 
@@ -329,7 +354,7 @@ export function GraphCanvas({
     if (hit !== hoverRef.current) {
       hoverRef.current = hit;
       setHoverNode(hit);
-      draw();
+      scheduleDraw();
     }
     if (hit && tooltipRef.current) {
       tooltipRef.current.style.left = `${sx + 14}px`;
@@ -370,7 +395,7 @@ export function GraphCanvas({
     v.scale = next;
     v.x = mx - wx * next;
     v.y = my - wy * next;
-    draw(); // 手动重绘
+    scheduleDraw();
   }
 
   return (

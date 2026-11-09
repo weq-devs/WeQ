@@ -3,6 +3,7 @@
 // data and the current control-panel settings. Pure, no React / canvas.
 
 import { cachedAvatarUrl } from '../../lib/avatarCache';
+import { forEachIntersection } from './intersections';
 import type { BuiltGraph, GEdge, GNode, GraphSettings, RawNode, RelationGraphData } from './types';
 
 /** Friends carry a base intimacy of 100; non-friends a flat 80 (weight model). */
@@ -139,25 +140,19 @@ function buildPeople(data: RelationGraphData, settings: GraphSettings): BuiltGra
     };
   });
 
-  const sets = top.map((p) => new Set(p.groups));
   const edges: GEdge[] = [];
-  for (let i = 0; i < top.length; i++) {
-    const a = sets[i];
-    for (let j = i + 1; j < top.length; j++) {
-      const b = sets[j];
-      const [small, big] = a.size < b.size ? [a, b] : [b, a];
-      let common = 0;
-      for (const g of small) if (big.has(g)) common++;
-      if (common >= settings.minCommon) {
-        edges.push({
-          source: nodes[i].id,
-          target: nodes[j].id,
-          weight: common,
-          dist: 200 / Math.sqrt(common),
-        });
-      }
-    }
-  }
+  forEachIntersection(
+    top.map((p) => p.groups),
+    settings.minCommon,
+    (i, j, common) => {
+      edges.push({
+        source: nodes[i].id,
+        target: nodes[j].id,
+        weight: common,
+        dist: 200 / Math.sqrt(common),
+      });
+    },
+  );
 
   // Communities are computed on the real contacts only (self connects to all,
   // so including it would smear every cluster together).
@@ -195,7 +190,7 @@ function buildGroups(data: RelationGraphData, settings: GraphSettings): BuiltGra
   const groups = data.groups.filter((g) => allow(g.code));
   groups.sort((a, b) => b.sharedCount - a.sharedCount);
   const top = groups.slice(0, settings.nodeLimit);
-  const allowedCodes = new Set(top.map((g) => g.code));
+  const membersByGroup = new Map(top.map((g) => [g.code, [] as number[]]));
 
   const nodes: GNode[] = top.map((g) => ({
     id: g.code,
@@ -219,24 +214,14 @@ function buildGroups(data: RelationGraphData, settings: GraphSettings): BuiltGra
     fy: null,
   }));
 
-  // Co-occurrence: for each person, every pair of their (allowed) groups.
-  const pairCount = new Map<string, number>();
-  for (const person of data.nodes) {
-    const codes = person.groupCodes.filter((c) => allowedCodes.has(c));
-    for (let i = 0; i < codes.length; i++) {
-      for (let j = i + 1; j < codes.length; j++) {
-        const key = codes[i] < codes[j] ? `${codes[i]}|${codes[j]}` : `${codes[j]}|${codes[i]}`;
-        pairCount.set(key, (pairCount.get(key) ?? 0) + 1);
-      }
-    }
-  }
+  data.nodes.forEach((person, i) => {
+    for (const code of person.groupCodes) membersByGroup.get(code)?.push(i);
+  });
 
   const edges: GEdge[] = [];
-  for (const [key, weight] of pairCount) {
-    if (weight < settings.minCommon) continue;
-    const [source, target] = key.split('|');
-    edges.push({ source, target, weight, dist: 220 / Math.sqrt(weight) });
-  }
+  forEachIntersection([...membersByGroup.values()], settings.minCommon, (i, j, weight) => {
+    edges.push({ source: top[i].code, target: top[j].code, weight, dist: 220 / Math.sqrt(weight) });
+  });
 
   const communityCount = detectCommunities(nodes, edges);
 
@@ -334,28 +319,14 @@ export function buildOverlapModel(
     .map((n) => n.groupCodes.filter(allow))
     .filter((codes) => codes.length > 0);
 
-  // 2) 共现计数：一个人每同时出现在一对群里，就给这对 +1。
-  const pairCount = new Map<string, number>();
-  for (const codes of people) {
-    for (let i = 0; i < codes.length; i++) {
-      for (let j = i + 1; j < codes.length; j++) {
-        const key = codes[i] < codes[j] ? `${codes[i]}|${codes[j]}` : `${codes[j]}|${codes[i]}`;
-        pairCount.set(key, (pairCount.get(key) ?? 0) + 1);
-      }
-    }
-  }
-
-  // 3) 每个群先按「重合总量」占位，排序后裁到前 N，其余群不参与图和色阶。
+  // 每人给所在群的重合总量贡献「群数 - 1」，无需先展开所有群对。
   const poolByGroup = new Map<string, number>();
-  for (const codes of people) {
-    for (const code of codes) poolByGroup.set(code, (poolByGroup.get(code) ?? 0) + 1);
-  }
-
   const overlapSum = new Map<string, number>();
-  for (const [key, weight] of pairCount) {
-    const [a, b] = key.split('|');
-    overlapSum.set(a, (overlapSum.get(a) ?? 0) + weight);
-    overlapSum.set(b, (overlapSum.get(b) ?? 0) + weight);
+  for (const codes of people) {
+    for (const code of codes) {
+      poolByGroup.set(code, (poolByGroup.get(code) ?? 0) + 1);
+      overlapSum.set(code, (overlapSum.get(code) ?? 0) + codes.length - 1);
+    }
   }
 
   let codes = [...poolByGroup.keys()];
@@ -392,37 +363,37 @@ export function buildOverlapModel(
   });
 
   const minKeep = Math.max(1, settings.overlapThreshold);
-
   const pairs: OverlapPair[] = [];
-  /** 参与计算的两个群之间「本来就有共同成员」的群对，用来区分「0 人重合」和「被阈值滤掉」。 */
-  const known = new Set<string>();
-  for (const [key, weight] of pairCount) {
-    const [a, b] = key.split('|');
-    if (!keep.has(a) || !keep.has(b)) continue;
-    known.add(`${a}|${b}`);
-    if (
-      settings.overlapDirection === 'small' ? weight > settings.overlapThreshold : weight < minKeep
-    ) {
-      continue;
+  // 仅对已选中的 K 个群计数；小重叠模式的零交集直接从矩阵读取。
+  const selected = new Map(codes.map((code, i) => [code, i]));
+  const counts = new Uint32Array(codes.length * codes.length);
+  const members = codes.map(() => [] as number[]);
+  people.forEach((memberships, person) => {
+    for (const code of memberships) {
+      const index = selected.get(code);
+      if (index !== undefined) members[index].push(person);
     }
-    const smaller = Math.min(poolByGroup.get(a) ?? 0, poolByGroup.get(b) ?? 0);
-    pairs.push({ a, b, weight, ratio: smaller > 0 ? weight / smaller : 0 });
-  }
-
-  // 小重叠模式下，完全没有共现记录的群对才是「0 人重合」——它们才是要看的主角。
-  if (settings.overlapDirection === 'small') {
-    for (let i = 0; i < codes.length; i++) {
-      for (let j = i + 1; j < codes.length; j++) {
-        const a = codes[i];
-        const b = codes[j];
-        const key = a < b ? `${a}|${b}` : `${b}|${a}`;
-        if (known.has(key)) continue;
-        pairs.push({ a, b, weight: 0, ratio: 0 });
-      }
+  });
+  forEachIntersection(members, 1, (i, j, weight) => {
+    counts[i * codes.length + j] = weight;
+  });
+  let maxWeight = 1;
+  for (let i = 0; i < codes.length; i++) {
+    for (let j = i + 1; j < codes.length; j++) {
+      const weight = counts[i * codes.length + j];
+      if (
+        settings.overlapDirection === 'small'
+          ? weight > settings.overlapThreshold
+          : weight < minKeep
+      )
+        continue;
+      // 群对 ID 始终使用 code 顺序，不随显示排序变化。
+      const [a, b] = codes[i] < codes[j] ? [codes[i], codes[j]] : [codes[j], codes[i]];
+      const smaller = Math.min(poolByGroup.get(a) ?? 0, poolByGroup.get(b) ?? 0);
+      pairs.push({ a, b, weight, ratio: smaller > 0 ? weight / smaller : 0 });
+      maxWeight = Math.max(maxWeight, weight);
     }
   }
-
-  const maxWeight = Math.max(1, ...pairs.map((p) => p.weight));
 
   return { groups, pairs, maxWeight, totalPeople };
 }

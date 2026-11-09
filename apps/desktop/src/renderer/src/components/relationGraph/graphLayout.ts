@@ -85,12 +85,18 @@ export function createGraphSimulation(graph: BuiltGraph, previous: GNode[] = [])
 
 /** 预留顶部工具栏、底部操作钮及头像下方的标签，不依赖图形恰好在画布中心。 */
 export function fitGraphView(nodes: GNode[], width: number, height: number, top = 96): GraphView {
-  const valid = nodes.filter((node) => Number.isFinite(node.x) && Number.isFinite(node.y));
-  if (!valid.length || width <= 0 || height <= 0) return { scale: 1, x: 0, y: 0 };
-  const left = Math.min(...valid.map((node) => node.x - node.radius - 24));
-  const right = Math.max(...valid.map((node) => node.x + node.radius + 24));
-  const bottom = Math.max(...valid.map((node) => node.y + node.radius + 24));
-  const upper = Math.min(...valid.map((node) => node.y - node.radius));
+  let left = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  let upper = Infinity;
+  for (const node of nodes) {
+    if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) continue;
+    left = Math.min(left, node.x - node.radius - 24);
+    right = Math.max(right, node.x + node.radius + 24);
+    bottom = Math.max(bottom, node.y + node.radius + 24);
+    upper = Math.min(upper, node.y - node.radius);
+  }
+  if (!Number.isFinite(left) || width <= 0 || height <= 0) return { scale: 1, x: 0, y: 0 };
   const availableWidth = Math.max(1, width - 32);
   const availableHeight = Math.max(1, height - top - 40);
   const scale = Math.min(

@@ -28,17 +28,22 @@ const settings: GraphSettings = {
   showAvatars: false,
   showValues: true,
 };
+const params = new URLSearchParams(location.search);
+const count = Math.max(200, Math.min(1000, Number(params.get('count')) || 200));
 const data: RelationGraphData = {
   selfUin: '',
   scannedGroups: 8,
   builtAt: 0,
-  nodes: Array.from({ length: 200 }, (_, i) => ({
+  nodes: Array.from({ length: count }, (_, i) => ({
     uid: `person-${i}`,
     uin: '',
     nick: `成员 ${i}`,
     card: '',
     groupCount: 2,
-    groupCodes: [`group-${Math.floor(i / 50) * 2}`, `group-${Math.floor(i / 50) * 2 + 1}`],
+    groupCodes: [
+      `group-${Math.floor(i / (count / 4)) * 2}`,
+      `group-${Math.floor(i / (count / 4)) * 2 + 1}`,
+    ],
     intimacy: i % 4 === 0 ? 1800 : 100,
     isFriend: i % 3 === 0,
   })),
@@ -55,13 +60,18 @@ Object.assign(window, { relationLayoutQa: { theme: useThemeStore } });
 function Fixture() {
   const [mode, setMode] = useState<'people' | 'groups'>('people');
   const [sparse, setSparse] = useState(false);
-  const [limit, setLimit] = useState(100);
+  const [limit, setLimit] = useState(params.has('count') ? count : 100);
   const graph = useMemo(() => {
+    const start = performance.now();
     const result = buildGraph(data, {
       ...settings,
       mode,
       nodeLimit: limit,
       minCommon: sparse ? 60 : 2,
+    });
+    Object.assign(window.relationLayoutQa, {
+      buildMs: performance.now() - start,
+      edges: result.edges.length,
     });
     for (const node of result.nodes) node.avatarUrl = null;
     return result;
@@ -85,7 +95,13 @@ function Fixture() {
             {graph.nodes.length} 节点 · {graph.edges.length} 连线
           </span>
         </div>
-        <GraphCanvas graph={graph} selectedId={null} onSelect={() => {}} />
+        <GraphCanvas
+          graph={graph}
+          selectedId={null}
+          onSelect={(node) => {
+            Object.assign(window.relationLayoutQa, { selected: node?.id ?? null });
+          }}
+        />
       </div>
     </section>
   );
