@@ -68,6 +68,13 @@ node apps/desktop/test/browser/run-conversation-entry.mjs
 
 HTML 导出图片比例可运行 `node apps/desktop/test/browser/run-export-image-ratio.mjs` 回归，覆盖聊天图片、说明文字、表情、转发、Markdown、空间单图/多图以及桌面/窄屏与深浅色；仅使用内联合成图片，不联网、不读取 QQ。Playwright 与浏览器路径沿用上面的环境变量，`WEQ_IMAGE_RATIO_ARTIFACTS` 可指定截图目录。
 
+## 原生文本编辑菜单
+
+`node scripts/smoke-edit-context-menu.mjs` 使用当前安装的 Electron 启动独立离线测试窗口，
+覆盖普通、搜索、密码、数字、多行及富文本输入框的真实右键事件，只读输入框和消息区互不接管，
+并检查原生剪贴板命令的 DOM 事件、文本撤销/重做/全选/删除及深浅色系统菜单。测试不连接 QQ，
+不使用真实应用资料，拦截剪贴板事件以避免读写用户剪贴板；完成后关闭测试进程并删除临时资料。
+
 ## 合并与夹具
 
 - 同领域、同依赖且没有模块 mock 的小测试可合并成一个文件，各自的 `describe` 保留局部夹具和 hook 作用域，减少重复 worker 启动和依赖加载。

@@ -86,6 +86,7 @@ import { databaseCheckups } from './db_checkup';
 import { macApplicationMenu } from './application_menu';
 import { createSystemTray } from './system_tray';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
+import { registerEditContextMenu } from './edit_context_menu';
 import { registerCallVideoIpc } from './call_video_ipc';
 import { registerAttachHintIpc } from './attach_hint_ipc';
 import { backgroundServicesRunning } from './background_services';
@@ -821,6 +822,7 @@ void app.whenReady().then(async () => {
   registerElevationIpc();
   registerLongTermAuthorizationIpc();
   registerEditUndoIpc();
+  registerEditContextMenu();
   registerCallVideoIpc();
 
   app.on('browser-window-created', (_, win) => {
