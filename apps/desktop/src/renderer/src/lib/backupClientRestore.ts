@@ -49,10 +49,27 @@ export async function restoreBackupClient(
 }
 
 let serial: Promise<unknown> = Promise.resolve();
-export async function serializeBackupClient<T>(run: () => Promise<T>): Promise<T> {
+export async function serializeBackupClient<T>(
+  run: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const cancellable = async () => {
+    signal?.throwIfAborted();
+    if (!signal) return run();
+    let abort: () => void = () => {};
+    const cancelled = new Promise<never>((_, reject) => {
+      abort = () => reject(signal.reason);
+      signal.addEventListener('abort', abort, { once: true });
+    });
+    try {
+      return await Promise.race([run(), cancelled]);
+    } finally {
+      signal.removeEventListener('abort', abort);
+    }
+  };
   if (typeof navigator !== 'undefined' && navigator.locks)
-    return await navigator.locks.request('weq-client-backup-restore', run);
-  const next = serial.catch(() => {}).then(run);
+    return await navigator.locks.request('weq-client-backup-restore', { signal }, cancellable);
+  const next = serial.catch(() => {}).then(cancellable);
   serial = next;
   return next;
 }

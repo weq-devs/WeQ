@@ -51,6 +51,7 @@ import { ContentSelectionProvider } from './state/contentSelection';
 import { ChatImageCacheProvider } from './components/ChatImageCacheProvider';
 import { DEFAULT_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { RendererRecoveryNotice } from './components/RendererRecoveryNotice';
+import { RemoteStartupReporter } from './components/RemoteStartupReporter';
 
 /**
  * 把两个「气泡渲染」开关广播给所有消息气泡：纯文本 Markdown、链接预览卡片。
@@ -224,6 +225,7 @@ export default function App(): ReactElement {
                 自身决定是否显示（见 JoinGroupDialog 的判据）。 */}
             {view === 'main' ? <JoinGroupDialog /> : null}
             <DialogHost />
+            <RemoteStartupReporter />
             <AccountSwitchRequestHost />
             <RemoteRequests />
             <ToastHost />

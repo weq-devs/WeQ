@@ -9,6 +9,8 @@ import {
 import { useThemeStore } from '../state/theme';
 import { usePrivacyStore } from '../state/privacy';
 import { useToast } from './Toast';
+import { startupDeadline } from '../lib/startupDeadline';
+import { publishRemoteStartup } from '../lib/remoteStartup';
 import '../styles/backup.css';
 
 const RUNTIME_ERROR_KEY = 'weq.runtime-file-error';
@@ -41,17 +43,24 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
     const seq = ++generation.current;
     setBusy(true);
     setError(null);
+    publishRemoteStartup({ state: 'loading', message: '正在检查恢复状态' });
     try {
       if (recover) await client.bootstrap.backupRetryRecovery.mutate();
-      const result = await serializeBackupClient(() =>
-        restoreBackupClient(
-          {
-            read: (clientId) =>
-              client.bootstrap.backupStartup.query(clientId ? { clientId } : undefined),
-            acknowledge: (id, clientId) =>
-              client.bootstrap.backupAcknowledgeClient.mutate({ id, clientId }),
-          },
-          () => window.localStorage,
+      const result = await startupDeadline((signal) =>
+        serializeBackupClient(
+          () =>
+            restoreBackupClient(
+              {
+                read: (clientId) =>
+                  client.bootstrap.backupStartup.query(clientId ? { clientId } : undefined, {
+                    signal,
+                  }),
+                acknowledge: (id, clientId) =>
+                  client.bootstrap.backupAcknowledgeClient.mutate({ id, clientId }, { signal }),
+              },
+              () => window.localStorage,
+            ),
+          signal,
         ),
       );
       if (seq !== generation.current) return;
@@ -76,7 +85,10 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
       setError(e instanceof Error ? e.message : String(e));
       // 界面交接文件损坏时仍可显示已提交的数据回执，供用户明确放弃界面部分。
       try {
-        const status = await client.bootstrap.backupStatus.query();
+        const status = await startupDeadline(
+          (signal) => client.bootstrap.backupStatus.query(undefined, { signal }),
+          3_000,
+        );
         if (seq !== generation.current) return;
         setState((previous) =>
           previous
@@ -103,6 +115,14 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
     };
   }, [load]);
   const notice = state?.appliedThisStartup && !noticeDismissed ? state.result : null;
+  useEffect(() => {
+    if (busy) return;
+    if (state?.ok && !error && !notice) return;
+    if ((state?.ok === false && state.error) || state?.result?.clientPending)
+      publishRemoteStartup({ state: 'action-required' });
+    else if (error) publishRemoteStartup({ state: 'error', message: error });
+    else if (notice) publishRemoteStartup({ state: 'action-required' });
+  }, [busy, error, notice, state]);
   if (!busy && state?.ok && !error && !notice) return children;
   if (!busy && state?.ok && !error && notice)
     return (

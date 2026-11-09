@@ -30,9 +30,27 @@ beforeEach(() => {
   api.subscribe.mockReturnValue({ unsubscribe() {} });
 });
 afterEach(() => {
+  vi.useRealTimers();
   for (const close of cleanups.splice(0)) close();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+it('启动读取和补充状态都不返回时结束加载并允许重试', async () => {
+  vi.useFakeTimers();
+  api.read.mockImplementationOnce(() => new Promise(() => {}));
+  api.status.mockImplementationOnce(() => new Promise(() => {}));
+  const host = await mount();
+  await act(async () => vi.advanceTimersByTimeAsync(18_000));
+  expect(host.textContent).not.toContain('正在检查恢复状态');
+  expect(host.textContent).toContain('启动检查');
+  expect([...host.querySelectorAll('button')].some((node) => node.textContent === '重试恢复')).toBe(
+    true,
+  );
+  api.read.mockResolvedValue(healthy);
+  await act(async () =>
+    [...host.querySelectorAll('button')].find((node) => node.textContent === '重试恢复')!.click(),
+  );
+  expect(host.querySelector('[data-business]')).not.toBeNull();
 });
 const healthy: BackupStartupState = {
   ok: true,

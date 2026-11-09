@@ -7,6 +7,6 @@ async function probe(){const response=await fetch('/trpc/probe');document.queryS
 document.querySelector('#probe').onclick=probe;probe();
 const socket=new WebSocket(location.origin.replace(/^http/,'ws')+'/trpc-ws');
 socket.onopen=()=>socket.send(JSON.stringify({id:1,method:'subscription',params:{path:'stream'}}));
-socket.onmessage=()=>document.querySelector('#socket').textContent='WebSocket 已连接';
+socket.onmessage=()=>{document.querySelector('#socket').textContent='WebSocket 已连接';window.weqRemoteStartup={state:'ready'};window.dispatchEvent(new Event('weq-remote-startup'));};
 socket.onclose=()=>{document.querySelector('#socket').textContent='订阅已断开';probe();};
 </script></body></html>
