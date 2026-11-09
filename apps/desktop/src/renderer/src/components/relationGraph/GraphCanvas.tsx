@@ -5,7 +5,12 @@ import { Scan } from 'lucide-react';
 import { usePrivacyStore } from '../../state/privacy';
 import { communityColor } from './graphModel';
 import type { BuiltGraph, GNode } from './types';
-import { createGraphSimulation, fitGraphView, type GraphView } from './graphLayout';
+import {
+  createGraphSimulation,
+  fitGraphView,
+  GRAPH_DRAG_ALPHA,
+  type GraphView,
+} from './graphLayout';
 import { indexGraphHit, indexGraphRender, type RenderEdge } from './graphRender';
 
 export function GraphCanvas({
@@ -324,9 +329,9 @@ export function GraphCanvas({
       const w = screenToWorld(sx, sy);
       dragNodeRef.current.fx = w.x;
       dragNodeRef.current.fy = w.y;
-      // 只在实际拖动时补充有限能量；丢失释放事件也能自行冷却。
+      // 轻微加热即可跟随拖动，不把已稳定的整张图重新激活到高能态。
       const simulation = simulationRef.current;
-      simulation?.alpha(Math.max(simulation.alpha(), 0.3)).restart();
+      simulation?.alpha(Math.max(simulation.alpha(), GRAPH_DRAG_ALPHA)).restart();
       return;
     }
     if (panRef.current) {

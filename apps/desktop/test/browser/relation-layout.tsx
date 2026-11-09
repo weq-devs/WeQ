@@ -30,35 +30,42 @@ const settings: GraphSettings = {
 };
 const params = new URLSearchParams(location.search);
 const count = Math.max(200, Math.min(1000, Number(params.get('count')) || 200));
+const dense = params.has('dense');
+const groupCount = dense ? count : 8;
+const allGroups = Array.from({ length: groupCount }, (_, i) => `group-${i}`);
 const data: RelationGraphData = {
   selfUin: '',
-  scannedGroups: 8,
+  scannedGroups: groupCount,
   builtAt: 0,
   nodes: Array.from({ length: count }, (_, i) => ({
     uid: `person-${i}`,
     uin: '',
     nick: `成员 ${i}`,
     card: '',
-    groupCount: 2,
-    groupCodes: [
-      `group-${Math.floor(i / (count / 4)) * 2}`,
-      `group-${Math.floor(i / (count / 4)) * 2 + 1}`,
-    ],
-    intimacy: i % 4 === 0 ? 1800 : 100,
-    isFriend: i % 3 === 0,
+    groupCount: dense ? groupCount : 2,
+    groupCodes: dense
+      ? allGroups
+      : [
+          `group-${Math.floor(i / (count / 4)) * 2}`,
+          `group-${Math.floor(i / (count / 4)) * 2 + 1}`,
+        ],
+    intimacy: dense || i % 4 === 0 ? 1800 : 100,
+    isFriend: dense || i % 3 === 0,
   })),
-  groups: Array.from({ length: 8 }, (_, i) => ({
+  groups: Array.from({ length: groupCount }, (_, i) => ({
     code: `group-${i}`,
     name: `群聊 ${i}`,
-    memberCount: 50,
-    sharedCount: 50,
-    myLevel: 20,
+    memberCount: dense ? count : 50,
+    sharedCount: dense ? count : 50,
+    myLevel: dense ? 180 : 20,
   })),
 };
 
 Object.assign(window, { relationLayoutQa: { theme: useThemeStore } });
 function Fixture() {
-  const [mode, setMode] = useState<'people' | 'groups'>('people');
+  const [mode, setMode] = useState<'people' | 'groups'>(
+    params.get('mode') === 'groups' ? 'groups' : 'people',
+  );
   const [sparse, setSparse] = useState(false);
   const [limit, setLimit] = useState(params.has('count') ? count : 100);
   const graph = useMemo(() => {
@@ -68,10 +75,13 @@ function Fixture() {
       mode,
       nodeLimit: limit,
       minCommon: sparse ? 60 : 2,
+      intimacyPull: params.has('strong'),
+      groupLevelPull: params.has('strong'),
     });
     Object.assign(window.relationLayoutQa, {
       buildMs: performance.now() - start,
       edges: result.edges.length,
+      graph: result,
     });
     for (const node of result.nodes) node.avatarUrl = null;
     return result;

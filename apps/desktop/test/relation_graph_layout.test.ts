@@ -58,11 +58,11 @@ describe('群交集紧凑布局', () => {
     expect(Math.max(...graph.nodes.map((n) => Math.hypot(n.x, n.y)))).toBeLessThan(1100);
   });
 
-  it('相同节点保留原位置，新加入节点不堆在原点', () => {
+  it('相同节点保留原位置但清空旧速度，新加入节点不堆在原点', () => {
     const graph = fixture(3);
-    const old = { ...graph.nodes[0], x: 350, y: -120, vx: 2, vy: -1 };
+    const old = { ...graph.nodes[0], x: 350, y: -120, vx: 3500, vy: -1200 };
     const sim = createGraphSimulation(graph, [old]).stop();
-    expect(graph.nodes[0]).toMatchObject({ x: 350, y: -120, vx: 2, vy: -1 });
+    expect(graph.nodes[0]).toMatchObject({ x: 350, y: -120, vx: 0, vy: 0 });
     expect(graph.nodes[1].x !== 0 || graph.nodes[1].y !== 0).toBe(true);
     sim.stop();
   });

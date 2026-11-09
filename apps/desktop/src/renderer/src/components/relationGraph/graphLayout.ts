@@ -7,6 +7,8 @@ export interface GraphView {
   y: number;
 }
 
+export const GRAPH_DRAG_ALPHA = 0.03;
+
 /** 圈子独立占位；斥力只影响附近节点，不再把无连接的圈子推向远处。 */
 export function createGraphSimulation(graph: BuiltGraph, previous: GNode[] = []) {
   const clusters = new Map<string, GNode[]>();
@@ -30,7 +32,7 @@ export function createGraphSimulation(graph: BuiltGraph, previous: GNode[] = [])
       targets.set(node.id, circle);
       const old = positions.get(node.id);
       if (old && Number.isFinite(old.x) && Number.isFinite(old.y)) {
-        Object.assign(node, { x: old.x, y: old.y, vx: old.vx, vy: old.vy });
+        Object.assign(node, { x: old.x, y: old.y, vx: 0, vy: 0 });
       } else {
         const angle = i * Math.PI * (3 - Math.sqrt(5));
         const radius = Math.sqrt(i + 0.5) * (node.radius * 2 + 12);
@@ -45,6 +47,8 @@ export function createGraphSimulation(graph: BuiltGraph, previous: GNode[] = [])
   }
 
   const id = (endpoint: string | GNode) => (typeof endpoint === 'string' ? endpoint : endpoint.id);
+  const radii = new Map(graph.nodes.map((node) => [node.id, node.radius + 8]));
+  // 按度数限制每条弹簧；固定下限和高权重都会使密集图的总拉力失控。
   const degree = new Map<string, number>();
   for (const edge of graph.edges) {
     for (const endpoint of [edge.source, edge.target]) {
@@ -56,27 +60,31 @@ export function createGraphSimulation(graph: BuiltGraph, previous: GNode[] = [])
   return d3
     .forceSimulation(graph.nodes)
     .alphaDecay(1 - 0.001 ** (1 / 120))
+    .velocityDecay(0.85)
     .force(
       'link',
       d3
         .forceLink<GNode, GEdge>(graph.edges)
         .id((node) => node.id)
-        .distance((edge) => edge.dist)
+        .distance((edge) =>
+          Math.max(edge.dist, radii.get(id(edge.source))! + radii.get(id(edge.target))!),
+        )
         .strength(
           (edge) =>
-            edge.strength ??
-            Math.max(
-              0.08,
+            0.2 *
+            Math.min(
+              edge.strength ?? 1,
               1 / Math.min(degree.get(id(edge.source)) ?? 1, degree.get(id(edge.target)) ?? 1),
             ),
         ),
     )
-    .force('charge', d3.forceManyBody<GNode>().strength(-70).distanceMax(180))
+    .force('charge', d3.forceManyBody<GNode>().strength(-70).distanceMin(24).distanceMax(180))
     .force(
       'collide',
       d3
         .forceCollide<GNode>()
-        .radius((node) => node.radius + 8)
+        .radius((node) => radii.get(node.id)!)
+        .strength(0.5)
         .iterations(2),
     )
     .force('x', d3.forceX<GNode>((node) => targets.get(node.id)!.x).strength(0.055))
