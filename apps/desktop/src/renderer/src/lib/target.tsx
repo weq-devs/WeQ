@@ -17,7 +17,8 @@ export const IS_ELECTRON = !IS_WEB;
  * in-app window controls; macOS shows native traffic lights instead, so the
  * renderer must leave the top-left cluster clear (and skip duplicate buttons).
  */
-export const IS_MAC = !IS_WEB && window.electron?.process.platform === 'darwin';
+export const IS_MAC =
+  !IS_WEB && typeof window !== 'undefined' && window.electron?.process.platform === 'darwin';
 
 /**
  * Render `children` only in the Electron build. Use for anything that depends
