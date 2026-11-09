@@ -1,5 +1,4 @@
 import { act, createElement as h, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -13,31 +12,14 @@ import {
 } from '../src/renderer/src/components/search/types';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));
-vi.mock('../src/renderer/src/components/QQExactLookup', () => ({
-  QQExactLookup: ({
-    kind,
-    initial,
-    onClose,
-  }: {
-    kind: 'user' | 'group';
-    initial?: string;
-    onClose: () => void;
-  }) =>
-    createPortal(
-      h(
-        'section',
-        { role: 'dialog', 'aria-label': '精确查询', 'data-kind': kind },
-        h('input', { defaultValue: initial, 'aria-label': 'QQ 号码' }),
-        h('button', { onClick: onClose }, '关闭查询'),
-      ),
-      document.body,
-    ),
+vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
+  useQQWriteSession: () => ({ binding: null, available: false }),
 }));
 beforeEach(() => vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true));
 afterEach(() => vi.unstubAllGlobals());
 
-describe('全局搜索增量接入不替换原功能', () => {
-  it.each(['', '10002'])('仅悬停时不显示号码搜索操作，主动点击后分别显示两类入口：%s', (query) => {
+describe('全局搜索号码范围', () => {
+  it.each(['', '10002'])('悬停及点击都不再追加独立号码搜索按钮：%s', (query) => {
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
@@ -57,23 +39,16 @@ describe('全局搜索增量接入不替换原功能', () => {
         ),
       );
       expect(document.querySelector('[data-local-search]')).not.toBeNull();
-      expect(document.querySelector('.weq-cloud-lookup-entry')).toBeNull();
       act(() => host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());
-      const entries = document.querySelectorAll<HTMLButtonElement>('.weq-cloud-lookup-entry');
-      expect([...entries].map((node) => node.getAttribute('aria-label'))).toEqual([
-        'QQ 号搜索',
-        '群号搜索',
-      ]);
-      act(() => entries[1]!.click());
-      expect(document.querySelector('[aria-label="精确查询"]')?.getAttribute('data-kind')).toBe(
-        'group',
-      );
+      expect(document.querySelector('.weq-cloud-lookup-entry')).toBeNull();
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
     } finally {
       act(() => root.unmount());
       host.remove();
     }
   });
-  it('保留全部范围、命中、更多与选择，号码查询弹窗关闭后原词和范围不丢失', () => {
+
+  it('并列范围参与全选，保留原词、本地命中、更多与选择', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host),
@@ -81,6 +56,8 @@ describe('全局搜索增量接入不替换原功能', () => {
       more = vi.fn();
     function Harness() {
       const [categories, setCategories] = useState<SearchCategory[]>([...SEARCH_CATEGORY_ORDER]);
+      const [appEnabled, setAppEnabled] = useState(true);
+      const [numberEnabled, setNumberEnabled] = useState(true);
       return h(TitleBarSearch, {
         query: '10002',
         onQueryChange: vi.fn(),
@@ -89,6 +66,7 @@ describe('全局搜索增量接入不替换原功能', () => {
           quick: {
             conversations: [],
             groupMembers: [],
+            friends: [],
             contacts: [1, 2, 3].map((id) =>
               contactSearchHit({
                 uid: `u_synthetic${id}`,
@@ -98,7 +76,6 @@ describe('全局搜索增量接入不替换原功能', () => {
                 avatarUrl: null,
               }),
             ),
-            friends: [],
           },
           quickLoading: false,
           slow: {
@@ -112,6 +89,11 @@ describe('全局搜索增量接入不替换原功能', () => {
           slowLoading: false,
           categories,
           onCategoriesChange: setCategories,
+          appSearchEnabled: appEnabled,
+          onAppSearchEnabledChange: setAppEnabled,
+          onSelectAppEntry: vi.fn(),
+          numberLookupEnabled: numberEnabled,
+          onNumberLookupEnabledChange: setNumberEnabled,
           onSelect: select,
           onMore: more,
         }),
@@ -121,10 +103,18 @@ describe('全局搜索增量接入不替换原功能', () => {
       act(() => root.render(h(Harness)));
       act(() => host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());
       const panel = document.querySelector<HTMLElement>('.weq-titlebar-search-results')!;
-      expect(panel.querySelector('[aria-label="搜索范围"]')).not.toBeNull();
+      const scope = (label: string) =>
+        [...panel.querySelectorAll<HTMLButtonElement>('.weq-search-scope button')].find(
+          (button) => button.textContent === label,
+        )!;
+      expect(
+        [...panel.querySelectorAll('.weq-search-scope button')]
+          .map((button) => button.textContent)
+          .slice(0, 4),
+      ).toEqual(['全部', '功能与设置', 'QQ号/群号', '联系人']);
       expect(panel.textContent).toContain('合成好友1');
-      expect(panel.textContent).toContain('消息');
-      expect(panel.querySelector('.weq-cloud-lookup-entry')).not.toBeNull();
+      expect(panel.textContent).toContain('QQ 在线能力未就绪');
+      expect(scope('QQ号/群号').getAttribute('aria-pressed')).toBe('true');
       const output = process.env.WEQ_ENTRY_LAYOUT_DIR;
       if (output) {
         mkdirSync(output, { recursive: true });
@@ -141,44 +131,23 @@ describe('全局搜索增量接入不替换原功能', () => {
           `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${styles}</style><style>body{margin:0;font-family:system-ui;background:var(--background);color:var(--foreground)}.weq-titlebar-search-results{left:8px!important;top:48px!important;width:min(720px,calc(100vw - 16px))!important;max-height:calc(100dvh - 64px)!important}</style><body>${document.body.innerHTML}</body></html>`,
         );
       }
-      const friendButton = [
-        ...panel.querySelectorAll<HTMLButtonElement>('.weq-search-scope button'),
-      ].find((button) => button.textContent === '联系人')!;
-      act(() => friendButton.click());
-      expect(friendButton.getAttribute('aria-pressed')).toBe('false');
-      act(() => panel.querySelector<HTMLButtonElement>('.weq-cloud-lookup-entry')!.click());
-      const dialog = document.querySelector('[aria-label="精确查询"]')!;
-      act(() => dialog.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
-      expect(document.querySelector('.weq-titlebar-search-results')).not.toBeNull();
-      act(() => dialog.querySelector<HTMLButtonElement>('button')!.click());
+      act(() => scope('QQ号/群号').click());
+      expect(panel.querySelector('[aria-label="QQ号/群号"]')).toBeNull();
+      expect(scope('全部').getAttribute('aria-pressed')).toBe('mixed');
+      act(() => scope('全部').click());
+      expect(scope('QQ号/群号').getAttribute('aria-pressed')).toBe('true');
+      act(() => scope('全部').click());
+      expect(scope('QQ号/群号').getAttribute('aria-pressed')).toBe('false');
+      expect(panel.textContent).toContain('未选择搜索范围');
+      act(() => scope('全部').click());
+      act(() => scope('联系人').click());
+      expect(scope('联系人').getAttribute('aria-pressed')).toBe('false');
       expect(host.querySelector<HTMLInputElement>('input')!.value).toBe('10002');
-      expect(friendButton.getAttribute('aria-pressed')).toBe('false');
-      act(() => friendButton.click());
+      act(() => scope('联系人').click());
       act(() => panel.querySelector<HTMLButtonElement>('.weq-search-more')!.click());
       expect(more).toHaveBeenCalledWith('contact');
       act(() => panel.querySelector<HTMLButtonElement>('.weq-search-row')!.click());
       expect(select).toHaveBeenCalledOnce();
-    } finally {
-      act(() => root.unmount());
-      host.remove();
-    }
-  });
-  it('没有最近搜索或本地结果时，精确查询入口仍然可见', () => {
-    const host = document.createElement('div');
-    document.body.append(host);
-    const root = createRoot(host);
-    try {
-      act(() =>
-        root.render(h(TitleBarSearch, { query: '', onQueryChange: vi.fn(), results: null })),
-      );
-      act(() =>
-        host.firstElementChild!.dispatchEvent(
-          new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }),
-        ),
-      );
-      expect(document.querySelector('.weq-titlebar-search-results')).toBeNull();
-      act(() => host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());
-      expect(document.querySelectorAll('.weq-cloud-lookup-entry')).toHaveLength(2);
     } finally {
       act(() => root.unmount());
       host.remove();

@@ -110,18 +110,3 @@ html[data-theme='dark'] .weq-friend-directory-editor {
   border-radius: 6px;
   padding: 8px;
 }
-.weq-cloud-lookup-entry {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  color: var(--foreground);
-  background: var(--background);
-  border: 0;
-  font-size: 13px;
-}
-.weq-cloud-lookup-entry {
-  width: 100%;
-  border-top: 1px solid var(--border);
-  text-align: left;
-}

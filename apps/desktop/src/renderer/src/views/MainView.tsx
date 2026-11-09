@@ -3049,6 +3049,8 @@ function MainWorkspace(): ReactElement {
     setCategories: setSearchCategories,
     appEnabled: appSearchEnabled,
     setAppEnabled: setAppSearchEnabled,
+    numberLookupEnabled,
+    setNumberLookupEnabled,
   } = useSearchPreferences();
   const [conversationScope, setConversationScope] = usePageState<ConversationScope>(
     'workspace:conversation-scope',
@@ -10762,6 +10764,8 @@ function MainWorkspace(): ReactElement {
                   onRetry={globalSearch.retry}
                   onSelect={openSearchHit}
                   appSearchEnabled={appSearchEnabled}
+                  numberLookupEnabled={numberLookupEnabled}
+                  onNumberLookupEnabledChange={setNumberLookupEnabled}
                   onAppSearchEnabledChange={(enabled) => {
                     searchReturn.clear();
                     setAppSearchEnabled(enabled);

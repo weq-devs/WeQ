@@ -21,6 +21,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
+import { isLookupNumber } from '../../hooks/useNumberLookup';
+import { NumberLookupResults } from './NumberLookupResults';
 import '../../styles/search-scope.css';
 import { SearchResultCard } from './SearchResultCard';
 import { SearchSectionSkeleton } from './SearchSkeleton';
@@ -98,6 +100,8 @@ export function SearchDropdown({
   onAppSearchEnabledChange,
   onSelectAppEntry,
   categoryStates,
+  numberLookupEnabled = false,
+  onNumberLookupEnabledChange,
 }: {
   keyword: string;
   quick: QuickSearchResult | null;
@@ -117,12 +121,15 @@ export function SearchDropdown({
   onAppSearchEnabledChange?: (enabled: boolean) => void;
   onSelectAppEntry?: (entry: AppSearchEntry) => void;
   categoryStates?: SearchCategoryStates;
+  numberLookupEnabled?: boolean;
+  onNumberLookupEnabledChange?: (enabled: boolean) => void;
 }): ReactElement {
   const hasKeyword = keyword.trim().length > 0;
   const allSelected =
     SEARCH_CATEGORY_ORDER.every((category) => categories.includes(category)) &&
-    (!onSelectAppEntry || appSearchEnabled);
-  const partiallySelected = categories.length > 0 || appSearchEnabled;
+    (!onSelectAppEntry || appSearchEnabled) &&
+    (!onNumberLookupEnabledChange || numberLookupEnabled);
+  const partiallySelected = categories.length > 0 || appSearchEnabled || numberLookupEnabled;
   const root = useRef<HTMLDivElement | null>(null);
   const position = useRef(initialPosition);
   const [expandedAppKeyword, setExpandedAppKeyword] = useState(
@@ -278,6 +285,7 @@ export function SearchDropdown({
           onClick={() => {
             onCategoriesChange(allSelected ? [] : [...SEARCH_CATEGORY_ORDER]);
             onAppSearchEnabledChange?.(!allSelected);
+            onNumberLookupEnabledChange?.(!allSelected);
           }}
         >
           <Layers size={14} aria-hidden />
@@ -291,6 +299,16 @@ export function SearchDropdown({
           >
             <Settings2 size={14} aria-hidden />
             功能与设置
+          </button>
+        ) : null}
+        {onNumberLookupEnabledChange ? (
+          <button
+            type="button"
+            aria-pressed={numberLookupEnabled}
+            onClick={() => onNumberLookupEnabledChange(!numberLookupEnabled)}
+          >
+            <Hash size={14} aria-hidden />
+            QQ号/群号
           </button>
         ) : null}
         {scopeOptions.map((option) => (
@@ -308,7 +326,9 @@ export function SearchDropdown({
       {hasKeyword ? (
         <>
           <div className="weq-search-index-hint">
-            来源：{appSearchEnabled ? '应用功能与设置 · ' : ''}当前账号 · 本地可检索记录
+            来源：{appSearchEnabled ? '应用功能与设置 · ' : ''}
+            {numberLookupEnabled && isLookupNumber(keyword) ? 'QQ 在线资料 · ' : ''}当前账号 ·
+            本地可检索记录
           </div>
           {indexBuilding ? (
             <div className="weq-search-index-hint">
@@ -316,8 +336,11 @@ export function SearchDropdown({
             </div>
           ) : null}
           <div role="listbox" aria-label="搜索结果" aria-busy={quickLoading || slowLoading}>
-            {categories.length === 0 && !appSearchEnabled ? (
+            {categories.length === 0 && !appSearchEnabled && !numberLookupEnabled ? (
               <div className="weq-search-empty">未选择搜索范围</div>
+            ) : null}
+            {numberLookupEnabled && isLookupNumber(keyword) ? (
+              <NumberLookupResults keyword={keyword} />
             ) : null}
             {orderedCategories.map((category) => {
               if (category === 'app')

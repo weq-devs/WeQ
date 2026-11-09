@@ -76,7 +76,7 @@
   overflow-y: auto;
 }
 
-/* 全局搜索正文不能被原侧栏的绝对定位脱离文档流，否则外层滚动容器只剩查询按钮的高度。 */
+/* 全局搜索正文保持在浮层文档流中，由自身滚动。 */
 .weq-titlebar-search-results > .weq-search-dropdown {
   position: relative;
   inset: auto;
@@ -84,10 +84,6 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-}
-
-.weq-titlebar-search-results > .weq-cloud-lookup-entry {
-  flex: none;
 }
 
 .app-title-bar-user {

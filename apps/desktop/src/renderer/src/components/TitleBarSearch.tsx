@@ -8,8 +8,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useOverlayLayer } from '../lib/overlayStack';
-import { ArrowLeft, Search, UserRound, UsersRound } from 'lucide-react';
-import { QQExactLookup, type QQExactLookupKind } from './QQExactLookup';
+import { ArrowLeft, Search } from 'lucide-react';
 
 export function TitleBarSearch({
   query,
@@ -27,8 +26,6 @@ export function TitleBarSearch({
   persistent?: boolean;
 }) {
   const [pinned, setPinned] = useState(false);
-  const [lookupOpen, setLookupOpen] = useState<QQExactLookupKind | null>(null);
-  const numericQuery = /^[1-9]\d{0,9}$/.test(query.trim()) && BigInt(query.trim()) <= 0xffffffffn;
   const [hovered, setHovered] = useState(false);
   const [suppressHover, setSuppressHover] = useState(false);
   const [position, setPosition] = useState<CSSProperties>({});
@@ -77,7 +74,7 @@ export function TitleBarSearch({
   }, [expanded]);
 
   useEffect(() => {
-    if (!expanded || lookupOpen) return;
+    if (!expanded) return;
     const outside = (event: PointerEvent) => {
       if (
         !(event.target instanceof Node) ||
@@ -92,7 +89,7 @@ export function TitleBarSearch({
     };
     document.addEventListener('pointerdown', outside);
     return () => document.removeEventListener('pointerdown', outside);
-  }, [expanded, lookupOpen]);
+  }, [expanded]);
 
   return (
     <div
@@ -109,7 +106,6 @@ export function TitleBarSearch({
         setSuppressHover(false);
       }}
       onKeyDown={(event) => {
-        if (lookupOpen) return;
         if (event.key === 'Escape') {
           event.stopPropagation();
           setPinned(false);
@@ -168,14 +164,6 @@ export function TitleBarSearch({
           onSearchFocus?.();
         }}
       />
-      {lookupOpen && (
-        <QQExactLookup
-          key={lookupOpen}
-          kind={lookupOpen}
-          initial={numericQuery ? query.trim() : ''}
-          onClose={() => setLookupOpen(null)}
-        />
-      )}
       {expanded && hasPanel && typeof document !== 'undefined'
         ? createPortal(
             <div
@@ -197,23 +185,6 @@ export function TitleBarSearch({
               }}
             >
               {results}
-              {pinned &&
-                (['user', 'group'] as const).map((kind) => (
-                  <button
-                    key={kind}
-                    type="button"
-                    className="weq-cloud-lookup-entry"
-                    aria-label={kind === 'user' ? 'QQ 号搜索' : '群号搜索'}
-                    onClick={() => {
-                      setPinned(true);
-                      setLookupOpen(kind);
-                    }}
-                  >
-                    {kind === 'user' ? <UserRound size={16} /> : <UsersRound size={16} />}
-                    {kind === 'user' ? 'QQ 号搜索' : '群号搜索'}
-                    {numericQuery ? ` ${query.trim()}` : ''}
-                  </button>
-                ))}
             </div>,
             document.body,
           )

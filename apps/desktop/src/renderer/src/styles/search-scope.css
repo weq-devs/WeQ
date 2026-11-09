@@ -85,6 +85,37 @@
 .weq-search-contact + .weq-search-contact {
   border-top: 1px solid var(--weq-border-subtle);
 }
+
+.weq-number-lookup-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+}
+.weq-number-lookup-result > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--weq-fg-secondary);
+}
+.weq-number-lookup-details {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-number-lookup-kind {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-number-lookup-details .weq-search-failure {
+  padding: 0;
+}
+.weq-number-lookup-details .weq-search-failure button {
+  flex: none;
+}
 .weq-search-contact-groups {
   display: flex;
   flex-direction: column;
