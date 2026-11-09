@@ -36,7 +36,6 @@ export function MobileWebNavigation({
   query,
   onQueryChange,
   onSearchFocus,
-  onSearchReturn,
   searchPanel,
   messageBadgeCount,
   onMessageBadgeClick,
@@ -54,7 +53,6 @@ export function MobileWebNavigation({
   query: string;
   onQueryChange: (query: string) => void;
   onSearchFocus?: () => void;
-  onSearchReturn?: () => boolean;
   searchPanel?: ReactNode;
   messageBadgeCount: number;
   onMessageBadgeClick?: () => void;
@@ -132,7 +130,6 @@ export function MobileWebNavigation({
           query={query}
           onQueryChange={onQueryChange}
           onSearchFocus={onSearchFocus}
-          onReturn={onSearchReturn}
           results={searchPanel}
         />
         <RemoteShellMenuButton />

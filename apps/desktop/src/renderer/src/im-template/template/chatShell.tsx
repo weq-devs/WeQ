@@ -35,7 +35,6 @@ export function ChatShell({
   groupNoticeCount,
   searchPanel,
   onSearchFocus,
-  onSearchReturn,
   sidebarContent,
   mainContent,
   children,
@@ -78,7 +77,6 @@ export function ChatShell({
   /** 搜索框下方的浮层（统一搜索下拉 / 最近搜索）。 */
   searchPanel?: ReactNode;
   onSearchFocus?: () => void;
-  onSearchReturn?: () => boolean;
   sidebarContent: ReactNode;
   mainContent: ReactNode;
   children?: ReactNode;
@@ -137,7 +135,6 @@ export function ChatShell({
           query={query}
           onQueryChange={onQueryChange}
           onSearchFocus={onSearchFocus}
-          onSearchReturn={onSearchReturn}
           searchPanel={searchPanel}
           messageBadgeCount={messageBadgeCount}
           onMessageBadgeClick={onMessageBadgeClick}
@@ -160,7 +157,6 @@ export function ChatShell({
             query={query}
             onQueryChange={onQueryChange}
             onSearchFocus={onSearchFocus}
-            onReturn={onSearchReturn}
             results={searchPanel}
           />
         }

@@ -23,10 +23,6 @@
   background: var(--weq-bg-surface);
 }
 
-.weq-titlebar-search.has-return:not(.is-expanded) {
-  width: 62px;
-}
-
 .weq-titlebar-search > button {
   display: grid;
   place-items: center;
@@ -59,6 +55,18 @@
   width: 100%;
   padding-right: 6px;
   opacity: 1;
+}
+
+.weq-titlebar-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.weq-titlebar-search > .weq-titlebar-search-clear {
+  border-radius: 4px;
+}
+
+.weq-titlebar-search > .weq-titlebar-search-clear:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 10%, transparent);
 }
 
 .weq-titlebar-search-results {

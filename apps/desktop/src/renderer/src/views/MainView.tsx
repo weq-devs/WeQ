@@ -10895,26 +10895,6 @@ function MainWorkspace(): ReactElement {
               searchReturn.clear();
               shell.setQuery(query);
             }}
-            onSearchReturn={
-              searchReturn.target
-                ? () => {
-                    const target = searchReturn.target!;
-                    setSearchFocused(false);
-                    if (target.kind === 'more') {
-                      setSearchDismissed(true);
-                      setSearchMore({
-                        category: target.snapshot.category,
-                        keyword: target.snapshot.keyword,
-                        snapshot: target.snapshot,
-                      });
-                      return false;
-                    }
-                    setSearchMore(null);
-                    setSearchDismissed(false);
-                    return true;
-                  }
-                : undefined
-            }
             onSearchFocus={() => {
               setSearchFocused(true);
               setSearchDismissed(false);

@@ -195,3 +195,8 @@ html[data-theme='dark'] .weq-search-dropdown .weq-search-row:hover,
 html[data-theme='dark'] .weq-search-more-modal .weq-search-row:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
 }
+.weq-search-more-head .weq-search-more-close {
+  flex: none;
+  width: 36px;
+  height: 36px;
+}

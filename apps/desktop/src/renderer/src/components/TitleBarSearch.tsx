@@ -8,21 +8,19 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useOverlayLayer } from '../lib/overlayStack';
-import { ArrowLeft, Search } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 
 export function TitleBarSearch({
   query,
   onQueryChange,
   onSearchFocus,
   results,
-  onReturn,
   persistent = false,
 }: {
   query: string;
   onQueryChange: (query: string) => void;
   onSearchFocus?: () => void;
   results?: ReactNode;
-  onReturn?: () => boolean;
   persistent?: boolean;
 }) {
   const [pinned, setPinned] = useState(false);
@@ -32,14 +30,12 @@ export function TitleBarSearch({
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const returning = useRef(false);
   const expanded = pinned || (!persistent && hovered && !suppressHover);
   const hasPanel = Boolean(results) || pinned;
   const layer = useOverlayLayer(expanded && hasPanel);
 
   useEffect(() => {
-    if (pinned && !returning.current) input.current?.focus();
-    returning.current = false;
+    if (pinned) input.current?.focus();
   }, [pinned]);
 
   useLayoutEffect(() => {
@@ -94,7 +90,7 @@ export function TitleBarSearch({
   return (
     <div
       ref={root}
-      className={`weq-titlebar-search${persistent || expanded ? ' is-expanded' : ''}${persistent ? ' is-persistent' : ''}${onReturn ? ' has-return' : ''}`}
+      className={`weq-titlebar-search${persistent || expanded ? ' is-expanded' : ''}${persistent ? ' is-persistent' : ''}`}
       onPointerEnter={(event) => {
         if (event.pointerType !== 'mouse') return;
         setHovered(true);
@@ -114,22 +110,6 @@ export function TitleBarSearch({
         }
       }}
     >
-      {onReturn ? (
-        <button
-          type="button"
-          title="返回搜索结果"
-          aria-label="返回搜索结果"
-          onClick={() => {
-            const expand = onReturn();
-            returning.current = expand && !pinned;
-            setPinned(expand);
-            setHovered(false);
-            setSuppressHover(true);
-          }}
-        >
-          <ArrowLeft size={18} />
-        </button>
-      ) : null}
       <button
         type="button"
         title={pinned ? '收起全局搜索' : '全局搜索'}
@@ -164,6 +144,20 @@ export function TitleBarSearch({
           onSearchFocus?.();
         }}
       />
+      {(persistent || expanded) && query ? (
+        <button
+          type="button"
+          className="weq-titlebar-search-clear"
+          title="清空搜索"
+          aria-label="清空搜索"
+          onClick={() => {
+            onQueryChange('');
+            input.current?.focus();
+          }}
+        >
+          <X size={20} aria-hidden />
+        </button>
+      ) : null}
       {expanded && hasPanel && typeof document !== 'undefined'
         ? createPortal(
             <div

@@ -55,21 +55,6 @@ function Harness({ account }: { account: string }) {
         setQuery(value);
       },
       onSearchFocus: () => setDismissed(false),
-      onReturn: back.target
-        ? () => {
-            const target = back.target!;
-            if (target.kind === 'more') {
-              setMore({
-                category: target.snapshot.category,
-                keyword: target.snapshot.keyword,
-                snapshot: target.snapshot,
-              });
-              return false;
-            }
-            setDismissed(false);
-            return true;
-          }
-        : undefined,
       results: !dismissed
         ? createElement(SearchDropdown, {
             keyword: query,
@@ -130,7 +115,7 @@ function mount() {
   };
 }
 
-it('下拉跳转保留查询与范围，返回恢复滚动和焦点，不重新执行查询；切号丢弃旧现场', async () => {
+it('下拉跳转保留查询与范围，重新打开恢复滚动，不显示返回按钮', async () => {
   vi.useFakeTimers();
   rpc.quick.mockResolvedValue({
     conversations: [],
@@ -148,10 +133,11 @@ it('下拉跳转保留查询与范围，返回恢复滚动和焦点，不重新�
     dropdown.scrollTop = 91;
     act(() => dropdown.querySelectorAll<HTMLButtonElement>('[role="option"]')[1]!.click());
     expect(f.host.querySelector('input')!.value).toBe('合成');
-    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="返回搜索结果"]')!.click());
+    expect(f.host.querySelector('[aria-label="返回搜索结果"]')).toBeNull();
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());
     const restored = document.querySelector<HTMLElement>('.weq-search-dropdown')!;
     expect(restored.scrollTop).toBe(91);
-    expect(document.activeElement?.textContent).toContain('b');
+    expect(document.activeElement).toBe(f.host.querySelector('input'));
     expect(rpc.quick).toHaveBeenCalledOnce();
     expect(restored.querySelectorAll('.weq-search-scope button[aria-pressed="true"]')).toHaveLength(
       1,
@@ -165,7 +151,7 @@ it('下拉跳转保留查询与范围，返回恢复滚动和焦点，不重新�
   }
 });
 
-it('真实工作区返回更多页保留分页与焦点，StrictMode 不重新读取第一页', async () => {
+it('更多页跳转后通过搜索与更多入口重新打开，无额外返回按钮', async () => {
   vi.useFakeTimers();
   rpc.quick.mockResolvedValue({
     conversations: [],
@@ -173,7 +159,7 @@ it('真实工作区返回更多页保留分页与焦点，StrictMode 不重新�
     contacts: [hit('a'), hit('b'), hit('c')],
     groupMembers: [],
   });
-  rpc.more.mockResolvedValueOnce({
+  rpc.more.mockResolvedValue({
     category: 'contact',
     items: [hit('a'), hit('b')],
     total: 2,
@@ -191,15 +177,18 @@ it('真实工作区返回更多页保留分页与焦点，StrictMode 不重新�
     });
     const body = document.querySelector<HTMLElement>('.weq-search-more-body')!;
     body.scrollTop = 131;
+    act(() => body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
     act(() => body.querySelectorAll<HTMLButtonElement>('[role="option"]')[1]!.click());
     expect(document.querySelector('.weq-search-more-body')).toBeNull();
-    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="返回搜索结果"]')!.click());
+    expect(f.host.querySelector('[aria-label="返回搜索结果"]')).toBeNull();
+    act(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());
+    act(() => document.querySelector<HTMLButtonElement>('.weq-search-more')!.click());
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250);
     });
-    expect(document.querySelector('.weq-search-more-body')?.scrollTop).toBe(131);
-    expect(document.activeElement?.textContent).toContain('b');
-    expect(rpc.more).toHaveBeenCalledOnce();
+    expect(document.querySelector('.weq-search-more-body')).not.toBeNull();
+    expect(rpc.more).toHaveBeenCalledTimes(2);
   } finally {
     f.close();
   }

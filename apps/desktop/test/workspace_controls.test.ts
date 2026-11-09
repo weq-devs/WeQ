@@ -102,34 +102,32 @@ describe('标题栏全局搜索', () => {
       view.dispose();
     }
   });
-  it('返回更多页后再次打开搜索仍正常聚焦输入框', () => {
+  it('全局搜索不再显示返回按钮，打开时正常聚焦输入框', () => {
     const view = mount(
       createElement(TitleBarSearch, {
         query: '原词',
         onQueryChange: vi.fn(),
-        onReturn: () => false,
       }),
     );
     try {
-      act(() => view.host.querySelector<HTMLButtonElement>('[aria-label="返回搜索结果"]')!.click());
+      expect(view.host.querySelector('[aria-label="返回搜索结果"]')).toBeNull();
       act(() => view.host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());
       expect(document.activeElement).toBe(view.host.querySelector('input'));
     } finally {
       view.dispose();
     }
   });
-  it('返回搜索入口可恢复下拉且不会把命中行焦点抢回输入框', () => {
-    const onReturn = vi.fn(() => true);
-    const view = mount(
-      createElement(TitleBarSearch, { query: '原词', onQueryChange: vi.fn(), onReturn }),
-    );
+  it('展开后提供更大的清空图标，点击后清空并聚焦输入框', () => {
+    const onQueryChange = vi.fn();
+    const view = mount(createElement(TitleBarSearch, { query: '原词', onQueryChange }));
     try {
-      const back = view.host.querySelector<HTMLButtonElement>('[aria-label="返回搜索结果"]')!;
-      expect(back).not.toBeNull();
-      act(() => back.click());
-      expect(onReturn).toHaveBeenCalledOnce();
-      expect(view.host.querySelector('input')!.disabled).toBe(false);
-      expect(document.activeElement).not.toBe(view.host.querySelector('input'));
+      expect(view.host.querySelector('[aria-label="清空搜索"]')).toBeNull();
+      act(() => view.host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());
+      const clear = view.host.querySelector<HTMLButtonElement>('[aria-label="清空搜索"]')!;
+      expect(clear.querySelector('svg')?.getAttribute('width')).toBe('20');
+      act(() => clear.click());
+      expect(onQueryChange).toHaveBeenCalledWith('');
+      expect(document.activeElement).toBe(view.host.querySelector('input'));
     } finally {
       view.dispose();
     }
