@@ -1,0 +1,80 @@
+import { useEffect, useMemo, useRef } from 'react';
+import { trpc } from '../trpc/client';
+import { useViewState } from '../state/view';
+import { useWorkspaceMenu } from '../state/workspaceMenu';
+import { useDialog } from '../components/Dialog';
+
+/** 群交集与联系人共用同一刷新任务，只选择群成员名单范围。 */
+export function useGroupMemberRefresh() {
+  const uin = useViewState((state) => state.openedUin);
+  const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: Boolean(uin) });
+  const configId = config.data?.uin === uin ? config.data.configId : undefined;
+  const binding = useMemo(
+    () => ({
+      expectedAccountUin: uin ?? '',
+      expectedAccountConfigId: configId ?? '',
+    }),
+    [uin, configId],
+  );
+  const ready = Boolean(uin && configId);
+  const utils = trpc.useUtils();
+  const snapshot = trpc.account.contactMetrics.status.useQuery(binding, {
+    enabled: ready,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnReconnect: 'always',
+    refetchInterval: (data) =>
+      data?.target === 'groupMembers' &&
+      (data.progress.status === 'running' || data.progress.status === 'paused')
+        ? 1000
+        : false,
+  });
+  const appliedGraph = useRef('');
+  const graphRevision = snapshot.data?.relationGraphRevision ?? 0;
+  useEffect(() => {
+    if (!ready || !graphRevision) return;
+    const key = JSON.stringify([binding, graphRevision]);
+    if (appliedGraph.current === key) return;
+    appliedGraph.current = key;
+    void utils.account.getRelationGraph.invalidate();
+  }, [ready, binding, graphRevision, utils]);
+  trpc.account.contactMetrics.changed.useSubscription(binding, {
+    enabled: ready,
+    onData: () => {
+      void utils.account.contactMetrics.status.invalidate(binding);
+    },
+    onStarted: () => void utils.account.contactMetrics.status.invalidate(binding),
+  });
+  const rebuild = trpc.account.contactMetrics.rebuild.useMutation();
+  const showError = useDialog((state) => state.showError);
+  const confirm = useDialog((state) => state.confirm);
+  const status = snapshot.data?.progress.status;
+  const refreshing =
+    rebuild.isLoading ||
+    (snapshot.data?.target === 'groupMembers' && (status === 'running' || status === 'paused'));
+
+  async function refresh() {
+    if (!ready || refreshing) return;
+    const confirmed = await confirm(
+      '更新全部群成员？',
+      '将更新全部群的成员名单，完成后重新计算群交集。不更新群资料或好友信息，进度可在任务列表查看。',
+      { okLabel: '更新并重新计算', cancelLabel: '取消', tone: 'info' },
+    );
+    if (!confirmed || useViewState.getState().openedUin !== uin) return;
+    try {
+      const taskId = await rebuild.mutateAsync({
+        ...binding,
+        target: 'groupMembers',
+        range: 'all',
+        missingOnly: false,
+      });
+      if (useViewState.getState().openedUin !== uin) return;
+      void utils.account.contactMetrics.status.invalidate(binding);
+      if (taskId) useWorkspaceMenu.getState().focusTask(`background:host:${taskId}`);
+    } catch (error) {
+      if (useViewState.getState().openedUin !== uin) return;
+      showError('群成员更新启动失败', error instanceof Error ? error.message : String(error));
+    }
+  }
+  return { refresh, refreshing, ready };
+}

@@ -28,7 +28,8 @@ import {
   Waypoints,
   X,
 } from 'lucide-react';
-import { trpc, client } from '../../trpc/client';
+import { trpc } from '../../trpc/client';
+import { useGroupMemberRefresh } from '../../hooks/useGroupMemberRefresh';
 import { GraphCanvas } from './GraphCanvas';
 import { OverlayLayer } from '../OverlayLayer';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
@@ -41,14 +42,7 @@ import { RelationHome } from './RelationHome';
 import { OverlapChord } from './OverlapChord';
 import { OverlapMatrix } from './OverlapMatrix';
 import { OverlapPairCard, type OverlapPairSelection } from './OverlapPairCard';
-import type {
-  GraphMode,
-  GraphSettings,
-  GroupFilterMode,
-  OverlapDirection,
-  RawNode,
-  RelationGraphData,
-} from './types';
+import type { GraphMode, GraphSettings, GroupFilterMode, OverlapDirection, RawNode } from './types';
 import './relationGraph.css';
 
 const MODE_OPTIONS: Array<{ value: GraphMode; label: string; icon: JSX.Element }> = [
@@ -91,10 +85,6 @@ const isOverlapMode = (mode: GraphMode): mode is 'chord' | 'matrix' =>
 /**
  * 联系人主区域的关系图谱。首屏是门面，进入后才渲染图；离开再回来仍保留上次的
  * 视图与设置（组件不卸载，只在内部切 `entered`）。
-  const [groupCardId, setGroupCardId] = useState<string | null>(null);
-  const groupAnchorRef = useRef<HTMLSpanElement | null>(null);
-  const directory = useContext(ConversationDirectoryContext);
-  const document = useRenderDocument();
  */
 export function RelationGraphView({
   onOpenMember,
@@ -109,22 +99,25 @@ export function RelationGraphView({
   const [entered, setEntered] = useState(false);
   const [settings, setSettings] = useState<GraphSettings>(DEFAULT_SETTINGS);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [override, setOverride] = useState<RelationGraphData | null>(null);
-    setGroupCardId(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const [groupCardId, setGroupCardId] = useState<string | null>(null);
+  const groupAnchorRef = useRef<HTMLSpanElement | null>(null);
+  const directory = useContext(ConversationDirectoryContext);
+  const document = useRenderDocument();
+  const { refresh, refreshing, ready } = useGroupMemberRefresh();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pair, setPair] = useState<OverlapPairSelection | null>(null);
   const previousModeRef = useRef<GraphMode>(DEFAULT_SETTINGS.mode);
 
   const query = trpc.account.getRelationGraph.useQuery(undefined, {
-    staleTime: Infinity,
+    staleTime: 0,
     refetchOnWindowFocus: false,
   });
-  const data = override ?? query.data;
-  const loading = query.isLoading || refreshing;
+  const data = query.data;
+  const loading = query.isLoading;
 
   useEffect(() => {
     setSelectedId(null);
+    setGroupCardId(null);
     setPair(null);
     setSettings((current) => {
       const previousMode = previousModeRef.current;
@@ -139,16 +132,6 @@ export function RelationGraphView({
           COMMON_THRESHOLD_RANGES[current.mode],
         ),
       };
-  const groupConversation =
-    knownGroup?.type === 'group'
-      ? knownGroup
-      : selectedGroup
-        ? sharedGroupConversation({
-            code: selectedGroup.code,
-            name: selectedGroup.name,
-            avatar: groupAvatar(selectedGroup.code),
-          })
-        : undefined;
     });
   }, [settings.mode]);
 
@@ -164,19 +147,17 @@ export function RelationGraphView({
   const knownGroup = directory?.real?.find(
     (conversation) => conversation.type === 'group' && conversation.id === groupCardId,
   );
+  const groupConversation =
+    knownGroup?.type === 'group'
+      ? knownGroup
+      : selectedGroup
+        ? sharedGroupConversation({
+            code: selectedGroup.code,
+            name: selectedGroup.name,
+            avatar: groupAvatar(selectedGroup.code),
+          })
+        : undefined;
   const groupOptions = data?.groups ?? [];
-
-  async function refresh() {
-    setRefreshing(true);
-    try {
-      const fresh = await client.account.getRelationGraph.query({ force: true });
-      setOverride(fresh);
-    } catch (err) {
-      console.error('[relation-graph] refresh failed', err);
-    } finally {
-      setRefreshing(false);
-    }
-  }
 
   function patch(next: Partial<GraphSettings>) {
     setSettings((current) => ({ ...current, ...next }));
@@ -188,6 +169,8 @@ export function RelationGraphView({
         <RelationHome
           data={data}
           loading={loading}
+          refreshing={refreshing}
+          refreshReady={ready}
           onEnter={() => setEntered(true)}
           onRefresh={refresh}
         />
@@ -223,8 +206,9 @@ export function RelationGraphView({
               className="weq-graph-icon-btn"
               type="button"
               onClick={refresh}
-              disabled={loading}
-              title="重新扫描群成员，重建关系网"
+              disabled={loading || refreshing || !ready}
+              aria-busy={refreshing}
+              title="更新全部群成员并重新计算"
             >
               <RefreshCw size={15} className={refreshing ? 'weq-spin' : ''} />
             </button>
@@ -246,7 +230,7 @@ export function RelationGraphView({
         ) : !data ? (
           <div className="weq-graph-state">
             <Crosshair size={26} />
-            <span>没能读到群成员数据，退出 QQ 登录后重试，或点右上角重新扫描。</span>
+            <span>没能读到群成员数据，可点右上角更新成员后重试。</span>
           </div>
         ) : overlapMode && overlap ? (
           mode === 'chord' ? (

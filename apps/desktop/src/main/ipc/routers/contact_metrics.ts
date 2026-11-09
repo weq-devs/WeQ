@@ -11,12 +11,14 @@ export function createContactMetricsRouter(
   resolve: (input: z.infer<typeof binding>) => ContactDirectoryRuntime,
 ) {
   return router({
+    status: procedure.input(binding).query(({ input }) => resolve(input).status()),
     snapshot: procedure.input(binding).query(({ input }) => resolve(input).snapshot()),
     rebuild: procedure
       .input(
         binding.extend({
           missingOnly: z.boolean().default(false),
           range: z.enum(['all', 'older24h']).default('all'),
+          target: z.enum(['metrics', 'groupMembers']).default('metrics'),
           fields: z
             .array(
               z.enum([
@@ -34,7 +36,7 @@ export function createContactMetricsRouter(
         }),
       )
       .mutation(({ input }) =>
-        resolve(input).rebuild(input.missingOnly, input.fields, input.range),
+        resolve(input).rebuild(input.missingOnly, input.fields, input.range, input.target),
       ),
     changed: procedure.input(binding).subscription(({ input }) => {
       const runtime = resolve(input);

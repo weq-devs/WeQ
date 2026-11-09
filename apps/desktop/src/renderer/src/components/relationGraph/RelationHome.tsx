@@ -18,11 +18,15 @@ import type { RelationGraphData } from './types';
 export function RelationHome({
   data,
   loading,
+  refreshing = false,
+  refreshReady = true,
   onEnter,
   onRefresh,
 }: {
   data: RelationGraphData | undefined;
   loading: boolean;
+  refreshing?: boolean;
+  refreshReady?: boolean;
   onEnter: () => void;
   onRefresh: () => void;
 }) {
@@ -80,11 +84,12 @@ export function RelationHome({
             className="weq-relhome-refresh"
             type="button"
             onClick={onRefresh}
-            disabled={loading}
-            title="重新扫描全部群成员"
+            disabled={loading || refreshing || !refreshReady}
+            aria-busy={refreshing}
+            title="更新全部群成员并重新计算"
           >
-            <ScanLine size={14} />
-            重新扫描
+            <ScanLine size={14} className={refreshing ? 'weq-spin' : undefined} />
+            {refreshing ? '更新中' : '更新成员'}
           </button>
         </div>
 
@@ -116,7 +121,9 @@ export function RelationHome({
 
         <p className="weq-relhome-hint">
           <ScanLine size={12} />
-          成员名单来自本地群资料库，随时可重新扫描
+          {refreshing
+            ? '群成员更新进度可在任务列表查看'
+            : '优先使用已更新的成员名单，缺少时读取本地群资料库'}
         </p>
       </div>
     </section>

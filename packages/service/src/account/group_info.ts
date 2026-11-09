@@ -1,9 +1,10 @@
-import type { ContactMetricsService } from './contact_metrics';
 /**
  * GroupInfoService — fetch metadata related to groups (essence messages, members, etc.).
  */
 
 import type { AccountSession } from '@weq/account';
+import type { ContactMetricsService } from './contact_metrics';
+import { GroupMemberRosterCache } from './group_member_roster';
 import type { NtHelperBinding } from '@weq/native';
 import {
   FetchGroupMemberListPage,
@@ -283,18 +284,18 @@ const MIN_SHARED_GROUPS = 2;
 
 export class GroupInfoService {
   contactMetrics?: ContactMetricsService;
-
   contactMembersObserved?: (groupId: number, members: GroupMemberListItem[]) => Promise<void>;
 
   contactMembershipSnapshot(friendUids: string[]) {
     return this.session.groupMembers.contactMembershipSnapshot(friendUids);
   }
-
   private readonly groupNotifyService: GroupNotifyService;
   /** Per-session relation-graph cache (group membership is near-static). */
   private relationGraphCache: RelationGraphData | null = null;
   /** In-flight build, so concurrent callers share one heavy scan. */
   private relationGraphBuilding: Promise<RelationGraphData> | null = null;
+  private memberRosterRevision = 0;
+  private memberRosterCache?: GroupMemberRosterCache;
   /** Optional Web query service for fetching essence message content. */
   private webQueryService?: GroupEssenceWebQuery;
 
@@ -321,6 +322,33 @@ export class GroupInfoService {
 
   setAnalysisCache(cache: AnalyticsCacheSource): void {
     this.analysis = new AnalyticsMessageSource(this.session, cache);
+  }
+
+  setMemberRosterCache(root: string): void {
+    this.memberRosterCache = new GroupMemberRosterCache(root);
+  }
+
+  /** 复用完整在线分页，只更新名单，不触发联系人其他指标的观察回调。 */
+  async refreshGroupMembers(code: string): Promise<number> {
+    if (!this.memberRosterCache) throw new Error('群成员缓存未就绪');
+    const members = await this.fetchOnlineMembers(Number(code), {
+      force: true,
+      priority: 1,
+      observe: false,
+    });
+    await this.memberRosterCache.save(
+      code,
+      members.map((member) => ({
+        uid: member.uid,
+        uin: String(member.uin),
+        nick: member.nickname,
+        card: member.card,
+        memberLevel: member.level,
+      })),
+    );
+    this.relationGraphCache = null;
+    this.memberRosterRevision++;
+    return members.length;
   }
 
   async getJoinInfo(groupId: number) {
@@ -467,14 +495,18 @@ export class GroupInfoService {
   async getRelationGraph(opts?: { force?: boolean }): Promise<RelationGraphData> {
     if (!opts?.force && this.relationGraphCache) return this.relationGraphCache;
     if (this.relationGraphBuilding) return this.relationGraphBuilding;
-    this.relationGraphBuilding = this.buildRelationGraph()
-      .then((data) => {
-        this.relationGraphCache = data;
-        return data;
-      })
-      .finally(() => {
-        this.relationGraphBuilding = null;
-      });
+    this.relationGraphBuilding = (async () => {
+      let revision: number;
+      let data: RelationGraphData;
+      do {
+        revision = this.memberRosterRevision;
+        data = await this.buildRelationGraph();
+      } while (revision !== this.memberRosterRevision);
+      this.relationGraphCache = data;
+      return data;
+    })().finally(() => {
+      this.relationGraphBuilding = null;
+    });
     return this.relationGraphBuilding;
   }
 
@@ -493,6 +525,10 @@ export class GroupInfoService {
         memberCount: g.memberCount,
       });
     }
+    // 已获取成员但尚无本地群名片的群，也必须参与交集统计。
+    for (const code of (await this.memberRosterCache?.codes()) ?? []) {
+      if (!groupMeta.has(code)) groupMeta.set(code, { name: code, memberCount: 0 });
+    }
     const groupCodes = [...groupMeta.keys()];
 
     // 2) Aggregate membership by uid across every group. While scanning, also
@@ -509,7 +545,10 @@ export class GroupInfoService {
         memberLevel: number;
       }>;
       try {
-        members = await this.session.groupMembers.listMemberBriefsInGroup(BigInt(code), -1);
+        const roster = await this.memberRosterCache?.read(code);
+        members =
+          roster ?? (await this.session.groupMembers.listMemberBriefsInGroup(BigInt(code), -1));
+        if (roster) groupMeta.get(code)!.memberCount = roster.length;
       } catch {
         continue;
       }

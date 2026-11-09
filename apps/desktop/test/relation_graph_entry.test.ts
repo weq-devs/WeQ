@@ -9,6 +9,11 @@ const query = vi.hoisted(() => ({
   isLoading: true,
 }));
 
+const memberRefresh = vi.hoisted(() => ({ refresh: vi.fn(), refreshing: false, ready: true }));
+vi.mock('../src/renderer/src/hooks/useGroupMemberRefresh', () => ({
+  useGroupMemberRefresh: () => memberRefresh,
+}));
+
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {
@@ -53,7 +58,35 @@ vi.mock('../src/renderer/src/im-template/template/profilePanes', () => ({
     ),
 }));
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  memberRefresh.refreshing = false;
+  memberRefresh.refresh.mockClear();
+});
+
+it.each([false, true])('首页和图谱共用群成员刷新，更新时保留原结果，图谱=%s', (entered) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  query.isLoading = false;
+  query.data = { selfUin: '', nodes: [], groups: [], scannedGroups: 0, builtAt: 0 };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() => root.render(h(RelationGraphView)));
+    if (entered) act(() => host.querySelector<HTMLButtonElement>('.weq-relhome-cta')!.click());
+    const button = host.querySelector<HTMLButtonElement>('[title="更新全部群成员并重新计算"]')!;
+    act(() => button.click());
+    expect(memberRefresh.refresh).toHaveBeenCalledTimes(1);
+    memberRefresh.refreshing = true;
+    act(() => root.render(h(RelationGraphView)));
+    expect(button.disabled).toBe(true);
+    expect(host.querySelector(entered ? '.weq-graph-stage' : '.weq-relhome-stats')).not.toBeNull();
+    expect(host.textContent).not.toContain('正在扫描群成员、计算关系网');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 
 it('群交集保留统计首页，加载完成后可进入图谱并主动返回', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

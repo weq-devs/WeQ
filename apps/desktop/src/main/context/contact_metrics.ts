@@ -69,6 +69,8 @@ function formatMetrics(row: ContactMetricRows[string]) {
 export class ContactDirectoryRuntime {
   readonly cache: ContactMetricsService;
   taskId?: string;
+  private target: 'metrics' | 'groupMembers' = 'metrics';
+  private relationGraphRevision = 0;
   private preparing = false;
   private disposed = false;
   private watches: Array<{ unmount(): void }> = [];
@@ -106,6 +108,7 @@ export class ContactDirectoryRuntime {
     private readonly watchDelay = 2000,
   ) {
     this.scope = { uin: session.context.uin, configId };
+    services.groupInfo.setMemberRosterCache(join(cacheDir, 'group-members'));
     this.cache = new ContactMetricsService(
       join(cacheDir, 'metrics.json'),
       () => this.online() && this.current(),
@@ -145,7 +148,16 @@ export class ContactDirectoryRuntime {
   async snapshot() {
     return {
       ...(await this.cache.snapshot()),
+      ...this.status(),
+    };
+  }
+
+  /** 进度校准不复制整份联系人指标缓存。 */
+  status() {
+    return {
       taskId: this.taskId,
+      target: this.target,
+      relationGraphRevision: this.relationGraphRevision,
       progress: this.preparing
         ? { ...this.cache.progress, status: 'running' as const, phase: '本地资料' }
         : { ...this.cache.progress },
@@ -340,14 +352,23 @@ export class ContactDirectoryRuntime {
     return friendCount;
   }
 
-  async rebuild(missingOnly = false, fields?: ContactMetric[], range: 'all' | 'older24h' = 'all') {
+  async rebuild(
+    missingOnly = false,
+    fields?: ContactMetric[],
+    range: 'all' | 'older24h' = 'all',
+    target: 'metrics' | 'groupMembers' = 'metrics',
+  ) {
     if (this.disposed || !this.current()) throw new Error('账号已切换');
     if (
       this.preparing ||
       this.cache.progress.status === 'running' ||
       this.cache.progress.status === 'paused'
-    )
+    ) {
+      if (this.target !== target)
+        throw new Error('另一范围的联系人刷新任务正在进行，请先完成或取消该任务');
       return this.taskId;
+    }
+    this.target = target;
     this.preparing = true;
     this.stopPreparing = false;
     this.logs = [];
@@ -357,7 +378,12 @@ export class ContactDirectoryRuntime {
     this.logSequence = 0;
     if (this.taskId) backgroundTasks.setActions(this.taskId, []);
     this.taskId = backgroundTasks.start({
-      name: missingOnly ? '补齐联系人指标缓存' : '联系人排序与分组缓存重建',
+      name:
+        target === 'groupMembers'
+          ? '更新全部群成员并重算群交集'
+          : missingOnly
+            ? '补齐联系人指标缓存'
+            : '联系人排序与分组缓存重建',
       kind: 'contacts',
       scope: this.scope,
       statusLabel: '本地资料',
@@ -378,79 +404,116 @@ export class ContactDirectoryRuntime {
     void (async () => {
       try {
         const maxAgeMs = range === 'older24h' ? 24 * 60 * 60 * 1000 : undefined;
-        const jobs = await this.friendJobs(
-          undefined,
-          !missingOnly && range === 'all',
-          fields,
-          true,
-          maxAgeMs,
-        );
+        const jobs =
+          target === 'groupMembers'
+            ? []
+            : await this.friendJobs(
+                undefined,
+                !missingOnly && range === 'all',
+                fields,
+                true,
+                maxAgeMs,
+              );
         const groups =
-          !fields || fields.some((field) => ['friendCount', 'activityScore'].includes(field))
+          target === 'groupMembers' ||
+          !fields ||
+          fields.some((field) => ['friendCount', 'activityScore'].includes(field))
             ? await this.services.groupInfo.listGroupDirectory()
             : [];
-        const snapshot = await this.cache.snapshot();
-        for (let offset = 0; groups.length; offset += 500) {
-          const details = await this.services.groupInfo.listAllGroups(500, offset);
-          for (const group of details)
-            this.groupMeta.set(String(group.groupCode), {
-              群名: group.groupName,
-              备注: group.remark,
-              人数: group.memberCount,
-              群容量: group.maxMemberCount,
-              创建时间: group.createTime,
+        if (target === 'groupMembers') {
+          for (const group of groups)
+            jobs.push({
+              key: `group:${group.groupCode}`,
+              label: `群成员名单（${group.groupCode}）`,
+              run: async () => {
+                if (!this.current() || this.disposed) throw new Error('账号已切换');
+                let count: number;
+                try {
+                  count = await this.services.groupInfo.refreshGroupMembers(group.groupCode);
+                } catch (error) {
+                  if (!this.online())
+                    throw new ContactMetricsOfflineError('群成员更新等待 QQ 在线');
+                  throw error;
+                }
+                this.summaries.set(
+                  `group:${group.groupCode}`,
+                  `群 ${group.groupCode}：已更新 ${count} 名成员`,
+                );
+                this.appendLog(this.summaries.get(`group:${group.groupCode}`)!, 'groups');
+              },
             });
-          if (details.length < 500) break;
-        }
-        if (groups.length)
-          for (const group of groups) {
-            if (this.stopPreparing || this.disposed) break;
-            this.groupMeta.set(group.groupCode, {
-              ...this.groupMeta.get(group.groupCode),
-              人数: group.memberCount,
-              我的身份: group.role,
-              消息提醒方式: group.notifyLevel,
-            });
-            const groupFields: ContactMetric[] = fields?.filter(
-              (field) => field === 'friendCount' || field === 'activityScore',
-            ) ?? ['friendCount', 'activityScore'];
-            if (
-              groupFields.some((field) =>
-                needsMetricRefresh(
-                  snapshot.rows[`group:${group.groupCode}`]?.[field],
-                  !missingOnly && range === 'all',
-                  maxAgeMs,
-                ),
-              )
-            )
-              jobs.push({
-                key: `group:${group.groupCode}`,
-                label: `群 ${this.groupMeta.get(group.groupCode)?.群名 ?? ''}（${group.groupCode}）`,
-                online: false,
-                run: async () => {
-                  try {
-                    const score = this.groupMeta.get(group.groupCode)?.群活跃度;
-                    if (typeof score === 'number' && (!fields || fields.includes('activityScore')))
-                      await this.cache.record(`group:${group.groupCode}`, { activityScore: score });
-                    if (!fields || fields.includes('friendCount'))
-                      await this.groupFriends(group.groupCode);
-                  } catch (error) {
-                    if (!(error instanceof ContactMetricsOfflineError))
-                      await this.cache.failed(`group:${group.groupCode}`, 'friendCount', error);
-                    throw error;
-                  } finally {
-                    if (!this.disposed) await this.summarizeGroup(group.groupCode);
-                  }
-                },
+        } else {
+          const snapshot = await this.cache.snapshot();
+          for (let offset = 0; groups.length; offset += 500) {
+            const details = await this.services.groupInfo.listAllGroups(500, offset);
+            for (const group of details)
+              this.groupMeta.set(String(group.groupCode), {
+                群名: group.groupName,
+                备注: group.remark,
+                人数: group.memberCount,
+                群容量: group.maxMemberCount,
+                创建时间: group.createTime,
               });
+            if (details.length < 500) break;
           }
-        for (let offset = 0; groups.length; offset += 500) {
-          const ext = await this.services.groupInfo.listAllGroupsExt(500, offset);
-          for (const row of ext) {
-            const code = String(row.groupCode);
-            this.groupMeta.set(code, { ...this.groupMeta.get(code), 群活跃度: row.activityScore });
+          if (groups.length)
+            for (const group of groups) {
+              if (this.stopPreparing || this.disposed) break;
+              this.groupMeta.set(group.groupCode, {
+                ...this.groupMeta.get(group.groupCode),
+                人数: group.memberCount,
+                我的身份: group.role,
+                消息提醒方式: group.notifyLevel,
+              });
+              const groupFields: ContactMetric[] = fields?.filter(
+                (field) => field === 'friendCount' || field === 'activityScore',
+              ) ?? ['friendCount', 'activityScore'];
+              if (
+                groupFields.some((field) =>
+                  needsMetricRefresh(
+                    snapshot.rows[`group:${group.groupCode}`]?.[field],
+                    !missingOnly && range === 'all',
+                    maxAgeMs,
+                  ),
+                )
+              )
+                jobs.push({
+                  key: `group:${group.groupCode}`,
+                  label: `群 ${this.groupMeta.get(group.groupCode)?.群名 ?? ''}（${group.groupCode}）`,
+                  online: false,
+                  run: async () => {
+                    try {
+                      const score = this.groupMeta.get(group.groupCode)?.群活跃度;
+                      if (
+                        typeof score === 'number' &&
+                        (!fields || fields.includes('activityScore'))
+                      )
+                        await this.cache.record(`group:${group.groupCode}`, {
+                          activityScore: score,
+                        });
+                      if (!fields || fields.includes('friendCount'))
+                        await this.groupFriends(group.groupCode);
+                    } catch (error) {
+                      if (!(error instanceof ContactMetricsOfflineError))
+                        await this.cache.failed(`group:${group.groupCode}`, 'friendCount', error);
+                      throw error;
+                    } finally {
+                      if (!this.disposed) await this.summarizeGroup(group.groupCode);
+                    }
+                  },
+                });
+            }
+          for (let offset = 0; groups.length; offset += 500) {
+            const ext = await this.services.groupInfo.listAllGroupsExt(500, offset);
+            for (const row of ext) {
+              const code = String(row.groupCode);
+              this.groupMeta.set(code, {
+                ...this.groupMeta.get(code),
+                群活跃度: row.activityScore,
+              });
+            }
+            if (ext.length < 500) break;
           }
-          if (ext.length < 500) break;
         }
         if (!this.current() || this.disposed) throw new Error('账号已切换');
         this.appendLog(`本地资料读取完成，准备 ${jobs.length} 项在线查询`);
@@ -458,7 +521,21 @@ export class ContactDirectoryRuntime {
           backgroundTasks.finish(id, 'cancelled');
           return;
         }
-        this.cache.start(jobs);
+        this.cache.start(
+          jobs,
+          target === 'groupMembers' ? '群成员名单' : '好友在线指标',
+          target === 'groupMembers'
+            ? async () => {
+                if (!this.current() || this.disposed) throw new Error('账号已切换');
+                this.appendLog('群成员更新结束，开始重新计算群交集');
+                await this.services.groupInfo.getRelationGraph({ force: true });
+                if (!this.current() || this.disposed) return;
+                this.relationGraphRevision++;
+                this.appendLog('群交集已重新计算');
+                this.cache.emit('relationGraphChanged');
+              }
+            : undefined,
+        );
       } catch (error) {
         this.appendLog(`准备失败：${error instanceof Error ? error.message : String(error)}`);
         backgroundTasks.finish(id, 'failed', {
@@ -466,7 +543,11 @@ export class ContactDirectoryRuntime {
           details: this.taskDetails(),
         });
         backgroundTasks.setActions(id, [
-          { id: 'retry', label: '重新准备', run: () => this.rebuild(missingOnly, fields, range) },
+          {
+            id: 'retry',
+            label: '重新准备',
+            run: () => this.rebuild(missingOnly, fields, range, target),
+          },
         ]);
       } finally {
         this.preparing = false;
