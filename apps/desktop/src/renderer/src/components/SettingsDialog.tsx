@@ -97,6 +97,7 @@ import { LoginAccountPanel } from './LoginAccountPanel';
 import { ReverseTool } from './ReverseTool';
 import { SignerStatusCard } from './settings/SignerStatusCard';
 import { IS_WEB } from '../lib/target';
+import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
 import '../styles/settings-navigation.css';
@@ -505,6 +506,12 @@ function SettingsContent({
   const snapshots = usePageSnapshotReset('workspace:main:设置');
   const [closing, setClosing] = useState(false);
   const guard = useDraftClose(() => setClosing(true), null);
+  useMobileBack(
+    open && !closing && mobileCategoryOpen,
+    () => setMobileCategoryOpen(false),
+    30,
+    () => navRef.current?.parentElement ?? null,
+  );
   useEffect(() => {
     if (!closing) return;
     // 子页先卸载并写回滚动快照，再统一清除，避免关闭后旧位置重新写入。
@@ -567,7 +574,8 @@ function SettingsContent({
                 aria-label={mobileCategoryOpen ? '返回设置分类' : '返回'}
                 title="返回"
                 onClick={() =>
-                  mobileCategoryOpen ? setMobileCategoryOpen(false) : guard.requestClose()
+                  mobileBack() ||
+                  (mobileCategoryOpen ? setMobileCategoryOpen(false) : guard.requestClose())
                 }
               >
                 <ArrowLeft size={22} />

@@ -50,6 +50,7 @@ import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { QzoneWriteActions, type QzoneLikeChange } from '../components/qq-actions/MediaActions';
 import { withQQAccountScope } from '../components/qq-actions/shared';
 import { albumMediaUrl } from '../lib/resourceUrl';
+import { pushMobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { QzoneEmoji } from '../components/QzoneEmoji';
 import {
   projectQzoneFeed,
@@ -413,6 +414,13 @@ export function QzoneView({
     setRefreshes((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
   const [compose, setCompose] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const navigationBacks = useRef<Array<() => void>>([]);
+  useEffect(
+    () => () => {
+      for (const remove of navigationBacks.current.splice(0)) remove();
+    },
+    [active],
+  );
   const openSpace = useCallback(
     (uin: string, name?: string): void => {
       const value = uin.trim();
@@ -421,6 +429,20 @@ export function QzoneView({
         return;
       }
       setTargetError('');
+      if (value !== hostUin || tab !== (value === selfUin ? 'posts' : 'space')) {
+        const previousTab = tab,
+          previousHost = hostUin;
+        const remove = pushMobileBack(
+          () => {
+            setTab(previousTab);
+            setHostUin(previousHost);
+            navigationBacks.current = navigationBacks.current.filter((item) => item !== remove);
+          },
+          () => document.querySelector<HTMLElement>('.weq-qzn'),
+          30,
+        );
+        navigationBacks.current.push(remove);
+      }
       const firstName = name || people.names[value] || value;
       rememberSpaceName(value, firstName);
       setHostUin(value);
@@ -430,7 +452,7 @@ export function QzoneView({
         setTab('space');
       }
     },
-    [selfUin, people.names, rememberSpaceName, setTab, setSpaces, setHostUin],
+    [selfUin, hostUin, tab, people.names, rememberSpaceName, setTab, setSpaces, setHostUin],
   );
   useEffect(() => {
     if (
@@ -737,6 +759,12 @@ function SpaceContent({
   const [ownerLabel] = useState(nickname || hostUin);
   const handledAlbum = useRef<string | null>(null);
   const [pane, setPane] = useState<'posts' | 'albums'>('posts');
+  useMobileBack(
+    active && pane === 'albums',
+    () => setPane('posts'),
+    40,
+    () => document.querySelector<HTMLElement>('.weq-qzn-owner-space:not([hidden])'),
+  );
   const [visitedAlbums, setVisitedAlbums] = useState(false);
   const [refreshes, setRefreshes] = useState({ posts: 0, albums: 0 });
   useEffect(() => {

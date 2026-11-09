@@ -1,0 +1,10 @@
+@media (max-width: 760px) {
+  .weq-web-shell[data-mobile-swiping] {
+    overflow: hidden;
+    user-select: none;
+  }
+
+  .weq-web-shell[data-mobile-swiping][data-mobile-detail] .sidebar {
+    visibility: visible;
+  }
+}

@@ -4,6 +4,12 @@ import { loadLayoutNumber, saveLayoutNumber } from './layoutStorage';
 import { defaultConversationPreference } from './preferences';
 import { usePageState } from '../../components/PageSnapshots';
 import { pageValue } from '../../lib/pageSnapshots';
+import {
+  isMobileNavigation,
+  mobileBack,
+  pushMobileBack,
+  resetMobileRoot,
+} from '../../hooks/useMobileNavigation';
 import { z } from 'zod';
 import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
 import type {
@@ -62,7 +68,7 @@ export function useChatShellController({
   initialView = 'messages',
   startupView = null,
   sidebarWidthStorageKey,
-  history,
+  history: historyAdapter,
   onReadConversation,
   onOpenContactNotice,
 }: UseChatShellControllerOptions) {
@@ -141,6 +147,48 @@ export function useChatShellController({
     view,
   });
   const onReadConversationRef = useRef(onReadConversation);
+  const restoreRef = useRef<() => () => void>(() => () => {});
+  restoreRef.current = () => {
+    const snapshot = {
+      activeConversationId,
+      contactNotice,
+      selectedContactId,
+      selectedGroupConversationId,
+      view,
+      contactTab,
+      contactWorkspaceTab,
+      contactOverviewOpen,
+      query,
+    };
+    return () => {
+      setView(snapshot.view);
+      setActiveConversationId(snapshot.activeConversationId);
+      setContactNotice(snapshot.contactNotice);
+      setSelectedContactId(snapshot.selectedContactId);
+      setSelectedGroupConversationId(snapshot.selectedGroupConversationId);
+      setContactTab(snapshot.contactTab);
+      setContactWorkspaceTab(snapshot.contactWorkspaceTab);
+      setContactOverviewOpen(snapshot.contactOverviewOpen);
+      setQuery(snapshot.query);
+    };
+  };
+  const history = useMemo(() => {
+    const push = () => {
+      if (!isMobileNavigation()) return;
+      const restore = restoreRef.current();
+      pushMobileBack(restore, () =>
+        document.querySelector<HTMLElement>('.weq-web-shell .chat-main'),
+      );
+    };
+    return {
+      ...historyAdapter,
+      replaceShell: () =>
+        isMobileNavigation() ? resetMobileRoot() : historyAdapter.replaceShell(),
+      pushShellDetail: () => (isMobileNavigation() ? push() : historyAdapter.pushShellDetail()),
+      pushConversationDetail: (id: string) =>
+        isMobileNavigation() ? push() : historyAdapter.pushConversationDetail(id),
+    };
+  }, [historyAdapter]);
 
   useEffect(() => {
     onReadConversationRef.current = onReadConversation;
@@ -163,6 +211,7 @@ export function useChatShellController({
   }, [activeConversationId]);
 
   useEffect(() => {
+    if (isMobileNavigation()) return;
     function clearMobileDetailState(nextView: 'messages' | 'contacts') {
       backStateRef.current = { ...backStateRef.current, view: nextView };
       setView(nextView);
@@ -262,6 +311,12 @@ export function useChatShellController({
     (nextView: MainView) => {
       setView(nextView);
       history.replaceShell();
+      if (isMobileNavigation()) {
+        setActiveConversationId(null);
+        setSelectedContactId(null);
+        setSelectedGroupConversationId(null);
+        setContactNotice(null);
+      }
       if (nextView === 'messages' && !history.isMobileShell())
         setActiveConversationId(
           (current) =>
@@ -269,7 +324,15 @@ export function useChatShellController({
             (history.shouldAutoSelectConversation() ? (conversations[0]?.id ?? null) : null),
         );
     },
-    [conversations, history, setActiveConversationId, setView],
+    [
+      conversations,
+      history,
+      setActiveConversationId,
+      setView,
+      setContactNotice,
+      setSelectedContactId,
+      setSelectedGroupConversationId,
+    ],
   );
 
   const changeContactTab = useCallback(
@@ -283,6 +346,7 @@ export function useChatShellController({
 
   const openContactNotice = useCallback(
     (kind: ContactNoticeView) => {
+      history.pushShellDetail();
       backStateRef.current = {
         ...backStateRef.current,
         contactNotice: kind,
@@ -290,7 +354,6 @@ export function useChatShellController({
         selectedGroupConversationId: null,
         view: 'contacts',
       };
-      history.pushShellDetail();
       setView('contacts');
       setContactNotice(kind);
       setContactOverviewOpen(false);
@@ -411,23 +474,27 @@ export function useChatShellController({
   );
 
   const backContact = useCallback(() => {
+    if (mobileBack()) return;
     setSelectedContactId(null);
     setContactOverviewOpen(true);
     history.replaceShell();
   }, [history, setSelectedContactId, setContactOverviewOpen]);
 
   const backGroup = useCallback(() => {
+    if (mobileBack()) return;
     setSelectedGroupConversationId(null);
     setContactOverviewOpen(true);
     history.replaceShell();
   }, [history, setSelectedGroupConversationId, setContactOverviewOpen]);
 
   const backContactNotice = useCallback(() => {
+    if (mobileBack()) return;
     setContactNotice(null);
     history.replaceShell();
   }, [history, setContactNotice]);
 
   const backConversation = useCallback(() => {
+    if (mobileBack()) return;
     setActiveConversationId(null);
     history.replaceShell();
   }, [history, setActiveConversationId]);

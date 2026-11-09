@@ -17,6 +17,7 @@
  */
 
 import { useCallback, useMemo, useEffect, useRef, useState, type ReactElement } from 'react';
+import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { Check, Download, Images, Inbox, Loader2, Play, X } from 'lucide-react';
 import { Modal, useDialog } from './Dialog';
 import { useToast } from './Toast';
@@ -525,12 +526,18 @@ export function QzoneAlbumDialog({
   }, [selected, mediaLoading, mediaLoadingMore, refreshing, active, hostUin]);
 
   const backToList = useCallback(() => {
+    runRef.current++;
     mediaLenRef.current = 0;
     setSelected(null);
     setMedia([]);
     setMediaTotal(0);
     setMediaError(null);
+    setMediaLoading(false);
+    setMediaLoadingMore(false);
   }, []);
+  useMobileBack(open && requestedActive && Boolean(selected), backToList, 50, () =>
+    document.querySelector<HTMLElement>('.weq-qzone-album'),
+  );
 
   if (!open) return null;
 
@@ -609,7 +616,9 @@ export function QzoneAlbumDialog({
             hostUin={hostUin}
             selfUin={selfUin}
             topicId={selected.id}
-            onBack={backToList}
+            onBack={() => {
+              if (!mobileBack()) backToList();
+            }}
             onLoadMore={() => loadMore()}
           />
         ) : !albums || albums.length === 0 ? (

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, type RefObject } from 'react';
+import { useMobileBack } from '../hooks/useMobileNavigation';
 
 function layerPath(element: HTMLElement): number[] {
   const path: number[] = [];
@@ -54,6 +55,12 @@ export function useSurfaceEscape(
   active: boolean,
   modal: boolean,
 ) {
+  useMobileBack(
+    active && modal && Boolean(onClose),
+    () => onClose?.(),
+    100,
+    () => ref.current,
+  );
   // 在节点移除前归还焦点；被动清理时 activeElement 已可能变成 body。
   useLayoutEffect(() => {
     const element = ref.current;

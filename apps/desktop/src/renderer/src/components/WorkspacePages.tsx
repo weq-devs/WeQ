@@ -14,6 +14,7 @@ import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { TabActivity } from './RetainedTabs';
 import { PageSnapshotScope } from './PageSnapshots';
 import { PageScrollSnapshot } from './PageScrollSnapshot';
+import { useMobileBack } from '../hooks/useMobileNavigation';
 import '../styles/workspace-surfaces.css';
 import '../styles/page-chrome.css';
 
@@ -197,6 +198,12 @@ export function WorkspacePage({
     (!context || selected === id) &&
     (placement !== 'sidecar' ||
       !context?.pages.some((page) => page.placement === 'main' && page.id === context.active));
+  useMobileBack(
+    active && Boolean(onClose),
+    () => closeRef.current?.(),
+    20,
+    () => ref.current,
+  );
   useSurfaceEscape(ref, onClose, active, false);
   const content = (
     <div
