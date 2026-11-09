@@ -52,6 +52,7 @@ vi.mock('../src/renderer/src/components/relationGraph/graphSimulationClient', ()
 let host: HTMLDivElement;
 let root: Root;
 let resize: () => void;
+let animationFrame: FrameRequestCallback | undefined;
 let graph: BuiltGraph;
 const onSelect = vi.fn();
 const fit = vi.mocked(fitGraphView);
@@ -62,6 +63,9 @@ const tick = (alpha: number) =>
   act(() => {
     const sim = simulation().alpha(alpha);
     sim.on('tick')!.call(sim);
+    const frame = animationFrame;
+    animationFrame = undefined;
+    frame?.(0);
   });
 function pointer(type: string, x = 20, movement = 0) {
   const event = new PointerEvent(type, { bubbles: true, clientX: x, clientY: 20 });
@@ -74,6 +78,13 @@ function pointer(type: string, x = 20, movement = 0) {
 const enable = () => act(() => host.querySelector<HTMLButtonElement>('.weq-graph-fit')!.click());
 
 beforeEach(() => {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    animationFrame = callback;
+    return 1;
+  });
+  vi.stubGlobal('cancelAnimationFrame', () => {
+    animationFrame = undefined;
+  });
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal(
     'ResizeObserver',
@@ -133,10 +144,28 @@ afterEach(() => {
 });
 
 describe('群交集持续自适应', () => {
+  it('同一动画帧内多次布局回传只绘制和取景一次', () => {
+    act(() => {
+      const sim = simulation();
+      for (let i = 0; i < 5; i++) sim.on('tick')!.call(sim);
+    });
+    expect(fit).not.toHaveBeenCalled();
+    act(() => {
+      const frame = animationFrame;
+      animationFrame = undefined;
+      frame?.(0);
+    });
+    expect(fit).toHaveBeenCalledOnce();
+  });
   it('初始开启，在布局的每一帧及结束时跟随，不只在冷却后校准一次', () => {
     for (const alpha of [0.9, 0.5, 0.17, 0.1]) tick(alpha);
     expect(fit).toHaveBeenCalledTimes(4);
-    act(() => simulation().on('end')!.call(simulation()));
+    act(() => {
+      simulation().on('end')!.call(simulation());
+      const frame = animationFrame;
+      animationFrame = undefined;
+      frame?.(0);
+    });
     expect(fit).toHaveBeenCalledTimes(5);
   });
 
@@ -183,7 +212,12 @@ describe('群交集持续自适应', () => {
       graph = { ...graph, nodes: graph.nodes.slice(0, 1) };
       render();
       tick(0.01);
-      act(() => simulation().on('end')!.call(simulation()));
+      act(() => {
+        simulation().on('end')!.call(simulation());
+        const frame = animationFrame;
+        animationFrame = undefined;
+        frame?.(0);
+      });
       expect(fit).not.toHaveBeenCalled();
       enable();
       expect(fit).toHaveBeenCalledTimes(1);

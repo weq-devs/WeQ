@@ -6,7 +6,8 @@ import { communityColor, graphNodeLabel } from './graphModel';
 import type { BuiltGraph, GNode } from './types';
 import { fitGraphView, type GraphView } from './graphLayout';
 import { createGraphSimulationClient } from './graphSimulationClient';
-import { indexGraphHit, indexGraphRender, type RenderEdge } from './graphRender';
+import { graphLabelVisible, indexGraphHit, indexGraphRender, type RenderEdge } from './graphRender';
+import { createGraphEdgeGpu, graphEdgePixelRatio } from './graphEdgeGpu';
 
 export function GraphCanvas({
   graph,
@@ -33,6 +34,8 @@ export function GraphCanvas({
   const drawRafRef = useRef(0);
   const renderIndexRef = useRef<ReturnType<typeof indexGraphRender> | null>(null);
   const hitIndexRef = useRef<ReturnType<typeof indexGraphHit> | null>(null);
+  const displayedPositionsRef = useRef<Float64Array | null>(null);
+  const edgeGpuRef = useRef<ReturnType<typeof createGraphEdgeGpu>>(null);
 
   const hoverRef = useRef<GNode | null>(null);
   const selectedRef = useRef<string | null>(selectedId);
@@ -56,7 +59,8 @@ export function GraphCanvas({
     if (drawRafRef.current) return;
     drawRafRef.current = requestAnimationFrame(() => {
       drawRafRef.current = 0;
-      drawRef.current();
+      if (autoFitRef.current) fitViewRef.current();
+      else drawRef.current();
     });
   }, []);
 
@@ -97,7 +101,10 @@ export function GraphCanvas({
     const simulation = simulationRef.current;
     if (!simulation) return null;
     const { x, y } = screenToWorld(sx, sy);
-    hitIndexRef.current ??= indexGraphHit(simulation.nodes());
+    const nodes = simulation.nodes();
+    const positions = displayedPositionsRef.current;
+    if (positions && positions.length !== nodes.length * 2) return null;
+    hitIndexRef.current ??= indexGraphHit(nodes, positions ?? undefined);
     return hitIndexRef.current(x, y);
   }
 
@@ -111,14 +118,21 @@ export function GraphCanvas({
     setHoverNode(null);
     setSimulationError(null);
     renderIndexRef.current = indexGraphRender(graph);
+    edgeGpuRef.current = createGraphEdgeGpu(graph, renderIndexRef.current.incident);
+    const edgeCanvas = edgeGpuRef.current?.canvas;
+    if (edgeCanvas) {
+      edgeCanvas.className = 'weq-graph-edge-canvas';
+      edgeCanvas.setAttribute('aria-hidden', 'true');
+      wrapRef.current?.insertBefore(edgeCanvas, canvasRef.current);
+    }
     hitIndexRef.current = null;
+    displayedPositionsRef.current = null;
     const sim = createGraphSimulationClient(
       graph,
       previous,
       () => {
         hitIndexRef.current = null;
-        if (autoFitRef.current) fitViewRef.current();
-        else scheduleDraw();
+        scheduleDraw();
       },
       setSimulationError,
     );
@@ -126,6 +140,8 @@ export function GraphCanvas({
 
     return () => {
       sim.stop();
+      edgeGpuRef.current?.dispose();
+      edgeGpuRef.current = null;
       if (drawRafRef.current) {
         cancelAnimationFrame(drawRafRef.current);
         drawRafRef.current = 0;
@@ -217,12 +233,15 @@ export function GraphCanvas({
       }
       if (count % 2048) ctx.stroke();
     }
-    for (const batch of topology.batches) {
+    const gpu = edgeGpuRef.current;
+    const edgeDpr = graphEdgePixelRatio(graph.edges.length, v.scale, dpr);
+    const gpuDrawn = gpu?.draw(v, w, h, edgeDpr, focus) ?? false;
+    for (const batch of gpuDrawn ? [] : topology.batches) {
       ctx.strokeStyle = batch.self ? 'rgba(120,140,165,0.07)' : 'rgba(120,140,165,0.18)';
       ctx.lineWidth = batch.width;
       strokeEdges(batch.edges, Boolean(focus));
     }
-    if (focus) {
+    if (focus && !gpuDrawn) {
       const active = new Map<number, RenderEdge[]>();
       for (const edge of topology.incident.get(focus) ?? []) {
         const width = Math.min(1 + edge.weight * 0.5, 4);
@@ -239,7 +258,20 @@ export function GraphCanvas({
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (const n of nodes) {
+    let lastFont = '';
+    function setFont(font: string) {
+      if (font === lastFont) return;
+      ctx.font = font;
+      lastFont = font;
+    }
+    const displayed =
+      displayedPositionsRef.current?.length === nodes.length * 2
+        ? displayedPositionsRef.current
+        : new Float64Array(nodes.length * 2);
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      displayed[i * 2] = n.x;
+      displayed[i * 2 + 1] = n.y;
       const margin = n.radius + 80 / Math.min(v.scale, 1);
       if (
         n.x + margin < left ||
@@ -272,7 +304,7 @@ export function GraphCanvas({
         ctx.restore();
       } else {
         ctx.fillStyle = '#ffffff';
-        ctx.font = `600 ${Math.round(r)}px var(--font-sans, sans-serif)`;
+        setFont(`600 ${Math.round(r)}px var(--font-sans, sans-serif)`);
         ctx.fillText(privacy ? '•' : (n.label || '?').slice(0, 1), n.x, n.y + 1);
       }
 
@@ -284,14 +316,10 @@ export function GraphCanvas({
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
       ctx.stroke();
 
-      if (
-        !privacy &&
-        !dim &&
-        (isSelfNode || isFocus || focusNeighbours.has(n.id) || r >= 22 || v.scale >= 1.1)
-      ) {
+      if (!privacy && !dim && graphLabelVisible(n, v.scale, isFocus, focusNeighbours.has(n.id))) {
         ctx.globalAlpha = 1;
         const fontPx = Math.max(10, 11 / v.scale);
-        ctx.font = `500 ${fontPx}px var(--font-sans, sans-serif)`;
+        setFont(`500 ${fontPx}px var(--font-sans, sans-serif)`);
         const name = graphNodeLabel(n, showRemarks);
         const label = name.length > 12 ? `${name.slice(0, 12)}…` : name;
         ctx.lineWidth = 3 / v.scale;
@@ -302,6 +330,8 @@ export function GraphCanvas({
       }
     }
     ctx.globalAlpha = 1;
+    displayedPositionsRef.current = displayed;
+    hitIndexRef.current = null;
   }
   drawRef.current = draw;
 

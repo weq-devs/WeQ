@@ -1,5 +1,6 @@
 import * as d3 from 'd3';
 import type { BuiltGraph, GEdge, GNode } from './types';
+import { packedLinkForce } from './graphLinkForce';
 
 export interface GraphView {
   scale: number;
@@ -8,6 +9,7 @@ export interface GraphView {
 }
 
 export type GraphPosition = Pick<GNode, 'id' | 'x' | 'y' | 'vx' | 'vy'>;
+export const PACKED_LINK_EDGE_THRESHOLD = 10000;
 
 /** 保留紧凑的初始占位；连续受力沿用原版 D3 图谱参数。 */
 export function createGraphSimulation(graph: BuiltGraph, previous: GraphPosition[] = []) {
@@ -45,8 +47,9 @@ export function createGraphSimulation(graph: BuiltGraph, previous: GraphPosition
   }
 
   const id = (endpoint: string | GNode) => (typeof endpoint === 'string' ? endpoint : endpoint.id);
+  const packed = graph.edges.length >= PACKED_LINK_EDGE_THRESHOLD;
   const degree = new Map<string, number>();
-  for (const edge of graph.edges) {
+  for (const edge of packed ? [] : graph.edges) {
     for (const endpoint of [edge.source, edge.target]) {
       const key = id(endpoint);
       degree.set(key, (degree.get(key) ?? 0) + 1);
@@ -56,15 +59,17 @@ export function createGraphSimulation(graph: BuiltGraph, previous: GraphPosition
     .forceSimulation(graph.nodes)
     .force(
       'link',
-      d3
-        .forceLink<GNode, GEdge>(graph.edges)
-        .id((node) => node.id)
-        .distance((edge) => edge.dist)
-        .strength(
-          (edge) =>
-            edge.strength ??
-            1 / Math.min(degree.get(id(edge.source)) ?? 1, degree.get(id(edge.target)) ?? 1),
-        ),
+      packed
+        ? packedLinkForce(graph.edges)
+        : d3
+            .forceLink<GNode, GEdge>(graph.edges)
+            .id((node) => node.id)
+            .distance((edge) => edge.dist)
+            .strength(
+              (edge) =>
+                edge.strength ??
+                1 / Math.min(degree.get(id(edge.source)) ?? 1, degree.get(id(edge.target)) ?? 1),
+            ),
     )
     .force('charge', d3.forceManyBody<GNode>().strength(-300))
     .force(

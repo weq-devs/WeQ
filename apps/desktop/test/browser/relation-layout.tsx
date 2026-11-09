@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GraphCanvas } from '../../src/renderer/src/components/relationGraph/GraphCanvas';
 import { buildGraph } from '../../src/renderer/src/components/relationGraph/graphModel';
+import { GPU_EDGE_THRESHOLD } from '../../src/renderer/src/components/relationGraph/graphEdgeGpu';
 import type {
   GraphSettings,
   RelationGraphData,
@@ -61,7 +62,9 @@ const data: RelationGraphData = {
   })),
 };
 
-Object.assign(window, { relationLayoutQa: { theme: useThemeStore } });
+Object.assign(window, {
+  relationLayoutQa: { theme: useThemeStore, gpuThreshold: GPU_EDGE_THRESHOLD },
+});
 function Fixture() {
   const [mode, setMode] = useState<'people' | 'groups'>(
     params.get('mode') === 'groups' ? 'groups' : 'people',

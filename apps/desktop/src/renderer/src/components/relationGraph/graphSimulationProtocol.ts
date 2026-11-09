@@ -8,7 +8,7 @@ export type GraphSimulationCommand =
   | { type: 'recycle'; buffer: ArrayBuffer };
 
 export type GraphSimulationEvent =
-  | { type: 'frame'; buffer: ArrayBuffer; revision: number; ended: boolean }
+  | { type: 'frame'; buffer: ArrayBuffer; revision: number; ended: boolean; stepMs?: number }
   | { type: 'error'; message: string };
 
 /** 每个节点依次保存 x、y、vx、vy，保持原模拟的双精度坐标。 */

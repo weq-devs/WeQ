@@ -6,8 +6,14 @@ app.whenReady().then(() => {
     show: false,
     width: 1180,
     height: 760,
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
+    webPreferences: {
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+    },
   });
+  globalThis.relationWorkerWindow = window;
   window.loadURL('about:blank');
 });
 app.on('window-all-closed', () => app.quit());

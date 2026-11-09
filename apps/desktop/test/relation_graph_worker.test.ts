@@ -10,7 +10,10 @@ import {
   type GraphSimulationCommand,
   type GraphSimulationEvent,
 } from '../src/renderer/src/components/relationGraph/graphSimulationProtocol';
-import { createGraphSimulationRuntime } from '../src/renderer/src/components/relationGraph/graphSimulationRuntime';
+import {
+  createGraphSimulationRuntime,
+  GRAPH_SIMULATION_FRAME_MS,
+} from '../src/renderer/src/components/relationGraph/graphSimulationRuntime';
 import type { BuiltGraph } from '../src/renderer/src/components/relationGraph/types';
 
 vi.mock('../src/renderer/src/components/relationGraph/graphLayout', async (importOriginal) => {
@@ -139,7 +142,7 @@ describe('群交集 Worker 物理核心', () => {
     if (initial.type !== 'frame') throw new Error('缺少初始帧');
     runtime.receive({ type: 'pin', id: 'node-0', x: 120, y: 80, revision: 1 });
     expect(simulation().alphaTarget()).toBe(0.3);
-    expect(simulation().restart).toHaveBeenCalledOnce();
+    expect(simulation().restart).not.toHaveBeenCalled();
     advance(1);
     runtime.receive({ type: 'recycle', buffer: initial.buffer });
     expect(frames[1]).toMatchObject({ type: 'frame', revision: 1, ended: false });
@@ -160,6 +163,35 @@ describe('群交集 Worker 物理核心', () => {
     runtime.receive({ type: 'release', id: 'node-0', revision: 2 });
     expect(graph.nodes[0]).toMatchObject({ x: 120, y: 80, vx: 0, vy: 0, fx: null, fy: null });
     runtime.stop();
+  });
+
+  it('Worker 下一步只等待剩余帧预算，重负载仍让出事件循环且停止时撤销定时器', () => {
+    let time = 0;
+    let scheduled: (() => void) | undefined;
+    const cancel = vi.fn();
+    const schedule = vi.fn((callback: () => void, _delay: number) => {
+      scheduled = callback;
+      return cancel;
+    });
+    const runtime = createGraphSimulationRuntime(() => {}, { now: () => time, schedule });
+    runtime.receive({ type: 'init', graph: fixture(), previous: [] });
+    expect(schedule.mock.calls.at(-1)![1]).toBe(GRAPH_SIMULATION_FRAME_MS);
+    const sim = simulation();
+    const original = sim.tick;
+    vi.spyOn(sim, 'tick').mockImplementation(() => {
+      time += 12;
+      return original.call(sim);
+    });
+    scheduled!();
+    expect(schedule.mock.calls.at(-1)![1]).toBeCloseTo(GRAPH_SIMULATION_FRAME_MS - 12);
+    vi.mocked(sim.tick).mockImplementation(() => {
+      time += 25;
+      return original.call(sim);
+    });
+    scheduled!();
+    expect(schedule.mock.calls.at(-1)![1]).toBe(0);
+    runtime.stop();
+    expect(cancel).toHaveBeenCalledOnce();
   });
 });
 

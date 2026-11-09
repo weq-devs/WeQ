@@ -26,7 +26,7 @@
 - 鼠标命中使用现有 D3 四叉树，坐标移动后失效、下次查询才重建；静止布局上的查询通常为 O(log N + 局部候选)，重合坐标仍以后画的节点优先。
 - 平移、缩放、头像加载和悬停重绘合并到动画帧；首页未进入图谱时不预先构建图。
 
-D3 已有 Barnes–Hut 斥力和空间碰撞索引；本次不替换布局算法。完整密集图的边数 E 最坏为 O(N²)，力链接和完整连线遍历仍为 O(E)，不能用交集计数加速等同于无限节点容量。
+D3 已有 Barnes–Hut 斥力和空间碰撞索引；受力模型保持不变，密集连线以内存紧凑内核求解，其余力继续复用 D3。完整密集图的边数 E 最坏为 O(N²)，力链接和完整连线遍历仍为 O(E)，不能用交集计数加速等同于无限节点容量。
 
 ## Worker 力模拟
 
@@ -39,13 +39,27 @@ D3 已有 Barnes–Hut 斥力和空间碰撞索引；本次不替换布局算法
 
 迁移线程用于减少物理计算阻塞交互，并不降低完整密集图的物理复杂度，也不保证布局本身更快。主线程构图、首次结构化克隆和完整连线绘制仍可能产生开销。
 
+## 热点优化
+
+- 10,000 条边及以上的连线力使用连续 Float64 状态和端点、长度、强度、度数偏置缓存，沿用 D3 原公式、原边顺序和同一随机源，不抽样或改变权重。较稀疏的图保留 D3 原内核，避免额外状态复制。
+- Worker 停止 D3 内置定时器后以剩余帧预算安排下一步：`max(0, 1000/60 - 本步耗时)`，避免无 `window.requestAnimationFrame` 时在每步计算后固定额外等待 17 ms。超预算仍通过定时器让出事件循环；加热目标、积分、冷却公式和停止阈值不变。帧事件附带 `stepMs` 以分辨实际求解与呈现间隔。
+- Worker 回传、悬停、头像与平移缩放的重绘统一合并到动画帧。相同字体不在每个节点反复赋值；标签按屏幕半径判断可读性，自身和当前焦点始终保留，缩小总览不铺满重叠文字，放大后恢复。
+- 10,000 条边及以上尝试 WebGL2 独立连线层，完整端点与权重只上传一次，每帧只更新节点坐标纹理；背景与焦点连线均不截断。远景细线用线段实例，较粗及高亮线用带覆盖率的四边形；100,000 条边以上的远景连线按 CSS 像素绘制，放大近景后恢复设备像素比，节点、头像及文字仍使用设备像素比。GPU 浮点坐标仅用于绘制，不改变双精度物理状态。
+- GPU 连线层由浏览器直接与 2D 节点层合成，不逐帧复制回 2D。WebGL 不可用或上下文丢失时回退原 Canvas 全量连线；旧图与卸载时删除缓冲、着色器程序、纹理、上下文和所属画布。
+
 ## 验证入口
+
+物理分项测量：`test/browser/run-relation-physics.mjs` 在生产构建的 Electron `file://` Web Worker 内调用真实 `createGraphSimulation`，串行测量 100/200/500/1000 节点的中心星形、四圈和完全密集图，每项默认三轮、轮次交替正反序。构图在页面中完成，不计入物理耗时；每步记录 link/charge/collide/center 与完整 tick，`remainder` 是 tick 减去四种力的差值，包含积分、冷却、调度及计时包装，不冒称独立积分测量。初始前 30 步、后续冷却、持续拖动 60 步与释放后冷却分别统计，手动 tick 不包含帧等待、Canvas 或通信时间。`WEQ_RELATION_PHYSICS_OUTPUT` 指定本机 JSON 记录，`WEQ_RELATION_ROUNDS` 控制轮次，`WEQ_RELATION_COUNTS`、`WEQ_RELATION_SHAPES` 可缩小范围；`WEQ_RELATION_HOT_COMPLETE=1` 增加全部节点共享大量群、大头像和较强拉力的压力夹具，`WEQ_RELATION_PHYSICS_BASELINE_REF` 可从指定提交加载旧物理实现，避免测试与实现共享同一个优化前提。
+
+`relation_physics_profile` 验证计时包装不改变轨迹、边数与各阶段统计；`relation_graph_link_force` 以 D3 原连线实现核对双精度密集内核，覆盖重合坐标、随机抖动、显式零强度、自环、重复边、固定节点与重排。
 
 桌面端定向 Vitest：`relation_graph_algorithms`、`relation_graph_performance`、`overlap_model`、`relation_graph_layout`、`relation_graph_entry`。
 
 `relation_graph_worker` 验证物理轨迹、双精度缓冲转移、单帧背压、结束帧、拖动版本、错误及终止；`relation_graph_motion` 和 `relation_graph_autofit` 继续覆盖原力参数与取景行为。
 
 `test/browser/run-relation-worker.mjs` 使用 200/500/1000 节点的完整密集图验证真实 Worker、点击拖动、切图/卸载及失败重试，输出主线程动画帧间隔，不设机器相关的毫秒门禁。默认验证开发模式；`WEQ_RELATION_PRODUCTION=1` 验证生产构建与严格 CSP；`WEQ_RELATION_ELECTRON=1` 用隔离的临时 Electron 配置验证生产构建的 `file://` Worker，结束后关闭测试进程并删除本轮生成物。浏览器运行时参数沿用下述布局脚本。
+
+同一脚本通过 `WEQ_RELATION_DENSITY=clusters` 检查四圈分布，`WEQ_RELATION_CANVAS_FALLBACK=1` 强制 Canvas 回退，`WEQ_RELATION_SAMPLE_MS` 控制采样时长，`WEQ_RELATION_WORKER_OUTPUT` 保存本机记录。输出实际布局更新/绘制频率、绘制间隔、输入事件排队、绘制与 Worker tick 的均值/P95，并验证全部 GPU 实例和非空像素、真实连续拖动、缩放、自适应、上下文丢失回退与线程销毁。测试 Electron 关闭隐藏窗口的后台节流，避免把后台限频当成前台瓶颈。
 
 浏览器验证复用 `test/browser/run-relation-layout.mjs`：默认跑深浅主题及窄屏布局，`WEQ_RELATION_PERFORMANCE=1` 跑 200/500/1000 节点；`WEQ_RELATION_BASELINE_REF=<commit>` 从指定提交加载旧图构建和绘制实现，使用同一夹具对照。`WEQ_PLAYWRIGHT_IMPORT`、`WEQ_BROWSER_EXECUTABLE` 可指定已有运行时，`WEQ_RELATION_ARTIFACTS` 可保存截图。
 

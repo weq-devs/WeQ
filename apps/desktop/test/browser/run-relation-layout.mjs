@@ -112,7 +112,7 @@ try {
   async function check(expected) {
     await page.waitForTimeout(2100);
     const result = await page.evaluate(() => {
-      const canvas = document.querySelector('canvas');
+      const canvas = document.querySelector('.weq-graph-canvas');
       const box = canvas.getBoundingClientRect();
       const top = document.querySelector('.weq-graph-overlay').getBoundingClientRect().bottom + 8;
       const circles = [...new Map(window.layoutCircles.map((c) => [`${c.x},${c.y}`, c])).values()];
@@ -146,7 +146,7 @@ try {
       const result = await page.evaluate(() => {
         const samples = window.drawSamples.slice(10).sort((a, b) => a - b);
         const frames = window.frameSamples.slice(10).sort((a, b) => a - b);
-        const canvas = document.querySelector('canvas');
+        const canvas = document.querySelector('.weq-graph-canvas');
         const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
         return {
           frames: samples.length,
