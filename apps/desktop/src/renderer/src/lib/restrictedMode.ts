@@ -93,7 +93,7 @@ export function restrictionReasons(input: {
   const ready =
     sessionReady && access.hasGuid && access.hasUid !== false && access.ssoReady !== false;
   if (access.qqOnline && access.attachEnabled && !ready) {
-    if (input.sipEnabled === true && !sessionReady)
+    if (input.sipEnabled === true && !sessionReady && !access.credentialsPending)
       reasons.push({
         code: 'sip',
         title: 'QQ 调试读取尚未就绪',

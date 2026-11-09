@@ -168,6 +168,17 @@ describe('受限原因按实际能力判定', () => {
       ),
     ).toEqual(['sip']);
   });
+  it('SIP 开启但后台正在读取时显示进入进度，不误报调试读取未就绪', () => {
+    mock.sip = true;
+    mock.access = { ...ready, hasD2Key: false, credentialsPending: true };
+    const f = fixture();
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('正在启用完整功能');
+    expect(useRestrictedMode.getState().reasons.map((reason) => reason.code)).not.toContain('sip');
+    mock.access = { ...ready, credentialsPending: false };
+    mock.updatedAt = Date.now() + 1;
+    f.render();
+    expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
+  });
   it('离线、主动禁用可以并存，不凭缺少物料猜测需要密码', () => {
     expect(
       restrictionReasons({

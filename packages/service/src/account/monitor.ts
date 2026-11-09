@@ -136,7 +136,8 @@ export class AccountMonitorService {
     return (
       !this.stopped &&
       this.shouldAutoAttach() &&
-      (this.ssoInflight.size > 0 ||
+      ((this.running && this.lastOnline === null) ||
+        this.ssoInflight.size > 0 ||
         Boolean(this.harvestRetry?.credentialsPending && !this.harvestRetry.cancelled))
     );
   }
@@ -286,7 +287,8 @@ export class AccountMonitorService {
     const pid = await this.resolvePid();
     if (!this.isCurrent(generation)) return;
     if (pid == null) {
-      this.markOffline();
+      // 启动探测超时不证明 QQ 已退出；保留物料，确认同一 pid 后才复用。
+      this.markOffline(pid === null);
       return this.scheduleLoginPoll(LOGIN_POLL_MS);
     }
 
@@ -408,20 +410,22 @@ export class AccountMonitorService {
     this.writeOnline(true, pid);
   }
 
-  private markOffline(): void {
-    this.writeOnline(false, null);
+  private markOffline(clearSession = true): void {
+    this.writeOnline(false, null, clearSession);
   }
 
   /** Persist online state only when it actually changed since last write. */
-  private writeOnline(online: boolean, pid: number | null): void {
-    if (this.lastOnline === online && this.lastPid === pid) return;
-    this.lastOnline = online;
-    this.lastPid = pid;
+  private writeOnline(online: boolean, pid: number | null, clearSession = true): void {
     try {
-      this.accountConfig.setOnline(online, pid);
+      if (this.lastOnline !== online || this.lastPid !== pid) {
+        this.lastOnline = online;
+        this.lastPid = pid;
+        this.accountConfig.setOnline(online, pid);
+      }
       // 账号下线，上一轮的会话密钥就作废了（pid 复用 / 换账号都会让它们失效）。
       // 设备 guid 不在这里清 —— 它是设备标识，和登录无关。
-      if (!online) this.accountConfig.setSessionMaterial(null);
+      if (!online && clearSession && this.accountConfig.getRecord()?.session)
+        this.accountConfig.setSessionMaterial(null);
     } catch {
       /* config write failed — non-fatal */
     }

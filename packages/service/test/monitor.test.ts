@@ -116,6 +116,22 @@ afterEach(() => {
 });
 
 describe('account monitor authorization and SSO readiness', () => {
+  it('首次在线探测未完成时保持准备状态，成功后自动完成且不重读已有凭据', async () => {
+    const ready = vi.fn();
+    const f = fixture(true, ready);
+    const probe = deferred<number>();
+    f.platform.resolveQqPidAsync = () => probe.promise;
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.monitor.credentialsPending).toBe(true);
+    expect(ready).not.toHaveBeenCalled();
+    probe.resolve(42);
+    await flushPromises();
+    expect(f.monitor.credentialsPending).toBe(false);
+    expect(ready).toHaveBeenCalledOnce();
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    f.monitor.stop();
+  });
   it('单次未发现数据库持有者不清理凭据，连续两次未发现才下线', async () => {
     const f = fixture(true);
     f.monitor.start();
@@ -156,7 +172,7 @@ describe('account monitor authorization and SSO readiness', () => {
     expect(f.record.session).toBeNull();
     f.monitor.stop();
   });
-  it('首次探测失败不信任磁盘残留在线状态，后续成功可恢复', async () => {
+  it('首次探测失败不信任残留在线状态，但确认同一进程后复用凭据自动恢复', async () => {
     const f = fixture(true);
     f.platform.resolveQqPidAsync = vi
       .fn()
@@ -165,11 +181,34 @@ describe('account monitor authorization and SSO readiness', () => {
     f.monitor.start();
     await vi.advanceTimersByTimeAsync(0);
     expect(f.record.qqOnline).toBe(false);
-    expect(f.record.session).toBeNull();
+    expect(f.record.session).toMatchObject({ ...material, pid: 42 });
+    expect(f.nt.setSsoSession).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(5000);
     expect(f.record.qqOnline).toBe(true);
     expect(f.record.session).toMatchObject({ ...material, pid: 42 });
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    expect(f.nt.setSsoSession).toHaveBeenCalledOnce();
     f.monitor.stop();
+  });
+  it('首次探测异常后确认离线仍清理凭据，确认新进程则重新读取', async () => {
+    for (const pid of [null, 43]) {
+      const f = fixture(true);
+      f.platform.resolveQqPidAsync = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('探测超时'))
+        .mockResolvedValue(pid);
+      f.monitor.start();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(5000);
+      if (pid === null) {
+        expect(f.record.session).toBeNull();
+        expect(f.hook.ensure).not.toHaveBeenCalled();
+      } else {
+        expect(f.hook.ensure).toHaveBeenCalledOnce();
+        expect(f.record.session?.pid).toBe(pid);
+      }
+      f.monitor.stop();
+    }
   });
   it('空结果与探测异常交替出现也不会无限保留旧在线状态', async () => {
     const f = fixture(true);
