@@ -103,6 +103,7 @@ import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
 import { assertRuntimeFilesIdle, runtimeFileBusyPaths } from '../../context/runtime_files';
 import { runtimeMaintenance } from '../../runtime_maintenance';
+import { resolveSignerWrapper } from '../../context/signer_target';
 import { launchQq, runningQqCount } from '../../qq_launch';
 import { QqDebugCopyManager } from '../../qq_debug_copy';
 import { QQ_DEBUG_COPY_PERMISSION_ACTIONS } from '../../../shared/qq_debug_copy';
@@ -424,17 +425,17 @@ export const bootstrapRouter = router({
   //
   // 完整模式发包要借 `wrapper.node` 里的 VM / sign core 算 `SecSign`。RVA 随
   // QQ 版本变化，所以定位结果按「版本 + 文件 hash」缓存；这里只读缓存状态，
-  // 真正的扫描在启动期后台做（或用户点「重新扫描」）。
+  // macOS 等账号完整模式确认实载模块后再预热，其他平台仍在启动期后台做。
 
   /** 当前签名器状态：缓存是否命中、两条 RVA、上次确认时间。 */
   signerStatus: procedure.query(async () => {
     const platform = requirePlatform();
-    const wrapperPath = platform.qqWrapperNodePath();
+    const wrapperPath = await resolveSignerWrapper(platform, getAppContext().account?.context.uin);
     const warmup = await awaitSignerWarmup();
     return {
       ...describeSignerCache(platform.appDataRoot(), wrapperPath, readQqVersion(wrapperPath)),
-      /** 启动期那次预热的结果（null = 没跑 / 失败）。 */
-      warmup,
+      /** 只展示同一模块的预热结果，不混入旧账号／安装版本。 */
+      warmup: warmup?.wrapperPath === wrapperPath ? warmup : null,
       /** 本次运行里实际走过的签名路径（来自预热/自检）。 */
       supported: typeof platform.native.ntHelper.warmupSigner === 'function',
     };
@@ -443,8 +444,8 @@ export const bootstrapRouter = router({
   /** 重新扫描 `wrapper.node`（命中缓存时只 dlopen + 校验），返回最新状态。 */
   rescanSigner: procedure.mutation(async () => {
     const platform = requirePlatform();
-    const wrapperPath = platform.qqWrapperNodePath();
     const result = await rescanSignerImpl();
+    const wrapperPath = result?.wrapperPath ?? null;
     return {
       ...describeSignerCache(platform.appDataRoot(), wrapperPath, readQqVersion(wrapperPath)),
       warmup: result,

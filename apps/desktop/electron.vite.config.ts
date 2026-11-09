@@ -45,6 +45,7 @@ process.env.ELECTRON_CLI_ARGS = JSON.stringify([
 
 export default defineConfig({
   main: {
+    clearScreen: false,
     plugins: [
       {
         name: 'weq-remote-web-assets',
@@ -122,9 +123,11 @@ export default defineConfig({
     },
   },
   preload: {
+    clearScreen: false,
     plugins: [externalizeDepsPlugin()],
   },
   renderer: {
+    clearScreen: false,
     root: resolve(__dirname, 'src/renderer'),
     plugins: [react(), tailwindcss()],
     resolve: {

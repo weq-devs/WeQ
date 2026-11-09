@@ -98,6 +98,7 @@ export type {
 
 export {
   warmupSigner,
+  primeSignerHints,
   describeSignerCache,
   getSignerHints,
   rememberSignerHints,

@@ -24,6 +24,7 @@ import { createDbChangeNotification } from '../db_change_notification';
 import { webNotices, type WebNotice } from '../web/notices';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
 import { clearFullMode, fullModeAllowed } from './full_mode';
+import { resolveSignerWrapper } from './signer_target';
 import { resolveBackupLocation, backupMediaRoots } from '../static_backup';
 import { VipBadgeService } from '../vip_badge';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -120,6 +121,7 @@ import {
   MsgDecorationCacheService,
   TokenUsageStore,
   warmupSigner,
+  primeSignerHints,
   type SignerWarmupResult,
   ConversationStore,
   DeletedMsgStore,
@@ -254,6 +256,30 @@ let bootstrapCacheRoot: string | undefined;
  * 取 RVA，预热没跑完时退回 native 自己的扫描。
  */
 let signerWarmup: Promise<SignerWarmupResult | null> | undefined;
+function warmupSelectedSigner(
+  platform: Platform,
+  uin?: string,
+  isCurrent: () => boolean = () => true,
+): Promise<SignerWarmupResult | null> {
+  return resolveSignerWrapper(platform, uin)
+    .then((wrapperPath) => {
+      if (!isCurrent()) return null;
+      return warmupSigner(
+        platform.native.ntHelper,
+        platform.appDataRoot(),
+        wrapperPath,
+        readQqVersion(wrapperPath),
+      );
+    })
+    .catch((error: unknown) => {
+      getLogger().warn('签名器预热失败，发包时可重试', {
+        scope: 'signer-cache',
+        event: 'signer-warmup',
+        ...logErrorContext(error),
+      });
+      return null;
+    });
+}
 
 export function accountRuntimeCacheRoot(ctx: AppContext): string | undefined {
   return accountCacheRoots.get(ctx);
@@ -1288,23 +1314,10 @@ export function initAppContext(fileRoot?: string): AppContext {
   // 定时器是 unref 的，不阻止进程退出，因此这里不需要持有 stop 句柄。
   startLogRetention(() => userConfig.getSettings().logRetentionDays);
 
-  // 签名器预热：`wrapper.node` 有 140–200 MB，完整定位 sign core / VM 实测
-  // 2.5–3 秒。这个代价不该落在第一包需要签名的请求上 —— 启动后立刻在后台做，
-  // 缓存命中时只 dlopen + 校验（约 0.5 秒），不碰界面线程。
-  //
-  // 失败不阻断启动：真正的签名错误会在发包时带上下文报出来（诊断页也能手动重试）。
-  signerWarmup = warmupSigner(
-    platform.native.ntHelper,
-    platform.appDataRoot(),
-    platform.qqWrapperNodePath(),
-    readQqVersion(platform.qqWrapperNodePath()),
-  ).catch((error: unknown) => {
-    logger.warn('signer warmup failed (non-fatal)', {
-      event: 'signer-warmup',
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  });
+  // macOS 启动时跳过未知目标的预热，待完整模式确认运行中 QQ 后再加载同一份模块。
+  // 否则先载安装旧版、再载热更新版，会重复注册 Objective-C 类并刷满原生警告。
+  if (platform.kind === 'darwin') primeSignerHints(platform.appDataRoot());
+  signerWarmup = warmupSelectedSigner(platform);
 
   // Reading a running QQ's memory needs a ptrace attach: on linux AND macOS that
   // is gated (linux: yama ptrace_scope / root + CAP_SYS_PTRACE; macOS: root and
@@ -2190,6 +2203,13 @@ export function initAppContext(fileRoot?: string): AppContext {
           emitDressChanged();
         },
         () => {
+          if (platform.kind === 'darwin') {
+            signerWarmup = warmupSelectedSigner(
+              platform,
+              session.context.uin,
+              () => this.account === session && fullModeAllowed(this, session),
+            );
+          }
           accountEventBus.emit('onlineCredentialsReady', { at: Date.now() });
           mail.credentialsAvailable();
         },
@@ -3369,7 +3389,7 @@ export function requirePlatform(): Platform {
   return !ctx.accountIsStatic && ctx.resourcePlatform ? ctx.resourcePlatform : ctx.platform;
 }
 
-/** 启动期签名器预热的结果（还在跑时等它完成）。 */
+/** 当前签名器预热的结果（还在跑时等它完成）。 */
 export async function awaitSignerWarmup(): Promise<SignerWarmupResult | null> {
   if (!signerWarmup) return null;
   return signerWarmup;
@@ -3378,23 +3398,16 @@ export async function awaitSignerWarmup(): Promise<SignerWarmupResult | null> {
 /**
  * 重新预热签名器（诊断页「重新扫描」）。
  *
- * 与启动期那次同一套逻辑：命中缓存就只 dlopen + 校验，否则完整扫描并写回缓存。
+ * 命中缓存就只 dlopen + 校验，否则完整扫描并写回缓存；macOS 只选当前账号的实载模块。
  */
 export async function rescanSigner(): Promise<SignerWarmupResult | null> {
   const platform = requirePlatform();
-  signerWarmup = warmupSigner(
-    platform.native.ntHelper,
-    platform.appDataRoot(),
-    platform.qqWrapperNodePath(),
-    readQqVersion(platform.qqWrapperNodePath()),
-  ).catch((error: unknown) => {
-    getLogger()
-      .child({ scope: 'app-context' })
-      .warn('signer rescan failed', {
-        event: 'signer-warmup',
-        error: error instanceof Error ? error.message : String(error),
-      });
-    return null;
-  });
+  const ctx = getAppContext();
+  const session = ctx.account;
+  signerWarmup = warmupSelectedSigner(
+    platform,
+    session?.context.uin,
+    () => ctx.account === session,
+  );
   return signerWarmup;
 }

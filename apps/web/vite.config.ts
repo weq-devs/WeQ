@@ -15,6 +15,7 @@ import tailwindcss from '@tailwindcss/vite';
 const RENDERER = resolve(__dirname, '../desktop/src/renderer');
 
 export default defineConfig({
+  clearScreen: false,
   root: RENDERER,
   plugins: [react(), tailwindcss()],
   define: {
