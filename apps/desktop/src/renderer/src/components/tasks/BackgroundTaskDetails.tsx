@@ -24,7 +24,7 @@ import { IS_WEB } from '../../lib/target';
 import { useDialog } from '../Dialog';
 import { StageRow, type UiLogLine, type UiStage } from '../../views/export/TaskList';
 import { TaskLogConsole as LogConsole } from '../TaskLogConsole';
-import { CalendarTaskLog } from '../CalendarTaskLog';
+import { CalendarTaskDetails } from '../CalendarTaskDetails';
 import '../../styles/export.css';
 import '../../styles/conversation-overview-calendar.css';
 import '../../styles/contact-directory-order.css';
@@ -99,24 +99,12 @@ export function BackgroundTaskDetails({
   return (
     <div>
       {task.kind === 'calendar' ? (
-        <div className="weq-overview-calendar-progress">
-          {task.subtasks?.map((stage) => (
-            <section key={stage.label}>
-              <div>
-                <span>{stage.label}</span>
-                <strong>
-                  {stage.done} / {stage.total}
-                </strong>
-              </div>
-              <progress
-                aria-label={stage.label}
-                max={Math.max(1, stage.total)}
-                value={stage.total ? stage.done : 1}
-              />
-            </section>
-          ))}
-          <CalendarTaskLog id={task.id} scope={scope} updatedAt={task.updatedAt} />
-        </div>
+        <CalendarTaskDetails
+          key={task.id}
+          taskId={task.id}
+          scope={scope}
+          running={task.status === 'running'}
+        />
       ) : null}
       {task.kind === 'contacts' && (
         <div className="weq-exp-detail-stages" data-privacy-sensitive>

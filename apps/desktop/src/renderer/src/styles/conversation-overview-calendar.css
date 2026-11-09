@@ -104,6 +104,46 @@ html[data-theme='dark'] .weq-overview-calendar-progress progress::-webkit-progre
 .weq-overview-calendar-conversations {
   min-width: 0;
 }
+.weq-calendar-kinds {
+  border: 0;
+  padding: 0;
+  margin: 0 0 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-calendar-task-details {
+  min-width: 0;
+  color: var(--weq-fg-primary);
+}
+.weq-calendar-task-details h4 {
+  margin: 8px 0;
+  font-size: 14px;
+}
+.weq-calendar-task-details p {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.weq-calendar-task-date {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+.weq-calendar-task-date input {
+  min-width: 0;
+  max-width: 100%;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font: inherit;
+}
 .weq-overview-calendar h4 {
   margin: 0 0 8px;
   font-size: 14px;

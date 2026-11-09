@@ -14,9 +14,8 @@ import { calendarTargetsWithHiddenMessages } from '../lib/calendarHiddenMessages
 import { calendarTargetSetKey } from '../lib/calendarSourceRevision';
 import { Modal } from './Dialog';
 import { MessageCalendar } from './MessageCalendar';
-import { CalendarScanProgress } from './CalendarScanProgress';
-import { CalendarConversationList } from './CalendarConversationList';
-import { TaskLogDisclosure } from './TaskLogDisclosure';
+import { CalendarStatistics, calendarReadLabel } from './CalendarStatistics';
+import { useCalendarKinds } from '../hooks/useCalendarKinds';
 import { useTabActive } from './RetainedTabs';
 import '../styles/conversation-overview-calendar.css';
 
@@ -57,6 +56,9 @@ export function ConversationOverviewCalendar({
   const active = useTabActive();
   const live = useRef(true);
   const backgroundIds = useRef(new Set<string>());
+  const [kinds] = useCalendarKinds();
+  const latestKinds = useRef(kinds);
+  latestKinds.current = kinds;
   useEffect(() => {
     live.current = true;
     return () => {
@@ -157,6 +159,8 @@ export function ConversationOverviewCalendar({
         ...binding,
         month,
         targets,
+        kinds: latestKinds.current,
+        refresh: request.revision > 0,
         day: latestDay.current.startsWith(`${month}-`) ? latestDay.current : undefined,
       });
     };
@@ -164,11 +168,15 @@ export function ConversationOverviewCalendar({
       .then((result) => {
         if (!result) return;
         task = result.id;
+        if (result.background) backgroundIds.current.add(result.id);
         if (cancelled || currentRequest.current !== request)
           void client.account.calendarOverview.stop
             .mutate({ ...binding, id: task })
             .catch(() => {});
-        else setJob({ id: task, request });
+        else {
+          if (result.day) setDay(result.day);
+          setJob({ id: task, request });
+        }
       })
       .catch((failure: unknown) => {
         if (!cancelled && currentRequest.current === request)
@@ -192,6 +200,7 @@ export function ConversationOverviewCalendar({
           day: day.startsWith(month) ? day : undefined,
           limit: rowLimit,
           includeLogs: logOpen,
+          kinds,
         });
         if (cancelled || currentRequest.current !== request) return;
         setSnapshot(result);
@@ -213,7 +222,7 @@ export function ConversationOverviewCalendar({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [id, binding, day, rowLimit, month, visible, active, request, logOpen]);
+  }, [id, binding, day, rowLimit, month, visible, active, request, logOpen, kinds]);
   const errors = [
     ...new Set(
       [directoryError, error, ...(snapshot?.days.flatMap((value) => value.errors) ?? [])].filter(
@@ -328,63 +337,30 @@ export function ConversationOverviewCalendar({
                 ? '正在读取消息数量…'
                 : errors.length
                   ? '部分日期统计未完成'
-                  : !snapshot.days.every((value) => value.complete)
-                    ? snapshot.metrics.reads
-                      ? '正在统计消息数量…'
-                      : '等待数据库空闲…'
-                    : dirty
-                      ? '数据有变更'
-                      : undefined
+                  : (calendarReadLabel(snapshot) ?? (dirty ? '数据有变更' : undefined))
             }
           />
-          <section className="weq-overview-calendar-conversations" aria-label="当天会话">
-            <h4>{day}</h4>
-            <CalendarScanProgress
-              day={day}
-              progress={snapshot?.progress}
-              dayProgress={snapshot?.dayProgress}
-            />
-            <TaskLogDisclosure
-              open={logOpen}
-              onOpenChange={setLogOpen}
-              lines={snapshot?.logs ?? []}
-            />
-            <p role="status">
-              {!ready
-                ? '正在读取会话目录…'
-                : directoryError
-                  ? '部分会话目录尚未读取完整'
-                  : snapshot?.days.find((value) => value.day === day)?.errors.length
-                    ? '部分来源统计已暂停'
-                    : snapshot?.cancelled
-                      ? '统计已暂停，请重新打开日历重试'
-                      : !snapshot?.complete
-                        ? snapshot?.dayProgress
-                          ? `正在统计 · 已完成 ${snapshot.dayProgress.completedSources}/${snapshot.dayProgress.totalSources} 个来源 · 已计 ${snapshot.dayProgress.count.toLocaleString('zh-CN')} 条`
-                          : '正在统计当天会话…'
-                        : `${snapshot.totalRows} 个会话`}
-            </p>
-            <CalendarConversationList
-              key={`${id}:${day}`}
-              rows={snapshot?.rows ?? []}
-              total={snapshot?.totalRows ?? 0}
-              complete={Boolean(snapshot?.complete)}
-              busy={busy}
-              showEmpty={!directoryError}
-              targets={selectedByKey}
-              onLocate={(target, anchor) => void locate(target, anchor)}
-              onLoadMore={() =>
-                setRowLimit((limit) =>
-                  snapshot && snapshot.rows.length >= limit
-                    ? Math.min(limit + 50, snapshot.totalRows)
-                    : limit,
-                )
-              }
-            />
-          </section>
+          <CalendarStatistics
+            snapshot={snapshot}
+            day={day}
+            id={id}
+            busy={busy}
+            error={!ready ? '正在读取会话目录…' : directoryError}
+            logOpen={logOpen}
+            onLogOpenChange={setLogOpen}
+            targets={selectedByKey}
+            onLocate={(target, anchor) => void locate(target, anchor)}
+            onLoadMore={() =>
+              setRowLimit((limit) =>
+                snapshot && snapshot.rows.length >= limit
+                  ? Math.min(limit + 50, snapshot.totalRows)
+                  : limit,
+              )
+            }
+          />
         </div>
         <div className="weq-overview-calendar-errors">
-          {errors.map((message) => (
+          {[...new Set([directoryError, error].filter(Boolean))].map((message) => (
             <p role="alert" key={message}>
               {message}
             </p>

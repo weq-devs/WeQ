@@ -82,10 +82,12 @@ export class QqDb {
       await waitForDatabaseQuiet(this.dbPath, current, 500, budget.onWait);
       if (signal?.aborted) throw new DOMException('日历统计已取消', 'AbortError');
       await new Promise<void>((done) => setTimeout(done, 20));
+      budget.onState?.('queued');
       return scheduleDatabase(
         this.dbPath,
         async () => {
           const began = performance.now();
+          budget.onState?.('reading');
           try {
             return await read.call(
               this.nt,
@@ -102,7 +104,7 @@ export class QqDb {
         },
         this.nt,
         queryDiagnosticSource(sql),
-      );
+      ).finally(() => budget.onState?.(undefined));
     }
     return scheduleDatabase(
       this.dbPath,

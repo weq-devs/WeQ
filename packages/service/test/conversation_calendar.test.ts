@@ -29,10 +29,107 @@ const message = (id: string, time = start, conv = target.conv) => ({
   time,
   anchor: { id, seq: id, time },
 });
+it('取消勾选的来源停止后续批次并退出总数，再勾选保留原游标与计数', async () => {
+  const cursors: unknown[] = [];
+  const job = new ConversationCalendarJob(
+    '2026-11',
+    [target],
+    [
+      {
+        kind: 'c2c',
+        count: async () => 0,
+        page: async (_start, _end, cursor) => {
+          cursors.push(cursor);
+          return { rows: [message(cursor ? '2' : '1')], cursor: 1, done: Boolean(cursor) };
+        },
+      },
+    ],
+  );
+  job.keepAlive(day);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(job.snapshot(day).rows[0]?.count).toBe(1);
+  job.setKinds([]);
+  await vi.advanceTimersByTimeAsync(40);
+  expect(job.snapshot(day)).toMatchObject({
+    rows: [],
+    totalRows: 0,
+    progress: { totalSources: 0 },
+  });
+  expect(job.snapshot(day).days.every((value) => value.count === 0)).toBe(true);
+  expect(cursors).toEqual([undefined]);
+  job.setKinds(['c2c']);
+  job.keepAlive(day);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(job.snapshot(day).rows[0]?.count).toBe(2);
+  expect(cursors).toEqual([undefined, 1]);
+  job.cancel();
+  await finish(job);
+});
+
+it('停止后恢复原任务，不清空已经提交的统计游标', async () => {
+  const cursors: unknown[] = [];
+  const job = new ConversationCalendarJob(
+    '2026-11',
+    [target],
+    [
+      {
+        kind: 'c2c',
+        count: async () => 0,
+        page: async (_s, _e, cursor) => {
+          cursors.push(cursor);
+          return { rows: [message(cursor ? '2' : '1')], cursor: 1, done: Boolean(cursor) };
+        },
+      },
+    ],
+  );
+  job.keepAlive(day);
+  await vi.advanceTimersByTimeAsync(0);
+  job.cancel();
+  await vi.runAllTimersAsync();
+  await job.settled();
+  job.resume();
+  job.keepAlive(day);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(cursors).toEqual([undefined, 1]);
+  expect(job.snapshot(day).rows[0]?.count).toBe(2);
+  job.cancel();
+  await finish(job);
+});
 async function finish(job: ConversationCalendarJob) {
   await vi.runAllTimersAsync();
   await job.settled();
 }
+
+it('后台继续获取其他日期时，当日进度跟随实际扫描日而不是列表选中日', async () => {
+  let release!: (count: number) => void;
+  const job = new ConversationCalendarJob(
+    '2026-11',
+    [target],
+    [
+      {
+        kind: 'c2c',
+        page: async () => ({ rows: [message('1')], done: true }),
+        count: () =>
+          new Promise<number>((resolve) => {
+            release = resolve;
+          }),
+      },
+    ],
+  );
+  job.keepAlive(day);
+  await vi.advanceTimersByTimeAsync(20);
+  const value = job.snapshot(day);
+  expect(value.dayProgress).toMatchObject({ completedSources: 1, totalSources: 1, count: 1 });
+  expect(value.scanDayProgress).toEqual({
+    day: '2026-11-07',
+    completedSources: 0,
+    totalSources: 1,
+    count: 0,
+  });
+  job.cancel();
+  release(0);
+  await finish(job);
+});
 
 it('北京时间跨月与闰年边界准确，不使用本机时区', () => {
   expect(calendarMonthDays('2024-02')).toHaveLength(29);

@@ -31,14 +31,16 @@ const readBudget = new AsyncLocalStorage<{
   milliseconds: number;
   onRead?: (milliseconds: number) => void;
   onWait?: () => void;
+  onState?: (state: 'idle' | 'queued' | 'reading' | undefined) => void;
 }>();
 export function withDatabaseReadBudget<T>(
   budgetMs: number,
   run: () => T,
   onRead?: (milliseconds: number) => void,
   onWait?: () => void,
+  onState?: (state: 'idle' | 'queued' | 'reading' | undefined) => void,
 ): T {
-  return readBudget.run({ milliseconds: budgetMs, onRead, onWait }, run);
+  return readBudget.run({ milliseconds: budgetMs, onRead, onWait, onState }, run);
 }
 export function databaseReadBudget() {
   return readBudget.getStore();

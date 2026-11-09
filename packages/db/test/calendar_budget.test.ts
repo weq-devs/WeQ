@@ -144,3 +144,32 @@ it('繁忙时入队后取消仍移除日历查询，不执行原生读取', asyn
   expect(databasePerformance(db.dbPath).queued).toBe(0);
   expect(budgeted).not.toHaveBeenCalled();
 });
+
+it('空闲等待结束后报告排队和实际原生读取，不留下过期等待状态', async () => {
+  const { db, ordinary } = fixture();
+  let release!: (rows: []) => void;
+  ordinary.mockImplementationOnce(
+    () =>
+      new Promise<[]>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const active = db.query('SELECT 2');
+  const states: Array<string | undefined> = [];
+  const pending = withDatabasePriority('background', () =>
+    withDatabaseReadBudget(
+      10,
+      () => db.query('SELECT 1'),
+      undefined,
+      () => states.push('idle'),
+      (state) => states.push(state),
+    ),
+  );
+  await vi.advanceTimersByTimeAsync(1500);
+  expect(states).toEqual(['idle', 'queued']);
+  release([]);
+  await active;
+  await vi.runAllTimersAsync();
+  await pending;
+  expect(states).toEqual(['idle', 'queued', 'reading', undefined]);
+});

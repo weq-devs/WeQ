@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
+import { CalendarNavigationContext } from '../lib/calendarNavigation';
 import { getCloneTasks, subscribeCloneTasks } from '../views/agentlab/cloneTaskStore';
 import type { GeneratedSearchHit } from './search/types';
 import type { ToolSearchRequest } from './search/appSearchCatalog';
@@ -106,6 +114,7 @@ export function WorkspaceTools({
 }) {
   const mobile = useMobileWebLayout();
   const [open, setOpen] = useState(false);
+  const navigateCalendar = useContext(CalendarNavigationContext);
   const anchor = useWorkspaceMenu((state) => state.anchor);
   const closeMenu = useWorkspaceMenu((state) => state.close);
   const setTaskSummary = useWorkspaceMenu((state) => state.setTasks);
@@ -519,13 +528,19 @@ export function WorkspaceTools({
         <div className="weq-workspace-menu-body">
           <RetainedTabs snapshotKey="workspace-tools" activeKey="tasks">
             {!hidden && (anchor || expanded) && panel === 'tasks' ? (
-              <ExportTool
-                surface="tasks"
-                taskLayout={expanded ? 'split' : 'compact'}
-                onTaskExpand={() => setExpanded(true)}
-                onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
-                onOpenClone={(id) => leave(() => onOpenClone?.(id))}
-              />
+              <CalendarNavigationContext.Provider
+                value={
+                  navigateCalendar ? (...args) => leave(() => navigateCalendar(...args)) : null
+                }
+              >
+                <ExportTool
+                  surface="tasks"
+                  taskLayout={expanded ? 'split' : 'compact'}
+                  onTaskExpand={() => setExpanded(true)}
+                  onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
+                  onOpenClone={(id) => leave(() => onOpenClone?.(id))}
+                />
+              </CalendarNavigationContext.Provider>
             ) : null}
           </RetainedTabs>
           <div

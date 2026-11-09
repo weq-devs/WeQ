@@ -303,6 +303,7 @@ import { displayGroupName, displayUserName } from '../im-template/template/user'
 import { isDatalineUid } from '@weq/codec';
 import type { CalendarTarget as OverviewCalendarTarget } from '@weq/service/conversation-calendar';
 import { ConversationOverviewCalendar } from '../components/ConversationOverviewCalendar';
+import { CalendarNavigationContext, type CalendarNavigate } from '../lib/calendarNavigation';
 import { conversationListSearchText } from '../lib/conversationListSearchText';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
 import { WorkspaceTools } from '../components/WorkspaceTools';
@@ -10799,6 +10800,50 @@ function MainWorkspace(): ReactElement {
     else settingsNavigation.navigate(() => openAppSearchEntryNow(entry));
   };
 
+  const locateCalendarMessage: CalendarNavigate = (target, anchor, record) => {
+    flushAllDirtyDrafts();
+    if (target.kind === 'guild') {
+      setGuildSearchTarget({
+        kind: 'guildMessage',
+        nodeId: target.conv,
+        msgId: anchor.id,
+        msgSeq: anchor.seq,
+        revision: crypto.randomUUID(),
+      });
+      shell.switchView('channel');
+    } else if (target.kind === 'persona' || target.kind === 'cloneGroup') {
+      setCloneSearchTarget({
+        category: 'cloneMessage',
+        kind: target.kind === 'persona' ? 'persona' : 'group',
+        ownerId: target.conv,
+        sessionId: anchor.sessionId ?? null,
+        messageId: anchor.id,
+        title: target.name,
+        sessionTitle: '',
+        content: '',
+        ts: anchor.time * 1000,
+      });
+      shell.switchView('agentlab');
+    } else if (target.kind === 'official' || target.kind === 'service') {
+      setArkFeedState({
+        kind: target.kind,
+        conversationId: target.kind === 'service' ? `service:${target.conv}` : target.conv,
+        title: target.name,
+        anchorId: anchor.id,
+      });
+      shell.switchView('messages');
+    } else {
+      jumpToConvSeq(
+        target.kind === 'group' ? 'group' : 'c2c',
+        target.conv,
+        anchor.seq,
+        false,
+        record,
+        anchor.id,
+      );
+    }
+  };
+
   const chatContent = (
     <ReplyJumpContext.Provider value={jumpToSeq}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
@@ -11561,48 +11606,50 @@ function MainWorkspace(): ReactElement {
             }
           >
             {(controls) => (
-              <WorkspaceTools
-                key={messageScope}
-                accountScope={messageScope}
-                footerControls={controls}
-                onOpenClone={(id) => {
-                  flushAllDirtyDrafts();
-                  setCloneSearchTarget(null);
-                  setVirtualOpen({ kind: 'persona', id, revision: Date.now() });
-                  shell.switchView('agentlab');
-                }}
-                currentConversation={shell.view === 'messages' ? activeConversation : null}
-                workspace={{
-                  view: shell.view,
-                  conversation: shell.view === 'messages' ? activeConversation : null,
-                  officialFeed: shell.view === 'messages' ? arkFeedState : null,
-                  contact: shell.view === 'contacts' ? (shell.selectedContact ?? null) : null,
-                  groupConversation:
-                    shell.view === 'contacts' ? (shell.selectedGroupConversation ?? null) : null,
-                  spaceUin: shell.view === 'qzone' ? currentQzoneUin : null,
-                  virtual:
-                    shell.view === 'agentlab' && virtualOpen
-                      ? {
-                          kind: virtualOpen.kind,
-                          ownerId: virtualOpen.id,
-                          name:
-                            virtualRows.find(
-                              (row) =>
-                                row.kind === virtualOpen.kind && row.ownerId === virtualOpen.id,
-                            )?.name ?? '',
-                        }
-                      : null,
-                  guildNodeId: shell.view === 'channel' ? activeGuildNodeId : null,
-                }}
-                analysisRequest={analysisRequest}
-                roamingRequest={roamingRequest}
-                onOpenComposition={compositionWindow.open}
-                assistantSearchTarget={assistantSearchTarget}
-                searchRequest={toolSearchRequest}
-                onOpenAnalysis={(request) =>
-                  setAnalysisReports((previous) => [...previous, request])
-                }
-              />
+              <CalendarNavigationContext.Provider value={locateCalendarMessage}>
+                <WorkspaceTools
+                  key={messageScope}
+                  accountScope={messageScope}
+                  footerControls={controls}
+                  onOpenClone={(id) => {
+                    flushAllDirtyDrafts();
+                    setCloneSearchTarget(null);
+                    setVirtualOpen({ kind: 'persona', id, revision: Date.now() });
+                    shell.switchView('agentlab');
+                  }}
+                  currentConversation={shell.view === 'messages' ? activeConversation : null}
+                  workspace={{
+                    view: shell.view,
+                    conversation: shell.view === 'messages' ? activeConversation : null,
+                    officialFeed: shell.view === 'messages' ? arkFeedState : null,
+                    contact: shell.view === 'contacts' ? (shell.selectedContact ?? null) : null,
+                    groupConversation:
+                      shell.view === 'contacts' ? (shell.selectedGroupConversation ?? null) : null,
+                    spaceUin: shell.view === 'qzone' ? currentQzoneUin : null,
+                    virtual:
+                      shell.view === 'agentlab' && virtualOpen
+                        ? {
+                            kind: virtualOpen.kind,
+                            ownerId: virtualOpen.id,
+                            name:
+                              virtualRows.find(
+                                (row) =>
+                                  row.kind === virtualOpen.kind && row.ownerId === virtualOpen.id,
+                              )?.name ?? '',
+                          }
+                        : null,
+                    guildNodeId: shell.view === 'channel' ? activeGuildNodeId : null,
+                  }}
+                  analysisRequest={analysisRequest}
+                  roamingRequest={roamingRequest}
+                  onOpenComposition={compositionWindow.open}
+                  assistantSearchTarget={assistantSearchTarget}
+                  searchRequest={toolSearchRequest}
+                  onOpenAnalysis={(request) =>
+                    setAnalysisReports((previous) => [...previous, request])
+                  }
+                />
+              </CalendarNavigationContext.Provider>
             )}
           </RailAccountFooter>
           <QzoneAlbumDialog
@@ -12023,50 +12070,7 @@ function MainWorkspace(): ReactElement {
               }
               binding={pinSession.binding}
               onClose={() => setOverviewCalendar(null)}
-              onLocate={(target, anchor, record) => {
-                flushAllDirtyDrafts();
-                if (target.kind === 'guild') {
-                  setGuildSearchTarget({
-                    kind: 'guildMessage',
-                    nodeId: target.conv,
-                    msgId: anchor.id,
-                    msgSeq: anchor.seq,
-                    revision: crypto.randomUUID(),
-                  });
-                  shell.switchView('channel');
-                } else if (target.kind === 'persona' || target.kind === 'cloneGroup') {
-                  setCloneSearchTarget({
-                    category: 'cloneMessage',
-                    kind: target.kind === 'persona' ? 'persona' : 'group',
-                    ownerId: target.conv,
-                    sessionId: anchor.sessionId ?? null,
-                    messageId: anchor.id,
-                    title: target.name,
-                    sessionTitle: '',
-                    content: '',
-                    ts: anchor.time * 1000,
-                  });
-                  shell.switchView('agentlab');
-                } else if (target.kind === 'official' || target.kind === 'service') {
-                  setArkFeedState({
-                    kind: target.kind,
-                    conversationId:
-                      target.kind === 'service' ? `service:${target.conv}` : target.conv,
-                    title: target.name,
-                    anchorId: anchor.id,
-                  });
-                  shell.switchView('messages');
-                } else {
-                  jumpToConvSeq(
-                    target.kind === 'group' ? 'group' : 'c2c',
-                    target.conv,
-                    anchor.seq,
-                    false,
-                    record,
-                    anchor.id,
-                  );
-                }
-              }}
+              onLocate={locateCalendarMessage}
             />
           ) : null}
             (person) =>

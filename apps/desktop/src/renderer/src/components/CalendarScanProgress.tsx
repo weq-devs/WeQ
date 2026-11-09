@@ -14,8 +14,8 @@ export function CalendarScanProgress({
   return (
     <div className="weq-overview-calendar-progress" role="group" aria-label="统计进度">
       {[
-        { label: '本月日期来源', value: progress },
-        { label: `${day} 来源`, value: dayProgress },
+        { label: '当月进度', value: progress },
+        { label: `${day} 进度`, value: dayProgress },
       ].map(({ label, value }) => (
         <section key={label}>
           <div>

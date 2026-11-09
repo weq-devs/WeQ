@@ -11,6 +11,7 @@ import {
   ConversationCalendarJob,
   calendarMonthDays,
   calendarTargetKey,
+  CALENDAR_SOURCE_ORDER,
   type CalendarTarget,
   type CalendarKind,
 } from '@weq/service/conversation-calendar';
@@ -47,6 +48,7 @@ const dayInput = z
   .regex(/^\d{4}-\d{2}-\d{2}$/)
   .optional();
 interface Entry {
+  key: string;
   taskId?: string;
   day?: string;
   job: ConversationCalendarJob;
@@ -56,6 +58,21 @@ interface Entry {
   targets: CalendarTarget[];
 }
 const sessions = new WeakMap<AccountSession, Map<string, Entry>>();
+const kindsInput = z.array(targetInput.shape.kind).max(CALENDAR_SOURCE_ORDER.length).optional();
+function runJob(value: Entry, day = value.day, retry = false) {
+  withDatabasePriority(
+    'background',
+    () =>
+      withDatabaseReadBudget(
+        10,
+        () => value.job.keepAlive(day, retry),
+        (ms) => value.job.observeRead(ms),
+        () => value.job.noteWaiting(),
+        (state) => value.job.observeState(state),
+      ),
+    value.job.controller.signal,
+  );
+}
 accountEventBus.on('closing', (session: AccountSession | null) => {
   if (session) for (const value of sessions.get(session)?.values() ?? []) value.job.cancel();
 });
@@ -140,9 +157,11 @@ export const conversationCalendarRouter = router({
         month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
         targets: z.array(targetInput).max(12000),
         day: dayInput,
+        kinds: kindsInput,
+        refresh: z.boolean().default(false),
       }),
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const { session, services, native } = current(input);
       if (input.day && !calendarMonthDays(input.month).some((value) => value.day === input.day))
         throw new Error('日期不属于当前月份');
@@ -154,6 +173,35 @@ export const conversationCalendarRouter = router({
       const unique = [
         ...new Map(input.targets.map((target) => [calendarTargetKey(target), target])).values(),
       ];
+      const key = JSON.stringify([
+        input.month,
+        unique
+          .map((target) => [
+            calendarTargetKey(target),
+            Object.entries(target.hiddenIds ?? {})
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([key, ids]) => [key, [...ids].sort()]),
+          ])
+          .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+      ]);
+      const existing = [...cache].find(([, value]) => value.key === key);
+      if (existing) {
+        const [id, value] = existing;
+        if (input.refresh) value.job.cancel();
+        if (value.job.controller.signal.aborted) {
+          await value.job.settled();
+          current(input);
+          value.job.resume();
+          value.job.controller.signal.addEventListener('abort', () => syncTask(value), {
+            once: true,
+          });
+        }
+        if (input.refresh) value.job.invalidate();
+        value.job.setKinds(input.kinds ?? [...CALENDAR_SOURCE_ORDER]);
+        runJob(value, value.day, true);
+        syncTask(value);
+        return { id, day: value.day, background: value.job.inBackground };
+      }
       if (
         unique.some((target) => target.kind !== 'persona' && target.kind !== 'cloneGroup') &&
         !native.executeSqlBudgeted
@@ -191,7 +239,7 @@ export const conversationCalendarRouter = router({
           syncTask(tracked);
         }
       });
-      tracked = { ...value, job, day: input.day };
+      tracked = { ...value, key, job, day: input.day };
       cache.set(id, tracked);
       const entry = tracked;
       job.controller.signal.addEventListener(
@@ -206,23 +254,14 @@ export const conversationCalendarRouter = router({
         cache.get(first)?.job.cancel();
         cache.delete(first);
       }
-      withDatabasePriority(
-        'background',
-        () =>
-          withDatabaseReadBudget(
-            10,
-            () => job.keepAlive(input.day),
-            (ms) => job.observeRead(ms),
-            () => job.noteWaiting(),
-          ),
-        job.controller.signal,
-      );
-      return { id };
+      job.setKinds(input.kinds ?? [...CALENDAR_SOURCE_ORDER]);
+      runJob(tracked);
+      return { id, day: tracked.day, background: false };
     }),
   background: procedure.input(requestInput).mutation(({ input }) => {
     const value = entry(input);
     if (value.job.controller.signal.aborted) throw new Error('日历任务已停止，请重新打开日历');
-    if (!value.taskId)
+    if (!value.taskId || !backgroundTasks.snapshot().some((task) => task.id === value.taskId))
       value.taskId = backgroundTasks.start({
         name: `会话日历 · ${value.job.month}`,
         kind: 'calendar',
@@ -239,6 +278,7 @@ export const conversationCalendarRouter = router({
           () => value.job.continueInBackground(),
           (ms) => value.job.observeRead(ms),
           () => value.job.noteWaiting(),
+          (state) => value.job.observeState(state),
         ),
       value.job.controller.signal,
     );
@@ -256,6 +296,7 @@ export const conversationCalendarRouter = router({
         limit: z.number().int().min(1).max(12000).default(50),
         retry: z.boolean().default(false),
         includeLogs: z.boolean().default(false),
+        kinds: kindsInput,
       }),
     )
     .query(({ input }) => {
@@ -264,20 +305,42 @@ export const conversationCalendarRouter = router({
         throw new Error('日期不属于当前月份');
       const changed = value.day !== input.day || input.retry;
       value.day = input.day;
-      withDatabasePriority(
-        'background',
-        () =>
-          withDatabaseReadBudget(
-            10,
-            () => value.job.keepAlive(input.day, input.retry),
-            (ms) => value.job.observeRead(ms),
-            () => value.job.noteWaiting(),
-          ),
-        value.job.controller.signal,
-      );
+      if (input.kinds) value.job.setKinds(input.kinds);
+      runJob(value, input.day, input.retry);
       syncTask(value);
       if (changed) void value.job.settled().then(() => syncTask(value));
       return value.job.snapshot(input.day, input.offset, input.includeLogs, input.limit);
+    }),
+  task: procedure
+    .input(
+      exportAccountBindingInput.extend({
+        taskId: z.string().uuid(),
+        day: dayInput,
+        kinds: kindsInput,
+        limit: z.number().int().min(1).max(12000).default(50),
+        includeLogs: z.boolean().default(false),
+      }),
+    )
+    .query(({ input }) => {
+      const { session } = current(input);
+      const found = [...(sessions.get(session) ?? [])].find(
+        ([, value]) => value.taskId === input.taskId,
+      );
+      if (!found || !backgroundTasks.snapshot().some((task) => task.id === input.taskId))
+        throw new Error('日历任务已结束');
+      const [id, value] = found;
+      if (input.day && !calendarMonthDays(value.job.month).some(({ day }) => day === input.day))
+        throw new Error('日期不属于当前月份');
+      if (input.day) value.day = input.day;
+      if (input.kinds) value.job.setKinds(input.kinds);
+      runJob(value);
+      syncTask(value);
+      return {
+        id,
+        month: value.job.month,
+        day: value.day,
+        snapshot: value.job.snapshot(value.day, 0, input.includeLogs, input.limit),
+      };
     }),
   stop: procedure.input(requestInput).mutation(({ input }) => {
     entry(input).job.cancel();

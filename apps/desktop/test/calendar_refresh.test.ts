@@ -1,7 +1,11 @@
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { calendarMonthDays, type CalendarTarget } from '@weq/service/conversation-calendar';
+import {
+  calendarMonthDays,
+  CALENDAR_SOURCE_ORDER,
+  type CalendarTarget,
+} from '@weq/service/conversation-calendar';
 import { ConversationOverviewCalendar } from '../src/renderer/src/components/ConversationOverviewCalendar';
 import { calendarCloneRevision } from '../src/renderer/src/lib/calendarSourceRevision';
 
@@ -32,6 +36,8 @@ vi.mock('../src/renderer/src/components/RetainedTabs', () => ({ useTabActive: ()
 const month = '2026-11';
 function snapshot(complete: boolean, selectedMonth = month) {
   return {
+    enabledKinds: [...CALENDAR_SOURCE_ORDER],
+    readState: undefined as { state: 'idle' | 'queued' | 'reading'; since: number } | undefined,
     days: calendarMonthDays(selectedMonth).map(({ day }) => ({
       day,
       count: day === '2026-11-10' ? 42 : 0,
@@ -47,7 +53,13 @@ function snapshot(complete: boolean, selectedMonth = month) {
 }
 let state = snapshot(false);
 beforeEach(() => {
-  vi.stubGlobal('localStorage', { length: 0, key: () => null, getItem: () => null });
+  const saved = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    length: 0,
+    key: () => null,
+    getItem: (key: string) => saved.get(key) ?? null,
+    setItem: (key: string, value: string) => saved.set(key, value),
+  });
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-11-10T12:00:00+08:00'));
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -73,6 +85,46 @@ async function tick(ms = 0) {
 const defaultTargets: CalendarTarget[] = [
   { kind: 'group', conv: '42', name: 'fixture', avatar: null, ancestors: [] },
 ];
+it('零次原生读取不再冒充等待空闲，实际排队状态明确显示', async () => {
+  state.metrics.reads = 0;
+  state.readState = { state: 'queued', since: Date.now() };
+  const view = mount();
+  try {
+    await tick();
+    expect(view.host.textContent).toContain('等待前序数据库查询结束');
+    expect(view.host.textContent).not.toContain('等待数据库空闲');
+  } finally {
+    view.close();
+  }
+});
+
+it('统计来源选择记忆，切换只轮询原任务而不重建', async () => {
+  let view = mount();
+  try {
+    await tick();
+    const option = [...view.host.querySelectorAll('button')].find(
+      (item) => item.textContent === '私聊',
+    )!;
+    act(() => option.click());
+    await tick();
+    expect(fixture.start).toHaveBeenCalledTimes(1);
+    expect(fixture.poll.mock.lastCall?.[0].kinds).not.toContain('c2c');
+    view.close();
+    view = mount();
+    await tick();
+    expect(fixture.start.mock.lastCall?.[0].kinds).not.toContain('c2c');
+    expect(
+      [...view.host.querySelectorAll('button')]
+        .find((item) => item.textContent === '私聊')!
+        .getAttribute('aria-pressed'),
+    ).toBe('false');
+    expect(view.host.textContent).toContain('我的设备');
+    expect(view.host.textContent).toContain('公众号/服务号');
+    expect(view.host.textContent).toContain('克隆会话');
+  } finally {
+    view.close();
+  }
+});
 it('日历使用连续滚动会话列表，不显示分页入口', async () => {
   const view = mount();
   try {

@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
 import { CalendarScanProgress } from '../src/renderer/src/components/CalendarScanProgress';
 
-it('按本月日期来源与选中日来源显示真实完成数量', () => {
+it('按当月和调用方指定的当前扫描日显示真实完成数量', () => {
   const host = document.createElement('div');
   host.innerHTML = renderToStaticMarkup(
     createElement(CalendarScanProgress, {
@@ -12,10 +12,10 @@ it('按本月日期来源与选中日来源显示真实完成数量', () => {
       dayProgress: { completedSources: 3, totalSources: 8 },
     }),
   );
-  const month = host.querySelector('progress[aria-label="本月日期来源"]')!;
+  const month = host.querySelector('progress[aria-label="当月进度"]')!;
   expect(month.getAttribute('value')).toBe('12');
   expect(month.getAttribute('max')).toBe('240');
-  const source = host.querySelector('progress[aria-label="2026-11-10 来源"]')!;
+  const source = host.querySelector('progress[aria-label="2026-11-10 进度"]')!;
   expect(source.getAttribute('value')).toBe('3');
   expect(source.getAttribute('max')).toBe('8');
   expect(host.textContent).toContain('3 / 8');
