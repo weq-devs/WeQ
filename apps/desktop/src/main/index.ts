@@ -55,7 +55,9 @@ import { handleMailNotification } from './mail_notify';
 import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { remoteRuntime } from './remote/runtime';
+import { RemoteWebGateway } from './remote/web_gateway';
 import { desktopWebRuntime } from './web/runtime';
+import { WebCore } from './web/application';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { assistantResourceServer } from './weq_assistant/server';
 import { disposeExternalMcp } from './mcp/external';
@@ -672,30 +674,6 @@ void app.whenReady().then(async () => {
     platform: process.platform,
     arch: process.arch,
   });
-  remoteRuntime.configure({
-    helper:
-      process.env.WEQ_REMOTE_HELPER ||
-      (app.isPackaged
-        ? join(
-            process.resourcesPath,
-            'remote-network',
-            process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
-          )
-        : join(
-            app.getAppPath(),
-            '../../tools/remote-network',
-            process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
-          )),
-    stateDir: join(app.getPath('userData'), 'remote-network'),
-    webPort: () => desktopWebRuntime.status().port,
-    onRequest: openMainWindow,
-  });
-  if (hasSingleInstanceLock)
-    void remoteRuntime
-      .resume()
-      .catch((error: unknown) =>
-        console.error('远程连接恢复失败', error instanceof Error ? error.message : '未知错误'),
-      );
   if (!hasSingleInstanceLock) return;
   const autostart =
     app.isPackaged &&
@@ -750,7 +728,7 @@ void app.whenReady().then(async () => {
       });
   }
   if (userConfig) {
-    desktopWebRuntime.configure({
+    const webCore = new WebCore({
       publicDir: app.isPackaged
         ? join(process.resourcesPath, 'remote-web')
         : join(app.getAppPath(), '../web/dist/public'),
@@ -758,12 +736,38 @@ void app.whenReady().then(async () => {
       renderer: electronHost,
       version: app.getVersion(),
       router: appRouter,
-      pairing: remoteRuntime.pairing,
+    });
+    desktopWebRuntime.configure({
+      core: webCore,
       getAutoStart: () => userConfig.getSettings().webServiceAutoStart,
       setAutoStart: (enabled) => {
         userConfig.setSettings({ webServiceAutoStart: enabled });
       },
     });
+    remoteRuntime.configure({
+      helper:
+        process.env.WEQ_REMOTE_HELPER ||
+        (app.isPackaged
+          ? join(
+              process.resourcesPath,
+              'remote-network',
+              process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
+            )
+          : join(
+              app.getAppPath(),
+              '../../tools/remote-network',
+              process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
+            )),
+      stateDir: join(app.getPath('userData'), 'remote-network'),
+      web: () => new RemoteWebGateway(remoteRuntime.pairing, (auth) => webCore.entry(auth)),
+      onRequest: openMainWindow,
+    });
+    void remoteRuntime.resume().catch((error: unknown) =>
+      logger.warn('远程连接恢复失败', {
+        event: 'remote-resume-failed',
+        error: error instanceof Error ? error.message : '未知错误',
+      }),
+    );
     if (desktopWebRuntime.status().autoStart) {
       void desktopWebRuntime
         .start()

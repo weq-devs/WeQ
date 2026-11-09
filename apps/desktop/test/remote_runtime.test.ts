@@ -11,6 +11,47 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 describe('远程服务的故障关闭', () => {
+  it('启动期间关闭 Remote，不再创建 Web 入口或启动网络助手', async () => {
+    const launch = vi.fn();
+    const web = vi.fn();
+    const runtime = new RemoteRuntime(launch as typeof spawn);
+    const dir = mkdtempSync(join(tmpdir(), 'weq-cancel-runtime-'));
+    runtime.configure({ helper: process.execPath, stateDir: dir, web });
+    try {
+      const starting = runtime.start();
+      runtime.stop(true);
+      await starting;
+      expect(web).not.toHaveBeenCalled();
+      expect(launch).not.toHaveBeenCalled();
+      expect(runtime.status().enabled).toBe(false);
+      await runtime.resume();
+      expect(web).not.toHaveBeenCalled();
+    } finally {
+      runtime.stop();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('共享页面准备失败时不启动网络助手，失败后仍可重试', async () => {
+    const launch = vi.fn();
+    const web = vi.fn(() => {
+      throw new Error('Web 页面尚未构建');
+    });
+    const runtime = new RemoteRuntime(launch as typeof spawn);
+    const dir = mkdtempSync(join(tmpdir(), 'weq-missing-web-'));
+    runtime.configure({ helper: process.execPath, stateDir: dir, web });
+    try {
+      await expect(runtime.start()).rejects.toThrow('Web 页面尚未构建');
+      await expect(runtime.start()).rejects.toThrow('Web 页面尚未构建');
+      expect(web).toHaveBeenCalledTimes(2);
+      expect(launch).not.toHaveBeenCalled();
+      expect(runtime.status().enabled).toBe(false);
+    } finally {
+      runtime.stop();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('WeQ 专用 Tailscale 独立启停，局域网入口与已配对设备不被重启', async () => {
     const children: ChildProcessWithoutNullStreams[] = [];
     const launch = vi.fn(() => {

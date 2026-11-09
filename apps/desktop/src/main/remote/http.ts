@@ -1,14 +1,13 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { type RemotePairing, claimSchema, tokenHash } from './pairing';
-import { RemoteWebGateway } from './web_gateway';
+import type { RemoteWebGateway } from './web_gateway';
 
 function bearer(req: IncomingMessage): string {
   const value = req.headers.authorization ?? '';
   return /^Bearer [a-f0-9]{64}$/.test(value) ? value.slice(7) : '';
 }
 
-export function createRemoteServer(pairing: RemotePairing, webPort?: () => number | null) {
-  const web = webPort === undefined ? null : new RemoteWebGateway(pairing, webPort);
+export function createRemoteServer(pairing: RemotePairing, web?: RemoteWebGateway) {
   let windowStart = Date.now();
   // 未授权请求与已授权设备分别计数，避免单个来源耗尽所有设备的限额。
   const requests = new Map<string, number>();
@@ -92,5 +91,6 @@ export function createRemoteServer(pairing: RemotePairing, webPort?: () => numbe
   server.timeout = 10_000;
   server.maxConnections = 16;
   web?.attach(server);
+  server.once('close', () => web?.close());
   return server;
 }

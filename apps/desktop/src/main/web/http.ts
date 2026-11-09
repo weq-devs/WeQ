@@ -34,14 +34,17 @@ const PORT_FALLBACK_ATTEMPTS = 10;
 /** Refuse absurd login bodies outright. */
 const MAX_LOGIN_BODY = 4096;
 
-export interface ServerOptions {
-  port: number;
-  host: string;
+export interface RequestOptions {
   publicDir: string;
   auth: Pick<AuthGate, 'login' | 'logout' | 'isAuthed'>;
   /** Mounted at /trpc — created in index.ts so this file stays transport-only. */
   trpc: (req: http.IncomingMessage, res: http.ServerResponse) => void;
   hostBridge?: HostBridge;
+}
+
+export interface ServerOptions extends RequestOptions {
+  port: number;
+  host: string;
 }
 
 /** Read a JSON body, refusing anything oversized. */
@@ -75,7 +78,7 @@ const PROTOCOL_ROUTES: Array<{
 export async function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  opts: ServerOptions,
+  opts: RequestOptions,
 ): Promise<void> {
   const url = req.url ?? '/';
   const path = url.split('?')[0] ?? '/';
@@ -191,9 +194,17 @@ export async function startServer(
     });
   });
 
-  const candidates = servicePortCandidates('web', opts.port, PORT_FALLBACK_ATTEMPTS);
+  return listenServer(server, opts.port, opts.host);
+}
+
+export async function listenServer(
+  server: http.Server,
+  preferredPort: number,
+  host: string,
+): Promise<{ server: http.Server; port: number }> {
+  const candidates = servicePortCandidates('web', preferredPort, PORT_FALLBACK_ATTEMPTS);
   for (const port of candidates) {
-    if (await tryListen(server, port, opts.host)) {
+    if (await tryListen(server, port, host)) {
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('Web 监听地址无效');
       return { server, port: address.port };

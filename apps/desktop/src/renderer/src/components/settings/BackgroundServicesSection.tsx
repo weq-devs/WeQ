@@ -3,7 +3,7 @@
  *
  * 一个地方看清「关掉窗口之后还有什么在跑」。六个服务各一张卡片，只读展示状态与
  * 地址，开关仍留在各自的二级页 —— 这里不重复实现六套 mutation，也不会和那些页
- * 已有的联动确认（Web ↔ Remote、公众号 ↔ 登录自启）打架。
+ * 已有的联动确认（公众号 ↔ 登录自启）打架。
  *
  * 「关闭窗口时」的分段控件在这里和「常规 → 提醒与窗口」各有一份，读写的是同一个
  * `windowCloseBehavior`，不会出现两处不一致。
@@ -260,7 +260,7 @@ export function BackgroundServicesSection(): ReactElement {
       {IS_WEB ? null : (
         <>
           <Card
-            title="WeQ Web 服务"
+            title="本机浏览器访问"
             settingId="background-web"
             action={
               <button

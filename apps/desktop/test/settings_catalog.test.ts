@@ -117,8 +117,8 @@ describe('feature_search', () => {
       try {
         const web = await import('../src/renderer/src/components/search/appSearchCatalog');
         for (const keyword of [
-          '启用 Web 服务',
-          '启动 WeQ 时自动开启 Web 服务',
+          '允许本机浏览器访问',
+          '启动 WeQ 时自动允许本机浏览器访问',
           '允许远程连接',
           '设备配对',
           'Tailscale',

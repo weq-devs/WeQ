@@ -126,7 +126,7 @@ describe('后台服务汇总页', () => {
       'MCP 服务器',
       'OneBot 服务',
       'QQ 公众号推送',
-      'WeQ Web 服务',
+      '本机浏览器访问',
       'WeQ Remote',
       'SSE 消息推送',
     ]);

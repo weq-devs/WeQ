@@ -278,7 +278,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['background-mcp', 'background-services', 'MCP 服务器状态', 'MCP 运行状态'],
       ['background-onebot', 'background-services', 'OneBot 服务状态', 'OneBot 运行状态'],
       ['background-assistant', 'background-services', 'QQ 公众号推送状态'],
-      ['background-web', 'background-services', 'WeQ Web 服务状态', 'Web 服务状态'],
+      ['background-web', 'background-services', '本机浏览器访问状态', 'Web 服务状态'],
       ['background-remote', 'background-services', 'WeQ Remote 状态', 'Remote 状态'],
       ['background-sse', 'background-services', 'SSE 消息推送状态', 'SSE 推送状态'],
       ['mcp-connection', 'mcp', '连接信息', 'MCP 客户端配置', '复制客户端配置', 'MCP 令牌'],
@@ -301,8 +301,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ),
   ...(
     [
-      ['web-enabled', '启用 Web 服务', '浏览器访问'],
-      ['web-autostart', '启动 WeQ 时自动开启 Web 服务'],
+      ['web-enabled', '允许本机浏览器访问', '启用 Web 服务'],
+      ['web-autostart', '启动 WeQ 时自动允许本机浏览器访问', '启动 WeQ 时自动开启 Web 服务'],
       ['remote-enabled', '允许远程连接', 'WeQ Remote', '远程访问'],
       ['remote-lan', '局域网 IP', '局域网地址'],
       ['remote-tailscale', 'Tailscale IP', 'Tailscale', '跨网络连接', '内网穿透'],

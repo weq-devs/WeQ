@@ -35,7 +35,7 @@ const LABELS: Record<RunningService['id'], string> = {
   mcp: 'MCP 服务器',
   onebot: 'OneBot 服务',
   assistant: 'QQ 公众号推送',
-  web: 'WeQ Web 服务',
+  web: '本机浏览器访问',
   remote: 'WeQ Remote',
   sse: 'SSE 消息推送',
 };
