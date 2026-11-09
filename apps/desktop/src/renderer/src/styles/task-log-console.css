@@ -63,29 +63,3 @@
 .weq-exp-log-line.is-error .weq-exp-log-text {
   color: #ef6b6b;
 }
-
-.weq-task-log-history {
-  margin-bottom: 10px;
-  font-size: 11px;
-  color: var(--weq-fg-secondary);
-}
-.weq-task-log-history summary {
-  cursor: pointer;
-}
-.weq-task-log-history ol {
-  max-height: 160px;
-  overflow: auto;
-  margin: 6px 0 0;
-  padding-left: 22px;
-  overflow-wrap: anywhere;
-}
-.weq-task-log-history time {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.weq-task-log-history .is-warn {
-  color: var(--weq-warn-fg);
-}
-.weq-task-log-history .is-error {
-  color: var(--destructive);
-}

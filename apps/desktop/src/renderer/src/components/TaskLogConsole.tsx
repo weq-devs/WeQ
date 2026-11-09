@@ -37,35 +37,21 @@ export function TaskLogConsole({
     if (history && terminal.current) terminal.current.scrollTop = terminal.current.scrollHeight;
   }, [lines, history]);
   return (
-    <>
-      <div
-        ref={terminal}
-        className={`weq-exp-log${collapsed ? ' is-hidden' : ''}`}
-        aria-hidden={collapsed}
-      >
-        {visible.length === 0 ? (
-          <div className="weq-exp-log-empty">— 暂无日志 —</div>
-        ) : (
-          visible.map((l) => (
-            <div key={l.seq} className={`weq-exp-log-line is-${l.level}`}>
-              <span className="weq-exp-log-time">{fmtLogTime(l.ts)}</span>
-              <span className="weq-exp-log-text">{l.text}</span>
-            </div>
-          ))
-        )}
-      </div>
-      {history && !collapsed ? (
-        <details className="weq-task-log-history">
-          <summary>完整任务日志 · 最近 {lines.length} 条</summary>
-          <ol aria-label="完整任务日志">
-            {lines.map((line) => (
-              <li key={line.seq} className={`is-${line.level}`}>
-                <time>{fmtLogTime(line.ts)}</time> {line.text}
-              </li>
-            ))}
-          </ol>
-        </details>
-      ) : null}
-    </>
+    <div
+      ref={terminal}
+      className={`weq-exp-log${collapsed ? ' is-hidden' : ''}`}
+      aria-hidden={collapsed}
+    >
+      {visible.length === 0 ? (
+        <div className="weq-exp-log-empty">— 暂无日志 —</div>
+      ) : (
+        visible.map((l) => (
+          <div key={l.seq} className={`weq-exp-log-line is-${l.level}`}>
+            <span className="weq-exp-log-time">{fmtLogTime(l.ts)}</span>
+            <span className="weq-exp-log-text">{l.text}</span>
+          </div>
+        ))
+      )}
+    </div>
   );
 }
