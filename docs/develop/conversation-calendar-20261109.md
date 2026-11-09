@@ -8,6 +8,8 @@
 
 `account.calendarOverview` 提供 `start`、`poll`、`stop`、`locate`。每次打开/换月建立独立任务，所有调用绑定账号及 configId；客户端不传文件路径、SQL 或数据库游标。任务内部保留游标、按日/按源完成状态及最早消息锚点，`poll` 返回最多 50 个当天会话。切换账号后原任务不得继续提交读取，定位前后均验证当前来源。
 
+前端任务句柄同时绑定创建请求的月份、账号、筛选、修订和活动状态。请求改变的当次渲染即停用旧句柄，不等待 effect 清空 ID，避免将新日期发送给旧任务；迟到的创建结果立即停止，旧请求响应和错误不更新新视图。后端日期所属月份校验不放宽。
+
 原生可选能力 `executeSqlBudgeted(dbPath, sql, params, budgetMs, key?, algo?)` 支持 1–50 ms 查询预算，日历固定使用 10 ms。它复用严格只读连接缓存和 SQLite progress handler，等待或执行超时分别返回 `database_query_wait_timeout` / `database_query_execution_timeout`；中断后清理 handler，不返回部分 SQL 行。原有接口仍使用原来的 120 秒上限。旧组件缺少此方法时日历提示更新，不能回退普通长查询。
 
 ## 调度与一致性

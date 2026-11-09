@@ -42,7 +42,6 @@ export function ConversationOverviewCalendar({
   const [month, setMonth] = useState(beijingDay().slice(0, 7));
   const [day, setDay] = useState(beijingDay());
   const [offset, setOffset] = useState(0);
-  const [id, setId] = useState<string>();
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -52,8 +51,6 @@ export function ConversationOverviewCalendar({
   const [visible, setVisible] = useState(document.visibilityState === 'visible');
   const active = useTabActive();
   const live = useRef(true);
-  const latestId = useRef(id);
-  latestId.current = id;
   useEffect(() => {
     live.current = true;
     return () => {
@@ -74,6 +71,17 @@ export function ConversationOverviewCalendar({
     [targets, scope, query],
   );
   const selectionKey = useMemo(() => JSON.stringify(selected), [selected]);
+  const request = useMemo(
+    () => ({ month, selectionKey, binding, ready, active, visible, revision }),
+    [month, selectionKey, binding, ready, active, visible, revision],
+  );
+  const [job, setJob] = useState<{ id: string; request: typeof request }>();
+  // 渲染切换时便停用旧句柄，不能等 effect 清空 ID 后才阻止旧月份轮询。
+  const id = job?.request === request ? job.id : undefined;
+  const currentRequest = useRef(request);
+  currentRequest.current = request;
+  const latestId = useRef(id);
+  latestId.current = id;
   const completed = useRef(false);
   completed.current = Boolean(
     snapshot &&
@@ -114,8 +122,9 @@ export function ConversationOverviewCalendar({
     };
   }, []);
   useEffect(() => {
+    const { month, selectionKey, binding, ready, active, visible } = request;
     setSnapshot(undefined);
-    setId(undefined);
+    setJob(undefined);
     setError('');
     setDirty(false);
     setAutoRefreshPending(false);
@@ -126,30 +135,31 @@ export function ConversationOverviewCalendar({
       const targets = await calendarTargetsWithHiddenMessages(
         JSON.parse(selectionKey) as CalendarTarget[],
         localStorage,
-        () => !cancelled,
+        () => !cancelled && currentRequest.current === request,
       );
-      if (cancelled) return undefined;
+      if (cancelled || currentRequest.current !== request) return undefined;
       return client.account.calendarOverview.start.mutate({ ...binding, month, targets });
     };
     void start()
       .then((result) => {
         if (!result) return;
         task = result.id;
-        if (cancelled)
+        if (cancelled || currentRequest.current !== request)
           void client.account.calendarOverview.stop
             .mutate({ ...binding, id: task })
             .catch(() => {});
-        else setId(task);
+        else setJob({ id: task, request });
       })
       .catch((failure: unknown) => {
-        if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
+        if (!cancelled && currentRequest.current === request)
+          setError(failure instanceof Error ? failure.message : String(failure));
       });
     return () => {
       cancelled = true;
       if (task)
         void client.account.calendarOverview.stop.mutate({ ...binding, id: task }).catch(() => {});
     };
-  }, [month, selectionKey, binding, ready, active, visible, revision]);
+  }, [request]);
   useEffect(() => {
     if (!id || !binding || !visible || !active) return;
     let cancelled = false;
@@ -162,7 +172,7 @@ export function ConversationOverviewCalendar({
           day: day.startsWith(month) ? day : undefined,
           offset,
         });
-        if (cancelled) return;
+        if (cancelled || currentRequest.current !== request) return;
         setSnapshot(result);
         if (
           !result.cancelled &&
@@ -173,7 +183,8 @@ export function ConversationOverviewCalendar({
         )
           timer = setTimeout(() => void poll(), 500);
       } catch (failure) {
-        if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
+        if (!cancelled && currentRequest.current === request)
+          setError(failure instanceof Error ? failure.message : String(failure));
       }
     };
     void poll();
@@ -181,7 +192,7 @@ export function ConversationOverviewCalendar({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [id, binding, day, offset, month, visible, active]);
+  }, [id, binding, day, offset, month, visible, active, request]);
   const errors = [
     ...new Set(
       [directoryError, error, ...(snapshot?.days.flatMap((value) => value.errors) ?? [])].filter(

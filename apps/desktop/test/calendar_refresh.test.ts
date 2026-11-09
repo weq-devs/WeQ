@@ -24,9 +24,9 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
 vi.mock('../src/renderer/src/components/RetainedTabs', () => ({ useTabActive: () => true }));
 
 const month = '2026-11';
-function snapshot(complete: boolean) {
+function snapshot(complete: boolean, selectedMonth = month) {
   return {
-    days: calendarMonthDays(month).map(({ day }) => ({
+    days: calendarMonthDays(selectedMonth).map(({ day }) => ({
       day,
       count: day === '2026-11-10' ? 42 : 0,
       complete: complete || day === '2026-11-10',
@@ -174,4 +174,89 @@ it('扫描中的更新仍能手动刷新，关闭后没有轮询或自动重启'
   await tick(15000);
   expect(fixture.poll).toHaveBeenCalledTimes(calls);
   expect(fixture.start).toHaveBeenCalledTimes(2);
+});
+
+function nextMonth(host: HTMLElement) {
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="下个月"]')!.click());
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+it('切月创建任务期间不把新月份日期发给旧任务', async () => {
+  const pending = deferred<{ id: string }>();
+  const months = new Map([
+    ['job-nov', '2026-11'],
+    ['job-dec', '2026-12'],
+  ]);
+  fixture.start.mockImplementation((input: { month: string }) =>
+    input.month === '2026-11' ? Promise.resolve({ id: 'job-nov' }) : pending.promise,
+  );
+  fixture.poll.mockImplementation(async (input: { id: string; day?: string }) => {
+    const taskMonth = months.get(input.id)!;
+    if (input.day && !input.day.startsWith(`${taskMonth}-`)) throw new Error('日期不属于当前月份');
+    return snapshot(false, taskMonth);
+  });
+  const view = mount();
+  try {
+    await tick();
+    nextMonth(view.host);
+    await tick();
+    expect(
+      fixture.poll.mock.calls.every(
+        ([input]) => !input.day || input.day.startsWith(`${months.get(input.id)}-`),
+      ),
+    ).toBe(true);
+    pending.resolve({ id: 'job-dec' });
+    await tick();
+    expect(view.host.textContent).not.toContain('日期不属于当前月份');
+    expect(fixture.poll.mock.lastCall?.[0]).toMatchObject({ id: 'job-dec', day: '2026-12-01' });
+  } finally {
+    view.close();
+  }
+});
+
+it('快速跨年切月时丢弃迟到任务，不重启旧月份轮询', async () => {
+  const december = deferred<{ id: string }>(),
+    january = deferred<{ id: string }>();
+  const months = new Map([
+    ['job-nov', '2026-11'],
+    ['job-dec', '2026-12'],
+    ['job-jan', '2027-01'],
+  ]);
+  fixture.start.mockImplementation((input: { month: string }) =>
+    input.month === '2026-11'
+      ? Promise.resolve({ id: 'job-nov' })
+      : input.month === '2026-12'
+        ? december.promise
+        : january.promise,
+  );
+  fixture.poll.mockImplementation(async (input: { id: string; day?: string }) =>
+    snapshot(false, months.get(input.id)!),
+  );
+  const view = mount();
+  try {
+    await tick();
+    nextMonth(view.host);
+    await tick();
+    nextMonth(view.host);
+    await tick();
+    january.resolve({ id: 'job-jan' });
+    await tick();
+    december.resolve({ id: 'job-dec' });
+    await tick();
+    expect(fixture.stop).toHaveBeenCalledWith(expect.objectContaining({ id: 'job-dec' }));
+    expect(
+      fixture.poll.mock.calls.every(
+        ([input]) => !input.day || input.day.startsWith(`${months.get(input.id)}-`),
+      ),
+    ).toBe(true);
+    expect(fixture.poll.mock.lastCall?.[0]).toMatchObject({ id: 'job-jan', day: '2027-01-01' });
+  } finally {
+    view.close();
+  }
 });
