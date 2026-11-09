@@ -64,7 +64,7 @@ import { QqShowGallery } from './QqShowGallery';
 import { VirtualConversationBadge } from './VirtualConversationAvatar';
 import { cn } from '../im-template/template/classNames';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
-import { displayUserName, displayGroupMemberName } from '../im-template/template/user';
+import { displayUserName } from '../im-template/template/user';
 import {
   ProfileRow,
   birthdayText,
@@ -230,15 +230,9 @@ export function MemberProfileCard({
     };
   }, [anchor.x, anchor.y, loading, profile, botProfile, previewContent]);
 
-  const name =
-    !localClone && 'card' in member
-      ? displayGroupMemberName(
-          member.card,
-          profile?.remark || member.remark,
-          member.nick || profile?.nick,
-          displayUserName(member),
-        )
-      : displayUserName(member);
+  const name = localClone
+    ? displayUserName(member)
+    : profile?.nick?.trim() || member.nick?.trim() || member.identityValue || member.username;
   const role = ROLE_META[member.role];
   const uin = localClone
     ? null
@@ -270,7 +264,6 @@ export function MemberProfileCard({
       alive = false;
     };
   }, [uin, localClone]);
-  const nickDiffers = profile?.nick && profile.nick !== name && profile.nick !== member.remark;
   const gender = genderLabel(profile?.gender);
   const genderAge = [gender, profile?.age ? `${profile.age} 岁` : null].filter(Boolean).join(' · ');
   const zodiac = profile ? constellationOf(profile.birthMonth, profile.birthDay) : null;
@@ -410,7 +403,6 @@ export function MemberProfileCard({
               )}
               <strong className="weq-profile-name">{name}</strong>
               {!localClone ? <PersonRelationshipStatus person={{ ...member, ...profile }} /> : null}
-              {nickDiffers ? <span className="weq-profile-nick">昵称 {profile.nick}</span> : null}
 
               {uin ? (
                 <button className="weq-profile-id" type="button" onClick={copyUin} title="点击复制">
@@ -519,12 +511,12 @@ export function MemberProfileCard({
               {lastSpeak ? (
                 <ProfileRow icon={<Clock size={13} />} label="最后发言" value={lastSpeak} />
               ) : null}
-              {profile?.remark ? (
+              {profile?.remark || member.remark ? (
                 <ProfileRow
                   sensitive
                   icon={<UserIcon size={13} />}
                   label="备注"
-                  value={profile.remark}
+                  value={profile?.remark || member.remark}
                 />
               ) : null}
               {profile?.qid ? (

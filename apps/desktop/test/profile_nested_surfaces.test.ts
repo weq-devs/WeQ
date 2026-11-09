@@ -169,6 +169,75 @@ const groupFixture = {
   })),
 } as GroupConversation;
 
+it.each([false, true])('联系人名片以真实昵称为主标题并保留备注，内嵌=%s', (embedded) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(ContactProfileDialog, {
+          contact: { ...contactFixture, remark: '好友备注', displayName: '好友备注' },
+          embedded,
+          onClose: vi.fn(),
+        }),
+      ),
+    );
+    expect(document.querySelector('.weq-profile-name')?.textContent).toBe(contactFixture.nick);
+    expect(document.querySelector('.weq-profile-nick')?.textContent).toBe('备注 好友备注');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('联系人昵称缺失时不将备注当作昵称', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(ContactProfileDialog, {
+          contact: { ...contactFixture, nick: ' ', remark: '好友备注', displayName: '好友备注' },
+          onClose: vi.fn(),
+        }),
+      ),
+    );
+    expect(document.querySelector('.weq-profile-name')?.textContent).toBe(
+      contactFixture.identityValue,
+    );
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it.each([false, true])('群名片以真实群名为主标题，不使用群备注，内嵌=%s', (embedded) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(GroupProfileDialog, {
+          conversation: { ...groupFixture, group: { ...groupFixture.group, remark: '群备注' } },
+          embedded,
+          onClose: vi.fn(),
+        }),
+      ),
+    );
+    expect(document.querySelector('.weq-profile-name')?.textContent).toBe(groupFixture.group.name);
+    expect(document.querySelector('[aria-label="群资料"]')?.textContent).toContain('群备注');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it.each([false, true])('共同群查看消息关闭列表及浮层好友名片，内嵌=%s', (embedded) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');

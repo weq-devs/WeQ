@@ -8027,7 +8027,8 @@ function MainWorkspace(): ReactElement {
                       otherUser: null,
                       group: {
                         id: hit.groupCode,
-                        name: hit.remark || hit.name,
+                        name: hit.name || hit.groupCode,
+                        remark: hit.remark || null,
                         identityLabel: 'Group',
                         identityValue: hit.groupCode,
                         avatarUrl: groupAvatarSrc(hit.groupCode),

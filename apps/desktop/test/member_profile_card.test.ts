@@ -140,6 +140,38 @@ function layer(): HTMLElement {
 }
 
 describe('群成员资料卡浮层', () => {
+  it('各入口补全资料后以真实昵称为主标题，不使用备注或群昵称', async () => {
+    vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
+      uid: MEMBER.id,
+      nick: '真实昵称',
+      remark: '好友备注',
+    } as NonNullable<Awaited<ReturnType<typeof client.account.getProfile.query>>>);
+    await mountCard(
+      () => {},
+      undefined,
+      { ...MEMBER, nick: '旧昵称', remark: '旧备注', card: '群昵称' } as User,
+      '20001',
+    );
+    expect(layer().querySelector('.weq-profile-name')?.textContent).toBe('真实昵称');
+    expect(layer().textContent).toContain('好友备注');
+    act(() => layer().querySelector<HTMLButtonElement>('.weq-profile-expand')!.click());
+    expect(expandContact).toHaveBeenLastCalledWith(
+      expect.objectContaining({ contact: expect.objectContaining({ nick: '真实昵称' }) }),
+    );
+  });
+
+  it.each(['成员昵称', ''])('资料缺失时使用成员真实昵称或身份，不使用群昵称：%s', async (nick) => {
+    await mountCard(() => {}, undefined, {
+      ...MEMBER,
+      nick,
+      remark: '好友备注',
+      card: '群昵称',
+    } as User);
+    expect(layer().querySelector('.weq-profile-name')?.textContent).toBe(
+      nick || MEMBER.identityValue,
+    );
+  });
+
   it('仍在群内时保留原成员资料编辑器', async () => {
     await mountCard(() => {}, undefined, MEMBER, '20001', {
       friends: new Map(),

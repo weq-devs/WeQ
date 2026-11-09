@@ -377,8 +377,10 @@ export function ContactProfileDialog({
   const statusText = [profile.customStatus || profile.onlineStatus].filter(Boolean).join(' · ');
   const birthday = birthdayText(profile.birthYear, profile.birthMonth, profile.birthDay);
   const intimacy = profile.intimacy ? Number(profile.intimacy).toLocaleString('en-US') : null;
-  const nickDiffers =
-    profile.nick && profile.nick !== displayUserName(profile) && profile.nick !== profile.remark;
+  const name = profile.clone
+    ? displayUserName(profile)
+    : profile.nick?.trim() || profile.identityValue || profile.username;
+  const remark = profile.remark?.trim();
 
   // 21000 列扩展资料：已开通的特权（未开通的灰图标没必要展示）、所在地、
   // 教育经历、兴趣标签、精选图片。
@@ -402,15 +404,11 @@ export function ContactProfileDialog({
   const identity = (
     <div className="weq-profile-hero">
       <span className="weq-profile-avatar">
-        <Avatar
-          name={displayUserName(profile)}
-          avatarUrl={profile.avatarUrl}
-          seed={profile.identityValue}
-        />
+        <Avatar name={name} avatarUrl={profile.avatarUrl} seed={profile.identityValue} />
       </span>
-      <strong className="weq-profile-name">{displayUserName(profile)}</strong>
+      <strong className="weq-profile-name">{name}</strong>
       <PersonRelationshipStatus person={profile} />
-      {nickDiffers ? <span className="weq-profile-nick">昵称 {profile.nick}</span> : null}
+      {remark && remark !== name ? <span className="weq-profile-nick">备注 {remark}</span> : null}
       <button className="weq-profile-id" type="button" onClick={copyIdentity} title="点击复制">
         <span>{profile.identityLabel}</span>
         <span className="weq-number">{profile.identityValue}</span>

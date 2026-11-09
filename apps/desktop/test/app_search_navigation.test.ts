@@ -56,6 +56,43 @@ function navigationContext() {
 }
 
 describe('功能搜索实际导航', () => {
+  it('群搜索进入临时会话时分别保留真实群名和备注，供群名片使用', () => {
+    const setTemporaryConversations = vi.fn();
+    const jumpToConvSeq = vi.fn();
+    const open = sourceHandler<(hit: unknown) => void>(
+      '../src/renderer/src/views/MainView.tsx',
+      'openSearchHit',
+      {
+        useCallback: (callback: unknown) => callback,
+        setSearchDismissed: vi.fn(),
+        setSearchFocused: vi.fn(),
+        isContentSearchHit: () => false,
+        isGeneratedSearchHit: () => false,
+        conversations: [],
+        hiddenConversationsById: new Map(),
+        deletedConversationsById: new Map(),
+        setTemporaryConversations,
+        jumpToConvSeq,
+        groupAvatarSrc: () => null,
+        fallbackPreference: {},
+        centerWindowOnSeq: vi.fn(),
+        pushToast: vi.fn(),
+        shell: {},
+        searchQuery: '',
+        user: { identityValue: '10001' },
+        setSettingsOpen: vi.fn(),
+        setDressUpOpen: vi.fn(),
+      },
+    );
+    open({ category: 'group', groupCode: '20001', name: '真实群名', remark: '群备注' });
+    const update = setTemporaryConversations.mock.calls[0]![0];
+    expect(update({})['20001'].conversation.group).toMatchObject({
+      name: '真实群名',
+      remark: '群备注',
+    });
+    expect(jumpToConvSeq).toHaveBeenCalledWith('group', '20001');
+  });
+
   it('导出请求携带具体种类，重复点击仍有新的 revision', () => {
     const setToolSearchRequest = vi.fn();
     searchHandler({ ...navigationContext(), setToolSearchRequest, messageScope: 'fixture' })(
