@@ -32,7 +32,7 @@
 }
 
 .weq-exp-log.is-export-scrollable:not(.is-hidden) {
-  height: 78px;
+  height: 180px;
   overflow: auto;
   overflow-anchor: none;
   scrollbar-gutter: stable;
