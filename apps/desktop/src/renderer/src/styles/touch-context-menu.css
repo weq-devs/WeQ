@@ -1,0 +1,8 @@
+html.weq-touch-context-menu {
+  -webkit-touch-callout: none;
+}
+
+html.weq-touch-context-menu
+  :is(input, textarea, select, [contenteditable]:not([contenteditable='false'])) {
+  -webkit-touch-callout: default;
+}
