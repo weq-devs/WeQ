@@ -2,7 +2,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { NtHelperBinding } from '@weq/native';
-import { QqDb, withDatabasePriority, withDatabaseReadBudget } from '@weq/db';
+import { QqDb, databasePerformance, withDatabasePriority, withDatabaseReadBudget } from '@weq/db';
 
 let counter = 0;
 beforeEach(() => {
@@ -64,5 +64,83 @@ it('等待空闲期间取消，不再调用原生 SQL', async () => {
   controller.abort();
   await vi.runAllTimersAsync();
   await rejected;
+  expect(budgeted).not.toHaveBeenCalled();
+});
+
+it('持续的短前台读取不能让日历一直等在队列外', async () => {
+  const { db, budgeted } = fixture();
+  const pending = withDatabasePriority('background', () =>
+    withDatabaseReadBudget(10, () => db.query('SELECT 1')),
+  );
+  try {
+    for (let i = 0; i < 15; i++) {
+      await db.query('SELECT 2');
+      await vi.advanceTimersByTimeAsync(100);
+    }
+    expect(budgeted).toHaveBeenCalledTimes(1);
+    expect(budgeted.mock.calls[0]?.[3]).toBe(10);
+  } finally {
+    await vi.runAllTimersAsync();
+    await pending;
+  }
+});
+
+it.each(['interactive', 'background'] as const)(
+  '%s 在途读取持续繁忙时日历仍可入队，但不并发抢占原生连接',
+  async (priority) => {
+    const { db, ordinary, budgeted } = fixture();
+    let release!: (rows: []) => void;
+    ordinary.mockImplementationOnce(
+      () =>
+        new Promise<[]>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const active = withDatabasePriority(priority, () => db.query('SELECT 2'));
+    const pending = withDatabasePriority('background', () =>
+      withDatabaseReadBudget(10, () => db.query('SELECT 1')),
+    );
+    try {
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(databasePerformance(db.dbPath).queued).toBe(1);
+      expect(budgeted).not.toHaveBeenCalled();
+    } finally {
+      release([]);
+      await active;
+      await vi.runAllTimersAsync();
+      await pending;
+    }
+    expect(budgeted).toHaveBeenCalledTimes(1);
+  },
+);
+
+it('繁忙时入队后取消仍移除日历查询，不执行原生读取', async () => {
+  const { db, ordinary, budgeted } = fixture();
+  let release!: (rows: []) => void;
+  ordinary.mockImplementationOnce(
+    () =>
+      new Promise<[]>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const active = db.query('SELECT 2');
+  const controller = new AbortController();
+  const pending = withDatabasePriority(
+    'background',
+    () => withDatabaseReadBudget(10, () => db.query('SELECT 1')),
+    controller.signal,
+  );
+  const rejected = expect(pending).rejects.toThrow('取消');
+  try {
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(databasePerformance(db.dbPath).queued).toBe(1);
+  } finally {
+    controller.abort();
+    await vi.runAllTimersAsync();
+    await rejected;
+    release([]);
+    await active;
+  }
+  expect(databasePerformance(db.dbPath).queued).toBe(0);
   expect(budgeted).not.toHaveBeenCalled();
 });
