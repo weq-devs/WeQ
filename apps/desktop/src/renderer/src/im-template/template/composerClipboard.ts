@@ -23,7 +23,8 @@ export function writeComposerClipboard(
   if (!editor.contains(range.startContainer) || !editor.contains(range.endContainer)) return null;
   const holder = editor.ownerDocument.createElement('div');
   holder.append(range.cloneContents());
-  if (!holder.querySelector('img[data-chat-token]')) return null;
+  // 图片、提及和文字 chip 都携带原始元素，不能让浏览器只复制显示标签。
+  if (!holder.querySelector('[data-chat-token]')) return null;
   const body = serializeComposer(holder);
   if (!body) return null;
   const id = createMediaId('clipboard');
