@@ -88,6 +88,37 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
   outline-offset: -2px;
 }
 
+.weq-long-task-entry {
+  min-width: 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-long-task-entry > .weq-long-task {
+  padding-bottom: 6px;
+  border-bottom: 0;
+}
+
+.weq-task-quick-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 8px;
+}
+
+.weq-task-quick-actions > .weq-set-btn {
+  flex: none;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+.weq-task-quick-actions > button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
 .weq-long-task-icon {
   display: grid;
   width: 24px;
