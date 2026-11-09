@@ -9,7 +9,7 @@ import {
   rmSync,
   statSync,
 } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -87,6 +87,31 @@ describe('桌面发行包瘦身', () => {
     expect(
       config.extraResources.some((entry) => entry.to === 'node_modules/sherpa-onnx-node'),
     ).toBe(false);
+  });
+  it('sharp 的 libvips 按 pnpm 真实路径解包（smartUnpack 不认 .so.8.x 版本号）', () => {
+    const unpack = getFileMatchers(config, 'asarUnpack', '/fixture/package', {
+      defaultSrc: desktop,
+      customBuildOptions: {},
+      globalOutDir: '/fixture/output',
+      macroExpander: (value: string) => value,
+    })[0].createFilter();
+    // pnpm 下 sharp 的真实路径在 node_modules/.pnpm 里，libvips 是它的同级包。
+    // 2.5.3 的 Linux AppImage 就是因为这里没匹配上、libvips-cpp.so.8.18.7 留在
+    // asar 内，启动即 dlopen 失败。
+    const sharpDirectory = realpathSync(dirname(require.resolve('sharp/package.json')));
+    const imgDirectory = join(dirname(sharpDirectory), '@img');
+    const libvips = readdirSync(imgDirectory).filter((name) => name.startsWith('sharp-libvips-'));
+    expect(libvips.length, '宿主没装 sharp 的 libvips 可选依赖').toBeGreaterThan(0);
+    const files: string[] = [];
+    const walk = (directory: string) => {
+      for (const item of readdirSync(directory, { withFileTypes: true })) {
+        const file = join(directory, item.name);
+        if (item.isDirectory()) walk(file);
+        else files.push(file);
+      }
+    };
+    for (const name of libvips) walk(join(imgDirectory, name));
+    expect(files.filter((file) => !unpack(file, statSync(file)))).toEqual([]);
   });
   it('未知架构在修改产物前报错', () => {
     expect(() => trimDesktopPackage({ arch: -1 })).toThrow('未知打包架构');

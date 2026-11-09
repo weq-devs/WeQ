@@ -36,6 +36,13 @@
 专用钥匙串的自动锁定窗口设为 6 小时，结束时 always 清理；密码错误和指纹不符均中止，
 错误不转发可能带密码的 security 命令参数。ZIP 检查失败会阻止草稿公开。
 
+**专用钥匙串必须进用户搜索列表**：`codesign` 是按用户搜索列表找身份的，只传
+`--keychain <路径>` 并不保证能命中，证书、私钥、partition list 都齐也会报
+`The specified item could not be found in the keychain`（2.5.3 的 x64 / arm64 发布就是这样
+在第一个 codesign 上挂掉的）。所以 prepare 会在导入后把钥匙串追加进搜索列表、把原始列表存到
+签名目录，cleanup 先还原列表再删钥匙串；导入完还会真签一个探针文件并 `codesign --verify`，
+身份不可用时在准备阶段就报错，而不是打包到一半。
+
 本机配置或更新 secrets 时，直接从上述凭据文件通过 stdin 交给 `gh secret set`，不要打印 base64
 或在命令行中展开密码。已登录且可访问仓库后运行
 `node scripts/configure-macos-signing-secrets.mjs`，它先检查公开证书与仓库访问，再通过 stdin 配置两个 secrets。

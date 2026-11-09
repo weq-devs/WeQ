@@ -8,13 +8,27 @@ import { test } from 'node:test';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { createMacSigningIdentity } from './create-macos-signing-identity.mjs';
-import { prepareMacSigning } from './prepare-macos-signing.mjs';
+import { prepareMacSigning, parseKeychainSearchList } from './prepare-macos-signing.mjs';
 
 const run = promisify(execFile);
 const desktopRequire = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
 const builderRequire = createRequire(desktopRequire.resolve('electron-builder'));
 const libraryRequire = createRequire(builderRequire.resolve('app-builder-lib'));
 const { load } = libraryRequire('js-yaml');
+
+test('解析 security 搜索列表时去掉引号并保留顺序', () => {
+  assert.deepEqual(
+    parseKeychainSearchList(
+      '    "/Users/runner/Library/Keychains/login.keychain-db"\n' +
+        '    "/Users/runner/work/_temp/weq-release-signing-x/signing.keychain-db"\n',
+    ),
+    [
+      '/Users/runner/Library/Keychains/login.keychain-db',
+      '/Users/runner/work/_temp/weq-release-signing-x/signing.keychain-db',
+    ],
+  );
+  assert.deepEqual(parseKeychainSearchList('\n'), []);
+});
 
 test('实际 electron-builder 25 加载器可以解析含固定证书校验的 ESM 签名钩子', async () => {
   const { resolveFunction } = libraryRequire('app-builder-lib/out/util/resolve');
