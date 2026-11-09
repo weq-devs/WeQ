@@ -140,6 +140,24 @@ it('日历中同样通过任务日志折叠栏展开，按需读取且不重建�
     view.close();
   }
 });
+it('再次点击当前日期不清空已完成的当天会话状态', async () => {
+  state = snapshot(true);
+  const view = mount();
+  try {
+    await tick();
+    const status = view.host.querySelector(
+      '.weq-overview-calendar-conversations p[role="status"]',
+    )!;
+    expect(status.textContent).toBe('0 个会话');
+    act(() =>
+      view.host.querySelector<HTMLButtonElement>('[aria-label="2026-11-10，42 条消息"]')!.click(),
+    );
+    await tick();
+    expect(status.textContent).toBe('0 个会话');
+  } finally {
+    view.close();
+  }
+});
 function mount(initialTargets = defaultTargets) {
   const host = document.createElement('div');
   document.body.append(host);

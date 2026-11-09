@@ -314,6 +314,7 @@ export function ConversationOverviewCalendar({
             start={day}
             allowEmpty
             onPick={(value) => {
+              if (value === day) return;
               setAutoRefreshPending(false);
               setSnapshot((current) =>
                 current ? { ...current, rows: [], totalRows: 0, complete: false } : current,
