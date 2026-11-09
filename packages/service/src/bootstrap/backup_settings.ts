@@ -188,8 +188,22 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
       typingStatus,
       'settings.typingStatus',
       [],
-      ['defaultEnabled', 'overrides'],
+      ['mode', 'hidden', 'defaultEnabled', 'overrides'],
     );
+    if (Object.hasOwn(typing, 'mode') && !['off', 'selected', 'all'].includes(String(typing.mode)))
+      fail('settings.typingStatus.mode');
+    if (Object.hasOwn(typing, 'hidden')) {
+      const path = 'settings.typingStatus.hidden';
+      if (!Array.isArray(typing.hidden)) fail(path);
+      for (const [index, item] of typing.hidden.entries()) {
+        const where = `${path}[${index}]`;
+        const row = fields(item, where, ['accountUin', 'accountConfigId', 'uid', 'name']);
+        for (const key of ['accountUin', 'accountConfigId', 'uid'])
+          string(row[key], `${where}.${key}`, true);
+        string(row.name, `${where}.name`);
+      }
+    }
+    // 旧备份的相反语义字段仍可读入，恢复时按新语义归一化。
     if (Object.hasOwn(typing, 'defaultEnabled') && typeof typing.defaultEnabled !== 'boolean')
       fail('settings.typingStatus.defaultEnabled');
     if (Object.hasOwn(typing, 'overrides')) {

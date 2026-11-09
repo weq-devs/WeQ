@@ -39,7 +39,6 @@ import { QqInlineKeyboard } from '../src/renderer/src/components/QqInlineKeyboar
 import { useViewState } from '../src/renderer/src/state/view';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
 import type { TypingStatusSettings } from '@weq/service';
-import { TypingStatusSettingsCard } from '../src/renderer/src/components/settings/TypingStatusSettingsCard';
 
 const state = vi.hoisted(() => ({
   configId: 'source-a',
@@ -158,31 +157,19 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         getTypingStatusSettings: {
           useQuery: () => ({ data: state.data.typingStatus, isError: !!state.data.typingError }),
         },
-        setTypingStatusDefault: {
+        setTypingStatusMode: {
           useMutation: () => ({
-            mutateAsync: async ({ enabled }: { enabled: boolean }) => ({
+            mutateAsync: async ({ mode }: { mode: 'off' | 'selected' | 'all' }) => ({
               ...(state.data.typingStatus as TypingStatusSettings),
-              defaultEnabled: enabled,
+              mode,
             }),
           }),
         },
-        setTypingStatusOverride: {
+        setTypingStatusHidden: {
           useMutation: () => ({
-            mutateAsync: async (input: TypingStatusSettings['overrides'][number]) => {
+            mutateAsync: async ({ hidden }: { hidden: TypingStatusSettings['hidden'] }) => {
               if (state.data.typingSaveError) throw new Error('合成保存失败');
-              const current = state.data.typingStatus as TypingStatusSettings;
-              return {
-                ...current,
-                overrides: [
-                  ...current.overrides.filter(
-                    (item) =>
-                      item.accountUin !== input.accountUin ||
-                      item.accountConfigId !== input.accountConfigId ||
-                      item.uid !== input.uid,
-                  ),
-                  ...(input.enabled === null ? [] : [input]),
-                ],
-              };
+              return { ...(state.data.typingStatus as TypingStatusSettings), hidden };
             },
           }),
         },
@@ -314,7 +301,7 @@ beforeEach(() => {
   state.refreshJoin.mockClear();
   state.refreshPeerStats.mockClear();
   state.data = {
-    typingStatus: { defaultEnabled: false, overrides: [] },
+    typingStatus: { mode: 'off', hidden: [] },
     groupPermissions: { canManage: true, role: 'admin', selfUin: '10001' },
     fileSummary: { fileCount: 1, maxCount: 100, usedSpace: 10, totalSpace: 1000 },
     folders: { folders: [{ folderId: 'folder-b', folderName: '目录 B' }] },
@@ -768,7 +755,7 @@ describe('QQ 主动操作的实际界面', () => {
       }),
     );
   });
-  it('输入状态默认不广播，显式开启后限流，按会话和数据源记忆', async () => {
+  it('输入状态默认展示：输入框不再有开关按钮，有输入时自动广播', async () => {
     const editor = createRef<HTMLDivElement>();
     const f = fixture(() =>
       h(
@@ -778,77 +765,17 @@ describe('QQ 主动操作的实际界面', () => {
         h(TypingStatus, { uid: 'u_friend', editors: [editor] }),
       ),
     );
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(0);
-    try {
-      act(() => editor.current!.dispatchEvent(new Event('input', { bubbles: true })));
-      expect(state.mutate).not.toHaveBeenCalled();
-      await act(async () => f.button('发送正在输入状态').click());
-      f.update();
-      await act(async () => editor.current!.dispatchEvent(new Event('input', { bubbles: true })));
-      await act(async () => editor.current!.dispatchEvent(new Event('input', { bubbles: true })));
-      expect(state.mutate).toHaveBeenCalledTimes(1);
-      clock.mockReturnValue(10_000);
-      await act(async () => editor.current!.dispatchEvent(new Event('input', { bubbles: true })));
-      expect(state.mutate).toHaveBeenCalledTimes(2);
-      state.configId = 'source-b';
-      f.update();
-      expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('false');
-      state.configId = 'source-a';
-      f.update();
-      expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('true');
-    } finally {
-      clock.mockRestore();
-    }
-  });
-  it('全局开启仍列出开启特例，支持切换和删除，删除后输入框跟随默认', async () => {
-    const editor = createRef<HTMLDivElement>();
-    const target = {
-      accountUin: '10001',
-      accountConfigId: 'source-a',
-      uid: 'u_friend',
-      name: '好友',
-    };
-    state.data.typingStatus = { defaultEnabled: true, overrides: [{ ...target, enabled: true }] };
-    const f = fixture(() =>
-      h(
-        'div',
-        null,
-        h('div', { ref: editor }),
-        h(TypingStatus, { uid: target.uid, editors: [editor] }),
-        h(TypingStatusSettingsCard),
-      ),
+    expect(f.host.querySelector('.weq-qq-typing-toggle')).toBeNull();
+    expect(f.host.textContent).not.toContain('发送正在输入状态');
+    await act(async () => editor.current!.dispatchEvent(new Event('input', { bubbles: true })));
+    expect(state.mutate).toHaveBeenCalledWith(
+      'inputStatus',
+      expect.objectContaining({ uid: 'u_friend', eventType: 1 }),
     );
-    expect(f.button('好友的输入状态').getAttribute('aria-checked')).toBe('true');
-    await act(async () => f.button('好友的输入状态').click());
-    f.update();
-    expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('false');
-    await act(async () => f.button('默认发送正在输入状态').click());
-    f.update();
-    expect(f.button('好友的输入状态')).not.toBeNull();
-    await act(async () => f.button('默认发送正在输入状态').click());
-    f.update();
-    expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('false');
-    await act(async () => f.button('删除好友的输入状态特例').click());
-    f.update();
-    expect(f.button('好友的输入状态')).toBeNull();
-    expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('true');
   });
-  it('不同会话不共享开关，重新挂载后恢复已设置的会话状态', async () => {
+  it('永久隐藏时不再广播输入状态，也不渲染开关按钮', async () => {
     const editor = createRef<HTMLDivElement>();
-    let uid = 'u_friend';
-    const f = fixture(() => h(TypingStatus, { key: uid, uid, editors: [editor] }));
-    await act(async () => f.button('发送正在输入状态').click());
-    uid = 'u_other';
-    f.update();
-    expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('false');
-    uid = 'u_friend';
-    f.update();
-    expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('true');
-  });
-  it('读取失败不使用旧开启值广播，保存失败不改变会话状态', async () => {
-    const editor = createRef<HTMLDivElement>();
-    state.data.typingStatus = { defaultEnabled: true, overrides: [] };
-    state.data.typingError = true;
+    state.data.typingStatus = { mode: 'all', hidden: [] };
     const f = fixture(() =>
       h(
         'div',
@@ -857,42 +784,9 @@ describe('QQ 主动操作的实际界面', () => {
         h(TypingStatus, { uid: 'u_friend', editors: [editor] }),
       ),
     );
-    expect(f.button('发送正在输入状态').disabled).toBe(true);
+    expect(f.host.querySelector('button')).toBeNull();
     await act(async () => editor.current!.dispatchEvent(new Event('input', { bubbles: true })));
     expect(state.mutate).not.toHaveBeenCalled();
-    state.data.typingError = false;
-    state.data.typingSaveError = true;
-    f.update();
-    await act(async () => f.button('发送正在输入状态').click());
-    f.update();
-    expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('true');
-    expect((state.data.typingStatus as TypingStatusSettings).overrides).toEqual([]);
-  });
-  it('输入状态设置同时展示开关特例及长名称', () => {
-    const name = '很长的会话名称用于验证窄屏换行与控制按钮布局';
-    state.data.typingStatus = {
-      defaultEnabled: true,
-      overrides: [
-        {
-          accountUin: '10001',
-          accountConfigId: 'synthetic-source-a',
-          uid: 'u_friend',
-          name,
-          enabled: true,
-        },
-        {
-          accountUin: '10001',
-          accountConfigId: 'synthetic-source-a',
-          uid: 'u_other',
-          name: '另一个会话',
-          enabled: false,
-        },
-      ],
-    };
-    const f = fixture(() => h('div', { className: 'weq-set' }, h(TypingStatusSettingsCard)));
-    expect(f.button(`${name}的输入状态`).getAttribute('aria-checked')).toBe('true');
-    expect(f.button('另一个会话的输入状态').getAttribute('aria-checked')).toBe('false');
-    captureManagement(f.host, 'typing-settings');
   });
   const file = {
     fileId: 'file-a',

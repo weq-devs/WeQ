@@ -146,22 +146,6 @@
   display: grid;
   gap: 4px;
 }
-.composer-tools button.weq-qq-typing-toggle {
-  flex: 0 0 32px;
-  color: var(--weq-fg-secondary);
-}
-.composer-tools button.weq-qq-typing-toggle[aria-pressed='true'] {
-  color: var(--weq-accent-effective);
-  background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
-}
-html[data-theme='dark'] .composer-tools button.weq-qq-typing-toggle[aria-pressed='true'] {
-  color: var(--weq-accent-effective);
-  background: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
-}
-.composer-tools button.weq-qq-typing-toggle:focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
-}
 .weq-qq-keyboard-action {
   flex: 1;
   min-width: 0;

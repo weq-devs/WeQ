@@ -2,14 +2,13 @@
  * 会话设置窗格 —— 在会话头部设置按钮附近原位打开。
  *
  * 紧凑窗格保留左侧分类导航与右侧内容。
- *   • 防撤回：把「这个会话」加/移出受保护集，以及是否对它弹撤回通知。写操作是乐观的
- *     （服务层落配置后立刻返回期望状态），点击即生效，不需要 QQ 在线。**两个开关都
- *     依赖「更多 → 防撤回」里的总开关**：总开关没开时这里只提示、不给开（开了也不会
- *     生效）。
+ *   • 防撤回：把「这个会话」加/移出启用集，以及是否对它弹撤回通知。写操作是乐观的
+ *     （服务层落配置后立刻返回期望状态），点击即生效，不需要 QQ 在线。防撤回处于
+ *     「关闭」时，打开这里的「保护此会话」会自动把启用范围切到「按会话勾选」。
  *   • 群关键词（仅群聊）：把 GroupKeywordEditor 那套关键词 + 成员范围编辑器**内嵌**
  *     在这一页里直接编辑，不再另开灯箱。编辑器自己防抖落盘，关窗即保存。
  *
- * 通知 / 保护范围的总开关仍在「更多 → 防撤回」面板里，这里只做单会话的粒度。
+ * 启用范围 / 通知总开关仍在「更多 → 防撤回」面板里，这里只做单会话的粒度。
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
@@ -65,9 +64,10 @@ export function ConversationSettingsDialog({
     refetchOnMount: 'always',
   });
 
+  const setScope = trpc.account.antiRecall.setScope.useMutation();
   const setTargets = trpc.account.antiRecall.setTargets.useMutation();
   const setNotify = trpc.account.antiRecall.setNotify.useMutation();
-  const busy = setTargets.isLoading || setNotify.isLoading;
+  const busy = setScope.isLoading || setTargets.isLoading || setNotify.isLoading;
 
   // 意图感知：全局状态（同 key 共享缓存）+ 单会话覆盖写。
   const intentStatus = trpc.account.intentSense.getStatus.useQuery(undefined, {
@@ -83,9 +83,9 @@ export function ConversationSettingsDialog({
     intentData?.engine === 'local' ? !!intentData.localReady : !!intentData?.apiConfigured;
   const intentOnHere = !!intentData?.enabled && intentOverride !== false && intentEngineOk;
 
-  const enabled = status.data?.enabled ?? false;
-  const mode = status.data?.mode ?? 'selected';
-  const allProtected = mode === 'all';
+  const scope = status.data ? (status.data.enabled ? status.data.mode : 'off') : 'off';
+  const enabled = scope !== 'off';
+  const allProtected = scope === 'all';
   const targets = useMemo(() => status.data?.targets ?? [], [status.data?.targets]);
   const protectedHere = allProtected || targets.some((t) => t.id === conv && t.kind === kind);
   const notifyHere = (status.data?.notifyTargets ?? []).includes(notifyKeyOf(kind, conv));
@@ -99,14 +99,18 @@ export function ConversationSettingsDialog({
   }
 
   async function onToggleProtect(next: boolean): Promise<void> {
-    // 总开关关着时这里的开关不会生效，服务端也会拒绝 —— 直接不给点。
-    if (!enabled) return;
     // 永久全选模式下每个会话都已受保护 —— 这里不改（也不允许单独排除）。
     if (allProtected) return;
     const rest = targets.filter((t) => !(t.id === conv && t.kind === kind));
     const updated = next ? [...rest, { kind, id: conv }] : rest;
     try {
-      applyStatus(await setTargets.mutateAsync({ targets: updated }));
+      // 防撤回关闭时，打开某个会话等于选择「按会话勾选」。
+      if (next && scope === 'off') {
+        await setTargets.mutateAsync({ targets: updated });
+        applyStatus(await setScope.mutateAsync({ scope: 'selected' }));
+      } else {
+        applyStatus(await setTargets.mutateAsync({ targets: updated }));
+      }
     } catch (e) {
       void status.refetch();
       showError(next ? '开启失败' : '关闭失败', errMsg(e));
@@ -266,7 +270,7 @@ export function ConversationSettingsDialog({
             <Card title="保护此会话" icon={<ShieldCheck size={15} strokeWidth={1.9} />}>
               {!enabled ? (
                 <p className="weq-set-note">
-                  防撤回总开关关着 —— 先去「更多 → 防撤回」打开它，这里的开关才会生效。
+                  防撤回当前为「关闭」。打开下面的开关会自动切到「按会话勾选」并保护此会话。
                 </p>
               ) : null}
               <Row
@@ -284,7 +288,7 @@ export function ConversationSettingsDialog({
                 control={
                   <Toggle
                     checked={protectedHere}
-                    disabled={busy || status.isLoading || !enabled || allProtected}
+                    disabled={busy || status.isLoading || allProtected}
                     onChange={(next) => void onToggleProtect(next)}
                     label="保护此会话"
                   />
@@ -305,7 +309,7 @@ export function ConversationSettingsDialog({
                 control={
                   <Toggle
                     checked={notifyHere}
-                    disabled={busy || status.isLoading || !enabled || !notifyEnabled}
+                    disabled={busy || status.isLoading || !notifyEnabled}
                     onChange={(next) => void onToggleNotify(next)}
                     label="撤回时通知我"
                   />

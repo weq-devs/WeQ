@@ -65,6 +65,17 @@ export const antiRecallRouter = router({
   }),
 
   /**
+   * 设置「启用范围」：关闭 / 按会话勾选 / 永久全选。
+   * 关闭时只卸触发器，不拒绝静态账号（导入的旧快照也要能清掉）。
+   */
+  setScope: procedure
+    .input(z.object({ scope: z.enum(['off', 'selected', 'all']) }))
+    .mutation(({ input }) => {
+      if (input.scope !== 'off') refuseWhenStatic();
+      return requireServices().antiRecall.setScope(input.scope);
+    }),
+
+  /**
    * Switch between protecting only the selected conversations and protecting
    * every conversation with no session filter (永久全选).
    */

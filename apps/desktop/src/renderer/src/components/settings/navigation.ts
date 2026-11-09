@@ -464,8 +464,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'typing-status',
     section: 'chat-interaction',
-    label: '向对方展示输入状态',
-    aliases: ['默认发送正在输入状态', '发送正在输入状态'],
+    label: '隐藏正在输入状态',
+    aliases: ['向对方展示输入状态', '默认发送正在输入状态', '发送正在输入状态', '输入状态'],
     from: ['global', 'chat-messages', 'chat-interaction'],
   },
   {

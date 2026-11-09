@@ -118,7 +118,7 @@ it('允许部分设置恢复，并校验嵌套类型与现有分页规则', () =
   }
 });
 
-it('输入状态支持空特例、完整特例及部分设置备份', () => {
+it('输入状态支持新旧两种结构：范围 + 隐藏清单，以及旧版特例备份', () => {
   const override = {
     accountUin: '10001',
     accountConfigId: '10001_synthetic',
@@ -126,13 +126,30 @@ it('输入状态支持空特例、完整特例及部分设置备份', () => {
     name: '合成好友',
     enabled: false,
   };
+  const conversation = {
+    accountUin: '10001',
+    accountConfigId: '10001_synthetic',
+    uid: 'u_x',
+    name: '好友',
+  };
   for (const typingStatus of [
     {},
     { defaultEnabled: true },
     { overrides: [] },
     { defaultEnabled: true, overrides: [override, { ...override, uid: 'u_other', enabled: true }] },
+    { mode: 'off', hidden: [] },
+    { mode: 'selected', hidden: [conversation] },
+    { mode: 'all' },
   ]) {
     expect(() => validateWeqAppSettings({ typingStatus })).not.toThrow();
+  }
+  for (const typingStatus of [
+    { mode: 'nonsense' },
+    { hidden: [{}] },
+    { hidden: [{ ...conversation, uid: '' }] },
+    { hidden: [{ ...conversation, name: null }] },
+  ]) {
+    expect(() => validateWeqAppSettings({ typingStatus })).toThrow('settings.typingStatus');
   }
 });
 

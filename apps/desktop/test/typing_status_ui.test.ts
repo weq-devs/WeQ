@@ -11,7 +11,8 @@ const session = vi.hoisted(() => ({
   result: null,
   run: vi.fn(),
   send: vi.fn(),
-  preferences: { defaultEnabled: false, overrides: [] } as TypingStatusSettings,
+  preferences: { mode: 'off', hidden: [] } as TypingStatusSettings,
+  error: false,
   listeners: new Set<() => void>(),
 }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
@@ -32,27 +33,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             },
             () => session.preferences,
           ),
-          isError: false,
+          isError: session.error,
         }),
       },
-      setTypingStatusDefault: { useMutation: () => ({ isLoading: false }) },
-      setTypingStatusOverride: {
-        useMutation: () => ({
-          isLoading: false,
-          mutateAsync: async (input: TypingStatusSettings['overrides'][number]) => ({
-            ...session.preferences,
-            overrides: [
-              ...session.preferences.overrides.filter(
-                (item) =>
-                  item.accountUin !== input.accountUin ||
-                  item.accountConfigId !== input.accountConfigId ||
-                  item.uid !== input.uid,
-              ),
-              input,
-            ],
-          }),
-        }),
-      },
+      setTypingStatusMode: { useMutation: () => ({ isLoading: false }) },
+      setTypingStatusHidden: { useMutation: () => ({ isLoading: false }) },
     },
     useUtils: () => ({
       bootstrap: {
@@ -73,16 +58,17 @@ afterEach(() => {
   session.available = true;
   session.busy = false;
   session.binding = { expectedAccountUin: '10000', expectedAccountConfigId: 'test' };
+  session.error = false;
   session.run.mockReset();
   session.send.mockReset();
-  session.preferences = { defaultEnabled: false, overrides: [] };
+  session.preferences = { mode: 'off', hidden: [] };
   session.listeners.clear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
-describe('正在输入状态工具栏按钮', () => {
-  it('显式开启后广播输入，双编辑器共用十秒节流；离线、忙碌、切号与卸载不继续发送', async () => {
+describe('私聊正在输入状态广播', () => {
+  it('默认展示：输入框不再有开关按钮，仍有输入时按十秒节流广播', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(100_000);
@@ -102,9 +88,7 @@ describe('正在输入状态工具栏按钮', () => {
       act(async () => root.render(createElement(TypingStatus, { uid, editors })));
     try {
       await render();
-      await input();
-      expect(session.send).not.toHaveBeenCalled();
-      await act(async () => host.querySelector('button')!.click());
+      expect(host.querySelector('button')).toBeNull();
       await input();
       await input(1);
       expect(session.send).toHaveBeenCalledTimes(1);
@@ -126,58 +110,105 @@ describe('正在输入状态工具栏按钮', () => {
       session.available = true;
       await input();
       expect(session.send).toHaveBeenCalledTimes(3);
-      session.binding = { ...session.binding, expectedAccountConfigId: 'other-source' };
-      await render();
-      expect(host.querySelector('button')!.getAttribute('aria-pressed')).toBe('false');
-      vi.setSystemTime(140_000);
-      await input();
-      expect(session.send).toHaveBeenCalledTimes(3);
-      await act(async () => host.querySelector('button')!.click());
-      await input();
-      expect(session.send).toHaveBeenLastCalledWith({
-        ...session.binding,
-        uid: 'u_one',
-        eventType: 1,
-      });
-      await render('u_two');
-      await input();
-      expect(session.send).toHaveBeenCalledTimes(4);
-      await act(async () => host.querySelector('button')!.click());
       act(() => root.unmount());
       await input();
-      expect(session.send).toHaveBeenCalledTimes(4);
+      expect(session.send).toHaveBeenCalledTimes(3);
     } finally {
       act(() => root.unmount());
       host.remove();
     }
   });
-  it('默认关闭，点击保存并切换高亮状态，切换好友后恢复各自偏好', async () => {
+
+  it('永久全选时全部不广播，关闭范围恢复广播', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     const root = createRoot(host);
     const editors = [createRef<HTMLDivElement>()];
+    editors[0]!.current = document.createElement('div');
+    const input = () => act(async () => editors[0]!.current!.dispatchEvent(new Event('input')));
     try {
+      session.run.mockImplementation(
+        async (task: (binding: typeof session.binding) => Promise<unknown>) =>
+          task(session.binding),
+      );
+      session.preferences = { mode: 'all', hidden: [] };
       await act(async () => root.render(createElement(TypingStatus, { uid: 'u_one', editors })));
-      const button = host.querySelector('button')!;
-      expect(button.classList.contains('composer-tool')).toBe(true);
-      expect(button.getAttribute('aria-label')).toBe('发送正在输入状态');
-      expect(button.getAttribute('aria-pressed')).toBe('false');
-      expect(host.querySelector('input[type="checkbox"]')).toBeNull();
-      await act(async () => button.click());
-      expect(button.getAttribute('aria-pressed')).toBe('true');
-      expect(button.title).toContain('已开启');
-      await act(async () => button.click());
-      expect(button.getAttribute('aria-pressed')).toBe('false');
-      await act(async () => button.click());
-      await act(async () => root.render(createElement(TypingStatus, { uid: 'u_two', editors })));
-      expect(button.getAttribute('aria-pressed')).toBe('false');
+      await input();
+      expect(session.send).not.toHaveBeenCalled();
+      session.preferences = { mode: 'off', hidden: [] };
       await act(async () => root.render(createElement(TypingStatus, { uid: 'u_one', editors })));
-      expect(button.getAttribute('aria-pressed')).toBe('true');
-      session.available = false;
-      await act(async () => root.render(createElement(TypingStatus, { uid: 'u_two', editors })));
-      expect(button.disabled).toBe(true);
+      await input();
+      expect(session.send).toHaveBeenCalledTimes(1);
     } finally {
       act(() => root.unmount());
+      host.remove();
+    }
+  });
+
+  it('按会话勾选只隐藏命中的会话，且按账号与数据源隔离', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const editors = [createRef<HTMLDivElement>()];
+    editors[0]!.current = document.createElement('div');
+    const input = () => act(async () => editors[0]!.current!.dispatchEvent(new Event('input')));
+    try {
+      session.run.mockImplementation(
+        async (task: (binding: typeof session.binding) => Promise<unknown>) =>
+          task(session.binding),
+      );
+      session.preferences = {
+        mode: 'selected',
+        hidden: [
+          {
+            accountUin: '10000',
+            accountConfigId: 'test',
+            uid: 'u_hidden',
+            name: '被隐藏的会话',
+          },
+        ],
+      };
+      await act(async () => root.render(createElement(TypingStatus, { uid: 'u_hidden', editors })));
+      await input();
+      expect(session.send).not.toHaveBeenCalled();
+      await act(async () =>
+        root.render(createElement(TypingStatus, { uid: 'u_visible', editors })),
+      );
+      await input();
+      expect(session.send).toHaveBeenCalledTimes(1);
+      // 另一数据源的同名 uid 不受这条隐藏记录影响。
+      session.binding = { ...session.binding, expectedAccountConfigId: 'other-source' };
+      await act(async () => root.render(createElement(TypingStatus, { uid: 'u_hidden', editors })));
+      await input();
+      expect(session.send).toHaveBeenCalledTimes(2);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+
+  it('读取失败时不广播，恢复后按当前设置继续', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const editors = [createRef<HTMLDivElement>()];
+    editors[0]!.current = document.createElement('div');
+    try {
+      session.run.mockImplementation(
+        async (task: (binding: typeof session.binding) => Promise<unknown>) =>
+          task(session.binding),
+      );
+      session.error = true;
+      await act(async () => root.render(createElement(TypingStatus, { uid: 'u_one', editors })));
+      await act(async () => editors[0]!.current!.dispatchEvent(new Event('input')));
+      expect(session.send).not.toHaveBeenCalled();
+      session.error = false;
+      await act(async () => root.render(createElement(TypingStatus, { uid: 'u_one', editors })));
+      await act(async () => editors[0]!.current!.dispatchEvent(new Event('input')));
+      expect(session.send).toHaveBeenCalledTimes(1);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
     }
   });
 });

@@ -962,26 +962,26 @@ export const bootstrapRouter = router({
     () => requireBootstrap().userConfig.getSettings().typingStatus,
   ),
 
-  setTypingStatusDefault: procedure.input(z.object({ enabled: z.boolean() })).mutation(
-    ({ input }) =>
-      requireBootstrap().userConfig.setSettings({
-        typingStatus: { defaultEnabled: input.enabled },
-      }).typingStatus,
-  ),
+  /** 隐藏正在输入状态的启用范围：off=默认展示 / selected=按会话 / all=全部隐藏。 */
+  setTypingStatusMode: procedure
+    .input(z.object({ mode: z.enum(['off', 'selected', 'all']) }))
+    .mutation(({ input }) => requireBootstrap().userConfig.setTypingStatusMode(input.mode)),
 
-  setTypingStatusOverride: procedure
+  /** 整体替换「隐藏正在输入状态的会话」清单。 */
+  setTypingStatusHidden: procedure
     .input(
       z.object({
-        accountUin: z.string().min(1),
-        accountConfigId: z.string().min(1),
-        uid: z.string().min(1),
-        name: z.string(),
-        enabled: z.boolean().nullable(),
+        hidden: z.array(
+          z.object({
+            accountUin: z.string().min(1),
+            accountConfigId: z.string().min(1),
+            uid: z.string().min(1),
+            name: z.string(),
+          }),
+        ),
       }),
     )
-    .mutation(({ input: { enabled, ...target } }) =>
-      requireBootstrap().userConfig.setTypingStatusOverride(target, enabled),
-    ),
+    .mutation(({ input }) => requireBootstrap().userConfig.setTypingStatusHidden(input.hidden)),
 
   /**
    * 日志保留天数（设置 → 日志 → 日志保留时长）。0 = 永久保留。

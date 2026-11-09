@@ -8,35 +8,29 @@
   color: var(--weq-fg-primary);
 }
 
-.weq-typing-settings-contact,
-.weq-typing-settings-contact .weq-profile-avatar-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 100%;
-  min-width: 0;
-  border-radius: 4px;
-  line-height: 1.4;
-  text-align: start;
-}
-
-.weq-typing-settings-contact :is(.weq-avatar-img, .weq-avatar-fallback) {
-  flex-shrink: 0;
-}
-
-.weq-typing-settings-name {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
 .weq-typing-settings .weq-set-row-desc {
   color: var(--weq-fg-secondary);
 }
 
 .weq-typing-settings-heading {
-  margin: 8px 0 0;
   font-size: 13px;
   font-weight: 600;
+}
+
+.weq-typing-settings-conversations {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-typing-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 html[data-theme='dark'] .weq-typing-settings .weq-set-row-label,

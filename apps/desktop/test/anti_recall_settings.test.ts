@@ -193,7 +193,7 @@ describe('页内防撤回摘要与按需工具', () => {
     fixture.emptyConversations = true;
     const f = mount();
     try {
-      click('编辑保护会话');
+      click('编辑启用防撤回的会话');
       await act(async () => click('保存选择'));
       expect(fixture.saves).toHaveBeenCalledWith('setTargets', {
         targets: [{ kind: 'group', id: '20001' }],
@@ -206,7 +206,7 @@ describe('页内防撤回摘要与按需工具', () => {
     const f = mount();
     try {
       expect(f.host.querySelector('[role="tablist"]')).toBeNull();
-      expect(f.host.querySelector('[aria-label="启用防撤回"]')).not.toBeNull();
+      expect(f.host.querySelector('[aria-label="防撤回启用范围"]')).not.toBeNull();
       expect(f.host.querySelector('[aria-label="撤回时通知我"]')).not.toBeNull();
       expect(f.host.querySelector('.weq-set-picker')).toBeNull();
       expect(fixture.queryOptions.get('listConversationsWithCount')?.enabled).toBe(false);
@@ -258,7 +258,7 @@ describe('页内防撤回摘要与按需工具', () => {
   it('保护和通知选择均可搜索、多选并保存，未保存关闭必须确认', async () => {
     const f = mount();
     try {
-      click('编辑保护会话');
+      click('编辑启用防撤回的会话');
       click('清空');
       act(() =>
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
@@ -285,9 +285,14 @@ describe('页内防撤回摘要与按需工具', () => {
     fixture.recordsError = true;
     const f = mount();
     try {
-      expect(f.host.querySelector<HTMLButtonElement>('[aria-label="启用防撤回"]')!.disabled).toBe(
-        true,
-      );
+      const scopeOff = [...f.host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+        (button) => button.textContent === '关闭',
+      )!;
+      const scopeSelected = [...f.host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+        (button) => button.textContent === '按会话勾选',
+      )!;
+      expect(scopeSelected.disabled).toBe(true);
+      expect(scopeOff.disabled).toBe(false);
       expect(f.host.textContent).toContain('离线快照');
       click('查看撤回记录');
       expect(document.querySelector('.weq-tool-modal [role="alert"]')?.textContent).toContain(
@@ -309,12 +314,12 @@ describe('页内防撤回摘要与按需工具', () => {
     );
     try {
       const original = fixture.status;
-      click('启用防撤回');
-      expect(fixture.saves).toHaveBeenCalledTimes(1);
+      click('关闭');
+      expect(fixture.saves).toHaveBeenCalledWith('setScope', { scope: 'off' });
       fixture.currentSource = false;
-      await act(async () => resolve({ ...original, enabled: false }));
+      await act(async () => resolve({ ...original, enabled: false, mode: 'selected' }));
       expect(fixture.status).toBe(original);
-      click('启用防撤回');
+      click('关闭');
       expect(fixture.saves).toHaveBeenCalledTimes(1);
     } finally {
       f.dispose();

@@ -5894,7 +5894,6 @@ export function ChatPane({
             <TypingStatus
               key={conversation.id}
               uid={conversation.otherUser.id}
-              name={chatHeaderTitle(conversation)}
               editors={[composerEditorRef, expandedComposerEditorRef]}
             />
           )}

@@ -89,33 +89,60 @@ export interface AutoEnterTarget {
   dataDir?: string;
 }
 
-export interface TypingStatusOverride {
+/** 隐藏「正在输入」状态的范围。默认展示；按会话勾选时只隐藏 `hidden` 里的会话。 */
+export type TypingStatusMode = 'off' | 'selected' | 'all';
+
+/** 一条「隐藏正在输入状态」的会话条目（跨账号 / 数据源分别记录）。 */
+export interface TypingStatusConversation {
   accountUin: string;
   accountConfigId: string;
   uid: string;
   name: string;
-  enabled: boolean;
 }
 
 export interface TypingStatusSettings {
-  defaultEnabled: boolean;
-  overrides: TypingStatusOverride[];
+  mode: TypingStatusMode;
+  hidden: TypingStatusConversation[];
+}
+
+function normalizeTypingMode(value: unknown): TypingStatusMode | null {
+  return value === 'off' || value === 'selected' || value === 'all' ? value : null;
+}
+
+function normalizeTypingHidden(value: unknown): TypingStatusConversation[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const hidden: TypingStatusConversation[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const { accountUin, accountConfigId, uid, name } = item;
+    if (
+      typeof accountUin !== 'string' ||
+      !accountUin ||
+      typeof accountConfigId !== 'string' ||
+      !accountConfigId ||
+      typeof uid !== 'string' ||
+      !uid ||
+      typeof name !== 'string'
+    )
+      continue;
+    const key = `${accountUin}\u0000${accountConfigId}\u0000${uid}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    hidden.push({ accountUin, accountConfigId, uid, name });
+  }
+  return hidden;
 }
 
 function normalizeTypingStatus(value: unknown): TypingStatusSettings {
   const settings = isRecord(value) ? value : {};
-  const overrides = Array.isArray(settings.overrides)
-    ? settings.overrides.filter(
-        (item): item is TypingStatusOverride =>
-          isRecord(item) &&
-          ['accountUin', 'accountConfigId', 'uid'].every(
-            (key) => typeof item[key] === 'string' && item[key].length > 0,
-          ) &&
-          typeof item.name === 'string' &&
-          typeof item.enabled === 'boolean',
-      )
-    : [];
-  return { defaultEnabled: settings.defaultEnabled === true, overrides };
+  const mode = normalizeTypingMode(settings.mode);
+  // 旧版是「默认不发送 + 按会话特例开启」的相反语义，迁移时统一回落到新的默认
+  // 「不隐藏」（向对方展示输入状态），旧的 enabled 特例不再有意义。
+  return {
+    mode: mode ?? 'off',
+    hidden: normalizeTypingHidden(settings.hidden),
+  };
 }
 
 type DeepPartial<T> = {
@@ -762,7 +789,7 @@ export interface AppSettings {
   preferCdn: boolean;
   /** 聊天首页展示与一言屏蔽词，全局偏好。 */
   home: HomeSettings;
-  /** 私聊输入状态广播：全局默认值与显式设置的会话特例。 */
+  /** 私聊输入状态广播：默认展示，可整体或按会话隐藏「正在输入」。 */
   typingStatus: TypingStatusSettings;
   /** 旧版合并开关，仅用于兼容旧配置和客户端。 */
   showMsgDecoration: boolean;
@@ -1119,7 +1146,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
   home: DEFAULT_HOME_SETTINGS,
-  typingStatus: { defaultEnabled: false, overrides: [] },
+  typingStatus: { mode: 'off', hidden: [] },
   showMsgDecoration: true,
   showMessageBubble: true,
   showMessageFont: true,
@@ -1936,7 +1963,7 @@ export class UserConfigService {
         current.qqShowCacheMinutes,
       preferCdn: patch.preferCdn ?? current.preferCdn,
       home: normalizeHomeSettings({ ...current.home, ...patch.home }),
-      typingStatus: normalizeTypingStatus({ ...current.typingStatus, ...patch.typingStatus }),
+      typingStatus: normalizeTypingStatus(patch.typingStatus ?? current.typingStatus),
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
       showMessageBubble:
         patch.showMessageBubble ?? patch.showMsgDecoration ?? current.showMessageBubble,
@@ -2080,20 +2107,16 @@ export class UserConfigService {
     return next;
   }
 
-  setTypingStatusOverride(
-    target: Omit<TypingStatusOverride, 'enabled'>,
-    enabled: boolean | null,
-  ): TypingStatusSettings {
+  /** 修改「隐藏正在输入状态」的启用范围。 */
+  setTypingStatusMode(mode: TypingStatusMode): TypingStatusSettings {
     const current = this.getSettings().typingStatus;
-    const overrides = current.overrides.filter(
-      (item) =>
-        item.accountUin !== target.accountUin ||
-        item.accountConfigId !== target.accountConfigId ||
-        item.uid !== target.uid,
-    );
-    // 与默认值相同也保留显式设置；只有删除操作才恢复跟随默认。
-    if (enabled !== null) overrides.push({ ...target, enabled });
-    return this.setSettings({ typingStatus: { overrides } }).typingStatus;
+    return this.setSettings({ typingStatus: { ...current, mode } }).typingStatus;
+  }
+
+  /** 整体替换「隐藏正在输入状态」的会话清单。 */
+  setTypingStatusHidden(hidden: TypingStatusConversation[]): TypingStatusSettings {
+    const current = this.getSettings().typingStatus;
+    return this.setSettings({ typingStatus: { ...current, hidden } }).typingStatus;
   }
 
   getLocalModelId(kind: keyof LocalModelResources): string {

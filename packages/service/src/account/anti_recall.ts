@@ -284,6 +284,23 @@ export class AntiRecallService {
   }
 
   /**
+   * 设置「启用范围」——关闭 / 仅按会话勾选 / 永久全选。
+   *
+   * 取代旧版「总开关 + 保护范围」两段式：关闭即不装触发器，选择会话或全部时
+   * 自动启用。UI 只调用这一个入口，MCP 的 setEnabled/setMode 仍保留兼容。
+   */
+  async setScope(scope: 'off' | 'selected' | 'all'): Promise<AntiRecallStatus> {
+    const enabled = scope !== 'off';
+    const mode: 'selected' | 'all' = scope === 'all' ? 'all' : 'selected';
+    const wasEnabled = this.config.enabled;
+    this.config = { ...this.config, enabled, mode };
+    this.persist();
+    if (enabled && !wasEnabled) this.resetRecallBaseline();
+    this.reconcileInBackground();
+    return this.optimisticStatus();
+  }
+
+  /**
    * Switch between protecting only `targets` (`'selected'`) and protecting
    * every conversation with no session filter (`'all'`, 永久全选). Persists.
    */

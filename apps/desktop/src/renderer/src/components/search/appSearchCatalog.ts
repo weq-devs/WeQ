@@ -75,7 +75,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['background-services', '后台服务状态', '后台服务', '运行状态', '关闭窗口时'],
   ['global', '成功通知停留时长', '通知时间'],
   ['global', '失败通知停留时长', '通知时间'],
-  ['global', '默认发送正在输入状态', '正在输入', '打字状态'],
+  ['chat-interaction', '隐藏正在输入状态', '正在输入', '打字状态', '向对方展示输入状态'],
   ['startup', '开机自动启动 WeQ', '自启动'],
   ['startup', '自启时显示窗口', '启动显示窗口', '隐藏启动'],
   ['call-recording', '录音来源', '录制内容', '录音模式', '双方混合', '仅本端', '仅对方'],
