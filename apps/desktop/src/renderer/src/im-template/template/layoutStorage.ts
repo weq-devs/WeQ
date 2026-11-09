@@ -1,4 +1,4 @@
-�// @ts-nocheck
+﻿// @ts-nocheck
 export function loadLayoutNumber(key: string, fallback: number, min: number, max: number) {
   if (typeof window === 'undefined') {
     return fallback;
