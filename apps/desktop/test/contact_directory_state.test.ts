@@ -54,14 +54,14 @@ function save(kind: 'friends' | 'groups', value: DirectoryPreferences, configId 
     JSON.stringify(value),
   );
 }
-function mount(kind: 'friends' | 'groups') {
+function mount(kind: 'friends' | 'groups', entities: string[][] = []) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   const commits: DirectoryPreferences[] = [];
   let order!: ReturnType<typeof useContactDirectoryOrder>;
   function Harness({ kind }: { kind: 'friends' | 'groups' }) {
-    order = useContactDirectoryOrder(kind, false, []);
+    order = useContactDirectoryOrder(kind, false, entities);
     useLayoutEffect(() => {
       commits.push(order.preferences);
     });
@@ -79,8 +79,30 @@ function mount(kind: 'friends' | 'groups') {
     commits,
     render,
     change: (patch: Partial<DirectoryPreferences>) => act(() => order.change(patch)),
+    order: () => order,
   };
 }
+
+it.each(['running', 'paused'])(
+  '任务 %s 时切换缺失缓存的分组与排序只更新偏好，不请求弹窗',
+  (status) => {
+    state.progress.status = status;
+    const f = mount('friends', [['friend:missing']]);
+    f.change({ grouping: 'direction' });
+    expect(f.order().preferences.grouping).toBe('direction');
+    expect(f.order().refreshRequest).toBeNull();
+    f.change({ sort: 'level' });
+    expect(f.order().preferences.sort).toBe('level');
+    expect(f.order().refreshRequest).toBeNull();
+  },
+);
+
+it('没有在途任务时切换缺失缓存的依据仍询问更新', () => {
+  state.progress.status = 'completed';
+  const f = mount('friends', [['friend:missing']]);
+  f.change({ sort: 'level' });
+  expect(f.order().refreshRequest?.fields).toEqual(['level']);
+});
 
 it('好友与群聊首次挂载及反复切换时，每次提交都直接使用各自保存的分组、排序和方向', () => {
   const friends = { grouping: 'birthYear', sort: 'age', descending: true };

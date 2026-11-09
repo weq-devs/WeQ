@@ -9,6 +9,7 @@ import { ContactDirectoryContext } from '../../src/renderer/src/lib/conversation
 import { RelationshipDirectoryContext } from '../../src/renderer/src/lib/contactRelationship';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import { useViewState } from '../../src/renderer/src/state/view';
+import { useWorkspaceMenu } from '../../src/renderer/src/state/workspaceMenu';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import type { Contact, GroupConversation } from '../../src/renderer/src/im-template/template/types';
 import '../../src/renderer/src/styles/index.css';
@@ -16,7 +17,7 @@ import '../../src/renderer/src/im-template/styles.css';
 
 ensureThemeInitialized();
 useViewState.setState({ openedUin: '99999' });
-Object.assign(window, { contactOrderQa: { store: useThemeStore } });
+Object.assign(window, { contactOrderQa: { store: useThemeStore, tasks: useWorkspaceMenu } });
 const contacts: Contact[] = ['阿明', '白雪', '张同学'].map((name, i) => ({
   id: `u_friend${i}`,
   username: name,

@@ -82,7 +82,13 @@ export function useContactDirectoryOrder(
         : patch.grouping && patch.grouping !== preferences.grouping
           ? contactCacheFields('grouping', patch.grouping)
           : [];
-    if (enabled && shouldOfferContactRefresh(snapshot.data?.rows ?? EMPTY_ROWS, fields, entities))
+    const active =
+      snapshot.data?.progress.status === 'running' || snapshot.data?.progress.status === 'paused';
+    if (
+      enabled &&
+      !active &&
+      shouldOfferContactRefresh(snapshot.data?.rows ?? EMPTY_ROWS, fields, entities)
+    )
       setRefreshRequest({ fields, scope: storageKey });
     const value = {
       ...preferences,

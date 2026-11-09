@@ -5,6 +5,7 @@ import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { SegmentedControl } from './SegmentedControl';
+import { useContactRefreshTask } from '../hooks/useContactRefreshTask';
 import '../styles/contact-directory-order.css';
 
 export function ContactRefreshButton({
@@ -15,17 +16,21 @@ export function ContactRefreshButton({
   refreshing?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const task = useContactRefreshTask();
+  const busy = refreshing || task.active;
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
-        disabled={refreshing}
-        aria-busy={refreshing}
-        title={refreshing ? '正在刷新联系人' : '刷新联系人列表'}
-        aria-label={refreshing ? '正在刷新联系人' : '刷新联系人列表'}
+        onClick={() => {
+          if (task.ready && !task.openActiveTask()) setOpen(true);
+        }}
+        disabled={!task.ready}
+        aria-busy={busy}
+        title={busy ? '查看联系人更新任务' : '刷新联系人列表'}
+        aria-label={busy ? '查看联系人更新任务' : '刷新联系人列表'}
       >
-        <RefreshCw size={15} className={refreshing ? 'spin' : undefined} />
+        <RefreshCw size={15} className={busy ? 'spin' : undefined} />
       </button>
       {open && <ContactCacheRefreshDialog onClose={() => setOpen(false)} onRefresh={onRefresh} />}
     </>

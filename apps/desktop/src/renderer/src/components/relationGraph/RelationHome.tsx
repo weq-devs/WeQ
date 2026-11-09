@@ -84,7 +84,7 @@ export function RelationHome({
             className="weq-relhome-refresh"
             type="button"
             onClick={onRefresh}
-            disabled={loading || refreshing || !refreshReady}
+            disabled={(loading && !refreshing) || !refreshReady}
             aria-busy={refreshing}
             title="更新全部群成员并重新计算"
           >

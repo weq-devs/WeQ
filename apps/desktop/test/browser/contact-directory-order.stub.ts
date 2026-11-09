@@ -6,6 +6,8 @@ const ready = (value: unknown) => ({
   updatedAt: Date.now(),
 });
 const snapshot = {
+  taskId: 'existing-contact-task',
+  target: new URLSearchParams(location.search).get('target') ?? 'metrics',
   revision: 1,
   rows: {
     'friend:10001': {
@@ -54,7 +56,9 @@ const proxy = (path: string[] = []): unknown =>
           data:
             path.join('.') === 'account.getAccountConfig'
               ? config
-              : path.join('.') === 'account.contactMetrics.snapshot'
+              : ['account.contactMetrics.snapshot', 'account.contactMetrics.status'].includes(
+                    path.join('.'),
+                  )
                 ? snapshot
                 : path.join('.') === 'account.qqWrite.profileRegions'
                   ? { regions }

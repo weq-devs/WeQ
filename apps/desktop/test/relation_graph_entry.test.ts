@@ -138,7 +138,9 @@ it.each([false, true])('首页和图谱共用群成员刷新，更新时保留�
     expect(memberRefresh.refresh).toHaveBeenCalledTimes(1);
     memberRefresh.refreshing = true;
     act(() => root.render(h(RelationGraphView)));
-    expect(button.disabled).toBe(true);
+    expect(button.disabled).toBe(false);
+    act(() => button.click());
+    expect(memberRefresh.refresh).toHaveBeenCalledTimes(2);
     expect(host.querySelector(entered ? '.weq-graph-stage' : '.weq-relhome-stats')).not.toBeNull();
     expect(host.textContent).not.toContain('正在扫描群成员、计算关系网');
   } finally {
