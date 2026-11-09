@@ -162,7 +162,7 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-directory-scope-menu,
     .weq-merged-popover,
     .conversation-details,
-    .group-info-panel,
+    .group-info-panel:not(:where(.weq-contact-profile-content > *)),
     .weq-select,
     .weq-provider-modal
   ) {

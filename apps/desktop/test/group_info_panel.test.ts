@@ -112,6 +112,29 @@ describe('群资料面板', () => {
     mountPanel();
     expect(document.querySelector('.group-info-member-row')?.textContent).toContain('测试成员');
   });
+  it('联系人资料把公告与资料、内容入口与成员分别分组，默认侧栏不增加分组', () => {
+    mountPanel(vi.fn(), vi.fn(), { layout: 'profile' });
+    const panel = document.querySelector('.weq-group-profile-details')!;
+    const primary = panel.querySelector('.weq-group-profile-primary')!;
+    const secondary = panel.querySelector('.weq-group-profile-secondary')!;
+    expect([...primary.children].map((element) => element.className)).toEqual([
+      'weq-group-announcement',
+      'group-info-section group-info-overview',
+    ]);
+    expect([...secondary.children].map((element) => element.className)).toEqual([
+      'weq-group-content-actions',
+      'group-info-section member-list-section',
+    ]);
+
+    mountPanel(vi.fn(), vi.fn());
+    const sidebar = document.querySelector('.group-info-panel:not(.weq-group-profile-details)')!;
+    expect([...sidebar.children].map((element) => element.className)).toEqual([
+      'group-info-section group-info-overview',
+      'weq-group-announcement',
+      'weq-group-content-actions',
+      'group-info-section member-list-section',
+    ]);
+  });
   it('成员读取失败时保留原因并允许重试', () => {
     const retry = vi.fn();
     mountPanel(undefined, undefined, { loadingError: '合成读取失败', onRetryMembers: retry });

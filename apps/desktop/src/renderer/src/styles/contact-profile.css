@@ -432,16 +432,30 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
   object-fit: contain;
 }
 
-.weq-contact-profile-content > .group-info-panel {
+.weq-contact-profile-content > .group-info-panel.weq-group-profile-details {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(240px, 0.65fr);
-  grid-template-rows: auto 1fr;
   align-items: start;
   gap: 24px 32px;
+  overflow: visible;
   padding: 24px 0 0;
   border: 0;
+  border-radius: 0;
   background: transparent;
   box-shadow: none;
+}
+
+.weq-group-profile-primary,
+.weq-group-profile-secondary {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.weq-group-profile-secondary {
+  padding-left: 24px;
+  border-left: 1px solid var(--weq-border-subtle);
 }
 
 html[data-theme='dark'] .weq-contact-profile-content > .group-info-panel {
@@ -459,18 +473,11 @@ html[data-theme='dark'] .weq-contact-profile-content .group-info-member-row {
   font-size: 13px;
 }
 
-.weq-contact-profile-content .group-info-meta-list {
+.weq-contact-profile-content .group-info-panel .group-info-meta-list {
   padding: 0;
 }
 
-.weq-contact-profile-content .group-info-overview {
-  grid-column: 1;
-  grid-row: 2;
-}
-
 .weq-contact-profile-content .weq-group-announcement {
-  grid-column: 1;
-  grid-row: 1;
   padding: 0;
 }
 
@@ -488,22 +495,16 @@ html[data-theme='dark'] .weq-contact-profile-content .group-info-member-row {
 }
 
 .weq-contact-profile-content .weq-group-content-actions {
-  grid-column: 2;
-  grid-row: 1;
-  padding: 0 0 0 24px;
-  border-left: 1px solid var(--weq-border-subtle);
+  padding: 0;
 }
 
-.weq-contact-profile-content .member-list-section {
+.weq-contact-profile-content .group-info-panel .member-list-section {
   display: flex;
+  flex: none;
   flex-direction: column;
-  grid-column: 2;
-  grid-row: 2;
   gap: 12px;
   height: 440px;
   margin: 0;
-  padding-left: 24px;
-  border-left: 1px solid var(--weq-border-subtle);
 }
 
 .weq-contact-profile-content .group-info-heading,
@@ -511,12 +512,12 @@ html[data-theme='dark'] .weq-contact-profile-content .group-info-member-row {
   flex-shrink: 0;
 }
 
-.weq-contact-profile-content .group-info-heading,
-.weq-contact-profile-content .group-info-meta-row {
+.weq-contact-profile-content .group-info-panel .group-info-heading,
+.weq-contact-profile-content .group-info-panel .group-info-meta-row {
   padding-inline: 0;
 }
 
-.weq-contact-profile-content .group-info-meta-row {
+.weq-contact-profile-content .group-info-panel .group-info-meta-row {
   display: grid;
   grid-template-columns: 88px minmax(0, 1fr);
   align-items: start;
@@ -526,7 +527,12 @@ html[data-theme='dark'] .weq-contact-profile-content .group-info-member-row {
   border-bottom: 1px solid var(--weq-border-subtle);
 }
 
-.weq-contact-profile-content .group-info-meta-row strong {
+.weq-contact-profile-content .group-info-panel .group-info-meta-row,
+.weq-contact-profile-content .group-info-panel .group-info-meta-row :is(span, strong) {
+  font-size: 13px;
+}
+
+.weq-contact-profile-content .group-info-panel .group-info-meta-row strong {
   color: var(--weq-fg-primary);
   text-align: left;
   white-space: pre-wrap;
@@ -551,32 +557,20 @@ html[data-theme='dark'] .weq-contact-profile-content .weq-profile-list {
 
 @container (max-width: 760px) {
   .weq-contact-columns,
-  .weq-contact-profile-content > .group-info-panel {
+  .weq-contact-profile-content > .group-info-panel.weq-group-profile-details {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .weq-contact-secondary,
-  .weq-contact-profile-content .weq-group-content-actions,
-  .weq-contact-profile-content .member-list-section {
+  .weq-group-profile-secondary {
     padding-left: 0;
     border-left: 0;
   }
 
-  .weq-contact-secondary {
+  .weq-contact-secondary,
+  .weq-group-profile-secondary {
     padding-top: 24px;
     border-top: 1px solid var(--weq-border-subtle);
-  }
-
-  .weq-contact-profile-content .group-info-overview,
-  .weq-contact-profile-content .weq-group-announcement,
-  .weq-contact-profile-content .weq-group-content-actions,
-  .weq-contact-profile-content .member-list-section {
-    grid-column: 1;
-    grid-row: auto;
-  }
-
-  .weq-contact-profile-content .weq-group-announcement {
-    order: -1;
   }
 
   .weq-contact-identity-actions {

@@ -11154,6 +11154,7 @@ function MainWorkspace(): ReactElement {
                           contactGroupDetails={
                             selectedGroupConversationForDetail ? (
                               <GroupInfoPanel
+                                layout="profile"
                                 conversation={selectedGroupConversationForDetail}
                                 profileLoading={contactGroupProfile.isLoading}
                                 loadingMoreMembers={Boolean(groupMemberLoading[groupDetailCode])}
