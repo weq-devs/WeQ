@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { decode, encode, GetFriendSnsPage, needSignFor, SNS_FRIEND_DISTURB } from '@weq/protocol';
+import {
+  decode,
+  encode,
+  GetFriendSnsPage,
+  oidbCommand,
+  resolveSign,
+  SNS_FRIEND_DISTURB,
+} from '@weq/protocol';
 import { AccountWriteService } from '../src/account/account_write';
 
 const friend = { uid: 'u_friend', uin: 10002n, qid: '', categoryId: 0 };
@@ -19,6 +26,7 @@ function fixture(pages: Array<Record<string, unknown>>) {
       _body: Buffer,
       _isUid?: boolean,
       _needSign?: boolean,
+      _mode?: number,
     ) => {
       const page = pages.shift();
       if (!page) throw new Error('未预期的额外请求');
@@ -98,7 +106,9 @@ describe('好友免打扰云端读回', () => {
     const request = decode(GetFriendSnsPage.reqSchema, call[3]);
     expect(request.snsKeys).toContain(SNS_FRIEND_DISTURB);
     expect(call[4]).toBe(false);
-    expect(call[5]).toBe(needSignFor(GetFriendSnsPage.needSign));
+    const policy = resolveSign(oidbCommand(GetFriendSnsPage.command, GetFriendSnsPage.subCommand));
+    expect(call[5]).toBe(policy.needSign);
+    expect(call[6]).toBe(policy.mode);
   });
   it('完整遍历分页并携带原始游标，不能找到目标就提前结束', async () => {
     const cookie = Uint8Array.of(7, 0, 8);
