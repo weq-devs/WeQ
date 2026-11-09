@@ -9,6 +9,8 @@ import type { DressService } from '../src/account/dress_service';
 import { selectAllExportContent } from '../src/common/export_content';
 
 const text = '不应写入资源明细的正文';
+// 完整导出流水线包含多次文件 IO 与 fsync，CI 负载下可能超过 vi.waitFor 默认的 1s。
+const taskWait = { timeout: 10_000 };
 function messages(): MsgService {
   return {
     takeSalvageSkips: () => [],
@@ -78,8 +80,9 @@ describe('导出内容任务', () => {
         content: { ...selectAllExportContent('none'), bubble: 'local' },
         savePolicy: { mode: 'before', directory: root },
       });
-      await vi.waitFor(() =>
-        expect(manager.getTask(id)?.save?.status, manager.getTask(id)?.error).toBe('saved'),
+      await vi.waitFor(
+        () => expect(manager.getTask(id)?.save?.status, manager.getTask(id)?.error).toBe('saved'),
+        taskWait,
       );
       const task = manager.getTask(id)!;
       expect(
@@ -119,8 +122,9 @@ describe('导出内容任务', () => {
         content: { ...selectAllExportContent('none'), images: 'local' },
         savePolicy: { mode: 'before', directory: root },
       });
-      await vi.waitFor(() =>
-        expect(manager.getTask(id)?.save?.status, manager.getTask(id)?.error).toBe('saved'),
+      await vi.waitFor(
+        () => expect(manager.getTask(id)?.save?.status, manager.getTask(id)?.error).toBe('saved'),
+        taskWait,
       );
       const task = manager.getTask(id)!;
       expect(task.formats).toEqual([]);
@@ -179,10 +183,12 @@ describe('导出内容任务', () => {
           content: { ...selectAllExportContent('none'), details: { imageProperties: 'local' } },
           savePolicy: { mode: 'before', directory: root },
         });
-        await vi.waitFor(() =>
-          expect(manager.getTask(id)?.status, JSON.stringify(manager.getTask(id))).toBe(
-            'completed',
-          ),
+        await vi.waitFor(
+          () =>
+            expect(manager.getTask(id)?.status, JSON.stringify(manager.getTask(id))).toBe(
+              'completed',
+            ),
+          taskWait,
         );
         const task = manager.getTask(id)!;
         const output = await readFile(task.filePath!, 'utf8');
@@ -225,10 +231,12 @@ describe('导出内容任务', () => {
         content: { ...selectAllExportContent('none'), details: { imageVariants: 'local' } },
         savePolicy: { mode: 'before', directory: root },
       });
-      await vi.waitFor(() =>
-        expect(manager.getTask(id)?.save?.status, JSON.stringify(manager.getTask(id))).toBe(
-          'saved',
-        ),
+      await vi.waitFor(
+        () =>
+          expect(manager.getTask(id)?.save?.status, JSON.stringify(manager.getTask(id))).toBe(
+            'saved',
+          ),
+        taskWait,
       );
       const task = manager.getTask(id)!;
       const { archive } = await readArchiveFile(task.filePath!, 'json');
@@ -263,8 +271,10 @@ describe('导出内容任务', () => {
           content,
           savePolicy: { mode: 'before', directory: root },
         });
-        await vi.waitFor(() =>
-          expect(manager.getTask(first)?.status, manager.getTask(first)?.error).toBe('completed'),
+        await vi.waitFor(
+          () =>
+            expect(manager.getTask(first)?.status, manager.getTask(first)?.error).toBe('completed'),
+          taskWait,
         );
         const path = manager.formalArchivePath(first)!;
         const before = (await readArchiveFile(path, format)).archive;
@@ -277,8 +287,12 @@ describe('导出内容任务', () => {
           baselineDirectory: path,
           savePolicy: { mode: 'before', directory: root },
         });
-        await vi.waitFor(() =>
-          expect(manager.getTask(second)?.status, manager.getTask(second)?.error).toBe('completed'),
+        await vi.waitFor(
+          () =>
+            expect(manager.getTask(second)?.status, manager.getTask(second)?.error).toBe(
+              'completed',
+            ),
+          taskWait,
         );
         expect(manager.getTask(second)?.filePath).toBe(path);
         const after = (await readArchiveFile(path, format)).archive;
@@ -287,8 +301,10 @@ describe('导出内容任务', () => {
         expect(after.observations).toHaveLength(before.observations.length * 2);
         expect(manager.listTasks().find((task) => task.id === first)?.canIncremental).toBe(true);
         expect(manager.resumeTask(first, true)).toBe(true);
-        await vi.waitFor(() =>
-          expect(manager.getTask(first)?.status, manager.getTask(first)?.error).toBe('completed'),
+        await vi.waitFor(
+          () =>
+            expect(manager.getTask(first)?.status, manager.getTask(first)?.error).toBe('completed'),
+          taskWait,
         );
         const resumed = (await readArchiveFile(path, format)).archive;
         expect(resumed.records).toHaveLength(before.records.length);
