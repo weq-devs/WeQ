@@ -1,5 +1,8 @@
 # macOS ad-hoc 更新安装（2026-10-25）
 
+2026-11-09 后续源码将此安装链扩展到所有 macOS 签名类型，候选包另须通过固定发布证书验证。
+以下保留原实现与排查记录；现行设计见[固定签名身份与验收](macos-stable-signing-20261109.md)。
+
 ## 已确认断点
 
 本机已安装应用的 `codesign -d -r-` 输出为 `Signature=adhoc`，designated requirement

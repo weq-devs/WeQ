@@ -4,7 +4,12 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { finishMacUpdate, installMacUpdate, prepareMacUpdate } from '../src/main/update/mac';
+import {
+  finishMacUpdate,
+  installMacUpdate,
+  prepareMacUpdate,
+  usesMacVerifiedArchiveUpdater,
+} from '../src/main/update/mac';
 import type { MacUpdatePlan } from '../src/main/update/mac_install';
 
 const fixture = vi.hoisted(() => ({
@@ -103,6 +108,10 @@ async function plan() {
 }
 
 describe('macOS 更新准备', () => {
+  it('只按平台选择安装链，不根据 ad-hoc、证书或 DR 决定是否交给 Squirrel', () => {
+    expect(usesMacVerifiedArchiveUpdater()).toBe(process.platform === 'darwin');
+    expect(fixture.run).not.toHaveBeenCalled();
+  });
   it('只向固定官方 API 取哈希，校验归档后才解压和发布安装计划', async () => {
     const result = await plan();
     expect(fixture.fetch).toHaveBeenCalledWith(
@@ -135,6 +144,19 @@ describe('macOS 更新准备', () => {
     fixture.verifyArchive.mockRejectedValueOnce(new Error('官方哈希不匹配'));
     await expect(plan()).rejects.toThrow('官方哈希');
     expect(fixture.run).not.toHaveBeenCalled();
+    expect(fixture.app.quit).not.toHaveBeenCalled();
+  });
+  it('准备阶段即要求固定发布身份，错误证书不发布计划且不退出宿主', async () => {
+    fixture.verifyBundle
+      .mockResolvedValueOnce('weQ')
+      .mockRejectedValueOnce(new Error('发布证书不匹配'));
+    await expect(plan()).rejects.toThrow('发布证书');
+    expect(fixture.verifyBundle).toHaveBeenLastCalledWith(
+      expect.stringContaining('weQ.app'),
+      '1.1.0',
+      'arm64',
+      true,
+    );
     expect(fixture.app.quit).not.toHaveBeenCalled();
   });
 });

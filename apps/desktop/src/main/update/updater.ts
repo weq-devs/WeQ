@@ -20,7 +20,12 @@ import semver from 'semver';
 import electronUpdater from 'electron-updater';
 import { FILE_MIRRORS, resolveBestMirror } from './mirrors';
 import { announceUpdateAvailableSafe } from '../weq_assistant/update_tweet';
-import { finishMacUpdate, installMacUpdate, prepareMacUpdate, usesMacAdhocUpdater } from './mac';
+import {
+  finishMacUpdate,
+  installMacUpdate,
+  prepareMacUpdate,
+  usesMacVerifiedArchiveUpdater,
+} from './mac';
 import type { MacUpdatePlan } from './mac_install';
 import {
   getUpdateState,
@@ -95,7 +100,7 @@ let wired = false;
 let downloaded = false;
 let installing = false;
 let downloading = false;
-let macAdhoc = false;
+let macVerifiedArchive = false;
 let macDownload: { file: string; version: string } | null = null;
 let macPlan: MacUpdatePlan | null = null;
 
@@ -130,7 +135,7 @@ function wireAutoUpdater(): void {
   });
 
   autoUpdater.on('update-downloaded', (info) => {
-    if (macAdhoc) {
+    if (macVerifiedArchive) {
       macDownload = { file: info.downloadedFile, version: info.version };
       return;
     }
@@ -202,7 +207,7 @@ async function downloadUpdate(): Promise<void> {
     throw new Error('当前已是最新版本或没有可用的更新源。');
   }
 
-  macAdhoc = await usesMacAdhocUpdater();
+  macVerifiedArchive = usesMacVerifiedArchiveUpdater();
   macDownload = null;
   macPlan = null;
   wireAutoUpdater();
@@ -229,8 +234,8 @@ async function downloadUpdate(): Promise<void> {
   }
 
   if (!success) throw lastErr ?? new Error('更新下载失败');
-  if (macAdhoc) {
-    // MacUpdater 的应用层事件早于 Squirrel 验证；ad-hoc 必须另核官方包后才就绪。
+  if (macVerifiedArchive) {
+    // 下载事件只说明 ZIP 已落地；官方哈希与固定发布身份通过后才允许安装。
     const update = macDownload as { file: string; version: string } | null;
     if (!update?.file) throw new Error('未取得 macOS 更新包路径');
     macPlan = await prepareMacUpdate(update.file, update.version);

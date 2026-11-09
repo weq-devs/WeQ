@@ -378,9 +378,8 @@ jobs:
   # 在原生 Intel runner（macos-15-intel；macos-13 已于 2025-12 退役）上构建，
   # 让 sherpa-onnx / resvg 装到 x64 版本，native/darwin/x64 预编译二进制随
   # extraFiles 进包。
-  # 未配置 Developer ID 证书时由 mac.sign 补 ad-hoc 签名并严格校验资源封装，
+  # 两个 macOS 架构共用固定自签发布身份；缺料中止，不退回 ad-hoc。
   # 不是 Apple 公证，首次仍需在「隐私与安全性」中对可信来源手动放行。
-  # 关闭 identity 自动发现不跳过自定义 sign；不需要付费证书或更改系统安全策略。
   macos-x64:
     permissions:
       contents: write
@@ -437,12 +436,26 @@ jobs:
           mv apps/desktop/package.json apps/desktop/package.dev.json
           mv apps/desktop/package.release.json apps/desktop/package.json
 
+      - name: Prepare fixed macOS signing identity
+        run: node scripts/prepare-macos-signing.mjs
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
       - name: Package + publish release (x64)
         run: pnpm --filter @weq/desktop exec electron-builder --mac --x64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WEQ_MAC_SIGNING_MODE: self-signed
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           DEBUG: electron-builder
+
+      - name: Verify signed ZIP (x64)
+        run: node scripts/verify-macos-signing.mjs "apps/desktop/release/${GITHUB_REF_NAME#v}/weQ-${GITHUB_REF_NAME#v}-mac-x64.zip"
+
+      - name: Cleanup signing keychain
+        if: always()
+        run: node scripts/prepare-macos-signing.mjs --cleanup
 
       # macOS 的更新清单不分架构、固定叫 latest-mac.yml，两个架构 job 会互相
       # 覆盖（跑得晚的赢）。先把这份 x64 清单另存为 latest-mac-x64.yml 上传，
@@ -536,12 +549,26 @@ jobs:
           mv apps/desktop/package.json apps/desktop/package.dev.json
           mv apps/desktop/package.release.json apps/desktop/package.json
 
+      - name: Prepare fixed macOS signing identity
+        run: node scripts/prepare-macos-signing.mjs
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
       - name: Package + publish release (arm64)
         run: pnpm --filter @weq/desktop exec electron-builder --mac --arm64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WEQ_MAC_SIGNING_MODE: self-signed
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           DEBUG: electron-builder
+
+      - name: Verify signed ZIP (arm64)
+        run: node scripts/verify-macos-signing.mjs "apps/desktop/release/${GITHUB_REF_NAME#v}/weQ-${GITHUB_REF_NAME#v}-mac-arm64.zip"
+
+      - name: Cleanup signing keychain
+        if: always()
+        run: node scripts/prepare-macos-signing.mjs --cleanup
 
       - name: Upload per-arch update manifest
         run: |

@@ -8,7 +8,6 @@ import semver from 'semver';
 import { resolveChildWorkerPath } from '../worker_path';
 import { REPO } from './mirrors';
 import {
-  isAdhocSignature,
   MAC_STAGE_PREFIX,
   macAppBundle,
   macUpdateResultSchema,
@@ -23,14 +22,8 @@ import {
 const run = promisify(execFile);
 const reportPath = () => join(app.getPath('userData'), 'updates', 'mac-install.json');
 
-export async function usesMacAdhocUpdater(): Promise<boolean> {
-  if (process.platform !== 'darwin') return false;
-  const { stderr } = await run('/usr/bin/codesign', [
-    '-d',
-    '--verbose=2',
-    macAppBundle(process.execPath),
-  ]);
-  return isAdhocSignature(stderr);
+export function usesMacVerifiedArchiveUpdater(): boolean {
+  return process.platform === 'darwin';
 }
 
 export async function prepareMacUpdate(archive: string, version: string): Promise<MacUpdatePlan> {
@@ -62,7 +55,7 @@ export async function prepareMacUpdate(archive: string, version: string): Promis
   try {
     // 只有通过官方哈希验证的包才会解压；ditto 保留框架软链接和签名封装。
     await run('/usr/bin/ditto', ['-x', '-k', archive, staging], { timeout: 120_000 });
-    await verifyMacBundle(join(staging, 'weQ.app'), version, asset.arch);
+    await verifyMacBundle(join(staging, 'weQ.app'), version, asset.arch, true);
     await mkdir(dirname(reportPath()), { recursive: true });
     const plan: MacUpdatePlan = {
       target,

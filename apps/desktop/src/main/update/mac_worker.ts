@@ -22,7 +22,7 @@ process.on('message', async (input: unknown) => {
     ) {
       const plan = validateMacUpdatePlan(message.plan);
       await verifyMacBundle(plan.target, plan.previousVersion);
-      await verifyMacBundle(join(plan.staging, 'weQ.app'), plan.version, plan.arch);
+      await verifyMacBundle(join(plan.staging, 'weQ.app'), plan.version, plan.arch, true);
       prepared = { plan, parentPid: message.parentPid };
       process.send?.({ type: 'ready' });
     } else if (message.type === 'commit' && prepared && !committed) {
