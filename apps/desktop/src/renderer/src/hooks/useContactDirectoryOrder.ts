@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { ContactMetric, ContactMetricRows } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
@@ -58,9 +58,8 @@ export function useContactDirectoryOrder(
     fields: ContactMetric[];
     scope: string;
   } | null>(null);
-  useEffect(() => {
-    if (!enabled) return;
-    let value = defaults;
+  const storedPreferences = useMemo(() => {
+    if (!enabled) return defaults;
     try {
       const parsed = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
       if (
@@ -69,13 +68,13 @@ export function useContactDirectoryOrder(
         Object.hasOwn(sortOptions, parsed.sort) &&
         typeof parsed.descending === 'boolean'
       )
-        value = parsed;
+        return parsed as DirectoryPreferences;
     } catch {
       /* 缺少偏好时使用默认值。 */
     }
-    setSaved({ key: storageKey, value });
+    return defaults;
   }, [storageKey, enabled, defaults, groupingOptions, sortOptions]);
-  const preferences = saved?.key === storageKey ? saved.value : defaults;
+  const preferences = saved?.key === storageKey ? saved.value : storedPreferences;
   const change = (patch: Partial<DirectoryPreferences>) => {
     const fields =
       patch.sort && patch.sort !== preferences.sort

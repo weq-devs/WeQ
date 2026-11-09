@@ -51,11 +51,11 @@ export function ContactDirectoryOrder({
         </button>
         {order.error ? (
           <small role="alert">{order.error}</small>
-        ) : order.needsOnline && order.progress?.status === 'running' ? (
+        ) : order.progress?.status === 'running' ? (
           <small role="status">
             信息与线索缓存更新中 {order.progress.done}/{order.progress.total}
           </small>
-        ) : order.needsOnline && order.progress?.status === 'paused' ? (
+        ) : order.progress?.status === 'paused' ? (
           <small role="status">信息与线索缓存更新已暂停，等待 QQ 在线</small>
         ) : null}
       </div>

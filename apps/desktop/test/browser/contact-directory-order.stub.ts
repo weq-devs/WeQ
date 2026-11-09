@@ -5,7 +5,13 @@ const snapshot = {
     'friend:10001': { level: { value: 10, state: 'ready', attemptedAt: 1 } },
     'friend:10002': { level: { value: 20, state: 'ready', attemptedAt: 1 } },
   },
-  progress: { status: 'completed', done: 0, total: 0, failed: 0, phase: '' },
+  progress: {
+    status: new URLSearchParams(location.search).get('progress') ?? 'completed',
+    done: 2,
+    total: 6,
+    failed: 0,
+    phase: '',
+  },
 };
 const regions = [
   { code: '1', name: '中国', children: [{ code: '35', name: '福建', children: [] }] },
