@@ -54,9 +54,9 @@ it('任务详情包含日期、六组选择、当前扫描、双进度、按需�
         progress: { completedSources: 2, totalSources: 60, failedSources: 0 },
         dayProgress: { completedSources: 1, totalSources: 2, count: 10 },
         readState: { state: 'queued', since: 0 },
-        scanDayProgress: { day: '2026-11-11', completedSources: 0, totalSources: 2, count: 3 },
+        scanDayProgress: { day: '2026-11-09', completedSources: 0, totalSources: 2, count: 3 },
         activeScan: {
-          day: '2026-11-11',
+          day: '2026-11-09',
           kind: 'c2c',
           progress: { phase: '漫游缓存', processed: 4, unit: '个会话' },
         },
@@ -95,7 +95,7 @@ it('任务详情包含日期、六组选择、当前扫描、双进度、按需�
     expect(host.querySelectorAll('[aria-label="统计内容"] button')).toHaveLength(7);
     expect(host.querySelectorAll('progress')).toHaveLength(2);
     expect(
-      host.querySelector('progress[aria-label="2026-11-11 进度"]')?.getAttribute('value'),
+      host.querySelector('progress[aria-label="2026-11-09 进度"]')?.getAttribute('value'),
     ).toBe('0');
     expect(host.querySelector('input[type="date"]')?.getAttribute('value')).toBe('2026-11-08');
     expect(host.querySelector('h4')?.textContent).toBe('统计进度');

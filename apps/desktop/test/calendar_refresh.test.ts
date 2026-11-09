@@ -85,6 +85,27 @@ async function tick(ms = 0) {
 const defaultTargets: CalendarTarget[] = [
   { kind: 'group', conv: '42', name: 'fixture', avatar: null, ancestors: [] },
 ];
+it('北京时间今天之后置灰且不可选择，不显示待统计省略号或未来计数', async () => {
+  const view = mount();
+  try {
+    await tick();
+    const future = view.host.querySelector<HTMLButtonElement>(
+      '[aria-label="2026-11-11，未来日期不统计"]',
+    )!;
+    expect(future.disabled).toBe(true);
+    expect(future.classList.contains('is-future')).toBe(true);
+    expect(future.querySelector('small')?.textContent).toBe('');
+    expect(
+      view.host.querySelector<HTMLButtonElement>('[aria-label="2026-11-10，42 条消息"]')?.disabled,
+    ).toBe(false);
+    const previous = fixture.poll.mock.lastCall?.[0].day;
+    act(() => future.click());
+    await tick();
+    expect(fixture.poll.mock.lastCall?.[0].day).toBe(previous);
+  } finally {
+    view.close();
+  }
+});
 it('零次原生读取不再冒充等待空闲，实际排队状态明确显示', async () => {
   state.metrics.reads = 0;
   state.readState = { state: 'queued', since: Date.now() };

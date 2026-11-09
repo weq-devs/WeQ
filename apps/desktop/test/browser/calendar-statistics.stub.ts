@@ -58,13 +58,13 @@ export const trpc = {
                 },
                 readState: { state: 'queued' as const, since: 0 },
                 scanDayProgress: {
-                  day: '2026-11-11',
+                  day: '2026-11-09',
                   completedSources: 0,
                   totalSources: input.kinds.length,
                   count: 3,
                 },
                 activeScan: {
-                  day: '2026-11-11',
+                  day: '2026-11-09',
                   kind: 'c2c' as const,
                   progress: { phase: '漫游缓存', processed: 4, total: 26, unit: '个会话' },
                 },

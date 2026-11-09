@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   calendarMonthDays,
+  calendarToday,
   calendarTargetKey,
   ConversationCalendarJob,
   filterCalendarTargets,
@@ -170,9 +171,10 @@ it('日志动态更新批次数量、不刷屏，并保留有界的完成回执'
   const snapshot = job.snapshot(day, 0, true);
   expect(snapshot.logs!.length).toBeLessThanOrEqual(200);
   expect(snapshot.logs!.at(-1)!.text).toContain('本轮统计完成');
-  expect(snapshot.progress).toEqual({ completedSources: 30, totalSources: 30, failedSources: 0 });
+  expect(snapshot.progress).toEqual({ completedSources: 9, totalSources: 9, failedSources: 0 });
 });
 it('选中日最先统计，随后先近的过去再未来，来源顺序固定', async () => {
+  vi.setSystemTime(new Date('2026-11-15T12:00:00+08:00'));
   const calls: string[] = [];
   const record = (kind: string, start: number) =>
     calls.push(`${new Date((start + 8 * 3600) * 1000).toISOString().slice(0, 10)}:${kind}`);
@@ -203,6 +205,53 @@ it('选中日最先统计，随后先近的过去再未来，来源顺序固定'
     completedSources: 2,
     totalSources: 2,
   });
+});
+
+it('以北京时间今天为截止，未来日期不查询也不计入进度，跨午夜后原任务可以继续新的一天', async () => {
+  expect(calendarToday(Date.parse('2026-11-09T15:59:59Z'))).toBe('2026-11-09');
+  expect(calendarToday(Date.parse('2026-11-09T16:00:00Z'))).toBe('2026-11-10');
+  const starts: number[] = [];
+  const record = async (start: number) => {
+    starts.push(start);
+    return 0;
+  };
+  const job = new ConversationCalendarJob(
+    '2026-11',
+    [],
+    [
+      {
+        kind: 'c2c',
+        count: record,
+        page: async (start) => {
+          await record(start);
+          return { rows: [], done: true };
+        },
+      },
+    ],
+  );
+  job.keepAlive('2026-11-30');
+  await finish(job);
+  const cutoff = Date.parse('2026-11-10T00:00:00+08:00') / 1000;
+  expect(starts).toHaveLength(9);
+  expect(starts.every((start) => start < cutoff)).toBe(true);
+  expect(job.snapshot().progress.totalSources).toBe(9);
+  expect(job.snapshot().days.filter((day) => day.unavailable)).toHaveLength(21);
+  vi.setSystemTime(new Date('2026-11-10T00:00:00+08:00'));
+  job.keepAlive();
+  await finish(job);
+  expect(starts.at(-1)).toBe(cutoff);
+  expect(starts).toHaveLength(10);
+  job.cancel();
+});
+
+it('未来整月不执行来源读取', async () => {
+  const read = vi.fn(async () => ({ rows: [], done: true }));
+  const job = new ConversationCalendarJob('2026-12', [], [{ kind: 'c2c', page: read }]);
+  job.keepAlive('2026-12-01');
+  await finish(job);
+  expect(read).not.toHaveBeenCalled();
+  expect(job.snapshot().progress.totalSources).toBe(0);
+  job.cancel();
 });
 it('缓存空间不足时整批不提交，不产生部分提交后的重数', async () => {
   let reservations = 0;

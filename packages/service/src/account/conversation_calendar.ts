@@ -96,6 +96,9 @@ export function calendarMonthDays(
     return { day, start, end: start + 86400 };
   });
 }
+export function calendarToday(now = Date.now()): string {
+  return new Date(now + 8 * 3600 * 1000).toISOString().slice(0, 10);
+}
 export function filterCalendarTargets(
   targets: readonly CalendarTarget[],
   scope: 'all' | 'real' | 'virtual' | 'guild',
@@ -202,6 +205,9 @@ export class ConversationCalendarJob {
   }
   private readonly targets: Map<string, CalendarTarget>;
   private readonly work: Work[];
+  private available(task: Work): boolean {
+    return this.enabled.has(task.source.kind) && task.day <= calendarToday();
+  }
   private selectedDay: string | undefined;
   private running: Promise<void> | undefined;
   private leaseTimer: ReturnType<typeof setTimeout> | undefined;
@@ -285,6 +291,7 @@ export class ConversationCalendarJob {
     );
   }
   keepAlive(day?: string, retry = false): void {
+    if (day && day > calendarToday()) day = undefined;
     this.leaseUntil = Date.now() + 5000;
     clearTimeout(this.leaseTimer);
     if (!this.background)
@@ -292,7 +299,7 @@ export class ConversationCalendarJob {
         if (this.running) this.cancel();
       }, 5000);
     if (day !== this.selectedDay) {
-      if (day) this.log('info', 'task', `优先统计 ${day}；完成后按近的过去日期、未来日期继续`);
+      if (day) this.log('info', 'task', `优先统计 ${day}；完成后继续统计截至今天的其他日期`);
       for (const task of this.work) {
         if (task.day !== day && task.counted && task.detailed) this.clearDetails(task);
       }
@@ -355,7 +362,7 @@ export class ConversationCalendarJob {
     if (
       !this.work.some(
         (task) =>
-          this.enabled.has(task.source.kind) &&
+          this.available(task) &&
           !task.error &&
           (!task.counted || (task.day === this.selectedDay && !task.detailed)),
       )
@@ -369,12 +376,13 @@ export class ConversationCalendarJob {
       this.readState = undefined;
       clearTimeout(this.leaseTimer);
       if (!this.controller.signal.aborted) {
-        const done = this.work.filter((task) => task.counted && !task.error).length;
-        const failed = this.work.filter((task) => task.error).length;
+        const available = this.work.filter((task) => this.available(task));
+        const done = available.filter((task) => task.counted && !task.error).length;
+        const failed = available.filter((task) => task.error).length;
         this.log(
           failed ? 'warn' : 'info',
           'task',
-          `${failed ? '部分统计已暂停' : '本轮统计完成'}｜完成 ${done}/${this.work.length} 个日期来源${failed ? `，${failed} 个未完成` : ''}`,
+          `${failed ? '部分统计已暂停' : '本轮统计完成'}｜完成 ${done}/${available.length} 个日期来源${failed ? `，${failed} 个未完成` : ''}`,
         );
       }
     });
@@ -396,14 +404,8 @@ export class ConversationCalendarJob {
       const task =
         this.work.find(
           (work) =>
-            this.enabled.has(work.source.kind) &&
-            work.day === this.selectedDay &&
-            !work.detailed &&
-            !work.error,
-        ) ??
-        this.work.find(
-          (work) => this.enabled.has(work.source.kind) && !work.counted && !work.error,
-        );
+            this.available(work) && work.day === this.selectedDay && !work.detailed && !work.error,
+        ) ?? this.work.find((work) => this.available(work) && !work.counted && !work.error);
       if (!task) return;
       if (this.activeWork !== task)
         this.log(
@@ -519,19 +521,19 @@ export class ConversationCalendarJob {
     this.cancel();
   }
   snapshot(day?: string, offset = 0, includeLogs = false, limit = 50) {
-    const enabledWork = this.work.filter((item) => this.enabled.has(item.source.kind));
+    const enabledWork = this.work.filter((item) => this.available(item));
     const days = calendarMonthDays(this.month).map(({ day: value }) => {
       const work = enabledWork.filter((item) => item.day === value);
       return {
         day: value,
+        unavailable: value > calendarToday(),
         count: work.reduce((sum, item) => sum + item.count, 0),
         complete: work.every((item) => item.counted),
         errors: [...new Set(work.flatMap((item) => (item.error ? [item.error] : [])))],
       };
     });
     const work = enabledWork.filter((item) => item.day === day);
-    const scanDay =
-      this.lastScan && this.enabled.has(this.lastScan.source.kind) ? this.lastScan.day : undefined;
+    const scanDay = this.lastScan && this.available(this.lastScan) ? this.lastScan.day : undefined;
     const scanWork = enabledWork.filter((item) => item.day === scanDay);
     if (day && !days.some((value) => value.day === day)) throw new Error('日历日期无效');
     const complete = work.every((item) => item.detailed);
@@ -561,10 +563,7 @@ export class ConversationCalendarJob {
             count: scanWork.reduce((sum, item) => sum + item.count, 0),
           }
         : undefined,
-      readState:
-        this.activeWork && this.enabled.has(this.activeWork.source.kind)
-          ? this.readState
-          : undefined,
+      readState: this.activeWork && this.available(this.activeWork) ? this.readState : undefined,
       days,
       progress: {
         completedSources: enabledWork.filter((item) => item.counted && !item.error).length,
@@ -574,7 +573,7 @@ export class ConversationCalendarJob {
       logs: includeLogs ? [...this.logs] : undefined,
       activeScan:
         this.activeWork &&
-        this.enabled.has(this.activeWork.source.kind) &&
+        this.available(this.activeWork) &&
         this.current() &&
         !this.activeWork.error
           ? {

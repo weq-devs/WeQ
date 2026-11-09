@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type { CalendarKind } from '@weq/service/conversation-calendar';
 import '../styles/search-scope.css';
+import { beijingDay } from '../lib/messageCalendar';
 import { CalendarScanProgress } from './CalendarScanProgress';
 import { CalendarConversationList } from './CalendarConversationList';
 import { TaskLogDisclosure } from './TaskLogDisclosure';
@@ -152,7 +153,11 @@ export function CalendarStatistics({
             aria-label="列表日期"
             value={day}
             min={`${month}-01`}
-            max={snapshot?.days.at(-1)?.day}
+            max={
+              snapshot?.days.at(-1)?.day && snapshot.days.at(-1)!.day < beijingDay()
+                ? snapshot.days.at(-1)!.day
+                : beijingDay()
+            }
             onChange={(event) => {
               if (event.target.value) onDayChange(event.target.value);
             }}

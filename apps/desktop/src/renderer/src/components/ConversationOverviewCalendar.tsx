@@ -307,6 +307,7 @@ export function ConversationOverviewCalendar({
         </header>
         <div className="weq-overview-calendar-body">
           <MessageCalendar
+            maxDay={beijingDay()}
             month={month}
             onMonthChange={(value) => {
               setSnapshot(undefined);
@@ -333,11 +334,13 @@ export function ConversationOverviewCalendar({
             }}
             loading={!ready || !snapshot}
             statusText={
-              !snapshot
-                ? '正在读取消息数量…'
-                : errors.length
-                  ? '部分日期统计未完成'
-                  : (calendarReadLabel(snapshot) ?? (dirty ? '数据有变更' : undefined))
+              month > beijingDay().slice(0, 7)
+                ? '未来日期不统计'
+                : !snapshot
+                  ? '正在读取消息数量…'
+                  : errors.length
+                    ? '部分日期统计未完成'
+                    : (calendarReadLabel(snapshot) ?? (dirty ? '数据有变更' : undefined))
             }
           />
           <CalendarStatistics
@@ -345,7 +348,9 @@ export function ConversationOverviewCalendar({
             day={day}
             id={id}
             busy={busy}
-            error={!ready ? '正在读取会话目录…' : directoryError}
+            error={
+              day > beijingDay() ? '未来日期不统计' : !ready ? '正在读取会话目录…' : directoryError
+            }
             logOpen={logOpen}
             onLogOpenChange={setLogOpen}
             targets={selectedByKey}

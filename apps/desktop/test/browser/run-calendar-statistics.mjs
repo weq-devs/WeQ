@@ -57,7 +57,7 @@ try {
   await page.getByRole('group', { name: '统计内容', exact: true }).waitFor();
   if (
     (await page
-      .getByRole('progressbar', { name: '2026-11-11 进度', exact: true })
+      .getByRole('progressbar', { name: '2026-11-09 进度', exact: true })
       .getAttribute('value')) !== '0'
   )
     throw new Error('当日进度未跟随实际扫描日');

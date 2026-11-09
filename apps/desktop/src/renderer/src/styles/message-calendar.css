@@ -112,6 +112,12 @@ html[data-theme='dark'] .weq-density-calendar-grid button {
 html[data-theme='dark'] .weq-density-calendar-grid .is-range {
   border-color: var(--weq-accent-effective);
 }
+.weq-density-calendar-grid button.is-future {
+  color: var(--weq-fg-muted);
+  background: var(--muted);
+  border-color: transparent;
+  opacity: 0.45;
+}
 .weq-record-calendar-actions {
   display: flex;
   flex-wrap: wrap;

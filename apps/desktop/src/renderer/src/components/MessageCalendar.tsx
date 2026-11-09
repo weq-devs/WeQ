@@ -22,6 +22,7 @@ export function MessageCalendar({
   dayStatus,
   yearOptions,
   statusText,
+  maxDay,
 }: {
   days?: readonly MessageDay[];
   start?: string;
@@ -38,6 +39,7 @@ export function MessageCalendar({
   dayStatus?: Record<string, { complete: boolean }>;
   yearOptions?: string[];
   statusText?: string;
+  maxDay?: string;
 }) {
   const [localMonth, setLocalMonth] = useState((start || beijingDay()).slice(0, 7));
   const month = controlledMonth ?? localMonth;
@@ -52,7 +54,11 @@ export function MessageCalendar({
     initialized.current = true;
   }, [days, loading, start, controlledMonth]);
   const counts = useMemo(() => new Map(days.map((row) => [row.day, row.count])), [days]);
-  const maxCount = useMemo(() => days.reduce((max, row) => Math.max(max, row.count), 0), [days]);
+  const maxCount = useMemo(
+    () =>
+      days.reduce((max, row) => (!maxDay || row.day <= maxDay ? Math.max(max, row.count) : max), 0),
+    [days, maxDay],
+  );
   const [year = 2026, mon = 1] = month.split('-').map(Number);
   const leadingDays = new Date(Date.UTC(year, mon - 1, 1)).getUTCDay();
   const length = new Date(Date.UTC(year, mon, 0)).getUTCDate();
@@ -112,6 +118,7 @@ export function MessageCalendar({
           const key = `${month}-${index}`;
           if (date < 1 || date > length) return <span key={key} />;
           const day = `${month}-${String(date).padStart(2, '0')}`;
+          const future = Boolean(maxDay && day > maxDay);
           const count = counts.get(day) ?? 0;
           const pending = dayStatus ? !dayStatus[day]?.complete : loading && !counts.has(day);
           const selected = day === start || day === end;
@@ -121,23 +128,27 @@ export function MessageCalendar({
               type="button"
               key={key}
               data-density={messageDensity(count, maxCount)}
-              className={`${selected ? 'is-selected' : ''} ${inRange ? 'is-range' : ''}`}
-              aria-pressed={selected}
+              className={`${selected && !future ? 'is-selected' : ''} ${inRange && !future ? 'is-range' : ''} ${future ? 'is-future' : ''}`}
+              aria-pressed={selected && !future}
               aria-label={
-                pending
-                  ? count > 0
-                    ? `${day}，已计 ${count} 条，尚未完成`
-                    : `${day}，消息数量统计中`
-                  : `${day}，${count} 条消息`
+                future
+                  ? `${day}，未来日期不统计`
+                  : pending
+                    ? count > 0
+                      ? `${day}，已计 ${count} 条，尚未完成`
+                      : `${day}，消息数量统计中`
+                    : `${day}，${count} 条消息`
               }
               title={
-                pending
-                  ? count > 0
-                    ? `${day}（北京时间）：已计 ${count.toLocaleString('zh-CN')} 条，尚未完成`
-                    : `${day}（北京时间）：消息数量统计中`
-                  : `${day}（北京时间）：${count.toLocaleString('zh-CN')} 条`
+                future
+                  ? `${day}（北京时间）：未来日期不统计`
+                  : pending
+                    ? count > 0
+                      ? `${day}（北京时间）：已计 ${count.toLocaleString('zh-CN')} 条，尚未完成`
+                      : `${day}（北京时间）：消息数量统计中`
+                    : `${day}（北京时间）：${count.toLocaleString('zh-CN')} 条`
               }
-              disabled={busy || (!allowEmpty && (loading || !count))}
+              disabled={future || busy || (!allowEmpty && (loading || !count))}
               onClick={() => {
                 initialized.current = true;
                 onPick(day);
@@ -145,15 +156,17 @@ export function MessageCalendar({
             >
               <span>{date}</span>
               <small>
-                {pending
-                  ? count > 0
-                    ? `${compactCount.format(count)}+`
-                    : '…'
-                  : count
-                    ? compactCount.format(count)
-                    : dayStatus
-                      ? '0'
-                      : ''}
+                {future
+                  ? ''
+                  : pending
+                    ? count > 0
+                      ? `${compactCount.format(count)}+`
+                      : '…'
+                    : count
+                      ? compactCount.format(count)
+                      : dayStatus
+                        ? '0'
+                        : ''}
               </small>
             </button>
           );
