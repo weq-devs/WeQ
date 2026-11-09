@@ -17,7 +17,7 @@ const dateFormat = new Intl.DateTimeFormat('zh-CN', {
   day: '2-digit',
 });
 
-function SourceGroup({ code }: { code: string }) {
+function SourceGroup({ code, source }: { code: string; source: string | null }) {
   const session = useQQWriteSession(`friend-clue-group:${code}`);
   const directory = useContext(ConversationDirectoryContext);
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
@@ -26,7 +26,11 @@ function SourceGroup({ code }: { code: string }) {
     { ...session.binding!, groupId },
     {
       enabled:
-        session.available && Number.isInteger(groupId) && groupId > 0 && groupId <= 0xffffffff,
+        Boolean(anchor) &&
+        session.available &&
+        Number.isInteger(groupId) &&
+        groupId > 0 &&
+        groupId <= 0xffffffff,
       retry: 2,
       retryDelay: 1000,
       staleTime: 60000,
@@ -64,7 +68,7 @@ function SourceGroup({ code }: { code: string }) {
           onClick={(event) => setAnchor(event.currentTarget)}
         >
           <GroupAvatar code={code} size={24} />
-          <span>{name || (query.isFetching ? '群名称读取中' : '群名称暂不可用')}</span>
+          <span>{source || '未知'}</span>
         </button>
       </div>
       {anchor && (
@@ -121,7 +125,11 @@ function FriendClueBody({ uid }: { uid: string }) {
             }
           />
           {data.sourceGroupCode ? (
-            <SourceGroup key={`${uid}:${data.sourceGroupCode}`} code={data.sourceGroupCode} />
+            <SourceGroup
+              key={`${uid}:${data.sourceGroupCode}`}
+              code={data.sourceGroupCode}
+              source={data.source}
+            />
           ) : (
             <ProfileRow
               sensitive

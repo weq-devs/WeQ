@@ -101,7 +101,7 @@ function data(): Clue & { uid: string } {
     addedAt: 1704038400,
     direction: 'outgoing',
     rawDirection: 2,
-    source: '通过群聊',
+    source: '线索接口返回的群名',
     sourceGroupCode: '12345',
     canOpenSourceGroup: true,
     verificationMessage: '你好\n问题1:名字',
@@ -119,23 +119,27 @@ afterEach(() => {
 });
 
 it.each([true, false])(
-  '群来源直接展示头像和接口群名，点击打开真实群名片（本地收录 %s）',
+  '来源名称严格使用线索接口原文，点开后才读取真实群名片（本地收录 %s）',
   (known) => {
     state.data = data();
     const f = render(known);
     try {
       expect(f.host.textContent).toContain('添加时间2024/01/01');
       expect(f.host.textContent).toContain('我添加对方');
-      expect(f.host.textContent).toContain('接口真实群名');
-      expect(f.host.textContent).not.toContain('通过群聊');
+      expect(f.host.textContent).toContain('线索接口返回的群名');
+      expect(f.host.textContent).not.toContain('接口真实群名');
+      expect(f.host.textContent).not.toContain('旧缓存群名');
+      expect(state.groupQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: false });
       expect(f.host.textContent).not.toContain('来源群号');
       const source = f.host.querySelector<HTMLButtonElement>('[aria-label="查看来源群名片"]')!;
       expect(source.querySelector('img')?.src).toContain('12345');
       act(() => source.click());
+      expect(state.groupQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: true });
       const dialog = document.querySelector('[aria-label="群资料"]')!;
       expect(dialog.querySelector('.weq-profile-name')?.textContent).toBe('接口真实群名');
       expect(dialog.textContent).toContain('12345');
       expect(dialog.textContent).not.toContain('旧缓存群名');
+      expect(source.textContent).toBe('线索接口返回的群名');
       if (known) {
         expect(dialog.textContent).toContain('真实群公告');
         expect(dialog.textContent).toContain('23');
@@ -163,16 +167,28 @@ it('非群来源保留接口原文，不查询群资料', () => {
     f.close();
   }
 });
+it('线索接口缺失来源时显示未知，不用群资料或本地群名替换', () => {
+  state.data = { ...data(), source: null };
+  const f = render(true);
+  try {
+    expect(f.host.querySelector('.weq-friend-source-group')?.textContent).toBe('未知');
+    expect(state.groupQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: false });
+  } finally {
+    f.close();
+  }
+});
 it('群资料失败或返回其他群时不展示错误群名，切换好友关闭已打开名片', () => {
   state.data = data();
   state.groupData = { ...state.groupData!, groupId: 99999, name: '错误群名' };
   const f = render();
   try {
     expect(f.host.textContent).not.toContain('错误群名');
+    expect(f.host.textContent).toContain('线索接口返回的群名');
     state.groupData = { ...state.groupData!, groupId: 12345 };
     state.groupError = true;
     f.update();
     expect(f.host.textContent).not.toContain('错误群名');
+    expect(f.host.textContent).toContain('线索接口返回的群名');
     state.groupError = false;
     state.groupData.name = '接口真实群名';
     f.update();
@@ -207,7 +223,7 @@ it('离线、失败、读取中不展示旧结果，无刷新按钮，失败使�
   const f = render();
   try {
     expect(f.host.textContent).toContain('暂不可读取');
-    expect(f.host.textContent).not.toContain('通过群聊');
+    expect(f.host.textContent).not.toContain('线索接口返回的群名');
     expect(f.host.querySelector('button')).toBeNull();
     expect(state.query.mock.calls.at(-1)?.[1]).toMatchObject({
       enabled: false,
@@ -219,7 +235,7 @@ it('离线、失败、读取中不展示旧结果，无刷新按钮，失败使�
     state.error = true;
     f.update();
     expect(f.host.textContent).toContain('读取失败');
-    expect(f.host.textContent).not.toContain('通过群聊');
+    expect(f.host.textContent).not.toContain('线索接口返回的群名');
     state.data = null;
     state.error = false;
     state.fetching = true;
@@ -235,7 +251,7 @@ it('切换目标不显示上一个 UID 的数据', () => {
   const f = render();
   try {
     f.update('u_other');
-    expect(f.host.textContent).not.toContain('通过群聊');
+    expect(f.host.textContent).not.toContain('线索接口返回的群名');
     expect(state.query.mock.calls.at(-1)?.[0]).toMatchObject({ uid: 'u_other' });
   } finally {
     f.close();
