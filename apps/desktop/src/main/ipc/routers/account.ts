@@ -104,6 +104,8 @@ import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
 import { mediaSaveRouter } from './media_save';
 import { resourceCleanupRouter } from './resource_cleanup';
+import { conversationCalendarRouter } from './conversation_calendar';
+import { roamingMsgToWire } from '../roaming_message_wire';
 import { dressupRouter } from './dressup';
 import { redpackRouter } from './redpack';
 import { giftMallRouter } from './gift_mall';
@@ -150,7 +152,6 @@ import {
   type RenderC2cMsg,
   type RenderGroupMsg,
   type MessagePageOptions,
-  type GapFetchedMessage,
 } from '@weq/service';
 import {
   buddyRequestToWire,
@@ -760,11 +761,6 @@ export interface GroupFileExportResult {
   total: number;
   ok: number;
   failed: Array<{ fileId: string; fileName: string; error: string }>;
-}
-
-function roamingMsgToWire(row: GapFetchedMessage): ChatMsgWire {
-  const { nativeRaw: _nativeRaw, protocolRaw: _protocolRaw, ...wire } = row;
-  return { ...wire, source: 'roaming', msgRandom: row.msgRandom ?? '' };
 }
 
 /** Merge an offline cache page using the same cursor and ordering as the local page. */
@@ -1757,6 +1753,7 @@ const browserFiles = new FileUploadStaging(30 * 60000, {
 });
 
 export const accountRouter = router({
+  calendarOverview: conversationCalendarRouter,
   onWebNotice: procedure.input(browserFileBinding).subscription(({ input }) => {
     const services = requireExpectedAccount(
       input.expectedAccountUin,
@@ -2993,23 +2990,39 @@ export const accountRouter = router({
     .input(
       z.object({
         peerUid: z.string().min(1),
+        anchorId: z
+          .string()
+          .regex(/^-?\d+$/)
+          .optional(),
         limit: z.number().int().min(1).max(500).default(100),
       }),
     )
     .query(async ({ input }) => {
-      const msgs = await requireServices().officialAccount.listArkFeed(input.peerUid, input.limit);
+      const msgs = await requireServices().officialAccount.listArkFeed(
+        input.peerUid,
+        input.limit,
+        input.anchorId,
+      );
       return msgs.map(c2cMsgToWire);
     }),
 
   /** 服务号单个会话 ARK 消息流（最近 limit 条）。 */
   listServiceAccountArkFeed: procedure
     .input(
-      z.object({ appId: z.string().min(1), limit: z.number().int().min(1).max(500).default(100) }),
+      z.object({
+        appId: z.string().min(1),
+        limit: z.number().int().min(1).max(500).default(100),
+        anchorId: z
+          .string()
+          .regex(/^-?\d+$/)
+          .optional(),
+      }),
     )
     .query(async ({ input }) => {
       const msgs = await requireServices().serviceAccount.listArkFeed(
         BigInt(input.appId),
         input.limit,
+        input.anchorId,
       );
       return msgs.map(c2cMsgToWire);
     }),

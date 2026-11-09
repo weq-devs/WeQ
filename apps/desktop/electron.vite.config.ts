@@ -20,6 +20,8 @@ const EXCLUDE_FROM_EXTERNAL = [
   '@weq/platform',
   '@weq/protocol',
   '@weq/service',
+  '@weq/service/conversation-calendar',
+  '@weq/service/conversation-calendar-sources',
   '@weq/service/storage-cleanup',
   '@weq/service/db-checkup',
   '@weq/service/bad-pages',

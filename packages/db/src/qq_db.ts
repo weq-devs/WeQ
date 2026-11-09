@@ -18,7 +18,12 @@ import type {
   SqlValue,
   DatabaseAlgorithms,
 } from '@weq/native';
-import { scheduleDatabase } from './query_schedule';
+import {
+  databaseReadBudget,
+  databaseRequestSignal,
+  scheduleDatabase,
+  waitForDatabaseQuiet,
+} from './query_schedule';
 import { queryDiagnosticSource } from './query_diagnostics';
 import {
   iterateSalvageWindows,
@@ -65,7 +70,38 @@ export class QqDb {
    * `SqlValue` arrays. Use `rowsToObjects` from `./row` if you have a
    * static column list and prefer named access.
    */
-  query(sql: string, params?: SqlValue[]): Promise<SqlRow[]> {
+  async query(sql: string, params?: SqlValue[]): Promise<SqlRow[]> {
+    const budget = databaseReadBudget();
+    if (budget !== undefined) {
+      const read = this.nt.executeSqlBudgeted;
+      if (!read) throw new Error('日历需要支持短预算读取的原生组件');
+      const signal = databaseRequestSignal();
+      const current = () => !signal?.aborted;
+      if (!(await waitForDatabaseQuiet(this.dbPath, current, 500)))
+        throw new DOMException('日历统计已取消', 'AbortError');
+      await new Promise<void>((done) => setTimeout(done, 20));
+      return scheduleDatabase(
+        this.dbPath,
+        async () => {
+          const began = performance.now();
+          try {
+            return await read.call(
+              this.nt,
+              this.dbPath,
+              sql,
+              params ?? null,
+              budget.milliseconds,
+              this.encrypted ? this.key : null,
+              this.encrypted ? this.algo : null,
+            );
+          } finally {
+            budget.onRead?.(performance.now() - began);
+          }
+        },
+        this.nt,
+        queryDiagnosticSource(sql),
+      );
+    }
     return scheduleDatabase(
       this.dbPath,
       () =>

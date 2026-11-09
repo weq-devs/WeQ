@@ -27,6 +27,7 @@ import {
   CloudDownload,
   Download,
   FolderInput,
+  CalendarDays,
 } from 'lucide-react';
 import {
   useCallback,
@@ -39,6 +40,7 @@ import {
 } from 'react';
 import { conversationPinned } from '@weq/service/conversation-order';
 import { sortConversationRows } from '../../lib/conversationListOrder';
+import { conversationListSearchText } from '../../lib/conversationListSearchText';
 import { formatConversationTime } from '../../lib/conversationTime';
 export { formatConversationTime } from '../../lib/conversationTime';
 import { useConversationClickTarget } from '../../hooks/useConversationClickTarget';
@@ -234,13 +236,7 @@ export function ConversationList({
       ...(scope === 'all' || scope === 'real' ? realRows : []),
       ...(scope === 'all' || scope === 'guild' ? guildRows : []),
       ...(scope === 'all' || scope === 'virtual' ? virtualRows : []),
-    ].filter(
-      (row) =>
-        !needle ||
-        `${conversationTitle(row)} ${conversationSeed(row)} ${row.type === 'group' ? row.group.name : ''}`
-          .toLocaleLowerCase()
-          .includes(needle),
-    );
+    ].filter((row) => !needle || conversationListSearchText(row).includes(needle));
     // 完整目录可用于查找操作目标，但不能绕过主列表的群助手归属。
     const visible = directory?.groupAssistantIds
       ? sidebarConversationsWithoutAssistant(rows, directory.groupAssistantIds)
@@ -435,6 +431,18 @@ export function ConversationList({
     <div className="list-stack weq-conversation-directory" {...multi.rootProps}>
       <DirectoryToolbar
         noun="会话"
+        searchActions={
+          directory?.onCalendar ? (
+            <button
+              type="button"
+              title="会话日历"
+              aria-label="会话日历"
+              onClick={() => directory.onCalendar(keyword)}
+            >
+              <CalendarDays size={16} />
+            </button>
+          ) : null
+        }
         query={keyword}
         onQuery={setKeyword}
         selecting={selectionMode}
@@ -582,6 +590,16 @@ export function ConversationList({
             </div>
           ) : null}
         </div>
+        {directory?.onCalendar ? (
+          <button
+            type="button"
+            title="会话日历"
+            aria-label="会话日历"
+            onClick={() => directory.onCalendar(keyword)}
+          >
+            <CalendarDays size={16} />
+          </button>
+        ) : null}
       </DirectoryToolbar>
       {lookupOpen && (
         <QQExactLookup key={lookupOpen} kind={lookupOpen} onClose={() => setLookupOpen(null)} />

@@ -16,6 +16,10 @@ export function MessageCalendar({
   error,
   leading,
   trailing,
+  month: controlledMonth,
+  onMonthChange,
+  dayStatus,
+  yearOptions,
 }: {
   days?: readonly MessageDay[];
   start?: string;
@@ -27,20 +31,31 @@ export function MessageCalendar({
   error?: string;
   leading?: ReactNode;
   trailing?: ReactNode;
+  month?: string;
+  onMonthChange?: (month: string) => void;
+  dayStatus?: Record<string, { complete: boolean }>;
+  yearOptions?: string[];
 }) {
-  const [month, setMonth] = useState((start || beijingDay()).slice(0, 7));
+  const [localMonth, setLocalMonth] = useState((start || beijingDay()).slice(0, 7));
+  const month = controlledMonth ?? localMonth;
+  const setMonth = (value: string) => {
+    setLocalMonth(value);
+    onMonthChange?.(value);
+  };
   const initialized = useRef(false);
   useEffect(() => {
     if (initialized.current || loading) return;
-    if (!start && days.length) setMonth(days.at(-1)!.day.slice(0, 7));
+    if (!controlledMonth && !start && days.length) setLocalMonth(days.at(-1)!.day.slice(0, 7));
     initialized.current = true;
-  }, [days, loading, start]);
+  }, [days, loading, start, controlledMonth]);
   const counts = useMemo(() => new Map(days.map((row) => [row.day, row.count])), [days]);
   const maxCount = useMemo(() => days.reduce((max, row) => Math.max(max, row.count), 0), [days]);
   const [year = 2026, mon = 1] = month.split('-').map(Number);
   const leadingDays = new Date(Date.UTC(year, mon - 1, 1)).getUTCDay();
   const length = new Date(Date.UTC(year, mon, 0)).getUTCDate();
-  const years = [...new Set([...days.map((day) => day.day.slice(0, 4)), String(year)])].sort();
+  const years = [
+    ...new Set([...(yearOptions ?? []), ...days.map((day) => day.day.slice(0, 4)), String(year)]),
+  ].sort();
   function move(delta: number) {
     initialized.current = true;
     setMonth(new Date(Date.UTC(year, mon - 1 + delta, 1)).toISOString().slice(0, 7));
@@ -95,6 +110,7 @@ export function MessageCalendar({
           if (date < 1 || date > length) return <span key={key} />;
           const day = `${month}-${String(date).padStart(2, '0')}`;
           const count = counts.get(day) ?? 0;
+          const pending = dayStatus ? !dayStatus[day]?.complete : loading && !counts.has(day);
           const selected = day === start || day === end;
           const inRange = Boolean(start && end && day >= start && day <= end);
           return (
@@ -104,11 +120,9 @@ export function MessageCalendar({
               data-density={messageDensity(count, maxCount)}
               className={`${selected ? 'is-selected' : ''} ${inRange ? 'is-range' : ''}`}
               aria-pressed={selected}
-              aria-label={
-                loading && !counts.has(day) ? `${day}，消息数量统计中` : `${day}，${count} 条消息`
-              }
+              aria-label={pending ? `${day}，消息数量统计中` : `${day}，${count} 条消息`}
               title={
-                loading && !counts.has(day)
+                pending
                   ? `${day}（北京时间）：消息数量统计中`
                   : `${day}（北京时间）：${count.toLocaleString('zh-CN')} 条`
               }
@@ -120,19 +134,25 @@ export function MessageCalendar({
             >
               <span>{date}</span>
               <small>
-                {count
-                  ? Intl.NumberFormat('zh-CN', {
-                      notation: 'compact',
-                      maximumFractionDigits: 1,
-                    }).format(count)
-                  : ''}
+                {pending
+                  ? '…'
+                  : count
+                    ? Intl.NumberFormat('zh-CN', {
+                        notation: 'compact',
+                        maximumFractionDigits: 1,
+                      }).format(count)
+                    : dayStatus
+                      ? '0'
+                      : ''}
               </small>
             </button>
           );
         })}
       </div>
       <div className="weq-density-calendar-status" role="status">
-        {loading ? '正在读取消息数量…' : `北京时间 · ${days.length} 个有记录日期`}
+        {loading
+          ? '正在读取消息数量…'
+          : `北京时间 · ${days.filter((day) => day.count > 0).length} 个有记录日期`}
       </div>
       {error ? <p role="alert">{error}</p> : null}
     </div>

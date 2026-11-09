@@ -18,6 +18,7 @@ export function DirectoryToolbar({
   separateSelectionBar = false,
   searchEnabled = true,
   endAction,
+  searchActions,
 }: {
   noun: string;
   query: string;
@@ -33,6 +34,7 @@ export function DirectoryToolbar({
   separateSelectionBar?: boolean;
   searchEnabled?: boolean;
   endAction?: (searching: boolean, closeSearch: () => void) => ReactNode;
+  searchActions?: ReactNode;
 }) {
   const [searching, setSearching] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -95,6 +97,7 @@ export function DirectoryToolbar({
               if (event.key === 'Escape') closeSearch();
             }}
           />
+          {searchActions}
           {!endAction && (
             <button
               type="button"

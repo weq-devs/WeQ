@@ -61,8 +61,10 @@ export class ServiceAccountService {
   /**
    * Fetch the full ARK feed for one 服务号 (latest `limit` messages, ARK-only).
    */
-  async listArkFeed(appId: bigint, limit = 100): Promise<ArkFeedMessage[]> {
-    const msgs = await this.session.serviceAssistantMsgs.listLatest({ appId }, limit);
+  async listArkFeed(appId: bigint, limit = 100, anchorId?: string): Promise<ArkFeedMessage[]> {
+    const msgs = anchorId
+      ? await this.session.serviceAssistantMsgs.calendarMessage({ appId }, BigInt(anchorId))
+      : await this.session.serviceAssistantMsgs.listLatest({ appId }, limit);
     const rendered = msgs.map((msg: C2cMsg) => this.renderC2c(msg));
     return filterArkOnly(rendered);
   }

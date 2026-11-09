@@ -48,6 +48,7 @@ export const ConversationDirectoryContext = createContext<{
   readStateBusy?: boolean;
   onVisibleConversations?: (rows: readonly Conversation[]) => void;
   onConversationIntent?: (row: Conversation) => void;
+  onCalendar?: (query: string) => void;
 } | null>(null);
 
 export const ContactDirectoryContext = createContext<{

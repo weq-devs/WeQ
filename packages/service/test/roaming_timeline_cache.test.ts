@@ -62,6 +62,60 @@ function message(
   };
 }
 
+it('日历缓存读取仅投影元数据，保留去重/验证身份且不触发建表写入', async () => {
+  const { cache, nt } = setup();
+  await cache.store([
+    {
+      ...message(12, 'c2c', true),
+      msgId: '9007199254740993001',
+      sourceFormat: 'protocol',
+      elements: [{ type: 'text', data: { textContent: '不应复制到计数路径' } }],
+    },
+    { ...message(13, 'c2c', false), msgId: '9007199254740993002', sourceFormat: 'protocol' },
+  ]);
+  const write = vi.spyOn(nt, 'executeSqlWrite');
+  const rows = await cache.query(
+    'c2c',
+    'synthetic-conversation',
+    1,
+    100,
+    true,
+    256,
+    false,
+    false,
+    undefined,
+    true,
+  );
+  expect(rows.map((row) => row.msgId)).toEqual(['9007199254740993001']);
+  expect(rows[0]?.elements).toEqual([]);
+  expect(rows[0]?.ntSeqVerified).toBe(true);
+  expect(await cache.calendarConversations()).toEqual([
+    { kind: 'c2c', conv: 'synthetic-conversation' },
+  ]);
+  expect(write).not.toHaveBeenCalled();
+});
+
+it('没有漫游缓存时日历不创建替代库或表', async () => {
+  const { cache, nt } = setup();
+  const write = vi.spyOn(nt, 'executeSqlWrite');
+  expect(await cache.calendarConversations()).toEqual([]);
+  expect(
+    await cache.query(
+      'group',
+      'synthetic-conversation',
+      1,
+      100,
+      false,
+      256,
+      false,
+      false,
+      undefined,
+      true,
+    ),
+  ).toEqual([]);
+  expect(write).not.toHaveBeenCalled();
+});
+
 describe('offline roaming timeline cache pages', () => {
   it('原生负数 ID 与正数 ID 的同序号排序和续页一致', async () => {
     const { cache, history } = setup();

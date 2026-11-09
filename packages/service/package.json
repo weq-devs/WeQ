@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     "./service-ports": "./src/common/service_ports.ts",
+    "./conversation-calendar-sources": "./src/account/conversation_calendar_sources.ts",
+    "./conversation-calendar": "./src/account/conversation_calendar.ts",
     "./message-plain-text": "./src/common/message_plain_text.ts",
     "./ark-cards": "./src/common/arkCards.ts",
     "./group-share-target": "./src/common/group_share_target.ts",

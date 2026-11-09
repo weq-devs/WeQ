@@ -291,7 +291,12 @@ import {
   ContactDirectoryContext,
   guildConversationRow,
 } from '../lib/conversationDirectory';
-import { displayUserName } from '../im-template/template/user';
+  virtualConversationRow,
+import { displayGroupName, displayUserName } from '../im-template/template/user';
+import { isDatalineUid } from '@weq/codec';
+import type { CalendarTarget as OverviewCalendarTarget } from '@weq/service/conversation-calendar';
+import { ConversationOverviewCalendar } from '../components/ConversationOverviewCalendar';
+import { conversationListSearchText } from '../lib/conversationListSearchText';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
 import { WorkspaceTools } from '../components/WorkspaceTools';
 import type { AppSearchEntry, ToolSearchRequest } from '../components/search/appSearchCatalog';
@@ -2622,6 +2627,7 @@ function MainWorkspace(): ReactElement {
     conversationId: string;
     title: string;
   } | null>(null);
+    anchorId?: string;
 
   // Seq-window message model: a single ASC (oldest→newest) list for the open
   // conversation, plus whether it still reaches the latest message and whether
@@ -2862,6 +2868,8 @@ function MainWorkspace(): ReactElement {
 
   const [unreadRevision, setUnreadRevision] = useState(0);
 
+  const [calendarDataRevision, setCalendarDataRevision] = useState(0);
+  const calendarOpenRef = useRef(false);
   useEffect(() => {
     const binding = messageBindingRef.current;
     if (!messageScope || !binding) return;
@@ -2869,6 +2877,7 @@ function MainWorkspace(): ReactElement {
       onData(change) {
         if (messageScopeRef.current !== messageScope) return;
         conversationWindows.markDirty(
+        if (calendarOpenRef.current) setCalendarDataRevision((revision) => revision + 1);
           conversationWindowKey(messageScope, change.kind, change.conv),
         );
         // WeQ 发送缓存不会改 QQ 库，也就不会触发 onDbChanged。
@@ -3916,9 +3925,13 @@ function MainWorkspace(): ReactElement {
   // Set when a search hit was clicked: the listLatest effect, after the target
   // conversation's newest page lands, rebuilds the window centred on this seq
   // instead of leaving the view pinned to the latest.
-  const pendingSearchJumpRef = useRef<{ conv: string; kind: 'group' | 'c2c'; seq: string } | null>(
-    null,
-  );
+  const pendingSearchJumpRef = useRef<{
+    conv: string;
+    kind: 'group' | 'c2c';
+    seq: string;
+    record?: ChatMsgWire;
+    messageId?: string;
+  } | null>(null);
   // "更多" modal (full paginated results for one category) + chat-record modal.
   const [searchMore, setSearchMore] = useState<{
     category: SearchCategory;
@@ -7676,7 +7689,13 @@ function MainWorkspace(): ReactElement {
   // `conv`/`kind` are passed explicitly so it works right after a conversation
   // switch (before selectionRef settles).
   const centerWindowOnSeq = useCallback(
-    (conv: string, kind: 'group' | 'c2c', targetSeq: string): Promise<boolean> =>
+    (
+      conv: string,
+      kind: 'group' | 'c2c',
+      targetSeq: string,
+      exactRecord?: ChatMsgWire,
+      messageId?: string,
+    ): Promise<boolean> =>
       runMessageLocate(async (isCurrent) => {
         const scope = messageScopeRef.current,
           binding = messageBindingRef.current,
@@ -7736,9 +7755,14 @@ function MainWorkspace(): ReactElement {
           merged.push(m);
         }
 
-        const target = merged.find((m) => m.msgSeq === targetSeq);
+        if (exactRecord && !merged.some((message) => message.msgId === exactRecord.msgId))
+          merged.unshift(toMessageWire(exactRecord));
+        const exactId = messageId ?? exactRecord?.msgId;
+        const target = merged.find((m) =>
+          exactId ? timelineRowKey(m) === exactId || m.msgId === exactId : m.msgSeq === targetSeq,
+        );
 
-        const atLatest = after.length < PAGE_SIZE;
+        const atLatest = after.length < PAGE_SIZE && (!exactRecord || BigInt(targetSeq) > 0n);
         // Update the live-subscription's window descriptor synchronously: a
         // db-changed tick between this setLoaded and the passive windowRef effect
         // must not see the stale (anchored, old-minSeq) descriptor and replace our
@@ -7880,7 +7904,14 @@ function MainWorkspace(): ReactElement {
   // Jump to a conversation, optionally centred on a message seq (files / chat
   // records). When no seq anchor exists, just open the chat (+toast on demand).
   const jumpToConvSeq = useCallback(
-    (kind: 'group' | 'c2c', conv: string, seq?: string, toastOnMissingSeq = false): void => {
+    (
+      kind: 'group' | 'c2c',
+      conv: string,
+      seq?: string,
+      toastOnMissingSeq = false,
+      record?: ChatMsgWire,
+      messageId?: string,
+    ): void => {
       setSearchDismissed(true);
       if (!conv) return;
       setArkFeedState(null);
@@ -7899,12 +7930,12 @@ function MainWorkspace(): ReactElement {
       if (selectionRef.current?.id === conv) {
         // Already open — jump straight away.
         shell.switchView('messages');
-        void centerWindowOnSeq(conv, kind, seq);
+        void centerWindowOnSeq(conv, kind, seq, record, messageId);
         return;
       }
       // Switch conversations; the listLatest effect performs the centred jump
       // once the placeholder newest page lands.
-      pendingSearchJumpRef.current = { conv, kind, seq };
+      pendingSearchJumpRef.current = { conv, kind, seq, record, messageId };
       shell.selectConversation(conv);
     },
     [centerWindowOnSeq, pushToast, shell],
@@ -8218,9 +8249,11 @@ function MainWorkspace(): ReactElement {
     const jump = pendingSearchJumpRef.current;
     if (jump && jump.conv === conv) {
       pendingSearchJumpRef.current = null;
-      void centerWindowOnSeq(jump.conv, jump.kind, jump.seq).finally(() => {
-        if (!cancelled && messageScopeRef.current === scope) setMessagesLoading(false);
-      });
+      void centerWindowOnSeq(jump.conv, jump.kind, jump.seq, jump.record, jump.messageId).finally(
+        () => {
+          if (!cancelled && messageScopeRef.current === scope) setMessagesLoading(false);
+        },
+      );
       return () => {
         cancelled = true;
       };
@@ -10271,6 +10304,107 @@ function MainWorkspace(): ReactElement {
   } | null>(null);
   const sidebarView = shell.view === 'agentlab' ? 'messages' : shell.view;
   const [contactDirectoryQuery, setContactDirectoryQuery] = useState('');
+  const [overviewCalendar, setOverviewCalendar] = useState<{ query: string } | null>(null);
+  calendarOpenRef.current = overviewCalendar !== null;
+  const overviewCalendarTargets = useMemo(() => {
+    if (!overviewCalendar) return [];
+    const targets: OverviewCalendarTarget[] = [];
+    const roots = new Map(
+      conversations.flatMap((row) =>
+        row.type === 'merged' ? [[row.mergedKind, conversationListSearchText(row)] as const] : [],
+      ),
+    );
+    const guildSearch = new Map(
+      guildConversationRows.map((row) => [row.id, conversationListSearchText(row)]),
+    );
+    const add = (
+      conversation: Conversation,
+      ancestors: string[] = [],
+      listingSearchText?: string,
+    ) => {
+      if (conversation.type === 'merged') return;
+      const group = conversation.type === 'group';
+      targets.push({
+        kind: group ? 'group' : isDatalineUid(conversation.id) ? 'dataline' : 'c2c',
+        conv: conversation.id,
+        searchText: conversationListSearchText(conversation),
+        listingSearchText:
+          listingSearchText ??
+          (group && groupAssistantIds.has(conversation.id)
+            ? (roots.get('groupAssistant') ?? '')
+            : undefined),
+        name: group
+          ? displayGroupName(conversation.group)
+          : displayUserName(conversation.otherUser),
+        avatar: group ? conversation.group.avatarUrl : conversation.otherUser.avatarUrl,
+        ancestors: [
+          ...ancestors,
+          ...(group && groupAssistantIds.has(conversation.id) ? ['群助手'] : []),
+          ...(group ? [] : [conversation.otherUser.identityValue]),
+        ],
+      });
+    };
+    conversations.forEach((conversation) => {
+      add(conversation);
+    });
+    hiddenConversationsById.forEach((conversation) => {
+      add(conversation, ['隐藏会话'], roots.get('hidden') ?? '');
+    });
+    deletedConversationsById.forEach((conversation) => {
+      add(conversation, ['删除的会话'], roots.get('deleted') ?? '');
+    });
+    for (const item of officialAccounts.data ?? [])
+      targets.push({
+        kind: 'official',
+        conv: item.peerUid,
+        name: item.displayName || item.peerUid,
+        avatar: resolveAvatar({ uin: item.targetUin }),
+        ancestors: ['公众号', item.targetUin],
+        listingSearchText: roots.get('official') ?? '',
+      });
+    for (const item of serviceAccounts.data ?? [])
+      targets.push({
+        kind: 'service',
+        conv: item.appId,
+        name: item.displayName || item.appId,
+        avatar: item.avatarUrl,
+        ancestors: ['服务号'],
+        listingSearchText: roots.get('service') ?? '',
+      });
+    for (const item of guildDirectSessions.data ?? [])
+      targets.push({
+        kind: 'guild',
+        conv: item.nodeId,
+        name: item.peerNick || item.nodeId,
+        avatar: item.peerAvatarUrl,
+        ancestors: ['频道私聊', item.peerTinyId],
+        searchText: guildSearch.get(`guild:${item.nodeId}`) ?? '',
+        listingSearchText: roots.get('guildDirect') ?? '',
+      });
+    for (const item of virtualRows) {
+      const uin = item.kind === 'persona' ? item.uin : undefined;
+      targets.push({
+        kind: item.kind === 'persona' ? 'persona' : 'cloneGroup',
+        conv: item.ownerId,
+        name: item.name,
+        avatar: uin ? resolveAvatar({ uin }) : null,
+        ancestors: uin ? [uin] : [],
+        searchText: conversationListSearchText(virtualConversationRow(item)),
+      });
+    }
+    return targets;
+  }, [
+    overviewCalendar,
+    conversations,
+    hiddenConversationsById,
+    deletedConversationsById,
+    officialAccounts.data,
+    serviceAccounts.data,
+    guildDirectSessions.data,
+    guildConversationRows,
+    virtualRows,
+    groupAssistantIds,
+  ]);
 
   /** 防撤回面板「记录」页点一行：打开该会话的撤回列表（复用聊天区气泡与筛选）。 */
   function handleOpenRecallsAt(kind: 'c2c' | 'group', conv: string): void {
@@ -10920,6 +11054,7 @@ function MainWorkspace(): ReactElement {
                         createRequest={cloneCreateRequest}
                         openGroupRequest={cloneGroupRequest}
                         embedded
+                      anchorId={arkFeedState.anchorId}
                         onBackToDirectory={() => {
                           setVirtualOpen(null);
                           shell.backConversation();
@@ -11790,6 +11925,87 @@ function MainWorkspace(): ReactElement {
         setSurfaceNavigation((value) => value + 1);
         if (target.kind === 'person') {
           const contact = profileContacts.find(
+          {overviewCalendar ? (
+            <ConversationOverviewCalendar
+              targets={overviewCalendarTargets}
+              sourceRevision={`${dbRevisionRef.current}:${calendarDataRevision}:${directoryPersonas.dataUpdatedAt}:${directoryGroups.dataUpdatedAt}`}
+              scope={conversationScope}
+              query={overviewCalendar.query}
+              ready={
+                !contacts.isLoading &&
+                !allGroups.isLoading &&
+                (!contacts.hasNextPage || Boolean(contacts.error)) &&
+                !hiddenSessions.isLoading &&
+                !deletedSessions.isLoading &&
+                !officialAccounts.isLoading &&
+                !serviceAccounts.isLoading &&
+                !guildDirectSessions.isLoading &&
+                !directoryPersonas.isLoading &&
+                !directoryGroups.isLoading
+              }
+              directoryError={
+                [
+                  contacts.error,
+                  allGroups.error,
+                  hiddenSessions.error,
+                  deletedSessions.error,
+                  officialAccounts.error,
+                  serviceAccounts.error,
+                  guildDirectSessions.error,
+                  directoryPersonas.error,
+                  directoryGroups.error,
+                ].some(Boolean)
+                  ? '部分会话目录读取失败，统计结果尚不完整'
+                  : undefined
+              }
+              binding={pinSession.binding}
+              onClose={() => setOverviewCalendar(null)}
+              onLocate={(target, anchor, record) => {
+                flushAllDirtyDrafts();
+                if (target.kind === 'guild') {
+                  setGuildSearchTarget({
+                    kind: 'guildMessage',
+                    nodeId: target.conv,
+                    msgId: anchor.id,
+                    msgSeq: anchor.seq,
+                    revision: crypto.randomUUID(),
+                  });
+                  shell.switchView('channel');
+                } else if (target.kind === 'persona' || target.kind === 'cloneGroup') {
+                  setCloneSearchTarget({
+                    category: 'cloneMessage',
+                    kind: target.kind === 'persona' ? 'persona' : 'group',
+                    ownerId: target.conv,
+                    sessionId: anchor.sessionId ?? null,
+                    messageId: anchor.id,
+                    title: target.name,
+                    sessionTitle: '',
+                    content: '',
+                    ts: anchor.time * 1000,
+                  });
+                  shell.switchView('agentlab');
+                } else if (target.kind === 'official' || target.kind === 'service') {
+                  setArkFeedState({
+                    kind: target.kind,
+                    conversationId:
+                      target.kind === 'service' ? `service:${target.conv}` : target.conv,
+                    title: target.name,
+                    anchorId: anchor.id,
+                  });
+                  shell.switchView('messages');
+                } else {
+                  jumpToConvSeq(
+                    target.kind === 'group' ? 'group' : 'c2c',
+                    target.conv,
+                    anchor.seq,
+                    false,
+                    record,
+                    anchor.id,
+                  );
+                }
+              }}
+            />
+          ) : null}
             (person) =>
               person.id === target.contact.id ||
               (person.identityLabel === 'QQ' &&
@@ -11936,6 +12152,7 @@ function MainWorkspace(): ReactElement {
                                 ...specialContactSections.flatMap((section) => section.items),
                                 ...historicalContactSections.flatMap((section) => section.items),
                               ]
+                    onCalendar: (query) => setOverviewCalendar({ query }),
                                 .filter(
                                   (contact) =>
                                     !contactDirectoryQuery ||

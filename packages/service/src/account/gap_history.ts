@@ -26,7 +26,7 @@ import type { DeletedMsgStore } from './deleted_msgs';
 import { mediaElementFromRenderElement, type MediaElement } from './media_url';
 import { withRoamingRequest } from '../common/roaming_request_queue';
 import { logErrorContext, getLogger } from '../common/logger';
-import { statfsSync } from 'node:fs';
+import { existsSync, statfsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { decodeSsoHistoryWindow } from './sso_history_window';
 import type { RecallInfo } from './msg';
@@ -293,6 +293,31 @@ export class GapHistoryService {
   /** 仅枚举可见缓存会话，不联网；供即时分析目录发现缓存独有对象。 */
   cachedConversations() {
     return this.cache.listConversations();
+  }
+  hasCalendarCache(): boolean {
+    return existsSync(this.cache.dbPath);
+  }
+  calendarConversations() {
+    return this.cache.calendarConversations();
+  }
+  calendarPage(
+    kind: 'c2c' | 'group',
+    conv: string,
+    limit: number,
+    cursor?: { msgSeq: number; sendTime: number; msgId: string },
+  ) {
+    return this.cache.query(
+      kind,
+      conv,
+      1,
+      Number.MAX_SAFE_INTEGER,
+      kind === 'c2c',
+      limit,
+      false,
+      false,
+      cursor,
+      true,
+    );
   }
 
   /** 删除入口需要读取精确缓存行，包括已隐藏记录。 */

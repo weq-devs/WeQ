@@ -27,6 +27,20 @@ export function observeSlowDatabaseOperations(
   };
 }
 const priority = new AsyncLocalStorage<{ priority: DatabasePriority; signal?: AbortSignal }>();
+const readBudget = new AsyncLocalStorage<{
+  milliseconds: number;
+  onRead?: (milliseconds: number) => void;
+}>();
+export function withDatabaseReadBudget<T>(
+  budgetMs: number,
+  run: () => T,
+  onRead?: (milliseconds: number) => void,
+): T {
+  return readBudget.run({ milliseconds: budgetMs, onRead }, run);
+}
+export function databaseReadBudget() {
+  return readBudget.getStore();
+}
 const promotedSignals = new WeakSet<AbortSignal>();
 export function databaseRequestSignal(): AbortSignal | undefined {
   return priority.getStore()?.signal;

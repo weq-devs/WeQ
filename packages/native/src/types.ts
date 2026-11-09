@@ -974,6 +974,15 @@ export interface NtHelperBinding {
 
   // --- SQL (cached connection per dbPath) ---
   executeSql(dbPath: string, sql: string, params?: SqlValue[] | null): Promise<SqlRow[]>;
+  /** 可中断的有界只读查询；旧组件缺少此能力时不得退回普通长查询。 */
+  executeSqlBudgeted?(
+    dbPath: string,
+    sql: string,
+    params: SqlValue[] | null,
+    budgetMs: number,
+    key?: string | null,
+    algo?: DatabaseAlgorithms | null,
+  ): Promise<SqlRow[]>;
   executeSqlWithKey(
     dbPath: string,
     sql: string,

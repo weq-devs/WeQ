@@ -79,8 +79,10 @@ export class OfficialAccountService {
   /**
    * Fetch the full ARK feed for one 公众号 (latest `limit` messages, ARK-only).
    */
-  async listArkFeed(peerUid: string, limit = 100): Promise<ArkFeedMessage[]> {
-    const msgs = await this.session.c2cMsgs.listLatest({ uid: peerUid }, limit);
+  async listArkFeed(peerUid: string, limit = 100, anchorId?: string): Promise<ArkFeedMessage[]> {
+    const msgs = anchorId
+      ? await this.session.c2cMsgs.calendarMessage({ uid: peerUid }, BigInt(anchorId))
+      : await this.session.c2cMsgs.listLatest({ uid: peerUid }, limit);
     const rendered = msgs.map((msg: C2cMsg) => this.renderC2c(msg));
     return filterArkOnly(rendered);
   }
