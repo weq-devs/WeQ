@@ -40,6 +40,7 @@ export function ContactTaskStages({
         return (
           <StageRow
             key={key}
+            logMode="expanded"
             stage={{
               key,
               label: `${lane.label} ${lane.done}/${lane.total}`,

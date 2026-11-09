@@ -88,6 +88,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     backgroundTasks: {
       details: { useQuery: () => ({ data: [] }) },
+      logs: { useQuery: () => ({ data: [] }) },
       list: {
         useQuery: () => ({
           data: fixture.background,
@@ -168,6 +169,32 @@ afterEach(() => {
 });
 
 describe('统一当前任务', () => {
+  it('联系人任务不显示总进度、百分比和汇总计数', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    localBackgroundTasks.start({
+      kind: 'contacts',
+      name: '合成联系人刷新',
+      progress: 35,
+      note: '7/20 个对象，0 项未完成',
+    });
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          h(CurrentTaskList, { exports: [], onSaveAll: vi.fn(), renderExport: () => null }),
+        ),
+      );
+      const row = [...host.querySelectorAll('.weq-long-task')].find((node) =>
+        node.textContent?.includes('合成联系人刷新'),
+      )!;
+      expect(row.querySelector('progress')).toBeNull();
+      expect(row.textContent).not.toContain('35%');
+      expect(row.textContent).not.toContain('7/20');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
   it.each([
     'model',
     'update',

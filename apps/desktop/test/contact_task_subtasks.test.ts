@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ContactTaskStages } from '../src/renderer/src/components/tasks/ContactTaskStages';
 import type { BackgroundTask } from '../src/shared/background_task';
+import { LongTaskRow } from '../src/renderer/src/components/tasks/LongTaskRow';
+import { StageRow } from '../src/renderer/src/views/export/TaskList';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -73,16 +76,59 @@ it('分项日志不混用，失败详情只包含对应群聊错误', () => {
     ],
   });
   const stages = host.querySelectorAll('.weq-exp-detail-stage');
-  act(() => stages[0]!.querySelector<HTMLButtonElement>('.weq-exp-detail-stage-toggle')!.click());
+  expect(host.querySelectorAll('.weq-exp-log:not(.is-hidden)')).toHaveLength(2);
+  expect(host.querySelectorAll('[role="log"]')).toHaveLength(2);
+  expect(host.querySelectorAll('.weq-exp-log.is-export-scrollable')).toHaveLength(2);
+  expect(host.querySelector('.weq-exp-log.is-scrollable')).toBeNull();
   expect(stages[0]?.textContent).toContain('好友合成日志');
   expect(stages[0]?.textContent).not.toContain('群聊合成错误');
-  act(() => stages[1]!.querySelector<HTMLButtonElement>('.weq-exp-detail-stage-toggle')!.click());
   expect(stages[1]?.textContent).toContain('群聊合成错误');
   expect(stages[1]?.textContent).not.toContain('好友合成日志');
   act(() => stages[1]!.querySelector<HTMLButtonElement>('.weq-exp-detail-stage-failures')!.click());
   expect(onShowFailures).toHaveBeenCalledWith('群聊', [
     { stage: 'groups', fileName: '群聊', error: '失败：群聊合成错误' },
   ]);
+});
+
+it('日志默认展开，完成后仍保留，并允许分别手动收起', () => {
+  const { host, render, task } = mount();
+  render();
+  const toggles = host.querySelectorAll<HTMLButtonElement>('.weq-exp-detail-stage-toggle');
+  expect([...toggles].map((node) => node.getAttribute('aria-expanded'))).toEqual(['true', 'true']);
+  act(() => toggles[0]!.click());
+  render({
+    status: 'completed',
+    subtasks: task.subtasks!.map((lane) => ({ ...lane, done: lane.total })),
+  });
+  expect([...toggles].map((node) => node.getAttribute('aria-expanded'))).toEqual(['false', 'true']);
+});
+
+it('隐藏联系人任务总进度，不影响其他任务和导出日志的默认行为', () => {
+  const task = {
+    id: 'synthetic',
+    name: '刷新联系人列表',
+    kind: '联系人缓存',
+    status: 'running' as const,
+    progress: 50,
+    icon: null,
+    detail: null,
+  };
+  const hidden = renderToStaticMarkup(
+    h(LongTaskRow, { task: { ...task, hideProgress: true }, active: false, onSelect: () => {} }),
+  );
+  expect(hidden).not.toContain('<progress');
+  expect(hidden).not.toContain('50%');
+  expect(
+    renderToStaticMarkup(h(LongTaskRow, { task, active: false, onSelect: () => {} })),
+  ).toContain('<progress');
+  const stage = renderToStaticMarkup(
+    h(StageRow, {
+      stage: { key: 'message', label: '消息', status: 'running', current: 1, total: 2 },
+      logs: [],
+      onShowFailures: () => {},
+    }),
+  );
+  expect(stage).toContain('aria-expanded="false"');
 });
 
 it.each(['paused', 'cancelled', 'failed'] as const)('%s 时停止未完成子任务动画', (status) => {

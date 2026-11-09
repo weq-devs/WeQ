@@ -31,6 +31,20 @@
   pointer-events: none;
 }
 
+.weq-exp-log.is-export-scrollable:not(.is-hidden) {
+  height: 78px;
+  overflow: auto;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--weq-fg-muted) transparent;
+  transition: none;
+}
+
+.weq-exp-log.is-export-scrollable:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
 .weq-exp-log-empty {
   height: 100%;
   display: grid;

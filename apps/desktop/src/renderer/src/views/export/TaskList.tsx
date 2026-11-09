@@ -275,20 +275,23 @@ export function StageRow({
   onShowFailures,
   onSkip,
   paused = false,
+  logMode = 'preview',
 }: {
   stage: UiStage;
   logs: UiLogLine[];
   onShowFailures: (failures: UiFailure[]) => void;
   onSkip?: () => void;
   paused?: boolean;
+  logMode?: 'preview' | 'expanded';
 }): ReactElement {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(logMode === 'expanded');
   const pct = stagePct(stage);
   // 完成 / 跳过时自动收起，但保留手动展开入口。
   const canOpen = stage.status !== 'pending';
   useEffect(() => {
-    if (stage.status === 'completed' || stage.status === 'skipped') setOpen(false);
-  }, [stage.status]);
+    if (logMode === 'preview' && (stage.status === 'completed' || stage.status === 'skipped'))
+      setOpen(false);
+  }, [stage.status, logMode]);
   const showLog = canOpen && open;
   const failures = stage.failures ?? [];
   return (
@@ -340,7 +343,11 @@ export function StageRow({
           </button>
         </span>
       </div>
-      <LogConsole lines={logs} collapsed={!showLog} />
+      <LogConsole
+        lines={logs}
+        collapsed={!showLog}
+        appearance={logMode === 'expanded' ? 'export' : 'default'}
+      />
     </div>
   );
 }
