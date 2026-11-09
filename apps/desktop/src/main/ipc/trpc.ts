@@ -7,7 +7,7 @@
 
 import { initTRPC } from '@trpc/server';
 import superjson from 'superjson';
-import { withHost, type HostBridge } from '@weq/service';
+import { withHost, logRequest, type HostBridge } from '@weq/service';
 import { maintenanceProcedures, runtimeMaintenance } from '../runtime_maintenance';
 import { pickedBrowserFiles } from '../browser_files';
 
@@ -21,12 +21,20 @@ const t = initTRPC.context<RpcContext>().create({
 });
 
 export const router = t.router;
-export const procedure = t.procedure.use(({ ctx, next, path, type, rawInput }) => {
-  ctx.authorize?.();
-  const invoke = () => (ctx.host ? withHost(ctx.host, () => next()) : next());
-  const run = () =>
-    type === 'subscription' ? invoke() : pickedBrowserFiles.withPaths(rawInput, invoke);
-  return type === 'subscription' || maintenanceProcedures.has(path.split('.').at(-1) ?? path)
-    ? run()
-    : runtimeMaintenance.operation(run);
-});
+export const procedure = t.procedure.use(({ ctx, next, path, type, rawInput }) =>
+  logRequest(
+    'trpc',
+    path,
+    type,
+    async () => {
+      ctx.authorize?.();
+      const invoke = () => (ctx.host ? withHost(ctx.host, () => next()) : next());
+      const run = () =>
+        type === 'subscription' ? invoke() : pickedBrowserFiles.withPaths(rawInput, invoke);
+      return type === 'subscription' || maintenanceProcedures.has(path.split('.').at(-1) ?? path)
+        ? run()
+        : runtimeMaintenance.operation(run);
+    },
+    (result) => (result.ok ? undefined : result.error),
+  ),
+);

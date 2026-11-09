@@ -15,6 +15,7 @@ import { createHTTPHandler } from '@trpc/server/adapters/standalone';
 import { applyWSSHandler } from '@trpc/server/adapters/ws';
 import { TRPCError, type AnyRouter } from '@trpc/server';
 import type { HostBridge } from '@weq/service';
+import { logTransportError } from '@weq/service';
 import { WebSocketServer } from 'ws';
 import type { AuthGate } from './auth';
 
@@ -26,6 +27,7 @@ export function createTrpcHandler(
 ): (req: IncomingMessage, res: ServerResponse) => void {
   const handler = createHTTPHandler({
     router,
+    onError: ({ error, path }) => logTransportError('trpc-http', path, error),
     createContext: ({ req }) => ({
       host,
       authorize: auth
@@ -34,9 +36,6 @@ export function createTrpcHandler(
           }
         : undefined,
     }),
-    onError({ error, path }) {
-      console.error(`[trpc] ${path ?? '<no path>'}:`, error.message);
-    },
   });
   return (req, res) => {
     // The standalone adapter wants the path relative to its mount point.
@@ -79,15 +78,13 @@ export function attachWsHandler(
   applyWSSHandler({
     wss,
     router,
+    onError: ({ error, path }) => logTransportError('trpc-ws', path, error),
     createContext: ({ req }) => ({
       host,
       authorize: () => {
         if (!auth.isAuthed(req)) throw new TRPCError({ code: 'UNAUTHORIZED' });
       },
     }),
-    onError({ error, path }) {
-      console.error(`[trpc-ws] ${path ?? '<no path>'}:`, error.message);
-    },
   });
   return () => {
     for (const client of wss.clients) client.terminate();

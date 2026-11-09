@@ -20,7 +20,7 @@
 import http from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { getLogger, logErrorContext } from '@weq/service';
+import { getLogger, logErrorContext, logRequest, withLogOperation } from '@weq/service';
 import { AI_TOOLS } from './tools';
 import { isReadOnlyTool } from './tool_permissions';
 import { runtimeMaintenance } from '../runtime_maintenance';
@@ -59,7 +59,9 @@ function buildMcpServer(): McpServer {
       { description: t.description, inputSchema: t.input.shape },
       async (args: unknown) => {
         try {
-          const data = await runtimeMaintenance.operation(async () => t.run(args as never));
+          const data = await logRequest('mcp-server', t.name, 'tool', async () =>
+            runtimeMaintenance.operation(async () => t.run(args as never)),
+          );
           return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
         } catch (error) {
           return {
@@ -110,7 +112,7 @@ async function handleRequest(
   });
   try {
     await server.connect(transport);
-    await transport.handleRequest(req, res);
+    await withLogOperation(() => transport.handleRequest(req, res));
   } catch (error) {
     logger.error('mcp request failed', { event: 'mcp-request-error', ...logErrorContext(error) });
     if (!res.headersSent) {

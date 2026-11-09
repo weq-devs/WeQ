@@ -1,6 +1,8 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { EOL } from 'node:os';
 import { join } from 'node:path';
+import { createConsoleLogger, type ConsoleLoggerOptions } from './console_logger';
+import { currentOperationId } from './operation_log';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -22,6 +24,15 @@ export interface Logger {
 const state = {
   baseDir: null as string | null,
 };
+let terminal: ReturnType<typeof createConsoleLogger> | undefined;
+export function configureConsoleLogger(options: ConsoleLoggerOptions): void {
+  terminal?.dispose();
+  terminal = createConsoleLogger(options);
+}
+export function flushConsoleLogger(): void {
+  terminal?.flush();
+}
+process.once('exit', flushConsoleLogger);
 
 function timestamp(): string {
   return new Date().toISOString();
@@ -61,15 +72,23 @@ function filePath(): string | null {
 }
 
 function write(level: LogLevel, message: string, context?: LoggerContext): void {
-  const target = filePath();
-  if (!target) return;
-  const line = JSON.stringify({
-    ts: timestamp(),
-    level,
-    message,
-    ...(normalizeContext(context) ? { context: normalizeContext(context) } : {}),
-  });
+  const operationId = currentOperationId();
+  if (operationId) context = { operationId, ...context };
   try {
+    terminal?.write(level, message, context);
+  } catch {
+    /* 日志展示失败不影响落盘。 */
+  }
+  try {
+    const target = filePath();
+    if (!target) return;
+    const normalized = normalizeContext(context);
+    const line = JSON.stringify({
+      ts: timestamp(),
+      level,
+      message,
+      ...(normalized ? { context: normalized } : {}),
+    });
     appendFileSync(target, line + EOL, 'utf-8');
   } catch {
     // Logging must never break the app flow.
@@ -105,7 +124,17 @@ const rootLogger = new FileLogger();
 export function initLogger(baseDir: string): Logger {
   state.baseDir = baseDir;
   const dir = join(baseDir, 'logs');
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  try {
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  } catch (error) {
+    rootLogger.warn('日志目录暂不可用，终端输出继续工作', {
+      scope: 'logger',
+      event: 'log-directory-unavailable',
+      logDir: dir,
+      ...logErrorContext(error),
+    });
+    return rootLogger;
+  }
   rootLogger.info('logger initialized', { scope: 'logger', event: 'init', logDir: dir });
   return rootLogger;
 }

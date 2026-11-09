@@ -9,6 +9,23 @@ import {
 } from './query_diagnostics';
 
 export type DatabasePriority = 'interactive' | 'background';
+export interface SlowDatabaseOperation {
+  priority: DatabasePriority;
+  jsQueueWaitMs: number;
+  nativePromiseAwaitMs: number;
+  outcome: 'ok' | 'failed' | 'cancelled';
+  fingerprint?: string;
+  caller?: string;
+}
+const slowObservers = new Set<(sample: SlowDatabaseOperation) => void>();
+export function observeSlowDatabaseOperations(
+  observer: (sample: SlowDatabaseOperation) => void,
+): () => void {
+  slowObservers.add(observer);
+  return () => {
+    slowObservers.delete(observer);
+  };
+}
 const priority = new AsyncLocalStorage<{ priority: DatabasePriority; signal?: AbortSignal }>();
 const promotedSignals = new WeakSet<AbortSignal>();
 export function databaseRequestSignal(): AbortSignal | undefined {
@@ -184,6 +201,18 @@ export function scheduleDatabase<T>(
     data = metric(path);
   if (state.interactive.length + state.background.length >= 4096)
     return Promise.reject(new Error('数据库查询队列已满，请稍后重试'));
+  // 排空队列的循环可能属于另一请求；诊断回调仍使用本次入队时的异步上下文。
+  const notifySlow = slowObservers.size
+    ? AsyncLocalStorage.bind((sample: SlowDatabaseOperation) => {
+        for (const observer of slowObservers) {
+          try {
+            observer(sample);
+          } catch {
+            /* 诊断不能干扰队列。 */
+          }
+        }
+      })
+    : undefined;
   return new Promise<T>((resolve, reject) => {
     const abort = () => {
       const pending = state[job.priority].indexOf(job);
@@ -204,8 +233,10 @@ export function scheduleDatabase<T>(
       abort,
       async start() {
         signal?.removeEventListener('abort', abort);
-        record(data.wait, performance.now() - job.at);
+        const jsQueueWaitMs = performance.now() - job.at;
+        record(data.wait, jsQueueWaitMs);
         const began = performance.now();
+        let outcome: SlowDatabaseOperation['outcome'] = 'ok';
         if (job.trace) {
           job.trace.priority = job.priority;
           job.trace.startedAtMs = began;
@@ -220,6 +251,7 @@ export function scheduleDatabase<T>(
           if (Array.isArray(result)) data.rows += result.length;
           resolve(result);
         } catch (error) {
+          outcome = error instanceof Error && error.name === 'AbortError' ? 'cancelled' : 'failed';
           if (job.trace)
             job.trace.outcome =
               error instanceof Error && error.name === 'AbortError' ? 'cancelled' : 'failed';
@@ -227,7 +259,17 @@ export function scheduleDatabase<T>(
           reject(error);
         } finally {
           if (job.trace) job.trace.endedAtMs = performance.now();
-          record(data.nativeAwait, performance.now() - began);
+          const nativePromiseAwaitMs = performance.now() - began;
+          record(data.nativeAwait, nativePromiseAwaitMs);
+          if (jsQueueWaitMs >= 500 || nativePromiseAwaitMs >= 500) {
+            notifySlow?.({
+              priority: job.priority,
+              jsQueueWaitMs,
+              nativePromiseAwaitMs,
+              outcome,
+              ...(job.trace ? job.trace.source : {}),
+            });
+          }
           if (job.priority === 'interactive') data.lastInteractiveAt = performance.now();
         }
       },

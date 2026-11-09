@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { Server, IncomingMessage } from 'node:http';
 import type { AnyRouter } from '@trpc/server';
 import type { HostBridge } from '@weq/service';
+import { getLogger } from '@weq/service';
 import { AuthGate } from './auth';
 import { startServer } from './http';
 import { createWebHost } from './host';
@@ -106,6 +107,11 @@ export class DesktopWebRuntime {
       this.port = port;
       this.token = token;
       this.auth = auth;
+      getLogger().info('Web 服务已启动', {
+        scope: 'web',
+        event: 'web-start',
+        address: `http://127.0.0.1:${port}`,
+      });
     } catch {
       auth.close();
       this.error = 'Web 服务启动失败，请检查端口或页面构建。';
@@ -116,6 +122,7 @@ export class DesktopWebRuntime {
   }
 
   stop(): void {
+    if (this.server) getLogger().info('Web 服务已停止', { scope: 'web', event: 'web-stop' });
     this.revision++;
     this.closeWs?.();
     this.closeWs = null;

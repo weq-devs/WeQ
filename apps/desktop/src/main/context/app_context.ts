@@ -165,6 +165,7 @@ import {
   writeDbHealthReport,
   initLogger,
   getLogger,
+  logRequest,
   getLogDir,
   logErrorContext,
   type AccountConfigMetadata,
@@ -1169,12 +1170,24 @@ export function initAppContext(fileRoot?: string): AppContext {
   if (cached) return cached;
   const files = initBackupContext(fileRoot);
   if (!files.ok) {
+    getLogger().error('应用数据初始化失败', {
+      scope: 'startup',
+      event: 'startup-data-failed',
+      errorMessage: files.error,
+    });
     cached = unavailableContext(null, files.error);
     return cached;
   }
   configureNativeDressResources();
   const result = loadNativeSafe();
   if (!result.ok) {
+    getLogger().error('原生助手加载失败', {
+      scope: 'startup',
+      event: 'native-load-failed',
+      kind: result.kind,
+      status: result.status,
+      errorMessage: result.message,
+    });
     cached = unavailableContext(
       { kind: result.kind, status: result.status, message: result.message },
       result.message,
@@ -1199,6 +1212,18 @@ export function initAppContext(fileRoot?: string): AppContext {
   // SQLite 的保留页现在是按文件（per-Pager）设置的，同一个进程可以同时打开
   // QQ 库、标准库和解密产物，不再需要拆子进程。
   const bundle = result.bundle;
+  let nativeBuild: unknown = 'unknown';
+  try {
+    nativeBuild = bundle.ntHelper.getBuildInfo?.() ?? 'unknown';
+  } catch {
+    /* 旧助手不一定提供构建信息。 */
+  }
+  getLogger().info('原生助手已就绪', {
+    scope: 'startup',
+    event: 'native-ready',
+    nativeVersion: 'unknown',
+    nativeBuild,
+  });
 
   const platform =
     process.platform === 'linux'
@@ -1402,6 +1427,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountCtx: AccountContext,
       metadata: AccountConfigMetadata = {},
     ): Promise<void> {
+      const openedAt = performance.now();
       clearFullMode(this);
       const base = this.platform;
       if (!base) throw new Error('原生组件尚未就绪');
@@ -2188,6 +2214,7 @@ export function initAppContext(fileRoot?: string): AppContext {
 
       logger.info('opened account session', {
         event: 'open-account-success',
+        durationMs: Math.round(performance.now() - openedAt),
         accountUin: session.context.uin,
         dataDir: metadata.dataDir ?? null,
       });
@@ -2268,6 +2295,7 @@ export function initAppContext(fileRoot?: string): AppContext {
     ): Promise<void> {
       const backup = await resolveBackupLocation(dirPath);
       if (!backup) throw new Error('未找到 QQ 账号数据库目录');
+      const openedAt = performance.now();
       clearFullMode(this);
       dirPath = backup.dbDir;
       cancelAnnualReportWarmup();
@@ -2927,6 +2955,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       });
       logger.info('opened static account session', {
         event: 'open-static-account-success',
+        durationMs: Math.round(performance.now() - openedAt),
         accountUin: session.context.uin,
         dirPath,
         nativeMediaDir: nativeDir,
@@ -3007,6 +3036,8 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Still no anti-recall triggers, no health check and no scheduler.
     },
     async clearAccount(waitForPending = false): Promise<void> {
+      const closedAt = performance.now();
+      const closingUin = this.account?.context.uin;
       const previousClosures = [...pendingAccountClosures];
       clearFullMode(this);
       invalidateAccountTools(this.account);
@@ -3077,6 +3108,12 @@ export function initAppContext(fileRoot?: string): AppContext {
         if (waitForPending) throw failed.reason;
         logger.warn('账号后台收尾失败', { error: String(failed.reason) });
       }
+      logger.info('账号会话已关闭', {
+        event: 'account-closed',
+        accountUin: closingUin,
+        durationMs: Math.round(performance.now() - closedAt),
+        outcome: failed ? 'degraded' : 'ok',
+      });
     },
     applyRealtime(enabled: boolean): void {
       const session = this.account;
@@ -3266,6 +3303,15 @@ export function initAppContext(fileRoot?: string): AppContext {
     },
   };
 
+  const setAccount = ctx.setAccount.bind(ctx);
+  const setStaticAccount = ctx.setStaticAccount.bind(ctx);
+  const clearAccount = ctx.clearAccount.bind(ctx);
+  ctx.setAccount = (...args) =>
+    logRequest('account', 'account.open', 'operation', () => setAccount(...args));
+  ctx.setStaticAccount = (...args) =>
+    logRequest('account', 'account.open-static', 'operation', () => setStaticAccount(...args));
+  ctx.clearAccount = (...args) =>
+    logRequest('account', 'account.close', 'operation', () => clearAccount(...args));
   cached = ctx;
   return ctx;
 }

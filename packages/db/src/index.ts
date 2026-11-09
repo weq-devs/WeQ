@@ -23,6 +23,7 @@ export { QqDb } from './qq_db';
 export type { QqDbOptions } from './qq_db';
 export {
   scheduleDatabase,
+  observeSlowDatabaseOperations,
   promoteDatabaseSignal,
   withDatabasePriority,
   databaseRequestSignal,
@@ -32,7 +33,7 @@ export {
   measureMessageWork,
   waitForDatabaseQuiet,
 } from './query_schedule';
-export type { DatabasePriority } from './query_schedule';
+export type { DatabasePriority, SlowDatabaseOperation } from './query_schedule';
 export { withDatabaseRequest } from './query_diagnostics';
 export { rowsToObjects } from './row';
 export type { SalvageScanOutcome, SalvageSkippedRange } from '@weq/native';

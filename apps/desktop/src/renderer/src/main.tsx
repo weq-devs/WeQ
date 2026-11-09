@@ -8,6 +8,14 @@ import './styles/index.css';
 import { BackupStartupGate } from './components/BackupStartupGate';
 import { installResourceDiagnostics } from './lib/resourceDiagnostics';
 import { RendererErrorBoundary } from './components/RendererErrorBoundary';
+import { installDevelopmentErrors } from './lib/developmentErrors';
+
+const stopDevelopmentErrors = installDevelopmentErrors(
+  window,
+  import.meta.env.DEV,
+  (level, message, context) => window.weq?.debugLog?.(level, message, context),
+);
+import.meta.hot?.dispose(stopDevelopmentErrors);
 
 const root = document.getElementById('root');
 if (!root) throw new Error('root element missing');

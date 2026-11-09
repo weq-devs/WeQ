@@ -93,6 +93,7 @@ import { registerLongTermAuthorizationIpc } from './authorization/ipc';
 import {
   getLogDir,
   getLogger,
+  configureDevelopmentLogging,
   setHost,
   type ExportSavePolicy,
   type WindowCloseBehavior,
@@ -135,6 +136,7 @@ const { createIPCHandler } = requireFromHere(
   'electron-trpc/main',
 ) as typeof import('electron-trpc/main');
 
+configureDevelopmentLogging(!app.isPackaged, 'desktop-main');
 const logger = getLogger().child({ scope: 'desktop-main' });
 
 /** Created once; reopening attaches a window without registering IPC again. */
@@ -686,6 +688,13 @@ if (!hasSingleInstanceLock) {
 }
 
 void app.whenReady().then(async () => {
+  logger.info('WeQ 启动', {
+    event: 'startup',
+    version: app.getVersion(),
+    mode: app.isPackaged ? 'production' : 'development',
+    platform: process.platform,
+    arch: process.arch,
+  });
   remoteRuntime.configure({
     helper:
       process.env.WEQ_REMOTE_HELPER ||

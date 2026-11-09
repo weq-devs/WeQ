@@ -152,7 +152,7 @@ export class AccountMonitorService {
     // 序号带，所以不能沿用上次会话残留的值，得重新取「now + 扰动」。
     try {
       const start = this.nt.resetPacketSequence();
-      this.logger.info('reset packet sequence start point', {
+      this.logger.debug('reset packet sequence start point', {
         event: 'reset-packet-sequence',
         start,
       });
@@ -212,7 +212,7 @@ export class AccountMonitorService {
       if (rkeys.length === 0) return false;
       this.accountConfig.setRkeys(rkeys);
       this.harvestRetry = null;
-      this.logger.info('harvested rkeys on demand', {
+      this.logger.debug('harvested rkeys on demand', {
         event: 'harvest-rkeys-now',
         pid,
         count: rkeys.length,
@@ -620,7 +620,7 @@ export class AccountMonitorService {
       this.assertCurrent(generation, pid);
       if (rkeys.length > 0) this.accountConfig.setRkeys(rkeys);
       if (rkeys.length > 0) {
-        this.logger.info('harvested download rkeys', {
+        this.logger.debug('harvested download rkeys', {
           event: 'harvest-rkeys',
           pid,
           count: rkeys.length,
@@ -630,7 +630,7 @@ export class AccountMonitorService {
       this.assertCurrent(generation, pid);
       this.accountConfig.setClientKey({ ...key, fetchedAt: Date.now() });
       this.harvestRetry = null;
-      this.logger.info('harvested client key', {
+      this.logger.debug('harvested client key', {
         event: 'harvest-client-key',
         pid,
         ttlSeconds: key.ttlSeconds,

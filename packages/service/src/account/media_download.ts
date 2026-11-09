@@ -67,6 +67,31 @@ export interface ExternalRkeySource {
   resolveRkeys(allowedTypes: number[]): Promise<DownloadRkey[]>;
 }
 
+const mediaSummary = new Map<string, { count: number; failed: number; durationMs: number }>();
+let summaryTimer: ReturnType<typeof setTimeout> | undefined;
+function summarizeMedia(source: string, durationMs: number, failed = false): void {
+  const entry = mediaSummary.get(source) ?? { count: 0, failed: 0, durationMs: 0 };
+  entry.count++;
+  entry.failed += Number(failed);
+  entry.durationMs += durationMs;
+  mediaSummary.set(source, entry);
+  summaryTimer ??= setTimeout(flushMediaDownloadLogs, 5000);
+  summaryTimer.unref();
+}
+export function flushMediaDownloadLogs(): void {
+  if (summaryTimer) clearTimeout(summaryTimer);
+  summaryTimer = undefined;
+  for (const [source, stats] of mediaSummary)
+    getLogger().info('媒体下载汇总', {
+      scope: 'media-download',
+      event: 'media-download-summary',
+      source,
+      ...stats,
+    });
+  mediaSummary.clear();
+}
+process.once('exit', flushMediaDownloadLogs);
+
 export class MediaDownloadService {
   private readonly logger = getLogger().child({ scope: 'media-download' });
 
@@ -83,47 +108,72 @@ export class MediaDownloadService {
    */
   async download(fileToken: string, opts: DownloadOptions = {}): Promise<string | null> {
     if (!fileToken) return null;
+    const began = performance.now();
+    const mediaId = hashToken(fileToken).slice(0, 16);
     const cachePath = join(this.cacheDir, `${hashToken(fileToken)}${opts.ext ?? ''}`);
     if (existsSync(cachePath)) {
-      this.logger.debug('media cache hit', { event: 'media-cache-hit', cachePath, fileToken });
+      this.logger.debug('media cache hit', { event: 'media-cache-hit', mediaId });
       return cachePath;
     }
     if (!this.allowOnline()) return null;
 
-    const urls: string[] = [];
+    const urls: Array<{ url: string; source: string }> = [];
     // Digit-only tokens are pre-rkey media: fetch the original directly, no rkey.
     if (opts.originalUrl && isAllDigits(fileToken)) {
-      urls.push(resolveOriginalUrl(opts.originalUrl));
+      urls.push({ url: resolveOriginalUrl(opts.originalUrl), source: 'original' });
     }
     const allowed = opts.rkeyTypes ?? IMAGE_RKEY_TYPES;
-    this.logger.info('starting media download', {
+    this.logger.debug('starting media download', {
       event: 'media-download-start',
-      fileToken,
-      cachePath,
+      mediaId,
       allowedRkeyTypes: allowed,
       hasOriginalUrl: Boolean(opts.originalUrl),
     });
     for (const rkey of this.validRkeys(allowed)) {
-      urls.push(composeMediaDownloadUrl(fileToken, rkey));
+      urls.push({ url: composeMediaDownloadUrl(fileToken, rkey), source: 'local-rkey' });
     }
 
     // 先试本机在线 QQ 自己获取的 rkey（含老图片的原始 URL）；全部失败且配置了
     // 外部 rkey 服务器时，再回退到它（可能触发一次网络拉取并缓存）。
-    let bytes = await tryEach(urls, this.allowOnline);
+    const failures: Record<string, number> = {};
+    const note = (stage: string) => (reason: string) => {
+      const key = `${stage}:${reason}`;
+      failures[key] = (failures[key] ?? 0) + 1;
+      this.logger.debug('媒体下载尝试', {
+        event: 'media-download-attempt',
+        mediaId,
+        stage,
+        reason,
+      });
+    };
+    let source = 'unavailable';
+    let externalCandidateCount = 0;
+    const local = await tryEach(urls, this.allowOnline, note);
+    if (!urls.length) note('local-rkey')('no-candidates');
+    let bytes = local?.bytes ?? null;
+    if (local) source = local.source;
     if (!bytes && this.externalRkey && this.allowOnline()) {
       let externalRkeys: DownloadRkey[] = [];
       try {
         externalRkeys = await this.externalRkey.resolveRkeys(allowed);
       } catch (error) {
-        this.logger.warn('external rkey resolve failed', {
+        failures['external:resolve'] = 1;
+        this.logger.debug('external rkey resolve failed', {
           event: 'media-download-external-resolve-failed',
-          fileToken,
+          mediaId,
           ...logErrorContext(error),
         });
       }
+      source = 'external-rkey';
+      externalCandidateCount = externalRkeys.length;
+      if (!externalCandidateCount) note('external')('no-candidates');
       for (const rkey of externalRkeys) {
         if (!this.allowOnline()) return null;
-        bytes = await tryFetch(composeMediaDownloadUrl(fileToken, rkey), this.allowOnline);
+        bytes = await tryFetch(
+          composeMediaDownloadUrl(fileToken, rkey),
+          this.allowOnline,
+          note('external'),
+        );
         if (bytes) break;
       }
     }
@@ -133,25 +183,33 @@ export class MediaDownloadService {
       try {
         writeFileSync(cachePath, bytes);
       } catch (error) {
+        summarizeMedia(source, Math.round(performance.now() - began), true);
         this.logger.error('failed to persist downloaded media', {
           event: 'media-download-write-failed',
-          fileToken,
+          mediaId,
           cachePath,
           ...logErrorContext(error),
         });
         throw error;
       }
-      this.logger.info('downloaded media into cache', {
+      summarizeMedia(source, Math.round(performance.now() - began));
+      this.logger.debug('downloaded media into cache', {
         event: 'media-download-success',
-        fileToken,
-        cachePath,
+        mediaId,
+        source,
         size: bytes.length,
       });
       return cachePath;
     }
+    if (!this.allowOnline()) return null;
+    summarizeMedia(source, Math.round(performance.now() - began), true);
     this.logger.warn('media download exhausted all candidates', {
       event: 'media-download-failed',
-      fileToken,
+      mediaId,
+      failures,
+      externalCandidateCount,
+      externalConfigured: Boolean(this.externalRkey),
+      durationMs: Math.round(performance.now() - began),
       candidateCount: urls.length,
     });
     return null;
@@ -190,11 +248,15 @@ const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = 300;
 
 /** Try a list of URLs in order; first non-empty bytes wins. */
-async function tryEach(urls: string[], allowed: () => boolean): Promise<Buffer | null> {
-  for (const url of urls) {
+async function tryEach(
+  urls: Array<{ url: string; source: string }>,
+  allowed: () => boolean,
+  note: (stage: string) => (reason: string) => void,
+): Promise<{ bytes: Buffer; source: string } | null> {
+  for (const { url, source } of urls) {
     if (!allowed()) return null;
-    const bytes = await tryFetch(url, allowed);
-    if (bytes) return bytes;
+    const bytes = await tryFetch(url, allowed, note(source));
+    if (bytes) return { bytes, source };
   }
   return null;
 }
@@ -215,11 +277,16 @@ function backoffMs(n: number): number {
  * outcomes — 4xx, or a text/* error page (wrong/expired rkey) — return null
  * immediately so the caller moves on to the next candidate URL.
  */
-async function tryFetch(url: string, allowed: () => boolean): Promise<Buffer | null> {
+async function tryFetch(
+  url: string,
+  allowed: () => boolean,
+  note: (reason: string) => void,
+): Promise<Buffer | null> {
   for (let attempt = 0; ; attempt += 1) {
     if (!allowed()) return null;
     try {
       const res = await fetch(url);
+      if (!res.ok) note(`http-${res.status}`);
       if (res.status === 429 || res.status >= 500) {
         if (attempt < MAX_RETRIES) {
           await sleep(backoffMs(attempt));
@@ -231,10 +298,15 @@ async function tryFetch(url: string, allowed: () => boolean): Promise<Buffer | n
       // A wrong-scene / expired rkey tends to come back as an HTML/text error
       // page with a 200 — reject anything that isn't binary media (no retry).
       const contentType = res.headers.get('content-type') ?? '';
-      if (contentType.startsWith('text/')) return null;
+      if (contentType.startsWith('text/')) {
+        note('text-response');
+        return null;
+      }
       const buf = Buffer.from(await res.arrayBuffer());
+      if (!buf.length) note('empty-response');
       return buf.length > 0 ? buf : null;
     } catch {
+      note('network');
       if (attempt < MAX_RETRIES) {
         await sleep(backoffMs(attempt));
         continue;
