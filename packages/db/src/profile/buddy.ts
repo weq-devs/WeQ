@@ -27,6 +27,10 @@ export interface BuddyDbOptions {
 const SELECT_COLUMNS = `"1000","1001","1002","25007"`;
 
 export class BuddyDb {
+  get dbPath(): string {
+    return this.qq.dbPath;
+  }
+
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: BuddyDbOptions) {

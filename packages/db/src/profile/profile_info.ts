@@ -220,6 +220,10 @@ const BOT_UIN_RANGE_SQL = BOT_UIN_RANGES.map(([min, max]) =>
 ).join(' OR ');
 
 export class ProfileInfoDb {
+  get dbPath(): string {
+    return this.qq.dbPath;
+  }
+
   private readonly qq: QqDb;
   private readonly table: string;
   private readonly columns?: ReadonlySet<string>;
