@@ -84,6 +84,10 @@ try {
       const m = this.getTransform();
       const dpr = window.devicePixelRatio || 1;
       window.layoutTransform = { scale: m.a / dpr, x: m.e / dpr, y: m.f / dpr };
+      if (window.layoutCircles.length === 0) {
+        window.viewSamples ??= [];
+        window.viewSamples.push(window.layoutTransform);
+      }
       window.layoutCircles.push({
         x: (x * m.a + m.e) / dpr,
         y: (y * m.d + m.f) / dpr,
@@ -95,6 +99,16 @@ try {
   const output = process.env.WEQ_RELATION_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   let cases = 0;
+  async function checkFollowing() {
+    await page.evaluate(() => {
+      window.viewSamples = [];
+    });
+    await page.waitForTimeout(500);
+    const views = await page.evaluate(() => window.viewSamples);
+    assert(views.length >= 5, '布局运动时应持续绘制');
+    assert(new Set(views.map((view) => JSON.stringify(view))).size >= 5, '自适应应逐帧跟随布局');
+    cases++;
+  }
   async function check(expected) {
     await page.waitForTimeout(2100);
     const result = await page.evaluate(() => {
@@ -180,6 +194,7 @@ try {
             theme === 'dark' ? '#e08aa0' : '#287b53',
           );
         }, theme);
+        await checkFollowing();
         await check(101);
         if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}-dense.png`) });
         await page.getByRole('button', { name: '切换数量', exact: true }).click();
@@ -199,6 +214,8 @@ try {
           '手动缩放后不应自动取景',
         );
         await page.getByRole('button', { name: '适应全部', exact: true }).click();
+        await page.getByRole('button', { name: '切换疏密', exact: true }).click();
+        await checkFollowing();
         await check(201);
         assert.notDeepEqual(await page.evaluate(() => window.layoutTransform), manual);
         await page.getByRole('button', { name: '切换模式', exact: true }).click();

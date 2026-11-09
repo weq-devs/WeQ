@@ -28,7 +28,6 @@ export function GraphCanvas({
   const sizeRef = useRef({ w: 0, h: 0, dpr: 1 });
   const imgCache = useRef<Map<string, HTMLImageElement>>(new Map());
   const autoFitRef = useRef(true);
-  const graphKeyRef = useRef('');
   const drawRafRef = useRef(0);
   const renderIndexRef = useRef<ReturnType<typeof indexGraphRender> | null>(null);
   const hitIndexRef = useRef<ReturnType<typeof indexGraphHit> | null>(null);
@@ -100,26 +99,15 @@ export function GraphCanvas({
 
   useEffect(() => {
     const prevSim = simulationRef.current;
-    const key = graph.nodes
-      .map((node) => `${node.kind}:${node.id}`)
-      .sort()
-      .join('|');
-    if (graphKeyRef.current !== key) {
-      graphKeyRef.current = key;
-      autoFitRef.current = true;
-    }
     prevSim?.stop();
     const sim = createGraphSimulation(graph, prevSim?.nodes());
     simulationRef.current = sim;
     renderIndexRef.current = indexGraphRender(graph);
     hitIndexRef.current = null;
-    let fitted = false;
     sim.on('tick', () => {
       hitIndexRef.current = null;
-      if (!fitted && sim.alpha() < 0.18 && autoFitRef.current) {
-        fitted = true;
-        fitViewRef.current();
-      } else drawRef.current();
+      if (autoFitRef.current) fitViewRef.current();
+      else drawRef.current();
     });
     sim.on('end', () => {
       if (autoFitRef.current) fitViewRef.current();
@@ -311,7 +299,6 @@ export function GraphCanvas({
   }, [privacy, selectedId]);
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    autoFitRef.current = false;
     const rect = wrapRef.current!.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
@@ -333,6 +320,7 @@ export function GraphCanvas({
     if (dragNodeRef.current) {
       movedRef.current += Math.abs(e.movementX) + Math.abs(e.movementY);
       if (movedRef.current < 4) return;
+      autoFitRef.current = false;
       const w = screenToWorld(sx, sy);
       dragNodeRef.current.fx = w.x;
       dragNodeRef.current.fy = w.y;
@@ -343,6 +331,8 @@ export function GraphCanvas({
     }
     if (panRef.current) {
       movedRef.current += Math.abs(e.movementX) + Math.abs(e.movementY);
+      if (movedRef.current < 4) return;
+      autoFitRef.current = false;
       viewRef.current.x += e.clientX - panRef.current.x;
       viewRef.current.y += e.clientY - panRef.current.y;
       panRef.current = { x: e.clientX, y: e.clientY };
