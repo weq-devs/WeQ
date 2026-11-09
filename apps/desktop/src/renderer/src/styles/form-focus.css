@@ -1,0 +1,47 @@
+/* 文本控件沿用自身或容器的边框反馈，不在内层再叠系统/页面焦点外圈。
+ * 原生勾选、滑块、颜色和文件控件仍保留各自的键盘焦点提示。 */
+html[data-theme] body
+  :is(
+    input:where(
+      :not(
+        [type='checkbox'],
+        [type='radio'],
+        [type='range'],
+        [type='color'],
+        [type='file'],
+        [type='button'],
+        [type='submit'],
+        [type='reset'],
+        [type='image']
+      )
+    ),
+    textarea,
+    select
+  ):is(:focus, :focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+
+html[data-theme]
+  body
+  :is(
+    input:where(:not([type])),
+    input:where(
+      [type='text'],
+      [type='search'],
+      [type='password'],
+      [type='email'],
+      [type='url'],
+      [type='tel'],
+      [type='number'],
+      [type='date'],
+      [type='time'],
+      [type='datetime-local'],
+      [type='month'],
+      [type='week']
+    ),
+    textarea,
+    select
+  ):where(:not(.is-error, [aria-invalid='true'])):focus {
+  border-color: var(--weq-accent-effective);
+}

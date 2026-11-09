@@ -234,8 +234,6 @@ html[data-theme] .weq-workspace-page :is(.weq-collection-search, .weq-dress-sear
 }
 html[data-theme] .weq-workspace-page :is(.weq-collection-search, .weq-dress-search):focus-within {
   border-color: var(--weq-accent-effective);
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
   box-shadow: none;
 }
 

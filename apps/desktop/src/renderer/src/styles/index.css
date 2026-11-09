@@ -17,6 +17,7 @@
 /* 图片/视频灯箱底部操作条 + OCR 覆盖层与纯文本面板。 */
 @import './lightbox-actions.css';
 @import './appearance.css';
+@import './form-focus.css';
 @import './export-save-actions.css';
 @import './conversation-list-row.css';
 
@@ -3017,7 +3018,6 @@ html[data-theme='dark'] .weq-mface-detail-nav {
   }
   .weq-keyfield-input:focus-within {
     border-color: color-mix(in srgb, var(--weq-accent-effective) 60%, transparent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
   }
   .weq-keyfield-lead {
     color: var(--weq-accent-effective);
@@ -7999,16 +7999,12 @@ html[data-theme='dark'] .weq-profile-member .avatar {
   transition: transform 130ms ease;
 }
 
-.message-avatar-button .avatar {
-  transition: box-shadow 130ms ease;
-}
-
 .message-avatar-button:hover {
   transform: translateY(-1px);
 }
 
 .message-avatar-button:hover .avatar {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  opacity: 0.85;
 }
 
 .message-avatar-button:active {
@@ -15142,7 +15138,6 @@ html[data-theme='dark'] .weq-provider-modal {
 }
 .weq-collection-search:focus-within {
   border-color: var(--weq-accent-effective);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
 }
 .weq-collection-search input {
   flex: 1;

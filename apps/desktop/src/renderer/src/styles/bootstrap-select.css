@@ -203,7 +203,6 @@
 
 .weq-select .weq-keyfield-input:focus-within {
   border-color: var(--weq-select-accent-fg);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-select-accent-fg) 15%, transparent);
 }
 
 .weq-select .weq-keyfield-icon:hover:not(:disabled),
@@ -307,7 +306,6 @@ html[data-theme] .weq-select :is(.weq-static-error, .weq-static-input.is-error) 
 
 .weq-select .weq-static-input:focus {
   border-color: var(--weq-select-accent-fg);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-select-accent-fg) 15%, transparent);
 }
 
 html[data-theme] .weq-select .weq-static-input.is-error:focus {

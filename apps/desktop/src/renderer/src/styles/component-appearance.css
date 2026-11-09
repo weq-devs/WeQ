@@ -304,11 +304,37 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-input,
     .weq-set-input,
     .weq-set-select,
-    .weq-action-soft,
-    .secondary-button,
-    .weq-set-btn,
+    .search-box,
+    .form-field input:not([type='checkbox']):not([type='range']):not([type='color']),
+    .form-field select,
+    .form-field textarea,
+    .weq-set-row-ctrl input:not([type='checkbox']):not([type='range']):not([type='color']),
+    .weq-set-row-ctrl select,
+    .weq-set-row-ctrl textarea,
     .weq-directory-toolbar input
-  ):focus-visible:not(:where(html[data-component-style='qqnt'] button)) {
+  ):not(:disabled):where(
+    :not(
+      .is-error,
+      [aria-invalid='true'],
+      [type='checkbox'],
+      [type='radio'],
+      [type='range'],
+      [type='color'],
+      [type='file'],
+      [type='button'],
+      [type='submit'],
+      [type='reset'],
+      [type='image']
+    )
+  ):focus-within {
+  border-color: var(--weq-accent-effective);
+}
+
+html[data-component-style][data-theme]:not([data-component-style='classic'])
+  body
+  :is(.weq-action-soft, .secondary-button, .weq-set-btn):focus-visible:not(
+    :where(html[data-component-style='qqnt'] button)
+  ) {
   outline: 2px solid var(--weq-accent-ink);
   outline-offset: 2px;
 }

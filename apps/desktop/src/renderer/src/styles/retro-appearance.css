@@ -310,10 +310,7 @@ html[data-component-style='retro'][data-theme]
     .weq-segmented > button,
     .weq-rail-button,
     .weq-settings-nav-item,
-    .weq-settings-subnav-item,
-    .weq-collection-search,
-    .weq-dress-search,
-    .composer textarea
+    .weq-settings-subnav-item
   ):focus-visible {
   outline: 2px solid var(--weq-accent-ink);
   outline-offset: -2px;

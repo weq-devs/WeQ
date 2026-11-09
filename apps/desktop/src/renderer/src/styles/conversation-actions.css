@@ -36,6 +36,8 @@
 .weq-conversation-actions-menu button:focus-visible {
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
   color: var(--weq-accent-effective);
+}
+.weq-conversation-actions-menu button:focus-visible {
   outline: 1px solid var(--weq-accent-effective);
 }
 .weq-conversation-actions-menu button:disabled {

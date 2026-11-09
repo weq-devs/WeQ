@@ -42,6 +42,9 @@
   color: var(--weq-fg-primary);
   font-size: 13px;
 }
+.weq-directory-toolbar input:focus {
+  border-color: var(--weq-accent-effective);
+}
 .weq-directory-selection-count {
   font-size: 12px;
   min-width: 18px;
