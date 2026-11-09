@@ -14,7 +14,9 @@ import type { NoticeOperation } from '../src/renderer/src/lib/contactNotice';
 
 const state = vi.hoisted(() => ({ operations: [] as NoticeOperation[] }));
 vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
-  OverlayLayer: ({ children }: { children: ReactNode }) => children,
+  OverlayLayer: () => {
+    throw new Error('联系人通知不得打开全窗口详情页或浮层');
+  },
 }));
 vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
   withQQAccountScope: <P extends object>(Component: ComponentType<P>) => Component,
@@ -94,6 +96,30 @@ function click(host: HTMLElement, detail = 1) {
 }
 
 describe('通知头像名片入口', () => {
+  it.each([ContactNoticeDialog, GroupNoticeDialog])(
+    '通知直接在所属内容面板内展示，关闭后不残留内容',
+    (Dialog) => {
+      const host = fixture(h(Dialog, { open: true, requests: [], onClose: vi.fn() }));
+      expect(host.querySelector(':scope > .weq-notice-panel')).not.toBeNull();
+      expect(document.querySelector('.weq-workspace-page')).toBeNull();
+      const closed = fixture(h(Dialog, { open: false, requests: [], onClose: vi.fn() }));
+      expect(closed.childElementCount).toBe(0);
+    },
+  );
+  it.each([ContactNoticeDialog, GroupNoticeDialog])(
+    '通知面板内按 Escape 返回，左侧列表焦点不触发返回',
+    (Dialog) => {
+      const close = vi.fn();
+      const host = fixture(h(Dialog, { open: true, requests: [], onClose: close }));
+      act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+      expect(close).toHaveBeenCalledOnce();
+      const outside = document.createElement('button');
+      host.append(outside);
+      outside.focus();
+      act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+      expect(close).toHaveBeenCalledOnce();
+    },
+  );
   it.each([ContactNoticeDialog, GroupNoticeDialog])(
     '通知返回按钮位于标题左侧并关闭当前页',
     (Dialog) => {

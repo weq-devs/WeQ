@@ -81,6 +81,10 @@ try {
             );
           });
           const list = document.querySelector('.weq-notice-scroll');
+          const panel = document.querySelector('.weq-notice-panel');
+          const workspace = document.querySelector('.weq-workspace-content');
+          const panelRect = panel.getBoundingClientRect();
+          const workspaceRect = workspace.getBoundingClientRect();
           list.scrollTop = list.scrollHeight;
           const last = cards.at(-1).getBoundingClientRect();
           return {
@@ -89,6 +93,17 @@ try {
             scrollable: list.scrollHeight > list.clientHeight,
             lastVisible: last.bottom <= list.getBoundingClientRect().bottom + 1,
             overflow: document.documentElement.scrollWidth > innerWidth + 1,
+            inline:
+              Boolean(workspace.querySelector('.weq-notice-panel')) &&
+              !document.querySelector('.weq-workspace-page'),
+            fitsWorkspace:
+              Math.abs(panelRect.left - workspaceRect.left) < 1 &&
+              Math.abs(panelRect.width - workspaceRect.width) < 1 &&
+              Math.abs(panelRect.height - workspaceRect.height) < 1,
+            sidebarVisible:
+              innerWidth <= 600 ||
+              document.querySelector('.notice-qa-sidebar').getBoundingClientRect().right <=
+                panelRect.left,
           };
         });
         if (
@@ -96,7 +111,10 @@ try {
           result.overflow ||
           result.count !== 12 ||
           !result.scrollable ||
-          !result.lastVisible
+          !result.lastVisible ||
+          !result.inline ||
+          !result.fitsWorkspace ||
+          !result.sidebarVisible
         )
           throw new Error(
             `${group ? 'group' : 'friend'}/${width}/${theme}: ${JSON.stringify(result)}`,

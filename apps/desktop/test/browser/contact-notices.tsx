@@ -5,6 +5,7 @@ import {
   GroupNoticeDialog,
 } from '../../src/renderer/src/components/ContactNoticeDialogs';
 import { RequestActions } from '../../src/renderer/src/components/qq-actions/RequestActions';
+import { WorkspaceContent, WorkspacePages } from '../../src/renderer/src/components/WorkspacePages';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import type {
   ContactRequest,
@@ -55,31 +56,45 @@ const groupRequests: GroupJoinRequest[] = requests.map((request, index) => ({
 }));
 function render(group: boolean, cards: Element[] = []) {
   root.render(
-    <div className="app-shell">
-      {group ? (
-        <GroupNoticeDialog open requests={groupRequests} onClose={() => {}} />
-      ) : (
-        <ContactNoticeDialog open requests={requests} onClose={() => {}} />
-      )}
-      {cards.map((card, index) =>
-        createPortal(
-          <RequestActions
-            operation={{
-              kind: group ? 'group' : 'friend',
-              token: String(index),
-              uid: `u_synthetic_${index}`,
-              uin: '10001',
-              name: '合成联系人',
-              groupId: group ? '20001' : '',
-              groupName: group ? '合成群' : '',
-              message: '合成留言',
-            }}
-          />,
-          card,
-          String(index),
-        ),
-      )}
-    </div>,
+    <WorkspacePages navigationKey="contacts">
+      <style>{`
+      html, body, #root { height: 100%; margin: 0; overflow: hidden; }
+      .app-shell.notice-qa-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); height: 100%; min-height: 0; }
+      .notice-qa-sidebar { padding: 16px; border-right: 1px solid var(--weq-border-subtle); }
+      @media (max-width: 600px) {
+        .app-shell.notice-qa-shell { grid-template-columns: minmax(0, 1fr); }
+        .notice-qa-sidebar { display: none; }
+      }
+    `}</style>
+      <div className="app-shell notice-qa-shell">
+        <aside className="notice-qa-sidebar">联系人</aside>
+        <WorkspaceContent>
+          {group ? (
+            <GroupNoticeDialog open requests={groupRequests} onClose={() => {}} />
+          ) : (
+            <ContactNoticeDialog open requests={requests} onClose={() => {}} />
+          )}
+        </WorkspaceContent>
+        {cards.map((card, index) =>
+          createPortal(
+            <RequestActions
+              operation={{
+                kind: group ? 'group' : 'friend',
+                token: String(index),
+                uid: `u_synthetic_${index}`,
+                uin: '10001',
+                name: '合成联系人',
+                groupId: group ? '20001' : '',
+                groupName: group ? '合成群' : '',
+                message: '合成留言',
+              }}
+            />,
+            card,
+            String(index),
+          ),
+        )}
+      </div>
+    </WorkspacePages>,
   );
 }
 Object.assign(window, {

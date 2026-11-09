@@ -11107,6 +11107,24 @@ function MainWorkspace(): ReactElement {
                       searchTarget={guildSearchTarget}
                       onActiveNodeChange={setActiveGuildNodeId}
                     />
+                  ) : shell.view === 'contacts' && shell.contactNotice === 'friend' ? (
+                    <ContactNoticeDialog
+                      open
+                      requests={contactRequests}
+                      onClose={shell.backContactNotice}
+                      onOpenProfile={(member, anchor) =>
+                        setMemberCard({ member, anchor, groupContext: null })
+                      }
+                    />
+                  ) : shell.view === 'contacts' && shell.contactNotice === 'group' ? (
+                    <GroupNoticeDialog
+                      open
+                      requests={groupRequests}
+                      onClose={shell.backContactNotice}
+                      onOpenProfile={(member, anchor, group) =>
+                        setMemberCard({ member, anchor, groupContext: group ?? null })
+                      }
+                    />
                   ) : shell.view === 'annual' ? (
                     <Suspense fallback={workspaceLoading}>
                       <AnnualReportView />
@@ -11603,24 +11621,6 @@ function MainWorkspace(): ReactElement {
               onClose={() => setAlbumDialog(null)}
             />
           ) : null}
-          {/* 好友 / 群通知灯箱：开关与数据都在这一层（`shell.contactNotice` 同时决定
-              联系人页右侧是否算「有详情在展示」，见 shellController 的 mainOpen）。 */}
-          <ContactNoticeDialog
-            open={shell.contactNotice === 'friend'}
-            requests={contactRequests}
-            onClose={shell.backContactNotice}
-            onOpenProfile={(member, anchor) =>
-              setMemberCard({ member, anchor, groupContext: null })
-            }
-          />
-          <GroupNoticeDialog
-            open={shell.contactNotice === 'group'}
-            requests={groupRequests}
-            onClose={shell.backContactNotice}
-            onOpenProfile={(member, anchor, group) =>
-              setMemberCard({ member, anchor, groupContext: group ?? null })
-            }
-          />
           {groupInfoDetail &&
           selectedConversation?.type === 'group' &&
           selectedConversation.id === groupInfoDetail.groupCode ? (
