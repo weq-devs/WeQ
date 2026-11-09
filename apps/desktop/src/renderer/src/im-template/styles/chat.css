@@ -383,6 +383,10 @@ html[data-theme='dark'] .weq-chat-backdrop {
   white-space: nowrap;
 }
 
+.chat-status-mobile {
+  display: none;
+}
+
 .chat-actions {
   display: flex;
   align-items: center;

@@ -5185,6 +5185,11 @@ export function ChatPane({
             <OnlineStatus uid={conversation.otherUser.id} />
           ) : null
         }
+        mobileStatus={
+          !generated && conversation.type === 'direct' ? (
+            <OnlineStatus uid={conversation.otherUser.id} showBaseStatus />
+          ) : null
+        }
         actions={
           <>
             {intentSupported &&

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MobileWebNavigation } from '../src/renderer/src/components/MobileWebNavigation';
 import { OnlineStatus } from '../src/renderer/src/components/OnlineStatus';
+import { ChatHeader } from '../src/renderer/src/components/ChatHeader';
 const { onlineStatusQuery } = vi.hoisted(() => ({ onlineStatusQuery: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: { account: { getOnlineStatus: { useQuery: onlineStatusQuery } } },
@@ -241,6 +242,35 @@ it('桌面等现有入口未启用基础状态展示时保持原有文案', asyn
   });
   await act(async () => root.render(createElement(OnlineStatus, { uid: 'u_fixture' })));
   expect(host.textContent).toBe('awa');
+});
+
+it('会话标题为手机保留基础状态与自定义状态，桌面维持原有状态文案', async () => {
+  onlineStatusQuery.mockReturnValue({
+    data: {
+      uid: 'u_fixture',
+      type: 10,
+      typeName: '在线',
+      subType: 2000,
+      subTypeName: '',
+      displayStatus: '今天是晴天',
+      customStatus: { faceId: 66, faceType: 1, text: '今天是晴天' },
+    },
+  });
+  await act(async () =>
+    root.render(
+      createElement(ChatHeader, {
+        title: '合成昵称 (00.3.12)',
+        status: createElement(OnlineStatus, { uid: 'u_fixture' }),
+        mobileStatus: createElement(OnlineStatus, { uid: 'u_fixture', showBaseStatus: true }),
+        actions: null,
+        onBack: vi.fn(),
+      }),
+    ),
+  );
+  expect(host.querySelector('.chat-title strong')?.textContent).toBe('合成昵称 (00.3.12)');
+  expect(host.querySelector('.chat-status-desktop')?.textContent).toBe('今天是晴天');
+  expect(host.querySelector('.chat-status-mobile')?.textContent).toBe('在线·今天是晴天');
+  expect(host.querySelector('.chat-status-mobile img')?.getAttribute('alt')).toBe('合成状态表情');
 });
 
 it.each([0, 123])('消息汇总数为 %s 时再次点击消息入口仍可定位', async (messageBadgeCount) => {

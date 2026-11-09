@@ -5,11 +5,13 @@ import { ChevronLeft } from 'lucide-react';
 export function ChatHeader({
   title,
   status,
+  mobileStatus,
   actions,
   onBack,
 }: {
   title: ReactNode;
   status?: ReactNode;
+  mobileStatus?: ReactNode;
   actions: ReactNode;
   onBack: () => void;
 }) {
@@ -26,7 +28,14 @@ export function ChatHeader({
       </button>
       <div className="chat-title">
         <strong>{title}</strong>
-        {status}
+        {mobileStatus ? (
+          <>
+            <span className="chat-status-desktop">{status}</span>
+            <span className="chat-status-mobile">{mobileStatus}</span>
+          </>
+        ) : (
+          status
+        )}
       </div>
       <div className="chat-actions" role="toolbar" aria-label="会话工具栏">
         {actions}

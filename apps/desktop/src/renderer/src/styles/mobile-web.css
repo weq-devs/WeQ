@@ -248,7 +248,7 @@
   }
 
   .weq-web-shell .chat-pane {
-    --chat-header-height: calc(52px + env(safe-area-inset-top, 0px));
+    --chat-header-height: calc(64px + env(safe-area-inset-top, 0px));
     height: 100%;
     min-width: 0;
     background: var(--weq-chat-bg, var(--background));
@@ -261,15 +261,66 @@
     border-bottom-color: var(--weq-border-subtle);
   }
 
+  .weq-web-shell .chat-title {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 4px;
+    overflow: hidden;
+    text-align: left;
+  }
+
+  .weq-web-shell .chat-title strong {
+    max-width: 100%;
+    flex-shrink: 0;
+    font-size: 20px;
+    font-weight: 500;
+    line-height: 1.2;
+  }
+
+  .weq-web-shell .chat-status-desktop {
+    display: none;
+  }
+
+  .weq-web-shell .chat-status-mobile {
+    display: block;
+    max-width: 100%;
+    min-width: 0;
+    line-height: 16px;
+  }
+
+  .weq-web-shell .chat-status-mobile:empty {
+    display: none;
+  }
+
+  .weq-web-shell .chat-status-mobile > span,
+  .weq-web-shell .chat-status-mobile .weq-mobile-conversation-status > span {
+    max-width: 100%;
+    vertical-align: top;
+  }
+
+  .weq-web-shell .chat-status-mobile > span > :not(:last-child),
+  .weq-web-shell .chat-status-mobile .weq-mobile-conversation-status > span > :not(:last-child) {
+    flex-shrink: 0;
+  }
+
+  .weq-web-shell .chat-status-mobile > span > span:last-child,
+  .weq-web-shell .chat-status-mobile .weq-mobile-conversation-status > span > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   /* 双行工具栏也要计入安全区；每行须容纳 44px 的触控按钮。 */
   .weq-web-shell .chat-pane:has(.chat-header-roaming-action, .weq-conversation-message-actions) {
-    --chat-header-height: calc(96px + env(safe-area-inset-top, 0px)) !important;
+    --chat-header-height: calc(108px + env(safe-area-inset-top, 0px)) !important;
   }
 
   .weq-web-shell
     .chat-pane:has(.chat-header-roaming-action, .weq-conversation-message-actions)
     > .chat-header {
-    grid-template-rows: 48px minmax(0, 1fr);
+    grid-template-rows: 64px minmax(0, 1fr);
   }
 
   .weq-web-shell .chat-header .chat-actions {
