@@ -27,6 +27,7 @@ import { displayUserName } from './user';
 import { cn } from './classNames';
 import { formatShortDate } from './format';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
+import { GroupProfileMetrics } from '../../components/GroupProfileMetrics';
 import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
 import { useTabActive } from '../../components/RetainedTabs';
 import { RankingModal } from '../../components/relationGraph/RankingModal';
@@ -209,6 +210,23 @@ export function GroupInfoPanel({
         ) : (
           <p className={cn('placeholder-text')}>暂无更多资料</p>
         )}
+        {!conversation.generated ? (
+          <GroupProfileMetrics groupCode={conversation.id}>
+            {(rows) =>
+              rows.map(([label, value]) => (
+                <button
+                  className={cn('group-info-meta-row')}
+                  type="button"
+                  key={label}
+                  onClick={() => onOpenDetail?.('profile')}
+                >
+                  <span>{label}</span>
+                  <strong>{value}</strong>
+                </button>
+              ))
+            }
+          </GroupProfileMetrics>
+        ) : null}
       </div>
     </section>
   );

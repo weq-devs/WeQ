@@ -196,6 +196,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         },
       }),
       account: {
+        contactMetrics: {
+          snapshot: { useQuery: () => ({ data: { rows: {} } }) },
+          changed: { useSubscription: () => undefined },
+        },
         getAccountConfig: {
           useQuery: () => ({ data: { uin: '10001', configId: state.configId } }),
         },

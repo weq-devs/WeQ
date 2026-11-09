@@ -119,6 +119,11 @@ describe('群资料面板', () => {
     mountPanel();
     expect(document.querySelector('.group-info-member-row')?.textContent).toContain('测试成员');
   });
+  it('群资料展示排序依据中的活跃度和群内好友数，缺少缓存不误报零', () => {
+    mountPanel();
+    expect(metaRow('活跃度')?.querySelector('strong')?.textContent).toBe('未知');
+    expect(metaRow('群内好友数')?.querySelector('strong')?.textContent).toBe('未知');
+  });
   it('已退群与等级排行是并列图标按钮，已退群保留原回调', () => {
     const open = vi.fn();
     mountPanel(undefined, undefined, { onOpenLeftMembers: open });
@@ -159,6 +164,8 @@ describe('群资料面板', () => {
   it('合成群不提供真实群的等级查询入口', () => {
     mountPanel(undefined, undefined, { conversation: { ...CONVERSATION, generated: true } });
     expect(document.querySelector('[aria-label="群成员等级排行"]')).toBeNull();
+    expect(metaRow('活跃度')).toBeUndefined();
+    expect(metaRow('群内好友数')).toBeUndefined();
   });
   it('联系人资料把公告与资料、内容入口与成员分别分组，默认侧栏不增加分组', () => {
     mountPanel(vi.fn(), vi.fn(), { layout: 'profile' });

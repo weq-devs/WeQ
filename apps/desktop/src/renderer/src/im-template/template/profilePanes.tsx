@@ -36,6 +36,7 @@ import { openLightbox } from '../../components/ImageLightbox';
 import { ContactWorkspace } from '../../components/ContactWorkspace';
 import { ProfileLikesRow } from '../../components/qq-actions/ProfileLikesRow';
 import { CommonRelationships } from '../../components/qq-actions/CommonRelationships';
+import { GroupProfileMetrics } from '../../components/GroupProfileMetrics';
 import { FriendClue } from '../../components/qq-actions/FriendClue';
 import {
   ContactWorkspaceNavigationContext,
@@ -1012,6 +1013,21 @@ export function GroupProfileDialog({
                     value={`${group.memberCount}/${group.maxMemberCount}`}
                     mono
                   />
+                ) : null}
+                {!conversation.generated ? (
+                  <GroupProfileMetrics groupCode={conversation.id}>
+                    {(rows) =>
+                      rows.map(([label, value], index) => (
+                        <ProfileRow
+                          key={label}
+                          icon={index === 0 ? <Activity size={13} /> : <Users size={13} />}
+                          label={label}
+                          value={value}
+                          mono
+                        />
+                      ))
+                    }
+                  </GroupProfileMetrics>
                 ) : null}
                 {group.entranceQ ? (
                   <ProfileRow
