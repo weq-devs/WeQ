@@ -45,6 +45,69 @@ it('完整未读补算后台执行，轻量水位仍走交互通道且不读取�
   await f.service.dispose();
 });
 
+it('同一批统计并发只读取一次，水位快查不等待完整统计，结束后不复用旧快照', async () => {
+  const f = fixture('/synthetic/unread-coalesce.db');
+  let release!: () => void;
+  f.queried.mockImplementationOnce(
+    () =>
+      new Promise<never[]>((done) => {
+        release = () => done([]);
+      }),
+  );
+  const first = f.service.getUnreadInfos(target);
+  const second = f.service.getUnreadInfos(target);
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  expect(f.getUnreadInfos).toHaveBeenCalledTimes(1);
+  // 水位读取不合并到慢速统计。
+  const fast = f.service.getUnreadInfos(target, true);
+  expect(f.getUnreadInfos).toHaveBeenCalledTimes(2);
+  release();
+  await Promise.all([first, second, fast]);
+  await f.service.getUnreadInfos(target);
+  expect(f.getUnreadInfos).toHaveBeenCalledTimes(3);
+  await f.service.dispose();
+});
+
+it('本地已读领先 QQ 时快查直接确认，完整统计向数据库传递有效下限', async () => {
+  const f = fixture('/synthetic/unread-local-floor.db');
+  await f.service.markLocalRead(2, '70001', '2');
+  const fast = await f.service.getUnreadInfos(target, true);
+  expect(fast[0]?.unreadCount).toBe(0);
+  expect(fast[0]?.countPending).toBeUndefined();
+  await f.service.getUnreadInfos(target);
+  expect(f.getUnreadInfos.mock.calls.at(-1)).toEqual([
+    target,
+    { selfUid: 'u_self', selfUin: '10001' },
+    new Map([['2_70001', '2']]),
+  ]);
+  await f.service.dispose();
+});
+
+it('合并统计失败后允许重试，不缓存失败或冒充零条未读', async () => {
+  const f = fixture('/synthetic/unread-coalesce-failed.db');
+  let reject!: (error: Error) => void;
+  f.queried.mockImplementationOnce(
+    () =>
+      new Promise<never[]>((_done, fail) => {
+        reject = fail;
+      }),
+  );
+  const first = f.service.getUnreadInfos(target);
+  const second = f.service.getUnreadInfos(target);
+  const failure = new Error('synthetic read failure');
+  const rejected = Promise.all([
+    expect(first).rejects.toBe(failure),
+    expect(second).rejects.toBe(failure),
+  ]);
+  await vi.waitFor(() => expect(reject).toBeTypeOf('function'));
+  reject(failure);
+  await rejected;
+  expect(f.getUnreadInfos).toHaveBeenCalledTimes(1);
+  expect((await f.service.getUnreadInfos(target))[0]?.unreadCount).toBe(1);
+  expect(f.getUnreadInfos).toHaveBeenCalledTimes(2);
+  await f.service.dispose();
+});
+
 it('账号关闭取消尚未执行的补算，不把取消伪装成零条未读', async () => {
   const path = '/synthetic/unread-dispose.db',
     f = fixture(path);

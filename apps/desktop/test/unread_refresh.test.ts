@@ -6,11 +6,57 @@ import {
   createUnreadUpdateGuard,
   retryConversationRead,
   unreadBadgeTargets,
+  UNREAD_COUNT_BATCH_SIZE,
+  createUnreadCountCache,
 } from '../src/renderer/src/lib/unreadRefresh';
 
 afterEach(() => vi.useRealTimers());
 
 describe('未读刷新调度', () => {
+  it('已完成统计不随每轮水位快查重算，库修订、阅读操作和水位变化均重新校准', () => {
+    const cache = createUnreadCountCache();
+    const guard = createUnreadUpdateGuard();
+    const row = { chatType: 2, uid: '777', msgSeq: '1', latestSeq: '100' };
+    expect(cache.needsCount(row, 1, guard.accepts)).toBe(true);
+    cache.remember({ ...row, countPending: true }, 1, guard.revision());
+    cache.remember({ ...row, readError: true }, 1, guard.revision());
+    expect(cache.needsCount(row, 1, guard.accepts)).toBe(true);
+    cache.remember(row, 1, guard.revision());
+    for (let poll = 0; poll < 20; poll++)
+      expect(cache.needsCount(row, 1, guard.accepts)).toBe(false);
+    expect(cache.needsCount(row, 2, guard.accepts)).toBe(true);
+    expect(cache.needsCount({ ...row, msgSeq: '2' }, 1, guard.accepts)).toBe(true);
+    expect(cache.needsCount({ ...row, latestSeq: '101' }, 1, guard.accepts)).toBe(true);
+    expect(cache.needsCount({ ...row, chatType: 1 }, 1, guard.accepts)).toBe(true);
+    guard.begin([row.uid])();
+    expect(cache.needsCount(row, 1, guard.accepts)).toBe(true);
+    cache.remember(row, 1, guard.revision());
+    expect(cache.needsCount(row, 1, guard.accepts)).toBe(false);
+  });
+  it('精确统计使用小批次，逐批交付且不改变水位快查的批次上限', async () => {
+    vi.useFakeTimers();
+    const targets = Array.from({ length: UNREAD_COUNT_BATCH_SIZE * 2 + 1 }, (_, index) => ({
+      chatType: 2,
+      uid: String(index),
+    }));
+    const load = vi.fn(async (_batch: typeof targets) => true);
+    const count = createUnreadTargetRefresh(load, undefined, UNREAD_COUNT_BATCH_SIZE);
+    count.request(targets);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(load.mock.calls.map(([batch]) => batch.length)).toEqual([
+      UNREAD_COUNT_BATCH_SIZE,
+      UNREAD_COUNT_BATCH_SIZE,
+      1,
+    ]);
+    expect(load.mock.calls.flatMap(([batch]) => batch)).toEqual(targets);
+    count.dispose();
+    const fast = createUnreadTargetRefresh(load);
+    load.mockClear();
+    fast.request(targets);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(load).toHaveBeenCalledOnce();
+    fast.dispose();
+  });
   it('五千会话分批完成，超容量明确请求补扫，不静默丢失', async () => {
     vi.useFakeTimers();
     const load = vi.fn(async (_targets: Array<{ chatType: number; uid: string }>) => true);

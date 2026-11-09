@@ -106,6 +106,8 @@ import {
   retryConversationRead,
   unreadBadgeTargets,
   sameUnreadHighlights,
+  UNREAD_COUNT_BATCH_SIZE,
+  createUnreadCountCache,
 } from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
@@ -5496,6 +5498,7 @@ function MainWorkspace(): ReactElement {
       messageScopeRef.current === source &&
       useViewState.getState().openedUin === openedUin;
     const guard = createUnreadUpdateGuard();
+    const countCache = createUnreadCountCache();
     unreadUpdateGuardRef.current = guard;
     setReadUndo(null);
     setUnreadByConv({});
@@ -5514,7 +5517,7 @@ function MainWorkspace(): ReactElement {
         const type = unreadChatType(contact.chatType);
         return type === null ? [] : [{ chatType: type, uid: contact.targetUid }];
       });
-      const batchSize = 256;
+      const batchSize = UNREAD_COUNT_BATCH_SIZE;
       for (let index = 0; index < targets.length && isCurrent(); index += batchSize) {
         // Give opening a conversation priority over background badge reads.
         while (isCurrent() && initialMessagesPendingRef.current) {
@@ -5528,6 +5531,10 @@ function MainWorkspace(): ReactElement {
             targets: targets.slice(index, index + batchSize),
           });
           if (!isCurrent()) return true;
+          for (const info of rows) {
+            if (guard.accepts(info.uid, startedAt))
+              countCache.remember(info, databaseRevision, startedAt);
+          }
           // 顶部会话的计数先回显，不等待后续所有分页的未读扫描。
           setUnreadByConv((current) => {
             const next = { ...current };
@@ -5619,13 +5626,14 @@ function MainWorkspace(): ReactElement {
     const refresh = createUnreadRefresh(loadUnread);
     type Target = Parameters<typeof client.account.getUnreadInfos.query>[0]['targets'][number];
     type Rows = Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>;
-    const applyLive = (rows: Rows, startedAt: number) => {
+    const applyLive = (rows: Rows, startedAt: number, databaseRevision: number) => {
       const accepted = rows.filter(
         (row) => !row.readError && !row.countPending && guard.accepts(row.uid, startedAt),
       );
       // 实时结果也推进版本，不能被更早启动的全量扫描回灌。
       const finish = guard.begin(accepted.map((row) => row.uid));
       finish();
+      for (const row of accepted) countCache.remember(row, databaseRevision, guard.revision());
       setUnreadByConv((current) => {
         const next = { ...current };
         let changed = false;
@@ -5659,17 +5667,22 @@ function MainWorkspace(): ReactElement {
     const readTargets = async (targets: Target[], watermarksOnly = false) => {
       if (!isCurrent() || !binding) return true;
       const startedAt = guard.revision();
+      const databaseRevision = dbRevisionRef.current;
       const rows = await client.account.getUnreadInfos.query({
         ...binding,
         targets,
         watermarksOnly,
       });
       if (!isCurrent()) return true;
-      applyLive(rows, startedAt);
+      applyLive(rows, startedAt, databaseRevision);
       if (watermarksOnly)
         liveRefresh.request(
           rows
-            .filter((row) => row.countPending)
+            .filter(
+              (row) =>
+                row.countPending &&
+                countCache.needsCount(row, databaseRevision, guard.accepts),
+            )
             .map((row) => ({
               chatType: row.chatType as Target['chatType'],
               uid: row.uid,
@@ -5681,7 +5694,11 @@ function MainWorkspace(): ReactElement {
       );
       return targets.filter((target) => !succeeded.has(`${target.chatType}:${target.uid}`));
     };
-    const liveRefresh = createUnreadTargetRefresh<Target>(readTargets, refresh.request);
+    const liveRefresh = createUnreadTargetRefresh<Target>(
+      readTargets,
+      refresh.request,
+      UNREAD_COUNT_BATCH_SIZE,
+    );
     const readSync = createUnreadTargetRefresh<Target>(
       (targets) => readTargets(targets, true),
       refresh.request,

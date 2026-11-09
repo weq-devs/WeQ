@@ -88,6 +88,21 @@ it('跨页自己发言去重，UID/UIN 任一匹配成立，边界和其他群�
   expect((await f.db.getUnreadInfos(targets, self))[0]?.outgoingSeqs).toEqual(['1', '2']);
 });
 
+it('本地阅读位置之后才扫描自己发言，保留原始 QQ 水位且不重扫已读历史', async () => {
+  const f = await fixture();
+  f.insert.run(1n, 70001, 2, 'u_self', 10001);
+  const execute = vi.spyOn(f.nt, 'executeSql');
+  const rows = await f.db.getUnreadInfos(targets, self, new Map([['2_70001', '1']]));
+  expect(rows[0]).toMatchObject({ msgSeq: 0, latestSeq: '2', outgoingSeqs: ['2'] });
+  const pages = execute.mock.calls.filter(([, query]) => query.includes('group_msg_table'));
+  expect(pages).toHaveLength(1);
+  expect(pages[0]?.[2]?.[5]).toBe('1');
+  execute.mockClear();
+  const read = await f.db.getUnreadInfos(targets, self, new Map([['2_70001', '2']]));
+  expect(read[0]?.msgSeq).toBe(0);
+  expect(execute.mock.calls.some(([, query]) => query.includes('group_msg_table'))).toBe(false);
+});
+
 it('普通递增序号跨满页前进，不遗漏页末、下一页首条和最后一页的自己发言', async () => {
   const f = await fixture();
   const sequenceUpdate = f.sql.prepare('UPDATE group_msg_table SET "40003"=rowid-?+1');
@@ -125,6 +140,18 @@ it('私聊索引分页保留 NULL 判定，未索引 UID 回退仍保持原有�
     self,
   );
   expect(rows.map((row) => row.outgoingSeqs)).toEqual([['1'], ['2']]);
+  const afterLocalRead = await f.db.getUnreadInfos(
+    [
+      { chatType: 1, uid: 'u_friend' },
+      { chatType: 1, uid: 'u_fallback' },
+    ],
+    self,
+    new Map([
+      ['1_u_friend', '1'],
+      ['1_u_fallback', '1'],
+    ]),
+  );
+  expect(afterLocalRead.map((row) => row.outgoingSeqs)).toEqual([[], ['2']]);
 });
 
 it('分页期间追加的新尾页不越过本次水位，失败与取消不交付部分计数', async () => {

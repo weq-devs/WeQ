@@ -1,5 +1,51 @@
 import { unreadChatType } from '@weq/codec';
 
+/** 精确计数逐会话排除自己发言，小批回显，水位快查仍可一次读取 256 项。 */
+export const UNREAD_COUNT_BATCH_SIZE = 16;
+
+interface CountWatermark {
+  chatType: number;
+  uid: string;
+  msgSeq?: string;
+  latestSeq: string | null;
+  readError?: boolean;
+  countPending?: boolean;
+}
+
+/** 仅跳过同一数据库修订、同一阅读状态下已完成的精确统计，不缓存计数结果。 */
+export function createUnreadCountCache() {
+  const completed = new Map<
+    string,
+    { msgSeq?: string; latestSeq: string | null; databaseRevision: number; readRevision: number }
+  >();
+  const key = (row: CountWatermark) => `${row.chatType}:${row.uid}`;
+  return {
+    remember(row: CountWatermark, databaseRevision: number, readRevision: number) {
+      if (row.readError || row.countPending) return;
+      completed.set(key(row), {
+        msgSeq: row.msgSeq,
+        latestSeq: row.latestSeq,
+        databaseRevision,
+        readRevision,
+      });
+    },
+    needsCount(
+      row: CountWatermark,
+      databaseRevision: number,
+      accepts: (uid: string, revision: number) => boolean,
+    ) {
+      const last = completed.get(key(row));
+      return (
+        !last ||
+        last.databaseRevision !== databaseRevision ||
+        last.msgSeq !== row.msgSeq ||
+        last.latestSeq !== row.latestSeq ||
+        !accepts(row.uid, last.readRevision)
+      );
+    },
+  };
+}
+
 /** QQ 已读变化没有新消息通知；仅优先校准仍有红点或高亮的会话。 */
 export function unreadBadgeTargets(
   contacts: ReadonlyArray<{ chatType: number | string; targetUid: string }>,
@@ -65,6 +111,7 @@ export function createUnreadRefresh(load: () => Promise<boolean>, delayMs = 100)
 export function createUnreadTargetRefresh<T extends { chatType: number; uid: string }>(
   load: (targets: T[]) => Promise<boolean | T[]>,
   onOverflow?: () => void,
+  batchSize = 256,
 ) {
   let disposed = false;
   let running = false;
@@ -85,7 +132,9 @@ export function createUnreadTargetRefresh<T extends { chatType: number; uid: str
   };
   async function run() {
     if (disposed) return;
-    const batch = [...queued.values()].filter((entry) => entry.at <= Date.now()).slice(0, 256);
+    const batch = [...queued.values()]
+      .filter((entry) => entry.at <= Date.now())
+      .slice(0, batchSize);
     if (!batch.length) {
       arm();
       return;

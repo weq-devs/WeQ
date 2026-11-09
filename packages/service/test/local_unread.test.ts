@@ -17,6 +17,25 @@ afterEach(() => {
 });
 
 describe('未读服务事件与阅读', () => {
+  it('撤销手动阅读降低下限时，迟到的缩短扫描不交付错误计数', async () => {
+    const f = setup(true);
+    const target = [{ chatType: 1, uid: 'u_fixture' }];
+    const row = { ...snapshot('2', 0), outgoingSeqs: ['1'] };
+    f.getUnreadInfos.mockResolvedValue([row]);
+    const change = await f.service.setReadState(target, false);
+    let finish!: (rows: UnreadInfoSnapshot[]) => void;
+    f.getUnreadInfos.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = f.service.getUnreadInfos(target);
+    await f.service.undoReadState(change.undoToken);
+    finish([{ ...row, outgoingSeqs: [] }]);
+    expect((await pending)[0]?.readError).toBe(true);
+    expect((await f.service.getUnreadInfos(target))[0]?.unreadCount).toBe(1);
+  });
   it('基础水位先确认已读，不等其他目标的 outgoing 扫描；未计数不冒充零', async () => {
     const f = setup();
     f.getUnreadInfos.mockResolvedValue([
@@ -308,6 +327,19 @@ const highlight = {
 };
 
 describe('本地未读基线', () => {
+  it('扫描下限取有效阅读位置，手动未读锚点撤销后不残留且按会话类型隔离', () => {
+    const store = new LocalUnreadStore();
+    expect(store.countFloor(1, 'u_fixture')).toBeUndefined();
+    const row = store.resolve(snapshot('100', 10));
+    expect(store.countFloor(1, 'u_fixture')).toBe('10');
+    store.markRead(1, 'u_fixture', '20');
+    expect(store.countFloor(1, 'u_fixture')).toBe('20');
+    const change = store.setManualRead(row, true);
+    expect(store.countFloor(1, 'u_fixture')).toBe('100');
+    expect(store.countFloor(2, 'u_fixture')).toBeUndefined();
+    store.restoreManualRead(1, 'u_fixture', change);
+    expect(store.countFloor(1, 'u_fixture')).toBe('20');
+  });
   it('QQ 已读水位滞后时扣除自己发送的序号，不清除夹在其中的入站和手动未读', () => {
     const { store } = fixture();
     store.resolve(snapshot('5000', 5000));
