@@ -222,6 +222,14 @@ export function SidebarHeader({
                 invertSelectionIds(directory?.ids ?? [], selection.selectedIds),
               )
             }
+            endAction={(searching, closeSearch) => (
+              <FriendGroupCreateMenu
+                showGroup={contactTab === 'friends'}
+                onLookup={setLookupOpen}
+                searching={searching}
+                onCloseSearch={closeSearch}
+              />
+            )}
           >
             {requestExport && (
               <button
@@ -250,7 +258,6 @@ export function SidebarHeader({
                 <RefreshCw size={15} className={refreshingContacts ? 'spin' : undefined} />
               </button>
             ) : null}
-            <FriendGroupCreateMenu showGroup={contactTab === 'friends'} onLookup={setLookupOpen} />
           </DirectoryToolbar>
           {exportMenu && requestExport && (
             <ConversationActionsMenu

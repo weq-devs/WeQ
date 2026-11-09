@@ -450,6 +450,95 @@ export function ConversationList({
             onLoadMore?.();
           } else setSelectedIds(invertSelectionIds(filteredIds, selectedIds));
         }}
+        endAction={(searching, closeSearch) => (
+          <div className="weq-directory-scope" ref={createMenuRef}>
+            <button
+              ref={createTriggerRef}
+              type="button"
+              title={searching ? '退出搜索会话' : '添加会话'}
+              aria-label={searching ? '退出搜索会话' : '添加会话'}
+              aria-haspopup={searching ? undefined : 'menu'}
+              aria-expanded={searching ? undefined : createOpen}
+              disabled={!searching && !directory}
+              onClick={() => {
+                if (searching) {
+                  setCreateOpen(false);
+                  closeSearch();
+                  return;
+                }
+                setScopeOpen(false);
+                setCreateOpen(!createOpen);
+              }}
+              onKeyDown={(event) => {
+                if (searching || event.key !== 'ArrowDown') return;
+                event.preventDefault();
+                setScopeOpen(false);
+                setCreateOpen(true);
+              }}
+            >
+              <Plus size={16} className="weq-directory-add-icon" />
+            </button>
+            {createOpen && !searching ? (
+              <div role="menu" className="weq-directory-scope-menu" aria-label="添加会话菜单">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onKeyDown={(event) => {
+                    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
+                      event.preventDefault();
+                    if (event.key === 'Tab') setCreateOpen(false);
+                  }}
+                  onClick={() => {
+                    setCreateOpen(false);
+                    directory?.onCreate();
+                  }}
+                >
+                  <Bot size={16} />
+                  新建好友克隆
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onKeyDown={(event) => {
+                    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
+                      event.preventDefault();
+                    if (event.key === 'Tab') setCreateOpen(false);
+                  }}
+                  onClick={() => {
+                    setCreateOpen(false);
+                    if (directory?.onCreateGroup) directory.onCreateGroup();
+                  }}
+                  disabled={!directory?.onCreateGroup}
+                >
+                  <Users size={16} />
+                  新建克隆体群聊
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setCreateOpen(false);
+                    setLookupOpen('user');
+                  }}
+                >
+                  <UserRound size={16} />
+                  QQ 号搜索
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setCreateOpen(false);
+                    setLookupOpen('group');
+                  }}
+                >
+                  <Users size={16} />
+                  群号搜索
+                </button>
+              </div>
+            ) : null}
+          </div>
+        )}
       >
         <div className="weq-directory-scope" ref={menuRef}>
           <button
@@ -490,88 +579,6 @@ export function ConversationList({
                   {item.name}
                 </button>
               ))}
-            </div>
-          ) : null}
-        </div>
-        <div className="weq-directory-scope" ref={createMenuRef}>
-          <button
-            ref={createTriggerRef}
-            type="button"
-            title="添加会话"
-            aria-label="添加会话"
-            aria-haspopup="menu"
-            aria-expanded={createOpen}
-            disabled={!directory}
-            onClick={() => {
-              setScopeOpen(false);
-              setCreateOpen(!createOpen);
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== 'ArrowDown') return;
-              event.preventDefault();
-              setScopeOpen(false);
-              setCreateOpen(true);
-            }}
-          >
-            <Plus size={16} />
-          </button>
-          {createOpen ? (
-            <div role="menu" className="weq-directory-scope-menu" aria-label="添加会话菜单">
-              <button
-                type="button"
-                role="menuitem"
-                onKeyDown={(event) => {
-                  if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
-                    event.preventDefault();
-                  if (event.key === 'Tab') setCreateOpen(false);
-                }}
-                onClick={() => {
-                  setCreateOpen(false);
-                  directory?.onCreate();
-                }}
-              >
-                <Bot size={16} />
-                新建好友克隆
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onKeyDown={(event) => {
-                  if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
-                    event.preventDefault();
-                  if (event.key === 'Tab') setCreateOpen(false);
-                }}
-                onClick={() => {
-                  setCreateOpen(false);
-                  if (directory?.onCreateGroup) directory.onCreateGroup();
-                }}
-                disabled={!directory?.onCreateGroup}
-              >
-                <Users size={16} />
-                新建克隆体群聊
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setCreateOpen(false);
-                  setLookupOpen('user');
-                }}
-              >
-                <UserRound size={16} />
-                QQ 号搜索
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setCreateOpen(false);
-                  setLookupOpen('group');
-                }}
-              >
-                <Users size={16} />
-                群号搜索
-              </button>
             </div>
           ) : null}
         </div>

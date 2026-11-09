@@ -51,11 +51,18 @@
 }
 .weq-directory-mode {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 6px;
   width: 100%;
   min-width: 0;
   animation: weq-directory-expand 180ms ease-out;
+}
+.weq-directory-add-icon {
+  transition: transform 180ms ease-out;
+}
+.weq-directory-toolbar.is-searching .weq-directory-add-icon {
+  transform: rotate(45deg);
 }
 .weq-directory-mode > svg {
   flex: none;
@@ -80,6 +87,9 @@
 @media (prefers-reduced-motion: reduce) {
   .weq-directory-mode {
     animation: none;
+  }
+  .weq-directory-add-icon {
+    transition: none;
   }
 }
 .weq-directory-scope {

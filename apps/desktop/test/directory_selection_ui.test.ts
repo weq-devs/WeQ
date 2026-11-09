@@ -28,6 +28,73 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+it.each(['会话', '联系人'])('%s 搜索复用原添加按钮和图标，关闭或 Escape 后恢复', (noun) => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const noop = vi.fn();
+  try {
+    act(() =>
+      root.render(
+        h(
+          ContentSelectionProvider,
+          null,
+          noun === '会话'
+            ? h(ConversationList, {
+                conversations: [],
+                preferences: {},
+                drafts: {},
+                activeConversationId: null,
+                onSelect: noop,
+              })
+            : h(SidebarHeader, {
+                user: createTemplateDemoData().user,
+                view: 'contacts',
+                query: '',
+                showSearch: false,
+                onQueryChange: noop,
+                onOpenProfile: noop,
+                onOpenFriendNotices: noop,
+                onOpenGroupNotices: noop,
+                contactTab: 'friends',
+                onContactTabChange: noop,
+                activeNotice: null,
+              }),
+        ),
+      ),
+    );
+    const toolbar = host.querySelector('.weq-directory-toolbar')!;
+    const label = noun === '会话' ? '添加会话' : '添加联系人或分组';
+    const add = toolbar.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
+    const icon = add.querySelector('svg');
+    for (const useEscape of [false, true]) {
+      act(() => toolbar.querySelector<HTMLButtonElement>(`[aria-label="搜索${noun}"]`)!.click());
+      const input = toolbar.querySelector('input')!;
+      expect(document.activeElement).toBe(input);
+      expect(toolbar.classList.contains('is-searching')).toBe(true);
+      expect(toolbar.querySelector(`[aria-label="退出搜索${noun}"]`)).toBe(add);
+      expect(add.disabled).toBe(false);
+      expect(add.querySelector('svg')).toBe(icon);
+      expect(icon?.classList.contains('weq-directory-add-icon')).toBe(true);
+      expect(toolbar.querySelectorAll('button')).toHaveLength(1);
+      expect(toolbar.querySelector('.lucide-x')).toBeNull();
+      act(() => {
+        if (useEscape)
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        else add.click();
+      });
+      expect(toolbar.classList.contains('is-searching')).toBe(false);
+      expect(toolbar.querySelector(`[aria-label="${label}"]`)).toBe(add);
+      expect(add.querySelector('svg')).toBe(icon);
+      expect(toolbar.querySelector('input')).toBeNull();
+      expect(toolbar.querySelector('[role="menu"]')).toBeNull();
+    }
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it.each(['friends', 'groups'] as const)(
   '%s 未读角标遵循消息列表的免打扰规则，含本地覆盖与取消覆盖',
   (tab) => {
