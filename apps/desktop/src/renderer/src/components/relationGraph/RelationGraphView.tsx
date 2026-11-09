@@ -8,29 +8,23 @@
  *  - 和弦图 / 重叠矩阵：群成员重合的两张图（{@link OverlapChord} / {@link OverlapMatrix}），
  *    二者共用 {@link buildOverlapModel} 的同一份重合数据。
  *
- * 下方控制条按「力图 / 重合图」两套设置切换，但布局骨架不变（左滑杆、中开关、
- * 右排行），避免用户换个视图就要重新找按钮。
+ * 下方控制条按「力图 / 重合图」两套设置切换。
  */
 import type React from 'react';
 import { createPortal } from 'react-dom';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity,
-  Award,
   Check,
   CheckCheck,
   ChevronDown,
   ChevronLeft,
   Crosshair,
-  Heart,
   LayoutGrid,
   RefreshCw,
   Search,
   Table2,
-  Trophy,
   UserRound,
   Users,
-  Users2,
   Waypoints,
   X,
 } from 'lucide-react';
@@ -43,7 +37,6 @@ import { useRenderDocument } from '../../lib/renderDocument';
 import { GroupProfileDialog } from '../../im-template/template/profilePanes';
 import { sharedGroupConversation } from '../ark/groupShareCard';
 import { buildGraph, buildOverlapModel, groupAvatar } from './graphModel';
-import { RankingModal, type RankingKind } from './RankingModal';
 import { RelationHome } from './RelationHome';
 import { OverlapChord } from './OverlapChord';
 import { OverlapMatrix } from './OverlapMatrix';
@@ -57,13 +50,6 @@ import type {
   RelationGraphData,
 } from './types';
 import './relationGraph.css';
-
-const RANK_BUTTONS: Array<{ kind: RankingKind; label: string; icon: JSX.Element }> = [
-  { kind: 'intimacy', label: '好友亲密度排行', icon: <Heart size={14} /> },
-  { kind: 'common', label: '共同群聊数排行', icon: <Users2 size={14} /> },
-  { kind: 'memberLevel', label: '群成员等级排行', icon: <Award size={14} /> },
-  { kind: 'groupActivity', label: '群聊活跃度排行', icon: <Activity size={14} /> },
-];
 
 const MODE_OPTIONS: Array<{ value: GraphMode; label: string; icon: JSX.Element }> = [
   { value: 'people', label: '群友圈子', icon: <UserRound size={13} /> },
@@ -127,7 +113,6 @@ export function RelationGraphView({
     setGroupCardId(null);
   const [refreshing, setRefreshing] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [rankOpen, setRankOpen] = useState<RankingKind | null>(null);
   const [pair, setPair] = useState<OverlapPairSelection | null>(null);
   const previousModeRef = useRef<GraphMode>(DEFAULT_SETTINGS.mode);
 
@@ -415,25 +400,6 @@ export function RelationGraphView({
                 大重叠找「同一批人在哪几个群」，小重叠找「几乎不挨着、但人群相投」的群。
               </p>
             </div>
-
-            <div className="weq-graph-col weq-graph-col-rank">
-              <span className="weq-graph-col-label">
-                <Trophy size={13} />
-                排行榜
-              </span>
-              {RANK_BUTTONS.map((button) => (
-                <button
-                  key={button.kind}
-                  type="button"
-                  className="weq-graph-rank-btn"
-                  disabled={button.kind !== 'intimacy' && button.kind !== 'groupActivity' && !data}
-                  onClick={() => setRankOpen(button.kind)}
-                >
-                  {button.icon}
-                  <span>{button.label}</span>
-                </button>
-              ))}
-            </div>
           </>
         ) : (
           <>
@@ -523,25 +489,6 @@ export function RelationGraphView({
                     : '纳入全部群聊参与计算。'}
               </p>
             </div>
-
-            <div className="weq-graph-col weq-graph-col-rank">
-              <span className="weq-graph-col-label">
-                <Trophy size={13} />
-                排行榜
-              </span>
-              {RANK_BUTTONS.map((button) => (
-                <button
-                  key={button.kind}
-                  type="button"
-                  className="weq-graph-rank-btn"
-                  disabled={button.kind !== 'intimacy' && button.kind !== 'groupActivity' && !data}
-                  onClick={() => setRankOpen(button.kind)}
-                >
-                  {button.icon}
-                  <span>{button.label}</span>
-                </button>
-              ))}
-            </div>
           </>
         )}
       </div>
@@ -556,32 +503,6 @@ export function RelationGraphView({
             patch({ groupFilter: codes });
             setPickerOpen(false);
           }}
-        />
-      ) : null}
-
-      {rankOpen ? (
-        <RankingModal
-          kind={rankOpen}
-          data={data}
-          onClose={() => setRankOpen(null)}
-          onOpenMember={(member, anchor) =>
-            onOpenMember?.(
-              {
-                uid: member.uid,
-                uin: member.uin,
-                nick: member.nick ?? '',
-                card: member.card ?? '',
-                groupCount: 0,
-                groupCodes: [],
-                intimacy: 0,
-                isFriend: true,
-              },
-              anchor,
-              member.groupCode
-                ? { code: member.groupCode, name: member.groupName ?? '' }
-                : undefined,
-            )
-          }
         />
       ) : null}
     </section>

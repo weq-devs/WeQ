@@ -1,5 +1,6 @@
 // @ts-nocheck
 import {
+  Award,
   Bot,
   CalendarCheck,
   ChevronRight,
@@ -15,6 +16,7 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useState,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
@@ -27,6 +29,7 @@ import { formatShortDate } from './format';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
 import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
 import { useTabActive } from '../../components/RetainedTabs';
+import { RankingModal } from '../../components/relationGraph/RankingModal';
 import '../../styles/conversation-actions.css';
 import '../../styles/group-sidebar-sections.css';
 
@@ -99,6 +102,8 @@ export function GroupInfoPanel({
   onClose?: () => void;
 }) {
   const active = useTabActive();
+  const [rankingGroup, setRankingGroup] = useState<string | null>(null);
+  useEffect(() => setRankingGroup(null), [conversation.id]);
   const memberListRef = useRef<HTMLDivElement | null>(null);
   const group = conversation.group;
   const announcement =
@@ -273,16 +278,30 @@ export function GroupInfoPanel({
             <UserPlus size={16} />
           </button>
         ) : null}
-        {onOpenLeftMembers ? (
-          <button
-            className={cn('group-info-left-members-button')}
-            type="button"
-            title="查看已退群的成员"
-            onClick={onOpenLeftMembers}
-          >
-            <UserMinus size={13} strokeWidth={2} /> 已退群
-          </button>
-        ) : null}
+        <div className="group-info-member-actions">
+          {onOpenLeftMembers ? (
+            <button
+              className="icon-button"
+              type="button"
+              title="查看已退群的成员"
+              aria-label="查看已退群的成员"
+              onClick={onOpenLeftMembers}
+            >
+              <UserMinus size={16} />
+            </button>
+          ) : null}
+          {!conversation.generated ? (
+            <button
+              className="icon-button"
+              type="button"
+              title="群成员等级排行"
+              aria-label="群成员等级排行"
+              onClick={() => setRankingGroup(conversation.id)}
+            >
+              <Award size={16} />
+            </button>
+          ) : null}
+        </div>
       </header>
       <div className={cn('group-info-member-search')}>
         <Search size={13} />
@@ -417,6 +436,38 @@ export function GroupInfoPanel({
         }
       }}
     >
+      {rankingGroup === conversation.id && active && !hidden ? (
+        <RankingModal
+          key={conversation.id}
+          kind="memberLevel"
+          data={null}
+          fixedGroup={{
+            code: conversation.id,
+            name: group.name,
+            memberCount: group.memberCount,
+          }}
+          onClose={() => setRankingGroup(null)}
+          onOpenMember={
+            onOpenMember
+              ? (member, anchor) => {
+                  const known = conversation.members.find((item) => item.id === member.uid);
+                  onOpenMember(
+                    known ?? {
+                      id: member.uid,
+                      uin: member.uin,
+                      displayName: member.card || member.nick || member.uin || member.uid,
+                      username: member.nick || member.uid,
+                      avatarUrl: null,
+                      identityLabel: 'QQ',
+                      identityValue: member.uin || member.uid,
+                    },
+                    anchor,
+                  );
+                }
+              : undefined
+          }
+        />
+      ) : null}
       {layout === 'profile' ? (
         <>
           <div className="weq-group-profile-primary">

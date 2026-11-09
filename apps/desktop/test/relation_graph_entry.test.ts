@@ -92,6 +92,8 @@ it('群交集保留统计首页，加载完成后可进入图谱并主动返回'
     act(() => host.querySelector<HTMLButtonElement>('.weq-relhome-cta')!.click());
     expect(host.querySelector('[data-testid="graph-canvas"]')).not.toBeNull();
     expect(host.querySelector('.weq-relhome')).toBeNull();
+    expect(host.querySelector('.weq-graph-col-rank')).toBeNull();
+    expect(host.textContent).not.toContain('排行榜');
     act(() => host.querySelector<HTMLButtonElement>('[title="回到群交集首页"]')!.click());
     expect(host.querySelector('.weq-relhome')).not.toBeNull();
     act(() => host.querySelector<HTMLButtonElement>('.weq-relhome-cta')!.click());
