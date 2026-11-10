@@ -20,7 +20,6 @@ import { useStableCallback } from '../../hooks/useStableCallback';
 import { useMobileWebLayout } from '../../hooks/useMobileWebViewport';
 import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
 import { adjacentMessageId } from '../../lib/messageKeyboardNav';
-import '../../lib/inputModality';
 import { IS_WEB } from '../../lib/target';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';

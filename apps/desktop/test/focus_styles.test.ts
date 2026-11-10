@@ -14,8 +14,46 @@ function rules(file: string) {
 }
 
 describe('控件焦点样式', () => {
+  it('指针模式只隐藏按钮外圈，Tab 模式和非按钮控件不受影响', () => {
+    const rule = rules('form-focus').find((rule) =>
+      rule.selectorText.includes("data-weq-input-modality='pointer'"),
+    )!;
+    const html = document.documentElement;
+    html.dataset.theme = 'dark';
+    html.dataset.weqInputModality = 'pointer';
+    const host = document.createElement('div');
+    document.body.append(host);
+    try {
+      const selector = rule.selectorText.replaceAll(':focus', '[data-test-focus]');
+      for (const markup of [
+        '<button data-test-focus></button>',
+        '<span role="button" data-test-focus></span>',
+        '<input type="submit" data-test-focus>',
+      ]) {
+        host.innerHTML = markup;
+        expect(host.firstElementChild!.matches(selector), markup).toBe(true);
+        html.dataset.weqInputModality = 'keyboard';
+        expect(host.firstElementChild!.matches(selector), markup).toBe(false);
+        html.dataset.weqInputModality = 'pointer';
+      }
+      for (const type of ['text', 'checkbox', 'radio', 'range', 'color', 'file']) {
+        host.innerHTML = `<input type="${type}" data-test-focus>`;
+        expect(host.firstElementChild!.matches(selector), type).toBe(false);
+      }
+      expect(rule.style.outline).toBe('none');
+      expect(rule.style.getPropertyValue('box-shadow')).toBe('');
+      expect(rule.style.getPropertyValue('border')).toBe('');
+    } finally {
+      host.remove();
+      delete html.dataset.theme;
+      delete html.dataset.weqInputModality;
+    }
+  });
+
   it('文本焦点统一去掉外圈，但不覆盖原生非文本控件', () => {
-    const rule = rules('form-focus').find((rule) => rule.style.outline === 'none')!;
+    const rule = rules('form-focus').find(
+      (rule) => rule.style.outline === 'none' && rule.selectorText.includes('textarea'),
+    )!;
     document.documentElement.dataset.theme = 'light';
     const host = document.createElement('div');
     document.body.append(host);

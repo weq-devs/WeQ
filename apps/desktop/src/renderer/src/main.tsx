@@ -5,6 +5,7 @@ import { TrpcProvider } from './trpc/provider';
 import { ensureThemeInitialized } from './state/theme';
 import { OverlayAnchorProvider } from './lib/overlayAnchor';
 import './styles/index.css';
+import './lib/inputModality';
 import { BackupStartupGate } from './components/BackupStartupGate';
 import { installResourceDiagnostics } from './lib/resourceDiagnostics';
 import { RendererErrorBoundary } from './components/RendererErrorBoundary';
