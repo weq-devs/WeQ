@@ -5383,6 +5383,7 @@ export const accountRouter = router({
       needsMemoryRead,
       ssoReady: attachEnabled && ssoReady,
       credentialsPending: getAppContext().onlineCredentialsPending(),
+      credentialsIssue: getAppContext().onlineCredentialsIssue(),
     };
   }),
 

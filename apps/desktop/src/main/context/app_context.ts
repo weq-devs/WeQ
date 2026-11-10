@@ -62,7 +62,7 @@ import { createLocalModelResources } from './local_model_resources';
 import { createSearchIndexRetirement } from '../source_search_retirement';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
-import type { IntentLocalEnginePort } from '@weq/service';
+import type { IntentLocalEnginePort, OnlineCredentialIssue } from '@weq/service';
 import { resolveLocalOcrFilterModel, runLocalOcrFile, runLocalOcrFilterFile } from '../ocr/local';
 import { OnlineImageOcr } from '../ocr/online';
 import { createLinuxAttachHook } from '../attach_elevation';
@@ -1132,6 +1132,8 @@ export interface AppContext {
    */
   refreshRkeysNow(): Promise<boolean>;
   onlineCredentialsPending(): boolean;
+  /** 需要用户处理的凭据原因；有值时受限模式应直接展示，而不是继续等待。 */
+  onlineCredentialsIssue(): OnlineCredentialIssue | null;
   /** 等待当前账号的原生 SSO 登记，不刷新在线票据。 */
   ensureOnlineCredentials(): Promise<void>;
   /**
@@ -1190,6 +1192,9 @@ function unavailableContext(nativeError: NativeInitError | null, reason: string)
     },
     onlineCredentialsPending(): boolean {
       return false;
+    },
+    onlineCredentialsIssue(): OnlineCredentialIssue | null {
+      return null;
     },
     async ensureOnlineCredentials(): Promise<void> {
       throw new Error(reason);
@@ -3346,6 +3351,9 @@ export function initAppContext(fileRoot?: string): AppContext {
     },
     onlineCredentialsPending(): boolean {
       return accountMonitor?.credentialsPending ?? false;
+    },
+    onlineCredentialsIssue(): OnlineCredentialIssue | null {
+      return accountMonitor?.credentialIssue ?? null;
     },
     async ensureOnlineCredentials(): Promise<void> {
       const monitor = accountMonitor;
