@@ -126,18 +126,25 @@ oidbCommand(command, subCommand) -> 'OidbSvcTrpcTcp.0x6d6_2'
   默认什么都不用传。`override` 只给 `scripts/sso_send.ts` 的 `--sign` / `--no-sign`。
 - spec 上不再有 `needSign` 字段；`invokeOidb` / `invokeTrpc` / `invokeLegacyOidb` 都只管
   编码解码与发包。
-- 防漂移：`test/sign_policy.test.ts` 断言表里每条 OIDB 命令都能在
-  `scripts/probe-sign.ts` 的命令表里找到，保证新加的策略可复测。
+- 防漂移：探测数据独立放在 `scripts/sign-probe-commands.ts`，可以离线导入，不运行
+  native 或抓包。`test/sign_policy.test.ts` 双向检查 OIDB / raw 清单、真实导出的 spec、
+  动态子命令、媒体上传及直发入口；每条必须有策略或明确的待确认原因。
 
 ### 已有不签名策略的显式登记（2026-11-10）
 
-`0x9474_0`（群待办列表）、`0xfe1_3`（QQ 秀形象查询）和 `0x9067_202`（图片下载
-`rkey`）沿用已有的不签名策略，现在显式登记为 `sign: 'none'`，避免正常调用被误报为
-“未登记”。三条命令此前均已在
-`probe-sign.ts` 的命令表中；本次只修正登记与提示，不改变发包参数，也不代表新增的
-三端抓包验收。既有说明见[群待办协议清单](./protocol-actions-20261019.md)与
-`packages/protocol/src/oidb/profile/get-qq-show-url.ts`、
-`packages/protocol/src/oidb/misc/fetch-download-rkeys.ts`。
+完整清点 149 条现有清单命令，84 条已有不签名声明的命令显式登记为 `sign: 'none'`，
+包括群待办列表、QQ 秀、图片下载 rkey 与私聊输入状态；43 条至少一个平台需要签名；
+另外 22 条在 `UNCONFIRMED_SIGN_COMMANDS` 列出原因，不把默认 false 当成已确认策略。
+待确认命令仍按原默认参数发包并提醒一次，警告中附带待确认原因。
+
+已有声明中仅依据旧白名单的条目、Windows 私聊视频与 mode=2 的未验收项另行列出。
+这次静态清点和离线回归不代表新增三端抓包验收。完整分级、清单及补测要求见
+[签名策略完整清点](./sign-policy-inventory-20261110.md)。
+
+同时补回原平台实测文档已记录、中央表却漏掉的三个 raw 命令：
+`HttpConn.0x6ff_501`、`OidbSvc.0x480_9_IMCore`、`OidbSvc.0x42d_4`，均为 Linux
+不签、Windows / macOS 签。这三条在 Windows / macOS 的发包参数因此得到修正，
+其余显式不签名登记及待确认入口不改原发包参数。
 
 ## 签名器 VM mode
 

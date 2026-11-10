@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from 'vitest';
+import { C2C_PTT_TRANS_CMD } from '@weq/protocol';
 import { OnlineVoiceTranscriber } from '../src/main/online_transcribe';
 
 const f = vi.hoisted(() => ({
@@ -85,6 +86,7 @@ it('转写拉帧始终带原会话 ID，被工具窗口替换后回退而不读�
     1,
   );
   expect(f.send).toHaveBeenCalledOnce();
+  expect(f.send).toHaveBeenCalledWith(42, C2C_PTT_TRANS_CMD, expect.any(Buffer), false, 3);
   expect(f.read).toHaveBeenLastCalledWith(
     42,
     expect.objectContaining({

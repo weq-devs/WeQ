@@ -19,7 +19,7 @@
 import { decode, encode, message } from '../../protobuf';
 import { invokeTrpc, type TrpcSpec } from '../invoke';
 import { toInt } from '../shared';
-import type { TrpcNative } from '../../transport';
+import { sendPacket, type TrpcNative } from '../../transport';
 import { nonemptyBytes, protobufSubmessage } from './raw-cells';
 
 const EXT_MAP_ENTRY = message([
@@ -377,8 +377,7 @@ export namespace GetGroupAlbumFeedDetail {
     params: Params,
   ): Promise<GroupAlbumFeedCells> => {
     const reqBytes = encode(FEED_DETAIL_REQ, serialize(params));
-    // 该 trpc 不在白名单里 → 不签名。
-    const raw = await nt.sendPacket(pid, QUN_FEED_DETAIL_CMD, Buffer.from(reqBytes), false);
+    const raw = await sendPacket(nt, pid, QUN_FEED_DETAIL_CMD, reqBytes);
     const response = new Uint8Array(raw);
     const decoded = decodeHead(response);
 
