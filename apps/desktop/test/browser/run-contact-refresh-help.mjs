@@ -61,6 +61,19 @@ try {
       await refreshButton.click();
       const dialog = page.getByRole('dialog', { name: '更新好友/群信息缓存', exact: true });
       await dialog.waitFor();
+      assert.equal(
+        await dialog.locator('.weq-dialog-head').evaluate((header) => {
+          const centers = ['.weq-dialog-icon', '.weq-dialog-title', '.weq-dialog-x'].map(
+            (selector) => {
+              const box = header.querySelector(selector).getBoundingClientRect();
+              return box.y + box.height / 2;
+            },
+          );
+          return Math.max(...centers) - Math.min(...centers) <= 1;
+        }),
+        true,
+        '更新缓存弹窗的图标、标题和关闭按钮应垂直居中',
+      );
       const help = dialog.getByText('选择好友/群信息缓存的更新范围。', { exact: true });
       assert.equal(await help.isVisible(), true);
       assert.equal(await dialog.locator('dl').count(), 0);

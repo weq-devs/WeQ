@@ -516,8 +516,10 @@ export function McpServerSection(): ReactElement {
           agentTargets.error ? null : (
             <div className="weq-set-empty">
               <AlertCircle size={15} aria-hidden />
-              没找到本机已安装的 MCP 客户端。请先安装 Claude Code / Codex / Cursor / VS Code
-              等，再回来扫描。
+              <span>
+                没找到本机已安装的 MCP 客户端。请先安装 Claude Code / Codex / Cursor / VS Code
+                等，再回来扫描。
+              </span>
             </div>
           )
         ) : (

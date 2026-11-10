@@ -60,6 +60,16 @@ html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
   max-width: 100%;
 }
 
+.weq-set-empty:has(> svg) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.weq-set-empty > svg {
+  flex: none;
+}
+
 /* 网格卡片和纵向表单中的操作仍按内容定宽，不继承容器的拉伸。 */
 .weq-set .weq-set-btn {
   justify-self: start;

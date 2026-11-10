@@ -17,7 +17,7 @@ html .weq-toast-host {
 }
 
 .weq-toast .weq-toast-header {
-  align-items: flex-start;
+  align-items: center;
 }
 
 .weq-toast .weq-toast-title {
