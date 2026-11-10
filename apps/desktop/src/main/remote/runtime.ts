@@ -76,6 +76,25 @@ export class RemoteRuntime {
     if (this.store?.read().enabled) await this.start();
   }
 
+  async restorePreferences(selected: readonly string[]): Promise<void> {
+    if (!this.store) throw new Error('远程连接配置不可用');
+    if (selected.includes('remoteMode')) {
+      this.mode = 'lan';
+      this.store.save({ mode: 'lan' });
+    }
+    if (selected.includes('tailscaleEnabled')) await this.setTailscaleEnabled(false);
+    if (selected.includes('remoteEnabled')) this.stop(true);
+  }
+
+  preferences() {
+    const saved = this.store?.read();
+    return {
+      enabled: saved?.enabled ?? false,
+      mode: saved?.mode ?? 'lan',
+      tailscaleEnabled: saved?.tailscaleEnabled ?? false,
+    };
+  }
+
   async setMode(mode: RemoteConnectionMode): Promise<void> {
     this.mode = mode;
     this.store?.save({ mode });

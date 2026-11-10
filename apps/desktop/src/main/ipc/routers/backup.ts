@@ -12,6 +12,11 @@ import {
   acknowledgeWeqClientSettings,
   skipWeqClientSettings,
   reassignWeqClientSettings,
+  DEFAULT_APP_SETTINGS,
+  WEQ_DEFAULTS_PATHS,
+  WEQ_DEFAULTS_CONNECTIONS,
+  type WeqDefaultsConnection,
+  recordWeqRestoreWarnings,
 } from '@weq/service';
 import { getBackupContext } from '../../context/backup_context';
 import { retryBackupRecovery } from '../../context/app_context';
@@ -20,6 +25,8 @@ import { backgroundTasks, runBackgroundTask } from '../../background_tasks';
 import { observable } from '@trpc/server/observable';
 import { runtimeMaintenance } from '../../runtime_maintenance';
 import { applyBackupLive } from '../../context/runtime_files';
+import { desktopWebRuntime } from '../../web/runtime';
+import { remoteRuntime } from '../../remote/runtime';
 
 const selection = z.object({
   parts: z.array(z.enum(WEQ_BACKUP_PARTS)).min(1).max(4),
@@ -171,14 +178,122 @@ export const backupProcedures = {
     ),
   ),
   backupDefaults: procedure
-    .input(z.object({ clientId: z.string().uuid().optional() }).optional())
-    .mutation(({ input }) =>
-      runBackgroundTask(
-        { kind: 'backup', name: '暂存恢复默认设置' },
-        () => applyBackupLive(() => ready().backups.stageDefaults(input?.clientId)),
+    .input(
+      z
+        .object({
+          clientId: z.string().uuid().optional(),
+          clearApi: z.boolean().optional(),
+          resetPaths: z.array(z.enum(WEQ_DEFAULTS_PATHS)).optional(),
+          resetConnections: z.array(z.enum(WEQ_DEFAULTS_CONNECTIONS)).optional(),
+        })
+        .optional(),
+    )
+    .mutation(({ input, ctx }) => {
+      const { clientId, ...defaults } = input ?? {};
+      const selected = input?.resetConnections ?? [];
+      if (
+        ctx.authorize &&
+        selected.some((id) =>
+          [
+            'systemAutostart',
+            'webEnabled',
+            'remoteEnabled',
+            'remoteMode',
+            'tailscaleEnabled',
+          ].includes(id),
+        )
+      )
+        throw new Error('请在桌面端恢复本机连接与自启设置');
+      let stagedId: string | undefined;
+      return runBackgroundTask(
+        { kind: 'backup', name: '恢复默认设置' },
+        () =>
+          applyBackupLive(
+            () => {
+              stagedId = ready().backups.stageDefaults(clientId, defaults).id;
+            },
+            async (result) => {
+              const attempt = async (label: string, run: () => unknown) => {
+                try {
+                  await run();
+                } catch (error) {
+                  result.warnings.push(
+                    `${label}未完成：${error instanceof Error ? error.message : String(error)}`,
+                  );
+                }
+              };
+              if (selected.includes('systemAutostart'))
+                await attempt('恢复系统登录自启', async () => {
+                  const host = getHost();
+                  if (!host.setAutostart) throw new Error('当前宿主不支持系统自启');
+                  const status = await host.setAutostart(false);
+                  if (status.enabled || status.registered) throw new Error('系统自启仍已启用');
+                });
+              for (const [id, label] of [
+                ['remoteEnabled', '远程服务'],
+                ['remoteMode', '远程连接模式'],
+                ['tailscaleEnabled', 'Tailscale 网络连接'],
+              ] as const)
+                if (selected.includes(id))
+                  await attempt(`恢复${label}`, () => remoteRuntime.restorePreferences([id]));
+              if (selected.includes('webEnabled'))
+                await attempt('恢复 Web 服务开关', () => desktopWebRuntime.stop());
+              await attempt('保存恢复回执', () => recordWeqRestoreWarnings(ready().root, result));
+            },
+            false,
+          ).catch((error: unknown) => {
+            const files = getBackupContext();
+            if (files.ok && stagedId) {
+              const status = weqBackupRestoreStatus(files.root);
+              if (status.pending?.id === stagedId && !status.result?.needsRecovery) {
+                try {
+                  files.backups.cancel();
+                } catch (cancelError) {
+                  throw new Error(
+                    `${error instanceof Error ? error.message : String(error)}；取消本次暂存失败，现场已保留：${String(cancelError)}`,
+                    { cause: error },
+                  );
+                }
+              }
+            }
+            throw error;
+          }),
         () => ({ note: '默认设置已恢复，无需重启 WeQ' }),
-      ),
-    ),
+      );
+    }),
+  backupDefaultsInfo: procedure.query(async ({ ctx }) => {
+    const boot = ready();
+    const settings = boot.config.getSettings();
+    const connections: { id: WeqDefaultsConnection; label: string; value: string }[] = [];
+    for (const [id, label] of [
+      ['showWindowOnAutostart', '启动时显示窗口'],
+      ['webServiceAutoStart', 'Web 服务自动启动'],
+    ] as const)
+      if (settings[id] !== DEFAULT_APP_SETTINGS[id])
+        connections.push({ id, label, value: '已启用' });
+    if (JSON.stringify(settings.weqAssistant) !== JSON.stringify(DEFAULT_APP_SETTINGS.weqAssistant))
+      connections.push({
+        id: 'weqAssistant',
+        label: 'WeQ 助手服务',
+        value: settings.weqAssistant.enabled ? '已启用' : `端口 ${settings.weqAssistant.port}`,
+      });
+    if (!ctx.authorize) {
+      const host = getHost();
+      const autostart = host.canAutostart ? await host.getAutostart?.() : null;
+      if (autostart?.enabled || autostart?.registered)
+        connections.push({ id: 'systemAutostart', label: '系统登录自启', value: '已启用' });
+      if (desktopWebRuntime.status().enabled)
+        connections.push({ id: 'webEnabled', label: 'Web 服务', value: '运行中' });
+      const remote = remoteRuntime.preferences();
+      if (remote.enabled)
+        connections.push({ id: 'remoteEnabled', label: '远程服务', value: '已启用' });
+      if (remote.mode !== 'lan')
+        connections.push({ id: 'remoteMode', label: '远程连接模式', value: remote.mode });
+      if (remote.tailscaleEnabled)
+        connections.push({ id: 'tailscaleEnabled', label: 'Tailscale 网络连接', value: '已启用' });
+    }
+    return { ...boot.backups.defaultsInfo(), connections };
+  }),
   backupApply: procedure.mutation(() => applyBackupLive()),
   backupDiscardPreview: procedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
     const ctx = getBackupContext();

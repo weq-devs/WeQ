@@ -12,8 +12,12 @@ import {
 } from '@weq/service';
 import { backupProcedures } from '../src/main/ipc/routers/backup';
 import { router } from '../src/main/ipc/trpc';
+import { runtimeMaintenance } from '../src/main/runtime_maintenance';
 
-const context = vi.hoisted(() => ({ current: null as WeqFileStartup | null }));
+const context = vi.hoisted(() => ({
+  current: null as WeqFileStartup | null,
+  closing: vi.fn(async () => {}),
+}));
 vi.mock('../src/main/context/backup_context', () => ({
   getBackupContext: () => context.current,
   applyLiveBackupContext: () => {
@@ -26,7 +30,7 @@ vi.mock('../src/main/context/backup_context', () => ({
 }));
 vi.mock('../src/main/context/app_context', () => ({
   retryBackupRecovery: () => true,
-  getAppContext: () => ({ bootstrap: null, clearAccount: async () => {} }),
+  getAppContext: () => ({ bootstrap: null, clearAccount: context.closing }),
 }));
 vi.mock('../src/main/ipc/routers/db_repair', () => ({ isDbRepairBusy: () => false }));
 vi.mock('../src/main/ipc/routers/intent_sense', () => ({ isIntentModelDownloading: () => false }));
@@ -63,10 +67,82 @@ function fixture() {
   };
   setHost(host);
   const routes = router(backupProcedures);
-  return { root, caller: routes.createCaller({}), routes };
+  return { root, caller: routes.createCaller({}), routes, host };
 }
+it('恢复默认 RPC 只返回必要确认信息，未选择的自启保持不变', async () => {
+  const f = fixture();
+  const host = {
+    ...f.host,
+    canAutostart: true,
+    getAutostart: vi.fn(async () => ({
+      supported: true,
+      enabled: true,
+      registered: true,
+      requiresApproval: false,
+    })),
+    setAutostart: vi.fn(async () => ({
+      supported: true,
+      enabled: false,
+      registered: false,
+      requiresApproval: false,
+    })),
+  };
+  setHost(host);
+  const files = context.current!;
+  if (!files.ok) throw Error(files.error);
+  files.config.setSettings({
+    webServiceAutoStart: true,
+    showWindowOnAutostart: true,
+    mcp: { token: 'synthetic-private-token' },
+  });
+  const info = await f.caller.backupDefaultsInfo();
+  expect(info.connections.map((item) => item.id)).toEqual(
+    expect.arrayContaining(['systemAutostart', 'webServiceAutoStart', 'showWindowOnAutostart']),
+  );
+  expect(JSON.stringify(info)).not.toContain('synthetic-private-token');
+  const result = await f.caller.backupDefaults({
+    clearApi: true,
+    resetConnections: ['showWindowOnAutostart'],
+  });
+  expect(result.status).toBe('applied');
+  expect(host.setAutostart).not.toHaveBeenCalled();
+  expect(files.config.getSettings()).toMatchObject({
+    webServiceAutoStart: true,
+    showWindowOnAutostart: false,
+    mcp: { token: '' },
+  });
+});
+
+it('恢复默认后系统自启变更失败，返回且持久记录具体未完成项', async () => {
+  const f = fixture();
+  setHost({
+    ...f.host,
+    canAutostart: true,
+    setAutostart: async () => {
+      throw Error('合成系统自启错误');
+    },
+  });
+  const result = await f.caller.backupDefaults({ resetConnections: ['systemAutostart'] });
+  expect(result.status).toBe('applied');
+  expect(result.warnings.join('；')).toContain('合成系统自启错误');
+  expect((await f.caller.backupStatus()).result?.warnings).toEqual(result.warnings);
+});
+it('账号收尾失败时取消本次暂存，弹窗重试可重新提交而不被旧暂存阻塞', async () => {
+  const f = fixture();
+  const revision = runtimeMaintenance.status().revision;
+  context.closing.mockRejectedValueOnce(new Error('合成账号收尾失败'));
+  await expect(f.caller.backupDefaults()).rejects.toThrow('合成账号收尾失败');
+  expect(runtimeMaintenance.status().revision).toBe(revision);
+  expect((await f.caller.backupStatus()).pending).toBeNull();
+  expect((await f.caller.backupDefaults()).status).toBe('applied');
+});
 it('真实备份 RPC 无 Native 可读取、导出、分片导入、预览并直接应用，无待重启任务', async () => {
   const f = fixture();
+  expect(await f.caller.backupDefaultsInfo()).toEqual({
+    hasApi: false,
+    paths: [],
+    connections: [],
+  });
   expect(await f.caller.backupStartup()).toMatchObject({
     ok: true,
     canRestart: false,

@@ -6,12 +6,6 @@ import { BackupSection, backupApi } from '../src/renderer/src/components/setting
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ client: {} }));
-vi.mock('../src/renderer/src/components/settings/GlobalSettingsSection', () => ({
-  GlobalSettingsSection: () => null,
-}));
-vi.mock('../src/renderer/src/components/settings/GlobalSettingsSection', () => ({
-  GlobalSettingsSection: () => null,
-}));
 const cleanups: (() => void)[] = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -35,6 +29,7 @@ function fixture() {
   };
   const api = {
     ...backupApi,
+    defaultsInfo: vi.fn(async () => ({ hasApi: false, paths: [], connections: [] })),
     inventory: vi.fn(async () => ({
       accounts: [],
       cloneScopes: [],
@@ -121,6 +116,57 @@ it('恢复默认需二次确认，未变化的命令仍可再次主动执行', a
   await ui.click('恢复默认设置');
   await ui.click('确认恢复默认');
   expect(f.api.defaults).toHaveBeenCalledTimes(2);
+});
+it('仅有一个恢复入口，按实际配置询问 API、目录与连接并提交明确选择', async () => {
+  const f = fixture();
+  const api: typeof backupApi = {
+    ...f.api,
+    defaultsInfo: vi.fn(async () => ({
+      hasApi: true,
+      paths: [{ id: 'cacheDirOverride', label: '缓存目录', value: '/synthetic/custom-cache' }],
+      connections: [{ id: 'systemAutostart', label: '系统登录自启', value: '已启用' }],
+    })),
+  };
+  const ui = await mount(api);
+  expect(ui.host.textContent).not.toContain('清除账号与应用配置');
+  expect(ui.host.textContent).not.toContain('重置全局配置');
+  await ui.click('恢复默认设置');
+  const modal = document.querySelector('[role="dialog"]')!;
+  const checkbox = modal.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  expect(checkbox.checked).toBe(false);
+  const select = modal.querySelectorAll<HTMLSelectElement>('select');
+  expect([...select].map((node) => node.value)).toEqual(['keep', 'keep']);
+  await act(async () => {
+    checkbox.click();
+    for (const node of select) {
+      node.value = 'reset';
+      node.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  expect(modal.textContent).toContain('另外恢复或清除');
+  expect(modal.textContent).toContain('不迁移文件');
+  await ui.click('确认恢复默认');
+  expect(f.api.defaults).toHaveBeenCalledWith(expect.any(String), {
+    clearApi: true,
+    resetPaths: ['cacheDirOverride'],
+    resetConnections: ['systemAutostart'],
+  });
+});
+
+it('读取恢复范围失败可重试，未读取成功时不能确认恢复', async () => {
+  const f = fixture();
+  f.api.defaultsInfo.mockRejectedValueOnce(new Error('合成读取失败'));
+  const ui = await mount(f.api);
+  await ui.click('恢复默认设置');
+  expect(ui.button('确认恢复默认').disabled).toBe(true);
+  expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
+    '合成读取失败',
+  );
+  await ui.click('重新读取恢复范围');
+  expect(ui.button('确认恢复默认').disabled).toBe(false);
+  expect(document.querySelector('[role="dialog"] input[type="checkbox"]')).toBeNull();
+  await ui.click('取消');
+  expect(f.api.defaults).not.toHaveBeenCalled();
 });
 it('恢复默认使用居中模态确认，焦点落在取消，取消不提交恢复', async () => {
   const f = fixture(),

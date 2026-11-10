@@ -50,6 +50,20 @@ function fixture() {
     },
   };
 }
+it('恢复默认专用回执经启动交接应用，保留会话整理与草稿且不重复清除后续设置', async () => {
+  const f = fixture();
+  f.state.client = { ...f.state.client!, defaults: true, values: {} };
+  localStorage.setItem('weq.contacts.order.10001.10001.friends', '{}');
+  localStorage.setItem('chat-template:conversation-preferences', '合成置顶');
+  localStorage.setItem('draft', '合成草稿');
+  await restoreBackupClient(f.api, localStorage);
+  expect(localStorage.getItem('weq.contacts.order.10001.10001.friends')).toBeNull();
+  expect(localStorage.getItem('chat-template:conversation-preferences')).toBe('合成置顶');
+  expect(localStorage.getItem('draft')).toBe('合成草稿');
+  localStorage.setItem('weq.contacts.order.10001.10001.friends', '{"sort":"qq"}');
+  await restoreBackupClient(f.api, localStorage);
+  expect(localStorage.getItem('weq.contacts.order.10001.10001.friends')).toBe('{"sort":"qq"}');
+});
 it('无待恢复界面数据时不读取被浏览器禁用的 localStorage', async () => {
   const f = fixture();
   f.state.result = null;

@@ -76,15 +76,9 @@ const LOG_RETENTION_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
 export function GlobalSettingsSection({
   section = 'general',
   heading = true,
-  storageManagement = 'cleanup',
-  disabled = false,
-  onBusyChange,
 }: {
   section?: 'general' | 'accounts' | 'storage' | 'logs' | 'network';
   heading?: boolean;
-  storageManagement?: 'cleanup' | 'configuration';
-  disabled?: boolean;
-  onBusyChange?: (busy: boolean) => void;
 }): ReactElement {
   const navigate = useContext(SettingsNavigateContext);
   const active = useTabActive();
@@ -145,13 +139,11 @@ export function GlobalSettingsSection({
   const [restartIds, setRestartIds] = useState<string[]>([]);
   const cleanupBusy = cleaning || clearStorageData.isLoading;
   const [pickedCats, setPickedCats] = useState<Set<string>>(new Set());
-  const cacheItems = (cacheUsage.data ?? []).filter((item) =>
-    storageManagement === 'configuration'
-      ? item.management === 'backup' &&
-        ['config', 'config.json'].includes(item.path.split(/[\\/]/).at(-1) ?? '')
-      : item.management !== 'backup' &&
-        item.management !== 'downloads' &&
-        item.management !== 'runtime',
+  const cacheItems = (cacheUsage.data ?? []).filter(
+    (item) =>
+      item.management !== 'backup' &&
+      item.management !== 'downloads' &&
+      item.management !== 'runtime',
   );
   const clearableItems = cacheItems.filter(
     (item) => item.clearable && (item.bytes > 0 || item.incomplete),
@@ -252,19 +244,15 @@ export function GlobalSettingsSection({
     const extra = displayTargets.flatMap((item) =>
       item.confirmation ? [`${item.label}：${item.confirmation}`] : [],
     );
-    const configuration = storageManagement === 'configuration';
     const ok = await confirm(
-      configuration ? `清除${label}？` : risky ? '清除所选数据' : '清理 WeQ 缓存',
-      configuration
-        ? `将清除「${label}」。\n\n${extra.join('\n\n')}\n\n先直接应用；若配置文件被占用，会另行询问是否重启。确认继续？`
-        : risky
-          ? `将永久删除「${label}」，预计清除约 ${formatBytes(willFree)}。只删除所选路径中的数据，不会额外清理其它 QQ 数据目录。先清除可直接清除的项目；若有占用项，会另行询问是否重启。\n\n${extra.join('\n\n')}\n\n确认清除？`
-          : `将删除「${label}」，预计释放约 ${formatBytes(willFree)}。需要时会重新下载或生成；保留数据不受影响。${extra.length ? `\n\n${extra.join('\n')}\n\n` : ''}是否继续？`,
+      risky ? '清除所选数据' : '清理 WeQ 缓存',
+      risky
+        ? `将永久删除「${label}」，预计清除约 ${formatBytes(willFree)}。只删除所选路径中的数据，不会额外清理其它 QQ 数据目录。先清除可直接清除的项目；若有占用项，会另行询问是否重启。\n\n${extra.join('\n\n')}\n\n确认清除？`
+        : `将删除「${label}」，预计释放约 ${formatBytes(willFree)}。需要时会重新下载或生成；保留数据不受影响。${extra.length ? `\n\n${extra.join('\n')}\n\n` : ''}是否继续？`,
       { okLabel: risky ? '清除' : '清理', cancelLabel: '取消', tone: 'warning' },
     );
     if (!ok) return;
     setCleaning(true);
-    onBusyChange?.(true);
     try {
       const res = await clearStorageData.mutateAsync({ ids, acknowledgeRisk: true });
       setRestartIds(res.restartIds);
@@ -281,16 +269,14 @@ export function GlobalSettingsSection({
       );
       pushToast({
         tone: res.failed.length > 0 ? 'warning' : 'success',
-        title:
-          res.failed.length > 0 ? '部分项目未能清除' : configuration ? '配置已清除' : '清理已完成',
-        message: `已清除 ${res.cleared.length} 项${configuration ? '' : `，释放约 ${formatBytes(res.freedBytes)}`}${res.failed.length ? `；${res.failed.map((item) => `${item.label}：${item.error}`).join('；')}` : ''}`,
+        title: res.failed.length > 0 ? '部分项目未能清除' : '清理已完成',
+        message: `已清除 ${res.cleared.length} 项，释放约 ${formatBytes(res.freedBytes)}${res.failed.length ? `；${res.failed.map((item) => `${item.label}：${item.error}`).join('；')}` : ''}`,
       });
       if (res.restartIds.length) await retryOccupiedStorage(res.restartIds);
     } catch (e) {
-      showError(configuration ? '清除配置失败' : '清理缓存失败', errMsg(e));
+      showError('清理缓存失败', errMsg(e));
     } finally {
       setCleaning(false);
-      onBusyChange?.(false);
     }
   }
 
@@ -396,58 +382,6 @@ export function GlobalSettingsSection({
 
   const accountList = accounts.data ?? [];
   const autoEnterTarget = autoEnter.data;
-
-  if (storageManagement === 'configuration') {
-    return (
-      <>
-        {[
-          { name: 'config', label: '清除账号与应用配置' },
-          { name: 'config.json', label: '重置全局配置' },
-        ].map(({ name, label }) => {
-          const targets = clearableItems.filter((item) => item.path.split(/[\\/]/).at(-1) === name);
-          return (
-            <button
-              key={name}
-              type="button"
-              className="weq-set-btn weq-set-btn-soft"
-              title={cacheUsage.isError ? `读取配置失败：${errMsg(cacheUsage.error)}` : undefined}
-              disabled={
-                disabled ||
-                cleanupBusy ||
-                cacheUsage.isFetching ||
-                cacheUsage.isError ||
-                targets.length === 0
-              }
-              onClick={() => void onClearWeqCache(targets)}
-            >
-              {name === 'config' ? <Trash2 size={14} /> : <RotateCcw size={14} />}
-              {label}
-            </button>
-          );
-        })}
-        {restartIds.length > 0 && (
-          <button
-            type="button"
-            className="weq-set-btn"
-            disabled={disabled || cleanupBusy}
-            onClick={() => {
-              setCleaning(true);
-              onBusyChange?.(true);
-              void retryOccupiedStorage(restartIds)
-                .catch((error) => showError('继续清除失败', errMsg(error)))
-                .finally(() => {
-                  setCleaning(false);
-                  onBusyChange?.(false);
-                });
-            }}
-          >
-            <RotateCcw size={14} />
-            重启并清除剩余配置
-          </button>
-        )}
-      </>
-    );
-  }
 
   return (
     <div className={`weq-set${section === 'storage' ? ' weq-storage-settings' : ''}`}>

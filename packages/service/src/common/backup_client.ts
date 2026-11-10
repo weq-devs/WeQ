@@ -23,6 +23,51 @@ export function isWeqClientBackupKey(key: string): boolean {
   return KEYS.has(key) || /^weq:group-assistant-pins:\d{1,20}(?:_[0-9a-f]{8})?$/.test(key);
 }
 
+/** 恢复默认只处理设置键；会话整理、草稿、数据快照与普通备份导入互不混用。 */
+export function isWeqClientDefaultsKey(key: string): boolean {
+  if (
+    key === 'chat-template:conversation-preferences' ||
+    key.startsWith('weq:group-assistant-pins:')
+  )
+    return false;
+  if (isWeqClientBackupKey(key)) return true;
+  if (
+    [
+      'weq.theme-density',
+      'weq.global-search.preferences',
+      'weq.calendar.kinds',
+      'weq:web-notifications',
+      'weq.group-badge-display.v1',
+    ].includes(key)
+  )
+    return true;
+  if (
+    key.startsWith('weq.contacts.order.') ||
+    key.startsWith('weq.contacts.refreshRange.') ||
+    key.startsWith('weq:workspace-panel:')
+  )
+    return true;
+  if (key.startsWith('weq:page-snapshot:v1:')) {
+    try {
+      const value: unknown = JSON.parse(key.slice('weq:page-snapshot:v1:'.length));
+      if (Array.isArray(value) && value.length === 2 && typeof value[1] === 'string') {
+        const name = value[1];
+        return (
+          name === 'workspace:conversation-scope' ||
+          name === 'export:format' ||
+          name === 'export:execution' ||
+          name.startsWith('export:options:') ||
+          name.startsWith('export:formats:') ||
+          name.startsWith('export:schedule:')
+        );
+      }
+    } catch {
+      /* 无法识别的现场原样保留。 */
+    }
+  }
+  return false;
+}
+
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -133,9 +178,18 @@ export function applyWeqClientSettings(
   values: Record<string, string>,
   replace = true,
   receiptId?: string,
+  defaults = false,
 ): void {
   validateWeqClientSettings(values);
-  const before = readClientSettings(storage);
+  const before = defaults ? ({} as Record<string, string>) : readClientSettings(storage);
+  if (defaults)
+    for (let index = 0; index < storage.length; index++) {
+      const key = storage.key(index);
+      if (key && isWeqClientDefaultsKey(key)) {
+        const value = storage.getItem(key);
+        if (value !== null) before[key] = value;
+      }
+    }
   if (receiptId !== undefined) {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(receiptId))
       throw new Error('无效的界面恢复回执');

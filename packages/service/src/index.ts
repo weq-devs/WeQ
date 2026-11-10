@@ -1263,6 +1263,13 @@ export { SharedPrompt } from './common/shared_prompt';
 export { bootstrapWeqBackupFiles } from './bootstrap/backup_startup';
 export type { WeqFileStartup } from './bootstrap/backup_startup';
 export { WeqBackupService } from './bootstrap/backup_service';
+export { recordWeqRestoreWarnings } from './bootstrap/backup_restore';
+export { WEQ_DEFAULTS_PATHS, WEQ_DEFAULTS_CONNECTIONS } from './bootstrap/backup_defaults';
+export type {
+  WeqDefaultsChoice,
+  WeqDefaultsPath,
+  WeqDefaultsConnection,
+} from './bootstrap/backup_defaults';
 export { writeWeqBackupExclusive } from './bootstrap/backup_output';
 export type { WeqBackupSelection } from './bootstrap/backup_service';
 export {

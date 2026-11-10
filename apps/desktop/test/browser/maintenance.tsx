@@ -29,6 +29,17 @@ const api: typeof backupApi = {
     chunkBytes: 65536,
   }),
   defaults: async () => applied,
+  defaultsInfo: async () => ({
+    hasApi: true,
+    paths: [
+      {
+        id: 'cacheDirOverride',
+        label: '缓存目录',
+        value: '/synthetic/自定义目录/long-folder-for-reset-options',
+      },
+    ],
+    connections: [{ id: 'webEnabled', label: 'Web 服务', value: '运行中' }],
+  }),
 };
 Object.assign(window, { maintenanceQa: { calls: maintenanceCalls, store: useThemeStore } });
 createRoot(document.getElementById('root')!).render(

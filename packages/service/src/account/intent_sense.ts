@@ -198,6 +198,7 @@ const DEFAULT_CONFIG: IntentSenseConfig = {
   hfMirror: true,
   conversationOverrides: {},
 };
+export { DEFAULT_CONFIG as DEFAULT_INTENT_SENSE_CONFIG };
 
 // ── 画像 ────────────────────────────────────────────────────────────────────
 

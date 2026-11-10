@@ -6,11 +6,54 @@ import { setImmediate } from 'node:timers/promises';
 import type { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
 import { tokenHash } from '../src/main/remote/pairing';
 import { RemoteRuntime } from '../src/main/remote/runtime';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 describe('远程服务的故障关闭', () => {
+  it('恢复连接开关和模式逐项生效，配对与网络身份原样保留', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'weq-reset-remote-'));
+    const claims = [
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        name: '合成手机',
+        tokenHash: 'a'.repeat(64),
+        approvedAt: 1,
+        lastSeenAt: null,
+        scope: 'web:access',
+      },
+    ];
+    const path = join(dir, 'devices.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        enabled: true,
+        mode: 'tailscale',
+        tailscaleEnabled: true,
+        networkIdentity: 'network-123',
+        claims,
+      }),
+    );
+    const runtime = new RemoteRuntime();
+    runtime.configure({ helper: process.execPath, stateDir: dir });
+    try {
+      await runtime.restorePreferences(['remoteMode']);
+      expect(runtime.preferences()).toEqual({ enabled: true, mode: 'lan', tailscaleEnabled: true });
+      await runtime.restorePreferences(['remoteEnabled', 'tailscaleEnabled']);
+      expect(runtime.preferences()).toEqual({
+        enabled: false,
+        mode: 'lan',
+        tailscaleEnabled: false,
+      });
+      expect(JSON.parse(readFileSync(path, 'utf8'))).toMatchObject({
+        claims,
+        networkIdentity: 'network-123',
+      });
+    } finally {
+      runtime.stop();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it('启动期间关闭 Remote，不再创建 Web 入口或启动网络助手', async () => {
     const launch = vi.fn();
     const web = vi.fn();

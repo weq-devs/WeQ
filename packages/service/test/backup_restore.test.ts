@@ -26,7 +26,8 @@ import { TokenUsageStore } from '../src/account/agentlab_usage';
 import { AssistantService } from '../src/account/assistant';
 import { snapshotWeqClones } from '../src/bootstrap/backup_clones';
 import { buildWeqBackup, type WeqBackupFile } from '../src/bootstrap/backup_bundle';
-import { DEFAULT_APP_SETTINGS } from '../src/bootstrap/user_config';
+import { DEFAULT_APP_SETTINGS, UserConfigService } from '../src/bootstrap/user_config';
+import { WeqBackupService } from '../src/bootstrap/backup_service';
 import { WEQ_MENU_CAPTURE_PRIVACY_KEY } from '../src/common/backup_client';
 import { snapshotWeqApiSettings, snapshotWeqSettings } from '../src/bootstrap/backup_settings';
 import { bootstrapWeqBackupFiles } from '../src/bootstrap/backup_startup';
@@ -37,6 +38,7 @@ import {
   weqBackupRestoreStatus,
   pendingWeqClientSettings,
   acknowledgeWeqClientSettings,
+  recordWeqRestoreWarnings,
 } from '../src/bootstrap/backup_restore';
 
 const faults = vi.hoisted(() => ({
@@ -107,6 +109,43 @@ function fixture() {
     clone: (id: string) => join(cache, 'agentlab', id),
   };
 }
+it('恢复默认在账号偏好写入中途失败时完整回滚，重试保留数据并完成恢复', () => {
+  const f = fixture();
+  const accountPath = f.account('10001');
+  const originalAccount = {
+    configId: '10001',
+    uin: '10001',
+    dbKey: 'synthetic-key',
+    algos: {},
+    lastLoginAt: 1,
+    mailNotifications: true,
+  };
+  write(accountPath, originalAccount);
+  const preference = join(f.cache, 'anti_recall', '10001', 'config.json');
+  write(preference, { enabled: true });
+  const config = new UserConfigService({ appDataRoot: () => f.root });
+  const before = read(join(f.root, 'config.json'));
+  const service = new WeqBackupService(f.root, config);
+  service.stageDefaults(undefined, { clearApi: true });
+  let failed = false;
+  faults.rename = (from, to) => {
+    if (!failed && from.endsWith('/next') && to === preference) {
+      failed = true;
+      throw Error('合成功能配置写入失败');
+    }
+  };
+  const failedResult = applyPendingWeqBackupRestore(f.root, f.cache);
+  expect(failedResult?.status).toBe('failed');
+  expect(failedResult?.needsRecovery).not.toBe(true);
+  expect(read(join(f.root, 'config.json'))).toEqual(before);
+  expect(read(accountPath)).toEqual(originalAccount);
+  expect(read(preference)).toEqual({ enabled: true });
+  faults.rename = null;
+  service.stageDefaults(undefined, { clearApi: true });
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  expect(read(accountPath)).not.toHaveProperty('mailNotifications');
+  expect(read(accountPath).dbKey).toBe('synthetic-key');
+});
 it.each(['skip', 'overwrite'] as const)('OneBot API 配置冷启动恢复遵循 %s 冲突策略', (conflict) => {
   const f = fixture();
   const incoming = {
@@ -575,12 +614,15 @@ it('提交后的清理失败仍如实报告已应用，下一次启动补清理�
   const result = applyPendingWeqBackupRestore(f.root, f.cache)!;
   expect(result.status).toBe('applied');
   expect(result.warnings.join(' ')).toContain('清理');
+  result.warnings.push('合成自启恢复失败');
+  recordWeqRestoreWarnings(f.root, result);
   expect(read(join(f.root, 'config.json'))).toMatchObject({
     settings: { renderTextMarkdown: false },
   });
   faults.remove = null;
   expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
   expect(weqBackupRestoreStatus(f.root).pending).toBeNull();
+  expect(weqBackupRestoreStatus(f.root).result?.warnings).toContain('合成自启恢复失败');
 });
 
 it('暂存校验失败和用户取消均不改运行数据，也不删除原备份', () => {

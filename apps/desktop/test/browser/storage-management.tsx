@@ -17,16 +17,11 @@ createRoot(document.getElementById('root')!).render(
           <GlobalSettingsSection section="storage" />
         </section>
         <section data-backup className="weq-set weq-backup">
-          <Card title="重置与清除配置">
+          <Card title="恢复默认设置">
             <div className="weq-backup-actions">
               <button type="button" className="weq-set-btn weq-set-btn-soft">
                 恢复默认设置
               </button>
-              <GlobalSettingsSection
-                section="storage"
-                heading={false}
-                storageManagement="configuration"
-              />
             </div>
           </Card>
         </section>

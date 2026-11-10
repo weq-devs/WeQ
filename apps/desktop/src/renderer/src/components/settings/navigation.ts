@@ -231,8 +231,9 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'weq-config-management',
     section: 'backup',
-    label: '重置与清除配置',
+    label: '恢复默认设置',
     aliases: [
+      '重置与清除配置',
       '配置与运行数据管理',
       '账号与应用配置',
       '全局配置',

@@ -18,6 +18,7 @@ import { snapshotWeqClones } from './backup_clones';
 import { snapshotWeqAccountPreferences } from './backup_accounts';
 import { validateWeqBackupData } from './backup_data';
 import { validateWeqClientSettings } from '../common/backup_client';
+import { weqDefaultsPaths, type WeqDefaultsChoice } from './backup_defaults';
 import {
   previewWeqBackupRestore,
   stageWeqBackupRestore,
@@ -245,7 +246,33 @@ export class WeqBackupService {
     cancelWeqBackupRestore(this.root, this.config.cacheBaseDir());
   }
 
-  stageDefaults(clientId?: string) {
+  defaultsInfo() {
+    const settings = this.config.getSettings();
+    const api = snapshotWeqApiSettings(settings);
+    return {
+      hasApi:
+        api.agentLab.providers.length > 0 ||
+        api.agentLab.defaultModel !== null ||
+        api.ttsProviders.length > 0 ||
+        api.mcp.enabled ||
+        Boolean(api.mcp.token) ||
+        api.mcp.port !== DEFAULT_APP_SETTINGS.mcp.port ||
+        JSON.stringify(api.oneBot) !== JSON.stringify(DEFAULT_APP_SETTINGS.oneBot) ||
+        api.externalRkey.servers.length > 0 ||
+        api.ssePush.servers.length > 0,
+      paths: weqDefaultsPaths(this.config.read()),
+    };
+  }
+
+  stageDefaults(clientId?: string, defaults: WeqDefaultsChoice = {}) {
+    const status = weqBackupRestoreStatus(this.root);
+    if (
+      status.pending &&
+      status.result?.id === status.pending.id &&
+      status.result.status === 'failed' &&
+      !status.result.needsRecovery
+    )
+      cancelWeqBackupRestore(this.root, this.config.cacheBaseDir());
     const result = stageWeqBackupRestore(
       this.root,
       buildWeqBackup([
@@ -260,6 +287,7 @@ export class WeqBackupService {
         parts: ['settings'],
         conflict: 'overwrite',
         keepLocalPaths: false,
+        defaults,
         ...(clientId ? { clientId } : {}),
       },
     );
