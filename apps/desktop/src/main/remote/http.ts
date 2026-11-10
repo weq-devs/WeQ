@@ -7,7 +7,10 @@ function bearer(req: IncomingMessage): string {
   return /^Bearer [a-f0-9]{64}$/.test(value) ? value.slice(7) : '';
 }
 
-export function createRemoteServer(pairing: RemotePairing, web?: RemoteWebGateway) {
+export function createRemoteServer(
+  pairing: RemotePairing,
+  web?: Pick<RemoteWebGateway, 'handle' | 'attach' | 'close'>,
+) {
   let windowStart = Date.now();
   // 未授权请求与已授权设备分别计数，避免单个来源耗尽所有设备的限额。
   const requests = new Map<string, number>();
@@ -88,7 +91,8 @@ export function createRemoteServer(pairing: RemotePairing, web?: RemoteWebGatewa
   });
   server.headersTimeout = 10_000;
   server.requestTimeout = 10_000;
-  server.timeout = 10_000;
+  // 业务响应与订阅可能长时间没有字节；收包时限不应变成业务执行时限。
+  server.timeout = 0;
   server.maxConnections = 16;
   web?.attach(server);
   server.once('close', () => web?.close());

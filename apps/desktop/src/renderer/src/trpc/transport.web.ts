@@ -29,6 +29,14 @@ const wsClient = createWSClient({
 
 const independentReads = new Set([
   'account.listRecentContacts',
+  // 任务轮询与按需日志不能等待同批的 QQ / 数据库慢查询。
+  'backgroundTasks.list',
+  'backgroundTasks.details',
+  'backgroundTasks.logs',
+  'account.calendarOverview.task',
+  'account.listExportTasks',
+  'account.roamingBackfill.list',
+  'account.flashListDownloadTasks',
   'account.searchQuick',
   'account.searchSlow',
   'account.listLatest',

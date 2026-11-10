@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createRemoteServer } from '../src/main/remote/http';
 import { RemotePairing, tokenHash } from '../src/main/remote/pairing';
+import { initTRPC } from '@trpc/server';
+import { createHTTPHandler } from '@trpc/server/adapters/standalone';
 
 describe('远程原型的最小 HTTP 面', () => {
   let pairing: RemotePairing;
@@ -103,3 +105,64 @@ describe('远程原型的最小 HTTP 面', () => {
     expect((await fetch(`${base}/v1/status`)).status).toBe(429);
   });
 });
+
+it('Remote 保留超过十秒的业务批次，同时独立任务读取无需等待', async () => {
+  const t = initTRPC.create();
+  let started!: () => void;
+  const slowStarted = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const handler = createHTTPHandler({
+    router: t.router({
+      slow: t.procedure.query(async () => {
+        started();
+        await new Promise((resolve) => setTimeout(resolve, 11_000));
+        return 'finished';
+      }),
+      tasks: t.procedure.query(() => [{ progress: 50 }]),
+      logs: t.procedure.query(() => ['task log']),
+    }),
+  });
+  const server = createRemoteServer(new RemotePairing(), {
+    handle(req, res) {
+      req.url = req.url!.slice('/trpc'.length);
+      void handler(req, res);
+    },
+    attach() {},
+    close() {},
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('没有监听端口');
+  const base = `http://127.0.0.1:${address.port}/trpc`;
+  try {
+    const pending = fetch(`${base}/slow,tasks,logs?batch=1&input=%7B%7D`, {
+      signal: AbortSignal.timeout(15_000),
+    }).then((response) => response.json());
+    // 立即安装拒绝处理器，避免旧实现超时断开时出现未处理拒绝。
+    const result = pending.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    await slowStarted;
+    const fast = await fetch(`${base}/tasks,logs?batch=1&input=%7B%7D`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    expect(await fast.json()).toEqual([
+      { result: { data: [{ progress: 50 }] } },
+      { result: { data: ['task log'] } },
+    ]);
+    expect(await result).toEqual({
+      value: [
+        { result: { data: 'finished' } },
+        { result: { data: [{ progress: 50 }] } },
+        { result: { data: ['task log'] } },
+      ],
+    });
+    expect(server.headersTimeout).toBe(10_000);
+    expect(server.requestTimeout).toBe(10_000);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}, 20_000);
