@@ -1,7 +1,7 @@
 import { useContext, useEffect, useMemo, useRef } from 'react';
 import { z } from 'zod';
-import { usePageState } from '../PageSnapshots';
-import { RotateCcw, Save } from 'lucide-react';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { RotateCcw, Save, SlidersHorizontal } from 'lucide-react';
 import {
   INTENT_TUNING,
   INTENT_TUNING_HELP,
@@ -71,6 +71,12 @@ function TuningFields({
     });
     baseline.current = next;
   }, [keys, status.data, setDraft]);
+  usePageDraftConfirmation(
+    `tuning:${group}`,
+    status.data
+      ? Object.fromEntries(keys.map((key) => [key, String(status.data![key])]))
+      : undefined,
+  );
   const ready = keys.every((key) => isIntentTuningValue(key, status.data?.[key]));
   const valid = keys.every(
     (key) => draft[key]?.trim() && isIntentTuningValue(key, Number(draft[key])),
@@ -85,7 +91,7 @@ function TuningFields({
   }
 
   return (
-    <Card title={TITLES[group]}>
+    <Card title={TITLES[group]} icon={<SlidersHorizontal size={15} strokeWidth={1.8} />}>
       <form
         className="weq-intent-tuning-form"
         // 小数步长只用于增减；输入精度与其它规则统一交给共享校验器。

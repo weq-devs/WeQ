@@ -1,3 +1,4 @@
+import { MousePointerClick } from 'lucide-react';
 import { Card, Row, Toggle } from './controls';
 import { ApiModelRow } from './ApiModelSelect';
 import { AiFeatureSettingsLayout } from './AiFeatureSettingsLayout';
@@ -41,13 +42,13 @@ export function ReplySuggestionsSection() {
             lastError={s?.lastSuggestionApiError}
             onChange={(suggestionProviderRef) => void patch({ suggestionProviderRef })}
           />
-          <p className="weq-set-note">未选择 API 模型或调用不可用时，仅提供规则候选。</p>
+          <p className="weq-set-note">API 模型未配置或调用不可用时，仅提供规则候选。</p>
         </>
       }
     >
       {(inactive) => (
         <>
-          <Card title="触发方式">
+          <Card title="触发方式" icon={<MousePointerClick size={15} strokeWidth={1.8} />}>
             <Row
               settingId="suggestions-after-self"
               label="自己发送后推荐回复"

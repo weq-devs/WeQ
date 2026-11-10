@@ -22,6 +22,8 @@ import {
 } from 'react';
 import { trpc, client } from '../../trpc/client';
 import { modelSelectionKey } from '@weq/agentlab/model-selection';
+import { RefreshCw } from 'lucide-react';
+import type { IntentAnalysisProgress } from '@weq/service';
 
 /** 与后端 IntentSenseResult 对齐（superjson 直传的形状）。 */
 export interface IntentAnalysis {
@@ -42,6 +44,8 @@ export interface IntentSenseContextValue {
   active: boolean;
   persistentDisplay?: boolean;
   hoverDisplay?: boolean;
+  /** 当前会话缓存的读取状态；不把读取缓存误报为消息分析在途。 */
+  cacheState?: 'loading' | 'ready' | 'error';
   /** 数据版本（每次合并 bump；消费者以此触发重渲染）。 */
   version: number;
   /** 读单条结果（未分析过返回 undefined）。 */
@@ -50,6 +54,7 @@ export interface IntentSenseContextValue {
   isUnavailable: (msgId: string) => boolean;
   /** 单条悬停分析是否在途，供消息下的加载窄条使用。 */
   isPending?: (msgId: string) => boolean;
+  getFailure?: (msgId: string) => string | undefined;
   /** 悬停未命中时单条触发（带去重：同一消息本会话只发一次）。 */
   requestAnalysis: (msgId: string) => void;
   /** 当前回复目标；最新有效消息来自自己时为空。 */
@@ -107,8 +112,24 @@ export function IntentSenseProvider({
   const analysesRef = useRef(new Map<string, IntentAnalysis>());
   const requestedRef = useRef(new Set<string>());
   const unavailableRef = useRef(new Set<string>());
+  const failedRef = useRef(new Map<string, string>());
+  const batchPendingRef = useRef(new Set<string>());
   const [version, setVersion] = useState(0);
   const [settled, setSettled] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const [cacheRead, setCacheRead] = useState<{
+    scope: string;
+    state: 'ready' | 'error';
+  } | null>(null);
+  const [batch, setBatch] = useState<{
+    scope: string;
+    running: boolean;
+    total?: number;
+    completed?: number;
+    succeeded?: number;
+    failed?: number;
+    error?: string;
+  } | null>(null);
 
   const status = useIntentSenseStatus();
   const statusData = status.data;
@@ -136,6 +157,7 @@ export function IntentSenseProvider({
       for (const r of results) {
         analysesRef.current.set(r.msgId, r);
         unavailableRef.current.delete(r.msgId);
+        failedRef.current.delete(r.msgId);
       }
       bump();
     },
@@ -143,6 +165,8 @@ export function IntentSenseProvider({
   );
 
   const engineKey = `${statusData?.engine ?? ''}::${modelSelectionKey(statusData?.providerRef)}::${statusData?.analysisContextMessages ?? ''}::${statusData?.analysisRevision ?? 0}::${statusData?.analyzeAfterSelf !== false}`;
+  const scope = `${kind}:${conv}:${engineKey}`;
+  const cacheState = cacheRead?.scope === scope ? cacheRead.state : 'loading';
   // 会话切换或引擎切换时同步清空内存态（放在拉取缓存之前，避免清理掉刚拉回的同轮结果）。
   const prevConvKeyRef = useRef(`${kind}:${conv}:${engineKey}`);
   if (prevConvKeyRef.current !== `${kind}:${conv}:${engineKey}`) {
@@ -150,6 +174,8 @@ export function IntentSenseProvider({
     analysesRef.current.clear();
     requestedRef.current.clear();
     unavailableRef.current.clear();
+    failedRef.current.clear();
+    batchPendingRef.current.clear();
   }
 
   const requestAnalysis = useCallback(
@@ -163,6 +189,7 @@ export function IntentSenseProvider({
       )
         return;
       requestedRef.current.add(msgId);
+      failedRef.current.delete(msgId);
       bump();
       return client.account.intentSense.analyzeMessage
         .mutate({ kind, conv, msgId })
@@ -177,10 +204,10 @@ export function IntentSenseProvider({
           bump();
           return false;
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (prevConvKeyRef.current !== expected) return false;
           requestedRef.current.delete(msgId);
-          unavailableRef.current.add(msgId);
+          failedRef.current.set(msgId, error instanceof Error ? error.message : String(error));
           bump();
           return false;
         });
@@ -192,19 +219,58 @@ export function IntentSenseProvider({
   useEffect(() => {
     if (!effective || !conv) return;
     let disposed = false;
+    const expected = scope;
     setSettled(false);
     void client.account.intentSense.listMessageAnalyses
       .query({ kind, conv })
       .then((results) => {
-        if (!disposed) merge(results as IntentAnalysis[]);
+        if (!disposed && prevConvKeyRef.current === expected) {
+          merge(results as IntentAnalysis[]);
+          setCacheRead({ scope: expected, state: 'ready' });
+        }
       })
       .catch(() => {
-        /* 无账号会话等场景静默 */
+        if (!disposed && prevConvKeyRef.current === expected)
+          setCacheRead({ scope: expected, state: 'error' });
       });
     return () => {
       disposed = true;
     };
-  }, [kind, conv, effective, engineKey, merge]);
+  }, [kind, conv, effective, scope, merge]);
+
+  // 先订阅真实批次范围，再启动任务；服务端会补发当前在途快照。
+  useEffect(() => {
+    if (!effective || !conv) return;
+    const expected = `${kind}:${conv}:${engineKey}`;
+    let disposed = false;
+    const sub = client.account.intentSense.onAnalysisProgress.subscribe(undefined, {
+      onData: (event: IntentAnalysisProgress) => {
+        if (
+          disposed ||
+          prevConvKeyRef.current !== expected ||
+          event.kind !== kind ||
+          event.conv !== conv ||
+          event.revision !== (statusData?.analysisRevision ?? 0)
+        )
+          return;
+        batchPendingRef.current = new Set(event.pendingIds);
+        setBatch({
+          scope: expected,
+          running: event.pendingIds.length > 0,
+          total: event.total,
+          completed: event.completed,
+          succeeded: event.completed - event.failed,
+          failed: event.failed,
+        });
+        bump();
+      },
+      onError: () => undefined,
+    });
+    return () => {
+      disposed = true;
+      void sub.unsubscribe();
+    };
+  }, [kind, conv, effective, engineKey, statusData?.analysisRevision, bump]);
 
   // 最新可分析文本包含自己；建议刷新独立遵循自己发言后的推荐开关。
   useEffect(() => {
@@ -216,6 +282,7 @@ export function IntentSenseProvider({
     let disposed = false;
     const expected = `${kind}:${conv}:${engineKey}`;
     setSettled(false);
+    setBatch({ scope: expected, running: true });
     void client.account.intentSense.ensureAnalysis
       .mutate({ kind, conv })
       .then(async (stats) => {
@@ -241,6 +308,11 @@ export function IntentSenseProvider({
           };
         }
         if (stats?.skipped || stats?.error) {
+          setBatch({
+            scope: expected,
+            running: false,
+            ...(stats.error ? { error: stats.error } : {}),
+          });
           void utils.account.intentSense.getStatus.invalidate();
           return;
         }
@@ -256,11 +328,39 @@ export function IntentSenseProvider({
           await requestAnalysis(analysisMessageId);
         }
         if (disposed || prevConvKeyRef.current !== expected) return;
+        // 结果订阅断线或晚于任务启动时仍以缓存校准，不让完成进度先于实际结果永久停住。
+        if ((stats?.analyzed ?? 0) > 0) {
+          const results = await client.account.intentSense.listMessageAnalyses.query({
+            kind,
+            conv,
+          });
+          if (disposed || prevConvKeyRef.current !== expected) return;
+          merge(results as IntentAnalysis[]);
+        }
+        setBatch({
+          scope: expected,
+          running: false,
+          total: (stats?.analyzed ?? 0) + (stats?.failed ?? 0),
+          completed: (stats?.analyzed ?? 0) + (stats?.failed ?? 0),
+          succeeded: stats?.analyzed ?? 0,
+          failed: stats?.failed ?? 0,
+        });
         void utils.account.intentSense.getStatus.invalidate();
       })
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        if (!disposed && prevConvKeyRef.current === expected)
+          setBatch({
+            scope: expected,
+            running: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+      })
       .finally(() => {
-        if (!disposed && prevConvKeyRef.current === expected) setSettled(true);
+        if (!disposed && prevConvKeyRef.current === expected) {
+          batchPendingRef.current.clear();
+          setSettled(true);
+          bump();
+        }
       });
     return () => {
       disposed = true;
@@ -275,7 +375,19 @@ export function IntentSenseProvider({
     roamingMessageKey,
     requestAnalysis,
     utils,
+    retry,
+    merge,
+    bump,
   ]);
+
+  useEffect(() => {
+    if (!batch || batch.running || batch.error || (batch.failed ?? 0) > 0) return;
+    const timer = setTimeout(
+      () => setBatch((current) => (current === batch ? null : current)),
+      2000,
+    );
+    return () => clearTimeout(timer);
+  }, [batch]);
 
   // 增量结果订阅。
   useEffect(() => {
@@ -303,17 +415,23 @@ export function IntentSenseProvider({
 
   const getAnalysis = useCallback((msgId: string) => analysesRef.current.get(msgId), []);
   const isUnavailable = useCallback((msgId: string) => unavailableRef.current.has(msgId), []);
-  const isPending = useCallback((msgId: string) => requestedRef.current.has(msgId), []);
+  const isPending = useCallback(
+    (msgId: string) => requestedRef.current.has(msgId) || batchPendingRef.current.has(msgId),
+    [],
+  );
+  const getFailure = useCallback((msgId: string) => failedRef.current.get(msgId), []);
 
   const value = useMemo<IntentSenseContextValue>(
     () => ({
       active: effective,
       persistentDisplay: statusData?.persistentDisplay !== false,
       hoverDisplay: statusData?.hoverDisplay !== false,
+      cacheState,
       version,
       getAnalysis,
       isUnavailable,
       isPending,
+      getFailure,
       requestAnalysis,
       latestPeerMsgId,
       latestMessageId: analysisMessageId,
@@ -326,10 +444,12 @@ export function IntentSenseProvider({
       effective,
       statusData?.persistentDisplay,
       statusData?.hoverDisplay,
+      cacheState,
       version,
       getAnalysis,
       isUnavailable,
       isPending,
+      getFailure,
       requestAnalysis,
       latestPeerMsgId,
       analysisMessageId,
@@ -340,5 +460,45 @@ export function IntentSenseProvider({
     ],
   );
 
-  return <IntentSenseContext.Provider value={value}>{children}</IntentSenseContext.Provider>;
+  const visibleBatch = effective && batch?.scope === `${kind}:${conv}:${engineKey}` ? batch : null;
+  return (
+    <IntentSenseContext.Provider value={value}>
+      {children}
+      {visibleBatch ? (
+        <div
+          className="weq-int-batch"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          aria-busy={visibleBatch.running}
+        >
+          <span
+            title={
+              visibleBatch.total === undefined
+                ? visibleBatch.error
+                : `已处理 ${visibleBatch.completed ?? 0}/${visibleBatch.total}，成功 ${visibleBatch.succeeded ?? 0}，失败 ${visibleBatch.failed ?? 0}`
+            }
+          >
+            {visibleBatch.running
+              ? `正在分析${visibleBatch.total === undefined ? '…' : ` ${visibleBatch.completed ?? 0}/${visibleBatch.total}`}${visibleBatch.failed ? ` · 失败 ${visibleBatch.failed}` : ''}`
+              : visibleBatch.error
+                ? `分析未完成：${visibleBatch.error}`
+                : visibleBatch.total === 0
+                  ? '分析已是最新'
+                  : `分析完成 · 成功 ${visibleBatch.succeeded ?? 0}${visibleBatch.failed ? `，失败 ${visibleBatch.failed}` : ''}`}
+          </span>
+          {(visibleBatch.error || visibleBatch.failed) && !visibleBatch.running ? (
+            <button
+              type="button"
+              title="重试分析"
+              aria-label="重试分析"
+              onClick={() => setRetry((v) => v + 1)}
+            >
+              <RefreshCw size={14} />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </IntentSenseContext.Provider>
+  );
 }

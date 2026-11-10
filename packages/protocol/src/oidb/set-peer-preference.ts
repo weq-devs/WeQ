@@ -45,7 +45,6 @@ function timeBytes(timestamp: number, disturb: boolean): Uint8Array {
 
 export namespace SetPeerPin {
   export const command = 0x5d6;
-  export const needSign = false;
   export const reqSchema = SNS_REQ;
   export const respSchema = message([]);
   export const resolveSubCommand = (p: SetPeerPinParams): number =>
@@ -81,7 +80,6 @@ export namespace SetFriendDisturb {
   export const command = 0x5d6;
   export const subCommand = 19;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = SNS_REQ;
   // 官方 worker 取 tag 3 结果项；未核实其字段前保留原字节，不猜错误码槽。
   export const respSchema = message([{ name: 'results', tag: 3, repeated: true, type: 'bytes' }]);
@@ -119,8 +117,7 @@ export interface SetGroupMessagePolicyParams {
 export namespace SetGroupMessagePolicy {
   export const command = 0xa80;
   export const subCommand = 1;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
   export const reqSchema = message([
     {
       name: 'body',

@@ -102,6 +102,38 @@ describe('无证据的互动画像', () => {
     expect(fixture.query.refetch).toHaveBeenCalledOnce();
   });
 
+  it('首次加载使用画像专属骨架，头部占位禁用且不冒充好感度', async () => {
+    fixture.query.isLoading = true;
+    await dialog();
+    expect(document.querySelector('[aria-label="正在生成互动画像"]')).not.toBeNull();
+    expect(document.querySelector('.ga-skeleton')).toBeNull();
+    await act(async () => root.render(createElement(AffinityPill, { peerUid: 'u_synthetic' })));
+    const pill = document.querySelector<HTMLButtonElement>('.weq-affinity-pill')!;
+    expect(pill.disabled).toBe(true);
+    expect(pill.classList.contains('tier-0')).toBe(false);
+    expect(pill.getAttribute('aria-busy')).toBe('true');
+  });
+
+  it('刷新失败保留已有画像，同时显示失败提示和重试入口', async () => {
+    fixture.query.data = {
+      affinity: 70,
+      tier: 3,
+      trend: [],
+      mbti: { letters: 'ENFP', dims: [], heuristic: true },
+      radar: [],
+      topics: [],
+      sampled: 8,
+      analyzedSamples: 2,
+      engine: 'heuristic',
+      computedAt: 1000,
+    };
+    fixture.query.error = new Error('合成刷新失败');
+    await dialog();
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('合成刷新失败');
+    expect(document.querySelector('.weq-int-affinity-num')?.textContent).toBe('70');
+    expect(document.body.textContent).toContain('ENFP');
+  });
+
   it('没有画像时不显示虚构好感度胶囊', async () => {
     await act(async () => root.render(createElement(AffinityPill, { peerUid: 'u_synthetic' })));
     expect(document.querySelector('.weq-affinity-pill')).toBeNull();

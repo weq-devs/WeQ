@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import {
   ArrowLeft,
   Film,
@@ -85,6 +86,21 @@ function GroupAlbumDialogBody({
     items: [],
     error: null,
   });
+  const backToAlbums = () => {
+    const revision = ++run.current;
+    mediaController.current?.abort();
+    const albumId = mediaState.album?.id;
+    setMediaState({ status: 'idle', album: null, items: [], error: null });
+    requestAnimationFrame(() => {
+      if (alive.current && revision === run.current && body.current) {
+        body.current.scrollTop = listPosition.current;
+        [...body.current.querySelectorAll<HTMLButtonElement>('[data-album-id]')]
+          .find((button) => button.dataset.albumId === albumId)
+          ?.focus({ preventScroll: true });
+      }
+    });
+  };
+  useMobileBack(Boolean(mediaState.album), backToAlbums, 30, () => body.current);
 
   useEffect(() => {
     if (!activity.enabled) {
@@ -242,18 +258,7 @@ function GroupAlbumDialogBody({
                 if (mediaState.album) void openAlbum(mediaState.album);
               }}
               onBack={() => {
-                const revision = ++run.current;
-                mediaController.current?.abort();
-                const albumId = mediaState.album?.id;
-                setMediaState({ status: 'idle', album: null, items: [], error: null });
-                requestAnimationFrame(() => {
-                  if (alive.current && revision === run.current && body.current) {
-                    body.current.scrollTop = listPosition.current;
-                    [...body.current.querySelectorAll<HTMLButtonElement>('[data-album-id]')]
-                      .find((button) => button.dataset.albumId === albumId)
-                      ?.focus({ preventScroll: true });
-                  }
-                });
+                if (!mobileBack()) backToAlbums();
               }}
             />
           ) : (

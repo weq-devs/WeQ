@@ -5,6 +5,7 @@
  */
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -15,14 +16,18 @@ import {
 } from 'react';
 import {
   Activity,
+  AlertTriangle,
   ArrowLeft,
   AudioLines,
+  Bell,
   Bot,
   Bug,
   BrainCircuit,
   BookOpen,
   Check,
   ChevronRight,
+  Clock,
+  Code2,
   DatabaseZap,
   Globe,
   HardDrive,
@@ -39,8 +44,8 @@ import {
   Power,
   Radio,
   ScanText,
-  Server,
   Settings2,
+  Smile,
   Send,
   ScanSearch,
   ScrollText,
@@ -65,7 +70,6 @@ import { InteractionProfileSection } from './settings/InteractionProfileSection'
 import { ReplySuggestionsSection } from './settings/ReplySuggestionsSection';
 import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { OcrModelsSection } from './settings/OcrModelsSection';
-import { BackgroundServicesSection } from './settings/BackgroundServicesSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { OneBotSection } from './settings/OneBotSection';
 import { RemoteSection } from './settings/RemoteSection';
@@ -97,13 +101,24 @@ import { LoginAccountPanel } from './LoginAccountPanel';
 import { ReverseTool } from './ReverseTool';
 import { SignerStatusCard } from './settings/SignerStatusCard';
 import { IS_WEB } from '../lib/target';
+import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
 import '../styles/settings-navigation.css';
 import '../styles/app-search.css';
 import type { SettingsSearchTarget } from './settings/searchTarget';
 import { RetainedTabs, TabActivity, useTabActive } from './RetainedTabs';
-import { PageSnapshotsFallback, usePageState } from './PageSnapshots';
+import {
+  PageSnapshotsFallback,
+  usePageSnapshotKey,
+  usePageSnapshotReset,
+  usePageState,
+} from './PageSnapshots';
+import { pageSnapshots } from '../lib/pageSnapshots';
+import { DraftCloseContext, useDraftClose } from '../lib/draftClose';
+import { useToast } from './Toast';
+import { Modal } from './Dialog';
+import type { SettingsNavigation } from '../hooks/useSettingsNavigation';
 import { z } from 'zod';
 import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
 import { useAppLock } from '../state/lock';
@@ -260,7 +275,11 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
           </button>
         </div>
         <SignerStatusCard />
-        <Card title="Protobuf / JCE 逆向" settingId="reverse-tool">
+        <Card
+          title="Protobuf / JCE 逆向"
+          icon={<Code2 size={15} strokeWidth={1.8} />}
+          settingId="reverse-tool"
+        >
           <ReverseTool />
         </Card>
       </div>
@@ -308,12 +327,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '意图感知',
     icon: <BrainCircuit size={16} strokeWidth={1.8} />,
     render: () => <IntentSenseSection />,
-  },
-  {
-    id: 'background-services',
-    label: '后台服务',
-    icon: <Server size={16} strokeWidth={1.8} />,
-    render: () => <BackgroundServicesSection />,
   },
   {
     id: 'mcp',
@@ -400,7 +413,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
         <div className="weq-set">
           <SectionHeader title="WeQ 存储管理" icon={<HardDrive size={16} strokeWidth={1.8} />} />
         </div>
-        <GlobalSettingsSection section="saving" heading={false} />
         <GlobalSettingsSection section="storage" heading={false} />
       </>
     ),
@@ -444,7 +456,15 @@ const ACCENT_PRESETS = [
   '#8b5cf6',
 ];
 
-export function SettingsDialog({
+export function SettingsDialog(props: Parameters<typeof SettingsContent>[0]): ReactElement {
+  return (
+    <PageSnapshotsFallback scope="bootstrap-settings">
+      <SettingsContent {...props} />
+    </PageSnapshotsFallback>
+  );
+}
+
+function SettingsContent({
   open,
   onClose,
   initialSection,
@@ -454,6 +474,7 @@ export function SettingsDialog({
   recallDetails,
   onCloseRecalls,
   isCurrentSource,
+  navigationGuard,
 }: {
   open: boolean;
   onClose: () => void;
@@ -468,6 +489,7 @@ export function SettingsDialog({
   recallDetails?: ReactNode;
   onCloseRecalls?: () => void;
   isCurrentSource?: () => boolean;
+  navigationGuard?: { current: SettingsNavigation | null };
 }): ReactElement | null {
   const target = useMemo(
     () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'startup' }),
@@ -492,11 +514,87 @@ export function SettingsDialog({
   const sections = SETTINGS_SECTIONS;
   const group = settingsGroupFor(activeId);
   const groupSections = group.sections.map((id) => sections.find((section) => section.id === id)!);
+  const snapshots = usePageSnapshotReset('workspace:main:设置');
+  const activeKey = usePageSnapshotKey('settings:active');
+  useEffect(() => {
+    if (!open || !activeKey) return;
+    try {
+      pageSnapshots.write(activeKey, activeId);
+    } catch {
+      useToast.getState().push({ tone: 'error', title: '设置页面位置保存失败' });
+    }
+  }, [open, activeKey, activeId]);
+  const activeSnapshots = usePageSnapshotReset('workspace:main:设置', `settings:${activeId}`);
+  const [closing, setClosing] = useState(false);
+  const guard = useDraftClose(() => setClosing(true), null);
+  const [pendingNavigation, setPendingNavigation] = useState<{ navigate: () => void } | null>(null);
+  const snapshotDraft = useCallback(
+    () => ({ dirty: snapshots.hasDrafts(), busy: false }),
+    [snapshots],
+  );
+  const requestNavigation = useCallback<SettingsNavigation>(
+    (navigate) => {
+      const drafts = [...guard.drafts]
+        .filter((read) => read !== snapshotDraft)
+        .map((read) => read());
+      if (drafts.some((draft) => draft.busy)) return;
+      if (!activeSnapshots.hasDrafts() && !drafts.some((draft) => draft.dirty)) {
+        navigate();
+        return;
+      }
+      setPendingNavigation((current) => current ?? { navigate });
+    },
+    [activeSnapshots, guard.drafts, snapshotDraft],
+  );
+  const switchSection = useCallback(
+    (section: SettingsPageId) => {
+      if (section !== activeId) requestNavigation(() => setActiveId(section));
+    },
+    [activeId, requestNavigation, setActiveId],
+  );
+  const switchSectionRef = useRef(switchSection);
+  switchSectionRef.current = switchSection;
+  useEffect(() => {
+    if (!open || !navigationGuard) return;
+    navigationGuard.current = requestNavigation;
+    return () => {
+      if (navigationGuard.current === requestNavigation) navigationGuard.current = null;
+    };
+  }, [open, navigationGuard, requestNavigation]);
+  useMobileBack(
+    open && !closing && mobileCategoryOpen,
+    () => requestNavigation(() => setMobileCategoryOpen(false)),
+    30,
+    () => navRef.current?.parentElement ?? null,
+  );
+  useEffect(() => {
+    if (!closing) return;
+    // 子页先卸载并写回滚动快照，再统一清除，避免关闭后旧位置重新写入。
+    try {
+      snapshots.reset();
+    } catch {
+      useToast
+        .getState()
+        .push({ tone: 'error', title: '设置页面状态清除失败', detail: '请检查本机存储后重试。' });
+      setClosing(false);
+      return;
+    }
+    setActiveId('startup');
+    setMobileCategoryOpen(false);
+    onClose();
+    setClosing(false);
+  }, [closing, snapshots, setActiveId, onClose]);
+  useEffect(() => {
+    guard.drafts.add(snapshotDraft);
+    return () => {
+      guard.drafts.delete(snapshotDraft);
+    };
+  }, [guard.drafts, snapshotDraft]);
 
   useEffect(() => {
-    if (open && (initialSection || searchTarget)) setActiveId(target.section);
+    if (open && (initialSection || searchTarget)) switchSectionRef.current(target.section);
     if (open) setMobileCategoryOpen(Boolean(initialSection || searchTarget));
-  }, [open, initialSection, searchTarget, target, setActiveId]);
+  }, [open, initialSection, searchTarget, target]);
 
   useEffect(() => {
     if (open) {
@@ -509,132 +607,210 @@ export function SettingsDialog({
     }
   }, [open, activeId]);
 
-  if (!open) return null;
+  if (!open || closing) return null;
 
   const active = sections.find((s) => s.id === activeId) ?? sections[0] ?? SETTINGS_SECTIONS[0]!;
 
   return (
-    <WorkspacePage title="设置" onClose={onClose} standalone>
-      <section
-        className={`weq-settings-dialog${IS_WEB ? ' weq-mobile-settings' : ''}`}
-        data-mobile-category={mobileCategoryOpen || undefined}
-        role="region"
-        aria-labelledby="weq-settings-title"
-        onMouseDown={(e) => e.stopPropagation()}
+    <DraftCloseContext.Provider value={guard.drafts}>
+      <WorkspacePage
+        title="设置"
+        onClose={guard.requestClose}
+        onNavigate={onClose}
+        onBack={() => requestNavigation(onClose)}
+        standalone
       >
-        {IS_WEB && (
-          <header className="weq-mobile-settings-header">
-            <button
-              type="button"
-              aria-label={mobileCategoryOpen ? '返回设置分类' : '返回'}
-              title="返回"
-              onClick={() => (mobileCategoryOpen ? setMobileCategoryOpen(false) : onClose())}
-            >
-              <ArrowLeft size={22} />
-            </button>
-            <strong>{mobileCategoryOpen ? group.label : '设置'}</strong>
-          </header>
-        )}
-        <button
-          className="weq-settings-close"
-          type="button"
-          title="关闭"
-          aria-label="关闭"
-          onClick={onClose}
+        <section
+          className={`weq-settings-dialog${IS_WEB ? ' weq-mobile-settings' : ''}`}
+          data-mobile-category={mobileCategoryOpen || undefined}
+          role="region"
+          aria-labelledby="weq-settings-title"
+          onMouseDown={(e) => e.stopPropagation()}
         >
-          <X size={18} />
-        </button>
-        <nav ref={navRef} className="weq-settings-nav" aria-label="设置分类">
-          <h2 id="weq-settings-title" className="weq-settings-nav-title">
-            设置
-          </h2>
-          <ul>
-            {SETTINGS_GROUPS.map((s) => (
-              <li key={s.id}>
-                <button
-                  type="button"
-                  className={`weq-settings-nav-item${s.id === group.id ? ' is-active' : ''}`}
-                  aria-current={s.id === group.id ? 'page' : undefined}
-                  onClick={() => {
-                    setActiveId(s.sections[0]!);
-                    setMobileCategoryOpen(true);
-                  }}
-                >
-                  <span className="weq-settings-nav-icon">
-                    {sections.find((section) => section.id === s.sections[0])!.icon}
-                  </span>
-                  <span className="weq-settings-nav-label">
-                    {s.label}
-                    {updateAvailable && s.sections.includes('version') ? (
-                      <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
-                    ) : null}
-                  </span>
-                  {IS_WEB && <ChevronRight className="weq-mobile-settings-chevron" size={18} />}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
-        <div className="weq-settings-content">
-          <nav ref={subnavRef} className="weq-settings-subnav" aria-label={`${group.label}分类`}>
-            {groupSections.map((section) => (
+          {IS_WEB && (
+            <header className="weq-mobile-settings-header">
               <button
-                key={section.id}
                 type="button"
-                className={`weq-settings-subnav-item${section.id === activeId ? ' is-active' : ''}`}
-                aria-current={section.id === activeId ? 'page' : undefined}
-                onClick={() => setActiveId(section.id)}
+                aria-label={mobileCategoryOpen ? '返回设置分类' : '返回'}
+                title="返回"
+                onClick={() =>
+                  mobileBack() ||
+                  (mobileCategoryOpen
+                    ? requestNavigation(() => setMobileCategoryOpen(false))
+                    : requestNavigation(onClose))
+                }
               >
-                <span className="weq-settings-subnav-icon" aria-hidden="true">
-                  {section.icon}
-                </span>
-                <span className="weq-settings-subnav-label">{section.label}</span>
-                {updateAvailable && section.id === 'version' ? (
-                  <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
-                ) : null}
+                <ArrowLeft size={22} />
               </button>
-            ))}
-          </nav>
-          <div className="weq-settings-pages">
-            <TabActivity active={!locked}>
-              <PageSnapshotsFallback scope="bootstrap-settings">
-                <RetainedTabs snapshotKey="settings" activeKey={active.id}>
-                  <RetainedSettingsPage
-                    pageId={active.id}
-                    target={target}
-                    revision={searchTarget?.revision}
+              <strong>{mobileCategoryOpen ? group.label : '设置'}</strong>
+            </header>
+          )}
+          <button
+            className="weq-settings-close"
+            type="button"
+            title="关闭"
+            aria-label="关闭"
+            onClick={guard.requestClose}
+          >
+            <X size={18} />
+          </button>
+          <nav ref={navRef} className="weq-settings-nav" aria-label="设置分类">
+            <h2 id="weq-settings-title" className="weq-settings-nav-title">
+              设置
+            </h2>
+            <ul>
+              {SETTINGS_GROUPS.map((s) => (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    className={`weq-settings-nav-item${s.id === group.id ? ' is-active' : ''}`}
+                    aria-current={s.id === group.id ? 'page' : undefined}
+                    onClick={() => {
+                      if (s.sections[0] === activeId) {
+                        setMobileCategoryOpen(true);
+                        return;
+                      }
+                      requestNavigation(() => {
+                        setActiveId(s.sections[0]!);
+                        setMobileCategoryOpen(true);
+                      });
+                    }}
                   >
-                    <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
-                      <SettingsNavigateContext.Provider
-                        value={(section) => setActiveId(section as SettingsPageId)}
-                      >
-                        {active.id === 'chat-interaction' ? (
-                          <>
-                            {active.render(onOpenMaintenance)}
-                            <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
-                              <AntiRecallDialog
-                                embedded
-                                onClose={() => {}}
-                                onOpenRecalls={onOpenRecalls}
-                                recallDetails={recallDetails}
-                                onCloseRecalls={onCloseRecalls}
-                                isCurrentSource={isCurrentSource}
-                              />
-                            </SettingsScopeContext.Provider>
-                          </>
-                        ) : (
-                          active.render(onOpenMaintenance)
-                        )}
-                      </SettingsNavigateContext.Provider>
-                    </SettingsScopeContext.Provider>
-                  </RetainedSettingsPage>
-                </RetainedTabs>
-              </PageSnapshotsFallback>
-            </TabActivity>
+                    <span className="weq-settings-nav-icon">
+                      {sections.find((section) => section.id === s.sections[0])!.icon}
+                    </span>
+                    <span className="weq-settings-nav-label">
+                      {s.label}
+                      {updateAvailable && s.sections.includes('version') ? (
+                        <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
+                      ) : null}
+                    </span>
+                    {IS_WEB && <ChevronRight className="weq-mobile-settings-chevron" size={18} />}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          <div className="weq-settings-content">
+            <nav ref={subnavRef} className="weq-settings-subnav" aria-label={`${group.label}分类`}>
+              {groupSections.map((section) => (
+                <button
+                  key={section.id}
+                  type="button"
+                  className={`weq-settings-subnav-item${section.id === activeId ? ' is-active' : ''}`}
+                  aria-current={section.id === activeId ? 'page' : undefined}
+                  onClick={() => switchSection(section.id)}
+                >
+                  <span className="weq-settings-subnav-icon" aria-hidden="true">
+                    {section.icon}
+                  </span>
+                  <span className="weq-settings-subnav-label">{section.label}</span>
+                  {updateAvailable && section.id === 'version' ? (
+                    <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
+                  ) : null}
+                </button>
+              ))}
+            </nav>
+            <div className="weq-settings-pages">
+              <TabActivity active={!locked}>
+                <PageSnapshotsFallback scope="bootstrap-settings">
+                  <RetainedTabs snapshotKey="settings" activeKey={active.id}>
+                    <RetainedSettingsPage
+                      pageId={active.id}
+                      target={target}
+                      revision={searchTarget?.revision}
+                    >
+                      <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
+                        <SettingsNavigateContext.Provider
+                          value={(section) => switchSection(section as SettingsPageId)}
+                        >
+                          {active.id === 'chat-interaction' ? (
+                            <>
+                              {active.render(onOpenMaintenance)}
+                              <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
+                                <AntiRecallDialog
+                                  embedded
+                                  onClose={() => {}}
+                                  onOpenRecalls={onOpenRecalls}
+                                  recallDetails={recallDetails}
+                                  onCloseRecalls={onCloseRecalls}
+                                  isCurrentSource={isCurrentSource}
+                                />
+                              </SettingsScopeContext.Provider>
+                            </>
+                          ) : (
+                            active.render(onOpenMaintenance)
+                          )}
+                        </SettingsNavigateContext.Provider>
+                      </SettingsScopeContext.Provider>
+                    </RetainedSettingsPage>
+                  </RetainedTabs>
+                </PageSnapshotsFallback>
+              </TabActivity>
+            </div>
           </div>
-        </div>
-      </section>
-    </WorkspacePage>
+        </section>
+      </WorkspacePage>
+      {pendingNavigation && (
+        <Modal
+          onClose={() => setPendingNavigation(null)}
+          className="weq-message-modal"
+          labelledBy="weq-settings-leave-title"
+        >
+          <div className="weq-dialog weq-dialog-warning">
+            <div className="weq-dialog-head">
+              <span className="weq-dialog-icon" aria-hidden>
+                <AlertTriangle size={20} strokeWidth={1.85} />
+              </span>
+              <h3 id="weq-settings-leave-title" className="weq-dialog-title">
+                当前设置尚未保存
+              </h3>
+              <button
+                type="button"
+                className="weq-dialog-x"
+                aria-label="继续编辑"
+                onClick={() => setPendingNavigation(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="weq-dialog-body">
+              先留在当前页保存，或暂时离开。暂时离开会保留未保存内容，返回后可继续编辑。
+            </div>
+            <div className="weq-dialog-foot">
+              <button
+                type="button"
+                className="weq-action-soft"
+                onClick={() => {
+                  const navigate = pendingNavigation.navigate;
+                  setPendingNavigation(null);
+                  navigate();
+                }}
+              >
+                暂时离开
+              </button>
+              <button
+                type="button"
+                className="weq-action-primary"
+                onClick={() => {
+                  setPendingNavigation(null);
+                  const body = navRef.current?.parentElement?.querySelector('.weq-settings-body');
+                  const save = [
+                    ...(body?.querySelectorAll<HTMLButtonElement>('button') ?? []),
+                  ].find((button) => !button.disabled && button.textContent?.includes('保存'));
+                  const control =
+                    save ?? body?.querySelector<HTMLElement>('input, textarea, select');
+                  control?.scrollIntoView?.({ block: 'center' });
+                  control?.focus();
+                }}
+              >
+                先保存
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </DraftCloseContext.Provider>
   );
 }
 
@@ -686,6 +862,7 @@ function AppearanceSection({
   const setShowMessageFont = trpc.bootstrap.setShowMessageFont.useMutation();
   const setShowMessageSeq = trpc.bootstrap.setShowMessageSeq.useMutation();
   const setShowMessageTime = trpc.bootstrap.setShowMessageTime.useMutation();
+  const setShowMessageDate = trpc.bootstrap.setShowMessageDate.useMutation();
   const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
   const setShowContactUnreadCount = trpc.bootstrap.setShowContactUnreadCount.useMutation();
   const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
@@ -813,7 +990,7 @@ function AppearanceSection({
       {page === 'messages' && (
         <>
           {category === 'reading' && (
-            <Card title="未读提醒">
+            <Card title="未读提醒" icon={<Bell size={15} strokeWidth={1.8} />}>
               <Row
                 settingId="message-unread-badge"
                 label="在消息图标上显示红点"
@@ -876,7 +1053,16 @@ function AppearanceSection({
             </Card>
           )}
           {(category === 'reading' || category === 'sending') && (
-            <Card title={category === 'reading' ? '阅读与定位' : '发送消息'}>
+            <Card
+              title={category === 'reading' ? '阅读与定位' : '发送消息'}
+              icon={
+                category === 'reading' ? (
+                  <BookOpen size={15} strokeWidth={1.8} />
+                ) : (
+                  <Send size={15} strokeWidth={1.8} />
+                )
+              }
+            >
               {[
                 {
                   key: 'readFromFirstUnread' as const,
@@ -920,9 +1106,6 @@ function AppearanceSection({
                     key={key}
                     settingId={settingId}
                     label={label}
-                    desc={
-                      key === 'readFromFirstUnread' ? '可能提高阅读过的会话的加载速度' : undefined
-                    }
                     control={
                       <Toggle
                         checked={settings.data?.[key] ?? fallback}
@@ -947,7 +1130,11 @@ function AppearanceSection({
           {readingError ? <p role="alert">{readingError}</p> : null}
           {category === 'display' && (
             <>
-              <Card title="时间与序号" settingId="custom-message-display">
+              <Card
+                title="时间与序号"
+                icon={<Clock size={15} strokeWidth={1.8} />}
+                settingId="custom-message-display"
+              >
                 <Row
                   settingId="message-seq"
                   label="显示消息序号（seq）"
@@ -973,8 +1160,31 @@ function AppearanceSection({
                 />
                 {seqError ? <p role="alert">{seqError}</p> : null}
                 <Row
+                  settingId="message-date"
+                  label="显示发送日期"
+                  control={
+                    <Toggle
+                      checked={settings.data?.showMessageDate ?? false}
+                      disabled={!settings.data || setShowMessageDate.isLoading}
+                      onChange={(enabled) => {
+                        setSeqError(null);
+                        setShowMessageDate.mutate(
+                          { enabled },
+                          {
+                            onSuccess: () => {
+                              void settings.refetch();
+                            },
+                            onError: (error) => setSeqError(error.message),
+                          },
+                        );
+                      }}
+                      label="显示发送日期"
+                    />
+                  }
+                />
+                <Row
                   settingId="message-time"
-                  label="显示发送时间（精确到秒）"
+                  label="显示发送时间"
                   control={
                     <Toggle
                       checked={settings.data?.showMessageTime ?? false}
@@ -991,12 +1201,12 @@ function AppearanceSection({
                           },
                         );
                       }}
-                      label="显示发送时间（精确到秒）"
+                      label="显示发送时间"
                     />
                   }
                 />
               </Card>
-              <Card title="头像与装扮">
+              <Card title="头像与装扮" icon={<Smile size={15} strokeWidth={1.8} />}>
                 {[
                   {
                     key: 'showAvatarPendant' as const,
@@ -1047,7 +1257,7 @@ function AppearanceSection({
                 ))}
                 <QqShowSettings />
               </Card>
-              <Card title="文本与链接">
+              <Card title="文本与链接" icon={<ScrollText size={15} strokeWidth={1.8} />}>
                 <Row
                   settingId="text-markdown"
                   label="纯文本消息自动渲染为 Markdown"
@@ -1104,7 +1314,7 @@ function AppearanceSection({
                   }
                 />
               </Card>
-              <Card title="语音消息">
+              <Card title="语音消息" icon={<AudioLines size={15} strokeWidth={1.8} />}>
                 <VoiceAutoTranscribeSetting />
               </Card>
               <ChatImageCacheSettings />

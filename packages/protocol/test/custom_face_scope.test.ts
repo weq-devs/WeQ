@@ -6,6 +6,7 @@ import {
   OrderCustomFace,
 } from '../src/oidb/custom-face';
 import { decode, encode } from '../src/protobuf';
+import { oidbCommand, resolveSign } from '../src/sign-policy';
 
 const state = vi.hoisted(() => ({
   session: vi.fn(async () => ({ host: '127.0.0.1', port: 80 })),
@@ -65,8 +66,9 @@ it('收藏详情使用 UIN 信封，保持原顺序并且不发送前置移动�
     FetchCustomFaceDetail.subCommand,
   ]);
   expect(call[4]).toBe(true);
-  // 0x902e_1：真机实测 QQ 不签名（scripts/probe-sign.ts）。
-  expect(call[5]).toBe(false);
+  // 0x902e_1：Linux 实测不签，Windows / macOS 实测签（scripts/probe-sign.ts）。
+  // 按当前平台解析，别写死某个平台的结论。
+  expect(call[5]).toBe(resolveSign(oidbCommand(FetchCustomFaceDetail.command, 1)).needSign);
   expect(decode(FetchCustomFaceDetail.reqSchema, call[3] as Uint8Array)).toMatchObject({
     opType: 2,
     emojis,

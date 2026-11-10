@@ -11,6 +11,7 @@
  * 在线 pid 上发包，失败（QQ 离线 / 风控）原样上抛，由 router 统一转成用户提示。
  */
 import type { AccountSession } from '@weq/account';
+import type { ContactMetricsService } from './contact_metrics';
 import type { NtHelperBinding } from '@weq/native';
 import { GetProfileLike, GetQqShowUrl, GetUserQqLevel, SendProfileLike } from '@weq/protocol';
 import type { QqShowInfo } from '@weq/protocol';
@@ -18,19 +19,29 @@ import type { QqShowInfo } from '@weq/protocol';
 export interface PeerStats {
   /** QQ 等级（0xFE1_2 number-property 105），0 表示未命中/新号。 */
   level: number;
-  /** 资料卡累计获赞（0x7ED_12 voteInfo.totalCount）。 */
-  likeCount: number;
+  /** 资料卡累计获赞；机器人与企业用户不适用，返回 null。 */
+  likeCount: number | null;
 }
 
 export class PeerStatsService {
+  contactMetrics?: ContactMetricsService;
   constructor(
     private readonly nt: Pick<NtHelperBinding, 'sendOidbPacket'>,
-    _session: AccountSession,
+    private readonly session: AccountSession,
     private readonly resolvePid: () => number,
   ) {}
 
   /** 查目标 QQ 号的等级（0xFE1_2，按 uin 查，无需 uid）。 */
-  async getQqLevel(uin: string): Promise<number> {
+  async getQqLevel(uin: string, priority = 0): Promise<number> {
+    if (this.contactMetrics)
+      return this.contactMetrics.query(
+        `friend:${uin}`,
+        ['level'],
+        async () =>
+          (await GetUserQqLevel.invoke(this.nt, this.resolvePid(), { uin: Number(uin) })).level,
+        (level) => ({ level }),
+        priority,
+      );
     const info = await GetUserQqLevel.invoke(this.nt, this.resolvePid(), {
       uin: Number(uin),
     });
@@ -38,7 +49,27 @@ export class PeerStatsService {
   }
 
   /** 查目标 uid 的累计获赞（0x7ED_12，只取 voteInfo.totalCount）。 */
-  async getLikeCount(uid: string): Promise<number> {
+  async getLikeCount(uid: string, priority = 0): Promise<number | null> {
+    const profile = await this.session.profileInfo.getProfile(uid);
+    if (profile?.isBot || profile?.extInfo?.isEnterprise) {
+      await this.contactMetrics?.removeMetrics(
+        [`friend:${uid}`, `friend:${profile.uin}`],
+        ['likeCount'],
+      );
+      return null;
+    }
+    if (this.contactMetrics)
+      return this.contactMetrics.query(
+        `friend:${uid}`,
+        ['likeCount'],
+        async () => {
+          const info = await GetProfileLike.invoke(this.nt, this.resolvePid(), { targetUid: uid });
+          if (info.uid !== uid) throw new Error('资料卡获赞响应的目标 UID 不一致');
+          return info.voteInfo.totalCount;
+        },
+        (likeCount) => ({ likeCount }),
+        priority,
+      );
     const info = await GetProfileLike.invoke(this.nt, this.resolvePid(), {
       targetUid: uid,
     });

@@ -48,6 +48,8 @@ export type ComposerQuote = {
   senderName: string;
   preview: string;
   origElements?: Record<string, unknown>[];
+  /** 粘贴来的引用沿用原指针和摘要，不按「引用这条消息」重新生成。 */
+  originalElement?: Record<string, unknown>;
 };
 
 /** 系统灰条等「没有可引内容」的元素 kind 前缀 / 名单。 */
@@ -164,6 +166,7 @@ export function quoteFromMessage(message: Message): ComposerQuote | null {
  * 摘要复用本地消息编辑器的转换规则，排除原消息自己的 reply 元素。
  */
 export function composerQuoteElement(quote: ComposerQuote): Record<string, unknown> {
+  if (quote.originalElement) return quote.originalElement;
   return {
     kind: 'reply',
     // 私聊发 client sequence，群聊发群内 seq —— 见文件头「填哪个号」那一段。
@@ -179,7 +182,10 @@ export function composerQuoteElement(quote: ComposerQuote): Record<string, unkno
 
 /** 待发送的引用 → 元素 token（跟草稿正文同一条通路）。 */
 export function composerQuoteToken(quote: ComposerQuote): string {
-  return elementToToken(composerQuoteElement(quote));
+  return elementToToken({
+    ...composerQuoteElement(quote),
+    ...(quote.senderName ? { origSenderDisplayName: quote.senderName } : {}),
+  });
 }
 
 /**

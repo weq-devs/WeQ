@@ -45,6 +45,7 @@ function fixture(known = false, data: unknown = ark) {
   const conversation = sharedGroupConversation(target);
   conversation.group.memberCount = 23;
   conversation.group.announcement = '合成公告';
+  conversation.group.remark = '合成群备注';
   act(() =>
     root.render(
       h(
@@ -114,13 +115,14 @@ describe('群名片消息', () => {
     expect(dialog.parentElement?.classList.contains('weq-nonmodal-layer')).toBe(true);
     expect(dialog.parentElement?.classList.contains('is-popover')).toBe(true);
     expect(dialog.textContent).toContain(target.name);
+    expect(dialog.querySelector('.weq-profile-name')?.textContent).toBe(target.name);
     expect(dialog.textContent).toContain(code);
     expect(dialog.textContent).toContain('23');
     expect(dialog.textContent).toContain('合成公告');
     expect(f.openChat).not.toHaveBeenCalled();
     expect(f.parentClick).not.toHaveBeenCalled();
     const open = [...dialog.querySelectorAll('button')].find((button) =>
-      button.textContent?.includes('查看群聊消息'),
+      button.textContent?.includes('查看消息'),
     )!;
     act(() => open.click());
     expect(f.openChat).toHaveBeenCalledWith({ kind: 'group', conversation: f.conversation });
@@ -141,7 +143,7 @@ describe('群名片消息', () => {
     act(() => card.click());
     const open = [
       ...document.querySelectorAll<HTMLButtonElement>('[aria-label="群资料"] button'),
-    ].find((button) => button.textContent?.includes('查看群聊消息'))!;
+    ].find((button) => button.textContent?.includes('查看消息'))!;
     act(() => open.click());
     expect(f.openChat).toHaveBeenCalledWith({
       kind: 'group',

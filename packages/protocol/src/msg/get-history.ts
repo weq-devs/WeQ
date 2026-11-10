@@ -84,7 +84,6 @@ export interface GroupHistoryParams {
 export namespace GetGroupHistory {
   export const cmd = SSO_GET_GROUP_MSG_CMD;
   // SsoGetGroupMsg 不在 LagrangeV2 签名白名单里，needSign = false。
-  export const needSign = false;
   export const reqSchema = SSO_GET_GROUP_MSG_REQUEST;
   export const respSchema = SSO_GET_GROUP_MSG_RESPONSE;
 
@@ -129,7 +128,7 @@ export async function fetchGroupHistoryRaw(
 
   const reqBytes = encode(SSO_GET_GROUP_MSG_REQUEST, GetGroupHistory.serialize(params));
   // `SsoGetGroupMsg` 不在签名清单里。
-  const rawResponse = await sendPacket(nt, pid, SSO_GET_GROUP_MSG_CMD, reqBytes, false);
+  const rawResponse = await sendPacket(nt, pid, SSO_GET_GROUP_MSG_CMD, reqBytes);
   const decoded = decode(SSO_GET_GROUP_MSG_RESPONSE, rawResponse) as {
     body?: {
       groupUin?: number;
@@ -162,7 +161,6 @@ export interface C2cHistoryParams {
 export namespace GetC2cHistory {
   export const cmd = SSO_GET_C2C_MSG_CMD;
   // SsoGetC2cMsg 不在 LagrangeV2 签名白名单里，needSign = false。
-  export const needSign = false;
   export const reqSchema = SSO_GET_C2C_MSG_REQUEST;
   export const respSchema = SSO_GET_C2C_MSG_RESPONSE;
 
@@ -206,7 +204,7 @@ export async function fetchC2cHistoryRaw(
 
   const reqBytes = encode(SSO_GET_C2C_MSG_REQUEST, GetC2cHistory.serialize(params));
   // `SsoGetC2cMsg` 不在签名清单里。
-  const rawResponse = await sendPacket(nt, pid, SSO_GET_C2C_MSG_CMD, reqBytes, false);
+  const rawResponse = await sendPacket(nt, pid, SSO_GET_C2C_MSG_CMD, reqBytes);
   const decoded = decode(SSO_GET_C2C_MSG_RESPONSE, rawResponse) as {
     friendUid?: string;
     messages?: unknown[];

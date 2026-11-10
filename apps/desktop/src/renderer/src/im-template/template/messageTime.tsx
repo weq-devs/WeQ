@@ -11,7 +11,11 @@ export function MessageTimeDivider({ value }: { value: string | undefined }) {
     return null;
   }
 
-  return <time className={cn('message-time-divider')}>{label}</time>;
+  return (
+    <time className={cn('message-time-divider')} dateTime={value}>
+      {label}
+    </time>
+  );
 }
 
 export function shouldShowMessageTime(previous: Message | undefined, current: Message) {

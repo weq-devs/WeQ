@@ -4,6 +4,26 @@ import tailwind from '@tailwindcss/vite';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+
+function contrast(foreground, background) {
+  const luminance = (color) => {
+    const channels = color
+      .match(/[\d.]+/g)
+      .slice(0, 3)
+      .map(Number);
+    return channels.reduce((sum, channel, index) => {
+      const value = channel / 255;
+      return (
+        sum +
+        (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4) *
+          [0.2126, 0.7152, 0.0722][index]
+      );
+    }, 0);
+  };
+  const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+  return (values[0] + 0.05) / (values[1] + 0.05);
+}
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
@@ -80,10 +100,50 @@ try {
         }),
     );
     if (!fit) throw new Error(`布局溢出：${theme}/${width}`);
-    if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}.png`) });
+    const palette = await page.evaluate(() => {
+      const styles = (selector) =>
+        [...document.querySelectorAll(selector)].map((node) => {
+          const style = getComputedStyle(node);
+          return { background: style.backgroundColor, color: style.color, height: style.height };
+        });
+      return {
+        surfaces: styles('.weq-exp-log, .weq-help-log-view, .weq-clone-task-log pre'),
+        muted: styles('.weq-exp-log-time, .weq-exp-log-empty, .weq-log-ts'),
+        warnings: styles('.is-warn .weq-exp-log-text, .is-warn .weq-log-msg'),
+        errors: styles('.is-error .weq-exp-log-text, .is-error .weq-log-msg'),
+        previewCount: document.querySelectorAll('.weq-exp-detail-tasklog .weq-exp-log-line').length,
+        scrollHeight: getComputedStyle(document.querySelector('.weq-exp-log.is-scrollable')).height,
+        exportHeight: getComputedStyle(document.querySelector('.weq-exp-log.is-export-scrollable'))
+          .height,
+      };
+    });
+    assert.ok(palette.surfaces.length >= 6);
+    for (const surface of palette.surfaces) {
+      assert.equal(surface.background, 'rgb(13, 20, 32)', `${theme}/${width}`);
+      assert.equal(surface.color, 'rgb(200, 211, 224)', `${theme}/${width}`);
+      assert.ok(contrast(surface.color, surface.background) >= 4.5);
+    }
+    for (const [group, expected] of [
+      [palette.muted, 'rgb(133, 149, 172)'],
+      [palette.warnings, 'rgb(226, 179, 90)'],
+      [palette.errors, 'rgb(239, 107, 107)'],
+    ]) {
+      assert.ok(group.length > 0);
+      for (const style of group) {
+        assert.equal(style.color, expected);
+        assert.ok(contrast(style.color, 'rgb(13, 20, 32)') >= 4.5);
+      }
+    }
+    assert.equal(palette.previewCount, 5);
+    assert.equal(palette.scrollHeight, '240px');
+    assert.equal(palette.exportHeight, '180px');
+    if (output)
+      await page.screenshot({ path: resolve(output, `${theme}-${width}.png`), fullPage: true });
   }
   if (errors.length) throw new Error(errors.join('\n'));
-  console.log('克隆任务日志：5 组主题、主题色、背景及视口检查通过，分段点击和键盘切换通过。');
+  console.log(
+    '日志：5 组主题、主题色、背景及视口配色/对比度检查通过；预览行数、滚动高度、克隆分段点击和键盘切换通过。',
+  );
 } finally {
   await browser?.close();
   await server.close();

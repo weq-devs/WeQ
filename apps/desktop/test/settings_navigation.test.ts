@@ -46,9 +46,9 @@ describe('设置的两级导航', () => {
     expect(settingsGroupFor('model-usage').sections).toEqual([
       'agentlab',
       'model-usage',
+      'reply-suggestions',
       'intent-sense',
       'interaction-profile',
-      'reply-suggestions',
       'voice',
       'ocr',
     ]);

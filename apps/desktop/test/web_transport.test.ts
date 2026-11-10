@@ -26,6 +26,19 @@ it('传输层通过实际连接回调报告恢复，并限制 HTTP 批次 URL �
   options.onOpen();
   expect(useWebConnection.getState().recovery).toBe(1);
   createLinks();
+  const independent = mocks.split.mock.calls[0]![0].condition;
+  expect(independent({ path: 'account.listRecentContacts' })).toBe(true);
+  expect(independent({ path: 'account.listBuddies' })).toBe(false);
+  for (const path of [
+    'backgroundTasks.list',
+    'backgroundTasks.details',
+    'backgroundTasks.logs',
+    'account.calendarOverview.task',
+    'account.listExportTasks',
+    'account.roamingBackfill.list',
+    'account.flashListDownloadTasks',
+  ])
+    expect(independent({ path })).toBe(true);
   expect(mocks.batch.mock.calls[0]![0]).toMatchObject({ url: '/trpc', maxURLLength: 2048 });
   const { condition } = mocks.split.mock.calls.at(-1)![0];
   expect(condition({ type: 'subscription' })).toBe(true);

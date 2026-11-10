@@ -979,10 +979,39 @@ export function ExportTool({
   // ---- task actions (existing backend) ----
   const refetchTasks = (): void => void tasks.refetch();
 
-  const onPause = (t: UiTask): void =>
-    void client.account.pauseExportTask.mutate({ taskId: t.id }).then(refetchTasks);
-  const onCancel = (t: UiTask): void =>
-    void client.account.cancelExportTask.mutate({ taskId: t.id }).then(refetchTasks);
+  const onPause = async (t: UiTask): Promise<void> => {
+    try {
+      const ok = await client.account.pauseExportTask.mutate({ taskId: t.id });
+      if (!ok) dialog.info('暂时无法暂停', '任务状态已变化，请查看最新任务状态。');
+      refetchTasks();
+    } catch (error) {
+      dialog.error('暂停失败', error instanceof Error ? error.message : String(error));
+    }
+  };
+  const onCancel = async (t: UiTask): Promise<void> => {
+    try {
+      const ok = await client.account.cancelExportTask.mutate({ taskId: t.id });
+      if (!ok) dialog.info('暂时无法取消', '任务已完成或仍在收尾，请查看最新任务状态。');
+      refetchTasks();
+    } catch (error) {
+      dialog.error('取消失败', error instanceof Error ? error.message : String(error));
+    }
+  };
+  const onResume = async (t: UiTask): Promise<void> => {
+    try {
+      const ok = await client.account.resumeExportTask.mutate({ taskId: t.id });
+      if (!ok)
+        dialog.error(
+          t.resumeMode === 'restart' ? '无法重新执行' : '无法继续',
+          t.resumeMode === 'restart'
+            ? '任务仍在收尾，请稍后重试。'
+            : '任务仍在收尾，或没有可验证的断点。',
+        );
+      refetchTasks();
+    } catch (error) {
+      dialog.error('续作失败', error instanceof Error ? error.message : String(error));
+    }
+  };
   const onDelete = async (t: UiTask): Promise<void> => {
     if (t.status === 'completed' && t.save?.status !== 'saved') {
       const confirmed = await dialog.confirm(
@@ -992,6 +1021,7 @@ export function ExportTool({
       );
       if (!confirmed) return;
     }
+    if (!mounted.current || !isCurrent()) return;
     try {
       const deleted = await client.account.deleteExportTask.mutate({ taskId: t.id });
       if (deleted && saveBinding)
@@ -2549,6 +2579,12 @@ export function ExportTool({
             ) : (
               <CurrentTaskList
                 cleanupBinding={saveBinding}
+                exportActions={{
+                  pause: onPause,
+                  resume: onResume,
+                  cancel: onCancel,
+                  remove: onDelete,
+                }}
                 layout={taskLayout}
                 onOpenDetail={() => {
                   setTaskTab('tasks');
@@ -2594,21 +2630,7 @@ export function ExportTool({
                         })
                         .catch((e) => dialog.error('跳过失败', String(e)));
                     }}
-                    onResume={(t) => {
-                      void client.account.resumeExportTask
-                        .mutate({ taskId: t.id })
-                        .then((ok) => {
-                          if (!ok)
-                            dialog.error(
-                              t.resumeMode === 'restart' ? '无法重新执行' : '无法继续',
-                              t.resumeMode === 'restart'
-                                ? '任务仍在收尾，请稍后重试。'
-                                : '任务仍在收尾，或没有可验证的断点。',
-                            );
-                          refetchTasks();
-                        })
-                        .catch((e) => dialog.error('续作失败', String(e)));
-                    }}
+                    onResume={onResume}
                     onReport={(t) => {
                       void client.account.revealExportReport
                         .mutate({ taskId: t.id })

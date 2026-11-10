@@ -11,6 +11,8 @@ import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
 import { fileResponse } from '../file_response';
 import { writeResponse } from './protocol_adapter';
+import { startupShell } from './startup_assets';
+import { readFile } from 'node:fs/promises';
 
 function acceptsGzip(value: string): boolean {
   const weights = new Map<string, number>();
@@ -28,6 +30,7 @@ export async function serveStatic(
   root: string,
   urlPath: string,
   acceptEncoding = '',
+  remoteStartup = false,
 ): Promise<void> {
   const clean = decodeURIComponent(urlPath.split('?')[0] ?? '/');
   const target = normalize(join(root, clean));
@@ -44,7 +47,15 @@ export async function serveStatic(
     return;
   }
 
-  const out = await fileResponse(path);
+  const out =
+    remoteStartup && path === join(root, 'index.html')
+      ? new Response(
+          await startupShell(root, await readFile(path, 'utf8'), acceptsGzip(acceptEncoding)),
+          {
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          },
+        )
+      : await fileResponse(path);
   // Hashed asset filenames are immutable; the shell must never be cached.
   const cache =
     isFile && clean.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-store';

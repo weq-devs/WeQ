@@ -6,12 +6,6 @@ import { BackupSection, backupApi } from '../src/renderer/src/components/setting
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ client: {} }));
-vi.mock('../src/renderer/src/components/settings/GlobalSettingsSection', () => ({
-  GlobalSettingsSection: () => null,
-}));
-vi.mock('../src/renderer/src/components/settings/GlobalSettingsSection', () => ({
-  GlobalSettingsSection: () => null,
-}));
 const cleanups: (() => void)[] = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -35,6 +29,7 @@ function fixture() {
   };
   const api = {
     ...backupApi,
+    defaultsInfo: vi.fn(async () => ({ hasApi: false, paths: [], connections: [] })),
     inventory: vi.fn(async () => ({
       accounts: [],
       cloneScopes: [],
@@ -121,6 +116,81 @@ it('恢复默认需二次确认，未变化的命令仍可再次主动执行', a
   await ui.click('恢复默认设置');
   await ui.click('确认恢复默认');
   expect(f.api.defaults).toHaveBeenCalledTimes(2);
+});
+it('API 配置与 WeQ 服务使用同级开关，注明范围并统一选择服务重置', async () => {
+  const f = fixture();
+  const api: typeof backupApi = {
+    ...f.api,
+    defaultsInfo: vi.fn(async () => ({
+      hasApi: true,
+      paths: [{ id: 'cacheDirOverride', label: '缓存目录', value: '/synthetic/custom-cache' }],
+      connections: [
+        { id: 'systemAutostart', label: '系统登录自启', value: '已启用' },
+        { id: 'webEnabled', label: 'Web 服务', value: '运行中' },
+        { id: 'remoteMode', label: '远程连接模式', value: 'existing' },
+      ],
+    })),
+  };
+  const ui = await mount(api);
+  expect(ui.host.textContent).not.toContain('清除账号与应用配置');
+  expect(ui.host.textContent).not.toContain('重置全局配置');
+  await ui.click('恢复默认设置');
+  const modal = document.querySelector('[role="dialog"]')!;
+  const switches = [...modal.querySelectorAll<HTMLButtonElement>('[role="switch"]')];
+  expect(switches.map((node) => node.getAttribute('aria-label'))).toEqual([
+    '清除 API 配置',
+    '清除 WeQ 服务配置',
+  ]);
+  expect(switches.map((node) => node.getAttribute('aria-checked'))).toEqual(['false', 'false']);
+  expect(modal.textContent).toContain('模型、TTS、MCP、OneBot、外部 rkey、SSE');
+  expect(modal.textContent).toContain('系统登录自启、Web 服务、远程连接模式');
+  const select = modal.querySelectorAll<HTMLSelectElement>('select');
+  expect([...select].map((node) => node.value)).toEqual(['keep']);
+  await act(async () => {
+    switches[0]!.click();
+  });
+  expect(switches[1]!.getAttribute('aria-checked')).toBe('false');
+  await act(async () => switches[1]!.click());
+  expect(modal.textContent).toContain('会断开对应的浏览器或手机连接');
+  await act(async () => switches[1]!.click());
+  expect(switches[0]!.getAttribute('aria-checked')).toBe('true');
+  expect(modal.textContent).not.toContain('会断开对应的浏览器或手机连接');
+  await act(async () => switches[1]!.click());
+  await act(async () => {
+    for (const node of select) {
+      node.value = 'reset';
+      node.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  expect(modal.textContent).toContain('另外恢复或清除');
+  expect(modal.textContent).toContain('不迁移文件');
+  await ui.click('确认恢复默认');
+  expect(f.api.defaults).toHaveBeenCalledWith(expect.any(String), {
+    clearApi: true,
+    resetPaths: ['cacheDirOverride'],
+    resetConnections: ['systemAutostart', 'webEnabled', 'remoteMode'],
+  });
+});
+
+it('读取恢复范围失败可重试，未读取成功时不能确认恢复', async () => {
+  const f = fixture();
+  f.api.defaultsInfo.mockRejectedValueOnce(new Error('合成读取失败'));
+  const ui = await mount(f.api);
+  await ui.click('恢复默认设置');
+  expect(ui.button('确认恢复默认').disabled).toBe(true);
+  expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
+    '合成读取失败',
+  );
+  await ui.click('重新读取恢复范围');
+  expect(ui.button('确认恢复默认').disabled).toBe(false);
+  expect(document.querySelector('[role="dialog"] input[type="checkbox"]')).toBeNull();
+  expect(
+    [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] [role="switch"]')].every(
+      (node) => node.disabled,
+    ),
+  ).toBe(true);
+  await ui.click('取消');
+  expect(f.api.defaults).not.toHaveBeenCalled();
 });
 it('恢复默认使用居中模态确认，焦点落在取消，取消不提交恢复', async () => {
   const f = fixture(),
@@ -227,7 +297,7 @@ it('组件关闭后迟到文件被释放，不把旧选择留作可确认输入'
   expect(f.api.stage).not.toHaveBeenCalled();
 });
 
-it('任务列表可停止浏览器备份传输，等待在途分片后清理暂存，不执行恢复', async () => {
+it('浏览器备份传输不创建任务，关闭页面后等待在途分片并清理暂存，不执行恢复', async () => {
   const f = fixture();
   let release!: (value: number) => void;
   const api: typeof backupApi = {
@@ -249,19 +319,17 @@ it('任务列表可停止浏览器备份传输，等待在途分片后清理暂�
   });
   await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
   expect(api.chunk).toHaveBeenCalledOnce();
-  const task = localBackgroundTasks.snapshot().at(-1)!;
-  expect(task).toMatchObject({ kind: 'backup', status: 'running' });
-  await act(async () => localBackgroundTasks.act(task.id, 'stop'));
-  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('running');
+  expect(localBackgroundTasks.snapshot()).toEqual([]);
+  cleanups.pop()!();
   await act(async () => release(65536));
-  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('cancelled');
+  expect(localBackgroundTasks.snapshot()).toEqual([]);
   expect(api.chunk).toHaveBeenCalledOnce();
   expect(api.finish).not.toHaveBeenCalled();
   expect(f.api.dispose).toHaveBeenCalledWith('synthetic-upload');
   expect(f.api.stage).not.toHaveBeenCalled();
 });
 
-it('本地分片读取期间停止，不会在读取完成后再发送一个新分片', async () => {
+it('本地分片读取期间关闭页面，不会在读取完成后再发送一个新分片或创建任务', async () => {
   const f = fixture();
   let release!: (value: ArrayBuffer) => void;
   const file = new File([new Uint8Array(10)], 'synthetic.zip');
@@ -283,10 +351,31 @@ it('本地分片读取期间停止，不会在读取完成后再发送一个新�
   const input = ui.host.querySelector<HTMLInputElement>('input[type="file"]')!;
   Object.defineProperty(input, 'files', { configurable: true, value: [file] });
   await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
-  const task = localBackgroundTasks.snapshot().at(-1)!;
-  await act(async () => localBackgroundTasks.act(task.id, 'stop'));
+  expect(localBackgroundTasks.snapshot()).toEqual([]);
+  cleanups.pop()!();
   await act(async () => release(new ArrayBuffer(10)));
   expect(api.chunk).not.toHaveBeenCalled();
   expect(api.finish).not.toHaveBeenCalled();
-  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('cancelled');
+  expect(localBackgroundTasks.snapshot()).toEqual([]);
+});
+
+it('浏览器分片上传完成后在设置页显示备份预览，不创建任务', async () => {
+  const f = fixture();
+  const api: typeof backupApi = {
+    ...f.api,
+    begin: vi.fn(async () => 'synthetic-upload'),
+    chunk: vi.fn(async () => 10),
+    finish: vi.fn(async () => (await f.api.pick())!),
+  };
+  const ui = await mount(api);
+  const input = ui.host.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, 'files', {
+    configurable: true,
+    value: [new File([new Uint8Array(10)], 'synthetic.zip')],
+  });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  expect(api.chunk).toHaveBeenCalledOnce();
+  expect(api.finish).toHaveBeenCalledWith('synthetic-upload');
+  expect(ui.host.textContent).toContain('synthetic.zip');
+  expect(localBackgroundTasks.snapshot()).toEqual([]);
 });

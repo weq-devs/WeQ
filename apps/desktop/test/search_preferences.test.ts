@@ -19,7 +19,11 @@ afterEach(() => {
 });
 
 it('默认全选；保存分类及功能开关，重新挂载恢复，包括空选择', () => {
-  expect(readSearchPreferences()).toEqual({ categories: SEARCH_CATEGORY_ORDER, appEnabled: true });
+  expect(readSearchPreferences()).toEqual({
+    categories: SEARCH_CATEGORY_ORDER,
+    appEnabled: true,
+    numberLookupEnabled: true,
+  });
   let state: ReturnType<typeof useSearchPreferences>;
   function Harness() {
     state = useSearchPreferences();
@@ -31,15 +35,21 @@ it('默认全选；保存分类及功能开关，重新挂载恢复，包括空�
   act(() => {
     state.setCategories(['file']);
     state.setAppEnabled(false);
+    state.setNumberLookupEnabled(false);
   });
   act(() => root.unmount());
   root = createRoot(host);
   act(() => root.render(h(Harness)));
   expect(state!.categories).toEqual(['file']);
   expect(state!.appEnabled).toBe(false);
+  expect(state!.numberLookupEnabled).toBe(false);
   act(() => state.setCategories([]));
   act(() => root.unmount());
-  expect(readSearchPreferences()).toEqual({ categories: [], appEnabled: false });
+  expect(readSearchPreferences()).toEqual({
+    categories: [],
+    appEnabled: false,
+    numberLookupEnabled: false,
+  });
 });
 
 it('忽略旧分类、非法数据；损坏的存储回退全选', () => {
@@ -50,6 +60,7 @@ it('忽略旧分类、非法数据；损坏的存储回退全选', () => {
     }),
   );
   expect(readSearchPreferences().categories).toEqual(['file']);
+  expect(readSearchPreferences().numberLookupEnabled).toBe(true);
   window.localStorage.setItem(SEARCH_PREFERENCES_KEY, '{');
   expect(readSearchPreferences().categories).toEqual(SEARCH_CATEGORY_ORDER);
 });

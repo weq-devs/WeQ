@@ -136,9 +136,25 @@ export class AccountMonitorService {
     return (
       !this.stopped &&
       this.shouldAutoAttach() &&
-      (this.ssoInflight.size > 0 ||
+      ((this.running && this.lastOnline === null) ||
+        this.ssoInflight.size > 0 ||
         Boolean(this.harvestRetry?.credentialsPending && !this.harvestRetry.cancelled))
     );
+  }
+
+  /** 业务查询只等待会话登记，与后台采集合并，不附带 rkey / clientKey 网络请求。 */
+  async ensureCredentialsReady(pid: number): Promise<void> {
+    const generation = this.generation;
+    this.assertCurrent(generation, pid);
+    if (this.harvestRetry?.pid === pid && this.harvestRetry.cancelled)
+      throw new Error('已取消授权，未读取 QQ 进程内存。');
+    try {
+      await this.ensureAttached(pid, generation);
+    } catch (error) {
+      if (this.isCurrent(generation, pid) && this.shouldAutoAttach()) this.deferHarvest(pid, error);
+      throw error;
+    }
+    this.assertCurrent(generation, pid);
   }
 
   start(): void {
@@ -152,7 +168,7 @@ export class AccountMonitorService {
     // 序号带，所以不能沿用上次会话残留的值，得重新取「now + 扰动」。
     try {
       const start = this.nt.resetPacketSequence();
-      this.logger.info('reset packet sequence start point', {
+      this.logger.debug('reset packet sequence start point', {
         event: 'reset-packet-sequence',
         start,
       });
@@ -212,7 +228,7 @@ export class AccountMonitorService {
       if (rkeys.length === 0) return false;
       this.accountConfig.setRkeys(rkeys);
       this.harvestRetry = null;
-      this.logger.info('harvested rkeys on demand', {
+      this.logger.debug('harvested rkeys on demand', {
         event: 'harvest-rkeys-now',
         pid,
         count: rkeys.length,
@@ -286,7 +302,8 @@ export class AccountMonitorService {
     const pid = await this.resolvePid();
     if (!this.isCurrent(generation)) return;
     if (pid == null) {
-      this.markOffline();
+      // 启动探测超时不证明 QQ 已退出；保留物料，确认同一 pid 后才复用。
+      this.markOffline(pid === null);
       return this.scheduleLoginPoll(LOGIN_POLL_MS);
     }
 
@@ -408,20 +425,22 @@ export class AccountMonitorService {
     this.writeOnline(true, pid);
   }
 
-  private markOffline(): void {
-    this.writeOnline(false, null);
+  private markOffline(clearSession = true): void {
+    this.writeOnline(false, null, clearSession);
   }
 
   /** Persist online state only when it actually changed since last write. */
-  private writeOnline(online: boolean, pid: number | null): void {
-    if (this.lastOnline === online && this.lastPid === pid) return;
-    this.lastOnline = online;
-    this.lastPid = pid;
+  private writeOnline(online: boolean, pid: number | null, clearSession = true): void {
     try {
-      this.accountConfig.setOnline(online, pid);
+      if (this.lastOnline !== online || this.lastPid !== pid) {
+        this.lastOnline = online;
+        this.lastPid = pid;
+        this.accountConfig.setOnline(online, pid);
+      }
       // 账号下线，上一轮的会话密钥就作废了（pid 复用 / 换账号都会让它们失效）。
       // 设备 guid 不在这里清 —— 它是设备标识，和登录无关。
-      if (!online) this.accountConfig.setSessionMaterial(null);
+      if (!online && clearSession && this.accountConfig.getRecord()?.session)
+        this.accountConfig.setSessionMaterial(null);
     } catch {
       /* config write failed — non-fatal */
     }
@@ -620,7 +639,7 @@ export class AccountMonitorService {
       this.assertCurrent(generation, pid);
       if (rkeys.length > 0) this.accountConfig.setRkeys(rkeys);
       if (rkeys.length > 0) {
-        this.logger.info('harvested download rkeys', {
+        this.logger.debug('harvested download rkeys', {
           event: 'harvest-rkeys',
           pid,
           count: rkeys.length,
@@ -630,7 +649,7 @@ export class AccountMonitorService {
       this.assertCurrent(generation, pid);
       this.accountConfig.setClientKey({ ...key, fetchedAt: Date.now() });
       this.harvestRetry = null;
-      this.logger.info('harvested client key', {
+      this.logger.debug('harvested client key', {
         event: 'harvest-client-key',
         pid,
         ttlSeconds: key.ttlSeconds,

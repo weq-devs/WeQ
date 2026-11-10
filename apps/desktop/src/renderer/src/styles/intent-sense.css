@@ -7,6 +7,31 @@
    cubic-bezier(0.22, 1, 0.36, 1) 缓动、weq- 前缀 keyframes。
    ───────────────────────────────────────────────────────────────────────── */
 
+:root {
+  --weq-int-positive: #166534;
+  --weq-int-negative: #9f1239;
+  --weq-int-curious: #075985;
+  --weq-int-playful: #6b21a8;
+  --weq-int-neutral: #475569;
+  --weq-int-tier-0: #475569;
+  --weq-int-tier-1: #0369a1;
+  --weq-int-tier-2: #15803d;
+  --weq-int-tier-3: #92400e;
+  --weq-int-tier-4: #be123c;
+  --weq-int-on-tier: #fff;
+  --weq-int-sentiment-start: #3b82f6;
+  --weq-int-sentiment-mid: #94a3b8;
+  --weq-int-sentiment-end: #f43f5e;
+}
+
+html[data-theme='dark'] {
+  --weq-int-positive: #86efac;
+  --weq-int-negative: #fda4af;
+  --weq-int-curious: #7dd3fc;
+  --weq-int-playful: #d8b4fe;
+  --weq-int-neutral: #cbd5e1;
+}
+
 .weq-intent-chips {
   display: inline-flex;
   align-items: center;
@@ -14,7 +39,8 @@
   justify-self: start;
   margin-top: -1px;
   user-select: none;
-  animation: weq-intent-pop 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  min-height: 24px;
+  min-width: 108px;
 }
 
 .message-line.mine .weq-intent-chips {
@@ -33,15 +59,22 @@
 }
 
 .weq-intent-pill {
-  display: inline-flex;
+  display: inline-grid;
+  grid-template-columns: 11px auto;
   align-items: center;
+  justify-content: center;
+  justify-items: center;
+  box-sizing: border-box;
+  width: 52px;
+  height: 21px;
+  flex-shrink: 0;
   gap: 3px;
   padding: 1px 7px;
   border-radius: 999px;
   font-size: 10px;
   font-weight: 500;
   line-height: 1.7;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
   white-space: nowrap;
   border: 1px solid transparent;
   transition:
@@ -62,131 +95,181 @@
   flex-shrink: 0;
 }
 
-/* 情绪着色：胶囊用对应情绪的低饱和底 + 同色描边，深浅两套主题各自Readable。 */
-.weq-intent-pill[data-emotion='joy'] {
-  color: #b45309;
-  background: color-mix(in srgb, #f59e0b 14%, transparent);
-  border-color: color-mix(in srgb, #f59e0b 32%, transparent);
+/* 同类情绪复用语义色，标签仍明确区分具体情绪。 */
+.weq-intent-pill {
+  --weq-int-tone: var(--weq-int-neutral);
+  color: var(--weq-int-tone);
+  background: color-mix(in srgb, var(--weq-int-tone) 8%, var(--weq-bg-surface));
+  border-color: color-mix(in srgb, var(--weq-int-tone) 30%, var(--weq-bg-surface));
 }
-.weq-intent-pill[data-emotion='excitement'] {
-  color: #be123c;
-  background: color-mix(in srgb, #f43f5e 14%, transparent);
-  border-color: color-mix(in srgb, #f43f5e 32%, transparent);
+.weq-intent-pill:is([data-emotion='joy'], [data-emotion='affection'], [data-emotion='admiration']) {
+  --weq-int-tone: var(--weq-int-positive);
 }
-.weq-intent-pill[data-emotion='admiration'] {
-  color: #7e22ce;
-  background: color-mix(in srgb, #a855f7 15%, transparent);
-  border-color: color-mix(in srgb, #a855f7 34%, transparent);
+.weq-intent-pill:is(
+  [data-emotion='sadness'],
+  [data-emotion='anger'],
+  [data-emotion='anxiety'],
+  [data-emotion='aggrieved']
+) {
+  --weq-int-tone: var(--weq-int-negative);
 }
-.weq-intent-pill[data-emotion='neutral'] {
-  color: #64748b;
-  background: color-mix(in srgb, #94a3b8 14%, transparent);
-  border-color: color-mix(in srgb, #94a3b8 32%, transparent);
+.weq-intent-pill:is(
+  [data-emotion='curiosity'],
+  [data-emotion='anticipation'],
+  [data-emotion='shock']
+) {
+  --weq-int-tone: var(--weq-int-curious);
 }
-.weq-intent-pill[data-emotion='sadness'] {
-  color: #1d4ed8;
-  background: color-mix(in srgb, #3b82f6 14%, transparent);
-  border-color: color-mix(in srgb, #3b82f6 32%, transparent);
-}
-.weq-intent-pill[data-emotion='anger'] {
-  color: #b91c1c;
-  background: color-mix(in srgb, #ef4444 14%, transparent);
-  border-color: color-mix(in srgb, #ef4444 32%, transparent);
-}
-.weq-intent-pill[data-emotion='anxiety'] {
-  color: #6d28d9;
-  background: color-mix(in srgb, #8b5cf6 14%, transparent);
-  border-color: color-mix(in srgb, #8b5cf6 32%, transparent);
-}
-.weq-intent-pill[data-emotion='affection'] {
-  color: #be185d;
-  background: color-mix(in srgb, #ec4899 14%, transparent);
-  border-color: color-mix(in srgb, #ec4899 32%, transparent);
-}
-.weq-intent-pill[data-emotion='fatigue'] {
-  color: #0f766e;
-  background: color-mix(in srgb, #14b8a6 14%, transparent);
-  border-color: color-mix(in srgb, #14b8a6 32%, transparent);
-}
-.weq-intent-pill[data-emotion='curiosity'] {
-  color: #0e7490;
-  background: color-mix(in srgb, #06b6d4 14%, transparent);
-  border-color: color-mix(in srgb, #06b6d4 32%, transparent);
-}
-.weq-intent-pill[data-emotion='shock'] {
-  color: #d97706;
-  background: color-mix(in srgb, #f59e0b 16%, transparent);
-  border-color: color-mix(in srgb, #f59e0b 36%, transparent);
-}
-.weq-intent-pill[data-emotion='aggrieved'] {
-  color: #4f46e5;
-  background: color-mix(in srgb, #6366f1 14%, transparent);
-  border-color: color-mix(in srgb, #6366f1 32%, transparent);
-}
-.weq-intent-pill[data-emotion='irony'] {
-  color: #059669;
-  background: color-mix(in srgb, #10b981 14%, transparent);
-  border-color: color-mix(in srgb, #10b981 32%, transparent);
-}
-.weq-intent-pill[data-emotion='anticipation'] {
-  color: #ea580c;
-  background: color-mix(in srgb, #f97316 14%, transparent);
-  border-color: color-mix(in srgb, #f97316 32%, transparent);
-}
-.weq-intent-pill[data-emotion='embarrassed'] {
-  color: #7c3aed;
-  background: color-mix(in srgb, #8b5cf6 14%, transparent);
-  border-color: color-mix(in srgb, #8b5cf6 32%, transparent);
+.weq-intent-pill:is(
+  [data-emotion='excitement'],
+  [data-emotion='irony'],
+  [data-emotion='embarrassed']
+) {
+  --weq-int-tone: var(--weq-int-playful);
 }
 
-html[data-theme='dark'] .weq-intent-pill[data-emotion='joy'],
-html[data-theme='dark'] .weq-intent-pill[data-emotion='excitement'],
-html[data-theme='dark'] .weq-intent-pill[data-emotion='admiration'],
-html[data-theme='dark'] .weq-intent-pill[data-emotion='neutral'],
-html[data-theme='dark'] .weq-intent-pill[data-emotion='sadness'],
-html[data-theme='dark'] .weq-intent-pill[data-emotion='anger'],
-html[data-theme='dark'] .weq-intent-pill[data-emotion='anxiety'],
-html[data-theme='dark'] .weq-intent-pill[data-emotion='affection'],
-html[data-theme='dark'] .weq-intent-pill[data-emotion='fatigue'],
-html[data-theme='dark'] .weq-intent-pill[data-emotion='curiosity'],
-html[data-theme='dark'] .weq-intent-pill[data-emotion='shock'],
-html[data-theme='dark'] .weq-intent-pill[data-emotion='aggrieved'],
-html[data-theme='dark'] .weq-intent-pill[data-emotion='irony'],
-html[data-theme='dark'] .weq-intent-pill[data-emotion='anticipation'],
-html[data-theme='dark'] .weq-intent-pill[data-emotion='embarrassed'] {
-  color: color-mix(in srgb, currentColor 55%, #fff);
-}
-
-/* 分析中的 shimmer 占位胶囊（同 .skel-block 的高光手法）。 */
-.weq-intent-pill.is-loading {
-  min-width: 58px;
-  color: transparent !important;
-  background: color-mix(in srgb, var(--weq-fg-muted) 14%, transparent);
-  border-color: color-mix(in srgb, var(--weq-fg-muted) 26%, transparent);
-  position: relative;
+/* 批次状态统一播报；内部图标逐枚描画并左移，胶囊保持原位。 */
+.weq-intent-pill:is(.is-loading, .is-placeholder) {
+  display: inline-flex;
+  padding: 0;
+  color: color-mix(in srgb, var(--weq-fg-secondary) 82%, var(--weq-accent-effective));
+  background: color-mix(in srgb, var(--weq-fg-muted) 6%, var(--weq-bg-surface));
+  border-color: color-mix(in srgb, var(--weq-fg-muted) 18%, var(--weq-bg-surface));
   overflow: hidden;
 }
 
-.weq-intent-pill.is-loading::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    100deg,
-    transparent 30%,
-    color-mix(in srgb, var(--weq-fg-primary) 12%, transparent) 50%,
-    transparent 70%
-  );
-  animation: weq-intent-shimmer 1.4s ease-in-out infinite;
+html[data-theme='dark'] .weq-intent-pill:is(.is-loading, .is-placeholder) {
+  background: color-mix(in srgb, var(--weq-fg-muted) 10%, var(--weq-bg-surface));
+  border-color: color-mix(in srgb, var(--weq-fg-muted) 24%, var(--weq-bg-surface));
 }
 
-@keyframes weq-intent-shimmer {
-  from {
-    transform: translateX(-100%);
+.weq-intent-loading-reel {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  animation: weq-intent-roll 2400ms linear both;
+}
+
+.weq-intent-loading-icon > :is(path, circle, line, polyline, polygon, rect, ellipse) {
+  stroke-dasharray: 80;
+  animation: weq-intent-draw 2400ms ease-in-out both;
+}
+
+@keyframes weq-intent-roll {
+  0% {
+    transform: translateX(32px) rotate(0deg);
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   }
-  to {
-    transform: translateX(100%);
+  16% {
+    transform: translateX(0) rotate(0deg);
+    opacity: 1;
   }
+  78% {
+    transform: translateX(0) rotate(0deg);
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+  }
+  100% {
+    transform: translateX(-36px) rotate(-240deg);
+    opacity: 0;
+  }
+}
+
+@keyframes weq-intent-draw {
+  0%,
+  16% {
+    stroke-dashoffset: 80;
+    opacity: 0;
+  }
+  28% {
+    opacity: 0.75;
+  }
+  70%,
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.9;
+  }
+}
+
+.weq-intent-details,
+.weq-intent-focus-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  cursor: default;
+}
+.weq-intent-details {
+  min-width: 108px;
+}
+.weq-intent-focus-trigger {
+  position: absolute;
+  inset-inline-end: 0;
+  bottom: 0;
+  width: 24px;
+  opacity: 0;
+}
+.weq-intent-focus-trigger:focus-visible {
+  opacity: 1;
+  background: var(--weq-bg-surface);
+}
+.weq-int-batch {
+  position: absolute;
+  /* 以消息网格为定位范围，避免落入右侧群资料栏。 */
+  grid-area: 2 / 1 / 3 / 2;
+  z-index: 1;
+  top: 6px;
+  inset-inline-end: 12px;
+  max-width: min(320px, calc(100% - 24px));
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+  border: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.weq-int-batch > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-int-batch button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--weq-fg-primary);
+  background: transparent;
+  cursor: pointer;
+}
+.weq-int-batch button:hover {
+  background: var(--muted);
+}
+.weq-intent-details:focus-visible,
+.weq-intent-focus-trigger:focus-visible,
+.weq-int-batch button:focus-visible,
+.weq-affinity-pill:focus-visible,
+.weq-int-suggest button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
 }
 
 /* 悬停弹层：fixed 定位锚在气泡矩形下方（同 ReactionLikersPanel 的手法），
@@ -201,10 +284,10 @@ html[data-theme='dark'] .weq-intent-pill[data-emotion='embarrassed'] {
   width: max-content;
   max-width: 260px;
   padding: 8px 10px;
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--weq-bg-surface);
   border: 1px solid var(--weq-border-subtle);
-  box-shadow: var(--weq-shadow-card);
+  box-shadow: var(--weq-shadow-soft);
   backdrop-filter: blur(10px);
   pointer-events: none;
   animation: weq-intent-pop 140ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -220,6 +303,26 @@ html[data-theme='dark'] .weq-intent-popover {
   gap: 6px;
   font-size: 11px;
   color: var(--weq-fg-primary, #222);
+}
+
+.weq-intent-popover-row.is-metric {
+  display: grid;
+  grid-template-columns: max-content 48px minmax(3ch, max-content);
+  column-gap: 4px;
+  white-space: nowrap;
+}
+.weq-intent-popover-row.is-metric > :last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.weq-intent-confidence {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-intent-popover-row.is-footer {
+  justify-content: center;
+  margin-top: 2px;
+  font-size: 10px;
 }
 
 .weq-intent-popover-bar {
@@ -238,8 +341,30 @@ html[data-theme='dark'] .weq-intent-popover {
   transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.weq-intent-popover-bar.is-sentiment {
+  position: relative;
+}
+
+.weq-intent-popover-bar.is-sentiment::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--weq-fg-secondary);
+  transform: translateX(-50%);
+}
+
 .weq-intent-popover-bar.is-sentiment > span {
-  background: linear-gradient(90deg, #3b82f6, #94a3b8 50%, #f43f5e);
+  position: absolute;
+  top: 0;
+  background: var(--weq-int-positive);
+  transition: none;
+}
+
+.weq-intent-popover-bar.is-sentiment > .is-negative {
+  background: var(--weq-int-negative);
 }
 
 /* ── 好感度胶囊（chat header 右上角）────────────────────────────────── */
@@ -249,13 +374,16 @@ html[data-theme='dark'] .weq-intent-popover {
   align-items: center;
   gap: 5px;
   height: 26px;
+  min-width: 92px;
+  justify-content: center;
+  box-sizing: border-box;
   padding: 0 11px;
   border-radius: 999px;
   font-size: 11.5px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   white-space: nowrap;
-  color: #fff;
+  color: var(--weq-int-on-tier);
   border: 1px solid transparent;
   cursor: pointer;
   transition:
@@ -264,8 +392,8 @@ html[data-theme='dark'] .weq-intent-popover {
     transform 120ms ease-out;
 }
 
-.weq-affinity-pill:hover {
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+.weq-affinity-pill:hover:not(:disabled) {
+  box-shadow: var(--weq-shadow-soft);
   transform: translateY(-1px);
 }
 
@@ -286,19 +414,19 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
 
 /* 五档：初识(灰蓝) → 熟络(青) → 亲近(绿) → 挚友(金) → 羁绊(玫红)。 */
 .weq-affinity-pill.tier-0 {
-  background: linear-gradient(135deg, #64748b, #475569);
+  background: var(--weq-int-tier-0);
 }
 .weq-affinity-pill.tier-1 {
-  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  background: var(--weq-int-tier-1);
 }
 .weq-affinity-pill.tier-2 {
-  background: linear-gradient(135deg, #22c55e, #16a34a);
+  background: var(--weq-int-tier-2);
 }
 .weq-affinity-pill.tier-3 {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
+  background: var(--weq-int-tier-3);
 }
 .weq-affinity-pill.tier-4 {
-  background: linear-gradient(135deg, #f43f5e, #e11d48);
+  background: var(--weq-int-tier-4);
 }
 
 /* 档位切换时的强调动画（key 变化触发 remount 即重放）。 */
@@ -332,10 +460,10 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
 }
 
 .weq-int-profile-letters strong {
-  font-size: 34px;
+  font-size: 24px;
   font-weight: 800;
-  letter-spacing: 0.08em;
-  color: var(--weq-accent-effective, #12a8ff);
+  letter-spacing: 0;
+  color: color-mix(in srgb, var(--weq-accent-effective) 25%, var(--weq-fg-primary));
 }
 
 .weq-int-mbti-dims {
@@ -379,7 +507,7 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
   border-radius: 999px;
   font-size: 11px;
   background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 10%, transparent);
-  color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 70%, var(--weq-fg-primary, #222));
+  color: color-mix(in srgb, var(--weq-accent-effective) 25%, var(--weq-fg-primary));
   border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 24%, transparent);
 }
 
@@ -404,12 +532,13 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
 
 .weq-int-note {
   font-size: 11px;
-  color: var(--weq-fg-muted);
+  color: var(--weq-fg-secondary);
 }
 
 /* ── 回复建议（composer 上方紧凑单行滚动 pills）──────────────────────── */
 
 .chat-pane:has(> .weq-int-suggest) {
+  --weq-int-history-row-height: 34px;
   grid-template-rows:
     var(--chat-header-height)
     minmax(0, 1fr)
@@ -429,6 +558,22 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
   bottom: calc(var(--composer-height, 190px) + 40px);
 }
 
+.chat-pane:has(> .weq-int-suggest.is-history-open) {
+  --weq-int-history-height: min(
+    var(--weq-int-history-content-height, 0px),
+    calc(var(--weq-int-history-row-height) * 3.5 + 1px),
+    max(0px, (100% - var(--chat-header-height) - var(--composer-height, 190px) - 28px) / 2)
+  );
+  grid-template-rows:
+    var(--chat-header-height)
+    minmax(0, 1fr)
+    calc(var(--weq-int-history-height) + 28px)
+    var(--composer-height, 190px);
+}
+.chat-pane:has(> .weq-int-suggest.is-history-open) > .new-message-pill {
+  bottom: calc(var(--composer-height, 190px) + 40px + var(--weq-int-history-height));
+}
+
 .chat-pane:has(> .weq-chat-backdrop) > .weq-int-suggest {
   background: color-mix(in srgb, var(--weq-bg-surface) 82%, transparent);
 }
@@ -443,18 +588,43 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
  * 建议条抬到面板之上就会盖住面板底部工具行（「发送」键就在那儿）与选中的表情，
  * 表现为「点不动发送」。它自己只是常驻在文档流里的一行，压在下面完全够用。 */
 .weq-int-suggest {
+  box-sizing: border-box;
   z-index: 0;
   grid-column: 1;
-  display: flex;
-  align-items: center;
-  gap: 5px;
+  display: grid;
+  grid-template-rows: 28px;
   height: 28px;
   min-width: 0;
-  padding: 3px 14px 1px 18px;
+  min-height: 0;
+  background: color-mix(in srgb, var(--weq-bg-surface) 62%, transparent);
+}
+.weq-int-suggest.is-history-open {
+  height: 100%;
+  grid-template-rows: minmax(0, 1fr) 28px;
+}
+.weq-int-suggest-bar,
+.weq-int-history-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 80px;
+  align-items: center;
+  gap: 6px;
+}
+.weq-int-suggest-bar {
+  box-sizing: border-box;
+  height: 28px;
+  min-width: 0;
+  padding: 1px calc(14px + var(--weq-int-history-scrollbar-width, 0px)) 1px 14px;
   border-top: 1px solid var(--weq-bar-border, #dedede);
   background: color-mix(in srgb, var(--weq-bg-surface) 62%, transparent);
   backdrop-filter: blur(20px) saturate(1.4);
   -webkit-backdrop-filter: blur(20px) saturate(1.4);
+}
+.weq-int-suggest-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
 }
 
 .weq-int-suggest-icon {
@@ -485,7 +655,8 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 21px;
+  height: 24px;
+  box-sizing: border-box;
   padding: 0 8px;
   border-radius: 999px;
   font-size: 11px;
@@ -513,7 +684,7 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
   font-size: 9.5px;
   font-weight: 600;
   line-height: 1.2;
-  color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 80%, var(--weq-fg-primary, #222));
+  color: color-mix(in srgb, var(--weq-accent-effective) 25%, var(--weq-fg-primary));
   background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 14%, transparent);
 }
 
@@ -527,8 +698,8 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border-radius: 999px;
   border: none;
   background: transparent;
@@ -545,6 +716,121 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
   animation: weq-spin 900ms linear infinite;
 }
 
+.weq-int-suggest-refresh:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.weq-int-suggest-empty,
+.weq-int-suggest-error {
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-int-history-slot {
+  min-height: 0;
+  overflow: hidden;
+}
+.weq-int-history {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--weq-border-strong) transparent;
+  background: color-mix(in srgb, var(--weq-bg-surface) 90%, transparent);
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-int-history-row {
+  box-sizing: border-box;
+  height: var(--weq-int-history-row-height, 34px);
+  min-height: var(--weq-int-history-row-height, 34px);
+  padding: 4px 14px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-int-history-replies {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.weq-int-history-replies::-webkit-scrollbar {
+  display: none;
+}
+.weq-int-history time {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--weq-fg-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
+}
+.weq-int-history-date {
+  min-width: 0;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+  text-align: right;
+}
+.weq-int-history-date:hover {
+  color: var(--weq-accent-effective);
+  text-decoration: underline;
+}
+.weq-int-history-date:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-int-history-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-int-suggest-error {
+  max-width: 64px;
+  min-width: 0;
+  flex-shrink: 1;
+}
+.weq-int-profile-placeholder {
+  display: grid;
+  gap: 10px;
+}
+.weq-int-profile-placeholder > span {
+  display: block;
+  height: 14px;
+  width: 35%;
+  border-radius: 4px;
+  background: var(--muted);
+}
+.weq-int-profile-placeholder > span + span {
+  width: 100%;
+  height: 56px;
+}
+.weq-int-profile-placeholder.is-mbti > span + span {
+  height: 110px;
+}
+.weq-int-profile-placeholder.is-radar > span + span {
+  height: 240px;
+}
+.weq-int-profile-placeholder.is-topics > span + span {
+  height: 24px;
+}
+.weq-int-profile-placeholder.is-note > span {
+  width: 70%;
+  height: 12px;
+}
+.weq-int-profile-placeholder.is-note > span + span {
+  display: none;
+}
+
 /* ── 画像 Dialog 的内容排版（容器骨架由 group-keyword-dialog 提供）──── */
 
 .weq-int-profile h4 {
@@ -559,7 +845,7 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
 .weq-int-affinity-num {
   font-size: 24px;
   font-weight: 800;
-  color: var(--weq-accent-effective, #12a8ff);
+  color: color-mix(in srgb, var(--weq-accent-effective) 25%, var(--weq-fg-primary));
 }
 
 .weq-int-radar {
@@ -647,6 +933,7 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
 @media (max-width: 720px) {
   .weq-affinity-pill {
     width: 36px;
+    min-width: 36px;
     height: 36px;
     justify-content: center;
     padding: 0;
@@ -659,9 +946,21 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
 
 @media (prefers-reduced-motion: reduce) {
   .weq-intent-chips,
+  .weq-intent-loading-reel,
+  .weq-intent-loading-icon > :is(path, circle, line, polyline, polygon, rect, ellipse),
   .weq-intent-popover,
   .weq-affinity-pill.is-bumped,
-  .weq-intent-pill.is-loading::after {
+  .weq-int-suggest-refresh.is-busy svg,
+  .weq-intent-popover .weq-spin,
+  .weq-int-dialog .weq-spin {
     animation: none;
+  }
+  .weq-intent-popover-bar > span,
+  .weq-int-mbti-track > span,
+  .weq-int-trend-bar,
+  .weq-affinity-pill,
+  .weq-intent-pill,
+  .weq-int-suggest-pill {
+    transition: none;
   }
 }

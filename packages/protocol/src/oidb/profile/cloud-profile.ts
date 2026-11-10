@@ -44,20 +44,15 @@ export async function getCloudProfile(nt: PacketNative, pid: number, uin: string
   const body = responseObject(
     decode(
       cloudProfileResponse,
-      await sendOidb(
-        nt,
-        pid,
-        {
-          command: 0xfe1,
-          subCommand: 2,
-          isUid: true,
-          body: encode(GetUserQqLevel.reqSchema, {
-            uin: Number(number),
-            keys: keys.map((key) => ({ key })),
-          }),
-        },
-        true,
-      ),
+      await sendOidb(nt, pid, {
+        command: 0xfe1,
+        subCommand: 2,
+        isUid: true,
+        body: encode(GetUserQqLevel.reqSchema, {
+          uin: Number(number),
+          keys: keys.map((key) => ({ key })),
+        }),
+      }),
     ).body,
     '云端资料',
   );
@@ -94,7 +89,7 @@ export async function getCommonFriendCount(
   body.writeUInt32BE(Number(from));
   body.writeUInt16BE(1, 4);
   body.writeUInt32BE(Number(to), 6);
-  const reply = Buffer.from(await invokeLegacyOidb(nt, pid, 0x42d, 4, 'OidbSvc.0x42d_4', body));
+  const reply = Buffer.from(await invokeLegacyOidb(nt, pid, 0x42d, 4, 'OidbSvc.0x42d_4', body, {}));
   if (reply.length < 8 || reply.readUInt32BE() !== Number(from))
     throw new Error('共同好友响应身份异常');
   const successes = reply.readUInt16BE(4);
@@ -152,7 +147,7 @@ export async function getCommonGroups(
       0,
       'OidbSvc.0xcf4',
       encode(commonGroupsRequest, { from, to, qzoneDna: true, newDna: false }),
-      clientVersion,
+      { clientVersion },
     ),
   );
   if (

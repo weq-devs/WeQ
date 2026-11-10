@@ -303,7 +303,7 @@ export namespace RedBagPrePack {
     const reqBytes = encode(reqSchema, { ...body, nonce });
     const envelope = encodeSsoHandleRequest(cmd, reqBytes);
     // `trpc.qqhb.qqhb_proxy.Handler.sso_handle` 在签名清单里。
-    const replyBytes = await sendPacket(nt, pid, command, envelope, true);
+    const replyBytes = await sendPacket(nt, pid, command, envelope);
     const packet = decodeSsoHandlePacket(replyBytes);
     if (packet.direction !== 'response') {
       throw new Error('红包 pre_pack 回包不是 sso_handle 下行信封。');
@@ -346,7 +346,7 @@ export namespace RedBagPasswordPool {
   export const invoke = async (nt: TrpcNative, pid: number): Promise<string[]> => {
     const bytes = encode(reqSchema, serialize());
     // `trpc.qqhb.hbpanel.Hongbao.SsoGetToken` 不在签名清单里。
-    const replyBytes = await sendPacket(nt, pid, command, bytes, false);
+    const replyBytes = await sendPacket(nt, pid, command, bytes);
     return deserialize(decode(respSchema, replyBytes));
   };
 }
@@ -581,13 +581,7 @@ export namespace RedBagDetail {
       );
     const reqBytes = encode(reqSchema, { ...body, nonce });
     // `trpc.qqhb.qqhb_proxy.Handler.sso_handle` 在签名清单里。
-    const replyBytes = await sendPacket(
-      nt,
-      pid,
-      command,
-      encodeSsoHandleRequest(cmd, reqBytes),
-      true,
-    );
+    const replyBytes = await sendPacket(nt, pid, command, encodeSsoHandleRequest(cmd, reqBytes));
     const reply = decodeLocateReply(replyBytes, 'detail');
     return { ...deserialize(reply.plain), code: reply.code, message: reply.message };
   };
@@ -661,13 +655,7 @@ export namespace RedBagGrab {
       );
     const reqBytes = encode(reqSchema, { ...body, nonce });
     // `trpc.qqhb.qqhb_proxy.Handler.sso_handle` 在签名清单里。
-    const replyBytes = await sendPacket(
-      nt,
-      pid,
-      command,
-      encodeSsoHandleRequest(cmd, reqBytes),
-      true,
-    );
+    const replyBytes = await sendPacket(nt, pid, command, encodeSsoHandleRequest(cmd, reqBytes));
     const reply = decodeLocateReply(replyBytes, 'grab');
     return { ...deserialize(reply.plain), code: reply.code, message: reply.message };
   };

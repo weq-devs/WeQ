@@ -1,4 +1,4 @@
-import { Globe } from 'lucide-react';
+import { Forward, Globe, UserRound } from 'lucide-react';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { trpc } from '../../trpc/client';
 import { QzonePaginationSettings } from './QzonePaginationSettings';
@@ -19,7 +19,11 @@ export function QzoneSettingsSection() {
       <SectionHeader icon={<Globe size={16} strokeWidth={1.8} />} title="QQ 空间" />
       <QzonePaginationSettings />
       <QzonePublicRefreshSettings />
-      <Card title="人物入口" settingId="qzone-person-click">
+      <Card
+        title="人物入口"
+        icon={<UserRound size={15} strokeWidth={1.8} />}
+        settingId="qzone-person-click"
+      >
         <Row
           label="点击他人昵称或头像时"
           control={
@@ -41,7 +45,7 @@ export function QzoneSettingsSection() {
           <p className="weq-qzn-error">{savePersonAction.error.message}</p>
         ) : null}
       </Card>
-      <Card title="转发" settingId="qzone-forward">
+      <Card title="转发" icon={<Forward size={15} strokeWidth={1.8} />} settingId="qzone-forward">
         <Row
           label="转发时引用上一人文案"
           control={

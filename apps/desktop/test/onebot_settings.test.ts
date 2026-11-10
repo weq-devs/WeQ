@@ -1,4 +1,5 @@
 import { act, createElement as h } from 'react';
+import { DEFAULT_SERVICE_PORTS } from '@weq/service/service-ports';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { OneBotSection } from '../src/renderer/src/components/settings/OneBotSection';
@@ -157,7 +158,7 @@ it('creates an HTTP server from a compact card editor', async () => {
         type: 'http',
         name: '自动化 HTTP',
         enabled: true,
-        port: 48768,
+        port: DEFAULT_SERVICE_PORTS['onebot-http'],
         enableCors: true,
       }),
     );

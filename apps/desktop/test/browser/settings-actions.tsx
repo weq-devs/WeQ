@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { Download, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { Card, Row } from '../../src/renderer/src/components/settings/controls';
+import { DEFAULTS_DESCRIPTION } from '../../src/renderer/src/components/settings/DefaultsOptions';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';
@@ -35,7 +36,7 @@ createRoot(document.getElementById('root')!).render(
           </button>
         </Card>
         <Card title="恢复默认设置">
-          <p>仅重置通用设置、导出预设与此设备界面偏好；不会删除账号、API 配置或克隆数据。</p>
+          <p>{DEFAULTS_DESCRIPTION}</p>
           <button type="button" className="weq-set-btn weq-set-btn-soft" data-reset>
             <RotateCcw size={14} />
             恢复默认设置

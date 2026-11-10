@@ -47,6 +47,7 @@ import {
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { User } from '../im-template/template/types';
 import { resolveAvatar } from '../lib/avatarResolver';
+import { contactAgeText } from '../lib/contactBirth';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
@@ -54,6 +55,7 @@ import { CommonRelationships } from './qq-actions/CommonRelationships';
 import { FriendClue } from './qq-actions/FriendClue';
 import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
 import { ContactWorkspaceNavigationContext } from '../lib/profileNavigation';
+import { useCardDisplayNames } from '../hooks/useCardDisplayNames';
 import type { AnalysisTarget } from '../views/analysis/model';
 import { OverlayLayer } from './OverlayLayer';
 import { QQGroupMemberControls } from './QQGroupMemberControls';
@@ -64,7 +66,7 @@ import { QqShowGallery } from './QqShowGallery';
 import { VirtualConversationBadge } from './VirtualConversationAvatar';
 import { cn } from '../im-template/template/classNames';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
-import { displayUserName, displayGroupMemberName } from '../im-template/template/user';
+import { displayUserName } from '../im-template/template/user';
 import {
   ProfileRow,
   birthdayText,
@@ -147,6 +149,7 @@ export function MemberProfileCard({
     isFriend: profile?.isFriend ?? member.isFriend,
   });
   const canAnalyze = !localClone && Boolean(groupCode && uid);
+  const cloudNames = useCardDisplayNames('user', profile?.uin || member.identityValue, !localClone);
 
   // 补全陌生人资料字段。
   useEffect(() => {
@@ -230,15 +233,13 @@ export function MemberProfileCard({
     };
   }, [anchor.x, anchor.y, loading, profile, botProfile, previewContent]);
 
-  const name =
-    !localClone && 'card' in member
-      ? displayGroupMemberName(
-          member.card,
-          profile?.remark || member.remark,
-          member.nick || profile?.nick,
-          displayUserName(member),
-        )
-      : displayUserName(member);
+  const name = localClone
+    ? displayUserName(member)
+    : (cloudNames ? cloudNames.name.trim() : profile?.nick?.trim() || member.nick?.trim()) ||
+      member.identityValue ||
+      member.username;
+  const remark =
+    cloudNames?.remark !== undefined ? cloudNames.remark : profile ? profile.remark : member.remark;
   const role = ROLE_META[member.role];
   const uin = localClone
     ? null
@@ -270,9 +271,8 @@ export function MemberProfileCard({
       alive = false;
     };
   }, [uin, localClone]);
-  const nickDiffers = profile?.nick && profile.nick !== name && profile.nick !== member.remark;
   const gender = genderLabel(profile?.gender);
-  const genderAge = [gender, profile?.age ? `${profile.age} 岁` : null].filter(Boolean).join(' · ');
+  const genderAge = [gender, profile ? contactAgeText(profile) : null].filter(Boolean).join(' · ');
   const zodiac = profile ? constellationOf(profile.birthMonth, profile.birthDay) : null;
   const birthday = profile
     ? birthdayText(profile.birthYear, profile.birthMonth, profile.birthDay)
@@ -410,7 +410,6 @@ export function MemberProfileCard({
               )}
               <strong className="weq-profile-name">{name}</strong>
               {!localClone ? <PersonRelationshipStatus person={{ ...member, ...profile }} /> : null}
-              {nickDiffers ? <span className="weq-profile-nick">昵称 {profile.nick}</span> : null}
 
               {uin ? (
                 <button className="weq-profile-id" type="button" onClick={copyUin} title="点击复制">
@@ -508,7 +507,11 @@ export function MemberProfileCard({
               ) : null}
               {!localClone && member.kind !== 'bot' && uin ? (
                 <>
-                  <ProfileLikesRow uid={uid} uin={uin} name={displayUserName(member)} />
+                  {!profile?.isBot &&
+                  !profile?.extInfo?.isEnterprise &&
+                  !member.extInfo?.isEnterprise ? (
+                    <ProfileLikesRow uid={uid} uin={uin} name={displayUserName(member)} />
+                  ) : null}
                   <CommonRelationships uin={uin} onNavigate={onClose} />
                   {relationship === 'friend' ? <FriendClue uid={uid} /> : null}
                 </>
@@ -519,13 +522,8 @@ export function MemberProfileCard({
               {lastSpeak ? (
                 <ProfileRow icon={<Clock size={13} />} label="最后发言" value={lastSpeak} />
               ) : null}
-              {profile?.remark ? (
-                <ProfileRow
-                  sensitive
-                  icon={<UserIcon size={13} />}
-                  label="备注"
-                  value={profile.remark}
-                />
+              {remark ? (
+                <ProfileRow sensitive icon={<UserIcon size={13} />} label="备注" value={remark} />
               ) : null}
               {profile?.qid ? (
                 <ProfileRow
@@ -607,7 +605,7 @@ export function MemberProfileCard({
                     }}
                   >
                     <MessageSquare size={13} aria-hidden="true" />
-                    查看私聊
+                    查看消息
                   </button>
                 ) : null}
                 {onPreviewChat ? (
@@ -619,7 +617,7 @@ export function MemberProfileCard({
                     }}
                   >
                     <Eye size={13} aria-hidden="true" />
-                    预览私聊
+                    预览消息
                   </button>
                 ) : null}
                 {!localClone && uin && openSpace ? (

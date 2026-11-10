@@ -1,25 +1,22 @@
 /**
- * 好友通知 / 群通知两个灯箱。
- *
- * 原先住在 `im-template/template/noticePanes.tsx`（模板只该放上游 IM 层的东西），
- * 2026-10-17 随「浮层统一」搬到 WeQ 侧：外壳改走 {@link ./OverlayLayer}，
- * 于是 portal / 层级 / Esc / 点遮罩关闭都是同一套，不再各自手写。
+ * 联系人页右侧的好友通知 / 群通知面板，不注册全窗口详情页。
  *
  * 数据与开关都由应用层给：`open` 由 MainView 的 `shell.contactNotice` 驱动，
  * `requests` 是已经取好的申请列表。
  */
 import { ArrowLeft, Bell, Users } from 'lucide-react';
+import { useRef } from 'react';
 import { cn } from '../im-template/template/classNames';
 import { formatProfileDate } from '../im-template/template/format';
 import { Avatar, EmptyState } from '../im-template/template/primitives';
 import type { ContactRequest, GroupJoinRequest, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
-import { OverlayLayer } from './OverlayLayer';
 import { PageShell } from './PageShell';
 import { RequestActions, useNoticeOperations } from './qq-actions/RequestActions';
 import { withQQAccountScope } from './qq-actions/shared';
 import { bindNoticeOperations, type NoticeOperation } from '../lib/contactNotice';
 import { avatarFromUin } from '../lib/avatarResolver';
+import { useSurfaceEscape } from '../lib/surfaceEscape';
 import '../styles/contact-notices.css';
 
 export type NoticeProfileHandler = (
@@ -29,7 +26,7 @@ export type NoticeProfileHandler = (
 ) => void;
 
 /**
- * 好友通知灯箱。沿用 weq 设计：遮罩 + 居中卡片，固定标题 + 可滚动列表。
+ * 好友通知面板：固定标题 + 可滚动列表。
  * 待处理申请直接在卡片内操作，其他通知仅展示。
  */
 function ContactNoticeDialogBody({
@@ -44,110 +41,107 @@ function ContactNoticeDialogBody({
   onOpenProfile?: NoticeProfileHandler;
 }) {
   const inbox = useNoticeOperations(false, open);
+  const panel = useRef<HTMLElement>(null);
+  useSurfaceEscape(panel, onClose, open, false);
   const { cards, remaining } = bindNoticeOperations(requests, inbox.operations);
+  if (!open) return null;
   return (
-    <OverlayLayer
-      presentation="page"
-      title="好友通知"
-      className="weq-profile-layer weq-notice-layer"
-      open={open}
-      onClose={onClose}
+    <section
+      ref={panel}
+      tabIndex={-1}
+      className="weq-notice-dialog weq-notice-panel"
+      role="region"
+      aria-label="好友通知"
+      onMouseDown={(event) => event.stopPropagation()}
     >
-      <section
-        className="weq-notice-dialog weq-anim-pop"
-        role="region"
-        aria-label="好友通知"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <PageShell
-          title="好友通知"
-          icon={<Bell size={15} />}
-          leading={
-            <button
-              className="weq-page-back"
-              type="button"
-              title="返回"
-              aria-label="返回"
-              onClick={onClose}
-            >
-              <ArrowLeft size={18} />
-            </button>
-          }
-        >
-          <div
-            className={cn(
-              'weq-notice-scroll',
-              requests.length === 0 && remaining.length === 0 && 'is-empty',
-            )}
+      <PageShell
+        title="好友通知"
+        icon={<Bell size={15} />}
+        leading={
+          <button
+            className="weq-page-back"
+            type="button"
+            title="返回"
+            aria-label="返回"
+            onClick={onClose}
           >
-            {inbox.error && <p role="alert">{inbox.error}</p>}
-            {requests.length === 0 && remaining.length === 0 ? (
-              <EmptyState
-                title="暂无好友通知"
-                body="收到或发出的好友申请会显示在这里。"
-                icon={<Bell />}
+            <ArrowLeft size={18} />
+          </button>
+        }
+      >
+        <div
+          className={cn(
+            'weq-notice-scroll',
+            requests.length === 0 && remaining.length === 0 && 'is-empty',
+          )}
+        >
+          {inbox.error && <p role="alert">{inbox.error}</p>}
+          {requests.length === 0 && remaining.length === 0 ? (
+            <EmptyState
+              title="暂无好友通知"
+              body="收到或发出的好友申请会显示在这里。"
+              icon={<Bell />}
+            />
+          ) : (
+            cards.map(({ notice: request, operation }) => {
+              const who = displayUserName(request.user);
+              const badge = FRIEND_STATE_LABEL[request.status];
+              const fields = splitNoticeMessage(request.message || '请求添加对方为好友');
+              return (
+                <article
+                  className={cn('notice-card', 'notice-card-request', badge?.tone)}
+                  key={request.id}
+                >
+                  <NoticeAvatar user={request.user} onOpenProfile={onOpenProfile} />
+                  <div className="notice-copy">
+                    <p className="notice-line-head">
+                      <span className="notice-who" title={who}>
+                        {who}
+                      </span>
+                      <span className="notice-action-text">
+                        {request.status === 'accepted'
+                          ? '已同意好友申请'
+                          : request.direction === 'incoming'
+                            ? '请求加为好友'
+                            : '正在验证你的邀请'}
+                      </span>
+                    </p>
+                    <dl className="notice-fields">
+                      {fields.map((field) => (
+                        <div className="notice-field" key={`${field.label ?? ''}${field.value}`}>
+                          <dt>{field.label || '留言'}</dt>
+                          <dd title={field.value}>{field.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                  <div className="notice-meta">
+                    {badge ? (
+                      <em className={cn('notice-state', badge.tone)}>{badge.text}</em>
+                    ) : null}
+                    <time>{formatProfileDate(request.createdAt)}</time>
+                  </div>
+                  {open && operation && (
+                    <RequestActions
+                      key={`${operation.kind}:${operation.token}`}
+                      operation={operation}
+                    />
+                  )}
+                </article>
+              );
+            })
+          )}
+          {open &&
+            remaining.map((operation) => (
+              <OnlineRequestCard
+                key={`${operation.kind}:${operation.token}`}
+                operation={operation}
+                onOpenProfile={onOpenProfile}
               />
-            ) : (
-              cards.map(({ notice: request, operation }) => {
-                const who = displayUserName(request.user);
-                const badge = FRIEND_STATE_LABEL[request.status];
-                const fields = splitNoticeMessage(request.message || '请求添加对方为好友');
-                return (
-                  <article
-                    className={cn('notice-card', 'notice-card-request', badge?.tone)}
-                    key={request.id}
-                  >
-                    <NoticeAvatar user={request.user} onOpenProfile={onOpenProfile} />
-                    <div className="notice-copy">
-                      <p className="notice-line-head">
-                        <span className="notice-who" title={who}>
-                          {who}
-                        </span>
-                        <span className="notice-action-text">
-                          {request.status === 'accepted'
-                            ? '已同意好友申请'
-                            : request.direction === 'incoming'
-                              ? '请求加为好友'
-                              : '正在验证你的邀请'}
-                        </span>
-                      </p>
-                      <dl className="notice-fields">
-                        {fields.map((field) => (
-                          <div className="notice-field" key={`${field.label ?? ''}${field.value}`}>
-                            <dt>{field.label || '留言'}</dt>
-                            <dd title={field.value}>{field.value}</dd>
-                          </div>
-                        ))}
-                      </dl>
-                    </div>
-                    <div className="notice-meta">
-                      {badge ? (
-                        <em className={cn('notice-state', badge.tone)}>{badge.text}</em>
-                      ) : null}
-                      <time>{formatProfileDate(request.createdAt)}</time>
-                    </div>
-                    {open && operation && (
-                      <RequestActions
-                        key={`${operation.kind}:${operation.token}`}
-                        operation={operation}
-                      />
-                    )}
-                  </article>
-                );
-              })
-            )}
-            {open &&
-              remaining.map((operation) => (
-                <OnlineRequestCard
-                  key={`${operation.kind}:${operation.token}`}
-                  operation={operation}
-                  onOpenProfile={onOpenProfile}
-                />
-              ))}
-          </div>
-        </PageShell>
-      </section>
-    </OverlayLayer>
+            ))}
+        </div>
+      </PageShell>
+    </section>
   );
 }
 
@@ -189,7 +183,7 @@ function splitNoticeMessage(message: string): Array<{ label?: string; value: str
 }
 
 /**
- * 群通知灯箱。结构与好友通知一致；保留存疑申请标记（notice-doubt-mark）。
+ * 群通知面板。结构与好友通知一致；保留存疑申请标记（notice-doubt-mark）。
  * 卡片主体三列：头像 / 正文 / 状态与时间；审核区在下方独立占用正文和状态两列。
  * 每行 nowrap + 省略号，长群名靠 CSS 截断而不是把时间挤到下一行。
  */
@@ -205,130 +199,122 @@ function GroupNoticeDialogBody({
   onOpenProfile?: NoticeProfileHandler;
 }) {
   const inbox = useNoticeOperations(true, open);
+  const panel = useRef<HTMLElement>(null);
+  useSurfaceEscape(panel, onClose, open, false);
   const { cards, remaining } = bindNoticeOperations(requests, inbox.operations);
+  if (!open) return null;
   return (
-    <OverlayLayer
-      presentation="page"
-      title="群通知"
-      className="weq-profile-layer weq-notice-layer"
-      open={open}
-      onClose={onClose}
+    <section
+      ref={panel}
+      tabIndex={-1}
+      className="weq-notice-dialog weq-notice-panel"
+      role="region"
+      aria-label="群通知"
+      onMouseDown={(event) => event.stopPropagation()}
     >
-      <section
-        className="weq-notice-dialog weq-anim-pop"
-        role="region"
-        aria-label="群通知"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <PageShell
-          title="群通知"
-          icon={<Users size={15} />}
-          leading={
-            <button
-              className="weq-page-back"
-              type="button"
-              title="返回"
-              aria-label="返回"
-              onClick={onClose}
-            >
-              <ArrowLeft size={18} />
-            </button>
-          }
-        >
-          <div
-            className={cn(
-              'weq-notice-scroll',
-              requests.length === 0 && remaining.length === 0 && 'is-empty',
-            )}
+      <PageShell
+        title="群通知"
+        icon={<Users size={15} />}
+        leading={
+          <button
+            className="weq-page-back"
+            type="button"
+            title="返回"
+            aria-label="返回"
+            onClick={onClose}
           >
-            {inbox.error && <p role="alert">{inbox.error}</p>}
-            {requests.length === 0 && remaining.length === 0 ? (
-              <EmptyState
-                title="暂无群通知"
-                body="入群申请和处理结果会显示在这里。"
-                icon={<Users />}
-              />
-            ) : (
-              cards.map(({ notice: request, operation }) => {
-                const badge = HANDLE_STATE_LABEL[request.handleState];
-                const who = displayUserName(request.user);
-                const fields = request.message ? splitNoticeMessage(request.message) : [];
-                return (
-                  <article
-                    className={cn('notice-card', 'notice-card-request', badge?.tone)}
-                    key={request.id}
-                  >
-                    <NoticeAvatar
-                      user={request.user}
-                      group={{ code: request.group.id, name: request.group.name }}
-                      onOpenProfile={onOpenProfile}
+            <ArrowLeft size={18} />
+          </button>
+        }
+      >
+        <div
+          className={cn(
+            'weq-notice-scroll',
+            requests.length === 0 && remaining.length === 0 && 'is-empty',
+          )}
+        >
+          {inbox.error && <p role="alert">{inbox.error}</p>}
+          {requests.length === 0 && remaining.length === 0 ? (
+            <EmptyState
+              title="暂无群通知"
+              body="入群申请和处理结果会显示在这里。"
+              icon={<Users />}
+            />
+          ) : (
+            cards.map(({ notice: request, operation }) => {
+              const badge = HANDLE_STATE_LABEL[request.handleState];
+              const who = displayUserName(request.user);
+              const fields = request.message ? splitNoticeMessage(request.message) : [];
+              return (
+                <article
+                  className={cn('notice-card', 'notice-card-request', badge?.tone)}
+                  key={request.id}
+                >
+                  <NoticeAvatar
+                    user={request.user}
+                    group={{ code: request.group.id, name: request.group.name }}
+                    onOpenProfile={onOpenProfile}
+                  />
+                  <div className={cn('notice-copy')}>
+                    <p className="notice-line-head">
+                      <span className="notice-who" title={who}>
+                        {who}
+                      </span>
+                      <span className="notice-action-text">{request.action}</span>
+                    </p>
+                    <p className="notice-line-group">
+                      <span className="notice-group-name" title={request.group.name}>
+                        {request.group.name}
+                      </span>
+                    </p>
+                    {fields.length > 0 ? (
+                      <dl className="notice-fields">
+                        {fields.map((field) => (
+                          <div className="notice-field" key={`${field.label ?? ''}${field.value}`}>
+                            {field.label ? <dt>{field.label}</dt> : null}
+                            <dd title={field.value}>{field.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    ) : null}
+                    {request.operator ? (
+                      <span className="notice-operator">
+                        由 {displayUserName(request.operator)} 处理
+                        {request.respondedAt ? ` · ${formatProfileDate(request.respondedAt)}` : ''}
+                      </span>
+                    ) : null}
+                    {request.systemRemark ? (
+                      <span className="notice-sysremark">{request.systemRemark}</span>
+                    ) : null}
+                  </div>
+                  <div className="notice-meta">
+                    {badge ? (
+                      <em className={cn('notice-state', badge.tone)}>{badge.text}</em>
+                    ) : null}
+                    <time>{formatProfileDate(request.createdAt)}</time>
+                  </div>
+                  {open && operation && (
+                    <RequestActions
+                      key={`${operation.kind}:${operation.token}`}
+                      operation={operation}
                     />
-                    <div className={cn('notice-copy')}>
-                      <p className="notice-line-head">
-                        <span className="notice-who" title={who}>
-                          {who}
-                        </span>
-                        <span className="notice-action-text">{request.action}</span>
-                      </p>
-                      <p className="notice-line-group">
-                        <span className="notice-group-name" title={request.group.name}>
-                          {request.group.name}
-                        </span>
-                      </p>
-                      {fields.length > 0 ? (
-                        <dl className="notice-fields">
-                          {fields.map((field) => (
-                            <div
-                              className="notice-field"
-                              key={`${field.label ?? ''}${field.value}`}
-                            >
-                              {field.label ? <dt>{field.label}</dt> : null}
-                              <dd title={field.value}>{field.value}</dd>
-                            </div>
-                          ))}
-                        </dl>
-                      ) : null}
-                      {request.operator ? (
-                        <span className="notice-operator">
-                          由 {displayUserName(request.operator)} 处理
-                          {request.respondedAt
-                            ? ` · ${formatProfileDate(request.respondedAt)}`
-                            : ''}
-                        </span>
-                      ) : null}
-                      {request.systemRemark ? (
-                        <span className="notice-sysremark">{request.systemRemark}</span>
-                      ) : null}
-                    </div>
-                    <div className="notice-meta">
-                      {badge ? (
-                        <em className={cn('notice-state', badge.tone)}>{badge.text}</em>
-                      ) : null}
-                      <time>{formatProfileDate(request.createdAt)}</time>
-                    </div>
-                    {open && operation && (
-                      <RequestActions
-                        key={`${operation.kind}:${operation.token}`}
-                        operation={operation}
-                      />
-                    )}
-                    {request.isDoubt ? <div className={cn('notice-doubt-mark')} /> : null}
-                  </article>
-                );
-              })
-            )}
-            {open &&
-              remaining.map((operation) => (
-                <OnlineRequestCard
-                  key={`${operation.kind}:${operation.token}`}
-                  operation={operation}
-                  onOpenProfile={onOpenProfile}
-                />
-              ))}
-          </div>
-        </PageShell>
-      </section>
-    </OverlayLayer>
+                  )}
+                  {request.isDoubt ? <div className={cn('notice-doubt-mark')} /> : null}
+                </article>
+              );
+            })
+          )}
+          {open &&
+            remaining.map((operation) => (
+              <OnlineRequestCard
+                key={`${operation.kind}:${operation.token}`}
+                operation={operation}
+                onOpenProfile={onOpenProfile}
+              />
+            ))}
+        </div>
+      </PageShell>
+    </section>
   );
 }
 

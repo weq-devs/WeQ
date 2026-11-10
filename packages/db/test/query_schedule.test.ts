@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   aliasDatabaseBinding,
   databasePerformance,
@@ -7,9 +8,77 @@ import {
   withDatabasePriority,
   promoteDatabaseSignal,
   measureMessageWork,
+  observeSlowDatabaseOperations,
 } from '../src/query_schedule';
 
 afterEach(() => vi.useRealTimers());
+it('慢诊断独立区分排队和 native 等待，不开启 SQL 诊断，回调可清理且异常不影响队列', async () => {
+  vi.stubEnv('WEQ_DATABASE_DIAGNOSTICS', '0');
+  let clock = 0;
+  const now = vi.spyOn(performance, 'now').mockImplementation(() => clock);
+  const samples: unknown[] = [];
+  const stop = observeSlowDatabaseOperations((sample) => samples.push(sample));
+  const stopBroken = observeSlowDatabaseOperations(() => {
+    throw new Error('observer');
+  });
+  try {
+    let release!: () => void;
+    const first = scheduleDatabase(
+      '/synthetic/slow.db',
+      () =>
+        new Promise<void>((done) => {
+          release = done;
+        }),
+    );
+    const second = scheduleDatabase('/synthetic/slow.db', async () => 42);
+    clock = 600;
+    release();
+    expect(await Promise.all([first, second])).toEqual([undefined, 42]);
+    expect(samples).toEqual([
+      { priority: 'interactive', jsQueueWaitMs: 0, nativePromiseAwaitMs: 600, outcome: 'ok' },
+      { priority: 'interactive', jsQueueWaitMs: 600, nativePromiseAwaitMs: 0, outcome: 'ok' },
+    ]);
+    stop();
+    await scheduleDatabase('/synthetic/slow.db', async () => {
+      clock += 700;
+    });
+    expect(samples).toHaveLength(2);
+  } finally {
+    stop();
+    stopBroken();
+    now.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+it('排队请求的慢回调保留各自异步上下文，不错误关联到占用队列的请求', async () => {
+  const context = new AsyncLocalStorage<string>();
+  let time = 0;
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => time);
+  const owners: Array<string | undefined> = [];
+  const stop = observeSlowDatabaseOperations(() => owners.push(context.getStore()));
+  try {
+    let release!: () => void;
+    const first = context.run('first', () =>
+      scheduleDatabase(
+        '/synthetic/context.db',
+        () =>
+          new Promise<void>((done) => {
+            release = done;
+          }),
+      ),
+    );
+    const second = context.run('second', () =>
+      scheduleDatabase('/synthetic/context.db', async () => 1),
+    );
+    time = 600;
+    release();
+    await Promise.all([first, second]);
+    expect(owners).toEqual(['first', 'second']);
+  } finally {
+    stop();
+    clock.mockRestore();
+  }
+});
 const until = async (condition: () => boolean) => {
   for (let i = 0; i < 100 && !condition(); i++) await new Promise((done) => setTimeout(done, 1));
   expect(condition()).toBe(true);
@@ -208,16 +277,22 @@ it('异步上下文保留后台优先级，空闲等待随账号取消，不依�
   );
   let current = true,
     quiet = false;
-  const pending = waitForDatabaseQuiet('/synthetic/quiet.db', () => current, 0).then((value) => {
-    quiet = value;
-    return value;
-  });
+  const onWait = vi.fn();
+  const pending = waitForDatabaseQuiet('/synthetic/quiet.db', () => current, 0, onWait).then(
+    (value) => {
+      quiet = value;
+      return value;
+    },
+  );
   await new Promise((done) => setTimeout(done, 110));
   expect(quiet).toBe(false);
+  expect(onWait).toHaveBeenCalledTimes(1);
   current = false;
   expect(await pending).toBe(false);
   finish();
   await active;
   await until(() => databasePerformance('/synthetic/quiet.db').inFlight === 0);
-  expect(await waitForDatabaseQuiet('/synthetic/quiet.db', () => true, 0)).toBe(true);
+  const immediate = vi.fn();
+  expect(await waitForDatabaseQuiet('/synthetic/quiet.db', () => true, 0, immediate)).toBe(true);
+  expect(immediate).not.toHaveBeenCalled();
 });

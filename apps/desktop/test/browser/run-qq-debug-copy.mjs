@@ -150,6 +150,8 @@ try {
   await permissions.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: '更新副本', exact: true }).click();
   await page.getByText('副本已准备好，请启动并登录目标账号。', { exact: true }).waitFor();
+  if (await permissions.count()) throw new Error('准备成功不应自动展开权限引导');
+  await page.getByRole('button', { name: '权限设置', exact: true }).click();
   await permissions.waitFor();
   await page.getByRole('button', { name: '启动副本', exact: true }).click();
   await page.getByText('正在运行，登录状态待检查', { exact: true }).waitFor();
@@ -207,40 +209,29 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-debug-copy.html?restricted=1`,
   );
   await page.getByRole('button', { name: '受限模式', exact: true }).click();
-  await page.locator('.weq-restricted-panel .weq-qq-debug').waitFor();
+  await page.locator('.weq-restricted-panel .weq-restricted-qq').waitFor();
   let restrictedCases = 0;
   for (const width of [1180, 390])
     for (const theme of ['light', 'dark'])
-      for (const state of ['missing', 'ready']) {
+      for (const state of ['missing', 'ready', 'outdated', 'invalid']) {
         await page.setViewportSize({ width, height: 900 });
         await page.evaluate(
           ({ theme, state }) => {
             window.debugCopyQa.store.getState().setPreference(theme);
-            window.debugCopyQa.setFixture({ state });
+            window.debugCopyQa.setFixture({ state, runningPids: [] });
           },
           { theme, state },
         );
-        if ((await page.getByRole('button', { name: '重新检查', exact: true }).count()) !== 1)
-          throw new Error('受限详情的重新检查入口重复');
-        if (await page.getByRole('button', { name: '检查在线凭据', exact: true }).count())
-          throw new Error('嵌入面板不应另设检查入口');
-        if (state === 'ready') {
-          await page.getByRole('button', { name: '权限设置', exact: true }).click();
-          const guide = page.getByRole('region', { name: '副本权限引导' });
-          await guide.waitFor();
-          if (await guide.evaluate((node) => node.scrollWidth > node.clientWidth + 1))
-            throw new Error('受限详情的权限引导溢出');
-          await guide.getByRole('button', { name: '稍后设置', exact: true }).click();
-        }
-        await page.locator('.weq-restricted-body').evaluate((node) => {
-          node.scrollTop = node.scrollHeight;
-        });
-        const actionGap = await page.locator('.weq-restricted-body').evaluate((node) => {
-          const copy = node.querySelector('.weq-qq-debug-actions');
-          const footer = node.querySelector(':scope > .weq-restricted-actions');
-          return footer.getBoundingClientRect().top - copy.getBoundingClientRect().bottom;
-        });
-        if (actionGap < 8) throw new Error(`副本操作与重新检查间距不足：${actionGap}px`);
+        const panel = page.locator('.weq-restricted-panel');
+        if ((await panel.locator('.weq-restricted-qq').getByRole('button').count()) !== 1)
+          throw new Error('QQ 引导默认只能显示一个主操作');
+        if (await panel.locator('.weq-qq-debug-checks, .weq-qq-debug-details').count())
+          throw new Error('受限详情不应铺开副本状态和路径');
+        const label =
+          state === 'missing' ? '准备并打开 QQ' : state === 'invalid' ? '修复并打开 QQ' : '打开 QQ';
+        await panel.getByRole('button', { name: label, exact: true }).waitFor();
+        if (await panel.evaluate((node) => node.scrollWidth > node.clientWidth + 1))
+          throw new Error('精简受限面板溢出');
         if (output)
           await page.screenshot({
             path: resolve(output, `recheck-${width}-${theme}-${state}.png`),
@@ -252,10 +243,25 @@ try {
       await page.setViewportSize({ width, height: 900 });
       await page.evaluate((theme) => {
         window.debugCopyQa.store.getState().setPreference(theme);
-        window.debugCopyQa.setFixture({ state: 'ready' });
+        window.debugCopyQa.setFixture({ state: 'ready', runningPids: [42] });
       }, theme);
       const restrictedPanel = page.locator('.weq-restricted-panel');
-      await restrictedPanel.getByRole('button', { name: '移除副本', exact: true }).click();
+      await restrictedPanel.getByRole('button', { name: '登录其他账号', exact: true }).waitFor();
+      if (
+        await restrictedPanel
+          .getByRole('button', { name: '登录其他账号', exact: true })
+          .isDisabled()
+      )
+        throw new Error('其他账号运行中仍应允许启动新实例');
+      await restrictedPanel.locator('.weq-restricted-more summary').click();
+      await restrictedPanel
+        .getByRole('button', { name: '打开已有 QQ 窗口', exact: true })
+        .waitFor();
+      await restrictedPanel.getByRole('button', { name: '副本设置', exact: true }).click();
+      const settings = page.getByRole('dialog', { name: 'QQ 调试副本', exact: true });
+      await settings.waitFor();
+      await page.evaluate(() => window.debugCopyQa.setFixture({ runningPids: [] }));
+      await settings.getByRole('button', { name: '移除副本', exact: true }).click();
       const removeConfirmation = page.getByRole('dialog', {
         name: '移除 QQ 调试副本',
         exact: true,
@@ -266,7 +272,7 @@ try {
         .getByRole('button', { name: '取消', exact: true })
         .click({ timeout: 5000 });
       if (!(await restrictedPanel.isVisible())) throw new Error('取消移除不应关闭受限详情');
-      await restrictedPanel.getByRole('button', { name: '移除副本', exact: true }).click();
+      await settings.getByRole('button', { name: '移除副本', exact: true }).click();
       await removeConfirmation.waitFor();
       await removeConfirmation.getByRole('button', { name: '取消', exact: true }).focus();
       for (let index = 0; index < 6; index++) {
@@ -277,11 +283,13 @@ try {
       await page.keyboard.press('Escape');
       await removeConfirmation.waitFor({ state: 'detached' });
       if (!(await restrictedPanel.isVisible())) throw new Error('Esc 应仅关闭确认框');
-      await restrictedPanel.getByRole('button', { name: '移除副本', exact: true }).click();
+      await settings.getByRole('button', { name: '移除副本', exact: true }).click();
       await removeConfirmation
         .getByRole('button', { name: '移除副本', exact: true })
         .click({ timeout: 5000 });
-      await restrictedPanel.getByRole('button', { name: '创建副本', exact: true }).waitFor();
+      await settings.getByRole('button', { name: '创建副本', exact: true }).waitFor();
+      await page.getByRole('button', { name: '关闭副本设置', exact: true }).click();
+      await restrictedPanel.locator('.weq-restricted-more summary').click();
     }
   await page.evaluate(() => {
     window.weq = { authorization: {} };
@@ -304,7 +312,7 @@ try {
     await page.getByRole('button', { name: '受限模式', exact: true }).click();
     const panel = page.locator('.weq-restricted-panel');
     await panel.getByText('QQ 不在线', { exact: true }).waitFor();
-    await panel.getByText('请启动独立的 QQ 调试副本', { exact: false }).waitFor();
+    await panel.getByText('请在 QQ 调试副本中登录当前账号', { exact: false }).waitFor();
     if (await panel.getByRole('button', { name: '启动 QQ', exact: true }).count())
       throw new Error('SIP 开启的离线引导不能启动普通 QQ');
     for (const width of [1180, 390])
@@ -334,10 +342,21 @@ try {
             });
           offlineCases++;
         }
+    if (view === 'main') {
+      await panel.getByRole('button', { name: '准备并打开 QQ', exact: true }).click();
+      await panel.getByText('请在 QQ 中完成登录，登录后会自动继续。', { exact: true }).waitFor();
+      if (await page.getByRole('region', { name: '副本权限引导' }).count())
+        throw new Error('一键打开不应自动展开权限引导');
+      await page.evaluate(() => window.debugCopyQa.setOnlineFixture({ qqOnline: true }));
+      await page
+        .getByRole('button', { name: '受限模式', exact: true })
+        .waitFor({ state: 'detached' });
+      await panel.waitFor({ state: 'detached' });
+    }
   }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(
-    `通过 ${cases} 组权限引导视口/主题/主题色/背景布局、${restrictedCases} 组受限面板检查、${offlineCases} 组离线副本引导、4 组移除确认交互，以及三类权限入口、跳过与重新打开、创建后引导、启动、运行中保护和减少动态效果检查。`,
+    `通过 ${cases} 组权限引导视口/主题/主题色/背景布局、${restrictedCases} 组精简受限面板检查、${offlineCases} 组离线副本引导、4 组副本设置与移除确认交互，以及三类权限入口、按需引导、多账号入口、运行中保护和减少动态效果检查。`,
   );
 } finally {
   await browser?.close();

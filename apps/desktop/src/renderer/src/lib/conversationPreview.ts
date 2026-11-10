@@ -137,8 +137,37 @@ function grayTipNodes(
   displayNames: DisplayNames,
 ): PreviewNode[] | null {
   if (kind === 'grayTipRevoke') {
-    const text = str(el.recallDisplayText).trim();
-    return text ? [{ t: 'text', text }] : null;
+    const senderUid = str(el.recallSenderUid).trim();
+    const revokerUid = str(el.recallRevokeUid).trim();
+    const name = (uid: string, role: 'Sender' | 'Revoke') =>
+      (self.has(uid) ? SELF_LABEL : '') ||
+      displayNames.get(uid) ||
+      str(el[`recall${role}GroupNick`]).trim() ||
+      str(el[`recall${role}Nick`]).trim() ||
+      str(el[`recall${role}NickCopy`]).trim();
+    const sender = name(senderUid, 'Sender');
+    const revoker = name(revokerUid, 'Revoke');
+    // 昵称相同不代表同一人；管理员撤回不使用个人撤回后缀。
+    if (senderUid && revokerUid && senderUid !== revokerUid) {
+      return [
+        { t: 'text', text: `${revoker || '某成员'} 撤回了一条 ${sender || '某成员'} 的消息` },
+      ];
+    }
+    // QQ 的精简 40051 可只带原发送者；同一 UID 的双方昵称也可能只填一侧。
+    const actor =
+      (senderUid && senderUid === revokerUid
+        ? sender || revoker
+        : revokerUid || revoker
+          ? revoker
+          : sender) || '某成员';
+    const suffix = str(el.recallDisplayText).trim() || str(el.displayText).trim();
+    // 47713 通常只有自定义后缀，兼容旧记录中已带撤回动作的文案。
+    const text = suffix.includes('撤回了一条')
+      ? suffix.startsWith('撤回了一条')
+        ? `${actor} ${suffix}`
+        : suffix
+      : `${actor} 撤回了一条消息${suffix ? ` ${suffix}` : ''}`;
+    return [{ t: 'text', text }];
   }
 
   if (kind === 'grayTipFileRecv') {
@@ -330,7 +359,17 @@ export function previewIdentityIds(preview: unknown, senderUid = ''): string[] {
   if (senderUid) ids.add(senderUid);
   if (!preview || typeof preview !== 'object') return [...ids];
   const el = preview as Rec;
+  if (Array.isArray(el.previewElements)) {
+    for (const item of el.previewElements) {
+      for (const id of previewIdentityIds(item)) ids.add(id);
+    }
+    return [...ids];
+  }
   if (!str(el.kind).startsWith('grayTip')) return [...ids];
+  for (const key of ['recallSenderUid', 'recallRevokeUid']) {
+    const uid = str(el[key]);
+    if (uid) ids.add(uid);
+  }
   for (const key of ['actionInitiator', 'actionTarget']) {
     const who = el[key] as Rec | undefined;
     if (who && str(who.uid)) ids.add(str(who.uid));

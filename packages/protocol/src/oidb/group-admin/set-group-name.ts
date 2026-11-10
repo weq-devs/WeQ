@@ -36,7 +36,6 @@ export namespace SetGroupName {
   export const command = 0x89a;
   export const subCommand = 15;
   /** 白名单命令 → 需要签名。 */
-  export const needSign = true;
   export const reqSchema = RENAME_GROUP_REQ;
   export const respSchema = RENAME_GROUP_RESP;
 

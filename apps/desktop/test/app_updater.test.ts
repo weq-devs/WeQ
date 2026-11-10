@@ -7,7 +7,7 @@ const fixture = vi.hoisted(() => ({
   setFeedURL: vi.fn(),
   checkForUpdates: vi.fn(),
   downloadUpdate: vi.fn(),
-  macAdhoc: false,
+  macVerifiedArchive: false,
   prepareMacUpdate: vi.fn(),
   installMacUpdate: vi.fn(),
 }));
@@ -28,7 +28,7 @@ vi.mock('electron-updater', async () => {
 vi.mock('../src/main/update/mirrors', () => ({ FILE_MIRRORS: [], resolveBestMirror: vi.fn() }));
 vi.mock('../src/main/weq_assistant/update_tweet', () => ({ announceUpdateAvailableSafe: vi.fn() }));
 vi.mock('../src/main/update/mac', () => ({
-  usesMacAdhocUpdater: async () => fixture.macAdhoc,
+  usesMacVerifiedArchiveUpdater: () => fixture.macVerifiedArchive,
   prepareMacUpdate: fixture.prepareMacUpdate,
   installMacUpdate: fixture.installMacUpdate,
   finishMacUpdate: vi.fn(),
@@ -38,7 +38,7 @@ beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
   fixture.app.isPackaged = true;
-  fixture.macAdhoc = false;
+  fixture.macVerifiedArchive = false;
   fixture.prepareMacUpdate.mockResolvedValue({ version: '1.1.0' });
   fixture.installMacUpdate.mockResolvedValue(undefined);
 });
@@ -70,8 +70,8 @@ async function ready() {
 }
 
 describe('更新安装动作', () => {
-  it('ad-hoc Mac 不交给绑定旧 cdhash 的 Squirrel，官方校验完成后才允许安装', async () => {
-    fixture.macAdhoc = true;
+  it('Mac 统一使用官方校验安装链，校验完成后才允许安装', async () => {
+    fixture.macVerifiedArchive = true;
     const { updater, events } = await ready();
     let finish: ((plan: { version: string }) => void) | undefined;
     fixture.prepareMacUpdate.mockImplementationOnce(
@@ -97,7 +97,7 @@ describe('更新安装动作', () => {
     expect(fixture.quitAndInstall).not.toHaveBeenCalled();
   });
   it('官方校验拒绝时不发布可安装状态，也不回退到 Squirrel', async () => {
-    fixture.macAdhoc = true;
+    fixture.macVerifiedArchive = true;
     const { updater, events } = await ready();
     fixture.prepareMacUpdate.mockRejectedValueOnce(new Error('官方 SHA-256 不匹配'));
     await expect(updater.startDownload()).rejects.toThrow('官方 SHA-256 不匹配');
@@ -106,7 +106,7 @@ describe('更新安装动作', () => {
     expect(() => updater.quitAndInstall()).toThrow('下载');
   });
   it('已下载后再次检查到更新版本，仍可重新下载并安装新计划', async () => {
-    fixture.macAdhoc = true;
+    fixture.macVerifiedArchive = true;
     const { updater, autoUpdater } = await ready();
     await updater.startDownload();
     fixture.downloadUpdate.mockImplementationOnce(async () => {
@@ -123,7 +123,7 @@ describe('更新安装动作', () => {
     expect(fixture.installMacUpdate).toHaveBeenCalledWith({ version: '1.2.0' });
   });
   it('Mac 安装助手准备失败时保留应用并解除在途，允许重试', async () => {
-    fixture.macAdhoc = true;
+    fixture.macVerifiedArchive = true;
     const { updater, events } = await ready();
     await updater.startDownload();
     fixture.installMacUpdate.mockRejectedValueOnce(new Error('助手启动失败'));

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 export const NOTICE_SEEN_LIMIT = 4096;
+const NOTICE_READ_EVENT = 'weq:notice-read';
 
 type SeenState = { seen: string[]; readThrough: number };
 
@@ -64,6 +65,41 @@ export function useNoticeUnread(
     memory.current.set(key, result);
     return result;
   }, [key, revision]);
+  useEffect(() => {
+    const refresh = () => {
+      const stored = readSeen(key);
+      if (!stored) return;
+      const changed =
+        !snapshot.initialized ||
+        stored.readThrough > snapshot.readThrough ||
+        stored.seen.some((id) => !snapshot.seen.has(id));
+      if (!changed) return;
+      snapshot.seen = new Set(
+        [...new Set([...snapshot.seen, ...stored.seen])]
+          .sort((a, b) => (noticeTimestamp(a) ?? 0) - (noticeTimestamp(b) ?? 0))
+          .slice(-NOTICE_SEEN_LIMIT),
+      );
+      snapshot.readThrough = Math.max(snapshot.readThrough, stored.readThrough);
+      snapshot.initialized = true;
+      setRevision((value) => value + 1);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === key) refresh();
+    };
+    const onRead = (event: Event) => {
+      if ((event as CustomEvent<string>).detail === key) refresh();
+    };
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('focus', refresh);
+    window.addEventListener(NOTICE_READ_EVENT, onRead);
+    // 覆盖首次渲染到订阅生效之间其他入口的已读写入。
+    refresh();
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener(NOTICE_READ_EVENT, onRead);
+    };
+  }, [key, snapshot]);
   const { seen, readThrough, initialized } = snapshot;
   const unread =
     accountKey && ready && initialized
@@ -94,6 +130,7 @@ export function useNoticeUnread(
         key,
         JSON.stringify({ seen: retained, readThrough: snapshot.readThrough }),
       );
+      window.dispatchEvent(new CustomEvent(NOTICE_READ_EVENT, { detail: key }));
     } catch {
       // 存储不可用时仍在当前会话清除红点。
     }

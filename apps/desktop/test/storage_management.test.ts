@@ -165,7 +165,7 @@ describe('WeQ 存储管理页面', () => {
       expect(first.querySelector('summary')?.textContent).toContain('历史数据库备份');
       expect(first.open).toBe(true);
       expect(first.textContent).toContain('已关联修复记录');
-      expect(host.textContent).toContain('本页占用 4.0 KB');
+      expect(host.textContent).toContain('本页占用 4 KB');
       expect(host.textContent).not.toContain('账号与应用配置');
       expect(host.textContent).not.toContain('历史闪传下载');
       await act(async () =>
@@ -180,7 +180,7 @@ describe('WeQ 存储管理页面', () => {
     }
   });
 
-  it('配置操作只显示独立按钮，取消不清除，确认不混入缓存或运行状态', async () => {
+  it('存储管理不再提供账号或全局配置删除按钮', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const length = fixture.items.length;
@@ -222,31 +222,13 @@ describe('WeQ 存储管理页面', () => {
           createElement(GlobalSettingsSection, {
             section: 'storage',
             heading: false,
-            storageManagement: 'configuration',
           }),
         ),
       );
-      expect(host.textContent).not.toContain('头像缓存');
-      expect(host.textContent).not.toContain('缓存目录');
-      expect(host.textContent).not.toContain('本页占用');
-      expect(host.querySelector('input[type="checkbox"]')).toBeNull();
-      const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-        (button) => button.textContent === '清除账号与应用配置',
-      )!;
-      expect(button.disabled).toBe(false);
-      fixture.confirm.mockResolvedValueOnce(false);
-      await act(async () => button.click());
+      expect(host.textContent).toContain('头像缓存');
+      expect(host.textContent).not.toContain('清除账号与应用配置');
+      expect(host.textContent).not.toContain('重置全局配置');
       expect(fixture.clear).not.toHaveBeenCalled();
-      await act(async () => button.click());
-      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['config'], acknowledgeRisk: true });
-      const reset = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-        (node) => node.textContent === '重置全局配置',
-      )!;
-      await act(async () => reset.click());
-      expect(fixture.clear).toHaveBeenLastCalledWith({
-        ids: ['global-config'],
-        acknowledgeRisk: true,
-      });
     } finally {
       act(() => root.unmount());
       fixture.items.splice(length);
@@ -447,8 +429,8 @@ describe('WeQ 存储管理页面', () => {
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
       expect(host.textContent).toContain('WeQ 存储管理');
-      expect(host.textContent).toContain('本页占用 3.0 KB');
-      expect(host.textContent).toContain('可清理 1.0 KB');
+      expect(host.textContent).toContain('本页占用 3 KB');
+      expect(host.textContent).toContain('可清理 1 KB');
       expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
       const readonly = host.querySelector<HTMLElement>('.is-readonly')!;
       const toolbar = host.querySelector('.weq-storage-toolbar')!;
@@ -492,7 +474,7 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
-      expect(host.textContent).toContain('本页占用 7.0 KB');
+      expect(host.textContent).toContain('本页占用 7 KB');
       expect(host.textContent).not.toContain('.DS_Store');
       expect(host.textContent).not.toContain('空缓存');
       const categories = [...host.querySelectorAll('.weq-storage-category')];
@@ -500,7 +482,7 @@ describe('WeQ 存储管理页面', () => {
       const persistent = categories.find((item) =>
         item.querySelector('summary')?.textContent?.includes('持久数据'),
       )!;
-      expect(persistent.querySelector('summary')?.textContent).toContain('6.0 KB');
+      expect(persistent.querySelector('summary')?.textContent).toContain('6 KB');
       expect(persistent.querySelectorAll('.is-readonly')).toHaveLength(2);
       expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
     } finally {

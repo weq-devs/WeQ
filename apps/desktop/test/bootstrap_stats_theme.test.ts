@@ -57,6 +57,6 @@ it('数据库条形和图例共用主题取色，不改变名称、大小或比�
   expect(Number.parseFloat(bars[1].style.width)).toBeCloseTo(100 / 3);
   expect(host.textContent).toContain('nt_msg.db');
   expect(host.textContent).toContain('profile_info.db');
-  expect(host.textContent).toContain('2.0 KB');
-  expect(host.textContent).toContain('1.0 KB');
+  expect(host.textContent).toContain('2 KB');
+  expect(host.textContent).toContain('1 KB');
 });

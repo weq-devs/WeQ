@@ -3,6 +3,8 @@
  */
 
 import type { AccountSession } from '@weq/account';
+import type { ContactMetricsService } from './contact_metrics';
+import { GroupMemberRosterCache } from './group_member_roster';
 import type { NtHelperBinding } from '@weq/native';
 import {
   FetchGroupMemberListPage,
@@ -244,6 +246,7 @@ export interface RelationGraphNode {
   uid: string;
   uin: string;
   nick: string;
+  remark?: string;
   card: string;
   /** Number of my groups this user is also in. */
   groupCount: number;
@@ -279,15 +282,21 @@ const EXCLUDED_UINS = new Set<string>(['2854196310']);
 const MEMBER_SCAN_LIMIT = 5000;
 /** Only users sharing at least this many of my groups become nodes. */
 const MIN_SHARED_GROUPS = 2;
-/** Hard cap on returned nodes (frontend slider tops out at 500). */
-const MAX_NODES = 600;
 
 export class GroupInfoService {
+  contactMetrics?: ContactMetricsService;
+  contactMembersObserved?: (groupId: number, members: GroupMemberListItem[]) => Promise<void>;
+
+  contactMembershipSnapshot(friendUids: string[]) {
+    return this.session.groupMembers.contactMembershipSnapshot(friendUids);
+  }
   private readonly groupNotifyService: GroupNotifyService;
   /** Per-session relation-graph cache (group membership is near-static). */
   private relationGraphCache: RelationGraphData | null = null;
   /** In-flight build, so concurrent callers share one heavy scan. */
   private relationGraphBuilding: Promise<RelationGraphData> | null = null;
+  private memberRosterRevision = 0;
+  private memberRosterCache?: GroupMemberRosterCache;
   /** Optional Web query service for fetching essence message content. */
   private webQueryService?: GroupEssenceWebQuery;
 
@@ -314,6 +323,33 @@ export class GroupInfoService {
 
   setAnalysisCache(cache: AnalyticsCacheSource): void {
     this.analysis = new AnalyticsMessageSource(this.session, cache);
+  }
+
+  setMemberRosterCache(root: string): void {
+    this.memberRosterCache = new GroupMemberRosterCache(root);
+  }
+
+  /** 复用完整在线分页，只更新名单，不触发联系人其他指标的观察回调。 */
+  async refreshGroupMembers(code: string): Promise<number> {
+    if (!this.memberRosterCache) throw new Error('群成员缓存未就绪');
+    const members = await this.fetchOnlineMembers(Number(code), {
+      force: true,
+      priority: 1,
+      observe: false,
+    });
+    await this.memberRosterCache.save(
+      code,
+      members.map((member) => ({
+        uid: member.uid,
+        uin: String(member.uin),
+        nick: member.nickname,
+        card: member.card,
+        memberLevel: member.level,
+      })),
+    );
+    this.relationGraphCache = null;
+    this.memberRosterRevision++;
+    return members.length;
   }
 
   async getJoinInfo(groupId: number) {
@@ -349,7 +385,7 @@ export class GroupInfoService {
    */
   async fetchOnlineMembers(
     groupId: number,
-    options: { force?: boolean } = {},
+    options: { force?: boolean; priority?: number; observe?: boolean } = {},
   ): Promise<GroupMemberListItem[]> {
     if (!this.online) throw new Error('该账号当前不在线，无法拉取在线群成员。');
     const cached = this.onlineMembersCache.get(groupId);
@@ -371,15 +407,24 @@ export class GroupInfoService {
       let token = '';
       for (let page = 0; page < ONLINE_MEMBERS_MAX_PAGES; page += 1) {
         if (resolvePid() !== pid) throw new Error('QQ 运行时已切换');
-        const result = await FetchGroupMemberListPage.invoke(nt, pid, {
-          groupId,
-          ...(token ? { token } : {}),
-        });
+        const fetchPage = () =>
+          FetchGroupMemberListPage.invoke(nt, pid, {
+            groupId,
+            ...(token ? { token } : {}),
+          });
+        const result = this.contactMetrics
+          ? await this.contactMetrics.schedule(
+              `members:${groupId}:${token}`,
+              fetchPage,
+              options.priority,
+            )
+          : await fetchPage();
         all.push(...result.members);
         if (resolvePid() !== pid) throw new Error('QQ 运行时已切换');
         if (!result.token) {
           const members = [...new Map(all.map((member) => [String(member.uin), member])).values()];
           this.onlineMembersCache.set(groupId, { at: Date.now(), pid, members });
+          if (options.observe !== false) await this.contactMembersObserved?.(groupId, members);
           return members;
         }
         if (tokens.has(result.token)) throw new Error('群成员分页游标重复，未返回截断名单');
@@ -451,14 +496,18 @@ export class GroupInfoService {
   async getRelationGraph(opts?: { force?: boolean }): Promise<RelationGraphData> {
     if (!opts?.force && this.relationGraphCache) return this.relationGraphCache;
     if (this.relationGraphBuilding) return this.relationGraphBuilding;
-    this.relationGraphBuilding = this.buildRelationGraph()
-      .then((data) => {
-        this.relationGraphCache = data;
-        return data;
-      })
-      .finally(() => {
-        this.relationGraphBuilding = null;
-      });
+    this.relationGraphBuilding = (async () => {
+      let revision: number;
+      let data: RelationGraphData;
+      do {
+        revision = this.memberRosterRevision;
+        data = await this.buildRelationGraph();
+      } while (revision !== this.memberRosterRevision);
+      this.relationGraphCache = data;
+      return data;
+    })().finally(() => {
+      this.relationGraphBuilding = null;
+    });
     return this.relationGraphBuilding;
   }
 
@@ -468,13 +517,18 @@ export class GroupInfoService {
     if (selfUin) excluded.add(selfUin);
 
     // 1) My groups (code → name / memberCount).
-    const groupDetails = await this.session.groupDetail.listAll(2000, 0);
+    // SQLite LIMIT -1 读取全部记录；统计数据不跟随前端展示数量截断。
+    const groupDetails = await this.session.groupDetail.listAll(-1, 0);
     const groupMeta = new Map<string, { name: string; memberCount: number }>();
     for (const g of groupDetails) {
       groupMeta.set(g.groupCode.toString(), {
         name: g.groupName,
         memberCount: g.memberCount,
       });
+    }
+    // 已获取成员但尚无本地群名片的群，也必须参与交集统计。
+    for (const code of (await this.memberRosterCache?.codes()) ?? []) {
+      if (!groupMeta.has(code)) groupMeta.set(code, { name: code, memberCount: 0 });
     }
     const groupCodes = [...groupMeta.keys()];
 
@@ -492,10 +546,10 @@ export class GroupInfoService {
         memberLevel: number;
       }>;
       try {
-        members = await this.session.groupMembers.listMemberBriefsInGroup(
-          BigInt(code),
-          MEMBER_SCAN_LIMIT,
-        );
+        const roster = await this.memberRosterCache?.read(code);
+        members =
+          roster ?? (await this.session.groupMembers.listMemberBriefsInGroup(BigInt(code), -1));
+        if (roster) groupMeta.get(code)!.memberCount = roster.length;
       } catch {
         continue;
       }
@@ -515,8 +569,8 @@ export class GroupInfoService {
       }
     }
 
-    // 3) Keep users sharing ≥ MIN_SHARED_GROUPS, sort by shared count, cap.
-    let nodes: RelationGraphNode[] = [];
+    // 3) Keep all users sharing ≥ MIN_SHARED_GROUPS, sort by shared count.
+    const nodes: RelationGraphNode[] = [];
     for (const [uid, info] of agg) {
       if (info.groups.size < MIN_SHARED_GROUPS) continue;
       nodes.push({
@@ -531,7 +585,6 @@ export class GroupInfoService {
       });
     }
     nodes.sort((a, b) => b.groupCount - a.groupCount);
-    nodes = nodes.slice(0, MAX_NODES);
 
     // 4) Enrich with profile intimacy / friend flag (one batched query).
     const profiles = await this.session.profileInfo.profilesByUids(nodes.map((n) => n.uid));
@@ -541,6 +594,7 @@ export class GroupInfoService {
       if (!profile) continue;
       node.intimacy = profile.intimacy || 0;
       node.isFriend = profile.isFriend;
+      node.remark = profile.remark || '';
       if (profile.nick) node.nick = profile.nick;
       if (!node.uin && profile.uin) node.uin = profile.uin.toString();
     }
@@ -665,7 +719,12 @@ export class GroupInfoService {
    * Get extended metadata (活跃度/幸运字符/群主uin等) for a single group.
    */
   async getGroupExt(groupCode: bigint): Promise<GroupExt | null> {
-    return this.session.groupExt.getExt(groupCode);
+    const result = await this.session.groupExt.getExt(groupCode);
+    if (result)
+      await this.contactMetrics?.record(`group:${groupCode}`, {
+        activityScore: result.activityScore,
+      });
+    return result;
   }
 
   /**
@@ -826,7 +885,12 @@ export class GroupInfoService {
    * List ext metadata for all groups (活跃度排行等场景).
    */
   async listAllGroupsExt(limit = 500, offset = 0): Promise<GroupExt[]> {
-    return this.session.groupExt.listAll(limit, offset);
+    const rows = await this.session.groupExt.listAll(limit, offset);
+    for (const row of rows)
+      await this.contactMetrics?.recordIfChanged(`group:${row.groupCode}`, {
+        activityScore: row.activityScore,
+      });
+    return rows;
   }
 
   /**

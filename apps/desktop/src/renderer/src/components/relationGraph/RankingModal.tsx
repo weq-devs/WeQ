@@ -18,6 +18,7 @@ import { Activity, Award, ChevronLeft, Heart, Search, Users2, X } from 'lucide-r
 import { client } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
 import { groupAvatar, personAvatar } from './graphModel';
+import './relationGraph.css';
 
 export type RankingKind = 'intimacy' | 'common' | 'memberLevel' | 'groupActivity';
 
@@ -69,14 +70,17 @@ export function RankingModal({
   data,
   onClose,
   onOpenMember,
+  fixedGroup,
 }: {
   kind: RankingKind;
   data: { nodes?: any[]; groups?: any[] } | null;
   onClose: () => void;
   onOpenMember?: (member: RankingMemberRef, anchor: { x: number; y: number }) => void;
+  fixedGroup?: { code: string; name: string; memberCount: number };
 }) {
   const meta = RANK_META[kind];
-  const [group, setGroup] = useState<any | null>(null);
+  const [selectedGroup, setGroup] = useState<any | null>(null);
+  const group = fixedGroup ?? selectedGroup;
 
   const subtitle = kind === 'memberLevel' && group ? group.name || group.code : meta.sub;
 
@@ -107,7 +111,7 @@ export function RankingModal({
         ) : group ? (
           <MemberLevelList
             group={group}
-            onBack={() => setGroup(null)}
+            onBack={fixedGroup ? undefined : () => setGroup(null)}
             onOpenMember={onOpenMember}
           />
         ) : (
@@ -300,7 +304,7 @@ function MemberLevelList({
   onOpenMember,
 }: {
   group: any;
-  onBack: () => void;
+  onBack?: () => void;
   onOpenMember?: OpenMember;
 }) {
   const groupCode = group.code as string;
@@ -322,10 +326,12 @@ function MemberLevelList({
   return (
     <>
       <div className="weq-rank-groupbar">
-        <button type="button" className="weq-rank-back" onClick={onBack}>
-          <ChevronLeft size={15} />
-          换群
-        </button>
+        {onBack ? (
+          <button type="button" className="weq-rank-back" onClick={onBack}>
+            <ChevronLeft size={15} />
+            换群
+          </button>
+        ) : null}
         <span className="weq-rank-groupname" title={group.name}>
           {group.name || groupCode}
         </span>

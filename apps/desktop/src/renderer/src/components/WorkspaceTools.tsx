@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
+import { CalendarNavigationContext } from '../lib/calendarNavigation';
 import { getCloneTasks, subscribeCloneTasks } from '../views/agentlab/cloneTaskStore';
 import type { GeneratedSearchHit } from './search/types';
 import type { ToolSearchRequest } from './search/appSearchCatalog';
@@ -42,6 +50,7 @@ import { useViewState } from '../state/view';
 import { createToolDraft, type ToolDraft } from '../../../shared/content_selection';
 import { initialExportMode } from '../views/export/exportScope';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
+import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import type {
   AnalysisReportRequest,
   AnalysisTarget,
@@ -103,7 +112,9 @@ export function WorkspaceTools({
   roamingRequest?: { targets: RoamingTarget[]; revision: number } | null;
   onOpenClone?: (id: string) => void;
 }) {
+  const mobile = useMobileWebLayout();
   const [open, setOpen] = useState(false);
+  const navigateCalendar = useContext(CalendarNavigationContext);
   const anchor = useWorkspaceMenu((state) => state.anchor);
   const closeMenu = useWorkspaceMenu((state) => state.close);
   const setTaskSummary = useWorkspaceMenu((state) => state.setTasks);
@@ -247,7 +258,7 @@ export function WorkspaceTools({
     background: background.tasks.map((entry) => ({ ...entry.task, id: backgroundTaskId(entry) })),
   });
   useEffect(() => {
-    if (taskDataReady) syncTasks(accountScope, taskItems);
+    if (accountScope && taskDataReady) syncTasks(accountScope, taskItems);
   }, [accountScope, taskItems, taskDataReady, syncTasks]);
   useEffect(
     () => () => {
@@ -352,6 +363,25 @@ export function WorkspaceTools({
   };
   const selectRef = useRef(select);
   selectRef.current = select;
+  const mobileToolRequest = useWorkspaceMenu((state) => state.mobileToolRequest);
+  const handledMobileToolRequest = useRef(mobileToolRequest);
+  useEffect(() => {
+    if (!mobileToolRequest || mobileToolRequest === handledMobileToolRequest.current) return;
+    handledMobileToolRequest.current = mobileToolRequest;
+    const next = mobileToolRequest.tool;
+    if (next === 'composition') {
+      setOpen(false);
+      closeMenu();
+      setExpanded(false);
+      onOpenComposition?.();
+    } else if (next === 'tasks' || next === 'assistant') {
+      setOpen(false);
+      closeMenu();
+      setPanel(next);
+      setExpanded(true);
+      setAssistantSettings(false);
+    } else selectRef.current(next);
+  }, [mobileToolRequest, closeMenu, onOpenComposition]);
   const handledSearchRequest = useRef<typeof searchRequest>(null);
   const taskOpenRequest = useWorkspaceMenu((state) => state.taskOpenRequest);
   const handledTaskOpenRequest = useRef(taskOpenRequest);
@@ -418,7 +448,9 @@ export function WorkspaceTools({
     <>
       <Modal
         open={!hidden && (Boolean(anchor) || expanded)}
-        presentation={expanded ? 'modal' : 'popover'}
+        presentation={mobile ? 'page' : expanded ? 'modal' : 'popover'}
+        mobileChrome={mobile}
+        title={panel === 'tasks' ? '任务' : 'WeQ 助手'}
         centered={expanded}
         anchor={anchor}
         onClose={closeWorkspace}
@@ -428,30 +460,32 @@ export function WorkspaceTools({
       >
         <header className="weq-workspace-menu-head">
           <h2 id="weq-workspace-menu-title">{panel === 'tasks' ? '任务' : 'WeQ 助手'}</h2>
-          <button
-            type="button"
-            title={expanded ? '收起到菜单' : '打开完整面板'}
-            aria-label={
-              expanded ? '收起到菜单' : `打开完整${panel === 'tasks' ? '任务' : '助手'}面板`
-            }
-            onClick={() => {
-              if (expanded) {
-                if (!anchor) {
-                  const trigger =
-                    lastAnchor.current ??
-                    [...document.querySelectorAll<HTMLElement>('.weq-workspace-menu-trigger')].find(
-                      (element) => element.getClientRects().length > 0,
-                    );
-                  if (trigger) useWorkspaceMenu.getState().toggle(trigger);
-                }
-                setExpanded(false);
-              } else {
-                setExpanded(true);
+          {!mobile && (
+            <button
+              type="button"
+              title={expanded ? '收起到菜单' : '打开完整面板'}
+              aria-label={
+                expanded ? '收起到菜单' : `打开完整${panel === 'tasks' ? '任务' : '助手'}面板`
               }
-            }}
-          >
-            {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          </button>
+              onClick={() => {
+                if (expanded) {
+                  if (!anchor) {
+                    const trigger =
+                      lastAnchor.current ??
+                      [
+                        ...document.querySelectorAll<HTMLElement>('.weq-workspace-menu-trigger'),
+                      ].find((element) => element.getClientRects().length > 0);
+                    if (trigger) useWorkspaceMenu.getState().toggle(trigger);
+                  }
+                  setExpanded(false);
+                } else {
+                  setExpanded(true);
+                }
+              }}
+            >
+              {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
+          )}
           {panel === 'tasks' && running ? <small>{running} 项进行中</small> : null}
           <div className="weq-workspace-menu-head-actions">
             {panel === 'assistant' && expanded ? (
@@ -494,13 +528,19 @@ export function WorkspaceTools({
         <div className="weq-workspace-menu-body">
           <RetainedTabs snapshotKey="workspace-tools" activeKey="tasks">
             {!hidden && (anchor || expanded) && panel === 'tasks' ? (
-              <ExportTool
-                surface="tasks"
-                taskLayout={expanded ? 'split' : 'compact'}
-                onTaskExpand={() => setExpanded(true)}
-                onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
-                onOpenClone={(id) => leave(() => onOpenClone?.(id))}
-              />
+              <CalendarNavigationContext.Provider
+                value={
+                  navigateCalendar ? (...args) => leave(() => navigateCalendar(...args)) : null
+                }
+              >
+                <ExportTool
+                  surface="tasks"
+                  taskLayout={expanded ? 'split' : 'compact'}
+                  onTaskExpand={() => setExpanded(true)}
+                  onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
+                  onOpenClone={(id) => leave(() => onOpenClone?.(id))}
+                />
+              </CalendarNavigationContext.Provider>
             ) : null}
           </RetainedTabs>
           <div
@@ -566,7 +606,9 @@ export function WorkspaceTools({
         ) : null}
       </Modal>
       <Modal
-        presentation="modal"
+        presentation={mobile ? 'page' : 'modal'}
+        mobileChrome={mobile}
+        title={TITLES[tool]}
         dismissOnOutside={false}
         open={open && tool !== 'backfill'}
         onClose={close}

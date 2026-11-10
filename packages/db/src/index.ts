@@ -23,8 +23,10 @@ export { QqDb } from './qq_db';
 export type { QqDbOptions } from './qq_db';
 export {
   scheduleDatabase,
+  observeSlowDatabaseOperations,
   promoteDatabaseSignal,
   withDatabasePriority,
+  withDatabaseReadBudget,
   databaseRequestSignal,
   databasePerformance,
   recordMessagePartition,
@@ -32,7 +34,9 @@ export {
   measureMessageWork,
   waitForDatabaseQuiet,
 } from './query_schedule';
-export type { DatabasePriority } from './query_schedule';
+export type { DatabasePriority, SlowDatabaseOperation } from './query_schedule';
+export { CalendarMetadataDb } from './msg/calendar_metadata';
+export type { CalendarTable, CalendarCursor, CalendarMetadata } from './msg/calendar_metadata';
 export { withDatabaseRequest } from './query_diagnostics';
 export { rowsToObjects } from './row';
 export type { SalvageScanOutcome, SalvageSkippedRange } from '@weq/native';

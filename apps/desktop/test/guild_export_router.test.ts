@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 
@@ -12,7 +13,7 @@ vi.mock('../src/main/context/app_context', () => {
     guildDirect: { buildExportMeta: fixture.meta, countMessages: fixture.count },
     exportManager: { startTask: fixture.start },
   };
-  return { getAppContext: () => ({ services }) };
+  return { accountEventBus: new EventEmitter(), getAppContext: () => ({ services }) };
 });
 beforeEach(() => vi.clearAllMocks());
 

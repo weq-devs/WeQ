@@ -15,6 +15,7 @@ import tailwindcss from '@tailwindcss/vite';
 const RENDERER = resolve(__dirname, '../desktop/src/renderer');
 
 export default defineConfig({
+  clearScreen: false,
   root: RENDERER,
   plugins: [react(), tailwindcss()],
   define: {
@@ -32,6 +33,18 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: { index: resolve(RENDERER, 'index.html') },
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: 'runtime',
+              test: /node_modules[\\/](?:react|react-dom|scheduler)[\\/]/,
+              priority: 20,
+            },
+            { name: 'icons', test: /node_modules[\\/]lucide-react[\\/]/, priority: 10 },
+          ],
+        },
+      },
     },
   },
 });

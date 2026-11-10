@@ -5,10 +5,17 @@
  * `DialogHost` 常驻挂载，承载全局错误/确认弹窗（替代原生 alert/confirm）。
  */
 
-import { useEffect, useLayoutEffect, useMemo, type ReactElement, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { useViewState } from './state/view';
 import { BootstrapView } from './views/BootstrapView';
-import { MainView } from './views/MainView';
 import { DialogHost } from './components/Dialog';
 import { AccountSwitchRequestHost } from './components/AccountSwitchRequestHost';
 import { RemoteRequests } from './components/RemoteRequests';
@@ -19,7 +26,6 @@ import { CaptureWindowHost } from './components/CaptureWindow';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { JoinGroupDialog } from './components/JoinGroupDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
-import { QuitConfirmDialog } from './components/QuitConfirmDialog';
 import { RestrictedModeHost } from './components/RestrictedMode';
 import { DesktopOnly, IS_WEB } from './lib/target';
 import { WebNotifications } from './components/WebNotifications';
@@ -35,7 +41,7 @@ import {
   TextMarkdownContext,
   LinkPreviewContext,
   MsgDecorationEnabledContext,
-} from './components/QqMessageContent';
+} from './state/messageAppearance';
 import { SelfBubbleContext, SelfPendantContext } from './hooks/useSelfPendant';
 import { ActiveWidgetProvider } from './hooks/useActiveWidget';
 import { CdnContext, setPreferCdnFlag } from './lib/cdn';
@@ -47,11 +53,20 @@ import { setWindowLayout } from './lib/windowLayout';
 import { ensureThemeInitialized } from './state/theme';
 import { usePrivacyStore } from './state/privacy';
 import { useAccountSwitch } from './state/accountSwitch';
-import { ShowMessageSeqContext, ShowMessageTimeContext } from './components/MessageProvenance';
+import {
+  ShowMessageDateContext,
+  ShowMessageSeqContext,
+  ShowMessageTimeContext,
+} from './components/MessageProvenance';
 import { ContentSelectionProvider } from './state/contentSelection';
 import { ChatImageCacheProvider } from './components/ChatImageCacheProvider';
 import { DEFAULT_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { RendererRecoveryNotice } from './components/RendererRecoveryNotice';
+import { RemoteStartupReporter } from './components/RemoteStartupReporter';
+
+const MainView = lazy(() =>
+  import('./views/MainView').then((module) => ({ default: module.MainView })),
+);
 
 /**
  * 把两个「气泡渲染」开关广播给所有消息气泡：纯文本 Markdown、链接预览卡片。
@@ -89,14 +104,16 @@ function TextMarkdownProvider({
         <ChatQqShowEnabledContext.Provider value={settings.data?.showChatQqShow ?? true}>
           <MsgDecorationEnabledContext.Provider value={messageDecoration}>
             <ShowMessageSeqContext.Provider value={settings.data?.showMessageSeq ?? false}>
-              <ShowMessageTimeContext.Provider value={settings.data?.showMessageTime ?? false}>
-                <ChatImageCacheProvider
-                  scope={cacheScope}
-                  budgetMiB={settings.data?.chatImageCacheMiB ?? DEFAULT_CHAT_IMAGE_CACHE_MIB}
-                >
-                  {children}
-                </ChatImageCacheProvider>
-              </ShowMessageTimeContext.Provider>
+              <ShowMessageDateContext.Provider value={settings.data?.showMessageDate ?? false}>
+                <ShowMessageTimeContext.Provider value={settings.data?.showMessageTime ?? false}>
+                  <ChatImageCacheProvider
+                    scope={cacheScope}
+                    budgetMiB={settings.data?.chatImageCacheMiB ?? DEFAULT_CHAT_IMAGE_CACHE_MIB}
+                  >
+                    {children}
+                  </ChatImageCacheProvider>
+                </ShowMessageTimeContext.Provider>
+              </ShowMessageDateContext.Provider>
             </ShowMessageSeqContext.Provider>
           </MsgDecorationEnabledContext.Provider>
         </ChatQqShowEnabledContext.Provider>
@@ -207,7 +224,7 @@ export default function App(): ReactElement {
       <TextMarkdownProvider cacheScope={view === 'main' && !switching ? (openedUin ?? '') : ''}>
         <SelfPendantProvider accountOpen={view === 'main' && !switching}>
           {/* 生效挂件与自己的静态挂件同层级广播,也必须盖住转发窗口。 */}
-          <ActiveWidgetProvider>
+          <ActiveWidgetProvider accountOpen={view === 'main' && !switching}>
             {switching ? (
               <main className="weq-home-shell h-screen overflow-hidden font-sans text-[#142235]">
                 <WarmupSplash progress={switchProgress} hint={switchHint} />
@@ -216,7 +233,15 @@ export default function App(): ReactElement {
               <BootstrapView />
             ) : (
               <ContentSelectionProvider key={openedUin ?? ''}>
-                <MainView />
+                <Suspense
+                  fallback={
+                    <div data-weq-startup-pending>
+                      <WarmupSplash hint="正在加载会话界面" />
+                    </div>
+                  }
+                >
+                  <MainView />
+                </Suspense>
               </ContentSelectionProvider>
             )}
             {/* 首次进入账号后弹出的欢迎说明框（自身决定是否显示）。 */}
@@ -225,6 +250,7 @@ export default function App(): ReactElement {
                 自身决定是否显示（见 JoinGroupDialog 的判据）。 */}
             {view === 'main' ? <JoinGroupDialog /> : null}
             <DialogHost />
+            <RemoteStartupReporter />
             <AccountSwitchRequestHost />
             <RemoteRequests />
             <ToastHost />
@@ -236,7 +262,6 @@ export default function App(): ReactElement {
             <CaptureWindowHost />
             <DesktopOnly>
               <CloseConfirmDialog />
-              <QuitConfirmDialog />
             </DesktopOnly>
             <RestrictedModeHost />
             <DesktopOnly>

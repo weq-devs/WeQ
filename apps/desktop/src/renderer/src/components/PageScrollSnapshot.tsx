@@ -82,7 +82,11 @@ export function PageScrollSnapshot({
       for (const item of pageSnapshots.read(expandedKey, expandedSchema) ?? []) {
         let element: Element | undefined = container;
         for (const index of item.path) element = element?.children[index];
-        if (element instanceof HTMLDetailsElement) element.open = item.open;
+        if (
+          element instanceof HTMLDetailsElement &&
+          !element.hasAttribute('data-snapshot-skip-details')
+        )
+          element.open = item.open;
       }
     } catch {
       /* 失效的展开坐标不影响正文。 */
@@ -165,7 +169,11 @@ export function PageScrollSnapshot({
     container.addEventListener('load', schedule, true);
     return () => {
       const details = [...container.querySelectorAll('details')]
-        .filter((element) => element.closest('[data-page-snapshot]') === container)
+        .filter(
+          (element) =>
+            element.closest('[data-page-snapshot]') === container &&
+            !element.hasAttribute('data-snapshot-skip-details'),
+        )
         .slice(0, 64)
         .flatMap((element) => {
           const path = pathOf(container, element);

@@ -11,6 +11,7 @@ import {
   type ConversationReadingPosition,
 } from '../lib/conversationReadingPosition';
 import '../styles/virtual-timeline.css';
+import { useMobileWebLayout } from './useMobileWebViewport';
 
 export const TIMELINE_VIRTUAL_THRESHOLD = 150;
 export const TIMELINE_OVERSCAN = 6;
@@ -28,6 +29,7 @@ export function useVirtualTimeline({
   active?: boolean;
   orderedIds: readonly string[];
 }) {
+  const mobileWeb = useMobileWebLayout();
   const enabled = ids.length > TIMELINE_VIRTUAL_THRESHOLD;
   const previousMode = useRef({ scope, active });
   const suspendedAnchor = useRef<ConversationReadingPosition | undefined>(undefined);
@@ -72,6 +74,8 @@ export function useVirtualTimeline({
     count: ids.length,
     enabled: ids.length > 0,
     getScrollElement: () => scrollRef.current,
+    // 手机键盘连续改变视口时，避免在 ResizeObserver 同一轮里反复测量与改写布局。
+    useAnimationFrameWithResizeObserver: mobileWeb,
     estimateSize: () => 96,
     // 保留子像素高度；逐行取整会在短列表切入虚拟布局时积累数像素误差。
     measureElement: (element, entry, instance) => {

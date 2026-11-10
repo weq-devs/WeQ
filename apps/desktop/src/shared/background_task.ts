@@ -1,4 +1,6 @@
 export type BackgroundTaskKind =
+  | 'calendar'
+  | 'contacts'
   | 'model'
   | 'update'
   | 'database'
@@ -25,6 +27,8 @@ export interface BackgroundTask {
   progress?: number;
   note?: string;
   details?: string[];
+  logs?: BackgroundTaskLogLine[];
+  subtasks?: Array<{ label: string; done: number; total: number; failed: number }>;
   download?: { url: string; name: string };
   actions: { id: string; label: string }[];
   startedAt: number;
@@ -39,8 +43,19 @@ export function backgroundTaskVisible(task: BackgroundTask, scope: BackgroundTas
   );
 }
 
+export interface BackgroundTaskLogLine {
+  ts: number;
+  seq: number;
+  stage: string;
+  level: 'info' | 'warn' | 'error';
+  text: string;
+}
+
 type TaskPatch = Partial<
-  Pick<BackgroundTask, 'progress' | 'note' | 'details' | 'statusLabel' | 'download'>
+  Pick<
+    BackgroundTask,
+    'progress' | 'note' | 'details' | 'statusLabel' | 'download' | 'subtasks' | 'logs'
+  >
 >;
 export type BackgroundTaskAction = {
   id: string;
@@ -84,7 +99,7 @@ export class BackgroundTaskRegistry {
 
   finish(id: string, status: Exclude<BackgroundTaskStatus, 'running'>, patch: TaskPatch = {}) {
     this.change(id, (task) =>
-      task.status === 'running'
+      task.status === 'running' || (task.status === 'paused' && status === 'cancelled')
         ? {
             ...task,
             progress: status === 'completed' ? 100 : task.progress,
@@ -104,6 +119,12 @@ export class BackgroundTaskRegistry {
       ...task,
       actions: actions.map(({ id, label }) => ({ id, label })),
     }));
+  }
+
+  resume(id: string) {
+    this.change(id, (task) =>
+      task.status === 'running' ? task : { ...task, status: 'running', statusLabel: undefined },
+    );
   }
 
   async act(id: string, actionId: string) {

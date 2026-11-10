@@ -8,6 +8,8 @@
  * `fileName`/`fileSize`/`fileToken` and no gray-tip fields at all.
  */
 
+import { formatBytes } from '../lib/format';
+
 interface GrayTipFileRecvMessageProps {
   element: {
     type: 'grayTipFileRecv';
@@ -16,18 +18,6 @@ interface GrayTipFileRecvMessageProps {
       fileSize?: number;
     };
   };
-}
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)}${units[unit]}`;
 }
 
 export function GrayTipFileRecvMessage({ element }: GrayTipFileRecvMessageProps) {

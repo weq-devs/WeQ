@@ -7,6 +7,7 @@
  *
  * 布局：紧凑文件列表，单次下载操作作为一个任务进入常规任务列表。
  */
+import { formatBytes as formatSize } from '../lib/format';
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import {
   ArrowLeft,
@@ -50,18 +51,6 @@ interface Crumb {
   id: string;
   /** 压缩包上下文（zip 的 cli_fileid）；普通浏览为 ''。 */
   zipFileId: string;
-}
-
-function formatSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let v = bytes;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i += 1;
-  }
-  return `${i === 0 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
 }
 
 const ZIP_RE = /\.(zip|rar|7z)$/i;

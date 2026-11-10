@@ -20,6 +20,9 @@ const EXCLUDE_FROM_EXTERNAL = [
   '@weq/platform',
   '@weq/protocol',
   '@weq/service',
+  '@weq/service/conversation-calendar',
+  '@weq/service/conversation-calendar-store',
+  '@weq/service/conversation-calendar-sources',
   '@weq/service/storage-cleanup',
   '@weq/service/db-checkup',
   '@weq/service/bad-pages',
@@ -45,6 +48,7 @@ process.env.ELECTRON_CLI_ARGS = JSON.stringify([
 
 export default defineConfig({
   main: {
+    clearScreen: false,
     plugins: [
       {
         name: 'weq-remote-web-assets',
@@ -79,6 +83,7 @@ export default defineConfig({
         // package.json (and its `"type":"module"`) is no longer in scope.
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
+          imageWorker: resolve(__dirname, 'src/main/image_worker.ts'),
           transcribeWorker: resolve(__dirname, 'src/main/transcribe/worker.ts'),
           // 本地 OCR 推理同样在子进程里跑（onnxruntime 是原生库，见 main/ocr/worker.ts）。
           ocrWorker: resolve(__dirname, 'src/main/ocr/worker.ts'),
@@ -103,6 +108,7 @@ export default defineConfig({
         },
         output: {
           entryFileNames: (chunk) =>
+            chunk.name === 'imageWorker' ||
             chunk.name === 'transcribeWorker' ||
             chunk.name === 'ocrWorker' ||
             chunk.name === 'attachWorker' ||
@@ -122,9 +128,11 @@ export default defineConfig({
     },
   },
   preload: {
+    clearScreen: false,
     plugins: [externalizeDepsPlugin()],
   },
   renderer: {
+    clearScreen: false,
     root: resolve(__dirname, 'src/renderer'),
     plugins: [react(), tailwindcss()],
     resolve: {
@@ -139,6 +147,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
+          'window-controls': resolve(__dirname, 'src/renderer/window-controls.html'),
           // 导出长图专用的第二个入口：主进程在**隐藏窗口**里加载它，只挂一张分析卡片。
           // 分开是为了不把整个应用外壳重复启动一遍（见 src/renderer/src/export/main.tsx）。
           export: resolve(__dirname, 'src/renderer/export.html'),

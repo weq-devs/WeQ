@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import sharp from 'sharp';
 import { handleMediaRequest } from '../src/main/media_protocol';
+import { setupImageWorker } from './support/image-worker';
+
+setupImageWorker();
 const state = vi.hoisted(() => ({ services: {} as object, root: '' }));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({
@@ -19,7 +22,7 @@ vi.mock('@weq/service', async (original) => ({
 }));
 afterEach(() => {
   if (state.root) rmSync(state.root, { recursive: true, force: true });
-  vi.restoreAllMocks();
+  if (vi.isMockFunction(console.error)) console.error.mockRestore();
 });
 it('保存读取缓存期间切换来源，后续元素查找不能进入新来源', async () => {
   state.root = mkdtempSync(join(tmpdir(), 'weq-protocol-binding-'));

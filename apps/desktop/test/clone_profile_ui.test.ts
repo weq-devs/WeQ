@@ -106,7 +106,7 @@ for (const kind of ['persona', 'group'] as const) {
       }
       const personCard = document.querySelector('[aria-label="用户资料"]')!;
       const openButton = [...personCard.querySelectorAll<HTMLButtonElement>('button')].find(
-        (item) => item.textContent === '查看私聊',
+        (item) => item.textContent === '查看消息',
       )!;
       expect(openButton).not.toBeUndefined();
       act(() => openButton.click());
@@ -173,7 +173,7 @@ it('克隆名片不读取真实人的资料，即使残留源 UID、QQ号或机�
 });
 
 for (const kind of ['persona', 'group'] as const) {
-  it(`名片${kind}沿用查看私聊、预览私聊和复制 ID 按钮，不添加文字身份标签`, async () => {
+  it(`名片${kind}沿用查看消息、预览消息和复制 ID 按钮，不添加文字身份标签`, async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const user = cloneChatUser('self', '我', '10000');
     const member = cloneChatUser('p', '合成好友', '20001', true);
@@ -215,11 +215,11 @@ for (const kind of ['persona', 'group'] as const) {
         [...card.querySelectorAll<HTMLButtonElement>('button')].find(
           (item) => item.textContent === label,
         )!;
-      expect(button('查看私聊')).not.toBeUndefined();
-      await act(async () => button('预览私聊').click());
+      expect(button('查看消息')).not.toBeUndefined();
+      await act(async () => button('预览消息').click());
       expect(card.textContent).toContain(kind === 'persona' ? '当前私聊消息' : '合成消息');
       act(() => card.querySelector<HTMLButtonElement>('[aria-label="返回资料"]')!.click());
-      act(() => button('查看私聊').click());
+      act(() => button('查看消息').click());
       expect(open).toHaveBeenCalledOnce();
       expect(close).toHaveBeenCalledOnce();
     } finally {

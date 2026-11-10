@@ -8,6 +8,7 @@ import { useViewState } from '../src/renderer/src/state/view';
 const state = vi.hoisted(() => ({
   count: 12345 as number | null,
   loading: false,
+  notApplicable: false,
   perform: vi.fn(),
   write: vi.fn(async () => ({ state: 'accepted' })),
 }));
@@ -18,7 +19,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       dressup: {
         peerStats: {
           useQuery: () => ({
-            data: state.count === null ? undefined : { likeCount: state.count, level: 5 },
+            data: state.notApplicable
+              ? { likeCount: null, level: 5 }
+              : state.count === null
+                ? undefined
+                : { likeCount: state.count, level: 5 },
             isLoading: state.loading,
           }),
         },
@@ -53,6 +58,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   state.count = 12345;
   state.loading = false;
+  state.notApplicable = false;
   state.perform.mockClear();
   state.write.mockClear();
   useViewState.setState({ openedUin: null });
@@ -176,5 +182,19 @@ it('查询失败不伪造零赞', () => {
   } finally {
     act(() => root.unmount());
     host.remove();
+  }
+});
+
+it('获赞不适用时不显示整行、零值或点赞按钮', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  state.notApplicable = true;
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() => root.render(h(ProfileLikesRow, { uid: 'u_peer', uin: '10002', name: '企业用户' })));
+    expect(host.querySelector('.weq-profile-likes-row')).toBeNull();
+    expect(host.textContent).toBe('');
+  } finally {
+    act(() => root.unmount());
   }
 });

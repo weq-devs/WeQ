@@ -46,7 +46,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
     { section: 'applock', item: '启用应用锁', target: 'privacy', settingId: 'app-lock' },
     { section: 'applock', item: '解锁方式', target: 'privacy', settingId: 'unlock-method' },
     { section: 'applock', item: '空闲自动锁定', target: 'privacy', settingId: 'auto-lock' },
-    { section: 'saving', target: 'weq-storage', settingId: 'default-save' },
+    { section: 'saving', target: 'global' },
     { section: 'storage', target: 'weq-storage' },
     {
       section: 'storage',

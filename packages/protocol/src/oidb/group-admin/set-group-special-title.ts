@@ -47,7 +47,6 @@ export interface SetGroupSpecialTitleParams {
 export namespace SetGroupSpecialTitle {
   export const command = 0x8fc;
   export const subCommand = 2;
-  export const needSign = false;
   export const reqSchema = SPECIAL_TITLE_REQ;
   export const respSchema = SPECIAL_TITLE_RESP;
 

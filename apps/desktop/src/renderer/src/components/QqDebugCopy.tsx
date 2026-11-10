@@ -67,7 +67,6 @@ export function QqDebugCopy({
         return;
       if (!mounted.current) return;
       await client.bootstrap.qqDebugCopyAction.mutate({ action });
-      if (mounted.current && action === 'prepare') setPermissionsOpen(true);
       if (mounted.current && action === 'remove') setPermissionsOpen(false);
       await status.refetch();
       if (!mounted.current) return;
@@ -177,11 +176,11 @@ export function QqDebugCopy({
         <button
           type="button"
           className="weq-set-btn"
-          disabled={busy || !ready || running}
+          disabled={busy || !ready}
           onClick={() => void run('launch')}
         >
           <Play size={14} />
-          启动副本
+          {running ? '登录其他账号' : '启动副本'}
         </button>
         {showRetry && (
           <button

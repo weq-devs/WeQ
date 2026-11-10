@@ -32,6 +32,7 @@ vi.mock('../src/main/context/app_context', async () => {
     msgs: { getRecalledMessages: fixture.nativeRecalls },
   };
   return {
+    accountEventBus: new EventEmitter(),
     dbEventBus: new EventEmitter(),
     getAppContext: () => ({
       account: fixture.switched ? null : account,

@@ -26,6 +26,7 @@ import {
   type ReactNode,
 } from 'react';
 import { create } from 'zustand';
+import { IS_WEB } from '../lib/target';
 import {
   DEFAULT_TOAST_DURATIONS,
   normalizeToastDurations,
@@ -465,7 +466,7 @@ export function ToastHost(): ReactElement | null {
   return (
     <div
       ref={host}
-      className="weq-toast-host"
+      className={`weq-toast-host${IS_WEB ? ' is-web' : ''}`}
       aria-live="polite"
       onScrollCapture={(event) => {
         if (event.target !== event.currentTarget) {

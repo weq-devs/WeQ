@@ -11,6 +11,23 @@
   animation: weq-notice-enter 140ms ease;
 }
 
+.weq-notice-dialog.weq-notice-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: var(--weq-bg-surface);
+  box-shadow: none;
+  animation: none;
+}
+
 .weq-notice-dialog .notice-card-request {
   position: relative;
   display: grid;
@@ -28,6 +45,8 @@
 
 .weq-notice-dialog .weq-notice-scroll {
   grid-template-columns: minmax(0, 1fr);
+  /* 列表空间不足时滚动，不把含审核按钮的卡片压缩到最小高度。 */
+  grid-auto-rows: max-content;
 }
 
 .weq-notice-dialog .notice-card-request > .notice-request-actions {
@@ -59,7 +78,10 @@
   cursor: pointer;
 }
 
-.weq-notice-dialog .notice-avatar-button:hover,
+.weq-notice-dialog .notice-avatar-button:hover {
+  opacity: 0.85;
+}
+
 .weq-notice-dialog .notice-avatar-button:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;

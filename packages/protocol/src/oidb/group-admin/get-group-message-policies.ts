@@ -14,8 +14,7 @@ export interface GroupMessagePolicySnapshot {
 export namespace GetGroupMessagePolicies {
   export const command = 0xfe5;
   export const subCommand = 2;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
   export const reqSchema = message([
     {
       name: 'config',

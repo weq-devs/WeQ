@@ -2,6 +2,9 @@
 import { expect, it, vi } from 'vitest';
 import sharp from 'sharp';
 import { handleAvatarRequest } from '../src/main/avatar_protocol';
+import { setupImageWorker } from './support/image-worker';
+
+setupImageWorker();
 
 const get = vi.hoisted(() => vi.fn());
 vi.mock('../src/main/context/app_context', () => ({

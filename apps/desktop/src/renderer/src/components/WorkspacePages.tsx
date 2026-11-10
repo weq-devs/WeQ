@@ -14,6 +14,7 @@ import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { TabActivity } from './RetainedTabs';
 import { PageSnapshotScope } from './PageSnapshots';
 import { PageScrollSnapshot } from './PageScrollSnapshot';
+import { useMobileBack } from '../hooks/useMobileNavigation';
 import '../styles/workspace-surfaces.css';
 import '../styles/page-chrome.css';
 
@@ -23,9 +24,11 @@ type Page = {
   title: string;
   placement: Placement;
   close: () => void;
+  navigate?: () => void;
   retainOnNavigate?: boolean;
   closable?: boolean;
   standalone?: boolean;
+  mobileChrome?: boolean;
 };
 const PagesContext = createContext<{
   host: HTMLDivElement | null;
@@ -50,6 +53,12 @@ export function useWorkspacePageOpen(): boolean {
   return Boolean(
     context?.pages.some((page) => page.id === context.active || page.placement === 'sidecar'),
   );
+}
+
+/** 「更多」下的工具页保留手机主顶栏和导航栏。 */
+export function useWorkspaceMobilePage() {
+  const context = useContext(PagesContext);
+  return context?.pages.find((page) => page.id === context.active && page.mobileChrome);
 }
 
 export function useWorkspaceMainPageOpen(): boolean {
@@ -89,7 +98,8 @@ export function WorkspacePages({
   useEffect(() => {
     if (previousNavigation.current === navigationKey) return;
     previousNavigation.current = navigationKey;
-    for (const page of pagesRef.current) if (!page.retainOnNavigate) page.close();
+    for (const page of pagesRef.current)
+      if (!page.retainOnNavigate) (page.navigate ?? page.close)();
     select(null);
     navigateRef.current?.();
   }, [navigationKey]);
@@ -157,22 +167,32 @@ export function WorkspaceContent({ children }: { children: ReactNode }) {
 export function WorkspacePage({
   title,
   onClose,
+  onNavigate,
+  onBack,
   children,
   placement = 'main',
   retainOnNavigate = false,
   standalone = false,
+  mobileChrome = false,
 }: {
   title: string;
   onClose?: () => void;
+  onNavigate?: () => void;
+  onBack?: () => void;
   children: ReactNode;
   placement?: Placement;
   retainOnNavigate?: boolean;
   standalone?: boolean;
+  mobileChrome?: boolean;
 }) {
   const context = useContext(PagesContext);
   const id = useId();
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const navigateRef = useRef(onNavigate);
+  navigateRef.current = onNavigate;
+  const backRef = useRef(onBack);
+  backRef.current = onBack;
   const ref = useRef<HTMLDivElement>(null);
   const register = context?.register;
   useLayoutEffect(
@@ -183,9 +203,11 @@ export function WorkspacePage({
         placement,
         retainOnNavigate,
         standalone,
+        mobileChrome,
         close: () => closeRef.current?.(),
+        navigate: () => (navigateRef.current ?? closeRef.current)?.(),
       }),
-    [register, id, title, placement, retainOnNavigate, standalone],
+    [register, id, title, placement, retainOnNavigate, standalone, mobileChrome],
   );
   const selected =
     placement === 'sidecar'
@@ -197,6 +219,12 @@ export function WorkspacePage({
     (!context || selected === id) &&
     (placement !== 'sidecar' ||
       !context?.pages.some((page) => page.placement === 'main' && page.id === context.active));
+  useMobileBack(
+    active && Boolean(onClose),
+    () => (backRef.current ?? closeRef.current)?.(),
+    20,
+    () => ref.current,
+  );
   useSurfaceEscape(ref, onClose, active, false);
   const content = (
     <div

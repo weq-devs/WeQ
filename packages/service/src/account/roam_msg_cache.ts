@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
 import { dirname } from 'node:path';
 import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { compareMessageOrder } from '@weq/codec';
-import { scheduleDatabase } from '@weq/db';
+import { QqDb, scheduleDatabase } from '@weq/db';
 import type { GapFetchedMessage } from './gap_history';
 import { nativeHistoryElements } from './native_history_projection';
 import type { ProtocolHistoryObservation } from './sso_history_window';
@@ -189,9 +189,12 @@ export class RoamMsgCacheDb {
     descending = true,
     includeHidden = false,
     cursor?: { msgSeq: number; sendTime: number; msgId: string },
+    metadataOnly = false,
   ): Promise<GapFetchedMessage[]> {
     if (startSeq > endSeq) return [];
-    await this.ensureSchema();
+    if (metadataOnly) {
+      if (!existsSync(this.dbPath)) return [];
+    } else await this.ensureSchema();
     const hidden = JSON.stringify(
       includeHidden
         ? []
@@ -233,12 +236,21 @@ export class RoamMsgCacheDb {
     const order = (time: string) =>
       `ORDER BY msg_seq ${direction},CAST(${time} AS INTEGER) ${direction},${sign} ${direction},${negative} ${direction},length(msg_id) ${direction},msg_id ${direction}`;
     // 各来源先独立限额，再沿用原有去重；不能在 UNION 上提前 LIMIT，重复来源会挤掉消息。
-    const rows = await scheduleDatabase(
-      this.dbPath,
-      () =>
-        this.nt.executeSql(
-          this.dbPath,
-          `SELECT 0, NULL, page.* FROM (SELECT kind, conv, msg_id, msg_seq, sender_uid, sender_uin, send_time, elements, decoration, nt_seq_verified
+    const projection = (format: string) =>
+      metadataOnly
+        ? `json_object('kind',kind,'conv',conv,'msgId',msg_id,'msgSeq',CAST(msg_seq AS TEXT),'sendTime',json_extract(payload,'$.sendTime'),'msgRandom',json_extract(payload,'$.msgRandom'),'senderUid',json_extract(payload,'$.senderUid'),'senderUin',json_extract(payload,'$.senderUin'),'localSent',json_extract(payload,'$.localSent'),'ntSeqVerified',json_extract(payload,'$.ntSeqVerified'),'recall',json_extract(payload,'$.recall'),'sourceFormat','${format}','elements',json('[]'))`
+        : 'payload';
+    const read = metadataOnly
+      ? (sql: string, values: SqlValue[]) =>
+          new QqDb(this.nt as NtHelperBinding, { dbPath: this.dbPath }).query(sql, values)
+      : (sql: string, values: SqlValue[]) =>
+          scheduleDatabase(
+            this.dbPath,
+            () => this.nt.executeSql(this.dbPath, sql, values),
+            this.nt,
+          );
+    const rows = await read(
+      `SELECT 0, NULL, page.* FROM (SELECT kind, conv, msg_id, msg_seq, sender_uid, sender_uin, send_time, ${metadataOnly ? "'[]' AS elements,NULL AS decoration" : 'elements, decoration'}, nt_seq_verified
          FROM ${TABLE}
         WHERE kind = ? AND conv = ? AND msg_seq BETWEEN ? AND ?
           ${verifiedOnly ? 'AND nt_seq_verified = 1' : ''}
@@ -247,18 +259,16 @@ export class RoamMsgCacheDb {
         ${order('send_time')} LIMIT ?) AS page
        UNION ALL
        SELECT 1, payload, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM (
-       SELECT payload FROM ${NATIVE_TABLE} WHERE kind = ? AND conv = ? AND accepted = 1 AND msg_seq BETWEEN ? AND ?
+       SELECT ${projection('native')} AS payload FROM ${NATIVE_TABLE} WHERE kind = ? AND conv = ? AND accepted = 1 AND msg_seq BETWEEN ? AND ?
        AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
        ${keyset("json_extract(payload,'$.sendTime')")}
        ${order("json_extract(payload,'$.sendTime')")} LIMIT ?)
        UNION ALL
        SELECT 2, payload, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM (
-       SELECT payload FROM ${PROTOCOL_TABLE} WHERE kind=? AND conv=? AND msg_seq BETWEEN ? AND ?
+       SELECT ${projection('protocol')} AS payload FROM ${PROTOCOL_TABLE} WHERE kind=? AND conv=? AND msg_seq BETWEEN ? AND ?
        AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
        ${verifiedOnly ? 'AND nt_seq_verified=1' : ''} ${keyset("json_extract(payload,'$.sendTime')")} ${order("json_extract(payload,'$.sendTime')")} LIMIT ?)`,
-          [...params, ...params, ...params],
-        ),
-      this.nt,
+      [...params, ...params, ...params],
     );
     const messages = combineCache(
       rows.filter((row) => Number(row[0]) === 0).map((row) => rowToMessage(row.slice(2))),
@@ -272,7 +282,24 @@ export class RoamMsgCacheDb {
         return descending ? -order : order;
       })
       .slice(0, Math.max(1, Math.min(2000, limit)));
+    if (metadataOnly)
+      for (const message of messages)
+        message.ntSeqVerified =
+          message.ntSeqVerified === true || Number(message.ntSeqVerified) === 1;
     return descending ? messages.reverse() : messages;
+  }
+
+  /** 只读身份和时间列，隐藏记录与未确认的私聊不进入分析对象目录。 */
+  async calendarConversations(): Promise<Array<{ kind: 'c2c' | 'group'; conv: string }>> {
+    if (!existsSync(this.dbPath)) return [];
+    const qq = new QqDb(this.nt as NtHelperBinding, { dbPath: this.dbPath });
+    const rows = await qq.query(
+      `SELECT kind,conv FROM ${TABLE} UNION SELECT kind,conv FROM ${NATIVE_TABLE} WHERE accepted=1 UNION SELECT kind,conv FROM ${PROTOCOL_TABLE} LIMIT 12001`,
+    );
+    if (rows.length > 12000) throw new Error('漫游缓存会话过多，请缩小统计范围');
+    return rows
+      .filter((row) => row[0] === 'c2c' || row[0] === 'group')
+      .map((row) => ({ kind: row[0] as 'c2c' | 'group', conv: String(row[1]) }));
   }
 
   /** 只读身份和时间列，隐藏记录与未确认的私聊不进入分析对象目录。 */

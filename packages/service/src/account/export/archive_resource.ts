@@ -131,7 +131,7 @@ export async function archiveResource(
         copied.sha256 === digest.sha256 && copied.size === digest.size,
         '资源复制期间发生变化',
       );
-      const handle = await open(temporary, 'r');
+      const handle = await open(temporary, 'r+');
       try {
         await handle.sync();
       } finally {

@@ -1,5 +1,6 @@
 // @ts-nocheck
 import {
+  Award,
   Bot,
   CalendarCheck,
   ChevronRight,
@@ -15,6 +16,7 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useState,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
@@ -25,14 +27,17 @@ import { displayUserName } from './user';
 import { cn } from './classNames';
 import { formatShortDate } from './format';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
+import { GroupProfileMetrics } from '../../components/GroupProfileMetrics';
 import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
 import { useTabActive } from '../../components/RetainedTabs';
+import { RankingModal } from '../../components/relationGraph/RankingModal';
 import '../../styles/conversation-actions.css';
 import '../../styles/group-sidebar-sections.css';
 
 export type GroupInfoDetail = 'profile' | 'albums';
 
 export function GroupInfoPanel({
+  layout = 'sidebar',
   hidden = false,
   conversation,
   onLoadMoreMembers,
@@ -56,6 +61,7 @@ export function GroupInfoPanel({
   onOpenSign,
   onClose,
 }: {
+  layout?: 'sidebar' | 'profile';
   hidden?: boolean;
   conversation: GroupConversationView;
   onLoadMoreMembers?: () => void;
@@ -97,6 +103,8 @@ export function GroupInfoPanel({
   onClose?: () => void;
 }) {
   const active = useTabActive();
+  const [rankingGroup, setRankingGroup] = useState<string | null>(null);
+  useEffect(() => setRankingGroup(null), [conversation.id]);
   const memberListRef = useRef<HTMLDivElement | null>(null);
   const group = conversation.group;
   const announcement =
@@ -154,10 +162,290 @@ export function GroupInfoPanel({
     return () => window.cancelAnimationFrame(frame);
   }, [hidden, active, rows.length, searching, requestMoreNearBottom]);
 
+  const overview = (
+    <section className={cn('group-info-section', 'group-info-overview')} aria-label="群资料">
+      <header className={cn('group-info-heading')}>
+        <button
+          className={cn('group-info-title-button')}
+          type="button"
+          title="查看群资料"
+          onClick={() => onOpenDetail?.('profile')}
+        >
+          <strong>群资料</strong>
+        </button>
+        {onClose ? (
+          <button
+            type="button"
+            className="weq-group-info-close"
+            title="关闭群资料"
+            aria-label="关闭群资料"
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        ) : null}
+      </header>
+      <div className={cn('group-info-meta-list')}>
+        {metaRows.length > 0 ? (
+          metaRows.map(([label, value]) => (
+            <button
+              className={cn('group-info-meta-row')}
+              type="button"
+              key={label}
+              onClick={() => onOpenDetail?.('profile')}
+            >
+              <span>{label}</span>
+              <strong
+                data-privacy-sensitive={
+                  ['群名称', '群号', '群简介', '群备注', '群地点', '入群问题'].includes(label) ||
+                  undefined
+                }
+              >
+                {value}
+              </strong>
+            </button>
+          ))
+        ) : profileLoading ? (
+          <GroupInfoSkeleton />
+        ) : (
+          <p className={cn('placeholder-text')}>暂无更多资料</p>
+        )}
+        {!conversation.generated ? (
+          <GroupProfileMetrics groupCode={conversation.id}>
+            {(rows) =>
+              rows.map(([label, value]) => (
+                <button
+                  className={cn('group-info-meta-row')}
+                  type="button"
+                  key={label}
+                  onClick={() => onOpenDetail?.('profile')}
+                >
+                  <span>{label}</span>
+                  <strong>{value}</strong>
+                </button>
+              ))
+            }
+          </GroupProfileMetrics>
+        ) : null}
+      </div>
+    </section>
+  );
+  const announcementSection = onOpenAnnouncements ? (
+    <section className="weq-group-announcement" aria-label="群公告">
+      <button type="button" onClick={onOpenAnnouncements} title="查看群公告">
+        <span>
+          <strong>群公告</strong>
+          <ChevronRight size={14} />
+        </span>
+      </button>
+      <p
+        tabIndex={0}
+        aria-label="公告内容"
+        data-privacy-sensitive={Boolean(announcement) || undefined}
+      >
+        {announcement || '暂无群公告'}
+      </p>
+    </section>
+  ) : null;
+  const contentActions =
+    onOpenEssence || onOpenAlbums || onOpenFiles || onOpenSign ? (
+      <nav className="weq-group-content-actions" aria-label="群内容">
+        {onOpenSign ? (
+          <button type="button" onClick={onOpenSign}>
+            <CalendarCheck size={17} />
+            <span>打卡</span>
+          </button>
+        ) : null}
+        {onOpenEssence ? (
+          <button type="button" onClick={onOpenEssence}>
+            <Sparkles size={17} />
+            <span>精华</span>
+          </button>
+        ) : null}
+        {onOpenAlbums ? (
+          <button type="button" onClick={onOpenAlbums}>
+            <Images size={17} />
+            <span>相册</span>
+          </button>
+        ) : null}
+        {onOpenFiles ? (
+          <button type="button" onClick={onOpenFiles}>
+            <FolderOpen size={17} />
+            <span>文件</span>
+          </button>
+        ) : null}
+      </nav>
+    ) : null;
+  const memberList = (
+    <section className={cn('group-info-section', 'member-list-section')}>
+      <header className={cn('group-info-heading group-info-title-row')}>
+        <strong>
+          群聊成员{' '}
+          {searching
+            ? `${rows.length}/${memberSearch?.total ?? 0}`
+            : conversation.group.memberCount}
+        </strong>
+        {onAddMember ? (
+          <button
+            type="button"
+            className="icon-button weq-group-add-member"
+            title="添加成员"
+            aria-label="添加成员"
+            onClick={onAddMember}
+          >
+            <UserPlus size={16} />
+          </button>
+        ) : null}
+        <div className="group-info-member-actions">
+          {onOpenLeftMembers ? (
+            <button
+              className="icon-button"
+              type="button"
+              title="查看已退群的成员"
+              aria-label="查看已退群的成员"
+              onClick={onOpenLeftMembers}
+            >
+              <UserMinus size={16} />
+            </button>
+          ) : null}
+          {!conversation.generated ? (
+            <button
+              className="icon-button"
+              type="button"
+              title="群成员等级排行"
+              aria-label="群成员等级排行"
+              onClick={() => setRankingGroup(conversation.id)}
+            >
+              <Award size={16} />
+            </button>
+          ) : null}
+        </div>
+      </header>
+      <div className={cn('group-info-member-search')}>
+        <Search size={13} />
+        <input
+          type="text"
+          value={memberSearch?.keyword ?? ''}
+          placeholder={conversation.generated ? '搜索成员名称' : '搜索昵称 / 群昵称 / QQ号'}
+          aria-label="搜索群成员"
+          spellCheck={false}
+          onChange={(event) => onMemberSearchChange?.(event.target.value)}
+        />
+        {memberSearch?.keyword ? (
+          <button
+            className={cn('group-info-member-search-clear')}
+            type="button"
+            title="清除搜索"
+            aria-label="清除搜索"
+            onClick={() => onMemberSearchChange?.('')}
+          >
+            <X size={12} />
+          </button>
+        ) : null}
+      </div>
+      <div
+        className={cn('group-info-member-list')}
+        ref={memberListRef}
+        onScroll={requestMoreNearBottom}
+      >
+        {searching && rows.length === 0 && !fetching ? (
+          <div className={cn('group-info-member-empty')}>没有匹配的成员</div>
+        ) : null}
+        {rows.map((member) => (
+          <div
+            className={cn(
+              'group-info-member-row',
+              onOpenMember && 'is-clickable',
+              member.role === 'owner' && 'is-owner',
+              member.role === 'admin' && 'is-admin',
+            )}
+            key={member.id}
+            role={onOpenMember ? 'button' : undefined}
+            tabIndex={onOpenMember ? 0 : undefined}
+            title={onOpenMember ? '查看资料' : undefined}
+            onContextMenu={
+              onMemberContextMenu ? (event) => onMemberContextMenu(event, member) : undefined
+            }
+            onClick={
+              onOpenMember
+                ? (event) => onOpenMember(member, { x: event.clientX, y: event.clientY })
+                : undefined
+            }
+            onKeyDown={
+              onOpenMember
+                ? (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      onOpenMember(member, {
+                        x: rect.left + rect.width / 2,
+                        y: rect.bottom,
+                      });
+                    }
+                  }
+                : undefined
+            }
+          >
+            <div className={cn('member-avatar-wrap', member.clone && 'weq-clone-member-avatar')}>
+              <Avatar
+                name={displayUserName(member)}
+                avatarUrl={member.avatarUrl}
+                seed={member.identityValue}
+              />
+              {member.clone ? <VirtualConversationBadge /> : null}
+            </div>
+            <span className="member-name-text">
+              <span className="member-name-with-badge">
+                <span className="member-display-name">{displayUserName(member)}</span>
+                <GroupMessageBadge
+                  member={{
+                    role: member.role,
+                    customTitle: member.customTitle,
+                    levelName: member.levelName,
+                  }}
+                />
+              </span>
+            </span>
+            {member.kind === 'bot' ? (
+              <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
+                <Bot size={12} strokeWidth={2.4} />
+              </small>
+            ) : null}
+          </div>
+        ))}
+        {searching && rows.length > 0 && memberSearch?.hasMore ? (
+          <div className={cn('group-info-member-hint')}>
+            已显示 {rows.length} / {memberSearch?.total ?? 0} 位匹配成员，继续滚动加载更多
+          </div>
+        ) : null}
+        {activeError ? (
+          <div className={cn('group-info-member-error')}>
+            加载失败：{activeError}
+            {!searching && onRetryMembers ? (
+              <button type="button" disabled={fetching} onClick={onRetryMembers}>
+                重新加载
+              </button>
+            ) : null}
+          </div>
+        ) : fetching && rows.length === 0 ? (
+          <GroupMembersSkeleton rows={8} />
+        ) : fetchingMore ? (
+          <div className={cn('group-info-member-loading')}>
+            <GroupMembersSkeleton rows={1} />
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+
   return (
     <aside
       hidden={hidden}
-      className={cn('group-info-panel', groupTodos && 'weq-group-sections')}
+      className={cn(
+        'group-info-panel',
+        groupTodos && 'weq-group-sections',
+        layout === 'profile' && 'weq-group-profile-details',
+      )}
       aria-label="群聊资料"
       onKeyDown={(event) => {
         if (event.key === 'Escape' && onClose) {
@@ -166,248 +454,59 @@ export function GroupInfoPanel({
         }
       }}
     >
-      <section className={cn('group-info-section', 'group-info-overview')} aria-label="群资料">
-        <header className={cn('group-info-heading')}>
-          <button
-            className={cn('group-info-title-button')}
-            type="button"
-            title="查看群资料"
-            onClick={() => onOpenDetail?.('profile')}
-          >
-            <strong>群资料</strong>
-          </button>
-          {onClose ? (
-            <button
-              type="button"
-              className="weq-group-info-close"
-              title="关闭群资料"
-              aria-label="关闭群资料"
-              onClick={onClose}
-            >
-              <X size={16} />
-            </button>
-          ) : null}
-        </header>
-        <div className={cn('group-info-meta-list')}>
-          {metaRows.length > 0 ? (
-            metaRows.map(([label, value]) => (
-              <button
-                className={cn('group-info-meta-row')}
-                type="button"
-                key={label}
-                onClick={() => onOpenDetail?.('profile')}
-              >
-                <span>{label}</span>
-                <strong
-                  data-privacy-sensitive={
-                    ['群名称', '群号', '群简介', '群备注', '群地点', '入群问题'].includes(label) ||
-                    undefined
-                  }
-                >
-                  {value}
-                </strong>
-              </button>
-            ))
-          ) : profileLoading ? (
-            <GroupInfoSkeleton />
-          ) : (
-            <p className={cn('placeholder-text')}>暂无更多资料</p>
-          )}
-        </div>
-      </section>
-
-      {onOpenAnnouncements ? (
-        <section className="weq-group-announcement" aria-label="群公告">
-          <button type="button" onClick={onOpenAnnouncements} title="查看群公告">
-            <span>
-              <strong>群公告</strong>
-              <ChevronRight size={14} />
-            </span>
-          </button>
-          <p
-            tabIndex={0}
-            aria-label="公告内容"
-            data-privacy-sensitive={Boolean(announcement) || undefined}
-          >
-            {announcement || '暂无群公告'}
-          </p>
-        </section>
+      {rankingGroup === conversation.id && active && !hidden ? (
+        <RankingModal
+          key={conversation.id}
+          kind="memberLevel"
+          data={null}
+          fixedGroup={{
+            code: conversation.id,
+            name: group.name,
+            memberCount: group.memberCount,
+          }}
+          onClose={() => setRankingGroup(null)}
+          onOpenMember={
+            onOpenMember
+              ? (member, anchor) => {
+                  const known = conversation.members.find((item) => item.id === member.uid);
+                  onOpenMember(
+                    known ?? {
+                      id: member.uid,
+                      uin: member.uin,
+                      displayName: member.card || member.nick || member.uin || member.uid,
+                      username: member.nick || member.uid,
+                      avatarUrl: null,
+                      identityLabel: 'QQ',
+                      identityValue: member.uin || member.uid,
+                    },
+                    anchor,
+                  );
+                }
+              : undefined
+          }
+        />
       ) : null}
-      {groupTodos ?? null}
-      {onOpenEssence || onOpenAlbums || onOpenFiles || onOpenSign ? (
-        <nav className="weq-group-content-actions" aria-label="群内容">
-          {onOpenSign ? (
-            <button type="button" onClick={onOpenSign}>
-              <CalendarCheck size={17} />
-              <span>打卡</span>
-            </button>
-          ) : null}
-          {onOpenEssence ? (
-            <button type="button" onClick={onOpenEssence}>
-              <Sparkles size={17} />
-              <span>精华</span>
-            </button>
-          ) : null}
-          {onOpenAlbums ? (
-            <button type="button" onClick={onOpenAlbums}>
-              <Images size={17} />
-              <span>相册</span>
-            </button>
-          ) : null}
-          {onOpenFiles ? (
-            <button type="button" onClick={onOpenFiles}>
-              <FolderOpen size={17} />
-              <span>文件</span>
-            </button>
-          ) : null}
-        </nav>
-      ) : null}
-
-      <section className={cn('group-info-section', 'member-list-section')}>
-        <header className={cn('group-info-heading group-info-title-row')}>
-          <strong>
-            群聊成员{' '}
-            {searching
-              ? `${rows.length}/${memberSearch?.total ?? 0}`
-              : conversation.group.memberCount}
-          </strong>
-          {onAddMember ? (
-            <button
-              type="button"
-              className="icon-button weq-group-add-member"
-              title="添加成员"
-              aria-label="添加成员"
-              onClick={onAddMember}
-            >
-              <UserPlus size={16} />
-            </button>
-          ) : null}
-          {onOpenLeftMembers ? (
-            <button
-              className={cn('group-info-left-members-button')}
-              type="button"
-              title="查看已退群的成员"
-              onClick={onOpenLeftMembers}
-            >
-              <UserMinus size={13} strokeWidth={2} /> 已退群
-            </button>
-          ) : null}
-        </header>
-        <div className={cn('group-info-member-search')}>
-          <Search size={13} />
-          <input
-            type="text"
-            value={memberSearch?.keyword ?? ''}
-            placeholder={conversation.generated ? '搜索成员名称' : '搜索昵称 / 群昵称 / QQ号'}
-            aria-label="搜索群成员"
-            spellCheck={false}
-            onChange={(event) => onMemberSearchChange?.(event.target.value)}
-          />
-          {memberSearch?.keyword ? (
-            <button
-              className={cn('group-info-member-search-clear')}
-              type="button"
-              title="清除搜索"
-              aria-label="清除搜索"
-              onClick={() => onMemberSearchChange?.('')}
-            >
-              <X size={12} />
-            </button>
-          ) : null}
-        </div>
-        <div
-          className={cn('group-info-member-list')}
-          ref={memberListRef}
-          onScroll={requestMoreNearBottom}
-        >
-          {searching && rows.length === 0 && !fetching ? (
-            <div className={cn('group-info-member-empty')}>没有匹配的成员</div>
-          ) : null}
-          {rows.map((member) => (
-            <div
-              className={cn(
-                'group-info-member-row',
-                onOpenMember && 'is-clickable',
-                member.role === 'owner' && 'is-owner',
-                member.role === 'admin' && 'is-admin',
-              )}
-              key={member.id}
-              role={onOpenMember ? 'button' : undefined}
-              tabIndex={onOpenMember ? 0 : undefined}
-              title={onOpenMember ? '查看资料' : undefined}
-              onContextMenu={
-                onMemberContextMenu ? (event) => onMemberContextMenu(event, member) : undefined
-              }
-              onClick={
-                onOpenMember
-                  ? (event) => onOpenMember(member, { x: event.clientX, y: event.clientY })
-                  : undefined
-              }
-              onKeyDown={
-                onOpenMember
-                  ? (event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        const rect = event.currentTarget.getBoundingClientRect();
-                        onOpenMember(member, {
-                          x: rect.left + rect.width / 2,
-                          y: rect.bottom,
-                        });
-                      }
-                    }
-                  : undefined
-              }
-            >
-              <div className={cn('member-avatar-wrap', member.clone && 'weq-clone-member-avatar')}>
-                <Avatar
-                  name={displayUserName(member)}
-                  avatarUrl={member.avatarUrl}
-                  seed={member.identityValue}
-                />
-                {member.clone ? <VirtualConversationBadge /> : null}
-              </div>
-              <span className="member-name-text">
-                <span className="member-name-with-badge">
-                  <span className="member-display-name">{displayUserName(member)}</span>
-                  <GroupMessageBadge
-                    member={{
-                      role: member.role,
-                      customTitle: member.customTitle,
-                      levelName: member.levelName,
-                    }}
-                  />
-                </span>
-              </span>
-              {member.kind === 'bot' ? (
-                <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
-                  <Bot size={12} strokeWidth={2.4} />
-                </small>
-              ) : null}
-            </div>
-          ))}
-          {searching && rows.length > 0 && memberSearch?.hasMore ? (
-            <div className={cn('group-info-member-hint')}>
-              已显示 {rows.length} / {memberSearch?.total ?? 0} 位匹配成员，继续滚动加载更多
-            </div>
-          ) : null}
-          {activeError ? (
-            <div className={cn('group-info-member-error')}>
-              加载失败：{activeError}
-              {!searching && onRetryMembers ? (
-                <button type="button" disabled={fetching} onClick={onRetryMembers}>
-                  重新加载
-                </button>
-              ) : null}
-            </div>
-          ) : fetching && rows.length === 0 ? (
-            <GroupMembersSkeleton rows={8} />
-          ) : fetchingMore ? (
-            <div className={cn('group-info-member-loading')}>
-              <GroupMembersSkeleton rows={1} />
-            </div>
-          ) : null}
-        </div>
-      </section>
+      {layout === 'profile' ? (
+        <>
+          <div className="weq-group-profile-primary">
+            {announcementSection}
+            {overview}
+            {groupTodos ?? null}
+          </div>
+          <div className="weq-group-profile-secondary">
+            {contentActions}
+            {memberList}
+          </div>
+        </>
+      ) : (
+        <>
+          {overview}
+          {announcementSection}
+          {groupTodos ?? null}
+          {contentActions}
+          {memberList}
+        </>
+      )}
     </aside>
   );
 }

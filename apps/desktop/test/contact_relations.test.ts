@@ -1,6 +1,10 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock(
+  '../src/renderer/src/hooks/useContactDirectoryOrder',
+  () => import('./support/contact-order.stub'),
+);
 import { ContactList } from '../src/renderer/src/im-template/template/conversationLists';
 import type { Contact } from '../src/renderer/src/im-template/template/types';
 import { intimateRelationOf, relationMeta } from '../src/renderer/src/lib/profileRelations';
@@ -63,7 +67,6 @@ describe('联系人亲密关系', () => {
       const headers = [...host.querySelectorAll<HTMLButtonElement>('.contact-cat-header')];
       expect(headers.map((item) => item.querySelector('.contact-cat-name')?.textContent)).toEqual([
         '特别关心',
-        '亲密关系',
         '我的好友',
       ]);
       expect(host.querySelector('.contact-relation-mark')).toBeNull();
@@ -78,8 +81,8 @@ describe('联系人亲密关系', () => {
       act(() => host.querySelector<HTMLButtonElement>('.contact-row')!.click());
       expect(select).toHaveBeenCalledWith(contacts[0]);
       render('测试好友 26');
-      expect(host.querySelectorAll('.contact-row')).toHaveLength(2);
-      expect(host.querySelectorAll('[aria-label="亲密关系：死党"]')).toHaveLength(2);
+      expect(host.querySelectorAll('.contact-row')).toHaveLength(1);
+      expect(host.querySelectorAll('[aria-label="亲密关系：死党"]')).toHaveLength(1);
       render();
       act(() => headers[1]!.click());
       expect(host.querySelector('.contact-relation-mark')).toBeNull();

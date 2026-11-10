@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 
@@ -17,7 +18,10 @@ vi.mock('../src/main/context/app_context', () => {
       listDraftTimes: fixture.draftTimes,
     },
   };
-  return { getAppContext: () => ({ account: { context: { uin: '10001' } }, services }) };
+  return {
+    accountEventBus: new EventEmitter(),
+    getAppContext: () => ({ account: { context: { uin: '10001' } }, services }),
+  };
 });
 
 it('主列表全量模式透传无上限查询，超过 500 个会话不截断且不生成下一页', async () => {

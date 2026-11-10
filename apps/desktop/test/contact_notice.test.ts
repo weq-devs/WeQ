@@ -98,6 +98,46 @@ describe('通知卡片操作匹配', () => {
   });
 });
 describe('通知红点', () => {
+  it.each(['friend', 'group'] as const)('同步其他窗口已读，重新聚焦也补读：%s', (kind) => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    cleanups.push(() => act(() => root.unmount()));
+    const key = `weq:notice-seen:windows:${kind}`;
+    const prefix = kind === 'friend' ? 'buddy-request:u_peer' : 'group-notify:123:u_peer';
+    const ids = [100, 200, 300].map((time) => `${prefix}:${time}`);
+    window.localStorage.setItem(key, JSON.stringify([ids[0]]));
+    function Probe() {
+      return h('span', null, useNoticeUnread('windows', kind, ids, false, true));
+    }
+    act(() => root.render(h(Probe)));
+    expect(host.textContent).toBe('2');
+    window.localStorage.setItem(key, JSON.stringify(ids.slice(0, 2)));
+    act(() => window.dispatchEvent(new StorageEvent('storage', { key: `${key}-other` })));
+    expect(host.textContent).toBe('2');
+    act(() => window.dispatchEvent(new StorageEvent('storage', { key })));
+    expect(host.textContent).toBe('1');
+    window.localStorage.setItem(key, JSON.stringify(ids));
+    act(() => window.dispatchEvent(new Event('focus')));
+    expect(host.textContent).toBe('0');
+    act(() => root.render(null));
+    act(() => root.render(h(Probe)));
+    expect(host.textContent).toBe('0');
+  });
+
+  it('同页多个通知入口也同步已读', () => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    cleanups.push(() => act(() => root.unmount()));
+    window.localStorage.setItem('weq:notice-seen:shared:friend', JSON.stringify(['old']));
+    function Probe({ open }: { open: boolean }) {
+      return h('span', null, useNoticeUnread('shared', 'friend', ['old', 'new'], open, true));
+    }
+    act(() => root.render(h('div', null, h(Probe, { open: false }), h(Probe, { open: false }))));
+    expect(host.textContent).toBe('11');
+    act(() => root.render(h('div', null, h(Probe, { open: true }), h(Probe, { open: false }))));
+    expect(host.textContent).toBe('00');
+  });
+
   it('已读 ID 淘汰后仍保留时间水位，相同时间的其他新通知不被吞掉', () => {
     const host = document.createElement('div');
     const root = createRoot(host);

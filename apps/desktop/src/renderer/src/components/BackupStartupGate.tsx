@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { FolderOpen, RefreshCw, ShieldAlert } from 'lucide-react';
 import { client } from '../trpc/client';
 import {
@@ -9,17 +9,21 @@ import {
 import { useThemeStore } from '../state/theme';
 import { usePrivacyStore } from '../state/privacy';
 import { useToast } from './Toast';
+import { startupDeadline } from '../lib/startupDeadline';
+import { publishRemoteStartup } from '../lib/remoteStartup';
 import '../styles/backup.css';
+import { IS_WEB } from '../lib/target';
+import { WebStartupCache, hydrateWebStartupCache } from '../lib/webStartupCache';
 
 const RUNTIME_ERROR_KEY = 'weq.runtime-file-error';
 
 /** 业务视图挂载前交接界面偏好；文件事务失败时不进入 Native／账号启动。 */
 export function BackupStartupGate({ children }: { children: ReactNode }) {
+  const queryCache = useContext(WebStartupCache);
   const [state, setState] = useState<BackupStartupState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
   const [confirmSkip, setConfirmSkip] = useState(false);
-  const [noticeDismissed, setNoticeDismissed] = useState(false);
   const generation = useRef(0);
   useEffect(() => {
     let revision: number | undefined;
@@ -37,107 +41,91 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
     });
     return () => subscription.unsubscribe();
   }, []);
-  const load = useCallback(async (recover = false) => {
-    const seq = ++generation.current;
-    setBusy(true);
-    setError(null);
-    try {
-      if (recover) await client.bootstrap.backupRetryRecovery.mutate();
-      const result = await serializeBackupClient(() =>
-        restoreBackupClient(
-          {
-            read: (clientId) =>
-              client.bootstrap.backupStartup.query(clientId ? { clientId } : undefined),
-            acknowledge: (id, clientId) =>
-              client.bootstrap.backupAcknowledgeClient.mutate({ id, clientId }),
-          },
-          () => window.localStorage,
-        ),
-      );
-      if (seq !== generation.current) return;
-      setState(result);
-      if (result.appliedThisStartup && result.result) {
-        try {
-          setNoticeDismissed(localStorage.getItem('weq.backup-result-seen') === result.result.id);
-        } catch {}
-      }
-      if (result.toastDurations) useToast.getState().setDurations(result.toastDurations);
-      if (result.ok) {
-        useThemeStore.getState().hydrate();
-        usePrivacyStore.getState().hydrate();
-        try {
-          const failure = sessionStorage.getItem(RUNTIME_ERROR_KEY);
-          sessionStorage.removeItem(RUNTIME_ERROR_KEY);
-          if (failure) setError(failure);
-        } catch {}
-      } else setError(result.error || '文件恢复尚未完成');
-    } catch (e) {
-      if (seq !== generation.current) return;
-      setError(e instanceof Error ? e.message : String(e));
-      // 界面交接文件损坏时仍可显示已提交的数据回执，供用户明确放弃界面部分。
+  const load = useCallback(
+    async (recover = false) => {
+      const seq = ++generation.current;
+      setBusy(true);
+      setError(null);
+      publishRemoteStartup({ state: 'loading', message: '正在检查恢复状态' });
       try {
-        const status = await client.bootstrap.backupStatus.query();
-        if (seq !== generation.current) return;
-        setState((previous) =>
-          previous
-            ? { ...previous, result: status.result }
-            : {
-                ok: false,
-                error: null,
-                result: status.result,
-                appliedThisStartup: false,
-                client: null,
-                canReveal: false,
-                canRestart: false,
-              },
+        if (recover) await client.bootstrap.backupRetryRecovery.mutate();
+        const result = await startupDeadline((signal) =>
+          serializeBackupClient(
+            () =>
+              restoreBackupClient(
+                {
+                  read: async (clientId) => {
+                    const input = clientId ? { clientId } : undefined;
+                    if (!IS_WEB) return client.bootstrap.backupStartup.query(input, { signal });
+                    const response = await client.startup.snapshot.query(input, { signal });
+                    if (response.snapshot && queryCache)
+                      hydrateWebStartupCache(queryCache, response.snapshot);
+                    return response.backup;
+                  },
+                  acknowledge: (id, clientId) =>
+                    client.bootstrap.backupAcknowledgeClient.mutate({ id, clientId }, { signal }),
+                },
+                () => window.localStorage,
+              ),
+            signal,
+          ),
         );
-      } catch {}
-    } finally {
-      if (seq === generation.current) setBusy(false);
-    }
-  }, []);
+        if (seq !== generation.current) return;
+        setState(result);
+        if (result.toastDurations) useToast.getState().setDurations(result.toastDurations);
+        if (result.ok) {
+          useThemeStore.getState().hydrate();
+          usePrivacyStore.getState().hydrate();
+          try {
+            const failure = sessionStorage.getItem(RUNTIME_ERROR_KEY);
+            sessionStorage.removeItem(RUNTIME_ERROR_KEY);
+            if (failure) setError(failure);
+          } catch {}
+        } else setError(result.error || '文件恢复尚未完成');
+      } catch (e) {
+        if (seq !== generation.current) return;
+        setError(e instanceof Error ? e.message : String(e));
+        // 界面交接文件损坏时仍可显示已提交的数据回执，供用户明确放弃界面部分。
+        try {
+          const status = await startupDeadline(
+            (signal) => client.bootstrap.backupStatus.query(undefined, { signal }),
+            3_000,
+          );
+          if (seq !== generation.current) return;
+          setState((previous) =>
+            previous
+              ? { ...previous, result: status.result }
+              : {
+                  ok: false,
+                  error: null,
+                  result: status.result,
+                  appliedThisStartup: false,
+                  client: null,
+                  canReveal: false,
+                  canRestart: false,
+                },
+          );
+        } catch {}
+      } finally {
+        if (seq === generation.current) setBusy(false);
+      }
+    },
+    [queryCache],
+  );
   useEffect(() => {
     void load();
     return () => {
       generation.current++;
     };
   }, [load]);
-  const notice = state?.appliedThisStartup && !noticeDismissed ? state.result : null;
-  if (!busy && state?.ok && !error && !notice) return children;
-  if (!busy && state?.ok && !error && notice)
-    return (
-      <main className="weq-backup-gate">
-        <section className="weq-backup-gate-content">
-          <h1>{notice.status === 'applied' ? '备份恢复已应用' : '备份恢复未应用'}</h1>
-          <p>
-            {notice.error ||
-              `已应用 ${notice.applied.length} 项，跳过 ${notice.skipped.length} 项。`}
-          </p>
-          {notice.clientPending ? (
-            <p>界面偏好等待发起恢复的设备确认，可在设置中改到当前设备恢复。</p>
-          ) : null}
-          {notice.warnings.length ? (
-            <ul className="weq-backup-list">
-              {notice.warnings.map((text) => (
-                <li key={text}>{text}</li>
-              ))}
-            </ul>
-          ) : null}
-          <button
-            type="button"
-            className="weq-set-btn"
-            onClick={() => {
-              try {
-                localStorage.setItem('weq.backup-result-seen', notice.id);
-              } catch {}
-              setNoticeDismissed(true);
-            }}
-          >
-            继续
-          </button>
-        </section>
-      </main>
-    );
+  useEffect(() => {
+    if (busy) return;
+    if (state?.ok && !error) return;
+    if ((state?.ok === false && state.error) || state?.result?.clientPending)
+      publishRemoteStartup({ state: 'action-required' });
+    else if (error) publishRemoteStartup({ state: 'error', message: error });
+  }, [busy, error, state]);
+  if (!busy && state?.ok && !error) return children;
   const canSkip = state?.result?.status === 'applied' && state.result.clientPending;
   return (
     <main className="weq-backup-gate">

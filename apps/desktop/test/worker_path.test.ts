@@ -19,6 +19,7 @@ function fixture(run: (root: string, add: (path: string) => void) => void): void
 }
 
 test.each([
+  'imageWorker.mjs',
   'attachWorker.mjs',
   'backupProbeWorker.mjs',
   'transcribeWorker.mjs',

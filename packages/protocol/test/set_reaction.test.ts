@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { decode, encode } from '../src/protobuf';
-import { SetReaction } from '../src/index';
+import { oidbCommand, resolveSign, SetReaction } from '../src/index';
 import type { SetReactionParams } from '../src/index';
 
 const hexToBytes = (hex: string): Uint8Array =>
@@ -54,9 +54,12 @@ const SET_QQ_FACE: SetReactionParams = {
 };
 
 describe('SetReaction (0x9082)', () => {
-  it('declares command 0x9082（sub 由 isSet 决定），并显式开启签名', () => {
+  it('declares command 0x9082（sub 由 isSet 决定），签名按三端声明的平台取', () => {
     expect(SetReaction.command).toBe(0x9082);
-    expect(SetReaction.needSign).toBe(true);
+    // 真机实测：Linux / Windows 签，macOS 不签。
+    expect(resolveSign(oidbCommand(0x9082, 1), 'linux').needSign).toBe(true);
+    expect(resolveSign(oidbCommand(0x9082, 1), 'win32').needSign).toBe(true);
+    expect(resolveSign(oidbCommand(0x9082, 1), 'darwin').needSign).toBe(false);
     expect(SetReaction.resolveSubCommand(SET_QQ_FACE)).toBe(1);
     expect(SetReaction.resolveSubCommand({ ...SET_QQ_FACE, isSet: false })).toBe(2);
   });
@@ -81,15 +84,18 @@ describe('SetReaction (0x9082)', () => {
     });
   });
 
-  it('isSet=false 走 0x9082_2、isSet=true 走 0x9082_1，两条都要签名', async () => {
+  it('isSet=false 走 0x9082_2、isSet=true 走 0x9082_1，签名跟随当前平台', async () => {
     const nt = makeNative();
     await SetReaction.invoke(nt, 7, SET_QQ_FACE);
     await SetReaction.invoke(nt, 7, { ...SET_QQ_FACE, isSet: false });
     expect(nt.calls.map((c) => c.subCommand)).toEqual([1, 2]);
     expect(nt.calls.every((c) => c.command === 0x9082)).toBe(true);
     expect(nt.calls.every((c) => c.pid === 7 && c.isUid === false)).toBe(true);
-    // 真机实测两个子命令都带 SecToken/SecExtra/SecSign（不在 Lagrange 白名单里，别照抄）。
-    expect(nt.calls.every((c) => c.needSign === true)).toBe(true);
+    // 真机实测：Linux / Windows 两个子命令都带 SecInfo，macOS 都不带。
+    const expected = nt.calls.every(
+      (c) => c.needSign === resolveSign(oidbCommand(c.command, c.subCommand)).needSign,
+    );
+    expect(expected).toBe(true);
   });
 
   it('参数非法时在编码前报错', () => {

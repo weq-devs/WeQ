@@ -20,6 +20,7 @@ export interface LongTaskItem {
   note?: string;
   icon: ReactNode;
   detail: ReactNode;
+  quickActions?: ReactNode;
 }
 
 const LABELS: Record<LongTaskStatus, string> = {
@@ -47,10 +48,12 @@ export function LongTaskRow({
   task,
   active,
   onSelect,
+  showQuickActions = false,
 }: {
   task: LongTaskItem;
   active: boolean;
   onSelect: () => void;
+  showQuickActions?: boolean;
 }) {
   const Icon = {
     pending: Clock,
@@ -64,7 +67,7 @@ export function LongTaskRow({
     task.progress !== undefined && Number.isFinite(task.progress)
       ? Math.max(0, Math.min(100, Math.round(task.progress)))
       : undefined;
-  return (
+  const row = (
     <button
       type="button"
       className={`weq-long-task is-${task.status}${active ? ' is-selected' : ''}`}
@@ -92,5 +95,13 @@ export function LongTaskRow({
         {progress !== undefined ? <small>{progress}%</small> : null}
       </span>
     </button>
+  );
+  return showQuickActions && task.quickActions ? (
+    <div className="weq-long-task-entry" role="group" aria-label={task.name}>
+      {row}
+      {task.quickActions}
+    </div>
+  ) : (
+    row
   );
 }

@@ -2,6 +2,10 @@ import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock(
+  '../src/renderer/src/hooks/useContactDirectoryOrder',
+  () => import('./support/contact-order.stub'),
+);
 import {
   ConversationList,
   ContactList,
@@ -22,16 +26,19 @@ import { MemberProfileCard } from '../src/renderer/src/components/MemberProfileC
 import { Modal } from '../src/renderer/src/components/Dialog';
 import { WorkspaceContent, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
+import { useViewState } from '../src/renderer/src/state/view';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
     new Proxy(() => proxy(), {
       get: (_target, key) =>
-        key === 'useQuery'
-          ? () => ({ data: undefined, isLoading: false })
-          : key === 'useMutation'
-            ? () => ({ mutate: vi.fn(), isLoading: false })
-            : proxy(),
+        key === 'getAccountConfig'
+          ? { useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }) }
+          : key === 'useQuery'
+            ? () => ({ data: undefined, isLoading: false })
+            : key === 'useMutation'
+              ? () => ({ mutate: vi.fn(), isLoading: false })
+              : proxy(),
     });
   return { trpc: proxy(), client: proxy() };
 });
@@ -667,12 +674,12 @@ describe('新增消息交互', () => {
     try {
       fixture.render(h(Card));
       const modal = document.querySelector('.weq-member-pop')!;
-      act(() => button(modal, '预览私聊').click());
+      act(() => button(modal, '预览消息').click());
       expect(preview).toHaveBeenCalledOnce();
       expect(close).not.toHaveBeenCalled();
       expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
       expect(document.querySelector('.weq-window-layer')).toBeNull();
-      expect(modal.textContent).toContain('预览私聊');
+      expect(modal.textContent).toContain('预览消息');
       expect(modal.textContent).toContain('没有本地聊天记录');
       expect(modal.querySelector('textarea, [contenteditable="true"]')).toBeNull();
       act(() => button(modal, '返回资料').click());
@@ -685,6 +692,8 @@ describe('新增消息交互', () => {
     }
   });
   it('联系人搜索、多选、刷新在通知上方同一工具行，点击用高亮选择不打开名片', () => {
+    const previousUin = useViewState.getState().openedUin;
+    useViewState.setState({ openedUin: '10001' });
     const fixture = mount();
     const demo = createTemplateDemoData();
     const refresh = vi.fn(),
@@ -722,7 +731,11 @@ describe('新增消息交互', () => {
       fixture.render(h(Contacts));
       const tools = fixture.host.querySelector('.contact-tools')!;
       expect(tools.firstElementChild?.classList.contains('weq-directory-toolbar')).toBe(true);
-      act(() => button(fixture.host, '刷新联系人列表').click());
+      expect(button(fixture.host, '更新好友/群信息缓存').disabled).toBe(false);
+      act(() => button(fixture.host, '更新好友/群信息缓存').click());
+      expect(refresh).not.toHaveBeenCalled();
+      act(() => button(document, '不更新').click());
+      act(() => button(document, '仅刷新列表').click());
       expect(refresh).toHaveBeenCalledOnce();
       act(() => button(fixture.host, '多选联系人').click());
       act(() => fixture.host.querySelector<HTMLButtonElement>('.contact-cat-header')!.click());
@@ -739,6 +752,7 @@ describe('新增消息交互', () => {
       expect(fixture.host.querySelector('[aria-label="多选联系人"]')).toBeNull();
     } finally {
       fixture.close();
+      useViewState.setState({ openedUin: previousUin });
     }
   });
   it('QQ 动态说说卡片识别真实 schema 并内部定位，不只支持 Ark 链接', () => {

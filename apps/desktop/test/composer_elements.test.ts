@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   composerQuoteElement,
+  composerQuoteToken,
   quoteFromMessage,
 } from '../src/renderer/src/im-template/template/composerQuote';
 import {
@@ -34,6 +35,9 @@ import { createTemplateDemoData } from '../src/renderer/src/im-template/template
 import { atAllMentionState } from '../src/renderer/src/lib/atAllMention';
 import { prepareReeditDraft } from '../src/renderer/src/im-template/template/composerReedit';
 import { buildSendElems, type SendElement } from '@weq/protocol';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { createElement } from 'react';
+import { QqMessageContent } from '../src/renderer/src/components/QqMessageContent';
 
 describe('引用消息重新编辑', () => {
   const message = { body: '摘要', createdAt: '2026-10-18T12:00:00Z' } as Message;
@@ -95,6 +99,91 @@ describe('引用消息重新编辑', () => {
 
 describe('composer_quote', () => {
   describe('发送引用的内容与编号', () => {
+    it.each(['本地好友备注', '本地群名片'])(
+      '未同步的引用气泡显示 %s，发送计划不携带本地名称',
+      async (senderName) => {
+        const quote = quoteFromMessage({
+          msgSeq: '120',
+          clientSeq: '7',
+          body: '原消息正文',
+          sender: { identityValue: '20002', displayName: senderName },
+          createdAt: '2026-10-18T00:00:00+08:00',
+        } as Message)!;
+        const body = composerQuoteToken(quote);
+        const render = buildOptimisticRender({ body, locals: [], superStickers: new Map() });
+        const html = renderToStaticMarkup(
+          createElement(QqMessageContent, { elements: render.elements, sendTimeMs: 0 }),
+        );
+        expect(html).toContain(senderName);
+        const restored = await prepareReeditDraft(
+          { body: '[引用]', createdAt: '', composerDraft: { body } },
+          [],
+          new AbortController().signal,
+        );
+        expect(restored.body).toBe(body);
+        expect(buildOptimisticRender({ ...restored, superStickers: new Map() }).elements).toEqual(
+          render.elements,
+        );
+        const plan = buildComposerSendPlan({ body, locals: [], superStickers: new Map() });
+        expect(plan.kind).toBe('elements');
+        if (plan.kind !== 'elements') throw new Error('应按混排消息发送');
+        expect(plan.elements[0]).not.toHaveProperty('origSenderDisplayName');
+        expect(buildSendElems(plan.elements as SendElement[])).toEqual(
+          buildSendElems([
+            {
+              kind: 'reply',
+              origMsgSeq: 7,
+              origSenderUin: 20002,
+              origMsgTime: quote.msgTime,
+              origElements: [{ kind: 'text', textContent: '原消息正文' }],
+            },
+          ]),
+        );
+      },
+    );
+    it('粘贴引用保留本地名称和原指针，旧草稿没有名称时仍以 QQ 号兜底', () => {
+      const originalElement = {
+        kind: 'reply',
+        origMsgSeq: 7,
+        origMsgIndex: 120,
+        origSenderUin: 20002,
+        origElements: [{ kind: 'text', textContent: '原摘要' }],
+      };
+      const quote = {
+        msgSeq: 120,
+        senderName: '本地备注',
+        preview: '原摘要',
+        originalElement,
+      };
+      const render = buildOptimisticRender({
+        body: composerQuoteToken(quote),
+        locals: [],
+        superStickers: new Map(),
+      });
+      expect(render.elements[0]?.data).toMatchObject({
+        origMsgSeq: 7,
+        origMsgIndex: 120,
+        origSenderDisplayName: '本地备注',
+      });
+      expect(originalElement).not.toHaveProperty('origSenderDisplayName');
+      expect(
+        buildComposerSendPlan({
+          body: composerQuoteToken(quote),
+          locals: [],
+          superStickers: new Map(),
+        }),
+      ).toEqual({ kind: 'elements', elements: [originalElement] });
+      const legacy = buildOptimisticRender({
+        body: elementToToken(originalElement),
+        locals: [],
+        superStickers: new Map(),
+      });
+      expect(
+        renderToStaticMarkup(
+          createElement(QqMessageContent, { elements: legacy.elements, sendTimeMs: 0 }),
+        ),
+      ).toContain('20002');
+    });
     it('引用摘要里的提及保留文字，不要求重新解析 UIN 或发送通知', () => {
       const quote = quoteFromMessage({
         msgSeq: '120',

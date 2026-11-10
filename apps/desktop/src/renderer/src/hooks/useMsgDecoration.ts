@@ -26,6 +26,7 @@ type DecorationIds = { bubbleId: number; fontId: number; widgetId: number } | un
  * CSS for bubbles / fonts / animated widgets is injected as a side-effect when
  * data arrives; the caller only needs to apply `data-bubble` / `data-font` /
  * `data-widget` attributes to the DOM.
+ * 气泡与字体的返回 id 经过资源就绪检查：同条消息的两项装扮一起应用或一起回退。
  *
  * 字体多回一份 `fontFx`（`eimg` 炫彩帧）：那层 CSS 要求行上再挂一个
  * `data-fontfx="<字体id>-<变体>"` 才生效，而挂哪一档要量完气泡尺寸才知道（气泡比
@@ -63,7 +64,7 @@ export function useMsgDecoration(
   const bubbleId = enabled.bubble ? (decoration?.bubbleId ?? 0) : 0;
   const fontId = enabled.font ? (decoration?.fontId ?? 0) : 0;
   const widgetId = enabled.widget ? (decoration?.widgetId ?? 0) : 0;
-  // 按种类缓存：补齐字体或挂件时，不让已经显示的气泡退回加载态。
+  // 按种类共享缓存，挂件不影响字体与气泡的就绪状态。
   const bubbleQuery = trpc.account.dressup.resolveMsgDecoration.useQuery(
     { bubbleId, fontId: 0, widgetId: 0 },
     { enabled: Boolean(bubbleId && visible && tabActive), staleTime: Infinity },
@@ -80,20 +81,50 @@ export function useMsgDecoration(
   const font = fontId ? (fontQuery.data?.font ?? null) : null;
   const widget = widgetId ? (widgetQuery.data?.widget ?? null) : null;
 
+  const [prepared, setPrepared] = useState<{
+    bubble: typeof bubble;
+    font: typeof font;
+    bubbleId: number;
+    fontId: number;
+  } | null>(null);
   useLayoutEffect(() => {
-    if (visible && tabActive && bubble) return injectBubbleCss(bubble);
-  }, [bubble, visible, tabActive]);
-  useLayoutEffect(() => {
-    if (visible && tabActive && font) return injectFontCss(fontId, font);
-  }, [font, fontId, visible, tabActive]);
+    // 配置返回不代表资源可绘制；成组等待底图解码和字体注册，避免半套装扮降低对比度。
+    if (
+      !visible ||
+      !tabActive ||
+      (!bubbleId && !fontId) ||
+      (bubbleId && !bubble) ||
+      (fontId && !font)
+    )
+      return;
+    const bubbleLease = bubble ? injectBubbleCss(bubble) : null;
+    const fontLease = font ? injectFontCss(fontId, font) : null;
+    let disposed = false;
+    void Promise.all([bubbleLease?.ready ?? true, fontLease?.ready ?? true]).then((results) => {
+      if (!disposed && results.every(Boolean)) setPrepared({ bubble, font, bubbleId, fontId });
+    });
+    return () => {
+      disposed = true;
+      setPrepared(null);
+      bubbleLease?.();
+      fontLease?.();
+    };
+  }, [bubble, font, bubbleId, fontId, visible, tabActive]);
   useLayoutEffect(() => {
     if (visible && tabActive && widget) return injectWidgetCss(widget);
   }, [widget, visible, tabActive]);
 
+  const ready =
+    visible &&
+    tabActive &&
+    prepared?.bubble === bubble &&
+    prepared?.font === font &&
+    prepared?.bubbleId === bubbleId &&
+    prepared?.fontId === fontId;
   return {
     widget,
-    bubbleId: bubble ? bubbleId : 0,
-    fontId: font ? fontId : 0,
-    fontFx: toFontFxSkin(font),
+    bubbleId: ready ? bubbleId : 0,
+    fontId: ready ? fontId : 0,
+    fontFx: ready ? toFontFxSkin(font) : null,
   };
 }

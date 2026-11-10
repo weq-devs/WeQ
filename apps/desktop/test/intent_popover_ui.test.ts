@@ -69,6 +69,25 @@ async function fixture() {
   return { host, root, close: () => act(() => root.unmount()) };
 }
 describe('意图浮窗的宿主与关闭', () => {
+  it('键盘聚焦胶囊可打开详情，并通过 aria-describedby 关联到工具提示', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(Fixture)));
+      const button = host.querySelector<HTMLElement>('[aria-label="消息意图与情绪"]')!;
+      act(() => button.focus());
+      const tooltip = document.querySelector('.weq-intent-popover')!;
+      expect(tooltip).not.toBeNull();
+      expect(button.getAttribute('aria-describedby')).toBe(tooltip.id);
+      act(() =>
+        button.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' })),
+      );
+      expect(document.querySelector('.weq-intent-popover')).toBeNull();
+    } finally {
+      act(() => root.unmount());
+    }
+  });
   it.each(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph'])(
     '单按 %s 保留意图浮窗，松开后也不关闭',
     async (key) => {
@@ -109,7 +128,10 @@ describe('意图浮窗的宿主与关闭', () => {
       expect(f.host.contains(tooltip)).toBe(false);
       expect(Number.parseFloat(tooltip.style.top)).toBe(202);
       expect(Number(tooltip.style.zIndex)).toBeGreaterThan(1200);
-      expect(tooltip.textContent).toContain('请求');
+      expect(tooltip.textContent).toContain('情绪强度');
+      expect(tooltip.querySelector('.weq-intent-pill')).toBeNull();
+      expect(tooltip.querySelector('button, a, [role="button"]')).toBeNull();
+      expect(f.host.querySelector('.weq-intent-details')?.tagName).toBe('SPAN');
       expect(context.requestAnalysis).not.toHaveBeenCalled();
     } finally {
       f.close();

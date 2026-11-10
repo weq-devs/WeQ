@@ -1,0 +1,43 @@
+/* macOS 红绿灯位于左上角；Linux 原生装饰在客户区外，不占正文空间。 */
+.app-shell-root.is-mac .app-title-bar.has-native-controls {
+  padding-left: 84px;
+}
+
+.weq-native-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding-left: 12px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  font-size: 12px;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+.weq-native-window-header > span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+:is(.app-title-bar, .weq-native-window-header) .app-title-bar-actions button {
+  color: var(--weq-fg-primary);
+}
+
+:is(.app-title-bar, .weq-native-window-header) .app-title-bar-actions button:hover {
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-elevated);
+}
+
+:is(.app-title-bar, .weq-native-window-header) .app-title-bar-actions button.close:hover {
+  background: var(--weq-danger-solid-background);
+  color: var(--weq-danger-solid-foreground);
+}
+
+:is(.app-title-bar, .weq-native-window-header) button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}

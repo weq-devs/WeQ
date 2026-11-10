@@ -19,7 +19,6 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock('electron', () => ({ app: fixture.app, dialog: { showErrorBox: vi.fn() } }));
 vi.mock('node:child_process', () => ({ fork: fixture.fork, execFileSync: vi.fn() }));
-vi.mock('../src/main/app_quit_confirmation', () => ({ skipNextQuitConfirmation: vi.fn() }));
 vi.mock('../src/main/worker_path', () => ({
   resolveChildWorkerPath: () => '/synthetic/storageCleanupWorker.mjs',
 }));

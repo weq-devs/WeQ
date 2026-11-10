@@ -183,7 +183,6 @@ export interface LocationShareStartResult {
  */
 export namespace StartLocationShare {
   export const cmd = 'QQLBSShareSvc.room_operation';
-  export const needSign = false;
   export const reqSchema = ROOM_OPERATION_REQ;
   export const respSchema = ROOM_OPERATION_RESP;
 
@@ -253,7 +252,6 @@ export interface LocationReportResult {
  */
 export namespace ReportLocation {
   export const cmd = 'QQLBSShareSvc.report_location';
-  export const needSign = false;
   export const reqSchema = REPORT_LOCATION_REQ;
   export const respSchema = REPORT_LOCATION_RESP;
 
@@ -357,7 +355,6 @@ export interface LocationRoom {
  */
 export namespace QueryLocation {
   export const cmd = 'QQLBSShareSvc.room_query';
-  export const needSign = false;
   export const reqSchema = QUERY_LOCATION_REQ;
   export const respSchema = QUERY_LOCATION_RESP;
 

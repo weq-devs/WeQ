@@ -40,8 +40,7 @@ function composePrivateFileDownloadUrl(server: string, port: number, url: string
 export namespace GetGroupFileUrl {
   export const command = 0x6d6;
   export const subCommand = 2;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
   export const uinForm = true;
   export const reqSchema = OIDB_GROUP_FILE_REQ;
   export const respSchema = OIDB_GROUP_FILE_RESP;
@@ -88,8 +87,7 @@ const PRIVATE_FILE_MAGIC = new Uint8Array([0xc0, 0x85, 0x2c, 0x01]);
 export namespace GetPrivateFileUrl {
   export const command = 0xe37;
   export const subCommand = 1200;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
   export const reqSchema = OIDB_PRIVATE_FILE_DOWNLOAD_REQ;
   export const respSchema = OIDB_PRIVATE_FILE_DOWNLOAD_RESP;
 

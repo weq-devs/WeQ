@@ -138,19 +138,14 @@ async function requestUpload(
     },
   });
 
-  // 命令来自 `params.oidbCmd`（动态）。抓包（/tmp/capture.log）里上传申请命令
-  // `OidbSvcTrpcTcp.0x11c4_100` 不带 tag 24，故按抓包不签名。
-  const respBytes = await sendOidb(
-    nt,
-    pid,
-    {
-      command: params.oidbCmd,
-      subCommand: 100,
-      body,
-      isUid: true,
-    },
-    false,
-  );
+  // 命令来自 `params.oidbCmd`（动态），签名策略按 `OidbSvcTrpcTcp.0x<cmd>_100`
+  // 查中央表：图片签、语音与群视频不签、私聊视频签（见 sign-policy.ts）。
+  const respBytes = await sendOidb(nt, pid, {
+    command: params.oidbCmd,
+    subCommand: 100,
+    body,
+    isUid: true,
+  });
   const resp = decode(NTV2_UPLOAD_RESP_TOP, respBytes) as {
     respHead?: { retCode?: number; message?: string };
     upload?: Ntv2UploadResp;

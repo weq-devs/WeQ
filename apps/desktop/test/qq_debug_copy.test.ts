@@ -282,6 +282,51 @@ it('启动使用精确副本路径；失败不报告已运行，也不继承 Ele
     vi.unstubAllEnvs();
   }
 });
+it('已有副本进程仍可启动新实例，打开已有窗口不传 -n，也不终止进程', async () => {
+  const f = await fixture();
+  await f.manager.perform('prepare');
+  f.processes(`42 ${f.target}/Contents/MacOS/QQ`);
+  await f.manager.perform('launch');
+  await f.manager.perform('activate');
+  expect(
+    f.run.mock.calls.filter(([command]) => command === '/usr/bin/open').map(([, args]) => args),
+  ).toEqual([
+    ['-n', '-a', f.target],
+    ['-a', f.target],
+  ]);
+  expect((await f.manager.status()).runningPids).toEqual([42]);
+});
+it('一键打开在缺失时准备并启动，可用但过期时不更新，损坏时修复后启动', async () => {
+  const f = await fixture();
+  await f.manager.perform('open');
+  expect((await f.manager.status()).state).toBe('ready');
+  expect(f.run.mock.calls.filter(([command]) => command === '/usr/bin/open')).toHaveLength(1);
+  await writeFile(f.infoPath(f.source), JSON.stringify({ ...f.info, CFBundleVersion: '2' }));
+  await f.manager.perform('open');
+  expect((await f.manager.status()).state).toBe('outdated');
+  expect(f.run.mock.calls.filter(([command]) => command === '/bin/cp')).toHaveLength(1);
+  await writeFile(
+    join(f.target, 'Contents/Resources/weq-debug-copy.json'),
+    JSON.stringify({ format: 1, source: f.source, sourceVersion: '7.0.1-1' }),
+  );
+  await f.manager.perform('open');
+  expect((await f.manager.status()).state).toBe('ready');
+  expect(f.run.mock.calls.filter(([command]) => command === '/usr/bin/open')).toHaveLength(3);
+});
+it('一键修复遇到运行中副本或签名失败时不启动，不替换在用副本', async () => {
+  const f = await fixture();
+  await f.manager.perform('prepare');
+  await writeFile(
+    join(f.target, 'Contents/Resources/weq-debug-copy.json'),
+    JSON.stringify({ format: 1, source: f.source, sourceVersion: '7.0.1-1' }),
+  );
+  f.processes(`42 ${f.target}/Contents/MacOS/QQ`);
+  await expect(f.manager.perform('open')).rejects.toThrow('正在运行');
+  f.processes('');
+  f.failSign();
+  await expect(f.manager.perform('open')).rejects.toThrow('signing failure');
+  expect(f.run.mock.calls.some(([command]) => command === '/usr/bin/open')).toBe(false);
+});
 it('读取端缺少调试权限时仍能启动副本，状态继续如实报告未就绪', async () => {
   const f = await fixture();
   f.noReader();

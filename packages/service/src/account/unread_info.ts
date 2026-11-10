@@ -55,6 +55,7 @@ export class UnreadInfoService {
   private readonly openedAt = Date.now() / 1000;
   private disposed = false;
   private readonly reads = new AbortController();
+  private readonly badgeReads = new Map<string, Promise<UnreadInfoSnapshot[]>>();
   private generation = 0;
   private readonly pending = new Map<string, PendingReport>();
   private readonly confirmed = new Map<
@@ -144,12 +145,35 @@ export class UnreadInfoService {
         readError: true,
       }));
     const began = performance.now();
-    const snapshots = watermarksOnly
-      ? await this.session.unreadInfo.getUnreadInfos(targets)
-      : await this.readSnapshots(targets);
+    const readSeqs = new Map<string, string>();
+    for (const target of targets) {
+      const floor = this.local.countFloor(target.chatType, target.uid);
+      if (floor !== undefined) readSeqs.set(`${target.chatType}_${target.uid}`, floor);
+    }
+    const key = JSON.stringify([watermarksOnly, targets, [...readSeqs]]);
+    // 带独立取消信号的调用不共享在途任务，避免一个调用取消其他页面的统计。
+    const share = databaseRequestSignal() === undefined;
+    let reading = share ? this.badgeReads.get(key) : undefined;
+    if (!reading) {
+      reading = this.readSnapshots(targets, readSeqs, watermarksOnly).finally(() => {
+        if (share) this.badgeReads.delete(key);
+      });
+      if (share) this.badgeReads.set(key, reading);
+    }
+    const snapshots = await reading;
     recordMessageWork(this.session.msgDbPath, 'watermarks', performance.now() - began);
     if (this.disposed) return snapshots.map((row) => ({ ...row, readError: true }));
     const rows = snapshots.map((row): ResolvedUnreadInfo => {
+      const currentFloor = this.local.countFloor(row.chatType, row.uid) ?? '0';
+      const scannedFrom = readSeqs.get(row.peer);
+      // 撤销手动阅读可能降低下限；此前跳过的区间不能冒充已完成统计。
+      if (
+        !watermarksOnly &&
+        scannedFrom !== undefined &&
+        BigInt(scannedFrom) > BigInt(currentFloor) &&
+        BigInt(scannedFrom) > BigInt(row.msgSeq ?? 0)
+      )
+        return { ...row, readError: true };
       if (
         watermarksOnly &&
         !row.readError &&
@@ -157,6 +181,7 @@ export class UnreadInfoService {
         row.latestSeq !== null &&
         /^\d+$/.test(row.latestSeq) &&
         BigInt(row.latestSeq) > BigInt(row.msgSeq) &&
+        BigInt(row.latestSeq) > BigInt(currentFloor) &&
         classifyChatType(row.chatType) !== 'dataline'
       )
         return { ...row, countPending: true };
@@ -168,17 +193,25 @@ export class UnreadInfoService {
     return rows;
   }
 
-  private readSnapshots(targets: UnreadInfoTarget[]): Promise<UnreadInfoSnapshot[]> {
+  private readSnapshots(
+    targets: UnreadInfoTarget[],
+    readSeqs?: ReadonlyMap<string, string>,
+    watermarksOnly = false,
+  ): Promise<UnreadInfoSnapshot[]> {
     const inherited = databaseRequestSignal();
     const signal = inherited ? AbortSignal.any([inherited, this.reads.signal]) : this.reads.signal;
     return withDatabasePriority(
-      'background',
+      watermarksOnly ? 'interactive' : 'background',
       () => {
         signal.throwIfAborted();
-        return this.session.unreadInfo.getUnreadInfos(targets, {
+        if (watermarksOnly) return this.session.unreadInfo.getUnreadInfos(targets);
+        const self = {
           selfUid: this.session.selfUid,
           selfUin: this.session.context.uin,
-        });
+        };
+        return readSeqs?.size
+          ? this.session.unreadInfo.getUnreadInfos(targets, self, readSeqs)
+          : this.session.unreadInfo.getUnreadInfos(targets, self);
       },
       signal,
     );

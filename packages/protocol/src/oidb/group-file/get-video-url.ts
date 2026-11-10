@@ -15,8 +15,7 @@ const PRIVATE_VIDEO_REQUEST_ID = 6;
 export namespace GetGroupVideoUrl {
   export const command = 0x11ea;
   export const subCommand = 200;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
   export const uinForm = true;
   export const reqSchema = NTV2_RICH_MEDIA_REQ;
   export const respSchema = NTV2_RICH_MEDIA_RESP;
@@ -48,8 +47,7 @@ export namespace GetGroupVideoUrl {
 export namespace GetPrivateVideoUrl {
   export const command = 0x11e9;
   export const subCommand = 200;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
   export const uinForm = true;
   export const reqSchema = NTV2_RICH_MEDIA_REQ;
   export const respSchema = NTV2_RICH_MEDIA_RESP;

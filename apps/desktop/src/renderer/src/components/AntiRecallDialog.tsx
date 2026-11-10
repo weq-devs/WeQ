@@ -2,7 +2,7 @@
  * 防撤回：设置来源展示页内摘要，选择与记录按需打开工具。
  *
  * 非设置来源保留原独立面板的三页：
- *   • 保护：总开关、保护范围（按会话勾选 / 永久全选）、受保护会话选择。
+ *   • 保护：启用范围（关闭 / 按会话勾选 / 永久全选）、启用防撤回的会话选择。
  *   • 通知：撤回通知总开关 + 按会话通知集。通知由主进程发系统原生通知，点通知
  *     会唤起窗口并跳到那条消息。
  *   • 记录：有撤回记录的会话目录（计数 + 最近一次撤回时间）。点一行打开该会话的
@@ -22,6 +22,8 @@ import {
   RotateCcw,
   Save,
   ShieldCheck,
+  ListFilter,
+  MessagesSquare,
   X,
 } from 'lucide-react';
 import { trpc } from '../trpc/client';
@@ -44,8 +46,8 @@ import '../styles/anti-recall-settings.css';
 /** 触发器过滤所用的会话类型（与后端 AntiRecallKind 对齐）。 */
 type AntiRecallKind = 'c2c' | 'group' | 'dataline';
 
-/** 保护模式：按会话勾选 / 永久全选（不做会话筛选）。 */
-type AntiRecallMode = 'selected' | 'all';
+/** 启用范围：关闭 / 按会话勾选 / 永久全选（不做会话筛选）。 */
+type AntiRecallScope = 'off' | 'selected' | 'all';
 
 type Tab = 'protect' | 'notify' | 'records';
 
@@ -55,7 +57,8 @@ const TABS: { id: Tab; label: string; icon: typeof ShieldCheck }[] = [
   { id: 'records', label: '记录', icon: RotateCcw },
 ];
 
-const MODE_OPTIONS: { value: AntiRecallMode; label: string }[] = [
+const SCOPE_OPTIONS: { value: AntiRecallScope; label: string }[] = [
+  { value: 'off', label: '关闭' },
   { value: 'selected', label: '按会话勾选' },
   { value: 'all', label: '永久全选' },
 ];
@@ -204,21 +207,24 @@ export function AntiRecallDialog({
   });
   const isStaticPcOnly = (config.data?.static ?? false) && !(config.data?.mobile ?? false);
 
-  const setEnabled = trpc.account.antiRecall.setEnabled.useMutation();
-  const setMode = trpc.account.antiRecall.setMode.useMutation();
+  const setScope = trpc.account.antiRecall.setScope.useMutation();
   const setTargets = trpc.account.antiRecall.setTargets.useMutation();
   const setNotify = trpc.account.antiRecall.setNotify.useMutation();
-  const busy =
-    setEnabled.isLoading || setMode.isLoading || setTargets.isLoading || setNotify.isLoading;
+  const busy = setScope.isLoading || setTargets.isLoading || setNotify.isLoading;
 
-  const enabled = status.data?.enabled ?? false;
-  const mode: AntiRecallMode = status.data?.mode ?? 'selected';
+  const scope: AntiRecallScope = status.data
+    ? status.data.enabled
+      ? status.data.mode
+      : 'off'
+    : 'off';
+  const enabled = scope !== 'off';
+  const mode: 'selected' | 'all' = scope === 'all' ? 'all' : 'selected';
   const notifyEnabled = status.data?.notifyEnabled ?? false;
   const qqRunning = status.data?.qqRunning ?? false;
   const installedCount = status.data?.installed.length ?? 0;
 
   /** 写操作的返回值（期望状态）直接落进查询缓存：点击即生效。 */
-  function applyStatus(next: Awaited<ReturnType<typeof setEnabled.mutateAsync>>): void {
+  function applyStatus(next: Awaited<ReturnType<typeof setScope.mutateAsync>>): void {
     utils.account.antiRecall.getStatus.setData(undefined, next);
   }
 
@@ -278,42 +284,35 @@ export function AntiRecallDialog({
   );
   const dirty = useMemo(() => !sameIds(selected, savedIds), [selected, savedIds]);
 
-  async function onToggleEnabled(next: boolean): Promise<void> {
+  async function onSetScope(next: AntiRecallScope): Promise<void> {
+    if (next === scope) return;
     const current = mutationGuard();
     if (!current()) return;
     try {
-      const res = await setEnabled.mutateAsync({ enabled: next });
+      const res = await setScope.mutateAsync({ scope: next });
       if (!current()) return;
       applyStatus(res);
-      pushToast({
-        tone: next ? 'success' : 'info',
-        title: next ? '防撤回已开启' : '防撤回已关闭',
-        message: next
-          ? res.qqRunning
-            ? '触发器已装上。QQ 正在运行，可能要重启 QQ 才真正生效。'
-            : '触发器已装上。'
-          : res.qqRunning
+      if (next === 'off') {
+        pushToast({
+          tone: 'info',
+          title: '防撤回已关闭',
+          message: res.qqRunning
             ? '触发器已卸下。QQ 正在运行，可能要重启 QQ 才彻底停止。'
             : '触发器已卸下。',
-      });
+        });
+      } else if (scope === 'off') {
+        pushToast({
+          tone: 'success',
+          title: '防撤回已开启',
+          message: res.qqRunning
+            ? '触发器已装上。QQ 正在运行，可能要重启 QQ 才真正生效。'
+            : '触发器已装上。',
+        });
+      }
     } catch (e) {
       if (!current()) return;
       void status.refetch();
-      showError(next ? '开启防撤回失败' : '关闭防撤回失败', errMsg(e));
-    }
-  }
-
-  async function onSetMode(next: AntiRecallMode): Promise<void> {
-    if (next === mode) return;
-    const current = mutationGuard();
-    if (!current()) return;
-    try {
-      const result = await setMode.mutateAsync({ mode: next });
-      if (current()) applyStatus(result);
-    } catch (e) {
-      if (!current()) return;
-      void status.refetch();
-      showError('切换保护范围失败', errMsg(e));
+      showError(next === 'off' ? '关闭防撤回失败' : '切换启用范围失败', errMsg(e));
     }
   }
 
@@ -496,14 +495,18 @@ export function AntiRecallDialog({
         ? [...notifySelected].sort()
         : null;
     const title =
-      editor === 'records' ? '撤回记录' : choosingProtection ? '受保护的会话' : '通知哪些会话';
+      editor === 'records' ? '撤回记录' : choosingProtection ? '启用防撤回的会话' : '通知哪些会话';
     return (
       <section
         className="weq-set weq-ar-settings"
         aria-label="防撤回设置"
         data-setting-id="anti-recall"
       >
-        <Card title="防撤回" action={<SettingsScopeBadge />}>
+        <Card
+          title="防撤回"
+          icon={<ShieldCheck size={15} strokeWidth={1.8} />}
+          action={<SettingsScopeBadge />}
+        >
           {status.error ? (
             <QueryError
               message={status.error.message}
@@ -521,35 +524,27 @@ export function AntiRecallDialog({
             />
           ) : null}
           <Row
-            label="启用防撤回"
+            label="启用范围"
             desc={
               isStaticPcOnly
                 ? '静态账号的数据库是导入的离线快照，QQ 不会往里写入，触发器拦不到任何撤回。'
-                : '在本地数据库上拦下撤回写入，仅影响本机记录，不向对方发送任何内容。'
+                : scope === 'all'
+                  ? '所有会话（含以后新增的）都受保护，不向对方发送任何内容。'
+                  : scope === 'selected'
+                    ? '仅保护下面勾选的会话，不向对方发送任何内容。'
+                    : '不拦截撤回；选择「按会话勾选」或「永久全选」后才会安装触发器。'
             }
             control={
-              <Toggle
-                checked={enabled && !isStaticPcOnly}
-                disabled={unavailable || isStaticPcOnly}
-                onChange={(next) => void onToggleEnabled(next)}
-                label="启用防撤回"
-              />
-            }
-          />
-          <Row
-            label="保护范围"
-            desc={mode === 'all' ? '所有会话（含以后新增的）都受保护。' : '仅保护已选择的会话。'}
-            control={
-              <div className="weq-set-seg" role="radiogroup" aria-label="防撤回保护范围">
-                {MODE_OPTIONS.map((option) => (
+              <div className="weq-set-seg" role="radiogroup" aria-label="防撤回启用范围">
+                {SCOPE_OPTIONS.map((option) => (
                   <button
                     type="button"
                     role="radio"
                     key={option.value}
-                    aria-checked={mode === option.value}
-                    className={cn('weq-set-seg-item', mode === option.value && 'is-on')}
-                    disabled={unavailable}
-                    onClick={() => void onSetMode(option.value)}
+                    aria-checked={scope === option.value}
+                    className={cn('weq-set-seg-item', scope === option.value && 'is-on')}
+                    disabled={unavailable || (isStaticPcOnly && option.value !== 'off')}
+                    onClick={() => void onSetScope(option.value)}
                   >
                     {option.label}
                   </button>
@@ -574,27 +569,24 @@ export function AntiRecallDialog({
               </span>
             }
           />
-          <Row
-            label="受保护的会话"
-            desc={
-              !status.data
-                ? '保护会话尚未读取。'
-                : mode === 'all'
-                  ? `保护全部会话；保留 ${savedIds.size} 个按会话选择。`
-                  : `已选择 ${savedIds.size} 个会话。`
-            }
-            control={
-              <button
-                type="button"
-                className="weq-set-btn"
-                disabled={unavailable}
-                onClick={() => openEditor('protect')}
-              >
-                <Pencil size={14} aria-hidden="true" />
-                编辑保护会话
-              </button>
-            }
-          />
+          {scope === 'selected' ? (
+            <Row
+              label="启用防撤回的会话"
+              desc={!status.data ? '会话尚未读取。' : `已选择 ${savedIds.size} 个会话。`}
+              control={
+                <button
+                  type="button"
+                  className="weq-set-btn"
+                  disabled={unavailable}
+                  aria-label="编辑启用防撤回的会话"
+                  onClick={() => openEditor('protect')}
+                >
+                  <Pencil size={14} aria-hidden="true" />
+                  编辑会话
+                </button>
+              }
+            />
+          ) : null}
           <Row
             label="撤回时通知我"
             desc="被拦下的撤回会弹系统通知，点击通知可定位消息。"
@@ -607,25 +599,24 @@ export function AntiRecallDialog({
               />
             }
           />
-          <Row
-            label="通知会话"
-            desc={
-              !status.data
-                ? '通知会话尚未读取。'
-                : `已选择 ${notifyIds.size} 个会话${notifyEnabled ? '。' : '；通知尚未开启。'}`
-            }
-            control={
-              <button
-                type="button"
-                className="weq-set-btn"
-                disabled={unavailable}
-                onClick={() => openEditor('notify')}
-              >
-                <Pencil size={14} aria-hidden="true" />
-                编辑通知会话
-              </button>
-            }
-          />
+          {notifyEnabled ? (
+            <Row
+              label="通知会话"
+              desc={!status.data ? '通知会话尚未读取。' : `已选择 ${notifyIds.size} 个会话。`}
+              control={
+                <button
+                  type="button"
+                  className="weq-set-btn"
+                  disabled={unavailable}
+                  aria-label="编辑通知会话"
+                  onClick={() => openEditor('notify')}
+                >
+                  <Pencil size={14} aria-hidden="true" />
+                  编辑会话
+                </button>
+              }
+            />
+          ) : null}
           {!enabled ? (
             <p className="weq-set-note">先开启防撤回，没有拦下的撤回就没有记录可通知。</p>
           ) : null}
@@ -726,7 +717,7 @@ export function AntiRecallDialog({
                               choosingProtection
                                 ? '暂无可保护的会话'
                                 : mode === 'selected'
-                                  ? '还没有受保护的会话'
+                                  ? '还没有启用防撤回的会话'
                                   : '暂无可通知的会话'
                             }
                           />
@@ -789,41 +780,31 @@ export function AntiRecallDialog({
       <div className="group-keyword-body weq-ar-body">
         {tab === 'protect' ? (
           <>
-            <Card title="服务开关">
+            <Card title="启用范围" icon={<ListFilter size={15} strokeWidth={1.8} />}>
               <Row
-                label="启用防撤回"
+                label="启用范围"
                 desc={
                   isStaticPcOnly
                     ? '静态账号的数据库是导入的离线快照，QQ 不会往里写入，触发器拦不到任何撤回。'
-                    : '在本地数据库上拦下撤回写入，仅影响本机记录。'
+                    : scope === 'all'
+                      ? '不做会话筛选：所有会话（含以后新增的）都受保护。'
+                      : scope === 'selected'
+                        ? '只保护下面勾选的会话。'
+                        : '不拦截撤回：关闭后卸下全部触发器，撤回按 QQ 原本逻辑执行。'
                 }
                 control={
-                  <Toggle
-                    checked={enabled && !isStaticPcOnly}
-                    disabled={busy || status.isLoading || isStaticPcOnly}
-                    onChange={(next) => void onToggleEnabled(next)}
-                    label="启用防撤回"
-                  />
-                }
-              />
-              <Row
-                label="保护范围"
-                desc={
-                  mode === 'all'
-                    ? '不做会话筛选：所有会话（含以后新增的）都受保护。'
-                    : '只保护下面勾选的会话。'
-                }
-                control={
-                  <div className="weq-set-seg" role="radiogroup" aria-label="防撤回保护范围">
-                    {MODE_OPTIONS.map((opt) => (
+                  <div className="weq-set-seg" role="radiogroup" aria-label="防撤回启用范围">
+                    {SCOPE_OPTIONS.map((opt) => (
                       <button
                         key={opt.value}
                         type="button"
                         role="radio"
-                        aria-checked={mode === opt.value}
-                        className={cn('weq-set-seg-item', mode === opt.value && 'is-on')}
-                        disabled={busy || status.isLoading}
-                        onClick={() => void onSetMode(opt.value)}
+                        aria-checked={scope === opt.value}
+                        className={cn('weq-set-seg-item', scope === opt.value && 'is-on')}
+                        disabled={
+                          busy || status.isLoading || (isStaticPcOnly && opt.value !== 'off')
+                        }
+                        onClick={() => void onSetScope(opt.value)}
                       >
                         {opt.label}
                       </button>
@@ -850,9 +831,10 @@ export function AntiRecallDialog({
               />
             </Card>
 
-            {mode === 'selected' ? (
+            {scope === 'selected' ? (
               <Card
-                title="受保护的会话"
+                title="启用防撤回的会话"
+                icon={<MessagesSquare size={15} strokeWidth={1.8} />}
                 action={
                   <button
                     type="button"
@@ -881,7 +863,7 @@ export function AntiRecallDialog({
 
         {tab === 'notify' ? (
           <>
-            <Card title="撤回通知">
+            <Card title="撤回通知" icon={<BellRing size={15} strokeWidth={1.8} />}>
               <Row
                 label="撤回时通知我"
                 desc="对方撤回被拦下时弹系统通知，点通知直接跳到那条消息。"
@@ -902,6 +884,7 @@ export function AntiRecallDialog({
             {notifyEnabled ? (
               <Card
                 title="通知哪些会话"
+                icon={<MessagesSquare size={15} strokeWidth={1.8} />}
                 action={
                   <button
                     type="button"
@@ -920,7 +903,7 @@ export function AntiRecallDialog({
                     loading={conversations.isLoading}
                     selected={notifySelected}
                     onChange={setNotifySelected}
-                    emptyText={mode === 'selected' ? '还没有受保护的会话' : '暂无可通知的会话'}
+                    emptyText={mode === 'selected' ? '还没有启用防撤回的会话' : '暂无可通知的会话'}
                   />
                 </div>
               </Card>

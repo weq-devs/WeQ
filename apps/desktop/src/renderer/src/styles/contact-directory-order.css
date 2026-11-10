@@ -1,0 +1,113 @@
+.weq-directory-order {
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px;
+  align-items: end;
+  gap: 8px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-secondary);
+}
+.weq-contact-directory-scroll .contact-cat-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--weq-bg-surface);
+}
+.weq-directory-order label {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  font-size: 11px;
+}
+.weq-contact-directory .weq-directory-sort-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.weq-contact-directory .contact-cat-header[hidden] {
+  display: none;
+}
+.weq-directory-order select,
+.weq-directory-order button {
+  height: 30px;
+  min-width: 0;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font: inherit;
+}
+.weq-directory-order select {
+  width: 100%;
+  padding: 0 2px;
+  font-size: 11px;
+}
+.weq-directory-order button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+}
+.weq-directory-order button:hover {
+  color: var(--weq-accent-effective);
+}
+.weq-directory-order :is(select, button):focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-directory-order small {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+html[data-theme='dark'] .weq-directory-order {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+}
+.weq-contact-refresh-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 16px;
+}
+.weq-contact-task-log h3 {
+  margin: 16px 0 8px;
+  font-size: 13px;
+}
+.weq-contact-task-log details {
+  border-bottom: 1px solid var(--weq-border-subtle);
+  padding: 8px 0;
+}
+.weq-contact-task-log summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.weq-contact-task-log pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow-y: auto;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-contact-log-pages {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.weq-contact-log-pages button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import { marketEmojiRouter } from '../src/main/ipc/routers/market_emoji';
@@ -26,6 +27,7 @@ vi.mock('../src/main/context/app_context', () => {
   };
   const replacement = { ...services };
   return {
+    accountEventBus: new EventEmitter(),
     getAppContext: () => ({
       account: { context: { uin: state.uin } },
       services: state.replacement ? replacement : services,

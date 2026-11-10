@@ -1,5 +1,75 @@
 import { unreadChatType } from '@weq/codec';
 
+/** 精确计数逐会话排除自己发言，小批回显，水位快查仍可一次读取 256 项。 */
+export const UNREAD_COUNT_BATCH_SIZE = 16;
+export const UNREAD_WATERMARK_BATCH_SIZE = 256;
+const UNREAD_RECONCILE_MS = 60_000;
+
+interface CountWatermark {
+  chatType: number;
+  uid: string;
+  msgSeq?: string;
+  latestSeq: string | null;
+  readError?: boolean;
+  countPending?: boolean;
+  highlights?: readonly object[];
+}
+
+/** 水位和阅读操作即时校准；无关库写入不触发全体历史重扫，同水位修正低频补齐。 */
+export function createUnreadCountCache() {
+  const completed = new Map<
+    string,
+    {
+      msgSeq?: string;
+      latestSeq: string | null;
+      highlights?: readonly object[];
+      databaseRevision: number;
+      readRevision: number;
+      at: number;
+    }
+  >();
+  const key = (row: Pick<CountWatermark, 'chatType' | 'uid'>) => `${row.chatType}:${row.uid}`;
+  const reconciliationDue = (last: { databaseRevision: number; at: number }, revision: number) =>
+    last.databaseRevision !== revision && Date.now() - last.at >= UNREAD_RECONCILE_MS;
+  return {
+    retain(targets: readonly Pick<CountWatermark, 'chatType' | 'uid'>[]) {
+      const active = new Set(targets.map(key));
+      for (const id of completed.keys()) if (!active.has(id)) completed.delete(id);
+    },
+    needsReconcile(databaseRevision: number) {
+      for (const last of completed.values())
+        if (reconciliationDue(last, databaseRevision)) return true;
+      return false;
+    },
+    remember(row: CountWatermark, databaseRevision: number, readRevision: number) {
+      if (row.readError || row.countPending) return;
+      completed.set(key(row), {
+        msgSeq: row.msgSeq,
+        latestSeq: row.latestSeq,
+        highlights: row.highlights,
+        databaseRevision,
+        readRevision,
+        at: Date.now(),
+      });
+    },
+    needsCount(
+      row: CountWatermark,
+      databaseRevision: number,
+      accepts: (uid: string, revision: number) => boolean,
+    ) {
+      const last = completed.get(key(row));
+      return (
+        !last ||
+        reconciliationDue(last, databaseRevision) ||
+        last.msgSeq !== row.msgSeq ||
+        last.latestSeq !== row.latestSeq ||
+        !sameUnreadHighlights(last.highlights, row.highlights) ||
+        !accepts(row.uid, last.readRevision)
+      );
+    },
+  };
+}
+
 /** QQ 已读变化没有新消息通知；仅优先校准仍有红点或高亮的会话。 */
 export function unreadBadgeTargets(
   contacts: ReadonlyArray<{ chatType: number | string; targetUid: string }>,
@@ -65,11 +135,15 @@ export function createUnreadRefresh(load: () => Promise<boolean>, delayMs = 100)
 export function createUnreadTargetRefresh<T extends { chatType: number; uid: string }>(
   load: (targets: T[]) => Promise<boolean | T[]>,
   onOverflow?: () => void,
+  batchSize = 256,
+  minimumIntervalMs = 0,
 ) {
   let disposed = false;
   let running = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const queued = new Map<string, { target: T; failures: number; at: number }>();
+  const inFlight = new Set<string>();
+  const completedAt = new Map<string, number>();
   const key = (target: T) => `${target.chatType}:${target.uid}`;
   const arm = () => {
     if (disposed || running || !queued.size) return;
@@ -85,13 +159,18 @@ export function createUnreadTargetRefresh<T extends { chatType: number; uid: str
   };
   async function run() {
     if (disposed) return;
-    const batch = [...queued.values()].filter((entry) => entry.at <= Date.now()).slice(0, 256);
+    const batch = [...queued.values()]
+      .filter((entry) => entry.at <= Date.now())
+      .slice(0, batchSize);
     if (!batch.length) {
       arm();
       return;
     }
     running = true;
-    for (const entry of batch) queued.delete(key(entry.target));
+    for (const entry of batch) {
+      queued.delete(key(entry.target));
+      inFlight.add(key(entry.target));
+    }
     let failed = new Set(batch.map((entry) => key(entry.target)));
     try {
       const result = await load(batch.map((entry) => entry.target));
@@ -101,9 +180,20 @@ export function createUnreadTargetRefresh<T extends { chatType: number; uid: str
       // 只退避本批目标，期间排队的健康目标仍立即执行。
     } finally {
       running = false;
+      inFlight.clear();
       if (!disposed) {
         for (const entry of batch) {
-          if (!failed.has(key(entry.target))) continue;
+          const id = key(entry.target);
+          if (!failed.has(id)) {
+            if (minimumIntervalMs > 0) {
+              completedAt.delete(id);
+              if (completedAt.size >= 8192) completedAt.delete(completedAt.keys().next().value!);
+              completedAt.set(id, Date.now());
+              const next = queued.get(id);
+              if (next) next.at = Math.max(next.at, Date.now() + minimumIntervalMs);
+            }
+            continue;
+          }
           const failures = Math.min(6, entry.failures + 1);
           queued.set(key(entry.target), {
             target: queued.get(key(entry.target))?.target ?? entry.target,
@@ -116,9 +206,11 @@ export function createUnreadTargetRefresh<T extends { chatType: number; uid: str
     }
   }
   return {
-    request(targets: T[]) {
+    request(targets: T[], repeatInFlight = true) {
       if (disposed) return;
       for (const target of targets) {
+        // 轮询只检查尚未读取的目标；定向变更仍保留执行中的下一轮。
+        if (!repeatInFlight && inFlight.has(key(target))) continue;
         const existing = queued.get(key(target));
         if (!existing && queued.size >= 8192) {
           if (!onOverflow) throw new Error('未读目标队列已满，需要全量校准');
@@ -127,7 +219,15 @@ export function createUnreadTargetRefresh<T extends { chatType: number; uid: str
         }
         queued.set(
           key(target),
-          existing ? { ...existing, target } : { target, failures: 0, at: 0 },
+          existing
+            ? { ...existing, target }
+            : {
+                target,
+                failures: 0,
+                at: completedAt.has(key(target))
+                  ? completedAt.get(key(target))! + minimumIntervalMs
+                  : 0,
+              },
         );
       }
       arm();
@@ -136,6 +236,7 @@ export function createUnreadTargetRefresh<T extends { chatType: number; uid: str
       disposed = true;
       if (timer !== undefined) clearTimeout(timer);
       queued.clear();
+      completedAt.clear();
     },
   };
 }

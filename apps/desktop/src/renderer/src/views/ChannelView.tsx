@@ -20,7 +20,7 @@ export function ChannelView({
   renderers,
   initialDirectOpen = false,
   directOpenRequest = 0,
-  sidebarWidth = 362,
+  sidebarWidth = 240,
   searchTarget,
   onActiveNodeChange,
 }: {

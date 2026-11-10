@@ -17,7 +17,6 @@ export namespace CreateFriendCategory {
   export const command = 0x1124;
   export const subCommand = 1;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = message([{ name: 'name', tag: 1, type: 'string' }]);
   export const respSchema = message([{ name: 'category', tag: 1, type: categorySchema }]);
   export const serialize = (p: { name: string }) => ({ name: categoryName(p.name) });
@@ -33,7 +32,6 @@ export namespace UpdateFriendCategories {
   export const command = 0x1126;
   export const subCommand = 1;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = message([
     { name: 'categories', tag: 1, repeated: true, type: categorySchema },
   ]);
@@ -67,7 +65,6 @@ export namespace DeleteFriendCategory {
   export const command = 0x1125;
   export const subCommand = 1;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = message([{ name: 'categoryId', tag: 1, type: 'uint32' }]);
   export const respSchema = message([]);
   export function serialize(p: { categoryId: number }) {
@@ -81,7 +78,6 @@ export namespace DeleteFriendCategory {
 export namespace MoveFriendCategory {
   export const command = 0x10eb;
   export const subCommand = 1;
-  export const needSign = false;
   export const reqSchema = message([
     { name: 'uid', tag: 1, type: 'string' },
     { name: 'categoryId', tag: 2, type: 'uint32', force: true },

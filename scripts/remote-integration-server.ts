@@ -5,36 +5,34 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RemotePairing } from '../apps/desktop/src/main/remote/pairing';
 import { createRemoteServer } from '../apps/desktop/src/main/remote/http';
-import { DesktopWebRuntime } from '../apps/desktop/src/main/web/runtime';
+import { WebCore } from '../apps/desktop/src/main/web/application';
 import { webFixtureRouter } from '../apps/desktop/test/web_fixture';
 import { fileURLToPath } from 'node:url';
 import { RemoteRuntime } from '../apps/desktop/src/main/remote/runtime';
+import { RemoteWebGateway } from '../apps/desktop/src/main/remote/web_gateway';
 
 const lan = process.env.WEQ_REMOTE_LAN_TEST === '1' ? new RemoteRuntime() : null;
 const directory = lan ? mkdtempSync(join(tmpdir(), 'weq-lan-smoke-')) : null;
 const exportsDirectory = mkdtempSync(join(tmpdir(), 'weq-remote-fixture-'));
 const pairing = lan?.pairing ?? new RemotePairing();
-const web = new DesktopWebRuntime();
-web.configure({
+const web = new WebCore({
   publicDir: fileURLToPath(new URL('../apps/desktop/test/fixtures/remote-web', import.meta.url)),
   exportDir: exportsDirectory,
   version: 'fixture',
-  pairing,
   router: webFixtureRouter,
-  getAutoStart: () => false,
-  setAutoStart: () => {},
 });
-await web.start();
+const remoteWeb = () => new RemoteWebGateway(pairing, (auth) => web.entry(auth));
 if (lan && directory) {
   lan.configure({
     lanPort: 0,
     helper: fileURLToPath(new URL('../tools/remote-network/weq-remote-network', import.meta.url)),
     stateDir: directory,
-    webPort: () => web.status().port,
+    web: remoteWeb,
   });
   await lan.start();
 }
-const backend = createRemoteServer(pairing, () => web.status().port);
+const gateway = remoteWeb();
+const backend = createRemoteServer(pairing, gateway);
 function testNetwork(): { endpoint: string; control: string } | null {
   try {
     if (!process.env.WEQ_REMOTE_TEST_CONFIG) return null;
@@ -102,7 +100,7 @@ fixture.listen(Number(process.env.WEQ_REMOTE_TEST_PORT ?? '45198'), '127.0.0.1',
 function stop() {
   clearInterval(timer);
   pairing.clear();
-  web.stop();
+  gateway.close();
   lan?.stop(true);
   if (directory) rmSync(directory, { recursive: true, force: true });
   rmSync(exportsDirectory, { recursive: true, force: true });

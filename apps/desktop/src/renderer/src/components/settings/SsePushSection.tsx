@@ -31,6 +31,7 @@ import {
   Radio,
   RefreshCw,
   Save,
+  SlidersHorizontal,
   Trash2,
   X,
 } from 'lucide-react';
@@ -255,6 +256,7 @@ export function SsePushSection(): ReactElement {
 
       <Card
         title="已配置的推送目标"
+        icon={<Radio size={15} strokeWidth={1.8} />}
         action={
           <button
             type="button"
@@ -432,7 +434,7 @@ export function SsePushSection(): ReactElement {
         ) : null}
       </Card>
 
-      <Card title="推送调优">
+      <Card title="推送调优" icon={<SlidersHorizontal size={15} strokeWidth={1.8} />}>
         <Row
           label="防抖毫秒"
           desc="收到新消息后等待这段空闲时间再合并推送，QQ 连续写表时能大幅减少推送次数。"

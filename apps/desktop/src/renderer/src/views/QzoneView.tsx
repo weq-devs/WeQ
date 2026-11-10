@@ -37,7 +37,7 @@ import { openExternalLink } from '../lib/openExternalLink';
 import { z } from 'zod';
 import { PageSnapshotScope, usePageDataCache, usePageState } from '../components/PageSnapshots';
 import { PageScrollSnapshot } from '../components/PageScrollSnapshot';
-import { useTabActive } from '../components/RetainedTabs';
+import { TabActivity, useTabActive } from '../components/RetainedTabs';
 import { pageValue } from '../lib/pageSnapshots';
 import { QzoneProfileAvatar, QzonePersonButton } from '../components/QzoneProfileAvatar';
 import {
@@ -50,6 +50,7 @@ import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { QzoneWriteActions, type QzoneLikeChange } from '../components/qq-actions/MediaActions';
 import { withQQAccountScope } from '../components/qq-actions/shared';
 import { albumMediaUrl } from '../lib/resourceUrl';
+import { pushMobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { QzoneEmoji } from '../components/QzoneEmoji';
 import {
   projectQzoneFeed,
@@ -149,37 +150,53 @@ function QzonePage({
   );
 }
 
-/** Mount on the first visit and retain only the current account's workspace. */
+/** 停稳后首次挂载；暂停读取时保留当前画面，离开工作区仍卸载。 */
 export const QzoneWorkspace = memo(function QzoneWorkspace({
   active,
+  readEnabled = active,
+  previewOnly = false,
   selfUin,
   nickname,
   spaceRequest,
   onSpaceChange,
 }: {
   active: boolean;
+  readEnabled?: boolean;
+  previewOnly?: boolean;
   selfUin: string;
   nickname: string;
   spaceRequest?: QzoneSpaceRequest | null;
   onSpaceChange?: (uin: string) => void;
 }) {
   const parentActive = useTabActive();
+  const [loaded, setLoaded] = useState(readEnabled);
+  if (readEnabled && !loaded) setLoaded(true);
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
-    enabled: active && parentActive,
+    enabled: active && parentActive && readEnabled && !previewOnly,
   });
-  return active && parentActive ? (
-    <PageSnapshotScope name="qzone">
-      <PageScrollSnapshot style={{ height: '100%', minHeight: 0 }}>
-        <QzoneView
-          active={active}
-          selfUin={selfUin}
-          nickname={nickname}
-          spaceRequest={spaceRequest}
-          onSpaceChange={onSpaceChange}
-          personClickAction={settings.data?.qzonePersonClickAction ?? 'space'}
-        />
-      </PageScrollSnapshot>
-    </PageSnapshotScope>
+  if (previewOnly || (active && parentActive && !loaded && !readEnabled))
+    return (
+      <TabActivity active={false}>
+        <PageSnapshotScope name="qzone-preview">
+          <QzoneView active={false} loadingPreview selfUin={selfUin} nickname={nickname} />
+        </PageSnapshotScope>
+      </TabActivity>
+    );
+  return active && parentActive && (loaded || readEnabled) ? (
+    <TabActivity active={readEnabled}>
+      <PageSnapshotScope name="qzone">
+        <PageScrollSnapshot style={{ height: '100%', minHeight: 0 }}>
+          <QzoneView
+            active={active}
+            selfUin={selfUin}
+            nickname={nickname}
+            spaceRequest={spaceRequest}
+            onSpaceChange={onSpaceChange}
+            personClickAction={settings.data?.qzonePersonClickAction ?? 'space'}
+          />
+        </PageScrollSnapshot>
+      </PageSnapshotScope>
+    </TabActivity>
   ) : null;
 });
 
@@ -330,6 +347,7 @@ export function QzoneView({
   selfUin,
   nickname,
   active = true,
+  loadingPreview = false,
   spaceRequest,
   onSpaceChange,
   personClickAction = 'space',
@@ -337,6 +355,7 @@ export function QzoneView({
   selfUin: string;
   nickname: string;
   active?: boolean;
+  loadingPreview?: boolean;
   spaceRequest?: QzoneSpaceRequest | null;
   /** 当前正在看谁的空间（自己或好友的 QQ 号），供浮动工具按当前位置导出。 */
   onSpaceChange?: (uin: string) => void;
@@ -413,6 +432,13 @@ export function QzoneView({
     setRefreshes((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
   const [compose, setCompose] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const navigationBacks = useRef<Array<() => void>>([]);
+  useEffect(
+    () => () => {
+      for (const remove of navigationBacks.current.splice(0)) remove();
+    },
+    [active],
+  );
   const openSpace = useCallback(
     (uin: string, name?: string): void => {
       const value = uin.trim();
@@ -421,6 +447,20 @@ export function QzoneView({
         return;
       }
       setTargetError('');
+      if (value !== hostUin || tab !== (value === selfUin ? 'posts' : 'space')) {
+        const previousTab = tab,
+          previousHost = hostUin;
+        const remove = pushMobileBack(
+          () => {
+            setTab(previousTab);
+            setHostUin(previousHost);
+            navigationBacks.current = navigationBacks.current.filter((item) => item !== remove);
+          },
+          () => document.querySelector<HTMLElement>('.weq-qzn'),
+          30,
+        );
+        navigationBacks.current.push(remove);
+      }
       const firstName = name || people.names[value] || value;
       rememberSpaceName(value, firstName);
       setHostUin(value);
@@ -430,7 +470,7 @@ export function QzoneView({
         setTab('space');
       }
     },
-    [selfUin, people.names, rememberSpaceName, setTab, setSpaces, setHostUin],
+    [selfUin, hostUin, tab, people.names, rememberSpaceName, setTab, setSpaces, setHostUin],
   );
   useEffect(() => {
     if (
@@ -462,7 +502,11 @@ export function QzoneView({
   }, [active, selfUin, spaceRequest, openSpace, handledRequest, setHandledRequest]);
   const workspace = (
     <QzonePeopleContext.Provider value={people}>
-      <section className="weq-qzn" aria-label="QQ 空间">
+      <section
+        className="weq-qzn"
+        aria-label="QQ 空间"
+        data-qzone-loading-preview={loadingPreview || undefined}
+      >
         <header className="weq-qzn-header">
           <div className="weq-qzn-identity">
             <QzoneProfileAvatar uin={selfUin} nickname={nickname} size={36} />
@@ -605,6 +649,17 @@ export function QzoneView({
             {targetError}
           </p>
         ) : null}
+        {loadingPreview ? (
+          <div className="weq-mobile-qzone-skeleton" aria-hidden="true">
+            {[0, 1, 2].map((row) => (
+              <div key={row}>
+                <i />
+                <span />
+                <span />
+              </div>
+            ))}
+          </div>
+        ) : null}
         {visited.includes('feeds') || tab === 'feeds' ? (
           <QzonePage active={active && tab === 'feeds'} refreshKey={refreshes.feeds ?? 0}>
             <Feeds selfUin={selfUin} onSpace={openSpace} />
@@ -737,6 +792,12 @@ function SpaceContent({
   const [ownerLabel] = useState(nickname || hostUin);
   const handledAlbum = useRef<string | null>(null);
   const [pane, setPane] = useState<'posts' | 'albums'>('posts');
+  useMobileBack(
+    active && pane === 'albums',
+    () => setPane('posts'),
+    40,
+    () => document.querySelector<HTMLElement>('.weq-qzn-owner-space:not([hidden])'),
+  );
   const [visitedAlbums, setVisitedAlbums] = useState(false);
   const [refreshes, setRefreshes] = useState({ posts: 0, albums: 0 });
   useEffect(() => {

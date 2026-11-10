@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import {
   MessageProvenance,
+  ShowMessageDateContext,
   ShowMessageSeqContext,
   ShowMessageTimeContext,
 } from '../src/renderer/src/components/MessageProvenance';
@@ -14,7 +15,13 @@ import {
 } from '../src/renderer/src/lib/messageCalendar';
 import { visibleListRange, WindowedList } from '../src/renderer/src/components/WindowedList';
 
-function metadata(seq: boolean, time: boolean, system = false) {
+function metadata(
+  seq: boolean,
+  time: boolean,
+  system = false,
+  date = false,
+  createdAt: string | undefined = '2026-10-16T17:02:03Z',
+) {
   return renderToStaticMarkup(
     createElement(
       ShowMessageSeqContext.Provider,
@@ -22,10 +29,14 @@ function metadata(seq: boolean, time: boolean, system = false) {
       createElement(
         ShowMessageTimeContext.Provider,
         { value: time },
-        createElement(MessageProvenance, {
-          system,
-          message: { msgSeq: '42', createdAt: '2026-10-16T17:02:03Z' },
-        }),
+        createElement(
+          ShowMessageDateContext.Provider,
+          { value: date },
+          createElement(MessageProvenance, {
+            system,
+            message: { msgSeq: '42', createdAt },
+          }),
+        ),
       ),
     ),
   );
@@ -40,6 +51,20 @@ describe('消息元信息', () => {
     expect(metadata(false, true)).not.toContain('seq 42');
     expect(metadata(true, true, true)).toContain('01:02:03');
     expect(metadata(true, true, true)).not.toContain('seq 42');
+  });
+  it('日期独立开关，按北京时间以 yyyy-mm-dd 显示并可与时间组合', () => {
+    expect(metadata(false, false, false, true)).toContain('>2026-10-17</time>');
+    expect(metadata(false, true, false, true)).toContain('>2026-10-17 01:02:03</time>');
+    expect(metadata(true, true, true, true)).toContain('>2026-10-17 01:02:03</time>');
+    expect(metadata(true, true, true, true)).not.toContain('seq 42');
+    expect(metadata(false, false, false, true, '2026-01-02T03:04:05Z')).toContain(
+      '>2026-01-02</time>',
+    );
+    expect(metadata(false, false, false, true, '2026-10-16T15:59:59Z')).toContain(
+      '>2026-10-16</time>',
+    );
+    expect(metadata(false, true, false, true, 'invalid')).toBe('');
+    expect(metadata(false, true, false, true, '')).toBe('');
   });
 });
 

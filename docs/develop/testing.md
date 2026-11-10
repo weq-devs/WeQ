@@ -4,7 +4,7 @@
 
 | 层 | 位置 | 要真 QQ 吗 | 进 CI 吗 | 干什么用 |
 |---|---|---|---|---|
-| **单测** | `packages/*/test/*.test.ts`、`apps/desktop/test/*.test.ts` | 否 | ✅ `pnpm test:fail-fast` | 离线、可重复、有断言 |
+| **单测** | `packages/*/test/*.test.ts`、`apps/desktop/test/*.test.ts` | 否 | ✅ 全量分片，见下文 | 离线、可重复、有断言 |
 
 ---
 
@@ -17,7 +17,7 @@ Web 服务端使用 `tsx` 执行离线断言。数据用抓包/dump 出来的黄
 
 ```bash
 pnpm test                        # 全量收集失败，包并发 2、每包最多 2 个 worker
-pnpm test:fail-fast              # 全量范围，首个失败后尽早停止排队测试（CI 使用）
+pnpm test:fail-fast              # 本地全量范围，首个失败后尽早停止排队测试
 pnpm test:changed                # 日常反馈：Vitest 只跑 Git 改动相关测试，Web 仍跑完整服务端断言
 pnpm --filter @weq/codec test     # 单个包
 pnpm --filter @weq/codec test:watch
@@ -36,6 +36,26 @@ pnpm --filter @weq/desktop test   # 桌面端主/渲染进程的纯逻辑单测
 各包单测直接读取工作区源码，不依赖其他包预先构建；根入口不按包依赖排序，
 避免无谓串行等待，以及上游测试失败后下游测试未执行。完整模式还会继续运行其余包。
 
+## CI 分片
+
+Actions 将 desktop 拆为 6 片、service 拆为 2 片，每片使用 Vitest 原生
+`--shard=i/n`，各自最多 2 个 worker；其余包（包括 Web 服务端断言）在独立任务中完整运行。
+不减少测试范围、不关闭文件隔离、不重试掩盖失败。矩阵不因某片失败取消其余片，
+最终由稳定名称 `test` 汇总门禁检查全部任务；失败、取消或意外跳过均不能通过。
+本地 `pnpm test` / `test:fail-fast` 保持原有的低资源入口，不启动多片并发。
+
+可单独复现某片：
+
+```bash
+pnpm --filter @weq/desktop test --shard=1/6 --maxWorkers=2 --minWorkers=1
+pnpm --filter @weq/service test --shard=1/2 --maxWorkers=2 --minWorkers=1
+node --test scripts/test-ci.test.mjs
+```
+
+每片输出 JSON 报告，保存 7 天，Actions 步骤摘要列出失败文件及用例执行时间最长的文件。
+报告中的文件起止时间不等于整个分片耗时；验收 2～3 分钟目标时，以实际 Actions
+完整运行的墙钟耗时为准，同时检查排队和依赖安装，不用本机分片时间直接宣称达标。
+
 ## 样式浏览器回归
 
 `apps/desktop/test/browser/run-style-consistency.mjs` 使用真实渲染组件和样式、合成数据及
@@ -53,6 +73,8 @@ node apps/desktop/test/browser/run-style-consistency.mjs
 `WEQ_BROWSER_EXECUTABLE` 可指定已有 Chromium 浏览器，`WEQ_STYLE_ARTIFACTS` 可指定截图目录。
 脚本结束后会关闭自己创建的浏览器和测试服务，不使用真实 QQ 数据。
 
+消息装扮加载回归使用 `node apps/desktop/test/browser/run-decoration-readiness.mjs`，复用真实消息装扮 Hook 与聊天样式，分别延迟字体、延迟气泡底图并模拟单项失败，检查默认态对比度与成组切换。覆盖 390/1200px、深浅主题及双方消息；沿用上述 Playwright 与浏览器路径变量，可用 `WEQ_DECORATION_ARTIFACTS` 指定截图目录。资源来自合成 PNG 和仓库已有字体，不连接 QQ。
+
 组件风格与独立密度使用 `node apps/desktop/test/browser/run-component-appearance.mjs`，
 覆盖 QQ NT 默认与经典／简约／复古风格、两种密度、深浅色、六种背景和桌面／窄屏，检查经典样式不被覆盖、各套风格的形态差异，以及键盘选择、刷新恢复、
 跟随系统和真实会话虚拟列表行高。复古额外检查分段选项、功能页导航和搜索框、任务浮层、提示框，以及真实 ChatPane 的消息气泡、头像与主导航；整页模式不继承弹窗外框和阴影。Playwright 与浏览器路径沿用上述变量，
@@ -67,6 +89,14 @@ node apps/desktop/test/browser/run-conversation-entry.mjs
 ```
 
 HTML 导出图片比例可运行 `node apps/desktop/test/browser/run-export-image-ratio.mjs` 回归，覆盖聊天图片、说明文字、表情、转发、Markdown、空间单图/多图以及桌面/窄屏与深浅色；仅使用内联合成图片，不联网、不读取 QQ。Playwright 与浏览器路径沿用上面的环境变量，`WEQ_IMAGE_RATIO_ARTIFACTS` 可指定截图目录。
+
+## 原生文本编辑菜单
+
+`node scripts/smoke-edit-context-menu.mjs` 使用当前安装的 Electron 启动独立离线测试窗口，
+覆盖普通、搜索、密码、数字、多行及富文本输入框的真实右键事件，只读输入框和消息区互不接管，
+并检查原生复制/剪切命令的 DOM 事件、文本撤销/重做/全选/删除及深浅色系统菜单。粘贴入口与状态由单测检查，
+不依赖用户当前剪贴板内容执行原生粘贴。测试不连接 QQ，
+不使用真实应用资料，拦截剪贴板事件以避免读写用户剪贴板；完成后关闭测试进程并删除临时资料。
 
 ## 合并与夹具
 

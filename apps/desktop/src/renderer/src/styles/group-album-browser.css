@@ -41,8 +41,7 @@
   color: var(--weq-fg-primary);
 }
 .group-album-search:focus-within {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 1px;
+  border-color: var(--weq-accent-effective);
 }
 .group-album-browse-tools select {
   min-width: 0;

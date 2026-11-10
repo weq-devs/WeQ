@@ -19,7 +19,8 @@
 2. QQ 每次自动更新都会换 `wrapper.node`，这个代价每次更新后都要付一遍；
 3. 扫的过程中如果文件被替换（QQ 在更新），还可能拿到错位的 RVA。
 
-现在改成**启动期后台预热 + 按文件指纹缓存 RVA**：
+现在改成**按目标模块预热 + 按文件指纹缓存 RVA**：Windows / Linux 仍在启动期预热；
+macOS 自 2026-11-09 起等完整模式确认运行中 QQ 后，才预热该进程实际加载的模块。
 
 | 场景 | 耗时 |
 | --- | --- |
@@ -80,19 +81,30 @@ QQ 换掉。直接 `transmute` 一个越界的 RVA 就是进程崩溃。
 
 ## 四、预热放在哪
 
-`initAppContext` 里 fire-and-forget：
+Windows / Linux 在 `initAppContext` 中预热安装模块。macOS 启动期没有账号目标时跳过；
+账号监视器确认完整模式凭据就绪后，按账号的 QQ PID 解析实载 wrapper，再预热同一份模块。
+诊断页状态与手动重新扫描也使用相同目标，不回退加载另一个安装版本。
+macOS 启动时仍会从磁盘恢复文件指纹匹配的 RVA 提示（最多 64 个条目），只读缓存与
+文件元数据、不加载模块；第一次登记会话仍可使用这些提示，由 native 校验后绑定。
 
 ```ts
-signerWarmup = warmupSigner(
-  platform.native.ntHelper,
-  platform.appDataRoot(),
-  platform.qqWrapperNodePath(),
-  readQqVersion(platform.qqWrapperNodePath()),
-)
+const wrapperPath = await resolveSignerWrapper(platform, uin);
+if (isCurrent()) {
+  return warmupSigner(
+    platform.native.ntHelper,
+    platform.appDataRoot(),
+    wrapperPath,
+    readQqVersion(wrapperPath),
+  );
+}
 ```
 
-- **不阻塞界面**：不 await，也不在首屏查询链上；
-- **不抢线程**：`warmupSigner` 在 native 侧走 `spawn_blocking`；
+macOS 热更新可能让应用安装目录中的 wrapper 落后于运行版本。先预载安装旧版、
+再在完整模式加载热更新版，会重复注册 Objective-C 类，并产生大量 `objc` 警告。
+这里消除多余加载，不全局关闭原生诊断；已加载两份模块的进程需完整重启。
+
+- **不挂首屏查询**：预热独立启动，发包路径不等待它；
+- **优先缓存**：命中时使用 native 异步 `warmupSigner` 校验；未命中仍走现有 `checkSigner` 扫描与缓存回写；
 - **失败不致命**：预热只返回 `bool`，真正的签名错误在 `send_packet` 处带上下文报。
 
 发包路径不等预热完成 —— 没预热完就退回 native 自己的扫描（慢一点，但正确）。
@@ -193,6 +205,14 @@ schedule(UTC 16:00 / 北京 00:00)
 
 「只红不修」是刻意的：RVA 定位失败意味着 QQ 改了签名器结构，VM 入口可能要重新逆，
 自动改代码只会把问题藏起来。workflow 的职责是**把问题按时暴露给维护者**。
+
+### QQ 通知
+
+每晚只要探测到**新版本**（`kind === "upgrade"`），无论兼容性验证是通过、失败，
+还是 CDN 暂未放开，都会用和 Release 相同的 `qq-notify-action` 发一条简短
+Markdown 报告；没有新版本不发，避免每晚刷屏。报告由
+`scripts/qq-version-report.mjs` 汇总，正文只列本轮变化的平台和 compat 验证结论
+（包含旧 pending 的重试），按钮直达本轮 Actions 与 `versions/latest.json`。
 
 ### 本地跑
 

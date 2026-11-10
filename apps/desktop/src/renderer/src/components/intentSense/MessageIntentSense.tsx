@@ -3,7 +3,7 @@
  *
  * 两种形态共用一套 pill：
  *  • 常驻行（.weq-intent-chips，气泡 grid 的一个子元素，位于正文下方）——所有已有
- *    结果的消息均显示胶囊，待分析文本逐条显示 shimmer 占位。
+ *    结果的消息均显示胶囊，尚无结果的文本从首帧播放随机图标，槽位始终同高。
  *  • 悬停弹层（.weq-intent-popover，portal + fixed，空间不足向上避让）——悬停任意消息
  *    250ms 后出现，未命中缓存时触发单条分析并显示加载态。悬停交互仿
  *    SetEmojiReactions 的「延迟开、延迟关」手法，弹层自身 pointer-events:none，
@@ -12,7 +12,7 @@
  * 本组件不关心数据来源 —— 一切经 {@link useIntentSenseContext}。
  */
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useRenderDocument } from '../../lib/renderDocument';
 import { useOverlayLayer } from '../../lib/overlayStack';
@@ -21,6 +21,7 @@ import { shouldDismissHoverHint } from '../../lib/hoverHint';
 import { useTabActive } from '../RetainedTabs';
 import {
   Award,
+  Angry,
   CalendarCheck,
   CircleDot,
   CloudLightning,
@@ -29,17 +30,31 @@ import {
   Eye,
   Hand,
   Heart,
+  HeartCrack,
   HelpCircle,
   Info,
   Laugh,
+  Drama,
+  Frown,
+  Hourglass,
+  Meh,
   MessageCircle,
+  Minus,
+  Moon,
+  PartyPopper,
+  Search,
   Share2,
   Smile,
   Sparkles,
   Sun,
+  ThumbsUp,
+  Wind,
+  Zap,
   Loader2,
 } from 'lucide-react';
 import { useIntentSenseContext, type IntentAnalysis } from './context';
+import { createLoadingIconSequence } from './loadingIconSequence';
+import { synchronizeLoadingAnimationPhase } from './loadingAnimationPhase';
 import '../../styles/intent-sense.css';
 
 const INTENT_META: Record<string, { label: string; icon: typeof HelpCircle }> = {
@@ -62,22 +77,22 @@ const INTENT_META: Record<string, { label: string; icon: typeof HelpCircle }> = 
   other: { label: '其他', icon: CircleDot },
 };
 
-const EMOTION_LABELS: Record<string, string> = {
-  joy: '开心',
-  excitement: '兴奋',
-  admiration: '赞叹',
-  neutral: '平静',
-  sadness: '低落',
-  anger: '生气',
-  anxiety: '焦虑',
-  affection: '亲昵',
-  fatigue: '疲惫',
-  curiosity: '好奇',
-  shock: '震惊',
-  aggrieved: '委屈',
-  irony: '反讽',
-  anticipation: '期待',
-  embarrassed: '尴尬',
+const EMOTION_META: Record<string, { label: string; icon: typeof HelpCircle }> = {
+  joy: { label: '开心', icon: Smile },
+  excitement: { label: '兴奋', icon: PartyPopper },
+  admiration: { label: '赞叹', icon: ThumbsUp },
+  neutral: { label: '平静', icon: Minus },
+  sadness: { label: '低落', icon: Frown },
+  anger: { label: '生气', icon: Angry },
+  anxiety: { label: '焦虑', icon: Wind },
+  affection: { label: '亲昵', icon: Heart },
+  fatigue: { label: '疲惫', icon: Moon },
+  curiosity: { label: '好奇', icon: Search },
+  shock: { label: '震惊', icon: Zap },
+  aggrieved: { label: '委屈', icon: HeartCrack },
+  irony: { label: '反讽', icon: Drama },
+  anticipation: { label: '期待', icon: Hourglass },
+  embarrassed: { label: '尴尬', icon: Meh },
 };
 
 function intentMeta(kind: string): { label: string; icon: typeof HelpCircle } {
@@ -85,7 +100,7 @@ function intentMeta(kind: string): { label: string; icon: typeof HelpCircle } {
 }
 
 function emotionLabel(kind: string): string {
-  return EMOTION_LABELS[kind] ?? '平静';
+  return EMOTION_META[kind]?.label ?? '平静';
 }
 
 function IntentPill({
@@ -98,16 +113,71 @@ function IntentPill({
   emotion?: string;
 }) {
   return (
-    <span className="weq-intent-pill" data-emotion={emotion ?? 'neutral'} title={label}>
+    <span className="weq-intent-pill" data-emotion={emotion ?? 'neutral'}>
       {icon}
       <span>{label}</span>
     </span>
   );
 }
 
-/** 分析中的 shimmer 占位（只给常驻行用）。 */
-function IntentPillLoading({ width }: { width: number }) {
-  return <span className="weq-intent-pill is-loading" style={{ minWidth: width }} aria-hidden />;
+const INTENT_LOADING_ICONS = Object.values(INTENT_META).map(({ icon }) => icon);
+const EMOTION_LOADING_ICONS = Object.values(EMOTION_META).map(({ icon }) => icon);
+
+function IntentPillPlaceholder({ emotion = false }: { emotion?: boolean }) {
+  const Icon = emotion ? Minus : HelpCircle;
+  return (
+    <span className="weq-intent-pill is-placeholder" aria-hidden>
+      <Icon size={14} strokeWidth={1.8} />
+    </span>
+  );
+}
+
+/** 单轮结束后再换图标；离场末帧保持隐藏，避免循环归零时闪回。 */
+function IntentPillLoading({ emotion = false }: { emotion?: boolean }) {
+  const icons = emotion ? EMOTION_LOADING_ICONS : INTENT_LOADING_ICONS;
+  const reelRef = useRef<HTMLSpanElement>(null);
+  const [frame, setFrame] = useState(() => ({
+    order: createLoadingIconSequence(icons.length),
+    index: 0,
+    step: 0,
+  }));
+  useLayoutEffect(() => {
+    const reel = reelRef.current;
+    if (!reel) return;
+    const synchronize = (): void => synchronizeLoadingAnimationPhase(reel);
+    synchronize();
+    const motion = reel.ownerDocument.defaultView?.matchMedia('(prefers-reduced-motion: reduce)');
+    motion?.addEventListener('change', synchronize);
+    return () => motion?.removeEventListener('change', synchronize);
+  }, [frame.step]);
+  const Icon = icons[frame.order[frame.index]!]!;
+  return (
+    <span
+      className="weq-intent-pill is-loading"
+      data-loading-kind={emotion ? 'emotion' : 'intent'}
+      aria-hidden
+    >
+      <span
+        key={frame.step}
+        ref={reelRef}
+        className="weq-intent-loading-reel"
+        onAnimationEnd={(event) => {
+          if (event.target !== event.currentTarget) return;
+          const index = frame.index + 1;
+          setFrame({
+            order:
+              index === icons.length
+                ? createLoadingIconSequence(icons.length, frame.order[frame.index])
+                : frame.order,
+            index: index % icons.length,
+            step: frame.step + 1,
+          });
+        }}
+      >
+        <Icon className="weq-intent-loading-icon" size={14} strokeWidth={1.8} />
+      </span>
+    </span>
+  );
 }
 
 /** 一对胶囊：意图 + 情绪。 */
@@ -152,6 +222,7 @@ export function MessageIntentSense({
   const ownerDocument = useRenderDocument();
   const tabActive = useTabActive();
   const popoverRef = useRef<HTMLDivElement>(null);
+  const tooltipId = useId();
   const [anchor, setAnchor] = useState<ReturnType<typeof intentPopoverPosition> | null>(null);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -166,7 +237,19 @@ export function MessageIntentSense({
   const requestAnalysis = ctx?.requestAnalysis;
   const result = getAnalysis?.(msgId);
   const unavailable = isUnavailable?.(msgId) ?? false;
-  const pending = ctx?.isPending?.(msgId) || !ctx?.settled;
+  const pending = ctx?.isPending?.(msgId) ?? false;
+  const failure = ctx?.getFailure?.(msgId);
+  const displayState = result
+    ? 'ready'
+    : unavailable
+      ? 'unavailable'
+      : failure
+        ? 'error'
+        : pending
+          ? 'pending'
+          : ctx?.cacheState === 'loading'
+            ? 'preparing'
+            : 'idle';
   void version;
 
   useEffect(() => {
@@ -258,6 +341,7 @@ export function MessageIntentSense({
     getAnalysis,
     isUnavailable,
     requestAnalysis,
+    ctx?.getFailure,
     msgId,
     ownerDocument,
     analyzable,
@@ -331,19 +415,77 @@ export function MessageIntentSense({
 
   if (!active) return null;
 
+  const openDetails = (): void => {
+    const bubble = bubbleRef.current;
+    if (!bubble || !hoverActive) return;
+    const view = ownerDocument.defaultView;
+    setAnchor(
+      intentPopoverPosition(
+        bubble.getBoundingClientRect(),
+        { width: POPOVER_EST_WIDTH, height: POPOVER_EST_HEIGHT },
+        { width: view?.innerWidth ?? 1024, height: view?.innerHeight ?? 768 },
+        bubble.closest('.message-scroll')?.getBoundingClientRect(),
+        isMineBubble(bubble),
+      ),
+    );
+    if (!result) requestAnalysis?.(msgId);
+  };
+  const chips = result ? (
+    <IntentChips result={result} />
+  ) : !unavailable && !failure ? (
+    <>
+      <IntentPillLoading />
+      <IntentPillLoading emotion />
+    </>
+  ) : failure ? (
+    <>
+      <Info size={12} />
+      <span>分析失败</span>
+    </>
+  ) : (
+    <>
+      <IntentPillPlaceholder />
+      <IntentPillPlaceholder emotion />
+    </>
+  );
+
   return (
     <>
-      {/* 常驻行：所有已有结果与待分析文本；本轮分析结束后仍无结果则静默
-          （引擎不可用 / 纯媒体消息 / 分析失败都不再永挂 shimmer）。 */}
-      {persistentDisplay && analyzable !== false && !result && pending && !unavailable ? (
-        <span className="weq-intent-chips">
-          <IntentPillLoading width={52} />
-          <IntentPillLoading width={40} />
+      {/* 文本消息保留同高槽位，无结果/失败都不收缩气泡。 */}
+      {persistentDisplay && (analyzable !== false || result) ? (
+        <span
+          className="weq-intent-chips"
+          data-intent-state={displayState}
+          aria-busy={displayState === 'pending'}
+        >
+          {!unavailable && (hoverActive || failure) ? (
+            <span
+              role="group"
+              tabIndex={hoverActive ? 0 : undefined}
+              className="weq-intent-details"
+              aria-label="消息意图与情绪"
+              aria-describedby={showPopover ? tooltipId : undefined}
+              onFocus={openDetails}
+              onBlur={() => setAnchor(null)}
+            >
+              {chips}
+            </span>
+          ) : (
+            chips
+          )}
         </span>
       ) : null}
-      {persistentDisplay && result ? (
-        <span className="weq-intent-chips">
-          <IntentChips result={result} />
+      {!persistentDisplay && hoverActive && analyzable !== false && !unavailable ? (
+        <span
+          role="group"
+          tabIndex={0}
+          className="weq-intent-focus-trigger"
+          aria-label="消息意图与情绪"
+          aria-describedby={showPopover ? tooltipId : undefined}
+          onFocus={openDetails}
+          onBlur={() => setAnchor(null)}
+        >
+          <Info size={14} />
         </span>
       ) : null}
 
@@ -352,6 +494,7 @@ export function MessageIntentSense({
         ? createPortal(
             <div
               ref={popoverRef}
+              id={tooltipId}
               className="weq-intent-popover"
               style={{
                 top: anchor.top,
@@ -364,34 +507,47 @@ export function MessageIntentSense({
             >
               {result ? (
                 <>
-                  <div className="weq-intent-popover-row">
-                    <IntentChips result={result} />
-                  </div>
-                  <div className="weq-intent-popover-row">
+                  {!persistentDisplay ? (
+                    <div className="weq-intent-popover-row">
+                      {intentMeta(result.intent).label} · {emotionLabel(result.emotion)}
+                    </div>
+                  ) : null}
+                  <div className="weq-intent-popover-row is-metric">
                     <span>情绪强度</span>
                     <span className="weq-intent-popover-bar">
                       <span style={{ width: `${Math.round(result.intensity)}%` }} />
                     </span>
                     <span>{Math.round(result.intensity)}</span>
                   </div>
-                  <div className="weq-intent-popover-row">
+                  <div className="weq-intent-popover-row is-metric">
                     <span>情感倾向</span>
                     <span className="weq-intent-popover-bar is-sentiment">
-                      <span style={{ width: `${Math.round((result.sentiment + 100) / 2)}%` }} />
+                      <span
+                        className={result.sentiment < 0 ? 'is-negative' : undefined}
+                        style={{
+                          left: `${50 + Math.min(result.sentiment, 0) / 2}%`,
+                          width: `${Math.abs(result.sentiment) / 2}%`,
+                        }}
+                      />
                     </span>
                     <span>{result.sentiment > 0 ? `+${result.sentiment}` : result.sentiment}</span>
                   </div>
-                  <div className="weq-intent-popover-row">
-                    <span style={{ opacity: 0.65 }}>
+                  <div className="weq-intent-popover-row is-footer">
+                    <span className="weq-intent-confidence">
                       置信度 {Math.round(result.confidence * 100)}% ·{' '}
                       {result.engine === 'local' ? '本地模型' : 'API'}
                     </span>
                   </div>
                 </>
               ) : (
-                <div className="weq-intent-popover-row">
-                  <Loader2 size={12} className="weq-spin" />
-                  <span>正在分析…</span>
+                <div
+                  className="weq-intent-popover-row"
+                  role="status"
+                  aria-live="polite"
+                  aria-busy={pending}
+                >
+                  {failure ? <Info size={12} /> : <Loader2 size={12} className="weq-spin" />}
+                  <span>{failure ? '分析失败' : '正在分析…'}</span>
                 </div>
               )}
             </div>,

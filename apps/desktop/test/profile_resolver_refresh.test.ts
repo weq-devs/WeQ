@@ -16,13 +16,13 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   vi.unstubAllGlobals();
 });
-function fixture(primed: Profile[]) {
+function fixture(primed: Profile[], fallback?: Profile[]) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   const root = createRoot(host);
   let resolver!: ProfileResolver<Profile>;
   function Probe() {
-    resolver = useProfileResolver(primed);
+    resolver = useProfileResolver(primed, fallback);
     return h('output', null, resolver.profileByUid.get('u_a')?.remark);
   }
   act(() => root.render(h(Probe)));
@@ -76,4 +76,19 @@ it('不把响应里未请求的 UID 合并进资料缓存', async () => {
   const f = fixture([{ uid: 'u_a', remark: '原备注' }]);
   await act(async () => f.get().refreshProfiles(['u_a']));
   expect(f.get().profileByUid.has('u_other')).toBe(false);
+});
+it('持久快照先显示但不阻止按需刷新，也不覆盖本地目录的新备注', async () => {
+  mock.query.mockReset().mockResolvedValue([{ uid: 'u_a', remark: '读回备注' }]);
+  const f = fixture(
+    [{ uid: 'u_b', remark: '本地新备注' }],
+    [
+      { uid: 'u_a', remark: '缓存备注' },
+      { uid: 'u_b', remark: '旧缓存备注' },
+    ],
+  );
+  expect(f.host.textContent).toBe('缓存备注');
+  expect(f.get().profileByUid.get('u_b')?.remark).toBe('本地新备注');
+  await act(async () => f.get().resolveProfiles(['u_a', 'u_b']));
+  expect(mock.query).toHaveBeenCalledWith({ uids: ['u_a'] });
+  expect(f.host.textContent).toBe('读回备注');
 });

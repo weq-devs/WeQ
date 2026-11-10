@@ -1,9 +1,11 @@
 import { createRoot } from 'react-dom/client';
+import { useState } from 'react';
 import { CurrentTaskList } from '../../src/renderer/src/components/tasks/CurrentTaskList';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { localBackgroundTasks } from '../../src/renderer/src/state/backgroundTasks';
 import { useThemeStore } from '../../src/renderer/src/state/theme';
 import type { BackgroundTaskKind } from '../../src/shared/background_task';
+import type { UiTask } from '../../src/renderer/src/views/export/TaskList';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/settings-controls.css';
 import '../../src/renderer/src/styles/workspace-menu.css';
@@ -64,18 +66,49 @@ window.backgroundTheme = (dark, accent, background) => {
   useThemeStore.getState().setAccent(accent);
   document.documentElement.dataset.background = background;
 };
-createRoot(document.getElementById('root')!).render(
-  <>
-    <style>{`html,body,#root{margin:0;height:100%;background:var(--background)}main{display:flex;max-width:1040px;height:calc(100% - 32px);margin:16px auto;background:var(--weq-chat-bg)}`}</style>
-    <main>
-      <CurrentTaskList
-        layout="split"
-        exports={[]}
-        cleanupBinding={{ expectedAccountUin: 'synthetic', expectedAccountConfigId: 'fixture' }}
-        onSaveAll={() => {}}
-        renderExport={() => null}
-      />
-    </main>
-    <DialogHost />
-  </>,
-);
+const compact = new URLSearchParams(location.search).has('compact');
+function Fixture() {
+  const [tasks, setTasks] = useState<UiTask[]>(
+    compact
+      ? [
+          {
+            id: 'export-quick',
+            name: '合成导出-long-conversation-name-for-compact-menu',
+            kind: 'c2c',
+            format: 'json',
+            status: 'running',
+            progress: 35,
+            current: 35,
+            total: 100,
+          },
+        ]
+      : [],
+  );
+  const update = (task: UiTask, patch: Partial<UiTask>) =>
+    setTasks((items) => items.map((item) => (item.id === task.id ? { ...item, ...patch } : item)));
+  return (
+    <>
+      <style>{`html,body,#root{margin:0;height:100%;background:var(--background)}main{display:flex;width:calc(100% - 16px);max-width:${compact ? '390px' : '1040px'};height:calc(100% - 32px);margin:16px auto;background:var(--weq-chat-bg)}`}</style>
+      <main>
+        <CurrentTaskList
+          layout={compact ? 'compact' : 'split'}
+          exports={tasks}
+          exportActions={{
+            pause: (task) => update(task, { status: 'paused', canResume: true }),
+            resume: (task) => update(task, { status: 'running', canResume: false }),
+            cancel: (task) => update(task, { status: 'cancelled', canResume: false }),
+            remove: (task) => setTasks((items) => items.filter((item) => item.id !== task.id)),
+          }}
+          onOpenDetail={() => {
+            throw new Error('快捷操作不应展开完整面板');
+          }}
+          cleanupBinding={{ expectedAccountUin: 'synthetic', expectedAccountConfigId: 'fixture' }}
+          onSaveAll={() => {}}
+          renderExport={() => null}
+        />
+      </main>
+      <DialogHost />
+    </>
+  );
+}
+createRoot(document.getElementById('root')!).render(<Fixture />);

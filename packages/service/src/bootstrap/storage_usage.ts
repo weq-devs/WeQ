@@ -1,5 +1,5 @@
 import { lstat, readdir, realpath } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export interface StorageRoot {
   path: string;
@@ -22,8 +22,8 @@ export interface StorageUsageItem {
   /** 统计拆分时仍须保留原根的排除范围，不再次累计嵌套数据根。 */
   excludedPaths?: string[];
   protected?: boolean;
-  /** 混合目录只清理下载器拥有的文件，不能整目录删除。 */
-  cleanupKind?: 'dress-previews' | 'dress-shared' | 'dress-data' | 'db-backup';
+  /** 混合目录采用细分清理，不能整目录删除。 */
+  cleanupKind?: 'dress-previews' | 'dress-shared' | 'dress-data' | 'business-data' | 'db-backup';
   category?:
     | 'db-backups'
     | 'media'
@@ -66,7 +66,7 @@ const CACHE_LABELS: Readonly<Record<string, string>> = {
 
 const DATA_LABELS: Readonly<Record<string, string>> = {
   ocr: '图片识别结果',
-  agentlab: '好友克隆数据',
+  agentlab: '好友克隆与助手数据',
   'weq-assistant': 'WeQ 助手数据',
   export: '导出文件与任务',
   'merge-forward': '合并转发草稿与归档',
@@ -79,7 +79,7 @@ const DATA_LABELS: Readonly<Record<string, string>> = {
   anti_recall: '防撤回配置',
   api_usage: 'API 用量记录',
   intent_sense: '意图感知结果',
-  dress: '装扮配置与自定义背景',
+  dress: '旧装扮资源与自定义背景',
   dress_shared: '共享装扮资源',
   flash: '闪传文件',
   db_tolerance: '数据库容错数据',
@@ -161,7 +161,8 @@ export const RUNTIME_CACHE_NAMES: ReadonlySet<string> = new Set([
 
 const DATA_RISKS: Readonly<Record<string, string>> = {
   ocr: '将丢失已保存的文字识别结果；原图片过期或缺失时无法重新识别。',
-  agentlab: '将删除好友克隆的配置、对话、记忆与训练数据，无法自动恢复。',
+  agentlab:
+    '将删除克隆体、对话、记忆与训练数据，保留助手设置与机器人导出配置，已删除的数据无法自动恢复。',
   'weq-assistant': '将删除助手对话、记忆与本地资料，无法自动恢复。',
   export: '将删除应用内部的导出文件、任务和进度；未另存的导出成果会丢失。',
   'web-exports': '将删除 Web 导出文件，已有下载链接将失效。',
@@ -174,10 +175,10 @@ const DATA_RISKS: Readonly<Record<string, string>> = {
   deleted: '将删除本地删除记录，原先隐藏的消息可能重新出现。',
   anti_recall: '将删除防撤回设置；不会修改 QQ 原库或替你卸载已安装的 QQ 触发器。',
   api_usage: '将删除 API 用量与费用统计，不会撤销实际产生的服务商费用。',
-  intent_sense: '将删除意图分析结果、会话偏好与相关配置，重新分析可能产生费用。',
-  dress: '将删除装扮预览、旧配置和自定义背景原件，未备份的背景无法恢复。',
+  intent_sense: '将删除意图分析结果，保留模型选择、分析参数与会话设置；重新分析可能产生费用。',
+  dress: '将删除旧装扮资源和自定义背景原件，保留装扮配置；未备份的背景无法恢复。',
   flash: '将删除本地闪传文件；云端已过期的文件无法重新下载。',
-  db_tolerance: '将删除数据库容错设置、坏页与隔离记录；不会修复损坏数据库。',
+  db_tolerance: '将删除数据库容错记录，保留容错等级设置；不会修复损坏数据库。',
   models: '将删除本地模型，下次使用需重新下载，离线功能将暂时不可用。',
   'managed-qq':
     '请先完全退出托管 QQ 并备份需要的内容；此目录可能包含本地聊天数据库、媒体和登录状态，清除后可能永久丢失，不能只按安装缓存处理。',
@@ -231,6 +232,60 @@ export async function listDressPreviewFiles(
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') incomplete = true;
+  }
+  return { files, bytes, incomplete };
+}
+
+const MIXED_DATA_NAMES = new Set(['intent_sense', 'db_tolerance', 'agentlab', 'dress']);
+const CONFIG_FILE_NAMES = ['config.json', 'assistant.json', 'bot_exports.json', 'manifest.json'];
+
+/** 混合目录按文件清理，不删除配置或目录；执行时重新枚举，保留扫描后新增的配置。 */
+export async function listStorageDataFiles(
+  path: string,
+  excludedPaths: readonly string[] = [],
+  collectFiles = true,
+  excludeDressPreviews = basename(path) === 'dress',
+) {
+  const files: string[] = [];
+  let bytes = 0;
+  let incomplete = false;
+  let visited = 0;
+  const stack = [path];
+  const previews = excludeDressPreviews ? await listDressPreviewFiles(path) : undefined;
+  const excluded = new Set([...excludedPaths, ...(previews?.files ?? [])]);
+  incomplete ||= previews?.incomplete ?? false;
+  while (stack.length) {
+    const batch = stack.splice(-32).filter((file) => {
+      const name = basename(file).toLowerCase();
+      return (
+        !excluded.has(file) &&
+        name !== 'config' &&
+        !CONFIG_FILE_NAMES.some((config) => name === config || name.startsWith(`${config}.`))
+      );
+    });
+    visited += batch.length;
+    if (visited > 500_000) return { files, bytes, incomplete: true };
+    await Promise.all(
+      batch.map(async (file) => {
+        try {
+          const info = await lstat(file);
+          if (info.isSymbolicLink()) return;
+          if (info.isDirectory()) {
+            const names = await readdir(file);
+            if (names.length + stack.length + visited > 500_000) {
+              incomplete = true;
+              return;
+            }
+            for (const name of names) stack.push(join(file, name));
+          } else if (info.isFile()) {
+            if (collectFiles) files.push(file);
+            bytes += info.size;
+          }
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') incomplete = true;
+        }
+      }),
+    );
   }
   return { files, bytes, incomplete };
 }
@@ -314,7 +369,10 @@ export async function listStorageUsage(
         root.cache && name === 'dress' && entry?.isDirectory() && nested.length === 0
           ? await listDressPreviewFiles(path)
           : undefined;
-      const size = await measureStorage(path, new Set([...nested, ...(previews?.files ?? [])]));
+      const dataOnly = MIXED_DATA_NAMES.has(name) && entry?.isDirectory();
+      const size = dataOnly
+        ? await listStorageDataFiles(path, nested, false, Boolean(previews))
+        : await measureStorage(path, new Set([...nested, ...(previews?.files ?? [])]));
       if (previews) {
         items.push({
           id: `storage:dress-previews:${path}`,
@@ -380,6 +438,7 @@ export async function listStorageUsage(
         incomplete: size.incomplete,
         ...(safeCache && name === 'dress_shared' ? { cleanupKind: 'dress-shared' as const } : {}),
         ...(persistent && previews ? { cleanupKind: 'dress-data' as const } : {}),
+        ...(persistent && dataOnly && !previews ? { cleanupKind: 'business-data' as const } : {}),
         ...(persistent ? { confirmation: root.confirmation ?? dataRisk(name) } : {}),
         ...(safeCache && name === 'dress_shared'
           ? {

@@ -22,6 +22,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       antiRecall: {
         getStatus: { useQuery: () => ({ data: {} }) },
+        setScope: { useMutation: () => ({}) },
         setTargets: { useMutation: () => ({}) },
         setNotify: { useMutation: () => ({}) },
       },

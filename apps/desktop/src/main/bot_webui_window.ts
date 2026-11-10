@@ -8,6 +8,7 @@
  * 链接一律走系统浏览器。镜像 report_window.ts 的隔离范式。
  */
 import { BrowserWindow } from 'electron';
+import { windowDecorationOptions, installWindowControls } from './window_controls';
 
 /** 探活：GET <url> 判断 bot 的 WebUI 是否在跑（3s 超时）。 */
 export async function probeBotWebUi(url: string): Promise<boolean> {
@@ -36,6 +37,7 @@ export async function openBotWebUiWindow(
     minHeight: 420,
     title: botName ? `${botName} · 控制台` : '克隆体 · 控制台',
     autoHideMenuBar: true,
+    ...windowDecorationOptions(),
     backgroundColor: '#0f1216',
     webPreferences: {
       sandbox: true,
@@ -43,6 +45,7 @@ export async function openBotWebUiWindow(
       // 无 preload：控制台是 bot 自己的页面，应用的特权 bridge 不能进它的视野。
     },
   });
+  installWindowControls(win);
   // 控制台里的外链一律走系统浏览器，不在本窗口内导航/开子窗。
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 

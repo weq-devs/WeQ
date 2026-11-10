@@ -1,6 +1,6 @@
 {
   "name": "@weq/desktop",
-  "version": "2.5.1",
+  "version": "2.6.0",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
@@ -46,6 +46,7 @@
     "onnxruntime-common": "1.30.0",
     "onnxruntime-node": "1.30.0",
     "otplib": "^13.5.0",
+    "parse5": "8.0.1",
     "qrcode": "^1.5.4",
     "quickjs-emscripten": "^0.32.0",
     "react": "^19.0.0",

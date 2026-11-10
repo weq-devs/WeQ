@@ -99,6 +99,26 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('统一竖向工作菜单', () => {
+  it('账号来源尚未确定时不建立任务已读快照', () => {
+    const root = createRoot(document.createElement('div'));
+    try {
+      fixture.exports = [{ id: 'old', status: 'completed' }];
+      act(() =>
+        root.render(
+          h(WorkspaceTools, {
+            accountScope: '',
+            footerControls: null,
+            onOpenAnalysis: vi.fn(),
+          }),
+        ),
+      );
+      expect(useWorkspaceMenu.getState().taskScope).toBeNull();
+      expect(window.localStorage.getItem('weq:workspace-read:v1::tasks')).toBeNull();
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   it('历史任务不弹出，新任务自动打开完整列表，状态刷新不重复打开', () => {
     const root = createRoot(document.createElement('div'));
     const render = () =>

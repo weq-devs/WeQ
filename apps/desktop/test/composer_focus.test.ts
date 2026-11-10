@@ -5,6 +5,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { insertComposerNode } from '../src/renderer/src/im-template/template/composer';
+
+const target = vi.hoisted(() => ({ web: false }));
+vi.mock('../src/renderer/src/lib/target', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/lib/target')>()),
+  get IS_WEB() {
+    return target.web;
+  },
+}));
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
@@ -19,7 +28,31 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   return { trpc: proxy(), client: proxy() };
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  target.web = false;
+  vi.unstubAllGlobals();
+});
+
+it('表情面板插入不抢键盘焦点，连续插入沿用更新后的光标位置', () => {
+  const editor = document.createElement('div');
+  editor.contentEditable = 'true';
+  editor.textContent = '前后';
+  const button = document.createElement('button');
+  document.body.append(editor, button);
+  try {
+    button.focus();
+    const saved = document.createRange();
+    saved.setStart(editor.firstChild!, 1);
+    saved.collapse(true);
+    const next = insertComposerNode(editor, document.createTextNode('甲'), saved, false);
+    insertComposerNode(editor, document.createTextNode('乙'), next ?? null, false);
+    expect(editor.textContent).toBe('前甲乙后');
+    expect(document.activeElement).toBe(button);
+  } finally {
+    editor.remove();
+    button.remove();
+  }
+});
 
 function fixture() {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -57,6 +90,41 @@ function fixture() {
 }
 
 describe('进入会话自动聚焦', () => {
+  it.each(['0', '1'])('手机输入区常驻，忽略旧收起偏好 %s 且不抢焦点', (saved) => {
+    const f = fixture();
+    target.web = true;
+    vi.stubGlobal('matchMedia', (query: string) =>
+      Object.assign(new EventTarget(), { matches: query === '(max-width: 760px)' }),
+    );
+    localStorage.setItem('chat-template.layout.composerCollapsed', saved);
+    try {
+      act(() => f.otherInput.focus());
+      f.render();
+      expect(f.host.querySelector('.chat-pane')?.classList.contains('composer-collapsed')).toBe(
+        false,
+      );
+      expect(document.activeElement).toBe(f.otherInput);
+      expect(f.editor().textContent).toBe('已有草稿');
+      expect(f.host.querySelector('.mobile-composer-toggle')).toBeNull();
+      expect(f.host.querySelector('.composer-toggle')).toBeNull();
+      act(() => {
+        f.editor().textContent = '手机上继续输入';
+        f.editor().dispatchEvent(new InputEvent('input', { bubbles: true }));
+      });
+      f.render({ loading: true });
+      expect(f.editor().textContent).toBe('手机上继续输入');
+      f.render({ conversation: { ...f.props.conversation, id: 'next-mobile' }, draft: '新草稿' });
+      expect(f.host.querySelector('.chat-pane')?.classList.contains('composer-collapsed')).toBe(
+        false,
+      );
+      expect(f.editor().textContent).toBe('新草稿');
+      expect(localStorage.getItem('chat-template.layout.composerCollapsed')).toBe(saved);
+      expect(document.activeElement).toBe(f.otherInput);
+    } finally {
+      f.dispose();
+    }
+  });
+
   it.each(['resolve', 'reject'] as const)(
     '发送迟到的 %s 不清空后续输入或其他会话草稿',
     async (outcome) => {

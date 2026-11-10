@@ -3,45 +3,45 @@
   overflow-wrap: anywhere;
 }
 
-.weq-typing-settings .weq-set-row-label,
-.weq-typing-settings-heading {
+.weq-typing-settings .weq-set-row-label {
   color: var(--weq-fg-primary);
-}
-
-.weq-typing-settings-contact,
-.weq-typing-settings-contact .weq-profile-avatar-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 100%;
-  min-width: 0;
-  border-radius: 4px;
-  line-height: 1.4;
-  text-align: start;
-}
-
-.weq-typing-settings-contact :is(.weq-avatar-img, .weq-avatar-fallback) {
-  flex-shrink: 0;
-}
-
-.weq-typing-settings-name {
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 
 .weq-typing-settings .weq-set-row-desc {
   color: var(--weq-fg-secondary);
 }
 
-.weq-typing-settings-heading {
-  margin: 8px 0 0;
-  font-size: 13px;
-  font-weight: 600;
+.weq-typing-settings-tool {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.weq-typing-settings-tool-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.weq-typing-settings-picker {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
 html[data-theme='dark'] .weq-typing-settings .weq-set-row-label,
-html[data-theme='dark'] .weq-typing-settings-heading {
+html[data-theme='dark'] .weq-typing-settings-tool {
   color: var(--weq-fg-primary);
+}
+
+@media (max-width: 650px) {
+  .weq-typing-settings-tool-body {
+    padding: 12px;
+  }
 }
 
 html[data-theme='dark'] .weq-typing-settings .weq-set-row-desc {

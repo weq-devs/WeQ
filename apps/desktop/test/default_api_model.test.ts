@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DefaultApiModelRow } from '../src/renderer/src/components/settings/DefaultApiModelRow';
 import { ApiModelSelect } from '../src/renderer/src/components/settings/ApiModelSelect';
+import { useModelSelectionLabel } from '../src/renderer/src/components/settings/useModelSelectionLabel';
 import { DEFAULT_MODEL_SELECTION_KEY } from '@weq/agentlab/model-selection';
 
 const f = vi.hoisted(() => ({
@@ -77,7 +78,30 @@ function mount(content: () => ReactElement = () => createElement(DefaultApiModel
 }
 
 describe('LLM 默认模型设置', () => {
-  it('消费入口显式提供默认选项，空值不自动继承，选择时提交独立标记', () => {
+  it('助手等入口统一默认模型文案，旧资料中未使用的可选模型仍保留原提示', () => {
+    function Labels() {
+      const label = useModelSelectionLabel();
+      return createElement(
+        'div',
+        null,
+        [label(null), label({ useDefault: true }), label(null, '未使用')].join('|'),
+      );
+    }
+    f.status = { ref: { providerId: 'synthetic', model: 'chat' }, available: true, error: null };
+    const page = mount(() => createElement(Labels));
+    try {
+      expect(page.host.textContent).toBe('默认（当前：chat）|默认（当前：chat）|未使用');
+      f.status.available = false;
+      page.render();
+      expect(page.host.textContent).toBe(
+        '默认（当前：chat（不可用））|默认（当前：chat（不可用））|未使用',
+      );
+    } finally {
+      page.close();
+    }
+  });
+
+  it('消费入口移除未选择，空值显示默认，选择时提交独立标记', () => {
     f.status = { ref: { providerId: 'synthetic', model: 'chat' }, available: true, error: null };
     const change = vi.fn();
     const page = mount(() =>
@@ -89,8 +113,10 @@ describe('LLM 默认模型设置', () => {
       }),
     );
     try {
-      expect(page.select().value).toBe('');
-      expect(page.host.textContent).toContain('默认：chat');
+      expect(page.select().value).toBe(DEFAULT_MODEL_SELECTION_KEY);
+      expect(page.select().querySelector('option[value=""]')).toBeNull();
+      expect(page.select().selectedOptions[0]?.textContent).toBe('默认（当前：chat）');
+      expect(page.select().title).toBe('默认（当前：chat）');
       expect(change).not.toHaveBeenCalled();
       act(() => {
         page.select().value = DEFAULT_MODEL_SELECTION_KEY;
@@ -114,11 +140,11 @@ describe('LLM 默认模型设置', () => {
     );
     try {
       expect(page.select().value).toBe(DEFAULT_MODEL_SELECTION_KEY);
-      expect(page.host.textContent).toContain('默认：未配置');
+      expect(page.host.textContent).toContain('默认（当前：未配置）');
       f.queryError = new Error('合成读取失败');
       page.render();
       expect(page.select().value).toBe(DEFAULT_MODEL_SELECTION_KEY);
-      expect(page.host.textContent).toContain('默认：读取失败');
+      expect(page.host.textContent).toContain('默认（当前：读取失败）');
       act(() => page.host.querySelector<HTMLButtonElement>('button')!.click());
       expect(f.refetch).toHaveBeenCalled();
       expect(change).not.toHaveBeenCalled();

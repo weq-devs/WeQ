@@ -23,9 +23,11 @@
 // 只做设置/撤回：查询某个表情的回应人列表见 `get-emoji-likes.ts`（0x9083_1）；
 // 常用表情目录（0x9084_1）没有搬，按需再说。
 //
-// 签名：**要签**（`needSign = true`）。真机实测 `0x9082_1` 和 `_2` 的 SSO reserved 里
-// 都有 tag 24（`scripts/probe-sign.ts`，三次一致）；Lagrange 的签名白名单里没有 0x908x
-// 一族，照抄会漏签。同族的 `0x9083_1`（回应人列表）实测不签，别跟着改。
+// 签名：**三端不一致**。Linux 与 Windows 实测都签（`0x9082_1` / `_2` 的 SSO
+// reserved 里有 tag 24）；macOS 实测**不签**（QQ 正常发出，reserved 里没有 SecInfo，
+// 复测稳定）。这个差异是 macOS 版 QQ 真实的平台行为，不是探测失败。
+// 同族的 `0x9083_1`（回应人列表）三端都不签，别跟着改。
+// 实测见 `docs/develop/sign-policy-20261109.md`。
 
 import { message } from '../../protobuf';
 import { invokeOidb, type OidbSpec } from '../invoke';
@@ -57,8 +59,7 @@ export interface SetReactionParams {
 
 export namespace SetReaction {
   export const command = 0x9082;
-  /** 真机实测会签名（scripts/probe-sign.ts）；不在 Lagrange 白名单里（见文件头注释）。 */
-  export const needSign = true;
+  /** Linux / Windows 签，macOS 不签（见文件头注释）。 */
   export const reqSchema = REACTION_REQ;
   export const respSchema = REACTION_RESP;
 

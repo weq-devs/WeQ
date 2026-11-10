@@ -450,6 +450,24 @@
 .weq-qzn-composer {
   color: var(--weq-fg-primary);
 }
+@media (max-width: 760px) {
+  .weq-web-dialog-layer > .weq-qzn-compose-modal {
+    display: flex;
+    flex-direction: column;
+  }
+  .weq-web-dialog-layer .weq-qzn-composer {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 16px;
+  }
+  .weq-web-dialog-layer .weq-qzn-composer footer {
+    flex-wrap: wrap;
+  }
+  .weq-web-dialog-layer .weq-qzn-composer :is(textarea, select) {
+    font-size: 16px;
+  }
+}
 .weq-qzn-composer textarea {
   background: var(--weq-bg-elevated);
   color: var(--weq-fg-primary);

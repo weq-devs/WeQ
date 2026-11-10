@@ -46,6 +46,14 @@ import {
 import { DEFAULT_APP_SETTINGS } from './user_config';
 import type { AccountConfig } from '../account/user_config';
 import { validateWeqClientSettings } from '../common/backup_client';
+import {
+  weqDefaultsConfig,
+  WEQ_DEFAULTS_PATHS,
+  WEQ_DEFAULTS_CONNECTIONS,
+  type WeqDefaultsChoice,
+} from './backup_defaults';
+import { DEFAULT_INTENT_SENSE_CONFIG } from '../account/intent_sense';
+import type { UserConfig } from './user_config';
 
 export interface WeqRestoreChoice {
   parts: WeqBackupPart[];
@@ -56,6 +64,7 @@ export interface WeqRestoreChoice {
   keepLocalPaths?: boolean;
   clientId?: string;
   includeClient?: boolean;
+  defaults?: WeqDefaultsChoice;
 }
 export interface WeqRestoreResult {
   id: string;
@@ -164,6 +173,20 @@ function validateChoice(value: unknown): asserts value is WeqRestoreChoice {
     (value.conflict !== 'skip' && value.conflict !== 'overwrite')
   )
     throw new Error('无效的恢复选择');
+  if (value.defaults !== undefined) {
+    const d = value.defaults;
+    if (
+      !record(d) ||
+      (d.clearApi !== undefined && typeof d.clearApi !== 'boolean') ||
+      (d.resetPaths !== undefined &&
+        (!Array.isArray(d.resetPaths) ||
+          d.resetPaths.some((id) => !WEQ_DEFAULTS_PATHS.includes(id)))) ||
+      (d.resetConnections !== undefined &&
+        (!Array.isArray(d.resetConnections) ||
+          d.resetConnections.some((id) => !WEQ_DEFAULTS_CONNECTIONS.includes(id))))
+    )
+      throw new Error('无效的恢复默认选择');
+  }
   for (const key of ['accountConfigIds', 'cloneConfigIds'])
     if (
       value[key] !== undefined &&
@@ -501,6 +524,8 @@ function configPlan(
   choice: WeqRestoreChoice,
   skipped: string[],
 ): Record<string, unknown> | null {
+  if (choice.defaults)
+    return weqDefaultsConfig(current as UserConfig, choice.defaults) as Record<string, unknown>;
   const app = files.find((file) => file.path === 'settings/app.json');
   const api = files.find((file) => file.path === 'api/settings.json');
   const presets = files.find((file) => file.path === 'settings/export-presets.json');
@@ -657,11 +682,71 @@ function prepare(
             id: pending.id,
             values: parseWeqBackupJson(client.data),
             ...(pending.choice.clientId ? { clientId: pending.choice.clientId } : {}),
+            ...(pending.choice.defaults ? { defaults: true } : {}),
           }),
         ),
       },
     ]);
     result.clientPending = true;
+  }
+  if (pending.choice.defaults) {
+    const accountsRoot = join(root, 'config', 'accounts');
+    const scopes = new Set<string>();
+    if (present(accountsRoot))
+      for (const name of readdirSync(accountsRoot)) {
+        const scope = name.endsWith('.json') ? name.slice(0, -5) : name;
+        if (!isWeqBackupConfigId(scope)) continue;
+        scopes.add(scope);
+        if (!name.endsWith('.json')) continue;
+        const original = readWeqBackupFile(join(accountsRoot, name));
+        const account = parseWeqBackupJson(original);
+        if (!record(account)) throw new Error('账号配置无效，未恢复默认');
+        const next = { ...account };
+        for (const key of [
+          'mailNotifications',
+          'mailShowUnread',
+          'annualReport',
+          'groupKeyword',
+          'nativeMediaEnabled',
+        ])
+          delete next[key];
+        add('account', [{ path: '', data: Buffer.from(JSON.stringify(next)) }], scope, {
+          originalHash: digest(original),
+        });
+      }
+    // 也覆盖仍有功能配置、但账号记录已移除的数据域；绝不扫描或替换业务缓存。
+    for (const category of ['anti_recall', 'intent_sense', 'db_tolerance']) {
+      const directory = join(cacheRoot, category);
+      if (present(directory))
+        for (const scope of readdirSync(directory))
+          if (isWeqBackupConfigId(scope)) scopes.add(scope);
+    }
+    for (const scope of scopes)
+      for (const setting of WEQ_ACCOUNT_SETTING_FILES) {
+        const path = weqAccountSettingPath(root, cacheRoot, scope, setting);
+        if (!present(path)) continue;
+        let value: unknown = setting === 'intent.json' ? DEFAULT_INTENT_SENSE_CONFIG : {};
+        if (setting === 'dress.json') {
+          const saved = parseWeqBackupJson(readWeqBackupFile(path));
+          if (!record(saved)) throw new Error('装扮配置无效，未恢复默认');
+          value = {
+            ...saved,
+            localAppearanceVersion: 1,
+            activeBubble: 0,
+            activeFont: 0,
+            activeWidget: 0,
+            scope: 'mine',
+            background: 'none',
+            backgroundFile: '',
+            widgetId: '',
+            backgroundOpacity: 1,
+          };
+        }
+        add('account-setting', [{ path: '', data: Buffer.from(JSON.stringify(value)) }], scope, {
+          setting,
+          originalHash: digest(readWeqBackupFile(path)),
+        });
+      }
   }
   for (const file of accountFiles) {
     const sourceScope = weqAccountBackupScope(file.path),
@@ -1175,6 +1260,18 @@ export function weqBackupRestoreStatus(appRoot: string) {
   };
 }
 
+export function recordWeqRestoreWarnings(appRoot: string, result: WeqRestoreResult): void {
+  const root = resolve(appRoot);
+  const stored = readResult(root);
+  if (stored?.id !== result.id || stored.status !== 'applied') throw new Error('恢复回执已变化');
+  const journal = readJournal(root);
+  if (journal?.id === result.id && journal.phase === 'committed') {
+    journal.result.warnings = result.warnings;
+    save(journalPath(root), journal);
+  }
+  save(resultPath(root), { ...stored, warnings: result.warnings });
+}
+
 export function hasPendingWeqBackupRestore(appRoot: string): boolean {
   const root = resolve(appRoot);
   return present(pendingPath(root)) || present(journalPath(root));
@@ -1200,7 +1297,7 @@ export function pendingWeqClientSettings(
   appRoot: string,
   clientId?: string,
   allowOtherClient = false,
-): { id: string; values: Record<string, string>; clientId?: string } | null {
+): { id: string; values: Record<string, string>; clientId?: string; defaults?: boolean } | null {
   const root = resolve(appRoot);
   if (!present(clientPath(root))) return null;
   const value = json(clientPath(root), WEQ_BACKUP_LIMITS.maxEntryBytes);
@@ -1212,6 +1309,8 @@ export function pendingWeqClientSettings(
   )
     throw new Error('待恢复界面偏好无效');
   validateWeqClientSettings(value.values);
+  if (value.defaults !== undefined && typeof value.defaults !== 'boolean')
+    throw new Error('待恢复默认偏好无效');
   if (
     value.clientId !== undefined &&
     (typeof value.clientId !== 'string' || !UUID.test(value.clientId))
@@ -1228,7 +1327,12 @@ export function pendingWeqClientSettings(
   } else if (journal?.id !== value.id || journal.phase !== 'committed')
     throw new Error('缺少已提交的恢复回执，未应用界面偏好');
   if (!allowOtherClient && value.clientId !== undefined && value.clientId !== clientId) return null;
-  return value as unknown as { id: string; values: Record<string, string>; clientId?: string };
+  return value as unknown as {
+    id: string;
+    values: Record<string, string>;
+    clientId?: string;
+    defaults?: boolean;
+  };
 }
 
 export function acknowledgeWeqClientSettings(

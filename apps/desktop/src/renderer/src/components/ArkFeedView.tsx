@@ -9,6 +9,7 @@ interface ArkFeedViewProps {
   conversationId: string;
   title: string;
   onBack: () => void;
+  anchorId?: string;
 }
 
 type MessageElement = {
@@ -35,6 +36,7 @@ export function ArkFeedView({
   title,
   onBack,
   onEditMessage,
+  anchorId,
 }: ArkFeedViewProps & { onEditMessage?: (msgId: string) => void }) {
   const [messages, setMessages] = useState<ArkMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,13 +50,13 @@ export function ArkFeedView({
     !isService && conversationId !== 'merged:official' && conversationId !== 'merged:service';
 
   const officialFeed = trpc.account.listOfficialAccountArkFeed.useQuery(
-    { peerUid: conversationId, limit: 100 },
+    { peerUid: conversationId, limit: 100, anchorId },
     { enabled: isOfficial },
   );
 
   const appId = isService ? conversationId.replace('service:', '') : '';
   const serviceFeed = trpc.account.listServiceAccountArkFeed.useQuery(
-    { appId, limit: 100 },
+    { appId, limit: 100, anchorId },
     { enabled: isService },
   );
 

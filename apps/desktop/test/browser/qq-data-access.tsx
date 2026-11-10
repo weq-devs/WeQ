@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { SelectScreen } from '../../src/renderer/src/views/bootstrap/SelectScreen';
+import { BootstrapShell } from '../../src/renderer/src/views/BootstrapView';
 import { RestrictedModeHost } from '../../src/renderer/src/components/RestrictedMode';
 import { useViewState } from '../../src/renderer/src/state/view';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
@@ -11,7 +12,7 @@ Object.assign(window, { accessQa: { store: useThemeStore, viewStore: useViewStat
 useViewState.getState().enterSelect('existing');
 function Fixture() {
   return (
-    <main className="weq-home-shell" style={{ height: '100dvh' }}>
+    <BootstrapShell showWindowActions={false}>
       <SelectScreen
         install={{
           qqExePath: '/fixture/QQ.app',
@@ -26,8 +27,12 @@ function Fixture() {
           hasLoginDb: true,
         }}
       />
-      <RestrictedModeHost />
-    </main>
+    </BootstrapShell>
   );
 }
-createRoot(document.getElementById('root')!).render(<Fixture />);
+createRoot(document.getElementById('root')!).render(
+  <>
+    <Fixture />
+    <RestrictedModeHost />
+  </>,
+);

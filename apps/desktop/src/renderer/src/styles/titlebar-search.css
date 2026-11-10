@@ -1,4 +1,4 @@
-.app-title-bar:has(.weq-titlebar-search.is-persistent) {
+.app-title-bar:has(.weq-titlebar-search.is-persistent):not(:has(.app-title-bar-actions)) {
   padding-right: 16px;
 }
 
@@ -14,7 +14,7 @@
 }
 
 .app-title-bar-drag {
-  min-width: 8px;
+  min-width: 24px;
 }
 
 .app-title-bar .weq-titlebar-search.is-persistent {
@@ -38,6 +38,8 @@
 }
 
 .weq-titlebar-restriction > div {
+  display: flex;
+  align-items: center;
   min-width: 0;
   overflow: hidden;
 }

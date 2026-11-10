@@ -1,17 +1,8 @@
-﻿// @ts-nocheck
-import {
-  ChevronRight,
-  Plus,
-  Search,
-  UserPlus,
-  UsersRound,
-  RefreshCw,
-  Download,
-  Users,
-  UserRound,
-} from 'lucide-react';
+// @ts-nocheck
+import { Plus, Search, UserPlus, UsersRound, Download, Users, UserRound } from 'lucide-react';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { ContactDirectoryContext } from '../../lib/conversationDirectory';
+import { ContactRefreshButton } from '../../components/ContactRefreshButton';
 import { FriendGroupCreateMenu } from '../../components/FriendGroupCreateMenu';
 import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
@@ -83,7 +74,7 @@ export function SidebarHeader({
       return;
     }
 
-    function closeOnOutside(event: MouseEvent) {
+    function closeOnOutside(event: PointerEvent) {
       const target = event.target;
       if (target instanceof Element && target.closest('.sidebar-add-wrap')) {
         return;
@@ -99,10 +90,10 @@ export function SidebarHeader({
       }
     }
 
-    document.addEventListener('mousedown', closeOnOutside);
+    document.addEventListener('pointerdown', closeOnOutside, true);
     document.addEventListener('keydown', closeOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeOnOutside);
+      document.removeEventListener('pointerdown', closeOnOutside, true);
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [addOpen]);
@@ -195,6 +186,7 @@ export function SidebarHeader({
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
               onFocus={() => onSearchFocus?.()}
+              aria-label="搜索会话、联系人和群"
               placeholder="搜索"
             />
           </label>
@@ -222,6 +214,14 @@ export function SidebarHeader({
                 invertSelectionIds(directory?.ids ?? [], selection.selectedIds),
               )
             }
+            endAction={(searching, closeSearch) => (
+              <FriendGroupCreateMenu
+                showGroup={contactTab === 'friends'}
+                onLookup={setLookupOpen}
+                searching={searching}
+                onCloseSearch={closeSearch}
+              />
+            )}
           >
             {requestExport && (
               <button
@@ -239,18 +239,8 @@ export function SidebarHeader({
               </button>
             )}
             {onRefreshContacts ? (
-              <button
-                type="button"
-                onClick={onRefreshContacts}
-                disabled={refreshingContacts}
-                aria-label={refreshingContacts ? '正在刷新联系人' : '刷新联系人列表'}
-                title={refreshingContacts ? '正在刷新联系人' : '刷新联系人列表'}
-                aria-busy={refreshingContacts}
-              >
-                <RefreshCw size={15} className={refreshingContacts ? 'spin' : undefined} />
-              </button>
+              <ContactRefreshButton onRefresh={onRefreshContacts} refreshing={refreshingContacts} />
             ) : null}
-            <FriendGroupCreateMenu showGroup={contactTab === 'friends'} onLookup={setLookupOpen} />
           </DirectoryToolbar>
           {exportMenu && requestExport && (
             <ConversationActionsMenu
@@ -280,37 +270,39 @@ export function SidebarHeader({
               ]}
             />
           )}
-          <button
-            type="button"
-            className={cn(contactToolButtonClass(activeNotice === 'friend'))}
-            aria-current={activeNotice === 'friend' ? 'page' : undefined}
-            onClick={onOpenFriendNotices}
-          >
-            <span className={cn('notice-entry-label')}>
-              <UserPlus size={17} aria-hidden />
-              <span className={cn('desktop-notice-label')}>好友通知</span>
-              <span className={cn('mobile-notice-label')}>新朋友</span>
-              {friendNoticeCount > 0 && (
-                <span className="notice-entry-dot" role="status" aria-label="有新的好友通知" />
-              )}
-            </span>
-            <ChevronRight size={20} />
-          </button>
-          <button
-            type="button"
-            className={cn(contactToolButtonClass(activeNotice === 'group'))}
-            aria-current={activeNotice === 'group' ? 'page' : undefined}
-            onClick={onOpenGroupNotices}
-          >
-            <span className={cn('notice-entry-label')}>
-              <UsersRound size={17} aria-hidden />
-              群通知
-              {groupNoticeCount > 0 && (
-                <span className="notice-entry-dot" role="status" aria-label="有新的群通知" />
-              )}
-            </span>
-            <ChevronRight size={20} />
-          </button>
+          <div className="contact-notice-row">
+            <button
+              type="button"
+              className={cn(contactToolButtonClass(activeNotice === 'friend'))}
+              aria-current={activeNotice === 'friend' ? 'page' : undefined}
+              title="好友通知"
+              onClick={onOpenFriendNotices}
+            >
+              <span className={cn('notice-entry-label')}>
+                <UserPlus size={15} aria-hidden />
+                <span className={cn('desktop-notice-label')}>好友通知</span>
+                <span className={cn('mobile-notice-label')}>新朋友</span>
+                {friendNoticeCount > 0 && (
+                  <span className="notice-entry-dot" role="status" aria-label="有新的好友通知" />
+                )}
+              </span>
+            </button>
+            <button
+              type="button"
+              className={cn(contactToolButtonClass(activeNotice === 'group'))}
+              aria-current={activeNotice === 'group' ? 'page' : undefined}
+              title="群通知"
+              onClick={onOpenGroupNotices}
+            >
+              <span className={cn('notice-entry-label')}>
+                <UsersRound size={15} aria-hidden />
+                群通知
+                {groupNoticeCount > 0 && (
+                  <span className="notice-entry-dot" role="status" aria-label="有新的群通知" />
+                )}
+              </span>
+            </button>
+          </div>
           <div className="contact-list-controls">
             <div className={cn('contact-tab-switch')} role="tablist" aria-label="联系人类型">
               <button

@@ -111,7 +111,7 @@ export function AppRail({
       return;
     }
 
-    function closeFloating(event: globalThis.MouseEvent) {
+    function closeFloating(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -127,10 +127,10 @@ export function AppRail({
       }
     }
 
-    document.addEventListener('mousedown', closeFloating);
+    document.addEventListener('pointerdown', closeFloating, true);
     document.addEventListener('keydown', closeOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeFloating);
+      document.removeEventListener('pointerdown', closeFloating, true);
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [profileOpen]);

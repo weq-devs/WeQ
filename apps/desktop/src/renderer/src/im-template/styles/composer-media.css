@@ -1388,7 +1388,7 @@ html[data-theme='dark'] .link-card-preview-card {
 
 @media (max-width: 760px) {
   .chat-pane:has(.composer.has-single-send) {
-    --composer-height: calc(186px + env(safe-area-inset-bottom, 0px)) !important;
+    --composer-height: calc(186px + var(--mobile-composer-safe-bottom)) !important;
   }
 
   .composer.has-single-send {
@@ -1447,6 +1447,16 @@ html[data-theme='dark'] .link-card-preview-card {
     grid-row: 2;
   }
 
+  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
+    > :is(.composer-send, .mobile-composer-expand-button) {
+    grid-row: 2;
+  }
+
+  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
+    > .composer-tools {
+    grid-row: 3;
+  }
+
   /* 面板打开时引用条让位（display:none）：待发送的引用还在，发送时依旧带上，
      只是不跟面板挤同一格。 */
   .composer.has-quote:has(> .emoji-panel) > .composer-quote,
@@ -1455,12 +1465,14 @@ html[data-theme='dark'] .link-card-preview-card {
   }
 
   /* 引用条那一行要从输入区高度里要回来，而且只在它真看得见时才加。 */
-  .chat-pane:has(.composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))) {
+  .chat-pane:has(.composer.has-quote):not(:has(.composer > .emoji-panel)):not(
+    :has(.composer > .composer-plus-panel)
+  ) {
     --composer-height: calc(
       var(--mobile-composer-editor-height, 42px) +
       62px +
       40px +
-      env(safe-area-inset-bottom, 0px)
+      var(--mobile-composer-safe-bottom)
     ) !important;
   }
 }

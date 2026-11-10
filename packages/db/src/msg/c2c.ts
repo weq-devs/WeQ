@@ -137,6 +137,14 @@ export class C2cMsgDb {
   get sourcePath(): string {
     return this.qq.dbPath;
   }
+  async calendarMessage(part: C2cPartition, id: bigint): Promise<C2cMsg[]> {
+    const { clause, value } = partitionWhere(part);
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM ${this.table} WHERE "40001"=? AND ${clause}`,
+      [id, value],
+    );
+    return rows.map(rowToC2cMsg);
+  }
   async exportSourceRows(part: C2cPartition, ids: readonly string[], full = true) {
     const column = 'sortNo' in part ? '40027' : 'appId' in part ? '40035' : '40021';
     const value = 'sortNo' in part ? part.sortNo : 'appId' in part ? part.appId : part.uid;

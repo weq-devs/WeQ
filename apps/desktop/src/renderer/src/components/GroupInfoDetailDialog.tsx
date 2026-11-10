@@ -16,6 +16,7 @@ import { formatShortDate } from '../im-template/template/format';
 import type { GroupConversationView } from '../im-template/template/conversationDetailsTypes';
 import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
 import { OverlayLayer } from './OverlayLayer';
+import { GroupProfileMetrics } from './GroupProfileMetrics';
 
 export function GroupInfoDetailDialog({
   conversation,
@@ -80,6 +81,18 @@ export function GroupInfoDetailDialog({
                   </strong>
                 </div>
               ))}
+              {!conversation.generated ? (
+                <GroupProfileMetrics groupCode={conversation.id}>
+                  {(rows) =>
+                    rows.map(([label, value]) => (
+                      <div className={cn('group-info-detail-row')} key={label}>
+                        <span>{label}</span>
+                        <strong>{value}</strong>
+                      </div>
+                    ))
+                  }
+                </GroupProfileMetrics>
+              ) : null}
             </div>
           ) : null}
         </div>

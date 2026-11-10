@@ -28,7 +28,6 @@ export const SETTINGS_PAGE_LABELS = {
   'database-management': '数据库管理',
   'qq-storage': '资源目录管理',
   'resource-loading': '资源加载',
-  'background-services': '后台服务',
   remote: 'Web 与 Remote',
   mcp: 'MCP 服务器',
   onebot: 'OneBot / cc-connect',
@@ -86,9 +85,9 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     sections: [
       'agentlab',
       'model-usage',
+      'reply-suggestions',
       'intent-sense',
       'interaction-profile',
-      'reply-suggestions',
       'voice',
       'ocr',
     ],
@@ -112,8 +111,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'services',
     label: 'WeQ 服务',
-    // 「后台服务」放在最前：它是这一组的总览，先看全景再进单个服务。
-    sections: ['background-services', 'remote', 'mcp', 'onebot', 'sse', 'assistant'],
+    sections: ['remote', 'mcp', 'onebot', 'sse', 'assistant'],
   },
   { id: 'help', label: '关于 WeQ', sections: ['version', 'backup', 'faq', 'logs', 'feedback'] },
 ];
@@ -156,6 +154,7 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
     [
       'custom-message-display',
       'message-seq',
+      'message-date',
       'message-time',
       'avatar-pendant',
       'message-bubble',
@@ -230,8 +229,9 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'weq-config-management',
     section: 'backup',
-    label: '重置与清除配置',
+    label: '恢复默认设置',
     aliases: [
+      '重置与清除配置',
       '配置与运行数据管理',
       '账号与应用配置',
       '全局配置',
@@ -269,18 +269,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['totp-authenticator', 'privacy', 'WeQ 验证器', '绑定验证器', 'TOTP'],
       [
         'window-close-behavior',
-        'background-services',
+        'global',
         '关闭窗口时',
         '关闭按钮行为',
+        '关闭按钮',
         '最小化到托盘',
         '退出时停止',
       ],
-      ['background-mcp', 'background-services', 'MCP 服务器状态', 'MCP 运行状态'],
-      ['background-onebot', 'background-services', 'OneBot 服务状态', 'OneBot 运行状态'],
-      ['background-assistant', 'background-services', 'QQ 公众号推送状态'],
-      ['background-web', 'background-services', 'WeQ Web 服务状态', 'Web 服务状态'],
-      ['background-remote', 'background-services', 'WeQ Remote 状态', 'Remote 状态'],
-      ['background-sse', 'background-services', 'SSE 消息推送状态', 'SSE 推送状态'],
       ['mcp-connection', 'mcp', '连接信息', 'MCP 客户端配置', '复制客户端配置', 'MCP 令牌'],
       ['mcp-install', 'mcp', '安装到本机 AI 客户端', '安装 MCP', 'MCP 自动配置'],
       ['sse-targets', 'sse', '已配置的推送目标', '推送地址', 'SSE access_token', '添加推送目标'],
@@ -301,8 +296,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ),
   ...(
     [
-      ['web-enabled', '启用 Web 服务', '浏览器访问'],
-      ['web-autostart', '启动 WeQ 时自动开启 Web 服务'],
+      ['web-enabled', '允许本机浏览器访问', '启用 Web 服务'],
+      ['web-autostart', '启动 WeQ 时自动允许本机浏览器访问', '启动 WeQ 时自动开启 Web 服务'],
       ['remote-enabled', '允许远程连接', 'WeQ Remote', '远程访问'],
       ['remote-lan', '局域网 IP', '局域网地址'],
       ['remote-tailscale', 'Tailscale IP', 'Tailscale', '跨网络连接', '内网穿透'],
@@ -403,7 +398,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['auto-transcribe-voice', '语音消息自动转文字', '语音自动识别'],
       ['custom-message-display', '自定义消息显示'],
       ['message-seq', '显示消息序号（seq）'],
-      ['message-time', '显示发送时间（精确到秒）'],
+      ['message-date', '显示发送日期'],
+      ['message-time', '显示发送时间', '显示发送时间（精确到秒）'],
       ['avatar-pendant', '聊天头像挂件'],
       ['chat-qqshow', '聊天 QQ 秀替换头像', 'QQ 秀'],
       ['chat-qqshow-days', 'QQ 秀缓存有效期'],
@@ -449,13 +445,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     }),
   ),
   {
-    id: 'default-save',
-    section: 'weq-storage',
-    label: '默认保存目录',
-    aliases: ['保存位置'],
-    from: ['saving', 'weq-storage'],
-  },
-  {
     id: 'prefer-cdn',
     section: 'resource-loading',
     label: '优先使用 CDN',
@@ -464,8 +453,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'typing-status',
     section: 'chat-interaction',
-    label: '向对方展示输入状态',
-    aliases: ['默认发送正在输入状态', '发送正在输入状态'],
+    label: '隐藏正在输入状态',
+    aliases: ['向对方展示输入状态', '默认发送正在输入状态', '发送正在输入状态', '输入状态'],
     from: ['global', 'chat-messages', 'chat-interaction'],
   },
   {
@@ -597,7 +586,7 @@ const SECTION_REDIRECTS: Partial<
 > = {
   applock: { section: 'privacy', settingId: 'app-lock' },
   home: { section: 'startup', settingId: 'home-settings' },
-  saving: { section: 'weq-storage', settingId: 'default-save' },
+  saving: { section: 'global' },
   storage: { section: 'weq-storage' },
   'anti-recall': { section: 'chat-interaction', settingId: 'anti-recall' },
   media: { section: 'accounts', settingId: 'linked-resources' },

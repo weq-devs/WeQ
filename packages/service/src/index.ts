@@ -46,7 +46,8 @@ export type {
   AutoEnterTarget,
   AppSettings,
   TypingStatusSettings,
-  TypingStatusOverride,
+  TypingStatusMode,
+  TypingStatusConversation,
   AppLockConfig,
   AppLockMethod,
   WindowCloseBehavior,
@@ -97,6 +98,7 @@ export type {
 
 export {
   warmupSigner,
+  primeSignerHints,
   describeSignerCache,
   getSignerHints,
   rememberSignerHints,
@@ -427,6 +429,10 @@ export type {
   IntentLocalAnalyzeOptions,
   IntentLocalEnginePort,
   IntentAnalyzedEvent,
+  IntentAnalysisProgress,
+  ReplySuggestionHistoryEntry,
+  ReplySuggestionDetails,
+  ReplySuggestionTrace,
   IntentProfile,
   MbtiDim,
   ProfileHints,
@@ -1188,6 +1194,10 @@ export {
   pruneExpiredLogs,
 } from './common/logger';
 export type { LogFileCandidate } from './common/logger';
+export { configureConsoleLogger, flushConsoleLogger } from './common/logger';
+export { withLogOperation, currentOperationId } from './common/operation_log';
+export { configureDevelopmentLogging } from './common/development_logging';
+export { logRequest, logTransportError } from './common/request_log';
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
 export { getHost, setHost, withHost } from './common/host';
 export type { AppAutostartStatus, HostBridge, SaveTarget } from './common/host';
@@ -1257,6 +1267,13 @@ export { SharedPrompt } from './common/shared_prompt';
 export { bootstrapWeqBackupFiles } from './bootstrap/backup_startup';
 export type { WeqFileStartup } from './bootstrap/backup_startup';
 export { WeqBackupService } from './bootstrap/backup_service';
+export { recordWeqRestoreWarnings } from './bootstrap/backup_restore';
+export { WEQ_DEFAULTS_PATHS, WEQ_DEFAULTS_CONNECTIONS } from './bootstrap/backup_defaults';
+export type {
+  WeqDefaultsChoice,
+  WeqDefaultsPath,
+  WeqDefaultsConnection,
+} from './bootstrap/backup_defaults';
 export { writeWeqBackupExclusive } from './bootstrap/backup_output';
 export type { WeqBackupSelection } from './bootstrap/backup_service';
 export {
@@ -1281,3 +1298,11 @@ export {
   readStorageCleanupResult,
 } from './bootstrap/storage_cleanup';
 export type { StorageCleanupPlan, StorageCleanupResult } from './bootstrap/storage_cleanup';
+export { ContactMetricsService, ContactMetricsOfflineError } from './account/contact_metrics';
+export type {
+  ContactMetric,
+  ContactMetricRows,
+  ContactMetricsSnapshot,
+  ContactMetricsProgress,
+  ContactMetricJob,
+} from './account/contact_metrics';

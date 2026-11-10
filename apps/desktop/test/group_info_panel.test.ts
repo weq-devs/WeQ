@@ -16,6 +16,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GroupInfoPanel } from '@renderer/im-template/template/groupInfoPanel';
 import { TabActivity } from '@renderer/components/RetainedTabs';
 
+const rankQuery = vi.hoisted(() => vi.fn());
+vi.mock('../src/renderer/src/trpc/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/trpc/client')>()),
+  client: { account: { listGroupMembersByLevel: { query: rankQuery } } },
+}));
+
 declare global {
   // eslint-disable-next-line no-var
   var IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -88,6 +94,7 @@ function metaRow(label: string): HTMLElement | undefined {
 describe('群资料面板', () => {
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    rankQuery.mockReset().mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -111,6 +118,77 @@ describe('群资料面板', () => {
   it('渲染群成员列表', () => {
     mountPanel();
     expect(document.querySelector('.group-info-member-row')?.textContent).toContain('测试成员');
+  });
+  it('群资料展示排序依据中的活跃度和群内好友数，缺少缓存不误报零', () => {
+    mountPanel();
+    expect(metaRow('活跃度')?.querySelector('strong')?.textContent).toBe('未知');
+    expect(metaRow('群内好友数')?.querySelector('strong')?.textContent).toBe('未知');
+  });
+  it('已退群与等级排行是并列图标按钮，已退群保留原回调', () => {
+    const open = vi.fn();
+    mountPanel(undefined, undefined, { onOpenLeftMembers: open });
+    const actions = document.querySelector('.group-info-member-actions')!;
+    const buttons = [...actions.querySelectorAll<HTMLButtonElement>('button')];
+    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+      '查看已退群的成员',
+      '群成员等级排行',
+    ]);
+    expect(buttons.every((button) => !button.textContent?.trim())).toBe(true);
+    expect(rankQuery).not.toHaveBeenCalled();
+    act(() => buttons[0].click());
+    expect(open).toHaveBeenCalledOnce();
+  });
+  it('等级排行直接查询当前群，点击未加载的成员仍能打开资料', async () => {
+    rankQuery.mockResolvedValue([
+      { uid: 'uid-rank', uin: '10002', nick: '排行成员', memberLevel: 8 },
+    ]);
+    const open = vi.fn();
+    mountPanel(undefined, undefined, { onOpenMember: open });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('[aria-label="群成员等级排行"]')!.click();
+    });
+    expect(rankQuery).toHaveBeenCalledOnce();
+    expect(rankQuery).toHaveBeenCalledWith({ groupCode: 'g1', limit: 50, offset: 0 });
+    expect(document.querySelector('.weq-rank-groupname')?.textContent).toBe('测试群');
+    expect(document.querySelector('.weq-rank-back')).toBeNull();
+    const row = document.querySelector<HTMLElement>('.weq-rank-row')!;
+    expect(row.textContent).toContain('Lv.8');
+    act(() => row.click());
+    expect(open).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'uid-rank', uin: '10002' }),
+      expect.anything(),
+    );
+    act(() => document.querySelector<HTMLButtonElement>('.weq-rank-close')!.click());
+    expect(document.querySelector('.weq-rank')).toBeNull();
+  });
+  it('合成群不提供真实群的等级查询入口', () => {
+    mountPanel(undefined, undefined, { conversation: { ...CONVERSATION, generated: true } });
+    expect(document.querySelector('[aria-label="群成员等级排行"]')).toBeNull();
+    expect(metaRow('活跃度')).toBeUndefined();
+    expect(metaRow('群内好友数')).toBeUndefined();
+  });
+  it('联系人资料把公告与资料、内容入口与成员分别分组，默认侧栏不增加分组', () => {
+    mountPanel(vi.fn(), vi.fn(), { layout: 'profile' });
+    const panel = document.querySelector('.weq-group-profile-details')!;
+    const primary = panel.querySelector('.weq-group-profile-primary')!;
+    const secondary = panel.querySelector('.weq-group-profile-secondary')!;
+    expect([...primary.children].map((element) => element.className)).toEqual([
+      'weq-group-announcement',
+      'group-info-section group-info-overview',
+    ]);
+    expect([...secondary.children].map((element) => element.className)).toEqual([
+      'weq-group-content-actions',
+      'group-info-section member-list-section',
+    ]);
+
+    mountPanel(vi.fn(), vi.fn());
+    const sidebar = document.querySelector('.group-info-panel:not(.weq-group-profile-details)')!;
+    expect([...sidebar.children].map((element) => element.className)).toEqual([
+      'group-info-section group-info-overview',
+      'weq-group-announcement',
+      'weq-group-content-actions',
+      'group-info-section member-list-section',
+    ]);
   });
   it('成员读取失败时保留原因并允许重试', () => {
     const retry = vi.fn();

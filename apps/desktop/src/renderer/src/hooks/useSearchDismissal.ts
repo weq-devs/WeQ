@@ -20,7 +20,7 @@ export function useSearchDismissal(
         setFocused(false);
       }
     }
-    function onMouseDown(event: MouseEvent): void {
+    function onPointerDown(event: PointerEvent): void {
       const target = event.target;
       if (target instanceof Element) {
         if (target.closest('.search-box, .weq-titlebar-search')) {
@@ -34,10 +34,10 @@ export function useSearchDismissal(
       setFocused(false);
     }
     document.addEventListener('keydown', onKey);
-    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('pointerdown', onPointerDown, true);
     return () => {
       document.removeEventListener('keydown', onKey);
-      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('pointerdown', onPointerDown, true);
     };
   }, [query, focused, setDismissed, setFocused]);
 }

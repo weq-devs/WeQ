@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 const rpc = vi.hoisted(() => ({
@@ -20,6 +21,7 @@ vi.mock('../src/main/context/app_context', () => {
     contentSearch: { remember: rpc.remember },
   };
   return {
+    accountEventBus: new EventEmitter(),
     getAppContext: () => ({
       account: { context: { uin: rpc.uin } },
       services,

@@ -11,7 +11,6 @@ export interface SetGroupRemarkParams {
 export namespace SetGroupRemark {
   export const command = 0xf16;
   export const subCommand = 1;
-  export const needSign = false;
   export const reqSchema = message([
     {
       name: 'body',

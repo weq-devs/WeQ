@@ -7,11 +7,10 @@
 // 搬运自 SnowLuma `core/src/bridge/apis/profile.ts`、
 // `oidb-services/profile/set-input-status.ts`、`oidb-services/extras/get-stranger-status.ts`。
 //
-// 签名：
-//   - `SetStatus` **不在** LagrangeV2 白名单 → 不签。若真机被拒，回退
-//     `StatSvc.SetStatusFromClient`（在名单里）—— 目前保留 SetStatus，等真机验证。
-//   - 0xCD4 不在名单 → 不签。
-//   - 0xFE1_2 在名单 → 签（由 `invokeOidb` 推导）。
+// 签名（scripts/probe-sign.ts）：
+//   - `SetStatus` 三端都不签；若真机被拒，回退 `StatSvc.SetStatusFromClient`。
+//   - 0xCD4_1 三端都不签。
+//   - 0xFE1_2 Linux 不签、Windows 签（macOS 实测前跟 Windows）。
 
 import { message } from '../../protobuf';
 import { invokeOidb, invokeTrpc, type OidbSpec, type TrpcSpec } from '../invoke';
@@ -61,7 +60,6 @@ export interface SetDiyOnlineStatusParams {
 export namespace SetOnlineStatus {
   export const cmd = SET_STATUS_CMD;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = SET_STATUS_REQ;
   export const respSchema = SET_STATUS_RESP;
 
@@ -106,7 +104,6 @@ export namespace SetOnlineStatus {
 export namespace SetDiyOnlineStatus {
   export const cmd = SET_STATUS_CMD;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = SET_STATUS_REQ;
   export const respSchema = SET_STATUS_RESP;
 
@@ -149,7 +146,6 @@ export namespace SetInputStatus {
   export const command = 0xcd4;
   export const subCommand = 1;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = INPUT_STATUS_REQ;
   export const respSchema = INPUT_STATUS_RESP;
 
@@ -236,8 +232,7 @@ export interface GetUserOnlineStatusParams {
 export namespace GetUserOnlineStatus {
   export const command = 0xfe1;
   export const subCommand = 2;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
   export const uinForm = true;
   export const reqSchema = STATUS_REQ;
   export const respSchema = STATUS_RESP;

@@ -17,7 +17,10 @@ import { MessageSelectionBar } from '../../components/MessageSelectionBar';
 import { useMediaSave } from '../../components/MediaSaveControls';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import { useStableCallback } from '../../hooks/useStableCallback';
-import { timelineViewport } from '../../lib/timelineViewport';
+import { useMobileWebLayout } from '../../hooks/useMobileWebViewport';
+import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
+import { adjacentMessageId } from '../../lib/messageKeyboardNav';
+import { IS_WEB } from '../../lib/target';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
 import '../../styles/group-call-soon.css';
@@ -211,7 +214,12 @@ import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
 import { chatHeaderTitle, isBotConversation, resolveMessageSender } from './conversationDisplay';
 import { createEmojiToken, parseMessageParts } from './emojiPacks';
 import type { EmojiItem } from './emojiPacks';
-import { elementToToken, elementsToComposerText, tokenToElement } from './draftElements';
+import {
+  elementToToken,
+  elementsToComposerText,
+  tokenToElement,
+  composerTextToElements,
+} from './draftElements';
 import {
   composerAssetIds,
   preserveComposerImages,
@@ -262,12 +270,18 @@ import { mediaUrl } from '../../lib/resourceUrl';
 import { exportMedia } from '../../lib/mediaExport';
 import {
   messageContentClipboard,
+  messageContentText,
   messageNodeClipboard,
   messageRichClipboard,
   selectedMessageClipboard,
 } from '../../lib/messageClipboard';
 import type { RepeatElement } from '../../lib/messageRepeat';
 import { readMentionClipboard, writeMentionClipboard } from '../../lib/mentionClipboard';
+import {
+  originalMessageClipboard,
+  readOriginalMessageClipboard,
+  prepareOriginalMessageClipboard,
+} from '../../lib/originalMessageClipboard';
 import '../../styles/message-repeat.css';
 import '../../styles/new-message-preview.css';
 import '../../styles/conversation-loading.css';
@@ -325,7 +339,12 @@ function saveGroupInfoCollapsed(value: boolean) {
 }
 
 function loadComposerCollapsed() {
+  if (isMobileWebComposer()) return false;
   return localStorage.getItem(composerCollapsedStorageKey) === '1';
+}
+
+function isMobileWebComposer() {
+  return IS_WEB && window.matchMedia('(max-width: 760px)').matches;
 }
 
 function saveComposerCollapsed(value: boolean) {
@@ -759,7 +778,7 @@ export function ChatPane({
     return () => query.removeEventListener('change', update);
   }, []);
   const sidecarOpen = useWorkspaceSidecarOpen();
-  // 桌面端可把整条输入区收起来（只留底边一个把手），和群资料栏同一套交互。
+  // 桌面沿用收纳偏好；手机输入区常驻，但进入会话不自动聚焦。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
   const [emojiOpen, setEmojiOpen] = useState(false);
   /**
@@ -819,6 +838,8 @@ export function ChatPane({
   const [pendingSuperEmoji, setPendingSuperEmoji] = useState<EmojiItem | null>(null);
   // 右键「引用」挂上的待发送引用：显示在输入框上方，与「只能单独发」的卡片互斥。
   const [pendingQuote, setPendingQuote] = useState<ComposerQuote | null>(null);
+  const pendingQuoteRef = useRef(pendingQuote);
+  pendingQuoteRef.current = pendingQuote;
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState(false);
   const emojiUtils = trpc.useUtils();
@@ -1063,9 +1084,8 @@ export function ChatPane({
   const flashButtonRef = useRef<HTMLButtonElement | null>(null);
   const locationSharePanelRef = useRef<HTMLDivElement | null>(null);
   const locationCardPanelRef = useRef<HTMLDivElement | null>(null);
-  /** 工具栏那个「位置」按钮 —— 桌面端 / 手机端各渲染一个，点外关闭两者都要认。 */
-  const locationMenuDesktopButtonRef = useRef<HTMLButtonElement | null>(null);
-  const locationMenuMobileButtonRef = useRef<HTMLButtonElement | null>(null);
+  /** 桌面端与手机端共用的位置按钮，点外关闭时排除自身。 */
+  const locationMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // 闪照是「选一张图 → 立刻按闪照发出去」的一条独立通路（不进草稿、不内联成图）。
@@ -1108,6 +1128,7 @@ export function ChatPane({
     () => hiddenDeletionLookup(messages, hiddenDeletedIds ?? new Set()),
     [messages, hiddenDeletedIds],
   );
+  const compactHeader = useMobileWebLayout();
   // 分析和回复使用不同目标，自己的消息不触发推荐；跳过灰条、撤回和删除。
   const intentSupported = Boolean(
     !generated &&
@@ -1394,8 +1415,15 @@ export function ChatPane({
     const picked = await selectionFlow.prepare('复制');
     if (!picked?.length) return;
     try {
-      const copied = await copyTextToClipboard(selectedMessagesText(picked, conversation, user));
+      const copied = await writeMentionClipboard(
+        originalMessageClipboard(
+          picked,
+          { account: user.identityValue, conversation: conversation.id },
+          { text: selectedMessagesText(picked, conversation, user), html: '' },
+        ),
+      );
       if (!copied) throw new Error('未能写入剪贴板，请重新复制。');
+      pushToast({ tone: 'success', title: `已复制 ${picked.length} 条消息` });
     } catch (error) {
       pushToast({
         tone: 'error',
@@ -1420,8 +1448,25 @@ export function ChatPane({
         elements: message.qqElements,
       })),
     );
-    if (!(await writeMentionClipboard(value)))
-      pushToast({ tone: 'error', message: '复制富文本失败' });
+    try {
+      if (
+        !(await writeMentionClipboard(
+          originalMessageClipboard(
+            picked,
+            { account: user.identityValue, conversation: conversation.id },
+            value,
+          ),
+        ))
+      )
+        throw new Error('未能写入剪贴板，请重新复制。');
+      pushToast({ tone: 'success', title: `已复制 ${picked.length} 条消息` });
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        title: '复制富文本失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
   }, [conversation, selectionFlow.prepare, user, pushToast, selectionBlockedReason]);
   useLayoutEffect(() => {
     if (!tabActive || !selectionMode) return;
@@ -1489,8 +1534,19 @@ export function ChatPane({
     }
   }, [conversation?.id, user.id, draft]);
 
+  useLayoutEffect(() => {
+    if (!isMobileWebComposer()) return;
+    setComposerCollapsed(false);
+    setMobileComposerExpanded(false);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setMentionMenu(null);
+    composerEditorRef.current?.blur();
+  }, [conversation?.id, tabActive]);
+
   useEffect(() => {
-    if (!tabActive) return;
+    if (!tabActive || isMobileWebComposer()) return;
     const editor = composerEditorRef.current;
     if (editor?.contentEditable !== 'true') return;
     focusComposerEnd(editor);
@@ -1627,7 +1683,7 @@ export function ChatPane({
       return;
     }
 
-    function closeEmojiFromOutside(event: globalThis.MouseEvent) {
+    function closeEmojiFromOutside(event: globalThis.PointerEvent) {
       if (hasActiveModal()) return;
       const target = event.target;
       if (!(target instanceof Node)) {
@@ -1651,10 +1707,10 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeEmojiFromOutside);
+    document.addEventListener('pointerdown', closeEmojiFromOutside, true);
     document.addEventListener('keydown', closeEmojiOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeEmojiFromOutside);
+      document.removeEventListener('pointerdown', closeEmojiFromOutside, true);
       document.removeEventListener('keydown', closeEmojiOnEscape);
     };
   }, [tabActive, emojiOpen]);
@@ -1664,7 +1720,7 @@ export function ChatPane({
       return;
     }
 
-    function closeToolsFromOutside(event: globalThis.MouseEvent) {
+    function closeToolsFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -1686,10 +1742,10 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeToolsFromOutside);
+    document.addEventListener('pointerdown', closeToolsFromOutside, true);
     document.addEventListener('keydown', closeToolsOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeToolsFromOutside);
+      document.removeEventListener('pointerdown', closeToolsFromOutside, true);
       document.removeEventListener('keydown', closeToolsOnEscape);
     };
   }, [tabActive, toolsOpen]);
@@ -1700,7 +1756,7 @@ export function ChatPane({
     }
 
     // 正在录音（含请求麦克风）时不能因为点到外面就把这条丢掉。
-    function closeVoiceFromOutside(event: globalThis.MouseEvent) {
+    function closeVoiceFromOutside(event: globalThis.PointerEvent) {
       if (voiceBusyRef.current) return;
       const target = event.target;
       if (!(target instanceof Node)) return;
@@ -1715,10 +1771,10 @@ export function ChatPane({
       setVoiceOpen(false);
     }
 
-    document.addEventListener('mousedown', closeVoiceFromOutside);
+    document.addEventListener('pointerdown', closeVoiceFromOutside, true);
     document.addEventListener('keydown', closeVoiceOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeVoiceFromOutside);
+      document.removeEventListener('pointerdown', closeVoiceFromOutside, true);
       document.removeEventListener('keydown', closeVoiceOnEscape);
     };
   }, [tabActive, voiceOpen]);
@@ -1728,7 +1784,7 @@ export function ChatPane({
   useLayoutEffect(() => {
     if (!tabActive || !flashOpen) return;
 
-    function closeFlashFromOutside(event: globalThis.MouseEvent) {
+    function closeFlashFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (flashPanelRef.current?.contains(target) || flashButtonRef.current?.contains(target)) {
@@ -1749,11 +1805,11 @@ export function ChatPane({
       setFlashOpen(false);
     }
 
-    document.addEventListener('mousedown', closeFlashFromOutside);
+    document.addEventListener('pointerdown', closeFlashFromOutside, true);
     document.addEventListener('keydown', closeFlashOnEscape);
     // 灯箱打开时不允许误关：合成/发送中也不关（见 FlashComposer 自己的 Esc 处理）。
     return () => {
-      document.removeEventListener('mousedown', closeFlashFromOutside);
+      document.removeEventListener('pointerdown', closeFlashFromOutside, true);
       document.removeEventListener('keydown', closeFlashOnEscape);
     };
   }, [tabActive, flashOpen]);
@@ -1763,7 +1819,7 @@ export function ChatPane({
       return;
     }
 
-    function closeLinkFromOutside(event: globalThis.MouseEvent) {
+    function closeLinkFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -1788,10 +1844,10 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeLinkFromOutside);
+    document.addEventListener('pointerdown', closeLinkFromOutside, true);
     document.addEventListener('keydown', closeLinkOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeLinkFromOutside);
+      document.removeEventListener('pointerdown', closeLinkFromOutside, true);
       document.removeEventListener('keydown', closeLinkOnEscape);
     };
   }, [tabActive, arkOpen]);
@@ -1801,7 +1857,7 @@ export function ChatPane({
       return;
     }
 
-    function closeAiVoiceFromOutside(event: globalThis.MouseEvent) {
+    function closeAiVoiceFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -1823,10 +1879,10 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeAiVoiceFromOutside);
+    document.addEventListener('pointerdown', closeAiVoiceFromOutside, true);
     document.addEventListener('keydown', closeAiVoiceOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeAiVoiceFromOutside);
+      document.removeEventListener('pointerdown', closeAiVoiceFromOutside, true);
       document.removeEventListener('keydown', closeAiVoiceOnEscape);
     };
   }, [tabActive, aiVoiceOpen]);
@@ -1836,7 +1892,7 @@ export function ChatPane({
       return;
     }
 
-    function closeRedPacketFromOutside(event: globalThis.MouseEvent) {
+    function closeRedPacketFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -1856,26 +1912,17 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeRedPacketFromOutside);
+    document.addEventListener('pointerdown', closeRedPacketFromOutside, true);
     document.addEventListener('keydown', closeRedPacketOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeRedPacketFromOutside);
+      document.removeEventListener('pointerdown', closeRedPacketFromOutside, true);
       document.removeEventListener('keydown', closeRedPacketOnEscape);
     };
   }, [tabActive, redPacketOpen]);
 
-  /**
-   * 「位置」菜单 / 两个位置面板的点外关闭。
-   *
-   * 工具栏那个位置按钮桌面端与手机端各渲染一个，两者都要算「点在自己身上」——
-   * 不然点开菜单再点同一个按钮想收起时，会被当成点了外面。
-   */
+  /** 「位置」菜单 / 两个位置面板的点外关闭。 */
   const isLocationTrigger = useCallback(
-    (target: Node): boolean =>
-      Boolean(
-        locationMenuDesktopButtonRef.current?.contains(target) ||
-          locationMenuMobileButtonRef.current?.contains(target),
-      ),
+    (target: Node): boolean => Boolean(locationMenuButtonRef.current?.contains(target)),
     [],
   );
 
@@ -1885,7 +1932,7 @@ export function ChatPane({
       return;
     }
 
-    function closeLocationCardFromOutside(event: globalThis.MouseEvent) {
+    function closeLocationCardFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node) || isLocationTrigger(target)) {
         return;
@@ -1902,10 +1949,10 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeLocationCardFromOutside);
+    document.addEventListener('pointerdown', closeLocationCardFromOutside, true);
     document.addEventListener('keydown', closeLocationCardOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeLocationCardFromOutside);
+      document.removeEventListener('pointerdown', closeLocationCardFromOutside, true);
       document.removeEventListener('keydown', closeLocationCardOnEscape);
     };
   }, [tabActive, locationCardOpen, isLocationTrigger]);
@@ -1916,7 +1963,7 @@ export function ChatPane({
       return;
     }
 
-    function closeLocationShareFromOutside(event: globalThis.MouseEvent) {
+    function closeLocationShareFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -1933,10 +1980,10 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeLocationShareFromOutside);
+    document.addEventListener('pointerdown', closeLocationShareFromOutside, true);
     document.addEventListener('keydown', closeLocationShareOnEscape);
     return () => {
-      document.removeEventListener('mousedown', closeLocationShareFromOutside);
+      document.removeEventListener('pointerdown', closeLocationShareFromOutside, true);
       document.removeEventListener('keydown', closeLocationShareOnEscape);
     };
   }, [tabActive, locationShareOpen, isLocationTrigger]);
@@ -2076,7 +2123,7 @@ export function ChatPane({
       return;
     }
 
-    function closeMentionFromOutside(event: globalThis.MouseEvent) {
+    function closeMentionFromOutside(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -2091,9 +2138,9 @@ export function ChatPane({
       setMentionMenu(null);
     }
 
-    document.addEventListener('mousedown', closeMentionFromOutside);
+    document.addEventListener('pointerdown', closeMentionFromOutside, true);
     return () => {
-      document.removeEventListener('mousedown', closeMentionFromOutside);
+      document.removeEventListener('pointerdown', closeMentionFromOutside, true);
     };
   }, [tabActive, mentionMenu]);
 
@@ -2173,15 +2220,21 @@ export function ChatPane({
     updateMentionMenu(editor);
   }
 
-  function insertComposerText(value: string) {
+  function insertComposerText(value: string, focus = true) {
     const editor = currentComposerEditor();
     if (!editor) {
       setComposerBody(`${body}${value}`);
       return;
     }
 
-    insertComposerNode(editor, document.createTextNode(value), composerSelectionRef.current);
+    const range = insertComposerNode(
+      editor,
+      document.createTextNode(value),
+      composerSelectionRef.current,
+      focus,
+    );
     syncComposerBody();
+    if (!focus && range) composerSelectionRef.current = range;
   }
 
   function insertMention(member: GroupMember) {
@@ -2239,6 +2292,7 @@ export function ChatPane({
   /** 头像菜单「@他」：把 `@昵称 ` 写进输入框（没有活动的 @ 触发词就插在光标处）。 */
   function mentionAvatar(sender: User) {
     setAvatarMenu(null);
+    if (isMobileWebComposer()) setComposerCollapsed(false);
     insertMention(sender as GroupMember);
     window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
   }
@@ -2791,10 +2845,11 @@ export function ChatPane({
     }
 
     const mobileEmojiMode = isMobileComposerViewport();
+    const focus = !(mobileEmojiMode && emojiOpen);
 
     // 字符 / 颜文字：直接插入字形文本。
     if (!item.src) {
-      insertComposerText(item.glyph || item.name);
+      insertComposerText(item.glyph || item.name, focus);
       if (!mobileEmojiMode) {
         setEmojiOpen(false);
       }
@@ -2819,8 +2874,9 @@ export function ChatPane({
         : 'composer-token-image composer-inline-emoji',
     );
 
-    insertComposerNode(editor, image, composerSelectionRef.current);
+    const range = insertComposerNode(editor, image, composerSelectionRef.current, focus);
     syncComposerBody();
+    if (!focus && range) composerSelectionRef.current = range;
     if (!mobileEmojiMode) {
       setEmojiOpen(false);
     }
@@ -2883,10 +2939,13 @@ export function ChatPane({
    * 反过来卡片顶掉引用见 setMedia / stageSuperEmoji。
    */
   function startQuote(message: Message) {
-    if (quoteBlockReason(message)) {
+    if (!conversation || quoteBlockReason(message)) {
       return;
     }
-    const quote = quoteFromMessage(message);
+    const quote = quoteFromMessage({
+      ...message,
+      sender: resolveMessageSender(message, conversation, user),
+    });
     if (!quote) {
       return;
     }
@@ -2899,6 +2958,7 @@ export function ChatPane({
     setPendingSuperEmoji(null);
     setAttachmentError(null);
     setPendingQuote(quote);
+    if (isMobileWebComposer()) setComposerCollapsed(false);
     // 引用条要占正文上面那一行，表情 / 语音 / 更多 / 链接面板先收起来。
     setEmojiOpen(false);
     setToolsOpen(false);
@@ -3437,7 +3497,11 @@ export function ChatPane({
       event.preventDefault();
       return;
     }
-    if (event.nativeEvent.isComposing || event.key === 'Process') {
+    if (
+      event.nativeEvent.isComposing ||
+      event.nativeEvent.keyCode === 229 ||
+      event.key === 'Process'
+    ) {
       return;
     }
 
@@ -3529,6 +3593,152 @@ export function ChatPane({
   }
 
   function handleComposerPaste(event: ReactClipboardEvent<HTMLDivElement>) {
+    const original = readOriginalMessageClipboard(
+      event.clipboardData.getData('text/html'),
+      user.identityValue,
+    );
+    if (original && conversation) {
+      event.preventDefault();
+      const editor = event.currentTarget;
+      const selection = editor.ownerDocument.defaultView?.getSelection();
+      const range = selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+      const conversationId = conversation.id;
+      const previous = serializeComposer(editor);
+      const previousAttachment = mediaAttachmentRef.current;
+      reeditAbortRef.current?.abort();
+      const controller = new AbortController();
+      reeditAbortRef.current = controller;
+      const unchanged = () =>
+        !controller.signal.aborted &&
+        editor.isConnected &&
+        currentComposerEditor() === editor &&
+        mentionConversation.current === conversationId &&
+        serializeComposer(editor) === previous &&
+        mediaAttachmentRef.current === previousAttachment &&
+        pendingQuoteRef.current === pendingQuote &&
+        composerSendRef.current === null;
+      void (async () => {
+        let prepared: Awaited<ReturnType<typeof prepareOriginalMessageClipboard>> | undefined;
+        let preserved: Awaited<ReturnType<typeof preserveReeditImages>> | undefined;
+        let inserted = false;
+        try {
+          prepared = await prepareOriginalMessageClipboard(
+            original,
+            conversationId,
+            controller.signal,
+          );
+          const pastedElements = composerTextToElements(prepared.body) as Record<string, unknown>[];
+          if (pastedElements.some((element) => element.kind === 'at')) {
+            if (conversation.type === 'group' && onResolveMentions) {
+              const resolved = await onResolveMentions(
+                pastedElements.map(({ kind, ...data }) => ({ type: String(kind), data })),
+                conversation,
+              );
+              prepared.body = elementsToComposerText(
+                resolved.map((element) => ({ ...element.data, kind: element.type })),
+              );
+            } else if (conversation.type !== 'group') {
+              prepared.body = elementsToComposerText(
+                pastedElements.map((element) =>
+                  element.kind === 'at'
+                    ? { kind: 'text', textContent: element.textContent }
+                    : element,
+                ),
+              );
+            }
+          }
+          const pictureCount = composerTextToElements(prepared.body).filter(
+            (element) => (element as { kind?: string }).kind === 'pic',
+          ).length;
+          if (inlineImagesRef.current.length + pictureCount > MAX_COMPOSER_ATTACHMENTS)
+            throw new Error(`最多只能插 ${MAX_COMPOSER_ATTACHMENTS} 张图片`);
+          preserved = await preserveReeditImages(
+            user.identityValue,
+            conversationId,
+            prepared.body,
+            prepared.locals,
+            controller.signal,
+          );
+          if (!unchanged()) return;
+          let pastedBody = preserved.body;
+          let pastedQuote: ComposerQuote | null = null;
+          if (
+            original.messages.length === 1 &&
+            !pendingQuote &&
+            !mediaAttachmentRef.current &&
+            !pendingSuperEmoji
+          ) {
+            const elements = composerTextToElements(pastedBody) as Record<string, unknown>[];
+            const reply = elements.find((element) => element.kind === 'reply');
+            if (reply) {
+              const quoted = original.messages[0]?.qqElements?.find(
+                (element) => element.type === 'reply',
+              )?.data;
+              pastedQuote = {
+                msgSeq: Number(reply.origMsgIndex ?? reply.origMsgSeq),
+                senderName: String(
+                  quoted?.origSenderDisplayName ||
+                    quoted?.origSenderNick ||
+                    quoted?.origSenderName ||
+                    quoted?.origSenderUin ||
+                    quoted?.origSenderUid ||
+                    '',
+                ),
+                preview: messageContentText(
+                  Array.isArray(quoted?.origElements) ? quoted.origElements : [],
+                  String(quoted?.origText ?? '引用消息'),
+                ),
+                originalElement: reply,
+              };
+              pastedBody = elementsToComposerText(elements.filter((element) => element !== reply));
+            }
+          }
+          const holder = document.createElement('div');
+          restoreComposer(holder, pastedBody);
+          const fragment = document.createDocumentFragment();
+          fragment.append(...holder.childNodes);
+          if (
+            range &&
+            editor.contains(range.startContainer) &&
+            editor.contains(range.endContainer)
+          ) {
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+          }
+          insertComposerNode(editor, fragment, range);
+          inlineImagesRef.current.push(...preserved.images);
+          inlineImageScope.current = { account: user.identityValue, conversation: conversationId };
+          reeditLocalsRef.current.push(...prepared.locals);
+          reeditObjectUrlsRef.current.push(
+            ...prepared.objectUrls.filter(
+              (url) => !preserved?.images.some((image) => image.url === url),
+            ),
+          );
+          if (pastedQuote) setPendingQuote(pastedQuote);
+          inserted = true;
+          syncComposerBody(editor);
+        } catch (error) {
+          if (unchanged())
+            pushToast({
+              tone: 'error',
+              title: '粘贴消息失败',
+              detail: error instanceof Error ? error.message : String(error),
+            });
+        } finally {
+          if (!inserted) {
+            for (const url of prepared?.objectUrls ?? []) releaseObjectUrl(url);
+            void removeComposerImages(
+              user.identityValue,
+              conversationId,
+              preserved?.images.flatMap((image) =>
+                image.draftAssetId ? [image.draftAssetId] : [],
+              ) ?? [],
+            ).catch(() => {});
+          }
+        }
+      })();
+      return;
+    }
     if (generated) {
       event.preventDefault();
       insertComposerText(event.clipboardData.getData('text/plain'));
@@ -3968,6 +4178,94 @@ export function ChatPane({
     }
   }
 
+  /**
+   * 键盘浏览消息。聊天区容器可聚焦；方向键在消息行之间移动焦点，
+   * Enter / Shift+F10 / 菜单键打开当前消息的操作菜单，Esc 回到聊天区。
+   * 消息行本身 tabIndex=-1，不额外制造大量 Tab 站点。
+   */
+  function timelineFocusedRow(): HTMLElement | null {
+    const scroll = messageScrollRef.current;
+    const active = document.activeElement;
+    if (!scroll || !(active instanceof HTMLElement)) return null;
+    const row = active.closest<HTMLElement>('[data-message-id]');
+    return row && scroll.contains(row) ? row : null;
+  }
+
+  function focusTimelineRow(id: string, attempts = 0): void {
+    const scroll = messageScrollRef.current;
+    if (!scroll) return;
+    const find = () =>
+      [...scroll.querySelectorAll<HTMLElement>('[data-message-id]')].find(
+        (element) => element.dataset.messageId === id,
+      );
+    const row = find();
+    if (row) {
+      row.focus({ preventScroll: true });
+      row.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    // 虚拟列表里下一行可能还没挂载：先滚到该条，再等一帧继续找。
+    if (attempts === 0) revealTimelineMessage(scroll, id);
+    if (attempts > 12) return;
+    window.setTimeout(() => focusTimelineRow(id, attempts + 1), attempts === 0 ? 16 : 40);
+  }
+
+  function handleTimelineKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+    const ids = visibleMessages.map((message) => message.id);
+    if (!ids.length) return;
+    const focused = timelineFocusedRow();
+    const currentId = focused?.dataset.messageId;
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!currentId) {
+        focusTimelineRow(event.key === 'ArrowDown' ? ids[0]! : ids[ids.length - 1]!);
+        return;
+      }
+      const next = adjacentMessageId(ids, currentId, event.key === 'ArrowDown' ? 1 : -1);
+      if (next) focusTimelineRow(next);
+      return;
+    }
+    if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      focusTimelineRow(event.key === 'Home' ? ids[0]! : ids[ids.length - 1]!);
+      return;
+    }
+    if (!focused) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        focusTimelineRow(ids[0]!);
+      }
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      focused.blur();
+      messageScrollRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (
+      event.key === 'Enter' ||
+      event.key === 'ContextMenu' ||
+      (event.shiftKey && event.key === 'F10')
+    ) {
+      event.preventDefault();
+      // 复用鼠标右键路径：菜单定位、锚点跟踪和多选/引用状态都按同一入口处理。
+      const target = focused.querySelector<HTMLElement>('.message-bubble') ?? focused;
+      const rect = target.getBoundingClientRect();
+      target.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          button: 2,
+          clientX: rect.left + Math.min(24, rect.width / 2),
+          clientY: rect.top + Math.min(24, rect.height / 2),
+        }),
+      );
+    }
+  }
+
   function openMessageMenu(event: ReactMouseEvent, message: Message) {
     event.preventDefault();
     const selection = window.getSelection();
@@ -4011,6 +4309,7 @@ export function ChatPane({
       x: Math.min(event.clientX, window.innerWidth - 126),
       y: Math.min(event.clientY, window.innerHeight - 84),
       variant: 'desktop',
+      originElement: anchorEl ?? (event.currentTarget as HTMLElement),
       anchorOffsetX: anchorRect ? event.clientX - anchorRect.left : undefined,
       anchorOffsetY: anchorRect ? event.clientY - anchorRect.top : undefined,
     });
@@ -4031,6 +4330,7 @@ export function ChatPane({
       x: Math.min(Math.max(point.x, menuHalfWidth), window.innerWidth - menuHalfWidth),
       y: Math.min(Math.max(point.y + 10, 92), maxTop),
       variant: 'mobile',
+      originElement: document.activeElement instanceof HTMLElement ? document.activeElement : null,
     });
   }
 
@@ -4104,7 +4404,17 @@ export function ChatPane({
         elements: qqElements,
       };
     });
-    void copyTextToClipboard(JSON.stringify(payload, null, 2));
+    try {
+      if (!(await copyTextToClipboard(JSON.stringify(payload, null, 2))))
+        throw new Error('未能写入剪贴板，请重新复制。');
+      pushToast({ tone: 'success', title: `已复制 ${picked.length} 条消息（JSON）` });
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        title: '复制失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   function updateComposerHeight(height: number) {
@@ -4210,6 +4520,7 @@ export function ChatPane({
       (url) => !preserved?.images.some((image) => image.url === url),
     );
     setComposerBody(text);
+    if (isMobileWebComposer()) setComposerCollapsed(false);
     for (const target of [composerEditorRef.current, expandedComposerEditorRef.current]) {
       if (target) restoreComposer(target, text);
     }
@@ -4299,6 +4610,7 @@ export function ChatPane({
 
   function toggleEmojiPanel() {
     if (voiceBusyRef.current) return;
+    if (isMobileWebComposer() && (!emojiOpen || toolsOpen)) currentComposerEditor()?.blur();
     setComposerMenu(null);
     setContextMenu(null);
     setLocationMenu(null);
@@ -4312,6 +4624,7 @@ export function ChatPane({
   }
 
   function toggleToolsPanel() {
+    if (isMobileWebComposer() && (!toolsOpen || emojiOpen)) currentComposerEditor()?.blur();
     setContextMenu(null);
     setLocationMenu(null);
     setLocationCardOpen(false);
@@ -4321,6 +4634,12 @@ export function ChatPane({
     setArkOpen(false);
     setAiVoiceOpen(false);
     setToolsOpen((open) => (emojiOpen ? true : !open));
+  }
+
+  function prepareMobileComposerKeyboard() {
+    if (!isMobileWebComposer()) return;
+    setEmojiOpen(false);
+    setToolsOpen(false);
   }
 
   function toggleVoicePanel() {
@@ -4534,6 +4853,7 @@ export function ChatPane({
    * @ 菜单）—— 它们都锚在输入区上，输入区没了就会悬在半空。
    */
   function toggleComposerCollapsed() {
+    if (isMobileWebComposer()) return;
     const next = !composerCollapsed;
     setComposerCollapsed(next);
     saveComposerCollapsed(next);
@@ -4555,8 +4875,22 @@ export function ChatPane({
       return;
     }
     const body = message.body?.trim() ? message.body : `msgid=${message.msgId ?? message.id}`;
-    const rich = selected ?? messageContentClipboard(message.qqElements, body);
-    if (!(await writeMentionClipboard(rich))) await copyTextToClipboard(rich.text);
+    try {
+      const rich =
+        selected ??
+        originalMessageClipboard(
+          [message],
+          { account: user.identityValue, conversation: conversation?.id ?? message.conversationId },
+          messageContentClipboard(message.qqElements, body),
+        );
+      if (!(await writeMentionClipboard(rich))) throw new Error('未能写入剪贴板，请重新复制。');
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        title: '复制失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
     setContextMenu(null);
   }
 
@@ -4860,11 +5194,19 @@ export function ChatPane({
     void action.onClick?.(composerActionContext);
   }
 
+  const headerAffinity =
+    intentSupported && conversation.type === 'direct' && !isBotConversation(conversation) ? (
+      <AffinityPill
+        peerUid={conversation.otherUser.id}
+        peerName={displayUserName(conversation.otherUser)}
+      />
+    ) : null;
   const pane = (
     <section
       {...multi.rootProps}
       className={cn(
         'chat-pane',
+        compactHeader && 'has-compact-header',
         conversation.type === 'group' ? 'with-group-info' : '',
         conversation.type === 'group' && (groupInfoCollapsed || sidecarOpen)
           ? 'group-info-collapsed'
@@ -4957,6 +5299,7 @@ export function ChatPane({
                 referrerPolicy="no-referrer"
               />
             ) : null}
+            {compactHeader ? headerAffinity : null}
           </>
         }
         status={
@@ -4964,17 +5307,14 @@ export function ChatPane({
             <OnlineStatus uid={conversation.otherUser.id} />
           ) : null
         }
+        mobileStatus={
+          !generated && conversation.type === 'direct' ? (
+            <OnlineStatus uid={conversation.otherUser.id} showBaseStatus refetchInterval={15_000} />
+          ) : null
+        }
         actions={
           <>
-            {intentSupported &&
-            conversation.type === 'direct' &&
-            conversation.otherUser &&
-            !isBotConversation(conversation) ? (
-              <AffinityPill
-                peerUid={conversation.otherUser.id}
-                peerName={displayUserName(conversation.otherUser)}
-              />
-            ) : null}
+            {!compactHeader ? headerAffinity : null}
             {onSearchChatRecords &&
             (conversation.type === 'group' || conversation.type === 'direct') ? (
               <button
@@ -4998,9 +5338,49 @@ export function ChatPane({
                 onAdd={onAddMessage}
                 onDeleted={onViewDeleted}
                 onRecalled={onViewRecalled}
+                compact={compactHeader}
+                additionalActions={
+                  compactHeader
+                    ? [
+                        ...(conversation.type === 'group' && !sidecarOpen
+                          ? [
+                              {
+                                label: '群资料',
+                                icon: <UsersRound size={16} />,
+                                action: () => setMobileGroupInfoOpen((previous) => !previous),
+                              },
+                            ]
+                          : []),
+                        ...(!generated &&
+                        conversation.type === 'group' &&
+                        onOpenGroupBug &&
+                        PROJECT_GROUP_IDS.includes(conversation.id)
+                          ? [
+                              {
+                                label: '反馈 Bug',
+                                icon: <Bug size={16} />,
+                                action: () => onOpenGroupBug(conversation),
+                                disabled: !groupBugOnline,
+                                reason: groupBugOnline ? undefined : '受限模式下无法反馈 Bug',
+                              },
+                            ]
+                          : []),
+                        ...(onOpenConversationSettings
+                          ? [
+                              {
+                                label: settingsLabel,
+                                icon: <Settings2 size={16} />,
+                                action: () => onOpenConversationSettings(conversation),
+                                separatorBefore: true,
+                              },
+                            ]
+                          : []),
+                      ]
+                    : []
+                }
               />
             ) : null}
-            {conversation.type === 'group' ? (
+            {!compactHeader && conversation.type === 'group' ? (
               <>
                 {!sidecarOpen ? (
                   <button
@@ -5031,7 +5411,8 @@ export function ChatPane({
                 ) : null}
               </>
             ) : null}
-            {onOpenConversationSettings &&
+            {!compactHeader &&
+            onOpenConversationSettings &&
             (conversation.type === 'group' || conversation.type === 'direct') ? (
               <button
                 className={cn('icon-button', 'group-header-info-action')}
@@ -5089,6 +5470,9 @@ export function ChatPane({
             marquee.dragging && 'is-marquee-selecting',
           )}
           ref={messageScrollRef}
+          tabIndex={0}
+          aria-label="聊天消息，方向键浏览消息，回车打开消息操作"
+          onKeyDown={handleTimelineKeyDown}
           onScroll={handleMessageScroll}
           {...marquee.handlers}
         >
@@ -5098,7 +5482,12 @@ export function ChatPane({
             <div className="weq-message-marquee" aria-hidden style={marquee.box} />
           ) : null}
           {loading && visibleMessages.length === 0 ? (
-            <ChatMessagesSkeleton />
+            <>
+              <span className="sr-only" role="status">
+                正在加载消息
+              </span>
+              <ChatMessagesSkeleton />
+            </>
           ) : visibleMessages.length === 0 && !loadingNewer && !loadError ? (
             <EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
           ) : (
@@ -5494,16 +5883,18 @@ export function ChatPane({
       {/* 收纳输入区的把手 —— 与群资料栏同一个交互：贴在两个区域的交界线上，
           平时隐形，压上去（或键盘聚焦）才浮出来；收起来以后整条输入区从布局里
           消失，只剩它在底边，负责把输入框再请回来。 */}
-      <button
-        className={cn('composer-toggle')}
-        type="button"
-        title={composerCollapsed ? '展开输入框' : '收起输入框'}
-        aria-label={composerCollapsed ? '展开输入框' : '收起输入框'}
-        aria-expanded={!composerCollapsed}
-        onClick={toggleComposerCollapsed}
-      >
-        {composerCollapsed ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-      </button>
+      {!isMobileWebComposer() ? (
+        <button
+          className={cn('composer-toggle')}
+          type="button"
+          title={composerCollapsed ? '展开输入框' : '收起输入框'}
+          aria-label={composerCollapsed ? '展开输入框' : '收起输入框'}
+          aria-expanded={!composerCollapsed}
+          onClick={toggleComposerCollapsed}
+        >
+          {composerCollapsed ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </button>
+      ) : null}
 
       {/* 意图感知的回复建议：开启时出现在输入框上方，点击填入编辑器草稿。 */}
       {intentSupported &&
@@ -5515,6 +5906,15 @@ export function ChatPane({
           conv={intentConv}
           replyTargetId={latestPeerMsgId}
           latestMessageId={latestSuggestionId}
+          onLocate={(target) =>
+            jumpToSeq({
+              msgId: target.msgId,
+              seq: target.msgSeq,
+              index: target.msgSeq,
+              senderUin: target.senderUin,
+              sendTime: target.sendTime,
+            })
+          }
           onInsert={(text) => {
             const prefix = body.trim().length > 0 ? ' ' : '';
             insertComposerText(`${prefix}${text}`);
@@ -5724,34 +6124,6 @@ export function ChatPane({
         />
         <ComposerDropVeil visible={dropActive} />
         <div className={cn('composer-tools')}>
-          {composerActionRegistry.mobileToolbar.map((action) => (
-            <ComposerToolbarActionButton
-              key={action.id}
-              action={action}
-              className={cn('composer-tool', 'composer-mobile-tool')}
-              context={composerActionContext}
-              iconSize={27}
-              onClick={runComposerAction}
-            />
-          ))}
-          {/* 位置（手机端）：与桌面端同一个菜单 + 同一套面板，只是工具栏样式不同。 */}
-          <button
-            ref={locationMenuMobileButtonRef}
-            type="button"
-            className={cn(
-              'composer-tool',
-              'composer-mobile-tool',
-              (locationMenu || locationCardOpen || locationShareOpen) && 'active',
-            )}
-            title={qqUnavailable || '位置'}
-            aria-label="位置"
-            aria-haspopup="menu"
-            aria-expanded={locationMenu !== null}
-            disabled={readOnly || generated || currentPreference.blocked || sending}
-            onClick={openLocationMenu}
-          >
-            <MapPin size={21} strokeWidth={1.5} />
-          </button>
           <button
             ref={emojiButtonRef}
             type="button"
@@ -5851,7 +6223,7 @@ export function ChatPane({
           </button>
           {/* 位置：点开两项 —— 发送位置（静态卡片）/ 共享位置（实时、房间靠上报续命）。 */}
           <button
-            ref={locationMenuDesktopButtonRef}
+            ref={locationMenuButtonRef}
             type="button"
             className={cn(
               'composer-tool',
@@ -5882,7 +6254,7 @@ export function ChatPane({
             <button
               ref={toolsButtonRef}
               type="button"
-              className={cn('composer-tool', 'composer-mobile-tool', toolsOpen && 'active')}
+              className={cn('composer-tool', toolsOpen && 'active')}
               title="更多功能"
               disabled={currentPreference.blocked}
               onClick={toggleToolsPanel}
@@ -5894,7 +6266,6 @@ export function ChatPane({
             <TypingStatus
               key={conversation.id}
               uid={conversation.otherUser.id}
-              name={chatHeaderTitle(conversation)}
               editors={[composerEditorRef, expandedComposerEditorRef]}
             />
           )}
@@ -6112,9 +6483,11 @@ export function ChatPane({
           role="textbox"
           aria-multiline="true"
           aria-label="消息"
+          enterKeyHint="send"
           aria-disabled={readOnly || currentPreference.blocked}
           contentEditable={!readOnly && !currentPreference.blocked}
           suppressContentEditableWarning
+          onPointerDown={prepareMobileComposerKeyboard}
           onInput={() => syncComposerBody(composerEditorRef.current)}
           onMouseDown={prepareComposerImagePreview}
           onClick={previewComposerImage}
@@ -6177,9 +6550,12 @@ export function ChatPane({
               className={cn('composer-editor mobile-composer-expanded-editor')}
               role="textbox"
               aria-multiline="true"
+              aria-label="消息"
+              enterKeyHint="enter"
               aria-disabled={readOnly || currentPreference.blocked}
               contentEditable={!readOnly && !currentPreference.blocked}
               suppressContentEditableWarning
+              onPointerDown={prepareMobileComposerKeyboard}
               onInput={() => syncComposerBody(expandedComposerEditorRef.current)}
               onMouseDown={prepareComposerImagePreview}
               onClick={previewComposerImage}

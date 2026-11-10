@@ -23,9 +23,8 @@
 //   f3 isLast  (bool)
 //   f4 isFirst (bool)
 //
-// 签名：**不签**（`needSign = false`）。Lagrange 的需要签名白名单里 0x908x 一族一个都没有
-// （只有 0x9082_1/2 两个服务定义，白名单里没有），所以这一族按「白名单没有 = 不带
-// SecToken/SecExtra/SecSign」处理；同族的 0x9082 贴 / 撤也一起改成了 false。
+// 签名：沿用本命令既有的不签名策略；旧白名单缺失不是逐平台抓包证据，仍待复核。
+// 不能按同族推断：0x9082_1/2 已有 Linux / Windows 会签、macOS 不签的独立记录。
 
 import { message } from '../../protobuf';
 import { toInt } from '../shared';
@@ -90,8 +89,7 @@ export interface GetEmojiLikesResult {
 export namespace GetEmojiLikes {
   export const command = 0x9083;
   export const subCommand = 1;
-  /** 不签名：Lagrange 签名白名单里没有 0x908x（见文件头注释）。 */
-  export const needSign = false;
+  /** 沿用不签名策略；逐平台证据待补，见中央策略清单。 */
   export const reqSchema = EMOJI_LIKES_REQ;
   export const respSchema = EMOJI_LIKES_RESP;
 

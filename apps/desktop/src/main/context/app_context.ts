@@ -24,12 +24,14 @@ import { createDbChangeNotification } from '../db_change_notification';
 import { webNotices, type WebNotice } from '../web/notices';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
 import { clearFullMode, fullModeAllowed } from './full_mode';
+import { resolveSignerWrapper } from './signer_target';
 import { resolveBackupLocation, backupMediaRoots } from '../static_backup';
 import { VipBadgeService } from '../vip_badge';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { AnnualReportIndexDb, withDatabasePriority, waitForDatabaseQuiet } from '@weq/db';
+import { waitForCalendarWrites } from '@weq/service/conversation-calendar-store';
 import { QQMailService, type MailNotice } from '@weq/service/mail';
 import {
   createWin32Platform,
@@ -120,6 +122,7 @@ import {
   MsgDecorationCacheService,
   TokenUsageStore,
   warmupSigner,
+  primeSignerHints,
   type SignerWarmupResult,
   ConversationStore,
   DeletedMsgStore,
@@ -165,6 +168,7 @@ import {
   writeDbHealthReport,
   initLogger,
   getLogger,
+  logRequest,
   getLogDir,
   logErrorContext,
   type AccountConfigMetadata,
@@ -201,15 +205,18 @@ import {
   type AccountSession,
 } from '@weq/account';
 import { collectionItemToWire, collectionDetailToWire } from '../ipc/serde';
+import { mountGroupInfoWatch } from '../group_info_watch';
+import { ContactDirectoryRuntime } from './contact_metrics';
 
 /**
- * Process-wide bus for nt_msg.db changes, fed by the single `dbWatch` loop
+ * Process-wide bus for message / group-info changes, fed by the shared `dbWatch` loop
  * below. Events:
  *   - `'changed'` ({@link DbChange})    — every db change (debounced); drives
  *     the open conversation's seq-window re-query in the renderer.
  *   - `'new'`     ({@link NewMessages}) — only when a rowid-delta found newly
  *     inserted rows; reserved for unread / popup notifications.
  *   - 'roaming' — newly committed WeQ cache rows; never treated as QQ unread writes.
+ *   - 'group-info-changed' — 群资料库变化，独立刷新群资料与成员缓存。
  * The account router turns each into a tRPC subscription.
  */
 export const dbEventBus = new EventEmitter();
@@ -251,6 +258,30 @@ let bootstrapCacheRoot: string | undefined;
  * 取 RVA，预热没跑完时退回 native 自己的扫描。
  */
 let signerWarmup: Promise<SignerWarmupResult | null> | undefined;
+function warmupSelectedSigner(
+  platform: Platform,
+  uin?: string,
+  isCurrent: () => boolean = () => true,
+): Promise<SignerWarmupResult | null> {
+  return resolveSignerWrapper(platform, uin)
+    .then((wrapperPath) => {
+      if (!isCurrent()) return null;
+      return warmupSigner(
+        platform.native.ntHelper,
+        platform.appDataRoot(),
+        wrapperPath,
+        readQqVersion(wrapperPath),
+      );
+    })
+    .catch((error: unknown) => {
+      getLogger().warn('签名器预热失败，发包时可重试', {
+        scope: 'signer-cache',
+        event: 'signer-warmup',
+        ...logErrorContext(error),
+      });
+      return null;
+    });
+}
 
 export function accountRuntimeCacheRoot(ctx: AppContext): string | undefined {
   return accountCacheRoots.get(ctx);
@@ -289,6 +320,7 @@ export function rememberAccountUid(uin: string, uid: string): void {
 const dbWatch = new DbWatchService();
 /** Handle for the currently-watched account db, if any. */
 let dbWatchHandle: DbWatchHandle | null = null;
+let groupInfoWatchHandle: DbWatchHandle | null = null;
 let dbChangeNotification: ReturnType<typeof createDbChangeNotification<DbChange>> | null = null;
 /** SSE 消息推送服务（随账号开关），null = 未启用 / 无账号。 */
 let ssePush: SsePushService | null = null;
@@ -296,7 +328,7 @@ let ssePush: SsePushService | null = null;
 /**
  * SSE 推送是否真的在推送（有账号 + 已挂上推送目标）。
  *
- * 只给「后台服务」页和退出确认用：SSE 没有独立的监听端口，运行态只能从
+ * 供服务状态查询和退出确认使用：SSE 没有独立的监听端口，运行态只能从
  * 服务实例判断。配置里选了目标但账号没开时不算运行中。
  */
 export function isSsePushActive(): boolean {
@@ -444,7 +476,7 @@ function cancelAnnualReportWarmup(): void {
 }
 
 /**
- * Mount the nt_msg.db watcher for `session` (idempotent — no-op if already
+ * Mount the message / group-info watchers for `session` (idempotent — no-op if already
  * mounted). The hook fans every change into two bus events: a debounced
  * 'changed' (drives the open-conversation re-query) and 'new' (rowid-delta,
  * for notifications). Gated by the 实时消息 setting via {@link mountDbWatch}'s
@@ -452,6 +484,12 @@ function cancelAnnualReportWarmup(): void {
  */
 function mountDbWatch(session: AccountSession): void {
   if (dbWatchHandle) return;
+  groupInfoWatchHandle = mountGroupInfoWatch(
+    dbWatch,
+    session.groupMembers.dbPath,
+    () => getAppContext().account === session,
+    (change) => dbEventBus.emit('group-info-changed', change),
+  );
   const notification = createDbChangeNotification((file: DbChange) => {
     if (getAppContext().account !== session) return;
     dbEventBus.emit('changed', file);
@@ -481,6 +519,8 @@ function mountDbWatch(session: AccountSession): void {
 
 /** Stop watching the current account db, if any. */
 function unmountDbWatch(): void {
+  groupInfoWatchHandle?.unmount();
+  groupInfoWatchHandle = null;
   dbChangeNotification?.dispose();
   dbChangeNotification = null;
   dbWatchHandle?.unmount();
@@ -840,6 +880,7 @@ export interface BootstrapServices {
 
 /** Services that are re-created whenever an account session opens. */
 export interface AccountServices {
+  contactDirectory?: ContactDirectoryRuntime;
   msgs: MsgService;
   recentContacts: RecentContactService;
   /** QQ 频道私聊会话与消息（guild_msg.db / guild1.db，静态本地读取）。 */
@@ -1091,6 +1132,8 @@ export interface AppContext {
    */
   refreshRkeysNow(): Promise<boolean>;
   onlineCredentialsPending(): boolean;
+  /** 等待当前账号的原生 SSO 登记，不刷新在线票据。 */
+  ensureOnlineCredentials(): Promise<void>;
   /**
    * Transcribe a SILK file on disk with the globally selected model. Account
    * independent (the model is a global setting), so callers that already have a
@@ -1148,6 +1191,9 @@ function unavailableContext(nativeError: NativeInitError | null, reason: string)
     onlineCredentialsPending(): boolean {
       return false;
     },
+    async ensureOnlineCredentials(): Promise<void> {
+      throw new Error(reason);
+    },
     transcribeSilk(): Promise<TranscribeSilkResult> {
       return Promise.resolve({ ok: false, error: reason });
     },
@@ -1158,12 +1204,24 @@ export function initAppContext(fileRoot?: string): AppContext {
   if (cached) return cached;
   const files = initBackupContext(fileRoot);
   if (!files.ok) {
+    getLogger().error('应用数据初始化失败', {
+      scope: 'startup',
+      event: 'startup-data-failed',
+      errorMessage: files.error,
+    });
     cached = unavailableContext(null, files.error);
     return cached;
   }
   configureNativeDressResources();
   const result = loadNativeSafe();
   if (!result.ok) {
+    getLogger().error('原生助手加载失败', {
+      scope: 'startup',
+      event: 'native-load-failed',
+      kind: result.kind,
+      status: result.status,
+      errorMessage: result.message,
+    });
     cached = unavailableContext(
       { kind: result.kind, status: result.status, message: result.message },
       result.message,
@@ -1188,6 +1246,18 @@ export function initAppContext(fileRoot?: string): AppContext {
   // SQLite 的保留页现在是按文件（per-Pager）设置的，同一个进程可以同时打开
   // QQ 库、标准库和解密产物，不再需要拆子进程。
   const bundle = result.bundle;
+  let nativeBuild: unknown = 'unknown';
+  try {
+    nativeBuild = bundle.ntHelper.getBuildInfo?.() ?? 'unknown';
+  } catch {
+    /* 旧助手不一定提供构建信息。 */
+  }
+  getLogger().info('原生助手已就绪', {
+    scope: 'startup',
+    event: 'native-ready',
+    nativeVersion: 'unknown',
+    nativeBuild,
+  });
 
   const platform =
     process.platform === 'linux'
@@ -1252,23 +1322,10 @@ export function initAppContext(fileRoot?: string): AppContext {
   // 定时器是 unref 的，不阻止进程退出，因此这里不需要持有 stop 句柄。
   startLogRetention(() => userConfig.getSettings().logRetentionDays);
 
-  // 签名器预热：`wrapper.node` 有 140–200 MB，完整定位 sign core / VM 实测
-  // 2.5–3 秒。这个代价不该落在第一包需要签名的请求上 —— 启动后立刻在后台做，
-  // 缓存命中时只 dlopen + 校验（约 0.5 秒），不碰界面线程。
-  //
-  // 失败不阻断启动：真正的签名错误会在发包时带上下文报出来（诊断页也能手动重试）。
-  signerWarmup = warmupSigner(
-    platform.native.ntHelper,
-    platform.appDataRoot(),
-    platform.qqWrapperNodePath(),
-    readQqVersion(platform.qqWrapperNodePath()),
-  ).catch((error: unknown) => {
-    logger.warn('signer warmup failed (non-fatal)', {
-      event: 'signer-warmup',
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  });
+  // macOS 启动时跳过未知目标的预热，待完整模式确认运行中 QQ 后再加载同一份模块。
+  // 否则先载安装旧版、再载热更新版，会重复注册 Objective-C 类并刷满原生警告。
+  if (platform.kind === 'darwin') primeSignerHints(platform.appDataRoot());
+  signerWarmup = warmupSelectedSigner(platform);
 
   // Reading a running QQ's memory needs a ptrace attach: on linux AND macOS that
   // is gated (linux: yama ptrace_scope / root + CAP_SYS_PTRACE; macOS: root and
@@ -1391,6 +1448,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountCtx: AccountContext,
       metadata: AccountConfigMetadata = {},
     ): Promise<void> {
+      const openedAt = performance.now();
       clearFullMode(this);
       const base = this.platform;
       if (!base) throw new Error('原生组件尚未就绪');
@@ -1422,9 +1480,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
+      await this.services?.contactDirectory?.dispose();
       this.account?.dispose();
-      dbWatchHandle?.unmount();
-      dbWatchHandle = null;
+      unmountDbWatch();
       ssePush?.stop();
       ssePush = null;
       unmountGroupKeyword();
@@ -2111,6 +2169,15 @@ export function initAppContext(fileRoot?: string): AppContext {
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };
+      this.services.contactDirectory = new ContactDirectoryRuntime(
+        this.services,
+        session,
+        userConfig.cacheDir(join('contacts', exportConfigId, session.context.uin)),
+        dbWatch,
+        () => fullModeAllowed(this, session) && Boolean(accountConfig.getRecord()?.qqOnline),
+        () => this.account === session,
+        exportConfigId,
+      );
       generatedSources = { agentLab: this.services.agentLab, assistant: this.services.assistant };
       // Scheduled export manager — fires saved templates through the export
       // manager on a single setTimeout wake. Per-account cache mirrors the
@@ -2154,6 +2221,13 @@ export function initAppContext(fileRoot?: string): AppContext {
           emitDressChanged();
         },
         () => {
+          if (platform.kind === 'darwin') {
+            signerWarmup = warmupSelectedSigner(
+              platform,
+              session.context.uin,
+              () => this.account === session && fullModeAllowed(this, session),
+            );
+          }
           accountEventBus.emit('onlineCredentialsReady', { at: Date.now() });
           mail.credentialsAvailable();
         },
@@ -2178,6 +2252,7 @@ export function initAppContext(fileRoot?: string): AppContext {
 
       logger.info('opened account session', {
         event: 'open-account-success',
+        durationMs: Math.round(performance.now() - openedAt),
         accountUin: session.context.uin,
         dataDir: metadata.dataDir ?? null,
       });
@@ -2258,6 +2333,7 @@ export function initAppContext(fileRoot?: string): AppContext {
     ): Promise<void> {
       const backup = await resolveBackupLocation(dirPath);
       if (!backup) throw new Error('未找到 QQ 账号数据库目录');
+      const openedAt = performance.now();
       clearFullMode(this);
       dirPath = backup.dbDir;
       cancelAnnualReportWarmup();
@@ -2285,9 +2361,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
+      await this.services?.contactDirectory?.dispose();
       this.account?.dispose();
-      dbWatchHandle?.unmount();
-      dbWatchHandle = null;
+      unmountDbWatch();
       ssePush?.stop();
       ssePush = null;
       unmountGroupKeyword();
@@ -2895,6 +2971,15 @@ export function initAppContext(fileRoot?: string): AppContext {
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };
+      this.services.contactDirectory = new ContactDirectoryRuntime(
+        this.services,
+        session,
+        userConfig.cacheDir(join('contacts', exportConfigId, session.context.uin)),
+        dbWatch,
+        () => fullModeAllowed(this, session) && Boolean(accountConfig.getRecord()?.qqOnline),
+        () => this.account === session,
+        exportConfigId,
+      );
       generatedSources = { agentLab: this.services.agentLab, assistant: this.services.assistant };
 
       // Persist metadata keyed by the decrypted-db directory, so re-opening
@@ -2918,6 +3003,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       });
       logger.info('opened static account session', {
         event: 'open-static-account-success',
+        durationMs: Math.round(performance.now() - openedAt),
         accountUin: session.context.uin,
         dirPath,
         nativeMediaDir: nativeDir,
@@ -2998,6 +3084,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Still no anti-recall triggers, no health check and no scheduler.
     },
     async clearAccount(waitForPending = false): Promise<void> {
+      accountEventBus.emit('closing', this.account);
+      const closedAt = performance.now();
+      const closingUin = this.account?.context.uin;
       const previousClosures = [...pendingAccountClosures];
       clearFullMode(this);
       invalidateAccountTools(this.account);
@@ -3031,6 +3120,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       unmountAntiRecallMonitor();
       const roamingClosed = this.services?.roamingBackfill.close();
       const favoriteImportClosed = this.services?.favoriteEmojiImport.dispose();
+      const contactsClosed = this.services?.contactDirectory?.dispose();
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
       this.services?.unifiedSearch.dispose();
@@ -3050,6 +3140,8 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountCacheRoots.delete(this);
       if (waitForPending) uidRegistry.clear();
       const closing = Promise.allSettled([
+        waitForCalendarWrites(),
+        contactsClosed,
         mcpClosed,
         externalMcpClosed,
         roamingClosed,
@@ -3068,6 +3160,12 @@ export function initAppContext(fileRoot?: string): AppContext {
         if (waitForPending) throw failed.reason;
         logger.warn('账号后台收尾失败', { error: String(failed.reason) });
       }
+      logger.info('账号会话已关闭', {
+        event: 'account-closed',
+        accountUin: closingUin,
+        durationMs: Math.round(performance.now() - closedAt),
+        outcome: failed ? 'degraded' : 'ok',
+      });
     },
     applyRealtime(enabled: boolean): void {
       const session = this.account;
@@ -3247,6 +3345,18 @@ export function initAppContext(fileRoot?: string): AppContext {
     onlineCredentialsPending(): boolean {
       return accountMonitor?.credentialsPending ?? false;
     },
+    async ensureOnlineCredentials(): Promise<void> {
+      const monitor = accountMonitor;
+      const services = this.services;
+      const record = services?.accountConfig.getRecord();
+      if (!monitor || !record?.qqOnline || !record.qqPid)
+        throw new Error('需要先登录该账号的 QQ 客户端。');
+      if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用完整功能。');
+      await monitor.ensureCredentialsReady(record.qqPid);
+      if (accountMonitor !== monitor || this.services !== services)
+        throw new Error('账号已切换，请重新读取。');
+      if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用完整功能。');
+    },
     applyFullModePolicy(): void {
       if (fullModeAllowed(this)) return;
       this.services?.unreadInfo.cancelReports();
@@ -3257,6 +3367,15 @@ export function initAppContext(fileRoot?: string): AppContext {
     },
   };
 
+  const setAccount = ctx.setAccount.bind(ctx);
+  const setStaticAccount = ctx.setStaticAccount.bind(ctx);
+  const clearAccount = ctx.clearAccount.bind(ctx);
+  ctx.setAccount = (...args) =>
+    logRequest('account', 'account.open', 'operation', () => setAccount(...args));
+  ctx.setStaticAccount = (...args) =>
+    logRequest('account', 'account.open-static', 'operation', () => setStaticAccount(...args));
+  ctx.clearAccount = (...args) =>
+    logRequest('account', 'account.close', 'operation', () => clearAccount(...args));
   cached = ctx;
   return ctx;
 }
@@ -3314,7 +3433,7 @@ export function requirePlatform(): Platform {
   return !ctx.accountIsStatic && ctx.resourcePlatform ? ctx.resourcePlatform : ctx.platform;
 }
 
-/** 启动期签名器预热的结果（还在跑时等它完成）。 */
+/** 当前签名器预热的结果（还在跑时等它完成）。 */
 export async function awaitSignerWarmup(): Promise<SignerWarmupResult | null> {
   if (!signerWarmup) return null;
   return signerWarmup;
@@ -3323,23 +3442,16 @@ export async function awaitSignerWarmup(): Promise<SignerWarmupResult | null> {
 /**
  * 重新预热签名器（诊断页「重新扫描」）。
  *
- * 与启动期那次同一套逻辑：命中缓存就只 dlopen + 校验，否则完整扫描并写回缓存。
+ * 命中缓存就只 dlopen + 校验，否则完整扫描并写回缓存；macOS 只选当前账号的实载模块。
  */
 export async function rescanSigner(): Promise<SignerWarmupResult | null> {
   const platform = requirePlatform();
-  signerWarmup = warmupSigner(
-    platform.native.ntHelper,
-    platform.appDataRoot(),
-    platform.qqWrapperNodePath(),
-    readQqVersion(platform.qqWrapperNodePath()),
-  ).catch((error: unknown) => {
-    getLogger()
-      .child({ scope: 'app-context' })
-      .warn('signer rescan failed', {
-        event: 'signer-warmup',
-        error: error instanceof Error ? error.message : String(error),
-      });
-    return null;
-  });
+  const ctx = getAppContext();
+  const session = ctx.account;
+  signerWarmup = warmupSelectedSigner(
+    platform,
+    session?.context.uin,
+    () => ctx.account === session,
+  );
   return signerWarmup;
 }

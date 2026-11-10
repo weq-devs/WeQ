@@ -31,6 +31,12 @@ const build = (rows: SuggestionMessage[], kind: 'c2c' | 'group' = 'group') =>
   });
 
 describe('推荐回复的结构化上下文', () => {
+  it('同一次请求要求先概括再给候选，仍根据完整对话而非仅依据摘要生成', () => {
+    const prompt = build([message()]);
+    expect(prompt.system).toContain('一至三句话');
+    expect(prompt.system).toContain('不要只根据概括生成回复');
+    expect(prompt.system.indexOf('"summary"')).toBeLessThan(prompt.system.indexOf('"replies"'));
+  });
   it('带北京时间、跨日时间差与最新消息标记，要求优先最近消息而不延续过时话题', () => {
     const prompt = build([
       message(),

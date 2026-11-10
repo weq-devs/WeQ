@@ -71,6 +71,7 @@ type TabId =
 const TABS: Array<{ id: TabId; label: string; icon: typeof Smile }> = [
   { id: 'recent', label: '最近', icon: Clock },
   { id: 'face', label: '表情', icon: Smile },
+  { id: 'fav', label: '收藏', icon: Heart },
   { id: 'super', label: '超级表情', icon: Sparkles },
   { id: 'bounce', label: '弹射表情', icon: Rocket },
   { id: 'poke', label: '互动表情', icon: Hand },
@@ -78,7 +79,6 @@ const TABS: Array<{ id: TabId; label: string; icon: typeof Smile }> = [
   { id: 'qqshow', label: 'QQ 秀表情', icon: Sparkles },
   { id: 'unicode', label: '字符表情', icon: Type },
   { id: 'market', label: '商城表情', icon: Store },
-  { id: 'fav', label: '收藏', icon: Heart },
   { id: 'gif', label: 'GIF 表情', icon: ImageIcon },
   { id: 'kaomoji', label: '颜文字', icon: MessageSquareQuote },
 ];

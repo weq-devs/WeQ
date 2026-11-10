@@ -21,6 +21,13 @@ import React, {
 import { z } from 'zod';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
+import { useQueryClient } from '@tanstack/react-query';
+import { WebBusinessCache } from '../components/WebBusinessCache';
+import { resolvedProfilesKey } from '../lib/webBusinessCache';
+import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
+import { useContactOnlineStatuses } from '../hooks/useContactOnlineStatuses';
+import { useMobilePageSettled } from '../hooks/useMobilePageSettled';
+import { MobileSidebarPages } from '../components/MobileSidebarPages';
 import { withBrowserFile } from '../lib/browserFileUpload';
 import { stageAccountFile } from '../lib/accountFilePicker';
 import { WEB_NOTICE_OPEN } from '../components/WebNotifications';
@@ -39,6 +46,7 @@ import {
   recordMessagePhase,
 } from '../lib/messagePerformance';
 import { intimateRelationOf } from '../lib/profileRelations';
+import { specialCareBlocker } from '../lib/specialCareAccess';
 import {
   loadGroupAssistantPins,
   saveGroupAssistantPins,
@@ -79,6 +87,13 @@ import {
 } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { isMineMessage } from '../lib/messageDirection';
+import {
+  messageSender,
+  optimisticMessageSender,
+  mergeMessageMembers,
+  localProfileUser,
+  type SenderProfile,
+} from '../lib/messageSender';
 import { isLocalOutgoingMessage } from '../lib/messageSelection';
 import { messageBatchBlockReason } from '../lib/messageBatchAction';
 import { deletionIdentity } from '../lib/messageDeletion';
@@ -105,6 +120,9 @@ import {
   retryConversationRead,
   unreadBadgeTargets,
   sameUnreadHighlights,
+  UNREAD_COUNT_BATCH_SIZE,
+  UNREAD_WATERMARK_BATCH_SIZE,
+  createUnreadCountCache,
 } from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
@@ -166,11 +184,16 @@ import { composerDraftRecovery } from '../lib/composerDraftRecovery';
 import { composerAssetIds } from '../lib/composerDraftMedia';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useCloneTaskRefresh } from '../hooks/useCloneTaskRefresh';
-import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
+import {
+  GROUP_MEMBER_PREVIEW_REFRESH_MS,
+  useGroupMemberResolver,
+} from '../hooks/useGroupMemberResolver';
 import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
+import { readFreshGroupMemberPage, activeGroupMembers } from '../lib/groupMemberRefresh';
 import { useDressSkin } from '../hooks/useDressSkin';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { WorkspaceMenuButton, WorkspaceSettingsButton } from '../components/WorkspaceMenuButton';
+import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 import type { SectionId as SettingsDialogSectionId } from '../components/SettingsDialog';
 import type { MaintenanceTool } from '../components/settings/DataMaintenanceSection';
 import {
@@ -181,6 +204,8 @@ import {
   ChannelView,
   DressUpDialog,
   GroupBugDialog,
+  AgentLabView,
+  AnnualReportView,
 } from '../components/lazyWorkspaces';
 import { useSettingsMaintenance } from '../hooks/useSettingsMaintenance';
 import { useRecalledMessages } from '../hooks/useRecalledMessages';
@@ -223,6 +248,8 @@ import {
   GroupMemberTitleDialog,
 } from '../components/GroupMemberModerationDialogs';
 import { MemberProfileCard } from '../components/MemberProfileCard';
+import { GroupProfileDialog } from '../im-template/template/profilePanes';
+import { sharedGroupConversation } from '../components/ark/groupShareCard';
 import { openRedBagQrcode } from '../components/RedBagQrcodeDialog';
 import {
   GroupLeftMembersDialog,
@@ -283,8 +310,15 @@ import {
   ConversationDirectoryContext,
   ContactDirectoryContext,
   guildConversationRow,
+  virtualConversationRow,
 } from '../lib/conversationDirectory';
-import { displayUserName } from '../im-template/template/user';
+import { displayGroupName, displayUserName } from '../im-template/template/user';
+import { isDatalineUid } from '@weq/codec';
+import type { CalendarTarget as OverviewCalendarTarget } from '@weq/service/conversation-calendar';
+import { ConversationOverviewCalendar } from '../components/ConversationOverviewCalendar';
+import { CalendarNavigationContext, type CalendarNavigate } from '../lib/calendarNavigation';
+import { conversationListSearchText } from '../lib/conversationListSearchText';
+import { calendarCloneRevision } from '../lib/calendarSourceRevision';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
 import { WorkspaceTools } from '../components/WorkspaceTools';
 import type { AppSearchEntry, ToolSearchRequest } from '../components/search/appSearchCatalog';
@@ -292,7 +326,11 @@ import type { DressKind } from '../components/DressUpDialog';
 import type { SettingsSearchTarget } from '../components/settings/searchTarget';
 import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
 import { displayGroupMemberName } from '../im-template/template/user';
-import { ChatNavigationContext, type ProfileChatTarget } from '../lib/chatNavigation';
+import {
+  ChatNavigationContext,
+  GroupMessagePreviewContext,
+  type ProfileChatTarget,
+} from '../lib/chatNavigation';
 import { MailWorkspace } from './MailView';
 import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
 import { PageSnapshots, usePageState } from '../components/PageSnapshots';
@@ -346,6 +384,7 @@ import {
 import { buildUnreadDock } from '../im-template/template/unreadDock';
 import {
   buildComposerSendPlan,
+  composerNeedsStickerCatalog,
   buildOptimisticRender,
   composerSendError,
   decodeRecordingToWav,
@@ -381,14 +420,6 @@ import {
   type DatabaseDamagedEvent,
 } from '../components/DatabaseDamagedDialog';
 
-const AgentLabView = lazy(() =>
-  import('./AgentLabView').then((module) => ({ default: module.AgentLabView })),
-);
-const AnnualReportView = lazy(() =>
-  import('./annual-report/AnnualReportView').then((module) => ({
-    default: module.AnnualReportView,
-  })),
-);
 const AnalysisReportPage = lazy(() =>
   import('./analysis/AnalysisReportPage').then((module) => ({
     default: module.AnalysisReportPage,
@@ -400,7 +431,7 @@ const RelationGraphView = lazy(() =>
   })),
 );
 const workspaceLoading = (
-  <div role="status" className="p-6 text-sm text-muted-foreground">
+  <div role="status" data-weq-startup-pending className="p-6 text-sm text-muted-foreground">
     正在加载…
   </div>
 );
@@ -644,6 +675,7 @@ type GroupMemberWire = {
   lastSpeakTime?: number;
   muteUntil?: number;
   adminFlag: number;
+  memberFlag?: number;
   customTitle?: string;
   memberLevel?: number;
 };
@@ -729,11 +761,6 @@ type RenderElementWire = {
   type?: string;
   data?: Record<string, unknown>;
 };
-
-/** `account.getOnlineStatus` 的返回体（非 null 分支）。 */
-type OnlineStatusWire = NonNullable<
-  Awaited<ReturnType<typeof client.account.getOnlineStatus.query>>
->;
 
 /** `account.getRawElements` 返回的原始 element 数组，喂给 MsgElementEditor。 */
 type RawElementWire = NonNullable<
@@ -1265,6 +1292,7 @@ function groupMemberWireToMember(
     muteUntil: secondsToIsoTime(m.muteUntil),
     customTitle: m.customTitle || null,
     memberLevel: m.memberLevel,
+    memberFlag: m.memberFlag,
     levelName: levelNameFor(ctx.levelConfigs, m.memberLevel),
   };
 }
@@ -1425,58 +1453,6 @@ function contactToConversation(
   }
 
   return null;
-}
-
-/** 按发送者身份解析气泡用户；群聊保留自己的群名片与等级。 */
-function messageSender(
-  message: MessageWire,
-  conversation: Conversation,
-  user: User,
-  memberMap?: Map<string, GroupMember>,
-  botUids?: Set<string>,
-): User {
-  const isMine = isMineMessage(message, conversation, user);
-  if (isMine && conversation.type === 'direct') return user;
-
-  // For group messages, even if it's mine, get member info from memberMap
-  if (conversation.type === 'group') {
-    const member = memberMap?.get(message.senderUid);
-    const isUinOnly = !member;
-
-    return {
-      id: isMine ? user.id : message.senderUid || `sender:${message.senderUin}`,
-      identityLabel: isMine
-        ? user.identityLabel
-        : message.senderUin && message.senderUin !== '0'
-          ? 'QQ'
-          : 'UID',
-      identityValue: isMine
-        ? user.identityValue
-        : message.senderUin && message.senderUin !== '0'
-          ? message.senderUin
-          : message.senderUid,
-      username: isMine ? user.username : message.senderUid || message.senderUin,
-      card: member?.card,
-      remark: member?.remark,
-      nick: member?.nick,
-      displayName:
-        member?.displayName ||
-        (isMine
-          ? user.displayName
-          : message.senderUin && message.senderUin !== '0'
-            ? message.senderUin
-            : 'Member'),
-      avatarUrl: isMine ? user.avatarUrl : member?.avatarUrl || senderAvatarSrc(message.senderUin),
-      kind: !isMine && botUids?.has(message.senderUid) ? 'bot' : 'human',
-      role: !isUinOnly ? member?.role : undefined,
-      customTitle: !isUinOnly ? member?.customTitle : undefined,
-      levelName: !isUinOnly ? member?.levelName : undefined,
-      memberLevel: !isUinOnly ? member?.memberLevel : undefined,
-    } as User;
-  }
-
-  if (isMine) return user;
-  return conversation.type === 'direct' ? conversation.otherUser : user;
 }
 
 /**
@@ -1657,8 +1633,9 @@ function messageToTemplate(
   memberMap?: Map<string, GroupMember>,
   botUids?: Set<string>,
   replySources?: MessageWire[] | ReplyPreviewIndex,
+  profiles?: ReadonlyMap<string, SenderProfile>,
 ): Message {
-  const sender = messageSender(message, conversation, user, memberMap, botUids);
+  const sender = messageSender(message, conversation, user, memberMap, botUids, profiles);
   // For any `reply` element in the message, resolve the ORIGINAL message
   // sender's display name (memberMap → self → otherUser → uin/uid fallbacks)
   // and stash it on the reply's data as `origSenderDisplayName` so
@@ -2361,10 +2338,21 @@ export function MainView(): ReactElement {
       ? JSON.stringify([uin, config.data.configId])
       : null;
   if (config.isLoading) return workspaceLoading;
-  return (
+  const workspace = (
     <PageSnapshots scope={scope} resetOnMount={startupPage !== null}>
       <MainWorkspace key={scope ?? `pending:${uin ?? ''}`} />
     </PageSnapshots>
+  );
+  return IS_WEB && scope ? (
+    <WebBusinessCache
+      key={scope}
+      scope={JSON.stringify([location.origin, scope])}
+      fallback={workspaceLoading}
+    >
+      {workspace}
+    </WebBusinessCache>
+  ) : (
+    workspace
   );
 }
 
@@ -2376,6 +2364,16 @@ function MainWorkspace(): ReactElement {
   }, []);
   const [mailUnread, setMailUnread] = useState(0);
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
+  const [contactsPageOpen, setContactsPageOpen] = useState(!IS_WEB);
+  const [directoryReady, setDirectoryReady] = useState(!IS_WEB);
+  const [secondaryReady, setSecondaryReady] = useState(!IS_WEB);
+  const directoryOptions = {
+    enabled: directoryReady || contactsPageOpen,
+    staleTime: IS_WEB ? 60_000 : 5 * 60_000,
+    refetchOnMount: IS_WEB,
+  } as const;
+  const secondaryOptions = { ...directoryOptions, enabled: secondaryReady || contactsPageOpen };
   const pushToast = useToast((s) => s.push);
   const confirmReadState = useDialog((s) => s.confirm);
   const pinSession = useQQWriteSession('conversation-pin');
@@ -2431,13 +2429,32 @@ function MainWorkspace(): ReactElement {
       getNextPageParam: (lastPage) => (lastPage.items.length ? lastPage.nextCursor : undefined),
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
+      // 恢复的完整目录先展示；最新页单独刷新，不串行重读所有已缓存分页。
+      refetchOnMount: IS_WEB ? false : undefined,
     },
   );
   // 实时只读最新页，不等待完整目录的逐页刷新；旧分页继续保留已知会话。
   const recentHead = trpc.account.listRecentContacts.useQuery(
     { limit: 500, cursor: 0, ...pinSession.binding },
-    { enabled: false, keepPreviousData: false, staleTime: 0 },
+    {
+      enabled:
+        IS_WEB &&
+        Boolean(pinSession.binding) &&
+        Boolean(contacts.data) &&
+        !contacts.isFetchedAfterMount,
+      keepPreviousData: false,
+      staleTime: 0,
+    },
   );
+  const firstContactsReady = Boolean(contacts.data) || contacts.isError;
+  useEffect(() => {
+    if (!IS_WEB || !firstContactsReady) return;
+    return scheduleBackgroundLoad(() => setDirectoryReady(true));
+  }, [firstContactsReady]);
+  useEffect(() => {
+    if (!IS_WEB || !directoryReady) return;
+    return scheduleBackgroundLoad(() => setSecondaryReady(true), 700);
+  }, [directoryReady]);
   const headRefetchRef = useRef(recentHead.refetch);
   headRefetchRef.current = recentHead.refetch;
   const conversationDraftTimes = trpc.account.listConversationDraftTimes.useQuery(
@@ -2451,6 +2468,12 @@ function MainWorkspace(): ReactElement {
   // Folder membership must cover older rows too; never classify unobserved groups as folded.
   useEffect(() => {
     if (contacts.hasNextPage && !contacts.isFetching && !contacts.error) {
+      if (IS_WEB) {
+        if (!directoryReady || !contacts.isFetchedAfterMount) return;
+        return scheduleBackgroundLoad(() => {
+          void contacts.fetchNextPage();
+        });
+      }
       void contacts.fetchNextPage();
     }
   }, [
@@ -2459,6 +2482,40 @@ function MainWorkspace(): ReactElement {
     contacts.error,
     contacts.data?.pages.length,
     contacts.fetchNextPage,
+    directoryReady,
+    contacts.isFetchedAfterMount,
+  ]);
+  useEffect(() => {
+    if (
+      !IS_WEB ||
+      !secondaryReady ||
+      !contacts.data ||
+      contacts.isFetchedAfterMount ||
+      contacts.isFetching ||
+      recentHead.isFetching
+    )
+      return;
+    const binding = messageBindingRef.current;
+    const source = messageScope;
+    return scheduleBackgroundLoad(() => {
+      const headInput = { limit: 500, cursor: 0, ...binding };
+      const previousHead = utils.account.listRecentContacts.getData(headInput);
+      void contacts.refetch().then((result) => {
+        if (result.isError || !result.data || messageScopeRef.current !== source) return;
+        // 全目录校准完成后清掉旧页里已删除的会话，不覆盖更晚的实时 head。
+        if (utils.account.listRecentContacts.getData(headInput) !== previousHead) return;
+        utils.account.listRecentContacts.setData(headInput, result.data.pages[0]);
+      });
+    });
+  }, [
+    secondaryReady,
+    contacts.data,
+    contacts.isFetchedAfterMount,
+    contacts.isFetching,
+    contacts.refetch,
+    recentHead.isFetching,
+    utils,
+    messageScope,
   ]);
   const topContacts = trpc.account.listTopContacts.useQuery(
     {
@@ -2516,7 +2573,7 @@ function MainWorkspace(): ReactElement {
       ]),
     [contacts.data, recentHead.data],
   );
-  const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
+  const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 }, directoryOptions);
   // Official QQ setting: observed 4 → 2 when switching from muted to group helper.
   const groupAssistantIds = useMemo(() => {
     const ids = new Set(
@@ -2545,17 +2602,20 @@ function MainWorkspace(): ReactElement {
       void contacts.fetchNextPage();
     }
   };
-  const hiddenSessions = trpc.account.listHiddenSessions.useQuery();
-  const deletedSessions = trpc.account.listDeletedSessions.useQuery();
-  const officialAccounts = trpc.account.listOfficialAccounts.useQuery();
-  const serviceAccounts = trpc.account.listServiceAccounts.useQuery();
+  const hiddenSessions = trpc.account.listHiddenSessions.useQuery(undefined, secondaryOptions);
+  const deletedSessions = trpc.account.listDeletedSessions.useQuery(undefined, secondaryOptions);
+  const officialAccounts = trpc.account.listOfficialAccounts.useQuery(undefined, secondaryOptions);
+  const serviceAccounts = trpc.account.listServiceAccounts.useQuery(undefined, secondaryOptions);
   // 频道私聊聚合入口：与公众号一样只取「有没有 / 最新一条」，详情在展开面板里拉。
-  const guildDirectSessions = trpc.account.guildDirectListSessions.useQuery();
+  const guildDirectSessions = trpc.account.guildDirectListSessions.useQuery(
+    undefined,
+    secondaryOptions,
+  );
   const guildConversationRows = useMemo(
     () => (guildDirectSessions.data ?? []).map(guildConversationRow),
     [guildDirectSessions.data],
   );
-  const selfProfile = trpc.account.getSelfProfile.useQuery();
+  const selfProfile = trpc.account.getSelfProfile.useQuery(undefined, directoryOptions);
   const displaySettings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
@@ -2578,24 +2638,27 @@ function MainWorkspace(): ReactElement {
       sendAccess.data.hasGuid,
   );
   const groupBugStatus = trpc.groupFeedback.status.useQuery(undefined, {
+    enabled: directoryReady,
     refetchOnWindowFocus: true,
     staleTime: 8000,
   });
-  const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 });
-  const botUidList = trpc.account.botUids.useQuery();
-  const categories = trpc.account.listCategories.useQuery();
-  const profiles = trpc.account.listProfiles.useQuery({ limit: 2000 });
-  const buddyRequests = trpc.account.listBuddyRequests.useQuery({ limit: 2000 });
-  const groupNotifies = trpc.account.listGroupNotifies.useQuery({ limit: 2000 });
+  const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 }, directoryOptions);
+  const botUidList = trpc.account.botUids.useQuery(undefined, directoryOptions);
+  const categories = trpc.account.listCategories.useQuery(undefined, directoryOptions);
+  const profiles = trpc.account.listProfiles.useQuery({ limit: 2000 }, directoryOptions);
+  const noticeOptions = { enabled: contactsPageOpen, staleTime: 60_000 };
+  const buddyRequests = trpc.account.listBuddyRequests.useQuery({ limit: 2000 }, noticeOptions);
+  const groupNotifies = trpc.account.listGroupNotifies.useQuery({ limit: 2000 }, noticeOptions);
   const openedUin = useViewState((s) => s.openedUin);
   const mailPreferences = trpc.mail.preferences.useQuery(
     { selfUin: openedUin ?? '' },
-    { enabled: Boolean(openedUin), staleTime: 0, refetchOnMount: 'always' },
+    { enabled: Boolean(openedUin) && secondaryReady, staleTime: 0, refetchOnMount: 'always' },
   );
+  const specialCareUnavailable = specialCareBlocker(sendAccess.data);
   const specialCare = trpc.account.specialCare.useQuery(
     { selfUin: openedUin ?? '' },
     {
-      enabled: Boolean(openedUin && sendAccess.data?.qqOnline),
+      enabled: directoryReady && Boolean(openedUin && specialCareUnavailable === null),
       staleTime: 5 * 60 * 1000,
       refetchOnWindowFocus: true,
       retry: false,
@@ -2630,7 +2693,7 @@ function MainWorkspace(): ReactElement {
         deletedSessions.refetch(),
         buddyRequests.refetch(),
         groupNotifies.refetch(),
-        ...(sendAccess.data?.qqOnline ? [specialCare.refetch()] : []),
+        ...(specialCareUnavailable === null ? [specialCare.refetch()] : []),
       ]);
       if (
         useViewState.getState().openedUin === accountUin &&
@@ -2663,6 +2726,7 @@ function MainWorkspace(): ReactElement {
     kind: 'official' | 'service';
     conversationId: string;
     title: string;
+    anchorId?: string;
   } | null>(null);
 
   // Seq-window message model: a single ASC (oldest→newest) list for the open
@@ -2903,6 +2967,8 @@ function MainWorkspace(): ReactElement {
   }, [messageActivity.enabled, messageActivity.revision, refreshWindow]);
 
   const [unreadRevision, setUnreadRevision] = useState(0);
+  const [calendarDataRevision, setCalendarDataRevision] = useState(0);
+  const calendarOpenRef = useRef(false);
 
   useEffect(() => {
     const binding = messageBindingRef.current;
@@ -2910,6 +2976,7 @@ function MainWorkspace(): ReactElement {
     const sub = client.account.onRoamingMessages.subscribe(binding, {
       onData(change) {
         if (messageScopeRef.current !== messageScope) return;
+        if (calendarOpenRef.current) setCalendarDataRevision((revision) => revision + 1);
         conversationWindows.markDirty(
           conversationWindowKey(messageScope, change.kind, change.conv),
         );
@@ -3082,6 +3149,7 @@ function MainWorkspace(): ReactElement {
    * 之前就要用 —— 用 ref 转发拿最新实现，避免把两个 useCallback 的依赖搅在一起。
    */
   const flushDraftRef = useRef<(conversationId: string) => void>(() => {});
+  const settingsNavigation = useSettingsNavigation();
   const [settingsOpen, setSettingsOpen] = usePageState(
     'workspace:settings',
     false,
@@ -3096,6 +3164,8 @@ function MainWorkspace(): ReactElement {
     setCategories: setSearchCategories,
     appEnabled: appSearchEnabled,
     setAppEnabled: setAppSearchEnabled,
+    numberLookupEnabled,
+    setNumberLookupEnabled,
   } = useSearchPreferences();
   const [conversationScope, setConversationScope] = usePageState<ConversationScope>(
     'workspace:conversation-scope',
@@ -3261,6 +3331,11 @@ function MainWorkspace(): ReactElement {
     /** 从关系图谱进来：带上共同群，资料卡的「聊天分析」才有群可分析。 */
     groupCode?: string;
     groupName?: string;
+  } | null>(null);
+  const [numberGroupCard, setNumberGroupCard] = useState<{
+    accountUin: string | null;
+    conversation: Extract<Conversation, { type: 'group' }>;
+    anchor: HTMLElement;
   } | null>(null);
 
   const [editorState, setEditorState] = useState<{
@@ -3886,7 +3961,7 @@ function MainWorkspace(): ReactElement {
       }));
   }, []);
 
-  const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, OnlineStatusWire>>({});
+  const onlineStatusByUid = useContactOnlineStatuses(buddies.data, contactsPageOpen);
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
   const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
@@ -3908,9 +3983,12 @@ function MainWorkspace(): ReactElement {
   const unreadBadgesRef = useRef({ counts: unreadByConv, highlights: highlightsByConv });
   unreadBadgesRef.current = { counts: unreadByConv, highlights: highlightsByConv };
   const [groupMemberPages, setGroupMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
+  // 分页失效时仅保留发言人的展示快照，不将历史成员重新加入当前名单。
+  const [senderMemberPages, setSenderMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
   const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
   const [groupMemberLoading, setGroupMemberLoading] = useState<Record<string, boolean>>({});
   const [groupMemberError, setGroupMemberError] = useState<Record<string, string>>({});
+  const [groupInfoRevision, setGroupInfoRevision] = useState(0);
   const groupMemberLoadingRef = useRef<Record<string, boolean>>({});
   // Off-page message senders resolved on demand (groupCode → uid → member),
   // batched + deduped by useGroupMemberResolver. Kept separate from the global
@@ -3919,12 +3997,14 @@ function MainWorkspace(): ReactElement {
     missingMembers,
     resolveMembers,
     updateMembers: updateCachedMembers,
+    invalidate: invalidateCachedMembers,
   } = useGroupMemberResolver<GroupMemberWire>();
   const {
     missingMembers: previewMembers,
     resolveMembers: resolvePreviewMembers,
     updateMembers: updatePreviewMembers,
-  } = useGroupMemberResolver<GroupMemberWire>();
+    invalidate: invalidatePreviewMembers,
+  } = useGroupMemberResolver<GroupMemberWire>(GROUP_MEMBER_PREVIEW_REFRESH_MS);
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
 
@@ -3951,9 +4031,13 @@ function MainWorkspace(): ReactElement {
   // Set when a search hit was clicked: the listLatest effect, after the target
   // conversation's newest page lands, rebuilds the window centred on this seq
   // instead of leaving the view pinned to the latest.
-  const pendingSearchJumpRef = useRef<{ conv: string; kind: 'group' | 'c2c'; seq: string } | null>(
-    null,
-  );
+  const pendingSearchJumpRef = useRef<{
+    conv: string;
+    kind: 'group' | 'c2c';
+    seq: string;
+    record?: ChatMsgWire;
+    messageId?: string;
+  } | null>(null);
   // "更多" modal (full paginated results for one category) + chat-record modal.
   const [searchMore, setSearchMore] = useState<{
     category: SearchCategory;
@@ -3979,7 +4063,7 @@ function MainWorkspace(): ReactElement {
   const mailPreference = trpc.mail.status.useQuery(
     { selfUin: user.identityValue },
     {
-      enabled: /^[1-9]\d{4,19}$/.test(user.identityValue),
+      enabled: secondaryReady && /^[1-9]\d{4,19}$/.test(user.identityValue),
       staleTime: 0,
       refetchOnMount: 'always',
       refetchOnWindowFocus: false,
@@ -3987,11 +4071,18 @@ function MainWorkspace(): ReactElement {
   );
   // 统一的 profile 内存缓存：listProfiles 预热 + 缺失项按需批量补全，所有消费方
   // （好友列表 / 通知 / 搜索）共用这一个 Map。补全在下方的解析 effect 触发。
+  const [restoredProfiles] = useState(() =>
+    IS_WEB ? (queryClient.getQueryData<UserProfileWire[]>(resolvedProfilesKey) ?? []) : [],
+  );
   const {
     profileByUid,
     resolveProfiles,
     refreshProfiles: refreshProfileCache,
-  } = useProfileResolver<UserProfileWire>(profiles.data as UserProfileWire[] | undefined);
+  } = useProfileResolver<UserProfileWire>(profiles.data, restoredProfiles);
+  useEffect(() => {
+    if (IS_WEB && profileByUid.size)
+      queryClient.setQueryData(resolvedProfilesKey, [...profileByUid.values()]);
+  }, [queryClient, profileByUid]);
   const previewDisplayNames = useMemo(() => {
     const names = new Map<string, string>();
     for (const profile of profileByUid.values()) {
@@ -4678,16 +4769,15 @@ function MainWorkspace(): ReactElement {
         createdAt: new Date(0).toISOString(),
       };
     });
-    const online = Boolean(sendAccess.data?.qqOnline);
-    const description = !online
-      ? 'QQ 未在线，特别关心未更新'
-      : specialCare.isError
+    const description =
+      specialCareUnavailable ??
+      (specialCare.isError
         ? '特别关心读取失败'
         : specialCare.data
           ? specialCare.data.fansCount === null
             ? '特关我的人数暂不可用'
             : `特关我的人数：${specialCare.data.fansCount} 人`
-          : '正在读取特别关心…';
+          : '正在读取特别关心…');
     return [
       { id: 'special:devices', name: '我的设备', items: devices },
       { id: 'special:bots', name: '机器人', items: robots },
@@ -4698,7 +4788,7 @@ function MainWorkspace(): ReactElement {
         count: specialCare.data ? specialItems.length : null,
         description,
         onRetry:
-          online && specialCare.isError
+          specialCareUnavailable === null && specialCare.isError
             ? () => {
                 void specialCare.refetch();
               }
@@ -4717,7 +4807,7 @@ function MainWorkspace(): ReactElement {
     specialCare.data,
     specialCare.isError,
     specialCare.refetch,
-    sendAccess.data?.qqOnline,
+    specialCareUnavailable,
     profileByUid,
     categoryById,
   ]);
@@ -4875,6 +4965,9 @@ function MainWorkspace(): ReactElement {
     sidebarWidthStorageKey: 'weq.desktop.sidebarWidth.v2',
     history: shellHistory,
   });
+  useEffect(() => {
+    setContactsPageOpen(!IS_WEB || shell.view === 'contacts');
+  }, [shell.view]);
   const detailContact = shell.view === 'contacts' ? shell.selectedContact : undefined;
   const { uid: detailContactUid, uin: detailContactUin } = contactProfileIdentity(detailContact);
   const cachedContactProfile =
@@ -5346,38 +5439,39 @@ function MainWorkspace(): ReactElement {
   }, []);
 
   const handleSelectConversation = useCallback(
-    (conversationId: string, event?: React.MouseEvent) => {
-      if (conversationId.startsWith('guild:')) {
-        setGuildSearchTarget({
-          kind: 'guildMessage',
-          nodeId: conversationId.slice(6),
-          msgId: '',
-          msgSeq: '',
-          revision: crypto.randomUUID(),
-        });
-        shell.switchView('channel');
-        return;
-      }
-      const conv = conversations.find((c) => c.id === conversationId);
-      if (conv?.type === 'merged') {
-        // 只是打开会话选择器面板，当前页面（包括正在看的 ARK Feed）先保持不动——
-        // 之前在这里无条件 setArkFeedState(null) 会导致点选择器就直接退出消息页。
-        const x = event?.clientX ?? window.innerWidth / 2;
-        const y = event?.clientY ?? window.innerHeight / 2;
-        setMergedPanel({ kind: conv.mergedKind, anchorX: x, anchorY: y });
-        return;
-      }
-      // 真正切换到一个普通会话时才关闭 ARK Feed。
-      // 先同步回填一次草稿，这样切换那一帧 ChatPane 就能拿到目标会话的正文（它只在
-      // conversation.id 变化时读一次 draft）。真正的落库不在这里做 —— 统一交给下面
-      // 监听 `shell.activeConversationId` 的 effect 收口，「返回 / 搜索跳转 / 选择器
-      // 进入」这些不走本函数的路径也能覆盖到。
-      syncDraftsFromPending();
-      setArkFeedState(null);
-      setSurfaceNavigation((value) => value + 1);
-      shell.selectConversation(conversationId);
-    },
-    [conversations, shell, syncDraftsFromPending],
+    (conversationId: string, event?: React.MouseEvent) =>
+      settingsNavigation.navigate(() => {
+        if (conversationId.startsWith('guild:')) {
+          setGuildSearchTarget({
+            kind: 'guildMessage',
+            nodeId: conversationId.slice(6),
+            msgId: '',
+            msgSeq: '',
+            revision: crypto.randomUUID(),
+          });
+          shell.switchView('channel');
+          return;
+        }
+        const conv = conversations.find((c) => c.id === conversationId);
+        if (conv?.type === 'merged') {
+          // 只是打开会话选择器面板，当前页面（包括正在看的 ARK Feed）先保持不动——
+          // 之前在这里无条件 setArkFeedState(null) 会导致点选择器就直接退出消息页。
+          const x = event?.clientX ?? window.innerWidth / 2;
+          const y = event?.clientY ?? window.innerHeight / 2;
+          setMergedPanel({ kind: conv.mergedKind, anchorX: x, anchorY: y });
+          return;
+        }
+        // 真正切换到一个普通会话时才关闭 ARK Feed。
+        // 先同步回填一次草稿，这样切换那一帧 ChatPane 就能拿到目标会话的正文（它只在
+        // conversation.id 变化时读一次 draft）。真正的落库不在这里做 —— 统一交给下面
+        // 监听 `shell.activeConversationId` 的 effect 收口，「返回 / 搜索跳转 / 选择器
+        // 进入」这些不走本函数的路径也能覆盖到。
+        syncDraftsFromPending();
+        setArkFeedState(null);
+        setSurfaceNavigation((value) => value + 1);
+        shell.selectConversation(conversationId);
+      }),
+    [conversations, shell, syncDraftsFromPending, settingsNavigation],
   );
 
   /**
@@ -5436,6 +5530,8 @@ function MainWorkspace(): ReactElement {
   // 联系人群详情使用独立目标，复用成员分页缓存，不借用聊天页当前群的成员或搜索。
   const groupDetailCode =
     shell.view === 'contacts' ? (shell.selectedGroupConversationId ?? '') : '';
+  const groupMemberTargets = useRef(new Set<string>());
+  groupMemberTargets.current = new Set([isGroup ? selectedUid : '', groupDetailCode]);
   const contactGroupProfile = trpc.account.getGroupDetail.useQuery(
     { groupCode: groupDetailCode },
     { enabled: Boolean(groupDetailCode) },
@@ -5456,6 +5552,7 @@ function MainWorkspace(): ReactElement {
     groupDetailCode || undefined,
     contactMemberKeyword,
     mapContactGroupMember,
+    groupInfoRevision,
   );
   const selectedGroupConversationForDetail = useMemo(() => {
     const conv = shell.selectedGroupConversation;
@@ -5463,7 +5560,10 @@ function MainWorkspace(): ReactElement {
     const detail = contactGroupProfile.data;
     const resolved = detail ? groupDetailToConversation(detail, conv, user) : conv;
     if (resolved.type !== 'group') return conv;
-    return { ...resolved, members: (groupMemberPages[conv.id] ?? []).map(mapContactGroupMember) };
+    return {
+      ...resolved,
+      members: activeGroupMembers((groupMemberPages[conv.id] ?? []).map(mapContactGroupMember)),
+    };
   }, [
     shell.selectedGroupConversation,
     contactGroupProfile.data,
@@ -5471,41 +5571,6 @@ function MainWorkspace(): ReactElement {
     mapContactGroupMember,
     user,
   ]);
-
-  useEffect(() => {
-    const buddyList = ((buddies.data ?? []) as BuddyWire[]).slice(0, 300);
-    if (buddyList.length === 0) return undefined;
-    let cancelled = false;
-
-    async function loadOnlineStatuses(): Promise<void> {
-      const next: Record<string, OnlineStatusWire> = {};
-      const batchSize = 12;
-      for (let index = 0; index < buddyList.length && !cancelled; index += batchSize) {
-        const batch = buddyList.slice(index, index + batchSize);
-        const statuses = await Promise.all(
-          batch.map(async (buddy) => {
-            try {
-              const status = await client.account.getOnlineStatus.query({ uid: buddy.uid });
-              return status ? ([buddy.uid, status] as const) : null;
-            } catch {
-              return null;
-            }
-          }),
-        );
-        for (const status of statuses) {
-          if (status) next[status[0]] = status[1];
-        }
-        if (!cancelled && Object.keys(next).length > 0) {
-          setOnlineStatusByUid((current) => ({ ...current, ...next }));
-        }
-      }
-    }
-
-    void loadOnlineStatuses();
-    return () => {
-      cancelled = true;
-    };
-  }, [buddies.data]);
 
   // Keep one unread reader alive: DB pings request a refresh, rather than
   // cancelling and restarting an all-conversation scan on every change.
@@ -5527,6 +5592,7 @@ function MainWorkspace(): ReactElement {
       messageScopeRef.current === source &&
       useViewState.getState().openedUin === openedUin;
     const guard = createUnreadUpdateGuard();
+    const countCache = createUnreadCountCache();
     unreadUpdateGuardRef.current = guard;
     setReadUndo(null);
     setUnreadByConv({});
@@ -5537,72 +5603,24 @@ function MainWorkspace(): ReactElement {
       const databaseRevision = dbRevisionRef.current;
       const startedAt = guard.revision();
       const list = unreadContactsRef.current;
-      const counts: Record<string, number> = {};
-      const highlights: Record<string, ConversationHighlight[]> = {};
-      const succeeded = new Set<string>();
       let failed = false;
       const targets = list.flatMap((contact) => {
         const type = unreadChatType(contact.chatType);
         return type === null ? [] : [{ chatType: type, uid: contact.targetUid }];
       });
-      const batchSize = 256;
+      countCache.retain(targets);
+      const batchSize = UNREAD_WATERMARK_BATCH_SIZE;
       for (let index = 0; index < targets.length && isCurrent(); index += batchSize) {
         // Give opening a conversation priority over background badge reads.
         while (isCurrent() && initialMessagesPendingRef.current) {
           await new Promise<void>((resolve) => setTimeout(resolve, 100));
         }
-        if (!isCurrent()) return true;
+        if (!isCurrent() || document.visibilityState === 'hidden') return true;
         try {
-          const rows = await client.account.getUnreadInfos.query({
-            expectedAccountUin: openedUin,
-            expectedAccountConfigId: binding?.expectedAccountConfigId,
-            targets: targets.slice(index, index + batchSize),
-          });
+          // 全目录仅快查水位，精确统计由独立小批队列按需补齐。
+          const result = await readTargets(targets.slice(index, index + batchSize), true);
           if (!isCurrent()) return true;
-          // 顶部会话的计数先回显，不等待后续所有分页的未读扫描。
-          setUnreadByConv((current) => {
-            const next = { ...current };
-            let changed = false;
-            for (const info of rows) {
-              if (info.readError || !guard.accepts(info.uid, startedAt)) continue;
-              const count = info.unreadCount ?? 0;
-              if (next[info.uid] !== count) {
-                next[info.uid] = count;
-                changed = true;
-              }
-            }
-            return changed ? next : current;
-          });
-          setHighlightsByConv((current) => {
-            const next = { ...current };
-            let changed = false;
-            for (const info of rows) {
-              if (info.readError || !guard.accepts(info.uid, startedAt)) continue;
-              if (
-                sameUnreadHighlights(
-                  current[info.uid],
-                  info.highlights as ConversationHighlight[] | undefined,
-                )
-              )
-                continue;
-              changed = true;
-              if (info.highlights?.length)
-                next[info.uid] = info.highlights as ConversationHighlight[];
-              else delete next[info.uid];
-            }
-            return changed ? next : current;
-          });
-          for (const info of rows) {
-            if (info.readError) {
-              failed = true;
-              continue;
-            }
-            counts[info.uid] = info.unreadCount ?? 0;
-            succeeded.add(info.uid);
-            if (info?.highlights?.length) {
-              highlights[info.uid] = info.highlights as ConversationHighlight[];
-            }
-          }
+          if (Array.isArray(result) && result.length) failed = true;
         } catch {
           failed = true;
         }
@@ -5618,8 +5636,7 @@ function MainWorkspace(): ReactElement {
           ...Object.keys(current).filter((id) => !guard.accepts(id, startedAt)),
         ]);
         for (const id of keep) {
-          const value =
-            succeeded.has(id) && guard.accepts(id, startedAt) ? counts[id] : current[id];
+          const value = current[id];
           if (value !== undefined) next[id] = value;
         }
         return Object.keys(next).length === Object.keys(current).length &&
@@ -5634,8 +5651,7 @@ function MainWorkspace(): ReactElement {
           ...Object.keys(current).filter((id) => !guard.accepts(id, startedAt)),
         ]);
         for (const id of keep) {
-          const value =
-            succeeded.has(id) && guard.accepts(id, startedAt) ? highlights[id] : current[id];
+          const value = current[id];
           if (value?.length) next[id] = value;
         }
         return Object.keys(next).length === Object.keys(current).length &&
@@ -5650,13 +5666,15 @@ function MainWorkspace(): ReactElement {
     const refresh = createUnreadRefresh(loadUnread);
     type Target = Parameters<typeof client.account.getUnreadInfos.query>[0]['targets'][number];
     type Rows = Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>;
-    const applyLive = (rows: Rows, startedAt: number) => {
+    const applyLive = (rows: Rows, startedAt: number, databaseRevision: number) => {
       const accepted = rows.filter(
         (row) => !row.readError && !row.countPending && guard.accepts(row.uid, startedAt),
       );
+      if (!accepted.length) return;
       // 实时结果也推进版本，不能被更早启动的全量扫描回灌。
       const finish = guard.begin(accepted.map((row) => row.uid));
       finish();
+      for (const row of accepted) countCache.remember(row, databaseRevision, guard.revision());
       setUnreadByConv((current) => {
         const next = { ...current };
         let changed = false;
@@ -5690,21 +5708,26 @@ function MainWorkspace(): ReactElement {
     const readTargets = async (targets: Target[], watermarksOnly = false) => {
       if (!isCurrent() || !binding) return true;
       const startedAt = guard.revision();
+      const databaseRevision = dbRevisionRef.current;
       const rows = await client.account.getUnreadInfos.query({
         ...binding,
         targets,
         watermarksOnly,
       });
       if (!isCurrent()) return true;
-      applyLive(rows, startedAt);
+      applyLive(rows, startedAt, databaseRevision);
       if (watermarksOnly)
         liveRefresh.request(
           rows
-            .filter((row) => row.countPending)
+            .filter(
+              (row) =>
+                row.countPending && countCache.needsCount(row, databaseRevision, guard.accepts),
+            )
             .map((row) => ({
               chatType: row.chatType as Target['chatType'],
               uid: row.uid,
             })),
+          false,
         );
       // 返回遗漏和失败的目标，不让单个坏会话拖住健康会话。
       const succeeded = new Set(
@@ -5712,10 +5735,16 @@ function MainWorkspace(): ReactElement {
       );
       return targets.filter((target) => !succeeded.has(`${target.chatType}:${target.uid}`));
     };
-    const liveRefresh = createUnreadTargetRefresh<Target>(readTargets, refresh.request);
+    const liveRefresh = createUnreadTargetRefresh<Target>(
+      readTargets,
+      refresh.request,
+      UNREAD_COUNT_BATCH_SIZE,
+    );
     const readSync = createUnreadTargetRefresh<Target>(
       (targets) => readTargets(targets, true),
       refresh.request,
+      UNREAD_WATERMARK_BATCH_SIZE,
+      1500,
     );
     const liveSub = binding
       ? client.account.onUnreadChanged.subscribe(binding, {
@@ -5748,7 +5777,7 @@ function MainWorkspace(): ReactElement {
     const requestReadSync = () => {
       if (!isCurrent()) return;
       const { counts, highlights } = unreadBadgesRef.current;
-      readSync.request(unreadBadgeTargets(unreadContactsRef.current, counts, highlights));
+      readSync.request(unreadBadgeTargets(unreadContactsRef.current, counts, highlights), false);
     };
     requestUnreadReadSyncRef.current = requestReadSync;
     const onVisible = () => {
@@ -5763,7 +5792,11 @@ function MainWorkspace(): ReactElement {
       if (document.visibilityState !== 'hidden') requestReadSync();
     }, 1500);
     const scanTimer = setInterval(() => {
-      if (document.visibilityState !== 'hidden' && scannedDbRevision !== dbRevisionRef.current)
+      if (
+        document.visibilityState !== 'hidden' &&
+        (scannedDbRevision !== dbRevisionRef.current ||
+          countCache.needsReconcile(dbRevisionRef.current))
+      )
         refresh.request();
     }, 15000);
     refresh.request();
@@ -5877,6 +5910,13 @@ function MainWorkspace(): ReactElement {
       cached,
       displaySettings.data?.readFromFirstUnread ?? false,
     );
+    // 新窗口提交前就拒收旧读取；不能等 passive effect 换 selection，
+    // 否则这段间隙收到的旧首屏／实时刷新仍能覆盖新会话。
+    selectionRef.current = null;
+    windowRef.current = {
+      minSeq: restored?.rows[0]?.msgSeq ?? null,
+      anchored: restored?.anchored ?? true,
+    };
     setTrackedMessageScope(messageScope);
     setTrackedConversationId(shell.activeConversationId);
     setLoaded(restored?.rows ?? []);
@@ -6094,25 +6134,26 @@ function MainWorkspace(): ReactElement {
         return { ...current, [groupCode]: true };
       });
 
+      let version = memberPageVersions.current.get(groupCode) ?? 0;
+      memberPageVersions.current.set(groupCode, version);
       try {
-        let version = memberPageVersions.current.get(groupCode) ?? 0;
-        let page = await client.account.listGroupMembers.query({
-          groupCode,
-          limit: GROUP_MEMBER_PAGE_SIZE,
+        const result = await readFreshGroupMemberPage(
           offset,
-        });
-        // 名片保存发生在分页读取途中时，最多补读一次，旧分页不能盖回新名片。
-        if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) {
-          version = memberPageVersions.current.get(groupCode) ?? 0;
-          page = await client.account.listGroupMembers.query({
-            groupCode,
-            limit: GROUP_MEMBER_PAGE_SIZE,
-            offset,
-          });
-        }
+          () => memberPageVersions.current.get(groupCode) ?? 0,
+          (pageOffset) =>
+            client.account.listGroupMembers.query({
+              groupCode,
+              limit: GROUP_MEMBER_PAGE_SIZE,
+              offset: pageOffset,
+            }),
+        );
+        if (!result) return;
+        version = result.version;
         if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) return;
+        const page = result.page;
+        offset = result.offset;
 
-        if (selectionRef.current?.id !== groupCode) {
+        if (!groupMemberTargets.current.has(groupCode)) {
           // User switched away during loading - cleanup and bail
           groupMemberLoadingRef.current = {
             ...groupMemberLoadingRef.current,
@@ -6123,10 +6164,18 @@ function MainWorkspace(): ReactElement {
         }
 
         setGroupMemberPages((current) => {
+          if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) return current;
           const existing = offset === 0 ? [] : (current[groupCode] ?? []);
           const known = new Set(existing.map((member) => member.uid));
           const fresh = page.filter((member) => !known.has(member.uid));
           return { ...current, [groupCode]: [...existing, ...fresh] };
+        });
+        setSenderMemberPages((current) => {
+          if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) return current;
+          return {
+            ...current,
+            [groupCode]: mergeMessageMembers(current[groupCode] ?? [], page),
+          };
         });
         setGroupMemberHasMore((current) => ({
           ...current,
@@ -6143,6 +6192,7 @@ function MainWorkspace(): ReactElement {
         }
       } catch (err) {
         console.error('[group-members] listGroupMembers failed', err);
+        if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) return;
         const errorMessage = err instanceof Error ? err.message : String(err);
         setGroupMemberError((current) => ({ ...current, [groupCode]: errorMessage }));
         setGroupMemberHasMore((current) => ({ ...current, [groupCode]: false }));
@@ -6156,6 +6206,54 @@ function MainWorkspace(): ReactElement {
     },
     [],
   );
+
+  useEffect(() => {
+    const binding = messageBindingRef.current;
+    if (!messageScope || !binding) return;
+    const refresh = createUnreadRefresh(async () => {
+      if (messageScopeRef.current !== messageScope) return true;
+      for (const code of memberPageVersions.current.keys()) {
+        memberPageVersions.current.set(code, (memberPageVersions.current.get(code) ?? 0) + 1);
+      }
+      setGroupMemberPages({});
+      setGroupMemberHasMore({});
+      setGroupMemberError({});
+      invalidateCachedMembers();
+      invalidatePreviewMembers();
+      setGroupInfoRevision((revision) => revision + 1);
+      await Promise.all([
+        utils.account.getGroupDetail.invalidate(),
+        utils.account.getGroupExt.invalidate(),
+        utils.account.getGroupMemberLevelInfo.invalidate(),
+        utils.account.listGroupLeftMembers.invalidate(),
+        utils.account.listAllGroups.invalidate(),
+      ]);
+      return true;
+    });
+    const sub = client.account.onGroupInfoChanged.subscribe(binding, {
+      onData() {
+        if (messageScopeRef.current === messageScope) refresh.request();
+      },
+      onError(error) {
+        console.error('[group-members] 群资料变更订阅失败', error);
+      },
+    });
+    return () => {
+      refresh.dispose();
+      sub.unsubscribe();
+    };
+  }, [messageScope, utils, invalidateCachedMembers, invalidatePreviewMembers]);
+
+  useEffect(() => {
+    if (groupDetailCode && !groupMemberPages[groupDetailCode] && !groupMemberError[groupDetailCode])
+      void loadGroupMembersPage(groupDetailCode, 0);
+  }, [
+    groupDetailCode,
+    groupMemberPages,
+    groupMemberError,
+    groupMemberLoading,
+    loadGroupMembersPage,
+  ]);
 
   const peerUpdateSource = useRef(noticeAccountKey);
   peerUpdateSource.current = noticeAccountKey;
@@ -6171,20 +6269,19 @@ function MainWorkspace(): ReactElement {
           );
           return;
         }
-        memberPageVersions.current.set(
-          target.groupCode,
-          (memberPageVersions.current.get(target.groupCode) ?? 0) + 1,
-        );
+        const version = (memberPageVersions.current.get(target.groupCode) ?? 0) + 1;
+        memberPageVersions.current.set(target.groupCode, version);
         const member = await client.account.qqWrite.memberDetails.query({
           ...binding,
           groupId: Number(target.groupCode),
           uid: target.uid,
         });
         const rows = member ? [member] : [];
-        if (!current()) return;
+        if (!current() || version !== memberPageVersions.current.get(target.groupCode)) return;
         setGroupMemberPages((previous) => {
           const loaded = previous[target.groupCode];
-          if (!current() || !loaded) return previous;
+          if (!current() || !loaded || version !== memberPageVersions.current.get(target.groupCode))
+            return previous;
           return {
             ...previous,
             [target.groupCode]: replaceLoadedMembers(loaded, rows),
@@ -6303,6 +6400,20 @@ function MainWorkspace(): ReactElement {
     mapGroupMemberWire,
   ]);
 
+  const messageGroupMembers = useMemo(() => {
+    const members = new Map(
+      mergeMessageMembers(
+        senderMemberPages[selectedUid] ?? [],
+        Object.values(missingMembers[selectedUid] ?? {}),
+      ).map((wire) => {
+        const member = mapGroupMemberWire(wire);
+        return [member.id, member] as const;
+      }),
+    );
+    for (const member of currentGroupMembers) members.set(member.id, member);
+    return members;
+  }, [senderMemberPages, missingMembers, selectedUid, mapGroupMemberWire, currentGroupMembers]);
+
   /**
    * 群资料面板的群内成员搜索。以前面板只在已加载的成员分页里做客户端过滤，
    * 结果是「搜不到后面几页的人」，而且过滤后列表短于容器、没有滚动条，连
@@ -6315,6 +6426,7 @@ function MainWorkspace(): ReactElement {
     isGroup ? selectedUid : undefined,
     memberSearchKeyword,
     mapGroupMemberWire,
+    groupInfoRevision,
   );
   const memberSearch = useMemo(
     () => (isGroup && selectedUid ? groupMemberSearch.view : null),
@@ -6327,17 +6439,28 @@ function MainWorkspace(): ReactElement {
   // (known page + already-attempted) lives in the resolver, so this effect just
   // hands it every referenced uid.
   useEffect(() => {
-    if (!selectedUid || !isGroup || loaded.length === 0) return;
+    if (!selectedUid || !isGroup) return;
     const groupCode = selectedUid;
     const known = new Set(selectedGroupMemberWires.map((m) => m.uid));
     const referencedUids = [
+      user.uid ?? '',
       ...loaded.map((m) => m.senderUid),
       // Gray-tip payloads reference members by uid inside their element bodies
       // (poke/invite XML, mute info) — resolve those too, not just senders.
       ...loaded.flatMap((m) => extractGrayTipUids(m.elements)),
     ];
     resolveMembers(groupCode, referencedUids, known, () => selectionRef.current?.id === groupCode);
-  }, [loaded, selectedUid, isGroup, selectedGroupMemberWires, resolveMembers]);
+    resolveProfiles(referencedUids);
+  }, [
+    loaded,
+    selectedUid,
+    isGroup,
+    selectedGroupMemberWires,
+    resolveMembers,
+    resolveProfiles,
+    user.uid,
+    groupInfoRevision,
+  ]);
 
   // 「删除列表」/「撤回列表」里的发送者同样可能落在已加载成员分页之外（甚至已退群），
   // 上面的 effect 只喂了聊天窗口，看不到这两个面板的数据 —— 不补的话气泡昵称会退化成
@@ -6380,6 +6503,7 @@ function MainWorkspace(): ReactElement {
     recalledWires,
     selectedUid,
     selectedGroupMemberWires,
+    groupInfoRevision,
     resolveMembers,
     resolveProfiles,
   ]);
@@ -6389,15 +6513,41 @@ function MainWorkspace(): ReactElement {
   // dedupes against the primed set + in-flight requests, so handing it the whole
   // batch every render issues at most one query per never-seen uid.
   useEffect(() => {
+    let disposed = false;
+    let cancel: (() => void) | undefined;
+    let offset = 0;
+    const resolveBatch = () => {
+      if (disposed) return;
+      if (IS_WEB && (initialMessagesPendingRef.current || document.visibilityState === 'hidden')) {
+        cancel = scheduleBackgroundLoad(resolveBatch, 500);
+        return;
+      }
+      const batch = IS_WEB ? recentContactsData.slice(offset, offset + 30) : recentContactsData;
+      const uids: string[] = [];
+      for (const contact of batch) {
+        const ids = previewIdentityIds(contact.preview, contact.senderUid).filter((id) =>
+          id.startsWith('u_'),
+        );
+        uids.push(...ids);
+        if (chatTypeKind(contact.chatType) === 'group' && /^\d+$/.test(contact.targetUid))
+          resolvePreviewMembers(contact.targetUid, ids, new Set(), () => !disposed);
+      }
+      resolveProfiles(uids);
+      offset += batch.length;
+      if (IS_WEB && offset < recentContactsData.length)
+        cancel = scheduleBackgroundLoad(resolveBatch);
+    };
+    if (IS_WEB) cancel = scheduleBackgroundLoad(resolveBatch, 100);
+    else resolveBatch();
+    return () => {
+      disposed = true;
+      cancel?.();
+    };
+  }, [recentContactsData, groupInfoRevision, resolvePreviewMembers, resolveProfiles]);
+
+  useEffect(() => {
+    if (IS_WEB && (!directoryReady || !profiles.isFetched)) return;
     const uids: string[] = [];
-    for (const contact of recentContactsData) {
-      const ids = previewIdentityIds(contact.preview, contact.senderUid).filter((id) =>
-        id.startsWith('u_'),
-      );
-      uids.push(...ids);
-      if (chatTypeKind(contact.chatType) === 'group' && /^\d+$/.test(contact.targetUid))
-        resolvePreviewMembers(contact.targetUid, ids, new Set(), () => true);
-    }
     for (const buddy of (buddies.data ?? []) as BuddyWire[]) uids.push(buddy.uid);
     for (const request of (buddyRequests.data ?? []) as BuddyRequestWire[])
       uids.push(request.peerUid);
@@ -6423,9 +6573,9 @@ function MainWorkspace(): ReactElement {
     groupNotifies.data,
     hiddenSessions.data,
     deletedSessions.data,
-    recentContactsData,
-    resolvePreviewMembers,
     resolveProfiles,
+    directoryReady,
+    profiles.isFetched,
   ]);
 
   const loadSelectionMessages: LoadSelectionMessages = useCallback(
@@ -6449,7 +6599,17 @@ function MainWorkspace(): ReactElement {
             : undefined;
         const rows = page.filter((row) => BigInt(row.msgSeq) >= start && BigInt(row.msgSeq) <= end);
         onPage(
-          rows.map((row) => messageToTemplate(row, request.conversation, user, members, botUids)),
+          rows.map((row) =>
+            messageToTemplate(
+              row,
+              request.conversation,
+              user,
+              members,
+              botUids,
+              undefined,
+              profileByUid,
+            ),
+          ),
         );
         if (selectionRef.current?.id !== request.conversation.id) return;
         setLoaded((current) => {
@@ -6522,7 +6682,7 @@ function MainWorkspace(): ReactElement {
         }
       }
     },
-    [convFetchKey, user, botUids],
+    [convFetchKey, user, botUids, profileByUid],
   );
 
   const forwardMatches = useMemo(
@@ -6541,14 +6701,15 @@ function MainWorkspace(): ReactElement {
   const templateContext = messageTemplateContext(selectedConversation);
   const messageTemplateCache = useMemo(
     () => new WeakMap<MessageWire, Message>(),
-    [templateContext, user, currentGroupMembers, botUids],
+    [templateContext, user, messageGroupMembers, botUids, profileByUid],
   );
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
     const mappingStarted = performance.now();
 
     // Create a fast lookup map for member info
-    const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
+    const memberMap = messageGroupMembers;
+    const optimisticSender = optimisticMessageSender(selectedConversation, user, memberMap);
     const replyIndex = createReplyPreviewIndex(loadedMessageWires);
 
     const real = loadedMessageWires
@@ -6566,6 +6727,7 @@ function MainWorkspace(): ReactElement {
           memberMap,
           botUids,
           replyIndex,
+          profileByUid,
         );
         messageTemplateCache.set(message, mapped);
         return mapped;
@@ -6573,15 +6735,15 @@ function MainWorkspace(): ReactElement {
     // 乐观渲染的合并转发（见 {@link mergeOptimisticInto}）。
     const pending = optimisticForwards
       .filter((item) => item.convId === selectedConversation.id && !forwardMatches.has(item.id))
-      .map((item) => optimisticToTemplate(item, selectedConversation, user));
+      .map((item) => optimisticToTemplate(item, selectedConversation, optimisticSender));
     // 乐观 Ark 卡片（同上）。
     const pendingArks = optimisticArks
       .filter((item) => item.convId === selectedConversation.id)
-      .map((item) => optimisticArkToTemplate(item, selectedConversation, user));
+      .map((item) => optimisticArkToTemplate(item, selectedConversation, optimisticSender));
     // 乐观普通消息（文本 / @ / 表情 / 图片 / 语音 / 文件…）。
     const pendingMessages = optimisticMessages
       .filter((item) => item.convId === selectedConversation.id)
-      .map((item) => optimisticMessageToTemplate(item, selectedConversation, user));
+      .map((item) => optimisticMessageToTemplate(item, selectedConversation, optimisticSender));
     // 确认过的序号按原规则插入；失败按创建时间定位，其余无可靠位置的占位仍留在末尾。
     const mapped = mergeOptimisticInto(real, [...pending, ...pendingArks, ...pendingMessages]);
     recordMessagePhase('mapping', performance.now() - mappingStarted);
@@ -6590,13 +6752,14 @@ function MainWorkspace(): ReactElement {
     loadedMessageWires,
     selectedConversation,
     user,
-    currentGroupMembers,
+    messageGroupMembers,
     botUids,
     optimisticForwards,
     optimisticArks,
     optimisticMessages,
     forwardMatches,
     messageTemplateCache,
+    profileByUid,
   ]);
 
   /**
@@ -6975,14 +7138,17 @@ function MainWorkspace(): ReactElement {
   // missingMembers（见上面的解析 effect）。
   const memberMapForGroup = useCallback(
     (groupCode: string): Map<string, GroupMember> => {
-      if (groupCode === selectedUid) return new Map(currentGroupMembers.map((m) => [m.id, m]));
+      if (groupCode === selectedUid) return messageGroupMembers;
       return new Map(
-        Object.values(missingMembers[groupCode] ?? {})
+        mergeMessageMembers(
+          senderMemberPages[groupCode] ?? [],
+          Object.values(missingMembers[groupCode] ?? {}),
+        )
           .map((wire) => mapGroupMemberForGroup(wire, groupCode))
           .map((member) => [member.id, member]),
       );
     },
-    [selectedUid, currentGroupMembers, missingMembers, mapGroupMemberForGroup],
+    [selectedUid, messageGroupMembers, senderMemberPages, missingMembers, mapGroupMemberForGroup],
   );
 
   const deletedTemplateMessages = useMemo(() => {
@@ -6993,8 +7159,10 @@ function MainWorkspace(): ReactElement {
         : new Map<string, GroupMember>();
     return deletedWires
       .filter((message) => isRenderableMessage(message))
-      .map((message) => messageToTemplate(message, deletedConv, user, memberMap, botUids));
-  }, [deletedWires, deletedConv, user, botUids, memberMapForGroup]);
+      .map((message) =>
+        messageToTemplate(message, deletedConv, user, memberMap, botUids, undefined, profileByUid),
+      );
+  }, [deletedWires, deletedConv, user, botUids, memberMapForGroup, profileByUid]);
 
   // Recalled messages through the SAME template pipeline (bubbles match the chat
   // + carry the 撤回 tag). Same member source as the deleted panel.
@@ -7006,8 +7174,10 @@ function MainWorkspace(): ReactElement {
         : new Map<string, GroupMember>();
     return recalledWires
       .filter((message) => isRenderableMessage(message))
-      .map((message) => messageToTemplate(message, recalledConv, user, memberMap, botUids));
-  }, [recalledWires, recalledConv, user, botUids, memberMapForGroup]);
+      .map((message) =>
+        messageToTemplate(message, recalledConv, user, memberMap, botUids, undefined, profileByUid),
+      );
+  }, [recalledWires, recalledConv, user, botUids, memberMapForGroup, profileByUid]);
 
   const activeConversation = useMemo(() => {
     if (!selectedConversation) return undefined;
@@ -7016,7 +7186,7 @@ function MainWorkspace(): ReactElement {
 
     return {
       ...selectedConversation,
-      members: currentGroupMembers,
+      members: activeGroupMembers(currentGroupMembers),
       group: {
         ...selectedConversation.group!,
         name: detail?.groupName || selectedConversation.group!.name,
@@ -7467,11 +7637,17 @@ function MainWorkspace(): ReactElement {
     // 恢复的会话可能在后续分页、隐藏/删除目录中，不能用尚未读齐的目录清掉选择。
     if (
       !contacts.isSuccess ||
+      contacts.isFetching ||
+      recentHead.isFetching ||
       contacts.hasNextPage ||
       !hiddenSessions.isSuccess ||
+      hiddenSessions.isFetching ||
       !deletedSessions.isSuccess ||
+      deletedSessions.isFetching ||
       !allGroups.isSuccess ||
-      !topContacts.isSuccess
+      allGroups.isFetching ||
+      !topContacts.isSuccess ||
+      topContacts.isFetching
     )
       return;
     // Don't auto-open the first conversation: land on the empty placeholder and
@@ -7489,11 +7665,17 @@ function MainWorkspace(): ReactElement {
     }
   }, [
     contacts.isSuccess,
+    contacts.isFetching,
+    recentHead.isFetching,
     contacts.hasNextPage,
     hiddenSessions.isSuccess,
+    hiddenSessions.isFetching,
     deletedSessions.isSuccess,
+    deletedSessions.isFetching,
     allGroups.isSuccess,
+    allGroups.isFetching,
     topContacts.isSuccess,
+    topContacts.isFetching,
     conversations,
     hiddenConversationsById,
     deletedConversationsById,
@@ -7587,7 +7769,13 @@ function MainWorkspace(): ReactElement {
   // `conv`/`kind` are passed explicitly so it works right after a conversation
   // switch (before selectionRef settles).
   const centerWindowOnSeq = useCallback(
-    (conv: string, kind: 'group' | 'c2c', targetSeq: string): Promise<boolean> =>
+    (
+      conv: string,
+      kind: 'group' | 'c2c',
+      targetSeq: string,
+      exactRecord?: ChatMsgWire,
+      messageId?: string,
+    ): Promise<boolean> =>
       runMessageLocate(async (isCurrent) => {
         const scope = messageScopeRef.current,
           binding = messageBindingRef.current,
@@ -7647,9 +7835,14 @@ function MainWorkspace(): ReactElement {
           merged.push(m);
         }
 
-        const target = merged.find((m) => m.msgSeq === targetSeq);
+        if (exactRecord && !merged.some((message) => message.msgId === exactRecord.msgId))
+          merged.unshift(toMessageWire(exactRecord));
+        const exactId = messageId ?? exactRecord?.msgId;
+        const target = merged.find((m) =>
+          exactId ? timelineRowKey(m) === exactId || m.msgId === exactId : m.msgSeq === targetSeq,
+        );
 
-        const atLatest = after.length < PAGE_SIZE;
+        const atLatest = after.length < PAGE_SIZE && (!exactRecord || BigInt(targetSeq) > 0n);
         // Update the live-subscription's window descriptor synchronously: a
         // db-changed tick between this setLoaded and the passive windowRef effect
         // must not see the stale (anchored, old-minSeq) descriptor and replace our
@@ -7708,6 +7901,16 @@ function MainWorkspace(): ReactElement {
       }
       cancelMessageLocate();
       setMissingJumpSeq(null);
+      if (jumpTarget.msgId) {
+        const exact = loadedRef.current.find(
+          (message) =>
+            message.msgId === jumpTarget.msgId || timelineRowKey(message) === jumpTarget.msgId,
+        );
+        if (exact) {
+          scrollToMsgId(timelineRowKey(exact));
+          return;
+        }
+      }
       const notFound = (): void => {
         pushToast({
           tone: 'info',
@@ -7776,7 +7979,7 @@ function MainWorkspace(): ReactElement {
         }
       }
 
-      await centerWindowOnSeq(sel.id, kind, targetSeq);
+      await centerWindowOnSeq(sel.id, kind, targetSeq, undefined, jumpTarget.msgId);
     },
     [centerWindowOnSeq, scrollToMsgId, pushToast, cancelMessageLocate],
   );
@@ -7791,7 +7994,14 @@ function MainWorkspace(): ReactElement {
   // Jump to a conversation, optionally centred on a message seq (files / chat
   // records). When no seq anchor exists, just open the chat (+toast on demand).
   const jumpToConvSeq = useCallback(
-    (kind: 'group' | 'c2c', conv: string, seq?: string, toastOnMissingSeq = false): void => {
+    (
+      kind: 'group' | 'c2c',
+      conv: string,
+      seq?: string,
+      toastOnMissingSeq = false,
+      record?: ChatMsgWire,
+      messageId?: string,
+    ): void => {
       setSearchDismissed(true);
       if (!conv) return;
       setArkFeedState(null);
@@ -7810,12 +8020,12 @@ function MainWorkspace(): ReactElement {
       if (selectionRef.current?.id === conv) {
         // Already open — jump straight away.
         shell.switchView('messages');
-        void centerWindowOnSeq(conv, kind, seq);
+        void centerWindowOnSeq(conv, kind, seq, record, messageId);
         return;
       }
       // Switch conversations; the listLatest effect performs the centred jump
       // once the placeholder newest page lands.
-      pendingSearchJumpRef.current = { conv, kind, seq };
+      pendingSearchJumpRef.current = { conv, kind, seq, record, messageId };
       shell.selectConversation(conv);
     },
     [centerWindowOnSeq, pushToast, shell],
@@ -7955,7 +8165,8 @@ function MainWorkspace(): ReactElement {
                       otherUser: null,
                       group: {
                         id: hit.groupCode,
-                        name: hit.remark || hit.name,
+                        name: hit.name || hit.groupCode,
+                        remark: hit.remark || null,
                         identityLabel: 'Group',
                         identityValue: hit.groupCode,
                         avatarUrl: groupAvatarSrc(hit.groupCode),
@@ -8128,9 +8339,11 @@ function MainWorkspace(): ReactElement {
     const jump = pendingSearchJumpRef.current;
     if (jump && jump.conv === conv) {
       pendingSearchJumpRef.current = null;
-      void centerWindowOnSeq(jump.conv, jump.kind, jump.seq).finally(() => {
-        if (!cancelled && messageScopeRef.current === scope) setMessagesLoading(false);
-      });
+      void centerWindowOnSeq(jump.conv, jump.kind, jump.seq, jump.record, jump.messageId).finally(
+        () => {
+          if (!cancelled && messageScopeRef.current === scope) setMessagesLoading(false);
+        },
+      );
       return () => {
         cancelled = true;
       };
@@ -9109,9 +9322,9 @@ function MainWorkspace(): ReactElement {
       throw new Error('unsupported conversation');
     }
 
-    // 只有带超级表情（`:big`）时才去拉目录；普通消息不为它多打一次 IPC。
+    // 选择或粘贴超级表情时才拉目录；普通消息不为它多打一次 IPC。
     const superStickers = new Map<string, ComposerSuperSticker>();
-    if (body.includes(':big')) {
+    if (composerNeedsStickerCatalog(body)) {
       try {
         collectSuperStickers(await client.account.emojiPanel.overview.query(), superStickers);
       } catch {
@@ -10127,9 +10340,9 @@ function MainWorkspace(): ReactElement {
     shell.view === 'mail' ||
     shell.view === 'channel' ||
     shell.view === 'annual';
-  const directoryPersonas = trpc.account.listAgentLabPersonas.useQuery();
+  const directoryPersonas = trpc.account.listAgentLabPersonas.useQuery(undefined, secondaryOptions);
   useCloneTaskRefresh();
-  const directoryGroups = trpc.account.listAgentLabGroups.useQuery();
+  const directoryGroups = trpc.account.listAgentLabGroups.useQuery(undefined, secondaryOptions);
   const virtualRows = useMemo(
     () => [
       ...(directoryPersonas.data ?? []).map((item) => ({
@@ -10179,7 +10392,112 @@ function MainWorkspace(): ReactElement {
     id: string;
     revision: number;
   } | null>(null);
+  const [overviewCalendar, setOverviewCalendar] = useState<{ query: string } | null>(null);
+  calendarOpenRef.current = overviewCalendar !== null;
+  const overviewCalendarTargets = useMemo(() => {
+    if (!overviewCalendar) return [];
+    const targets: OverviewCalendarTarget[] = [];
+    const roots = new Map(
+      conversations.flatMap((row) =>
+        row.type === 'merged' ? [[row.mergedKind, conversationListSearchText(row)] as const] : [],
+      ),
+    );
+    const guildSearch = new Map(
+      guildConversationRows.map((row) => [row.id, conversationListSearchText(row)]),
+    );
+    const add = (
+      conversation: Conversation,
+      ancestors: string[] = [],
+      listingSearchText?: string,
+    ) => {
+      if (conversation.type === 'merged') return;
+      const group = conversation.type === 'group';
+      targets.push({
+        kind: group ? 'group' : isDatalineUid(conversation.id) ? 'dataline' : 'c2c',
+        conv: conversation.id,
+        searchText: conversationListSearchText(conversation),
+        listingSearchText:
+          listingSearchText ??
+          (group && groupAssistantIds.has(conversation.id)
+            ? (roots.get('groupAssistant') ?? '')
+            : undefined),
+        name: group
+          ? displayGroupName(conversation.group)
+          : displayUserName(conversation.otherUser),
+        avatar: group ? conversation.group.avatarUrl : conversation.otherUser.avatarUrl,
+        ancestors: [
+          ...ancestors,
+          ...(group && groupAssistantIds.has(conversation.id) ? ['群助手'] : []),
+          ...(group ? [] : [conversation.otherUser.identityValue]),
+        ],
+      });
+    };
+    conversations.forEach((conversation) => {
+      add(conversation);
+    });
+    hiddenConversationsById.forEach((conversation) => {
+      add(conversation, ['隐藏会话'], roots.get('hidden') ?? '');
+    });
+    deletedConversationsById.forEach((conversation) => {
+      add(conversation, ['删除的会话'], roots.get('deleted') ?? '');
+    });
+    for (const item of officialAccounts.data ?? [])
+      targets.push({
+        kind: 'official',
+        conv: item.peerUid,
+        name: item.displayName || item.peerUid,
+        avatar: resolveAvatar({ uin: item.targetUin }),
+        ancestors: ['公众号', item.targetUin],
+        listingSearchText: roots.get('official') ?? '',
+      });
+    for (const item of serviceAccounts.data ?? [])
+      targets.push({
+        kind: 'service',
+        conv: item.appId,
+        name: item.displayName || item.appId,
+        avatar: item.avatarUrl,
+        ancestors: ['服务号'],
+        listingSearchText: roots.get('service') ?? '',
+      });
+    for (const item of guildDirectSessions.data ?? [])
+      targets.push({
+        kind: 'guild',
+        conv: item.nodeId,
+        name: item.peerNick || item.nodeId,
+        avatar: item.peerAvatarUrl,
+        ancestors: ['频道私聊', item.peerTinyId],
+        searchText: guildSearch.get(`guild:${item.nodeId}`) ?? '',
+        listingSearchText: roots.get('guildDirect') ?? '',
+      });
+    for (const item of virtualRows) {
+      const uin = item.kind === 'persona' ? item.uin : undefined;
+      targets.push({
+        kind: item.kind === 'persona' ? 'persona' : 'cloneGroup',
+        conv: item.ownerId,
+        name: item.name,
+        avatar: uin ? resolveAvatar({ uin }) : null,
+        ancestors: uin ? [uin] : [],
+        searchText: conversationListSearchText(virtualConversationRow(item)),
+      });
+    }
+    return targets;
+  }, [
+    overviewCalendar,
+    conversations,
+    hiddenConversationsById,
+    deletedConversationsById,
+    officialAccounts.data,
+    serviceAccounts.data,
+    guildDirectSessions.data,
+    guildConversationRows,
+    virtualRows,
+    groupAssistantIds,
+  ]);
   const sidebarView = shell.view === 'agentlab' ? 'messages' : shell.view;
+  const qzonePageReady = useMobilePageSettled(
+    shell.view === 'qzone' && !arkFeedState,
+    user.identityValue,
+  );
   const [contactDirectoryQuery, setContactDirectoryQuery] = useState('');
 
   /** 防撤回面板「记录」页点一行：打开该会话的撤回列表（复用聊天区气泡与筛选）。 */
@@ -10215,6 +10533,9 @@ function MainWorkspace(): ReactElement {
         pushToast({ tone: 'info', durationKind: 'failure', title: '暂时无法确定此人的会话身份' });
         return;
       }
+      const local =
+        profileByUid.get(peer.id) ?? (await client.account.getProfile.query({ uid: peer.id }));
+      peer = localProfileUser(peer, local ?? undefined);
       candidate = {
         id: peer.id,
         type: 'direct',
@@ -10252,7 +10573,7 @@ function MainWorkspace(): ReactElement {
 
   const [privatePreview, setPrivatePreview] = useState<{
     account: string;
-    source: 'member' | 'latest' | 'contact';
+    source: 'member' | 'latest' | 'contact' | 'group-profile';
     contactScope: string | null;
     conversation: Conversation;
     rows: MessageWire[];
@@ -10266,6 +10587,7 @@ function MainWorkspace(): ReactElement {
     shell.view,
     shell.contactTab,
     shell.selectedContactId,
+    shell.selectedGroupConversationId,
     shell.contactWorkspaceTab,
     shell.contactOverviewOpen,
     shell.contactNotice,
@@ -10275,7 +10597,10 @@ function MainWorkspace(): ReactElement {
     setPrivatePreview(null);
   }, [memberCard?.member.id, memberCard?.member.identityValue, user.identityValue]);
   useEffect(() => {
-    if (privatePreview?.source !== 'contact' || privatePreview.contactScope === contactPreviewScope)
+    if (
+      (privatePreview?.source !== 'contact' && privatePreview?.source !== 'group-profile') ||
+      privatePreview.contactScope === contactPreviewScope
+    )
       return;
     previewRequest.current++;
     setPrivatePreview(null);
@@ -10304,10 +10629,11 @@ function MainWorkspace(): ReactElement {
   }
   async function previewConversation(
     conversation: Conversation,
-    source: 'member' | 'latest' | 'contact',
+    source: 'member' | 'latest' | 'contact' | 'group-profile',
   ) {
     const account = user.identityValue;
-    const contactScope = source === 'contact' ? contactPreviewScope : null;
+    const contactScope =
+      source === 'contact' || source === 'group-profile' ? contactPreviewScope : null;
     const request = ++previewRequest.current;
     setPrivatePreview({
       account,
@@ -10337,6 +10663,13 @@ function MainWorkspace(): ReactElement {
           };
       }
       if (!conversation.id) throw new Error('缺少会话身份');
+      if (conversation.type === 'direct') {
+        const peer = conversation.otherUser;
+        const local =
+          profileByUid.get(peer.uid || peer.id) ??
+          (await client.account.getProfile.query({ uid: peer.uid || peer.id }));
+        conversation = { ...conversation, otherUser: localProfileUser(peer, local ?? undefined) };
+      }
       if (request !== previewRequest.current || useViewState.getState().openedUin !== account)
         return;
       const rows = await client.account.listLatest.query({
@@ -10407,6 +10740,17 @@ function MainWorkspace(): ReactElement {
   }
 
   useEffect(() => {
+    resolveProfiles(loaded.map((message) => message.senderUid));
+  }, [loaded, resolveProfiles]);
+
+  useEffect(() => {
+    if (!privatePreview) return;
+    resolveProfiles([
+      ...privatePreview.rows.map((row) => row.senderUid),
+      ...(privatePreview.conversation.type === 'direct'
+        ? [privatePreview.conversation.otherUser.id]
+        : []),
+    ]);
     if (privatePreview?.conversation.type !== 'group') return;
     const group = privatePreview.conversation;
     const account = privatePreview.account;
@@ -10415,16 +10759,29 @@ function MainWorkspace(): ReactElement {
         (member) => member.id,
       ),
     );
+    const uids = privatePreview.rows.flatMap((row) => [
+      row.senderUid,
+      ...extractGrayTipUids(row.elements),
+    ]);
+    resolveProfiles(uids);
     resolvePreviewMembers(
       group.id,
-      privatePreview.rows.flatMap((row) => [row.senderUid, ...extractGrayTipUids(row.elements)]),
+      uids,
       known,
       () => useViewState.getState().openedUin === account,
     );
-  }, [privatePreview, currentGroupMembers, selectedUid, resolvePreviewMembers]);
+  }, [privatePreview, currentGroupMembers, selectedUid, resolvePreviewMembers, resolveProfiles]);
 
   const resolvedPreviewConversation = useMemo(() => {
     const conversation = privatePreview?.conversation;
+    if (conversation?.type === 'direct')
+      return {
+        ...conversation,
+        otherUser: localProfileUser(
+          conversation.otherUser,
+          profileByUid.get(conversation.otherUser.uid || conversation.otherUser.id),
+        ),
+      };
     if (conversation?.type !== 'group') return conversation;
     const members = new Map(
       [
@@ -10440,6 +10797,7 @@ function MainWorkspace(): ReactElement {
     currentGroupMembers,
     previewMembers,
     mapGroupMemberWire,
+    profileByUid,
   ]);
 
   const previewMemberMap = useMemo(
@@ -10464,6 +10822,7 @@ function MainWorkspace(): ReactElement {
             previewMemberMap,
             botUids,
             privatePreview.rows,
+            profileByUid,
           ),
         )}
         renderers={messageRenderers}
@@ -10503,7 +10862,7 @@ function MainWorkspace(): ReactElement {
     />
   ) : null;
 
-  const openAppSearchEntry = (entry: AppSearchEntry) => {
+  const openAppSearchEntryNow = (entry: AppSearchEntry) => {
     setSearchDismissed(true);
     setSearchFocused(false);
     setSettingsOpen(false);
@@ -10559,6 +10918,55 @@ function MainWorkspace(): ReactElement {
     }
   };
 
+  const openAppSearchEntry = (entry: AppSearchEntry) => {
+    if (entry.target.kind === 'setting') openAppSearchEntryNow(entry);
+    else settingsNavigation.navigate(() => openAppSearchEntryNow(entry));
+  };
+
+  const locateCalendarMessage: CalendarNavigate = (target, anchor, record) => {
+    flushAllDirtyDrafts();
+    if (target.kind === 'guild') {
+      setGuildSearchTarget({
+        kind: 'guildMessage',
+        nodeId: target.conv,
+        msgId: anchor.id,
+        msgSeq: anchor.seq,
+        revision: crypto.randomUUID(),
+      });
+      shell.switchView('channel');
+    } else if (target.kind === 'persona' || target.kind === 'cloneGroup') {
+      setCloneSearchTarget({
+        category: 'cloneMessage',
+        kind: target.kind === 'persona' ? 'persona' : 'group',
+        ownerId: target.conv,
+        sessionId: anchor.sessionId ?? null,
+        messageId: anchor.id,
+        title: target.name,
+        sessionTitle: '',
+        content: '',
+        ts: anchor.time * 1000,
+      });
+      shell.switchView('agentlab');
+    } else if (target.kind === 'official' || target.kind === 'service') {
+      setArkFeedState({
+        kind: target.kind,
+        conversationId: target.kind === 'service' ? `service:${target.conv}` : target.conv,
+        title: target.name,
+        anchorId: anchor.id,
+      });
+      shell.switchView('messages');
+    } else {
+      jumpToConvSeq(
+        target.kind === 'group' ? 'group' : 'c2c',
+        target.conv,
+        anchor.seq,
+        false,
+        record,
+        anchor.id,
+      );
+    }
+  };
+
   const chatContent = (
     <ReplyJumpContext.Provider value={jumpToSeq}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
@@ -10583,53 +10991,61 @@ function MainWorkspace(): ReactElement {
               displaySettings.data?.showMessageUnreadBadge === false ? 0 : shell.messageUnreadCount
             }
             contactBadgeCount={friendNoticeCount + groupNoticeCount}
-            onMessageBadgeClick={() => {
-              const target = firstUnreadConversation(
-                sidebarConversations,
-                conversationPrefs,
-                displaySettings.data?.showGroupAssistantMessageCount ?? false,
-              );
-              if (!target) return;
-              setSurfaceNavigation((value) => value + 1);
-              setSettingsOpen(false);
-              setMaintenanceTool(null);
-              setDressUpOpen(false);
-              setArkFeedState(null);
-              shell.setQuery('');
-              shell.switchView('messages');
-              if (isMobileShell()) shell.backConversation();
-              setConversationLocate((previous) => ({
-                id: target.id,
-                revision: Math.max(Date.now(), (previous?.revision ?? 0) + 1),
-              }));
-            }}
+            onMessageBadgeClick={() =>
+              settingsNavigation.navigate(() => {
+                const target = firstUnreadConversation(
+                  sidebarConversations,
+                  conversationPrefs,
+                  displaySettings.data?.showGroupAssistantMessageCount ?? false,
+                );
+                if (!target) return;
+                setSurfaceNavigation((value) => value + 1);
+                setSettingsOpen(false);
+                setMaintenanceTool(null);
+                setDressUpOpen(false);
+                setArkFeedState(null);
+                shell.setQuery('');
+                shell.switchView('messages');
+                if (isMobileShell()) shell.backConversation();
+                setConversationLocate((previous) => ({
+                  id: target.id,
+                  revision: Math.max(Date.now(), (previous?.revision ?? 0) + 1),
+                }));
+              })
+            }
             mailBadgeCount={mailPreferences.data?.showUnread === false ? 0 : mailUnread}
             showTools={false}
             railFooterContent={() => <WorkspaceMenuButton />}
             friendNoticeCount={friendNoticeCount}
             groupNoticeCount={groupNoticeCount}
-            onViewChange={(view) => {
-              setSurfaceNavigation((value) => value + 1);
-              // 离开消息页 —— 另一个草稿落库时机。
-              if (shell.view === 'messages' && view !== 'messages') {
-                flushAllDirtyDrafts();
-              }
-              shell.switchView(view);
-            }}
-            onGoHome={() => {
-              setSurfaceNavigation((value) => value + 1);
-              if (shell.view === 'messages') {
-                flushAllDirtyDrafts();
-              }
-              shell.switchView('home');
-            }}
+            onViewChange={(view) =>
+              settingsNavigation.navigate(() => {
+                setSurfaceNavigation((value) => value + 1);
+                // 离开消息页 —— 另一个草稿落库时机。
+                if (shell.view === 'messages' && view !== 'messages') {
+                  flushAllDirtyDrafts();
+                }
+                shell.switchView(view);
+              })
+            }
+            onGoHome={() =>
+              settingsNavigation.navigate(() => {
+                setSurfaceNavigation((value) => value + 1);
+                if (shell.view === 'messages') {
+                  flushAllDirtyDrafts();
+                }
+                shell.switchView('home');
+              })
+            }
             onOpenSettings={() => {
               setDressUpOpen(false);
               setMaintenanceTool(null);
               setSettingsSection(undefined);
               setSettingsOpen(true);
             }}
-            onOpenCollection={() => shell.switchView('collections')}
+            onOpenCollection={() =>
+              settingsNavigation.navigate(() => shell.switchView('collections'))
+            }
             onOpenWonderfulTools={() => {
               setSettingsSection('diagnostics');
               setSettingsOpen(true);
@@ -10640,12 +11056,14 @@ function MainWorkspace(): ReactElement {
             }}
             onOpenDbRepair={() => openMaintenance('db-repair')}
             onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
-            onOpenDressUp={() => {
-              setSettingsOpen(false);
-              setDressUpEmojiTarget(null);
-              setDressUpSearchKind('bubble');
-              setDressUpOpen(true);
-            }}
+            onOpenDressUp={() =>
+              settingsNavigation.navigate(() => {
+                setSettingsOpen(false);
+                setDressUpEmojiTarget(null);
+                setDressUpSearchKind('bubble');
+                setDressUpOpen(true);
+              })
+            }
             onOpenProfile={noopAsync}
             onOpenAbout={noopAsync}
             onOpenInvite={noopAsync}
@@ -10653,26 +11071,6 @@ function MainWorkspace(): ReactElement {
               searchReturn.clear();
               shell.setQuery(query);
             }}
-            onSearchReturn={
-              searchReturn.target
-                ? () => {
-                    const target = searchReturn.target!;
-                    setSearchFocused(false);
-                    if (target.kind === 'more') {
-                      setSearchDismissed(true);
-                      setSearchMore({
-                        category: target.snapshot.category,
-                        keyword: target.snapshot.keyword,
-                        snapshot: target.snapshot,
-                      });
-                      return false;
-                    }
-                    setSearchMore(null);
-                    setSearchDismissed(false);
-                    return true;
-                  }
-                : undefined
-            }
             onSearchFocus={() => {
               setSearchFocused(true);
               setSearchDismissed(false);
@@ -10683,6 +11081,36 @@ function MainWorkspace(): ReactElement {
               (searchQuery || searchFocused) && !searchDismissed ? (
                 <SearchDropdown
                   keyword={searchQuery}
+                  numberLookupKeyword={shell.query}
+                  onOpenNumberProfile={(profile, anchor) => {
+                    if (profile.kind === 'group') {
+                      setMemberCard(null);
+                      setNumberGroupCard({
+                        accountUin: openedUin,
+                        conversation: sharedGroupConversation({
+                          code: profile.id,
+                          name: profile.name || profile.id,
+                          avatar: avatarFromGroupCode(profile.id) ?? '',
+                        }),
+                        anchor,
+                      });
+                    } else {
+                      setNumberGroupCard(null);
+                      const rect = anchor.getBoundingClientRect();
+                      setMemberCard({
+                        member: {
+                          id: '',
+                          username: profile.id,
+                          identityLabel: 'QQ',
+                          identityValue: profile.id,
+                          displayName: profile.name || profile.id,
+                          avatarUrl: avatarFromUin(profile.id),
+                        },
+                        anchor: { x: rect.right, y: rect.bottom },
+                        groupContext: null,
+                      });
+                    }
+                  }}
                   quick={globalSearch.quick}
                   quickLoading={globalSearch.quickLoading}
                   slow={globalSearch.slow}
@@ -10695,6 +11123,8 @@ function MainWorkspace(): ReactElement {
                   onRetry={globalSearch.retry}
                   onSelect={openSearchHit}
                   appSearchEnabled={appSearchEnabled}
+                  numberLookupEnabled={numberLookupEnabled}
+                  onNumberLookupEnabledChange={setNumberLookupEnabled}
                   onAppSearchEnabledChange={(enabled) => {
                     searchReturn.clear();
                     setAppSearchEnabled(enabled);
@@ -10710,8 +11140,12 @@ function MainWorkspace(): ReactElement {
                 />
               ) : null
             }
-            onOpenFriendNotices={() => shell.openContactNotice('friend')}
-            onOpenGroupNotices={() => shell.openContactNotice('group')}
+            onOpenFriendNotices={() =>
+              settingsNavigation.navigate(() => shell.openContactNotice('friend'))
+            }
+            onOpenGroupNotices={() =>
+              settingsNavigation.navigate(() => shell.openContactNotice('group'))
+            }
             onContactTabChange={shell.changeContactTab}
             onRefreshContacts={() => {
               void refreshContacts();
@@ -10719,61 +11153,73 @@ function MainWorkspace(): ReactElement {
             refreshingContacts={refreshingContacts}
             onSidebarWidthChange={shell.updateSidebarWidth}
             sidebarContent={
-              <RetainedTabs snapshotKey="sidebar" activeKey={sidebarView} scrollable>
-                {fullBleedView ? null : (
-                  <>
-                    <ChatSidebarContent
-                      user={user}
-                      view={sidebarView}
-                      contactTab={shell.contactTab}
-                      conversations={
-                        shell.view === 'contacts'
-                          ? contactDirectoryConversations
-                          : sidebarView === 'messages'
-                            ? sidebarConversations
-                            : conversations
-                      }
-                      activeConversationId={
-                        shell.view === 'agentlab' &&
-                        cloneSearchTarget &&
-                        cloneSearchTarget.kind !== 'assistant'
-                          ? `virtual:${cloneSearchTarget.kind}:${cloneSearchTarget.ownerId}`
-                          : shell.view === 'agentlab' && virtualOpen
-                            ? `virtual:${virtualOpen.kind}:${virtualOpen.id}`
-                            : shell.activeConversationId
-                      }
-                      selectedGroupConversationId={shell.selectedGroupConversationId}
-                      selectedContactId={shell.selectedContactId}
-                      conversationPrefs={conversationPrefs}
-                      drafts={drafts}
-                      contacts={buddyContacts}
-                      categoryDefinitions={(categories.data ?? []) as CategoryWire[]}
-                      specialContactSections={specialContactSections}
-                      historicalContactSections={historicalContactSections}
-                      loading={sidebarLoading}
-                      onLoadMoreConversations={loadMoreContacts}
-                      conversationsHasMore={contactsHasMore}
-                      conversationsLoadingMore={contactsLoadingMore}
-                      query={shell.query}
-                      onSelectConversation={handleSelectConversation}
-                      onSelectContact={(id) => {
-                        setSurfaceNavigation((value) => value + 1);
-                        shell.selectContact(id);
-                      }}
-                      onSelectGroup={(id) => {
-                        setSurfaceNavigation((value) => value + 1);
-                        shell.selectGroup(id);
-                      }}
-                      activateToolsOnSelect={false}
-                    />
-                    <OverlayScrollbar
-                      targetSelector=".app-shell .sidebar-body [data-retained-panel]:not([hidden])"
-                      className="weq-sidebar-scrollbar"
-                      refreshKey={`sidebar:${shell.view}:${shell.query}`}
-                    />
-                  </>
-                )}
-              </RetainedTabs>
+              <MobileSidebarPages
+                key={user.identityValue}
+                activeKey={sidebarView}
+                renderPage={(view) =>
+                  view === 'messages' || view === 'contacts' || !fullBleedView ? (
+                    <>
+                      <ChatSidebarContent
+                        user={user}
+                        view={view}
+                        contactTab={shell.contactTab}
+                        conversations={
+                          view === 'contacts'
+                            ? contactDirectoryConversations
+                            : view === 'messages'
+                              ? sidebarConversations
+                              : conversations
+                        }
+                        activeConversationId={
+                          shell.view === 'agentlab' &&
+                          cloneSearchTarget &&
+                          cloneSearchTarget.kind !== 'assistant'
+                            ? `virtual:${cloneSearchTarget.kind}:${cloneSearchTarget.ownerId}`
+                            : shell.view === 'agentlab' && virtualOpen
+                              ? `virtual:${virtualOpen.kind}:${virtualOpen.id}`
+                              : shell.activeConversationId
+                        }
+                        selectedGroupConversationId={shell.selectedGroupConversationId}
+                        selectedContactId={shell.selectedContactId}
+                        conversationPrefs={conversationPrefs}
+                        drafts={drafts}
+                        contacts={buddyContacts}
+                        categoryDefinitions={(categories.data ?? []) as CategoryWire[]}
+                        specialContactSections={specialContactSections}
+                        historicalContactSections={historicalContactSections}
+                        loading={sidebarLoading}
+                        onLoadMoreConversations={
+                          view === sidebarView ? loadMoreContacts : undefined
+                        }
+                        conversationsHasMore={contactsHasMore}
+                        conversationsLoadingMore={contactsLoadingMore}
+                        query={shell.query}
+                        onSelectConversation={handleSelectConversation}
+                        onSelectContact={(id) =>
+                          settingsNavigation.navigate(() => {
+                            setSurfaceNavigation((value) => value + 1);
+                            shell.selectContact(id);
+                          })
+                        }
+                        onSelectGroup={(id) =>
+                          settingsNavigation.navigate(() => {
+                            setSurfaceNavigation((value) => value + 1);
+                            shell.selectGroup(id);
+                          })
+                        }
+                        activateToolsOnSelect={false}
+                      />
+                      {view === sidebarView && (
+                        <OverlayScrollbar
+                          targetSelector='.app-shell .sidebar-body [data-mobile-sidebar-active="true"] [data-retained-panel]:not([hidden])'
+                          className="weq-sidebar-scrollbar"
+                          refreshKey={`sidebar:${shell.view}:${shell.query}`}
+                        />
+                      )}
+                    </>
+                  ) : null
+                }
+              />
             }
             mainContent={
               <WorkspaceContent>
@@ -10793,6 +11239,7 @@ function MainWorkspace(): ReactElement {
                   <QzoneWorkspace
                     key={user.identityValue}
                     active={shell.view === 'qzone' && !arkFeedState}
+                    readEnabled={qzonePageReady}
                     selfUin={user.identityValue}
                     nickname={user.displayName}
                     spaceRequest={qzoneSpaceRequest}
@@ -10803,6 +11250,7 @@ function MainWorkspace(): ReactElement {
                   {shell.view === 'messages' && arkFeedState ? (
                     <ArkFeedView
                       conversationId={arkFeedState.conversationId}
+                      anchorId={arkFeedState.anchorId}
                       title={arkFeedState.title}
                       onBack={() => {
                         setArkFeedState(null);
@@ -10854,6 +11302,24 @@ function MainWorkspace(): ReactElement {
                       searchTarget={guildSearchTarget}
                       onActiveNodeChange={setActiveGuildNodeId}
                     />
+                  ) : shell.view === 'contacts' && shell.contactNotice === 'friend' ? (
+                    <ContactNoticeDialog
+                      open
+                      requests={contactRequests}
+                      onClose={shell.backContactNotice}
+                      onOpenProfile={(member, anchor) =>
+                        setMemberCard({ member, anchor, groupContext: null })
+                      }
+                    />
+                  ) : shell.view === 'contacts' && shell.contactNotice === 'group' ? (
+                    <GroupNoticeDialog
+                      open
+                      requests={groupRequests}
+                      onClose={shell.backContactNotice}
+                      onOpenProfile={(member, anchor, group) =>
+                        setMemberCard({ member, anchor, groupContext: group ?? null })
+                      }
+                    />
                   ) : shell.view === 'annual' ? (
                     <Suspense fallback={workspaceLoading}>
                       <AnnualReportView />
@@ -10901,6 +11367,7 @@ function MainWorkspace(): ReactElement {
                           contactGroupDetails={
                             selectedGroupConversationForDetail ? (
                               <GroupInfoPanel
+                                layout="profile"
                                 conversation={selectedGroupConversationForDetail}
                                 profileLoading={contactGroupProfile.isLoading}
                                 loadingMoreMembers={Boolean(groupMemberLoading[groupDetailCode])}
@@ -11220,6 +11687,7 @@ function MainWorkspace(): ReactElement {
             <SettingsDialog
               key={`settings:${messageScope}`}
               open={settingsOpen}
+              navigationGuard={settingsNavigation.guard}
               onClose={() => setSettingsOpen(false)}
               initialSection={settingsSection}
               searchTarget={settingsSearchTarget}
@@ -11261,48 +11729,50 @@ function MainWorkspace(): ReactElement {
             }
           >
             {(controls) => (
-              <WorkspaceTools
-                key={messageScope}
-                accountScope={messageScope}
-                footerControls={controls}
-                onOpenClone={(id) => {
-                  flushAllDirtyDrafts();
-                  setCloneSearchTarget(null);
-                  setVirtualOpen({ kind: 'persona', id, revision: Date.now() });
-                  shell.switchView('agentlab');
-                }}
-                currentConversation={shell.view === 'messages' ? activeConversation : null}
-                workspace={{
-                  view: shell.view,
-                  conversation: shell.view === 'messages' ? activeConversation : null,
-                  officialFeed: shell.view === 'messages' ? arkFeedState : null,
-                  contact: shell.view === 'contacts' ? (shell.selectedContact ?? null) : null,
-                  groupConversation:
-                    shell.view === 'contacts' ? (shell.selectedGroupConversation ?? null) : null,
-                  spaceUin: shell.view === 'qzone' ? currentQzoneUin : null,
-                  virtual:
-                    shell.view === 'agentlab' && virtualOpen
-                      ? {
-                          kind: virtualOpen.kind,
-                          ownerId: virtualOpen.id,
-                          name:
-                            virtualRows.find(
-                              (row) =>
-                                row.kind === virtualOpen.kind && row.ownerId === virtualOpen.id,
-                            )?.name ?? '',
-                        }
-                      : null,
-                  guildNodeId: shell.view === 'channel' ? activeGuildNodeId : null,
-                }}
-                analysisRequest={analysisRequest}
-                roamingRequest={roamingRequest}
-                onOpenComposition={compositionWindow.open}
-                assistantSearchTarget={assistantSearchTarget}
-                searchRequest={toolSearchRequest}
-                onOpenAnalysis={(request) =>
-                  setAnalysisReports((previous) => [...previous, request])
-                }
-              />
+              <CalendarNavigationContext.Provider value={locateCalendarMessage}>
+                <WorkspaceTools
+                  key={messageScope}
+                  accountScope={messageScope}
+                  footerControls={controls}
+                  onOpenClone={(id) => {
+                    flushAllDirtyDrafts();
+                    setCloneSearchTarget(null);
+                    setVirtualOpen({ kind: 'persona', id, revision: Date.now() });
+                    shell.switchView('agentlab');
+                  }}
+                  currentConversation={shell.view === 'messages' ? activeConversation : null}
+                  workspace={{
+                    view: shell.view,
+                    conversation: shell.view === 'messages' ? activeConversation : null,
+                    officialFeed: shell.view === 'messages' ? arkFeedState : null,
+                    contact: shell.view === 'contacts' ? (shell.selectedContact ?? null) : null,
+                    groupConversation:
+                      shell.view === 'contacts' ? (shell.selectedGroupConversation ?? null) : null,
+                    spaceUin: shell.view === 'qzone' ? currentQzoneUin : null,
+                    virtual:
+                      shell.view === 'agentlab' && virtualOpen
+                        ? {
+                            kind: virtualOpen.kind,
+                            ownerId: virtualOpen.id,
+                            name:
+                              virtualRows.find(
+                                (row) =>
+                                  row.kind === virtualOpen.kind && row.ownerId === virtualOpen.id,
+                              )?.name ?? '',
+                          }
+                        : null,
+                    guildNodeId: shell.view === 'channel' ? activeGuildNodeId : null,
+                  }}
+                  analysisRequest={analysisRequest}
+                  roamingRequest={roamingRequest}
+                  onOpenComposition={compositionWindow.open}
+                  assistantSearchTarget={assistantSearchTarget}
+                  searchRequest={toolSearchRequest}
+                  onOpenAnalysis={(request) =>
+                    setAnalysisReports((previous) => [...previous, request])
+                  }
+                />
+              </CalendarNavigationContext.Provider>
             )}
           </RailAccountFooter>
           <QzoneAlbumDialog
@@ -11348,24 +11818,6 @@ function MainWorkspace(): ReactElement {
               onClose={() => setAlbumDialog(null)}
             />
           ) : null}
-          {/* 好友 / 群通知灯箱：开关与数据都在这一层（`shell.contactNotice` 同时决定
-              联系人页右侧是否算「有详情在展示」，见 shellController 的 mainOpen）。 */}
-          <ContactNoticeDialog
-            open={shell.contactNotice === 'friend'}
-            requests={contactRequests}
-            onClose={shell.backContactNotice}
-            onOpenProfile={(member, anchor) =>
-              setMemberCard({ member, anchor, groupContext: null })
-            }
-          />
-          <GroupNoticeDialog
-            open={shell.contactNotice === 'group'}
-            requests={groupRequests}
-            onClose={shell.backContactNotice}
-            onOpenProfile={(member, anchor, group) =>
-              setMemberCard({ member, anchor, groupContext: group ?? null })
-            }
-          />
           {groupInfoDetail &&
           selectedConversation?.type === 'group' &&
           selectedConversation.id === groupInfoDetail.groupCode ? (
@@ -11510,6 +11962,14 @@ function MainWorkspace(): ReactElement {
               }}
             />
           ) : null}
+          {numberGroupCard && numberGroupCard.accountUin === openedUin ? (
+            <GroupProfileDialog
+              conversation={numberGroupCard.conversation}
+              anchor={numberGroupCard.anchor}
+              detailsKnown={false}
+              onClose={() => setNumberGroupCard(null)}
+            />
+          ) : null}
           {memberCard ? (
             <MemberProfileCard
               member={memberCard.member}
@@ -11616,7 +12076,15 @@ function MainWorkspace(): ReactElement {
               conversation={unplacedRoaming.conversation}
               user={user}
               messages={unplacedRoaming.messages.map((row) =>
-                messageToTemplate(row, unplacedRoaming.conversation, user, undefined, botUids),
+                messageToTemplate(
+                  row,
+                  unplacedRoaming.conversation,
+                  user,
+                  undefined,
+                  botUids,
+                  undefined,
+                  profileByUid,
+                ),
               )}
               renderers={messageRenderers}
               loading={false}
@@ -11670,6 +12138,44 @@ function MainWorkspace(): ReactElement {
                   keyword: searchMore.keyword,
                 });
               }}
+            />
+          ) : null}
+          {overviewCalendar ? (
+            <ConversationOverviewCalendar
+              targets={overviewCalendarTargets}
+              sourceRevision={`${dbRevisionRef.current}:${calendarDataRevision}:${calendarCloneRevision(directoryPersonas.data ?? [], directoryGroups.data ?? [])}`}
+              scope={conversationScope}
+              query={overviewCalendar.query}
+              ready={
+                !contacts.isLoading &&
+                !allGroups.isLoading &&
+                (!contacts.hasNextPage || Boolean(contacts.error)) &&
+                !hiddenSessions.isLoading &&
+                !deletedSessions.isLoading &&
+                !officialAccounts.isLoading &&
+                !serviceAccounts.isLoading &&
+                !guildDirectSessions.isLoading &&
+                !directoryPersonas.isLoading &&
+                !directoryGroups.isLoading
+              }
+              directoryError={
+                [
+                  contacts.error,
+                  allGroups.error,
+                  hiddenSessions.error,
+                  deletedSessions.error,
+                  officialAccounts.error,
+                  serviceAccounts.error,
+                  guildDirectSessions.error,
+                  directoryPersonas.error,
+                  directoryGroups.error,
+                ].some(Boolean)
+                  ? '部分会话目录读取失败，统计结果尚不完整'
+                  : undefined
+              }
+              binding={pinSession.binding}
+              onClose={() => setOverviewCalendar(null)}
+              onLocate={locateCalendarMessage}
             />
           ) : null}
           {chatRecordsTarget ? (
@@ -11818,6 +12324,7 @@ function MainWorkspace(): ReactElement {
                     readStateBusy,
                     onVisibleConversations: prefetchVisible,
                     onConversationIntent: prefetchIntent,
+                    onCalendar: (query) => setOverviewCalendar({ query }),
                     onVirtual: (item) => {
                       flushAllDirtyDrafts();
                       setCloneSearchTarget(null);
@@ -11885,7 +12392,26 @@ function MainWorkspace(): ReactElement {
                         />
                         <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
                           <RelationshipDirectoryContext.Provider value={relationshipDirectory}>
-                            {chatContent}
+                            <GroupMessagePreviewContext.Provider
+                              value={{
+                                open: (conversation) =>
+                                  void previewConversation(conversation, 'group-profile'),
+                                close: () => {
+                                  previewRequest.current++;
+                                  setPrivatePreview(null);
+                                },
+                                conversationId:
+                                  privatePreview?.source === 'group-profile'
+                                    ? privatePreview.conversation.id
+                                    : null,
+                                content:
+                                  privatePreview?.source === 'group-profile'
+                                    ? conversationPreviewContent
+                                    : null,
+                              }}
+                            >
+                              {chatContent}
+                            </GroupMessagePreviewContext.Provider>
                           </RelationshipDirectoryContext.Provider>
                         </GroupAlbumCardNavigationProvider>
                       </WorkspacePages>

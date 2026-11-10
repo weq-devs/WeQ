@@ -55,57 +55,77 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it.each([false, true])('实际好友、成员、个性主页入口按机器人身份过滤：%s', async (bot) => {
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  useViewState.setState({ openedUin: '10001' });
-  const contact: Contact = {
-    id: 'u_peer',
-    identityLabel: 'QQ',
-    identityValue: '10002',
-    username: 'peer',
-    displayName: '合成好友',
-    createdAt: new Date(0).toISOString(),
-    ...(bot ? { kind: 'bot' as const } : {}),
-  };
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
-  try {
-    await act(async () =>
-      root.render(
-        h(
-          Fragment,
-          null,
-          h(ContactProfileDialog, { contact, onClose: () => {} }),
-          h(MemberProfileCard, { member: contact, anchor: { x: 10, y: 10 }, onClose: () => {} }),
-          h(PersonalityHomeDialog, {
-            uid: contact.id,
-            uin: contact.identityValue,
-            isBot: bot,
-            onClose: () => {},
-            profile: {
-              name: '合成好友',
-              avatarUrl: null,
-              interests: [],
+it.each(['human', 'bot', 'enterprise'])(
+  '实际好友、成员、个性主页按账号身份过滤：%s',
+  async (kind) => {
+    const bot = kind === 'bot';
+    const enterprise = kind === 'enterprise';
+    const excluded = bot || enterprise;
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    useViewState.setState({ openedUin: '10001' });
+    const contact: Contact = {
+      id: 'u_peer',
+      identityLabel: 'QQ',
+      identityValue: '10002',
+      username: 'peer',
+      displayName: '合成好友',
+      createdAt: new Date(0).toISOString(),
+      ...(bot ? { kind: 'bot' as const } : {}),
+      ...(enterprise
+        ? {
+            extInfo: {
+              isEnterprise: true,
+              interactMarks: [],
               privileges: [],
+              interests: [],
               album: [],
             },
-          }),
+          }
+        : {}),
+    };
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(
+          h(
+            Fragment,
+            null,
+            h(ContactProfileDialog, { contact, onClose: () => {} }),
+            h(MemberProfileCard, { member: contact, anchor: { x: 10, y: 10 }, onClose: () => {} }),
+            h(PersonalityHomeDialog, {
+              uid: contact.id,
+              uin: contact.identityValue,
+              isBot: bot,
+              onClose: () => {},
+              profile: {
+                isEnterprise: enterprise,
+                name: '合成好友',
+                avatarUrl: null,
+                interests: [],
+                privileges: [],
+                album: [],
+              },
+            }),
+          ),
         ),
-      ),
-    );
-    expect(host.querySelectorAll('[aria-label="赞资料卡"]')).toHaveLength(bot ? 0 : 3);
-    expect(host.querySelectorAll('.weq-profile-likes-row')).toHaveLength(bot ? 0 : 3);
-    for (const button of host.querySelectorAll('[aria-label="赞资料卡"]')) {
-      const row = button.closest('.weq-profile-row');
-      expect(row?.textContent).toContain('获赞');
-      expect(row?.querySelector('strong')?.textContent).toBe('100');
-      expect(row?.querySelector('.weq-profile-row-value strong')?.nextElementSibling).toBe(button);
+      );
+      expect(host.querySelectorAll('[aria-label="赞资料卡"]')).toHaveLength(excluded ? 0 : 3);
+      expect(host.querySelectorAll('.weq-profile-likes-row')).toHaveLength(excluded ? 0 : 3);
+      for (const button of host.querySelectorAll('[aria-label="赞资料卡"]')) {
+        const row = button.closest('.weq-profile-row');
+        expect(row?.textContent).toContain('获赞');
+        expect(row?.querySelector('strong')?.textContent).toBe('100');
+        expect(row?.querySelector('.weq-profile-row-value strong')?.nextElementSibling).toBe(
+          button,
+        );
+      }
+      expect(host.querySelector('.weq-perhome-stat-like')).toBeNull();
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
     }
-    expect(host.querySelector('.weq-perhome-stat-like')).toBeNull();
-    expect(write).not.toHaveBeenCalled();
-  } finally {
-    act(() => root.unmount());
-    host.remove();
-  }
-});
+  },
+);

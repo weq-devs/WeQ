@@ -39,6 +39,16 @@ html[data-theme='dark'] .weq-gap-history-top {
   overflow: hidden;
   padding: 0;
 }
+.weq-group-profile-layer .weq-profile-dialog.is-previewing-chat:not(.weq-contact-profile-content) {
+  display: flex;
+  flex-direction: column;
+  width: min(520px, calc(100vw - 20px));
+  height: min(600px, calc(100dvh - 72px));
+  overflow: hidden;
+}
+.weq-group-profile-layer .is-previewing-chat > .weq-contact-chat-preview {
+  flex-shrink: 1;
+}
 .weq-private-preview-inline.weq-deleted {
   display: flex;
   flex: 1;

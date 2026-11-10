@@ -159,8 +159,8 @@ try {
             ),
           });
         if (!groupCard) {
-          await card.getByRole('button', { name: '查看私聊', exact: true }).waitFor();
-          await card.getByRole('button', { name: '预览私聊', exact: true }).click();
+          await card.getByRole('button', { name: '查看消息', exact: true }).waitFor();
+          await card.getByRole('button', { name: '预览消息', exact: true }).click();
           await card.locator('.weq-private-preview-inline .message-line').first().waitFor();
           const previewFits = await card.evaluate((node) => {
             const rect = node.getBoundingClientRect();
@@ -178,7 +178,7 @@ try {
             });
           await card.getByRole('button', { name: '返回资料', exact: true }).click();
         } else {
-          await card.getByRole('button', { name: '查看群聊消息', exact: true }).waitFor();
+          await card.getByRole('button', { name: '查看消息', exact: true }).waitFor();
         }
         await card.getByRole('button', { name: '关闭', exact: true }).click();
       }

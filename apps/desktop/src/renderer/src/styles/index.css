@@ -17,8 +17,10 @@
 /* 图片/视频灯箱底部操作条 + OCR 覆盖层与纯文本面板。 */
 @import './lightbox-actions.css';
 @import './appearance.css';
+@import './form-focus.css';
 @import './export-save-actions.css';
 @import './conversation-list-row.css';
+@import './log-console-palette.css';
 
 /* streamdown 代码块用 Tailwind `dark:` 工具类切换 shiki 明/暗配色，但本项目暗色靠
  * html[data-theme="dark"]（同时 theme.ts 会 toggle .dark 类）。把 `dark:` variant 桥接到这两个
@@ -3017,7 +3019,6 @@ html[data-theme='dark'] .weq-mface-detail-nav {
   }
   .weq-keyfield-input:focus-within {
     border-color: color-mix(in srgb, var(--weq-accent-effective) 60%, transparent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
   }
   .weq-keyfield-lead {
     color: var(--weq-accent-effective);
@@ -3962,20 +3963,14 @@ html *::-webkit-scrollbar-corner {
   display: flex;
   align-items: center;
   height: 40px;
+  flex-shrink: 0;
   background: rgba(255, 255, 255, 0.4);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(0, 153, 255, 0.12);
   z-index: 100;
   padding: 0;
-  -webkit-app-region: drag;
+  -webkit-app-region: no-drag;
   user-select: none;
-}
-
-/* macOS: the native traffic-light cluster (≈70px wide) floats over the left
-   edge of the hidden title bar, so shift the logo / user block right to clear
-   it. Windows/Linux keep the in-app buttons and need no inset. */
-.app-title-bar.is-mac {
-  padding-left: 80px;
 }
 
 html[data-theme='dark'] .app-title-bar {
@@ -4014,9 +4009,13 @@ html[data-theme='dark'] .app-title-bar-logo-wrap.is-active {
   background: rgba(100, 180, 255, 0.2);
 }
 
+.app-title-bar-logo,
+.app-title-bar-user .avatar {
+  width: 30px;
+  height: 30px;
+}
+
 .app-title-bar-logo {
-  width: 28px;
-  height: 28px;
   filter: drop-shadow(0 2px 4px rgba(0, 122, 204, 0.15));
   transition: transform 0.16s ease;
 }
@@ -4044,8 +4043,6 @@ html[data-theme='dark'] .app-title-bar-user {
 }
 
 .app-title-bar-user .avatar {
-  width: 30px;
-  height: 30px;
   font-size: 12px;
 }
 
@@ -4085,12 +4082,14 @@ html[data-theme='dark'] .app-title-bar-signature {
 .app-title-bar-drag {
   flex: 1;
   height: 100%;
+  -webkit-app-region: drag;
 }
 
 .app-title-bar-actions {
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  align-self: stretch;
   -webkit-app-region: no-drag;
 }
 
@@ -4099,7 +4098,7 @@ html[data-theme='dark'] .app-title-bar-signature {
   align-items: center;
   justify-content: center;
   width: 44px;
-  height: 40px;
+  height: 100%;
   color: #51677c;
   background: transparent;
   border: 0;
@@ -7999,16 +7998,12 @@ html[data-theme='dark'] .weq-profile-member .avatar {
   transition: transform 130ms ease;
 }
 
-.message-avatar-button .avatar {
-  transition: box-shadow 130ms ease;
-}
-
 .message-avatar-button:hover {
   transform: translateY(-1px);
 }
 
 .message-avatar-button:hover .avatar {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  opacity: 0.85;
 }
 
 .message-avatar-button:active {
@@ -15142,7 +15137,6 @@ html[data-theme='dark'] .weq-provider-modal {
 }
 .weq-collection-search:focus-within {
   border-color: var(--weq-accent-effective);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
 }
 .weq-collection-search input {
   flex: 1;
@@ -21706,9 +21700,10 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
 .weq-help-log-view {
   height: 340px;
   overflow-y: auto;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--weq-log-border);
   border-radius: 10px;
-  background: #10141d;
+  background: var(--weq-log-bg);
+  color: var(--weq-log-fg);
   padding: 6px 0;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-size: 11.5px;
@@ -21748,7 +21743,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
 
 .weq-log-ts {
   flex: none;
-  color: rgba(255, 255, 255, 0.38);
+  color: var(--weq-log-muted);
   font-variant-numeric: tabular-nums;
 }
 
@@ -21761,11 +21756,11 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
 }
 
 .weq-log-line.is-error .weq-log-lv {
-  color: #ff6b6b;
+  color: var(--weq-log-error);
 }
 
 .weq-log-line.is-warn .weq-log-lv {
-  color: #f5b454;
+  color: var(--weq-log-warn);
 }
 
 .weq-log-line.is-info .weq-log-lv {
@@ -21773,33 +21768,33 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
 }
 
 .weq-log-line.is-debug .weq-log-lv {
-  color: #8fa6bd;
+  color: var(--weq-log-muted);
 }
 
 .weq-log-msg {
-  color: #c8d3e1;
+  color: var(--weq-log-fg);
 }
 
 .weq-log-line.is-error .weq-log-msg {
-  color: #ff9494;
+  color: var(--weq-log-error);
 }
 
 .weq-log-line.is-warn .weq-log-msg {
-  color: #ffd28a;
+  color: var(--weq-log-warn);
 }
 
 .weq-log-line.is-debug .weq-log-msg {
-  color: #8fb7e8;
+  color: var(--weq-log-muted);
 }
 
 .weq-log-ctx {
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--weq-log-muted);
 }
 
 .weq-help-log-empty {
   padding: 30px 12px;
   text-align: center;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--weq-log-muted);
   font-size: 12px;
 }
 
@@ -21810,7 +21805,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
   gap: 6px;
   padding: 7px 10px;
   text-align: center;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--weq-log-muted);
   font-size: 11px;
   cursor: pointer;
 }
@@ -21823,10 +21818,10 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
 .weq-help-log-scrollhint {
   padding: 6px 10px;
   text-align: center;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--weq-log-muted);
   font-size: 11px;
   border-top: 1px dashed rgba(255, 255, 255, 0.12);
-  background: rgba(16, 20, 29, 0.9);
+  background: var(--weq-log-bg);
 }
 
 .weq-help-log-foot {
@@ -22450,11 +22445,6 @@ html[data-theme='dark'] .weq-log-lv-chip.is-debug.is-on {
 
 html[data-theme='dark'] .weq-help-log-empty-hint {
   color: #7e8b9b;
-}
-
-html[data-theme='dark'] .weq-help-log-view {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: #0b0e14;
 }
 
 html[data-theme='dark'] .weq-set-btn.is-live {

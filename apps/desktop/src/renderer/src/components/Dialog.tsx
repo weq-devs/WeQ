@@ -21,6 +21,8 @@ import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
 import { WindowSurface } from './WindowSurface';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
+import { useMobileWebViewport } from '../hooks/useMobileWebViewport';
+import { IS_WEB } from '../lib/target';
 import '../styles/dialog-layout.css';
 
 export type DialogTone = 'error' | 'warning' | 'info';
@@ -150,6 +152,7 @@ export function Modal({
   centered = false,
   dismissOnOutside = true,
   portalTarget,
+  mobileChrome = false,
 }: {
   onClose?: () => void;
   children: ReactNode;
@@ -169,6 +172,7 @@ export function Modal({
   /** 安全验证、编辑正文等流程可显式禁用点外关闭。 */
   dismissOnOutside?: boolean;
   portalTarget?: Element | null;
+  mobileChrome?: boolean;
 }): ReactElement | null {
   const document = useRenderDocument();
   const tabActive = useTabActive();
@@ -176,6 +180,10 @@ export function Modal({
   const windowed = presentation === 'floating' || presentation === 'anchored';
   const layer = useOverlayLayer(active && !windowed);
   const ref = useRef<HTMLDivElement>(null);
+  useMobileWebViewport(
+    ref,
+    IS_WEB && active && !windowed && presentation !== 'page' && presentation !== 'sidecar',
+  );
   const placement = useOverlayAnchor(
     ref,
     active && !windowed,
@@ -222,6 +230,7 @@ export function Modal({
         title={title ?? '详情'}
         onClose={onClose}
         placement={presentation === 'sidecar' ? 'sidecar' : 'main'}
+        mobileChrome={mobileChrome}
       >
         <div
           className={`weq-modal${className ? ` ${className}` : ''}`}
@@ -236,7 +245,7 @@ export function Modal({
     <div
       ref={ref}
       tabIndex={-1}
-      className={`weq-dialog-layer weq-anim-fade${layerClassName ? ` ${layerClassName}` : ''}${presentation !== 'modal' ? ' weq-nonmodal-layer' : ''}${presentation === 'panel' ? ' weq-centered-panel' : ''}${presentation === 'popover' ? ' is-popover' : ''}${placement.position ? ' is-anchored-popover' : ''}`}
+      className={`weq-dialog-layer weq-anim-fade${IS_WEB ? ' weq-web-dialog-layer' : ''}${layerClassName ? ` ${layerClassName}` : ''}${presentation !== 'modal' ? ' weq-nonmodal-layer' : ''}${presentation === 'panel' ? ' weq-centered-panel' : ''}${presentation === 'popover' ? ' is-popover' : ''}${placement.position ? ' is-anchored-popover' : ''}`}
       hidden={!active}
       inert={!active}
       style={{ ...placement.position, zIndex: layer, display: active ? undefined : 'none' }}
@@ -284,12 +293,9 @@ export function DialogHost(): ReactElement | null {
 
   return (
     <Modal
-      presentation={
-        current.confirm || current.password || !current.dismissible ? 'modal' : 'popover'
-      }
-      // 确认 / 密码框属于全局交互，不能被“最后一次点击的按钮”锚定到任务窗、浮窗里，
-      // 否则会贴着触发点落在浮窗下缘（观感上像被浮窗压住）。
-      centered={Boolean(current.confirm || current.password || !current.dismissible)}
+      presentation={current.confirm || current.password || !current.dismissible ? 'modal' : 'panel'}
+      // 全局消息框始终相对窗口居中，不沿用任务窗或浮窗里的最后一次点击位置。
+      centered
       onClose={handleClose}
       dismissOnOutside={!current.confirm && !current.password}
       labelledBy="weq-dialog-title"

@@ -7,12 +7,14 @@ import { VipBadge } from '../../components/VipBadge';
 import { RestrictedModeIndicator } from '../../components/RestrictedMode';
 import '../../styles/self-profile.css';
 import '../../styles/titlebar-search.css';
+import '../../styles/window-controls.css';
 import { Avatar } from './primitives';
 import type { User } from './types';
 import { displayUserName } from './user';
 import logoUrl from '@resources/brand/logo.png';
 import { cn } from './classNames';
-import { DesktopOnly, IS_MAC } from '../../lib/target';
+import { DesktopOnly } from '../../lib/target';
+import { useWindowControls } from '../../hooks/useWindowControls';
 
 function ProfileAvatar({ user }: { user: User }) {
   const [open, setOpen] = useState(false);
@@ -74,6 +76,7 @@ export function TitleBar({
   onGoHome?: () => void;
   search?: ReactNode;
 }) {
+  const controls = useWindowControls();
   const handleMinimize = () => {
     window.electron?.ipcRenderer.send('window-minimize');
   };
@@ -87,7 +90,7 @@ export function TitleBar({
   };
 
   return (
-    <div className={cn('app-title-bar', IS_MAC && 'is-mac')}>
+    <div className={cn('app-title-bar', controls === 'native' && 'has-native-controls')}>
       <button
         type="button"
         className={`app-title-bar-logo-wrap${homeActive ? ' is-active' : ''}`}
@@ -122,22 +125,21 @@ export function TitleBar({
           <RestrictedModeIndicator persistent />
         </div>
       </div>
-      {/* macOS 有原生红黄绿三键，自绘的 最小化/最大化/关闭 会重复，隐藏掉。 */}
-      {!IS_MAC && (
-        <DesktopOnly>
+      <DesktopOnly>
+        {controls === 'windows' && (
           <div className="app-title-bar-actions">
             <button onClick={handleMinimize} title="最小化">
               <Minus size={14} />
             </button>
-            <button onClick={handleMaximize} title="全屏/还原">
+            <button onClick={handleMaximize} title="最大化/还原">
               <Square size={12} />
             </button>
             <button onClick={handleClose} className="close" title="关闭">
               <X size={16} />
             </button>
           </div>
-        </DesktopOnly>
-      )}
+        )}
+      </DesktopOnly>
     </div>
   );
 }

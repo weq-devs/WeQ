@@ -33,11 +33,47 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
 }
 function pointer(target: Element, type: string, options: PointerEventInit = {}) {
   act(() =>
-    target.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1, ...options })),
+    target.dispatchEvent(
+      new PointerEvent(type, { bubbles: true, pointerId: 1, pointerType: 'mouse', ...options }),
+    ),
   );
 }
 
 describe('标题栏全局搜索', () => {
+  it.each(['touch', 'pen'])('%s 按下前不因进入按钮展开，完成点击才固定并聚焦', (pointerType) => {
+    const view = mount(
+      createElement(TitleBarSearch, {
+        query: '',
+        onQueryChange: vi.fn(),
+        results: createElement('div', { 'data-pointer-result': true }, '结果'),
+      }),
+    );
+    try {
+      const button = view.host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!;
+      const input = view.host.querySelector('input')!;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        pointer(button, 'pointerover', { pointerType });
+        pointer(button, 'pointerdown', { pointerType });
+        expect(button.getAttribute('aria-expanded')).toBe('false');
+        expect(input.disabled).toBe(true);
+        expect(document.querySelector('.weq-titlebar-search-results')).toBeNull();
+        pointer(button, 'pointerup', { pointerType });
+        act(() => button.click());
+        pointer(button, 'pointerout', { pointerType });
+        expect(button.getAttribute('aria-pressed')).toBe('true');
+        expect(document.activeElement).toBe(input);
+        const panel = document.querySelector('.weq-titlebar-search-results')!;
+        pointer(panel, 'pointerover', { pointerType });
+        pointer(panel, 'pointerout', { pointerType });
+        expect(button.getAttribute('aria-expanded')).toBe('true');
+        pointer(document.body, 'pointerdown', { pointerType });
+        expect(button.getAttribute('aria-expanded')).toBe('false');
+      }
+    } finally {
+      view.dispose();
+    }
+  });
+
   it('常驻模式无需悬停即可输入，Escape 只关闭结果而不收起搜索栏', () => {
     const view = mount(
       createElement(TitleBarSearch, {
@@ -66,34 +102,32 @@ describe('标题栏全局搜索', () => {
       view.dispose();
     }
   });
-  it('返回更多页后再次打开搜索仍正常聚焦输入框', () => {
+  it('全局搜索不再显示返回按钮，打开时正常聚焦输入框', () => {
     const view = mount(
       createElement(TitleBarSearch, {
         query: '原词',
         onQueryChange: vi.fn(),
-        onReturn: () => false,
       }),
     );
     try {
-      act(() => view.host.querySelector<HTMLButtonElement>('[aria-label="返回搜索结果"]')!.click());
+      expect(view.host.querySelector('[aria-label="返回搜索结果"]')).toBeNull();
       act(() => view.host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());
       expect(document.activeElement).toBe(view.host.querySelector('input'));
     } finally {
       view.dispose();
     }
   });
-  it('返回搜索入口可恢复下拉且不会把命中行焦点抢回输入框', () => {
-    const onReturn = vi.fn(() => true);
-    const view = mount(
-      createElement(TitleBarSearch, { query: '原词', onQueryChange: vi.fn(), onReturn }),
-    );
+  it('展开后提供更大的清空图标，点击后清空并聚焦输入框', () => {
+    const onQueryChange = vi.fn();
+    const view = mount(createElement(TitleBarSearch, { query: '原词', onQueryChange }));
     try {
-      const back = view.host.querySelector<HTMLButtonElement>('[aria-label="返回搜索结果"]')!;
-      expect(back).not.toBeNull();
-      act(() => back.click());
-      expect(onReturn).toHaveBeenCalledOnce();
-      expect(view.host.querySelector('input')!.disabled).toBe(false);
-      expect(document.activeElement).not.toBe(view.host.querySelector('input'));
+      expect(view.host.querySelector('[aria-label="清空搜索"]')).toBeNull();
+      act(() => view.host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());
+      const clear = view.host.querySelector<HTMLButtonElement>('[aria-label="清空搜索"]')!;
+      expect(clear.querySelector('svg')?.getAttribute('width')).toBe('20');
+      act(() => clear.click());
+      expect(onQueryChange).toHaveBeenCalledWith('');
+      expect(document.activeElement).toBe(view.host.querySelector('input'));
     } finally {
       view.dispose();
     }

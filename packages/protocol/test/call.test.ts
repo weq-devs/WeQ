@@ -43,6 +43,7 @@ import {
 } from '../src/call';
 import { encode, decode } from '../src/protobuf';
 import { C2C_CREATE_ROOM_RSP } from '../src/call/signaling';
+import { resolveSign } from '../src/sign-policy';
 
 // ─────────────── 信令 ───────────────
 
@@ -671,7 +672,7 @@ describe('不破坏既有机制', () => {
   it('这些命令真机实测不签名，发包时不带签名', async () => {
     const { CreateRoom, InviteUser, Logout } = await import('../src/call');
     for (const spec of [CreateRoom, InviteUser, Logout]) {
-      expect(spec.needSign).toBe(false);
+      expect(resolveSign(spec.cmd).needSign).toBe(false);
     }
   });
 

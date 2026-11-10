@@ -147,6 +147,85 @@ function fixture(kind: 'group' | 'direct' = 'group') {
   };
 }
 
+function mockClipboard(success = true) {
+  vi.stubGlobal(
+    'ClipboardItem',
+    class {
+      constructor(readonly data: Record<string, Blob>) {}
+    },
+  );
+  const write = vi.spyOn(navigator.clipboard, 'write');
+  const writeText = vi.spyOn(navigator.clipboard, 'writeText');
+  if (success) {
+    write.mockResolvedValue();
+    writeText.mockResolvedValue();
+  } else {
+    write.mockRejectedValue(new Error('写入失败'));
+    writeText.mockRejectedValue(new Error('写入失败'));
+  }
+}
+
+it.each(['纯文本', '富文本', 'JSON'])('多选按钮复制%s成功后只显示一次成功横幅', async (format) => {
+  mockClipboard();
+  const f = fixture();
+  try {
+    await f.click('[data-enter]');
+    await f.click('[aria-label="复制"]');
+    await act(async () => {
+      const button = Array.from(document.querySelectorAll('[aria-label="复制格式"] button')).find(
+        (node) => node.textContent?.trim() === format,
+      )!;
+      button.click();
+    });
+    const successes = useToast.getState().toasts.filter((toast) => toast.tone === 'success');
+    expect(successes).toHaveLength(1);
+    expect(successes[0]!.title).toContain('已复制 1 条消息');
+    expect(f.host.textContent).toContain('已复制 1 条消息');
+  } finally {
+    f.close();
+  }
+});
+
+it.each([
+  { ctrlKey: true, shiftKey: false },
+  { metaKey: true, shiftKey: false },
+  { ctrlKey: true, shiftKey: true },
+  { metaKey: true, shiftKey: true },
+])('多选快捷键复制成功后显示横幅：%j', async (modifiers) => {
+  mockClipboard();
+  const f = fixture();
+  try {
+    await f.click('[data-enter]');
+    await act(async () =>
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'c', bubbles: true, cancelable: true, ...modifiers }),
+      ),
+    );
+    expect(useToast.getState().toasts.filter((toast) => toast.tone === 'success')).toHaveLength(1);
+    expect(f.host.textContent).toContain('已复制 1 条消息');
+  } finally {
+    f.close();
+  }
+});
+
+it('多选剪贴板写入失败不显示成功横幅，保留选择', async () => {
+  mockClipboard(false);
+  const f = fixture();
+  try {
+    await f.click('[data-enter]');
+    await act(async () =>
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(useToast.getState().toasts.some((toast) => toast.tone === 'success')).toBe(false);
+    expect(useToast.getState().toasts.some((toast) => toast.title === '复制失败')).toBe(true);
+    expect(f.state().ids).toEqual(['1']);
+  } finally {
+    f.close();
+  }
+});
+
 it('缺口选择只计数且不提醒，导出前才确认，取消不拉取或执行操作', async () => {
   const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(false);
   const f = fixture();

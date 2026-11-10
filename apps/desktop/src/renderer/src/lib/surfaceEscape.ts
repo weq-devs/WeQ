@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, type RefObject } from 'react';
+import { useMobileBack } from '../hooks/useMobileNavigation';
 
 function layerPath(element: HTMLElement): number[] {
   const path: number[] = [];
@@ -54,6 +55,12 @@ export function useSurfaceEscape(
   active: boolean,
   modal: boolean,
 ) {
+  useMobileBack(
+    active && modal && Boolean(onClose),
+    () => onClose?.(),
+    100,
+    () => ref.current,
+  );
   // 在节点移除前归还焦点；被动清理时 activeElement 已可能变成 body。
   useLayoutEffect(() => {
     const element = ref.current;
@@ -75,7 +82,12 @@ export function useSurfaceEscape(
       (focusable ?? element).focus({ preventScroll: true });
     }
     return () => {
-      if (element.contains(document.activeElement) && previous?.isConnected && 'focus' in previous)
+      // 常驻宿主关闭 Portal 时，节点可能先移除，浏览器已将焦点放回 body。
+      if (
+        (element.contains(document.activeElement) || document.activeElement === document.body) &&
+        previous?.isConnected &&
+        'focus' in previous
+      )
         (previous as HTMLElement).focus({ preventScroll: true });
     };
   }, [active, ref]);

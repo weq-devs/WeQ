@@ -10,6 +10,7 @@ import { OcrImage, quadToRect, rectToQuad, scaleOcrRect } from '../src/index';
 import { bytesToHex } from '../src/oidb/shared';
 import { decode, encode } from '../src/protobuf';
 import * as V from './ocr-image.vectors';
+import { oidbCommand, resolveSign } from '../src/sign-policy';
 
 const hexToBytes = (hex: string): Uint8Array =>
   Uint8Array.from(hex.replace(/\s+/g, '').match(/../g) ?? [], (h) => Number.parseInt(h, 16));
@@ -53,7 +54,9 @@ describe('OcrImage (0xe07_0) —— 上行', () => {
   it('命令字 / 子命令 / 免签名', () => {
     expect(OcrImage.command).toBe(0xe07);
     expect(OcrImage.subCommand).toBe(0);
-    expect(OcrImage.needSign).toBe(false);
+    expect(resolveSign(oidbCommand(OcrImage.command, OcrImage.subCommand ?? 0)).needSign).toBe(
+      false,
+    );
   });
 
   it('serialize：1 = 任务类型 1，2/3/15 恒 0，md5 同一值塞 10 与 11', () => {

@@ -254,10 +254,13 @@
   background: var(--weq-accent-effective);
 }
 
-.weq-favorite-import-item:focus-visible,
-.weq-favorite-import-select:focus-within {
+.weq-favorite-import-item:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
+}
+
+.weq-favorite-import-select:focus-within {
+  border-color: var(--weq-accent-effective);
 }
 
 html[data-theme='dark'] .weq-favorite-import-item[aria-pressed='true'] {

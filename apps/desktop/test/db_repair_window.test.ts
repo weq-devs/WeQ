@@ -70,7 +70,9 @@ it('原生修复窗有系统边框，严格限制为自有空白页，不获得 
       preload: undefined,
     },
   });
-  expect(applicationToolPopupOptions('about:blank', 'weq-compose')).toMatchObject({ frame: false });
+  expect(applicationToolPopupOptions('about:blank', 'weq-compose')).toMatchObject({
+    frame: process.platform === 'darwin' || process.platform === 'linux',
+  });
 });
 
 it('完整修复 UI 挂在系统子文档，重复请求聚焦并保留原账号，锁屏隐藏内容，卸载关闭窗口', async () => {

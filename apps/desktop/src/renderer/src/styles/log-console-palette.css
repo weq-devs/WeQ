@@ -1,0 +1,11 @@
+/* 日志内容区沿用聊天导出的固定深色配色，不随页面底色或主题色改变。 */
+:root,
+html[data-theme='light'],
+html[data-theme='dark'] {
+  --weq-log-bg: #0d1420;
+  --weq-log-fg: #c8d3e0;
+  --weq-log-muted: #8595ac;
+  --weq-log-border: rgba(255, 255, 255, 0.1);
+  --weq-log-warn: #e2b35a;
+  --weq-log-error: #ef6b6b;
+}

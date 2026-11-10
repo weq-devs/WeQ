@@ -68,6 +68,9 @@ const MEMBER_COLUMNS = [
 ];
 
 export class GroupMemberDb {
+  get dbPath(): string {
+    return this.qq.dbPath;
+  }
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: GroupMemberDbOptions) {
@@ -89,6 +92,27 @@ export class GroupMemberDb {
 
   private async levelColumn(): Promise<string> {
     return (await this.getColumns()).has('64035') ? '"64035"' : 'NULL';
+  }
+
+  /** 联系人校准只读取有效成员总数与好友交集，不加载昵称、等级等整份成员资料。 */
+  async contactMembershipSnapshot(friendUids: string[]) {
+    const groups = new Map<string, { total: number; friends: Set<string> }>();
+    const validUid = `SUBSTR("1000", 1, 2) = 'u_' AND LENGTH("1000") > 2 AND "1000" NOT GLOB '*[^A-Za-z0-9_-]*'`;
+    const totals = await this.qq.query(
+      `SELECT "60001", COUNT(DISTINCT "1000") FROM group_member3 WHERE ("64016" = 0 OR "64016" IS NULL) AND ${validUid} GROUP BY "60001"`,
+    );
+    for (const row of totals)
+      groups.set(String(row[0]), { total: Number(row[1]), friends: new Set() });
+    const ids = [...new Set(friendUids.filter(Boolean))];
+    for (let offset = 0; offset < ids.length; offset += 400) {
+      const page = ids.slice(offset, offset + 400);
+      const rows = await this.qq.query(
+        `SELECT DISTINCT "60001", "1000" FROM group_member3 WHERE ("64016" = 0 OR "64016" IS NULL) AND ${validUid} AND "1000" IN (${page.map(() => '?').join(',')})`,
+        page,
+      );
+      for (const row of rows) groups.get(String(row[0]))?.friends.add(String(row[1]));
+    }
+    return groups;
   }
 
   /**

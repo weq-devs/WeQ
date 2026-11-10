@@ -19,7 +19,7 @@
 import { decode, encode, message } from '../../protobuf';
 import { invokeTrpc, type TrpcSpec } from '../invoke';
 import { toInt } from '../shared';
-import type { TrpcNative } from '../../transport';
+import { sendPacket, type TrpcNative } from '../../transport';
 import { nonemptyBytes, protobufSubmessage } from './raw-cells';
 
 const EXT_MAP_ENTRY = message([
@@ -77,7 +77,6 @@ export interface DeleteGroupAlbumMediaParams {
 export namespace DeleteGroupAlbumMedia {
   export const cmd = DELETE_MEDIAS_CMD;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = DELETE_MEDIAS_REQ;
   export const respSchema = DELETE_MEDIAS_RESP;
 
@@ -191,7 +190,6 @@ export function groupAlbumCellId(
 export namespace SetGroupAlbumLike {
   export const cmd = QUN_LIKE_CMD;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = QUN_LIKE_REQ;
   export const respSchema = QUN_LIKE_RESP;
 
@@ -332,7 +330,6 @@ export interface GroupAlbumFeedCells {
 export namespace GetGroupAlbumFeedDetail {
   export const cmd = QUN_FEED_DETAIL_CMD;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = FEED_DETAIL_REQ;
   export const respSchema = FEED_DETAIL_RESP;
 
@@ -380,8 +377,7 @@ export namespace GetGroupAlbumFeedDetail {
     params: Params,
   ): Promise<GroupAlbumFeedCells> => {
     const reqBytes = encode(FEED_DETAIL_REQ, serialize(params));
-    // 该 trpc 不在白名单里 → 不签名。
-    const raw = await nt.sendPacket(pid, QUN_FEED_DETAIL_CMD, Buffer.from(reqBytes), false);
+    const raw = await sendPacket(nt, pid, QUN_FEED_DETAIL_CMD, reqBytes);
     const response = new Uint8Array(raw);
     const decoded = decodeHead(response);
 
@@ -513,7 +509,6 @@ export interface GroupAlbumCommentResult {
 export namespace CommentGroupAlbumMedia {
   export const cmd = QUN_COMMENT_CMD;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = COMMENT_REQ;
   export const respSchema = COMMENT_RESP;
 

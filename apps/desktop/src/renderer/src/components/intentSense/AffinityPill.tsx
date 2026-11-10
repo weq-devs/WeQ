@@ -65,12 +65,14 @@ export function AffinityPill({
     return (
       <button
         type="button"
-        className="weq-affinity-pill tier-0 weq-int-pill-loading"
+        className="weq-affinity-pill tier-unrated weq-int-pill-loading"
         title="互动画像"
         aria-label="互动画像加载中"
+        aria-busy="true"
+        disabled
       >
         <Heart size={13} />
-        <span>…</span>
+        <span>互动画像</span>
       </button>
     );
   }

@@ -32,6 +32,8 @@ export function useMultiSelection<K extends string | number>({
   onExit,
   anchorRef,
   beforeSelect,
+  getSelectionId,
+  escapeClearsSelection = true,
 }: {
   ids: readonly K[];
   selected: ReadonlySet<K>;
@@ -44,6 +46,9 @@ export function useMultiSelection<K extends string | number>({
   anchorRef?: { current: string | null };
   /** 允许消息时间线先确认并加载未显示的范围；返回 true 表示接管本次选择。 */
   beforeSelect?: (id: K, modifiers: SelectionModifiers) => boolean;
+  /** 同一对象可在多行出现：范围锚定行，选择和计数仍使用对象身份。 */
+  getSelectionId?: (id: K) => K;
+  escapeClearsSelection?: boolean;
 }) {
   const document = useRenderDocument();
   const ElementClass = document.defaultView?.HTMLElement ?? HTMLElement;
@@ -89,7 +94,7 @@ export function useMultiSelection<K extends string | number>({
     const candidates = visible.length ? visible : items;
     const selectedKeys = new Set([...current.current].map(String));
     const choice =
-      candidates.find((item) => selectedKeys.has(item.dataset.weqSelectId ?? '')) ??
+      candidates.find((item) => selectedKeys.has(item.dataset.weqSelectionId ?? '')) ??
       candidates[0] ??
       element;
     choice.focus({ preventScroll: true });
@@ -124,18 +129,19 @@ export function useMultiSelection<K extends string | number>({
     wasEnabled.current = enabled;
   }, [enabled, locked, focusChoice, document]);
   const [focusRequest, setFocusRequest] = useState<{ id: string; revision: number } | null>(null);
-  const { keys, values } = useMemo(
-    () => ({
+  const { keys, values, selectionValues } = useMemo(() => {
+    const values = new Map(ids.map((id) => [String(id), getSelectionId?.(id) ?? id]));
+    return {
       keys: ids.map(String),
-      values: new Map(ids.map((id) => [String(id), id])),
-    }),
-    [ids],
-  );
+      values,
+      selectionValues: new Map([...values.values()].map((id) => [String(id), id])),
+    };
+  }, [ids, getSelectionId]);
   const update = (next: Set<string>) => {
     const mapped = new Set<K>();
     const previousValues = new Map([...current.current].map((id) => [String(id), id]));
     for (const key of next) {
-      const value = values.get(key) ?? previousValues.get(key);
+      const value = values.get(key) ?? selectionValues.get(key) ?? previousValues.get(key);
       if (value !== undefined) mapped.add(value);
     }
     current.current = mapped;
@@ -152,7 +158,7 @@ export function useMultiSelection<K extends string | number>({
       selectMessageIds(
         new Set([...current.current].map(String)),
         keys,
-        key,
+        modifiers.shiftKey ? key : String(values.get(key)),
         anchor.current,
         modifiers,
       ),
@@ -172,6 +178,7 @@ export function useMultiSelection<K extends string | number>({
   const modified = (event: SelectionModifiers) => event.ctrlKey || event.metaKey || event.shiftKey;
   const itemProps = (id: K, disabled = false) => ({
     'data-weq-select-id': String(id),
+    'data-weq-selection-id': String(getSelectionId?.(id) ?? id),
     tabIndex: disabled || locked ? -1 : 0,
     'aria-disabled': disabled || locked || undefined,
     onPointerDownCapture: (event: PointerEvent<HTMLElement>) => {
@@ -227,6 +234,7 @@ export function useMultiSelection<K extends string | number>({
     }
     if (!enabled) return false;
     if (event.key === 'Escape') {
+      if (!escapeClearsSelection) return false;
       if (!onExit && current.current.size === 0) return false;
       event.preventDefault();
       event.stopPropagation();
@@ -292,7 +300,7 @@ export function useMultiSelection<K extends string | number>({
     if (event.key === ' ' && values.has(key)) {
       event.preventDefault();
       event.stopPropagation();
-      toggle(values.get(key)!, event);
+      toggle(ids[index]!, event);
       return;
     }
     if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) || index < 0) return;
@@ -308,7 +316,7 @@ export function useMultiSelection<K extends string | number>({
     if (!target) return;
     if (event.shiftKey) {
       anchor.current ??= key;
-      toggle(values.get(target)!, event);
+      toggle(ids[next]!, event);
     }
     setFocusRequest((request) => ({
       id: target,

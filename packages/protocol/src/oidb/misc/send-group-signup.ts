@@ -139,7 +139,6 @@ export namespace SendGroupSignup {
   export const command = 0x921b;
   export const subCommand = 0;
   /** 抓包（/tmp/capture.log）：`0x921b_0` 不带 tag 24，不签名。 */
-  export const needSign = false;
   export const reqSchema = SIGNUP_BODY;
   export const respSchema = SIGNUP_RESP;
 

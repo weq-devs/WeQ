@@ -125,6 +125,7 @@ async function main(): Promise<void> {
         'post-auth /trpc reaches router',
       );
       check(trpcHits === 1, 'tRPC handler invoked exactly once');
+      check(res.headers.get('cache-control') === 'no-store', '业务接口不进入持久 WebView 缓存');
     }
     {
       const res = await get('/robots.txt', cookie);

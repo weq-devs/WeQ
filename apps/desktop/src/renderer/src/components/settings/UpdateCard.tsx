@@ -54,7 +54,7 @@ export function UpdateCard(): ReactElement {
       : '软件更新';
 
   return (
-    <Card title="软件更新">
+    <Card title="软件更新" icon={<Download size={15} strokeWidth={1.8} />}>
       <div className="weq-set-row">
         <div className="weq-set-row-main">
           <span className="weq-set-row-label">

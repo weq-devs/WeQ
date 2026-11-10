@@ -129,6 +129,8 @@ describe.each(pages)('$title 独立设置页', ({ title, component, enabled, mod
       ),
     ).toEqual(['基础', '模型']);
     expect(f.host.querySelector('summary')?.textContent).toBe('高级设置');
+    expect(f.host.querySelector('details')?.open).toBe(false);
+    expect(f.host.querySelector('details')?.hasAttribute('data-snapshot-skip-details')).toBe(true);
     const row = f.model(title).closest('.weq-set-row')!;
     expect(row.querySelector('.weq-set-row-label')?.textContent).toBe('服务商与模型');
     expect(row.querySelector('.weq-set-row-desc')?.textContent).toBe(
@@ -136,7 +138,8 @@ describe.each(pages)('$title 独立设置页', ({ title, component, enabled, mod
     );
     expect(f.toggle(title).getAttribute('aria-checked')).toBe('false');
     expect(f.model(title).disabled).toBe(false);
-    expect(f.model(title).querySelector('option')?.textContent).toBe('未选择');
+    expect(f.model(title).value).toBe('default');
+    expect(f.model(title).querySelector('option[value=""]')).toBeNull();
     for (const other of pages.filter((page) => page.title !== title))
       expect(f.toggle(other.title)).toBeNull();
     await act(async () => {

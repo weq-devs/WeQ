@@ -30,9 +30,27 @@ beforeEach(() => {
   api.subscribe.mockReturnValue({ unsubscribe() {} });
 });
 afterEach(() => {
+  vi.useRealTimers();
   for (const close of cleanups.splice(0)) close();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+it('启动读取和补充状态都不返回时结束加载并允许重试', async () => {
+  vi.useFakeTimers();
+  api.read.mockImplementationOnce(() => new Promise(() => {}));
+  api.status.mockImplementationOnce(() => new Promise(() => {}));
+  const host = await mount();
+  await act(async () => vi.advanceTimersByTimeAsync(18_000));
+  expect(host.textContent).not.toContain('正在检查恢复状态');
+  expect(host.textContent).toContain('启动检查');
+  expect([...host.querySelectorAll('button')].some((node) => node.textContent === '重试恢复')).toBe(
+    true,
+  );
+  api.read.mockResolvedValue(healthy);
+  await act(async () =>
+    [...host.querySelectorAll('button')].find((node) => node.textContent === '重试恢复')!.click(),
+  );
+  expect(host.querySelector('[data-business]')).not.toBeNull();
 });
 const healthy: BackupStartupState = {
   ok: true,
@@ -87,6 +105,29 @@ it('普通读取故障只重试读取，不重建健康的文件或业务上下�
   expect(api.recover).not.toHaveBeenCalled();
   expect(host.querySelector('[data-business]')).not.toBeNull();
 });
+
+it.each([false, true])(
+  '恢复或重置完成后直接显示原页面（偏好待交接：%s）',
+  async (clientPending) => {
+    api.read.mockResolvedValue({
+      ...healthy,
+      appliedThisStartup: true,
+      result: {
+        id: 'synthetic-restore',
+        status: 'applied',
+        applied: ['settings'],
+        skipped: [],
+        warnings: ['合成恢复提示'],
+        clientPending,
+      },
+    });
+    const host = await mount();
+    expect(host.querySelector('[data-business]')).not.toBeNull();
+    expect(host.textContent).not.toContain('备份恢复已应用');
+    expect(host.textContent).not.toContain('继续');
+    expect(localStorage.getItem('weq.backup-result-seen')).toBeNull();
+  },
+);
 
 it('运行态版本变化才刷新；失败原因跨界面刷新保留，重试读取后可继续', async () => {
   api.read.mockResolvedValue(healthy);

@@ -117,8 +117,8 @@ describe('feature_search', () => {
       try {
         const web = await import('../src/renderer/src/components/search/appSearchCatalog');
         for (const keyword of [
-          '启用 Web 服务',
-          '启动 WeQ 时自动开启 Web 服务',
+          '允许本机浏览器访问',
+          '启动 WeQ 时自动允许本机浏览器访问',
           '允许远程连接',
           '设备配对',
           'Tailscale',
@@ -180,11 +180,8 @@ describe('feature_search', () => {
         item: '显示消息序号（seq）',
         settingId: 'message-seq',
       });
-      expect(searchAppEntries('缓存目录')[0]?.target).toEqual({
-        kind: 'setting',
-        section: 'weq-storage',
-        item: '缓存目录',
-      });
+      for (const keyword of ['缓存目录', '默认保存目录', '默认保存方式'])
+        expect(searchAppEntries(keyword)).toEqual([]);
     });
 
     it('所有可见设置分区均可搜索，条目身份唯一且排名稳定', () => {

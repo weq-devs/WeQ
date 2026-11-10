@@ -159,10 +159,14 @@ export class UnreadInfoDb {
     };
   }
 
-  /** 每批在同一条 SQL 内读取最新序号与已读水位，避免逐会话 IPC 和交错快照。 */
+  /**
+   * 每批同条 SQL 读取最新与已读水位；readSeqs 仅缩短自己发言的扫描区间，
+   * 不改写返回的 QQ 原始水位，也不替代缺失水位的实时计数。
+   */
   async getUnreadInfos(
     targets: UnreadInfoTarget[],
     self?: { selfUid: string; selfUin: string },
+    readSeqs?: ReadonlyMap<string, string>,
   ): Promise<UnreadInfoSnapshot[]> {
     const unique = [...new Map(targets.map((t) => [`${t.chatType}_${t.uid}`, t])).values()];
     const result: UnreadInfoSnapshot[] = [];
@@ -179,7 +183,11 @@ export class UnreadInfoDb {
         batch.flatMap((t) => [t.chatType, t.uid, `${t.chatType}_${t.uid}`]),
       );
       databaseRequestSignal()?.throwIfAborted();
-      const candidates: Array<{ snapshot: UnreadInfoSnapshot; partition: string | null }> = [];
+      const candidates: Array<{
+        snapshot: UnreadInfoSnapshot;
+        partition: string | null;
+        afterSeq: string;
+      }> = [];
       for (const row of rows) {
         const bytes = row[3];
         const identity = {
@@ -197,13 +205,24 @@ export class UnreadInfoDb {
             highlights: highlights.length ? highlights : undefined,
           };
           result.push(snapshot);
+          const localRead = readSeqs?.get(snapshot.peer);
+          const afterSeq =
+            localRead !== undefined &&
+            /^\d{1,20}$/.test(localRead) &&
+            BigInt(localRead) > BigInt(snapshot.msgSeq ?? 0)
+              ? localRead
+              : String(snapshot.msgSeq ?? 0);
           if (
             self &&
             snapshot.msgSeq !== undefined &&
             snapshot.latestSeq !== null &&
-            BigInt(snapshot.latestSeq) > BigInt(snapshot.msgSeq)
+            BigInt(snapshot.latestSeq) > BigInt(afterSeq)
           )
-            candidates.push({ snapshot, partition: row[5] == null ? null : String(row[5]) });
+            candidates.push({
+              snapshot,
+              partition: row[5] == null ? null : String(row[5]),
+              afterSeq,
+            });
         } catch {
           result.push({ ...identity, readError: true });
         }
@@ -215,7 +234,11 @@ export class UnreadInfoDb {
 
   /** 索引分区分页读取轻量列，让首屏能在统计页之间进入同库队列。 */
   private async loadOutgoingSequences(
-    candidates: Array<{ snapshot: UnreadInfoSnapshot; partition: string | null }>,
+    candidates: Array<{
+      snapshot: UnreadInfoSnapshot;
+      partition: string | null;
+      afterSeq: string;
+    }>,
     self: { selfUid: string; selfUin: string },
   ): Promise<void> {
     for (const kind of ['group', 'direct', 'direct-fallback'] as const) {
@@ -228,13 +251,14 @@ export class UnreadInfoDb {
       if (!targets.length) continue;
       const group = kind === 'group';
       if (kind !== 'direct-fallback') {
-        for (const { snapshot, partition } of targets) {
+        for (const { snapshot, partition, afterSeq } of targets) {
           databaseRequestSignal()?.throwIfAborted();
           await this.loadOutgoingPartition(
             snapshot,
             group ? snapshot.uid : partition!,
             group,
             self,
+            afterSeq,
           );
         }
         continue;
@@ -253,10 +277,10 @@ export class UnreadInfoDb {
            AND m."40003" <= CAST(t.latestSeq AS INTEGER)
          WHERE ${direction} ORDER BY t.idx, m."40003"`,
         [
-          ...targets.flatMap(({ snapshot, partition }, index) => [
+          ...targets.flatMap(({ snapshot, partition, afterSeq }, index) => [
             index,
             group || kind === 'direct-fallback' ? snapshot.uid : partition!,
-            String(snapshot.msgSeq),
+            afterSeq,
             snapshot.latestSeq!,
           ]),
           ...(group ? [self.selfUid, self.selfUid, self.selfUin, self.selfUin] : []),
@@ -273,13 +297,13 @@ export class UnreadInfoDb {
     partition: string,
     group: boolean,
     self: { selfUid: string; selfUin: string },
+    afterSeq: string,
   ): Promise<void> {
     const table = group ? 'group_msg_table' : 'c2c_msg_table';
     const direction = group
       ? `((? != '' AND m."40020" = ?) OR (CAST(? AS INTEGER) > 0 AND m."40033" = CAST(? AS INTEGER)))`
       : `m."40020" != '' AND m."40020" != m."40021"`;
     const outgoing = new Set<string>();
-    let afterSeq = String(snapshot.msgSeq);
     const latest = BigInt(snapshot.latestSeq!);
     let cursor: [bigint, bigint] | undefined;
     for (;;) {

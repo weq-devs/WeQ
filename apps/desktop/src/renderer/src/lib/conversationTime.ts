@@ -1,3 +1,12 @@
+/**
+ * 手表的“今天 HH:mm”格式化器。放在模块级：会话列表每行都会调用，逐行新建
+ * Intl 实例既浪费又会让翻页时出现可感知的分配抖动。
+ */
+const hourMinute = new Intl.DateTimeFormat('zh-CN', {
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
 const beijing = new Intl.DateTimeFormat('sv-SE', {
   timeZone: 'Asia/Shanghai',
   year: 'numeric',
@@ -8,7 +17,7 @@ const beijing = new Intl.DateTimeFormat('sv-SE', {
   hourCycle: 'h23',
 });
 
-/** 会话列表统一规则：今天显示时分，昨天显示“昨天”，一周内显示星期，更早显示年月日。 */
+/** 会话列表统一规则：今天显示时分，昨天显示“昨天 时分”，一周内显示星期，更早显示年月日。 */
 export function formatConversationTime(value: string | undefined, now = new Date()): string {
   const date = value ? new Date(value) : null;
   if (!date || !Number.isFinite(date.getTime())) return '';
@@ -17,12 +26,9 @@ export function formatConversationTime(value: string | undefined, now = new Date
   const dayDiff = Math.floor((startOfDay(now) - startOfDay(date)) / 86400000);
 
   if (dayDiff <= 0) {
-    return new Intl.DateTimeFormat('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(date);
+    return hourMinute.format(date);
   }
-  if (dayDiff === 1) return '昨天';
+  if (dayDiff === 1) return `昨天 ${hourMinute.format(date)}`;
   if (dayDiff < 7) {
     return ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][date.getDay()]!;
   }

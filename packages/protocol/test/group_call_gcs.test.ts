@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { encode } from '../src/protobuf';
+import { resolveSign } from '../src/sign-policy';
 import {
   GROUP_GCS_ETX,
   GROUP_GCS_STX,
@@ -226,7 +227,7 @@ describe('SsoMultiTerminalSync', () => {
   });
 
   it('不签名', () => {
-    expect(MultiTerminalSync.needSign).toBe(false);
+    expect(resolveSign(MultiTerminalSync.cmd).needSign).toBe(false);
   });
 
   it('应答是空 body', () => {

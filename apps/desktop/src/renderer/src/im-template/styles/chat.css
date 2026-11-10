@@ -383,6 +383,16 @@ html[data-theme='dark'] .weq-chat-backdrop {
   white-space: nowrap;
 }
 
+.chat-status-desktop {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.chat-status-mobile {
+  display: none;
+}
+
 .chat-actions {
   display: flex;
   align-items: center;
@@ -442,7 +452,9 @@ html[data-theme='dark'] .weq-chat-backdrop {
   flex-direction: column;
   gap: 18px;
   padding: 26px 10px 20px 24px;
-  overflow: auto;
+  /* 头像挂件等装饰可伸出消息行，但不应让整个消息区横向滚动。 */
+  overflow-x: hidden;
+  overflow-y: auto;
   overscroll-behavior: contain;
   /* 滑块常驻可见 — 不再依赖 hover/transition (避免翻页时 Chromium 把滑块绘制层丢弃)。 */
   scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
@@ -450,6 +462,11 @@ html[data-theme='dark'] .weq-chat-backdrop {
   scrollbar-gutter: stable;
   /* Transparent — the gradient is painted once on .chat-main behind this. */
   background: transparent;
+}
+
+.message-scroll:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  outline-offset: -2px;
 }
 
 .message-scroll::-webkit-scrollbar {
@@ -622,6 +639,31 @@ html[data-theme='dark'] .weq-chat-backdrop {
   gap: 10px;
 }
 
+/* 键盘把焦点落到某条消息时，只给气泡/正文描边，不整行拉一条通栏轮廓。 */
+.message-line:focus-visible {
+  outline: none;
+}
+
+.message-line:focus-visible .message-content {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: 2px;
+}
+
+.message-line:focus-visible .message-avatar-button {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: 1px;
+}
+
+.weq-system-message-row:focus-visible {
+  outline: none;
+}
+
+.weq-system-message-row:focus-visible .weq-system-message-content {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 .message-line.mine {
   justify-content: flex-end;
 }
@@ -728,8 +770,8 @@ html[data-theme='dark'] .weq-qqshow-avatar img {
   margin: 4px 0;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.34);
-  color: #a8a8a8;
+  background: color-mix(in srgb, var(--weq-bg-surface, #ffffff) 34%, transparent);
+  color: var(--weq-fg-secondary);
   font-size: 11px;
   font-weight: 400;
   line-height: 1.25;
@@ -738,6 +780,7 @@ html[data-theme='dark'] .weq-qqshow-avatar img {
 
 .message-bubble {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   max-width: 75%;
   gap: 5px;
@@ -792,7 +835,7 @@ html[data-theme='dark'] .weq-qqshow-avatar img {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: #9a9a9a;
+  color: var(--weq-fg-secondary);
   font-size: 13px;
   font-weight: 500;
 }
@@ -1709,28 +1752,18 @@ html[data-theme='dark'] .avatar-context-submenu {
   justify-content: flex-start;
 }
 
-/* 「已退群」入口：贴在成员标题行右侧，低饱和的幽灵按钮，主题色 / 深浅模式自动跟随。 */
-.group-info-left-members-button {
+/* 成员列表工具并列，复用侧栏图标按钮的主题与交互状态。 */
+.group-info-member-actions {
   display: inline-flex;
   margin-left: auto;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
-  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
-  color: var(--weq-accent-effective);
-  font-size: 11px;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    background-color 160ms ease,
-    border-color 160ms ease;
+  flex: none;
 }
-
-.group-info-left-members-button:hover {
-  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
-  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+.group-info-member-actions .icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
 }
 
 /* 已退群列表：贴在群资料灯箱的同一套外壳里，列表自己滚动。 */

@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -63,11 +64,7 @@ func run() error {
 	defer cancel()
 	// 父进程退出或管道关闭时结束，不遗留独立节点进程。
 	go func() { _, _ = io.Copy(io.Discard, os.Stdin); cancel() }()
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	proxy.Transport = &http.Transport{Proxy: nil, MaxIdleConns: 4, IdleConnTimeout: 30 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
-	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
-		http.Error(w, "backend unavailable", http.StatusBadGateway)
-	}
+	proxy := newBackendProxy(target)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 后端对配对和 Web 分别鉴权；允许 WebSocket、媒体 Range 及正常 Web 方法。
 		r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
@@ -190,4 +187,20 @@ func run() error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func newBackendProxy(target *url.URL) *httputil.ReverseProxy {
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	// 仅限制建连与空闲连接；业务等待随请求取消，不截断慢查询和订阅。
+	proxy.Transport = &http.Transport{
+		Proxy:               nil,
+		DialContext:         (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		MaxIdleConns:        32,
+		MaxIdleConnsPerHost: 8,
+		IdleConnTimeout:     90 * time.Second,
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
+		http.Error(w, "backend unavailable", http.StatusBadGateway)
+	}
+	return proxy
 }

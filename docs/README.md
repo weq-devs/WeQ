@@ -33,6 +33,7 @@ NTQQ 各数据库的表结构与字段解析，全部依据 WeQ 自己的解析�
 - [开发者入口](./develop/index.md)
 - [统一导出格式与内容范围（待实现）](./develop/export-format/README.md)
 - [Web 服务与手机连接](./guide/remote-web.md)
+- [本机浏览器与 Remote 入口解耦](./develop/web-remote-entry-decoupling-20261109.md)
 - [OneBot / cc-connect](./guide/onebot-cc-connect.md)
 - [后台服务与关闭/退出行为](./develop/background-services-close-behavior-20261030.md)
 - [WeQ Remote 仓库边界](./develop/remote-repository-split-20261023.md)

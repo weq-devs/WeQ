@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  isAdhocSignature,
+  MAC_RELEASE_REQUIREMENT,
   MAC_BUNDLE_ID,
   MAC_STAGE_PREFIX,
   macAppBundle,
@@ -90,11 +90,6 @@ describe('macOS 更新可信来源', () => {
     draft: false,
     prerelease: false,
     assets: [{ name, state: 'uploaded', digest: `sha256:${sha256}`, size: 3 }],
-  });
-  it('识别真正的 ad-hoc 签名，不把其他签名或错误当成 ad-hoc', () => {
-    expect(isAdhocSignature('Identifier=app.weq.desktop\nSignature=adhoc\n')).toBe(true);
-    expect(isAdhocSignature('Authority=Developer ID Application\nTeamIdentifier=TEST')).toBe(false);
-    expect(isAdhocSignature('code object is not signed at all')).toBe(false);
   });
   it('只接受官方同版本、同架构、已上传资产的 SHA-256', () => {
     expect(officialMacArchive(release(), version, name)).toEqual({
@@ -228,7 +223,14 @@ describe('macOS 退出后原位替换', () => {
     expect(await readFile(join(plan.staging, 'previous.app', 'version'), 'utf8')).toBe('old');
     expect(fixture.run).toHaveBeenCalledWith(
       '/usr/bin/codesign',
-      ['--verify', '--deep', '--strict', join(plan.staging, 'weQ.app')],
+      [
+        '--verify',
+        '--deep',
+        '--strict',
+        '-R',
+        `=${MAC_RELEASE_REQUIREMENT}`,
+        join(plan.staging, 'weQ.app'),
+      ],
       { timeout: 120_000 },
     );
     expect(fixture.run).toHaveBeenCalledWith('/usr/bin/lipo', [
@@ -246,6 +248,19 @@ describe('macOS 退出后原位替换', () => {
     const plan = await planFixture();
     fixture.run.mockRejectedValueOnce(new Error('签名损坏'));
     await expect(replaceMacApp(plan)).rejects.toThrow('签名损坏');
+    expect(fixture.rename).not.toHaveBeenCalled();
+    expect(await readFile(join(plan.target, 'version'), 'utf8')).toBe('old');
+  });
+  it('候选包不满足固定证书时拒绝，不信任来自安装计划的替代 requirement', async () => {
+    const plan = await planFixture();
+    const run = fixture.run.getMockImplementation();
+    fixture.run.mockImplementation(async (command, args, options) => {
+      if (command === '/usr/bin/codesign' && args.includes('-R')) throw new Error('发布证书不匹配');
+      return run?.(command, args, options);
+    });
+    await expect(
+      replaceMacApp({ ...plan, requirement: 'identifier "untrusted"' } as MacUpdatePlan),
+    ).rejects.toThrow('发布证书');
     expect(fixture.rename).not.toHaveBeenCalled();
     expect(await readFile(join(plan.target, 'version'), 'utf8')).toBe('old');
   });

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -26,6 +27,7 @@ vi.mock('../src/main/context/app_context', () => {
     messageSend: { sendElements: f.sendElements },
   };
   return {
+    accountEventBus: new EventEmitter(),
     getAppContext: () => ({
       account: { context: { uin: '10001' } },
       services: f.switched ? { ...services } : services,

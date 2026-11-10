@@ -1,0 +1,141 @@
+import { act, createElement as h } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, expect, it, vi } from 'vitest';
+import { ContactTaskStages } from '../src/renderer/src/components/tasks/ContactTaskStages';
+import type { BackgroundTask } from '../src/shared/background_task';
+import { LongTaskRow } from '../src/renderer/src/components/tasks/LongTaskRow';
+import { StageRow } from '../src/renderer/src/views/export/TaskList';
+import { renderToStaticMarkup } from 'react-dom/server';
+
+const cleanups: Array<() => void> = [];
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
+  vi.unstubAllGlobals();
+});
+
+function mount() {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const onShowFailures = vi.fn();
+  const task: BackgroundTask = {
+    id: 'synthetic-refresh',
+    kind: 'contacts',
+    name: '更新好友/群信息缓存',
+    status: 'running',
+    startedAt: 1,
+    updatedAt: 1,
+    actions: [],
+    subtasks: [
+      { label: '好友', done: 1, total: 4, failed: 0 },
+      { label: '群聊', done: 3, total: 6, failed: 0 },
+    ],
+  };
+  const logs = [
+    { ts: 1, seq: 1, stage: 'friends', level: 'info' as const, text: '好友合成日志' },
+    { ts: 2, seq: 2, stage: 'groups', level: 'error' as const, text: '失败：群聊合成错误' },
+  ];
+  const render = (patch: Partial<BackgroundTask> = {}) =>
+    act(() =>
+      root.render(h(ContactTaskStages, { task: { ...task, ...patch }, logs, onShowFailures })),
+    );
+  cleanups.push(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+  return { host, task, render, onShowFailures };
+}
+
+it('好友和群聊复用导出子任务样式，分别显示进度并独立完成', () => {
+  const { host, render } = mount();
+  render();
+  const stages = host.querySelectorAll('.weq-exp-detail-stage');
+  expect(stages).toHaveLength(2);
+  expect(
+    [...host.querySelectorAll('.weq-exp-detail-stage-pct')].map((node) => node.textContent),
+  ).toEqual(['25%', '50%']);
+  expect(host.querySelectorAll('.weq-exp-detail-stage-fill.is-active')).toHaveLength(2);
+  render({
+    subtasks: [
+      { label: '好友', done: 1, total: 4, failed: 0 },
+      { label: '群聊', done: 6, total: 6, failed: 0 },
+    ],
+  });
+  expect(stages[0]?.classList.contains('is-running')).toBe(true);
+  expect(stages[1]?.classList.contains('is-completed')).toBe(true);
+  expect(host.querySelectorAll('.weq-exp-detail-stage-fill.is-active')).toHaveLength(1);
+});
+
+it('分项日志不混用，失败详情只包含对应群聊错误', () => {
+  const { host, render, onShowFailures } = mount();
+  render({
+    subtasks: [
+      { label: '好友', done: 1, total: 4, failed: 0 },
+      { label: '群聊', done: 6, total: 6, failed: 1 },
+    ],
+  });
+  const stages = host.querySelectorAll('.weq-exp-detail-stage');
+  expect(host.querySelectorAll('.weq-exp-log:not(.is-hidden)')).toHaveLength(2);
+  expect(host.querySelectorAll('[role="log"]')).toHaveLength(2);
+  expect(host.querySelectorAll('.weq-exp-log.is-export-scrollable')).toHaveLength(2);
+  expect(host.querySelector('.weq-exp-log.is-scrollable')).toBeNull();
+  expect(stages[0]?.textContent).toContain('好友合成日志');
+  expect(stages[0]?.textContent).not.toContain('群聊合成错误');
+  expect(stages[1]?.textContent).toContain('群聊合成错误');
+  expect(stages[1]?.textContent).not.toContain('好友合成日志');
+  act(() => stages[1]!.querySelector<HTMLButtonElement>('.weq-exp-detail-stage-failures')!.click());
+  expect(onShowFailures).toHaveBeenCalledWith('群聊', [
+    { stage: 'groups', fileName: '群聊', error: '失败：群聊合成错误' },
+  ]);
+});
+
+it('日志默认展开，完成后仍保留，并允许分别手动收起', () => {
+  const { host, render, task } = mount();
+  render();
+  const toggles = host.querySelectorAll<HTMLButtonElement>('.weq-exp-detail-stage-toggle');
+  expect([...toggles].map((node) => node.getAttribute('aria-expanded'))).toEqual(['true', 'true']);
+  act(() => toggles[0]!.click());
+  render({
+    status: 'completed',
+    subtasks: task.subtasks!.map((lane) => ({ ...lane, done: lane.total })),
+  });
+  expect([...toggles].map((node) => node.getAttribute('aria-expanded'))).toEqual(['false', 'true']);
+});
+
+it('联系人任务保留总进度，不影响导出日志的默认行为', () => {
+  const task = {
+    id: 'synthetic',
+    name: '更新好友/群信息缓存',
+    kind: '好友/群信息缓存',
+    status: 'running' as const,
+    progress: 50,
+    icon: null,
+    detail: null,
+  };
+  const row = renderToStaticMarkup(h(LongTaskRow, { task, active: false, onSelect: () => {} }));
+  expect(row).toContain('<progress');
+  expect(row).toContain('50%');
+  const stage = renderToStaticMarkup(
+    h(StageRow, {
+      stage: { key: 'message', label: '消息', status: 'running', current: 1, total: 2 },
+      logs: [],
+      onShowFailures: () => {},
+    }),
+  );
+  expect(stage).toContain('aria-expanded="false"');
+});
+
+it.each(['paused', 'cancelled', 'failed'] as const)('%s 时停止未完成子任务动画', (status) => {
+  const { host, render } = mount();
+  render({ status });
+  expect(host.querySelectorAll('.weq-exp-detail-stage-fill.is-active')).toHaveLength(0);
+});
+
+it('空分项显示跳过，不伪造进度；准备阶段没有分项时不显示空容器', () => {
+  const { host, render } = mount();
+  render({ subtasks: [{ label: '群聊', done: 0, total: 0, failed: 0 }] });
+  expect(host.querySelector('.weq-exp-detail-stage.is-skipped')).not.toBeNull();
+  render({ subtasks: undefined });
+  expect(host.querySelector('.weq-exp-detail-stages')).toBeNull();
+});

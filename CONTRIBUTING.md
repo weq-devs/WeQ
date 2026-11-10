@@ -59,12 +59,15 @@ pnpm lint         # Biome 代码规范检查
 pnpm format:check # Biome 格式检查
 pnpm typecheck    # 类型检查（CI 强制，不通过会被拦截）
 pnpm test         # 有界并发的全量单测（含 @weq/web），汇总所有失败
-pnpm test:fail-fast # 全量范围，首个失败后尽早停止（CI 使用）
+pnpm test:fail-fast # 本地全量范围，首个失败后尽早停止
 pnpm test:changed # 日常只跑改动相关的 Vitest 测试；Web 仍跑完整服务端断言
 pnpm check        # Biome 的 lint + format 汇总检查
 pnpm --filter @weq/web build
 
 ```
+
+Actions 将 desktop / service 全量测试分片并行，其余包及 Web 服务端断言独立运行，
+由 `test` 汇总全部结果。分片复现和报告说明见[测试约定](./docs/develop/testing.md#ci-分片)。
 
 > 桌面端打包（`electron-vite build` + `electron-builder`）不在 PR 门禁里，
 > 由 release 流水线兜底。改动打包链路时本地用

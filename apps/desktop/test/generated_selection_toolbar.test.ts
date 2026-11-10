@@ -13,9 +13,10 @@ import {
   useContentExportRequest,
 } from '../src/renderer/src/state/contentSelection';
 
-const copied = vi.hoisted(() => vi.fn(async (_value: string) => true));
-vi.mock('../src/renderer/src/im-template/template/clipboard', () => ({
-  copyTextToClipboard: copied,
+const copied = vi.hoisted(() => vi.fn(async (_value: { text: string; html: string }) => true));
+vi.mock('../src/renderer/src/lib/mentionClipboard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/lib/mentionClipboard')>()),
+  writeMentionClipboard: copied,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => import('./browser/clone-conversation.stub'));
 afterEach(() => {
@@ -154,7 +155,7 @@ it.each(['persona', 'group'] as const)(
           .find((item) => item.textContent === '纯文本')!
           .click(),
       );
-      const text = copied.mock.calls.at(-1)?.[0] ?? '';
+      const text = copied.mock.calls.at(-1)?.[0]?.text ?? '';
       expect(text).toContain('第一条');
       expect(text).toContain('第二条');
       expect(text).not.toContain('未选消息');

@@ -24,6 +24,7 @@
 import { BrowserWindow, ipcMain, nativeTheme, session } from 'electron';
 import { accountConfigId, fetchWebTokens, getLogger, logErrorContext } from '@weq/service';
 import { getAppContext } from './context/app_context';
+import { windowDecorationOptions, installWindowControls } from './window_controls';
 
 const CHANNEL_URL = 'https://pd.qq.com/';
 /** Domain the channel p_skey is minted for (`ptFetchCredentials` argument). */
@@ -112,6 +113,7 @@ async function openChannelWindow(): Promise<void> {
     minHeight: 480,
     title: 'QQ 频道',
     autoHideMenuBar: true,
+    ...windowDecorationOptions(),
     backgroundColor: '#ffffff',
     webPreferences: {
       // Per-account, on-disk cookie jar — the whole point of the feature.
@@ -122,6 +124,7 @@ async function openChannelWindow(): Promise<void> {
       // privileged bridge out of its reach.
     },
   });
+  installWindowControls(win);
   channelWindows.set(partition, win);
   win.on('closed', () => {
     if (channelWindows.get(partition) === win) channelWindows.delete(partition);
@@ -129,7 +132,13 @@ async function openChannelWindow(): Promise<void> {
 
   // QQ 登录 (扫码 / 快捷登录) flows open child popups — allow them so the popup
   // shares this partition and its cookies land in the same per-account jar.
-  win.webContents.setWindowOpenHandler(() => ({ action: 'allow' }));
+  win.webContents.setWindowOpenHandler(() => ({
+    action: 'allow',
+    overrideBrowserWindowOptions: windowDecorationOptions(),
+  }));
+  win.webContents.on('did-create-window', (child, details) =>
+    installWindowControls(child, details.options.frame === false),
+  );
 
   // Seed login cookies before the first navigation so the very first request to
   // pd.qq.com already carries them. Failures are non-fatal — fall back to the

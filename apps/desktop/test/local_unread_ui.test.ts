@@ -12,7 +12,10 @@ it('设备未读目标不归一成好友，兼容普通与临时私聊', () => {
 
 it('列表与跳转使用同一服务端结果，不再把缺失水位替换为零', () => {
   const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
-  expect(source.includes('counts[info.uid] = info.unreadCount ?? 0')).toBe(true);
+  expect(source.includes('const count = row.unreadCount ?? 0')).toBe(true);
+  expect(
+    source.includes('!row.readError && !row.countPending && guard.accepts(row.uid, startedAt)'),
+  ).toBe(true);
   expect(source.includes('const readSeq = info.readSeq ?? null')).toBe(true);
   expect(source.includes('const unread = info.unreadCount ?? 0')).toBe(true);
   expect(source.includes('const unread = latest > read ? Number(latest - read) : 0')).toBe(false);

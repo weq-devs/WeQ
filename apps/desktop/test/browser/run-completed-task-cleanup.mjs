@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -6,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { mkdir } from 'node:fs/promises';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const { chromium, webkit } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const output = process.env.WEQ_STYLE_ARTIFACTS;
 const server = await createServer({
   configFile: false,
@@ -32,7 +33,7 @@ const server = await createServer({
 let browser;
 try {
   await server.listen();
-  browser = await chromium.launch({
+  browser = await (process.env.WEQ_BROWSER_ENGINE === 'webkit' ? webkit : chromium).launch({
     headless: true,
     ...(process.env.WEQ_BROWSER_EXECUTABLE
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
@@ -48,6 +49,46 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/completed-task-cleanup.html`,
   );
   if (output) await mkdir(output, { recursive: true });
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await page.getByRole('button', { name: '打开任务菜单', exact: true }).click();
+  // 保留真实入场动画，等待其完成后检查可见性和命中层级。
+  await page
+    .locator('.weq-workspace-menu')
+    .getByRole('button', { name: '清除已结束任务', exact: true })
+    .click();
+  const menuDialog = page.getByRole('dialog', { name: '清除已结束任务', exact: true });
+  await page.waitForFunction(
+    () => {
+      const dialog = document.querySelector('.weq-message-modal');
+      return (
+        dialog &&
+        getComputedStyle(dialog).opacity === '1' &&
+        getComputedStyle(dialog.parentElement).opacity === '1'
+      );
+    },
+    undefined,
+    { timeout: 3000 },
+  );
+  assert.deepEqual(
+    await menuDialog.evaluate((element) => ({
+      opacity: getComputedStyle(element).opacity,
+      layerOpacity: getComputedStyle(element.parentElement).opacity,
+    })),
+    { opacity: '1', layerOpacity: '1' },
+  );
+  assert.equal(
+    await menuDialog.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return element.contains(
+        document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2),
+      );
+    }),
+    true,
+    '确认框必须位于任务菜单之上',
+  );
+  if (output) await page.screenshot({ path: resolve(output, 'task-cleanup-menu-visible.png') });
+  await menuDialog.getByRole('button', { name: '保留', exact: true }).click({ timeout: 3000 });
+  await page.keyboard.press('Escape');
   for (const [dark, width, accent] of [
     [false, 1000, '#075c30'],
     [true, 1000, '#fff3a1'],
@@ -57,9 +98,9 @@ try {
     await page.setViewportSize({ width, height: 800 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.evaluate(([dark, accent]) => window.cleanupTheme(dark, accent), [dark, accent]);
-    await page.getByRole('button', { name: '清除已完成任务', exact: true }).click();
-    await page.getByText('确定清除 1 项已完成任务？', { exact: false }).waitFor();
-    await page.getByText('其中 1 项导出尚未保存', { exact: false }).waitFor();
+    await page.getByRole('button', { name: '清除已结束任务', exact: true }).click();
+    await page.getByText('确定清除 3 项已结束任务？', { exact: false }).waitFor();
+    await page.getByText('其中 2 项导出尚未保存', { exact: false }).waitFor();
     const overflow = await page.evaluate(() =>
       [...document.querySelectorAll('button,[role="dialog"]')].some((element) => {
         const rect = element.getBoundingClientRect();
@@ -77,11 +118,32 @@ try {
       });
     await page.getByRole('button', { name: '保留', exact: true }).click();
     await page
-      .getByRole('button', { name: '清除已完成任务', exact: true })
+      .getByRole('button', { name: '清除已结束任务', exact: true })
       .waitFor({ state: 'visible' });
+    for (const name of ['信息提示', '错误提示']) {
+      // 真实点击右下角入口，验证提示不沿用触发点，也不退回靠右浮层布局。
+      await page.getByRole('button', { name, exact: true }).click();
+      const dialog = page.getByRole('dialog');
+      await dialog.waitFor();
+      const bounds = await dialog.boundingBox();
+      assert.ok(Math.abs(bounds.x + bounds.width / 2 - width / 2) <= 1, '提示水平居中');
+      assert.ok(Math.abs(bounds.y + bounds.height / 2 - 400) <= 1, '提示垂直居中');
+      assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, '窄屏提示不溢出');
+      assert.equal(await dialog.getAttribute('aria-modal'), null, '信息提示保持非模态');
+      if (output)
+        await page.screenshot({
+          path: resolve(output, `task-cleanup-${name}-${dark ? 'dark' : 'light'}-${width}.png`),
+        });
+      await page.getByRole('button', { name: '我知道了', exact: true }).click();
+      await dialog.waitFor({ state: 'detached' });
+      await page.getByRole('button', { name, exact: true }).click();
+      await dialog.waitFor();
+      await page.mouse.click(4, 400);
+      await dialog.waitFor({ state: 'detached' });
+    }
   }
   if (errors.length) throw new Error(errors.join('\n'));
-  console.log('任务清除：4 组深浅主题、主题色及桌面/窄屏确认框检查通过');
+  console.log('任务清除：4 组深浅主题、主题色、桌面/窄屏确认框及信息/错误提示居中与关闭检查通过');
 } finally {
   await browser?.close();
   await server.close();

@@ -1,0 +1,77 @@
+/* Esc 关闭浮层后的焦点归还不代表开始键盘导航；指针模式只隐藏按钮外圈，
+ * 不清除焦点，也不覆盖按钮自身的边框、阴影或 Tab 导航时的焦点样式。 */
+html:root[data-theme][data-weq-input-modality='pointer'] body
+  :is(
+    button,
+    [role='button'],
+    input:is([type='button'], [type='submit'], [type='reset'], [type='image'])
+  ):focus {
+  outline: none;
+}
+
+/* 文本控件沿用自身或容器的边框反馈，不在内层再叠系统/页面焦点外圈。
+ * 原生勾选、滑块、颜色和文件控件仍保留各自的键盘焦点提示。 */
+html[data-theme] body
+  :is(
+    input:where(
+      :not(
+        [type='checkbox'],
+        [type='radio'],
+        [type='range'],
+        [type='color'],
+        [type='file'],
+        [type='button'],
+        [type='submit'],
+        [type='reset'],
+        [type='image']
+      )
+    ),
+    textarea,
+    select
+  ):is(:focus, :focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+
+html[data-theme]
+  body
+  :is(
+    input:where(:not([type])),
+    input:where(
+      [type='text'],
+      [type='search'],
+      [type='password'],
+      [type='email'],
+      [type='url'],
+      [type='tel'],
+      [type='number'],
+      [type='date'],
+      [type='time'],
+      [type='datetime-local'],
+      [type='month'],
+      [type='week']
+    ),
+    textarea,
+    select
+  ):where(:not(.is-error, [aria-invalid='true'])):focus {
+  border-color: var(--weq-accent-effective);
+}
+
+/* 焦点提示的补充：文本控件不叠系统外圈，但下面这些位置原先连边框变化都
+ * 没有（主输入框透明无边框、默认皮肤搜索框靠容器，没有 focus-within 样式），
+ * 键盘操作时看不到焦点。这里只补可见焦点，不改变鼠标/静止外观。 */
+/* 只在键盘操作后显示主输入框焦点环：鼠标点选 / 打开会话的自动聚焦保持原样。 */
+html[data-theme][data-weq-input-modality='keyboard'] body .composer-editor:focus-visible {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+html[data-theme][data-weq-input-modality='keyboard'] body .search-box:has(input:focus-visible) {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+}
+
+/* QQ NT 预设本来就有 focus-within 边框，再加一圈会糊，保持它自己的样式。 */
+html[data-component-style='qqnt'] body .search-box:has(input:focus-visible) {
+  box-shadow: none;
+}

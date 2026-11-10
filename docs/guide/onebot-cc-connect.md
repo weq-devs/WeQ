@@ -20,7 +20,7 @@ WeQ 可以提供多个 OneBot v11 正向 WebSocket 与 HTTP API 服务器，直�
 type = "qq"
 
 [projects.platforms.options]
-ws_url = "ws://127.0.0.1:48766"
+ws_url = "ws://127.0.0.1:48800"
 token = "替换为 WeQ 页面生成的访问令牌"
 allow_from = "填写你的 QQ 号"
 group_require_mention = true
@@ -28,8 +28,10 @@ group_require_mention = true
 
 保留原通道的其他会话配置。旧 `http_url` 指向 NapCat 时应删除；此接口的发送操作走同一个 WebSocket。
 WeQ 与 cc-connect 需要运行在同一台电脑。服务器固定监听 `127.0.0.1`，
-默认 WS 端口为 `48766`。每个 WS / HTTP 服务器都有独立开关、端口和访问令牌，可以同时运行；
-端口被占用时会自动顺延到附近空闲端口，卡片会显示实际监听地址。
+新建 WS 默认端口为 `48800`，HTTP 为 `48840`；已有配置保留原端口，不自动迁移。
+每个 WS / HTTP 服务器都有独立开关、端口和访问令牌，可以同时运行；端口被占用时最多
+尝试 20 个候选端口，自动避开其他服务的预留范围及本次启动的其他服务器指定端口，卡片
+会显示实际监听地址。外部客户端应使用卡片上的实际地址，而不是直接照抄默认端口。
 
 ## HTTP API
 
@@ -37,12 +39,12 @@ WeQ 与 cc-connect 需要运行在同一台电脑。服务器固定监听 `127.0
 
 ```sh
 curl -H 'Authorization: Bearer 替换为页面令牌' \
-  'http://127.0.0.1:48767/get_login_info'
+  'http://127.0.0.1:48840/get_login_info'
 
 curl -H 'Authorization: Bearer 替换为页面令牌' \
   -H 'Content-Type: application/json' \
   -d '{"group_id":12345,"message":"hello"}' \
-  'http://127.0.0.1:48767/send_msg'
+  'http://127.0.0.1:48840/send_msg'
 ```
 
 令牌也可以通过 `?access_token=` 传入。GET 使用查询参数，POST 使用 JSON 请求体；

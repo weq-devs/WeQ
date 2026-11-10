@@ -14,7 +14,8 @@
 import { z } from 'zod';
 import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
 import { withDatabaseRequest } from '@weq/db';
-import { clearCompletedTasks } from './clear_completed_tasks';
+import { clearFinishedTasks } from './clear_finished_tasks';
+import { cardDisplayNames } from './card_display_names';
 import { readContactSpecialCare } from './contact_special_care';
 import { startFlashDownloads } from './flash_save';
 import { FileUploadStaging } from './album_video_staging';
@@ -88,6 +89,7 @@ import {
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { createQQWriteRouter } from './qq_write';
+import { createContactMetricsRouter } from './contact_metrics';
 import { createQQActionsRouter } from './qq_actions';
 import { dbExplorerRouter } from './db_explorer';
 import { annualReportRouter } from './annual_report';
@@ -104,6 +106,8 @@ import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
 import { mediaSaveRouter } from './media_save';
 import { resourceCleanupRouter } from './resource_cleanup';
+import { conversationCalendarRouter } from './conversation_calendar';
+import { roamingMsgToWire } from '../roaming_message_wire';
 import { dressupRouter } from './dressup';
 import { redpackRouter } from './redpack';
 import { giftMallRouter } from './gift_mall';
@@ -150,7 +154,6 @@ import {
   type RenderC2cMsg,
   type RenderGroupMsg,
   type MessagePageOptions,
-  type GapFetchedMessage,
 } from '@weq/service';
 import {
   buddyRequestToWire,
@@ -760,11 +763,6 @@ export interface GroupFileExportResult {
   total: number;
   ok: number;
   failed: Array<{ fileId: string; fileName: string; error: string }>;
-}
-
-function roamingMsgToWire(row: GapFetchedMessage): ChatMsgWire {
-  const { nativeRaw: _nativeRaw, protocolRaw: _protocolRaw, ...wire } = row;
-  return { ...wire, source: 'roaming', msgRandom: row.msgRandom ?? '' };
 }
 
 /** Merge an offline cache page using the same cursor and ordering as the local page. */
@@ -1757,6 +1755,15 @@ const browserFiles = new FileUploadStaging(30 * 60000, {
 });
 
 export const accountRouter = router({
+  contactMetrics: createContactMetricsRouter((input) => {
+    const runtime = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    ).contactDirectory;
+    if (!runtime) throw new Error('好友/群信息缓存尚未就绪');
+    return runtime;
+  }),
+  calendarOverview: conversationCalendarRouter,
   onWebNotice: procedure.input(browserFileBinding).subscription(({ input }) => {
     const services = requireExpectedAccount(
       input.expectedAccountUin,
@@ -2993,23 +3000,39 @@ export const accountRouter = router({
     .input(
       z.object({
         peerUid: z.string().min(1),
+        anchorId: z
+          .string()
+          .regex(/^-?\d+$/)
+          .optional(),
         limit: z.number().int().min(1).max(500).default(100),
       }),
     )
     .query(async ({ input }) => {
-      const msgs = await requireServices().officialAccount.listArkFeed(input.peerUid, input.limit);
+      const msgs = await requireServices().officialAccount.listArkFeed(
+        input.peerUid,
+        input.limit,
+        input.anchorId,
+      );
       return msgs.map(c2cMsgToWire);
     }),
 
   /** 服务号单个会话 ARK 消息流（最近 limit 条）。 */
   listServiceAccountArkFeed: procedure
     .input(
-      z.object({ appId: z.string().min(1), limit: z.number().int().min(1).max(500).default(100) }),
+      z.object({
+        appId: z.string().min(1),
+        limit: z.number().int().min(1).max(500).default(100),
+        anchorId: z
+          .string()
+          .regex(/^-?\d+$/)
+          .optional(),
+      }),
     )
     .query(async ({ input }) => {
       const msgs = await requireServices().serviceAccount.listArkFeed(
         BigInt(input.appId),
         input.limit,
+        input.anchorId,
       );
       return msgs.map(c2cMsgToWire);
     }),
@@ -3798,6 +3821,11 @@ export const accountRouter = router({
       if (String(getAppContext().account?.context.uin) !== input.selfUin)
         throw new Error('账号已切换，请重新读取特别关心。');
       requireQqOnlineForAlbum(services);
+      // 配置标记在线可能早于 SSO 登记；名册与空间取票都必须等同一次登记完成。
+      await getAppContext().ensureOnlineCredentials();
+      if (getAppContext().services !== services)
+        throw new Error('账号已切换，请重新读取特别关心。');
+      requireQqOnlineForAlbum(services);
       const result = await readContactSpecialCare(services);
       if (getAppContext().services !== services)
         throw new Error('账号已切换，请重新读取特别关心。');
@@ -3817,6 +3845,34 @@ export const accountRouter = router({
     const notifies = await requireServices().groupInfo.listGroupNotifies(page.limit, page.offset);
     return notifies.map(groupNotifyToWire);
   }),
+
+  /** 名片专用的云端名称投影；普通资料及会话读取仍只使用本地库。 */
+  getCardDisplayNames: procedure
+    .input(
+      z.object({ kind: z.enum(['user', 'group']), target: z.string().regex(/^[1-9]\d{0,9}$/) }),
+    )
+    .query(async ({ input }) => {
+      const services = requireServices();
+      requireQqOnlineForAlbum(services);
+      const readNick = async () =>
+        (await services.accountWrite.exactProfile(input.kind, input.target)).name;
+      const local =
+        input.kind === 'user' ? await services.profile.getProfileByUin(BigInt(input.target)) : null;
+      const names = local
+        ? await cardDisplayNames(
+            local,
+            readNick,
+            local.isFriend
+              ? async () => (await services.accountWrite.getFriendRemark(local.uid)).remark
+              : undefined,
+          )
+        : { nick: await readNick() };
+      if (requireServices() !== services) throw new Error('账号已切换，请重新读取资料');
+      return {
+        name: names?.nick ?? '',
+        remark: names && 'remark' in names ? names.remark : undefined,
+      };
+    }),
 
   /** Get detailed profile by NT uid. */
   getProfile: procedure.input(z.object({ uid: z.string().min(1) })).query(async ({ input }) => {
@@ -5204,6 +5260,21 @@ export const accountRouter = router({
       return () => {
         dbEventBus.off('changed', handler);
       };
+    });
+  }),
+
+  /** 群成员、名片、角色与群资料所在的群资料库发生变化。 */
+  onGroupInfoChanged: procedure.input(exportAccountBindingInput).subscription(({ input }) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    return observable<{ at: number }>((emit) => {
+      const handler = (change: DbChange): void => {
+        if (getAppContext().services === services) emit.next({ at: change.at });
+      };
+      dbEventBus.on('group-info-changed', handler);
+      return () => dbEventBus.off('group-info-changed', handler);
     });
   }),
 
@@ -7744,8 +7815,8 @@ export const accountRouter = router({
       return requireServices().exportManager.cancelTask(input.taskId);
     }),
 
-  /** 清除确认范围内的已完成任务，绑定账号及配置来源。 */
-  clearCompletedTasks: procedure
+  /** 清除确认范围内的已结束任务（完成/失败/取消），绑定账号及配置来源。 */
+  clearFinishedTasks: procedure
     .input(
       generatedAccountInput.extend({
         exports: z.array(z.string().min(1)),
@@ -7754,7 +7825,7 @@ export const accountRouter = router({
       }),
     )
     .mutation(({ input }) =>
-      clearCompletedTasks(
+      clearFinishedTasks(
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
         input,
       ),

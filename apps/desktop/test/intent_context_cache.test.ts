@@ -1,4 +1,4 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, useLayoutEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
@@ -8,7 +8,9 @@ import {
   type IntentSenseContextValue,
 } from '../src/renderer/src/components/intentSense/context';
 import { IntentSuggestionBar } from '../src/renderer/src/components/intentSense/IntentSuggestionBar';
+import { MessageIntentSense } from '../src/renderer/src/components/intentSense/MessageIntentSense';
 import { DEFAULT_ANALYSIS_CONTEXT_MESSAGES } from '@weq/service/intent-context';
+import type { IntentAnalysisProgress } from '@weq/service';
 
 const fixture = vi.hoisted(() => ({
   status: {
@@ -32,6 +34,7 @@ const fixture = vi.hoisted(() => ({
   callbacks: [] as Array<
     (event: { kind: string; conv: string; results: IntentAnalysis[] }) => void
   >,
+  progressCallbacks: [] as Array<(event: IntentAnalysisProgress) => void>,
   utils: {
     account: {
       intentSense: {
@@ -49,6 +52,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       intentSense: {
         getStatus: { useQuery: () => ({ data: fixture.status }) },
         getSuggestions: { useQuery: fixture.suggestQuery },
+        getSuggestionRound: { useQuery: fixture.suggestQuery },
+        getSuggestionHistory: { useQuery: () => ({ data: [], isLoading: false }) },
       },
     },
   },
@@ -67,6 +72,15 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
           ) => {
             fixture.callbacks.push(observer.onData);
             return { unsubscribe: fixture.unsubscribe };
+          },
+        },
+        onAnalysisProgress: {
+          subscribe: (
+            _input: unknown,
+            observer: { onData: (event: IntentAnalysisProgress) => void },
+          ) => {
+            fixture.progressCallbacks.push(observer.onData);
+            return { unsubscribe: vi.fn() };
           },
         },
       },
@@ -104,6 +118,7 @@ beforeEach(() => {
   fixture.analyze.mockReset().mockResolvedValue(null);
   fixture.unsubscribe.mockClear();
   fixture.callbacks.length = 0;
+  fixture.progressCallbacks.length = 0;
   fixture.suggestQuery.mockReset().mockReturnValue({ data: [], isFetching: false });
   fixture.utils.account.intentSense.getSuggestions.invalidate.mockClear();
   fixture.utils.account.intentSense.getProfile.invalidate.mockClear();
@@ -115,26 +130,45 @@ afterEach(() => {
 
 function renderFixture() {
   let context: IntentSenseContextValue | null = null;
-  function Consumer() {
+  const commits: Array<{ cacheState: string | undefined; animated: number }> = [];
+  function Consumer({ ids }: { ids: string[] }) {
     context = useIntentSenseContext();
-    return h('span', null, context?.getAnalysis('old')?.intent ?? '无缓存');
+    const ref = useRef<HTMLSpanElement>(null);
+    useLayoutEffect(() => {
+      commits.push({
+        cacheState: context?.cacheState,
+        animated: ref.current!.querySelectorAll('.weq-intent-loading-reel').length,
+      });
+    });
+    return h(
+      'span',
+      { ref },
+      context?.getAnalysis('old')?.intent ?? '无缓存',
+      ...ids.map((msgId) =>
+        h(MessageIntentSense, { key: msgId, msgId, bubbleRef: ref, analyzable: true }),
+      ),
+    );
   }
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = (latestMessageId?: string | null, roamingMessageKey?: string) =>
+  const render = (
+    latestMessageId?: string | null,
+    roamingMessageKey?: string,
+    { conv = 'u_peer', ids = [latestMessageId ?? 'old'] }: { conv?: string; ids?: string[] } = {},
+  ) =>
     act(async () =>
       root.render(
         h(
           IntentSenseProvider,
           {
             kind: 'c2c',
-            conv: 'u_peer',
+            conv,
             latestPeerMsgId: null,
             latestMessageId,
             roamingMessageKey,
           } as Parameters<typeof IntentSenseProvider>[0],
-          h(Consumer),
+          h(Consumer, { ids }),
         ),
       ),
     );
@@ -142,8 +176,95 @@ function renderFixture() {
     act(() => root.unmount());
     host.remove();
   });
-  return { render, get: () => context! };
+  return { render, get: () => context!, commits, host };
 }
+
+it('缓存及真实批次延迟返回时，首个提交已有随机动画，结果原位替换', async () => {
+  let finish!: (value: IntentAnalysis[]) => void;
+  fixture.list.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  fixture.ensure.mockImplementation(() => new Promise(() => {}));
+  const f = renderFixture();
+  await f.render('old');
+  expect(f.commits[0]).toEqual({ cacheState: 'loading', animated: 2 });
+  expect(f.host.querySelector('.weq-intent-chips')?.getAttribute('data-intent-state')).toBe(
+    'preparing',
+  );
+  expect(f.get().isPending?.('old')).toBe(false);
+  await act(async () => finish([]));
+  expect(f.get().cacheState).toBe('ready');
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(2);
+  await act(async () =>
+    fixture.progressCallbacks.at(-1)!({
+      kind: 'c2c',
+      conv: 'u_peer',
+      revision: 0,
+      total: 1,
+      completed: 0,
+      failed: 0,
+      pendingIds: ['old'],
+    }),
+  );
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(2);
+  await act(async () =>
+    fixture.callbacks.at(-1)!({ kind: 'c2c', conv: 'u_peer', results: [sample] }),
+  );
+  expect(f.host.querySelectorAll('.weq-intent-pill')).toHaveLength(2);
+  expect(f.host.querySelector('.is-loading')).toBeNull();
+  expect(f.host.querySelector('.weq-intent-chips')?.getAttribute('aria-busy')).toBe('false');
+  expect(fixture.analyze).not.toHaveBeenCalled();
+});
+
+it('历史翻页、获取和漫游补入首次提交即有占位，不扩大分析范围', async () => {
+  fixture.ensure.mockResolvedValue({ analyzed: 0, latestMsgId: 'old' });
+  const f = renderFixture();
+  await f.render('old');
+  const count = fixture.ensure.mock.calls.length;
+  await f.render('old', '', { ids: ['history', 'old'] });
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(2);
+  expect(fixture.ensure).toHaveBeenCalledTimes(count);
+  fixture.ensure.mockResolvedValue({ analyzed: 0, latestMsgId: 'fetched' });
+  await f.render('fetched', '', { ids: ['history', 'old', 'fetched'] });
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(4);
+  await f.render('fetched', 'roaming:protocol:2:77', {
+    ids: ['history', 'roaming:protocol:2:77', 'old', 'fetched'],
+  });
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(6);
+  expect(fixture.analyze).not.toHaveBeenCalled();
+});
+
+it('切换会话后缓存重新读取，旧会话迟到的结果不能结束当前准备态', async () => {
+  let finish!: (value: IntentAnalysis[]) => void;
+  fixture.list.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  fixture.list.mockImplementationOnce(() => new Promise(() => {}));
+  fixture.ensure.mockImplementation(() => new Promise(() => {}));
+  const f = renderFixture();
+  await f.render('old');
+  await f.render('old', '', { conv: 'other' });
+  await act(async () => finish([sample]));
+  expect(f.get().cacheState).toBe('loading');
+  expect(f.get().getAnalysis('old')).toBeUndefined();
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(2);
+});
+
+it('缓存读取失败后保留随机动画，但不误报单条分析在途', async () => {
+  fixture.list.mockRejectedValueOnce(new Error('合成缓存读取失败'));
+  const f = renderFixture();
+  await f.render();
+  expect(f.get().cacheState).toBe('error');
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(2);
+  expect(f.get().isPending?.('old')).toBe(false);
+  expect(f.host.querySelector('.weq-intent-chips')?.getAttribute('aria-busy')).toBe('false');
+});
 
 it('清空缓存版本变化时清除界面旧结果，旧订阅不能把结果插回', async () => {
   const f = renderFixture();
@@ -362,4 +483,105 @@ it('单条分析在途状态逐条通知，结束后停止窄条并标记不可�
   await act(async () => finish(null));
   expect(f.get().isPending?.('pending')).toBe(false);
   expect(f.get().isUnavailable('pending')).toBe(true);
+});
+
+it('批次只标记真实待分析消息，拒收其他会话及旧配置进度', async () => {
+  fixture.ensure.mockImplementation(() => new Promise(() => {}));
+  const f = renderFixture();
+  await f.render('own');
+  const publish = fixture.progressCallbacks.at(-1)!;
+  const event: IntentAnalysisProgress = {
+    kind: 'c2c',
+    conv: 'u_peer',
+    revision: 0,
+    total: 2,
+    completed: 1,
+    failed: 0,
+    pendingIds: ['pending'],
+  };
+  await act(async () => publish(event));
+  expect(f.get().isPending?.('pending')).toBe(true);
+  expect(f.get().isPending?.('outside')).toBe(false);
+  expect(document.body.textContent).toContain('正在分析 1/2');
+  await act(async () => publish({ ...event, conv: 'other', pendingIds: ['outside'] }));
+  expect(f.get().isPending?.('outside')).toBe(false);
+  fixture.status.analysisRevision++;
+  await f.render('own');
+  await act(async () => publish(event));
+  expect(f.get().isPending?.('pending')).toBe(false);
+});
+
+it('批次失败显示可重试状态，成功重试清除失败且保留旧分析', async () => {
+  fixture.ensure.mockResolvedValueOnce({ analyzed: 0, failed: 1, latestMsgId: 'own' });
+  const f = renderFixture();
+  await f.render('own');
+  expect(document.body.textContent).toContain('分析完成 · 成功 0，失败 1');
+  expect(f.get().getAnalysis('old')).toBeDefined();
+  fixture.ensure.mockResolvedValue({ analyzed: 1, failed: 0, latestMsgId: 'own' });
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="重试分析"]')!.click(),
+  );
+  expect(fixture.ensure).toHaveBeenCalledTimes(2);
+  expect(document.body.textContent).not.toContain('分析未完成');
+});
+
+it('分析未结束就显示失败数量及成功明细，结束后保留成功与失败汇总', async () => {
+  let finish!: (stats: { analyzed: number; failed: number; latestMsgId: string }) => void;
+  fixture.ensure.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const f = renderFixture();
+  await f.render('own');
+  const publish = fixture.progressCallbacks.at(-1)!;
+  await act(async () =>
+    publish({
+      kind: 'c2c',
+      conv: 'u_peer',
+      revision: 0,
+      total: 18,
+      completed: 12,
+      failed: 3,
+      pendingIds: ['pending'],
+    }),
+  );
+  const status = document.querySelector<HTMLElement>('.weq-int-batch')!;
+  expect(status.textContent).toContain('正在分析 12/18 · 失败 3');
+  expect(status.querySelector('span')?.title).toContain('已处理 12/18，成功 9，失败 3');
+  expect(status.getAttribute('aria-busy')).toBe('true');
+  expect(status.textContent).not.toContain('分析未完成');
+  expect(document.querySelector('[aria-label="重试分析"]')).toBeNull();
+  await act(async () => finish({ analyzed: 15, failed: 3, latestMsgId: 'own' }));
+  expect(status.textContent).toContain('分析完成 · 成功 15，失败 3');
+  expect(status.getAttribute('aria-busy')).toBe('false');
+  expect(document.querySelector('[aria-label="重试分析"]')).not.toBeNull();
+});
+
+it('全部失败时不会误报已有结果，成功结束显示真实新增结果数而非缓存总量', async () => {
+  fixture.ensure.mockResolvedValueOnce({ analyzed: 0, failed: 2, latestMsgId: 'own' });
+  const f = renderFixture();
+  await f.render('own');
+  expect(document.body.textContent).toContain('分析完成 · 成功 0，失败 2');
+  fixture.ensure.mockResolvedValueOnce({ cached: 1, analyzed: 2, failed: 0, latestMsgId: 'own' });
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="重试分析"]')!.click(),
+  );
+  expect(document.body.textContent).toContain('分析完成 · 成功 2');
+  expect(document.querySelector('[aria-label="重试分析"]')).toBeNull();
+});
+
+it('单条请求失败不冒充纯媒体，允许重试而不会无限转圈', async () => {
+  fixture.analyze.mockRejectedValueOnce(new Error('合成错误'));
+  const f = renderFixture();
+  await f.render();
+  await act(async () => f.get().requestAnalysis('failed'));
+  expect(f.get().isPending?.('failed')).toBe(false);
+  expect(f.get().isUnavailable('failed')).toBe(false);
+  expect(f.get().getFailure?.('failed')).toBe('合成错误');
+  fixture.analyze.mockResolvedValue({ ...sample, msgId: 'failed' });
+  await act(async () => f.get().requestAnalysis('failed'));
+  expect(f.get().getFailure?.('failed')).toBeUndefined();
+  expect(f.get().getAnalysis('failed')).toBeDefined();
 });

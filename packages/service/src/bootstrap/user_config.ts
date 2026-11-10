@@ -20,6 +20,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, existsSyn
 import { mkdir, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
+import { DEFAULT_SERVICE_PORTS } from '../common/service_ports';
 import type { AgentLabModelRef, AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
 import { normalizeAccountConfig } from '../account/user_config';
@@ -89,33 +90,60 @@ export interface AutoEnterTarget {
   dataDir?: string;
 }
 
-export interface TypingStatusOverride {
+/** 隐藏「正在输入」状态的范围。默认展示；按会话勾选时只隐藏 `hidden` 里的会话。 */
+export type TypingStatusMode = 'off' | 'selected' | 'all';
+
+/** 一条「隐藏正在输入状态」的会话条目（跨账号 / 数据源分别记录）。 */
+export interface TypingStatusConversation {
   accountUin: string;
   accountConfigId: string;
   uid: string;
   name: string;
-  enabled: boolean;
 }
 
 export interface TypingStatusSettings {
-  defaultEnabled: boolean;
-  overrides: TypingStatusOverride[];
+  mode: TypingStatusMode;
+  hidden: TypingStatusConversation[];
+}
+
+function normalizeTypingMode(value: unknown): TypingStatusMode | null {
+  return value === 'off' || value === 'selected' || value === 'all' ? value : null;
+}
+
+function normalizeTypingHidden(value: unknown): TypingStatusConversation[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const hidden: TypingStatusConversation[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const { accountUin, accountConfigId, uid, name } = item;
+    if (
+      typeof accountUin !== 'string' ||
+      !accountUin ||
+      typeof accountConfigId !== 'string' ||
+      !accountConfigId ||
+      typeof uid !== 'string' ||
+      !uid ||
+      typeof name !== 'string'
+    )
+      continue;
+    const key = `${accountUin}\u0000${accountConfigId}\u0000${uid}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    hidden.push({ accountUin, accountConfigId, uid, name });
+  }
+  return hidden;
 }
 
 function normalizeTypingStatus(value: unknown): TypingStatusSettings {
   const settings = isRecord(value) ? value : {};
-  const overrides = Array.isArray(settings.overrides)
-    ? settings.overrides.filter(
-        (item): item is TypingStatusOverride =>
-          isRecord(item) &&
-          ['accountUin', 'accountConfigId', 'uid'].every(
-            (key) => typeof item[key] === 'string' && item[key].length > 0,
-          ) &&
-          typeof item.name === 'string' &&
-          typeof item.enabled === 'boolean',
-      )
-    : [];
-  return { defaultEnabled: settings.defaultEnabled === true, overrides };
+  const mode = normalizeTypingMode(settings.mode);
+  // 旧版是「默认不发送 + 按会话特例开启」的相反语义，迁移时统一回落到新的默认
+  // 「不隐藏」（向对方展示输入状态），旧的 enabled 特例不再有意义。
+  return {
+    mode: mode ?? 'off',
+    hidden: normalizeTypingHidden(settings.hidden),
+  };
 }
 
 type DeepPartial<T> = {
@@ -510,7 +538,7 @@ function normalizeOneBotConfig(
     id: 'ws-default',
     name: 'WebSocket 服务器',
     enabled: false,
-    port: 48766,
+    port: DEFAULT_SERVICE_PORTS['onebot-ws'],
     token: '',
   };
   const port = normalizeOneBotPort(raw?.port) ?? legacy.port;
@@ -720,13 +748,14 @@ export interface AppSettings {
   agentLab: AgentLabSettings;
   /** 点击关闭按钮时的行为。默认 'tray'（最小化到托盘，后台服务继续运行）。 */
   windowCloseBehavior: WindowCloseBehavior;
+  /** macOS / Linux 使用右上角仿 Windows 窗口按钮，账号选择页不受影响。 */
+  windowsStyleControls: boolean;
   /**
-   * 完全退出时不再询问「后台服务会停止」。
+   * 已废弃（2026-11-09 起退出不再确认）。
    *
-   * 只在 `windowCloseBehavior` 之外生效：它管的是 `before-quit`（托盘退出 / Cmd+Q /
-   * 系统关机），不改变点 ✕ 的关窗行为。勾过之后即使又开启新服务也不重新弹——
-   * 用户的意图是「我知道退出会停服务，别再问了」，按服务集合失效会让开关一次服务就
-   * 复活弹窗，行为不可预测。当前运行的服务在「后台服务」页常驻展示，信息不丢失。
+   * 仅为兼容旧配置保留：读写链路还在（旧文件里的值不会校验失败、保存时也不丢），
+   * 但已没有任何代码读取它。退出（Dock / Cmd+Q / 托盘）现在直接结束进程；
+   * 「退出会停止哪些服务」改由关窗确认框与「后台服务」页展示。
    */
   quitConfirmSuppressed: boolean;
   /**
@@ -763,7 +792,7 @@ export interface AppSettings {
   preferCdn: boolean;
   /** 聊天首页展示与一言屏蔽词，全局偏好。 */
   home: HomeSettings;
-  /** 私聊输入状态广播：全局默认值与显式设置的会话特例。 */
+  /** 私聊输入状态广播：默认展示，可整体或按会话隐藏「正在输入」。 */
   typingStatus: TypingStatusSettings;
   /** 旧版合并开关，仅用于兼容旧配置和客户端。 */
   showMsgDecoration: boolean;
@@ -773,6 +802,8 @@ export interface AppSettings {
   showMessageFont: boolean;
   /** Show the original conversation sequence beside each message. */
   showMessageSeq: boolean;
+  /** 逐条显示 yyyy-mm-dd 格式的北京时间日期，与时间开关独立。 */
+  showMessageDate: boolean;
   /** 逐条显示精确到秒的北京时间，与序号开关独立。 */
   showMessageTime: boolean;
   /** 左栏「消息」入口显示汇总未读角标，不改变阅读状态。 */
@@ -1099,18 +1130,26 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   ocr: { modelId: '', filterModelId: '', onlineConcurrency: 5 },
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
-  mcp: { enabled: false, port: 48765, token: '' },
+  mcp: { enabled: false, port: DEFAULT_SERVICE_PORTS.mcp, token: '' },
   oneBot: {
     enabled: false,
     webSocketServers: [
-      { id: 'ws-default', name: 'WebSocket 服务器', enabled: false, port: 48766, token: '' },
+      {
+        id: 'ws-default',
+        name: 'WebSocket 服务器',
+        enabled: false,
+        port: DEFAULT_SERVICE_PORTS['onebot-ws'],
+        token: '',
+      },
     ],
     httpServers: [],
   },
   // 20000+ 不常用端口；若被占用，宿主内的助手资源服务自动向上探测。
-  weqAssistant: { enabled: false, port: 27182 },
+  weqAssistant: { enabled: false, port: DEFAULT_SERVICE_PORTS['weq-assistant'] },
   agentLab: { providers: [], defaultModel: null },
   windowCloseBehavior: 'tray',
+  windowsStyleControls: false,
+  /** 已废弃，仅为旧配置兼容保留；不再控制任何行为（见类型注释）。 */
   quitConfirmSuppressed: false,
   renderTextMarkdown: true,
   showAvatarPendant: true,
@@ -1119,11 +1158,12 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
   home: DEFAULT_HOME_SETTINGS,
-  typingStatus: { defaultEnabled: false, overrides: [] },
+  typingStatus: { mode: 'off', hidden: [] },
   showMsgDecoration: true,
   showMessageBubble: true,
   showMessageFont: true,
   showMessageSeq: false,
+  showMessageDate: false,
   showMessageTime: false,
   showMessageUnreadBadge: true,
   showContactUnreadCount: false,
@@ -1784,6 +1824,7 @@ export class UserConfigService {
       },
       windowCloseBehavior:
         normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
+      windowsStyleControls: s?.windowsStyleControls === true,
       quitConfirmSuppressed: s?.quitConfirmSuppressed === true,
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
@@ -1798,6 +1839,7 @@ export class UserConfigService {
       showMessageBubble: s?.showMessageBubble ?? s?.showMsgDecoration ?? d.showMessageBubble,
       showMessageFont: s?.showMessageFont ?? s?.showMsgDecoration ?? d.showMessageFont,
       showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
+      showMessageDate: s?.showMessageDate ?? d.showMessageDate,
       showMessageTime: s?.showMessageTime ?? d.showMessageTime,
       showMessageUnreadBadge: s?.showMessageUnreadBadge ?? d.showMessageUnreadBadge,
       showContactUnreadCount: s?.showContactUnreadCount ?? d.showContactUnreadCount,
@@ -1927,6 +1969,7 @@ export class UserConfigService {
       },
       windowCloseBehavior:
         normalizeWindowCloseBehavior(patch.windowCloseBehavior) ?? current.windowCloseBehavior,
+      windowsStyleControls: patch.windowsStyleControls ?? current.windowsStyleControls,
       quitConfirmSuppressed: patch.quitConfirmSuppressed ?? current.quitConfirmSuppressed,
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
@@ -1936,12 +1979,13 @@ export class UserConfigService {
         current.qqShowCacheMinutes,
       preferCdn: patch.preferCdn ?? current.preferCdn,
       home: normalizeHomeSettings({ ...current.home, ...patch.home }),
-      typingStatus: normalizeTypingStatus({ ...current.typingStatus, ...patch.typingStatus }),
+      typingStatus: normalizeTypingStatus(patch.typingStatus ?? current.typingStatus),
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
       showMessageBubble:
         patch.showMessageBubble ?? patch.showMsgDecoration ?? current.showMessageBubble,
       showMessageFont: patch.showMessageFont ?? patch.showMsgDecoration ?? current.showMessageFont,
       showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
+      showMessageDate: patch.showMessageDate ?? current.showMessageDate,
       showMessageTime: patch.showMessageTime ?? current.showMessageTime,
       showMessageUnreadBadge: patch.showMessageUnreadBadge ?? current.showMessageUnreadBadge,
       showContactUnreadCount: patch.showContactUnreadCount ?? current.showContactUnreadCount,
@@ -2080,20 +2124,16 @@ export class UserConfigService {
     return next;
   }
 
-  setTypingStatusOverride(
-    target: Omit<TypingStatusOverride, 'enabled'>,
-    enabled: boolean | null,
-  ): TypingStatusSettings {
+  /** 修改「隐藏正在输入状态」的启用范围。 */
+  setTypingStatusMode(mode: TypingStatusMode): TypingStatusSettings {
     const current = this.getSettings().typingStatus;
-    const overrides = current.overrides.filter(
-      (item) =>
-        item.accountUin !== target.accountUin ||
-        item.accountConfigId !== target.accountConfigId ||
-        item.uid !== target.uid,
-    );
-    // 与默认值相同也保留显式设置；只有删除操作才恢复跟随默认。
-    if (enabled !== null) overrides.push({ ...target, enabled });
-    return this.setSettings({ typingStatus: { overrides } }).typingStatus;
+    return this.setSettings({ typingStatus: { ...current, mode } }).typingStatus;
+  }
+
+  /** 整体替换「隐藏正在输入状态」的会话清单。 */
+  setTypingStatusHidden(hidden: TypingStatusConversation[]): TypingStatusSettings {
+    const current = this.getSettings().typingStatus;
+    return this.setSettings({ typingStatus: { ...current, hidden } }).typingStatus;
   }
 
   getLocalModelId(kind: keyof LocalModelResources): string {

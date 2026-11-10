@@ -1,0 +1,274 @@
+.weq-modal.weq-overview-calendar-modal {
+  padding: 0;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+.weq-overview-calendar {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+  min-height: 0;
+  padding: 16px;
+  box-sizing: border-box;
+  color: var(--weq-fg-primary);
+  min-width: 0;
+}
+.weq-overview-calendar > header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.weq-overview-calendar h3 {
+  margin: 0;
+  flex: 1;
+  font-size: 16px;
+}
+.weq-overview-calendar-progress {
+  flex-shrink: 0;
+  display: grid;
+  gap: 5px;
+  padding-bottom: 12px;
+  font-size: 11px;
+  color: var(--weq-fg-secondary);
+}
+.weq-overview-calendar-progress section > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 5px;
+}
+.weq-overview-calendar-progress > .weq-exp-log {
+  margin: 0;
+  overflow-y: auto;
+}
+.weq-overview-calendar-conversations > .weq-exp-detail-tasklog {
+  flex-shrink: 0;
+  min-width: 0;
+  margin-bottom: 12px;
+}
+.weq-overview-calendar-conversations > .weq-exp-detail-tasklog .weq-exp-log {
+  margin: 0;
+  overflow-y: auto;
+}
+.weq-overview-calendar-progress strong {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.weq-overview-calendar-progress progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  border: 0;
+  border-radius: 2px;
+  overflow: hidden;
+  accent-color: var(--weq-accent-effective);
+}
+.weq-calendar-progress-track {
+  align-items: center;
+}
+.weq-calendar-progress-track progress {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.weq-calendar-progress-control {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+.weq-calendar-progress-control:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
+}
+.weq-calendar-progress-control:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.weq-calendar-progress-control:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-overview-calendar-progress progress::-webkit-progress-bar {
+  background: var(--muted);
+}
+.weq-overview-calendar-progress progress::-webkit-progress-value {
+  background: var(--weq-accent-effective);
+}
+.weq-overview-calendar-progress progress::-moz-progress-bar {
+  background: var(--weq-accent-effective);
+}
+.weq-overview-calendar-progress > .weq-overview-calendar-scan-label {
+  flex-wrap: wrap;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+.weq-overview-calendar-scan-label small {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+html[data-theme='dark'] .weq-overview-calendar-progress progress::-webkit-progress-bar {
+  background: var(--weq-border-strong);
+}
+.weq-overview-calendar-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+}
+.weq-overview-calendar-errors {
+  flex-shrink: 0;
+  max-height: 120px;
+  overflow: auto;
+}
+.weq-overview-calendar-conversations {
+  min-width: 0;
+}
+.weq-calendar-kinds {
+  border: 0;
+  padding: 0;
+  margin: 0 0 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-calendar-task-details {
+  min-width: 0;
+  color: var(--weq-fg-primary);
+}
+.weq-calendar-task-details h4 {
+  margin: 8px 0;
+  font-size: 14px;
+}
+.weq-calendar-task-details p {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.weq-calendar-task-date {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+.weq-calendar-task-date input {
+  min-width: 0;
+  max-width: 100%;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font: inherit;
+}
+.weq-overview-calendar h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.weq-overview-calendar p {
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.weq-overview-calendar-rows {
+  height: 314px;
+  overflow-y: auto;
+}
+.weq-overview-calendar-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  height: 66px;
+  border: 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.weq-overview-calendar-row:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+.weq-overview-calendar-row > img,
+.weq-overview-calendar-avatar {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--muted);
+}
+.weq-overview-calendar-avatar {
+  display: grid;
+  place-items: center;
+}
+.weq-overview-calendar-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.weq-overview-calendar-name strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+.weq-overview-calendar-name small {
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+}
+.weq-overview-calendar-row > span:last-child {
+  min-width: 8ch;
+  max-width: 10ch;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.weq-overview-calendar .weq-density-calendar-grid small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+html[data-theme='dark'] .weq-overview-calendar-row {
+  border-color: var(--weq-border-strong);
+}
+@media (max-width: 620px) {
+  .weq-overview-calendar-conversations > .weq-exp-detail-tasklog .weq-exp-log-line {
+    display: block;
+  }
+  .weq-overview-calendar-conversations > .weq-exp-detail-tasklog .weq-exp-log-time {
+    display: block;
+  }
+  .weq-overview-calendar-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .weq-overview-calendar-rows {
+    height: 210px;
+  }
+}

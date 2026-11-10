@@ -25,6 +25,7 @@ export function ContactWorkspace({
   children: ReactNode;
 }) {
   const [localTab, setLocalTab] = useState<ContactWorkspaceTab>('profile');
+  const [tabsStuck, setTabsStuck] = useState(false);
   const workspace = useRef<HTMLDivElement>(null);
   const status = useIntentSenseStatus();
   const relationship = usePersonRelationship(contact);
@@ -92,9 +93,26 @@ export function ContactWorkspace({
     const scroller = workspace.current?.closest('.weq-contact-profile-content');
     if (scroller) scroller.scrollTop = 0;
   }, [selected, contact.id]);
+  // 分区条只在真正吸住时才铺底色，避免和顶部标题栏叠成两层浮层。
+  useEffect(() => {
+    const root = workspace.current;
+    const scroller = root?.closest<HTMLElement>('.weq-contact-profile-content');
+    const tabs = root?.querySelector<HTMLElement>('.weq-contact-workspace-tabs');
+    if (!scroller || !tabs) return;
+    const update = () => {
+      const edge = scroller.getBoundingClientRect().top;
+      setTabsStuck(tabs.getBoundingClientRect().top <= edge + 1);
+    };
+    update();
+    scroller.addEventListener('scroll', update, { passive: true });
+    return () => scroller.removeEventListener('scroll', update);
+  }, []);
   return (
     <div className="weq-contact-workspace" ref={workspace}>
-      <nav className="weq-contact-workspace-tabs" aria-label="联系人详情分区">
+      <nav
+        className={`weq-contact-workspace-tabs${tabsStuck ? ' is-stuck' : ''}`}
+        aria-label="联系人详情分区"
+      >
         <SegmentedControl
           label="联系人详情分区"
           value={selected}

@@ -33,6 +33,7 @@ export interface ProfileResolver<T> {
 
 export function useProfileResolver<T extends { uid: string }>(
   primed: readonly T[] | undefined,
+  fallback?: readonly T[],
 ): ProfileResolver<T> {
   // listProfiles 没覆盖到、按需补全回来的 profile。
   const [resolved, setResolved] = useState<Record<string, T>>({});
@@ -48,11 +49,13 @@ export function useProfileResolver<T extends { uid: string }>(
   }, [primed]);
 
   const profileByUid = useMemo(() => {
-    const map = new Map(primedMap);
+    // 持久快照只负责先显示；不阻止缺失项按需读回，也不覆盖新的本地资料。
+    const map = new Map((fallback ?? []).map((profile) => [profile.uid, profile]));
+    for (const [uid, profile] of primedMap) map.set(uid, profile);
     // 补全结果覆盖预热值（与旧 missingNotifyProfiles 合并顺序保持一致）。
     for (const profile of Object.values(resolved)) map.set(profile.uid, profile);
     return map;
-  }, [primedMap, resolved]);
+  }, [primedMap, resolved, fallback]);
 
   const resolveProfiles = useCallback(
     (uids: Iterable<string>): void => {

@@ -1,23 +1,13 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import type { Server, IncomingMessage } from 'node:http';
-import type { AnyRouter } from '@trpc/server';
-import type { HostBridge } from '@weq/service';
+import { DEFAULT_SERVICE_PORTS } from '@weq/service/service-ports';
+import { createServer, type Server, type IncomingMessage } from 'node:http';
+import { getLogger } from '@weq/service';
 import { AuthGate } from './auth';
-import { startServer } from './http';
-import { createWebHost } from './host';
-import { createTrpcHandler, attachWsHandler } from './trpc_adapter';
-import type { RemotePairing } from '../remote/pairing';
-import { webCredential } from '../remote/web_gateway';
+import { listenServer } from './http';
+import type { WebCore } from './application';
 
 interface WebConfig {
-  publicDir: string;
-  exportDir: string;
-  version: string;
-  router: AnyRouter;
-  renderer?: Pick<HostBridge, 'renderHtmlToPdf' | 'renderHtmlToSlidesPng' | 'renderHtmlToLongPng'>;
-  pairing: RemotePairing;
+  core: WebCore;
   getAutoStart: () => boolean;
   setAutoStart: (enabled: boolean) => void;
 }
@@ -40,7 +30,7 @@ export class DesktopWebRuntime {
   status() {
     return {
       available: this.config !== null,
-      assetsInstalled: !!this.config && existsSync(join(this.config.publicDir, 'index.html')),
+      assetsInstalled: this.config?.core.assetsInstalled ?? false,
       enabled: this.server !== null,
       autoStart: this.config?.getAutoStart() ?? false,
       url: this.port ? `http://127.0.0.1:${this.port}` : null,
@@ -62,7 +52,7 @@ export class DesktopWebRuntime {
   async start(): Promise<void> {
     if (this.server || this.starting) return;
     const config = this.config;
-    if (!config || !existsSync(join(config.publicDir, 'index.html')))
+    if (!config?.core.assetsInstalled)
       throw new Error('Web 页面尚未构建，请运行 pnpm --filter @weq/web exec vite build。');
     this.starting = true;
     this.error = null;
@@ -74,38 +64,34 @@ export class DesktopWebRuntime {
     const gate = {
       login: auth.login.bind(auth),
       logout: auth.logout.bind(auth),
-      isAuthed: (req: IncomingMessage) =>
-        sameOrigin(req) && (config.pairing.canAccessWeb(webCredential(req)) || auth.isAuthed(req)),
-      watchSession: (req: IncomingMessage, revoke: () => void) =>
-        config.pairing.canAccessWeb(webCredential(req))
-          ? config.pairing.watchWeb(webCredential(req), revoke)
-          : auth.watchSession(req, revoke),
+      isAuthed: (req: IncomingMessage) => sameOrigin(req) && auth.isAuthed(req),
+      watchSession: auth.watchSession.bind(auth),
     };
     try {
-      const host = createWebHost({
-        exportDir: config.exportDir,
-        version: config.version,
-        renderer: config.renderer,
-      });
-      const { server, port } = await startServer({
-        port: 7690,
-        host: '127.0.0.1',
-        publicDir: config.publicDir,
-        auth: gate,
-        trpc: createTrpcHandler(config.router, gate, host),
-        hostBridge: host,
-      });
+      const application = config.core.entry(gate);
+      const { server, port } = await listenServer(
+        createServer((req, res) => application.handle(req, res)),
+        DEFAULT_SERVICE_PORTS.web,
+        '127.0.0.1',
+      );
       if (generation !== this.revision) {
         server.close();
         server.closeAllConnections();
         auth.close();
+        application.close();
         return;
       }
-      this.closeWs = attachWsHandler(server, config.router, gate, host);
+      application.attach(server);
+      this.closeWs = () => application.close();
       this.server = server;
       this.port = port;
       this.token = token;
       this.auth = auth;
+      getLogger().info('Web 服务已启动', {
+        scope: 'web',
+        event: 'web-start',
+        address: `http://127.0.0.1:${port}`,
+      });
     } catch {
       auth.close();
       this.error = 'Web 服务启动失败，请检查端口或页面构建。';
@@ -116,6 +102,7 @@ export class DesktopWebRuntime {
   }
 
   stop(): void {
+    if (this.server) getLogger().info('Web 服务已停止', { scope: 'web', event: 'web-stop' });
     this.revision++;
     this.closeWs?.();
     this.closeWs = null;

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 const rpc = vi.hoisted(() => ({
@@ -28,6 +29,7 @@ vi.mock('../src/main/context/app_context', () => {
   };
   const otherServices = { ...context.services };
   return {
+    accountEventBus: new EventEmitter(),
     getAppContext: () => ({
       ...context,
       services: rpc.state.switched ? otherServices : context.services,

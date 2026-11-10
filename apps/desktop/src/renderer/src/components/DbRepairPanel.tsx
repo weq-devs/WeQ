@@ -30,6 +30,7 @@
  * `DatabaseDamagedEvent` 同一套做法：渲染层只认「主进程答应给的那个形状」。
  */
 
+import { formatBytesOrUnknown as formatBytes } from '../lib/format';
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -280,14 +281,6 @@ type Tone = 'ok' | 'warn' | 'muted' | 'run';
 
 function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function formatBytes(bytes: number | null): string {
-  if (bytes === null) return '未知';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 function shortTime(iso: string): string {

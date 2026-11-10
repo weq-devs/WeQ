@@ -5,6 +5,10 @@
   overflow: hidden;
   background: var(--background);
 }
+
+html[data-native-window-controls] .weq-composition-window-control {
+  display: none;
+}
 .weq-composition-workspace {
   display: flex;
   flex-direction: column;

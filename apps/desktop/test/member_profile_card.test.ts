@@ -21,6 +21,11 @@ vi.mock('@renderer/trpc/client', () => ({
     account: {
       getProfile: { query: async () => null },
       getProfileByUin: { query: vi.fn(async () => null) },
+      getCardDisplayNames: {
+        query: vi.fn(async () => {
+          throw new Error('合成离线');
+        }),
+      },
       getBotProfile: { query: async () => null },
       // 资料卡 hero 头像点开 QQ 秀展柜前，会先查一次「当前形象」用来标 #N。
       // 单测里给「没有 QQ 秀」；展柜本身不挂载，与本文件的断言无关。
@@ -140,6 +145,38 @@ function layer(): HTMLElement {
 }
 
 describe('群成员资料卡浮层', () => {
+  it('各入口补全资料后以真实昵称为主标题，不使用备注或群昵称', async () => {
+    vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
+      uid: MEMBER.id,
+      nick: '真实昵称',
+      remark: '好友备注',
+    } as NonNullable<Awaited<ReturnType<typeof client.account.getProfile.query>>>);
+    await mountCard(
+      () => {},
+      undefined,
+      { ...MEMBER, nick: '旧昵称', remark: '旧备注', card: '群昵称' } as User,
+      '20001',
+    );
+    expect(layer().querySelector('.weq-profile-name')?.textContent).toBe('真实昵称');
+    expect(layer().textContent).toContain('好友备注');
+    act(() => layer().querySelector<HTMLButtonElement>('.weq-profile-expand')!.click());
+    expect(expandContact).toHaveBeenLastCalledWith(
+      expect.objectContaining({ contact: expect.objectContaining({ nick: '真实昵称' }) }),
+    );
+  });
+
+  it.each(['成员昵称', ''])('资料缺失时使用成员真实昵称或身份，不使用群昵称：%s', async (nick) => {
+    await mountCard(() => {}, undefined, {
+      ...MEMBER,
+      nick,
+      remark: '好友备注',
+      card: '群昵称',
+    } as User);
+    expect(layer().querySelector('.weq-profile-name')?.textContent).toBe(
+      nick || MEMBER.identityValue,
+    );
+  });
+
   it('仍在群内时保留原成员资料编辑器', async () => {
     await mountCard(() => {}, undefined, MEMBER, '20001', {
       friends: new Map(),
@@ -326,6 +363,29 @@ describe('群成员资料卡浮层', () => {
     expect(byUid).not.toHaveBeenCalled();
     expect(layer().textContent).toContain('自己的签名');
     expect(layer().textContent).not.toContain('加载资料');
+  });
+  it('名片默认使用本地昵称，云端补全后更新名称并允许清空备注，不修改会话对象', async () => {
+    let finish!: (value: { name: string; remark: string }) => void;
+    vi.spyOn(client.account.getCardDisplayNames, 'query').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const member = {
+      ...MEMBER,
+      nick: '本地昵称',
+      remark: '本地备注',
+      displayName: '本地备注',
+    } as User;
+    await mountCard(() => {}, undefined, member);
+    expect(layer().querySelector('.weq-profile-name')?.textContent).toBe(member.nick);
+    expect(layer().textContent).toContain(member.remark);
+    await act(async () => finish({ name: '云端昵称', remark: '' }));
+    expect(layer().querySelector('.weq-profile-name')?.textContent).toBe('云端昵称');
+    expect(layer().textContent).not.toContain('本地备注');
+    expect(member.displayName).toBe('本地备注');
+    expect(member.nick).toBe('本地昵称');
   });
   it('自己的资料读取失败后退出加载，不不断重试', async () => {
     const byUin = vi

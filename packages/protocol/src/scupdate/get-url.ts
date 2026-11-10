@@ -149,7 +149,7 @@ export async function getResourceUrls(
   const body = buildGetUrlRequest(refs, client);
 
   // `scupdate.handle` 不在签名清单里。
-  const reply = await sendPacket(nt, pid, SCUPDATE_CMD, body, false);
+  const reply = await sendPacket(nt, pid, SCUPDATE_CMD, body);
   const rsp = decode(SC_UPDATE_RSP, reply);
   readRspStatus(rsp); // ret != 0 时抛错
 

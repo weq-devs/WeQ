@@ -70,6 +70,14 @@ try {
       await page.getByRole('button', { name: '恢复默认设置', exact: true }).click();
       const dialog = page.getByRole('dialog');
       await dialog.getByText('无需重启 WeQ', { exact: false }).waitFor();
+      await dialog.getByRole('switch', { name: '清除 API 配置', exact: true }).check();
+      await dialog.getByLabel('缓存目录', { exact: true }).selectOption('reset');
+      await dialog.getByRole('switch', { name: '清除 WeQ 服务配置', exact: true }).check();
+      await dialog
+        .getByText('另外恢复或清除：API 配置与凭据、缓存目录、Web 服务。', { exact: true })
+        .waitFor();
+      if (await dialog.evaluate((element) => element.scrollWidth > element.clientWidth))
+        throw new Error(`恢复弹窗横向溢出：${width}/${theme}`);
       if (output) await page.screenshot({ path: `${output}/defaults-${theme}-${width}.png` });
       await dialog.getByRole('button', { name: '取消', exact: true }).click();
       for (const category of await storage.locator('details.weq-storage-category').all()) {

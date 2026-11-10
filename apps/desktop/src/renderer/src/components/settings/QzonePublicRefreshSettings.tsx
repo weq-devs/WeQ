@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Loader2, Save } from 'lucide-react';
+import { Heart, Loader2, Save } from 'lucide-react';
 import {
   DEFAULT_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,
   MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,
@@ -39,7 +39,11 @@ export function QzonePublicRefreshSettings() {
     value >= 0 &&
     value <= MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES;
   return (
-    <Card title="空友爱看" settingId="qzone-public-refresh">
+    <Card
+      title="空友爱看"
+      icon={<Heart size={15} strokeWidth={1.8} />}
+      settingId="qzone-public-refresh"
+    >
       <form
         className="weq-qzone-pagination-form weq-qzone-public-refresh-form"
         aria-label="空友爱看自动刷新"

@@ -32,8 +32,14 @@
     background: var(--weq-chat-bg, var(--background));
   }
 
-  .weq-web-shell .weq-mobile-navigation:not([hidden]) {
+  .weq-web-shell .weq-mobile-navigation {
     display: contents;
+  }
+
+  /* 详情页只隐藏导航，不移除布局，侧滑露出的列表保持原来的上下边界。 */
+  .weq-web-shell .weq-mobile-navigation[aria-hidden='true'] {
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .weq-mobile-header {
@@ -50,14 +56,38 @@
     color: var(--weq-fg-primary);
   }
 
-  .weq-mobile-header > strong {
+  .weq-mobile-identity {
     min-width: 0;
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .weq-mobile-identity > strong {
+    display: block;
     overflow: hidden;
     font-size: 18px;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .weq-mobile-online-status {
+    min-width: 0;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .weq-mobile-online-status > :not(:last-child) {
+    flex-shrink: 0;
+  }
+
+  .weq-mobile-online-status > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .weq-mobile-account {
@@ -73,57 +103,6 @@
   .weq-mobile-account .avatar {
     width: 36px;
     height: 36px;
-  }
-
-  .weq-mobile-actions-toggle {
-    display: grid;
-    width: 44px;
-    height: 44px;
-    flex: 0 0 44px;
-    place-items: center;
-    border: 0;
-    background: transparent;
-    color: var(--weq-fg-primary);
-  }
-
-  .weq-mobile-actions-dismiss {
-    position: absolute;
-    z-index: 41;
-    inset: var(--weq-mobile-header-height) 0 0;
-    border: 0;
-    background: transparent;
-  }
-
-  .weq-mobile-contact-actions {
-    position: absolute;
-    z-index: 42;
-    top: calc(var(--weq-mobile-header-height) + 4px);
-    right: 8px;
-    width: min(240px, calc(100% - 16px));
-    overflow: hidden;
-    border: 1px solid var(--weq-border-strong);
-    border-radius: 8px;
-    background: var(--weq-bg-surface);
-    box-shadow: var(--weq-shadow-card);
-  }
-
-  .weq-mobile-contact-actions > button {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    width: 100%;
-    min-height: 48px;
-    padding: 10px 16px;
-    border: 0;
-    background: transparent;
-    color: var(--weq-fg-primary);
-    text-align: left;
-    font-size: 15px;
-  }
-
-  html[data-theme='dark'] .weq-mobile-contact-actions {
-    border-color: var(--weq-border-strong);
-    background: var(--weq-bg-surface);
   }
 
   .weq-web-shell :is(.weq-qq-action-bar, .weq-qq-media-actions) .weq-set-iconbtn {
@@ -143,7 +122,7 @@
     flex-shrink: 0;
   }
 
-  .weq-mobile-header:has(.weq-titlebar-search.is-expanded) > strong {
+  .weq-mobile-header:has(.weq-titlebar-search.is-expanded) .weq-mobile-identity {
     display: none;
   }
 
@@ -265,6 +244,7 @@
 
   .weq-web-shell[data-mobile-detail] .app-shell .chat-main {
     inset: 0;
+    z-index: 45;
     visibility: visible;
     transform: none;
     pointer-events: auto;
@@ -275,7 +255,7 @@
   }
 
   .weq-web-shell .chat-pane {
-    --chat-header-height: calc(52px + env(safe-area-inset-top, 0px));
+    --chat-header-height: calc(64px + env(safe-area-inset-top, 0px));
     height: 100%;
     min-width: 0;
     background: var(--weq-chat-bg, var(--background));
@@ -286,6 +266,54 @@
     grid-template-columns: 44px minmax(0, 1fr) auto;
     background: var(--weq-bg-surface);
     border-bottom-color: var(--weq-border-subtle);
+  }
+
+  .weq-web-shell .chat-title {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 4px;
+    overflow: hidden;
+    text-align: left;
+  }
+
+  .weq-web-shell .chat-title strong {
+    max-width: 100%;
+    flex-shrink: 0;
+    font-size: 20px;
+    font-weight: 500;
+    line-height: 1.2;
+  }
+
+  .weq-web-shell .chat-status-desktop {
+    display: none;
+  }
+
+  .weq-web-shell .chat-status-mobile {
+    display: block;
+    max-width: 100%;
+    min-width: 0;
+    line-height: 16px;
+  }
+
+  .weq-web-shell .chat-status-mobile:empty {
+    display: none;
+  }
+
+  .weq-web-shell .chat-status-mobile > span {
+    max-width: 100%;
+    vertical-align: top;
+  }
+
+  .weq-web-shell .chat-status-mobile > span > :not(:last-child) {
+    flex-shrink: 0;
+  }
+
+  .weq-web-shell .chat-status-mobile > span > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .weq-web-shell .chat-header .chat-actions {
@@ -300,6 +328,12 @@
 
   .weq-web-shell .message-scroll {
     background: var(--weq-chat-bg, var(--background));
+  }
+
+  .weq-web-shell .message-name {
+    min-width: 0;
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
   }
 
   .weq-web-shell .composer {
@@ -397,6 +431,30 @@
   .weq-web-shell .weq-workspace-sidecar {
     width: 100%;
     max-width: none;
+  }
+
+  .weq-web-shell .weq-workspace-page .weq-workspace-menu {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .weq-web-shell .weq-workspace-page :is(.weq-workspace-menu, .weq-tools-modal) {
+    max-width: none;
+    height: 100%;
+    max-height: none;
+  }
+
+  .weq-web-shell .weq-workspace-page .weq-composition-workspace.is-fallback {
+    position: relative;
+    inset: auto;
+    z-index: auto;
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
   }
 
   .weq-web-shell .chat-main {

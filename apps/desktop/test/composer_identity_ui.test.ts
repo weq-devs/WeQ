@@ -78,6 +78,93 @@ function fixture(type: 'group' | 'direct' = 'group') {
 }
 
 describe('真实输入区与 +1 操作', () => {
+  it('普通输入提示发送，中文选词的 Enter 不误发，点击发送后可继续输入', async () => {
+    const f = fixture('direct');
+    try {
+      await act(async () => f.root.render(createElement(ChatPane, f.props)));
+      const editor = f.host.querySelector<HTMLElement>('.composer-editor')!;
+      expect(editor.getAttribute('enterkeyhint')).toBe('send');
+      act(() => {
+        focusComposerEnd(editor);
+        editor.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'Enter',
+            keyCode: 229,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      expect(f.props.onSend).not.toHaveBeenCalled();
+      act(() =>
+        editor.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'Enter',
+            isComposing: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      );
+      expect(f.props.onSend).not.toHaveBeenCalled();
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('.composer > .composer-send')!.click(),
+      );
+      expect(f.props.onSend).toHaveBeenCalledOnce();
+      expect(f.props.onSend).toHaveBeenCalledWith('原有草稿', undefined);
+      expect(document.activeElement).toBe(editor);
+      expect(editor.textContent).toBe('');
+      expect(f.host.querySelector<HTMLButtonElement>('.composer > .composer-send')!.disabled).toBe(
+        true,
+      );
+    } finally {
+      f.dispose();
+    }
+  });
+  it.each(['group', 'direct'] as const)(
+    '%s 引用条复用消息行解析的本地发送者，不要求消息自带 sender',
+    async (type) => {
+      const f = fixture(type);
+      const sender =
+        f.props.conversation.type === 'group'
+          ? f.props.conversation.members[0]!
+          : f.props.conversation.otherUser!;
+      try {
+        await act(async () =>
+          f.root.render(
+            createElement(ChatPane, {
+              ...f.props,
+              messages: [
+                {
+                  id: 'quoted-message',
+                  conversationId: f.props.conversation.id,
+                  senderId: sender.id,
+                  msgSeq: '120',
+                  body: '原消息正文',
+                  createdAt: '2026-10-17T06:00:00Z',
+                },
+              ],
+            }),
+          ),
+        );
+        act(() => {
+          f.host
+            .querySelector('[data-message-id="quoted-message"] .message-bubble')!
+            .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        });
+        const reply = document.querySelector<HTMLButtonElement>('[title="引用这条消息"]');
+        expect(reply).not.toBeNull();
+        act(() => reply!.click());
+        expect(f.host.querySelector('.composer-quote strong')?.textContent).toBe(
+          sender.displayName,
+        );
+        expect(f.props.onSend).not.toHaveBeenCalled();
+      } finally {
+        f.dispose();
+      }
+    },
+  );
+
   it.each(['group', 'direct'] as const)('%s 头像菜单仅在群聊提供提及', async (type) => {
     const f = fixture(type);
     try {
@@ -219,13 +306,8 @@ describe('真实输入区与 +1 操作', () => {
         await act(async () =>
           f.root.render(createElement(ChatPane, { ...f.props, messages, onRepeatMessage: repeat })),
         );
-        const typingButton = f.host.querySelector('.weq-qq-typing-toggle');
-        if (type === 'direct') {
-          expect(typingButton?.parentElement?.classList.contains('composer-tools')).toBe(true);
-          expect(typingButton?.parentElement?.lastElementChild).toBe(typingButton);
-        } else {
-          expect(typingButton).toBeNull();
-        }
+        // 私聊输入框不再有「发送正在输入状态」开关按钮，会话类型都不渲染它。
+        expect(f.host.querySelector('.weq-qq-typing-toggle')).toBeNull();
         const buttons = f.host.querySelectorAll<HTMLButtonElement>('.weq-message-repeat');
         expect(buttons.length).toBe(1);
         expect(buttons[0]?.closest('[data-message-id]')?.getAttribute('data-message-id')).toBe(

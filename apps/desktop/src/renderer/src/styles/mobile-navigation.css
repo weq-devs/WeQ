@@ -1,0 +1,88 @@
+@media (max-width: 760px) {
+  .weq-mobile-transition {
+    position: absolute;
+    inset: var(--weq-mobile-header-height) 0 var(--weq-mobile-tabs-height);
+    z-index: 39;
+    overflow: hidden;
+    pointer-events: none;
+    background: var(--weq-bg-surface);
+    contain: layout paint;
+  }
+
+  .weq-mobile-transition > [data-mobile-transition-page] {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    background: var(--weq-bg-surface);
+    will-change: transform, opacity;
+  }
+
+  .weq-web-shell .weq-mobile-transition :is(.sidebar, .chat-main, .weq-mobile-more) {
+    display: flex;
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: 100%;
+    visibility: visible;
+    transform: none;
+    flex-direction: column;
+    pointer-events: none;
+  }
+
+  .weq-web-shell .weq-mobile-transition .weq-mobile-more {
+    display: block;
+  }
+
+  .weq-mobile-qzone-skeleton {
+    flex: 1;
+    padding: 0 16px;
+    overflow: hidden;
+  }
+
+  .weq-mobile-qzone-skeleton > div {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    gap: 12px;
+    padding: 24px 0;
+    border-bottom: 1px solid var(--weq-border-subtle);
+  }
+
+  .weq-mobile-qzone-skeleton :is(i, span) {
+    display: block;
+    border-radius: 4px;
+    background: var(--muted);
+  }
+
+  .weq-mobile-qzone-skeleton i {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+  }
+  .weq-mobile-qzone-skeleton span {
+    height: 14px;
+    align-self: center;
+  }
+  .weq-mobile-qzone-skeleton span:last-child {
+    grid-column: 2;
+    width: 75%;
+  }
+
+  .weq-web-shell[data-mobile-swiping] {
+    overflow: hidden;
+    user-select: none;
+  }
+
+  .weq-web-shell[data-mobile-animating] > .app-shell,
+  .weq-web-shell[data-mobile-animating] > .weq-mobile-navigation > .weq-mobile-more {
+    pointer-events: none;
+  }
+
+  .weq-web-shell[data-mobile-swiping][data-mobile-detail] .sidebar {
+    visibility: visible;
+  }
+
+  .weq-web-shell[data-mobile-swiping][data-mobile-detail]
+    .weq-mobile-navigation[aria-hidden='true'] {
+    visibility: visible;
+  }
+}

@@ -252,16 +252,11 @@ export async function writeEditableProfile(
 ) {
   const values = encodeEditableProfile(patch);
   if (values.modern) {
-    await sendOidb(
-      nt,
-      pid,
-      {
-        command: 0x112a,
-        subCommand: 2,
-        body: encode(modernWrite, { uin: requireUin(uin), ...values.modern }),
-      },
-      true,
-    );
+    await sendOidb(nt, pid, {
+      command: 0x112a,
+      subCommand: 2,
+      body: encode(modernWrite, { uin: requireUin(uin), ...values.modern }),
+    });
     return;
   }
   const chunks: Buffer[] = [];

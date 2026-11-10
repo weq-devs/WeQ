@@ -9,7 +9,6 @@ export type ReadReportParams =
 export namespace ReportRead {
   export const cmd = 'trpc.msg.msg_svc.MsgService.SsoReadedReport';
   // Lagrange.Core 的 PC 签名白名单包含此命令，复用本机 wrapper 签名。
-  export const needSign = true;
   export const reqSchema = message([
     {
       name: 'group',
@@ -55,7 +54,7 @@ export namespace ReportRead {
     pid: number,
     params: ReadReportParams,
   ): Promise<'acknowledged' | 'unconfirmed'> {
-    const response = await sendPacket(nt, pid, cmd, encode(reqSchema, serialize(params)), needSign);
+    const response = await sendPacket(nt, pid, cmd, encode(reqSchema, serialize(params)));
     return response.length === 0 ? 'acknowledged' : 'unconfirmed';
   }
 }

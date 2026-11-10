@@ -95,6 +95,32 @@ function mount(initialSection?: SectionId) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('WeQ 服务直接展示独立管理页，不再显示后台服务总览', () => {
+    const f = mount('mcp');
+    try {
+      expect(
+        [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
+      ).toEqual([
+        'Web 与 Remote',
+        'MCP 服务器',
+        'OneBot / cc-connect',
+        'SSE 推送',
+        'QQ 公众号推送',
+      ]);
+      expect(f.host.textContent).not.toContain('后台服务');
+      expect(f.body().querySelector('[aria-label="MCP 端口"]')).not.toBeNull();
+      f.render('global', {
+        section: 'global',
+        settingId: 'window-close-behavior',
+        revision: 1,
+      });
+      const setting = f.body().querySelector('[data-setting-id="window-close-behavior"]');
+      expect(setting?.querySelector('[aria-label="关闭按钮行为"]')).not.toBeNull();
+      expect(setting?.getAttribute('data-search-highlight')).toBe('true');
+    } finally {
+      f.close();
+    }
+  });
   it('Markdown 开关明确为自动渲染，关闭后仍可手动渲染', () => {
     const f = mount('message-display');
     try {
@@ -229,7 +255,8 @@ describe('设置归位后的实际页面', () => {
         [...display.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
       ).toEqual([
         '显示消息序号（seq）',
-        '显示发送时间（精确到秒）',
+        '显示发送日期',
+        '显示发送时间',
         '聊天头像挂件',
         '消息气泡',
         '消息字体',
@@ -389,7 +416,7 @@ describe('设置归位后的实际页面', () => {
       for (const [section, item] of [
         ['appearance', '基础模式'],
         ['message-display', '显示消息序号（seq）'],
-        ['storage', '缓存目录'],
+        ['storage', '空间清理'],
         ['global', '成功通知停留时长'],
         ['version', '内置组件'],
       ] as const) {
@@ -521,13 +548,11 @@ describe('设置归位后的实际页面', () => {
         expect(f.body().textContent).not.toContain(title);
       expect(f.host.querySelector('.weq-settings-scope')).toBeNull();
       f.render('storage');
-      expect(f.body().textContent).toContain('缓存目录');
+      expect(f.body().textContent).not.toContain('缓存目录');
       expect(f.body().textContent).toContain('WeQ 存储管理');
       expect(f.body().textContent).not.toContain('现有配置');
-      f.render('saving');
-      expect(f.body().textContent).toContain('默认保存目录');
-      expect(f.body().querySelector('[aria-label="默认导出保存方式"]')).not.toBeNull();
-      expect(f.body().textContent).toContain('缓存目录');
+      expect(f.body().textContent).not.toContain('默认保存目录');
+      expect(f.body().querySelector('[aria-label="默认导出保存方式"]')).toBeNull();
     } finally {
       f.close();
     }
@@ -578,7 +603,6 @@ describe('设置归位后的实际页面', () => {
       );
       f.render('assistant');
       expect(f.body().textContent).toContain('启用 QQ 公众号推送');
-      // 只断言正文：二级导航里现在有「后台服务」这一项，不能拿整页文本判。
       expect(f.body().textContent).not.toContain('后台服务状态');
       expect(f.body().textContent).not.toContain('开机自动启动');
       f.render('updates');
@@ -644,9 +668,9 @@ describe('设置归位后的实际页面', () => {
       ).toEqual([
         'API 配置',
         'API 用量',
+        '推荐回复',
         '意图感知',
         '互动画像',
-        '推荐回复',
         '语音识别',
         '图片识别',
       ]);

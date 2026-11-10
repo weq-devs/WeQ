@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +20,7 @@ const state = vi.hoisted(() => ({
   record: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => ({
+  accountEventBus: new EventEmitter(),
   getAppContext: () => ({
     account: { context: { uin: state.uin } },
     services: state.services,

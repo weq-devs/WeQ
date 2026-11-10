@@ -23,10 +23,6 @@
   background: var(--weq-bg-surface);
 }
 
-.weq-titlebar-search.has-return:not(.is-expanded) {
-  width: 62px;
-}
-
 .weq-titlebar-search > button {
   display: grid;
   place-items: center;
@@ -61,6 +57,18 @@
   opacity: 1;
 }
 
+.weq-titlebar-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.weq-titlebar-search > .weq-titlebar-search-clear {
+  border-radius: 4px;
+}
+
+.weq-titlebar-search > .weq-titlebar-search-clear:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 10%, transparent);
+}
+
 .weq-titlebar-search-results {
   position: fixed;
   display: flex;
@@ -76,7 +84,7 @@
   overflow-y: auto;
 }
 
-/* 全局搜索正文不能被原侧栏的绝对定位脱离文档流，否则外层滚动容器只剩查询按钮的高度。 */
+/* 全局搜索正文保持在浮层文档流中，由自身滚动。 */
 .weq-titlebar-search-results > .weq-search-dropdown {
   position: relative;
   inset: auto;
@@ -84,10 +92,6 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-}
-
-.weq-titlebar-search-results > .weq-cloud-lookup-entry {
-  flex: none;
 }
 
 .app-title-bar-user {

@@ -187,6 +187,17 @@ export class LocalUnreadStore {
     return this.position(chatType, uid).manual === change.applied;
   }
 
+  /** 统计只需排除有效阅读位置之后的自己发言；不替换 QQ 的原始水位。 */
+  countFloor(chatType: number, uid: string): string | undefined {
+    const row = this.positions.get(`${chatType}_${uid}`);
+    if (!row) return undefined;
+    const values = [row.readSeq, row.baselineSeq, row.manual?.latestSeq].filter(sequence);
+    return values.reduce<string | undefined>(
+      (max, value) => (max === undefined || BigInt(value) > BigInt(max) ? value : max),
+      undefined,
+    );
+  }
+
   resolve(snapshot: UnreadInfoSnapshot): ResolvedUnreadInfo {
     if (snapshot.readError) return snapshot;
     const latest = sequence(snapshot.latestSeq) ? snapshot.latestSeq : '0';

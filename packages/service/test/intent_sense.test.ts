@@ -8,13 +8,19 @@
  * 不需要真的 AccountSession。fetch 全局打桩驱动 api 批处理分支。
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IntentSenseService, type IntentLocalEnginePort } from '../src/account/intent_sense';
+import {
+  IntentSenseService,
+  MAX_SUGGESTION_HISTORY,
+  type IntentLocalEnginePort,
+  type IntentAnalysisProgress,
+} from '../src/account/intent_sense';
 import { detectUpstreamSignal, analyzePragmatics } from '../src/account/intent_corpus';
 import { TokenUsageStore } from '../src/account/agentlab_usage';
+import { JsonStore } from '../src/common/json_store';
 import type { AccountSession } from '@weq/account';
 import {
   DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
@@ -84,7 +90,416 @@ describe('IntentSenseService', () => {
     vi.unstubAllGlobals();
   });
 
-  it('默认模型变更使分析缓存失效，重启继续校验身份，空值与显式选择不继承', async () => {
+  it('同一次请求生成概括与推荐，轮次保存实际模型、耗时、用量和完整 prompt，重启可查且不再请求', async () => {
+    const fetchMock = vi.fn(
+      async (_url: unknown, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            model: 'actual-model',
+            usage: { prompt_tokens: 40, completion_tokens: 20 },
+            choices: [
+              {
+                message: {
+                  content:
+                    '{"summary":"双方正在确认见面时间，最新消息询问是否有空。","replies":[{"text":"有空，几点？"}]}',
+                },
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const session = makeSession([textMsg(1n, 'u_peer', '明天有空吗？', 1000)]);
+    const svc = new IntentSenseService(session, dir, {
+      resolveEndpoint: () => ({
+        baseUrl: 'http://fixture',
+        apiKey: 'secret-not-in-trace',
+        model: 'requested-model',
+        providerId: 'p',
+        providerName: '测试供应商',
+      }),
+    });
+    await svc.setConfig({
+      suggestionsEnabled: true,
+      suggestionProviderRef: { providerId: 'p', model: 'requested-model' },
+    });
+    const first = await svc.getSuggestionRound('c2c', 'u_peer');
+    expect(first).toMatchObject({
+      summary: '双方正在确认见面时间，最新消息询问是否有空。',
+      generation: {
+        source: 'api',
+        model: 'actual-model',
+        providerId: 'p',
+        providerName: '测试供应商',
+        inputMessages: 1,
+        durationMs: expect.any(Number),
+        requestDurationMs: expect.any(Number),
+        usage: { promptTokens: 40, completionTokens: 20, totalTokens: 60 },
+      },
+    });
+    expect((await svc.getSuggestionRound('c2c', 'u_peer'))?.id).toBe(first?.id);
+    const second = await svc.getSuggestionRound('c2c', 'u_peer', { refresh: true });
+    expect(second?.suggestions).toEqual(first?.suggestions);
+    expect(second?.id).not.toBe(first?.id);
+    const reopened = new IntentSenseService(session, dir);
+    const details = reopened.getSuggestionDetails('c2c', 'u_peer', first!.id);
+    expect(details?.entry.id).toBe(first?.id);
+    const request = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
+    expect(details?.trace?.prompt).toEqual({
+      system: request.messages[0].content,
+      user: request.messages[1].content,
+    });
+    expect(details?.trace?.response).toContain('actual-model');
+    expect(JSON.stringify(details)).not.toContain('secret-not-in-trace');
+    expect(reopened.getSuggestionDetails('group', 'u_peer', first!.id)).toBeNull();
+    expect(reopened.getSuggestionDetails('c2c', 'other', first!.id)).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('本地候选不冒充模型概括，旧历史缺少详情仍可读取', async () => {
+    const session = makeSession([textMsg(1n, 'u_peer', '你好', 1000)]);
+    const svc = new IntentSenseService(session, dir);
+    await svc.setConfig({ suggestionsEnabled: true });
+    const round = await svc.getSuggestionRound('c2c', 'u_peer');
+    expect(round?.summary).toBeUndefined();
+    expect(round?.generation?.source).toBe('local');
+    const { generation: _generation, ...legacy } = round!;
+    writeFileSync(join(dir, 'suggestion-history/c2c_u_peer.json'), JSON.stringify([legacy]));
+    const reopened = new IntentSenseService(session, dir);
+    expect(reopened.getSuggestionDetails('c2c', 'u_peer', legacy.id)).toEqual({
+      entry: legacy,
+      trace: null,
+    });
+    writeFileSync(
+      join(dir, 'suggestion-history/c2c_u_peer.json'),
+      JSON.stringify([
+        { ...legacy, summary: { invalid: true }, generation: { source: 'api', durationMs: -1 } },
+      ]),
+    );
+    const corruptMetadata = new IntentSenseService(session, dir).getSuggestionHistory(
+      'c2c',
+      'u_peer',
+    );
+    expect(corruptMetadata).toHaveLength(1);
+    expect(corruptMetadata[0]?.summary).toBeUndefined();
+    expect(corruptMetadata[0]?.generation).toBeUndefined();
+  });
+
+  it('超出历史轮数时同步清理该轮请求详情，不删除其他文件', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: JSON.stringify({ replies: [{ text: '你好' }] }) } }],
+            }),
+          ),
+      ),
+    );
+    const session = makeSession([textMsg(1n, 'u_peer', '你好', 1000)]);
+    const svc = new IntentSenseService(session, dir, {
+      resolveEndpoint: () => ({ baseUrl: 'http://fixture', apiKey: 'fixture', model: 'm' }),
+    });
+    await svc.setConfig({
+      suggestionsEnabled: true,
+      suggestionProviderRef: { providerId: 'p', model: 'm' },
+    });
+    const first = (await svc.getSuggestionRound('c2c', 'u_peer'))!;
+    const traceDir = join(dir, 'suggestion-details/c2c_u_peer');
+    const path = join(traceDir, `${first.id}.json`);
+    expect(existsSync(path)).toBe(true);
+    writeFileSync(join(traceDir, 'unrelated.json'), '{}');
+    writeFileSync(
+      join(dir, 'suggestion-history/c2c_u_peer.json'),
+      JSON.stringify(
+        Array.from({ length: MAX_SUGGESTION_HISTORY }, (_, i) =>
+          i === 0 ? first : { ...first, id: `legacy-${i}` },
+        ),
+      ),
+    );
+    const reopened = new IntentSenseService(session, dir);
+    await reopened.getSuggestionRound('c2c', 'u_peer', { refresh: true });
+    expect(reopened.getSuggestionHistory('c2c', 'u_peer')).toHaveLength(MAX_SUGGESTION_HISTORY);
+    expect(reopened.getSuggestionDetails('c2c', 'u_peer', first.id)).toBeNull();
+    expect(existsSync(path)).toBe(false);
+    expect(existsSync(join(traceDir, 'unrelated.json'))).toBe(true);
+  });
+
+  it.each(['http', 'empty'])(
+    '模型 %s 失败时详情保存实际 prompt 与回退原因，不把模型概括配给本地候选',
+    async (failure) => {
+      const fetchMock = vi.fn(async () =>
+        failure === 'http'
+          ? new Response('{"error":{"message":"fixture-down"}}', { status: 500 })
+          : new Response(
+              JSON.stringify({
+                choices: [
+                  {
+                    message: {
+                      content: JSON.stringify({ summary: '不应显示的概括', replies: [] }),
+                    },
+                  },
+                ],
+              }),
+            ),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+      const svc = new IntentSenseService(makeSession([textMsg(1n, 'u_peer', '你好', 1000)]), dir, {
+        resolveEndpoint: () => ({
+          baseUrl: 'http://fixture',
+          apiKey: 'fixture',
+          model: 'attempted-model',
+        }),
+      });
+      await svc.setConfig({
+        suggestionsEnabled: true,
+        suggestionProviderRef: { providerId: 'p', model: 'attempted-model' },
+      });
+      const round = await svc.getSuggestionRound('c2c', 'u_peer');
+      expect(round?.generation).toMatchObject({
+        source: 'fallback',
+        model: 'attempted-model',
+        requestDurationMs: expect.any(Number),
+      });
+      expect(round?.summary).toBeUndefined();
+      const details = svc.getSuggestionDetails('c2c', 'u_peer', round!.id);
+      expect(details?.trace?.prompt?.user).toContain('你好');
+      expect(details?.trace?.error).toContain(
+        failure === 'http' ? 'fixture-down' : '未返回有效候选',
+      );
+      expect(fetchMock).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('批次进度只统计实际缺口，含失败完成数，晚订阅可恢复在途范围', async () => {
+    let finish!: (value: null) => void;
+    const analyze = vi
+      .fn<IntentLocalEnginePort['analyze']>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockResolvedValue(null);
+    const svc = new IntentSenseService(
+      makeSession([
+        textMsg(1n, 'u_peer', '合成消息一', 1000),
+        textMsg(2n, 'u_peer', '合成消息二', 1001),
+      ]),
+      dir,
+      { localEngine: makeLocalPort(analyze) },
+    );
+    await svc.setConfig({ enabled: true, engine: 'local' });
+    const events: IntentAnalysisProgress[] = [];
+    const off = svc.onAnalysisProgress((event) => events.push(event));
+    const task = svc.ensureAnalysis('c2c', 'u_peer');
+    await vi.waitFor(() => expect(analyze).toHaveBeenCalledOnce());
+    expect(events[0]).toMatchObject({ total: 2, completed: 0, failed: 0, pendingIds: ['1', '2'] });
+    const late = vi.fn();
+    const offLate = svc.onAnalysisProgress(late);
+    expect(late).toHaveBeenCalledWith(events[0]);
+    finish(null);
+    expect(await task).toMatchObject({ analyzed: 0, failed: 2 });
+    expect(events.at(-1)).toMatchObject({ total: 2, completed: 2, failed: 2, pendingIds: [] });
+    const after = vi.fn();
+    svc.onAnalysisProgress(after)();
+    expect(after).not.toHaveBeenCalled();
+    off();
+    offLate();
+  });
+
+  it.each(['local', 'api'] as const)(
+    '%s 本地处理逐条更新内存及推送结果，再更新进度；整块只写盘一次，重试不重算成功项',
+    async (engine) => {
+      const result = {
+        intent: 'chat' as const,
+        emotion: 'neutral' as const,
+        intensity: 20,
+        sentiment: 0,
+        confidence: 0.8,
+      };
+      let finish!: (value: typeof result) => void;
+      const analyze = vi
+        .fn<IntentLocalEnginePort['analyze']>()
+        .mockResolvedValue(result)
+        .mockResolvedValueOnce(result)
+        .mockResolvedValueOnce(null)
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        );
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          throw new Error('合成 API 故障，改用本地');
+        }),
+      );
+      const svc = new IntentSenseService(
+        makeSession([
+          textMsg(1n, 'u_peer', '合成正文一', 1000),
+          textMsg(2n, 'u_peer', '合成正文二', 1001),
+          textMsg(3n, 'u_peer', '合成正文三', 1002),
+        ]),
+        dir,
+        {
+          localEngine: makeLocalPort(analyze),
+          resolveEndpoint: () => ({
+            baseUrl: 'https://synthetic.invalid',
+            apiKey: 'synthetic',
+            model: 'synthetic',
+          }),
+        },
+      );
+      await svc.setConfig({
+        enabled: true,
+        engine,
+        providerRef: { providerId: 'synthetic', model: 'synthetic' },
+      });
+      const events: string[] = [];
+      const publish = vi.fn((event: { results: { msgId: string }[] }) => {
+        events.push(`result:${event.results.map((item) => item.msgId).join(',')}`);
+      });
+      svc.onAnalyzed(publish);
+      svc.onAnalysisProgress((event) => events.push(`progress:${event.completed}/${event.failed}`));
+      const save = vi.spyOn(JsonStore.prototype, 'save');
+      const task = svc.ensureAnalysis('c2c', 'u_peer');
+      try {
+        await vi.waitFor(() => expect(analyze).toHaveBeenCalledTimes(3));
+        expect(publish).toHaveBeenCalledOnce();
+        expect(svc.listMessageAnalyses('c2c', 'u_peer').map((item) => item.msgId)).toEqual(['1']);
+        expect(events).toEqual(['progress:0/0', 'result:1', 'progress:1/0', 'progress:2/1']);
+        expect(save).not.toHaveBeenCalled();
+        finish(result);
+        expect(await task).toMatchObject({ analyzed: 2, failed: 1 });
+        expect(save).toHaveBeenCalledOnce();
+        expect(
+          JSON.parse(readFileSync(join(dir, 'analysis/c2c_u_peer.json'), 'utf8')).results.map(
+            (item: { msgId: string }) => item.msgId,
+          ),
+        ).toEqual(['1', '3']);
+        expect(await svc.ensureAnalysis('c2c', 'u_peer')).toMatchObject({
+          cached: 2,
+          analyzed: 1,
+          failed: 0,
+        });
+        expect(analyze).toHaveBeenCalledTimes(4);
+        expect(analyze.mock.calls[3]?.[0]).toBe('合成正文二');
+      } finally {
+        finish?.(result);
+        await task;
+        save.mockRestore();
+      }
+    },
+  );
+
+  it.each(['context', 'range'] as const)(
+    '逐条显示后切换 %s：旧任务不写入迟到结果，已完成缓存按配置有效性收尾',
+    async (change) => {
+      const result = {
+        intent: 'chat' as const,
+        emotion: 'neutral' as const,
+        intensity: 20,
+        sentiment: 0,
+        confidence: 0.8,
+      };
+      let finish!: (value: typeof result) => void;
+      const analyze = vi
+        .fn<IntentLocalEnginePort['analyze']>()
+        .mockResolvedValueOnce(result)
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        );
+      const session = makeSession([
+        textMsg(1n, 'u_peer', '合成正文一', 1000),
+        textMsg(2n, 'u_peer', '合成正文二', 1001),
+      ]);
+      const svc = new IntentSenseService(session, dir, { localEngine: makeLocalPort(analyze) });
+      await svc.setConfig({ enabled: true, engine: 'local' });
+      const publish = vi.fn();
+      svc.onAnalyzed(publish);
+      const task = svc.ensureAnalysis('c2c', 'u_peer');
+      try {
+        await vi.waitFor(() => expect(analyze).toHaveBeenCalledTimes(2));
+        expect(svc.listMessageAnalyses('c2c', 'u_peer').map((item) => item.msgId)).toEqual(['1']);
+        await svc.setConfig(
+          change === 'context' ? { analysisContextMessages: 0 } : { backfillMessages: 61 },
+        );
+        finish(result);
+        expect((await task).skipped).toBe('config-changed');
+        expect(publish).toHaveBeenCalledOnce();
+        const reopened = new IntentSenseService(session, dir, {
+          localEngine: makeLocalPort(analyze),
+        });
+        expect(reopened.listMessageAnalyses('c2c', 'u_peer').map((item) => item.msgId)).toEqual(
+          change === 'context' ? [] : ['1'],
+        );
+      } finally {
+        finish?.(result);
+        await task;
+      }
+    },
+  );
+
+  it('推荐历史按实际输入末条定位，缓存命中不重复记轮，手动重算与重启保留历史', async () => {
+    const messages = [textMsg(1n, 'u_peer', '合成问题？', 1000)];
+    const session = makeSession(messages);
+    const svc = new IntentSenseService(session, dir);
+    await svc.setConfig({ suggestionsEnabled: true, suggestionProviderRef: null });
+    const first = await svc.getSuggestions('c2c', 'u_peer');
+    expect(svc.getSuggestionHistory('c2c', 'u_peer')).toMatchObject([
+      {
+        target: { msgId: '1', msgSeq: '1', senderUin: '22222', sendTime: 1000 },
+        suggestions: first,
+      },
+    ]);
+    await svc.getSuggestions('c2c', 'u_peer');
+    expect(svc.getSuggestionHistory('c2c', 'u_peer')).toHaveLength(1);
+    await svc.getSuggestions('c2c', 'u_peer', { refresh: true });
+    expect(svc.getSuggestionHistory('c2c', 'u_peer')).toHaveLength(2);
+    expect(new Set(svc.getSuggestionHistory('c2c', 'u_peer').map((entry) => entry.id)).size).toBe(
+      2,
+    );
+    expect(svc.getSuggestionHistory('group', 'u_peer')).toEqual([]);
+    messages.push(textMsg(2n, 'u_peer', '合成新消息', 1001));
+    await svc.getSuggestions('c2c', 'u_peer');
+    expect(svc.getSuggestionHistory('c2c', 'u_peer')[0]?.target.msgSeq).toBe('2');
+    const reopened = new IntentSenseService(session, dir);
+    expect(reopened.getSuggestionHistory('c2c', 'u_peer')).toHaveLength(3);
+    expect(reopened.getSuggestionHistory('c2c', 'u_peer')[0]?.target.msgId).toBe('2');
+  });
+
+  it.each([
+    undefined,
+    {},
+    { providerRef: null, profileProviderRef: null, suggestionProviderRef: null },
+  ])('新配置及旧空引用使用默认，三个功能开关保持关闭：%j', async (raw) => {
+    if (raw) writeFileSync(join(dir, 'config.json'), JSON.stringify(raw));
+    const service = new IntentSenseService(makeSession([]), dir);
+    const expected = {
+      providerRef: { useDefault: true },
+      profileProviderRef: { useDefault: true },
+      suggestionProviderRef: { useDefault: true },
+      enabled: false,
+      profileEnabled: false,
+      suggestionsEnabled: false,
+    };
+    expect(service.getStatus()).toMatchObject(expected);
+    await service.setConfig({
+      providerRef: null,
+      profileProviderRef: null,
+      suggestionProviderRef: null,
+    });
+    expect(new IntentSenseService(makeSession([]), dir).getStatus()).toMatchObject(expected);
+  });
+
+  it('默认模型变更使分析缓存失效，空值使用默认而显式选择保持不变', async () => {
     let model: string | null = 'first';
     const fetch = vi.fn(
       async (_url: unknown, _init?: RequestInit) =>
@@ -136,13 +551,13 @@ describe('IntentSenseService', () => {
     expect(await reopened.analyzeMessage('c2c', 'u_peer', '1')).toBeNull();
     await reopened.setConfig({ providerRef: null });
     model = 'fourth';
-    expect(await reopened.analyzeMessage('c2c', 'u_peer', '1')).toBeNull();
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(await reopened.analyzeMessage('c2c', 'u_peer', '1')).not.toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(4);
     await reopened.setConfig({ providerRef: { providerId: 'explicit', model: 'fixed' } });
     await reopened.analyzeMessage('c2c', 'u_peer', '1');
     model = 'fifth';
     await reopened.analyzeMessage('c2c', 'u_peer', '1');
-    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch).toHaveBeenCalledTimes(5);
     const body = JSON.parse(String(fetch.mock.calls.at(-1)?.[1]?.body));
     expect(body.model).toBe('fixed');
   });
@@ -935,7 +1350,7 @@ describe('IntentSenseService', () => {
   });
 
   it.each(['message', 'config', 'conversation'])(
-    '手动换一批在 %s 改变后丢弃迟到结果',
+    '手动换一批在 %s 改变后仅配置失效或关闭会话才丢弃结果',
     async (change) => {
       const msgs = [textMsg(1n, 'u_self', '合成自己消息', 1000)];
       const response = {
@@ -970,12 +1385,12 @@ describe('IntentSenseService', () => {
       else if (change === 'conversation') await svc.setConversationOverride('c2c', 'u_peer', false);
       else await svc.setConfig({ suggestionsEnabled: false });
       finish(response);
-      expect(await pending).toEqual([]);
+      expect(await pending).toEqual(change === 'message' ? [{ text: '迟到候选' }] : []);
       expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
     },
   );
 
-  it('自己发送时的两个开关独立保存，旧配置保持分析开启、推荐关闭', async () => {
+  it('自己发送时的两个开关默认开启且独立保存', async () => {
     const msgs = [textMsg(1n, 'u_self', '自己发出的合成消息', 1000)];
     const analyze = vi.fn(async () => ({
       intent: 'chat' as const,
@@ -988,7 +1403,7 @@ describe('IntentSenseService', () => {
       localEngine: makeLocalPort(analyze),
     });
     await svc.setConfig({ enabled: true, engine: 'local', suggestionsEnabled: true });
-    expect(svc.getStatus()).toMatchObject({ analyzeAfterSelf: true, suggestAfterSelf: false });
+    expect(svc.getStatus()).toMatchObject({ analyzeAfterSelf: true, suggestAfterSelf: true });
     await svc.setConfig({ analyzeAfterSelf: false, suggestAfterSelf: true });
     expect((await svc.ensureAnalysis('c2c', 'u_peer')).analyzed).toBe(0);
     expect(await svc.analyzeMessage('c2c', 'u_peer', '1')).toBeNull();
@@ -1022,6 +1437,7 @@ describe('IntentSenseService', () => {
       providerRef: { providerId: 'fixture', model: 'fixture' },
       suggestionsEnabled: true,
       suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
+      suggestAfterSelf: false,
     });
     expect(await svc.getSuggestions('c2c', 'u_peer')).toHaveLength(1);
     msgs.push(textMsg(2n, 'u_self', '合成自己回复', 1020));
@@ -1032,43 +1448,106 @@ describe('IntentSenseService', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('推荐请求期间自己已发送，迟到候选不再发布或留给旧客户端', async () => {
-    const msgs = [textMsg(1n, 'u_peer', '合成对方消息', 1000)];
-    const response = {
-      ok: true,
-      json: async () => ({
-        choices: [{ message: { content: '{"replies":[{"text":"迟到候选"}]}' } }],
-      }),
-    };
-    let finish!: (value: typeof response) => void;
-    const fetchMock = vi.fn(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
+  it.each(['u_peer', 'u_self'])(
+    '推荐请求期间收到 %s 新消息不丢弃在途结果，历史保留本轮实际输入',
+    async (sender) => {
+      const msgs = [textMsg(1n, 'u_peer', '合成对方消息', 1000)];
+      const response = {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{"replies":[{"text":"迟到候选"}]}' } }],
         }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-    const svc = new IntentSenseService(makeSession(msgs), dir, {
-      resolveEndpoint: (ref) => ({
-        baseUrl: 'http://fixture',
-        apiKey: 'fixture',
-        model: ref.model,
-      }),
-    });
-    await svc.setConfig({
-      enabled: true,
-      providerRef: { providerId: 'fixture', model: 'fixture' },
-      suggestionsEnabled: true,
-      suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
-    });
-    const pending = svc.getSuggestions('c2c', 'u_peer');
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    msgs.push(textMsg(2n, 'u_self', '合成自己回复', 1020));
-    finish(response);
-    expect(await pending).toEqual([]);
-    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
+      };
+      let finish!: (value: typeof response) => void;
+      const fetchMock = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+      const svc = new IntentSenseService(makeSession(msgs), dir, {
+        resolveEndpoint: (ref) => ({
+          baseUrl: 'http://fixture',
+          apiKey: 'fixture',
+          model: ref.model,
+        }),
+      });
+      await svc.setConfig({
+        enabled: true,
+        providerRef: { providerId: 'fixture', model: 'fixture' },
+        suggestionsEnabled: true,
+        suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
+        suggestAfterSelf: false,
+      });
+      const pending = svc.getSuggestions('c2c', 'u_peer');
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      msgs.push(textMsg(2n, sender, '合成后续消息', 1020));
+      expect(svc.getSuggestions('c2c', 'u_peer')).toBe(pending);
+      finish(response);
+      expect(await pending).toEqual([{ text: '迟到候选' }]);
+      expect(svc.getSuggestionHistory('c2c', 'u_peer')[0]?.target.msgId).toBe('1');
+      if (sender === 'u_self') expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([true, false])(
+    '网络遵守取消=%s 时停止推荐均不写历史、不进入冷却，后续消息照常生成',
+    async (honorAbort) => {
+      const msgs = [textMsg(1n, 'u_peer', '第一条', 1000)];
+      let signal: AbortSignal | undefined;
+      let finish!: (response: Response) => void;
+      const fetchMock = vi.fn((_url: unknown, init?: RequestInit) => {
+        signal = init?.signal ?? undefined;
+        return new Promise<Response>((resolve, reject) => {
+          finish = resolve;
+          if (honorAbort)
+            signal?.addEventListener('abort', () => reject(signal?.reason), { once: true });
+        });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      const svc = new IntentSenseService(makeSession(msgs), dir, {
+        resolveEndpoint: (ref) => ({
+          baseUrl: 'http://fixture',
+          apiKey: 'fixture',
+          model: ref.model,
+        }),
+      });
+      await svc.setConfig({
+        suggestionsEnabled: true,
+        suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
+      });
+      const pending = svc.getSuggestions('c2c', 'u_peer');
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      msgs.push(textMsg(2n, 'u_peer', '第二条', 1020));
+      expect(svc.getSuggestions('c2c', 'u_peer', { refresh: true })).toBe(pending);
+      expect(svc.stopSuggestions('group', 'other')).toBe(false);
+      expect(svc.stopSuggestions('c2c', 'u_peer')).toBe(true);
+      expect(signal?.aborted).toBe(true);
+      if (!honorAbort)
+        finish(
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: '{"replies":[{"text":"已停止的迟到结果"}]}' } }],
+            }),
+          ),
+        );
+      expect(await pending).toEqual([]);
+      expect(svc.getSuggestionHistory('c2c', 'u_peer')).toEqual([]);
+      expect(svc.getStatus().lastSuggestionApiError).toBeNull();
+      fetchMock.mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: '{"replies":[{"text":"新消息推荐"}]}' } }],
+            }),
+          ),
+      );
+      expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([{ text: '新消息推荐' }]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it('自己的分析结果保留 mine，批次统计不把它计为新的对方分析', async () => {
     const analyze = vi.fn(async () => ({
@@ -1090,7 +1569,28 @@ describe('IntentSenseService', () => {
     expect(svc.getMessageAnalyses('c2c', 'u_peer', ['1'])[0]?.mine).toBe(true);
   });
 
-  it('旧配置回落原有实际范围，无效条数不部分写入，零值可持久化', async () => {
+  it.each([undefined, {}])('新账号及缺项旧配置采用推荐默认值：%j', (config) => {
+    if (config) writeFileSync(join(dir, 'config.json'), JSON.stringify(config));
+    const status = new IntentSenseService(makeSession([]), dir).getStatus();
+    expect(DEFAULT_SUGGESTION_CONTEXT_MESSAGES).toBe(30);
+    expect(status).toMatchObject({
+      suggestAfterSelf: true,
+      suggestionContextMessages: DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
+    });
+  });
+
+  it.each([0, 6, 30])('已有推荐关闭及自定义上文 %i 条保持不变', (count) => {
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({ suggestAfterSelf: false, suggestionContextMessages: count }),
+    );
+    expect(new IntentSenseService(makeSession([]), dir).getStatus()).toMatchObject({
+      suggestAfterSelf: false,
+      suggestionContextMessages: count,
+    });
+  });
+
+  it('旧配置回落默认范围，无效条数不部分写入，零值可持久化', async () => {
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ enabled: true, engine: 'local' }));
     const svc = new IntentSenseService(makeSession([]), dir);
     const defaults = {
@@ -1385,7 +1885,10 @@ describe('IntentSenseService', () => {
 
   it('api 引擎未配置 provider 时对任意会话都不生效', async () => {
     const svc = new IntentSenseService(makeSession([]), dir, {
-      resolveEndpoint: (ref) => ({ baseUrl: 'http://x', apiKey: 'k', model: ref.model }),
+      resolveEndpoint: (ref) => {
+        if ('useDefault' in ref) throw new Error('未设置默认模型');
+        return { baseUrl: 'http://x', apiKey: 'k', model: ref.model };
+      },
     });
     await svc.setConfig({ enabled: true, engine: 'api' });
     expect(svc.effectiveFor('c2c', 'u_peer')).toBe(false);

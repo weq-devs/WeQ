@@ -11,10 +11,21 @@ export type ComposerMentionTrigger = {
   query: string;
 };
 
-export function insertComposerNode(editor: HTMLElement, node: Node, savedRange: Range | null) {
-  editor.focus();
+export function insertComposerNode(
+  editor: HTMLElement,
+  node: Node,
+  savedRange: Range | null,
+  focus = true,
+) {
+  if (focus) editor.focus();
 
-  const range = getComposerRange(editor, savedRange);
+  const range =
+    !focus &&
+    savedRange &&
+    isNodeInside(editor, savedRange.startContainer) &&
+    isNodeInside(editor, savedRange.endContainer)
+      ? savedRange.cloneRange()
+      : getComposerRange(editor, savedRange);
   const last = node instanceof DocumentFragment ? node.lastChild : node;
   if (!last) return;
   range.deleteContents();
@@ -22,9 +33,12 @@ export function insertComposerNode(editor: HTMLElement, node: Node, savedRange: 
   range.setStartAfter(last);
   range.collapse(true);
 
-  const selection = window.getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
+  if (focus) {
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
+  return range;
 }
 
 function getComposerRange(editor: HTMLElement, savedRange: Range | null) {

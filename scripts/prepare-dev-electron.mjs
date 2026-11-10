@@ -32,6 +32,15 @@ function run(command, args, { input } = {}) {
 }
 const debuggerKey = 'com.apple.security.cs.debugger';
 
+/** 解析依赖包的可执行入口。Windows 上 pnpm 只有 `.CMD`，spawn 找不到，故不经过 pnpm。 */
+async function resolveBin(specifier, binName) {
+  const packagePath = require.resolve(`${specifier}/package.json`);
+  const { bin } = JSON.parse(await readFile(packagePath, 'utf8'));
+  const entry = typeof bin === 'string' ? bin : bin?.[binName];
+  if (!entry) throw new Error(`找不到 ${specifier} 的可执行入口。`);
+  return join(dirname(packagePath), entry);
+}
+
 async function hash(path) {
   const digest = createHash('sha256');
   for await (const chunk of createReadStream(path)) digest.update(chunk);
@@ -48,8 +57,18 @@ async function exists(path) {
   }
 }
 
+/**
+ * 读取签名里的权限。部分平台的 Electron 发行物整包未签名（zip 内没有
+ * `_CodeSignature`），此时没有可继承的权限，返回 `null` 与"已签名但无权限"区分。
+ */
 async function entitlements(path) {
-  const { stdout } = await run('/usr/bin/codesign', ['-d', '--entitlements', ':-', path]);
+  let stdout;
+  try {
+    ({ stdout } = await run('/usr/bin/codesign', ['-d', '--entitlements', ':-', path]));
+  } catch (error) {
+    if (/is not signed/i.test(String(error.stderr ?? error.message))) return null;
+    throw error;
+  }
   if (!stdout.trim()) return {};
   // 交给系统解析 plist，不手工匹配 XML 字段。
   const { stdout: json } = await run(
@@ -60,10 +79,14 @@ async function entitlements(path) {
   return JSON.parse(json);
 }
 
-async function verify(path) {
-  // Electron 开发发行物的嵌套框架可能只有 linker-signed 签名；仅验证本轮重签的宿主。
-  await run('/usr/bin/codesign', ['--verify', '--strict', path]);
-  if ((await entitlements(path))[debuggerKey] !== true)
+async function verify(path, { deep = false } = {}) {
+  // 已签名发行物的嵌套框架可能只有 linker-signed 签名，此时仅验证本轮重签的宿主；
+  // 整包补签过的宿主则需要连同嵌套应用一起验证。
+  const args = ['--verify', '--strict'];
+  if (deep) args.push('--deep');
+  args.push(path);
+  await run('/usr/bin/codesign', args);
+  if ((await entitlements(path))?.[debuggerKey] !== true)
     throw new Error('开发 Electron 宿主缺少调试权限。');
 }
 
@@ -117,8 +140,9 @@ export async function prepareDevElectron({
     staging = await mkdtemp(join(directory, '.prepare-'));
     const app = join(staging, 'Electron.app');
     await run('/bin/cp', ['-cR', source, app]);
-    // 保留 Electron 自身权限，再合并与正式构建相同的主进程权限。
-    const original = await entitlements(source);
+    // 部分平台的发行物整包未签名（zip 内没有 `_CodeSignature`），没有可继承的权限，
+    // 嵌套的 Helper / Framework 也必须一并补签，否则加固运行时无法启动。
+    const original = await entitlements(app);
     const { stdout: configured } = await run('/usr/bin/plutil', [
       '-convert',
       'json',
@@ -129,8 +153,10 @@ export async function prepareDevElectron({
     const merged = join(staging, 'entitlements.json');
     await writeFile(merged, JSON.stringify({ ...original, ...JSON.parse(configured) }));
     await run('/usr/bin/plutil', ['-convert', 'xml1', merged]);
-    await run('/usr/bin/codesign', [
-      '--force',
+    const deep = original === null;
+    const signArgs = ['--force'];
+    if (deep) signArgs.push('--deep');
+    signArgs.push(
       '--sign',
       '-',
       '--options',
@@ -139,8 +165,9 @@ export async function prepareDevElectron({
       '--entitlements',
       merged,
       app,
-    ]);
-    await verify(app);
+    );
+    await run('/usr/bin/codesign', signArgs);
+    await verify(app, { deep });
     const stagedMarker = join(staging, 'weq-runtime.json');
     await writeFile(stagedMarker, JSON.stringify(fingerprint));
     const hadTarget = await exists(target);
@@ -171,11 +198,15 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     else {
       const env = { ...process.env, ELECTRON_EXEC_PATH: executable };
       delete env.ELECTRON_RUN_AS_NODE;
-      const child = spawn('pnpm', ['exec', 'electron-vite', 'dev', ...process.argv.slice(3)], {
-        cwd: desktop,
-        env,
-        stdio: 'inherit',
-      });
+      const child = spawn(
+        process.execPath,
+        [await resolveBin('electron-vite', 'electron-vite'), 'dev', ...process.argv.slice(3)],
+        {
+          cwd: desktop,
+          env,
+          stdio: 'inherit',
+        },
+      );
       child.on('error', (error) => {
         console.error(error.message);
         process.exitCode = 1;

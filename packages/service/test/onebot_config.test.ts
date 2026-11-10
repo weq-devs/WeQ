@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { DEFAULT_SERVICE_PORTS } from '../src/common/service_ports';
 import { configFixture } from './support/user_config';
 import {
   snapshotWeqSettings,
@@ -13,7 +14,13 @@ it('defaults OneBot to disabled with one disabled WebSocket server and keeps edi
   expect(f.service.getSettings().oneBot).toEqual({
     enabled: false,
     webSocketServers: [
-      { id: 'ws-default', name: 'WebSocket 服务器', enabled: false, port: 48766, token: '' },
+      {
+        id: 'ws-default',
+        name: 'WebSocket 服务器',
+        enabled: false,
+        port: DEFAULT_SERVICE_PORTS['onebot-ws'],
+        token: '',
+      },
     ],
     httpServers: [],
   });
@@ -92,6 +99,34 @@ it('migrates the legacy single WebSocket config without losing its port or token
     httpServers: [],
   });
 });
+
+it.each([48766, 48767])(
+  'preserves existing OneBot server port %i when reopening settings',
+  (port) => {
+    const f = configFixture({
+      settings: {
+        oneBot: {
+          enabled: true,
+          webSocketServers: [
+            { id: 'old-ws', name: '原 WS', enabled: true, port, token: 'old-token' },
+          ],
+          httpServers: [
+            {
+              id: 'old-http',
+              name: '原 HTTP',
+              enabled: true,
+              port: port + 1,
+              token: 'http-token',
+              enableCors: false,
+            },
+          ],
+        },
+      },
+    });
+    expect(f.open().getSettings().oneBot.webSocketServers[0]?.port).toBe(port);
+    expect(f.open().getSettings().oneBot.httpServers[0]?.port).toBe(port + 1);
+  },
+);
 
 it('still migrates legacy fields when deep-merging an old backup over a newer config', () => {
   const f = configFixture({

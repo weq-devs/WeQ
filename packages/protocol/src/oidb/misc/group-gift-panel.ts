@@ -311,7 +311,6 @@ function giftOf(raw: Record<string, unknown>): GroupGiftItem {
 export namespace GroupGiftPanel {
   export const cmd = GROUP_GIFT_PANEL_CMD;
   /** 抓包确认这条命令不带 SecInfo，不签名。 */
-  export const needSign = false;
   export const reqSchema = GROUP_GIFT_PANEL_REQ;
   export const respSchema = GROUP_GIFT_PANEL_RESP;
 
@@ -363,7 +362,7 @@ export namespace GroupGiftPanel {
     pid: number,
     params: GroupGiftPanelParams,
   ): Promise<GroupGiftPanelResult> => {
-    const bytes = await sendPacket(nt, pid, cmd, encode(reqSchema, serialize(params)), needSign);
+    const bytes = await sendPacket(nt, pid, cmd, encode(reqSchema, serialize(params)));
     return deserialize(decode(respSchema, bytes));
   };
 }

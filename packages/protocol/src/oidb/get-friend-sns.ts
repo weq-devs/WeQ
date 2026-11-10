@@ -41,8 +41,7 @@ export interface FriendSnsPage {
 export namespace GetFriendSnsPage {
   export const command = 0xfd4;
   export const subCommand = 1;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
   export const reqSchema = message([
     { name: 'count', tag: 2, type: 'uint32' },
     { name: 'field4', tag: 4, type: 'uint32', force: true },

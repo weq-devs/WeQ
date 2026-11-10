@@ -4,12 +4,49 @@ import { MAX_INTENT_CONTEXT_MESSAGES } from '@weq/service/intent-context';
 const service = vi.hoisted(() => ({
   setConfig: vi.fn(async (input: unknown) => input),
   getSuggestions: vi.fn(async () => []),
+  getSuggestionHistory: vi.fn(() => []),
+  getSuggestionRound: vi.fn(async () => null),
+  getSuggestionDetails: vi.fn(() => null),
+  stopSuggestions: vi.fn(() => true),
 }));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({ services: { intentSense: service } }),
   getActiveIntentSenseLocalEngine: () => null,
 }));
 import { intentSenseRouter } from '../src/main/ipc/routers/intent_sense';
+
+it('轮次请求保留禁用及手动刷新语义，详情只按会话和 ID 读取', async () => {
+  const caller = intentSenseRouter.createCaller({});
+  await caller.getSuggestionRound({ kind: 'c2c', conv: 'u_peer', refresh: true });
+  expect(service.getSuggestionRound).toHaveBeenLastCalledWith('c2c', 'u_peer', { refresh: true });
+  const calls = service.getSuggestionRound.mock.calls.length;
+  await expect(
+    caller.getSuggestionRound({ kind: 'c2c', conv: 'u_peer', replyAllowed: false }),
+  ).resolves.toBeNull();
+  expect(service.getSuggestionRound).toHaveBeenCalledTimes(calls);
+  await expect(
+    caller.getSuggestionDetails({ kind: 'group', conv: '123', id: 'round-1' }),
+  ).resolves.toBeNull();
+  expect(service.getSuggestionDetails).toHaveBeenLastCalledWith('group', '123', 'round-1');
+  expect(service.getSuggestionRound).toHaveBeenCalledTimes(calls);
+});
+
+it('停止推荐只转交指定会话，不修改推荐开关', async () => {
+  const caller = intentSenseRouter.createCaller({});
+  const changes = service.setConfig.mock.calls.length;
+  await expect(caller.stopSuggestions({ kind: 'group', conv: '123' })).resolves.toBe(true);
+  expect(service.stopSuggestions).toHaveBeenCalledWith('group', '123');
+  expect(service.setConfig).toHaveBeenCalledTimes(changes);
+});
+
+it('回复历史读取按会话隔离，不触发重新生成', async () => {
+  const caller = intentSenseRouter.createCaller({});
+  const calls = service.getSuggestions.mock.calls.length;
+  await expect(caller.getSuggestionHistory({ kind: 'c2c', conv: 'u_peer' })).resolves.toEqual([]);
+  expect(service.getSuggestionHistory).toHaveBeenLastCalledWith('c2c', 'u_peer');
+  expect(service.getSuggestions).toHaveBeenCalledTimes(calls);
+  await expect(caller.getSuggestionHistory({ kind: 'group', conv: '' })).rejects.toThrow();
+});
 
 it('上文配置路由接受独立零值和边界，拒绝越界及小数', async () => {
   const caller = intentSenseRouter.createCaller({});

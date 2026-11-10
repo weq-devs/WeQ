@@ -25,11 +25,11 @@
 }
 :is(.app-shell, .weq-conversation-list) .conversation-row .row-preview-line,
 :is(.app-shell, .weq-conversation-list) .contact-row .row-main > span {
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.12;
 }
 :is(.app-shell, .weq-conversation-list) .conversation-row .row-meta {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.1;
 }
 :is(.app-shell, .weq-conversation-list) .conversation-row .row-unread,

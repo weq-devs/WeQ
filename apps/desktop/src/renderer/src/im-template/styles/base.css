@@ -133,7 +133,7 @@ textarea,
   display: grid;
   grid-template-columns:
     var(--im-rail-width, 72px)
-    var(--sidebar-width, var(--im-sidebar-width, 362px))
+    var(--sidebar-width, var(--im-sidebar-width, 240px))
     minmax(520px, 1fr);
   height: 100dvh;
   overflow: hidden;

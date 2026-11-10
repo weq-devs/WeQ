@@ -219,8 +219,14 @@ export function UnifiedSearchModal({
           <h3 id="weq-search-more-title" className="weq-search-more-title">
             {CATEGORY_META[category].label}搜索
           </h3>
-          <button type="button" className="weq-dialog-x" onClick={onClose} aria-label="关闭">
-            <X size={16} strokeWidth={1.9} aria-hidden />
+          <button
+            type="button"
+            className="weq-dialog-x weq-search-more-close"
+            onClick={onClose}
+            title="关闭搜索结果"
+            aria-label="关闭"
+          >
+            <X size={22} strokeWidth={1.9} aria-hidden />
           </button>
         </div>
         <input

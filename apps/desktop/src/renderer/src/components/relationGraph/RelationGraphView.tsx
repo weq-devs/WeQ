@@ -8,63 +8,42 @@
  *  - 和弦图 / 重叠矩阵：群成员重合的两张图（{@link OverlapChord} / {@link OverlapMatrix}），
  *    二者共用 {@link buildOverlapModel} 的同一份重合数据。
  *
- * 下方控制条按「力图 / 重合图」两套设置切换，但布局骨架不变（左滑杆、中开关、
- * 右排行），避免用户换个视图就要重新找按钮。
+ * 下方控制条按「力图 / 重合图」两套设置切换。
  */
 import type React from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity,
-  Award,
   Check,
   CheckCheck,
   ChevronDown,
   ChevronLeft,
   Crosshair,
-  Heart,
   LayoutGrid,
   RefreshCw,
   Search,
   Table2,
-  Trophy,
   UserRound,
   Users,
-  Users2,
   Waypoints,
   X,
 } from 'lucide-react';
-import { trpc, client } from '../../trpc/client';
+import { trpc } from '../../trpc/client';
+import { useGroupMemberRefresh } from '../../hooks/useGroupMemberRefresh';
 import { GraphCanvas } from './GraphCanvas';
 import { OverlayLayer } from '../OverlayLayer';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import {
-  buildGraph,
-  buildOverlapModel,
-  communityColor,
-  personAvatar,
-  groupAvatar,
-} from './graphModel';
-import { RankingModal, type RankingKind } from './RankingModal';
+import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
+import { useRenderDocument } from '../../lib/renderDocument';
+import { GroupProfileDialog } from '../../im-template/template/profilePanes';
+import { sharedGroupConversation } from '../ark/groupShareCard';
+import { buildGraph, buildOverlapModel, groupAvatar } from './graphModel';
 import { RelationHome } from './RelationHome';
 import { OverlapChord } from './OverlapChord';
 import { OverlapMatrix } from './OverlapMatrix';
 import { OverlapPairCard, type OverlapPairSelection } from './OverlapPairCard';
-import type {
-  GraphMode,
-  GraphSettings,
-  GroupFilterMode,
-  OverlapDirection,
-  RawNode,
-  RelationGraphData,
-} from './types';
+import type { GraphMode, GraphSettings, GroupFilterMode, OverlapDirection, RawNode } from './types';
 import './relationGraph.css';
-
-const RANK_BUTTONS: Array<{ kind: RankingKind; label: string; icon: JSX.Element }> = [
-  { kind: 'intimacy', label: '好友亲密度排行', icon: <Heart size={14} /> },
-  { kind: 'common', label: '共同群聊数排行', icon: <Users2 size={14} /> },
-  { kind: 'memberLevel', label: '群成员等级排行', icon: <Award size={14} /> },
-  { kind: 'groupActivity', label: '群聊活跃度排行', icon: <Activity size={14} /> },
-];
 
 const MODE_OPTIONS: Array<{ value: GraphMode; label: string; icon: JSX.Element }> = [
   { value: 'people', label: '群友圈子', icon: <UserRound size={13} /> },
@@ -77,8 +56,8 @@ const COMMON_THRESHOLD_RANGES: Record<
   'people' | 'groups',
   { min: number; max: number; label: string }
 > = {
-  people: { min: 2, max: 10, label: '连线阈值 · 共同群' },
-  groups: { min: 5, max: 30, label: '连线阈值 · 共同好友' },
+  people: { min: 2, max: 10, label: '共同群阈值' },
+  groups: { min: 5, max: 30, label: '共同成员阈值' },
 };
 
 const DEFAULT_SETTINGS: GraphSettings = {
@@ -119,23 +98,27 @@ export function RelationGraphView({
 } = {}) {
   const [entered, setEntered] = useState(false);
   const [settings, setSettings] = useState<GraphSettings>(DEFAULT_SETTINGS);
+  const [showRemarks, setShowRemarks] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [override, setOverride] = useState<RelationGraphData | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const [groupCardId, setGroupCardId] = useState<string | null>(null);
+  const groupAnchorRef = useRef<HTMLSpanElement | null>(null);
+  const directory = useContext(ConversationDirectoryContext);
+  const document = useRenderDocument();
+  const { refresh, refreshing, ready } = useGroupMemberRefresh();
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [rankOpen, setRankOpen] = useState<RankingKind | null>(null);
   const [pair, setPair] = useState<OverlapPairSelection | null>(null);
   const previousModeRef = useRef<GraphMode>(DEFAULT_SETTINGS.mode);
 
   const query = trpc.account.getRelationGraph.useQuery(undefined, {
-    staleTime: Infinity,
+    staleTime: 0,
     refetchOnWindowFocus: false,
   });
-  const data = override ?? query.data;
-  const loading = query.isLoading || refreshing;
+  const data = query.data;
+  const loading = query.isLoading;
 
   useEffect(() => {
     setSelectedId(null);
+    setGroupCardId(null);
     setPair(null);
     setSettings((current) => {
       const previousMode = previousModeRef.current;
@@ -154,30 +137,28 @@ export function RelationGraphView({
   }, [settings.mode]);
 
   const graph = useMemo(
-    () => (isOverlapMode(settings.mode) ? null : buildGraph(data, settings)),
-    [data, settings],
+    () => (!entered || isOverlapMode(settings.mode) ? null : buildGraph(data, settings)),
+    [data, settings, entered],
   );
   const overlap = useMemo(
-    () => (isOverlapMode(settings.mode) ? buildOverlapModel(data, settings) : null),
-    [data, settings],
+    () => (entered && isOverlapMode(settings.mode) ? buildOverlapModel(data, settings) : null),
+    [data, settings, entered],
   );
-  const selected = useMemo(
-    () => graph?.nodes.find((node) => node.id === selectedId) ?? null,
-    [graph, selectedId],
+  const selectedGroup = data?.groups.find((group) => group.code === groupCardId);
+  const knownGroup = directory?.real?.find(
+    (conversation) => conversation.type === 'group' && conversation.id === groupCardId,
   );
+  const groupConversation =
+    knownGroup?.type === 'group'
+      ? knownGroup
+      : selectedGroup
+        ? sharedGroupConversation({
+            code: selectedGroup.code,
+            name: selectedGroup.name,
+            avatar: groupAvatar(selectedGroup.code),
+          })
+        : undefined;
   const groupOptions = data?.groups ?? [];
-
-  async function refresh() {
-    setRefreshing(true);
-    try {
-      const fresh = await client.account.getRelationGraph.query({ force: true });
-      setOverride(fresh);
-    } catch (err) {
-      console.error('[relation-graph] refresh failed', err);
-    } finally {
-      setRefreshing(false);
-    }
-  }
 
   function patch(next: Partial<GraphSettings>) {
     setSettings((current) => ({ ...current, ...next }));
@@ -189,6 +170,8 @@ export function RelationGraphView({
         <RelationHome
           data={data}
           loading={loading}
+          refreshing={refreshing}
+          refreshReady={ready}
           onEnter={() => setEntered(true)}
           onRefresh={refresh}
         />
@@ -224,8 +207,9 @@ export function RelationGraphView({
               className="weq-graph-icon-btn"
               type="button"
               onClick={refresh}
-              disabled={loading}
-              title="重新扫描群成员，重建关系网"
+              disabled={(loading && !refreshing) || !ready}
+              aria-busy={refreshing}
+              title="更新全部群成员并重新计算"
             >
               <RefreshCw size={15} className={refreshing ? 'weq-spin' : ''} />
             </button>
@@ -247,7 +231,7 @@ export function RelationGraphView({
         ) : !data ? (
           <div className="weq-graph-state">
             <Crosshair size={26} />
-            <span>没能读到群成员数据，退出 QQ 登录后重试，或点右上角重新扫描。</span>
+            <span>没能读到群成员数据，可点右上角更新成员后重试。</span>
           </div>
         ) : overlapMode && overlap ? (
           mode === 'chord' ? (
@@ -275,27 +259,51 @@ export function RelationGraphView({
         ) : graph ? (
           <GraphCanvas
             graph={graph}
+            showRemarks={showRemarks}
             selectedId={selectedId}
-            onSelect={(node) => setSelectedId(node && node.kind !== 'self' ? node.id : null)}
-            onOpenPerson={(node, anchor) =>
-              onOpenMember?.(
-                {
-                  uid: node.id,
-                  uin: node.uin ?? '',
-                  nick: node.label,
-                  card: '',
-                  groupCount: node.groupCount ?? 0,
-                  groupCodes: [],
-                  intimacy: node.intimacy ?? 0,
-                  isFriend: Boolean(node.isFriend),
-                },
-                anchor,
-              )
-            }
+            onSelect={(node, anchor) => {
+              setSelectedId(node && node.kind !== 'self' ? node.id : null);
+              setGroupCardId(null);
+              if (node?.kind === 'person') {
+                onOpenMember?.(
+                  data.nodes.find((person) => person.uid === node.id) ?? {
+                    uid: node.id,
+                    uin: node.uin ?? '',
+                    nick: node.label,
+                    card: '',
+                    groupCount: node.groupCount ?? 0,
+                    groupCodes: [],
+                    intimacy: node.intimacy ?? 0,
+                    isFriend: Boolean(node.isFriend),
+                  },
+                  anchor,
+                );
+              } else if (node?.kind === 'group' && groupAnchorRef.current) {
+                groupAnchorRef.current.style.left = `${anchor.x}px`;
+                groupAnchorRef.current.style.top = `${anchor.y}px`;
+                setGroupCardId(node.code);
+              }
+            }}
           />
         ) : null}
 
-        {selected ? <DetailCard node={selected} onClose={() => setSelectedId(null)} /> : null}
+        {createPortal(
+          <span
+            ref={groupAnchorRef}
+            aria-hidden="true"
+            style={{ position: 'fixed', pointerEvents: 'none' }}
+          />,
+          document.body,
+        )}
+        {groupConversation ? (
+          <GroupProfileDialog
+            key={groupCardId}
+            conversation={groupConversation}
+            anchor={groupAnchorRef.current}
+            detailsKnown={Boolean(knownGroup)}
+            onClose={() => setGroupCardId(null)}
+          />
+        ) : null}
 
         {overlapMode && pair && data ? (
           <OverlapPairCard
@@ -307,7 +315,7 @@ export function RelationGraphView({
         ) : null}
       </div>
 
-      <div className="weq-graph-controls">
+      <div className={`weq-graph-controls${overlapMode ? ' is-overlap' : ''}`}>
         {overlapMode && overlap ? (
           <>
             <div className="weq-graph-col weq-graph-col-sliders">
@@ -378,33 +386,15 @@ export function RelationGraphView({
                 大重叠找「同一批人在哪几个群」，小重叠找「几乎不挨着、但人群相投」的群。
               </p>
             </div>
-
-            <div className="weq-graph-col weq-graph-col-rank">
-              <span className="weq-graph-col-label">
-                <Trophy size={13} />
-                排行榜
-              </span>
-              {RANK_BUTTONS.map((button) => (
-                <button
-                  key={button.kind}
-                  type="button"
-                  className="weq-graph-rank-btn"
-                  disabled={button.kind !== 'intimacy' && button.kind !== 'groupActivity' && !data}
-                  onClick={() => setRankOpen(button.kind)}
-                >
-                  {button.icon}
-                  <span>{button.label}</span>
-                </button>
-              ))}
-            </div>
           </>
         ) : (
           <>
             <div className="weq-graph-col weq-graph-col-sliders">
+              <span className="weq-graph-col-label">范围</span>
               <RangeControl
                 value={settings.nodeLimit}
                 min={10}
-                max={200}
+                max={1000}
                 step={5}
                 onCommit={(value) => patch({ nodeLimit: value })}
                 label="节点数量"
@@ -424,12 +414,8 @@ export function RelationGraphView({
 
             {mode === 'people' ? (
               <div className="weq-graph-col">
-                <span className="weq-graph-col-label">好友权重</span>
-                <Toggle
-                  label="仅显示好友"
-                  checked={settings.friendsOnly}
-                  onChange={(value) => patch({ friendsOnly: value })}
-                />
+                <span className="weq-graph-col-label">显示与权重</span>
+                <Toggle label="显示备注名" checked={showRemarks} onChange={setShowRemarks} />
                 <Toggle
                   label="亲密度决定大小"
                   checked={settings.intimacySize}
@@ -443,7 +429,7 @@ export function RelationGraphView({
               </div>
             ) : (
               <div className="weq-graph-col">
-                <span className="weq-graph-col-label">群聊权重</span>
+                <span className="weq-graph-col-label">显示与权重</span>
                 <Toggle
                   label="等级决定大小"
                   checked={settings.groupLevelSize}
@@ -460,8 +446,15 @@ export function RelationGraphView({
             <div className="weq-graph-col weq-graph-col-filter">
               <span className="weq-graph-col-label">
                 <LayoutGrid size={13} />
-                群过滤
+                筛选
               </span>
+              {mode === 'people' ? (
+                <Toggle
+                  label="仅显示好友"
+                  checked={settings.friendsOnly}
+                  onChange={(value) => patch({ friendsOnly: value })}
+                />
+              ) : null}
               <Segmented
                 small
                 value={settings.groupFilterMode}
@@ -478,32 +471,6 @@ export function RelationGraphView({
                 onClick={() => setPickerOpen(true)}
                 disabled={!filterActive || groupOptions.length === 0}
               />
-              <p className="weq-graph-hint">
-                {settings.groupFilterMode === 'whitelist'
-                  ? '只统计选中的群。'
-                  : settings.groupFilterMode === 'blacklist'
-                    ? '排除选中的群。'
-                    : '纳入全部群聊参与计算。'}
-              </p>
-            </div>
-
-            <div className="weq-graph-col weq-graph-col-rank">
-              <span className="weq-graph-col-label">
-                <Trophy size={13} />
-                排行榜
-              </span>
-              {RANK_BUTTONS.map((button) => (
-                <button
-                  key={button.kind}
-                  type="button"
-                  className="weq-graph-rank-btn"
-                  disabled={button.kind !== 'intimacy' && button.kind !== 'groupActivity' && !data}
-                  onClick={() => setRankOpen(button.kind)}
-                >
-                  {button.icon}
-                  <span>{button.label}</span>
-                </button>
-              ))}
             </div>
           </>
         )}
@@ -519,32 +486,6 @@ export function RelationGraphView({
             patch({ groupFilter: codes });
             setPickerOpen(false);
           }}
-        />
-      ) : null}
-
-      {rankOpen ? (
-        <RankingModal
-          kind={rankOpen}
-          data={data}
-          onClose={() => setRankOpen(null)}
-          onOpenMember={(member, anchor) =>
-            onOpenMember?.(
-              {
-                uid: member.uid,
-                uin: member.uin,
-                nick: member.nick ?? '',
-                card: member.card ?? '',
-                groupCount: 0,
-                groupCodes: [],
-                intimacy: 0,
-                isFriend: true,
-              },
-              anchor,
-              member.groupCode
-                ? { code: member.groupCode, name: member.groupName ?? '' }
-                : undefined,
-            )
-          }
         />
       ) : null}
     </section>
@@ -687,63 +628,6 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
         </footer>
       </section>
     </OverlayLayer>
-  );
-}
-
-function DetailCard({ node, onClose }) {
-  const avatar =
-    node.kind === 'person' ? personAvatar(node.uin ?? '') : groupAvatar(node.code ?? '');
-  return (
-    <div className="weq-graph-detail">
-      <button className="weq-graph-detail-close" type="button" onClick={onClose}>
-        <X size={14} />
-      </button>
-      <div className="weq-graph-detail-head">
-        <span
-          className="weq-graph-detail-avatar"
-          style={{ borderColor: communityColor(node.community) }}
-        >
-          {avatar ? (
-            <img src={avatar} alt="" referrerPolicy="no-referrer" />
-          ) : (
-            <span>{(node.label || '?').slice(0, 1)}</span>
-          )}
-        </span>
-        <div className="weq-graph-detail-id">
-          <strong title={node.label}>{node.label}</strong>
-          <span>{node.kind === 'person' ? node.uin : `群 ${node.code}`}</span>
-        </div>
-      </div>
-      <div className="weq-graph-detail-rows">
-        {node.kind === 'person' ? (
-          <>
-            <DetailRow label="关系" value={node.isFriend ? '好友' : '群友'} />
-            <DetailRow label="共同群数" value={String(node.groupCount ?? 0)} />
-            {node.intimacy ? (
-              <DetailRow label="亲密度" value={String(node.intimacy)} accent />
-            ) : null}
-          </>
-        ) : (
-          <>
-            <DetailRow label="群成员" value={`${node.memberCount ?? 0} 人`} />
-            <DetailRow label="命中成员" value={`${node.sharedCount ?? 0} 位`} accent />
-            {node.myLevel ? (
-              <DetailRow label="我的等级" value={String(node.myLevel)} accent />
-            ) : null}
-          </>
-        )}
-        <DetailRow label="所属圈子" value={`#${node.community + 1}`} />
-      </div>
-    </div>
-  );
-}
-
-function DetailRow({ label, value, accent }) {
-  return (
-    <div className="weq-graph-detail-row">
-      <span>{label}</span>
-      <strong className={accent ? 'is-accent' : ''}>{value}</strong>
-    </div>
   );
 }
 

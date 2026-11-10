@@ -15,7 +15,18 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { z } from 'zod';
 import { usePageState } from '../PageSnapshots';
 import { pageValue } from '../../lib/pageSnapshots';
-import { AudioLines, Download, Loader2, Plus, Play, Save, Trash2, Volume2, X } from 'lucide-react';
+import {
+  AudioLines,
+  Cloud,
+  Download,
+  Loader2,
+  Plus,
+  Play,
+  Save,
+  Trash2,
+  Volume2,
+  X,
+} from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { Modal, useDialog } from '../Dialog';
@@ -151,14 +162,14 @@ export function VoiceTranscribeSection(): ReactElement {
   return (
     <div className="weq-set weq-recognition-settings">
       <SectionHeader icon={<AudioLines size={18} strokeWidth={1.8} />} title="语音识别" />
-      <Card title="QQ 在线转写">
+      <Card title="QQ 在线转写" icon={<Cloud size={15} strokeWidth={1.8} />}>
         <p className="weq-set-note">
           由 QQ 服务端将语音转为文字，需要 QQ 在线，并在导出时准备官方转写抓包。
         </p>
         <RecognitionConcurrencySetting kind="voice" />
       </Card>
 
-      <Card title="本地语音识别">
+      <Card title="本地语音识别" icon={<AudioLines size={15} strokeWidth={1.8} />}>
         <p className="weq-set-note">使用本机已下载的模型将语音转为文字，可离线使用。</p>
         {modelList.length === 0 ? (
           <div className="weq-set-empty">{models.isLoading ? '加载中…' : '暂无可用模型'}</div>
@@ -510,6 +521,7 @@ export function TtsProvidersCard(): ReactElement {
     <>
       <Card
         title="TTS 语音合成"
+        icon={<Volume2 size={15} strokeWidth={1.8} />}
         settingId="tts-providers"
         action={
           <button

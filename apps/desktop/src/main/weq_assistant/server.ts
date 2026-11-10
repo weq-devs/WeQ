@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { servicePortCandidates } from '@weq/service/service-ports';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { extname, isAbsolute, join, relative, sep } from 'node:path';
 
@@ -47,7 +48,7 @@ export class AssistantResourceServer {
       if (this.server?.listening && this.root === root && this.requestedPort === port)
         return this.port!;
       await this.close();
-      for (let offset = 0; offset < (port === 0 ? 1 : 20) && port + offset <= 65535; offset += 1) {
+      for (const candidate of servicePortCandidates('weq-assistant', port, 20)) {
         if (this.quitting) throw new Error('WeQ 正在退出，未启动助手资源服务');
         const server = createServer((req, res) => {
           void serve(root, req, res);
@@ -59,7 +60,7 @@ export class AssistantResourceServer {
         try {
           await new Promise<void>((resolve, reject) => {
             server.once('error', reject);
-            server.listen(port + offset, '127.0.0.1', () => {
+            server.listen(candidate, '127.0.0.1', () => {
               server.removeListener('error', reject);
               resolve();
             });

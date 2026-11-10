@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
-import { Keyboard, ListTodo, Radio } from 'lucide-react';
+import { useEffect, useRef, type RefObject } from 'react';
+import { ListTodo } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import type { Conversation, Message } from '../../im-template/template/types';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { useTypingStatusSettings } from '../../hooks/useTypingStatusSettings';
-import { ActionFeedback, ActionIcon, useQQAction, useQQGroupPermissions } from './shared';
+import { ActionFeedback, useQQAction, useQQGroupPermissions } from './shared';
 
 export function MessageTodoAction({
   conversation,
@@ -70,36 +70,42 @@ export function MessageTodoAction({
   );
 }
 
-/** 按会话偏好广播，最多每十秒一次；不猜测未核实的“停止输入”枚举。 */
+/**
+ * 按设置里的「隐藏正在输入的状态」，在私聊输入框有输入时广播输入状态，
+ * 最多每十秒一次；不猜测未核实的“停止输入”枚举。
+ *
+ * 默认向对方展示输入状态（设置里的模式为 off）；只有命中「按会话勾选」或
+ * 「永久全选」时才不再广播。这里不渲染任何开关按钮 —— 私聊输入框右上角
+ * 不再有输入状态开关。
+ */
 export function TypingStatus({
   uid,
-  name,
   editors,
 }: {
   uid: string;
-  name?: string;
   editors: RefObject<HTMLDivElement | null>[];
 }) {
   const session = useQQWriteSession(`typing:${uid}`);
   const preferences = useTypingStatusSettings();
-  const target = session.binding && {
-    accountUin: session.binding.expectedAccountUin,
-    accountConfigId: session.binding.expectedAccountConfigId,
-    uid,
-    name: name || uid,
-  };
-  const override = preferences.query.data?.overrides.find(
-    (item) =>
-      item.accountUin === target?.accountUin &&
-      item.accountConfigId === target?.accountConfigId &&
-      item.uid === uid,
-  );
+  const accountUin = session.binding?.expectedAccountUin;
+  const accountConfigId = session.binding?.expectedAccountConfigId;
+  const settings = preferences.query.data;
+  const hiddenHere =
+    settings?.mode === 'selected' &&
+    settings.hidden.some(
+      (item) =>
+        item.accountUin === accountUin &&
+        item.accountConfigId === accountConfigId &&
+        item.uid === uid,
+    );
   const enabled =
     !preferences.query.isError &&
-    (override?.enabled ?? preferences.query.data?.defaultEnabled ?? false);
+    !preferences.disabled &&
+    !!settings &&
+    !(settings.mode === 'all' || hiddenHere);
   const latest = useRef(session);
   latest.current = session;
-  const identity = `${session.binding?.expectedAccountUin}:${session.binding?.expectedAccountConfigId}:${uid}`;
+  const identity = `${accountUin}:${accountConfigId}:${uid}`;
   const refs = useRef(editors);
   refs.current = editors;
   useEffect(() => {
@@ -121,70 +127,5 @@ export function TypingStatus({
       for (const node of nodes) node.removeEventListener('input', input);
     };
   }, [enabled, uid, identity]);
-  return (
-    <button
-      type="button"
-      className="composer-tool weq-qq-typing-toggle"
-      aria-label="发送正在输入状态"
-      aria-pressed={enabled}
-      title={`发送正在输入状态（${enabled ? '已开启' : '已关闭'}）${session.result?.error ? `：${session.result.text}` : ''}`}
-      disabled={!session.available || !target || preferences.disabled}
-      onClick={() => target && void preferences.setOverride(target, !enabled)}
-    >
-      <Keyboard size={21} strokeWidth={1.5} />
-      {session.result?.error && (
-        <span className="sr-only" role="alert">
-          {session.result.text}
-        </span>
-      )}
-    </button>
-  );
-}
-
-export function LiveStatusReadout() {
-  const a = useQQAction('live-status'),
-    [open, setOpen] = useState(false);
-  const status = trpc.account.qqActions.liveStatus.useQuery(
-    { ...a.binding! },
-    { enabled: open && a.available, retry: false, staleTime: 15_000 },
-  );
-  const names: Record<number, string> = {
-    0: '离线',
-    10: '在线',
-    30: '离开',
-    40: '隐身',
-    50: '忙碌',
-    60: 'Q我吧',
-    70: '勿扰',
-  };
-  return (
-    <div className="weq-qq-actions weq-qq-live-status">
-      <div className="weq-qq-action-bar">
-        <span className="weq-qq-live-status-label">
-          <Radio size={13} strokeWidth={2} aria-hidden />
-          服务端状态
-        </span>
-        <ActionIcon
-          label="查询服务端在线状态"
-          disabled={a.disabled || status.isFetching}
-          onClick={() => {
-            if (open) void status.refetch();
-            else setOpen(true);
-          }}
-        >
-          <Radio size={16} />
-        </ActionIcon>
-        {open && (
-          <span role="status" className="weq-qq-live-status-value">
-            {status.isFetching
-              ? '查询中…'
-              : status.data
-                ? `${names[status.data.status] ?? `状态 ${status.data.status}`}${status.data.extStatus ? ` · 扩展 ${status.data.extStatus}` : ''}`
-                : '服务端未返回状态'}
-          </span>
-        )}
-      </div>
-      {status.error && <p role="alert">{status.error.message}</p>}
-    </div>
-  );
+  return null;
 }

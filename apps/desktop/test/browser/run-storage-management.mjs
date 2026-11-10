@@ -84,11 +84,14 @@ try {
               button.textContent.trim() === '开始清理',
             configMoved:
               !cleanup.textContent.includes('账号与应用配置') &&
-              document.querySelector('[data-backup]').textContent.includes('清除账号与应用配置') &&
-              document.querySelector('[data-backup]').textContent.includes('重置全局配置') &&
+              !document.querySelector('[data-backup]').textContent.includes('清除账号与应用配置') &&
+              !document.querySelector('[data-backup]').textContent.includes('重置全局配置') &&
               !document.querySelector('[data-backup] .weq-set-cache-list') &&
               !document.querySelector('[data-backup]').textContent.includes('本页占用'),
             merged: cleanup.querySelectorAll('input[aria-label="桌面运行缓存"]').length === 1,
+            dataOnly: !['默认保存目录', '默认保存方式', '缓存目录', '防撤回配置'].some((label) =>
+              cleanup.textContent.includes(label),
+            ),
             emptyHidden: !cleanup.textContent.includes('空项目'),
             noOverflow: document.documentElement.scrollWidth <= innerWidth,
             textBounded: [...document.querySelectorAll('.weq-storage-detail')].every(

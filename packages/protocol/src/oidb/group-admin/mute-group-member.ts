@@ -39,7 +39,6 @@ export interface MuteGroupMemberParams {
 export namespace MuteGroupMember {
   export const command = 0x1253;
   export const subCommand = 1;
-  export const needSign = false;
   export const reqSchema = MUTE_MEMBER_REQ;
   export const respSchema = MUTE_MEMBER_RESP;
 

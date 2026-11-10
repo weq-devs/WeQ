@@ -17,6 +17,62 @@ vi.mock('../src/renderer/src/im-template/template/sidebar', () => ({
 }));
 
 describe('主内容页的会话列表可见性', () => {
+  it.each([false, true])('保留手机导航的页面覆盖聊天详情状态（mainOpen=%s）', (mainOpen) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          h(
+            WorkspacePages,
+            { navigationKey: 'messages' },
+            h(ChatShell, {
+              view: 'messages',
+              mainOpen,
+              sidebarWidth: 240,
+              mainContent: h(WorkspaceContent, null, '原聊天'),
+            }),
+            h(WorkspacePage, { title: '个性装扮', standalone: true, mobileChrome: true }, '装扮'),
+          ),
+        ),
+      );
+      expect(host.querySelector('.app-shell-root')?.hasAttribute('data-mobile-detail')).toBe(false);
+      expect(host.querySelector('.app-shell-root')?.hasAttribute('data-mobile-workspace')).toBe(
+        true,
+      );
+    } finally {
+      act(() => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
+  it('页面导航使用暂离回调，不触发显式关闭的清除流程', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const close = vi.fn();
+    const leave = vi.fn();
+    const render = (navigationKey: string) =>
+      act(() =>
+        root.render(
+          h(
+            WorkspacePages,
+            { navigationKey },
+            h(WorkspaceContent, null, '原页面'),
+            h(WorkspacePage, { title: '设置', onClose: close, onNavigate: leave }, '设置内容'),
+          ),
+        ),
+      );
+    try {
+      render('messages');
+      render('contacts');
+      expect(leave).toHaveBeenCalledOnce();
+      expect(close).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
   it.each(['设置', '个性装扮'])('%s 收起列表与拖拽条，关闭后恢复列表现场与宽度', (title) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');

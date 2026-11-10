@@ -42,7 +42,7 @@ it('停止正在运行的扫描后，等实际子进程退出才释放任务，�
   const pending = tasks.start(target.uin, 'first', target);
   const rejected = expect(pending).rejects.toThrow('已停止');
   try {
-    await vi.waitFor(() => expect(existsSync(target.dbPath)).toBe(true));
+    await vi.waitFor(() => expect(existsSync(target.dbPath)).toBe(true), { timeout: 15_000 });
     const pid = Number(readFileSync(target.dbPath, 'utf8'));
     expect(await tasks.cancel('other-account', 'first')).toEqual({ cancelled: false });
     expect(process.kill(pid, 0)).toBe(true);

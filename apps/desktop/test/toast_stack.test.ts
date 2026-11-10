@@ -3,10 +3,18 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
 
+const target = vi.hoisted(() => ({ web: false }));
+vi.mock('../src/renderer/src/lib/target', () => ({
+  get IS_WEB() {
+    return target.web;
+  },
+}));
+
 let root: Root;
 let host: HTMLDivElement;
 let contentHeight: number;
 beforeEach(() => {
+  target.web = false;
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   contentHeight = 600;
   vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function () {
@@ -42,6 +50,12 @@ function scroll(top: number) {
 }
 
 describe('有界通知队列的阅读位置', () => {
+  it.each([false, true])('仅 Web 目标（当前 %s）启用手机底栏避让', (web) => {
+    target.web = web;
+    push('合成通知');
+    expect(stack().classList.contains('is-web')).toBe(web);
+  });
+
   it('默认跟随新通知，不删除旧通知，也不重挂已经展开的内容', () => {
     push('第一条');
     const first = stack().querySelector('.weq-toast')!;

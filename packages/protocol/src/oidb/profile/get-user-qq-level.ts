@@ -53,8 +53,7 @@ export interface QqLevelInfo {
 export namespace GetUserQqLevel {
   export const command = 0xfe1;
   export const subCommand = 2;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
   export const uinForm = true;
   export const reqSchema = USER_INFO_REQ;
   export const respSchema = USER_INFO_RESP;

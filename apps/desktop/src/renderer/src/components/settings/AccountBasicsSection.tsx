@@ -1,10 +1,10 @@
 /**
  * 设置 → 账号基础.
  *
- * Everything tied to the open account: self profile, the database key, the live
- * download rkeys, clientkey, plus the behaviour switch (实时消息 / 自动读取 QQ 内存).
- * Realtime + 自动读取 QQ 内存 are stored globally but read most naturally here next
- * to the account they affect.
+ * Everything tied to the open account: the database key, the live download rkeys,
+ * clientkey, plus the behaviour switch (实时消息 / 自动读取 QQ 内存). Realtime +
+ * 自动读取 QQ 内存 are stored globally but read most naturally here next to the
+ * account they affect. 「监听与读取」不再重复展示当前账号资料。
  *
  * Freshness: the QueryClient keeps data fresh 5 min and does NOT refetch on
  * mount by default, which made this panel show stale rkeys/settings after they
@@ -12,9 +12,6 @@
  * `refetchOnMount: 'always'`; the account config also polls while open so a
  * freshly-harvested rkey/clientkey appears without reopening. After each
  * settings mutation we refetch so a reopen reflects what was persisted.
- *
- * Avatar: built from the uin (`QqAvatar` → thirdqq CDN), NOT the profile's
- * stored avatarUrl — that URL can be a stale/expired signed link that 502s.
  */
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
@@ -39,7 +36,6 @@ import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
-import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { LongTermAuthorizationSection } from './LongTermAuthorizationSection';
 import { QqDebugCopy } from '../QqDebugCopy';
@@ -164,10 +160,6 @@ export function AccountBasicsSection({
   const confirm = useDialog((s) => s.confirm);
   const autoRefresh = useQQAutoRefresh(true);
 
-  const profile = trpc.account.getSelfProfile.useQuery(undefined, {
-    ...autoRefresh,
-    enabled: autoRefresh.enabled && page === 'account',
-  });
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
     ...autoRefresh,
     enabled: autoRefresh.enabled && page !== 'read',
@@ -260,7 +252,6 @@ export function AccountBasicsSection({
     return () => clearTimeout(t);
   }, [copied, active]);
 
-  const p = profile.data;
   const cfg = config.data;
   const dbKey = cfg?.dbKey ?? '';
   const maskedKey = dbKey ? maskSecret(dbKey) : '';
@@ -410,7 +401,7 @@ export function AccountBasicsSection({
           }
           desc={
             page === 'account'
-              ? '当前账号资料；数据库监听与 QQ 内存读取开关为全局设置。'
+              ? '数据库监听与 QQ 内存读取开关为全局设置；当前账号资料不再在这里重复展示。'
               : page === 'credentials'
                 ? '当前账号的敏感凭据，默认隐藏。'
                 : '本机媒体关联仅影响当前账号；外部安卓缓存为全局配置。'
@@ -418,35 +409,10 @@ export function AccountBasicsSection({
         />
       )}
 
-      {/* Self profile hero */}
-      {page === 'account' && (
-        <Card>
-          {p ? (
-            <div className="weq-set-hero">
-              {/* uin-built avatar; ignore p.avatarUrl (can be a stale 502 link). */}
-              <QqAvatar uin={p.uin} size={56} className="weq-set-hero-avatar" />
-              <div className="weq-set-hero-info">
-                <span className="weq-set-hero-name">{p.remark || p.nick || p.uin}</span>
-                <span className="weq-set-hero-sub weq-number">QQ {p.uin}</span>
-                {p.signature ? (
-                  <span className="weq-set-hero-sig" title={p.signature}>
-                    {p.signature}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          ) : (
-            <div className="weq-set-empty">
-              {profile.isLoading ? '加载账号资料中…' : '暂无账号资料'}
-            </div>
-          )}
-        </Card>
-      )}
-
       {/* Database key */}
       {page === 'credentials' && (
         <>
-          <Card title="数据库密钥">
+          <Card title="数据库密钥" icon={<Database size={15} strokeWidth={1.8} />}>
             <div className="weq-set-keyfield">
               <KeyRound size={15} strokeWidth={1.8} className="weq-set-keyfield-icon" aria-hidden />
               <code className="weq-set-keyval">
@@ -486,7 +452,7 @@ export function AccountBasicsSection({
           {/* 会话密钥：在线 QQ 内存里采集的 a1 / a2 / d2 / d2key + 设备 guid。
           前四个默认打星号，点眼睛展开（和上面的 dbKey 同款交互）；guid 是设备
           标识、非敏感，直接明文。 */}
-          <Card title="会话密钥">
+          <Card title="会话密钥" icon={<KeyRound size={15} strokeWidth={1.8} />}>
             <div className="weq-set-keylist">
               <KeyValueRow label="a1" value={cfg?.a1} secret />
               <KeyValueRow label="a2" value={cfg?.session?.a2} secret />
@@ -505,6 +471,7 @@ export function AccountBasicsSection({
           {/* Download rkeys (show the actual rkey value) */}
           <Card
             title="下载 rKey"
+            icon={<KeyRound size={15} strokeWidth={1.8} />}
             action={
               config.error ? (
                 <button
@@ -569,6 +536,7 @@ export function AccountBasicsSection({
           {/* ClientKey */}
           <Card
             title="ClientKey"
+            icon={<KeyRound size={15} strokeWidth={1.8} />}
             action={
               config.error ? (
                 <button
@@ -628,7 +596,11 @@ export function AccountBasicsSection({
       )}
       {/* 静态账号：关联本机原生目录读媒体 */}
       {page === 'media' && isStatic && (
-        <Card title="关联资源目录" settingId="linked-resources">
+        <Card
+          title="关联资源目录"
+          icon={<FolderOpen size={15} strokeWidth={1.8} />}
+          settingId="linked-resources"
+        >
           <Row
             label={
               <span className="weq-set-row-icon">
@@ -653,7 +625,11 @@ export function AccountBasicsSection({
         </Card>
       )}
       {page === 'media' && (!cfg || !isStatic) && (
-        <Card title="关联资源目录" settingId="linked-resources">
+        <Card
+          title="关联资源目录"
+          icon={<FolderOpen size={15} strokeWidth={1.8} />}
+          settingId="linked-resources"
+        >
           <p className="weq-set-desc" role="status">
             {!cfg
               ? config.error
@@ -728,7 +704,11 @@ export function AccountBasicsSection({
           {/* 自动进入策略与本来源运行请求分离 */}
           <LongTermAuthorizationSection />
           {isMac && !IS_WEB && (
-            <Card title="QQ 调试副本" settingId="qq-debug-copy">
+            <Card
+              title="QQ 调试副本"
+              icon={<Copy size={15} strokeWidth={1.8} />}
+              settingId="qq-debug-copy"
+            >
               <QqDebugCopy />
             </Card>
           )}
@@ -780,7 +760,11 @@ export function AccountBasicsSection({
       )}
       {/* 外部安卓图片缓存（放最下面，带引导文案） */}
       {page === 'media' && (
-        <Card title="外部安卓图片缓存" settingId="external-chatpic">
+        <Card
+          title="外部安卓图片缓存"
+          icon={<Smartphone size={15} strokeWidth={1.8} />}
+          settingId="external-chatpic"
+        >
           <Row
             label={
               <span className="weq-set-row-icon">

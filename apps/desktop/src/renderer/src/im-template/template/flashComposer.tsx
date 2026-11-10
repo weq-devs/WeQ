@@ -40,6 +40,7 @@ import { fileExtIcon } from '../../lib/groupFile';
 import { fileIconUrl } from '../../lib/resourceUrl';
 import { IS_WEB } from '../../lib/target';
 import { stageAccountFile } from '../../lib/accountFilePicker';
+import { formatBytes } from '../../lib/format';
 
 /** 待发送的一个文件（渲染层只知道路径 / 名字 / 大小；字节在主进程读）。 */
 export interface FlashDraftFile {
@@ -128,18 +129,6 @@ export function buildFlashOptimisticElement(params: {
 
 const COVER_W = 480;
 const COVER_H = 270;
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let value = bytes;
-  let index = 0;
-  while (value >= 1024 && index < units.length - 1) {
-    value /= 1024;
-    index += 1;
-  }
-  return `${index === 0 ? value.toFixed(0) : value.toFixed(2)} ${units[index]}`;
-}
 
 function themeColors(): {
   bg: string;

@@ -19,8 +19,11 @@ pnpm dev
 
 - [应用内服务与独立自启（2026-10-25）](./app-owned-services-20261025.md)
 - [签名器定位缓存与 QQ 版本看门（2026-11-08）](./signer-cache-and-version-watch-20261108.md)：RVA 缓存与失效、启动期预热、降级提示、五平台版本清单与每晚 CI。
+- [分平台签名策略](./sign-policy-20261109.md)与[完整命令清点及待确认项](./sign-policy-inventory-20261110.md)：中央策略、已知不签名登记、平台差异与补测清单。
 
 ### 内容与工具
+
+- [会话总日历](./conversation-calendar-20261109.md)：全来源计数、稳定游标、原生短预算中断与性能验收口径。
 
 - [统一导出格式与内容范围](./export-format/README.md)：待实现设计；basic/full 作为同格式的导出选项，包含未知残余及无独立正文基线的增量契约。
 
@@ -34,6 +37,7 @@ pnpm dev
 - [保存位置逻辑简化](./export-save-simplification-20261020.md)：单文件另存、结果保留及全局偏好／菜单改造的阶段边界。
 - [目录选择与本地备份导入](./directory-picker-backup-20261024.md)：分层/递归扫描、独立位置记忆、三端账号目录、备份媒体与其他设备密钥复用。
 - [联系人精确导出](./contacts-exact-export-20261018.md)：好友/群多选交接、精确 UID、完整目录与任务快照。
+- [群交集算法与绘制优化](./relation-graph-performance-20261110.md)：精确倒排/前缀/位集交集、选群后计数、画布批绘及规模验证。
 - [生成内容精确导出](./generated-content-export-20261018.md)：克隆与助手的持久身份、独立快照、原始结构及账号边界。
 - [克隆会话复用普通页面](./clone-shared-chat-pane-20261028.md)：共用 ChatPane、数据身份与能力适配、原位设置和浮层层级。
 - [空间精确导出](./qzone-exact-export-20261018.md)：离散 tid、正文/互动/媒体范围、统一入口及历史隔离。
@@ -47,7 +51,8 @@ pnpm dev
 - [原生 QQ 邮箱](./qqmail-native-20261017.md)：账号级认证、邮件协议、附件、正文隔离与提醒生命周期。
 - [手机连接与重连](./remote-two-paths-20261022.md)：局域网、已有/内嵌 TS、持久设备凭据和 iOS WebView 会话身份。
 - [Remote 手机壳独立仓库](./remote-repository-split-20261023.md)：手机源码、构建和协议测试的维护边界与电脑夹具入口。
-- [后台服务与关闭/退出行为](./background-services-close-behavior-20261030.md)：默认最小化到托盘、退出确认改为应用内弹窗、服务运行判据与「不再询问」语义。
+- [后台服务与关闭/退出行为](./background-services-close-behavior-20261030.md)：默认最小化到托盘、服务运行判据；退出确认部分已于 2026-11-09 移除。
+- [退出直通](./quit-direct-20261109.md)：Dock / Cmd+Q / 托盘退出不再弹确认框，服务清单移到关闭确认框。
 - [Web / Remote 功能对齐](./web-remote-parity-20261026.md)：浏览器文件发送、手机资料入口、内置 Web 报告捕获与独立 Node 部署限制。
 - [Web / Remote 体验优化](./web-remote-optimization-20261026.md)：重连反馈、活动查询补查、手机导航与重型工作区按需加载。
 - [会话分析时间轴 + 我的主场轮盘](./conversation-timeline-home-wheel-20261018.md) — 默认最近一年、拖动重算、全历史绿墙与群聊卡片轮盘的翻页守卫
@@ -65,6 +70,8 @@ pnpm dev
 - [分页限流](./qzone-pagination-rate-limit.md)、[统计口径](./qzone-statistics-20261015.md)、[分享卡片](./qzone-share-cards-20261015.md)、[回复接收者](./qzone-reply-presentation-20261015.md)
 
 ### 基础能力与贡献
+
+- [开发控制台日志](./development-console-logging.md)：终端开关、模块过滤、关联 ID、媒体汇总与慢等待诊断。
 
 - [审计修复与权限边界](./audit-remediation-20261026.md)：助手权限模式、隔离脚本、只读 MCP、权威数据保存及尚未完成的治理项。
 - [审计第一批修复](./audit-first-batch-20261027.md)：导出 Bot 存储原件保护、私聊派生数据隔离与发布通知最小权限。

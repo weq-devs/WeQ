@@ -208,7 +208,6 @@ export namespace SendAiVoice {
   export const command = 0x929b;
   export const subCommand = 0;
   /** 抓包（/tmp/capture.log）：`0x929b_0` 不带 tag 24，不签名。 */
-  export const needSign = false;
   export const reqSchema = AI_VOICE_REQ;
   export const respSchema = AI_VOICE_RESP;
 

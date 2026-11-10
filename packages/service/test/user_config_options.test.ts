@@ -133,50 +133,60 @@ describe('个性主页', () => {
 });
 
 describe('正在输入状态', () => {
-  it('输入状态兼容旧配置，特例独立于默认值并按账号、数据源与会话持久保存', () => {
+  it('默认向对方展示；隐藏范围与按账号、数据源、会话的清单持久保存', () => {
     const { platform, service: config } = configFixture({ settings: { preferCdn: true } });
-    expect(config.getSettings().typingStatus).toEqual({ defaultEnabled: false, overrides: [] });
+    expect(config.getSettings().typingStatus).toEqual({ mode: 'off', hidden: [] });
     const target = {
       accountUin: '10001',
       accountConfigId: 'source-a',
       uid: 'u_friend',
       name: '好友',
     };
-    config.setTypingStatusOverride(target, true);
-    config.setTypingStatusOverride({ ...target, uid: 'u_other' }, false);
-    config.setTypingStatusOverride({ ...target, accountUin: '10002' }, false);
-    config.setTypingStatusOverride({ ...target, accountConfigId: 'source-b' }, false);
-    config.setSettings({ typingStatus: { defaultEnabled: true } });
+    config.setTypingStatusMode('selected');
+    config.setTypingStatusHidden([
+      target,
+      { ...target, uid: 'u_other', name: '另一个' },
+      { ...target, accountUin: '10002' },
+      { ...target, accountConfigId: 'source-b' },
+      // 重复条目只保留第一条。
+      target,
+    ]);
+    expect(config.getSettings().typingStatus.hidden).toHaveLength(4);
     const reopened = new UserConfigService(platform);
     expect(reopened.getSettings().typingStatus).toEqual({
-      defaultEnabled: true,
-      overrides: [
-        { ...target, enabled: true },
-        { ...target, uid: 'u_other', enabled: false },
-        { ...target, accountUin: '10002', enabled: false },
-        { ...target, accountConfigId: 'source-b', enabled: false },
+      mode: 'selected',
+      hidden: [
+        target,
+        { ...target, uid: 'u_other', name: '另一个' },
+        { ...target, accountUin: '10002' },
+        { ...target, accountConfigId: 'source-b' },
       ],
     });
-    reopened.setTypingStatusOverride(target, false);
-    expect(reopened.getSettings().typingStatus.overrides).toHaveLength(4);
-    reopened.setTypingStatusOverride(target, null);
+    reopened.setTypingStatusMode('all');
     reopened.setSettings({ showMessageTime: true });
     const final = new UserConfigService(platform).getSettings();
-    expect(final.typingStatus.overrides).toHaveLength(3);
+    expect(final.typingStatus.mode).toBe('all');
+    expect(final.typingStatus.hidden).toHaveLength(4);
     expect(final.preferCdn).toBe(true);
-    expect(final.typingStatus.defaultEnabled).toBe(true);
   });
 
-  it('损坏或未知输入状态配置不会开启广播', () => {
-    const { service } = configFixture({
+  it('旧版默认关闭配置迁移为默认展示，损坏或未知配置不会误隐藏或误展示', () => {
+    const legacy = configFixture({
       settings: {
-        typingStatus: { defaultEnabled: 'true', overrides: [null, {}, { enabled: 'false' }] },
+        typingStatus: {
+          defaultEnabled: false,
+          overrides: [{ accountUin: '1', accountConfigId: 'a', uid: 'u_x', enabled: true }],
+        },
       },
     });
-    expect(service.getSettings().typingStatus).toEqual({
-      defaultEnabled: false,
-      overrides: [],
+    expect(legacy.service.getSettings().typingStatus).toEqual({ mode: 'off', hidden: [] });
+
+    const broken = configFixture({
+      settings: {
+        typingStatus: { mode: 'nonsense', hidden: [null, {}, { uid: 'u_y' }] },
+      },
     });
+    expect(broken.service.getSettings().typingStatus).toEqual({ mode: 'off', hidden: [] });
   });
 });
 

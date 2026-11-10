@@ -10,8 +10,12 @@
  * 两条路都只有 `(nt, pid, …)`：原生侧按 pid 找已登记的**会话物料**（由
  * `AccountMonitorService` 在 attach 后交给 `setSsoSession`），首次发包时才懒建连。
  * 也就是**借同机 QQ 的凭据直接发包** —— 不重跑登录，也不自己上线（在线状态与心跳由
- * QQ 本体维持）。所有调用方都拿得到 pid（它就是「哪个在线账号」），所以这里不需要把
+ * QQ 本体维持）。所以所有调用方都拿得到 pid（它就是「哪个在线账号」），这里不需要把
  * 会话物料在整条协议栈里透传。
+ *
+ * **签名策略不在这里判断**：needSign / mode 全部来自 {@link resolveSign} 的中央表
+ * （`sign-policy.ts`），按 wire 命令查。调用方默认什么都不用传；只有调试脚本之类
+ * 需要强制覆盖时才用 `override`。
  *
  * Both take just the slice of the native binding they need, so callers can pass
  * a stub in tests.
@@ -19,7 +23,7 @@
 
 import type { NtHelperBinding } from '@weq/native';
 import { signRedBagRequest as signRedBagRequestTs } from './redbag/sign';
-import os from 'node:os';
+import { oidbCommand, resolveSign, type ResolvedSign } from './sign-policy';
 
 /** The native methods this layer uses. */
 export type PacketNative = Pick<NtHelperBinding, 'sendOidbPacket' | 'sendPacket'>;
@@ -41,26 +45,28 @@ export interface OidbRequest {
   isUid?: boolean;
 }
 
-/** 需要签名的包在终端留一行前缀，签名值由原生侧另行打印。 */
-function logSign(cmd: string, needSign: boolean): void {
-  if (!needSign) return;
-  if (os.platform() === 'win32') return; // win32看不见wrapper.node 打印的sign  或许和两个unix系统的dlopen有关？  这里简单处理，未来有需要的时候再透传os
-  console.log(`${new Date().toISOString()} ${cmd} 签名：`);
+/**
+ * 按命令查表得到要传给 native 的签名参数。
+ *
+ * `override` 只给调试开关用（`scripts/sso_send.ts` 的 `--sign` / `--no-sign`）；
+ * 业务代码一律不要传，否则会把中央表绕过。
+ */
+function signArgs(cmd: string, override?: Partial<ResolvedSign>): ResolvedSign {
+  return override ? { ...resolveSign(cmd), ...override } : resolveSign(cmd);
 }
 
 /**
  * Send an OIDB request and return the decoded inner reply body.
  *
- * `needSign` 由调用方按命令**逐个标注**（不在 native 里硬编码白名单）：`true` 表示
- * 该命令要附带 `SecToken/SecExtra/SecSign`，原生侧用 `wrapper.node` 的签名函数算。
+ * 签名策略按 `OidbSvcTrpcTcp.0x<command>_<subCommand>` 查中央表。
  */
 export async function sendOidb(
   nt: OidbNative,
   pid: number,
   req: OidbRequest,
-  needSign: boolean,
+  override?: Partial<ResolvedSign>,
 ): Promise<Uint8Array> {
-  logSign(`OidbSvcTrpcTcp.0x${req.command.toString(16)}_${req.subCommand}`, needSign);
+  const { needSign, mode } = signArgs(oidbCommand(req.command, req.subCommand), override);
   const reply = await nt.sendOidbPacket(
     pid,
     req.command,
@@ -68,6 +74,7 @@ export async function sendOidb(
     Buffer.from(req.body),
     req.isUid ?? false,
     needSign,
+    mode,
   );
   return new Uint8Array(reply);
 }
@@ -76,17 +83,17 @@ export async function sendOidb(
  * Send a raw SSO packet under `cmd` (e.g. a trpc service name) and return the
  * raw reply body.
  *
- * `needSign` 同 {@link sendOidb}，按命令逐个标注。
+ * 签名策略按 `cmd` 原样查中央表。
  */
 export async function sendPacket(
   nt: TrpcNative,
   pid: number,
   cmd: string,
   body: Uint8Array,
-  needSign: boolean,
+  override?: Partial<ResolvedSign>,
 ): Promise<Uint8Array> {
-  logSign(cmd, needSign);
-  const reply = await nt.sendPacket(pid, cmd, Buffer.from(body), needSign);
+  const { needSign, mode } = signArgs(cmd, override);
+  const reply = await nt.sendPacket(pid, cmd, Buffer.from(body), needSign, mode);
   return new Uint8Array(reply);
 }
 

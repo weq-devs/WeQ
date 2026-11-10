@@ -90,7 +90,8 @@ export function manageDecorationAnimation(urls: string[], activate: () => () => 
   };
 }
 
-type Entry = { users: number; dispose(): void };
+export type DecorationStyleLease = (() => void) & { ready: Promise<boolean> };
+type Entry = { users: number; ready: Promise<boolean>; dispose(): void };
 const entries = new Map<string, Entry>();
 function nextFrame(signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -113,9 +114,10 @@ export function acquireDecorationStyle(
   setup: (resource: {
     append(css: string): void;
     font(family: string, url: string): void;
+    image(url: string): void;
     animate(urls: string[], css: () => string): void;
   }) => void,
-): () => void {
+): DecorationStyleLease {
   let entry = entries.get(key);
   if (!entry) {
     const node = document.createElement('style');
@@ -124,8 +126,10 @@ export function acquireDecorationStyle(
     const controller = new AbortController();
     const releases: (() => void)[] = [];
     const fonts: FontLease[] = [];
+    const pending: Promise<boolean>[] = [];
     const created: Entry = {
       users: 0,
+      ready: Promise.resolve(false),
       dispose() {
         controller.abort();
         node.remove();
@@ -141,7 +145,19 @@ export function acquireDecorationStyle(
           if (!controller.signal.aborted) node.appendChild(document.createTextNode(css));
         },
         font(family, url) {
-          fonts.push(fontFaces.acquire(family, url));
+          const font = fontFaces.acquire(family, url);
+          fonts.push(font);
+          pending.push(font.ready);
+        },
+        image(url) {
+          const pin = decorationImageCache.pin([url]);
+          releases.push(pin.release);
+          pending.push(
+            decorationImageCache.require(url, controller.signal).then(
+              () => true,
+              () => false,
+            ),
+          );
         },
         animate(urls, css) {
           const frames = manageDecorationAnimation(urls, () => {
@@ -152,6 +168,9 @@ export function acquireDecorationStyle(
           releases.push(frames.release);
         },
       });
+      created.ready = Promise.all(pending).then(
+        (results) => !controller.signal.aborted && results.every(Boolean),
+      );
     } catch (error) {
       created.dispose();
       entries.delete(key);
@@ -161,15 +180,18 @@ export function acquireDecorationStyle(
   const held = entry;
   held.users++;
   let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    if (--held.users) return;
-    // 乐观消息、发送缓存、真实记录可能在同一轮提交中交接，允许新行接走同款资源。
-    queueMicrotask(() => {
-      if (held.users || entries.get(key) !== held) return;
-      held.dispose();
-      entries.delete(key);
-    });
-  };
+  return Object.assign(
+    () => {
+      if (released) return;
+      released = true;
+      if (--held.users) return;
+      // 乐观消息、发送缓存、真实记录可能在同一轮提交中交接，允许新行接走同款资源。
+      queueMicrotask(() => {
+        if (held.users || entries.get(key) !== held) return;
+        held.dispose();
+        entries.delete(key);
+      });
+    },
+    { ready: held.ready },
+  );
 }

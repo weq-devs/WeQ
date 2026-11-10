@@ -12,6 +12,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { decode } from '../src/protobuf';
+import { resolveSign } from '../src/sign-policy';
 import {
   CreateGroupRoom,
   GROUP_INVITE_ROOM_RSP,
@@ -75,9 +76,9 @@ describe('群通话信令', () => {
     expect(GROUP_SSO_CMD.multiTerminalSync).toBe(
       'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoMultiTerminalSync',
     );
-    expect(CreateGroupRoom.needSign).toBe(false);
-    expect(InviteToGroupRoom.needSign).toBe(false);
-    expect(QueryGroupRoom.needSign).toBe(false);
+    for (const spec of [CreateGroupRoom, InviteToGroupRoom, QueryGroupRoom]) {
+      expect(resolveSign(spec.cmd).needSign, spec.cmd).toBe(false);
+    }
   });
 
   it('开房请求与抓包逐字节一致', () => {

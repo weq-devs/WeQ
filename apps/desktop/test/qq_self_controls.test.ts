@@ -63,13 +63,6 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       getSelfVip: { useQuery: () => ({ data: null }) },
       onVipChanged: { useSubscription: () => {} },
       qqActions: {
-        liveStatus: {
-          useQuery: () => ({
-            data: { status: 40, extStatus: 0 },
-            isFetching: false,
-            refetch: async () => ({ error: null }),
-          }),
-        },
         extendedStatuses: {
           useQuery: () => ({ data: [{ value: 1018, label: '学习中' }], isFetching: false }),
         },
@@ -352,8 +345,11 @@ describe('个人资料编辑入口', () => {
     expect(face.title).toBe('[微笑]');
     expect(state.mutate).not.toHaveBeenCalled();
   });
-  it('预设扩展状态使用 status=10 和对应 extStatus，查询服务端状态不发写请求', async () => {
+  it('仅通过状态选择器展示和编辑状态，不再显示重复的服务端状态行', async () => {
     const f = fixture();
+    expect(f.host.querySelector('.weq-qq-live-status')).toBeNull();
+    expect(f.host.querySelector('[aria-label="查询服务端在线状态"]')).toBeNull();
+    expect(f.host.textContent).not.toContain('服务端状态');
     const select = f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!;
     await act(async () => {
       select.value = '1018';
@@ -366,12 +362,6 @@ describe('个人资料编辑入口', () => {
       status: 10,
       extStatus: 1018,
     });
-    state.mutate.mockClear();
-    act(() =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="查询服务端在线状态"]')!.click(),
-    );
-    expect(f.host.textContent).toContain('隐身');
-    expect(state.mutate).not.toHaveBeenCalled();
   });
   it('标题栏头像打开真实资料编辑器，关闭后重新打开不保留草稿', async () => {
     const f = fixture(true);

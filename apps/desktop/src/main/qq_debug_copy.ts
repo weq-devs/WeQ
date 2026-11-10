@@ -248,6 +248,8 @@ export class QqDebugCopyManager {
         throw error;
       }
       const present = await exists(this.path);
+      if (present && (await lstat(this.path)).isSymbolicLink())
+        throw new Error('副本路径是软链接，请使用普通应用目录。');
       if (present && !(await this.owned()))
         throw new Error('副本位置已有非 WeQ 管理的应用，未修改。');
       if (action === 'prepare') await this.prepare(present);
@@ -257,17 +259,29 @@ export class QqDebugCopyManager {
         if (present) await this.removeCopy();
       } else {
         this.phase = 'verifying';
-        await this.verify(this.path);
-        if (action === 'launch') {
-          if ((await this.pids()).length)
-            throw new Error('QQ 调试副本已在运行，请切换到副本窗口登录。');
+        if (action === 'open') {
+          if (!present) await this.prepare(false);
+          else {
+            try {
+              await this.verify(this.path);
+            } catch {
+              // 可用的旧版本不强制更新；只有校验失败才修复，运行中仍禁止替换。
+              await this.prepare(true);
+            }
+          }
+        } else await this.verify(this.path);
+        if (action === 'launch' || action === 'open' || action === 'activate') {
           this.phase = 'launching';
           const env = { ...process.env };
           delete env.ELECTRON_RUN_AS_NODE;
-          const opened = await this.run('/usr/bin/open', ['-n', '-a', this.path], {
-            env,
-            timeoutMs: 15_000,
-          });
+          const opened = await this.run(
+            '/usr/bin/open',
+            [...(action === 'activate' ? [] : ['-n']), '-a', this.path],
+            {
+              env,
+              timeoutMs: 15_000,
+            },
+          );
           if (opened.code !== 0)
             throw new Error(opened.stderr.trim() || '系统未能打开 QQ 调试副本。');
         }

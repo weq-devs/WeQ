@@ -8,41 +8,34 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useOverlayLayer } from '../lib/overlayStack';
-import { ArrowLeft, Search, UserRound, UsersRound } from 'lucide-react';
-import { QQExactLookup, type QQExactLookupKind } from './QQExactLookup';
+import { Search, X } from 'lucide-react';
 
 export function TitleBarSearch({
   query,
   onQueryChange,
   onSearchFocus,
   results,
-  onReturn,
   persistent = false,
 }: {
   query: string;
   onQueryChange: (query: string) => void;
   onSearchFocus?: () => void;
   results?: ReactNode;
-  onReturn?: () => boolean;
   persistent?: boolean;
 }) {
   const [pinned, setPinned] = useState(false);
-  const [lookupOpen, setLookupOpen] = useState<QQExactLookupKind | null>(null);
-  const numericQuery = /^[1-9]\d{0,9}$/.test(query.trim()) && BigInt(query.trim()) <= 0xffffffffn;
   const [hovered, setHovered] = useState(false);
   const [suppressHover, setSuppressHover] = useState(false);
   const [position, setPosition] = useState<CSSProperties>({});
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const returning = useRef(false);
   const expanded = pinned || (!persistent && hovered && !suppressHover);
   const hasPanel = Boolean(results) || pinned;
   const layer = useOverlayLayer(expanded && hasPanel);
 
   useEffect(() => {
-    if (pinned && !returning.current) input.current?.focus();
-    returning.current = false;
+    if (pinned) input.current?.focus();
   }, [pinned]);
 
   useLayoutEffect(() => {
@@ -77,7 +70,7 @@ export function TitleBarSearch({
   }, [expanded]);
 
   useEffect(() => {
-    if (!expanded || lookupOpen) return;
+    if (!expanded) return;
     const outside = (event: PointerEvent) => {
       if (
         !(event.target instanceof Node) ||
@@ -92,22 +85,23 @@ export function TitleBarSearch({
     };
     document.addEventListener('pointerdown', outside);
     return () => document.removeEventListener('pointerdown', outside);
-  }, [expanded, lookupOpen]);
+  }, [expanded]);
 
   return (
     <div
       ref={root}
-      className={`weq-titlebar-search${persistent || expanded ? ' is-expanded' : ''}${persistent ? ' is-persistent' : ''}${onReturn ? ' has-return' : ''}`}
-      onPointerEnter={() => {
+      className={`weq-titlebar-search${persistent || expanded ? ' is-expanded' : ''}${persistent ? ' is-persistent' : ''}`}
+      onPointerEnter={(event) => {
+        if (event.pointerType !== 'mouse') return;
         setHovered(true);
         setSuppressHover(false);
       }}
-      onPointerLeave={() => {
+      onPointerLeave={(event) => {
+        if (event.pointerType !== 'mouse') return;
         setHovered(false);
         setSuppressHover(false);
       }}
       onKeyDown={(event) => {
-        if (lookupOpen) return;
         if (event.key === 'Escape') {
           event.stopPropagation();
           setPinned(false);
@@ -116,22 +110,6 @@ export function TitleBarSearch({
         }
       }}
     >
-      {onReturn ? (
-        <button
-          type="button"
-          title="返回搜索结果"
-          aria-label="返回搜索结果"
-          onClick={() => {
-            const expand = onReturn();
-            returning.current = expand && !pinned;
-            setPinned(expand);
-            setHovered(false);
-            setSuppressHover(true);
-          }}
-        >
-          <ArrowLeft size={18} />
-        </button>
-      ) : null}
       <button
         type="button"
         title={pinned ? '收起全局搜索' : '全局搜索'}
@@ -166,22 +144,32 @@ export function TitleBarSearch({
           onSearchFocus?.();
         }}
       />
-      {lookupOpen && (
-        <QQExactLookup
-          key={lookupOpen}
-          kind={lookupOpen}
-          initial={numericQuery ? query.trim() : ''}
-          onClose={() => setLookupOpen(null)}
-        />
-      )}
+      {(persistent || expanded) && query ? (
+        <button
+          type="button"
+          className="weq-titlebar-search-clear"
+          title="清空搜索"
+          aria-label="清空搜索"
+          onClick={() => {
+            onQueryChange('');
+            input.current?.focus();
+          }}
+        >
+          <X size={20} aria-hidden />
+        </button>
+      ) : null}
       {expanded && hasPanel && typeof document !== 'undefined'
         ? createPortal(
             <div
               ref={panel}
               className="weq-titlebar-search-results"
               style={{ ...position, zIndex: layer }}
-              onPointerEnter={() => setHovered(true)}
-              onPointerLeave={() => setHovered(false)}
+              onPointerEnter={(event) => {
+                if (event.pointerType === 'mouse') setHovered(true);
+              }}
+              onPointerLeave={(event) => {
+                if (event.pointerType === 'mouse') setHovered(false);
+              }}
               onClick={(event) => {
                 if (!(event.target instanceof Element) || !event.target.closest('[role="option"]'))
                   return;
@@ -191,23 +179,6 @@ export function TitleBarSearch({
               }}
             >
               {results}
-              {pinned &&
-                (['user', 'group'] as const).map((kind) => (
-                  <button
-                    key={kind}
-                    type="button"
-                    className="weq-cloud-lookup-entry"
-                    aria-label={kind === 'user' ? 'QQ 号搜索' : '群号搜索'}
-                    onClick={() => {
-                      setPinned(true);
-                      setLookupOpen(kind);
-                    }}
-                  >
-                    {kind === 'user' ? <UserRound size={16} /> : <UsersRound size={16} />}
-                    {kind === 'user' ? 'QQ 号搜索' : '群号搜索'}
-                    {numericQuery ? ` ${query.trim()}` : ''}
-                  </button>
-                ))}
             </div>,
             document.body,
           )

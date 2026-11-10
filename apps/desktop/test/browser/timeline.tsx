@@ -1,4 +1,4 @@
-import { createElement, useEffect, useState } from 'react';
+import { createElement, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
@@ -17,7 +17,9 @@ import {
   timelineViewport,
 } from '../../src/renderer/src/lib/timelineViewport';
 import type { Message } from '../../src/renderer/src/im-template/template/types';
+import { useMobileWebViewport } from '../../src/renderer/src/hooks/useMobileWebViewport';
 import '../../src/renderer/src/styles/index.css';
+import '../../src/renderer/src/styles/mobile-web.css';
 
 const demo = createTemplateDemoData();
 const params = new URLSearchParams(location.search);
@@ -73,6 +75,10 @@ let pendingRestore: ReturnType<typeof captureReadingPosition> | undefined;
 Object.assign(window, { timelineTest: bridge });
 
 function Fixture() {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const sentBodies = useRef<string[]>([]);
+  const mobileInput = params.has('mobile-input');
+  useMobileWebViewport(rootRef, mobileInput);
   const [conversationId, setConversationId] = useState(conversation.id);
   const [messages, setMessages] = useState(() =>
     Array.from({ length: delayedEntry ? 0 : entryCount }, (_, i) => message(i + 1001)),
@@ -95,6 +101,7 @@ function Fixture() {
   });
   const exportRequest = useContentExportRequest();
   Object.assign(bridge, {
+    sentBodies: () => sentBodies.current,
     beginEntry: () => {
       setConversationId((id) => `${id}-loading`);
       setMessages([]);
@@ -198,9 +205,10 @@ function Fixture() {
   return createElement(
     'div',
     {
-      className: 'weq-readonly-chat',
+      ref: rootRef,
+      className: `weq-readonly-chat${mobileInput ? ' app-shell-root weq-web-shell' : ''}`,
       style: {
-        height: '100dvh',
+        height: mobileInput ? 'var(--weq-mobile-viewport-height, 100dvh)' : '100dvh',
         display: active ? 'grid' : 'none',
         gridTemplateColumns: 'minmax(0,1fr)',
       },
@@ -215,7 +223,8 @@ function Fixture() {
       draft: '',
       tabActive: active,
       initialReadingPosition: initialPosition ? { scrollTop: 0 } : undefined,
-      onSend: async () => {
+      onSend: async (body) => {
+        sentBodies.current.push(body);
         // 模拟发送期间的窗口刷新先捕获阅读位置，补偿在发送跳到底部后才提交。
         pendingRestore = captureReadingPosition(scroll(), { transient: true });
         setMessages((rows) => [
@@ -231,6 +240,7 @@ function Fixture() {
       onDraftChange() {},
       onDraftClear() {},
       onBack() {},
+      onStartCall: params.has('composer-actions') ? () => {} : undefined,
     }),
   );
 }

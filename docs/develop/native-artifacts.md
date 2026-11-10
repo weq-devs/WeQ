@@ -92,7 +92,14 @@ pnpm native:fetch --from-dir ./dist   # 从本地目录装（离线 / 镜像；�
 | `NT_HELPER_RELEASE_REPO` | 覆盖发布仓，默认 `weq-devs/nt_helper_release` |
 | `NT_HELPER_RELEASE_BASE_URL` | 覆盖下载前缀（镜像 / 代理），默认 GitHub Releases |
 | `NT_HELPER_VERSION` | 钉死 tag，等价于 `--version`（CI 里临时试构建用） |
+| `NT_HELPER_RETRIES` | 单次请求最多尝试几次，默认 8（含第一次） |
+| `NT_HELPER_HTTP_TIMEOUT_MS` | 单次请求无响应多久算超时，默认 60000 |
 | `HTTPS_PROXY` / `HTTP_PROXY` | 出网代理（另支持 `NO_PROXY`）。脚本自己读这几个变量走 CONNECT 隧道 —— Node 内置 `fetch` 不认它们，Clash 之类只开 HTTP 代理又没开 TUN 时直连 GitHub 会超时 |
+
+GitHub Releases 的 `github.com/.../releases/download/...` 会 302 到 CDN，这条链路会间歇性
+返回 504（2026-11-09 发布 v2.5.2 时连续挂了三次，本地也能复现单轮 10/10 失败）。脚本因此把
+manifest 与每个资产都按「整次尝试」重试：5xx / 429 / 408 / 网络超时按指数退避（2s 起、30s
+封顶、带抖动），404 / 401 这类不重试。重试日志会打在 stderr，不影响 `--quiet` 之外的输出。
 
 拉完之后 `native/.installed.json` 记着当前装的是哪个 tag、哪些文件、各自 sha256；
 它是机器相关状态，已被 gitignore（**入库的那个是 `native/pinned.json`**，见上一节）。

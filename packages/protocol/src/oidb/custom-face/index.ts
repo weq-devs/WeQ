@@ -90,7 +90,6 @@ export interface FetchCustomFaceListParams {
 export namespace FetchCustomFaceList {
   export const cmd = FACEROAM_CMD;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = FACEROAM_REQ;
   export const respSchema = FACEROAM_RESP;
 
@@ -121,7 +120,6 @@ export interface DeleteCustomFaceParams {
 export namespace DeleteCustomFace {
   export const cmd = FACEROAM_CMD;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const reqSchema = FACEROAM_REQ;
   export const respSchema = FACEROAM_RESP;
 
@@ -228,8 +226,7 @@ function assertOidbRetCode(what: string, body: Record<string, unknown>): void {
 export namespace FetchCustomFaceDetail {
   export const command = 0x902e;
   export const subCommand = 1;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
   export const uinForm = true;
   export const reqSchema = DETAIL_REQ;
   export const respSchema = CUSTOM_FACE_RESP;
@@ -276,8 +273,7 @@ export interface ModifyCustomFaceParams extends CustomFaceRef {
 export namespace ModifyCustomFace {
   export const command = 0x902e;
   export const subCommand = 1;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
   export const reqSchema = MODIFY_REQ;
   export const respSchema = CUSTOM_FACE_RESP;
 
@@ -310,8 +306,7 @@ export interface MoveCustomFaceParams {
 export namespace MoveCustomFace {
   export const command = 0x902e;
   export const subCommand = 1;
-  /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
+  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
   export const uinForm = true;
   export const reqSchema = MOVE_REQ;
   export const respSchema = CUSTOM_FACE_RESP;
@@ -346,7 +341,6 @@ export namespace OrderCustomFace {
   export const command = 0x902f;
   export const subCommand = 1;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = ORDER_REQ;
   export const respSchema = CUSTOM_FACE_RESP;
@@ -533,7 +527,6 @@ async function uploadFavEmojiFrame(
 export namespace AddCustomFace {
   export const cmd = BDH_CMD;
   /** 真机实测不会签名（scripts/probe-sign.ts）。 */
-  export const needSign = false;
 
   export type Params = AddCustomFaceParams;
 

@@ -170,6 +170,73 @@ html[data-theme='dark'] .weq-backup-review {
   background: transparent;
   border-color: var(--weq-border-strong);
 }
+.weq-defaults-modal .weq-dialog-body {
+  max-height: min(65dvh, 640px);
+  overflow-y: auto;
+}
+.weq-defaults-options fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.weq-defaults-options section {
+  margin: 16px 0;
+}
+.weq-defaults-toggles {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+}
+.weq-defaults-toggles .weq-set-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.weq-defaults-toggles .weq-set-row-label {
+  color: var(--weq-fg-primary);
+}
+.weq-defaults-toggles .weq-set-row-desc {
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.weq-defaults-options h4 {
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.weq-defaults-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.weq-defaults-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-defaults-row small {
+  display: block;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-defaults-row select {
+  width: 100%;
+  padding: 6px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+}
+.weq-defaults-row select:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+html[data-theme='dark'] .weq-defaults-row select {
+  background: var(--background);
+  color: var(--weq-fg-primary);
+}
 
 .weq-backup-gate .weq-set-btn {
   max-width: 100%;

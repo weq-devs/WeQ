@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { afterEach, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 const fixture = vi.hoisted(() => ({
@@ -8,6 +9,7 @@ const fixture = vi.hoisted(() => ({
   messages: [{ id: 'a', role: 'user' as const, text: '合成正文', ts: 1 }],
 }));
 vi.mock('../src/main/context/app_context', () => ({
+  accountEventBus: new EventEmitter(),
   getAppContext: () => ({
     account: { context: { uin: fixture.uin } },
     services: {

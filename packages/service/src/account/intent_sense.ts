@@ -21,6 +21,7 @@
 
 import { existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { AccountSession } from '@weq/account';
 import type { C2cMsg, C2cPartition, GroupMsg } from '@weq/db';
 import type { GapHistoryService, GapFetchedMessage } from './gap_history';
@@ -28,6 +29,7 @@ import { mergeRoamingTimeline, timelineRowKey, type TimelineRow } from '../commo
 import {
   pickMessageText,
   requestApiJson,
+  parseApiUsage,
   normalizeModelSelection,
   modelSelectionKey,
   isDefaultModelSelection,
@@ -35,7 +37,7 @@ import {
   type AgentLabModelSelection,
 } from '@weq/agentlab';
 import type { EndpointResolver } from './assistant';
-import { JsonStore } from '../common/json_store';
+import { JsonStore, readJsonFile, writeJsonFileAtomic } from '../common/json_store';
 import { InteractionProfileService } from './interaction_profile';
 import { extractJsonBlock } from './intent_json';
 import { analyzePragmatics, calibrateIntentSense, type IntentContextTurn } from './intent_corpus';
@@ -183,21 +185,22 @@ const DEFAULT_CONFIG: IntentSenseConfig = {
   profileEnabled: false,
   enabled: false,
   engine: 'api',
-  providerRef: null,
-  suggestionProviderRef: null,
+  providerRef: { useDefault: true },
+  suggestionProviderRef: { useDefault: true },
   profileEngine: 'heuristic',
-  profileProviderRef: null,
+  profileProviderRef: { useDefault: true },
   profileLocalModelId: 'auto',
   suggestionsEnabled: false,
   analyzeAfterSelf: true,
   persistentDisplay: true,
   hoverDisplay: true,
-  suggestAfterSelf: false,
+  suggestAfterSelf: true,
   analysisContextMessages: DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
   suggestionContextMessages: DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
   hfMirror: true,
   conversationOverrides: {},
 };
+export { DEFAULT_CONFIG as DEFAULT_INTENT_SENSE_CONFIG };
 
 // ── 画像 ────────────────────────────────────────────────────────────────────
 
@@ -278,12 +281,94 @@ export interface IntentLocalEnginePort {
   inferMbti(samples: string[]): Promise<MbtiDim[] | null>;
 }
 
-/** onAnalyzed 事件：一批新分析结果落缓存后推给 renderer（增量点亮胶囊）。 */
+/** onAnalyzed 事件：新结果写入内存缓存后推给 renderer；本地批次按块合并落盘。 */
 export interface IntentAnalyzedEvent {
   kind: IntentConversationKind;
   conv: string;
   results: IntentSenseResult[];
 }
+
+/** 自动补齐批次的真实进度；不含缓存命中与纯媒体消息。 */
+export interface IntentAnalysisProgress {
+  kind: IntentConversationKind;
+  conv: string;
+  revision: number;
+  total: number;
+  completed: number;
+  failed: number;
+  pendingIds: string[];
+}
+
+export interface ReplySuggestionHistoryEntry {
+  id: string;
+  createdAt: number;
+  target: { msgId: string; msgSeq?: string; senderUin: string; sendTime: number };
+  suggestions: ReplySuggestion[];
+  summary?: string;
+  generation?: {
+    source: 'api' | 'local' | 'fallback';
+    model?: string;
+    providerId?: string;
+    providerName?: string;
+    startedAt: number;
+    durationMs: number;
+    requestDurationMs?: number;
+    inputMessages: number;
+    usage?: ReturnType<typeof parseApiUsage>;
+  };
+}
+
+export interface ReplySuggestionTrace {
+  prompt?: { system: string; user: string };
+  response?: string;
+  error?: string;
+}
+
+export interface ReplySuggestionDetails {
+  entry: ReplySuggestionHistoryEntry;
+  trace: ReplySuggestionTrace | null;
+}
+
+function normalizeSuggestionGeneration(raw: unknown): ReplySuggestionHistoryEntry['generation'] {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = raw as Record<string, unknown>;
+  const nonnegative = (n: unknown): n is number =>
+    typeof n === 'number' && Number.isFinite(n) && n >= 0;
+  if (
+    (value.source !== 'api' && value.source !== 'local' && value.source !== 'fallback') ||
+    !nonnegative(value.startedAt) ||
+    !Number.isFinite(new Date(value.startedAt).getTime()) ||
+    !nonnegative(value.durationMs) ||
+    !nonnegative(value.inputMessages) ||
+    !Number.isInteger(value.inputMessages)
+  )
+    return undefined;
+  const usage =
+    value.usage && typeof value.usage === 'object'
+      ? (value.usage as Record<string, unknown>)
+      : undefined;
+  return {
+    source: value.source,
+    startedAt: value.startedAt,
+    durationMs: value.durationMs,
+    inputMessages: value.inputMessages,
+    model: typeof value.model === 'string' ? value.model : undefined,
+    providerId: typeof value.providerId === 'string' ? value.providerId : undefined,
+    providerName: typeof value.providerName === 'string' ? value.providerName : undefined,
+    requestDurationMs: nonnegative(value.requestDurationMs) ? value.requestDurationMs : undefined,
+    usage: usage
+      ? parseApiUsage({
+          usage: {
+            prompt_tokens: usage.promptTokens,
+            completion_tokens: usage.completionTokens,
+            total_tokens: usage.totalTokens,
+          },
+        })
+      : undefined,
+  };
+}
+
+export const MAX_SUGGESTION_HISTORY = 500;
 
 // ── 常量 ────────────────────────────────────────────────────────────────────
 
@@ -458,13 +543,25 @@ export class IntentSenseService {
   /** 每会话在途 ensureAnalysis（去重并发）。 */
   private readonly inFlight = new Map<string, Promise<EnsureStats>>();
   private readonly analyzedListeners = new Set<(e: IntentAnalyzedEvent) => void>();
-  /** 回复建议缓存 `${kind}:${conv}` → { lastMsgId, at, suggestions }。 */
+  private readonly progressListeners = new Set<(e: IntentAnalysisProgress) => void>();
+  private readonly analysisProgress = new Map<string, IntentAnalysisProgress>();
+  /** 回复建议缓存 `${kind}:${conv}` → 输入末条与实际轮次。 */
   private readonly suggestionCache = new Map<
     string,
-    { lastMsgId: string; at: number; suggestions: ReplySuggestion[] }
+    { lastMsgId: string; at: number; round: ReplySuggestionHistoryEntry }
+  >();
+  private readonly suggestionHistoryStores = new Map<
+    string,
+    JsonStore<ReplySuggestionHistoryEntry[]>
   >();
   /** 回复建议在途任务（去重并发，防止相同会话重复调用 API）。 */
   private readonly suggestionInFlight = new Map<string, Promise<ReplySuggestion[]>>();
+  /** 结果与请求绑定；下一轮覆盖会话缓存时，旧请求仍返回自己的轮次。 */
+  private readonly suggestionRounds = new WeakMap<
+    Promise<ReplySuggestion[]>,
+    { round?: ReplySuggestionHistoryEntry }
+  >();
+  private readonly suggestionControllers = new Map<string, AbortController>();
   /** API 熔断截止时间戳（ms）：网络/服务报错后短时间内不再重复撞墙。 */
   private apiCooldownUntil = 0;
   /** 最近一次 API 请求失败信息（供设置面板提示用户排查网络/Provider）。 */
@@ -489,7 +586,7 @@ export class IntentSenseService {
         migrateProfile = p.featureSettingsVersion !== 2;
         const follows = !p.profileEngine || (p.profileEngine as string) === 'follow';
         migrateSuggestionRef = p.suggestionProviderRef === undefined;
-        // 旧本地引擎从不调用推荐 API，不能把历史分析 API 引用变成新联网授权。
+        // 旧本地引擎不继承历史分析模型；缺少推荐模型时使用全局默认。
         const suggestionRef = migrateSuggestionRef
           ? p.engine === 'local'
             ? null
@@ -505,8 +602,9 @@ export class IntentSenseService {
           profileEnabled: migrateFeatures ? p.enabled === true : p.profileEnabled === true,
           enabled: p.enabled === true,
           engine: p.engine === 'local' ? 'local' : 'api',
-          providerRef: normalizeModelSelection(ref),
-          suggestionProviderRef: normalizeModelSelection(suggestionRef),
+          providerRef: ref == null ? { useDefault: true } : normalizeModelSelection(ref),
+          suggestionProviderRef:
+            suggestionRef == null ? { useDefault: true } : normalizeModelSelection(suggestionRef),
           suggestionsEnabled:
             p.suggestionsEnabled === true && (!migrateFeatures || p.enabled === true),
           profileEngine:
@@ -518,9 +616,9 @@ export class IntentSenseService {
                 ? 'local'
                 : 'api',
           profileProviderRef:
-            migrateProfile && follows
-              ? normalizeModelSelection(ref)
-              : normalizeModelSelection(p.profileProviderRef),
+            (migrateProfile && follows ? ref : p.profileProviderRef) == null
+              ? { useDefault: true }
+              : normalizeModelSelection(migrateProfile && follows ? ref : p.profileProviderRef),
           profileLocalModelId:
             p.profileLocalModelId === 'laya-multilingual' ||
             p.profileLocalModelId === 'QWeQ-NineBird-v1'
@@ -534,7 +632,7 @@ export class IntentSenseService {
           analyzeAfterSelf: p.analyzeAfterSelf !== false,
           persistentDisplay: p.persistentDisplay !== false,
           hoverDisplay: p.hoverDisplay !== false,
-          suggestAfterSelf: p.suggestAfterSelf === true,
+          suggestAfterSelf: p.suggestAfterSelf !== false,
           analysisContextMessages: isIntentContextCount(p.analysisContextMessages)
             ? p.analysisContextMessages
             : DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
@@ -661,7 +759,10 @@ export class IntentSenseService {
     if (patch.profileLocalModelId !== undefined)
       next.profileLocalModelId = patch.profileLocalModelId;
     if (patch.profileProviderRef !== undefined)
-      next.profileProviderRef = normalizeModelSelection(patch.profileProviderRef);
+      next.profileProviderRef =
+        patch.profileProviderRef === null
+          ? { useDefault: true }
+          : normalizeModelSelection(patch.profileProviderRef);
     if (
       next.profileSamples > next.profileMessages ||
       next.profileMinSamples > next.profileSamples
@@ -672,10 +773,16 @@ export class IntentSenseService {
     if (typeof patch.profileEnabled === 'boolean') next.profileEnabled = patch.profileEnabled;
     if (patch.engine === 'api' || patch.engine === 'local') next.engine = patch.engine;
     if (patch.providerRef !== undefined) {
-      next.providerRef = normalizeModelSelection(patch.providerRef);
+      next.providerRef =
+        patch.providerRef === null
+          ? { useDefault: true }
+          : normalizeModelSelection(patch.providerRef);
     }
     if (patch.suggestionProviderRef !== undefined) {
-      next.suggestionProviderRef = normalizeModelSelection(patch.suggestionProviderRef);
+      next.suggestionProviderRef =
+        patch.suggestionProviderRef === null
+          ? { useDefault: true }
+          : normalizeModelSelection(patch.suggestionProviderRef);
     }
     if (typeof patch.suggestionsEnabled === 'boolean') {
       next.suggestionsEnabled = patch.suggestionsEnabled;
@@ -834,6 +941,30 @@ export class IntentSenseService {
     };
   }
 
+  onAnalysisProgress(cb: (e: IntentAnalysisProgress) => void): () => void {
+    this.progressListeners.add(cb);
+    // 切换回来或订阅晚于批次启动时也能恢复当前进度。
+    for (const progress of this.analysisProgress.values()) {
+      if (progress.revision === this.analysisRevision) cb(progress);
+    }
+    return () => {
+      this.progressListeners.delete(cb);
+    };
+  }
+
+  private emitAnalysisProgress(progress: IntentAnalysisProgress): void {
+    const key = conversationKey(progress.kind, progress.conv);
+    if (progress.pendingIds.length) this.analysisProgress.set(key, progress);
+    else this.analysisProgress.delete(key);
+    for (const cb of this.progressListeners) {
+      try {
+        cb(progress);
+      } catch (error) {
+        logger.warn('intent-sense progress listener failed', logErrorContext(error));
+      }
+    }
+  }
+
   private emitAnalyzed(e: IntentAnalyzedEvent): void {
     for (const cb of this.analyzedListeners) {
       try {
@@ -874,6 +1005,10 @@ export class IntentSenseService {
         return { cached: 0, analyzed: 0, failed: 0, error: String(error) };
       })
       .finally(() => {
+        const progress = this.analysisProgress.get(conversationKey(kind, conv));
+        if (progress?.revision === revision) {
+          this.emitAnalysisProgress({ ...progress, pendingIds: [] });
+        }
         this.inFlight.delete(key);
       });
     this.inFlight.set(key, task);
@@ -1027,6 +1162,20 @@ export class IntentSenseService {
     let analyzed = 0;
     let peerAnalyzed = 0;
     let failed = 0;
+    const remainingIds = new Set(pending.map(({ row }) => row.msgId));
+    const progress = (): void => {
+      if (!current()) return;
+      this.emitAnalysisProgress({
+        kind,
+        conv,
+        revision,
+        total: pending.length,
+        completed: analyzed + failed,
+        failed,
+        pendingIds: [...remainingIds],
+      });
+    };
+    progress();
     if (pending.length > 0) {
       // 按最新分块优先处理（块内保持时间升序），确保用户首屏看到的最新消息最先点亮
       const chunks: Array<Array<{ row: SenseRow; context: IntentContextTurn[] }>> = [];
@@ -1038,28 +1187,34 @@ export class IntentSenseService {
       const runChunkLocal = async (
         slice: Array<{ row: SenseRow; context: IntentContextTurn[] }>,
       ): Promise<void> => {
-        const chunkResults: IntentSenseResult[] = [];
-        for (const { row, context } of slice) {
-          if (!current()) return;
-          const result = await this.analyzeOne(
-            row.mine,
-            row.sendTime,
-            row.msgId,
-            row.text,
-            context,
-          );
-          if (!current()) return;
-          if (result) {
-            chunkResults.push(result);
-            analyzed++;
-            if (!result.mine) peerAnalyzed++;
-          } else {
-            failed++;
+        let dirty = false;
+        try {
+          for (const { row, context } of slice) {
+            if (!current()) return;
+            const result = await this.analyzeOne(
+              row.mine,
+              row.sendTime,
+              row.msgId,
+              row.text,
+              context,
+            );
+            if (!current()) return;
+            if (result) {
+              // 先让结果可读、可显示，再推进进度；磁盘仍按块合并写入。
+              this.storeResults(kind, conv, [result], { persist: false });
+              dirty = true;
+              this.emitAnalyzed({ kind, conv, results: [result] });
+              analyzed++;
+              if (!result.mine) peerAnalyzed++;
+            } else {
+              failed++;
+            }
+            remainingIds.delete(row.msgId);
+            progress();
           }
-        }
-        if (current() && chunkResults.length > 0) {
-          this.storeResults(kind, conv, chunkResults);
-          this.emitAnalyzed({ kind, conv, results: chunkResults });
+        } finally {
+          // 配置切换清理过的旧 store 不能再写回；仅改范围/开关时保留已完成的有效结果。
+          if (dirty && this.analysisStores.get(conversationKey(kind, conv)) === cache) cache.save();
         }
       };
 
@@ -1128,8 +1283,12 @@ export class IntentSenseService {
           if (apiResults !== null) {
             failed += apiSlice.length - apiResults.length;
           } else if (!this.opts.localEngine?.ready) {
+            remainingIds.clear();
+            progress();
             break;
           }
+          for (const { row } of slice) remainingIds.delete(row.msgId);
+          progress();
         }
       }
     }
@@ -1330,6 +1489,140 @@ export class IntentSenseService {
 
   // ── 回复建议（API 引擎优先 + 本地意图候选兜底）─────────────────────────────
 
+  private suggestionHistoryFor(kind: IntentConversationKind, conv: string) {
+    const key = conversationKey(kind, conv);
+    let store = this.suggestionHistoryStores.get(key);
+    if (!store) {
+      store = new JsonStore<ReplySuggestionHistoryEntry[]>(
+        `${this.storeDir}/suggestion-history/${fileSafe(key)}.json`,
+        () => [],
+        {
+          normalize: (raw) => {
+            if (!Array.isArray(raw)) return [];
+            return raw
+              .filter((entry): entry is ReplySuggestionHistoryEntry => {
+                if (!entry || typeof entry !== 'object') return false;
+                const value = entry as Partial<ReplySuggestionHistoryEntry>;
+                return (
+                  typeof value.id === 'string' &&
+                  typeof value.createdAt === 'number' &&
+                  Number.isFinite(new Date(value.createdAt).getTime()) &&
+                  typeof value.target?.msgId === 'string' &&
+                  typeof value.target.sendTime === 'number' &&
+                  Number.isFinite(new Date(value.target.sendTime * 1000).getTime()) &&
+                  typeof value.target.senderUin === 'string' &&
+                  (value.target.msgSeq === undefined || /^\d+$/.test(value.target.msgSeq)) &&
+                  Array.isArray(value.suggestions) &&
+                  value.suggestions.length > 0 &&
+                  value.suggestions.every(
+                    (item) =>
+                      item &&
+                      typeof item.text === 'string' &&
+                      (item.tone === undefined || typeof item.tone === 'string'),
+                  )
+                );
+              })
+              .map((entry) => ({
+                ...entry,
+                summary:
+                  typeof entry.summary === 'string' ? entry.summary.trim() || undefined : undefined,
+                generation: normalizeSuggestionGeneration(entry.generation),
+              }))
+              .slice(-MAX_SUGGESTION_HISTORY);
+          },
+        },
+      );
+      this.suggestionHistoryStores.set(key, store);
+    }
+    return store;
+  }
+
+  getSuggestionHistory(kind: IntentConversationKind, conv: string): ReplySuggestionHistoryEntry[] {
+    return [...this.suggestionHistoryFor(kind, conv).data].reverse();
+  }
+
+  private suggestionTracePath(kind: IntentConversationKind, conv: string, id: string): string {
+    return join(
+      this.storeDir,
+      'suggestion-details',
+      fileSafe(conversationKey(kind, conv)),
+      `${fileSafe(id)}.json`,
+    );
+  }
+
+  getSuggestionDetails(
+    kind: IntentConversationKind,
+    conv: string,
+    id: string,
+  ): ReplySuggestionDetails | null {
+    const entry = this.suggestionHistoryFor(kind, conv).data.find((entry) => entry.id === id);
+    if (!entry) return null;
+    const raw = readJsonFile(this.suggestionTracePath(kind, conv, id));
+    let trace: ReplySuggestionTrace | null = null;
+    if (raw && typeof raw === 'object') {
+      trace = {};
+      if (
+        'prompt' in raw &&
+        raw.prompt &&
+        typeof raw.prompt === 'object' &&
+        'system' in raw.prompt &&
+        'user' in raw.prompt &&
+        typeof raw.prompt.system === 'string' &&
+        typeof raw.prompt.user === 'string'
+      )
+        trace.prompt = { system: raw.prompt.system, user: raw.prompt.user };
+      if ('response' in raw && typeof raw.response === 'string') trace.response = raw.response;
+      if ('error' in raw && typeof raw.error === 'string') trace.error = raw.error;
+    }
+    return { entry, trace };
+  }
+
+  getSuggestionRound(
+    kind: IntentConversationKind,
+    conv: string,
+    options: { refresh?: boolean } = {},
+  ): Promise<ReplySuggestionHistoryEntry | null> {
+    const task = this.getSuggestions(kind, conv, options);
+    return task.then(() => this.suggestionRounds.get(task)?.round ?? null);
+  }
+
+  private recordSuggestions(
+    kind: IntentConversationKind,
+    conv: string,
+    last: SenseRow,
+    suggestions: ReplySuggestion[],
+    metadata: Pick<ReplySuggestionHistoryEntry, 'summary' | 'generation'>,
+    trace?: ReplySuggestionTrace,
+  ): ReplySuggestionHistoryEntry | null {
+    if (!suggestions.length) return null;
+    const store = this.suggestionHistoryFor(kind, conv);
+    const entry: ReplySuggestionHistoryEntry = {
+      id: randomUUID(),
+      createdAt: Date.now(),
+      target: {
+        msgId: last.msgId,
+        msgSeq: last.msgSeq,
+        senderUin: last.senderUin,
+        sendTime: last.sendTime,
+      },
+      suggestions,
+      ...metadata,
+    };
+    const removed = store.data.slice(
+      0,
+      Math.max(0, store.data.length + 1 - MAX_SUGGESTION_HISTORY),
+    );
+    store.data = [...store.data, entry].slice(-MAX_SUGGESTION_HISTORY);
+    if (trace) writeJsonFileAtomic(this.suggestionTracePath(kind, conv, entry.id), trace);
+    store.save();
+    for (const old of removed) {
+      try {
+        unlinkSync(this.suggestionTracePath(kind, conv, old.id));
+      } catch {}
+    }
+    return entry;
+  }
+
   getSuggestions(
     kind: IntentConversationKind,
     conv: string,
@@ -1344,16 +1637,22 @@ export class IntentSenseService {
     const revision = this.suggestionRevision;
     const manualRefresh = options.refresh === true;
     const key = conversationKey(kind, conv);
-    const inFlightKey = `${key}:${revision}:${manualRefresh ? 'refresh' : 'auto'}`;
+    const inFlightKey = `${key}:${revision}`;
     const running = this.suggestionInFlight.get(inFlightKey);
     if (running) return running;
+    const controller = new AbortController();
+    this.suggestionControllers.set(inFlightKey, controller);
+    const result: { round?: ReplySuggestionHistoryEntry } = {};
 
     const task = (async (): Promise<ReplySuggestion[]> => {
+      const startedAt = Date.now();
+      const started = performance.now();
       const contextMessages = this.config.suggestionContextMessages;
       const current = () => {
         this.syncDefaultModels();
         return (
           revision === this.suggestionRevision &&
+          !controller.signal.aborted &&
           this.config.suggestionsEnabled &&
           this.config.conversationOverrides[key] !== false
         );
@@ -1373,8 +1672,49 @@ export class IntentSenseService {
         cachedHit.lastMsgId === last.msgId &&
         Date.now() - cachedHit.at < this.config.suggestionCacheSeconds * 1000
       ) {
-        return cachedHit.suggestions;
+        result.round = cachedHit.round;
+        return cachedHit.round.suggestions;
       }
+
+      let trace: ReplySuggestionTrace | undefined;
+      let model: string | undefined;
+      let providerId: string | undefined;
+      let providerName: string | undefined;
+      let requestDurationMs: number | undefined;
+      let usage: ReturnType<typeof parseApiUsage> | undefined;
+      const complete = (
+        suggestions: ReplySuggestion[],
+        source: 'api' | 'local' | 'fallback',
+        summary?: string,
+      ): ReplySuggestion[] => {
+        if (!current()) return [];
+        const round = this.recordSuggestions(
+          kind,
+          conv,
+          last,
+          suggestions,
+          {
+            summary,
+            generation: {
+              source,
+              model,
+              providerId,
+              providerName,
+              startedAt,
+              durationMs: Math.round(performance.now() - started),
+              requestDurationMs,
+              inputMessages: rows.length,
+              usage,
+            },
+          },
+          trace,
+        );
+        if (round) {
+          result.round = round;
+          this.suggestionCache.set(key, { lastMsgId: last.msgId, at: round.createdAt, round });
+        }
+        return suggestions;
+      };
 
       const fallbackLocal = (): ReplySuggestion[] => {
         if (!current()) return [];
@@ -1387,28 +1727,19 @@ export class IntentSenseService {
           context,
           last.sendTime,
         ).slice(0, this.config.suggestionCount);
-        this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
-        return suggestions;
+        return complete(suggestions, trace ? 'fallback' : 'local');
       };
-
-      const stillLatestMessage = async (): Promise<boolean> => {
-        if (!current()) return false;
-        try {
-          const latest = (await this.loadMessages(kind, conv, 1))[0];
-          return (
-            current() &&
-            latest?.msgId === last.msgId &&
-            (!latest.mine || this.config.suggestAfterSelf || manualRefresh)
-          );
-        } catch {
-          return false;
-        }
-      };
-      const fallbackAfterRequest = async () =>
-        (await stillLatestMessage()) ? fallbackLocal() : [];
 
       const endpoint = this.endpoint(this.config.suggestionProviderRef);
+      model = endpoint?.model;
+      providerId =
+        endpoint?.providerId ??
+        (this.config.suggestionProviderRef && 'providerId' in this.config.suggestionProviderRef
+          ? this.config.suggestionProviderRef.providerId
+          : undefined);
+      providerName = endpoint?.providerName;
       if (!endpoint || Date.now() < this.suggestionApiCooldownUntil) {
+        if (endpoint) trace = { error: '模型服务处于失败冷却期，本轮使用本地候选。' };
         return fallbackLocal();
       }
       const baseUrl = endpoint.baseUrl.replace(/\/+$/, '');
@@ -1424,8 +1755,11 @@ export class IntentSenseService {
         count: this.config.suggestionCount,
         targetChars: this.config.suggestionTargetChars,
       });
+      trace = { prompt };
+      const requestStarted = performance.now();
       try {
         const body = await requestApiJson<{
+          model?: string;
           choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
         }>({ ...endpoint, baseUrl, feature: 'reply-suggestion' }, '/chat/completions', {
           method: 'POST',
@@ -1441,12 +1775,19 @@ export class IntentSenseService {
               { role: 'user', content: prompt.user },
             ],
           }),
-          signal: AbortSignal.timeout(this.config.apiTimeoutSeconds * 1000),
+          signal: AbortSignal.any([
+            controller.signal,
+            AbortSignal.timeout(this.config.apiTimeoutSeconds * 1000),
+          ]),
         });
         if (!current()) return [];
-        if (!(await stillLatestMessage())) return [];
+        requestDurationMs = Math.round(performance.now() - requestStarted);
+        trace.response = JSON.stringify(body);
+        if (typeof body.model === 'string' && body.model.trim()) model = body.model;
+        usage = parseApiUsage(body);
         this.lastSuggestionApiError = null;
         const parsed = extractJsonBlock(pickMessageText(body.choices?.[0]?.message)) as {
+          summary?: unknown;
           replies?: unknown[];
         } | null;
         const suggestions: ReplySuggestion[] = (parsed?.replies ?? [])
@@ -1458,27 +1799,52 @@ export class IntentSenseService {
           })
           .filter((r): r is ReplySuggestion => r !== null)
           .slice(0, this.config.suggestionCount);
-        if (suggestions.length === 0) return fallbackLocal();
-        this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
-        return suggestions;
+        if (suggestions.length === 0) {
+          trace.error = '模型未返回有效候选，本轮使用本地候选。';
+          return fallbackLocal();
+        }
+        return complete(
+          suggestions,
+          'api',
+          typeof parsed?.summary === 'string' ? parsed.summary.trim() || undefined : undefined,
+        );
       } catch (error) {
         if (!current()) return [];
+        requestDurationMs = Math.round(performance.now() - requestStarted);
+        trace.error = error instanceof Error ? error.message : String(error);
         this.suggestionApiCooldownUntil = Date.now() + this.config.apiCooldownSeconds * 1000;
         this.lastSuggestionApiError = error instanceof Error ? error.message : String(error);
         logger.debug('intent-sense suggestions failed', {
           event: 'intent-sense-suggestions-failed',
           ...logErrorContext(error),
         });
-        return fallbackAfterRequest();
+        return fallbackLocal();
       }
     })().finally(() => {
       if (this.suggestionInFlight.get(inFlightKey) === task) {
         this.suggestionInFlight.delete(inFlightKey);
       }
+      if (this.suggestionControllers.get(inFlightKey) === controller)
+        this.suggestionControllers.delete(inFlightKey);
     });
 
     this.suggestionInFlight.set(inFlightKey, task);
+    this.suggestionRounds.set(task, result);
     return task;
+  }
+
+  /** 仅停止当前会话的在途推荐，不改变自动推荐开关或已有候选。 */
+  stopSuggestions(kind: IntentConversationKind, conv: string): boolean {
+    const prefix = `${conversationKey(kind, conv)}:`;
+    let stopped = false;
+    for (const [key, controller] of this.suggestionControllers) {
+      if (!key.startsWith(prefix)) continue;
+      controller.abort();
+      this.suggestionControllers.delete(key);
+      this.suggestionInFlight.delete(key);
+      stopped = true;
+    }
+    return stopped;
   }
 
   // ── 消息读取（内部）─────────────────────────────────────────────────────
@@ -1559,6 +1925,7 @@ export class IntentSenseService {
           : String((m as GroupMsg).senderUin) === String(this.session.context.uin ?? '');
       return {
         msgId: m.msgId.toString(),
+        msgSeq: m.msgSeq.toString(),
         mine,
         senderUid: m.senderUid,
         senderUin: m.senderUin.toString(),
@@ -1585,6 +1952,7 @@ export class IntentSenseService {
         source: 'roaming',
         sense: {
           msgId: timelineRowKey({ ...message, source: 'roaming' }),
+          msgSeq: message.msgSeq,
           mine:
             kind === 'c2c'
               ? message.senderUid !== conv
@@ -1692,11 +2060,12 @@ export class IntentSenseService {
     return store;
   }
 
-  /** 落缓存 + 裁剪到上限（按 sendTime 丢最旧）+ 落盘。 */
+  /** 合并内存缓存并裁剪到上限；本地批次可推迟到块结束再统一落盘。 */
   private storeResults(
     kind: IntentConversationKind,
     conv: string,
     results: IntentSenseResult[],
+    { persist = true }: { persist?: boolean } = {},
   ): void {
     const store = this.cacheFor(kind, conv);
     const merged = new Map(store.data.results.map((r) => [r.msgId, r]));
@@ -1713,7 +2082,7 @@ export class IntentSenseService {
       modelIdentity: this.analysisModelIdentity(),
       results: all,
     };
-    store.save();
+    if (persist) store.save();
   }
 }
 

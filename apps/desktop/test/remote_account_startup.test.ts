@@ -3,6 +3,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { BootstrapView } from '../src/renderer/src/views/BootstrapView';
 import { useViewState } from '../src/renderer/src/state/view';
+import { QueryClient } from '@tanstack/react-query';
+import { WebStartupCache, WEB_STARTUP_CACHE_KEY } from '../src/renderer/src/lib/webStartupCache';
 
 const api = vi.hoisted(() => ({
   web: true,
@@ -10,8 +12,16 @@ const api = vi.hoisted(() => ({
   currentError: false,
   mutate: vi.fn(async () => ({ success: true })),
   warmup: vi.fn(async () => {}),
+  remoteWarmup: vi.fn(async () => {}),
   error: vi.fn(),
-  utils: { account: { getAccountConfig: { fetch: vi.fn(async () => ({})) } } },
+  utils: {
+    account: {
+      getAccountConfig: {
+        fetch: vi.fn(async () => ({})),
+        getData: vi.fn(() => undefined as unknown),
+      },
+    },
+  },
 }));
 vi.mock('../src/renderer/src/lib/target', () => ({
   get IS_WEB() {
@@ -25,7 +35,10 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: () => api.error,
 }));
 vi.mock('../src/renderer/src/lib/windowLayout', () => ({ setWindowLayout: vi.fn() }));
-vi.mock('../src/renderer/src/lib/accountWarmup', () => ({ runAccountWarmup: api.warmup }));
+vi.mock('../src/renderer/src/lib/accountWarmup', () => ({
+  runAccountWarmup: api.warmup,
+  runRemoteIdentityWarmup: api.remoteWarmup,
+}));
 vi.mock('../src/renderer/src/views/bootstrap/SelectScreen', () => ({ SelectScreen: () => null }));
 vi.mock('../src/renderer/src/components/settings/BackupSection', () => ({
   BackupSection: () => null,
@@ -71,6 +84,9 @@ beforeEach(() => {
   api.current = { uin: '10002' };
   api.currentError = false;
   vi.clearAllMocks();
+  api.remoteWarmup.mockReset().mockResolvedValue(undefined);
+  api.utils.account.getAccountConfig.fetch.mockReset().mockResolvedValue({});
+  api.utils.account.getAccountConfig.getData.mockReset().mockReturnValue(undefined);
   useViewState.setState({ view: 'bootstrap', openedUin: null, homeStage: 'booting' });
   host = document.createElement('div');
   document.body.append(host);
@@ -87,7 +103,7 @@ async function render() {
   });
 }
 
-it('Web 复用实际已打开账号，不切回自动进入目标，也不验密钥、重开库或等待预热', async () => {
+it('Web 复用实际已打开账号，只读必要配置，不等待身份或目录预热', async () => {
   await render();
   expect(useViewState.getState()).toMatchObject({
     view: 'main',
@@ -96,6 +112,39 @@ it('Web 复用实际已打开账号，不切回自动进入目标，也不验密
   });
   expect(api.mutate).not.toHaveBeenCalled();
   expect(api.warmup).not.toHaveBeenCalled();
+  expect(api.remoteWarmup).not.toHaveBeenCalled();
+  expect(api.utils.account.getAccountConfig.fetch).toHaveBeenCalledOnce();
+});
+it('Remote 必要账号配置尚未就绪时不能先挂载工作区', async () => {
+  let finish!: () => void;
+  api.utils.account.getAccountConfig.fetch.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => resolve({});
+      }),
+  );
+  await render();
+  expect(api.remoteWarmup).not.toHaveBeenCalled();
+  expect(useViewState.getState()).toMatchObject({ view: 'bootstrap', openedUin: null });
+  await act(async () => finish());
+  expect(useViewState.getState()).toMatchObject({ view: 'main', openedUin: '10002' });
+});
+it('启动快照已提供配置时直接接回工作区，不追加一次配置读取', async () => {
+  const cache = new QueryClient();
+  cache.setQueryData(WEB_STARTUP_CACHE_KEY, true);
+  api.utils.account.getAccountConfig.getData.mockReturnValue({
+    configId: 'synthetic',
+    uin: '10002',
+  });
+  await act(async () =>
+    root.render(
+      createElement(WebStartupCache.Provider, { value: cache }, createElement(BootstrapView)),
+    ),
+  );
+  expect(api.utils.account.getAccountConfig.fetch).not.toHaveBeenCalled();
+  expect(useViewState.getState().view).toBe('main');
+  expect(cache.getQueryData(WEB_STARTUP_CACHE_KEY)).toBeUndefined();
+  cache.clear();
 });
 it('当前会话读取失败时不擅自重开账号', async () => {
   api.currentError = true;
@@ -109,6 +158,7 @@ it('桌面重载接回后台实际账号，预热但不验密钥、不重开库�
   await render();
   expect(api.mutate).not.toHaveBeenCalled();
   expect(api.warmup).toHaveBeenCalledOnce();
+  expect(api.remoteWarmup).not.toHaveBeenCalled();
   expect(useViewState.getState()).toMatchObject({ view: 'main', openedUin: '10002' });
 });
 it.each([true, false])('没有后台账号时保留原自动进入流程：web=%s', async (web) => {
@@ -116,6 +166,6 @@ it.each([true, false])('没有后台账号时保留原自动进入流程：web=%
   api.current = null;
   await render();
   expect(api.mutate).toHaveBeenCalledTimes(2);
-  expect(api.warmup).toHaveBeenCalledOnce();
+  expect(api.warmup).toHaveBeenCalledTimes(web ? 0 : 1);
   expect(useViewState.getState()).toMatchObject({ view: 'main', openedUin: '10001' });
 });

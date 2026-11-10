@@ -96,7 +96,7 @@ WeQ 已有 `@weq/protocol` 的 `sendPacket`、protobuf 编解码及 native 通�
 | `uint32_add_frd_type` | 验证信息标题 | 2 显示「我添加他时的信息」；页面其他值显示「他添加我时的信息」 |
 | `str_add_frd_source_wording` | 来源 | 直接显示服务端给出的文案，不是本地枚举推导 |
 | `str_add_frd_message` | 附加信息 | 添加验证文字；页面还处理「问题／回答」格式 |
-| `uint64_group_id` | 来源群跳转目标 | 页面与 `bool_group_jump` 一起决定能否打开群资料 |
+| `uint64_group_id` | 来源群跳转目标 | 内部群 UIN；官方页面将原值传给 `showProfile({uin, uinType:1})`，WeQ 使用公开群号前须按历史号段转换 |
 | `bool_group_jump` | 来源点击行为 | 服务端给出的群资料可跳转标志，不由当前是否在群推测 |
 | `uint32_comm_group_num` | 共同群聊数量 | 只给数量；点击后通过客户端另开共同群列表 |
 | `str_nickname` | 昵称 | 好友昵称 |
@@ -113,6 +113,8 @@ WeQ 已有 `@weq/protocol` 的 `sendPacket`、protobuf 编解码及 native 通�
 产品模型应保留原始值，只有明确的 1/2 生成方向，其他为未知。
 
 ### 时间及来源的精度
+
+- 2026-11-10 根据用户提供的两组错误值核对：原值分别与公开群号相差 `3890 × 1000000`、`1943 × 1000000`，符合内部群 UIN 的历史号段映射。协议解析现按 [oicq 的 `uin2code`](https://github.com/takayama-lily/oicq/blob/master/lib/common.js) 转换 `uint64_group_id` 后输出 `sourceGroupCode`，不改来源文案；未命中转换号段的原值保持不变，使用 bigint 避免 uint64 精度丢失。该转换仅用于此线索字段，不套用到其他已返回公开群号的接口。
 
 - 原始时间为秒，官方页面仅展示年月日；WeQ 可以保留原值和带明确时区的展示值。
 - 用户于 2026-11-06 明确补充：时间为最近一次添加时间，WeQ 中统一标为「添加时间」。
@@ -159,8 +161,9 @@ WeQ 已有 `@weq/protocol` 的 `sendPacket`、protobuf 编解码及 native 通�
   校验传输外层、业务错误、字段类型、时间范围与整数精度，缺失和未知方向不默认成被动添加。
 - 服务：`AccountWriteService.friendClue(uid)` 从当前好友目录解析 UIN，发包前后复核运行时。
 - API：`account.qqWrite.friendClue`，绑定账号及 configId，并在异步返回后复核账号与目标。
-- UI：好友资料和群成员名片的关系信息区显示添加时间、方向、来源、来源群号及原始验证消息；
-  日期按北京时间展示，提供刷新，查询失败不展示旧结果，字段沿用现有隐私模式标记。
+- UI：好友资料和群成员名片的关系信息区显示添加时间、方向、来源及原始验证消息；群来源直接展示群头像和群名，不再单列来源群号，点击打开群名片。
+  来源行名称原样使用好友线索接口的 `str_add_frd_source_wording`（`source`），不被群资料接口或本地群名替换，也不使用好友分组名或群备注。点开名片后才通过现有 `groupJoinSettings`（`0x88d_110`）读取当前真实群名及人数；已有群资料保留成员与公告，未收录群不虚构本地资料。
+  日期按北京时间展示，不再提供手动重读按钮；好友线索及来源群资料读取失败后间隔 1 秒自动重试，最多额外重试两次，不持续轮询。查询失败不展示旧结果，字段沿用现有隐私模式标记。
 - 不使用旧 `Contact.createdAt` 作为添加时间，不改 QQ 数据库；Web/Remote 复用相同资料界面和路由。
 - 本次验证为合成数据离线测试和界面排版核验，真实 QQ 回包仍未验收；没有发版或安装。
 

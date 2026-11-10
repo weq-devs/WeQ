@@ -14,6 +14,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { decode, encode } from '../src/protobuf';
+import { oidbCommand, resolveSign } from '../src/sign-policy';
 import {
   KickGroupMember,
   MuteGroupAll,
@@ -62,7 +63,7 @@ describe('SetGroupName (0x89A_15)', () => {
   it('body@2 / targetName@3，needSign=true（白名单）', () => {
     expect(SetGroupName.command).toBe(0x89a);
     expect(SetGroupName.subCommand).toBe(15);
-    expect(SetGroupName.needSign).toBe(true);
+    expect(resolveSign(oidbCommand(0x89a, 15)).needSign).toBe(true);
     const bytes = encode(
       SetGroupName.reqSchema,
       SetGroupName.serialize({ groupId: 12345, name: 'NewName' }),
@@ -84,7 +85,7 @@ describe('MuteGroupAll (0x89A_0)', () => {
   it('muteState@2 / state@17，禁言=0xFFFFFFFF，needSign=true', () => {
     expect(MuteGroupAll.command).toBe(0x89a);
     expect(MuteGroupAll.subCommand).toBe(0);
-    expect(MuteGroupAll.needSign).toBe(true);
+    expect(resolveSign(oidbCommand(0x89a, 0)).needSign).toBe(true);
     const on = encode(
       MuteGroupAll.reqSchema,
       MuteGroupAll.serialize({ groupId: 100, enable: true }),
@@ -103,7 +104,7 @@ describe('MuteGroupMember (0x1253_1)', () => {
   it('type=1 / body{ targetUid, duration }，needSign=false', () => {
     expect(MuteGroupMember.command).toBe(0x1253);
     expect(MuteGroupMember.subCommand).toBe(1);
-    expect(MuteGroupMember.needSign).toBe(false);
+    expect(resolveSign(oidbCommand(0x1253, 1)).needSign).toBe(false);
     const bytes = encode(
       MuteGroupMember.reqSchema,
       MuteGroupMember.serialize({ groupId: 100, targetUid: 'u_x', duration: 600 }),
@@ -129,7 +130,7 @@ describe('KickGroupMember (0x8A0_1)', () => {
   it('targetUid@3 / reject@4，非 0 results 抛错', async () => {
     expect(KickGroupMember.command).toBe(0x8a0);
     expect(KickGroupMember.subCommand).toBe(1);
-    expect(KickGroupMember.needSign).toBe(false);
+    expect(resolveSign(oidbCommand(0x8a0, 1)).needSign).toBe(false);
 
     const bytes = encode(
       KickGroupMember.reqSchema,
@@ -160,7 +161,7 @@ describe('SetGroupAdmin (0x1096_1)', () => {
   it('uid@2 / isAdmin@3，needSign=false', () => {
     expect(SetGroupAdmin.command).toBe(0x1096);
     expect(SetGroupAdmin.subCommand).toBe(1);
-    expect(SetGroupAdmin.needSign).toBe(false);
+    expect(resolveSign(oidbCommand(0x1096, 1)).needSign).toBe(false);
     const bytes = encode(
       SetGroupAdmin.reqSchema,
       SetGroupAdmin.serialize({ groupId: 100, targetUid: 'u_x', enable: true }),
@@ -181,10 +182,12 @@ describe('SetGroupMemberCard (0x8FC_3)', () => {
     );
     expect(bytes).toEqual(hexToBytes('08 64 1a 07 0a 03 75 5f 78 42 00'));
   });
-  it('body@3 / targetName@8（不是 2），needSign=false', () => {
+  it('body@3 / targetName@8（不是 2），Linux 不签 / Windows 签', () => {
     expect(SetGroupMemberCard.command).toBe(0x8fc);
     expect(SetGroupMemberCard.subCommand).toBe(3);
-    expect(SetGroupMemberCard.needSign).toBe(false);
+    const cmd = oidbCommand(0x8fc, 3);
+    expect(resolveSign(cmd, 'linux').needSign).toBe(false);
+    expect(resolveSign(cmd, 'win32').needSign).toBe(true);
     const bytes = encode(
       SetGroupMemberCard.reqSchema,
       SetGroupMemberCard.serialize({ groupId: 100, targetUid: 'u_x', card: '卡片' }),
@@ -209,7 +212,7 @@ describe('SetGroupSpecialTitle (0x8FC_2)', () => {
   it('title@5 / expire@6(-1) / uinName@7 镜像 title，needSign=false', () => {
     expect(SetGroupSpecialTitle.command).toBe(0x8fc);
     expect(SetGroupSpecialTitle.subCommand).toBe(2);
-    expect(SetGroupSpecialTitle.needSign).toBe(false);
+    expect(resolveSign(oidbCommand(0x8fc, 2)).needSign).toBe(false);
     const bytes = encode(
       SetGroupSpecialTitle.reqSchema,
       SetGroupSpecialTitle.serialize({ groupId: 100, targetUid: 'u_x', title: 'A' }),
@@ -228,7 +231,7 @@ describe('SetGroupSpecialTitle (0x8FC_2)', () => {
 describe('SetGroupEssence (0xEAC)', () => {
   it('sequence@2 / random@3，sub 1 设 / 2 撤，needSign=false', async () => {
     expect(SetGroupEssence.command).toBe(0xeac);
-    expect(SetGroupEssence.needSign).toBe(false);
+    expect(resolveSign(oidbCommand(0xeac, 1)).needSign).toBe(false);
     expect(
       SetGroupEssence.resolveSubCommand({ groupId: 1, sequence: 2, random: 3, enable: true }),
     ).toBe(1);

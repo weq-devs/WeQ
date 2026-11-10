@@ -5,10 +5,12 @@ import { lstat, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
+import signingIdentity from '../../shared/mac-signing.json';
 
 const run = promisify(execFile);
-export const MAC_BUNDLE_ID = 'app.weq.desktop';
+export const MAC_BUNDLE_ID = signingIdentity.bundleId;
 export const MAC_STAGE_PREFIX = '.weq-update-';
+export const MAC_RELEASE_REQUIREMENT = `identifier "${signingIdentity.bundleId}" and certificate leaf = H"${signingIdentity.certificateSha1}"`;
 
 export const macUpdatePlanSchema = z.object({
   target: z.string(),
@@ -33,11 +35,6 @@ export async function writeMacUpdateResult(
   const temporary = `${plan.report}.tmp`;
   await writeFile(temporary, JSON.stringify({ phase, plan, message }), { mode: 0o600 });
   await rename(temporary, plan.report);
-}
-
-/** ad-hoc 默认 DR 是单个构建的 cdhash，不能作为跨版本的发布者身份。 */
-export function isAdhocSignature(details: string): boolean {
-  return /^Signature=adhoc\r?$/m.test(details);
 }
 
 export function macAppBundle(executable: string): string {
@@ -100,9 +97,25 @@ export async function verifyMacArchive(path: string, expected: { sha256: string;
     throw new Error('更新包与官方 SHA-256 不匹配，未安装');
 }
 
-export async function verifyMacBundle(bundle: string, version?: string, arch?: 'arm64' | 'x64') {
+export async function verifyMacBundle(
+  bundle: string,
+  version?: string,
+  arch?: 'arm64' | 'x64',
+  requireReleaseIdentity = false,
+) {
   if (!(await lstat(bundle)).isDirectory()) throw new Error('更新应用不是普通目录');
-  await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', bundle], { timeout: 120_000 });
+  // 旧 ad-hoc 宿主仍须完整签名；新候选必须匹配本版本编译进来的发布证书。
+  await run(
+    '/usr/bin/codesign',
+    [
+      '--verify',
+      '--deep',
+      '--strict',
+      ...(requireReleaseIdentity ? ['-R', `=${MAC_RELEASE_REQUIREMENT}`] : []),
+      bundle,
+    ],
+    { timeout: 120_000 },
+  );
   const plist = join(bundle, 'Contents', 'Info.plist');
   const field = async (key: string) =>
     (await run('/usr/bin/plutil', ['-extract', key, 'raw', '-o', '-', plist])).stdout.trim();
@@ -158,7 +171,7 @@ export async function replaceMacApp(input: MacUpdatePlan): Promise<void> {
   const next = join(plan.staging, 'weQ.app');
   const previous = join(plan.staging, 'previous.app');
   const previousExecutable = await verifyMacBundle(plan.target, plan.previousVersion);
-  const nextExecutable = await verifyMacBundle(next, plan.version, plan.arch);
+  const nextExecutable = await verifyMacBundle(next, plan.version, plan.arch, true);
   let moved = false;
   let replaced = false;
   try {

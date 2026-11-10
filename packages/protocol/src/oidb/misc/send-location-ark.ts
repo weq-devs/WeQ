@@ -91,6 +91,6 @@ export namespace SendLocationArk {
   ): Promise<Uint8Array> => {
     const bytes = encode(reqSchema, serialize(params));
     // 不在签名清单里（Lagrange `WhiteListCommand` 无 LocationArk 项）。
-    return sendPacket(nt, pid, cmd, bytes, false);
+    return sendPacket(nt, pid, cmd, bytes);
   };
 }

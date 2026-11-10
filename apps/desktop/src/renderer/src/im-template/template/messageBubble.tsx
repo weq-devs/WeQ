@@ -1,4 +1,5 @@
 import { useContext, useEffect, useRef, useState } from 'react';
+import { IS_WEB } from '../../lib/target';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { Bot, Check, LoaderCircle, RotateCcw, Sparkle, TriangleAlert, X } from 'lucide-react';
 import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
@@ -318,7 +319,7 @@ export function MessageBubble({
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (selectionMode || event.pointerType === 'mouse' || event.button !== 0) {
+    if (IS_WEB || selectionMode || event.pointerType === 'mouse' || event.button !== 0) {
       return;
     }
     const startPoint = { x: event.clientX, y: event.clientY };
@@ -424,7 +425,8 @@ export function MessageBubble({
         conversation.generated && !message.generatedPending ? message.id : undefined
       }
       data-weq-select-id={selectionMode ? message.id : undefined}
-      tabIndex={selectionMode ? 0 : undefined}
+      // 普通模式给 -1：不进 Tab 顺序，但允许聊天区用方向键把焦点落到消息上。
+      tabIndex={selectionMode ? 0 : -1}
       onClickCapture={
         selectionMode && onToggleSelect
           ? (event) => {

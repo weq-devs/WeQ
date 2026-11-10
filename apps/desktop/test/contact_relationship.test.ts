@@ -1,6 +1,10 @@
 import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
+vi.mock(
+  '../src/renderer/src/hooks/useContactDirectoryOrder',
+  () => import('./support/contact-order.stub'),
+);
 import {
   groupRelationship,
   personRelationship,
@@ -159,18 +163,30 @@ it('联系人列表不显示好友关系标识，保留姓名和签名', () => {
     expect(host.textContent).toContain(text);
 });
 
-it.each(['20001', '20002', '20003'])('群名片 %s 显示关系，群外不显示旧管理身份', (code) => {
+it.each(['20001', '20002', '20003'])('联系人页群资料 %s 不显示入群状态提示', (code) => {
   const conversation = {
     ...group,
     id: code,
     group: { ...group.group, id: code, identityValue: code },
   };
   const { host } = mount(h(GroupProfileDialog, { conversation, embedded: true, onClose: vi.fn() }));
-  const badge = host.querySelector('.weq-relationship-status')!;
-  expect(badge.textContent).toBe(
+  expect(host.querySelector('.weq-relationship-status')).toBeNull();
+  expect(host.textContent).toContain(group.group.name);
+  expect(host.textContent).toContain('20 位成员');
+});
+
+it.each(['20001', '20002', '20003'])('独立群名片 %s 保留关系，群外不显示旧管理身份', (code) => {
+  const conversation = {
+    ...group,
+    id: code,
+    group: { ...group.group, id: code, identityValue: code },
+  };
+  mount(h(GroupProfileDialog, { conversation, onClose: vi.fn() }));
+  const profile = document.body.querySelector('[aria-label="群资料"]')!;
+  expect(profile.querySelector('.weq-relationship-status')?.textContent).toBe(
     code === '20001' ? '我在群内· 管理员' : code === '20002' ? '我不在群内' : '入群状态待确认',
   );
-  expect(host.textContent).not.toContain('群主');
+  expect(profile.textContent).not.toContain('群主');
 });
 
 it('克隆与我的设备不显示真实 QQ 关系', () => {
@@ -185,7 +201,7 @@ it('克隆与我的设备不显示真实 QQ 关系', () => {
   expect(host.querySelector('.weq-relationship-status')).toBeNull();
 });
 
-it.each(['20001', '20002', '20003'])('群列表 %s 与名片状态一致，未知关系仍可查看', (code) => {
+it.each(['20001', '20002', '20003'])('群列表 %s 不显示入群提示，仍可查看所有群', (code) => {
   const conversation = {
     ...group,
     id: code,
@@ -194,9 +210,12 @@ it.each(['20001', '20002', '20003'])('群列表 %s 与名片状态一致，未�
   const { host } = mount(
     h(GroupList, { conversations: [conversation], activeConversationId: code, onSelect: vi.fn() }),
   );
-  expect(
-    host.querySelector('.contact-row [data-relationship]')?.getAttribute('data-relationship'),
-  ).toBe(code === '20001' ? 'member' : code === '20002' ? 'nonmember' : 'unknown');
+  expect(host.querySelector('.contact-row')).not.toBeNull();
+  expect(host.querySelector('.contact-row [data-relationship]')).toBeNull();
+  for (const text of ['我在群内', '我不在群内', '入群状态待确认', '已不在当前群列表'])
+    expect(host.textContent).not.toContain(text);
+  expect(host.textContent).toContain(group.group.name);
+  expect(host.textContent).toContain('20 位成员');
   expect(host.textContent).not.toContain('已解散');
   expect(host.textContent).not.toContain('已退出');
 });

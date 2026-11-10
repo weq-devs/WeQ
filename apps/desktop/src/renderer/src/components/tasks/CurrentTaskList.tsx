@@ -9,7 +9,17 @@ import {
 } from 'react';
 import { useTabActive } from '../RetainedTabs';
 import { useWorkspaceMenu } from '../../state/workspaceMenu';
-import { CloudDownload, Download, FolderOpen, Square, Trash2, Users } from 'lucide-react';
+import {
+  CloudDownload,
+  Download,
+  FolderOpen,
+  Pause,
+  Play,
+  RotateCw,
+  Square,
+  Trash2,
+  Users,
+} from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
@@ -35,6 +45,15 @@ import {
   BACKGROUND_TASK_LABELS,
   BackgroundTaskDetails,
 } from './BackgroundTaskDetails';
+import { TaskQuickActions, type TaskQuickAction } from './TaskQuickActions';
+import { localBackgroundTasks } from '../../state/backgroundTasks';
+
+export interface ExportTaskActions {
+  pause: (task: UiTask) => unknown;
+  resume: (task: UiTask) => unknown;
+  cancel: (task: UiTask) => unknown;
+  remove: (task: UiTask) => unknown;
+}
 
 export function CurrentTaskList({
   exports,
@@ -47,6 +66,7 @@ export function CurrentTaskList({
   layout = 'inline',
   onOpenDetail,
   cleanupBinding,
+  exportActions,
 }: {
   exports: UiTask[];
   exportError?: string;
@@ -58,6 +78,7 @@ export function CurrentTaskList({
   layout?: 'inline' | 'compact' | 'split';
   onOpenDetail?: () => void;
   cleanupBinding?: { expectedAccountUin: string; expectedAccountConfigId: string } | null;
+  exportActions?: ExportTaskActions;
 }) {
   const { enabled: active } = useQQReadActivity(true, { onlineOnly: false });
   const background = useBackgroundTasks(active);
@@ -94,6 +115,9 @@ export function CurrentTaskList({
     onError: (error) => showError('打开下载目录失败', error.message),
   });
   const [selected, setSelected] = useState<string | null | undefined>(undefined);
+  const taskFocusId = useWorkspaceMenu((state) => state.taskFocusId);
+  const taskOpenRequest = useWorkspaceMenu((state) => state.taskOpenRequest);
+  const appliedFocus = useRef<string | null>(null);
   useEffect(() => {
     if (autoSelectId) setSelected(`export:${autoSelectId}`);
   }, [autoSelectId]);
@@ -104,6 +128,45 @@ export function CurrentTaskList({
       task.status === 'completed' &&
       (task.save?.status === 'failed' || task.save?.status === 'interrupted');
     const missing = (task.generatedResources?.missing ?? task.resource?.failed ?? 0) > 0;
+    const actions: TaskQuickAction[] = [];
+    if (exportActions) {
+      if (task.status === 'running')
+        actions.push({
+          id: 'pause',
+          label: '暂停',
+          icon: <Pause size={14} />,
+          run: () => exportActions.pause(task),
+        });
+      if (task.canResume)
+        actions.push({
+          id: 'resume',
+          label:
+            task.status === 'completed'
+              ? '补传已跳过项目'
+              : task.resumeMode === 'restart'
+                ? '重新执行导出'
+                : '继续导出',
+          icon: task.resumeMode === 'restart' ? <RotateCw size={14} /> : <Play size={14} />,
+          disabled: saving || task.isFinalizing,
+          run: () => exportActions.resume(task),
+        });
+      if (['pending', 'running', 'paused', 'failed'].includes(task.status))
+        actions.push({
+          id: 'cancel',
+          label: '取消',
+          icon: <Square size={14} />,
+          disabled: task.isFinalizing,
+          run: () => exportActions.cancel(task),
+        });
+      if (task.status !== 'running')
+        actions.push({
+          id: 'remove',
+          label: '删除导出缓存',
+          icon: <Trash2 size={14} />,
+          disabled: saving || task.isFinalizing,
+          run: () => exportActions.remove(task),
+        });
+    }
     return {
       id: `export:${task.id}`,
       name: task.name,
@@ -124,6 +187,7 @@ export function CurrentTaskList({
       note: task.error || task.save?.error,
       icon: taskIcon(task),
       detail: renderExport(task),
+      quickActions: actions.length ? <TaskQuickActions actions={actions} /> : null,
     };
   });
   for (const task of clones.filter((item) => item.accountId === accountId)) {
@@ -135,6 +199,19 @@ export function CurrentTaskList({
       progress: task.percent,
       note: task.status === 'error' ? task.error : task.phase,
       icon: <Users size={16} />,
+      quickActions:
+        task.status !== 'running' ? (
+          <TaskQuickActions
+            actions={[
+              {
+                id: 'remove',
+                label: '移除任务',
+                icon: <Trash2 size={14} />,
+                run: () => dismissCloneTask(task.personaId),
+              },
+            ]}
+          />
+        ) : null,
       detail: (
         <div>
           <p role={task.status === 'error' ? 'alert' : undefined}>{task.error || task.phase}</p>
@@ -165,6 +242,70 @@ export function CurrentTaskList({
     });
   }
   for (const job of roaming.data?.jobs ?? []) {
+    const actions: TaskQuickAction[] = [];
+    const refresh = () => utils.account.roamingBackfill.list.invalidate();
+    const busy = Boolean(roaming.data?.activeId || roaming.data?.scanning);
+    if (job.status === 'running')
+      actions.push({
+        id: 'pause',
+        label: '暂停',
+        icon: <Pause size={14} />,
+        run: async () => {
+          await client.account.roamingBackfill.pause.mutate({ id: job.id });
+          await refresh();
+        },
+      });
+    if (['planned', 'paused', 'failed', 'partial'].includes(job.status))
+      actions.push({
+        id: 'resume',
+        label:
+          job.status === 'planned'
+            ? '开始补全'
+            : job.status === 'partial'
+              ? '重试未补区间'
+              : '继续',
+        icon: <Play size={14} />,
+        disabled:
+          busy ||
+          roaming.data?.historyVersion !== 2 ||
+          ['native500', 'sso500'].includes(job.options.transport ?? ''),
+        run: async () => {
+          await client.account.roamingBackfill.start.mutate({
+            id: job.id,
+            retryRemaining: job.status === 'partial',
+          });
+          await refresh();
+        },
+      });
+    if (!['completed', 'cancelled'].includes(job.status))
+      actions.push({
+        id: 'cancel',
+        label: '取消',
+        icon: <Square size={14} />,
+        disabled: job.status === 'pausing',
+        run: async () => {
+          await client.account.roamingBackfill.cancel.mutate({ id: job.id });
+          await refresh();
+        },
+      });
+    actions.push({
+      id: 'remove',
+      label: '移除补全任务',
+      icon: <Trash2 size={14} />,
+      disabled: busy,
+      run: async () => {
+        const binding = bindingRef.current;
+        if (!(await confirm('移除任务？', '仅移除任务与断点，已经取得的漫游消息会保留。'))) return;
+        if (
+          !mounted.current ||
+          bindingRef.current?.expectedAccountUin !== binding?.expectedAccountUin ||
+          bindingRef.current?.expectedAccountConfigId !== binding?.expectedAccountConfigId
+        )
+          return;
+        await client.account.roamingBackfill.remove.mutate({ id: job.id });
+        await refresh();
+      },
+    });
     const status =
       job.status === 'planned'
         ? 'pending'
@@ -196,6 +337,7 @@ export function CurrentTaskList({
       note: `${job.targets.length} 个会话 · 仍未确认 ${job.remainingSeqs} seq`,
       icon: <CloudDownload size={16} />,
       detail: <RoamingBackfillPanel surface="tasks" taskId={job.id} />,
+      quickActions: <TaskQuickActions actions={actions} />,
     });
   }
   if (roaming.data?.scanning) {
@@ -210,6 +352,40 @@ export function CurrentTaskList({
   }
   for (const task of flash.data ?? []) {
     const running = task.status === 'resolving' || task.status === 'downloading';
+    const actions: TaskQuickAction[] =
+      running || task.status === 'pending'
+        ? [
+            {
+              id: 'cancel',
+              label: '取消下载',
+              icon: <Square size={14} />,
+              run: async () => {
+                await client.account.flashCancelDownloadTask.mutate({ taskId: task.id });
+                await utils.account.flashListDownloadTasks.invalidate();
+              },
+            },
+          ]
+        : [
+            {
+              id: 'remove',
+              label: '移除任务',
+              icon: <Trash2 size={14} />,
+              disabled: !cleanupBinding,
+              run: async () => {
+                if (!cleanupBinding) return;
+                const result = await client.account.clearFinishedTasks.mutate({
+                  ...cleanupBinding,
+                  exports: [],
+                  roaming: [],
+                  flash: [task.id],
+                });
+                await utils.account.flashListDownloadTasks.invalidate();
+                if (result.errors.length) throw new Error(result.errors.join('\n'));
+                if (!result.removed)
+                  showInfo('暂时无法移除', '任务状态已变化，请查看最新任务状态。');
+              },
+            },
+          ];
     items.push({
       id: `flash:${task.id}`,
       name: task.name,
@@ -229,6 +405,7 @@ export function CurrentTaskList({
             : undefined,
       note: `${task.files?.length ?? 1} 个文件 · ${formatSize(task.downloadedBytes)} / ${formatSize(task.fileSize)}`,
       icon: <Download size={16} />,
+      quickActions: <TaskQuickActions actions={actions} />,
       detail: (
         <div>
           <p>
@@ -289,6 +466,41 @@ export function CurrentTaskList({
   for (const entry of background.tasks) {
     const task = entry.task;
     const Icon = BACKGROUND_TASK_ICONS[task.kind];
+    const actions: TaskQuickAction[] = task.actions.map((action) => ({
+      id: action.id,
+      label: action.label,
+      icon:
+        action.id === 'stop' || action.id === 'cancel' ? (
+          <Square size={14} />
+        ) : action.id === 'pause' ? (
+          <Pause size={14} />
+        ) : action.id === 'resume' || action.id === 'retry' ? (
+          <Play size={14} />
+        ) : (
+          <FolderOpen size={14} />
+        ),
+      run: async () => {
+        if (entry.source === 'window') await localBackgroundTasks.act(task.id, action.id);
+        else
+          await client.backgroundTasks.act.mutate({
+            id: task.id,
+            action: action.id,
+            scope: background.scope,
+          });
+        await background.query.refetch();
+      },
+    }));
+    if (task.status !== 'running')
+      actions.push({
+        id: 'remove',
+        label: '移除任务',
+        icon: <Trash2 size={14} />,
+        run: async () => {
+          const removed = await removeBackgroundTask(entry, background.scope);
+          await background.query.refetch();
+          if (!removed) showInfo('暂时无法移除', '任务状态已变化，请查看最新任务状态。');
+        },
+      });
     items.push({
       id: backgroundTaskId(entry),
       name: task.name,
@@ -298,6 +510,7 @@ export function CurrentTaskList({
       progress: task.progress,
       note: task.note,
       icon: <Icon size={16} />,
+      quickActions: actions.length ? <TaskQuickActions actions={actions} /> : null,
       detail: (
         <BackgroundTaskDetails
           key={task.id}
@@ -309,6 +522,17 @@ export function CurrentTaskList({
     });
   }
   const ordered = orderLongTasks(items);
+  useEffect(() => {
+    const request = `${taskOpenRequest}:${taskFocusId}`;
+    if (
+      appliedFocus.current !== request &&
+      taskFocusId &&
+      items.some((task) => task.id === taskFocusId)
+    ) {
+      appliedFocus.current = request;
+      setSelected(taskFocusId);
+    }
+  }, [taskFocusId, taskOpenRequest, items]);
   useEffect(() => {
     if (selected !== null && !ordered.some((task) => task.id === selected) && ordered[0])
       setSelected(ordered[0].id);
@@ -329,9 +553,13 @@ export function CurrentTaskList({
     if (visible && active && !loading && unreadResults > 0) readTasks();
   }, [visible, active, loading, unreadResults, readTasks]);
   const hasError = exportError || roaming.error || flash.error || background.query.error;
-  const completed = items.filter((task) => task.status === 'completed');
-  const clearCompleted = async (): Promise<void> => {
-    if (clearingRef.current || !cleanupBinding || !completed.length) return;
+  /** 已结束的任务都可移除；进行中、等待和可续传的暂停任务保留。 */
+  const finished = items.filter(
+    (task) =>
+      task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled',
+  );
+  const clearFinished = async (): Promise<void> => {
+    if (clearingRef.current || !cleanupBinding || !finished.length) return;
     clearingRef.current = true;
     setClearing(true);
     const binding = { ...cleanupBinding };
@@ -339,21 +567,25 @@ export function CurrentTaskList({
       mounted.current &&
       bindingRef.current?.expectedAccountUin === binding.expectedAccountUin &&
       bindingRef.current?.expectedAccountConfigId === binding.expectedAccountConfigId;
-    const ids = new Set(completed.map((task) => task.id));
+    const ids = new Set(finished.map((task) => task.id));
+    // 只提醒仍可取回、值得先保存的完成结果；失败任务本就无法从列表取回。
     const unsaved = exports.filter(
-      (task) => ids.has(`export:${task.id}`) && task.save?.status !== 'saved',
+      (task) =>
+        ids.has(`export:${task.id}`) &&
+        task.status === 'completed' &&
+        task.save?.status !== 'saved',
     ).length;
     const cloneSelection = clones.filter(
       (task) => task.accountId === accountId && ids.has(`clone:${task.personaId}`),
     );
     try {
       const ok = await confirm(
-        '清除已完成任务',
-        `确定清除 ${completed.length} 项已完成任务？只移除任务记录和导出缓存，不删除已保存的文件、克隆体或聊天记录。${unsaved ? `其中 ${unsaved} 项导出尚未保存，清除后将无法从任务列表取回结果。` : ''}`,
-        { okLabel: `清除 ${completed.length} 项`, cancelLabel: '保留' },
+        '清除已结束任务',
+        `确定清除 ${finished.length} 项已结束任务？只移除任务记录和导出缓存，不删除已保存的文件、克隆体或聊天记录。${unsaved ? `其中 ${unsaved} 项导出尚未保存，清除后将无法从任务列表取回结果。` : ''}`,
+        { okLabel: `清除 ${finished.length} 项`, cancelLabel: '保留' },
       );
       if (!ok || !current()) return;
-      const result = await client.account.clearCompletedTasks.mutate({
+      const result = await client.account.clearFinishedTasks.mutate({
         ...binding,
         exports: exports.filter((task) => ids.has(`export:${task.id}`)).map((task) => task.id),
         roaming: (roaming.data?.jobs ?? [])
@@ -365,8 +597,8 @@ export function CurrentTaskList({
       });
       let removed = result.removed;
       for (const task of cloneSelection) {
-        // 同一克隆体可能已重新构建；只移除确认时的那次完成记录。
-        if (getCloneTasks().includes(task) && task.status === 'done') {
+        // 同一克隆体可能已重新构建；只移除确认时的那条结束记录。
+        if (getCloneTasks().includes(task) && task.status !== 'running') {
           dismissCloneTask(task.personaId);
           removed += 1;
         }
@@ -388,7 +620,7 @@ export function CurrentTaskList({
         utils.account.flashListDownloadTasks.invalidate(),
       ]);
       if (current()) {
-        const summary = `已清除 ${removed} 项任务。${completed.length - removed > 0 ? `其余 ${completed.length - removed} 项未清除，请查看最新任务状态。` : ''}`;
+        const summary = `已清除 ${removed} 项任务。${finished.length - removed > 0 ? `其余 ${finished.length - removed} 项未清除，请查看最新任务状态。` : ''}`;
         if (result.errors.length)
           showError('部分任务未清除', `${summary}\n${result.errors.join('\n')}`);
         else showInfo('清除完成', summary);
@@ -421,10 +653,10 @@ export function CurrentTaskList({
           <button
             type="button"
             className="weq-set-btn weq-set-btn-soft"
-            title="清除已完成任务"
-            aria-label="清除已完成任务"
-            disabled={clearing || loading || !cleanupBinding || !completed.length}
-            onClick={() => void clearCompleted()}
+            title="清除已结束任务"
+            aria-label="清除已结束任务"
+            disabled={clearing || loading || !cleanupBinding || !finished.length}
+            onClick={() => void clearFinished()}
           >
             <Trash2 size={14} />
           </button>
@@ -460,6 +692,7 @@ export function CurrentTaskList({
               <LongTaskRow
                 task={task}
                 active={task.id === selectedId}
+                showQuickActions={layout === 'compact'}
                 onSelect={() => {
                   setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
                   if (layout === 'compact') onOpenDetail?.();

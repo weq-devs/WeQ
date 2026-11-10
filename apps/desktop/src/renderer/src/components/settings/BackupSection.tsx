@@ -8,7 +8,12 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import type { WeqBackupPart, WeqBackupSummary, WeqRestoreChoice } from '@weq/service';
+import type {
+  WeqBackupPart,
+  WeqBackupSummary,
+  WeqRestoreChoice,
+  WeqDefaultsChoice,
+} from '@weq/service';
 import { snapshotWeqClientSettings } from '@weq/service/backup-client';
 import { client } from '../../trpc/client';
 import { backupClientId } from '../../lib/backupClientRestore';
@@ -16,13 +21,12 @@ import { useToast } from '../Toast';
 import { Card, SectionHeader } from './controls';
 import { useTabActive } from '../RetainedTabs';
 import { Modal } from '../Dialog';
-import { localBackgroundTasks } from '../../state/backgroundTasks';
 import '../../styles/backup.css';
-import { GlobalSettingsSection } from './GlobalSettingsSection';
+import { DefaultsOptions, DEFAULTS_DESCRIPTION } from './DefaultsOptions';
 
 const PARTS: WeqBackupPart[] = ['settings', 'accounts', 'api', 'clones'];
 const LABELS: Record<WeqBackupPart, string> = {
-  settings: '通用与界面设置',
+  settings: '通用设置',
   accounts: '账号配置与偏好',
   api: 'API 配置与凭据',
   clones: '克隆体与助手数据',
@@ -40,7 +44,9 @@ export const backupApi = {
   prepare: (sourceId: string, choice: WeqRestoreChoice) =>
     client.bootstrap.backupPrepare.mutate({ sourceId, ...choice }),
   stage: (previewId: string) => client.bootstrap.backupStage.mutate({ previewId }),
-  defaults: (clientId: string) => client.bootstrap.backupDefaults.mutate({ clientId }),
+  defaultsInfo: () => client.bootstrap.backupDefaultsInfo.query(),
+  defaults: (clientId: string, choice: WeqDefaultsChoice = {}) =>
+    client.bootstrap.backupDefaults.mutate({ clientId, ...choice }),
   dispose: (id: string) => client.bootstrap.backupDiscardPreview.mutate({ id }),
   cancel: () => client.bootstrap.backupCancel.mutate(),
   apply: () => client.bootstrap.backupApply.mutate(),
@@ -122,15 +128,22 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [exported, setExported] = useState<Exported | null>(null);
   const [confirm, setConfirm] = useState<'defaults' | 'apply' | 'claim' | 'skip' | null>(null);
-  const [operation, setBusy] = useState<string | null>('正在读取');
-  const [configurationBusy, setConfigurationBusy] = useState(false);
-  const busy = operation ?? (configurationBusy ? '正在清除配置' : null);
+  const [busy, setBusy] = useState<string | null>('正在读取');
+  const [defaultsInfo, setDefaultsInfo] = useState<Awaited<
+    ReturnType<BackupApi['defaultsInfo']>
+  > | null>(null);
+  const [defaultsChoice, setDefaultsChoice] = useState<WeqDefaultsChoice>({});
   const [error, setError] = useState<string | null>(null);
   const acting = useRef(false);
   const sourceId = useRef<string | null>(null);
   const generation = useRef(0);
   const alive = useRef(true);
   const input = useRef<HTMLInputElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  const defaultsFailed = useRef(false);
+  useEffect(() => {
+    if (confirm === 'defaults' && !busy) cancelButton.current?.focus();
+  }, [confirm, busy]);
   const toast = useToast((s) => s.push);
   const refresh = useCallback(
     async (initial = false) => {
@@ -225,61 +238,33 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   async function upload(file: File) {
     if (!inventory || file.size < 1 || file.size > inventory.maxArchiveBytes)
       throw new Error('请选择不超过 260 MiB 的非空 WeQ 备份');
-    const taskId = localBackgroundTasks.start({ kind: 'backup', name: `读取备份 · ${file.name}` });
-    let stopped = false;
-    localBackgroundTasks.setActions(taskId, [
-      {
-        id: 'stop',
-        label: '停止读取备份',
-        run: () => {
-          stopped = true;
-          localBackgroundTasks.update(taskId, { statusLabel: '停止收尾中' });
-        },
-      },
-    ]);
-    try {
-      await accept(async () => {
-        const id = await api.begin(file.name, file.size);
-        sourceId.current = id;
-        try {
-          for (let offset = 0; offset < file.size; offset += inventory.chunkBytes) {
-            if (!alive.current || stopped) throw new Error('备份上传已取消');
-            const bytes = new Uint8Array(
-              await file.slice(offset, offset + inventory.chunkBytes).arrayBuffer(),
+    await accept(async () => {
+      const id = await api.begin(file.name, file.size);
+      sourceId.current = id;
+      try {
+        for (let offset = 0; offset < file.size; offset += inventory.chunkBytes) {
+          if (!alive.current) throw new Error('备份上传已取消');
+          const bytes = new Uint8Array(
+            await file.slice(offset, offset + inventory.chunkBytes).arrayBuffer(),
+          );
+          if (!alive.current) throw new Error('备份上传已取消');
+          let binary = '';
+          for (const byte of bytes) binary += String.fromCharCode(byte);
+          await api.chunk(id, offset, btoa(binary));
+          if (alive.current)
+            setBusy(
+              `正在上传 ${Math.min(100, Math.round(((offset + bytes.length) / file.size) * 100))}%`,
             );
-            if (!alive.current || stopped) throw new Error('备份上传已取消');
-            let binary = '';
-            for (const byte of bytes) binary += String.fromCharCode(byte);
-            await api.chunk(id, offset, btoa(binary));
-            localBackgroundTasks.update(taskId, {
-              progress: ((offset + bytes.length) / file.size) * 100,
-              note: '正在上传备份到宿主',
-            });
-            if (alive.current)
-              setBusy(
-                `正在上传 ${Math.min(100, Math.round(((offset + bytes.length) / file.size) * 100))}%`,
-              );
-          }
-          if (!alive.current || stopped) throw new Error('备份上传已取消');
-          localBackgroundTasks.update(taskId, { progress: undefined, note: '正在校验备份内容' });
-          return await api.finish(id);
-        } catch (e) {
-          await api.dispose(id).catch(() => {});
-          if (sourceId.current === id) sourceId.current = null;
-          throw e;
         }
-      });
-      localBackgroundTasks.finish(taskId, stopped || !alive.current ? 'cancelled' : 'completed', {
-        note: stopped || !alive.current ? '备份读取已停止' : '备份已读取，尚未执行恢复',
-      });
-    } catch (error) {
-      localBackgroundTasks.finish(taskId, stopped || !alive.current ? 'cancelled' : 'failed', {
-        note: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    } finally {
-      localBackgroundTasks.setActions(taskId, []);
-    }
+        if (!alive.current) throw new Error('备份上传已取消');
+        setBusy('正在校验备份内容');
+        return await api.finish(id);
+      } catch (e) {
+        await api.dispose(id).catch(() => {});
+        if (sourceId.current === id) sourceId.current = null;
+        throw e;
+      }
+    });
   }
   const pending = inventory?.restore.pending;
   const result = inventory?.restore.result;
@@ -287,8 +272,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
     ? {
         defaults: {
           title: '恢复默认设置？',
-          message:
-            '重置通用设置、导出预设和此设备的界面偏好。API、账号配置、克隆体和本机应用锁密钥会保留。将关闭当前账号并刷新界面，无需重启 WeQ，请先保存正在编辑的内容。',
+          message: '将关闭当前账号并刷新界面，无需重启 WeQ。请先保存正在编辑的内容。',
           action: '确认恢复默认',
           progress: '正在恢复…',
         },
@@ -316,6 +300,22 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   function openConfirmation(value: NonNullable<typeof confirm>) {
     setError(null);
     setConfirm(value);
+    if (value === 'defaults') {
+      defaultsFailed.current = false;
+      setDefaultsInfo(null);
+      setDefaultsChoice({});
+      void readDefaultsInfo();
+    }
+  }
+  async function readDefaultsInfo() {
+    await act('正在读取恢复范围', async () => {
+      const info = await api.defaultsInfo();
+      if (alive.current) setDefaultsInfo(info);
+    });
+  }
+  function closeConfirmation() {
+    setConfirm(null);
+    if (defaultsFailed.current) window.location.reload();
   }
   const importValid =
     source &&
@@ -361,7 +361,10 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         </button>
       </div>
       {result ? (
-        <Card title={result.status === 'applied' ? '最近一次恢复已应用' : '最近一次恢复失败'}>
+        <Card
+          title={result.status === 'applied' ? '最近一次恢复已应用' : '最近一次恢复失败'}
+          icon={<ArchiveRestore size={15} strokeWidth={1.8} />}
+        >
           <p>
             {result.error ||
               `已应用 ${result.applied.length} 项，跳过 ${result.skipped.length} 项。`}
@@ -398,7 +401,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           ) : null}
         </Card>
       ) : null}
-      <Card title="导出备份">
+      <Card title="导出备份" icon={<Download size={15} strokeWidth={1.8} />}>
         <fieldset disabled={Boolean(busy) || !inventory}>
           <legend>备份范围</legend>
           <div className="weq-backup-choices">
@@ -412,11 +415,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
             ))}
           </div>
           {parts.includes('settings') ? (
-            <Check
-              label="包含此设备的界面偏好"
-              checked={includeClient}
-              onChange={setIncludeClient}
-            />
+            <Check label="界面外观与布局" checked={includeClient} onChange={setIncludeClient} />
           ) : null}
           {parts.includes('accounts') ? (
             <fieldset>
@@ -512,7 +511,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           </>
         ) : null}
       </Card>
-      <Card title="导入备份">
+      <Card title="导入备份" icon={<Upload size={15} strokeWidth={1.8} />}>
         <div className="weq-backup-actions">
           <input
             ref={input}
@@ -726,10 +725,12 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         ) : null}
       </Card>
       {!pending ? (
-        <Card title="重置与清除配置" settingId="weq-config-management">
-          <p>
-            恢复默认设置仅重置通用设置、导出预设与此设备界面偏好；不会删除账号、API 配置或克隆数据。
-          </p>
+        <Card
+          title="恢复默认设置"
+          icon={<RotateCcw size={15} strokeWidth={1.8} />}
+          settingId="weq-config-management"
+        >
+          <p>{DEFAULTS_DESCRIPTION}</p>
           <div className="weq-backup-actions">
             <button
               type="button"
@@ -742,18 +743,14 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               <RotateCcw size={14} />
               恢复默认设置
             </button>
-            <GlobalSettingsSection
-              section="storage"
-              heading={false}
-              storageManagement="configuration"
-              disabled={Boolean(operation) || !inventory || Boolean(result?.clientPending)}
-              onBusyChange={setConfigurationBusy}
-            />
           </div>
         </Card>
       ) : null}
       {pending ? (
-        <Card title={pending.phase === 'ready' ? '存在待恢复数据' : '恢复暂存未完成'}>
+        <Card
+          title={pending.phase === 'ready' ? '存在待恢复数据' : '恢复暂存未完成'}
+          icon={<ArchiveRestore size={15} strokeWidth={1.8} />}
+        >
           <Summary value={pending.summary} />
           <p>正在运行的服务尚未使用这份备份，可直接应用恢复，无需重启。</p>
           <div className="weq-backup-actions">
@@ -789,10 +786,10 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         <Modal
           centered
           dismissOnOutside={false}
-          onClose={busy ? undefined : () => setConfirm(null)}
+          onClose={busy ? undefined : closeConfirmation}
           labelledBy="weq-backup-confirm-title"
-          width={400}
-          className="weq-message-modal"
+          width={confirm === 'defaults' ? 520 : 400}
+          className={`weq-message-modal${confirm === 'defaults' ? ' weq-defaults-modal' : ''}`}
         >
           <div className="weq-dialog" aria-busy={Boolean(busy)}>
             <div className="weq-dialog-head">
@@ -801,30 +798,60 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               </h3>
             </div>
             <div className="weq-dialog-body">
+              {confirm === 'defaults' && defaultsInfo ? (
+                <DefaultsOptions
+                  info={defaultsInfo}
+                  choice={defaultsChoice}
+                  onChange={setDefaultsChoice}
+                  disabled={Boolean(busy)}
+                />
+              ) : null}
               <p>{confirmation.message}</p>
               {error ? (
                 <p role="alert" className="weq-backup-error">
                   {error}
                 </p>
               ) : null}
+              {confirm === 'defaults' && !defaultsInfo && !busy && error ? (
+                <button
+                  type="button"
+                  className="weq-action-soft"
+                  onClick={() => void readDefaultsInfo()}
+                >
+                  重新读取恢复范围
+                </button>
+              ) : null}
             </div>
             <div className="weq-dialog-foot">
               <button
                 type="button"
                 className="weq-action-soft"
+                ref={cancelButton}
                 disabled={Boolean(busy)}
-                onClick={() => setConfirm(null)}
+                onClick={closeConfirmation}
               >
                 取消
               </button>
               <button
                 type="button"
                 className="weq-action-primary"
-                disabled={Boolean(busy)}
+                disabled={Boolean(busy) || (confirm === 'defaults' && !defaultsInfo)}
                 onClick={() =>
                   void act(confirmation.progress, async () => {
                     if (confirm === 'defaults') {
-                      await api.defaults(backupClientId(localStorage));
+                      const restored = await api
+                        .defaults(backupClientId(localStorage), defaultsChoice)
+                        .catch((error: unknown) => {
+                          defaultsFailed.current = true;
+                          throw error;
+                        });
+                      defaultsFailed.current = false;
+                      if (restored.warnings.length)
+                        toast({
+                          tone: 'warning',
+                          title: '设置已恢复，部分操作未完成',
+                          detail: restored.warnings.join('；'),
+                        });
                       sourceId.current = null;
                       setSource(null);
                       setPreview(null);

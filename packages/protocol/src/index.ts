@@ -29,8 +29,14 @@ export { encode, decode, message } from './protobuf';
 export type { ProtoMessage, ProtoField, ScalarType } from './protobuf';
 
 export { sendOidb, sendPacket } from './transport';
-/** 签名策略已于 2026-11-03 移除白名单推导，改由每个 spec 显式声明 `needSign`。 */
+/**
+ * 签名策略集中在 `sign-policy.ts`：按 wire 命令查表得到 `(needSign, mode)`，
+ * `transport.ts` 是唯一分发点。三端签名集合不同（Linux 与 Windows / macOS），
+ * 表里逐条登记，禁止取并集。
+ */
 export type { PacketNative, OidbNative, TrpcNative, OidbRequest } from './transport';
+export { oidbCommand, resolveSign, SIGN_RULES, UNCONFIRMED_SIGN_COMMANDS } from './sign-policy';
+export type { ResolvedSign, SignMode, SignRule } from './sign-policy';
 
 export { invokeOidb, invokeTrpc } from './oidb/invoke';
 export type { OidbSpec, TrpcSpec } from './oidb/invoke';

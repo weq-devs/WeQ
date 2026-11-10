@@ -16,9 +16,10 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { DEFAULT_SERVICE_PORTS } from '@weq/service/service-ports';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { setHost, initLogger } from '@weq/service';
+import { setHost, initLogger, configureDevelopmentLogging, getLogger } from '@weq/service';
 import { initAppContext, getAppContext } from '@weq/desktop/main/context/app_context';
 import { assistantResourceServer } from '@weq/desktop/main/weq_assistant/server';
 import { appRouter } from '@weq/desktop/main/ipc/router';
@@ -30,7 +31,7 @@ import { createTrpcHandler, attachWsHandler } from './trpc_adapter';
 const here = dirname(fileURLToPath(import.meta.url));
 
 const HOST = process.env.WEQ_HOST || '127.0.0.1';
-const PORT = Number(process.env.WEQ_PORT || 7690);
+const PORT = Number(process.env.WEQ_PORT || DEFAULT_SERVICE_PORTS.web);
 const EXPORT_DIR = process.env.WEQ_EXPORT_DIR || join(process.cwd(), 'weq-exports');
 const DATA_DIR = process.env.WEQ_DATA_DIR || join(process.cwd(), 'weq-data');
 const PUBLIC_DIR = resolve(here, 'public');
@@ -71,6 +72,15 @@ function resolveToken(): string {
 }
 
 async function main(): Promise<void> {
+  configureDevelopmentLogging(process.env.NODE_ENV !== 'production', 'web-server');
+  getLogger().info('WeQ Web 启动', {
+    scope: 'web',
+    event: 'startup',
+    version: VERSION,
+    mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
+    platform: process.platform,
+    arch: process.arch,
+  });
   initLogger(DATA_DIR);
   // The native addon writes its own log through a separate path that would
   // otherwise default to `<cwd>/logs`, dropping files into the release bundle.

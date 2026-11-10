@@ -1,4 +1,10 @@
-import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { QqIcon } from '../../lib/qqIcons';
 import type { Message } from './types';
 import { cn } from './classNames';
@@ -26,6 +32,8 @@ export type MessageContextMenuState = {
    */
   anchorOffsetX?: number;
   anchorOffsetY?: number;
+  /** 打开菜单时聚焦的那条消息（键盘打开 / Esc 关闭后焦点归位）。 */
+  originElement?: HTMLElement | null;
 };
 
 export function MessageContextMenu({
@@ -107,6 +115,50 @@ export function MessageContextMenu({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const active = useTabActive();
   useSurfaceOutside(menuRef, onClose, active);
+
+  // 菜单打开后把焦点放进第一项，键盘/读屏用户才能继续操作；鼠标打开时
+  // :focus-visible 不会画环，所以不影响原有外观。
+  useEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const first = menu.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    first?.focus({ preventScroll: true });
+  }, [state.message.id, state.x, state.y]);
+
+  function handleMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    const menu = menuRef.current;
+    if (!menu) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose?.();
+      state.originElement?.focus?.({ preventScroll: true });
+      return;
+    }
+    if (event.key === 'Tab') {
+      // 菜单是浮层，Tab 不把焦点带到背后的界面；关闭并把焦点还给消息行。
+      event.preventDefault();
+      onClose?.();
+      state.originElement?.focus?.({ preventScroll: true });
+      return;
+    }
+    const buttons = [...menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+    if (!buttons.length) return;
+    const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? buttons.length - 1
+          : event.key === 'ArrowDown'
+            ? (index + 1) % buttons.length
+            : event.key === 'ArrowUp'
+              ? (index - 1 + buttons.length) % buttons.length
+              : undefined;
+    if (next === undefined) return;
+    event.preventDefault();
+    buttons[next]?.focus();
+  }
   const decoration = (
     state.message as { decoration?: { fontId?: number; bubbleId?: number; widgetId?: number } }
   ).decoration;
@@ -154,6 +206,7 @@ export function MessageContextMenu({
           ? { left: state.x, top: state.y, transform: 'translateX(-50%)' }
           : { left: state.x, top: state.y }
       }
+      onKeyDown={handleMenuKeyDown}
       onMouseDown={(event) => {
         event.preventDefault();
         event.stopPropagation();

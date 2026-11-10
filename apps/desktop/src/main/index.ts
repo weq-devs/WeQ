@@ -1,4 +1,5 @@
 import { controlCompositionWindow } from './composition_window';
+import { flushConversationCalendarResults } from './ipc/routers/conversation_calendar';
 import { applicationToolPopupOptions } from './tool_window';
 import { installCallDisplayMediaHandler } from './call_display_media';
 import { floatingWindowTypeOption, ozoneRelaunchArgs } from './linux_window_backend';
@@ -16,7 +17,7 @@ import {
   protocol,
   shell,
   screen,
-  Tray,
+  type Tray,
   type IpcMainEvent,
 } from 'electron';
 import fs from 'node:fs';
@@ -52,10 +53,12 @@ import { getAppContext } from './context/app_context';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
-import { checkForUpdate, installUpdateActions, isInstallingUpdate } from './update/updater';
+import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { remoteRuntime } from './remote/runtime';
+import { RemoteWebGateway } from './remote/web_gateway';
 import { desktopWebRuntime } from './web/runtime';
+import { WebCore } from './web/application';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { assistantResourceServer } from './weq_assistant/server';
 import { disposeExternalMcp } from './mcp/external';
@@ -66,6 +69,12 @@ import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
+import { windowControlsStyle, type WindowControlsStyle } from '../shared/window_controls';
+import {
+  registerWindowControlsRefresh,
+  registerWindowControlsPreference,
+} from './window_controls_events';
+import { installWindowControls } from './window_controls';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
 import { registerMainWindowReveal } from './main_window_lifecycle_instance';
 import {
@@ -79,22 +88,23 @@ import {
   registerAppQuitPreparation,
   registerWindowUnloadConfirmation,
 } from './app_quit_lifecycle';
-import { registerAppQuitConfirmation } from './app_quit_confirmation';
 import { createRendererRecovery } from './renderer_recovery';
 import { registerRendererRecoveryIpc } from './renderer_recovery_ipc';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
 import { databaseCheckups } from './db_checkup';
-import { macApplicationMenu, nativeMenuLabels } from './application_menu';
+import { macApplicationMenu } from './application_menu';
+import { createSystemTray } from './system_tray';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
+import { registerEditContextMenu } from './edit_context_menu';
 import { registerCallVideoIpc } from './call_video_ipc';
 import { registerAttachHintIpc } from './attach_hint_ipc';
-import { backgroundServicesRunning, needsQuitConfirmation } from './background_services';
-import { promptQuitConfirm, registerQuitConfirmIpc } from './quit_confirm_ipc';
+import { backgroundServicesRunning } from './background_services';
 import { registerElevationIpc } from './elevation_ipc';
 import { registerLongTermAuthorizationIpc } from './authorization/ipc';
 import {
   getLogDir,
   getLogger,
+  configureDevelopmentLogging,
   setHost,
   type ExportSavePolicy,
   type WindowCloseBehavior,
@@ -137,6 +147,7 @@ const { createIPCHandler } = requireFromHere(
   'electron-trpc/main',
 ) as typeof import('electron-trpc/main');
 
+configureDevelopmentLogging(!app.isPackaged, 'desktop-main');
 const logger = getLogger().child({ scope: 'desktop-main' });
 
 /** Created once; reopening attaches a window without registering IPC again. */
@@ -145,12 +156,37 @@ const compositionWindows = new Map<number, BrowserWindow>();
 /** System-tray icon; null until built (or if creation failed). */
 let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
- *  and lets the window actually close (托盘退出 / 确认框「完全退出」/ before-quit). */
+ *  and lets the window actually close (托盘退出 / Cmd+Q / before-quit). */
 let isQuitting = false;
-let resetQuitConfirmation: () => void = () => {};
 let stopRendererDiagnostics: (() => void) | null = null;
 let mainWindowRequested = false;
 const rendererRecoveries = new Map<number, ReturnType<typeof createRendererRecovery>>();
+const windowLayouts = new WeakMap<BrowserWindow, WindowLayout>();
+const windowStyles = new WeakMap<BrowserWindow, WindowControlsStyle>();
+
+function requestedControls(layout: WindowLayout): WindowControlsStyle {
+  return windowControlsStyle(
+    process.platform,
+    getAppContext().bootstrap?.userConfig.getSettings().windowsStyleControls ?? false,
+    layout,
+  );
+}
+
+function updateMainWindowControls(win: BrowserWindow, layout: WindowLayout): void {
+  if (process.platform !== 'darwin') return;
+  const style = requestedControls(layout);
+  win.setWindowButtonVisibility(style === 'native');
+  windowStyles.set(win, style);
+  win.webContents.send('window:controls-changed', style);
+}
+
+registerWindowControlsRefresh(() => {
+  const win = getMainWindow();
+  if (win && !win.isDestroyed()) updateMainWindowControls(win, windowLayouts.get(win) ?? 'home');
+});
+registerWindowControlsPreference(
+  () => getAppContext().bootstrap?.userConfig.getSettings().windowsStyleControls ?? false,
+);
 
 const mainWindowLifecycle = createMainWindowLifecycle({
   canOpen: () => mainIpcHandler !== null && !isQuitting,
@@ -183,40 +219,15 @@ function resolveCloseBehavior(): WindowCloseBehavior {
   }
 }
 
-/**
- * Build the system tray once. The icon is the brand logo, downscaled to a
- * tray-appropriate size (16px on Windows; 18px template image on macOS so it
- * tracks the menu-bar's light/dark). Menu: 显示主窗口 / 退出 WeQ. Left-click and
- * double-click both re-reveal the window.
- */
+/** 创建一次系统托盘，点击时复用主窗口的显示/重建入口。 */
 function buildTray(): void {
   if (tray) return;
-  const labels = nativeMenuLabels(app.getPreferredSystemLanguages()[0] ?? app.getLocale());
-  const iconPath = resolveResource('brand', 'logo.png');
-  let image = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
-  if (!image.isEmpty()) {
-    image = image.resize(
-      process.platform === 'darwin' ? { width: 18, height: 18 } : { width: 16, height: 16 },
-    );
-    if (process.platform === 'darwin') image.setTemplateImage(true);
-  }
   try {
-    tray = new Tray(image);
-    tray.setToolTip('WeQ');
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        { label: labels.showWindow, click: openMainWindow },
-        { type: 'separator' },
-        {
-          label: labels.quit,
-          click: () => {
-            app.quit();
-          },
-        },
-      ]),
-    );
-    tray.on('click', openMainWindow);
-    tray.on('double-click', openMainWindow);
+    tray = createSystemTray({
+      locale: app.getPreferredSystemLanguages()[0] ?? app.getLocale(),
+      openMainWindow,
+      quit: () => app.quit(),
+    });
     logger.info('system tray created', { event: 'tray-create' });
   } catch (e) {
     logger.warn('failed to create system tray', {
@@ -227,13 +238,38 @@ function buildTray(): void {
 }
 
 function registerWindowLayoutIpc(): void {
+  ipcMain.handle('window:get-controls', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return win ? (windowStyles.get(win) ?? 'windows') : 'windows';
+  });
   ipcMain.on('composition:control', (event, action: unknown) => {
     const child = compositionWindows.get(event.sender.id);
     if (child) controlCompositionWindow(child, action);
   });
   ipcMain.handle('window:set-layout', (event, layout: WindowLayout) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return;
+    if (!win || (layout !== 'home' && layout !== 'chat')) return;
+    // Linux 无运行时装饰开关，仅在账号页/工作区切换时重建，保留后台账号会话。
+    // 设置过程中不重载渲染层，以免丢掉未保存的编辑和已打开的工具窗。
+    if (
+      process.platform === 'linux' &&
+      win === getMainWindow() &&
+      windowLayouts.get(win) !== layout &&
+      windowStyles.get(win) !== requestedControls(layout)
+    ) {
+      const next = createWindow(win.isVisible(), layout);
+      setMainWindow(next);
+      next.once('closed', () => {
+        if (getMainWindow() === next) setMainWindow(null);
+      });
+      mainIpcHandler?.attachWindow(next);
+      setImmediate(() => {
+        if (!win.isDestroyed()) win.destroy();
+      });
+      return;
+    }
+    windowLayouts.set(win, layout);
+    updateMainWindowControls(win, layout);
     applyWindowLayout(win, layout, screen.getDisplayMatching(win.getBounds()).workArea);
   });
 
@@ -530,20 +566,24 @@ function resolveWindowIcon(): Electron.NativeImage | undefined {
   return img.isEmpty() ? undefined : img;
 }
 
-function createWindow(showInitially = true): BrowserWindow {
+function createWindow(
+  showInitially = true,
+  layout: WindowLayout = getAppContext().account ? 'chat' : 'home',
+): BrowserWindow {
   const icon = resolveWindowIcon();
+  const controls = requestedControls(layout);
   // On tiling Wayland WMs (Hyprland/sway) new toplevels tile by default. Ask
   // the WM to float us by advertising a non-'normal' window type — 'toolbar'
   // is the least invasive one that Hyprland/sway treat as floating (unlike
   // 'splash', it keeps the taskbar entry). Opt-out with WEQ_WINDOW_TYPE=normal
   // (or override to another value) so this can be disabled per-environment.
   const win = new BrowserWindow({
-    ...WINDOW_LAYOUTS.home,
+    ...WINDOW_LAYOUTS[layout],
     show: showInitially,
     title: 'WeQ Desktop',
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
-    titleBarStyle: 'hidden',
+    titleBarStyle: process.platform === 'linux' && controls === 'native' ? 'default' : 'hidden',
     ...floatingWindowTypeOption(),
     ...(icon ? { icon } : {}),
     webPreferences: {
@@ -555,6 +595,9 @@ function createWindow(showInitially = true): BrowserWindow {
       webviewTag: true,
     },
   });
+  windowLayouts.set(win, layout);
+  windowStyles.set(win, controls);
+  updateMainWindowControls(win, layout);
 
   const recovery = createRendererRecovery({
     automatic: true,
@@ -622,8 +665,12 @@ function createWindow(showInitially = true): BrowserWindow {
       return;
     }
     // 'ask' — or 'tray' but the tray failed to build → fall back to asking.
+    // 有后台服务在跑时一并带上名单：完全退出会让这些服务停止，用户在
+    // 「关窗」这个模糊动作上需要知道代价；真正的退出动作（Dock / Cmd+Q /
+    // 托盘「退出 WeQ」）不经过这里，直接退出。
     win.webContents.send('window:confirm-close', {
       canMinimizeToTray: Boolean(tray),
+      services: backgroundServicesRunning().map((service) => service.label),
     });
   });
 
@@ -636,6 +683,7 @@ function createWindow(showInitially = true): BrowserWindow {
   win.webContents.on('did-create-window', (child, details) => {
     if (!applicationToolPopupOptions(details.url, details.frameName)) return;
     const composition = details.frameName === 'weq-compose';
+    if (!composition) installWindowControls(child, details.options.frame === false);
     const owner = win.webContents.id;
     if (composition) compositionWindows.set(owner, child);
     const reportState = () => {
@@ -643,6 +691,14 @@ function createWindow(showInitially = true): BrowserWindow {
         win.webContents.send('composition:state', { maximized: child.isMaximized() });
     };
     if (composition) {
+      const nativeControls = details.options.frame !== false;
+      child.webContents.on('dom-ready', () => {
+        void child.webContents
+          .executeJavaScript(
+            `document.documentElement.toggleAttribute('data-native-window-controls', ${nativeControls})`,
+          )
+          .catch(() => undefined);
+      });
       child.on('maximize', reportState);
       child.on('unmaximize', reportState);
       reportState();
@@ -685,31 +741,18 @@ if (!hasSingleInstanceLock) {
 }
 
 void app.whenReady().then(async () => {
-  remoteRuntime.configure({
-    helper:
-      process.env.WEQ_REMOTE_HELPER ||
-      (app.isPackaged
-        ? join(
-            process.resourcesPath,
-            'remote-network',
-            process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
-          )
-        : join(
-            app.getAppPath(),
-            '../../tools/remote-network',
-            process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
-          )),
-    stateDir: join(app.getPath('userData'), 'remote-network'),
-    webPort: () => desktopWebRuntime.status().port,
-    onRequest: openMainWindow,
+  logger.info('WeQ 启动', {
+    event: 'startup',
+    version: app.getVersion(),
+    mode: app.isPackaged ? 'production' : 'development',
+    platform: process.platform,
+    arch: process.arch,
   });
-  if (hasSingleInstanceLock)
-    void remoteRuntime
-      .resume()
-      .catch((error: unknown) =>
-        console.error('远程连接恢复失败', error instanceof Error ? error.message : '未知错误'),
-      );
   if (!hasSingleInstanceLock) return;
+  if (process.platform === 'darwin' && !app.isPackaged) {
+    const icon = resolveWindowIcon();
+    if (icon) app.dock?.setIcon(icon);
+  }
   const autostart =
     app.isPackaged &&
     isAutostartLaunch(
@@ -763,7 +806,7 @@ void app.whenReady().then(async () => {
       });
   }
   if (userConfig) {
-    desktopWebRuntime.configure({
+    const webCore = new WebCore({
       publicDir: app.isPackaged
         ? join(process.resourcesPath, 'remote-web')
         : join(app.getAppPath(), '../web/dist/public'),
@@ -771,12 +814,38 @@ void app.whenReady().then(async () => {
       renderer: electronHost,
       version: app.getVersion(),
       router: appRouter,
-      pairing: remoteRuntime.pairing,
+    });
+    desktopWebRuntime.configure({
+      core: webCore,
       getAutoStart: () => userConfig.getSettings().webServiceAutoStart,
       setAutoStart: (enabled) => {
         userConfig.setSettings({ webServiceAutoStart: enabled });
       },
     });
+    remoteRuntime.configure({
+      helper:
+        process.env.WEQ_REMOTE_HELPER ||
+        (app.isPackaged
+          ? join(
+              process.resourcesPath,
+              'remote-network',
+              process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
+            )
+          : join(
+              app.getAppPath(),
+              '../../tools/remote-network',
+              process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
+            )),
+      stateDir: join(app.getPath('userData'), 'remote-network'),
+      web: () => new RemoteWebGateway(remoteRuntime.pairing, (auth) => webCore.entry(auth)),
+      onRequest: openMainWindow,
+    });
+    void remoteRuntime.resume().catch((error: unknown) =>
+      logger.warn('远程连接恢复失败', {
+        event: 'remote-resume-failed',
+        error: error instanceof Error ? error.message : '未知错误',
+      }),
+    );
     if (desktopWebRuntime.status().autoStart) {
       void desktopWebRuntime
         .start()
@@ -832,10 +901,10 @@ void app.whenReady().then(async () => {
   registerFlashShareIpc();
   registerWeqAssistantIpc();
   registerAttachHintIpc();
-  registerQuitConfirmIpc();
   registerElevationIpc();
   registerLongTermAuthorizationIpc();
   registerEditUndoIpc();
+  registerEditContextMenu();
   registerCallVideoIpc();
 
   app.on('browser-window-created', (_, win) => {
@@ -854,7 +923,6 @@ void app.whenReady().then(async () => {
       cancelled: () => {
         isQuitting = false;
         resetQuitPreparation();
-        resetQuitConfirmation();
       },
     });
   });
@@ -908,40 +976,21 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' && isQuitting) app.quit();
 });
 
-// A real quit is underway (tray「退出」/ 确认框「完全退出」/ Cmd+Q / OS shutdown):
+// A real quit is underway (tray「退出」/ Cmd+Q / Dock 菜单退出 / OS shutdown):
 // 只放行窗口关闭；未保存内容仍可能取消退出，暂不停止服务或销毁托盘。
+// 退出不再弹「确认 / 最小化到托盘」：用户选的就是退出，后台服务随 `will-quit`
+// 统一释放，「会停掉哪些服务」的信息在关窗确认框展示。
 const resetQuitPreparation = registerAppQuitPreparation(app, autoUpdater, () => {
   isQuitting = true;
 });
 
 // 后台服务随应用结束；次实例退出不能关闭主实例拥有的服务。
 if (hasSingleInstanceLock) {
-  resetQuitConfirmation = registerAppQuitConfirmation(app, autoUpdater, {
-    needsConfirmation: needsQuitConfirmation,
-    bypass: () => isInstallingUpdate(),
-    showDialog: () =>
-      promptQuitConfirm(backgroundServicesRunning().map((service) => service.label)),
-    onRemember: () => {
-      try {
-        getAppContext().bootstrap?.userConfig.setSettings({ quitConfirmSuppressed: true });
-      } catch (error) {
-        logger.warn('failed to remember quit confirmation', {
-          event: 'quit-confirm-remember-failed',
-          error: String(error),
-        });
-      }
-    },
-    hideWindow: () => getMainWindow()?.hide(),
-    failed: (error) =>
-      logger.warn('quit confirmation failed', {
-        event: 'quit-confirmation-failed',
-        error: String(error),
-      }),
-  });
   registerAppQuitCleanup(
     app,
     async () => {
       await Promise.all([
+        flushConversationCalendarResults(),
         databaseCheckups.cancelAll(),
         assistantResourceServer.shutdown(),
         getAppContext().services?.unreadInfo.dispose(),

@@ -18,6 +18,7 @@ const fixture = vi.hoisted(() => ({
   status: { suggestionsEnabled: true, suggestAfterSelf: false, suggestionRevision: 0 },
   query: vi.fn<(input: QueryInput) => Promise<Array<{ text: string }>>>(),
   refresh: vi.fn(),
+  history: { data: [], isLoading: false, refetch: vi.fn() },
 }));
 vi.mock('../src/renderer/src/components/intentSense/context', () => ({
   useIntentSenseStatus: () => ({ data: fixture.status }),
@@ -25,11 +26,12 @@ vi.mock('../src/renderer/src/components/intentSense/context', () => ({
 vi.mock('../src/renderer/src/trpc/client', async () => {
   const { useQuery } = await import('@tanstack/react-query');
   return {
-    client: { account: { intentSense: { getSuggestions: { query: fixture.refresh } } } },
+    client: { account: { intentSense: { getSuggestionRound: { query: fixture.refresh } } } },
     trpc: {
       account: {
         intentSense: {
-          getSuggestions: {
+          getSuggestionHistory: { useQuery: () => fixture.history },
+          getSuggestionRound: {
             useQuery: (
               input: QueryInput,
               options: {
@@ -42,7 +44,17 @@ vi.mock('../src/renderer/src/trpc/client', async () => {
             ) =>
               useQuery({
                 queryKey: ['suggestions', input],
-                queryFn: () => fixture.query(input),
+                queryFn: async () => {
+                  const suggestions = await fixture.query(input);
+                  return suggestions.length
+                    ? {
+                        id: `round-${input.targetId ?? 'initial'}`,
+                        createdAt: 0,
+                        target: { msgId: input.targetId ?? 'initial' },
+                        suggestions,
+                      }
+                    : null;
+                },
                 ...options,
               }),
           },
