@@ -21,6 +21,11 @@ import React, {
 import { z } from 'zod';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
+import { useQueryClient } from '@tanstack/react-query';
+import { WebBusinessCache } from '../components/WebBusinessCache';
+import { resolvedProfilesKey } from '../lib/webBusinessCache';
+import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
+import { useContactOnlineStatuses } from '../hooks/useContactOnlineStatuses';
 import { useMobilePageSettled } from '../hooks/useMobilePageSettled';
 import { MobileSidebarPages } from '../components/MobileSidebarPages';
 import { withBrowserFile } from '../lib/browserFileUpload';
@@ -756,11 +761,6 @@ type RenderElementWire = {
   type?: string;
   data?: Record<string, unknown>;
 };
-
-/** `account.getOnlineStatus` 的返回体（非 null 分支）。 */
-type OnlineStatusWire = NonNullable<
-  Awaited<ReturnType<typeof client.account.getOnlineStatus.query>>
->;
 
 /** `account.getRawElements` 返回的原始 element 数组，喂给 MsgElementEditor。 */
 type RawElementWire = NonNullable<
@@ -2338,10 +2338,21 @@ export function MainView(): ReactElement {
       ? JSON.stringify([uin, config.data.configId])
       : null;
   if (config.isLoading) return workspaceLoading;
-  return (
+  const workspace = (
     <PageSnapshots scope={scope} resetOnMount={startupPage !== null}>
       <MainWorkspace key={scope ?? `pending:${uin ?? ''}`} />
     </PageSnapshots>
+  );
+  return IS_WEB && scope ? (
+    <WebBusinessCache
+      key={scope}
+      scope={JSON.stringify([location.origin, scope])}
+      fallback={workspaceLoading}
+    >
+      {workspace}
+    </WebBusinessCache>
+  ) : (
+    workspace
   );
 }
 
@@ -2353,6 +2364,16 @@ function MainWorkspace(): ReactElement {
   }, []);
   const [mailUnread, setMailUnread] = useState(0);
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
+  const [contactsPageOpen, setContactsPageOpen] = useState(!IS_WEB);
+  const [directoryReady, setDirectoryReady] = useState(!IS_WEB);
+  const [secondaryReady, setSecondaryReady] = useState(!IS_WEB);
+  const directoryOptions = {
+    enabled: directoryReady || contactsPageOpen,
+    staleTime: IS_WEB ? 60_000 : 5 * 60_000,
+    refetchOnMount: IS_WEB,
+  } as const;
+  const secondaryOptions = { ...directoryOptions, enabled: secondaryReady || contactsPageOpen };
   const pushToast = useToast((s) => s.push);
   const confirmReadState = useDialog((s) => s.confirm);
   const pinSession = useQQWriteSession('conversation-pin');
@@ -2408,13 +2429,32 @@ function MainWorkspace(): ReactElement {
       getNextPageParam: (lastPage) => (lastPage.items.length ? lastPage.nextCursor : undefined),
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
+      // 恢复的完整目录先展示；最新页单独刷新，不串行重读所有已缓存分页。
+      refetchOnMount: IS_WEB ? false : undefined,
     },
   );
   // 实时只读最新页，不等待完整目录的逐页刷新；旧分页继续保留已知会话。
   const recentHead = trpc.account.listRecentContacts.useQuery(
     { limit: 500, cursor: 0, ...pinSession.binding },
-    { enabled: false, keepPreviousData: false, staleTime: 0 },
+    {
+      enabled:
+        IS_WEB &&
+        Boolean(pinSession.binding) &&
+        Boolean(contacts.data) &&
+        !contacts.isFetchedAfterMount,
+      keepPreviousData: false,
+      staleTime: 0,
+    },
   );
+  const firstContactsReady = Boolean(contacts.data) || contacts.isError;
+  useEffect(() => {
+    if (!IS_WEB || !firstContactsReady) return;
+    return scheduleBackgroundLoad(() => setDirectoryReady(true));
+  }, [firstContactsReady]);
+  useEffect(() => {
+    if (!IS_WEB || !directoryReady) return;
+    return scheduleBackgroundLoad(() => setSecondaryReady(true), 700);
+  }, [directoryReady]);
   const headRefetchRef = useRef(recentHead.refetch);
   headRefetchRef.current = recentHead.refetch;
   const conversationDraftTimes = trpc.account.listConversationDraftTimes.useQuery(
@@ -2428,6 +2468,12 @@ function MainWorkspace(): ReactElement {
   // Folder membership must cover older rows too; never classify unobserved groups as folded.
   useEffect(() => {
     if (contacts.hasNextPage && !contacts.isFetching && !contacts.error) {
+      if (IS_WEB) {
+        if (!directoryReady || !contacts.isFetchedAfterMount) return;
+        return scheduleBackgroundLoad(() => {
+          void contacts.fetchNextPage();
+        });
+      }
       void contacts.fetchNextPage();
     }
   }, [
@@ -2436,6 +2482,40 @@ function MainWorkspace(): ReactElement {
     contacts.error,
     contacts.data?.pages.length,
     contacts.fetchNextPage,
+    directoryReady,
+    contacts.isFetchedAfterMount,
+  ]);
+  useEffect(() => {
+    if (
+      !IS_WEB ||
+      !secondaryReady ||
+      !contacts.data ||
+      contacts.isFetchedAfterMount ||
+      contacts.isFetching ||
+      recentHead.isFetching
+    )
+      return;
+    const binding = messageBindingRef.current;
+    const source = messageScope;
+    return scheduleBackgroundLoad(() => {
+      const headInput = { limit: 500, cursor: 0, ...binding };
+      const previousHead = utils.account.listRecentContacts.getData(headInput);
+      void contacts.refetch().then((result) => {
+        if (result.isError || !result.data || messageScopeRef.current !== source) return;
+        // 全目录校准完成后清掉旧页里已删除的会话，不覆盖更晚的实时 head。
+        if (utils.account.listRecentContacts.getData(headInput) !== previousHead) return;
+        utils.account.listRecentContacts.setData(headInput, result.data.pages[0]);
+      });
+    });
+  }, [
+    secondaryReady,
+    contacts.data,
+    contacts.isFetchedAfterMount,
+    contacts.isFetching,
+    contacts.refetch,
+    recentHead.isFetching,
+    utils,
+    messageScope,
   ]);
   const topContacts = trpc.account.listTopContacts.useQuery(
     {
@@ -2493,7 +2573,7 @@ function MainWorkspace(): ReactElement {
       ]),
     [contacts.data, recentHead.data],
   );
-  const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
+  const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 }, directoryOptions);
   // Official QQ setting: observed 4 → 2 when switching from muted to group helper.
   const groupAssistantIds = useMemo(() => {
     const ids = new Set(
@@ -2522,17 +2602,20 @@ function MainWorkspace(): ReactElement {
       void contacts.fetchNextPage();
     }
   };
-  const hiddenSessions = trpc.account.listHiddenSessions.useQuery();
-  const deletedSessions = trpc.account.listDeletedSessions.useQuery();
-  const officialAccounts = trpc.account.listOfficialAccounts.useQuery();
-  const serviceAccounts = trpc.account.listServiceAccounts.useQuery();
+  const hiddenSessions = trpc.account.listHiddenSessions.useQuery(undefined, secondaryOptions);
+  const deletedSessions = trpc.account.listDeletedSessions.useQuery(undefined, secondaryOptions);
+  const officialAccounts = trpc.account.listOfficialAccounts.useQuery(undefined, secondaryOptions);
+  const serviceAccounts = trpc.account.listServiceAccounts.useQuery(undefined, secondaryOptions);
   // 频道私聊聚合入口：与公众号一样只取「有没有 / 最新一条」，详情在展开面板里拉。
-  const guildDirectSessions = trpc.account.guildDirectListSessions.useQuery();
+  const guildDirectSessions = trpc.account.guildDirectListSessions.useQuery(
+    undefined,
+    secondaryOptions,
+  );
   const guildConversationRows = useMemo(
     () => (guildDirectSessions.data ?? []).map(guildConversationRow),
     [guildDirectSessions.data],
   );
-  const selfProfile = trpc.account.getSelfProfile.useQuery();
+  const selfProfile = trpc.account.getSelfProfile.useQuery(undefined, directoryOptions);
   const displaySettings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
@@ -2555,25 +2638,27 @@ function MainWorkspace(): ReactElement {
       sendAccess.data.hasGuid,
   );
   const groupBugStatus = trpc.groupFeedback.status.useQuery(undefined, {
+    enabled: directoryReady,
     refetchOnWindowFocus: true,
     staleTime: 8000,
   });
-  const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 });
-  const botUidList = trpc.account.botUids.useQuery();
-  const categories = trpc.account.listCategories.useQuery();
-  const profiles = trpc.account.listProfiles.useQuery({ limit: 2000 });
-  const buddyRequests = trpc.account.listBuddyRequests.useQuery({ limit: 2000 });
-  const groupNotifies = trpc.account.listGroupNotifies.useQuery({ limit: 2000 });
+  const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 }, directoryOptions);
+  const botUidList = trpc.account.botUids.useQuery(undefined, directoryOptions);
+  const categories = trpc.account.listCategories.useQuery(undefined, directoryOptions);
+  const profiles = trpc.account.listProfiles.useQuery({ limit: 2000 }, directoryOptions);
+  const noticeOptions = { enabled: contactsPageOpen, staleTime: 60_000 };
+  const buddyRequests = trpc.account.listBuddyRequests.useQuery({ limit: 2000 }, noticeOptions);
+  const groupNotifies = trpc.account.listGroupNotifies.useQuery({ limit: 2000 }, noticeOptions);
   const openedUin = useViewState((s) => s.openedUin);
   const mailPreferences = trpc.mail.preferences.useQuery(
     { selfUin: openedUin ?? '' },
-    { enabled: Boolean(openedUin), staleTime: 0, refetchOnMount: 'always' },
+    { enabled: Boolean(openedUin) && secondaryReady, staleTime: 0, refetchOnMount: 'always' },
   );
   const specialCareUnavailable = specialCareBlocker(sendAccess.data);
   const specialCare = trpc.account.specialCare.useQuery(
     { selfUin: openedUin ?? '' },
     {
-      enabled: Boolean(openedUin && specialCareUnavailable === null),
+      enabled: directoryReady && Boolean(openedUin && specialCareUnavailable === null),
       staleTime: 5 * 60 * 1000,
       refetchOnWindowFocus: true,
       retry: false,
@@ -3876,7 +3961,7 @@ function MainWorkspace(): ReactElement {
       }));
   }, []);
 
-  const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, OnlineStatusWire>>({});
+  const onlineStatusByUid = useContactOnlineStatuses(buddies.data, contactsPageOpen);
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
   const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
@@ -3978,7 +4063,7 @@ function MainWorkspace(): ReactElement {
   const mailPreference = trpc.mail.status.useQuery(
     { selfUin: user.identityValue },
     {
-      enabled: /^[1-9]\d{4,19}$/.test(user.identityValue),
+      enabled: secondaryReady && /^[1-9]\d{4,19}$/.test(user.identityValue),
       staleTime: 0,
       refetchOnMount: 'always',
       refetchOnWindowFocus: false,
@@ -3986,11 +4071,18 @@ function MainWorkspace(): ReactElement {
   );
   // 统一的 profile 内存缓存：listProfiles 预热 + 缺失项按需批量补全，所有消费方
   // （好友列表 / 通知 / 搜索）共用这一个 Map。补全在下方的解析 effect 触发。
+  const [restoredProfiles] = useState(() =>
+    IS_WEB ? (queryClient.getQueryData<UserProfileWire[]>(resolvedProfilesKey) ?? []) : [],
+  );
   const {
     profileByUid,
     resolveProfiles,
     refreshProfiles: refreshProfileCache,
-  } = useProfileResolver<UserProfileWire>(profiles.data as UserProfileWire[] | undefined);
+  } = useProfileResolver<UserProfileWire>(profiles.data, restoredProfiles);
+  useEffect(() => {
+    if (IS_WEB && profileByUid.size)
+      queryClient.setQueryData(resolvedProfilesKey, [...profileByUid.values()]);
+  }, [queryClient, profileByUid]);
   const previewDisplayNames = useMemo(() => {
     const names = new Map<string, string>();
     for (const profile of profileByUid.values()) {
@@ -4873,6 +4965,9 @@ function MainWorkspace(): ReactElement {
     sidebarWidthStorageKey: 'weq.desktop.sidebarWidth.v2',
     history: shellHistory,
   });
+  useEffect(() => {
+    setContactsPageOpen(!IS_WEB || shell.view === 'contacts');
+  }, [shell.view]);
   const detailContact = shell.view === 'contacts' ? shell.selectedContact : undefined;
   const { uid: detailContactUid, uin: detailContactUin } = contactProfileIdentity(detailContact);
   const cachedContactProfile =
@@ -5476,41 +5571,6 @@ function MainWorkspace(): ReactElement {
     mapContactGroupMember,
     user,
   ]);
-
-  useEffect(() => {
-    const buddyList = ((buddies.data ?? []) as BuddyWire[]).slice(0, 300);
-    if (buddyList.length === 0) return undefined;
-    let cancelled = false;
-
-    async function loadOnlineStatuses(): Promise<void> {
-      const next: Record<string, OnlineStatusWire> = {};
-      const batchSize = 12;
-      for (let index = 0; index < buddyList.length && !cancelled; index += batchSize) {
-        const batch = buddyList.slice(index, index + batchSize);
-        const statuses = await Promise.all(
-          batch.map(async (buddy) => {
-            try {
-              const status = await client.account.getOnlineStatus.query({ uid: buddy.uid });
-              return status ? ([buddy.uid, status] as const) : null;
-            } catch {
-              return null;
-            }
-          }),
-        );
-        for (const status of statuses) {
-          if (status) next[status[0]] = status[1];
-        }
-        if (!cancelled && Object.keys(next).length > 0) {
-          setOnlineStatusByUid((current) => ({ ...current, ...next }));
-        }
-      }
-    }
-
-    void loadOnlineStatuses();
-    return () => {
-      cancelled = true;
-    };
-  }, [buddies.data]);
 
   // Keep one unread reader alive: DB pings request a refresh, rather than
   // cancelling and restarting an all-conversation scan on every change.
@@ -6453,15 +6513,41 @@ function MainWorkspace(): ReactElement {
   // dedupes against the primed set + in-flight requests, so handing it the whole
   // batch every render issues at most one query per never-seen uid.
   useEffect(() => {
+    let disposed = false;
+    let cancel: (() => void) | undefined;
+    let offset = 0;
+    const resolveBatch = () => {
+      if (disposed) return;
+      if (IS_WEB && (initialMessagesPendingRef.current || document.visibilityState === 'hidden')) {
+        cancel = scheduleBackgroundLoad(resolveBatch, 500);
+        return;
+      }
+      const batch = IS_WEB ? recentContactsData.slice(offset, offset + 30) : recentContactsData;
+      const uids: string[] = [];
+      for (const contact of batch) {
+        const ids = previewIdentityIds(contact.preview, contact.senderUid).filter((id) =>
+          id.startsWith('u_'),
+        );
+        uids.push(...ids);
+        if (chatTypeKind(contact.chatType) === 'group' && /^\d+$/.test(contact.targetUid))
+          resolvePreviewMembers(contact.targetUid, ids, new Set(), () => !disposed);
+      }
+      resolveProfiles(uids);
+      offset += batch.length;
+      if (IS_WEB && offset < recentContactsData.length)
+        cancel = scheduleBackgroundLoad(resolveBatch);
+    };
+    if (IS_WEB) cancel = scheduleBackgroundLoad(resolveBatch, 100);
+    else resolveBatch();
+    return () => {
+      disposed = true;
+      cancel?.();
+    };
+  }, [recentContactsData, groupInfoRevision, resolvePreviewMembers, resolveProfiles]);
+
+  useEffect(() => {
+    if (IS_WEB && (!directoryReady || !profiles.isFetched)) return;
     const uids: string[] = [];
-    for (const contact of recentContactsData) {
-      const ids = previewIdentityIds(contact.preview, contact.senderUid).filter((id) =>
-        id.startsWith('u_'),
-      );
-      uids.push(...ids);
-      if (chatTypeKind(contact.chatType) === 'group' && /^\d+$/.test(contact.targetUid))
-        resolvePreviewMembers(contact.targetUid, ids, new Set(), () => true);
-    }
     for (const buddy of (buddies.data ?? []) as BuddyWire[]) uids.push(buddy.uid);
     for (const request of (buddyRequests.data ?? []) as BuddyRequestWire[])
       uids.push(request.peerUid);
@@ -6487,10 +6573,9 @@ function MainWorkspace(): ReactElement {
     groupNotifies.data,
     hiddenSessions.data,
     deletedSessions.data,
-    recentContactsData,
-    groupInfoRevision,
-    resolvePreviewMembers,
     resolveProfiles,
+    directoryReady,
+    profiles.isFetched,
   ]);
 
   const loadSelectionMessages: LoadSelectionMessages = useCallback(
@@ -10255,9 +10340,9 @@ function MainWorkspace(): ReactElement {
     shell.view === 'mail' ||
     shell.view === 'channel' ||
     shell.view === 'annual';
-  const directoryPersonas = trpc.account.listAgentLabPersonas.useQuery();
+  const directoryPersonas = trpc.account.listAgentLabPersonas.useQuery(undefined, secondaryOptions);
   useCloneTaskRefresh();
-  const directoryGroups = trpc.account.listAgentLabGroups.useQuery();
+  const directoryGroups = trpc.account.listAgentLabGroups.useQuery(undefined, secondaryOptions);
   const virtualRows = useMemo(
     () => [
       ...(directoryPersonas.data ?? []).map((item) => ({

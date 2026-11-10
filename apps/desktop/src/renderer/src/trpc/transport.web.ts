@@ -28,6 +28,7 @@ const wsClient = createWSClient({
 });
 
 const independentReads = new Set([
+  'account.listRecentContacts',
   'account.searchQuick',
   'account.searchSlow',
   'account.listLatest',
