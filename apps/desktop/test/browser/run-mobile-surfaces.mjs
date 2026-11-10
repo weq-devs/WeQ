@@ -103,10 +103,12 @@ try {
       for (const height of [844, 430]) {
         await page.setViewportSize({ width, height });
         for (const theme of ['light', 'dark']) {
-          await page.evaluate(
-            (theme) => window.mobileSurfacesQa.theme.getState().setPreference(theme),
-            theme,
-          );
+          await page.evaluate((theme) => {
+            const store = window.mobileSurfacesQa.theme.getState();
+            store.setPreference(theme);
+            store.setAccent(theme === 'light' ? '#075c30' : '#fff3a1');
+            store.setBackground(theme === 'light' ? 'grid' : 'telegram');
+          }, theme);
           await page.waitForTimeout(30);
           const result = await page.evaluate(() => {
             const visible = (el) =>
@@ -129,6 +131,30 @@ try {
                   el.getAttribute('aria-label') || el.className || el.textContent?.slice(0, 40),
               );
             const profileRows = [...container.querySelectorAll('.weq-qq-write-panel .weq-set-row')];
+            const profile =
+              container.querySelector('.weq-self-profile-dialog') ??
+              (container.matches('.weq-self-profile-dialog') ? container : null);
+            const profileStyleIssues = [];
+            if (profile) {
+              const expectedSize = innerWidth <= 760 ? '16px' : '13px';
+              for (const control of profile.querySelectorAll(
+                '.weq-qq-write-input,.weq-profile-region-editor select,.weq-profile-region-editor input,.weq-segmented > button',
+              )) {
+                const style = getComputedStyle(control);
+                if (style.fontSize !== expectedSize)
+                  profileStyleIssues.push({
+                    label: control.getAttribute('aria-label') ?? control.textContent,
+                    fontSize: style.fontSize,
+                    expectedSize,
+                  });
+                if (control.matches('select') && control.getBoundingClientRect().height < 35)
+                  profileStyleIssues.push('下拉框高度低于其他输入控件');
+              }
+              if (!profile.querySelector('.weq-set-card .weq-self-profile-additional'))
+                profileStyleIssues.push('补充资料未归入资料分组');
+              if (profile.querySelector('.weq-qq-live-status'))
+                profileStyleIssues.push('仍显示重复的服务端状态行');
+            }
             const stacked =
               innerWidth > 760 ||
               profileRows.every((row) => {
@@ -170,6 +196,7 @@ try {
               },
               rendered: Boolean(container.querySelector('button,input,textarea')),
               smallControls,
+              profileStyleIssues,
               overflow,
               stacked,
               fieldsFit,
@@ -186,6 +213,7 @@ try {
             !result.rendered ||
             !result.contentReachable ||
             result.smallControls.length ||
+            result.profileStyleIssues.length ||
             !result.stacked ||
             !result.fieldsFit ||
             !result.bounded ||
@@ -193,8 +221,23 @@ try {
           )
             failures.push({ surface, width, height, theme, ...result });
           cases++;
-          if (output && width === 390 && height === 844)
-            await page.screenshot({ path: resolve(output, `${surface}-${theme}.png`) });
+          if (output && [390, 1180].includes(width) && height === 844) {
+            await page.screenshot({ path: resolve(output, `${surface}-${theme}-${width}.png`) });
+            if (surface === 'profile') {
+              const body = page.locator('.weq-self-profile-body');
+              const scrollTop = await body.evaluate((node) => {
+                const top = node.scrollTop;
+                node.scrollTop = node.scrollHeight;
+                return top;
+              });
+              await page.screenshot({
+                path: resolve(output, `${surface}-${theme}-${width}-status.png`),
+              });
+              await body.evaluate((node, top) => {
+                node.scrollTop = top;
+              }, scrollTop);
+            }
+          }
         }
       }
     }

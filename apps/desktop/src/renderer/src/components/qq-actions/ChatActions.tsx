@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
-import { ListTodo, Radio } from 'lucide-react';
+import { useEffect, useRef, type RefObject } from 'react';
+import { ListTodo } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import type { Conversation, Message } from '../../im-template/template/types';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { useTypingStatusSettings } from '../../hooks/useTypingStatusSettings';
-import { ActionFeedback, ActionIcon, useQQAction, useQQGroupPermissions } from './shared';
+import { ActionFeedback, useQQAction, useQQGroupPermissions } from './shared';
 
 export function MessageTodoAction({
   conversation,
@@ -128,52 +128,4 @@ export function TypingStatus({
     };
   }, [enabled, uid, identity]);
   return null;
-}
-
-export function LiveStatusReadout() {
-  const a = useQQAction('live-status'),
-    [open, setOpen] = useState(false);
-  const status = trpc.account.qqActions.liveStatus.useQuery(
-    { ...a.binding! },
-    { enabled: open && a.available, retry: false, staleTime: 15_000 },
-  );
-  const names: Record<number, string> = {
-    0: '离线',
-    10: '在线',
-    30: '离开',
-    40: '隐身',
-    50: '忙碌',
-    60: 'Q我吧',
-    70: '勿扰',
-  };
-  return (
-    <div className="weq-qq-actions weq-qq-live-status">
-      <div className="weq-qq-action-bar">
-        <span className="weq-qq-live-status-label">
-          <Radio size={13} strokeWidth={2} aria-hidden />
-          服务端状态
-        </span>
-        <ActionIcon
-          label="查询服务端在线状态"
-          disabled={a.disabled || status.isFetching}
-          onClick={() => {
-            if (open) void status.refetch();
-            else setOpen(true);
-          }}
-        >
-          <Radio size={16} />
-        </ActionIcon>
-        {open && (
-          <span role="status" className="weq-qq-live-status-value">
-            {status.isFetching
-              ? '查询中…'
-              : status.data
-                ? `${names[status.data.status] ?? `状态 ${status.data.status}`}${status.data.extStatus ? ` · 扩展 ${status.data.extStatus}` : ''}`
-                : '服务端未返回状态'}
-          </span>
-        )}
-      </div>
-      {status.error && <p role="alert">{status.error.message}</p>}
-    </div>
-  );
 }

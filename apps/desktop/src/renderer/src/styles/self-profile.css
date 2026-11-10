@@ -166,7 +166,7 @@ html[data-theme='dark'] .app-title-bar-vip-badge.is-bvip {
   gap: 2px;
   padding: 12px 14px 8px;
   border: 1px solid var(--weq-border-subtle);
-  border-radius: 12px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--weq-bg-elevated) 60%, var(--weq-bg-surface));
   box-shadow: none;
 }
@@ -178,8 +178,8 @@ html[data-theme='dark'] .app-title-bar-vip-badge.is-bvip {
 
 .weq-self-profile-body .weq-set-card-title {
   color: var(--weq-fg-primary);
-  font-size: 12.5px;
-  letter-spacing: 0.01em;
+  font-size: 13px;
+  letter-spacing: 0;
 }
 
 .weq-self-profile-body .weq-set-row {
