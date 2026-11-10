@@ -54,6 +54,7 @@ import {
 } from 'lucide-react';
 import { useIntentSenseContext, type IntentAnalysis } from './context';
 import { createLoadingIconSequence } from './loadingIconSequence';
+import { synchronizeLoadingAnimationPhase } from './loadingAnimationPhase';
 import '../../styles/intent-sense.css';
 
 const INTENT_META: Record<string, { label: string; icon: typeof HelpCircle }> = {
@@ -134,11 +135,21 @@ function IntentPillPlaceholder({ emotion = false }: { emotion?: boolean }) {
 /** 单轮结束后再换图标；离场末帧保持隐藏，避免循环归零时闪回。 */
 function IntentPillLoading({ emotion = false }: { emotion?: boolean }) {
   const icons = emotion ? EMOTION_LOADING_ICONS : INTENT_LOADING_ICONS;
+  const reelRef = useRef<HTMLSpanElement>(null);
   const [frame, setFrame] = useState(() => ({
     order: createLoadingIconSequence(icons.length),
     index: 0,
     step: 0,
   }));
+  useLayoutEffect(() => {
+    const reel = reelRef.current;
+    if (!reel) return;
+    const synchronize = (): void => synchronizeLoadingAnimationPhase(reel);
+    synchronize();
+    const motion = reel.ownerDocument.defaultView?.matchMedia('(prefers-reduced-motion: reduce)');
+    motion?.addEventListener('change', synchronize);
+    return () => motion?.removeEventListener('change', synchronize);
+  }, [frame.step]);
   const Icon = icons[frame.order[frame.index]!]!;
   return (
     <span
@@ -148,6 +159,7 @@ function IntentPillLoading({ emotion = false }: { emotion?: boolean }) {
     >
       <span
         key={frame.step}
+        ref={reelRef}
         className="weq-intent-loading-reel"
         onAnimationEnd={(event) => {
           if (event.target !== event.currentTarget) return;

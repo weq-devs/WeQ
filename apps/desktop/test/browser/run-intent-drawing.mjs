@@ -64,6 +64,11 @@ try {
   await chips.evaluate((node) => {
     for (const animation of node.getAnimations({ subtree: true })) animation.pause();
   });
+  // 手动逐轮检查随机序列时延长轮长，避免全局相位恰逢真实轮末而额外换图。
+  const sequenceTiming = await page.addStyleTag({
+    content:
+      '.weq-intent-loading-reel, .weq-intent-loading-icon > * { animation-duration: 86400000ms !important; }',
+  });
   for (const [kind, count] of [
     ['intent', 17],
     ['emotion', 15],
@@ -84,6 +89,15 @@ try {
       '跨轮不连续重复',
     );
   }
+  await sequenceTiming.evaluate((style) => {
+    for (const animation of document
+      .querySelector('.weq-intent-chips')
+      .getAnimations({ subtree: true })) {
+      animation.pause();
+      animation.currentTime = 1000;
+    }
+    style.remove();
+  });
   const states = await chips.evaluate((node) => {
     const animations = node.getAnimations({ subtree: true });
     for (const animation of animations) animation.pause();
