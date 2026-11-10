@@ -21,11 +21,13 @@ export function ReplySuggestionDetailsPanel({
   kind,
   conv,
   id,
+  anchor,
   onClose,
 }: {
   kind: 'c2c' | 'group';
   conv: string;
   id: string;
+  anchor: HTMLButtonElement;
   onClose: () => void;
 }) {
   const headingId = useId();
@@ -57,7 +59,8 @@ export function ReplySuggestionDetailsPanel({
   }, [value]);
   return (
     <Modal
-      presentation="panel"
+      presentation="popover"
+      anchor={anchor}
       width={560}
       title="推荐回复详情"
       labelledBy={headingId}

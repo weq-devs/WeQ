@@ -27,7 +27,7 @@ export function ReplySuggestionHistory({
     refetch: () => unknown;
   };
   currentRoundId?: string;
-  onDetails: (id: string) => void;
+  onDetails: (id: string, anchor: HTMLButtonElement) => void;
   onInsert: (text: string) => void;
   onLocate?: (target: ReplySuggestionHistoryEntry['target']) => void | Promise<void>;
 }) {
@@ -132,7 +132,7 @@ export function ReplySuggestionHistory({
                 className="weq-int-history-date"
                 title="查看本轮推荐详情"
                 aria-label="查看本轮推荐详情"
-                onClick={() => onDetails(entry.id)}
+                onClick={(event) => onDetails(entry.id, event.currentTarget)}
               >
                 <time dateTime={new Date(entry.createdAt).toISOString()}>
                   {timestamp.format(entry.createdAt)}

@@ -34,7 +34,11 @@ export function IntentSuggestionBar({
 }): ReactElement | null {
   const [busy, setBusy] = useState(false);
   const [historyScope, setHistoryScope] = useState<string | null>(null);
-  const [detail, setDetail] = useState<{ scope: string; id: string } | null>(null);
+  const [detail, setDetail] = useState<{
+    scope: string;
+    id: string;
+    anchor: HTMLButtonElement;
+  } | null>(null);
   const historyId = useId();
   const [refreshError, setRefreshError] = useState<{ context: string; message: string } | null>(
     null,
@@ -163,6 +167,7 @@ export function IntentSuggestionBar({
           kind={kind}
           conv={conv}
           id={detail.id}
+          anchor={detail.anchor}
           onClose={() => setDetail(null)}
         />
       ) : null}
@@ -172,7 +177,7 @@ export function IntentSuggestionBar({
             key={`${kind}:${conv}`}
             history={history}
             currentRoundId={currentRound?.id}
-            onDetails={(id) => setDetail({ scope, id })}
+            onDetails={(id, anchor) => setDetail({ scope, id, anchor })}
             onInsert={onInsert}
             onLocate={onLocate}
           />
@@ -232,7 +237,9 @@ export function IntentSuggestionBar({
             title="查看当前推荐详情"
             aria-label="查看当前推荐详情"
             disabled={!currentRound}
-            onClick={() => currentRound && setDetail({ scope, id: currentRound.id })}
+            onClick={(event) =>
+              currentRound && setDetail({ scope, id: currentRound.id, anchor: event.currentTarget })
+            }
           >
             <Info size={12} />
           </button>

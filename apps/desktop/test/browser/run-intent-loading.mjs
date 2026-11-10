@@ -78,6 +78,24 @@ try {
         );
       });
     });
+  const detailsBeside = (label) =>
+    page.getByLabel(label, { exact: true }).evaluate((anchor) => {
+      const card = document.querySelector('.weq-int-round-details');
+      const rect = card.getBoundingClientRect();
+      const trigger = anchor.getBoundingClientRect();
+      const close = (a, b) => Math.abs(a - b) <= 1;
+      return (
+        card.parentElement.classList.contains('is-anchored-popover') &&
+        close(rect.left, Math.max(8, Math.min(trigger.left, innerWidth - rect.width - 8))) &&
+        (close(rect.top, trigger.bottom + 8) ||
+          close(rect.bottom, trigger.top - 8) ||
+          close(rect.top, 8)) &&
+        rect.left >= 8 &&
+        rect.right <= innerWidth - 8 &&
+        rect.top >= 8 &&
+        rect.bottom <= innerHeight - 8
+      );
+    });
   const loading = await geometry();
   assert.equal(await page.getByLabel('换一批建议', { exact: true }).isDisabled(), false);
   await page.getByLabel('换一批建议', { exact: true }).hover();
@@ -117,6 +135,7 @@ try {
   assert.equal(await page.evaluate(() => window.intentQa.located.msgSeq), '77');
   await page.getByLabel('查看当前推荐详情', { exact: true }).click();
   await page.waitForSelector('.weq-int-round-details');
+  assert.equal(await detailsBeside('查看当前推荐详情'), true, '正式推荐详情应贴近点击入口');
   assert.ok(
     (await page.locator('.weq-int-round-details').textContent()).includes('fixture-chat-model'),
   );
@@ -156,6 +175,7 @@ try {
   assert.equal(await page.evaluate(() => window.intentQa.located.msgSeq), '66');
   await page.getByLabel('查看本轮推荐详情', { exact: true }).click();
   await page.waitForSelector('.weq-int-round-details');
+  assert.equal(await detailsBeside('查看本轮推荐详情'), true, '历史推荐详情应贴近对应日期入口');
   assert.ok((await page.locator('.weq-int-round-summary').textContent()).includes('未记录'));
   await page.getByLabel('关闭推荐详情', { exact: true }).click();
   if (output) await page.screenshot({ path: resolve(output, 'history-desktop.png') });
@@ -335,6 +355,11 @@ try {
               `${width}/${theme}: 历史与正式推荐滚动区两边界对齐`,
             );
             await page.getByLabel('查看当前推荐详情', { exact: true }).click();
+            assert.equal(
+              await detailsBeside('查看当前推荐详情'),
+              true,
+              `${width}/${theme}: 推荐详情应靠近入口并避让窗口边缘`,
+            );
             await page.getByRole('button', { name: '请求日志', exact: true }).click();
             const detailFits = await page.locator('.weq-int-round-details').evaluate((node) => {
               const rect = node.getBoundingClientRect();
