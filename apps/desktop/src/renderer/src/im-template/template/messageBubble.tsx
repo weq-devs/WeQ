@@ -76,13 +76,13 @@ function PendantOverlay({
   if (!widget?.animated && !staticUrl) {
     return (
       <span ref={avatarRef} style={{ display: 'inline-flex', flexShrink: 0 }}>
-        <Avatar name={name} avatarUrl={avatarUrl} seed={seed} />
+        <Avatar name={name} avatarUrl={avatarUrl} seed={seed} resolution="small" />
       </span>
     );
   }
   return (
     <span ref={avatarRef} className={cn('weq-avatar-pendant')}>
-      <Avatar name={name} avatarUrl={avatarUrl} seed={seed} />
+      <Avatar name={name} avatarUrl={avatarUrl} seed={seed} resolution="small" />
       {widget?.animated ? (
         <span className={cn('weq-avatar-pendant-img')} aria-hidden />
       ) : (

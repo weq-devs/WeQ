@@ -26,6 +26,7 @@ import { WebBusinessCache } from '../components/WebBusinessCache';
 import { resolvedProfilesKey } from '../lib/webBusinessCache';
 import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
 import { useContactOnlineStatuses } from '../hooks/useContactOnlineStatuses';
+import { useEventContextValue } from '../hooks/useEventContextValue';
 import { useMobilePageSettled } from '../hooks/useMobilePageSettled';
 import { MobileSidebarPages } from '../components/MobileSidebarPages';
 import { withBrowserFile } from '../lib/browserFileUpload';
@@ -12236,6 +12237,59 @@ function MainWorkspace(): ReactElement {
       </ForwardKindContext.Provider>
     </ReplyJumpContext.Provider>
   );
+  const previousDirectoryIds = useRef<string[]>([]);
+  const contactDirectoryIds = useMemo(() => {
+    const ids =
+      shell.contactTab === 'friends'
+        ? [
+            ...buddyContacts,
+            ...specialContactSections.flatMap((section) => section.items),
+            ...historicalContactSections.flatMap((section) => section.items),
+          ]
+            .filter(
+              (contact) =>
+                !contactDirectoryQuery ||
+                `${displayUserName(contact)} ${'nick' in contact ? (contact.nick ?? '') : ''} ${contact.identityValue}`
+                  .toLocaleLowerCase()
+                  .includes(contactDirectoryQuery.trim().toLocaleLowerCase()),
+            )
+            .map((contact) => contact.id)
+        : contactDirectoryConversations
+            .filter(
+              (conversation) =>
+                conversation.type === 'group' &&
+                (!contactDirectoryQuery ||
+                  `${conversation.group.name} ${conversation.group.remark ?? ''} ${conversation.id}`
+                    .toLocaleLowerCase()
+                    .includes(contactDirectoryQuery.trim().toLocaleLowerCase())),
+            )
+            .map((conversation) => conversation.id);
+    const previous = previousDirectoryIds.current;
+    return previous.length === ids.length && previous.every((id, index) => id === ids[index])
+      ? previous
+      : ids;
+  }, [
+    shell.contactTab,
+    buddyContacts,
+    specialContactSections,
+    historicalContactSections,
+    contactDirectoryConversations,
+    contactDirectoryQuery,
+  ]);
+  useLayoutEffect(() => {
+    previousDirectoryIds.current = contactDirectoryIds;
+  }, [contactDirectoryIds]);
+  const contactDirectoryValue = useMemo(
+    () => ({
+      query: contactDirectoryQuery,
+      onQuery: setContactDirectoryQuery,
+      ids: contactDirectoryIds,
+    }),
+    [contactDirectoryQuery, contactDirectoryIds],
+  );
+  const profileNavigation = useCallback<
+    NonNullable<React.ContextType<typeof ProfileNavigationContext>>
+  >((member, anchor, group) => setMemberCard({ member, anchor, groupContext: group ?? null }), []);
   return (
     <ContactWorkspaceNavigationContext.Provider
       value={(target) => {
@@ -12261,11 +12315,7 @@ function MainWorkspace(): ReactElement {
         }
       }}
     >
-      <ProfileNavigationContext.Provider
-        value={(member, anchor, group) =>
-          setMemberCard({ member, anchor, groupContext: group ?? null })
-        }
-      >
+      <ProfileNavigationContext.Provider value={profileNavigation}>
         <QzoneNavigationContext.Provider
           value={(uin, nickname) => {
             if (!/^[1-9]\d{4,19}$/.test(uin)) return;
@@ -12330,7 +12380,9 @@ function MainWorkspace(): ReactElement {
                 }}
               >
                 <ConversationDirectoryContext.Provider
-                  value={{
+                  value={useEventContextValue<
+                    NonNullable<React.ContextType<typeof ConversationDirectoryContext>>
+                  >({
                     real: conversations,
                     guild: guildConversationRows,
                     scope: conversationScope,
@@ -12379,42 +12431,10 @@ function MainWorkspace(): ReactElement {
                       setCloneGroupRequest((current) => current + 1);
                       shell.switchView('agentlab');
                     },
-                  }}
+                  })}
                 >
                   <FriendDirectoryControls>
-                    <ContactDirectoryContext.Provider
-                      value={{
-                        query: contactDirectoryQuery,
-                        onQuery: setContactDirectoryQuery,
-                        ids:
-                          shell.contactTab === 'friends'
-                            ? [
-                                ...buddyContacts,
-                                ...specialContactSections.flatMap((section) => section.items),
-                                ...historicalContactSections.flatMap((section) => section.items),
-                              ]
-                                .filter(
-                                  (contact) =>
-                                    !contactDirectoryQuery ||
-                                    `${displayUserName(contact)} ${'nick' in contact ? (contact.nick ?? '') : ''} ${contact.identityValue}`
-                                      .toLocaleLowerCase()
-                                      .includes(contactDirectoryQuery.trim().toLocaleLowerCase()),
-                                )
-                                .map((contact) => contact.id)
-                            : contactDirectoryConversations
-                                .filter(
-                                  (conversation) =>
-                                    conversation.type === 'group' &&
-                                    (!contactDirectoryQuery ||
-                                      `${conversation.group.name} ${conversation.group.remark ?? ''} ${conversation.id}`
-                                        .toLocaleLowerCase()
-                                        .includes(
-                                          contactDirectoryQuery.trim().toLocaleLowerCase(),
-                                        )),
-                                )
-                                .map((conversation) => conversation.id),
-                      }}
-                    >
+                    <ContactDirectoryContext.Provider value={contactDirectoryValue}>
                       <WorkspacePages
                         navigationKey={`${shell.view}:${shell.activeConversationId ?? ''}:${shell.selectedContactId ?? ''}:${shell.selectedGroupConversationId ?? ''}:${surfaceNavigation}`}
                         onNavigate={() => {

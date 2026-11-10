@@ -762,6 +762,7 @@ export function ConversationList({
                   <VirtualConversationAvatar item={virtualRow} />
                 ) : (
                   <Avatar
+                    resolution="small"
                     name={conversationTitle(conversation)}
                     avatarUrl={conversationAvatarUrl(conversation)}
                     seed={conversationSeed(conversation)}
@@ -1396,6 +1397,7 @@ function GroupNotificationSection({
                 onClick={(event) => onSelect(conversation.id, event)}
               >
                 <Avatar
+                  resolution="small"
                   name={displayGroupName(conversation.group)}
                   avatarUrl={conversation.group.avatarUrl}
                   seed={conversation.id}
@@ -1463,6 +1465,7 @@ export function ContactList({
   loading?: boolean;
 }) {
   const directory = useContext(ContactDirectoryContext);
+  const contactIds = useMemo(() => new Set(contacts.map((contact) => contact.id)), [contacts]);
   const conversationDirectory = useContext(ConversationDirectoryContext);
   const friendDirectory = useFriendDirectory();
   const requestExport = useRequestContentExport();
@@ -1842,7 +1845,7 @@ export function ContactList({
                         }
                         {...multi.itemProps(JSON.stringify([category.id, contact.id]))}
                         draggable={
-                          contacts.some((row) => row.id === contact.id) &&
+                          contactIds.has(contact.id) &&
                           order.preferences.grouping === 'qq' &&
                           friendDirectory?.available &&
                           !friendDirectory.busy
@@ -1852,7 +1855,7 @@ export function ContactList({
                             selection.selectionMode && selection.selectedIds.has(contact.id)
                               ? [...selection.selectedIds]
                               : [contact.id];
-                          const uids = ids.filter((id) => contacts.some((row) => row.id === id));
+                          const uids = ids.filter((id) => contactIds.has(id));
                           if (uids.length !== ids.length || !uids.length) {
                             event.preventDefault();
                             return;
@@ -1899,6 +1902,7 @@ export function ContactList({
                       >
                         <span className="contact-relation-avatar">
                           <Avatar
+                            resolution="small"
                             name={displayUserName(contact)}
                             avatarUrl={contact.avatarUrl}
                             seed={contact.identityValue}
