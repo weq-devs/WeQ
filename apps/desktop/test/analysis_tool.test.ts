@@ -218,7 +218,8 @@ it('群聊与好友都创建真实配置，完整目录可检索末尾且 DOM �
       }),
     );
     f.select('报告类型', 'buddy');
-    expect(f.host.querySelectorAll('.weq-analysis-choice').length).toBeLessThan(30);
+    // 完整目录 2501 项，虚拟窗口只渲染可视区与缓冲行（当前窗口上限 32 行）。
+    expect(f.host.querySelectorAll('.weq-analysis-choice').length).toBeLessThan(40);
     f.select('搜索分析对象', '合成好友 2500');
     act(() => f.chooseObject('u_friend_2500').click());
     f.select('分析时间范围', 'dates');
