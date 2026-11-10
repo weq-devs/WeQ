@@ -1699,6 +1699,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         join(userConfig.cacheDir(join('content-search', exportConfigId)), 'observed.json'),
       );
       let generatedSources: GeneratedSearchSources | undefined;
+      await dressInstall.prepareMessageRendering();
       this.services = {
         msgs,
         roamingBackfill,
@@ -2565,6 +2566,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         join(userConfig.cacheDir(join('content-search', exportConfigId)), 'observed.json'),
       );
       let generatedSources: GeneratedSearchSources | undefined;
+      await dressInstall.prepareMessageRendering();
       this.services = {
         msgs,
         roamingBackfill,

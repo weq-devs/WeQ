@@ -2,6 +2,12 @@ import { decorationFrameBytes } from '../../../shared/decoration_image';
 
 /** 只读取 PNG 的签名和 IHDR；服务端忽略 Range 时也不缓冲整份图片。 */
 export async function readFrameBytes(url: string, signal: AbortSignal): Promise<number> {
+  if (url.startsWith('data:image/png;base64,')) {
+    const head = atob(
+      url.slice('data:image/png;base64,'.length, 'data:image/png;base64,'.length + 32),
+    );
+    return decorationFrameBytes(Uint8Array.from(head, (char) => char.charCodeAt(0)));
+  }
   const response = await fetch(url, { headers: { Range: 'bytes=0-23' }, signal });
   if (!response.ok || !response.body) throw new Error('装扮帧尺寸预检失败');
   const reader = response.body.getReader();

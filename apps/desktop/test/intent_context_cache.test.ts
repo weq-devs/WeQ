@@ -502,7 +502,7 @@ it('批次只标记真实待分析消息，拒收其他会话及旧配置进度'
   await act(async () => publish(event));
   expect(f.get().isPending?.('pending')).toBe(true);
   expect(f.get().isPending?.('outside')).toBe(false);
-  expect(document.body.textContent).toContain('正在分析 1/2');
+  expect(document.querySelector('.weq-int-batch')).toBeNull();
   await act(async () => publish({ ...event, conv: 'other', pendingIds: ['outside'] }));
   expect(f.get().isPending?.('outside')).toBe(false);
   fixture.status.analysisRevision++;
@@ -515,17 +515,17 @@ it('批次失败显示可重试状态，成功重试清除失败且保留旧分�
   fixture.ensure.mockResolvedValueOnce({ analyzed: 0, failed: 1, latestMsgId: 'own' });
   const f = renderFixture();
   await f.render('own');
-  expect(document.body.textContent).toContain('分析完成 · 成功 0，失败 1');
+  expect(document.body.textContent).toContain('分析未完成：1 条消息失败');
   expect(f.get().getAnalysis('old')).toBeDefined();
   fixture.ensure.mockResolvedValue({ analyzed: 1, failed: 0, latestMsgId: 'own' });
   await act(async () =>
     document.querySelector<HTMLButtonElement>('[aria-label="重试分析"]')!.click(),
   );
   expect(fixture.ensure).toHaveBeenCalledTimes(2);
-  expect(document.body.textContent).not.toContain('分析未完成');
+  expect(document.querySelector('.weq-int-batch')).toBeNull();
 });
 
-it('分析未结束就显示失败数量及成功明细，结束后保留成功与失败汇总', async () => {
+it('分析中不显示批次状态，结束后仅显示失败提示与重试入口', async () => {
   let finish!: (stats: { analyzed: number; failed: number; latestMsgId: string }) => void;
   fixture.ensure.mockImplementationOnce(
     () =>
@@ -547,29 +547,45 @@ it('分析未结束就显示失败数量及成功明细，结束后保留成功�
       pendingIds: ['pending'],
     }),
   );
-  const status = document.querySelector<HTMLElement>('.weq-int-batch')!;
-  expect(status.textContent).toContain('正在分析 12/18 · 失败 3');
-  expect(status.querySelector('span')?.title).toContain('已处理 12/18，成功 9，失败 3');
-  expect(status.getAttribute('aria-busy')).toBe('true');
-  expect(status.textContent).not.toContain('分析未完成');
+  expect(document.querySelector('.weq-int-batch')).toBeNull();
   expect(document.querySelector('[aria-label="重试分析"]')).toBeNull();
   await act(async () => finish({ analyzed: 15, failed: 3, latestMsgId: 'own' }));
-  expect(status.textContent).toContain('分析完成 · 成功 15，失败 3');
-  expect(status.getAttribute('aria-busy')).toBe('false');
+  const status = document.querySelector<HTMLElement>('.weq-int-batch')!;
+  expect(status.textContent).toContain('分析未完成：3 条消息失败');
+  expect(status.querySelector('span')?.title).toContain('已处理 18/18，成功 15，失败 3');
   expect(document.querySelector('[aria-label="重试分析"]')).not.toBeNull();
 });
 
-it('全部失败时不会误报已有结果，成功结束显示真实新增结果数而非缓存总量', async () => {
+it('全部失败时显示失败数量，重试成功后隐藏状态', async () => {
   fixture.ensure.mockResolvedValueOnce({ analyzed: 0, failed: 2, latestMsgId: 'own' });
   const f = renderFixture();
   await f.render('own');
-  expect(document.body.textContent).toContain('分析完成 · 成功 0，失败 2');
+  expect(document.body.textContent).toContain('分析未完成：2 条消息失败');
   fixture.ensure.mockResolvedValueOnce({ cached: 1, analyzed: 2, failed: 0, latestMsgId: 'own' });
   await act(async () =>
     document.querySelector<HTMLButtonElement>('[aria-label="重试分析"]')!.click(),
   );
-  expect(document.body.textContent).toContain('分析完成 · 成功 2');
+  expect(document.querySelector('.weq-int-batch')).toBeNull();
   expect(document.querySelector('[aria-label="重试分析"]')).toBeNull();
+});
+
+it.each([0, 2])('分析成功或已是最新时不显示状态（新增 %i 条）', async (analyzed) => {
+  fixture.ensure.mockResolvedValueOnce({ analyzed, failed: 0, latestMsgId: 'own' });
+  const f = renderFixture();
+  await f.render('own');
+  expect(document.querySelector('.weq-int-batch')).toBeNull();
+});
+
+it('分析请求异常时显示错误，重试在途时收起提示', async () => {
+  fixture.ensure.mockRejectedValueOnce(new Error('合成错误'));
+  const f = renderFixture();
+  await f.render('own');
+  expect(document.body.textContent).toContain('分析未完成：合成错误');
+  fixture.ensure.mockImplementationOnce(() => new Promise(() => {}));
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="重试分析"]')!.click(),
+  );
+  expect(document.querySelector('.weq-int-batch')).toBeNull();
 });
 
 it('单条请求失败不冒充纯媒体，允许重试而不会无限转圈', async () => {

@@ -23,6 +23,14 @@ import { databaseRequestSignal } from '../query_schedule';
 import { toBigint } from './util';
 
 export const UNREAD_OUTGOING_PAGE_SIZE = 512;
+const OUTGOING_CACHE_MAX_AGE_MS = 60_000;
+const OUTGOING_CACHE_MAX_SEQUENCES = 32_768;
+interface OutgoingWindow {
+  from: bigint;
+  through: bigint;
+  verifiedAt: number;
+  sequences: string[];
+}
 
 export interface UnreadInfoDbOptions {
   dbPath: string;
@@ -131,6 +139,8 @@ export interface UnreadHighlightInput {
 export class UnreadInfoDb {
   private readonly qq: QqDb;
   private readonly proto = new ProtoMsg(UnreadInfo);
+  private readonly outgoingWindows = new Map<string, OutgoingWindow>();
+  private outgoingWindowSequences = 0;
 
   constructor(nt: NtHelperBinding, opts: UnreadInfoDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
@@ -167,6 +177,7 @@ export class UnreadInfoDb {
     targets: UnreadInfoTarget[],
     self?: { selfUid: string; selfUin: string },
     readSeqs?: ReadonlyMap<string, string>,
+    options: { reuseOutgoing?: boolean } = {},
   ): Promise<UnreadInfoSnapshot[]> {
     const unique = [...new Map(targets.map((t) => [`${t.chatType}_${t.uid}`, t])).values()];
     const result: UnreadInfoSnapshot[] = [];
@@ -227,7 +238,7 @@ export class UnreadInfoDb {
           result.push({ ...identity, readError: true });
         }
       }
-      if (self) await this.loadOutgoingSequences(candidates, self);
+      if (self) await this.loadOutgoingSequences(candidates, self, options.reuseOutgoing);
     }
     return result;
   }
@@ -240,6 +251,7 @@ export class UnreadInfoDb {
       afterSeq: string;
     }>,
     self: { selfUid: string; selfUin: string },
+    reuseOutgoing = false,
   ): Promise<void> {
     for (const kind of ['group', 'direct', 'direct-fallback'] as const) {
       const targets = candidates.filter(({ snapshot, partition }) =>
@@ -259,6 +271,7 @@ export class UnreadInfoDb {
             group,
             self,
             afterSeq,
+            reuseOutgoing,
           );
         }
         continue;
@@ -298,24 +311,43 @@ export class UnreadInfoDb {
     group: boolean,
     self: { selfUid: string; selfUin: string },
     afterSeq: string,
+    reuseOutgoing: boolean,
   ): Promise<void> {
     const table = group ? 'group_msg_table' : 'c2c_msg_table';
     const direction = group
       ? `((? != '' AND m."40020" = ?) OR (CAST(? AS INTEGER) > 0 AND m."40033" = CAST(? AS INTEGER)))`
       : `m."40020" != '' AND m."40020" != m."40021"`;
-    const outgoing = new Set<string>();
     const latest = BigInt(snapshot.latestSeq!);
+    const from = BigInt(afterSeq);
+    const key = JSON.stringify([table, partition, self.selfUid, self.selfUin]);
+    const cached = reuseOutgoing ? this.outgoingWindows.get(key) : undefined;
+    const now = Date.now();
+    // 仅复用向前增长的尾部；相同水位的显式校准、阅读回退和到期均完整重读。
+    const reusable =
+      cached &&
+      from >= cached.from &&
+      latest > cached.through &&
+      now >= cached.verifiedAt &&
+      now - cached.verifiedAt < OUTGOING_CACHE_MAX_AGE_MS;
+    const outgoing = new Set(reusable ? cached.sequences.filter((seq) => BigInt(seq) > from) : []);
+    if (reusable && cached.through > from) afterSeq = String(cached.through);
     let cursor: [bigint, bigint] | undefined;
     for (;;) {
       databaseRequestSignal()?.throwIfAborted();
       // LIMIT 位于发送者筛选前；即使没有自己发言，也只交付一页真实消息。
       // 同序号尾段单独按 rowid 续读，避免二元游标只按 seq 定位而重扫前页。
       const rows = await this.qq.query(
-        `SELECT m.rowid, m."40003", CASE WHEN ${direction} THEN 1 ELSE 0 END
+        `WITH page AS MATERIALIZED (
+         SELECT m.rowid AS id, m."40003" AS seq,
+           CASE WHEN ${direction} THEN 1 ELSE 0 END AS outgoing
          FROM ${table} m WHERE m."40027" = ?
            AND ${cursor ? 'm."40003" = ? AND m.rowid > ?' : 'm."40003" > CAST(? AS INTEGER)'}
            AND m."40003" <= CAST(? AS INTEGER)
-         ORDER BY m."40003",m.rowid LIMIT ?`,
+         ORDER BY m."40003",m.rowid LIMIT ?)
+         SELECT id,seq,outgoing,NULL FROM page WHERE outgoing = 1
+         UNION ALL
+         SELECT MAX(id),MAX(seq),0,(SELECT COUNT(*) FROM page)
+         FROM page WHERE seq = (SELECT MAX(seq) FROM page)`,
         [
           ...(group ? [self.selfUid, self.selfUid, self.selfUin, self.selfUin] : []),
           partition,
@@ -326,19 +358,49 @@ export class UnreadInfoDb {
       );
       databaseRequestSignal()?.throwIfAborted();
       for (const row of rows) if (Number(row[2]) === 1) outgoing.add(String(row[1]));
-      if (rows.length < UNREAD_OUTGOING_PAGE_SIZE) {
+      // 聚合游标在空页也存在；其他行只带自己发言，避免搬运整个未读区间。
+      const tail = rows.find((row) => row[3] !== null);
+      if (!tail) throw new Error('未读统计缺少分页游标');
+      if (Number(tail[3]) < UNREAD_OUTGOING_PAGE_SIZE) {
         if (!cursor || cursor[0] >= latest) break;
         afterSeq = String(cursor[0]);
         cursor = undefined;
         continue;
       }
-      const last = rows.at(-1)!;
-      const next: [bigint, bigint] = [toBigint(last[1]), toBigint(last[0])];
+      const next: [bigint, bigint] = [toBigint(tail[1]), toBigint(tail[0])];
       if (cursor ? next[0] !== cursor[0] || next[1] <= cursor[1] : next[0] <= BigInt(afterSeq))
         throw new Error('未读统计分页游标未前进');
       cursor = next;
     }
-    snapshot.outgoingSeqs = [...outgoing];
+    snapshot.outgoingSeqs = [...outgoing].sort((a, b) => {
+      const first = BigInt(a),
+        second = BigInt(b);
+      return first < second ? -1 : first > second ? 1 : 0;
+    });
+    if (reuseOutgoing)
+      this.rememberOutgoingWindow(key, {
+        from,
+        through: latest,
+        verifiedAt: reusable ? cached.verifiedAt : now,
+        sequences: snapshot.outgoingSeqs,
+      });
+  }
+
+  private rememberOutgoingWindow(key: string, value: OutgoingWindow): void {
+    const previous = this.outgoingWindows.get(key);
+    if (previous) this.outgoingWindowSequences -= previous.sequences.length;
+    this.outgoingWindows.delete(key);
+    if (value.sequences.length > OUTGOING_CACHE_MAX_SEQUENCES) return;
+    this.outgoingWindows.set(key, { ...value, sequences: [...value.sequences] });
+    this.outgoingWindowSequences += value.sequences.length;
+    while (
+      this.outgoingWindows.size > 256 ||
+      this.outgoingWindowSequences > OUTGOING_CACHE_MAX_SEQUENCES
+    ) {
+      const oldest = this.outgoingWindows.keys().next().value!;
+      this.outgoingWindowSequences -= this.outgoingWindows.get(oldest)!.sequences.length;
+      this.outgoingWindows.delete(oldest);
+    }
   }
 
   /**
@@ -680,6 +742,8 @@ export class UnreadInfoDb {
   }
 
   close(): void {
+    this.outgoingWindows.clear();
+    this.outgoingWindowSequences = 0;
     this.qq.close();
   }
 }

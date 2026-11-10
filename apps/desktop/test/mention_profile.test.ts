@@ -64,6 +64,19 @@ function mount(
   };
 }
 
+it('文本与行内节点放在同一正文盒中，气泡居中不拆散内容或换行', () => {
+  const f = mount([
+    { type: 'text', data: { textContent: '第一行\n' } },
+    at({ atTargetUid: 'u_unloaded' }),
+    { type: 'text', data: { textContent: '结尾' } },
+  ]);
+  const content = f.host.querySelector('.message-content')!;
+  expect(content.children).toHaveLength(1);
+  expect(content.firstElementChild?.className).toBe('qq-message-body');
+  expect(content.firstElementChild?.textContent).toBe('第一行\n@合成成员 结尾');
+  expect(content.firstElementChild?.querySelector('.qq-at-element')).not.toBeNull();
+});
+
 it('普通 @ 使用消息中的 UID 打开名片，传递群上下文并保留 UID 提示', () => {
   const f = mount([at({ atTargetUid: 'u_unloaded' })]);
   const mention = f.mentions()[0]!;

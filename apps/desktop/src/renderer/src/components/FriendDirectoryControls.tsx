@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEventContextValue } from '../hooks/useEventContextValue';
 import { X, Save } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
@@ -105,10 +106,12 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
   const activeEditor = editor?.scope === scope ? editor : null;
   const activeCategoryId = activeEditor && 'id' in activeEditor ? activeEditor.id : undefined;
   const memberCount =
-    roster.data?.friends.filter((row) => row.categoryId === activeCategoryId).length ?? 0;
+    activeCategoryId === undefined
+      ? 0
+      : (roster.data?.friends.filter((row) => row.categoryId === activeCategoryId).length ?? 0);
   return (
     <FriendDirectoryContext.Provider
-      value={{
+      value={useEventContextValue<NonNullable<React.ContextType<typeof FriendDirectoryContext>>>({
         categories,
         assignments,
         busy,
@@ -148,7 +151,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
           next.splice(index, 0, id);
           if (next.join(',') !== ids.join(',')) void run({ type: 'sort', ids: next });
         },
-      }}
+      })}
     >
       {children}
       {activeEditor && (

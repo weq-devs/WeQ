@@ -30,6 +30,7 @@ import {
   CalendarDays,
 } from 'lucide-react';
 import {
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -37,9 +38,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
 } from 'react';
 import { conversationPinned } from '@weq/service/conversation-order';
-import { sortConversationRows } from '../../lib/conversationListOrder';
+import { sortConversationRows, reconcileConversationRows } from '../../lib/conversationListOrder';
+import { useEventContextValue } from '../../hooks/useEventContextValue';
 import { groupFriends, sortFriends, sortGroups } from '../../lib/contactListOrder';
 import {
   friendDirectoryTitle,
@@ -762,6 +765,7 @@ export function ConversationList({
                   <VirtualConversationAvatar item={virtualRow} />
                 ) : (
                   <Avatar
+                    resolution="small"
                     name={conversationTitle(conversation)}
                     avatarUrl={conversationAvatarUrl(conversation)}
                     seed={conversationSeed(conversation)}
@@ -1396,6 +1400,7 @@ function GroupNotificationSection({
                 onClick={(event) => onSelect(conversation.id, event)}
               >
                 <Avatar
+                  resolution="small"
                   name={displayGroupName(conversation.group)}
                   avatarUrl={conversation.group.avatarUrl}
                   seed={conversation.id}
@@ -1440,7 +1445,30 @@ function GroupNotificationSection({
 
 const EMPTY_CONTACT_OPTIONS = [] as const;
 
-export function ContactList({
+/** 群消息只更新群目录，不唤醒未变化的整组好友行。 */
+export function ContactList(props: ComponentProps<typeof ContactListContent>) {
+  const directory = useContext(ConversationDirectoryContext);
+  const previous = useRef<Conversation[]>([]);
+  const real = useMemo(
+    () =>
+      reconcileConversationRows(
+        previous.current,
+        (directory?.real ?? []).filter((row) => row.type === 'direct'),
+      ),
+    [directory?.real],
+  );
+  useLayoutEffect(() => {
+    previous.current = real;
+  }, [real]);
+  const value = useEventContextValue({ ...directory, real });
+  return (
+    <ConversationDirectoryContext.Provider value={directory ? value : null}>
+      <ContactListContent {...props} />
+    </ConversationDirectoryContext.Provider>
+  );
+}
+
+const ContactListContent = memo(function ContactListContent({
   contacts,
   categoryDefinitions = EMPTY_CONTACT_OPTIONS,
   specialSections = EMPTY_CONTACT_OPTIONS,
@@ -1463,6 +1491,7 @@ export function ContactList({
   loading?: boolean;
 }) {
   const directory = useContext(ContactDirectoryContext);
+  const contactIds = useMemo(() => new Set(contacts.map((contact) => contact.id)), [contacts]);
   const conversationDirectory = useContext(ConversationDirectoryContext);
   const friendDirectory = useFriendDirectory();
   const requestExport = useRequestContentExport();
@@ -1842,7 +1871,7 @@ export function ContactList({
                         }
                         {...multi.itemProps(JSON.stringify([category.id, contact.id]))}
                         draggable={
-                          contacts.some((row) => row.id === contact.id) &&
+                          contactIds.has(contact.id) &&
                           order.preferences.grouping === 'qq' &&
                           friendDirectory?.available &&
                           !friendDirectory.busy
@@ -1852,7 +1881,7 @@ export function ContactList({
                             selection.selectionMode && selection.selectedIds.has(contact.id)
                               ? [...selection.selectedIds]
                               : [contact.id];
-                          const uids = ids.filter((id) => contacts.some((row) => row.id === id));
+                          const uids = ids.filter((id) => contactIds.has(id));
                           if (uids.length !== ids.length || !uids.length) {
                             event.preventDefault();
                             return;
@@ -1899,6 +1928,7 @@ export function ContactList({
                       >
                         <span className="contact-relation-avatar">
                           <Avatar
+                            resolution="small"
                             name={displayUserName(contact)}
                             avatarUrl={contact.avatarUrl}
                             seed={contact.identityValue}
@@ -2105,7 +2135,7 @@ export function ContactList({
       {batch.confirmation}
     </div>
   );
-}
+});
 
 const SUB_ICONS: Record<number, string> = {
   1028: 'music@2x.png',

@@ -9,15 +9,17 @@ export function Avatar({
   name,
   avatarUrl,
   seed,
+  resolution = 'original',
 }: {
   name: string;
   avatarUrl?: string | null;
   seed?: string;
+  resolution?: 'small' | 'original';
 }) {
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const resolved = useAvatarUrl(avatarUrl);
+  const resolved = useAvatarUrl(avatarUrl, true, resolution === 'small' ? 'small' : 'big');
 
   useLayoutEffect(() => {
     setFailed(false);

@@ -17,7 +17,9 @@ import {
   timelineViewport,
 } from '../../src/renderer/src/lib/timelineViewport';
 import type { Message } from '../../src/renderer/src/im-template/template/types';
+import type { MessageBubbleSkin } from '@weq/service';
 import { useMobileWebViewport } from '../../src/renderer/src/hooks/useMobileWebViewport';
+import { TIMELINE_VIRTUAL_THRESHOLD } from '../../src/renderer/src/hooks/useVirtualTimeline';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
 
@@ -25,9 +27,26 @@ const demo = createTemplateDemoData();
 const params = new URLSearchParams(location.search);
 const entryCount = Number(params.get('count') ?? 3000);
 const delayedEntry = params.has('delayed');
+const cachedBubble: MessageBubbleSkin | undefined = params.has('cached-bubbles')
+  ? (() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 40;
+      const drawing = canvas.getContext('2d')!;
+      drawing.fillStyle = '#c5e8ca';
+      drawing.fillRect(0, 0, 40, 40);
+      return {
+        itemId: 21009,
+        slice: { left: 4, right: 4, top: 4, bottom: 4 },
+        imageSize: { w: 40, h: 40 },
+        textColor: '#516196',
+        localFile: 'fixture.png',
+        baseImage: canvas.toDataURL('image/png'),
+      };
+    })()
+  : undefined;
 const avatar =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII=';
-const image = (() => {
+const image = await new Promise<string>((resolve, reject) => {
   const canvas = document.createElement('canvas');
   canvas.width = 300;
   canvas.height = 400;
@@ -38,8 +57,12 @@ const image = (() => {
   drawing.fillRect(24, 32, 252, 120);
   drawing.fillStyle = '#f0f3ed';
   drawing.fillRect(24, 180, 150, 180);
-  return canvas.toDataURL();
-})();
+  canvas.toBlob((blob) => {
+    if (blob) resolve(URL.createObjectURL(blob));
+    else reject(new Error('合成图片生成失败'));
+  });
+});
+window.addEventListener('pagehide', () => URL.revokeObjectURL(image), { once: true });
 const user = { ...demo.user, avatarUrl: avatar };
 const conversation = {
   ...demo.conversations.find((row) => row.type === 'direct')!,
@@ -54,6 +77,9 @@ const message = (seq: number): Message => ({
   body: `合成消息 ${seq}：${'用于检查长时间线和动态高度。'.repeat((Math.abs(seq) % 8) + 1)}`,
   createdAt: new Date(1792544400000 + seq * 1000).toISOString(),
   msgSeq: String(seq),
+  decoration: cachedBubble
+    ? { bubbleId: cachedBubble.itemId, fontId: 0, widgetId: 0, cachedBubble }
+    : undefined,
   qqElements:
     seq % 19 === 0
       ? [
@@ -101,6 +127,7 @@ function Fixture() {
   });
   const exportRequest = useContentExportRequest();
   Object.assign(bridge, {
+    virtualThreshold: TIMELINE_VIRTUAL_THRESHOLD,
     sentBodies: () => sentBodies.current,
     beginEntry: () => {
       setConversationId((id) => `${id}-loading`);

@@ -116,11 +116,7 @@ try {
   await page.waitForFunction(() =>
     document.querySelector('.weq-intent-chips')?.textContent.includes('闲聊'),
   );
-  assert.equal(await page.locator('.weq-int-batch').textContent(), '正在分析 12/18 · 失败 3');
-  assert.equal(
-    await page.locator('.weq-int-batch > span').getAttribute('title'),
-    '已处理 12/18，成功 9，失败 3',
-  );
+  assert.equal(await page.locator('.weq-int-batch').count(), 0);
   assert.equal(await page.locator('[aria-label="重试分析"]').count(), 0);
   assert.deepEqual(await geometry(), loading, '批次仍在处理时结果已出现且不改变消息区几何');
   if (output) await page.screenshot({ path: resolve(output, 'partial-results.png') });
@@ -243,9 +239,9 @@ try {
           await page.evaluate(() =>
             window.intentQa.publishProgress({
               total: 18,
-              completed: 12,
+              completed: 18,
               failed: 3,
-              pendingIds: ['pending'],
+              pendingIds: [],
             }),
           );
           const progressFits = await page.locator('.weq-int-batch').evaluate((node) => {

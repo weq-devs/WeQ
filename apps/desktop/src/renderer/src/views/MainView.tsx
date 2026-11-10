@@ -26,6 +26,8 @@ import { WebBusinessCache } from '../components/WebBusinessCache';
 import { resolvedProfilesKey } from '../lib/webBusinessCache';
 import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
 import { useContactOnlineStatuses } from '../hooks/useContactOnlineStatuses';
+import { useEventContextValue } from '../hooks/useEventContextValue';
+import { useStableCallback } from '../hooks/useStableCallback';
 import { useMobilePageSettled } from '../hooks/useMobilePageSettled';
 import { MobileSidebarPages } from '../components/MobileSidebarPages';
 import { withBrowserFile } from '../lib/browserFileUpload';
@@ -154,7 +156,7 @@ import {
   conversationPinned,
   pinOrderDelta,
 } from '@weq/service/conversation-order';
-import { mergeRecentContactPages } from '../lib/recentContacts';
+import { mergeRecentContactPages, recentContactPreviewIsBehind } from '../lib/recentContacts';
 import { useContentSelectionScope } from '../state/contentSelection';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import {
@@ -171,6 +173,7 @@ import {
 } from '../lib/conversationFirstPage';
 import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
 import { messageTemplateContext } from '../lib/messageTemplateContext';
+import { reconcileConversationRows } from '../lib/conversationListOrder';
 import type { MessageReadWindow } from '../../../shared/message_read';
 import { mergeRefreshedWindow } from '../lib/conversationRefresh';
 import {
@@ -290,7 +293,8 @@ import type { ConversationScope } from '@weq/service/search-policy';
 import { useSearchReturn } from '../hooks/useSearchReturn';
 import { useSearchDismissal } from '../hooks/useSearchDismissal';
 import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/model';
-import type { RoamingTarget } from '@weq/service';
+import type { RoamingTarget, MessageBubbleSkin } from '@weq/service';
+import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
 import { conversationAnalysisTarget, conversationRoamingTarget } from '../lib/conversationActions';
 import { createMediaId } from '../im-template/template/composerMedia';
 import {
@@ -581,6 +585,7 @@ type MessageWire = {
    * 转发时原样透传；不要用 `fontId` 反推（会丢 bit 16）。
    */
   decoration?: {
+    cachedBubble?: MessageBubbleSkin;
     bubbleId: number;
     fontId: number;
     widgetId: number;
@@ -591,6 +596,7 @@ type MessageWire = {
 
 /** The unified chat-message wire from the account router → local MessageWire. */
 type ChatMsgWire = {
+  cachedBubbles?: MessageBubbleSkin[];
   localSent?: boolean;
   sourceFormat?: 'native' | 'protocol';
   source?: 'roaming';
@@ -617,6 +623,7 @@ type ChatMsgWire = {
 };
 
 function toMessageWire(w: ChatMsgWire): MessageWire {
+  seedMessageBubbles(w.cachedBubbles);
   return {
     localSent: w.localSent,
     sourceFormat: w.sourceFormat,
@@ -633,7 +640,9 @@ function toMessageWire(w: ChatMsgWire): MessageWire {
     setEmojiList: w.setEmojiList,
     deletedKind: w.deletedKind,
     recall: w.recall,
-    decoration: w.decoration,
+    decoration: w.decoration
+      ? { ...w.decoration, cachedBubble: messageBubble(w.decoration.bubbleId) }
+      : undefined,
   };
 }
 
@@ -2433,17 +2442,15 @@ function MainWorkspace(): ReactElement {
       refetchOnMount: IS_WEB ? false : undefined,
     },
   );
-  // 实时只读最新页，不等待完整目录的逐页刷新；旧分页继续保留已知会话。
+  // 前台保持最新页查询活跃，恢复窗口和主动失效都能刷新；不串行重读整个目录。
   const recentHead = trpc.account.listRecentContacts.useQuery(
     { limit: 500, cursor: 0, ...pinSession.binding },
     {
-      enabled:
-        IS_WEB &&
-        Boolean(pinSession.binding) &&
-        Boolean(contacts.data) &&
-        !contacts.isFetchedAfterMount,
+      enabled: Boolean(pinSession.binding) && Boolean(contacts.data) && messageActivity.enabled,
       keepPreviousData: false,
       staleTime: 0,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
     },
   );
   const firstContactsReady = Boolean(contacts.data) || contacts.isError;
@@ -2531,24 +2538,16 @@ function MainWorkspace(): ReactElement {
       refetchOnReconnect: 'always',
     },
   );
-  const contactsRefreshingRef = useRef(false);
-  const contactsRefreshQueuedRef = useRef(false);
-  contactsRefreshingRef.current = recentHead.isFetching;
-  const refreshRecentHead = useCallback(() => {
-    if (contactsRefreshingRef.current) {
-      contactsRefreshQueuedRef.current = true;
-      return;
-    }
-    void headRefetchRef.current({ cancelRefetch: false });
-  }, []);
-  useEffect(() => {
-    if (recentHead.isFetching || !contactsRefreshQueuedRef.current) return;
-    contactsRefreshQueuedRef.current = false;
-    refreshRecentHead();
-  }, [recentHead.isFetching, refreshRecentHead]);
-  useEffect(() => {
-    contactsRefreshQueuedRef.current = false;
-  }, [messageScope]);
+  const recentHeadRefresh = useMemo(
+    () =>
+      createUnreadRefresh(async () => {
+        const result = await headRefetchRef.current({ cancelRefetch: false });
+        return !result.isError;
+      }, 100),
+    [messageScope],
+  );
+  useEffect(() => () => recentHeadRefresh.dispose(), [recentHeadRefresh]);
+  const refreshRecentHead = useCallback(() => recentHeadRefresh.request(), [recentHeadRefresh]);
   useEffect(() => {
     const refresh = () => {
       if (messageScopeRef.current && document.visibilityState !== 'hidden') refreshRecentHead();
@@ -2575,6 +2574,7 @@ function MainWorkspace(): ReactElement {
   );
   const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 }, directoryOptions);
   // Official QQ setting: observed 4 → 2 when switching from muted to group helper.
+  const previousGroupAssistantIds = useRef(new Set<string>());
   const groupAssistantIds = useMemo(() => {
     const ids = new Set(
       recentContactsData
@@ -2586,8 +2586,12 @@ function MainWorkspace(): ReactElement {
     for (const group of (allGroups.data ?? []) as GroupDetailWire[]) {
       if (group.directory?.notifyLevel === 2) ids.add(group.groupCode);
     }
-    return ids;
+    const previous = previousGroupAssistantIds.current;
+    return previous.size === ids.size && [...ids].every((id) => previous.has(id)) ? previous : ids;
   }, [recentContactsData, allGroups.data]);
+  useLayoutEffect(() => {
+    previousGroupAssistantIds.current = groupAssistantIds;
+  }, [groupAssistantIds]);
   const groupAssistantEntry = useMemo(
     () =>
       recentContactsData.find(
@@ -4360,7 +4364,13 @@ function MainWorkspace(): ReactElement {
     user,
     botUids,
   ]);
-  const conversations = useMemo(() => {
+  const baseConversationRowsRef = useRef<Conversation[]>([]);
+  const conversationRowsRef = useRef<Conversation[]>([]);
+  const recentConversationCache = useMemo(
+    () => new WeakMap<RecentContactWire, Conversation | null>(),
+    [user, groupNameByCode, botUids, previewDisplayNames, previewGroupNames, profileByUid],
+  );
+  const baseConversations = useMemo(() => {
     const groups = (allGroups.data ?? []) as GroupDetailWire[];
     const hiddenList = (hiddenSessions.data ?? []) as HiddenSessionWire[];
     const deletedList = (deletedSessions.data ?? []) as DeletedSessionWire[];
@@ -4378,8 +4388,9 @@ function MainWorkspace(): ReactElement {
         // 隐藏会话：在 hidden_session_storage_table_v1 里有记录的，不出现在主列表
         return !hiddenUidSet.has(c.targetUid);
       })
-      .map((contact) =>
-        contactToConversation(
+      .map((contact) => {
+        if (recentConversationCache.has(contact)) return recentConversationCache.get(contact)!;
+        const mapped = contactToConversation(
           contact,
           user,
           groupNameByCode,
@@ -4387,8 +4398,10 @@ function MainWorkspace(): ReactElement {
           previewDisplayNames,
           previewGroupNames,
           profileByUid,
-        ),
-      )
+        );
+        recentConversationCache.set(contact, mapped);
+        return mapped;
+      })
       .filter((conversation): conversation is Conversation => conversation !== null)
       .map((conversation) =>
         conversation.type === 'group' && directoryKnown
@@ -4568,10 +4581,7 @@ function MainWorkspace(): ReactElement {
         members: [],
         updatedAt,
         preference: { ...fallbackPreference, muted: true },
-        unreadCount: assistantGroups.reduce(
-          (count, conversation) => count + (unreadByConv[conversation.id] ?? 0),
-          0,
-        ),
+        unreadCount: 0,
         lastMessage: latest?.lastMessage
           ? {
               ...latest.lastMessage,
@@ -4637,14 +4647,45 @@ function MainWorkspace(): ReactElement {
       });
     }
 
+    return reconcileConversationRows(baseConversationRowsRef.current, Array.from(byId.values()));
+  }, [
+    recentConversationCache,
+    allGroups.data,
+    recentContactsData,
+    temporaryConversations,
+    officialAccounts.data,
+    serviceAccounts.data,
+    guildDirectSessions.data,
+    hiddenSessions.data,
+    deletedSessions.data,
+    hiddenUidSet,
+    groupNameByCode,
+    profileByUid,
+    user,
+    previewDisplayNames,
+    previewGroupNames,
+    groupAssistantIds,
+    groupAssistantEntry,
+    botUids,
+    outgoingConversationPreviews,
+  ]);
+  const conversations = useMemo(() => {
+    const assistantUnread = [...groupAssistantIds].reduce(
+      (count, id) => count + (unreadByConv[id] ?? 0),
+      0,
+    );
     const assistantDraftTime = [...groupAssistantIds].reduce(
       (latest, id) => Math.max(latest, draftTimesByConv[id] ?? 0),
       0,
     );
-    return (
-      Array.from(byId.values())
+    return reconcileConversationRows(
+      conversationRowsRef.current,
+      baseConversations
         .map((conversation) => {
-          const unread = unreadByConv[conversation.id];
+          const unread =
+            conversation.type === 'merged' && conversation.mergedKind === 'groupAssistant'
+              ? assistantUnread
+              : unreadByConv[conversation.id];
           const highlights = highlightsByConv[conversation.id] ?? null;
           const topTime = topTimeByConv[conversation.id];
           const pinStateKnown =
@@ -4700,33 +4741,22 @@ function MainWorkspace(): ReactElement {
                 temporaryConversations[a.id]?.appearedAt ?? 0,
               ) || a.id.localeCompare(b.id)
           );
-        })
+        }),
     );
   }, [
-    allGroups.data,
-    recentContactsData,
+    baseConversations,
     temporaryConversations,
-    officialAccounts.data,
-    serviceAccounts.data,
-    guildDirectSessions.data,
-    hiddenSessions.data,
-    deletedSessions.data,
-    hiddenUidSet,
-    groupNameByCode,
-    profileByUid,
-    user,
     unreadByConv,
-    previewDisplayNames,
-    previewGroupNames,
     highlightsByConv,
     topTimeByConv,
     topContacts.data,
     draftTimesByConv,
     groupAssistantIds,
-    groupAssistantEntry,
-    botUids,
-    outgoingConversationPreviews,
   ]);
+  useLayoutEffect(() => {
+    baseConversationRowsRef.current = baseConversations;
+    conversationRowsRef.current = conversations;
+  }, [baseConversations, conversations]);
   const sidebarConversations = useMemo(
     () => sidebarConversationsWithoutAssistant(conversations, groupAssistantIds),
     [conversations, groupAssistantIds],
@@ -7745,6 +7775,39 @@ function MainWorkspace(): ReactElement {
       windowRef.current = { minSeq, anchored: anchoredToLatest };
     loadedRef.current = loaded;
   }, [loaded, anchoredToLatest]);
+
+  const previewReconciliationRef = useRef('');
+  useEffect(() => {
+    if (
+      !messageScope ||
+      trackedMessageScope !== messageScope ||
+      !trackedConversationId ||
+      !anchoredToLatest
+    )
+      return;
+    const contact = recentContactsData.find((row) => row.targetUid === trackedConversationId);
+    const latest = loaded.findLast((row) => row.source !== 'roaming');
+    if (!contact || !latest || !recentContactPreviewIsBehind(contact, latest)) return;
+    const key = JSON.stringify([
+      messageScope,
+      trackedConversationId,
+      latest.msgId,
+      latest.msgSeq,
+      latest.sendTime,
+    ]);
+    if (previewReconciliationRef.current === key) return;
+    previewReconciliationRef.current = key;
+    // 只校准最新页；同一消息只请求一次，失败由刷新队列退避重试。
+    refreshRecentHead();
+  }, [
+    loaded,
+    anchoredToLatest,
+    trackedConversationId,
+    trackedMessageScope,
+    messageScope,
+    recentContactsData,
+    refreshRecentHead,
+  ]);
 
   // Scroll the loaded list to a message row by id and briefly flash it.
   const { run: runMessageLocate, cancel: cancelMessageLocate } = useMessageLocateFeedback(
@@ -10967,8 +11030,21 @@ function MainWorkspace(): ReactElement {
     }
   };
 
+  const selectSidebarContact = useStableCallback((contact: Contact) =>
+    settingsNavigation.navigate(() => {
+      setSurfaceNavigation((value) => value + 1);
+      shell.selectContact(contact);
+    }),
+  );
+  const selectSidebarGroup = useStableCallback((id: string) =>
+    settingsNavigation.navigate(() => {
+      setSurfaceNavigation((value) => value + 1);
+      shell.selectGroup(id);
+    }),
+  );
+  const replyJump = useStableCallback(jumpToSeq);
   const chatContent = (
-    <ReplyJumpContext.Provider value={jumpToSeq}>
+    <ReplyJumpContext.Provider value={replyJump}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
         <ConvContext.Provider value={isGroup ? (selectedConversation?.id ?? '') : ''}>
           <ChatShell
@@ -11195,18 +11271,8 @@ function MainWorkspace(): ReactElement {
                         conversationsLoadingMore={contactsLoadingMore}
                         query={shell.query}
                         onSelectConversation={handleSelectConversation}
-                        onSelectContact={(id) =>
-                          settingsNavigation.navigate(() => {
-                            setSurfaceNavigation((value) => value + 1);
-                            shell.selectContact(id);
-                          })
-                        }
-                        onSelectGroup={(id) =>
-                          settingsNavigation.navigate(() => {
-                            setSurfaceNavigation((value) => value + 1);
-                            shell.selectGroup(id);
-                          })
-                        }
+                        onSelectContact={selectSidebarContact}
+                        onSelectGroup={selectSidebarGroup}
                         activateToolsOnSelect={false}
                       />
                       {view === sidebarView && (
@@ -12194,6 +12260,59 @@ function MainWorkspace(): ReactElement {
       </ForwardKindContext.Provider>
     </ReplyJumpContext.Provider>
   );
+  const previousDirectoryIds = useRef<string[]>([]);
+  const contactDirectoryIds = useMemo(() => {
+    const ids =
+      shell.contactTab === 'friends'
+        ? [
+            ...buddyContacts,
+            ...specialContactSections.flatMap((section) => section.items),
+            ...historicalContactSections.flatMap((section) => section.items),
+          ]
+            .filter(
+              (contact) =>
+                !contactDirectoryQuery ||
+                `${displayUserName(contact)} ${'nick' in contact ? (contact.nick ?? '') : ''} ${contact.identityValue}`
+                  .toLocaleLowerCase()
+                  .includes(contactDirectoryQuery.trim().toLocaleLowerCase()),
+            )
+            .map((contact) => contact.id)
+        : contactDirectoryConversations
+            .filter(
+              (conversation) =>
+                conversation.type === 'group' &&
+                (!contactDirectoryQuery ||
+                  `${conversation.group.name} ${conversation.group.remark ?? ''} ${conversation.id}`
+                    .toLocaleLowerCase()
+                    .includes(contactDirectoryQuery.trim().toLocaleLowerCase())),
+            )
+            .map((conversation) => conversation.id);
+    const previous = previousDirectoryIds.current;
+    return previous.length === ids.length && previous.every((id, index) => id === ids[index])
+      ? previous
+      : ids;
+  }, [
+    shell.contactTab,
+    buddyContacts,
+    specialContactSections,
+    historicalContactSections,
+    contactDirectoryConversations,
+    contactDirectoryQuery,
+  ]);
+  useLayoutEffect(() => {
+    previousDirectoryIds.current = contactDirectoryIds;
+  }, [contactDirectoryIds]);
+  const contactDirectoryValue = useMemo(
+    () => ({
+      query: contactDirectoryQuery,
+      onQuery: setContactDirectoryQuery,
+      ids: contactDirectoryIds,
+    }),
+    [contactDirectoryQuery, contactDirectoryIds],
+  );
+  const profileNavigation = useCallback<
+    NonNullable<React.ContextType<typeof ProfileNavigationContext>>
+  >((member, anchor, group) => setMemberCard({ member, anchor, groupContext: group ?? null }), []);
   return (
     <ContactWorkspaceNavigationContext.Provider
       value={(target) => {
@@ -12219,11 +12338,7 @@ function MainWorkspace(): ReactElement {
         }
       }}
     >
-      <ProfileNavigationContext.Provider
-        value={(member, anchor, group) =>
-          setMemberCard({ member, anchor, groupContext: group ?? null })
-        }
-      >
+      <ProfileNavigationContext.Provider value={profileNavigation}>
         <QzoneNavigationContext.Provider
           value={(uin, nickname) => {
             if (!/^[1-9]\d{4,19}$/.test(uin)) return;
@@ -12288,7 +12403,9 @@ function MainWorkspace(): ReactElement {
                 }}
               >
                 <ConversationDirectoryContext.Provider
-                  value={{
+                  value={useEventContextValue<
+                    NonNullable<React.ContextType<typeof ConversationDirectoryContext>>
+                  >({
                     real: conversations,
                     guild: guildConversationRows,
                     scope: conversationScope,
@@ -12337,42 +12454,10 @@ function MainWorkspace(): ReactElement {
                       setCloneGroupRequest((current) => current + 1);
                       shell.switchView('agentlab');
                     },
-                  }}
+                  })}
                 >
                   <FriendDirectoryControls>
-                    <ContactDirectoryContext.Provider
-                      value={{
-                        query: contactDirectoryQuery,
-                        onQuery: setContactDirectoryQuery,
-                        ids:
-                          shell.contactTab === 'friends'
-                            ? [
-                                ...buddyContacts,
-                                ...specialContactSections.flatMap((section) => section.items),
-                                ...historicalContactSections.flatMap((section) => section.items),
-                              ]
-                                .filter(
-                                  (contact) =>
-                                    !contactDirectoryQuery ||
-                                    `${displayUserName(contact)} ${'nick' in contact ? (contact.nick ?? '') : ''} ${contact.identityValue}`
-                                      .toLocaleLowerCase()
-                                      .includes(contactDirectoryQuery.trim().toLocaleLowerCase()),
-                                )
-                                .map((contact) => contact.id)
-                            : contactDirectoryConversations
-                                .filter(
-                                  (conversation) =>
-                                    conversation.type === 'group' &&
-                                    (!contactDirectoryQuery ||
-                                      `${conversation.group.name} ${conversation.group.remark ?? ''} ${conversation.id}`
-                                        .toLocaleLowerCase()
-                                        .includes(
-                                          contactDirectoryQuery.trim().toLocaleLowerCase(),
-                                        )),
-                                )
-                                .map((conversation) => conversation.id),
-                      }}
-                    >
+                    <ContactDirectoryContext.Provider value={contactDirectoryValue}>
                       <WorkspacePages
                         navigationKey={`${shell.view}:${shell.activeConversationId ?? ''}:${shell.selectedContactId ?? ''}:${shell.selectedGroupConversationId ?? ''}:${surfaceNavigation}`}
                         onNavigate={() => {
@@ -12393,7 +12478,9 @@ function MainWorkspace(): ReactElement {
                         <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
                           <RelationshipDirectoryContext.Provider value={relationshipDirectory}>
                             <GroupMessagePreviewContext.Provider
-                              value={{
+                              value={useEventContextValue<
+                                NonNullable<React.ContextType<typeof GroupMessagePreviewContext>>
+                              >({
                                 open: (conversation) =>
                                   void previewConversation(conversation, 'group-profile'),
                                 close: () => {
@@ -12408,7 +12495,7 @@ function MainWorkspace(): ReactElement {
                                   privatePreview?.source === 'group-profile'
                                     ? conversationPreviewContent
                                     : null,
-                              }}
+                              })}
                             >
                               {chatContent}
                             </GroupMessagePreviewContext.Provider>

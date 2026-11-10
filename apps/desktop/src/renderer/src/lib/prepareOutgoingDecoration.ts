@@ -2,6 +2,7 @@ import type { ResolvedMsgDecoration } from '@weq/service';
 import { fontFaces } from './fontFaces';
 import { injectBubbleCss, injectFontCss, messageFontFamily } from './msgDecorationStyle';
 import { dressFontUrl } from './resourceUrl';
+import { messageBubble } from './messageBubbles';
 
 type DecorationIds = { bubbleId: number; fontId: number; widgetId: number };
 
@@ -17,9 +18,10 @@ export async function prepareOutgoingDecoration(
   try {
     const [bubble, font] = await Promise.all([
       ids.bubbleId
-        ? resolve({ bubbleId: ids.bubbleId, fontId: 0, widgetId: 0 }).then(
+        ? (messageBubble(ids.bubbleId) ??
+          resolve({ bubbleId: ids.bubbleId, fontId: 0, widgetId: 0 }).then(
             (result) => result.bubble,
-          )
+          ))
         : null,
       ids.fontId
         ? resolve({ bubbleId: 0, fontId: ids.fontId, widgetId: 0 }).then((result) => result.font)

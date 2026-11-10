@@ -209,9 +209,12 @@ export class UnreadInfoService {
           selfUid: this.session.selfUid,
           selfUin: this.session.context.uin,
         };
-        return readSeqs?.size
-          ? this.session.unreadInfo.getUnreadInfos(targets, self, readSeqs)
-          : this.session.unreadInfo.getUnreadInfos(targets, self);
+        return this.session.unreadInfo.getUnreadInfos(
+          targets,
+          self,
+          readSeqs?.size ? readSeqs : undefined,
+          { reuseOutgoing: true },
+        );
       },
       signal,
     );

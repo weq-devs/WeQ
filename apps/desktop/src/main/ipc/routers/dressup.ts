@@ -170,6 +170,12 @@ export const dressupRouter = router({
     return {
       qqOnline: qqOnline(services),
       manifest,
+      cachedBubbles: [
+        ...new Set([manifest.activeBubble, record?.homeDress?.bubbleId ?? 0]),
+      ].flatMap((id) => {
+        const skin = id ? services.dressInstall.messageBubble(id) : undefined;
+        return skin ? [skin] : [];
+      }),
       /** 自己在 QQ 里正在用的那几款(bootstrap 时从 getSelfDress 存下的)。 */
       own: {
         bubbleId: record?.homeDress?.bubbleId ?? 0,
@@ -415,6 +421,7 @@ export const dressupRouter = router({
    *
    * 同一 itemId 在 service 层有内存缓存：首次需要异步解析（bubble / font 可能要下载
    * 资源），之后恒定命中缓存——前端应以 staleTime: Infinity 查询。
+   * localOnly=true 只读取已缓存的气泡参数，其他两项返回 null，不触发下载。
    *
    * font 与 bubble 同样是「按需下载」：资源只进共享缓存（fetch 版，不写「已装」清单），
    * 未缓存过就走 scupdate 下载（需要在线实例，没有在线实例时该条 fontFile 为 null，
@@ -430,11 +437,22 @@ export const dressupRouter = router({
         bubbleId: z.number().int().min(0).default(0),
         fontId: z.number().int().min(0).default(0),
         widgetId: z.number().int().min(0).default(0),
+        localOnly: z.boolean().optional(),
       }),
     )
     .query(async ({ input }) => {
       const services = requireServices();
-      return services.msgDecoration.resolve(input);
+      // 首次绘制只读现有气泡，不等待字体、挂件或未缓存资源的下载。
+      if (input.localOnly) {
+        return {
+          bubble: services.dressInstall.localBubble(input.bubbleId),
+          font: null,
+          widget: null,
+        };
+      }
+      const resolved = await services.msgDecoration.resolve(input);
+      const cached = services.dressInstall.messageBubble?.(input.bubbleId);
+      return cached ? { ...resolved, bubble: cached } : resolved;
     }),
 
   /**

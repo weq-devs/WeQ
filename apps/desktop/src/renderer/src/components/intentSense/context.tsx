@@ -464,14 +464,10 @@ export function IntentSenseProvider({
   return (
     <IntentSenseContext.Provider value={value}>
       {children}
-      {visibleBatch ? (
-        <div
-          className="weq-int-batch"
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          aria-busy={visibleBatch.running}
-        >
+      {visibleBatch &&
+      !visibleBatch.running &&
+      (visibleBatch.error || (visibleBatch.failed ?? 0) > 0) ? (
+        <div className="weq-int-batch" role="status" aria-live="polite" aria-atomic="true">
           <span
             title={
               visibleBatch.total === undefined
@@ -479,24 +475,18 @@ export function IntentSenseProvider({
                 : `已处理 ${visibleBatch.completed ?? 0}/${visibleBatch.total}，成功 ${visibleBatch.succeeded ?? 0}，失败 ${visibleBatch.failed ?? 0}`
             }
           >
-            {visibleBatch.running
-              ? `正在分析${visibleBatch.total === undefined ? '…' : ` ${visibleBatch.completed ?? 0}/${visibleBatch.total}`}${visibleBatch.failed ? ` · 失败 ${visibleBatch.failed}` : ''}`
-              : visibleBatch.error
-                ? `分析未完成：${visibleBatch.error}`
-                : visibleBatch.total === 0
-                  ? '分析已是最新'
-                  : `分析完成 · 成功 ${visibleBatch.succeeded ?? 0}${visibleBatch.failed ? `，失败 ${visibleBatch.failed}` : ''}`}
+            {visibleBatch.error
+              ? `分析未完成：${visibleBatch.error}`
+              : `分析未完成：${visibleBatch.failed} 条消息失败`}
           </span>
-          {(visibleBatch.error || visibleBatch.failed) && !visibleBatch.running ? (
-            <button
-              type="button"
-              title="重试分析"
-              aria-label="重试分析"
-              onClick={() => setRetry((v) => v + 1)}
-            >
-              <RefreshCw size={14} />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            title="重试分析"
+            aria-label="重试分析"
+            onClick={() => setRetry((v) => v + 1)}
+          >
+            <RefreshCw size={14} />
+          </button>
         </div>
       ) : null}
     </IntentSenseContext.Provider>

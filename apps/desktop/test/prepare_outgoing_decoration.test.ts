@@ -1,8 +1,31 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { prepareOutgoingDecoration } from '../src/renderer/src/lib/prepareOutgoingDecoration';
 import { fontFaces } from '../src/renderer/src/lib/fontFaces';
+import { seedMessageBubbles } from '../src/renderer/src/lib/messageBubbles';
+import { stubReadyDecorationResources } from './support/readyDecorationResources';
 
 const originalFonts = Object.getOwnPropertyDescriptor(document, 'fonts');
+
+it('发送预览直接复用已提前准备的气泡，不再补一次查询', async () => {
+  stubReadyDecorationResources();
+  seedMessageBubbles([
+    {
+      itemId: 22991,
+      slice: { left: 4, right: 4, top: 4, bottom: 4 },
+      imageSize: { w: 40, h: 40 },
+      textColor: '#516196',
+      localFile: 'synthetic.png',
+      baseImage: 'data:image/png;base64,c3ludGhldGlj',
+    },
+  ]);
+  const resolve = vi.fn(async () => ({ bubble: null, font: null, widget: null }));
+  const release = await prepareOutgoingDecoration(
+    { bubbleId: 22991, fontId: 0, widgetId: 0 },
+    resolve,
+  );
+  expect(resolve).not.toHaveBeenCalled();
+  release();
+});
 afterEach(() => {
   if (originalFonts) Object.defineProperty(document, 'fonts', originalFonts);
   else Reflect.deleteProperty(document, 'fonts');

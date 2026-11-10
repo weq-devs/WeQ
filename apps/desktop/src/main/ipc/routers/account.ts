@@ -108,6 +108,7 @@ import { mediaSaveRouter } from './media_save';
 import { resourceCleanupRouter } from './resource_cleanup';
 import { conversationCalendarRouter } from './conversation_calendar';
 import { roamingMsgToWire } from '../roaming_message_wire';
+import { withMessageBubbles } from '../message_bubbles';
 import { dressupRouter } from './dressup';
 import { redpackRouter } from './redpack';
 import { giftMallRouter } from './gift_mall';
@@ -788,15 +789,18 @@ async function withRoamingHistory(
         descending,
       ),
     ]);
-    return mergeRoamingTimeline<ChatMsgWire>(kind, local, cached.map(roamingMsgToWire), {
-      min,
-      max,
-      limit,
-      descending,
-    });
+    return withMessageBubbles(
+      mergeRoamingTimeline<ChatMsgWire>(kind, local, cached.map(roamingMsgToWire), {
+        min,
+        max,
+        limit,
+        descending,
+      }),
+      services.dressInstall,
+    );
   } catch {
     // Cache failure must never prevent reading the original QQ history.
-    return rows;
+    return withMessageBubbles(await rows, services.dressInstall);
   }
 }
 
@@ -3336,7 +3340,7 @@ export const accountRouter = router({
             const cached = services.gapHistory
               .cachedTimeline(input.kind, input.conv, 1, 0xffffffff, input.limit, true)
               .catch(() => []);
-            const rows = await local;
+            const rows = withMessageBubbles(await local, services.dressInstall);
             localRows = rows;
             if (
               requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
@@ -3344,12 +3348,15 @@ export const accountRouter = router({
             )
               throw new Error('账号数据源已切换');
             if (!closed && rows.length) emit.next({ rows, complete: false });
-            return mergeRoamingTimeline(input.kind, rows, (await cached).map(roamingMsgToWire), {
-              min: 1n,
-              max: 0xffffffffn,
-              limit: input.limit,
-              descending: true,
-            });
+            return withMessageBubbles(
+              mergeRoamingTimeline(input.kind, rows, (await cached).map(roamingMsgToWire), {
+                min: 1n,
+                max: 0xffffffffn,
+                limit: input.limit,
+                descending: true,
+              }),
+              services.dressInstall,
+            );
           },
           input.prefetch ? 'background' : 'interactive',
         )
@@ -4546,9 +4553,12 @@ export const accountRouter = router({
         if (!state.qqOnline || !state.attachEnabled) {
           throw new Error('QQ 未在线或处于完全离线模式，无法拉取合并转发');
         }
-        return await service.fetchRemote(input.resId);
+        return withMessageBubbles(
+          await service.fetchRemote(input.resId),
+          requireServices().dressInstall,
+        );
       }
-      return records.map(forwardRecordToWire);
+      return withMessageBubbles(records.map(forwardRecordToWire), requireServices().dressInstall);
     }),
 
   /** Get un-filtered raw elements for one message (for editing). */
@@ -4857,7 +4867,15 @@ export const accountRouter = router({
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
       )
         throw new Error('账号或数据源已切换');
-      return result.ok ? { ...result, messages: result.messages.map(roamingMsgToWire) } : result;
+      return result.ok
+        ? {
+            ...result,
+            messages: withMessageBubbles(
+              result.messages.map(roamingMsgToWire),
+              requireServices().dressInstall,
+            ),
+          }
+        : result;
     }),
 
   /**
@@ -5235,7 +5253,10 @@ export const accountRouter = router({
             emit.next({
               kind: change.kind,
               conv: change.conv,
-              messages: change.messages.map(roamingMsgToWire),
+              messages: withMessageBubbles(
+                change.messages.map(roamingMsgToWire),
+                services.dressInstall,
+              ),
             });
           };
           dbEventBus.on('roaming', handler);

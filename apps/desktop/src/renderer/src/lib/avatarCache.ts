@@ -15,8 +15,26 @@ import { fixProfileAvatarUrl } from './avatarResolver';
  * original `fb` url — on a miss. `v=big` asks for the original; the resolver
  * falls back to the thumbnail when that's all QQ cached.
  */
-function localFirst(params: Record<string, string>, fb: string): string {
-  return mediaUrl('avatar', { ...params, v: 'big', fb });
+function localFirst(params: Record<string, string>, fb: string, variant: 'big' | 'small'): string {
+  return mediaUrl('avatar', { ...params, v: variant, fb });
+}
+
+/** 小槽位只缩小 QQ 已知头像端点；名片与原图请求不受影响。 */
+function smallAvatarSource(src: string): string {
+  try {
+    const url = new URL(src);
+    if (!/(^|\.)qlogo\.cn$/i.test(url.hostname)) return src;
+    if (url.pathname === '/g' && (url.searchParams.has('nk') || url.searchParams.has('ek')))
+      url.searchParams.set('s', '100');
+    else {
+      const group = url.pathname.match(/^\/gh\/(\d+)\/\d+\/\d+\/?$/);
+      if (!group) return src;
+      url.pathname = `/gh/${group[1]}/${group[1]}/100`;
+    }
+    return url.href;
+  } catch {
+    return src;
+  }
 }
 
 /**
@@ -30,25 +48,42 @@ function localFirst(params: Record<string, string>, fb: string): string {
  * 不看 Referer、也给 CORS 头，浏览器能直连。其余远程图（ARK 预览、静态地图、闪传封面、
  * 收藏图）必须继续走代理。
  */
-export function cachedAvatarUrl(src: string | null | undefined): string | null {
+export function cachedAvatarUrl(
+  src: string | null | undefined,
+  variant: 'big' | 'small' = 'big',
+): string | null {
   if (!src) return null;
   // 先修 QQ profile 风格头像那个空 `s=`（`qh.qlogo.cn/g?b=qq&ek=…&s=`，数据库
   // 20004 列与 OIDB headUrl 都是这个形状）。空 s= 上游会 400，经代理就变成 502、
   // 头像全裂；补成 `s=0` 才好。放在这个 choke point 上，下面三条分支（本地优先的
   // `fb` 回退、集群头像、`weq-avatar://` 代理）以及「优先使用 CDN」直连都跟着受益。
-  const fixed = fixProfileAvatarUrl(src) ?? src;
+  const repaired = fixProfileAvatarUrl(src) ?? src;
+  const fixed = variant === 'small' ? smallAvatarSource(repaired) : repaired;
   // Only remote http(s) avatars go through a cache; leave data:, blob:,
   // weq-asset:, and anything already wrapped alone.
-  if (!/^https?:\/\//i.test(fixed)) return fixed;
+  if (!/^https?:\/\//i.test(fixed)) {
+    if (variant === 'small' && /^(weq-media:\/\/avatar|\/_media\/avatar)(\?|$)/.test(fixed)) {
+      const url = new URL(fixed, 'https://weq.invalid');
+      url.searchParams.set('v', 'small');
+      const fb = url.searchParams.get('fb');
+      if (fb) url.searchParams.set('fb', smallAvatarSource(fb));
+      return fixed.startsWith('/') ? `${url.pathname}${url.search}` : url.href;
+    }
+    return fixed;
+  }
 
   // User avatar endpoint: …qlogo.cn/g?…&nk=<uin>… (thirdqq / q / q1 / q2).
   const userNk = fixed.match(/^https?:\/\/[^/]*qlogo\.cn\/[^?]*\?[^#]*\bnk=(\d+)/i);
   if (userNk)
-    return preferCdnEnabled() ? fixed : localFirst({ scope: 'user', uin: userNk[1]! }, fixed);
+    return preferCdnEnabled()
+      ? fixed
+      : localFirst({ scope: 'user', uin: userNk[1]! }, fixed, variant);
   // Group avatar endpoint: …p.qlogo.cn/gh/<code>/<code>/<size> (code == uid).
   const groupGh = fixed.match(/^https?:\/\/[^/]*qlogo\.cn\/gh\/(\d+)\//i);
   if (groupGh)
-    return preferCdnEnabled() ? fixed : localFirst({ scope: 'group', uid: groupGh[1]! }, fixed);
+    return preferCdnEnabled()
+      ? fixed
+      : localFirst({ scope: 'group', uid: groupGh[1]! }, fixed, variant);
 
   // Non-QQ remote avatar (e.g. GitHub in demo/agentlab): plain URL disk cache.
   // 「优先使用 CDN」刻意不放行这一支 —— 走到这里的是 ARK 卡片预览图、静态地图、闪传

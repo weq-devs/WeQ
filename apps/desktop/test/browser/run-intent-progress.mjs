@@ -92,12 +92,18 @@ try {
             { theme, state, running },
           );
           await page.waitForFunction(
-            (running) =>
-              document.querySelector('.weq-int-batch')?.getAttribute('aria-busy') ===
-              String(running),
+            (running) => Boolean(document.querySelector('.weq-int-batch')) === !running,
             running,
           );
           assert.equal(await page.getByLabel('重试分析', { exact: true }).count(), running ? 0 : 1);
+          if (running) {
+            cases += 1;
+            continue;
+          }
+          assert.equal(
+            await page.locator('.weq-int-batch').textContent(),
+            '分析未完成：3 条消息失败',
+          );
           const geometry = await page.locator('.weq-int-batch').evaluate((node) => {
             const rect = node.getBoundingClientRect();
             const message = document.querySelector('.message-scroll').getBoundingClientRect();

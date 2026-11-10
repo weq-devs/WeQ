@@ -6,7 +6,7 @@
  * invalidate `dressup.getState`,同一份 query 让这个 hook 重新注入。
  */
 
-import { useEffect } from 'react';
+import { useEffect, useInsertionEffect } from 'react';
 import type { DressManifest, InstalledFont, ResolvedWidget } from '@weq/service';
 import { trpc } from '../trpc/client';
 import {
@@ -16,6 +16,7 @@ import {
   type FontFxSkin,
 } from '../lib/dressSkin';
 import { dressBackgroundUrl, dressFontUrl, dressUrl, isVideoBackground } from '../lib/resourceUrl';
+import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
 
 /**
  * 从清单里挑出生效的挂件,翻成渲染要的形状(与 service 的 ResolvedWidget 同构)。
@@ -59,6 +60,7 @@ function activeSkins(manifest: DressManifest) {
           imageSize: bubble.imageSize,
           textColor: bubble.textColor,
           localFile: bubble.localFile,
+          baseImage: messageBubble(bubble.itemId)?.baseImage,
           animationFrameCount: bubble.animationFrameCount,
           animationFrameTimeMs: bubble.animationFrameTimeMs,
           animationRepeat: bubble.animationRepeat,
@@ -110,6 +112,7 @@ export function useDressSkin(): void {
     staleTime: 60_000,
   });
   const manifest = state.data?.manifest;
+  const cachedBubbles = state.data?.cachedBubbles;
 
   // 开机同步(把手机 QQ 正在用的那两款装上)是网络往返,必然比首屏这次查询晚几秒。
   // 不听这个推送的话,界面会拿着空清单一直等到 staleTime 过期 —— 表现为「已装 0」
@@ -124,9 +127,10 @@ export function useDressSkin(): void {
     },
   });
 
-  useEffect(() => {
+  useInsertionEffect(() => {
+    seedMessageBubbles(cachedBubbles);
     syncDressSkin(manifest);
-  }, [manifest]);
+  }, [manifest, cachedBubbles]);
   useEffect(() => () => applyDressSkin(null, null, null), []);
 }
 

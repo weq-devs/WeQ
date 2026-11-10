@@ -1127,7 +1127,9 @@ function QqMessageContentBody({
       if (isInlineFace(data)) {
         return (
           <div className={cn('message-content', 'qq-message-inline')}>
-            <FaceNode data={data} size={INLINE_SIZE} isSender={isSender} />
+            <div className="qq-message-body">
+              <FaceNode data={data} size={INLINE_SIZE} isSender={isSender} />
+            </div>
           </div>
         );
       }
@@ -1197,7 +1199,11 @@ function QqMessageContentBody({
 
   const nodes = renderElementNodes(meaningful, sendTimeMs, msgId, isSender, callConv);
 
-  return <div className={cn('message-content', 'qq-message-inline')}>{nodes}</div>;
+  return (
+    <div className={cn('message-content', 'qq-message-inline')}>
+      <div className="qq-message-body">{nodes}</div>
+    </div>
+  );
 }
 
 /** Element kinds this renderer claims (text/reply/face/at + rich media + markdown + multiMsg + cards). */

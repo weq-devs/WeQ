@@ -278,6 +278,12 @@ export class DressService {
   localBubble(itemId: number): BubbleSkin | null {
     return this.cache.getBubbleSkin(itemId);
   }
+  prepareMessageRendering(): Promise<void> {
+    return this.cache.prepareMessageRendering();
+  }
+  messageBubble(itemId: number) {
+    return this.cache.messageBubble(itemId);
+  }
   localPendant(itemId: number) {
     return this.cache.getPendantSidecar(itemId);
   }

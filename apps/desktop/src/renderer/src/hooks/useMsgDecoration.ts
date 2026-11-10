@@ -7,15 +7,23 @@
  * for inline rendering.
  */
 
-import { useContext, useLayoutEffect, useState, type RefObject } from 'react';
-import type { ResolvedWidget } from '@weq/service';
+import { useContext, useInsertionEffect, useLayoutEffect, useState, type RefObject } from 'react';
+import type { ResolvedWidget, MessageBubbleSkin } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { MsgDecorationEnabledContext } from '../components/QqMessageContent';
 import { injectBubbleCss, injectFontCss, injectWidgetCss } from '../lib/msgDecorationStyle';
 import { toFontFxSkin, type FontFxSkin } from '../lib/dressSkin';
 import { useTabActive } from '../components/RetainedTabs';
+import { messageBubble } from '../lib/messageBubbles';
 
-type DecorationIds = { bubbleId: number; fontId: number; widgetId: number } | undefined;
+type DecorationIds =
+  | {
+      bubbleId: number;
+      fontId: number;
+      widgetId: number;
+      cachedBubble?: MessageBubbleSkin;
+    }
+  | undefined;
 
 /**
  * Async per-message decoration. Returns the resolved widget overlay (or null).
@@ -26,7 +34,7 @@ type DecorationIds = { bubbleId: number; fontId: number; widgetId: number } | un
  * CSS for bubbles / fonts / animated widgets is injected as a side-effect when
  * data arrives; the caller only needs to apply `data-bubble` / `data-font` /
  * `data-widget` attributes to the DOM.
- * 气泡与字体的返回 id 经过资源就绪检查：同条消息的两项装扮一起应用或一起回退。
+ * 本地底图随消息页到达，首次提交直接应用；不隐藏正文，不等待查询或解码。
  *
  * 字体多回一份 `fontFx`（`eimg` 炫彩帧）：那层 CSS 要求行上再挂一个
  * `data-fontfx="<字体id>-<变体>"` 才生效，而挂哪一档要量完气泡尺寸才知道（气泡比
@@ -44,8 +52,22 @@ export function useMsgDecoration(
 } {
   const enabled = useContext(MsgDecorationEnabledContext);
   const tabActive = useTabActive();
-  const [visible, setVisible] = useState(!element || typeof IntersectionObserver === 'undefined');
+  const bubbleId = enabled.bubble ? (decoration?.bubbleId ?? 0) : 0;
+  const fontId = enabled.font ? (decoration?.fontId ?? 0) : 0;
+  const widgetId = enabled.widget ? (decoration?.widgetId ?? 0) : 0;
+  const localBubble = bubbleId
+    ? decoration?.cachedBubble?.itemId === bubbleId
+      ? decoration.cachedBubble
+      : messageBubble(bubbleId)
+    : undefined;
+  const needsVisibility = Boolean(
+    fontId || widgetId || (bubbleId && !localBubble) || localBubble?.animationFrameCount,
+  );
+  const [visible, setVisible] = useState(
+    !needsVisibility || !element || typeof IntersectionObserver === 'undefined',
+  );
   useLayoutEffect(() => {
+    if (!needsVisibility) return;
     const node = element?.current;
     if (!node || typeof IntersectionObserver === 'undefined') return;
     // 新记录接替发送预览时，不能等异步可见性回调才恢复已缓存的字体与气泡。
@@ -60,14 +82,14 @@ export function useMsgDecoration(
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [element]);
-  const bubbleId = enabled.bubble ? (decoration?.bubbleId ?? 0) : 0;
-  const fontId = enabled.font ? (decoration?.fontId ?? 0) : 0;
-  const widgetId = enabled.widget ? (decoration?.widgetId ?? 0) : 0;
+  }, [element, needsVisibility]);
   // 按种类共享缓存，挂件不影响字体与气泡的就绪状态。
   const bubbleQuery = trpc.account.dressup.resolveMsgDecoration.useQuery(
     { bubbleId, fontId: 0, widgetId: 0 },
-    { enabled: Boolean(bubbleId && visible && tabActive), staleTime: Infinity },
+    {
+      enabled: Boolean(bubbleId && visible && tabActive && !localBubble),
+      staleTime: Infinity,
+    },
   );
   const fontQuery = trpc.account.dressup.resolveMsgDecoration.useQuery(
     { bubbleId: 0, fontId, widgetId: 0 },
@@ -77,54 +99,62 @@ export function useMsgDecoration(
     { bubbleId: 0, fontId: 0, widgetId },
     { enabled: Boolean(widgetId && visible && tabActive), staleTime: Infinity },
   );
-  const bubble = bubbleId ? (bubbleQuery.data?.bubble ?? null) : null;
+  const bubble: MessageBubbleSkin | null = bubbleId
+    ? (localBubble ?? bubbleQuery.data?.bubble ?? null)
+    : null;
   const font = fontId ? (fontQuery.data?.font ?? null) : null;
   const widget = widgetId ? (widgetQuery.data?.widget ?? null) : null;
 
-  const [prepared, setPrepared] = useState<{
-    bubble: typeof bubble;
-    font: typeof font;
-    bubbleId: number;
-    fontId: number;
-  } | null>(null);
-  useLayoutEffect(() => {
-    // 配置返回不代表资源可绘制；成组等待底图解码和字体注册，避免半套装扮降低对比度。
-    if (
-      !visible ||
-      !tabActive ||
-      (!bubbleId && !fontId) ||
-      (bubbleId && !bubble) ||
-      (fontId && !font)
-    )
-      return;
-    const bubbleLease = bubble ? injectBubbleCss(bubble) : null;
-    const fontLease = font ? injectFontCss(fontId, font) : null;
+  const [failedBubble, setFailedBubble] = useState<typeof bubble>(null);
+  const [preparedFont, setPreparedFont] = useState<{ font: typeof font; id: number } | null>(null);
+  useInsertionEffect(() => {
+    if (!bubble) return;
+    const lease = injectBubbleCss(bubble, true);
     let disposed = false;
-    void Promise.all([bubbleLease?.ready ?? true, fontLease?.ready ?? true]).then((results) => {
-      if (!disposed && results.every(Boolean)) setPrepared({ bubble, font, bubbleId, fontId });
+    void lease.ready.then((ok) => {
+      if (disposed) return;
+      // 预解码预算/取消不代表内联底图不可绘制，不能据此把缓存气泡改回默认。
+      if (!ok && !bubble.baseImage) setFailedBubble(bubble);
     });
     return () => {
       disposed = true;
-      setPrepared(null);
-      bubbleLease?.();
-      fontLease?.();
+      lease();
     };
-  }, [bubble, font, bubbleId, fontId, visible, tabActive]);
+  }, [bubble]);
+  useLayoutEffect(() => {
+    if (!visible || !tabActive || !bubble?.animationFrameCount) return;
+    return injectBubbleCss(bubble);
+  }, [bubble, visible, tabActive]);
+  useLayoutEffect(() => {
+    if (!visible || !tabActive || !font || !fontId) return;
+    const lease = injectFontCss(fontId, font);
+    let disposed = false;
+    void lease.ready.then((ok) => {
+      if (!disposed && ok) setPreparedFont({ font, id: fontId });
+    });
+    return () => {
+      disposed = true;
+      setPreparedFont(null);
+      lease();
+    };
+  }, [font, fontId, visible, tabActive]);
   useLayoutEffect(() => {
     if (visible && tabActive && widget) return injectWidgetCss(widget);
   }, [widget, visible, tabActive]);
 
-  const ready =
+  const bubbleReady = Boolean(bubble && failedBubble !== bubble);
+  const fontReady = Boolean(
     visible &&
-    tabActive &&
-    prepared?.bubble === bubble &&
-    prepared?.font === font &&
-    prepared?.bubbleId === bubbleId &&
-    prepared?.fontId === fontId;
+      tabActive &&
+      font &&
+      preparedFont?.font === font &&
+      preparedFont?.id === fontId &&
+      (!bubbleId || bubbleReady),
+  );
   return {
     widget,
-    bubbleId: ready ? bubbleId : 0,
-    fontId: ready ? fontId : 0,
-    fontFx: ready ? toFontFxSkin(font) : null,
+    bubbleId: bubbleReady ? bubbleId : 0,
+    fontId: fontReady ? fontId : 0,
+    fontFx: fontReady ? toFontFxSkin(font) : null,
   };
 }

@@ -197,7 +197,7 @@ export {
   createOtherDeviceKeyContext,
 } from './account/other_device_key';
 export type { OtherDeviceInstance, OtherDeviceKeyContext } from './account/other_device_key';
-export type { BubbleSkin, BubbleSlice } from './account/bubble_skin';
+export type { BubbleSkin, BubbleSlice, MessageBubbleSkin } from './account/bubble_skin';
 export { DressService, createDressService } from './account/dress_service';
 export { DressConfigService } from './account/dress_config';
 export {

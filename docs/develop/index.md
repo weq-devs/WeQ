@@ -84,6 +84,7 @@ pnpm dev
 - [消息同步与性能修复方案](./message-sync-performance-plan-20261025.md)及[阶段实施记录](./message-sync-performance-implementation-20261025.md)：消息到达、QQ 已读消点、会话首屏与媒体的已实施范围，以及时间线虚拟化和真实性能验收待办。
 - [消息性能修补](./message-performance-20261026.md)：后续性能实现与针对性验证范围。
 - [会话首屏请求与查询优化](./conversation-entry-performance-20261028.md)：消息请求分流、目录后台调度、旧窗口取消、漫游缓存合并查询与引用媒体后补。
+- [消息气泡首帧](./message-bubble-first-frame-20261111.md)：本地底图随消息页提前准备、首次提交直接应用、静态与动画分离及短气泡预挂载。
 - [页面回访与首包优化](./page-revisit-loading-20261028.md)：数据结果缓存、收藏渐进显示、会话切换核算、模块拆分及导航意图预热。
 - [首次进入会话优化](./conversation-first-open-20261029.md)：可见会话预取、在途接用与提级、分阶段正文交付及新增 UID 分区补查。
 - [聊天图片预览缓存](./chat-image-preview-cache-20261026.md)：解码内存预算、可见与离屏资源边界。

@@ -360,7 +360,12 @@ export type Message = {
   source?: 'roaming';
   sourceFormat?: 'native' | 'protocol';
   localSent?: boolean;
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  decoration?: {
+    bubbleId: number;
+    fontId: number;
+    widgetId: number;
+    cachedBubble?: import('@weq/service').MessageBubbleSkin;
+  };
   optimistic?: 'queued' | 'sending' | 'sent' | 'failed';
   optimisticError?: string;
   optimisticRejected?: boolean;

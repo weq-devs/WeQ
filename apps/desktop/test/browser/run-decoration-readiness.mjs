@@ -8,6 +8,8 @@ import { mkdir, readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+// 夹具故意挂起字体，截图不能额外等待 document.fonts.ready。
+process.env.PW_TEST_SCREENSHOT_NO_FONTS_READY = '1';
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const output = process.env.WEQ_DECORATION_ARTIFACTS;
 const server = await createServer({
@@ -42,7 +44,7 @@ const server = await createServer({
   },
 });
 const bubble = await sharp({
-  create: { width: 40, height: 40, channels: 4, background: '#f6f7fb' },
+  create: { width: 40, height: 40, channels: 4, background: '#c5e8ca' },
 })
   .png()
   .toBuffer();
@@ -59,13 +61,26 @@ try {
   if (output) await mkdir(output, { recursive: true });
   for (const width of [390, 1200])
     for (const theme of ['light', 'dark']) {
-      for (const scenario of ['font-first', 'bubble-first', 'font-failure', 'bubble-failure']) {
+      for (const scenario of [
+        'font-first',
+        'bubble-first',
+        'font-failure',
+        'bubble-failure',
+        'uncached-stalled-decode',
+        'cached-stalled-decode',
+      ]) {
         const context = await browser.newContext({
           viewport: { width, height: 700 },
           colorScheme: theme,
         });
         const page = await context.newPage();
         const errors = [];
+        const cached = scenario === 'cached-stalled-decode';
+        const benchmark = scenario.endsWith('stalled-decode');
+        if (benchmark)
+          await page.addInitScript(() => {
+            HTMLImageElement.prototype.decode = () => new Promise(() => {});
+          });
         page.on('pageerror', (error) => errors.push(error.message));
         let releaseFont, releaseBubble;
         const fontGate = new Promise((resolve) => {
@@ -76,32 +91,83 @@ try {
         });
         await page.route('**/*', async (route) => {
           const url = new URL(route.request().url());
+          if (url.pathname === '/fixtures/bubble-skin') {
+            await bubbleGate;
+            return route.fulfill({
+              json:
+                scenario === 'bubble-failure'
+                  ? null
+                  : {
+                      itemId: 21009,
+                      slice: { left: 4, right: 4, top: 4, bottom: 4 },
+                      imageSize: { w: 40, h: 40 },
+                      textColor: '#516196',
+                      localFile: 'fixture.png',
+                    },
+            });
+          }
           if (url.pathname === '/_media/dressfont') {
             await fontGate;
             return route.fulfill({
               status: scenario === 'font-failure' ? 404 : 200,
               contentType: 'font/otf',
-              body: font,
+              body: scenario === 'font-failure' ? Buffer.from('invalid-font') : font,
             });
           }
           if (url.pathname === '/_media/dressbubble') {
+            assert.equal(cached, false, '已缓存的静态底图不再额外请求');
             if (route.request().headers().range)
               return route.fulfill({ contentType: 'image/png', body: bubble.subarray(0, 24) });
             await bubbleGate;
             return route.fulfill({
               status: scenario === 'bubble-failure' ? 404 : 200,
               contentType: 'image/png',
-              body: bubble,
+              body: scenario === 'bubble-failure' ? Buffer.from('invalid-image') : bubble,
             });
           }
           return url.hostname === '127.0.0.1' ? route.continue() : route.abort();
         });
         try {
           await page.goto(
-            `http://127.0.0.1:${server.httpServer.address().port}/test/browser/decoration-readiness.html?theme=${theme}`,
+            `http://127.0.0.1:${server.httpServer.address().port}/test/browser/decoration-readiness.html?theme=${theme}${benchmark ? '&rows=48' : ''}${cached ? `&inline=${encodeURIComponent(`data:image/png;base64,${bubble.toString('base64')}`)}` : ''}`,
             { waitUntil: 'domcontentloaded' },
           );
-          await page.locator('.message-content').first().waitFor();
+          await page.locator('.message-content').first().waitFor({ state: 'attached' });
+          if (benchmark) {
+            const commits = await page.evaluate(() => window.bubbleCommits);
+            assert.ok(commits.length >= 48);
+            assert.ok(
+              commits.every(
+                (commit) =>
+                  commit.bubbleId === (cached ? 21009 : 0) && commit.visible === 'visible',
+              ),
+            );
+            assert.equal(await page.locator('[data-bubble-pending]').count(), 0);
+            if (cached) {
+              const png = await page.locator('.message-content').first().screenshot();
+              const { data } = await sharp(png)
+                .ensureAlpha()
+                .raw()
+                .toBuffer({ resolveWithObject: true });
+              let green = 0;
+              for (let i = 0; i < data.length; i += 4)
+                if (data[i] === 197 && data[i + 1] === 232 && data[i + 2] === 202) green++;
+              assert.ok(green > 20, '正文首屏必须实际绘制缓存底图');
+              if (output)
+                await page.screenshot({ path: resolve(output, `${width}-${theme}-cached.png`) });
+            }
+            console.log(
+              JSON.stringify({
+                width,
+                theme,
+                scenario,
+                firstCommitMs: commits[0].atMs,
+                rows: 48,
+                passed: true,
+              }),
+            );
+            continue;
+          }
           const checkDefault = async () => {
             assert.equal(await page.locator('[data-bubble], [data-font]').count(), 0);
             const contrast = await page.locator('.message-content').evaluateAll((nodes) => {
@@ -145,14 +211,24 @@ try {
           if (scenario === 'font-first') releaseFont();
           else releaseBubble();
           await page.waitForTimeout(150);
-          await checkDefault();
+          if (scenario === 'font-first') await checkDefault();
+          else if (scenario === 'bubble-failure') await checkDefault();
+          else {
+            assert.equal(await page.locator('[data-bubble="21009"]').count(), 2);
+            assert.equal(await page.locator('[data-font]').count(), 0);
+            assert.equal(await page.locator('[data-bubble-pending]').count(), 0);
+          }
           if (output && scenario === 'font-first')
             await page.screenshot({ path: resolve(output, `${width}-${theme}-loading.png`) });
           releaseFont();
           releaseBubble();
-          if (scenario.endsWith('failure')) {
+          if (scenario === 'bubble-failure') {
             await page.waitForTimeout(150);
             await checkDefault();
+          } else if (scenario === 'font-failure') {
+            await page.waitForTimeout(150);
+            assert.equal(await page.locator('[data-bubble="21009"]').count(), 2);
+            assert.equal(await page.locator('[data-font]').count(), 0);
           } else {
             await page.waitForFunction(
               () =>
