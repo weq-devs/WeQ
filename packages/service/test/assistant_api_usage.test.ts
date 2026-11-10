@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -82,7 +82,15 @@ it('助手默认引用持久化并在调用时解析，模型变更无需重写�
     f.usage,
     new ConversationStore(join(f.dir, 'empty-conversations.json')),
   );
-  expect(empty.getConfig().model).toBeUndefined();
+  expect(empty.getConfig().model).toEqual({ useDefault: true });
+  writeFileSync(join(f.dir, 'assistant.json'), JSON.stringify({ model: null }));
+  const legacy = new AssistantService(
+    f.dir,
+    resolve,
+    f.usage,
+    new ConversationStore(join(f.dir, 'legacy-conversations.json')),
+  );
+  expect(legacy.getConfig().model).toEqual({ useDefault: true });
 });
 
 it('助手不支持思考参数的记忆按实际模型隔离，切换默认模型后重新尝试', async () => {

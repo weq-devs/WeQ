@@ -46,6 +46,7 @@ export function AiFeatureSettingsLayout({
       {resources}
       <details
         className="weq-model-advanced"
+        data-snapshot-skip-details
         onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
       >
         <summary data-setting-id={advancedId}>高级设置</summary>

@@ -439,20 +439,27 @@ export class AssistantService {
   ) {
     this.configPath = join(rootDir, 'assistant.json');
     this.sessionsPath = join(rootDir, 'assistant_sessions.json');
-    this.configStore = new JsonStore(this.configPath, () => ({}), {
-      strict: true,
-      pretty: true,
-      normalize: (raw) => {
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw))
-          throw new Error('助手配置必须是 JSON 对象');
-        const config = raw as AssistantConfig;
-        return {
-          ...config,
-          permissionMode: config.permissionMode === 'unrestricted' ? 'unrestricted' : 'sandbox',
-          model: normalizeModelSelection(config.model) ?? undefined,
-        };
+    this.configStore = new JsonStore<AssistantConfig>(
+      this.configPath,
+      () => ({ model: { useDefault: true } }),
+      {
+        strict: true,
+        pretty: true,
+        normalize: (raw) => {
+          if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+            throw new Error('助手配置必须是 JSON 对象');
+          const config = raw as AssistantConfig;
+          return {
+            ...config,
+            permissionMode: config.permissionMode === 'unrestricted' ? 'unrestricted' : 'sandbox',
+            model:
+              config.model == null
+                ? { useDefault: true }
+                : (normalizeModelSelection(config.model) ?? undefined),
+          };
+        },
       },
-    });
+    );
     this.sessionsStore = new JsonStore(this.sessionsPath, () => [], {
       normalize: (raw) =>
         Array.isArray(raw)

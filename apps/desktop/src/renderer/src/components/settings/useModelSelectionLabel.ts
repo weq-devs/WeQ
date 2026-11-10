@@ -11,13 +11,13 @@ export function useModelSelectionLabel() {
     refetchOnWindowFocus: false,
   });
   return useCallback(
-    (value: AgentLabModelSelection | null | undefined, empty = '未选择模型') => {
-      if (!value) return empty;
-      if (!isDefaultModelSelection(value)) return value.model;
-      if (current.error) return '默认：读取失败';
-      if (!current.data) return '默认：读取中';
-      if (!current.data.ref) return '默认：未配置';
-      return `默认：${current.data.ref.model}${current.data.available ? '' : '（不可用）'}`;
+    (value: AgentLabModelSelection | null | undefined, empty?: string) => {
+      if (!value && empty !== undefined) return empty;
+      if (value && !isDefaultModelSelection(value)) return value.model;
+      if (current.error) return '默认（当前：读取失败）';
+      if (!current.data) return '默认（当前：读取中）';
+      if (!current.data.ref) return '默认（当前：未配置）';
+      return `默认（当前：${current.data.ref.model}${current.data.available ? '' : '（不可用）'}）`;
     },
     [current.data, current.error],
   );

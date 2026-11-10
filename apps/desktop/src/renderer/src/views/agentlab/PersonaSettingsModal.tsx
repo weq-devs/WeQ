@@ -463,7 +463,12 @@ function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement |
 export function ExportTab({
   persona,
 }: {
-  persona: { id: string; name: string; voiceCloneEnabled?: boolean };
+  persona: {
+    id: string;
+    name: string;
+    voiceCloneEnabled?: boolean;
+    models?: { vision?: AgentLabModelSelection };
+  };
 }): ReactElement {
   const dialog = useAppDialog();
   const save = useExportSavePolicy();
@@ -500,8 +505,9 @@ export function ExportTab({
   const [groupReplyMode, setGroupReplyMode] = useState<'llm' | 'heuristic'>('llm');
   const [webuiPort, setWebuiPort] = useState('8090');
   // 图像模型（可选）：写进导出 persona 的 models.vision，供 bot 解析「WebUI 上传的新表情」。
-  // 留「（不设置）」则沿用克隆时的 vision（若有）。
-  const [visionModel, setVisionModel] = useState<AgentLabModelSelection | null>(null);
+  const [visionModel, setVisionModel] = useState<AgentLabModelSelection | null>(
+    persona.models?.vision ?? { useDefault: true },
+  );
   const exportDraft = {
     adapterType,
     wsUrl,
@@ -659,7 +665,6 @@ export function ExportTab({
           capability="vision"
           value={visionModel}
           onChange={setVisionModel}
-          emptyLabel="（不设置 · 沿用克隆时的图像模型）"
         />
       </label>
 
@@ -756,6 +761,7 @@ export function PersonaSettingsModal({
     voiceProfile?: { ratio: number; refClips?: unknown[] };
     willing?: WillingCfg;
     typo?: TypoCfg;
+    models?: { vision?: AgentLabModelSelection };
   };
   profileContent?: ReactNode;
   replyContent: ReactNode;

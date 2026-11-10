@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Save } from 'lucide-react';
-import type { AgentLabPersona } from '@weq/agentlab';
+import type { AgentLabModelSelection, AgentLabPersona } from '@weq/agentlab';
 import {
   CLONE_GENERATION,
   CLONE_GENERATION_HELP,
@@ -23,7 +23,9 @@ export function CloneGenerationPanel({
   onSaved: () => void;
 }) {
   const current = normalizeCloneGeneration(persona.generation);
-  const [model, setModel] = useState(persona.models?.chat ?? null);
+  const [model, setModel] = useState<AgentLabModelSelection>(
+    persona.models?.chat ?? { useDefault: true },
+  );
   const [draft, setDraft] = useState(() =>
     Object.fromEntries(CLONE_GENERATION_KEYS.map((key) => [key, String(current[key])])),
   );

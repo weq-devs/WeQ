@@ -28,6 +28,55 @@ afterEach(() => {
   useToast.setState({ toasts: [] });
 });
 
+it('默认折叠的高级设置不恢复旧展开快照，其他折叠区仍恢复', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const render = (page: string, skip = false) =>
+    act(() =>
+      root.render(
+        h(
+          PageSnapshots,
+          { scope: 'details-regression' },
+          h(
+            RetainedTabs,
+            { activeKey: page, snapshotKey: 'settings' },
+            page === 'a'
+              ? h(
+                  'div',
+                  null,
+                  h(
+                    'details',
+                    { 'data-snapshot-skip-details': skip || undefined },
+                    h('summary', null, '高级设置'),
+                  ),
+                  h('details', null, h('summary', null, '其他设置')),
+                )
+              : h('div'),
+          ),
+        ),
+      ),
+    );
+  const openAll = () =>
+    act(() => {
+      for (const details of host.querySelectorAll('details')) details.open = true;
+    });
+  try {
+    render('a');
+    openAll();
+    render('b');
+    render('a', true);
+    expect([...host.querySelectorAll('details')].map((node) => node.open)).toEqual([false, true]);
+    openAll();
+    render('b');
+    render('a', true);
+    expect([...host.querySelectorAll('details')].map((node) => node.open)).toEqual([false, true]);
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
 it('被挂起后取消的来源切换不影响仍在显示的页面输入', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());

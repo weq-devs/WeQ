@@ -185,10 +185,10 @@ const DEFAULT_CONFIG: IntentSenseConfig = {
   profileEnabled: false,
   enabled: false,
   engine: 'api',
-  providerRef: null,
-  suggestionProviderRef: null,
+  providerRef: { useDefault: true },
+  suggestionProviderRef: { useDefault: true },
   profileEngine: 'heuristic',
-  profileProviderRef: null,
+  profileProviderRef: { useDefault: true },
   profileLocalModelId: 'auto',
   suggestionsEnabled: false,
   analyzeAfterSelf: true,
@@ -586,7 +586,7 @@ export class IntentSenseService {
         migrateProfile = p.featureSettingsVersion !== 2;
         const follows = !p.profileEngine || (p.profileEngine as string) === 'follow';
         migrateSuggestionRef = p.suggestionProviderRef === undefined;
-        // 旧本地引擎从不调用推荐 API，不能把历史分析 API 引用变成新联网授权。
+        // 旧本地引擎不继承历史分析模型；缺少推荐模型时使用全局默认。
         const suggestionRef = migrateSuggestionRef
           ? p.engine === 'local'
             ? null
@@ -602,8 +602,9 @@ export class IntentSenseService {
           profileEnabled: migrateFeatures ? p.enabled === true : p.profileEnabled === true,
           enabled: p.enabled === true,
           engine: p.engine === 'local' ? 'local' : 'api',
-          providerRef: normalizeModelSelection(ref),
-          suggestionProviderRef: normalizeModelSelection(suggestionRef),
+          providerRef: ref == null ? { useDefault: true } : normalizeModelSelection(ref),
+          suggestionProviderRef:
+            suggestionRef == null ? { useDefault: true } : normalizeModelSelection(suggestionRef),
           suggestionsEnabled:
             p.suggestionsEnabled === true && (!migrateFeatures || p.enabled === true),
           profileEngine:
@@ -615,9 +616,9 @@ export class IntentSenseService {
                 ? 'local'
                 : 'api',
           profileProviderRef:
-            migrateProfile && follows
-              ? normalizeModelSelection(ref)
-              : normalizeModelSelection(p.profileProviderRef),
+            (migrateProfile && follows ? ref : p.profileProviderRef) == null
+              ? { useDefault: true }
+              : normalizeModelSelection(migrateProfile && follows ? ref : p.profileProviderRef),
           profileLocalModelId:
             p.profileLocalModelId === 'laya-multilingual' ||
             p.profileLocalModelId === 'QWeQ-NineBird-v1'
@@ -758,7 +759,10 @@ export class IntentSenseService {
     if (patch.profileLocalModelId !== undefined)
       next.profileLocalModelId = patch.profileLocalModelId;
     if (patch.profileProviderRef !== undefined)
-      next.profileProviderRef = normalizeModelSelection(patch.profileProviderRef);
+      next.profileProviderRef =
+        patch.profileProviderRef === null
+          ? { useDefault: true }
+          : normalizeModelSelection(patch.profileProviderRef);
     if (
       next.profileSamples > next.profileMessages ||
       next.profileMinSamples > next.profileSamples
@@ -769,10 +773,16 @@ export class IntentSenseService {
     if (typeof patch.profileEnabled === 'boolean') next.profileEnabled = patch.profileEnabled;
     if (patch.engine === 'api' || patch.engine === 'local') next.engine = patch.engine;
     if (patch.providerRef !== undefined) {
-      next.providerRef = normalizeModelSelection(patch.providerRef);
+      next.providerRef =
+        patch.providerRef === null
+          ? { useDefault: true }
+          : normalizeModelSelection(patch.providerRef);
     }
     if (patch.suggestionProviderRef !== undefined) {
-      next.suggestionProviderRef = normalizeModelSelection(patch.suggestionProviderRef);
+      next.suggestionProviderRef =
+        patch.suggestionProviderRef === null
+          ? { useDefault: true }
+          : normalizeModelSelection(patch.suggestionProviderRef);
     }
     if (typeof patch.suggestionsEnabled === 'boolean') {
       next.suggestionsEnabled = patch.suggestionsEnabled;

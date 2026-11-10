@@ -475,7 +475,31 @@ describe('IntentSenseService', () => {
     expect(reopened.getSuggestionHistory('c2c', 'u_peer')[0]?.target.msgId).toBe('2');
   });
 
-  it('默认模型变更使分析缓存失效，重启继续校验身份，空值与显式选择不继承', async () => {
+  it.each([
+    undefined,
+    {},
+    { providerRef: null, profileProviderRef: null, suggestionProviderRef: null },
+  ])('新配置及旧空引用使用默认，三个功能开关保持关闭：%j', async (raw) => {
+    if (raw) writeFileSync(join(dir, 'config.json'), JSON.stringify(raw));
+    const service = new IntentSenseService(makeSession([]), dir);
+    const expected = {
+      providerRef: { useDefault: true },
+      profileProviderRef: { useDefault: true },
+      suggestionProviderRef: { useDefault: true },
+      enabled: false,
+      profileEnabled: false,
+      suggestionsEnabled: false,
+    };
+    expect(service.getStatus()).toMatchObject(expected);
+    await service.setConfig({
+      providerRef: null,
+      profileProviderRef: null,
+      suggestionProviderRef: null,
+    });
+    expect(new IntentSenseService(makeSession([]), dir).getStatus()).toMatchObject(expected);
+  });
+
+  it('默认模型变更使分析缓存失效，空值使用默认而显式选择保持不变', async () => {
     let model: string | null = 'first';
     const fetch = vi.fn(
       async (_url: unknown, _init?: RequestInit) =>
@@ -527,13 +551,13 @@ describe('IntentSenseService', () => {
     expect(await reopened.analyzeMessage('c2c', 'u_peer', '1')).toBeNull();
     await reopened.setConfig({ providerRef: null });
     model = 'fourth';
-    expect(await reopened.analyzeMessage('c2c', 'u_peer', '1')).toBeNull();
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(await reopened.analyzeMessage('c2c', 'u_peer', '1')).not.toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(4);
     await reopened.setConfig({ providerRef: { providerId: 'explicit', model: 'fixed' } });
     await reopened.analyzeMessage('c2c', 'u_peer', '1');
     model = 'fifth';
     await reopened.analyzeMessage('c2c', 'u_peer', '1');
-    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch).toHaveBeenCalledTimes(5);
     const body = JSON.parse(String(fetch.mock.calls.at(-1)?.[1]?.body));
     expect(body.model).toBe('fixed');
   });
@@ -1861,7 +1885,10 @@ describe('IntentSenseService', () => {
 
   it('api 引擎未配置 provider 时对任意会话都不生效', async () => {
     const svc = new IntentSenseService(makeSession([]), dir, {
-      resolveEndpoint: (ref) => ({ baseUrl: 'http://x', apiKey: 'k', model: ref.model }),
+      resolveEndpoint: (ref) => {
+        if ('useDefault' in ref) throw new Error('未设置默认模型');
+        return { baseUrl: 'http://x', apiKey: 'k', model: ref.model };
+      },
     });
     await svc.setConfig({ enabled: true, engine: 'api' });
     expect(svc.effectiveFor('c2c', 'u_peer')).toBe(false);

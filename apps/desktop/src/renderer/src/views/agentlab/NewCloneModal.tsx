@@ -93,7 +93,7 @@ export function NewCloneModal({
   const [chatSel, setChatSel] = useState<AgentLabModelSelection | null>({ useDefault: true });
   const [embSel, setEmbSel] = useState<AgentLabModelSelection | null>(null);
   const [analyzeStickers, setAnalyzeStickers] = useState(false);
-  const [visSel, setVisSel] = useState<AgentLabModelSelection | null>(null);
+  const [visSel, setVisSel] = useState<AgentLabModelSelection | null>({ useDefault: true });
   const [mode, setMode] = useState<CloneMode>('group');
   const [autoName, setAutoName] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
@@ -311,6 +311,7 @@ export function NewCloneModal({
               <ApiModelSelect
                 allowDefault
                 label="克隆向量模型"
+                allowEmpty
                 capability="embedding"
                 value={embSel}
                 onChange={setEmbSel}

@@ -41,7 +41,7 @@ export function ReplySuggestionsSection() {
             lastError={s?.lastSuggestionApiError}
             onChange={(suggestionProviderRef) => void patch({ suggestionProviderRef })}
           />
-          <p className="weq-set-note">未选择 API 模型或调用不可用时，仅提供规则候选。</p>
+          <p className="weq-set-note">API 模型未配置或调用不可用时，仅提供规则候选。</p>
         </>
       }
     >

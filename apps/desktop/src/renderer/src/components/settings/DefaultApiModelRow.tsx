@@ -37,6 +37,7 @@ export function DefaultApiModelRow() {
         label="默认模型"
         control={
           <ApiModelSelect
+            allowDefault={false}
             label="LLM 默认模型"
             value={status.data?.ref ?? null}
             emptyLabel="未设置默认模型"

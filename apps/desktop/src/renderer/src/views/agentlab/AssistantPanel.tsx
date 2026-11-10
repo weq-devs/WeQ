@@ -633,7 +633,7 @@ export function AssistantPanel({
     if (!busy) setStopping(false);
   }, [busy]);
   const modelLabel = useModelSelectionLabel();
-  const modelRef = assistantConfig.data?.model;
+  const modelRef = assistantConfig.data?.model ?? { useDefault: true };
   const inheritedModel = isDefaultModelSelection(modelRef);
   const currentModel =
     modelRef && !isDefaultModelSelection(modelRef)

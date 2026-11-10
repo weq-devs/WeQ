@@ -9,7 +9,7 @@ import { rememberAssistantDraft } from '../src/renderer/src/lib/assistantWorkspa
 const fixture = vi.hoisted(() => ({
   conversation: [],
   config: {
-    model: { providerId: 'synthetic', model: 'model-a' } as AgentLabModelSelection,
+    model: { providerId: 'synthetic', model: 'model-a' } as AgentLabModelSelection | undefined,
     reasoningEffort: 'medium',
   },
   save: vi.fn(),
@@ -138,14 +138,46 @@ it('助手模型菜单显式保存默认标记，紧凑模式显示当前具体�
     act(() => root.render(h(AssistantPanel, props)));
     act(() => host.querySelector<HTMLButtonElement>('[title="聊天模型"]')!.click());
     const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
-      (button) => button.textContent?.includes('默认：model-b'),
+      (button) => button.textContent?.includes('默认（当前：model-b）'),
     )!;
     expect(option).toBeDefined();
     await act(async () => option.click());
     expect(fixture.save).toHaveBeenCalledWith({ model: { useDefault: true } });
     fixture.config.model = { useDefault: true };
     act(() => root.render(h(AssistantPanel, { ...props, compact: true })));
-    expect(host.querySelector('.weq-asst-menu-meta')?.textContent).toContain('默认：model-b');
+    expect(host.querySelector('.weq-asst-menu-meta')?.textContent).toContain(
+      '默认（当前：model-b）',
+    );
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it('助手没有单独指定模型时直接选中默认，没有未选择项', () => {
+  fixture.config.model = undefined;
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(AssistantPanel, {
+          sessionId: null,
+          chatModels: [],
+          onBack: vi.fn(),
+          onSessionCreated: vi.fn(),
+        }),
+      ),
+    );
+    const model = host.querySelector<HTMLButtonElement>('[title="聊天模型"]')!;
+    expect(model.textContent).toContain('默认（当前：model-b）');
+    act(() => model.click());
+    const selected = document.querySelector('[role="option"][aria-selected="true"]');
+    expect(selected?.textContent).toContain('默认（当前：model-b）');
+    expect(
+      [...document.querySelectorAll('[role="option"]')].some((option) =>
+        option.textContent?.includes('未选择'),
+      ),
+    ).toBe(false);
   } finally {
     act(() => root.unmount());
   }
