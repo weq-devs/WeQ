@@ -1,4 +1,4 @@
-.app-title-bar:has(.weq-titlebar-search.is-persistent) {
+.app-title-bar:has(.weq-titlebar-search.is-persistent):not(:has(.app-title-bar-actions)) {
   padding-right: 16px;
 }
 

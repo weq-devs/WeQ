@@ -46,7 +46,15 @@ try {
       reducedMotion: 'reduce',
     });
     await page.addInitScript((platform) => {
-      window.electron = { process: { platform } };
+      window.controlRequests = [];
+      window.electron = {
+        process: { platform },
+        ipcRenderer: {
+          on: () => () => {},
+          invoke: async () => localStorage.getItem('fixture.controlStyle') ?? 'windows',
+          send: (channel) => window.controlRequests.push(channel),
+        },
+      };
     }, platform);
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
@@ -80,6 +88,48 @@ try {
           await page.screenshot({ path: resolve(output, `${platform}-${theme}-${width}.png`) });
         cases++;
       }
+    }
+    await page.goto(`${origin}/test/browser/window-controls.html?surface=main`);
+    const close = page.locator('.app-title-bar-actions button.close');
+    await close.waitFor();
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => {
+        const store = window.windowControlsTheme.getState();
+        store.setPreference(theme);
+        store.setAccent(theme === 'light' ? '#075c30' : '#fff3a1');
+      }, theme);
+      for (const width of [800, 1180]) {
+        await page.setViewportSize({ width, height: 760 });
+        const box = await close.boundingBox();
+        assert.equal(box.y, 0, '主窗口关闭按钮紧贴顶部');
+        assert.equal(box.x + box.width, width, '主窗口关闭按钮紧贴右边缘');
+        assert.equal(
+          await close.evaluate((button) => {
+            const hit = document.elementFromPoint(innerWidth - 1, 1);
+            return button.contains(hit);
+          }),
+          true,
+          '右上角命中关闭按钮',
+        );
+        await close.hover();
+        if (output)
+          await page.screenshot({
+            path: resolve(output, `main-${platform}-${theme}-${width}.png`),
+          });
+        cases++;
+      }
+    }
+    await close.click();
+    assert.deepEqual(await page.evaluate(() => window.controlRequests), ['window-close']);
+    if (platform !== 'win32') {
+      await page.evaluate(() => localStorage.setItem('fixture.controlStyle', 'native'));
+      await page.reload();
+      await page.locator('.app-title-bar.has-native-controls').waitFor();
+      assert.equal(await page.locator('.app-title-bar-actions').count(), 0);
+      assert.equal(
+        await page.locator('.app-title-bar').evaluate((bar) => getComputedStyle(bar).paddingRight),
+        '16px',
+      );
     }
     assert.deepEqual(errors, []);
     await page.close();
