@@ -200,12 +200,14 @@ export function RestrictedModeHost() {
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
   const enteringSince = useRestrictedMode((s) => s.enteringSince);
+  const enteringManually = useRestrictedMode((s) => s.enteringManually);
   const awaitingAuthorization = requests.length > 0;
   const entering = enteringSince !== null && !awaitingAuthorization;
   const previousUin = useRef(uin);
   const panel = useRef<HTMLElement>(null);
   const previous = useRef('');
   const recoveryPending = useRef(false);
+  const fullModeSeen = useRef(false);
   const titleId = useId();
   const [busy, setBusy] = useState(false);
   const [launching, setLaunching] = useState(false);
@@ -281,6 +283,7 @@ export function RestrictedModeHost() {
     setDataRetried(false);
     previous.current = '';
     recoveryPending.current = false;
+    fullModeSeen.current = false;
     useToast.getState().resolve(NOTICE_KEY);
     useRestrictedMode.getState().setOpen(false);
     useRestrictedMode.getState().endEntering();
@@ -389,7 +392,8 @@ export function RestrictedModeHost() {
         (reason) => reason.code === 'sip',
       );
     if (access.data?.credentialsPending && !fullModeConfirmed && !blocked) {
-      if (enteringSince === null && !requests.length) useRestrictedMode.getState().beginEntering();
+      if (enteringSince === null && !requests.length)
+        useRestrictedMode.getState().beginEntering(false);
       return;
     }
     // 提交授权后必须拿到新查询结果，不能用之前缓存的完整状态提前结束。
@@ -421,11 +425,15 @@ export function RestrictedModeHost() {
   const layer = useOverlayLayer(open && Boolean(signature));
   useEffect(() => {
     if (reasonSource !== sourceKey) return;
-    const activeNotice = entering || awaitingAuthorization;
-    if (globalSettings.isLoading && !activeNotice) return;
+    const manualNotice = enteringManually || recoveryPending.current;
+    const activeNotice = manualNotice && (entering || awaitingAuthorization);
     if (!activeNotice && !passiveBanner) useToast.getState().resolve(NOTICE_KEY);
-    if (signature) recoveryPending.current = true;
-    if (signature && signature !== previous.current && (activeNotice || passiveBanner)) {
+    if (enteringManually) recoveryPending.current = true;
+    // 启动自动尝试只更新标题栏；确认正常运行后才提醒降级，手动启用单独回执。
+    const notify =
+      manualNotice || (fullModeSeen.current && passiveBanner && !globalSettings.isLoading);
+    const noticeSignature = `${signature}:${enteringManually}`;
+    if (signature && noticeSignature !== previous.current && notify) {
       const toast = useToast.getState();
       const message: Parameters<typeof toast.push>[0] = {
         key: NOTICE_KEY,
@@ -452,7 +460,10 @@ export function RestrictedModeHost() {
       };
       toast.push(message);
     }
+    if (signature && !enteringManually && !entering && !awaitingAuthorization && !fullModeConfirmed)
+      recoveryPending.current = false;
     if (!signature) {
+      if (fullModeConfirmed) fullModeSeen.current = true;
       useRestrictedMode.getState().setOpen(false);
       useToast.getState().resolve(NOTICE_KEY);
       if (recoveryPending.current && fullModeConfirmed) {
@@ -472,13 +483,14 @@ export function RestrictedModeHost() {
         }
       }
     }
-    previous.current = signature;
+    previous.current = noticeSignature;
   }, [
     signature,
     reasons,
     requests,
     fullModeConfirmed,
     entering,
+    enteringManually,
     awaitingAuthorization,
     passiveBanner,
     globalSettings.isLoading,
