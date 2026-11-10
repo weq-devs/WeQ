@@ -297,7 +297,7 @@ it('组件关闭后迟到文件被释放，不把旧选择留作可确认输入'
   expect(f.api.stage).not.toHaveBeenCalled();
 });
 
-it('任务列表可停止浏览器备份传输，等待在途分片后清理暂存，不执行恢复', async () => {
+it('浏览器备份传输不创建任务，关闭页面后等待在途分片并清理暂存，不执行恢复', async () => {
   const f = fixture();
   let release!: (value: number) => void;
   const api: typeof backupApi = {
@@ -319,19 +319,17 @@ it('任务列表可停止浏览器备份传输，等待在途分片后清理暂�
   });
   await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
   expect(api.chunk).toHaveBeenCalledOnce();
-  const task = localBackgroundTasks.snapshot().at(-1)!;
-  expect(task).toMatchObject({ kind: 'backup', status: 'running' });
-  await act(async () => localBackgroundTasks.act(task.id, 'stop'));
-  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('running');
+  expect(localBackgroundTasks.snapshot()).toEqual([]);
+  cleanups.pop()!();
   await act(async () => release(65536));
-  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('cancelled');
+  expect(localBackgroundTasks.snapshot()).toEqual([]);
   expect(api.chunk).toHaveBeenCalledOnce();
   expect(api.finish).not.toHaveBeenCalled();
   expect(f.api.dispose).toHaveBeenCalledWith('synthetic-upload');
   expect(f.api.stage).not.toHaveBeenCalled();
 });
 
-it('本地分片读取期间停止，不会在读取完成后再发送一个新分片', async () => {
+it('本地分片读取期间关闭页面，不会在读取完成后再发送一个新分片或创建任务', async () => {
   const f = fixture();
   let release!: (value: ArrayBuffer) => void;
   const file = new File([new Uint8Array(10)], 'synthetic.zip');
@@ -353,10 +351,31 @@ it('本地分片读取期间停止，不会在读取完成后再发送一个新�
   const input = ui.host.querySelector<HTMLInputElement>('input[type="file"]')!;
   Object.defineProperty(input, 'files', { configurable: true, value: [file] });
   await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
-  const task = localBackgroundTasks.snapshot().at(-1)!;
-  await act(async () => localBackgroundTasks.act(task.id, 'stop'));
+  expect(localBackgroundTasks.snapshot()).toEqual([]);
+  cleanups.pop()!();
   await act(async () => release(new ArrayBuffer(10)));
   expect(api.chunk).not.toHaveBeenCalled();
   expect(api.finish).not.toHaveBeenCalled();
-  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('cancelled');
+  expect(localBackgroundTasks.snapshot()).toEqual([]);
+});
+
+it('浏览器分片上传完成后在设置页显示备份预览，不创建任务', async () => {
+  const f = fixture();
+  const api: typeof backupApi = {
+    ...f.api,
+    begin: vi.fn(async () => 'synthetic-upload'),
+    chunk: vi.fn(async () => 10),
+    finish: vi.fn(async () => (await f.api.pick())!),
+  };
+  const ui = await mount(api);
+  const input = ui.host.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, 'files', {
+    configurable: true,
+    value: [new File([new Uint8Array(10)], 'synthetic.zip')],
+  });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  expect(api.chunk).toHaveBeenCalledOnce();
+  expect(api.finish).toHaveBeenCalledWith('synthetic-upload');
+  expect(ui.host.textContent).toContain('synthetic.zip');
+  expect(localBackgroundTasks.snapshot()).toEqual([]);
 });
