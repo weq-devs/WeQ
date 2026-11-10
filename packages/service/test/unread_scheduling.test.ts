@@ -36,7 +36,12 @@ it('完整未读补算后台执行，轻量水位仍走交互通道且不读取�
     f = fixture(path);
   await f.service.getUnreadInfos(target);
   await f.service.getUnreadInfos(target, true);
-  expect(f.getUnreadInfos.mock.calls[0]).toEqual([target, { selfUid: 'u_self', selfUin: '10001' }]);
+  expect(f.getUnreadInfos.mock.calls[0]).toEqual([
+    target,
+    { selfUid: 'u_self', selfUin: '10001' },
+    undefined,
+    { reuseOutgoing: true },
+  ]);
   expect(f.getUnreadInfos.mock.calls[1]).toEqual([target]);
   expect(databasePerformance(path).diagnostics.queries.map((q) => q.priority)).toEqual([
     'background',
@@ -79,6 +84,7 @@ it('本地已读领先 QQ 时快查直接确认，完整统计向数据库传递
     target,
     { selfUid: 'u_self', selfUin: '10001' },
     new Map([['2_70001', '2']]),
+    { reuseOutgoing: true },
   ]);
   await f.service.dispose();
 });

@@ -629,6 +629,7 @@ export function ConversationList({
       ) : null}
       <div className="weq-conversation-viewport" ref={viewportRef} {...clickTargetProps}>
         <WindowedList
+          bufferScreens={1}
           items={filtered}
           onVisibleItems={selectionMode ? undefined : directory?.onVisibleConversations}
           rowHeight={rowHeight}

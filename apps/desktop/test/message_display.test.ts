@@ -103,7 +103,9 @@ describe('会话列表窗口', () => {
         renderItem: (item) => createElement('button', null, item),
       }),
     );
-    expect((html.match(/<button/g) ?? []).length).toBeLessThanOrEqual(Math.ceil(480 / 64) * 4);
+    expect((html.match(/<button/g) ?? []).length).toBeLessThan(30);
+    const buffered = visibleListRange(10000, 64, 480, 0, 1);
+    expect(buffered.end - buffered.start).toBe(Math.ceil(480 / 64) * 4);
     expect(visibleListRange(10000, 64, 480, 640000 - 480).end).toBe(10000);
     expect(visibleListRange(0, 64, 480, 999999)).toEqual({ start: 0, end: 0 });
   });
