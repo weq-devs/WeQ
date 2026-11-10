@@ -50,6 +50,24 @@ XGetWindowAttributes failed for window 1
 注意 `executableArgs` 一旦设置，electron-builder 给 AppImage 默认的 `--no-sandbox`
 会被整个替换，所以 `electron-builder.yml` 里显式补了一行。
 
+### AppImage 的重启必须等旧挂载退出（2026-11-11）
+
+直接 `app.relaunch({ execPath: process.env.APPIMAGE })` 仍不可靠：新 AppImage 会在旧
+AppImage 的 FUSE 挂载仍存在时尝试挂载，实测会以
+`mount failed: Operation not permitted` 静默退出。即使 `APPIMAGE` 读取正确，也不能
+并发启动第二份。
+
+现在 AppImage 分支先通过 `/bin/sh` 启动一个挂载目录之外的等待进程，同时轮询旧主进程
+PID 与旧 `APPDIR` 挂载目录；两者都消失后再 `exec` 真实 `.AppImage`。只等 Electron
+主进程还不够，AppImage runtime 会在子进程退出后继续卸载，过早启动仍会撞上 FUSE
+清理窗口；两者消失后还要留 1 秒给内核完成 FUSE 卸载。`tar.gz` 的 `execPath`
+本来就是稳定文件，继续直接 `app.relaunch`。
+
+这个等待进程必须由 `node:child_process.spawn(..., { detached: true })` 独立启动；
+把 `/bin/sh` 交给 `app.relaunch` 仍会保留旧 AppImage runtime 的上下文并导致重挂载
+失败。`exec` 前还要清掉 `APPIMAGE` / `APPDIR` / `LD_LIBRARY_PATH` / `EGL_PLATFORM`
+等旧挂载与 Chromium 环境，让新 AppImage 自己建立运行环境。
+
 ## 证据
 
 1. 加诊断日志后，主进程里 `win.isVisible() === true`、`getBounds()` 正常、`ready-to-show`
@@ -85,7 +103,8 @@ XGetWindowAttributes failed for window 1
 Wayland+X → `--ozone-platform=x11`；纯 X11 → 不加参数；显式 wayland → 不加参数；
 非 Linux → 不加参数。另有 `ozoneRelaunchArgs()` 的用例：argv 已带开关（含 `.desktop`
 的分开写法）不重启、AppImage 走 `execPath=APPIMAGE` 且补 `--no-sandbox`、
-`WEQ_OZONE_RELAUNCHED=1` 不再重启。
+`WEQ_OZONE_RELAUNCHED=1` 不再重启；以及 AppImage 等待旧 PID、旧挂载目录退出后启动
+并清理旧启动环境的计划。
 
 ## 以后再加 Linux 原生开关时
 
