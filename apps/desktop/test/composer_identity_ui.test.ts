@@ -78,6 +78,49 @@ function fixture(type: 'group' | 'direct' = 'group') {
 }
 
 describe('真实输入区与 +1 操作', () => {
+  it('普通输入提示发送，中文选词的 Enter 不误发，点击发送后可继续输入', async () => {
+    const f = fixture('direct');
+    try {
+      await act(async () => f.root.render(createElement(ChatPane, f.props)));
+      const editor = f.host.querySelector<HTMLElement>('.composer-editor')!;
+      expect(editor.getAttribute('enterkeyhint')).toBe('send');
+      act(() => {
+        focusComposerEnd(editor);
+        editor.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'Enter',
+            keyCode: 229,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      expect(f.props.onSend).not.toHaveBeenCalled();
+      act(() =>
+        editor.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'Enter',
+            isComposing: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      );
+      expect(f.props.onSend).not.toHaveBeenCalled();
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('.composer > .composer-send')!.click(),
+      );
+      expect(f.props.onSend).toHaveBeenCalledOnce();
+      expect(f.props.onSend).toHaveBeenCalledWith('原有草稿', undefined);
+      expect(document.activeElement).toBe(editor);
+      expect(editor.textContent).toBe('');
+      expect(f.host.querySelector<HTMLButtonElement>('.composer > .composer-send')!.disabled).toBe(
+        true,
+      );
+    } finally {
+      f.dispose();
+    }
+  });
   it.each(['group', 'direct'] as const)(
     '%s 引用条复用消息行解析的本地发送者，不要求消息自带 sender',
     async (type) => {

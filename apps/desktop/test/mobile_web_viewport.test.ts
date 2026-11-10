@@ -65,3 +65,40 @@ it('没有 VisualViewport 的浏览器回退窗口尺寸', () => {
   expect(element.style.getPropertyValue('--weq-mobile-viewport-height')).toBe(`${innerHeight}px`);
   stop();
 });
+
+it.each([false, true])('键盘只占用一次底部空间（布局视口同步缩小：%s）', (resizeLayout) => {
+  const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0, scale: 1 });
+  vi.stubGlobal('visualViewport', viewport);
+  vi.stubGlobal('innerHeight', 844);
+  vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: true }));
+  const element = document.createElement('div');
+  const editor = document.createElement('textarea');
+  element.append(editor);
+  document.body.append(element);
+  const stop = observeMobileWebViewport(element);
+  try {
+    expect(element.style.getPropertyValue('--weq-mobile-safe-bottom')).toBe('');
+    editor.focus();
+    // 外接键盘聚焦、浏览器地址栏的小幅伸缩都不应抹掉 Home Indicator 安全区。
+    viewport.height = 800;
+    viewport.dispatchEvent(new Event('resize'));
+    expect(element.style.getPropertyValue('--weq-mobile-safe-bottom')).toBe('');
+    viewport.height = 430;
+    if (resizeLayout) vi.stubGlobal('innerHeight', 430);
+    viewport.dispatchEvent(new Event('resize'));
+    expect(element.style.getPropertyValue('--weq-mobile-safe-bottom')).toBe('0px');
+    expect(element.style.getPropertyValue('--weq-mobile-viewport-height')).toBe('430px');
+    // 切换到表情按钮时，键盘尚未退出，不能先恢复安全区导致跳动。
+    editor.blur();
+    viewport.dispatchEvent(new Event('scroll'));
+    expect(element.style.getPropertyValue('--weq-mobile-safe-bottom')).toBe('0px');
+    viewport.height = 844;
+    vi.stubGlobal('innerHeight', 844);
+    viewport.dispatchEvent(new Event('resize'));
+    expect(element.style.getPropertyValue('--weq-mobile-safe-bottom')).toBe('');
+  } finally {
+    stop();
+    expect(element.style.getPropertyValue('--weq-mobile-safe-bottom')).toBe('');
+    element.remove();
+  }
+});

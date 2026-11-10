@@ -796,10 +796,11 @@
 
   .chat-pane {
     --chat-header-height: 42px;
+    --mobile-composer-safe-bottom: var(--weq-mobile-safe-bottom, env(safe-area-inset-bottom, 0px));
     --composer-height: calc(
       var(--mobile-composer-editor-height, 42px) +
       62px +
-      env(safe-area-inset-bottom, 0px)
+      var(--mobile-composer-safe-bottom)
     ) !important;
     grid-template-rows: var(--chat-header-height) minmax(0, 1fr) var(--composer-height);
     background: #f1f2f4;
@@ -1013,7 +1014,7 @@
     display: grid;
     grid-template-rows: var(--mobile-composer-editor-height, 42px) 48px;
     gap: 0;
-    padding: 8px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+    padding: 8px 12px calc(6px + var(--mobile-composer-safe-bottom));
     overflow: visible;
     border-top: 0;
     background: #f7f7f7;
@@ -1033,10 +1034,11 @@
 
   .composer-editor {
     grid-row: 1;
+    grid-column: 1;
     height: var(--mobile-composer-editor-height, 42px);
     min-height: 42px;
     max-height: var(--mobile-composer-editor-height, 42px);
-    padding: 10px 14px;
+    padding: 10px 66px 10px 14px;
     overflow: auto;
     border-radius: 14px;
     background: #ffffff;
@@ -1045,13 +1047,16 @@
   }
 
   .chat-pane.mobile-composer-long .composer-editor {
-    padding-right: 48px;
+    padding-right: 104px;
   }
 
   .mobile-composer-expand-button {
-    position: absolute;
-    right: 23px;
-    top: calc(8px + var(--mobile-composer-editor-height, 42px) - 38px);
+    position: relative;
+    grid-row: 1;
+    grid-column: 1;
+    justify-self: end;
+    align-self: end;
+    margin: 0 50px 4px 0;
     z-index: 4;
     display: none;
     width: 34px;
@@ -1122,7 +1127,8 @@
 
   .mobile-composer-expanded {
     position: fixed;
-    inset: 0;
+    inset: var(--weq-mobile-viewport-top, 0px) 0 auto;
+    height: var(--weq-mobile-viewport-height, 100dvh);
     z-index: 96;
     display: grid;
     align-items: end;
@@ -1133,10 +1139,10 @@
     position: relative;
     display: grid;
     width: 100%;
-    height: min(84dvh, calc(100dvh - 54px));
+    height: min(84%, calc(100% - 54px));
     min-height: 0;
     grid-template-rows: minmax(0, 1fr);
-    padding: 70px 22px calc(76px + env(safe-area-inset-bottom, 0px));
+    padding: 70px 22px calc(76px + var(--mobile-composer-safe-bottom));
     overflow: hidden;
     border-radius: 22px 22px 0 0;
     background: #ffffff;
@@ -1174,14 +1180,15 @@
   }
 
   .mobile-composer-expanded-sheet .mention-menu {
-    bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    position: absolute;
+    bottom: calc(64px + var(--mobile-composer-safe-bottom));
     max-height: min(38dvh, 280px);
   }
 
   .mobile-composer-expanded-tools {
-    position: fixed;
+    position: absolute;
     right: 0;
-    bottom: env(safe-area-inset-bottom, 0px);
+    bottom: var(--mobile-composer-safe-bottom);
     left: 0;
     z-index: 2;
     /* 表情 / 弹射 / 应用的扩展键都从左排，中间那段留白把发送键顶到最右。 */
@@ -1251,9 +1258,9 @@
   }
 
   .mobile-composer-expanded .emoji-panel {
-    position: fixed;
+    position: absolute;
     right: 0;
-    bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(64px + var(--mobile-composer-safe-bottom));
     left: 0;
     width: 100%;
     height: 278px;
@@ -1267,9 +1274,9 @@
 
   /* 弹射面板在移动端展开态里同样贴底铺满（跟表情面板一个处理）。 */
   .mobile-composer-expanded .bounce-panel {
-    position: fixed;
+    position: absolute;
     right: 0;
-    bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(64px + var(--mobile-composer-safe-bottom));
     left: 0;
     width: 100%;
     max-height: min(560px, calc(100dvh - 96px));
@@ -1332,10 +1339,40 @@
     display: grid;
   }
 
-  /* 桌面端的「发送」按钮直接挂在 .composer 下（不在 .composer-tools 里），
-	   上面那条选择器管不到，这里单独藏掉；移动端用展开面板里的发送键。 */
+  /* 发送键贴在正文右下角，不改变工具栏入口、顺序或触控宽度。 */
   .composer > .composer-send {
+    position: relative;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    grid-row: 1;
+    grid-column: 1;
+    justify-self: end;
+    align-self: end;
+    display: grid;
+    width: 44px;
+    min-width: 44px;
+    height: 42px;
+    padding: 0;
+    place-items: center;
+    border-radius: 8px;
+    background: var(--weq-accent-effective);
+    color: var(--primary-foreground);
+  }
+
+  .composer > .composer-send:disabled {
+    background: var(--muted);
+    color: var(--weq-fg-muted);
+    opacity: 1;
+  }
+
+  .composer > .composer-send strong {
     display: none;
+  }
+
+  .composer > .composer-send svg {
+    width: 22px;
+    height: 22px;
   }
 
   .emoji-panel {

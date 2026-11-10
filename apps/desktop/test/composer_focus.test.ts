@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { insertComposerNode } from '../src/renderer/src/im-template/template/composer';
 
 const target = vi.hoisted(() => ({ web: false }));
 vi.mock('../src/renderer/src/lib/target', async (importOriginal) => ({
@@ -30,6 +31,27 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 afterEach(() => {
   target.web = false;
   vi.unstubAllGlobals();
+});
+
+it('表情面板插入不抢键盘焦点，连续插入沿用更新后的光标位置', () => {
+  const editor = document.createElement('div');
+  editor.contentEditable = 'true';
+  editor.textContent = '前后';
+  const button = document.createElement('button');
+  document.body.append(editor, button);
+  try {
+    button.focus();
+    const saved = document.createRange();
+    saved.setStart(editor.firstChild!, 1);
+    saved.collapse(true);
+    const next = insertComposerNode(editor, document.createTextNode('甲'), saved, false);
+    insertComposerNode(editor, document.createTextNode('乙'), next ?? null, false);
+    expect(editor.textContent).toBe('前甲乙后');
+    expect(document.activeElement).toBe(button);
+  } finally {
+    editor.remove();
+    button.remove();
+  }
 });
 
 function fixture() {

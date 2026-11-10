@@ -19,9 +19,14 @@ export function observeMobileWebViewport(element: HTMLElement): () => void {
   const viewport = window.visualViewport;
   const mobile = window.matchMedia('(max-width: 760px)');
   let leavingKeyboard = false;
+  let keyboardOpen = false;
+  let layoutWidth = window.innerWidth;
+  let layoutHeight = window.innerHeight;
   const clear = () => {
     element.style.removeProperty('--weq-mobile-viewport-height');
     element.style.removeProperty('--weq-mobile-viewport-top');
+    element.style.removeProperty('--weq-mobile-safe-bottom');
+    keyboardOpen = false;
   };
   const update = () => {
     if (!mobile.matches) {
@@ -36,6 +41,16 @@ export function observeMobileWebViewport(element: HTMLElement): () => void {
       ? Math.max(viewport?.height ?? 0, window.innerHeight)
       : (viewport?.height ?? window.innerHeight);
     if (height <= 0) return;
+    if (layoutWidth !== window.innerWidth || (!editing && !keyboardOpen)) {
+      layoutWidth = window.innerWidth;
+      layoutHeight = window.innerHeight;
+    } else {
+      // Android 可能连布局视口一起缩小，保留聚焦前的高度用于判断软键盘。
+      layoutHeight = Math.max(layoutHeight, window.innerHeight);
+    }
+    keyboardOpen = !leavingKeyboard && !!(editing || keyboardOpen) && layoutHeight - height > 120;
+    if (keyboardOpen) element.style.setProperty('--weq-mobile-safe-bottom', '0px');
+    else element.style.removeProperty('--weq-mobile-safe-bottom');
     element.style.setProperty('--weq-mobile-viewport-height', `${height}px`);
     element.style.setProperty(
       '--weq-mobile-viewport-top',

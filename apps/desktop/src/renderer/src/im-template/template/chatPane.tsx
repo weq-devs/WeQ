@@ -2220,15 +2220,21 @@ export function ChatPane({
     updateMentionMenu(editor);
   }
 
-  function insertComposerText(value: string) {
+  function insertComposerText(value: string, focus = true) {
     const editor = currentComposerEditor();
     if (!editor) {
       setComposerBody(`${body}${value}`);
       return;
     }
 
-    insertComposerNode(editor, document.createTextNode(value), composerSelectionRef.current);
+    const range = insertComposerNode(
+      editor,
+      document.createTextNode(value),
+      composerSelectionRef.current,
+      focus,
+    );
     syncComposerBody();
+    if (!focus && range) composerSelectionRef.current = range;
   }
 
   function insertMention(member: GroupMember) {
@@ -2839,10 +2845,11 @@ export function ChatPane({
     }
 
     const mobileEmojiMode = isMobileComposerViewport();
+    const focus = !(mobileEmojiMode && emojiOpen);
 
     // 字符 / 颜文字：直接插入字形文本。
     if (!item.src) {
-      insertComposerText(item.glyph || item.name);
+      insertComposerText(item.glyph || item.name, focus);
       if (!mobileEmojiMode) {
         setEmojiOpen(false);
       }
@@ -2867,8 +2874,9 @@ export function ChatPane({
         : 'composer-token-image composer-inline-emoji',
     );
 
-    insertComposerNode(editor, image, composerSelectionRef.current);
+    const range = insertComposerNode(editor, image, composerSelectionRef.current, focus);
     syncComposerBody();
+    if (!focus && range) composerSelectionRef.current = range;
     if (!mobileEmojiMode) {
       setEmojiOpen(false);
     }
@@ -3489,7 +3497,11 @@ export function ChatPane({
       event.preventDefault();
       return;
     }
-    if (event.nativeEvent.isComposing || event.key === 'Process') {
+    if (
+      event.nativeEvent.isComposing ||
+      event.nativeEvent.keyCode === 229 ||
+      event.key === 'Process'
+    ) {
       return;
     }
 
@@ -4598,6 +4610,7 @@ export function ChatPane({
 
   function toggleEmojiPanel() {
     if (voiceBusyRef.current) return;
+    if (isMobileWebComposer() && (!emojiOpen || toolsOpen)) currentComposerEditor()?.blur();
     setComposerMenu(null);
     setContextMenu(null);
     setLocationMenu(null);
@@ -4611,6 +4624,7 @@ export function ChatPane({
   }
 
   function toggleToolsPanel() {
+    if (isMobileWebComposer() && (!toolsOpen || emojiOpen)) currentComposerEditor()?.blur();
     setContextMenu(null);
     setLocationMenu(null);
     setLocationCardOpen(false);
@@ -4620,6 +4634,12 @@ export function ChatPane({
     setArkOpen(false);
     setAiVoiceOpen(false);
     setToolsOpen((open) => (emojiOpen ? true : !open));
+  }
+
+  function prepareMobileComposerKeyboard() {
+    if (!isMobileWebComposer()) return;
+    setEmojiOpen(false);
+    setToolsOpen(false);
   }
 
   function toggleVoicePanel() {
@@ -6463,9 +6483,11 @@ export function ChatPane({
           role="textbox"
           aria-multiline="true"
           aria-label="消息"
+          enterKeyHint="send"
           aria-disabled={readOnly || currentPreference.blocked}
           contentEditable={!readOnly && !currentPreference.blocked}
           suppressContentEditableWarning
+          onPointerDown={prepareMobileComposerKeyboard}
           onInput={() => syncComposerBody(composerEditorRef.current)}
           onMouseDown={prepareComposerImagePreview}
           onClick={previewComposerImage}
@@ -6529,9 +6551,11 @@ export function ChatPane({
               role="textbox"
               aria-multiline="true"
               aria-label="消息"
+              enterKeyHint="enter"
               aria-disabled={readOnly || currentPreference.blocked}
               contentEditable={!readOnly && !currentPreference.blocked}
               suppressContentEditableWarning
+              onPointerDown={prepareMobileComposerKeyboard}
               onInput={() => syncComposerBody(expandedComposerEditorRef.current)}
               onMouseDown={prepareComposerImagePreview}
               onClick={previewComposerImage}

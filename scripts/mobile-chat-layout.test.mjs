@@ -54,7 +54,7 @@ function fixture({ actions = true, suggest = true, quote = false } = {}) {
       ${suggest ? `<div class="weq-int-suggest"><div class="weq-int-suggest-track"><button class="weq-int-suggest-pill">${text}</button></div><button class="weq-int-suggest-refresh">↻</button></div>` : ''}
       <footer class="composer${quote ? ' has-quote' : ''}">
         ${quote ? '<div class="composer-quote">合成待发送引用</div>' : ''}
-        <div class="composer-editor" contenteditable="true"></div><div class="composer-tools"><button>工具</button></div>
+        <div class="composer-editor" contenteditable="true"></div><button class="composer-send" aria-label="发送"></button><div class="composer-tools"><button>工具</button></div>
       </footer>
     </section></main></div></div>`;
 }
@@ -97,6 +97,7 @@ for (const width of [320, 402, 430, 760]) {
                   const composer = rect('.composer');
                   const editor = rect('.composer-editor');
                   const tools = rect('.composer-tools');
+                  const send = rect('.composer-send');
                   const button = document.querySelector('.chat-actions button');
                   const target = button.getBoundingClientRect();
                   const toolbar = rect('.chat-actions');
@@ -125,6 +126,10 @@ for (const width of [320, 402, 430, 760]) {
                       editor.height > 0 &&
                       composer.bottom <= innerHeight + 1 &&
                       editor.bottom <= tools.top + 1,
+                    sendFits:
+                      send.top >= editor.top - 1 &&
+                      send.bottom <= editor.bottom + 1 &&
+                      send.right <= editor.right + 1,
                   };
                 });
                 const context = JSON.stringify({ width, inset, theme, component, state, height });
@@ -158,6 +163,56 @@ test('桌面长引用仍限制在气泡内，不改变桌面顶栏高度', async
     });
     assert.equal(result.headerHeight, 40);
     assert.ok(result.contentRight <= result.bubbleRight + 1);
+  } finally {
+    await page.close();
+  }
+});
+
+test('键盘弹起时普通输入与引用输入只占一次底部空间，发送键不遮住引用条', async () => {
+  const page = await browser.newPage();
+  try {
+    for (const width of [320, 402, 430, 760]) {
+      await page.setViewportSize({ width, height: 874 });
+      for (const quote of [false, true]) {
+        for (const keyboard of [false, true]) {
+          const styles = css.replaceAll('env(safe-area-inset-bottom, 0px)', '34px');
+          await page.setContent(
+            `<style>*{box-sizing:border-box}body{margin:0}${styles}</style>${fixture({ quote })}`,
+          );
+          await page.locator('.app-shell-root').evaluate((node, keyboard) => {
+            node.style.setProperty('--weq-mobile-viewport-height', keyboard ? '430px' : '874px');
+            if (keyboard) node.style.setProperty('--weq-mobile-safe-bottom', '0px');
+          }, keyboard);
+          const geometry = await page.evaluate(() => {
+            const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+            const editor = rect('.composer-editor');
+            const send = rect('.composer-send');
+            const composer = rect('.composer');
+            const tools = rect('.composer-tools');
+            return {
+              bottom: composer.bottom,
+              gap: composer.bottom - tools.bottom,
+              styles: {
+                padding: getComputedStyle(document.querySelector('.composer')).padding,
+                rows: getComputedStyle(document.querySelector('.composer')).gridTemplateRows,
+                height: composer.height,
+                tools: tools.height,
+                editor: editor.height,
+              },
+              sendFits:
+                send.top >= editor.top - 1 &&
+                send.bottom <= editor.bottom + 1 &&
+                send.right <= editor.right + 1,
+            };
+          });
+          const context = JSON.stringify({ width, quote, keyboard, geometry });
+          assert(Math.abs(geometry.bottom - (keyboard ? 430 : 874)) <= 1, context);
+          // 推荐条原有样式少 2px 顶部内边距；有引用时由 auto 行吸收这段余量。
+          assert.equal(geometry.gap, (keyboard ? 6 : 40) + (quote ? 0 : 2), context);
+          assert(geometry.sendFits, context);
+        }
+      }
+    }
   } finally {
     await page.close();
   }
