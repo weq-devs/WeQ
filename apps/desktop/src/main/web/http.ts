@@ -158,7 +158,13 @@ export async function handleRequest(
     return writeResponse(res, new Response(out.body, { status: out.status, headers }));
   }
 
-  await serveStatic(res, opts.publicDir, url, req.headers['accept-encoding']);
+  await serveStatic(
+    res,
+    opts.publicDir,
+    url,
+    req.headers['accept-encoding'],
+    /\bWeQRemote\b/.test(req.headers['user-agent'] ?? ''),
+  );
 }
 
 /** Bind `server` to `port`, resolving false when the port is taken. */
