@@ -127,6 +127,8 @@ export class AgentLabConfigService {
     if (!ref.model?.trim()) throw new Error('未选择模型');
     return {
       ...resolveEndpoint(provider, ref),
+      providerId: provider.id,
+      providerName: provider.name,
       modelIdentity: modelEndpointIdentity(ref, provider.baseUrl),
     };
   }

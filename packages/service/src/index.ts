@@ -431,6 +431,8 @@ export type {
   IntentAnalyzedEvent,
   IntentAnalysisProgress,
   ReplySuggestionHistoryEntry,
+  ReplySuggestionDetails,
+  ReplySuggestionTrace,
   IntentProfile,
   MbtiDim,
   ProfileHints,

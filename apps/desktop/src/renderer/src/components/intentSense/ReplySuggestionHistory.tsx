@@ -14,7 +14,8 @@ const timestamp = new Intl.DateTimeFormat('zh-CN', {
 
 export function ReplySuggestionHistory({
   history,
-  currentSuggestions,
+  currentRoundId,
+  onDetails,
   onInsert,
   onLocate,
 }: {
@@ -25,7 +26,8 @@ export function ReplySuggestionHistory({
     error: { message: string } | null;
     refetch: () => unknown;
   };
-  currentSuggestions: ReplySuggestionHistoryEntry['suggestions'];
+  currentRoundId?: string;
+  onDetails: (id: string) => void;
   onInsert: (text: string) => void;
   onLocate?: (target: ReplySuggestionHistoryEntry['target']) => void | Promise<void>;
 }) {
@@ -62,25 +64,12 @@ export function ReplySuggestionHistory({
       pane.style.removeProperty('--weq-int-history-scrollbar-width');
     };
   }, []);
-  // 服务按新到旧返回；只去掉仍在正式栏显示的最新一轮，不删除其他重复轮次。
-  const entries = (history.data ?? [])
-    .filter(
-      (entry, index) =>
-        index !== 0 ||
-        !(
-          entry.suggestions.length === currentSuggestions.length &&
-          entry.suggestions.every(
-            (item, i) =>
-              item.text === currentSuggestions[i]?.text &&
-              item.tone === currentSuggestions[i]?.tone,
-          )
-        ),
-    )
-    .toReversed();
+  // 同样的文字可能属于不同轮次，只按正式栏持有的轮次 ID 去重。
+  const entries = (history.data ?? []).filter((entry) => entry.id !== currentRoundId).toReversed();
   useLayoutEffect(() => {
     const scroll = scrollRef.current;
     if (scroll) scroll.scrollTop = scroll.scrollHeight;
-  }, [history.data, currentSuggestions]);
+  }, [history.data, currentRoundId]);
   return (
     <div
       className="weq-int-history"
@@ -138,9 +127,17 @@ export function ReplySuggestionHistory({
                   </button>
                 ))}
               </div>
-              <time dateTime={new Date(entry.createdAt).toISOString()}>
-                {timestamp.format(entry.createdAt)}
-              </time>
+              <button
+                type="button"
+                className="weq-int-history-date"
+                title="查看本轮推荐详情"
+                aria-label="查看本轮推荐详情"
+                onClick={() => onDetails(entry.id)}
+              >
+                <time dateTime={new Date(entry.createdAt).toISOString()}>
+                  {timestamp.format(entry.createdAt)}
+                </time>
+              </button>
             </div>
           ))
         )}

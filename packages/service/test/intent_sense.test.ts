@@ -8,12 +8,13 @@
  * 不需要真的 AccountSession。fetch 全局打桩驱动 api 批处理分支。
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   IntentSenseService,
+  MAX_SUGGESTION_HISTORY,
   type IntentLocalEnginePort,
   type IntentAnalysisProgress,
 } from '../src/account/intent_sense';
@@ -88,6 +89,188 @@ describe('IntentSenseService', () => {
     rmSync(dir, { recursive: true, force: true });
     vi.unstubAllGlobals();
   });
+
+  it('同一次请求生成概括与推荐，轮次保存实际模型、耗时、用量和完整 prompt，重启可查且不再请求', async () => {
+    const fetchMock = vi.fn(
+      async (_url: unknown, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            model: 'actual-model',
+            usage: { prompt_tokens: 40, completion_tokens: 20 },
+            choices: [
+              {
+                message: {
+                  content:
+                    '{"summary":"双方正在确认见面时间，最新消息询问是否有空。","replies":[{"text":"有空，几点？"}]}',
+                },
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const session = makeSession([textMsg(1n, 'u_peer', '明天有空吗？', 1000)]);
+    const svc = new IntentSenseService(session, dir, {
+      resolveEndpoint: () => ({
+        baseUrl: 'http://fixture',
+        apiKey: 'secret-not-in-trace',
+        model: 'requested-model',
+        providerId: 'p',
+        providerName: '测试供应商',
+      }),
+    });
+    await svc.setConfig({
+      suggestionsEnabled: true,
+      suggestionProviderRef: { providerId: 'p', model: 'requested-model' },
+    });
+    const first = await svc.getSuggestionRound('c2c', 'u_peer');
+    expect(first).toMatchObject({
+      summary: '双方正在确认见面时间，最新消息询问是否有空。',
+      generation: {
+        source: 'api',
+        model: 'actual-model',
+        providerId: 'p',
+        providerName: '测试供应商',
+        inputMessages: 1,
+        durationMs: expect.any(Number),
+        requestDurationMs: expect.any(Number),
+        usage: { promptTokens: 40, completionTokens: 20, totalTokens: 60 },
+      },
+    });
+    expect((await svc.getSuggestionRound('c2c', 'u_peer'))?.id).toBe(first?.id);
+    const second = await svc.getSuggestionRound('c2c', 'u_peer', { refresh: true });
+    expect(second?.suggestions).toEqual(first?.suggestions);
+    expect(second?.id).not.toBe(first?.id);
+    const reopened = new IntentSenseService(session, dir);
+    const details = reopened.getSuggestionDetails('c2c', 'u_peer', first!.id);
+    expect(details?.entry.id).toBe(first?.id);
+    const request = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
+    expect(details?.trace?.prompt).toEqual({
+      system: request.messages[0].content,
+      user: request.messages[1].content,
+    });
+    expect(details?.trace?.response).toContain('actual-model');
+    expect(JSON.stringify(details)).not.toContain('secret-not-in-trace');
+    expect(reopened.getSuggestionDetails('group', 'u_peer', first!.id)).toBeNull();
+    expect(reopened.getSuggestionDetails('c2c', 'other', first!.id)).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('本地候选不冒充模型概括，旧历史缺少详情仍可读取', async () => {
+    const session = makeSession([textMsg(1n, 'u_peer', '你好', 1000)]);
+    const svc = new IntentSenseService(session, dir);
+    await svc.setConfig({ suggestionsEnabled: true });
+    const round = await svc.getSuggestionRound('c2c', 'u_peer');
+    expect(round?.summary).toBeUndefined();
+    expect(round?.generation?.source).toBe('local');
+    const { generation: _generation, ...legacy } = round!;
+    writeFileSync(join(dir, 'suggestion-history/c2c_u_peer.json'), JSON.stringify([legacy]));
+    const reopened = new IntentSenseService(session, dir);
+    expect(reopened.getSuggestionDetails('c2c', 'u_peer', legacy.id)).toEqual({
+      entry: legacy,
+      trace: null,
+    });
+    writeFileSync(
+      join(dir, 'suggestion-history/c2c_u_peer.json'),
+      JSON.stringify([
+        { ...legacy, summary: { invalid: true }, generation: { source: 'api', durationMs: -1 } },
+      ]),
+    );
+    const corruptMetadata = new IntentSenseService(session, dir).getSuggestionHistory(
+      'c2c',
+      'u_peer',
+    );
+    expect(corruptMetadata).toHaveLength(1);
+    expect(corruptMetadata[0]?.summary).toBeUndefined();
+    expect(corruptMetadata[0]?.generation).toBeUndefined();
+  });
+
+  it('超出历史轮数时同步清理该轮请求详情，不删除其他文件', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: JSON.stringify({ replies: [{ text: '你好' }] }) } }],
+            }),
+          ),
+      ),
+    );
+    const session = makeSession([textMsg(1n, 'u_peer', '你好', 1000)]);
+    const svc = new IntentSenseService(session, dir, {
+      resolveEndpoint: () => ({ baseUrl: 'http://fixture', apiKey: 'fixture', model: 'm' }),
+    });
+    await svc.setConfig({
+      suggestionsEnabled: true,
+      suggestionProviderRef: { providerId: 'p', model: 'm' },
+    });
+    const first = (await svc.getSuggestionRound('c2c', 'u_peer'))!;
+    const traceDir = join(dir, 'suggestion-details/c2c_u_peer');
+    const path = join(traceDir, `${first.id}.json`);
+    expect(existsSync(path)).toBe(true);
+    writeFileSync(join(traceDir, 'unrelated.json'), '{}');
+    writeFileSync(
+      join(dir, 'suggestion-history/c2c_u_peer.json'),
+      JSON.stringify(
+        Array.from({ length: MAX_SUGGESTION_HISTORY }, (_, i) =>
+          i === 0 ? first : { ...first, id: `legacy-${i}` },
+        ),
+      ),
+    );
+    const reopened = new IntentSenseService(session, dir);
+    await reopened.getSuggestionRound('c2c', 'u_peer', { refresh: true });
+    expect(reopened.getSuggestionHistory('c2c', 'u_peer')).toHaveLength(MAX_SUGGESTION_HISTORY);
+    expect(reopened.getSuggestionDetails('c2c', 'u_peer', first.id)).toBeNull();
+    expect(existsSync(path)).toBe(false);
+    expect(existsSync(join(traceDir, 'unrelated.json'))).toBe(true);
+  });
+
+  it.each(['http', 'empty'])(
+    '模型 %s 失败时详情保存实际 prompt 与回退原因，不把模型概括配给本地候选',
+    async (failure) => {
+      const fetchMock = vi.fn(async () =>
+        failure === 'http'
+          ? new Response('{"error":{"message":"fixture-down"}}', { status: 500 })
+          : new Response(
+              JSON.stringify({
+                choices: [
+                  {
+                    message: {
+                      content: JSON.stringify({ summary: '不应显示的概括', replies: [] }),
+                    },
+                  },
+                ],
+              }),
+            ),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+      const svc = new IntentSenseService(makeSession([textMsg(1n, 'u_peer', '你好', 1000)]), dir, {
+        resolveEndpoint: () => ({
+          baseUrl: 'http://fixture',
+          apiKey: 'fixture',
+          model: 'attempted-model',
+        }),
+      });
+      await svc.setConfig({
+        suggestionsEnabled: true,
+        suggestionProviderRef: { providerId: 'p', model: 'attempted-model' },
+      });
+      const round = await svc.getSuggestionRound('c2c', 'u_peer');
+      expect(round?.generation).toMatchObject({
+        source: 'fallback',
+        model: 'attempted-model',
+        requestDurationMs: expect.any(Number),
+      });
+      expect(round?.summary).toBeUndefined();
+      const details = svc.getSuggestionDetails('c2c', 'u_peer', round!.id);
+      expect(details?.trace?.prompt?.user).toContain('你好');
+      expect(details?.trace?.error).toContain(
+        failure === 'http' ? 'fixture-down' : '未返回有效候选',
+      );
+      expect(fetchMock).toHaveBeenCalledOnce();
+    },
+  );
 
   it('批次进度只统计实际缺口，含失败完成数，晚订阅可恢复在途范围', async () => {
     let finish!: (value: null) => void;

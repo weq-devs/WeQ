@@ -115,6 +115,24 @@ try {
   assert.deepEqual(ready, loading, '加载切换到结果不改变槽位和消息区几何');
   await page.getByLabel('定位到当前推荐的最后一条输入消息', { exact: true }).click();
   assert.equal(await page.evaluate(() => window.intentQa.located.msgSeq), '77');
+  await page.getByLabel('查看当前推荐详情', { exact: true }).click();
+  await page.waitForSelector('.weq-int-round-details');
+  assert.ok(
+    (await page.locator('.weq-int-round-details').textContent()).includes('fixture-chat-model'),
+  );
+  assert.ok(
+    (await page.locator('.weq-int-round-summary').textContent()).includes('双方正在聊日常'),
+  );
+  await page.getByRole('button', { name: '请求日志', exact: true }).click();
+  assert.ok(
+    (await page.locator('.weq-int-round-log .weq-exp-log').textContent()).includes('User Prompt'),
+  );
+  assert.equal(
+    await page.locator('.weq-int-round-log .weq-exp-log').evaluate((node) => node.scrollTop),
+    0,
+  );
+  if (output) await page.screenshot({ path: resolve(output, 'recommendation-details.png') });
+  await page.getByLabel('关闭推荐详情', { exact: true }).click();
   await page.locator('.weq-int-suggest-pill').first().click();
   assert.equal(await page.getByLabel('草稿').inputValue(), '有空一起聊聊');
   await page.getByLabel('展开回复历史', { exact: true }).click();
@@ -136,11 +154,15 @@ try {
   );
   await page.getByLabel('定位到本次推荐的最后一条输入消息', { exact: true }).first().click();
   assert.equal(await page.evaluate(() => window.intentQa.located.msgSeq), '66');
+  await page.getByLabel('查看本轮推荐详情', { exact: true }).click();
+  await page.waitForSelector('.weq-int-round-details');
+  assert.ok((await page.locator('.weq-int-round-summary').textContent()).includes('未记录'));
+  await page.getByLabel('关闭推荐详情', { exact: true }).click();
   if (output) await page.screenshot({ path: resolve(output, 'history-desktop.png') });
   await page.evaluate(() => {
     window.intentQa.setHistory(
       Array.from({ length: 30 }, (_, i) => ({
-        id: `round-${30 - i}`,
+        id: `long-${30 - i}`,
         createdAt: 1794283200000 - i * 1000,
         target: {
           msgId: String(30 - i),
@@ -312,6 +334,24 @@ try {
               true,
               `${width}/${theme}: 历史与正式推荐滚动区两边界对齐`,
             );
+            await page.getByLabel('查看当前推荐详情', { exact: true }).click();
+            await page.getByRole('button', { name: '请求日志', exact: true }).click();
+            const detailFits = await page.locator('.weq-int-round-details').evaluate((node) => {
+              const rect = node.getBoundingClientRect();
+              return (
+                rect.left >= 0 &&
+                rect.right <= innerWidth &&
+                rect.top >= 0 &&
+                rect.bottom <= innerHeight &&
+                node.scrollWidth <= node.clientWidth
+              );
+            });
+            assert.equal(detailFits, true, `${width}/${theme}: 推荐详情与长 prompt 不越界`);
+            if (output && width === 390)
+              await page.screenshot({
+                path: resolve(output, `recommendation-details-${theme}-mobile.png`),
+              });
+            await page.getByLabel('关闭推荐详情', { exact: true }).click();
             if (output && width === 390)
               await page.screenshot({ path: resolve(output, `history-${width}-${theme}.png`) });
             await page.getByLabel('收起回复历史', { exact: true }).click();

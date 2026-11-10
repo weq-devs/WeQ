@@ -28,12 +28,14 @@ export function TaskLogConsole({
   history = false,
   scrollable = false,
   appearance = 'default',
+  autoFollow = true,
 }: {
   lines: readonly TaskLogLine[];
   collapsed: boolean;
   history?: boolean;
   scrollable?: boolean;
   appearance?: 'default' | 'export';
+  autoFollow?: boolean;
 }): ReactElement {
   const canScroll = scrollable || appearance === 'export';
   const visible = canScroll ? lines : lines.slice(-MAX_VISIBLE_LOGS);
@@ -41,9 +43,15 @@ export function TaskLogConsole({
   const followTail = useRef(true);
   const lastSequence = lines.at(-1)?.seq;
   useLayoutEffect(() => {
-    if (!collapsed && (history || canScroll) && followTail.current && terminal.current)
+    if (
+      autoFollow &&
+      !collapsed &&
+      (history || canScroll) &&
+      followTail.current &&
+      terminal.current
+    )
       terminal.current.scrollTop = terminal.current.scrollHeight;
-  }, [lastSequence, collapsed, history, canScroll]);
+  }, [lastSequence, collapsed, history, canScroll, autoFollow]);
   return (
     <div
       ref={terminal}

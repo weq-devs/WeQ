@@ -2,6 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { IntentSuggestionBar } from '../src/renderer/src/components/intentSense/IntentSuggestionBar';
+import type { ReplySuggestionHistoryEntry } from '@weq/service';
 
 const fixture = vi.hoisted(() => ({
   data: [{ text: '旧候选' }] as { text: string }[] | undefined,
@@ -13,7 +14,29 @@ const fixture = vi.hoisted(() => ({
   error: null as Error | null,
   historyQuery: vi.fn(),
   historyRefetch: vi.fn(async () => {}),
+  detailQuery: vi.fn(),
+  roundOverride: undefined as ReplySuggestionHistoryEntry | null | undefined,
+  rounds: new WeakMap<object, ReplySuggestionHistoryEntry>(),
+  sequence: 0,
 }));
+function roundFor(list: { text: string }[] | undefined, targetId?: string, useHistory = true) {
+  if (!list) return undefined;
+  if (!list.length) return null;
+  const cached = fixture.rounds.get(list);
+  if (cached) return cached;
+  const history: ReplySuggestionHistoryEntry[] =
+    fixture.historyQuery.mock.results.at(-1)?.value?.data ?? [];
+  const round = (useHistory
+    ? history.find((entry) => JSON.stringify(entry.suggestions) === JSON.stringify(list))
+    : undefined) ?? {
+    id: `fixture-${++fixture.sequence}`,
+    createdAt: 0,
+    target: { msgId: targetId ?? 'fixture', msgSeq: '77', senderUin: '10000', sendTime: 1000 },
+    suggestions: list,
+  };
+  fixture.rounds.set(list, round);
+  return round;
+}
 vi.mock('../src/renderer/src/components/intentSense/context', () => ({
   useIntentSenseStatus: () => ({ data: fixture.status }),
 }));
@@ -21,7 +44,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
       intentSense: {
-        getSuggestions: { query: fixture.refresh },
+        getSuggestionRound: {
+          query: async (input: { targetId?: string }) => {
+            const value = await fixture.refresh(input);
+            return Array.isArray(value) ? roundFor(value, input.targetId, false) : value;
+          },
+        },
         stopSuggestions: { mutate: fixture.stop },
       },
     },
@@ -29,10 +57,20 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {
       intentSense: {
-        getSuggestions: {
-          useQuery: fixture.query,
+        getSuggestionRound: {
+          useQuery: (input: { targetId?: string }, options: unknown) => {
+            const result = fixture.query(input, options);
+            return {
+              ...result,
+              data:
+                fixture.roundOverride !== undefined
+                  ? fixture.roundOverride
+                  : roundFor(result.data, input.targetId),
+            };
+          },
         },
         getSuggestionHistory: { useQuery: fixture.historyQuery },
+        getSuggestionDetails: { useQuery: fixture.detailQuery },
       },
     },
   },
@@ -48,6 +86,16 @@ beforeEach(() => {
     error: fixture.error,
   }));
   fixture.refresh.mockReset();
+  fixture.roundOverride = undefined;
+  fixture.rounds = new WeakMap();
+  fixture.sequence = 0;
+  fixture.detailQuery.mockReset().mockReturnValue({
+    data: null,
+    isLoading: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  });
   fixture.stop.mockClear();
   fixture.historyRefetch.mockClear();
   fixture.historyQuery.mockReset().mockReturnValue({
@@ -58,6 +106,83 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it('相同候选仍按轮次 ID 区分，正式详情和历史日期打开对应轮次，展开日志不重新生成', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const first: ReplySuggestionHistoryEntry = {
+    id: 'first',
+    createdAt: 1000,
+    target: { msgId: 'original', msgSeq: '1', sendTime: 1, senderUin: '10000' },
+    suggestions: [{ text: '相同候选' }],
+    summary: '第一轮概括',
+    generation: {
+      source: 'api',
+      model: 'model-first',
+      providerName: '测试供应商',
+      startedAt: 900,
+      durationMs: 100,
+      requestDurationMs: 90,
+      inputMessages: 2,
+    },
+  };
+  const second = {
+    ...first,
+    id: 'second',
+    summary: '第二轮概括',
+    target: { ...first.target, msgId: 'second', msgSeq: '2' },
+  };
+  fixture.roundOverride = first;
+  fixture.historyQuery.mockReturnValue({
+    data: [second, first],
+    isLoading: false,
+    isFetching: false,
+    refetch: fixture.historyRefetch,
+  });
+  fixture.detailQuery.mockImplementation(({ id }: { id: string }) => ({
+    data: {
+      entry: id === 'first' ? first : second,
+      trace: {
+        prompt: { system: '实际系统提示词', user: '实际输入消息' },
+        response: '{"summary":"原始概括"}',
+      },
+    },
+    isLoading: false,
+    error: null,
+  }));
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        createElement(IntentSuggestionBar, {
+          kind: 'c2c',
+          conv: 'fixture',
+          latestMessageId: 'newer',
+          onInsert: vi.fn(),
+        }),
+      ),
+    );
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="展开回复历史"]')!.click());
+    expect(host.querySelectorAll('.weq-int-history-row')).toHaveLength(1);
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="查看当前推荐详情"]')!.click());
+    expect(fixture.detailQuery.mock.calls.at(-1)?.[0].id).toBe('first');
+    const panel = document.querySelector('.weq-int-round-details')!;
+    expect(panel.textContent).toContain('第一轮概括');
+    expect(panel.textContent).toContain('model-first');
+    act(() => panel.querySelector<HTMLButtonElement>('.weq-int-round-log-toggle')!.click());
+    expect(panel.querySelector('.weq-exp-log')?.textContent).toContain('实际系统提示词');
+    expect(panel.querySelector('.weq-exp-log')?.textContent).toContain('实际输入消息');
+    act(() => panel.querySelector<HTMLButtonElement>('[aria-label="关闭推荐详情"]')!.click());
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="查看本轮推荐详情"]')!.click());
+    expect(fixture.detailQuery.mock.calls.at(-1)?.[0].id).toBe('second');
+    expect(document.querySelector('.weq-int-round-details')?.textContent).toContain('第二轮概括');
+    expect(fixture.refresh).not.toHaveBeenCalled();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 
 it.each([true, false])(
   '历史已覆盖最新消息=%s：过期推荐仅在输入仍为最新时复用，手动换一批始终可用',

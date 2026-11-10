@@ -29,6 +29,7 @@ import { mergeRoamingTimeline, timelineRowKey, type TimelineRow } from '../commo
 import {
   pickMessageText,
   requestApiJson,
+  parseApiUsage,
   normalizeModelSelection,
   modelSelectionKey,
   isDefaultModelSelection,
@@ -36,7 +37,7 @@ import {
   type AgentLabModelSelection,
 } from '@weq/agentlab';
 import type { EndpointResolver } from './assistant';
-import { JsonStore } from '../common/json_store';
+import { JsonStore, readJsonFile, writeJsonFileAtomic } from '../common/json_store';
 import { InteractionProfileService } from './interaction_profile';
 import { extractJsonBlock } from './intent_json';
 import { analyzePragmatics, calibrateIntentSense, type IntentContextTurn } from './intent_corpus';
@@ -303,9 +304,71 @@ export interface ReplySuggestionHistoryEntry {
   createdAt: number;
   target: { msgId: string; msgSeq?: string; senderUin: string; sendTime: number };
   suggestions: ReplySuggestion[];
+  summary?: string;
+  generation?: {
+    source: 'api' | 'local' | 'fallback';
+    model?: string;
+    providerId?: string;
+    providerName?: string;
+    startedAt: number;
+    durationMs: number;
+    requestDurationMs?: number;
+    inputMessages: number;
+    usage?: ReturnType<typeof parseApiUsage>;
+  };
 }
 
-const MAX_SUGGESTION_HISTORY = 500;
+export interface ReplySuggestionTrace {
+  prompt?: { system: string; user: string };
+  response?: string;
+  error?: string;
+}
+
+export interface ReplySuggestionDetails {
+  entry: ReplySuggestionHistoryEntry;
+  trace: ReplySuggestionTrace | null;
+}
+
+function normalizeSuggestionGeneration(raw: unknown): ReplySuggestionHistoryEntry['generation'] {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = raw as Record<string, unknown>;
+  const nonnegative = (n: unknown): n is number =>
+    typeof n === 'number' && Number.isFinite(n) && n >= 0;
+  if (
+    (value.source !== 'api' && value.source !== 'local' && value.source !== 'fallback') ||
+    !nonnegative(value.startedAt) ||
+    !Number.isFinite(new Date(value.startedAt).getTime()) ||
+    !nonnegative(value.durationMs) ||
+    !nonnegative(value.inputMessages) ||
+    !Number.isInteger(value.inputMessages)
+  )
+    return undefined;
+  const usage =
+    value.usage && typeof value.usage === 'object'
+      ? (value.usage as Record<string, unknown>)
+      : undefined;
+  return {
+    source: value.source,
+    startedAt: value.startedAt,
+    durationMs: value.durationMs,
+    inputMessages: value.inputMessages,
+    model: typeof value.model === 'string' ? value.model : undefined,
+    providerId: typeof value.providerId === 'string' ? value.providerId : undefined,
+    providerName: typeof value.providerName === 'string' ? value.providerName : undefined,
+    requestDurationMs: nonnegative(value.requestDurationMs) ? value.requestDurationMs : undefined,
+    usage: usage
+      ? parseApiUsage({
+          usage: {
+            prompt_tokens: usage.promptTokens,
+            completion_tokens: usage.completionTokens,
+            total_tokens: usage.totalTokens,
+          },
+        })
+      : undefined,
+  };
+}
+
+export const MAX_SUGGESTION_HISTORY = 500;
 
 // ── 常量 ────────────────────────────────────────────────────────────────────
 
@@ -482,10 +545,10 @@ export class IntentSenseService {
   private readonly analyzedListeners = new Set<(e: IntentAnalyzedEvent) => void>();
   private readonly progressListeners = new Set<(e: IntentAnalysisProgress) => void>();
   private readonly analysisProgress = new Map<string, IntentAnalysisProgress>();
-  /** 回复建议缓存 `${kind}:${conv}` → { lastMsgId, at, suggestions }。 */
+  /** 回复建议缓存 `${kind}:${conv}` → 输入末条与实际轮次。 */
   private readonly suggestionCache = new Map<
     string,
-    { lastMsgId: string; at: number; suggestions: ReplySuggestion[] }
+    { lastMsgId: string; at: number; round: ReplySuggestionHistoryEntry }
   >();
   private readonly suggestionHistoryStores = new Map<
     string,
@@ -493,6 +556,11 @@ export class IntentSenseService {
   >();
   /** 回复建议在途任务（去重并发，防止相同会话重复调用 API）。 */
   private readonly suggestionInFlight = new Map<string, Promise<ReplySuggestion[]>>();
+  /** 结果与请求绑定；下一轮覆盖会话缓存时，旧请求仍返回自己的轮次。 */
+  private readonly suggestionRounds = new WeakMap<
+    Promise<ReplySuggestion[]>,
+    { round?: ReplySuggestionHistoryEntry }
+  >();
   private readonly suggestionControllers = new Map<string, AbortController>();
   /** API 熔断截止时间戳（ms）：网络/服务报错后短时间内不再重复撞墙。 */
   private apiCooldownUntil = 0;
@@ -1444,6 +1512,12 @@ export class IntentSenseService {
                   )
                 );
               })
+              .map((entry) => ({
+                ...entry,
+                summary:
+                  typeof entry.summary === 'string' ? entry.summary.trim() || undefined : undefined,
+                generation: normalizeSuggestionGeneration(entry.generation),
+              }))
               .slice(-MAX_SUGGESTION_HISTORY);
           },
         },
@@ -1457,29 +1531,86 @@ export class IntentSenseService {
     return [...this.suggestionHistoryFor(kind, conv).data].reverse();
   }
 
+  private suggestionTracePath(kind: IntentConversationKind, conv: string, id: string): string {
+    return join(
+      this.storeDir,
+      'suggestion-details',
+      fileSafe(conversationKey(kind, conv)),
+      `${fileSafe(id)}.json`,
+    );
+  }
+
+  getSuggestionDetails(
+    kind: IntentConversationKind,
+    conv: string,
+    id: string,
+  ): ReplySuggestionDetails | null {
+    const entry = this.suggestionHistoryFor(kind, conv).data.find((entry) => entry.id === id);
+    if (!entry) return null;
+    const raw = readJsonFile(this.suggestionTracePath(kind, conv, id));
+    let trace: ReplySuggestionTrace | null = null;
+    if (raw && typeof raw === 'object') {
+      trace = {};
+      if (
+        'prompt' in raw &&
+        raw.prompt &&
+        typeof raw.prompt === 'object' &&
+        'system' in raw.prompt &&
+        'user' in raw.prompt &&
+        typeof raw.prompt.system === 'string' &&
+        typeof raw.prompt.user === 'string'
+      )
+        trace.prompt = { system: raw.prompt.system, user: raw.prompt.user };
+      if ('response' in raw && typeof raw.response === 'string') trace.response = raw.response;
+      if ('error' in raw && typeof raw.error === 'string') trace.error = raw.error;
+    }
+    return { entry, trace };
+  }
+
+  getSuggestionRound(
+    kind: IntentConversationKind,
+    conv: string,
+    options: { refresh?: boolean } = {},
+  ): Promise<ReplySuggestionHistoryEntry | null> {
+    const task = this.getSuggestions(kind, conv, options);
+    return task.then(() => this.suggestionRounds.get(task)?.round ?? null);
+  }
+
   private recordSuggestions(
     kind: IntentConversationKind,
     conv: string,
     last: SenseRow,
     suggestions: ReplySuggestion[],
-  ): void {
-    if (!suggestions.length) return;
+    metadata: Pick<ReplySuggestionHistoryEntry, 'summary' | 'generation'>,
+    trace?: ReplySuggestionTrace,
+  ): ReplySuggestionHistoryEntry | null {
+    if (!suggestions.length) return null;
     const store = this.suggestionHistoryFor(kind, conv);
-    store.data = [
-      ...store.data,
-      {
-        id: randomUUID(),
-        createdAt: Date.now(),
-        target: {
-          msgId: last.msgId,
-          msgSeq: last.msgSeq,
-          senderUin: last.senderUin,
-          sendTime: last.sendTime,
-        },
-        suggestions,
+    const entry: ReplySuggestionHistoryEntry = {
+      id: randomUUID(),
+      createdAt: Date.now(),
+      target: {
+        msgId: last.msgId,
+        msgSeq: last.msgSeq,
+        senderUin: last.senderUin,
+        sendTime: last.sendTime,
       },
-    ].slice(-MAX_SUGGESTION_HISTORY);
+      suggestions,
+      ...metadata,
+    };
+    const removed = store.data.slice(
+      0,
+      Math.max(0, store.data.length + 1 - MAX_SUGGESTION_HISTORY),
+    );
+    store.data = [...store.data, entry].slice(-MAX_SUGGESTION_HISTORY);
+    if (trace) writeJsonFileAtomic(this.suggestionTracePath(kind, conv, entry.id), trace);
     store.save();
+    for (const old of removed) {
+      try {
+        unlinkSync(this.suggestionTracePath(kind, conv, old.id));
+      } catch {}
+    }
+    return entry;
   }
 
   getSuggestions(
@@ -1501,8 +1632,11 @@ export class IntentSenseService {
     if (running) return running;
     const controller = new AbortController();
     this.suggestionControllers.set(inFlightKey, controller);
+    const result: { round?: ReplySuggestionHistoryEntry } = {};
 
     const task = (async (): Promise<ReplySuggestion[]> => {
+      const startedAt = Date.now();
+      const started = performance.now();
       const contextMessages = this.config.suggestionContextMessages;
       const current = () => {
         this.syncDefaultModels();
@@ -1528,8 +1662,49 @@ export class IntentSenseService {
         cachedHit.lastMsgId === last.msgId &&
         Date.now() - cachedHit.at < this.config.suggestionCacheSeconds * 1000
       ) {
-        return cachedHit.suggestions;
+        result.round = cachedHit.round;
+        return cachedHit.round.suggestions;
       }
+
+      let trace: ReplySuggestionTrace | undefined;
+      let model: string | undefined;
+      let providerId: string | undefined;
+      let providerName: string | undefined;
+      let requestDurationMs: number | undefined;
+      let usage: ReturnType<typeof parseApiUsage> | undefined;
+      const complete = (
+        suggestions: ReplySuggestion[],
+        source: 'api' | 'local' | 'fallback',
+        summary?: string,
+      ): ReplySuggestion[] => {
+        if (!current()) return [];
+        const round = this.recordSuggestions(
+          kind,
+          conv,
+          last,
+          suggestions,
+          {
+            summary,
+            generation: {
+              source,
+              model,
+              providerId,
+              providerName,
+              startedAt,
+              durationMs: Math.round(performance.now() - started),
+              requestDurationMs,
+              inputMessages: rows.length,
+              usage,
+            },
+          },
+          trace,
+        );
+        if (round) {
+          result.round = round;
+          this.suggestionCache.set(key, { lastMsgId: last.msgId, at: round.createdAt, round });
+        }
+        return suggestions;
+      };
 
       const fallbackLocal = (): ReplySuggestion[] => {
         if (!current()) return [];
@@ -1542,13 +1717,19 @@ export class IntentSenseService {
           context,
           last.sendTime,
         ).slice(0, this.config.suggestionCount);
-        this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
-        this.recordSuggestions(kind, conv, last, suggestions);
-        return suggestions;
+        return complete(suggestions, trace ? 'fallback' : 'local');
       };
 
       const endpoint = this.endpoint(this.config.suggestionProviderRef);
+      model = endpoint?.model;
+      providerId =
+        endpoint?.providerId ??
+        (this.config.suggestionProviderRef && 'providerId' in this.config.suggestionProviderRef
+          ? this.config.suggestionProviderRef.providerId
+          : undefined);
+      providerName = endpoint?.providerName;
       if (!endpoint || Date.now() < this.suggestionApiCooldownUntil) {
+        if (endpoint) trace = { error: '模型服务处于失败冷却期，本轮使用本地候选。' };
         return fallbackLocal();
       }
       const baseUrl = endpoint.baseUrl.replace(/\/+$/, '');
@@ -1564,8 +1745,11 @@ export class IntentSenseService {
         count: this.config.suggestionCount,
         targetChars: this.config.suggestionTargetChars,
       });
+      trace = { prompt };
+      const requestStarted = performance.now();
       try {
         const body = await requestApiJson<{
+          model?: string;
           choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
         }>({ ...endpoint, baseUrl, feature: 'reply-suggestion' }, '/chat/completions', {
           method: 'POST',
@@ -1587,8 +1771,13 @@ export class IntentSenseService {
           ]),
         });
         if (!current()) return [];
+        requestDurationMs = Math.round(performance.now() - requestStarted);
+        trace.response = JSON.stringify(body);
+        if (typeof body.model === 'string' && body.model.trim()) model = body.model;
+        usage = parseApiUsage(body);
         this.lastSuggestionApiError = null;
         const parsed = extractJsonBlock(pickMessageText(body.choices?.[0]?.message)) as {
+          summary?: unknown;
           replies?: unknown[];
         } | null;
         const suggestions: ReplySuggestion[] = (parsed?.replies ?? [])
@@ -1600,12 +1789,19 @@ export class IntentSenseService {
           })
           .filter((r): r is ReplySuggestion => r !== null)
           .slice(0, this.config.suggestionCount);
-        if (suggestions.length === 0) return fallbackLocal();
-        this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
-        this.recordSuggestions(kind, conv, last, suggestions);
-        return suggestions;
+        if (suggestions.length === 0) {
+          trace.error = '模型未返回有效候选，本轮使用本地候选。';
+          return fallbackLocal();
+        }
+        return complete(
+          suggestions,
+          'api',
+          typeof parsed?.summary === 'string' ? parsed.summary.trim() || undefined : undefined,
+        );
       } catch (error) {
         if (!current()) return [];
+        requestDurationMs = Math.round(performance.now() - requestStarted);
+        trace.error = error instanceof Error ? error.message : String(error);
         this.suggestionApiCooldownUntil = Date.now() + this.config.apiCooldownSeconds * 1000;
         this.lastSuggestionApiError = error instanceof Error ? error.message : String(error);
         logger.debug('intent-sense suggestions failed', {
@@ -1623,6 +1819,7 @@ export class IntentSenseService {
     });
 
     this.suggestionInFlight.set(inFlightKey, task);
+    this.suggestionRounds.set(task, result);
     return task;
   }
 

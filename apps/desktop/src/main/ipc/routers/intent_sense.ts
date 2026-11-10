@@ -47,6 +47,14 @@ export function isIntentModelDownloading(): boolean {
 }
 
 const kindSchema = z.enum(['c2c', 'group']);
+const suggestionRequestSchema = z.object({
+  kind: kindSchema,
+  conv: z.string().min(1),
+  revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  replyAllowed: z.boolean().optional(),
+  targetId: z.string().nullable().optional(),
+  refresh: z.boolean().optional(),
+});
 const tuning = (key: IntentTuningKey) => {
   const rule = INTENT_TUNING[key];
   const schema = z.number().min(rule.min).max(rule.max);
@@ -194,19 +202,24 @@ const intentSenseFeatureProcedures = {
     .input(z.object({ kind: kindSchema, conv: z.string().min(1) }))
     .mutation(({ input }) => requireServices().intentSense.stopSuggestions(input.kind, input.conv)),
 
+  getSuggestionDetails: procedure
+    .input(z.object({ kind: kindSchema, conv: z.string().min(1), id: z.string().min(1).max(128) }))
+    .query(({ input }) =>
+      requireServices().intentSense.getSuggestionDetails(input.kind, input.conv, input.id),
+    ),
+
+  getSuggestionRound: procedure.input(suggestionRequestSchema).query(({ input }) =>
+    input.replyAllowed === false
+      ? null
+      : requireServices().intentSense.getSuggestionRound(input.kind, input.conv, {
+          refresh: input.refresh,
+        }),
+  ),
+
   /** 候选回复（当前引擎可用且 suggestionsEnabled）。 */
   getSuggestions: procedure
     // 版本隔离缓存；自动查询可暂停，手动刷新不改变功能和会话开关。
-    .input(
-      z.object({
-        kind: kindSchema,
-        conv: z.string().min(1),
-        revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
-        replyAllowed: z.boolean().optional(),
-        targetId: z.string().nullable().optional(),
-        refresh: z.boolean().optional(),
-      }),
-    )
+    .input(suggestionRequestSchema)
     .query(({ input }) =>
       input.replyAllowed === false
         ? []

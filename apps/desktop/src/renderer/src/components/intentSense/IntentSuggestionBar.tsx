@@ -7,18 +7,14 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactElement } from 'react';
-import { Lightbulb, RefreshCw, ChevronUp, ChevronDown, Square } from 'lucide-react';
+import { Lightbulb, RefreshCw, ChevronUp, ChevronDown, Square, Info } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useToast } from '../Toast';
 import { useIntentSenseStatus } from './context';
 import { ReplySuggestionHistory } from './ReplySuggestionHistory';
+import { ReplySuggestionDetailsPanel } from './ReplySuggestionDetailsPanel';
 import type { ReplySuggestionHistoryEntry } from '@weq/service';
 import '../../styles/intent-sense.css';
-
-interface SuggestionWire {
-  text: string;
-  tone?: string;
-}
 
 export function IntentSuggestionBar({
   kind,
@@ -38,6 +34,7 @@ export function IntentSuggestionBar({
 }): ReactElement | null {
   const [busy, setBusy] = useState(false);
   const [historyScope, setHistoryScope] = useState<string | null>(null);
+  const [detail, setDetail] = useState<{ scope: string; id: string } | null>(null);
   const historyId = useId();
   const [refreshError, setRefreshError] = useState<{ context: string; message: string } | null>(
     null,
@@ -60,7 +57,7 @@ export function IntentSuggestionBar({
   );
   const latestHistory = history.data?.[0];
   const upToDate = !!latestMessageId && latestHistory?.target.msgId === latestMessageId;
-  const suggestions = trpc.account.intentSense.getSuggestions.useQuery(
+  const suggestions = trpc.account.intentSense.getSuggestionRound.useQuery(
     {
       kind,
       conv,
@@ -88,10 +85,13 @@ export function IntentSuggestionBar({
   requestContext.current = scope;
   const refreshPending = useRef(false);
   const requestEpoch = useRef(0);
-  const [previous, setPrevious] = useState<{ scope: string; list: SuggestionWire[] } | null>(null);
+  const [previous, setPrevious] = useState<{
+    scope: string;
+    round: ReplySuggestionHistoryEntry;
+  } | null>(null);
   const recent =
     latestHistory && (upToDate || entry.current.at - latestHistory.createdAt <= 60_000)
-      ? latestHistory.suggestions
+      ? latestHistory
       : undefined;
   useEffect(() => {
     if (!active) {
@@ -99,40 +99,34 @@ export function IntentSuggestionBar({
       return;
     }
     const next = upToDate
-      ? latestHistory?.suggestions
-      : replyAllowed && suggestions.data?.length
+      ? latestHistory
+      : replyAllowed && suggestions.data
         ? suggestions.data
         : undefined;
     setPrevious((current) =>
-      next ? { scope, list: next } : current?.scope === scope ? current : null,
+      next ? { scope, round: next } : current?.scope === scope ? current : null,
     );
-  }, [active, replyAllowed, scope, suggestions.data, upToDate, latestHistory?.suggestions]);
+  }, [active, replyAllowed, scope, suggestions.data, upToDate, latestHistory]);
   useEffect(() => {
-    if (!active || !recent?.length) return;
-    setPrevious((current) => (current?.scope === scope ? current : { scope, list: recent }));
+    if (!active || !recent) return;
+    setPrevious((current) => (current?.scope === scope ? current : { scope, round: recent }));
   }, [active, scope, recent]);
   const previousData = useRef(suggestions.data);
   useEffect(() => {
     if (previousData.current === suggestions.data) return;
     previousData.current = suggestions.data;
-    if (suggestions.data?.length) void history.refetch();
+    if (suggestions.data) void history.refetch();
   }, [suggestions.data, history.refetch]);
   // 空结果或停止本轮都不清空候选；时间限制只在进入会话时应用。
-  const list = (
+  const currentRound =
     previous?.scope === scope
-      ? previous.list
-      : ((replyAllowed ? suggestions.data : undefined) ?? recent ?? [])
-  ) as SuggestionWire[];
+      ? previous.round
+      : ((replyAllowed ? suggestions.data : undefined) ?? recent);
+  const list = currentRound?.suggestions ?? [];
   const loading =
     stopped !== messageContext && ((!upToDate && replyAllowed && suggestions.isFetching) || busy);
   const showStop = loading && actionHovered;
-  const currentTarget = history.data?.find(
-    (entry) =>
-      entry.suggestions.length === list.length &&
-      entry.suggestions.every(
-        (item, index) => item.text === list[index]?.text && item.tone === list[index]?.tone,
-      ),
-  )?.target;
+  const currentTarget = currentRound?.target;
   const error =
     refreshError?.context === requestContext.current
       ? refreshError.message
@@ -163,12 +157,22 @@ export function IntentSuggestionBar({
       className={`weq-int-suggest${historyOpen ? ' is-history-open' : ''}`}
       aria-label="推荐回复"
     >
+      {detail?.scope === scope ? (
+        <ReplySuggestionDetailsPanel
+          key={detail.id}
+          kind={kind}
+          conv={conv}
+          id={detail.id}
+          onClose={() => setDetail(null)}
+        />
+      ) : null}
       {historyOpen ? (
         <div id={historyId} className="weq-int-history-slot">
           <ReplySuggestionHistory
             key={`${kind}:${conv}`}
             history={history}
-            currentSuggestions={list}
+            currentRoundId={currentRound?.id}
+            onDetails={(id) => setDetail({ scope, id })}
             onInsert={onInsert}
             onLocate={onLocate}
           />
@@ -215,13 +219,23 @@ export function IntentSuggestionBar({
               </button>
             ))
           )}
-        </div>
-        <div className="weq-int-suggest-actions">
           {error && list.length > 0 ? (
             <span className="weq-int-suggest-error" title={error}>
               更新失败
             </span>
           ) : null}
+        </div>
+        <div className="weq-int-suggest-actions">
+          <button
+            type="button"
+            className="weq-int-suggest-refresh"
+            title="查看当前推荐详情"
+            aria-label="查看当前推荐详情"
+            disabled={!currentRound}
+            onClick={() => currentRound && setDetail({ scope, id: currentRound.id })}
+          >
+            <Info size={12} />
+          </button>
           <button
             type="button"
             className={`weq-int-suggest-refresh weq-int-suggest-action${loading && !showStop ? ' is-busy' : ''}`}
@@ -265,7 +279,7 @@ export function IntentSuggestionBar({
               setBusy(true);
               setRefreshError(null);
               try {
-                const list = await client.account.intentSense.getSuggestions.query({
+                const round = await client.account.intentSense.getSuggestionRound.query({
                   kind,
                   conv,
                   revision: status.data?.suggestionRevision ?? 0,
@@ -275,9 +289,9 @@ export function IntentSuggestionBar({
                 if (
                   requestContext.current === expected &&
                   requestEpoch.current === epoch &&
-                  list.length > 0
+                  round
                 ) {
-                  setPrevious({ scope, list });
+                  setPrevious({ scope, round });
                   void history.refetch();
                 }
               } catch (error) {

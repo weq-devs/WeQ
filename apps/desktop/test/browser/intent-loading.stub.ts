@@ -13,7 +13,6 @@ const listeners = new Set<() => void>();
 const progressListeners = new Set<(event: IntentAnalysisProgress) => void>();
 const resultListeners = new Set<(event: IntentAnalyzedEvent) => void>();
 const readySuggestions = [{ text: '有空一起聊聊', tone: '自然' }];
-const noSuggestions: typeof readySuggestions = [];
 let finishCache: ((results: IntentSenseResult[]) => void) | undefined;
 export function releaseCache() {
   finishCache?.([]);
@@ -67,6 +66,17 @@ let history: ReplySuggestionHistoryEntry[] = [
     createdAt: 1794283200000,
     target: { msgId: 'previous-message', msgSeq: '77', senderUin: '10000', sendTime: 1794283200 },
     suggestions: readySuggestions,
+    summary: '双方正在聊日常，最新消息适合轻松接话。',
+    generation: {
+      source: 'api',
+      model: 'fixture-chat-model',
+      providerName: '测试供应商',
+      startedAt: 1794283198000,
+      durationMs: 2000,
+      requestDurationMs: 1800,
+      inputMessages: 20,
+      usage: { promptTokens: 200, completionTokens: 60, totalTokens: 260 },
+    },
   },
   {
     id: 'round-1',
@@ -75,6 +85,7 @@ let history: ReplySuggestionHistoryEntry[] = [
     suggestions: [{ text: '上一轮推荐回复', tone: '自然' }, { text: '另一条历史候选' }],
   },
 ];
+const readyRound = { ...history[0]!, target: { ...history[0]!.target, msgId: 'message' } };
 export function setHistory(entries: ReplySuggestionHistoryEntry[]) {
   history = entries;
   for (const listener of listeners) listener();
@@ -135,15 +146,46 @@ export const trpc = {
           },
         }),
       },
-      getSuggestions: {
+      getSuggestionRound: {
         useQuery: () => {
           const current = useMode();
           return {
-            data: current === 'ready' ? readySuggestions : noSuggestions,
+            data: current === 'ready' ? readyRound : null,
             isFetching: current === 'loading',
             error: current === 'error' ? new Error('合成网络错误') : null,
           };
         },
+      },
+      getSuggestionDetails: {
+        useQuery: ({ id }: { id: string }) => ({
+          data: {
+            entry: id === readyRound.id ? readyRound : history.find((entry) => entry.id === id)!,
+            trace:
+              id === readyRound.id
+                ? {
+                    prompt: {
+                      system: '根据完整对话，先概括再生成候选。',
+                      user: JSON.stringify(
+                        {
+                          messages: Array.from({ length: 20 }, (_, i) => ({
+                            id: i,
+                            text: `合成聊天消息 ${i}`,
+                          })),
+                        },
+                        null,
+                        2,
+                      ),
+                    },
+                    response:
+                      '{"summary":"双方正在聊日常，最新消息适合轻松接话。","replies":[{"text":"有空一起聊聊"}]}',
+                  }
+                : null,
+          },
+          isLoading: false,
+          isFetching: false,
+          error: null,
+          refetch: invalidate,
+        }),
       },
       getSuggestionHistory: {
         useQuery: () => {
@@ -225,7 +267,13 @@ export const client = {
           };
         },
       },
-      getSuggestions: { query: async () => [{ text: '重新生成的候选' }] },
+      getSuggestionRound: {
+        query: async () => ({
+          ...readyRound,
+          id: 'manual-round',
+          suggestions: [{ text: '重新生成的候选' }],
+        }),
+      },
       stopSuggestions: {
         mutate: async () => {
           setMode('empty');
