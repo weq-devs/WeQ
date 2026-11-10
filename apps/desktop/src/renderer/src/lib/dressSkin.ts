@@ -249,6 +249,16 @@ export function appendToSelectors(sel: string, suffix: string): string {
     .join(',\n');
 }
 
+/** 最小尺寸多出的空间均分到正文两侧，不改变正文内部的行对齐。 */
+export function bubbleContentAlignmentCss(sel: string): string {
+  return `${sel} { align-content: center; }
+${appendToSelectors(sel, ' > .qq-message-body')} {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+}`;
+}
+
 /**
  * 炫彩帧的帧时长（ms）—— **160ms/帧（≈6fps，1/4 倍速）**。
  *
@@ -580,6 +590,7 @@ function baseBubbleRule(skin: BubbleSkinCss, m: BubbleMetrics, sel: string): str
     `  min-width: ${m.minWidth};`,
     `  min-height: ${m.minHeight};`,
     `}`,
+    bubbleContentAlignmentCss(sel),
   ]
     .filter(Boolean)
     .join('\n');

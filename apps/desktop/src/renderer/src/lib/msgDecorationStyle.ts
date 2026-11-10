@@ -13,6 +13,7 @@ import {
   dressFontFrameUrl,
 } from './resourceUrl';
 import {
+  bubbleContentAlignmentCss,
   bubbleLinkMentionRules,
   bubbleRestrictsTextColor,
   fontFxRules,
@@ -255,6 +256,7 @@ export function injectBubbleCss(skin: BubbleSkin) {
       `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
       `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
       `}`,
+      bubbleContentAlignmentCss(sel),
     ];
 
     // 炫彩帧的裁形：帧画在伪元素上（我方 `::before`、对方 `::after`），这里把同一张
