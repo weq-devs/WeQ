@@ -106,7 +106,10 @@ import { runtimeMaintenance } from '../../runtime_maintenance';
 import { resolveSignerWrapper } from '../../context/signer_target';
 import { launchQq, runningQqCount } from '../../qq_launch';
 import { QqDebugCopyManager } from '../../qq_debug_copy';
-import { QQ_DEBUG_COPY_PERMISSION_ACTIONS } from '../../../shared/qq_debug_copy';
+import {
+  QQ_DEBUG_COPY_ACTIONS,
+  QQ_DEBUG_COPY_PERMISSION_ACTIONS,
+} from '../../../shared/qq_debug_copy';
 import { checkQqDataAccess, QQ_DATA_ACCESS_SETTINGS } from '../../qq_data_access';
 import { macLaunchApplication } from '../../mac_launch_application';
 
@@ -455,7 +458,7 @@ export const bootstrapRouter = router({
 
   qqDebugCopyStatus: procedure.query(() => requireDebugCopyDesktop().status()),
   qqDebugCopyAction: procedure
-    .input(z.object({ action: z.enum(['prepare', 'verify', 'launch', 'remove']) }))
+    .input(z.object({ action: z.enum(QQ_DEBUG_COPY_ACTIONS) }))
     .mutation(({ input }) => requireDebugCopyDesktop().perform(input.action)),
   qqDebugCopyPermission: procedure
     .input(z.object({ action: z.enum(QQ_DEBUG_COPY_PERMISSION_ACTIONS) }))

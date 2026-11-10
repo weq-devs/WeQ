@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { LongTermAuthorizationLink } from './LongTermAuthorizationLink';
-import { QqDebugCopy } from './QqDebugCopy';
+import { RestrictedQqAction } from './RestrictedQqAction';
 import { client, trpc } from '../trpc/client';
 import {
   restrictionReasons,
@@ -209,6 +209,8 @@ export function RestrictedModeHost() {
   const titleId = useId();
   const [busy, setBusy] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const [loginRequested, setLoginRequested] = useState<string | null>(null);
+  const refreshAfterLogin = useRef<(enable: boolean) => Promise<void>>(async () => {});
   const [error, setError] = useState('');
   const [dataRetried, setDataRetried] = useState(false);
   const operation = useRef(0);
@@ -274,6 +276,7 @@ export function RestrictedModeHost() {
     launchPending.current = false;
     setBusy(false);
     setLaunching(false);
+    setLoginRequested(null);
     setError('');
     setDataRetried(false);
     previous.current = '';
@@ -294,7 +297,29 @@ export function RestrictedModeHost() {
   const showDebugCopy =
     IS_MAC &&
     sip.data === true &&
-    reasons.some((reason) => reason.code === 'sip' || reason.code === 'offline');
+    reasons.some((reason) => ['sip', 'offline', 'disabled', 'credentials'].includes(reason.code));
+  const needsDebugQq = reasons.some((reason) => reason.code === 'sip' || reason.code === 'offline');
+  useEffect(() => {
+    if (
+      loginRequested !== sourceKey ||
+      !active ||
+      !accessMatches ||
+      !access.data?.qqOnline ||
+      busy ||
+      requests.length
+    )
+      return;
+    setLoginRequested(null);
+    void refreshAfterLogin.current(true);
+  }, [
+    loginRequested,
+    sourceKey,
+    active,
+    accessMatches,
+    access.data?.qqOnline,
+    busy,
+    requests.length,
+  ]);
   const online = trpc.bootstrap.probeOnline.useQuery(undefined, {
     enabled: !active,
     refetchInterval: 5000,
@@ -580,46 +605,67 @@ export function RestrictedModeHost() {
       }
     }
   }
-  const actions = (
-    <>
-      {!showDebugCopy && reasons.some((reason) => reason.code === 'offline') && (
+  refreshAfterLogin.current = refresh;
+  async function afterDebugQqOpened() {
+    const binding = sourceKey;
+    const source = accessMatches ? access.data?.source : undefined;
+    if (active && source && source.expectedAccountUin === uin) {
+      await client.account.requestFullMode.mutate(source);
+      if (currentSource.current !== binding) return;
+    }
+    setLoginRequested(binding);
+    await (active ? access.refetch() : online.refetch());
+  }
+  const actions =
+    showDebugCopy && !awaitingAuthorization ? (
+      <RestrictedQqAction
+        key={sourceKey}
+        needsQq={needsDebugQq}
+        busy={busy || entering}
+        onOpened={afterDebugQqOpened}
+        onEnable={() => refresh(true)}
+        onRetry={() => refresh()}
+      />
+    ) : (
+      <>
+        {!showDebugCopy && reasons.some((reason) => reason.code === 'offline') && (
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={busy || launching}
+            aria-busy={launching}
+            onClick={() => void startQq()}
+          >
+            {launching ? (
+              <LoaderCircle size={14} className="weq-restricted-progress-icon" />
+            ) : (
+              <Play size={14} />
+            )}
+            {launching ? '正在启动 QQ' : '启动 QQ'}
+          </button>
+        )}
         <button
           type="button"
           className="weq-set-btn"
           disabled={busy || launching}
-          aria-busy={launching}
-          onClick={() => void startQq()}
+          onClick={() => void refresh()}
         >
-          {launching ? (
-            <LoaderCircle size={14} className="weq-restricted-progress-icon" />
-          ) : (
-            <Play size={14} />
-          )}
-          {launching ? '正在启动 QQ' : '启动 QQ'}
+          <RefreshCw size={14} />
+          {busy ? '正在检查' : '重新检查'}
         </button>
-      )}
-      <button
-        type="button"
-        className="weq-set-btn"
-        disabled={busy || launching}
-        onClick={() => void refresh()}
-      >
-        <RefreshCw size={14} />
-        {busy ? '正在检查' : '重新检查'}
-      </button>
-      {reasons.some((r) => r.code === 'disabled') && (
-        <button
-          type="button"
-          className="weq-set-btn"
-          disabled={busy || launching}
-          onClick={() => void refresh(true)}
-        >
-          <KeyRound size={14} />
-          启用完整功能
-        </button>
-      )}
-    </>
-  );
+        {reasons.some((r) => r.code === 'disabled') && (
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={busy || launching}
+            onClick={() => void refresh(true)}
+          >
+            <KeyRound size={14} />
+            启用完整功能
+          </button>
+        )}
+      </>
+    );
   return (
     <>
       {open && signature && (
@@ -658,6 +704,7 @@ export function RestrictedModeHost() {
               .filter(
                 (reason) =>
                   reason.code !== 'data-access' &&
+                  (!showDebugCopy || reason.code !== 'disabled' || !needsDebugQq) &&
                   (!awaitingAuthorization || reason.code !== 'credentials'),
               )
               .map((reason) => (
@@ -667,7 +714,6 @@ export function RestrictedModeHost() {
                 </div>
               ))}
             <QqDataAccessNotice showRetry={false} checked={dataRetried} />
-            {showDebugCopy && <QqDebugCopy key={sourceKey} showRetry={false} />}
             {requests.map((request, index) => (
               <AuthorizationForm
                 key={`${request.kind}:${request.token}`}

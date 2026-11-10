@@ -53,6 +53,7 @@ const mock = vi.hoisted(() => ({
   invalidateAccess: vi.fn(async () => {}),
   invalidateDebug: vi.fn(async () => {}),
   debugState: 'missing' as QqDebugCopyStatus['state'],
+  debugPids: [] as number[],
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
@@ -93,7 +94,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             sourceVersion: '7.0.1-1',
             path: '/synthetic/QQ-WeQ.app',
             readerReady: false,
-            runningPids: [],
+            runningPids: mock.debugPids,
             message: '合成副本状态',
           },
           refetch: mock.refetch,
@@ -243,6 +244,7 @@ beforeEach(() => {
   mock.invalidateAccess.mockReset();
   mock.invalidateDebug.mockReset().mockResolvedValue(undefined);
   mock.debugState = 'missing';
+  mock.debugPids = [];
   useViewState.setState({ view: 'main', openedUin: '10001' });
   useRestrictedMode.setState({
     reasons: [],
@@ -647,18 +649,104 @@ describe('受限模式启动 QQ', () => {
     const f = fixture();
     act(() => useRestrictedMode.getState().setOpen(true));
     expect(launchButton(f.host)).toBeUndefined();
-    expect(f.host.textContent).toContain('独立的 QQ 调试副本');
+    expect(f.host.textContent).toContain('QQ 调试副本');
     const button = [...f.host.querySelectorAll('button')].find(
-      (item) => item.textContent === (state === 'missing' ? '创建副本' : '启动副本'),
+      (item) => item.textContent === (state === 'missing' ? '准备并打开 QQ' : '打开 QQ'),
     );
     expect(button?.disabled).toBe(false);
     await act(async () => button!.click());
     expect(mock.debugAction).toHaveBeenCalledWith({
-      action: state === 'missing' ? 'prepare' : 'launch',
+      action: 'open',
     });
     expect(mock.launchQq).not.toHaveBeenCalled();
     expect(f.host.textContent).toContain('QQ 不在线');
     expect(useRestrictedMode.getState().enteringSince).toBeNull();
+  });
+  it('其他账号已有副本进程时仍只显示一个主操作，可继续打开新实例', async () => {
+    mock.sip = true;
+    mock.access = { ...ready, qqOnline: false };
+    mock.debugState = 'ready';
+    mock.debugPids = [42];
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    const panel = f.host.querySelector('.weq-restricted-panel')!;
+    expect(panel.querySelector('.weq-qq-debug-checks')).toBeNull();
+    expect(panel.querySelector('.weq-qq-debug-details')).toBeNull();
+    expect(
+      panel.querySelectorAll('.weq-restricted-qq > .weq-restricted-actions > button'),
+    ).toHaveLength(1);
+    const launch = [...panel.querySelectorAll('button')].find(
+      (item) => item.textContent === '登录其他账号',
+    )!;
+    expect(launch.disabled).toBe(false);
+    await act(async () => launch.click());
+    expect(mock.debugAction).toHaveBeenCalledWith({ action: 'open' });
+    expect(panel.textContent).toContain('登录后会自动继续');
+    expect(useRestrictedMode.getState().enteringSince).toBeNull();
+    expect(mock.refreshRkeys).not.toHaveBeenCalled();
+  });
+  it('打开后仅在当前账号上线时继续启用，重复查询不重复请求', async () => {
+    mock.sip = true;
+    mock.access = {
+      ...ready,
+      qqOnline: false,
+      attachEnabled: false,
+      source: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+    };
+    mock.debugState = 'ready';
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    await act(async () =>
+      [...f.host.querySelectorAll('button')]
+        .find((item) => item.textContent === '打开 QQ')!
+        .click(),
+    );
+    expect(mock.requestFull).toHaveBeenCalledWith(mock.access.source);
+    expect(mock.refreshRkeys).not.toHaveBeenCalled();
+    mock.access = { ...mock.access, qqOnline: true };
+    await act(async () => f.render());
+    expect(mock.refreshRkeys).toHaveBeenCalledOnce();
+    await act(async () => f.render());
+    expect(mock.refreshRkeys).toHaveBeenCalledOnce();
+  });
+  it('打开后切换同号来源不会把继续启用请求带到新来源', async () => {
+    mock.sip = true;
+    mock.access = {
+      ...ready,
+      qqOnline: false,
+      source: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+    };
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    await act(async () =>
+      [...f.host.querySelectorAll('button')]
+        .find((item) => item.textContent === '准备并打开 QQ')!
+        .click(),
+    );
+    mock.access = {
+      ...mock.access,
+      qqOnline: true,
+      source: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-b' },
+    };
+    await act(async () => f.render());
+    expect(mock.refreshRkeys).not.toHaveBeenCalled();
+  });
+  it('当前账号在线但禁用完整功能时，主操作直接启用，不启动 QQ', async () => {
+    mock.sip = true;
+    mock.access = {
+      ...ready,
+      attachEnabled: false,
+      source: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+    };
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    await act(async () =>
+      [...f.host.querySelectorAll('button')]
+        .find((item) => item.textContent === '启用完整功能')!
+        .click(),
+    );
+    expect(mock.requestFull).toHaveBeenCalledWith(mock.access.source);
+    expect(mock.debugAction).not.toHaveBeenCalled();
   });
   it.each(['main', 'startup'] as const)(
     '%s 页确认 QQ 离线时可启动，启动不冒充登录成功',

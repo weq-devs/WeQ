@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { QqDebugCopy } from '../../src/renderer/src/components/QqDebugCopy';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
-import { setFixture } from './qq-debug-copy.stub';
+import { setFixture, setOnlineFixture } from './qq-debug-copy.stub';
 import { SelectScreen } from '../../src/renderer/src/views/bootstrap/SelectScreen';
 import { useViewState } from '../../src/renderer/src/state/view';
 import {
@@ -15,7 +15,12 @@ import '../../src/renderer/src/styles/settings-controls.css';
 
 ensureThemeInitialized();
 Object.assign(window, {
-  debugCopyQa: { store: useThemeStore, setFixture, restrictedStore: useRestrictedMode },
+  debugCopyQa: {
+    store: useThemeStore,
+    setFixture,
+    setOnlineFixture,
+    restrictedStore: useRestrictedMode,
+  },
 });
 useViewState.getState().enterSelect('existing');
 const startup = new URLSearchParams(location.search).has('startup');
