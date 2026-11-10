@@ -112,15 +112,44 @@ it('添加时间按原始秒值双向排序，同一分钟内相差一秒也不�
   ]);
 });
 
-it('年龄排序独立于出生年份；年份按每年分组，不根据年龄反推', () => {
+it('年龄排序保留已知出生年份；年份按每年分组，不根据年龄反推', () => {
   const a = friend('a', { age: 30, birthYear: 2005 }),
     b = friend('b', { age: 20, birthYear: 1990 }),
     c = friend('c', { age: 18 });
-  expect(sortFriends([b, a], 'age', true, {}).map((row) => row.id)).toEqual(['a', 'b']);
+  expect(sortFriends([b, a], 'age', true, {}).map((row) => row.id)).toEqual(['b', 'a']);
   expect(groupFriends([b, c, a], 'birthYear', {}).map((row) => row.name)).toEqual([
     '2005 年',
     '1990 年',
     '出生年份未知',
+  ]);
+});
+
+it('月日未知时按年龄落到已知年份的两端，升降序均保留年份顺序', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-10T12:00:00+08:00'));
+  const items = [
+    friend('start', { birthYear: 2000, age: 26 }),
+    friend('january', { birthYear: 2000, birthMonth: 1, birthDay: 1 }),
+    friend('december', { birthYear: 2000, birthMonth: 12, birthDay: 31 }),
+    friend('end', { birthYear: 2000, age: 25 }),
+    friend('next-year', { birthYear: 2001, birthMonth: 1, birthDay: 1 }),
+    friend('none'),
+  ];
+  expect(sortFriends(items, 'age', true, {}).map((row) => row.id)).toEqual([
+    'start',
+    'january',
+    'december',
+    'end',
+    'next-year',
+    'none',
+  ]);
+  expect(sortFriends(items, 'age', false, {}).map((row) => row.id)).toEqual([
+    'next-year',
+    'end',
+    'december',
+    'january',
+    'start',
+    'none',
   ]);
 });
 it('备注回退昵称、中文拼音、空值双向沉底且同值稳定', () => {

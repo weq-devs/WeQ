@@ -33,7 +33,32 @@ it.each([
   { birthYear: 1899, birthMonth: 2, birthDay: 1 },
   { birthYear: 2026, birthMonth: 11, birthDay: 11 },
 ])('不从不完整、无效或未来生日推算年龄：%j', (profile) => {
-  expect(contactBirth(profile, now)).toMatchObject({ age: null, ageOrder: null });
+  expect(contactBirth(profile, now).age).toBeNull();
+});
+
+it.each([
+  [25, -20001232],
+  [26, -20000100],
+  [18, -20000100],
+  [undefined, -20000100],
+  [0, -20000100],
+] as const)('只有出生年份时，年龄 %s 决定年末或年初排序占位，不改显示资料', (age, ageOrder) => {
+  expect(contactBirth({ birthYear: 2000, age }, now)).toMatchObject({
+    year: 2000,
+    month: null,
+    day: null,
+    age: age && age > 0 ? age : null,
+    ageOrder,
+  });
+});
+
+it('年初年末占位严格排在该年全部真实日期两侧，未来年份不作为有效排序年份', () => {
+  const first = contactBirth({ birthYear: 2000, birthMonth: 1, birthDay: 1 }, now).ageOrder!;
+  const last = contactBirth({ birthYear: 2000, birthMonth: 12, birthDay: 31 }, now).ageOrder!;
+  expect(contactBirth({ birthYear: 2000, age: 26 }, now).ageOrder).toBeGreaterThan(first);
+  expect(contactBirth({ birthYear: 2000, age: 25 }, now).ageOrder).toBeLessThan(last);
+  expect(contactBirth({ birthYear: 2027 }, now).ageOrder).toBeNull();
+  expect(contactBirth({ birthYear: 2026, birthMonth: 11, birthDay: 11 }, now).ageOrder).toBeNull();
 });
 
 it('闰日出生在非闰年的三月一日增长周岁，生日当天出生可显示零岁', () => {

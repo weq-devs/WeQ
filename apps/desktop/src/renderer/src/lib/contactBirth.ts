@@ -34,18 +34,21 @@ export function contactBirth(profile: BirthProfile, now = new Date()) {
       : confirmedDate !== null
         ? todayYear - year! - Number(todayMonthDay < monthDay!)
         : null;
+  // 仅作排序占位，严格位于该年真实日期两侧，不补写缺失的生日月日。
+  const yearOrder =
+    validYear && year! <= todayYear && monthDay === null
+      ? -(year! * 10000 + (age !== null && year === todayYear - age - 1 ? 1232 : 100))
+      : null;
   return {
     year: validYear ? year! : null,
     month: validMonth ? month! : null,
     day: validDay ? day! : null,
     age,
-    // 无完整生日时仅用年龄落在同一排序尺度上，不将估算日期当作资料生日。
+    // 优先保留已知年份，完全缺少有效生日时才用年龄落在同一排序尺度上。
     ageOrder:
       confirmedDate !== null
         ? -confirmedDate
-        : age !== null
-          ? -((todayYear - age) * 10000 + todayMonthDay)
-          : null,
+        : (yearOrder ?? (age !== null ? -((todayYear - age) * 10000 + todayMonthDay) : null)),
   };
 }
 
