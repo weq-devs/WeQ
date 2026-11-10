@@ -25,9 +25,14 @@ type TestMessage = {
   senderUin: string;
   elements: { type: string; text: string }[];
 };
+type UnreadInput = { targets: Array<{ chatType: number; uid: string }>; watermarksOnly?: boolean };
 
 const f = vi.hoisted(() => ({
   refreshing: false,
+  unreadMode: false,
+  unreadReads: [] as UnreadInput[],
+  dbChanged: undefined as (() => void) | undefined,
+  unreadChanged: undefined as ((targets: UnreadInput['targets']) => void) | undefined,
   commit: undefined as (() => void) | undefined,
   reads: [] as { conv: string; show: (stage: MessagePageStage<TestMessage>) => void }[],
   recent: ['10001', '10002', 'u_peer'].map((targetUid, index) => ({
@@ -73,19 +78,40 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           return () => ({ mutate: vi.fn(), mutateAsync: refetch, isLoading: false });
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
-          return async () =>
-            ['getUnreadInfos', 'getGroupMembersByUids', 'listGroupMembers'].includes(
-              path.at(-1) ?? '',
-            )
+          return async (input?: UnreadInput) => {
+            if (path.at(-1) === 'getUnreadInfos' && f.unreadMode && input) {
+              f.unreadReads.push(input);
+              return input.targets.map((target) => ({
+                ...target,
+                peer: `${target.chatType}_${target.uid}`,
+                msgSeq: '1',
+                latestSeq: '100',
+                ...(input.watermarksOnly ? { countPending: true } : { unreadCount: 0 }),
+              }));
+            }
+            return [
+              'getUnreadInfos',
+              'getGroupMembersByUids',
+              'getProfilesByUids',
+              'listGroupMembers',
+            ].includes(path.at(-1) ?? '')
               ? []
               : undefined;
+          };
         if (key === 'subscribe')
           return (
             input: { conv: string },
-            handlers: { onData: (stage: MessagePageStage<TestMessage>) => void },
+            handlers: {
+              onData: (
+                data: MessagePageStage<TestMessage> | UnreadInput['targets'] | { at?: number },
+              ) => void;
+            },
           ) => {
             if (path.at(-1) === 'latestPage')
               f.reads.push({ conv: input.conv, show: handlers.onData });
+            if (path.at(-1) === 'onDbChanged') f.dbChanged = () => handlers.onData({});
+            if (path.at(-1) === 'onUnreadChanged')
+              f.unreadChanged = (targets) => handlers.onData(targets);
             return { unsubscribe: vi.fn() };
           };
         return proxy([...path, String(key)]);
@@ -163,7 +189,54 @@ afterEach(() => {
   f.reads.length = 0;
   f.refreshing = false;
   f.commit = undefined;
+  f.unreadMode = false;
+  f.unreadReads.length = 0;
+  f.dbChanged = undefined;
+  f.unreadChanged = undefined;
+  vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+it('全目录先查水位，持续库通知不重算稳定会话，零红点同水位修正仍定期校准', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  f.unreadMode = true;
+  useViewState.getState().setOpenedUin('90001');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const advance = (ms: number) => act(async () => vi.advanceTimersByTimeAsync(ms));
+  const precise = () => f.unreadReads.filter((read) => !read.watermarksOnly);
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await advance(200);
+    expect(f.unreadReads[0]?.watermarksOnly).toBe(true);
+    expect(precise()).toHaveLength(1);
+    expect(precise()[0]?.targets).toHaveLength(f.recent.length);
+    for (let change = 0; change < 3; change++) {
+      await act(async () => f.dbChanged?.());
+      await advance(15000);
+      expect(precise()).toHaveLength(1);
+    }
+    // 已经没有新的库通知，也没有红点供 1.5 秒轮询选择，仍需独立推进到期补算。
+    await advance(31000);
+    expect(precise()).toHaveLength(2);
+    // 定向消息不等待下一轮低频校准。
+    await act(async () => f.unreadChanged?.([{ chatType: 2, uid: '10001' }]));
+    await advance(10);
+    expect(precise()).toHaveLength(3);
+    expect(precise().at(-1)?.targets).toEqual([{ chatType: 2, uid: '10001' }]);
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
 });
 
 it('切换会话立即更新目标并启动对应消息读取，返回时立即恢复窗口', async () => {

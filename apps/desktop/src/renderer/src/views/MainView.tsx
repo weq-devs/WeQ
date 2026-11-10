@@ -115,6 +115,7 @@ import {
   unreadBadgeTargets,
   sameUnreadHighlights,
   UNREAD_COUNT_BATCH_SIZE,
+  UNREAD_WATERMARK_BATCH_SIZE,
   createUnreadCountCache,
 } from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
@@ -5541,76 +5542,24 @@ function MainWorkspace(): ReactElement {
       const databaseRevision = dbRevisionRef.current;
       const startedAt = guard.revision();
       const list = unreadContactsRef.current;
-      const counts: Record<string, number> = {};
-      const highlights: Record<string, ConversationHighlight[]> = {};
-      const succeeded = new Set<string>();
       let failed = false;
       const targets = list.flatMap((contact) => {
         const type = unreadChatType(contact.chatType);
         return type === null ? [] : [{ chatType: type, uid: contact.targetUid }];
       });
-      const batchSize = UNREAD_COUNT_BATCH_SIZE;
+      countCache.retain(targets);
+      const batchSize = UNREAD_WATERMARK_BATCH_SIZE;
       for (let index = 0; index < targets.length && isCurrent(); index += batchSize) {
         // Give opening a conversation priority over background badge reads.
         while (isCurrent() && initialMessagesPendingRef.current) {
           await new Promise<void>((resolve) => setTimeout(resolve, 100));
         }
-        if (!isCurrent()) return true;
+        if (!isCurrent() || document.visibilityState === 'hidden') return true;
         try {
-          const rows = await client.account.getUnreadInfos.query({
-            expectedAccountUin: openedUin,
-            expectedAccountConfigId: binding?.expectedAccountConfigId,
-            targets: targets.slice(index, index + batchSize),
-          });
+          // 全目录仅快查水位，精确统计由独立小批队列按需补齐。
+          const result = await readTargets(targets.slice(index, index + batchSize), true);
           if (!isCurrent()) return true;
-          for (const info of rows) {
-            if (guard.accepts(info.uid, startedAt))
-              countCache.remember(info, databaseRevision, startedAt);
-          }
-          // 顶部会话的计数先回显，不等待后续所有分页的未读扫描。
-          setUnreadByConv((current) => {
-            const next = { ...current };
-            let changed = false;
-            for (const info of rows) {
-              if (info.readError || !guard.accepts(info.uid, startedAt)) continue;
-              const count = info.unreadCount ?? 0;
-              if (next[info.uid] !== count) {
-                next[info.uid] = count;
-                changed = true;
-              }
-            }
-            return changed ? next : current;
-          });
-          setHighlightsByConv((current) => {
-            const next = { ...current };
-            let changed = false;
-            for (const info of rows) {
-              if (info.readError || !guard.accepts(info.uid, startedAt)) continue;
-              if (
-                sameUnreadHighlights(
-                  current[info.uid],
-                  info.highlights as ConversationHighlight[] | undefined,
-                )
-              )
-                continue;
-              changed = true;
-              if (info.highlights?.length)
-                next[info.uid] = info.highlights as ConversationHighlight[];
-              else delete next[info.uid];
-            }
-            return changed ? next : current;
-          });
-          for (const info of rows) {
-            if (info.readError) {
-              failed = true;
-              continue;
-            }
-            counts[info.uid] = info.unreadCount ?? 0;
-            succeeded.add(info.uid);
-            if (info?.highlights?.length) {
-              highlights[info.uid] = info.highlights as ConversationHighlight[];
-            }
-          }
+          if (Array.isArray(result) && result.length) failed = true;
         } catch {
           failed = true;
         }
@@ -5626,8 +5575,7 @@ function MainWorkspace(): ReactElement {
           ...Object.keys(current).filter((id) => !guard.accepts(id, startedAt)),
         ]);
         for (const id of keep) {
-          const value =
-            succeeded.has(id) && guard.accepts(id, startedAt) ? counts[id] : current[id];
+          const value = current[id];
           if (value !== undefined) next[id] = value;
         }
         return Object.keys(next).length === Object.keys(current).length &&
@@ -5642,8 +5590,7 @@ function MainWorkspace(): ReactElement {
           ...Object.keys(current).filter((id) => !guard.accepts(id, startedAt)),
         ]);
         for (const id of keep) {
-          const value =
-            succeeded.has(id) && guard.accepts(id, startedAt) ? highlights[id] : current[id];
+          const value = current[id];
           if (value?.length) next[id] = value;
         }
         return Object.keys(next).length === Object.keys(current).length &&
@@ -5662,6 +5609,7 @@ function MainWorkspace(): ReactElement {
       const accepted = rows.filter(
         (row) => !row.readError && !row.countPending && guard.accepts(row.uid, startedAt),
       );
+      if (!accepted.length) return;
       // 实时结果也推进版本，不能被更早启动的全量扫描回灌。
       const finish = guard.begin(accepted.map((row) => row.uid));
       finish();
@@ -5718,6 +5666,7 @@ function MainWorkspace(): ReactElement {
               chatType: row.chatType as Target['chatType'],
               uid: row.uid,
             })),
+          false,
         );
       // 返回遗漏和失败的目标，不让单个坏会话拖住健康会话。
       const succeeded = new Set(
@@ -5733,6 +5682,8 @@ function MainWorkspace(): ReactElement {
     const readSync = createUnreadTargetRefresh<Target>(
       (targets) => readTargets(targets, true),
       refresh.request,
+      UNREAD_WATERMARK_BATCH_SIZE,
+      1500,
     );
     const liveSub = binding
       ? client.account.onUnreadChanged.subscribe(binding, {
@@ -5765,7 +5716,7 @@ function MainWorkspace(): ReactElement {
     const requestReadSync = () => {
       if (!isCurrent()) return;
       const { counts, highlights } = unreadBadgesRef.current;
-      readSync.request(unreadBadgeTargets(unreadContactsRef.current, counts, highlights));
+      readSync.request(unreadBadgeTargets(unreadContactsRef.current, counts, highlights), false);
     };
     requestUnreadReadSyncRef.current = requestReadSync;
     const onVisible = () => {
@@ -5780,7 +5731,11 @@ function MainWorkspace(): ReactElement {
       if (document.visibilityState !== 'hidden') requestReadSync();
     }, 1500);
     const scanTimer = setInterval(() => {
-      if (document.visibilityState !== 'hidden' && scannedDbRevision !== dbRevisionRef.current)
+      if (
+        document.visibilityState !== 'hidden' &&
+        (scannedDbRevision !== dbRevisionRef.current ||
+          countCache.needsReconcile(dbRevisionRef.current))
+      )
         refresh.request();
     }, 15000);
     refresh.request();

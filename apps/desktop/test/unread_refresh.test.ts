@@ -7,13 +7,15 @@ import {
   retryConversationRead,
   unreadBadgeTargets,
   UNREAD_COUNT_BATCH_SIZE,
+  UNREAD_WATERMARK_BATCH_SIZE,
   createUnreadCountCache,
 } from '../src/renderer/src/lib/unreadRefresh';
 
 afterEach(() => vi.useRealTimers());
 
 describe('未读刷新调度', () => {
-  it('已完成统计不随每轮水位快查重算，库修订、阅读操作和水位变化均重新校准', () => {
+  it('已完成统计不随无关库写入重算，同水位历史修正低频校准，阅读和水位变化立即校准', () => {
+    vi.useFakeTimers();
     const cache = createUnreadCountCache();
     const guard = createUnreadUpdateGuard();
     const row = { chatType: 2, uid: '777', msgSeq: '1', latestSeq: '100' };
@@ -22,9 +24,17 @@ describe('未读刷新调度', () => {
     cache.remember({ ...row, readError: true }, 1, guard.revision());
     expect(cache.needsCount(row, 1, guard.accepts)).toBe(true);
     cache.remember(row, 1, guard.revision());
-    for (let poll = 0; poll < 20; poll++)
-      expect(cache.needsCount(row, 1, guard.accepts)).toBe(false);
+    for (let poll = 0; poll < 20; poll++) {
+      vi.advanceTimersByTime(1500);
+      expect(cache.needsCount(row, poll + 1, guard.accepts)).toBe(false);
+      expect(cache.needsReconcile(poll + 1)).toBe(false);
+    }
+    vi.advanceTimersByTime(30000);
     expect(cache.needsCount(row, 2, guard.accepts)).toBe(true);
+    // 一次库变化后即使再无通知、也没有红点，周期检查仍能补齐同水位修正。
+    expect(cache.needsReconcile(2)).toBe(true);
+    expect(cache.needsReconcile(1)).toBe(false);
+    expect(cache.needsCount(row, 1, guard.accepts)).toBe(false);
     expect(cache.needsCount({ ...row, msgSeq: '2' }, 1, guard.accepts)).toBe(true);
     expect(cache.needsCount({ ...row, latestSeq: '101' }, 1, guard.accepts)).toBe(true);
     expect(cache.needsCount({ ...row, chatType: 1 }, 1, guard.accepts)).toBe(true);
@@ -32,6 +42,101 @@ describe('未读刷新调度', () => {
     expect(cache.needsCount(row, 1, guard.accepts)).toBe(true);
     cache.remember(row, 1, guard.revision());
     expect(cache.needsCount(row, 1, guard.accepts)).toBe(false);
+  });
+  it('五千会话稳定水位只快查，不随其它会话持续写库反复补算', () => {
+    vi.useFakeTimers();
+    const cache = createUnreadCountCache();
+    const guard = createUnreadUpdateGuard();
+    const rows = Array.from({ length: 5000 }, (_, index) => ({
+      chatType: 2,
+      uid: String(index),
+      msgSeq: '1',
+      latestSeq: '100',
+      unreadCount: 0,
+    }));
+    for (const row of rows) cache.remember(row, 1, guard.revision());
+    expect(Math.ceil(rows.length / UNREAD_WATERMARK_BATCH_SIZE)).toBe(20);
+    for (let pass = 0; pass < 3; pass++) {
+      vi.advanceTimersByTime(15000);
+      expect(rows.filter((row) => cache.needsCount(row, pass + 2, guard.accepts))).toEqual([]);
+    }
+    const changed = { ...rows[100]!, latestSeq: '101' };
+    expect(cache.needsCount(changed, 4, guard.accepts)).toBe(true);
+    vi.advanceTimersByTime(15000);
+    expect(rows.filter((row) => cache.needsCount(row, 4, guard.accepts))).toHaveLength(5000);
+  });
+  it('水位相同但提醒变化时不复用旧统计，失败不延长校准期限', () => {
+    vi.useFakeTimers();
+    const cache = createUnreadCountCache();
+    const guard = createUnreadUpdateGuard();
+    const row = { chatType: 2, uid: '777', msgSeq: '1', latestSeq: '100' };
+    cache.remember(row, 1, guard.revision());
+    const highlighted = { ...row, highlights: [{ msgSeq: 90, text: 'reminder' }] };
+    expect(cache.needsCount(highlighted, 1, guard.accepts)).toBe(true);
+    cache.remember(highlighted, 1, guard.revision());
+    expect(cache.needsCount({ ...highlighted }, 2, guard.accepts)).toBe(false);
+    expect(cache.needsCount(row, 2, guard.accepts)).toBe(true);
+    vi.advanceTimersByTime(59000);
+    cache.remember({ ...highlighted, readError: true }, 2, guard.revision());
+    vi.advanceTimersByTime(1000);
+    expect(cache.needsCount(highlighted, 2, guard.accepts)).toBe(true);
+  });
+  it('移出目录的旧会话不让到期检查持续触发空校准', () => {
+    vi.useFakeTimers();
+    const cache = createUnreadCountCache();
+    const guard = createUnreadUpdateGuard();
+    const row = { chatType: 2, uid: '777', msgSeq: '1', latestSeq: '100' };
+    cache.remember(row, 1, guard.revision());
+    vi.advanceTimersByTime(60000);
+    expect(cache.needsReconcile(2)).toBe(true);
+    cache.retain([{ chatType: 1, uid: '777' }]);
+    expect(cache.needsReconcile(2)).toBe(false);
+    expect(cache.needsCount(row, 1, guard.accepts)).toBe(true);
+  });
+
+  it('慢水位轮询执行中不积压重复目标，定向新消息仍可补读一轮', async () => {
+    vi.useFakeTimers();
+    let release!: () => void;
+    const target = { chatType: 2, uid: '777' };
+    const load = vi.fn(
+      (_targets: (typeof target)[]) => new Promise<true>((done) => (release = () => done(true))),
+    );
+    const sync = createUnreadTargetRefresh(load);
+    sync.request([target], false);
+    await vi.advanceTimersByTimeAsync(0);
+    for (let poll = 0; poll < 20; poll++) sync.request([target], false);
+    release();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenCalledOnce();
+    sync.request([target], false);
+    await vi.advanceTimersByTimeAsync(1);
+    sync.request([target]);
+    release();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenCalledTimes(3);
+    sync.dispose();
+    release();
+  });
+  it('密集库通知不让同一目标快查超过校准频率，不同目标不受冷却阻塞', async () => {
+    vi.useFakeTimers();
+    const target = { chatType: 2, uid: '777' };
+    const load = vi.fn(async (_targets: (typeof target)[]) => true);
+    const sync = createUnreadTargetRefresh(load, undefined, UNREAD_WATERMARK_BATCH_SIZE, 1500);
+    sync.request([target], false);
+    await vi.advanceTimersByTimeAsync(0);
+    for (let notice = 0; notice < 10; notice++) {
+      sync.request([target], false);
+      await vi.advanceTimersByTimeAsync(100);
+    }
+    expect(load).toHaveBeenCalledOnce();
+    const other = { chatType: 1, uid: 'u_other' };
+    sync.request([other], false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenLastCalledWith([other]);
+    await vi.advanceTimersByTimeAsync(499);
+    expect(load).toHaveBeenCalledTimes(3);
+    expect(load).toHaveBeenLastCalledWith([target]);
+    sync.dispose();
   });
   it('精确统计使用小批次，逐批交付且不改变水位快查的批次上限', async () => {
     vi.useFakeTimers();
@@ -111,6 +216,14 @@ describe('未读刷新调度', () => {
     );
     expect(/const onVisible = \(\) => \{.*?requestReadSync\(\);/s.test(source)).toBe(true);
     expect(source.includes('requestUnreadReadSyncRef.current = null;')).toBe(true);
+    const scan = source.slice(
+      source.indexOf('async function loadUnread()'),
+      source.indexOf('const refresh = createUnreadRefresh(loadUnread)'),
+    );
+    expect(scan).toContain('const batchSize = UNREAD_WATERMARK_BATCH_SIZE');
+    expect(scan).toContain('readTargets(targets.slice(index, index + batchSize), true)');
+    expect(scan).not.toContain('getUnreadInfos.query');
+    expect(source).toContain('countCache.needsReconcile(dbRevisionRef.current)');
   });
 
   it('实时目标独立于慢速全量扫描刷新，合并去重且执行中收到的事件不丢失', async () => {
