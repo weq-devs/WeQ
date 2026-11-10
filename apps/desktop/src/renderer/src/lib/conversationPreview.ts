@@ -144,15 +144,22 @@ function grayTipNodes(
       displayNames.get(uid) ||
       str(el[`recall${role}GroupNick`]).trim() ||
       str(el[`recall${role}Nick`]).trim() ||
-      str(el[`recall${role}NickCopy`]).trim() ||
-      '某成员';
+      str(el[`recall${role}NickCopy`]).trim();
     const sender = name(senderUid, 'Sender');
     const revoker = name(revokerUid, 'Revoke');
     // 昵称相同不代表同一人；管理员撤回不使用个人撤回后缀。
     if (senderUid && revokerUid && senderUid !== revokerUid) {
-      return [{ t: 'text', text: `${revoker} 撤回了一条 ${sender} 的消息` }];
+      return [
+        { t: 'text', text: `${revoker || '某成员'} 撤回了一条 ${sender || '某成员'} 的消息` },
+      ];
     }
-    const actor = senderUid && senderUid === revokerUid ? sender : revoker;
+    // QQ 的精简 40051 可只带原发送者；同一 UID 的双方昵称也可能只填一侧。
+    const actor =
+      (senderUid && senderUid === revokerUid
+        ? sender || revoker
+        : revokerUid || revoker
+          ? revoker
+          : sender) || '某成员';
     const suffix = str(el.recallDisplayText).trim() || str(el.displayText).trim();
     // 47713 通常只有自定义后缀，兼容旧记录中已带撤回动作的文案。
     const text = suffix.includes('撤回了一条')

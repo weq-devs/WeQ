@@ -60,6 +60,53 @@ test('管理员撤回预览区分同名的操作者和原作者，不附加个�
   );
 });
 
+test('QQ 精简撤回预览仅带原发送者时，使用其本地名称或内嵌昵称', () => {
+  // 对应实际 40051 的字段形态：47704/47705 存在，47703/47714 缺失。
+  const revoke = {
+    kind: 'grayTipRevoke',
+    recallSenderUid: 'u_alice',
+    recallSenderNick: '消息昵称',
+    displayText: '撤回了一条消息',
+  };
+  for (const [self, names, expected] of [
+    [new Set<string>(), new Map<string, string>(), '消息昵称 撤回了一条消息'],
+    [new Set<string>(), new Map([['u_alice', '本地备注']]), '本地备注 撤回了一条消息'],
+    [new Set<string>(), new Map([['u_alice', '本地群名片']]), '本地群名片 撤回了一条消息'],
+    [new Set(['u_alice']), new Map<string, string>(), '你 撤回了一条消息'],
+  ] as const) {
+    assert.equal(previewNodesToText(previewNodes(revoke, self, names)), expected);
+    assert.equal(
+      previewNodesToText(previewNodes({ ...revoke, previewElements: [revoke] }, self, names)),
+      expected,
+    );
+  }
+});
+
+test('同一身份的撤回预览可复用另一角色的昵称，不串用管理员和原作者名称', () => {
+  assert.equal(
+    previewNodesToText(
+      previewNodes({
+        kind: 'grayTipRevoke',
+        recallSenderUid: 'u_alice',
+        recallRevokeUid: 'u_alice',
+        recallRevokeGroupNick: '群名片',
+      }),
+    ),
+    '群名片 撤回了一条消息',
+  );
+  assert.equal(
+    previewNodesToText(
+      previewNodes({
+        kind: 'grayTipRevoke',
+        recallSenderUid: 'u_alice',
+        recallRevokeUid: 'u_admin',
+        recallSenderNick: '原作者',
+      }),
+    ),
+    '某成员 撤回了一条 原作者 的消息',
+  );
+});
+
 test('撤回预览兼容已有完整文案，缺失身份时仍保留完整动作', () => {
   for (const [fields, expected] of [
     [{ recallDisplayText: '对方撤回了一条消息' }, '对方撤回了一条消息'],
@@ -67,6 +114,8 @@ test('撤回预览兼容已有完整文案，缺失身份时仍保留完整动�
     [{ recallRevokeNick: '昵称', recallDisplayText: '撤回了一条消息' }, '昵称 撤回了一条消息'],
     [{ recallRevokeGroupNick: '群名片', recallRevokeNick: '昵称' }, '群名片 撤回了一条消息'],
     [{ recallRevokeNickCopy: '昵称副本' }, '昵称副本 撤回了一条消息'],
+    [{ recallSenderNick: '原作者', recallRevokeNick: '操作者' }, '操作者 撤回了一条消息'],
+    [{ recallSenderNick: '原作者', recallRevokeUid: 'u_unknown' }, '某成员 撤回了一条消息'],
     [{}, '某成员 撤回了一条消息'],
   ] as const) {
     assert.equal(previewNodesToText(previewNodes({ kind: 'grayTipRevoke', ...fields })), expected);
