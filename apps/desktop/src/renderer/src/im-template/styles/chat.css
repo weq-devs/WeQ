@@ -452,7 +452,9 @@ html[data-theme='dark'] .weq-chat-backdrop {
   flex-direction: column;
   gap: 18px;
   padding: 26px 10px 20px 24px;
-  overflow: auto;
+  /* 头像挂件等装饰可伸出消息行，但不应让整个消息区横向滚动。 */
+  overflow-x: hidden;
+  overflow-y: auto;
   overscroll-behavior: contain;
   /* 滑块常驻可见 — 不再依赖 hover/transition (避免翻页时 Chromium 把滑块绘制层丢弃)。 */
   scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
