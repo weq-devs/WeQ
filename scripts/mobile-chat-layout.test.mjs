@@ -17,6 +17,7 @@ const files = [
   'styles/mobile-web.css',
   'styles/conversation-actions.css',
   'styles/qqnt-appearance.css',
+  'styles/new-message-preview.css',
 ];
 let browser;
 let css;
@@ -157,6 +158,55 @@ test('桌面长引用仍限制在气泡内，不改变桌面顶栏高度', async
     });
     assert.equal(result.headerHeight, 40);
     assert.ok(result.contentRight <= result.bubbleRight + 1);
+  } finally {
+    await page.close();
+  }
+});
+
+test('定位到最新按钮在手机群聊靠右，桌面仍避让群资料侧栏', async () => {
+  const page = await browser.newPage();
+  try {
+    for (const width of [320, 402, 430, 760, 1180]) {
+      await page.setViewportSize({ width, height: 874 });
+      for (const groupState of ['', 'with-group-info', 'with-group-info group-info-collapsed']) {
+        for (const theme of ['light', 'dark']) {
+          for (const component of ['default', 'qqnt']) {
+            await page.setContent(`<style>*{box-sizing:border-box}body{margin:0}${css}
+              .app-shell{grid-template-columns:minmax(0,1fr)}</style>${fixture({ suggest: false })}`);
+            await page.evaluate(
+              ({ groupState, theme, component }) => {
+                document.documentElement.dataset.theme = theme;
+                document.documentElement.dataset.componentStyle = component;
+                const pane = document.querySelector('.chat-pane');
+                pane.className = `chat-pane ${groupState}`;
+                const pill = document.createElement('div');
+                pill.className = 'new-message-pill';
+                pill.innerHTML =
+                  '<button class="new-message-preview">预览</button><button class="new-message-bottom">定位到底部</button>';
+                pane.append(pill);
+              },
+              { groupState, theme, component },
+            );
+            const result = await page.evaluate(() => {
+              const pane = document.querySelector('.chat-pane');
+              const pill = document.querySelector('.new-message-pill');
+              return {
+                gap: pane.getBoundingClientRect().right - pill.getBoundingClientRect().right,
+                panelWidth:
+                  pane.getBoundingClientRect().right -
+                  document.querySelector('.message-scroll').getBoundingClientRect().right,
+                right: Number.parseFloat(getComputedStyle(pill).right),
+              };
+            });
+            const expected =
+              width <= 760 ? 24 : groupState === 'with-group-info' ? result.panelWidth + 16 : 24;
+            const context = JSON.stringify({ width, groupState, theme, component, result });
+            assert.ok(Math.abs(result.right - expected) <= 1, context);
+            assert.ok(Math.abs(result.gap - expected) <= 1, context);
+          }
+        }
+      }
+    }
   } finally {
     await page.close();
   }
