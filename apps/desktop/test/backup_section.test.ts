@@ -117,14 +117,18 @@ it('恢复默认需二次确认，未变化的命令仍可再次主动执行', a
   await ui.click('确认恢复默认');
   expect(f.api.defaults).toHaveBeenCalledTimes(2);
 });
-it('仅有一个恢复入口，按实际配置询问 API、目录与连接并提交明确选择', async () => {
+it('API 配置与 WeQ 服务使用同级开关，注明范围并统一选择服务重置', async () => {
   const f = fixture();
   const api: typeof backupApi = {
     ...f.api,
     defaultsInfo: vi.fn(async () => ({
       hasApi: true,
       paths: [{ id: 'cacheDirOverride', label: '缓存目录', value: '/synthetic/custom-cache' }],
-      connections: [{ id: 'systemAutostart', label: '系统登录自启', value: '已启用' }],
+      connections: [
+        { id: 'systemAutostart', label: '系统登录自启', value: '已启用' },
+        { id: 'webEnabled', label: 'Web 服务', value: '运行中' },
+        { id: 'remoteMode', label: '远程连接模式', value: 'existing' },
+      ],
     })),
   };
   const ui = await mount(api);
@@ -132,12 +136,24 @@ it('仅有一个恢复入口，按实际配置询问 API、目录与连接并提
   expect(ui.host.textContent).not.toContain('重置全局配置');
   await ui.click('恢复默认设置');
   const modal = document.querySelector('[role="dialog"]')!;
-  const checkbox = modal.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
-  expect(checkbox.checked).toBe(false);
+  const switches = [...modal.querySelectorAll<HTMLButtonElement>('[role="switch"]')];
+  expect(switches.map((node) => node.getAttribute('aria-label'))).toEqual(['API 配置', 'WeQ 服务']);
+  expect(switches.map((node) => node.getAttribute('aria-checked'))).toEqual(['false', 'false']);
+  expect(modal.textContent).toContain('模型、TTS、MCP、OneBot、外部 rkey、SSE');
+  expect(modal.textContent).toContain('系统登录自启、Web 服务、远程连接模式');
   const select = modal.querySelectorAll<HTMLSelectElement>('select');
-  expect([...select].map((node) => node.value)).toEqual(['keep', 'keep']);
+  expect([...select].map((node) => node.value)).toEqual(['keep']);
   await act(async () => {
-    checkbox.click();
+    switches[0]!.click();
+  });
+  expect(switches[1]!.getAttribute('aria-checked')).toBe('false');
+  await act(async () => switches[1]!.click());
+  expect(modal.textContent).toContain('会断开对应的浏览器或手机连接');
+  await act(async () => switches[1]!.click());
+  expect(switches[0]!.getAttribute('aria-checked')).toBe('true');
+  expect(modal.textContent).not.toContain('会断开对应的浏览器或手机连接');
+  await act(async () => switches[1]!.click());
+  await act(async () => {
     for (const node of select) {
       node.value = 'reset';
       node.dispatchEvent(new Event('change', { bubbles: true }));
@@ -149,7 +165,7 @@ it('仅有一个恢复入口，按实际配置询问 API、目录与连接并提
   expect(f.api.defaults).toHaveBeenCalledWith(expect.any(String), {
     clearApi: true,
     resetPaths: ['cacheDirOverride'],
-    resetConnections: ['systemAutostart'],
+    resetConnections: ['systemAutostart', 'webEnabled', 'remoteMode'],
   });
 });
 
@@ -165,6 +181,11 @@ it('读取恢复范围失败可重试，未读取成功时不能确认恢复', a
   await ui.click('重新读取恢复范围');
   expect(ui.button('确认恢复默认').disabled).toBe(false);
   expect(document.querySelector('[role="dialog"] input[type="checkbox"]')).toBeNull();
+  expect(
+    [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] [role="switch"]')].every(
+      (node) => node.disabled,
+    ),
+  ).toBe(true);
   await ui.click('取消');
   expect(f.api.defaults).not.toHaveBeenCalled();
 });

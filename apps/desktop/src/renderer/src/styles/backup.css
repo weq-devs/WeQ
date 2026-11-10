@@ -183,6 +183,22 @@ html[data-theme='dark'] .weq-backup-review {
 .weq-defaults-options section {
   margin: 16px 0;
 }
+.weq-defaults-toggles {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+}
+.weq-defaults-toggles .weq-set-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.weq-defaults-toggles .weq-set-row-label {
+  color: var(--weq-fg-primary);
+}
+.weq-defaults-toggles .weq-set-row-desc {
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
 .weq-defaults-options h4 {
   font-size: 13px;
   margin: 0 0 8px;
