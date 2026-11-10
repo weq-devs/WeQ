@@ -46,7 +46,7 @@ const rows: ContactMetricRows = {
   'friend:12345': {
     level: ready(64),
     likeCount: ready(12580),
-    addedAt: ready(Date.UTC(2022, 7, 31, 16, 30) / 1000),
+    addedAt: ready(Date.UTC(2022, 7, 31, 16, 30, 7) / 1000),
     commonFriends: ready(12),
     commonGroups: { ...ready(0), value: [] },
   },
@@ -90,7 +90,7 @@ it.each([
   ['intimacy', '亲密度：86'],
   ['level', 'QQ 等级：64'],
   ['likeCount', '获赞：12,580'],
-  ['addedAt', '添加于 2022-09-01'],
+  ['addedAt', '添加于 2022-09-01 00:30:07'],
   ['commonFriends', '共同好友：12 人'],
   ['commonGroups', '共同群聊：0 个'],
 ] as const)('好友 %s 显示对应值', (sort, expected) => {

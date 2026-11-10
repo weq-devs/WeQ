@@ -22,6 +22,13 @@ const updatedTimes = new Intl.DateTimeFormat('zh-CN', {
   dateStyle: 'short',
   timeStyle: 'short',
 });
+const addedTimes = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
 function dateLabel(milliseconds: number) {
   if (!Number.isFinite(milliseconds) || milliseconds <= 0) return null;
   const date = new Date(milliseconds);
@@ -118,7 +125,7 @@ export function friendSortDetail(
   if (sort === 'addedAt')
     return metricDetail('添加时间', cell, (value) => {
       const date = typeof value === 'number' ? dateLabel(value * 1000) : null;
-      return date ? `添加于 ${date}` : null;
+      return date ? `添加于 ${date} ${addedTimes.format(Number(value) * 1000)}` : null;
     });
   const label = {
     level: 'QQ 等级',

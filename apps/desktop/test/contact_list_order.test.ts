@@ -47,6 +47,24 @@ const group = (
 });
 const ready = (value: number) => ({ value, attemptedAt: 1, state: 'ready' as const });
 
+it('添加时间按原始秒值双向排序，同一分钟内相差一秒也不按名称打平', () => {
+  const rows: ContactMetricRows = {
+    'friend:a': { addedAt: ready(1704038408) },
+    'friend:b': { addedAt: ready(1704038407) },
+  };
+  const items = [friend('none'), friend('a'), friend('b')];
+  expect(sortFriends(items, 'addedAt', false, rows).map((row) => row.id)).toEqual([
+    'b',
+    'a',
+    'none',
+  ]);
+  expect(sortFriends(items, 'addedAt', true, rows).map((row) => row.id)).toEqual([
+    'a',
+    'b',
+    'none',
+  ]);
+});
+
 it('年龄排序独立于出生年份；年份按每年分组，不根据年龄反推', () => {
   const a = friend('a', { age: 30, birthYear: 2005 }),
     b = friend('b', { age: 20, birthYear: 1990 }),

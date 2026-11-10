@@ -98,7 +98,7 @@ function data(): Clue & { uid: string } {
   return {
     uid: 'u_peer',
     targetUin: '10002',
-    addedAt: 1704038400,
+    addedAt: 1704038407,
     direction: 'outgoing',
     rawDirection: 2,
     source: '线索接口返回的群名',
@@ -124,7 +124,7 @@ it.each([true, false])(
     state.data = data();
     const f = render(known);
     try {
-      expect(f.host.textContent).toContain('添加时间2024/01/01');
+      expect(f.host.textContent).toContain('添加时间2024/01/01 00:00:07');
       expect(f.host.textContent).toContain('我添加对方');
       expect(f.host.textContent).toContain('线索接口返回的群名');
       expect(f.host.textContent).not.toContain('接口真实群名');
