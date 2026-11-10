@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { mkdir } from 'node:fs/promises';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const { chromium, webkit } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const output = process.env.WEQ_STYLE_ARTIFACTS;
 const server = await createServer({
   configFile: false,
@@ -33,7 +33,7 @@ const server = await createServer({
 let browser;
 try {
   await server.listen();
-  browser = await chromium.launch({
+  browser = await (process.env.WEQ_BROWSER_ENGINE === 'webkit' ? webkit : chromium).launch({
     headless: true,
     ...(process.env.WEQ_BROWSER_EXECUTABLE
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
@@ -49,6 +49,46 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/completed-task-cleanup.html`,
   );
   if (output) await mkdir(output, { recursive: true });
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await page.getByRole('button', { name: '打开任务菜单', exact: true }).click();
+  // 保留真实入场动画，等待其完成后检查可见性和命中层级。
+  await page
+    .locator('.weq-workspace-menu')
+    .getByRole('button', { name: '清除已结束任务', exact: true })
+    .click();
+  const menuDialog = page.getByRole('dialog', { name: '清除已结束任务', exact: true });
+  await page.waitForFunction(
+    () => {
+      const dialog = document.querySelector('.weq-message-modal');
+      return (
+        dialog &&
+        getComputedStyle(dialog).opacity === '1' &&
+        getComputedStyle(dialog.parentElement).opacity === '1'
+      );
+    },
+    undefined,
+    { timeout: 3000 },
+  );
+  assert.deepEqual(
+    await menuDialog.evaluate((element) => ({
+      opacity: getComputedStyle(element).opacity,
+      layerOpacity: getComputedStyle(element.parentElement).opacity,
+    })),
+    { opacity: '1', layerOpacity: '1' },
+  );
+  assert.equal(
+    await menuDialog.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return element.contains(
+        document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2),
+      );
+    }),
+    true,
+    '确认框必须位于任务菜单之上',
+  );
+  if (output) await page.screenshot({ path: resolve(output, 'task-cleanup-menu-visible.png') });
+  await menuDialog.getByRole('button', { name: '保留', exact: true }).click({ timeout: 3000 });
+  await page.keyboard.press('Escape');
   for (const [dark, width, accent] of [
     [false, 1000, '#075c30'],
     [true, 1000, '#fff3a1'],

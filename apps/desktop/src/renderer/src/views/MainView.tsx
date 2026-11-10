@@ -10341,12 +10341,6 @@ function MainWorkspace(): ReactElement {
     id: string;
     revision: number;
   } | null>(null);
-  const sidebarView = shell.view === 'agentlab' ? 'messages' : shell.view;
-  const qzonePageReady = useMobilePageSettled(
-    shell.view === 'qzone' && !arkFeedState,
-    user.identityValue,
-  );
-  const [contactDirectoryQuery, setContactDirectoryQuery] = useState('');
   const [overviewCalendar, setOverviewCalendar] = useState<{ query: string } | null>(null);
   calendarOpenRef.current = overviewCalendar !== null;
   const overviewCalendarTargets = useMemo(() => {
@@ -10448,6 +10442,12 @@ function MainWorkspace(): ReactElement {
     virtualRows,
     groupAssistantIds,
   ]);
+  const sidebarView = shell.view === 'agentlab' ? 'messages' : shell.view;
+  const qzonePageReady = useMobilePageSettled(
+    shell.view === 'qzone' && !arkFeedState,
+    user.identityValue,
+  );
+  const [contactDirectoryQuery, setContactDirectoryQuery] = useState('');
 
   /** 防撤回面板「记录」页点一行：打开该会话的撤回列表（复用聊天区气泡与筛选）。 */
   function handleOpenRecallsAt(kind: 'c2c' | 'group', conv: string): void {
@@ -10535,8 +10535,8 @@ function MainWorkspace(): ReactElement {
   const contactPreviewScope = JSON.stringify([
     shell.view,
     shell.contactTab,
-    shell.selectedGroupConversationId,
     shell.selectedContactId,
+    shell.selectedGroupConversationId,
     shell.contactWorkspaceTab,
     shell.contactOverviewOpen,
     shell.contactNotice,

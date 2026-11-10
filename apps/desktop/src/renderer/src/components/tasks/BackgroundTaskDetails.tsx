@@ -13,14 +13,14 @@ import {
   Upload,
   Users,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { client, trpc } from '../../trpc/client';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
 import { removeBackgroundTask, type BackgroundTaskEntry } from '../../hooks/useBackgroundTasks';
 import type { BackgroundTaskScope } from '../../../../shared/background_task';
 import { IS_WEB } from '../../lib/target';
 import { useDialog } from '../Dialog';
-import type { UiLogLine } from '../../views/export/TaskList';
+import type { TaskLogLine } from '../TaskLogConsole';
 import { CalendarTaskDetails } from '../CalendarTaskDetails';
 import { ContactTaskStages } from './ContactTaskStages';
 import '../../styles/export.css';
@@ -62,12 +62,32 @@ export function BackgroundTaskDetails({
   scope: BackgroundTaskScope | null;
   refresh: () => Promise<unknown>;
 }) {
+  return (
+    <TaskDetails
+      key={JSON.stringify([entry.source, entry.task.id, scope?.uin, scope?.configId])}
+      entry={entry}
+      scope={scope}
+      refresh={refresh}
+    />
+  );
+}
+
+function TaskDetails({
+  entry,
+  scope,
+  refresh,
+}: {
+  entry: BackgroundTaskEntry;
+  scope: BackgroundTaskScope | null;
+  refresh: () => Promise<unknown>;
+}) {
   const { task } = entry;
   const hostDetails = trpc.backgroundTasks.details.useQuery(
     { id: task.id, scope, updatedAt: task.updatedAt },
     {
-      enabled: entry.source === 'host',
+      enabled: entry.source === 'host' && task.kind !== 'contacts',
       cacheTime: 0,
+      keepPreviousData: true,
     },
   );
   const details = entry.source === 'host' ? hostDetails.data : task.details;
@@ -76,10 +96,16 @@ export function BackgroundTaskDetails({
     {
       enabled: entry.source === 'host' && task.kind === 'contacts',
       cacheTime: 0,
+      keepPreviousData: true,
     },
   );
+  const retainedLogs = useRef(taskLogs.data);
+  useEffect(() => {
+    if (taskLogs.data) retainedLogs.current = taskLogs.data;
+  }, [taskLogs.data]);
   const contactLogs =
-    (entry.source === 'host' ? taskLogs.data : task.logs) ?? contactLogLines(details ?? []);
+    (entry.source === 'host' ? (taskLogs.data ?? retainedLogs.current) : task.logs) ??
+    contactLogLines(details ?? []);
   const [busy, setBusy] = useState(false);
   const showError = useDialog((state) => state.showError);
   const act = async (run: () => Promise<unknown>) => {
@@ -195,7 +221,7 @@ export function BackgroundTaskDetails({
   );
 }
 
-function contactLogLines(details: string[]): UiLogLine[] {
+function contactLogLines(details: string[]): TaskLogLine[] {
   return details.flatMap((line) => {
     if (!line.startsWith('过程日志：')) return [];
     try {

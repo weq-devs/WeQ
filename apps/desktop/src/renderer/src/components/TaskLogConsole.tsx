@@ -26,14 +26,16 @@ export function TaskLogConsole({
   lines,
   collapsed,
   history = false,
+  scrollable = false,
   appearance = 'default',
 }: {
   lines: readonly TaskLogLine[];
   collapsed: boolean;
   history?: boolean;
+  scrollable?: boolean;
   appearance?: 'default' | 'export';
 }): ReactElement {
-  const canScroll = appearance === 'export';
+  const canScroll = scrollable || appearance === 'export';
   const visible = canScroll ? lines : lines.slice(-MAX_VISIBLE_LOGS);
   const terminal = useRef<HTMLDivElement>(null);
   const followTail = useRef(true);
@@ -45,7 +47,7 @@ export function TaskLogConsole({
   return (
     <div
       ref={terminal}
-      className={`weq-exp-log${canScroll ? ' is-export-scrollable' : ''}${collapsed ? ' is-hidden' : ''}`}
+      className={`weq-exp-log${canScroll ? (appearance === 'export' ? ' is-export-scrollable' : ' is-scrollable') : ''}${collapsed ? ' is-hidden' : ''}`}
       aria-hidden={collapsed}
       role={canScroll ? 'log' : undefined}
       aria-label={canScroll ? '任务日志' : undefined}

@@ -105,16 +105,13 @@ try {
   await groups.getByLabel('分组依据').selectOption('none');
   assert.equal(await groups.locator('.contact-cat-header:not([hidden])').count(), 0);
   assert.equal(await groups.locator('.contact-row').count(), 3);
-  assert.equal(await page.locator('[data-kind="tasks"] .weq-exp-detail-stage').count(), 2);
-  await page.locator('[data-kind="tasks"] .weq-exp-detail-stage-toggle').first().click();
+  assert.equal(await page.locator('[data-kind="tasks"] .weq-exp-log').count(), 1);
+  assert.equal(await page.locator('[data-kind="tasks"] .weq-exp-detail-stage').count(), 0);
+  assert.equal(await page.locator('[data-kind="tasks"] details').count(), 0);
   assert.ok(
     (await page.locator('[data-kind="tasks"] .weq-exp-log-text').first().textContent()).includes(
       '阿明',
     ),
-  );
-  await page.locator('[data-kind="tasks"] summary').first().click();
-  assert.ok(
-    (await page.locator('[data-kind="tasks"] pre').first().textContent()).includes('QQ 等级'),
   );
   const output = process.env.WEQ_CONTACT_ORDER_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });

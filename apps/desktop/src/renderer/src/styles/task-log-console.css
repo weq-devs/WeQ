@@ -31,6 +31,32 @@
   pointer-events: none;
 }
 
+.weq-exp-log.is-scrollable:not(.is-hidden) {
+  height: 240px;
+  margin: 0;
+  overflow: auto;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--weq-fg-muted) transparent;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  border-color: var(--weq-border-strong);
+  transition: none;
+}
+
+.weq-exp-log.is-scrollable .weq-exp-log-time,
+.weq-exp-log.is-scrollable .weq-exp-log-empty {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-exp-log.is-scrollable .weq-exp-log-line.is-warn .weq-exp-log-text {
+  color: var(--weq-warn-fg);
+}
+
+.weq-exp-log.is-scrollable .weq-exp-log-line.is-error .weq-exp-log-text {
+  color: var(--destructive);
+}
+
 .weq-exp-log.is-export-scrollable:not(.is-hidden) {
   height: 180px;
   overflow: auto;
@@ -40,7 +66,7 @@
   transition: none;
 }
 
-.weq-exp-log.is-export-scrollable:focus-visible {
+.weq-exp-log:is(.is-scrollable, .is-export-scrollable):focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
