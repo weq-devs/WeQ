@@ -125,7 +125,7 @@ export function friendSortDetail(
   if (sort === 'addedAt')
     return metricDetail('添加时间', cell, (value) => {
       const date = typeof value === 'number' ? dateLabel(value * 1000) : null;
-      return date ? `添加于 ${date} ${addedTimes.format(Number(value) * 1000)}` : null;
+      return date ? `${date} ${addedTimes.format(Number(value) * 1000)}` : null;
     });
   const label = {
     level: 'QQ 等级',
