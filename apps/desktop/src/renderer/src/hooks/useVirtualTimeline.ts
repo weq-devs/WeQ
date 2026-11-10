@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { defaultRangeExtractor, useVirtualizer, type Range } from '@tanstack/react-virtual';
+import { useVirtualizer, type Range, type Virtualizer } from '@tanstack/react-virtual';
 import {
   messageElement,
   registerTimelineViewport,
@@ -12,6 +12,7 @@ import {
 } from '../lib/conversationReadingPosition';
 import '../styles/virtual-timeline.css';
 import { useMobileWebLayout } from './useMobileWebViewport';
+import { timelineViewportRange } from '../lib/timelinePreload';
 
 export const TIMELINE_VIRTUAL_THRESHOLD = 40;
 export const TIMELINE_OVERSCAN = 6;
@@ -54,9 +55,18 @@ export function useVirtualTimeline({
     return result;
   }, [ids, orderedIds]);
   const key = useCallback((position: number) => ids[position]!, [ids]);
+  const instanceRef = useRef<Virtualizer<HTMLDivElement, HTMLDivElement> | null>(null);
   const rangeExtractor = useCallback(
     (range: Range) => {
-      const rendered = new Set(defaultRangeExtractor(range));
+      const instance = instanceRef.current;
+      const rendered = new Set(
+        timelineViewportRange(
+          range,
+          instance?.scrollRect?.height ?? 0,
+          (position) => instance?.measurementsCache[position]?.size ?? 96,
+          instance?.scrollDirection ?? null,
+        ),
+      );
       // 正在播放的语音／视频不因滚出视口而中断；其他离屏媒体随虚拟行释放。
       for (const media of scrollRef.current?.querySelectorAll<HTMLElement>(
         '.qq-media-voice.is-playing, video',
@@ -98,6 +108,7 @@ export function useVirtualTimeline({
     scrollEndThreshold: 48,
     rangeExtractor,
   });
+  instanceRef.current = virtualizer;
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = enabled ? undefined : keepNativeScroll;
   const context = useRef({ ids, index, orderedIds, virtualizer, scope, active, windowed: enabled });
   context.current = { ids, index, orderedIds, virtualizer, scope, active, windowed: enabled };
