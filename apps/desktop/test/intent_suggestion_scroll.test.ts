@@ -3,7 +3,14 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { IntentSuggestionBar } from '../src/renderer/src/components/intentSense/IntentSuggestionBar';
 
-const fixture = vi.hoisted(() => ({ list: [{ text: '建议回复'.repeat(30), tone: '自然' }] }));
+const fixture = vi.hoisted(() => {
+  const list = [{ text: '建议回复'.repeat(30), tone: '自然' }];
+  return {
+    list,
+    round: { id: 'round', createdAt: 0, target: { msgId: 'target' }, suggestions: list },
+    history: { data: [], isLoading: false, refetch: vi.fn() },
+  };
+});
 vi.mock('../src/renderer/src/components/intentSense/context', () => ({
   useIntentSenseStatus: () => ({
     data: { enabled: true, apiConfigured: true, suggestionsEnabled: true },
@@ -13,8 +20,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {
       intentSense: {
-        getSuggestions: {
-          useQuery: () => ({ data: fixture.list, isFetching: false, refetch: vi.fn() }),
+        getSuggestionHistory: { useQuery: () => fixture.history },
+        getSuggestionRound: {
+          useQuery: () => ({ data: fixture.round, isFetching: false, refetch: vi.fn() }),
         },
       },
     },

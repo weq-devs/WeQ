@@ -4,7 +4,7 @@
 
 | 层 | 位置 | 要真 QQ 吗 | 进 CI 吗 | 干什么用 |
 |---|---|---|---|---|
-| **单测** | `packages/*/test/*.test.ts`、`apps/desktop/test/*.test.ts` | 否 | ✅ `pnpm test:fail-fast` | 离线、可重复、有断言 |
+| **单测** | `packages/*/test/*.test.ts`、`apps/desktop/test/*.test.ts` | 否 | ✅ 全量分片，见下文 | 离线、可重复、有断言 |
 
 ---
 
@@ -17,7 +17,7 @@ Web 服务端使用 `tsx` 执行离线断言。数据用抓包/dump 出来的黄
 
 ```bash
 pnpm test                        # 全量收集失败，包并发 2、每包最多 2 个 worker
-pnpm test:fail-fast              # 全量范围，首个失败后尽早停止排队测试（CI 使用）
+pnpm test:fail-fast              # 本地全量范围，首个失败后尽早停止排队测试
 pnpm test:changed                # 日常反馈：Vitest 只跑 Git 改动相关测试，Web 仍跑完整服务端断言
 pnpm --filter @weq/codec test     # 单个包
 pnpm --filter @weq/codec test:watch
@@ -35,6 +35,26 @@ pnpm --filter @weq/desktop test   # 桌面端主/渲染进程的纯逻辑单测
 `ci:local` 默认继续汇总各步骤，`ci:local --fail-fast` 同时启用单测内部的失败即停。
 各包单测直接读取工作区源码，不依赖其他包预先构建；根入口不按包依赖排序，
 避免无谓串行等待，以及上游测试失败后下游测试未执行。完整模式还会继续运行其余包。
+
+## CI 分片
+
+Actions 将 desktop 拆为 6 片、service 拆为 2 片，每片使用 Vitest 原生
+`--shard=i/n`，各自最多 2 个 worker；其余包（包括 Web 服务端断言）在独立任务中完整运行。
+不减少测试范围、不关闭文件隔离、不重试掩盖失败。矩阵不因某片失败取消其余片，
+最终由稳定名称 `test` 汇总门禁检查全部任务；失败、取消或意外跳过均不能通过。
+本地 `pnpm test` / `test:fail-fast` 保持原有的低资源入口，不启动多片并发。
+
+可单独复现某片：
+
+```bash
+pnpm --filter @weq/desktop test --shard=1/6 --maxWorkers=2 --minWorkers=1
+pnpm --filter @weq/service test --shard=1/2 --maxWorkers=2 --minWorkers=1
+node --test scripts/test-ci.test.mjs
+```
+
+每片输出 JSON 报告，保存 7 天，Actions 步骤摘要列出失败文件及用例执行时间最长的文件。
+报告中的文件起止时间不等于整个分片耗时；验收 2～3 分钟目标时，以实际 Actions
+完整运行的墙钟耗时为准，同时检查排队和依赖安装，不用本机分片时间直接宣称达标。
 
 ## 样式浏览器回归
 

@@ -1,5 +1,4 @@
 import { createServer, type Server, type RequestListener } from 'node:http';
-import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, expect, it, vi } from 'vitest';
 import { requestApiJson, DEFAULT_API_TIMEOUT_MS } from '../src/api_usage';
 import type { AgentLabUsage } from '../src/types';
@@ -65,7 +64,6 @@ async function fixture(handler: RequestListener) {
     baseUrl: `http://127.0.0.1:${address.port}`,
     model: 'synthetic',
     apiKey: 'synthetic',
-    timeoutMs: 60,
     onUsage: (entry: AgentLabUsage) => updates.push(entry),
     updates,
   };
@@ -74,33 +72,54 @@ async function fixture(handler: RequestListener) {
 it.each(['headers', 'body', 'slow-stream'] as const)(
   '期限覆盖 %s 挂起，不重试且记为失败',
   async (mode) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    let received!: () => void;
+    const requestReceived = new Promise<void>((resolve) => {
+      received = resolve;
+    });
+    let headers!: () => void;
+    const responseHeaders = new Promise<void>((resolve) => {
+      headers = resolve;
+    });
+    const nativeFetch = globalThis.fetch;
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (...args) => {
+      const response = await nativeFetch(...args);
+      headers();
+      return response;
+    });
     let calls = 0;
     const f = await fixture((_req, res) => {
       calls++;
+      received();
       if (mode === 'headers') return;
       res.writeHead(200, { 'content-type': 'application/json' });
       res.write('{"data":[');
       if (mode === 'slow-stream') timers.push(setInterval(() => res.write(' '), 10));
     });
     const controller = new AbortController();
-    const request = requestApiJson(f, '/chat/completions', {
+    const request = requestApiJson({ ...f, timeoutMs: 60 }, '/chat/completions', {
       method: 'POST',
       signal: controller.signal,
     });
+    const outcome = request.then(
+      () => 'success',
+      (error: Error) => error.name,
+    );
     try {
-      const outcome = await Promise.race([
-        request.then(
-          () => 'success',
-          (e: Error) => e.name,
-        ),
-        delay(200).then(() => 'hung'),
-      ]);
-      expect(outcome).toBe('TimeoutError');
+      // 真实 HTTP 到达目标阶段后才推进期限，不把连接调度耗时当成协议行为。
+      await requestReceived;
+      if (mode !== 'headers') await responseHeaders;
+      await vi.advanceTimersByTimeAsync(59);
+      expect(f.updates.at(-1)?.status).toBe('pending');
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await outcome).toBe('TimeoutError');
       expect(f.updates.at(-1)?.status).toBe('failed');
       expect(calls).toBe(1);
+      expect(fetch).toHaveBeenCalledOnce();
     } finally {
       controller.abort();
       await request.catch(() => {});
+      fetch.mockRestore();
     }
   },
 );
@@ -117,15 +136,7 @@ it('收到响应头后的调用方取消终止正文读取，记为取消', asyn
     signal: cleanup.signal,
   });
   try {
-    expect(
-      await Promise.race([
-        request.then(
-          () => 'success',
-          (e: Error) => e.name,
-        ),
-        delay(200).then(() => 'hung'),
-      ]),
-    ).toBe('AbortError');
+    await expect(request).rejects.toMatchObject({ name: 'AbortError' });
     expect(f.updates.at(-1)?.status).toBe('cancelled');
   } finally {
     cleanup.abort();

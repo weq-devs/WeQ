@@ -292,7 +292,7 @@ it.each([false, true])('共同群查看消息关闭列表及浮层好友名片�
 });
 
 it.each(['friend', 'group'] as const)(
-  '联系人页内嵌 %s 资料，保留群交集入口且不创建浮层',
+  '联系人页内嵌 %s 资料，保留语义化关闭入口且不创建浮层',
   (kind) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
@@ -349,8 +349,10 @@ it.each(['friend', 'group'] as const)(
         expect(host.querySelector('[aria-label="搜索群成员"]')).not.toBeNull();
         expect(host.querySelector('[aria-label="群内容"]')?.textContent).toContain('文件');
       }
-      const entry = host.querySelector<HTMLButtonElement>('.weq-contact-profile-toolbar button')!;
-      expect(entry.textContent).toContain('群交集');
+      const entry = host.querySelector<HTMLButtonElement>(
+        '.weq-contact-profile-toolbar button[aria-label="关闭资料"]',
+      )!;
+      expect(entry).not.toBeNull();
       act(() => entry.click());
       expect(close).toHaveBeenCalledOnce();
 
