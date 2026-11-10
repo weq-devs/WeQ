@@ -10,9 +10,11 @@ import {
 } from '@weq/service';
 import { withDatabasePriority } from '@weq/db';
 import type { AccountSession } from '@weq/account';
+import { classifyChatType } from '@weq/codec';
 import type { AccountServices } from './app_context';
 import { backgroundTasks } from '../background_tasks';
 const validContactUid = (uid: string) => /^u_[A-Za-z0-9_-]+$/.test(uid);
+type RefreshContact = { uid: string; uin: bigint };
 
 const METRIC_NAMES: Record<ContactMetric, string> = {
   level: 'QQ 等级',
@@ -96,6 +98,7 @@ export class ContactDirectoryRuntime {
   private friendMeta = new Map<string, Record<string, unknown>>();
   private groupMeta = new Map<string, Record<string, unknown>>();
   private scope: { uin: string; configId: string };
+  private readonly selfUid: string;
 
   constructor(
     private readonly services: AccountServices,
@@ -108,6 +111,7 @@ export class ContactDirectoryRuntime {
     private readonly watchDelay = 2000,
   ) {
     this.scope = { uin: session.context.uin, configId };
+    this.selfUid = session.selfUid;
     services.groupInfo.setMemberRosterCache(join(cacheDir, 'group-members'));
     this.cache = new ContactMetricsService(
       join(cacheDir, 'metrics.json'),
@@ -190,7 +194,7 @@ export class ContactDirectoryRuntime {
     };
     this.summaries.set(
       `friend:${uin}`,
-      `好友获取结果：${JSON.stringify({ QQ号: uin, UID: uid, ...this.friendMeta.get(uin), 指标: formatMetrics(values) })}`,
+      `好友获取结果：${JSON.stringify({ QQ号: uin === uid ? null : uin, UID: uid, ...this.friendMeta.get(uin), 指标: formatMetrics(values) })}`,
     );
     this.appendLog(this.summaries.get(`friend:${uin}`)!, 'friends');
     if (this.taskId) backgroundTasks.update(this.taskId, { details: this.taskDetails() });
@@ -211,6 +215,32 @@ export class ContactDirectoryRuntime {
     );
   }
 
+  private async conversationTargets() {
+    // 隐藏会话仍在 recent_contact 中；已删除会话需从独立列表补入。
+    const [recent, deleted] = await Promise.all([
+      this.services.recentContacts.getRecentContact(-1),
+      this.services.deletedSessions.listDeletedSessions(),
+    ]);
+    const users = new Map<string, RefreshContact>();
+    const groups = new Set<string>();
+    for (const row of [...recent, ...deleted.filter((row) => row.resolvable)]) {
+      const kind = classifyChatType(row.chatType);
+      if (kind === 'group') {
+        if (/^[1-9]\d*$/.test(row.targetUid)) groups.add(row.targetUid);
+      } else if (
+        kind !== 'dataline' &&
+        row.targetUid !== this.selfUid &&
+        validContactUid(row.targetUid)
+      ) {
+        const rawUin = 'targetUin' in row ? String(row.targetUin) : '';
+        const uin = /^[1-9]\d*$/.test(rawUin) ? BigInt(rawUin) : 0n;
+        if (!users.has(row.targetUid) || uin > 0n)
+          users.set(row.targetUid, { uid: row.targetUid, uin });
+      }
+    }
+    return { users: [...users.values()], groups };
+  }
+
   private async excludeLikeMetrics(
     profiles: Awaited<ReturnType<AccountServices['profile']['profilesByUids']>>,
   ) {
@@ -228,6 +258,7 @@ export class ContactDirectoryRuntime {
     fields?: ContactMetric[],
     report = false,
     maxAgeMs?: number,
+    candidates: RefreshContact[] = [],
   ): Promise<ContactMetricJob[]> {
     if (
       fields &&
@@ -238,15 +269,24 @@ export class ContactDirectoryRuntime {
       )
     )
       return [];
-    const friends = await this.friends();
+    const byUid = new Map(candidates.map((row) => [row.uid, row]));
+    for (const friend of await this.friends()) byUid.set(friend.uid, friend);
+    let friends = [...byUid.values()];
     const profiles =
-      report || !fields || fields.includes('likeCount')
+      report || candidates.length || !fields || fields.includes('likeCount')
         ? await this.services.profile.profilesByUids(friends.map((friend) => friend.uid))
         : [];
+    const profilesByUid = new Map(profiles.map((profile) => [profile.uid, profile]));
+    friends = friends
+      .map((friend) => ({
+        ...friend,
+        uin: profilesByUid.get(friend.uid)?.uin || friend.uin,
+      }))
+      .filter((friend) => String(friend.uin) !== this.scope.uin);
     const excludedLikes = await this.excludeLikeMetrics(profiles);
     if (report)
       for (const profile of profiles) {
-        this.friendMeta.set(String(profile.uin), {
+        this.friendMeta.set(profile.uin > 0n ? String(profile.uin) : profile.uid, {
           昵称: profile.nick,
           备注: profile.remark,
           年龄: profile.age,
@@ -263,15 +303,27 @@ export class ContactDirectoryRuntime {
     const jobs: ContactMetricJob[] = [];
     for (const friend of friends) {
       if (only && !only.includes(friend.uid)) continue;
-      const uin = String(friend.uin),
+      const uin = friend.uin > 0n ? String(friend.uin) : friend.uid,
         key = `friend:${uin}`;
       const row = snapshot?.rows[key];
       const needs = (
         metric: 'level' | 'addedAt' | 'direction' | 'commonFriends' | 'commonGroups',
       ) =>
         (!fields || fields.includes(metric)) && needsMetricRefresh(row?.[metric], force, maxAgeMs);
-      if (needs('level'))
+      if (friend.uin > 0n && needs('level'))
         jobs.push({ key: `${key}:level`, run: () => this.services.peerStats.getQqLevel(uin, 1) });
+      const missingIdentity = (['level', 'commonFriends', 'commonGroups'] as const).filter(
+        (metric) => friend.uin <= 0n && needs(metric),
+      );
+      if (missingIdentity.length)
+        jobs.push({
+          key: `${key}:identity`,
+          run: async () => {
+            const error = new Error('本地资料及会话未提供 QQ 号，无法查询该项指标');
+            for (const metric of missingIdentity) await this.cache.failed(key, metric, error);
+            throw error;
+          },
+        });
       if (
         !excludedLikes.has(friend.uid) &&
         (!fields || fields.includes('likeCount')) &&
@@ -290,7 +342,7 @@ export class ContactDirectoryRuntime {
               throw new Error('好友线索部分字段未知');
           },
         });
-      if (needs('commonFriends') || needs('commonGroups'))
+      if (friend.uin > 0n && (needs('commonFriends') || needs('commonGroups')))
         jobs.push({
           key: `${key}:common`,
           run: async () => {
@@ -314,7 +366,9 @@ export class ContactDirectoryRuntime {
     }
     return [...grouped].map(([key, work]) => {
       const uin = key.slice('friend:'.length),
-        uid = friends.find((friend) => String(friend.uin) === uin)!.uid;
+        uid = friends.find(
+          (friend) => (friend.uin > 0n ? String(friend.uin) : friend.uid) === uin,
+        )!.uid;
       const completed = new Set<string>();
       return {
         key,
@@ -420,6 +474,7 @@ export class ContactDirectoryRuntime {
     void (async () => {
       try {
         const maxAgeMs = range === 'older24h' ? 24 * 60 * 60 * 1000 : undefined;
+        const targets = target === 'metrics' ? await this.conversationTargets() : undefined;
         const jobs =
           target === 'groupMembers'
             ? []
@@ -429,13 +484,13 @@ export class ContactDirectoryRuntime {
                 fields,
                 true,
                 maxAgeMs,
+                targets?.users,
               );
-        const groups =
+        const includeGroups =
           target === 'groupMembers' ||
           !fields ||
-          fields.some((field) => ['friendCount', 'activityScore'].includes(field))
-            ? await this.services.groupInfo.listGroupDirectory()
-            : [];
+          fields.some((field) => ['friendCount', 'activityScore'].includes(field));
+        let groups = includeGroups ? await this.services.groupInfo.listGroupDirectory() : [];
         if (target === 'groupMembers') {
           for (const group of groups)
             jobs.push({
@@ -460,9 +515,23 @@ export class ContactDirectoryRuntime {
             });
         } else {
           const snapshot = await this.cache.snapshot();
-          for (let offset = 0; groups.length; offset += 500) {
+          const byCode = new Map(groups.map((group) => [group.groupCode, group]));
+          const addGroup = (code: string, memberCount = 0) => {
+            if (!byCode.has(code))
+              byCode.set(code, {
+                groupCode: code,
+                memberCount,
+                role: null,
+                pinned: false,
+                notifyLevel: 0,
+                unnamed: false,
+              });
+          };
+          if (includeGroups) for (const code of targets?.groups ?? []) addGroup(code);
+          for (let offset = 0; includeGroups; offset += 500) {
             const details = await this.services.groupInfo.listAllGroups(500, offset);
-            for (const group of details)
+            for (const group of details) {
+              addGroup(String(group.groupCode), group.memberCount);
               this.groupMeta.set(String(group.groupCode), {
                 群名: group.groupName,
                 备注: group.remark,
@@ -470,8 +539,10 @@ export class ContactDirectoryRuntime {
                 群容量: group.maxMemberCount,
                 创建时间: group.createTime,
               });
+            }
             if (details.length < 500) break;
           }
+          groups = [...byCode.values()];
           if (groups.length)
             for (const group of groups) {
               if (this.stopPreparing || this.disposed) break;

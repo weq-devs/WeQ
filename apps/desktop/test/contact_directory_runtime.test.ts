@@ -25,6 +25,26 @@ async function setup(online = true) {
     groupError: null,
   }));
   const services = {
+    recentContacts: {
+      getRecentContact: vi.fn(
+        async (_limit: number) =>
+          [] as Array<{
+            chatType: string | number;
+            targetUid: string;
+            targetUin: bigint;
+          }>,
+      ),
+    },
+    deletedSessions: {
+      listDeletedSessions: vi.fn(
+        async () =>
+          [] as Array<{
+            chatType: number;
+            targetUid: string;
+            resolvable: boolean;
+          }>,
+      ),
+    },
     profile: {
       listBuddies: vi.fn(async () => buddies),
       profilesByUids: vi.fn(async () => profiles),
@@ -100,6 +120,115 @@ async function setup(online = true) {
     },
   };
 }
+it('缓存更新合并全部会话、已删除会话与群资料，覆盖非好友和临时会话并去重', async () => {
+  const { runtime, services, profiles } = await setup();
+  await vi.waitFor(() => expect(services.groupInfo.contactMembershipSnapshot).toHaveBeenCalled());
+  services.recentContacts.getRecentContact.mockResolvedValue([
+    { chatType: 1, targetUid: 'u_friend', targetUin: 12345n },
+    { chatType: 1, targetUid: 'u_former', targetUin: 23456n },
+    { chatType: 'KCHATTYPETEMPC2CFROMGROUP', targetUid: 'u_temp', targetUin: 0n },
+    { chatType: 99, targetUid: 'u_uid_only', targetUin: 0n },
+    { chatType: 2, targetUid: '20002', targetUin: 0n },
+    { chatType: 8, targetUid: 'device', targetUin: 0n },
+    { chatType: 1, targetUid: 'u_self', targetUin: 99999n },
+  ]);
+  services.deletedSessions.listDeletedSessions.mockResolvedValue([
+    { chatType: 1, targetUid: 'u_deleted', resolvable: true },
+    { chatType: 2, targetUid: '40004', resolvable: true },
+    { chatType: 1, targetUid: 'u_invalid', resolvable: false },
+  ]);
+  profiles.push(
+    { uid: 'u_temp', uin: 34567n, isBot: false },
+    { uid: 'u_deleted', uin: 45678n, isBot: false },
+  );
+  services.groupInfo.listAllGroups.mockResolvedValue([
+    {
+      groupCode: 30003n,
+      groupName: '已退出群',
+      remark: '',
+      memberCount: 2,
+      maxMemberCount: 500,
+      createTime: 123,
+    },
+  ]);
+  services.groupInfo.fetchOnlineMembers.mockResolvedValue([
+    { uid: 'u_former', uin: 23456, nickname: '非好友' },
+    { uid: 'u_friend', uin: 12345, nickname: '好友' },
+  ]);
+  await runtime.rebuild();
+  await vi.waitFor(() => expect(runtime.cache.progress.total).toBe(9));
+  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('failed'));
+  expect(services.recentContacts.getRecentContact).toHaveBeenCalledWith(-1);
+  expect(services.peerStats.getQqLevel.mock.calls.map(([uin]) => uin).sort()).toEqual([
+    '12345',
+    '23456',
+    '34567',
+    '45678',
+  ]);
+  expect(services.peerStats.getLikeCount.mock.calls.map(([uid]) => uid).sort()).toEqual([
+    'u_deleted',
+    'u_former',
+    'u_friend',
+    'u_temp',
+    'u_uid_only',
+  ]);
+  expect(
+    services.groupInfo.listExportMembers.mock.calls.map(([code]) => String(code)).sort(),
+  ).toEqual(['10001', '20002', '30003', '40004']);
+  expect((await runtime.cache.row('group:20002')).friendCount?.value).toBe(1);
+  expect((await runtime.cache.row('friend:u_uid_only')).level?.state).toBe('failed');
+});
+
+it('仅会话列表有群且当前群目录为空时仍获取，单群失败不阻断其余群', async () => {
+  const { runtime, services } = await setup();
+  await vi.waitFor(() => expect(services.groupInfo.contactMembershipSnapshot).toHaveBeenCalled());
+  services.groupInfo.listGroupDirectory.mockResolvedValue([]);
+  services.groupInfo.listAllGroups.mockResolvedValue([]);
+  services.recentContacts.getRecentContact.mockResolvedValue([
+    { chatType: 2, targetUid: '20002', targetUin: 0n },
+    { chatType: 2, targetUid: '30003', targetUin: 0n },
+  ]);
+  services.groupInfo.fetchOnlineMembers.mockRejectedValueOnce(new Error('合成退群查询失败'));
+  await runtime.cache.record('group:20002', { friendCount: 8 });
+  await runtime.rebuild(false, ['friendCount']);
+  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('failed'));
+  expect(services.groupInfo.listExportMembers.mock.calls.map(([code]) => String(code))).toEqual([
+    '20002',
+    '30003',
+  ]);
+  expect((await runtime.cache.row('group:20002')).friendCount).toMatchObject({
+    value: 8,
+    state: 'failed',
+  });
+  expect((await runtime.cache.row('group:30003')).friendCount?.value).toBe(1);
+});
+
+it.each([
+  { missingOnly: false, range: 'older24h' as const },
+  { missingOnly: true, range: 'all' as const },
+])('历史联系人同样遵循逐项更新范围 $range / 补齐 $missingOnly', async ({ missingOnly, range }) => {
+  const { runtime, services } = await setup();
+  await vi.waitFor(() => expect(services.groupInfo.contactMembershipSnapshot).toHaveBeenCalled());
+  services.recentContacts.getRecentContact.mockResolvedValue([
+    { chatType: 1, targetUid: 'u_former', targetUin: 23456n },
+    { chatType: 100, targetUid: 'u_temp', targetUin: 34567n },
+  ]);
+  if (!missingOnly) {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() - 25 * 60 * 60 * 1000);
+    try {
+      await runtime.cache.record('friend:23456', { level: 1 });
+    } finally {
+      clock.mockRestore();
+    }
+  }
+  await runtime.cache.record('friend:12345', { level: 2 });
+  await runtime.cache.record('friend:34567', { level: 3 });
+  await runtime.rebuild(missingOnly, ['level'], range);
+  await vi.waitFor(() => expect(services.peerStats.getQqLevel).toHaveBeenCalled());
+  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
+  expect(services.peerStats.getQqLevel.mock.calls.map(([uin]) => uin)).toEqual(['23456']);
+});
+
 it('批量更新跳过机器人与企业账号获赞，删除旧值且不生成失败或零值', async () => {
   const { runtime, services, buddies, profiles } = await setup();
   await vi.waitFor(() => expect(services.groupInfo.contactMembershipSnapshot).toHaveBeenCalled());
