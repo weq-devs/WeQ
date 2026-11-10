@@ -231,6 +231,8 @@ function classify(item: StorageUsageItem): StorageUsageItem {
   };
   if (CONFIG_NAMES.has(name))
     return { ...base, management: 'backup', action: item.clearable ? 'data' : 'none' };
+  if (name === 'anti_recall' || name === 'restore' || name.startsWith('config.json.'))
+    return { ...base, management: 'backup', clearable: false, requiresExit: false };
   if (item.management === 'backup' || item.label.startsWith('桌面运行数据')) {
     if (RUNTIME_CACHE_NAMES.has(name))
       return {

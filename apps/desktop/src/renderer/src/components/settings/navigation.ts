@@ -451,13 +451,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     }),
   ),
   {
-    id: 'default-save',
-    section: 'weq-storage',
-    label: '默认保存目录',
-    aliases: ['保存位置'],
-    from: ['saving', 'weq-storage'],
-  },
-  {
     id: 'prefer-cdn',
     section: 'resource-loading',
     label: '优先使用 CDN',
@@ -599,7 +592,7 @@ const SECTION_REDIRECTS: Partial<
 > = {
   applock: { section: 'privacy', settingId: 'app-lock' },
   home: { section: 'startup', settingId: 'home-settings' },
-  saving: { section: 'weq-storage', settingId: 'default-save' },
+  saving: { section: 'global' },
   storage: { section: 'weq-storage' },
   'anti-recall': { section: 'chat-interaction', settingId: 'anti-recall' },
   media: { section: 'accounts', settingId: 'linked-resources' },

@@ -413,7 +413,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
         <div className="weq-set">
           <SectionHeader title="WeQ 存储管理" icon={<HardDrive size={16} strokeWidth={1.8} />} />
         </div>
-        <GlobalSettingsSection section="saving" heading={false} />
         <GlobalSettingsSection section="storage" heading={false} />
       </>
     ),

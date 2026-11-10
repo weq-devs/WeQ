@@ -1,6 +1,11 @@
-import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { listDressPreviewFiles, measureStorage, type StorageUsageItem } from './storage_usage';
+import {
+  listDressPreviewFiles,
+  listStorageDataFiles,
+  measureStorage,
+  type StorageUsageItem,
+} from './storage_usage';
 import { DbRepairHistory } from '../account/db_repair/history';
 import { dbRepairPaths } from '../account/db_repair/paths';
 
@@ -117,7 +122,11 @@ export async function executeStorageCleanup(
           });
         }
       }
-      const before = await measureStorage(path);
+      const dataOnly = item.cleanupKind === 'business-data' || item.cleanupKind === 'dress-data';
+      const measureData = (collectFiles = false) =>
+        listStorageDataFiles(path, [], collectFiles, item.cleanupKind === 'dress-data');
+      const data = dataOnly ? await measureData(true) : undefined;
+      const before = data ?? (await measureStorage(path));
       if (before.incomplete) throw new Error('读取不完整，未清除');
       beforeBytes = before.bytes;
       if (item.cleanupKind === 'db-backup' && item.backup?.recordId && item.backup.historyPath) {
@@ -126,18 +135,25 @@ export async function executeStorageCleanup(
         if (!record?.backupPath || (await realpath(dirname(record.backupPath))) !== canonicalTarget)
           throw new Error('数据库备份关联已变化，请刷新后重试');
         history.deleteBackup(record.id);
-      } else if (item.cleanupKind === 'dress-previews' || item.cleanupKind === 'dress-data') {
+      } else if (data) {
+        for (let offset = 0; offset < data.files.length; offset += 32) {
+          const removed = await Promise.allSettled(
+            data.files.slice(offset, offset + 32).map(async (file) => {
+              await rejectLinkedAncestors(file);
+              const current = await lstat(file).catch((error: NodeJS.ErrnoException) => {
+                if (error.code !== 'ENOENT') throw error;
+                return null;
+              });
+              if (current?.isFile() && !current.isSymbolicLink()) await rm(file, { force: true });
+            }),
+          );
+          const failure = removed.find((entry) => entry.status === 'rejected');
+          if (failure?.status === 'rejected') throw failure.reason;
+        }
+      } else if (item.cleanupKind === 'dress-previews') {
         const previews = await listDressPreviewFiles(path);
         if (previews.incomplete) throw new Error('预览文件读取不完整，未清除');
-        const files = new Set(previews.files);
-        const targets =
-          item.cleanupKind === 'dress-previews'
-            ? previews.files
-            : (await readdir(path))
-                .map((name) => join(path, name))
-                .filter((file) => !files.has(file));
-        for (const file of targets)
-          await rm(file, { recursive: item.cleanupKind === 'dress-data', force: true });
+        for (const file of previews.files) await rm(file, { force: true });
       } else {
         await rm(path, { recursive: true, force: true });
         if (plan.busyPaths && item.cleanupKind === 'dress-shared') {
@@ -145,12 +161,15 @@ export async function executeStorageCleanup(
             await mkdir(join(path, name), { recursive: true });
         }
       }
-      const after = await measureStorage(path);
+      const after = dataOnly ? await measureData() : await measureStorage(path);
       result.freedBytes += Math.max(0, before.bytes - after.bytes);
       result.cleared.push(item.label);
     } catch (error) {
       if (beforeBytes !== undefined) {
-        const remaining = await measureStorage(item.path);
+        const remaining =
+          item.cleanupKind === 'business-data' || item.cleanupKind === 'dress-data'
+            ? await listStorageDataFiles(item.path, [], false, item.cleanupKind === 'dress-data')
+            : await measureStorage(item.path);
         if (!remaining.incomplete) result.freedBytes += Math.max(0, beforeBytes - remaining.bytes);
       }
       result.failed.push({

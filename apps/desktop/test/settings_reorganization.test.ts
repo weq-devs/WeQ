@@ -390,7 +390,7 @@ describe('设置归位后的实际页面', () => {
       for (const [section, item] of [
         ['appearance', '基础模式'],
         ['message-display', '显示消息序号（seq）'],
-        ['storage', '缓存目录'],
+        ['storage', '空间清理'],
         ['global', '成功通知停留时长'],
         ['version', '内置组件'],
       ] as const) {
@@ -522,13 +522,11 @@ describe('设置归位后的实际页面', () => {
         expect(f.body().textContent).not.toContain(title);
       expect(f.host.querySelector('.weq-settings-scope')).toBeNull();
       f.render('storage');
-      expect(f.body().textContent).toContain('缓存目录');
+      expect(f.body().textContent).not.toContain('缓存目录');
       expect(f.body().textContent).toContain('WeQ 存储管理');
       expect(f.body().textContent).not.toContain('现有配置');
-      f.render('saving');
-      expect(f.body().textContent).toContain('默认保存目录');
-      expect(f.body().querySelector('[aria-label="默认导出保存方式"]')).not.toBeNull();
-      expect(f.body().textContent).toContain('缓存目录');
+      expect(f.body().textContent).not.toContain('默认保存目录');
+      expect(f.body().querySelector('[aria-label="默认导出保存方式"]')).toBeNull();
     } finally {
       f.close();
     }

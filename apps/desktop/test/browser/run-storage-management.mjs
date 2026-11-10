@@ -89,6 +89,9 @@ try {
               !document.querySelector('[data-backup] .weq-set-cache-list') &&
               !document.querySelector('[data-backup]').textContent.includes('本页占用'),
             merged: cleanup.querySelectorAll('input[aria-label="桌面运行缓存"]').length === 1,
+            dataOnly: !['默认保存目录', '默认保存方式', '缓存目录', '防撤回配置'].some((label) =>
+              cleanup.textContent.includes(label),
+            ),
             emptyHidden: !cleanup.textContent.includes('空项目'),
             noOverflow: document.documentElement.scrollWidth <= innerWidth,
             textBounded: [...document.querySelectorAll('.weq-storage-detail')].every(

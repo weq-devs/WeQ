@@ -8,6 +8,14 @@ const base = {
   management: 'cleanup' as const,
 };
 export const storageItems: StorageUsageItem[] = [
+  {
+    ...base,
+    id: 'anti_recall',
+    path: '/synthetic/cache/anti_recall',
+    label: '防撤回配置',
+    management: 'backup',
+    clearable: false,
+  },
   ...['Cache', 'Code Cache', 'GPUCache'].map(
     (name): StorageUsageItem => ({
       ...base,
