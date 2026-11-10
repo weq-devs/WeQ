@@ -402,14 +402,10 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
   font-size: 17px;
 }
 .weq-account-workspace .weq-account-content {
-  flex: 0 1 auto;
+  flex: 1;
   width: min(100%, 460px);
   padding: 12px 24px 20px;
   gap: 16px;
-}
-.weq-account-workspace[data-mode='new'] .weq-account-content,
-.weq-account-workspace[data-mode='backup'] .weq-account-content {
-  flex: 1;
 }
 .weq-account-workspace .weq-account-tabs {
   gap: 0;
