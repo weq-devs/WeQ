@@ -332,3 +332,44 @@ it('群名按原始详情判断缺失，不把兜底群号当名称，也不误�
     ).map((row) => row.id),
   ).toEqual(['123', '1']);
 });
+
+it('好友指标和群日期每轮每行只读取一次，下一轮仍重新读取原对象', () => {
+  const count = 128;
+  let friendReads = 0,
+    groupReads = 0,
+    revision = false;
+  const friends = Array.from({ length: count }, (_, index) => {
+    const row = friend(String(index));
+    return Object.defineProperty(row, 'intimacy', {
+      get: () => {
+        friendReads++;
+        return revision && index === 0 ? count + 1 : ((index * 9) % count) + 1;
+      },
+    });
+  });
+  const groups = Array.from({ length: count }, (_, index) => {
+    const row = group(String(index));
+    Object.defineProperty(row.group, 'createTime', {
+      get: () => {
+        groupReads++;
+        return new Date(
+          Date.UTC(2030, 0, 1) + (revision && index === 0 ? count + 1 : (index * 9) % count) * 1000,
+        ).toISOString();
+      },
+    });
+    return row;
+  });
+  const firstFriends = sortFriends(friends, 'intimacy', true, {});
+  const firstGroups = sortGroups(groups, 'createTime', true, {});
+  expect(friendReads).toBe(count);
+  expect(groupReads).toBe(count);
+  expect(firstFriends[0]).not.toBe(friends[0]);
+  expect(firstGroups[0]).not.toBe(groups[0]);
+  revision = true;
+  expect(sortFriends(friends, 'intimacy', true, {})[0]).toBe(friends[0]);
+  expect(sortGroups(groups, 'createTime', true, {})[0]).toBe(groups[0]);
+  expect(friendReads).toBe(count * 2);
+  expect(groupReads).toBe(count * 2);
+  expect(friends[0]!.id).toBe('0');
+  expect(groups[0]!.id).toBe('0');
+});
