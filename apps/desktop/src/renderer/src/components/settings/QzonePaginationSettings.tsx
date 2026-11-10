@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
 import { pageValue } from '../../lib/pageSnapshots';
-import { Loader2, Save } from 'lucide-react';
+import { Gauge, Loader2, Save } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
@@ -56,7 +56,11 @@ export function QzonePaginationSettings() {
     maxPages <= 1000;
   const unavailable = !settings.isLoading && !saved;
   return (
-    <Card title="在线翻页限速" settingId="qzone-pagination">
+    <Card
+      title="在线翻页限速"
+      icon={<Gauge size={15} strokeWidth={1.8} />}
+      settingId="qzone-pagination"
+    >
       {unavailable ? (
         <p className="weq-set-row-desc" role="alert">
           {settings.error?.message || '当前主进程未加载限速设置'}

@@ -1,7 +1,7 @@
 import { useContext, useEffect, useMemo, useRef } from 'react';
 import { z } from 'zod';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
-import { RotateCcw, Save } from 'lucide-react';
+import { RotateCcw, Save, SlidersHorizontal } from 'lucide-react';
 import {
   INTENT_TUNING,
   INTENT_TUNING_HELP,
@@ -91,7 +91,7 @@ function TuningFields({
   }
 
   return (
-    <Card title={TITLES[group]}>
+    <Card title={TITLES[group]} icon={<SlidersHorizontal size={15} strokeWidth={1.8} />}>
       <form
         className="weq-intent-tuning-form"
         // 小数步长只用于增减；输入精度与其它规则统一交给共享校验器。

@@ -1,4 +1,4 @@
-import { BrainCircuit } from 'lucide-react';
+import { BrainCircuit, Settings2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { TabActivity, useTabActive } from '../RetainedTabs';
 import { Card, QueryError, SectionHeader } from './controls';
@@ -41,8 +41,12 @@ export function AiFeatureSettingsLayout({
           onRetry={onRetry}
         />
       ) : null}
-      <Card title="基础">{basic}</Card>
-      <Card title="模型">{model}</Card>
+      <Card title="基础" icon={<Settings2 size={15} strokeWidth={1.8} />}>
+        {basic}
+      </Card>
+      <Card title="模型" icon={<BrainCircuit size={15} strokeWidth={1.8} />}>
+        {model}
+      </Card>
       {resources}
       <details
         className="weq-model-advanced"

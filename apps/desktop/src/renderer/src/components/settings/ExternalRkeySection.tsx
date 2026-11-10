@@ -258,6 +258,7 @@ export function ExternalRkeySection(): ReactElement {
 
       <Card
         title="已导入的服务器"
+        icon={<Server size={15} strokeWidth={1.8} />}
         action={
           <button
             type="button"
@@ -362,7 +363,10 @@ export function ExternalRkeySection(): ReactElement {
       </Card>
 
       {form ? (
-        <Card title={form.id ? '编辑配置' : '导入新配置'}>
+        <Card
+          title={form.id ? '编辑配置' : '导入新配置'}
+          icon={<Pencil size={15} strokeWidth={1.8} />}
+        >
           <form className="weq-set-server-form" onSubmit={(e) => void onSave(e)}>
             <Row
               label="名称"

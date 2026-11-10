@@ -77,7 +77,7 @@ export function StartupSection() {
   return (
     <div className="weq-set">
       <SectionHeader icon={<Power size={16} />} title="启动与主页" />
-      <Card title="开机启动">
+      <Card title="开机启动" icon={<Power size={15} strokeWidth={1.8} />}>
         <Row
           settingId="startup-enabled"
           label="开机自动启动"

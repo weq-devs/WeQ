@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { AlertTriangle, Download, Loader2, ScanText, Trash2 } from 'lucide-react';
+import { AlertTriangle, Cloud, Download, Loader2, ScanText, Trash2 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
@@ -274,12 +274,12 @@ export function OcrModelsSection(): ReactElement {
   return (
     <div className="weq-set weq-recognition-settings">
       <SectionHeader icon={<ScanText size={18} strokeWidth={1.8} />} title="图片识别" />
-      <Card title="QQ 在线识别">
+      <Card title="QQ 在线识别" icon={<Cloud size={15} strokeWidth={1.8} />}>
         <p className="weq-set-note">由 QQ 服务端识别图片文字，需要 QQ 在线及对应凭据。</p>
         <RecognitionConcurrencySetting kind="ocr" />
       </Card>
 
-      <Card title="本地图片识别">
+      <Card title="本地图片识别" icon={<ScanText size={15} strokeWidth={1.8} />}>
         <ModelKindSection
           title="识别模型"
           desc="检测图片中的文字位置并识别内容。"

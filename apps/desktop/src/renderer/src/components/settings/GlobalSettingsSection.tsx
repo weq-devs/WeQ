@@ -21,8 +21,10 @@ import {
   HardDrive,
   Loader2,
   Minimize2,
+  PanelsTopLeft,
   RotateCcw,
   Settings2,
+  ScrollText,
   Trash2,
   User,
 } from 'lucide-react';
@@ -408,10 +410,15 @@ export function GlobalSettingsSection({
         <>
           <ToastSettingsCard />
           <DesktopOnly>
-            <Card title="窗口">
+            <Card title="窗口" icon={<PanelsTopLeft size={15} strokeWidth={1.8} />}>
               {platform && supportsWindowsStyleControls(platform) && (
                 <Row
-                  label="使用仿 Windows 窗口按钮"
+                  label={
+                    <span className="weq-set-row-icon">
+                      <PanelsTopLeft size={15} strokeWidth={1.8} aria-hidden />
+                      使用仿 Windows 窗口按钮
+                    </span>
+                  }
                   desc={`在右上角使用最小化、最大化和关闭按钮，替代系统窗口按钮；账号选择页保持统一样式。${platform === 'linux' ? '主窗口重新进入账号后生效，独立窗口下次打开时生效。' : '主窗口立即生效，独立窗口下次打开时生效。'}`}
                   control={
                     <Toggle
@@ -474,7 +481,7 @@ export function GlobalSettingsSection({
 
       {/* Account list */}
       {section === 'accounts' && (
-        <Card title="现有配置">
+        <Card title="现有配置" icon={<User size={15} strokeWidth={1.8} />}>
           {accountList.length === 0 ? (
             <div className="weq-set-empty">
               {accounts.isLoading ? '加载中…' : '暂无保存的账号配置'}
@@ -573,7 +580,7 @@ export function GlobalSettingsSection({
       )}
 
       {section === 'network' && (
-        <Card title="加载来源" settingId="prefer-cdn">
+        <Card title="加载来源" icon={<Cloud size={15} strokeWidth={1.8} />} settingId="prefer-cdn">
           <Row
             label={
               <span className="weq-set-row-icon">
@@ -599,7 +606,11 @@ export function GlobalSettingsSection({
       )}
       {/* WeQ 存储管理 */}
       {section === 'storage' && (
-        <Card title="空间清理" settingId="weq-space-cleanup">
+        <Card
+          title="空间清理"
+          icon={<Trash2 size={15} strokeWidth={1.8} />}
+          settingId="weq-space-cleanup"
+        >
           <div className="weq-set-actions weq-storage-toolbar">
             <span className="weq-set-cache-total">
               本页占用 <strong className="weq-number">{formatBytes(totalCacheBytes)}</strong>
@@ -753,7 +764,7 @@ export function GlobalSettingsSection({
       )}
 
       {section === 'logs' && (
-        <Card title="日志">
+        <Card title="日志" icon={<ScrollText size={15} strokeWidth={1.8} />}>
           <Row
             label="日志保留时长"
             desc={

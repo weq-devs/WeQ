@@ -361,7 +361,10 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         </button>
       </div>
       {result ? (
-        <Card title={result.status === 'applied' ? '最近一次恢复已应用' : '最近一次恢复失败'}>
+        <Card
+          title={result.status === 'applied' ? '最近一次恢复已应用' : '最近一次恢复失败'}
+          icon={<ArchiveRestore size={15} strokeWidth={1.8} />}
+        >
           <p>
             {result.error ||
               `已应用 ${result.applied.length} 项，跳过 ${result.skipped.length} 项。`}
@@ -398,7 +401,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           ) : null}
         </Card>
       ) : null}
-      <Card title="导出备份">
+      <Card title="导出备份" icon={<Download size={15} strokeWidth={1.8} />}>
         <fieldset disabled={Boolean(busy) || !inventory}>
           <legend>备份范围</legend>
           <div className="weq-backup-choices">
@@ -508,7 +511,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           </>
         ) : null}
       </Card>
-      <Card title="导入备份">
+      <Card title="导入备份" icon={<Upload size={15} strokeWidth={1.8} />}>
         <div className="weq-backup-actions">
           <input
             ref={input}
@@ -722,7 +725,11 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         ) : null}
       </Card>
       {!pending ? (
-        <Card title="恢复默认设置" settingId="weq-config-management">
+        <Card
+          title="恢复默认设置"
+          icon={<RotateCcw size={15} strokeWidth={1.8} />}
+          settingId="weq-config-management"
+        >
           <p>{DEFAULTS_DESCRIPTION}</p>
           <div className="weq-backup-actions">
             <button
@@ -740,7 +747,10 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         </Card>
       ) : null}
       {pending ? (
-        <Card title={pending.phase === 'ready' ? '存在待恢复数据' : '恢复暂存未完成'}>
+        <Card
+          title={pending.phase === 'ready' ? '存在待恢复数据' : '恢复暂存未完成'}
+          icon={<ArchiveRestore size={15} strokeWidth={1.8} />}
+        >
           <Summary value={pending.summary} />
           <p>正在运行的服务尚未使用这份备份，可直接应用恢复，无需重启。</p>
           <div className="weq-backup-actions">

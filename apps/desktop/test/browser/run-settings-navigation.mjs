@@ -55,6 +55,9 @@ try {
       );
       await page.evaluate((theme) => {
         window.settingsNavigationQa.theme.getState().setPreference(theme);
+        window.settingsNavigationQa.theme
+          .getState()
+          .setAccent(theme === 'light' ? '#b5243e' : '#81c995');
       }, theme);
       const metadata = page.locator('[data-setting-id="custom-message-display"]');
       assert.deepEqual(await metadata.locator('.weq-set-row-label').allTextContents(), [
@@ -62,6 +65,14 @@ try {
         '显示发送日期',
         '显示发送时间',
       ]);
+      const headings = page.locator('.weq-set-card-head .weq-set-card-title');
+      assert((await headings.count()) >= 4);
+      for (const heading of await headings.all()) {
+        const icon = heading.locator('.weq-set-card-icon[aria-hidden] svg');
+        assert.equal(await icon.count(), 1, `设置分组缺少图标：${await heading.textContent()}`);
+        const bounds = await icon.boundingBox();
+        assert(bounds && bounds.width >= 14 && bounds.height >= 14);
+      }
       for (const id of ['message-date', 'message-time']) {
         const row = metadata.locator(`[data-setting-id="${id}"]`);
         const label = await row.locator('.weq-set-row-label').boundingBox();

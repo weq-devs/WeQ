@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Bell } from 'lucide-react';
 import { useWebNotices } from '../../state/webNotices';
 import { Card, Row, Toggle } from './controls';
 
@@ -27,7 +28,7 @@ export function WebNotificationsSection() {
     }
   }
   return (
-    <Card title="此设备通知">
+    <Card title="此设备通知" icon={<Bell size={15} strokeWidth={1.8} />}>
       <Row
         label="撤回、群关键词与邮件提醒"
         control={

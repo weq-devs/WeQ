@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { Eye, MousePointerClick, RotateCcw, Database } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { SegmentedControl } from '../SegmentedControl';
@@ -107,7 +107,7 @@ export function IntentSenseSection() {
     >
       {(inactive) => (
         <>
-          <Card title="显示方式">
+          <Card title="显示方式" icon={<Eye size={15} strokeWidth={1.8} />}>
             <Row
               settingId="intent-persistent-display"
               label="常驻显示"
@@ -135,7 +135,7 @@ export function IntentSenseSection() {
               }
             />
           </Card>
-          <Card title="触发方式">
+          <Card title="触发方式" icon={<MousePointerClick size={15} strokeWidth={1.8} />}>
             <Row
               settingId="intent-after-self"
               label="自己发送后分析"
@@ -152,7 +152,7 @@ export function IntentSenseSection() {
           </Card>
           <IntentTuningPanel group="analysis" />
           <IntentTuningPanel group="advanced" />
-          <Card title="缓存管理">
+          <Card title="缓存管理" icon={<Database size={15} strokeWidth={1.8} />}>
             <Row
               settingId="intent-cache"
               label="意图与推荐缓存"

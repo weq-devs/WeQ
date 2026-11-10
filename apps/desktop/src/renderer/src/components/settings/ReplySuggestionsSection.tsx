@@ -1,3 +1,4 @@
+import { MousePointerClick } from 'lucide-react';
 import { Card, Row, Toggle } from './controls';
 import { ApiModelRow } from './ApiModelSelect';
 import { AiFeatureSettingsLayout } from './AiFeatureSettingsLayout';
@@ -47,7 +48,7 @@ export function ReplySuggestionsSection() {
     >
       {(inactive) => (
         <>
-          <Card title="触发方式">
+          <Card title="触发方式" icon={<MousePointerClick size={15} strokeWidth={1.8} />}>
             <Row
               settingId="suggestions-after-self"
               label="自己发送后推荐回复"

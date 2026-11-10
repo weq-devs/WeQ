@@ -31,6 +31,8 @@ import {
   EyeOff,
   KeyRound,
   Plug,
+  Power,
+  Link,
   RefreshCw,
   RotateCcw,
   Save,
@@ -315,7 +317,7 @@ export function McpServerSection(): ReactElement {
       />
 
       {/* Switch + live state */}
-      <Card title="服务开关">
+      <Card title="服务开关" icon={<Power size={15} strokeWidth={1.8} />}>
         {status.error ? (
           <QueryError
             message={`MCP 状态读取失败：${status.error.message}`}
@@ -376,7 +378,7 @@ export function McpServerSection(): ReactElement {
       </Card>
 
       {/* Connection details */}
-      <Card title="连接信息">
+      <Card title="连接信息" icon={<Link size={15} strokeWidth={1.8} />}>
         {clientConfig.error ? (
           <QueryError
             message={`MCP 客户端配置读取失败：${clientConfig.error.message}`}
@@ -485,6 +487,7 @@ export function McpServerSection(): ReactElement {
       {/* Install into local agents */}
       <Card
         title="安装到本机 AI 客户端"
+        icon={<Download size={15} strokeWidth={1.8} />}
         action={
           <button
             type="button"

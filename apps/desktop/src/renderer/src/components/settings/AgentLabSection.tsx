@@ -502,6 +502,7 @@ export function AgentLabSection(): ReactElement {
 
       <Card
         title="LLM"
+        icon={<Server size={15} strokeWidth={1.8} />}
         settingId="llm-providers"
         action={
           <button

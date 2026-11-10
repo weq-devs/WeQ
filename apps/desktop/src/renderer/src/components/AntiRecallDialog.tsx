@@ -22,6 +22,8 @@ import {
   RotateCcw,
   Save,
   ShieldCheck,
+  ListFilter,
+  MessagesSquare,
   X,
 } from 'lucide-react';
 import { trpc } from '../trpc/client';
@@ -500,7 +502,11 @@ export function AntiRecallDialog({
         aria-label="防撤回设置"
         data-setting-id="anti-recall"
       >
-        <Card title="防撤回" action={<SettingsScopeBadge />}>
+        <Card
+          title="防撤回"
+          icon={<ShieldCheck size={15} strokeWidth={1.8} />}
+          action={<SettingsScopeBadge />}
+        >
           {status.error ? (
             <QueryError
               message={status.error.message}
@@ -774,7 +780,7 @@ export function AntiRecallDialog({
       <div className="group-keyword-body weq-ar-body">
         {tab === 'protect' ? (
           <>
-            <Card title="启用范围">
+            <Card title="启用范围" icon={<ListFilter size={15} strokeWidth={1.8} />}>
               <Row
                 label="启用范围"
                 desc={
@@ -828,6 +834,7 @@ export function AntiRecallDialog({
             {scope === 'selected' ? (
               <Card
                 title="启用防撤回的会话"
+                icon={<MessagesSquare size={15} strokeWidth={1.8} />}
                 action={
                   <button
                     type="button"
@@ -856,7 +863,7 @@ export function AntiRecallDialog({
 
         {tab === 'notify' ? (
           <>
-            <Card title="撤回通知">
+            <Card title="撤回通知" icon={<BellRing size={15} strokeWidth={1.8} />}>
               <Row
                 label="撤回时通知我"
                 desc="对方撤回被拦下时弹系统通知，点通知直接跳到那条消息。"
@@ -877,6 +884,7 @@ export function AntiRecallDialog({
             {notifyEnabled ? (
               <Card
                 title="通知哪些会话"
+                icon={<MessagesSquare size={15} strokeWidth={1.8} />}
                 action={
                   <button
                     type="button"

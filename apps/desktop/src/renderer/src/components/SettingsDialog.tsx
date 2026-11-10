@@ -19,12 +19,15 @@ import {
   AlertTriangle,
   ArrowLeft,
   AudioLines,
+  Bell,
   Bot,
   Bug,
   BrainCircuit,
   BookOpen,
   Check,
   ChevronRight,
+  Clock,
+  Code2,
   DatabaseZap,
   Globe,
   HardDrive,
@@ -43,6 +46,7 @@ import {
   ScanText,
   Server,
   Settings2,
+  Smile,
   Send,
   ScanSearch,
   ScrollText,
@@ -273,7 +277,11 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
           </button>
         </div>
         <SignerStatusCard />
-        <Card title="Protobuf / JCE 逆向" settingId="reverse-tool">
+        <Card
+          title="Protobuf / JCE 逆向"
+          icon={<Code2 size={15} strokeWidth={1.8} />}
+          settingId="reverse-tool"
+        >
           <ReverseTool />
         </Card>
       </div>
@@ -990,7 +998,7 @@ function AppearanceSection({
       {page === 'messages' && (
         <>
           {category === 'reading' && (
-            <Card title="未读提醒">
+            <Card title="未读提醒" icon={<Bell size={15} strokeWidth={1.8} />}>
               <Row
                 settingId="message-unread-badge"
                 label="在消息图标上显示红点"
@@ -1053,7 +1061,16 @@ function AppearanceSection({
             </Card>
           )}
           {(category === 'reading' || category === 'sending') && (
-            <Card title={category === 'reading' ? '阅读与定位' : '发送消息'}>
+            <Card
+              title={category === 'reading' ? '阅读与定位' : '发送消息'}
+              icon={
+                category === 'reading' ? (
+                  <BookOpen size={15} strokeWidth={1.8} />
+                ) : (
+                  <Send size={15} strokeWidth={1.8} />
+                )
+              }
+            >
               {[
                 {
                   key: 'readFromFirstUnread' as const,
@@ -1121,7 +1138,11 @@ function AppearanceSection({
           {readingError ? <p role="alert">{readingError}</p> : null}
           {category === 'display' && (
             <>
-              <Card title="时间与序号" settingId="custom-message-display">
+              <Card
+                title="时间与序号"
+                icon={<Clock size={15} strokeWidth={1.8} />}
+                settingId="custom-message-display"
+              >
                 <Row
                   settingId="message-seq"
                   label="显示消息序号（seq）"
@@ -1193,7 +1214,7 @@ function AppearanceSection({
                   }
                 />
               </Card>
-              <Card title="头像与装扮">
+              <Card title="头像与装扮" icon={<Smile size={15} strokeWidth={1.8} />}>
                 {[
                   {
                     key: 'showAvatarPendant' as const,
@@ -1244,7 +1265,7 @@ function AppearanceSection({
                 ))}
                 <QqShowSettings />
               </Card>
-              <Card title="文本与链接">
+              <Card title="文本与链接" icon={<ScrollText size={15} strokeWidth={1.8} />}>
                 <Row
                   settingId="text-markdown"
                   label="纯文本消息自动渲染为 Markdown"
@@ -1301,7 +1322,7 @@ function AppearanceSection({
                   }
                 />
               </Card>
-              <Card title="语音消息">
+              <Card title="语音消息" icon={<AudioLines size={15} strokeWidth={1.8} />}>
                 <VoiceAutoTranscribeSetting />
               </Card>
               <ChatImageCacheSettings />

@@ -34,6 +34,7 @@ export function FaqPanel(): ReactElement {
       />
       <Card
         title="帮助文档"
+        icon={<BookOpen size={15} strokeWidth={1.8} />}
         action={
           <code data-privacy-title title={faq.data?.path ?? 'resources/help/faq.md'}>
             faq.md

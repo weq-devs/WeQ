@@ -111,7 +111,11 @@ export function AssistantSection() {
   return (
     <div className="weq-set">
       <SectionHeader icon={<Activity size={16} />} title="QQ 公众号推送" />
-      <Card title="推送与资源服务" settingId="assistant-service">
+      <Card
+        title="推送与资源服务"
+        icon={<Activity size={15} strokeWidth={1.8} />}
+        settingId="assistant-service"
+      >
         <Row
           label="启用 QQ 公众号推送"
           desc="推文写入当前账号，卡片资源仅在 WeQ 运行期间提供。"

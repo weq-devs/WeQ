@@ -10,7 +10,15 @@
  */
 
 import { useContext, useState, type ReactElement } from 'react';
-import { ExternalLink, Plug, Radio, Server } from 'lucide-react';
+import {
+  ExternalLink,
+  Globe,
+  MonitorSmartphone,
+  PanelsTopLeft,
+  Plug,
+  Radio,
+  Server,
+} from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
@@ -108,7 +116,11 @@ export function BackgroundServicesSection(): ReactElement {
         desc="这些服务在关闭窗口后继续运行，直到完全退出 WeQ。开关与端口在各自的页面里。"
       />
 
-      <Card title="关闭窗口时" settingId="window-close-behavior">
+      <Card
+        title="关闭窗口时"
+        icon={<PanelsTopLeft size={15} strokeWidth={1.8} />}
+        settingId="window-close-behavior"
+      >
         <Row
           label="点击关闭按钮"
           desc={
@@ -261,6 +273,7 @@ export function BackgroundServicesSection(): ReactElement {
         <>
           <Card
             title="本机浏览器访问"
+            icon={<Globe size={15} strokeWidth={1.8} />}
             settingId="background-web"
             action={
               <button
@@ -296,6 +309,7 @@ export function BackgroundServicesSection(): ReactElement {
 
           <Card
             title="WeQ Remote"
+            icon={<MonitorSmartphone size={15} strokeWidth={1.8} />}
             settingId="background-remote"
             action={
               <button

@@ -412,7 +412,7 @@ export function AccountBasicsSection({
       {/* Database key */}
       {page === 'credentials' && (
         <>
-          <Card title="数据库密钥">
+          <Card title="数据库密钥" icon={<Database size={15} strokeWidth={1.8} />}>
             <div className="weq-set-keyfield">
               <KeyRound size={15} strokeWidth={1.8} className="weq-set-keyfield-icon" aria-hidden />
               <code className="weq-set-keyval">
@@ -452,7 +452,7 @@ export function AccountBasicsSection({
           {/* 会话密钥：在线 QQ 内存里采集的 a1 / a2 / d2 / d2key + 设备 guid。
           前四个默认打星号，点眼睛展开（和上面的 dbKey 同款交互）；guid 是设备
           标识、非敏感，直接明文。 */}
-          <Card title="会话密钥">
+          <Card title="会话密钥" icon={<KeyRound size={15} strokeWidth={1.8} />}>
             <div className="weq-set-keylist">
               <KeyValueRow label="a1" value={cfg?.a1} secret />
               <KeyValueRow label="a2" value={cfg?.session?.a2} secret />
@@ -471,6 +471,7 @@ export function AccountBasicsSection({
           {/* Download rkeys (show the actual rkey value) */}
           <Card
             title="下载 rKey"
+            icon={<KeyRound size={15} strokeWidth={1.8} />}
             action={
               config.error ? (
                 <button
@@ -535,6 +536,7 @@ export function AccountBasicsSection({
           {/* ClientKey */}
           <Card
             title="ClientKey"
+            icon={<KeyRound size={15} strokeWidth={1.8} />}
             action={
               config.error ? (
                 <button
@@ -594,7 +596,11 @@ export function AccountBasicsSection({
       )}
       {/* 静态账号：关联本机原生目录读媒体 */}
       {page === 'media' && isStatic && (
-        <Card title="关联资源目录" settingId="linked-resources">
+        <Card
+          title="关联资源目录"
+          icon={<FolderOpen size={15} strokeWidth={1.8} />}
+          settingId="linked-resources"
+        >
           <Row
             label={
               <span className="weq-set-row-icon">
@@ -619,7 +625,11 @@ export function AccountBasicsSection({
         </Card>
       )}
       {page === 'media' && (!cfg || !isStatic) && (
-        <Card title="关联资源目录" settingId="linked-resources">
+        <Card
+          title="关联资源目录"
+          icon={<FolderOpen size={15} strokeWidth={1.8} />}
+          settingId="linked-resources"
+        >
           <p className="weq-set-desc" role="status">
             {!cfg
               ? config.error
@@ -694,7 +704,11 @@ export function AccountBasicsSection({
           {/* 自动进入策略与本来源运行请求分离 */}
           <LongTermAuthorizationSection />
           {isMac && !IS_WEB && (
-            <Card title="QQ 调试副本" settingId="qq-debug-copy">
+            <Card
+              title="QQ 调试副本"
+              icon={<Copy size={15} strokeWidth={1.8} />}
+              settingId="qq-debug-copy"
+            >
               <QqDebugCopy />
             </Card>
           )}
@@ -746,7 +760,11 @@ export function AccountBasicsSection({
       )}
       {/* 外部安卓图片缓存（放最下面，带引导文案） */}
       {page === 'media' && (
-        <Card title="外部安卓图片缓存" settingId="external-chatpic">
+        <Card
+          title="外部安卓图片缓存"
+          icon={<Smartphone size={15} strokeWidth={1.8} />}
+          settingId="external-chatpic"
+        >
           <Row
             label={
               <span className="weq-set-row-icon">

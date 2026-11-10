@@ -86,7 +86,11 @@ export function SignerStatusCard(): ReactElement {
   }
 
   return (
-    <Card title="签名器（wrapper.node）" settingId="signer-status">
+    <Card
+      title="签名器（wrapper.node）"
+      icon={<ShieldCheck size={15} strokeWidth={1.8} />}
+      settingId="signer-status"
+    >
       <dl className="weq-signer-kv">
         <dt>QQ 版本</dt>
         <dd className="weq-number">{data?.version ?? '未知'}</dd>

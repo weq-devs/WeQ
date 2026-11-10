@@ -40,6 +40,8 @@ import {
   Info,
   RefreshCw,
   ShieldCheck,
+  ScrollText,
+  Table2,
 } from 'lucide-react';
 import {
   SALVAGE_AGGREGATE_CAVEAT,
@@ -282,6 +284,7 @@ export function DatabaseToleranceSection({
 
           <Card
             title="宽容级别"
+            icon={<ShieldCheck size={15} strokeWidth={1.8} />}
             action={
               <span className="weq-set-badge weq-set-badge-ok" title={current.scope}>
                 当前 · {current.title}
@@ -397,7 +400,11 @@ export function DatabaseToleranceSection({
         </>
       )}
       {page === 'damage' && (
-        <Card title="损坏提醒" settingId="damage-reminder">
+        <Card
+          title="损坏提醒"
+          icon={<AlertTriangle size={15} strokeWidth={1.8} />}
+          settingId="damage-reminder"
+        >
           <Row
             label="数据库异常时弹窗提醒"
             desc="健康检查确认损坏后会显示提示，可点击「尝试修复」，或从设置 → 数据库与资源 → 损坏与修复进入。关闭提示后仍会记录日志并生成检查报告。"
@@ -415,6 +422,7 @@ export function DatabaseToleranceSection({
       {page === 'policy' && onOpenRecords && (
         <Card
           title="容错记录"
+          icon={<ScrollText size={15} strokeWidth={1.8} />}
           settingId="tolerance-records"
           action={
             <button type="button" className="weq-set-btn" onClick={onOpenRecords}>
@@ -437,6 +445,7 @@ export function DatabaseToleranceSection({
       {page === 'status' && (
         <Card
           title="降级账本"
+          icon={<DatabaseZap size={15} strokeWidth={1.8} />}
           action={
             tolerance.error ? (
               <button
@@ -518,6 +527,7 @@ export function DatabaseToleranceSection({
       {page === 'status' && quarantined.length > 0 ? (
         <Card
           title="已放弃的表（隔离中）"
+          icon={<Table2 size={15} strokeWidth={1.8} />}
           action={
             <button
               type="button"
