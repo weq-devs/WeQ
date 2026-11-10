@@ -38,6 +38,7 @@ import { useTabActive } from '../RetainedTabs';
 import { ToastSettingsCard } from './ToastSettingsCard';
 import { DesktopOnly, IS_WEB } from '../../lib/target';
 import { groupStorage, mergeStorageEntries } from '../../lib/storage-groups';
+import { supportsWindowsStyleControls } from '../../../../shared/window_controls';
 import '../../styles/storage-management.css';
 
 function errMsg(e: unknown): string {
@@ -121,6 +122,8 @@ export function GlobalSettingsSection({
   const clearAutoEnter = trpc.bootstrap.clearAutoEnter.useMutation();
   const deleteAccount = trpc.bootstrap.deleteAccountConfig.useMutation();
   const setWindowClose = trpc.bootstrap.setWindowCloseBehavior.useMutation();
+  const setWindowsStyle = trpc.bootstrap.setWindowsStyleControls.useMutation();
+  const platform = !IS_WEB ? window.electron?.process.platform : undefined;
   const setPreferCdnMut = trpc.bootstrap.setPreferCdn.useMutation();
   const setLogRetention = trpc.bootstrap.setLogRetentionDays.useMutation();
 
@@ -406,6 +409,27 @@ export function GlobalSettingsSection({
           <ToastSettingsCard />
           <DesktopOnly>
             <Card title="窗口">
+              {platform && supportsWindowsStyleControls(platform) && (
+                <Row
+                  label="使用仿 Windows 窗口按钮"
+                  desc={`在右上角使用最小化、最大化和关闭按钮，替代系统窗口按钮；账号选择页保持统一样式。${platform === 'linux' ? '主窗口重新进入账号后生效，独立窗口下次打开时生效。' : '主窗口立即生效，独立窗口下次打开时生效。'}`}
+                  control={
+                    <Toggle
+                      label="使用仿 Windows 窗口按钮"
+                      checked={settings.data?.windowsStyleControls ?? false}
+                      disabled={settings.isLoading || settings.isError || setWindowsStyle.isLoading}
+                      onChange={(enabled) => {
+                        void setWindowsStyle
+                          .mutateAsync({ enabled })
+                          .then(() => settings.refetch())
+                          .catch((error: unknown) =>
+                            showError('保存窗口按钮设置失败', errMsg(error)),
+                          );
+                      }}
+                    />
+                  }
+                />
+              )}
               <Row
                 label={
                   <span className="weq-set-row-icon">

@@ -748,6 +748,8 @@ export interface AppSettings {
   agentLab: AgentLabSettings;
   /** 点击关闭按钮时的行为。默认 'tray'（最小化到托盘，后台服务继续运行）。 */
   windowCloseBehavior: WindowCloseBehavior;
+  /** macOS / Linux 使用右上角仿 Windows 窗口按钮，账号选择页不受影响。 */
+  windowsStyleControls: boolean;
   /**
    * 已废弃（2026-11-09 起退出不再确认）。
    *
@@ -1146,6 +1148,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   weqAssistant: { enabled: false, port: DEFAULT_SERVICE_PORTS['weq-assistant'] },
   agentLab: { providers: [], defaultModel: null },
   windowCloseBehavior: 'tray',
+  windowsStyleControls: false,
   /** 已废弃，仅为旧配置兼容保留；不再控制任何行为（见类型注释）。 */
   quitConfirmSuppressed: false,
   renderTextMarkdown: true,
@@ -1821,6 +1824,7 @@ export class UserConfigService {
       },
       windowCloseBehavior:
         normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
+      windowsStyleControls: s?.windowsStyleControls === true,
       quitConfirmSuppressed: s?.quitConfirmSuppressed === true,
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
@@ -1965,6 +1969,7 @@ export class UserConfigService {
       },
       windowCloseBehavior:
         normalizeWindowCloseBehavior(patch.windowCloseBehavior) ?? current.windowCloseBehavior,
+      windowsStyleControls: patch.windowsStyleControls ?? current.windowsStyleControls,
       quitConfirmSuppressed: patch.quitConfirmSuppressed ?? current.quitConfirmSuppressed,
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,

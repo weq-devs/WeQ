@@ -112,6 +112,7 @@ import {
 } from '../../../shared/qq_debug_copy';
 import { checkQqDataAccess, QQ_DATA_ACCESS_SETTINGS } from '../../qq_data_access';
 import { macLaunchApplication } from '../../mac_launch_application';
+import { refreshWindowControls } from '../../window_controls_events';
 
 const qqDebugCopy = new QqDebugCopyManager({
   source: () => {
@@ -878,6 +879,14 @@ export const bootstrapRouter = router({
     .input(z.object({ behavior: z.enum(['ask', 'tray', 'quit']) }))
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ windowCloseBehavior: input.behavior });
+      return true;
+    }),
+
+  setWindowsStyleControls: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ windowsStyleControls: input.enabled });
+      refreshWindowControls();
       return true;
     }),
 

@@ -474,6 +474,7 @@ export function CompositionWorkspace({
           {IS_ELECTRON ? (
             <>
               <CompositionButton
+                className="weq-composition-window-control"
                 type="button"
                 title="最小化合成窗口"
                 aria-label="最小化合成窗口"
@@ -482,6 +483,7 @@ export function CompositionWorkspace({
                 <Minus size={16} />
               </CompositionButton>
               <CompositionButton
+                className="weq-composition-window-control"
                 type="button"
                 title={maximized ? '还原合成窗口' : '最大化合成窗口'}
                 aria-label={maximized ? '还原合成窗口' : '最大化合成窗口'}

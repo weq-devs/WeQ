@@ -147,6 +147,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
+          'window-controls': resolve(__dirname, 'src/renderer/window-controls.html'),
           // 导出长图专用的第二个入口：主进程在**隐藏窗口**里加载它，只挂一张分析卡片。
           // 分开是为了不把整个应用外壳重复启动一遍（见 src/renderer/src/export/main.tsx）。
           export: resolve(__dirname, 'src/renderer/export.html'),

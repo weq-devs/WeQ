@@ -20,6 +20,7 @@ import { BrowserWindow } from 'electron';
 import { readFile } from 'node:fs/promises';
 import { resolveResource } from './resource';
 import { loadIsolatedHtml } from './html_load';
+import { windowDecorationOptions, installWindowControls } from './window_controls';
 
 /** 本地静态资源源码缓存（首次读盘后常驻；空串=资源缺失，裸 html 仍可看）。 */
 const assetCache = new Map<string, string>();
@@ -67,6 +68,7 @@ export async function openReportWindow(htmlPath: string): Promise<void> {
     minHeight: 360,
     title: '报告预览',
     autoHideMenuBar: true,
+    ...windowDecorationOptions(),
     backgroundColor: '#ffffff',
     webPreferences: {
       sandbox: true,
@@ -74,6 +76,7 @@ export async function openReportWindow(htmlPath: string): Promise<void> {
       // 无 preload：渲染的是 AI 生成内容，应用的特权 bridge 不能进它的视野。
     },
   });
+  installWindowControls(win);
   // 报告里的链接一律走系统浏览器，不在本窗口内导航/开子窗。
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 

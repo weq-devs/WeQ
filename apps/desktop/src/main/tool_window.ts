@@ -1,6 +1,7 @@
 import type { BrowserWindowConstructorOptions } from 'electron';
 import { compositionPopupOptions } from './composition_window';
 import { floatingWindowTypeOption } from './linux_window_backend';
+import { windowDecorationOptions } from './window_controls_events';
 
 /** 仅放行明确登记的本地空白工具窗，不给子窗口增加 preload 或 Node 权限。 */
 export function applicationToolPopupOptions(
@@ -15,6 +16,7 @@ export function applicationToolPopupOptions(
       minWidth: 340,
       minHeight: 540,
       frame: true,
+      ...windowDecorationOptions(),
       autoHideMenuBar: true,
       ...floatingWindowTypeOption(),
       webPreferences: {
@@ -32,6 +34,7 @@ export function applicationToolPopupOptions(
       minWidth: 640,
       minHeight: 480,
       frame: true,
+      ...windowDecorationOptions(),
       autoHideMenuBar: true,
       ...floatingWindowTypeOption(),
       webPreferences: {

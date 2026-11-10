@@ -72,6 +72,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['home', '一言', 'hitokoto'],
   ['home', '一言屏蔽词', '屏蔽词', '过滤句子'],
   ['global', '关闭按钮行为', '关闭窗口', '最小化到托盘', '退出应用'],
+  ['global', '使用仿 Windows 窗口按钮', '窗口按钮', '红绿灯', '原生窗口', 'macOS', 'Linux'],
   ['background-services', '后台服务状态', '后台服务', '运行状态', '关闭窗口时'],
   ['global', '成功通知停留时长', '通知时间'],
   ['global', '失败通知停留时长', '通知时间'],

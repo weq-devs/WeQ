@@ -69,6 +69,12 @@ import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
+import { windowControlsStyle, type WindowControlsStyle } from '../shared/window_controls';
+import {
+  registerWindowControlsRefresh,
+  registerWindowControlsPreference,
+} from './window_controls_events';
+import { installWindowControls } from './window_controls';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
 import { registerMainWindowReveal } from './main_window_lifecycle_instance';
 import {
@@ -155,6 +161,32 @@ let isQuitting = false;
 let stopRendererDiagnostics: (() => void) | null = null;
 let mainWindowRequested = false;
 const rendererRecoveries = new Map<number, ReturnType<typeof createRendererRecovery>>();
+const windowLayouts = new WeakMap<BrowserWindow, WindowLayout>();
+const windowStyles = new WeakMap<BrowserWindow, WindowControlsStyle>();
+
+function requestedControls(layout: WindowLayout): WindowControlsStyle {
+  return windowControlsStyle(
+    process.platform,
+    getAppContext().bootstrap?.userConfig.getSettings().windowsStyleControls ?? false,
+    layout,
+  );
+}
+
+function updateMainWindowControls(win: BrowserWindow, layout: WindowLayout): void {
+  if (process.platform !== 'darwin') return;
+  const style = requestedControls(layout);
+  win.setWindowButtonVisibility(style === 'native');
+  windowStyles.set(win, style);
+  win.webContents.send('window:controls-changed', style);
+}
+
+registerWindowControlsRefresh(() => {
+  const win = getMainWindow();
+  if (win && !win.isDestroyed()) updateMainWindowControls(win, windowLayouts.get(win) ?? 'home');
+});
+registerWindowControlsPreference(
+  () => getAppContext().bootstrap?.userConfig.getSettings().windowsStyleControls ?? false,
+);
 
 const mainWindowLifecycle = createMainWindowLifecycle({
   canOpen: () => mainIpcHandler !== null && !isQuitting,
@@ -206,13 +238,38 @@ function buildTray(): void {
 }
 
 function registerWindowLayoutIpc(): void {
+  ipcMain.handle('window:get-controls', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return win ? (windowStyles.get(win) ?? 'windows') : 'windows';
+  });
   ipcMain.on('composition:control', (event, action: unknown) => {
     const child = compositionWindows.get(event.sender.id);
     if (child) controlCompositionWindow(child, action);
   });
   ipcMain.handle('window:set-layout', (event, layout: WindowLayout) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return;
+    if (!win || (layout !== 'home' && layout !== 'chat')) return;
+    // Linux 无运行时装饰开关，仅在账号页/工作区切换时重建，保留后台账号会话。
+    // 设置过程中不重载渲染层，以免丢掉未保存的编辑和已打开的工具窗。
+    if (
+      process.platform === 'linux' &&
+      win === getMainWindow() &&
+      windowLayouts.get(win) !== layout &&
+      windowStyles.get(win) !== requestedControls(layout)
+    ) {
+      const next = createWindow(win.isVisible(), layout);
+      setMainWindow(next);
+      next.once('closed', () => {
+        if (getMainWindow() === next) setMainWindow(null);
+      });
+      mainIpcHandler?.attachWindow(next);
+      setImmediate(() => {
+        if (!win.isDestroyed()) win.destroy();
+      });
+      return;
+    }
+    windowLayouts.set(win, layout);
+    updateMainWindowControls(win, layout);
     applyWindowLayout(win, layout, screen.getDisplayMatching(win.getBounds()).workArea);
   });
 
@@ -509,20 +566,24 @@ function resolveWindowIcon(): Electron.NativeImage | undefined {
   return img.isEmpty() ? undefined : img;
 }
 
-function createWindow(showInitially = true): BrowserWindow {
+function createWindow(
+  showInitially = true,
+  layout: WindowLayout = getAppContext().account ? 'chat' : 'home',
+): BrowserWindow {
   const icon = resolveWindowIcon();
+  const controls = requestedControls(layout);
   // On tiling Wayland WMs (Hyprland/sway) new toplevels tile by default. Ask
   // the WM to float us by advertising a non-'normal' window type — 'toolbar'
   // is the least invasive one that Hyprland/sway treat as floating (unlike
   // 'splash', it keeps the taskbar entry). Opt-out with WEQ_WINDOW_TYPE=normal
   // (or override to another value) so this can be disabled per-environment.
   const win = new BrowserWindow({
-    ...WINDOW_LAYOUTS.home,
+    ...WINDOW_LAYOUTS[layout],
     show: showInitially,
     title: 'WeQ Desktop',
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
-    titleBarStyle: 'hidden',
+    titleBarStyle: process.platform === 'linux' && controls === 'native' ? 'default' : 'hidden',
     ...floatingWindowTypeOption(),
     ...(icon ? { icon } : {}),
     webPreferences: {
@@ -534,7 +595,9 @@ function createWindow(showInitially = true): BrowserWindow {
       webviewTag: true,
     },
   });
-  if (process.platform === 'darwin') win.setWindowButtonVisibility(false);
+  windowLayouts.set(win, layout);
+  windowStyles.set(win, controls);
+  updateMainWindowControls(win, layout);
 
   const recovery = createRendererRecovery({
     automatic: true,
@@ -620,6 +683,7 @@ function createWindow(showInitially = true): BrowserWindow {
   win.webContents.on('did-create-window', (child, details) => {
     if (!applicationToolPopupOptions(details.url, details.frameName)) return;
     const composition = details.frameName === 'weq-compose';
+    if (!composition) installWindowControls(child, details.options.frame === false);
     const owner = win.webContents.id;
     if (composition) compositionWindows.set(owner, child);
     const reportState = () => {
@@ -627,6 +691,14 @@ function createWindow(showInitially = true): BrowserWindow {
         win.webContents.send('composition:state', { maximized: child.isMaximized() });
     };
     if (composition) {
+      const nativeControls = details.options.frame !== false;
+      child.webContents.on('dom-ready', () => {
+        void child.webContents
+          .executeJavaScript(
+            `document.documentElement.toggleAttribute('data-native-window-controls', ${nativeControls})`,
+          )
+          .catch(() => undefined);
+      });
       child.on('maximize', reportState);
       child.on('unmaximize', reportState);
       reportState();
