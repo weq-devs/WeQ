@@ -22,6 +22,7 @@ import { StaticBackupPanel } from './StaticBackupPanel';
 import { StatsPanel } from './StatsPanel';
 import { IS_MAC } from '../../lib/target';
 import { QqDebugCopy } from '../../components/QqDebugCopy';
+import { BootstrapWindowActions } from '../../components/BootstrapWindowActions';
 import type { UiAccount } from './types';
 import logoUrl from '@resources/brand/logo.png';
 import '../../styles/bootstrap-select.css';
@@ -150,13 +151,16 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
   return (
     <div className="weq-select weq-account-workspace" data-mode={mode}>
       <header className="weq-account-head">
-        <div className="weq-account-brand">
-          <img src={logoUrl} alt="" width={32} height={32} />
-          <span>WeQ</span>
+        <div className="weq-account-heading">
+          <div className="weq-account-brand">
+            <img src={logoUrl} alt="" width={32} height={32} />
+            <span>WeQ</span>
+          </div>
+          <h1 id="account-page-title">
+            {mode === 'existing' ? '打开账号' : mode === 'new' ? '添加账号' : '导入备份'}
+          </h1>
         </div>
-        <h1 id="account-page-title">
-          {mode === 'existing' ? '打开账号' : mode === 'new' ? '添加账号' : '导入备份'}
-        </h1>
+        <BootstrapWindowActions />
       </header>
       <div className="weq-account-content">
         <section

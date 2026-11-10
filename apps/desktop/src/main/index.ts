@@ -534,6 +534,7 @@ function createWindow(showInitially = true): BrowserWindow {
       webviewTag: true,
     },
   });
+  if (process.platform === 'darwin') win.setWindowButtonVisibility(false);
 
   const recovery = createRendererRecovery({
     automatic: true,

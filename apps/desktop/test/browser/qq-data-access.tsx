@@ -12,7 +12,7 @@ Object.assign(window, { accessQa: { store: useThemeStore, viewStore: useViewStat
 useViewState.getState().enterSelect('existing');
 function Fixture() {
   return (
-    <BootstrapShell>
+    <BootstrapShell showWindowActions={false}>
       <SelectScreen
         install={{
           qqExePath: '/fixture/QQ.app',

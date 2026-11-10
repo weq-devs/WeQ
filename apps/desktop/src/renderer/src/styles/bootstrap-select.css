@@ -394,10 +394,6 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
   letter-spacing: 0;
   overflow: hidden;
 }
-.weq-account-workspace .weq-account-head {
-  gap: 18px;
-  padding: 36px 24px 14px;
-}
 .weq-account-workspace .weq-account-head h1 {
   font-size: 17px;
 }
@@ -481,23 +477,26 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
 .weq-account-workspace .weq-account-import {
   padding-top: 12px;
 }
-@media (min-width: 681px) {
-  .weq-account-workspace .weq-account-head {
-    padding-left: max(24px, calc((100vw - 412px) / 2));
-  }
-}
 .weq-account-head {
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 24px;
+  gap: 12px;
   width: 100%;
-  padding: 28px 100px 20px 32px;
+  height: 72px;
+  padding: 0 16px 0 24px;
   border-bottom: 1px solid var(--weq-border-subtle);
   -webkit-app-region: no-drag;
 }
-/* 页头与 Shell 工具栏重叠；Electron 的原生拖动命中不受 z-index 隔离。 */
-.weq-account-brand {
+/* 拖动区与工具栏在布局中分列，避免原生拖动命中吞掉按钮点击。 */
+.weq-account-heading {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 1;
+  min-width: 0;
+  gap: 18px;
+  user-select: none;
   -webkit-app-region: drag;
 }
 .weq-account-brand {
@@ -507,6 +506,7 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
   color: var(--weq-fg-primary);
   font-size: 21px;
   font-weight: 650;
+  flex-shrink: 0;
 }
 .weq-account-brand img {
   object-fit: contain;
@@ -517,6 +517,7 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
   font-size: 20px;
   font-weight: 500;
   line-height: 1.4;
+  white-space: nowrap;
 }
 .weq-account-content {
   display: flex;
@@ -924,10 +925,6 @@ html[data-theme] .weq-select.weq-account-workspace .weq-action-primary:disabled 
 .weq-account-workspace .weq-login-panel {
   gap: 12px;
 }
-.weq-select.weq-account-workspace .weq-account-head {
-  padding-top: 32px;
-  padding-bottom: 8px;
-}
 .weq-select.weq-account-workspace .weq-account-content {
   gap: 12px;
   padding-bottom: 12px;
@@ -981,8 +978,7 @@ html[data-theme='dark'] .weq-account-workspace .weq-account-diagnostics .weq-sta
 }
 @media (max-width: 680px) {
   .weq-account-head {
-    gap: 18px;
-    padding: 52px 20px 16px;
+    gap: 12px;
   }
   .weq-account-head h1 {
     font-size: 18px;

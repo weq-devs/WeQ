@@ -12,7 +12,7 @@ import type { User } from './types';
 import { displayUserName } from './user';
 import logoUrl from '@resources/brand/logo.png';
 import { cn } from './classNames';
-import { DesktopOnly, IS_MAC } from '../../lib/target';
+import { DesktopOnly } from '../../lib/target';
 
 function ProfileAvatar({ user }: { user: User }) {
   const [open, setOpen] = useState(false);
@@ -87,7 +87,7 @@ export function TitleBar({
   };
 
   return (
-    <div className={cn('app-title-bar', IS_MAC && 'is-mac')}>
+    <div className={cn('app-title-bar')}>
       <button
         type="button"
         className={`app-title-bar-logo-wrap${homeActive ? ' is-active' : ''}`}
@@ -122,22 +122,19 @@ export function TitleBar({
           <RestrictedModeIndicator persistent />
         </div>
       </div>
-      {/* macOS 有原生红黄绿三键，自绘的 最小化/最大化/关闭 会重复，隐藏掉。 */}
-      {!IS_MAC && (
-        <DesktopOnly>
-          <div className="app-title-bar-actions">
-            <button onClick={handleMinimize} title="最小化">
-              <Minus size={14} />
-            </button>
-            <button onClick={handleMaximize} title="全屏/还原">
-              <Square size={12} />
-            </button>
-            <button onClick={handleClose} className="close" title="关闭">
-              <X size={16} />
-            </button>
-          </div>
-        </DesktopOnly>
-      )}
+      <DesktopOnly>
+        <div className="app-title-bar-actions">
+          <button onClick={handleMinimize} title="最小化">
+            <Minus size={14} />
+          </button>
+          <button onClick={handleMaximize} title="全屏/还原">
+            <Square size={12} />
+          </button>
+          <button onClick={handleClose} className="close" title="关闭">
+            <X size={16} />
+          </button>
+        </div>
+      </DesktopOnly>
     </div>
   );
 }

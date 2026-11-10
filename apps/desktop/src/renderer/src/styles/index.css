@@ -3963,20 +3963,14 @@ html *::-webkit-scrollbar-corner {
   display: flex;
   align-items: center;
   height: 40px;
+  flex-shrink: 0;
   background: rgba(255, 255, 255, 0.4);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(0, 153, 255, 0.12);
   z-index: 100;
   padding: 0;
-  -webkit-app-region: drag;
+  -webkit-app-region: no-drag;
   user-select: none;
-}
-
-/* macOS: the native traffic-light cluster (≈70px wide) floats over the left
-   edge of the hidden title bar, so shift the logo / user block right to clear
-   it. Windows/Linux keep the in-app buttons and need no inset. */
-.app-title-bar.is-mac {
-  padding-left: 80px;
 }
 
 html[data-theme='dark'] .app-title-bar {
@@ -4088,12 +4082,14 @@ html[data-theme='dark'] .app-title-bar-signature {
 .app-title-bar-drag {
   flex: 1;
   height: 100%;
+  -webkit-app-region: drag;
 }
 
 .app-title-bar-actions {
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  align-self: stretch;
   -webkit-app-region: no-drag;
 }
 
@@ -4102,7 +4098,7 @@ html[data-theme='dark'] .app-title-bar-signature {
   align-items: center;
   justify-content: center;
   width: 44px;
-  height: 40px;
+  height: 100%;
   color: #51677c;
   background: transparent;
   border: 0;
