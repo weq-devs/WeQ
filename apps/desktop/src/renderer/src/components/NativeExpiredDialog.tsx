@@ -64,6 +64,7 @@ export function NativeExpiredDialog({
     mirrorName,
     mirrorCount,
     isDev,
+    isManaged,
     check,
     download,
     install,
@@ -131,8 +132,14 @@ export function NativeExpiredDialog({
                     type="button"
                     className="weq-set-btn"
                     onClick={() => void download()}
-                    disabled={isDev}
-                    title={isDev ? '开发模式不支持自更新' : undefined}
+                    disabled={isDev || isManaged}
+                    title={
+                      isDev
+                        ? '开发模式不支持自更新'
+                        : isManaged
+                          ? '当前版本由系统包管理器安装，请用 paru -Syu 更新'
+                          : undefined
+                    }
                   >
                     <Download size={14} strokeWidth={1.8} aria-hidden />
                     立即更新
@@ -194,6 +201,12 @@ export function NativeExpiredDialog({
             <p className="weq-set-note weq-number">
               <Terminal size={12} strokeWidth={1.9} aria-hidden /> 开发构建不能自更新：请在本仓库跑{' '}
               <code>pnpm native:fetch</code> 取一份新构建后重启。
+            </p>
+          ) : null}
+          {isManaged ? (
+            <p className="weq-set-note weq-number">
+              <Terminal size={12} strokeWidth={1.9} aria-hidden /> 当前版本由系统包管理器安装：
+              请在终端运行 <code>paru -Syu</code> 更新后重新打开 WeQ。
             </p>
           ) : null}
           {onBackup ? (
