@@ -13,7 +13,7 @@ import {
 import '../styles/virtual-timeline.css';
 import { useMobileWebLayout } from './useMobileWebViewport';
 
-export const TIMELINE_VIRTUAL_THRESHOLD = 150;
+export const TIMELINE_VIRTUAL_THRESHOLD = 40;
 export const TIMELINE_OVERSCAN = 6;
 const keepNativeScroll = () => false;
 export function useVirtualTimeline({

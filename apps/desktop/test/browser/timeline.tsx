@@ -18,6 +18,7 @@ import {
 } from '../../src/renderer/src/lib/timelineViewport';
 import type { Message } from '../../src/renderer/src/im-template/template/types';
 import { useMobileWebViewport } from '../../src/renderer/src/hooks/useMobileWebViewport';
+import { TIMELINE_VIRTUAL_THRESHOLD } from '../../src/renderer/src/hooks/useVirtualTimeline';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
 
@@ -27,7 +28,7 @@ const entryCount = Number(params.get('count') ?? 3000);
 const delayedEntry = params.has('delayed');
 const avatar =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII=';
-const image = (() => {
+const image = await new Promise<string>((resolve, reject) => {
   const canvas = document.createElement('canvas');
   canvas.width = 300;
   canvas.height = 400;
@@ -38,8 +39,12 @@ const image = (() => {
   drawing.fillRect(24, 32, 252, 120);
   drawing.fillStyle = '#f0f3ed';
   drawing.fillRect(24, 180, 150, 180);
-  return canvas.toDataURL();
-})();
+  canvas.toBlob((blob) => {
+    if (blob) resolve(URL.createObjectURL(blob));
+    else reject(new Error('合成图片生成失败'));
+  });
+});
+window.addEventListener('pagehide', () => URL.revokeObjectURL(image), { once: true });
 const user = { ...demo.user, avatarUrl: avatar };
 const conversation = {
   ...demo.conversations.find((row) => row.type === 'direct')!,
@@ -101,6 +106,7 @@ function Fixture() {
   });
   const exportRequest = useContentExportRequest();
   Object.assign(bridge, {
+    virtualThreshold: TIMELINE_VIRTUAL_THRESHOLD,
     sentBodies: () => sentBodies.current,
     beginEntry: () => {
       setConversationId((id) => `${id}-loading`);

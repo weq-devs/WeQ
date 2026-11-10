@@ -240,10 +240,12 @@ describe('未读服务事件与阅读', () => {
     f.getUnreadInfos.mockResolvedValue(rows);
     const targets = rows.map(({ chatType, uid }) => ({ chatType, uid }));
     const result = await f.service.setReadState([...targets, targets[0]!], false);
-    expect(f.getUnreadInfos).toHaveBeenCalledWith(targets, {
-      selfUid: 'u_self',
-      selfUin: '10001',
-    });
+    expect(f.getUnreadInfos).toHaveBeenCalledWith(
+      targets,
+      { selfUid: 'u_self', selfUin: '10001' },
+      undefined,
+      { reuseOutgoing: true },
+    );
     expect(result.rows.map((row) => row.unreadCount)).toEqual([0, 0]);
     expect(f.markRead).not.toHaveBeenCalled();
     await f.service.observeNewMessages(f.change);

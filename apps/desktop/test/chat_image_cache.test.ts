@@ -8,8 +8,43 @@ import {
 } from '../src/renderer/src/components/ChatImageCacheProvider';
 import { ShimmerImage } from '../src/renderer/src/components/ShimmerImage';
 
-const image = { naturalWidth: 512, naturalHeight: 512 };
+function preview(width = 512, height = 512) {
+  const image = document.createElement('img');
+  image.src = '/synthetic-preview.png';
+  Object.defineProperties(image, {
+    naturalWidth: { value: width },
+    naturalHeight: { value: height },
+  });
+  return image;
+}
+const image = preview();
 afterEach(() => vi.unstubAllGlobals());
+
+it('缓存只保留独立图片，不持有 React 节点、事件闭包或父树，淘汰时释放资源', () => {
+  const original = preview();
+  Object.assign(original, { __reactFiber: { retainedTree: {} } });
+  original.onload = vi.fn();
+  const create = vi.spyOn(document, 'createElement');
+  const cache = createChatImageCache(1);
+  try {
+    cache.remember('one', original);
+    expect(create).toHaveBeenCalledWith('img');
+    const retained = create.mock.results.find((result) => result.value.tagName === 'IMG')!
+      .value as HTMLImageElement;
+    expect(retained).not.toBe(original);
+    expect(retained.src).toBe(original.src);
+    expect('__reactFiber' in retained).toBe(false);
+    expect(retained.onload).toBeNull();
+    create.mockClear();
+    cache.remember('one', original);
+    expect(create).not.toHaveBeenCalled();
+    cache.clear();
+    expect(retained.hasAttribute('src')).toBe(false);
+    expect(original.hasAttribute('src')).toBe(true);
+  } finally {
+    create.mockRestore();
+  }
+});
 
 it('按最近查看顺序淘汰，重复资源只计算一次；可见资源受保护，离屏后重新收敛', () => {
   const cache = createChatImageCache(2);
@@ -48,9 +83,9 @@ it('预算缩小、关闭和清空立即生效，异常尺寸与超大单图不�
   expect(cache.stats().bytes).toBe(0);
   release();
   cache.setBudgetMiB(1);
-  cache.remember('large', { naturalWidth: 4096, naturalHeight: 4096 });
-  cache.remember('broken', { naturalWidth: 0, naturalHeight: 0 });
-  cache.remember('invalid', { naturalWidth: Number.MAX_VALUE, naturalHeight: 9 });
+  cache.remember('large', preview(4096, 4096));
+  cache.remember('broken', preview(0, 0));
+  cache.remember('invalid', preview(Number.MAX_VALUE, 9));
   expect(cache.stats().images).toBe(0);
   cache.remember('a', image);
   cache.clear();
@@ -59,7 +94,7 @@ it('预算缩小、关闭和清空立即生效，异常尺寸与超大单图不�
 
 it('大量小图也有数量边界；可见图片超额时不清空，离屏后回落到预算', () => {
   const cache = createChatImageCache(1);
-  for (let i = 0; i < 600; i++) cache.remember(String(i), { naturalWidth: 1, naturalHeight: 1 });
+  for (let i = 0; i < 600; i++) cache.remember(String(i), preview(1, 1));
   expect(cache.stats().images).toBeLessThan(600);
   cache.clear();
   const a = cache.activate('a');

@@ -171,6 +171,7 @@ import {
 } from '../lib/conversationFirstPage';
 import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
 import { messageTemplateContext } from '../lib/messageTemplateContext';
+import { reconcileConversationRows } from '../lib/conversationListOrder';
 import type { MessageReadWindow } from '../../../shared/message_read';
 import { mergeRefreshedWindow } from '../lib/conversationRefresh';
 import {
@@ -2531,24 +2532,16 @@ function MainWorkspace(): ReactElement {
       refetchOnReconnect: 'always',
     },
   );
-  const contactsRefreshingRef = useRef(false);
-  const contactsRefreshQueuedRef = useRef(false);
-  contactsRefreshingRef.current = recentHead.isFetching;
-  const refreshRecentHead = useCallback(() => {
-    if (contactsRefreshingRef.current) {
-      contactsRefreshQueuedRef.current = true;
-      return;
-    }
-    void headRefetchRef.current({ cancelRefetch: false });
-  }, []);
-  useEffect(() => {
-    if (recentHead.isFetching || !contactsRefreshQueuedRef.current) return;
-    contactsRefreshQueuedRef.current = false;
-    refreshRecentHead();
-  }, [recentHead.isFetching, refreshRecentHead]);
-  useEffect(() => {
-    contactsRefreshQueuedRef.current = false;
-  }, [messageScope]);
+  const recentHeadRefresh = useMemo(
+    () =>
+      createUnreadRefresh(async () => {
+        const result = await headRefetchRef.current({ cancelRefetch: false });
+        return !result.isError;
+      }, 100),
+    [messageScope],
+  );
+  useEffect(() => () => recentHeadRefresh.dispose(), [recentHeadRefresh]);
+  const refreshRecentHead = useCallback(() => recentHeadRefresh.request(), [recentHeadRefresh]);
   useEffect(() => {
     const refresh = () => {
       if (messageScopeRef.current && document.visibilityState !== 'hidden') refreshRecentHead();
@@ -4360,7 +4353,9 @@ function MainWorkspace(): ReactElement {
     user,
     botUids,
   ]);
-  const conversations = useMemo(() => {
+  const baseConversationRowsRef = useRef<Conversation[]>([]);
+  const conversationRowsRef = useRef<Conversation[]>([]);
+  const baseConversations = useMemo(() => {
     const groups = (allGroups.data ?? []) as GroupDetailWire[];
     const hiddenList = (hiddenSessions.data ?? []) as HiddenSessionWire[];
     const deletedList = (deletedSessions.data ?? []) as DeletedSessionWire[];
@@ -4568,10 +4563,7 @@ function MainWorkspace(): ReactElement {
         members: [],
         updatedAt,
         preference: { ...fallbackPreference, muted: true },
-        unreadCount: assistantGroups.reduce(
-          (count, conversation) => count + (unreadByConv[conversation.id] ?? 0),
-          0,
-        ),
+        unreadCount: 0,
         lastMessage: latest?.lastMessage
           ? {
               ...latest.lastMessage,
@@ -4637,14 +4629,44 @@ function MainWorkspace(): ReactElement {
       });
     }
 
+    return reconcileConversationRows(baseConversationRowsRef.current, Array.from(byId.values()));
+  }, [
+    allGroups.data,
+    recentContactsData,
+    temporaryConversations,
+    officialAccounts.data,
+    serviceAccounts.data,
+    guildDirectSessions.data,
+    hiddenSessions.data,
+    deletedSessions.data,
+    hiddenUidSet,
+    groupNameByCode,
+    profileByUid,
+    user,
+    previewDisplayNames,
+    previewGroupNames,
+    groupAssistantIds,
+    groupAssistantEntry,
+    botUids,
+    outgoingConversationPreviews,
+  ]);
+  const conversations = useMemo(() => {
+    const assistantUnread = [...groupAssistantIds].reduce(
+      (count, id) => count + (unreadByConv[id] ?? 0),
+      0,
+    );
     const assistantDraftTime = [...groupAssistantIds].reduce(
       (latest, id) => Math.max(latest, draftTimesByConv[id] ?? 0),
       0,
     );
-    return (
-      Array.from(byId.values())
+    return reconcileConversationRows(
+      conversationRowsRef.current,
+      baseConversations
         .map((conversation) => {
-          const unread = unreadByConv[conversation.id];
+          const unread =
+            conversation.type === 'merged' && conversation.mergedKind === 'groupAssistant'
+              ? assistantUnread
+              : unreadByConv[conversation.id];
           const highlights = highlightsByConv[conversation.id] ?? null;
           const topTime = topTimeByConv[conversation.id];
           const pinStateKnown =
@@ -4700,33 +4722,22 @@ function MainWorkspace(): ReactElement {
                 temporaryConversations[a.id]?.appearedAt ?? 0,
               ) || a.id.localeCompare(b.id)
           );
-        })
+        }),
     );
   }, [
-    allGroups.data,
-    recentContactsData,
+    baseConversations,
     temporaryConversations,
-    officialAccounts.data,
-    serviceAccounts.data,
-    guildDirectSessions.data,
-    hiddenSessions.data,
-    deletedSessions.data,
-    hiddenUidSet,
-    groupNameByCode,
-    profileByUid,
-    user,
     unreadByConv,
-    previewDisplayNames,
-    previewGroupNames,
     highlightsByConv,
     topTimeByConv,
     topContacts.data,
     draftTimesByConv,
     groupAssistantIds,
-    groupAssistantEntry,
-    botUids,
-    outgoingConversationPreviews,
   ]);
+  useLayoutEffect(() => {
+    baseConversationRowsRef.current = baseConversations;
+    conversationRowsRef.current = conversations;
+  }, [baseConversations, conversations]);
   const sidebarConversations = useMemo(
     () => sidebarConversationsWithoutAssistant(conversations, groupAssistantIds),
     [conversations, groupAssistantIds],

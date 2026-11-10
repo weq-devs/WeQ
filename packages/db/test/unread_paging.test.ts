@@ -50,7 +50,7 @@ async function fixture() {
 const self = { selfUid: 'u_self', selfUin: '10001' };
 const targets = [{ chatType: 2, uid: '70001' }];
 
-it('零条自己发言仍分块读取，同 seq 大段与 64 位 rowid 不漏页且命中排序索引', async () => {
+it('零条自己发言分块扫描但每页只回传游标，同 seq 大段与 64 位 rowid 不漏页且命中索引', async () => {
   const f = await fixture();
   const execute = vi.spyOn(f.nt, 'executeSql');
   const rows = await f.db.getUnreadInfos(targets, self);
@@ -74,7 +74,7 @@ it('零条自己发言仍分块读取，同 seq 大段与 64 位 rowid 不漏页
       );
     }
     const result = await f.nt.executeSql(path, query, params);
-    expect(result.length).toBeLessThanOrEqual(UNREAD_OUTGOING_PAGE_SIZE);
+    expect(result).toHaveLength(1);
   }
 });
 
@@ -118,6 +118,48 @@ it('普通递增序号跨满页前进，不遗漏页末、下一页首条和最�
   senderUpdate.setReadBigInts(true);
   senderUpdate.run(...expected);
   expect((await f.db.getUnreadInfos(targets, self))[0]?.outgoingSeqs).toEqual(expected.map(String));
+});
+
+it('未读尾部增长时只读增量；同水位校准、阅读回退与到期仍重读历史', async () => {
+  const f = await fixture();
+  const options = { reuseOutgoing: true };
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(100_000);
+  try {
+    await f.db.getUnreadInfos(targets, self, undefined, options);
+    f.insert.run(1n, 70001, 3, 'u_self', 10001);
+    f.sql.exec('UPDATE recent_contact_v3_table SET "40003"=3');
+    const execute = vi.spyOn(f.nt, 'executeSql');
+    expect((await f.db.getUnreadInfos(targets, self, undefined, options))[0]?.outgoingSeqs).toEqual(
+      ['3'],
+    );
+    let pages = execute.mock.calls.filter(([, query]) => query.includes('group_msg_table'));
+    expect(pages).toHaveLength(1);
+    expect(pages[0]?.[2]?.[5]).toBe('2');
+
+    f.sql.exec('UPDATE group_msg_table SET "40020"=\'u_self\' WHERE "40003"=1');
+    expect((await f.db.getUnreadInfos(targets, self, undefined, options))[0]?.outgoingSeqs).toEqual(
+      ['1', '3'],
+    );
+    await f.db.getUnreadInfos(targets, self, new Map([['2_70001', '2']]), options);
+    f.insert.run(2n, 70001, 4, 'u_self', 10001);
+    f.sql.exec('UPDATE recent_contact_v3_table SET "40003"=4');
+    expect((await f.db.getUnreadInfos(targets, self, undefined, options))[0]?.outgoingSeqs).toEqual(
+      ['1', '3', '4'],
+    );
+
+    clock.mockReturnValue(160_001);
+    f.sql.exec('UPDATE group_msg_table SET "40020"=\'u_peer\' WHERE "40003"=1');
+    f.sql.exec('UPDATE recent_contact_v3_table SET "40003"=5');
+    execute.mockClear();
+    expect((await f.db.getUnreadInfos(targets, self, undefined, options))[0]?.outgoingSeqs).toEqual(
+      ['3', '4'],
+    );
+    pages = execute.mock.calls.filter(([, query]) => query.includes('group_msg_table'));
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages[0]?.[2]?.[5]).toBe('0');
+  } finally {
+    clock.mockRestore();
+  }
 });
 
 it('私聊索引分页保留 NULL 判定，未索引 UID 回退仍保持原有结果', async () => {
