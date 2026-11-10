@@ -78,6 +78,50 @@ function fixture(type: 'group' | 'direct' = 'group') {
 }
 
 describe('真实输入区与 +1 操作', () => {
+  it.each(['group', 'direct'] as const)(
+    '%s 引用条复用消息行解析的本地发送者，不要求消息自带 sender',
+    async (type) => {
+      const f = fixture(type);
+      const sender =
+        f.props.conversation.type === 'group'
+          ? f.props.conversation.members[0]!
+          : f.props.conversation.otherUser!;
+      try {
+        await act(async () =>
+          f.root.render(
+            createElement(ChatPane, {
+              ...f.props,
+              messages: [
+                {
+                  id: 'quoted-message',
+                  conversationId: f.props.conversation.id,
+                  senderId: sender.id,
+                  msgSeq: '120',
+                  body: '原消息正文',
+                  createdAt: '2026-10-17T06:00:00Z',
+                },
+              ],
+            }),
+          ),
+        );
+        act(() => {
+          f.host
+            .querySelector('[data-message-id="quoted-message"] .message-bubble')!
+            .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        });
+        const reply = document.querySelector<HTMLButtonElement>('[title="引用这条消息"]');
+        expect(reply).not.toBeNull();
+        act(() => reply!.click());
+        expect(f.host.querySelector('.composer-quote strong')?.textContent).toBe(
+          sender.displayName,
+        );
+        expect(f.props.onSend).not.toHaveBeenCalled();
+      } finally {
+        f.dispose();
+      }
+    },
+  );
+
   it.each(['group', 'direct'] as const)('%s 头像菜单仅在群聊提供提及', async (type) => {
     const f = fixture(type);
     try {

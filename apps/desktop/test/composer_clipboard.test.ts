@@ -329,7 +329,8 @@ it('整条引用与卡片粘贴为原始草稿，引用显示在引用条，粘�
             type: 'reply',
             data: {
               origMsgSeq: 17,
-              origSenderName: '原作者',
+              origSenderDisplayName: '原作者',
+              origSenderUin: 20002,
               origElements: [{ type: 'text', data: { textContent: '原话' } }],
             },
           },

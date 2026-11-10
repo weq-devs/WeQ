@@ -214,7 +214,6 @@ function mapWireElement(
     case 'at':
     case 'face':
     case 'mface':
-    case 'reply':
     case 'ark':
     case 'xml':
     case 'markdown':
@@ -223,6 +222,11 @@ function mapWireElement(
     case 'pokeEmoji':
       // 这些元素收 / 发同形（协议层 `SendElement` 与 codec 元素字段一致），原样装箱。
       return element;
+    case 'reply': {
+      // 名称只供草稿和临时气泡显示，不随发送计划交给服务端。
+      const { origSenderDisplayName: _displayName, ...reply } = element;
+      return reply;
+    }
     case 'emojiBounce':
       return {
         kind: 'emojiBounce',
@@ -631,6 +635,7 @@ function renderElementOf(
           origMsgIndex: element.origMsgIndex,
           origClientSeq: element.origMsgSeq,
           origSenderUin: element.origSenderUin,
+          origSenderDisplayName: element.origSenderDisplayName,
           origMsgTime: element.origMsgTime,
           origElements: Array.isArray(element.origElements)
             ? element.origElements.map((quoted) => {

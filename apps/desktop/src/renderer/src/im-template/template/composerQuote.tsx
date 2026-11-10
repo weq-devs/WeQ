@@ -182,7 +182,10 @@ export function composerQuoteElement(quote: ComposerQuote): Record<string, unkno
 
 /** 待发送的引用 → 元素 token（跟草稿正文同一条通路）。 */
 export function composerQuoteToken(quote: ComposerQuote): string {
-  return elementToToken(composerQuoteElement(quote));
+  return elementToToken({
+    ...composerQuoteElement(quote),
+    ...(quote.senderName ? { origSenderDisplayName: quote.senderName } : {}),
+  });
 }
 
 /**

@@ -2932,10 +2932,13 @@ export function ChatPane({
    * 反过来卡片顶掉引用见 setMedia / stageSuperEmoji。
    */
   function startQuote(message: Message) {
-    if (quoteBlockReason(message)) {
+    if (!conversation || quoteBlockReason(message)) {
       return;
     }
-    const quote = quoteFromMessage(message);
+    const quote = quoteFromMessage({
+      ...message,
+      sender: resolveMessageSender(message, conversation, user),
+    });
     if (!quote) {
       return;
     }
@@ -3662,7 +3665,14 @@ export function ChatPane({
               )?.data;
               pastedQuote = {
                 msgSeq: Number(reply.origMsgIndex ?? reply.origMsgSeq),
-                senderName: String(quoted?.origSenderName ?? quoted?.origSenderUin ?? ''),
+                senderName: String(
+                  quoted?.origSenderDisplayName ||
+                    quoted?.origSenderNick ||
+                    quoted?.origSenderName ||
+                    quoted?.origSenderUin ||
+                    quoted?.origSenderUid ||
+                    '',
+                ),
                 preview: messageContentText(
                   Array.isArray(quoted?.origElements) ? quoted.origElements : [],
                   String(quoted?.origText ?? '引用消息'),
