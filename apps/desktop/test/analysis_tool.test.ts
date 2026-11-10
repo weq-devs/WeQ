@@ -218,6 +218,7 @@ it('群聊与好友都创建真实配置，完整目录可检索末尾且 DOM �
       }),
     );
     f.select('报告类型', 'buddy');
+    // 选择器保留紧凑预算，主会话列表的大缓冲由宿主显式启用。
     expect(f.host.querySelectorAll('.weq-analysis-choice').length).toBeLessThan(30);
     f.select('搜索分析对象', '合成好友 2500');
     act(() => f.chooseObject('u_friend_2500').click());

@@ -54,6 +54,14 @@
 > | ---- | ------------------ | ---------- | ---------- |
 > | 架构 | x64，**不支持arm** | arm，intel | x64，arm64 |
 
+Arch Linux 用户可以直接从 AUR 安装预编译包，不必手动下载 Release：
+
+```bash
+paru -S weq-bin
+```
+
+详见 [Arch Linux 安装（AUR）](./docs/guide/arch-install.md)。
+
 ### web版
 
 除桌面版外还提供 **WeQ Web**，复用桌面版的业务界面与后端，原生外壳能力存在差异。适合无桌面环境的机器

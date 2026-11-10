@@ -35,6 +35,7 @@ export function UpdateCard(): ReactElement {
     mirrorName,
     mirrorCount,
     isDev,
+    isManaged,
     check,
     download,
     install,
@@ -95,8 +96,14 @@ export function UpdateCard(): ReactElement {
               type="button"
               className="weq-set-btn"
               onClick={() => void download()}
-              disabled={isDev}
-              title={isDev ? '开发模式不支持自更新' : undefined}
+              disabled={isDev || isManaged}
+              title={
+                isDev
+                  ? '开发模式不支持自更新'
+                  : isManaged
+                    ? '当前版本由系统包管理器安装，请用 paru -Syu 更新'
+                    : undefined
+              }
             >
               <Download size={14} strokeWidth={1.8} aria-hidden />
               立即更新
@@ -157,7 +164,9 @@ export function UpdateCard(): ReactElement {
       <p className="weq-set-note">
         {isDev
           ? '开发模式仅可检查更新；自动下载安装需使用打包后的安装版。'
-          : '更新通过 GitHub 加速站自动测速下载，无需手动下载安装包。'}
+          : isManaged
+            ? '当前版本由系统包管理器（AUR）安装：请用 paru -Syu 或 pacman -Syu 更新，应用内不接管安装。'
+            : '更新通过 GitHub 加速站自动测速下载，无需手动下载安装包。'}
       </p>
     </Card>
   );

@@ -90,6 +90,37 @@ export type OzoneRelaunch = {
   args: string[];
 };
 
+const APPIMAGE_RELAUNCH_SCRIPT =
+  'while kill -0 "$1" 2>/dev/null || [ -d "$2" ]; do sleep 0.1; done; shift 2; unset APPIMAGE APPDIR ARGV0 OWD LD_LIBRARY_PATH GSETTINGS_SCHEMA_DIR CHROME_DESKTOP EGL_PLATFORM FC_FONTATIONS; sleep 1; exec "$@"';
+
+/**
+ * AppImage 不能像普通二进制那样直接交给 `app.relaunch({ execPath: APPIMAGE })`：
+ * 新进程会在旧 AppImage 的 FUSE 挂载仍存在时尝试挂载同一文件，实测可能报
+ * `mount failed: Operation not permitted` 后静默退出。
+ *
+ * 先启动一个挂载目录之外的 shell，等旧主进程完全退出、AppImage 卸载后再 exec
+ * 真实文件。路径作为 shell 位置参数传入，不拼进命令字符串。
+ */
+export function appImageRelaunchCommand(
+  execPath: string,
+  args: readonly string[],
+  parentPid: number = process.pid,
+  appDir: string = process.env.APPDIR ?? '',
+): { execPath: string; args: string[] } {
+  return {
+    execPath: '/bin/sh',
+    args: [
+      '-c',
+      APPIMAGE_RELAUNCH_SCRIPT,
+      'weq-ozone-relaunch',
+      String(parentPid),
+      appDir,
+      execPath,
+      ...args,
+    ],
+  };
+}
+
 /**
  * 打包产物里 ozone 开关**经常根本不在启动参数里**：electron-builder 只会把它写进
  * AppImage 的 `.desktop`（`linux.executableArgs`），而 tar.gz 解压直跑、AppImage
@@ -107,6 +138,7 @@ export function ozoneRelaunchArgs(
   argv: readonly string[] = process.argv,
   platform: NodeJS.Platform = process.platform,
   env: WindowBackendEnv = {
+    APPIMAGE: process.env.APPIMAGE,
     DISPLAY: process.env.DISPLAY,
     WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY,
     XDG_SESSION_TYPE: process.env.XDG_SESSION_TYPE,

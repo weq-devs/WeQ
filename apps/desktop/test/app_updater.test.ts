@@ -165,3 +165,47 @@ describe('更新安装动作', () => {
     expect(() => updater.quitAndInstall()).toThrow('开发模式');
   });
 });
+
+describe('AUR 托管的副本', () => {
+  it('拒绝应用内下载，直接给出包管理器指引', async () => {
+    const { updater, events } = await ready();
+    const previous = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    process.env.WEQ_PACKAGE_MANAGED = '1';
+    try {
+      // 拒绝发生在 try 之外：不广播 error 事件（界面在点按钮时就能拿到原因），
+      // 也不该在全部镜像上失败一遍。
+      await expect(updater.startDownload()).rejects.toThrow('paru -Syu');
+      expect(fixture.downloadUpdate).not.toHaveBeenCalled();
+      expect(events).toHaveLength(0);
+      expect(() => updater.quitAndInstall()).toThrow('paru -Syu');
+      expect(fixture.quitAndInstall).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.WEQ_PACKAGE_MANAGED;
+      Object.defineProperty(process, 'platform', { value: previous, configurable: true });
+    }
+  });
+
+  it('检查结果带上托管标记，界面据此切换按钮', async () => {
+    const previous = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    try {
+      const { updater } = await ready();
+      const state = await import('../src/main/update/state');
+      const mirrors = await import('../src/main/update/mirrors');
+      vi.mocked(mirrors.resolveBestMirror).mockResolvedValue({
+        version: '1.1.0',
+        base: 'https://synthetic.invalid',
+        ranked: ['https://synthetic.invalid'],
+      });
+      process.env.WEQ_PACKAGE_MANAGED = '1';
+      expect((await updater.checkForUpdate(true)).managed).toBe(true);
+      delete process.env.WEQ_PACKAGE_MANAGED;
+      expect((await updater.checkForUpdate(true)).managed).toBe(false);
+      expect(state.getUpdateState()?.managed).toBe(false);
+    } finally {
+      delete process.env.WEQ_PACKAGE_MANAGED;
+      Object.defineProperty(process, 'platform', { value: previous, configurable: true });
+    }
+  });
+});

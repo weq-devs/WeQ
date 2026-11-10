@@ -20,6 +20,12 @@ export interface UpdateState {
   base: string | null;
   /** Healthy mirror bases, fastest first (download fallback order). */
   ranked: string[];
+  /**
+   * This copy is installed by a distro package manager (AUR), so it can check
+   * for updates but must not replace its own files — `pacman` owns them.
+   * Set by the updater at check time; absent in older cached shapes.
+   */
+  managed?: boolean;
 }
 
 export interface UpdateProgress {

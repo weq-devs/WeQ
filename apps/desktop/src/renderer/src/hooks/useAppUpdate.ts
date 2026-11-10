@@ -43,6 +43,11 @@ export interface AppUpdate {
   /** 正在测速的镜像数，null 表示不在测速。 */
   mirrorCount: number | null;
   isDev: boolean;
+  /**
+   * False when a distro package manager owns this install (AUR): the card still
+   * checks versions but sends the user to `paru -Syu` instead of downloading.
+   */
+  isManaged: boolean;
   check(): Promise<void>;
   download(): Promise<void>;
   install(): Promise<void>;
@@ -92,6 +97,9 @@ export function useAppUpdate(): AppUpdate {
   const installPending = useRef(false);
 
   const isDev = version.data?.isDev ?? false;
+  // 包管理器托管的副本（AUR）由后端在检查结果里标记；未检查过时按普通安装处理，
+  // 免得把正常的 Windows / macOS 用户误判成 AUR 版。
+  const isManaged = state.data?.managed === true;
   const current = version.data?.app ?? state.data?.current ?? '';
 
   // Seed from the last cached check (the startup background check may already
@@ -209,10 +217,23 @@ export function useAppUpdate(): AppUpdate {
       mirrorName: mirrorLabel(mirror),
       mirrorCount,
       isDev,
+      isManaged,
       check,
       download,
       install,
     }),
-    [phase, latest, current, progress, mirror, mirrorCount, isDev, check, download, install],
+    [
+      phase,
+      latest,
+      current,
+      progress,
+      mirror,
+      mirrorCount,
+      isDev,
+      isManaged,
+      check,
+      download,
+      install,
+    ],
   );
 }

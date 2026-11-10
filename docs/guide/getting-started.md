@@ -15,6 +15,8 @@
 
 macOS 的拖入安装与首次系统放行见 [macOS 安装与首次打开](./macos-install.md)，不需要终端命令或关闭 SIP。
 
+Arch Linux 用户可以直接 `paru -S weq-bin`，见 [Arch Linux 安装（AUR）](./arch-install.md)。
+
 ## 2. 账号主页
 
 启动后直接进入紧凑的竖版账号主页，不再先选择「现有账号配置」或「新的开始」。右上角保留窗口级操作：

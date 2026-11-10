@@ -55,6 +55,13 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.install.mockReset().mockResolvedValue(true);
   fixture.showError.mockClear();
+  fixture.state = {
+    current: '1.0.0',
+    latest: '1.1.0',
+    hasUpdate: true,
+    base: 'https://synthetic.invalid',
+    ranked: [],
+  };
   const host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -119,5 +126,44 @@ describe('重启并安装反馈', () => {
     await act(async () => installButton().click());
     expect(fixture.showError).toHaveBeenCalledOnce();
     expect(installButton()?.disabled).toBe(false);
+  });
+});
+
+describe('包管理器（AUR）托管的副本', () => {
+  function updateButton() {
+    return [...document.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('立即更新'),
+    )!;
+  }
+
+  it.each(['settings', 'expired'] as const)('%s 禁用下载按钮并给出 paru 指引', async (kind) => {
+    fixture.state = { ...fixture.state, managed: true };
+    await act(async () =>
+      root.render(
+        kind === 'settings' ? createElement(UpdateCard) : createElement(NativeExpiredDialog),
+      ),
+    );
+    await act(async () => fixture.event?.({ kind: 'available', latest: '1.1.0' }));
+    const button = updateButton();
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('title')).toContain('paru -Syu');
+    expect(document.body.textContent).toContain('paru -Syu');
+  });
+
+  it('托管时仍可检查更新', async () => {
+    // 无可用更新时卡片回到「检查更新」，这是托管副本唯一保留的入口。
+    fixture.state = { ...fixture.state, managed: true, hasUpdate: false, latest: null };
+    await act(async () => root.render(createElement(UpdateCard)));
+    const check = [...document.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('检查更新'),
+    )!;
+    expect(check.disabled).toBe(false);
+  });
+
+  it('普通安装版保持「立即更新」可用', async () => {
+    await act(async () => root.render(createElement(UpdateCard)));
+    await act(async () => fixture.event?.({ kind: 'available', latest: '1.1.0' }));
+    expect(updateButton().disabled).toBe(false);
+    expect(document.body.textContent).not.toContain('paru -Syu');
   });
 });

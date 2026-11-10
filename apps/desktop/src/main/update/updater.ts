@@ -16,6 +16,7 @@
  */
 
 import { app } from 'electron';
+import { existsSync } from 'node:fs';
 import semver from 'semver';
 import electronUpdater from 'electron-updater';
 import { FILE_MIRRORS, resolveBestMirror } from './mirrors';
@@ -27,6 +28,7 @@ import {
   usesMacVerifiedArchiveUpdater,
 } from './mac';
 import type { MacUpdatePlan } from './mac_install';
+import { isPackageManaged, managedUpdateHint } from './managed';
 import {
   getUpdateState,
   setUpdateActions,
@@ -44,6 +46,14 @@ const CHECK_TTL_MS = 5 * 60_000;
 
 function isDev(): boolean {
   return !app.isPackaged;
+}
+
+/**
+ * 运行环境是否由发行版包管理器托管（AUR）。每次现算而不是模块级常量：
+ * 测试要能在同一个进程里切换两种形态，而真实运行中它不会变。
+ */
+function packageManaged(): boolean {
+  return isPackageManaged({ env: process.env, execPath: process.execPath, exists: existsSync });
 }
 
 function isNewer(latest: string, current: string): boolean {
@@ -74,6 +84,7 @@ export async function checkForUpdate(force = false): Promise<UpdateState> {
     hasUpdate,
     base: best.base,
     ranked: best.ranked,
+    managed: packageManaged(),
   };
   setUpdateState(state);
   lastCheckedAt = Date.now();
@@ -183,6 +194,9 @@ function attemptDownload(base: string): Promise<void> {
  */
 export async function startDownload(): Promise<void> {
   if (isDev()) throw new Error('开发模式不支持自更新，请使用打包后的安装版。');
+  // 包管理器托管的副本没有可写的安装目录：与其让 autoUpdater 在全部镜像上
+  // 失败一遍（Linux 走 AppImageUpdater，`$APPIMAGE` 不存在），不如直接给出正解。
+  if (packageManaged()) throw new Error(managedUpdateHint(true) ?? '当前安装不支持自动更新。');
   if (downloading || installing) return;
   downloading = true;
   downloaded = false;
@@ -252,6 +266,7 @@ export function isInstallingUpdate(): boolean {
 /** 下载验证完成后退出、安装并重新打开应用。 */
 export function quitAndInstall(): void {
   if (isDev()) throw new Error('开发模式不支持自更新。');
+  if (packageManaged()) throw new Error(managedUpdateHint(true) ?? '当前安装不支持自动更新。');
   if (!downloaded) throw new Error('更新尚未下载完成，请先下载更新。');
   if (installing) return;
   installing = true;
