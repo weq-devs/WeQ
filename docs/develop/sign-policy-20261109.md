@@ -146,6 +146,35 @@ oidbCommand(command, subCommand) -> 'OidbSvcTrpcTcp.0x6d6_2'
 不签、Windows / macOS 签。这三条在 Windows / macOS 的发包参数因此得到修正，
 其余显式不签名登记及待确认入口不改原发包参数。
 
+## macOS Core 探测续验（2026-11-10）
+
+QQ 7.0.3-54395 arm64 的本轮活动发送路径是真实命中的
+`MSFCoreService::SendSSORequest`，不能用旧 NG `SendSSORequestInternal` 的五参数 ABI
+代替。hook 使用 QQ 原生选择器返回的共享 owner，并核对当前镜像、SessionInit 写入依据、
+账号字段和发送槽；命令字符串按 Apple alternate libc++ 布局构造。
+
+`probe-sign.ts` 新增 `--authorization-helper <绝对端点>`，复用已安装助手抓包；
+`--iface` / `--port` 可显式覆盖捕获接口和端口策略。TUN 场景下，默认路由网卡并不
+一定是 QQ 连接的实际出口，应查询 QQ 当前连接的目标路由，而不是固定使用 `en0`。
+报告保留实际网卡、收包/帧统计及本轮观测命令，便于区分未发出、错误网卡和解析失败。
+
+若系统 `taskgated` 拒绝普通 native/助手读 QQ 内存，可使用已获调试能力的本机 LLDB
+只读提取本轮物料，传 `--session-material-file`。该 JSON 形如
+`{"pid":123,"d2Key":"<32位十六进制>"}`，脚本核对 PID 与 key 格式；文件应为私人临时
+文件，用后删除，不把 key 写入命令行、日志或版本库。这不要求关闭 SIP。
+
+本轮两次定向运行均完整匹配以下五条真实请求，协议均为 13，签名正对照通过：
+
+| 命令 | macOS 观测 |
+| --- | --- |
+| `0x102a_1`（正对照） | 签名，sign/token/extra 长度 28/12/28 |
+| `0xfe1_2` | 签名，长度同上 |
+| `0xfe1_3` | reserved 完整解析，无 tag 24 |
+| `0x9067_202` | reserved 完整解析，无 tag 24 |
+| `0x7ed_12` | reserved 完整解析，无 tag 24 |
+
+这是五条定向请求的当前版本记录，不将其扩展为 149 条全量或其他平台的验收。
+
 ## 签名器 VM mode
 
 `mode` 是签名状态机的入参，**只在 macOS / Windows 的 VM ABI 里有**；Linux 传非默认值

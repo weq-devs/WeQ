@@ -20,6 +20,11 @@
  *   pnpm tsx scripts/probe-sign.ts --json out.json
  *   # 真实查询正文（JSON 中 bodyHex 为 inner body），要求签名正对照成功
  *   pnpm tsx scripts/probe-sign.ts --requests queries.json --control 0x102a_1 --json new-result.json
+ *   # 复用已安装的长期授权助手；TUN 网络按实际路由指定抓包接口
+ *   pnpm tsx scripts/probe-sign.ts --requests queries.json --control 0x102a_1 --iface utun4 \
+ *     --authorization-helper /Library/PrivilegedHelperTools/app.weq.authorization/authorization.sock
+ *   # taskgated 拒绝助手读内存时，可传本轮调试器提取的 {pid,d2Key} JSON；不在命令行传 key
+ *   # --session-material-file <private-file>（运行后删除该文件）
  *   # 断连模式下探测：发包前一刻砍掉 QQ 的 MSF 长连接，并在等待窗口内持续压制
  *   sudo pnpm tsx scripts/probe-sign.ts --disconnect --cmd MessageSvc.PbSendMsg
  *
@@ -31,7 +36,17 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { loadNativeSafe } from '../packages/native/src';
-import type { CapturedFrame, NtHelperBinding } from '../packages/native/src';
+import type {
+  CapturedFrame,
+  CaptureSession,
+  CaptureStats,
+  NtHelperBinding,
+} from '../packages/native/src';
+import {
+  openAuthorizedSignProbe,
+  parseProbeMaterial,
+  type SignProbeBackend,
+} from './sign-probe-authorization';
 import { DEFAULT_OIDB_CASES, DEFAULT_RAW_CASES } from './sign-probe-commands';
 import {
   parseCase,
@@ -246,6 +261,8 @@ interface ProbeResult extends ProbeInspection {
   captureDropped?: number;
   /** 断连模式下本轮累计砍掉的 MSF 连接条数（0 = 扫描窗口内没看到连接）。 */
   killedConnections?: number;
+  observedFrames?: number;
+  observedCommands?: string[];
 }
 
 const report = {
@@ -255,6 +272,12 @@ const report = {
   readerExecutable: process.execPath,
   uid: process.getuid?.(),
   euid: process.geteuid?.(),
+  captureBackend: opt('--authorization-helper') ? 'authorization-helper' : 'native',
+  materialSource: opt('--session-material-file')
+    ? 'file'
+    : opt('--authorization-helper')
+      ? 'authorization-helper'
+      : 'native',
   startedAt: new Date().toISOString(),
   finishedAt: '',
   pid: undefined as number | undefined,
@@ -262,6 +285,8 @@ const report = {
   control: undefined as string | undefined,
   controlPassed: undefined as boolean | undefined,
   cleanupErrors: [] as string[],
+  captureSession: undefined as CaptureSession | undefined,
+  captureStats: undefined as CaptureStats | undefined,
   results: [] as ProbeResult[],
 };
 
@@ -371,7 +396,7 @@ function discoverPid(): number | null {
 
 async function probeOne(
   pipe: PipeClient,
-  nt: NtHelperBinding,
+  nt: SignProbeBackend,
   pid: number,
   probeCase: ProbeCase,
   requestId: number,
@@ -403,6 +428,10 @@ async function probeOne(
     cursor = chunk.nextCursor;
     result.captureDropped = Math.max(result.captureDropped ?? 0, chunk.dropped);
     captured.push(...chunk.frames);
+    result.observedFrames = captured.length;
+    result.observedCommands = [
+      ...new Set(captured.flatMap((frame) => (frame.cmd ? [frame.cmd] : []))),
+    ].slice(0, 16);
     Object.assign(result, inspectProbeFrames(captured, probeCase));
     // 捕获但解析失败时仍重试，绝不因 plain 非空就报告不签名。
     if (result.status === 'signed' || result.status === 'unsigned') break;
@@ -420,6 +449,7 @@ async function probeOne(
   return result;
 }
 
+let closeBackend: (() => void) | undefined;
 async function main(): Promise<void> {
   const requestPath = opt('--requests');
   const cmdArgs = opts('--cmd');
@@ -454,13 +484,26 @@ async function main(): Promise<void> {
     (runtimeDir ? findControlSocketInDir(runtimeDir, pid) : findControlSocket(pid));
   if (!controlPath) fail(`找不到 pid=${pid} 的 hook control socket；没有发送任何探测请求`);
   validateControlSocketPath(controlPath);
-  const loaded = loadNativeSafe();
-  if (!loaded.ok) fail(`native 加载失败：${loaded.message}`);
-  const nt: NtHelperBinding = loaded.bundle.ntHelper;
-  const support = nt.probeCaptureSupport();
-  if (!support.available) fail(`抓包不可用：${support.hint}`);
-  if (!support.elevated) log(`抓包权限待核实：${support.hint}`);
-  const material = await nt.scanSessionMaterial(pid);
+  let nt: SignProbeBackend;
+  const authorizationEndpoint = opt('--authorization-helper');
+  if (authorizationEndpoint) {
+    const authorized = await openAuthorizedSignProbe(authorizationEndpoint);
+    nt = authorized.backend;
+    closeBackend = authorized.close;
+    log('使用已安装的长期授权助手执行提权操作');
+  } else {
+    const loaded = loadNativeSafe();
+    if (!loaded.ok) fail(`native 加载失败：${loaded.message}`);
+    const native: NtHelperBinding = loaded.bundle.ntHelper;
+    const support = native.probeCaptureSupport();
+    if (!support.available) fail(`抓包不可用：${support.hint}`);
+    if (!support.elevated) log(`抓包权限待核实：${support.hint}`);
+    nt = native;
+  }
+  const materialFile = opt('--session-material-file');
+  const material = materialFile
+    ? parseProbeMaterial(JSON.parse(readFileSync(materialFile, 'utf8')), pid)
+    : await nt.scanSessionMaterial(pid);
   if (!material.d2Key) fail('没读到 d2key，抓包无法解密');
   log(`pid=${pid} control=${controlPath} 命令数=${cases.length}`);
   if (cases.some((entry) => entry.bodySource === 'placeholder')) {
@@ -470,7 +513,12 @@ async function main(): Promise<void> {
   let pipe: PipeClient | undefined;
   let captureStarted = false;
   try {
-    await nt.startCapture(pid, { d2Key: material.d2Key, ringFrames: 16384 });
+    report.captureSession = await nt.startCapture(pid, {
+      d2Key: material.d2Key,
+      ringFrames: 16384,
+      iface: opt('--iface'),
+      port: opt('--port'),
+    });
     captureStarted = true;
     await new Promise((resolve) => setTimeout(resolve, 600));
     pipe = await PipeClient.connect(controlPath);
@@ -504,7 +552,7 @@ async function main(): Promise<void> {
     pipe?.close();
     if (captureStarted) {
       try {
-        await nt.stopCapture(pid);
+        report.captureStats = await nt.stopCapture(pid);
       } catch (error) {
         report.cleanupErrors.push(error instanceof Error ? error.message : String(error));
       }
@@ -550,6 +598,7 @@ try {
   console.error(`[${LABEL}] 失败：${report.failure}`);
   process.exitCode = 1;
 } finally {
+  closeBackend?.();
   try {
     saveReport();
   } catch (error) {
