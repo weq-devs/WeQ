@@ -1097,9 +1097,6 @@ function AppearanceSection({
                     key={key}
                     settingId={settingId}
                     label={label}
-                    desc={
-                      key === 'readFromFirstUnread' ? '可能提高阅读过的会话的加载速度' : undefined
-                    }
                     control={
                       <Toggle
                         checked={settings.data?.[key] ?? fallback}

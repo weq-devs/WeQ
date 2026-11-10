@@ -124,9 +124,7 @@ it('消息开关分别按默认值展示、保存、刷新共享设置，重开�
     expect(setting?.querySelector('.weq-set-row-label')?.textContent).toBe(
       '从第一条新消息开始阅读',
     );
-    expect(setting?.querySelector('.weq-set-row-desc')?.textContent).toBe(
-      '可能提高阅读过的会话的加载速度',
-    );
+    expect(setting?.querySelector('.weq-set-row-desc')).toBeNull();
     for (const [label, key, defaultValue] of toggles) {
       vi.clearAllMocks();
       expect(toggle(label).getAttribute('aria-checked'), label).toBe(String(defaultValue));
