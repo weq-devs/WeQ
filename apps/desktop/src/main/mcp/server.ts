@@ -61,7 +61,7 @@ function buildMcpServer(): McpServer {
       async (args: unknown) => {
         try {
           const data = await logRequest('mcp-server', t.name, 'tool', async () =>
-            runtimeMaintenance.operation(async () => t.run(args as never)),
+            runtimeMaintenance.operation(async () => t.run(args as never), `MCP ${t.name}`),
           );
           return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
         } catch (error) {

@@ -11,8 +11,8 @@ import {
   type WeqFileStartup,
 } from '@weq/service';
 import { backupProcedures } from '../src/main/ipc/routers/backup';
-import { router } from '../src/main/ipc/trpc';
-import { runtimeMaintenance } from '../src/main/runtime_maintenance';
+import { procedure, router } from '../src/main/ipc/trpc';
+import { runtimeMaintenance, MAINTENANCE_DRAIN_TIMEOUT_MS } from '../src/main/runtime_maintenance';
 
 const context = vi.hoisted(() => ({
   current: null as WeqFileStartup | null,
@@ -39,6 +39,8 @@ vi.mock('../src/main/weq_assistant/server', () => ({
 }));
 const roots: string[] = [];
 afterEach(() => {
+  vi.useRealTimers();
+  vi.clearAllMocks();
   context.current = null;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -134,6 +136,29 @@ it('账号收尾失败时取消本次暂存，弹窗重试可重新提交而不�
   await expect(f.caller.backupDefaults()).rejects.toThrow('合成账号收尾失败');
   expect(runtimeMaintenance.status().revision).toBe(revision);
   expect((await f.caller.backupStatus()).pending).toBeNull();
+  expect((await f.caller.backupDefaults()).status).toBe('applied');
+});
+it('恢复默认等待旧请求超时后返回错误，不暂存、不关闭账号，旧请求结束后可重试', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  let release!: () => void;
+  const caller = router({
+    account: router({
+      pendingRead: procedure.query(() => new Promise<void>((resolve) => (release = resolve))),
+    }),
+    bootstrap: f.routes,
+  }).createCaller({});
+  const old = caller.account.pendingRead();
+  await vi.advanceTimersByTimeAsync(0);
+  const revision = runtimeMaintenance.status().revision;
+  const failed = expect(caller.bootstrap.backupDefaults()).rejects.toThrow('account.pendingRead');
+  await vi.advanceTimersByTimeAsync(MAINTENANCE_DRAIN_TIMEOUT_MS);
+  await failed;
+  expect(context.closing).not.toHaveBeenCalled();
+  expect(runtimeMaintenance.status()).toMatchObject({ state: 'ready', revision });
+  expect((await f.caller.backupStatus()).pending).toBeNull();
+  release();
+  await old;
   expect((await f.caller.backupDefaults()).status).toBe('applied');
 });
 it('真实备份 RPC 无 Native 可读取、导出、分片导入、预览并直接应用，无待重启任务', async () => {

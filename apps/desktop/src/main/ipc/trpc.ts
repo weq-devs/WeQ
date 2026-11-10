@@ -33,7 +33,7 @@ export const procedure = t.procedure.use(({ ctx, next, path, type, rawInput }) =
         type === 'subscription' ? invoke() : pickedBrowserFiles.withPaths(rawInput, invoke);
       return type === 'subscription' || maintenanceProcedures.has(path.split('.').at(-1) ?? path)
         ? run()
-        : runtimeMaintenance.operation(run);
+        : runtimeMaintenance.operation(run, path);
     },
     (result) => (result.ok ? undefined : result.error),
   ),
