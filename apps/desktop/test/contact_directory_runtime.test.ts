@@ -18,12 +18,16 @@ async function setup(online = true) {
   const buddies = [{ uid: 'u_friend', uin: 12345n }];
   const profiles: Array<Partial<UserProfile> & Pick<UserProfile, 'uid' | 'uin' | 'isBot'>> = [];
   const summaries = new Map([['10001', { total: 2, friends: new Set(['u_friend']) }]]);
-  const common = vi.fn(async () => ({
-    friendCount: 0,
-    groups: [],
-    friendError: null,
-    groupError: null,
-  }));
+  const common = vi.fn(
+    async (): Promise<
+      Awaited<ReturnType<AccountServices['accountWrite']['commonRelationships']>>
+    > => ({
+      friendCount: 0,
+      groups: [],
+      friendError: null,
+      groupError: null,
+    }),
+  );
   const services = {
     recentContacts: {
       getRecentContact: vi.fn(
@@ -51,7 +55,12 @@ async function setup(online = true) {
     },
     accountWrite: {
       commonRelationships: common,
-      friendClue: vi.fn(async () => ({ addedAt: 123, direction: 'incoming' })),
+      friendClue: vi.fn(
+        async (): Promise<{ addedAt: number | null; direction: string | null }> => ({
+          addedAt: 123,
+          direction: 'incoming',
+        }),
+      ),
     },
     peerStats: {
       getQqLevel: vi.fn(async (_uin: string, _priority?: number) => 1),
@@ -67,7 +76,9 @@ async function setup(online = true) {
       fetchOnlineMembers: vi.fn(async () => [
         { uid: 'u_friend', uin: 12345, nickname: '合成好友' },
       ]),
-      listAllGroupsExt: vi.fn(async () => []),
+      listAllGroupsExt: vi.fn(
+        async (): Promise<Array<{ groupCode: bigint; activityScore: number }>> => [],
+      ),
       listAllGroups: vi.fn(async () => [
         {
           groupCode: 10001n,
@@ -120,7 +131,7 @@ async function setup(online = true) {
     },
   };
 }
-it('缓存更新合并全部会话、已删除会话与群资料，覆盖非好友和临时会话并去重', async () => {
+it('缓存更新覆盖非好友和临时会话但不查线索，群聊只更新当前群目录', async () => {
   const { runtime, services, profiles } = await setup();
   await vi.waitFor(() => expect(services.groupInfo.contactMembershipSnapshot).toHaveBeenCalled());
   services.recentContacts.getRecentContact.mockResolvedValue([
@@ -156,8 +167,8 @@ it('缓存更新合并全部会话、已删除会话与群资料，覆盖非好�
     { uid: 'u_friend', uin: 12345, nickname: '好友' },
   ]);
   await runtime.rebuild();
-  await vi.waitFor(() => expect(runtime.cache.progress.total).toBe(9));
-  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('failed'));
+  await vi.waitFor(() => expect(runtime.cache.progress.total).toBe(6));
+  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
   expect(services.recentContacts.getRecentContact).toHaveBeenCalledWith(-1);
   expect(services.peerStats.getQqLevel.mock.calls.map(([uin]) => uin).sort()).toEqual([
     '12345',
@@ -174,12 +185,14 @@ it('缓存更新合并全部会话、已删除会话与群资料，覆盖非好�
   ]);
   expect(
     services.groupInfo.listExportMembers.mock.calls.map(([code]) => String(code)).sort(),
-  ).toEqual(['10001', '20002', '30003', '40004']);
-  expect((await runtime.cache.row('group:20002')).friendCount?.value).toBe(1);
+  ).toEqual(['10001']);
+  expect(services.accountWrite.friendClue).toHaveBeenCalledTimes(1);
+  expect(services.accountWrite.friendClue).toHaveBeenCalledWith('u_friend', 1);
+  expect((await runtime.cache.row('group:20002')).friendCount).toBeUndefined();
   expect((await runtime.cache.row('friend:u_uid_only')).level?.state).toBe('failed');
 });
 
-it('仅会话列表有群且当前群目录为空时仍获取，单群失败不阻断其余群', async () => {
+it('当前群目录为空时不获取历史群，保留已有本地指标供分组排序使用', async () => {
   const { runtime, services } = await setup();
   await vi.waitFor(() => expect(services.groupInfo.contactMembershipSnapshot).toHaveBeenCalled());
   services.groupInfo.listGroupDirectory.mockResolvedValue([]);
@@ -190,17 +203,78 @@ it('仅会话列表有群且当前群目录为空时仍获取，单群失败不�
   ]);
   services.groupInfo.fetchOnlineMembers.mockRejectedValueOnce(new Error('合成退群查询失败'));
   await runtime.cache.record('group:20002', { friendCount: 8 });
-  await runtime.rebuild(false, ['friendCount']);
-  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('failed'));
-  expect(services.groupInfo.listExportMembers.mock.calls.map(([code]) => String(code))).toEqual([
-    '20002',
-    '30003',
-  ]);
+  const id = await runtime.rebuild(false, ['friendCount']);
+  await vi.waitFor(() =>
+    expect(backgroundTasks.snapshot().find((task) => task.id === id)?.status).toBe('completed'),
+  );
+  await vi.waitFor(() => expect(runtime.cache.progress.total).toBe(0));
+  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
+  expect(services.groupInfo.listExportMembers).not.toHaveBeenCalled();
+  expect(services.groupInfo.fetchOnlineMembers).not.toHaveBeenCalled();
   expect((await runtime.cache.row('group:20002')).friendCount).toMatchObject({
     value: 8,
-    state: 'failed',
+    state: 'ready',
   });
-  expect((await runtime.cache.row('group:30003')).friendCount?.value).toBe(1);
+  expect((await runtime.cache.row('group:30003')).friendCount).toBeUndefined();
+});
+
+it('单个字段失败仍尝试其余指标，部分成功不判整个对象失败', async () => {
+  const { runtime, services } = await setup();
+  services.peerStats.getQqLevel.mockRejectedValue(new Error('合成等级获取失败'));
+  services.accountWrite.friendClue.mockResolvedValue({ addedAt: 123, direction: null });
+  services.accountWrite.commonRelationships.mockResolvedValue({
+    friendCount: 0,
+    groups: null,
+    friendError: null,
+    groupError: '合成共同群失败',
+  });
+  const id = await runtime.rebuild();
+  await vi.waitFor(() => expect(runtime.cache.progress.done).toBe(2));
+  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
+  expect(services.peerStats.getLikeCount).toHaveBeenCalledWith('u_friend', 1);
+  expect(services.accountWrite.commonRelationships).toHaveBeenCalledWith('12345', 1);
+  expect(backgroundTasks.snapshot().find((task) => task.id === id)?.logs).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ text: expect.stringContaining('部分字段未取得') }),
+    ]),
+  );
+});
+
+it('全部请求均失败时仍如实标记失败，保留旧值', async () => {
+  const { runtime, services } = await setup();
+  await runtime.cache.record('friend:12345', { level: 8 });
+  services.peerStats.getQqLevel.mockRejectedValue(new Error('合成失败'));
+  await runtime.rebuild(false, ['level']);
+  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('failed'));
+  expect((await runtime.cache.row('friend:12345')).level?.value).toBe(8);
+});
+
+it('群内好友数失败不抹去已取得的本地群活跃度', async () => {
+  const { runtime, services } = await setup();
+  await vi.waitFor(() => expect(services.groupInfo.contactMembershipSnapshot).toHaveBeenCalled());
+  services.groupInfo.listAllGroupsExt.mockResolvedValue([{ groupCode: 10001n, activityScore: 80 }]);
+  services.groupInfo.listExportMembers.mockResolvedValue([]);
+  services.groupInfo.fetchOnlineMembers.mockRejectedValue(new Error('合成成员获取失败'));
+  await runtime.rebuild(false, ['activityScore', 'friendCount']);
+  await vi.waitFor(() => expect(runtime.cache.progress.done).toBe(1));
+  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
+  expect(await runtime.cache.row('group:10001')).toMatchObject({
+    activityScore: { value: 80, state: 'ready' },
+    friendCount: { state: 'failed' },
+  });
+});
+
+it('只请求共同群时不因无关共同好友失败而失败', async () => {
+  const { runtime, services } = await setup();
+  services.accountWrite.commonRelationships.mockResolvedValue({
+    friendCount: null,
+    friendError: '合成共同好友失败',
+    groups: [],
+    groupError: null,
+  });
+  await runtime.rebuild(false, ['commonGroups']);
+  await vi.waitFor(() => expect(runtime.cache.progress.done).toBe(1));
+  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
 });
 
 it.each([

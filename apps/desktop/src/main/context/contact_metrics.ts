@@ -222,12 +222,10 @@ export class ContactDirectoryRuntime {
       this.services.deletedSessions.listDeletedSessions(),
     ]);
     const users = new Map<string, RefreshContact>();
-    const groups = new Set<string>();
     for (const row of [...recent, ...deleted.filter((row) => row.resolvable)]) {
       const kind = classifyChatType(row.chatType);
-      if (kind === 'group') {
-        if (/^[1-9]\d*$/.test(row.targetUid)) groups.add(row.targetUid);
-      } else if (
+      if (
+        kind !== 'group' &&
         kind !== 'dataline' &&
         row.targetUid !== this.selfUid &&
         validContactUid(row.targetUid)
@@ -238,7 +236,7 @@ export class ContactDirectoryRuntime {
           users.set(row.targetUid, { uid: row.targetUid, uin });
       }
     }
-    return { users: [...users.values()], groups };
+    return { users: [...users.values()] };
   }
 
   private async excludeLikeMetrics(
@@ -270,7 +268,9 @@ export class ContactDirectoryRuntime {
     )
       return [];
     const byUid = new Map(candidates.map((row) => [row.uid, row]));
-    for (const friend of await this.friends()) byUid.set(friend.uid, friend);
+    const buddies = await this.friends();
+    const buddyUids = new Set(buddies.map((friend) => friend.uid));
+    for (const friend of buddies) byUid.set(friend.uid, friend);
     let friends = [...byUid.values()];
     const profiles =
       report || candidates.length || !fields || fields.includes('likeCount')
@@ -333,12 +333,21 @@ export class ContactDirectoryRuntime {
           key: `${key}:likes`,
           run: () => this.services.peerStats.getLikeCount(friend.uid, 1),
         });
-      if (needs('addedAt') || needs('direction'))
+      if (buddyUids.has(friend.uid) && (needs('addedAt') || needs('direction')))
         jobs.push({
           key: `${key}:clue`,
           run: async () => {
             const result = await this.services.accountWrite.friendClue(friend.uid, 1);
-            if (result.addedAt === null || result.direction === null)
+            const missing = [
+              needs('addedAt') && result.addedAt === null ? '添加时间' : '',
+              needs('direction') && result.direction === null ? '添加方向' : '',
+            ].filter(Boolean);
+            if (missing.length)
+              this.appendLog(`${key} 部分字段未取得：${missing.join('、')}`, 'friends');
+            if (
+              (!needs('addedAt') || result.addedAt === null) &&
+              (!needs('direction') || result.direction === null)
+            )
               throw new Error('好友线索部分字段未知');
           },
         });
@@ -347,11 +356,24 @@ export class ContactDirectoryRuntime {
           key: `${key}:common`,
           run: async () => {
             const result = await this.services.accountWrite.commonRelationships(uin, 1);
+            const friendMissing = !!result.friendError || result.friendCount === null;
+            const groupMissing = !!result.groupError || result.groups === null;
             if (
-              result.friendError ||
-              result.groupError ||
-              result.friendCount === null ||
-              result.groups === null
+              (needs('commonFriends') && friendMissing) ||
+              (needs('commonGroups') && groupMissing)
+            )
+              this.appendLog(
+                `${key} 部分字段未取得：${[
+                  needs('commonFriends') && friendMissing ? '共同好友数' : '',
+                  needs('commonGroups') && groupMissing ? '共同群聊' : '',
+                ]
+                  .filter(Boolean)
+                  .join('、')}`,
+                'friends',
+              );
+            if (
+              (!needs('commonFriends') || friendMissing) &&
+              (!needs('commonGroups') || groupMissing)
             )
               throw new Error('共同关系部分字段读取失败');
           },
@@ -383,6 +405,7 @@ export class ContactDirectoryRuntime {
                 await job.run();
                 completed.add(job.key);
               } catch (error) {
+                if (error instanceof ContactMetricsOfflineError) throw error;
                 failures.push(
                   `${job.key.split(':').at(-1)}：${error instanceof Error ? error.message : String(error)}`,
                 );
@@ -391,7 +414,10 @@ export class ContactDirectoryRuntime {
           } finally {
             if (report && !this.disposed) await this.summarizeFriend(uin, uid);
           }
-          if (failures.length) throw new Error(failures.join('；'));
+          if (failures.length) {
+            if (!completed.size) throw new Error(failures.join('；'));
+            this.appendLog(`${key} 部分字段未取得：${failures.join('；')}`, 'friends');
+          }
         },
       };
     });
@@ -490,7 +516,7 @@ export class ContactDirectoryRuntime {
           target === 'groupMembers' ||
           !fields ||
           fields.some((field) => ['friendCount', 'activityScore'].includes(field));
-        let groups = includeGroups ? await this.services.groupInfo.listGroupDirectory() : [];
+        const groups = includeGroups ? await this.services.groupInfo.listGroupDirectory() : [];
         if (target === 'groupMembers') {
           for (const group of groups)
             jobs.push({
@@ -515,23 +541,9 @@ export class ContactDirectoryRuntime {
             });
         } else {
           const snapshot = await this.cache.snapshot();
-          const byCode = new Map(groups.map((group) => [group.groupCode, group]));
-          const addGroup = (code: string, memberCount = 0) => {
-            if (!byCode.has(code))
-              byCode.set(code, {
-                groupCode: code,
-                memberCount,
-                role: null,
-                pinned: false,
-                notifyLevel: 0,
-                unnamed: false,
-              });
-          };
-          if (includeGroups) for (const code of targets?.groups ?? []) addGroup(code);
           for (let offset = 0; includeGroups; offset += 500) {
             const details = await this.services.groupInfo.listAllGroups(500, offset);
             for (const group of details) {
-              addGroup(String(group.groupCode), group.memberCount);
               this.groupMeta.set(String(group.groupCode), {
                 群名: group.groupName,
                 备注: group.remark,
@@ -542,7 +554,6 @@ export class ContactDirectoryRuntime {
             }
             if (details.length < 500) break;
           }
-          groups = [...byCode.values()];
           if (groups.length)
             for (const group of groups) {
               if (this.stopPreparing || this.disposed) break;
@@ -569,21 +580,29 @@ export class ContactDirectoryRuntime {
                   label: `群 ${this.groupMeta.get(group.groupCode)?.群名 ?? ''}（${group.groupCode}）`,
                   online: false,
                   run: async () => {
+                    let recordedScore = false;
                     try {
                       const score = this.groupMeta.get(group.groupCode)?.群活跃度;
                       if (
                         typeof score === 'number' &&
                         (!fields || fields.includes('activityScore'))
-                      )
+                      ) {
                         await this.cache.record(`group:${group.groupCode}`, {
                           activityScore: score,
                         });
+                        recordedScore = true;
+                      }
                       if (!fields || fields.includes('friendCount'))
                         await this.groupFriends(group.groupCode);
                     } catch (error) {
                       if (!(error instanceof ContactMetricsOfflineError))
                         await this.cache.failed(`group:${group.groupCode}`, 'friendCount', error);
-                      throw error;
+                      if (error instanceof ContactMetricsOfflineError || !recordedScore)
+                        throw error;
+                      this.appendLog(
+                        `group:${group.groupCode} 部分字段未取得：群内好友数；${error instanceof Error ? error.message : String(error)}`,
+                        'groups',
+                      );
                     } finally {
                       if (!this.disposed) await this.summarizeGroup(group.groupCode);
                     }
