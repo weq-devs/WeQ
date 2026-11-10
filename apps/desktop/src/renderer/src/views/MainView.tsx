@@ -154,7 +154,7 @@ import {
   conversationPinned,
   pinOrderDelta,
 } from '@weq/service/conversation-order';
-import { mergeRecentContactPages } from '../lib/recentContacts';
+import { mergeRecentContactPages, recentContactPreviewIsBehind } from '../lib/recentContacts';
 import { useContentSelectionScope } from '../state/contentSelection';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import {
@@ -2434,17 +2434,15 @@ function MainWorkspace(): ReactElement {
       refetchOnMount: IS_WEB ? false : undefined,
     },
   );
-  // 实时只读最新页，不等待完整目录的逐页刷新；旧分页继续保留已知会话。
+  // 前台保持最新页查询活跃，恢复窗口和主动失效都能刷新；不串行重读整个目录。
   const recentHead = trpc.account.listRecentContacts.useQuery(
     { limit: 500, cursor: 0, ...pinSession.binding },
     {
-      enabled:
-        IS_WEB &&
-        Boolean(pinSession.binding) &&
-        Boolean(contacts.data) &&
-        !contacts.isFetchedAfterMount,
+      enabled: Boolean(pinSession.binding) && Boolean(contacts.data) && messageActivity.enabled,
       keepPreviousData: false,
       staleTime: 0,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
     },
   );
   const firstContactsReady = Boolean(contacts.data) || contacts.isError;
@@ -7756,6 +7754,39 @@ function MainWorkspace(): ReactElement {
       windowRef.current = { minSeq, anchored: anchoredToLatest };
     loadedRef.current = loaded;
   }, [loaded, anchoredToLatest]);
+
+  const previewReconciliationRef = useRef('');
+  useEffect(() => {
+    if (
+      !messageScope ||
+      trackedMessageScope !== messageScope ||
+      !trackedConversationId ||
+      !anchoredToLatest
+    )
+      return;
+    const contact = recentContactsData.find((row) => row.targetUid === trackedConversationId);
+    const latest = loaded.findLast((row) => row.source !== 'roaming');
+    if (!contact || !latest || !recentContactPreviewIsBehind(contact, latest)) return;
+    const key = JSON.stringify([
+      messageScope,
+      trackedConversationId,
+      latest.msgId,
+      latest.msgSeq,
+      latest.sendTime,
+    ]);
+    if (previewReconciliationRef.current === key) return;
+    previewReconciliationRef.current = key;
+    // 只校准最新页；同一消息只请求一次，失败由刷新队列退避重试。
+    refreshRecentHead();
+  }, [
+    loaded,
+    anchoredToLatest,
+    trackedConversationId,
+    trackedMessageScope,
+    messageScope,
+    recentContactsData,
+    refreshRecentHead,
+  ]);
 
   // Scroll the loaded list to a message row by id and briefly flash it.
   const { run: runMessageLocate, cancel: cancelMessageLocate } = useMessageLocateFeedback(

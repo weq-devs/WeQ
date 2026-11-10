@@ -3,6 +3,7 @@ import {
   createElement as h,
   StrictMode,
   useLayoutEffect,
+  useState,
   type ComponentProps,
   type ReactNode,
 } from 'react';
@@ -30,6 +31,9 @@ type UnreadInput = { targets: Array<{ chatType: number; uid: string }>; watermar
 const f = vi.hoisted(() => ({
   refreshing: false,
   unreadMode: false,
+  headRefreshes: 0,
+  freshPreview: false,
+  headEnabled: false,
   unreadReads: [] as UnreadInput[],
   dbChanged: undefined as (() => void) | undefined,
   unreadChanged: undefined as ((targets: UnreadInput['targets']) => void) | undefined,
@@ -39,8 +43,9 @@ const f = vi.hoisted(() => ({
     targetUid,
     targetUin: '20001',
     chatType: index === 2 ? 1 : 2,
-    sendTime: 1794200000,
-    preview: [],
+    msgSeq: '1',
+    sendTime: '1794200000',
+    preview: { kind: 'text', textContent: '旧预览' },
     remark: targetUid,
     nick: targetUid,
   })),
@@ -58,13 +63,34 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     new Proxy(() => proxy(path), {
       get: (_target, key) => {
         if (key === 'useQuery')
-          return () =>
-            path.join('.') === 'account.getAccountConfig'
+          return (_input: unknown, options?: { enabled?: boolean }) => {
+            const [head, setHead] = useState(recent);
+            if (path.join('.') === 'account.listRecentContacts')
+              f.headEnabled = options?.enabled === true;
+            return path.join('.') === 'account.getAccountConfig'
               ? config
               : path.join('.') === 'account.listRecentContacts'
                 ? f.refreshing
                   ? refreshing
-                  : recent
+                  : {
+                      ...head,
+                      refetch: async () => {
+                        f.headRefreshes++;
+                        if (f.freshPreview)
+                          setHead({
+                            ...recent,
+                            data: {
+                              items: f.recent.map((row) => ({
+                                ...row,
+                                msgSeq: '2',
+                                sendTime: '1794200060',
+                                preview: { kind: 'text', textContent: '最新消息' },
+                              })),
+                            },
+                          });
+                        return { isError: false };
+                      },
+                    }
                 : [
                       'listAllGroups',
                       'listHiddenSessions',
@@ -73,6 +99,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                     ].includes(path.at(-1) ?? '')
                   ? directory
                   : empty;
+          };
         if (key === 'useInfiniteQuery') return () => (f.refreshing ? refreshingPages : pages);
         if (key === 'useMutation')
           return () => ({ mutate: vi.fn(), mutateAsync: refetch, isLoading: false });
@@ -145,6 +172,7 @@ vi.mock('../src/renderer/src/im-template/template/chatSidebarContent', () => ({
     h(
       'nav',
       null,
+      h('span', { 'data-previews': true }, JSON.stringify(props.conversations)),
       ...f.recent.map((row) =>
         h(
           'button',
@@ -190,12 +218,75 @@ afterEach(() => {
   f.refreshing = false;
   f.commit = undefined;
   f.unreadMode = false;
+  f.headRefreshes = 0;
+  f.freshPreview = false;
+  f.headEnabled = false;
   f.unreadReads.length = 0;
   f.dbChanged = undefined;
   f.unreadChanged = undefined;
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+it.each(['10001', 'u_peer'])(
+  '没有库通知时，会话 %s 的新正文也会校准列表预览和时间，追上后不重复刷新',
+  async (id) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    useViewState.getState().setOpenedUin('90001');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const advance = (ms: number) => act(async () => vi.advanceTimersByTimeAsync(ms));
+    const preview = () =>
+      JSON.parse(host.querySelector('[data-previews]')!.textContent!).find(
+        (row: { id: string }) => row.id === id,
+      );
+    try {
+      await act(async () =>
+        root.render(
+          h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+        ),
+      );
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+      expect(f.headEnabled).toBe(true);
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === id)!
+          .click(),
+      );
+      expect(preview().lastMessage.body).toBe('旧预览');
+      f.freshPreview = true;
+      await act(async () =>
+        f.reads.at(-1)!.show({
+          complete: true,
+          rows: [
+            {
+              msgId: '2',
+              msgSeq: '2',
+              sendTime: '1794200060',
+              senderUid: 'u_peer',
+              senderUin: '20001',
+              elements: [{ type: 'text', text: '最新消息' }],
+            },
+          ],
+        }),
+      );
+      await advance(200);
+      expect(f.headRefreshes).toBe(1);
+      expect(preview().lastMessage.body).toBe('最新消息');
+      expect(Date.parse(preview().updatedAt)).toBe(1794200060000);
+      await advance(5000);
+      expect(f.headRefreshes).toBe(1);
+    } finally {
+      act(() => root.unmount());
+      client.clear();
+      host.remove();
+    }
+  },
+);
 
 it('全目录先查水位，持续库通知不重算稳定会话，零红点同水位修正仍定期校准', async () => {
   vi.useFakeTimers();
