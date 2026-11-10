@@ -5,10 +5,17 @@
  * `DialogHost` 常驻挂载，承载全局错误/确认弹窗（替代原生 alert/confirm）。
  */
 
-import { useEffect, useLayoutEffect, useMemo, type ReactElement, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { useViewState } from './state/view';
 import { BootstrapView } from './views/BootstrapView';
-import { MainView } from './views/MainView';
 import { DialogHost } from './components/Dialog';
 import { AccountSwitchRequestHost } from './components/AccountSwitchRequestHost';
 import { RemoteRequests } from './components/RemoteRequests';
@@ -34,7 +41,7 @@ import {
   TextMarkdownContext,
   LinkPreviewContext,
   MsgDecorationEnabledContext,
-} from './components/QqMessageContent';
+} from './state/messageAppearance';
 import { SelfBubbleContext, SelfPendantContext } from './hooks/useSelfPendant';
 import { ActiveWidgetProvider } from './hooks/useActiveWidget';
 import { CdnContext, setPreferCdnFlag } from './lib/cdn';
@@ -56,6 +63,10 @@ import { ChatImageCacheProvider } from './components/ChatImageCacheProvider';
 import { DEFAULT_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { RendererRecoveryNotice } from './components/RendererRecoveryNotice';
 import { RemoteStartupReporter } from './components/RemoteStartupReporter';
+
+const MainView = lazy(() =>
+  import('./views/MainView').then((module) => ({ default: module.MainView })),
+);
 
 /**
  * 把两个「气泡渲染」开关广播给所有消息气泡：纯文本 Markdown、链接预览卡片。
@@ -222,7 +233,15 @@ export default function App(): ReactElement {
               <BootstrapView />
             ) : (
               <ContentSelectionProvider key={openedUin ?? ''}>
-                <MainView />
+                <Suspense
+                  fallback={
+                    <div data-weq-startup-pending>
+                      <WarmupSplash hint="正在加载会话界面" />
+                    </div>
+                  }
+                >
+                  <MainView />
+                </Suspense>
               </ContentSelectionProvider>
             )}
             {/* 首次进入账号后弹出的欢迎说明框（自身决定是否显示）。 */}

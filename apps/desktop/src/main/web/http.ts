@@ -131,6 +131,7 @@ export async function handleRequest(
 
   // ---- authenticated routes ----
   if (path.startsWith('/trpc')) {
+    res.setHeader('Cache-Control', 'no-store');
     opts.trpc(req, res);
     return;
   }

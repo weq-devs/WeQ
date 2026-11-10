@@ -51,6 +51,7 @@ import { splitLinks, soleLink, openLink } from '../lib/linkify';
 import { parseFlashShareCode } from '../lib/flashShare';
 import { ProfileNavigationContext, profileTargetUser } from '../lib/profileNavigation';
 import { cn } from '@renderer/lib/utils';
+import { LinkPreviewContext } from '../state/messageAppearance';
 
 /**
  * Lets a reply quote ask the host (MainView) to scroll the message list to the
@@ -147,17 +148,13 @@ export { TextMarkdownContext } from '../state/textMarkdown';
  * 同 {@link TextMarkdownContext} 走 context 的理由——每条气泡一个实例，不能各自订阅。
  * 关掉后链接仍会标蓝可点，只是不再抓取远端页面（也就完全不出网）。
  */
-export const LinkPreviewContext = createContext<boolean>(true);
+export { LinkPreviewContext } from '../state/messageAppearance';
 
 /**
  * 消息气泡、字体与头像挂件的独立显示偏好。
  * 同上，走 context 是为了避免每条消息各自订阅 getSettings。默认 true。
  */
-export const MsgDecorationEnabledContext = createContext({
-  bubble: true,
-  font: true,
-  widget: true,
-});
+export { MsgDecorationEnabledContext } from '../state/messageAppearance';
 
 /** Element kinds that render as standalone, borderless media (no bubble). */
 const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface', 'bubbleVideo']);

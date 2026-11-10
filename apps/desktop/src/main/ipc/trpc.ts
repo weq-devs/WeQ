@@ -31,7 +31,9 @@ export const procedure = t.procedure.use(({ ctx, next, path, type, rawInput }) =
       const invoke = () => (ctx.host ? withHost(ctx.host, () => next()) : next());
       const run = () =>
         type === 'subscription' ? invoke() : pickedBrowserFiles.withPaths(rawInput, invoke);
-      return type === 'subscription' || maintenanceProcedures.has(path.split('.').at(-1) ?? path)
+      return type === 'subscription' ||
+        maintenanceProcedures.has(path) ||
+        maintenanceProcedures.has(path.split('.').at(-1) ?? path)
         ? run()
         : runtimeMaintenance.operation(run, path);
     },

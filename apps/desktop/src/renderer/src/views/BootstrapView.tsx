@@ -12,7 +12,16 @@
  *   4. 启动探测完成后直接进入账号工作区。
  */
 
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { X } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
@@ -25,14 +34,27 @@ import { runAccountWarmup, type WarmupProgress } from '../lib/accountWarmup';
 import { setWindowLayout } from '../lib/windowLayout';
 import { IS_MAC, IS_WEB } from '../lib/target';
 import logoUrl from '@resources/brand/logo.png';
-import { BackupSection } from '../components/settings/BackupSection';
+const BackupSection = lazy(() =>
+  import('../components/settings/BackupSection').then((module) => ({
+    default: module.BackupSection,
+  })),
+);
 import '../styles/startup-shell.css';
+import { WebStartupCache, WEB_STARTUP_CACHE_KEY } from '../lib/webStartupCache';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
 export function BootstrapView(): ReactElement {
+  const queryCache = useContext(WebStartupCache);
+  const initialSnapshot = useRef(
+    IS_WEB && queryCache?.getQueryData(WEB_STARTUP_CACHE_KEY) === true,
+  ).current;
+  useEffect(() => {
+    if (initialSnapshot)
+      queryCache?.removeQueries({ queryKey: WEB_STARTUP_CACHE_KEY, exact: true });
+  }, [initialSnapshot, queryCache]);
   const homeStage = useViewState((s) => s.homeStage);
   const setHomeStage = useViewState((s) => s.setHomeStage);
   const goTo = useViewState((s) => s.goTo);
@@ -51,8 +73,8 @@ export function BootstrapView(): ReactElement {
 
   const currentAccount = trpc.bootstrap.currentAccount.useQuery(undefined, {
     enabled: nativeOk && homeStage === 'booting',
-    staleTime: 0,
-    refetchOnMount: 'always',
+    staleTime: initialSnapshot ? 30_000 : 0,
+    refetchOnMount: initialSnapshot ? false : 'always',
     refetchOnWindowFocus: false,
     retry: false,
   });
@@ -73,8 +95,8 @@ export function BootstrapView(): ReactElement {
   const configs = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
     enabled: needsStartup,
     refetchOnWindowFocus: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
+    staleTime: initialSnapshot ? 30_000 : 0,
+    refetchOnMount: initialSnapshot ? false : 'always',
   });
   const autoTarget = trpc.bootstrap.getAutoEnter.useQuery(
     { startup: !IS_WEB },
@@ -139,7 +161,8 @@ export function BootstrapView(): ReactElement {
         booted.current = true;
         const uin = currentAccount.data.uin;
         void (async () => {
-          await utils.account.getAccountConfig.fetch();
+          if (!initialSnapshot || utils.account.getAccountConfig.getData()?.uin !== uin)
+            await utils.account.getAccountConfig.fetch();
           // Web 只等待挂载必需配置，身份与会话列表在工作区内异步读取。
           if (!IS_WEB) {
             await runAccountWarmup(utils, setWarmup);
@@ -260,6 +283,7 @@ export function BootstrapView(): ReactElement {
     goTo,
     showError,
     utils,
+    initialSnapshot,
   ]);
 
   // ---- render ----
@@ -272,7 +296,9 @@ export function BootstrapView(): ReactElement {
               <X size={14} />
               返回组件诊断
             </button>
-            <BackupSection />
+            <Suspense fallback={<WarmupSplash hint="正在加载备份设置" />}>
+              <BackupSection />
+            </Suspense>
           </div>
         </BootstrapShell>
       );

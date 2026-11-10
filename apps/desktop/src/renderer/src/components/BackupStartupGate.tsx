@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { FolderOpen, RefreshCw, ShieldAlert } from 'lucide-react';
 import { client } from '../trpc/client';
 import {
@@ -12,11 +12,14 @@ import { useToast } from './Toast';
 import { startupDeadline } from '../lib/startupDeadline';
 import { publishRemoteStartup } from '../lib/remoteStartup';
 import '../styles/backup.css';
+import { IS_WEB } from '../lib/target';
+import { WebStartupCache, hydrateWebStartupCache } from '../lib/webStartupCache';
 
 const RUNTIME_ERROR_KEY = 'weq.runtime-file-error';
 
 /** 业务视图挂载前交接界面偏好；文件事务失败时不进入 Native／账号启动。 */
 export function BackupStartupGate({ children }: { children: ReactNode }) {
+  const queryCache = useContext(WebStartupCache);
   const [state, setState] = useState<BackupStartupState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
@@ -38,70 +41,77 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
     });
     return () => subscription.unsubscribe();
   }, []);
-  const load = useCallback(async (recover = false) => {
-    const seq = ++generation.current;
-    setBusy(true);
-    setError(null);
-    publishRemoteStartup({ state: 'loading', message: '正在检查恢复状态' });
-    try {
-      if (recover) await client.bootstrap.backupRetryRecovery.mutate();
-      const result = await startupDeadline((signal) =>
-        serializeBackupClient(
-          () =>
-            restoreBackupClient(
-              {
-                read: (clientId) =>
-                  client.bootstrap.backupStartup.query(clientId ? { clientId } : undefined, {
-                    signal,
-                  }),
-                acknowledge: (id, clientId) =>
-                  client.bootstrap.backupAcknowledgeClient.mutate({ id, clientId }, { signal }),
-              },
-              () => window.localStorage,
-            ),
-          signal,
-        ),
-      );
-      if (seq !== generation.current) return;
-      setState(result);
-      if (result.toastDurations) useToast.getState().setDurations(result.toastDurations);
-      if (result.ok) {
-        useThemeStore.getState().hydrate();
-        usePrivacyStore.getState().hydrate();
-        try {
-          const failure = sessionStorage.getItem(RUNTIME_ERROR_KEY);
-          sessionStorage.removeItem(RUNTIME_ERROR_KEY);
-          if (failure) setError(failure);
-        } catch {}
-      } else setError(result.error || '文件恢复尚未完成');
-    } catch (e) {
-      if (seq !== generation.current) return;
-      setError(e instanceof Error ? e.message : String(e));
-      // 界面交接文件损坏时仍可显示已提交的数据回执，供用户明确放弃界面部分。
+  const load = useCallback(
+    async (recover = false) => {
+      const seq = ++generation.current;
+      setBusy(true);
+      setError(null);
+      publishRemoteStartup({ state: 'loading', message: '正在检查恢复状态' });
       try {
-        const status = await startupDeadline(
-          (signal) => client.bootstrap.backupStatus.query(undefined, { signal }),
-          3_000,
+        if (recover) await client.bootstrap.backupRetryRecovery.mutate();
+        const result = await startupDeadline((signal) =>
+          serializeBackupClient(
+            () =>
+              restoreBackupClient(
+                {
+                  read: async (clientId) => {
+                    const input = clientId ? { clientId } : undefined;
+                    if (!IS_WEB) return client.bootstrap.backupStartup.query(input, { signal });
+                    const response = await client.startup.snapshot.query(input, { signal });
+                    if (response.snapshot && queryCache)
+                      hydrateWebStartupCache(queryCache, response.snapshot);
+                    return response.backup;
+                  },
+                  acknowledge: (id, clientId) =>
+                    client.bootstrap.backupAcknowledgeClient.mutate({ id, clientId }, { signal }),
+                },
+                () => window.localStorage,
+              ),
+            signal,
+          ),
         );
         if (seq !== generation.current) return;
-        setState((previous) =>
-          previous
-            ? { ...previous, result: status.result }
-            : {
-                ok: false,
-                error: null,
-                result: status.result,
-                appliedThisStartup: false,
-                client: null,
-                canReveal: false,
-                canRestart: false,
-              },
-        );
-      } catch {}
-    } finally {
-      if (seq === generation.current) setBusy(false);
-    }
-  }, []);
+        setState(result);
+        if (result.toastDurations) useToast.getState().setDurations(result.toastDurations);
+        if (result.ok) {
+          useThemeStore.getState().hydrate();
+          usePrivacyStore.getState().hydrate();
+          try {
+            const failure = sessionStorage.getItem(RUNTIME_ERROR_KEY);
+            sessionStorage.removeItem(RUNTIME_ERROR_KEY);
+            if (failure) setError(failure);
+          } catch {}
+        } else setError(result.error || '文件恢复尚未完成');
+      } catch (e) {
+        if (seq !== generation.current) return;
+        setError(e instanceof Error ? e.message : String(e));
+        // 界面交接文件损坏时仍可显示已提交的数据回执，供用户明确放弃界面部分。
+        try {
+          const status = await startupDeadline(
+            (signal) => client.bootstrap.backupStatus.query(undefined, { signal }),
+            3_000,
+          );
+          if (seq !== generation.current) return;
+          setState((previous) =>
+            previous
+              ? { ...previous, result: status.result }
+              : {
+                  ok: false,
+                  error: null,
+                  result: status.result,
+                  appliedThisStartup: false,
+                  client: null,
+                  canReveal: false,
+                  canRestart: false,
+                },
+          );
+        } catch {}
+      } finally {
+        if (seq === generation.current) setBusy(false);
+      }
+    },
+    [queryCache],
+  );
   useEffect(() => {
     void load();
     return () => {

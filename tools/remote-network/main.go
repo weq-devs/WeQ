@@ -64,7 +64,7 @@ func run() error {
 	// 父进程退出或管道关闭时结束，不遗留独立节点进程。
 	go func() { _, _ = io.Copy(io.Discard, os.Stdin); cancel() }()
 	proxy := httputil.NewSingleHostReverseProxy(target)
-	proxy.Transport = &http.Transport{Proxy: nil, MaxIdleConns: 4, IdleConnTimeout: 30 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
+	proxy.Transport = &http.Transport{Proxy: nil, MaxIdleConns: 32, MaxIdleConnsPerHost: 8, IdleConnTimeout: 90 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
 	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
 		http.Error(w, "backend unavailable", http.StatusBadGateway)
 	}

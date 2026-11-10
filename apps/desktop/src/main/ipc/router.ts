@@ -26,8 +26,10 @@ import { exportViewerRouter } from './routers/export_viewer';
 import { callRouter } from './routers/call';
 import { udpCaptureRouter } from './routers/udp_capture';
 import { backgroundTasksRouter } from './routers/background_tasks';
+import { startupRouter } from './routers/startup';
 
 export const appRouter = router({
+  startup: startupRouter,
   backgroundTasks: backgroundTasksRouter,
   exportViewer: exportViewerRouter,
   remote: remoteRouter,

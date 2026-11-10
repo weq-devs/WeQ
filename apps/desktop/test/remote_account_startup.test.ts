@@ -3,6 +3,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { BootstrapView } from '../src/renderer/src/views/BootstrapView';
 import { useViewState } from '../src/renderer/src/state/view';
+import { QueryClient } from '@tanstack/react-query';
+import { WebStartupCache, WEB_STARTUP_CACHE_KEY } from '../src/renderer/src/lib/webStartupCache';
 
 const api = vi.hoisted(() => ({
   web: true,
@@ -12,7 +14,14 @@ const api = vi.hoisted(() => ({
   warmup: vi.fn(async () => {}),
   remoteWarmup: vi.fn(async () => {}),
   error: vi.fn(),
-  utils: { account: { getAccountConfig: { fetch: vi.fn(async () => ({})) } } },
+  utils: {
+    account: {
+      getAccountConfig: {
+        fetch: vi.fn(async () => ({})),
+        getData: vi.fn(() => undefined as unknown),
+      },
+    },
+  },
 }));
 vi.mock('../src/renderer/src/lib/target', () => ({
   get IS_WEB() {
@@ -77,6 +86,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   api.remoteWarmup.mockReset().mockResolvedValue(undefined);
   api.utils.account.getAccountConfig.fetch.mockReset().mockResolvedValue({});
+  api.utils.account.getAccountConfig.getData.mockReset().mockReturnValue(undefined);
   useViewState.setState({ view: 'bootstrap', openedUin: null, homeStage: 'booting' });
   host = document.createElement('div');
   document.body.append(host);
@@ -118,6 +128,23 @@ it('Remote 必要账号配置尚未就绪时不能先挂载工作区', async () 
   expect(useViewState.getState()).toMatchObject({ view: 'bootstrap', openedUin: null });
   await act(async () => finish());
   expect(useViewState.getState()).toMatchObject({ view: 'main', openedUin: '10002' });
+});
+it('启动快照已提供配置时直接接回工作区，不追加一次配置读取', async () => {
+  const cache = new QueryClient();
+  cache.setQueryData(WEB_STARTUP_CACHE_KEY, true);
+  api.utils.account.getAccountConfig.getData.mockReturnValue({
+    configId: 'synthetic',
+    uin: '10002',
+  });
+  await act(async () =>
+    root.render(
+      createElement(WebStartupCache.Provider, { value: cache }, createElement(BootstrapView)),
+    ),
+  );
+  expect(api.utils.account.getAccountConfig.fetch).not.toHaveBeenCalled();
+  expect(useViewState.getState().view).toBe('main');
+  expect(cache.getQueryData(WEB_STARTUP_CACHE_KEY)).toBeUndefined();
+  cache.clear();
 });
 it('当前会话读取失败时不擅自重开账号', async () => {
   api.currentError = true;

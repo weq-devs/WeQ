@@ -67,6 +67,7 @@ export class RuntimeMaintenance {
 
 export const runtimeMaintenance = new RuntimeMaintenance();
 export const maintenanceProcedures = new Set([
+  'startup.snapshot',
   'backupStage',
   'backupDefaults',
   'backupApply',
