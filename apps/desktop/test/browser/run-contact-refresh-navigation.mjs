@@ -71,7 +71,9 @@ try {
             await page.evaluate(() => window.contactOrderQa.tasks.getState().taskOpenRequest),
             before,
           );
-          await page.getByRole('button', { name: '查看联系人更新任务', exact: true }).click();
+          await page
+            .getByRole('button', { name: '查看好友/群信息缓存更新任务', exact: true })
+            .click();
           assert.equal(await page.getByRole('dialog').count(), 0);
           assert.equal(
             await page.evaluate(() => window.contactOrderQa.tasks.getState().taskOpenRequest),
