@@ -7815,6 +7815,16 @@ function MainWorkspace(): ReactElement {
       }
       cancelMessageLocate();
       setMissingJumpSeq(null);
+      if (jumpTarget.msgId) {
+        const exact = loadedRef.current.find(
+          (message) =>
+            message.msgId === jumpTarget.msgId || timelineRowKey(message) === jumpTarget.msgId,
+        );
+        if (exact) {
+          scrollToMsgId(timelineRowKey(exact));
+          return;
+        }
+      }
       const notFound = (): void => {
         pushToast({
           tone: 'info',
@@ -7883,7 +7893,7 @@ function MainWorkspace(): ReactElement {
         }
       }
 
-      await centerWindowOnSeq(sel.id, kind, targetSeq);
+      await centerWindowOnSeq(sel.id, kind, targetSeq, undefined, jumpTarget.msgId);
     },
     [centerWindowOnSeq, scrollToMsgId, pushToast, cancelMessageLocate],
   );

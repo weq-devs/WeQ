@@ -437,7 +437,13 @@ export function MessageIntentSense({
                   <div className="weq-intent-popover-row is-metric">
                     <span>情感倾向</span>
                     <span className="weq-intent-popover-bar is-sentiment">
-                      <span style={{ width: `${Math.round((result.sentiment + 100) / 2)}%` }} />
+                      <span
+                        className={result.sentiment < 0 ? 'is-negative' : undefined}
+                        style={{
+                          left: `${50 + Math.min(result.sentiment, 0) / 2}%`,
+                          width: `${Math.abs(result.sentiment) / 2}%`,
+                        }}
+                      />
                     </span>
                     <span>{result.sentiment > 0 ? `+${result.sentiment}` : result.sentiment}</span>
                   </div>

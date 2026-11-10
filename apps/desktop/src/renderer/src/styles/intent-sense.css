@@ -296,13 +296,30 @@ html[data-theme='dark'] .weq-intent-popover {
   transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.weq-intent-popover-bar.is-sentiment {
+  position: relative;
+}
+
+.weq-intent-popover-bar.is-sentiment::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--weq-fg-secondary);
+  transform: translateX(-50%);
+}
+
 .weq-intent-popover-bar.is-sentiment > span {
-  background: linear-gradient(
-    90deg,
-    var(--weq-int-sentiment-start),
-    var(--weq-int-sentiment-mid) 50%,
-    var(--weq-int-sentiment-end)
-  );
+  position: absolute;
+  top: 0;
+  background: var(--weq-int-positive);
+  transition: none;
+}
+
+.weq-intent-popover-bar.is-sentiment > .is-negative {
+  background: var(--weq-int-negative);
 }
 
 /* ── 好感度胶囊（chat header 右上角）────────────────────────────────── */

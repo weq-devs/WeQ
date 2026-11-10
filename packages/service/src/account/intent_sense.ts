@@ -493,6 +493,7 @@ export class IntentSenseService {
   >();
   /** 回复建议在途任务（去重并发，防止相同会话重复调用 API）。 */
   private readonly suggestionInFlight = new Map<string, Promise<ReplySuggestion[]>>();
+  private readonly suggestionControllers = new Map<string, AbortController>();
   /** API 熔断截止时间戳（ms）：网络/服务报错后短时间内不再重复撞墙。 */
   private apiCooldownUntil = 0;
   /** 最近一次 API 请求失败信息（供设置面板提示用户排查网络/Provider）。 */
@@ -1495,9 +1496,11 @@ export class IntentSenseService {
     const revision = this.suggestionRevision;
     const manualRefresh = options.refresh === true;
     const key = conversationKey(kind, conv);
-    const inFlightKey = `${key}:${revision}:${manualRefresh ? 'refresh' : 'auto'}`;
+    const inFlightKey = `${key}:${revision}`;
     const running = this.suggestionInFlight.get(inFlightKey);
     if (running) return running;
+    const controller = new AbortController();
+    this.suggestionControllers.set(inFlightKey, controller);
 
     const task = (async (): Promise<ReplySuggestion[]> => {
       const contextMessages = this.config.suggestionContextMessages;
@@ -1505,6 +1508,7 @@ export class IntentSenseService {
         this.syncDefaultModels();
         return (
           revision === this.suggestionRevision &&
+          !controller.signal.aborted &&
           this.config.suggestionsEnabled &&
           this.config.conversationOverrides[key] !== false
         );
@@ -1543,22 +1547,6 @@ export class IntentSenseService {
         return suggestions;
       };
 
-      const stillLatestMessage = async (): Promise<boolean> => {
-        if (!current()) return false;
-        try {
-          const latest = (await this.loadMessages(kind, conv, 1))[0];
-          return (
-            current() &&
-            latest?.msgId === last.msgId &&
-            (!latest.mine || this.config.suggestAfterSelf || manualRefresh)
-          );
-        } catch {
-          return false;
-        }
-      };
-      const fallbackAfterRequest = async () =>
-        (await stillLatestMessage()) ? fallbackLocal() : [];
-
       const endpoint = this.endpoint(this.config.suggestionProviderRef);
       if (!endpoint || Date.now() < this.suggestionApiCooldownUntil) {
         return fallbackLocal();
@@ -1593,10 +1581,12 @@ export class IntentSenseService {
               { role: 'user', content: prompt.user },
             ],
           }),
-          signal: AbortSignal.timeout(this.config.apiTimeoutSeconds * 1000),
+          signal: AbortSignal.any([
+            controller.signal,
+            AbortSignal.timeout(this.config.apiTimeoutSeconds * 1000),
+          ]),
         });
         if (!current()) return [];
-        if (!(await stillLatestMessage())) return [];
         this.lastSuggestionApiError = null;
         const parsed = extractJsonBlock(pickMessageText(body.choices?.[0]?.message)) as {
           replies?: unknown[];
@@ -1622,16 +1612,32 @@ export class IntentSenseService {
           event: 'intent-sense-suggestions-failed',
           ...logErrorContext(error),
         });
-        return fallbackAfterRequest();
+        return fallbackLocal();
       }
     })().finally(() => {
       if (this.suggestionInFlight.get(inFlightKey) === task) {
         this.suggestionInFlight.delete(inFlightKey);
       }
+      if (this.suggestionControllers.get(inFlightKey) === controller)
+        this.suggestionControllers.delete(inFlightKey);
     });
 
     this.suggestionInFlight.set(inFlightKey, task);
     return task;
+  }
+
+  /** 仅停止当前会话的在途推荐，不改变自动推荐开关或已有候选。 */
+  stopSuggestions(kind: IntentConversationKind, conv: string): boolean {
+    const prefix = `${conversationKey(kind, conv)}:`;
+    let stopped = false;
+    for (const [key, controller] of this.suggestionControllers) {
+      if (!key.startsWith(prefix)) continue;
+      controller.abort();
+      this.suggestionControllers.delete(key);
+      this.suggestionInFlight.delete(key);
+      stopped = true;
+    }
+    return stopped;
   }
 
   // ── 消息读取（内部）─────────────────────────────────────────────────────

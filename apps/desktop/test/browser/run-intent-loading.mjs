@@ -67,7 +67,10 @@ try {
       ),
     );
   const loading = await geometry();
-  assert.equal(await page.getByLabel('换一批建议', { exact: true }).isDisabled(), true);
+  assert.equal(await page.getByLabel('换一批建议', { exact: true }).isDisabled(), false);
+  await page.getByLabel('换一批建议', { exact: true }).hover();
+  assert.equal(await page.getByLabel('停止推荐回复', { exact: true }).count(), 1);
+  await page.mouse.move(0, 0);
   assert.equal(await page.locator('.weq-int-suggest-track').textContent(), '正在生成推荐回复');
   assert.equal(await page.locator('.weq-intent-pill.is-loading').count(), 2);
   if (output) await page.screenshot({ path: resolve(output, 'loading.png'), fullPage: true });
@@ -106,12 +109,40 @@ try {
   const historyHeight = await page
     .locator('.weq-int-history-slot')
     .evaluate((node) => node.getBoundingClientRect().height);
-  assert.equal(historyGeometry['.message-scroll'].height, ready['.message-scroll'].height / 2);
-  assert.equal(historyHeight, ready['.message-scroll'].height / 2);
-  assert.equal(await page.locator('.weq-int-history-row').count(), 2);
+  assert.ok(historyGeometry['.message-scroll'].height > ready['.message-scroll'].height / 2);
+  assert.ok(historyHeight < ready['.message-scroll'].height / 2);
+  assert.equal(await page.locator('.weq-int-history-row').count(), 1);
   await page.getByLabel('定位到本次推荐的最后一条输入消息', { exact: true }).first().click();
-  assert.equal(await page.evaluate(() => window.intentQa.located.msgSeq), '77');
+  assert.equal(await page.evaluate(() => window.intentQa.located.msgSeq), '66');
   if (output) await page.screenshot({ path: resolve(output, 'history-desktop.png') });
+  await page.evaluate(() => {
+    window.intentQa.setHistory(
+      Array.from({ length: 30 }, (_, i) => ({
+        id: `round-${30 - i}`,
+        createdAt: 1794283200000 - i * 1000,
+        target: {
+          msgId: String(30 - i),
+          msgSeq: String(30 - i),
+          senderUin: '10000',
+          sendTime: 1794283200 - i,
+        },
+        suggestions: [{ text: `历史推荐 ${30 - i}` }],
+      })),
+    );
+  });
+  await page.waitForFunction(() => document.querySelectorAll('.weq-int-history-row').length === 30);
+  const historyChecks = await page.locator('.weq-int-history').evaluate((node) => ({
+    bottom: Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) <= 1,
+    first: node.querySelector('.weq-int-history-row .weq-int-suggest-text').textContent,
+    last: [...node.querySelectorAll('.weq-int-history-row .weq-int-suggest-text')].at(-1)
+      .textContent,
+    height: node.getBoundingClientRect().height,
+  }));
+  assert.equal(historyChecks.bottom, true);
+  assert.equal(historyChecks.first, '历史推荐 1');
+  assert.equal(historyChecks.last, '历史推荐 30');
+  assert.ok(Math.abs(historyChecks.height - ready['.message-scroll'].height / 2) <= 1);
+  if (output) await page.screenshot({ path: resolve(output, 'history-long.png') });
   await page.getByLabel('收起回复历史', { exact: true }).click();
   assert.deepEqual(await geometry(), ready, '收起历史恢复原消息区高度');
   await page.evaluate(() => window.intentQa.setMode('error'));
@@ -119,7 +150,10 @@ try {
   assert.equal(await page.locator('.weq-int-affinity-num').textContent(), '70');
   assert.deepEqual(await geometry(), ready, '刷新失败不改变布局或抹掉已有画像');
   if (output) await page.screenshot({ path: resolve(output, 'refresh-error.png'), fullPage: true });
-  await page.evaluate(() => window.intentQa.setMode('ready'));
+  await page.evaluate(() => {
+    window.intentQa.setMode('ready');
+    window.intentQa.setHistory([]);
+  });
 
   let cases = 0;
   let minimumContrast = 100;
@@ -244,10 +278,7 @@ try {
             const before = await geometry();
             await page.getByLabel('展开回复历史', { exact: true }).click();
             const expanded = await geometry();
-            assert.ok(
-              Math.abs(expanded['.message-scroll'].height - before['.message-scroll'].height / 2) <=
-                1,
-            );
+            assert.ok(expanded['.message-scroll'].height > before['.message-scroll'].height / 2);
             if (output && width === 390)
               await page.screenshot({ path: resolve(output, `history-${width}-${theme}.png`) });
             await page.getByLabel('收起回复历史', { exact: true }).click();

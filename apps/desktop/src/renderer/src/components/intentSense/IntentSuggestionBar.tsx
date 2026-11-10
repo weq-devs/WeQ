@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactElement } from 'react';
-import { Lightbulb, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react';
+import { Lightbulb, RefreshCw, ChevronUp, ChevronDown, Square } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useToast } from '../Toast';
 import { useIntentSenseStatus } from './context';
@@ -47,6 +47,17 @@ export function IntentSuggestionBar({
     replyTargetId !== null || (status.data?.suggestAfterSelf === true && !!latestMessageId);
   const overridden = status.data?.conversationOverrides?.[`${kind}:${conv}`];
   const active = overridden !== false && !!status.data?.suggestionsEnabled;
+  const scope = JSON.stringify([kind, conv, status.data?.suggestionRevision ?? 0, active]);
+  const entry = useRef({ scope, at: Date.now() });
+  if (entry.current.scope !== scope) entry.current = { scope, at: Date.now() };
+  const [stopped, setStopped] = useState<string | null>(null);
+  const [stopping, setStopping] = useState(false);
+  const [actionHovered, setActionHovered] = useState(false);
+  const messageContext = JSON.stringify([scope, latestMessageId, replyTargetId]);
+  const history = trpc.account.intentSense.getSuggestionHistory.useQuery(
+    { kind, conv },
+    { enabled: active, refetchOnWindowFocus: false, staleTime: 0, cacheTime: 0, retry: false },
+  );
   const suggestions = trpc.account.intentSense.getSuggestions.useQuery(
     {
       kind,
@@ -56,7 +67,8 @@ export function IntentSuggestionBar({
       ...(latestMessageId !== undefined ? { targetId: latestMessageId } : {}),
     },
     {
-      enabled: active && replyAllowed,
+      enabled:
+        active && replyAllowed && !history.isLoading && !stopping && stopped !== messageContext,
       refetchOnWindowFocus: false,
       staleTime: (status.data?.suggestionCacheSeconds ?? 90) * 1000,
       cacheTime: 0,
@@ -64,26 +76,45 @@ export function IntentSuggestionBar({
     },
   );
 
-  const scope = JSON.stringify([kind, conv, status.data?.suggestionRevision ?? 0, active]);
   const historyOpen = historyScope === scope;
   const requestContext = useRef('');
-  requestContext.current = JSON.stringify([scope, latestMessageId, replyTargetId]);
+  requestContext.current = scope;
   const refreshPending = useRef(false);
+  const requestEpoch = useRef(0);
   const [previous, setPrevious] = useState<{ scope: string; list: SuggestionWire[] } | null>(null);
+  const latestHistory = history.data?.[0];
+  const recent =
+    latestHistory && entry.current.at - latestHistory.createdAt <= 60_000
+      ? latestHistory.suggestions
+      : undefined;
   useEffect(() => {
-    if (!active || !replyAllowed || !suggestions.data?.length) {
-      setPrevious((current) => (current?.scope === scope ? current : null));
+    if (!active) {
+      setPrevious(null);
       return;
     }
-    setPrevious({ scope, list: suggestions.data as SuggestionWire[] });
+    const next = replyAllowed && suggestions.data?.length ? suggestions.data : undefined;
+    setPrevious((current) =>
+      next ? { scope, list: next } : current?.scope === scope ? current : null,
+    );
   }, [active, replyAllowed, scope, suggestions.data]);
-  // 空结果也可能是发送时被服务端丢弃的旧请求；同一范围内只用非空候选替换。
+  useEffect(() => {
+    if (!active || !recent?.length) return;
+    setPrevious((current) => (current?.scope === scope ? current : { scope, list: recent }));
+  }, [active, scope, recent]);
+  const previousData = useRef(suggestions.data);
+  useEffect(() => {
+    if (previousData.current === suggestions.data) return;
+    previousData.current = suggestions.data;
+    if (suggestions.data?.length) void history.refetch();
+  }, [suggestions.data, history.refetch]);
+  // 空结果或停止本轮都不清空候选；时间限制只在进入会话时应用。
   const list = (
     previous?.scope === scope
       ? previous.list
-      : ((replyAllowed ? suggestions.data : undefined) ?? [])
+      : ((replyAllowed ? suggestions.data : undefined) ?? recent ?? [])
   ) as SuggestionWire[];
-  const loading = (replyAllowed && suggestions.isFetching) || busy;
+  const loading = stopped !== messageContext && ((replyAllowed && suggestions.isFetching) || busy);
+  const showStop = loading && actionHovered;
   const error =
     refreshError?.context === requestContext.current
       ? refreshError.message
@@ -118,9 +149,8 @@ export function IntentSuggestionBar({
         <div id={historyId} className="weq-int-history-slot">
           <ReplySuggestionHistory
             key={`${kind}:${conv}`}
-            kind={kind}
-            conv={conv}
-            revision={previous?.list}
+            history={history}
+            currentSuggestions={list}
             onInsert={onInsert}
             onLocate={onLocate}
           />
@@ -166,15 +196,44 @@ export function IntentSuggestionBar({
         ) : null}
         <button
           type="button"
-          className={`weq-int-suggest-refresh${loading ? ' is-busy' : ''}`}
-          title={error ? '重试推荐回复' : '换一批'}
-          aria-label="换一批建议"
+          className={`weq-int-suggest-refresh weq-int-suggest-action${loading && !showStop ? ' is-busy' : ''}`}
+          title={showStop ? '停止推荐回复' : error ? '重试推荐回复' : '换一批'}
+          aria-label={showStop ? '停止推荐回复' : '换一批建议'}
           aria-busy={loading}
-          disabled={loading}
+          disabled={stopping}
+          onMouseEnter={() => setActionHovered(true)}
+          onMouseLeave={() => setActionHovered(false)}
+          onFocus={() => setActionHovered(true)}
+          onBlur={() => setActionHovered(false)}
           onClick={async () => {
+            if (loading) {
+              if (stopping) return;
+              const expected = scope;
+              const stoppedContext = messageContext;
+              setStopping(true);
+              try {
+                await client.account.intentSense.stopSuggestions.mutate({ kind, conv });
+                if (requestContext.current === expected) {
+                  requestEpoch.current++;
+                  setStopped(stoppedContext);
+                  setBusy(false);
+                }
+              } catch (error) {
+                useToast.getState().push({
+                  tone: 'error',
+                  message: '停止推荐回复失败',
+                  detail: error instanceof Error ? error.message : String(error),
+                });
+              } finally {
+                setStopping(false);
+              }
+              return;
+            }
             if (refreshPending.current || loading) return;
             refreshPending.current = true;
             const expected = requestContext.current;
+            const epoch = ++requestEpoch.current;
+            setStopped(null);
             setBusy(true);
             setRefreshError(null);
             try {
@@ -185,10 +244,16 @@ export function IntentSuggestionBar({
                 ...(latestMessageId !== undefined ? { targetId: latestMessageId } : {}),
                 refresh: true,
               });
-              if (requestContext.current === expected && list.length > 0)
+              if (
+                requestContext.current === expected &&
+                requestEpoch.current === epoch &&
+                list.length > 0
+              ) {
                 setPrevious({ scope, list });
+                void history.refetch();
+              }
             } catch (error) {
-              if (requestContext.current === expected) {
+              if (requestContext.current === expected && requestEpoch.current === epoch) {
                 setRefreshError({
                   context: expected,
                   message: error instanceof Error ? error.message : String(error),
@@ -201,11 +266,11 @@ export function IntentSuggestionBar({
               }
             } finally {
               refreshPending.current = false;
-              setBusy(false);
+              if (requestEpoch.current === epoch) setBusy(false);
             }
           }}
         >
-          <RefreshCw size={12} />
+          {showStop ? <Square size={12} /> : <RefreshCw size={12} />}
         </button>
         <button
           type="button"

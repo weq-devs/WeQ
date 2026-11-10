@@ -5889,6 +5889,7 @@ export function ChatPane({
           latestMessageId={latestSuggestionId}
           onLocate={(target) =>
             jumpToSeq({
+              msgId: target.msgId,
               seq: target.msgSeq,
               index: target.msgSeq,
               senderUin: target.senderUin,

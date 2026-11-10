@@ -61,6 +61,8 @@ import { cn } from '@renderer/lib/utils';
  * (e.g. tests).
  */
 export interface ReplyJumpTarget {
+  /** 已知原消息时优先精确匹配，兼容序号为空或同序号的漫游记录。 */
+  msgId?: string;
   /** origMsgSeq (tag 47402) — the 40003 anchor for GROUP messages. */
   seq?: number | string;
   /** origMsgIndex (tag 47419) — the 40003 anchor for C2C messages. */

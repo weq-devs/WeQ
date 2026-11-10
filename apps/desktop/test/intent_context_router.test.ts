@@ -5,12 +5,21 @@ const service = vi.hoisted(() => ({
   setConfig: vi.fn(async (input: unknown) => input),
   getSuggestions: vi.fn(async () => []),
   getSuggestionHistory: vi.fn(() => []),
+  stopSuggestions: vi.fn(() => true),
 }));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({ services: { intentSense: service } }),
   getActiveIntentSenseLocalEngine: () => null,
 }));
 import { intentSenseRouter } from '../src/main/ipc/routers/intent_sense';
+
+it('停止推荐只转交指定会话，不修改推荐开关', async () => {
+  const caller = intentSenseRouter.createCaller({});
+  const changes = service.setConfig.mock.calls.length;
+  await expect(caller.stopSuggestions({ kind: 'group', conv: '123' })).resolves.toBe(true);
+  expect(service.stopSuggestions).toHaveBeenCalledWith('group', '123');
+  expect(service.setConfig).toHaveBeenCalledTimes(changes);
+});
 
 it('回复历史读取按会话隔离，不触发重新生成', async () => {
   const caller = intentSenseRouter.createCaller({});

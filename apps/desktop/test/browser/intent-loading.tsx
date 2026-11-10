@@ -8,10 +8,10 @@ import {
 import { IntentSuggestionBar } from '../../src/renderer/src/components/intentSense/IntentSuggestionBar';
 import { AffinityPill } from '../../src/renderer/src/components/intentSense/AffinityPill';
 import { IntentProfileDialog } from '../../src/renderer/src/components/intentSense/IntentProfileDialog';
-import { setMode, result, publishResult, publishProgress } from './intent-loading.stub';
+import { setMode, setHistory, result, publishResult, publishProgress } from './intent-loading.stub';
 import '../../src/renderer/src/styles/index.css';
 
-const qa = { setMode, publishResult, publishProgress, located: null as unknown };
+const qa = { setMode, setHistory, publishResult, publishProgress, located: null as unknown };
 Object.assign(window, { intentQa: qa });
 function Bubble() {
   const ref = useRef<HTMLDivElement>(null);

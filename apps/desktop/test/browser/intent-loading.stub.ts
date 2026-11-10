@@ -4,6 +4,7 @@ import type {
   IntentAnalysisProgress,
   IntentProfile,
   IntentSenseResult,
+  ReplySuggestionHistoryEntry,
 } from '@weq/service';
 
 type Mode = 'loading' | 'ready' | 'error' | 'empty';
@@ -56,7 +57,7 @@ export const portrait: IntentProfile = {
   engine: 'heuristic',
   computedAt: 1000,
 };
-const history = [
+let history: ReplySuggestionHistoryEntry[] = [
   {
     id: 'round-2',
     createdAt: 1794283200000,
@@ -70,6 +71,10 @@ const history = [
     suggestions: [{ text: '上一轮推荐回复', tone: '自然' }, { text: '另一条历史候选' }],
   },
 ];
+export function setHistory(entries: ReplySuggestionHistoryEntry[]) {
+  history = entries;
+  for (const listener of listeners) listener();
+}
 function useMode() {
   return useSyncExternalStore(
     (listener) => {
@@ -133,12 +138,23 @@ export const trpc = {
         },
       },
       getSuggestionHistory: {
-        useQuery: () => ({
-          data: history,
-          isFetching: false,
-          isLoading: false,
-          refetch: invalidate,
-        }),
+        useQuery: () => {
+          const data = useSyncExternalStore(
+            (listener) => {
+              listeners.add(listener);
+              return () => {
+                listeners.delete(listener);
+              };
+            },
+            () => history,
+          );
+          return {
+            data,
+            isFetching: false,
+            isLoading: false,
+            refetch: invalidate,
+          };
+        },
       },
       getProfile: {
         useQuery: ({ peerUid }: { peerUid: string }) => {
@@ -195,6 +211,12 @@ export const client = {
         },
       },
       getSuggestions: { query: async () => [{ text: '重新生成的候选' }] },
+      stopSuggestions: {
+        mutate: async () => {
+          setMode('empty');
+          return true;
+        },
+      },
     },
   },
 };

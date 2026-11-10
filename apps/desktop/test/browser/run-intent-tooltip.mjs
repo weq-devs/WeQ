@@ -58,6 +58,7 @@ try {
     document.querySelector('.weq-intent-chips')?.textContent.includes('闲聊'),
   );
   let cases = 0;
+  let sentimentCases = 0;
   for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     for (const theme of ['light', 'dark']) {
@@ -105,6 +106,45 @@ try {
           await page.locator('.weq-intent-popover').screenshot({
             path: resolve(output, `tooltip-${width}-${theme}.png`),
           });
+        for (const [sentiment, start, end] of [
+          [-100, 0, 24],
+          [-50, 12, 24],
+          [0, 24, 24],
+          [50, 24, 36],
+          [100, 24, 48],
+        ]) {
+          await page.evaluate(async (sentiment) => {
+            const fixture = await import('/test/browser/intent-loading.stub.ts');
+            fixture.result.sentiment = sentiment;
+            fixture.publishResult();
+          }, sentiment);
+          await page.waitForFunction(
+            (value) =>
+              document.querySelector('.is-sentiment')?.nextElementSibling.textContent === value,
+            sentiment > 0 ? `+${sentiment}` : String(sentiment),
+          );
+          const metric = await page.locator('.is-sentiment').evaluate((track) => {
+            const rect = track.getBoundingClientRect();
+            const fill = track.firstElementChild.getBoundingClientRect();
+            const marker = getComputedStyle(track, '::after');
+            return {
+              start: fill.left - rect.left,
+              end: fill.right - rect.left,
+              marker: marker.content !== 'none' && marker.left === '24px' && marker.width === '1px',
+              negative: track.firstElementChild.classList.contains('is-negative'),
+            };
+          });
+          const label = `${width}/${theme}/${accent}/${sentiment}`;
+          assert.ok(Math.abs(metric.start - start) < 0.1, `${label}: 起点应为 ${start}`);
+          assert.ok(Math.abs(metric.end - end) < 0.1, `${label}: 终点应为 ${end}`);
+          assert.equal(metric.marker, true, `${label}: 中点标记`);
+          assert.equal(metric.negative, sentiment < 0, `${label}: 负向色`);
+          if (output && width === 1280 && accent === '#075c30')
+            await page.locator('.weq-intent-popover').screenshot({
+              path: resolve(output, `sentiment-${sentiment}-${theme}.png`),
+            });
+          sentimentCases++;
+        }
         await page.keyboard.press('Escape');
         await page.locator('.weq-intent-details').first().blur();
         cases++;
@@ -112,7 +152,7 @@ try {
     }
   }
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ cases, errors, output }, null, 2));
+  console.log(JSON.stringify({ cases, sentimentCases, errors, output }, null, 2));
 } finally {
   await browser?.close();
   await server.close();

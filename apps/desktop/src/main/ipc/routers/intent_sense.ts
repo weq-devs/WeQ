@@ -190,6 +190,10 @@ const intentSenseFeatureProcedures = {
       requireServices().intentSense.getSuggestionHistory(input.kind, input.conv),
     ),
 
+  stopSuggestions: procedure
+    .input(z.object({ kind: kindSchema, conv: z.string().min(1) }))
+    .mutation(({ input }) => requireServices().intentSense.stopSuggestions(input.kind, input.conv)),
+
   /** 候选回复（当前引擎可用且 suggestionsEnabled）。 */
   getSuggestions: procedure
     // 版本隔离缓存；自动查询可暂停，手动刷新不改变功能和会话开关。

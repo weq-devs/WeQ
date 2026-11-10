@@ -9,6 +9,7 @@ const fixture = vi.hoisted(() => ({
   status: { suggestionsEnabled: true, suggestionRevision: 0, suggestAfterSelf: false },
   query: vi.fn(),
   refresh: vi.fn(),
+  stop: vi.fn(async () => true),
   error: null as Error | null,
   historyQuery: vi.fn(),
   historyRefetch: vi.fn(async () => {}),
@@ -17,7 +18,14 @@ vi.mock('../src/renderer/src/components/intentSense/context', () => ({
   useIntentSenseStatus: () => ({ data: fixture.status }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  client: { account: { intentSense: { getSuggestions: { query: fixture.refresh } } } },
+  client: {
+    account: {
+      intentSense: {
+        getSuggestions: { query: fixture.refresh },
+        stopSuggestions: { mutate: fixture.stop },
+      },
+    },
+  },
   trpc: {
     account: {
       intentSense: {
@@ -40,6 +48,7 @@ beforeEach(() => {
     error: fixture.error,
   }));
   fixture.refresh.mockReset();
+  fixture.stop.mockClear();
   fixture.historyRefetch.mockClear();
   fixture.historyQuery.mockReset().mockReturnValue({
     data: [],
@@ -49,6 +58,141 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it('手动刷新后历史补全不把正式栏回退到旧的自动查询结果', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const render = () =>
+    act(() =>
+      root.render(
+        createElement(IntentSuggestionBar, {
+          kind: 'c2c',
+          conv: 'fixture',
+          replyTargetId: 'peer',
+          latestMessageId: 'peer',
+          onInsert: vi.fn(),
+        }),
+      ),
+    );
+  try {
+    render();
+    fixture.refresh.mockResolvedValue([{ text: '手动推荐' }]);
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="换一批建议"]')!.click(),
+    );
+    fixture.historyQuery.mockReturnValue({
+      data: [
+        {
+          id: 'manual',
+          createdAt: Date.now(),
+          target: { msgId: 'peer', sendTime: 1000, senderUin: '10000' },
+          suggestions: [{ text: '手动推荐' }],
+        },
+      ],
+      isLoading: false,
+      isFetching: false,
+      refetch: fixture.historyRefetch,
+    });
+    render();
+    expect(host.querySelector('.weq-int-suggest-text')?.textContent).toBe('手动推荐');
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="展开回复历史"]')!.click());
+    expect(host.querySelectorAll('.weq-int-history-row')).toHaveLength(0);
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it.each([0, 60_000, 60_001])(
+  '进入会话恢复 %sms 前的最新推荐，停留时不因时间流逝清空',
+  async (age) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    fixture.data = undefined;
+    fixture.fetching = true;
+    fixture.historyQuery.mockReturnValue({
+      data: [
+        {
+          id: 'recent',
+          createdAt: now - age,
+          target: { msgId: 'old', senderUin: '10000', sendTime: 1000 },
+          suggestions: [{ text: '最近推荐' }],
+        },
+      ],
+      isLoading: false,
+      isFetching: false,
+      refetch: fixture.historyRefetch,
+    });
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const render = () =>
+      act(() =>
+        root.render(
+          createElement(IntentSuggestionBar, {
+            kind: 'c2c',
+            conv: 'fixture',
+            onInsert: vi.fn(),
+            onLocate: vi.fn(),
+          }),
+        ),
+      );
+    try {
+      render();
+      expect(host.querySelector('.weq-int-suggest-track')?.textContent).toBe(
+        age <= 60_000 ? '最近推荐' : '正在生成推荐回复',
+      );
+      clock.mockReturnValue(now + 120_000);
+      render();
+      expect(host.querySelector('.weq-int-suggest-track')?.textContent).toBe(
+        age <= 60_000 ? '最近推荐' : '正在生成推荐回复',
+      );
+      act(() => host.querySelector<HTMLButtonElement>('[aria-label="展开回复历史"]')!.click());
+      expect(host.querySelectorAll('.weq-int-history-row')).toHaveLength(age <= 60_000 ? 0 : 1);
+      if (age > 60_000)
+        expect(
+          host.querySelector<HTMLButtonElement>('[aria-label="定位到本次推荐的最后一条输入消息"]')!
+            .disabled,
+        ).toBe(false);
+    } finally {
+      act(() => root.unmount());
+      clock.mockRestore();
+    }
+  },
+);
+
+it('在途推荐悬停变为停止，停止保留候选并抑制本条重试，新消息恢复自动推荐', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  fixture.fetching = true;
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const render = (id = 'first') =>
+    act(() =>
+      root.render(
+        createElement(IntentSuggestionBar, {
+          kind: 'c2c',
+          conv: 'fixture',
+          latestMessageId: id,
+          onInsert: vi.fn(),
+        }),
+      ),
+    );
+  try {
+    render();
+    const button = host.querySelector<HTMLButtonElement>('.weq-int-suggest-action')!;
+    act(() => button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+    expect(button.getAttribute('aria-label')).toBe('停止推荐回复');
+    await act(async () => button.click());
+    expect(fixture.stop).toHaveBeenCalledWith({ kind: 'c2c', conv: 'fixture' });
+    expect(host.querySelector('.weq-int-suggest-text')?.textContent).toBe('旧候选');
+    expect(fixture.query.mock.calls.at(-1)?.[1].enabled).toBe(false);
+    fixture.fetching = false;
+    render('next');
+    expect(fixture.query.mock.calls.at(-1)?.[1].enabled).toBe(true);
+  } finally {
+    act(() => root.unmount());
+  }
+});
 
 it('首次生成用文字提示、刷新时保留候选，自动请求中不能叠加换一批', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -67,8 +211,7 @@ it('首次生成用文字提示、刷新时保留候选，自动请求中不能�
     expect(host.querySelector('.weq-int-suggest-track')?.textContent).toBe('正在生成推荐回复');
     expect(host.querySelector('.is-skeleton')).toBeNull();
     const refresh = host.querySelector<HTMLButtonElement>('[aria-label="换一批建议"]')!;
-    expect(refresh.disabled).toBe(true);
-    act(() => refresh.click());
+    expect(refresh.disabled).toBe(false);
     expect(fixture.refresh).not.toHaveBeenCalled();
     fixture.fetching = false;
     fixture.error = new Error('合成错误');
@@ -120,7 +263,7 @@ it('箭头展开逐轮历史，点击历史候选只填草稿，左侧定位真�
     );
   try {
     render();
-    expect(fixture.historyQuery).not.toHaveBeenCalled();
+    expect(fixture.historyQuery).toHaveBeenCalled();
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="展开回复历史"]')!.click());
     expect(host.querySelector('.weq-int-suggest')?.classList.contains('is-history-open')).toBe(
       true,
@@ -134,11 +277,11 @@ it('箭头展开逐轮历史，点击历史候选只填草稿，左侧定位真�
         .querySelector<HTMLButtonElement>('[aria-label="定位到本次推荐的最后一条输入消息"]')!
         .click(),
     );
-    expect(onLocate).toHaveBeenCalledWith(target);
+    expect(onLocate).toHaveBeenCalledWith({ ...target, msgSeq: '66' });
     act(() =>
       host.querySelector<HTMLButtonElement>('.weq-int-history-row .weq-int-suggest-pill')!.click(),
     );
-    expect(onInsert).toHaveBeenCalledWith('历史候选二');
+    expect(onInsert).toHaveBeenCalledWith('历史候选一');
     fixture.data = [{ text: '新一轮候选' }];
     render();
     expect(fixture.historyRefetch).toHaveBeenCalledOnce();
@@ -239,7 +382,7 @@ it.each([false, true])(
 );
 
 it.each(['message', 'conversation', 'config', 'error'])(
-  '手动刷新期间发生 %s 时不覆盖当前候选，失败后可重试',
+  '手动刷新期间发生 %s 时新消息不打断，会话及配置切换丢弃旧结果，失败可重试',
   async (change) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     let finish!: (list: { text: string }[]) => void;
@@ -282,7 +425,9 @@ it.each(['message', 'conversation', 'config', 'error'])(
           change === 'conversation' ? 'other' : 'fixture',
         );
         await act(async () => finish([{ text: '迟到候选' }]));
-        expect(host.querySelector('.weq-int-suggest-text')?.textContent).toBe('当前候选');
+        expect(host.querySelector('.weq-int-suggest-text')?.textContent).toBe(
+          change === 'message' ? '迟到候选' : '当前候选',
+        );
       }
       const button = host.querySelector<HTMLButtonElement>('[aria-label="换一批建议"]')!;
       expect(button.disabled).toBe(false);

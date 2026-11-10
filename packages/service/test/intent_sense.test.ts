@@ -1143,7 +1143,7 @@ describe('IntentSenseService', () => {
   });
 
   it.each(['message', 'config', 'conversation'])(
-    '手动换一批在 %s 改变后丢弃迟到结果',
+    '手动换一批在 %s 改变后仅配置失效或关闭会话才丢弃结果',
     async (change) => {
       const msgs = [textMsg(1n, 'u_self', '合成自己消息', 1000)];
       const response = {
@@ -1178,7 +1178,7 @@ describe('IntentSenseService', () => {
       else if (change === 'conversation') await svc.setConversationOverride('c2c', 'u_peer', false);
       else await svc.setConfig({ suggestionsEnabled: false });
       finish(response);
-      expect(await pending).toEqual([]);
+      expect(await pending).toEqual(change === 'message' ? [{ text: '迟到候选' }] : []);
       expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
     },
   );
@@ -1240,43 +1240,105 @@ describe('IntentSenseService', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('推荐请求期间自己已发送，迟到候选不再发布或留给旧客户端', async () => {
-    const msgs = [textMsg(1n, 'u_peer', '合成对方消息', 1000)];
-    const response = {
-      ok: true,
-      json: async () => ({
-        choices: [{ message: { content: '{"replies":[{"text":"迟到候选"}]}' } }],
-      }),
-    };
-    let finish!: (value: typeof response) => void;
-    const fetchMock = vi.fn(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
+  it.each(['u_peer', 'u_self'])(
+    '推荐请求期间收到 %s 新消息不丢弃在途结果，历史保留本轮实际输入',
+    async (sender) => {
+      const msgs = [textMsg(1n, 'u_peer', '合成对方消息', 1000)];
+      const response = {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{"replies":[{"text":"迟到候选"}]}' } }],
         }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-    const svc = new IntentSenseService(makeSession(msgs), dir, {
-      resolveEndpoint: (ref) => ({
-        baseUrl: 'http://fixture',
-        apiKey: 'fixture',
-        model: ref.model,
-      }),
-    });
-    await svc.setConfig({
-      enabled: true,
-      providerRef: { providerId: 'fixture', model: 'fixture' },
-      suggestionsEnabled: true,
-      suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
-    });
-    const pending = svc.getSuggestions('c2c', 'u_peer');
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    msgs.push(textMsg(2n, 'u_self', '合成自己回复', 1020));
-    finish(response);
-    expect(await pending).toEqual([]);
-    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
+      };
+      let finish!: (value: typeof response) => void;
+      const fetchMock = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+      const svc = new IntentSenseService(makeSession(msgs), dir, {
+        resolveEndpoint: (ref) => ({
+          baseUrl: 'http://fixture',
+          apiKey: 'fixture',
+          model: ref.model,
+        }),
+      });
+      await svc.setConfig({
+        enabled: true,
+        providerRef: { providerId: 'fixture', model: 'fixture' },
+        suggestionsEnabled: true,
+        suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
+      });
+      const pending = svc.getSuggestions('c2c', 'u_peer');
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      msgs.push(textMsg(2n, sender, '合成后续消息', 1020));
+      expect(svc.getSuggestions('c2c', 'u_peer')).toBe(pending);
+      finish(response);
+      expect(await pending).toEqual([{ text: '迟到候选' }]);
+      expect(svc.getSuggestionHistory('c2c', 'u_peer')[0]?.target.msgId).toBe('1');
+      if (sender === 'u_self') expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([true, false])(
+    '网络遵守取消=%s 时停止推荐均不写历史、不进入冷却，后续消息照常生成',
+    async (honorAbort) => {
+      const msgs = [textMsg(1n, 'u_peer', '第一条', 1000)];
+      let signal: AbortSignal | undefined;
+      let finish!: (response: Response) => void;
+      const fetchMock = vi.fn((_url: unknown, init?: RequestInit) => {
+        signal = init?.signal ?? undefined;
+        return new Promise<Response>((resolve, reject) => {
+          finish = resolve;
+          if (honorAbort)
+            signal?.addEventListener('abort', () => reject(signal?.reason), { once: true });
+        });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      const svc = new IntentSenseService(makeSession(msgs), dir, {
+        resolveEndpoint: (ref) => ({
+          baseUrl: 'http://fixture',
+          apiKey: 'fixture',
+          model: ref.model,
+        }),
+      });
+      await svc.setConfig({
+        suggestionsEnabled: true,
+        suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
+      });
+      const pending = svc.getSuggestions('c2c', 'u_peer');
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      msgs.push(textMsg(2n, 'u_peer', '第二条', 1020));
+      expect(svc.getSuggestions('c2c', 'u_peer', { refresh: true })).toBe(pending);
+      expect(svc.stopSuggestions('group', 'other')).toBe(false);
+      expect(svc.stopSuggestions('c2c', 'u_peer')).toBe(true);
+      expect(signal?.aborted).toBe(true);
+      if (!honorAbort)
+        finish(
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: '{"replies":[{"text":"已停止的迟到结果"}]}' } }],
+            }),
+          ),
+        );
+      expect(await pending).toEqual([]);
+      expect(svc.getSuggestionHistory('c2c', 'u_peer')).toEqual([]);
+      expect(svc.getStatus().lastSuggestionApiError).toBeNull();
+      fetchMock.mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: '{"replies":[{"text":"新消息推荐"}]}' } }],
+            }),
+          ),
+      );
+      expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([{ text: '新消息推荐' }]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it('自己的分析结果保留 mine，批次统计不把它计为新的对方分析', async () => {
     const analyze = vi.fn(async () => ({
