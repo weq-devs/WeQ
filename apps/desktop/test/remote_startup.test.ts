@@ -123,6 +123,45 @@ it('界面内会话列表仍在加载也正常进入，不等待业务数据', a
   expect(window.weqRemoteStartup?.state).toBe('ready');
   expect(query.business).not.toHaveBeenCalled();
 });
+it('无关状态持续更新时仍按两次绘制机会放行，不等待整个 DOM 安静', async () => {
+  await act(async () =>
+    root.render(
+      createElement(
+        'main',
+        { className: 'app-shell-root' },
+        createElement('span', { id: 'business-status' }, '业务状态更新中'),
+        reporter(),
+      ),
+    ),
+  );
+  const status = host.querySelector<HTMLElement>('#business-status')!;
+  status.dataset.tick = '1';
+  await frame();
+  expect(window.weqRemoteStartup?.state).toBe('loading');
+  status.dataset.tick = '2';
+  await frame();
+  expect(window.weqRemoteStartup?.state).toBe('ready');
+  status.dataset.tick = '3';
+  await frame();
+  expect(window.weqRemoteStartup?.state).toBe('ready');
+});
+it('候选绘制帧中重新出现整页加载占位时撤销放行，移除后重新确认', async () => {
+  await act(async () =>
+    root.render(createElement('main', { className: 'app-shell-root' }, reporter())),
+  );
+  await frame();
+  const pending = document.createElement('div');
+  pending.dataset.weqStartupPending = '';
+  host.append(pending);
+  await frame();
+  await frame();
+  expect(window.weqRemoteStartup?.state).toBe('loading');
+  pending.remove();
+  await frame();
+  expect(window.weqRemoteStartup?.state).toBe('loading');
+  await frame();
+  expect(window.weqRemoteStartup?.state).toBe('ready');
+});
 it('隐藏的旧界面不放行；候选绘制帧遇到启动状态变化必须取消', async () => {
   await act(async () =>
     root.render(createElement('main', { className: 'app-shell-root', hidden: true }, reporter())),

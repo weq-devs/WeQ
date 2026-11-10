@@ -4,10 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { transformWithOxc } from 'vite';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const engines = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const engine = process.env.WEQ_STARTUP_BROWSER === 'webkit' ? engines.webkit : engines.chromium;
 const source = resolve(root, 'src/renderer/src/lib/remoteStartupSurface.ts');
 const { code } = await transformWithOxc(await readFile(source, 'utf8'), source);
-const browser = await chromium.launch({
+const browser = await engine.launch({
   headless: true,
   ...(process.env.WEQ_BROWSER_EXECUTABLE
     ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
@@ -66,11 +67,38 @@ try {
       await paint();
       if ((await page.evaluate(() => window.ready)) !== 1) throw Error('就绪后未停止观察');
       await page.evaluate(() => window.stopStartup());
+      const duringUpdates = await page.evaluate(async () => {
+        window.ready = 0;
+        window.stopStartup = window.observeRemoteStartupSurface(
+          document.getElementById('root'),
+          '.app-shell-root',
+          () => window.ready++,
+        );
+        let tick = 0;
+        return await new Promise((resolve) => {
+          const update = () => {
+            document.querySelector('[role="status"]').setAttribute('data-tick', String(++tick));
+            if (tick < 10) requestAnimationFrame(update);
+            else resolve(window.ready);
+          };
+          requestAnimationFrame(update);
+        });
+      });
+      if (duringUpdates !== 1) throw Error('无关 DOM 持续更新时就绪检测被反复重置');
+      await page.evaluate(() => window.stopStartup());
       cases++;
     }
   }
   if (errors.length) throw Error(errors.join('\n'));
-  console.log(JSON.stringify({ cases, delayedSurface: true, businessDataExcluded: true, errors }));
+  console.log(
+    JSON.stringify({
+      cases,
+      delayedSurface: true,
+      businessDataExcluded: true,
+      continuousUpdatesDoNotBlock: true,
+      errors,
+    }),
+  );
 } finally {
   await browser.close();
 }

@@ -36,11 +36,18 @@ export function observeRemoteStartupSurface(
     return surface && !pending;
   };
   const check = () => {
-    window.cancelAnimationFrame(frame);
-    if (closed || !prepared()) return;
+    if (closed) return;
+    if (!prepared()) {
+      window.cancelAnimationFrame(frame);
+      frame = 0;
+      return;
+    }
+    // 无关业务更新不重置已安排的绘制确认；只有界面隐藏或整页占位恢复才撤销。
+    if (frame) return;
     // 给布局及首帧一次绘制机会，下一帧重新核对，避免查询回调早于 DOM 提交。
     frame = window.requestAnimationFrame(() => {
       frame = window.requestAnimationFrame(() => {
+        frame = 0;
         if (!closed && prepared()) {
           closed = true;
           observer.disconnect();
