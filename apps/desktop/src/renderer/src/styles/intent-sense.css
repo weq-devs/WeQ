@@ -237,10 +237,10 @@ html[data-theme='dark'] {
   width: max-content;
   max-width: 260px;
   padding: 8px 10px;
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--weq-bg-surface);
   border: 1px solid var(--weq-border-subtle);
-  box-shadow: var(--weq-shadow-card);
+  box-shadow: var(--weq-shadow-soft);
   backdrop-filter: blur(10px);
   pointer-events: none;
   animation: weq-intent-pop 140ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -260,7 +260,8 @@ html[data-theme='dark'] .weq-intent-popover {
 
 .weq-intent-popover-row.is-metric {
   display: grid;
-  grid-template-columns: max-content 40px 4ch;
+  grid-template-columns: max-content 48px minmax(3ch, max-content);
+  column-gap: 4px;
   white-space: nowrap;
 }
 .weq-intent-popover-row.is-metric > :last-child {
@@ -269,6 +270,12 @@ html[data-theme='dark'] .weq-intent-popover {
 }
 .weq-intent-confidence {
   color: var(--weq-fg-secondary);
+}
+
+.weq-intent-popover-row.is-footer {
+  justify-content: center;
+  margin-top: 2px;
+  font-size: 10px;
 }
 
 .weq-intent-popover-bar {

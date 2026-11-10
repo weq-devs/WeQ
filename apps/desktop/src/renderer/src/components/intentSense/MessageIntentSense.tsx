@@ -441,7 +441,7 @@ export function MessageIntentSense({
                     </span>
                     <span>{result.sentiment > 0 ? `+${result.sentiment}` : result.sentiment}</span>
                   </div>
-                  <div className="weq-intent-popover-row">
+                  <div className="weq-intent-popover-row is-footer">
                     <span className="weq-intent-confidence">
                       置信度 {Math.round(result.confidence * 100)}% ·{' '}
                       {result.engine === 'local' ? '本地模型' : 'API'}
