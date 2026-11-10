@@ -174,12 +174,41 @@ nt_helper 侧接线：`signPacketWithToken` 早就支持 `mode`；`send_oidb_pac
 
 ## 复核
 
-```bash
-# 在当前平台全量重测（Linux 需要 root / CAP_NET_RAW 抓包）
-pnpm sign:probe
+`scripts/probe-sign.ts` 现在区分四种结果：`signed`、`unsigned`、`parse-error`、
+`not-captured`。只有 SSO 头、正文边界与 reserved 完整解析且没有 tag 24，才输出
+不签名；空/重复/错类型的 SecInfo、截断 protobuf 和未知协议均保留为解析失败。
+捕获帧必须命令和正文都与本次请求匹配，不再只按命令名取第一帧。
 
-# 只测差异命令
+查询类优先提供现有协议 spec 编码出的真实正文，并包含一个已知会签名的查询作正对照：
+
+```bash
+# query-requests.json 是数组，每项为 { cmd, bodyHex, isUid? }
+# OIDB 的 bodyHex 为 inner body；raw 命令为完整业务正文，允许显式空字符串
+pnpm tsx scripts/probe-sign.ts --requests query-requests.json --control 0x102a_1 --json new-result.json
+
+# 旧 --cmd 模式仍使用占位正文，只用于对应输入下的通道诊断
 pnpm tsx scripts/probe-sign.ts --cmd 0x6d6_2 --cmd 0xfe1_2 --cmd HttpConn.0x6ff_501
 ```
 
-改完 `needSign` 后，Linux 和 Windows 都要各跑一轮；不要在单平台上推导另一个平台。
+`--requests` 与 `--cmd` 不能混用。OIDB 信封与 native `OidbBase` 对齐，UIN-form 使用
+tag 12；不再写无关的 tag 6。默认候选清单含消息发送、资料修改、通话和旧模型，
+查询探测不直接批量触发这些入口；写入类通过 QQ 正常操作的实际包补证。
+
+已知实际端点时可用 `--control-socket <绝对路径>`，不必枚举整个 runtime 目录。
+路径按 UTF-8 字节预检：macOS 最多 103 字节、Linux 最多 107 字节，均为末尾 NUL
+保留空间；超长路径会在读取物料和抓包之前拒绝，避免将连错端点误报成未捕获。
+
+JSON 报告使用顶层 `format: 'weq-sign-probe-v1'`，逐命令结果在 `results`；包含平台、
+时间、正对照、请求正文来源及 SHA-256、匹配帧数、解析失败原因与清理异常，不保存
+会话物料、请求正文或签名字节。报告仅新建，使用 0600，不覆盖已有文件。启动失败也
+保存真实原因，不能把空 `results` 当作全部不签名。退出码 1 表示运行或正对照失败，
+2 表示仍有未捕获/解析失败/清理异常，0 表示本轮全部请求取得有效观测。
+
+脚本不替 QQ 注入 hook；它会执行所给清单中的请求，因此查询复核使用明确的查询
+清单。需要已注入并上线的 QQ，以及当前平台实际可用的抓包、取物料条件。
+连接或握手失败也会释放本脚本已启动的抓包。
+macOS 可复用现有带 `com.apple.security.cs.debugger` 的 WeQ / Electron 读取端，以
+`ELECTRON_RUN_AS_NODE=1` 运行脚本；目标 QQ 调试副本需有 `get-task-allow`。普通 Node
+即使提权，也不等于拥有该读取能力，不能仅凭旧 `task_for_pid` 报错就要求关闭 SIP。
+改完 `needSign` 后需分别取得对应平台的证据，不在单平台推导其他平台；正对照成功和
+签名字节长度均不能代替 `mode=2` 的服务端业务接受验证。
