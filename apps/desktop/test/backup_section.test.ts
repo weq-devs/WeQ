@@ -137,7 +137,10 @@ it('API 配置与 WeQ 服务使用同级开关，注明范围并统一选择服�
   await ui.click('恢复默认设置');
   const modal = document.querySelector('[role="dialog"]')!;
   const switches = [...modal.querySelectorAll<HTMLButtonElement>('[role="switch"]')];
-  expect(switches.map((node) => node.getAttribute('aria-label'))).toEqual(['API 配置', 'WeQ 服务']);
+  expect(switches.map((node) => node.getAttribute('aria-label'))).toEqual([
+    '清除 API 配置',
+    '清除 WeQ 服务配置',
+  ]);
   expect(switches.map((node) => node.getAttribute('aria-checked'))).toEqual(['false', 'false']);
   expect(modal.textContent).toContain('模型、TTS、MCP、OneBot、外部 rkey、SSE');
   expect(modal.textContent).toContain('系统登录自启、Web 服务、远程连接模式');

@@ -38,11 +38,11 @@ export function DefaultsOptions({
       <fieldset disabled={disabled}>
         <div className="weq-defaults-toggles">
           <Row
-            label="API 配置"
+            label="清除 API 配置"
             desc="清除模型、TTS、MCP、OneBot、外部 rkey、SSE 的配置与凭据。"
             control={
               <Toggle
-                label="API 配置"
+                label="清除 API 配置"
                 checked={Boolean(choice.clearApi)}
                 disabled={disabled || !info.hasApi}
                 onChange={(checked) => onChange({ ...choice, clearApi: checked })}
@@ -50,7 +50,7 @@ export function DefaultsOptions({
             }
           />
           <Row
-            label="WeQ 服务"
+            label="清除 WeQ 服务配置"
             desc={
               info.connections.length
                 ? `恢复${info.connections.map((item) => item.label).join('、')}的默认设置。`
@@ -58,7 +58,7 @@ export function DefaultsOptions({
             }
             control={
               <Toggle
-                label="WeQ 服务"
+                label="清除 WeQ 服务配置"
                 checked={resetServices}
                 disabled={disabled || !info.connections.length}
                 onChange={(checked) =>
