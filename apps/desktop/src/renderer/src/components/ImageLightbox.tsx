@@ -22,7 +22,7 @@
  * 模式 + 发包物料齐全；本地那条腿只要模型下好了（`ocrLocalModelId`）。两条都不行才置灰。
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { Copy, Eye, EyeOff, Loader2, ScanText, X } from 'lucide-react';
@@ -36,6 +36,14 @@ import { useZoomPan } from './useZoomPan';
 import { resourceForRenderDocument } from '../lib/renderDocument';
 import { MediaSourceSave } from './MediaSaveControls';
 import { retainObjectUrl } from '../lib/objectUrl';
+import { useSurfaceEscape } from '../lib/surfaceEscape';
+import { mediaRetryUrl } from '../lib/mediaRetryUrl';
+import {
+  MediaLoadStatus,
+  MediaZoomControls,
+  mediaZoomKeyDown,
+  type MediaLoadState,
+} from './MediaPreviewControls';
 
 /**
  * 图片的「可 OCR」上下文 —— 只有聊天消息里的图片拿得到（元素里带 `fileToken`）。
@@ -62,6 +70,9 @@ interface LightboxStore {
   ocr: LightboxOcrContext | null;
   ownerDocument: Document | null;
   fallbackSources: string[];
+  sources: string[];
+  attempt: number;
+  status: MediaLoadState;
   releaseSources?: () => void;
   onClosed?: () => void;
   open(
@@ -72,7 +83,9 @@ interface LightboxStore {
     onClosed?: () => void,
     fallbackSources?: string[],
   ): void;
-  nextSource(failed: string): void;
+  nextSource(failed: string, attempt: number): void;
+  loaded(source: string, attempt: number): void;
+  retry(): void;
   close(): void;
 }
 
@@ -82,6 +95,9 @@ const useLightbox = create<LightboxStore>((set, get) => ({
   ocr: null,
   ownerDocument: null,
   fallbackSources: [],
+  sources: [],
+  attempt: 0,
+  status: 'loading',
   open(src, alt = '', ocr = null, ownerDocument = document, onClosed, fallbacks = []) {
     if (!src || (get().src === src && get().ownerDocument === ownerDocument)) return;
     const sources = [...new Set([src, ...fallbacks].filter(Boolean))];
@@ -94,15 +110,35 @@ const useLightbox = create<LightboxStore>((set, get) => ({
       ownerDocument,
       onClosed,
       fallbackSources: sources.slice(1),
+      sources,
+      attempt: 0,
+      status: 'loading',
       releaseSources: () => {
         for (const release of releases) release();
       },
     });
   },
-  nextSource(failed) {
+  nextSource(failed, attempt) {
     const { src, fallbackSources } = get();
-    if (src !== failed || !fallbackSources.length) return;
-    set({ src: fallbackSources[0], fallbackSources: fallbackSources.slice(1) });
+    if (src !== failed || get().attempt !== attempt) return;
+    if (!fallbackSources.length) {
+      set({ status: 'error' });
+      return;
+    }
+    set({ src: fallbackSources[0], fallbackSources: fallbackSources.slice(1), status: 'loading' });
+  },
+  loaded(source, attempt) {
+    if (get().src === source && get().attempt === attempt) set({ status: 'ready' });
+  },
+  retry() {
+    const { sources, attempt } = get();
+    if (!sources.length) return;
+    set({
+      src: sources[0],
+      fallbackSources: sources.slice(1),
+      attempt: attempt + 1,
+      status: 'loading',
+    });
   },
   close() {
     const { onClosed, releaseSources } = get();
@@ -113,6 +149,8 @@ const useLightbox = create<LightboxStore>((set, get) => ({
       ownerDocument: null,
       onClosed: undefined,
       fallbackSources: [],
+      sources: [],
+      status: 'loading',
       releaseSources: undefined,
     });
     releaseSources?.();
@@ -149,11 +187,17 @@ export function ImageLightbox(): ReactElement | null {
   const ocrContext = useLightbox((s) => s.ocr);
   const close = useLightbox((s) => s.close);
   const nextSource = useLightbox((s) => s.nextSource);
-  const zoom = useZoomPan(src);
+  const status = useLightbox((s) => s.status);
+  const attempt = useLightbox((s) => s.attempt);
+  const loaded = useLightbox((s) => s.loaded);
+  const retry = useLightbox((s) => s.retry);
+  const zoom = useZoomPan(`${src}:${attempt}`);
   const layer = useOverlayLayer(src !== null);
 
   const imageRef = useRef<HTMLImageElement | null>(null);
-  const layerRef = useRef<HTMLDivElement | null>(null);
+  // Portal 跨文档迁移时，让焦点和键盘监听一起切到新的窗口。
+  const layerRef = useMemo(() => ({ current: null as HTMLDivElement | null }), [document]);
+  useSurfaceEscape(layerRef, close, src !== null, true);
   /** 图片渲染后的实际像素尺寸（缩放用 transform，不影响 offsetWidth）。 */
   const [rendered, setRendered] = useState({ width: 0, height: 0 });
   const [blocks, setBlocks] = useState<OcrBlock[] | null>(null);
@@ -174,10 +218,6 @@ export function ImageLightbox(): ReactElement | null {
 
   useEffect(() => () => useLightbox.getState().close(), []);
 
-  useEffect(() => {
-    if (src) layerRef.current?.focus({ preventScroll: true });
-  }, [src, document]);
-
   // OCR 能力门禁：和「发送键」共用同一份在线 / 物料状态。
   const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, {
     enabled: src !== null && ocrContext !== null,
@@ -197,16 +237,7 @@ export function ImageLightbox(): ReactElement | null {
     setBusy(false);
     setShowOverlay(true);
     setRendered({ width: 0, height: 0 });
-  }, [src]);
-
-  useEffect(() => {
-    if (!src) return;
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'Escape') close();
-    }
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [src, close, document]);
+  }, [src, attempt]);
 
   /** 量一下图片渲染尺寸：覆盖层要按它把回包坐标（原图像素）换算成屏幕像素。 */
   const measure = useCallback(() => {
@@ -241,7 +272,7 @@ export function ImageLightbox(): ReactElement | null {
     };
     node.addEventListener('wheel', onWheel, { passive: false });
     return () => node.removeEventListener('wheel', onWheel);
-  }, [src, wheelAt]);
+  }, [src, wheelAt, layerRef]);
 
   const accessData = access.data;
   /**
@@ -364,35 +395,47 @@ export function ImageLightbox(): ReactElement | null {
   return createPortal(
     <div
       ref={layerRef}
-      className="weq-lightbox-layer weq-anim-fade"
+      className="weq-lightbox-layer weq-media-preview-layer weq-anim-fade"
       role="dialog"
       aria-modal="true"
       aria-label={alt ? `图片预览：${alt}` : '图片预览'}
       tabIndex={-1}
       style={{ zIndex: layer }}
       onMouseDown={close}
+      onKeyDown={(event) => {
+        if (status === 'ready') mediaZoomKeyDown(event, zoom);
+      }}
     >
       <button className="weq-lightbox-close" type="button" onClick={close} aria-label="关闭">
         <X size={22} />
       </button>
       <div className="weq-lightbox-stage-wrap weq-anim-pop">
-        <div className="weq-lightbox-stage" onMouseDown={(event) => event.stopPropagation()}>
+        <div
+          className="weq-lightbox-stage"
+          data-media-state={status}
+          aria-busy={status === 'loading'}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
           {/* 缩放 / 平移挂在 frame 上：图片和盖在它上面的 OCR 层一起动。 */}
           <div
             ref={zoom.setEl}
             className="weq-lightbox-frame"
-            style={zoom.style}
+            style={{ ...zoom.style, touchAction: 'none' }}
             onMouseDown={zoom.onMouseDown}
+            onPointerDown={zoom.onPointerDown}
           >
             <img
-              key={src}
+              key={`${src}:${attempt}`}
               ref={imageRef}
               className="weq-lightbox-image"
-              src={src}
+              src={mediaRetryUrl(src, attempt)}
               alt={alt}
               draggable={false}
-              onLoad={measure}
-              onError={() => nextSource(src)}
+              onLoad={() => {
+                loaded(src, attempt);
+                measure();
+              }}
+              onError={() => nextSource(src, attempt)}
             />
             {overlayVisible ? (
               <div className="weq-ocr-overlay">
@@ -423,15 +466,17 @@ export function ImageLightbox(): ReactElement | null {
               </div>
             ) : null}
           </div>
+          <MediaLoadStatus kind="图片" status={status} onRetry={retry} />
         </div>
 
         <div className="weq-lightbox-actions" onMouseDown={(event) => event.stopPropagation()}>
+          <MediaZoomControls zoom={zoom} disabled={status !== 'ready'} />
           {ocrContext ? (
             <button
               className="weq-lightbox-action weq-lightbox-action-primary"
               type="button"
               title={ocrHint}
-              disabled={!canOcr || busy}
+              disabled={!canOcr || busy || status !== 'ready'}
               onClick={() => void runOcr()}
             >
               {busy ? <Loader2 className="weq-spin" size={15} /> : <ScanText size={15} />}
@@ -472,6 +517,8 @@ export function ImageLightbox(): ReactElement | null {
             className="weq-lightbox-action"
             type="button"
             title="复制到剪贴板"
+            aria-label="复制到剪贴板"
+            disabled={status !== 'ready'}
             onClick={() => void onCopy()}
           >
             <Copy size={15} />

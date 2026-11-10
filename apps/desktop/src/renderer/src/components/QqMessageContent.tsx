@@ -624,9 +624,11 @@ function quoteSendTimeMs(replyData: Record<string, unknown>, hostSendTimeMs: num
 function ReplyPreviewNode({
   element,
   sendTimeMs,
+  interactive,
 }: {
   element: RenderElement;
   sendTimeMs: number;
+  interactive: boolean;
 }): ReactNode {
   const conv = useContext(ConvContext);
   if (element.type === 'face') {
@@ -635,21 +637,31 @@ function ReplyPreviewNode({
   if (element.type === 'pic') {
     return (
       <span className="qq-reply-preview-media">
-        <QqImage data={element.data ?? {}} sendTimeMs={sendTimeMs} conv={conv} />
+        <QqImage
+          data={element.data ?? {}}
+          sendTimeMs={sendTimeMs}
+          conv={conv}
+          interactive={interactive}
+        />
       </span>
     );
   }
   if (element.type === 'video') {
     return (
       <span className="qq-reply-preview-media">
-        <QqVideo data={element.data ?? {}} sendTimeMs={sendTimeMs} conv={conv} />
+        <QqVideo
+          data={element.data ?? {}}
+          sendTimeMs={sendTimeMs}
+          conv={conv}
+          interactive={interactive}
+        />
       </span>
     );
   }
   if (element.type === 'mface') {
     return (
       <span className="qq-reply-preview-media">
-        <QqMarketFace data={element.data ?? {}} />
+        <QqMarketFace data={element.data ?? {}} interactive={interactive} />
       </span>
     );
   }
@@ -759,8 +771,13 @@ function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendT
         <div className="qq-reply-quote-body">
           {previewEls.length > 0 ? (
             previewEls.map((element, i) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-              <ReplyPreviewNode key={`rp-${i}`} element={element} sendTimeMs={quoteTimeMs} />
+              <ReplyPreviewNode
+                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+                key={`rp-${i}`}
+                element={element}
+                sendTimeMs={quoteTimeMs}
+                interactive={!canJump}
+              />
             ))
           ) : (
             <span>引用消息</span>
