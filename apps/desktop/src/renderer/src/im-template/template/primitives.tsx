@@ -4,6 +4,7 @@ import { cn } from './classNames';
 import { DefaultAvatar } from './defaultAvatar';
 import { useAvatarUrl } from '../../hooks/useAvatarUrl';
 import { useDebouncedLoading } from '../../hooks/useDebouncedLoading';
+import { observePlaceholderAnimation } from '../../lib/placeholderAnimation';
 
 export function Avatar({
   name,
@@ -39,7 +40,13 @@ export function Avatar({
     >
       {hasImage ? (
         <>
-          {showShimmer ? <span className={cn('skel-block', 'avatar-shimmer')} aria-hidden /> : null}
+          {showShimmer ? (
+            <span
+              ref={observePlaceholderAnimation}
+              className={cn('skel-block', 'avatar-shimmer')}
+              aria-hidden
+            />
+          ) : null}
           <img
             ref={imgRef}
             src={resolved}

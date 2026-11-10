@@ -20,6 +20,7 @@ import {
 import { Image as ImageIcon } from 'lucide-react';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
+import { observePlaceholderAnimation } from '../lib/placeholderAnimation';
 import { useTabActive } from './RetainedTabs';
 import { ChatImageCacheContext } from './ChatImageCacheProvider';
 import '../styles/chat-image-preview.css';
@@ -112,7 +113,9 @@ export function ShimmerImage({
     <>
       {!enabled || !loaded ? (
         <span className="weq-image-placeholder" role="img" aria-label={alt || '图片'}>
-          {enabled && !failed ? <span className="weq-shimmer-block" aria-hidden /> : null}
+          {enabled && !failed ? (
+            <span ref={observePlaceholderAnimation} className="weq-shimmer-block" aria-hidden />
+          ) : null}
           <ImageIcon size={28} strokeWidth={1.5} aria-hidden />
         </span>
       ) : null}

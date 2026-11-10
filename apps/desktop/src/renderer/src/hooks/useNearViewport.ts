@@ -24,14 +24,15 @@ export interface NearViewportState {
 
 export function useNearViewport(
   ref: RefObject<Element | null>,
-  opts: { rootSelector?: string; rootMargin?: string } = {},
+  opts: { rootSelector?: string; rootMargin?: string; enabled?: boolean } = {},
 ): NearViewportState {
-  const { rootSelector, rootMargin = '200px' } = opts;
+  const { rootSelector, rootMargin = '200px', enabled = true } = opts;
   const [near, setNear] = useState(false);
   const [entered, setEntered] = useState(false);
   const enteredRef = useRef(false);
 
   useEffect(() => {
+    if (!enabled) return;
     const element = ref.current;
     if (!element) return;
     const Observer = element.ownerDocument.defaultView?.IntersectionObserver;
@@ -54,7 +55,7 @@ export function useNearViewport(
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, [ref, rootSelector, rootMargin]);
+  }, [ref, rootSelector, rootMargin, enabled]);
 
-  return { near, entered };
+  return { near: enabled && near, entered };
 }
