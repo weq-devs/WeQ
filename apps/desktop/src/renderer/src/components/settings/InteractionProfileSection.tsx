@@ -48,6 +48,7 @@ export function InteractionProfileSection() {
             <Toggle
               label="启用互动画像"
               checked={status.data?.profileEnabled ?? false}
+              indeterminate={!status.data}
               disabled={disabled}
               onChange={(profileEnabled) => void patch({ profileEnabled })}
             />
@@ -63,7 +64,7 @@ export function InteractionProfileSection() {
               <SegmentedControl
                 label="互动画像运行方式"
                 disabled={disabled}
-                value={status.data?.profileEngine ?? 'heuristic'}
+                value={status.data?.profileEngine ?? null}
                 onChange={(profileEngine) => void patch({ profileEngine })}
                 options={[
                   { value: 'api', label: 'API 模型' },

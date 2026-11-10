@@ -9,6 +9,7 @@ import {
 } from '../src/renderer/src/components/intentSense/context';
 import { IntentSuggestionBar } from '../src/renderer/src/components/intentSense/IntentSuggestionBar';
 import { DEFAULT_ANALYSIS_CONTEXT_MESSAGES } from '@weq/service/intent-context';
+import type { IntentAnalysisProgress } from '@weq/service';
 
 const fixture = vi.hoisted(() => ({
   status: {
@@ -32,6 +33,7 @@ const fixture = vi.hoisted(() => ({
   callbacks: [] as Array<
     (event: { kind: string; conv: string; results: IntentAnalysis[] }) => void
   >,
+  progressCallbacks: [] as Array<(event: IntentAnalysisProgress) => void>,
   utils: {
     account: {
       intentSense: {
@@ -69,6 +71,15 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             return { unsubscribe: fixture.unsubscribe };
           },
         },
+        onAnalysisProgress: {
+          subscribe: (
+            _input: unknown,
+            observer: { onData: (event: IntentAnalysisProgress) => void },
+          ) => {
+            fixture.progressCallbacks.push(observer.onData);
+            return { unsubscribe: vi.fn() };
+          },
+        },
       },
     },
   },
@@ -104,6 +115,7 @@ beforeEach(() => {
   fixture.analyze.mockReset().mockResolvedValue(null);
   fixture.unsubscribe.mockClear();
   fixture.callbacks.length = 0;
+  fixture.progressCallbacks.length = 0;
   fixture.suggestQuery.mockReset().mockReturnValue({ data: [], isFetching: false });
   fixture.utils.account.intentSense.getSuggestions.invalidate.mockClear();
   fixture.utils.account.intentSense.getProfile.invalidate.mockClear();
@@ -362,4 +374,58 @@ it('单条分析在途状态逐条通知，结束后停止窄条并标记不可�
   await act(async () => finish(null));
   expect(f.get().isPending?.('pending')).toBe(false);
   expect(f.get().isUnavailable('pending')).toBe(true);
+});
+
+it('批次只标记真实待分析消息，拒收其他会话及旧配置进度', async () => {
+  fixture.ensure.mockImplementation(() => new Promise(() => {}));
+  const f = renderFixture();
+  await f.render('own');
+  const publish = fixture.progressCallbacks.at(-1)!;
+  const event: IntentAnalysisProgress = {
+    kind: 'c2c',
+    conv: 'u_peer',
+    revision: 0,
+    total: 2,
+    completed: 1,
+    failed: 0,
+    pendingIds: ['pending'],
+  };
+  await act(async () => publish(event));
+  expect(f.get().isPending?.('pending')).toBe(true);
+  expect(f.get().isPending?.('outside')).toBe(false);
+  expect(document.body.textContent).toContain('正在分析 1/2');
+  await act(async () => publish({ ...event, conv: 'other', pendingIds: ['outside'] }));
+  expect(f.get().isPending?.('outside')).toBe(false);
+  fixture.status.analysisRevision++;
+  await f.render('own');
+  await act(async () => publish(event));
+  expect(f.get().isPending?.('pending')).toBe(false);
+});
+
+it('批次失败显示可重试状态，成功重试清除失败且保留旧分析', async () => {
+  fixture.ensure.mockResolvedValueOnce({ analyzed: 0, failed: 1, latestMsgId: 'own' });
+  const f = renderFixture();
+  await f.render('own');
+  expect(document.body.textContent).toContain('1 条消息分析失败');
+  expect(f.get().getAnalysis('old')).toBeDefined();
+  fixture.ensure.mockResolvedValue({ analyzed: 1, failed: 0, latestMsgId: 'own' });
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="重试分析"]')!.click(),
+  );
+  expect(fixture.ensure).toHaveBeenCalledTimes(2);
+  expect(document.body.textContent).not.toContain('分析未完成');
+});
+
+it('单条请求失败不冒充纯媒体，允许重试而不会无限转圈', async () => {
+  fixture.analyze.mockRejectedValueOnce(new Error('合成错误'));
+  const f = renderFixture();
+  await f.render();
+  await act(async () => f.get().requestAnalysis('failed'));
+  expect(f.get().isPending?.('failed')).toBe(false);
+  expect(f.get().isUnavailable('failed')).toBe(false);
+  expect(f.get().getFailure?.('failed')).toBe('合成错误');
+  fixture.analyze.mockResolvedValue({ ...sample, msgId: 'failed' });
+  await act(async () => f.get().requestAnalysis('failed'));
+  expect(f.get().getFailure?.('failed')).toBeUndefined();
+  expect(f.get().getAnalysis('failed')).toBeDefined();
 });

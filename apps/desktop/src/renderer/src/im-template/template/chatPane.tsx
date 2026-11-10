@@ -5887,6 +5887,14 @@ export function ChatPane({
           conv={intentConv}
           replyTargetId={latestPeerMsgId}
           latestMessageId={latestSuggestionId}
+          onLocate={(target) =>
+            jumpToSeq({
+              seq: target.msgSeq,
+              index: target.msgSeq,
+              senderUin: target.senderUin,
+              sendTime: target.sendTime,
+            })
+          }
           onInsert={(text) => {
             const prefix = body.trim().length > 0 ? ' ' : '';
             insertComposerText(`${prefix}${text}`);

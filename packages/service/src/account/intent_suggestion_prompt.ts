@@ -15,6 +15,7 @@ export interface SuggestionPerson {
 
 export interface SuggestionMessage {
   msgId: string;
+  msgSeq?: string;
   mine: boolean;
   senderUid: string;
   senderUin: string;

@@ -12,7 +12,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IntentSenseService, type IntentLocalEnginePort } from '../src/account/intent_sense';
+import {
+  IntentSenseService,
+  type IntentLocalEnginePort,
+  type IntentAnalysisProgress,
+} from '../src/account/intent_sense';
 import { detectUpstreamSignal, analyzePragmatics } from '../src/account/intent_corpus';
 import { TokenUsageStore } from '../src/account/agentlab_usage';
 import type { AccountSession } from '@weq/account';
@@ -82,6 +86,72 @@ describe('IntentSenseService', () => {
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
     vi.unstubAllGlobals();
+  });
+
+  it('批次进度只统计实际缺口，含失败完成数，晚订阅可恢复在途范围', async () => {
+    let finish!: (value: null) => void;
+    const analyze = vi
+      .fn<IntentLocalEnginePort['analyze']>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockResolvedValue(null);
+    const svc = new IntentSenseService(
+      makeSession([
+        textMsg(1n, 'u_peer', '合成消息一', 1000),
+        textMsg(2n, 'u_peer', '合成消息二', 1001),
+      ]),
+      dir,
+      { localEngine: makeLocalPort(analyze) },
+    );
+    await svc.setConfig({ enabled: true, engine: 'local' });
+    const events: IntentAnalysisProgress[] = [];
+    const off = svc.onAnalysisProgress((event) => events.push(event));
+    const task = svc.ensureAnalysis('c2c', 'u_peer');
+    await vi.waitFor(() => expect(analyze).toHaveBeenCalledOnce());
+    expect(events[0]).toMatchObject({ total: 2, completed: 0, failed: 0, pendingIds: ['1', '2'] });
+    const late = vi.fn();
+    const offLate = svc.onAnalysisProgress(late);
+    expect(late).toHaveBeenCalledWith(events[0]);
+    finish(null);
+    expect(await task).toMatchObject({ analyzed: 0, failed: 2 });
+    expect(events.at(-1)).toMatchObject({ total: 2, completed: 2, failed: 2, pendingIds: [] });
+    const after = vi.fn();
+    svc.onAnalysisProgress(after)();
+    expect(after).not.toHaveBeenCalled();
+    off();
+    offLate();
+  });
+
+  it('推荐历史按实际输入末条定位，缓存命中不重复记轮，手动重算与重启保留历史', async () => {
+    const messages = [textMsg(1n, 'u_peer', '合成问题？', 1000)];
+    const session = makeSession(messages);
+    const svc = new IntentSenseService(session, dir);
+    await svc.setConfig({ suggestionsEnabled: true, suggestionProviderRef: null });
+    const first = await svc.getSuggestions('c2c', 'u_peer');
+    expect(svc.getSuggestionHistory('c2c', 'u_peer')).toMatchObject([
+      {
+        target: { msgId: '1', msgSeq: '1', senderUin: '22222', sendTime: 1000 },
+        suggestions: first,
+      },
+    ]);
+    await svc.getSuggestions('c2c', 'u_peer');
+    expect(svc.getSuggestionHistory('c2c', 'u_peer')).toHaveLength(1);
+    await svc.getSuggestions('c2c', 'u_peer', { refresh: true });
+    expect(svc.getSuggestionHistory('c2c', 'u_peer')).toHaveLength(2);
+    expect(new Set(svc.getSuggestionHistory('c2c', 'u_peer').map((entry) => entry.id)).size).toBe(
+      2,
+    );
+    expect(svc.getSuggestionHistory('group', 'u_peer')).toEqual([]);
+    messages.push(textMsg(2n, 'u_peer', '合成新消息', 1001));
+    await svc.getSuggestions('c2c', 'u_peer');
+    expect(svc.getSuggestionHistory('c2c', 'u_peer')[0]?.target.msgSeq).toBe('2');
+    const reopened = new IntentSenseService(session, dir);
+    expect(reopened.getSuggestionHistory('c2c', 'u_peer')).toHaveLength(3);
+    expect(reopened.getSuggestionHistory('c2c', 'u_peer')[0]?.target.msgId).toBe('2');
   });
 
   it('默认模型变更使分析缓存失效，重启继续校验身份，空值与显式选择不继承', async () => {

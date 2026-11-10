@@ -183,6 +183,13 @@ const intentSenseFeatureProcedures = {
     )
     .query(({ input }) => requireServices().intentSense.getProfile(input.peerUid)),
 
+  /** 读取本会话逐轮回复历史及实际输入末条的定位信息。 */
+  getSuggestionHistory: procedure
+    .input(z.object({ kind: kindSchema, conv: z.string().min(1) }))
+    .query(({ input }) =>
+      requireServices().intentSense.getSuggestionHistory(input.kind, input.conv),
+    ),
+
   /** 候选回复（当前引擎可用且 suggestionsEnabled）。 */
   getSuggestions: procedure
     // 版本隔离缓存；自动查询可暂停，手动刷新不改变功能和会话开关。
@@ -210,6 +217,11 @@ const intentSenseFeatureProcedures = {
       const off = requireServices().intentSense.onAnalyzed((event) => emit.next(event));
       return off;
     });
+  }),
+  onAnalysisProgress: procedure.subscription(() => {
+    return observable<import('@weq/service').IntentAnalysisProgress>((emit) =>
+      requireServices().intentSense.onAnalysisProgress((event) => emit.next(event)),
+    );
   }),
 };
 

@@ -6,11 +6,13 @@
  * 不受自己发送后的自动推荐开关限制，等待期间仍保留原候选。
  */
 
-import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { Lightbulb, RefreshCw } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type ReactElement } from 'react';
+import { Lightbulb, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useToast } from '../Toast';
 import { useIntentSenseStatus } from './context';
+import { ReplySuggestionHistory } from './ReplySuggestionHistory';
+import type { ReplySuggestionHistoryEntry } from '@weq/service';
 import '../../styles/intent-sense.css';
 
 interface SuggestionWire {
@@ -24,6 +26,7 @@ export function IntentSuggestionBar({
   replyTargetId,
   latestMessageId,
   onInsert,
+  onLocate,
 }: {
   kind: 'c2c' | 'group';
   conv: string;
@@ -31,8 +34,14 @@ export function IntentSuggestionBar({
   replyTargetId?: string | null;
   latestMessageId?: string | null;
   onInsert: (text: string) => void;
+  onLocate?: (target: ReplySuggestionHistoryEntry['target']) => void | Promise<void>;
 }): ReactElement | null {
   const [busy, setBusy] = useState(false);
+  const [historyScope, setHistoryScope] = useState<string | null>(null);
+  const historyId = useId();
+  const [refreshError, setRefreshError] = useState<{ context: string; message: string } | null>(
+    null,
+  );
   const status = useIntentSenseStatus();
   const replyAllowed =
     replyTargetId !== null || (status.data?.suggestAfterSelf === true && !!latestMessageId);
@@ -56,6 +65,7 @@ export function IntentSuggestionBar({
   );
 
   const scope = JSON.stringify([kind, conv, status.data?.suggestionRevision ?? 0, active]);
+  const historyOpen = historyScope === scope;
   const requestContext = useRef('');
   requestContext.current = JSON.stringify([scope, latestMessageId, replyTargetId]);
   const refreshPending = useRef(false);
@@ -74,7 +84,13 @@ export function IntentSuggestionBar({
       : ((replyAllowed ? suggestions.data : undefined) ?? [])
   ) as SuggestionWire[];
   const loading = (replyAllowed && suggestions.isFetching) || busy;
-  const visible = active && (list.length > 0 || loading);
+  const error =
+    refreshError?.context === requestContext.current
+      ? refreshError.message
+      : replyAllowed
+        ? suggestions.error?.message
+        : undefined;
+  const visible = active;
   const trackRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const track = trackRef.current;
@@ -94,16 +110,42 @@ export function IntentSuggestionBar({
   if (!visible) return null;
 
   return (
-    <div className="weq-int-suggest">
-      <Lightbulb size={12} className="weq-int-suggest-icon" aria-hidden />
-      <div key={`${kind}:${conv}`} ref={trackRef} className="weq-int-suggest-track">
-        {loading && list.length === 0
-          ? ['skeleton-0', 'skeleton-1', 'skeleton-2'].map((key) => (
-              <span key={key} className="weq-int-suggest-pill is-skeleton" style={{ minWidth: 88 }}>
-                <span>…</span>
-              </span>
-            ))
-          : list.map((s) => (
+    <div
+      className={`weq-int-suggest${historyOpen ? ' is-history-open' : ''}`}
+      aria-label="推荐回复"
+    >
+      {historyOpen ? (
+        <div id={historyId} className="weq-int-history-slot">
+          <ReplySuggestionHistory
+            key={`${kind}:${conv}`}
+            kind={kind}
+            conv={conv}
+            revision={previous?.list}
+            onInsert={onInsert}
+            onLocate={onLocate}
+          />
+        </div>
+      ) : null}
+      <div className="weq-int-suggest-bar" aria-busy={loading}>
+        <Lightbulb size={12} className="weq-int-suggest-icon" aria-hidden />
+        <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {loading
+            ? '正在生成推荐回复…'
+            : error
+              ? `推荐回复失败：${error}`
+              : list.length
+                ? '推荐回复已更新'
+                : '暂无推荐回复'}
+        </span>
+        <div key={`${kind}:${conv}`} ref={trackRef} className="weq-int-suggest-track">
+          {loading && list.length === 0 ? (
+            <span className="weq-int-suggest-empty">正在生成推荐回复</span>
+          ) : list.length === 0 ? (
+            <span className="weq-int-suggest-empty" title={error}>
+              {error ? '推荐回复失败，可重试' : replyAllowed ? '暂无推荐回复' : '等待对方新消息'}
+            </span>
+          ) : (
+            list.map((s) => (
               <button
                 key={`${s.tone ?? ''}:${s.text}`}
                 type="button"
@@ -114,44 +156,69 @@ export function IntentSuggestionBar({
                 {s.tone ? <span className="weq-int-suggest-tone">{s.tone}</span> : null}
                 <span className="weq-int-suggest-text">{s.text}</span>
               </button>
-            ))}
-      </div>
-      <button
-        type="button"
-        className={`weq-int-suggest-refresh${loading ? ' is-busy' : ''}`}
-        title="换一批"
-        aria-label="换一批建议"
-        disabled={busy}
-        onClick={async () => {
-          if (refreshPending.current) return;
-          refreshPending.current = true;
-          const expected = requestContext.current;
-          setBusy(true);
-          try {
-            const list = await client.account.intentSense.getSuggestions.query({
-              kind,
-              conv,
-              revision: status.data?.suggestionRevision ?? 0,
-              ...(latestMessageId !== undefined ? { targetId: latestMessageId } : {}),
-              refresh: true,
-            });
-            if (requestContext.current === expected && list.length > 0)
-              setPrevious({ scope, list });
-          } catch (error) {
-            if (requestContext.current === expected)
-              useToast.getState().push({
-                tone: 'error',
-                message: '刷新推荐回复失败',
-                detail: error instanceof Error ? error.message : String(error),
+            ))
+          )}
+        </div>
+        {error && list.length > 0 ? (
+          <span className="weq-int-suggest-error" title={error}>
+            更新失败
+          </span>
+        ) : null}
+        <button
+          type="button"
+          className={`weq-int-suggest-refresh${loading ? ' is-busy' : ''}`}
+          title={error ? '重试推荐回复' : '换一批'}
+          aria-label="换一批建议"
+          aria-busy={loading}
+          disabled={loading}
+          onClick={async () => {
+            if (refreshPending.current || loading) return;
+            refreshPending.current = true;
+            const expected = requestContext.current;
+            setBusy(true);
+            setRefreshError(null);
+            try {
+              const list = await client.account.intentSense.getSuggestions.query({
+                kind,
+                conv,
+                revision: status.data?.suggestionRevision ?? 0,
+                ...(latestMessageId !== undefined ? { targetId: latestMessageId } : {}),
+                refresh: true,
               });
-          } finally {
-            refreshPending.current = false;
-            setBusy(false);
-          }
-        }}
-      >
-        <RefreshCw size={12} />
-      </button>
+              if (requestContext.current === expected && list.length > 0)
+                setPrevious({ scope, list });
+            } catch (error) {
+              if (requestContext.current === expected) {
+                setRefreshError({
+                  context: expected,
+                  message: error instanceof Error ? error.message : String(error),
+                });
+                useToast.getState().push({
+                  tone: 'error',
+                  message: '刷新推荐回复失败',
+                  detail: error instanceof Error ? error.message : String(error),
+                });
+              }
+            } finally {
+              refreshPending.current = false;
+              setBusy(false);
+            }
+          }}
+        >
+          <RefreshCw size={12} />
+        </button>
+        <button
+          type="button"
+          className="weq-int-suggest-refresh"
+          title={historyOpen ? '收起回复历史' : '展开回复历史'}
+          aria-label={historyOpen ? '收起回复历史' : '展开回复历史'}
+          aria-expanded={historyOpen}
+          aria-controls={historyId}
+          onClick={() => setHistoryScope(historyOpen ? null : scope)}
+        >
+          {historyOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+        </button>
+      </div>
     </div>
   );
 }

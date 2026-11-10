@@ -1,0 +1,226 @@
+import assert from 'node:assert/strict';
+import { createServer } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwind from '@tailwindcss/vite';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const root = resolve(here, '../..');
+const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const cacheRoot = resolve(root, 'node_modules/.cache');
+await mkdir(cacheRoot, { recursive: true });
+const cacheDir = await mkdtemp(resolve(cacheRoot, 'intent-loading-'));
+const output = process.env.WEQ_INTENT_ARTIFACTS;
+const server = await createServer({
+  configFile: false,
+  root,
+  cacheDir,
+  optimizeDeps: { entries: ['test/browser/intent-loading.html'] },
+  plugins: [react(), tailwind()],
+  resolve: {
+    alias: [
+      { find: /^.*\/trpc\/client$/, replacement: resolve(here, 'intent-loading.stub.ts') },
+      { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
+      { find: '@resources', replacement: resolve(root, '../../resources') },
+      { find: '@transport', replacement: resolve(root, 'test/support/transport.stub.ts') },
+    ],
+  },
+  server: { host: '127.0.0.1', port: 0, hmr: false, fs: { allow: [resolve(root, '../..')] } },
+});
+let browser;
+try {
+  await server.listen();
+  browser = await chromium.launch({
+    headless: true,
+    ...(process.env.WEQ_BROWSER_EXECUTABLE
+      ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
+      : {}),
+  });
+  const page = await browser.newPage({
+    viewport: { width: 1280, height: 900 },
+    reducedMotion: 'reduce',
+  });
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.route('**/*', (route) =>
+    new URL(route.request().url()).hostname === '127.0.0.1' ||
+    route.request().url().startsWith('data:')
+      ? route.continue()
+      : route.abort(),
+  );
+  const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/intent-loading.html`;
+  if (output) await mkdir(output, { recursive: true });
+  await page.goto(url);
+  await page.waitForSelector('.weq-int-profile-skeleton');
+  await page.evaluate(() => window.intentQa.setMode('loading'));
+  const geometry = () =>
+    page.evaluate(() =>
+      Object.fromEntries(
+        ['.weq-intent-chips', '.weq-int-suggest', '.message-scroll', '.weq-affinity-pill'].map(
+          (selector) => {
+            const rect = document.querySelector(selector).getBoundingClientRect();
+            return [selector, { top: rect.top, height: rect.height, width: rect.width }];
+          },
+        ),
+      ),
+    );
+  const loading = await geometry();
+  assert.equal(await page.getByLabel('换一批建议', { exact: true }).isDisabled(), true);
+  assert.equal(await page.locator('.weq-int-suggest-track').textContent(), '正在生成推荐回复');
+  assert.equal(await page.locator('.weq-intent-pill.is-loading').count(), 2);
+  if (output) await page.screenshot({ path: resolve(output, 'loading.png'), fullPage: true });
+  await page.evaluate(() => window.intentQa.setMode('ready'));
+  await page.waitForSelector('.weq-int-affinity-num');
+  await page.waitForFunction(() =>
+    document.querySelector('.weq-intent-chips')?.textContent.includes('闲聊'),
+  );
+  const ready = await geometry();
+  assert.deepEqual(ready, loading, '加载切换到结果不改变槽位和消息区几何');
+  await page.locator('.weq-int-suggest-pill').first().click();
+  assert.equal(await page.getByLabel('草稿').inputValue(), '有空一起聊聊');
+  await page.getByLabel('展开回复历史', { exact: true }).click();
+  await page.waitForSelector('.weq-int-history-row');
+  const historyGeometry = await geometry();
+  const historyHeight = await page
+    .locator('.weq-int-history-slot')
+    .evaluate((node) => node.getBoundingClientRect().height);
+  assert.equal(historyGeometry['.message-scroll'].height, ready['.message-scroll'].height / 2);
+  assert.equal(historyHeight, ready['.message-scroll'].height / 2);
+  assert.equal(await page.locator('.weq-int-history-row').count(), 2);
+  await page.getByLabel('定位到本次推荐的最后一条输入消息', { exact: true }).first().click();
+  assert.equal(await page.evaluate(() => window.intentQa.located.msgSeq), '77');
+  if (output) await page.screenshot({ path: resolve(output, 'history-desktop.png') });
+  await page.getByLabel('收起回复历史', { exact: true }).click();
+  assert.deepEqual(await geometry(), ready, '收起历史恢复原消息区高度');
+  await page.evaluate(() => window.intentQa.setMode('error'));
+  await page.waitForSelector('.weq-int-suggest-error');
+  assert.equal(await page.locator('.weq-int-affinity-num').textContent(), '70');
+  assert.deepEqual(await geometry(), ready, '刷新失败不改变布局或抹掉已有画像');
+  if (output) await page.screenshot({ path: resolve(output, 'refresh-error.png'), fullPage: true });
+  await page.evaluate(() => window.intentQa.setMode('ready'));
+
+  let cases = 0;
+  let minimumContrast = 100;
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark']) {
+      for (const background of ['plain', 'paper', 'grid', 'dots', 'wash', 'telegram']) {
+        for (const accent of ['#075c30', '#fff3a1']) {
+          await page.evaluate(
+            ({ theme, background, accent }) => {
+              document.documentElement.dataset.theme = theme;
+              document.documentElement.dataset.background = background;
+              document.documentElement.style.setProperty('--weq-accent-effective', accent);
+            },
+            { theme, background, accent },
+          );
+          await page.evaluate(async () => {
+            window.scrollTo(0, 0);
+            await new Promise(requestAnimationFrame);
+            document.querySelector('.weq-intent-details').focus({ preventScroll: true });
+          });
+          await page.waitForSelector('.weq-intent-popover', { timeout: 5000 }).catch((error) => {
+            throw new Error(`${width}/${theme}/${background}/${accent}: ${error.message}`);
+          });
+          const checks = await page.evaluate(() => {
+            const popover = document.querySelector('.weq-intent-popover');
+            const bars = [...popover.querySelectorAll('.weq-intent-popover-bar')].map((node) =>
+              node.getBoundingClientRect(),
+            );
+            const pixels = (color) => {
+              const context = document.createElement('canvas').getContext('2d');
+              context.fillStyle = color;
+              context.fillRect(0, 0, 1, 1);
+              return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
+            };
+            const luminance = (rgb) =>
+              rgb
+                .map((v) => {
+                  const s = v / 255;
+                  return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+                })
+                .reduce((sum, v, index) => sum + v * [0.2126, 0.7152, 0.0722][index], 0);
+            const ratios = [
+              ...document.querySelectorAll(
+                '.intent-palette .weq-intent-pill, .intent-palette .weq-affinity-pill',
+              ),
+            ].map((node) => {
+              const css = getComputedStyle(node);
+              const a = luminance(pixels(css.color)),
+                b = luminance(pixels(css.backgroundColor));
+              return {
+                ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05),
+                text: node.textContent,
+                color: css.color,
+                background: css.backgroundColor,
+              };
+            });
+            const rect = popover.getBoundingClientRect();
+            return {
+              sameTracks:
+                Math.abs(bars[0].width - bars[1].width) < 0.1 &&
+                Math.abs(bars[0].left - bars[1].left) < 0.1,
+              compact:
+                rect.width <= 180 &&
+                [...popover.querySelectorAll('.is-metric > :first-child')].every(
+                  (node) => getComputedStyle(node).whiteSpace === 'nowrap',
+                ),
+              noDuplicate: popover.querySelectorAll('.weq-intent-pill').length === 0,
+              noActions:
+                popover.querySelectorAll('button, a, [role="button"]').length === 0 &&
+                !document.querySelector('button.weq-intent-details'),
+              pointerTransparent: getComputedStyle(popover).pointerEvents === 'none',
+              inViewport:
+                rect.left >= 0 &&
+                rect.right <= innerWidth &&
+                document.documentElement.scrollWidth <= innerWidth,
+              targets: [...document.querySelectorAll('.weq-int-suggest button')].every((node) => {
+                const r = node.getBoundingClientRect();
+                return r.width >= 24 && r.height >= 24;
+              }),
+              reducedMotion:
+                getComputedStyle(document.querySelector('.weq-int-suggest-refresh svg'))
+                  .animationName === 'none',
+              minimumContrast: Math.min(...ratios.map((item) => item.ratio)),
+              worstContrast: ratios.sort((a, b) => a.ratio - b.ratio)[0],
+            };
+          });
+          for (const [key, value] of Object.entries(checks))
+            if (!['minimumContrast', 'worstContrast'].includes(key))
+              assert.equal(value, true, `${width}/${theme}/${background}/${accent}: ${key}`);
+          assert.ok(
+            checks.minimumContrast >= 4.5,
+            `${width}/${theme}/${background}/${accent}: ${JSON.stringify(checks.worstContrast)}`,
+          );
+          minimumContrast = Math.min(minimumContrast, checks.minimumContrast);
+          if (output && background === 'plain' && accent === '#075c30' && width !== 320)
+            await page.screenshot({ path: resolve(output, `ready-${width}-${theme}.png`) });
+          await page.keyboard.press('Escape');
+          assert.equal(await page.locator('.weq-intent-popover').count(), 0);
+          await page.locator('.weq-intent-details').first().blur();
+          if (background === 'plain' && accent === '#075c30') {
+            const before = await geometry();
+            await page.getByLabel('展开回复历史', { exact: true }).click();
+            const expanded = await geometry();
+            assert.ok(
+              Math.abs(expanded['.message-scroll'].height - before['.message-scroll'].height / 2) <=
+                1,
+            );
+            if (output && width === 390)
+              await page.screenshot({ path: resolve(output, `history-${width}-${theme}.png`) });
+            await page.getByLabel('收起回复历史', { exact: true }).click();
+          }
+          cases++;
+        }
+      }
+    }
+  }
+  assert.deepEqual(errors, []);
+  console.log(JSON.stringify({ cases, minimumContrast, errors, geometry: ready, output }, null, 2));
+} finally {
+  await browser?.close();
+  await server.close();
+  await rm(cacheDir, { recursive: true, force: true });
+}

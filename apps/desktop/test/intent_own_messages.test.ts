@@ -147,9 +147,10 @@ it.each(['older-own', 'older-peer', 'roaming:protocol:2:77'])(
   },
 );
 
-it('批量分析期间，所有未分析文本都显示加载窄条，不只最新一条', async () => {
+it('批量分析期间，只对本批次真实待分析文本显示加载窄条', async () => {
   fixture.context.getAnalysis.mockReturnValue(undefined);
   fixture.context.settled = false;
+  fixture.context.isPending.mockImplementation((id) => id !== 'older-own');
   const host = await render(
     h(
       'div',
@@ -160,7 +161,7 @@ it('批量分析期间，所有未分析文本都显示加载窄条，不只最�
     ),
   );
   expect(host.querySelectorAll('.weq-intent-chips')).toHaveLength(3);
-  expect(host.querySelectorAll('.weq-intent-pill.is-loading')).toHaveLength(6);
+  expect(host.querySelectorAll('.weq-intent-pill.is-loading')).toHaveLength(4);
 });
 
 it('单条历史消息分析在途时，即使批次已结束也显示加载窄条', async () => {
@@ -173,11 +174,14 @@ it('单条历史消息分析在途时，即使批次已结束也显示加载窄�
 it('分析结束后历史消息的加载窄条消失；已有结果替换占位', async () => {
   fixture.context.getAnalysis.mockReturnValue(undefined);
   fixture.context.settled = false;
+  fixture.context.isPending.mockReturnValue(true);
   const host = await render(h(OwnBubble, { msgId: 'older-peer' }));
   expect(host.querySelector('.is-loading')).not.toBeNull();
   fixture.context.settled = true;
+  fixture.context.isPending.mockReturnValue(false);
   await host.rerender();
-  expect(host.querySelector('.weq-intent-chips')).toBeNull();
+  expect(host.querySelector('.weq-intent-chips')).not.toBeNull();
+  expect(host.querySelector('.is-loading')).toBeNull();
   fixture.context.getAnalysis.mockReturnValue(fixture.result);
   await host.rerender();
   expect(host.querySelector('.is-loading')).toBeNull();
@@ -192,7 +196,7 @@ it('关闭常驻显示隐藏结果和窄条，但保留悬停详情', async () =
     host.querySelector('.message-bubble')!.dispatchEvent(new Event('pointerenter'));
     vi.advanceTimersByTime(300);
   });
-  expect(document.querySelector('.weq-intent-popover')?.textContent).toContain('闲聊');
+  expect(document.querySelector('.weq-intent-popover')?.textContent).toContain('情绪强度');
   fixture.context.getAnalysis.mockReturnValue(undefined);
   fixture.context.settled = false;
   await host.rerender();
@@ -227,7 +231,10 @@ it.each(['settled', 'unavailable', 'media', 'disabled'])(
     fixture.context.active = state !== 'disabled';
     fixture.context.isUnavailable.mockReturnValue(state === 'unavailable');
     const host = await render(h(OwnBubble, { msgId: 'older-peer', analyzable: state !== 'media' }));
-    expect(host.querySelector('.weq-intent-chips')).toBeNull();
+    expect(host.querySelector('.is-loading')).toBeNull();
+    expect(!!host.querySelector('.weq-intent-chips')).toBe(
+      state !== 'media' && state !== 'disabled',
+    );
   },
 );
 
@@ -252,7 +259,8 @@ it('首次进入仅有自己消息的会话时禁用推荐查询，不展示查�
     }),
   );
   expect(fixture.query.mock.calls[0]?.[1]?.enabled).toBe(false);
-  expect(host.querySelector('.weq-int-suggest')).toBeNull();
+  expect(host.querySelector('.weq-int-suggest')).not.toBeNull();
+  expect(host.textContent).toContain('等待对方新消息');
   expect(host.textContent).not.toContain('旧候选');
 });
 

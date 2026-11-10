@@ -360,6 +360,10 @@ it.each(['loading', 'error'])('设置 %s 时保留条件摘要并禁止改配置
   expect(f.host.querySelector<HTMLButtonElement>('[aria-label="启用意图感知"]')!.disabled).toBe(
     true,
   );
+  expect(f.host.querySelector('[aria-label="启用意图感知"]')?.getAttribute('aria-checked')).toBe(
+    'mixed',
+  );
+  expect(f.host.querySelector('[aria-label="意图感知运行方式"] [aria-checked="true"]')).toBeNull();
   expect(f.host.querySelector('[data-setting-id="intent-model-resources"]')?.textContent).toContain(
     '待确认',
   );

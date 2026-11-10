@@ -54,6 +54,7 @@ export function IntentSenseSection() {
             <Toggle
               label="启用意图感知"
               checked={s?.enabled ?? false}
+              indeterminate={!s}
               disabled={disabled}
               onChange={(enabled) => void patch({ enabled })}
             />
@@ -68,7 +69,7 @@ export function IntentSenseSection() {
             control={
               <SegmentedControl
                 label="意图感知运行方式"
-                value={s?.engine ?? 'api'}
+                value={s?.engine ?? null}
                 disabled={disabled}
                 onChange={(engine) => void patch({ engine })}
                 options={[
@@ -114,6 +115,7 @@ export function IntentSenseSection() {
                 <Toggle
                   label="常驻显示"
                   checked={s?.persistentDisplay !== false}
+                  indeterminate={!s}
                   disabled={disabled || inactive}
                   onChange={(persistentDisplay) => void patch({ persistentDisplay })}
                 />
@@ -126,6 +128,7 @@ export function IntentSenseSection() {
                 <Toggle
                   label="悬停显示"
                   checked={s?.hoverDisplay !== false}
+                  indeterminate={!s}
                   disabled={disabled || inactive}
                   onChange={(hoverDisplay) => void patch({ hoverDisplay })}
                 />
@@ -140,6 +143,7 @@ export function IntentSenseSection() {
                 <Toggle
                   label="自己发送后分析"
                   checked={s?.analyzeAfterSelf !== false}
+                  indeterminate={!s}
                   disabled={disabled || inactive}
                   onChange={(analyzeAfterSelf) => void patch({ analyzeAfterSelf })}
                 />

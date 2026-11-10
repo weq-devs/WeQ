@@ -4,12 +4,22 @@ import { MAX_INTENT_CONTEXT_MESSAGES } from '@weq/service/intent-context';
 const service = vi.hoisted(() => ({
   setConfig: vi.fn(async (input: unknown) => input),
   getSuggestions: vi.fn(async () => []),
+  getSuggestionHistory: vi.fn(() => []),
 }));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({ services: { intentSense: service } }),
   getActiveIntentSenseLocalEngine: () => null,
 }));
 import { intentSenseRouter } from '../src/main/ipc/routers/intent_sense';
+
+it('回复历史读取按会话隔离，不触发重新生成', async () => {
+  const caller = intentSenseRouter.createCaller({});
+  const calls = service.getSuggestions.mock.calls.length;
+  await expect(caller.getSuggestionHistory({ kind: 'c2c', conv: 'u_peer' })).resolves.toEqual([]);
+  expect(service.getSuggestionHistory).toHaveBeenLastCalledWith('c2c', 'u_peer');
+  expect(service.getSuggestions).toHaveBeenCalledTimes(calls);
+  await expect(caller.getSuggestionHistory({ kind: 'group', conv: '' })).rejects.toThrow();
+});
 
 it('上文配置路由接受独立零值和边界，拒绝越界及小数', async () => {
   const caller = intentSenseRouter.createCaller({});

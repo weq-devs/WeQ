@@ -3,7 +3,7 @@
  *
  * 两种形态共用一套 pill：
  *  • 常驻行（.weq-intent-chips，气泡 grid 的一个子元素，位于正文下方）——所有已有
- *    结果的消息均显示胶囊，待分析文本逐条显示 shimmer 占位。
+ *    结果的消息均显示胶囊，本批次待分析文本显示静态占位，槽位始终同高。
  *  • 悬停弹层（.weq-intent-popover，portal + fixed，空间不足向上避让）——悬停任意消息
  *    250ms 后出现，未命中缓存时触发单条分析并显示加载态。悬停交互仿
  *    SetEmojiReactions 的「延迟开、延迟关」手法，弹层自身 pointer-events:none，
@@ -12,7 +12,7 @@
  * 本组件不关心数据来源 —— 一切经 {@link useIntentSenseContext}。
  */
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useRenderDocument } from '../../lib/renderDocument';
 import { useOverlayLayer } from '../../lib/overlayStack';
@@ -98,14 +98,14 @@ function IntentPill({
   emotion?: string;
 }) {
   return (
-    <span className="weq-intent-pill" data-emotion={emotion ?? 'neutral'} title={label}>
+    <span className="weq-intent-pill" data-emotion={emotion ?? 'neutral'}>
       {icon}
       <span>{label}</span>
     </span>
   );
 }
 
-/** 分析中的 shimmer 占位（只给常驻行用）。 */
+/** 分析中的静态占位（只给常驻行用）。 */
 function IntentPillLoading() {
   return <span className="weq-intent-pill is-loading" aria-hidden />;
 }
@@ -152,6 +152,7 @@ export function MessageIntentSense({
   const ownerDocument = useRenderDocument();
   const tabActive = useTabActive();
   const popoverRef = useRef<HTMLDivElement>(null);
+  const tooltipId = useId();
   const [anchor, setAnchor] = useState<ReturnType<typeof intentPopoverPosition> | null>(null);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -166,7 +167,8 @@ export function MessageIntentSense({
   const requestAnalysis = ctx?.requestAnalysis;
   const result = getAnalysis?.(msgId);
   const unavailable = isUnavailable?.(msgId) ?? false;
-  const pending = ctx?.isPending?.(msgId) || !ctx?.settled;
+  const pending = ctx?.isPending?.(msgId) ?? false;
+  const failure = ctx?.getFailure?.(msgId);
   void version;
 
   useEffect(() => {
@@ -258,6 +260,7 @@ export function MessageIntentSense({
     getAnalysis,
     isUnavailable,
     requestAnalysis,
+    ctx?.getFailure,
     msgId,
     ownerDocument,
     analyzable,
@@ -331,19 +334,73 @@ export function MessageIntentSense({
 
   if (!active) return null;
 
+  const openDetails = (): void => {
+    const bubble = bubbleRef.current;
+    if (!bubble || !hoverActive) return;
+    const view = ownerDocument.defaultView;
+    setAnchor(
+      intentPopoverPosition(
+        bubble.getBoundingClientRect(),
+        { width: POPOVER_EST_WIDTH, height: POPOVER_EST_HEIGHT },
+        { width: view?.innerWidth ?? 1024, height: view?.innerHeight ?? 768 },
+        bubble.closest('.message-scroll')?.getBoundingClientRect(),
+        isMineBubble(bubble),
+      ),
+    );
+    if (!result) requestAnalysis?.(msgId);
+  };
+  const chips = result ? (
+    <IntentChips result={result} />
+  ) : pending ? (
+    <>
+      <IntentPillLoading />
+      <IntentPillLoading />
+    </>
+  ) : failure ? (
+    <>
+      <Info size={12} />
+      <span>分析失败</span>
+    </>
+  ) : (
+    <span className="weq-intent-details-hint">
+      <Info size={12} />
+      分析详情
+    </span>
+  );
+
   return (
     <>
-      {/* 常驻行：所有已有结果与待分析文本；本轮分析结束后仍无结果则静默
-          （引擎不可用 / 纯媒体消息 / 分析失败都不再永挂 shimmer）。 */}
-      {persistentDisplay && analyzable !== false && !result && pending && !unavailable ? (
-        <span className="weq-intent-chips">
-          <IntentPillLoading />
-          <IntentPillLoading />
+      {/* 文本消息保留同高槽位，无结果/失败都不收缩气泡。 */}
+      {persistentDisplay && (analyzable !== false || result) ? (
+        <span className="weq-intent-chips" aria-busy={pending}>
+          {!unavailable && (hoverActive || failure) ? (
+            <span
+              role="group"
+              tabIndex={hoverActive ? 0 : undefined}
+              className={`weq-intent-details${!result && !pending && !failure ? ' is-empty' : ''}`}
+              aria-label="消息意图与情绪"
+              aria-describedby={showPopover ? tooltipId : undefined}
+              onFocus={openDetails}
+              onBlur={() => setAnchor(null)}
+            >
+              {chips}
+            </span>
+          ) : !unavailable && (result || pending) ? (
+            chips
+          ) : null}
         </span>
       ) : null}
-      {persistentDisplay && result ? (
-        <span className="weq-intent-chips">
-          <IntentChips result={result} />
+      {!persistentDisplay && hoverActive && analyzable !== false && !unavailable ? (
+        <span
+          role="group"
+          tabIndex={0}
+          className="weq-intent-focus-trigger"
+          aria-label="消息意图与情绪"
+          aria-describedby={showPopover ? tooltipId : undefined}
+          onFocus={openDetails}
+          onBlur={() => setAnchor(null)}
+        >
+          <Info size={14} />
         </span>
       ) : null}
 
@@ -352,6 +409,7 @@ export function MessageIntentSense({
         ? createPortal(
             <div
               ref={popoverRef}
+              id={tooltipId}
               className="weq-intent-popover"
               style={{
                 top: anchor.top,
@@ -364,17 +422,19 @@ export function MessageIntentSense({
             >
               {result ? (
                 <>
-                  <div className="weq-intent-popover-row">
-                    <IntentChips result={result} />
-                  </div>
-                  <div className="weq-intent-popover-row">
+                  {!persistentDisplay ? (
+                    <div className="weq-intent-popover-row">
+                      {intentMeta(result.intent).label} · {emotionLabel(result.emotion)}
+                    </div>
+                  ) : null}
+                  <div className="weq-intent-popover-row is-metric">
                     <span>情绪强度</span>
                     <span className="weq-intent-popover-bar">
                       <span style={{ width: `${Math.round(result.intensity)}%` }} />
                     </span>
                     <span>{Math.round(result.intensity)}</span>
                   </div>
-                  <div className="weq-intent-popover-row">
+                  <div className="weq-intent-popover-row is-metric">
                     <span>情感倾向</span>
                     <span className="weq-intent-popover-bar is-sentiment">
                       <span style={{ width: `${Math.round((result.sentiment + 100) / 2)}%` }} />
@@ -382,16 +442,21 @@ export function MessageIntentSense({
                     <span>{result.sentiment > 0 ? `+${result.sentiment}` : result.sentiment}</span>
                   </div>
                   <div className="weq-intent-popover-row">
-                    <span style={{ opacity: 0.65 }}>
+                    <span className="weq-intent-confidence">
                       置信度 {Math.round(result.confidence * 100)}% ·{' '}
                       {result.engine === 'local' ? '本地模型' : 'API'}
                     </span>
                   </div>
                 </>
               ) : (
-                <div className="weq-intent-popover-row">
-                  <Loader2 size={12} className="weq-spin" />
-                  <span>正在分析…</span>
+                <div
+                  className="weq-intent-popover-row"
+                  role="status"
+                  aria-live="polite"
+                  aria-busy={pending}
+                >
+                  {failure ? <Info size={12} /> : <Loader2 size={12} className="weq-spin" />}
+                  <span>{failure ? '分析失败' : '正在分析…'}</span>
                 </div>
               )}
             </div>,

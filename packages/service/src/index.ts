@@ -429,6 +429,8 @@ export type {
   IntentLocalAnalyzeOptions,
   IntentLocalEnginePort,
   IntentAnalyzedEvent,
+  IntentAnalysisProgress,
+  ReplySuggestionHistoryEntry,
   IntentProfile,
   MbtiDim,
   ProfileHints,

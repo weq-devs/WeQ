@@ -21,6 +21,7 @@
 
 import { existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { AccountSession } from '@weq/account';
 import type { C2cMsg, C2cPartition, GroupMsg } from '@weq/db';
 import type { GapHistoryService, GapFetchedMessage } from './gap_history';
@@ -286,6 +287,26 @@ export interface IntentAnalyzedEvent {
   results: IntentSenseResult[];
 }
 
+/** 自动补齐批次的真实进度；不含缓存命中与纯媒体消息。 */
+export interface IntentAnalysisProgress {
+  kind: IntentConversationKind;
+  conv: string;
+  revision: number;
+  total: number;
+  completed: number;
+  failed: number;
+  pendingIds: string[];
+}
+
+export interface ReplySuggestionHistoryEntry {
+  id: string;
+  createdAt: number;
+  target: { msgId: string; msgSeq?: string; senderUin: string; sendTime: number };
+  suggestions: ReplySuggestion[];
+}
+
+const MAX_SUGGESTION_HISTORY = 500;
+
 // ── 常量 ────────────────────────────────────────────────────────────────────
 
 /** 缓存 schema 版本：升级语料库/分类体系后自动淘汰旧版无上下文缓存。 */
@@ -459,10 +480,16 @@ export class IntentSenseService {
   /** 每会话在途 ensureAnalysis（去重并发）。 */
   private readonly inFlight = new Map<string, Promise<EnsureStats>>();
   private readonly analyzedListeners = new Set<(e: IntentAnalyzedEvent) => void>();
+  private readonly progressListeners = new Set<(e: IntentAnalysisProgress) => void>();
+  private readonly analysisProgress = new Map<string, IntentAnalysisProgress>();
   /** 回复建议缓存 `${kind}:${conv}` → { lastMsgId, at, suggestions }。 */
   private readonly suggestionCache = new Map<
     string,
     { lastMsgId: string; at: number; suggestions: ReplySuggestion[] }
+  >();
+  private readonly suggestionHistoryStores = new Map<
+    string,
+    JsonStore<ReplySuggestionHistoryEntry[]>
   >();
   /** 回复建议在途任务（去重并发，防止相同会话重复调用 API）。 */
   private readonly suggestionInFlight = new Map<string, Promise<ReplySuggestion[]>>();
@@ -835,6 +862,30 @@ export class IntentSenseService {
     };
   }
 
+  onAnalysisProgress(cb: (e: IntentAnalysisProgress) => void): () => void {
+    this.progressListeners.add(cb);
+    // 切换回来或订阅晚于批次启动时也能恢复当前进度。
+    for (const progress of this.analysisProgress.values()) {
+      if (progress.revision === this.analysisRevision) cb(progress);
+    }
+    return () => {
+      this.progressListeners.delete(cb);
+    };
+  }
+
+  private emitAnalysisProgress(progress: IntentAnalysisProgress): void {
+    const key = conversationKey(progress.kind, progress.conv);
+    if (progress.pendingIds.length) this.analysisProgress.set(key, progress);
+    else this.analysisProgress.delete(key);
+    for (const cb of this.progressListeners) {
+      try {
+        cb(progress);
+      } catch (error) {
+        logger.warn('intent-sense progress listener failed', logErrorContext(error));
+      }
+    }
+  }
+
   private emitAnalyzed(e: IntentAnalyzedEvent): void {
     for (const cb of this.analyzedListeners) {
       try {
@@ -875,6 +926,10 @@ export class IntentSenseService {
         return { cached: 0, analyzed: 0, failed: 0, error: String(error) };
       })
       .finally(() => {
+        const progress = this.analysisProgress.get(conversationKey(kind, conv));
+        if (progress?.revision === revision) {
+          this.emitAnalysisProgress({ ...progress, pendingIds: [] });
+        }
         this.inFlight.delete(key);
       });
     this.inFlight.set(key, task);
@@ -1028,6 +1083,20 @@ export class IntentSenseService {
     let analyzed = 0;
     let peerAnalyzed = 0;
     let failed = 0;
+    const remainingIds = new Set(pending.map(({ row }) => row.msgId));
+    const progress = (): void => {
+      if (!current()) return;
+      this.emitAnalysisProgress({
+        kind,
+        conv,
+        revision,
+        total: pending.length,
+        completed: analyzed + failed,
+        failed,
+        pendingIds: [...remainingIds],
+      });
+    };
+    progress();
     if (pending.length > 0) {
       // 按最新分块优先处理（块内保持时间升序），确保用户首屏看到的最新消息最先点亮
       const chunks: Array<Array<{ row: SenseRow; context: IntentContextTurn[] }>> = [];
@@ -1057,6 +1126,8 @@ export class IntentSenseService {
           } else {
             failed++;
           }
+          remainingIds.delete(row.msgId);
+          progress();
         }
         if (current() && chunkResults.length > 0) {
           this.storeResults(kind, conv, chunkResults);
@@ -1129,8 +1200,12 @@ export class IntentSenseService {
           if (apiResults !== null) {
             failed += apiSlice.length - apiResults.length;
           } else if (!this.opts.localEngine?.ready) {
+            remainingIds.clear();
+            progress();
             break;
           }
+          for (const { row } of slice) remainingIds.delete(row.msgId);
+          progress();
         }
       }
     }
@@ -1331,6 +1406,77 @@ export class IntentSenseService {
 
   // ── 回复建议（API 引擎优先 + 本地意图候选兜底）─────────────────────────────
 
+  private suggestionHistoryFor(kind: IntentConversationKind, conv: string) {
+    const key = conversationKey(kind, conv);
+    let store = this.suggestionHistoryStores.get(key);
+    if (!store) {
+      store = new JsonStore<ReplySuggestionHistoryEntry[]>(
+        `${this.storeDir}/suggestion-history/${fileSafe(key)}.json`,
+        () => [],
+        {
+          normalize: (raw) => {
+            if (!Array.isArray(raw)) return [];
+            return raw
+              .filter((entry): entry is ReplySuggestionHistoryEntry => {
+                if (!entry || typeof entry !== 'object') return false;
+                const value = entry as Partial<ReplySuggestionHistoryEntry>;
+                return (
+                  typeof value.id === 'string' &&
+                  typeof value.createdAt === 'number' &&
+                  Number.isFinite(new Date(value.createdAt).getTime()) &&
+                  typeof value.target?.msgId === 'string' &&
+                  typeof value.target.sendTime === 'number' &&
+                  Number.isFinite(new Date(value.target.sendTime * 1000).getTime()) &&
+                  typeof value.target.senderUin === 'string' &&
+                  (value.target.msgSeq === undefined || /^\d+$/.test(value.target.msgSeq)) &&
+                  Array.isArray(value.suggestions) &&
+                  value.suggestions.length > 0 &&
+                  value.suggestions.every(
+                    (item) =>
+                      item &&
+                      typeof item.text === 'string' &&
+                      (item.tone === undefined || typeof item.tone === 'string'),
+                  )
+                );
+              })
+              .slice(-MAX_SUGGESTION_HISTORY);
+          },
+        },
+      );
+      this.suggestionHistoryStores.set(key, store);
+    }
+    return store;
+  }
+
+  getSuggestionHistory(kind: IntentConversationKind, conv: string): ReplySuggestionHistoryEntry[] {
+    return [...this.suggestionHistoryFor(kind, conv).data].reverse();
+  }
+
+  private recordSuggestions(
+    kind: IntentConversationKind,
+    conv: string,
+    last: SenseRow,
+    suggestions: ReplySuggestion[],
+  ): void {
+    if (!suggestions.length) return;
+    const store = this.suggestionHistoryFor(kind, conv);
+    store.data = [
+      ...store.data,
+      {
+        id: randomUUID(),
+        createdAt: Date.now(),
+        target: {
+          msgId: last.msgId,
+          msgSeq: last.msgSeq,
+          senderUin: last.senderUin,
+          sendTime: last.sendTime,
+        },
+        suggestions,
+      },
+    ].slice(-MAX_SUGGESTION_HISTORY);
+    store.save();
+  }
+
   getSuggestions(
     kind: IntentConversationKind,
     conv: string,
@@ -1389,6 +1535,7 @@ export class IntentSenseService {
           last.sendTime,
         ).slice(0, this.config.suggestionCount);
         this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
+        this.recordSuggestions(kind, conv, last, suggestions);
         return suggestions;
       };
 
@@ -1461,6 +1608,7 @@ export class IntentSenseService {
           .slice(0, this.config.suggestionCount);
         if (suggestions.length === 0) return fallbackLocal();
         this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
+        this.recordSuggestions(kind, conv, last, suggestions);
         return suggestions;
       } catch (error) {
         if (!current()) return [];
@@ -1560,6 +1708,7 @@ export class IntentSenseService {
           : String((m as GroupMsg).senderUin) === String(this.session.context.uin ?? '');
       return {
         msgId: m.msgId.toString(),
+        msgSeq: m.msgSeq.toString(),
         mine,
         senderUid: m.senderUid,
         senderUin: m.senderUin.toString(),
@@ -1586,6 +1735,7 @@ export class IntentSenseService {
         source: 'roaming',
         sense: {
           msgId: timelineRowKey({ ...message, source: 'roaming' }),
+          msgSeq: message.msgSeq,
           mine:
             kind === 'c2c'
               ? message.senderUid !== conv
