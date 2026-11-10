@@ -280,7 +280,7 @@ export interface IntentLocalEnginePort {
   inferMbti(samples: string[]): Promise<MbtiDim[] | null>;
 }
 
-/** onAnalyzed 事件：一批新分析结果落缓存后推给 renderer（增量点亮胶囊）。 */
+/** onAnalyzed 事件：新结果写入内存缓存后推给 renderer；本地批次按块合并落盘。 */
 export interface IntentAnalyzedEvent {
   kind: IntentConversationKind;
   conv: string;
@@ -1108,30 +1108,34 @@ export class IntentSenseService {
       const runChunkLocal = async (
         slice: Array<{ row: SenseRow; context: IntentContextTurn[] }>,
       ): Promise<void> => {
-        const chunkResults: IntentSenseResult[] = [];
-        for (const { row, context } of slice) {
-          if (!current()) return;
-          const result = await this.analyzeOne(
-            row.mine,
-            row.sendTime,
-            row.msgId,
-            row.text,
-            context,
-          );
-          if (!current()) return;
-          if (result) {
-            chunkResults.push(result);
-            analyzed++;
-            if (!result.mine) peerAnalyzed++;
-          } else {
-            failed++;
+        let dirty = false;
+        try {
+          for (const { row, context } of slice) {
+            if (!current()) return;
+            const result = await this.analyzeOne(
+              row.mine,
+              row.sendTime,
+              row.msgId,
+              row.text,
+              context,
+            );
+            if (!current()) return;
+            if (result) {
+              // 先让结果可读、可显示，再推进进度；磁盘仍按块合并写入。
+              this.storeResults(kind, conv, [result], { persist: false });
+              dirty = true;
+              this.emitAnalyzed({ kind, conv, results: [result] });
+              analyzed++;
+              if (!result.mine) peerAnalyzed++;
+            } else {
+              failed++;
+            }
+            remainingIds.delete(row.msgId);
+            progress();
           }
-          remainingIds.delete(row.msgId);
-          progress();
-        }
-        if (current() && chunkResults.length > 0) {
-          this.storeResults(kind, conv, chunkResults);
-          this.emitAnalyzed({ kind, conv, results: chunkResults });
+        } finally {
+          // 配置切换清理过的旧 store 不能再写回；仅改范围/开关时保留已完成的有效结果。
+          if (dirty && this.analysisStores.get(conversationKey(kind, conv)) === cache) cache.save();
         }
       };
 
@@ -1843,11 +1847,12 @@ export class IntentSenseService {
     return store;
   }
 
-  /** 落缓存 + 裁剪到上限（按 sendTime 丢最旧）+ 落盘。 */
+  /** 合并内存缓存并裁剪到上限；本地批次可推迟到块结束再统一落盘。 */
   private storeResults(
     kind: IntentConversationKind,
     conv: string,
     results: IntentSenseResult[],
+    { persist = true }: { persist?: boolean } = {},
   ): void {
     const store = this.cacheFor(kind, conv);
     const merged = new Map(store.data.results.map((r) => [r.msgId, r]));
@@ -1864,7 +1869,7 @@ export class IntentSenseService {
       modelIdentity: this.analysisModelIdentity(),
       results: all,
     };
-    store.save();
+    if (persist) store.save();
   }
 }
 

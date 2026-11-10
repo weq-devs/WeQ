@@ -1,17 +1,22 @@
 import { useSyncExternalStore } from 'react';
-import type { IntentAnalysisProgress, IntentProfile } from '@weq/service';
-import type { IntentAnalysis } from '../../src/renderer/src/components/intentSense/context';
+import type {
+  IntentAnalyzedEvent,
+  IntentAnalysisProgress,
+  IntentProfile,
+  IntentSenseResult,
+} from '@weq/service';
 
 type Mode = 'loading' | 'ready' | 'error' | 'empty';
 let mode: Mode = 'loading';
 const listeners = new Set<() => void>();
 const progressListeners = new Set<(event: IntentAnalysisProgress) => void>();
+const resultListeners = new Set<(event: IntentAnalyzedEvent) => void>();
 const readySuggestions = [{ text: '有空一起聊聊', tone: '自然' }];
 const noSuggestions: typeof readySuggestions = [];
 let finish:
   | ((stats: { analyzed: number; failed: number; latestMsgId: string }) => void)
   | undefined;
-export const result: IntentAnalysis = {
+export const result: IntentSenseResult = {
   msgId: 'message',
   mine: false,
   sendTime: 1000,
@@ -23,6 +28,16 @@ export const result: IntentAnalysis = {
   engine: 'api',
   analyzedAt: 1000,
 };
+export function publishResult() {
+  for (const listener of resultListeners)
+    listener({ kind: 'c2c', conv: 'fixture', results: [result] });
+}
+export function publishProgress(
+  progress: Pick<IntentAnalysisProgress, 'total' | 'completed' | 'failed' | 'pendingIds'>,
+) {
+  for (const listener of progressListeners)
+    listener({ kind: 'c2c', conv: 'fixture', revision: 0, ...progress });
+}
 export const portrait: IntentProfile = {
   affinity: 70,
   tier: 3,
@@ -159,7 +174,16 @@ export const client = {
           }),
       },
       analyzeMessage: { mutate: async () => result },
-      onAnalyzed: { subscribe: () => ({ unsubscribe() {} }) },
+      onAnalyzed: {
+        subscribe: (_: unknown, observer: { onData: (event: IntentAnalyzedEvent) => void }) => {
+          resultListeners.add(observer.onData);
+          return {
+            unsubscribe() {
+              resultListeners.delete(observer.onData);
+            },
+          };
+        },
+      },
       onAnalysisProgress: {
         subscribe: (_: unknown, observer: { onData: (event: IntentAnalysisProgress) => void }) => {
           progressListeners.add(observer.onData);

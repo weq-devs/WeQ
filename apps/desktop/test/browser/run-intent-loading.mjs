@@ -71,6 +71,26 @@ try {
   assert.equal(await page.locator('.weq-int-suggest-track').textContent(), '正在生成推荐回复');
   assert.equal(await page.locator('.weq-intent-pill.is-loading').count(), 2);
   if (output) await page.screenshot({ path: resolve(output, 'loading.png'), fullPage: true });
+  await page.evaluate(() => {
+    window.intentQa.publishResult();
+    window.intentQa.publishProgress({
+      total: 18,
+      completed: 12,
+      failed: 3,
+      pendingIds: ['pending'],
+    });
+  });
+  await page.waitForFunction(() =>
+    document.querySelector('.weq-intent-chips')?.textContent.includes('闲聊'),
+  );
+  assert.equal(await page.locator('.weq-int-batch').textContent(), '正在分析 12/18 · 失败 3');
+  assert.equal(
+    await page.locator('.weq-int-batch > span').getAttribute('title'),
+    '已处理 12/18，成功 9，失败 3',
+  );
+  assert.equal(await page.locator('[aria-label="重试分析"]').count(), 0);
+  assert.deepEqual(await geometry(), loading, '批次仍在处理时结果已出现且不改变消息区几何');
+  if (output) await page.screenshot({ path: resolve(output, 'partial-results.png') });
   await page.evaluate(() => window.intentQa.setMode('ready'));
   await page.waitForSelector('.weq-int-affinity-num');
   await page.waitForFunction(() =>
@@ -115,6 +135,26 @@ try {
               document.documentElement.style.setProperty('--weq-accent-effective', accent);
             },
             { theme, background, accent },
+          );
+          await page.evaluate(() =>
+            window.intentQa.publishProgress({
+              total: 18,
+              completed: 12,
+              failed: 3,
+              pendingIds: ['pending'],
+            }),
+          );
+          const progressFits = await page.locator('.weq-int-batch').evaluate((node) => {
+            const rect = node.getBoundingClientRect();
+            const label = node.querySelector('span');
+            return (
+              rect.left >= 0 && rect.right <= innerWidth && label.scrollWidth <= label.clientWidth
+            );
+          });
+          assert.equal(
+            progressFits,
+            true,
+            `${width}/${theme}/${background}/${accent}: 进度文案应完整且不越界`,
           );
           await page.evaluate(async () => {
             window.scrollTo(0, 0);

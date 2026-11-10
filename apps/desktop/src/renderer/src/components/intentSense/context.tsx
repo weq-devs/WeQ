@@ -120,6 +120,8 @@ export function IntentSenseProvider({
     running: boolean;
     total?: number;
     completed?: number;
+    succeeded?: number;
+    failed?: number;
     error?: string;
   } | null>(null);
 
@@ -244,7 +246,8 @@ export function IntentSenseProvider({
           running: event.pendingIds.length > 0,
           total: event.total,
           completed: event.completed,
-          ...(event.failed ? { error: `${event.failed} 条消息分析失败` } : {}),
+          succeeded: event.completed - event.failed,
+          failed: event.failed,
         });
         bump();
       },
@@ -321,13 +324,14 @@ export function IntentSenseProvider({
           if (disposed || prevConvKeyRef.current !== expected) return;
           merge(results as IntentAnalysis[]);
         }
-        setBatch((current) => ({
+        setBatch({
           scope: expected,
           running: false,
-          total: current?.scope === expected ? current.total : undefined,
-          completed: current?.scope === expected ? current.completed : undefined,
-          ...((stats?.failed ?? 0) > 0 ? { error: `${stats.failed} 条消息分析失败` } : {}),
-        }));
+          total: (stats?.analyzed ?? 0) + (stats?.failed ?? 0),
+          completed: (stats?.analyzed ?? 0) + (stats?.failed ?? 0),
+          succeeded: stats?.analyzed ?? 0,
+          failed: stats?.failed ?? 0,
+        });
         void utils.account.intentSense.getStatus.invalidate();
       })
       .catch((error: unknown) => {
@@ -364,7 +368,7 @@ export function IntentSenseProvider({
   ]);
 
   useEffect(() => {
-    if (!batch || batch.running || batch.error) return;
+    if (!batch || batch.running || batch.error || (batch.failed ?? 0) > 0) return;
     const timer = setTimeout(
       () => setBatch((current) => (current === batch ? null : current)),
       2000,
@@ -453,16 +457,22 @@ export function IntentSenseProvider({
           aria-atomic="true"
           aria-busy={visibleBatch.running}
         >
-          <span title={visibleBatch.error}>
+          <span
+            title={
+              visibleBatch.total === undefined
+                ? visibleBatch.error
+                : `已处理 ${visibleBatch.completed ?? 0}/${visibleBatch.total}，成功 ${visibleBatch.succeeded ?? 0}，失败 ${visibleBatch.failed ?? 0}`
+            }
+          >
             {visibleBatch.running
-              ? `正在分析${visibleBatch.total === undefined ? '…' : ` ${visibleBatch.completed ?? 0}/${visibleBatch.total}`}`
+              ? `正在分析${visibleBatch.total === undefined ? '…' : ` ${visibleBatch.completed ?? 0}/${visibleBatch.total}`}${visibleBatch.failed ? ` · 失败 ${visibleBatch.failed}` : ''}`
               : visibleBatch.error
                 ? `分析未完成：${visibleBatch.error}`
                 : visibleBatch.total === 0
                   ? '分析已是最新'
-                  : '分析完成'}
+                  : `分析完成 · 成功 ${visibleBatch.succeeded ?? 0}${visibleBatch.failed ? `，失败 ${visibleBatch.failed}` : ''}`}
           </span>
-          {visibleBatch.error && !visibleBatch.running ? (
+          {(visibleBatch.error || visibleBatch.failed) && !visibleBatch.running ? (
             <button
               type="button"
               title="重试分析"

@@ -406,7 +406,7 @@ it('批次失败显示可重试状态，成功重试清除失败且保留旧分�
   fixture.ensure.mockResolvedValueOnce({ analyzed: 0, failed: 1, latestMsgId: 'own' });
   const f = renderFixture();
   await f.render('own');
-  expect(document.body.textContent).toContain('1 条消息分析失败');
+  expect(document.body.textContent).toContain('分析完成 · 成功 0，失败 1');
   expect(f.get().getAnalysis('old')).toBeDefined();
   fixture.ensure.mockResolvedValue({ analyzed: 1, failed: 0, latestMsgId: 'own' });
   await act(async () =>
@@ -414,6 +414,53 @@ it('批次失败显示可重试状态，成功重试清除失败且保留旧分�
   );
   expect(fixture.ensure).toHaveBeenCalledTimes(2);
   expect(document.body.textContent).not.toContain('分析未完成');
+});
+
+it('分析未结束就显示失败数量及成功明细，结束后保留成功与失败汇总', async () => {
+  let finish!: (stats: { analyzed: number; failed: number; latestMsgId: string }) => void;
+  fixture.ensure.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const f = renderFixture();
+  await f.render('own');
+  const publish = fixture.progressCallbacks.at(-1)!;
+  await act(async () =>
+    publish({
+      kind: 'c2c',
+      conv: 'u_peer',
+      revision: 0,
+      total: 18,
+      completed: 12,
+      failed: 3,
+      pendingIds: ['pending'],
+    }),
+  );
+  const status = document.querySelector<HTMLElement>('.weq-int-batch')!;
+  expect(status.textContent).toContain('正在分析 12/18 · 失败 3');
+  expect(status.querySelector('span')?.title).toContain('已处理 12/18，成功 9，失败 3');
+  expect(status.getAttribute('aria-busy')).toBe('true');
+  expect(status.textContent).not.toContain('分析未完成');
+  expect(document.querySelector('[aria-label="重试分析"]')).toBeNull();
+  await act(async () => finish({ analyzed: 15, failed: 3, latestMsgId: 'own' }));
+  expect(status.textContent).toContain('分析完成 · 成功 15，失败 3');
+  expect(status.getAttribute('aria-busy')).toBe('false');
+  expect(document.querySelector('[aria-label="重试分析"]')).not.toBeNull();
+});
+
+it('全部失败时不会误报已有结果，成功结束显示真实新增结果数而非缓存总量', async () => {
+  fixture.ensure.mockResolvedValueOnce({ analyzed: 0, failed: 2, latestMsgId: 'own' });
+  const f = renderFixture();
+  await f.render('own');
+  expect(document.body.textContent).toContain('分析完成 · 成功 0，失败 2');
+  fixture.ensure.mockResolvedValueOnce({ cached: 1, analyzed: 2, failed: 0, latestMsgId: 'own' });
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="重试分析"]')!.click(),
+  );
+  expect(document.body.textContent).toContain('分析完成 · 成功 2');
+  expect(document.querySelector('[aria-label="重试分析"]')).toBeNull();
 });
 
 it('单条请求失败不冒充纯媒体，允许重试而不会无限转圈', async () => {

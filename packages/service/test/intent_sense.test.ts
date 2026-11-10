@@ -19,6 +19,7 @@ import {
 } from '../src/account/intent_sense';
 import { detectUpstreamSignal, analyzePragmatics } from '../src/account/intent_corpus';
 import { TokenUsageStore } from '../src/account/agentlab_usage';
+import { JsonStore } from '../src/common/json_store';
 import type { AccountSession } from '@weq/account';
 import {
   DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
@@ -125,6 +126,143 @@ describe('IntentSenseService', () => {
     off();
     offLate();
   });
+
+  it.each(['local', 'api'] as const)(
+    '%s 本地处理逐条更新内存及推送结果，再更新进度；整块只写盘一次，重试不重算成功项',
+    async (engine) => {
+      const result = {
+        intent: 'chat' as const,
+        emotion: 'neutral' as const,
+        intensity: 20,
+        sentiment: 0,
+        confidence: 0.8,
+      };
+      let finish!: (value: typeof result) => void;
+      const analyze = vi
+        .fn<IntentLocalEnginePort['analyze']>()
+        .mockResolvedValue(result)
+        .mockResolvedValueOnce(result)
+        .mockResolvedValueOnce(null)
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        );
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          throw new Error('合成 API 故障，改用本地');
+        }),
+      );
+      const svc = new IntentSenseService(
+        makeSession([
+          textMsg(1n, 'u_peer', '合成正文一', 1000),
+          textMsg(2n, 'u_peer', '合成正文二', 1001),
+          textMsg(3n, 'u_peer', '合成正文三', 1002),
+        ]),
+        dir,
+        {
+          localEngine: makeLocalPort(analyze),
+          resolveEndpoint: () => ({
+            baseUrl: 'https://synthetic.invalid',
+            apiKey: 'synthetic',
+            model: 'synthetic',
+          }),
+        },
+      );
+      await svc.setConfig({
+        enabled: true,
+        engine,
+        providerRef: { providerId: 'synthetic', model: 'synthetic' },
+      });
+      const events: string[] = [];
+      const publish = vi.fn((event: { results: { msgId: string }[] }) => {
+        events.push(`result:${event.results.map((item) => item.msgId).join(',')}`);
+      });
+      svc.onAnalyzed(publish);
+      svc.onAnalysisProgress((event) => events.push(`progress:${event.completed}/${event.failed}`));
+      const save = vi.spyOn(JsonStore.prototype, 'save');
+      const task = svc.ensureAnalysis('c2c', 'u_peer');
+      try {
+        await vi.waitFor(() => expect(analyze).toHaveBeenCalledTimes(3));
+        expect(publish).toHaveBeenCalledOnce();
+        expect(svc.listMessageAnalyses('c2c', 'u_peer').map((item) => item.msgId)).toEqual(['1']);
+        expect(events).toEqual(['progress:0/0', 'result:1', 'progress:1/0', 'progress:2/1']);
+        expect(save).not.toHaveBeenCalled();
+        finish(result);
+        expect(await task).toMatchObject({ analyzed: 2, failed: 1 });
+        expect(save).toHaveBeenCalledOnce();
+        expect(
+          JSON.parse(readFileSync(join(dir, 'analysis/c2c_u_peer.json'), 'utf8')).results.map(
+            (item: { msgId: string }) => item.msgId,
+          ),
+        ).toEqual(['1', '3']);
+        expect(await svc.ensureAnalysis('c2c', 'u_peer')).toMatchObject({
+          cached: 2,
+          analyzed: 1,
+          failed: 0,
+        });
+        expect(analyze).toHaveBeenCalledTimes(4);
+        expect(analyze.mock.calls[3]?.[0]).toBe('合成正文二');
+      } finally {
+        finish?.(result);
+        await task;
+        save.mockRestore();
+      }
+    },
+  );
+
+  it.each(['context', 'range'] as const)(
+    '逐条显示后切换 %s：旧任务不写入迟到结果，已完成缓存按配置有效性收尾',
+    async (change) => {
+      const result = {
+        intent: 'chat' as const,
+        emotion: 'neutral' as const,
+        intensity: 20,
+        sentiment: 0,
+        confidence: 0.8,
+      };
+      let finish!: (value: typeof result) => void;
+      const analyze = vi
+        .fn<IntentLocalEnginePort['analyze']>()
+        .mockResolvedValueOnce(result)
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        );
+      const session = makeSession([
+        textMsg(1n, 'u_peer', '合成正文一', 1000),
+        textMsg(2n, 'u_peer', '合成正文二', 1001),
+      ]);
+      const svc = new IntentSenseService(session, dir, { localEngine: makeLocalPort(analyze) });
+      await svc.setConfig({ enabled: true, engine: 'local' });
+      const publish = vi.fn();
+      svc.onAnalyzed(publish);
+      const task = svc.ensureAnalysis('c2c', 'u_peer');
+      try {
+        await vi.waitFor(() => expect(analyze).toHaveBeenCalledTimes(2));
+        expect(svc.listMessageAnalyses('c2c', 'u_peer').map((item) => item.msgId)).toEqual(['1']);
+        await svc.setConfig(
+          change === 'context' ? { analysisContextMessages: 0 } : { backfillMessages: 61 },
+        );
+        finish(result);
+        expect((await task).skipped).toBe('config-changed');
+        expect(publish).toHaveBeenCalledOnce();
+        const reopened = new IntentSenseService(session, dir, {
+          localEngine: makeLocalPort(analyze),
+        });
+        expect(reopened.listMessageAnalyses('c2c', 'u_peer').map((item) => item.msgId)).toEqual(
+          change === 'context' ? [] : ['1'],
+        );
+      } finally {
+        finish?.(result);
+        await task;
+      }
+    },
+  );
 
   it('推荐历史按实际输入末条定位，缓存命中不重复记轮，手动重算与重启保留历史', async () => {
     const messages = [textMsg(1n, 'u_peer', '合成问题？', 1000)];
