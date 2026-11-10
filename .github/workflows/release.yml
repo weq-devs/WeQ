@@ -731,6 +731,43 @@ jobs:
           echo "== apps/web/dist =="
           ls -laR apps/web/dist 2>/dev/null | head -50 || echo "(no dist/)"
 
+  # ==================== 版本说明整理（AI，可回退）====================
+  # CHANGELOG 是开发者自己记事的，条目按开发顺序堆叠、粒度不一。这里在发版时
+  # 让 LLM 按「新功能 / 优化 / 修复 / 性能 / 兼容性 / 体验」重新组织一遍，
+  # 语气口语化一些。整理结果作为 artifact 同时供 Release 说明和 QQ 群通知，
+  # 保证两处文案一致；LLM 没配 / 挂了 / 格式不合格时脚本自动回退 CHANGELOG 原文。
+  #
+  # job 本身不设 if：notes 无论是否发版都会写 Release 正文，这里保持一致。
+  release-notes:
+    permissions:
+      contents: read
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 生成版本说明
+        env:
+          RELEASE_NOTES_API_KEY: ${{ secrets.RELEASE_NOTES_API_KEY }}
+          RELEASE_NOTES_BASE_URL: ${{ secrets.RELEASE_NOTES_BASE_URL }}
+          RELEASE_NOTES_MODEL: ${{ secrets.RELEASE_NOTES_MODEL }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          node scripts/release-notes.mjs \
+            --version "${GITHUB_REF_NAME}" \
+            --output dist/release-notes.md
+          echo "== 版本说明 =="
+          cat dist/release-notes.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: dist/release-notes.md
+          retention-days: 7
+
   # ======================= Release 说明（中文）=======================
   # 等所有产物上传到草稿后，用「中文说明头 + GitHub 自动
   # 生成的 commit/PR 变更列表」覆写 Release 正文，并标注 aarch64 未实测、
@@ -738,13 +775,30 @@ jobs:
   notes:
     permissions:
       contents: write
-    needs: [prepare, windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web]
+    needs: [prepare, windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web, release-notes]
     runs-on: ubuntu-latest
     steps:
       # 只需当前标签；分类已前置，不再重复抓取完整历史。
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
+      # 整理好的版本说明由 release-notes job 产出。
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: dist
+
+      # 兜底：artifact 为空（理论上不该发生）时直接回退 CHANGELOG 原文，
+      # 不让 Release 正文因为空文件变成一片空白。
+      - name: 校验版本说明
+        run: |
+          set -euo pipefail
+          if ! grep -q . dist/release-notes.md 2>/dev/null; then
+            echo "::warning::release-notes artifact 为空，回退 CHANGELOG 原文"
+            node scripts/extract-changelog.mjs "${GITHUB_REF_NAME}" CHANGELOG.md > dist/release-notes.md
+          fi
+          wc -c dist/release-notes.md
 
       # 内置 native 的构建 / 过期时间来自 native/pinned.json —— 那是本地
       # `pnpm native:fetch` 装完 .node 后写回的（日期源头是二进制自报的
@@ -784,10 +838,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 约定：版本说明的「内容」来自 CHANGELOG.md 对应版本的章节
-          # （与 WeQ 助手推文 / 系统通知同一数据源），GitHub 自动生成的
-          # commit/PR 变更列表附在后面作为补充。
-          SECTION=$(node scripts/extract-changelog.mjs "${TAG}" CHANGELOG.md)
+          # 版本说明的「内容」来自 release-notes job 整理好的文案（数据源仍是
+          # CHANGELOG.md 对应章节），GitHub 自动生成的 commit/PR 变更列表附在后面
+          # 作为补充。release-notes 已在失败时回退原文，这里只读文件，不再自行抽取。
+          SECTION=$(cat dist/release-notes.md)
 
           # 让 GitHub 从上一个 tag 到本 tag 自动生成变更列表（commit/PR）。
           # 只取其中的正文（.body），拼到我们自己的中文说明后面。
@@ -878,6 +932,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 与 Release 说明共用同一份整理好的文案。
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: dist
+
+      - name: 校验版本说明
+        run: |
+          set -euo pipefail
+          if ! grep -q . dist/release-notes.md 2>/dev/null; then
+            echo "::warning::release-notes artifact 为空，回退 CHANGELOG 原文"
+            node scripts/extract-changelog.mjs "${GITHUB_REF_NAME}" CHANGELOG.md > dist/release-notes.md
+          fi
+
       # 拉全量产物（约 2.6 GB）用来算 piece 哈希。
       - name: Download release assets
         env:
@@ -938,8 +1006,8 @@ jobs:
           BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
           PAGE_URL="https://github.com/${REPO}/releases/tag/${VERSION}"
 
-          # 正文仍来自 CHANGELOG 对应章节（与推文 / 系统通知同一数据源）。
-          BODY=$(node scripts/extract-changelog.mjs "${VERSION}" CHANGELOG.md)
+          # 正文用 release-notes job 整理好的文案（与 Release 说明一致）。
+          BODY=$(cat dist/release-notes.md)
 
           # 5 行 × 2 列：同一行左 desktop、右 web，横向对比最直观。
           # QQ 内联键盘最多 5 行（超了报 40034029），所以不能再加。
