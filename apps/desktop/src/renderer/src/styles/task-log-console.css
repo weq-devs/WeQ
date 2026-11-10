@@ -1,12 +1,14 @@
+@import './log-console-palette.css';
+
 .weq-exp-log {
   height: 104px;
   margin: 0 0 6px 26px;
   padding: 6px 9px;
   overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--weq-log-border);
   border-radius: 7px;
-  background: #0d1420;
-  color: #c8d3e0;
+  background: var(--weq-log-bg);
+  color: var(--weq-log-fg);
   font:
     11px / 1.65 ui-monospace,
     SFMono-Regular,
@@ -38,23 +40,7 @@
   overflow-anchor: none;
   scrollbar-gutter: stable;
   scrollbar-color: var(--weq-fg-muted) transparent;
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-primary);
-  border-color: var(--weq-border-strong);
   transition: none;
-}
-
-.weq-exp-log.is-scrollable .weq-exp-log-time,
-.weq-exp-log.is-scrollable .weq-exp-log-empty {
-  color: var(--weq-fg-secondary);
-}
-
-.weq-exp-log.is-scrollable .weq-exp-log-line.is-warn .weq-exp-log-text {
-  color: var(--weq-warn-fg);
-}
-
-.weq-exp-log.is-scrollable .weq-exp-log-line.is-error .weq-exp-log-text {
-  color: var(--destructive);
 }
 
 .weq-exp-log.is-export-scrollable:not(.is-hidden) {
@@ -75,12 +61,12 @@
   height: 100%;
   display: grid;
   place-items: center;
-  color: #52627a;
+  color: var(--weq-log-muted);
 }
 
 .weq-exp-log-more {
   padding: 1px 0 4px;
-  color: #5f7287;
+  color: var(--weq-log-muted);
   font-style: italic;
 }
 
@@ -93,13 +79,13 @@
 
 .weq-exp-log-time {
   flex: none;
-  color: #5f7287;
+  color: var(--weq-log-muted);
 }
 
 .weq-exp-log-line.is-warn .weq-exp-log-text {
-  color: #e2b35a;
+  color: var(--weq-log-warn);
 }
 
 .weq-exp-log-line.is-error .weq-exp-log-text {
-  color: #ef6b6b;
+  color: var(--weq-log-error);
 }
