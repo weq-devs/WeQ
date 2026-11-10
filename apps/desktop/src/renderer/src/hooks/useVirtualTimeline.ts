@@ -89,15 +89,21 @@ export function useVirtualTimeline({
     estimateSize: () => 96,
     // 保留子像素高度；逐行取整会在短列表切入虚拟布局时积累数像素误差。
     measureElement: (element, entry, instance) => {
-      const index = instance.indexFromElement(element);
-      if (!element.getClientRects().length) {
+      const observed = entry?.borderBoxSize?.[0]?.blockSize;
+      // RO 已交付正高度时不重新触发布局；首次挂载仍同步测量，不延后一帧。
+      if (observed !== undefined && observed > 0) return observed;
+      const rects = element.getClientRects();
+      if (!rects.length) {
         // display:none 的零尺寸不是消息真实高度，不回灌阅读位置模型。
+        const index = instance.indexFromElement(element);
         return (
           instance.itemSizeCache.get(instance.options.getItemKey(index)) ??
           instance.options.estimateSize(index)
         );
       }
-      return entry?.borderBoxSize?.[0]?.blockSize ?? element.getBoundingClientRect().height;
+      return (
+        observed ?? (rects.length === 1 ? rects[0]!.height : element.getBoundingClientRect().height)
+      );
     },
     getItemKey: key,
     overscan: TIMELINE_OVERSCAN,

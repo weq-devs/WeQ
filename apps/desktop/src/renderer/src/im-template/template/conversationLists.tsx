@@ -39,11 +39,15 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type DragEvent,
+  type KeyboardEvent,
+  type MouseEvent,
 } from 'react';
+import type { ContactMetricRows } from '@weq/service';
 import { conversationPinned } from '@weq/service/conversation-order';
 import { sortConversationRows, reconcileConversationRows } from '../../lib/conversationListOrder';
 import { useEventContextValue } from '../../hooks/useEventContextValue';
-import { groupFriends, sortFriends, sortGroups } from '../../lib/contactListOrder';
+import { groupFriends, sortFriends, sortGroups, type FriendSort } from '../../lib/contactListOrder';
 import {
   friendDirectoryTitle,
   friendSortDetail,
@@ -1446,6 +1450,133 @@ function GroupNotificationSection({
 
 const EMPTY_CONTACT_OPTIONS = [] as const;
 
+type ContactRowEvents = {
+  selection: ReturnType<typeof useMultiSelection<string>>['itemProps'];
+  select: (contact: Contact) => void;
+  dragStart: (contact: Contact, event: DragEvent<HTMLButtonElement>) => void;
+  dragEnd: () => void;
+  menu: (contact: Contact, event: MouseEvent<HTMLButtonElement>) => void;
+  keyDown: (contact: Contact, event: KeyboardEvent<HTMLButtonElement>) => void;
+};
+
+const ContactDirectoryRow = memo(function ContactDirectoryRow({
+  contact,
+  categoryId,
+  active,
+  selectionMode,
+  selected,
+  draggable,
+  unreadCount,
+  muted,
+  sort,
+  identityMetrics,
+  uidMetrics,
+  events,
+}: {
+  contact: Contact;
+  categoryId: string | number;
+  active: boolean;
+  selectionMode: boolean;
+  selected: boolean;
+  draggable: boolean;
+  unreadCount: number;
+  muted: boolean;
+  sort: FriendSort;
+  identityMetrics: ContactMetricRows[string] | undefined;
+  uidMetrics: ContactMetricRows[string] | undefined;
+  events: ContactRowEvents;
+}) {
+  const relation = intimateRelationOf(contact);
+  const title = friendDirectoryTitle(contact, sort);
+  const detail = friendSortDetail(contact, sort, {
+    [`friend:${contact.identityValue}`]: identityMetrics ?? {},
+    [`friend:${contact.id}`]: uidMetrics ?? {},
+  });
+  // 未重画行的捕获事件也按调用时获取最新范围、选择模式和锚点。
+  const selectionId = JSON.stringify([categoryId, contact.id]);
+  return (
+    <button
+      className={cn(
+        listRowClass(active, 'contact-row'),
+        'contact-cat-row',
+        selected && 'is-multiselected',
+      )}
+      aria-pressed={selectionMode ? selected : undefined}
+      {...events.selection(selectionId)}
+      onPointerDownCapture={(event) => events.selection(selectionId).onPointerDownCapture(event)}
+      onClickCapture={(event) => events.selection(selectionId).onClickCapture(event)}
+      onContextMenuCapture={(event) => events.selection(selectionId).onContextMenuCapture(event)}
+      draggable={draggable}
+      onDragStart={(event) => events.dragStart(contact, event)}
+      onDragEnd={events.dragEnd}
+      onContextMenu={(event) => events.menu(contact, event)}
+      onKeyDown={(event) => events.keyDown(contact, event)}
+      onClick={() => events.select(contact)}
+    >
+      <span className="contact-relation-avatar">
+        <Avatar
+          resolution="small"
+          name={displayUserName(contact)}
+          avatarUrl={contact.avatarUrl}
+          seed={contact.identityValue}
+        />
+        {relation ? (
+          <span
+            className="contact-relation-mark"
+            role="img"
+            aria-label={`亲密关系：${relation.label}`}
+            title={relation.label}
+          >
+            <relation.Icon size={13} aria-hidden="true" />
+          </span>
+        ) : null}
+      </span>
+      <span className={cn('row-main', 'contact-card-main')}>
+        <span className={cn('contact-card-nickname')}>
+          <span className="row-title-text" title={title}>
+            {title}
+          </span>
+          {contact.kind === 'bot' ? (
+            <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
+              <Bot size={12} strokeWidth={2.4} />
+            </small>
+          ) : null}
+        </span>
+        <span className={cn('contact-card-bottom')}>
+          {detail ? (
+            <span
+              className="contact-card-signature weq-directory-sort-detail"
+              title={detail.title ? `${detail.text}\n${detail.title}` : detail.text}
+            >
+              {detail.text}
+            </span>
+          ) : (
+            <>
+              {contact.onlineStatusObj && contact.onlineStatusObj.typeName !== '未知' ? (
+                <span className={cn('contact-card-status')}>
+                  <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
+                  <span>[{contact.onlineStatusObj.displayStatus}]</span>
+                </span>
+              ) : null}
+              {contact.kind !== 'bot' &&
+              contact.identityLabel !== '设备' &&
+              categoryId !== 'special:devices' &&
+              categoryId !== 'special:bots' ? (
+                <span className={cn('contact-card-signature')}>
+                  {contact.signature || '这个人很懒，什么都没留下'}
+                </span>
+              ) : null}
+            </>
+          )}
+        </span>
+      </span>
+      {unreadCount > 0 ? (
+        <span className={unreadClass(muted)}>{formatBadgeCount(unreadCount)}</span>
+      ) : null}
+    </button>
+  );
+});
+
 /** 群消息只更新群目录，不唤醒未变化的整组好友行。 */
 export function ContactList(props: ComponentProps<typeof ContactListContent>) {
   const directory = useContext(ConversationDirectoryContext);
@@ -1668,6 +1799,49 @@ const ContactListContent = memo(function ContactListContent({
     onStart: () => selection.setSelectionMode(true),
     onExit: () => selection.setSelectionMode(false),
   });
+  const rowEvents = useEventContextValue<ContactRowEvents>({
+    selection: multi.itemProps,
+    select: (contact) => {
+      if (!selection.selectionMode) onSelect(contact);
+    },
+    dragStart: (contact, event) => {
+      const ids =
+        selection.selectionMode && selection.selectedIds.has(contact.id)
+          ? [...selection.selectedIds]
+          : [contact.id];
+      const uids = ids.filter((id) => contactIds.has(id));
+      if (uids.length !== ids.length || !uids.length) {
+        event.preventDefault();
+        return;
+      }
+      dragging.current = { uids };
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', uids.join(','));
+    },
+    dragEnd: () => {
+      dragging.current = null;
+      setDragTarget(null);
+    },
+    menu: (contact, event) => {
+      event.preventDefault();
+      setCategoryMenu(null);
+      setActionMenu({
+        x: event.clientX,
+        y: event.clientY,
+        contact,
+        ids:
+          selection.selectionMode && selection.selectedIds.has(contact.id)
+            ? [...selection.selectedIds]
+            : [contact.id],
+      });
+    },
+    keyDown: (contact, event) => {
+      if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+      event.preventDefault();
+      const rect = event.currentTarget.getBoundingClientRect();
+      setActionMenu({ x: rect.left, y: rect.bottom, contact, ids: [contact.id] });
+    },
+  });
 
   if (loading) {
     return <ListSkeleton rows={9} />;
@@ -1849,158 +2023,34 @@ const ContactListContent = memo(function ContactListContent({
               {open
                 ? category.items.map((contact) => {
                     const conversation = conversationByContact.get(contact.id);
-                    const relation = intimateRelationOf(contact);
-                    const title = friendDirectoryTitle(contact, order.preferences.sort);
-                    const detail = friendSortDetail(contact, order.preferences.sort, order.rows);
                     return (
-                      <button
+                      <ContactDirectoryRow
                         key={contact.id}
-                        className={cn(
-                          listRowClass(
-                            !selection.selectionMode && contact.id === activeContactId,
-                            'contact-row',
-                          ),
-                          'contact-cat-row',
-                          selection.selectionMode &&
-                            selection.selectedIds.has(contact.id) &&
-                            'is-multiselected',
-                        )}
-                        aria-pressed={
-                          selection.selectionMode
-                            ? selection.selectedIds.has(contact.id)
-                            : undefined
-                        }
-                        {...multi.itemProps(JSON.stringify([category.id, contact.id]))}
-                        draggable={
+                        contact={contact}
+                        categoryId={category.id}
+                        active={!selection.selectionMode && contact.id === activeContactId}
+                        selectionMode={selection.selectionMode}
+                        selected={selection.selectionMode && selection.selectedIds.has(contact.id)}
+                        draggable={Boolean(
                           contactIds.has(contact.id) &&
-                          order.preferences.grouping === 'qq' &&
-                          friendDirectory?.available &&
-                          !friendDirectory.busy
+                            order.preferences.grouping === 'qq' &&
+                            friendDirectory?.available &&
+                            !friendDirectory.busy,
+                        )}
+                        unreadCount={
+                          conversationDirectory?.showContactUnreadCount
+                            ? (conversation?.unreadCount ?? 0)
+                            : 0
                         }
-                        onDragStart={(event) => {
-                          const ids =
-                            selection.selectionMode && selection.selectedIds.has(contact.id)
-                              ? [...selection.selectedIds]
-                              : [contact.id];
-                          const uids = ids.filter((id) => contactIds.has(id));
-                          if (uids.length !== ids.length || !uids.length) {
-                            event.preventDefault();
-                            return;
-                          }
-                          dragging.current = { uids };
-                          event.dataTransfer.effectAllowed = 'move';
-                          event.dataTransfer.setData('text/plain', uids.join(','));
-                        }}
-                        onDragEnd={() => {
-                          dragging.current = null;
-                          setDragTarget(null);
-                        }}
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          setCategoryMenu(null);
-                          setActionMenu({
-                            x: event.clientX,
-                            y: event.clientY,
-                            contact,
-                            ids:
-                              selection.selectionMode && selection.selectedIds.has(contact.id)
-                                ? [...selection.selectedIds]
-                                : [contact.id],
-                          });
-                        }}
-                        onKeyDown={(event) => {
-                          if (
-                            event.key !== 'ContextMenu' &&
-                            !(event.shiftKey && event.key === 'F10')
-                          )
-                            return;
-                          event.preventDefault();
-                          const rect = event.currentTarget.getBoundingClientRect();
-                          setActionMenu({
-                            x: rect.left,
-                            y: rect.bottom,
-                            contact,
-                            ids: [contact.id],
-                          });
-                        }}
-                        onClick={() => {
-                          if (!selection.selectionMode) onSelect(contact);
-                        }}
-                      >
-                        <span className="contact-relation-avatar">
-                          <Avatar
-                            resolution="small"
-                            name={displayUserName(contact)}
-                            avatarUrl={contact.avatarUrl}
-                            seed={contact.identityValue}
-                          />
-                          {relation ? (
-                            <span
-                              className="contact-relation-mark"
-                              role="img"
-                              aria-label={`亲密关系：${relation.label}`}
-                              title={relation.label}
-                            >
-                              <relation.Icon size={13} aria-hidden="true" />
-                            </span>
-                          ) : null}
-                        </span>
-                        <span className={cn('row-main', 'contact-card-main')}>
-                          <span className={cn('contact-card-nickname')}>
-                            <span className="row-title-text" title={title}>
-                              {title}
-                            </span>
-                            {contact.kind === 'bot' ? (
-                              <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
-                                <Bot size={12} strokeWidth={2.4} />
-                              </small>
-                            ) : null}
-                          </span>
-                          <span className={cn('contact-card-bottom')}>
-                            {detail ? (
-                              <span
-                                className="contact-card-signature weq-directory-sort-detail"
-                                title={
-                                  detail.title ? `${detail.text}\n${detail.title}` : detail.text
-                                }
-                              >
-                                {detail.text}
-                              </span>
-                            ) : (
-                              <>
-                                {contact.onlineStatusObj &&
-                                contact.onlineStatusObj.typeName !== '未知' ? (
-                                  <span className={cn('contact-card-status')}>
-                                    <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
-                                    <span>[{contact.onlineStatusObj.displayStatus}]</span>
-                                  </span>
-                                ) : null}
-                                {contact.kind !== 'bot' &&
-                                contact.identityLabel !== '设备' &&
-                                category.id !== 'special:devices' &&
-                                category.id !== 'special:bots' ? (
-                                  <span className={cn('contact-card-signature')}>
-                                    {contact.signature || '这个人很懒，什么都没留下'}
-                                  </span>
-                                ) : null}
-                              </>
-                            )}
-                          </span>
-                        </span>
-                        {conversationDirectory?.showContactUnreadCount &&
-                        (conversation?.unreadCount ?? 0) > 0 ? (
-                          <span
-                            className={unreadClass(
-                              Boolean(
-                                conversationDirectory?.preferences?.[conversation.id]?.muted ??
-                                  conversation.preference?.muted,
-                              ),
-                            )}
-                          >
-                            {formatBadgeCount(conversation.unreadCount)}
-                          </span>
-                        ) : null}
-                      </button>
+                        muted={Boolean(
+                          conversationDirectory?.preferences?.[conversation?.id]?.muted ??
+                            conversation?.preference?.muted,
+                        )}
+                        sort={order.preferences.sort}
+                        identityMetrics={order.rows[`friend:${contact.identityValue}`]}
+                        uidMetrics={order.rows[`friend:${contact.id}`]}
+                        events={rowEvents}
+                      />
                     );
                   })
                 : null}

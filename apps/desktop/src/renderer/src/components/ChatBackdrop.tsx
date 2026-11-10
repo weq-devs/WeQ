@@ -31,6 +31,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react';
 import { screenWidgetAssetsPath, screenWidgetUrl } from '../lib/resourceUrl';
 import { widenLottie } from '../lib/widenLottie';
+import { useLottiePlayback } from '../hooks/useLottiePlayback';
 
 /** 背景层的 CSS 变量名。装扮页拖滑块时直接改它做实时预览。 */
 export const BACKDROP_VEIL_VAR = '--weq-chat-backdrop-veil';
@@ -110,6 +111,7 @@ export function ScreenWidget({
   className?: string;
 }): ReactElement {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const bindAnimation = useLottiePlayback(containerRef);
   const [aspect, setAspect] = useState(0);
 
   // 量容器比例。**量化到 0.1 档 + 50ms debounce** 再进 state:
@@ -138,6 +140,7 @@ export function ScreenWidget({
     // 首帧容器还没量出来,等 ResizeObserver 回填 —— 先按 720×1280 播再重建会闪一下。
     if (!aspect) return;
     let destroyed = false;
+    const loading = new AbortController();
     let anim: import('lottie-web').AnimationItem | undefined;
 
     void (async () => {
@@ -146,10 +149,12 @@ export function ScreenWidget({
         // `script-src 'self'`)。上架的这几款都不含表达式,所以没有损失。
         const [{ default: lottie }, data] = await Promise.all([
           import('lottie-web/build/player/lottie_light'),
-          fetch(screenWidgetUrl(widgetId, 'fullscreen.json')).then((r) => {
-            if (!r.ok) throw new Error(`widget fetch ${r.status}`);
-            return r.json() as Promise<unknown>;
-          }),
+          fetch(screenWidgetUrl(widgetId, 'fullscreen.json'), { signal: loading.signal }).then(
+            (r) => {
+              if (!r.ok) throw new Error(`widget fetch ${r.status}`);
+              return r.json() as Promise<unknown>;
+            },
+          ),
         ]);
         if (destroyed || !containerRef.current) return;
 
@@ -157,7 +162,7 @@ export function ScreenWidget({
           container: containerRef.current,
           renderer: 'svg',
           loop: true,
-          autoplay: true,
+          autoplay: false,
           // 画布加宽到容器比例,粒子横向平铺填满新增的区域。窄容器(装扮页那个 9:16 的
           // 预览格)会原样返回,那里本来就不需要加宽。
           animationData: widenLottie(data, widgetId, aspect),
@@ -168,16 +173,20 @@ export function ScreenWidget({
           // 所以挂件的视觉大小与加宽前一致。
           rendererSettings: { preserveAspectRatio: 'xMidYMid meet' },
         });
+        bindAnimation(anim);
       } catch {
+        loading.abort();
         // 挂件是纯装饰,拉不到就当没有 —— 背景底图本身不受影响。
       }
     })();
 
     return () => {
       destroyed = true;
+      loading.abort();
+      bindAnimation();
       anim?.destroy();
     };
-  }, [widgetId, aspect]);
+  }, [widgetId, aspect, bindAnimation]);
 
   return <div className={className} ref={containerRef} />;
 }

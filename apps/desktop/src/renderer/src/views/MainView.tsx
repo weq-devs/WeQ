@@ -21,7 +21,7 @@ import React, {
 import { z } from 'zod';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
-import { useQueryClient } from '@tanstack/react-query';
+import { replaceEqualDeep, useQueryClient } from '@tanstack/react-query';
 import { WebBusinessCache } from '../components/WebBusinessCache';
 import { resolvedProfilesKey } from '../lib/webBusinessCache';
 import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
@@ -6749,7 +6749,24 @@ function MainWorkspace(): ReactElement {
         const hasReply = message.elements.some(
           (element) => (element as { type?: string } | null)?.type === 'reply',
         );
-        if (cached && !hasReply) return cached;
+        if (cached) {
+          if (!hasReply) return cached;
+          // 原文补页／编辑仍重新校准引用，但无关窗口变化不重画整条回复。
+          const elements = replaceEqualDeep(
+            cached.qqElements,
+            enrichReplyElements(
+              message.elements,
+              selectedConversation,
+              user,
+              memberMap,
+              replyIndex,
+            ),
+          );
+          if (elements === cached.qqElements) return cached;
+          const updated: Message = { ...cached, qqElements: elements as Message['qqElements'] };
+          messageTemplateCache.set(message, updated);
+          return updated;
+        }
         const mapped = messageToTemplate(
           message,
           selectedConversation,

@@ -2,10 +2,18 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
-vi.mock(
-  '../src/renderer/src/hooks/useContactDirectoryOrder',
-  () => import('./support/contact-order.stub'),
-);
+import type { ContactMetricRows } from '@weq/service';
+const metricState = vi.hoisted(() => ({ rows: {} as ContactMetricRows }));
+vi.mock('../src/renderer/src/hooks/useContactDirectoryOrder', async () => {
+  const order = await import('./support/contact-order.stub');
+  return {
+    ...order,
+    useContactDirectoryOrder: (kind: string) => ({
+      ...order.useContactDirectoryOrder(kind),
+      rows: metricState.rows,
+    }),
+  };
+});
 import {
   ContactList,
   ConversationList,
@@ -13,8 +21,12 @@ import {
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import { sortConversationRows } from '../src/renderer/src/lib/conversationListOrder';
+import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  metricState.rows = {};
+});
 
 it('大目录排序每条会话只读取一次时间键，不在每次比较中重读', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -187,6 +199,100 @@ it('新的联系人快照会重新归类，不保留旧分组缓存', () => {
     render();
     expect(host.querySelectorAll('.contact-cat-header')).toHaveLength(1);
     expect(host.querySelector('.contact-cat-count')?.textContent).toBe('2');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('展开好友目录只重画活动项和未读变化行，未重画的行仍调用最新选择回调', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  const demo = createTemplateDemoData();
+  const base = demo.contacts[0]!;
+  const reads = new Map<string, number>();
+  const contacts = Array.from({ length: 80 }, (_, index) => {
+    const id = `synthetic-contact-${index}`;
+    return {
+      ...base,
+      id,
+      identityValue: String(10000 + index),
+      categoryId: 0,
+      get signature() {
+        reads.set(id, (reads.get(id) ?? 0) + 1);
+        return `签名 ${id}`;
+      },
+    };
+  });
+  const baseConversation = demo.conversations.find((row) => row.type === 'direct')!;
+  const real = contacts.map((contact) => ({
+    ...baseConversation,
+    id: contact.id,
+    otherUser: contact,
+    unreadCount: 0,
+  }));
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const onSelect = vi.fn();
+  const row = (index: number) =>
+    [...host.querySelectorAll<HTMLButtonElement>('.contact-row')].find(
+      (element) => element.dataset.weqSelectionId === contacts[index]!.id,
+    )!;
+  const render = (activeContactId: string | null, revision: number, unread = false) =>
+    act(() =>
+      root.render(
+        createElement(
+          ContentSelectionProvider,
+          null,
+          createElement(
+            ConversationDirectoryContext.Provider,
+            {
+              value: {
+                real: unread
+                  ? real.map((row, index) => (index === 2 ? { ...row, unreadCount: 8 } : row))
+                  : real,
+                virtual: [],
+                onVirtual: () => {},
+                onCreate: () => {},
+                showContactUnreadCount: true,
+              },
+            },
+            createElement(ContactList, {
+              contacts,
+              activeContactId,
+              onSelect: (contact) => onSelect(contact.id, revision),
+            }),
+          ),
+        ),
+      ),
+    );
+  try {
+    render(contacts[0]!.id, 0);
+    act(() => host.querySelector<HTMLButtonElement>('.contact-cat-header')!.click());
+    expect(host.querySelectorAll('.contact-row')).toHaveLength(contacts.length);
+    reads.clear();
+    render(contacts[1]!.id, 1);
+    expect([...reads.keys()].sort()).toEqual([contacts[0]!.id, contacts[1]!.id].sort());
+    reads.clear();
+    render(contacts[1]!.id, 2, true);
+    expect([...reads.keys()]).toEqual([contacts[2]!.id]);
+    expect(host.querySelector('.row-unread')?.textContent).toBe('8');
+    act(() => row(3).click());
+    expect(onSelect).toHaveBeenLastCalledWith(contacts[3]!.id, 2);
+    reads.clear();
+    act(() =>
+      row(3).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+    );
+    expect(reads.size).toBe(0);
+    metricState.rows = {
+      'friend:unrelated': { level: { value: 8, state: 'ready', attemptedAt: 1 } },
+    };
+    render(contacts[1]!.id, 3, true);
+    expect(reads.size).toBe(0);
+    metricState.rows = { ...metricState.rows, [`friend:${contacts[3]!.id}`]: {} };
+    render(contacts[1]!.id, 4, true);
+    expect([...reads.keys()]).toEqual([contacts[3]!.id]);
   } finally {
     act(() => root.unmount());
     host.remove();

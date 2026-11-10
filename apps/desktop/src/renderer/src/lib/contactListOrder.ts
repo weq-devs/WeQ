@@ -146,15 +146,22 @@ export function sortFriends(
     const result = friendMetric(rows, contact, sort);
     return Array.isArray(result) ? result.length : typeof result === 'number' ? result : null;
   };
-  return [...items].sort(
-    (a, b) =>
-      compareValue(value(a), value(b), descending) ||
-      (sort === 'birthday'
-        ? compareValue(births.get(a)!.ageOrder, births.get(b)!.ageOrder, descending)
-        : 0) ||
-      collator.compare(a.remark || a.nick || a.displayName, b.remark || b.nick || b.displayName) ||
-      a.id.localeCompare(b.id),
-  );
+  return items
+    .map((contact) => ({
+      contact,
+      value: value(contact),
+      age: sort === 'birthday' ? births.get(contact)!.ageOrder : null,
+      name: contact.remark || contact.nick || contact.displayName,
+      id: contact.id,
+    }))
+    .sort(
+      (a, b) =>
+        compareValue(a.value, b.value, descending) ||
+        compareValue(a.age, b.age, descending) ||
+        collator.compare(a.name, b.name) ||
+        a.id.localeCompare(b.id),
+    )
+    .map(({ contact }) => contact);
 }
 type GroupRow = Extract<Conversation, { type: 'group' }>;
 export function sortGroups(
@@ -181,12 +188,20 @@ export function sortGroups(
     const result = metricValue(rows, `group:${group.id}`, sort);
     return typeof result === 'number' ? result : null;
   };
-  return [...items].sort(
-    (a, b) =>
-      compareValue(value(a), value(b), descending) ||
-      collator.compare(a.group.remark || a.group.name, b.group.remark || b.group.name) ||
-      a.id.localeCompare(b.id),
-  );
+  return items
+    .map((row) => ({
+      row,
+      value: value(row),
+      name: row.group.remark || row.group.name,
+      id: row.id,
+    }))
+    .sort(
+      (a, b) =>
+        compareValue(a.value, b.value, descending) ||
+        collator.compare(a.name, b.name) ||
+        a.id.localeCompare(b.id),
+    )
+    .map(({ row }) => row);
 }
 export function locationGroup(ext: Contact['extInfo'], regions: RegionNode[]) {
   const country = text(ext?.country),

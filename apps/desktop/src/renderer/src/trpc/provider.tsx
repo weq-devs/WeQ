@@ -8,6 +8,7 @@ import { useEffect, useState, type ReactNode, type ReactElement } from 'react';
 import { registerDiagnosticQueries } from '../lib/resourceDiagnostics';
 import { trpc, trpcClient } from './client';
 import { WebStartupCache } from '../lib/webStartupCache';
+import { installDevelopmentTiming } from '../lib/developmentTiming';
 
 export function TrpcProvider({ children }: { children: ReactNode }): ReactElement {
   const [queryClient] = useState(
@@ -26,7 +27,14 @@ export function TrpcProvider({ children }: { children: ReactNode }): ReactElemen
         },
       }),
   );
-  useEffect(() => registerDiagnosticQueries(queryClient), [queryClient]);
+  useEffect(() => {
+    const stopQueries = registerDiagnosticQueries(queryClient);
+    const stopTiming = installDevelopmentTiming(window, import.meta.env.DEV);
+    return () => {
+      stopTiming();
+      stopQueries();
+    };
+  }, [queryClient]);
   // Reuse the single shared client from ./client — creating a second client
   // here would reintroduce the cross-talk between subscriptions (vanilla
   // `client`) and queries (React hooks). See the note in client.ts.
