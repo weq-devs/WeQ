@@ -95,6 +95,7 @@ function DressPreview({
       ref={rowRef}
       className="weq-forward-row weq-mf-dress-preview"
       data-bubble={msgDec.bubbleId || undefined}
+      data-bubble-pending={msgDec.bubblePending || undefined}
       data-font={msgDec.fontId || undefined}
       data-fontfx={fontFxAttr}
       data-widget={msgDec.widget ? decoration.widgetId : undefined}

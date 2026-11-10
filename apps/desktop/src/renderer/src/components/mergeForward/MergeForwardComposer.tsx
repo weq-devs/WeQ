@@ -593,6 +593,7 @@ function PreviewRow({
       ref={rowRef}
       className="weq-forward-row weq-mf-row"
       data-bubble={msgDec.bubbleId || undefined}
+      data-bubble-pending={msgDec.bubblePending || undefined}
       data-font={msgDec.fontId || undefined}
       data-fontfx={fontFxAttr}
       data-widget={widget?.animated ? widget.itemId : undefined}

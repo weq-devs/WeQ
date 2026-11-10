@@ -1,0 +1,7 @@
+/* 保留行的布局和头像；本地气泡可绘制时，正文与气泡一起出现。 */
+[data-bubble-pending]
+  .message-content:not(.sticker-only):not(.markdown-image-only):not(.qq-card-only):not(
+    .qq-voice-only
+  ) {
+  visibility: hidden;
+}

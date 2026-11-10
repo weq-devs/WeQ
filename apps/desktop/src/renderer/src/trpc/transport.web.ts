@@ -45,6 +45,8 @@ const independentReads = new Set([
   'account.listFrom',
   'account.cancelMessageRead',
   'account.promoteMessageRead',
+  // 本地气泡查询不能被同批次中的字体/挂件下载拖住。
+  'account.dressup.resolveMsgDecoration',
 ]);
 
 export function createLinks(): TRPCLink<AppRouter>[] {

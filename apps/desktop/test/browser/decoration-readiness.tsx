@@ -14,6 +14,7 @@ function Message({ mine }: { mine: boolean }) {
     <div
       className={`message-line ${mine ? 'mine' : 'theirs'}`}
       data-bubble={decoration.bubbleId || undefined}
+      data-bubble-pending={decoration.bubblePending || undefined}
       data-font={decoration.fontId || undefined}
     >
       <div className="message-bubble">

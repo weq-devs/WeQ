@@ -81,7 +81,7 @@ try {
             return route.fulfill({
               status: scenario === 'font-failure' ? 404 : 200,
               contentType: 'font/otf',
-              body: font,
+              body: scenario === 'font-failure' ? Buffer.from('invalid-font') : font,
             });
           }
           if (url.pathname === '/_media/dressbubble') {
@@ -91,7 +91,7 @@ try {
             return route.fulfill({
               status: scenario === 'bubble-failure' ? 404 : 200,
               contentType: 'image/png',
-              body: bubble,
+              body: scenario === 'bubble-failure' ? Buffer.from('invalid-image') : bubble,
             });
           }
           return url.hostname === '127.0.0.1' ? route.continue() : route.abort();
@@ -101,7 +101,16 @@ try {
             `http://127.0.0.1:${server.httpServer.address().port}/test/browser/decoration-readiness.html?theme=${theme}`,
             { waitUntil: 'domcontentloaded' },
           );
-          await page.locator('.message-content').first().waitFor();
+          await page.locator('.message-content').first().waitFor({ state: 'attached' });
+          const checkHidden = async () => {
+            assert.equal(await page.locator('[data-bubble], [data-font]').count(), 0);
+            assert.deepEqual(
+              await page
+                .locator('.message-content')
+                .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).visibility)),
+              ['hidden', 'hidden'],
+            );
+          };
           const checkDefault = async () => {
             assert.equal(await page.locator('[data-bubble], [data-font]').count(), 0);
             const contrast = await page.locator('.message-content').evaluateAll((nodes) => {
@@ -141,18 +150,28 @@ try {
               JSON.stringify({ width, theme, scenario, contrast }),
             );
           };
-          await checkDefault();
+          await checkHidden();
           if (scenario === 'font-first') releaseFont();
           else releaseBubble();
           await page.waitForTimeout(150);
-          await checkDefault();
+          if (scenario === 'font-first') await checkHidden();
+          else if (scenario === 'bubble-failure') await checkDefault();
+          else {
+            assert.equal(await page.locator('[data-bubble="21009"]').count(), 2);
+            assert.equal(await page.locator('[data-font]').count(), 0);
+            assert.equal(await page.locator('[data-bubble-pending]').count(), 0);
+          }
           if (output && scenario === 'font-first')
             await page.screenshot({ path: resolve(output, `${width}-${theme}-loading.png`) });
           releaseFont();
           releaseBubble();
-          if (scenario.endsWith('failure')) {
+          if (scenario === 'bubble-failure') {
             await page.waitForTimeout(150);
             await checkDefault();
+          } else if (scenario === 'font-failure') {
+            await page.waitForTimeout(150);
+            assert.equal(await page.locator('[data-bubble="21009"]').count(), 2);
+            assert.equal(await page.locator('[data-font]').count(), 0);
           } else {
             await page.waitForFunction(
               () =>

@@ -128,21 +128,24 @@ function probe() {
   };
 }
 
-it.each(['font-first', 'bubble-first'])('双装扮等实际资源一起就绪：%s', async (order) => {
-  const view = probe();
-  try {
-    await view.render();
-    view.expectIds(0, 0);
-    await act(async () => (order === 'font-first' ? fontReady() : imageReady()));
-    view.expectIds(0, 0);
-    await act(async () => (order === 'font-first' ? imageReady() : fontReady()));
-    view.expectIds(21009, 31009);
-  } finally {
-    await view.close();
-  }
-});
+it.each(['font-first', 'bubble-first'])(
+  '气泡不等待字体，字体等待底图以保证可读性：%s',
+  async (order) => {
+    const view = probe();
+    try {
+      await view.render();
+      view.expectIds(0, 0);
+      await act(async () => (order === 'font-first' ? fontReady() : imageReady()));
+      view.expectIds(order === 'bubble-first' ? 21009 : 0, 0);
+      await act(async () => (order === 'font-first' ? imageReady() : fontReady()));
+      view.expectIds(21009, 31009);
+    } finally {
+      await view.close();
+    }
+  },
+);
 
-it.each(['font', 'bubble'])('任一资源失败保持整组默认：%s', async (failed) => {
+it.each(['font', 'bubble'])('字体失败保留气泡，底图失败时不应用字体：%s', async (failed) => {
   const view = probe();
   try {
     await view.render();
@@ -155,7 +158,7 @@ it.each(['font', 'bubble'])('任一资源失败保持整组默认：%s', async (
         fontReady();
       }
     });
-    view.expectIds(0, 0);
+    view.expectIds(failed === 'font' ? 21009 : 0, 0);
   } finally {
     await view.close();
   }

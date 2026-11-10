@@ -37,6 +37,7 @@ it('传输层通过实际连接回调报告恢复，并限制 HTTP 批次 URL �
     'account.listExportTasks',
     'account.roamingBackfill.list',
     'account.flashListDownloadTasks',
+    'account.dressup.resolveMsgDecoration',
   ])
     expect(independent({ path })).toBe(true);
   expect(mocks.batch.mock.calls[0]![0]).toMatchObject({ url: '/trpc', maxURLLength: 2048 });
