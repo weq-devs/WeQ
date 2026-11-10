@@ -124,7 +124,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['storage', 'WeQ 存储管理', '清理数据', '释放空间'],
   ['media', '关联本机媒体目录', '本地图片目录'],
   ['media', '允许使用外部安卓图片缓存', 'Android 图片'],
-  ['backup', '导出备份', '备份配置', '包含此设备的界面偏好'],
+  ['backup', '导出备份', '备份配置', '界面外观与布局'],
   [
     'backup',
     '导入备份',

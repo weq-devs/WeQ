@@ -26,7 +26,7 @@ import { DefaultsOptions, DEFAULTS_DESCRIPTION } from './DefaultsOptions';
 
 const PARTS: WeqBackupPart[] = ['settings', 'accounts', 'api', 'clones'];
 const LABELS: Record<WeqBackupPart, string> = {
-  settings: '通用与界面设置',
+  settings: '通用设置',
   accounts: '账号配置与偏好',
   api: 'API 配置与凭据',
   clones: '克隆体与助手数据',
@@ -412,11 +412,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
             ))}
           </div>
           {parts.includes('settings') ? (
-            <Check
-              label="包含此设备的界面偏好"
-              checked={includeClient}
-              onChange={setIncludeClient}
-            />
+            <Check label="界面外观与布局" checked={includeClient} onChange={setIncludeClient} />
           ) : null}
           {parts.includes('accounts') ? (
             <fieldset>
