@@ -13,6 +13,7 @@ await mkdir(resolve(root, 'node_modules/.cache'), { recursive: true });
 const cacheDir = await mkdtemp(resolve(root, 'node_modules/.cache/timeline-scroll-'));
 const baseline = process.env.WEQ_TIMELINE_BASELINE_REF;
 const width = Number(process.env.WEQ_SCROLL_WIDTH ?? 1280);
+const cachedBubbles = process.env.WEQ_SCROLL_CACHED_BUBBLES === '1';
 const server = await createServer({
   configFile: false,
   root,
@@ -69,7 +70,7 @@ try {
       : route.abort(),
   );
   await page.goto(
-    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?count=25`,
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?count=25${cachedBubbles ? '&cached-bubbles=1' : ''}`,
   );
   await page.waitForSelector('[data-message-id="row-1001"]');
   await page.evaluate(() => {
@@ -86,6 +87,11 @@ try {
         const top = Math.min(...visible.map((rect) => rect.top));
         const bottom = Math.max(...visible.map((rect) => rect.bottom));
         state.samples.push({
+          frameAt: performance.now(),
+          decoratedRows: scroll.querySelectorAll('.message-line[data-bubble="21009"]').length,
+          bubbleFallbacks: scroll.querySelectorAll(
+            '.message-line[data-message-id]:not([data-bubble="21009"])',
+          ).length,
           phase: state.phase,
           offset: scroll.scrollTop,
           mounted: rows.length,
@@ -138,10 +144,24 @@ try {
   });
   const report = {
     width,
+    cachedBubbles,
     baseline: baseline ?? null,
     samples: samples.length,
     blankFrames: samples.filter((sample) => sample.blank),
     maxMounted: Math.max(...samples.map((sample) => sample.mounted)),
+    bubbleFallbackFrames: cachedBubbles
+      ? samples.filter((sample) => sample.bubbleFallbacks > 0)
+      : [],
+    minDecoratedRows: cachedBubbles
+      ? Math.min(...samples.map((sample) => sample.decoratedRows))
+      : 0,
+    frameGapsMs: samples
+      .slice(1)
+      .flatMap((sample, index) =>
+        sample.phase === samples[index].phase
+          ? [Math.round((sample.frameAt - samples[index].frameAt) * 10) / 10]
+          : [],
+      ),
     offsets: [...new Set(samples.map((sample) => Math.round(sample.offset)))],
   };
   if (process.env.WEQ_SCROLL_REPORT)
@@ -151,6 +171,8 @@ try {
     );
   console.log(JSON.stringify(report));
   if (report.blankFrames.length) throw new Error('快速滚动出现未覆盖视口');
+  if (report.bubbleFallbackFrames.length) throw new Error('快速滚动出现默认气泡');
+  if (cachedBubbles && report.minDecoratedRows < 1) throw new Error('缺少实际气泡行');
   if (report.maxMounted >= 150) throw new Error('预挂载恢复为大规模全量挂载');
 } finally {
   await browser?.close();

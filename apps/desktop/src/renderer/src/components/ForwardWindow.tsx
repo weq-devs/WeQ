@@ -47,13 +47,15 @@ import { useActiveWidget } from '../hooks/useActiveWidget';
 import { useBubbleFontFx } from '../hooks/useBubbleFontFx';
 import { OverlayLayerContext, useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
-import type { ResolvedWidget } from '@weq/service';
+import type { ResolvedWidget, MessageBubbleSkin } from '@weq/service';
+import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
 import { ProfileAvatar } from './ProfileAvatar';
 
 // ---- types & store -------------------------------------------------------
 
 /** One cached message inside a forward chain, as it arrives on the wire. */
 export interface ForwardRecordWire {
+  cachedBubbles?: MessageBubbleSkin[];
   msgId: string;
   msgSeq?: string;
   msgType?: number;
@@ -73,7 +75,12 @@ export interface ForwardRecordWire {
   /** Recursive: nested 40900 forward cache (multi-forward inside multi-forward). */
   subMsgs?: ForwardRecordWire[];
   /** Per-message decoration from the nested proto40801 (0 = not set). */
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  decoration?: {
+    bubbleId: number;
+    fontId: number;
+    widgetId: number;
+    cachedBubble?: MessageBubbleSkin;
+  };
 }
 
 interface ForwardWindowState {
@@ -171,6 +178,7 @@ const useForwardStore = create<ForwardStore>((set, get) => ({
   seq: 0,
   zTop: 1000,
   open(opts) {
+    for (const record of opts.records ?? []) seedMessageBubbles(record.cachedBubbles);
     const seq = get().seq + 1;
     const zTop = get().zTop + 1;
     const offset = get().windows.length;
@@ -222,6 +230,18 @@ const useForwardStore = create<ForwardStore>((set, get) => ({
     });
   },
   setRecords(id, records) {
+    const prepare = (rows: ForwardRecordWire[]) => {
+      for (const row of rows) {
+        seedMessageBubbles(row.cachedBubbles);
+        if (row.decoration)
+          row.decoration = {
+            ...row.decoration,
+            cachedBubble: messageBubble(row.decoration.bubbleId),
+          };
+        if (row.subMsgs) prepare(row.subMsgs);
+      }
+    };
+    prepare(records);
     set({
       windows: get().windows.map((w) =>
         w.id === id ? { ...w, records, loading: false, error: null } : w,
@@ -627,7 +647,6 @@ function ForwardRow({
       ref={rowRef}
       className="weq-forward-row"
       data-bubble={msgDec.bubbleId || undefined}
-      data-bubble-pending={msgDec.bubblePending || undefined}
       data-font={msgDec.fontId || undefined}
       data-fontfx={fontFxAttr}
       data-widget={widget?.animated ? widget.itemId : undefined}

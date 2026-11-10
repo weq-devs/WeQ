@@ -268,6 +268,7 @@ export interface OnlineStatusWire extends FormattedOnlineStatus {}
  * and `msgSeq` (column 40003) drives the renderer's seq-window model.
  */
 export interface ChatMsgWire {
+  cachedBubbles?: import('@weq/service').MessageBubbleSkin[];
   localSent?: boolean;
   sourceFormat?: 'native' | 'protocol';
   source?: 'roaming';

@@ -1,6 +1,17 @@
 import { expect, it } from 'vitest';
 import { timelineViewportRange } from '../src/renderer/src/lib/timelinePreload';
 
+it('未测短气泡按当前实测行高预挂载，不把两屏误算成半屏', () => {
+  const rows = timelineViewportRange(
+    { startIndex: 50, endIndex: 59, count: 3000, overscan: 6 },
+    400,
+    (index) => (index >= 50 && index <= 59 ? 40 : undefined),
+    'forward',
+  );
+  expect(rows[0]).toBe(40);
+  expect(rows.at(-1)).toBe(79);
+});
+
 it('快速滚动按像素预留前方两屏、后方一屏，短行也不只预留固定六行', () => {
   const range = { startIndex: 100, endIndex: 105, count: 300, overscan: 6 };
   const forward = timelineViewportRange(range, 600, () => 30, 'forward');

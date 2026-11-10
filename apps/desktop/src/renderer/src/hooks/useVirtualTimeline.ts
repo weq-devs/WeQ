@@ -63,7 +63,7 @@ export function useVirtualTimeline({
         timelineViewportRange(
           range,
           instance?.scrollRect?.height ?? 0,
-          (position) => instance?.measurementsCache[position]?.size ?? 96,
+          (position) => instance?.itemSizeCache.get(ids[position]!),
           instance?.scrollDirection ?? null,
         ),
       );
@@ -78,7 +78,7 @@ export function useVirtualTimeline({
       }
       return [...rendered].sort((a, b) => a - b);
     },
-    [index, scrollRef],
+    [ids, index, scrollRef],
   );
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: ids.length,

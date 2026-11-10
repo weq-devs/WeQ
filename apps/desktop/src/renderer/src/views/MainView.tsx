@@ -292,7 +292,8 @@ import type { ConversationScope } from '@weq/service/search-policy';
 import { useSearchReturn } from '../hooks/useSearchReturn';
 import { useSearchDismissal } from '../hooks/useSearchDismissal';
 import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/model';
-import type { RoamingTarget } from '@weq/service';
+import type { RoamingTarget, MessageBubbleSkin } from '@weq/service';
+import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
 import { conversationAnalysisTarget, conversationRoamingTarget } from '../lib/conversationActions';
 import { createMediaId } from '../im-template/template/composerMedia';
 import {
@@ -583,6 +584,7 @@ type MessageWire = {
    * 转发时原样透传；不要用 `fontId` 反推（会丢 bit 16）。
    */
   decoration?: {
+    cachedBubble?: MessageBubbleSkin;
     bubbleId: number;
     fontId: number;
     widgetId: number;
@@ -593,6 +595,7 @@ type MessageWire = {
 
 /** The unified chat-message wire from the account router → local MessageWire. */
 type ChatMsgWire = {
+  cachedBubbles?: MessageBubbleSkin[];
   localSent?: boolean;
   sourceFormat?: 'native' | 'protocol';
   source?: 'roaming';
@@ -619,6 +622,7 @@ type ChatMsgWire = {
 };
 
 function toMessageWire(w: ChatMsgWire): MessageWire {
+  seedMessageBubbles(w.cachedBubbles);
   return {
     localSent: w.localSent,
     sourceFormat: w.sourceFormat,
@@ -635,7 +639,9 @@ function toMessageWire(w: ChatMsgWire): MessageWire {
     setEmojiList: w.setEmojiList,
     deletedKind: w.deletedKind,
     recall: w.recall,
-    decoration: w.decoration,
+    decoration: w.decoration
+      ? { ...w.decoration, cachedBubble: messageBubble(w.decoration.bubbleId) }
+      : undefined,
   };
 }
 

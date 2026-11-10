@@ -90,6 +90,7 @@ import {
 
 /** 与 service 的 BubbleSkin 同构(渲染侧用得到的部分)。 */
 export interface BubbleSkinCss {
+  baseImage?: string;
   itemId: number;
   slice: { left: number; top: number; right: number; bottom: number };
   imageSize: { w: number; h: number };
@@ -860,7 +861,7 @@ function fontFamilyFor(itemId: number): string {
  * 动效无关。动效帧是叠在它上面的一层,不替换它(见 {@link frameOverlayUrl})。
  */
 function bubbleImageUrl(skin: BubbleSkinCss): string {
-  return dressBubbleUrl(skin.itemId);
+  return skin.baseImage ?? dressBubbleUrl(skin.itemId);
 }
 
 /** 气泡动效叠加层的全部帧 url(逐帧预加载用)。 */

@@ -170,6 +170,12 @@ export const dressupRouter = router({
     return {
       qqOnline: qqOnline(services),
       manifest,
+      cachedBubbles: [
+        ...new Set([manifest.activeBubble, record?.homeDress?.bubbleId ?? 0]),
+      ].flatMap((id) => {
+        const skin = id ? services.dressInstall.messageBubble(id) : undefined;
+        return skin ? [skin] : [];
+      }),
       /** 自己在 QQ 里正在用的那几款(bootstrap 时从 getSelfDress 存下的)。 */
       own: {
         bubbleId: record?.homeDress?.bubbleId ?? 0,
@@ -444,7 +450,9 @@ export const dressupRouter = router({
           widget: null,
         };
       }
-      return services.msgDecoration.resolve(input);
+      const resolved = await services.msgDecoration.resolve(input);
+      const cached = services.dressInstall.messageBubble?.(input.bubbleId);
+      return cached ? { ...resolved, bubble: cached } : resolved;
     }),
 
   /**

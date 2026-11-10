@@ -3,7 +3,7 @@
  * 最后一个可见使用者离开时移除规则、释放字体和动画帧。
  */
 
-import type { BubbleSkin, FontDerived, ResolvedWidget } from '@weq/service';
+import type { MessageBubbleSkin, FontDerived, ResolvedWidget } from '@weq/service';
 import { acquireDecorationStyle, validDecorationFrames } from './decorationResources';
 import {
   dressBubbleUrl,
@@ -200,8 +200,8 @@ function layerRule(
  * Inject CSS rules for one bubble skin.  No-op if already injected.
  * Mirror of dressSkin.ts bubbleRules(), but scoped to data-bubble attribute.
  */
-export function injectBubbleCss(skin: BubbleSkin) {
-  return acquireDecorationStyle(`bubble:${skin.itemId}`, (resource) => {
+export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
+  return acquireDecorationStyle(`bubble:${skin.itemId}${staticOnly ? ':base' : ''}`, (resource) => {
     const { left, top, right, bottom } = skin.slice;
     const wTop = top * BUBBLE_SCALE;
     const wRight = right * BUBBLE_SCALE;
@@ -223,19 +223,17 @@ export function injectBubbleCss(skin: BubbleSkin) {
     const bottomPad = wBottom * PAD_RATIO + bottomDiff * BUBBLE_SCALE * 0.6;
 
     // 动效叠加层:帧图中间镂空,只能叠在静态底图之上(见 layerRule 的说明)。
+    const frameCount = skin.animationFrameCount ?? 0;
+    const frameTimeMs = skin.animationFrameTimeMs ?? 0;
+    const hasFrameAnim = validDecorationFrames(frameCount) && frameTimeMs;
     const frameAnim =
-      validDecorationFrames(skin.animationFrameCount) && skin.animationFrameTimeMs
-        ? frameAnimationCss(
-            skin.itemId,
-            skin.animationFrameCount,
-            skin.animationFrameTimeMs,
-            skin.animationRepeat ?? 0,
-          )
+      !staticOnly && hasFrameAnim
+        ? frameAnimationCss(skin.itemId, frameCount, frameTimeMs, skin.animationRepeat ?? 0)
         : null;
 
     // local-only:气泡永远是本地九宫格(zip 链下载),没有 CDN 直链分支。
     // 底图恒为 `aio_user_bg_nor.9.png` 那张 —— 与有没有动效无关。
-    const imageUrl = dressBubbleUrl(skin.itemId);
+    const imageUrl = skin.baseImage ?? dressBubbleUrl(skin.itemId);
     resource.image(imageUrl);
 
     const rules = [
@@ -272,7 +270,7 @@ export function injectBubbleCss(skin: BubbleSkin) {
     );
     // 对方的帧与气泡动效叠加层共用 `::after`；叠加层是气泡外面的装饰，遮罩会连它
     // 一起裁掉（`data-fontfx` 一直挂在行上，裁掉就是永久的），所以有动效时跳过。
-    if (!frameAnim) {
+    if (!hasFrameAnim) {
       rules.push(
         fxClipMaskCss(fxClipTarget(fxClipTheirsSel(skin.itemId), '::after'), {
           imageUrl,

@@ -46,6 +46,7 @@ import {
   rmSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import type { TrpcNative } from '@weq/protocol';
 import { getBubbleResources, getFontResource, getPendantResources } from '@weq/protocol';
 import type { NtHelperBinding } from '@weq/native';
@@ -58,7 +59,7 @@ import {
   isRenderableSfnt,
   pngSize,
 } from '../common/zip';
-import { buildLocalBubbleSkin, type BubbleSkin } from './bubble_skin';
+import { buildLocalBubbleSkin, type BubbleSkin, type MessageBubbleSkin } from './bubble_skin';
 import { downloadUrlToFile } from './media_url';
 
 /**
@@ -165,6 +166,9 @@ export class DressSharedCache {
   private readonly bubblesDir: string;
   private readonly fontsDir: string;
   private readonly pendantsDir: string;
+  private readonly messageBubbles = new Map<number, MessageBubbleSkin>();
+  private readonly messageBubblesReady: Promise<void>;
+  private messageBubbleBytes = 0;
 
   constructor(
     private readonly nt: TrpcNative,
@@ -181,6 +185,63 @@ export class DressSharedCache {
     mkdirSync(this.bubblesDir, { recursive: true });
     mkdirSync(this.fontsDir, { recursive: true });
     mkdirSync(this.pendantsDir, { recursive: true });
+    this.messageBubblesReady = this.prepareMessageBubbles();
+  }
+
+  private async cacheMessageBubble(itemId: number): Promise<void> {
+    try {
+      const path = join(this.bubblesDir, `${itemId}.png`);
+      const [json, info] = await Promise.all([
+        readFile(join(this.bubblesDir, `${itemId}.json`), 'utf8'),
+        stat(path),
+      ]);
+      if (!info.isFile()) return;
+      const png = info.size <= 512 * 1024 ? await readFile(path) : null;
+      const meta = JSON.parse(json) as BubbleSidecar;
+      if (!meta.slice || !meta.imageSize || !meta.textColor || (png && !pngSize(png))) return;
+      const skin: MessageBubbleSkin = {
+        itemId,
+        slice: meta.slice,
+        imageSize: meta.imageSize,
+        textColor: meta.textColor,
+        localFile: join(this.bubblesDir, `${itemId}.png`),
+        animationFrameCount: meta.animationFrameCount,
+        animationFrameTimeMs: meta.animationFrameTimeMs,
+        animationRepeat: meta.animationRepeat,
+      };
+      // 只缓存静态九宫格，不把动画帧或整个装扮目录塞进消息页。
+      const previousBytes = this.messageBubbles.get(itemId)?.baseImage?.length ?? 0;
+      const baseImage = png ? `data:image/png;base64,${png.toString('base64')}` : undefined;
+      this.messageBubbleBytes -= previousBytes;
+      if (baseImage && this.messageBubbleBytes + baseImage.length <= 32 * 1024 * 1024) {
+        skin.baseImage = baseImage;
+        this.messageBubbleBytes += baseImage.length;
+      }
+      this.messageBubbles.set(itemId, skin);
+    } catch {
+      // 破损、未写完或缺失的缓存不阻塞账号初始化与消息读取。
+    }
+  }
+
+  private async prepareMessageBubbles(): Promise<void> {
+    const files = await readdir(this.bubblesDir).catch(() => []);
+    const ids = files.flatMap((name) =>
+      /^\d+\.json$/.test(name) ? [Number(name.slice(0, -5))] : [],
+    );
+    let cursor = 0;
+    await Promise.all(
+      Array.from({ length: 4 }, async () => {
+        while (cursor < ids.length) await this.cacheMessageBubble(ids[cursor++]!);
+      }),
+    );
+  }
+
+  prepareMessageRendering(): Promise<void> {
+    return this.messageBubblesReady;
+  }
+
+  messageBubble(itemId: number): MessageBubbleSkin | undefined {
+    return this.messageBubbles.get(itemId);
   }
 
   /**
@@ -198,7 +259,9 @@ export class DressSharedCache {
     const urls = await this.resolveBubbleZipUrls(itemId);
     if (!urls) return null;
 
-    return this.installBubbleFromUrls(itemId, urls);
+    const skin = await this.installBubbleFromUrls(itemId, urls);
+    if (skin) await this.cacheMessageBubble(itemId);
+    return skin;
   }
 
   /**

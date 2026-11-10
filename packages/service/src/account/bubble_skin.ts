@@ -87,6 +87,9 @@ export interface BubbleSkin {
   animationRepeat?: number;
 }
 
+/** 消息首帧使用的静态底图；动画仍走独立资源链。 */
+export type MessageBubbleSkin = BubbleSkin & { baseImage?: string };
+
 /** {@link buildLocalBubbleSkin} 的入参 —— 全部来自共享缓存的 zip 下载链。 */
 export interface LocalBubbleInput {
   itemId: number;

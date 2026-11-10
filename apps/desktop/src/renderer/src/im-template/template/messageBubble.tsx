@@ -437,7 +437,6 @@ export function MessageBubble({
           : undefined
       }
       data-bubble={msgBubbleId || undefined}
-      data-bubble-pending={msgDec.bubblePending || undefined}
       data-font={msgFontId || undefined}
       data-fontfx={fontFxAttr}
       data-widget={lineWidget?.animated ? lineWidget.itemId : undefined}
