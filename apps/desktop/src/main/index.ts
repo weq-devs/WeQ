@@ -2,7 +2,11 @@ import { controlCompositionWindow } from './composition_window';
 import { flushConversationCalendarResults } from './ipc/routers/conversation_calendar';
 import { applicationToolPopupOptions } from './tool_window';
 import { installCallDisplayMediaHandler } from './call_display_media';
-import { floatingWindowTypeOption, ozoneRelaunchArgs } from './linux_window_backend';
+import {
+  appImageRelaunchCommand,
+  floatingWindowTypeOption,
+  ozoneRelaunchArgs,
+} from './linux_window_backend';
 import {
   app,
   autoUpdater,
@@ -21,6 +25,7 @@ import {
   type IpcMainEvent,
 } from 'electron';
 import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import { WINDOW_LAYOUTS, applyWindowLayout, type WindowLayout } from './window_layout';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
@@ -128,7 +133,12 @@ function relaunchForOzoneBackend(): void {
   const relaunch = ozoneRelaunchArgs();
   if (!relaunch) return;
   process.env.WEQ_OZONE_RELAUNCHED = '1';
-  app.relaunch({ execPath: relaunch.execPath, args: relaunch.args });
+  if (relaunch.execPath) {
+    const command = appImageRelaunchCommand(relaunch.execPath, relaunch.args);
+    spawn(command.execPath, command.args, { detached: true, stdio: 'ignore' }).unref();
+  } else {
+    app.relaunch({ args: relaunch.args });
+  }
   app.exit(0);
 }
 relaunchForOzoneBackend();

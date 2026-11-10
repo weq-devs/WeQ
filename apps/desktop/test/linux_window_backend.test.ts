@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
+  appImageRelaunchCommand,
   floatingWindowType,
   floatingWindowTypeOption,
   ozonePlatformArgs,
@@ -101,6 +102,58 @@ test('packaged builds relaunch once when the ozone flag never made it to argv', 
       args: ['--ozone-platform=x11', '--no-sandbox'],
     },
   );
+});
+
+test('default AppImage relaunch reads APPIMAGE from the process environment', () => {
+  const previous = {
+    APPIMAGE: process.env.APPIMAGE,
+    DISPLAY: process.env.DISPLAY,
+    WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY,
+    XDG_SESSION_TYPE: process.env.XDG_SESSION_TYPE,
+    WEQ_OZONE_PLATFORM: process.env.WEQ_OZONE_PLATFORM,
+    WEQ_OZONE_RELAUNCHED: process.env.WEQ_OZONE_RELAUNCHED,
+  };
+  process.env.APPIMAGE = '/home/u/weQ-2.6.0-linux-x86_64.AppImage';
+  process.env.DISPLAY = ':0';
+  process.env.WAYLAND_DISPLAY = 'wayland-1';
+  process.env.XDG_SESSION_TYPE = 'wayland';
+  delete process.env.WEQ_OZONE_PLATFORM;
+  delete process.env.WEQ_OZONE_RELAUNCHED;
+
+  try {
+    assert.deepEqual(ozoneRelaunchArgs(['/tmp/.mount_weQ123/@weqdesktop'], 'linux'), {
+      execPath: process.env.APPIMAGE,
+      args: ['--ozone-platform=x11', '--no-sandbox'],
+    });
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test('AppImage relaunch waits for the old mount owner to exit', () => {
+  const command = appImageRelaunchCommand(
+    '/home/u/weQ-2.6.0-linux-x86_64.AppImage',
+    ['--ozone-platform=x11', '--no-sandbox'],
+    1234,
+    '/tmp/.mount_weQ-old',
+  );
+
+  assert.equal(command.execPath, '/bin/sh');
+  assert.equal(command.args[0], '-c');
+  assert.match(command.args[1], /kill -0/);
+  assert.match(command.args[1], /unset APPIMAGE APPDIR/);
+  assert.match(command.args[1], /sleep 1/);
+  assert.deepEqual(command.args.slice(2), [
+    'weq-ozone-relaunch',
+    '1234',
+    '/tmp/.mount_weQ-old',
+    '/home/u/weQ-2.6.0-linux-x86_64.AppImage',
+    '--ozone-platform=x11',
+    '--no-sandbox',
+  ]);
 });
 
 test('no relaunch when the flag is already present, or on non-Linux', () => {
