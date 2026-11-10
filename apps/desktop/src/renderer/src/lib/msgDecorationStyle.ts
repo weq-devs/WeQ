@@ -199,7 +199,7 @@ function layerRule(
  * Inject CSS rules for one bubble skin.  No-op if already injected.
  * Mirror of dressSkin.ts bubbleRules(), but scoped to data-bubble attribute.
  */
-export function injectBubbleCss(skin: BubbleSkin): () => void {
+export function injectBubbleCss(skin: BubbleSkin) {
   return acquireDecorationStyle(`bubble:${skin.itemId}`, (resource) => {
     const { left, top, right, bottom } = skin.slice;
     const wTop = top * BUBBLE_SCALE;
@@ -235,6 +235,7 @@ export function injectBubbleCss(skin: BubbleSkin): () => void {
     // local-only:气泡永远是本地九宫格(zip 链下载),没有 CDN 直链分支。
     // 底图恒为 `aio_user_bg_nor.9.png` 那张 —— 与有没有动效无关。
     const imageUrl = dressBubbleUrl(skin.itemId);
+    resource.image(imageUrl);
 
     const rules = [
       frameAnim?.keyframes ?? '',
@@ -356,19 +357,14 @@ export function messageFontFamily(fontId: number, deriveVersion: number): string
  *
  * 炫彩规则同样等整批预热成功后才注入；尺寸属性由 useBubbleFontFx 决定。
  */
-export function injectFontCss(fontId: number, font: FontDerived | null): () => void {
+export function injectFontCss(fontId: number, font: FontDerived | null) {
   const deriveVersion = font?.deriveVersion ?? 0;
   const key = `${fontId}:${deriveVersion}`;
   return acquireDecorationStyle(`font:${key}`, (resource) => {
     const url = dressFontUrl(fontId, deriveVersion);
     const family = messageFontFamily(fontId, deriveVersion);
 
-    // Preload the font via FontFace API so the browser doesn't swap mid-render.
-    // Some QQ dress fonts fail Chromium's OTS sanitizer ("Failed to decode
-    // downloaded font") — that's a real file-format rejection we can't work
-    // around client-side. Swallow it: document.fonts never gets the face, so
-    // the CSS fallback chain below just takes over, same as dressSkin.ts's
-    // preloadFont for the "own equipped font" path.
+    // FontFace 注册成功才算就绪；QQ 字体被 OTS 拒绝时 ready=false，消息行整组回退默认。
     resource.font(family, url);
 
     const fxSkin = toFontFxSkin(font);
