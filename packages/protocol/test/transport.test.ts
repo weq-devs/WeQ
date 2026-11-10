@@ -46,6 +46,29 @@ describe('协议传输', () => {
     expect(nativeSend).toHaveBeenCalledWith(1, 'test.unregistered', Buffer.alloc(1, 1), false, 3);
   });
 
+  it.each([
+    [0x9474, 0],
+    [0xfe1, 3],
+    [0x9067, 202],
+  ])('已登记的不签名 OIDB %i_%i 保持原发包参数且不报警', async (command, subCommand) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const sendOidbPacket = vi.fn().mockResolvedValue(Buffer.from([0]));
+    const body = Uint8Array.from([1]);
+
+    await sendOidb({ sendOidbPacket }, 123, { command, subCommand, body });
+
+    expect(sendOidbPacket).toHaveBeenCalledWith(
+      123,
+      command,
+      subCommand,
+      Buffer.from(body),
+      false,
+      false,
+      3,
+    );
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it('override 可以强制覆盖（调试脚本用）', async () => {
     const nativeSend = vi.fn().mockResolvedValue(Buffer.from([0]));
     await sendPacket({ sendPacket: nativeSend }, 1, 'MessageSvc.PbSendMsg', Uint8Array.from([1]), {

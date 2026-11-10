@@ -19,6 +19,7 @@
  * ## 声明方式
  *
  * - `sign: 'all'`              三端都签
+ * - `sign: 'none'`             显式登记不签名，不触发未登记警告
  * - `sign: 'non-linux'`        Linux 不签，Windows / macOS 签
  * - `sign: 'not-darwin'`       macOS 不签，Linux / Windows 签
  * - `sign: { linux, win32, darwin }` 三端逐端声明，禁止回落
@@ -38,7 +39,7 @@ export interface PerPlatform {
 }
 
 /** 表的简写形式。 */
-export type SignRuleSwitch = 'all' | 'non-linux' | 'not-darwin';
+export type SignRuleSwitch = 'all' | 'none' | 'non-linux' | 'not-darwin';
 
 export interface SignRule {
   /** 是否带 `SecInfo`（SSO reserved tag 24）。 */
@@ -60,11 +61,10 @@ export interface ResolvedSign {
 }
 
 /**
- * 需要签名（或需要 mode=2）的命令全集。
+ * 按 wire 命令登记的签名策略。
  *
- * 不签名的命令**不在这里出现** —— 查不到即按 `{ needSign: false, mode: 3 }`
- * 处理。这既是缺省值，也让表只保留「需要注意的例外」，避免把 80 多条 false
- * 抄一遍。
+ * 不签名的命令可用 `sign: 'none'` 显式登记，避免与未知命令混淆。
+ * 查不到仍按 `{ needSign: false, mode: 3 }` 处理，并保留一次未登记警告。
  */
 export const SIGN_RULES = {
   // ─── 三端都签 ───────────────────────────────────────────────────────
@@ -117,6 +117,11 @@ export const SIGN_RULES = {
   'OidbSvcTrpcTcp.0x11c4_100': { sign: 'non-linux' },
   'OidbSvcTrpcTcp.0x11c5_100': { sign: 'non-linux' },
   'OidbSvcTrpcTcp.0x11e9_100': { sign: 'non-linux' },
+
+  // ─── 显式不签名（沿用原有协议策略，不改变线上参数） ──────────────────
+  'OidbSvcTrpcTcp.0x9067_202': { sign: 'none' }, // 图片下载 rkey
+  'OidbSvcTrpcTcp.0x9474_0': { sign: 'none' }, // 群待办列表
+  'OidbSvcTrpcTcp.0xfe1_3': { sign: 'none' }, // QQ 秀形象查询，不能套用 0xfe1_2 的规则
 } as const satisfies Record<string, SignRule>;
 
 /** 表里出现过的 wire 命令。 */
@@ -129,6 +134,7 @@ export function oidbCommand(command: number, subCommand: number): string {
 
 function needSignOn(rule: SignRuleSwitch | PerPlatform, platform: NodeJS.Platform): boolean {
   if (rule === 'all') return true;
+  if (rule === 'none') return false;
   if (rule === 'non-linux') return platform !== 'linux';
   if (rule === 'not-darwin') return platform !== 'darwin';
   if (platform === 'win32') return rule.win32;

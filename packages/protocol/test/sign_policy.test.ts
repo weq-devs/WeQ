@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { oidbCommand, resolveSign, SIGN_RULES } from '../src/index';
 
 describe('oidbCommand', () => {
@@ -10,6 +10,37 @@ describe('oidbCommand', () => {
 });
 
 describe('resolveSign', () => {
+  it.each(['OidbSvcTrpcTcp.0x9474_0', 'OidbSvcTrpcTcp.0xfe1_3', 'OidbSvcTrpcTcp.0x9067_202'])(
+    '已登记的不签名命令 %s 三端保持原参数且不报警',
+    (cmd) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        for (const platform of ['linux', 'win32', 'darwin'] as const) {
+          expect(resolveSign(cmd, platform)).toEqual({ needSign: false, mode: 3 });
+        }
+        expect(warn).not.toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+      }
+    },
+  );
+
+  it('真正未登记的命令仍报警，同一命令只提醒一次', () => {
+    const cmd = 'test.sign-policy.unknown-once';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      for (const platform of ['linux', 'win32', 'darwin'] as const) {
+        expect(resolveSign(cmd, platform)).toEqual({ needSign: false, mode: 3 });
+      }
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(`未登记的命令 ${cmd}`));
+      resolveSign('test.sign-policy.another-unknown');
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('未登记的命令按「不签名 + 精简签名」处理', () => {
     for (const platform of ['linux', 'win32', 'darwin'] as const) {
       expect(resolveSign('OidbSvcTrpcTcp.0xdead_1', platform)).toEqual({
@@ -67,12 +98,20 @@ describe('SIGN_RULES', () => {
     }
   });
 
-  it('三端都不签的命令不应出现在表里（false 是缺省，不用登记）', () => {
+  it('显式不签名策略与真正未登记的命令分开', () => {
+    for (const cmd of [
+      'OidbSvcTrpcTcp.0x9474_0',
+      'OidbSvcTrpcTcp.0xfe1_3',
+      'OidbSvcTrpcTcp.0x9067_202',
+    ]) {
+      expect(SIGN_RULES).toHaveProperty([cmd], { sign: 'none' });
+    }
     for (const cmd of Object.keys(SIGN_RULES)) {
+      const rule = SIGN_RULES[cmd as keyof typeof SIGN_RULES];
       const signed = (['linux', 'win32', 'darwin'] as const).some(
         (p) => resolveSign(cmd, p).needSign,
       );
-      expect(signed, `${cmd} 三端都不签，应该从表里删掉`).toBe(true);
+      expect(signed, cmd).toBe(rule.sign !== 'none');
     }
   });
 

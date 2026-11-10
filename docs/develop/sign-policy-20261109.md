@@ -19,7 +19,8 @@ Windows 42 条，而且全部差异都是「Linux 不签、Windows 会签」。
 2. **三端一致**用 `sign: 'all'` / `'non-linux'` / `'not-darwin'`；三端不一致才写
    `{ linux, win32, darwin }`，**三个字段都必填**，不要回落到别的平台（macOS 实测
    证明回落会算错）。
-3. **不签名的命令不登记**：查不到即不签名 + mode 3。新命令忘了登记会打 warn。
+3. 不签名的命令可用 `sign: 'none'` **显式登记**，不触发未登记警告；查不到仍按
+   不签名 + mode 3 处理，并打一条 warn，提醒核对新命令的实际策略。
 4. 分发统一走 `transport.ts` -> `resolveSign(cmd, platform?)`，业务代码里**不要**
    手写 `process.platform` 判断，也不要直接调 `nt.sendOidbPacket` / `nt.sendPacket`。
 
@@ -104,6 +105,7 @@ ASCII uin 逐字节匹配挑出当前会话的那个实例。
 ```ts
 export const SIGN_RULES = {
   'MessageSvc.PbSendMsg': { sign: 'all', mode2: true },
+  'OidbSvcTrpcTcp.0x9474_0': { sign: 'none' },
   'OidbSvcTrpcTcp.0x6d6_2': { sign: 'non-linux' },
   'OidbSvcTrpcTcp.0x9082_1': { sign: 'not-darwin', mode2: true },
 } as const satisfies Record<string, SignRule>;
@@ -112,18 +114,30 @@ resolveSign(cmd, platform?) -> { needSign, mode }
 oidbCommand(command, subCommand) -> 'OidbSvcTrpcTcp.0x6d6_2'
 ```
 
-- `sign`：`'all'` / `'non-linux'` / `'not-darwin'`，或三端逐端对象 `{ linux, win32, darwin }`。
+- `sign`：`'all'` / `'none'` / `'non-linux'` / `'not-darwin'`，或三端逐端对象
+  `{ linux, win32, darwin }`。
 - `mode2`：该命令用完整签名（VM mode = 2，见本文件后面的 mode 分组）。Linux 恒按 3；
   **该命令在这个平台上不签名时也按 3** —— native 的 `sec_info` 直接返回 None，
   mode 根本不会被用到，报 2 等于宣称一个没有依据的值（`0x9082_1/2` 在 macOS 就是
   这种情况：不签名，mode 未知）。
-- **不签名的命令不登记**：查不到即 `{ needSign: false, mode: 3 }`，并打一条 warn。
+- 显式登记 `sign: 'none'` 的命令返回 `{ needSign: false, mode: 3 }`，不报警；
+  未登记命令沿用同一缺省参数，但每个命令仍提醒一次。
 - `transport.ts` 是**唯一**分发点：`sendOidb` / `sendPacket` 自己按命令查表，调用方
   默认什么都不用传。`override` 只给 `scripts/sso_send.ts` 的 `--sign` / `--no-sign`。
 - spec 上不再有 `needSign` 字段；`invokeOidb` / `invokeTrpc` / `invokeLegacyOidb` 都只管
   编码解码与发包。
 - 防漂移：`test/sign_policy.test.ts` 断言表里每条 OIDB 命令都能在
   `scripts/probe-sign.ts` 的命令表里找到，保证新加的策略可复测。
+
+### 已有不签名策略的显式登记（2026-11-10）
+
+`0x9474_0`（群待办列表）、`0xfe1_3`（QQ 秀形象查询）和 `0x9067_202`（图片下载
+`rkey`）沿用已有的不签名策略，现在显式登记为 `sign: 'none'`，避免正常调用被误报为
+“未登记”。三条命令此前均已在
+`probe-sign.ts` 的命令表中；本次只修正登记与提示，不改变发包参数，也不代表新增的
+三端抓包验收。既有说明见[群待办协议清单](./protocol-actions-20261019.md)与
+`packages/protocol/src/oidb/profile/get-qq-show-url.ts`、
+`packages/protocol/src/oidb/misc/fetch-download-rkeys.ts`。
 
 ## 签名器 VM mode
 
