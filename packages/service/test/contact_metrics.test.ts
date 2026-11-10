@@ -76,6 +76,31 @@ it('区分真实零、未知和失败；失败保留旧值，持久化后按旧�
   });
 });
 
+it('移除不适用指标保留其他字段，在途旧响应不能重新写回', async () => {
+  const { service, path } = await setup();
+  await service.record('friend:u_test', { likeCount: 0, level: 8 });
+  expect(await service.keysForMetric('likeCount')).toEqual(['friend:u_test']);
+  let release!: (value: number) => void;
+  const pending = service.query(
+    'friend:u_test',
+    ['likeCount'],
+    () =>
+      new Promise<number>((resolve) => {
+        release = resolve;
+      }),
+    (likeCount) => ({ likeCount }),
+  );
+  await vi.waitFor(() => expect(release).toBeDefined());
+  await service.removeMetrics(['friend:u_test'], ['likeCount']);
+  release(123);
+  await pending;
+  expect((await service.row('friend:u_test')).likeCount).toBeUndefined();
+  expect(await service.keysForMetric('likeCount')).toEqual([]);
+  expect((await service.row('friend:u_test')).level?.value).toBe(8);
+  await service.flush();
+  expect(JSON.parse(await readFile(path, 'utf8')).rows['friend:u_test'].likeCount).toBeUndefined();
+});
+
 it('同目标去重，后来的成功观察不被早发出的慢查询覆盖', async () => {
   const { service } = await setup();
   let release!: (value: number) => void;

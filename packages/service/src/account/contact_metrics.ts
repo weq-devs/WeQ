@@ -146,6 +146,10 @@ export class ContactMetricsService extends EventEmitter {
     await this.loaded;
     return structuredClone(this.rows[key] ?? {});
   }
+  async keysForMetric(metric: ContactMetric) {
+    await this.loaded;
+    return Object.keys(this.rows).filter((key) => this.rows[key]?.[metric]);
+  }
 
   private changed() {
     if (this.revision % 100 === 0) {
@@ -213,6 +217,24 @@ export class ContactMetricsService extends EventEmitter {
       error: error instanceof Error ? error.message : String(error),
     };
     this.changed();
+  }
+  /** 不适用的指标不保留缓存，并阻止在途旧查询重新写回。 */
+  async removeMetrics(keys: string[], metrics: ContactMetric[]) {
+    await this.loaded;
+    if (!this.active) return;
+    let changed = false;
+    for (const key of keys)
+      for (const metric of metrics) {
+        const sequenceKey = `${key}:${metric}`;
+        this.sequences.set(sequenceKey, (this.sequences.get(sequenceKey) ?? 0) + 1);
+        const row = this.rows[key];
+        if (row?.[metric]) {
+          delete row[metric];
+          changed = true;
+          if (!Object.keys(row).length) delete this.rows[key];
+        }
+      }
+    if (changed) this.changed();
   }
   async recordIfChanged(key: string, values: Partial<Record<ContactMetric, MetricValue | null>>) {
     await this.loaded;

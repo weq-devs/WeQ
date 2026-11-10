@@ -28,6 +28,7 @@ export type User = {
 
 /** profile_info_v6 21000 列解出的资料扩展信息（特权/互动标识/教育/所在地/兴趣/空间相册）。 */
 export type ProfileExtInfo = {
+  isEnterprise?: boolean;
   interactMarks: Array<{ type?: string; markId?: number; iconUrl?: string }>;
   privileges: Array<{
     bizId?: number;

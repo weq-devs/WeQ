@@ -143,6 +143,7 @@ export class ContactDirectoryRuntime {
       })
       .catch(() => {});
     this.requestCheck('group');
+    this.requestCheck('profile');
   }
 
   async snapshot() {
@@ -210,6 +211,17 @@ export class ContactDirectoryRuntime {
     );
   }
 
+  private async excludeLikeMetrics(
+    profiles: Awaited<ReturnType<AccountServices['profile']['profilesByUids']>>,
+  ) {
+    const excluded = profiles.filter((profile) => profile.isBot || profile.extInfo?.isEnterprise);
+    await this.cache.removeMetrics(
+      excluded.flatMap((profile) => [`friend:${profile.uid}`, `friend:${profile.uin}`]),
+      ['likeCount'],
+    );
+    return new Set(excluded.map((profile) => profile.uid));
+  }
+
   private async friendJobs(
     only?: string[],
     force = true,
@@ -227,10 +239,13 @@ export class ContactDirectoryRuntime {
     )
       return [];
     const friends = await this.friends();
+    const profiles =
+      report || !fields || fields.includes('likeCount')
+        ? await this.services.profile.profilesByUids(friends.map((friend) => friend.uid))
+        : [];
+    const excludedLikes = await this.excludeLikeMetrics(profiles);
     if (report)
-      for (const profile of await this.services.profile.profilesByUids(
-        friends.map((friend) => friend.uid),
-      )) {
+      for (const profile of profiles) {
         this.friendMeta.set(String(profile.uin), {
           昵称: profile.nick,
           备注: profile.remark,
@@ -258,6 +273,7 @@ export class ContactDirectoryRuntime {
       if (needs('level'))
         jobs.push({ key: `${key}:level`, run: () => this.services.peerStats.getQqLevel(uin, 1) });
       if (
+        !excludedLikes.has(friend.uid) &&
         (!fields || fields.includes('likeCount')) &&
         needsMetricRefresh(snapshot?.rows[`friend:${friend.uid}`]?.likeCount, force, maxAgeMs)
       )
@@ -631,7 +647,13 @@ export class ContactDirectoryRuntime {
       const addedFriends = rosterChanged.filter((uid) => next.has(uid) && !this.roster.has(uid));
       this.roster = next;
       if (kinds.has('profile')) {
-        const profiles = await this.services.profile.profilesByUids([...next.keys()]);
+        const cachedLikeUids = (await this.cache.keysForMetric('likeCount'))
+          .filter((key) => key.startsWith('friend:u_'))
+          .map((key) => key.slice('friend:'.length));
+        const profiles = await this.services.profile.profilesByUids([
+          ...new Set([...next.keys(), ...cachedLikeUids]),
+        ]);
+        await this.excludeLikeMetrics(profiles);
         const signature = JSON.stringify(
           profiles.map((profile) => [
             profile.uid,
@@ -643,6 +665,8 @@ export class ContactDirectoryRuntime {
             profile.birthDay,
             profile.intimacy,
             profile.gender,
+            profile.isBot,
+            profile.extInfo?.isEnterprise,
             profile.extRelation,
             profile.extInfo?.country,
             profile.extInfo?.province,

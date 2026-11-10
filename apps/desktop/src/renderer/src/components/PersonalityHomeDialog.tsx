@@ -62,6 +62,7 @@ function qqLevelIconNames(level: number): string[] {
 
 /** 与资料灯箱同一份形状（profilePanes 的 ProfileExtInfo），只取渲染要用的字段。 */
 export interface PersonalityHomeProfile {
+  isEnterprise?: boolean;
   name: string;
   avatarUrl: string | null;
   signature?: string | null;
@@ -246,7 +247,7 @@ export function PersonalityHomeDialog({
           </div>
         ) : null}
 
-        {!isBot && uid ? (
+        {!isBot && !profile.isEnterprise && uid ? (
           <div className="weq-profile-list">
             <ProfileLikesRow uid={uid} uin={uin} name={profile.name} />
           </div>

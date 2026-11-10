@@ -12,6 +12,7 @@ export function ProfileLikesRow({ uid, uin, name }: { uid: string; uin: string; 
   );
   if (!valid) return null;
   const count = stats.data?.likeCount;
+  if (count === null) return null;
   const value =
     typeof count === 'number' && Number.isSafeInteger(count) && count >= 0
       ? count.toLocaleString('zh-CN')

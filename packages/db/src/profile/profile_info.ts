@@ -87,6 +87,8 @@ export interface AlbumPhoto {
 export interface ProfileExtInfo {
   /** QQ 好友资料缓存的实际免打扰值；undefined 表示字段缺失或未识别，不证明远端状态。 */
   friendDisturb?: boolean;
+  /** 企点主号或员工标记命中；不根据 QQ 号段或昵称推断。 */
+  isEnterprise?: boolean;
   interactMarks: InteractMark[];
   privileges: Privilege[];
   /** 教育经历/学校。 */
@@ -604,6 +606,12 @@ function parseExtInfo(blob: SqlValue | undefined): ProfileExtInfo | undefined {
   }));
 
   const info: ProfileExtInfo = {
+    isEnterprise:
+      [
+        ext.buddySettings?.qidianMasterFlag,
+        ext.buddySettings?.qidianCrewFlag,
+        ext.buddySettings?.qidianCrewFlag2,
+      ].some((value) => (value ?? 0) > 0) || undefined,
     friendDisturb:
       ext.buddySettings?.messageDisturb === 1
         ? true
@@ -628,6 +636,7 @@ function parseExtInfo(blob: SqlValue | undefined): ProfileExtInfo | undefined {
 
   // 全空则不占位
   const empty =
+    !info.isEnterprise &&
     info.friendDisturb === undefined &&
     interactMarks.length === 0 &&
     privileges.length === 0 &&

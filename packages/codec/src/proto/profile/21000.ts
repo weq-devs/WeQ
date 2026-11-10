@@ -187,6 +187,9 @@ export const MiscFlagsWire = {
 export const BuddySettingsWire = {
   // 保留数值以拒绝未知枚举，不能把任意非零值强转为 true。
   messageDisturb: ProtoField(20032, ScalarType.UINT32, { optional: true }),
+  qidianMasterFlag: ProtoField(20080, ScalarType.UINT32, { optional: true }),
+  qidianCrewFlag: ProtoField(20081, ScalarType.UINT32, { optional: true }),
+  qidianCrewFlag2: ProtoField(20082, ScalarType.UINT32, { optional: true }),
 };
 
 /** #21000 内层各分块。 */

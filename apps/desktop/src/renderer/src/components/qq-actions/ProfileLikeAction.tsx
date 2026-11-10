@@ -44,7 +44,7 @@ function ProfileLikeDialogBody({
       {
         readback: async () => {
           const result = await client.account.dressup.peerStats.query({ uin, uid });
-          return before !== undefined && result.likeCount >= before + count;
+          return before != null && result.likeCount != null && result.likeCount >= before + count;
         },
       },
     );

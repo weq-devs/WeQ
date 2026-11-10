@@ -10,6 +10,7 @@ import {
 import {
   FRIEND_SORTS,
   GROUP_SORTS,
+  friendMetric,
   type FriendSort,
   type GroupSort,
 } from '../src/renderer/src/lib/contactListOrder';
@@ -53,6 +54,20 @@ const rows: ContactMetricRows = {
   },
   'group:67890': { activityScore: ready(78), friendCount: ready(16) },
 };
+
+it('机器人和企业用户不展示获赞排序详情，也不使用旧获赞缓存排序', () => {
+  const bot: Contact = { ...friend, kind: 'bot' };
+  const enterprise: Contact = {
+    ...friend,
+    extInfo: { isEnterprise: true, interactMarks: [], privileges: [], interests: [], album: [] },
+  };
+  for (const contact of [bot, enterprise]) {
+    expect(friendSortDetail(contact, 'likeCount', rows)).toBeNull();
+    expect(friendMetric(rows, contact, 'likeCount')).toBeNull();
+    expect(friendMetric(rows, contact, 'level')).toBe(64);
+  }
+  expect(friendMetric(rows, friend, 'likeCount')).toBe(12580);
+});
 
 it('备注、昵称与群名排序仅切换第一行，第二行不返回替代信息', () => {
   expect(friendDirectoryTitle(friend, 'remark')).toBe('备注');

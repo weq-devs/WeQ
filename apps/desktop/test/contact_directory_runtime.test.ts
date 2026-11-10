@@ -7,6 +7,7 @@ import { backgroundTasks } from '../src/main/background_tasks';
 import type { AccountServices } from '../src/main/context/app_context';
 import type { AccountSession } from '@weq/account';
 import type { DbWatchService } from '@weq/service';
+import type { UserProfile } from '@weq/db';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -15,6 +16,7 @@ afterEach(async () => {
 async function setup(online = true) {
   const root = await mkdtemp(join(tmpdir(), 'weq-contact-runtime-'));
   const buddies = [{ uid: 'u_friend', uin: 12345n }];
+  const profiles: Array<Partial<UserProfile> & Pick<UserProfile, 'uid' | 'uin' | 'isBot'>> = [];
   const summaries = new Map([['10001', { total: 2, friends: new Set(['u_friend']) }]]);
   const common = vi.fn(async () => ({
     friendCount: 0,
@@ -23,14 +25,17 @@ async function setup(online = true) {
     groupError: null,
   }));
   const services = {
-    profile: { listBuddies: vi.fn(async () => buddies), profilesByUids: vi.fn(async () => []) },
+    profile: {
+      listBuddies: vi.fn(async () => buddies),
+      profilesByUids: vi.fn(async () => profiles),
+    },
     accountWrite: {
       commonRelationships: common,
       friendClue: vi.fn(async () => ({ addedAt: 123, direction: 'incoming' })),
     },
     peerStats: {
       getQqLevel: vi.fn(async (_uin: string, _priority?: number) => 1),
-      getLikeCount: vi.fn(async () => 0),
+      getLikeCount: vi.fn(async (_uid: string, _priority?: number) => 0),
     },
     groupInfo: {
       setMemberRosterCache: vi.fn(),
@@ -89,11 +94,58 @@ async function setup(online = true) {
     callbacks,
     summaries,
     buddies,
+    profiles,
     switchAccount: () => {
       current = false;
     },
   };
 }
+it('批量更新跳过机器人与企业账号获赞，删除旧值且不生成失败或零值', async () => {
+  const { runtime, services, buddies, profiles } = await setup();
+  await vi.waitFor(() => expect(services.groupInfo.contactMembershipSnapshot).toHaveBeenCalled());
+  buddies.push({ uid: 'u_bot', uin: 3889001776n }, { uid: 'u_enterprise', uin: 3000123456n });
+  profiles.push(
+    { uid: 'u_friend', uin: 12345n, isBot: false },
+    { uid: 'u_bot', uin: 3889001776n, isBot: true },
+    {
+      uid: 'u_enterprise',
+      uin: 3000123456n,
+      isBot: false,
+      extInfo: { isEnterprise: true, interactMarks: [], privileges: [], interests: [], album: [] },
+    },
+  );
+  await runtime.cache.record('friend:u_bot', { likeCount: 0 });
+  await runtime.cache.record('friend:3000123456', { likeCount: 3 });
+  await runtime.rebuild(false, ['likeCount']);
+  await vi.waitFor(() => expect(services.peerStats.getLikeCount).toHaveBeenCalled());
+  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
+  expect(services.peerStats.getLikeCount).toHaveBeenCalledTimes(1);
+  expect(services.peerStats.getLikeCount).toHaveBeenCalledWith('u_friend', 1);
+  const { rows } = await runtime.snapshot();
+  expect(rows['friend:u_bot']?.likeCount).toBeUndefined();
+  expect(rows['friend:3000123456']?.likeCount).toBeUndefined();
+  expect(runtime.cache.progress.total).toBe(1);
+});
+
+it('资料校准也清理非好友企业用户的历史获赞，不等待手动刷新', async () => {
+  const { runtime, services, profiles, callbacks } = await setup();
+  await vi.waitFor(() => expect(services.groupInfo.contactMembershipSnapshot).toHaveBeenCalled());
+  profiles.push({
+    uid: 'u_former_enterprise',
+    uin: 3000234567n,
+    isBot: false,
+    extInfo: { isEnterprise: true, interactMarks: [], privileges: [], interests: [], album: [] },
+  });
+  await runtime.cache.record('friend:u_former_enterprise', { likeCount: 0 });
+  callbacks[0]!();
+  await vi.waitFor(async () =>
+    expect((await runtime.cache.row('friend:u_former_enterprise')).likeCount).toBeUndefined(),
+  );
+  expect(services.profile.profilesByUids).toHaveBeenCalledWith(
+    expect.arrayContaining(['u_former_enterprise']),
+  );
+  expect(services.peerStats.getLikeCount).not.toHaveBeenCalled();
+});
 it('重建只有一个任务；离线仍完成本地群好友统计，在线阶段可暂停', async () => {
   const { runtime, services } = await setup(false);
   const first = await runtime.rebuild(),

@@ -3957,7 +3957,7 @@ export const AI_TOOLS: AiTool[] = [
     name: 'get_peer_stats',
     description:
       '查询某个用户的【QQ 等级 + 资料卡累计获赞】（两条 OIDB 并行：0xFE1_2 按 uin 查等级，0x7ED_12 按 uid 查获赞）。' +
-      'uin 与 uid 至少传一个：只有 uin 时只查等级，只有 uid 时只查获赞，两个都传时全查。需要在线 QQ。',
+      'uin 与 uid 至少传一个：只有 uin 时只查等级，只有 uid 时只查获赞，两个都传时全查。机器人和企业用户的获赞不适用，返回 null，不发起获赞请求。需要在线 QQ。',
     input: z.object({
       uin: z.string().optional().describe('目标 QQ 号（纯数字，查等级用）'),
       uid: z.string().optional().describe('目标 uid（u_ 开头，查获赞用；find_contact 可解析）'),

@@ -507,7 +507,11 @@ export function MemberProfileCard({
               ) : null}
               {!localClone && member.kind !== 'bot' && uin ? (
                 <>
-                  <ProfileLikesRow uid={uid} uin={uin} name={displayUserName(member)} />
+                  {!profile?.isBot &&
+                  !profile?.extInfo?.isEnterprise &&
+                  !member.extInfo?.isEnterprise ? (
+                    <ProfileLikesRow uid={uid} uin={uin} name={displayUserName(member)} />
+                  ) : null}
                   <CommonRelationships uin={uin} onNavigate={onClose} />
                   {relationship === 'friend' ? <FriendClue uid={uid} /> : null}
                 </>

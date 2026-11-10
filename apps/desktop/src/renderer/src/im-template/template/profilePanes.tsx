@@ -145,6 +145,7 @@ export function toPersonalityProfile(
 ) {
   return {
     ...base,
+    isEnterprise: ext?.isEnterprise,
     interests: (ext?.interests ?? []).filter((tag) => tag.trim()),
     privileges: (ext?.privileges ?? [])
       .filter((item) => item.opened && item.iconUrl)
@@ -593,7 +594,7 @@ export function ContactProfileDialog({
       {intimacy ? (
         <ProfileRow icon={<Heart size={13} />} label="亲密度" value={intimacy} mono accent />
       ) : null}
-      {profile.kind !== 'bot' && profile.identityLabel === 'QQ' ? (
+      {profile.kind !== 'bot' && !extInfo?.isEnterprise && profile.identityLabel === 'QQ' ? (
         <ProfileLikesRow
           uid={profile.id}
           uin={profile.identityValue}

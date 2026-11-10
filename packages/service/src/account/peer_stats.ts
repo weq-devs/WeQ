@@ -19,15 +19,15 @@ import type { QqShowInfo } from '@weq/protocol';
 export interface PeerStats {
   /** QQ 等级（0xFE1_2 number-property 105），0 表示未命中/新号。 */
   level: number;
-  /** 资料卡累计获赞（0x7ED_12 voteInfo.totalCount）。 */
-  likeCount: number;
+  /** 资料卡累计获赞；机器人与企业用户不适用，返回 null。 */
+  likeCount: number | null;
 }
 
 export class PeerStatsService {
   contactMetrics?: ContactMetricsService;
   constructor(
     private readonly nt: Pick<NtHelperBinding, 'sendOidbPacket'>,
-    _session: AccountSession,
+    private readonly session: AccountSession,
     private readonly resolvePid: () => number,
   ) {}
 
@@ -49,7 +49,15 @@ export class PeerStatsService {
   }
 
   /** 查目标 uid 的累计获赞（0x7ED_12，只取 voteInfo.totalCount）。 */
-  async getLikeCount(uid: string, priority = 0): Promise<number> {
+  async getLikeCount(uid: string, priority = 0): Promise<number | null> {
+    const profile = await this.session.profileInfo.getProfile(uid);
+    if (profile?.isBot || profile?.extInfo?.isEnterprise) {
+      await this.contactMetrics?.removeMetrics(
+        [`friend:${uid}`, `friend:${profile.uin}`],
+        ['likeCount'],
+      );
+      return null;
+    }
     if (this.contactMetrics)
       return this.contactMetrics.query(
         `friend:${uid}`,
