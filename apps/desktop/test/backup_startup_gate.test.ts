@@ -106,6 +106,29 @@ it('普通读取故障只重试读取，不重建健康的文件或业务上下�
   expect(host.querySelector('[data-business]')).not.toBeNull();
 });
 
+it.each([false, true])(
+  '恢复或重置完成后直接显示原页面（偏好待交接：%s）',
+  async (clientPending) => {
+    api.read.mockResolvedValue({
+      ...healthy,
+      appliedThisStartup: true,
+      result: {
+        id: 'synthetic-restore',
+        status: 'applied',
+        applied: ['settings'],
+        skipped: [],
+        warnings: ['合成恢复提示'],
+        clientPending,
+      },
+    });
+    const host = await mount();
+    expect(host.querySelector('[data-business]')).not.toBeNull();
+    expect(host.textContent).not.toContain('备份恢复已应用');
+    expect(host.textContent).not.toContain('继续');
+    expect(localStorage.getItem('weq.backup-result-seen')).toBeNull();
+  },
+);
+
 it('运行态版本变化才刷新；失败原因跨界面刷新保留，重试读取后可继续', async () => {
   api.read.mockResolvedValue(healthy);
   const reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {});

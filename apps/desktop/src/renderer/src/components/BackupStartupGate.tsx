@@ -21,7 +21,6 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
   const [confirmSkip, setConfirmSkip] = useState(false);
-  const [noticeDismissed, setNoticeDismissed] = useState(false);
   const generation = useRef(0);
   useEffect(() => {
     let revision: number | undefined;
@@ -65,11 +64,6 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
       );
       if (seq !== generation.current) return;
       setState(result);
-      if (result.appliedThisStartup && result.result) {
-        try {
-          setNoticeDismissed(localStorage.getItem('weq.backup-result-seen') === result.result.id);
-        } catch {}
-      }
       if (result.toastDurations) useToast.getState().setDurations(result.toastDurations);
       if (result.ok) {
         useThemeStore.getState().hydrate();
@@ -114,50 +108,14 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
       generation.current++;
     };
   }, [load]);
-  const notice = state?.appliedThisStartup && !noticeDismissed ? state.result : null;
   useEffect(() => {
     if (busy) return;
-    if (state?.ok && !error && !notice) return;
+    if (state?.ok && !error) return;
     if ((state?.ok === false && state.error) || state?.result?.clientPending)
       publishRemoteStartup({ state: 'action-required' });
     else if (error) publishRemoteStartup({ state: 'error', message: error });
-    else if (notice) publishRemoteStartup({ state: 'action-required' });
-  }, [busy, error, notice, state]);
-  if (!busy && state?.ok && !error && !notice) return children;
-  if (!busy && state?.ok && !error && notice)
-    return (
-      <main className="weq-backup-gate">
-        <section className="weq-backup-gate-content">
-          <h1>{notice.status === 'applied' ? '备份恢复已应用' : '备份恢复未应用'}</h1>
-          <p>
-            {notice.error ||
-              `已应用 ${notice.applied.length} 项，跳过 ${notice.skipped.length} 项。`}
-          </p>
-          {notice.clientPending ? (
-            <p>界面偏好等待发起恢复的设备确认，可在设置中改到当前设备恢复。</p>
-          ) : null}
-          {notice.warnings.length ? (
-            <ul className="weq-backup-list">
-              {notice.warnings.map((text) => (
-                <li key={text}>{text}</li>
-              ))}
-            </ul>
-          ) : null}
-          <button
-            type="button"
-            className="weq-set-btn"
-            onClick={() => {
-              try {
-                localStorage.setItem('weq.backup-result-seen', notice.id);
-              } catch {}
-              setNoticeDismissed(true);
-            }}
-          >
-            继续
-          </button>
-        </section>
-      </main>
-    );
+  }, [busy, error, state]);
+  if (!busy && state?.ok && !error) return children;
   const canSkip = state?.result?.status === 'applied' && state.result.clientPending;
   return (
     <main className="weq-backup-gate">
