@@ -1132,6 +1132,8 @@ export interface AppContext {
    */
   refreshRkeysNow(): Promise<boolean>;
   onlineCredentialsPending(): boolean;
+  /** 等待当前账号的原生 SSO 登记，不刷新在线票据。 */
+  ensureOnlineCredentials(): Promise<void>;
   /**
    * Transcribe a SILK file on disk with the globally selected model. Account
    * independent (the model is a global setting), so callers that already have a
@@ -1188,6 +1190,9 @@ function unavailableContext(nativeError: NativeInitError | null, reason: string)
     },
     onlineCredentialsPending(): boolean {
       return false;
+    },
+    async ensureOnlineCredentials(): Promise<void> {
+      throw new Error(reason);
     },
     transcribeSilk(): Promise<TranscribeSilkResult> {
       return Promise.resolve({ ok: false, error: reason });
@@ -3339,6 +3344,18 @@ export function initAppContext(fileRoot?: string): AppContext {
     },
     onlineCredentialsPending(): boolean {
       return accountMonitor?.credentialsPending ?? false;
+    },
+    async ensureOnlineCredentials(): Promise<void> {
+      const monitor = accountMonitor;
+      const services = this.services;
+      const record = services?.accountConfig.getRecord();
+      if (!monitor || !record?.qqOnline || !record.qqPid)
+        throw new Error('需要先登录该账号的 QQ 客户端。');
+      if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用完整功能。');
+      await monitor.ensureCredentialsReady(record.qqPid);
+      if (accountMonitor !== monitor || this.services !== services)
+        throw new Error('账号已切换，请重新读取。');
+      if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用完整功能。');
     },
     applyFullModePolicy(): void {
       if (fullModeAllowed(this)) return;

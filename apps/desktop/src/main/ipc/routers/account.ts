@@ -3821,6 +3821,11 @@ export const accountRouter = router({
       if (String(getAppContext().account?.context.uin) !== input.selfUin)
         throw new Error('账号已切换，请重新读取特别关心。');
       requireQqOnlineForAlbum(services);
+      // 配置标记在线可能早于 SSO 登记；名册与空间取票都必须等同一次登记完成。
+      await getAppContext().ensureOnlineCredentials();
+      if (getAppContext().services !== services)
+        throw new Error('账号已切换，请重新读取特别关心。');
+      requireQqOnlineForAlbum(services);
       const result = await readContactSpecialCare(services);
       if (getAppContext().services !== services)
         throw new Error('账号已切换，请重新读取特别关心。');

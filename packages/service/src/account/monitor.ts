@@ -142,6 +142,21 @@ export class AccountMonitorService {
     );
   }
 
+  /** 业务查询只等待会话登记，与后台采集合并，不附带 rkey / clientKey 网络请求。 */
+  async ensureCredentialsReady(pid: number): Promise<void> {
+    const generation = this.generation;
+    this.assertCurrent(generation, pid);
+    if (this.harvestRetry?.pid === pid && this.harvestRetry.cancelled)
+      throw new Error('已取消授权，未读取 QQ 进程内存。');
+    try {
+      await this.ensureAttached(pid, generation);
+    } catch (error) {
+      if (this.isCurrent(generation, pid) && this.shouldAutoAttach()) this.deferHarvest(pid, error);
+      throw error;
+    }
+    this.assertCurrent(generation, pid);
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;

@@ -7,6 +7,7 @@ import { ContactRefreshButton } from '../../src/renderer/src/components/ContactR
 import { BackgroundTaskDetails } from '../../src/renderer/src/components/tasks/BackgroundTaskDetails';
 import { ContactDirectoryContext } from '../../src/renderer/src/lib/conversationDirectory';
 import { RelationshipDirectoryContext } from '../../src/renderer/src/lib/contactRelationship';
+import { specialCareBlocker } from '../../src/renderer/src/lib/specialCareAccess';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import { useViewState } from '../../src/renderer/src/state/view';
 import { useWorkspaceMenu } from '../../src/renderer/src/state/workspaceMenu';
@@ -76,6 +77,14 @@ const relationships = {
   friendsComplete: true,
   groups: new Map(groups.map((group) => [group.id, { listed: true, role: 'member' as const }])),
 };
+const careState = new URLSearchParams(location.search).get('care') ?? 'ready';
+const careDescription =
+  specialCareBlocker({
+    qqOnline: careState !== 'offline',
+    attachEnabled: careState !== 'restricted',
+    ssoReady: careState === 'ready',
+    credentialsPending: careState === 'pending',
+  }) ?? '特关我的人数：3 人';
 createRoot(document.getElementById('root')!).render(
   <ContentSelectionProvider>
     <RelationshipDirectoryContext.Provider value={relationships}>
@@ -93,7 +102,12 @@ createRoot(document.getElementById('root')!).render(
               <ContactList
                 contacts={contacts}
                 specialSections={[
-                  { id: 'special:care', name: '特别关心', items: [contacts[0]!] },
+                  {
+                    id: 'special:care',
+                    name: '特别关心',
+                    items: [contacts[0]!],
+                    description: careDescription,
+                  },
                   { id: 'special:intimate', name: '亲密关系', items: [contacts[1]!] },
                 ]}
                 activeContactId={null}

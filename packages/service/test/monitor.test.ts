@@ -116,6 +116,85 @@ afterEach(() => {
 });
 
 describe('account monitor authorization and SSO readiness', () => {
+  it('按需等待 SSO 登记，不等待或重复获取 rkey 等网络票据', async () => {
+    const f = fixture(true);
+    const registration = deferred<void>();
+    f.nt.setSsoSession.mockImplementationOnce(async () => {
+      await registration.promise;
+    });
+    const ready = vi.fn();
+    const first = f.monitor.ensureCredentialsReady(42).then(ready);
+    const second = f.monitor.ensureCredentialsReady(42);
+    await flushPromises();
+    expect(ready).not.toHaveBeenCalled();
+    expect(f.nt.setSsoSession).toHaveBeenCalledOnce();
+    registration.resolve();
+    await Promise.all([first, second]);
+    expect(ready).toHaveBeenCalledOnce();
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    expect(tickets.rkeys).not.toHaveBeenCalled();
+    expect(tickets.clientKey).not.toHaveBeenCalled();
+    f.monitor.stop();
+  });
+
+  it('按需登记失败不放行，关闭完整模式或会话结束后也不发布凭据', async () => {
+    const f = fixture(true);
+    f.nt.setSsoSession.mockRejectedValueOnce(new Error('登记失败'));
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('登记失败');
+    f.setEnabled(false);
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('自动读取已关闭');
+    expect(f.nt.setSsoSession).toHaveBeenCalledOnce();
+    f.monitor.stop();
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('账号会话');
+  });
+
+  it('按需查询复用已在途的后台登记，不重复读内存', async () => {
+    const f = fixture();
+    const read = deferred<typeof material>();
+    f.hook.ensure.mockReturnValueOnce(read.promise);
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const ready = f.monitor.ensureCredentialsReady(42);
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    read.resolve(material);
+    await ready;
+    expect(f.nt.setSsoSession).toHaveBeenCalledOnce();
+    f.monitor.stop();
+  });
+
+  it.each(['stop', 'disable'])('等待期间会话结束或模式关闭，不放行业务查询：%s', async (action) => {
+    const f = fixture();
+    const read = deferred<typeof material>();
+    f.hook.ensure.mockReturnValueOnce(read.promise);
+    const ready = f.monitor.ensureCredentialsReady(42);
+    const rejected = expect(ready).rejects.toThrow();
+    if (action === 'stop') f.monitor.stop();
+    else f.setEnabled(false);
+    read.resolve(material);
+    await rejected;
+    expect(f.nt.setSsoSession).not.toHaveBeenCalled();
+    f.monitor.stop();
+  });
+
+  it('按需查询不撤销用户取消读取的选择', async () => {
+    const f = fixture();
+    f.hook.ensure.mockRejectedValueOnce(new Error('已取消授权，未读取 QQ 进程内存。'));
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('已取消');
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    f.monitor.stop();
+  });
+
+  it('按需登记被取消后，后续查询也不会重复请求读取', async () => {
+    const f = fixture();
+    f.hook.ensure.mockRejectedValueOnce(new Error('已取消授权，未读取 QQ 进程内存。'));
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('已取消');
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('已取消');
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    f.monitor.stop();
+  });
+
   it('首次在线探测未完成时保持准备状态，成功后自动完成且不重读已有凭据', async () => {
     const ready = vi.fn();
     const f = fixture(true, ready);

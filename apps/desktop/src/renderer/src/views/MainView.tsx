@@ -41,6 +41,7 @@ import {
   recordMessagePhase,
 } from '../lib/messagePerformance';
 import { intimateRelationOf } from '../lib/profileRelations';
+import { specialCareBlocker } from '../lib/specialCareAccess';
 import {
   loadGroupAssistantPins,
   saveGroupAssistantPins,
@@ -2568,10 +2569,11 @@ function MainWorkspace(): ReactElement {
     { selfUin: openedUin ?? '' },
     { enabled: Boolean(openedUin), staleTime: 0, refetchOnMount: 'always' },
   );
+  const specialCareUnavailable = specialCareBlocker(sendAccess.data);
   const specialCare = trpc.account.specialCare.useQuery(
     { selfUin: openedUin ?? '' },
     {
-      enabled: Boolean(openedUin && sendAccess.data?.qqOnline),
+      enabled: Boolean(openedUin && specialCareUnavailable === null),
       staleTime: 5 * 60 * 1000,
       refetchOnWindowFocus: true,
       retry: false,
@@ -2606,7 +2608,7 @@ function MainWorkspace(): ReactElement {
         deletedSessions.refetch(),
         buddyRequests.refetch(),
         groupNotifies.refetch(),
-        ...(sendAccess.data?.qqOnline ? [specialCare.refetch()] : []),
+        ...(specialCareUnavailable === null ? [specialCare.refetch()] : []),
       ]);
       if (
         useViewState.getState().openedUin === accountUin &&
@@ -4675,16 +4677,15 @@ function MainWorkspace(): ReactElement {
         createdAt: new Date(0).toISOString(),
       };
     });
-    const online = Boolean(sendAccess.data?.qqOnline);
-    const description = !online
-      ? 'QQ 未在线，特别关心未更新'
-      : specialCare.isError
+    const description =
+      specialCareUnavailable ??
+      (specialCare.isError
         ? '特别关心读取失败'
         : specialCare.data
           ? specialCare.data.fansCount === null
             ? '特关我的人数暂不可用'
             : `特关我的人数：${specialCare.data.fansCount} 人`
-          : '正在读取特别关心…';
+          : '正在读取特别关心…');
     return [
       { id: 'special:devices', name: '我的设备', items: devices },
       { id: 'special:bots', name: '机器人', items: robots },
@@ -4695,7 +4696,7 @@ function MainWorkspace(): ReactElement {
         count: specialCare.data ? specialItems.length : null,
         description,
         onRetry:
-          online && specialCare.isError
+          specialCareUnavailable === null && specialCare.isError
             ? () => {
                 void specialCare.refetch();
               }
@@ -4714,7 +4715,7 @@ function MainWorkspace(): ReactElement {
     specialCare.data,
     specialCare.isError,
     specialCare.refetch,
-    sendAccess.data?.qqOnline,
+    specialCareUnavailable,
     profileByUid,
     categoryById,
   ]);
