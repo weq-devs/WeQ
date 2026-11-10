@@ -87,6 +87,16 @@ try {
       await page.evaluate((theme) => {
         window.settingsNavigationQa.theme.getState().setPreference(theme);
       }, theme);
+      assert.deepEqual(await page.locator('.weq-settings-subnav-item').allTextContents(), [
+        'Web 与 Remote',
+        'MCP 服务器',
+        'OneBot / cc-connect',
+        'SSE 推送',
+        'QQ 公众号推送',
+      ]);
+      assert.equal(await page.getByRole('button', { name: '后台服务', exact: true }).count(), 0);
+      if (output)
+        await page.screenshot({ path: resolve(output, `services-${width}-${theme}.png`) });
       await page.getByRole('button', { name: 'WebSocket', exact: true }).click();
       const name = page.locator('.weq-onebot-server-editor input').first();
       await name.fill('未保存的连接');

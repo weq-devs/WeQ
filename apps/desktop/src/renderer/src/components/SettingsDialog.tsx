@@ -44,7 +44,6 @@ import {
   Power,
   Radio,
   ScanText,
-  Server,
   Settings2,
   Smile,
   Send,
@@ -71,7 +70,6 @@ import { InteractionProfileSection } from './settings/InteractionProfileSection'
 import { ReplySuggestionsSection } from './settings/ReplySuggestionsSection';
 import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { OcrModelsSection } from './settings/OcrModelsSection';
-import { BackgroundServicesSection } from './settings/BackgroundServicesSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { OneBotSection } from './settings/OneBotSection';
 import { RemoteSection } from './settings/RemoteSection';
@@ -329,12 +327,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '意图感知',
     icon: <BrainCircuit size={16} strokeWidth={1.8} />,
     render: () => <IntentSenseSection />,
-  },
-  {
-    id: 'background-services',
-    label: '后台服务',
-    icon: <Server size={16} strokeWidth={1.8} />,
-    render: () => <BackgroundServicesSection />,
   },
   {
     id: 'mcp',

@@ -438,6 +438,7 @@ export function GlobalSettingsSection({
                 />
               )}
               <Row
+                settingId="window-close-behavior"
                 label={
                   <span className="weq-set-row-icon">
                     <Minimize2 size={15} strokeWidth={1.8} aria-hidden />

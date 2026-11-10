@@ -95,6 +95,32 @@ function mount(initialSection?: SectionId) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('WeQ 服务直接展示独立管理页，不再显示后台服务总览', () => {
+    const f = mount('mcp');
+    try {
+      expect(
+        [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
+      ).toEqual([
+        'Web 与 Remote',
+        'MCP 服务器',
+        'OneBot / cc-connect',
+        'SSE 推送',
+        'QQ 公众号推送',
+      ]);
+      expect(f.host.textContent).not.toContain('后台服务');
+      expect(f.body().querySelector('[aria-label="MCP 端口"]')).not.toBeNull();
+      f.render('global', {
+        section: 'global',
+        settingId: 'window-close-behavior',
+        revision: 1,
+      });
+      const setting = f.body().querySelector('[data-setting-id="window-close-behavior"]');
+      expect(setting?.querySelector('[aria-label="关闭按钮行为"]')).not.toBeNull();
+      expect(setting?.getAttribute('data-search-highlight')).toBe('true');
+    } finally {
+      f.close();
+    }
+  });
   it('Markdown 开关明确为自动渲染，关闭后仍可手动渲染', () => {
     const f = mount('message-display');
     try {
@@ -577,7 +603,6 @@ describe('设置归位后的实际页面', () => {
       );
       f.render('assistant');
       expect(f.body().textContent).toContain('启用 QQ 公众号推送');
-      // 只断言正文：二级导航里现在有「后台服务」这一项，不能拿整页文本判。
       expect(f.body().textContent).not.toContain('后台服务状态');
       expect(f.body().textContent).not.toContain('开机自动启动');
       f.render('updates');

@@ -975,7 +975,7 @@ app.on('window-all-closed', () => {
 // A real quit is underway (tray「退出」/ Cmd+Q / Dock 菜单退出 / OS shutdown):
 // 只放行窗口关闭；未保存内容仍可能取消退出，暂不停止服务或销毁托盘。
 // 退出不再弹「确认 / 最小化到托盘」：用户选的就是退出，后台服务随 `will-quit`
-// 统一释放，「会停掉哪些服务」的信息在关窗确认框和「后台服务」页常驻展示。
+// 统一释放，「会停掉哪些服务」的信息在关窗确认框展示。
 const resetQuitPreparation = registerAppQuitPreparation(app, autoUpdater, () => {
   isQuitting = true;
 });

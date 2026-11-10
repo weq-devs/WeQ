@@ -328,7 +328,7 @@ let ssePush: SsePushService | null = null;
 /**
  * SSE 推送是否真的在推送（有账号 + 已挂上推送目标）。
  *
- * 只给「后台服务」页和退出确认用：SSE 没有独立的监听端口，运行态只能从
+ * 供服务状态查询和退出确认使用：SSE 没有独立的监听端口，运行态只能从
  * 服务实例判断。配置里选了目标但账号没开时不算运行中。
  */
 export function isSsePushActive(): boolean {
