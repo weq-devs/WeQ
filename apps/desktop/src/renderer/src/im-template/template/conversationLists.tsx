@@ -30,6 +30,7 @@ import {
   CalendarDays,
 } from 'lucide-react';
 import {
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -37,9 +38,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
 } from 'react';
 import { conversationPinned } from '@weq/service/conversation-order';
-import { sortConversationRows } from '../../lib/conversationListOrder';
+import { sortConversationRows, reconcileConversationRows } from '../../lib/conversationListOrder';
+import { useEventContextValue } from '../../hooks/useEventContextValue';
 import { groupFriends, sortFriends, sortGroups } from '../../lib/contactListOrder';
 import {
   friendDirectoryTitle,
@@ -1442,7 +1445,30 @@ function GroupNotificationSection({
 
 const EMPTY_CONTACT_OPTIONS = [] as const;
 
-export function ContactList({
+/** 群消息只更新群目录，不唤醒未变化的整组好友行。 */
+export function ContactList(props: ComponentProps<typeof ContactListContent>) {
+  const directory = useContext(ConversationDirectoryContext);
+  const previous = useRef<Conversation[]>([]);
+  const real = useMemo(
+    () =>
+      reconcileConversationRows(
+        previous.current,
+        (directory?.real ?? []).filter((row) => row.type === 'direct'),
+      ),
+    [directory?.real],
+  );
+  useLayoutEffect(() => {
+    previous.current = real;
+  }, [real]);
+  const value = useEventContextValue({ ...directory, real });
+  return (
+    <ConversationDirectoryContext.Provider value={directory ? value : null}>
+      <ContactListContent {...props} />
+    </ConversationDirectoryContext.Provider>
+  );
+}
+
+const ContactListContent = memo(function ContactListContent({
   contacts,
   categoryDefinitions = EMPTY_CONTACT_OPTIONS,
   specialSections = EMPTY_CONTACT_OPTIONS,
@@ -2109,7 +2135,7 @@ export function ContactList({
       {batch.confirmation}
     </div>
   );
-}
+});
 
 const SUB_ICONS: Record<number, string> = {
   1028: 'music@2x.png',

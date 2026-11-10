@@ -27,6 +27,7 @@ import { resolvedProfilesKey } from '../lib/webBusinessCache';
 import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
 import { useContactOnlineStatuses } from '../hooks/useContactOnlineStatuses';
 import { useEventContextValue } from '../hooks/useEventContextValue';
+import { useStableCallback } from '../hooks/useStableCallback';
 import { useMobilePageSettled } from '../hooks/useMobilePageSettled';
 import { MobileSidebarPages } from '../components/MobileSidebarPages';
 import { withBrowserFile } from '../lib/browserFileUpload';
@@ -2573,6 +2574,7 @@ function MainWorkspace(): ReactElement {
   );
   const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 }, directoryOptions);
   // Official QQ setting: observed 4 → 2 when switching from muted to group helper.
+  const previousGroupAssistantIds = useRef(new Set<string>());
   const groupAssistantIds = useMemo(() => {
     const ids = new Set(
       recentContactsData
@@ -2584,8 +2586,12 @@ function MainWorkspace(): ReactElement {
     for (const group of (allGroups.data ?? []) as GroupDetailWire[]) {
       if (group.directory?.notifyLevel === 2) ids.add(group.groupCode);
     }
-    return ids;
+    const previous = previousGroupAssistantIds.current;
+    return previous.size === ids.size && [...ids].every((id) => previous.has(id)) ? previous : ids;
   }, [recentContactsData, allGroups.data]);
+  useLayoutEffect(() => {
+    previousGroupAssistantIds.current = groupAssistantIds;
+  }, [groupAssistantIds]);
   const groupAssistantEntry = useMemo(
     () =>
       recentContactsData.find(
@@ -4360,6 +4366,10 @@ function MainWorkspace(): ReactElement {
   ]);
   const baseConversationRowsRef = useRef<Conversation[]>([]);
   const conversationRowsRef = useRef<Conversation[]>([]);
+  const recentConversationCache = useMemo(
+    () => new WeakMap<RecentContactWire, Conversation | null>(),
+    [user, groupNameByCode, botUids, previewDisplayNames, previewGroupNames, profileByUid],
+  );
   const baseConversations = useMemo(() => {
     const groups = (allGroups.data ?? []) as GroupDetailWire[];
     const hiddenList = (hiddenSessions.data ?? []) as HiddenSessionWire[];
@@ -4378,8 +4388,9 @@ function MainWorkspace(): ReactElement {
         // 隐藏会话：在 hidden_session_storage_table_v1 里有记录的，不出现在主列表
         return !hiddenUidSet.has(c.targetUid);
       })
-      .map((contact) =>
-        contactToConversation(
+      .map((contact) => {
+        if (recentConversationCache.has(contact)) return recentConversationCache.get(contact)!;
+        const mapped = contactToConversation(
           contact,
           user,
           groupNameByCode,
@@ -4387,8 +4398,10 @@ function MainWorkspace(): ReactElement {
           previewDisplayNames,
           previewGroupNames,
           profileByUid,
-        ),
-      )
+        );
+        recentConversationCache.set(contact, mapped);
+        return mapped;
+      })
       .filter((conversation): conversation is Conversation => conversation !== null)
       .map((conversation) =>
         conversation.type === 'group' && directoryKnown
@@ -4636,6 +4649,7 @@ function MainWorkspace(): ReactElement {
 
     return reconcileConversationRows(baseConversationRowsRef.current, Array.from(byId.values()));
   }, [
+    recentConversationCache,
     allGroups.data,
     recentContactsData,
     temporaryConversations,
@@ -11016,8 +11030,21 @@ function MainWorkspace(): ReactElement {
     }
   };
 
+  const selectSidebarContact = useStableCallback((contact: Contact) =>
+    settingsNavigation.navigate(() => {
+      setSurfaceNavigation((value) => value + 1);
+      shell.selectContact(contact);
+    }),
+  );
+  const selectSidebarGroup = useStableCallback((id: string) =>
+    settingsNavigation.navigate(() => {
+      setSurfaceNavigation((value) => value + 1);
+      shell.selectGroup(id);
+    }),
+  );
+  const replyJump = useStableCallback(jumpToSeq);
   const chatContent = (
-    <ReplyJumpContext.Provider value={jumpToSeq}>
+    <ReplyJumpContext.Provider value={replyJump}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
         <ConvContext.Provider value={isGroup ? (selectedConversation?.id ?? '') : ''}>
           <ChatShell
@@ -11244,18 +11271,8 @@ function MainWorkspace(): ReactElement {
                         conversationsLoadingMore={contactsLoadingMore}
                         query={shell.query}
                         onSelectConversation={handleSelectConversation}
-                        onSelectContact={(id) =>
-                          settingsNavigation.navigate(() => {
-                            setSurfaceNavigation((value) => value + 1);
-                            shell.selectContact(id);
-                          })
-                        }
-                        onSelectGroup={(id) =>
-                          settingsNavigation.navigate(() => {
-                            setSurfaceNavigation((value) => value + 1);
-                            shell.selectGroup(id);
-                          })
-                        }
+                        onSelectContact={selectSidebarContact}
+                        onSelectGroup={selectSidebarGroup}
                         activateToolsOnSelect={false}
                       />
                       {view === sidebarView && (
@@ -12461,7 +12478,9 @@ function MainWorkspace(): ReactElement {
                         <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
                           <RelationshipDirectoryContext.Provider value={relationshipDirectory}>
                             <GroupMessagePreviewContext.Provider
-                              value={{
+                              value={useEventContextValue<
+                                NonNullable<React.ContextType<typeof GroupMessagePreviewContext>>
+                              >({
                                 open: (conversation) =>
                                   void previewConversation(conversation, 'group-profile'),
                                 close: () => {
@@ -12476,7 +12495,7 @@ function MainWorkspace(): ReactElement {
                                   privatePreview?.source === 'group-profile'
                                     ? conversationPreviewContent
                                     : null,
-                              }}
+                              })}
                             >
                               {chatContent}
                             </GroupMessagePreviewContext.Provider>
