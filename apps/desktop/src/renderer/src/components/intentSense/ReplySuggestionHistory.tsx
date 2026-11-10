@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from 'react';
-import { LocateFixed, RefreshCw } from 'lucide-react';
+import { Lightbulb, RefreshCw } from 'lucide-react';
 import type { ReplySuggestionHistoryEntry } from '@weq/service';
 
 const timestamp = new Intl.DateTimeFormat('zh-CN', {
@@ -41,14 +41,25 @@ export function ReplySuggestionHistory({
         '--weq-int-history-content-height',
         `${content.getBoundingClientRect().height + 1}px`,
       );
+      pane.style.setProperty(
+        '--weq-int-history-scrollbar-width',
+        `${scroll.offsetWidth - scroll.clientWidth}px`,
+      );
       scroll.scrollTop = scroll.scrollHeight;
     };
     measure();
-    const observer = new ResizeObserver(measure);
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    });
     observer.observe(content);
+    observer.observe(scroll);
     return () => {
       observer.disconnect();
+      cancelAnimationFrame(frame);
       pane.style.removeProperty('--weq-int-history-content-height');
+      pane.style.removeProperty('--weq-int-history-scrollbar-width');
     };
   }, []);
   // 服务按新到旧返回；只去掉仍在正式栏显示的最新一轮，不删除其他重复轮次。
@@ -103,13 +114,13 @@ export function ReplySuggestionHistory({
             <div className="weq-int-history-row" key={entry.id}>
               <button
                 type="button"
-                className="weq-int-suggest-refresh"
+                className="weq-int-suggest-refresh weq-int-suggest-locate"
                 title={`定位到本次推荐的最后一条输入消息 · ${timestamp.format(entry.target.sendTime * 1000)}`}
                 aria-label="定位到本次推荐的最后一条输入消息"
                 disabled={!onLocate}
                 onClick={() => void onLocate?.(entry.target)}
               >
-                <LocateFixed size={13} />
+                <Lightbulb size={12} className="weq-int-suggest-icon" aria-hidden />
               </button>
               <div className="weq-int-history-replies">
                 {entry.suggestions.map((suggestion) => (

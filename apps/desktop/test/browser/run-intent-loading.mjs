@@ -66,6 +66,18 @@ try {
         ),
       ),
     );
+  const historyAligned = () =>
+    page.evaluate(() => {
+      const track = document.querySelector('.weq-int-suggest-track').getBoundingClientRect();
+      return [...document.querySelectorAll('.weq-int-history-replies')].every((node) => {
+        const rect = node.getBoundingClientRect();
+        return (
+          Math.abs(rect.left - track.left) <= 1 &&
+          Math.abs(rect.right - track.right) <= 1 &&
+          getComputedStyle(node).scrollbarWidth === 'none'
+        );
+      });
+    });
   const loading = await geometry();
   assert.equal(await page.getByLabel('换一批建议', { exact: true }).isDisabled(), false);
   await page.getByLabel('换一批建议', { exact: true }).hover();
@@ -101,6 +113,8 @@ try {
   );
   const ready = await geometry();
   assert.deepEqual(ready, loading, '加载切换到结果不改变槽位和消息区几何');
+  await page.getByLabel('定位到当前推荐的最后一条输入消息', { exact: true }).click();
+  assert.equal(await page.evaluate(() => window.intentQa.located.msgSeq), '77');
   await page.locator('.weq-int-suggest-pill').first().click();
   assert.equal(await page.getByLabel('草稿').inputValue(), '有空一起聊聊');
   await page.getByLabel('展开回复历史', { exact: true }).click();
@@ -112,6 +126,14 @@ try {
   assert.ok(historyGeometry['.message-scroll'].height > ready['.message-scroll'].height / 2);
   assert.ok(historyHeight < ready['.message-scroll'].height / 2);
   assert.equal(await page.locator('.weq-int-history-row').count(), 1);
+  assert.equal(await historyAligned(), true);
+  assert.equal(await page.locator('.weq-int-history .lucide-lightbulb').count(), 1);
+  assert.equal(
+    await page
+      .locator('.weq-int-history-replies')
+      .evaluate((node) => getComputedStyle(node).scrollbarWidth),
+    'none',
+  );
   await page.getByLabel('定位到本次推荐的最后一条输入消息', { exact: true }).first().click();
   assert.equal(await page.evaluate(() => window.intentQa.located.msgSeq), '66');
   if (output) await page.screenshot({ path: resolve(output, 'history-desktop.png') });
@@ -131,6 +153,12 @@ try {
     );
   });
   await page.waitForFunction(() => document.querySelectorAll('.weq-int-history-row').length === 30);
+  await page.waitForFunction(
+    () =>
+      Math.abs(
+        document.querySelector('.weq-int-history').getBoundingClientRect().height - (34 * 3.5 + 1),
+      ) <= 1,
+  );
   const historyChecks = await page.locator('.weq-int-history').evaluate((node) => ({
     bottom: Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) <= 1,
     first: node.querySelector('.weq-int-history-row .weq-int-suggest-text').textContent,
@@ -141,7 +169,8 @@ try {
   assert.equal(historyChecks.bottom, true);
   assert.equal(historyChecks.first, '历史推荐 1');
   assert.equal(historyChecks.last, '历史推荐 30');
-  assert.ok(Math.abs(historyChecks.height - ready['.message-scroll'].height / 2) <= 1);
+  assert.ok(Math.abs(historyChecks.height - (34 * 3.5 + 1)) <= 1);
+  assert.equal(await historyAligned(), true);
   if (output) await page.screenshot({ path: resolve(output, 'history-long.png') });
   await page.getByLabel('收起回复历史', { exact: true }).click();
   assert.deepEqual(await geometry(), ready, '收起历史恢复原消息区高度');
@@ -152,7 +181,6 @@ try {
   if (output) await page.screenshot({ path: resolve(output, 'refresh-error.png'), fullPage: true });
   await page.evaluate(() => {
     window.intentQa.setMode('ready');
-    window.intentQa.setHistory([]);
   });
 
   let cases = 0;
@@ -279,6 +307,11 @@ try {
             await page.getByLabel('展开回复历史', { exact: true }).click();
             const expanded = await geometry();
             assert.ok(expanded['.message-scroll'].height > before['.message-scroll'].height / 2);
+            assert.equal(
+              await historyAligned(),
+              true,
+              `${width}/${theme}: 历史与正式推荐滚动区两边界对齐`,
+            );
             if (output && width === 390)
               await page.screenshot({ path: resolve(output, `history-${width}-${theme}.png`) });
             await page.getByLabel('收起回复历史', { exact: true }).click();

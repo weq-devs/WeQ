@@ -58,6 +58,8 @@ export function IntentSuggestionBar({
     { kind, conv },
     { enabled: active, refetchOnWindowFocus: false, staleTime: 0, cacheTime: 0, retry: false },
   );
+  const latestHistory = history.data?.[0];
+  const upToDate = !!latestMessageId && latestHistory?.target.msgId === latestMessageId;
   const suggestions = trpc.account.intentSense.getSuggestions.useQuery(
     {
       kind,
@@ -68,7 +70,12 @@ export function IntentSuggestionBar({
     },
     {
       enabled:
-        active && replyAllowed && !history.isLoading && !stopping && stopped !== messageContext,
+        active &&
+        replyAllowed &&
+        !history.isLoading &&
+        !upToDate &&
+        !stopping &&
+        stopped !== messageContext,
       refetchOnWindowFocus: false,
       staleTime: (status.data?.suggestionCacheSeconds ?? 90) * 1000,
       cacheTime: 0,
@@ -82,9 +89,8 @@ export function IntentSuggestionBar({
   const refreshPending = useRef(false);
   const requestEpoch = useRef(0);
   const [previous, setPrevious] = useState<{ scope: string; list: SuggestionWire[] } | null>(null);
-  const latestHistory = history.data?.[0];
   const recent =
-    latestHistory && entry.current.at - latestHistory.createdAt <= 60_000
+    latestHistory && (upToDate || entry.current.at - latestHistory.createdAt <= 60_000)
       ? latestHistory.suggestions
       : undefined;
   useEffect(() => {
@@ -92,11 +98,15 @@ export function IntentSuggestionBar({
       setPrevious(null);
       return;
     }
-    const next = replyAllowed && suggestions.data?.length ? suggestions.data : undefined;
+    const next = upToDate
+      ? latestHistory?.suggestions
+      : replyAllowed && suggestions.data?.length
+        ? suggestions.data
+        : undefined;
     setPrevious((current) =>
       next ? { scope, list: next } : current?.scope === scope ? current : null,
     );
-  }, [active, replyAllowed, scope, suggestions.data]);
+  }, [active, replyAllowed, scope, suggestions.data, upToDate, latestHistory?.suggestions]);
   useEffect(() => {
     if (!active || !recent?.length) return;
     setPrevious((current) => (current?.scope === scope ? current : { scope, list: recent }));
@@ -113,8 +123,16 @@ export function IntentSuggestionBar({
       ? previous.list
       : ((replyAllowed ? suggestions.data : undefined) ?? recent ?? [])
   ) as SuggestionWire[];
-  const loading = stopped !== messageContext && ((replyAllowed && suggestions.isFetching) || busy);
+  const loading =
+    stopped !== messageContext && ((!upToDate && replyAllowed && suggestions.isFetching) || busy);
   const showStop = loading && actionHovered;
+  const currentTarget = history.data?.find(
+    (entry) =>
+      entry.suggestions.length === list.length &&
+      entry.suggestions.every(
+        (item, index) => item.text === list[index]?.text && item.tone === list[index]?.tone,
+      ),
+  )?.target;
   const error =
     refreshError?.context === requestContext.current
       ? refreshError.message
@@ -157,7 +175,16 @@ export function IntentSuggestionBar({
         </div>
       ) : null}
       <div className="weq-int-suggest-bar" aria-busy={loading}>
-        <Lightbulb size={12} className="weq-int-suggest-icon" aria-hidden />
+        <button
+          type="button"
+          className="weq-int-suggest-refresh weq-int-suggest-locate"
+          title="定位到当前推荐的最后一条输入消息"
+          aria-label="定位到当前推荐的最后一条输入消息"
+          disabled={!onLocate || !currentTarget}
+          onClick={() => currentTarget && void onLocate?.(currentTarget)}
+        >
+          <Lightbulb size={12} className="weq-int-suggest-icon" aria-hidden />
+        </button>
         <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
           {loading
             ? '正在生成推荐回复…'
@@ -189,100 +216,102 @@ export function IntentSuggestionBar({
             ))
           )}
         </div>
-        {error && list.length > 0 ? (
-          <span className="weq-int-suggest-error" title={error}>
-            更新失败
-          </span>
-        ) : null}
-        <button
-          type="button"
-          className={`weq-int-suggest-refresh weq-int-suggest-action${loading && !showStop ? ' is-busy' : ''}`}
-          title={showStop ? '停止推荐回复' : error ? '重试推荐回复' : '换一批'}
-          aria-label={showStop ? '停止推荐回复' : '换一批建议'}
-          aria-busy={loading}
-          disabled={stopping}
-          onMouseEnter={() => setActionHovered(true)}
-          onMouseLeave={() => setActionHovered(false)}
-          onFocus={() => setActionHovered(true)}
-          onBlur={() => setActionHovered(false)}
-          onClick={async () => {
-            if (loading) {
-              if (stopping) return;
-              const expected = scope;
-              const stoppedContext = messageContext;
-              setStopping(true);
+        <div className="weq-int-suggest-actions">
+          {error && list.length > 0 ? (
+            <span className="weq-int-suggest-error" title={error}>
+              更新失败
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className={`weq-int-suggest-refresh weq-int-suggest-action${loading && !showStop ? ' is-busy' : ''}`}
+            title={showStop ? '停止推荐回复' : error ? '重试推荐回复' : '换一批'}
+            aria-label={showStop ? '停止推荐回复' : '换一批建议'}
+            aria-busy={loading}
+            disabled={stopping}
+            onMouseEnter={() => setActionHovered(true)}
+            onMouseLeave={() => setActionHovered(false)}
+            onFocus={() => setActionHovered(true)}
+            onBlur={() => setActionHovered(false)}
+            onClick={async () => {
+              if (loading) {
+                if (stopping) return;
+                const expected = scope;
+                const stoppedContext = messageContext;
+                setStopping(true);
+                try {
+                  await client.account.intentSense.stopSuggestions.mutate({ kind, conv });
+                  if (requestContext.current === expected) {
+                    requestEpoch.current++;
+                    setStopped(stoppedContext);
+                    setBusy(false);
+                  }
+                } catch (error) {
+                  useToast.getState().push({
+                    tone: 'error',
+                    message: '停止推荐回复失败',
+                    detail: error instanceof Error ? error.message : String(error),
+                  });
+                } finally {
+                  setStopping(false);
+                }
+                return;
+              }
+              if (refreshPending.current || loading) return;
+              refreshPending.current = true;
+              const expected = requestContext.current;
+              const epoch = ++requestEpoch.current;
+              setStopped(null);
+              setBusy(true);
+              setRefreshError(null);
               try {
-                await client.account.intentSense.stopSuggestions.mutate({ kind, conv });
-                if (requestContext.current === expected) {
-                  requestEpoch.current++;
-                  setStopped(stoppedContext);
-                  setBusy(false);
+                const list = await client.account.intentSense.getSuggestions.query({
+                  kind,
+                  conv,
+                  revision: status.data?.suggestionRevision ?? 0,
+                  ...(latestMessageId !== undefined ? { targetId: latestMessageId } : {}),
+                  refresh: true,
+                });
+                if (
+                  requestContext.current === expected &&
+                  requestEpoch.current === epoch &&
+                  list.length > 0
+                ) {
+                  setPrevious({ scope, list });
+                  void history.refetch();
                 }
               } catch (error) {
-                useToast.getState().push({
-                  tone: 'error',
-                  message: '停止推荐回复失败',
-                  detail: error instanceof Error ? error.message : String(error),
-                });
+                if (requestContext.current === expected && requestEpoch.current === epoch) {
+                  setRefreshError({
+                    context: expected,
+                    message: error instanceof Error ? error.message : String(error),
+                  });
+                  useToast.getState().push({
+                    tone: 'error',
+                    message: '刷新推荐回复失败',
+                    detail: error instanceof Error ? error.message : String(error),
+                  });
+                }
               } finally {
-                setStopping(false);
+                refreshPending.current = false;
+                if (requestEpoch.current === epoch) setBusy(false);
               }
-              return;
-            }
-            if (refreshPending.current || loading) return;
-            refreshPending.current = true;
-            const expected = requestContext.current;
-            const epoch = ++requestEpoch.current;
-            setStopped(null);
-            setBusy(true);
-            setRefreshError(null);
-            try {
-              const list = await client.account.intentSense.getSuggestions.query({
-                kind,
-                conv,
-                revision: status.data?.suggestionRevision ?? 0,
-                ...(latestMessageId !== undefined ? { targetId: latestMessageId } : {}),
-                refresh: true,
-              });
-              if (
-                requestContext.current === expected &&
-                requestEpoch.current === epoch &&
-                list.length > 0
-              ) {
-                setPrevious({ scope, list });
-                void history.refetch();
-              }
-            } catch (error) {
-              if (requestContext.current === expected && requestEpoch.current === epoch) {
-                setRefreshError({
-                  context: expected,
-                  message: error instanceof Error ? error.message : String(error),
-                });
-                useToast.getState().push({
-                  tone: 'error',
-                  message: '刷新推荐回复失败',
-                  detail: error instanceof Error ? error.message : String(error),
-                });
-              }
-            } finally {
-              refreshPending.current = false;
-              if (requestEpoch.current === epoch) setBusy(false);
-            }
-          }}
-        >
-          {showStop ? <Square size={12} /> : <RefreshCw size={12} />}
-        </button>
-        <button
-          type="button"
-          className="weq-int-suggest-refresh"
-          title={historyOpen ? '收起回复历史' : '展开回复历史'}
-          aria-label={historyOpen ? '收起回复历史' : '展开回复历史'}
-          aria-expanded={historyOpen}
-          aria-controls={historyId}
-          onClick={() => setHistoryScope(historyOpen ? null : scope)}
-        >
-          {historyOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-        </button>
+            }}
+          >
+            {showStop ? <Square size={12} /> : <RefreshCw size={12} />}
+          </button>
+          <button
+            type="button"
+            className="weq-int-suggest-refresh"
+            title={historyOpen ? '收起回复历史' : '展开回复历史'}
+            aria-label={historyOpen ? '收起回复历史' : '展开回复历史'}
+            aria-expanded={historyOpen}
+            aria-controls={historyId}
+            onClick={() => setHistoryScope(historyOpen ? null : scope)}
+          >
+            {historyOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          </button>
+        </div>
       </div>
     </div>
   );

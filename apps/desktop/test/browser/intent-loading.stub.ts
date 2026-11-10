@@ -61,7 +61,7 @@ let history: ReplySuggestionHistoryEntry[] = [
   {
     id: 'round-2',
     createdAt: 1794283200000,
-    target: { msgId: 'message', msgSeq: '77', senderUin: '10000', sendTime: 1794283200 },
+    target: { msgId: 'previous-message', msgSeq: '77', senderUin: '10000', sendTime: 1794283200 },
     suggestions: readySuggestions,
   },
   {
@@ -88,6 +88,10 @@ function useMode() {
 }
 export function setMode(next: Mode) {
   mode = next;
+  if (next === 'ready' && history[0]?.id === 'round-2')
+    history = history.map((entry, index) =>
+      index === 0 ? { ...entry, target: { ...entry.target, msgId: 'message' } } : entry,
+    );
   for (const listener of listeners) listener();
   for (const listener of progressListeners)
     listener({
