@@ -21,6 +21,7 @@ WeQ 是一个**完全自主**的 NTQQ 本地数据库解密、解析与导出工
 | --- | --- |
 | [快速上手](./getting-started.md) | 下载安装、获取数据库密钥、进入账号、Web 版、Bootstrap 首页与账号选择页 |
 | [macOS 安装与首次打开](./macos-install.md) | 芯片选择、系统放行、签名与自动更新边界 |
+| [Arch Linux 安装（AUR）](./arch-install.md) | `paru -S weq-bin`、安装路径、为何应用内更新走包管理器 |
 | [QQ 调试副本](./macos-debug-copy.md) | SIP 保持开启时准备、启动、更新与移除 QQ 副本 |
 | [主界面与账号](./homepage.md) | 界面总览、左栏导航、联系人页、账号切换 / 退出、隐私模式、主题与截图 |
 | [群交集图谱](./relation-graph.md) | 群友圈子、群聊网络、紧凑布局与视角调整 |

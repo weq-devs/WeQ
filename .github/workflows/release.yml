@@ -871,6 +871,7 @@ jobs:
           - **Windows**: \`weQ-${TAG#v}-setup.exe\`
           - **Linux x64**: \`weQ-${TAG#v}-linux-x86_64.AppImage\` / \`.tar.gz\`
           - **Linux arm64（未实测）**: \`weQ-${TAG#v}-linux-arm64.AppImage\` / \`.tar.gz\`
+          - **Arch Linux (AUR)**: \`paru -S weq-bin\`（或 \`yay -S weq-bin\`，预编译包）
           - **macOS Intel (x64)**: \`weQ-${TAG#v}-mac-x64.dmg\`（ad-hoc 签名，未公证）
           - **macOS Apple Silicon (arm64)**: \`weQ-${TAG#v}-mac-arm64.dmg\`（ad-hoc 签名，未公证）
           - **浏览器版 Web**（需自备 Node ≥22，每平台一个压缩包，按运行机器选）：
@@ -912,6 +913,67 @@ jobs:
           RELEASE_ID: ${{ needs.prepare.outputs.id }}
           RELEASE_NEEDS: ${{ toJSON(needs) }}
         run: node scripts/release-control.mjs publish
+
+
+  # ============================ AUR ============================
+  # 发布公开后，用 release 里已经上传的 Linux tar.gz 更新 AUR 上的 weq-bin。
+  # 只在真正的版本发布（gate 判定需要通知）时跑：dev 上的临时 tag / 预发布
+  # 不该往 AUR 推。
+  #
+  # 为什么用 tar.gz 而不是 AppImage：PKGBUILD 要把 resources/ 与 native/ 和
+  # 可执行文件同级装进 /opt/weq，AppImage 是单文件 FUSE 镜像拆不出来。
+  #
+  # 哈希取自 Release API 的 `digest`（就是 sha256），不必在 CI 里再下 250 MB。
+  aur:
+    needs: [publish, gate]
+    # 预发布（dev 上的临时 tag）不进 AUR：`weq-bin` 是给普通用户装的正式包。
+    if: needs.gate.outputs.release == 'true' && needs.gate.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 私钥只落在 runner 的临时目录里，结束即随虚拟机销毁；写入前先清空
+      # 一个全新目录，避免 ~/.ssh 里别的密钥（如果有）被一起使用。
+      - name: Configure AUR SSH
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_SSH_KNOWN_HOSTS: ${{ secrets.AUR_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > "$HOME/.ssh/aur"
+          chmod 600 "$HOME/.ssh/aur"
+          printf '%s\n' "$AUR_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 644 "$HOME/.ssh/known_hosts"
+          # 只给 aur.archlinux.org 用这把钥匙，别让它成为 ssh 的默认身份。
+          cat > "$HOME/.ssh/config" <<'EOF'
+          Host aur.archlinux.org
+            IdentityFile ~/.ssh/aur
+            IdentitiesOnly yes
+            User aur
+          EOF
+          chmod 600 "$HOME/.ssh/config"
+          git config --global user.name "H3CoF6"
+          git config --global user.email "1707889225@qq.com"
+
+      - name: Publish weq-bin to AUR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/publish-aur.mjs --version "${{ github.ref_name }}"
+
+      - name: Remove AUR SSH key
+        if: always()
+        run: rm -f "$HOME/.ssh/aur" "$HOME/.ssh/config"
 
 
   # ========================== QQ 群通知 ==========================
