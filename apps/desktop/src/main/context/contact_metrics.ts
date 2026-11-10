@@ -383,7 +383,7 @@ export class ContactDirectoryRuntime {
           ? '更新全部群成员并重算群交集'
           : missingOnly
             ? '补齐信息与线索缓存'
-            : '重建信息与线索缓存',
+            : '更新好友/群信息缓存',
       kind: 'contacts',
       scope: this.scope,
       statusLabel: '本地资料',

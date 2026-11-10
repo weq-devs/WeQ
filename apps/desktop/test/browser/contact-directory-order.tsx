@@ -116,7 +116,7 @@ createRoot(document.getElementById('root')!).render(
               task: {
                 id: 'synthetic-task',
                 kind: 'contacts',
-                name: '重建信息与线索缓存',
+                name: '更新好友/群信息缓存',
                 status: 'running',
                 progress: 50,
                 startedAt: 1,
