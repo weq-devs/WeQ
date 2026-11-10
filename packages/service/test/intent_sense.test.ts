@@ -1366,7 +1366,7 @@ describe('IntentSenseService', () => {
     },
   );
 
-  it('自己发送时的两个开关独立保存，旧配置保持分析开启、推荐关闭', async () => {
+  it('自己发送时的两个开关默认开启且独立保存', async () => {
     const msgs = [textMsg(1n, 'u_self', '自己发出的合成消息', 1000)];
     const analyze = vi.fn(async () => ({
       intent: 'chat' as const,
@@ -1379,7 +1379,7 @@ describe('IntentSenseService', () => {
       localEngine: makeLocalPort(analyze),
     });
     await svc.setConfig({ enabled: true, engine: 'local', suggestionsEnabled: true });
-    expect(svc.getStatus()).toMatchObject({ analyzeAfterSelf: true, suggestAfterSelf: false });
+    expect(svc.getStatus()).toMatchObject({ analyzeAfterSelf: true, suggestAfterSelf: true });
     await svc.setConfig({ analyzeAfterSelf: false, suggestAfterSelf: true });
     expect((await svc.ensureAnalysis('c2c', 'u_peer')).analyzed).toBe(0);
     expect(await svc.analyzeMessage('c2c', 'u_peer', '1')).toBeNull();
@@ -1413,6 +1413,7 @@ describe('IntentSenseService', () => {
       providerRef: { providerId: 'fixture', model: 'fixture' },
       suggestionsEnabled: true,
       suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
+      suggestAfterSelf: false,
     });
     expect(await svc.getSuggestions('c2c', 'u_peer')).toHaveLength(1);
     msgs.push(textMsg(2n, 'u_self', '合成自己回复', 1020));
@@ -1453,6 +1454,7 @@ describe('IntentSenseService', () => {
         providerRef: { providerId: 'fixture', model: 'fixture' },
         suggestionsEnabled: true,
         suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
+        suggestAfterSelf: false,
       });
       const pending = svc.getSuggestions('c2c', 'u_peer');
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -1543,7 +1545,28 @@ describe('IntentSenseService', () => {
     expect(svc.getMessageAnalyses('c2c', 'u_peer', ['1'])[0]?.mine).toBe(true);
   });
 
-  it('旧配置回落原有实际范围，无效条数不部分写入，零值可持久化', async () => {
+  it.each([undefined, {}])('新账号及缺项旧配置采用推荐默认值：%j', (config) => {
+    if (config) writeFileSync(join(dir, 'config.json'), JSON.stringify(config));
+    const status = new IntentSenseService(makeSession([]), dir).getStatus();
+    expect(DEFAULT_SUGGESTION_CONTEXT_MESSAGES).toBe(30);
+    expect(status).toMatchObject({
+      suggestAfterSelf: true,
+      suggestionContextMessages: DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
+    });
+  });
+
+  it.each([0, 6, 30])('已有推荐关闭及自定义上文 %i 条保持不变', (count) => {
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({ suggestAfterSelf: false, suggestionContextMessages: count }),
+    );
+    expect(new IntentSenseService(makeSession([]), dir).getStatus()).toMatchObject({
+      suggestAfterSelf: false,
+      suggestionContextMessages: count,
+    });
+  });
+
+  it('旧配置回落默认范围，无效条数不部分写入，零值可持久化', async () => {
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ enabled: true, engine: 'local' }));
     const svc = new IntentSenseService(makeSession([]), dir);
     const defaults = {

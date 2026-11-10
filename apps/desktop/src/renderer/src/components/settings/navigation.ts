@@ -86,9 +86,9 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     sections: [
       'agentlab',
       'model-usage',
+      'reply-suggestions',
       'intent-sense',
       'interaction-profile',
-      'reply-suggestions',
       'voice',
       'ocr',
     ],

@@ -1,6 +1,6 @@
 export const DEFAULT_ANALYSIS_CONTEXT_MESSAGES = 4;
-// 推荐窗口：扣除当前消息后保持 6 条上文（共 7 条消息），足以把握即时对话语境，避免巨额 token 开销。
-export const DEFAULT_SUGGESTION_CONTEXT_MESSAGES = 6;
+// 推荐窗口不含当前消息；默认保留 30 条上文，共 31 条消息。
+export const DEFAULT_SUGGESTION_CONTEXT_MESSAGES = 30;
 export const MAX_INTENT_CONTEXT_MESSAGES = 100;
 
 export function isIntentContextCount(value: unknown): value is number {

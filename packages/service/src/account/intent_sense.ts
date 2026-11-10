@@ -194,7 +194,7 @@ const DEFAULT_CONFIG: IntentSenseConfig = {
   analyzeAfterSelf: true,
   persistentDisplay: true,
   hoverDisplay: true,
-  suggestAfterSelf: false,
+  suggestAfterSelf: true,
   analysisContextMessages: DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
   suggestionContextMessages: DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
   hfMirror: true,
@@ -631,7 +631,7 @@ export class IntentSenseService {
           analyzeAfterSelf: p.analyzeAfterSelf !== false,
           persistentDisplay: p.persistentDisplay !== false,
           hoverDisplay: p.hoverDisplay !== false,
-          suggestAfterSelf: p.suggestAfterSelf === true,
+          suggestAfterSelf: p.suggestAfterSelf !== false,
           analysisContextMessages: isIntentContextCount(p.analysisContextMessages)
             ? p.analysisContextMessages
             : DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
