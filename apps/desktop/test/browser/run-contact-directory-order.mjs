@@ -73,10 +73,10 @@ try {
     'none',
   ]) {
     await friends.getByLabel('分组依据').selectOption(basis);
-    const stale = page.getByRole('dialog', { name: '更新信息与线索缓存', exact: true });
+    const stale = page.getByRole('dialog', { name: '更新好友/群信息缓存', exact: true });
     if (await stale.count()) {
       await stale.getByRole('radio', { name: '不更新', exact: true }).click();
-      await stale.getByRole('button', { name: '确定', exact: true }).click();
+      await stale.getByRole('button', { name: '仅刷新列表', exact: true }).click();
     }
     const names = await headers();
     assert.equal(names.includes('亲密关系'), false);
@@ -147,12 +147,14 @@ try {
       assert.ok(layout.rows.every((row) => row.sameRow && row.fits));
       if (output)
         await page.screenshot({ path: resolve(output, `${width}-${theme}.png`), fullPage: true });
-      await page.getByRole('button', { name: '刷新联系人列表', exact: true }).click();
-      const dialog = page.getByRole('dialog', { name: '刷新联系人', exact: true });
+      const refreshButton = page.getByRole('button', { name: '更新好友/群信息缓存', exact: true });
+      assert.equal(await refreshButton.getAttribute('title'), '更新好友/群信息缓存');
+      await refreshButton.click();
+      const dialog = page.getByRole('dialog', { name: '更新好友/群信息缓存', exact: true });
       await dialog.waitFor();
       await page.waitForFunction(
         () =>
-          document.querySelector('[aria-label="信息与线索缓存更新范围"] [aria-checked="true"]')
+          document.querySelector('[aria-label="好友/群信息缓存更新范围"] [aria-checked="true"]')
             ?.textContent === '不更新',
       );
       const bounds = await dialog.evaluate((element) => {
@@ -169,8 +171,8 @@ try {
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}-refresh.png`) });
       await dialog.getByRole('button', { name: '取消', exact: true }).click();
     }
-  await page.getByRole('button', { name: '刷新联系人列表', exact: true }).click();
-  await page.getByRole('button', { name: '刷新', exact: true }).waitFor();
+  await page.getByRole('button', { name: '更新好友/群信息缓存', exact: true }).click();
+  await page.getByRole('button', { name: '仅刷新列表', exact: true }).waitFor();
   await page.getByRole('button', { name: '取消', exact: true }).click();
   assert.deepEqual(errors, []);
   console.log('联系人分组、排序、不分组、刷新弹窗、320/390/1180px 浅深主题与同排控件验证通过');

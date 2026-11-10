@@ -22,7 +22,7 @@ function mount() {
   const task: BackgroundTask = {
     id: 'synthetic-refresh',
     kind: 'contacts',
-    name: '刷新联系人列表',
+    name: '更新好友/群信息缓存',
     status: 'running',
     startedAt: 1,
     updatedAt: 1,
@@ -106,8 +106,8 @@ it('日志默认展开，完成后仍保留，并允许分别手动收起', () =
 it('联系人任务保留总进度，不影响导出日志的默认行为', () => {
   const task = {
     id: 'synthetic',
-    name: '刷新联系人列表',
-    kind: '信息与线索缓存',
+    name: '更新好友/群信息缓存',
+    kind: '好友/群信息缓存',
     status: 'running' as const,
     progress: 50,
     icon: null,

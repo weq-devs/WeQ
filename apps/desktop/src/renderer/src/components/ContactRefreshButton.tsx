@@ -27,8 +27,8 @@ export function ContactRefreshButton({
         }}
         disabled={!task.ready}
         aria-busy={busy}
-        title={busy ? '查看联系人更新任务' : '刷新联系人列表'}
-        aria-label={busy ? '查看联系人更新任务' : '刷新联系人列表'}
+        title={busy ? '查看好友/群信息缓存更新任务' : '更新好友/群信息缓存'}
+        aria-label={busy ? '查看好友/群信息缓存更新任务' : '更新好友/群信息缓存'}
       >
         <RefreshCw size={15} className={busy ? 'spin' : undefined} />
       </button>
@@ -84,7 +84,7 @@ export function ContactCacheRefreshDialog({
     } catch (error) {
       onClose();
       showError(
-        '信息与线索缓存重建启动失败',
+        '好友/群信息缓存更新启动失败',
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -103,17 +103,17 @@ export function ContactCacheRefreshDialog({
             <RefreshCw size={20} aria-hidden />
           </span>
           <h3 id="contact-refresh-title" className="weq-dialog-title">
-            {stale ? '更新信息与线索缓存' : '刷新联系人'}
+            更新好友/群信息缓存
           </h3>
           <button type="button" className="weq-dialog-x" aria-label="关闭" onClick={onClose}>
             <X size={16} aria-hidden />
           </button>
         </div>
         <div className="weq-dialog-body">
-          {stale && <p>所选依据的信息与线索缓存已超过 7 天或尚未建立，是否更新？</p>}
-          <p>选择信息与线索缓存的更新范围。</p>
+          {stale && <p>所选依据的好友/群信息缓存已超过 7 天或尚未建立，是否更新？</p>}
+          <p>选择好友/群信息缓存的更新范围。</p>
           <SegmentedControl
-            label="信息与线索缓存更新范围"
+            label="好友/群信息缓存更新范围"
             disabled={rebuild.isLoading}
             value={range}
             options={[
@@ -146,7 +146,7 @@ export function ContactCacheRefreshDialog({
             onClick={() => void start()}
           >
             {range === 'none' ? <RefreshCw size={14} /> : <Database size={14} />}
-            {onRefresh ? '刷新' : '确定'}
+            {range === 'none' ? '仅刷新列表' : '更新'}
           </button>
         </div>
       </div>

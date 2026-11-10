@@ -1,8 +1,11 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
-import { ContactRefreshButton } from '../src/renderer/src/components/ContactRefreshButton';
+import {
+  ContactRefreshButton,
+  ContactCacheRefreshDialog,
+} from '../src/renderer/src/components/ContactRefreshButton';
 import { useGroupMemberRefresh } from '../src/renderer/src/hooks/useGroupMemberRefresh';
 
 const state = vi.hoisted(() => ({
@@ -13,6 +16,7 @@ const state = vi.hoisted(() => ({
   focusTask: vi.fn(),
   openTasks: vi.fn(),
   rebuild: vi.fn(async () => 'new-task'),
+  showError: vi.fn(),
 }));
 vi.mock('../src/renderer/src/state/view', () => ({
   useViewState: Object.assign(
@@ -25,7 +29,8 @@ vi.mock('../src/renderer/src/state/workspaceMenu', () => ({
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: (select: (value: typeof state) => unknown) => select(state),
-  Modal: () => h('div', { role: 'dialog' }),
+  Modal: ({ children, labelledBy }: { children: ReactNode; labelledBy: string }) =>
+    h('div', { role: 'dialog', 'aria-labelledby': labelledBy }, children),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
@@ -83,6 +88,12 @@ it.each(['metrics', 'groupMembers'])(
       state.snapshot.progress.status = status;
       for (const group of [false, true]) {
         const { host, onRefresh } = mount(group);
+        if (!group) {
+          expect(host.querySelector('button')?.title).toBe('查看好友/群信息缓存更新任务');
+          expect(host.querySelector('button')?.getAttribute('aria-label')).toBe(
+            '查看好友/群信息缓存更新任务',
+          );
+        }
         await act(async () => host.querySelector('button')!.click());
         expect(state.focusTask).toHaveBeenLastCalledWith('background:host:existing');
         expect(host.querySelector('[role="dialog"]')).toBeNull();
@@ -99,14 +110,35 @@ it.each(['completed', 'failed', 'cancelled', 'idle'])(
   async (status) => {
     state.snapshot.progress.status = status;
     const contacts = mount(false);
+    expect(contacts.host.querySelector('button')?.title).toBe('更新好友/群信息缓存');
+    expect(contacts.host.querySelector('button')?.getAttribute('aria-label')).toBe(
+      '更新好友/群信息缓存',
+    );
     await act(async () => contacts.host.querySelector('button')!.click());
     expect(contacts.host.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(contacts.host.querySelector('h3')?.textContent?.trim()).toBe('更新好友/群信息缓存');
     const members = mount(true);
     await act(async () => members.host.querySelector('button')!.click());
     expect(state.confirm).toHaveBeenCalledTimes(1);
     expect(state.focusTask).not.toHaveBeenCalled();
   },
 );
+it.each([false, true])('主动与过期更新弹窗统一名称、范围和操作文案：%s', async (stale) => {
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  cleanup.push(() => act(() => root.unmount()));
+  const onClose = vi.fn();
+  act(() => root.render(h(ContactCacheRefreshDialog, { onClose, stale })));
+  expect(host.querySelector('h3')?.textContent?.trim()).toBe('更新好友/群信息缓存');
+  expect(host.textContent).toContain('选择好友/群信息缓存的更新范围。');
+  expect(host.querySelector('[aria-label="好友/群信息缓存更新范围"]')).not.toBeNull();
+  expect(host.querySelector('.weq-action-primary')?.textContent).toBe('更新');
+  expect(host.textContent).not.toContain('信息与线索缓存');
+  if (stale) expect(host.textContent).toContain('所选依据的好友/群信息缓存');
+  state.rebuild.mockRejectedValueOnce(new Error('合成错误'));
+  await act(async () => host.querySelector<HTMLButtonElement>('.weq-action-primary')!.click());
+  expect(state.showError).toHaveBeenCalledWith('好友/群信息缓存更新启动失败', '合成错误');
+});
 it('账号配置尚未匹配时不跳到旧账号的任务', async () => {
   state.uin = '88888';
   const { host } = mount(false);

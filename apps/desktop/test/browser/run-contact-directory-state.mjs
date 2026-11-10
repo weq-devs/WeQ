@@ -54,7 +54,7 @@ try {
   for (const list of await lists.all())
     assert.equal(
       await list.locator('.weq-directory-order [role="status"]').textContent(),
-      '信息与线索缓存更新中 2/6',
+      '好友/群信息缓存更新中 2/6',
     );
   const output = process.env.WEQ_CONTACT_ORDER_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });

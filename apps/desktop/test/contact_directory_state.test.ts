@@ -145,7 +145,7 @@ it.each(['friends', 'groups'] as const)(
   '%s 默认依据也显示更新进度与暂停提示，完成后隐藏',
   (kind) => {
     const f = mount(kind);
-    expect(f.host.querySelector('[role="status"]')?.textContent).toBe('信息与线索缓存更新中 2/6');
+    expect(f.host.querySelector('[role="status"]')?.textContent).toBe('好友/群信息缓存更新中 2/6');
     state.progress.status = 'paused';
     f.render(kind);
     expect(f.host.querySelector('[role="status"]')?.textContent).toContain('更新已暂停');

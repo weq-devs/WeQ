@@ -107,7 +107,7 @@ createRoot(document.getElementById('root')!).render(
           </section>
         </div>
         <section data-kind="tasks">
-          <h2>信息与线索缓存任务</h2>
+          <h2>好友/群信息缓存任务</h2>
           <BackgroundTaskDetails
             scope={{ uin: '99999', configId: 'contact-order-fixture' }}
             refresh={async () => {}}

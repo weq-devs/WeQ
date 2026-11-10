@@ -731,11 +731,11 @@ describe('新增消息交互', () => {
       fixture.render(h(Contacts));
       const tools = fixture.host.querySelector('.contact-tools')!;
       expect(tools.firstElementChild?.classList.contains('weq-directory-toolbar')).toBe(true);
-      expect(button(fixture.host, '刷新联系人列表').disabled).toBe(false);
-      act(() => button(fixture.host, '刷新联系人列表').click());
+      expect(button(fixture.host, '更新好友/群信息缓存').disabled).toBe(false);
+      act(() => button(fixture.host, '更新好友/群信息缓存').click());
       expect(refresh).not.toHaveBeenCalled();
       act(() => button(document, '不更新').click());
-      act(() => button(document, '刷新').click());
+      act(() => button(document, '仅刷新列表').click());
       expect(refresh).toHaveBeenCalledOnce();
       act(() => button(fixture.host, '多选联系人').click());
       act(() => fixture.host.querySelector<HTMLButtonElement>('.contact-cat-header')!.click());

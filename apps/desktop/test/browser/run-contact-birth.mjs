@@ -70,10 +70,10 @@ try {
   await friends.getByLabel('分组依据').selectOption('none');
   for (const sort of ['age', 'birthday']) {
     await friends.getByLabel('排序依据').selectOption(sort);
-    const dialog = page.getByRole('dialog', { name: '更新信息与线索缓存', exact: true });
+    const dialog = page.getByRole('dialog', { name: '更新好友/群信息缓存', exact: true });
     if (await dialog.count()) {
       await dialog.getByRole('radio', { name: '不更新', exact: true }).click();
-      await dialog.getByRole('button', { name: '确定', exact: true }).click();
+      await dialog.getByRole('button', { name: '仅刷新列表', exact: true }).click();
     }
     const expected =
       sort === 'age'
