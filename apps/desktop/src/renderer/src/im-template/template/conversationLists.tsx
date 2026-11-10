@@ -1208,8 +1208,8 @@ export function GroupList({
     return <EmptyState title="暂无群聊" body="" icon={<Users />} />;
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
+      <ContactDirectoryOrder order={order} />
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
-        <ContactDirectoryOrder order={order} />
         {categories.map((category) => (
           <GroupNotificationSection
             key={category.mode}
@@ -1655,8 +1655,8 @@ export function ContactList({
 
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
+      <ContactDirectoryOrder order={order} />
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
-        <ContactDirectoryOrder order={order} />
         {friendDirectory?.error && (
           <div className="contact-cat-description" role="alert">
             <small>好友分组读取失败：{friendDirectory.error}</small>

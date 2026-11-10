@@ -1,4 +1,5 @@
 .weq-directory-order {
+  flex: none;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px;
   align-items: end;
@@ -6,6 +7,12 @@
   padding: 10px 8px;
   border-bottom: 1px solid var(--weq-border-subtle);
   color: var(--weq-fg-secondary);
+}
+.weq-contact-directory-scroll .contact-cat-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--weq-bg-surface);
 }
 .weq-directory-order label {
   display: grid;
