@@ -20,6 +20,26 @@ it('未变行及整个未变窗口保留引用，修改只替换对应行且删�
   expect(mergeRefreshedWindow(current, fresh.slice(1), 50)).toHaveLength(2);
 });
 
+it('中间补入、删除和向前补齐后，未变消息仍按稳定 ID 复用，不按数组位置重建', () => {
+  const all = rows(1, 5).map((row) => ({ ...row, elements: [{ text: row.msgId }] }));
+  const current = [all[1]!, all[3]!, all[4]!];
+  const inserted = mergeRefreshedWindow(current, structuredClone(all.slice(1)), 50);
+  expect(inserted[0]).toBe(current[0]);
+  expect(inserted[2]).toBe(current[1]);
+  expect(inserted[3]).toBe(current[2]);
+  const removed = mergeRefreshedWindow(inserted, structuredClone(all.slice(3)), 50);
+  expect(removed[0]).toBe(current[1]);
+  expect(removed[1]).toBe(current[2]);
+  const prepended = mergeRefreshedWindow(current, structuredClone(all), 50);
+  expect(prepended[1]).toBe(current[0]);
+  expect(prepended[3]).toBe(current[1]);
+  expect(prepended[4]).toBe(current[2]);
+  const capped = mergeRefreshedWindow(current, structuredClone(all.slice(2)), 3);
+  expect(capped[0]).toBe(current[0]);
+  expect(capped[2]).toBe(current[1]);
+  expect(capped[3]).toBe(current[2]);
+});
+
 it('刷新达到上限时保留此前已加载的历史，不能被最新 500 条裁走', () => {
   const current = rows(1, 1000);
   const fresh = rows(502, 1001);

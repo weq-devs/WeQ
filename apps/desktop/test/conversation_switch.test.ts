@@ -21,10 +21,11 @@ import type { MessagePageStage } from '../src/shared/message_read';
 type TestMessage = {
   msgId: string;
   msgSeq: string;
+  clientSeq?: string;
   sendTime: string;
   senderUid: string;
   senderUin: string;
-  elements: { type: string; text: string }[];
+  elements: { type: string; text?: string; data?: Record<string, unknown> }[];
 };
 type UnreadInput = { targets: Array<{ chatType: number; uid: string }>; watermarksOnly?: boolean };
 
@@ -37,6 +38,8 @@ const f = vi.hoisted(() => ({
   unreadReads: [] as UnreadInput[],
   dbChanged: undefined as (() => void) | undefined,
   unreadChanged: undefined as ((targets: UnreadInput['targets']) => void) | undefined,
+  refreshRows: undefined as TestMessage[] | undefined,
+  messages: [] as ComponentProps<typeof ChatMainContent>['messages'],
   commit: undefined as (() => void) | undefined,
   reads: [] as { conv: string; show: (stage: MessagePageStage<TestMessage>) => void }[],
   recent: ['10001', '10002', 'u_peer'].map((targetUid, index) => ({
@@ -106,6 +109,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
           return async (input?: UnreadInput) => {
+            if (['listLatest', 'listFrom'].includes(path.at(-1) ?? '')) return f.refreshRows;
             if (path.at(-1) === 'getUnreadInfos' && f.unreadMode && input) {
               f.unreadReads.push(input);
               return input.targets.map((target) => ({
@@ -189,6 +193,7 @@ vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (impor
     >();
   return {
     ChatMainContent: (props: ComponentProps<typeof ChatMainContent>) => {
+      f.messages = props.messages;
       useLayoutEffect(() => {
         f.commit?.();
         f.commit = undefined;
@@ -224,8 +229,113 @@ afterEach(() => {
   f.unreadReads.length = 0;
   f.dbChanged = undefined;
   f.unreadChanged = undefined;
+  f.refreshRows = undefined;
+  f.messages = [];
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+it.each([
+  ['10001', 'group'],
+  ['u_peer', 'c2c'],
+] as const)('会话 %s 的引用只在原文变化时替换对象，迟到原文与重号仍正确更新', async (id, kind) => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const message = (msgId: string, msgSeq: string, text: string): TestMessage => ({
+    msgId,
+    msgSeq,
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    sendTime: '1794200000',
+    elements: [{ type: 'text', data: { textContent: text } }],
+  });
+  const boundary = message('boundary', '1', '窗口起点');
+  const original = { ...message('original', '2', '原文'), clientSeq: '7' };
+  const replyData = {
+    ...(kind === 'group' ? { origMsgSeq: '2' } : { origClientSeq: '7' }),
+    origSenderUin: '20001',
+    origMsgTime: '1794200000',
+    origElements: [],
+  };
+  const reply = message('reply', '3', '引用回复');
+  reply.elements.unshift({ type: 'reply', data: replyData });
+  const embedded = message('embedded', '4', '自带摘要');
+  embedded.elements.unshift({
+    type: 'reply',
+    data: { ...replyData, origElements: [{ type: 'text', data: { textContent: '内嵌原文' } }] },
+  });
+  const row = (msgId: string) => f.messages.find((item) => item.msgId === msgId)!;
+  const quote = () =>
+    (
+      row('reply').qqElements!.find((item) => (item as { type: string }).type === 'reply') as {
+        data: { origElements?: unknown[] };
+      }
+    ).data.origElements;
+  const update = (messages: TestMessage[]) =>
+    act(async () => {
+      f.refreshRows = [...messages].sort((a, b) => Number(b.msgSeq) - Number(a.msgSeq));
+      f.dbChanged!();
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === id)!
+        .click(),
+    );
+    await act(async () =>
+      f.reads.at(-1)!.show({ complete: true, rows: [embedded, reply, boundary] }),
+    );
+    const pending = row('reply');
+    const independent = row('embedded');
+    expect(quote()).toEqual([]);
+    const unrelated = message('unrelated', '5', '无关追加');
+    const rest = [boundary, reply, embedded, unrelated];
+    await update(rest);
+    expect(row('reply')).toBe(pending);
+    expect(row('embedded')).toBe(independent);
+    await update([...rest, original]);
+    expect(quote()).toEqual(original.elements);
+    expect(row('reply')).not.toBe(pending);
+    expect(row('embedded')).toBe(independent);
+    const resolved = row('reply');
+    await update([
+      ...rest,
+      { ...original, elements: [{ type: 'text', data: { textContent: '原文' } }] },
+    ]);
+    expect(row('reply')).toBe(resolved);
+    const edited = {
+      ...original,
+      elements: [{ type: 'text', data: { textContent: '原文已编辑' } }],
+    };
+    await update([...rest, edited]);
+    expect(quote()).toEqual(edited.elements);
+    expect(row('reply')).not.toBe(resolved);
+    expect(row('embedded')).toBe(independent);
+    await update(rest);
+    expect(quote()).toEqual([]);
+    await update([...rest, edited]);
+    expect(quote()).toEqual(edited.elements);
+    await update([...rest, edited, { ...edited, msgId: 'duplicate' }]);
+    expect(quote()).toEqual([]);
+    expect(row('embedded')).toBe(independent);
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
 });
 
 it.each(['10001', 'u_peer'])(
