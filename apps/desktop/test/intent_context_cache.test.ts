@@ -130,14 +130,14 @@ afterEach(() => {
 
 function renderFixture() {
   let context: IntentSenseContextValue | null = null;
-  const commits: Array<{ cacheState: string | undefined; placeholders: number }> = [];
+  const commits: Array<{ cacheState: string | undefined; animated: number }> = [];
   function Consumer({ ids }: { ids: string[] }) {
     context = useIntentSenseContext();
     const ref = useRef<HTMLSpanElement>(null);
     useLayoutEffect(() => {
       commits.push({
         cacheState: context?.cacheState,
-        placeholders: ref.current!.querySelectorAll('.is-placeholder').length,
+        animated: ref.current!.querySelectorAll('.weq-intent-loading-reel').length,
       });
     });
     return h(
@@ -179,7 +179,7 @@ function renderFixture() {
   return { render, get: () => context!, commits, host };
 }
 
-it('缓存及真实批次延迟返回时，首个提交已有静态组件，结果原位替换', async () => {
+it('缓存及真实批次延迟返回时，首个提交已有随机动画，结果原位替换', async () => {
   let finish!: (value: IntentAnalysis[]) => void;
   fixture.list.mockImplementationOnce(
     () =>
@@ -190,14 +190,14 @@ it('缓存及真实批次延迟返回时，首个提交已有静态组件，结�
   fixture.ensure.mockImplementation(() => new Promise(() => {}));
   const f = renderFixture();
   await f.render('old');
-  expect(f.commits[0]).toEqual({ cacheState: 'loading', placeholders: 2 });
+  expect(f.commits[0]).toEqual({ cacheState: 'loading', animated: 2 });
   expect(f.host.querySelector('.weq-intent-chips')?.getAttribute('data-intent-state')).toBe(
     'preparing',
   );
   expect(f.get().isPending?.('old')).toBe(false);
   await act(async () => finish([]));
   expect(f.get().cacheState).toBe('ready');
-  expect(f.host.querySelectorAll('.is-placeholder')).toHaveLength(2);
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(2);
   await act(async () =>
     fixture.progressCallbacks.at(-1)!({
       kind: 'c2c',
@@ -225,15 +225,15 @@ it('历史翻页、获取和漫游补入首次提交即有占位，不扩大分�
   await f.render('old');
   const count = fixture.ensure.mock.calls.length;
   await f.render('old', '', { ids: ['history', 'old'] });
-  expect(f.host.querySelectorAll('.is-placeholder')).toHaveLength(2);
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(2);
   expect(fixture.ensure).toHaveBeenCalledTimes(count);
   fixture.ensure.mockResolvedValue({ analyzed: 0, latestMsgId: 'fetched' });
   await f.render('fetched', '', { ids: ['history', 'old', 'fetched'] });
-  expect(f.host.querySelectorAll('.is-placeholder')).toHaveLength(4);
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(4);
   await f.render('fetched', 'roaming:protocol:2:77', {
     ids: ['history', 'roaming:protocol:2:77', 'old', 'fetched'],
   });
-  expect(f.host.querySelectorAll('.is-placeholder')).toHaveLength(6);
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(6);
   expect(fixture.analyze).not.toHaveBeenCalled();
 });
 
@@ -253,16 +253,17 @@ it('切换会话后缓存重新读取，旧会话迟到的结果不能结束当�
   await act(async () => finish([sample]));
   expect(f.get().cacheState).toBe('loading');
   expect(f.get().getAnalysis('old')).toBeUndefined();
-  expect(f.host.querySelectorAll('.is-placeholder')).toHaveLength(2);
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(2);
 });
 
-it('缓存读取失败结束准备态，保留静态占位而不显示虚假分析加载', async () => {
+it('缓存读取失败后保留随机动画，但不误报单条分析在途', async () => {
   fixture.list.mockRejectedValueOnce(new Error('合成缓存读取失败'));
   const f = renderFixture();
   await f.render();
   expect(f.get().cacheState).toBe('error');
-  expect(f.host.querySelectorAll('.is-placeholder')).toHaveLength(2);
-  expect(f.host.querySelector('.is-loading')).toBeNull();
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(2);
+  expect(f.get().isPending?.('old')).toBe(false);
+  expect(f.host.querySelector('.weq-intent-chips')?.getAttribute('aria-busy')).toBe('false');
 });
 
 it('清空缓存版本变化时清除界面旧结果，旧订阅不能把结果插回', async () => {

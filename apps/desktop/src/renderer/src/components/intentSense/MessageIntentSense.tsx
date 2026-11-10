@@ -3,7 +3,7 @@
  *
  * 两种形态共用一套 pill：
  *  • 常驻行（.weq-intent-chips，气泡 grid 的一个子元素，位于正文下方）——所有已有
- *    结果的消息均显示胶囊，本批次待分析文本显示描画占位，槽位始终同高。
+ *    结果的消息均显示胶囊，尚无结果的文本从首帧播放随机图标，槽位始终同高。
  *  • 悬停弹层（.weq-intent-popover，portal + fixed，空间不足向上避让）——悬停任意消息
  *    250ms 后出现，未命中缓存时触发单条分析并显示加载态。悬停交互仿
  *    SetEmojiReactions 的「延迟开、延迟关」手法，弹层自身 pointer-events:none，
@@ -420,7 +420,7 @@ export function MessageIntentSense({
   };
   const chips = result ? (
     <IntentChips result={result} />
-  ) : displayState === 'pending' ? (
+  ) : !unavailable && !failure ? (
     <>
       <IntentPillLoading />
       <IntentPillLoading emotion />

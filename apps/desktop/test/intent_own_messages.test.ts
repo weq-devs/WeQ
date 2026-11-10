@@ -157,7 +157,7 @@ it.each(['older-own', 'older-peer', 'roaming:protocol:2:77'])(
   },
 );
 
-it('批量分析期间，只对本批次真实待分析文本显示加载窄条', async () => {
+it('批量进度到达前后，无结果的文本均播放随机图标动画', async () => {
   fixture.context.getAnalysis.mockReturnValue(undefined);
   fixture.context.settled = false;
   fixture.context.isPending.mockImplementation((id) => id !== 'older-own');
@@ -171,7 +171,8 @@ it('批量分析期间，只对本批次真实待分析文本显示加载窄条'
     ),
   );
   expect(host.querySelectorAll('.weq-intent-chips')).toHaveLength(3);
-  expect(host.querySelectorAll('.weq-intent-pill.is-loading')).toHaveLength(4);
+  expect(host.querySelectorAll('.weq-intent-pill.is-loading')).toHaveLength(6);
+  expect(host.querySelector('[data-intent-state="idle"]')?.getAttribute('aria-busy')).toBe('false');
 });
 
 it('单条历史消息分析在途时，即使批次已结束也显示加载窄条', async () => {
@@ -186,18 +187,20 @@ it('单条历史消息分析在途时，即使批次已结束也显示加载窄�
 });
 
 it.each(['history', 'fetched', 'roaming:protocol:2:77'])(
-  '%s 首次挂载就显示两个静态占位，不等待批次进度，也不触发分析',
+  '%s 首次挂载就播放随机图标动画，不等待批次进度，也不触发分析',
   async (msgId) => {
     fixture.context.getAnalysis.mockReturnValue(undefined);
     const host = await render(h(OwnBubble, { msgId }));
-    expect(host.querySelectorAll('.weq-intent-pill.is-placeholder')).toHaveLength(2);
+    expect(host.querySelectorAll('.weq-intent-pill.is-loading')).toHaveLength(2);
     expect(host.querySelector('.weq-intent-details.is-empty')).toBeNull();
-    expect(host.querySelector('.is-loading')).toBeNull();
+    expect(host.querySelectorAll('.weq-intent-loading-reel')).toHaveLength(2);
     expect(host.querySelector('.weq-intent-chips')?.getAttribute('aria-busy')).toBe('false');
     expect(fixture.context.requestAnalysis).not.toHaveBeenCalled();
+    const reel = host.querySelector('.weq-intent-loading-reel');
     fixture.context.isPending.mockReturnValue(true);
     await host.rerender();
     expect(host.querySelectorAll('.weq-intent-pill.is-loading')).toHaveLength(2);
+    expect(host.querySelector('.weq-intent-loading-reel')).toBe(reel);
     fixture.context.getAnalysis.mockReturnValue(fixture.result);
     await host.rerender();
     expect(host.querySelectorAll('.weq-intent-pill')).toHaveLength(2);
@@ -206,11 +209,11 @@ it.each(['history', 'fetched', 'roaming:protocol:2:77'])(
   },
 );
 
-it('关闭悬停后仍显示静态占位；纯媒体不因批次在途出现加载胶囊', async () => {
+it('关闭悬停后仍播放随机图标动画；纯媒体不因批次在途出现加载胶囊', async () => {
   fixture.context.getAnalysis.mockReturnValue(undefined);
   fixture.context.hoverDisplay = false;
   const host = await render(h(OwnBubble));
-  expect(host.querySelectorAll('.weq-intent-pill.is-placeholder')).toHaveLength(2);
+  expect(host.querySelectorAll('.weq-intent-pill.is-loading')).toHaveLength(2);
   fixture.context.isPending.mockReturnValue(true);
   const media = await render(h(OwnBubble, { analyzable: false }));
   expect(media.querySelector('.weq-intent-chips')).toBeNull();
@@ -257,7 +260,7 @@ it('待分析胶囊每轮离场后切换图标，忽略内部笔画周期并分�
   }
 });
 
-it('分析结束后历史消息的加载窄条消失；已有结果替换占位', async () => {
+it('批次结束但未收到结果时动画继续，已有结果原位替换', async () => {
   fixture.context.getAnalysis.mockReturnValue(undefined);
   fixture.context.settled = false;
   fixture.context.isPending.mockReturnValue(true);
@@ -267,7 +270,8 @@ it('分析结束后历史消息的加载窄条消失；已有结果替换占位'
   fixture.context.isPending.mockReturnValue(false);
   await host.rerender();
   expect(host.querySelector('.weq-intent-chips')).not.toBeNull();
-  expect(host.querySelector('.is-loading')).toBeNull();
+  expect(host.querySelectorAll('.is-loading')).toHaveLength(2);
+  expect(host.querySelector('.weq-intent-chips')?.getAttribute('aria-busy')).toBe('false');
   fixture.context.getAnalysis.mockReturnValue(fixture.result);
   await host.rerender();
   expect(host.querySelector('.is-loading')).toBeNull();
@@ -309,20 +313,14 @@ it('关闭悬停显示立即收起弹层，保留常驻结果且不触发悬停�
   expect(fixture.context.requestAnalysis).not.toHaveBeenCalled();
 });
 
-it.each(['settled', 'unavailable', 'media', 'disabled'])(
-  '%s 状态不显示虚假的加载窄条',
-  async (state) => {
-    fixture.context.getAnalysis.mockReturnValue(undefined);
-    fixture.context.settled = state === 'settled';
-    fixture.context.active = state !== 'disabled';
-    fixture.context.isUnavailable.mockReturnValue(state === 'unavailable');
-    const host = await render(h(OwnBubble, { msgId: 'older-peer', analyzable: state !== 'media' }));
-    expect(host.querySelector('.is-loading')).toBeNull();
-    expect(!!host.querySelector('.weq-intent-chips')).toBe(
-      state !== 'media' && state !== 'disabled',
-    );
-  },
-);
+it.each(['unavailable', 'media', 'disabled'])('%s 状态不显示虚假的加载窄条', async (state) => {
+  fixture.context.getAnalysis.mockReturnValue(undefined);
+  fixture.context.active = state !== 'disabled';
+  fixture.context.isUnavailable.mockReturnValue(state === 'unavailable');
+  const host = await render(h(OwnBubble, { msgId: 'older-peer', analyzable: state !== 'media' }));
+  expect(host.querySelector('.is-loading')).toBeNull();
+  expect(!!host.querySelector('.weq-intent-chips')).toBe(state !== 'media' && state !== 'disabled');
+});
 
 it('自己的真实文本容器无需旧 message-text 类也能触发悬停分析', async () => {
   fixture.context.getAnalysis.mockReturnValue(undefined);

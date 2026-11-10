@@ -62,6 +62,25 @@ try {
         const initial = await page.evaluate(() => window.intentQa.frames[0]);
         assert.equal(initial.pills, 2, '消息首次提交时已有两个可见占位');
         assert.equal(initial.visible, true);
+        const reels = page.locator('.intent-qa .weq-intent-loading-reel');
+        assert.equal(await reels.count(), 2, '缓存与批次进度返回前就进入随机图标动画');
+        if (reducedMotion === 'no-preference') {
+          const before = await reels.first().locator('svg').getAttribute('class');
+          await page.waitForFunction(
+            (before) =>
+              document
+                .querySelector('.intent-qa .weq-intent-loading-icon')
+                .getAttribute('class') !== before,
+            before,
+            { timeout: 5000 },
+          );
+        } else {
+          assert.equal(
+            await reels.first().evaluate((node) => node.getAnimations({ subtree: true }).length),
+            0,
+            '减少动态效果时保留静态图标',
+          );
+        }
         const samples = await page.evaluate(async () => {
           const qa = window.intentQa;
           const samples = [];
@@ -116,19 +135,20 @@ try {
           await new Promise(requestAnimationFrame);
           qa.publishResult('history-0');
           await new Promise(requestAnimationFrame);
-          return (
-            document.querySelector('[data-message-id="history-0"] .weq-intent-chips').dataset
-              .intentState === 'ready' &&
-            JSON.stringify(before) ===
-              JSON.stringify({
-                top: target.getBoundingClientRect().top,
-                height: scroll.scrollHeight,
-                scroll: scroll.scrollTop,
-              }) &&
-            scroll.scrollTop > 0
-          );
+          return {
+            state: document.querySelector('[data-message-id="history-0"] .weq-intent-chips').dataset
+              .intentState,
+            before,
+            after: {
+              top: target.getBoundingClientRect().top,
+              height: scroll.scrollHeight,
+              scroll: scroll.scrollTop,
+            },
+          };
         });
-        assert.equal(anchorStable, true, '附属状态更新不移动阅读锚点');
+        assert.equal(anchorStable.state, 'ready');
+        assert.deepEqual(anchorStable.after, anchorStable.before, '附属状态更新不移动阅读锚点');
+        assert.ok(anchorStable.after.scroll > 0);
         if (output && reducedMotion === 'reduce' && width !== 320)
           await page.screenshot({ path: resolve(output, `first-frame-${width}-${theme}.png`) });
         await page.close();
