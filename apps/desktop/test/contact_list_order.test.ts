@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import {
   sortFriends,
   sortGroups,
@@ -46,6 +46,53 @@ const group = (
   },
 });
 const ready = (value: number) => ({ value, attemptedAt: 1, state: 'ready' as const });
+afterEach(() => vi.useRealTimers());
+
+it('年龄按完整生日精确排序，缺生日回退资料年龄，推算年龄不单独分档', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-10T12:00:00+08:00'));
+  const items = [
+    friend('a-younger', { age: 99, birthYear: 2000, birthMonth: 6, birthDay: 2 }),
+    friend('z-older', { age: 1, birthYear: 2000, birthMonth: 6, birthDay: 1 }),
+    friend('derived', { birthYear: 1999, birthMonth: 12, birthDay: 31 }),
+    friend('raw', { age: 26 }),
+    friend('none'),
+  ];
+  expect(sortFriends(items, 'age', true, {}).map((row) => row.id)).toEqual([
+    'derived',
+    'z-older',
+    'a-younger',
+    'raw',
+    'none',
+  ]);
+  expect(sortFriends(items, 'age', false, {}).map((row) => row.id)).toEqual([
+    'raw',
+    'a-younger',
+    'z-older',
+    'derived',
+    'none',
+  ]);
+});
+
+it('同一天生日按年龄继续双向排序，未知年龄沉底，不按名称或年龄来源分档', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-10T12:00:00+08:00'));
+  const items = [
+    friend('a-unknown', { birthMonth: 6, birthDay: 1 }),
+    friend('b-younger', { age: 20, birthMonth: 6, birthDay: 1 }),
+    friend('z-older', { birthYear: 2000, birthMonth: 6, birthDay: 1 }),
+  ];
+  expect(sortFriends(items, 'birthday', false, {}).map((row) => row.id)).toEqual([
+    'b-younger',
+    'z-older',
+    'a-unknown',
+  ]);
+  expect(sortFriends(items, 'birthday', true, {}).map((row) => row.id)).toEqual([
+    'z-older',
+    'b-younger',
+    'a-unknown',
+  ]);
+});
 
 it('添加时间按原始秒值双向排序，同一分钟内相差一秒也不按名称打平', () => {
   const rows: ContactMetricRows = {

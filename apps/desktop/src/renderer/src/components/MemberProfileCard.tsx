@@ -47,6 +47,7 @@ import {
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { User } from '../im-template/template/types';
 import { resolveAvatar } from '../lib/avatarResolver';
+import { contactAgeText } from '../lib/contactBirth';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
@@ -271,7 +272,7 @@ export function MemberProfileCard({
     };
   }, [uin, localClone]);
   const gender = genderLabel(profile?.gender);
-  const genderAge = [gender, profile?.age ? `${profile.age} 岁` : null].filter(Boolean).join(' · ');
+  const genderAge = [gender, profile ? contactAgeText(profile) : null].filter(Boolean).join(' · ');
   const zodiac = profile ? constellationOf(profile.birthMonth, profile.birthDay) : null;
   const birthday = profile
     ? birthdayText(profile.birthYear, profile.birthMonth, profile.birthDay)

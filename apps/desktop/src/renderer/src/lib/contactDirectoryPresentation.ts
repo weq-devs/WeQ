@@ -1,6 +1,7 @@
 import type { ContactMetric, ContactMetricRows } from '@weq/service';
 import type { Contact, GroupConversation } from '../im-template/template/types';
 import { displayGroupName, displayUserName } from '../im-template/template/user';
+import { contactBirth } from './contactBirth';
 import {
   directoryNumber,
   friendDirectoryNumber,
@@ -88,16 +89,9 @@ export function groupDirectoryTitle(
 }
 
 function birthDetail(contact: Contact): SortDetail {
-  const { birthYear: year, birthMonth: month, birthDay: day } = contact;
-  const validYear = Number.isInteger(year) && year! >= 1900 && year! <= 9999;
-  const validMonth = Number.isInteger(month) && month! >= 1 && month! <= 12;
-  const maxDay = validMonth
-    ? new Date(Date.UTC(validYear ? year! : 2000, month!, 0)).getUTCDate()
-    : 0;
-  const validDay = Number.isInteger(day) && day! >= 1 && day! <= maxDay;
-  const date = `${validYear ? year : '????'}-${validMonth ? String(month).padStart(2, '0') : '??'}-${validDay ? String(day).padStart(2, '0') : '??'}`;
-  const age = numericValue(contact.age);
-  return { text: `${date} （${age !== null && age > 0 ? `${age} 岁` : '年龄未读取'}）` };
+  const { year, month, day, age } = contactBirth(contact);
+  const date = `${year ?? '????'}-${month === null ? '??' : String(month).padStart(2, '0')}-${day === null ? '??' : String(day).padStart(2, '0')}`;
+  return { text: `${date} （${age ?? '??'} 岁）` };
 }
 
 export function friendSortDetail(
@@ -105,6 +99,8 @@ export function friendSortDetail(
   sort: FriendSort,
   rows: ContactMetricRows,
 ): SortDetail | null {
+  if (sort === 'likeCount' && (contact.kind === 'bot' || contact.extInfo?.isEnterprise))
+    return null;
   if (sort === 'remark' || sort === 'nick') return null;
   if (sort === 'uin') {
     const number = friendDirectoryNumber(contact);

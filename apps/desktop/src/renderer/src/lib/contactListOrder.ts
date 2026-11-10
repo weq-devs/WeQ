@@ -1,6 +1,7 @@
 import type { Contact, Conversation } from '../im-template/template/types';
 import type { ContactMetric, ContactMetricRows } from '@weq/service';
 import { intimateRelationOf } from './profileRelations';
+import { contactBirth } from './contactBirth';
 
 export const FRIEND_SORTS = {
   remark: '备注',
@@ -74,6 +75,8 @@ export function metricValue(rows: ContactMetricRows, id: string, metric: Contact
   return rows[id]?.[metric]?.value ?? null;
 }
 export function friendMetric(rows: ContactMetricRows, contact: Contact, metric: ContactMetric) {
+  if (metric === 'likeCount' && (contact.kind === 'bot' || contact.extInfo?.isEnterprise))
+    return null;
   return (
     metricValue(rows, `friend:${contact.identityValue}`, metric) ??
     metricValue(rows, `friend:${contact.id}`, metric)
@@ -127,11 +130,18 @@ export function sortFriends(
   descending: boolean,
   rows: ContactMetricRows,
 ) {
+  const now = new Date();
+  const births = new Map(
+    sort === 'age' || sort === 'birthday'
+      ? items.map((contact) => [contact, contactBirth(contact, now)] as const)
+      : [],
+  );
   const value = (contact: Contact): string | number | null => {
     if (sort === 'remark') return text(contact.remark) ?? text(contact.nick);
     if (sort === 'nick') return text(contact.nick);
     if (sort === 'uin') return friendDirectoryNumber(contact);
-    if (sort === 'age' || sort === 'intimacy') return positive(contact[sort]);
+    if (sort === 'age') return births.get(contact)!.ageOrder;
+    if (sort === 'intimacy') return positive(contact.intimacy);
     if (sort === 'birthday') return birthday(contact.birthMonth, contact.birthDay);
     const result = friendMetric(rows, contact, sort);
     return Array.isArray(result) ? result.length : typeof result === 'number' ? result : null;
@@ -139,6 +149,9 @@ export function sortFriends(
   return [...items].sort(
     (a, b) =>
       compareValue(value(a), value(b), descending) ||
+      (sort === 'birthday'
+        ? compareValue(births.get(a)!.ageOrder, births.get(b)!.ageOrder, descending)
+        : 0) ||
       collator.compare(a.remark || a.nick || a.displayName, b.remark || b.nick || b.displayName) ||
       a.id.localeCompare(b.id),
   );

@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { Contact, GroupConversation } from '../src/renderer/src/im-template/template/types';
 import type { ContactMetricRows } from '@weq/service';
 import {
@@ -42,6 +42,7 @@ const group: GroupConversation['group'] = {
   createTime: '2018-06-11T16:30:00Z',
 };
 const ready = (value: number) => ({ value, state: 'ready' as const, attemptedAt: 1 });
+afterEach(() => vi.useRealTimers());
 const rows: ContactMetricRows = {
   'friend:12345': {
     level: ready(64),
@@ -71,20 +72,32 @@ it('群名使用原始详情，缺失和恰好等于群号的真实名称分别�
   expect(groupDirectoryTitle(group, 'name', new Map([[group.id, group.id]]))).toBe(group.id);
 });
 it.each(['age', 'birthday'] as const)(
-  '按 %s 排序统一显示完整出生日期及原始年龄，不从年份反推年龄',
+  '按 %s 排序统一显示出生日期与年龄，缺年龄且无有效完整生日时显示问号',
   (sort) => {
     expect(friendSortDetail(friend, sort, rows)?.text).toBe('2000-02-29 （23 岁）');
     expect(friendSortDetail({ ...friend, birthYear: undefined }, sort, rows)?.text).toBe(
       '????-02-29 （23 岁）',
     );
     expect(friendSortDetail({ ...friend, birthYear: 2001, age: 0 }, sort, rows)?.text).toBe(
-      '2001-02-?? （年龄未读取）',
+      '2001-02-?? （?? 岁）',
     );
     expect(friendSortDetail({ ...friend, birthMonth: 13 }, sort, rows)?.text).toBe(
       '2000-??-?? （23 岁）',
     );
   },
 );
+it('缺失年龄按北京时间的完整生日推算周岁，与原始年龄使用相同文案', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-09T16:00:00Z'));
+  const contact = { ...friend, age: undefined, birthYear: 2000, birthMonth: 11, birthDay: 10 };
+  expect(friendSortDetail(contact, 'age', {})?.text).toBe('2000-11-10 （26 岁）');
+  expect(friendSortDetail({ ...contact, birthDay: 11 }, 'age', {})?.text).toBe(
+    '2000-11-11 （25 岁）',
+  );
+  expect(friendSortDetail({ ...contact, birthYear: undefined }, 'age', {})?.text).toBe(
+    '????-11-10 （?? 岁）',
+  );
+});
 it.each([
   ['uin', 'QQ 号：12345'],
   ['intimacy', '亲密度：86'],

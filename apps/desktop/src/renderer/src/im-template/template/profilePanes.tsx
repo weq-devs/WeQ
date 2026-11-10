@@ -29,6 +29,7 @@ import {
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { datalineName, isDatalineUid } from '@weq/codec';
 import { deviceAvatarDataUri } from '../../lib/deviceAvatar';
+import { contactAgeText } from '../../lib/contactBirth';
 import { OverlayLayer, type OverlayLayerProps } from '../../components/OverlayLayer';
 import { ChatNavigationContext, GroupMessagePreviewContext } from '../../lib/chatNavigation';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
@@ -361,7 +362,7 @@ export function ContactProfileDialog({
 
   const zodiac = constellationOf(profile.birthMonth, profile.birthDay);
   const gender = genderLabel(profile.gender);
-  const genderAge = [gender, profile.age ? `${profile.age} 岁` : null].filter(Boolean).join(' · ');
+  const genderAge = [gender, contactAgeText(profile)].filter(Boolean).join(' · ');
   // 自定义状态优先，没有时退回在线状态文案。
   // 注：天气子结构在 misc.db 侧没有被建模（48902 只解出 customStatus），
   // 所以这里不再尝试拼接「城市 · 天气」。
