@@ -128,13 +128,69 @@ html[data-theme='dark'] {
   --weq-int-tone: var(--weq-int-playful);
 }
 
-/* 批次状态统一播报，消息占位不再各自运行动画。 */
+/* 批次状态统一播报；内部图标逐枚描画并左移，胶囊保持原位。 */
 .weq-intent-pill.is-loading {
-  color: transparent !important;
-  background: color-mix(in srgb, var(--weq-fg-muted) 14%, transparent);
-  border-color: color-mix(in srgb, var(--weq-fg-muted) 26%, transparent);
-  position: relative;
+  display: inline-flex;
+  padding: 0;
+  color: color-mix(in srgb, var(--weq-fg-secondary) 82%, var(--weq-accent-effective));
+  background: color-mix(in srgb, var(--weq-fg-muted) 6%, var(--weq-bg-surface));
+  border-color: color-mix(in srgb, var(--weq-fg-muted) 18%, var(--weq-bg-surface));
   overflow: hidden;
+}
+
+html[data-theme='dark'] .weq-intent-pill.is-loading {
+  background: color-mix(in srgb, var(--weq-fg-muted) 10%, var(--weq-bg-surface));
+  border-color: color-mix(in srgb, var(--weq-fg-muted) 24%, var(--weq-bg-surface));
+}
+
+.weq-intent-loading-reel {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  animation: weq-intent-roll 2400ms linear both;
+}
+
+.weq-intent-loading-icon > :is(path, circle, line, polyline, polygon, rect, ellipse) {
+  stroke-dasharray: 80;
+  animation: weq-intent-draw 2400ms ease-in-out both;
+}
+
+@keyframes weq-intent-roll {
+  0% {
+    transform: translateX(32px) rotate(0deg);
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  16% {
+    transform: translateX(0) rotate(0deg);
+    opacity: 1;
+  }
+  78% {
+    transform: translateX(0) rotate(0deg);
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+  }
+  100% {
+    transform: translateX(-36px) rotate(-240deg);
+    opacity: 0;
+  }
+}
+
+@keyframes weq-intent-draw {
+  0%,
+  16% {
+    stroke-dashoffset: 80;
+    opacity: 0;
+  }
+  28% {
+    opacity: 0.75;
+  }
+  70%,
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.9;
+  }
 }
 
 .weq-intent-details,
@@ -867,6 +923,8 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
 
 @media (prefers-reduced-motion: reduce) {
   .weq-intent-chips,
+  .weq-intent-loading-reel,
+  .weq-intent-loading-icon > :is(path, circle, line, polyline, polygon, rect, ellipse),
   .weq-intent-popover,
   .weq-affinity-pill.is-bumped,
   .weq-int-suggest-refresh.is-busy svg,

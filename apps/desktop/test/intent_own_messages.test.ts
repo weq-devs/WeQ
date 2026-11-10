@@ -169,6 +169,40 @@ it('单条历史消息分析在途时，即使批次已结束也显示加载窄�
   fixture.context.isPending.mockImplementation((id) => id === 'older-peer');
   const host = await render(h(OwnBubble, { msgId: 'older-peer' }));
   expect(host.querySelectorAll('.weq-intent-pill.is-loading')).toHaveLength(2);
+  expect(host.querySelector('[data-loading-kind="intent"] svg')).not.toBeNull();
+  expect(host.querySelector('[data-loading-kind="emotion"] svg')).not.toBeNull();
+  expect(host.querySelectorAll('.weq-intent-loading-reel')).toHaveLength(2);
+  expect(host.querySelectorAll('.weq-intent-pill.is-loading[aria-hidden="true"]')).toHaveLength(2);
+});
+
+it('待分析胶囊每轮离场后切换图标，忽略内部笔画周期并分别随机覆盖两套图标', async () => {
+  fixture.context.getAnalysis.mockReturnValue(undefined);
+  fixture.context.isPending.mockReturnValue(true);
+  const host = await render();
+  for (const [kind, count] of [
+    ['intent', 17],
+    ['emotion', 15],
+  ] as const) {
+    const reel = () =>
+      host.querySelector(`[data-loading-kind="${kind}"] .weq-intent-loading-reel`)!;
+    const iconClass = () => reel().querySelector('svg')!.getAttribute('class');
+    const initial = iconClass();
+    await act(async () => {
+      reel()
+        .querySelector('svg')!
+        .dispatchEvent(new Event('animationend', { bubbles: true }));
+    });
+    expect(iconClass()).toBe(initial);
+    const sequence = new Set<string | null>();
+    let previous = '';
+    for (let index = 0; index < count; index++) {
+      sequence.add(iconClass());
+      previous = iconClass()!;
+      await act(async () => reel().dispatchEvent(new Event('animationend', { bubbles: true })));
+    }
+    expect(sequence.size).toBe(count);
+    expect(iconClass()).not.toBe(previous);
+  }
 });
 
 it('分析结束后历史消息的加载窄条消失；已有结果替换占位', async () => {
